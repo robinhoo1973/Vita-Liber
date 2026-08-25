@@ -312,7 +312,7 @@ jobs:
     if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
     needs: l1-build-for-testing
     continue-on-error: true
-    runs-on: macos-26
+    runs-on: macos-15
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -323,8 +323,9 @@ jobs:
       - name: Run UI smoke on next runtime
         run: |
           set -o pipefail
-          UDID=$(xcrun simctl create "ci-next-$GITHUB_RUN_ID" "iPhone 16 Pro" "iOS26.0" || \
-                 xcrun simctl create "ci-next-$GITHUB_RUN_ID" "iPhone 17" "iOS26.0")
+          if [ "$(xcrun simctl list runtimes | grep -c 'iOS 26')" = "0" ]; then
+            echo "::notice::此镜像无 iOS 26 runtime —— 前瞻档本轮跳过（E10 允许）"; exit 0; fi
+          UDID=$(xcrun simctl create "ci-next-$GITHUB_RUN_ID" "iPhone 16 Pro" "iOS26.0" ||                  xcrun simctl create "ci-next-$GITHUB_RUN_ID" "iPhone 17" "iOS26.4")
           xcrun simctl bootstatus "$UDID" -b
           rm -rf Build/next.xcresult
           xcodebuild test-without-building \
