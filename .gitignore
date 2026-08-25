@@ -1,8 +1,25 @@
-# Vita Liber · 青囊书 —— 默认全部不上传（业主指令：规划文档与 mock 属私有资产）
+# ── 默认全部私有（业主指令）：仅白名单入库 ──
 /*
 !/.github/
 !/.gitignore
 !/README.md
-!/README.md
 !/README.zh-CN.md
 !/README.zh-Hant.md
+!/CoreKit/
+
+# Swift/SPM 构建产物（编译非必需，绝不入库）
+.build/
+.swiftpm/
+DerivedData/
+Build/
+*.xcresult
+*.xcodeproje
+
+# 安全兜底：任何密钥/证书/本地环境文件
+*.p8
+*.p12
+*.mobileprovision
+*.cer
+.env*
+secrets*
+**/Secrets*.swift
