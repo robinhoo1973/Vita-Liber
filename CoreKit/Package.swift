@@ -4,11 +4,10 @@ let package = Package(
     name: "CoreKit",
     platforms: [.iOS(.v17), .macOS(.v14)],
     products: [.library(name: "CoreKit", targets: ["Domain", "Infrastructure"])],
+    dependencies: [.package(url: "https://github.com/groue/GRDB.swift.git", exact: "6.29.3")],
     targets: [
         .target(name: "Domain"),
-        .target(name: "Infrastructure", dependencies: ["Domain"]),
+        .target(name: "Infrastructure", dependencies: ["Domain", .product(name: "GRDB", package: "GRDB.swift")]),
         .testTarget(name: "CoreKitTests", dependencies: ["Domain", "Infrastructure"])
     ]
 )
-// Sprint-2 待办：接入 GRDB 6.x（Linux 需自带 CSQLite 或升级系统 libsqlite3-dev ≥3.31，
-// 因 WALSnapshot 依赖 sqlite3_snapshot_cmp；见 M0 计划 §3.1）
