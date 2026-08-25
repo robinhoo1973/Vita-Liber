@@ -1,17 +1,16 @@
-# Vita Liber · 青囊书
+# Vita Liber
 
-> 你的家庭健康手抄本 —— 隐私优先、完全离线的家庭医疗档案 App（iOS 17+，iPhone/iPad，SwiftUI）
+> Your family's health codex — a privacy-first, fully offline family medical records app for iPhone/iPad (iOS 17+, SwiftUI)
 
-[繁體中文說明](README.zh-Hant.md)
+[简体中文](README.zh-CN.md) · [繁體中文](README.zh-Hant.md)
 
-## 项目状态
-- 规划阶段：产品/界面/技术/测试规格齐备（`refactor/` 本地私有），CI 工具链模板已就绪（`.github/workflows/`）
-- 开发尚未开始，里程碑见内部排期文档（M0 地基 → M3 服务端闸门）
+## Status
+Planning stage. Product / UI / tech / test specifications are complete (kept private locally under `refactor/`). CI tooling templates are live in `.github/workflows/`. Implementation starts at milestone M0.
 
-## 产品原则
-- **隐私红线**：数据只在本机；无诊断、无用药建议；敏感媒体默认遮挡；AI 紧急情况拒答
-- **永久免费**：提醒、敏感保护、离线访问、搜索、无障碍、急救卡
-- **双语界面**：简体中文 / 繁體中文
+## Principles
+- **Privacy red lines**: data stays on-device; no diagnoses or dosing advice; sensitive media masked by default; AI refuses emergency queries
+- **Permanently free**: reminders, sensitive protection, offline access, search, accessibility, emergency card
+- **Bilingual UI**: Simplified & Traditional Chinese
 
-## 仓库说明
-当前仓库仅开放 CI 工作流与说明文件；应用源码将在 M0 工程重建后按阶段入库。
+## Repository
+Only CI workflows and docs are public here. App sources land after the M0 project rebuild.

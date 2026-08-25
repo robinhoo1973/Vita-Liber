@@ -2,6 +2,7 @@
 
 > 你的家庭健康手抄本 —— 隱私優先、完全離線的家庭醫療記錄 App（iOS 17+，iPhone/iPad，SwiftUI）
 
+[English](README.md)
 [简体中文说明](README.md)
 
 ## 專案狀態
