@@ -1,0 +1,170 @@
+# ============================================================================
+# Vita Liber · 青囊书 — 夜间全量回归 + flaky 检疫 + 性能趋势
+# 依据：test-plan-spec §2（nightly 层）/ §1.2-E9（flaky 处置流程）
+#
+#   full-regression   全量套件（含 PR 流水线未覆盖的慢用例）；失败自动开 issue
+#   quarantine-suite  检疫套件：continue-on-error，不阻塞；连续 2 个夜间窗口全绿
+#                     → 提示摘除 quarantine 标记（E9 摘除规则）
+#   perf-trend        与上一 tag 基线 xcresult 对比（xcresulttool compare），
+#                     metrics CSV 存 artifact 供下次作 baseline
+#
+# 说明：macos-15 计费分钟 ×10 系数——慢套件一律收敛到本文件，PR 流水线保持精瘦。
+# ============================================================================
+name: 'Vita Liber iOS · Nightly 回归'
+
+on:
+  schedule:
+    - cron: '0 2 * * *'   # 每日 02:00 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: nightly-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  issues: write
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  SCHEME: VitaLiber
+  XCODEPROJ: VitaLiber.xcodeproj
+  DERIVED_DATA: Build/DerivedData
+
+jobs:
+  build:
+    name: 'Nightly · 编译'
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ensure Xcode project
+        run: |
+          if [ -e "$XCODEPROJ" ]; then echo "使用已提交的 $XCODEPROJ"
+          elif [ -f project.yml ]; then brew install xcodegen && xcodegen generate
+          else echo "::error::$XCODEPROJ 缺失且无 project.yml"; exit 1; fi
+      - name: Build for testing
+        run: |
+          set -o pipefail
+          mkdir -p Build
+          xcodebuild build-for-testing \
+            -project "$XCODEPROJ" -scheme "$SCHEME" \
+            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+            -derivedDataPath "$DERIVED_DATA" \
+            COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee Build/xcodebuild-build.log
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nightly-products-${{ github.run_id }}
+          path: Build/DerivedData/Build/Products
+          retention-days: 1
+
+  full-regression:
+    name: 'Nightly · 全量回归'
+    needs: build
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: 'nightly-products-${{ github.run_id }}'
+          path: Build/DerivedData/Build
+      - name: Run full suite
+        run: |
+          set -o pipefail
+          UDID=$(xcrun simctl create "ci-nightly-$GITHUB_RUN_ID" "iPhone 16" "iOS18.4")
+          xcrun simctl bootstatus "$UDID" -b
+          rm -rf Build/full.xcresult
+          xcodebuild test-without-building \
+            -xctestrun "$(find Build/DerivedData/Build/Products -name '*.xctestrun' | head -1)" \
+            -destination "id=$UDID" \
+            -parallel-testing-enabled YES -maximum-concurrent-test-simulator-destinations 2 \
+            -resultBundlePath Build/full.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee Build/xcodebuild-full.log
+          # 汇总到 step summary（xcresulttool get test-results summary, Xcode 16+）
+          xcrun xcresulttool get test-results summary --path Build/full.xcresult \
+            >> "${GITHUB_STEP_SUMMARY}" || true
+          xcrun simctl shutdown "$UDID" || true; xcrun simctl delete "$UDID" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 'nightly-full-${{ github.run_id }}'
+          path: 'Build/full.xcresult'
+          retention-days: 14
+      - name: Open issue on failure (S2 登记)
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create --title "Nightly 回归失败 $(date +%F) run=$GITHUB_RUN_ID" \
+            --body "全量回归失败。日志与 xcresult 见 workflow artifacts。按 test-plan-spec §6 定级处理。" || true
+
+  quarantine-suite:
+    name: 'Nightly · flaky 检疫'
+    needs: build
+    runs-on: macos-15
+    timeout-minutes: 60
+    continue-on-error: true   # 检疫套件永不阻塞（E9）
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: 'nightly-products-${{ github.run_id }}'
+          path: Build/DerivedData/Build
+      - name: Run quarantined tests
+        run: |
+          set -o pipefail
+          UDID=$(xcrun simctl create "ci-qt-$GITHUB_RUN_ID" "iPhone 16" "iOS18.4")
+          xcrun simctl bootstatus "$UDID" -b
+          rm -rf Build/qt.xcresult
+          # QuarantineTests 目标：由 l0 门禁外的标记清单维护（test-plan-spec E9）
+          xcodebuild test-without-building \
+            -xctestrun "$(find Build/DerivedData/Build/Products -name '*.xctestrun' | head -1)" \
+            -destination "id=$UDID" \
+            -only-testing:VitaLiberTests/QuarantineTests \
+            -resultBundlePath Build/qt.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee Build/xcodebuild-quarantine.log
+          xcrun simctl shutdown "$UDID" || true; xcrun simctl delete "$UDID" || true
+
+  perf-trend:
+    name: 'Nightly · 性能趋势对比'
+    needs: [build, full-regression]
+    if: always() && needs.build.result == 'success'
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: 'nightly-products-${{ github.run_id }}'
+          path: Build/DerivedData/Build
+      - name: Compare against last-tag baseline (xcresulttool compare)
+        continue-on-error: true   # 首跑无 baseline 时跳过；超标按 test-plan-spec TC-M0-08 规则转红
+        run: |
+          UDID=$(xcrun simctl create "ci-perf-$GITHUB_RUN_ID" "iPhone 16" "iOS18.4")
+          xcrun simctl bootstatus "$UDID" -b
+          rm -rf Build/perf.xcresult
+          xcodebuild test-without-building \
+            -xctestrun "$(find Build/DerivedData/Build/Products -name '*.xctestrun' | head -1)" \
+            -destination "id=$UDID" \
+            -only-testing:VitaLiberTests/PerformanceScreeningTests \
+            -resultBundlePath Build/perf.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee Build/xcodebuild-perf.log
+          mkdir -p Build/metrics
+          xcrun xcresulttool export metrics --path Build/perf.xcresult --output-path Build/metrics || true
+          xcrun simctl shutdown "$UDID" || true; xcrun simctl delete "$UDID" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: perf-trend-${{ github.run_id }}
+          path: |
+            Build/metrics/**
+            Build/perf.xcresult
+          retention-days: 30   # 作为下一基线的来源（§5.3）

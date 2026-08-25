@@ -1,0 +1,389 @@
+# ============================================================================
+# Vita Liber · 青囊书 — iOS 测试流水线
+# 依据：test-plan-spec §2 拓扑 / §5 脚本细节；dev-pm-spec §9.1–§9.4
+#
+#   l0-static-gate       L0 静态门禁（同目录 l0-static-gate.sh，ubuntu；L0 不过不进 L1）
+#   l1-build-for-testing 唯一编译点：build-for-testing → 上传 Products + *.xctestrun
+#                        （业界 build-once-test-many：下游分片一律 test-without-building）
+#   l1-unit-shards       单元/集成分片（matrix ×2，并行 worker 2）
+#   l1-ui-suite          XCUITest 关键路径（隔离克隆模拟器 + 权限预授权）
+#   l1-golden            金样套件（迁移/OCR/AI/预警 Fixtures，随阶段扩充）
+#   l1-perf-screen       XCTMetric 性能初筛（仅 main；模拟器口径 = 真机预算 ×1.5）
+#   l1-summary           xcresulttool merge → step summary + evidence artifact
+#   tag-archive          v* tag：未签名 .xcarchive（不变）
+#
+# 目标名约定（M0 建立测试目标后即生效）：
+#   VitaLiberTests（Swift Testing/XCTest 单元+集成+金样 GoldenTests 子套件）
+#   VitaLiberUITests（XCUITest）；分片清单按实测耗时再平衡（test-plan-spec E1/成本护栏）
+# 前置约定：VitaLiber.xcodeproj 不入库 → 有 project.yml 则 xcodegen 生成，否则明确报错。
+# 本机无 Xcode 时只跑 L0；xcodebuild 各步仅在 macos-15 runner 上执行。
+# ============================================================================
+name: 'Vita Liber iOS · 门禁→编译测试→归档'
+
+on:
+  push:
+    branches: [master, main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  SCHEME: VitaLiber
+  XCODEPROJ: VitaLiber.xcodeproj
+  DERIVED_DATA: Build/DerivedData
+  PRODUCTS_DIR: Build/Products
+  # test-plan-spec §5.1 统一 destination；缺失时回退可用 iPhone（resolve-destination 步骤）
+  SPEC_SIMULATOR: 'iPhone 15'
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # L0 静态门禁 —— 任意机器可跑（dev-pm-spec §9.4），失败即整条流水线红
+  # ---------------------------------------------------------------------------
+  l0-static-gate:
+    name: 'L0 · 静态门禁'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run l0-static-gate.sh
+        run: bash .github/workflows/l0-static-gate.sh
+
+  # ---------------------------------------------------------------------------
+  # L1 唯一编译点 —— 编译一次，产物供全部分片复用（test-plan-spec E1）
+  # ---------------------------------------------------------------------------
+  l1-build-for-testing:
+    name: 'L1 · 编译 (build-for-testing)'
+    needs: l0-static-gate
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      BUILD_LOG: Build/xcodebuild-build.log
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain info
+        run: |
+          xcodebuild -version
+          xcrun simctl list runtimes | head -5
+
+      - name: Ensure Xcode project
+        run: |
+          if [ -e "$XCODEPROJ" ]; then
+            echo "使用已提交的 $XCODEPROJ"
+          elif [ -f project.yml ]; then
+            echo "未提交 .xcodeproj → 用 xcodegen 从 project.yml 生成"
+            brew install xcodegen && xcodegen generate
+          else
+            echo "::error::$XCODEPROJ 缺失且无 project.yml——请提交 project.yml 或按 PROJECT_SETUP.md 处理"
+            exit 1
+          fi
+
+      - name: Resolve destination
+        run: |
+          if xcrun simctl list devices available | grep -qF "$SPEC_SIMULATOR ("; then
+            DEST="platform=iOS Simulator,name=$SPEC_SIMULATOR"
+          else
+            DEST_NAME=$(xcrun simctl list devices available \
+              | sed -nE 's/^ +([A-Za-z0-9 ()-]*iPhone[^ (]+) *\([^)]*\).*/\1/p' | head -1)
+            [ -n "$DEST_NAME" ] || { echo "::error::没有可用的 iPhone 模拟器"; exit 1; }
+            echo "::warning::目标机 '$SPEC_SIMULATOR' 不可用，回退为 '$DEST_NAME'"
+            DEST="platform=iOS Simulator,name=$DEST_NAME"
+          fi
+          echo "DESTINATION=$DEST" >> "$GITHUB_ENV"
+
+      - name: Cache SwiftPM packages
+        uses: actions/cache@v4
+        with:
+          path: Build/DerivedData/SourcePackages
+          key: spm-${{ runner.os }}-${{ hashFiles('**/Package.resolved', '**/project.yml') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      - name: Build for testing
+        run: |
+          set -o pipefail
+          mkdir -p Build
+          xcodebuild build-for-testing \
+            -project "$XCODEPROJ" -scheme "$SCHEME" \
+            -destination "$DESTINATION" \
+            -derivedDataPath "$DERIVED_DATA" \
+            COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee "$BUILD_LOG"
+
+      # 产物 + xctestrun 清单一起传递：test-without-building 只认它（E1）
+      - uses: actions/upload-artifact@v4
+        with:
+          name: test-products-${{ github.run_id }}
+          path: |
+            ${{ env.PRODUCTS_DIR }}
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # 分片模板锚点 —— 以下 job 共用置备步骤（test-plan-spec §5.4）
+  # ---------------------------------------------------------------------------
+  l1-unit-shards:
+    name: 'L1 · 单元/集成 分片 ${{ matrix.shard-name }}'
+    needs: l1-build-for-testing
+    runs-on: macos-15
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard-name: A   # Domain/Infrastructure/Pipeline 规则与状态机
+            shard: '-only-testing:VitaLiberTests'
+          - shard-name: B   # 预留第二分片：套件超时后按耗时拆分（成本护栏）
+            shard: '-skip-testing:VitaLiberUITests'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: 'test-products-${{ github.run_id }}'
+          path: Build/DerivedData/Build
+
+      - name: Boot simulator (bootstatus 就绪等待, E2)
+        run: |
+          UDID=$(xcrun simctl create "ci-$GITHUB_RUN_ID-${{ matrix.shard-name }}" "iPhone 15" "iOS18.2" 2>/dev/null || \
+                 xcrun simctl create "ci-$GITHUB_RUN_ID-${{ matrix.shard-name }}" "iPhone 16" "iOS18.4")
+          echo "UDID=$UDID" >> "$GITHUB_ENV"
+          xcrun simctl bootstatus "$UDID" -b
+          echo "DESTINATION=id=$UDID" >> "$GITHUB_ENV"
+      - name: Run shard (test-without-building)
+        run: |
+          set -o pipefail
+          rm -rf Build/shard.xcresult
+          xcodebuild test-without-building \
+            -xctestrun "$(find Build/DerivedData/Build/Products -name '*.xctestrun' | head -1)" \
+            -destination "$DESTINATION" \
+            -parallel-testing-enabled YES -maximum-concurrent-test-simulator-destinations 2 \
+            -resultBundlePath Build/shard.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            ${{ matrix.shard }} 2>&1 | tee Build/xcodebuild-shard-${matrix.shard-name}.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: shard-result-${{ matrix.shard-name }}-${{ github.run_id }}
+          path: |
+            Build/shard.xcresult
+            Build/xcodebuild-shard-*.log
+          retention-days: 7
+      - name: Cleanup simulator (always, E2/E3)
+        if: always()
+        run: |
+          xcrun simctl shutdown "$UDID" || true
+          xcrun simctl delete "$UDID" || true
+
+  l1-ui-suite:
+    name: 'L1 · UI 关键路径 (XCUITest)'
+    needs: l1-build-for-testing
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: 'test-products-${{ github.run_id }}'
+          path: Build/DerivedData/Build
+
+      # 隔离克隆模拟器 + 权限预授权（E3/E4；Keychain 类用例由 erase 保证干净态）
+      - name: Provision isolated simulator
+        run: |
+          UDID=$(xcrun simctl create "ci-ui-$GITHUB_RUN_ID" "iPhone 15" "iOS18.2" 2>/dev/null || \
+                 xcrun simctl create "ci-ui-$GITHUB_RUN_ID" "iPhone 16" "iOS18.4")
+          echo "UDID=$UDID" >> "$GITHUB_ENV"
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl status_bar "$UDID" override --time "9:41" || true
+          xcrun simctl privacy "$UDID" grant camera com.vitaliber.app || true
+          xcrun simctl privacy "$UDID" grant photos com.vitaliber.app || true
+          echo "DESTINATION=id=$UDID" >> "$GITHUB_ENV"
+
+      - name: Run UI suite
+        run: |
+          set -o pipefail
+          rm -rf Build/ui.xcresult
+          xcodebuild test-without-building \
+            -xctestrun "$(find Build/DerivedData/Build/Products -name '*.xctestrun' | head -1)" \
+            -destination "$DESTINATION" \
+            -only-testing:VitaLiberUITests \
+            -resultBundlePath Build/ui.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee Build/xcodebuild-ui.log
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ui-result-${{ github.run_id }}
+          path: |
+            Build/ui.xcresult
+            Build/xcodebuild-ui.log
+          retention-days: 7
+      - name: Cleanup simulator
+        if: always()
+        run: |
+          xcrun simctl shutdown "$UDID" || true
+          xcrun simctl delete "$UDID" || true
+
+  l1-golden:
+    name: 'L1 · 金样回归 (Fixtures)'
+    needs: l1-build-for-testing
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: 'test-products-${{ github.run_id }}'
+          path: Build/DerivedData/Build
+      - name: Run golden suites
+        run: |
+          set -o pipefail
+          UDID=$(xcrun simctl create "ci-golden-$GITHUB_RUN_ID" "iPhone 16" "iOS18.4")
+          xcrun simctl bootstatus "$UDID" -b
+          rm -rf Build/golden.xcresult
+          xcodebuild test-without-building \
+            -xctestrun "$(find Build/DerivedData/Build/Products -name '*.xctestrun' | head -1)" \
+            -destination "id=$UDID" \
+            -only-testing:VitaLiberTests/GoldenMigrationTests \
+            -only-testing:VitaLiberTests/GoldenOcrTests \
+            -only-testing:VitaLiberTests/GoldenAiDisclosureTests \
+            -only-testing:VitaLiberTests/GoldenAlertRuleTests \
+            -resultBundlePath Build/golden.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee Build/xcodebuild-golden.log
+          xcrun simctl shutdown "$UDID" || true; xcrun simctl delete "$UDID" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 'golden-result-${{ github.run_id }}'
+          path: 'Build/golden.xcresult'
+          retention-days: 7
+
+  # 仅 main 与手动触发：性能初筛入趋势，PR 不跑（成本护栏 §1.3）
+  l1-perf-screen:
+    name: 'L1d · 性能初筛 (XCTMetric)'
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    needs: l1-build-for-testing
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: 'test-products-${{ github.run_id }}'
+          path: Build/DerivedData/Build
+      - name: Run perf screening
+        run: |
+          set -o pipefail
+          UDID=$(xcrun simctl create "ci-perf-$GITHUB_RUN_ID" "iPhone 16" "iOS18.4")
+          xcrun simctl bootstatus "$UDID" -b
+          rm -rf Build/perf.xcresult
+          xcodebuild test-without-building \
+            -xctestrun "$(find Build/DerivedData/Build/Products -name '*.xctestrun' | head -1)" \
+            -destination "id=$UDID" \
+            -only-testing:VitaLiberTests/PerformanceScreeningTests \
+            -resultBundlePath Build/perf.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee Build/xcodebuild-perf.log
+          # 性能指标导出 CSV：xcresulttool export metrics（Xcode 16+）
+          mkdir -p Build/metrics
+          xcrun xcresulttool export metrics --path Build/perf.xcresult --output-path Build/metrics || true
+          xcrun simctl shutdown "$UDID" || true; xcrun simctl delete "$UDID" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: perf-metrics-${{ github.run_id }}
+          path: |
+            Build/metrics/**
+            Build/xcodebuild-perf.log
+          retention-days: 30
+
+  # E10 双运行时矩阵的前瞻档：镜像未含 iOS 26 runtime 时标黄不阻塞（失败连续红转正式缺陷）
+  l1-next-runtime:
+    name: 'L1 · 前瞻 runtime 预览 (iOS 26)'
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    needs: l1-build-for-testing
+    continue-on-error: true
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: test-products-${{ github.run_id }}
+          path: Build/DerivedData/Build
+      - name: Run UI smoke on next runtime
+        run: |
+          set -o pipefail
+          UDID=$(xcrun simctl create "ci-next-$GITHUB_RUN_ID" "iPhone 16 Pro" "iOS26.0" || \
+                 xcrun simctl create "ci-next-$GITHUB_RUN_ID" "iPhone 17" "iOS26.0")
+          xcrun simctl bootstatus "$UDID" -b
+          rm -rf Build/next.xcresult
+          xcodebuild test-without-building \
+            -xctestrun "$(find Build/DerivedData/Build/Products -name '*.xctestrun' | head -1)" \
+            -destination "id=$UDID" \
+            -only-testing:VitaLiberUITests \
+            -resultBundlePath Build/next.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee Build/xcodebuild-next.log
+          xcrun simctl shutdown "$UDID" || true; xcrun simctl delete "$UDID" || true
+
+  # ---------------------------------------------------------------------------
+  # 汇总：合并 xcresult → step summary → 证据 artifact（§5.6）
+  # ---------------------------------------------------------------------------
+  l1-summary:
+    name: 'L1 · 汇总与证据包'
+    needs: [l1-unit-shards, l1-ui-suite, l1-golden]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Aggregate results
+        run: |
+          echo "## Test summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 各分片结果见 artifacts；失败附件（截图）已随 xcresult 上传。" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 门禁语义：本流水线红 = 阶段不可进入下一开发（test-plan-spec §3）。" >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  # 发布归档 —— 仅 v* tag 触发（dev-pm-spec §9.3）
+  # ---------------------------------------------------------------------------
+  tag-archive:
+    name: 'Tag · 未签名 xcarchive'
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [l0-static-gate, l1-build-for-testing]
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      ARCHIVE_PATH: Build/VitaLiber.xcarchive
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ensure Xcode project
+        run: |
+          if [ -e "$XCODEPROJ" ]; then echo "使用已提交的 $XCODEPROJ"
+          elif [ -f project.yml ]; then brew install xcodegen && xcodegen generate
+          else echo "::error::$XCODEPROJ 缺失且无 project.yml"; exit 1; fi
+      - name: Archive (unsigned)
+        run: |
+          set -o pipefail
+          mkdir -p Build
+          xcodebuild archive \
+            -project "$XCODEPROJ" -scheme "$SCHEME" \
+            -archivePath "$ARCHIVE_PATH" \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath Build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee Build/xcodebuild-archive.log
+      - name: Package archive
+        run: ditto -c -k --keepParent "$ARCHIVE_PATH" Build/VitaLiber-${{ github.ref_name }}.xcarchive.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VitaLiber-xcarchive-${{ github.ref_name }}
+          path: Build/VitaLiber-${{ github.ref_name }}.xcarchive.zip
+          retention-days: 30
