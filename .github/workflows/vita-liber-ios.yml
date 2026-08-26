@@ -65,6 +65,9 @@ jobs:
   l1-build-for-testing:
     name: 'L1 · 编译 (build-for-testing)'
     needs: l0-static-gate
+    outputs:
+      sim_model: ${{ steps.resolve.outputs.sim_model }}
+      sim_runtime: ${{ steps.resolve.outputs.sim_runtime }}
     runs-on: macos-15
     timeout-minutes: 60
     env:
@@ -89,6 +92,7 @@ jobs:
           fi
 
       - name: Resolve destination
+        id: resolve
         run: |
           # E2：JSON 结构化解析（ERR#11——禁正则啃人读输出）
           python3 - <<'PYEOF' >> "$GITHUB_ENV"
@@ -100,6 +104,8 @@ jobs:
           spec = [p for p in pairs if p[1] == "$SPEC_SIMULATOR"]
           pick = spec[0] if spec else sorted(pairs)[-1]
           print(f"DESTINATION=id={pick[2]}")
+          print(f"sim_model={pick[1]}" )
+          print(f"sim_runtime={pick[0]}")
           print(f"SIM_MODEL={pick[1]}")
           print(f"SIM_RUNTIME={pick[0]}")
           PYEOF
@@ -135,6 +141,9 @@ jobs:
   # 分片模板锚点 —— 以下 job 共用置备步骤（test-plan-spec §5.4）
   # ---------------------------------------------------------------------------
   l1-unit-shards:
+    env:
+      SIM_MODEL: ${{ needs.l1-build-for-testing.outputs.sim_model }}
+      SIM_RUNTIME: {{ needs.l1-build-for-testing.outputs.sim_runtime }}
     name: 'L1 · 单元/集成 分片 ${{ matrix.shard-name }}'
     needs: l1-build-for-testing
     runs-on: macos-15
@@ -187,6 +196,9 @@ jobs:
           xcrun simctl delete "$UDID" || true
 
   l1-ui-suite:
+    env:
+      SIM_MODEL: ${{ needs.l1-build-for-testing.outputs.sim_model }}
+      SIM_RUNTIME: {{ needs.l1-build-for-testing.outputs.sim_runtime }}
     name: 'L1 · UI 关键路径 (XCUITest)'
     needs: l1-build-for-testing
     runs-on: macos-15
@@ -237,6 +249,9 @@ jobs:
           xcrun simctl delete "$UDID" || true
 
   l1-golden:
+    env:
+      SIM_MODEL: ${{ needs.l1-build-for-testing.outputs.sim_model }}
+      SIM_RUNTIME: {{ needs.l1-build-for-testing.outputs.sim_runtime }}
     name: 'L1 · 金样回归 (Fixtures)'
     needs: l1-build-for-testing
     runs-on: macos-15
@@ -273,6 +288,9 @@ jobs:
 
   # 仅 main 与手动触发：性能初筛入趋势，PR 不跑（成本护栏 §1.3）
   l1-perf-screen:
+    env:
+      SIM_MODEL: ${{ needs.l1-build-for-testing.outputs.sim_model }}
+      SIM_RUNTIME: {{ needs.l1-build-for-testing.outputs.sim_runtime }}
     name: 'L1d · 性能初筛 (XCTMetric)'
     if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
     needs: l1-build-for-testing
@@ -312,6 +330,9 @@ jobs:
 
   # E10 双运行时矩阵的前瞻档：镜像未含 iOS 26 runtime 时标黄不阻塞（失败连续红转正式缺陷）
   l1-next-runtime:
+    env:
+      SIM_MODEL: ${{ needs.l1-build-for-testing.outputs.sim_model }}
+      SIM_RUNTIME: {{ needs.l1-build-for-testing.outputs.sim_runtime }}
     name: 'L1 · 前瞻 runtime 预览 (iOS 26)'
     if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
     needs: l1-build-for-testing
