@@ -37,8 +37,12 @@ struct RootAdaptiveView: View {
 
     var body: some View {
         NavigationSplitView {
-            List(MainModule.allCases, selection: $selection) { m in
-                Label(m.titleKey, image: iconName(m)).tag(m)
+            // List(_, selection:, rowContent:) 是 macOS-only；iOS 用 List(selection:)
+            // + ForEach + .tag（ADR-021：compact 宽度下系统自动折叠为 tab 形态）
+            List(selection: $selection) {
+                ForEach(MainModule.allCases) { m in
+                    Label(m.titleKey, image: iconName(m)).tag(m)
+                }
             }
             .navigationTitle("Vita Liber")
         } detail: {
