@@ -97,8 +97,9 @@ final class M1bAcceptanceTests: XCTestCase {
         let row = try await store.writer.read { db in
             try Row.fetchOne(db, sql: "SELECT * FROM stock_lot")
         }
-        XCTAssertEqual(row?["remaining_plan_units"] as Double, 9, "跳过扣计划轨")
-        XCTAssertEqual(row?["remaining_confirmed_units"] as Double, 10, "跳过不扣确认线（BR-004）")
+        let unwrapped = try XCTUnwrap(row)
+        XCTAssertEqual(unwrapped["remaining_plan_units"] as Double, 9, "跳过扣计划轨")
+        XCTAssertEqual(unwrapped["remaining_confirmed_units"] as Double, 10, "跳过不扣确认线（BR-004）")
     }
 
     /// 计划→剂量物化→对账事实 数据链闭合 + 老计划窗口锚定（S0-3 修正）
