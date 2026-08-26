@@ -22,9 +22,17 @@ public struct GRDBStore {
     /// 外键必须落在**连接配置**上。旧实现 `var config = Configuration(); ...; _ = config`
     /// 把配置整个丢弃、改用事后 `PRAGMA foreign_keys = ON`——那是 per-connection 的，
     /// 对多连接的 DatabasePool 只作用于执行它的那一条连接，属于潜在越权写入风险。
+    /// 同时注册 bigrams() SQL 函数（FTS 2-gram 影子表触发器依赖，V3.44）——
+    /// prepareDatabase 保证 DatabasePool 的每条连接都注册。
     public static func configuration() -> Configuration {
         var config = Configuration()
         config.foreignKeysEnabled = true
+        config.prepareDatabase { db in
+            db.add(function: DatabaseFunction("bigrams", argumentCount: 1, pure: true) { values in
+                guard let text = String.fromDatabaseValue(values[0]), text.isEmpty == false else { return "" }
+                return SearchRules.bigrams(text).joined(separator: " ")
+            })
+        }
         return config
     }
 

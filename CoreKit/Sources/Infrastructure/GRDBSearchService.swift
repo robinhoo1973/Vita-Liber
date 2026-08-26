@@ -12,36 +12,8 @@ public actor GRDBSearchService: FullTextSearch {
 
     public init(writer: any DatabaseWriter) { self.writer = writer }
 
-    /// 写入侧：文档入库时同步 FTS（trigram 主表 + 2-gram 影子列）。
-    /// external-content 模式：FTS rowid = document_file 的隐式整数 rowid
-    /// （FTS5 rowid 必须 INTEGER，源表主键是 TEXT UUID——V3.43）。
-    /// FTS5 虚表不支持 UPSERT——同事务 DELETE+INSERT 实现幂等重建。
-    public func index(docID: UUID, patientId: UUID, title: String, ocrText: String?, notes: String?) async throws {
-        try await writer.write { db in
-            guard let rowid = try Int64.fetchOne(db, sql: """
-                SELECT rowid FROM document_file WHERE id = ?
-                """, arguments: [docID.uuidString]) else {
-                throw SearchError.docNotFound(docID)
-            }
-            try db.execute(sql: "DELETE FROM document_fts WHERE rowid = ?", arguments: [rowid])
-            try db.execute(sql: """
-                INSERT INTO document_fts (rowid, title, ocr_text, notes) VALUES (?, ?, ?, ?)
-                """, arguments: [rowid, title, ocrText, notes])
-            try db.execute(sql: "DELETE FROM document_fts_2gram WHERE rowid = ?", arguments: [rowid])
-            let title2 = SearchRules.bigrams(title).joined(separator: " ")
-            let ocr2 = ocrText.map { SearchRules.bigrams($0).joined(separator: " ") } ?? ""
-            let note2 = notes.map { SearchRules.bigrams($0).joined(separator: " ") } ?? ""
-            try db.execute(sql: """
-                INSERT INTO document_fts_2gram (rowid, title_2gram, ocr_2gram, note_2gram) VALUES (?, ?, ?, ?)
-                """, arguments: [rowid, title2, ocr2, note2])
-        }
-    }
-
-    public enum SearchError: Error, LocalizedError {
-        case docNotFound(UUID)
-        public var errorDescription: String? { "文档不存在: \(self)" }
-    }
-
+    /// FTS 同步由源表触发器维护（SchemaV2 V3.44：external-content 表不支持直接
+    /// 写入，曾报 disk image malformed）——写入 document_file 即自动索引。
     /// 检索：按查询长度路由；返回带片段高亮的命中（引用构造）。
     public func search(_ text: String, scope: DataAccessScope, limit: Int) async throws -> [EntityReference] {
         let route = SearchRules.route(text)

@@ -65,14 +65,14 @@ final class M1cAcceptanceTests: XCTestCase {
                 VALUES (?, '检索患者', '本人', 0, 0)
                 """, arguments: [member.uuidString])
             try db.execute(sql: """
-                INSERT INTO document_file (id, patient_id, doc_type, sha256, mime_type, origin, meta_json, created_at, updated_at)
-                VALUES (?, ?, 'prescription', ?, 'application/json', 'scanner', '{}', ?, ?)
+                INSERT INTO document_file (id, patient_id, doc_type, sha256, mime_type, origin, meta_json,
+                                           title, ocr_text, created_at, updated_at)
+                VALUES (?, ?, 'prescription', ?, 'application/json', 'scanner', '{}', ?, ?, ?, ?)
                 """, arguments: [docId.uuidString, member.uuidString, "sha-\(docId.uuidString)",
+                                 "空腹血糖记录", "空腹血糖 6.2 mmol/L",
                                  Date().timeIntervalSince1970, Date().timeIntervalSince1970])
         }
-        // 写入侧双表索引（trigram 主表 + 2-gram 影子）
-        try await search.index(docID: docId, patientId: member, title: "空腹血糖记录",
-                               ocrText: "空腹血糖 6.2 mmol/L", notes: nil)
+        // FTS 由源表触发器同步（V3.44）——无需显式索引调用
         // ≥3 字 trigram
         let hits3 = try await search.search("空腹血糖", scope: .init(patientIds: [member]), limit: 10)
         XCTAssertTrue(hits3.contains { $0.refID == docId }, "trigram 主表必须命中")

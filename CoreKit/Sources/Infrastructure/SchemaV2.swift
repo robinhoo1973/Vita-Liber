@@ -341,14 +341,38 @@ public enum SchemaV2 {
     CREATE INDEX idx_audit_time ON audit_event(at DESC);
 
     -- 中文全文检索（V3.24 查询长度路由：≥3 字 trigram 主表 / 2 字 2-gram 影子表）
-    -- V3.43：external-content 模式——FTS5 rowid 必须为 INTEGER，而 document_file
-    -- 以 TEXT UUID 为主键；content_rowid='rowid' 指向源表隐式整数 rowid，
-    -- 检索经 d.rowid = f.rowid 联接
+    -- V3.44：external-content + 触发器维护——FTS5 rowid 必须为 INTEGER（源表 TEXT UUID
+    -- 主键 → content_rowid='rowid' 经隐式 rowid 联接）；external-content 表不支持直接
+    -- DELETE/INSERT 更新（曾报 disk image malformed），改由源表触发器同步，
+    -- 2-gram 影子列经注册的 bigrams() SQL 函数转换（GRDBStore.init 注册）
     CREATE VIRTUAL TABLE document_fts USING fts5(
       title, ocr_text, notes, tokenize='trigram case_sensitive 0',
       content='document_file', content_rowid='rowid');
     CREATE VIRTUAL TABLE document_fts_2gram USING fts5(
       title_2gram, ocr_2gram, note_2gram, tokenize='unicode61',
       content='document_file', content_rowid='rowid');
+
+    CREATE TRIGGER document_file_fts_ai AFTER INSERT ON document_file BEGIN
+      INSERT INTO document_fts(rowid, title, ocr_text, notes)
+        VALUES (new.rowid, new.title, new.ocr_text, new.notes);
+      INSERT INTO document_fts_2gram(rowid, title_2gram, ocr_2gram, note_2gram)
+        VALUES (new.rowid, bigrams(new.title), bigrams(new.ocr_text), bigrams(new.notes));
+    END;
+    CREATE TRIGGER document_file_fts_ad AFTER DELETE ON document_file BEGIN
+      INSERT INTO document_fts(document_fts, rowid, title, ocr_text, notes)
+        VALUES ('delete', old.rowid, old.title, old.ocr_text, old.notes);
+      INSERT INTO document_fts_2gram(document_fts_2gram, rowid, title_2gram, ocr_2gram, note_2gram)
+        VALUES ('delete', old.rowid, bigrams(old.title), bigrams(old.ocr_text), bigrams(old.notes));
+    END;
+    CREATE TRIGGER document_file_fts_au AFTER UPDATE OF title, ocr_text, notes ON document_file BEGIN
+      INSERT INTO document_fts(document_fts, rowid, title, ocr_text, notes)
+        VALUES ('delete', old.rowid, old.title, old.ocr_text, old.notes);
+      INSERT INTO document_fts_2gram(document_fts_2gram, rowid, title_2gram, ocr_2gram, note_2gram)
+        VALUES ('delete', old.rowid, bigrams(old.title), bigrams(old.ocr_text), bigrams(old.notes));
+      INSERT INTO document_fts(rowid, title, ocr_text, notes)
+        VALUES (new.rowid, new.title, new.ocr_text, new.notes);
+      INSERT INTO document_fts_2gram(rowid, title_2gram, ocr_2gram, note_2gram)
+        VALUES (new.rowid, bigrams(new.title), bigrams(new.ocr_text), bigrams(new.notes));
+    END;
     """
 }
