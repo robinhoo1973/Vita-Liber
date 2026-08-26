@@ -82,8 +82,18 @@ final class M1bAcceptanceTests: XCTestCase {
         cal.timeZone = TimeZone(identifier: "Asia/Shanghai")!
         let dayStart = cal.startOfDay(for: Date())
         let facts = try await meds.deliveryFacts(from: dayStart, to: dayStart.addingTimeInterval(86400))
+        let rawRows = try await store.writer.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT d.id, d.scheduled_for, d.user_action, p.status AS pstatus, p.medication_id
+                FROM medication_dose_log d
+                LEFT JOIN medication_plan p ON p.id = d.plan_id
+                """)
+        }
+        let diag = rawRows.map { r -> String in
+            "\(r["id"] as String):sf=\(r["scheduled_for"] as Double):a=\(r["user_action"] as String? ?? "nil"):ps=\(r["pstatus"] as String? ?? "nil")"
+        }.joined(separator: " | ")
         let target = facts.first { $0.dose.notifyId == notifyId }
-        XCTAssertNotNil(target, "事实链必须返回该剂量——facts=\(facts.map { $0.dose.notifyId })")
+        XCTAssertNotNil(target, "事实链必须返回该剂量——window=[\(dayStart.timeIntervalSince1970),\(dayStart.timeIntervalSince1970 + 86400)] now=\(Date().timeIntervalSince1970) rows=\(diag) facts=\(facts.map { $0.dose.notifyId })")
         XCTAssertEqual(target?.action, .taken, "已服动作必须对 deliveryFacts 可见（不再重发、不再重复扣减）")
     }
 
