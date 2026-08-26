@@ -89,7 +89,9 @@ public enum VoiceStructuringEngine {
         regexLock.lock()
         defer { regexLock.unlock() }
         if let cached = compiledCache[pattern] { return cached }
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let regex: NSRegularExpression
+        do { regex = try NSRegularExpression(pattern: pattern) }
+        catch { return nil }   // §7 禁 try?：非法 pattern 返回 nil 由调用侧跳过
         compiledCache[pattern] = regex
         return regex
     }
