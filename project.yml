@@ -16,7 +16,10 @@ targets:
     type: bundle.unit-test
     platform: iOS
     sources: [Tests/VitaLiberTests]
-    dependencies: [{ target: VitaLiber }]
+    # CoreKit 直连（不只是通过 VitaLiber 传递）：TC-M0-06 运行时断言需要 import
+    # Domain/Infrastructure，且 GRDB 只在 iOS/macOS 链接（ERR#8），本目标是这些
+    # 断言唯一真实生效的执行位置（CoreKit 的 SPM 测试目标在 Linux 容器里跑）。
+    dependencies: [{ target: VitaLiber }, { package: CoreKit }]
   VitaLiberUITests:
     type: bundle.ui-testing
     platform: iOS
