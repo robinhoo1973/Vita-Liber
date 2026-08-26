@@ -40,8 +40,8 @@ struct VitaLiberApp: App {
                 }
             }
             .environment(appState)
+            .task { await appState.bootstrap() }
         }
-        .task { await appState.bootstrap() }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .background:
