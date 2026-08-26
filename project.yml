@@ -9,6 +9,8 @@ targets:
     type: application
     platform: iOS
     sources: [App]
+    settings:
+      base: { GENERATE_INFOPLIST_FILE: YES, INFOPLIST_KEY_UILaunchScreen_Generation: YES, INFOPLIST_KEY_CFBundleDisplayName: 青囊书 }
     dependencies: [{ package: CoreKit }]
   VitaLiberTests:
     type: bundle.unit-test
