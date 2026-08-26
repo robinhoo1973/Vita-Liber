@@ -21,7 +21,8 @@ public actor TimelineQueryStore {
             return Set(TimelineEntryKind.allCases)
         }()
         let fetchLimit = limit + 1   // 多取一条探测是否有下一页（合并后统一截取）
-        try await writer.read { db in
+        let collected: [TimelineEntry] = try await writer.read { db in
+            var local: [TimelineEntry] = []   // 闭包内局部累加（Swift 6 并发纪律：不捕获外变）
 
             if kinds.contains(.encounter) {
                 let rows = try Row.fetchAll(db, sql: """
@@ -30,7 +31,7 @@ public actor TimelineQueryStore {
                     ORDER BY date DESC, id DESC LIMIT ?
                     """, arguments: [member.uuidString, fetchLimit])
                 for row in rows {
-                    all.append(TimelineEntry(
+                    local.append(TimelineEntry(
                         kind: .encounter,
                         date: Date(timeIntervalSince1970: row["date"] as Double),
                         title: "就诊 · \(row["kind"] as String)",
@@ -47,7 +48,7 @@ public actor TimelineQueryStore {
                     ORDER BY p.start_date DESC, p.id DESC LIMIT ?
                     """, arguments: [member.uuidString, fetchLimit])
                 for row in rows {
-                    all.append(TimelineEntry(
+                    local.append(TimelineEntry(
                         kind: .medication,
                         date: Date(timeIntervalSince1970: row["start_date"] as Double),
                         title: "用药计划 · \(row["generic_name"] as String)",
@@ -63,7 +64,7 @@ public actor TimelineQueryStore {
                     ORDER BY occurred_at DESC, id DESC LIMIT ?
                     """, arguments: [member.uuidString, fetchLimit])
                 for row in rows {
-                    all.append(TimelineEntry(
+                    local.append(TimelineEntry(
                         kind: .observation,
                         date: Date(timeIntervalSince1970: row["occurred_at"] as Double),
                         title: "观察 · \(row["kind"] as String)",
@@ -80,7 +81,7 @@ public actor TimelineQueryStore {
                     """, arguments: [member.uuidString, fetchLimit])
                 for row in rows {
                     let origin = row["origin"] as String
-                    all.append(TimelineEntry(
+                    local.append(TimelineEntry(
                         kind: origin == "hospital" ? .lab : .selfMeasured,
                         date: Date(timeIntervalSince1970: row["measured_at"] as Double),
                         title: "指标 · \(row["metric_key"] as String)",
@@ -96,7 +97,7 @@ public actor TimelineQueryStore {
                     ORDER BY occurred_at DESC, id DESC LIMIT ?
                     """, arguments: [member.uuidString, fetchLimit])
                 for row in rows {
-                    all.append(TimelineEntry(
+                    local.append(TimelineEntry(
                         kind: .allergy,
                         date: Date(timeIntervalSince1970: (row["occurred_at"] as Double?) ?? 0),
                         title: "过敏 · \(row["substance"] as String)",
@@ -112,7 +113,7 @@ public actor TimelineQueryStore {
                     ORDER BY administered_at DESC, id DESC LIMIT ?
                     """, arguments: [member.uuidString, fetchLimit])
                 for row in rows {
-                    all.append(TimelineEntry(
+                    local.append(TimelineEntry(
                         kind: .vaccination,
                         date: Date(timeIntervalSince1970: (row["administered_at"] as Double?) ?? 0),
                         title: "疫苗 · \(row["vaccine_name"] as String)",
@@ -128,7 +129,7 @@ public actor TimelineQueryStore {
                     ORDER BY occurred_at DESC, id DESC LIMIT ?
                     """, arguments: [member.uuidString, fetchLimit])
                 for row in rows {
-                    all.append(TimelineEntry(
+                    local.append(TimelineEntry(
                         kind: .voiceNote,
                         date: Date(timeIntervalSince1970: row["occurred_at"] as Double),
                         title: "语音速记",
@@ -144,7 +145,7 @@ public actor TimelineQueryStore {
                     ORDER BY created_at DESC, id DESC LIMIT ?
                     """, arguments: [member.uuidString, fetchLimit])
                 for row in rows {
-                    all.append(TimelineEntry(
+                    local.append(TimelineEntry(
                         kind: .healthProblem,
                         date: Date(timeIntervalSince1970: row["created_at"] as Double),
                         title: "健康问题 · \(row["name"] as String)",
@@ -153,7 +154,9 @@ public actor TimelineQueryStore {
                         memberId: member))
                 }
             }
+            return local
         }
+        all = collected
         // Domain 语义：统一排序 → 游标过滤 → 分页（跨表不重不漏）
         var merged = TimelineProjectionRules.sort(all)
         if let cursor {

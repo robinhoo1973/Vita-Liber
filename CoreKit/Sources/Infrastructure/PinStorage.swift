@@ -12,7 +12,8 @@ import Domain
 
 /// PinLockPersisting 的 UserDefaults 实现（M1a 过渡介质；
 /// §5.32 的 Keychain 实现 KeychainPinLockStore 随 M1c 替换——协议不变）
-public struct UserDefaultsPinLockStore: PinLockPersisting {
+// @unchecked Sendable：UserDefaults 自身线程安全；Swift 6 模式前清偿（M0→M1c 并发日程）
+public struct UserDefaultsPinLockStore: PinLockPersisting, @unchecked Sendable {
     private let defaults: UserDefaults
     private let key: String
     public init(defaults: UserDefaults = .standard, key: String = "pinLockSnapshot") {

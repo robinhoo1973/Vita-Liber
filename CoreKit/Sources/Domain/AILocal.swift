@@ -149,7 +149,7 @@ public protocol AIProvider: Sendable {
 /// 审计装饰器（§5.5/§5.6）：记录 scope.patientIds 哈希而非明文
 public struct AuditedAIProvider: AIProvider {
     let inner: any AIProvider
-    let audit: (String) async -> Void   // 注入审计写入口（哈希后落库）
+    let audit: @Sendable (String) async -> Void   // 注入审计写入口（哈希后落库）
     public init(inner: any AIProvider, audit: @escaping @Sendable (String) async -> Void) {
         self.inner = inner
         self.audit = audit
