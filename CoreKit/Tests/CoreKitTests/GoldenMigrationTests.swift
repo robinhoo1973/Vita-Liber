@@ -51,7 +51,7 @@ struct LoadGateAuditTests {
         actor Counter { var n = 0; func inc() { n += 1 }; var v: Int { n } }
         let c = Counter()
         await withTaskGroup(of: Void.self) { g in
-            for _ in 0..<20 { g.addTask { try await gate.enter { await c.inc() } } }
+            for _ in 0..<20 { g.addTask { await gate.enter { await c.inc() } } }
         }
         #expect(await c.v == 1)                       // 幂等：20 并发只触发一次加载
         #expect(await gate.currentState == .ready)
