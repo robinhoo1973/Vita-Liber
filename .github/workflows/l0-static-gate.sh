@@ -86,12 +86,12 @@ try_viol=0; try_exempt=0
 while IFS= read -r line; do
   [ -n "$line" ] || continue
   _f=${line%%:*}; _rest=${line#*:}; _n=${_rest%%:*}; _content=${_rest#*:}
-  _nc=$(printf '%s\n' "$_content" | sed 's,//.*,,' )
-  case "$_nc" in *'try?'*) ;; *) continue ;; esac          # 注释后的 try? 不算
+  _nc=$(printf '%s\n' "$_content" | sed 's,//.*,,' | sed -E 's,[A-Za-z0-9_]try\?,,g' )
+  case "$_nc" in *'try?'*) ;; *) continue ;; esac          # 注释与标识符内的 try? 不算（ERR#37）
   case "$_content" in *'try?-ok:'*) try_exempt=$((try_exempt + 1)); continue ;; esac
   try_viol=$((try_viol + 1))
   [ "$try_viol" -le 15 ] && printf '    %s:%s\n' "$_f" "$_n"
-done < <(grep -rn -F 'try?' --include='*.swift' --exclude-dir=.build --exclude-dir=.swiftpm --exclude-dir=DerivedData --exclude-dir=Build "$APP" 2>/dev/null || true)
+done < <(grep -rnE '(^|[^A-Za-z0-9_])try\?' --include='*.swift' --exclude-dir=.build --exclude-dir=.swiftpm --exclude-dir=DerivedData --exclude-dir=Build "$APP" 2>/dev/null || true)
 if [ "$try_viol" -gt 0 ]; then
   fail "try? 违规 ${try_viol} 处（豁免 ${try_exempt} 处）——删除或按 §7 补豁免理由"
 else
