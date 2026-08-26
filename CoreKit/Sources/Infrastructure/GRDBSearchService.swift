@@ -13,10 +13,16 @@ public actor GRDBSearchService: FullTextSearch {
     public init(writer: any DatabaseWriter) { self.writer = writer }
 
     /// 写入侧：文档入库时同步 FTS（trigram 主表 + 2-gram 影子列）。
-    /// FTS5 虚表不支持 UPSERT（ON CONFLICT）——同事务 DELETE+INSERT 实现幂等重建。
+    /// external-content 模式：FTS rowid = document_file 的隐式整数 rowid
+    /// （FTS5 rowid 必须 INTEGER，源表主键是 TEXT UUID——V3.43）。
+    /// FTS5 虚表不支持 UPSERT——同事务 DELETE+INSERT 实现幂等重建。
     public func index(docID: UUID, patientId: UUID, title: String, ocrText: String?, notes: String?) async throws {
         try await writer.write { db in
-            let rowid = docID.uuidString
+            guard let rowid = try Int64.fetchOne(db, sql: """
+                SELECT rowid FROM document_file WHERE id = ?
+                """, arguments: [docID.uuidString]) else {
+                throw SearchError.docNotFound(docID)
+            }
             try db.execute(sql: "DELETE FROM document_fts WHERE rowid = ?", arguments: [rowid])
             try db.execute(sql: """
                 INSERT INTO document_fts (rowid, title, ocr_text, notes) VALUES (?, ?, ?, ?)
@@ -31,6 +37,11 @@ public actor GRDBSearchService: FullTextSearch {
         }
     }
 
+    public enum SearchError: Error, LocalizedError {
+        case docNotFound(UUID)
+        public var errorDescription: String? { "文档不存在: \(self)" }
+    }
+
     /// 检索：按查询长度路由；返回带片段高亮的命中（引用构造）。
     public func search(_ text: String, scope: DataAccessScope, limit: Int) async throws -> [EntityReference] {
         let route = SearchRules.route(text)
@@ -43,7 +54,7 @@ public actor GRDBSearchService: FullTextSearch {
                     SELECT d.id, d.patient_id, d.doc_type, d.created_at,
                            snippet(document_fts, 1, '<b>', '</b>', '…', 12) AS snip
                     FROM document_fts f
-                    JOIN document_file d ON d.id = f.rowid
+                    JOIN document_file d ON d.rowid = f.rowid
                     WHERE document_fts MATCH ? AND d.status IN ('active','favorite')
                     ORDER BY rank LIMIT ?
                     """, arguments: [query, limit])
@@ -54,7 +65,7 @@ public actor GRDBSearchService: FullTextSearch {
                     SELECT d.id, d.patient_id, d.doc_type, d.created_at,
                            snippet(document_fts_2gram, 1, '<b>', '</b>', '…', 12) AS snip
                     FROM document_fts_2gram f
-                    JOIN document_file d ON d.id = f.rowid
+                    JOIN document_file d ON d.rowid = f.rowid
                     WHERE document_fts_2gram MATCH ? AND d.status IN ('active','favorite')
                     ORDER BY rank LIMIT ?
                     """, arguments: [grams, limit])

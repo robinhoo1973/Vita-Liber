@@ -338,9 +338,14 @@ public enum SchemaV2 {
     CREATE INDEX idx_audit_time ON audit_event(at DESC);
 
     -- 中文全文检索（V3.24 查询长度路由：≥3 字 trigram 主表 / 2 字 2-gram 影子表）
+    -- V3.43：external-content 模式——FTS5 rowid 必须为 INTEGER，而 document_file
+    -- 以 TEXT UUID 为主键；content_rowid='rowid' 指向源表隐式整数 rowid，
+    -- 检索经 d.rowid = f.rowid 联接
     CREATE VIRTUAL TABLE document_fts USING fts5(
-      title, ocr_text, notes, tokenize='trigram case_sensitive 0');
+      title, ocr_text, notes, tokenize='trigram case_sensitive 0',
+      content='document_file', content_rowid='rowid');
     CREATE VIRTUAL TABLE document_fts_2gram USING fts5(
-      title_2gram, ocr_2gram, note_2gram, tokenize='unicode61');
+      title_2gram, ocr_2gram, note_2gram, tokenize='unicode61',
+      content='document_file', content_rowid='rowid');
     """
 }
