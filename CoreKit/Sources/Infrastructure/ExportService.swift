@@ -130,13 +130,14 @@ public actor ExportService {
             // FK 拓扑序（ERR#35）：patient_profile 先落——本人档案必须随 envelope
             // 往返（medication/plan/document 的 patient_id 外键目标）
             var profileId = envelope.owner?.selfPatientId ?? envelope.selfProfile?.id
+            // 互环 FK 三段式破环（ERR#35 同款）：profile 先落（owner_local_id 暂空）
+            // → owner 落（回指 profile）→ 回填 profile.owner_local_id
             if let profile = envelope.selfProfile {
                 try db.execute(sql: """
                     INSERT INTO patient_profile
                       (id, owner_local_id, display_name, relation, gender, birth_date, note, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, arguments: [profile.id.uuidString,
-                                       envelope.owner?.id.uuidString, profile.displayName,
+                    VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?)
+                    """, arguments: [profile.id.uuidString, profile.displayName,
                                        profile.relation, profile.gender, profile.birthDate,
                                        profile.note, profile.createdAt, profile.updatedAt])
             }
@@ -146,6 +147,10 @@ public actor ExportService {
                     VALUES (?, ?, ?, ?)
                     """, arguments: [owner.id.uuidString, owner.displayName,
                                      owner.selfPatientId?.uuidString, owner.createdAt])
+            }
+            if let profile = envelope.selfProfile, let owner = envelope.owner {
+                try db.execute(sql: "UPDATE patient_profile SET owner_local_id = ? WHERE id = ?",
+                               arguments: [owner.id.uuidString, profile.id.uuidString])
             }
             profileId = profileId ?? envelope.owner?.selfPatientId
             for c in envelope.consentRecords {
