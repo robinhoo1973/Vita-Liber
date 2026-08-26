@@ -26,7 +26,7 @@ struct AssistantView: View {
                 TextField("问一个与你资料相关的问题", text: $draft, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
                     .lineLimit(1...3)
-                    .accessibilityIdentifier("SP-23.ai.input")
+                    .accessibilityIdentifier("SP-21.ai.input")
                 Button {
                     let q = draft
                     draft = ""
@@ -40,7 +40,7 @@ struct AssistantView: View {
                 }
                 .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty || assistant.busy)
                 .accessibilityLabel("发送问题")
-                .accessibilityIdentifier("SP-23.ai.send")
+                .accessibilityIdentifier("SP-21.ai.send")
             }
             .padding(12)
         }
@@ -80,27 +80,47 @@ struct AnswerBodyView: View {
     var body: some View {
         switch answer.body {
         case .emergencyCard:
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 12) {
                 Label("疑似紧急情况", systemImage: "exclamationmark.octagon.fill")
                     .font(.headline)
                     .foregroundStyle(Color("semantic-danger", bundle: .main))
                 Text("请立即拨打 120 或前往最近的医院急诊。")
+                Button {
+                    if let url = URL(string: "tel://120") { UIApplication.shared.open(url) }
+                } label: {
+                    Label("拨打 120", systemImage: "phone.fill")
+                        .frame(maxWidth: .infinity, minHeight: 50)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Color("semantic-danger", bundle: .main))
+                .accessibilityIdentifier("SP-21.ai.call120")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(12)
             .background(RoundedRectangle(cornerRadius: 16).fill(Color("semantic-danger", bundle: .main).opacity(0.1)))
-            .accessibilityIdentifier("SP-23.ai.emergency")
+            .accessibilityIdentifier("SP-21.ai.emergency")
         case .refused(let r):
             VStack(alignment: .leading, spacing: 8) {
                 Label(r.reason == .highRiskTopic ? "无法回答这个问题" : "资料不足",
                       systemImage: "info.circle")
                     .font(.headline)
                 Text(r.detail).font(.body)
+                HStack(spacing: 8) {
+                    ForEach(r.actions, id: \.rawValue) { action in
+                        Button {
+                            // 动作跳转：去补充资料 / 咨询医生药师（占位路由，M1.5 接 AppRoute）
+                        } label: {
+                            Text(action == .addRecords ? "去补充资料" : "咨询医生或药师")
+                                .frame(minHeight: 44)
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(12)
             .background(RoundedRectangle(cornerRadius: 16).fill(Color("bg-grouped", bundle: .main)))
-            .accessibilityIdentifier("SP-23.ai.refused")
+            .accessibilityIdentifier("SP-21.ai.refused")
         case .composed(let p):
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
@@ -122,6 +142,23 @@ struct AnswerBodyView: View {
                         Text(t).font(.footnote)
                     }
                 }
+                if !p.sources.isEmpty {
+                    Text("来源：").font(.caption.bold())
+                    ForEach(p.sources, id: \.self) { s in
+                        Text(s).font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+                if !p.uncertainties.isEmpty {
+                    ForEach(p.uncertainties, id: \.self) { u in
+                        Text("不确定：\(u)").font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+                if !p.questionsForDoctor.isEmpty {
+                    ForEach(p.questionsForDoctor, id: \.self) { q in
+                        Text("建议问医生：\(q)").font(.caption2)
+                            .foregroundStyle(Color("brand-primary", bundle: .main))
+                    }
+                }
                 Text(p.scopeNote).font(.caption2).foregroundStyle(.secondary)
                 Text(p.disclaimer).font(.caption2).foregroundStyle(.secondary)
                 ForEach(p.citations, id: \.refID) { c in
@@ -130,13 +167,13 @@ struct AnswerBodyView: View {
                         Text(c.snippet).font(.caption2).lineLimit(1)
                     }
                     .foregroundStyle(Color("brand-primary", bundle: .main))
-                    .accessibilityIdentifier("SP-23.ai.citation")
+                    .accessibilityIdentifier("SP-21.ai.citation")
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(12)
             .background(RoundedRectangle(cornerRadius: 16).fill(Color("bg-grouped", bundle: .main)))
-            .accessibilityIdentifier("SP-23.ai.answer")
+            .accessibilityIdentifier("SP-21.ai.answer")
         }
     }
 }

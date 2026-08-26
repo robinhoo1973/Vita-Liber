@@ -53,14 +53,14 @@ struct ObservationListView: View {
                         Text("\(group.occurrences.count) 次记录 · 最近 \(group.selfMark ?? "-")")
                             .font(.caption2).foregroundStyle(.secondary)
                     }
-                    .accessibilityIdentifier("SP-16.observation.group")
+                    .accessibilityIdentifier("SP-14.observation.group")
                 }
                 Button {
                     showCreate = true
                 } label: {
                     Label("记录观察", systemImage: "plus")
                 }
-                .accessibilityIdentifier("SP-16.observation.add")
+                .accessibilityIdentifier("SP-14.observation.add")
             }
             Section("过敏与不良反应（一等事件）") {
                 ForEach(state.allergies, id: \.id) { a in
@@ -71,7 +71,7 @@ struct ObservationListView: View {
                             .padding(.horizontal, 8).padding(.vertical, 2)
                             .background(Capsule().fill(Color("semantic-warning", bundle: .main).opacity(0.15)))
                     }
-                    .accessibilityIdentifier("SP-29.allergy.row")
+                    .accessibilityIdentifier("SP-50.allergy.row")
                 }
             }
         }
@@ -116,7 +116,7 @@ struct ObservationCreateSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("保存") { onCreate(kind, description, selfMark) }
                         .disabled(description.trimmingCharacters(in: .whitespaces).isEmpty)
-                        .accessibilityIdentifier("SP-16.observation.save")
+                        .accessibilityIdentifier("SP-14.observation.save")
                 }
             }
         }
@@ -154,7 +154,7 @@ struct LockedMediaView: View {
             }
         }
         .frame(height: 220)
-        .accessibilityIdentifier("SP-08.lockedMedia")
+        .accessibilityIdentifier("SP-14.lockedMedia")
         .onTapGesture {
             guard !revealed else { return }
             showPinSheet = true          // BR-007：解锁是显式动作，经门禁验证

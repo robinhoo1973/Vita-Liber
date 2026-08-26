@@ -32,10 +32,13 @@ public struct AIAnswer: Sendable, Equatable {
         case emergencyCard
     }
     public struct SevenPart: Sendable, Equatable {
-        public var conclusion: String        // 结论（仅复述检索事实）
-        public var citations: [EntityReference]
-        public var excerpts: [String]        // 原文摘录
-        public var terminology: [String]     // B 级术语词典通俗解释
+        public var conclusion: String        // ①结论（仅复述检索事实）
+        public var citations: [EntityReference]  // ②引用（类型保证非空）
+        public var excerpts: [String]        // ③原文摘录
+        public var terminology: [String]     // ④B 级术语词典通俗解释
+        public var sources: [String]         // ⑤来源说明（评审补：每条引用来自哪类资料）
+        public var uncertainties: [String]   // ⑥不确定与缺失（评审补：资料中查不到的部分）
+        public var questionsForDoctor: [String]  // ⑦建议向医生提问（评审补）
         public var scopeNote: String         // 只读了哪些资料（最小必要访问）
         public var disclaimer: String        // 固定免责
         public var gradeBadge: String        // E 级标识（AI 解释）
@@ -44,8 +47,13 @@ public struct AIAnswer: Sendable, Equatable {
         public enum Reason: String, Sendable, Equatable {
             case insufficientData, highRiskTopic
         }
+        public enum Action: String, Sendable, Equatable {
+            case addRecords        // 去补充资料
+            case consultDoctor     // 咨询医生/药师
+        }
         public var reason: Reason
         public var detail: String
+        public var actions: [Action]
     }
     public var body: Body
 
@@ -131,13 +139,15 @@ public struct LocalRetrievalProvider: AIProvider {
         if HighRiskTopicRules.match(q.text) {
             return AIAnswer(body: .refused(.init(
                 reason: .highRiskTopic,
-                detail: "调整或停用药物必须由医生决定；请带着处方咨询医生或药师。")))
+                detail: "调整或停用药物必须由医生决定；请带着处方咨询医生或药师。",
+                actions: [.consultDoctor])))
         }
         let hits = try await search.search(q.text, scope: scope, limit: 12)
         guard !hits.isEmpty else {
             return AIAnswer(body: .refused(.init(
                 reason: .insufficientData,
-                detail: "你的资料里暂时没有与这个问题相关的内容。可以补充病历、报告或自测记录后再问。")))
+                detail: "你的资料里暂时没有与这个问题相关的内容。可以补充病历、报告或自测记录后再问。",
+                actions: [.addRecords, .consultDoctor])))
         }
         return AIAnswer(body: .composed(compose(hits, question: q.text)))
     }
@@ -153,6 +163,9 @@ public struct LocalRetrievalProvider: AIProvider {
             citations: hits,
             excerpts: excerpts,
             terminology: terms,
+            sources: hits.map { "\($0.kind)（\($0.title)）" },
+            uncertainties: ["你的资料中可能还有纸质资料未收录；本回答只基于已归档内容。"],
+            questionsForDoctor: ["就诊时可以带着这些资料，请医生确认与你的情况是否一致。"],
             scopeNote: "本次回答只读取了 \(hits.count) 条与你相关的资料。",
             disclaimer: "以上内容来自你的资料与通用术语解释，不能替代医生诊断或用药指导。",
             gradeBadge: "E")

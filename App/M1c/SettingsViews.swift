@@ -16,7 +16,7 @@ struct SettingsView: View {
                         Toggle(isOn: binding(for: key)) {
                             Text(label(for: key))
                         }
-                        .accessibilityIdentifier("SP-38.setting.\(key.rawValue)")
+                        .accessibilityIdentifier("SP-25.setting.\(key.rawValue)")
                     }
                 }
                 Section("常用习惯") {
@@ -28,13 +28,13 @@ struct SettingsView: View {
                     NavigationLink("Pro 升级与恢复") {
                         PaywallView()
                     }
-                    .accessibilityIdentifier("SP-38.settings.pro")
+                    .accessibilityIdentifier("SP-25.settings.pro")
                 }
                 Section("隐私与数据") {
                     NavigationLink("审计记录") {
                         AuditLogView()
                     }
-                    .accessibilityIdentifier("SP-38.settings.audit")
+                    .accessibilityIdentifier("SP-25.settings.audit")
                     Button("恢复默认设置") {
                         Task { try await settings.restoreDefaults() }
                     }
