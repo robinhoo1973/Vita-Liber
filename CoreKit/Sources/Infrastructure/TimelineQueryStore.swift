@@ -14,7 +14,7 @@ public actor TimelineQueryStore {
     public init(writer: any DatabaseWriter) { self.writer = writer }
 
     public func entries(for member: UUID, filter: TimelineFilter = .all,
-                        cursor: TimelineCursor?, limit: Int = 50) async throws -> TimelinePage {
+                        cursor: TimelineCursor? = nil, limit: Int = 50) async throws -> TimelinePage {
         var all: [TimelineEntry] = []
         let kinds: Set<TimelineEntryKind> = {
             if case .kinds(let k) = filter { return k }
