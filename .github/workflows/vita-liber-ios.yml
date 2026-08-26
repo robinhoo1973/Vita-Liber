@@ -433,7 +433,12 @@ jobs:
           if [ -z "$NEXT_RUNTIME" ]; then
             echo "::notice::此镜像无 iOS 26 runtime——前瞻档本轮跳过（E10 允许，非测试失败）"; exit 0
           fi
-          UDID=$(xcrun simctl create "ci-next-$GITHUB_RUN_ID" "iPhone 17" "$NEXT_RUNTIME")
+          # 兜底：runtimes 列表里出现 26.x 条目但运行时并未真实安装时，
+          # create 会报 Invalid runtime——此环境不具备 ≠ 测试失败，同样显式跳过
+          CREATE_LOG=$(mktemp)
+          if ! UDID=$(xcrun simctl create "ci-next-$GITHUB_RUN_ID" "iPhone 17" "$NEXT_RUNTIME" 2>"$CREATE_LOG"); then
+            echo "::notice::runtime 列表含 ${NEXT_RUNTIME} 但无法创建设备（$(cat "$CREATE_LOG")）——前瞻档跳过（E10 允许）"; exit 0
+          fi
           xcrun simctl bootstatus "$UDID" -b
           rm -rf Build/next.xcresult
           xcodebuild test-without-building \
