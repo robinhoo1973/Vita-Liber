@@ -12,6 +12,7 @@ struct VitaLiberApp: App {
     /// 评审修正：锁定优先级在向导分支**之前**——PIN 一旦建立，向导期间退后台同样锁屏。
     @State private var backgroundLocked = false
     @State private var reminderStore: ReminderStore
+    @State private var assistantStore: AssistantStore
 
     init() {
         // 组装根（评审 A2：AppContainer 由 App 消费，AppState/ReminderStore 只面向协议）。
@@ -32,6 +33,7 @@ struct VitaLiberApp: App {
             capture: FakeOcrProvider(fixture: args.contains("-uitest-camera-fixture"))))
         _reminderStore = State(initialValue: ReminderStore(
             meds: container.meds, apts: container.apts, reconciler: container.reconciler))
+        _assistantStore = State(initialValue: AssistantStore(provider: container.aiProvider))
     }
 
     var body: some Scene {
@@ -47,6 +49,7 @@ struct VitaLiberApp: App {
             }
             .environment(appState)
             .environment(reminderStore)
+            .environment(assistantStore)
             .task {
                 await appState.bootstrap()
                 // 四层补偿第 1 层（§5.4 V3.29）：前台启动时对账 + 首启请求通知授权

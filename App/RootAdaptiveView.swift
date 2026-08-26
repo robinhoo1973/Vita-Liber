@@ -94,6 +94,8 @@ struct ModuleRoot: View {
             TimelineView(showFinishButton: false)
         } else if module == .reminders {
             RemindersView()
+        } else if module == .ai {
+            NavigationStack { AssistantView() }
         } else {
             VStack(spacing: 12) {
                 Image(systemName: "square.grid.2x2")
