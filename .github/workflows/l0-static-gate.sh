@@ -164,7 +164,8 @@ fi
 m0_tables="prescription medication medication_plan medication_dose_log stock_lot dose_lot_allocation"
 m0_missing=0
 for t in $m0_tables; do
-  printf '%s\n' "$ddl_text" | grep -qE "CREATE TABLE $t([[:space:]]|\\()" || { m0_missing=$((m0_missing + 1)); printf '    M0 必建表缺失: %s\n' "$t"; }
+  # 同样落文件 grep（ERR#34 同族：printf 管道遇 grep -q 早退会 SIGPIPE 假红）
+  grep -qE "CREATE TABLE $t([[:space:]]|\\()" "$_ddl_file" || { m0_missing=$((m0_missing + 1)); printf '    M0 必建表缺失: %s\n' "$t"; }
 done
 [ "$m0_missing" -eq 0 ] && pass "M0 必建表清单齐备（prescription/medication/plan/dose_log/stock_lot/allocation）" || fail "M0 必建表缺失 ${m0_missing} 个（dev-pm §3.1⑤）"
 
