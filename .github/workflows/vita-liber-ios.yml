@@ -173,6 +173,8 @@ jobs:
       - name: Run shard (test-without-building)
         run: |
           set -o pipefail
+          echo "=== products inventory ==="; find Build/DerivedData/Build/Products -maxdepth 2 | head -20
+          ls -la Build/DerivedData/Build/Products/*.xctestrun 2>/dev/null || echo "NO_XCTESTRUN"
           rm -rf Build/shard.xcresult
           xcodebuild test-without-building \
             -project "$XCODEPROJ" -scheme "$SCHEME" \
