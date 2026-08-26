@@ -24,13 +24,15 @@ public struct DoseDeliveryFact: Sendable, Equatable {
 }
 
 public enum ReconcileEngine {
-    /// §5.4 骨架的决策纯函数化：已服不动；未送达且临期补排；
-    /// 已送达且过宽限期标记待用户处理；已跳过/忘记/不适不做任何调度动作。
+    /// §5.4 决策纯函数化：已服不动（BR-004）；
+    /// 未送达且无动作 → （补）排——滚动预排窗口（7 天）内全部剂量都属于此支，
+    /// 「临期」只是 isDueSoon 的查询侧提示，不是调度闸门；
+    /// 已送达且过宽限期 → 标记待用户处理；跳过/忘记/不适不产生调度动作。
     public static func decide(_ f: DoseDeliveryFact, now: Date) -> ReconcileAction {
         switch (f.delivered, f.action) {
         case (_, .taken):
             return .none                                   // 已服不动（BR-004）
-        case (false, nil) where f.isDueSoon:
+        case (false, nil):
             return .schedule
         case (true, nil) where f.isExpiredGrace:
             return .markAwaitingUser
