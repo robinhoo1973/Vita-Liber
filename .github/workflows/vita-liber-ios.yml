@@ -426,8 +426,10 @@ jobs:
           set -o pipefail
           # E10 前瞻档：镜像未含 iOS 26 runtime 时显式跳过并留 notice——
           # 「未测试」必须可见且不冒充通过（ERR#27 空集判过同族），也不该以
-          # Invalid runtime 报错形式把「环境不具备」伪装成「测试失败」
-          NEXT_RUNTIME=$(xcrun simctl list runtimes -j 2>/dev/null | grep -oE 'iOS-26-[0-9]+' | head -1 || true)
+          # Invalid runtime 报错形式把「环境不具备」伪装成「测试失败」。
+          # 注意取「人类可读 runtime 名」（list runtimes 的 "iOS 26.x"），
+          # 不能取 -j JSON 的 identifier（iOS-26-0 会被 simctl create 拒绝）。
+          NEXT_RUNTIME=$(xcrun simctl list runtimes 2>/dev/null | grep -oE 'iOS 26\.[0-9]+' | head -1 || true)
           if [ -z "$NEXT_RUNTIME" ]; then
             echo "::notice::此镜像无 iOS 26 runtime——前瞻档本轮跳过（E10 允许，非测试失败）"; exit 0
           fi
