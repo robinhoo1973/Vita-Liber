@@ -61,6 +61,28 @@ struct LoadGateAuditTests {
         #expect(MigrationEngine.schemaV1.contains("REFERENCES patient_profile(id)"))
     }
 
+    /// 评审 S1-1 修正用例：load 抛错 → gate 回 .idle（可重试），等待者被唤醒，
+    /// 错误只 rethrow 给发起方；重试成功后正常进 .ready。
+    @Test func LoadGate失败回idle且可重试() async throws {
+        struct Boom: Error {}
+        let gate = LoadGate()
+        var attempt = 0
+        var firstErrorReachedCaller = false
+        do {
+            try await gate.enter {
+                attempt += 1
+                if attempt == 1 { throw Boom() }
+            }
+        } catch {
+            firstErrorReachedCaller = true  // 第一次失败，错误到达发起方
+        }
+        #expect(firstErrorReachedCaller)
+        #expect(await gate.currentState == .idle)          // 失败不得置 ready
+        try await gate.enter { attempt += 1 }              // 重试走 idle 分支
+        #expect(await gate.currentState == .ready)
+        #expect(attempt == 2)
+    }
+
     /// dev-pm §3.1：金样五类样本 + flutter 版真实备份样本一份。
     /// 混型样本覆盖 prescription/lab/medication/other/空资产五种形态——
     /// 断言「迁移条数等于输入条数」且「分类路由与实际类型一致」。

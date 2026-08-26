@@ -64,11 +64,12 @@ public struct GRDBStore {
 
     /// TC-M0-06 运行时断言用：`PRAGMA foreign_keys` 是否为 1。
     /// 读失败保守返回 false（不用 `try?`——tech-spec §7 红线）。
+    /// 用 `Int.fetchOne` 而非 `(row[0] as Int)`：GRDB Row 下标返回 DatabaseValue，
+    /// 强转 Int 有运行时 trap 风险且 do/catch 捕获不到（评审 S1-2）。
     public var foreignKeysOn: Bool {
         do {
             return try writer.read { db -> Bool in
-                guard let row = try Row.fetchOne(db, sql: "PRAGMA foreign_keys") else { return false }
-                return (row[0] as Int) == 1
+                (try Int.fetchOne(db, sql: "PRAGMA foreign_keys")) == 1
             }
         } catch {
             return false

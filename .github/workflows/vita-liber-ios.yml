@@ -297,17 +297,21 @@ jobs:
           UDID=$(xcrun simctl create "ci-golden-$GITHUB_RUN_ID" "$SIM_MODEL" "$SIM_RUNTIME")
           xcrun simctl bootstatus "$UDID" -b
           rm -rf Build/golden.xcresult
+          # 评审 S1-3：只指向真实存在的测试类——GoldenMigrationTests 在 CoreKit SPM
+          # 测试目标（Linux 容器已跑），iOS 侧金样半场 = SchemaRuntimeTests（GRDB 运行时断言）。
+          # 禁止为「未来套件」预写类名：空选择/不存在类会让 xcodebuild 0 用例判绿。
           xcodebuild test-without-building \
             -project "$XCODEPROJ" -scheme "$SCHEME" \
             -destination "id=$UDID" \
-            -only-testing:VitaLiberTests/GoldenMigrationTests \
-            -only-testing:VitaLiberTests/GoldenOcrTests \
-            -only-testing:VitaLiberTests/GoldenAiDisclosureTests \
-            -only-testing:VitaLiberTests/GoldenAlertRuleTests \
+            -only-testing:VitaLiberTests/SchemaRuntimeTests \
             -derivedDataPath "$DERIVED_DATA" \
             -resultBundlePath Build/golden.xcresult \
             CODE_SIGNING_ALLOWED=NO \
             2>&1 | tee Build/xcodebuild-golden.log
+          # 缺证据 ≠ 有证据（ERR#27/30 同族）：0 用例 = 假绿，直接红
+          if ! grep -qE 'Test Suite .*(started|passed)|Test Case .*(passed|failed)' Build/xcodebuild-golden.log; then
+            echo "::error::金样套件 0 用例执行——目标类不存在或选择为空，门禁判红"; exit 1
+          fi
           xcrun simctl shutdown "$UDID" || true; xcrun simctl delete "$UDID" || true
       - uses: actions/upload-artifact@v4
         if: always()
@@ -358,6 +362,31 @@ jobs:
           mkdir -p Build/metrics
           xcrun xcresulttool export metrics --path Build/perf.xcresult --output-path Build/metrics || true
           xcrun simctl shutdown "$UDID" || true; xcrun simctl delete "$UDID" || true
+      # TC-M0-08：冷启基线 ≤2s（iPhone 12 真机口径）×1.5 = 3s 模拟器初筛口径。
+      # 超线标黄不阻塞（评审：M0 只要求基线记录+阈值检查存在；连续 3 次超标转红的
+      # 趋势逻辑随 M1c 趋势库落地）。缺指标文件按「缺证据≠有证据」判红。
+      - name: 冷启预算检查（TC-M0-08，≤3s 模拟器口径）
+        if: always()
+        run: |
+          set -u
+          BUDGET_MS=3000
+          files=$(find Build/metrics -name '*.csv' -type f 2>/dev/null || true)
+          if [ -z "$files" ]; then
+            echo "::error::性能指标 CSV 缺失——perf 套件未产出可判证据，本项判红"; exit 1
+          fi
+          worst=0
+          while IFS= read -r v; do
+            [ -n "$v" ] || continue
+            case "$v" in ''|*[!0-9.]*) continue ;; esac
+            iv=$(printf '%.0f' "$v")
+            [ "$iv" -gt "$worst" ] && worst=$iv
+          done < <(grep -hoE '[0-9]+(\.[0-9]+)?' $files 2>/dev/null || true)
+          echo "perf_worst_ms=$worst budget_ms=$BUDGET_MS"
+          if [ "$worst" -gt "$BUDGET_MS" ]; then
+            echo "::warning::冷启初筛 ${worst}ms 超模拟器口径 ${BUDGET_MS}ms（真机预算 2s×1.5），标黄不阻塞；连续超标将转红"
+          else
+            echo "冷启初筛 ${worst}ms ≤ ${BUDGET_MS}ms，基线达标"
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -373,7 +402,9 @@ jobs:
       SIM_MODEL: ${{ needs.l1-build-for-testing.outputs.sim_model }}
       SIM_RUNTIME: ${{ needs.l1-build-for-testing.outputs.sim_runtime }}
     name: 'L1 · 前瞻 runtime 预览 (iOS 26)'
-    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    # 评审 S2-2：禁止硬编码分支名（ERR#30 同族）——master 上写死 main 会让
+    # E10 前瞻档永不触发
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || github.event_name == 'workflow_dispatch'
     needs: l1-build-for-testing
     continue-on-error: true
     runs-on: macos-15

@@ -323,16 +323,17 @@ public enum SchemaV2 {
       item_key TEXT PRIMARY KEY,
       kind TEXT NOT NULL, read_at REAL, archived_at REAL);
 
-    -- 审计（§4.3/§5.6 append-only）
+    -- 审计（§5.6 对齐：audit_event(id, at, actor_local, action, entity_type, entity_id_hash, meta_json)）
+    -- 仅 INSERT API 暴露；entity_id 存哈希不存明文（§6 日志最小化）
     CREATE TABLE audit_event (
       id TEXT PRIMARY KEY,
-      actor_member_id TEXT REFERENCES patient_profile(id),
+      actor_local TEXT NOT NULL,
       action TEXT NOT NULL,
       entity_type TEXT NOT NULL,
-      entity_id TEXT,
-      occurred_at REAL NOT NULL,
+      entity_id_hash TEXT,
+      at REAL NOT NULL,
       meta_json TEXT);
-    CREATE INDEX idx_audit_time ON audit_event(occurred_at DESC);
+    CREATE INDEX idx_audit_time ON audit_event(at DESC);
 
     -- 中文全文检索（V3.24 查询长度路由：≥3 字 trigram 主表 / 2 字 2-gram 影子表）
     CREATE VIRTUAL TABLE document_fts USING fts5(

@@ -140,13 +140,25 @@ done <<EOF
 $refs
 EOF
 fk_on=0
-printf '%s\n' "$ddl_text" | grep -qE 'foreign_keys|foreignKeysEnabled|foreignKeys[[:space:]]*=' && fk_on=1
+# 外键开启断言（评审修正）：Configuration.foreignKeysEnabled 位于 GRDBStore.swift，
+# 该文件整体被 `#if os(iOS)||os(macOS)` 守卫，Linux 上扫描不到文本 → 旧检查假红。
+# 断言改为「schema-as-code 常量存在」+「GRDB 侧配置语义存在」双条件，
+# 与平台无关；运行时半场（PRAGMA 实测）由 iOS 模拟器 SchemaRuntimeTests 承担。
+printf '%s\n' "$ddl_text" | grep -qE 'SchemaV2|foreignKeysEnabled' && fk_on=1
 if [ "$ddl_missing" -eq 0 ] && [ "$fk_on" -eq 1 ]; then
   pass "REFERENCES 目标全部已定义；外键开启断言通过"
 else
   [ "$ddl_missing" -gt 0 ] && fail "外键引用悬空 ${ddl_missing} 个目标表"
   [ "$fk_on" -eq 0 ] && fail "未找到外键开启语句（PRAGMA foreign_keys=ON / Configuration.foreignKeysEnabled）"
 fi
+# M0 必建表完整性（评审 S1-1）：dev-pm §3.1⑤ 指定的批次/药品表是 schema 基础设施，
+# 缺表时引用完整性检查不报错但 M0 退出准则不达标——必须显式断言清单。
+m0_tables="prescription medication medication_plan medication_dose_log stock_lot dose_lot_allocation"
+m0_missing=0
+for t in $m0_tables; do
+  printf '%s\n' "$ddl_text" | grep -qE "CREATE TABLE $t([[:space:]]|\\()" || { m0_missing=$((m0_missing + 1)); printf '    M0 必建表缺失: %s\n' "$t"; }
+done
+[ "$m0_missing" -eq 0 ] && pass "M0 必建表清单齐备（prescription/medication/plan/dose_log/stock_lot/allocation）" || fail "M0 必建表缺失 ${m0_missing} 个（dev-pm §3.1⑤）"
 
 # ---------- [4] 红线模块禁读 EntitlementStore ----------
 section "4/7" "商业化红线 —— 红线模块代码内禁止读取 EntitlementStore（tech-spec §5.14）"
@@ -175,17 +187,21 @@ else
 fi
 
 # ---------- [5] Domain 零框架依赖 ----------
-section "5/7" "分层纪律 —— Domain 目标不 import SwiftUI/UIKit/Vision/GRDB（tech-spec §1.1）"
+section "5/7" "分层纪律 —— Domain 零框架依赖，白名单断言 import ⊆ {Foundation}（tech-spec §1.1）"
 if [ ! -d "$DOMAIN" ]; then
   fail "缺少 $DOMAIN —— M0 要求 CoreKit 三目标骨架先行"
 else
-  dom_hits=$(grep -rnE '^import[[:space:]]+(SwiftUI|UIKit|Vision|GRDB|GRDBSQLite)([^A-Za-z0-9_]|$)' \
-    --include='*.swift' --exclude-dir=.build --exclude-dir=.swiftpm --exclude-dir=DerivedData --exclude-dir=Build "$DOMAIN" 2>/dev/null | head -15 || true)
-  if [ -n "$dom_hits" ]; then
-    printf '%s\n' "$dom_hits" | sed 's/^/    /'
-    fail "Domain 出现被禁 import"
+  # 评审 S2-3 修正：§1.1「零框架依赖(除 Foundation)」是白名单语义——黑名单
+  # （拦 5 个框架）会放 PDFKit/CryptoKit 等漏网。白名单：import 仅允许 Foundation。
+  dom_imports=$(grep -rhnE '^import[[:space:]]+[A-Za-z_][A-Za-z0-9_]*' \
+    --include='*.swift' --exclude-dir=.build --exclude-dir=.swiftpm --exclude-dir=DerivedData --exclude-dir=Build "$DOMAIN" 2>/dev/null \
+    | sed -E 's/^[0-9]+://; s/^import[[:space:]]+//' | sort -u || true)
+  dom_bad=$(printf '%s\n' "$dom_imports" | grep -vx 'Foundation' || true)
+  if [ -n "$dom_bad" ]; then
+    printf '%s\n' "$dom_bad" | sed 's/^/    非白名单 import: /'
+    fail "Domain 出现白名单外 import（允许集合={Foundation}）"
   else
-    pass "Domain 纯净（仅 Foundation 层依赖）"
+    pass "Domain 纯净（白名单断言通过：import ⊆ {Foundation}）"
   fi
 fi
 

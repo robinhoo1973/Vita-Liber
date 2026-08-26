@@ -69,6 +69,11 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
+      - name: Ensure Xcode project
+        run: |
+          if [ -e "$XCODEPROJ" ]; then echo "使用已提交的 $XCODEPROJ"
+          elif [ -f project.yml ]; then brew install xcodegen && xcodegen generate
+          else echo "::error::$XCODEPROJ 缺失且无 project.yml"; exit 1; fi
       - uses: actions/download-artifact@v4
         with:
           name: 'nightly-products-${{ github.run_id }}'
@@ -79,10 +84,12 @@ jobs:
           UDID=$(xcrun simctl create "ci-nightly-$GITHUB_RUN_ID" "iPhone 16" "iOS18.4")
           xcrun simctl bootstatus "$UDID" -b
           rm -rf Build/full.xcresult
+          # ERR#17 纪律：统一 scheme 形态（-project/-scheme/-derivedDataPath），
+          # 禁裸 -xctestrun（评审 S2-2）
           xcodebuild test-without-building \
-            -xctestrun "$(find Build/DerivedData/Build/Products -name '*.xctestrun' | head -1)" \
+            -project "$XCODEPROJ" -scheme "$SCHEME" \
+            -derivedDataPath "$DERIVED_DATA" \
             -destination "id=$UDID" \
-            -parallel-testing-enabled YES -maximum-concurrent-test-simulator-destinations 2 \
             -resultBundlePath Build/full.xcresult \
             CODE_SIGNING_ALLOWED=NO \
             2>&1 | tee Build/xcodebuild-full.log
@@ -112,6 +119,11 @@ jobs:
     continue-on-error: true   # 检疫套件永不阻塞（E9）
     steps:
       - uses: actions/checkout@v4
+      - name: Ensure Xcode project
+        run: |
+          if [ -e "$XCODEPROJ" ]; then echo "使用已提交的 $XCODEPROJ"
+          elif [ -f project.yml ]; then brew install xcodegen && xcodegen generate
+          else echo "::error::$XCODEPROJ 缺失且无 project.yml"; exit 1; fi
       - uses: actions/download-artifact@v4
         with:
           name: 'nightly-products-${{ github.run_id }}'
@@ -122,14 +134,9 @@ jobs:
           UDID=$(xcrun simctl create "ci-qt-$GITHUB_RUN_ID" "iPhone 16" "iOS18.4")
           xcrun simctl bootstatus "$UDID" -b
           rm -rf Build/qt.xcresult
-          # QuarantineTests 目标：由 l0 门禁外的标记清单维护（test-plan-spec E9）
-          xcodebuild test-without-building \
-            -xctestrun "$(find Build/DerivedData/Build/Products -name '*.xctestrun' | head -1)" \
-            -destination "id=$UDID" \
-            -only-testing:VitaLiberTests/QuarantineTests \
-            -resultBundlePath Build/qt.xcresult \
-            CODE_SIGNING_ALLOWED=NO \
-            2>&1 | tee Build/xcodebuild-quarantine.log
+          # QuarantineTests 目标尚未建立（评审 S2-3：不预写不存在的类名）。
+          # 检疫清单为空 = 本 job 无实际内容，skip 掉 xcodebuild 而非空选择判绿。
+          echo "检疫清单为空（E9）：当前无 quarantine 用例，本 job 空转合法"
           xcrun simctl shutdown "$UDID" || true; xcrun simctl delete "$UDID" || true
 
   perf-trend:
@@ -140,6 +147,11 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      - name: Ensure Xcode project
+        run: |
+          if [ -e "$XCODEPROJ" ]; then echo "使用已提交的 $XCODEPROJ"
+          elif [ -f project.yml ]; then brew install xcodegen && xcodegen generate
+          else echo "::error::$XCODEPROJ 缺失且无 project.yml"; exit 1; fi
       - uses: actions/download-artifact@v4
         with:
           name: 'nightly-products-${{ github.run_id }}'
@@ -150,10 +162,13 @@ jobs:
           UDID=$(xcrun simctl create "ci-perf-$GITHUB_RUN_ID" "iPhone 16" "iOS18.4")
           xcrun simctl bootstatus "$UDID" -b
           rm -rf Build/perf.xcresult
+          # 评审 S2-3：性能套件实居 VitaLiberUITests（不是 VitaLiberTests）；
+          # 统一 scheme 形态（ERR#17）
           xcodebuild test-without-building \
-            -xctestrun "$(find Build/DerivedData/Build/Products -name '*.xctestrun' | head -1)" \
+            -project "$XCODEPROJ" -scheme "$SCHEME" \
+            -derivedDataPath "$DERIVED_DATA" \
             -destination "id=$UDID" \
-            -only-testing:VitaLiberTests/PerformanceScreeningTests \
+            -only-testing:VitaLiberUITests/PerformanceScreeningTests \
             -resultBundlePath Build/perf.xcresult \
             CODE_SIGNING_ALLOWED=NO \
             2>&1 | tee Build/xcodebuild-perf.log

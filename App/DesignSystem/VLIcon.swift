@@ -35,7 +35,10 @@ enum VLIcon {
     static let observeFrame = Image("ic-observe-frame")
     static let share = Image("ic-share")
     static let export = Image("ic-export")
-    static let `import` = Image("ic-import")
+    // import 是 Swift 保留字：API 层规避（评审 S3-1）——主名用 importIcon，
+    // 反引号别名仅供资源名直映射场景；生成器同步规则见 design/README.md。
+    static let importIcon = Image("ic-import")
+    static let `import` = importIcon
     static let sync = Image("ic-sync")
     static let cloudOff = Image("ic-cloud-off")
     static let settings = Image("ic-settings")
