@@ -24,6 +24,12 @@ struct SettingsView: View {
                     Text("稍后时长：\(settings.values[.snoozeMinutes] ?? "-") 分钟")
                     Text("安静时段：\(settings.values[.quietHoursStart] ?? "-") - \(settings.values[.quietHoursEnd] ?? "-")")
                 }
+                Section("Pro") {
+                    NavigationLink("Pro 升级与恢复") {
+                        PaywallView()
+                    }
+                    .accessibilityIdentifier("SP-38.settings.pro")
+                }
                 Section("隐私与数据") {
                     NavigationLink("审计记录") {
                         AuditLogView()
