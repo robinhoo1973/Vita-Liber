@@ -61,7 +61,7 @@ public enum ConfidenceTier: String, Sendable, Equatable {
 }
 
 /// 一份 OCR 结果的确认工作台：所有字段确认前，文档不得入时间轴正式区（BR-003）。
-public struct OcrConfirmationSet: Sendable, Equatable, Codable {
+public struct OcrConfirmationSet: Sendable, Equatable, Codable, Identifiable {
     public var documentId: UUID
     public var fields: [CandidateField]
 
@@ -69,6 +69,7 @@ public struct OcrConfirmationSet: Sendable, Equatable, Codable {
         self.documentId = documentId
         self.fields = fields
     }
+    public var id: UUID { documentId }
 
     public var allConfirmed: Bool { !fields.isEmpty && fields.allSatisfy(\.isConfirmed) }
     public var confirmedFields: [CandidateField] { fields.filter(\.isConfirmed) }
