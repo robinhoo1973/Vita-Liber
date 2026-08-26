@@ -86,7 +86,7 @@ final class M1cAcceptanceTests: XCTestCase {
 
         let envelope = try await exportA.exportJSON()
         XCTAssertEqual(envelope.plans.count, 1)
-        XCTAssertEqual(envelope.observations.count, 1)
+        XCTAssertEqual(envelope.observations.count, 2)  // makeStore 已种 1 条 + 本用例 1 条
         XCTAssertEqual(envelope.allergies.count, 1)
         XCTAssertEqual(envelope.metrics.count, 1)
 
