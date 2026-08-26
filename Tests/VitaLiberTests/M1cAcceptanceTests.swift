@@ -56,15 +56,17 @@ final class M1cAcceptanceTests: XCTestCase {
     func test_导出导入往返一致性() async throws {
         let storeA = try await makeStore()
         let exportA = ExportService(writer: storeA.writer)
-        // 种子：所有者 + 同意 + 计划（经 MedicationStore 走标准写入路径）
+        // 种子走生产路径：saveOwner 建立 owner↔本人档案关联（envelope.selfProfile
+        // 的 JOIN 前提——无 local_owner 行则档案不进包）
+        let persistorA = GRDBM1aPersistor(store: storeA)
+        var owner = LocalOwner(displayName: "测试患者", createdAt: 0)
+        let profile = PatientProfile(displayName: "测试患者", relation: "本人")
+        owner.selfPatientId = profile.id
+        try await persistorA.saveOwner(owner, profile: profile)
         let medsA = MedicationStore(writer: storeA.writer)
-        let member = try await storeA.writer.read { db in
-            try String.fetchOne(db, sql: "SELECT id FROM patient_profile LIMIT 1") ?? ""
-        }
-        let patient = UUID(uuidString: member) ?? UUID()
         let medId = UUID()
-        try await medsA.createMedication(id: medId, patientId: patient, name: "阿莫西林", spec: "0.25g", unitKind: "tablet")
-        try await medsA.createPlan(planId: UUID(), patientId: patient, medicationId: medId,
+        try await medsA.createMedication(id: medId, patientId: profile.id, name: "阿莫西林", spec: "0.25g", unitKind: "tablet")
+        try await medsA.createPlan(planId: UUID(), patientId: profile.id, medicationId: medId,
                                    schedule: .fixed(times: ["08:00", "20:00"]), status: .active,
                                    startDate: Date(), endDate: nil)
 
