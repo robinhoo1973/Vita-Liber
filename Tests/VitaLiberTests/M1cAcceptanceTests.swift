@@ -59,6 +59,11 @@ final class M1cAcceptanceTests: XCTestCase {
         let docId = UUID()
         let member = UUID()
         try await store.writer.write { db in
+            // ERR#35 纪律前置：document_file.patient_id 的外键目标先行
+            try db.execute(sql: """
+                INSERT INTO patient_profile (id, display_name, relation, created_at, updated_at)
+                VALUES (?, '检索患者', '本人', 0, 0)
+                """, arguments: [member.uuidString])
             try db.execute(sql: """
                 INSERT INTO document_file (id, patient_id, doc_type, sha256, mime_type, origin, meta_json, created_at, updated_at)
                 VALUES (?, ?, 'prescription', ?, 'application/json', 'scanner', '{}', ?, ?)
