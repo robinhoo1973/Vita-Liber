@@ -89,17 +89,22 @@ jobs:
           fi
 
       - name: Resolve destination
+      - name: Resolve destination
         run: |
-          if xcrun simctl list devices available | grep -qF "$SPEC_SIMULATOR ("; then
-            DEST="platform=iOS Simulator,name=$SPEC_SIMULATOR"
-          else
-            DEST_NAME=$(xcrun simctl list devices available \
-              | sed -nE 's/^ +([A-Za-z0-9 ()-]*iPhone[^ (]+) *\([^)]*\).*/\1/p' | head -1)
-            [ -n "$DEST_NAME" ] || { echo "::error::没有可用的 iPhone 模拟器"; exit 1; }
-            echo "::warning::目标机 '$SPEC_SIMULATOR' 不可用，回退为 '$DEST_NAME'"
-            DEST="platform=iOS Simulator,name=$DEST_NAME"
-          fi
-          echo "DESTINATION=$DEST" >> "$GITHUB_ENV"
+          # E2：JSON 结构化解析（ERR#11——禁正则啃人读输出）
+          python3 - <<'PYEOF' >> "$GITHUB_ENV"
+          import json, subprocess, sys
+          d = json.loads(subprocess.check_output(["xcrun","simctl","list","--json","devices","available"]))
+          pairs = [(rt, v["name"], v["udid"]) for rt, devs in d["devices"].items()
+                   for v in devs if v.get("isAvailable") and v["name"].startswith("iPhone")]
+          if not pairs: sys.exit("no iPhone simulator available")
+          spec = [p for p in pairs if p[1] == "$SPEC_SIMULATOR"]
+          pick = spec[0] if spec else sorted(pairs)[-1]
+          print(f"DESTINATION=id={pick[2]}")
+          print(f"SIM_MODEL={pick[1]}")
+          print(f"SIM_RUNTIME={pick[0]}")
+          PYEOF
+          echo "selected: $SIM_MODEL @ $SIM_RUNTIME"
 
       - name: Cache SwiftPM packages
         uses: actions/cache@v4
@@ -152,8 +157,8 @@ jobs:
 
       - name: Boot simulator (bootstatus 就绪等待, E2)
         run: |
-          UDID=$(xcrun simctl create "ci-$GITHUB_RUN_ID-${{ matrix.shard-name }}" "iPhone 15" "iOS18.2" 2>/dev/null || \
-                 xcrun simctl create "ci-$GITHUB_RUN_ID-${{ matrix.shard-name }}" "iPhone 16" "iOS18.4")
+          UDID=$(xcrun simctl create "ci-$GITHUB_RUN_ID-${{ matrix.shard-name }}" "$SIM_MODEL" "$SIM_RUNTIME" 2>/dev/null || \
+                 xcrun simctl create "ci-$GITHUB_RUN_ID-${{ matrix.shard-name }}" "$SIM_MODEL" "$SIM_RUNTIME")
           echo "UDID=$UDID" >> "$GITHUB_ENV"
           xcrun simctl bootstatus "$UDID" -b
           echo "DESTINATION=id=$UDID" >> "$GITHUB_ENV"
@@ -197,8 +202,8 @@ jobs:
       # 隔离克隆模拟器 + 权限预授权（E3/E4；Keychain 类用例由 erase 保证干净态）
       - name: Provision isolated simulator
         run: |
-          UDID=$(xcrun simctl create "ci-ui-$GITHUB_RUN_ID" "iPhone 15" "iOS18.2" 2>/dev/null || \
-                 xcrun simctl create "ci-ui-$GITHUB_RUN_ID" "iPhone 16" "iOS18.4")
+          UDID=$(xcrun simctl create "ci-ui-$GITHUB_RUN_ID" "$SIM_MODEL" "$SIM_RUNTIME" 2>/dev/null || \
+                 xcrun simctl create "ci-ui-$GITHUB_RUN_ID" "$SIM_MODEL" "$SIM_RUNTIME")
           echo "UDID=$UDID" >> "$GITHUB_ENV"
           xcrun simctl bootstatus "$UDID" -b
           xcrun simctl status_bar "$UDID" override --time "9:41" || true
@@ -246,7 +251,7 @@ jobs:
       - name: Run golden suites
         run: |
           set -o pipefail
-          UDID=$(xcrun simctl create "ci-golden-$GITHUB_RUN_ID" "iPhone 16" "iOS18.4")
+          UDID=$(xcrun simctl create "ci-golden-$GITHUB_RUN_ID" "$SIM_MODEL" "$SIM_RUNTIME")
           xcrun simctl bootstatus "$UDID" -b
           rm -rf Build/golden.xcresult
           xcodebuild test-without-building \
@@ -283,7 +288,7 @@ jobs:
       - name: Run perf screening
         run: |
           set -o pipefail
-          UDID=$(xcrun simctl create "ci-perf-$GITHUB_RUN_ID" "iPhone 16" "iOS18.4")
+          UDID=$(xcrun simctl create "ci-perf-$GITHUB_RUN_ID" "$SIM_MODEL" "$SIM_RUNTIME")
           xcrun simctl bootstatus "$UDID" -b
           rm -rf Build/perf.xcresult
           xcodebuild test-without-building \
