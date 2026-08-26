@@ -89,7 +89,6 @@ jobs:
           fi
 
       - name: Resolve destination
-      - name: Resolve destination
         run: |
           # E2：JSON 结构化解析（ERR#11——禁正则啃人读输出）
           python3 - <<'PYEOF' >> "$GITHUB_ENV"
