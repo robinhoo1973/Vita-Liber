@@ -83,20 +83,26 @@ struct RootAdaptiveView: View {
     }
 }
 
-/// L2 模块根占位（M0）。M1a 起按 tech-spec §5.26.3 逐 SP 挂载真实内容视图。
+/// L2 模块根（M1a：records 挂真实时间轴——评审修正「完成后时间轴不可达」；
+/// 其余模块占位，随 M1c 逐 SP 挂载）
 struct ModuleRoot: View {
+    @Environment(AppState.self) private var app
     let module: MainModule
 
     var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "square.grid.2x2")
-                .font(.largeTitle)
-                .foregroundStyle(.secondary)
-            Text(module.titleKey)
-                .font(.headline)
+        if module == .records {
+            TimelineView(showFinishButton: false)
+        } else {
+            VStack(spacing: 12) {
+                Image(systemName: "square.grid.2x2")
+                    .font(.largeTitle)
+                    .foregroundStyle(.secondary)
+                Text(module.titleKey)
+                    .font(.headline)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityIdentifier("SP-00.moduleRoot.\(module.rawValue)")
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .accessibilityIdentifier("SP-00.moduleRoot.\(module.rawValue)")
     }
 }
 

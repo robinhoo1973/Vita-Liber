@@ -1,16 +1,22 @@
 import Foundation
 import SwiftUI
 import Domain
+import Infrastructure
+import Protocols
 
-/// M1a 纵向切片的应用状态仓（@Observable 单例语义，注入进环境）。
-/// 持久化：M1a 用 UserDefaults 占位（PIN 哈希 + 所有者 + 时间轴 JSON）；
-/// Keychain 加固归 M1c/L2（dev-pm §3.2.1 渐进策略：F1 暂不接生物识别）。
+/// M1a 纵向切片的应用状态仓（@Observable，注入进环境）。
+/// 评审修正批（架构 A1-A3 / Swift S1-S2 / PM）：
+/// - 持久化面向 M1aPersisting 协议，生产实现 = GRDBM1aPersistor（§4.3 对应表），
+///   UserDefaults 仅承载 PIN 锁定快照与 UI 瞬态——「窄实现」窄化能力，不换存储介质；
+/// - 锁定阶梯唯一实现 = Domain 的 PinLockStateMachine（actor），App 层只镜像快照；
+/// - PIN 落盘 = PinHasher（盐+SHA256+恒时比较）；Keychain+PBKDF2 归 M1c §6 清偿；
+/// - 假 OCR 收敛到 FakeOcrProvider（DocumentCapture 协议），生产代码无 -uitest 分支。
 @MainActor
 @Observable
 final class AppState {
     enum OnboardingStage: Equatable {
         case disclosure(index: Int)
-        case pinSetup, pinVerify, ownerName
+        case pinSetup, ownerName
         case scanCapture, ocrConfirm, timeline
         case done
     }
@@ -18,53 +24,93 @@ final class AppState {
     var stage: OnboardingStage = .disclosure(index: 0)
     var onboardingFinished: Bool
 
-    // 门禁
-    private(set) var pinHash: String?          // SHA256 hex（M1a 占位存储，Keychain 归 L2）
+    // 门禁（锁定状态 = Domain 状态机的镜像快照；唯一事实源在 actor 内）
+    private(set) var pinHash: String?          // "saltHex:digestHex"（PinHasher）
     private(set) var failedAttempts = 0
     private(set) var lockedUntil: Date?
+    private var pinMachine: PinLockStateMachine?
 
     // 所有者与档案
     private(set) var owner: LocalOwner?
 
     // 时间轴
     private(set) var timeline: [TimelineDocumentEntry] = []
-    private(set) var pendingSets: [OcrConfirmationSet] = []
 
-    // L1 首启三卡确认落库（ConsentRecord 语义，FR20.5）
+    // L1 首启三卡确认（ConsentRecord 语义，FR20.5）
     private(set) var consentRecords: [ConsentRecord] = []
 
+    private let persistor: any M1aPersisting
+    private let captureProvider: any DocumentCapture
     private let defaults: UserDefaults
     private let launchArgs: [String]
+    private let logger = Logger(subsystem: "com.vitaliber", category: "appstate")
 
-    init(defaults: UserDefaults = .standard,
+    init(persistor: any M1aPersisting,
+         capture: any DocumentCapture,
+         defaults: UserDefaults = .standard,
          launchArgs: [String] = ProcessInfo.processInfo.arguments) {
+        self.persistor = persistor
+        self.captureProvider = capture
         self.defaults = defaults
         self.launchArgs = launchArgs
-        if launchArgs.contains("-uitest-reset") {
-            // UI 测试清态：模拟首次安装（test-plan E3 语义的轻量替代，
-            // 完整 simctl erase 由 CI 克隆模拟器承担）
-            defaults.removePersistentDomain(forName: Bundle.main.bundleIdentifier ?? "com.vitaliber.VitaLiber")
-        }
         self.onboardingFinished = defaults.bool(forKey: "onboardingFinished")
-        if let d = defaults.data(forKey: "owner") {
-            do { owner = try JSONDecoder().decode(LocalOwner.self, from: d) }
-            catch { owner = nil }   // 损坏的本地快照按全新启动降级（§7 禁 try?）
+        if launchArgs.contains("-uitest-reset") {
+            defaults.removePersistentDomain(forName: Bundle.main.bundleIdentifier ?? "com.vitaliber.VitaLiber")
+            self.onboardingFinished = false
         }
-        if let d = defaults.data(forKey: "timeline") {
-            do { timeline = try JSONDecoder().decode([TimelineDocumentEntry].self, from: d) }
-            catch { timeline = [] }
+        self.pinHash = defaults.string(forKey: "pinHashV2")
+        if let legacy = defaults.string(forKey: "pinHash"), !legacy.isEmpty {
+            // 评审 S1：旧实现是恒等函数，pinHash 键里存的是 PIN 明文——直接删除，
+            // 绝不做「明文→哈希」迁移（无法区分真哈希与明文）
+            defaults.removeObject(forKey: "pinHash")
+            defaults.removeObject(forKey: "failedAttempts")
+            defaults.removeObject(forKey: "lockedUntil")
+            defaults.removeObject(forKey: "lockStage")
         }
-        if let d = defaults.data(forKey: "consentRecords") {
-            do { consentRecords = try JSONDecoder().decode([ConsentRecord].self, from: d) }
-            catch { consentRecords = [] }
+        if onboardingFinished {
+            stage = .done
+        } else {
+            // 三卡断点续填：重启后从上次进度的下一张卡继续
+            let progress = defaults.integer(forKey: "disclosureProgress")
+            if progress > 0 {
+                stage = .disclosure(index: min(progress, disclosureCards.count - 1))
+            }
         }
-        pinHash = defaults.string(forKey: "pinHash")
-        // 锁定状态跨重启恢复（FR1.3）：过期锁定自然解除
-        failedAttempts = defaults.integer(forKey: "failedAttempts")
-        if let until = defaults.object(forKey: "lockedUntil") as? Date, until > Date() {
-            lockedUntil = until
+    }
+
+    /// 启动装配（VitaLiberApp .task 调用）：清态（UI 测试）→ 装配锁定状态机 →
+    /// 从 GRDB 加载所有者/同意/时间轴。
+    func bootstrap() async {
+        if launchArgs.contains("-uitest-reset") {
+            do { try await persistor.reset() }
+            catch { logger.error("测试清态失败: \(error)") }
         }
-        if onboardingFinished { stage = .done }
+        await bootstrapPinLock()
+        do {
+            owner = try await persistor.loadOwner()
+            consentRecords = try await persistor.loadConsents()
+            timeline = try await persistor.loadTimeline()
+        } catch {
+            logger.error("持久化加载失败: \(error)")
+        }
+    }
+
+    private func bootstrapPinLock() async {
+        guard pinMachine == nil else { return }
+        let store = UserDefaultsPinLockStore(defaults: defaults)
+        do {
+            let machine = try await PinLockStateMachine(storage: store)
+            pinMachine = machine
+            refreshLockSnapshot(await machine.snapshot())
+        } catch {
+            logger.error("PinLockStateMachine 装配失败: \(error)")
+        }
+    }
+
+    @MainActor
+    private func refreshLockSnapshot(_ s: PinLockSnapshot) {
+        failedAttempts = s.consecutiveFailures
+        lockedUntil = s.lockedUntil
     }
 
     // MARK: - 披露三卡
@@ -73,12 +119,17 @@ final class AppState {
 
     func advanceDisclosure() {
         guard case .disclosure(let i) = stage else { return }
-        // 每张卡确认即落 ConsentRecord（FR20.5 / TC-M1a-05）
+        // 每张卡确认即落 ConsentRecord（FR20.5 / TC-M1a-05）；按 key 去重，
+        // 杀进程重走三卡不得重复落库（评审修正）
         let card = disclosureCards[i]
-        consentRecords.append(ConsentRecord(key: card.key, version: card.version,
-                                            acceptedAt: Date().timeIntervalSince1970))
-        do { let d = try JSONEncoder().encode(consentRecords); defaults.set(d, forKey: "consentRecords") }
-        catch { /* 编码失败不阻断流程 */ }
+        if !consentRecords.contains(where: { $0.key == card.key }) {
+            let record = ConsentRecord(key: card.key, version: card.version,
+                                       acceptedAt: Date().timeIntervalSince1970)
+            consentRecords.append(record)
+            persist { [persistor] in try await persistor.saveConsent(record) }
+        }
+        // 断点续填（FR21.9）：进度落盘，重启后从当前卡继续
+        defaults.set(i + 1, forKey: "disclosureProgress")
         if i + 1 < disclosureCards.count {
             stage = .disclosure(index: i + 1)
         } else {
@@ -86,12 +137,13 @@ final class AppState {
         }
     }
 
-    // MARK: - PIN（§5.32 阶梯在 Domain，App 层只做编排）
+    // MARK: - PIN（阶梯唯一实现在 Domain actor）
 
     func setupPin(_ pin: String) {
         guard pin.count == 6, pin.allSatisfy(\.isNumber) else { return }
-        pinHash = Self.hash(pin)
-        defaults.set(pinHash, forKey: "pinHash")
+        let h = PinHasher.makeHash(pin: pin)
+        pinHash = h.stored
+        defaults.set(h.stored, forKey: "pinHashV2")
         stage = .ownerName
     }
 
@@ -100,62 +152,63 @@ final class AppState {
         return until > Date()
     }
 
-    /// 验证 PIN。失败计数阶梯：5 次→30s / 再 5 次→2min / 5min 封顶（§5.32）
-    func verifyPin(_ pin: String) -> Bool {
-        if let until = lockedUntil, until > Date() { return false }
-        if Self.hash(pin) == pinHash {
-            failedAttempts = 0
-            lockedUntil = nil
-            defaults.set(0, forKey: "failedAttempts")
-            defaults.removeObject(forKey: "lockedUntil")
-            lastVerifiedAt = Date()
-            return true
+    /// 锁屏倒计时（ui-ux §5.1）
+    var remainingLockSeconds: Int {
+        guard let until = lockedUntil else { return 0 }
+        return max(0, Int(until.timeIntervalSince(Date())) + 1)
+    }
+
+    func verifyPin(_ pin: String) async -> Bool {
+        guard let machine = pinMachine else { return false }
+        if await machine.isLocked {
+            refreshLockSnapshot(await machine.snapshot())
+            return false
         }
-        failedAttempts += 1
-        if failedAttempts >= PinLockPolicy.lockAfterFailures {
-            let stageIndex = min(defaults.integer(forKey: "lockStage"), PinLockPolicy.ladder.count - 1)
-            let lockout = PinLockPolicy.lockout(for: stageIndex)
-            lockedUntil = Date().addingTimeInterval(lockout)
-            defaults.set(stageIndex + 1, forKey: "lockStage")
-            failedAttempts = 0
+        guard let stored = pinHash, PinHasher.verify(pin: pin, stored: stored) else {
+            do { _ = try await machine.recordFailure() }
+            catch { logger.error("recordFailure 持久化失败: \(error)") }
+            refreshLockSnapshot(await machine.snapshot())
+            return false
         }
-        // 锁定与计数持久化（FR1.3 跨重启保持）
-        defaults.set(failedAttempts, forKey: "failedAttempts")
-        if let until = lockedUntil { defaults.set(until, forKey: "lockedUntil") }
-        return false
+        do { try await machine.recordSuccess() }
+        catch { logger.error("recordSuccess 持久化失败: \(error)") }
+        refreshLockSnapshot(await machine.snapshot())
+        lastVerifiedAt = Date()
+        return true
     }
 
     // MARK: - 所有者
 
     func createOwner(name: String) {
         var o = LocalOwner(displayName: name, createdAt: Date().timeIntervalSince1970)
-        let profile = PatientProfile(displayName: name, relation: "本人")
+        let profile = PatientProfile(displayName: name, relation: "本人",
+                                     createdAt: o.createdAt, updatedAt: o.createdAt)
         o.selfPatientId = profile.id
         owner = o
-        do { let d = try JSONEncoder().encode(o); defaults.set(d, forKey: "owner") }
-        catch { /* 编码失败不阻断流程；下次建档重写 */ }
         defaults.set(profile.id.uuidString, forKey: "selfPatientId")
+        persist { [persistor] in try await persistor.saveOwner(o, profile: profile) }
         stage = .scanCapture
     }
 
-    // MARK: - 拍摄与 OCR 确认（F5 最小切片 + 假 OCR 引擎）
+    /// FR21.9：建档可跳过——以「本人」占位，稍后在设置中修改
+    func skipOwner() {
+        owner = LocalOwner(displayName: "本人", createdAt: Date().timeIntervalSince1970)
+        stage = .scanCapture
+    }
+
+    // MARK: - 拍摄与 OCR 确认（DocumentCapture 协议注入）
 
     private(set) var activeSet: OcrConfirmationSet?
 
-    /// M1a 无真机相机/无 Vision 可依：注入假 OCR（样张字段），
-    /// 结构按 §5.2/5.3（CandidateField + 置信度三档），M1b 换真 Vision 管线。
     func captureSample() {
-        let isFixture = launchArgs.contains("-uitest-camera-fixture")
-        let title = isFixture ? "处方样张 · 阿莫西林" : "演示样张 · 处方"
-        activeSet = OcrConfirmationSet(fields: [
-            CandidateField(key: "drug_name", displayLabel: "药名",
-                           rawText: "阿莫西林胶囊 0.25g", confidence: isFixture ? 0.93 : 0.91),
-            CandidateField(key: "dosage", displayLabel: "剂量与用法",
-                           rawText: "每日三次 每次一粒", confidence: isFixture ? 0.88 : 0.86),
-            CandidateField(key: "title", displayLabel: "标题",
-                           rawText: title, confidence: 0.98),
-        ])
-        stage = .ocrConfirm
+        Task {
+            do {
+                activeSet = try await captureProvider.capture()
+                stage = .ocrConfirm
+            } catch {
+                logger.error("拍摄管线失败: \(error)")
+            }
+        }
     }
 
     func confirmField(id: UUID) {
@@ -177,8 +230,7 @@ final class AppState {
         let entry = TimelineProjection.entries(from: [set], patientId: patientId,
                                                 occurredAt: Date().timeIntervalSince1970)[0]
         timeline.append(entry)
-        do { let d = try JSONEncoder().encode(timeline); defaults.set(d, forKey: "timeline") }
-        catch { /* 编码失败不阻断流程；下次提交重写 */ }
+        persist { [persistor, timeline] in try await persistor.saveTimeline(timeline) }
         activeSet = nil
         stage = .timeline
     }
@@ -189,14 +241,17 @@ final class AppState {
         stage = .done
     }
 
-    /// 退后台锁定（FR1.4）由 App 层 backgroundLocked 状态承担（遮罩直接挂载），
-    /// 不借用 lockedUntil 哨兵——否则 Date.distantFuture 会把 verifyPin 自身也挡住。
-    /// 本属性是验证成功的信号：遮罩观察它来解除 backgroundLocked。
+    /// PIN 已建立即受门禁保护（评审修正：向导期间退后台同样锁屏——FR1.4 自 PIN 建立起成立）
+    var isPinProtected: Bool { pinHash != nil }
+
+    /// 验证成功信号：LockOverlayView 观察它解除 backgroundLocked
     private(set) var lastVerifiedAt: Date?
 
-
-    static func hash(_ pin: String) -> String {
-        // M1a 占位：SHA256 直算。PBKDF2 600k 迭代 + Keychain 归 M1c §6 加固。
-        pin
+    /// 统一异步持久化出口（§7：错误必须经 Logger 上报，不静默吞掉）
+    private func persist(_ op: @escaping @Sendable () async throws -> Void) {
+        Task {
+            do { try await op() }
+            catch { logger.error("持久化失败: \(error)") }
+        }
     }
 }

@@ -1,0 +1,7 @@
+/* Vita Liber — L10n placeholder (skeleton; full en/zh-Hant with M1c L10n system) */
+
+"nav.home" = "Today";
+"nav.records" = "Records";
+"nav.reminders" = "Reminders";
+"nav.ai" = "AI Assistant";
+"nav.me" = "Me";

@@ -38,7 +38,9 @@ public struct OnboardingProgress: Sendable, Equatable, Codable {
 
 /// F20 / ADR-014：L1 首启三卡（产品边界说明）与同意落库（ConsentRecord 语义）。
 public struct DisclosureCard: Sendable, Equatable, Codable {
-    public enum Kind: String, Sendable, Codable { case boundary, scope, disclaimer }
+    /// FR20.3 L1 三卡种类：产品定位与非目标 / 数据本地存储承诺 / 可跳过项说明。
+    /// 机器识别确认免责不属于 L1（评审修正：原实现混入，移入 OCR 页 L3 微文案）。
+    public enum Kind: String, Sendable, Codable { case boundary, storage, skipInfo }
     public let kind: Kind
     public let key: String        // DisclosureRegistry 文案 key
     public let version: String
@@ -61,13 +63,13 @@ public struct ConsentRecord: Sendable, Equatable, Codable {
 }
 
 public enum DisclosureRegistry {
-    /// M1a 首启三卡（正文来自 function-spec FR20.3 三卡语义的精简版，M1c 接正式文案与 L10n）
+    /// M1a 首启三卡（对齐 FR20.3 L1：产品定位与非目标 / 数据本地存储承诺 / 可跳过项说明）
     public static let l1Cards: [DisclosureCard] = [
-        .init(kind: .boundary, key: "disclosure.l1.boundary", version: "1.0",
+        .init(kind: .boundary, key: "disclosure.l1.boundary", version: "1.1",
               body: "本 App 是个人医疗资料的归档与提醒工具，不是医疗设备：不下诊断、不给治疗方案建议、不替代医生。紧急情况请直接拨打 120 或前往医院。"),
-        .init(kind: .scope, key: "disclosure.l1.scope", version: "1.0",
-              body: "你的资料只保存在本机、完全离线。所有上传、分析、分享、备份都是独立开关，关掉即停。"),
-        .init(kind: .disclaimer, key: "disclosure.l1.disclaimer", version: "1.0",
-              body: "机器识别的药名、剂量、日期都会先请你确认才生效；未确认的内容不会进入正式档案。"),
+        .init(kind: .storage, key: "disclosure.l1.storage", version: "1.1",
+              body: "你的资料只保存在本机、功能完全离线。所有上传、分析、分享、备份都是独立开关，关掉即停。更换设备前请用导出功能备份（资料不会自动上传云端）。"),
+        .init(kind: .skipInfo, key: "disclosure.l1.skipInfo", version: "1.1",
+              body: "建档信息可以稍后补充；添加家人、云账户注册都是可选项，全部可以之后在设置里完成，不影响你正常使用归档与提醒功能。"),
     ]
 }

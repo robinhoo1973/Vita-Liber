@@ -11,9 +11,12 @@ public struct TimelineDocumentEntry: Sendable, Equatable, Codable, Identifiable 
     public var confirmedFieldCount: Int
     public var totalFieldCount: Int
     public var state: State
+    /// FR6.4 修订历史（新→旧）——确认态字段被修改时逐条入史
+    public var revisionHistory: [String]
 
     public init(id: UUID = UUID(), patientId: UUID, title: String, occurredAt: TimeInterval,
-                confirmedFieldCount: Int, totalFieldCount: Int, state: State) {
+                confirmedFieldCount: Int, totalFieldCount: Int, state: State,
+                revisionHistory: [String] = []) {
         self.id = id
         self.patientId = patientId
         self.title = title
@@ -21,6 +24,7 @@ public struct TimelineDocumentEntry: Sendable, Equatable, Codable, Identifiable 
         self.confirmedFieldCount = confirmedFieldCount
         self.totalFieldCount = totalFieldCount
         self.state = state
+        self.revisionHistory = revisionHistory
     }
 }
 
@@ -29,14 +33,17 @@ public enum TimelineProjection {
     public static func entries(from docs: [OcrConfirmationSet], patientId: UUID,
                                occurredAt: TimeInterval) -> [TimelineDocumentEntry] {
         docs.map { set in
-            TimelineDocumentEntry(
+            // 保持字段序 + 各字段历史新→旧（flatMap 天然保序，不 sort）
+            let history = set.fields.flatMap { $0.revisionHistory }
+            return TimelineDocumentEntry(
                 id: set.documentId,
                 patientId: patientId,
                 title: set.fields.first(where: { $0.key == "title" })?.value ?? "未命名资料",
                 occurredAt: occurredAt,
                 confirmedFieldCount: set.confirmedFields.count,
                 totalFieldCount: set.fields.count,
-                state: set.isUsableInTimeline ? .confirmed : .pending)
+                state: set.isUsableInTimeline ? .confirmed : .pending,
+                revisionHistory: history)
         }
     }
 

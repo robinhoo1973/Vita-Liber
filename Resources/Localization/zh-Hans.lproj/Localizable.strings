@@ -1,0 +1,9 @@
+/* Vita Liber · 青囊书 — L10n 占位表（M1a 起建立三文件纪律的骨架；
+   完整 zh-Hant/英文随 M1c L10n 系统接入。tech-spec §3：唯一文案出口。） */
+
+/* MainModule 五模块（ui-ux §9：home/records/reminders/ai/me） */
+"nav.home" = "首页";
+"nav.records" = "健康档案";
+"nav.reminders" = "提醒";
+"nav.ai" = "AI 助手";
+"nav.me" = "我的";

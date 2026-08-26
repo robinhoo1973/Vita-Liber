@@ -2,7 +2,7 @@ import SwiftUI
 import Domain
 
 /// M1a 首启流程视图：L1 三卡 → 设 PIN → 建档 → 拍摄 → OCR 确认 → 时间轴。
-/// 布局对齐 ui-ux §5.29 门禁居中卡片与 §5.51 向导形态（M1c 前为规范简化版）。
+/// 评审修正批：VLIcon 单出口（修空图标）、锁定倒计时、a11y、L3 微文案、修订入口。
 
 struct DisclosureCardsView: View {
     @Environment(AppState.self) private var app
@@ -11,10 +11,12 @@ struct DisclosureCardsView: View {
     var body: some View {
         VStack(spacing: 24) {
             VStack(spacing: 12) {
-                Image(systemName: iconName)
-                    .font(.system(size: 44))
-                    .foregroundStyle(Color("brand-primary", bundle: .main))
+                icon
+                    .resizable().frame(width: 48, height: 48)
                 Text(title).font(.title2.bold())
+                Text("\(app.disclosureCards.firstIndex(where: { $0.key == card.key }).map { $0 + 1 } ?? 1)/\(app.disclosureCards.count)")
+                    .font(.footnote)
+                    .foregroundStyle(Color("text-secondary", bundle: .main))
             }
             .padding(.top, 32)
 
@@ -42,28 +44,32 @@ struct DisclosureCardsView: View {
         .background(Color("bg-grouped", bundle: .main))
     }
 
+    /// 评审 S2 修正：资源在 Assets.xcassets 而非系统符号库——
+    /// `Image(systemName:)` 传资源名会得到空图标，必须走 VLIcon 单出口
+    private var icon: Image {
+        switch card.kind {
+        case .boundary: return VLIcon.stopOctagon
+        case .storage: return VLIcon.lock
+        case .skipInfo: return VLIcon.checkCircle
+        }
+    }
     private var title: String {
         switch card.kind {
         case .boundary: return "这不是医疗设备"
-        case .scope: return "数据只在本机"
-        case .disclaimer: return "机器识别先确认"
-        }
-    }
-    private var iconName: String {
-        switch card.kind {
-        case .boundary: return "ic-stop-octagon"
-        case .scope: return "ic-lock"
-        case .disclaimer: return "ic-check-circle"
+        case .storage: return "数据只在本机"
+        case .skipInfo: return "这些可以稍后再做"
         }
     }
 }
 
-/// PIN 设置与验证（SP-01 门禁卡片，§5.32 阶梯在 AppState）
+/// PIN 设置与验证（SP-01 门禁卡片；锁定阶梯唯一实现在 Domain 状态机）
 struct PinEntryView: View {
     enum Mode { case setup, verify }
     @Environment(AppState.self) private var app
     let mode: Mode
     @State private var pin = ""
+    @State private var tick = 0                      // 每秒刷新倒计时
+    private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
         VStack(spacing: 20) {
@@ -71,31 +77,40 @@ struct PinEntryView: View {
                 .font(.title2.bold())
             Text(mode == .setup ? "用于保护你的医疗资料（FR1.1）" : "错误次数过多会暂时锁定")
                 .font(.footnote)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color("text-secondary", bundle: .main))
 
             HStack(spacing: 14) {
                 ForEach(0..<6, id: \.self) { i in
                     Circle()
-                        .strokeBorder(.secondary, lineWidth: 1)
+                        .strokeBorder(Color("text-secondary", bundle: .main), lineWidth: 1)
                         .background(Circle().fill(i < pin.count ? Color("brand-primary", bundle: .main) : .clear))
                         .frame(width: 18, height: 18)
+                        .accessibilityValue(i < pin.count ? "已输入" : "空")
                 }
             }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("PIN 输入进度")
             .padding(.vertical, 12)
 
-            Text(app.isLocked ? "已锁定，请稍后再试" : " ")
+            // ui-ux §5.1：锁定期间显示剩余等待倒计时（非静态文案）
+            Text(app.isLocked
+                 ? "已锁定，请等待 \(app.remainingLockSeconds) 秒"
+                 : " ")
                 .font(.caption)
-                .foregroundStyle(.red)
+                .foregroundStyle(Color("semantic-danger", bundle: .main))
+                .onReceive(timer) { _ in if app.isLocked { tick += 1 } }
 
-            // M1a 简化键盘：系统键盘不可控于 UI 测试，用数字面板（§5.46 关怀键盘形态的雏形）
+            // M1a 简化键盘：系统键盘不可控于 UI 测试，用数字面板（§5.46 关怀键盘雏形）
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3), spacing: 12) {
                 ForEach(1...9, id: \.self) { n in key(n) }
-                key(-1)   // 占位
+                key(-1)   // 占位（不可聚焦）
                 key(0)
                 key(-2)   // 删除
             }
             .frame(maxWidth: 320)
             .padding(.horizontal, 24)
+            .disabled(app.isLocked)                   // 锁定期间键盘视觉与交互禁用
+            .opacity(app.isLocked ? 0.5 : 1.0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color("bg-grouped", bundle: .main))
@@ -116,6 +131,7 @@ struct PinEntryView: View {
         }
         .buttonStyle(.bordered)
         .accessibilityIdentifier(n >= 0 ? "SP-01.pin.key\(n)" : "SP-01.pin.delete")
+        .accessibilityHidden(n == -1)                 // 评审 S3：占位钮不可聚焦
     }
 
     private func tapKey(_ n: Int) {
@@ -130,7 +146,9 @@ struct PinEntryView: View {
         if mode == .setup {
             app.setupPin(pin)
         } else {
-            if !app.verifyPin(pin) { pin = "" }
+            Task {                                        // verifyPin 桥接 Domain actor
+                if await app.verifyPin(pin) { pin = "" }
+            }
         }
     }
 }
@@ -142,7 +160,7 @@ struct OwnerSetupView: View {
     var body: some View {
         VStack(spacing: 20) {
             Text("建立你的档案").font(.title2.bold())
-            Text("资料以「本人」归属本机所有者（FR21.1）").font(.footnote).foregroundStyle(.secondary)
+            Text("资料以「本人」归属本机所有者（FR21.1）").font(.footnote).foregroundStyle(Color("text-secondary", bundle: .main))
             TextField("你的称呼（如：王女士）", text: $name)
                 .textFieldStyle(.roundedBorder)
                 .frame(maxWidth: 320)
@@ -156,6 +174,14 @@ struct OwnerSetupView: View {
             .buttonStyle(.borderedProminent)
             .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
             .accessibilityIdentifier("SP-06.owner.create")
+            // FR21.9：任意步可跳过（建档可稍后完成，由系统默认「本人」占位）
+            Button {
+                app.skipOwner()
+            } label: {
+                Text("稍后再说")
+            }
+            .buttonStyle(.borderless)
+            .accessibilityIdentifier("SP-06.owner.skip")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color("bg-grouped", bundle: .main))
@@ -169,11 +195,11 @@ struct ScanCaptureView: View {
         VStack(spacing: 24) {
             Text("拍摄处方").font(.title2.bold())
             Text("对准处方笺，自动识别边缘（F5 管线 M1a 演示态）")
-                .font(.footnote).foregroundStyle(.secondary)
+                .font(.footnote).foregroundStyle(Color("text-secondary", bundle: .main))
             RoundedRectangle(cornerRadius: 16)
                 .strokeBorder(style: StrokeStyle(lineWidth: 2, dash: [6]))
                 .foregroundStyle(Color("brand-primary", bundle: .main))
-                .overlay(Image(systemName: "doc.viewfinder").font(.system(size: 56)).foregroundStyle(.secondary))
+                .overlay(VLIcon.scanDocument.resizable().frame(width: 56, height: 56))
                 .frame(maxWidth: 320, minHeight: 240)
             Button {
                 app.captureSample()
@@ -189,19 +215,27 @@ struct ScanCaptureView: View {
     }
 }
 
-/// OCR 字段确认工作台（SP-53 待确认字段队列的 M1a 切片；BR-003 闸门）
+/// OCR 字段确认工作台（SP-53 的 M1a 切片；BR-003 闸门 + L3 常驻微文案）
 struct OcrConfirmView: View {
     @Environment(AppState.self) private var app
 
     var body: some View {
         VStack(spacing: 16) {
             Text("确认识别结果").font(.title2.bold())
-            Text("机器识别的字段需要你逐一确认才会生效（BR-003）")
-                .font(.footnote).foregroundStyle(.secondary)
+            // FR20.3 L3 常驻微文案：机器识别确认免责从 L1 第三卡移入此处
+            Text("机器识别的药名、剂量、日期都会先请你确认才生效；未确认的内容不会进入正式档案。")
+                .font(.footnote)
+                .foregroundStyle(Color("text-secondary", bundle: .main))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
 
             if let set = app.activeSet {
                 ForEach(set.fields) { field in
-                    ConfirmFieldRowView(field: field) { app.confirmField(id: field.id) }
+                    ConfirmFieldRowView(field: field) {
+                        app.confirmField(id: field.id)
+                    } onRevise: { newValue in
+                        app.reviseField(id: field.id, to: newValue)
+                    }
                 }
             }
 
@@ -224,24 +258,43 @@ struct OcrConfirmView: View {
     }
 }
 
+/// 确认行：草稿=虚线 D 级 / 确认=实线绿（ui-ux §1 原则 3）；
+/// 修订入口（评审：退出准则「改一条留修订历史」此前无 UI 不可达）
 struct ConfirmFieldRowView: View {
     let field: CandidateField
     let onConfirm: () -> Void
+    let onRevise: (String) -> Void
+    @State private var editing = false
+    @State private var draft = ""
 
     var body: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(field.displayLabel).font(.caption).foregroundStyle(.secondary)
+                Text(field.displayLabel).font(.caption).foregroundStyle(Color("text-secondary", bundle: .main))
                 Text(field.value).font(.body)
-                Text(ConfidenceTier.tier(field.confidence).rawValue + "置信度")
-                    .font(.caption2).foregroundStyle(.secondary)
+                Text("\(tierText) · 识别未确认")
+                    .font(.caption2)
+                    .foregroundStyle(field.isConfirmed ? Color("grade-c", bundle: .main) : Color("grade-d", bundle: .main))
             }
             Spacer()
             if field.isConfirmed {
-                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                Button {
+                    draft = field.value
+                    editing = true
+                } label: {
+                    Image(systemName: "pencil")
+                        .frame(width: 44, height: 44)          // 触控目标 ≥44pt（ui-ux §4.2）
+                }
+                .buttonStyle(.bordered)
+                .accessibilityLabel("修改\(field.displayLabel)")
+                .accessibilityIdentifier("SP-53.field.edit.\(field.key)")
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(Color("grade-c", bundle: .main))
+                    .frame(width: 44, height: 44)
             } else {
                 Button("确认", action: onConfirm)
                     .buttonStyle(.bordered)
+                    .frame(minHeight: 44)                       // 触控目标 ≥44pt
                     .accessibilityIdentifier("SP-53.field.confirm.\(field.key)")
             }
         }
@@ -249,16 +302,48 @@ struct ConfirmFieldRowView: View {
         .background(RoundedRectangle(cornerRadius: 12).fill(.background))
         .overlay(
             RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(field.isConfirmed ? Color.green : Color("grade-d", bundle: .main),
+                .strokeBorder(field.isConfirmed ? Color("grade-c", bundle: .main) : Color("grade-d", bundle: .main),
                               style: StrokeStyle(lineWidth: field.isConfirmed ? 1 : 1.5, dash: field.isConfirmed ? [] : [5]))
         )
         .padding(.horizontal, 16)
+        // ui-ux §7：单焦点朗读（字段名，值，状态，操作）
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(field.displayLabel)，\(field.value)，\(field.isConfirmed ? "已确认" : "识别未确认")")
+        .sheet(isPresented: $editing) {
+            VStack(spacing: 16) {
+                Text("修改「\(field.displayLabel)」").font(.headline)
+                Text("OCR 原文：\(field.rawText)").font(.caption).foregroundStyle(.secondary)
+                TextField("新值", text: $draft)
+                    .textFieldStyle(.roundedBorder)
+                    .accessibilityIdentifier("SP-53.field.editField")
+                HStack {
+                    Button("取消") { editing = false }
+                    Button("保存修改") {
+                        onRevise(draft)
+                        editing = false
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("SP-53.field.editSave")
+                }
+            }
+            .padding(24)
+            .presentationDetents([.height(260)])
+        }
+    }
+
+    private var tierText: String {
+        switch ConfidenceTier.tier(field.confidence) {
+        case .high: return "高置信度"
+        case .mid: return "中置信度"
+        case .low: return "低置信度"
+        }
     }
 }
 
 /// 时间轴最小投影（F11 M1a：仅文档一类）
 struct TimelineView: View {
     @Environment(AppState.self) private var app
+    var showFinishButton = true
 
     var body: some View {
         VStack(spacing: 12) {
@@ -272,18 +357,25 @@ struct TimelineView: View {
                         Text(entry.title).font(.body)
                         Text("已确认字段 \(entry.confirmedFieldCount)/\(entry.totalFieldCount)")
                             .font(.caption).foregroundStyle(.secondary)
+                        if !entry.revisionHistory.isEmpty {
+                            Text("修订历史：\(entry.revisionHistory.joined(separator: " → "))")
+                                .font(.caption2)
+                                .foregroundStyle(Color("text-secondary", bundle: .main))
+                        }
                     }
                     .accessibilityIdentifier("SP-10.timeline.entry")
                 }
             }
-            Button {
-                app.finishOnboarding()
-            } label: {
-                Text("完成设置，进入应用").frame(maxWidth: .infinity, minHeight: 50)
+            if showFinishButton {
+                Button {
+                    app.finishOnboarding()
+                } label: {
+                    Text("完成设置，进入应用").frame(maxWidth: .infinity, minHeight: 50)
+                }
+                .buttonStyle(.borderedProminent)
+                .padding(.horizontal, 24)
+                .accessibilityIdentifier("SP-01.onboarding.finish")
             }
-            .buttonStyle(.borderedProminent)
-            .padding(.horizontal, 24)
-            .accessibilityIdentifier("SP-01.onboarding.finish")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color("bg-grouped", bundle: .main))

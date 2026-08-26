@@ -43,9 +43,22 @@ final class M1aE2ETests: XCTestCase {
         XCTAssertTrue(capture.waitForExistence(timeout: 5))
         capture.tap()
 
-        // OCR 字段逐一确认（BR-003：未全部确认前 commit 不可用）
+        // OCR 字段确认 → 改一条字段留修订历史（FR6.4 退出准则步骤）
         let commit = app.buttons["SP-53.ocr.commit"]
-        for key in ["drug_name", "dosage", "title"] {
+        // 剂量字段：确认 → 修改 → 保存（旧值入修订历史）
+        let confirmDosage = app.buttons["SP-53.field.confirm.dosage"]
+        XCTAssertTrue(confirmDosage.waitForExistence(timeout: 5))
+        confirmDosage.tap()
+        let editDosage = app.buttons["SP-53.field.edit.dosage"]
+        XCTAssertTrue(editDosage.waitForExistence(timeout: 5), "确认后必须出现修改入口")
+        editDosage.tap()
+        let editField = app.textFields["SP-53.field.editField"]
+        XCTAssertTrue(editField.waitForExistence(timeout: 5))
+        editField.tap()
+        editField.typeText("每日两次")
+        app.buttons["SP-53.field.editSave"].tap()
+        // 其余字段逐一确认（BR-003：未全部确认前 commit 不可用）
+        for key in ["drug_name", "title"] {
             let confirmField = app.buttons["SP-53.field.confirm.\(key)"]
             XCTAssertTrue(confirmField.waitForExistence(timeout: 5), "字段 \(key) 必须呈现")
             confirmField.tap()

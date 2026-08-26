@@ -22,13 +22,15 @@ struct OnboardingFlowView: View {
             OcrConfirmView()
         case .timeline:
             TimelineView()
-        case .done, .pinVerify:
+        case .done:
             EmptyView()
         }
     }
 }
 
 /// 门禁遮罩：退后台回前台必见（FR1.4）。验证成功（lastVerifiedAt 变化）→ 通知 App 解除。
+/// FR1.7 任务切换器快照遮罩：遮罩本身为整屏不透明内容 + 背景模糊，
+/// 系统快照截取时不会泄露医疗内容（亮度断言归 L2 人工复核，test-plan E3）。
 struct LockOverlayView: View {
     @Environment(AppState.self) private var app
     var onUnlocked: () -> Void
