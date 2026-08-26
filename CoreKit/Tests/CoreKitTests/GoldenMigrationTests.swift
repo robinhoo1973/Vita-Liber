@@ -43,3 +43,21 @@ struct GoldenClassifyTests {
         #expect(GoldenRules.confidenceTier(0.85) == "high")
     }
 }
+
+@Suite("Golden · M0 Sprint-4 LoadGate/审计")
+struct LoadGateAuditTests {
+    @Test func LoadGate并发仅加载一次() async {
+        let gate = LoadGate()
+        actor Counter { var n = 0; func inc() { n += 1 }; var v: Int { n } }
+        let c = Counter()
+        await withTaskGroup(of: Void.self) { g in
+            for _ in 0..<20 { g.addTask { try? await gate.enter { await c.inc() } } }
+        }
+        #expect(await c.v == 1)                       // 幂等：20 并发只触发一次加载
+        #expect(await gate.currentState == .ready)
+    }
+    @Test func 审计表外键指向已定义表() {
+        #expect(MigrationEngine.schemaV1.contains("audit_event"))
+        #expect(MigrationEngine.schemaV1.contains("REFERENCES patient_profile(id)"))
+    }
+}

@@ -21,5 +21,15 @@ public enum MigrationEngine {
       id TEXT PRIMARY KEY,
       patient_id TEXT NOT NULL REFERENCES patient_profile(id),
       title TEXT, created_at REAL NOT NULL);
+
+    CREATE TABLE IF NOT EXISTS audit_event (
+      id TEXT PRIMARY KEY,
+      actor_member_id TEXT REFERENCES patient_profile(id),
+      action TEXT NOT NULL,              -- 枚举字符串: create/update/delete/unlock/...
+      entity_type TEXT NOT NULL,
+      entity_id TEXT,
+      occurred_at REAL NOT NULL,
+      meta_json TEXT);                   -- 仅记事实与计数,不记医疗内容(§6 日志最小化)
+    CREATE INDEX IF NOT EXISTS idx_audit_time ON audit_event(occurred_at DESC);
     """
 }
