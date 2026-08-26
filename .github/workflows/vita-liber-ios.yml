@@ -196,7 +196,7 @@ jobs:
           name: shard-result-${{ matrix.shard-name }}-${{ github.run_id }}
           path: |
             Build/shard.xcresult
-            Build/xcodebuild-shard-*.log
+            Build/xcodebuild-shard.log
           retention-days: 7
       - name: Cleanup simulator (always, E2/E3)
         if: always()
