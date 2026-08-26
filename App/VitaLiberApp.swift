@@ -10,22 +10,27 @@ struct VitaLiberApp: App {
     /// 退后台锁屏状态（FR1.4）：scenePhase 切 background 置位，回前台由门禁遮罩接管。
     /// 评审修正：锁定优先级在向导分支**之前**——PIN 一旦建立，向导期间退后台同样锁屏。
     @State private var backgroundLocked = false
+    @State private var reminderStore: ReminderStore
 
     init() {
-        // 组装根（评审 A2：AppContainer 由 App 消费，AppState 只面向协议）
+        // 组装根（评审 A2：AppContainer 由 App 消费，AppState/ReminderStore 只面向协议）。
+        // 数据层装配是启动不变量：live 失败降级 preview（内存库）；连内存库都建不出来
+        // 意味着 SQLite 损坏——此时任何降级都无意义，显式终止并留清晰信息。
         let args = ProcessInfo.processInfo.arguments
-        var container: AppContainer?
+        let container: AppContainer
         do {
             container = try AppContainer.live(databasePath: AppContainer.defaultDatabasePath())
         } catch {
-            // 生产库不可用时降级内存库（极端环境兜底；错误经日志上报）
             do { container = try AppContainer.preview() }
-            catch { container = nil }
+            catch {
+                fatalError("数据层初始化失败（live 与 preview 均不可用）: \(error)")
+            }
         }
-        let persistor: any M1aPersisting = container?.persistor ?? FallbackPersistor()
         _appState = State(initialValue: AppState(
-            persistor: persistor,
+            persistor: container.persistor,
             capture: FakeOcrProvider(fixture: args.contains("-uitest-camera-fixture"))))
+        _reminderStore = State(initialValue: ReminderStore(
+            meds: container.meds, apts: container.apts, reconciler: container.reconciler))
     }
 
     var body: some Scene {
@@ -40,6 +45,7 @@ struct VitaLiberApp: App {
                 }
             }
             .environment(appState)
+            .environment(reminderStore)
             .task { await appState.bootstrap() }
         }
         .onChange(of: scenePhase) { _, phase in
@@ -53,18 +59,6 @@ struct VitaLiberApp: App {
             }
         }
     }
-}
 
-/// 极端兜底：DB 完全不可用时的内存实现（不应到达；保留 App 可启动）
-private actor FallbackPersistor: M1aPersisting {
-    private var owner: LocalOwner?
-    private var consents: [ConsentRecord] = []
-    private var timeline: [TimelineDocumentEntry] = []
-    func loadOwner() async throws -> LocalOwner? { owner }
-    func saveOwner(_ o: LocalOwner, profile: PatientProfile) async throws { owner = o }
-    func loadConsents() async throws -> [ConsentRecord] { consents }
-    func saveConsent(_ c: ConsentRecord) async throws { consents.append(c) }
-    func loadTimeline() async throws -> [TimelineDocumentEntry] { timeline }
-    func saveTimeline(_ entries: [TimelineDocumentEntry]) async throws { timeline = entries }
-    func reset() async throws { owner = nil; consents = []; timeline = [] }
+
 }

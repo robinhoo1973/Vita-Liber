@@ -92,6 +92,8 @@ struct ModuleRoot: View {
     var body: some View {
         if module == .records {
             TimelineView(showFinishButton: false)
+        } else if module == .reminders {
+            RemindersView()
         } else {
             VStack(spacing: 12) {
                 Image(systemName: "square.grid.2x2")

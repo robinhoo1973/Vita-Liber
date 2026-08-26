@@ -10,21 +10,32 @@ struct AppContainer {
     let store: GRDBStore
     let audit: AuditLogWriter
     let persistor: GRDBM1aPersistor
+    let meds: MedicationStore
+    let apts: AppointmentStore
+    let reconciler: ReminderReconciler
 
-    /// 生产装配：文件库 + WAL（§4.4）。
+    /// 生产装配：文件库 + WAL（§4.4）+ UNUserNotificationCenter 适配。
     static func live(databasePath: String) throws -> AppContainer {
         let store = try GRDBStore.pool(at: databasePath)
-        return AppContainer(store: store,
-                            audit: AuditLogWriter(writer: store.writer),
-                            persistor: GRDBM1aPersistor(store: store))
+        return assemble(store: store, scheduler: UNReminderScheduler())
     }
 
-    /// Preview/测试装配：内存库。
+    /// Preview/测试装配：内存库 + 内存调度器。
     static func preview() throws -> AppContainer {
         let store = try GRDBStore.inMemory()
+        return assemble(store: store, scheduler: InMemoryReminderScheduler())
+    }
+
+    private static func assemble(store: GRDBStore, scheduler: any ReminderScheduling) -> AppContainer {
+        let meds = MedicationStore(writer: store.writer)
+        let apts = AppointmentStore(writer: store.writer, scheduler: scheduler)
+        let reconciler = ReminderReconciler(scheduler: scheduler, source: meds)
         return AppContainer(store: store,
                             audit: AuditLogWriter(writer: store.writer),
-                            persistor: GRDBM1aPersistor(store: store))
+                            persistor: GRDBM1aPersistor(store: store),
+                            meds: meds,
+                            apts: apts,
+                            reconciler: reconciler)
     }
 
     /// Application Support 下的数据库路径（生产库位置）
