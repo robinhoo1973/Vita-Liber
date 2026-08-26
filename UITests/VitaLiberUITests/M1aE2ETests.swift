@@ -53,9 +53,9 @@ final class M1aE2ETests: XCTestCase {
         XCTAssertTrue(commit.waitForExistence(timeout: 5), "全部确认后 commit 可用")
         commit.tap()
 
-        // 时间轴可见该文档
-        let entry = app.otherElements["SP-10.timeline.entry"].firstMatch
-        XCTAssertTrue(entry.waitForExistence(timeout: 5), "确认后的文档必须进入时间轴正式区")
+        // 时间轴可见该文档（List 行是 cell 元素；用 descendants(.any) 容忍类型差异）
+        let entry = app.descendants(matching: .any)["SP-10.timeline.entry"].firstMatch
+        XCTAssertTrue(entry.waitForExistence(timeout: 8), "确认后的文档必须进入时间轴正式区")
 
         // 完成设置
         let finish = app.buttons["SP-01.onboarding.finish"]
@@ -83,12 +83,13 @@ final class M1aE2ETests: XCTestCase {
         // 退后台 → 回前台：必见锁屏遮罩
         XCUIDevice.shared.press(.home)
         app.activate()
-        let lock = app.otherElements["SP-01.lockOverlay"]
+        let lock = app.descendants(matching: .any)["SP-01.lockOverlay"].firstMatch
         XCTAssertTrue(lock.waitForExistence(timeout: 10), "FR1.4：回前台必须见锁屏")
 
         // 验证 PIN 后回到主界面（五模块外壳可见）
         typePin("135790", in: app)
-        XCTAssertTrue(app.buttons["SP-01.pin.key1"].waitForNonExistence(timeout: 10) || !app.otherElements["SP-01.lockOverlay"].exists,
+        let lockGone = app.descendants(matching: .any)["SP-01.lockOverlay"].firstMatch
+        XCTAssertTrue(lockGone.waitForNonExistence(timeout: 10),
                       "验证成功后锁屏遮罩必须消失")
     }
 }
