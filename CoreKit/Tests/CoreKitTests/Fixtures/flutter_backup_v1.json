@@ -1,0 +1,69 @@
+[
+  {
+    "id": "rec-2019-0412-001",
+    "title": "门诊处方笺 · 阿莫西林",
+    "recordType": "prescription",
+    "assets": [
+      {
+        "id": "ast-001-0",
+        "type": "image",
+        "textBlocks": [
+          { "text": "阿莫西林胶囊 0.25g", "confidence": 0.93 },
+          { "text": "每日三次 每次一粒", "confidence": 0.88 }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "rec-2019-1103-002",
+    "title": "血常规检验报告",
+    "recordType": "lab",
+    "assets": [
+      {
+        "id": "ast-002-0",
+        "type": "image",
+        "textBlocks": [
+          { "text": "白细胞 6.8 ×10^9/L", "confidence": 0.79 }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "rec-2020-0208-003",
+    "title": "出院小结",
+    "recordType": "other",
+    "assets": [
+      {
+        "id": "ast-003-0",
+        "type": "image",
+        "textBlocks": [
+          { "text": "建议定期复查", "confidence": 0.95 }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "rec-2021-0621-004",
+    "title": "手写便签",
+    "recordType": null,
+    "assets": []
+  },
+  {
+    "id": "rec-2021-0901-005",
+    "title": "疫苗接种记录",
+    "recordType": "vaccination",
+    "assets": null
+  },
+  {
+    "id": "rec-2022-1231-006",
+    "title": "处方（第二次取药）",
+    "recordType": "medication",
+    "assets": [
+      {
+        "id": "ast-006-0",
+        "type": "image",
+        "textBlocks": []
+      }
+    ]
+  }
+]

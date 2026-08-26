@@ -24,8 +24,12 @@ final class SchemaRuntimeTests: XCTestCase {
         XCTAssertThrowsError(
             try store.writer.write { db in
                 try db.execute(
-                    sql: "INSERT INTO document_file (id, patient_id, title, created_at) VALUES (?, ?, ?, ?)",
-                    arguments: ["d1", "ghost-patient-id", "悬空引用", 0.0])
+                    sql: """
+                    INSERT INTO document_file
+                      (id, patient_id, doc_type, sha256, mime_type, origin, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    arguments: ["d1", "ghost-patient-id", "病历", "sha", "image/jpeg", "camera", 0.0, 0.0])
             },
             "patient_id 指向不存在的 patient_profile，必须被外键约束拒绝")
     }
@@ -37,8 +41,12 @@ final class SchemaRuntimeTests: XCTestCase {
         try store.insert(profile: profile)
         try store.writer.write { db in
             try db.execute(
-                sql: "INSERT INTO document_file (id, patient_id, title, created_at) VALUES (?, ?, ?, ?)",
-                arguments: ["d2", profile.id.uuidString, "处方", 0.0])
+                sql: """
+                INSERT INTO document_file
+                  (id, patient_id, doc_type, sha256, mime_type, origin, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                arguments: ["d2", profile.id.uuidString, "处方", "sha2", "image/jpeg", "camera", 0.0, 0.0])
         }
         let count = try store.writer.read { db in
             try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM document_file") ?? -1
@@ -59,5 +67,23 @@ final class SchemaRuntimeTests: XCTestCase {
             try String.fetchAll(db, sql: "SELECT name FROM sqlite_master WHERE type='index'")
         }
         XCTAssertTrue(indexes.contains("idx_audit_time"), "§4.3 审计时间倒序索引必须建立")
+    }
+
+    /// dev-pm §3.1 M0 第 5 条：FR9.10-9.14 依赖的批次/药品表必须在 M0 迁移中一并建库
+    /// （批次表属 schema 基础设施，不推迟到 M1b）。
+    func test_M0全量建表含双轨库存五表() throws {
+        let store = try GRDBStore.inMemory()
+        let tables = try store.writer.read { db in
+            try String.fetchAll(db, sql: "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+        }
+        for required in ["prescription", "medication", "medication_plan",
+                         "medication_dose_log", "stock_lot", "dose_lot_allocation"] {
+            XCTAssertTrue(tables.contains(required), "M0 建库必须包含 \(required)（dev-pm §3.1 第 5 条）")
+        }
+        let indexes = try store.writer.read { db in
+            try String.fetchAll(db, sql: "SELECT name FROM sqlite_master WHERE type='index'")
+        }
+        XCTAssertTrue(indexes.contains("idx_stock_lot_med_expire"), "双轨库存过期索引必须建立（FEFO 消费依赖）")
+        XCTAssertTrue(indexes.contains("idx_plan_patient_status"), "计划状态机索引必须建立（FR9.15）")
     }
 }

@@ -44,11 +44,21 @@ public struct GRDBStore {
     }
 
     /// 列名显式书写：位置参数 `VALUES (?,?)` 会在 §4.3 DDL 增列时静默错位。
+    /// v2 全表（V3.40）后 patient_profile 有 NOT NULL 的 relation/created_at/updated_at，
+    /// 必须随实体全量入库。
     public func insert(profile: PatientProfile) throws {
         try writer.write { db in
             try db.execute(
-                sql: "INSERT INTO patient_profile (id, display_name) VALUES (?, ?)",
-                arguments: [profile.id.uuidString, profile.displayName])
+                sql: """
+                INSERT INTO patient_profile
+                  (id, display_name, relation, gender, birth_date, note, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                arguments: [
+                    profile.id.uuidString, profile.displayName, profile.relation,
+                    profile.gender, profile.birthDate, profile.note,
+                    profile.createdAt, profile.updatedAt,
+                ])
         }
     }
 

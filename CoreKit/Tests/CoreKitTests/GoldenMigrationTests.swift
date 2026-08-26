@@ -60,6 +60,48 @@ struct LoadGateAuditTests {
         #expect(MigrationEngine.schemaV1.contains("audit_event"))
         #expect(MigrationEngine.schemaV1.contains("REFERENCES patient_profile(id)"))
     }
+
+    /// dev-pm §3.1：金样五类样本 + flutter 版真实备份样本一份。
+    /// 混型样本覆盖 prescription/lab/medication/other/空资产五种形态——
+    /// 断言「迁移条数等于输入条数」且「分类路由与实际类型一致」。
+    @Test func flutter真实备份样本无损迁移() throws {
+        let fixture = Bundle.module.bundlePath + "/Fixtures/flutter_backup_v1.json"
+        let data = try Data(contentsOf: URL(fileURLWithPath: fixture))
+        #expect(MigrationEngine.migrate(recordsJSON: data) == .migrated(count: 6))
+        let records = try JSONDecoder().decode([LegacyRecord].self, from: data)
+        #expect(GoldenRules.classify(recordType: records[0].recordType, assets: records[0].assets) == .prescription)
+        #expect(GoldenRules.classify(recordType: records[1].recordType, assets: records[1].assets) == .lab)
+        #expect(GoldenRules.classify(recordType: records[2].recordType, assets: records[2].assets) == .ocrBlock)  // other+OCR块→兜底
+        #expect(GoldenRules.classify(recordType: records[3].recordType, assets: records[3].assets) == .generic)
+        #expect(GoldenRules.classify(recordType: records[4].recordType, assets: records[4].assets) == .generic)  // 未知类型+无资产
+        #expect(GoldenRules.classify(recordType: records[5].recordType, assets: records[5].assets) == .prescription)  // medication→处方
+    }
+
+    /// §4.3 自洽性（静态半场的补强，Linux 即可执行）：全量 DDL 里每个 REFERENCES
+    /// 目标表都必须有 CREATE TABLE——与 L0 [3/7] 同语义，但直接作用在规范 DDL 上，
+    /// 防「表名拼写漂移」类缺陷在 iOS 建库时才爆炸。
+    @Test func 全量DDL引用目标自洽() {
+        let ddl = MigrationEngine.schemaV1
+        let created = Set(ddl
+            .replacingOccurrences(of: "IF NOT EXISTS ", with: "")
+            .split(separator: ";")
+            .compactMap { stmt -> String? in
+                let s = String(stmt)
+                guard let r = s.range(of: "CREATE TABLE ") else { return nil }
+                let rest = String(s[r.upperBound...])
+                return rest.prefix(while: { $0 != "(" && $0 != " " }).description.trimmingCharacters(in: .whitespaces)
+            })
+        let refs = Set(ddl
+            .split(separator: ";")
+            .compactMap { stmt -> String? in
+                let s = String(stmt)
+                guard let r = s.range(of: "REFERENCES ") else { return nil }
+                let rest = String(s[r.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+                return rest.prefix(while: { $0 != "(" && $0 != " " && $0 != "\n" }).description
+            })
+        let missing = refs.subtracting(created)
+        #expect(missing.isEmpty, "悬空 REFERENCES 目标: \(missing.sorted())")
+    }
 }
 
 @Suite("M0 · MockFactory 三实体（Preview 出口准则）")

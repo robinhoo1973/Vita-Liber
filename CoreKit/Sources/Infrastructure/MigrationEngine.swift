@@ -13,23 +13,11 @@ public enum MigrationEngine {
         catch { return .degraded }
     }
 
-    /// §4.3 Schema v1（节选；外键开启由连接层 PRAGMA 保证）
-    public static let schemaV1 = """
-    CREATE TABLE IF NOT EXISTS patient_profile (
-      id TEXT PRIMARY KEY, display_name TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS document_file (
-      id TEXT PRIMARY KEY,
-      patient_id TEXT NOT NULL REFERENCES patient_profile(id),
-      title TEXT, created_at REAL NOT NULL);
-
-    CREATE TABLE IF NOT EXISTS audit_event (
-      id TEXT PRIMARY KEY,
-      actor_member_id TEXT REFERENCES patient_profile(id),
-      action TEXT NOT NULL,              -- 枚举字符串: create/update/delete/unlock/...
-      entity_type TEXT NOT NULL,
-      entity_id TEXT,
-      occurred_at REAL NOT NULL,
-      meta_json TEXT);                   -- 仅记事实与计数,不记医疗内容(§6 日志最小化)
-    CREATE INDEX IF NOT EXISTS idx_audit_time ON audit_event(occurred_at DESC);
-    """
+    /// §4.3 Schema v2 全量建表（V3.40，dev-pm §3.1 M0 第 5 条）：
+    /// 含 stock_lot / dose_lot_allocation / medication / medication_plan /
+    /// medication_dose_log 等 FR9.10-9.14 依赖的表——批次表属 schema 基础设施，
+    /// 不推迟到 M1b。外键开启落在连接层 `Configuration.foreignKeysEnabled`
+    /// （GRDBStore），不依赖事后 PRAGMA。
+    /// 旧名 schemaV1 保留为兼容引用，语义即「v2 全量建表」。
+    public static let schemaV1 = SchemaV2.ddl
 }
