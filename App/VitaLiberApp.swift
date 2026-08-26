@@ -13,6 +13,7 @@ struct VitaLiberApp: App {
     @State private var backgroundLocked = false
     @State private var reminderStore: ReminderStore
     @State private var assistantStore: AssistantStore
+    @State private var settingsStore: AppSettingsStore
 
     init() {
         // 组装根（评审 A2：AppContainer 由 App 消费，AppState/ReminderStore 只面向协议）。
@@ -34,6 +35,7 @@ struct VitaLiberApp: App {
         _reminderStore = State(initialValue: ReminderStore(
             meds: container.meds, apts: container.apts, reconciler: container.reconciler))
         _assistantStore = State(initialValue: AssistantStore(provider: container.aiProvider))
+        _settingsStore = State(initialValue: AppSettingsStore(store: container.settings))
     }
 
     var body: some Scene {
@@ -50,6 +52,7 @@ struct VitaLiberApp: App {
             .environment(appState)
             .environment(reminderStore)
             .environment(assistantStore)
+            .environment(settingsStore)
             .task {
                 await appState.bootstrap()
                 // 四层补偿第 1 层（§5.4 V3.29）：前台启动时对账 + 首启请求通知授权

@@ -328,6 +328,11 @@ public enum SchemaV2 {
       item_key TEXT PRIMARY KEY,
       kind TEXT NOT NULL, read_at REAL, archived_at REAL);
 
+    -- 偏好设置（§5.28：键枚举单一事实源；只存非默认覆盖）
+    CREATE TABLE app_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL);
+
     -- 审计（§5.6 对齐：audit_event(id, at, actor_local, action, entity_type, entity_id_hash, meta_json)）
     -- 仅 INSERT API 暴露；entity_id 存哈希不存明文（§6 日志最小化）
     CREATE TABLE audit_event (

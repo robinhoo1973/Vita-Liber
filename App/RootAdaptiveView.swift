@@ -96,6 +96,8 @@ struct ModuleRoot: View {
             RemindersView()
         } else if module == .ai {
             NavigationStack { AssistantView() }
+        } else if module == .me {
+            SettingsView()
         } else {
             VStack(spacing: 12) {
                 Image(systemName: "square.grid.2x2")
