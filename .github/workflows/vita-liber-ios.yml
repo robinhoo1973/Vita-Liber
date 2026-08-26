@@ -170,7 +170,6 @@ jobs:
         with:
           name: 'generated-project-${{ github.run_id }}'
           path: .
-          path: Build/DerivedData/Build/Products
 
       - name: Boot simulator (bootstatus 就绪等待, E2)
         run: |
@@ -222,7 +221,6 @@ jobs:
         with:
           name: 'generated-project-${{ github.run_id }}'
           path: .
-          path: Build/DerivedData/Build/Products
 
       # 隔离克隆模拟器 + 权限预授权（E3/E4；Keychain 类用例由 erase 保证干净态）
       - name: Provision isolated simulator
@@ -279,7 +277,6 @@ jobs:
         with:
           name: 'generated-project-${{ github.run_id }}'
           path: .
-          path: Build/DerivedData/Build/Products
       - name: Run golden suites
         run: |
           set -o pipefail
@@ -323,7 +320,6 @@ jobs:
         with:
           name: 'generated-project-${{ github.run_id }}'
           path: .
-          path: Build/DerivedData/Build/Products
       - name: Run perf screening
         run: |
           set -o pipefail
@@ -370,7 +366,6 @@ jobs:
         with:
           name: 'generated-project-${{ github.run_id }}'
           path: .
-          path: Build/DerivedData/Build/Products
       - name: Run UI smoke on next runtime
         run: |
           set -o pipefail
