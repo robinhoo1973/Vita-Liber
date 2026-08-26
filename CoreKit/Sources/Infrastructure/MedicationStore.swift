@@ -123,9 +123,10 @@ public actor MedicationStore: DoseSource {
     }
 
     /// FR9.8.2 扣减矩阵落库（同事务）：按 FEFO 在**本药品**活跃且未过期批次上分配
-    /// （评审 S1-1：不按 medication 过滤会把 A 药确认扣到 B 药批；过期批不得作来源）
-    private func applyResolution(patientId: UUID, medicationId: UUID, notifyId: String, units: Double,
-                                 action: DoseUserAction, db: Database) throws {
+    /// （评审 S1-1：不按 medication 过滤会把 A 药确认扣到 B 药批；过期批不得作来源）。
+    /// nonisolated：在 writer.write 的同步闭包内调用，不触碰 actor 状态。
+    private nonisolated func applyResolution(patientId: UUID, medicationId: UUID, notifyId: String, units: Double,
+                                             action: DoseUserAction, db: Database) throws {
         var inventories: [DualTrackInventory] = []
         for row in try Row.fetchAll(db, sql: """
             SELECT * FROM stock_lot
@@ -144,7 +145,7 @@ public actor MedicationStore: DoseSource {
         // 确认线分配（仅 taken）；计划线按 FEFO 同样分配（矩阵语义）
         var planRemaining = action == .snoozed ? 0 : units
         var confirmedRemaining = action == .taken ? units : 0
-        var allocations: [(UUID, Double)] = []
+        var allocations: [(lotId: UUID, units: Double)] = []
         for sortedLot in InventoryRules.fefoOrder(inventories) {
             guard planRemaining > 0 || confirmedRemaining > 0 else { break }
             guard sortedLot.status == "active",
