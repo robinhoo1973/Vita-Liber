@@ -34,7 +34,7 @@ public actor GRDBSearchService: FullTextSearch {
                     WHERE document_fts MATCH ? AND d.status IN ('active','favorite')
                       AND d.patient_id IN (\(patientIds.map { _ in "?" }.joined(separator: ",")))
                     ORDER BY rank LIMIT ?
-                    """, arguments: [match] + patientIds + [limit])
+                    """, arguments: StatementArguments([match] + patientIds + [limit]))
                 return rows.compactMap { Self.hit($0) }
             case .bigram:
                 let grams = SearchRules.bigrams(query).joined(separator: " OR ")
@@ -45,7 +45,7 @@ public actor GRDBSearchService: FullTextSearch {
                     WHERE document_fts_2gram MATCH ? AND d.status IN ('active','favorite')
                       AND d.patient_id IN (\(patientIds.map { _ in "?" }.joined(separator: ",")))
                     ORDER BY rank LIMIT ?
-                    """, arguments: [grams] + patientIds + [limit])
+                    """, arguments: StatementArguments([grams] + patientIds + [limit]))
                 // contentless 表无 snippet 函数——取回源列手动高亮（V3.44）
                 return rows.compactMap { row in
                     guard let ref = Self.hit(row) else { return nil }
@@ -66,7 +66,7 @@ public actor GRDBSearchService: FullTextSearch {
                       AND d.patient_id IN (\(patientIds.map { _ in "?" }.joined(separator: ",")))
                       AND (d.meta_json LIKE ? OR d.title LIKE ? OR d.ocr_text LIKE ? OR d.notes LIKE ?)
                     ORDER BY d.created_at DESC LIMIT ?
-                    """, arguments: [since] + patientIds + [pattern, pattern, pattern, pattern, limit])
+                    """, arguments: StatementArguments([since] + patientIds + [pattern, pattern, pattern, pattern, limit]))
                 return rows.compactMap { Self.hit($0) }
             case .invalid:
                 return []
