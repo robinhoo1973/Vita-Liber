@@ -10,20 +10,31 @@ import Protocols
 @MainActor
 final class M1bAcceptanceTests: XCTestCase {
 
-    private func makeStore() async throws -> (store: GRDBStore, meds: MedicationStore, scheduler: InMemoryReminderScheduler, apts: AppointmentStore) {
+    private func makeStore() async throws -> (store: GRDBStore, meds: MedicationStore, scheduler: InMemoryReminderScheduler, apts: AppointmentStore, patient: UUID, med: UUID) {
         let store = try GRDBStore.inMemory()
         let scheduler = InMemoryReminderScheduler()
         let meds = MedicationStore(writer: store.writer)
         let apts = AppointmentStore(writer: store.writer, scheduler: scheduler)
-        return (store, meds, scheduler, apts)
+        // 种子数据：patient_profile + medication（stock_lot 的外键目标，ERR#35 教训前置）
+        let patient = UUID()
+        let med = UUID()
+        try await store.writer.write { db in
+            try db.execute(sql: """
+                INSERT INTO patient_profile (id, display_name, relation, created_at, updated_at)
+                VALUES (?, '测试患者', '本人', 0, 0)
+                """, arguments: [patient.uuidString])
+            try db.execute(sql: """
+                INSERT INTO medication (id, patient_id, generic_name, unit_kind, created_at, updated_at)
+                VALUES (?, ?, '阿莫西林', 'tablet', 0, 0)
+                """, arguments: [med.uuidString, patient.uuidString])
+        }
+        return (store, meds, scheduler, apts, patient, med)
     }
 
     /// FR9.8.2 双轨扣减矩阵落库：确认「服了」→ 确认线按 FEFO 扣减并写 allocation；
     /// 安全线不受确认动作影响（BR-004）
     func test_双轨扣减矩阵落库() async throws {
-        let (store, meds, _, _) = try await makeStore()
-        let patient = UUID()
-        let med = UUID()
+        let (store, meds, _, _, patient, med) = try await makeStore()
         // 两批：先到期批 10 粒 + 后到期批 10 粒
         let early = DualTrackInventory(lotId: UUID(), totalUnits: 10, unitKind: "tablet",
                                        expireAt: Date(timeIntervalSince1970: 1000))
@@ -50,9 +61,9 @@ final class M1bAcceptanceTests: XCTestCase {
 
     /// 跳过/忘记零扣减（BR-004 纯事实）
     func test_跳过与忘记零扣减() async throws {
-        let (store, meds, _, _) = try await makeStore()
+        let (store, meds, _, _, patient, med) = try await makeStore()
         let lot = DualTrackInventory(lotId: UUID(), totalUnits: 10, unitKind: "tablet")
-        try await meds.createLot(lot: lot, patientId: UUID(), medicationId: UUID())
+        try await meds.createLot(lot: lot, patientId: patient, medicationId: med)
         try await meds.recordAction(doseLogId: UUID(), action: .skipped)
         try await meds.recordAction(doseLogId: UUID(), action: .missed)
         let remaining = try await store.writer.read { db in
@@ -63,8 +74,7 @@ final class M1bAcceptanceTests: XCTestCase {
 
     /// 预约闭环：创建→四级提醒预排→改期重排→完成状态（FR10.3/10.7）
     func test_预约创建分级提醒与改期() async throws {
-        let (store, _, scheduler, apts) = try await makeStore()
-        let patient = UUID()
+        let (store, _, scheduler, apts, patient, _) = try await makeStore()
         let startsAt = Date().addingTimeInterval(10 * 86400)
         let aptId = UUID()
         try await apts.create(id: aptId, patientId: patient, hospital: "市一医院",
