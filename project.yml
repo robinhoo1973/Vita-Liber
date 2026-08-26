@@ -1,0 +1,27 @@
+name: VitaLiber
+options:
+  bundleIdPrefix: com.vitaliber
+  deploymentTarget: { iOS: "17.0" }
+packages:
+  CoreKit: { path: CoreKit }
+targets:
+  VitaLiber:
+    type: application
+    platform: iOS
+    sources: [App]
+    dependencies: [{ package: CoreKit }]
+  VitaLiberTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [Tests/VitaLiberTests]
+    dependencies: [{ target: VitaLiber }]
+  VitaLiberUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [UITests/VitaLiberUITests]
+    dependencies: [{ target: VitaLiber }]
+schemes:
+  VitaLiber:
+    build: { targets: { VitaLiber: all, VitaLiberTests: [test], VitaLiberUITests: [test] } }
+    test:
+      targets: [VitaLiberTests, VitaLiberUITests]

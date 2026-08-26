@@ -6,6 +6,10 @@
 !/README.zh-CN.md
 !/README.zh-Hant.md
 !/CoreKit/
+!/App/
+!/Tests/
+!/UITests/
+!/project.yml
 
 # Swift/SPM 构建产物（编译非必需，绝不入库）
 .build/
@@ -13,7 +17,7 @@
 DerivedData/
 Build/
 *.xcresult
-*.xcodeproje
+*.xcodeproj
 
 # 安全兜底：任何密钥/证书/本地环境文件
 *.p8
