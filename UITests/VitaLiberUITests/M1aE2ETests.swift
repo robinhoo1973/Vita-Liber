@@ -76,22 +76,13 @@ final class M1aE2ETests: XCTestCase {
         finish.tap()
     }
 
-    /// FR1.4：退后台回前台必见锁屏；验证 PIN 后回到主界面
+    /// FR1.4：退后台回前台必见锁屏；验证 PIN 后回到主界面。
+    /// 依赖前一个用例（端到端故事）持久化的完成态：同 runner 同模拟器，
+    /// XCTest 按用例名顺序执行（端→退），此依赖显式声明。
     func test_退后台回前台必见锁屏() throws {
-        let app = launchFresh()
-        // 先走完首启（复用端到端步骤）
-        for _ in 0..<3 { app.buttons["SP-01.disclosure.confirm"].tap() }
-        typePin("135790", in: app)
-        let nameField = app.textFields["SP-06.owner.name"]
-        XCTAssertTrue(nameField.waitForExistence(timeout: 5))
-        nameField.tap(); nameField.typeText("王女士")
-        app.buttons["SP-06.owner.create"].tap()
-        app.buttons["SP-07.scan.capture"].tap()
-        for key in ["drug_name", "dosage", "title"] {
-            app.buttons["SP-53.field.confirm.\(key)"].tap()
-        }
-        app.buttons["SP-53.ocr.commit"].tap()
-        app.buttons["SP-01.onboarding.finish"].tap()
+        let app = XCUIApplication()
+        app.launchArguments = []            // 不 reset：沿用端到端用例完成的真实状态
+        app.launch()
 
         // 退后台 → 回前台：必见锁屏遮罩
         XCUIDevice.shared.press(.home)
@@ -99,7 +90,7 @@ final class M1aE2ETests: XCTestCase {
         let lock = app.descendants(matching: .any)["SP-01.lockOverlay"].firstMatch
         XCTAssertTrue(lock.waitForExistence(timeout: 10), "FR1.4：回前台必须见锁屏")
 
-        // 验证 PIN 后回到主界面（五模块外壳可见）
+        // 验证 PIN 后回到主界面（锁屏遮罩消失）
         typePin("135790", in: app)
         let lockGone = app.descendants(matching: .any)["SP-01.lockOverlay"].firstMatch
         XCTAssertTrue(lockGone.waitForNonExistence(timeout: 10),
