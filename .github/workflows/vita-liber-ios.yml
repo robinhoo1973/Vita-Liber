@@ -133,6 +133,10 @@ jobs:
       # 产物 + xctestrun 清单一起传递：test-without-building 只认它（E1）
       - uses: actions/upload-artifact@v4
         with:
+          name: generated-project-${{ github.run_id }}
+          path: VitaLiber.xcodeproj
+      - uses: actions/upload-artifact@v4
+        with:
           name: test-products-${{ github.run_id }}
           path: |
             Build/DerivedData/Build/Products
