@@ -46,9 +46,19 @@ public struct GRDBStore {
         try GRDBStore(writer: DatabaseQueue(configuration: configuration()))
     }
 
+    /// 评审 S 级修正：建库以 PRAGMA user_version 版本序列门控——
+    /// 旧实现每次启动无条件执行全量 DDL，持久库二次启动即「表已存在」崩溃
+    /// （测试全用内存库从未暴露）。v1 建库一次，后续版本经 DatabaseMigrator 迁移。
     public init(writer: any DatabaseWriter) throws {
         self.writer = writer
-        try writer.write { db in try db.execute(sql: MigrationEngine.schemaV1) }
+        try writer.write { db in
+            let version = try Int.fetchOne(db, sql: "PRAGMA user_version") ?? 0
+            if version == 0 {
+                try db.execute(sql: MigrationEngine.schemaV1)
+                try db.execute(sql: "PRAGMA user_version = 1")
+            }
+            // version > 0：已建库——迁移按 SchemaMigrator 版本序列（M1.5 后批）
+        }
     }
 
     /// 列名显式书写：位置参数 `VALUES (?,?)` 会在 §4.3 DDL 增列时静默错位。

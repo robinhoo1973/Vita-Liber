@@ -161,6 +161,8 @@ public enum SchemaV2 {
       origin TEXT NOT NULL CHECK(origin IN ('hospital','manual','device')),
       self_measured INTEGER NOT NULL
         CHECK((origin = 'hospital' AND self_measured = 0) OR (origin IN ('manual','device') AND self_measured = 1)),
+      excluded INTEGER NOT NULL DEFAULT 0,   -- V3.45: 排除点软删(§5.29)
+      source_ref TEXT,                       -- V3.45: 回原报告引用
       measured_at REAL NOT NULL, created_at REAL NOT NULL);
     CREATE INDEX idx_metric_patient_time ON metric_sample(patient_id, metric_key, measured_at);
 

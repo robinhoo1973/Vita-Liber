@@ -45,7 +45,7 @@ struct TrendServiceTests {
 struct VoiceGrammarTests {
     let metricRules = [
         MetricGrammarRule(metricKey: "glucose",
-                          patterns: [#"血糖\s*(\d+(?:\.\d+)?|[一二两三四五六七八九十百]+)"#],
+                          patterns: [#"血糖\s*(\d+(?:\.\d+)?|[一二两三四五六七八九十百点]+)"#],
                           unitDefault: "mmol/L"),
         MetricGrammarRule(metricKey: "blood_pressure_sys",
                           patterns: [#"高压\s*(\d+)"#, #"收缩压\s*(\d+)"#],
@@ -62,8 +62,23 @@ struct VoiceGrammarTests {
     ]
 
     @Test func 指标抽取与中文数字归一() {
-        let drafts = VoiceStructuringEngine.extractMetric("今天血糖十三点二", rules: metricRules)
-        #expect(drafts.contains { $0.key == "glucose" && $0.value == "13" })   // 中文数字归一（小数点混合交确认卡）
+        let drafts = VoiceStructuringEngine.extractMetric("今天血糖十三", rules: metricRules)
+        #expect(drafts.contains { $0.key == "glucose" && $0.value == "13" })
+    }
+
+    /// 评审 S1 修正：混合形态（含点/零/大写）→ 原值保留 + 置信降 0.4 强制复核
+    @Test func 混合形态原值保留且降置信() {
+        let mixed = VoiceStructuringEngine.extractMetric("今天血糖十三点二", rules: metricRules)
+        let draft = mixed.first { $0.key == "glucose" }
+        #expect(draft != nil)
+        #expect(draft!.value == "十三点二", "混合形态不得截断为 13")
+        #expect(draft!.confidence == 0.4, "归一失败必须降置信强制复核")
+    }
+
+    @Test func 纯中文数字归一() {
+        #expect(NumberNormalizer.normalize("一百三十二") == "132")
+        #expect(NumberNormalizer.normalize("两") == "2")
+        #expect(NumberNormalizer.normalize("6.8") == "6.8")
     }
 
     @Test func 指标抽取阿拉伯数字() {

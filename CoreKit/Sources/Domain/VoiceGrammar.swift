@@ -48,10 +48,11 @@ public enum NumberNormalizer {
     ]
     static let cnUnits: [Character: Int] = ["十": 10, "百": 100, "千": 1000]
 
-    /// "一百三十二" → "132"；"十三" → "13"；"6.8" → "6.8"；"两" → "2"
+    /// "一百三十二" → "132"；"十三" → "13"；"6.8" → "6.8"；"两" → "2"；
+    /// 混合/无法归一形态（"十三点二"/"零点五"）→ 原值返回，由调用方降置信强制复核
     public static func normalize(_ text: String) -> String {
         let chars = Array(text)
-        guard chars.allSatisfy({ $0.isNumber || cnDigits[$0] != nil || cnUnits[$0] != nil || $0 == "." }) else {
+        guard chars.allSatisfy({ $0.isNumber || cnDigits[$0] != nil || cnUnits[$0] != nil || $0 == "." || $0 == "点" }) else {
             return text
         }
         // 已含阿拉伯数字（如 "6.8"）直接原样返回
@@ -70,7 +71,7 @@ public enum NumberNormalizer {
                 section = (section == 0 ? 1 : section) * u
                 total += section
                 section = 0
-            } else if ch == "." {
+            } else if ch == "." || ch == "点" {
                 return text   // 混合形态不做归一（交由确认卡）
             }
         }
@@ -113,10 +114,12 @@ public enum VoiceStructuringEngine {
                 } else {
                     unit = rule.unitDefault
                 }
+                let normalized = NumberNormalizer.normalize(raw)
+                let isMixed = raw.contains("点") || raw.contains(".")
                 drafts.append(FieldDraft(key: rule.metricKey,
-                                         value: NumberNormalizer.normalize(raw),
+                                         value: normalized,
                                          unit: unit,
-                                         confidence: 0.9))
+                                         confidence: isMixed ? 0.4 : 0.9))   // 混合形态强制复核
                 break   // 每个 metricKey 取首个命中
             }
         }

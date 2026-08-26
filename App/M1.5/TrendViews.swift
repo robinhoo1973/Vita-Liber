@@ -12,27 +12,25 @@ struct TrendChartView: View {
         VStack(alignment: .leading, spacing: 12) {
             Chart {
                 if let range = series.referenceRange {
-                    RuleMark(y: .value("上限", range.upper))
-                        .foregroundStyle(Color("semantic-warning", bundle: .main).opacity(0.6))
-                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [4]))
-                    RuleMark(y: .value("下限", range.lower))
-                        .foregroundStyle(Color("semantic-warning", bundle: .main).opacity(0.6))
-                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [4]))
+                    RectangleMark(
+                        xStart: .value("起", series.points.first?.measuredAt ?? Date()),
+                        xEnd: .value("止", series.points.last?.measuredAt ?? Date()),
+                        yStart: .value("下限", range.lower),
+                        yEnd: .value("上限", range.upper)
+                    )
+                    .foregroundStyle(Color("surface-tint-start", bundle: .main).opacity(0.35))
+                    .accessibilityLabel("参考范围 \(range.lower)-\(range.upper)")
                 }
                 ForEach(TrendRules.sorted(series.points)) { point in
                     PointMark(
                         x: .value("时间", point.measuredAt),
                         y: .value("值", point.value)
                     )
-                    .symbolSize(56)
-                    .foregroundStyle(point.isHollow ? Color.clear : Color("brand-primary", bundle: .main))
-                    .symbol(point.isHollow ? .circle : .circle)   // 实心=医院/空心=自测（描边空心）
-                    .annotation(position: .top) {
-                        if point.isHollow {
-                            Text("\(point.value, specifier: "%.1f")")
-                                .font(.caption2).monospacedDigit()
-                        }
-                    }
+                    .symbolSize(120)
+                    .foregroundStyle(point.isHollow
+                        ? Color("bg-grouped", bundle: .main)
+                        : Color("brand-primary", bundle: .main))
+                    .symbol(.circle)
                 }
             }
             .frame(height: 200)
@@ -43,17 +41,19 @@ struct TrendChartView: View {
                 HStack {
                     Circle()
                         .fill(point.isHollow ? Color.clear : Color("brand-primary", bundle: .main))
-                        .overlay(Circle().strokeBorder(Color("brand-primary", bundle: .main), lineWidth: 1))
-                        .frame(width: 10, height: 10)
+                        .overlay(Circle().strokeBorder(Color("brand-primary", bundle: .main), lineWidth: 1.5))
+                        .frame(width: 12, height: 12)
                     Text(point.measuredAt.formatted(date: .abbreviated, time: .shortened))
                         .font(.footnote)
                     Spacer()
-                    Text("\(point.value, specifier: "%.1f")")
+                    Text("\(point.value, specifier: "%.1f") \(point.unit ?? "")")
                         .font(.footnote).monospacedDigit()
                     if point.isHollow {
                         Text("自测").font(.caption2).foregroundStyle(.secondary)
                     }
                 }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("\(series.metricType.rawValue) \(point.value) \(point.unit ?? "") · \(point.isHollow ? "自测" : "医院") · \(point.measuredAt.formatted(date: .abbreviated, time: .shortened))")
                 .accessibilityIdentifier("SP-13.trend.point")
             }
         }

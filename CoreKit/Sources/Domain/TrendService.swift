@@ -14,13 +14,14 @@ public struct TrendPoint: Sendable, Equatable, Identifiable {
     public var id: UUID
     public var measuredAt: Date
     public var value: Double
+    public var unit: String?
     public var origin: MetricOrigin
     public var excluded: Bool
     public var sourceRef: String?        // 回原报告（点击点 → document_file/encounter 引用）
-    public init(id: UUID, measuredAt: Date, value: Double, origin: MetricOrigin,
-                excluded: Bool = false, sourceRef: String? = nil) {
+    public init(id: UUID, measuredAt: Date, value: Double, unit: String? = nil,
+                origin: MetricOrigin, excluded: Bool = false, sourceRef: String? = nil) {
         self.id = id; self.measuredAt = measuredAt; self.value = value
-        self.origin = origin; self.excluded = excluded; self.sourceRef = sourceRef
+        self.unit = unit; self.origin = origin; self.excluded = excluded; self.sourceRef = sourceRef
     }
     /// 空心=自测/设备；实心=医院报告（ui-ux 4.7 一眼可辨）
     public var isHollow: Bool { origin != .hospital }

@@ -13,7 +13,7 @@ public actor VoiceNoteStore {
 
     public func create(id: UUID = UUID(), patientId: UUID, body: String,
                        tags: [String]? = nil, encounterId: UUID? = nil,
-                       inTimeline: Bool = true, now: Date = Date()) async throws {
+                       inTimeline: Bool = false, now: Date = Date()) async throws {   // FR17.14：默认不入轴
         try await writer.write { db in
             let tagsJSON: String
             if let tags {
@@ -37,15 +37,17 @@ public actor VoiceNoteStore {
         public var body: String
         public var occurredAt: Date
         public var tags: [String]
-        public init(id: UUID, body: String, occurredAt: Date, tags: [String]) {
-            self.id = id; self.body = body; self.occurredAt = occurredAt; self.tags = tags
+        public var inTimeline: Bool
+        public init(id: UUID, body: String, occurredAt: Date, tags: [String], inTimeline: Bool) {
+            self.id = id; self.body = body; self.occurredAt = occurredAt
+            self.tags = tags; self.inTimeline = inTimeline
         }
     }
 
     public func list(patientId: UUID, limit: Int = 50) async throws -> [VoiceNoteRow] {
         try await writer.read { db in
             try Row.fetchAll(db, sql: """
-                SELECT id, body, occurred_at, tags FROM voice_note
+                SELECT id, body, occurred_at, tags, in_timeline FROM voice_note
                 WHERE patient_id = ? ORDER BY occurred_at DESC LIMIT ?
                 """, arguments: [patientId.uuidString, limit]).map { row in
                 let tags: [String] = (row["tags"] as String?).flatMap { json in
@@ -56,7 +58,8 @@ public actor VoiceNoteStore {
                 return VoiceNoteRow(id: UUID(uuidString: row["id"] as String) ?? UUID(),
                                     body: row["body"] as String,
                                     occurredAt: Date(timeIntervalSince1970: row["occurred_at"] as Double),
-                                    tags: tags)
+                                    tags: tags,
+                                    inTimeline: (row["in_timeline"] as Int?) == 1)
             }
         }
     }

@@ -222,9 +222,12 @@ public actor ExportService {
                     name: row["name"] as String,
                     createdAt: Date(timeIntervalSince1970: row["created_at"] as Double))
             }
+            let sensitiveIds = try String.fetchAll(db, sql: "SELECT id FROM document_file WHERE is_sensitive = 1")
+                .compactMap { UUID(uuidString: $0) }
             var envelope = Envelope(schemaVersion: 1, exportedAt: Date().timeIntervalSince1970,
                                     owner: owner, selfProfile: selfProfile, consentRecords: consents,
                                     timeline: timeline, plans: plans, appointments: appointments)
+            envelope.sensitiveDocIds = Set(sensitiveIds)
             envelope.observations = observations
             envelope.allergies = allergies
             envelope.encounters = encounters
@@ -334,10 +337,10 @@ public actor ExportService {
             }
             for m in envelope.metrics {
                 try db.execute(sql: """
-                    INSERT INTO metric_sample (id, patient_id, metric_key, value, unit, origin, self_measured, measured_at, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO metric_sample (id, patient_id, metric_key, value, unit, origin, self_measured, excluded, source_ref, measured_at, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, arguments: [m.id.uuidString, profileId?.uuidString ?? "", m.key, m.value, m.unit, m.origin,
-                                     m.origin == "hospital" ? 0 : 1,
+                                     m.origin == "hospital" ? 0 : 1, m.excluded ? 1 : 0, m.sourceRef,
                                      m.measuredAt.timeIntervalSince1970, m.measuredAt.timeIntervalSince1970])
             }
             for i in envelope.immunizations {
@@ -349,12 +352,18 @@ public actor ExportService {
                                      i.administeredAt.timeIntervalSince1970, i.administeredAt.timeIntervalSince1970])
             }
             for v in envelope.voiceNotes {
+                let tagsJSON = String(data: (try JSONEncoder().encode(v.tags)), encoding: .utf8) ?? "[]"
                 try db.execute(sql: """
-                    INSERT INTO voice_note (id, patient_id, body, occurred_at, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    INSERT INTO voice_note (id, patient_id, body, occurred_at, tags, in_timeline, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """, arguments: [v.id.uuidString, profileId?.uuidString ?? "", v.body,
-                                     v.occurredAt.timeIntervalSince1970,
+                                     v.occurredAt.timeIntervalSince1970, tagsJSON, v.inTimeline ? 1 : 0,
                                      v.occurredAt.timeIntervalSince1970, v.occurredAt.timeIntervalSince1970])
+            }
+            // 敏感标记回写（BR-007/008 链必须随往返保持）
+            for docId in envelope.sensitiveDocIds {
+                try db.execute(sql: "UPDATE document_file SET is_sensitive = 1 WHERE id = ?",
+                               arguments: [docId.uuidString])
             }
             for h in envelope.healthProblems {
                 try db.execute(sql: """

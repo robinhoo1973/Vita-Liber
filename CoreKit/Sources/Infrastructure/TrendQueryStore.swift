@@ -28,6 +28,7 @@ public actor TrendQueryStore {
                     id: UUID(uuidString: row["id"] as String) ?? UUID(),
                     measuredAt: Date(timeIntervalSince1970: row["measured_at"] as Double),
                     value: row["value"] as Double,
+                    unit: row["unit"] as String?,
                     origin: MetricOrigin(rawValue: row["origin"] as String) ?? .manual,
                     excluded: (row["excluded"] as Int?) == 1,
                     sourceRef: row["source_ref"] as String?)
@@ -37,10 +38,11 @@ public actor TrendQueryStore {
     }
 
     /// 排除/恢复（软删语义：保留原值，动作记审计由调用方写 audit_event）
-    public func setExcluded(_ id: UUID, excluded: Bool) async throws {
+    /// 评审修正：带 patient_id 成员隔离（BR-001）
+    public func setExcluded(_ id: UUID, patientId: UUID, excluded: Bool) async throws {
         try await writer.write { db in
-            try db.execute(sql: "UPDATE metric_sample SET excluded = ? WHERE id = ?",
-                           arguments: [excluded ? 1 : 0, id.uuidString])
+            try db.execute(sql: "UPDATE metric_sample SET excluded = ? WHERE id = ? AND patient_id = ?",
+                           arguments: [excluded ? 1 : 0, id.uuidString, patientId.uuidString])
         }
     }
 }
