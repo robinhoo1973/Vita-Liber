@@ -29,10 +29,8 @@ public actor GRDBM1aPersistor: M1aPersisting {
 
     public func saveOwner(_ owner: LocalOwner, profile: PatientProfile) async throws {
         try await writer.write { db in
-            try db.execute(
-                sql: "INSERT INTO local_owner (id, display_name, self_patient_id, created_at) VALUES (?, ?, ?, ?)",
-                arguments: [owner.id.uuidString, owner.displayName,
-                            owner.selfPatientId?.uuidString, owner.createdAt])
+            // §4.2 明示纪律：FK 插入顺序不可调换（foreign_keys=ON 下违反即抛错回滚）——
+            // local_owner.self_patient_id REFERENCES patient_profile，故 patient_profile 先落库
             try db.execute(
                 sql: """
                 INSERT INTO patient_profile
@@ -42,6 +40,10 @@ public actor GRDBM1aPersistor: M1aPersisting {
                 arguments: [profile.id.uuidString, owner.id.uuidString, profile.displayName,
                             profile.relation, profile.gender, profile.birthDate, profile.note,
                             profile.createdAt, profile.updatedAt])
+            try db.execute(
+                sql: "INSERT INTO local_owner (id, display_name, self_patient_id, created_at) VALUES (?, ?, ?, ?)",
+                arguments: [owner.id.uuidString, owner.displayName,
+                            owner.selfPatientId?.uuidString, owner.createdAt])
         }
     }
 
@@ -58,10 +60,12 @@ public actor GRDBM1aPersistor: M1aPersisting {
     }
 
     public func saveConsent(_ c: ConsentRecord) async throws {
+        // 去重由调用侧按 key 保证（AppState.advanceDisclosure）；此处用普通 INSERT——
+        // OR IGNORE 会静默吞掉外键/约束失败（ERR#35 防复发纪律：FK 写入禁用 IGNORE 语义）
         try await writer.write { db in
             try db.execute(
                 sql: """
-                INSERT OR IGNORE INTO consent_record (id, key, level, version, accepted_at)
+                INSERT INTO consent_record (id, key, level, version, accepted_at)
                 VALUES (?, ?, ?, ?, ?)
                 """,
                 arguments: [c.id.uuidString, c.key, c.level, c.version, c.acceptedAt])
@@ -90,11 +94,15 @@ public actor GRDBM1aPersistor: M1aPersisting {
         try await writer.write { db in
             for e in entries {
                 let meta = String(data: try JSONEncoder().encode(e), encoding: .utf8) ?? "{}"
+                // UPSERT 而非 INSERT OR REPLACE：REPLACE=先删后插，会触发 FK 级联语义
+                // （ERR#35 纪律：FK 写入禁用 IGNORE/REPLACE）
                 try db.execute(
                     sql: """
-                    INSERT OR REPLACE INTO document_file
+                    INSERT INTO document_file
                       (id, patient_id, doc_type, sha256, mime_type, origin, meta_json, created_at, updated_at)
                     VALUES (?, ?, 'ocr_document', ?, 'application/json', 'scanner', ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET meta_json = excluded.meta_json,
+                        updated_at = excluded.updated_at
                     """,
                     arguments: [e.id.uuidString, e.patientId.uuidString,
                                 "sha:" + e.id.uuidString, meta, e.occurredAt, e.occurredAt])

@@ -86,8 +86,13 @@ final class M1aAcceptanceTests: XCTestCase {
         XCTAssertEqual(app.consentRecords.count, 3)
         XCTAssertEqual(Set(app.consentRecords.map(\.key)).count, 3)   // 三卡三键不重复
 
-        // 落库断言（评审修正：不再是 UserDefaults 写入）
-        let stored = try await container.persistor.loadConsents()
+        // 落库断言（评审修正：不再是 UserDefaults 写入）；异步持久化任务轮询等落库
+        var stored: [ConsentRecord] = []
+        for _ in 0..<20 {
+            stored = try await container.persistor.loadConsents()
+            if stored.count == 3 { break }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
         XCTAssertEqual(stored.count, 3, "ConsentRecord 必须真实写入 consent_record 表")
 
         // 重启不重复落库（评审修正：杀进程重走三卡去重）
