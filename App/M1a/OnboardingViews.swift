@@ -348,7 +348,17 @@ struct TimelineView: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            Text("健康时间轴").font(.title2.bold())
+            HStack {
+                Text("健康时间轴").font(.title2.bold())
+                Spacer()
+                NavigationLink {
+                    ObservationListView()
+                } label: {
+                    Label("观察", systemImage: "plus.circle")
+                }
+                .accessibilityIdentifier("SP-10.timeline.observation")
+            }
+            .padding(.horizontal, 16)
             if app.timeline.isEmpty {
                 ContentUnavailableView("还没有资料", systemImage: "clock.arrow.circlepath",
                                        description: Text("确认后的文档会出现在这里"))

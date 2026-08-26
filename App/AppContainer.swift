@@ -16,6 +16,8 @@ struct AppContainer {
     let search: GRDBSearchService
     let aiProvider: LocalRetrievalProvider
     let settings: SettingsStore
+    let observations: ObservationStore
+    let allergies: AllergyStore
 
     /// 生产装配：文件库 + WAL（§4.4）+ UNUserNotificationCenter 适配。
     static func live(databasePath: String) throws -> AppContainer {
@@ -35,6 +37,8 @@ struct AppContainer {
         let reconciler = ReminderReconciler(scheduler: scheduler, source: meds)
         let search = GRDBSearchService(writer: store.writer)
         let settings = SettingsStore(writer: store.writer)
+        let observations = ObservationStore(writer: store.writer)
+        let allergies = AllergyStore(writer: store.writer)
         return AppContainer(store: store,
                             audit: AuditLogWriter(writer: store.writer),
                             persistor: GRDBM1aPersistor(store: store),
@@ -43,7 +47,9 @@ struct AppContainer {
                             reconciler: reconciler,
                             search: search,
                             aiProvider: LocalRetrievalProvider(search: search),
-                            settings: settings)
+                            settings: settings,
+                            observations: observations,
+                            allergies: allergies)
     }
 
     /// Application Support 下的数据库路径（生产库位置）

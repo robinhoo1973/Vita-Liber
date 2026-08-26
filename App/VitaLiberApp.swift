@@ -14,6 +14,7 @@ struct VitaLiberApp: App {
     @State private var reminderStore: ReminderStore
     @State private var assistantStore: AssistantStore
     @State private var settingsStore: AppSettingsStore
+    @State private var observationState: ObservationStoreState
 
     init() {
         // 组装根（评审 A2：AppContainer 由 App 消费，AppState/ReminderStore 只面向协议）。
@@ -36,6 +37,8 @@ struct VitaLiberApp: App {
             meds: container.meds, apts: container.apts, reconciler: container.reconciler))
         _assistantStore = State(initialValue: AssistantStore(provider: container.aiProvider))
         _settingsStore = State(initialValue: AppSettingsStore(store: container.settings))
+        _observationState = State(initialValue: ObservationStoreState(
+            store: container.observations, allergyStore: container.allergies))
     }
 
     var body: some Scene {
@@ -53,6 +56,7 @@ struct VitaLiberApp: App {
             .environment(reminderStore)
             .environment(assistantStore)
             .environment(settingsStore)
+            .environment(observationState)
             .task {
                 await appState.bootstrap()
                 // 四层补偿第 1 层（§5.4 V3.29）：前台启动时对账 + 首启请求通知授权
