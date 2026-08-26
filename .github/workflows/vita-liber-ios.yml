@@ -166,6 +166,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: 'test-products-${{ github.run_id }}'
+          path: Build/DerivedData/Build/Products
       - uses: actions/download-artifact@v4
         with:
           name: 'generated-project-${{ github.run_id }}'
@@ -219,6 +220,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: 'test-products-${{ github.run_id }}'
+          path: Build/DerivedData/Build/Products
       - uses: actions/download-artifact@v4
         with:
           name: 'generated-project-${{ github.run_id }}'
@@ -277,6 +279,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: 'test-products-${{ github.run_id }}'
+          path: Build/DerivedData/Build/Products
       - uses: actions/download-artifact@v4
         with:
           name: 'generated-project-${{ github.run_id }}'
@@ -322,6 +325,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: 'test-products-${{ github.run_id }}'
+          path: Build/DerivedData/Build/Products
       - uses: actions/download-artifact@v4
         with:
           name: 'generated-project-${{ github.run_id }}'
@@ -370,6 +374,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: test-products-${{ github.run_id }}
+          path: Build/DerivedData/Build/Products
       - uses: actions/download-artifact@v4
         with:
           name: 'generated-project-${{ github.run_id }}'
