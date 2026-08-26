@@ -126,11 +126,16 @@ fi
 # ---------- [3] DDL 引用完整性 ----------
 section "3/7" "DDL 引用完整性 —— REFERENCES 目标已建表 + 外键开启（tech-spec §4.3）"
 ddl_text=$(find "$APP" \( -name .build -o -name .swiftpm -o -name DerivedData \) -prune -o \( -name '*.swift' -o -name '*.sql' \) -print0 2>/dev/null | xargs -0 cat 2>/dev/null || true)
-created=$(printf '%s\n' "$ddl_text" | tr -d '"' \
+# 大文本管道防 SIGPIPE（ERR#34）：ddl_text 达数 MB 后，
+# `printf | grep -qE` 在 grep 提前命中退出时把仍在写的 printf 打死
+# （exit 141），pipefail 下整段报错——曾造成「外键开启语句缺失」假红。
+# 一律落临时文件再 grep，杜绝管道早退。
+_ddl_file=$(mktemp)
+printf '%s\n' "$ddl_text" > "$_ddl_file"
+created=$(tr -d '"' < "$_ddl_file" \
   | grep -ohE 'CREATE TABLE( IF NOT EXISTS)? [A-Za-z_]+' \
   | awk '{print $NF}' | sort -u || true)
-refs=$(printf '%s\n' "$ddl_text" \
-  | grep -ohE 'REFERENCES "?[A-Za-z_]+' \
+refs=$(grep -ohE 'REFERENCES "?[A-Za-z_]+' "$_ddl_file" \
   | awk '{gsub(/"/,""); print $NF}' | sort -u || true)
 ddl_missing=0
 while IFS= read -r t; do
@@ -146,7 +151,8 @@ fk_on=0
 # 该文件整体被 `#if os(iOS)||os(macOS)` 守卫，Linux 上扫描不到文本 → 旧检查假红。
 # 断言改为「schema-as-code 常量存在」+「GRDB 侧配置语义存在」双条件，
 # 与平台无关；运行时半场（PRAGMA 实测）由 iOS 模拟器 SchemaRuntimeTests 承担。
-printf '%s\n' "$ddl_text" | grep -qE 'SchemaV2|foreignKeysEnabled' && fk_on=1
+grep -qE 'SchemaV2|foreignKeysEnabled' "$_ddl_file" && fk_on=1
+rm -f "$_ddl_file"
 if [ "$ddl_missing" -eq 0 ] && [ "$fk_on" -eq 1 ]; then
   pass "REFERENCES 目标全部已定义；外键开启断言通过"
 else
