@@ -2,9 +2,10 @@ name: CoreKit SPM
 on: { push: { branches: [master] }, pull_request: {} }
 jobs:
   test:
-    runs-on: ubuntu-24.04   # 系统 sqlite ≥3.37，满足 GRDB WALSnapshot 符号
+    runs-on: ubuntu-latest
+    container: swift:6.0-jammy
     timeout-minutes: 20
     steps:
-      - { uses: actions/checkout@v4 }
-      - { uses: dtolnay/swift-toolchain@v1, with: { 'swift-version': '6' } }
+      - uses: actions/checkout@v4
       - run: swift test --package-path CoreKit
+      - run: bash .github/workflows/l0-static-gate.sh   # L0 与测试同容器复核
