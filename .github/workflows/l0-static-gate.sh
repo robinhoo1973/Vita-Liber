@@ -112,6 +112,8 @@ while IFS= read -r line; do
   [ -n "$line" ] || continue
   _f=${line%%:*}; _rest=${line#*:}; _n=${_rest%%:*}; _content=${_rest#*:}
   case "$_content" in *'adr021-ok:'*) continue ;; esac
+  _nc=$(printf '%s\n' "$_content" | sed 's,//.*,,' )
+  case "$_nc" in *'userInterfaceIdiom'*'.pad'*) ;; *) continue ;; esac   # 注释里的字样不算
   idiom_viol=$((idiom_viol + 1))
   [ "$idiom_viol" -le 15 ] && printf '    %s:%s\n' "$_f" "$_n"
 done < <(grep -rinE 'userInterfaceIdiom[[:space:]]*==[[:space:]]*\.pad' --include='*.swift' --exclude-dir=.build --exclude-dir=.swiftpm --exclude-dir=DerivedData --exclude-dir=Build "$APP" 2>/dev/null || true)
