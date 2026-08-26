@@ -59,6 +59,11 @@ final class AppState {
             catch { consentRecords = [] }
         }
         pinHash = defaults.string(forKey: "pinHash")
+        // 锁定状态跨重启恢复（FR1.3）：过期锁定自然解除
+        failedAttempts = defaults.integer(forKey: "failedAttempts")
+        if let until = defaults.object(forKey: "lockedUntil") as? Date, until > Date() {
+            lockedUntil = until
+        }
         if onboardingFinished { stage = .done }
     }
 
@@ -101,6 +106,8 @@ final class AppState {
         if Self.hash(pin) == pinHash {
             failedAttempts = 0
             lockedUntil = nil
+            defaults.set(0, forKey: "failedAttempts")
+            defaults.removeObject(forKey: "lockedUntil")
             lastVerifiedAt = Date()
             return true
         }
@@ -112,6 +119,9 @@ final class AppState {
             defaults.set(stageIndex + 1, forKey: "lockStage")
             failedAttempts = 0
         }
+        // 锁定与计数持久化（FR1.3 跨重启保持）
+        defaults.set(failedAttempts, forKey: "failedAttempts")
+        if let until = lockedUntil { defaults.set(until, forKey: "lockedUntil") }
         return false
     }
 
