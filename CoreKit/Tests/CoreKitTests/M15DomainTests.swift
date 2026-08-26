@@ -1,0 +1,135 @@
+import Foundation
+import Testing
+@testable import Domain
+
+/// M1.5 P0.5 · Domain 层验收用例（dev-pm §3.3 退出准则的 U 半场）
+@Suite("M1.5 · 趋势语义（§5.29/F7）")
+struct TrendServiceTests {
+    @Test func 空心实心一眼可辨() {
+        let hospital = TrendPoint(id: UUID(), measuredAt: Date(), value: 132, origin: .hospital)
+        let manual = TrendPoint(id: UUID(), measuredAt: Date(), value: 128, origin: .manual)
+        #expect(!hospital.isHollow)     // 医院实心
+        #expect(manual.isHollow)        // 自测空心
+    }
+
+    @Test func 排除点软删与恢复语义() {
+        var p = TrendPoint(id: UUID(), measuredAt: Date(), value: 200, origin: .manual, excluded: true)
+        #expect(TrendRules.visible([p]).isEmpty, "排除点不得进聚合（保留原值可恢复）")
+        p.excluded = false              // 恢复动作——原值保留
+        #expect(TrendRules.visible([p]).count == 1)
+    }
+
+    @Test func 参考范围A级优先于B级() {
+        let report = ReferenceRange(lower: 60, upper: 90, grade: .A)
+        let library = ReferenceRange(lower: 65, upper: 85, grade: .B)
+        #expect(TrendRules.resolveRange(reportRange: report, libraryRange: library) == report)
+        #expect(TrendRules.resolveRange(reportRange: nil, libraryRange: library) == library)
+        #expect(TrendRules.resolveRange(reportRange: nil, libraryRange: nil) == nil, "无来源=范围不可用（独立状态）")
+    }
+
+    @Test func 换算留痕不覆盖原值() {
+        let conv = UnitConversion(fromUnit: "mmol/L", toUnit: "mg/dL", factor: 18.0,
+                                  note: "换算自 mmol/L")
+        let original = TrendPoint(id: UUID(), measuredAt: Date(), value: 6.0, origin: .manual)
+        let series = TrendSeries(metricType: .glucose, points: [original])
+        let converted = TrendRules.converted(series, using: conv)
+        #expect(converted.points[0].value == 108.0)
+        #expect(series.points[0].value == 6.0, "原值必须保留")
+        #expect(conv.convert(6.0) == 108.0)
+    }
+}
+
+// .serialized：NSRegularExpression 首次编译在 Linux ICU 上非线程安全——
+// 并发创建曾致 SIGTRAP（libFoundation）；生产路径经 actor 串行化，测试同纪律
+@Suite("M1.5 · 语音文法子集（§5.13/FR17.9-14）", .serialized)
+struct VoiceGrammarTests {
+    let metricRules = [
+        MetricGrammarRule(metricKey: "glucose",
+                          patterns: [#"血糖\s*(\d+(?:\.\d+)?|[一二两三四五六七八九十百]+)"#],
+                          unitDefault: "mmol/L"),
+        MetricGrammarRule(metricKey: "blood_pressure_sys",
+                          patterns: [#"高压\s*(\d+)"#, #"收缩压\s*(\d+)"#],
+                          unitDefault: "mmHg"),
+    ]
+    let reminderRules = [
+        ReminderGrammarRule(kind: "any",
+                            timePatterns: [#"(明天|后天|今天)"#, #"(\d+)点"#],
+                            repeatPatterns: [#"(每天|每周一|每周二)"#]),
+    ]
+    let profileRules = [
+        ProfileGrammarRule(fieldKey: "allergy", patterns: [#"过敏[药史:：]*(.+)"#]),
+        ProfileGrammarRule(fieldKey: "emergencyContact", patterns: [#"紧急联系人是(.+)"#]),
+    ]
+
+    @Test func 指标抽取与中文数字归一() {
+        let drafts = VoiceStructuringEngine.extractMetric("今天血糖十三点二", rules: metricRules)
+        #expect(drafts.contains { $0.key == "glucose" && $0.value == "13" })   // 中文数字归一（小数点混合交确认卡）
+    }
+
+    @Test func 指标抽取阿拉伯数字() {
+        let drafts = VoiceStructuringEngine.extractMetric("高压132", rules: metricRules)
+        #expect(drafts.contains { $0.key == "blood_pressure_sys" && $0.value == "132" })
+    }
+
+    @Test func 提醒时间与重复抽取() {
+        let drafts = VoiceStructuringEngine.extractReminder("明天早上提醒我测血糖，每天", rules: reminderRules)
+        #expect(drafts.contains { $0.key == "time" && $0.value == "明天" })
+        #expect(drafts.contains { $0.key == "repeat" && $0.value == "每天" })
+    }
+
+    @Test func 档案访谈抽取() {
+        let drafts = VoiceStructuringEngine.extractProfile("我过敏药：青霉素，紧急联系人是王女士", rules: profileRules)
+        #expect(drafts.contains { $0.key == "allergy" && $0.value.contains("青霉素") })
+        #expect(drafts.contains { $0.key == "emergencyContact" && $0.value.contains("王女士") })
+    }
+
+    @Test func 模板复用断言_语音草稿经统一确认集() {
+        // FR17.13：四处确认必须走同一模板（VoiceInputTemplate.confirmationSet），
+        // 产出全部待确认态（BR-003）——语音草稿绝不直接入正式数据
+        let drafts = VoiceStructuringEngine.extractMetric("血糖6.2", rules: metricRules)
+        let set = VoiceInputTemplate.confirmationSet(drafts: drafts)
+        #expect(!set.isUsableInTimeline)
+        #expect(set.fields.allSatisfy { $0.grade == .ocrUnconfirmed })
+    }
+
+    @Test func 模糊时间必须落具体日期() {
+        let now = Date()
+        let cal = Calendar.current
+        #expect(VoiceReminderRules.resolveDate(phrase: "明天", now: now, calendar: cal) != nil)
+        #expect(VoiceReminderRules.resolveDate(phrase: "周末", now: now, calendar: cal) == nil,
+                "模糊时间不落具体日期=不产出（FR10.2）")
+    }
+}
+
+@Suite("M1.5 · 提醒规则（FR9.11/FR8.10/FR13.10）")
+struct ReminderRulesTests {
+    @Test func 批次到期三级触发点() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let expire = now.addingTimeInterval(20 * 86400)
+        let fires = BatchExpiryRules.fireDates(expireAt: expire, now: now)
+        #expect(fires.count == 2)   // 30 天前已过（不补发），7 天与 3 天两级
+        #expect(fires[0].tier == .t7)
+        #expect(fires[1].tier == .t3)
+    }
+
+    @Test func 过期批次不再提醒() {
+        let now = Date()
+        let expired = now.addingTimeInterval(-86400)
+        #expect(BatchExpiryRules.fireDates(expireAt: expired, now: now).isEmpty)
+    }
+
+    @Test func 观察随访提醒节奏() {
+        let observed = Date(timeIntervalSince1970: 0)
+        #expect(ObservationFollowUpRules.followUpDate(from: observed, occurrence: 0)
+                == observed.addingTimeInterval(3 * 86400))
+        #expect(ObservationFollowUpRules.followUpDate(from: observed, occurrence: 2)
+                == observed.addingTimeInterval(7 * 86400))
+    }
+
+    @Test func 定期备份提醒() {
+        let now = Date()
+        #expect(BackupReminderRules.needsReminder(lastBackupAt: nil, now: now))   // 从未备份
+        #expect(BackupReminderRules.needsReminder(lastBackupAt: now.addingTimeInterval(-31 * 86400), now: now))
+        #expect(!BackupReminderRules.needsReminder(lastBackupAt: now.addingTimeInterval(-10 * 86400), now: now))
+    }
+}
