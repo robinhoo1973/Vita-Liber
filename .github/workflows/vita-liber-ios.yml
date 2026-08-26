@@ -364,28 +364,26 @@ jobs:
           xcrun simctl shutdown "$UDID" || true; xcrun simctl delete "$UDID" || true
       # TC-M0-08：冷启基线 ≤2s（iPhone 12 真机口径）×1.5 = 3s 模拟器初筛口径。
       # 超线标黄不阻塞（评审：M0 只要求基线记录+阈值检查存在；连续 3 次超标转红的
-      # 趋势逻辑随 M1c 趋势库落地）。缺指标文件按「缺证据≠有证据」判红。
+      # 趋势逻辑随 M1c 趋势库落地）。缺证据按「缺证据≠有证据」判红。
+      # 数值来源=测试日志的 `measured [Duration (AppLaunch), s] average:` 行——
+      # 不用导出的 metrics CSV 全量数字扫描（CSV 含元数据列，会抓错字段导致
+      # 阈值形同虚设；已实测抓到 18ms 假值）。
       - name: 冷启预算检查（TC-M0-08，≤3s 模拟器口径）
         if: always()
         run: |
           set -u
           BUDGET_MS=3000
-          files=$(find Build/metrics -name '*.csv' -type f 2>/dev/null || true)
-          if [ -z "$files" ]; then
-            echo "::error::性能指标 CSV 缺失——perf 套件未产出可判证据，本项判红"; exit 1
+          avg_line=$(grep -m1 -E 'measured \[Duration \(AppLaunch\), s\] average:' Build/xcodebuild-perf.log 2>/dev/null || true)
+          if [ -z "$avg_line" ]; then
+            echo "::error::冷启指标缺失——perf 套件未产出可判证据（AppLaunch average 行不存在），本项判红"; exit 1
           fi
-          worst=0
-          while IFS= read -r v; do
-            [ -n "$v" ] || continue
-            case "$v" in ''|*[!0-9.]*) continue ;; esac
-            iv=$(printf '%.0f' "$v")
-            [ "$iv" -gt "$worst" ] && worst=$iv
-          done < <(grep -hoE '[0-9]+(\.[0-9]+)?' $files 2>/dev/null || true)
-          echo "perf_worst_ms=$worst budget_ms=$BUDGET_MS"
-          if [ "$worst" -gt "$BUDGET_MS" ]; then
-            echo "::warning::冷启初筛 ${worst}ms 超模拟器口径 ${BUDGET_MS}ms（真机预算 2s×1.5），标黄不阻塞；连续超标将转红"
+          avg=$(printf '%s\n' "$avg_line" | sed -E 's/.*average: ([0-9.]+).*/\1/')
+          ms=$(printf '%.0f' "$(printf '%s * 1000' "$avg" | bc -l 2>/dev/null || echo 0)")
+          echo "perf_avg_ms=$ms budget_ms=$BUDGET_MS (raw: $avg_line)"
+          if [ "$ms" -gt "$BUDGET_MS" ]; then
+            echo "::warning::冷启初筛 ${ms}ms 超模拟器口径 ${BUDGET_MS}ms（真机预算 2s×1.5），标黄不阻塞；连续超标将转红"
           else
-            echo "冷启初筛 ${worst}ms ≤ ${BUDGET_MS}ms，基线达标"
+            echo "冷启初筛 ${ms}ms ≤ ${BUDGET_MS}ms，基线达标"
           fi
       - uses: actions/upload-artifact@v4
         if: always()
