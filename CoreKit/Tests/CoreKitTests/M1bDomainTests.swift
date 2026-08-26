@@ -64,20 +64,32 @@ struct ScheduleEngineTests {
 
 @Suite("M1b · 双轨库存扣减矩阵（FR9.8/9.8.2，ADR-009）")
 struct DualTrackTests {
-    @Test func 安全线与确认线独立扣减() {
-        var inv = DualTrackInventory(lotId: UUID(), totalUnits: 30, unitKind: "tablet")
-        inv = InventoryRules.deductPlan(inv, units: 2)        // 调度发出 → 安全线扣
-        #expect(inv.remainingPlanUnits == 28)
-        #expect(inv.remainingConfirmedUnits == 30)            // 确认线不动（BR-004）
-        inv = InventoryRules.deductConfirmed(inv, units: 1)   // 用户「服了」→ 确认线扣
-        #expect(inv.remainingConfirmedUnits == 29)
+    /// 矩阵语义（评审修正）：taken→两线各扣；skipped/missed→仅计划轨扣；
+    /// snoozed→两线不动
+    @Test func 扣减矩阵_已服两线各扣() {
+        let inv = DualTrackInventory(lotId: UUID(), totalUnits: 30, unitKind: "tablet")
+        let out = InventoryRules.applyResolution(inv, units: 1, action: .taken)
+        #expect(out.remainingPlanUnits == 29)
+        #expect(out.remainingConfirmedUnits == 29)
     }
 
-    @Test func 跳过与忘记零扣减() {
-        // 跳过/忘记/不适只写动作，双线都不扣（纯事实）
-        var inv = DualTrackInventory(lotId: UUID(), totalUnits: 30, unitKind: "tablet")
-        inv = InventoryRules.deductPlan(inv, units: 1)
-        #expect(inv.remainingPlanUnits == 29 && inv.remainingConfirmedUnits == 30)
+    @Test func 扣减矩阵_跳过仅计划轨扣() {
+        let inv = DualTrackInventory(lotId: UUID(), totalUnits: 30, unitKind: "tablet")
+        let out = InventoryRules.applyResolution(inv, units: 1, action: .skipped)
+        #expect(out.remainingPlanUnits == 29)
+        #expect(out.remainingConfirmedUnits == 30, "BR-004：确认线只认「服了」")
+    }
+
+    @Test func 扣减矩阵_忘记仅计划轨扣() {
+        let inv = DualTrackInventory(lotId: UUID(), totalUnits: 30, unitKind: "tablet")
+        let out = InventoryRules.applyResolution(inv, units: 1, action: .missed)
+        #expect(out.remainingPlanUnits == 29 && out.remainingConfirmedUnits == 30)
+    }
+
+    @Test func 扣减矩阵_稍后两线不动() {
+        let inv = DualTrackInventory(lotId: UUID(), totalUnits: 30, unitKind: "tablet")
+        let out = InventoryRules.applyResolution(inv, units: 1, action: .snoozed)
+        #expect(out.remainingPlanUnits == 30 && out.remainingConfirmedUnits == 30)
     }
 
     @Test func FEFO先到期先出() {

@@ -20,6 +20,20 @@ public actor ReminderReconciler {
         self.logger = logger
     }
 
+    /// 稍后提醒（S1-2 修正）：取消该剂量所属时段通知 + 按新时刻单排 snooze 通知。
+    /// 调用方已写 user_action=.snoozed；本方法只做调度侧。
+    public func snooze(doseNotifyId: String, slotNotifyId: String?, until: Date) async {
+        do {
+            if let slotId = slotNotifyId {
+                try await scheduler.cancel([slotId])
+            }
+            let snoozeId = "snooze-\(doseNotifyId)-\(Int(until.timeIntervalSince1970))"
+            try await scheduler.schedule(dose: snoozeId, at: until)
+        } catch {
+            logger?.log("snooze 调度失败: \(error)")
+        }
+    }
+
     /// 标识符优先级（dose- 用药 > apt- 预约 > 其余随访/临期）
     static func priorityOf(_ notifyId: String) -> Int {
         if notifyId.hasPrefix("dose-") { return 0 }
@@ -33,32 +47,63 @@ public actor ReminderReconciler {
         isReconciling = true
         defer { isReconciling = false }
         do {
+            // 评审修正：窗口含前一天——过期剂量才能走 markAwaitingUser 分支
+            let windowStart = now.addingTimeInterval(-86400)
             let windowEnd = now.addingTimeInterval(TimeInterval(ReconcileEngine.preScheduleWindowDays * 86400))
-            let facts = try await source.deliveryFacts(from: now, to: windowEnd)
+            let facts = try await source.deliveryFacts(from: windowStart, to: windowEnd)
             let delivered = try await scheduler.delivered()
             var pending = try await scheduler.pending()
 
-            for f in facts {
-                switch ReconcileEngine.decide(f, now: now) {
+            // FR9.17 通知半场（评审 P0）：时段级单条通知——未送达且未决剂量按时段
+            // 聚合，每时段只发一条（展开内容由 UI 按 slot 查询实时组装）
+            let merged = facts.map { f -> DoseDeliveryFact in
+                var m = f
+                // 送达事实以系统 delivered 集为准（评审修正：DB 的 delivery_state
+                // 只记迁移状态，decide 的 delivered 输入必须来自调度器）——
+                // 剂量所属时段的通知送达即视为该剂量送达
+                let slotNotifyId = DoseSlotGrouping.slotId(for: DoseRecord(dose: f.dose)).map { "slot-\($0)" }
+                m.delivered = f.delivered
+                    || delivered.contains(f.dose.notifyId)
+                    || (slotNotifyId.map { delivered.contains($0) } ?? false)
+                return m
+            }
+            let undecided = merged.filter { $0.action == nil && !$0.delivered }
+            let slots = DoseSlotGrouping.group(undecided.map { DoseRecord(dose: $0.dose) })
+
+            for fact in merged {
+                switch ReconcileEngine.decide(fact, now: now) {
                 case .schedule:
-                    if pending[f.dose.notifyId] == nil {
-                        try await scheduler.schedule(dose: f.dose.notifyId, at: f.dose.dueAt)
-                        pending[f.dose.notifyId] = f.dose.dueAt
-                    }
+                    break   // 时段级调度统一在下方处理
                 case .markAwaitingUser:
-                    try await source.markAwaitingUser(f.dose.notifyId)
+                    try await source.markAwaitingUser(fact.dose.notifyId)
                 case .snooze(let until):
-                    try await scheduler.cancel([f.dose.notifyId])
-                    try await scheduler.schedule(dose: f.dose.notifyId, at: until)
-                    pending[f.dose.notifyId] = until
+                    if let slotId = DoseSlotGrouping.slotId(for: DoseRecord(dose: fact.dose)).map({ "slot-\($0)" }) {
+                        try await scheduler.cancel([slotId])
+                    }
+                    let snoozeId = "snooze-\(fact.dose.notifyId)-\(Int(until.timeIntervalSince1970))"
+                    try await scheduler.schedule(dose: snoozeId, at: until)
+                    pending[snoozeId] = until
                 case .none:
                     break
                 }
             }
-            // 到期自动停（FR9.15）：计划 ended/endDate 次日 → 批量移除该计划全部 pending
-            // （deliveryFacts 不再返回 ended 计划的剂量；此处在 pending 中清除无事实来源的过期项）
-            let activeIds = Set(facts.map(\.dose.notifyId))
-            let stale = pending.keys.filter { !activeIds.contains($0) }
+
+            for slot in slots {
+                // 时段内仍有未送达且未决的剂量 → 时段级通知（未排才排）
+                guard slot.records.contains(where: { _ in true }) else { continue }
+                let slotNotifyId = "slot-\(slot.id)"
+                if pending[slotNotifyId] == nil {
+                    try await scheduler.schedule(dose: slotNotifyId, at: slot.anchorTime)
+                    pending[slotNotifyId] = slot.anchorTime
+                }
+            }
+
+            // 到期自动停（FR9.15）：只清 dose-/slot- 前缀的残留 pending——
+            // 评审修正 P0：旧实现把 apt- 预约提醒当「无事实来源」全删，预约闭环每次对账即断
+            let activeSlotIds = Set(slots.map { "slot-\($0.id)" })
+            let stale = pending.keys.filter { id in
+                (id.hasPrefix("dose-") || id.hasPrefix("slot-")) && !activeSlotIds.contains(id)
+            }
             if !stale.isEmpty {
                 try await scheduler.cancel(Array(stale))
             }

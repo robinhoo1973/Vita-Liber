@@ -118,6 +118,7 @@ public enum SchemaV2 {
     -- 服药剂量日志（FR9.7 送达状态与用户确认分离）
     CREATE TABLE medication_dose_log (
       id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, scheduled_for REAL NOT NULL,
+      dose_units REAL NOT NULL DEFAULT 1,   -- V3.42: 物化时的计划剂量（taper 不失真）
       delivery_state TEXT NOT NULL CHECK(delivery_state IN ('planned','sent','delivered','failed')),
       delivered_at REAL, user_action TEXT CHECK(user_action IN
         ('taken','snoozed','skipped','missed','discomfort') OR user_action IS NULL),

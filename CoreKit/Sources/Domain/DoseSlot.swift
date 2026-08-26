@@ -8,12 +8,26 @@ public enum DoseUserAction: String, Sendable, Equatable, Codable {
     case taken, snoozed, skipped, missed, discomfort
 }
 
-/// 剂量记录 = 调度剂量 + 用户动作（dose_log 行语义的查询投影）
+/// 剂量记录 = 调度剂量 + 用户动作 + 药品定义投影（dose_log 行语义的查询投影）
 public struct DoseRecord: Sendable, Equatable {
     public var dose: ScheduledDose
     public var action: DoseUserAction?
-    public init(dose: ScheduledDose, action: DoseUserAction? = nil) {
+    public var medicationName: String?
+    public var spec: String?
+    public var unitKind: String?
+    public init(dose: ScheduledDose, action: DoseUserAction? = nil,
+                medicationName: String? = nil, spec: String? = nil, unitKind: String? = nil) {
         self.dose = dose; self.action = action
+        self.medicationName = medicationName; self.spec = spec; self.unitKind = unitKind
+    }
+    /// 卡片行标签：「药名 规格 · 剂量单位」（评审修正：多药同卡可区分）
+    public var displayLabel: String {
+        var parts = [medicationName, spec].compactMap { $0 }.filter { !$0.isEmpty }
+        if parts.isEmpty { parts = ["未命名药品"] }
+        let doseText = dose.doseUnits == dose.doseUnits.rounded()
+            ? "\(Int(dose.doseUnits)) \(unitKind ?? "单位")"
+            : "\(dose.doseUnits) \(unitKind ?? "单位")"
+        return parts.joined(separator: " ") + " · " + doseText
     }
 }
 
@@ -80,6 +94,11 @@ public struct DoseSlotGrouping {
         let minutes = mealMinutes[relation] ?? 8 * 60 + 30
         return start.addingTimeInterval(TimeInterval(minutes * 60))
     }
+
+    /// 单剂量的时段归属 id（通知 id = "slot-\(slotId)"；对账与稍后取消共用）
+    public static func slotId(for record: DoseRecord, calendar: Calendar = .current) -> String? {
+        group([record], calendar: calendar).first?.id
+    }
 }
 
 /// FR9.8 双轨扣减（ADR-009）：
@@ -108,18 +127,33 @@ public struct DualTrackInventory: Sendable, Equatable, Codable {
 }
 
 public enum InventoryRules {
-    /// 安全线扣减：调度发出即扣（safe-side bias：宁可早告警）
+    /// 安全线扣减（计划轨）：计划按天推进，无论动作如何都要消耗
     public static func deductPlan(_ inv: DualTrackInventory, units: Double) -> DualTrackInventory {
         var v = inv
         v.remainingPlanUnits = max(0, v.remainingPlanUnits - units)
         return v
     }
 
-    /// 确认线扣减：仅「服了」动作扣（BR-004）；跳过/忘记/不适均不扣确认线
+    /// 确认线扣减（事实轨）：仅「服了」动作扣（BR-004）；跳过/忘记/不适均不扣确认线
     public static func deductConfirmed(_ inv: DualTrackInventory, units: Double) -> DualTrackInventory {
         var v = inv
         v.remainingConfirmedUnits = max(0, v.remainingConfirmedUnits - units)
         return v
+    }
+
+    /// FR9.8.2 扣减矩阵（评审修正：原实现只扣确认线，把违规格写绿）：
+    /// - taken：两线各扣（计划轨消耗 + 事实轨消耗）
+    /// - skipped/missed/discomfort：仅计划轨扣（计划已过，事实线不动）
+    /// - snoozed：两线都不扣（临时延后，非终态动作）
+    public static func applyResolution(_ inv: DualTrackInventory, units: Double, action: DoseUserAction) -> DualTrackInventory {
+        switch action {
+        case .snoozed:
+            return inv
+        case .taken:
+            return deductConfirmed(deductPlan(inv, units: units), units: units)
+        default:
+            return deductPlan(inv, units: units)
+        }
     }
 
     /// 续药告警（FR9.8.3）：安全线余量 ≤7 天当量 → 需告警（偏早）

@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import os
+import UserNotifications
 import Domain
 import Infrastructure
 import Protocols
@@ -34,8 +35,10 @@ final class ReminderStore {
         do {
             _ = try await meds.materializeWindow(now: now, calendar: .current)
             await reconciler.reconcile(now: now)
-            let dayStart = Calendar.current.startOfDay(for: now)
-            let dayEnd = dayStart.addingTimeInterval(86400)
+            let cal = Calendar.current
+            let dayStart = cal.startOfDay(for: now)
+            // S2-2 修正：DST 日 23/25 小时——日界必须用日历加一天，禁止 +86400 秒
+            let dayEnd = cal.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart.addingTimeInterval(86400)
             let facts = try await meds.deliveryFacts(from: dayStart, to: dayEnd)
             let records = facts.map { DoseRecord(dose: $0.dose, action: $0.action) }
             todaySlots = DoseSlotGrouping.group(records)
@@ -45,10 +48,10 @@ final class ReminderStore {
         }
     }
 
-    /// 服药确认动作集（FR9.7）：服了→扣减；跳过/稍后→只写动作（BR-004 永不推断病因）
+    /// 服药确认动作集（FR9.7）：动作按 notifyId UPDATE 物化行（评审修正 P0）
     func confirmTaken(patientId: UUID, dose: ScheduledDose) async {
         do {
-            try await meds.confirmTaken(doseLogId: UUID(), patientId: patientId, units: dose.doseUnits)
+            try await meds.confirmTaken(notifyId: dose.notifyId, patientId: patientId)
             await refresh(patientId: patientId)
         } catch {
             logger.error("确认服药失败: \(error)")
@@ -57,20 +60,38 @@ final class ReminderStore {
 
     func skipDose(dose: ScheduledDose) async {
         do {
-            try await meds.recordAction(doseLogId: UUID(), action: .skipped)
+            try await meds.recordAction(notifyId: dose.notifyId, action: .skipped)
         } catch {
             logger.error("跳过记录失败: \(error)")
         }
     }
 
     func snoozeDose(dose: ScheduledDose, minutes: Int = 15, patientId: UUID?) async {
-        // 稍后提醒 = 取消原通知 + 新 trigger（§5.4）；M1b 以对账侧动作落库占位
         do {
-            try await meds.recordAction(doseLogId: UUID(), action: .snoozed)
+            try await meds.recordAction(notifyId: dose.notifyId, action: .snoozed)
+            // S1-2 修正：稍后=取消时段通知 + 按新时刻单排（FR9.5）
+            let slotId = DoseSlotGrouping.slotId(for: DoseRecord(dose: dose)).map { "slot-\($0)" }
+            await reconciler.snooze(doseNotifyId: dose.notifyId, slotNotifyId: slotId,
+                                    until: Date().addingTimeInterval(TimeInterval(minutes * 60)))
             if let patientId { await refresh(patientId: patientId) }
         } catch {
             logger.error("稍后提醒失败: \(error)")
         }
+    }
+
+    /// 计划创建（评审修正 P0：提醒链此前无用户起点——处方→计划 UI 缺失）
+    func createPlan(patientId: UUID, medicationId: UUID, name: String, spec: String,
+                    schedule: MedicationSchedule, startDate: Date) async throws {
+        try await meds.createPlan(planId: UUID(), patientId: patientId, medicationId: medicationId,
+                                  schedule: schedule, status: .active,
+                                  startDate: startDate, endDate: nil)
+        await refresh(patientId: patientId)
+    }
+
+    func createMedication(patientId: UUID, name: String, spec: String, unitKind: String) async throws -> UUID {
+        let id = UUID()
+        try await meds.createMedication(id: id, patientId: patientId, name: name, spec: spec, unitKind: unitKind)
+        return id
     }
 
     func createAppointment(patientId: UUID, hospital: String, department: String,
@@ -81,6 +102,25 @@ final class ReminderStore {
             await refresh(patientId: patientId)
         } catch {
             logger.error("预约创建失败: \(error)")
+        }
+    }
+
+    func completeAppointment(patientId: UUID, id: UUID) async {
+        do {
+            try await apts.complete(id: id)
+            await refresh(patientId: patientId)
+        } catch {
+            logger.error("预约完成失败: \(error)")
+        }
+    }
+
+    /// 首启通知授权（S1-3 修正：无授权时 UN 中心静默丢弃，生产提醒整体哑火）
+    func requestNotificationAuthorization() async {
+        do {
+            _ = try await UNUserNotificationCenter.current()
+                .requestAuthorization(options: [.alert, .sound, .badge])
+        } catch {
+            logger.error("通知授权请求失败: \(error)")
         }
     }
 }

@@ -33,17 +33,19 @@ struct ReminderReliabilityTests {
             isDueSoon: offset <= 30 * 60, isExpiredGrace: offset < -15 * 60)
     }
 
-    /// 用例一：杀进程重启当日提醒照常——系统侧 pending 清空后，启动对账必须补排
+    /// 用例一：杀进程重启当日提醒照常——系统侧 pending 清空后，启动对账必须补排。
+    /// FR9.17 通知半场：两剂相距 >30min → 两个时段 → 两条时段级通知（slot- 前缀）
     @Test func 杀进程重启当日提醒照常() async throws {
         let scheduler = InMemoryReminderScheduler()
         let source = FakeDoseSource()
         let reconciler = ReminderReconciler(scheduler: scheduler, source: source, logger: PrintLogger())
 
-        // 当日两剂
+        // 当日两剂（相距 3 小时 → 两时段）
         await source.set([dose("dose-a-1", at: 5 * 60), dose("dose-a-2", at: 3 * 3600)])
         await reconciler.reconcile(now: now)
         var pending = try await scheduler.pending()
         #expect(pending.count == 2)
+        #expect(pending.keys.allSatisfy { $0.hasPrefix("slot-") }, "时段级单条通知")
 
         // 杀进程：系统 pending 清空（delivered 保留为空——通知尚未发出）
         await scheduler.simulateRestart()
@@ -65,7 +67,7 @@ struct ReminderReliabilityTests {
         await source.set([dose("dose-b-1", at: 10 * 60)])
         await reconciler.reconcile(now: now)
         let pending = try await scheduler.pending()
-        #expect(pending["dose-b-1"] != nil)
+        #expect(pending.count == 1 && pending.keys.allSatisfy { $0.hasPrefix("slot-") })
         // 链路全程只经 ReminderScheduling/DoseSource 两协议——无任何网络类型，
         // 即离线可用（E5 语义的架构级保证）
     }
@@ -105,7 +107,7 @@ struct ReminderReliabilityTests {
         await source.set([dose("dose-c-1", at: 60 * 60)])
         await reconciler.reconcile(now: now)
         var pending = try await scheduler.pending()
-        #expect(pending["dose-c-1"] != nil)
+        #expect(pending.count == 1 && pending.keys.allSatisfy { $0.hasPrefix("slot-") })
 
         // 计划 ended（FR9.15）：事实源不再返回该计划任何剂量
         await source.set([])
@@ -114,37 +116,27 @@ struct ReminderReliabilityTests {
         #expect(pending.isEmpty, "计划结束后残留 pending 必须被清除（到期自动停）")
     }
 
-    /// 64 pending 上限：超预算按优先级裁撤（用药保留、随访裁掉、同优先级裁最晚）
-    @Test func 六十四上限优先级裁撤() async throws {
+    /// 64 pending 上限：超预算裁撤到 60；预约提醒（apt-）不参与对账裁撤
+    /// （评审修正：对账只管理 dose-/slot- 命名空间）
+    @Test func 六十四上限裁撤与预约保护() async throws {
         let scheduler = InMemoryReminderScheduler()
         let source = FakeDoseSource()
         let reconciler = ReminderReconciler(scheduler: scheduler, source: source)
-        // 65 条 pending：40 用药 + 20 预约 + 5 随访
+        // 65 剂各相距 2 小时 → 65 个独立时段 → 65 条时段通知（超预算 60）
         var facts: [DoseDeliveryFact] = []
-        for i in 0..<40 {
+        for i in 0..<65 {
             facts.append(DoseDeliveryFact(
-                dose: ScheduledDose(dueAt: now.addingTimeInterval(TimeInterval(60 * (i + 1))),
+                dose: ScheduledDose(dueAt: now.addingTimeInterval(TimeInterval(7200 * (i + 1))),
                                     doseUnits: 1, notifyId: "dose-x-\(i)"),
                 delivered: false, action: nil, isDueSoon: false, isExpiredGrace: false))
         }
-        for i in 0..<20 {
-            facts.append(DoseDeliveryFact(
-                dose: ScheduledDose(dueAt: now.addingTimeInterval(TimeInterval(60 * (i + 1))),
-                                    doseUnits: 1, notifyId: "apt-x-\(i)"),
-                delivered: false, action: nil, isDueSoon: false, isExpiredGrace: false))
-        }
-        for i in 0..<5 {
-            facts.append(DoseDeliveryFact(
-                dose: ScheduledDose(dueAt: now.addingTimeInterval(TimeInterval(60 * (i + 1))),
-                                    doseUnits: 1, notifyId: "follow-x-\(i)"),
-                delivered: false, action: nil, isDueSoon: false, isExpiredGrace: false))
-        }
+        // 预约提醒由 AppointmentStore 直接预排——对账不得触碰
+        try await scheduler.schedule(dose: "apt-protected", at: now.addingTimeInterval(3600))
         await source.set(facts)
         await reconciler.reconcile(now: now)
         let pending = try await scheduler.pending()
-        #expect(pending.count == ReminderReconciler.pendingBudget, "超限必须裁到预算内")
-        #expect(pending.keys.contains { $0.hasPrefix("follow-x-") } == false, "随访优先级最低必被裁撤")
-        #expect(pending.keys.filter { $0.hasPrefix("dose-x-") }.count == 40, "用药提醒全保留")
+        #expect(pending.count == ReminderReconciler.pendingBudget, "超限裁到预算内（66→60：六条时段让位）")
+        #expect(pending["apt-protected"] != nil, "apt- 预约提醒必须存活（评审 S0-1 修正）")
     }
 
     /// 稍后提醒：取消原通知 + 新 trigger；「跳过/忘记」不产生任何调度动作

@@ -16,10 +16,16 @@ public struct DoseDeliveryFact: Sendable, Equatable {
     public var action: DoseUserAction?
     public var isDueSoon: Bool
     public var isExpiredGrace: Bool
+    /// 药品定义投影（评审修正：UI 时段卡必须可区分多药——JOIN medication 带出）
+    public var medicationName: String?
+    public var spec: String?
+    public var unitKind: String?
     public init(dose: ScheduledDose, delivered: Bool, action: DoseUserAction?,
-                isDueSoon: Bool, isExpiredGrace: Bool) {
+                isDueSoon: Bool, isExpiredGrace: Bool,
+                medicationName: String? = nil, spec: String? = nil, unitKind: String? = nil) {
         self.dose = dose; self.delivered = delivered; self.action = action
         self.isDueSoon = isDueSoon; self.isExpiredGrace = isExpiredGrace
+        self.medicationName = medicationName; self.spec = spec; self.unitKind = unitKind
     }
 }
 

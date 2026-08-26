@@ -56,12 +56,24 @@ public actor AppointmentStore {
         }
     }
 
-    /// 标记完成（FR10.7：completed）
+    /// 标记完成（FR10.7：completed）+ 补录就诊（评审修正 P0：闭环断点——
+    /// 「标记完成→补录就诊」此前只改状态无 encounter 写入）
     public func complete(id: UUID, now: Date = Date()) async throws {
+        try await cancelReminders(id: id)
         try await writer.write { db in
+            guard let apt = try Row.fetchOne(db, sql: "SELECT * FROM appointment WHERE id = ?",
+                                             arguments: [id.uuidString]) else { return }
             try db.execute(
                 sql: "UPDATE appointment SET status = 'completed', updated_at = ? WHERE id = ?",
                 arguments: [now.timeIntervalSince1970, id.uuidString])
+            // 懒建就诊（F4）：以预约信息落 encounter 行，kind=复诊
+            try db.execute(
+                sql: """
+                INSERT INTO encounter (id, patient_id, date, kind, created_at, updated_at)
+                VALUES (?, ?, ?, '复诊', ?, ?)
+                """,
+                arguments: [UUID().uuidString, apt["patient_id"] as String,
+                            apt["starts_at"] as Double, now.timeIntervalSince1970, now.timeIntervalSince1970])
         }
     }
 

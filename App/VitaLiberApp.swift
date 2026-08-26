@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import Domain
 import Infrastructure
 import Protocols
@@ -46,16 +47,35 @@ struct VitaLiberApp: App {
             }
             .environment(appState)
             .environment(reminderStore)
-            .task { await appState.bootstrap() }
+            .task {
+                await appState.bootstrap()
+                // 四层补偿第 1 层（§5.4 V3.29）：前台启动时对账 + 首启请求通知授权
+                if appState.onboardingFinished {
+                    await reminderStore.requestNotificationAuthorization()
+                    await reminderStore.refresh(patientId: appState.owner?.selfPatientId ?? appState.owner?.id)
+                }
+            }
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .background:
                 if appState.isPinProtected { backgroundLocked = true }   // FR1.4：PIN 建立即锁
             case .active:
-                break                                                     // 解锁留给门禁遮罩
+                // 四层补偿第 2 层：每次回前台轻量对账
+                if appState.onboardingFinished {
+                    Task {
+                        await reminderStore.refresh(patientId: appState.owner?.selfPatientId ?? appState.owner?.id)
+                    }
+                }
             default:
                 break
+            }
+        }
+        // 四层补偿第 3 层：时区/时间显著变化 → 立即对账
+        .onReceive(NotificationCenter.default.publisher(
+            for: UIApplication.significantTimeChangeNotification)) { _ in
+            Task {
+                await reminderStore.refresh(patientId: appState.owner?.selfPatientId ?? appState.owner?.id)
             }
         }
     }
