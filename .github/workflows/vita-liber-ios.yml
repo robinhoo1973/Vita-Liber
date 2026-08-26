@@ -175,7 +175,7 @@ jobs:
           set -o pipefail
           rm -rf Build/shard.xcresult
           xcodebuild test-without-building \
-            -xctestrun "$(find Build/DerivedData/Build/Products -name '*.xctestrun' | head -1)" \
+            -xctestrun "$(find Build/DerivedData/Build/Products -name 'VitaLiber*.xctestrun' | sort | head -1)" \
             -destination "$DESTINATION" \
             -parallel-testing-enabled YES -maximum-concurrent-test-simulator-destinations 2 \
             -resultBundlePath Build/shard.xcresult \
@@ -227,7 +227,7 @@ jobs:
           set -o pipefail
           rm -rf Build/ui.xcresult
           xcodebuild test-without-building \
-            -xctestrun "$(find Build/DerivedData/Build/Products -name '*.xctestrun' | head -1)" \
+            -xctestrun "$(find Build/DerivedData/Build/Products -name 'VitaLiber*.xctestrun' | sort | head -1)" \
             -destination "$DESTINATION" \
             -only-testing:VitaLiberUITests \
             -resultBundlePath Build/ui.xcresult \
@@ -269,7 +269,7 @@ jobs:
           xcrun simctl bootstatus "$UDID" -b
           rm -rf Build/golden.xcresult
           xcodebuild test-without-building \
-            -xctestrun "$(find Build/DerivedData/Build/Products -name '*.xctestrun' | head -1)" \
+            -xctestrun "$(find Build/DerivedData/Build/Products -name 'VitaLiber*.xctestrun' | sort | head -1)" \
             -destination "id=$UDID" \
             -only-testing:VitaLiberTests/GoldenMigrationTests \
             -only-testing:VitaLiberTests/GoldenOcrTests \
@@ -309,7 +309,7 @@ jobs:
           xcrun simctl bootstatus "$UDID" -b
           rm -rf Build/perf.xcresult
           xcodebuild test-without-building \
-            -xctestrun "$(find Build/DerivedData/Build/Products -name '*.xctestrun' | head -1)" \
+            -xctestrun "$(find Build/DerivedData/Build/Products -name 'VitaLiber*.xctestrun' | sort | head -1)" \
             -destination "id=$UDID" \
             -only-testing:VitaLiberTests/PerformanceScreeningTests \
             -resultBundlePath Build/perf.xcresult \
@@ -354,7 +354,7 @@ jobs:
           xcrun simctl bootstatus "$UDID" -b
           rm -rf Build/next.xcresult
           xcodebuild test-without-building \
-            -xctestrun "$(find Build/DerivedData/Build/Products -name '*.xctestrun' | head -1)" \
+            -xctestrun "$(find Build/DerivedData/Build/Products -name 'VitaLiber*.xctestrun' | sort | head -1)" \
             -destination "id=$UDID" \
             -only-testing:VitaLiberUITests \
             -resultBundlePath Build/next.xcresult \
