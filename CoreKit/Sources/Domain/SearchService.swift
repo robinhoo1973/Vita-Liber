@@ -67,4 +67,19 @@ public enum SearchRules {
     public static func isSensitiveDoc(_ docKind: String) -> Bool {
         docKind == "sensitive_photo" || docKind == "sensitive_media"
     }
+
+    /// contentless FTS 表无 snippet 函数——检索侧取回源列后手动高亮（V3.44）
+    public static func highlight(_ text: String?, query: String) -> String {
+        guard let text, !text.isEmpty else { return "" }
+        guard let range = text.range(of: query) else {
+            return String(text.prefix(40))
+        }
+        let leadCount = min(12, text.distance(from: text.startIndex, to: range.lowerBound))
+        let lower = text.index(range.lowerBound, offsetBy: -leadCount)
+        let trailCount = min(24, text.distance(from: range.upperBound, to: text.endIndex))
+        let upper = text.index(range.upperBound, offsetBy: trailCount)
+        let lead = lower > text.startIndex ? "…" : ""
+        let trail = upper < text.endIndex ? "…" : ""
+        return lead + text[lower..<range.lowerBound] + "<b>" + query + "</b>" + text[range.upperBound..<upper] + trail
+    }
 }

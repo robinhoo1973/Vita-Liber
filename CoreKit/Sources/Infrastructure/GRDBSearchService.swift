@@ -34,14 +34,19 @@ public actor GRDBSearchService: FullTextSearch {
             case .bigram:
                 let grams = SearchRules.bigrams(query).joined(separator: " OR ")
                 let rows = try Row.fetchAll(db, sql: """
-                    SELECT d.id, d.patient_id, d.doc_type, d.created_at,
-                           snippet(document_fts_2gram, 1, '<b>', '</b>', '…', 12) AS snip
+                    SELECT d.id, d.patient_id, d.doc_type, d.created_at, d.title, d.ocr_text
                     FROM document_fts_2gram f
                     JOIN document_file d ON d.rowid = f.rowid
                     WHERE document_fts_2gram MATCH ? AND d.status IN ('active','favorite')
                     ORDER BY rank LIMIT ?
                     """, arguments: [grams, limit])
-                return rows.compactMap { Self.hit($0) }
+                // contentless 表无 snippet 函数——取回源列手动高亮（V3.44）
+                return rows.compactMap { row in
+                    guard var ref = Self.hit(row) else { return nil }
+                    let source = (row["title"] as String?) ?? (row["ocr_text"] as String?) ?? ""
+                    return EntityReference(kind: ref.kind, refID: ref.refID, title: ref.title,
+                                           snippet: SearchRules.highlight(source, query: query))
+                }
             case .like:
                 // 1 字兜底：低频高噪音，限定最近 90 天窗口缩小扫描集
                 let since = Date().timeIntervalSince1970 - 90 * 86400

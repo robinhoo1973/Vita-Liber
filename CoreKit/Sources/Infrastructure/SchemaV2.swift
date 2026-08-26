@@ -350,7 +350,10 @@ public enum SchemaV2 {
       content='document_file', content_rowid='rowid');
     CREATE VIRTUAL TABLE document_fts_2gram USING fts5(
       title_2gram, ocr_2gram, note_2gram, tokenize='unicode61',
-      content='document_file', content_rowid='rowid');
+      content='');    -- V3.44: contentless——影子列名与源表不同（title_2gram 等），
+                      -- external-content 要求列名一致会报 no such column；
+                      -- contentless 支持 INSERT/DELETE（触发器可维护），
+                      -- 片段高亮由检索侧从源表取回后手动拼接
 
     CREATE TRIGGER document_file_fts_ai AFTER INSERT ON document_file BEGIN
       INSERT INTO document_fts(rowid, title, ocr_text, notes)
