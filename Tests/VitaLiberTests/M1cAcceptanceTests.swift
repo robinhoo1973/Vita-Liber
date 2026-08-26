@@ -70,8 +70,25 @@ final class M1cAcceptanceTests: XCTestCase {
                                    schedule: .fixed(times: ["08:00", "20:00"]), status: .active,
                                    startDate: Date(), endDate: nil)
 
+        // 补种八类业务数据（评审 S1-2：往返覆盖核心表全集）
+        let obs = ObservationStore(writer: storeA.writer)
+        try await obs.create(patientId: profile.id, kind: "skin", description: "红疹", selfMark: "improved")
+        let allergy = AllergyStore(writer: storeA.writer)
+        try await allergy.create(patientId: profile.id, substance: "青霉素", severity: "severe",
+                                 reactionTags: ["rash"], note: nil)
+        try await storeA.writer.write { db in
+            try db.execute(sql: """
+                INSERT INTO metric_sample (id, patient_id, metric_key, value, unit, origin, self_measured, measured_at, created_at)
+                VALUES (?, ?, 'blood_pressure_sys', 132, 'mmHg', 'manual', 1, ?, ?)
+                """, arguments: [UUID().uuidString, profile.id.uuidString,
+                                 Date().timeIntervalSince1970, Date().timeIntervalSince1970])
+        }
+
         let envelope = try await exportA.exportJSON()
         XCTAssertEqual(envelope.plans.count, 1)
+        XCTAssertEqual(envelope.observations.count, 1)
+        XCTAssertEqual(envelope.allergies.count, 1)
+        XCTAssertEqual(envelope.metrics.count, 1)
 
         // 全新库导入 → 再导出 → 结构一致（往返一致性）
         let storeB = try GRDBStore.inMemory()
@@ -82,6 +99,9 @@ final class M1cAcceptanceTests: XCTestCase {
         XCTAssertEqual(envelopeB.consentRecords, envelope.consentRecords)
         XCTAssertEqual(envelopeB.plans[0].schedule, envelope.plans[0].schedule)
         XCTAssertEqual(envelopeB.plans[0].medicationName, "阿莫西林")
+        XCTAssertEqual(envelopeB.observations, envelope.observations, "观察必须往返一致")
+        XCTAssertEqual(envelopeB.allergies, envelope.allergies, "过敏必须往返一致")
+        XCTAssertEqual(envelopeB.metrics, envelope.metrics, "指标必须往返一致")
 
         // JSON 编码/解码无损
         let data = try await exportA.encode(envelope)

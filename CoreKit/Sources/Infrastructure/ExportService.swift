@@ -21,6 +21,13 @@ public actor ExportService {
         public var timeline: [TimelineDocumentEntry]
         public var plans: [PlanExport]
         public var appointments: [AppointmentExport]
+        public var observations: [ObservationExport]
+        public var allergies: [AllergyExport]
+        public var encounters: [EncounterExport]
+        public var metrics: [MetricExport]
+        public var immunizations: [ImmunizationExport]
+        public var voiceNotes: [VoiceNoteExport]
+        public var healthProblems: [HealthProblemExport]
 
         public struct PlanExport: Sendable, Codable, Equatable {
             public var id: UUID
@@ -38,6 +45,48 @@ public actor ExportService {
             public var startsAt: Date
             public var status: String
         }
+        public struct ObservationExport: Sendable, Codable, Equatable {
+            public var id: UUID
+            public var kind: String
+            public var occurredAt: Date
+            public var description: String?
+            public var selfMark: String?
+        }
+        public struct AllergyExport: Sendable, Codable, Equatable {
+            public var id: UUID
+            public var substance: String
+            public var severity: String
+            public var occurredAt: Date
+        }
+        public struct EncounterExport: Sendable, Codable, Equatable {
+            public var id: UUID
+            public var date: Date
+            public var kind: String
+            public var diagnosisText: String?
+        }
+        public struct MetricExport: Sendable, Codable, Equatable {
+            public var id: UUID
+            public var key: String
+            public var value: Double
+            public var unit: String
+            public var origin: String
+            public var measuredAt: Date
+        }
+        public struct ImmunizationExport: Sendable, Codable, Equatable {
+            public var id: UUID
+            public var vaccineName: String
+            public var administeredAt: Date
+        }
+        public struct VoiceNoteExport: Sendable, Codable, Equatable {
+            public var id: UUID
+            public var body: String
+            public var occurredAt: Date
+        }
+        public struct HealthProblemExport: Sendable, Codable, Equatable {
+            public var id: UUID
+            public var name: String
+            public var createdAt: Date
+        }
         public init(schemaVersion: Int = 1, exportedAt: TimeInterval = 0,
                     owner: LocalOwner? = nil, selfProfile: PatientProfile? = nil,
                     consentRecords: [ConsentRecord] = [],
@@ -51,6 +100,13 @@ public actor ExportService {
             self.timeline = timeline
             self.plans = plans
             self.appointments = appointments
+            self.observations = []
+            self.allergies = []
+            self.encounters = []
+            self.metrics = []
+            self.immunizations = []
+            self.voiceNotes = []
+            self.healthProblems = []
         }
     }
 
@@ -117,9 +173,66 @@ public actor ExportService {
                     startsAt: Date(timeIntervalSince1970: row["starts_at"] as Double),
                     status: row["status"] as String)
             }
-            return Envelope(schemaVersion: 1, exportedAt: Date().timeIntervalSince1970,
-                            owner: owner, selfProfile: selfProfile, consentRecords: consents,
-                            timeline: timeline, plans: plans, appointments: appointments)
+            let observations = try Row.fetchAll(db, sql: "SELECT * FROM observation").map { row in
+                Envelope.ObservationExport(
+                    id: UUID(uuidString: row["id"] as String) ?? UUID(),
+                    kind: row["kind"] as String,
+                    occurredAt: Date(timeIntervalSince1970: row["occurred_at"] as Double),
+                    description: row["description"] as String?,
+                    selfMark: row["self_mark"] as String?)
+            }
+            let allergies = try Row.fetchAll(db, sql: "SELECT * FROM allergy_event").map { row in
+                Envelope.AllergyExport(
+                    id: UUID(uuidString: row["id"] as String) ?? UUID(),
+                    substance: row["substance"] as String,
+                    severity: row["severity"] as String,
+                    occurredAt: Date(timeIntervalSince1970: (row["occurred_at"] as Double?) ?? 0))
+            }
+            let encounters = try Row.fetchAll(db, sql: "SELECT * FROM encounter").map { row in
+                Envelope.EncounterExport(
+                    id: UUID(uuidString: row["id"] as String) ?? UUID(),
+                    date: Date(timeIntervalSince1970: row["date"] as Double),
+                    kind: row["kind"] as String,
+                    diagnosisText: row["diagnosis_text"] as String?)
+            }
+            let metrics = try Row.fetchAll(db, sql: "SELECT * FROM metric_sample").map { row in
+                Envelope.MetricExport(
+                    id: UUID(uuidString: row["id"] as String) ?? UUID(),
+                    key: row["metric_key"] as String,
+                    value: row["value"] as Double,
+                    unit: row["unit"] as String,
+                    origin: row["origin"] as String,
+                    measuredAt: Date(timeIntervalSince1970: row["measured_at"] as Double))
+            }
+            let immunizations = try Row.fetchAll(db, sql: "SELECT * FROM immunization").map { row in
+                Envelope.ImmunizationExport(
+                    id: UUID(uuidString: row["id"] as String) ?? UUID(),
+                    vaccineName: row["vaccine_name"] as String,
+                    administeredAt: Date(timeIntervalSince1970: (row["administered_at"] as Double?) ?? 0))
+            }
+            let voiceNotes = try Row.fetchAll(db, sql: "SELECT * FROM voice_note").map { row in
+                Envelope.VoiceNoteExport(
+                    id: UUID(uuidString: row["id"] as String) ?? UUID(),
+                    body: row["body"] as String,
+                    occurredAt: Date(timeIntervalSince1970: row["occurred_at"] as Double))
+            }
+            let healthProblems = try Row.fetchAll(db, sql: "SELECT * FROM health_problem").map { row in
+                Envelope.HealthProblemExport(
+                    id: UUID(uuidString: row["id"] as String) ?? UUID(),
+                    name: row["name"] as String,
+                    createdAt: Date(timeIntervalSince1970: row["created_at"] as Double))
+            }
+            var envelope = Envelope(schemaVersion: 1, exportedAt: Date().timeIntervalSince1970,
+                                    owner: owner, selfProfile: selfProfile, consentRecords: consents,
+                                    timeline: timeline, plans: plans, appointments: appointments)
+            envelope.observations = observations
+            envelope.allergies = allergies
+            envelope.encounters = encounters
+            envelope.metrics = metrics
+            envelope.immunizations = immunizations
+            envelope.voiceNotes = voiceNotes
+            envelope.healthProblems = healthProblems
+            return envelope
         }
     }
 
@@ -194,6 +307,61 @@ public actor ExportService {
                     """, arguments: [a.id.uuidString, profileId?.uuidString ?? "", a.hospital, a.department,
                                      a.startsAt.timeIntervalSince1970, a.status,
                                      a.startsAt.timeIntervalSince1970, a.startsAt.timeIntervalSince1970])
+            }
+            for o in envelope.observations {
+                try db.execute(sql: """
+                    INSERT INTO observation (id, patient_id, kind, occurred_at, description, self_mark, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """, arguments: [o.id.uuidString, profileId?.uuidString ?? "", o.kind,
+                                     o.occurredAt.timeIntervalSince1970, o.description, o.selfMark,
+                                     o.occurredAt.timeIntervalSince1970, o.occurredAt.timeIntervalSince1970])
+            }
+            for a in envelope.allergies {
+                try db.execute(sql: """
+                    INSERT INTO allergy_event (id, patient_id, substance, reaction_tags, severity, occurred_at, created_at, updated_at)
+                    VALUES (?, ?, ?, '[]', ?, ?, ?, ?)
+                    """, arguments: [a.id.uuidString, profileId?.uuidString ?? "", a.substance, a.severity,
+                                     a.occurredAt.timeIntervalSince1970,
+                                     a.occurredAt.timeIntervalSince1970, a.occurredAt.timeIntervalSince1970])
+            }
+            for e in envelope.encounters {
+                try db.execute(sql: """
+                    INSERT INTO encounter (id, patient_id, date, kind, diagnosis_text, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """, arguments: [e.id.uuidString, profileId?.uuidString ?? "", e.date.timeIntervalSince1970,
+                                     e.kind, e.diagnosisText,
+                                     e.date.timeIntervalSince1970, e.date.timeIntervalSince1970])
+            }
+            for m in envelope.metrics {
+                try db.execute(sql: """
+                    INSERT INTO metric_sample (id, patient_id, metric_key, value, unit, origin, self_measured, measured_at, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, arguments: [m.id.uuidString, profileId?.uuidString ?? "", m.key, m.value, m.unit, m.origin,
+                                     m.origin == "hospital" ? 0 : 1,
+                                     m.measuredAt.timeIntervalSince1970, m.measuredAt.timeIntervalSince1970])
+            }
+            for i in envelope.immunizations {
+                try db.execute(sql: """
+                    INSERT INTO immunization (id, patient_id, vaccine_name, administered_at, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """, arguments: [i.id.uuidString, profileId?.uuidString ?? "", i.vaccineName,
+                                     i.administeredAt.timeIntervalSince1970,
+                                     i.administeredAt.timeIntervalSince1970, i.administeredAt.timeIntervalSince1970])
+            }
+            for v in envelope.voiceNotes {
+                try db.execute(sql: """
+                    INSERT INTO voice_note (id, patient_id, body, occurred_at, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """, arguments: [v.id.uuidString, profileId?.uuidString ?? "", v.body,
+                                     v.occurredAt.timeIntervalSince1970,
+                                     v.occurredAt.timeIntervalSince1970, v.occurredAt.timeIntervalSince1970])
+            }
+            for h in envelope.healthProblems {
+                try db.execute(sql: """
+                    INSERT INTO health_problem (id, patient_id, name, archived, created_at, updated_at)
+                    VALUES (?, ?, ?, 0, ?, ?)
+                    """, arguments: [h.id.uuidString, profileId?.uuidString ?? "", h.name,
+                                     h.createdAt.timeIntervalSince1970, h.createdAt.timeIntervalSince1970])
             }
         }
     }
