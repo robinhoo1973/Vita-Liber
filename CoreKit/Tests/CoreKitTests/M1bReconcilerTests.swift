@@ -114,6 +114,39 @@ struct ReminderReliabilityTests {
         #expect(pending.isEmpty, "计划结束后残留 pending 必须被清除（到期自动停）")
     }
 
+    /// 64 pending 上限：超预算按优先级裁撤（用药保留、随访裁掉、同优先级裁最晚）
+    @Test func 六十四上限优先级裁撤() async throws {
+        let scheduler = InMemoryReminderScheduler()
+        let source = FakeDoseSource()
+        let reconciler = ReminderReconciler(scheduler: scheduler, source: source)
+        // 65 条 pending：40 用药 + 20 预约 + 5 随访
+        var facts: [DoseDeliveryFact] = []
+        for i in 0..<40 {
+            facts.append(DoseDeliveryFact(
+                dose: ScheduledDose(dueAt: now.addingTimeInterval(TimeInterval(60 * (i + 1))),
+                                    doseUnits: 1, notifyId: "dose-x-\(i)"),
+                delivered: false, action: nil, isDueSoon: false, isExpiredGrace: false))
+        }
+        for i in 0..<20 {
+            facts.append(DoseDeliveryFact(
+                dose: ScheduledDose(dueAt: now.addingTimeInterval(TimeInterval(60 * (i + 1))),
+                                    doseUnits: 1, notifyId: "apt-x-\(i)"),
+                delivered: false, action: nil, isDueSoon: false, isExpiredGrace: false))
+        }
+        for i in 0..<5 {
+            facts.append(DoseDeliveryFact(
+                dose: ScheduledDose(dueAt: now.addingTimeInterval(TimeInterval(60 * (i + 1))),
+                                    doseUnits: 1, notifyId: "follow-x-\(i)"),
+                delivered: false, action: nil, isDueSoon: false, isExpiredGrace: false))
+        }
+        await source.set(facts)
+        await reconciler.reconcile(now: now)
+        let pending = try await scheduler.pending()
+        #expect(pending.count == ReminderReconciler.pendingBudget, "超限必须裁到预算内")
+        #expect(pending.keys.contains { $0.hasPrefix("follow-x-") } == false, "随访优先级最低必被裁撤")
+        #expect(pending.keys.filter { $0.hasPrefix("dose-x-") }.count == 40, "用药提醒全保留")
+    }
+
     /// 稍后提醒：取消原通知 + 新 trigger；「跳过/忘记」不产生任何调度动作
     @Test func 稍后提醒与跳过语义() async throws {
         let scheduler = InMemoryReminderScheduler()

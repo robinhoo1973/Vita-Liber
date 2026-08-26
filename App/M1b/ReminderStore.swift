@@ -25,13 +25,15 @@ final class ReminderStore {
         self.reconciler = reconciler
     }
 
-    /// 四层补偿的入口统一走 reconcile；加载今日视图数据
+    /// 四层补偿的入口统一走 reconcile；加载今日视图数据。
+    /// 先物化滚动预排窗口（active 计划 → 7 天剂量行），再对账、再读今日时段。
     func refresh(patientId: UUID?, now: Date = Date()) async {
         loading = true
         defer { loading = false }
-        await reconciler.reconcile(now: now)
         guard let patientId else { return }
         do {
+            _ = try await meds.materializeWindow(now: now, calendar: .current)
+            await reconciler.reconcile(now: now)
             let dayStart = Calendar.current.startOfDay(for: now)
             let dayEnd = dayStart.addingTimeInterval(86400)
             let facts = try await meds.deliveryFacts(from: dayStart, to: dayEnd)

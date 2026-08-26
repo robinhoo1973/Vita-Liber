@@ -101,6 +101,47 @@ public actor MedicationStore: DoseSource {
         }
     }
 
+    // MARK: - 滚动预排窗口（§5.4：只物化未来 7 天，每日对账滚动补排）
+
+    /// 为全部 active 计划物化窗口内剂量行（幂等）。dose_log.plan_id 必须指向真实
+    /// 计划——否则 DoseSource.deliveryFacts 的 JOIN 恒空，提醒链断裂。
+    /// 返回本窗口新物化的行数。
+    public func materializeWindow(now: Date, calendar: Calendar) async throws -> Int {
+        let windowEnd = now.addingTimeInterval(TimeInterval(ReconcileEngine.preScheduleWindowDays * 86400))
+        var inserted = 0
+        try await writer.write { db in
+            let plans = try Row.fetchAll(db, sql: """
+                SELECT id, patient_id, schedule_json, start_date, end_date
+                FROM medication_plan WHERE status = 'active'
+                """)
+            for plan in plans {
+                let planId = UUID(uuidString: plan["id"] as String) ?? UUID()
+                let startDate = Date(timeIntervalSince1970: plan["start_date"] as Double)
+                let endDate = (plan["end_date"] as Double?).map { Date(timeIntervalSince1970: $0) }
+                guard let json = (plan["schedule_json"] as String?)?.data(using: .utf8) else { continue }
+                let schedule: MedicationSchedule
+                do { schedule = try JSONDecoder().decode(MedicationSchedule.self, from: json) }
+                catch { continue }   // 损坏的 schedule_json 跳过该计划（§7 禁 try?）
+                let (doses, _) = DoseScheduleEngine.doses(
+                    schedule: schedule, planId: planId, startDate: startDate,
+                    fromDay: 1, toDay: ReconcileEngine.preScheduleWindowDays, calendar: calendar)
+                for d in doses {
+                    guard d.dueAt >= now && d.dueAt <= windowEnd else { continue }
+                    if let end = endDate, d.dueAt > end.addingTimeInterval(86400) { continue }   // 到期次日不物化
+                    try db.execute(
+                        sql: """
+                        INSERT INTO medication_dose_log (id, plan_id, scheduled_for, delivery_state, user_action)
+                        VALUES (?, ?, ?, 'planned', NULL)
+                        ON CONFLICT(id) DO NOTHING
+                        """,
+                        arguments: [d.notifyId, planId.uuidString, d.dueAt.timeIntervalSince1970])
+                    inserted += db.changesCount
+                }
+            }
+        }
+        return inserted
+    }
+
     // MARK: - DoseSource（对账输入）
 
     public func deliveryFacts(from: Date, to: Date) async throws -> [DoseDeliveryFact] {

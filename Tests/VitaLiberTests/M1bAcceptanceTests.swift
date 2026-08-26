@@ -72,6 +72,29 @@ final class M1bAcceptanceTests: XCTestCase {
         XCTAssertEqual(remaining, 10, "跳过/忘记不得扣减任何库存（FR9.8.2）")
     }
 
+    /// 计划→剂量物化→对账事实 数据链闭合（评审缺口预修复：dose_log.plan_id 必须
+    /// 指向真实计划，否则 deliveryFacts 的 JOIN 恒空）
+    func test_计划物化窗口与事实链闭合() async throws {
+        let (store, meds, _, _, patient, med) = try await makeStore()
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+        let planId = UUID()
+        let start = cal.startOfDay(for: Date())
+        try await meds.createPlan(planId: planId, patientId: patient, medicationId: med,
+                                  schedule: .fixed(times: ["08:00", "20:00"]),
+                                  status: .active, startDate: start, endDate: nil)
+        let inserted = try await meds.materializeWindow(now: Date(), calendar: cal)
+        XCTAssertGreaterThan(inserted, 0, "滚动窗口必须物化剂量行")
+        let planIds = try await store.writer.read { db in
+            try String.fetchAll(db, sql: "SELECT DISTINCT plan_id FROM medication_dose_log")
+        }
+        XCTAssertEqual(planIds, [planId.uuidString], "dose_log.plan_id 必须指向真实计划")
+        // 事实链闭合：deliveryFacts 能读到今日窗口事实（非空集）
+        let dayStart = cal.startOfDay(for: Date())
+        let facts = try await meds.deliveryFacts(from: dayStart, to: dayStart.addingTimeInterval(86400))
+        XCTAssertFalse(facts.isEmpty, "对账事实必须来自真实 dose_log 数据链")
+    }
+
     /// 预约闭环：创建→四级提醒预排→改期重排→完成状态（FR10.3/10.7）
     func test_预约创建分级提醒与改期() async throws {
         let (store, _, scheduler, apts, patient, _) = try await makeStore()
