@@ -52,6 +52,41 @@ final class M1cAcceptanceTests: XCTestCase {
         XCTAssertTrue(other.entries.isEmpty, "BR-001：跨成员查询必须为空")
     }
 
+    /// F13 往返一致性（一票否决）：导出 → 全新库导入 → 再导出逐字段相等
+    func test_导出导入往返一致性() async throws {
+        let storeA = try await makeStore()
+        let exportA = ExportService(writer: storeA.writer)
+        // 种子：所有者 + 同意 + 计划（经 MedicationStore 走标准写入路径）
+        let medsA = MedicationStore(writer: storeA.writer)
+        let member = try await storeA.writer.read { db in
+            try String.fetchOne(db, sql: "SELECT id FROM patient_profile LIMIT 1") ?? ""
+        }
+        let patient = UUID(uuidString: member) ?? UUID()
+        let medId = UUID()
+        try await medsA.createMedication(id: medId, patientId: patient, name: "阿莫西林", spec: "0.25g", unitKind: "tablet")
+        try await medsA.createPlan(planId: UUID(), patientId: patient, medicationId: medId,
+                                   schedule: .fixed(times: ["08:00", "20:00"]), status: .active,
+                                   startDate: Date(), endDate: nil)
+
+        let envelope = try await exportA.exportJSON()
+        XCTAssertEqual(envelope.plans.count, 1)
+
+        // 全新库导入 → 再导出 → 结构一致（往返一致性）
+        let storeB = try GRDBStore.inMemory()
+        let exportB = ExportService(writer: storeB.writer)
+        try await exportB.importJSON(envelope)
+        let envelopeB = try await exportB.exportJSON()
+        XCTAssertEqual(envelopeB.plans, envelope.plans)
+        XCTAssertEqual(envelopeB.consentRecords, envelope.consentRecords)
+        XCTAssertEqual(envelopeB.plans[0].schedule, envelope.plans[0].schedule)
+        XCTAssertEqual(envelopeB.plans[0].medicationName, "阿莫西林")
+
+        // JSON 编码/解码无损
+        let data = try exportA.encode(envelope)
+        let decoded = try exportA.decode(data)
+        XCTAssertEqual(decoded.plans, envelope.plans)
+    }
+
     /// F12 搜索：trigram 路由 + 2-gram 路由命中（FTS 双表索引同步）
     func test_搜索双路由命中() async throws {
         let store = try await makeStore()
