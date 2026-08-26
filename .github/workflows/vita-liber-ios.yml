@@ -102,7 +102,8 @@ jobs:
                    for v in devs if v.get("isAvailable") and v["name"].startswith("iPhone")]
           if not pairs: sys.exit("no iPhone simulator available")
           spec = [p for p in pairs if p[1] == "$SPEC_SIMULATOR"]
-          pick = spec[0] if spec else sorted(pairs)[-1]
+          stable = [q for q in pairs if "-18-" in q[0]]
+          pick = spec[0] if spec else (stable[0] if stable else sorted(pairs)[0])
           print(f"DESTINATION=id={pick[2]}")
           with open(os.environ["GITHUB_OUTPUT"], "a") as o:
               o.write(f"sim_model={pick[1]}\nsim_runtime={pick[0]}\n")
@@ -179,10 +180,9 @@ jobs:
           xcodebuild test-without-building \
             -project "$XCODEPROJ" -scheme "$SCHEME" \
             -destination "$DESTINATION" \
-            -parallel-testing-enabled YES -maximum-concurrent-test-simulator-destinations 2 \
             -resultBundlePath Build/shard.xcresult \
             CODE_SIGNING_ALLOWED=NO \
-            ${{ matrix.shard }} 2>&1 | tee Build/xcodebuild-shard-${matrix.shard-name}.log
+            ${{ matrix.shard }} 2>&1 | tee Build/xcodebuild-shard.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
