@@ -128,59 +128,6 @@ public actor MedicationStore: DoseSource {
         case takenMustUseConfirm(String)
         public var errorDescription: String? { "剂量行操作失败: \(self)" }
     }
-}
-
-/// FR9.8.2 扣减矩阵落库（同事务）：按 FEFO 在**本药品**活跃且未过期批次上分配
-/// （评审 S1-1：不按 medication 过滤会把 A 药确认扣到 B 药批；过期批不得作来源）。
-/// 自由函数：在 writer.write 的同步闭包内调用，无 actor 隔离问题（Swift 6 显式 self 纪律）。
-private func applyResolutionOnLots(patientId: UUID, medicationId: UUID, notifyId: String, units: Double,
-                                   action: DoseUserAction, db: Database) throws {
-        var inventories: [DualTrackInventory] = []
-        for row in try Row.fetchAll(db, sql: """
-            SELECT * FROM stock_lot
-            WHERE patient_id = ? AND medication_id = ? AND status = 'active'
-              AND (expire_at IS NULL OR expire_at > ?)
-            """, arguments: [patientId.uuidString, medicationId.uuidString,
-                             Date().timeIntervalSince1970]) {
-            var inv = DualTrackInventory(lotId: UUID(uuidString: row["id"] as String) ?? UUID(),
-                                         totalUnits: row["total_units"] as Double,
-                                         unitKind: row["unit_kind"] as String,
-                                         expireAt: (row["expire_at"] as Double?).map { Date(timeIntervalSince1970: $0) })
-            inv.remainingPlanUnits = row["remaining_plan_units"] as Double
-            inv.remainingConfirmedUnits = row["remaining_confirmed_units"] as Double
-            inventories.append(inv)
-        }
-        // 确认线分配（仅 taken）；计划线按 FEFO 同样分配（矩阵语义）
-        var planRemaining = action == .snoozed ? 0 : units
-        var confirmedRemaining = action == .taken ? units : 0
-        var allocations: [(lotId: UUID, units: Double)] = []
-        for sortedLot in InventoryRules.fefoOrder(inventories) {
-            guard planRemaining > 0 || confirmedRemaining > 0 else { break }
-            guard sortedLot.status == "active",
-                  let i = inventories.firstIndex(where: { $0.lotId == sortedLot.lotId }) else { continue }
-            var lot = inventories[i]
-            let planTake = min(lot.remainingPlanUnits, planRemaining)
-            let confirmedTake = min(lot.remainingConfirmedUnits, confirmedRemaining)
-            if planTake > 0 { lot = InventoryRules.deductPlan(lot, units: planTake); planRemaining -= planTake }
-            if confirmedTake > 0 { lot = InventoryRules.deductConfirmed(lot, units: confirmedTake); confirmedRemaining -= confirmedTake }
-            if planTake > 0 || confirmedTake > 0 {
-                inventories[i] = lot
-                allocations.append((lot.lotId, confirmedTake))
-            }
-        }
-        for lot in inventories {
-            try db.execute(sql: """
-                UPDATE stock_lot SET remaining_plan_units = ?, remaining_confirmed_units = ?
-                WHERE id = ?
-                """, arguments: [lot.remainingPlanUnits, lot.remainingConfirmedUnits, lot.lotId.uuidString])
-        }
-        for a in allocations where a.units > 0 {
-            try db.execute(sql: """
-                INSERT INTO dose_lot_allocation (dose_log_id, stock_lot_id, planned_units, confirmed_units)
-                VALUES (?, ?, ?, ?)
-                """, arguments: [notifyId, a.lotId.uuidString, a.units, a.units])
-        }
-    }
 
     // MARK: - 滚动预排窗口（§5.4：只物化未来 7 天，每日对账滚动补排）
 
@@ -266,6 +213,59 @@ private func applyResolutionOnLots(patientId: UUID, medicationId: UUID, notifyId
                 UPDATE medication_dose_log SET delivery_state = 'delivered'
                 WHERE id = ?
                 """, arguments: [notifyId])
+        }
+    }
+}
+
+/// FR9.8.2 扣减矩阵落库（同事务）：按 FEFO 在**本药品**活跃且未过期批次上分配
+/// （评审 S1-1：不按 medication 过滤会把 A 药确认扣到 B 药批；过期批不得作来源）。
+/// 自由函数：在 writer.write 的同步闭包内调用，无 actor 隔离问题（Swift 6 显式 self 纪律）。
+private func applyResolutionOnLots(patientId: UUID, medicationId: UUID, notifyId: String, units: Double,
+                                   action: DoseUserAction, db: Database) throws {
+        var inventories: [DualTrackInventory] = []
+        for row in try Row.fetchAll(db, sql: """
+            SELECT * FROM stock_lot
+            WHERE patient_id = ? AND medication_id = ? AND status = 'active'
+              AND (expire_at IS NULL OR expire_at > ?)
+            """, arguments: [patientId.uuidString, medicationId.uuidString,
+                             Date().timeIntervalSince1970]) {
+            var inv = DualTrackInventory(lotId: UUID(uuidString: row["id"] as String) ?? UUID(),
+                                         totalUnits: row["total_units"] as Double,
+                                         unitKind: row["unit_kind"] as String,
+                                         expireAt: (row["expire_at"] as Double?).map { Date(timeIntervalSince1970: $0) })
+            inv.remainingPlanUnits = row["remaining_plan_units"] as Double
+            inv.remainingConfirmedUnits = row["remaining_confirmed_units"] as Double
+            inventories.append(inv)
+        }
+        // 确认线分配（仅 taken）；计划线按 FEFO 同样分配（矩阵语义）
+        var planRemaining = action == .snoozed ? 0 : units
+        var confirmedRemaining = action == .taken ? units : 0
+        var allocations: [(lotId: UUID, units: Double)] = []
+        for sortedLot in InventoryRules.fefoOrder(inventories) {
+            guard planRemaining > 0 || confirmedRemaining > 0 else { break }
+            guard sortedLot.status == "active",
+                  let i = inventories.firstIndex(where: { $0.lotId == sortedLot.lotId }) else { continue }
+            var lot = inventories[i]
+            let planTake = min(lot.remainingPlanUnits, planRemaining)
+            let confirmedTake = min(lot.remainingConfirmedUnits, confirmedRemaining)
+            if planTake > 0 { lot = InventoryRules.deductPlan(lot, units: planTake); planRemaining -= planTake }
+            if confirmedTake > 0 { lot = InventoryRules.deductConfirmed(lot, units: confirmedTake); confirmedRemaining -= confirmedTake }
+            if planTake > 0 || confirmedTake > 0 {
+                inventories[i] = lot
+                allocations.append((lot.lotId, confirmedTake))
+            }
+        }
+        for lot in inventories {
+            try db.execute(sql: """
+                UPDATE stock_lot SET remaining_plan_units = ?, remaining_confirmed_units = ?
+                WHERE id = ?
+                """, arguments: [lot.remainingPlanUnits, lot.remainingConfirmedUnits, lot.lotId.uuidString])
+        }
+        for a in allocations where a.units > 0 {
+            try db.execute(sql: """
+                INSERT INTO dose_lot_allocation (dose_log_id, stock_lot_id, planned_units, confirmed_units)
+                VALUES (?, ?, ?, ?)
+                """, arguments: [notifyId, a.lotId.uuidString, a.units, a.units])
         }
     }
 #endif
