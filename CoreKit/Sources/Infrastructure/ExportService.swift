@@ -16,6 +16,7 @@ public actor ExportService {
         public var schemaVersion: Int
         public var exportedAt: TimeInterval
         public var owner: LocalOwner?
+        public var selfProfile: PatientProfile?
         public var consentRecords: [ConsentRecord]
         public var timeline: [TimelineDocumentEntry]
         public var plans: [PlanExport]
@@ -38,12 +39,14 @@ public actor ExportService {
             public var status: String
         }
         public init(schemaVersion: Int = 1, exportedAt: TimeInterval = 0,
-                    owner: LocalOwner? = nil, consentRecords: [ConsentRecord] = [],
+                    owner: LocalOwner? = nil, selfProfile: PatientProfile? = nil,
+                    consentRecords: [ConsentRecord] = [],
                     timeline: [TimelineDocumentEntry] = [], plans: [PlanExport] = [],
                     appointments: [AppointmentExport] = []) {
             self.schemaVersion = schemaVersion
             self.exportedAt = exportedAt
             self.owner = owner
+            self.selfProfile = selfProfile
             self.consentRecords = consentRecords
             self.timeline = timeline
             self.plans = plans
@@ -60,6 +63,20 @@ public actor ExportService {
                            displayName: row["display_name"] as String,
                            selfPatientId: (row["self_patient_id"] as String?).flatMap(UUID.init(uuidString:)),
                            createdAt: row["created_at"] as Double)
+            }
+            let selfProfile = try Row.fetchOne(db, sql: """
+                SELECT p.* FROM patient_profile p
+                JOIN local_owner o ON o.self_patient_id = p.id
+                LIMIT 1
+                """).map { row in
+                PatientProfile(id: UUID(uuidString: row["id"] as String) ?? UUID(),
+                               displayName: row["display_name"] as String,
+                               relation: row["relation"] as String,
+                               gender: row["gender"] as String?,
+                               birthDate: row["birth_date"] as String?,
+                               note: row["note"] as String?,
+                               createdAt: row["created_at"] as Double,
+                               updatedAt: row["updated_at"] as Double)
             }
             let consents = try Row.fetchAll(db, sql: "SELECT * FROM consent_record ORDER BY accepted_at").map { row in
                 ConsentRecord(id: UUID(uuidString: row["id"] as String) ?? UUID(),
@@ -101,8 +118,8 @@ public actor ExportService {
                     status: row["status"] as String)
             }
             return Envelope(schemaVersion: 1, exportedAt: Date().timeIntervalSince1970,
-                            owner: owner, consentRecords: consents, timeline: timeline,
-                            plans: plans, appointments: appointments)
+                            owner: owner, selfProfile: selfProfile, consentRecords: consents,
+                            timeline: timeline, plans: plans, appointments: appointments)
         }
     }
 
@@ -110,6 +127,19 @@ public actor ExportService {
     /// FK 拓扑序：patient_profile → local_owner → consent/document/plan/appointment（ERR#35）
     public func importJSON(_ envelope: Envelope) async throws {
         try await writer.write { db in
+            // FK 拓扑序（ERR#35）：patient_profile 先落——本人档案必须随 envelope
+            // 往返（medication/plan/document 的 patient_id 外键目标）
+            var profileId = envelope.owner?.selfPatientId ?? envelope.selfProfile?.id
+            if let profile = envelope.selfProfile {
+                try db.execute(sql: """
+                    INSERT INTO patient_profile
+                      (id, owner_local_id, display_name, relation, gender, birth_date, note, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, arguments: [profile.id.uuidString,
+                                       envelope.owner?.id.uuidString, profile.displayName,
+                                       profile.relation, profile.gender, profile.birthDate,
+                                       profile.note, profile.createdAt, profile.updatedAt])
+            }
             if let owner = envelope.owner {
                 try db.execute(sql: """
                     INSERT INTO local_owner (id, display_name, self_patient_id, created_at)
@@ -117,6 +147,7 @@ public actor ExportService {
                     """, arguments: [owner.id.uuidString, owner.displayName,
                                      owner.selfPatientId?.uuidString, owner.createdAt])
             }
+            profileId = profileId ?? envelope.owner?.selfPatientId
             for c in envelope.consentRecords {
                 try db.execute(sql: """
                     INSERT INTO consent_record (id, key, level, version, accepted_at)
@@ -138,23 +169,24 @@ public actor ExportService {
                 let medId = UUID()
                 try db.execute(sql: """
                     INSERT INTO medication (id, patient_id, generic_name, spec, unit_kind, created_at, updated_at)
-                    VALUES (?, '', ?, ?, 'tablet', ?, ?)
-                    """, arguments: [medId.uuidString, p.medicationName, p.spec,
-                                     p.startDate.timeIntervalSince1970, p.startDate.timeIntervalSince1970])
+                    VALUES (?, ?, ?, ?, 'tablet', ?, ?)
+                    """, arguments: [medId.uuidString, profileId?.uuidString ?? "",
+                                       p.medicationName, p.spec,
+                                       p.startDate.timeIntervalSince1970, p.startDate.timeIntervalSince1970])
                 let scheduleJSON = String(data: try JSONEncoder().encode(p.schedule), encoding: .utf8) ?? "{}"
                 try db.execute(sql: """
                     INSERT INTO medication_plan
                       (id, patient_id, medication_id, status, schedule_json, start_date, end_date, created_at, updated_at)
-                    VALUES (?, '', ?, ?, ?, ?, ?, ?, ?)
-                    """, arguments: [p.id.uuidString, medId.uuidString, p.status.rawValue, scheduleJSON,
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, arguments: [p.id.uuidString, profileId?.uuidString ?? "", medId.uuidString, p.status.rawValue, scheduleJSON,
                                      p.startDate.timeIntervalSince1970, p.endDate?.timeIntervalSince1970,
                                      p.startDate.timeIntervalSince1970, p.startDate.timeIntervalSince1970])
             }
             for a in envelope.appointments {
                 try db.execute(sql: """
                     INSERT INTO appointment (id, patient_id, hospital, department, starts_at, status, created_at, updated_at)
-                    VALUES (?, '', ?, ?, ?, ?, ?, ?)
-                    """, arguments: [a.id.uuidString, a.hospital, a.department,
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """, arguments: [a.id.uuidString, profileId?.uuidString ?? "", a.hospital, a.department,
                                      a.startsAt.timeIntervalSince1970, a.status,
                                      a.startsAt.timeIntervalSince1970, a.startsAt.timeIntervalSince1970])
             }
