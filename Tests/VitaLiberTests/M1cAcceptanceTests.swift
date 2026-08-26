@@ -82,8 +82,8 @@ final class M1cAcceptanceTests: XCTestCase {
         XCTAssertEqual(envelopeB.plans[0].medicationName, "阿莫西林")
 
         // JSON 编码/解码无损
-        let data = try exportA.encode(envelope)
-        let decoded = try exportA.decode(data)
+        let data = try await exportA.encode(envelope)
+        let decoded = try await exportA.decode(data)
         XCTAssertEqual(decoded.plans, envelope.plans)
     }
 
