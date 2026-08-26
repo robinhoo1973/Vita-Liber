@@ -1,9 +1,18 @@
 import SwiftUI
 
 /// ADR-021 / tech-spec §5.26：五模块单一枚举，iPhone Tab 与 iPad Sidebar
-/// 是同一枚举的两种容器渲染——导航外壳统一为 NavigationSplitView，
-/// compact 宽度下系统自动折叠为 tab 形态，不写 idiom 分支。
-enum MainModule: String, CaseIterable, Identifiable {
+/// 是同一枚举的两种容器渲染。
+///
+/// 实现要点（ERR#32 修正记录）：
+/// - `List(_:selection:rowContent:)` 与 `List(selection:content:)` 均 macOS-only，
+///   iOS 17 不可用——SwiftUI 跨平台可用面差异在非 macOS 机器不可验证；
+/// - iOS 上 NavigationSplitView 的侧边栏选中态由 NavigationLink(value:) +
+///   navigationDestination 管理（persist 需求 M1c 接 AppRoute 时再引入
+///   @SceneStorage，见 tech-spec §5.45/§5.48）；
+/// - compact 宽度用 TabView（系统原生 tab 形态），regular 用侧边栏——
+///   按 horizontalSizeClass 分容器是 §5.26 L4 明示的容器驱动重排原语，
+///   不是被禁止的 idiom 分支换页（L0 [2/7] 只查 userInterfaceIdiom == .pad）。
+enum MainModule: String, CaseIterable, Identifiable, Hashable {
     case home, records, reminders, ai, me
     var id: String { rawValue }
 
@@ -19,6 +28,16 @@ enum MainModule: String, CaseIterable, Identifiable {
         }
     }
 
+    var iconName: String {
+        switch self {
+        case .home: return "ic-tab-home"
+        case .records: return "ic-tab-records"
+        case .reminders: return "ic-tab-reminders"
+        case .ai: return "ic-tab-assistant"
+        case .me: return "ic-tab-me"
+        }
+    }
+
     var icon: Image {
         switch self {
         case .home: return VLIcon.tabHome
@@ -30,33 +49,36 @@ enum MainModule: String, CaseIterable, Identifiable {
     }
 }
 
-/// L1 外壳（§5.26.1）：compact → Tab 形态；regular → 侧边栏 + 详情。
-/// L2 模块根：每 SP 恰一个内容视图，M0 阶段为占位（M1a 起逐 SP 替换）。
+/// L1 外壳（§5.26.1）＋ L2 模块根占位（M0）。
 struct RootAdaptiveView: View {
+    @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var selection: MainModule = .home
 
     var body: some View {
-        NavigationSplitView {
-            // List(_, selection:, rowContent:) 是 macOS-only；iOS 用 List(selection:)
-            // + ForEach + .tag（ADR-021：compact 宽度下系统自动折叠为 tab 形态）
-            List(selection: $selection) {
+        if sizeClass == .compact {
+            TabView(selection: $selection) {
                 ForEach(MainModule.allCases) { m in
-                    Label(m.titleKey, image: iconName(m)).tag(m)
+                    ModuleRoot(module: m)
+                        .tabItem { Label(m.titleKey, image: m.iconName) }
+                        .tag(m)
                 }
             }
-            .navigationTitle("Vita Liber")
-        } detail: {
-            ModuleRoot(module: selection)
-        }
-    }
-
-    private func iconName(_ m: MainModule) -> String {
-        switch m {
-        case .home: return "ic-tab-home"
-        case .records: return "ic-tab-records"
-        case .reminders: return "ic-tab-reminders"
-        case .ai: return "ic-tab-assistant"
-        case .me: return "ic-tab-me"
+        } else {
+            NavigationSplitView {
+                List {
+                    ForEach(MainModule.allCases) { m in
+                        NavigationLink(value: m) {
+                            Label(m.titleKey, image: m.iconName)
+                        }
+                    }
+                }
+                .navigationTitle("Vita Liber")
+            } detail: {
+                ModuleRoot(module: selection)
+                    .navigationDestination(for: MainModule.self) { m in
+                        ModuleRoot(module: m)
+                    }
+            }
         }
     }
 }
