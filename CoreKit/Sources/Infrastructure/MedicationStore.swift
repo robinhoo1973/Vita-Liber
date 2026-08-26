@@ -89,7 +89,7 @@ public actor MedicationStore: DoseSource {
                 SET user_action = 'taken', acted_at = ?
                 WHERE id = ?
                 """, arguments: [Date().timeIntervalSince1970, notifyId])
-            try applyResolution(patientId: patientId, medicationId: medicationId,
+            try Self.applyResolution(patientId: patientId, medicationId: medicationId,
                                 notifyId: notifyId, units: units, action: .taken, db: db)
         }
     }
@@ -117,7 +117,7 @@ public actor MedicationStore: DoseSource {
                 SET user_action = ?, acted_at = ?
                 WHERE id = ?
                 """, arguments: [action.rawValue, Date().timeIntervalSince1970, notifyId])
-            try applyResolution(patientId: patientId, medicationId: medicationId,
+            try Self.applyResolution(patientId: patientId, medicationId: medicationId,
                                 notifyId: notifyId, units: units, action: action, db: db)
         }
     }
