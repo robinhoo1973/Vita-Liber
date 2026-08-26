@@ -357,6 +357,12 @@ struct TimelineView: View {
                     Label("观察", systemImage: "plus.circle")
                 }
                 .accessibilityIdentifier("SP-10.timeline.observation")
+                NavigationLink {
+                    TrendEntryView()
+                } label: {
+                    Label("指标趋势", systemImage: "chart.xyaxis.line")
+                }
+                .accessibilityIdentifier("SP-10.timeline.trend")
             }
             .padding(.horizontal, 16)
             if app.timeline.isEmpty {

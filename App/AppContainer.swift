@@ -19,6 +19,7 @@ struct AppContainer {
     let observations: ObservationStore
     let allergies: AllergyStore
     let entitlements: EntitlementStore
+    let trends: TrendQueryStore
 
     /// 生产装配：文件库 + WAL（§4.4）+ UNUserNotificationCenter 适配。
     static func live(databasePath: String) throws -> AppContainer {
@@ -43,6 +44,7 @@ struct AppContainer {
         // StoreKit 2 生产接线为 L2 部署项；M1c 以桩承载全部逻辑路径（可全量单测）
         let entitlements = EntitlementStore(writer: store.writer,
                                             storefront: EntitlementStore.InMemoryStorefront())
+        let trends = TrendQueryStore(writer: store.writer)
         return AppContainer(store: store,
                             audit: AuditLogWriter(writer: store.writer),
                             persistor: GRDBM1aPersistor(store: store),
@@ -54,7 +56,8 @@ struct AppContainer {
                             settings: settings,
                             observations: observations,
                             allergies: allergies,
-                            entitlements: entitlements)
+                            entitlements: entitlements,
+                            trends: trends)
     }
 
     /// Application Support 下的数据库路径（生产库位置）
