@@ -37,11 +37,10 @@ public enum SearchRoute: Sendable, Equatable {
 }
 
 public enum SearchRules {
-    /// CJK 字符计数（查询长度按字符数而非字节数）
+    /// 查询长度按「非空白字符数」（CJK 与拉丁混排均可路由——评审修正：
+    /// 纯拉丁查询不得 invalid；trigram tokenizer 对拉丁词同样生效）
     public static func cjkLength(_ text: String) -> Int {
-        text.reduce(0) { count, ch in
-            count + (ch.unicodeScalars.first.map { $0.value >= 0x4E00 && $0.value <= 0x9FFF ? 1 : 0 } ?? 0)
-        }
+        text.filter { !$0.isWhitespace }.count
     }
 
     /// 查询长度路由（V3.24）：≥3 字 trigram / 2 字 bigram / 1 字 LIKE / 空查询 invalid

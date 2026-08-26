@@ -7,7 +7,7 @@ import Infrastructure
 /// EntitlementGate 语义：未解锁=权益预览，绝不报错阻断（免费体验保护八条）。
 struct PaywallView: View {
     @Environment(AppState.self) private var app
-    @State private var owned: Set<ProductID> = []
+    @Environment(AppEntitlementStore.self) private var entitlements
     @State private var busy = false
 
     var body: some View {
@@ -62,13 +62,13 @@ struct PaywallView: View {
         .background(RoundedRectangle(cornerRadius: 16).fill(Color("bg-grouped", bundle: .main)))
     }
 
-    private func load() async { /* 权益状态经 EntitlementStore 注入（测试桩/L2 StoreKit） */ }
+    private func load() async { await entitlements.load() }
     private func purchase(_ p: ProductID) async {
         busy = true
         defer { busy = false }
-        owned.insert(p)   // 生产路径经 EntitlementStore.purchase；此处为 UI 闭环占位
+        _ = await entitlements.purchase(p)
     }
-    private func restore() async { /* 生产路径经 EntitlementStore.restore */ }
+    private func restore() async { await entitlements.restore() }
 }
 
 /// 权益门（§5.14）：未解锁=预览态（可用但提示升级），绝不以报错阻断

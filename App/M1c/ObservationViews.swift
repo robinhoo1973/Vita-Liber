@@ -127,10 +127,13 @@ struct ObservationCreateSheet: View {
 /// 解锁动作走门禁验证；占位层不渲染任何可识别内容。
 struct LockedMediaView: View {
     @Environment(AppState.self) private var app
+    @Environment(\.scenePhase) private var scenePhase
     @State private var revealed = false
     @State private var showPinSheet = false
     @State private var unlockDeadline: Date?
-    @State private var lastVerified: Date?
+    @State private var verifiedAt: Date?       // 本视图的验证时点（评审修正：
+                                               // 不监听全局 lastVerifiedAt——任意门禁
+                                               // 验证不得解锁本视图的敏感内容，BR-007）
 
     var body: some View {
         ZStack {
@@ -161,8 +164,10 @@ struct LockedMediaView: View {
                 .presentationDetents([.height(420)])
         }
         .onChange(of: app.lastVerifiedAt) { _, value in
-            guard let value, value != lastVerified else { return }
-            lastVerified = value
+            // 只认「本视图发起验证之后」的时点：验证成功发生在 sheet 内
+            // （PinEntryView 更新 lastVerifiedAt），但必须晚于本视图的解锁请求
+            guard showPinSheet, let value, verifiedAt == nil || value > (verifiedAt ?? .distantPast) else { return }
+            verifiedAt = value
             showPinSheet = false
             revealed = true
             unlockDeadline = Date().addingTimeInterval(30)   // §5.10：30 秒自动重锁
@@ -173,6 +178,13 @@ struct LockedMediaView: View {
                 } catch {
                     // 睡眠被取消（视图销毁）——revealed 随视图生命周期回收
                 }
+            }
+        }
+        // 评审修正：退后台立即重锁（敏感内容不跨生命周期存活）
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active && revealed {
+                revealed = false
+                showPinSheet = false
             }
         }
     }

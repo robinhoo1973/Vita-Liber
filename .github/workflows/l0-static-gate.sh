@@ -171,12 +171,12 @@ rm -f "$_ddl_file"
 
 # ---------- [4] 红线模块禁读 EntitlementStore ----------
 section "4/7" "商业化红线 —— 红线模块代码内禁止读取 EntitlementStore（tech-spec §5.14）"
-DEFAULT_REDLINE="$APP/Features/Documents:$APP/Features/Observations:$APP/Features/Medications:$APP/Features/Search:$APP/Features/Support"
+DEFAULT_REDLINE="$APP/App/M1a/OnboardingViews.swift:$APP/App/M1b/RemindersViews.swift:$APP/App/M1c/ObservationViews.swift:$APP/App/M1c/AssistantView.swift"
 REDLINE_PATHS="${REDLINE_PATHS:-$DEFAULT_REDLINE}"
 redline_matched=0; ent_viol=0
 OLDIFS=$IFS; IFS=':'
 for p in $REDLINE_PATHS; do
-  [ -d "$p" ] || continue
+  [ -d "$p" ] || [ -f "$p" ] || continue   # 路径可为目录或具体文件（免费能力视图）
   redline_matched=$((redline_matched + 1))
   while IFS= read -r h; do
     [ -n "$h" ] || continue
@@ -186,7 +186,8 @@ for p in $REDLINE_PATHS; do
 done
 IFS=$OLDIFS
 if [ "$redline_matched" -eq 0 ]; then
-  warn "REDLINE_PATHS 中没有已存在的目录（M0 早期属正常）——检查空转，目录落地后请复核"
+  # 评审修正：目录缺失 = 检查空转——空转的门禁与缺席同罪（ERR#27 同族），判红
+  fail "REDLINE_PATHS 中没有任何已存在的目录——红线检查空转（路径与实际布局漂移？）"
 else
   if [ "$ent_viol" -gt 0 ]; then
     fail "红线模块读取 EntitlementStore ${ent_viol} 处 —— 一票否决（验收红线）"

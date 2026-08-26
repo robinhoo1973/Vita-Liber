@@ -148,6 +148,21 @@ struct AILocalTests {
         #expect(answer.body == .emergencyCard)
     }
 
+    /// 规格验收句参数化（评审修正：原词表不命中「帮我停掉阿司匹林」）
+    @Test(arguments: ["我可以自行停药吗", "帮我停掉阿司匹林", "这个药我不想吃了",
+                      "每天吃 2 片改成 3 片", "加到 10mg 可以吗", "血压好了是不是可以停用降压药"])
+    func 高风险话题变体拒识(_ phrase: String) async throws {
+        let search = FakeSearch()
+        await search.set([EntityReference(kind: "prescription", refID: UUID(), title: "处方", snippet: "阿莫西林 0.25g")])
+        let provider = LocalRetrievalProvider(search: search)
+        let answer = try await provider.answer(AIQuery(text: phrase), scope: .init(patientIds: []))
+        guard case .refused(let r) = answer.body else {
+            Issue.record("高风险短语必须拒识: \(phrase)")
+            return
+        }
+        #expect(r.reason == .highRiskTopic)
+    }
+
     @Test func 调药停药高风险拒识() async throws {
         let search = FakeSearch()
         await search.set([EntityReference(kind: "prescription", refID: UUID(), title: "处方", snippet: "阿莫西林 0.25g")])

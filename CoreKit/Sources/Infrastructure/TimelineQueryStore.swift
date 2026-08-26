@@ -21,6 +21,10 @@ public actor TimelineQueryStore {
             return Set(TimelineEntryKind.allCases)
         }()
         let fetchLimit = limit + 1   // 多取一条探测是否有下一页（合并后统一截取）
+        // 评审修正 S1-1：游标谓词下推各表 SQL（date < ? OR (date = ? AND id < ?)），
+        // 否则单表主导时页长坍缩、深层条目永久不可见
+        let cursorDate = cursor?.date.timeIntervalSince1970 ?? Double.greatestFiniteMagnitude
+        let cursorId = cursor?.refID.uuidString ?? ""
         let collected: [TimelineEntry] = try await writer.read { db in
             var local: [TimelineEntry] = []   // 闭包内局部累加（Swift 6 并发纪律：不捕获外变）
 
@@ -28,8 +32,9 @@ public actor TimelineQueryStore {
                 let rows = try Row.fetchAll(db, sql: """
                     SELECT id, date, kind, diagnosis_text FROM encounter
                     WHERE patient_id = ? AND deleted_at IS NULL
+                      AND (date < ? OR (date = ? AND id < ?))
                     ORDER BY date DESC, id DESC LIMIT ?
-                    """, arguments: [member.uuidString, fetchLimit])
+                    """, arguments: [member.uuidString, cursorDate, cursorDate, cursorId, fetchLimit])
                 for row in rows {
                     local.append(TimelineEntry(
                         kind: .encounter,
@@ -45,8 +50,9 @@ public actor TimelineQueryStore {
                     SELECT p.id, p.start_date, m.generic_name, m.spec FROM medication_plan p
                     JOIN medication m ON m.id = p.medication_id
                     WHERE p.patient_id = ?
+                      AND (p.start_date < ? OR (p.start_date = ? AND p.id < ?))
                     ORDER BY p.start_date DESC, p.id DESC LIMIT ?
-                    """, arguments: [member.uuidString, fetchLimit])
+                    """, arguments: [member.uuidString, cursorDate, cursorDate, cursorId, fetchLimit])
                 for row in rows {
                     local.append(TimelineEntry(
                         kind: .medication,
@@ -61,8 +67,9 @@ public actor TimelineQueryStore {
                 let rows = try Row.fetchAll(db, sql: """
                     SELECT id, kind, occurred_at, description FROM observation
                     WHERE patient_id = ?
+                      AND (occurred_at < ? OR (occurred_at = ? AND id < ?))
                     ORDER BY occurred_at DESC, id DESC LIMIT ?
-                    """, arguments: [member.uuidString, fetchLimit])
+                    """, arguments: [member.uuidString, cursorDate, cursorDate, cursorId, fetchLimit])
                 for row in rows {
                     local.append(TimelineEntry(
                         kind: .observation,
@@ -77,8 +84,9 @@ public actor TimelineQueryStore {
                 let rows = try Row.fetchAll(db, sql: """
                     SELECT id, metric_key, value, unit, origin, measured_at FROM metric_sample
                     WHERE patient_id = ?
+                      AND (measured_at < ? OR (measured_at = ? AND id < ?))
                     ORDER BY measured_at DESC, id DESC LIMIT ?
-                    """, arguments: [member.uuidString, fetchLimit])
+                    """, arguments: [member.uuidString, cursorDate, cursorDate, cursorId, fetchLimit])
                 for row in rows {
                     let origin = row["origin"] as String
                     local.append(TimelineEntry(
@@ -94,8 +102,9 @@ public actor TimelineQueryStore {
                 let rows = try Row.fetchAll(db, sql: """
                     SELECT id, substance, severity, occurred_at FROM allergy_event
                     WHERE patient_id = ?
+                      AND (occurred_at < ? OR (occurred_at = ? AND id < ?))
                     ORDER BY occurred_at DESC, id DESC LIMIT ?
-                    """, arguments: [member.uuidString, fetchLimit])
+                    """, arguments: [member.uuidString, cursorDate, cursorDate, cursorId, fetchLimit])
                 for row in rows {
                     local.append(TimelineEntry(
                         kind: .allergy,
@@ -110,8 +119,9 @@ public actor TimelineQueryStore {
                 let rows = try Row.fetchAll(db, sql: """
                     SELECT id, vaccine_name, administered_at FROM immunization
                     WHERE patient_id = ?
+                      AND (administered_at < ? OR (administered_at = ? AND id < ?))
                     ORDER BY administered_at DESC, id DESC LIMIT ?
-                    """, arguments: [member.uuidString, fetchLimit])
+                    """, arguments: [member.uuidString, cursorDate, cursorDate, cursorId, fetchLimit])
                 for row in rows {
                     local.append(TimelineEntry(
                         kind: .vaccination,
@@ -126,8 +136,9 @@ public actor TimelineQueryStore {
                 let rows = try Row.fetchAll(db, sql: """
                     SELECT id, body, occurred_at FROM voice_note
                     WHERE patient_id = ? AND in_timeline = 1
+                      AND (occurred_at < ? OR (occurred_at = ? AND id < ?))
                     ORDER BY occurred_at DESC, id DESC LIMIT ?
-                    """, arguments: [member.uuidString, fetchLimit])
+                    """, arguments: [member.uuidString, cursorDate, cursorDate, cursorId, fetchLimit])
                 for row in rows {
                     local.append(TimelineEntry(
                         kind: .voiceNote,
@@ -142,8 +153,9 @@ public actor TimelineQueryStore {
                 let rows = try Row.fetchAll(db, sql: """
                     SELECT id, name, created_at FROM health_problem
                     WHERE patient_id = ? AND archived = 0
+                      AND (created_at < ? OR (created_at = ? AND id < ?))
                     ORDER BY created_at DESC, id DESC LIMIT ?
-                    """, arguments: [member.uuidString, fetchLimit])
+                    """, arguments: [member.uuidString, cursorDate, cursorDate, cursorId, fetchLimit])
                 for row in rows {
                     local.append(TimelineEntry(
                         kind: .healthProblem,

@@ -362,9 +362,12 @@ public enum SchemaV2 {
 
     CREATE TRIGGER document_file_fts_ai AFTER INSERT ON document_file BEGIN
       INSERT INTO document_fts(rowid, title, ocr_text, notes)
-        VALUES (new.rowid, new.title, new.ocr_text, new.notes);
+        VALUES (new.rowid, new.title,
+                CASE WHEN new.is_sensitive = 0 THEN new.ocr_text END, new.notes);
       INSERT INTO document_fts_2gram(rowid, title_2gram, ocr_2gram, note_2gram)
-        VALUES (new.rowid, bigrams(new.title), bigrams(new.ocr_text), bigrams(new.notes));
+        VALUES (new.rowid, bigrams(new.title),
+                bigrams(CASE WHEN new.is_sensitive = 0 THEN new.ocr_text END),
+                bigrams(new.notes));
     END;
     CREATE TRIGGER document_file_fts_ad AFTER DELETE ON document_file BEGIN
       INSERT INTO document_fts(document_fts, rowid, title, ocr_text, notes)
@@ -372,15 +375,18 @@ public enum SchemaV2 {
       INSERT INTO document_fts_2gram(document_fts_2gram, rowid, title_2gram, ocr_2gram, note_2gram)
         VALUES ('delete', old.rowid, bigrams(old.title), bigrams(old.ocr_text), bigrams(old.notes));
     END;
-    CREATE TRIGGER document_file_fts_au AFTER UPDATE OF title, ocr_text, notes ON document_file BEGIN
+    CREATE TRIGGER document_file_fts_au AFTER UPDATE OF title, ocr_text, notes, is_sensitive ON document_file BEGIN
       INSERT INTO document_fts(document_fts, rowid, title, ocr_text, notes)
         VALUES ('delete', old.rowid, old.title, old.ocr_text, old.notes);
       INSERT INTO document_fts_2gram(document_fts_2gram, rowid, title_2gram, ocr_2gram, note_2gram)
         VALUES ('delete', old.rowid, bigrams(old.title), bigrams(old.ocr_text), bigrams(old.notes));
       INSERT INTO document_fts(rowid, title, ocr_text, notes)
-        VALUES (new.rowid, new.title, new.ocr_text, new.notes);
+        VALUES (new.rowid, new.title,
+                CASE WHEN new.is_sensitive = 0 THEN new.ocr_text END, new.notes);
       INSERT INTO document_fts_2gram(rowid, title_2gram, ocr_2gram, note_2gram)
-        VALUES (new.rowid, bigrams(new.title), bigrams(new.ocr_text), bigrams(new.notes));
+        VALUES (new.rowid, bigrams(new.title),
+                bigrams(CASE WHEN new.is_sensitive = 0 THEN new.ocr_text END),
+                bigrams(new.notes));
     END;
     """
 }

@@ -76,17 +76,34 @@ public struct TerminologyStore: Sendable {
 
 /// 紧急关键词规则（BR-012：疑似紧急 → 急救卡，绝不继续普通问答）
 public enum EmergencyKeywordRules {
-    static let keywords = ["胸痛", "呼吸困难", "意识不清", "大出血", "抽搐", "休克", "窒息"]
+    static let keywords = ["胸痛", "胸口疼", "胸闷得厉害", "呼吸困难", "喘不上气",
+                       "意识不清", "大出血", "抽搐", "休克", "窒息", "喉头水肿", "喘不过气"]
     public static func match(_ text: String) -> Bool {
         keywords.contains { text.contains($0) }
     }
 }
 
-/// 高风险话题规则（BR-006：调药/停药/剂量更改 → 拒绝）
+/// 高风险话题规则（BR-006：调药/停药/剂量更改 → 拒绝）。
+/// 评审修正：词表穷举子串可被规格验收句绕过（「帮我停掉阿司匹林」不命中
+/// 「停药」）——补动词变体 + 剂量数字正则（「XXmg/片/粒/次」）。
 public enum HighRiskTopicRules {
-    static let keywords = ["停药", "加量", "减量", "换药", "加倍", "调整剂量", "自行停用"]
+    static let keywords = [
+        "停药", "停掉", "停用", "别再吃", "不吃了", "不想吃", "想停药", "停用吗", "需要停药吗",
+        "加量", "减量", "换药", "加倍", "调整剂量", "自行停用",
+        "增加剂量", "减少剂量", "多吃", "少吃",
+    ]
+    /// 剂量更改句式正则：动词(吃/服/加到/减到/改为) + 数字 + 单位
+    static let doseChangePatterns = [
+        #"吃\s*[0-9一二三四五六七八九十两]+\s*(mg|片|粒|颗|次|倍)"#,
+        #"服\s*[0-9一二三四五六七八九十两]+\s*(mg|片|粒|颗|次|倍)"#,
+        #"(加到|减到|改为|降到|改成)\s*[0-9一二三四五六七八九十两]+\s*(mg|片|粒|颗)"#,
+        #"[0-9]+\s*(mg|片|粒)\s*(每次|每日)"#,
+    ]
     public static func match(_ text: String) -> Bool {
-        keywords.contains { text.contains($0) }
+        if keywords.contains(where: { text.contains($0) }) { return true }
+        return doseChangePatterns.contains { pattern in
+            text.range(of: pattern, options: .regularExpression) != nil
+        }
     }
 }
 
