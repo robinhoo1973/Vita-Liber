@@ -169,7 +169,9 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: 'generated-project-${{ github.run_id }}'
-          path: .
+          path: _proj
+      - name: Restore generated project
+        run: rm -rf VitaLiber.xcodeproj && mv _proj VitaLiber.xcodeproj
 
       - name: Boot simulator (bootstatus 就绪等待, E2)
         run: |
@@ -180,7 +182,7 @@ jobs:
           echo "DESTINATION=id=$UDID" >> "$GITHUB_ENV"
       - name: Run shard (test-without-building)
         run: |
-          set -o pipefail
+          set -euo pipefail; set -x
           echo "=== products inventory ==="; find Build/DerivedData/Build/Products -maxdepth 2 | head -20
           ls -la Build/DerivedData/Build/Products/*.xctestrun 2>/dev/null || echo "NO_XCTESTRUN"
           rm -rf Build/shard.xcresult
@@ -220,7 +222,9 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: 'generated-project-${{ github.run_id }}'
-          path: .
+          path: _proj
+      - name: Restore generated project
+        run: rm -rf VitaLiber.xcodeproj && mv _proj VitaLiber.xcodeproj
 
       # 隔离克隆模拟器 + 权限预授权（E3/E4；Keychain 类用例由 erase 保证干净态）
       - name: Provision isolated simulator
@@ -276,7 +280,9 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: 'generated-project-${{ github.run_id }}'
-          path: .
+          path: _proj
+      - name: Restore generated project
+        run: rm -rf VitaLiber.xcodeproj && mv _proj VitaLiber.xcodeproj
       - name: Run golden suites
         run: |
           set -o pipefail
@@ -319,7 +325,9 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: 'generated-project-${{ github.run_id }}'
-          path: .
+          path: _proj
+      - name: Restore generated project
+        run: rm -rf VitaLiber.xcodeproj && mv _proj VitaLiber.xcodeproj
       - name: Run perf screening
         run: |
           set -o pipefail
@@ -365,7 +373,9 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: 'generated-project-${{ github.run_id }}'
-          path: .
+          path: _proj
+      - name: Restore generated project
+        run: rm -rf VitaLiber.xcodeproj && mv _proj VitaLiber.xcodeproj
       - name: Run UI smoke on next runtime
         run: |
           set -o pipefail
