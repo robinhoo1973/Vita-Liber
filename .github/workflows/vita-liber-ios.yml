@@ -96,7 +96,7 @@ jobs:
         run: |
           # E2：JSON 结构化解析（ERR#11——禁正则啃人读输出）
           python3 - <<'PYEOF' >> "$GITHUB_ENV"
-          import json, subprocess, sys
+          import json, subprocess, sys, os
           d = json.loads(subprocess.check_output(["xcrun","simctl","list","--json","devices","available"]))
           pairs = [(rt, v["name"], v["udid"]) for rt, devs in d["devices"].items()
                    for v in devs if v.get("isAvailable") and v["name"].startswith("iPhone")]
@@ -104,8 +104,8 @@ jobs:
           spec = [p for p in pairs if p[1] == "$SPEC_SIMULATOR"]
           pick = spec[0] if spec else sorted(pairs)[-1]
           print(f"DESTINATION=id={pick[2]}")
-          print(f"sim_model={pick[1]}" )
-          print(f"sim_runtime={pick[0]}")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as o:
+              o.write(f"sim_model={pick[1]}\nsim_runtime={pick[0]}\n")
           print(f"SIM_MODEL={pick[1]}")
           print(f"SIM_RUNTIME={pick[0]}")
           PYEOF
