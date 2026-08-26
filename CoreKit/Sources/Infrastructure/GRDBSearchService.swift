@@ -48,15 +48,18 @@ public actor GRDBSearchService: FullTextSearch {
                                            snippet: SearchRules.highlight(source, query: query))
                 }
             case .like:
-                // 1 字兜底：低频高噪音，限定最近 90 天窗口缩小扫描集
+                // 1 字兜底：低频高噪音，限定最近 90 天窗口缩小扫描集；
+                // 检索列 = title/ocr_text/notes/meta_json（V3.43 起标题等独立列）
                 let since = Date().timeIntervalSince1970 - 90 * 86400
+                let pattern = "%\(query)%"
                 let rows = try Row.fetchAll(db, sql: """
-                    SELECT d.id, d.patient_id, d.doc_type, d.created_at, d.meta_json AS snip
+                    SELECT d.id, d.patient_id, d.doc_type, d.created_at,
+                           COALESCE(d.title, d.ocr_text, d.meta_json) AS snip
                     FROM document_file d
                     WHERE d.status IN ('active','favorite') AND d.created_at >= ?
-                      AND d.meta_json LIKE ?
+                      AND (d.meta_json LIKE ? OR d.title LIKE ? OR d.ocr_text LIKE ? OR d.notes LIKE ?)
                     ORDER BY d.created_at DESC LIMIT ?
-                    """, arguments: [since, "%\(query)%", limit])
+                    """, arguments: [since, pattern, pattern, pattern, pattern, limit])
                 return rows.compactMap { Self.hit($0) }
             case .invalid:
                 return []
