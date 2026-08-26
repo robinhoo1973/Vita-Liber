@@ -1,0 +1,8 @@
+name: Smoke
+on: { push: { branches: [master] } }
+jobs:
+  echo:
+    runs-on: ubuntu-latest
+    steps:
+      - { uses: actions/checkout@v4 }
+      - { run: 'echo alive' }
