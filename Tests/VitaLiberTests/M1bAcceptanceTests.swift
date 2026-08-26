@@ -82,8 +82,9 @@ final class M1bAcceptanceTests: XCTestCase {
         cal.timeZone = TimeZone(identifier: "Asia/Shanghai")!
         let dayStart = cal.startOfDay(for: Date())
         let facts = try await meds.deliveryFacts(from: dayStart, to: dayStart.addingTimeInterval(86400))
-        XCTAssertTrue(facts.contains { $0.action == .taken && $0.dose.notifyId == notifyId },
-                      "已服动作必须对 deliveryFacts 可见（不再重发、不再重复扣减）")
+        let target = facts.first { $0.dose.notifyId == notifyId }
+        XCTAssertNotNil(target, "事实链必须返回该剂量——facts=\(facts.map { $0.dose.notifyId })")
+        XCTAssertEqual(target?.action, .taken, "已服动作必须对 deliveryFacts 可见（不再重发、不再重复扣减）")
     }
 
     /// 跳过：仅计划轨扣；确认线不动（BR-004）
