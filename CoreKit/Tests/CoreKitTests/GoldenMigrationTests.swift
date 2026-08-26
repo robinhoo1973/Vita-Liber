@@ -21,3 +21,25 @@ struct GoldenMigrationTests {
         #expect(MigrationEngine.schemaV1.contains("REFERENCES patient_profile(id)"))
     }
 }
+
+@Suite("Golden · M0 Sprint-3 三类补充")
+struct GoldenClassifyTests {
+    static let fixtures = Bundle.module.bundlePath + "/Fixtures"
+    func load(_ name: String) throws -> [LegacyRecord] {
+        try JSONDecoder().decode([LegacyRecord].self, from: Data(contentsOf: URL(fileURLWithPath: Self.fixtures + "/" + name)))
+    }
+    @Test func 处方类识别与置信度分级() throws {
+        let r = try load("prescription_v1.json")[0]
+        #expect(GoldenRules.classify(recordType: r.recordType, assets: r.assets) == .prescription)
+        #expect(GoldenRules.confidenceTier(0.91) == "high" && GoldenRules.confidenceTier(0.62) == "mid")
+    }
+    @Test func 化验类识别() throws {
+        let r = try load("lab_v1.json")[0]
+        #expect(GoldenRules.classify(recordType: r.recordType, assets: r.assets) == .lab)
+    }
+    @Test func OCR分隔块优先于类型判断() throws {
+        let r = try load("ocr_blocks_v1.json")[0]
+        #expect(GoldenRules.classify(recordType: r.recordType, assets: r.assets) == .ocrBlock)
+        #expect(GoldenRules.confidenceTier(0.85) == "high")
+    }
+}

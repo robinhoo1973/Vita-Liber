@@ -2,11 +2,6 @@ import Foundation
 import Domain
 
 /// v1(flutter JSON) → v2 迁移引擎 · R0-2 只读降级（M0 Sprint-1：结构 + 两类金样）
-public struct LegacyRecord: Sendable, Equatable, Codable {
-    public let id: String
-    public let title: String?
-}
-
 public enum MigrationOutcome: Sendable, Equatable {
     case migrated(count: Int)
     case degraded                      // 损坏 JSON → 只读降级，绝不落种子数据

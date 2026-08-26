@@ -7,6 +7,6 @@ let package = Package(
     targets: [
         .target(name: "Domain"),
         .target(name: "Infrastructure", dependencies: ["Domain"]),
-        .testTarget(name: "CoreKitTests", dependencies: ["Domain", "Infrastructure"])
+        .testTarget(name: "CoreKitTests", dependencies: ["Domain", "Infrastructure"], resources: [.copy("Fixtures")])
     ]
 )
