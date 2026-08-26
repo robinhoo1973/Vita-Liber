@@ -81,7 +81,10 @@ final class M1bAcceptanceTests: XCTestCase {
         var cal = Calendar(identifier: .gregorian)
         cal.timeZone = TimeZone(identifier: "Asia/Shanghai")!
         let dayStart = cal.startOfDay(for: Date())
-        let facts = try await meds.deliveryFacts(from: dayStart, to: dayStart.addingTimeInterval(86400))
+        // 窗口含未来 8 天：CI 模拟器时钟在晚间时，今天 08:00 已过（正确被
+        // 物化过滤），首个未来剂量落在明天——事实窗口必须覆盖整个预排窗口
+        let facts = try await meds.deliveryFacts(from: dayStart.addingTimeInterval(-86400),
+                                                 to: dayStart.addingTimeInterval(8 * 86400))
         let rawRows = try await store.writer.read { db in
             try Row.fetchAll(db, sql: """
                 SELECT d.id, d.scheduled_for, d.user_action, p.status AS pstatus, p.medication_id
