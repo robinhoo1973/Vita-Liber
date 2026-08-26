@@ -152,7 +152,6 @@ fk_on=0
 # 断言改为「schema-as-code 常量存在」+「GRDB 侧配置语义存在」双条件，
 # 与平台无关；运行时半场（PRAGMA 实测）由 iOS 模拟器 SchemaRuntimeTests 承担。
 grep -qE 'SchemaV2|foreignKeysEnabled' "$_ddl_file" && fk_on=1
-rm -f "$_ddl_file"
 if [ "$ddl_missing" -eq 0 ] && [ "$fk_on" -eq 1 ]; then
   pass "REFERENCES 目标全部已定义；外键开启断言通过"
 else
@@ -168,6 +167,7 @@ for t in $m0_tables; do
   grep -qE "CREATE TABLE $t([[:space:]]|\\()" "$_ddl_file" || { m0_missing=$((m0_missing + 1)); printf '    M0 必建表缺失: %s\n' "$t"; }
 done
 [ "$m0_missing" -eq 0 ] && pass "M0 必建表清单齐备（prescription/medication/plan/dose_log/stock_lot/allocation）" || fail "M0 必建表缺失 ${m0_missing} 个（dev-pm §3.1⑤）"
+rm -f "$_ddl_file"
 
 # ---------- [4] 红线模块禁读 EntitlementStore ----------
 section "4/7" "商业化红线 —— 红线模块代码内禁止读取 EntitlementStore（tech-spec §5.14）"
