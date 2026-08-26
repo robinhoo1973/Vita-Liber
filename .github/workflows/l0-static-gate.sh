@@ -57,7 +57,7 @@ else
 fi
 COREKIT="$APP/CoreKit"
 DOMAIN="$COREKIT/Sources/Domain"
-FIXTURES="${FIXTURES_DIR:-$APP/Fixtures}"
+FIXTURES="${FIXTURES_DIR:-$APP/Fixtures}"; [ -d "$FIXTURES" ] || FIXTURES="$APP/CoreKit/Fixtures"
 
 echo "Vita Liber L0 静态门禁 · 应用源码根: $APP"
 
@@ -72,7 +72,7 @@ while IFS= read -r line; do
   case "$_content" in *'try?-ok:'*) try_exempt=$((try_exempt + 1)); continue ;; esac
   try_viol=$((try_viol + 1))
   [ "$try_viol" -le 15 ] && printf '    %s:%s\n' "$_f" "$_n"
-done < <(grep -rn -F 'try?' --include='*.swift' "$APP" 2>/dev/null || true)
+done < <(grep -rn -F 'try?' --include='*.swift' --exclude-dir=.build --exclude-dir=.swiftpm --exclude-dir=DerivedData --exclude-dir=Build "$APP" 2>/dev/null || true)
 if [ "$try_viol" -gt 0 ]; then
   fail "try? 违规 ${try_viol} 处（豁免 ${try_exempt} 处）——删除或按 §7 补豁免理由"
 else
@@ -81,7 +81,7 @@ fi
 
 # ---------- [2] ADR-021 无平行视图 ----------
 section "2/6" "ADR-021 —— 禁止平行视图文件与 idiom 分支换页（tech-spec §5.26）"
-ipad_files=$(find "$APP" \( -name '*_iPad*.swift' -o -name '*_iPhone*.swift' \) 2>/dev/null | grep -v '/CoreKit/' || true)
+ipad_files=$(find "$APP" \( -name .build -o -name .swiftpm -o -name DerivedData -o -name Build \) -prune -o \( -name '*_iPad*.swift' -o -name '*_iPhone*.swift' \) -print 2>/dev/null | grep -v '/CoreKit/' || true)
 if [ -n "$ipad_files" ]; then
   printf '%s\n' "$ipad_files" | head -15 | sed 's/^/    /'
   fail "发现 *_iPad/*_iPhone 平行视图文件（每 SP 恰一个内容视图）"
@@ -95,7 +95,7 @@ while IFS= read -r line; do
   case "$_content" in *'adr021-ok:'*) continue ;; esac
   idiom_viol=$((idiom_viol + 1))
   [ "$idiom_viol" -le 15 ] && printf '    %s:%s\n' "$_f" "$_n"
-done < <(grep -rinE 'userInterfaceIdiom[[:space:]]*==[[:space:]]*\.pad' --include='*.swift' "$APP" 2>/dev/null || true)
+done < <(grep -rinE '--exclude-dir=.build --exclude-dir=.swiftpm --exclude-dir=DerivedData --exclude-dir=Build' 'userInterfaceIdiom[[:space:]]*==[[:space:]]*\.pad' --include='*.swift' --exclude-dir=.build --exclude-dir=.swiftpm --exclude-dir=DerivedData --exclude-dir=Build "$APP" 2>/dev/null || true)
 if [ "$idiom_viol" -gt 0 ]; then
   fail "idiom 分支换页 ${idiom_viol} 处 —— 改用容器驱动重排（ViewThatFits/AnyLayout/sizeClass）"
 else
@@ -104,7 +104,7 @@ fi
 
 # ---------- [3] DDL 引用完整性 ----------
 section "3/6" "DDL 引用完整性 —— REFERENCES 目标已建表 + 外键开启（tech-spec §4.3）"
-ddl_text=$(find "$APP" \( -name '*.swift' -o -name '*.sql' \) -print0 2>/dev/null | xargs -0 cat 2>/dev/null || true)
+ddl_text=$(find "$APP" \( -name .build -o -name .swiftpm -o -name DerivedData \) -prune -o \( -name '*.swift' -o -name '*.sql' \) -print0 2>/dev/null | xargs -0 cat 2>/dev/null || true)
 created=$(printf '%s\n' "$ddl_text" | tr -d '"' \
   | grep -ohE 'CREATE TABLE( IF NOT EXISTS)? [A-Za-z_]+' \
   | awk '{print $NF}' | sort -u || true)
@@ -142,7 +142,7 @@ for p in $REDLINE_PATHS; do
     [ -n "$h" ] || continue
     ent_viol=$((ent_viol + 1))
     [ "$ent_viol" -le 15 ] && printf '    %s\n' "$h"
-  done < <(grep -rn -F 'EntitlementStore' --include='*.swift' "$p" 2>/dev/null || true)
+  done < <(grep -rn -F 'EntitlementStore' --include='*.swift' --exclude-dir=.build --exclude-dir=.swiftpm --exclude-dir=DerivedData --exclude-dir=Build "$p" 2>/dev/null || true)
 done
 IFS=$OLDIFS
 if [ "$redline_matched" -eq 0 ]; then
@@ -161,7 +161,7 @@ if [ ! -d "$DOMAIN" ]; then
   fail "缺少 $DOMAIN —— M0 要求 CoreKit 三目标骨架先行"
 else
   dom_hits=$(grep -rnE '^import[[:space:]]+(SwiftUI|UIKit|Vision|GRDB|GRDBSQLite)([^A-Za-z0-9_]|$)' \
-    --include='*.swift' "$DOMAIN" 2>/dev/null | head -15 || true)
+    --include='*.swift' --exclude-dir=.build --exclude-dir=.swiftpm --exclude-dir=DerivedData --exclude-dir=Build "$DOMAIN" 2>/dev/null | head -15 || true)
   if [ -n "$dom_hits" ]; then
     printf '%s\n' "$dom_hits" | sed 's/^/    /'
     fail "Domain 出现被禁 import"

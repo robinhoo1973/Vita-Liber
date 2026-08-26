@@ -17,6 +17,10 @@ public struct GRDBStore {
     public func insert(profile: PatientProfile) throws {
         try dbQueue.write { try $0.execute(sql: "INSERT INTO patient_profile VALUES (?,?)", arguments: [profile.id.uuidString, profile.displayName]) }
     }
-    public var foreignKeysOn: Bool { (try? dbQueue.read { try BooleanGrabber().fetchOne($0, sql: "PRAGMA foreign_keys") }) ?? false }
+    public var foreignKeysOn: Bool {
+        do { return try dbQueue.read { db -> Bool in
+            guard let row = try Row.fetchOne(db, sql: "PRAGMA foreign_keys") else { return false }
+            return (row[0] as Int) == 1
+        } } catch { return false }   // 读失败视为未开启，保守告警
+    }
 }
-struct BooleanGrabber: FetchableRecord { let v: Int; init(row: Row) { v = row[0] }; static func fetchOne(_ db: Database, sql: String) throws -> Bool? { try Row.fetchOne(db, sql: sql).map { Row(row: $0)[0] as Int == 1 } } }
