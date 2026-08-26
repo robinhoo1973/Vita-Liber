@@ -1,5 +1,6 @@
 import XCTest
 import Foundation
+import GRDB
 import Domain
 import Infrastructure
 import Protocols
