@@ -126,6 +126,7 @@ jobs:
           xcodebuild build-for-testing \
             -project "$XCODEPROJ" -scheme "$SCHEME" \
             -destination "$DESTINATION" \
+            -derivedDataPath "$DERIVED_DATA" \
             COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO \
             2>&1 | tee "$BUILD_LOG"
 
