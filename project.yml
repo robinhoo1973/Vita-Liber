@@ -26,7 +26,7 @@ targets:
     # witness table 必须能解析到 GRDB 库——仅靠 CoreKit 的传递链接，ld 报
     # "protocol witness table for Swift.Int : GRDB.StatementColumnConvertible ...
     # symbol(s) not found for architecture arm64"（ERR#31）。
-    dependencies: [{ target: VitaLiber }, { package: CoreKit }, { package: GRDB.swift }]
+    dependencies: [{ target: VitaLiber }, { package: CoreKit }, { package: GRDB.swift, product: GRDB }]
   VitaLiberUITests:
     type: bundle.ui-testing
     platform: iOS
