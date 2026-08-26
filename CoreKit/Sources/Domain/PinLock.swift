@@ -40,11 +40,13 @@ public actor PinLockStateMachine {
     public init(storage: any PinLockPersisting, now: @escaping @Sendable () -> Date = { Date() }) async throws {
         self.storage = storage
         self.now = now
-        let s = (try? storage.load()) ?? PinLockSnapshot()
+        // 读取失败（无历史记录）→ 全新快照；不用 try?（tech-spec §7 红线）
+        let loaded: PinLockSnapshot
+        do { loaded = try storage.load() } catch { loaded = PinLockSnapshot() }
         // 持久化中的过期锁定在读取时自然解除
-        self.failures = s.consecutiveFailures
-        self.stage = s.stage
-        self.lockedUntil = (s.lockedUntil.map { $0 > now() } ?? false) ? s.lockedUntil : nil
+        self.failures = loaded.consecutiveFailures
+        self.stage = loaded.stage
+        self.lockedUntil = (loaded.lockedUntil.map { $0 > now() } ?? false) ? loaded.lockedUntil : nil
     }
 
     /// 失败计数 +1；打满阶梯则进入锁定，返回锁定时长（秒）；未打满返回 0
