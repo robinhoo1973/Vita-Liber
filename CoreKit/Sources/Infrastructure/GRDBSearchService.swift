@@ -12,22 +12,22 @@ public actor GRDBSearchService: FullTextSearch {
 
     public init(writer: any DatabaseWriter) { self.writer = writer }
 
-    /// 写入侧：文档入库时同步 FTS（trigram 主表 + 2-gram 影子列）
+    /// 写入侧：文档入库时同步 FTS（trigram 主表 + 2-gram 影子列）。
+    /// FTS5 虚表不支持 UPSERT（ON CONFLICT）——同事务 DELETE+INSERT 实现幂等重建。
     public func index(docID: UUID, patientId: UUID, title: String, ocrText: String?, notes: String?) async throws {
         try await writer.write { db in
+            let rowid = docID.uuidString
+            try db.execute(sql: "DELETE FROM document_fts WHERE rowid = ?", arguments: [rowid])
             try db.execute(sql: """
                 INSERT INTO document_fts (rowid, title, ocr_text, notes) VALUES (?, ?, ?, ?)
-                ON CONFLICT(rowid) DO UPDATE SET title = excluded.title,
-                    ocr_text = excluded.ocr_text, notes = excluded.notes
-                """, arguments: [docID.uuidString, title, ocrText, notes])
+                """, arguments: [rowid, title, ocrText, notes])
+            try db.execute(sql: "DELETE FROM document_fts_2gram WHERE rowid = ?", arguments: [rowid])
             let title2 = SearchRules.bigrams(title).joined(separator: " ")
             let ocr2 = ocrText.map { SearchRules.bigrams($0).joined(separator: " ") } ?? ""
             let note2 = notes.map { SearchRules.bigrams($0).joined(separator: " ") } ?? ""
             try db.execute(sql: """
                 INSERT INTO document_fts_2gram (rowid, title_2gram, ocr_2gram, note_2gram) VALUES (?, ?, ?, ?)
-                ON CONFLICT(rowid) DO UPDATE SET title_2gram = excluded.title_2gram,
-                    ocr_2gram = excluded.ocr_2gram, note_2gram = excluded.note_2gram
-                """, arguments: [docID.uuidString, title2, ocr2, note2])
+                """, arguments: [rowid, title2, ocr2, note2])
         }
     }
 
