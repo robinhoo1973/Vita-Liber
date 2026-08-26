@@ -30,6 +30,9 @@ final class AppState {
     private(set) var timeline: [TimelineDocumentEntry] = []
     private(set) var pendingSets: [OcrConfirmationSet] = []
 
+    // L1 首启三卡确认落库（ConsentRecord 语义，FR20.5）
+    private(set) var consentRecords: [ConsentRecord] = []
+
     private let defaults: UserDefaults
     private let launchArgs: [String]
 
@@ -51,6 +54,10 @@ final class AppState {
             do { timeline = try JSONDecoder().decode([TimelineDocumentEntry].self, from: d) }
             catch { timeline = [] }
         }
+        if let d = defaults.data(forKey: "consentRecords") {
+            do { consentRecords = try JSONDecoder().decode([ConsentRecord].self, from: d) }
+            catch { consentRecords = [] }
+        }
         pinHash = defaults.string(forKey: "pinHash")
         if onboardingFinished { stage = .done }
     }
@@ -61,6 +68,12 @@ final class AppState {
 
     func advanceDisclosure() {
         guard case .disclosure(let i) = stage else { return }
+        // 每张卡确认即落 ConsentRecord（FR20.5 / TC-M1a-05）
+        let card = disclosureCards[i]
+        consentRecords.append(ConsentRecord(key: card.key, version: card.version,
+                                            acceptedAt: Date().timeIntervalSince1970))
+        do { let d = try JSONEncoder().encode(consentRecords); defaults.set(d, forKey: "consentRecords") }
+        catch { /* 编码失败不阻断流程 */ }
         if i + 1 < disclosureCards.count {
             stage = .disclosure(index: i + 1)
         } else {
