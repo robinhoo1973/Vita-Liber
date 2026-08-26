@@ -7,6 +7,8 @@
 !/README.zh-Hant.md
 !/CoreKit/
 !/App/
+!/Resources/
+!/design/
 !/Tests/
 !/UITests/
 !/project.yml
@@ -27,3 +29,6 @@ Build/
 .env*
 secrets*
 **/Secrets*.swift
+
+# Python 管线缓存
+__pycache__/

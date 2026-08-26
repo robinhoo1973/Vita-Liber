@@ -344,7 +344,7 @@ jobs:
           xcodebuild test-without-building \
             -project "$XCODEPROJ" -scheme "$SCHEME" \
             -destination "id=$UDID" \
-            -only-testing:VitaLiberTests/PerformanceScreeningTests \
+            -only-testing:VitaLiberUITests/PerformanceScreeningTests \
             -derivedDataPath "$DERIVED_DATA" \
             -resultBundlePath Build/perf.xcresult \
             CODE_SIGNING_ALLOWED=NO \

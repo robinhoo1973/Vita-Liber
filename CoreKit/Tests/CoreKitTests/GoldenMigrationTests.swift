@@ -61,3 +61,14 @@ struct LoadGateAuditTests {
         #expect(MigrationEngine.schemaV1.contains("REFERENCES patient_profile(id)"))
     }
 }
+
+@Suite("M0 · MockFactory 三实体（Preview 出口准则）")
+struct MockFactoryTests {
+    @Test func 三类工厂产出合法关联实体() {
+        let p = MockFactory.patient()
+        let d = MockFactory.document(for: p)
+        let m = MockFactory.plan(for: p)
+        #expect(d.patientId == p.id && m.patientId == p.id)
+        #expect(m.status == .active && !p.displayName.isEmpty)
+    }
+}
