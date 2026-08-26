@@ -128,7 +128,7 @@ jobs:
         with:
           name: test-products-${{ github.run_id }}
           path: |
-            ${{ env.PRODUCTS_DIR }}
+            Build/DerivedData/Build/Products
           retention-days: 1
 
   # ---------------------------------------------------------------------------
