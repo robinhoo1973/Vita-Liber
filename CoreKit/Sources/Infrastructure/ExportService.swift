@@ -28,6 +28,7 @@ public actor ExportService {
         public var immunizations: [ImmunizationExport]
         public var voiceNotes: [VoiceNoteExport]
         public var healthProblems: [HealthProblemExport]
+        public var sensitiveDocIds: Set<UUID>   // 评审 S1：敏感标记随包往返（BR-007/008 链）
 
         public struct PlanExport: Sendable, Codable, Equatable {
             public var id: UUID
@@ -71,6 +72,8 @@ public actor ExportService {
             public var unit: String
             public var origin: String
             public var measuredAt: Date
+            public var excluded: Bool
+            public var sourceRef: String?
         }
         public struct ImmunizationExport: Sendable, Codable, Equatable {
             public var id: UUID
@@ -81,6 +84,8 @@ public actor ExportService {
             public var id: UUID
             public var body: String
             public var occurredAt: Date
+            public var tags: [String]
+            public var inTimeline: Bool
         }
         public struct HealthProblemExport: Sendable, Codable, Equatable {
             public var id: UUID
@@ -107,6 +112,7 @@ public actor ExportService {
             self.immunizations = []
             self.voiceNotes = []
             self.healthProblems = []
+            self.sensitiveDocIds = []
         }
     }
 
@@ -202,7 +208,9 @@ public actor ExportService {
                     value: row["value"] as Double,
                     unit: row["unit"] as String,
                     origin: row["origin"] as String,
-                    measuredAt: Date(timeIntervalSince1970: row["measured_at"] as Double))
+                    measuredAt: Date(timeIntervalSince1970: row["measured_at"] as Double),
+                    excluded: (row["excluded"] as Int?) == 1,
+                    sourceRef: row["source_ref"] as String?)
             }
             let immunizations = try Row.fetchAll(db, sql: "SELECT * FROM immunization").map { row in
                 Envelope.ImmunizationExport(
@@ -211,10 +219,17 @@ public actor ExportService {
                     administeredAt: Date(timeIntervalSince1970: (row["administered_at"] as Double?) ?? 0))
             }
             let voiceNotes = try Row.fetchAll(db, sql: "SELECT * FROM voice_note").map { row in
-                Envelope.VoiceNoteExport(
+                let tags: [String] = (row["tags"] as String?).flatMap { json in
+                    guard let data = json.data(using: .utf8) else { return [] }
+                    do { return try JSONDecoder().decode([String].self, from: data) }
+                    catch { return [] }
+                } ?? []
+                return Envelope.VoiceNoteExport(
                     id: UUID(uuidString: row["id"] as String) ?? UUID(),
                     body: row["body"] as String,
-                    occurredAt: Date(timeIntervalSince1970: row["occurred_at"] as Double))
+                    occurredAt: Date(timeIntervalSince1970: row["occurred_at"] as Double),
+                    tags: tags,
+                    inTimeline: (row["in_timeline"] as Int?) == 1)
             }
             let healthProblems = try Row.fetchAll(db, sql: "SELECT * FROM health_problem").map { row in
                 Envelope.HealthProblemExport(
