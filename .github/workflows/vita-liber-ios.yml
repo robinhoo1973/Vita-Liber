@@ -126,7 +126,6 @@ jobs:
           xcodebuild build-for-testing \
             -project "$XCODEPROJ" -scheme "$SCHEME" \
             -destination "$DESTINATION" \
-            -derivedDataPath "$DERIVED_DATA" \
             COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO \
             2>&1 | tee "$BUILD_LOG"
 
@@ -190,7 +189,7 @@ jobs:
           xcodebuild test-without-building \
             -project "$XCODEPROJ" -scheme "$SCHEME" \
             -destination "$DESTINATION" \
-              -derivedDataPath "$DERIVED_DATA" \
+            -derivedDataPath "$DERIVED_DATA" \
             -resultBundlePath Build/shard.xcresult \
             CODE_SIGNING_ALLOWED=NO \
             ${{ matrix.shard }} 2>&1 | tee Build/xcodebuild-shard.log
@@ -244,13 +243,12 @@ jobs:
       - name: Run UI suite
         run: |
           set -o pipefail
-            -derivedDataPath "$DERIVED_DATA" \
           rm -rf Build/ui.xcresult
           xcodebuild test-without-building \
             -project "$XCODEPROJ" -scheme "$SCHEME" \
             -destination "$DESTINATION" \
             -only-testing:VitaLiberUITests \
-              -derivedDataPath "$DERIVED_DATA" \
+            -derivedDataPath "$DERIVED_DATA" \
             -resultBundlePath Build/ui.xcresult \
             CODE_SIGNING_ALLOWED=NO \
             2>&1 | tee Build/xcodebuild-ui.log
@@ -260,7 +258,6 @@ jobs:
         with:
           name: ui-result-${{ github.run_id }}
           path: |
-              -derivedDataPath "$DERIVED_DATA" \
             Build/ui.xcresult
             Build/xcodebuild-ui.log
           retention-days: 7
@@ -295,7 +292,6 @@ jobs:
           set -o pipefail
           UDID=$(xcrun simctl create "ci-golden-$GITHUB_RUN_ID" "$SIM_MODEL" "$SIM_RUNTIME")
           xcrun simctl bootstatus "$UDID" -b
-            -derivedDataPath "$DERIVED_DATA" \
           rm -rf Build/golden.xcresult
           xcodebuild test-without-building \
             -project "$XCODEPROJ" -scheme "$SCHEME" \
@@ -304,7 +300,7 @@ jobs:
             -only-testing:VitaLiberTests/GoldenOcrTests \
             -only-testing:VitaLiberTests/GoldenAiDisclosureTests \
             -only-testing:VitaLiberTests/GoldenAlertRuleTests \
-              -derivedDataPath "$DERIVED_DATA" \
+            -derivedDataPath "$DERIVED_DATA" \
             -resultBundlePath Build/golden.xcresult \
             CODE_SIGNING_ALLOWED=NO \
             2>&1 | tee Build/xcodebuild-golden.log
@@ -313,7 +309,6 @@ jobs:
         if: always()
         with:
           name: 'golden-result-${{ github.run_id }}'
-            -derivedDataPath "$DERIVED_DATA" \
           path: 'Build/golden.xcresult'
           retention-days: 7
 
@@ -344,19 +339,17 @@ jobs:
           set -o pipefail
           UDID=$(xcrun simctl create "ci-perf-$GITHUB_RUN_ID" "$SIM_MODEL" "$SIM_RUNTIME")
           xcrun simctl bootstatus "$UDID" -b
-            -derivedDataPath "$DERIVED_DATA" \
           rm -rf Build/perf.xcresult
           xcodebuild test-without-building \
             -project "$XCODEPROJ" -scheme "$SCHEME" \
             -destination "id=$UDID" \
             -only-testing:VitaLiberTests/PerformanceScreeningTests \
-              -derivedDataPath "$DERIVED_DATA" \
+            -derivedDataPath "$DERIVED_DATA" \
             -resultBundlePath Build/perf.xcresult \
             CODE_SIGNING_ALLOWED=NO \
             2>&1 | tee Build/xcodebuild-perf.log
           # 性能指标导出 CSV：xcresulttool export metrics（Xcode 16+）
           mkdir -p Build/metrics
-            -derivedDataPath "$DERIVED_DATA" \
           xcrun xcresulttool export metrics --path Build/perf.xcresult --output-path Build/metrics || true
           xcrun simctl shutdown "$UDID" || true; xcrun simctl delete "$UDID" || true
       - uses: actions/upload-artifact@v4
@@ -403,6 +396,7 @@ jobs:
             -project "$XCODEPROJ" -scheme "$SCHEME" \
             -destination "id=$UDID" \
             -only-testing:VitaLiberUITests \
+            -derivedDataPath "$DERIVED_DATA" \
             -resultBundlePath Build/next.xcresult \
             CODE_SIGNING_ALLOWED=NO \
             2>&1 | tee Build/xcodebuild-next.log
