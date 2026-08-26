@@ -276,6 +276,10 @@ struct ConfirmFieldRowView: View {
                     .font(.caption2)
                     .foregroundStyle(field.isConfirmed ? Color("grade-c", bundle: .main) : Color("grade-d", bundle: .main))
             }
+            // ui-ux §7 单焦点朗读放在信息组（不合并操作按钮）：
+            // 行级 combine 会把按钮的 identifier 提升到行元素，XCUITest 查询撞双 ID
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("\(field.displayLabel)，\(field.value)，\(field.isConfirmed ? "已确认" : "识别未确认")")
             Spacer()
             if field.isConfirmed {
                 Button {
@@ -306,9 +310,6 @@ struct ConfirmFieldRowView: View {
                               style: StrokeStyle(lineWidth: field.isConfirmed ? 1 : 1.5, dash: field.isConfirmed ? [] : [5]))
         )
         .padding(.horizontal, 16)
-        // ui-ux §7：单焦点朗读（字段名，值，状态，操作）
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(field.displayLabel)，\(field.value)，\(field.isConfirmed ? "已确认" : "识别未确认")")
         .sheet(isPresented: $editing) {
             VStack(spacing: 16) {
                 Text("修改「\(field.displayLabel)」").font(.headline)
