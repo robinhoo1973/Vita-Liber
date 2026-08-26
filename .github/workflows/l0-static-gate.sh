@@ -12,7 +12,7 @@
 #       必须显式开启外键（foreign_keys / foreignKeysEnabled）（tech-spec §4.3，dev-pm §3.1 M0）
 #   [4] 红线模块禁读 EntitlementStore（tech-spec §5.14，comercial-spec §1 永久免费红线）
 #   [5] Domain 零框架依赖 —— Sources/Domain 不 import SwiftUI/UIKit/Vision/GRDB（tech-spec §1.1）
-#   附 [6] Fixtures/**/*.json 可解析校验（目录缺失仅告警——金样随阶段入库 §9.1）
+#   [6] Fixtures/**/*.json 可解析校验（目录缺失仅告警——金样随阶段入库 §9.1）
 #
 # 运行环境：bash 3.2+（兼容 macOS 自带 bash）/ python3 或 node 或 jq（仅 JSON 校验用）。
 #           macOS/Linux 原生可跑；Windows 用 Git Bash 或等价 l0-static-gate.py。
@@ -57,12 +57,31 @@ else
 fi
 COREKIT="$APP/CoreKit"
 DOMAIN="$COREKIT/Sources/Domain"
-FIXTURES="${FIXTURES_DIR:-$APP/Fixtures}"; [ -d "$FIXTURES" ] || FIXTURES="$APP/CoreKit/Fixtures"
+# 金样目录探测（ERR#27）：金样实际落在 CoreKit/Tests/CoreKitTests/Fixtures（SPM resources 约定），
+# 早期硬编码的 $APP/Fixtures、$APP/CoreKit/Fixtures 均为空壳目录——空目录会让 [7/7] 扫到 0 个 JSON
+# 而报「全部可解析」的假绿。改为：显式变量 > 候选路径 > 全仓搜索，且 0 个金样一律不判 PASS。
+if [ -n "${FIXTURES_DIR:-}" ]; then
+  FIXTURES="$FIXTURES_DIR"
+else
+  FIXTURES=""
+  for _cand in "$APP/CoreKit/Tests/CoreKitTests/Fixtures" "$APP/Fixtures" "$APP/CoreKit/Fixtures"; do
+    if [ -d "$_cand" ] && [ -n "$(find "$_cand" -name '*.json' 2>/dev/null | head -1)" ]; then
+      FIXTURES="$_cand"; break
+    fi
+  done
+  # 兜底：全仓搜索任何含 JSON 的 Fixtures 目录（排除构建产物）
+  if [ -z "$FIXTURES" ]; then
+    FIXTURES="$(find "$APP" -type d -name Fixtures \
+      -not -path '*/.build/*' -not -path '*/DerivedData/*' -not -path '*/Build/*' \
+      2>/dev/null | head -1)"
+  fi
+  [ -n "$FIXTURES" ] || FIXTURES="$APP/CoreKit/Tests/CoreKitTests/Fixtures"
+fi
 
 echo "Vita Liber L0 静态门禁 · 应用源码根: $APP"
 
 # ---------- [1] try? 门禁 ----------
-section "1/6" "try? 门禁 —— 全仓清零，豁免须同行注释 // try?-ok: <理由>（tech-spec §7）"
+section "1/7" "try? 门禁 —— 全仓清零，豁免须同行注释 // try?-ok: <理由>（tech-spec §7）"
 try_viol=0; try_exempt=0
 while IFS= read -r line; do
   [ -n "$line" ] || continue
@@ -80,7 +99,7 @@ else
 fi
 
 # ---------- [2] ADR-021 无平行视图 ----------
-section "2/6" "ADR-021 —— 禁止平行视图文件与 idiom 分支换页（tech-spec §5.26）"
+section "2/7" "ADR-021 —— 禁止平行视图文件与 idiom 分支换页（tech-spec §5.26）"
 ipad_files=$(find "$APP" \( -name .build -o -name .swiftpm -o -name DerivedData -o -name Build \) -prune -o \( -name '*_iPad*.swift' -o -name '*_iPhone*.swift' \) -print 2>/dev/null | grep -v '/CoreKit/' || true)
 if [ -n "$ipad_files" ]; then
   printf '%s\n' "$ipad_files" | head -15 | sed 's/^/    /'
@@ -95,7 +114,7 @@ while IFS= read -r line; do
   case "$_content" in *'adr021-ok:'*) continue ;; esac
   idiom_viol=$((idiom_viol + 1))
   [ "$idiom_viol" -le 15 ] && printf '    %s:%s\n' "$_f" "$_n"
-done < <(grep -rinE '--exclude-dir=.build --exclude-dir=.swiftpm --exclude-dir=DerivedData --exclude-dir=Build' 'userInterfaceIdiom[[:space:]]*==[[:space:]]*\.pad' --include='*.swift' --exclude-dir=.build --exclude-dir=.swiftpm --exclude-dir=DerivedData --exclude-dir=Build "$APP" 2>/dev/null || true)
+done < <(grep -rinE 'userInterfaceIdiom[[:space:]]*==[[:space:]]*\.pad' --include='*.swift' --exclude-dir=.build --exclude-dir=.swiftpm --exclude-dir=DerivedData --exclude-dir=Build "$APP" 2>/dev/null || true)
 if [ "$idiom_viol" -gt 0 ]; then
   fail "idiom 分支换页 ${idiom_viol} 处 —— 改用容器驱动重排（ViewThatFits/AnyLayout/sizeClass）"
 else
@@ -103,7 +122,7 @@ else
 fi
 
 # ---------- [3] DDL 引用完整性 ----------
-section "3/6" "DDL 引用完整性 —— REFERENCES 目标已建表 + 外键开启（tech-spec §4.3）"
+section "3/7" "DDL 引用完整性 —— REFERENCES 目标已建表 + 外键开启（tech-spec §4.3）"
 ddl_text=$(find "$APP" \( -name .build -o -name .swiftpm -o -name DerivedData \) -prune -o \( -name '*.swift' -o -name '*.sql' \) -print0 2>/dev/null | xargs -0 cat 2>/dev/null || true)
 created=$(printf '%s\n' "$ddl_text" | tr -d '"' \
   | grep -ohE 'CREATE TABLE( IF NOT EXISTS)? [A-Za-z_]+' \
@@ -130,7 +149,7 @@ else
 fi
 
 # ---------- [4] 红线模块禁读 EntitlementStore ----------
-section "4/6" "商业化红线 —— 红线模块代码内禁止读取 EntitlementStore（tech-spec §5.14）"
+section "4/7" "商业化红线 —— 红线模块代码内禁止读取 EntitlementStore（tech-spec §5.14）"
 DEFAULT_REDLINE="$APP/Features/Documents:$APP/Features/Observations:$APP/Features/Medications:$APP/Features/Search:$APP/Features/Support"
 REDLINE_PATHS="${REDLINE_PATHS:-$DEFAULT_REDLINE}"
 redline_matched=0; ent_viol=0
@@ -156,7 +175,7 @@ else
 fi
 
 # ---------- [5] Domain 零框架依赖 ----------
-section "5/6" "分层纪律 —— Domain 目标不 import SwiftUI/UIKit/Vision/GRDB（tech-spec §1.1）"
+section "5/7" "分层纪律 —— Domain 目标不 import SwiftUI/UIKit/Vision/GRDB（tech-spec §1.1）"
 if [ ! -d "$DOMAIN" ]; then
   fail "缺少 $DOMAIN —— M0 要求 CoreKit 三目标骨架先行"
 else
@@ -171,7 +190,7 @@ else
 fi
 
 # ---------- [6] Fixtures JSON 校验 ----------
-section "6/6" "金样 Fixtures —— JSON 可解析（dev-pm-spec §9.2④）"
+section "6/7" "金样 Fixtures —— JSON 可解析（dev-pm-spec §9.2④）"
 validate_json() {
   if command -v python3 >/dev/null 2>&1; then
     python3 -c 'import json,sys; json.load(open(sys.argv[1], encoding="utf-8"))' "$1" 2>/dev/null
@@ -202,8 +221,38 @@ else
     warn "无 python3/node/jq 可用，跳过 JSON 校验"
   elif [ "$j_bad" -gt 0 ]; then
     fail "损坏 JSON ${j_bad}/${j_total} 个"
+  elif [ "$j_total" -eq 0 ]; then
+    # ERR#27：0 个金样绝不判 PASS——空目录曾让本项长期假绿
+    warn "目录 $FIXTURES 内 0 个 JSON——金样尚未入库或路径漂移，本项未实际校验"
   else
-    pass "${j_total} 个 JSON 全部可解析"
+    pass "${j_total} 个 JSON 全部可解析（$FIXTURES）"
+  fi
+fi
+
+# ---------- [7] Swift 语法解析门禁 ----------
+section "7/7" "Swift 解析门禁 —— App 层源码语法/保留字检查（ERR#28 shift-left）"
+# 背景：App/ 的 SwiftUI 源码不属于 CoreKit SPM 包，Linux 上 `swift build` 不覆盖它，
+# 过去任何语法错误（如 `static let import`）都要等 macOS L1 编译才暴露，一次往返数分钟。
+# swiftc -parse 只做语法分析、不做语义解析与 import 解析，因此在无 SwiftUI 的 Linux 上同样有效。
+if ! command -v swiftc >/dev/null 2>&1; then
+  warn "无 swiftc 可用，跳过解析门禁（macOS L1 编译仍会覆盖）"
+else
+  p_total=0; p_bad=0
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    p_total=$((p_total + 1))
+    if ! swiftc -parse "$f" >/dev/null 2>&1; then
+      p_bad=$((p_bad + 1))
+      printf '    解析失败: %s\n' "$f"
+      swiftc -parse "$f" 2>&1 | grep -E '^.+error:' | head -3 | sed 's/^/      /' || true
+    fi
+  done < <(find "$APP" -name '*.swift' \
+    -not -path '*/.build/*' -not -path '*/.swiftpm/*' \
+    -not -path '*/DerivedData/*' -not -path '*/Build/*' 2>/dev/null)
+  if [ "$p_bad" -gt 0 ]; then
+    fail "语法解析失败 ${p_bad}/${p_total} 个文件"
+  else
+    pass "${p_total} 个 Swift 文件语法解析通过"
   fi
 fi
 

@@ -53,6 +53,9 @@ jobs:
   l0-static-gate:
     name: 'L0 · 静态门禁'
     runs-on: ubuntu-latest
+    # 官方 Swift 容器：门禁 [7/7] 需要 swiftc -parse（ubuntu-latest 裸机无 Swift 工具链，
+    # 会静默降级为 WARN，使「L0 不过不进 L1」的卡斩链对语法错失效）。ERR#28。
+    container: swift:6.0-jammy
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4

@@ -1,9 +1,10 @@
 // AUTO-GENERATED — 请勿手改。重新生成：python3 design/tools/generate_assets.py
-// 命名映射见 design/README.md；资产位于 Resources/Assets.xcassets（template 渲染）。
+// 风格：Fluent 彩色瓷砖（字形出处见 design/icons/provenance.json）。
 
 import SwiftUI
 
 /// 设计系统图标唯一出口（对齐 Localization/L10n.swift 的单出口纪律）。
+/// 瓷砖基准 48pt；更大尺寸用 .resizable().frame(width:height:)。
 enum VLIcon {
     static let tabHome = Image("ic-tab-home")
     static let tabHomeFilled = Image("ic-tab-home-filled")
@@ -34,7 +35,7 @@ enum VLIcon {
     static let observeFrame = Image("ic-observe-frame")
     static let share = Image("ic-share")
     static let export = Image("ic-export")
-    static let import = Image("ic-import")
+    static let `import` = Image("ic-import")
     static let sync = Image("ic-sync")
     static let cloudOff = Image("ic-cloud-off")
     static let settings = Image("ic-settings")
