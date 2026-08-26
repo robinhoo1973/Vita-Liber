@@ -29,21 +29,26 @@ public actor GRDBM1aPersistor: M1aPersisting {
 
     public func saveOwner(_ owner: LocalOwner, profile: PatientProfile) async throws {
         try await writer.write { db in
-            // §4.2 明示纪律：FK 插入顺序不可调换（foreign_keys=ON 下违反即抛错回滚）——
-            // local_owner.self_patient_id REFERENCES patient_profile，故 patient_profile 先落库
+            // §4.2 明示纪律：FK 插入顺序不可调换。local_owner.self_patient_id 与
+            // patient_profile.owner_local_id 互为环——同事务三段式破环：
+            // ① patient_profile 落库（owner_local_id 暂空）② local_owner 落库（回指 profile）
+            // ③ 回填 patient_profile.owner_local_id。任一步失败整体回滚。
             try db.execute(
                 sql: """
                 INSERT INTO patient_profile
                   (id, owner_local_id, display_name, relation, gender, birth_date, note, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                arguments: [profile.id.uuidString, owner.id.uuidString, profile.displayName,
+                arguments: [profile.id.uuidString, profile.displayName,
                             profile.relation, profile.gender, profile.birthDate, profile.note,
                             profile.createdAt, profile.updatedAt])
             try db.execute(
                 sql: "INSERT INTO local_owner (id, display_name, self_patient_id, created_at) VALUES (?, ?, ?, ?)",
                 arguments: [owner.id.uuidString, owner.displayName,
                             owner.selfPatientId?.uuidString, owner.createdAt])
+            try db.execute(
+                sql: "UPDATE patient_profile SET owner_local_id = ? WHERE id = ?",
+                arguments: [owner.id.uuidString, profile.id.uuidString])
         }
     }
 
