@@ -55,6 +55,9 @@ public enum SchemaV2 {
       encounter_id TEXT REFERENCES encounter(id),
       origin TEXT NOT NULL CHECK(origin IN ('camera','scanner','import','photoLibrary','manual')),
       meta_json TEXT,                    -- V3.41: 投影元数据(标题/确认计数/修订历史)，OCR 原文与附件的结构化侧载
+      title TEXT,                        -- V3.43: FTS 检索列（external-content 需与虚表列同名）
+      ocr_text TEXT,                     -- V3.43: OCR 原文检索列
+      notes TEXT,                        -- V3.43: 用户笔记检索列
       created_at REAL NOT NULL, updated_at REAL NOT NULL);
     CREATE UNIQUE INDEX idx_document_sha ON document_file(sha256);
     CREATE INDEX idx_document_patient_type ON document_file(patient_id, doc_type, created_at DESC);
