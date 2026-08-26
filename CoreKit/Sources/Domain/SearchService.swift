@@ -1,0 +1,70 @@
+import Foundation
+
+/// F12 搜索语义（§5.30 / §4.3 V3.24 查询长度路由）：
+/// ≥3 字 trigram 主表 / 2 字 2-gram 影子表 / 1 字 LIKE 兜底（低频高噪音，
+/// 限定 member+时间窗缩小扫描集）。Domain 持有路由与校验，FTS 执行归 Infrastructure。
+public struct SearchQuery: Sendable, Equatable {
+    public var text: String
+    public var member: UUID?
+    public var docKinds: Set<String>?
+    public var dateRange: DateInterval?
+    public var includeArchived: Bool
+    public init(text: String, member: UUID? = nil, docKinds: Set<String>? = nil,
+                dateRange: DateInterval? = nil, includeArchived: Bool = false) {
+        self.text = text
+        self.member = member
+        self.docKinds = docKinds
+        self.dateRange = dateRange
+        self.includeArchived = includeArchived
+    }
+}
+
+public struct SearchHit: Sendable, Equatable {
+    public var docID: UUID
+    public var snippet: String
+    public var field: String
+    public var date: Date
+    public init(docID: UUID, snippet: String, field: String, date: Date) {
+        self.docID = docID; self.snippet = snippet; self.field = field; self.date = date
+    }
+}
+
+public enum SearchRoute: Sendable, Equatable {
+    case trigram          // ≥3 字：document_fts 主表
+    case bigram           // 2 字：document_fts_2gram 影子表
+    case like             // 1 字：LIKE '%x%' 兜底（低频高噪音）
+    case invalid
+}
+
+public enum SearchRules {
+    /// CJK 字符计数（查询长度按字符数而非字节数）
+    public static func cjkLength(_ text: String) -> Int {
+        text.reduce(0) { count, ch in
+            count + (ch.unicodeScalars.first.map { $0.value >= 0x4E00 && $0.value <= 0x9FFF ? 1 : 0 } ?? 0)
+        }
+    }
+
+    /// 查询长度路由（V3.24）：≥3 字 trigram / 2 字 bigram / 1 字 LIKE / 空查询 invalid
+    public static func route(_ text: String) -> SearchRoute {
+        let n = cjkLength(text.trimmingCharacters(in: .whitespaces))
+        switch n {
+        case 0: return .invalid
+        case 1: return .like
+        case 2: return .bigram
+        default: return .trigram
+        }
+    }
+
+    /// 2-gram 切分（bigram 影子表写入侧同构）：连续 CJK 2 字序列空格分隔
+    public static func bigrams(_ text: String) -> [String] {
+        let chars = Array(text)
+        guard chars.count >= 2 else { return [] }
+        return (0..<(chars.count - 1)).map { String(chars[$0]) + String(chars[$0 + 1]) }
+    }
+
+    /// 高亮片段：命中词在片段中的首现位置（snippet 生成由 FTS snippet 函数承担，
+    /// Domain 侧提供「敏感媒体只命中元数据」规则）
+    public static func isSensitiveDoc(_ docKind: String) -> Bool {
+        docKind == "sensitive_photo" || docKind == "sensitive_media"
+    }
+}
