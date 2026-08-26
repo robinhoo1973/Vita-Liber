@@ -363,6 +363,12 @@ struct TimelineView: View {
                     Label("指标趋势", systemImage: "chart.xyaxis.line")
                 }
                 .accessibilityIdentifier("SP-10.timeline.trend")
+                NavigationLink {
+                    VoiceNotePanelView()
+                } label: {
+                    Label("语音速记", systemImage: "waveform")
+                }
+                .accessibilityIdentifier("SP-10.timeline.voicenote")
             }
             .padding(.horizontal, 16)
             if app.timeline.isEmpty {

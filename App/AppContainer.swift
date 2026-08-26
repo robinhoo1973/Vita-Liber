@@ -20,6 +20,7 @@ struct AppContainer {
     let allergies: AllergyStore
     let entitlements: EntitlementStore
     let trends: TrendQueryStore
+    let voiceNotes: VoiceNoteStore
 
     /// 生产装配：文件库 + WAL（§4.4）+ UNUserNotificationCenter 适配。
     static func live(databasePath: String) throws -> AppContainer {
@@ -45,6 +46,7 @@ struct AppContainer {
         let entitlements = EntitlementStore(writer: store.writer,
                                             storefront: EntitlementStore.InMemoryStorefront())
         let trends = TrendQueryStore(writer: store.writer)
+        let voiceNotes = VoiceNoteStore(writer: store.writer)
         return AppContainer(store: store,
                             audit: AuditLogWriter(writer: store.writer),
                             persistor: GRDBM1aPersistor(store: store),
@@ -57,7 +59,8 @@ struct AppContainer {
                             observations: observations,
                             allergies: allergies,
                             entitlements: entitlements,
-                            trends: trends)
+                            trends: trends,
+                            voiceNotes: voiceNotes)
     }
 
     /// Application Support 下的数据库路径（生产库位置）
