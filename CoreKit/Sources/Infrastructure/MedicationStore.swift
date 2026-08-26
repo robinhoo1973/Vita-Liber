@@ -89,7 +89,7 @@ public actor MedicationStore: DoseSource {
                 SET user_action = 'taken', acted_at = ?
                 WHERE id = ?
                 """, arguments: [Date().timeIntervalSince1970, notifyId])
-            try Self.applyResolution(patientId: patientId, medicationId: medicationId,
+            try applyResolutionOnLots(patientId: patientId, medicationId: medicationId,
                                 notifyId: notifyId, units: units, action: .taken, db: db)
         }
     }
@@ -117,16 +117,24 @@ public actor MedicationStore: DoseSource {
                 SET user_action = ?, acted_at = ?
                 WHERE id = ?
                 """, arguments: [action.rawValue, Date().timeIntervalSince1970, notifyId])
-            try Self.applyResolution(patientId: patientId, medicationId: medicationId,
+            try applyResolutionOnLots(patientId: patientId, medicationId: medicationId,
                                 notifyId: notifyId, units: units, action: action, db: db)
         }
     }
 
-    /// FR9.8.2 扣减矩阵落库（同事务）：按 FEFO 在**本药品**活跃且未过期批次上分配
-    /// （评审 S1-1：不按 medication 过滤会把 A 药确认扣到 B 药批；过期批不得作来源）。
-    /// nonisolated：在 writer.write 的同步闭包内调用，不触碰 actor 状态。
-    private nonisolated func applyResolution(patientId: UUID, medicationId: UUID, notifyId: String, units: Double,
-                                             action: DoseUserAction, db: Database) throws {
+    public enum StoreError: Error, LocalizedError {
+        case doseNotFound(String)
+        case alreadyResolved(String)
+        case takenMustUseConfirm(String)
+        public var errorDescription: String? { "剂量行操作失败: \(self)" }
+    }
+}
+
+/// FR9.8.2 扣减矩阵落库（同事务）：按 FEFO 在**本药品**活跃且未过期批次上分配
+/// （评审 S1-1：不按 medication 过滤会把 A 药确认扣到 B 药批；过期批不得作来源）。
+/// 自由函数：在 writer.write 的同步闭包内调用，无 actor 隔离问题（Swift 6 显式 self 纪律）。
+private func applyResolutionOnLots(patientId: UUID, medicationId: UUID, notifyId: String, units: Double,
+                                   action: DoseUserAction, db: Database) throws {
         var inventories: [DualTrackInventory] = []
         for row in try Row.fetchAll(db, sql: """
             SELECT * FROM stock_lot
@@ -172,13 +180,6 @@ public actor MedicationStore: DoseSource {
                 VALUES (?, ?, ?, ?)
                 """, arguments: [notifyId, a.lotId.uuidString, a.units, a.units])
         }
-    }
-
-    public enum StoreError: Error, LocalizedError {
-        case doseNotFound(String)
-        case alreadyResolved(String)
-        case takenMustUseConfirm(String)
-        public var errorDescription: String? { "剂量行操作失败: \(self)" }
     }
 
     // MARK: - 滚动预排窗口（§5.4：只物化未来 7 天，每日对账滚动补排）
@@ -267,5 +268,4 @@ public actor MedicationStore: DoseSource {
                 """, arguments: [notifyId])
         }
     }
-}
 #endif
