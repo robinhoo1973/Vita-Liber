@@ -55,6 +55,13 @@ struct VitaLiberApp: App {
                     await reminderStore.refresh(patientId: appState.owner?.selfPatientId ?? appState.owner?.id)
                 }
             }
+            // 四层补偿第 3 层：时区/时间显著变化 → 立即对账（View 级修饰符）
+            .onReceive(NotificationCenter.default.publisher(
+                for: UIApplication.significantTimeChangeNotification)) { _ in
+                Task {
+                    await reminderStore.refresh(patientId: appState.owner?.selfPatientId ?? appState.owner?.id)
+                }
+            }
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
@@ -69,13 +76,6 @@ struct VitaLiberApp: App {
                 }
             default:
                 break
-            }
-        }
-        // 四层补偿第 3 层：时区/时间显著变化 → 立即对账
-        .onReceive(NotificationCenter.default.publisher(
-            for: UIApplication.significantTimeChangeNotification)) { _ in
-            Task {
-                await reminderStore.refresh(patientId: appState.owner?.selfPatientId ?? appState.owner?.id)
             }
         }
     }
