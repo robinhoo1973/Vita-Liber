@@ -77,11 +77,11 @@ final class M1aE2ETests: XCTestCase {
     }
 
     /// FR1.4：退后台回前台必见锁屏；验证 PIN 后回到主界面。
-    /// 依赖前一个用例（端到端故事）持久化的完成态：同 runner 同模拟器，
-    /// XCTest 按用例名顺序执行（端→退），此依赖显式声明。
+    /// 用 -uitest-seed-finished 确定性注入完成态（PIN=135790），
+    /// 不依赖前序用例的持久化数据。
     func test_退后台回前台必见锁屏() throws {
         let app = XCUIApplication()
-        app.launchArguments = []            // 不 reset：沿用端到端用例完成的真实状态
+        app.launchArguments = ["-uitest-seed-finished"]
         app.launch()
 
         // 退后台 → 回前台：必见锁屏遮罩

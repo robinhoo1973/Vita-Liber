@@ -77,6 +77,16 @@ final class AppState {
                 stage = .disclosure(index: min(progress, disclosureCards.count - 1))
             }
         }
+        // UI 测试种子：确定性注入「已完成首启 + PIN=135790」状态——
+        // 锁屏用例不再依赖前序用例的持久化数据（跨用例状态依赖不可靠）
+        if launchArgs.contains("-uitest-seed-finished") {
+            let h = PinHasher.makeHash(pin: "135790")
+            pinHash = h.stored
+            defaults.set(h.stored, forKey: "pinHashV2")
+            onboardingFinished = true
+            defaults.set(true, forKey: "onboardingFinished")
+            stage = .done
+        }
     }
 
     /// 启动装配（VitaLiberApp .task 调用）：清态（UI 测试）→ 装配锁定状态机 →
@@ -205,7 +215,7 @@ final class AppState {
         Task {
             do {
                 activeSet = try await captureProvider.capture()
-                stage = .ocrConfirm
+                stage = .ocrConfirm      // activeSet 先于 stage 赋值（UI 渲染竞态修正）
             } catch {
                 logger.error("拍摄管线失败: \(error)")
             }
