@@ -4,6 +4,9 @@ options:
   deploymentTarget: { iOS: "17.0" }
 packages:
   CoreKit: { path: CoreKit }
+  GRDB.swift:
+    url: https://github.com/groue/GRDB.swift.git
+    majorVersion: 6.29.0
 targets:
   VitaLiber:
     type: application
@@ -19,7 +22,11 @@ targets:
     # CoreKit 直连（不只是通过 VitaLiber 传递）：TC-M0-06 运行时断言需要 import
     # Domain/Infrastructure，且 GRDB 只在 iOS/macOS 链接（ERR#8），本目标是这些
     # 断言唯一真实生效的执行位置（CoreKit 的 SPM 测试目标在 Linux 容器里跑）。
-    dependencies: [{ target: VitaLiber }, { package: CoreKit }]
+    # GRDB 亦需直连：测试代码直接调用了 Int.fetchOne 等 GRDB API，其 protocol
+    # witness table 必须能解析到 GRDB 库——仅靠 CoreKit 的传递链接，ld 报
+    # "protocol witness table for Swift.Int : GRDB.StatementColumnConvertible ...
+    # symbol(s) not found for architecture arm64"（ERR#31）。
+    dependencies: [{ target: VitaLiber }, { package: CoreKit }, { package: GRDB.swift }]
   VitaLiberUITests:
     type: bundle.ui-testing
     platform: iOS
