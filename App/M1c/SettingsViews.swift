@@ -40,7 +40,10 @@ struct SettingsView: View {
                     }
                 }
                 Section("关于") {
-                    Text("Vita Liber · 青囊书")
+                    NavigationLink("帮助与关于") {
+                        HelpAboutView()
+                    }
+                    .accessibilityIdentifier("SP-25.settings.help")
                     Text("本 App 不是医疗设备，不下诊断、不给治疗方案建议。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
