@@ -424,9 +424,14 @@ jobs:
       - name: Run UI smoke on next runtime
         run: |
           set -o pipefail
-          if [ "$(xcrun simctl list runtimes | grep -c 'iOS 26')" = "0" ]; then
-            echo "::notice::此镜像无 iOS 26 runtime —— 前瞻档本轮跳过（E10 允许）"; exit 0; fi
-          UDID=$(xcrun simctl create "ci-next-$GITHUB_RUN_ID" "iPhone 16 Pro" "iOS26.0" ||                  xcrun simctl create "ci-next-$GITHUB_RUN_ID" "iPhone 17" "iOS26.4")
+          # E10 前瞻档：镜像未含 iOS 26 runtime 时显式跳过并留 notice——
+          # 「未测试」必须可见且不冒充通过（ERR#27 空集判过同族），也不该以
+          # Invalid runtime 报错形式把「环境不具备」伪装成「测试失败」
+          NEXT_RUNTIME=$(xcrun simctl list runtimes -j 2>/dev/null | grep -oE 'iOS-26-[0-9]+' | head -1 || true)
+          if [ -z "$NEXT_RUNTIME" ]; then
+            echo "::notice::此镜像无 iOS 26 runtime——前瞻档本轮跳过（E10 允许，非测试失败）"; exit 0
+          fi
+          UDID=$(xcrun simctl create "ci-next-$GITHUB_RUN_ID" "iPhone 17" "$NEXT_RUNTIME")
           xcrun simctl bootstatus "$UDID" -b
           rm -rf Build/next.xcresult
           xcodebuild test-without-building \
