@@ -55,6 +55,11 @@ struct RootAdaptiveView: View {
     @State private var selection: MainModule = .home
 
     var body: some View {
+        // 容器驱动重排（ADR-021）：compact=TabView、regular=侧边栏。
+        // 外层包 Group 再挂统一修饰器——if/else 两个分支类型的并集上
+        // 直接调 View 扩展方法有类型歧义（CI 编译错：instance member
+        // 'withPaywallHost' cannot be used on type 'View'）
+        Group {
         if sizeClass == .compact {
             TabView(selection: $selection) {
                 ForEach(MainModule.allCases) { m in
@@ -79,6 +84,7 @@ struct RootAdaptiveView: View {
                         ModuleRoot(module: m)
                     }
             }
+        }
         }
         .withPaywallHost()   // 五时机弹墙统一宿主（comercial §3 / M2 收尾）
     }
