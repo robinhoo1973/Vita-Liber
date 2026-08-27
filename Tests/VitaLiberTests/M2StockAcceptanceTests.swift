@@ -55,9 +55,11 @@ final class M2StockAcceptanceTests: XCTestCase {
         try await meds.createPlan(planId: planId, patientId: patient, medicationId: med,
                                   schedule: .fixed(times: ["08:00"]), status: .active,
                                   startDate: planStart, endDate: nil)
+        let seededCal = cal   // 本地值捕获：Calendar 是 Sendable 值类型，
+                              // 写闭包不可引用 MainActor 隔离属性（Swift 6）
         try await store.writer.write { db in
             for dayOffset in 1...4 {
-                let due = cal.date(byAdding: .day, value: -dayOffset, to: Date())!
+                let due = seededCal.date(byAdding: .day, value: -dayOffset, to: Date())!
                     .addingTimeInterval(8 * 3600)
                 try db.execute(sql: """
                     INSERT INTO medication_dose_log (id, plan_id, scheduled_for, dose_units, delivery_state, user_action)
@@ -108,9 +110,10 @@ final class M2StockAcceptanceTests: XCTestCase {
                                   schedule: .fixed(times: ["08:00"]), status: .active,
                                   startDate: cal.date(byAdding: .day, value: -2, to: Date())!,
                                   endDate: nil)
+        let seededCal = cal
         try await store.writer.write { db in
             for dayOffset in 1...2 {
-                let due = cal.date(byAdding: .day, value: -dayOffset, to: Date())!
+                let due = seededCal.date(byAdding: .day, value: -dayOffset, to: Date())!
                     .addingTimeInterval(8 * 3600)
                 try db.execute(sql: """
                     INSERT INTO medication_dose_log (id, plan_id, scheduled_for, dose_units, delivery_state, user_action)
@@ -144,10 +147,11 @@ final class M2StockAcceptanceTests: XCTestCase {
                                   schedule: .fixed(times: ["08:00"]), status: .active,
                                   startDate: cal.date(byAdding: .day, value: -4, to: Date())!,
                                   endDate: nil)
+        let seededCal = cal
         try await store.writer.write { db in
             // 3 条过去的未决议剂量 + 1 条 taken 事实
             for dayOffset in 1...3 {
-                let due = cal.date(byAdding: .day, value: -dayOffset, to: Date())!
+                let due = seededCal.date(byAdding: .day, value: -dayOffset, to: Date())!
                     .addingTimeInterval(8 * 3600)
                 try db.execute(sql: """
                     INSERT INTO medication_dose_log (id, plan_id, scheduled_for, dose_units, delivery_state, user_action)
@@ -155,7 +159,7 @@ final class M2StockAcceptanceTests: XCTestCase {
                     """, arguments: [UUID().uuidString, planId.uuidString,
                                      due.timeIntervalSince1970])
             }
-            let takenDue = cal.date(byAdding: .day, value: -1, to: Date())!
+            let takenDue = seededCal.date(byAdding: .day, value: -1, to: Date())!
                 .addingTimeInterval(9 * 3600)
             try db.execute(sql: """
                 INSERT INTO medication_dose_log
