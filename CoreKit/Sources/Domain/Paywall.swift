@@ -68,6 +68,14 @@ public enum PaywallRules {
         !FreeRedLine.isFree(capability)
     }
 
+    /// FR3.7 成员配额判定：加第 N 个成员是否会越过免费配额（免费档 ≥4 人）。
+    /// 判定「加一个会不会超」而不是「现在已超」——第 5 个成员的加入动作
+    /// 才是价值触发点（comercial §3 memberQuotaReached）。
+    public static func addingMemberWouldExceed(currentCount: Int,
+                                               quota: FreeQuota = FreeQuota()) -> Bool {
+        currentCount + 1 > quota.maxMembers
+    }
+
     /// 信任文案（固定，不随状态变化）
     public static let trustCopy = "核心功能永久免费，付费只解锁增量能力。不续费不会删除你的任何数据。"
 }

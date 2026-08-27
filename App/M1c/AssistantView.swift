@@ -112,7 +112,7 @@ struct AssistantView: View {
         }
     }
 
-    private var currentPatientId: UUID { app.owner?.selfPatientId ?? app.owner?.id ?? UUID() }
+    private var currentPatientId: UUID { app.currentPatientId }
 }
 
 /// FR12.11 图片识别确认卡：未确认不得提交（BR-003）。

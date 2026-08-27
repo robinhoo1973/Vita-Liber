@@ -85,14 +85,14 @@ struct VitaLiberApp: App {
                 // 四层补偿第 1 层（§5.4 V3.29）：前台启动时对账 + 首启请求通知授权
                 if appState.onboardingFinished {
                     await reminderStore.requestNotificationAuthorization()
-                    await reminderStore.refresh(patientId: appState.owner?.selfPatientId ?? appState.owner?.id)
+                    await reminderStore.refresh(patientId: appState.currentPatientId)
                 }
             }
             // 四层补偿第 3 层：时区/时间显著变化 → 立即对账（View 级修饰符）
             .onReceive(NotificationCenter.default.publisher(
                 for: UIApplication.significantTimeChangeNotification)) { _ in
                 Task {
-                    await reminderStore.refresh(patientId: appState.owner?.selfPatientId ?? appState.owner?.id)
+                    await reminderStore.refresh(patientId: appState.currentPatientId)
                 }
             }
         }
@@ -107,7 +107,7 @@ struct VitaLiberApp: App {
                 // 四层补偿第 2 层：每次回前台轻量对账
                 if appState.onboardingFinished {
                     Task {
-                        await reminderStore.refresh(patientId: appState.owner?.selfPatientId ?? appState.owner?.id)
+                        await reminderStore.refresh(patientId: appState.currentPatientId)
                     }
                 }
             default:

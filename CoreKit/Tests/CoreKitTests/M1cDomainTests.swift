@@ -262,3 +262,20 @@ struct ObservationServiceTests {
                                                   now: Date(timeIntervalSince1970: 100)).isEmpty)  // scope 过滤
     }
 }
+
+// binds: SU-M1c-IAP — FR3.7 成员配额判定（comercial §3 memberQuotaReached 的 Domain 半场）
+@Suite("SU-M1c-IAP · 成员配额判定（免费档 4 人边界）")
+struct MemberQuotaTests {
+
+    @Test func 第五个成员越限() {
+        #expect(PaywallRules.addingMemberWouldExceed(currentCount: 4) == true,
+                "已有 4 人时加第 5 个成员越过免费配额")
+    }
+
+    @Test func 四人以内不越限() {
+        for count in 0...3 {
+            #expect(PaywallRules.addingMemberWouldExceed(currentCount: count) == false,
+                    "免费档 ≥4 人（FR3.7 边界），已有 \(count) 人时不弹墙")
+        }
+    }
+}

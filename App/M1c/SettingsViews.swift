@@ -26,6 +26,10 @@ struct SettingsView: View {
                                       settings.values[.quietHoursEnd] ?? "-"))
                 }
                 Section(L10n.hub_healthRecords) {
+                    NavigationLink(L10n.member_title) {
+                        MemberManagementView()
+                    }
+                    .accessibilityIdentifier("SP-25.settings.members")
                     NavigationLink(L10n.inventory_title) {
                         InventoryHubView()
                     }

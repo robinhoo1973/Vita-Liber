@@ -182,3 +182,13 @@
 "pay.restore" = "恢復購買";
 "pay.valueProp" = "解鎖增量生產型能力，核心功能永久免費";
 "pay.buy" = "購買 Pro";
+"member.title" = "成員管理";
+"member.add" = "新增家人";
+"member.current" = "目前成員";
+"member.switch" = "切換";
+"member.namePlaceholder" = "姓名";
+"member.relation" = "關係";
+"member.birthDatePlaceholder" = "生日（如 1962-03）";
+"member.save" = "儲存";
+"member.quotaHint" = "免費檔最多 4 位成員；超過後可隨 Pro 解鎖。";
+"member.addedHint" = "已新增，可在完善檔案中補充健康史。";

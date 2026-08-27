@@ -64,6 +64,29 @@ public actor GRDBM1aPersistor: M1aPersisting {
         }
     }
 
+    public func saveMember(_ profile: PatientProfile) async throws {
+        try store.insert(profile: profile)
+    }
+
+    public func members() async throws -> [PatientProfile] {
+        try await store.writer.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT id, display_name, relation, gender, birth_date, note, created_at, updated_at FROM patient_profile ORDER BY created_at ASC
+                """)
+            return rows.map { row in
+                PatientProfile(
+                    id: UUID(uuidString: row["id"] as String) ?? UUID(),
+                    displayName: row["display_name"] as String,
+                    relation: row["relation"] as String,
+                    gender: row["gender"] as String?,
+                    birthDate: row["birth_date"] as String?,
+                    note: row["note"] as String?,
+                    createdAt: row["created_at"] as Double,
+                    updatedAt: row["updated_at"] as Double)
+            }
+        }
+    }
+
     public func saveConsent(_ c: ConsentRecord) async throws {
         // 去重由调用侧按 key 保证（AppState.advanceDisclosure）；此处用普通 INSERT——
         // OR IGNORE 会静默吞掉外键/约束失败（ERR#35 防复发纪律：FK 写入禁用 IGNORE 语义）

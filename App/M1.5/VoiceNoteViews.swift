@@ -110,5 +110,5 @@ struct VoiceNotePanelView: View {
         .onDisappear { routeMonitor.stop() }
     }
 
-    private var currentPatientId: UUID { app.owner?.selfPatientId ?? app.owner?.id ?? UUID() }
+    private var currentPatientId: UUID { app.currentPatientId }
 }

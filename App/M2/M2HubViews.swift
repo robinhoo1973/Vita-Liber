@@ -60,7 +60,7 @@ struct InventoryHubView: View {
         }
     }
 
-    private var currentPatientId: UUID { app.owner?.selfPatientId ?? app.owner?.id ?? UUID() }
+    private var currentPatientId: UUID { app.currentPatientId }
 }
 
 /// CSV 文本导出文档（配药清单，FR13.8）
@@ -102,7 +102,7 @@ struct EmergencyCardHubView: View {
         }
     }
 
-    private var currentPatientId: UUID { app.owner?.selfPatientId ?? app.owner?.id ?? UUID() }
+    private var currentPatientId: UUID { app.currentPatientId }
 }
 
 // MARK: - 疫苗（FR4.5）
@@ -121,7 +121,7 @@ struct ImmunizationHubView: View {
         .task { await hub.load(patientId: currentPatientId) }
     }
 
-    private var currentPatientId: UUID { app.owner?.selfPatientId ?? app.owner?.id ?? UUID() }
+    private var currentPatientId: UUID { app.currentPatientId }
 }
 
 // MARK: - 报销（FR13.7）
@@ -139,7 +139,7 @@ struct ClaimHubView: View {
         .task { await hub.load(patientId: currentPatientId) }
     }
 
-    private var currentPatientId: UUID { app.owner?.selfPatientId ?? app.owner?.id ?? UUID() }
+    private var currentPatientId: UUID { app.currentPatientId }
 }
 
 // MARK: - 发送状态（FR24.2）
@@ -153,7 +153,7 @@ struct SentStatusHubView: View {
             .task { await hub.load(patientId: currentPatientId) }
     }
 
-    private var currentPatientId: UUID { app.owner?.selfPatientId ?? app.owner?.id ?? UUID() }
+    private var currentPatientId: UUID { app.currentPatientId }
 }
 
 /// FR24.2 发送状态页：只展示类型/收件人/状态/时间，**不存不显原文**（最小必要）。
@@ -232,5 +232,5 @@ struct GuidelineHubView: View {
             .task { await hub.load(patientId: currentPatientId) }
     }
 
-    private var currentPatientId: UUID { app.owner?.selfPatientId ?? app.owner?.id ?? UUID() }
+    private var currentPatientId: UUID { app.currentPatientId }
 }

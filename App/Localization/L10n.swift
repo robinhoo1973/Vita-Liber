@@ -224,6 +224,17 @@ enum L10n {
     static var pay_valueProp: String { t("pay.valueProp") }
     static var pay_buy: String { t("pay.buy") }
 
+        static var member_title: String { t("member.title") }
+    static var member_add: String { t("member.add") }
+    static var member_current: String { t("member.current") }
+    static var member_switch: String { t("member.switch") }
+    static var member_namePlaceholder: String { t("member.namePlaceholder") }
+    static var member_relation: String { t("member.relation") }
+    static var member_birthDatePlaceholder: String { t("member.birthDatePlaceholder") }
+    static var member_save: String { t("member.save") }
+    static var member_quotaHint: String { t("member.quotaHint") }
+    static var member_addedHint: String { t("member.addedHint") }
+
         /// 全部已键化的 key（SU-M15-L10N 遍历断言的输入）。
     /// 新增 key 必须同步登记到这里——否则门禁扫不到，又回到「缺证据当有证据」。
     /// 参数化文案（避免把格式串散落视图）

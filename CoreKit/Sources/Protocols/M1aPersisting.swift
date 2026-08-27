@@ -7,6 +7,9 @@ import Domain
 public protocol M1aPersisting: Sendable {
     func loadOwner() async throws -> LocalOwner?
     func saveOwner(_ owner: LocalOwner, profile: PatientProfile) async throws
+    /// F3 成员管理（FR3.7 添加家人）：saveOwner 的同族成员写入/读取。
+    func saveMember(_ profile: PatientProfile) async throws
+    func members() async throws -> [PatientProfile]
     func loadConsents() async throws -> [ConsentRecord]
     func saveConsent(_ c: ConsentRecord) async throws
     func loadTimeline() async throws -> [TimelineDocumentEntry]

@@ -182,3 +182,13 @@
 "pay.restore" = "Restore purchases";
 "pay.valueProp" = "Unlock productivity add-ons; core features stay free forever";
 "pay.buy" = "Buy Pro";
+"member.title" = "Family members";
+"member.add" = "Add family member";
+"member.current" = "Current";
+"member.switch" = "Switch";
+"member.namePlaceholder" = "Name";
+"member.relation" = "Relationship";
+"member.birthDatePlaceholder" = "Birth date (e.g. 1962-03)";
+"member.save" = "Save";
+"member.quotaHint" = "The free tier supports up to 4 members; Pro unlocks more.";
+"member.addedHint" = "Added — you can complete their health history later.";

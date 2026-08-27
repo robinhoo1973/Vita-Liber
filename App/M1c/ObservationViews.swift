@@ -86,7 +86,7 @@ struct ObservationListView: View {
         }
     }
 
-    private var currentPatientId: UUID { app.owner?.selfPatientId ?? app.owner?.id ?? UUID() }
+    private var currentPatientId: UUID { app.currentPatientId }
 }
 
 struct ObservationCreateSheet: View {

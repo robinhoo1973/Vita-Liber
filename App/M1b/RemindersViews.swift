@@ -111,7 +111,7 @@ struct RemindersView: View {
         }
     }
 
-    private var currentPatientId: UUID { app.owner?.selfPatientId ?? app.owner?.id ?? UUID() }
+    private var currentPatientId: UUID { app.currentPatientId }
 
     private func statusLabel(_ s: String) -> String {
         switch s {

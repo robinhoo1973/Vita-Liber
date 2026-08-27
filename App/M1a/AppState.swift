@@ -267,6 +267,48 @@ final class AppState {
     /// 验证成功信号：LockOverlayView 观察它解除 backgroundLocked
     private(set) var lastVerifiedAt: Date?
 
+    // MARK: - F3 成员管理（FR3.7 添加家人）
+
+    private(set) var members: [PatientProfile] = []
+
+    /// 当前成员（BR-001 所有资料按当前成员过滤的锚点）。
+    /// 默认 = 本人档案；用户切换后持久化，重启保持。
+    var currentPatientId: UUID {
+        get {
+            if let stored = defaults.string(forKey: "currentPatientId"),
+               let id = UUID(uuidString: stored) { return id }
+            return owner?.selfPatientId ?? owner?.id ?? UUID()
+        }
+        set { defaults.set(newValue.uuidString, forKey: "currentPatientId") }
+    }
+
+    func setCurrentPatient(_ id: UUID) {
+        guard members.contains(where: { $0.id == id }) else { return }
+        currentPatientId = id
+    }
+
+    func loadMembers() async {
+        do { members = try await persistor.members() }
+        catch { logger.error("成员加载失败: \(error)") }
+    }
+
+    /// 添加家人。返回是否成功（配额弹墙由调用方先判 `PaywallRules
+    /// .addingMemberWouldExceed`，业务判定在 Domain，本方法只执行写入）。
+    @discardableResult
+    func addMember(name: String, relation: String, birthDate: String?) async -> Bool {
+        let now = Date().timeIntervalSince1970
+        let profile = PatientProfile(displayName: name, relation: relation,
+                                     birthDate: birthDate, createdAt: now, updatedAt: now)
+        do {
+            try await persistor.saveMember(profile)
+            await loadMembers()
+            return true
+        } catch {
+            logger.error("成员保存失败: \(error)")
+            return false
+        }
+    }
+
     // MARK: - FR17.13 回读装配（M1.5）
 
     /// 无耳机回读偏好三态（FR14.7）。`总是` 仅关怀模式可设——
