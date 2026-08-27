@@ -1,6 +1,6 @@
 /* Vita Liber · 青囊书 — L10n zh-Hant
-   唯一出口 = App/Localization/L10n.swift。新增 key 必须同时补齐三文件，
-   否则 SU-M15-L10N 的键集一致断言转红。*/
+// 唯一出口 = App/Localization/L10n.swift。新增 key 必须同时补齐三文件，
+// 否则 SU-M15-L10N 的键集一致断言转红。
 
 "nav.home" = "首頁";
 "nav.records" = "健康檔案";
