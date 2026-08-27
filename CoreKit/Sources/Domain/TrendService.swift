@@ -18,13 +18,34 @@ public struct TrendPoint: Sendable, Equatable, Identifiable {
     public var origin: MetricOrigin
     public var excluded: Bool
     public var sourceRef: String?        // 回原报告（点击点 → document_file/encounter 引用）
+    /// 报告自带参考范围（A 级）与其来源标签。FR7.2：同图多医院时**各自成带**。
+    public var refLow: Double?
+    public var refHigh: Double?
+    public var refSourceLabel: String?   // 医院/实验室名 = 分组键
     public init(id: UUID, measuredAt: Date, value: Double, unit: String? = nil,
-                origin: MetricOrigin, excluded: Bool = false, sourceRef: String? = nil) {
+                origin: MetricOrigin, excluded: Bool = false, sourceRef: String? = nil,
+                refLow: Double? = nil, refHigh: Double? = nil, refSourceLabel: String? = nil) {
         self.id = id; self.measuredAt = measuredAt; self.value = value
         self.unit = unit; self.origin = origin; self.excluded = excluded; self.sourceRef = sourceRef
+        self.refLow = refLow; self.refHigh = refHigh; self.refSourceLabel = refSourceLabel
     }
     /// 空心=自测/设备；实心=医院报告（ui-ux 4.7 一眼可辨）
     public var isHollow: Bool { origin != .hospital }
+}
+
+/// FR7.2 的类型化表达：一条**独立**参考带 = 一个来源 + 一个区间。
+/// 用数组承载多带，使「合并成一条正常带」在类型层面就无处可写——
+/// 旧模型 `referenceRange: ReferenceRange?` 是单数，把「多来源并存」这个
+/// 合法状态直接表达掉了，规则再正确也无处落脚（本次 5WHY 的根因）。
+public struct ReferenceBand: Sendable, Equatable, Identifiable {
+    public var sourceLabel: String       // 医院/实验室名；B 级为信源库条目名
+    public var lower: Double
+    public var upper: Double
+    public var grade: ReferenceRange.Grade
+    public var id: String { "\(grade.rawValue)|\(sourceLabel)|\(lower)|\(upper)" }
+    public init(sourceLabel: String, lower: Double, upper: Double, grade: ReferenceRange.Grade) {
+        self.sourceLabel = sourceLabel; self.lower = lower; self.upper = upper; self.grade = grade
+    }
 }
 
 public struct ReferenceRange: Sendable, Equatable {
@@ -41,9 +62,17 @@ public struct ReferenceRange: Sendable, Equatable {
 public struct TrendSeries: Sendable, Equatable {
     public var metricType: MetricType
     public var points: [TrendPoint]
-    public var referenceRange: ReferenceRange?
-    public init(metricType: MetricType, points: [TrendPoint], referenceRange: ReferenceRange? = nil) {
-        self.metricType = metricType; self.points = points; self.referenceRange = referenceRange
+    /// FR7.2：多来源参考带并存，**各自独立**。空数组 = 范围不可用（独立渲染状态，
+    /// 不显示通用范围——§5.29「范围是否可用作为独立渲染状态」）。
+    public var referenceBands: [ReferenceBand]
+    /// 对照视图用：被排除的点（软删，保留原值可恢复，FR7.4）。
+    /// 与 `points` 分离而不是塞进同一数组加标志位——避免任何聚合/统计路径
+    /// 忘记过滤 excluded 而把排除点算进去。
+    public var excludedPoints: [TrendPoint]
+    public init(metricType: MetricType, points: [TrendPoint],
+                referenceBands: [ReferenceBand] = [], excludedPoints: [TrendPoint] = []) {
+        self.metricType = metricType; self.points = points
+        self.referenceBands = referenceBands; self.excludedPoints = excludedPoints
     }
 }
 
@@ -73,13 +102,57 @@ public enum TrendRules {
         return nil
     }
 
+    /// **FR7.2 铁律（一票否决）：不同医院的参考范围不得合并成一条正常带。**
+    ///
+    /// 从点集提取 A 级参考带：按 (来源标签, 下限, 上限) 去重，**不做任何跨来源的
+    /// 取交集/取并集/取平均**——三家医院即三条带，哪怕区间数值恰好相同也按来源分开
+    /// （来源是分组键，不是可省略的装饰；合并会让用户误以为存在统一"正常值"）。
+    ///
+    /// 优先级（FR16.4）：只要存在 A 级带，就**不**混入 B 级信源库缺省带——
+    /// A/B 混排等价于用 B 级替代医院原文，是 FR16.4 明令禁止的。
+    /// 无任何 A 级带时才回落 B 级；两者皆无返回空数组（= 范围不可用）。
+    public static func resolveBands(points: [TrendPoint],
+                                    libraryFallback: ReferenceBand? = nil) -> [ReferenceBand] {
+        var seen = Set<String>()
+        var bands: [ReferenceBand] = []
+        for p in points {
+            guard let lo = p.refLow, let hi = p.refHigh else { continue }
+            // 来源标签缺失时不臆造：按「未标注来源」独立成带，仍不与他人合并
+            let label = p.refSourceLabel?.trimmingCharacters(in: .whitespaces)
+            let source = (label?.isEmpty == false) ? label! : "未标注来源"
+            let band = ReferenceBand(sourceLabel: source, lower: lo, upper: hi, grade: .A)
+            if seen.insert(band.id).inserted { bands.append(band) }
+        }
+        if bands.isEmpty, let fallback = libraryFallback, fallback.grade == .B {
+            return [fallback]
+        }
+        // 稳定输出：按来源名排序，保证渲染顺序与图例顺序一致、快照可复现
+        return bands.sorted { $0.sourceLabel < $1.sourceLabel }
+    }
+
     /// 换算留痕：换算只发生在查询层，原值不动；换算后渲染「换算自 xx」
+    ///
+    /// **参考带必须同步换算**：只换点不换带会把 mmol/L 的读数摆在 mg/dL 的
+    /// 参考带上，视觉上直接读出错误的「超标/正常」——这是 BR-006「不作判断」
+    /// 之外更硬的正确性问题（旧实现只映射了 points，本次一并修正）。
+    /// 排除点同样换算，否则对照视图里两组点不同量纲。
     public static func converted(_ series: TrendSeries, using conversion: UnitConversion) -> TrendSeries {
-        var s = series
-        s.points = series.points.map { p in
+        func convert(_ p: TrendPoint) -> TrendPoint {
             var q = p
             q.value = conversion.convert(p.value)
+            q.unit = conversion.toUnit
+            if let lo = p.refLow { q.refLow = conversion.convert(lo) }
+            if let hi = p.refHigh { q.refHigh = conversion.convert(hi) }
             return q
+        }
+        var s = series
+        s.points = series.points.map(convert)
+        s.excludedPoints = series.excludedPoints.map(convert)
+        s.referenceBands = series.referenceBands.map { band in
+            ReferenceBand(sourceLabel: band.sourceLabel,
+                          lower: conversion.convert(band.lower),
+                          upper: conversion.convert(band.upper),
+                          grade: band.grade)
         }
         return s
     }

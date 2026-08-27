@@ -1,0 +1,23 @@
+{
+  "images": [
+    {
+      "filename": "ic-organ-throat@1x.png",
+      "idiom": "universal",
+      "scale": "x"
+    },
+    {
+      "filename": "ic-organ-throat@2x.png",
+      "idiom": "universal",
+      "scale": "x"
+    },
+    {
+      "filename": "ic-organ-throat@3x.png",
+      "idiom": "universal",
+      "scale": "x"
+    }
+  ],
+  "info": {
+    "author": "xcode",
+    "version": 1
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "images": [
+    {
+      "filename": "ic-xray@1x.png",
+      "idiom": "universal",
+      "scale": "x"
+    },
+    {
+      "filename": "ic-xray@2x.png",
+      "idiom": "universal",
+      "scale": "x"
+    },
+    {
+      "filename": "ic-xray@3x.png",
+      "idiom": "universal",
+      "scale": "x"
+    }
+  ],
+  "info": {
+    "author": "xcode",
+    "version": 1
+  }
+}

@@ -3,6 +3,7 @@ import XCTest
 /// TC-M1a-01 端到端切片故事（test-plan-spec §4.2）：
 /// 设 PIN → 建成员 → mock 相机注入处方样张 → OCR 字段逐一确认 → 时间轴可见。
 /// waitForExistence 显式等待，禁止 sleep（test-plan §4.2 明令）。
+// binds: SU-M1a-E2E / SU-M1a-SEC — TC-M1a-01/02
 final class M1aE2ETests: XCTestCase {
 
     private func launchFresh() -> XCUIApplication {

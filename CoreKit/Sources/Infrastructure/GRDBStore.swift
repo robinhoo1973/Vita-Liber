@@ -49,15 +49,36 @@ public struct GRDBStore {
     /// 评审 S 级修正：建库以 PRAGMA user_version 版本序列门控——
     /// 旧实现每次启动无条件执行全量 DDL，持久库二次启动即「表已存在」崩溃
     /// （测试全用内存库从未暴露）。v1 建库一次，后续版本经 DatabaseMigrator 迁移。
+    /// 建库 + 迁移一体：`PRAGMA user_version` 是唯一版本账本（理由见 SchemaMigrations 头注）。
+    /// - v0（全新库）：跑 baseline 全量 DDL，直接落到 `latestVersion`——baseline 已含最新列，
+    ///   无需再重放增量步骤（幂等守卫仍保证重放无害）。
+    /// - v>0（既有库）：只跑 `pending(from:)` 的增量步骤，逐步推进 user_version。
+    ///
+    /// 旧实现在 `version > 0` 分支什么都不做，等于**新列永远不会到达已装机的库**；
+    /// 这是滞留项 #7 的实质内容，随本批清偿。
     public init(writer: any DatabaseWriter) throws {
         self.writer = writer
         try writer.write { db in
             let version = try Int.fetchOne(db, sql: "PRAGMA user_version") ?? 0
             if version == 0 {
                 try db.execute(sql: MigrationEngine.schemaV1)
-                try db.execute(sql: "PRAGMA user_version = 1")
+                // PRAGMA 不接受占位参数，版本号来自本仓常量而非外部输入
+                try db.execute(sql: "PRAGMA user_version = \(SchemaMigrations.latestVersion)")
+                return
             }
-            // version > 0：已建库——迁移按 SchemaMigrator 版本序列（M1.5 后批）
+            for step in SchemaMigrations.pending(from: version) {
+                for statement in SchemaMigrations.statements(step.sql) {
+                    // 幂等：baseline 已含该列的库上重放 ADD COLUMN 会报 duplicate column
+                    if let parts = SchemaMigrations.addColumnParts(statement) {
+                        let exists = try Int.fetchOne(db, sql: """
+                            SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?
+                            """, arguments: [parts.table, parts.column]) ?? 0
+                        if exists > 0 { continue }
+                    }
+                    try db.execute(sql: statement)
+                }
+                try db.execute(sql: "PRAGMA user_version = \(step.version)")
+            }
         }
     }
 

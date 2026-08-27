@@ -1,7 +1,43 @@
-/* Vita Liber — L10n placeholder (skeleton; full en/zh-Hant with M1c L10n system) */
+/* Vita Liber · 青囊书 — L10n en
+   唯一出口 = App/Localization/L10n.swift。新增 key 必须同时补齐三文件，
+   否则 SU-M15-L10N 的键集一致断言转红。*/
 
-"nav.home" = "Today";
+"nav.home" = "Home";
 "nav.records" = "Records";
 "nav.reminders" = "Reminders";
-"nav.ai" = "AI Assistant";
+"nav.ai" = "Assistant";
 "nav.me" = "Me";
+"trend.title" = "Trends";
+"trend.range.unavailable" = "No reference range (report-provided ranges only at this stage)";
+"trend.excluded.toggle" = "Excluded points";
+"trend.excluded.header" = "Excluded points (original values kept, restorable)";
+"trend.openSource" = "Open source report";
+"trend.point.exclude" = "Exclude this point";
+"trend.point.restore" = "Restore this point";
+"trend.origin.self" = "Self-measured";
+"voice.confirm.title" = "Confirm voice input";
+"voice.confirm.pending" = "Unconfirmed · saved after you confirm";
+"voice.confirm.lowConfidence" = "Low confidence — please check";
+"voice.confirm.save" = "Confirm and save";
+"voice.confirm.retry" = "Say again";
+"voice.confirm.cancel" = "Cancel";
+"voice.speak.button" = "🔊 Read aloud";
+"voice.speak.screenHint" = "Please check the data on screen; make sure nobody is nearby before reading aloud";
+"voice.speak.bystander" = "Content will be read aloud — make sure nobody is nearby";
+"voice.ask.speak" = "Read it aloud";
+"voice.ask.screen" = "Check on screen";
+"voice.route.headphonesOn" = "Headphones connected — content will be read aloud";
+"voice.route.headphonesOff" = "Headphones disconnected — switching to on-screen check";
+"voice.privacy.title" = "Privacy and headphones";
+"voice.privacy.p1" = "Headphones are recommended — for privacy, and to avoid disturbing others";
+"voice.privacy.p2" = "Speech is recognized on this device only; audio is discarded immediately and never stored";
+"voice.privacy.p3" = "People nearby may hear the content when it is read aloud";
+"voice.privacy.p4" = "You can switch to touch input at any time";
+"voice.privacy.accept" = "Got it, start";
+"voice.privacy.useTouch" = "Use touch instead";
+"backup.title" = "iCloud backup";
+"backup.create" = "Create backup";
+"backup.restore" = "Restore from backup";
+"backup.degrade.notSignedIn" = "Not signed in to iCloud, so iCloud Drive backup is unavailable. You can still export to local files.";
+"backup.degrade.noSpace" = "Not enough iCloud space, so this backup did not complete. Free up space and try again; your local data is unaffected.";
+"backup.degrade.checksum" = "The backup file failed verification, so nothing was restored. Please try a different backup file.";

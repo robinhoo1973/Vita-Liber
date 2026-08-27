@@ -8,6 +8,7 @@ import Protocols
 
 /// TC-M1c 时间轴投影与全文搜索（test-plan §4.4）——GRDB 落库级断言
 @MainActor
+// binds: SU-M1c-REGRESSION / SU-M1c-EXPORT / SU-M1c-SEC — TC-M1c-01/04
 final class M1cAcceptanceTests: XCTestCase {
 
     private func makeStore() async throws -> GRDBStore {

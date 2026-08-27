@@ -8,6 +8,7 @@ import Protocols
 
 /// TC-M1b 双轨扣减矩阵与预约闭环（test-plan §4.3）——GRDB 落库级断言
 @MainActor
+// binds: SU-M1b-STOCK / SU-M1b-APPT — TC-M1b-06/07
 final class M1bAcceptanceTests: XCTestCase {
 
     private func makeStore() async throws -> (store: GRDBStore, meds: MedicationStore, scheduler: InMemoryReminderScheduler, apts: AppointmentStore, patient: UUID, med: UUID) {

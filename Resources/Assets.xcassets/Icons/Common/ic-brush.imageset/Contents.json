@@ -1,0 +1,23 @@
+{
+  "images": [
+    {
+      "filename": "ic-brush@1x.png",
+      "idiom": "universal",
+      "scale": "x"
+    },
+    {
+      "filename": "ic-brush@2x.png",
+      "idiom": "universal",
+      "scale": "x"
+    },
+    {
+      "filename": "ic-brush@3x.png",
+      "idiom": "universal",
+      "scale": "x"
+    }
+  ],
+  "info": {
+    "author": "xcode",
+    "version": 1
+  }
+}

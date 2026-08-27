@@ -1,0 +1,43 @@
+/* Vita Liber · 青囊书 — L10n zh-Hant
+   唯一出口 = App/Localization/L10n.swift。新增 key 必须同时补齐三文件，
+   否则 SU-M15-L10N 的键集一致断言转红。*/
+
+"nav.home" = "首頁";
+"nav.records" = "健康檔案";
+"nav.reminders" = "提醒";
+"nav.ai" = "AI 助手";
+"nav.me" = "我的";
+"trend.title" = "指標趨勢";
+"trend.range.unavailable" = "暫無參考範圍（本階段僅顯示報告自帶範圍）";
+"trend.excluded.toggle" = "已排除點";
+"trend.excluded.header" = "已排除的點（原值保留，可恢復）";
+"trend.openSource" = "回原報告";
+"trend.point.exclude" = "排除該資料點";
+"trend.point.restore" = "恢復該資料點";
+"trend.origin.self" = "自測";
+"voice.confirm.title" = "確認語音錄入內容";
+"voice.confirm.pending" = "待確認 · 確認後儲存";
+"voice.confirm.lowConfidence" = "辨識把握較低，請核對";
+"voice.confirm.save" = "確認儲存";
+"voice.confirm.retry" = "重新說";
+"voice.confirm.cancel" = "取消";
+"voice.speak.button" = "🔊 朗讀";
+"voice.speak.screenHint" = "請核對螢幕上的資料；朗讀前請確認周圍無人";
+"voice.speak.bystander" = "將朗讀內容，請確認周圍無人";
+"voice.ask.speak" = "朗讀一遍";
+"voice.ask.screen" = "看螢幕核對";
+"voice.route.headphonesOn" = "已連接耳機，確認時將為你朗讀";
+"voice.route.headphonesOff" = "已斷開耳機，改為螢幕核對";
+"voice.privacy.title" = "隱私與耳機建議";
+"voice.privacy.p1" = "建議佩戴耳機——保護隱私，也不打擾周圍人";
+"voice.privacy.p2" = "語音只在這台裝置上辨識，音訊即用即棄、不儲存";
+"voice.privacy.p3" = "朗讀時周圍的人可能聽到內容";
+"voice.privacy.p4" = "你可以隨時改用觸控完成錄入";
+"voice.privacy.accept" = "知道了，開始";
+"voice.privacy.useTouch" = "改用觸控";
+"backup.title" = "iCloud 備份";
+"backup.create" = "建立備份";
+"backup.restore" = "從備份還原";
+"backup.degrade.notSignedIn" = "未登入 iCloud，無法備份到 iCloud Drive。你仍可匯出到本機檔案。";
+"backup.degrade.noSpace" = "iCloud 空間不足，本次備份未完成。清理空間後可重試，本機資料未受影響。";
+"backup.degrade.checksum" = "備份檔案校驗未通過，未還原任何資料。請換一個備份檔案重試。";

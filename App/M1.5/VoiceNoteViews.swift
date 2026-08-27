@@ -34,6 +34,7 @@ struct VoiceNotePanelView: View {
     @Environment(VoiceNoteState.self) private var state
     @State private var draft = ""
     @State private var confirmSet: OcrConfirmationSet?
+    @State private var routeMonitor = AudioRouteMonitor()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -70,13 +71,13 @@ struct VoiceNotePanelView: View {
                 Button {
                     let body = draft.trimmingCharacters(in: .whitespaces)
                     guard !body.isEmpty else { return }
-                    // FR17.13：统一确认模板——速记同样走确认集（待确认态）
+                    // FR17.13-entry: 语音速记 —— 走统一模板，不自建确认逻辑
                     confirmSet = VoiceInputTemplate.confirmationSet(drafts: [
                         FieldDraft(key: "body", value: body, confidence: 0.9)
                     ])
                 } label: {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.title2).frame(width: 44, height: 44)
+                    VLIcon.send.resizable().frame(width: 22, height: 22)
+                        .frame(width: 44, height: 44)
                 }
                 .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty)
                 .accessibilityLabel("保存速记")
@@ -86,33 +87,27 @@ struct VoiceNotePanelView: View {
         }
         .navigationTitle("语音速记")
         .task { await state.load(patientId: currentPatientId) }
+        // 唯一确认 UI：VoiceConfirmSheet（FR17.13）。本页不再自建确认界面。
         .sheet(item: $confirmSet) { set in
-            VStack(spacing: 16) {
-                Text("确认速记内容").font(.headline)
-                ForEach(set.fields) { field in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(field.value).font(.body)
-                        Text("待确认 · 确认后保存").font(.caption).foregroundStyle(Color("grade-d", bundle: .main))
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(12)
-                    .background(RoundedRectangle(cornerRadius: 12).fill(Color("bg-grouped", bundle: .main)))
-                }
-                HStack(spacing: 12) {
-                    Button("取消") { confirmSet = nil }
-                    Button("确认保存") {
-                        let body = set.fields.first?.value ?? ""
-                        draft = ""
-                        confirmSet = nil
-                        Task { await state.create(patientId: currentPatientId, body: body, tags: nil) }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .accessibilityIdentifier("SP-59.voicenote.confirm")
-                }
-            }
-            .padding(24)
-            .presentationDetents([.height(300)])
+            VoiceConfirmSheet(
+                set: set,
+                decision: ReadbackPolicy.decide(route: routeMonitor.route,
+                                                preference: app.readbackPreference,
+                                                careMode: app.careMode),
+                onSpeak: { app.speak($0) },
+                onConfirm: { confirmed in
+                    let body = confirmed.confirmedFields.first?.value ?? ""
+                    draft = ""
+                    confirmSet = nil
+                    guard !body.isEmpty else { return }
+                    Task { await state.create(patientId: currentPatientId, body: body, tags: nil) }
+                },
+                onRetry: { confirmSet = nil },
+                onCancel: { confirmSet = nil })
+            .presentationDetents([.medium])
         }
+        .onAppear { routeMonitor.start() }
+        .onDisappear { routeMonitor.stop() }
     }
 
     private var currentPatientId: UUID { app.owner?.selfPatientId ?? app.owner?.id ?? UUID() }

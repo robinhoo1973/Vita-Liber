@@ -12,6 +12,18 @@
 
 # ───────────────────────── Tab 五模块（SP-04/09/17/40/44 · ADR-021 同一枚举） ─────────────────────────
 
+_AI_GLYPH = (
+    '<path d="M11.7 4.4c-1.7-1.1-4-.2-4.2 1.8-1.6.3-2.5 2-1.8 3.4-1.1 1-.9 2.8.5 3.5-.1 1.7 1.2 3 2.9 3h2.6V4.4Z" fill="#5EC0F3" stroke="#FFF" stroke-width="1.2" stroke-linejoin="round"/>'
+    '<path d="M12.3 4.4c1.7-1.1 4-.2 4.2 1.8 1.6.3 2.5 2 1.8 3.4 1.1 1 .9 2.8-.5 3.5.1 1.7-1.2 3-2.9 3h-2.6V4.4Z" fill="#F07898" stroke="#FFF" stroke-width="1.2" stroke-linejoin="round"/>'
+    '<path d="M7.6 7.4h2.1M7.6 7.4v3M9.7 10.4l1.8 1.4" fill="none" stroke="#FFF" stroke-width="1" stroke-linecap="round"/>'
+    '<circle cx="7.6" cy="7.4" r=".7" fill="#FFF" stroke="none"/>'
+    '<circle cx="7.6" cy="10.4" r=".7" fill="#FFF" stroke="none"/>'
+    '<circle cx="11.5" cy="11.8" r=".7" fill="#FFF" stroke="none"/>'
+    '<path d="M15 7.2c1 .8 1.2 1.8.8 2.8M14.5 11c.9.6 1.1 1.4.7 2.3" fill="none" stroke="#FFF" stroke-width="1" stroke-linecap="round"/>'
+    '<rect x="7.9" y="8.2" width="8.2" height="7.2" rx="1.8" fill="#3BB873" stroke="#FFF" stroke-width="1.1"/>'
+    '<path d="M9.3 13.4 10.3 10.3l1 3.1M9.65 12.4h1.3M12.7 10.3v3.1" fill="none" stroke="#FFF" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>'
+)
+
 _TAB = {
     "ic-tab-home": {
         "body": (
@@ -41,19 +53,13 @@ _TAB = {
         ),
         "filled": (
             '<path d="M9.8 3.6c-2.9 0-4.9 2.1-4.9 5v3c0 1-.37 1.93-1.02 2.77L3.1 15.4h13.4l-.78-1.03a4.63 4.63 0 0 1-1.02-2.77v-3c0-2.9-2-5-4.9-5Z"/>'
-            '<path d="M7.7 18.4a2.15 2.15 0 0 0 4.2 0"/>'
+            '<path d="M7.7 18.4a2.15 2.15 0 0 0 4.2 0" fill="none" stroke="#000" stroke-width="1.5" stroke-linecap="round"/>'
             '<circle cx="17.9" cy="6.4" r="3.2"/>'
         ),
     },
     "ic-tab-assistant": {
-        "body": (
-            '<path d="M11 3.8c.62 4.05 2.15 5.58 6.2 6.2-4.05.62-5.58 2.15-6.2 6.2-.62-4.05-2.15-5.58-6.2-6.2 4.05-.62 5.58-2.15 6.2-6.2Z"/>'
-            '<path d="M17.6 14.4c.38 2.44 1.32 3.38 3.76 3.76-2.44.38-3.38 1.32-3.76 3.76-.38-2.44-1.32-3.38-3.76-3.76 2.44-.38 3.38-1.32 3.76-3.76Z"/>'
-        ),
-        "filled": (
-            '<path d="M11 3.8c.62 4.05 2.15 5.58 6.2 6.2-4.05.62-5.58 2.15-6.2 6.2-.62-4.05-2.15-5.58-6.2-6.2 4.05-.62 5.58-2.15 6.2-6.2Z"/>'
-            '<path d="M17.6 14.4c.38 2.44 1.32 3.38 3.76 3.76-2.44.38-3.38 1.32-3.76 3.76-.38-2.44-1.32-3.38-3.76-3.76 2.44-.38 3.38-1.32 3.76-3.76Z"/>'
-        ),
+        "body": _AI_GLYPH,
+        "filled": _AI_GLYPH,
     },
     "ic-tab-me": {
         "body": (
@@ -194,6 +200,43 @@ _COMMON = {
         '<path d="M4.4 19.6c.9-3.4 3-5.1 5.6-5.1 1.2 0 2.3.35 3.3 1.05"/>'
         '<path d="M17.4 13.6v6M14.4 16.6h6"/>'
     ),
+    # ── V2.6 新增：交互与点缀图标（Lucide ISC vendor；body 为兜底占位）──
+    "ic-check": '<circle cx="12" cy="12" r="8.4"/>',
+    "ic-bell": '<circle cx="12" cy="12" r="8.4"/>',
+    "ic-phone": '<circle cx="12" cy="12" r="8.4"/>',
+    "ic-undo": '<circle cx="12" cy="12" r="8.4"/>',
+    "ic-retry": '<circle cx="12" cy="12" r="8.4"/>',
+    "ic-minus": '<circle cx="12" cy="12" r="8.4"/>',
+    "ic-pin": '<circle cx="12" cy="12" r="8.4"/>',
+    "ic-send": '<circle cx="12" cy="12" r="8.4"/>',
+    "ic-message": '<circle cx="12" cy="12" r="8.4"/>',
+    "ic-ignore": '<circle cx="12" cy="12" r="8.4"/>',
+    "ic-sun": '<circle cx="12" cy="12" r="8.4"/>',
+    "ic-moon": '<circle cx="12" cy="12" r="8.4"/>',
+    # ── V2.6 语音/关怀（批次2，Lucide ISC vendor）──
+    "ic-headphone": '<circle cx="12" cy="12" r="8.4"/>',
+    "ic-volume": '<circle cx="12" cy="12" r="8.4"/>',
+    "ic-volume-off": '<circle cx="12" cy="12" r="8.4"/>',
+    "ic-ban": '<circle cx="12" cy="12" r="8.4"/>',
+    "ic-replay": '<circle cx="12" cy="12" r="8.4"/>',
+    "ic-pause": '<circle cx="12" cy="12" r="8.4"/>',
+    "ic-play": '<circle cx="12" cy="12" r="8.4"/>',
+    "ic-language": '<circle cx="12" cy="12" r="8.4"/>',
+    "ic-skip": '<circle cx="12" cy="12" r="8.4"/>',
+    # ── V2.6 设备/Pro/点缀（批次3，Lucide ISC vendor）──
+    "ic-flash": '<circle cx="12" cy="12" r="8.4"/>',
+    "ic-brush": '<circle cx="12" cy="12" r="8.4"/>',
+    "ic-attach": '<circle cx="12" cy="12" r="8.4"/>',
+    "ic-copy": '<circle cx="12" cy="12" r="8.4"/>',
+    "ic-external-link": '<circle cx="12" cy="12" r="8.4"/>',
+    "ic-exclamation": '<circle cx="12" cy="12" r="8.4"/>',
+    "ic-bluetooth": '<circle cx="12" cy="12" r="8.4"/>',
+    "ic-unlink": '<circle cx="12" cy="12" r="8.4"/>',
+    "ic-backup": '<circle cx="12" cy="12" r="8.4"/>',
+    "ic-snooze": '<circle cx="12" cy="12" r="8.4"/>',
+    "ic-swap": '<circle cx="12" cy="12" r="8.4"/>',
+    "ic-unlock": '<circle cx="12" cy="12" r="8.4"/>',
+    "ic-crown": '<circle cx="12" cy="12" r="8.4"/>',
 }
 
 # ───────────────────────── 医疗业务概念（ui-ux-spec §3.4 映射表 + 各 SP 页面） ─────────────────────────
@@ -237,14 +280,16 @@ _MEDICAL = {
         '<path d="m7.4 15.4 3.2-4.4 2.6 2.2 4-5.6"/>'
     ),
     "ic-hospital": (
-        '<rect x="4.6" y="4.4" width="14.8" height="15.2" rx="1.8"/>'
-        '<path d="M12 8v5M9.5 10.5h5"/>'
-        '<path d="M9.8 19.6v-3.2a2.2 2.2 0 0 1 4.4 0v3.2"/>'
+        '<rect x="4.4" y="6.4" width="15.2" height="13.2" rx="1.8"/>'
+        '<path d="M12 8.7v4.2M9.9 10.8h4.2" stroke-width="1.9"/>'
+        '<path d="M10.3 19.6v-2.5a1.7 1.7 0 0 1 3.4 0v2.5"/>'
+        '<path d="M7.3 16.4h.02M16.7 16.4h.02" stroke-width="2"/>'
     ),
     "ic-doctor": (
-        '<circle cx="10.4" cy="8.2" r="3.3"/>'
-        '<path d="M4.6 19.8c.95-3.5 3.1-5.3 5.8-5.3 1.1 0 2.1.28 3 .84"/>'
-        '<path d="M17.6 13.6v5M15.1 16.1h5"/>'
+        '<circle cx="12" cy="7.2" r="3.2"/>'
+        '<path d="M4.6 20.4c.4-3.5 2.4-5.5 5.2-5.9l2.2 3.2 2.2-3.2c2.8.4 4.8 2.4 5.2 5.9Z"/>'
+        '<path d="M12 17.7c0 1.5 1 2.4 2.5 2.4"/>'
+        '<circle cx="15.6" cy="20" r="1.2"/>'
     ),
     "ic-appointment": (  # 复诊预约 F10
         '<rect x="3.9" y="5.4" width="16.2" height="14.6" rx="2.6"/>'
@@ -286,24 +331,34 @@ _MEDICAL = {
         '<path d="M10.1 4.6a1.9 1.9 0 0 1 3.8 0v8.3a3.9 3.9 0 1 1-3.8 0V4.6Z"/>'
         '<circle cx="12" cy="16.9" r="1.6" fill="#000" stroke="none"/>'
     ),
+    # ── V2.6 医疗指标（批次3，Lucide ISC vendor）──
+    "ic-weight": '<circle cx="12" cy="12" r="8.4"/>',
+    "ic-pulse": '<circle cx="12" cy="12" r="8.4"/>',
+    "ic-chart": '<circle cx="12" cy="12" r="8.4"/>',
 }
 
 # ───────────────────────── 症状观察宫格（F8 步骤1 选类型 2×4） ─────────────────────────
 
 _SYMPTOM = {
     "ic-sym-stool": (
-        '<path d="M6.8 18.8h10.4c1 0 1.8-.8 1.8-1.8 0-.86-.6-1.58-1.4-1.76.34-.47.54-1.04.54-1.66a2.72 2.72 0 0 0-3.13-2.69c.05-.26.08-.52.08-.79a3.05 3.05 0 0 0-5.96-.92 3 3 0 0 0-2.33 2.92c0 .5.12.97.34 1.39a2.42 2.42 0 0 0 .46 4.31Z"/>'
+        '<path d="M12.4 3.2c1.6-.5 3.2.5 3.5 2.1.2.9-.1 1.8-.7 2.4 1.3.4 2.2 1.6 2.2 3 0 .7-.2 1.3-.6 1.8 1.3.5 2.2 1.7 2.2 3.1 0 1.8-1.5 3.3-3.3 3.3H8.3c-1.8 0-3.3-1.5-3.3-3.3 0-1.6 1.2-3 2.7-3.2-.3-.6-.5-1.2-.5-1.9 0-1.7 1.3-3.1 3-3.3.1-1.6 1.1-2.9 2.5-3.2Z'
+        'Z"/>'
     ),
     "ic-sym-urine": (
-        '<path d="M12 4.2c3 3.4 4.7 5.9 4.7 8.3a4.7 4.7 0 0 1-9.4 0c0-2.4 1.7-4.9 4.7-8.3Z"/>'
+        '<circle cx="7.6" cy="4.8" r="2" fill="#FFF" stroke="none"/>'
+        '<path d="M7.6 6.8v6.4l-2.6 6M7.6 13.2l2.6 6" fill="none" stroke="#FFF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>'
+        '<path d="M7.6 8.4l2.2 2.2" fill="none" stroke="#FFF" stroke-width="1.6" stroke-linecap="round"/>'
+        '<path d="M11.2 11.2c2.2 1 3.6 2.8 4.2 5.2" fill="none" stroke="#FFF" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="2.2 1.8"/>'
+        '<ellipse cx="17" cy="19.4" rx="3.4" ry="1.3" fill="none" stroke="#FFF" stroke-width="1.4"/>'
+        '<path d="M13.2 17.6l-1-1M20.6 17.6l1-1" fill="none" stroke="#FFF" stroke-width="1.3" stroke-linecap="round"/>'
     ),
     "ic-sym-skin": (
         '<g transform="rotate(-45 12 12)">'
         '<rect x="4.6" y="9.2" width="14.8" height="5.6" rx="2.4"/>'
         '<path d="M12 9.2v5.6" stroke-dasharray="1.6 1.6"/>'
-        '<circle cx="9.4" cy="12" r=".6" fill="#000" stroke="none"/>'
-        '<circle cx="14.6" cy="12" r=".6" fill="#000" stroke="none"/>'
-        "</g>"
+        '<circle cx="9.4" cy="12" r=".6" fill="#FFF" stroke="none"/>'
+        '<circle cx="14.6" cy="12" r=".6" fill="#FFF" stroke="none"/>'
+        '</g>'
     ),
     "ic-sym-eye": (
         '<path d="M3.6 12c2.2-3.6 5-5.4 8.4-5.4s6.2 1.8 8.4 5.4c-2.2 3.6-5 5.4-8.4 5.4S5.8 15.6 3.6 12Z"/>'
@@ -342,24 +397,27 @@ _MEMBER = {
         '<path d="M14.2 19.6c.7-2.7 2.3-4.1 4.4-4.1 1 0 1.9.3 2.7.8"/>'
     ),
     "ic-member-father": (
-        '<circle cx="12" cy="9" r="3.5"/>'
-        '<path d="M8.6 7.4h6.8"/>'
-        '<path d="M5.2 20c1.1-3.7 3.6-5.6 6.8-5.6s5.7 1.9 6.8 5.6"/>'
+        '<path d="M8 9.9a4 4 0 0 1 8 0v.2c0 .5-.4.9-.9.9H8.9c-.5 0-.9-.4-.9-.9Z" fill="#FFF" opacity=".55"/>'
+        '<path d="M8.6 10.4a3.4 3.4 0 0 1 6.8 0v1.4c0 1.9-1.5 3.4-3.4 3.4s-3.4-1.5-3.4-3.4Z" fill="#FFF"/>'
+        '<path d="M10.9 14.5h2.2v1.9h-2.2Z" fill="#FFF"/>'
+        '<path d="M4.6 20.4c.5-3.4 3.3-5.6 7.4-5.6s6.9 2.2 7.4 5.6Z" fill="#FFF"/>'
     ),
     "ic-member-mother": (
-        '<circle cx="12" cy="9.2" r="3.3"/>'
-        '<path d="M8.7 7.6v6M15.3 7.6v6"/>'
-        '<path d="M5.2 20c1.1-3.7 3.6-5.6 6.8-5.6s5.7 1.9 6.8 5.6"/>'
+        '<path d="M12 4c-4.1 0-6.7 3.1-6.7 7.5 0 3.5 1 6.8 2.6 8.9h2.1c-.6-1.8-.9-3.5-.9-5 0-2.5 1.1-4.1 2.9-4.1s2.9 1.6 2.9 4.1c0 1.5-.3 3.2-.9 5h2.1c1.6-2.1 2.6-5.4 2.6-8.9C18.7 7.1 16.1 4 12 4Z" fill="#FFF" opacity=".55"/>'
+        '<circle cx="12" cy="10.2" r="3.3" fill="#FFF"/>'
+        '<path d="M10.9 13.1h2.2v2h-2.2Z" fill="#FFF"/>'
+        '<path d="M4.9 20.4c.5-3.4 3.1-5.6 7.1-5.6s6.6 2.2 7.1 5.6Z" fill="#FFF"/>'
     ),
     "ic-member-son": (
-        '<circle cx="12" cy="10.4" r="2.9"/>'
-        '<path d="M6.6 20c.9-3.2 2.9-4.8 5.4-4.8s4.5 1.6 5.4 4.8"/>'
+        '<path d="M8.5 8.9c-.2-2.6 1.3-4.3 3.5-4.3 1 0 1.9.3 2.6 1l2.4-.7-1.2 2.3c.3.5.5 1.1.5 1.7l-1.7-.6c-1.7-1.3-4.1-1.1-6.1.6Z" fill="#FFF" opacity=".55"/>'
+        '<circle cx="12" cy="10.6" r="3.2" fill="#FFF"/>'
+        '<path d="M5.6 20.4c.5-3.2 2.9-5.4 6.4-5.4s5.9 2.2 6.4 5.4Z" fill="#FFF"/>'
     ),
     "ic-member-daughter": (
-        '<circle cx="12" cy="10.4" r="2.9"/>'
-        '<circle cx="7.4" cy="10.8" r="1.3"/>'
-        '<circle cx="16.6" cy="10.8" r="1.3"/>'
-        '<path d="M6.6 20c.9-3.2 2.9-4.8 5.4-4.8s4.5 1.6 5.4 4.8"/>'
+        '<circle cx="12" cy="4.7" r="1.8" fill="#FFF" opacity=".55"/>'
+        '<path d="M8.7 10V9.7a3.3 3.3 0 0 1 6.6 0V10c0 .4-.3.8-.8.8H9.5c-.5 0-.8-.4-.8-.8Z" fill="#FFF" opacity=".55"/>'
+        '<circle cx="12" cy="10.6" r="3.2" fill="#FFF"/>'
+        '<path d="M5.6 20.4c.5-3.2 2.9-5.4 6.4-5.4s5.9 2.2 6.4 5.4Z" fill="#FFF"/>'
     ),
     "ic-member-family": (
         '<circle cx="12" cy="7.4" r="2.5"/>'
@@ -437,8 +495,270 @@ _PRO = {
     ),
 }
 
+
+# ───────────────────────── 检查与设备扩展（F4/F5/F7/F16 相关场景） ─────────────────────────
+
+_DEVICES = {
+    "ic-ward-bed": (
+        '<path d="M3.2 19.2v-8.8c0-.9.7-1.6 1.6-1.6h12.6a3.6 3.6 0 0 1 3.6 3.6v6.8"/>'
+        '<rect x="5.6" y="11.2" width="4.4" height="2.6" rx="1"/>'
+        '<path d="M3.2 15.6h17.8M4.6 19.2v-1.8M19 19.2v-1.8"/>'
+    ),
+    "ic-ct": (
+        '<circle cx="12" cy="10.6" r="5.4"/><circle cx="12" cy="10.6" r="2.5"/>'
+        '<path d="M2.6 17.4h16.8"/>'
+    ),
+    "ic-mri": (
+        '<circle cx="10.6" cy="10.6" r="4.9"/><circle cx="10.6" cy="10.6" r="2.2"/>'
+        '<path d="M17.8 6.6a6.4 6.4 0 0 1 0 8M20.2 4.8a9.2 9.2 0 0 1 0 11.6"/>'
+        '<path d="M2.4 17.4h13"/>'
+    ),
+    "ic-ultrasound": (
+        '<g transform="rotate(26 9 9.5)"><rect x="6.4" y="3.6" width="5.4" height="8.6" rx="2.7"/>'
+        '<path d="M6.4 12.2h5.4"/></g>'
+        '<path d="M13.9 12.9a4.8 4.8 0 0 1 3.1 4.4M16 10.9a7.6 7.6 0 0 1 4.5 6.4"/>'
+    ),
+    "ic-blood-pressure": (
+        '<path d="M5.4 11.2a6.6 6.6 0 0 1 13.2 0"/><path d="M5.4 11.2h13.2"/>'
+        '<path d="M12 4.6v1.6M7.3 6.5l1.1 1.1M16.7 6.5l-1.1 1.1"/>'
+        '<path d="m12 11.2 2.8-2.6"/><circle cx="12" cy="11.2" r="1" fill="#000" stroke="none"/>'
+        '<path d="M12 19.8c-2.4-1.6-3.5-2.8-3.5-4 0-1.1.9-1.9 1.9-1.9.6 0 1.2.3 1.6.9.4-.6 1-.9 1.6-.9 1 0 1.9.8 1.9 1.9 0 1.2-1.1 2.4-3.5 4Z"/>'
+    ),
+    "ic-blood-sugar": (
+        '<rect x="7.4" y="3.4" width="9.2" height="17.2" rx="2.2"/>'
+        '<rect x="9.2" y="5.8" width="5.6" height="4.2" rx="1"/>'
+        '<path d="M12 12.4c1.2 1.4 1.8 2.4 1.8 3.2a1.8 1.8 0 1 1-3.6 0c0-.8.6-1.8 1.8-3.2Z"/>'
+        '<path d="M10 18.6h.02M12 18.6h.02M14 18.6h.02" stroke-width="1.7"/>'
+    ),
+    "ic-surgery": (
+        '<path d="M13.9 6.2l3.9 3.9-7.3 7.3-4.7.8.8-4.7Z"/><path d="M15.3 4.8l3.9 3.9"/>'
+    ),
+    "ic-ointment": (
+        '<rect x="9.8" y="3.4" width="4.4" height="2.8" rx="1"/>'
+        '<path d="M8.6 6.2h6.8v9.6a2.4 2.4 0 0 1-2.4 2.4h-2a2.4 2.4 0 0 1-2.4-2.4Z"/>'
+        '<path d="M10.6 11h2.8"/>'
+    ),
+    "ic-herbal": (
+        '<path d="M4.6 11.4h14.8c0 3.5-2.3 6.2-5.6 7v1h1.5c.5 0 .9.4.9.9s-.4.9-.9.9H9.7c-.5 0-.9-.4-.9-.9s.4-.9.9-.9h1.5v-1c-3.3-.8-5.6-3.5-5.6-7Z"/>'
+        '<path d="m12.9 10.2 4.9-4.9"/><circle cx="18.5" cy="4.5" r="1.5"/>'
+    ),
+    "ic-xray": (
+        '<rect x="6" y="3.4" width="12" height="17.2" rx="2"/>'
+        '<path d="M12 6.8v8.4"/>'
+        '<path d="M12 8.6c-1.5.2-2.6 1-3 2.2M12 8.6c1.5.2 2.6 1 3 2.2"/>'
+        '<path d="M12 11.4c-1.3.2-2.3.8-2.7 1.9M12 11.4c1.3.2 2.3.8 2.7 1.9"/>'
+    ),
+    "ic-wheelchair": (
+        '<circle cx="10.2" cy="15.8" r="4.8"/>'
+        '<path d="M10.2 11V7.6h4.2l2.6 3.8"/>'
+        '<path d="M10.2 11h4.6"/>'
+        '<circle cx="18.8" cy="19.6" r="1.2"/>'
+    ),
+    "ic-inhaler": (
+        '<rect x="7.2" y="8.6" width="6.6" height="11" rx="2.1"/>'
+        '<rect x="8.1" y="5.4" width="4.8" height="3.2" rx="1"/>'
+        '<path d="M9.4 5.4V3.2h2.2v2.2"/>'
+        '<path d="M16.6 4.8c1 .7 1.7 1.7 2 2.9M18.6 3.2c1.4 1 2.3 2.5 2.6 4.2"/>'
+    ),
+    "ic-thermometer-digital": (
+        '<path d="M10.1 4.6a1.9 1.9 0 0 1 3.8 0v8.3a3.9 3.9 0 1 1-3.8 0V4.6Z"/>'
+        '<path d="M12 8.2v4.4"/><circle cx="12" cy="16.9" r="1.6" fill="#000" stroke="none"/>'
+    ),
+    "ic-medicines": (
+        '<rect x="4.4" y="8.6" width="15.2" height="6.8" rx="2"/>'
+        '<circle cx="8.4" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="15.6" cy="12" r="1.4"/>'
+    ),
+    "ic-medicine-bottle": (
+        '<rect x="9.6" y="3.4" width="4.8" height="2.6" rx="1"/>'
+        '<path d="M8.4 6.2h7.2v12.2a2.2 2.2 0 0 1-2.2 2.2h-2.8a2.2 2.2 0 0 1-2.2-2.2Z"/>'
+        '<path d="M8.4 11h7.2"/>'
+    ),
+    "ic-syringe-vaccine": (
+        '<path d="m18 2 4 4"/><path d="m17 7 3-3"/>'
+        '<path d="M19 9 8.7 19.3c-1 1-2.5 1-3.4 0l-.6-.6c-1-1-1-2.5 0-3.4L15 5"/>'
+        '<path d="m9 11 4 4"/><path d="m5 19-3 3"/><path d="m14 4 6 6"/>'
+    ),
+    "ic-hearing-aid": (
+        '<path d="M8.4 9.6a3.6 3.6 0 0 1 7.2 0c0 1.5-.8 2.5-1.9 3.3l-1.5 4.4a2.1 2.1 0 0 1-4-1.3"/>'
+        '<path d="M10.6 9.8c.2-1.1 1-1.8 2.1-1.8"/>'
+    ),
+    "ic-intravenous-drip": (
+        '<rect x="8.6" y="3.6" width="6.8" height="9" rx="1.8"/>'
+        '<path d="M12 12.6v2.8"/>'
+        '<path d="M12 15.4c0 2.3-2.1 2.9-2.1 4.8M12 15.4c0 2.3 2.1 2.9 2.1 4.8"/>'
+    ),
+    "ic-ventilator": (
+        '<rect x="4.2" y="4.4" width="9.2" height="7.2" rx="1.8"/>'
+        '<path d="M13.4 8h3.2a3.4 3.4 0 0 1 3.4 3.4v3.8"/>'
+        '<path d="M15.6 15.2a2.9 2.9 0 0 0-5.8 0c0 1.6 1.3 2.9 2.9 2.9h1.2"/>'
+    ),
+    "ic-oxygen-tank": (
+        '<rect x="9.3" y="7.4" width="5.4" height="13.2" rx="2.7"/>'
+        '<path d="M10.5 7.2V5h3v2.2M12 5V3.2"/>'
+        '<path d="M12 11.6v4.8"/>'
+    ),
+    "ic-ambulance": (
+        '<path d="M3.6 16.6V8.2c0-.9.7-1.6 1.6-1.6h8.2l3.4 3.4h2a2 2 0 0 1 2 2v4.6"/>'
+        '<path d="M3.6 16.6h17.2"/>'
+        '<circle cx="8" cy="18.2" r="1.7"/><circle cx="16.4" cy="18.2" r="1.7"/>'
+        '<path d="M10.3 9.3v3.4M8.6 11h3.4"/>'
+    ),
+    "ic-crutches": (
+        '<path d="M8.8 3.6h6.4"/>'
+        '<path d="M10.3 3.6v16.2l1.7 2.6 1.7-2.6V3.6"/>'
+        '<path d="M8 8.6h8"/>'
+    ),
+    "ic-pulse-oximeter": (
+        '<path d="M6.6 14.4a5.4 5.4 0 0 1 10.8 0v3.4a2.4 2.4 0 0 1-2.4 2.4H9a2.4 2.4 0 0 1-2.4-2.4Z"/>'
+        '<path d="M9.2 12.2h5.6"/>'
+        '<path d="M12 17.8l1.1-1.9 1.1 1.9"/>'
+    ),
+    "ic-test-tubes": (
+        '<path d="M8.4 3.6h7.2"/>'
+        '<path d="M10 3.6v12.2a2 2 0 0 0 4 0V3.6"/>'
+        '<path d="M10 11.4h4"/>'
+    ),
+    "ic-microscope": (
+        '<path d="M5.4 20.4h13.2"/>'
+        '<path d="m9.8 8.6 4-4 3.4 3.4-4 4a4.9 4.9 0 0 1-3.4 4.6"/>'
+        '<path d="M11.4 20.4a6.4 6.4 0 0 0 6-6.4"/>'
+    ),
+    "ic-bandage-adhesive": (
+        '<g transform="rotate(-45 12 12)">'
+        '<rect x="4.6" y="9.2" width="14.8" height="5.6" rx="2.4"/>'
+        '<path d="M12 9.2v5.6" stroke-dasharray="1.6 1.6"/>'
+        '<circle cx="9.4" cy="12" r=".6" fill="#000" stroke="none"/>'
+        '<circle cx="14.6" cy="12" r=".6" fill="#000" stroke="none"/>'
+        '</g>'
+    ),
+    "ic-ppe-mask": (
+        '<path d="M4.6 10.2c2.4-1.2 4.9-1.8 7.4-1.8s5 .6 7.4 1.8v4.4c0 2.6-3.3 4.8-7.4 4.8s-7.4-2.2-7.4-4.8Z"/>'
+        '<path d="M4.6 10.2 3.2 12.8M19.4 10.2l1.4 2.6"/>'
+        '<path d="M9 9v10M15 9v10"/>'
+    ),
+    "ic-ppe-gloves": (
+        '<path d="M18 11V6a2 2 0 0 0-2-2 2 2 0 0 0-2 2"/>'
+        '<path d="M14 10V4a2 2 0 0 0-2-2 2 2 0 0 0-2 2v2"/>'
+        '<path d="M10 10.5V6a2 2 0 0 0-2-2 2 2 0 0 0-2 2v8"/>'
+        '<path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 1 1 2.83-2.82L7 15"/>'
+    ),
+    "ic-vision-test": (
+        '<rect x="5" y="5" width="14" height="14" rx="2.2"/>'
+        '<path d="M-2.7 -3.2H2.7V-1.75H-1.25V-0.7H1.3V0.7H-1.25V1.75H2.7V3.2H-2.7Z" fill="#000" stroke="none" transform="translate(12 12)"/>'
+    ),
+    "ic-urine-sample": (
+        '<path d="M7 8.6h10l-.9 9.4a2 2 0 0 1-2 1.8H9.9a2 2 0 0 1-2-1.8Z"/>'
+        '<path d="M6.2 8.6h11.6M10 12.2h4"/>'
+    ),
+}
+
+# ───────────────────────── 人体器官扩展（F3 档案/F7 指标/F12 解释场景） ─────────────────────────
+
+_ORGANS = {
+    "ic-organ-heart": (
+        '<path d="M12 20.4c-5-3.4-7.6-6.5-7.6-9.7 0-2.6 2-4.6 4.5-4.6 1.2 0 2.3.6 3.1 1.5.8-.9 1.9-1.5 3.1-1.5 2.5 0 4.5 2 4.5 4.6 0 3.2-2.6 6.3-7.6 9.7Z"/>'
+        '<path d="M9.9 6V4.3M14.1 5.9V4.2"/>'
+        '<path d="M8.8 9.2c2.2-.7 4.4-.4 6.3.9"/>'
+    ),
+    "ic-organ-brain": (
+        '<path d="M9.4 4.6c-2.3 0-4 1.7-4 3.9 0 .8.2 1.5.6 2.1-1 .7-1.6 1.8-1.6 3.1 0 1.9 1.3 3.4 3.1 3.8.3 1.9 1.9 3.3 3.9 3.3V4.8c-.6-.1-1.3-.2-2-.2Z"/>'
+        '<path d="M14.6 4.6c2.3 0 4 1.7 4 3.9 0 .8-.2 1.5-.6 2.1 1 .7 1.6 1.8 1.6 3.1 0 1.9-1.3 3.4-3.1 3.8-.3 1.9-1.9 3.3-3.9 3.3V4.8c.6-.1 1.3-.2 2-.2Z"/>'
+    ),
+    "ic-organ-lungs": (
+        '<path d="M10.7 8C10 7.4 9.1 7.1 8.2 7.1 5.4 7.1 3.4 9.8 3.4 13.6c0 3.2 1.3 5.4 3.2 5.4 2.5 0 4.1-2.6 4.1-6.3Z"/>'
+        '<path d="M13.3 8c.7-.6 1.6-.9 2.5-.9 2.8 0 4.8 2.7 4.8 6.5 0 3.2-1.3 5.4-3.2 5.4-2.5 0-4.1-2.6-4.1-6.3Z"/>'
+        '<path d="M12 3.4v4.6"/>'
+    ),
+    "ic-organ-liver": (
+        '<path d="M3.6 9.8c2.6-2.9 6.7-4.3 10.9-3.7 2.8.4 5 1.9 6 3.9.4.9 0 1.9-1 2.2l-7.7 2.2c-2.7.8-5.5 1.1-8.2.9-.9-.1-1.6-.8-1.6-1.7 0-1.4.5-2.7 1.6-3.8Z"/>'
+        '<path d="M9.6 6.8c1.3 2.2 1.5 4.6.6 7.3"/>'
+    ),
+    "ic-organ-stomach": (
+        '<path d="M8.8 3.4v4.8c0 4 2.3 6.4 5.9 6.4 2.4 0 4.1-1.1 4.9-3 .3-.7-.1-1.5-.8-1.7l-2.7-.7"/>'
+        '<path d="M12.7 14.5c0 2.5-1.6 4-4.1 4.4-1.3.2-2.5 0-3.5-.7"/>'
+        '<path d="M10.9 8.2c.5 1.8 1.5 3.1 3 3.9"/>'
+    ),
+    "ic-organ-kidney": (
+        '<path d="M13.8 3.6c3.5 0 6.2 3.5 6.2 8.1 0 4.7-2.7 8.7-6.3 8.7-2 0-3.3-1.2-3.3-3 0-1.2.6-2.2 1.4-3.1.6-.8 1-1.6 1-2.6s-.4-1.8-1-2.6c-.8-1-1.4-1.9-1.4-3.1 0-1.5 1.4-2.4 3.4-2.4Z"/>'
+        '<path d="M9.7 12.1H8.1c-1.3 0-2.3.7-2.7 2l-.8 2.3"/>'
+    ),
+    "ic-organ-intestine": (
+        '<path d="M5.4 19.6v-8C5.4 7.4 8.1 4.7 12 4.7s6.6 2.7 6.6 6.6v1c0 1.6-1.3 2.9-2.9 2.9h-3.2"/>'
+        '<path d="M12.5 15.2v4.4"/>'
+        '<path d="M8.2 8.4c1.1-.8 2.4-1.2 3.8-1.2 1.4 0 2.7.4 3.8 1.2"/>'
+    ),
+    "ic-organ-bone": (
+        '<path d="M17 10c.7-.7 1.69 0 2.5 0a2.5 2.5 0 1 0 0-5 .5.5 0 0 1-.5-.5 2.5 2.5 0 1 0-5 0c0 .81.7 1.8 0 2.5l-7 7c-.7.7-1.69 0-2.5 0a2.5 2.5 0 0 0 0 5c.28 0 .5.22.5.5a2.5 2.5 0 1 0 5 0c0-.81-.7-1.8 0-2.5Z"/>'
+    ),
+    "ic-organ-tooth": (
+        '<path d="M8.4 4.4c.9 0 1.6.4 2.4.4h2.4c.8 0 1.5-.4 2.4-.4 2.4 0 4.1 1.9 4.1 4.3 0 1.6-.6 2.9-1.3 4.2-.8 1.6-1.1 3.5-1.3 5.4-.1 1.2-.9 2-1.9 2-1.6 0-1.7-2.2-2.3-5.1-.2-.9-.4-1.5-.9-1.5s-.7.6-.9 1.5c-.6 2.9-.7 5.1-2.3 5.1-1 0-1.8-.8-1.9-2-.2-1.9-.5-3.8-1.3-5.4-.7-1.3-1.3-2.6-1.3-4.2 0-2.4 1.7-4.3 4.1-4.3Z"/>'
+    ),
+    "ic-organ-ear": (
+        '<path d="M7.1 13.4C7.5 8.3 10 4.4 13.4 4.4c3 0 5.2 2.4 5.2 5.4 0 2.2-1 3.7-2.7 4.8-1.2.8-1.7 1.5-1.9 2.7-.3 1.6-1.4 2.6-3 2.6-1.8 0-3.1-1.3-3.1-3.1 0-1.1.4-2 1.2-2.7"/>'
+        '<path d="M10.6 11c.3-1.7 1.4-2.8 3-2.8 1.5 0 2.7 1.1 2.7 2.6 0 1.1-.6 1.9-1.7 2.6"/>'
+    ),
+    "ic-organ-mouth": (
+        '<path d="M12 8.6c-1.3-1.9-2.9-2.9-4.8-2.9-2.3 0-4 1.5-4.4 3.7 0 .2 0 .4.2.5 2.2.8 5.5 1.3 9 1.3s6.8-.5 9-1.3c.2-.1.3-.3.2-.5-.4-2.2-2.1-3.7-4.4-3.7-1.9 0-3.5 1-4.8 2.9Z"/>'
+        '<path d="M3.4 10.4c1.8 2.6 4.8 4.3 8.6 4.3s6.8-1.7 8.6-4.3"/>'
+    ),
+    "ic-organ-nose": (
+        '<path d="M14.2 3.6c-.8 3.2-.6 6.2.7 9 .4.9 0 1.9-.9 2.2l-2.8 1c-1 .4-1.5 1.5-1.1 2.4.4 1 1.4 1.5 2.6 1.5 1.6 0 3-.7 3.9-1.9"/>'
+        '<path d="M12.6 13.4c.9-.4 1.9-.3 2.7.2"/>'
+    ),
+    "ic-organ-eye": (
+        '<path d="M3.6 12c2.2-3.6 5-5.4 8.4-5.4s6.2 1.8 8.4 5.4c-2.2 3.6-5 5.4-8.4 5.4S5.8 15.6 3.6 12Z"/>'
+        '<circle cx="12" cy="12" r="2.7"/>'
+        '<path d="M8 6.9 7 5.5M12 6.4V4.8M16 6.9l1-1.4"/>'
+    ),
+    "ic-organ-hand": (
+        '<path d="M18 11V6a2 2 0 0 0-2-2 2 2 0 0 0-2 2"/>'
+        '<path d="M14 10V4a2 2 0 0 0-2-2 2 2 0 0 0-2 2v2"/>'
+        '<path d="M10 10.5V6a2 2 0 0 0-2-2 2 2 0 0 0-2 2v8"/>'
+        '<path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 1 1 2.83-2.82L7 15"/>'
+    ),
+    "ic-organ-foot": (
+        '<path d="M4 18.6c-.9 0-1.6-.7-1.6-1.6 0-1 .6-1.8 1.6-2.1l2.6-.9c1.5-.5 2.6-1.8 3-3.3l.6-2.4c.3-1.4 1.5-2.3 2.9-2.3 1.7 0 3.1 1.4 3.1 3.1v6c0 1.9-1.6 3.5-3.5 3.5Z"/>'
+    ),
+    "ic-organ-joints": (
+        '<circle cx="8.4" cy="12" r="3.6"/><circle cx="15.6" cy="12" r="3.6"/>'
+    ),
+    "ic-organ-spine": (
+        '<path d="M12 3.4v17.2"/>'
+        '<path d="M12 6.2H8.8M12 6.2h3.2M12 10.1H8.2M12 10.1h3.8M12 14H8.2M12 14h3.8M12 17.9H8.8M12 17.9h3.2"/>'
+    ),
+    "ic-organ-skull": (
+        '<path d="M12 4.2a6.6 6.6 0 0 1 6.6 6.6c0 2.4-1.2 4-2.6 5v2.4a1.4 1.4 0 0 1-1.4 1.4H9.4a1.4 1.4 0 0 1-1.4-1.4v-2.4c-1.4-1-2.6-2.6-2.6-5A6.6 6.6 0 0 1 12 4.2Z"/>'
+        '<circle cx="9.6" cy="11" r="1.4"/><circle cx="14.4" cy="11" r="1.4"/>'
+        '<path d="M10.6 17.4h2.8"/>'
+    ),
+    "ic-organ-blood-cells": (
+        '<circle cx="8.4" cy="8.8" r="3"/><circle cx="15.8" cy="9.6" r="2.6"/><circle cx="11.6" cy="16.4" r="2.9"/>'
+    ),
+    "ic-organ-thyroid": (
+        '<ellipse cx="8.6" cy="12" r="3.4"/><ellipse cx="15.4" cy="12" r="3.4"/><path d="M12 9v6"/>'
+    ),
+    "ic-organ-throat": (
+        '<path d="M9.4 4.4h5.2v6c0 2.6 1.6 3.8 1.6 5.8a4.2 4.2 0 0 1-8.4 0c0-2 1.6-3.2 1.6-5.8Z"/>'
+        '<path d="M9.4 8.2h5.2M9.2 10.8h5.6"/>'
+    ),
+    "ic-organ-prostate": (
+        '<path d="M12 6.4c3.2-1.6 6.4-.4 7.2 2.4.8 2.6-.6 5.4-3.2 6.8-1.3.7-2.7 1-4 1-1.3 0-2.7-.3-4-1-2.6-1.4-4-4.2-3.2-6.8.8-2.8 4-4 7.2-2.4Z"/>'
+        '<path d="M12 10.4v4.4M9.8 12.6h4.4"/>'
+    ),
+    "ic-organ-bladder": (
+        '<path d="M8.4 6.6c0-2 1.5-3.4 3.6-3.4s3.6 1.4 3.6 3.4l1 6.2a4.7 4.7 0 0 1-9.2 0Z"/>'
+        '<path d="M10.2 3.4 9.4 1.8M13.8 3.4l.8-1.6"/>'
+        '<path d="M12 16.6v3.2"/>'
+    ),
+    "ic-organ-donation": (
+        '<path d="M12 20.2C7.4 17.1 5 14.2 5 11.2c0-2.4 1.9-4.3 4.2-4.3 1.1 0 2.1.5 2.8 1.3.7-.8 1.7-1.3 2.8-1.3 2.3 0 4.2 1.9 4.2 4.3 0 .8-.2 1.7-.5 2.5"/>'
+        '<path d="M17.6 13.4a4.6 4.6 0 1 1-1.3-4.4"/>'
+        '<path d="M17.8 6.2v3h-3"/>'
+    ),
+}
+
 ICONS = {}
-for _d in (_TAB, _COMMON, _MEDICAL, _SYMPTOM, _MEMBER, _SECURITY, _PRO):
+for _d in (_TAB, _COMMON, _MEDICAL, _SYMPTOM, _MEMBER, _SECURITY, _PRO, _DEVICES, _ORGANS):
     for _name, _entry in _d.items():
         if isinstance(_entry, str):
             ICONS[_name] = {"body": _entry}
@@ -450,7 +770,7 @@ for _d in (_TAB, _COMMON, _MEDICAL, _SYMPTOM, _MEMBER, _SECURITY, _PRO):
 # 分组（仅目录组织用途）
 GROUPS = [
     ("Tab", _TAB), ("Common", _COMMON), ("Medical", _MEDICAL), ("Symptoms", _SYMPTOM),
-    ("Members", _MEMBER), ("Security", _SECURITY), ("Pro", _PRO),
+    ("Members", _MEMBER), ("Security", _SECURITY), ("Pro", _PRO), ("Equipment", _DEVICES), ("Organs", _ORGANS),
 ]
 
 def group_of(name: str) -> str:
@@ -458,3 +778,58 @@ def group_of(name: str) -> str:
         if name in d:
             return g
     return "Common"
+
+# ───────────────────────── 双色字形实验（Fluency 技法 · 自绘） ─────────────────────────
+# 整枚字形用语义色填充（替换 Fluent 白色版）；瓷砖体系不变。
+
+COLORED = {
+    "ic-blood-drop": (
+        '<path d="M12 3.8c3.2 3.7 5 6.3 5 8.9a5 5 0 0 1-10 0c0-2.6 1.8-5.2 5-8.9Z" '
+        'fill="#FF5A6E" stroke="#FFFFFF" stroke-width="1.3"/>'
+        '<path d="M9.4 13.2c.87-.7 1.73-.7 2.6 0 .87.7 1.73.7 2.6 0" '
+        'fill="none" stroke="#FFFFFF" stroke-width="1.3" stroke-linecap="round"/>'
+    ),
+    "ic-sym-urine": (
+        '<path d="M12.5 3.4c2.7 3.1 4.3 5.3 4.3 7.3a4.4 4.4 0 0 1-8.8 0c0-2 1.6-4.2 4.5-7.3Z" '
+        'fill="#FFC53D" stroke="#FFFFFF" stroke-width="1.3"/>'
+        '<path d="M11.6 15.9c-.4.9-1 1.6-1.8 2M13.9 16c.1 1-.1 1.9-.7 2.7" '
+        'fill="none" stroke="#FFFFFF" stroke-width="1.2" stroke-linecap="round"/>'
+        '<ellipse cx="12" cy="19.7" rx="6.3" ry="1.6" '
+        'fill="none" stroke="#FFFFFF" stroke-width="1.4"/>'
+    ),
+    "ic-allergy": (
+        '<path d="M12 8.4c2.5 2.9 3.9 4.9 3.9 6.8a3.9 3.9 0 0 1-7.8 0c0-1.9 1.4-3.9 3.9-6.8Z" '
+        'fill="#FF8AB3" stroke="#FFFFFF" stroke-width="1.2"/>'
+        '<path d="M12 3.2v2M6.4 5.2l1.4 1.4M17.6 5.2l-1.4 1.4" '
+        'fill="none" stroke="#FFFFFF" stroke-width="1.5" stroke-linecap="round"/>'
+    ),
+    "ic-prescription": (
+        '<path d="M6.2 3.8h7.4l4.2 4.2v10.2a2 2 0 0 1-2 2H6.2a2 2 0 0 1-2-2V5.8a2 2 0 0 1 2-2Z" '
+        'fill="none" stroke="#FFFFFF" stroke-width="1.5"/>'
+        '<path d="M13.4 3.8v4.4h4.4" fill="none" stroke="#FFFFFF" stroke-width="1.5" stroke-linejoin="round"/>'
+        '<rect x="7.6" y="12.8" width="8.8" height="3.6" rx="1.8" '
+        'fill="#FFC53D" stroke="#FFFFFF" stroke-width="1.2"/>'
+        '<path d="M12 12.8v3.6" stroke="#FFFFFF" stroke-width="1.2"/>'
+    ),
+}
+
+# 局部色块叠加（画在白色字形之上，24 栅格坐标）
+
+ACCENTS = {
+    "ic-tab-reminders": (
+        '<circle cx="17.8" cy="6.3" r="3.7" fill="#FF5A6E" stroke="#FFFFFF" stroke-width="1.3"/>'
+    ),
+    "ic-medicine-box": (
+        '<path d="M12 10.8v4.8M9.6 13.2h4.8" fill="none" stroke="#E8475E" '
+        'stroke-width="2.0" stroke-linecap="round"/>'
+    ),
+    "ic-hospital": (
+        '<path d="M12 8.7v4.2M9.9 10.8h4.2" fill="none" stroke="#E8475E" '
+        'stroke-width="2.0" stroke-linecap="round"/>'
+    ),
+    "ic-ward-bed": (
+        '<circle cx="19" cy="6.4" r="3" fill="#FF5A6E" stroke="#FFFFFF" stroke-width="1.2"/>'
+        '<path d="M19 5.1v2.6M17.7 6.4h2.6" stroke="#FFFFFF" stroke-width="1.1" stroke-linecap="round"/>'
+    ),
+    # ic-emergency-card 不做红色叠加：警示红瓷砖上红十字对比度不足，保留白十字
+}

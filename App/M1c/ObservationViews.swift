@@ -90,10 +90,13 @@ struct ObservationListView: View {
 }
 
 struct ObservationCreateSheet: View {
+    @Environment(AppState.self) private var app
     let onCreate: (String, String, String?) -> Void
     @State private var kind = "skin"
     @State private var description = ""
     @State private var selfMark = "unchanged"
+    @State private var confirmSet: OcrConfirmationSet?
+    @State private var routeMonitor = AudioRouteMonitor()
 
     private let kinds = ["skin", "stool", "urine", "swelling", "secretion", "eye", "generic"]
 
@@ -105,6 +108,19 @@ struct ObservationCreateSheet: View {
                 }
                 TextField("描述", text: $description, axis: .vertical)
                     .lineLimit(2...5)
+                // FR8.9 观察语音速记：转写文本经统一模板确认后才落到描述字段
+                Button {
+                    let text = description.trimmingCharacters(in: .whitespaces)
+                    guard !text.isEmpty else { return }
+                    // FR17.13-entry: 观察速记 —— 走统一模板，不自建确认逻辑
+                    confirmSet = VoiceInputTemplate.confirmationSet(drafts: [
+                        FieldDraft(key: "description", value: text, confidence: 0.85)
+                    ])
+                } label: {
+                    Label("语音速记确认", image: "ic-mic").frame(minHeight: 44)
+                }
+                .disabled(description.trimmingCharacters(in: .whitespaces).isEmpty)
+                .accessibilityIdentifier("SP-14.observation.voiceConfirm")
                 Picker("自评", selection: $selfMark) {
                     Text("好转").tag("improved")
                     Text("无变化").tag("unchanged")
@@ -119,6 +135,23 @@ struct ObservationCreateSheet: View {
                         .accessibilityIdentifier("SP-14.observation.save")
                 }
             }
+            .sheet(item: $confirmSet) { set in
+                VoiceConfirmSheet(
+                    set: set,
+                    decision: ReadbackPolicy.decide(route: routeMonitor.route,
+                                                    preference: app.readbackPreference,
+                                                    careMode: app.careMode),
+                    onSpeak: { app.speak($0) },
+                    onConfirm: { confirmed in
+                        description = confirmed.confirmedFields.first?.value ?? description
+                        confirmSet = nil
+                    },
+                    onRetry: { confirmSet = nil },
+                    onCancel: { confirmSet = nil })
+                .presentationDetents([.medium])
+            }
+            .onAppear { routeMonitor.start() }
+            .onDisappear { routeMonitor.stop() }
         }
     }
 }

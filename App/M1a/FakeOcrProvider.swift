@@ -10,7 +10,7 @@ struct FakeOcrProvider: DocumentCapture {
 
     func capture() async throws -> OcrConfirmationSet {
         let title = fixture ? "处方样张 · 阿莫西林" : "演示样张 · 处方"
-        return OcrConfirmationSet(fields: [
+        return OcrConfirmationSet(fields: [   // confirm-ok: F6 OCR 提供者是确认集合法产出方（非语音路径），FR17.13 只约束语音草稿确认
             CandidateField(key: "drug_name", displayLabel: "药名",
                            rawText: "阿莫西林胶囊 0.25g", confidence: fixture ? 0.93 : 0.91),
             CandidateField(key: "dosage", displayLabel: "剂量与用法",

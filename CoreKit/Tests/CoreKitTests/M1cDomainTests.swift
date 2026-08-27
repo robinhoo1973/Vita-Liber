@@ -131,6 +131,7 @@ struct CSVWriterTests {
     }
 }
 
+// binds: SU-M1c-AI — TC-M1c-02/03（BR-006/012 一票否决）
 @Suite("M1c · 本地检索式 AI（§5.5/BR-006/BR-012）")
 struct AILocalTests {
     actor FakeSearch: FullTextSearch {
@@ -225,6 +226,7 @@ struct AppSettingsTests {
     }
 }
 
+// binds: SU-M1c-SEC — TC-M1c-01（敏感越权=0 一票否决）
 @Suite("M1c · 观察聚合与就诊展示（§5.36/F8）")
 struct ObservationServiceTests {
     @Test func 同组聚合与成员隔离() {

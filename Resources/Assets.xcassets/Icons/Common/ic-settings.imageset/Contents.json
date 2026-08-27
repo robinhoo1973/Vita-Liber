@@ -3,24 +3,21 @@
     {
       "filename": "ic-settings@1x.png",
       "idiom": "universal",
-      "scale": "1x"
+      "scale": "x"
     },
     {
       "filename": "ic-settings@2x.png",
       "idiom": "universal",
-      "scale": "2x"
+      "scale": "x"
     },
     {
       "filename": "ic-settings@3x.png",
       "idiom": "universal",
-      "scale": "3x"
+      "scale": "x"
     }
   ],
   "info": {
     "author": "xcode",
     "version": 1
-  },
-  "properties": {
-    "template-rendering-intent": "template"
   }
 }

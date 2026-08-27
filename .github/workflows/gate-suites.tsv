@@ -1,0 +1,46 @@
+# 阶段门禁套件清单（test-plan-spec §3 的可执行副本）
+#
+# 为什么这个文件存在：
+#   ERR#27（扫到 0 个对象仍判 PASS）、ERR#30（job skipped 仍判 success）、
+#   以及 M1.5 的「套件从未创建 → 无红可判 → 默认通过」是同一根因族：
+#   **缺证据被当成有证据**。本清单把「某阶段必须存在哪些门禁套件」
+#   从文档承诺变成可执行断言（L0 [8]）——套件没写即红，而不是静默放行。
+#
+# 为什么放在 .github/ 而不是 refactor/：
+#   refactor/ 按业主指令不入库（见 .gitignore 白名单），CI 读不到；
+#   门禁的可执行副本必须与门禁脚本同处于受版本控制的路径。
+#   refactor/test-plan-spec.md §3 是文档事实源，本文件是其执行面，两者必须同步。
+#
+# 列：stage <TAB> suite <TAB> required <TAB> scope <TAB> token
+#   required : yes=该阶段已开工，套件必须存在；no=阶段未开工，暂不断言
+#   scope    : tests=在 Tests/ UITests/ CoreKit/Tests/ 中搜；workflow=在 .github/workflows/ 中搜
+#   token    : 必须在对应范围内出现的字面量。约定：新套件一律以 SU 编号自身作 token，
+#              并在套件声明处写 `// binds: SU-xxx`，使「规格 ↔ 套件」双向可查
+#              （test-plan §5.7 第 7 条 job 头部绑定注释的同源纪律）。
+#
+stage	suite	required	scope	token
+M0	SU-M0-GOLDEN	yes	tests	SU-M0-GOLDEN
+M0	SU-M0-L0	yes	workflow	l0-static-gate.sh
+M0	SU-M0-PERF	yes	tests	SU-M0-PERF
+M0	SU-M0-SMOKE	yes	tests	SU-M0-SMOKE
+M1a	SU-M1a-E2E	yes	tests	SU-M1a-E2E
+M1a	SU-M1a-SEC	yes	tests	SU-M1a-SEC
+M1a	SU-M1a-GOLDEN	yes	tests	SU-M1a-GOLDEN
+M1b	SU-M1b-REMINDER	yes	tests	SU-M1b-REMINDER
+M1b	SU-M1b-STOCK	yes	tests	SU-M1b-STOCK
+M1b	SU-M1b-APPT	yes	tests	SU-M1b-APPT
+M1c	SU-M1c-REGRESSION	yes	tests	SU-M1c-REGRESSION
+M1c	SU-M1c-AI	yes	tests	SU-M1c-AI
+M1c	SU-M1c-SEC	yes	tests	SU-M1c-SEC
+M1c	SU-M1c-EXPORT	yes	tests	SU-M1c-EXPORT
+M1c	SU-M1c-PERF	yes	tests	SU-M1c-PERF
+M1c	SU-M1c-IAP	yes	tests	SU-M1c-IAP
+M15	SU-M15-TREND	yes	tests	SU-M15-TREND
+M15	SU-M15-VOICE	yes	tests	SU-M15-VOICE
+M15	SU-M15-L10N	yes	tests	SU-M15-L10N
+M2	SU-M2-STOCK	no	tests	SU-M2-STOCK
+M2	SU-M2-F16	no	tests	SU-M2-F16
+M2	SU-M2-CARE	no	tests	SU-M2-CARE
+M2	SU-M2-EMERG	no	tests	SU-M2-EMERG
+M3	SU-M3-F19	no	tests	SU-M3-F19
+M3	SU-M3-ISOLATION	no	tests	SU-M3-ISOLATION

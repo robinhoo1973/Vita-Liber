@@ -1,6 +1,7 @@
 import XCTest
 @testable import VitaLiber
 
+// binds: SU-M0-SMOKE — TC-M0-09 启动冒烟
 final class SmokeTests: XCTestCase {
     func test_MainModule_五枚举完整() { XCTAssertEqual(MainModule.allCases.count, 5) }
 

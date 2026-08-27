@@ -3,6 +3,7 @@ import Testing
 @testable import Domain
 @testable import Infrastructure
 
+// binds: SU-M0-GOLDEN — TC-M0-01~05
 @Suite("Golden · M0 迁移金样（Sprint-1）")
 struct GoldenMigrationTests {
     @Test func 空数组正常迁移零条() {
@@ -22,6 +23,7 @@ struct GoldenMigrationTests {
     }
 }
 
+// binds: SU-M1a-GOLDEN — 阶段金样扩充
 @Suite("Golden · M0 Sprint-3 三类补充")
 struct GoldenClassifyTests {
     static let fixtures = Bundle.module.bundlePath + "/Fixtures"

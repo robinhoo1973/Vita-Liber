@@ -1,0 +1,786 @@
+{
+  "generated": "2026-08-27",
+  "glyph_license": "Fluent MIT / Health Icons CC0 / Lucide ISC / Tabler MIT / Material Symbols Apache-2.0 / Font Awesome CC-BY-4.0 / project-owned",
+  "notice": "design/icons/NOTICE.md",
+  "counts": {
+    "total": 192,
+    "fluent": 82,
+    "healthicons": 42,
+    "lucide": 42,
+    "tabler": 0,
+    "mdi": 0,
+    "materialsymbols": 2,
+    "fontawesome": 2,
+    "own": 22
+  },
+  "assets": {
+    "ic-tab-home": {
+      "source": "fluent",
+      "upstream": "home"
+    },
+    "ic-tab-home-filled": {
+      "source": "fluent",
+      "upstream": "home"
+    },
+    "ic-tab-records": {
+      "source": "fluent",
+      "upstream": "board_heart"
+    },
+    "ic-tab-records-filled": {
+      "source": "fluent",
+      "upstream": "board_heart"
+    },
+    "ic-tab-reminders": {
+      "source": "fluent",
+      "upstream": "alert_badge"
+    },
+    "ic-tab-reminders-filled": {
+      "source": "fluent",
+      "upstream": "alert_badge"
+    },
+    "ic-tab-assistant": {
+      "source": "own",
+      "upstream": null
+    },
+    "ic-tab-assistant-filled": {
+      "source": "own",
+      "upstream": null
+    },
+    "ic-tab-me": {
+      "source": "fluent",
+      "upstream": "person_circle"
+    },
+    "ic-tab-me-filled": {
+      "source": "fluent",
+      "upstream": "person_circle"
+    },
+    "ic-add": {
+      "source": "fluent",
+      "upstream": "add_circle"
+    },
+    "ic-search": {
+      "source": "fluent",
+      "upstream": "search"
+    },
+    "ic-edit": {
+      "source": "fluent",
+      "upstream": "edit"
+    },
+    "ic-delete": {
+      "source": "fluent",
+      "upstream": "delete"
+    },
+    "ic-close": {
+      "source": "fluent",
+      "upstream": "dismiss"
+    },
+    "ic-chevron-left": {
+      "source": "fluent",
+      "upstream": "chevron_left"
+    },
+    "ic-chevron-right": {
+      "source": "fluent",
+      "upstream": "chevron_right"
+    },
+    "ic-chevron-down": {
+      "source": "fluent",
+      "upstream": "chevron_down"
+    },
+    "ic-more": {
+      "source": "fluent",
+      "upstream": "more_horizontal"
+    },
+    "ic-filter": {
+      "source": "fluent",
+      "upstream": "filter"
+    },
+    "ic-check-circle": {
+      "source": "fluent",
+      "upstream": "checkmark_circle"
+    },
+    "ic-calendar": {
+      "source": "fluent",
+      "upstream": "calendar_ltr"
+    },
+    "ic-clock": {
+      "source": "fluent",
+      "upstream": "clock"
+    },
+    "ic-camera": {
+      "source": "fluent",
+      "upstream": "camera"
+    },
+    "ic-photo": {
+      "source": "fluent",
+      "upstream": "image_multiple"
+    },
+    "ic-scan-document": {
+      "source": "fluent",
+      "upstream": "scan_text"
+    },
+    "ic-observe-frame": {
+      "source": "fluent",
+      "upstream": "scan_camera"
+    },
+    "ic-share": {
+      "source": "fluent",
+      "upstream": "share_ios"
+    },
+    "ic-export": {
+      "source": "fluent",
+      "upstream": "arrow_export_ltr"
+    },
+    "ic-import": {
+      "source": "fluent",
+      "upstream": "arrow_import"
+    },
+    "ic-sync": {
+      "source": "fluent",
+      "upstream": "arrow_sync"
+    },
+    "ic-cloud-off": {
+      "source": "fluent",
+      "upstream": "cloud_off"
+    },
+    "ic-settings": {
+      "source": "fluent",
+      "upstream": "settings"
+    },
+    "ic-info": {
+      "source": "fluent",
+      "upstream": "info"
+    },
+    "ic-warning": {
+      "source": "fluent",
+      "upstream": "warning"
+    },
+    "ic-error": {
+      "source": "fluent",
+      "upstream": "error_circle"
+    },
+    "ic-help": {
+      "source": "fluent",
+      "upstream": "question_circle"
+    },
+    "ic-mic": {
+      "source": "fluent",
+      "upstream": "mic"
+    },
+    "ic-waveform": {
+      "source": "fluent",
+      "upstream": "sound_wave_circle"
+    },
+    "ic-keypad-delete": {
+      "source": "fluent",
+      "upstream": "backspace"
+    },
+    "ic-star": {
+      "source": "fluent",
+      "upstream": "star"
+    },
+    "ic-archive": {
+      "source": "fluent",
+      "upstream": "archive"
+    },
+    "ic-tag": {
+      "source": "fluent",
+      "upstream": "tag"
+    },
+    "ic-folder": {
+      "source": "fluent",
+      "upstream": "folder"
+    },
+    "ic-bookmark": {
+      "source": "fluent",
+      "upstream": "bookmark"
+    },
+    "ic-thumbs-up": {
+      "source": "fluent",
+      "upstream": "thumb_like"
+    },
+    "ic-thumbs-down": {
+      "source": "fluent",
+      "upstream": "thumb_dislike"
+    },
+    "ic-stop-octagon": {
+      "source": "fluent",
+      "upstream": "alert_urgent"
+    },
+    "ic-headset": {
+      "source": "fluent",
+      "upstream": "headset"
+    },
+    "ic-person-add": {
+      "source": "fluent",
+      "upstream": "person_add"
+    },
+    "ic-check": {
+      "source": "lucide",
+      "upstream": "check"
+    },
+    "ic-bell": {
+      "source": "lucide",
+      "upstream": "bell"
+    },
+    "ic-phone": {
+      "source": "lucide",
+      "upstream": "phone"
+    },
+    "ic-undo": {
+      "source": "lucide",
+      "upstream": "undo-2"
+    },
+    "ic-retry": {
+      "source": "lucide",
+      "upstream": "refresh-cw"
+    },
+    "ic-minus": {
+      "source": "lucide",
+      "upstream": "minus"
+    },
+    "ic-pin": {
+      "source": "lucide",
+      "upstream": "pin"
+    },
+    "ic-send": {
+      "source": "lucide",
+      "upstream": "send"
+    },
+    "ic-message": {
+      "source": "lucide",
+      "upstream": "message-square"
+    },
+    "ic-ignore": {
+      "source": "lucide",
+      "upstream": "circle-x"
+    },
+    "ic-sun": {
+      "source": "lucide",
+      "upstream": "sun"
+    },
+    "ic-moon": {
+      "source": "lucide",
+      "upstream": "moon"
+    },
+    "ic-headphone": {
+      "source": "lucide",
+      "upstream": "headphones"
+    },
+    "ic-volume": {
+      "source": "lucide",
+      "upstream": "volume-2"
+    },
+    "ic-volume-off": {
+      "source": "lucide",
+      "upstream": "volume-x"
+    },
+    "ic-ban": {
+      "source": "lucide",
+      "upstream": "octagon-x"
+    },
+    "ic-replay": {
+      "source": "lucide",
+      "upstream": "rotate-ccw"
+    },
+    "ic-pause": {
+      "source": "lucide",
+      "upstream": "pause"
+    },
+    "ic-play": {
+      "source": "lucide",
+      "upstream": "play"
+    },
+    "ic-language": {
+      "source": "lucide",
+      "upstream": "globe"
+    },
+    "ic-skip": {
+      "source": "lucide",
+      "upstream": "skip-forward"
+    },
+    "ic-flash": {
+      "source": "lucide",
+      "upstream": "zap"
+    },
+    "ic-brush": {
+      "source": "lucide",
+      "upstream": "brush"
+    },
+    "ic-attach": {
+      "source": "lucide",
+      "upstream": "link"
+    },
+    "ic-copy": {
+      "source": "lucide",
+      "upstream": "copy"
+    },
+    "ic-external-link": {
+      "source": "lucide",
+      "upstream": "external-link"
+    },
+    "ic-exclamation": {
+      "source": "lucide",
+      "upstream": "circle-alert"
+    },
+    "ic-bluetooth": {
+      "source": "lucide",
+      "upstream": "bluetooth"
+    },
+    "ic-unlink": {
+      "source": "lucide",
+      "upstream": "unlink"
+    },
+    "ic-backup": {
+      "source": "lucide",
+      "upstream": "cloud-upload"
+    },
+    "ic-snooze": {
+      "source": "lucide",
+      "upstream": "alarm-clock"
+    },
+    "ic-swap": {
+      "source": "lucide",
+      "upstream": "arrow-left-right"
+    },
+    "ic-unlock": {
+      "source": "lucide",
+      "upstream": "lock-open"
+    },
+    "ic-crown": {
+      "source": "lucide",
+      "upstream": "crown"
+    },
+    "ic-stethoscope": {
+      "source": "fluent",
+      "upstream": "stethoscope"
+    },
+    "ic-prescription": {
+      "source": "healthicons",
+      "upstream": "prescription-document"
+    },
+    "ic-lab-clipboard": {
+      "source": "fluent",
+      "upstream": "clipboard_pulse"
+    },
+    "ic-imaging-ecg": {
+      "source": "fluent",
+      "upstream": "heart_pulse"
+    },
+    "ic-vaccine": {
+      "source": "fluent",
+      "upstream": "syringe"
+    },
+    "ic-allergy": {
+      "source": "own-color",
+      "upstream": null
+    },
+    "ic-vitals-chart": {
+      "source": "fluent",
+      "upstream": "arrow_trending_lines"
+    },
+    "ic-hospital": {
+      "source": "healthicons",
+      "upstream": "hospital"
+    },
+    "ic-doctor": {
+      "source": "own",
+      "upstream": null
+    },
+    "ic-appointment": {
+      "source": "fluent",
+      "upstream": "calendar_checkmark"
+    },
+    "ic-medicine-box": {
+      "source": "lucide",
+      "upstream": "pill-bottle"
+    },
+    "ic-pill": {
+      "source": "fluent",
+      "upstream": "pill"
+    },
+    "ic-refill": {
+      "source": "lucide",
+      "upstream": "package-plus"
+    },
+    "ic-emergency-card": {
+      "source": "fluent",
+      "upstream": "contact_card"
+    },
+    "ic-blood-drop": {
+      "source": "fluent",
+      "upstream": "drop"
+    },
+    "ic-timeline": {
+      "source": "fluent",
+      "upstream": "timeline"
+    },
+    "ic-thermometer": {
+      "source": "fluent",
+      "upstream": "temperature"
+    },
+    "ic-weight": {
+      "source": "lucide",
+      "upstream": "scale"
+    },
+    "ic-pulse": {
+      "source": "lucide",
+      "upstream": "activity"
+    },
+    "ic-chart": {
+      "source": "lucide",
+      "upstream": "chart-column"
+    },
+    "ic-sym-stool": {
+      "source": "own",
+      "upstream": null
+    },
+    "ic-sym-urine": {
+      "source": "own-color",
+      "upstream": null
+    },
+    "ic-sym-skin": {
+      "source": "own",
+      "upstream": null
+    },
+    "ic-sym-eye": {
+      "source": "fluent",
+      "upstream": "eye"
+    },
+    "ic-sym-secretion": {
+      "source": "fluent",
+      "upstream": "eyedropper"
+    },
+    "ic-sym-swelling": {
+      "source": "own",
+      "upstream": null
+    },
+    "ic-sym-generic": {
+      "source": "fluent",
+      "upstream": "temperature"
+    },
+    "ic-sym-custom": {
+      "source": "fluent",
+      "upstream": "add_square"
+    },
+    "ic-member-self": {
+      "source": "fluent",
+      "upstream": "person"
+    },
+    "ic-member-partner": {
+      "source": "fluent",
+      "upstream": "person_heart"
+    },
+    "ic-member-father": {
+      "source": "materialsymbols",
+      "upstream": "man"
+    },
+    "ic-member-mother": {
+      "source": "materialsymbols",
+      "upstream": "woman"
+    },
+    "ic-member-son": {
+      "source": "fontawesome",
+      "upstream": "child"
+    },
+    "ic-member-daughter": {
+      "source": "fontawesome",
+      "upstream": "child-dress"
+    },
+    "ic-member-family": {
+      "source": "fluent",
+      "upstream": "people_team"
+    },
+    "ic-lock": {
+      "source": "fluent",
+      "upstream": "lock_closed"
+    },
+    "ic-shield": {
+      "source": "fluent",
+      "upstream": "shield"
+    },
+    "ic-faceid": {
+      "source": "fluent",
+      "upstream": "scan_person"
+    },
+    "ic-eye": {
+      "source": "fluent",
+      "upstream": "eye"
+    },
+    "ic-eye-off": {
+      "source": "fluent",
+      "upstream": "eye_off"
+    },
+    "ic-sos": {
+      "source": "fluent",
+      "upstream": "call"
+    },
+    "ic-audit-shield": {
+      "source": "fluent",
+      "upstream": "shield_keyhole"
+    },
+    "ic-device": {
+      "source": "fluent",
+      "upstream": "phone"
+    },
+    "ic-pro-diamond": {
+      "source": "fluent",
+      "upstream": "premium"
+    },
+    "ic-cloud-subscription": {
+      "source": "fluent",
+      "upstream": "cloud_sync"
+    },
+    "ic-family-share": {
+      "source": "fluent",
+      "upstream": "people_sync"
+    },
+    "ic-restore-purchase": {
+      "source": "fluent",
+      "upstream": "arrow_rotate_counterclockwise"
+    },
+    "ic-ward-bed": {
+      "source": "fluent",
+      "upstream": "bed"
+    },
+    "ic-ct": {
+      "source": "own",
+      "upstream": null
+    },
+    "ic-mri": {
+      "source": "own",
+      "upstream": null
+    },
+    "ic-ultrasound": {
+      "source": "healthicons",
+      "upstream": "ultrasound-scanner"
+    },
+    "ic-blood-pressure": {
+      "source": "healthicons",
+      "upstream": "blood-pressure-monitor"
+    },
+    "ic-blood-sugar": {
+      "source": "healthicons",
+      "upstream": "diabetes-measure"
+    },
+    "ic-surgery": {
+      "source": "own",
+      "upstream": null
+    },
+    "ic-ointment": {
+      "source": "own",
+      "upstream": null
+    },
+    "ic-herbal": {
+      "source": "healthicons",
+      "upstream": "medicine-mortar"
+    },
+    "ic-xray": {
+      "source": "fluent",
+      "upstream": "xray"
+    },
+    "ic-wheelchair": {
+      "source": "fluent",
+      "upstream": "wheelchair_access"
+    },
+    "ic-inhaler": {
+      "source": "own",
+      "upstream": null
+    },
+    "ic-thermometer-digital": {
+      "source": "healthicons",
+      "upstream": "thermometer-digital"
+    },
+    "ic-medicines": {
+      "source": "healthicons",
+      "upstream": "medicines"
+    },
+    "ic-medicine-bottle": {
+      "source": "healthicons",
+      "upstream": "medicine-bottle"
+    },
+    "ic-syringe-vaccine": {
+      "source": "healthicons",
+      "upstream": "syringe-vaccine"
+    },
+    "ic-hearing-aid": {
+      "source": "healthicons",
+      "upstream": "hearing-aid"
+    },
+    "ic-intravenous-drip": {
+      "source": "healthicons",
+      "upstream": "intravenous-drip"
+    },
+    "ic-ventilator": {
+      "source": "healthicons",
+      "upstream": "ventilator"
+    },
+    "ic-oxygen-tank": {
+      "source": "healthicons",
+      "upstream": "oxygen-tank"
+    },
+    "ic-ambulance": {
+      "source": "healthicons",
+      "upstream": "ambulance"
+    },
+    "ic-crutches": {
+      "source": "healthicons",
+      "upstream": "crutches"
+    },
+    "ic-pulse-oximeter": {
+      "source": "healthicons",
+      "upstream": "pulse-oximeter"
+    },
+    "ic-test-tubes": {
+      "source": "healthicons",
+      "upstream": "test-tubes"
+    },
+    "ic-microscope": {
+      "source": "healthicons",
+      "upstream": "microscope"
+    },
+    "ic-bandage-adhesive": {
+      "source": "healthicons",
+      "upstream": "bandage-adhesive"
+    },
+    "ic-ppe-mask": {
+      "source": "healthicons",
+      "upstream": "ppe-mask"
+    },
+    "ic-ppe-gloves": {
+      "source": "healthicons",
+      "upstream": "ppe-gloves"
+    },
+    "ic-vision-test": {
+      "source": "own",
+      "upstream": null
+    },
+    "ic-urine-sample": {
+      "source": "healthicons",
+      "upstream": "urine-sample"
+    },
+    "ic-organ-heart": {
+      "source": "healthicons",
+      "upstream": "heart-organ"
+    },
+    "ic-organ-brain": {
+      "source": "fluent",
+      "upstream": "brain"
+    },
+    "ic-organ-lungs": {
+      "source": "healthicons",
+      "upstream": "lungs"
+    },
+    "ic-organ-liver": {
+      "source": "healthicons",
+      "upstream": "liver"
+    },
+    "ic-organ-stomach": {
+      "source": "healthicons",
+      "upstream": "stomach"
+    },
+    "ic-organ-kidney": {
+      "source": "healthicons",
+      "upstream": "kidneys"
+    },
+    "ic-organ-intestine": {
+      "source": "healthicons",
+      "upstream": "intestine"
+    },
+    "ic-organ-bone": {
+      "source": "lucide",
+      "upstream": "bone"
+    },
+    "ic-organ-tooth": {
+      "source": "healthicons",
+      "upstream": "tooth"
+    },
+    "ic-organ-ear": {
+      "source": "healthicons",
+      "upstream": "ear-outline"
+    },
+    "ic-organ-mouth": {
+      "source": "healthicons",
+      "upstream": "mouth"
+    },
+    "ic-organ-nose": {
+      "source": "healthicons",
+      "upstream": "nose"
+    },
+    "ic-organ-eye": {
+      "source": "own",
+      "upstream": null
+    },
+    "ic-organ-hand": {
+      "source": "lucide",
+      "upstream": "hand"
+    },
+    "ic-organ-foot": {
+      "source": "healthicons",
+      "upstream": "foot"
+    },
+    "ic-organ-joints": {
+      "source": "healthicons",
+      "upstream": "joints"
+    },
+    "ic-organ-spine": {
+      "source": "healthicons",
+      "upstream": "spine"
+    },
+    "ic-organ-skull": {
+      "source": "healthicons",
+      "upstream": "skull"
+    },
+    "ic-organ-blood-cells": {
+      "source": "healthicons",
+      "upstream": "blood-cells"
+    },
+    "ic-organ-thyroid": {
+      "source": "healthicons",
+      "upstream": "thyroid"
+    },
+    "ic-organ-throat": {
+      "source": "healthicons",
+      "upstream": "ear-nose-throat"
+    },
+    "ic-organ-prostate": {
+      "source": "healthicons",
+      "upstream": "prostate"
+    },
+    "ic-organ-bladder": {
+      "source": "healthicons",
+      "upstream": "bladder"
+    },
+    "ic-organ-donation": {
+      "source": "lucide",
+      "upstream": "heart-handshake"
+    },
+    "ill-empty-records": {
+      "source": "own",
+      "upstream": null
+    },
+    "ill-empty-reminders": {
+      "source": "own",
+      "upstream": null
+    },
+    "ill-empty-search": {
+      "source": "own",
+      "upstream": null
+    },
+    "ill-empty-ai": {
+      "source": "own",
+      "upstream": null
+    },
+    "ill-empty-medicine-box": {
+      "source": "own",
+      "upstream": null
+    },
+    "ill-empty-audit": {
+      "source": "own",
+      "upstream": null
+    },
+    "ill-onboarding-family": {
+      "source": "own",
+      "upstream": null
+    }
+  }
+}

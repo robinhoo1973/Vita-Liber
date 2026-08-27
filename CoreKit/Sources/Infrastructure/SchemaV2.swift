@@ -163,6 +163,10 @@ public enum SchemaV2 {
         CHECK((origin = 'hospital' AND self_measured = 0) OR (origin IN ('manual','device') AND self_measured = 1)),
       excluded INTEGER NOT NULL DEFAULT 0,   -- V3.45: 排除点软删(§5.29)
       source_ref TEXT,                       -- V3.45: 回原报告引用
+      -- V3.46 / 迁移 v2：报告自带参考范围（A 级）。FR7.2 铁律「不同医院参考范围
+      -- 不得合并成一条正常带」——ref_source_label（医院/实验室名）是各自成带的分组键；
+      -- 三列缺席时该点无 A 级范围，回落信源库 B 级（P1）或渲染为「范围不可用」。
+      ref_low REAL, ref_high REAL, ref_source_label TEXT,
       measured_at REAL NOT NULL, created_at REAL NOT NULL);
     CREATE INDEX idx_metric_patient_time ON metric_sample(patient_id, metric_key, measured_at);
 

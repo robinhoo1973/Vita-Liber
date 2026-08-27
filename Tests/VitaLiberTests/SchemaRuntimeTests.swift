@@ -10,6 +10,7 @@ import Infrastructure
 /// （ERR#8，见 Package.swift 平台条件依赖），而 CoreKit 的 SPM 测试目标在 CI 上
 /// 跑在 Linux 容器里——那里 GRDBStore 整体被平台守卫编译排除，断言无处落脚。
 /// 本目标由 l1-unit-shards 在 iOS 模拟器上执行，是这些断言唯一真实生效的位置。
+// binds: SU-M0-GOLDEN — TC-M0-06 运行时半场
 final class SchemaRuntimeTests: XCTestCase {
 
     /// L0 只能静态断言「DDL 文本里有 foreign_keys 字样」；此处断言连接**运行时真的开着**。

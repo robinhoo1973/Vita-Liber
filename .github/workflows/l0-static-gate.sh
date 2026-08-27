@@ -39,7 +39,8 @@ section() { printf '\n%s[%s]%s %s\n' "$C_B" "$1" "$C_0" "$2"; }
 
 # ---------- 定位应用源码（找不到即环境错误，绝不静默通过）----------
 # 从脚本所在目录逐级向上探测仓库根（脚本位于 .github/workflows/ 下，深度可变）
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # 门禁清单等同目录资产的锚点（[8]）
+ROOT="$SCRIPT_DIR"
 while [ "$ROOT" != "/" ] && [ ! -d "$ROOT/CoreKit/Sources/Domain" ] && [ ! -d "$ROOT/VitaLiber/CoreKit/Sources/Domain" ]; do
   ROOT="$(dirname "$ROOT")"
 done
@@ -81,7 +82,7 @@ fi
 echo "Vita Liber L0 静态门禁 · 应用源码根: $APP"
 
 # ---------- [1] try? 门禁 ----------
-section "1/7" "try? 门禁 —— 全仓清零，豁免须同行注释 // try?-ok: <理由>（tech-spec §7）"
+section "1/9" "try? 门禁 —— 全仓清零，豁免须同行注释 // try?-ok: <理由>（tech-spec §7）"
 try_viol=0; try_exempt=0
 while IFS= read -r line; do
   [ -n "$line" ] || continue
@@ -99,7 +100,7 @@ else
 fi
 
 # ---------- [2] ADR-021 无平行视图 ----------
-section "2/7" "ADR-021 —— 禁止平行视图文件与 idiom 分支换页（tech-spec §5.26）"
+section "2/9" "ADR-021 —— 禁止平行视图文件与 idiom 分支换页（tech-spec §5.26）"
 ipad_files=$(find "$APP" \( -name .build -o -name .swiftpm -o -name DerivedData -o -name Build \) -prune -o \( -name '*_iPad*.swift' -o -name '*_iPhone*.swift' \) -print 2>/dev/null | grep -v '/CoreKit/' || true)
 if [ -n "$ipad_files" ]; then
   printf '%s\n' "$ipad_files" | head -15 | sed 's/^/    /'
@@ -124,7 +125,7 @@ else
 fi
 
 # ---------- [3] DDL 引用完整性 ----------
-section "3/7" "DDL 引用完整性 —— REFERENCES 目标已建表 + 外键开启（tech-spec §4.3）"
+section "3/9" "DDL 引用完整性 —— REFERENCES 目标已建表 + 外键开启（tech-spec §4.3）"
 ddl_text=$(find "$APP" \( -name .build -o -name .swiftpm -o -name DerivedData \) -prune -o \( -name '*.swift' -o -name '*.sql' \) -print0 2>/dev/null | xargs -0 cat 2>/dev/null || true)
 # 大文本管道防 SIGPIPE（ERR#34）：ddl_text 达数 MB 后，
 # `printf | grep -qE` 在 grep 提前命中退出时把仍在写的 printf 打死
@@ -170,7 +171,7 @@ done
 rm -f "$_ddl_file"
 
 # ---------- [4] 红线模块禁读 EntitlementStore ----------
-section "4/7" "商业化红线 —— 红线模块代码内禁止读取 EntitlementStore（tech-spec §5.14）"
+section "4/9" "商业化红线 —— 红线模块代码内禁止读取 EntitlementStore（tech-spec §5.14）"
 DEFAULT_REDLINE="$APP/App/M1a/OnboardingViews.swift:$APP/App/M1b/RemindersViews.swift:$APP/App/M1c/ObservationViews.swift:$APP/App/M1c/AssistantView.swift"
 REDLINE_PATHS="${REDLINE_PATHS:-$DEFAULT_REDLINE}"
 redline_matched=0; ent_viol=0
@@ -197,7 +198,7 @@ else
 fi
 
 # ---------- [5] Domain 零框架依赖 ----------
-section "5/7" "分层纪律 —— Domain 零框架依赖，白名单断言 import ⊆ {Foundation}（tech-spec §1.1）"
+section "5/9" "分层纪律 —— Domain 零框架依赖，白名单断言 import ⊆ {Foundation}（tech-spec §1.1）"
 if [ ! -d "$DOMAIN" ]; then
   fail "缺少 $DOMAIN —— M0 要求 CoreKit 三目标骨架先行"
 else
@@ -216,7 +217,7 @@ else
 fi
 
 # ---------- [6] Fixtures JSON 校验 ----------
-section "6/7" "金样 Fixtures —— JSON 可解析（dev-pm-spec §9.2④）"
+section "6/9" "金样 Fixtures —— JSON 可解析（dev-pm-spec §9.2④）"
 validate_json() {
   if command -v python3 >/dev/null 2>&1; then
     python3 -c 'import json,sys; json.load(open(sys.argv[1], encoding="utf-8"))' "$1" 2>/dev/null
@@ -256,7 +257,7 @@ else
 fi
 
 # ---------- [7] Swift 语法解析门禁 ----------
-section "7/7" "Swift 解析门禁 —— App 层源码语法/保留字检查（ERR#28 shift-left）"
+section "7/9" "Swift 解析门禁 —— App 层源码语法/保留字检查（ERR#28 shift-left）"
 # 背景：App/ 的 SwiftUI 源码不属于 CoreKit SPM 包，Linux 上 `swift build` 不覆盖它，
 # 过去任何语法错误（如 `static let import`）都要等 macOS L1 编译才暴露，一次往返数分钟。
 # swiftc -parse 只做语法分析、不做语义解析与 import 解析，因此在无 SwiftUI 的 Linux 上同样有效。
@@ -280,6 +281,100 @@ else
   else
     pass "${p_total} 个 Swift 文件语法解析通过"
   fi
+fi
+
+# ---------- [8] 阶段门禁套件存在性 ----------
+section "8/9" "阶段门禁套件存在性 —— test-plan §3 必过套件必须真实存在（ERR#27 原则推广）"
+# 根因族第三次复发的治本项：ERR#27=扫到 0 个对象判 PASS；ERR#30=job skipped 判 success；
+# M1.5=套件从未创建、CI 无 job 绑定 → 无红可判 → 默认通过。三者同为「缺证据被当成有证据」。
+# 本项把「某阶段必须存在哪些套件」变成可执行断言：清单里 required=yes 的套件
+# 在测试源码/工作流中搜不到 token 即红。清单本身缺失也判红（不得因清单丢失而静默放行）。
+SUITE_MANIFEST="${SUITE_MANIFEST:-$SCRIPT_DIR/gate-suites.tsv}"
+if [ ! -f "$SUITE_MANIFEST" ]; then
+  fail "套件清单缺失: $SUITE_MANIFEST —— 门禁清单本身不得缺席"
+else
+  s_req=0; s_missing=0
+  # 测试源码搜索根：仅测试目标，避免把生产代码里的同名字符串当成套件存在的证据
+  s_test_dirs=""
+  for d in "$APP/Tests" "$APP/UITests" "$APP/CoreKit/Tests"; do
+    [ -d "$d" ] && s_test_dirs="$s_test_dirs $d"
+  done
+  while IFS="$(printf '\t')" read -r m_stage m_suite m_req m_scope m_token; do
+    case "$m_stage" in ''|'#'*|'stage') continue ;; esac
+    [ "$m_req" = "yes" ] || continue
+    [ -n "$m_token" ] || continue
+    s_req=$((s_req + 1))
+    case "$m_scope" in
+      workflow) s_roots="$SCRIPT_DIR" ;;
+      *)        s_roots="$s_test_dirs" ;;
+    esac
+    # shellcheck disable=SC2086
+    if [ -z "$s_roots" ] || ! grep -rqF -- "$m_token" $s_roots 2>/dev/null; then
+      s_missing=$((s_missing + 1))
+      printf '    缺失套件: %s (%s) —— 未在 %s 找到 token「%s」\n' \
+        "$m_suite" "$m_stage" "${m_scope}" "$m_token"
+    fi
+  done < "$SUITE_MANIFEST"
+  if [ "$s_req" -eq 0 ]; then
+    fail "清单内 required=yes 的套件为 0 —— 空集不得判过（ERR#27）"
+  elif [ "$s_missing" -gt 0 ]; then
+    fail "必过套件缺失 ${s_missing}/${s_req} 个 —— 阶段门禁形同虚设，不得进入下一阶段"
+  else
+    pass "${s_req} 个必过套件全部存在（$SUITE_MANIFEST）"
+  fi
+fi
+
+# ---------- [9] FR17.13 语音输入模板复用 ----------
+section "9/9" "FR17.13 模板复用 —— 四处确认入口必须走同一模板，禁止自建确认逻辑（TC-M15-03）"
+# function-spec FR17.13：语音指导每步(FR17.11)/语音速记(FR17.9)/语音提醒设定(FR17.10)/
+# 观察语音速记(FR8.9) 一律调用标准模板，**禁止各功能自建独立确认逻辑**。
+# 两条断言：
+#   (a) 硬约束——OcrConfirmationSet 只允许在 Domain 的定义处与模板工厂里构造；
+#       任何其它文件直接构造 = 自建确认逻辑，结构上即被挡死；
+#   (b) 覆盖约束——四处入口各须一条 `// FR17.13-entry: <名>` 标记且同文件调用模板工厂；
+#       少一处即红（入口没建 ≠ 门禁可以放行）。
+t_bad=0
+# 构造权只属 Domain（类型定义处 + 模板工厂）；其余层一律经工厂取得。
+# 豁免沿用本脚本既有惯例（同 `// try?-ok:` / `// adr021-ok:`）：同行注释
+# `// confirm-ok: <理由>`——用于 F6 OCR 提供者这类**非语音**确认集产出方。
+t_hits=''
+while IFS= read -r line; do
+  [ -n "$line" ] || continue
+  _f=${line%%:*}
+  case "$_f" in "$APP/CoreKit/Sources/Domain/"*|./CoreKit/Sources/Domain/*) continue ;; esac
+  case "$line" in *'confirm-ok:'*) continue ;; esac
+  t_hits="$t_hits$line
+"
+done < <(grep -rn --include='*.swift' -E '(^|[^A-Za-z0-9_])OcrConfirmationSet\(' \
+           "$APP/App" "$APP/CoreKit/Sources" 2>/dev/null || true)
+if [ -n "$t_hits" ]; then
+  t_bad=$((t_bad + 1))
+  printf '    自建确认逻辑（Domain 外直接构造 OcrConfirmationSet，且无 // confirm-ok: 豁免）:\n'
+  printf '%s' "$t_hits" | head -5 | sed 's/^/      /'
+fi
+t_entries_expected='语音速记 观察速记 提醒草稿 语音指导'
+t_missing_entry=''
+for t_e in $t_entries_expected; do
+  t_files=$(grep -rl --include='*.swift' -F "FR17.13-entry: $t_e" "$APP/App" "$APP/CoreKit/Sources" 2>/dev/null || true)
+  if [ -z "$t_files" ]; then
+    t_missing_entry="$t_missing_entry $t_e"
+    continue
+  fi
+  # 标记存在还不够——同文件必须真的调用模板工厂，杜绝「贴标签不接线」
+  t_wired=0
+  for t_f in $t_files; do
+    if grep -qF 'VoiceInputTemplate.confirmationSet' "$t_f"; then t_wired=1; fi
+  done
+  [ "$t_wired" -eq 1 ] || t_missing_entry="$t_missing_entry ${t_e}(标记存在但未调用模板)"
+done
+if [ -n "$t_missing_entry" ]; then
+  t_bad=$((t_bad + 1))
+  printf '    未接入模板的确认入口:%s\n' "$t_missing_entry"
+fi
+if [ "$t_bad" -gt 0 ]; then
+  fail "FR17.13 模板复用断言未通过（$t_bad 类问题）"
+else
+  pass "四处确认入口全部走 VoiceInputTemplate，模板外零构造"
 fi
 
 # ---------- 汇总 ----------

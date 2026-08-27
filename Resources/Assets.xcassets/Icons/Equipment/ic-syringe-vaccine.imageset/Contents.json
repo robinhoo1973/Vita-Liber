@@ -1,0 +1,23 @@
+{
+  "images": [
+    {
+      "filename": "ic-syringe-vaccine@1x.png",
+      "idiom": "universal",
+      "scale": "x"
+    },
+    {
+      "filename": "ic-syringe-vaccine@2x.png",
+      "idiom": "universal",
+      "scale": "x"
+    },
+    {
+      "filename": "ic-syringe-vaccine@3x.png",
+      "idiom": "universal",
+      "scale": "x"
+    }
+  ],
+  "info": {
+    "author": "xcode",
+    "version": 1
+  }
+}

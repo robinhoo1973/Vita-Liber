@@ -11,17 +11,52 @@
     </radialGradient>
     <linearGradient id="page" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#FFFFFF"/>
-      <stop offset="1" stop-color="#DCEBFA"/>
+      <stop offset="1" stop-color="#D7E9FA"/>
+    </linearGradient>
+    <linearGradient id="pouch" x1="0" y1="0" x2=".6" y2="1">
+      <stop offset="0" stop-color="#3BC4B8"/>
+      <stop offset="1" stop-color="#0E8A81"/>
+    </linearGradient>
+    <linearGradient id="pen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1E7AD4"/>
+      <stop offset="1" stop-color="#064B92"/>
     </linearGradient>
   </defs>
   <rect width="1024" height="1024" fill="url(#bg)"/>
   <rect width="1024" height="1024" fill="url(#glow)"/>
-  <path d="M392 430a120 120 0 0 1 240 0" fill="none" stroke="#BFDCf5" stroke-width="40" stroke-linecap="round"/>
-  <path d="M512 470c-64-42-146-62-238-62v270c92 0 174 20 238 62 64-42 146-62 238-62V408c-92 0-174 20-238 62Z" fill="url(#page)"/>
-  <path d="M512 470v258" stroke="#9CC4EA" stroke-width="14" stroke-linecap="round"/>
-  <path d="M330 496c40 4 76 12 106 26M694 496c-40 4-76 12-106 26" stroke="#C9E0F6" stroke-width="12" stroke-linecap="round" fill="none"/>
-  <g fill="#2FA35A">
-    <rect x="477" y="300" width="70" height="190" rx="26"/>
-    <rect x="417" y="360" width="190" height="70" rx="26"/>
+
+  <g transform="translate(512 570) scale(1.24) translate(-512 -570)">
+  <path d="M512 462C446 420 362 400 232 400l0 276c130 0 214 20 280 62Z"
+        fill="#053B72" opacity=".35" transform="translate(0 18)"/>
+  <path d="M512 462c66-42 150-62 280-62l0 276c-130 0-214 20-280 62Z"
+        fill="#053B72" opacity=".35" transform="translate(0 18)"/>
+
+  <path d="M512 462C446 420 362 400 232 400L232 676C362 676 446 696 512 738Z" fill="url(#page)"/>
+  <path d="M512 462c66-42 150-62 280-62l0 276c-130 0-214 20-280 62Z" fill="url(#page)"/>
+  <path d="M512 462v264" stroke="#9CC4EA" stroke-width="14" stroke-linecap="round"/>
+  <path d="M296 446c58 4 116 16 168 40M728 446c-58 4-116 16-168 40"
+        stroke="#C9E0F6" stroke-width="10" stroke-linecap="round" fill="none"/>
+
+  <ellipse cx="372" cy="688" rx="92" ry="15" fill="#064B92" opacity=".28"/>
+  <path d="M296 566c0-46 34-76 76-76s76 30 76 76v50c0 54-34 86-76 86s-76-32-76-86Z"
+        fill="#0A5F58" opacity=".4" transform="translate(0 12)"/>
+  <path d="M296 566c0-46 34-76 76-76s76 30 76 76v50c0 54-34 86-76 86s-76-32-76-86Z" fill="url(#pouch)"/>
+  <ellipse cx="340" cy="520" rx="52" ry="30" fill="#FFFFFF" opacity=".12"/>
+  <rect x="330" y="458" width="108" height="36" rx="18" fill="#0A5F58"/>
+  <circle cx="384" cy="476" r="15" fill="#0A5F58"/>
+  <g fill="#FFFFFF">
+    <rect x="355" y="530" width="34" height="96" rx="12"/>
+    <rect x="324" y="561" width="96" height="34" rx="12"/>
+  </g>
+
+  <ellipse cx="650" cy="580" rx="84" ry="12" transform="rotate(28 654 582)" fill="#064B92" opacity=".15"/>
+  <g transform="translate(652 567) rotate(28)">
+    <path d="M-20 62 0 116 20 62Z" fill="#0A66C2"/>
+    <path d="M0 116V80" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round"/>
+    <rect x="-21" y="-64" width="42" height="128" rx="19" fill="url(#pen)"/>
+    <rect x="-21" y="-64" width="42" height="18" fill="#052F5C"/>
+    <rect x="-21" y="-2" width="42" height="12" fill="#FFFFFF" opacity=".35"/>
+    <path d="M-9 -46v96" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round" opacity=".28"/>
+  </g>
   </g>
 </svg>

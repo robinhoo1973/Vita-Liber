@@ -1,0 +1,14 @@
+{
+  "version": "0.1-dev",
+  "_note": "FR17.4 语音金样语料库。isHumanRecorded=true 才计入 ≥500 条放行配额。当前全部为开发期手写样例（false），真人语料录制属业主/运营依赖项，未交付前 FeatureFlags.voiceStructuringEnabled 必须为 false（语音仅作纯转写，结构化走触屏）。",
+  "samples": [
+    { "id": "m-001", "transcript": "血糖6.2", "kind": "metric", "locale": "zh-Hans-CN", "isHumanRecorded": false, "expected": { "glucose": "6.2" } },
+    { "id": "m-002", "transcript": "今天血糖十三点二", "kind": "metric", "locale": "zh-Hans-CN", "isHumanRecorded": false, "expected": { "glucose": "13.2" } },
+    { "id": "m-003", "transcript": "高压132", "kind": "metric", "locale": "zh-Hans-CN", "isHumanRecorded": false, "expected": { "blood_pressure_sys": "132" } },
+    { "id": "m-004", "transcript": "低压86", "kind": "metric", "locale": "zh-Hans-CN", "isHumanRecorded": false, "expected": { "blood_pressure_dia": "86" } },
+    { "id": "m-005", "transcript": "心率76", "kind": "metric", "locale": "zh-Hans-CN", "isHumanRecorded": false, "expected": { "heart_rate": "76" } },
+    { "id": "m-006", "transcript": "血氧98", "kind": "metric", "locale": "zh-Hans-CN", "isHumanRecorded": false, "expected": { "blood_oxygen": "98" } },
+    { "id": "r-001", "transcript": "明天早上提醒我测血糖，每天", "kind": "reminder", "locale": "zh-Hans-CN", "isHumanRecorded": false, "expected": { "time": "明天", "repeat": "每天" } },
+    { "id": "p-001", "transcript": "紧急联系人是王女士", "kind": "profile", "locale": "zh-Hans-CN", "isHumanRecorded": false, "expected": { "emergencyContact": "王女士" } }
+  ]
+}

@@ -26,18 +26,52 @@ public actor BackupService {
         }
     }
 
+    /// 备份文件外层信封：`payload` 是 ExportService.Envelope 的编码，`sha256` 是
+    /// **payload 字节的哈希**。恢复时重算并比对——这样校验才是真的。
+    ///
+    /// 旧实现把 sha256 只写进内存里的 `BackupPackage`、落盘时丢弃，`restore`
+    /// 压根不比对，而注释却写着「校验和校验（完整性）」。**注释声称做了、代码没做**
+    /// 与 ERR#27/#30 同族：把承诺当成证据。改为自包含外层信封后，
+    /// 截断/位翻转在导入前必被拒，且不需要任何 sidecar 文件。
+    struct BackupEnvelope: Codable {
+        var formatVersion: Int
+        var sha256: String
+        var exportedAt: TimeInterval
+        var payload: Data
+    }
+
+    public enum BackupError: Error, Sendable, Equatable {
+        case checksumMismatch      // 文件损坏——一律拒绝导入，绝不「尽力恢复」
+        case unsupportedFormat
+    }
+
     public func createBackup() async throws -> BackupPackage {
         let envelope = try await exporter.exportJSON()
-        let data = try await exporter.encode(envelope)
+        let payload = try await exporter.encode(envelope)
+        let digest = Self.sha256(payload)
+        let outer = BackupEnvelope(formatVersion: 1, sha256: digest,
+                                   exportedAt: envelope.exportedAt, payload: payload)
+        let data = try JSONEncoder().encode(outer)
         let name = "vitaliber-backup-\(Int(Date().timeIntervalSince1970)).json"
         return BackupPackage(fileName: name, data: data,
-                             sha256: Self.sha256(data),
+                             sha256: digest,
                              exportedAt: envelope.exportedAt)
     }
 
-    /// 恢复：校验和校验（完整性）→ 导入。sensitive 数据经 FR13.4 导出验证流程
+    /// 恢复：解外层 → **重算 payload 哈希并比对** → 解 envelope → 导入。
+    /// 校验失败即抛错，**不做任何部分导入**——半个备份比没有备份更危险。
     public func restore(from data: Data) async throws {
-        let envelope = try await exporter.decode(data)
+        let outer: BackupEnvelope
+        do {
+            outer = try JSONDecoder().decode(BackupEnvelope.self, from: data)
+        } catch {
+            throw BackupError.unsupportedFormat
+        }
+        guard outer.formatVersion == 1 else { throw BackupError.unsupportedFormat }
+        guard Self.sha256(outer.payload) == outer.sha256 else {
+            throw BackupError.checksumMismatch
+        }
+        let envelope = try await exporter.decode(outer.payload)
         try await exporter.importJSON(envelope)
     }
 

@@ -10,6 +10,7 @@ import Protocols
 /// 评审修正：经 GRDBM1aPersistor 走真实 §4.3 表——「本人关联 patient_profile」
 /// 从 ID 断言升级为落库断言，闭合假绿。
 @MainActor
+// binds: SU-M1a-SEC / SU-M1a-GOLDEN — TC-M1a-03/04/05（BR-003 一票否决）
 final class M1aAcceptanceTests: XCTestCase {
 
     private func freshDefaults() -> UserDefaults {

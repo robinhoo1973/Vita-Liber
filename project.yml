@@ -2,6 +2,11 @@ name: VitaLiber
 options:
   bundleIdPrefix: com.vitaliber
   deploymentTarget: { iOS: "17.0" }
+  # 三文件本地化纪律（tech-spec §3）：zh-Hans 为开发区域，zh-Hant/en 平价交付。
+  # 未登记 knownRegions 时 xcodegen 只会打包 Base + 已存在的 .lproj，
+  # zh-Hant 新增后必须同步登记，否则 SU-M15-L10N 的键集断言在设备上取不到该本地化。
+  developmentLanguage: zh-Hans
+  knownRegions: [zh-Hans, zh-Hant, en, Base]
 packages:
   CoreKit: { path: CoreKit }
   GRDB.swift:

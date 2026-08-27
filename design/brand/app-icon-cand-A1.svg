@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1583E0"/>
+      <stop offset=".55" stop-color="#0A66C2"/>
+      <stop offset="1" stop-color="#064B92"/>
+    </linearGradient>
+    <radialGradient id="glow" cx=".3" cy=".18" r=".9">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity=".22"/>
+      <stop offset=".55" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="page" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#D7E9FA"/>
+    </linearGradient>
+    <linearGradient id="pouch" x1="0" y1="0" x2=".6" y2="1">
+      <stop offset="0" stop-color="#3BC4B8"/>
+      <stop offset="1" stop-color="#0E8A81"/>
+    </linearGradient></defs>
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <rect width="1024" height="1024" fill="url(#glow)"/>
+  
+  <g transform="translate(0 36)">
+    <!-- 书底部接触阴影 -->
+    <ellipse cx="512" cy="796" rx="330" ry="34" fill="#053B72" opacity=".30"/>
+    <!-- 医书两页 -->
+    <path d="M512 396C440 344 336 334 214 334L214 646C336 646 440 668 512 704Z" fill="url(#page)"/>
+    <path d="M512 396C588 344 692 334 814 334L814 646C692 646 588 668 512 704Z" fill="url(#page)"/>
+    <path d="M512 396L512 704" stroke="#9CC4EA" stroke-width="14" stroke-linecap="round"/>
+    <path d="M296 384C380 374 452 376 512 394M728 384C644 374 572 376 512 394"
+          stroke="#C9E0F6" stroke-width="10" stroke-linecap="round" fill="none"/>
+    <!-- 药袋在书页上的投影 -->
+    <ellipse cx="512" cy="540" rx="128" ry="26" fill="#064B92" opacity=".16"/>
+    <!-- 提环 -->
+    <path d="M460 250a52 52 0 1 1 104 0" stroke="url(#pouch)" stroke-width="26"
+          stroke-linecap="round" fill="none"/>
+    <!-- 提环与袋口的连接带 -->
+    <rect x="470" y="252" width="84" height="30" rx="15" fill="#0A5F58"/>
+    <!-- 青囊袋身 -->
+    <rect x="434" y="288" width="156" height="244" rx="66" fill="url(#pouch)"/>
+    <ellipse cx="470" cy="332" rx="46" ry="28" fill="#FFFFFF" opacity=".18"/>
+    <!-- 白色医疗十字 -->
+    <rect x="488" y="384" width="48" height="132" rx="22" fill="#FFFFFF"/>
+    <rect x="436" y="426" width="152" height="48" rx="22" fill="#FFFFFF"/>
+  </g>
+</svg>

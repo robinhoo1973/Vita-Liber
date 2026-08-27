@@ -1,1 +1,15 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><g fill="none" stroke="#000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19.4 12.4a7.4 7.4 0 1 1-3.1-6.2"/><path d="m16 3.6.4 2.9 2.9.4"/><rect x="7.8" y="10.2" width="8.4" height="3.8" rx="1.9"/><path d="M12 10.2v3.8"/></g></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96"><defs><linearGradient id="gic_refill" x1="0" y1="0" x2=".9" y2="1"><stop offset="0" stop-color="#35C08C"/><stop offset=".52" stop-color="#21A173"/><stop offset="1" stop-color="#0C6848"/></linearGradient><radialGradient id="ric_refill" cx=".28" cy=".18" r=".95"><stop offset="0" stop-color="#FFFFFF" stop-opacity=".34"/><stop offset=".55" stop-color="#FFFFFF" stop-opacity="0"/></radialGradient><linearGradient id="sic_refill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF" stop-opacity=".26"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/></linearGradient><clipPath id="cic_refill"><rect x="4" y="4" width="88" height="88" rx="24"/></clipPath></defs><rect x="4" y="4" width="88" height="88" rx="24" fill="url(#gic_refill)"/><g clip-path="url(#cic_refill)"><rect x="4" y="4" width="88" height="88" fill="url(#ric_refill)"/><rect x="-26" y="-40" width="152" height="66" rx="33" transform="rotate(-19 48 8)" fill="url(#sic_refill)"/><ellipse cx="48" cy="102" rx="58" ry="30" fill="#000000" opacity=".10"/><rect x="6" y="6" width="84" height="84" rx="22" fill="none" stroke="#FFFFFF" stroke-opacity=".16" stroke-width="3"/></g><g transform="translate(14.26 14.96) scale(2.920)" fill="#000" stroke="#000" opacity=".14"><g fill="none" stroke="#000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M12 22V12" />
+  <path d="M16 17h6" />
+  <path d="M19 14v6" />
+  <path d="M21 10.535V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.729l7 4a2 2 0 0 0 2 .001l1.675-.955" />
+  <path d="M3.29 7 12 12l8.71-5" />
+  <path d="m7.5 4.27 8.997 5.148" />
+</g></g><g transform="translate(12.96 12.96) scale(2.920)" fill="#FFF" stroke="none"><g fill="none" stroke="#FFF" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M12 22V12" />
+  <path d="M16 17h6" />
+  <path d="M19 14v6" />
+  <path d="M21 10.535V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.729l7 4a2 2 0 0 0 2 .001l1.675-.955" />
+  <path d="M3.29 7 12 12l8.71-5" />
+  <path d="m7.5 4.27 8.997 5.148" />
+</g></g></svg>

@@ -46,12 +46,17 @@ final class AppState {
     private let launchArgs: [String]
     private let logger = Logger(subsystem: "com.vitaliber", category: "appstate")
 
+    /// TTS 端口（FR17.13/17.16）。默认注入生产适配器；测试注入 RecordingSpeechSynthesizer。
+    let speechSynthesizer: any SpeechSynthesizing
+
     init(persistor: any M1aPersisting,
          capture: any DocumentCapture,
+         speech: (any SpeechSynthesizing)? = nil,
          defaults: UserDefaults = .standard,
          launchArgs: [String] = ProcessInfo.processInfo.arguments) {
         self.persistor = persistor
         self.captureProvider = capture
+        self.speechSynthesizer = speech ?? AVSpeechAdapter()
         self.defaults = defaults
         self.launchArgs = launchArgs
         self.onboardingFinished = defaults.bool(forKey: "onboardingFinished")
@@ -257,6 +262,44 @@ final class AppState {
 
     /// 验证成功信号：LockOverlayView 观察它解除 backgroundLocked
     private(set) var lastVerifiedAt: Date?
+
+    // MARK: - FR17.13 回读装配（M1.5）
+
+    /// 无耳机回读偏好三态（FR14.7）。`总是` 仅关怀模式可设——
+    /// 写入口经 `ReadbackPolicy.isSelectable` 二次校验，防备份恢复带回非法状态。
+    var readbackPreference: ReadbackPreference {
+        get {
+            let raw = defaults.string(forKey: AppSettingKey.readBackOptIn.rawValue) ?? ""
+            return ReadbackPreference(rawValue: raw) ?? .never
+        }
+        set {
+            guard ReadbackPolicy.isSelectable(newValue, careMode: careMode) else {
+                logger.error("拒绝设置回读偏好 \(newValue.rawValue)：非关怀模式不可选")
+                return
+            }
+            defaults.set(newValue.rawValue, forKey: AppSettingKey.readBackOptIn.rawValue)
+        }
+    }
+
+    /// 关怀模式（F18）。M1.5 只需读取以驱动回读决策与触点放大；全量随 M2。
+    var careMode: Bool {
+        get { defaults.bool(forKey: "careMode") }
+        set { defaults.set(newValue, forKey: "careMode") }
+    }
+
+    /// TTS 单出口。**只播报已确认的结构化字段**（脚本由 Domain 的
+    /// `ReadbackPolicy.readbackScript` 生成，本方法不拼文案、不做业务判断）。
+    /// 抽成方法而非在各视图直接调 AVSpeechSynthesizer，是为了让测试可替身、
+    /// 也为了 FR17.16 输出语言指定将来只需改这一处。
+    func speak(_ text: String) {
+        guard !text.isEmpty else { return }
+        speechSynthesizer.speak(text, localeIdentifier: voiceOutputLocale)
+    }
+
+    /// FR17.16 语音输出语言（六选一）；无对应发声时由合成器回退普通话并轻提示。
+    var voiceOutputLocale: String {
+        defaults.string(forKey: "voiceOutputLocale") ?? TranscriptionSegmentation.fallbackLocale
+    }
 
     /// 统一异步持久化出口（§7：错误必须经 Logger 上报，不静默吞掉）
     private func persist(_ op: @escaping @Sendable () async throws -> Void) {
