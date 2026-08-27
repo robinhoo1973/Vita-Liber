@@ -24,10 +24,10 @@ struct AppointmentDeepLinkCard: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 VLIcon.hospital.resizable().frame(width: 20, height: 20)
-                Text("去挂号").font(.headline)
+                Text(L10n.deeplink_title).font(.headline)
             }
             if let entry {
-                Text("将跳转到 \(entry.hospitalName) 在挂号平台的搜索页")
+                Text(L10n.deeplinkJump(entry.hospitalName))
                     .font(.caption).foregroundStyle(.secondary)
                 Button {
                     guard let url = URL(string: entry.url(bookingNo: "")) else { return }
@@ -35,21 +35,21 @@ struct AppointmentDeepLinkCard: View {
                 } label: {
                     HStack(spacing: 6) {
                         VLIcon.externalLink.resizable().frame(width: 16, height: 16)
-                        Text("打开挂号平台搜索 \(entry.hospitalName)")
+                        Text(L10n.deeplinkOpen(entry.hospitalName))
                     }
                     .frame(minWidth: 44, minHeight: 44, alignment: .leading)
                 }
                 .accessibilityIdentifier("FR10.6.deepLink.open")
             } else {
-                Text("该医院不在本地挂号映射表中")
+                Text(L10n.deeplink_notFound)
                     .font(.caption).foregroundStyle(.secondary)
             }
             // 返回后手动补录预约编号（FR10.6：不内嵌交易）
-            TextField("预约编号（挂号后补录）", text: $bookingNo)
+            TextField(L10n.deeplink_bookingNo, text: $bookingNo)
                 .textFieldStyle(.roundedBorder)
                 .accessibilityIdentifier("FR10.6.bookingNo.input")
             if let onCommitBookingNo, !bookingNo.trimmingCharacters(in: .whitespaces).isEmpty {
-                Button("保存预约编号") {
+                Button(L10n.deeplink_saveNo) {
                     onCommitBookingNo(bookingNo.trimmingCharacters(in: .whitespaces))
                     bookingNo = ""
                 }

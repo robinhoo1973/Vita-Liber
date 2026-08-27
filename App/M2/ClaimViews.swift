@@ -17,8 +17,8 @@ struct ClaimListView: View {
                     .accessibilityIdentifier("FR13.7.claim.totals")
             }
             if rows.isEmpty {
-                ContentUnavailableView("还没有报销票据", systemImage: "doc.text",
-                                       description: Text("录入发票/费用/收据，按就诊整理"))
+                ContentUnavailableView(L10n.claim_empty, systemImage: "doc.text",
+                                       description: Text(L10n.claim_emptyHint))
                     .accessibilityIdentifier("FR13.7.claim.empty")
             } else {
                 ForEach(rows) { row in
@@ -40,13 +40,13 @@ struct ClaimListView: View {
                 }
             }
         }
-        .navigationTitle("报销票据")
+        .navigationTitle(L10n.claim_title)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     showCreate = true
                 } label: {
-                    Label("新增", image: "ic-add").frame(minHeight: 44)
+                    Label(L10n.claim_add, image: "ic-add").frame(minHeight: 44)
                 }
                 .accessibilityIdentifier("FR13.7.claim.add")
             }
@@ -61,9 +61,9 @@ struct ClaimListView: View {
 
     private func typeLabel(_ type: String) -> String {
         switch type {
-        case "invoice": return "发票"
-        case "fee": return "费用"
-        default: return "收据"
+        case "invoice": return L10n.claim_type_invoice
+        case "fee": return L10n.claim_type_fee
+        default: return L10n.claim_type_receipt
         }
     }
 }
@@ -80,9 +80,9 @@ private struct ClaimCreateSheet: View {
         NavigationStack {
             Form {
                 Picker("类型", selection: $type) {
-                    Text("发票").tag("invoice")
-                    Text("费用").tag("fee")
-                    Text("收据").tag("receipt")
+                    Text(L10n.claim_type_invoice).tag("invoice")
+                    Text(L10n.claim_type_fee).tag("fee")
+                    Text(L10n.claim_type_receipt).tag("receipt")
                 }
                 TextField("金额", text: $amount)
                     .keyboardType(.decimalPad)

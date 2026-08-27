@@ -19,8 +19,8 @@ struct InventoryListView: View {
 
     var body: some View {
         if items.isEmpty {
-            ContentUnavailableView("药箱还没有记录", systemImage: "pills",
-                                   description: Text("创建用药计划或补充批次后，余量与效期会出现在这里"))
+            ContentUnavailableView(L10n.inventory_empty, systemImage: "pills",
+                                   description: Text(L10n.inventory_emptyHint))
                 .accessibilityIdentifier("FR9.8.inventory.empty")
         } else {
             List(items, id: \.lotId) { item in
@@ -35,7 +35,7 @@ struct InventoryListView: View {
                     Button {
                         onExportDispenseList()
                     } label: {
-                        Label("配药清单", image: "ic-export").frame(minHeight: 44)
+                        Label(L10n.inventory_reportTitle, image: "ic-export").frame(minHeight: 44)
                     }
                     .accessibilityIdentifier("FR13.8.dispense.export")
                 }
@@ -73,11 +73,11 @@ private struct InventoryRow: View {
             }
             // FR9.8.7 诚实性文案：只写「约」，绝不给精确到小时的假象
             if let days = item.approxDaysLeft {
-                Text("约剩 \(days) 天 · 按计划估算")
+                Text(L10n.inventoryApproxDays(days))
                     .font(.subheadline)
                     .accessibilityIdentifier("FR9.8.inventory.approxDays")
             } else {
-                Text("无进行中的用药计划，无法估算剩余天数")
+                Text(L10n.inventory_noPlanHint)
                     .font(.caption).foregroundStyle(.secondary)
             }
             Text("安全线 \(item.remainingPlanUnits, specifier: "%g") \(item.unitKind) · 确认 \(item.remainingConfirmedUnits, specifier: "%g") \(item.unitKind)")
@@ -93,7 +93,7 @@ private struct InventoryRow: View {
                 } label: {
                     HStack(spacing: 4) {
                         VLIcon.edit.resizable().frame(width: 16, height: 16)
-                        Text("修正余量")
+                        Text(L10n.inventory_fixCount)
                     }
                     .frame(minWidth: 44, minHeight: 44, alignment: .leading)
                 }
@@ -142,7 +142,7 @@ struct InventoryReconcileSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("修正 \(item.medicationName) 余量").font(.headline)
+            Text(L10n.inventoryReconcileTitle(item.medicationName)).font(.headline)
             Text("账面：\(item.remainingConfirmedUnits, specifier: "%g") \(item.unitKind)（确认线）")
                 .font(.caption).foregroundStyle(.secondary)
             Slider(value: $count,
@@ -199,19 +199,19 @@ struct InventoryMonthlyReportView: View {
                  + " 用药消耗").font(.headline)
             if InventoryReportRules.violation(in: report.statement) != nil {
                 // 一票否决路径：违反负清单的文案不得上屏（BR-006 延伸）
-                Text("月报生成异常，已拦截显示")
+                Text(L10n.inventory_reportBlocked)
                     .foregroundStyle(Color("grade-d", bundle: .main))
                     .accessibilityIdentifier("FR9.8.report.blocked")
             } else {
                 Text(report.statement)
                     .font(.title3)
                     .accessibilityIdentifier("FR9.8.report.statement")
-                Text("本报告只呈现计划与确认次数的事实，不构成任何医疗评价。")
+                Text(L10n.inventory_reportFact)
                     .font(.caption2).foregroundStyle(.secondary)
             }
             Spacer()
         }
         .padding(16)
-        .navigationTitle("消耗差异月报")
+        .navigationTitle(L10n.inventory_reportTitle)
     }
 }

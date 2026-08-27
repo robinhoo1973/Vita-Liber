@@ -14,8 +14,8 @@ struct ImmunizationListView: View {
     var body: some View {
         List {
             if records.isEmpty {
-                ContentUnavailableView("还没有疫苗记录", systemImage: "syringe",
-                                       description: Text("手动录入或从疫苗记录类型文档懒创建"))
+                ContentUnavailableView(L10n.immunization_empty, systemImage: "syringe",
+                                       description: Text(L10n.immunization_emptyHint))
                     .accessibilityIdentifier("FR4.5.immunization.empty")
             } else {
                 ForEach(records) { record in
@@ -39,13 +39,13 @@ struct ImmunizationListView: View {
                 }
             }
         }
-        .navigationTitle("疫苗接种记录")
+        .navigationTitle(L10n.immunization_title)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     showCreate = true
                 } label: {
-                    Label("新增", image: "ic-add").frame(minHeight: 44)
+                    Label(L10n.claim_add, image: "ic-add").frame(minHeight: 44)
                 }
                 .accessibilityIdentifier("FR4.5.immunization.add")
             }
@@ -63,7 +63,7 @@ struct ImmunizationListView: View {
 private struct GradeBadgeText: View {
     let confirmed: Bool
     var body: some View {
-        Text(confirmed ? "已确认" : "待确认")
+        Text(confirmed ? L10n.immunization_confirmed : L10n.immunization_pending)
             .font(.caption2)
             .padding(.horizontal, 6).padding(.vertical, 2)
             .background(Capsule().fill(Color("surface-tint-start", bundle: .main)))
@@ -97,7 +97,7 @@ private struct ImmunizationCreateSheet: View {
                     .accessibilityIdentifier("FR4.5.create.provider")
                 TextField("批号", text: $lot)
                     .accessibilityIdentifier("FR4.5.create.lot")
-                Text("手动录入的记录按已确认处理；从文档识别的记录需要你逐项确认后才生效。")
+                Text(L10n.immunization_note)
                     .font(.caption).foregroundStyle(.secondary)
             }
             .navigationTitle("新增疫苗记录")

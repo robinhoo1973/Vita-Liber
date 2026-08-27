@@ -19,7 +19,7 @@ struct MedicationHelpCardSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("选择药品批次（可多选）") {
+                Section(L10n.helpcard_selectHint) {
                     ForEach(items) { item in
                         Button {
                             if selectedIds.contains(item.lotId) {
@@ -53,18 +53,18 @@ struct MedicationHelpCardSheet: View {
                             set: { newValue in
                                 includePhotos = newValue ? selectedIds : []
                             })) {
-                            Text("包含存放位置照片（外发家庭内部影像，请确认确有需要）")
+                            Text(L10n.helpcard_photoOptIn)
                         }
                         .accessibilityIdentifier("FR9.13a.card.photoOptIn")
                     }
-                    Text("卡片内容：药名/规格/剩余量/存放位置文字/效期。不包含任何诊断类信息。")
+                    Text(L10n.helpcard_contentNote)
                         .font(.caption2).foregroundStyle(.secondary)
                 }
             }
-            .navigationTitle("药品求助卡")
+            .navigationTitle(L10n.helpcard_title)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("生成并分享") {
+                    Button(L10n.helpcard_generate) {
                         var inputs: [MedicationHelpCardRules.Input] = []
                         for item in items where selectedIds.contains(item.lotId) {
                             inputs.append(MedicationHelpCardRules.Input(

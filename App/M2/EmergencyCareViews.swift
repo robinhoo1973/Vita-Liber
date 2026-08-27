@@ -21,17 +21,17 @@ struct EmergencyCardView: View {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(spacing: 8) {
                     VLIcon.emergencyCard.resizable().frame(width: 28, height: 28)
-                    Text("紧急信息卡").font(.title2).bold()
+                    Text(L10n.emergency_title).font(.title2).bold()
                     Spacer()
                 }
                 if let bloodType, !bloodType.isEmpty {
-                    CardRow(icon: VLIcon.bloodDrop, title: "血型", value: bloodType)
+                    CardRow(icon: VLIcon.bloodDrop, title: L10n.emergency_bloodType, value: bloodType)
                         .accessibilityIdentifier("F15.card.bloodType")
                 }
-                section("过敏", items: card.allergies, empty: "未配置")
-                section("长期用药", items: card.medications, empty: "未配置")
-                section("健康问题", items: card.healthProblems, empty: "未配置")
-                section("紧急联系人", items: card.contacts, empty: "未配置")
+                section(L10n.emergency_allergy, items: card.allergies, empty: L10n.emergency_notSet)
+                section(L10n.emergency_meds, items: card.medications, empty: L10n.emergency_notSet)
+                section(L10n.emergency_health, items: card.healthProblems, empty: L10n.emergency_notSet)
+                section(L10n.emergency_contacts, items: card.contacts, empty: L10n.emergency_notSet)
 
                 if EmergencyCardService.medicalIDGuideNeeded(card: card) {
                     GuideCard(onGuide: onGuideMedicalID)
@@ -48,7 +48,7 @@ struct EmergencyCardView: View {
             }
             .padding(16)
         }
-        .navigationTitle("紧急信息卡")
+        .navigationTitle(L10n.emergency_title)
     }
 
     private func section(_ title: String, items: [EmergencyCardItem], empty: String) -> some View {
@@ -190,7 +190,7 @@ struct SOSButton: View {
                 Button {
                     // 触发由长按手势承担；点按给轻提示（Touch target ≥44pt，关怀 ≥64pt）
                 } label: {
-                    Text("紧急求助（长按）")
+                    Text(L10n.emergency_sos_hold)
                         .font(careMode ? .title3 : .body)
                         .frame(minWidth: careMode ? 200 : 160,
                                minHeight: careMode ? 64 : 44)
@@ -205,14 +205,14 @@ struct SOSButton: View {
                 .accessibilityLabel("紧急求助：长按 \(Int(requiredHold)) 秒激活")
                 .accessibilityIdentifier("F15.card.sos.hold")
             } else {
-                Text("确认真要发出求助？")
+                Text(L10n.emergency_sos_confirmPrompt)
                     .font(.headline)
                     .accessibilityIdentifier("F15.card.sos.confirmPrompt")
                 HStack(spacing: 16) {
-                    Button("取消") { holdConfirmed = false }
+                    Button(L10n.emergency_sos_cancel) { holdConfirmed = false }
                         .frame(minHeight: careMode ? 64 : 44)
                         .accessibilityIdentifier("F15.card.sos.cancel")
-                    Button("确认求助") { onTrigger?() }
+                    Button(L10n.emergency_sos_confirm) { onTrigger?() }
                         .buttonStyle(.borderedProminent)
                         .tint(.red)
                         .frame(minHeight: careMode ? 64 : 44)
@@ -243,11 +243,11 @@ struct CareModeSettingsView: View {
                         careMode = newValue
                         app.careMode = newValue
                     })) {
-                    Label("关怀模式", image: "ic-observe-frame")
+                    Label(L10n.care_title, image: "ic-observe-frame")
                 }
                 .accessibilityIdentifier("F18.care.toggle")
             } footer: {
-                Text("开启后：触点与字号放大、语音输入设为默认、回读改为每次询问、紧急求助门槛提高以防误触。")
+                Text(L10n.care_footer)
             }
             if careMode {
                 Section("生效参数") {
@@ -260,7 +260,7 @@ struct CareModeSettingsView: View {
                 .accessibilityIdentifier("F18.care.parameters")
             }
         }
-        .navigationTitle("关怀模式")
+        .navigationTitle(L10n.care_title)
         .onAppear { careMode = app.careMode }
     }
 }

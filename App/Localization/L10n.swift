@@ -61,8 +61,70 @@ enum L10n {
     static var backupNoSpace: String { t("backup.degrade.noSpace") }
     static var backupChecksumFailed: String { t("backup.degrade.checksum") }
 
+    static var inventory_title: String { t("inventory.title") }
+    static var inventory_empty: String { t("inventory.empty") }
+    static var inventory_emptyHint: String { t("inventory.emptyHint") }
+    static var inventory_approxDays: String { t("inventory.approxDays") }
+    static var inventory_noPlanHint: String { t("inventory.noPlanHint") }
+    static var inventory_fixCount: String { t("inventory.fixCount") }
+    static var inventory_reconcileTitle: String { t("inventory.reconcileTitle") }
+    static var inventory_reportTitle: String { t("inventory.reportTitle") }
+    static var inventory_reportBlocked: String { t("inventory.reportBlocked") }
+    static var inventory_reportFact: String { t("inventory.reportFact") }
+    static var emergency_title: String { t("emergency.title") }
+    static var emergency_bloodType: String { t("emergency.bloodType") }
+    static var emergency_allergy: String { t("emergency.allergy") }
+    static var emergency_meds: String { t("emergency.meds") }
+    static var emergency_health: String { t("emergency.health") }
+    static var emergency_contacts: String { t("emergency.contacts") }
+    static var emergency_notSet: String { t("emergency.notSet") }
+    static var emergency_sos_hold: String { t("emergency.sos.hold") }
+    static var emergency_sos_confirmPrompt: String { t("emergency.sos.confirmPrompt") }
+    static var emergency_sos_confirm: String { t("emergency.sos.confirm") }
+    static var emergency_sos_cancel: String { t("emergency.sos.cancel") }
+    static var care_title: String { t("care.title") }
+    static var care_footer: String { t("care.footer") }
+    static var claim_title: String { t("claim.title") }
+    static var claim_empty: String { t("claim.empty") }
+    static var claim_emptyHint: String { t("claim.emptyHint") }
+    static var claim_add: String { t("claim.add") }
+    static var claim_type_invoice: String { t("claim.type.invoice") }
+    static var claim_type_fee: String { t("claim.type.fee") }
+    static var claim_type_receipt: String { t("claim.type.receipt") }
+    static var immunization_title: String { t("immunization.title") }
+    static var immunization_empty: String { t("immunization.empty") }
+    static var immunization_emptyHint: String { t("immunization.emptyHint") }
+    static var immunization_confirmed: String { t("immunization.confirmed") }
+    static var immunization_pending: String { t("immunization.pending") }
+    static var immunization_note: String { t("immunization.note") }
+    static var deeplink_title: String { t("deeplink.title") }
+    static var deeplink_jump: String { t("deeplink.jump") }
+    static var deeplink_open: String { t("deeplink.open") }
+    static var deeplink_notFound: String { t("deeplink.notFound") }
+    static var deeplink_bookingNo: String { t("deeplink.bookingNo") }
+    static var deeplink_saveNo: String { t("deeplink.saveNo") }
+    static var helpcard_title: String { t("helpcard.title") }
+    static var helpcard_selectHint: String { t("helpcard.selectHint") }
+    static var helpcard_photoOptIn: String { t("helpcard.photoOptIn") }
+    static var helpcard_contentNote: String { t("helpcard.contentNote") }
+    static var helpcard_generate: String { t("helpcard.generate") }
+
     /// 全部已键化的 key（SU-M15-L10N 遍历断言的输入）。
     /// 新增 key 必须同步登记到这里——否则门禁扫不到，又回到「缺证据当有证据」。
+    /// 参数化文案（避免把格式串散落视图）
+    static func inventoryApproxDays(_ days: Int) -> String {
+        t("inventory.approxDays").replacingOccurrences(of: "%d", with: String(days))
+    }
+    static func inventoryReconcileTitle(_ name: String) -> String {
+        t("inventory.reconcileTitle").replacingOccurrences(of: "%@", with: name)
+    }
+    static func deeplinkJump(_ hospital: String) -> String {
+        t("deeplink.jump").replacingOccurrences(of: "%@", with: hospital)
+    }
+    static func deeplinkOpen(_ hospital: String) -> String {
+        t("deeplink.open").replacingOccurrences(of: "%@", with: hospital)
+    }
+
     static let registeredKeys: [String] = [
         "nav.home", "nav.records", "nav.reminders", "nav.ai", "nav.me",
         "trend.title", "trend.range.unavailable", "trend.excluded.toggle",
@@ -78,6 +140,53 @@ enum L10n {
         "voice.privacy.accept", "voice.privacy.useTouch",
         "backup.title", "backup.create", "backup.restore",
         "backup.degrade.notSignedIn", "backup.degrade.noSpace", "backup.degrade.checksum",
+        "inventory.title",
+        "inventory.empty",
+        "inventory.emptyHint",
+        "inventory.approxDays",
+        "inventory.noPlanHint",
+        "inventory.fixCount",
+        "inventory.reconcileTitle",
+        "inventory.reportTitle",
+        "inventory.reportBlocked",
+        "inventory.reportFact",
+        "emergency.title",
+        "emergency.bloodType",
+        "emergency.allergy",
+        "emergency.meds",
+        "emergency.health",
+        "emergency.contacts",
+        "emergency.notSet",
+        "emergency.sos.hold",
+        "emergency.sos.confirmPrompt",
+        "emergency.sos.confirm",
+        "emergency.sos.cancel",
+        "care.title",
+        "care.footer",
+        "claim.title",
+        "claim.empty",
+        "claim.emptyHint",
+        "claim.add",
+        "claim.type.invoice",
+        "claim.type.fee",
+        "claim.type.receipt",
+        "immunization.title",
+        "immunization.empty",
+        "immunization.emptyHint",
+        "immunization.confirmed",
+        "immunization.pending",
+        "immunization.note",
+        "deeplink.title",
+        "deeplink.jump",
+        "deeplink.open",
+        "deeplink.notFound",
+        "deeplink.bookingNo",
+        "deeplink.saveNo",
+        "helpcard.title",
+        "helpcard.selectHint",
+        "helpcard.photoOptIn",
+        "helpcard.contentNote",
+        "helpcard.generate"
     ]
 
     /// 支持的本地化（三文件纪律）
