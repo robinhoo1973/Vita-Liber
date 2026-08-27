@@ -56,6 +56,10 @@ struct SettingsView: View {
                     .accessibilityIdentifier("SP-25.settings.guidelines")
                 }
                 Section(L10n.settings_pro) {
+                    NavigationLink(L10n.proOutput_title) {
+                        ProOutputHubView()
+                    }
+                    .accessibilityIdentifier("SP-25.settings.proOutputs")
                     NavigationLink(L10n.settings_proUpgrade) {
                         PaywallView()
                     }

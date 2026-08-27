@@ -19,6 +19,9 @@ final class ReminderStore {
     private let apts: AppointmentStore
     private let reconciler: ReminderReconciler
     private let logger = Logger(subsystem: "com.vitaliber", category: "reminders")
+    /// 关怀模式震颤防抖（F18）：同一动作按钮的最近一次触发时刻；
+    /// 连续重复点击在防抖窗口内只计一次（TremorGuard 是 Domain 纯函数）
+    private var lastActionAt: Date?
 
     init(meds: MedicationStore, apts: AppointmentStore, reconciler: ReminderReconciler) {
         self.meds = meds
@@ -53,8 +56,11 @@ final class ReminderStore {
         }
     }
 
-    /// 服药确认动作集（FR9.7）：动作按 notifyId UPDATE 物化行（评审修正 P0）
-    func confirmTaken(patientId: UUID, dose: ScheduledDose) async {
+    /// 服药确认动作集（FR9.7）：动作按 notifyId UPDATE 物化行（评审修正 P0）。
+    /// careMode=true 时经 TremorGuard 防抖——震颤模拟下连续重复点击只计一次
+    /// （F18 关怀模式验收的落点；Domain 纯函数，本层只做门卫）。
+    func confirmTaken(patientId: UUID, dose: ScheduledDose, careMode: Bool = false) async {
+        guard tremorAccepted(careMode: careMode) else { return }
         do {
             try await meds.confirmTaken(notifyId: dose.notifyId, patientId: patientId)
             await refresh(patientId: patientId)
@@ -63,7 +69,8 @@ final class ReminderStore {
         }
     }
 
-    func skipDose(dose: ScheduledDose) async {
+    func skipDose(dose: ScheduledDose, careMode: Bool = false) async {
+        guard tremorAccepted(careMode: careMode) else { return }
         do {
             try await meds.recordAction(notifyId: dose.notifyId, action: .skipped)
         } catch {
@@ -71,7 +78,8 @@ final class ReminderStore {
         }
     }
 
-    func snoozeDose(dose: ScheduledDose, minutes: Int = 15, patientId: UUID?) async {
+    func snoozeDose(dose: ScheduledDose, minutes: Int = 15, patientId: UUID?, careMode: Bool = false) async {
+        guard tremorAccepted(careMode: careMode) else { return }
         do {
             try await meds.recordAction(notifyId: dose.notifyId, action: .snoozed)
             // S1-2 修正：稍后=取消时段通知 + 按新时刻单排（FR9.5）
@@ -82,6 +90,16 @@ final class ReminderStore {
         } catch {
             logger.error("稍后提醒失败: \(error)")
         }
+    }
+
+    /// 震颤防抖门卫（F18）：常规模式不设防（零延迟），关怀模式 0.3s 窗口内
+    /// 重复触发只计第一次。业务判定全在 Domain TremorGuard。
+    private func tremorAccepted(careMode: Bool) -> Bool {
+        let mode = careMode ? CareModeMetrics.care : CareModeMetrics.standard
+        let accepted = TremorGuard.shouldAccept(lastActionAt: lastActionAt, now: Date(), mode: mode)
+        if accepted { lastActionAt = Date() }
+        else { logger.info("关怀模式防抖：忽略 0.3s 内重复点击") }
+        return accepted
     }
 
     /// 计划创建（评审修正 P0：提醒链此前无用户起点——处方→计划 UI 缺失）

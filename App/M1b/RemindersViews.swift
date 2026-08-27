@@ -20,11 +20,11 @@ struct RemindersView: View {
                     }
                     ForEach(reminders.todaySlots) { slot in
                         DoseSlotCard(slot: slot) { dose in
-                            Task { await reminders.confirmTaken(patientId: currentPatientId, dose: dose) }
+                            Task { await reminders.confirmTaken(patientId: currentPatientId, dose: dose, careMode: app.careMode) }
                         } onSkip: { dose in
-                            Task { await reminders.skipDose(dose: dose) }
+                            Task { await reminders.skipDose(dose: dose, careMode: app.careMode) }
                         } onSnooze: { dose in
-                            Task { await reminders.snoozeDose(dose: dose, patientId: currentPatientId) }
+                            Task { await reminders.snoozeDose(dose: dose, patientId: currentPatientId, careMode: app.careMode) }
                         }
                     }
                     Button {

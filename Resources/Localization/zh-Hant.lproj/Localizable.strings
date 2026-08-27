@@ -192,3 +192,12 @@
 "member.save" = "儲存";
 "member.quotaHint" = "免費檔最多 4 位成員；超過後可隨 Pro 解鎖。";
 "member.addedHint" = "已新增，可在完善檔案中補充健康史。";
+"proOutput.title" = "Pro 產出包";
+"dose.number" = "第 %1$d 劑";
+"onboard.reviseTitle" = "修改「%@」";
+"onboard.ocrRaw" = "OCR 原文：%@";
+"onboard.tierUnconfirmed" = "%@ · 辨識未確認";
+"onboard.confirmedCount" = "已確認欄位 %1$d/%2$d";
+"onboard.revisionHistory" = "修訂歷史：%@";
+"onboard.sourceConfirmed" = "來源已確認";
+"onboard.unconfirmed2" = "辨識未確認";

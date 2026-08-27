@@ -235,6 +235,27 @@ enum L10n {
     static var member_quotaHint: String { t("member.quotaHint") }
     static var member_addedHint: String { t("member.addedHint") }
 
+        static var proOutput_title: String { t("proOutput.title") }
+
+        static func doseNumber(_ n: Int) -> String { String(format: t("dose.number"), n) }
+    static func onboardReviseTitle(_ label: String) -> String {
+        t("onboard.reviseTitle").replacingOccurrences(of: "%@", with: label)
+    }
+    static func onboardOcrRaw(_ text: String) -> String {
+        t("onboard.ocrRaw").replacingOccurrences(of: "%@", with: text)
+    }
+    static func onboardTierUnconfirmed(_ tier: String) -> String {
+        t("onboard.tierUnconfirmed").replacingOccurrences(of: "%@", with: tier)
+    }
+    static func onboardConfirmedCount(_ a: Int, _ b: Int) -> String {
+        String(format: t("onboard.confirmedCount"), a, b)
+    }
+    static func onboardRevisionHistory(_ history: String) -> String {
+        t("onboard.revisionHistory").replacingOccurrences(of: "%@", with: history)
+    }
+    static var onboard_sourceConfirmed: String { t("onboard.sourceConfirmed") }
+    static var onboard_unconfirmed2: String { t("onboard.unconfirmed2") }
+
         /// 全部已键化的 key（SU-M15-L10N 遍历断言的输入）。
     /// 新增 key 必须同步登记到这里——否则门禁扫不到，又回到「缺证据当有证据」。
     /// 参数化文案（避免把格式串散落视图）

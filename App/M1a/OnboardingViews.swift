@@ -272,7 +272,7 @@ struct ConfirmFieldRowView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(field.displayLabel).font(.caption).foregroundStyle(Color("text-secondary", bundle: .main))
                 Text(field.value).font(.body)
-                Text("\(tierText) · 识别未确认")
+                Text(L10n.onboardTierUnconfirmed(tierText))
                     .font(.caption2)
                     .foregroundStyle(field.isConfirmed ? Color("grade-c", bundle: .main) : Color("grade-d", bundle: .main))
             }
@@ -312,8 +312,8 @@ struct ConfirmFieldRowView: View {
         .padding(.horizontal, 16)
         .sheet(isPresented: $editing) {
             VStack(spacing: 16) {
-                Text("修改「\(field.displayLabel)」").font(.headline)
-                Text("OCR 原文：\(field.rawText)").font(.caption).foregroundStyle(.secondary)
+                Text(L10n.onboardReviseTitle(field.displayLabel)).font(.headline)
+                Text(L10n.onboardOcrRaw(field.rawText)).font(.caption).foregroundStyle(.secondary)
                 TextField(L10n.onboard_newValue, text: $draft)
                     .textFieldStyle(.roundedBorder)
                     .accessibilityIdentifier("SP-53.field.editField")
@@ -378,10 +378,10 @@ struct TimelineView: View {
                 List(app.timeline) { entry in
                     VStack(alignment: .leading, spacing: 4) {
                         Text(entry.title).font(.body)
-                        Text("已确认字段 \(entry.confirmedFieldCount)/\(entry.totalFieldCount)")
+                        Text(L10n.onboardConfirmedCount(entry.confirmedFieldCount, entry.totalFieldCount))
                             .font(.caption).foregroundStyle(.secondary)
                         if !entry.revisionHistory.isEmpty {
-                            Text("修订历史：\(entry.revisionHistory.joined(separator: " → "))")
+                            Text(L10n.onboardRevisionHistory(entry.revisionHistory.joined(separator: " → ")))
                                 .font(.caption2)
                                 .foregroundStyle(Color("text-secondary", bundle: .main))
                         }

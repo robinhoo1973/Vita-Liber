@@ -25,7 +25,7 @@ struct ImmunizationListView: View {
                             Spacer()
                             GradeBadgeText(confirmed: record.confirmed)
                         }
-                        Text("第 \(record.doseNumber) 剂"
+                        Text(L10n.doseNumber(record.doseNumber)
                              + (record.administeredAt.map { " · \($0.formatted(date: .abbreviated, time: .omitted))" } ?? ""))
                             .font(.subheadline).foregroundStyle(.secondary)
                         if !record.provider.isEmpty || !record.lotNumber.isEmpty {
@@ -71,7 +71,7 @@ private struct GradeBadgeText: View {
                 confirmed ? Color("brand-primary", bundle: .main) : Color("grade-d", bundle: .main),
                 style: StrokeStyle(lineWidth: 1, dash: confirmed ? [] : [3, 2])))
             .foregroundStyle(confirmed ? Color("brand-primary", bundle: .main) : Color("grade-d", bundle: .main))
-            .accessibilityLabel(confirmed ? "来源已确认" : "识别未确认")
+            .accessibilityLabel(confirmed ? L10n.onboard_sourceConfirmed : L10n.onboard_unconfirmed2)
     }
 }
 
@@ -88,7 +88,7 @@ private struct ImmunizationCreateSheet: View {
             Form {
                 TextField("疫苗名称", text: $name)
                     .accessibilityIdentifier("FR4.5.create.name")
-                Stepper("第 \(dose) 剂", value: $dose, in: 1...20)
+                Stepper(L10n.doseNumber(dose), value: $dose, in: 1...20)
                     .accessibilityIdentifier("FR4.5.create.dose")
                 DatePicker("接种日期", selection: Binding(
                     get: { date ?? Date() },
