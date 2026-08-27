@@ -48,14 +48,24 @@ final class M2StockAcceptanceTests: XCTestCase {
         let lot = DualTrackInventory(lotId: UUID(), totalUnits: 10, unitKind: "tablet")
         try await meds.createLot(lot: lot, patientId: patient, medicationId: med)
 
-        // 计划从「4 天前」开始、每天 08:00 一剂；今天把窗口物化出来
+        // 计划自 4 天前起；过去的 4 剂直接落 dose_log（materializeWindow
+        // 只物化「今天起」的未来窗口，零确认场景的过期剂量必须在建行层面存在）
         let planStart = cal.date(byAdding: .day, value: -4, to: Date())!
         let planId = UUID()
         try await meds.createPlan(planId: planId, patientId: patient, medicationId: med,
                                   schedule: .fixed(times: ["08:00"]), status: .active,
                                   startDate: planStart, endDate: nil)
-        let inserted = try await meds.materializeWindow(now: Date(), calendar: cal)
-        XCTAssertGreaterThan(inserted, 0, "前置：窗口内必须物化出剂量行")
+        try await store.writer.write { db in
+            for dayOffset in 1...4 {
+                let due = cal.date(byAdding: .day, value: -dayOffset, to: Date())!
+                    .addingTimeInterval(8 * 3600)
+                try db.execute(sql: """
+                    INSERT INTO medication_dose_log (id, plan_id, scheduled_for, dose_units, delivery_state, user_action)
+                    VALUES (?, ?, ?, 1, 'planned', NULL)
+                    """, arguments: [UUID().uuidString, planId.uuidString,
+                                     due.timeIntervalSince1970])
+            }
+        }
 
         // —— 零确认存活的核心：一个动作都不做，只推进补账 ——
         let missed = try await meds.materializeMissed(now: Date())
@@ -98,7 +108,17 @@ final class M2StockAcceptanceTests: XCTestCase {
                                   schedule: .fixed(times: ["08:00"]), status: .active,
                                   startDate: cal.date(byAdding: .day, value: -2, to: Date())!,
                                   endDate: nil)
-        _ = try await meds.materializeWindow(now: Date(), calendar: cal)
+        try await store.writer.write { db in
+            for dayOffset in 1...2 {
+                let due = cal.date(byAdding: .day, value: -dayOffset, to: Date())!
+                    .addingTimeInterval(8 * 3600)
+                try db.execute(sql: """
+                    INSERT INTO medication_dose_log (id, plan_id, scheduled_for, dose_units, delivery_state, user_action)
+                    VALUES (?, ?, ?, 1, 'planned', NULL)
+                    """, arguments: [UUID().uuidString, planId.uuidString,
+                                     due.timeIntervalSince1970])
+            }
+        }
 
         let first = try await meds.materializeMissed(now: Date())
         let second = try await meds.materializeMissed(now: Date())
@@ -124,27 +144,29 @@ final class M2StockAcceptanceTests: XCTestCase {
                                   schedule: .fixed(times: ["08:00"]), status: .active,
                                   startDate: cal.date(byAdding: .day, value: -4, to: Date())!,
                                   endDate: nil)
-        _ = try await meds.materializeWindow(now: Date(), calendar: cal)
-
-        // 一天前的一剂已「服了」，其余全部零动作
-        let ids = try await store.writer.read { db in
-            try String.fetchAll(db, sql: "SELECT id FROM medication_dose_log ORDER BY scheduled_for")
-        }
-        XCTAssertFalse(ids.isEmpty)
-        if let earliest = ids.first {
-            // 早于宽限期的已过期行先补账（此时全部为 missed）
-            _ = try await meds.materializeMissed(now: Date())
-            // 无法补录已决议行——直接落一条 taken 行作「已服」事实（月报只读行）
-            try await store.writer.write { db in
+        try await store.writer.write { db in
+            // 3 条过去的未决议剂量 + 1 条 taken 事实
+            for dayOffset in 1...3 {
+                let due = cal.date(byAdding: .day, value: -dayOffset, to: Date())!
+                    .addingTimeInterval(8 * 3600)
                 try db.execute(sql: """
-                    INSERT INTO medication_dose_log
-                      (id, plan_id, scheduled_for, dose_units, delivery_state, user_action, acted_at)
-                    VALUES (?, ?, ?, 1, 'delivered', 'taken', ?)
+                    INSERT INTO medication_dose_log (id, plan_id, scheduled_for, dose_units, delivery_state, user_action)
+                    VALUES (?, ?, ?, 1, 'planned', NULL)
                     """, arguments: [UUID().uuidString, planId.uuidString,
-                                     Date().timeIntervalSince1970 - 3600,
-                                     Date().timeIntervalSince1970])
+                                     due.timeIntervalSince1970])
             }
+            let takenDue = cal.date(byAdding: .day, value: -1, to: Date())!
+                .addingTimeInterval(9 * 3600)
+            try db.execute(sql: """
+                INSERT INTO medication_dose_log
+                  (id, plan_id, scheduled_for, dose_units, delivery_state, user_action, acted_at)
+                VALUES (?, ?, ?, 1, 'delivered', 'taken', ?)
+                """, arguments: [UUID().uuidString, planId.uuidString,
+                                 takenDue.timeIntervalSince1970,
+                                 Date().timeIntervalSince1970])
         }
+        // 过去的未决议行先补账（taken 行不受影响）
+        _ = try await meds.materializeMissed(now: Date())
         let monthStart = cal.date(byAdding: .day, value: -30, to: Date())!
         let report = try await meds.monthlyReport(patientId: patient,
                                                   from: monthStart, to: Date())

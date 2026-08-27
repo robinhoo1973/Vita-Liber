@@ -24,6 +24,12 @@ final class M15AcceptanceTests: XCTestCase {
                 INSERT INTO patient_profile (id, display_name, relation, created_at, updated_at)
                 VALUES (?, '趋势测试患者', '本人', 0, 0)
                 """, arguments: [member.uuidString])
+            // 导出 envelope 的 selfProfile 经 local_owner.self_patient_id JOIN——
+            // 无 owner 行的 profile 不进包（M1c 往返测试同款纪律，ERR#35 前置）
+            try db.execute(sql: """
+                INSERT INTO local_owner (id, display_name, self_patient_id, created_at)
+                VALUES (?, '趋势测试患者', ?, 0)
+                """, arguments: [UUID().uuidString, member.uuidString])
         }
         return (store, member)
     }
@@ -153,6 +159,11 @@ final class M15AcceptanceTests: XCTestCase {
                   unit TEXT NOT NULL, origin TEXT NOT NULL, self_measured INTEGER NOT NULL,
                   excluded INTEGER NOT NULL DEFAULT 0, source_ref TEXT,
                   measured_at REAL NOT NULL, created_at REAL NOT NULL);
+                CREATE TABLE guideline_source (
+                  id TEXT PRIMARY KEY, title TEXT NOT NULL, org TEXT NOT NULL,
+                  year INTEGER NOT NULL, clause_ref TEXT NOT NULL,
+                  citation_url TEXT NOT NULL, version TEXT NOT NULL,
+                  checked_at REAL NOT NULL, retired_at REAL);
                 PRAGMA user_version = 1;
                 """)
         }
@@ -203,13 +214,18 @@ final class M15AcceptanceTests: XCTestCase {
         let (store, _) = try await makeStore()
         let pkg = try await BackupService(writer: store.writer).createBackup()
 
-        // 在 payload 里翻转一个字节（外层 JSON 结构保持合法）
-        var text = String(decoding: pkg.data, as: UTF8.self)
-        guard let r = text.range(of: "趋势测试患者") else {
-            return XCTFail("前提：备份内应含种子档案名")
+        // 外层信封 = {sha256, payload(编码)}——翻转 payload 的一个字节，
+        // 结构依旧合法但 sha256 必然失配
+        struct Outer: Codable { var sha256: String; var payload: Data }
+        let decoder = JSONDecoder()
+        var outer: Outer
+        do { outer = try decoder.decode(Outer.self, from: pkg.data) }
+        catch { return XCTFail("前提：备份外层信封应可解——\(error)") }
+        guard outer.payload.count > 4 else {
+            return XCTFail("前提：payload 应有足够字节")
         }
-        text.replaceSubrange(r, with: "趋势测试患考")
-        let tampered = Data(text.utf8)
+        outer.payload[outer.payload.startIndex] ^= 0xFF
+        let tampered = try JSONEncoder().encode(outer)
 
         let fresh = try GRDBStore.inMemory()
         do {
