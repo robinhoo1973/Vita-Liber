@@ -11,7 +11,7 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("授权（独立开关，关掉即停）") {
+                Section(L10n.settings_authTitle) {
                     ForEach(authKeys, id: \.rawValue) { key in
                         Toggle(isOn: binding(for: key)) {
                             Text(label(for: key))
@@ -19,10 +19,11 @@ struct SettingsView: View {
                         .accessibilityIdentifier("SP-25.setting.\(key.rawValue)")
                     }
                 }
-                Section("常用习惯") {
-                    Text("提醒提前量：\(settings.values[.remindAdvanceMinutes] ?? "-") 分钟")
-                    Text("稍后时长：\(settings.values[.snoozeMinutes] ?? "-") 分钟")
-                    Text("安静时段：\(settings.values[.quietHoursStart] ?? "-") - \(settings.values[.quietHoursEnd] ?? "-")")
+                Section(L10n.settings_habits) {
+                    Text(L10n.settingsRemindAdvance(settings.values[.remindAdvanceMinutes] ?? "-"))
+                    Text(L10n.settingsSnooze(settings.values[.snoozeMinutes] ?? "-"))
+                    Text(L10n.settingsQuietHours(settings.values[.quietHoursStart] ?? "-",
+                                      settings.values[.quietHoursEnd] ?? "-"))
                 }
                 Section(L10n.hub_healthRecords) {
                     NavigationLink(L10n.inventory_title) {
@@ -50,27 +51,27 @@ struct SettingsView: View {
                     }
                     .accessibilityIdentifier("SP-25.settings.guidelines")
                 }
-                Section("Pro") {
-                    NavigationLink("Pro 升级与恢复") {
+                Section(L10n.settings_pro) {
+                    NavigationLink(L10n.settings_proUpgrade) {
                         PaywallView()
                     }
                     .accessibilityIdentifier("SP-25.settings.pro")
                 }
-                Section("隐私与数据") {
-                    NavigationLink("审计记录") {
+                Section(L10n.settings_privacy) {
+                    NavigationLink(L10n.settings_audit) {
                         AuditLogView()
                     }
                     .accessibilityIdentifier("SP-25.settings.audit")
-                    Button("恢复默认设置") {
+                    Button(L10n.settings_restoreDefaults) {
                         Task { try await settings.restoreDefaults() }
                     }
                 }
-                Section("关于") {
-                    NavigationLink("帮助与关于") {
+                Section(L10n.settings_about) {
+                    NavigationLink(L10n.settings_help) {
                         HelpAboutView()
                     }
                     .accessibilityIdentifier("SP-25.settings.help")
-                    Text("本 App 不是医疗设备，不下诊断、不给治疗方案建议。")
+                    Text(L10n.settings_disclaimer)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -96,8 +97,8 @@ struct SettingsView: View {
 
     private func label(for key: AppSettingKey) -> String {
         switch key {
-        case .careModeEnable: return "关怀模式"
-        case .voiceEntryVisible: return "语音快速入口"
+        case .careModeEnable: return L10n.settings_careMode
+        case .voiceEntryVisible: return L10n.settings_voiceEntry
         default: return key.rawValue
         }
     }

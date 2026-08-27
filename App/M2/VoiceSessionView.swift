@@ -34,6 +34,9 @@ final class VoiceSessionState {
     private let logger = Logger(subsystem: "com.vitaliber", category: "voicesession")
 
     func clearPendingObject() { pendingObject = nil }
+    func clearOptions() { options = [] }
+    func clearRejection() { rejected = false }
+    func end() { ended = true; isListening = false }
     func start() { isListening = true }
     func pause() { isListening = false }       // 退出前台（FR19.1）
     func resume() { isListening = true }
@@ -140,82 +143,10 @@ struct VoiceSessionView: View {
             // 聆听状态（FR19.1：必须显示聆听状态与结束按钮）
             listeningIndicator
 
-            // 屏幕字幕（与播报一致，FR19.3）
-            if !session.caption.isEmpty {
-                Text(session.caption)
-                    .font(.body)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(12)
-                    .background(RoundedRectangle(cornerRadius: 12)
-                        .fill(Color("bg-grouped", bundle: .main)))
-                    .accessibilityIdentifier("F19.session.caption")
-            }
-
-            // 列选（FR19.4：≤3 项编号）
-            if !session.options.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(Array(session.options.enumerated()), id: \.offset) { index, option in
-                        Button {
-                            handleChoice(number: index + 1)
-                        } label: {
-                            HStack {
-                                Text("\(index + 1)").bold().frame(width: 28)
-                                Text(option)
-                                Spacer()
-                            }
-                            .padding(10)
-                            .frame(minHeight: 64)     // 关怀模式 ≥64pt
-                            .background(RoundedRectangle(cornerRadius: 12)
-                                .fill(Color("surface-tint-start", bundle: .main).opacity(0.25)))
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("F19.session.option.\(index + 1)")
-                    }
-                }
-            }
-
-            // 拨号复述确认（FR19.5）
-            if let obj = session.pendingObject {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(L10n.f19RepeatObject(obj)).font(.headline)
-                        .accessibilityIdentifier("F19.session.repeatObject")
-                    HStack(spacing: 16) {
-                        Button(L10n.f19_cancel) {
-                            _ = session.submit("取消", speak: { app.speak($0) })
-                        }
-                        .frame(minWidth: 88, minHeight: 64)
-                        .accessibilityIdentifier("F19.session.cancelCall")
-                        Button(L10n.f19_confirm) {
-                            // 走引擎的 repeatingObject 确认语义——UI 触屏确认
-                            // 与语音「确认」同一条路径，不绕过状态机（FR19.5）
-                            let executed = session.submit("确认", speak: { app.speak($0) })
-                            handleExecution(executed, object: session.pendingObject)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .frame(minWidth: 88, minHeight: 64)
-                        .accessibilityIdentifier("F19.session.confirmCall")
-                    }
-                }
-            }
-
-            // 拒绝卡（FR19.5：删除/剂量变更一律拒绝 → 引导触屏）
-            if session.rejected {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 8) {
-                        VLIcon.ban.resizable().frame(width: 24, height: 24)
-                        Text(L10n.f19_rejectedTitle).font(.headline)
-                    }
-                    Text(L10n.f19_goTouch).font(.subheadline).foregroundStyle(.secondary)
-                    Button(L10n.f19_goTouch) { session.rejected = false }
-                        .frame(minHeight: 64)
-                        .accessibilityIdentifier("F19.session.rejected.dismiss")
-                }
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: 12)
-                    .fill(Color("grade-d", bundle: .main).opacity(0.1)))
-                .accessibilityIdentifier("F19.session.rejectionCard")
-            }
+            captionBlock
+            optionsBlock
+            repeatConfirmBlock
+            rejectionBlock
 
             Spacer()
 
@@ -256,6 +187,98 @@ struct VoiceSessionView: View {
         }
     }
 
+    // 四个条件块独立成 computed var：单一大 body 在 Swift 6.0 触发
+    // type-check 超时（CI 实证「unable to type-check in reasonable time」）
+
+    @ViewBuilder
+    private var captionBlock: some View {
+        // 屏幕字幕（与播报一致，FR19.3）
+        if !session.caption.isEmpty {
+            Text(session.caption)
+                .font(.body)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .background(RoundedRectangle(cornerRadius: 12)
+                    .fill(Color("bg-grouped", bundle: .main)))
+                .accessibilityIdentifier("F19.session.caption")
+        }
+    }
+
+    @ViewBuilder
+    private var optionsBlock: some View {
+        // 列选（FR19.4：≤3 项编号）
+        if !session.options.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(Array(session.options.enumerated()), id: \.offset) { index, option in
+                    Button {
+                        handleChoice(number: index + 1)
+                    } label: {
+                        HStack {
+                            Text("\(index + 1)").bold().frame(width: 28)
+                            Text(option)
+                            Spacer()
+                        }
+                        .padding(10)
+                        .frame(minHeight: 64)     // 关怀模式 ≥64pt
+                        .background(RoundedRectangle(cornerRadius: 12)
+                            .fill(Color("surface-tint-start", bundle: .main).opacity(0.25)))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("F19.session.option.\(index + 1)")
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var repeatConfirmBlock: some View {
+        // 拨号复述确认（FR19.5）
+        if let obj = session.pendingObject {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(L10n.f19RepeatObject(obj)).font(.headline)
+                    .accessibilityIdentifier("F19.session.repeatObject")
+                HStack(spacing: 16) {
+                    Button(L10n.f19_cancel) {
+                        _ = session.submit("取消", speak: { app.speak($0) })
+                    }
+                    .frame(minWidth: 88, minHeight: 64)
+                    .accessibilityIdentifier("F19.session.cancelCall")
+                    Button(L10n.f19_confirm) {
+                        // 走引擎的 repeatingObject 确认语义——UI 触屏确认
+                        // 与语音「确认」同一条路径，不绕过状态机（FR19.5）
+                        let executed = session.submit("确认", speak: { app.speak($0) })
+                        handleExecution(executed, object: session.pendingObject)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .frame(minWidth: 88, minHeight: 64)
+                    .accessibilityIdentifier("F19.session.confirmCall")
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var rejectionBlock: some View {
+        // 拒绝卡（FR19.5：删除/剂量变更一律拒绝 → 引导触屏）
+        if session.rejected {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    VLIcon.ban.resizable().frame(width: 24, height: 24)
+                    Text(L10n.f19_rejectedTitle).font(.headline)
+                }
+                Text(L10n.f19_goTouch).font(.subheadline).foregroundStyle(.secondary)
+                Button(L10n.f19_goTouch) { session.clearRejection() }
+                    .frame(minHeight: 64)
+                    .accessibilityIdentifier("F19.session.rejected.dismiss")
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 12)
+                .fill(Color("grade-d", bundle: .main).opacity(0.1)))
+            .accessibilityIdentifier("F19.session.rejectionCard")
+        }
+    }
+
     private var listeningIndicator: some View {
         HStack(spacing: 8) {
             Circle()
@@ -276,7 +299,7 @@ struct VoiceSessionView: View {
         let text = number == 1 ? "第一个" : number == 2 ? "第二个" : "第三个"
         let executed = session.submit(text, speak: { app.speak($0) })
         handleExecution(executed, object: session.pendingObject)
-        session.options = []
+        session.clearOptions()
     }
 
     private func handleExecution(_ command: VoiceCommand?, object: String?) {
@@ -304,7 +327,7 @@ struct VoiceSessionView: View {
     }
 
     private func endSession() {
-        session.ended = true
+        session.end()
         dismiss()
     }
 }

@@ -7,6 +7,7 @@ import Protocols
 
 @main
 struct VitaLiberApp: App {
+    private let container: AppContainer   // init 内装配，body/task 复用（信源播种等）
     @State private var appState: AppState
     @Environment(\.scenePhase) private var scenePhase
     /// 退后台锁屏状态（FR1.4）：scenePhase 切 background 置位，回前台由门禁遮罩接管。
@@ -35,6 +36,7 @@ struct VitaLiberApp: App {
                 fatalError("数据层初始化失败（live 与 preview 均不可用）: \(error)")
             }
         }
+        self.container = container
         _appState = State(initialValue: AppState(
             persistor: container.persistor,
             capture: FakeOcrProvider(fixture: args.contains("-uitest-camera-fixture"))))

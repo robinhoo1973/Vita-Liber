@@ -123,7 +123,7 @@ struct ImageConfirmSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("确认图片识别内容").font(.headline)
+            Text(L10n.ai_confirmImageText).font(.headline)
             ForEach(set.fields) { field in
                 ScrollView {
                     Text(field.value)
@@ -191,7 +191,7 @@ struct AnswerBodyView: View {
                 Label("疑似紧急情况", systemImage: "exclamationmark.octagon.fill")
                     .font(.headline)
                     .foregroundStyle(Color("semantic-danger", bundle: .main))
-                Text("请立即拨打 120 或前往最近的医院急诊。")
+                Text(L10n.ai_emergencyAction)
                 Button {
                     if let url = URL(string: "tel://120") { UIApplication.shared.open(url) }
                 } label: {
@@ -235,11 +235,11 @@ struct AnswerBodyView: View {
                         .padding(4)
                         .background(Circle().fill(Color("grade-e", bundle: .main).opacity(0.2)))
                         .foregroundStyle(Color("grade-e", bundle: .main))
-                    Text("AI 解释（基于你的资料）").font(.caption).foregroundStyle(.secondary)
+                    Text(L10n.ai_aiBadge).font(.caption).foregroundStyle(.secondary)
                 }
                 Text(p.conclusion).font(.body)
                 if !p.excerpts.isEmpty {
-                    Text("相关原文：").font(.caption.bold())
+                    Text(L10n.ai_citations).font(.caption.bold())
                     ForEach(p.excerpts, id: \.self) { e in
                         Text(e).font(.footnote).foregroundStyle(.secondary)
                     }
@@ -250,19 +250,19 @@ struct AnswerBodyView: View {
                     }
                 }
                 if !p.sources.isEmpty {
-                    Text("来源：").font(.caption.bold())
+                    Text(L10n.ai_source).font(.caption.bold())
                     ForEach(p.sources, id: \.self) { s in
                         Text(s).font(.caption2).foregroundStyle(.secondary)
                     }
                 }
                 if !p.uncertainties.isEmpty {
                     ForEach(p.uncertainties, id: \.self) { u in
-                        Text("不确定：\(u)").font(.caption2).foregroundStyle(.secondary)
+                        Text(L10n.aiUncertain(u)).font(.caption2).foregroundStyle(.secondary)
                     }
                 }
                 if !p.questionsForDoctor.isEmpty {
                     ForEach(p.questionsForDoctor, id: \.self) { q in
-                        Text("建议问医生：\(q)").font(.caption2)
+                        Text(L10n.aiAskDoctor(q)).font(.caption2)
                             .foregroundStyle(Color("brand-primary", bundle: .main))
                     }
                 }

@@ -36,7 +36,7 @@ struct RemindersView: View {
                 }
                 Section("近期预约") {
                     if reminders.upcomingAppointments.isEmpty {
-                        Text("还没有预约，记录第一个吧")
+                        Text(L10n.reminder_emptyAppt)
                             .foregroundStyle(.secondary)
                             .accessibilityIdentifier("SP-18.appointment.empty")
                     }
@@ -178,7 +178,7 @@ struct DoseSlotCard: View {
                 if slot.allTaken {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundStyle(Color("semantic-success", bundle: .main))
-                    Text("已服 \(slot.records.count)/\(slot.records.count)")
+                    Text(L10n.reminderTakenCount(slot.records.count, slot.records.count))
                         .font(.footnote)
                         .foregroundStyle(Color("semantic-success", bundle: .main))
                 }
@@ -199,7 +199,7 @@ struct DoseSlotCard: View {
                         Button {
                             onTaken(record.dose)
                         } label: {
-                            Text("已服用").frame(minWidth: 64, minHeight: 44)
+                            Text(L10n.reminder_taken).frame(minWidth: 64, minHeight: 44)
                         }
                         .buttonStyle(.borderedProminent)
                         .accessibilityLabel("\(record.medicationName ?? "药品")，已服用")
@@ -207,7 +207,7 @@ struct DoseSlotCard: View {
                         Button {
                             onSnooze(record.dose)
                         } label: {
-                            Text("稍后").frame(minWidth: 56, minHeight: 44)
+                            Text(L10n.reminder_later).frame(minWidth: 56, minHeight: 44)
                         }
                         .buttonStyle(.bordered)
                         .accessibilityLabel("\(record.medicationName ?? "药品")，稍后提醒")
@@ -215,7 +215,7 @@ struct DoseSlotCard: View {
                         Button {
                             onSkip(record.dose)
                         } label: {
-                            Text("跳过").frame(minWidth: 56, minHeight: 44)
+                            Text(L10n.reminder_skip).frame(minWidth: 56, minHeight: 44)
                         }
                         .buttonStyle(.bordered)
                         .accessibilityLabel("\(record.medicationName ?? "药品")，跳过")

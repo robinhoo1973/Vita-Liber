@@ -136,6 +136,53 @@ enum L10n {
     static var hub_guidelines: String { t("hub.guidelines") }
     static var hub_helpCardOpen: String { t("hub.helpCardOpen") }
 
+        static var settings_authTitle: String { t("settings.authTitle") }
+    static var settings_habits: String { t("settings.habits") }
+    static var settings_pro: String { t("settings.pro") }
+    static var settings_privacy: String { t("settings.privacy") }
+    static var settings_about: String { t("settings.about") }
+    static var settings_remindAdvance: String { t("settings.remindAdvance") }
+    static var settings_snooze: String { t("settings.snooze") }
+    static var settings_quietHours: String { t("settings.quietHours") }
+    static var settings_disclaimer: String { t("settings.disclaimer") }
+    static var settings_proUpgrade: String { t("settings.proUpgrade") }
+    static var settings_audit: String { t("settings.audit") }
+    static var settings_restoreDefaults: String { t("settings.restoreDefaults") }
+    static var settings_help: String { t("settings.help") }
+    static var settings_careMode: String { t("settings.careMode") }
+    static var settings_voiceEntry: String { t("settings.voiceEntry") }
+    static var reminder_emptyAppt: String { t("reminder.emptyAppt") }
+    static var reminder_takenCount: String { t("reminder.takenCount") }
+    static var reminder_taken: String { t("reminder.taken") }
+    static var reminder_later: String { t("reminder.later") }
+    static var reminder_skip: String { t("reminder.skip") }
+    static var ai_confirmImageText: String { t("ai.confirmImageText") }
+    static var ai_emergencyAction: String { t("ai.emergencyAction") }
+    static var ai_aiBadge: String { t("ai.aiBadge") }
+    static var ai_citations: String { t("ai.citations") }
+    static var ai_source: String { t("ai.source") }
+    static var ai_uncertain: String { t("ai.uncertain") }
+    static var ai_askDoctor: String { t("ai.askDoctor") }
+
+    static func settingsRemindAdvance(_ v: String) -> String {
+        t("settings.remindAdvance").replacingOccurrences(of: "%@", with: v)
+    }
+    static func settingsSnooze(_ v: String) -> String {
+        t("settings.snooze").replacingOccurrences(of: "%@", with: v)
+    }
+    static func settingsQuietHours(_ a: String, _ b: String) -> String {
+        String(format: t("settings.quietHours"), a, b)   // 位置参数 %1$@ / %2$@
+    }
+    static func reminderTakenCount(_ a: Int, _ b: Int) -> String {
+        String(format: t("reminder.takenCount"), a, b)   // 位置参数 %1$d / %2$d
+    }
+    static func aiUncertain(_ v: String) -> String {
+        t("ai.uncertain").replacingOccurrences(of: "%@", with: v)
+    }
+    static func aiAskDoctor(_ v: String) -> String {
+        t("ai.askDoctor").replacingOccurrences(of: "%@", with: v)
+    }
+
         /// 全部已键化的 key（SU-M15-L10N 遍历断言的输入）。
     /// 新增 key 必须同步登记到这里——否则门禁扫不到，又回到「缺证据当有证据」。
     /// 参数化文案（避免把格式串散落视图）
