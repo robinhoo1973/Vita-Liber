@@ -46,9 +46,9 @@ final class MemberAcceptanceTests: XCTestCase {
         }
         let count = try await persistor.members().count
         XCTAssertEqual(count, 4)
-        XCTAssertFalse(PaywallRules.addingMemberWouldExceed(currentCount: count),
-                       "4 人内不弹墙（免费档 ≥4 人）")
-        XCTAssertTrue(PaywallRules.addingMemberWouldExceed(currentCount: 5),
-                      "第 5 人越过配额（memberQuotaReached 触发点）")
+        XCTAssertFalse(PaywallRules.addingMemberWouldExceed(currentCount: 3),
+                       "已有 3 人时加第 4 个不弹墙（免费档 ≥4 人）")
+        XCTAssertTrue(PaywallRules.addingMemberWouldExceed(currentCount: 4),
+                      "已有 4 人时加第 5 个越过配额（memberQuotaReached 触发点）")
     }
 }
