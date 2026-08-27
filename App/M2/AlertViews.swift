@@ -62,7 +62,7 @@ private struct EvidenceCardRow: View {
             if let ref = event.card.sourceRef {
                 // 信源链接：可打开原文（F16 验收「信源链接可打开原文」）。
                 // 有 URL 用系统 Link；无 URL 只读书目行（不臆造链接）。
-                if let url = sourceEntry?.citationUrl.flatMap(URL.init(string:)),
+                if let url = sourceEntry?.citationUrl.flatMap({ URL(string: $0) }),
                    !url.absoluteString.isEmpty {
                     Link(destination: url) {
                         HStack(spacing: 4) {
@@ -125,12 +125,12 @@ struct GuidelineSourceListView: View {
                 Text("\(entry.org) · \(entry.version) · \(entry.clauseRef)")
                     .font(.caption).foregroundStyle(.secondary)
                 HStack(spacing: 12) {
-                    if let lo = entry.l1Low { thresholdText("L1 ≥ \(lo, specifier: "%g")") }
-                    if let hi = entry.l1High { thresholdText("L1 ≤ \(hi, specifier: "%g")") }
-                    if let lo = entry.l2Low { thresholdText("L2 ≥ \(lo, specifier: "%g")") }
-                    if let hi = entry.l2High { thresholdText("L2 ≤ \(hi, specifier: "%g")") }
-                    if let lo = entry.l3Low { thresholdText("L3 ≥ \(lo, specifier: "%g")") }
-                    if let hi = entry.l3High { thresholdText("L3 ≤ \(hi, specifier: "%g")") }
+                    if let lo = entry.l1Low { thresholdText("L1 ≥ \(String(format: "%g", lo))") }
+                    if let hi = entry.l1High { thresholdText("L1 ≤ \(String(format: "%g", hi))") }
+                    if let lo = entry.l2Low { thresholdText("L2 ≥ \(String(format: "%g", lo))") }
+                    if let hi = entry.l2High { thresholdText("L2 ≤ \(String(format: "%g", hi))") }
+                    if let lo = entry.l3Low { thresholdText("L3 ≥ \(String(format: "%g", lo))") }
+                    if let hi = entry.l3High { thresholdText("L3 ≤ \(String(format: "%g", hi))") }
                 }
                 if let url = URL(string: entry.citationUrl), !entry.citationUrl.isEmpty {
                     Link("打开原文", destination: url)

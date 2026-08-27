@@ -153,15 +153,15 @@ struct InventoryReconcileSheet: View {
                 Text("实物 \(count, specifier: "%g") \(item.unitKind)").monospacedDigit()
                 Spacer()
                 Text(difference == 0 ? "与账面一致" :
-                     difference > 0 ? "比账面多 \(difference, specifier: "%g")" :
-                     "比账面少 \(-difference, specifier: "%g")")
+                     difference > 0 ? "比账面多 \(String(format: "%g", difference))" :
+                     "比账面少 \(String(format: "%g", -difference))")
                     .foregroundStyle(difference == 0 ? .secondary : Color("grade-d", bundle: .main))
             }
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("FR9.8.reconcile.difference")
             // 归真必须经确认（FR9.8.5）：差异非零时先显式确认一步
             if difference != 0 && !confirmVisible {
-                Button("确认修正为 \(count, specifier: "%g") \(item.unitKind)") {
+                Button("确认修正为 \(String(format: "%g", count)) \(item.unitKind)") {
                     confirmVisible = true
                 }
                 .buttonStyle(.borderedProminent)
