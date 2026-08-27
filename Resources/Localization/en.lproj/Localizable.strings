@@ -217,7 +217,7 @@
 "reminder.planTime" = "Dose time (HH:mm)";
 "reminder.save" = "Save";
 "voiceguide.reminderTitle" = "Say a sentence to set a reminder";
-"voiceguide.reminderExample" = "e.g. "Remind me to measure blood pressure tomorrow 8am"";
+"voiceguide.reminderExample" = "e.g. \"Remind me to measure blood pressure tomorrow 8am\"";
 "voiceguide.transcript" = "Say or type the reminder…";
 "voiceguide.buildDraft" = "Generate reminder draft";
 "voiceguide.stepOf" = "Step %1$d of %2$d";
@@ -225,7 +225,7 @@
 "voiceguide.next" = "Next";
 "voiceguide.answerHint" = "Say or type your answer…";
 "voiceguide.profileTitle" = "Voice profile interview";
-"voiceguide.promptAllergy" = "Any drug or food allergies? Say "none" if not.";
+"voiceguide.promptAllergy" = "Any drug or food allergies? Say \"none\" if not.";
 "voiceguide.promptHistory" = "Any past illnesses or surgeries?";
 "voiceguide.promptMeds" = "Which medications are you taking now?";
 "voiceguide.promptContact" = "Who to contact in an emergency? Say name and relationship.";
