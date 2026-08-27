@@ -97,6 +97,13 @@ public struct InventoryReconciliation: Sendable, Equatable {
     public var resolvedAt: Date
     public var note: String?
 
+    public init(lotId: UUID, bookConfirmed: Double, physicalCount: Double,
+                resolvedAt: Date, note: String? = nil) {
+        self.lotId = lotId; self.bookConfirmed = bookConfirmed
+        self.physicalCount = physicalCount; self.resolvedAt = resolvedAt
+        self.note = note
+    }
+
     public var difference: Double { physicalCount - bookConfirmed }
 
     /// 归真结果必须经用户确认才写回（FR9.8.5 验收）

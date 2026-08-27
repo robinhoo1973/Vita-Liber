@@ -71,7 +71,7 @@ final class M2StockAcceptanceTests: XCTestCase {
         XCTAssertEqual((rows.last?["remaining_plan_units"] as Double?) ?? 0,
                        10 - Double(missed),
                        "安全线必须按计划推进（排程驱动，不依赖用户动作）")
-        XCTAssertEqual(rows.last?["remaining_confirmed_units"] as Double, 10,
+        XCTAssertEqual((rows.last?["remaining_confirmed_units"] as Double?) ?? -1, 10,
                        "确认线分毫不动（BR-004：只有「服了」才扣）")
         XCTAssertTrue(rows.allSatisfy { ($0["user_action"] as String?) == "missed" },
                       "所有过期行都必须物化为 missed，不得留下 user_action IS NULL 的僵尸行")
@@ -109,7 +109,7 @@ final class M2StockAcceptanceTests: XCTestCase {
                 SELECT remaining_plan_units FROM stock_lot WHERE id = ?
                 """, arguments: [lot.lotId.uuidString])
         }
-        XCTAssertEqual(plan?["remaining_plan_units"] as Double, 5 - Double(first),
+        XCTAssertEqual((plan?["remaining_plan_units"] as Double?) ?? -1, 5 - Double(first),
                        "两次补账合计只扣 first 次")
     }
 
@@ -167,8 +167,8 @@ final class M2StockAcceptanceTests: XCTestCase {
             try Row.fetchOne(db, sql: "SELECT * FROM stock_lot WHERE id = ?",
                              arguments: [lot.lotId.uuidString])
         }
-        XCTAssertEqual(row?["remaining_plan_units"] as Double, 3)
-        XCTAssertEqual(row?["remaining_confirmed_units"] as Double, 3)
+        XCTAssertEqual((row?["remaining_plan_units"] as Double?) ?? -1, 3)
+        XCTAssertEqual((row?["remaining_confirmed_units"] as Double?) ?? -1, 3)
         XCTAssertNotNil(row?["last_reconciled_at"])
 
         // 归真语义：差异非零必须要求确认（Domain 判据）
