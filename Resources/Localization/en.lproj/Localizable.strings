@@ -194,7 +194,7 @@
 "member.addedHint" = "Added — you can complete their health history later.";
 "proOutput.title" = "Pro outputs";
 "dose.number" = "Dose %1$d";
-"onboard.reviseTitle" = "Edit "%@"";
+"onboard.reviseTitle" = "Edit \"%@\"";
 "onboard.ocrRaw" = "OCR text: %@";
 "onboard.tierUnconfirmed" = "%@ · Unconfirmed";
 "onboard.confirmedCount" = "Confirmed %1$d/%2$d";
