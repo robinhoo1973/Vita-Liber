@@ -6,27 +6,27 @@ struct HelpAboutView: View {
     var body: some View {
         Form {
             Section("关于") {
-                Text("Vita Liber · 青囊书")
-                Text("版本 1.0.0（构建自源码）")
-                Text("个人医疗资料的归档与提醒工具")
+                Text(L10n.help_appName)
+                Text(L10n.help_version)
+                Text(L10n.help_tagline)
             }
             Section("法律与免责声明") {
-                Text("本 App 不是医疗设备：不下诊断、不给治疗方案建议、不替代医生。紧急情况请直接拨打 120 或前往医院。")
+                Text(L10n.help_disclaimer)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                 NavigationLink("隐私政策与服务条款（SP-47）") {
-                    Text("隐私政策与服务条款全文（M1.5 接入正式文本与版本号/生效日期）")
+                    Text(L10n.help_privacyPlaceholder)
                         .padding()
                         .accessibilityIdentifier("SP-47.terms.body")
                 }
                 .accessibilityIdentifier("SP-47.terms.entry")
             }
             Section("帮助") {
-                Text("常见问题与使用引导（HelpContentIndex 随 M1.5 后批接入）")
+                Text(L10n.help_faqPlaceholder)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
         }
-        .navigationTitle("帮助与关于")
+        .navigationTitle(L10n.help_title)
     }
 }

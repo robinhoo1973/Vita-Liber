@@ -32,7 +32,7 @@ struct DisclosureCardsView: View {
             Button {
                 app.advanceDisclosure()
             } label: {
-                Text("知道了，继续")
+                Text(L10n.onboard_gotIt)
                     .frame(maxWidth: .infinity, minHeight: 50)
             }
             .buttonStyle(.borderedProminent)
@@ -73,9 +73,9 @@ struct PinEntryView: View {
 
     var body: some View {
         VStack(spacing: 20) {
-            Text(mode == .setup ? "设置 6 位数字 PIN" : "输入 PIN 解锁")
+            Text(mode == .setup ? L10n.onboard_setPin : L10n.onboard_enterPin)
                 .font(.title2.bold())
-            Text(mode == .setup ? "用于保护你的医疗资料（FR1.1）" : "错误次数过多会暂时锁定")
+            Text(mode == .setup ? L10n.onboard_pinPurpose : L10n.onboard_pinLockHint)
                 .font(.footnote)
                 .foregroundStyle(Color("text-secondary", bundle: .main))
 
@@ -89,7 +89,7 @@ struct PinEntryView: View {
                 }
             }
             .accessibilityElement(children: .contain)
-            .accessibilityLabel("PIN 输入进度")
+            .accessibilityLabel(L10n.onboard_pinProgress)
             .padding(.vertical, 12)
 
             // ui-ux §5.1：锁定期间显示剩余等待倒计时（非静态文案）
@@ -159,9 +159,9 @@ struct OwnerSetupView: View {
 
     var body: some View {
         VStack(spacing: 20) {
-            Text("建立你的档案").font(.title2.bold())
-            Text("资料以「本人」归属本机所有者（FR21.1）").font(.footnote).foregroundStyle(Color("text-secondary", bundle: .main))
-            TextField("你的称呼（如：王女士）", text: $name)
+            Text(L10n.onboard_buildProfile).font(.title2.bold())
+            Text(L10n.onboard_ownerNote).font(.footnote).foregroundStyle(Color("text-secondary", bundle: .main))
+            TextField(L10n.onboard_yourName, text: $name)
                 .textFieldStyle(.roundedBorder)
                 .frame(maxWidth: 320)
                 .accessibilityIdentifier("SP-06.owner.name")
@@ -169,7 +169,7 @@ struct OwnerSetupView: View {
                 guard !name.trimmingCharacters(in: .whitespaces).isEmpty else { return }
                 app.createOwner(name: name.trimmingCharacters(in: .whitespaces))
             } label: {
-                Text("创建并继续").frame(maxWidth: 320, minHeight: 50)
+                Text(L10n.onboard_createContinue).frame(maxWidth: 320, minHeight: 50)
             }
             .buttonStyle(.borderedProminent)
             .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
@@ -178,7 +178,7 @@ struct OwnerSetupView: View {
             Button {
                 app.skipOwner()
             } label: {
-                Text("稍后再说")
+                Text(L10n.onboard_later)
             }
             .buttonStyle(.borderless)
             .accessibilityIdentifier("SP-06.owner.skip")
@@ -193,8 +193,8 @@ struct ScanCaptureView: View {
 
     var body: some View {
         VStack(spacing: 24) {
-            Text("拍摄处方").font(.title2.bold())
-            Text("对准处方笺，自动识别边缘（F5 管线 M1a 演示态）")
+            Text(L10n.onboard_capturePrescription).font(.title2.bold())
+            Text(L10n.onboard_aimPrescription)
                 .font(.footnote).foregroundStyle(Color("text-secondary", bundle: .main))
             RoundedRectangle(cornerRadius: 16)
                 .strokeBorder(style: StrokeStyle(lineWidth: 2, dash: [6]))
@@ -204,7 +204,7 @@ struct ScanCaptureView: View {
             Button {
                 app.captureSample()
             } label: {
-                Label("扫描样张（模拟）", systemImage: "camera")
+                Label(L10n.onboard_scanSample, systemImage: "camera")
                     .frame(maxWidth: 320, minHeight: 50)
             }
             .buttonStyle(.borderedProminent)
@@ -221,9 +221,9 @@ struct OcrConfirmView: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            Text("确认识别结果").font(.title2.bold())
+            Text(L10n.onboard_confirmResult).font(.title2.bold())
             // FR20.3 L3 常驻微文案：机器识别确认免责从 L1 第三卡移入此处
-            Text("机器识别的药名、剂量、日期都会先请你确认才生效；未确认的内容不会进入正式档案。")
+            Text(L10n.onboard_ocrDisclaimer)
                 .font(.footnote)
                 .foregroundStyle(Color("text-secondary", bundle: .main))
                 .multilineTextAlignment(.center)
@@ -245,7 +245,7 @@ struct OcrConfirmView: View {
                 Button {
                     app.commitToTimeline()
                 } label: {
-                    Text("全部确认，进入时间轴").frame(maxWidth: .infinity, minHeight: 50)
+                    Text(L10n.onboard_confirmAllTimeline).frame(maxWidth: .infinity, minHeight: 50)
                 }
                 .buttonStyle(.borderedProminent)
                 .padding(.horizontal, 24)
@@ -279,7 +279,7 @@ struct ConfirmFieldRowView: View {
             // ui-ux §7 单焦点朗读放在信息组（不合并操作按钮）：
             // 行级 combine 会把按钮的 identifier 提升到行元素，XCUITest 查询撞双 ID
             .accessibilityElement(children: .combine)
-            .accessibilityLabel("\(field.displayLabel)，\(field.value)，\(field.isConfirmed ? "已确认" : "识别未确认")")
+            .accessibilityLabel("\(field.displayLabel)，\(field.value)，\(field.isConfirmed ? L10n.onboard_confirmed : L10n.onboard_unconfirmedBadge)")
             Spacer()
             if field.isConfirmed {
                 Button {
@@ -314,12 +314,12 @@ struct ConfirmFieldRowView: View {
             VStack(spacing: 16) {
                 Text("修改「\(field.displayLabel)」").font(.headline)
                 Text("OCR 原文：\(field.rawText)").font(.caption).foregroundStyle(.secondary)
-                TextField("新值", text: $draft)
+                TextField(L10n.onboard_newValue, text: $draft)
                     .textFieldStyle(.roundedBorder)
                     .accessibilityIdentifier("SP-53.field.editField")
                 HStack {
-                    Button("取消") { editing = false }
-                    Button("保存修改") {
+                    Button(L10n.onboard_cancel) { editing = false }
+                    Button(L10n.onboard_saveEdit) {
                         onRevise(draft)
                         editing = false
                     }
@@ -349,31 +349,31 @@ struct TimelineView: View {
     var body: some View {
         VStack(spacing: 12) {
             HStack {
-                Text("健康时间轴").font(.title2.bold())
+                Text(L10n.onboard_timelineTitle).font(.title2.bold())
                 Spacer()
                 NavigationLink {
                     ObservationListView()
                 } label: {
-                    Label("观察", systemImage: "plus.circle")
+                    Label(L10n.onboard_observation, systemImage: "plus.circle")
                 }
                 .accessibilityIdentifier("SP-10.timeline.observation")
                 NavigationLink {
                     TrendEntryView()
                 } label: {
-                    Label("指标趋势", systemImage: "chart.xyaxis.line")
+                    Label(L10n.onboard_trendTitle, systemImage: "chart.xyaxis.line")
                 }
                 .accessibilityIdentifier("SP-10.timeline.trend")
                 NavigationLink {
                     VoiceNotePanelView()
                 } label: {
-                    Label("语音速记", systemImage: "waveform")
+                    Label(L10n.onboard_voiceNote, systemImage: "waveform")
                 }
                 .accessibilityIdentifier("SP-10.timeline.voicenote")
             }
             .padding(.horizontal, 16)
             if app.timeline.isEmpty {
                 ContentUnavailableView("还没有资料", systemImage: "clock.arrow.circlepath",
-                                       description: Text("确认后的文档会出现在这里"))
+                                       description: Text(L10n.onboard_timelineHint))
             } else {
                 List(app.timeline) { entry in
                     VStack(alignment: .leading, spacing: 4) {
@@ -393,7 +393,7 @@ struct TimelineView: View {
                 Button {
                     app.finishOnboarding()
                 } label: {
-                    Text("完成设置，进入应用").frame(maxWidth: .infinity, minHeight: 50)
+                    Text(L10n.onboard_finishEnterApp).frame(maxWidth: .infinity, minHeight: 50)
                 }
                 .buttonStyle(.borderedProminent)
                 .padding(.horizontal, 24)

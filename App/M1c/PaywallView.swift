@@ -39,7 +39,7 @@ struct PaywallView: View {
         VStack(spacing: 16) {
             VLIcon.proDiamond.resizable().frame(width: 56, height: 56)
             Text("Vita Liber Pro").font(.title2.bold())
-            Text("解锁增量生产型能力，核心功能永久免费").font(.footnote).foregroundStyle(.secondary)
+            Text(L10n.pay_valueProp).font(.footnote).foregroundStyle(.secondary)
 
             VStack(spacing: 12) {
                 productCard("Pro 年度", "¥68/年", detail: "多成员扩展 · 医生摘要模板 · 报销导出 · 药箱总览")
@@ -51,14 +51,14 @@ struct PaywallView: View {
             Button {
                 Task { await purchase(.proBase) }
             } label: {
-                Text(busy ? "处理中…" : "购买 Pro")
+                Text(busy ? L10n.pay_busy : L10n.pay_buy)
                     .frame(maxWidth: .infinity, minHeight: 50)
             }
             .buttonStyle(.borderedProminent)
             .disabled(busy)
             .accessibilityIdentifier("SP-61.paywall.buy")
 
-            Button("恢复购买") {
+            Button(L10n.pay_restore) {
                 Task { await restore() }
             }
             .accessibilityIdentifier("SP-61.paywall.restore")

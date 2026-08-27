@@ -183,6 +183,47 @@ enum L10n {
         t("ai.askDoctor").replacingOccurrences(of: "%@", with: v)
     }
 
+        static var onboard_pinProgress: String { t("onboard.pinProgress") }
+    static var onboard_yourName: String { t("onboard.yourName") }
+    static var onboard_saveEdit: String { t("onboard.saveEdit") }
+    static var onboard_timelineTitle: String { t("onboard.timelineTitle") }
+    static var onboard_confirmAllTimeline: String { t("onboard.confirmAllTimeline") }
+    static var onboard_createContinue: String { t("onboard.createContinue") }
+    static var onboard_cancel: String { t("onboard.cancel") }
+    static var onboard_finishEnterApp: String { t("onboard.finishEnterApp") }
+    static var onboard_aimPrescription: String { t("onboard.aimPrescription") }
+    static var onboard_confirmed: String { t("onboard.confirmed") }
+    static var onboard_buildProfile: String { t("onboard.buildProfile") }
+    static var onboard_scanSample: String { t("onboard.scanSample") }
+    static var onboard_capturePrescription: String { t("onboard.capturePrescription") }
+    static var onboard_trendTitle: String { t("onboard.trendTitle") }
+    static var onboard_newValue: String { t("onboard.newValue") }
+    static var onboard_ocrDisclaimer: String { t("onboard.ocrDisclaimer") }
+    static var onboard_pinPurpose: String { t("onboard.pinPurpose") }
+    static var onboard_gotIt: String { t("onboard.gotIt") }
+    static var onboard_confirm: String { t("onboard.confirm") }
+    static var onboard_timelineHint: String { t("onboard.timelineHint") }
+    static var onboard_confirmResult: String { t("onboard.confirmResult") }
+    static var onboard_later: String { t("onboard.later") }
+    static var onboard_observation: String { t("onboard.observation") }
+    static var onboard_setPin: String { t("onboard.setPin") }
+    static var onboard_voiceNote: String { t("onboard.voiceNote") }
+    static var onboard_ownerNote: String { t("onboard.ownerNote") }
+    static var onboard_enterPin: String { t("onboard.enterPin") }
+    static var onboard_pinLockHint: String { t("onboard.pinLockHint") }
+    static var onboard_unconfirmedBadge: String { t("onboard.unconfirmedBadge") }
+    static var help_appName: String { t("help.appName") }
+    static var help_tagline: String { t("help.tagline") }
+    static var help_title: String { t("help.title") }
+    static var help_faqPlaceholder: String { t("help.faqPlaceholder") }
+    static var help_disclaimer: String { t("help.disclaimer") }
+    static var help_version: String { t("help.version") }
+    static var help_privacyPlaceholder: String { t("help.privacyPlaceholder") }
+    static var pay_busy: String { t("pay.busy") }
+    static var pay_restore: String { t("pay.restore") }
+    static var pay_valueProp: String { t("pay.valueProp") }
+    static var pay_buy: String { t("pay.buy") }
+
         /// 全部已键化的 key（SU-M15-L10N 遍历断言的输入）。
     /// 新增 key 必须同步登记到这里——否则门禁扫不到，又回到「缺证据当有证据」。
     /// 参数化文案（避免把格式串散落视图）
