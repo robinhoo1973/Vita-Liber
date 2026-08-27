@@ -382,3 +382,40 @@ struct DispenseListTests {
         #expect(empty.contains("药品名"), "空清单也必须有表头——空集不得判过")
     }
 }
+
+// binds: SU-M2-CARE — FR9.13a 药品求助卡（最小必要：照片默认不含）
+@Suite("SU-M2-CARE · FR9.13a 药品求助卡")
+struct MedicationHelpCardTests {
+
+    @Test func 卡片默认不含位置照片() {
+        let item = MedicationHelpCardRules.Input(
+            lotId: UUID(), medicationName: "阿司匹林", spec: "100mg",
+            remainingUnits: 8, unitKind: "tablet",
+            expireAt: Date(timeIntervalSince1970: 1_800_000_000),
+            storageNote: "客厅药箱第二层", includeStoragePhoto: false)
+        #expect(!MedicationHelpCardRules.shouldAttachPhoto(item),
+                "FR9.13a：位置照片默认不在卡内，须显式勾选")
+        var withPhoto = item
+        withPhoto.includeStoragePhoto = true
+        #expect(MedicationHelpCardRules.shouldAttachPhoto(withPhoto))
+    }
+
+    @Test func 卡片文本含必要字段且不含诊断() {
+        let item = MedicationHelpCardRules.Input(
+            lotId: UUID(), medicationName: "阿司匹林", spec: "100mg",
+            remainingUnits: 8, unitKind: "tablet",
+            expireAt: Date(timeIntervalSince1970: 1_800_000_000),
+            storageNote: "客厅药箱第二层", includeStoragePhoto: false)
+        let text = MedicationHelpCardRules.cardText([item])
+        #expect(text.contains("阿司匹林"))
+        #expect(text.contains("100mg"))
+        #expect(text.contains("客厅药箱第二层"))
+        for marker in MedicationHelpCardRules.forbiddenDiagnosisMarkers {
+            #expect(!text.contains(marker), "求助卡不得含诊断类信息（FR15.5 分离）")
+        }
+    }
+
+    @Test func 空选择不产出卡片() {
+        #expect(MedicationHelpCardRules.cardText([]).contains("药品求助卡"))
+    }
+}
