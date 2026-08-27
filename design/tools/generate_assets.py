@@ -370,12 +370,20 @@ def main() -> None:
         provenance[name] = {"source": "own", "upstream": None}
 
     # App 图标 -------------------------------------------------------------------
+    # 位图母版优先：若存在 design/brand/app-icon.png（如 AI 生成图标），直接缩放写入，
+    # 否则回退到 SVG 母版渲染。两路都同时刷新 design/brand/app-icon.svg 供参考。
     (SRC_BRAND / "app-icon.svg").write_text(APP_ICON_SVG, encoding="utf-8")
     iconset = CATALOG / "AppIcon.appiconset"
     iconset.mkdir(parents=True, exist_ok=True)
     tmp = PREVIEWS / "appicon-1024.png"
-    render_png(APP_ICON_SVG, tmp, 1024, 1024)
-    Image.open(tmp).convert("RGB").save(iconset / "AppIcon1024.png")
+    raster_master = SRC_BRAND / "app-icon.png"
+    if raster_master.exists():
+        im = Image.open(raster_master).convert("RGB").resize((1024, 1024), Image.LANCZOS)
+        im.save(tmp)
+        im.save(iconset / "AppIcon1024.png")
+    else:
+        render_png(APP_ICON_SVG, tmp, 1024, 1024)
+        Image.open(tmp).convert("RGB").save(iconset / "AppIcon1024.png")
     write_json(iconset / "Contents.json", {
         "images": [{"filename": "AppIcon1024.png", "idiom": "universal",
                     "platform": "ios", "size": "1024x1024"}],

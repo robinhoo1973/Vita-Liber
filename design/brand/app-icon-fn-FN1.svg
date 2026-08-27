@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1583E0"/>
+      <stop offset=".55" stop-color="#0A66C2"/>
+      <stop offset="1" stop-color="#064B92"/>
+    </linearGradient>
+    <radialGradient id="glow" cx=".3" cy=".18" r=".9">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity=".22"/>
+      <stop offset=".55" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="white" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#E2EDFB"/>
+    </linearGradient></defs>
+  
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <rect width="1024" height="1024" fill="url(#glow)"/>
+
+  <path d="M340 318L512 232L684 318L684 516C684 666 610 748 512 794C414 748 340 666 340 516Z"
+        fill="url(#white)"/>
+  <ellipse cx="430" cy="360" rx="70" ry="40" fill="#FFFFFF" opacity=".35"/>
+  <rect x="490" y="392" width="44" height="172" rx="20" fill="url(#bg)"/>
+  <rect x="422" y="448" width="180" height="44" rx="20" fill="url(#bg)"/>
+</svg>

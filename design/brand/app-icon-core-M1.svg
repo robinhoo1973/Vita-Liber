@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1583E0"/><stop offset=".55" stop-color="#0A66C2"/><stop offset="1" stop-color="#064B92"/></linearGradient>
+    <radialGradient id="glow" cx=".3" cy=".18" r=".9">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity=".22"/>
+      <stop offset=".55" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="white" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#E2EDFB"/>
+    </linearGradient>
+    <linearGradient id="bell" x1="0" y1="0" x2=".6" y2="1"><stop offset="0" stop-color="#FFC04D"/><stop offset="1" stop-color="#F08F1E"/></linearGradient>
+    <linearGradient id="heart" x1="0" y1="0" x2=".6" y2="1"><stop offset="0" stop-color="#F2647C"/><stop offset="1" stop-color="#D93025"/></linearGradient></defs>
+  
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <rect width="1024" height="1024" fill="url(#glow)"/>
+
+  <path d="M482 216a30 30 0 1 1 60 0" stroke="url(#bell)" stroke-width="18"
+        stroke-linecap="round" fill="none"/>
+  <circle cx="512" cy="250" r="14" fill="url(#bell)"/>
+  <path d="M432 400C432 296 458 264 512 264C566 264 592 296 592 400L592 412C592 428 580 436 562 436L462 436C444 436 432 428 432 412Z"
+        fill="url(#bell)"/>
+  <ellipse cx="484" cy="318" rx="15" ry="26" fill="#FFFFFF" opacity=".35"/>
+  <circle cx="512" cy="456" r="14" fill="url(#bell)"/>
+
+  <ellipse cx="512" cy="782" rx="320" ry="30" fill="#053B72" opacity=".28"/>
+  <path d="M512 478C440 430 336 420 214 420L214 660C336 660 440 684 512 724Z" fill="url(#white)"/>
+  <path d="M512 478C584 430 688 420 810 420L810 660C688 660 584 684 512 724Z" fill="url(#white)"/>
+  <path d="M512 480L512 724" stroke="#9CC4EA" stroke-width="14" stroke-linecap="round"/>
+  <path d="M300 462C380 452 452 456 512 478M724 462C644 452 572 456 512 478"
+        stroke="#C9E0F6" stroke-width="10" stroke-linecap="round" fill="none"/>
+
+  <path d="M512 668C440 612 396 560 396 512C396 462 438 424 480 440C512 452 512 474 512 474C512 474 512 452 544 440C586 424 628 462 628 512C628 560 584 612 512 668Z"
+        fill="url(#heart)"/>
+  <ellipse cx="470" cy="470" rx="24" ry="14" fill="#FFFFFF" opacity=".30"/>
+  <rect x="496" y="528" width="32" height="108" rx="14" fill="#FFFFFF"/>
+  <rect x="458" y="558" width="108" height="32" rx="14" fill="#FFFFFF"/>
+
+</svg>

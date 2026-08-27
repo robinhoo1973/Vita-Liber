@@ -1,6 +1,6 @@
 # 青囊书设计资产规范（Design Assets）
 
-> 版本：V2.6
+> 版本：V2.10
 > 上游依据：`refactor/ui-ux-spec.md` §2.1 / §3.1 / §3.3 / §3.4、`refactor/tech-spec.md` §1.2、`refactor/comercial-spec.md` §1–§2
 > 本目录是**设计资产唯一母版来源**；`Resources/Assets.xcassets` 为其编译期产物（均入库，保证无设计工具链也能构建）。
 
@@ -25,7 +25,8 @@ design/                          # 设计源文件（不参与编译）
 │   ├── provenance.json          # 每枚图标的字形出处（fluent/healthicons/lucide/tabler/own）
 │   └── tools/                   # 管线脚本
 ├── illustrations/src/*.svg      # 彩色扁平空态插画母版（240×180）
-├── brand/app-icon.svg           # App 图标母版（1024）
+├── brand/app-icon.svg           # App 图标 SVG 母版（1024，管线回退源）
+├── brand/app-icon.png           # App 图标位图母版（1024，V2.7 起优先）
 ├── previews/                    # 走查拼图 / 渲染预览
 └── tools/                       # 管线入口
     ├── icon_library.py          # 自绘字形定义（仅 Fluent 缺失的 12 枚）
@@ -57,7 +58,7 @@ Resources/                       # tech-spec §1.2 顶层 Resources/
 | 着色 | 彩色资产为**默认渲染**（非 template）；语义色由瓷砖渐变承载（见 §4） |
 | 瓷砖基准尺寸 | 48pt；更大用途（快速拍摄 56pt 按钮等）用 `.resizable().frame()` |
 | 插画 | 240×180 彩色扁平：渐变面 + 白色元素 + 琥珀点缀，与瓷砖同色彩语言 |
-| App 图标 | 青囊提环 × 医书（含投影）× 双层立体医疗十字 |
+| App 图标 | 位图母版 `brand/app-icon.png`（V2.7 起 AI 生成，管线优先使用）；`app-icon.svg` 保留为回退源 |
 
 ### 2.1 灵感源与技法借鉴（借鉴不复制）
 
@@ -144,6 +145,10 @@ python3 design/tools/vendor_lucide.py <node_modules>/lucide-static/icons
 
 | 版本 | 日期 | 说明 |
 |---|---|---|
+| V2.10 | 2026-08-27 | App 图标改用 `~/Downloads/Designer (8).png`，仅尺寸调整（1254²→1024²，LANCZOS） |
+| V2.9 | 2026-08-27 | App 图标改用 `~/Downloads/Designer (7).png`，仅尺寸调整（1254²→1024²，LANCZOS）；回退源 `app-icon.svg` 保留 |
+| V2.8 | 2026-08-27 | App 图标背景 Fluent 化：白底改为三段色相偏移对角渐变（亮蓝→主蓝→紫）+ 左上光晕 + 斜向玻璃光带 + 底部暗角 + 内容投影；边缘洪泛填充仅替换外围背景、内容原样保留；新增 `appicon_fluent_bg.py` |
+| V2.7 | 2026-08-27 | App 图标改用 AI 生成位图母版 `brand/app-icon.png`（1024，源自 `~/Downloads/Designer.png`）；管线 `generate_assets.py` 改为位图母版优先、SVG 回退，AppIcon1024.png/预览同步更新 |
 | V2.6 | 2026-08-27 | 按 `icon-gap-list.md` 缺口清单落地 37 枚交互/点缀图标（全部 Lucide ISC，批次1 P0+主题 12、批次2 语音/关怀 9、批次3 指标/设备/Pro/点缀 16）；图标总数 148→185，VLIcon 155→192；`ic-record` 由波形动画替代暂缓 |
 | V2.5 | 2026-08-27 | 子女头像改用 Font Awesome Free（CC BY 4.0）：`ic-member-son`(child) / `ic-member-daughter`(child-dress)，512 栅格实心（320 宽 viewBox x 居中归一化），优先级置于 Material Symbols 之前；父母保持 Material（Apache-2.0） |
 | V2.4 | 2026-08-27 | 家庭成员头像改用经典 Material Symbols（Apache-2.0）：`ic-member-father`(man) / `ic-member-mother`(woman) / `ic-member-son`(boy) / `ic-member-daughter`(girl)，960 栅格实心剪影归一化接入管线；`ill-empty-ai` 双半脑高度缩 1/5（scaleY 2.426→1.941）并垂直居中（y 28–152，中心 90） |

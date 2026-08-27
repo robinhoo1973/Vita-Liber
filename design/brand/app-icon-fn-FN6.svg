@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1583E0"/>
+      <stop offset=".55" stop-color="#0A66C2"/>
+      <stop offset="1" stop-color="#064B92"/>
+    </linearGradient>
+    <radialGradient id="glow" cx=".3" cy=".18" r=".9">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity=".22"/>
+      <stop offset=".55" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="white" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#E2EDFB"/>
+    </linearGradient></defs>
+  
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <rect width="1024" height="1024" fill="url(#glow)"/>
+
+  <path d="M512 826C392 728 268 634 268 480C268 366 362 282 474 318C512 330 512 368 512 368C512 368 512 330 550 318C662 282 756 366 756 480C756 634 632 728 512 826Z"
+        fill="url(#white)"/>
+  <rect x="494" y="428" width="36" height="148" rx="16" fill="url(#bg)"/>
+  <rect x="448" y="470" width="128" height="36" rx="16" fill="url(#bg)"/>
+</svg>
