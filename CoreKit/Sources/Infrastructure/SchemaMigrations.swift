@@ -47,6 +47,19 @@ public enum SchemaMigrations {
              ALTER TABLE metric_sample ADD COLUMN ref_high REAL;
              ALTER TABLE metric_sample ADD COLUMN ref_source_label TEXT;
              """),
+        Step(version: 3, name: "guideline-thresholds-json",
+             sql: """
+             -- F16 信源库阈值：v1 的 guideline_source 只有书目字段，没有阈值数字，
+             -- FR16.4「医学数字单一事实源」在数据层无处落脚。
+             -- 用单一 JSON 列承载 L1-L3 阈值档位：档位随指南版本演进而变，
+             -- 版本升级 = 整条替换而非 ALTER（理由见 GuidelineSource.Thresholds）。
+             ALTER TABLE guideline_source ADD COLUMN thresholds_json TEXT;
+             -- 按指标检索的键：metric_key 是查询入口，unit 保证阈值单位不外泄。
+             -- 首轮设计漏了这两列，导致「按指标取信源」在库层无处检索
+             -- （阈值为 JSON，且 Thresholds 形态本身不含 metricKey）。
+             ALTER TABLE guideline_source ADD COLUMN metric_key TEXT;
+             ALTER TABLE guideline_source ADD COLUMN unit TEXT;
+             """),
     ]
 
     /// 全新库建库后应落到的版本号

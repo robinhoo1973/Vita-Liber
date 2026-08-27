@@ -175,7 +175,14 @@ public enum SchemaV2 {
       id TEXT PRIMARY KEY, title TEXT NOT NULL, org TEXT NOT NULL,
       year INTEGER NOT NULL, clause_ref TEXT NOT NULL,
       citation_url TEXT NOT NULL, version TEXT NOT NULL,
-      checked_at REAL NOT NULL, retired_at REAL);
+      checked_at REAL NOT NULL, retired_at REAL,
+      -- V3.47 / 迁移 v3：L1-L3 阈值档位 JSON（GuidelineSource.Thresholds 形态）。
+      -- v1 只有书目字段、无阈值数字——FR16.4「医学数字单一事实源」在数据层
+      -- 无处落脚；单一 JSON 列让指南版本升级变成整条替换而非 ALTER。
+      thresholds_json TEXT,
+      -- 按指标检索的键（与 unit 一起随 v3 补列）
+      metric_key TEXT,
+      unit TEXT);
 
     -- 预警事件（F16）
     CREATE TABLE alert_event (
