@@ -58,7 +58,17 @@ public enum SearchRules {
     public static func bigrams(_ text: String) -> [String] {
         let chars = Array(text)
         guard chars.count >= 2 else { return [] }
-        return (0..<(chars.count - 1)).map { String(chars[$0]) + String(chars[$0 + 1]) }
+        // 显式循环而非闭包链式映射：Swift 6.0 的类型检查器对
+        // `String(chars[$0]) + String(chars[$0+1])` 的隐式类型推断超时
+        // （本地 6.3 宽容通过、CI 6.0 报 type-check 超时——ERR#26b 同族：
+        // 本地与 CI 主版本差 ≥1 时以 CI 为准）
+        var result: [String] = []
+        result.reserveCapacity(chars.count - 1)
+        for index in 0..<(chars.count - 1) {
+            let pair = String(chars[index]) + String(chars[index + 1])
+            result.append(pair)
+        }
+        return result
     }
 
     /// 高亮片段：命中词在片段中的首现位置（snippet 生成由 FTS snippet 函数承担，

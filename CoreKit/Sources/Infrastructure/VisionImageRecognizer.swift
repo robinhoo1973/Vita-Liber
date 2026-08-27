@@ -15,9 +15,11 @@ public final class VisionImageRecognizer: ImageTextRecognizing, @unchecked Senda
     public init() {}
 
     public func recognize(_ imageData: Data) async throws -> ImageInputRules.Recognition {
-        guard let handler = VNImageRequestHandler(data: imageData) else {
-            throw RecognizeError.invalidImage
-        }
+        // VNImageRequestHandler(data:) 在 iOS 18 SDK 是非 failable 初始化器，
+        // `guard let` 的 optional 绑定直接编译失败（CI Xcode 16 报
+        // 「initializer for conditional binding must have Optional type」；
+        // 本地 Linux 不编译此文件故未暴露——ERR#29 结构性盲区）。
+        let handler = VNImageRequestHandler(data: imageData)
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = true
@@ -44,7 +46,6 @@ public final class VisionImageRecognizer: ImageTextRecognizing, @unchecked Senda
     }
 
     public enum RecognizeError: Error, LocalizedError {
-        case invalidImage
         case engineFailed
         public var errorDescription: String? { "图片识别失败: \(self)" }
     }
