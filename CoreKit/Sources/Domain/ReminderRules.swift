@@ -85,13 +85,18 @@ public enum VoiceReminderRules {
 public enum VoiceGrammarDefaults {
     public static let metricRules: [MetricGrammarRule] = [
         MetricGrammarRule(metricKey: "glucose",
-                          patterns: [#"血糖\s*(\d+(?:\.\d+)?|[一二两三四五六七八九十百点]+)"#],
+                          patterns: [#"血糖\s*(\d+(?:\.\d+)?|[一二两三四五六七八九十百点]+)"#,
+                                     #"血糖仪?\s*([一二两三四五六七八九十百点]+\s*[点\.]\s*[一二两三四五六七八九十]+)"#],
                           unitDefault: "mmol/L"),
         MetricGrammarRule(metricKey: "blood_pressure_sys",
-                          patterns: [#"高压\s*(\d+)"#, #"收缩压\s*(\d+)"#],
+                          patterns: [#"高压\s*(\d+)"#, #"收缩压\s*(\d+)"#,
+                                     // FR7.10 例句「血压 148 92 心率 76」——分隔符允许
+                                     // 空格、斜杠、全角／；先抽收缩压再抽舒张压靠捕获组位置
+                                     #"血压\s*(\d+)\s*(?:[/／]|\s)\s*(\d+)"#],
                           unitDefault: "mmHg"),
         MetricGrammarRule(metricKey: "blood_pressure_dia",
-                          patterns: [#"低压\s*(\d+)"#, #"舒张压\s*(\d+)"#],
+                          patterns: [#"低压\s*(\d+)"#, #"舒张压\s*(\d+)"#,
+                                     #"血压\s*\d+\s*(?:[/／]|\s)\s*(\d+)"#],
                           unitDefault: "mmHg"),
         MetricGrammarRule(metricKey: "heart_rate",
                           patterns: [#"心率\s*(\d+)"#, #"脉搏\s*(\d+)"#],
@@ -102,18 +107,28 @@ public enum VoiceGrammarDefaults {
         MetricGrammarRule(metricKey: "blood_oxygen",
                           patterns: [#"血氧\s*(\d+)"#],
                           unitDefault: "%"),
+        MetricGrammarRule(metricKey: "temperature",
+                          patterns: [#"体温\s*(\d+(?:\.\d+)?)"#, #"发烧\s*(\d+(?:\.\d+)?)"#],
+                          unitDefault: "℃"),
     ]
 
     public static let reminderRules: [ReminderGrammarRule] = [
         ReminderGrammarRule(kind: "any",
-                            timePatterns: [#"(明天|明早|后天|今天)"#, #"(\d+)点"#],
-                            repeatPatterns: [#"(每天|每周一|每周二|每周三|每周四|每周五|每周六|每周日)"#]),
+                            timePatterns: [#"(明天|明早|后天|今天)"#, #"(\d+)点"#,
+                                           #"([上下]午)"#],
+                            repeatPatterns: [#"(每天|每日|每周一|每周二|每周三|每周四|每周五|每周六|每周日|周一|周二|周三|周四|周五|周六|周日|每周|工作日|周末)"#]),
+        ReminderGrammarRule(kind: "selfTest",
+                            timePatterns: [#"(明天|后天|今天)"#],
+                            repeatPatterns: [#"(每天|每周)"#]),
     ]
 
     public static let profileRules: [ProfileGrammarRule] = [
-        ProfileGrammarRule(fieldKey: "allergy", patterns: [#"过敏[药史:：]*(.+)"#]),
-        ProfileGrammarRule(fieldKey: "pastHistory", patterns: [#"(?:得过|做过)(.+)"#]),
-        ProfileGrammarRule(fieldKey: "currentMeds", patterns: [#"(?:在吃|正在吃)(.+)"#]),
+        ProfileGrammarRule(fieldKey: "allergy", patterns: [#"过敏[药史:：]*(.+)"#, #"对(.+?)过敏"#]),
+        ProfileGrammarRule(fieldKey: "pastHistory", patterns: [#"(?:得过|做过)(.+)"#,
+                                                               #"(?:有|患过)(.+?(?:病|症))"#]),
+        ProfileGrammarRule(fieldKey: "currentMeds", patterns: [#"(?:在吃|正在吃|吃着)(.+)"#]),
         ProfileGrammarRule(fieldKey: "emergencyContact", patterns: [#"紧急联系人是(.+)"#]),
+        ProfileGrammarRule(fieldKey: "surgery", patterns: [#"(?:做过|动过)(.+?手术)"#]),
+        ProfileGrammarRule(fieldKey: "familyHistory", patterns: [#"家里(?:有|得过)(.+)"#]),
     ]
 }

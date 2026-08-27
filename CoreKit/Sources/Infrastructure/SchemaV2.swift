@@ -327,6 +327,15 @@ public enum SchemaV2 {
       note TEXT, created_at REAL NOT NULL, updated_at REAL NOT NULL);
     CREATE INDEX idx_contact_patient ON contact(patient_id, is_emergency);
 
+    -- F15 急救卡用户选择（V3.48 / 迁移 v4）：FR15.1「必须由用户逐项选择，
+    -- 不能静默加入」。只记选择，数据仍在原表；退选=删行。
+    CREATE TABLE emergency_card_selection (
+      patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+      item_id TEXT NOT NULL,
+      item_kind TEXT NOT NULL,
+      selected_at REAL NOT NULL,
+      PRIMARY KEY(patient_id, item_id));
+
     -- 同意记录（ADR-014/FR20.5/FR17.12）
     CREATE TABLE consent_record (
       id TEXT PRIMARY KEY, local_owner_id TEXT REFERENCES local_owner(id),

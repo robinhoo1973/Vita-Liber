@@ -250,3 +250,43 @@ struct SUM2StockTests {
         #expect(InventoryReportRules.violation(in: "计划 30 次 / 确认 21 次") == nil)
     }
 }
+
+// binds: SU-M2-CARE — F17 全量文法集（M2）在单一事实源内的覆盖断言
+/// F17.1-17.8 全量文法（M2）的覆盖性断言：生产文法表必须覆盖 F7 六类指标 +
+/// 血压双值 + 体温（FR7.10 语音录入路径），以及档案访谈全字段。
+@Suite("SU-M2-CARE · F17 全量文法集覆盖（VoiceGrammarDefaults 单一事实源）")
+struct F17FullGrammarTests {
+
+    @Test func 指标文法覆盖六类与血压双值() {
+        let keys = Set(VoiceGrammarDefaults.metricRules.map(\.metricKey))
+        for required in ["glucose", "blood_pressure_sys", "blood_pressure_dia",
+                         "heart_rate", "weight", "blood_oxygen", "temperature"] {
+            #expect(keys.contains(required), "生产文法缺指标 \(required)——FR7.10 语音录入无法覆盖")
+        }
+    }
+
+    @Test func 血压连读一条话出两个字段() {
+        let drafts = VoiceStructuringEngine.extractMetric(
+            "血压 148 92 心率 76", rules: VoiceGrammarDefaults.metricRules)
+        #expect(drafts.contains { $0.key == "blood_pressure_sys" && $0.value == "148" },
+                "收缩压抽取失败")
+        #expect(drafts.contains { $0.key == "blood_pressure_dia" && $0.value == "92" },
+                "舒张压抽取失败")
+        #expect(drafts.contains { $0.key == "heart_rate" && $0.value == "76" })
+    }
+
+    @Test func 档案访谈字段全覆盖() {
+        let keys = Set(VoiceGrammarDefaults.profileRules.map(\.fieldKey))
+        for required in ["allergy", "pastHistory", "currentMeds",
+                         "emergencyContact", "surgery", "familyHistory"] {
+            #expect(keys.contains(required), "档案访谈缺字段 \(required)")
+        }
+    }
+
+    @Test func 全量提醒文法覆盖重复规则() {
+        let drafts = VoiceStructuringEngine.extractReminder(
+            "下周一早上八点提醒我复诊，每周", rules: VoiceGrammarDefaults.reminderRules)
+        #expect(!drafts.isEmpty)
+        #expect(drafts.contains { $0.key == "repeat" })
+    }
+}

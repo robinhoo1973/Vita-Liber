@@ -60,6 +60,19 @@ public enum SchemaMigrations {
              ALTER TABLE guideline_source ADD COLUMN metric_key TEXT;
              ALTER TABLE guideline_source ADD COLUMN unit TEXT;
              """),
+        Step(version: 4, name: "emergency-card-selection",
+             sql: """
+             -- F15 急救卡的用户选择语义：FR15.1「必须由用户逐项选择，不能静默加入」。
+             -- v1 无任何表承载「用户选了哪几项」——若聚合查询直接 JOIN 数据表，
+             -- 就是把「数据存在」当成「用户同意入卡」，恰是 BR-003 要防的静默行为。
+             -- 本表只记选择，数据仍在原表：退选=删行，不碰原始数据。
+             CREATE TABLE IF NOT EXISTS emergency_card_selection (
+               patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+               item_id TEXT NOT NULL,
+               item_kind TEXT NOT NULL,            -- medication/allergy/healthProblem/contact
+               selected_at REAL NOT NULL,
+               PRIMARY KEY(patient_id, item_id));
+             """),
     ]
 
     /// 全新库建库后应落到的版本号
