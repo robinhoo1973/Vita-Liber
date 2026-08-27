@@ -58,3 +58,39 @@ public enum MedicationHelpCardRules {
     /// 结构上就无法混入诊断（FR15.5 分离语义的类型化表达）
     public static let forbiddenDiagnosisMarkers = ["诊断", "病症", "病情"]
 }
+
+/// FR24.2 发送状态（P0）：本地只记「发过什么、状态如何」。
+///
+/// 最小必要原则：**不存消息原文**——原文留在发送时刻的卡片里，状态页只展示
+/// 类型/收件人/状态/时间。回执（acked）与超时（timeout）是 P1/D1 云端回执
+/// 闭环的状态，M2 只产生 `sent`，状态机规则先立起来。
+public enum MessageStatus: String, Sendable, Equatable, Codable, CaseIterable {
+    case sent, ackPending, acked, timeout
+}
+
+public struct SentMessage: Sendable, Equatable, Identifiable {
+    public var id: UUID
+    public var kind: String          // helpCard / sos
+    public var recipient: String
+    public var status: MessageStatus
+    public var sentAt: Date
+    public init(id: UUID = UUID(), kind: String, recipient: String,
+                status: MessageStatus = .sent, sentAt: Date) {
+        self.id = id; self.kind = kind; self.recipient = recipient
+        self.status = status; self.sentAt = sentAt
+    }
+}
+
+public enum MessageStatusRules {
+    /// 状态迁移白名单：sent → ackPending（等待回执）/ timeout；ackPending → acked。
+    /// 任何回退（acked → sent）与旁路跳变一律拒绝——状态不可伪造。
+    public static func canTransition(from: MessageStatus, to: MessageStatus) -> Bool {
+        switch (from, to) {
+        case (.sent, .ackPending), (.sent, .timeout),
+             (.ackPending, .acked), (.ackPending, .timeout):
+            return true
+        default:
+            return false
+        }
+    }
+}

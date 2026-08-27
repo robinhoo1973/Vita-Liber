@@ -24,6 +24,32 @@ struct SettingsView: View {
                     Text("稍后时长：\(settings.values[.snoozeMinutes] ?? "-") 分钟")
                     Text("安静时段：\(settings.values[.quietHoursStart] ?? "-") - \(settings.values[.quietHoursEnd] ?? "-")")
                 }
+                Section(L10n.hub_healthRecords) {
+                    NavigationLink(L10n.inventory_title) {
+                        InventoryHubView()
+                    }
+                    .accessibilityIdentifier("SP-25.settings.inventory")
+                    NavigationLink(L10n.emergency_title) {
+                        EmergencyCardHubView()
+                    }
+                    .accessibilityIdentifier("SP-25.settings.emergencyCard")
+                    NavigationLink(L10n.immunization_title) {
+                        ImmunizationHubView()
+                    }
+                    .accessibilityIdentifier("SP-25.settings.immunization")
+                    NavigationLink(L10n.claim_title) {
+                        ClaimHubView()
+                    }
+                    .accessibilityIdentifier("SP-25.settings.claim")
+                    NavigationLink(L10n.fr24_title) {
+                        SentStatusHubView()
+                    }
+                    .accessibilityIdentifier("SP-25.settings.sentStatus")
+                    NavigationLink(L10n.hub_guidelines) {
+                        GuidelineHubView()
+                    }
+                    .accessibilityIdentifier("SP-25.settings.guidelines")
+                }
                 Section("Pro") {
                     NavigationLink("Pro 升级与恢复") {
                         PaywallView()

@@ -327,6 +327,17 @@ public enum SchemaV2 {
       note TEXT, created_at REAL NOT NULL, updated_at REAL NOT NULL);
     CREATE INDEX idx_contact_patient ON contact(patient_id, is_emergency);
 
+    -- F24 发送状态（V3.49 / 迁移 v5）：只记状态与收件人，**不存消息原文**——
+    -- 最小必要原则（FR24.2 展示状态即可，原文留在发送时刻的卡片里）。
+    CREATE TABLE sent_message (
+      id TEXT PRIMARY KEY,
+      patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+      kind TEXT NOT NULL,                    -- helpCard / sos
+      recipient TEXT NOT NULL,               -- 收件人显示名
+      status TEXT NOT NULL DEFAULT 'sent' CHECK(status IN ('sent','ackPending','acked','timeout')),
+      sent_at REAL NOT NULL, updated_at REAL NOT NULL);
+    CREATE INDEX idx_sent_message_patient ON sent_message(patient_id, sent_at);
+
     -- F15 急救卡用户选择（V3.48 / 迁移 v4）：FR15.1「必须由用户逐项选择，
     -- 不能静默加入」。只记选择，数据仍在原表；退选=删行。
     CREATE TABLE emergency_card_selection (

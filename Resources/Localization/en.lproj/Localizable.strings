@@ -102,3 +102,16 @@
 "f19.paused" = "Listening paused — tap to resume";
 "f19.repeatObject" = "Will call %@. Please confirm.";
 "f19.executed" = "Done: %@";
+"fr24.title" = "Sent status";
+"fr24.empty" = "No messages sent yet";
+"fr24.emptyHint" = "After sharing a help card, its status appears here";
+"fr24.recipient" = "To: ";
+"fr24.kindHelpCard" = "Medication help card";
+"fr24.kindSos" = "SOS request";
+"fr24.statusSent" = "Sent";
+"fr24.statusAckPending" = "Awaiting receipt";
+"fr24.statusAcked" = "Received";
+"fr24.statusTimeout" = "Timed out";
+"hub.healthRecords" = "Health records";
+"hub.guidelines" = "Reference ranges";
+"hub.helpCardOpen" = "Help card";

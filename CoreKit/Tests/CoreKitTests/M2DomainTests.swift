@@ -419,3 +419,25 @@ struct MedicationHelpCardTests {
         #expect(MedicationHelpCardRules.cardText([]).contains("药品求助卡"))
     }
 }
+
+// binds: SU-M2-CARE — FR24.2 发送状态机（迁移白名单，状态不可伪造）
+@Suite("SU-M2-CARE · FR24.2 发送状态迁移白名单")
+struct MessageStatusTests {
+
+    @Test func 合法迁移路径() {
+        #expect(MessageStatusRules.canTransition(from: .sent, to: .ackPending))
+        #expect(MessageStatusRules.canTransition(from: .sent, to: .timeout))
+        #expect(MessageStatusRules.canTransition(from: .ackPending, to: .acked))
+        #expect(MessageStatusRules.canTransition(from: .ackPending, to: .timeout))
+    }
+
+    @Test func 回退与旁路跳变一律拒绝() {
+        #expect(!MessageStatusRules.canTransition(from: .acked, to: .sent),
+                "已回执不得退回已发送——状态不可伪造")
+        #expect(!MessageStatusRules.canTransition(from: .acked, to: .ackPending))
+        #expect(!MessageStatusRules.canTransition(from: .sent, to: .acked),
+                "无回执不得跳到已回执")
+        #expect(!MessageStatusRules.canTransition(from: .timeout, to: .acked),
+                "超时后不补回执")
+    }
+}

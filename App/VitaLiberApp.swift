@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import os
 import Domain
 import Infrastructure
 import Protocols
@@ -18,6 +19,7 @@ struct VitaLiberApp: App {
     @State private var entitlementStore: AppEntitlementStore
     @State private var trendState: TrendEntryState
     @State private var voiceNoteState: VoiceNoteState
+    @State private var m2Hub: M2HubStore
 
     init() {
         // 组装根（评审 A2：AppContainer 由 App 消费，AppState/ReminderStore 只面向协议）。
@@ -45,6 +47,10 @@ struct VitaLiberApp: App {
         _entitlementStore = State(initialValue: AppEntitlementStore(store: container.entitlements))
         _trendState = State(initialValue: TrendEntryState(store: container.trends))
         _voiceNoteState = State(initialValue: VoiceNoteState(store: container.voiceNotes))
+        _m2Hub = State(initialValue: M2HubStore(
+            meds: container.meds, emergency: container.emergencyCards,
+            immunizations: container.immunizations, claims: container.claims,
+            messages: container.messages, guidelines: container.guidelines))
     }
 
     var body: some Scene {
@@ -66,8 +72,14 @@ struct VitaLiberApp: App {
             .environment(entitlementStore)
             .environment(trendState)
             .environment(voiceNoteState)
+            .environment(m2Hub)
             .task {
                 await appState.bootstrap()
+                // F16 信源库种子幂等入库（离线零网络可用）
+                do { _ = try await container.guidelines.seedBundled() }
+                catch {
+                    Logger(subsystem: "com.vitaliber", category: "app").error("信源播种失败: \(error)")
+                }
                 // 四层补偿第 1 层（§5.4 V3.29）：前台启动时对账 + 首启请求通知授权
                 if appState.onboardingFinished {
                     await reminderStore.requestNotificationAuthorization()

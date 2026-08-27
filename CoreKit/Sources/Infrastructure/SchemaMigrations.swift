@@ -73,6 +73,17 @@ public enum SchemaMigrations {
                selected_at REAL NOT NULL,
                PRIMARY KEY(patient_id, item_id));
              """),
+        Step(version: 5, name: "sent-message-status",
+             sql: """
+             -- F24.2 发送状态页：本地只记「发过什么、状态如何」，不存消息原文。
+             CREATE TABLE IF NOT EXISTS sent_message (
+               id TEXT PRIMARY KEY,
+               patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+               kind TEXT NOT NULL,
+               recipient TEXT NOT NULL,
+               status TEXT NOT NULL DEFAULT 'sent' CHECK(status IN ('sent','ackPending','acked','timeout')),
+               sent_at REAL NOT NULL, updated_at REAL NOT NULL);
+             """),
     ]
 
     /// 全新库建库后应落到的版本号

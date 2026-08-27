@@ -71,6 +71,9 @@ public actor ClaimStore {
         public var totalAmount: Double
         public var itemCount: Int
         public var currency: String
+        public init(totalAmount: Double, itemCount: Int, currency: String) {
+            self.totalAmount = totalAmount; self.itemCount = itemCount; self.currency = currency
+        }
         public var statement: String {
             "共 \(itemCount) 笔，合计 \(String(format: "%.2f", totalAmount)) \(currency)"
         }

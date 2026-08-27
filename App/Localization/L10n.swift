@@ -122,6 +122,20 @@ enum L10n {
     static var f19_stopped: String { t("f19.stopped") }
     static var f19_paused: String { t("f19.paused") }
 
+        static var fr24_title: String { t("fr24.title") }
+    static var fr24_empty: String { t("fr24.empty") }
+    static var fr24_emptyHint: String { t("fr24.emptyHint") }
+    static var fr24_recipient: String { t("fr24.recipient") }
+    static var fr24_kindHelpCard: String { t("fr24.kindHelpCard") }
+    static var fr24_kindSos: String { t("fr24.kindSos") }
+    static var fr24_statusSent: String { t("fr24.statusSent") }
+    static var fr24_statusAckPending: String { t("fr24.statusAckPending") }
+    static var fr24_statusAcked: String { t("fr24.statusAcked") }
+    static var fr24_statusTimeout: String { t("fr24.statusTimeout") }
+    static var hub_healthRecords: String { t("hub.healthRecords") }
+    static var hub_guidelines: String { t("hub.guidelines") }
+    static var hub_helpCardOpen: String { t("hub.helpCardOpen") }
+
         /// 全部已键化的 key（SU-M15-L10N 遍历断言的输入）。
     /// 新增 key 必须同步登记到这里——否则门禁扫不到，又回到「缺证据当有证据」。
     /// 参数化文案（避免把格式串散落视图）

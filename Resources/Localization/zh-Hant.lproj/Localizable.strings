@@ -102,3 +102,16 @@
 "f19.paused" = "聆聽已暫停，點擊繼續";
 "f19.repeatObject" = "將撥打 %@。請確認。";
 "f19.executed" = "已執行：%@";
+"fr24.title" = "發送狀態";
+"fr24.empty" = "還沒有發送記錄";
+"fr24.emptyHint" = "分享求助卡後會在這裡看到發送狀態";
+"fr24.recipient" = "收件人：";
+"fr24.kindHelpCard" = "藥品求助卡";
+"fr24.kindSos" = "SOS 求助";
+"fr24.statusSent" = "已發送";
+"fr24.statusAckPending" = "等待回執";
+"fr24.statusAcked" = "已回執";
+"fr24.statusTimeout" = "逾時";
+"hub.healthRecords" = "健康檔案";
+"hub.guidelines" = "參考範圍來源";
+"hub.helpCardOpen" = "求助卡";

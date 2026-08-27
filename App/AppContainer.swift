@@ -21,6 +21,11 @@ struct AppContainer {
     let entitlements: EntitlementStore
     let trends: TrendQueryStore
     let voiceNotes: VoiceNoteStore
+    let guidelines: GuidelineStore
+    let emergencyCards: EmergencyCardStore
+    let immunizations: ImmunizationStore
+    let claims: ClaimStore
+    let messages: MessageDeliveryStore
 
     /// 生产装配：文件库 + WAL（§4.4）+ UNUserNotificationCenter 适配。
     static func live(databasePath: String) throws -> AppContainer {
@@ -43,6 +48,11 @@ struct AppContainer {
         let observations = ObservationStore(writer: store.writer)
         let allergies = AllergyStore(writer: store.writer)
         // StoreKit 2 生产接线为 L2 部署项；M1c 以桩承载全部逻辑路径（可全量单测）
+        let guidelines = GuidelineStore(writer: store.writer)
+        let emergencyCards = EmergencyCardStore(writer: store.writer)
+        let immunizations = ImmunizationStore(writer: store.writer)
+        let claims = ClaimStore(writer: store.writer)
+        let messages = MessageDeliveryStore(writer: store.writer)
         let entitlements = EntitlementStore(writer: store.writer,
                                             storefront: EntitlementStore.InMemoryStorefront())
         let trends = TrendQueryStore(writer: store.writer)
@@ -60,7 +70,12 @@ struct AppContainer {
                             allergies: allergies,
                             entitlements: entitlements,
                             trends: trends,
-                            voiceNotes: voiceNotes)
+                            voiceNotes: voiceNotes,
+                            guidelines: guidelines,
+                            emergencyCards: emergencyCards,
+                            immunizations: immunizations,
+                            claims: claims,
+                            messages: messages)
     }
 
     /// Application Support 下的数据库路径（生产库位置）

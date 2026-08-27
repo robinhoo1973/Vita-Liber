@@ -102,3 +102,16 @@
 "f19.paused" = "聆听已暂停，点击继续";
 "f19.repeatObject" = "将拨打 %@。请确认。";
 "f19.executed" = "已执行：%@";
+"fr24.title" = "发送状态";
+"fr24.empty" = "还没有发送记录";
+"fr24.emptyHint" = "分享求助卡后会在这里看到发送状态";
+"fr24.recipient" = "收件人：";
+"fr24.kindHelpCard" = "药品求助卡";
+"fr24.kindSos" = "SOS 求助";
+"fr24.statusSent" = "已发送";
+"fr24.statusAckPending" = "等待回执";
+"fr24.statusAcked" = "已回执";
+"fr24.statusTimeout" = "超时";
+"hub.healthRecords" = "健康档案";
+"hub.guidelines" = "参考范围来源";
+"hub.helpCardOpen" = "求助卡";
