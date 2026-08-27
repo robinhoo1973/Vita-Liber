@@ -88,3 +88,17 @@
 "helpcard.photoOptIn" = "包含存放位置照片（外发家庭内部影像，请确认确有需要）";
 "helpcard.contentNote" = "卡片内容：药名/规格/剩余量/存放位置文字/效期。不包含任何诊断类信息。";
 "helpcard.generate" = "生成并分享";
+"f19.sessionTitle" = "关怀语音会话";
+"f19.launch" = "开始语音";
+"f19.listeningHint" = "正在聆听。说「今天吃什么药」试试，或使用下方输入。";
+"f19.typeHint" = "也可以打字输入指令";
+"f19.end" = "结束会话";
+"f19.sayAgainHint" = "没听清？说「再说一遍」";
+"f19.confirm" = "确认";
+"f19.cancel" = "取消";
+"f19.rejectedTitle" = "语音通道不能执行这个操作";
+"f19.goTouch" = "在屏幕上操作";
+"f19.stopped" = "已停止聆听（退出前台）";
+"f19.paused" = "聆听已暂停，点击继续";
+"f19.repeatObject" = "将拨打 %@。请确认。";
+"f19.executed" = "已执行：%@";

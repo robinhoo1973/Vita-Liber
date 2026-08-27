@@ -88,3 +88,17 @@
 "helpcard.photoOptIn" = "Include storage photo (family-only image sharing — please confirm)";
 "helpcard.contentNote" = "Card contents: name, spec, remaining amount, storage text, expiry. No diagnosis information.";
 "helpcard.generate" = "Generate and share";
+"f19.sessionTitle" = "Care voice session";
+"f19.launch" = "Start voice";
+"f19.listeningHint" = "Listening. Try \"What meds today\", or use the input below.";
+"f19.typeHint" = "You can also type commands";
+"f19.end" = "End session";
+"f19.sayAgainHint" = "Didn't catch that? Say \"repeat\"";
+"f19.confirm" = "Confirm";
+"f19.cancel" = "Cancel";
+"f19.rejectedTitle" = "Voice can't perform this action";
+"f19.goTouch" = "Do it on screen";
+"f19.stopped" = "Listening stopped (left foreground)";
+"f19.paused" = "Listening paused — tap to resume";
+"f19.repeatObject" = "Will call %@. Please confirm.";
+"f19.executed" = "Done: %@";

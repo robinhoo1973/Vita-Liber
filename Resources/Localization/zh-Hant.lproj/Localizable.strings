@@ -88,3 +88,17 @@
 "helpcard.photoOptIn" = "包含存放位置照片（外發家庭內部影像，請確認確有需要）";
 "helpcard.contentNote" = "卡片內容：藥名/規格/剩餘量/存放位置文字/效期。不包含任何診斷類資訊。";
 "helpcard.generate" = "產生並分享";
+"f19.sessionTitle" = "關懷語音會話";
+"f19.launch" = "開始語音";
+"f19.listeningHint" = "正在聆聽。說「今天吃什麼藥」試試，或使用下方輸入。";
+"f19.typeHint" = "也可以打字輸入指令";
+"f19.end" = "結束會話";
+"f19.sayAgainHint" = "沒聽清？說「再說一遍」";
+"f19.confirm" = "確認";
+"f19.cancel" = "取消";
+"f19.rejectedTitle" = "語音通道不能執行這個操作";
+"f19.goTouch" = "在螢幕上操作";
+"f19.stopped" = "已停止聆聽（退出前景）";
+"f19.paused" = "聆聽已暫停，點擊繼續";
+"f19.repeatObject" = "將撥打 %@。請確認。";
+"f19.executed" = "已執行：%@";

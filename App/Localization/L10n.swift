@@ -109,7 +109,20 @@ enum L10n {
     static var helpcard_contentNote: String { t("helpcard.contentNote") }
     static var helpcard_generate: String { t("helpcard.generate") }
 
-    /// 全部已键化的 key（SU-M15-L10N 遍历断言的输入）。
+    static var f19_sessionTitle: String { t("f19.sessionTitle") }
+    static var f19_launch: String { t("f19.launch") }
+    static var f19_listeningHint: String { t("f19.listeningHint") }
+    static var f19_typeHint: String { t("f19.typeHint") }
+    static var f19_end: String { t("f19.end") }
+    static var f19_sayAgainHint: String { t("f19.sayAgainHint") }
+    static var f19_confirm: String { t("f19.confirm") }
+    static var f19_cancel: String { t("f19.cancel") }
+    static var f19_rejectedTitle: String { t("f19.rejectedTitle") }
+    static var f19_goTouch: String { t("f19.goTouch") }
+    static var f19_stopped: String { t("f19.stopped") }
+    static var f19_paused: String { t("f19.paused") }
+
+        /// 全部已键化的 key（SU-M15-L10N 遍历断言的输入）。
     /// 新增 key 必须同步登记到这里——否则门禁扫不到，又回到「缺证据当有证据」。
     /// 参数化文案（避免把格式串散落视图）
     static func inventoryApproxDays(_ days: Int) -> String {
@@ -120,6 +133,12 @@ enum L10n {
     }
     static func deeplinkJump(_ hospital: String) -> String {
         t("deeplink.jump").replacingOccurrences(of: "%@", with: hospital)
+    }
+    static func f19RepeatObject(_ obj: String) -> String {
+        t("f19.repeatObject").replacingOccurrences(of: "%@", with: obj)
+    }
+    static func f19Executed(_ command: String) -> String {
+        t("f19.executed").replacingOccurrences(of: "%@", with: command)
     }
     static func deeplinkOpen(_ hospital: String) -> String {
         t("deeplink.open").replacingOccurrences(of: "%@", with: hospital)
@@ -186,7 +205,19 @@ enum L10n {
         "helpcard.selectHint",
         "helpcard.photoOptIn",
         "helpcard.contentNote",
-        "helpcard.generate"
+        "helpcard.generate",
+        "f19.sessionTitle",
+        "f19.launch",
+        "f19.listeningHint",
+        "f19.typeHint",
+        "f19.end",
+        "f19.sayAgainHint",
+        "f19.confirm",
+        "f19.cancel",
+        "f19.rejectedTitle",
+        "f19.goTouch",
+        "f19.stopped",
+        "f19.paused"
     ]
 
     /// 支持的本地化（三文件纪律）

@@ -112,6 +112,8 @@ struct ModuleRoot: View {
                     .foregroundStyle(.secondary)
                 Text(module.titleKey)
                     .font(.headline)
+                // F19：关怀模式首页大卡 [开始语音]（FR19.1 入口）
+                VoiceSessionLaunchCard()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .accessibilityIdentifier("SP-00.moduleRoot.\(module.rawValue)")
