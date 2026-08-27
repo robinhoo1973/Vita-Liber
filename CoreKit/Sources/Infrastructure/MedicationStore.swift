@@ -147,7 +147,7 @@ public actor MedicationStore: DoseSource {
     @discardableResult
     public func materializeMissed(now: Date, graceInterval: TimeInterval = 15 * 60) async throws -> Int {
         let cutoff = now.addingTimeInterval(-graceInterval)
-        try await writer.write { db in
+        return try await writer.write { db -> Int in
             // 目标行：计划 active、已过宽限、无用户动作
             let rows = try Row.fetchAll(db, sql: """
                 SELECT d.id, d.dose_units, p.patient_id, p.medication_id
@@ -210,10 +210,10 @@ public actor MedicationStore: DoseSource {
                                  from.timeIntervalSince1970, to.timeIntervalSince1970])
             return InventoryReportRules.report(
                 periodStart: from, periodEnd: to,
-                planned: (counts?["planned"] as Int64?)?.intValue ?? 0,
-                confirmed: (counts?["confirmed"] as Int64?)?.intValue ?? 0,
-                skipped: (counts?["skipped"] as Int64?)?.intValue ?? 0,
-                missed: (counts?["missed"] as Int64?)?.intValue ?? 0)
+                planned: Int(counts?["planned"] as Int64? ?? 0),
+                confirmed: Int(counts?["confirmed"] as Int64? ?? 0),
+                skipped: Int(counts?["skipped"] as Int64? ?? 0),
+                missed: Int(counts?["missed"] as Int64? ?? 0))
         }
     }
 
@@ -347,8 +347,10 @@ public actor MedicationStore: DoseSource {
     /// 返回本窗口新物化的行数。
     public func materializeWindow(now: Date, calendar: Calendar) async throws -> Int {
         let windowEnd = now.addingTimeInterval(TimeInterval(ReconcileEngine.preScheduleWindowDays * 86400))
-        var inserted = 0
-        try await writer.write { db in
+        // 返回式写闭包：不在闭包内突变捕获变量（Swift 6 并发纪律——
+        // 「mutation of captured var in concurrently-executing code」是 6 模式下的错误）
+        return try await writer.write { db -> Int in
+            var inserted = 0
             let plans = try Row.fetchAll(db, sql: """
                 SELECT id, patient_id, schedule_json, start_date, end_date
                 FROM medication_plan WHERE status = 'active'
@@ -382,8 +384,8 @@ public actor MedicationStore: DoseSource {
                     inserted += db.changesCount
                 }
             }
+            return inserted
         }
-        return inserted
     }
 
     // MARK: - DoseSource（对账输入）

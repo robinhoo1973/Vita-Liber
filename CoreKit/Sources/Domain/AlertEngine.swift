@@ -56,7 +56,7 @@ public struct MetricReading: Sendable, Equatable {
 }
 
 /// 五段证据卡（§5.12/FR16.2）：事实 → 阈值来源链接 → 建议路径 → 固定免责 → 级别标签
-public struct AlertEvidenceCard: Sendable, Equatable {
+public struct AlertEvidenceCard: Sendable, Equatable, Codable {
     public var severity: AlertSeverity
     public var facts: String               // 纯事实句式
     public var sourceRef: String?          // 信源条目引用（可打开原文）
