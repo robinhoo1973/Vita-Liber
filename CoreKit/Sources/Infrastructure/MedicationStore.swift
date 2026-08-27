@@ -129,6 +129,215 @@ public actor MedicationStore: DoseSource {
         public var errorDescription: String? { "剂量行操作失败: \(self)" }
     }
 
+    // MARK: - 零确认存活（FR9.8.8 / dev-pm §3.4 M2 一票否决）
+
+    /// **计划驱动补账**：把「已过宽限期、仍无任何用户动作」的剂量行物化为
+    /// `.missed`，并只扣**安全线**（FR9.8.2：忘记/无操作 → 安全线−1、确认线 0）。
+    ///
+    /// 为什么必须单独存在：安全线的推进此前只挂在用户动作上
+    /// （`confirmTaken` / `recordAction` → `applyResolutionOnLots`），而「零确认」
+    /// 恰恰意味着**永远不会有动作传进来**——安全线于是永不减少、续药提醒永不
+    /// 触发。用户建完计划后什么都不做，反而收不到「该买药了」，这正是
+    /// FR9.8.8「零确认存活动作条款」要防的失效形态。
+    ///
+    /// - 幂等：`user_action IS NULL` 守卫，已物化行不重复处理；
+    /// - 每行一个事务还是整批一个事务？**整批一个事务**——补账是排程驱动的
+    ///   一致性动作，半批提交会让「安全线已扣但行未物化」的中间态可见；
+    /// - 宽限语义与对账一致（`isExpiredGrace`：15 分钟），未过宽限的行留给用户。
+    @discardableResult
+    public func materializeMissed(now: Date, graceInterval: TimeInterval = 15 * 60) async throws -> Int {
+        let cutoff = now.addingTimeInterval(-graceInterval)
+        try await writer.write { db in
+            // 目标行：计划 active、已过宽限、无用户动作
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT d.id, d.dose_units, p.patient_id, p.medication_id
+                FROM medication_dose_log d
+                JOIN medication_plan p ON p.id = d.plan_id
+                WHERE p.status = 'active'
+                  AND d.user_action IS NULL
+                  AND d.scheduled_for < ?
+                """, arguments: [cutoff.timeIntervalSince1970])
+            var processed = 0
+            for row in rows {
+                let notifyId = row["id"] as String
+                let units = (row["dose_units"] as Double?) ?? 1
+                let patientId = UUID(uuidString: row["patient_id"] as String) ?? UUID()
+                let medicationId = UUID(uuidString: row["medication_id"] as String) ?? UUID()
+                try db.execute(sql: """
+                    UPDATE medication_dose_log
+                    SET user_action = 'missed', acted_at = ?
+                    WHERE id = ? AND user_action IS NULL
+                    """, arguments: [now.timeIntervalSince1970, notifyId])
+                guard db.changesCount > 0 else { continue }   // 并发下已被决议，跳过
+                try applyResolutionOnLots(patientId: patientId, medicationId: medicationId,
+                                          notifyId: notifyId, units: units,
+                                          action: .missed, db: db)
+                processed += 1
+            }
+            return processed
+        }
+    }
+
+    /// 某计划下已物化的剂量行数（测试/月报用）
+    public func doseCount(planId: UUID, from: Date, to: Date) async throws -> Int {
+        try await writer.read { db in
+            try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM medication_dose_log
+                WHERE plan_id = ? AND scheduled_for >= ? AND scheduled_for <= ?
+                """, arguments: [planId.uuidString,
+                                 from.timeIntervalSince1970, to.timeIntervalSince1970]) ?? 0
+        }
+    }
+
+    // MARK: - 消耗差异月报（FR9.8.5）
+
+    /// 月报输入 = 两线差值，逐日可溯。**纯事实聚合**，句式由 Domain 的
+    /// `InventoryMonthlyReport.statement` 唯一产出（禁止任何评价/评分句式，
+    /// 负清单由 `InventoryReportRules.violation` 一票否决）。
+    public func monthlyReport(patientId: UUID, from: Date, to: Date) async throws -> InventoryMonthlyReport {
+        try await writer.read { db in
+            let counts = try Row.fetchOne(db, sql: """
+                SELECT
+                  COUNT(*) AS planned,
+                  SUM(CASE WHEN user_action = 'taken' THEN 1 ELSE 0 END) AS confirmed,
+                  SUM(CASE WHEN user_action = 'skipped' THEN 1 ELSE 0 END) AS skipped,
+                  SUM(CASE WHEN user_action IS NULL OR user_action IN ('missed','discomfort')
+                      THEN 1 ELSE 0 END) AS missed
+                FROM medication_dose_log d
+                JOIN medication_plan p ON p.id = d.plan_id
+                WHERE p.patient_id = ? AND d.scheduled_for >= ? AND d.scheduled_for <= ?
+                """, arguments: [patientId.uuidString,
+                                 from.timeIntervalSince1970, to.timeIntervalSince1970])
+            return InventoryReportRules.report(
+                periodStart: from, periodEnd: to,
+                planned: (counts?["planned"] as Int64?)?.intValue ?? 0,
+                confirmed: (counts?["confirmed"] as Int64?)?.intValue ?? 0,
+                skipped: (counts?["skipped"] as Int64?)?.intValue ?? 0,
+                missed: (counts?["missed"] as Int64?)?.intValue ?? 0)
+        }
+    }
+
+    // MARK: - 家庭药箱摘要（FR9.8.3 续药卡 / FR9.8.7「约剩 N 天」）
+
+    /// 批次级摘要：安全线剩余 + 确认线剩余 + 当前续药档位 + 诚实性天数估算。
+    /// `约剩 N 天·按计划估算` 的 N 来自**安全线 ÷ 计划日当量**（向上取整不实——
+    /// 诚实性文案要求「约」，故保留一位小数取整向上，绝不精确到小时装精确）。
+    public func inventorySummary(patientId: UUID, now: Date) async throws -> [InventorySummaryItem] {
+        try await writer.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT l.id, l.medication_id, m.generic_name, m.spec, l.total_units,
+                       l.unit_kind, l.remaining_plan_units, l.remaining_confirmed_units,
+                       l.expire_at, l.status
+                FROM stock_lot l
+                JOIN medication m ON m.id = l.medication_id
+                WHERE l.patient_id = ? AND l.status = 'active'
+                ORDER BY m.generic_name, l.expire_at
+                """, arguments: [patientId.uuidString])
+            var items: [InventorySummaryItem] = []
+            for row in rows {
+                // 日当量：active 计划的 schedule_json 在 Swift 侧解码估算——
+                // 枚举 JSON 形态多样（fixed/interval/meal/…），SQL JSON1 路径
+                // 会静默失配，宁可多写几行解码也不把「约剩 N 天」建在静默失效上。
+                let medicationId = row["medication_id"] as String
+                let schedules = try String.fetchAll(db, sql: """
+                    SELECT schedule_json FROM medication_plan
+                    WHERE medication_id = ? AND status = 'active'
+                    """, arguments: [medicationId])
+                var daily = 0.0
+                for json in schedules {
+                    guard let data = json.data(using: .utf8) else { continue }
+                    // 损坏的 schedule_json 跳过该计划（与 materializeWindow 同语义；
+                    // 不用 try? —— tech-spec §7 红线）
+                    let schedule: MedicationSchedule
+                    do { schedule = try JSONDecoder().decode(MedicationSchedule.self, from: data) }
+                    catch { continue }
+                    daily += Self.estimatedDailyUnits(schedule)
+                }
+                let planUnits = row["remaining_plan_units"] as Double
+                let confirmedUnits = row["remaining_confirmed_units"] as Double
+                var inv = DualTrackInventory(lotId: UUID(uuidString: row["id"] as String) ?? UUID(),
+                                             totalUnits: row["total_units"] as Double,
+                                             unitKind: row["unit_kind"] as String,
+                                             expireAt: (row["expire_at"] as Double?).map { Date(timeIntervalSince1970: $0) })
+                inv.remainingPlanUnits = planUnits
+                inv.remainingConfirmedUnits = confirmedUnits
+                let tier = InventoryRules.refillTier(inv, dailyPlanUnits: daily, at: now)
+                items.append(InventorySummaryItem(
+                    lotId: UUID(uuidString: row["id"] as String) ?? UUID(),
+                    medicationName: row["generic_name"] as String,
+                    spec: row["spec"] as String?,
+                    unitKind: row["unit_kind"] as String,
+                    remainingPlanUnits: planUnits,
+                    remainingConfirmedUnits: confirmedUnits,
+                    expireAt: (row["expire_at"] as Double?).map { Date(timeIntervalSince1970: $0) },
+                    approxDaysLeft: daily > 0 ? Int(ceil(planUnits / daily)) : nil,
+                    refillTier: tier))
+            }
+            return items
+        }
+    }
+
+    /// 盘点归真（FR9.8.5 往返）：写入**用户确认后的**实物清点，两线同时重置为
+    /// 物理真值 + 记审计。归真必须显式调用且经确认（Domain 侧 `needsConfirmation`
+    /// 已判差异非零），本方法不自行裁决差异——裁决发生在调用方确认之后。
+    public func reconcileLot(lotId: UUID, physicalCount: Double, at: Date,
+                             note: String? = nil, auditSink: ((String, String) async throws -> Void)? = nil) async throws {
+        try await writer.write { db in
+            try db.execute(sql: """
+                UPDATE stock_lot
+                SET remaining_plan_units = ?, remaining_confirmed_units = ?,
+                    last_reconciled_at = ?
+                WHERE id = ?
+                """, arguments: [physicalCount, physicalCount, at.timeIntervalSince1970,
+                                 lotId.uuidString])
+            guard db.changesCount > 0 else {
+                throw StoreError.doseNotFound(lotId.uuidString)
+            }
+        }
+        if let auditSink {
+            try await auditSink("inventory.reconcile", "lot=\(lotId.uuidString) count=\(physicalCount) note=\(note ?? "")")
+        }
+    }
+
+    /// 日均当量估算（FR9.8.7「约剩 N 天·按计划估算」）。诚实性纪律：
+    /// 只作「约」字号的估算，且对多计划取**最大值**（保守——宁可估算天数更少，
+    /// 也不让用户以为药比实际多）。asNeeded 无排程，不计入日当量。
+    static func estimatedDailyUnits(_ schedule: MedicationSchedule) -> Double {
+        switch schedule {
+        case .fixed(let times): return Double(max(1, times.count))
+        case .interval(let everyMinutes, _):
+            let perDay = 1440.0 / Double(max(1, everyMinutes))
+            return min(perDay, 24)
+        case .meal(let relations): return Double(max(1, relations.count))
+        case .asNeeded: return 0
+        case .cycle(let everyDays, let daysOn): return Double(daysOn) / Double(max(1, everyDays))
+        case .taper(let stages):
+            // 未来段不确定，取各阶段日当量最大值（保守）
+            return stages.map { Double($0.times.count) * $0.doseUnits }.max() ?? 1
+        }
+    }
+
+    public struct InventorySummaryItem: Sendable, Equatable {
+        public var lotId: UUID
+        public var medicationName: String
+        public var spec: String?
+        public var unitKind: String
+        public var remainingPlanUnits: Double
+        public var remainingConfirmedUnits: Double
+        public var expireAt: Date?
+        /// 约剩 N 天·按计划估算（FR9.8.7）；无 active 计划时为 nil（不装精确）
+        public var approxDaysLeft: Int?
+        public var refillTier: InventoryRules.RefillTier?
+        public init(lotId: UUID, medicationName: String, spec: String?, unitKind: String,
+                    remainingPlanUnits: Double, remainingConfirmedUnits: Double,
+                    expireAt: Date?, approxDaysLeft: Int?, refillTier: InventoryRules.RefillTier?) {
+            self.lotId = lotId; self.medicationName = medicationName; self.spec = spec
+            self.unitKind = unitKind; self.remainingPlanUnits = remainingPlanUnits
+            self.remainingConfirmedUnits = remainingConfirmedUnits; self.expireAt = expireAt
+            self.approxDaysLeft = approxDaysLeft; self.refillTier = refillTier
+        }
+    }
+
     // MARK: - 滚动预排窗口（§5.4：只物化未来 7 天，每日对账滚动补排）
 
     /// 为全部 active 计划物化窗口内剂量行（幂等）。dose_log.plan_id 必须指向真实

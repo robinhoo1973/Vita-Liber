@@ -34,6 +34,11 @@ final class ReminderStore {
         guard let patientId else { return }
         do {
             _ = try await meds.materializeWindow(now: now, calendar: .current)
+            // FR9.8.8 零确认存活：先补账过期无动作剂量（安全线按计划推进），
+            // 再对账——顺序不可反。对账只调度「未决剂量」，不产生用户动作；
+            // 若先对账后补账，已过宽限的零确认剂量会从事实链里消失，
+            // 安全线永不下行、续药提醒永不触发（M2 一票否决的失效形态）。
+            _ = try await meds.materializeMissed(now: now)
             await reconciler.reconcile(now: now)
             let cal = Calendar.current
             let dayStart = cal.startOfDay(for: now)
