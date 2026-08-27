@@ -67,4 +67,22 @@ final class AppEntitlementStore {
             logger.error("AI 额度计数失败: \(error)")
         }
     }
+
+    // MARK: - 五时机触发接线（comercial §3 / M2 收尾）
+
+    /// 触发点接线标准入口：价值触发 + 24h 频控 + 反向约束全在 Domain
+    /// `PaywallRules`，本方法只是把它接到「弹墙」这个 UI 动作上。
+    /// - Returns: true = 已弹墙（调用方应跳过原动作——proOutput/cloudSync
+    ///   的语义是「先解锁再用」，AI 额度的语义是「额度用尽不给答」）
+    @MainActor
+    func evaluateTrigger(_ trigger: PaywallTrigger, now: Date = Date()) -> Bool {
+        guard shouldShowPaywall(trigger: trigger, now: now) else { return false }
+        markShown(trigger: trigger, at: now)
+        pendingPaywallTrigger = trigger
+        return true
+    }
+
+    /// 当前待展示的弹墙触发器（PaywallHost 观察）
+    private(set) var pendingPaywallTrigger: PaywallTrigger?
+    func clearPendingPaywall() { pendingPaywallTrigger = nil }
 }

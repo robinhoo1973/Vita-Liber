@@ -51,6 +51,10 @@ struct AssistantView: View {
                     let q = draft
                     draft = ""
                     Task {
+                        // 注意：基础问答永久免费（comercial §2.1/§2.4——免费档每月 20 次），
+                        // 本入口不得接入权益仓/付费墙（L0 [4/9] 红线模块断言）。
+                        // 「高级 AI 用量」是 D3 若采纳的增量能力，其弹墙时机接线
+                        // 归属 D3 决策后的 Pro 增强入口，不在基础问答上触发。
                         await assistant.ask(q, scopePatientIds: [currentPatientId])
                     }
                 } label: {

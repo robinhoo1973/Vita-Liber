@@ -2,6 +2,31 @@ import SwiftUI
 import Domain
 import Infrastructure
 
+/// 弹墙宿主：任何视图设置 `pendingPaywallTrigger` 后，本组件在根层级弹出
+/// SP-61 付费墙。集中一处宿主，避免各触发点各自 sheet 造成双弹/漏关。
+struct PaywallHost: ViewModifier {
+    @Environment(AppEntitlementStore.self) private var entitlements
+
+    func body(content: Content) -> some View {
+        content
+            .sheet(item: Binding(
+                get: { entitlements.pendingPaywallTrigger.map(TriggerBox.init) },
+                set: { if $0 == nil { entitlements.clearPendingPaywall() } })) { _ in
+                PaywallView()
+                    .presentationDetents([.medium, .large])
+            }
+    }
+}
+
+extension View {
+    func withPaywallHost() -> some View { modifier(PaywallHost()) }
+}
+
+private struct TriggerBox: Identifiable {
+    let trigger: PaywallTrigger
+    var id: String { trigger.rawValue }
+}
+
 /// SP-61 付费墙（comercial V1.5）：Pro 买断 ¥68/年 或 ¥12/月、7 天试用、
 /// 恢复购买常驻、信任文案固定。五时机由 PaywallRules 调度（24h 频控）。
 /// EntitlementGate 语义：未解锁=权益预览，绝不报错阻断（免费体验保护八条）。

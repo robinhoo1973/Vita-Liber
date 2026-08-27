@@ -80,6 +80,7 @@ struct RootAdaptiveView: View {
                     }
             }
         }
+        .withPaywallHost()   // 五时机弹墙统一宿主（comercial §3 / M2 收尾）
     }
 }
 
