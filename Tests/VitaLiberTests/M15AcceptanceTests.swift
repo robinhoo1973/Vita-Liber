@@ -216,7 +216,12 @@ final class M15AcceptanceTests: XCTestCase {
 
         // 外层信封 = {sha256, payload(编码)}——翻转 payload 的一个字节，
         // 结构依旧合法但 sha256 必然失配
-        struct Outer: Codable { var sha256: String; var payload: Data }
+        struct Outer: Codable {
+            var formatVersion: Int
+            var sha256: String
+            var exportedAt: TimeInterval
+            var payload: Data
+        }
         let decoder = JSONDecoder()
         var outer: Outer
         do { outer = try decoder.decode(Outer.self, from: pkg.data) }
