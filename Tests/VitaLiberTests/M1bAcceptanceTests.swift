@@ -140,7 +140,7 @@ final class M1bAcceptanceTests: XCTestCase {
     }
 
     /// 预约闭环：创建→四级提醒预排→改期重排→完成（含补录就诊）→取消清 pending
-    func test_预约创建分级提醒与改期() async throws {
+    func test_SU_M1b_APPT_预约创建分级提醒与改期() async throws {
         let (store, _, scheduler, apts, patient, _) = try await makeStore()
         let startsAt = Date().addingTimeInterval(10 * 86400)
         let aptId = UUID()

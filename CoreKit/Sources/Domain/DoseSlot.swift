@@ -158,10 +158,77 @@ public enum InventoryRules {
 
     /// 续药告警（FR9.8.3）：安全线余量 ≤7 天当量 → 需告警（偏早）
     public static func refillAlertNeeded(_ inv: DualTrackInventory, dailyPlanUnits: Double, at date: Date) -> Bool {
-        guard dailyPlanUnits > 0 else { return false }
-        if let e = inv.expireAt, e < date { return true }   // 过期即告警
+        refillTier(inv, dailyPlanUnits: dailyPlanUnits, at: date) != nil
+    }
+
+    /// 续药分级（FR9.8.3 三级触达）：按**安全线**剩余天数定级。
+    /// 用安全线而非确认线是 ADR-009 不可协商的取向——误差必须偏向**更早**告警。
+    public enum RefillTier: String, Sendable, Equatable, CaseIterable, Codable {
+        case t14, t7, t3
+        /// 触发阈值（剩余天数 ≤ 该值）
+        public var daysLeftThreshold: Double {
+            switch self {
+            case .t14: return 14
+            case .t7:  return 7
+            case .t3:  return 3
+            }
+        }
+    }
+
+    /// 当前应处的最紧急档位；不需告警返回 nil。过期批次直接按最紧急档处理。
+    public static func refillTier(_ inv: DualTrackInventory, dailyPlanUnits: Double,
+                                  at date: Date) -> RefillTier? {
+        guard dailyPlanUnits > 0 else { return nil }
+        if let e = inv.expireAt, e < date { return .t3 }      // 过期即最紧急
         let daysLeft = inv.remainingPlanUnits / dailyPlanUnits
-        return daysLeft <= 7
+        // 从最紧急往回判，返回命中的最紧急档
+        for tier in [RefillTier.t3, .t7, .t14] where daysLeft <= tier.daysLeftThreshold {
+            return tier
+        }
+        return nil
+    }
+
+    /// **零确认存活（M2 一票否决，FR9.8「零确认存活动作条款」）**
+    ///
+    /// 安全线是**计划驱动**的：用户建完计划后一个动作都不做，安全线也必须按
+    /// 排程自行推进，续药提醒因此照常分级触达。
+    ///
+    /// 这条之所以必须单独存在：`applyResolution` 需要一个 `DoseUserAction` 才会
+    /// 扣减，而「零确认」恰恰意味着**永远不会有 action 传进来**——安全线于是
+    /// 永不减少、续药告警永不触发。用户什么都不做时反而收不到「该买药了」，
+    /// 正是这条红线要防的失效。计划轨的推进权因此不能挂在用户动作上。
+    ///
+    /// - Parameter elapsedScheduledDoses: 区间内**应服**剂次数（由排程引擎给出，
+    ///   与用户是否确认无关）。
+    public static func advancePlanTrack(_ inv: DualTrackInventory,
+                                        elapsedScheduledDoses: Int,
+                                        unitsPerDose: Double) -> DualTrackInventory {
+        guard elapsedScheduledDoses > 0, unitsPerDose > 0 else { return inv }
+        return deductPlan(inv, units: Double(elapsedScheduledDoses) * unitsPerDose)
+    }
+
+    /// 零确认场景下，从建计划到 `now` 期间应触达的**全部**续药档位（升序）。
+    /// 逐日推进安全线并记录首次跨越各档的时刻——用于验证「三级触达全发生」，
+    /// 也用于补发（某档触发时 App 未运行则下次启动补发，不静默吞掉）。
+    public static func refillTiersFired(initialUnits: Double,
+                                        dailyPlanUnits: Double,
+                                        from start: Date, to now: Date,
+                                        calendar: Calendar = .current) -> [(tier: RefillTier, at: Date)] {
+        guard dailyPlanUnits > 0, initialUnits > 0, now > start else { return [] }
+        var fired: [(RefillTier, Date)] = []
+        var pending = Set(RefillTier.allCases)
+        let totalDays = Int(now.timeIntervalSince(start) / 86400)
+        for day in 0...max(0, totalDays) {
+            guard let at = calendar.date(byAdding: .day, value: day, to: start) else { continue }
+            let remaining = max(0, initialUnits - Double(day) * dailyPlanUnits)
+            let daysLeft = remaining / dailyPlanUnits
+            for tier in [RefillTier.t14, .t7, .t3]
+            where pending.contains(tier) && daysLeft <= tier.daysLeftThreshold {
+                pending.remove(tier)
+                fired.append((tier, at))
+            }
+        }
+        return fired.sorted { $0.1 < $1.1 }
     }
 
     /// 批次分配 FEFO（FR9.14）：先到期先出；到期日相同按余量降序

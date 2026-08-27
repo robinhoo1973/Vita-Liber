@@ -4,7 +4,7 @@ import Testing
 
 /// M1c 商业化（comercial V1.5 / tech §5.14）——Domain 规则验收
 // binds: SU-M1c-IAP — TC-M1c-07
-@Suite("M1c · 付费墙五时机与红线（comercial §2/§3）")
+@Suite("SU-M1c-IAP · 付费墙五时机与红线（comercial §2/§3）")
 struct PaywallTests {
     @Test func 五时机弹墙矩阵() {
         let now = Date()

@@ -19,7 +19,7 @@ final class M1aE2ETests: XCTestCase {
         }
     }
 
-    func test_端到端切片故事_PIN建档OCR确认时间轴() throws {
+    func test_SU_M1a_E2E_端到端切片故事_PIN建档OCR确认时间轴() throws {
         let app = launchFresh()
 
         // L1 首启三卡
@@ -80,7 +80,7 @@ final class M1aE2ETests: XCTestCase {
     /// FR1.4：退后台回前台必见锁屏；验证 PIN 后回到主界面。
     /// 用 -uitest-seed-finished 确定性注入完成态（PIN=135790），
     /// 不依赖前序用例的持久化数据。
-    func test_退后台回前台必见锁屏() throws {
+    func test_SU_M1a_SEC_退后台回前台必见锁屏() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-uitest-seed-finished"]
         app.launch()

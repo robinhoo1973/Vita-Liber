@@ -233,7 +233,7 @@ final class M15AcceptanceTests: XCTestCase {
 final class M15LocalizationTests: XCTestCase {
 
     /// 每个已登记 key 在三个本地化里都必须有真实译文（不等于 key 本身、非空）
-    func test_三文件键集一致且无缺译() throws {
+    func test_SU_M15_L10N_三文件键集一致且无缺译() throws {
         var missing: [String] = []
         for localization in L10n.supportedLocalizations {
             guard let path = Bundle.main.path(forResource: localization, ofType: "lproj"),

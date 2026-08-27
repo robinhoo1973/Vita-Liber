@@ -305,15 +305,42 @@ else
     [ -n "$m_token" ] || continue
     s_req=$((s_req + 1))
     case "$m_scope" in
-      workflow) s_roots="$SCRIPT_DIR" ;;
-      *)        s_roots="$s_test_dirs" ;;
+      workflow)
+        # shellcheck disable=SC2086
+        if ! grep -rqF -- "$m_token" "$SCRIPT_DIR" 2>/dev/null; then
+          s_missing=$((s_missing + 1))
+          printf '    缺失套件: %s (%s) —— 未在 workflow 找到 token「%s」\n' \
+            "$m_suite" "$m_stage" "$m_token"
+        fi
+        ;;
+      *)
+        # token 必须出现在**真实声明**里（@Suite 名 / 测试类名 / 测试方法名），
+        # 而不是仅出现在注释中。理由：写完 [8] 几分钟内就自证了漏洞——
+        # 给 SU-M2-STOCK 贴了一行 `// binds:` 注释，门禁即转绿，而该 SU 的
+        # 一票否决用例（零确认存活）根本不存在。**贴标签不等于接线**，
+        # 与 [9] 对确认入口的要求同一取向（标记存在还须真的调用模板）。
+        s_hit=0
+        if [ -n "$s_test_dirs" ]; then
+          # shellcheck disable=SC2086
+          if grep -rhF -- "$m_token" $s_test_dirs 2>/dev/null \
+             | grep -qE '@Suite\(|final class|func test'; then
+            s_hit=1
+          fi
+        fi
+        if [ "$s_hit" -eq 0 ]; then
+          s_missing=$((s_missing + 1))
+          # shellcheck disable=SC2086
+          if [ -n "$s_test_dirs" ] && grep -rqF -- "$m_token" $s_test_dirs 2>/dev/null; then
+            printf '    仅有注释未接线: %s (%s) —— token「%s」只出现在注释里，\n' \
+              "$m_suite" "$m_stage" "$m_token"
+            printf '        须出现在 @Suite 名 / 测试类名 / 测试方法名中（贴标签≠接线）\n'
+          else
+            printf '    缺失套件: %s (%s) —— 未在 tests 找到 token「%s」\n' \
+              "$m_suite" "$m_stage" "$m_token"
+          fi
+        fi
+        ;;
     esac
-    # shellcheck disable=SC2086
-    if [ -z "$s_roots" ] || ! grep -rqF -- "$m_token" $s_roots 2>/dev/null; then
-      s_missing=$((s_missing + 1))
-      printf '    缺失套件: %s (%s) —— 未在 %s 找到 token「%s」\n' \
-        "$m_suite" "$m_stage" "${m_scope}" "$m_token"
-    fi
   done < "$SUITE_MANIFEST"
   if [ "$s_req" -eq 0 ]; then
     fail "清单内 required=yes 的套件为 0 —— 空集不得判过（ERR#27）"

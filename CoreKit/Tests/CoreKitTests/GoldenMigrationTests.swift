@@ -4,7 +4,7 @@ import Testing
 @testable import Infrastructure
 
 // binds: SU-M0-GOLDEN — TC-M0-01~05
-@Suite("Golden · M0 迁移金样（Sprint-1）")
+@Suite("SU-M0-GOLDEN · M0 迁移金样（Sprint-1）")
 struct GoldenMigrationTests {
     @Test func 空数组正常迁移零条() {
         #expect(MigrationEngine.migrate(recordsJSON: Data("[]".utf8)) == .migrated(count: 0))
@@ -24,7 +24,7 @@ struct GoldenMigrationTests {
 }
 
 // binds: SU-M1a-GOLDEN — 阶段金样扩充
-@Suite("Golden · M0 Sprint-3 三类补充")
+@Suite("SU-M1a-GOLDEN · M0 Sprint-3 三类补充")
 struct GoldenClassifyTests {
     static let fixtures = Bundle.module.bundlePath + "/Fixtures"
     func load(_ name: String) throws -> [LegacyRecord] {

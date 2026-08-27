@@ -23,7 +23,7 @@ actor FakeDoseSource: DoseSource {
 }
 
 // binds: SU-M1b-REMINDER — TC-M1b-01~04（四用例任一失败即阶段红）
-@Suite("M1b · 提醒可靠性四用例（§5.4）")
+@Suite("SU-M1b-REMINDER · 提醒可靠性四用例（§5.4）")
 struct ReminderReliabilityTests {
     private var now: Date { Date(timeIntervalSince1970: 1_700_000_000) }
 

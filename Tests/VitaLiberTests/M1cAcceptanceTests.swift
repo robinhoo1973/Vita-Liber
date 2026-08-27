@@ -37,7 +37,7 @@ final class M1cAcceptanceTests: XCTestCase {
     }
 
     /// F11 时间轴联合投影：就诊+观察同轴、时间倒序、成员隔离
-    func test_时间轴联合投影与隔离() async throws {
+    func test_SU_M1c_REGRESSION_时间轴联合投影与隔离() async throws {
         let store = try await makeStore()
         let timeline = TimelineQueryStore(writer: store.writer)
         let member = try await store.writer.read { db in
@@ -54,7 +54,7 @@ final class M1cAcceptanceTests: XCTestCase {
     }
 
     /// F13 往返一致性（一票否决）：导出 → 全新库导入 → 再导出逐字段相等
-    func test_导出导入往返一致性() async throws {
+    func test_SU_M1c_EXPORT_导出导入往返一致性() async throws {
         let storeA = try await makeStore()
         let exportA = ExportService(writer: storeA.writer)
         // 种子走生产路径：saveOwner 建立 owner↔本人档案关联（envelope.selfProfile

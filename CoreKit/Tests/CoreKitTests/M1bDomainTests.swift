@@ -63,7 +63,7 @@ struct ScheduleEngineTests {
 }
 
 // binds: SU-M1b-STOCK — TC-M1b-06（矩阵任一行红即阶段红）
-@Suite("M1b · 双轨库存扣减矩阵（FR9.8/9.8.2，ADR-009）")
+@Suite("SU-M1b-STOCK · 双轨库存扣减矩阵（FR9.8/9.8.2，ADR-009）")
 struct DualTrackTests {
     /// 矩阵语义（评审修正）：taken→两线各扣；skipped/missed→仅计划轨扣；
     /// snoozed→两线不动
