@@ -12,9 +12,9 @@ struct RemindersView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("今日用药") {
+                Section(L10n.reminder_today) {
                     if reminders.todaySlots.isEmpty {
-                        Text(reminders.loading ? "加载中…" : "今天没有待服药")
+                        Text(reminders.loading ? L10n.reminder_loading : L10n.reminder_todayEmpty)
                             .foregroundStyle(.secondary)
                             .accessibilityIdentifier("SP-09.today.empty")
                     }
@@ -30,11 +30,11 @@ struct RemindersView: View {
                     Button {
                         showNewPlan = true
                     } label: {
-                        Label("添加用药计划", systemImage: "plus")
+                        Label(L10n.reminder_addPlan, systemImage: "plus")
                     }
                     .accessibilityIdentifier("SP-09.plan.add")
                 }
-                Section("近期预约") {
+                Section(L10n.reminder_appointments) {
                     if reminders.upcomingAppointments.isEmpty {
                         Text(L10n.reminder_emptyAppt)
                             .foregroundStyle(.secondary)
@@ -61,7 +61,7 @@ struct RemindersView: View {
                                     Image(systemName: "checkmark.circle")
                                         .frame(width: 44, height: 44)
                                 }
-                                .accessibilityLabel("标记就诊完成")
+                                .accessibilityLabel(L10n.reminder_completeAppt)
                                 .accessibilityIdentifier("SP-18.appointment.complete")
                             }
                             // FR10.6 去挂号深链卡：本地映射表匹配，无网可用
@@ -74,7 +74,7 @@ struct RemindersView: View {
                     Button {
                         showNewAppointment = true
                     } label: {
-                        Label("添加预约", systemImage: "plus")
+                        Label(L10n.reminder_addAppt, systemImage: "plus")
                     }
                     .accessibilityIdentifier("SP-18.appointment.add")
                 }
@@ -115,10 +115,10 @@ struct RemindersView: View {
 
     private func statusLabel(_ s: String) -> String {
         switch s {
-        case "scheduled": return "待就诊"
-        case "completed": return "已完成"
-        case "cancelled": return "已取消"
-        case "missed": return "已错过"
+        case "scheduled": return L10n.reminder_statusScheduled
+        case "completed": return L10n.reminder_statusCompleted
+        case "cancelled": return L10n.reminder_statusCancelled
+        case "missed": return L10n.reminder_statusMissed
         default: return s
         }
     }
@@ -143,17 +143,17 @@ struct NewPlanSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                TextField("药品名（如：阿莫西林）", text: $name)
+                TextField(L10n.reminder_planName, text: $name)
                     .accessibilityIdentifier("SP-09.plan.name")
-                TextField("规格（如：0.25g）", text: $spec)
+                TextField(L10n.reminder_planSpec, text: $spec)
                     .accessibilityIdentifier("SP-09.plan.spec")
-                TextField("服药时间（HH:mm）", text: $timeText)
+                TextField(L10n.reminder_planTime, text: $timeText)
                     .accessibilityIdentifier("SP-09.plan.time")
             }
             .navigationTitle("添加用药计划")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("保存") { onCreate(name, spec, timeText, units) }
+                    Button(L10n.reminder_save) { onCreate(name, spec, timeText, units) }
                         .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
                         .accessibilityIdentifier("SP-09.plan.save")
                 }

@@ -256,6 +256,38 @@ enum L10n {
     static var onboard_sourceConfirmed: String { t("onboard.sourceConfirmed") }
     static var onboard_unconfirmed2: String { t("onboard.unconfirmed2") }
 
+        static var reminder_today: String { t("reminder.today") }
+    static var reminder_loading: String { t("reminder.loading") }
+    static var reminder_todayEmpty: String { t("reminder.todayEmpty") }
+    static var reminder_addPlan: String { t("reminder.addPlan") }
+    static var reminder_appointments: String { t("reminder.appointments") }
+    static var reminder_addAppt: String { t("reminder.addAppt") }
+    static var reminder_completeAppt: String { t("reminder.completeAppt") }
+    static var reminder_statusScheduled: String { t("reminder.statusScheduled") }
+    static var reminder_statusCompleted: String { t("reminder.statusCompleted") }
+    static var reminder_statusCancelled: String { t("reminder.statusCancelled") }
+    static var reminder_statusMissed: String { t("reminder.statusMissed") }
+    static var reminder_planName: String { t("reminder.planName") }
+    static var reminder_planSpec: String { t("reminder.planSpec") }
+    static var reminder_planTime: String { t("reminder.planTime") }
+    static var reminder_save: String { t("reminder.save") }
+    static var voiceguide_reminderTitle: String { t("voiceguide.reminderTitle") }
+    static var voiceguide_reminderExample: String { t("voiceguide.reminderExample") }
+    static var voiceguide_transcript: String { t("voiceguide.transcript") }
+    static var voiceguide_buildDraft: String { t("voiceguide.buildDraft") }
+    static var voiceguide_stepOf: String { t("voiceguide.stepOf") }
+    static var voiceguide_skip: String { t("voiceguide.skip") }
+    static var voiceguide_next: String { t("voiceguide.next") }
+    static var voiceguide_answerHint: String { t("voiceguide.answerHint") }
+    static var voiceguide_profileTitle: String { t("voiceguide.profileTitle") }
+    static var voiceguide_promptAllergy: String { t("voiceguide.promptAllergy") }
+    static var voiceguide_promptHistory: String { t("voiceguide.promptHistory") }
+    static var voiceguide_promptMeds: String { t("voiceguide.promptMeds") }
+    static var voiceguide_promptContact: String { t("voiceguide.promptContact") }
+    static func voiceguideStep(_ a: Int, _ b: Int) -> String {
+        String(format: t("voiceguide.stepOf"), a, b)
+    }
+
         /// 全部已键化的 key（SU-M15-L10N 遍历断言的输入）。
     /// 新增 key 必须同步登记到这里——否则门禁扫不到，又回到「缺证据当有证据」。
     /// 参数化文案（避免把格式串散落视图）

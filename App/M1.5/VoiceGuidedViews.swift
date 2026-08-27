@@ -19,10 +19,10 @@ struct VoiceReminderDraftView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("说一句话设定提醒").font(.headline)
-            Text("例如「明天早上八点提醒我测血压」")
+            Text(L10n.voiceguide_reminderTitle).font(.headline)
+            Text(L10n.voiceguide_reminderExample)
                 .font(.caption).foregroundStyle(.secondary)
-            TextField("说出或输入提醒内容…", text: $transcript, axis: .vertical)
+            TextField(L10n.voiceguide_transcript, text: $transcript, axis: .vertical)
                 .textFieldStyle(.roundedBorder)
                 .lineLimit(1...3)
                 .accessibilityIdentifier("FR17.10.transcript")
@@ -37,7 +37,7 @@ struct VoiceReminderDraftView: View {
             Button {
                 buildDraft()
             } label: {
-                Label("生成提醒草稿", image: "ic-bell").frame(minHeight: 44)
+                Label(L10n.voiceguide_buildDraft, image: "ic-bell").frame(minHeight: 44)
             }
             .disabled(transcript.trimmingCharacters(in: .whitespaces).isEmpty)
             .accessibilityIdentifier("FR17.10.build")
@@ -101,10 +101,10 @@ struct VoiceGuidedProfileView: View {
 
     /// 访谈步骤（FR17.11 + FR3.1 紧急联系人基础字段随本条提前至 P0.5）
     private let steps: [(key: String, prompt: String)] = [
-        ("allergy", "有没有药物或食物过敏？没有就说「没有」"),
-        ("pastHistory", "以前得过什么病，或做过什么手术？"),
-        ("currentMeds", "现在正在吃哪些药？"),
-        ("emergencyContact", "紧急情况联系谁？说出姓名和关系"),
+        ("allergy", L10n.voiceguide_promptAllergy),
+        ("pastHistory", L10n.voiceguide_promptHistory),
+        ("currentMeds", L10n.voiceguide_promptMeds),
+        ("emergencyContact", L10n.voiceguide_promptContact),
     ]
 
     @State private var consentGiven = false
@@ -125,7 +125,7 @@ struct VoiceGuidedProfileView: View {
                 interview
             }
         }
-        .navigationTitle("语音完善档案")
+        .navigationTitle(L10n.voiceguide_profileTitle)
         .sheet(item: $confirmSet) { set in
             VoiceConfirmSheet(
                 set: set,
@@ -157,24 +157,24 @@ struct VoiceGuidedProfileView: View {
 
     private var interview: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("第 \(stepIndex + 1) / \(steps.count) 步")
+            Text(L10n.voiceguideStep(stepIndex + 1, steps.count))
                 .font(.caption).foregroundStyle(.secondary)
             Text(steps[stepIndex].prompt)
                 .font(.headline)
                 .accessibilityIdentifier("FR17.11.prompt")
-            TextField("说出或输入答案…", text: $answer, axis: .vertical)
+            TextField(L10n.voiceguide_answerHint, text: $answer, axis: .vertical)
                 .textFieldStyle(.roundedBorder)
                 .lineLimit(1...4)
                 .accessibilityIdentifier("FR17.11.answer")
             HStack(spacing: 12) {
-                Button("跳过") {
+                Button(L10n.voiceguide_skip) {
                     answer = ""
                     if stepIndex + 1 < steps.count { stepIndex += 1 }
                 }
                 .frame(minHeight: 44)
                 .accessibilityIdentifier("FR17.11.skip")
                 Spacer()
-                Button("下一步") { buildDraft() }
+                Button(L10n.voiceguide_next) { buildDraft() }
                     .buttonStyle(.borderedProminent)
                     .frame(minHeight: 44)
                     .disabled(answer.trimmingCharacters(in: .whitespaces).isEmpty)
