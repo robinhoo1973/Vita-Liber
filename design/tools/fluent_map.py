@@ -12,6 +12,7 @@ FLUENT = {
     "ic-tab-home": "home",
     "ic-tab-records": "board_heart",
     "ic-tab-reminders": "alert_badge",
+    "ic-tab-assistant": "bot",
     "ic-tab-me": "person_circle",
     # 通用操作
     "ic-add": "add_circle",

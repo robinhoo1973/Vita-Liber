@@ -6,6 +6,7 @@
 - 目录：`design/icons/fluent/`
 - 来源：npm `@fluentui/svg-icons` / github.com/microsoft/fluentui-system-icons
 - 许可：MIT License © Microsoft Corporation（全文见下）
+- 精选 Tab assistant：`bot-24-regular` / `bot-24-filled`，封装后落地为 `ic-tab-assistant` / `ic-tab-assistant-filled`
 
 ## 2. Health Icons — CC0 1.0（公共领域）
 - 目录：`design/icons/healthicons/`
@@ -59,6 +60,24 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE
 ```
+
+## 7. 重绘批次借用（2026-08 红绘 + 二次优化）
+
+### 7.1 首次红绘（部分 19 枚，逐枚来源见 `provenance.json`）
+- **Lucide（ISC）**：`ic-monitor`(monitor+心电) / `ic-surgery`(scissors) / `ic-therapeutic-bed`(bed) / `ic-ophthalmoscope`(eye) / `ic-otoscope`(ear) / `ic-glucometer`(droplet 组合) / `ic-scale`(weight)。
+- **Microsoft Fluent UI System Icons（MIT）** 实心：`ic-tab-me-filled`(person_circle_24_filled) / `ic-tab-records-filled`(board_heart_24_filled)。
+- **项目自绘（原创）**：`ic-endoscope` / `ic-walker` / `ic-organ-pancreas` / `ic-organ-spleen` / `ic-ointment`。
+
+### 7.2 二次优化（用户复核后，7 枚改用更贴近的开源字形）
+白色字形直接取自下列开源字形（封装层与「已落地分组色板」瓷砖底仍为项目原创）：
+- **Tabler Icons（MIT，https://tabler.io，MIT）** 路径借用：
+  - `ic-defibrillator` ← `heartbeat`（心形+脉冲线，表除颤/心电）
+  - `ic-ecg` ← `heart-rate-monitor`（设备屏+心电描迹，表心电图机）
+  - `ic-dental-chair` ← `dental`（牙齿；开源无「牙科椅」专用字形，取最贴近医疗语义）
+  - `ic-nebulizer` ← `spray`（雾化喷射；开源无「雾化器」专用字形）
+  - `ic-sym-skin` ← `bandage`（绷带，表皮肤/创伤症状）
+- `ic-scale`（Lucide `weight`，ISC）与 `ic-tab-records-filled`（Fluent `board_heart_24_filled`，MIT）已为现成开源字形，本次仅复核保留。
+- 授权：Tabler Icons 以 MIT 发布；本批字形仅取其路径几何，未引入额外许可冲突。
 
 ## 自有部分
 

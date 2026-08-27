@@ -1,758 +1,1713 @@
 {
   "generated": "2026-08-27",
-  "glyph_license": "Fluent MIT / Health Icons CC0 / Lucide ISC / Tabler MIT / Material Symbols Apache-2.0 / Font Awesome CC-BY-4.0 / project-owned",
+  "selection": "design/icons/best_selection.json",
+  "glyph_license": "Fluent MIT / Health Icons CC0 / Lucide ISC / Material Symbols Apache-2.0 / Font Awesome CC-BY-4.0 / project-owned",
   "notice": "design/icons/NOTICE.md",
   "counts": {
-    "total": 192,
-    "fluent": 82,
-    "healthicons": 42,
-    "lucide": 42,
-    "tabler": 0,
-    "mdi": 0,
-    "materialsymbols": 2,
-    "fontawesome": 2,
-    "own": 22
+    "total": 218,
+    "icons": 211,
+    "illustrations": 7
   },
   "assets": {
-    "ic-tab-home": {
-      "source": "fluent",
-      "upstream": "home"
-    },
-    "ic-tab-home-filled": {
-      "source": "fluent",
-      "upstream": "home"
-    },
-    "ic-tab-records": {
-      "source": "fluent",
-      "upstream": "board_heart"
-    },
-    "ic-tab-records-filled": {
-      "source": "fluent",
-      "upstream": "board_heart"
-    },
-    "ic-tab-reminders": {
-      "source": "fluent",
-      "upstream": "alert_badge"
-    },
-    "ic-tab-reminders-filled": {
-      "source": "fluent",
-      "upstream": "alert_badge"
-    },
     "ic-tab-assistant": {
-      "source": "own",
-      "upstream": null
+      "source": "fluent",
+      "upstream": "bot-24-regular",
+      "license": "MIT",
+      "origin": "qingnangshu_svg_icons_v5_uniform_bg_preview/tab/ic-tab-assistant-outline.svg",
+      "palette": "purple",
+      "status": "ready"
     },
     "ic-tab-assistant-filled": {
-      "source": "own",
-      "upstream": null
+      "source": "fluent",
+      "upstream": "bot-24-filled",
+      "license": "MIT",
+      "origin": "qingnangshu_svg_icons_v5_uniform_bg_preview/tab/ic-tab-assistant-filled.svg",
+      "palette": "purple",
+      "status": "ready"
+    },
+    "ic-tab-home": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/tab/ic-tab-home-outline.svg",
+      "palette": "purple",
+      "status": "ready"
+    },
+    "ic-tab-home-filled": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/tab/ic-tab-home-filled.svg",
+      "palette": "purple",
+      "status": "ready"
     },
     "ic-tab-me": {
-      "source": "fluent",
-      "upstream": "person_circle"
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/tab/ic-tab-me-outline.svg",
+      "palette": "purple",
+      "status": "ready"
     },
     "ic-tab-me-filled": {
       "source": "fluent",
-      "upstream": "person_circle"
+      "upstream": "person_circle_24_filled",
+      "license": "MIT",
+      "origin": "qingnangshu_svg_icons_v4_complete/tab/ic-tab-me-filled.svg",
+      "palette": "purple",
+      "status": "ready"
+    },
+    "ic-tab-records": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/tab/ic-tab-records-outline.svg",
+      "palette": "purple",
+      "status": "ready"
+    },
+    "ic-tab-records-filled": {
+      "source": "fluent",
+      "upstream": "board_heart_24_filled",
+      "license": "MIT",
+      "origin": "qingnangshu_svg_icons_v4_complete/tab/ic-tab-records-filled.svg",
+      "palette": "purple",
+      "status": "ready"
+    },
+    "ic-tab-reminders": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/tab/ic-tab-reminders-outline.svg",
+      "palette": "purple",
+      "status": "ready"
+    },
+    "ic-tab-reminders-filled": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/tab/ic-tab-reminders-filled.svg",
+      "palette": "purple",
+      "status": "ready"
     },
     "ic-add": {
-      "source": "fluent",
-      "upstream": "add_circle"
-    },
-    "ic-search": {
-      "source": "fluent",
-      "upstream": "search"
-    },
-    "ic-edit": {
-      "source": "fluent",
-      "upstream": "edit"
-    },
-    "ic-delete": {
-      "source": "fluent",
-      "upstream": "delete"
-    },
-    "ic-close": {
-      "source": "fluent",
-      "upstream": "dismiss"
-    },
-    "ic-chevron-left": {
-      "source": "fluent",
-      "upstream": "chevron_left"
-    },
-    "ic-chevron-right": {
-      "source": "fluent",
-      "upstream": "chevron_right"
-    },
-    "ic-chevron-down": {
-      "source": "fluent",
-      "upstream": "chevron_down"
-    },
-    "ic-more": {
-      "source": "fluent",
-      "upstream": "more_horizontal"
-    },
-    "ic-filter": {
-      "source": "fluent",
-      "upstream": "filter"
-    },
-    "ic-check-circle": {
-      "source": "fluent",
-      "upstream": "checkmark_circle"
-    },
-    "ic-calendar": {
-      "source": "fluent",
-      "upstream": "calendar_ltr"
-    },
-    "ic-clock": {
-      "source": "fluent",
-      "upstream": "clock"
-    },
-    "ic-camera": {
-      "source": "fluent",
-      "upstream": "camera"
-    },
-    "ic-photo": {
-      "source": "fluent",
-      "upstream": "image_multiple"
-    },
-    "ic-scan-document": {
-      "source": "fluent",
-      "upstream": "scan_text"
-    },
-    "ic-observe-frame": {
-      "source": "fluent",
-      "upstream": "scan_camera"
-    },
-    "ic-share": {
-      "source": "fluent",
-      "upstream": "share_ios"
-    },
-    "ic-export": {
-      "source": "fluent",
-      "upstream": "arrow_export_ltr"
-    },
-    "ic-import": {
-      "source": "fluent",
-      "upstream": "arrow_import"
-    },
-    "ic-sync": {
-      "source": "fluent",
-      "upstream": "arrow_sync"
-    },
-    "ic-cloud-off": {
-      "source": "fluent",
-      "upstream": "cloud_off"
-    },
-    "ic-settings": {
-      "source": "fluent",
-      "upstream": "settings"
-    },
-    "ic-info": {
-      "source": "fluent",
-      "upstream": "info"
-    },
-    "ic-warning": {
-      "source": "fluent",
-      "upstream": "warning"
-    },
-    "ic-error": {
-      "source": "fluent",
-      "upstream": "error_circle"
-    },
-    "ic-help": {
-      "source": "fluent",
-      "upstream": "question_circle"
-    },
-    "ic-mic": {
-      "source": "fluent",
-      "upstream": "mic"
-    },
-    "ic-waveform": {
-      "source": "fluent",
-      "upstream": "sound_wave_circle"
-    },
-    "ic-keypad-delete": {
-      "source": "fluent",
-      "upstream": "backspace"
-    },
-    "ic-star": {
-      "source": "fluent",
-      "upstream": "star"
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-add.svg",
+      "palette": "commonBlue",
+      "status": "ready"
     },
     "ic-archive": {
-      "source": "fluent",
-      "upstream": "archive"
-    },
-    "ic-tag": {
-      "source": "fluent",
-      "upstream": "tag"
-    },
-    "ic-folder": {
-      "source": "fluent",
-      "upstream": "folder"
-    },
-    "ic-bookmark": {
-      "source": "fluent",
-      "upstream": "bookmark"
-    },
-    "ic-thumbs-up": {
-      "source": "fluent",
-      "upstream": "thumb_like"
-    },
-    "ic-thumbs-down": {
-      "source": "fluent",
-      "upstream": "thumb_dislike"
-    },
-    "ic-stop-octagon": {
-      "source": "fluent",
-      "upstream": "alert_urgent"
-    },
-    "ic-headset": {
-      "source": "fluent",
-      "upstream": "headset"
-    },
-    "ic-person-add": {
-      "source": "fluent",
-      "upstream": "person_add"
-    },
-    "ic-check": {
-      "source": "lucide",
-      "upstream": "check"
-    },
-    "ic-bell": {
-      "source": "lucide",
-      "upstream": "bell"
-    },
-    "ic-phone": {
-      "source": "lucide",
-      "upstream": "phone"
-    },
-    "ic-undo": {
-      "source": "lucide",
-      "upstream": "undo-2"
-    },
-    "ic-retry": {
-      "source": "lucide",
-      "upstream": "refresh-cw"
-    },
-    "ic-minus": {
-      "source": "lucide",
-      "upstream": "minus"
-    },
-    "ic-pin": {
-      "source": "lucide",
-      "upstream": "pin"
-    },
-    "ic-send": {
-      "source": "lucide",
-      "upstream": "send"
-    },
-    "ic-message": {
-      "source": "lucide",
-      "upstream": "message-square"
-    },
-    "ic-ignore": {
-      "source": "lucide",
-      "upstream": "circle-x"
-    },
-    "ic-sun": {
-      "source": "lucide",
-      "upstream": "sun"
-    },
-    "ic-moon": {
-      "source": "lucide",
-      "upstream": "moon"
-    },
-    "ic-headphone": {
-      "source": "lucide",
-      "upstream": "headphones"
-    },
-    "ic-volume": {
-      "source": "lucide",
-      "upstream": "volume-2"
-    },
-    "ic-volume-off": {
-      "source": "lucide",
-      "upstream": "volume-x"
-    },
-    "ic-ban": {
-      "source": "lucide",
-      "upstream": "octagon-x"
-    },
-    "ic-replay": {
-      "source": "lucide",
-      "upstream": "rotate-ccw"
-    },
-    "ic-pause": {
-      "source": "lucide",
-      "upstream": "pause"
-    },
-    "ic-play": {
-      "source": "lucide",
-      "upstream": "play"
-    },
-    "ic-language": {
-      "source": "lucide",
-      "upstream": "globe"
-    },
-    "ic-skip": {
-      "source": "lucide",
-      "upstream": "skip-forward"
-    },
-    "ic-flash": {
-      "source": "lucide",
-      "upstream": "zap"
-    },
-    "ic-brush": {
-      "source": "lucide",
-      "upstream": "brush"
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/common/ic-archive.svg",
+      "palette": "commonBlue",
+      "status": "rescue"
     },
     "ic-attach": {
-      "source": "lucide",
-      "upstream": "link"
-    },
-    "ic-copy": {
-      "source": "lucide",
-      "upstream": "copy"
-    },
-    "ic-external-link": {
-      "source": "lucide",
-      "upstream": "external-link"
-    },
-    "ic-exclamation": {
-      "source": "lucide",
-      "upstream": "circle-alert"
-    },
-    "ic-bluetooth": {
-      "source": "lucide",
-      "upstream": "bluetooth"
-    },
-    "ic-unlink": {
-      "source": "lucide",
-      "upstream": "unlink"
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/common/ic-attach.svg",
+      "palette": "commonBlue",
+      "status": "rescue"
     },
     "ic-backup": {
-      "source": "lucide",
-      "upstream": "cloud-upload"
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-backup.svg",
+      "palette": "commonBlue",
+      "status": "ready"
     },
-    "ic-snooze": {
-      "source": "lucide",
-      "upstream": "alarm-clock"
+    "ic-ban": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-ban.svg",
+      "palette": "commonBlue",
+      "status": "ready"
     },
-    "ic-swap": {
-      "source": "lucide",
-      "upstream": "arrow-left-right"
+    "ic-bell": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-bell.svg",
+      "palette": "commonBlue",
+      "status": "ready"
     },
-    "ic-unlock": {
-      "source": "lucide",
-      "upstream": "lock-open"
+    "ic-bluetooth": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-bluetooth.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-bookmark": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-bookmark.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-brush": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-brush.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-calendar": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-calendar.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-camera": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-camera.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-check": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-check.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-check-circle": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-check-circle.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-chevron-down": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-chevron-down.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-chevron-left": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-chevron-left.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-chevron-right": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-chevron-right.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-clock": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-clock.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-close": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-close.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-cloud-off": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/common/ic-cloud-off.svg",
+      "palette": "commonBlue",
+      "status": "rescue"
+    },
+    "ic-copy": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-copy.svg",
+      "palette": "commonBlue",
+      "status": "ready"
     },
     "ic-crown": {
-      "source": "lucide",
-      "upstream": "crown"
+      "source": "curated-v2",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v2/common/ic-crown.svg",
+      "palette": "commonBlue",
+      "status": "rescue"
     },
-    "ic-stethoscope": {
-      "source": "fluent",
-      "upstream": "stethoscope"
+    "ic-delete": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-delete.svg",
+      "palette": "commonBlue",
+      "status": "ready"
     },
-    "ic-prescription": {
-      "source": "healthicons",
-      "upstream": "prescription-document"
+    "ic-download": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-download.svg",
+      "palette": "commonBlue",
+      "status": "ready"
     },
-    "ic-lab-clipboard": {
-      "source": "fluent",
-      "upstream": "clipboard_pulse"
+    "ic-edit": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-edit.svg",
+      "palette": "commonBlue",
+      "status": "ready"
     },
-    "ic-imaging-ecg": {
-      "source": "fluent",
-      "upstream": "heart_pulse"
+    "ic-error": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-error.svg",
+      "palette": "commonBlue",
+      "status": "ready"
     },
-    "ic-vaccine": {
-      "source": "fluent",
-      "upstream": "syringe"
+    "ic-exclamation": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-exclamation.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-export": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/common/ic-export.svg",
+      "palette": "commonBlue",
+      "status": "rescue"
+    },
+    "ic-external-link": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-external-link.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-filter": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-filter.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-flash": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/common/ic-flash.svg",
+      "palette": "commonBlue",
+      "status": "rescue"
+    },
+    "ic-folder": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-folder.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-headphone": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-headphone.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-headset": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-headset.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-help": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-help.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-ignore": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/common/ic-ignore.svg",
+      "palette": "commonBlue",
+      "status": "rescue"
+    },
+    "ic-import": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/common/ic-import.svg",
+      "palette": "commonBlue",
+      "status": "rescue"
+    },
+    "ic-info": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-info.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-keypad-delete": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/common/ic-keypad-delete.svg",
+      "palette": "commonBlue",
+      "status": "rescue"
+    },
+    "ic-language": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-language.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-message": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-message.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-mic": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/common/ic-mic.svg",
+      "palette": "commonBlue",
+      "status": "rescue"
+    },
+    "ic-minus": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-minus.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-moon": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-moon.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-more": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-more.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-observe-frame": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/common/ic-observe-frame.svg",
+      "palette": "commonBlue",
+      "status": "rescue"
+    },
+    "ic-pause": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-pause.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-person-add": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-person-add.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-phone": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-phone.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-photo": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/common/ic-photo.svg",
+      "palette": "commonBlue",
+      "status": "rescue"
+    },
+    "ic-pin": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/common/ic-pin.svg",
+      "palette": "commonBlue",
+      "status": "rescue"
+    },
+    "ic-play": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-play.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-refresh": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-refresh.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-replay": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/common/ic-replay.svg",
+      "palette": "commonBlue",
+      "status": "rescue"
+    },
+    "ic-retry": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/common/ic-retry.svg",
+      "palette": "commonBlue",
+      "status": "rescue"
+    },
+    "ic-scan-document": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/common/ic-scan-document.svg",
+      "palette": "commonBlue",
+      "status": "rescue"
+    },
+    "ic-search": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/common/ic-search.svg",
+      "palette": "commonBlue",
+      "status": "rescue"
+    },
+    "ic-send": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/common/ic-send.svg",
+      "palette": "commonBlue",
+      "status": "rescue"
+    },
+    "ic-settings": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-settings.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-share": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-share.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-skip": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-skip.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-snooze": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/common/ic-snooze.svg",
+      "palette": "commonBlue",
+      "status": "rescue"
+    },
+    "ic-sort": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-sort.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-star": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-star.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-stop-octagon": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-stop-octagon.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-sun": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-sun.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-swap": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-swap.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-sync": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/common/ic-sync.svg",
+      "palette": "commonBlue",
+      "status": "rescue"
+    },
+    "ic-tag": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-tag.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-thumbs-down": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-thumbs-down.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-thumbs-up": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-thumbs-up.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-undo": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/common/ic-undo.svg",
+      "palette": "commonBlue",
+      "status": "rescue"
+    },
+    "ic-unlink": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/common/ic-unlink.svg",
+      "palette": "commonBlue",
+      "status": "rescue"
+    },
+    "ic-unlock": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-unlock.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-upload": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-upload.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-visibility": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-visibility.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-visibility-off": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-visibility-off.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-volume": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/common/ic-volume.svg",
+      "palette": "commonBlue",
+      "status": "rescue"
+    },
+    "ic-volume-off": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/common/ic-volume-off.svg",
+      "palette": "commonBlue",
+      "status": "rescue"
+    },
+    "ic-warning": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-warning.svg",
+      "palette": "commonBlue",
+      "status": "ready"
+    },
+    "ic-waveform": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-waveform.svg",
+      "palette": "commonBlue",
+      "status": "ready"
     },
     "ic-allergy": {
-      "source": "own-color",
-      "upstream": null
-    },
-    "ic-vitals-chart": {
-      "source": "fluent",
-      "upstream": "arrow_trending_lines"
-    },
-    "ic-hospital": {
-      "source": "healthicons",
-      "upstream": "hospital"
-    },
-    "ic-doctor": {
-      "source": "own",
-      "upstream": null
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/medical/ic-allergy.svg",
+      "palette": "medicalBlue",
+      "status": "ready"
     },
     "ic-appointment": {
-      "source": "fluent",
-      "upstream": "calendar_checkmark"
-    },
-    "ic-medicine-box": {
-      "source": "lucide",
-      "upstream": "pill-bottle"
-    },
-    "ic-pill": {
-      "source": "fluent",
-      "upstream": "pill"
-    },
-    "ic-refill": {
-      "source": "lucide",
-      "upstream": "package-plus"
-    },
-    "ic-emergency-card": {
-      "source": "fluent",
-      "upstream": "contact_card"
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/medical/ic-appointment.svg",
+      "palette": "medicalBlue",
+      "status": "ready"
     },
     "ic-blood-drop": {
-      "source": "fluent",
-      "upstream": "drop"
-    },
-    "ic-timeline": {
-      "source": "fluent",
-      "upstream": "timeline"
-    },
-    "ic-thermometer": {
-      "source": "fluent",
-      "upstream": "temperature"
-    },
-    "ic-weight": {
-      "source": "lucide",
-      "upstream": "scale"
-    },
-    "ic-pulse": {
-      "source": "lucide",
-      "upstream": "activity"
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/medical/ic-blood-drop.svg",
+      "palette": "medicalBlue",
+      "status": "ready"
     },
     "ic-chart": {
-      "source": "lucide",
-      "upstream": "chart-column"
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/medical/ic-chart.svg",
+      "palette": "medicalBlue",
+      "status": "rescue"
     },
-    "ic-sym-stool": {
-      "source": "own",
-      "upstream": null
+    "ic-doctor": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/medical/ic-doctor.svg",
+      "palette": "medicalBlue",
+      "status": "ready"
     },
-    "ic-sym-urine": {
-      "source": "own-color",
-      "upstream": null
+    "ic-emergency-card": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/medical/ic-emergency-card.svg",
+      "palette": "medicalBlue",
+      "status": "rescue"
     },
-    "ic-sym-skin": {
-      "source": "own",
-      "upstream": null
+    "ic-hospital": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/medical/ic-hospital.svg",
+      "palette": "medicalBlue",
+      "status": "ready"
     },
-    "ic-sym-eye": {
-      "source": "fluent",
-      "upstream": "eye"
+    "ic-imaging-ecg": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/medical/ic-imaging-ecg.svg",
+      "palette": "medicalBlue",
+      "status": "ready"
     },
-    "ic-sym-secretion": {
-      "source": "fluent",
-      "upstream": "eyedropper"
+    "ic-lab-clipboard": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/medical/ic-lab-clipboard.svg",
+      "palette": "medicalBlue",
+      "status": "rescue"
     },
-    "ic-sym-swelling": {
-      "source": "own",
-      "upstream": null
+    "ic-medicine-box": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/medical/ic-medicine-box.svg",
+      "palette": "medicalBlue",
+      "status": "ready"
     },
-    "ic-sym-generic": {
-      "source": "fluent",
-      "upstream": "temperature"
+    "ic-pill": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/medical/ic-pill.svg",
+      "palette": "medicalBlue",
+      "status": "rescue"
+    },
+    "ic-prescription": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/medical/ic-prescription.svg",
+      "palette": "medicalBlue",
+      "status": "ready"
+    },
+    "ic-pulse": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/medical/ic-pulse.svg",
+      "palette": "medicalBlue",
+      "status": "rescue"
+    },
+    "ic-refill": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/medical/ic-refill.svg",
+      "palette": "medicalBlue",
+      "status": "rescue"
+    },
+    "ic-stethoscope": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/medical/ic-stethoscope.svg",
+      "palette": "medicalBlue",
+      "status": "ready"
+    },
+    "ic-thermometer": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/medical/ic-thermometer.svg",
+      "palette": "medicalBlue",
+      "status": "rescue"
+    },
+    "ic-timeline": {
+      "source": "curated-v2",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v2/medical/ic-timeline.svg",
+      "palette": "medicalBlue",
+      "status": "rescue"
+    },
+    "ic-vaccine": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/medical/ic-vaccine.svg",
+      "palette": "medicalBlue",
+      "status": "rescue"
+    },
+    "ic-vitals-chart": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/medical/ic-vitals-chart.svg",
+      "palette": "medicalBlue",
+      "status": "ready"
+    },
+    "ic-weight": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/medical/ic-weight.svg",
+      "palette": "medicalBlue",
+      "status": "ready"
     },
     "ic-sym-custom": {
-      "source": "fluent",
-      "upstream": "add_square"
+      "source": "curated-v2",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v2/symptoms/ic-sym-custom.svg",
+      "palette": "orange",
+      "status": "rescue"
     },
-    "ic-member-self": {
-      "source": "fluent",
-      "upstream": "person"
+    "ic-sym-eye": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/symptoms/ic-sym-eye.svg",
+      "palette": "orange",
+      "status": "ready"
     },
-    "ic-member-partner": {
-      "source": "fluent",
-      "upstream": "person_heart"
+    "ic-sym-generic": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/symptoms/ic-sym-generic.svg",
+      "palette": "orange",
+      "status": "ready"
     },
-    "ic-member-father": {
-      "source": "materialsymbols",
-      "upstream": "man"
+    "ic-sym-secretion": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/symptoms/ic-sym-secretion.svg",
+      "palette": "orange",
+      "status": "rescue"
     },
-    "ic-member-mother": {
-      "source": "materialsymbols",
-      "upstream": "woman"
+    "ic-sym-skin": {
+      "source": "tabler",
+      "upstream": "bandage",
+      "license": "MIT (Tabler Icons)",
+      "origin": "qingnangshu_svg_icons_v4_complete/symptoms/ic-sym-skin.svg",
+      "palette": "orange",
+      "status": "ready"
     },
-    "ic-member-son": {
-      "source": "fontawesome",
-      "upstream": "child"
+    "ic-sym-stool": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/symptoms/ic-sym-stool.svg",
+      "palette": "orange",
+      "status": "ready"
+    },
+    "ic-sym-swelling": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/symptoms/ic-sym-swelling.svg",
+      "palette": "orange",
+      "status": "redraw"
+    },
+    "ic-sym-urine": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/symptoms/ic-sym-urine.svg",
+      "palette": "orange",
+      "status": "ready"
     },
     "ic-member-daughter": {
-      "source": "fontawesome",
-      "upstream": "child-dress"
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/members/ic-member-daughter.svg",
+      "palette": "purple",
+      "status": "ready"
     },
     "ic-member-family": {
-      "source": "fluent",
-      "upstream": "people_team"
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/members/ic-member-family.svg",
+      "palette": "purple",
+      "status": "ready"
     },
-    "ic-lock": {
-      "source": "fluent",
-      "upstream": "lock_closed"
+    "ic-member-father": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/members/ic-member-father.svg",
+      "palette": "purple",
+      "status": "ready"
     },
-    "ic-shield": {
-      "source": "fluent",
-      "upstream": "shield"
+    "ic-member-mother": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/members/ic-member-mother.svg",
+      "palette": "purple",
+      "status": "ready"
     },
-    "ic-faceid": {
-      "source": "fluent",
-      "upstream": "scan_person"
+    "ic-member-partner": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/members/ic-member-partner.svg",
+      "palette": "purple",
+      "status": "ready"
     },
-    "ic-eye": {
-      "source": "fluent",
-      "upstream": "eye"
+    "ic-member-self": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/members/ic-member-self.svg",
+      "palette": "purple",
+      "status": "ready"
     },
-    "ic-eye-off": {
-      "source": "fluent",
-      "upstream": "eye_off"
-    },
-    "ic-sos": {
-      "source": "fluent",
-      "upstream": "call"
+    "ic-member-son": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/members/ic-member-son.svg",
+      "palette": "purple",
+      "status": "ready"
     },
     "ic-audit-shield": {
-      "source": "fluent",
-      "upstream": "shield_keyhole"
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/security/ic-audit-shield.svg",
+      "palette": "red",
+      "status": "rescue"
     },
     "ic-device": {
-      "source": "fluent",
-      "upstream": "phone"
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/security/ic-device.svg",
+      "palette": "red",
+      "status": "rescue"
     },
-    "ic-pro-diamond": {
-      "source": "fluent",
-      "upstream": "premium"
+    "ic-eye": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/security/ic-eye.svg",
+      "palette": "red",
+      "status": "rescue"
+    },
+    "ic-eye-off": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/security/ic-eye-off.svg",
+      "palette": "red",
+      "status": "ready"
+    },
+    "ic-faceid": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/security/ic-faceid.svg",
+      "palette": "red",
+      "status": "ready"
+    },
+    "ic-fingerprint": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/security/ic-fingerprint.svg",
+      "palette": "red",
+      "status": "ready"
+    },
+    "ic-lock": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/security/ic-lock.svg",
+      "palette": "red",
+      "status": "ready"
+    },
+    "ic-shield": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/security/ic-shield.svg",
+      "palette": "red",
+      "status": "ready"
+    },
+    "ic-sos": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/security/ic-sos.svg",
+      "palette": "red",
+      "status": "rescue"
     },
     "ic-cloud-subscription": {
-      "source": "fluent",
-      "upstream": "cloud_sync"
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/pro/ic-cloud-subscription.svg",
+      "palette": "purple",
+      "status": "ready"
     },
     "ic-family-share": {
-      "source": "fluent",
-      "upstream": "people_sync"
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/pro/ic-family-share.svg",
+      "palette": "purple",
+      "status": "ready"
+    },
+    "ic-pro-diamond": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/pro/ic-pro-diamond.svg",
+      "palette": "purple",
+      "status": "ready"
     },
     "ic-restore-purchase": {
-      "source": "fluent",
-      "upstream": "arrow_rotate_counterclockwise"
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/pro/ic-restore-purchase.svg",
+      "palette": "purple",
+      "status": "ready"
     },
-    "ic-ward-bed": {
-      "source": "fluent",
-      "upstream": "bed"
+    "ic-ambulance": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/equipment/ic-ambulance.svg",
+      "palette": "equipmentBlue",
+      "status": "rescue"
     },
-    "ic-ct": {
-      "source": "own",
-      "upstream": null
+    "ic-anesthesia-machine": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-anesthesia-machine.svg",
+      "palette": "equipmentBlue",
+      "status": "ready"
     },
-    "ic-mri": {
-      "source": "own",
-      "upstream": null
-    },
-    "ic-ultrasound": {
-      "source": "healthicons",
-      "upstream": "ultrasound-scanner"
+    "ic-bandage-adhesive": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/equipment/ic-bandage-adhesive.svg",
+      "palette": "equipmentBlue",
+      "status": "rescue"
     },
     "ic-blood-pressure": {
-      "source": "healthicons",
-      "upstream": "blood-pressure-monitor"
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/equipment/ic-blood-pressure.svg",
+      "palette": "equipmentBlue",
+      "status": "rescue"
     },
     "ic-blood-sugar": {
-      "source": "healthicons",
-      "upstream": "diabetes-measure"
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/equipment/ic-blood-sugar.svg",
+      "palette": "equipmentBlue",
+      "status": "rescue"
     },
-    "ic-surgery": {
+    "ic-crutches": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-crutches.svg",
+      "palette": "equipmentBlue",
+      "status": "ready"
+    },
+    "ic-ct": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-ct.svg",
+      "palette": "equipmentBlue",
+      "status": "ready"
+    },
+    "ic-defibrillator": {
+      "source": "tabler",
+      "upstream": "heartbeat",
+      "license": "MIT (Tabler Icons)",
+      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-defibrillator.svg",
+      "palette": "equipmentBlue",
+      "status": "redraw"
+    },
+    "ic-dental-chair": {
+      "source": "tabler",
+      "upstream": "dental",
+      "license": "MIT (Tabler Icons)",
+      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-dental-chair.svg",
+      "palette": "equipmentBlue",
+      "status": "ready"
+    },
+    "ic-ecg": {
+      "source": "tabler",
+      "upstream": "heart-rate-monitor",
+      "license": "MIT (Tabler Icons)",
+      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-ecg.svg",
+      "palette": "equipmentBlue",
+      "status": "redraw"
+    },
+    "ic-endoscope": {
       "source": "own",
-      "upstream": null
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-endoscope.svg",
+      "palette": "equipmentBlue",
+      "status": "redraw"
+    },
+    "ic-glucometer": {
+      "source": "lucide",
+      "upstream": "droplet",
+      "license": "ISC",
+      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-glucometer.svg",
+      "palette": "equipmentBlue",
+      "status": "ready"
+    },
+    "ic-hearing-aid": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/equipment/ic-hearing-aid.svg",
+      "palette": "equipmentBlue",
+      "status": "rescue"
+    },
+    "ic-herbal": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/equipment/ic-herbal.svg",
+      "palette": "equipmentBlue",
+      "status": "rescue"
+    },
+    "ic-infusion-pump": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-infusion-pump.svg",
+      "palette": "equipmentBlue",
+      "status": "ready"
+    },
+    "ic-inhaler": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-inhaler.svg",
+      "palette": "equipmentBlue",
+      "status": "ready"
+    },
+    "ic-intravenous-drip": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/equipment/ic-intravenous-drip.svg",
+      "palette": "equipmentBlue",
+      "status": "rescue"
+    },
+    "ic-medicine-bottle": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/equipment/ic-medicine-bottle.svg",
+      "palette": "equipmentBlue",
+      "status": "rescue"
+    },
+    "ic-medicines": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/equipment/ic-medicines.svg",
+      "palette": "equipmentBlue",
+      "status": "rescue"
+    },
+    "ic-microscope": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/equipment/ic-microscope.svg",
+      "palette": "equipmentBlue",
+      "status": "rescue"
+    },
+    "ic-monitor": {
+      "source": "lucide",
+      "upstream": "monitor + heartbeat",
+      "license": "ISC",
+      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-monitor.svg",
+      "palette": "equipmentBlue",
+      "status": "redraw"
+    },
+    "ic-mri": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-mri.svg",
+      "palette": "equipmentBlue",
+      "status": "ready"
+    },
+    "ic-nebulizer": {
+      "source": "tabler",
+      "upstream": "spray",
+      "license": "MIT (Tabler Icons)",
+      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-nebulizer.svg",
+      "palette": "equipmentBlue",
+      "status": "redraw"
     },
     "ic-ointment": {
       "source": "own",
-      "upstream": null
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-ointment.svg",
+      "palette": "equipmentBlue",
+      "status": "ready"
     },
-    "ic-herbal": {
-      "source": "healthicons",
-      "upstream": "medicine-mortar"
+    "ic-ophthalmoscope": {
+      "source": "lucide",
+      "upstream": "eye",
+      "license": "ISC",
+      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-ophthalmoscope.svg",
+      "palette": "equipmentBlue",
+      "status": "redraw"
     },
-    "ic-xray": {
-      "source": "fluent",
-      "upstream": "xray"
+    "ic-otoscope": {
+      "source": "lucide",
+      "upstream": "ear",
+      "license": "ISC",
+      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-otoscope.svg",
+      "palette": "equipmentBlue",
+      "status": "redraw"
     },
-    "ic-wheelchair": {
-      "source": "fluent",
-      "upstream": "wheelchair_access"
-    },
-    "ic-inhaler": {
-      "source": "own",
-      "upstream": null
-    },
-    "ic-thermometer-digital": {
-      "source": "healthicons",
-      "upstream": "thermometer-digital"
-    },
-    "ic-medicines": {
-      "source": "healthicons",
-      "upstream": "medicines"
-    },
-    "ic-medicine-bottle": {
-      "source": "healthicons",
-      "upstream": "medicine-bottle"
-    },
-    "ic-syringe-vaccine": {
-      "source": "healthicons",
-      "upstream": "syringe-vaccine"
-    },
-    "ic-hearing-aid": {
-      "source": "healthicons",
-      "upstream": "hearing-aid"
-    },
-    "ic-intravenous-drip": {
-      "source": "healthicons",
-      "upstream": "intravenous-drip"
-    },
-    "ic-ventilator": {
-      "source": "healthicons",
-      "upstream": "ventilator"
+    "ic-oxygen-concentrator": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-oxygen-concentrator.svg",
+      "palette": "equipmentBlue",
+      "status": "ready"
     },
     "ic-oxygen-tank": {
-      "source": "healthicons",
-      "upstream": "oxygen-tank"
-    },
-    "ic-ambulance": {
-      "source": "healthicons",
-      "upstream": "ambulance"
-    },
-    "ic-crutches": {
-      "source": "healthicons",
-      "upstream": "crutches"
-    },
-    "ic-pulse-oximeter": {
-      "source": "healthicons",
-      "upstream": "pulse-oximeter"
-    },
-    "ic-test-tubes": {
-      "source": "healthicons",
-      "upstream": "test-tubes"
-    },
-    "ic-microscope": {
-      "source": "healthicons",
-      "upstream": "microscope"
-    },
-    "ic-bandage-adhesive": {
-      "source": "healthicons",
-      "upstream": "bandage-adhesive"
-    },
-    "ic-ppe-mask": {
-      "source": "healthicons",
-      "upstream": "ppe-mask"
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/equipment/ic-oxygen-tank.svg",
+      "palette": "equipmentBlue",
+      "status": "rescue"
     },
     "ic-ppe-gloves": {
-      "source": "healthicons",
-      "upstream": "ppe-gloves"
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/equipment/ic-ppe-gloves.svg",
+      "palette": "equipmentBlue",
+      "status": "rescue"
     },
-    "ic-vision-test": {
-      "source": "own",
-      "upstream": null
+    "ic-ppe-mask": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/equipment/ic-ppe-mask.svg",
+      "palette": "equipmentBlue",
+      "status": "rescue"
+    },
+    "ic-pulse-oximeter": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/equipment/ic-pulse-oximeter.svg",
+      "palette": "equipmentBlue",
+      "status": "rescue"
+    },
+    "ic-scale": {
+      "source": "lucide",
+      "upstream": "weight",
+      "license": "ISC",
+      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-scale.svg",
+      "palette": "equipmentBlue",
+      "status": "ready"
+    },
+    "ic-stethoscope-equipment": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-stethoscope-equipment.svg",
+      "palette": "equipmentBlue",
+      "status": "ready"
+    },
+    "ic-surgery": {
+      "source": "lucide",
+      "upstream": "scissors",
+      "license": "ISC",
+      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-surgery.svg",
+      "palette": "equipmentBlue",
+      "status": "ready"
+    },
+    "ic-syringe-pump": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-syringe-pump.svg",
+      "palette": "equipmentBlue",
+      "status": "ready"
+    },
+    "ic-syringe-vaccine": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/equipment/ic-syringe-vaccine.svg",
+      "palette": "equipmentBlue",
+      "status": "rescue"
+    },
+    "ic-test-tubes": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/equipment/ic-test-tubes.svg",
+      "palette": "equipmentBlue",
+      "status": "rescue"
+    },
+    "ic-therapeutic-bed": {
+      "source": "lucide",
+      "upstream": "bed",
+      "license": "ISC",
+      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-therapeutic-bed.svg",
+      "palette": "equipmentBlue",
+      "status": "redraw"
+    },
+    "ic-thermometer-digital": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-thermometer-digital.svg",
+      "palette": "equipmentBlue",
+      "status": "ready"
+    },
+    "ic-ultrasound": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/equipment/ic-ultrasound.svg",
+      "palette": "equipmentBlue",
+      "status": "rescue"
     },
     "ic-urine-sample": {
-      "source": "healthicons",
-      "upstream": "urine-sample"
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/equipment/ic-urine-sample.svg",
+      "palette": "equipmentBlue",
+      "status": "rescue"
     },
-    "ic-organ-heart": {
-      "source": "healthicons",
-      "upstream": "heart-organ"
+    "ic-ventilator": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/equipment/ic-ventilator.svg",
+      "palette": "equipmentBlue",
+      "status": "rescue"
     },
-    "ic-organ-brain": {
-      "source": "fluent",
-      "upstream": "brain"
+    "ic-vision-test": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/equipment/ic-vision-test.svg",
+      "palette": "equipmentBlue",
+      "status": "rescue"
     },
-    "ic-organ-lungs": {
-      "source": "healthicons",
-      "upstream": "lungs"
+    "ic-walker": {
+      "source": "own",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-walker.svg",
+      "palette": "equipmentBlue",
+      "status": "ready"
     },
-    "ic-organ-liver": {
-      "source": "healthicons",
-      "upstream": "liver"
+    "ic-ward-bed": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/equipment/ic-ward-bed.svg",
+      "palette": "equipmentBlue",
+      "status": "rescue"
     },
-    "ic-organ-stomach": {
-      "source": "healthicons",
-      "upstream": "stomach"
+    "ic-wheelchair": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/equipment/ic-wheelchair.svg",
+      "palette": "equipmentBlue",
+      "status": "rescue"
     },
-    "ic-organ-kidney": {
-      "source": "healthicons",
-      "upstream": "kidneys"
+    "ic-xray": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-xray.svg",
+      "palette": "equipmentBlue",
+      "status": "ready"
     },
-    "ic-organ-intestine": {
-      "source": "healthicons",
-      "upstream": "intestine"
+    "ic-organ-bladder": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/organs/ic-organ-bladder.svg",
+      "palette": "red",
+      "status": "ready"
+    },
+    "ic-organ-blood-cells": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/organs/ic-organ-blood-cells.svg",
+      "palette": "red",
+      "status": "ready"
     },
     "ic-organ-bone": {
-      "source": "lucide",
-      "upstream": "bone"
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/organs/ic-organ-bone.svg",
+      "palette": "red",
+      "status": "ready"
     },
-    "ic-organ-tooth": {
-      "source": "healthicons",
-      "upstream": "tooth"
+    "ic-organ-brain": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/organs/ic-organ-brain.svg",
+      "palette": "red",
+      "status": "ready"
+    },
+    "ic-organ-donation": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/organs/ic-organ-donation.svg",
+      "palette": "red",
+      "status": "rescue"
     },
     "ic-organ-ear": {
-      "source": "healthicons",
-      "upstream": "ear-outline"
-    },
-    "ic-organ-mouth": {
-      "source": "healthicons",
-      "upstream": "mouth"
-    },
-    "ic-organ-nose": {
-      "source": "healthicons",
-      "upstream": "nose"
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/organs/ic-organ-ear.svg",
+      "palette": "red",
+      "status": "ready"
     },
     "ic-organ-eye": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/organs/ic-organ-eye.svg",
+      "palette": "red",
+      "status": "ready"
+    },
+    "ic-organ-foot": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/organs/ic-organ-foot.svg",
+      "palette": "red",
+      "status": "ready"
+    },
+    "ic-organ-hand": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/organs/ic-organ-hand.svg",
+      "palette": "red",
+      "status": "ready"
+    },
+    "ic-organ-heart": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/organs/ic-organ-heart.svg",
+      "palette": "red",
+      "status": "rescue"
+    },
+    "ic-organ-intestine": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/organs/ic-organ-intestine.svg",
+      "palette": "red",
+      "status": "ready"
+    },
+    "ic-organ-joints": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/organs/ic-organ-joints.svg",
+      "palette": "red",
+      "status": "ready"
+    },
+    "ic-organ-kidney": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/organs/ic-organ-kidney.svg",
+      "palette": "red",
+      "status": "ready"
+    },
+    "ic-organ-liver": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/organs/ic-organ-liver.svg",
+      "palette": "red",
+      "status": "ready"
+    },
+    "ic-organ-lungs": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/organs/ic-organ-lungs.svg",
+      "palette": "red",
+      "status": "ready"
+    },
+    "ic-organ-mouth": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/organs/ic-organ-mouth.svg",
+      "palette": "red",
+      "status": "rescue"
+    },
+    "ic-organ-nose": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/organs/ic-organ-nose.svg",
+      "palette": "red",
+      "status": "ready"
+    },
+    "ic-organ-pancreas": {
+      "source": "own",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/organs/ic-organ-pancreas.svg",
+      "palette": "red",
+      "status": "redraw"
+    },
+    "ic-organ-prostate": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/organs/ic-organ-prostate.svg",
+      "palette": "red",
+      "status": "redraw"
+    },
+    "ic-organ-skull": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/organs/ic-organ-skull.svg",
+      "palette": "red",
+      "status": "rescue"
+    },
+    "ic-organ-spine": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/organs/ic-organ-spine.svg",
+      "palette": "red",
+      "status": "ready"
+    },
+    "ic-organ-spleen": {
+      "source": "own",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/organs/ic-organ-spleen.svg",
+      "palette": "red",
+      "status": "redraw"
+    },
+    "ic-organ-stomach": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/organs/ic-organ-stomach.svg",
+      "palette": "red",
+      "status": "ready"
+    },
+    "ic-organ-throat": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/organs/ic-organ-throat.svg",
+      "palette": "red",
+      "status": "rescue"
+    },
+    "ic-organ-thyroid": {
+      "source": "curated-src",
+      "upstream": null,
+      "license": null,
+      "origin": "src/organs/ic-organ-thyroid.svg",
+      "palette": "red",
+      "status": "rescue"
+    },
+    "ic-organ-tooth": {
+      "source": "curated-v4",
+      "upstream": null,
+      "license": null,
+      "origin": "qingnangshu_svg_icons_v4_complete/organs/ic-organ-tooth.svg",
+      "palette": "red",
+      "status": "ready"
+    },
+    "ill-empty-ai": {
       "source": "own",
       "upstream": null
     },
-    "ic-organ-hand": {
-      "source": "lucide",
-      "upstream": "hand"
+    "ill-empty-audit": {
+      "source": "own",
+      "upstream": null
     },
-    "ic-organ-foot": {
-      "source": "healthicons",
-      "upstream": "foot"
-    },
-    "ic-organ-joints": {
-      "source": "healthicons",
-      "upstream": "joints"
-    },
-    "ic-organ-spine": {
-      "source": "healthicons",
-      "upstream": "spine"
-    },
-    "ic-organ-skull": {
-      "source": "healthicons",
-      "upstream": "skull"
-    },
-    "ic-organ-blood-cells": {
-      "source": "healthicons",
-      "upstream": "blood-cells"
-    },
-    "ic-organ-thyroid": {
-      "source": "healthicons",
-      "upstream": "thyroid"
-    },
-    "ic-organ-throat": {
-      "source": "healthicons",
-      "upstream": "ear-nose-throat"
-    },
-    "ic-organ-prostate": {
-      "source": "healthicons",
-      "upstream": "prostate"
-    },
-    "ic-organ-bladder": {
-      "source": "healthicons",
-      "upstream": "bladder"
-    },
-    "ic-organ-donation": {
-      "source": "lucide",
-      "upstream": "heart-handshake"
+    "ill-empty-medicine-box": {
+      "source": "own",
+      "upstream": null
     },
     "ill-empty-records": {
       "source": "own",
@@ -763,18 +1718,6 @@
       "upstream": null
     },
     "ill-empty-search": {
-      "source": "own",
-      "upstream": null
-    },
-    "ill-empty-ai": {
-      "source": "own",
-      "upstream": null
-    },
-    "ill-empty-medicine-box": {
-      "source": "own",
-      "upstream": null
-    },
-    "ill-empty-audit": {
       "source": "own",
       "upstream": null
     },

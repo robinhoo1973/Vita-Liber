@@ -1,0 +1,692 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>青囊书 · 最佳图标筛选</title>
+  <style>
+    :root {
+      --ink: #17263d;
+      --ink-soft: #52627a;
+      --muted: #7d8ba0;
+      --line: #dce5ef;
+      --line-strong: #c9d6e4;
+      --paper: #f3f7fb;
+      --panel: rgba(255, 255, 255, .78);
+      --solid: #fff;
+      --blue: #0b68c6;
+      --blue-soft: #e4f0fc;
+      --purple: #6943d1;
+      --purple-soft: #eee9ff;
+      --coral: #e75268;
+      --coral-soft: #fff0f2;
+      --orange: #d97913;
+      --orange-soft: #fff4e3;
+      --green: #128568;
+      --green-soft: #e8f7f2;
+      --shadow: 0 18px 50px rgba(37, 67, 104, .08);
+      --shadow-small: 0 8px 24px rgba(37, 67, 104, .08);
+      --radius: 22px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      min-width: 320px;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 8% -10%, rgba(161, 207, 247, .34), transparent 32rem),
+        radial-gradient(circle at 94% 8%, rgba(240, 183, 193, .20), transparent 30rem),
+        var(--paper);
+      font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      line-height: 1.5;
+    }
+    body[data-bg="dark"] { --stage: #172039; }
+    body[data-bg="checker"] { --stage: #fff; }
+    button, input, select { font: inherit; }
+    button { color: inherit; }
+    a { color: inherit; }
+    .shell { width: min(1440px, calc(100% - 40px)); margin: 0 auto; }
+
+    .site-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 20px;
+      padding: 24px 0 18px;
+      border-bottom: 1px solid rgba(201, 214, 228, .72);
+    }
+    .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .brand-mark {
+      width: 36px;
+      height: 36px;
+      display: grid;
+      place-items: center;
+      border-radius: 12px;
+      color: #fff;
+      background: linear-gradient(145deg, #267fd0, #145197);
+      box-shadow: 0 8px 18px rgba(14, 87, 157, .24);
+      font-weight: 800;
+      letter-spacing: -.08em;
+    }
+    .brand-text { display: grid; gap: 1px; }
+    .brand-text strong { font-size: 14px; letter-spacing: .08em; }
+    .brand-text span, .local-chip { color: var(--muted); font-size: 11px; letter-spacing: .13em; text-transform: uppercase; }
+    .local-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 7px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, .52);
+      white-space: nowrap;
+    }
+    .local-chip::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 4px var(--green-soft); }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(340px, .65fr);
+      gap: 28px;
+      align-items: stretch;
+      padding: 58px 0 36px;
+    }
+    .eyebrow { margin: 0 0 12px; color: var(--blue); font-size: 11px; font-weight: 800; letter-spacing: .18em; text-transform: uppercase; }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { max-width: 800px; margin-bottom: 18px; font-size: clamp(38px, 5vw, 72px); line-height: .98; letter-spacing: -.065em; }
+    h1 em { color: var(--blue); font-style: normal; }
+    .hero-copy { max-width: 700px; margin-bottom: 0; color: var(--ink-soft); font-size: 17px; line-height: 1.75; }
+    .hero-copy strong { color: var(--ink); font-weight: 700; }
+    .decision-card {
+      position: relative;
+      overflow: hidden;
+      padding: 25px;
+      border: 1px solid rgba(255, 255, 255, .78);
+      border-radius: 26px;
+      background: linear-gradient(145deg, rgba(16, 98, 177, .96), rgba(24, 51, 94, .98));
+      color: #fff;
+      box-shadow: 0 24px 50px rgba(24, 61, 105, .23);
+    }
+    .decision-card::after {
+      content: "";
+      position: absolute;
+      width: 260px;
+      height: 260px;
+      right: -100px;
+      bottom: -150px;
+      border: 1px solid rgba(255, 255, 255, .22);
+      border-radius: 50%;
+      box-shadow: 0 0 0 28px rgba(255, 255, 255, .06), 0 0 0 56px rgba(255, 255, 255, .04);
+    }
+    .decision-card .eyebrow { color: #a9d2f5; }
+    .decision-card h2 { max-width: 340px; margin-bottom: 13px; font-size: 25px; line-height: 1.15; letter-spacing: -.04em; }
+    .decision-card p { position: relative; z-index: 1; margin-bottom: 20px; color: #dcecf9; font-size: 14px; line-height: 1.7; }
+    .decision-list { position: relative; z-index: 1; display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+    .decision-list li { display: flex; gap: 10px; align-items: flex-start; color: #fff; font-size: 13px; }
+    .decision-list li::before { content: "↗"; display: grid; flex: 0 0 20px; place-items: center; width: 20px; height: 20px; border-radius: 7px; background: rgba(255, 255, 255, .14); color: #b8e1ff; font-weight: 800; }
+
+    .metrics { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 34px; }
+    .metric { min-height: 112px; padding: 18px; border: 1px solid var(--line); border-radius: 18px; background: var(--panel); box-shadow: var(--shadow-small); backdrop-filter: blur(16px); }
+    .metric .value { display: block; margin-bottom: 4px; font-size: 30px; font-weight: 800; line-height: 1; letter-spacing: -.06em; }
+    .metric .label { color: var(--ink-soft); font-size: 12px; }
+    .metric small { display: block; margin-top: 8px; color: var(--muted); font-size: 10px; }
+    .metric.blue .value { color: var(--blue); }
+    .metric.purple .value { color: var(--purple); }
+    .metric.coral .value { color: var(--coral); }
+    .metric.orange .value { color: var(--orange); }
+    .metric.green .value { color: var(--green); }
+
+    .section-nav {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      overflow-x: auto;
+      margin: 0 -10px 18px;
+      padding: 10px;
+      border: 1px solid rgba(220, 229, 239, .9);
+      border-radius: 17px;
+      background: rgba(243, 247, 251, .84);
+      backdrop-filter: blur(18px);
+      scrollbar-width: none;
+    }
+    .section-nav::-webkit-scrollbar { display: none; }
+    .nav-button {
+      flex: 0 0 auto;
+      padding: 10px 13px;
+      border: 1px solid transparent;
+      border-radius: 11px;
+      background: transparent;
+      color: var(--ink-soft);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 700;
+      transition: .18s ease;
+    }
+    .nav-button:hover { background: rgba(255, 255, 255, .68); color: var(--ink); }
+    .nav-button.active { border-color: var(--line); background: var(--solid); color: var(--blue); box-shadow: 0 5px 16px rgba(37, 67, 104, .08); }
+    .nav-button b { margin-left: 4px; color: var(--muted); font-size: 10px; font-weight: 700; }
+
+    .workspace { padding-bottom: 70px; }
+    .toolbar {
+      display: grid;
+      grid-template-columns: minmax(220px, 1.3fr) minmax(130px, .6fr) minmax(130px, .6fr) minmax(150px, .7fr) auto;
+      gap: 10px;
+      align-items: center;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, .72);
+      box-shadow: var(--shadow-small);
+    }
+    .field { position: relative; }
+    .field input, .field select {
+      width: 100%;
+      height: 42px;
+      padding: 0 13px;
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      outline: none;
+      background: rgba(255, 255, 255, .86);
+      color: var(--ink);
+      font-size: 12px;
+    }
+    .field input:focus, .field select:focus { border-color: #75afe0; box-shadow: 0 0 0 3px rgba(48, 137, 208, .12); }
+    .background-toggle { display: flex; justify-content: flex-end; gap: 6px; }
+    .bg-button { width: 42px; height: 42px; border: 1px solid var(--line); border-radius: 11px; background: var(--solid); cursor: pointer; }
+    .bg-button span { display: block; width: 15px; height: 15px; margin: auto; border: 1px solid var(--line-strong); border-radius: 50%; }
+    .bg-button[data-bg-choice="light"] span { background: #fff; }
+    .bg-button[data-bg-choice="dark"] span { background: #182139; border-color: #182139; }
+    .bg-button[data-bg-choice="checker"] span { background: repeating-conic-gradient(#dce4ec 0 25%, #fff 0 50%) 50% / 7px 7px; }
+    .bg-button.active { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(11, 104, 198, .11); }
+    .toolbar-meta { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 16px 2px 22px; }
+    .result-count { margin: 0; color: var(--ink-soft); font-size: 12px; font-weight: 700; }
+    .result-count strong { color: var(--ink); }
+    .legend { display: flex; flex-wrap: wrap; gap: 7px; justify-content: flex-end; }
+    .legend-chip, .status-chip, .source-chip { display: inline-flex; align-items: center; gap: 5px; padding: 5px 8px; border-radius: 999px; font-size: 10px; font-weight: 800; white-space: nowrap; }
+    .legend-chip::before { content: ""; width: 6px; height: 6px; border-radius: 50%; }
+    .legend-chip.ready { background: var(--green-soft); color: var(--green); }
+    .legend-chip.ready::before { background: var(--green); }
+    .legend-chip.rescue { background: var(--blue-soft); color: var(--blue); }
+    .legend-chip.rescue::before { background: var(--blue); }
+    .legend-chip.redraw { background: var(--coral-soft); color: var(--coral); }
+    .legend-chip.redraw::before { background: var(--coral); }
+
+    .group-section { margin-top: 34px; scroll-margin-top: 86px; }
+    .group-heading { display: flex; align-items: baseline; gap: 9px; margin-bottom: 12px; }
+    .group-heading h2 { margin: 0; font-size: 21px; letter-spacing: -.04em; }
+    .group-heading span { color: var(--muted); font-size: 11px; }
+    .group-heading p { margin: 0 0 0 auto; color: var(--muted); font-size: 11px; text-align: right; }
+    .icon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(184px, 1fr)); gap: 12px; }
+    .icon-card {
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, .76);
+      box-shadow: var(--shadow-small);
+      transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+    }
+    .icon-card:hover { transform: translateY(-3px); border-color: #a9c7e4; box-shadow: 0 14px 30px rgba(37, 67, 104, .13); }
+    .icon-card.status-redraw { border-color: #f1c2c9; background: linear-gradient(180deg, rgba(255, 255, 255, .86), rgba(255, 247, 248, .82)); }
+    .card-hit { width: 100%; padding: 10px; border: 0; border-radius: inherit; background: transparent; text-align: left; cursor: pointer; }
+    .preview { display: grid; place-items: center; min-height: 142px; border-radius: 13px; background: linear-gradient(135deg, #f8fafc, #eaf1f8); transition: background .18s ease; }
+    body[data-bg="dark"] .preview { background: #172039; }
+    body[data-bg="checker"] .preview { background-color: #fff; background-image: linear-gradient(45deg, #e5ebf2 25%, transparent 25%), linear-gradient(-45deg, #e5ebf2 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #e5ebf2 75%), linear-gradient(-45deg, transparent 75%, #e5ebf2 75%); background-position: 0 0, 0 8px, 8px -8px, -8px 0; background-size: 16px 16px; }
+    .preview img { width: 112px; height: 112px; object-fit: contain; }
+    .preview.image-error::after { content: "资源缺失"; color: var(--coral); font-size: 12px; font-weight: 800; }
+    .card-line { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin: 10px 2px 7px; }
+    .status-chip { padding: 4px 7px; }
+    .status-chip.ready { background: var(--green-soft); color: var(--green); }
+    .status-chip.rescue { background: var(--blue-soft); color: var(--blue); }
+    .status-chip.redraw { background: var(--coral-soft); color: var(--coral); }
+    .status-chip.excluded { background: #eef1f5; color: var(--muted); }
+    .source-chip { padding: 0; color: var(--muted); font-size: 9px; font-weight: 700; }
+    .icon-card h3 { overflow: hidden; margin: 0 2px 2px; font-size: 12px; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
+    .card-label { margin: 0 2px 5px; color: var(--ink-soft); font-size: 11px; }
+    .card-note { min-height: 32px; margin: 0 2px; color: var(--muted); font-size: 10px; line-height: 1.45; }
+    .empty { display: none; padding: 80px 20px; color: var(--muted); text-align: center; }
+    .empty.show { display: block; }
+
+    .redraw-toggle { display: flex; align-items: center; gap: 7px; margin: 0 10px 11px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 11px; background: rgba(255, 255, 255, .7); cursor: pointer; font-size: 11px; font-weight: 700; color: var(--ink-soft); user-select: none; }
+    .redraw-toggle input { width: 15px; height: 15px; accent-color: var(--coral); cursor: pointer; }
+    .icon-card.flagged { border-color: #efb9c2; box-shadow: 0 0 0 2px rgba(231, 82, 104, .18), var(--shadow-small); }
+    .icon-card.flagged .redraw-toggle { background: var(--coral-soft); color: var(--coral); border-color: #f1c2c9; }
+    .feedback-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .primary-button { padding: 9px 14px; border: 1px solid var(--blue); border-radius: 11px; background: var(--blue); color: #fff; cursor: pointer; font-size: 12px; font-weight: 800; }
+    .primary-button:hover { filter: brightness(1.05); }
+    .ghost-button { padding: 9px 12px; border: 1px solid var(--line); border-radius: 11px; background: var(--solid); color: var(--ink-soft); cursor: pointer; font-size: 12px; font-weight: 700; }
+    .ghost-button:hover { border-color: #a9c7e4; color: var(--ink); }
+    .redraw-counter { margin-left: 4px; color: var(--coral); font-size: 11px; font-weight: 800; }
+    .redraw-summary { width: 100%; min-height: 230px; margin: 14px 0; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: #f7f9fb; color: var(--ink); font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre; overflow: auto; }
+    .redraw-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+    .audit-panel { display: none; padding-bottom: 70px; }
+    .audit-panel.show { display: block; }
+    .audit-intro { max-width: 780px; margin: 35px 0 20px; }
+    .audit-intro h2 { margin-bottom: 8px; font-size: 29px; letter-spacing: -.05em; }
+    .audit-intro p { margin-bottom: 0; color: var(--ink-soft); font-size: 14px; line-height: 1.75; }
+    .audit-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .audit-card { padding: 20px; border: 1px solid var(--line); border-radius: 18px; background: rgba(255, 255, 255, .75); box-shadow: var(--shadow-small); }
+    .audit-card h3 { margin-bottom: 8px; font-size: 15px; }
+    .audit-card p { margin-bottom: 0; color: var(--ink-soft); font-size: 12px; line-height: 1.7; }
+    .audit-card strong { color: var(--ink); }
+    .audit-card.warn { border-color: #f1c2c9; background: var(--coral-soft); }
+    .audit-card.good { border-color: #bce6d7; background: var(--green-soft); }
+    .audit-table-wrap { overflow-x: auto; margin-top: 14px; border: 1px solid var(--line); border-radius: 18px; background: var(--solid); box-shadow: var(--shadow-small); }
+    .audit-table { width: 100%; min-width: 700px; border-collapse: collapse; font-size: 12px; }
+    .audit-table th, .audit-table td { padding: 13px 15px; border-bottom: 1px solid #edf1f5; text-align: left; vertical-align: top; }
+    .audit-table tr:last-child td { border-bottom: 0; }
+    .audit-table th { color: var(--muted); background: #f8fafc; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
+    .audit-table td:first-child { color: var(--ink); font-weight: 800; }
+    .method-card { margin-top: 14px; padding: 22px; border: 1px solid var(--line); border-radius: 18px; background: rgba(255, 255, 255, .72); }
+    .method-card h3 { margin-bottom: 9px; font-size: 15px; }
+    .method-card p { max-width: 950px; margin-bottom: 0; color: var(--ink-soft); font-size: 12px; line-height: 1.8; }
+    .method-card code { padding: 2px 5px; border-radius: 5px; background: #edf3f8; color: var(--ink); font-size: 11px; }
+    .footer { padding: 0 0 40px; color: var(--muted); font-size: 11px; }
+    .footer a { color: var(--blue); text-decoration: none; }
+
+    dialog { width: min(960px, calc(100% - 28px)); max-height: calc(100dvh - 28px); padding: 0; border: 0; border-radius: 24px; background: var(--paper); color: var(--ink); box-shadow: 0 30px 100px rgba(11, 32, 58, .28); }
+    dialog::backdrop { background: rgba(12, 29, 52, .52); backdrop-filter: blur(5px); }
+    .dialog-inner { overflow: auto; max-height: calc(100dvh - 28px); padding: 24px; }
+    .dialog-head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; margin-bottom: 18px; }
+    .dialog-head h2 { margin: 0 0 3px; font-size: 24px; letter-spacing: -.04em; }
+    .dialog-head p { margin: 0; color: var(--ink-soft); font-size: 12px; }
+    .dialog-close { width: 36px; height: 36px; border: 1px solid var(--line); border-radius: 10px; background: var(--solid); cursor: pointer; font-size: 20px; line-height: 1; }
+    .winner-pane { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 18px; padding: 15px; border: 1px solid var(--line); border-radius: 18px; background: var(--solid); }
+    .winner-pane .preview { min-height: 190px; }
+    .winner-pane .preview img { width: 150px; height: 150px; }
+    .winner-copy { align-self: center; }
+    .winner-copy h3 { margin: 9px 0 7px; font-size: 17px; }
+    .winner-copy p { margin: 0 0 12px; color: var(--ink-soft); font-size: 13px; line-height: 1.7; }
+    .path-line { display: flex; gap: 8px; align-items: center; }
+    .path-line code { min-width: 0; overflow: hidden; flex: 1; padding: 8px 9px; border: 1px solid var(--line); border-radius: 8px; background: #f7f9fb; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+    .copy-button { flex: 0 0 auto; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--solid); cursor: pointer; font-size: 10px; font-weight: 800; }
+    .compare-title { margin: 24px 0 10px; font-size: 14px; }
+    .candidate-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .candidate { padding: 10px; border: 1px solid var(--line); border-radius: 14px; background: rgba(255, 255, 255, .78); }
+    .candidate.is-winner { border-color: #8bbbe3; box-shadow: inset 0 0 0 1px rgba(11, 104, 198, .15); }
+    .candidate .preview { min-height: 150px; }
+    .candidate .preview img { width: 116px; height: 116px; }
+    .candidate-label { display: flex; justify-content: space-between; gap: 4px; margin: 8px 1px 0; color: var(--ink-soft); font-size: 11px; font-weight: 800; }
+    .candidate-path { display: block; overflow: hidden; margin: 4px 1px 0; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+    .dialog-footnote { margin: 18px 0 0; color: var(--muted); font-size: 11px; line-height: 1.65; }
+
+    @media (max-width: 980px) {
+      .hero { grid-template-columns: 1fr; }
+      .decision-card { max-width: 680px; }
+      .metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .toolbar { grid-template-columns: 1fr 1fr; }
+      .background-toggle { justify-content: flex-start; }
+      .icon-grid { grid-template-columns: repeat(auto-fill, minmax(165px, 1fr)); }
+    }
+    @media (max-width: 620px) {
+      .shell { width: min(100% - 24px, 520px); }
+      .site-header { padding-top: 15px; }
+      .local-chip { display: none; }
+      .hero { padding-top: 38px; }
+      h1 { font-size: 44px; }
+      .hero-copy { font-size: 15px; }
+      .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .metric { min-height: 98px; padding: 14px; }
+      .metric .value { font-size: 25px; }
+      .toolbar { grid-template-columns: 1fr; }
+      .toolbar-meta { display: grid; gap: 12px; }
+      .legend { justify-content: flex-start; }
+      .group-heading { display: block; }
+      .group-heading p { margin-top: 3px; text-align: left; }
+      .icon-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+      .preview { min-height: 116px; }
+      .preview img { width: 86px; height: 86px; }
+      .card-hit { padding: 8px; }
+      .card-label { font-size: 10px; }
+      .card-note { min-height: 44px; font-size: 9px; }
+      .audit-grid { grid-template-columns: 1fr; }
+      .winner-pane { grid-template-columns: 1fr; }
+      .winner-pane .preview { min-height: 170px; }
+      .candidate-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .candidate .preview { min-height: 120px; }
+      .candidate .preview img { width: 88px; height: 88px; }
+      .dialog-inner { padding: 16px; }
+    }
+  </style>
+</head>
+<body data-bg="light">
+  <div class="shell">
+    <header class="site-header">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">青</div>
+        <div class="brand-text"><strong>青囊书 · ICON AUDIT</strong><span>best selection / local review</span></div>
+      </div>
+      <span class="local-chip">Offline asset review</span>
+    </header>
+
+    <main>
+      <section class="hero" id="overview">
+        <div>
+          <p class="eyebrow">Visual acceptance · 2026.08</p>
+          <h1>把图标从“有”<br>筛成<em>“可用”</em>。</h1>
+          <p class="hero-copy">对 Icons 目录下的四套 SVG 资产做了逐项视觉、语义、覆盖度和技术一致性审核。这里展示的是<strong>最佳现有候选</strong>，不是把最新版本机械地当作最终答案。</p>
+        </div>
+        <aside class="decision-card">
+          <p class="eyebrow">Decision · 当前建议</p>
+          <h2>V4 做骨架，语义强项跨版本补位。</h2>
+          <p>不建议现在全量重绘。先把清晰候选投入候选库，再只针对 12 个语义或区分度问题做定向 V5；AI 助手双态改用 Fluent Bot。</p>
+          <ul class="decision-list">
+            <li>导航、成员、Pro 组：V4 / Fluent 直接采用</li>
+            <li>通用操作、医疗、旧器械：src / V2 补位</li>
+            <li>占位菱形与同形器械：列入重绘队列</li>
+          </ul>
+        </aside>
+      </section>
+
+      <section class="metrics" aria-label="审核统计">
+        <div class="metric blue"><span class="value">756</span><span class="label">扫描到的 SVG 文件</span><small>包含重复副本</small></div>
+        <div class="metric purple"><span class="value">4</span><span class="label">候选版本 / 目录</span><small>src · V2 · V3 · V4</small></div>
+        <div class="metric blue"><span class="value">670</span><span class="label">唯一文件内容</span><small>SHA-256 去重后</small></div>
+        <div class="metric green"><span class="value">132</span><span class="label">可直接采用</span><small>V4 130 + Fluent MIT 2</small></div>
+        <div class="metric coral"><span class="value">12</span><span class="label">确实需要重绘</span><small>当前预览仅作问题定位</small></div>
+      </section>
+
+      <nav class="section-nav" aria-label="审核视图">
+        <button class="nav-button active" type="button" data-view="selected">精选候选 <b id="count-selected">211</b></button>
+        <button class="nav-button" type="button" data-view="ready">可直接采用 <b id="count-ready">132</b></button>
+        <button class="nav-button" type="button" data-view="rescue">语义补位 <b id="count-rescue">67</b></button>
+        <button class="nav-button" type="button" data-view="redraw">待重绘 <b id="count-redraw">12</b></button>
+        <button class="nav-button" type="button" data-view="all">全部逻辑候选 <b id="count-all">211</b></button>
+        <button class="nav-button" type="button" data-view="audit">技术审计</button>
+      </nav>
+
+      <section class="workspace" id="collection">
+        <div class="toolbar" aria-label="筛选工具">
+          <label class="field"><input id="search" type="search" placeholder="搜索名称或中文语义，例如 vaccine / 疫苗"></label>
+          <label class="field"><select id="group"><option value="all">全部分组</option></select></label>
+          <label class="field"><select id="source"><option value="all">全部胜出来源</option><option value="v4">V4</option><option value="oss">Fluent / MIT</option><option value="src">src</option><option value="v2">V2</option><option value="v3">V3</option></select></label>
+          <label class="field"><select id="palette"><option value="uniform">统一分组色（已落地）</option></select></label>
+          <div class="background-toggle" aria-label="预览背景">
+            <button class="bg-button active" type="button" data-bg-choice="light" title="浅色背景"><span></span></button>
+            <button class="bg-button" type="button" data-bg-choice="dark" title="深色背景"><span></span></button>
+            <button class="bg-button" type="button" data-bg-choice="checker" title="棋盘格透明背景"><span></span></button>
+          </div>
+        </div>
+        <div class="toolbar-meta">
+          <div class="feedback-actions">
+            <button class="primary-button" id="export-redraw" type="button">生成重绘清单</button>
+            <button class="ghost-button" id="bulk-redraw" type="button" title="把当前筛选结果全部标记为需重绘">标记当前筛选</button>
+            <button class="ghost-button" id="clear-redraw" type="button">清空标记</button>
+            <span class="redraw-counter" id="redraw-counter">已标记 0 个需重绘</span>
+          </div>
+          <p class="result-count" id="result-count"></p>
+          <div class="legend"><span class="legend-chip ready">直接采用</span><span class="legend-chip rescue">语义补位</span><span class="legend-chip redraw">需重绘</span></div>
+        </div>
+        <div id="collection-list"></div>
+        <div class="empty" id="empty">没有符合当前筛选条件的候选。</div>
+      </section>
+
+      <section class="audit-panel" id="audit-panel">
+        <div class="audit-intro">
+          <p class="eyebrow">Audit notes · 不只看好不好看</p>
+          <h2>完成度最高的 V4，也还不是发布包。</h2>
+          <p>审核以语义准确、24pt 小尺寸识别、家族一致性、功能覆盖和本地可维护性为优先级。医疗类图标不把“看起来像”当作“语义已经成立”，尤其不接受占位菱形冒充具体器官、检查或操作。</p>
+        </div>
+        <div class="audit-grid">
+          <article class="audit-card good"><h3>推荐基线 · V4 Complete</h3><p><strong>185 枚 / manifest 与磁盘一致。</strong> Tab 双态、成员、Pro、安全以及新器械组的视觉家族最完整，适合做候选集的结构骨架。</p></article>
+          <article class="audit-card"><h3>语义补位 · src / V2</h3><p><strong>通用操作和医疗语义更直白。</strong> 例如搜索、发送、扫描文档、药丸、疫苗、急救卡、器官和旧器械；代价是颜色和线条粗细需要再统一。</p></article>
+          <article class="audit-card warn"><h3>V3 不作为独立发布版本</h3><p><strong>manifest / index 声称 185 枚，但磁盘只有 165 枚。</strong> 有 20 个 manifest 路径在磁盘上不存在，包含首页和提醒 Tab 以及多项 Common 图标。</p></article>
+          <article class="audit-card warn"><h3>命名与视觉错配</h3><p><strong>12 个条目进入重绘队列。</strong> 主要是具体语义被替换成泛化形状，以及器械之间几乎无法区分；其余问题已由跨版本候选补位。</p></article>
+        </div>
+        <div class="audit-table-wrap">
+          <table class="audit-table">
+            <thead><tr><th>资产目录</th><th>磁盘 SVG</th><th>声明 / manifest</th><th>审核结果</th></tr></thead>
+            <tbody>
+              <tr><td>src</td><td>215</td><td>未提供统一 manifest</td><td>28 组 devices / equipment 完全重复；作为语义补位来源</td></tr>
+              <tr><td>qingnangshu_svg_icons_v2</td><td>191</td><td>manifest.csv 185 行</td><td>6 个 Common 图标未登记：download、refresh、sort、upload、visibility、visibility-off</td></tr>
+              <tr><td>qingnangshu_svg_icons_v3_full</td><td>165</td><td>manifest.json 185 枚</td><td>20 个清单路径断裂，不作为独立发布包</td></tr>
+              <tr><td>qingnangshu_svg_icons_v4_complete</td><td>185</td><td>manifest.json 185 枚</td><td>目录和清单闭合，作为主骨架</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="method-card"><h3>产品落地提醒</h3><p>本页展示的是已经落地到 <code>design/icons/src</code> 的统一分组色母版；底板统一只改变背景渐变，不改图形路径和前景色。当前 SVG 是带渐变、圆角底板和固定颜色的 <code>96×96</code> 图块，不是可随 Dynamic Type 伸缩和随语义着色的 SF Symbols。全量文本检索未发现 SVG 内置 <code>&lt;title&gt;</code>、<code>&lt;desc&gt;</code> 或 <code>aria-*</code> 辅助信息。现有产品规范若继续采用 <code>SF Symbols</code> 作为 <code>VLIcon</code> 单出口，应把本页当作视觉探索和业务语义审核，不要直接替换规范；若决定采用 SVG，则需另行确定 tint、深色、高对比度、无障碍标签和版权清单。</p></div>
+      </section>
+    </main>
+    <footer class="footer">本页为本地静态审查页，无网络依赖。点击任意卡片可查看已落地设计母版与资源路径。资源目录：<a href=".">Icons/</a></footer>
+  </div>
+
+   <dialog id="detail-dialog">
+    <div class="dialog-inner">
+      <div class="dialog-head"><div><h2 id="dialog-title"></h2><p id="dialog-subtitle"></p></div><button class="dialog-close" type="button" id="dialog-close" aria-label="关闭">×</button></div>
+      <div id="dialog-body"></div>
+    </div>
+  </dialog>
+
+  <dialog id="redraw-dialog">
+    <div class="dialog-inner">
+      <div class="dialog-head"><div><h2 id="redraw-title">需要重绘清单</h2><p id="redraw-subtitle"></p></div><button class="dialog-close" type="button" id="redraw-close" aria-label="关闭">×</button></div>
+      <pre class="redraw-summary" id="redraw-summary"></pre>
+      <div class="redraw-actions">
+        <button class="primary-button" type="button" id="redraw-download-md">下载 Markdown</button>
+        <button class="primary-button" type="button" id="redraw-download-json">下载 JSON</button>
+        <button class="ghost-button" type="button" id="redraw-copy">复制到剪贴板</button>
+      </div>
+    </div>
+  </dialog>
+
+  <script type="application/json" id="catalog-data">[{"key":"tab/tab-assistant-outline","group":"tab","name":"ic-tab-assistant","label":"AI 助手（线框）","candidates":{"local":"../icons/src/tab/ic-tab-assistant.svg"},"winner":"../icons/src/tab/ic-tab-assistant.svg","source":"oss","status":"ready","selected":true,"note":"已采用 Microsoft Fluent UI System Icons 的 Bot 24 regular glyph（MIT）；比当前自绘脑/机器人混合形更直白。"},{"key":"tab/tab-assistant-filled","group":"tab","name":"ic-tab-assistant-filled","label":"AI 助手（实心）","candidates":{"local":"../icons/src/tab/ic-tab-assistant-filled.svg"},"winner":"../icons/src/tab/ic-tab-assistant-filled.svg","source":"oss","status":"ready","selected":true,"note":"已采用 Microsoft Fluent UI System Icons 的 Bot 24 filled glyph（MIT）；比当前自绘脑/机器人混合形更直白。"},{"key":"tab/tab-home-outline","group":"tab","name":"ic-tab-home","label":"首页（线框）","candidates":{"local":"../icons/src/tab/ic-tab-home.svg"},"winner":"../icons/src/tab/ic-tab-home.svg","source":"v4","status":"ready","selected":true,"note":"双态成对，导航语义直观。"},{"key":"tab/tab-home-filled","group":"tab","name":"ic-tab-home-filled","label":"首页（实心）","candidates":{"local":"../icons/src/tab/ic-tab-home-filled.svg"},"winner":"../icons/src/tab/ic-tab-home-filled.svg","source":"v4","status":"ready","selected":true,"note":"双态成对，导航语义直观。"},{"key":"tab/tab-me-outline","group":"tab","name":"ic-tab-me","label":"我的（线框）","candidates":{"local":"../icons/src/tab/ic-tab-me.svg"},"winner":"../icons/src/tab/ic-tab-me.svg","source":"v4","status":"ready","selected":true,"note":"双态成对，导航语义直观。"},{"key":"tab/tab-me-filled","group":"tab","name":"ic-tab-me-filled","label":"我的（实心）","candidates":{"local":"../icons/src/tab/ic-tab-me-filled.svg"},"winner":"../icons/src/tab/ic-tab-me-filled.svg","source":"v4","status":"ready","selected":true,"note":"双态成对，导航语义直观。"},{"key":"tab/tab-records-outline","group":"tab","name":"ic-tab-records","label":"健康档案（线框）","candidates":{"local":"../icons/src/tab/ic-tab-records.svg"},"winner":"../icons/src/tab/ic-tab-records.svg","source":"v4","status":"ready","selected":true,"note":"双态成对，导航语义直观。"},{"key":"tab/tab-records-filled","group":"tab","name":"ic-tab-records-filled","label":"健康档案（实心）","candidates":{"local":"../icons/src/tab/ic-tab-records-filled.svg"},"winner":"../icons/src/tab/ic-tab-records-filled.svg","source":"v4","status":"ready","selected":true,"note":"双态成对，导航语义直观。"},{"key":"tab/tab-reminders-outline","group":"tab","name":"ic-tab-reminders","label":"提醒（线框）","candidates":{"local":"../icons/src/tab/ic-tab-reminders.svg"},"winner":"../icons/src/tab/ic-tab-reminders.svg","source":"v4","status":"ready","selected":true,"note":"双态成对，导航语义直观。"},{"key":"tab/tab-reminders-filled","group":"tab","name":"ic-tab-reminders-filled","label":"提醒（实心）","candidates":{"local":"../icons/src/tab/ic-tab-reminders-filled.svg"},"winner":"../icons/src/tab/ic-tab-reminders-filled.svg","source":"v4","status":"ready","selected":true,"note":"双态成对，导航语义直观。"},{"key":"common/add","group":"common","name":"ic-add","label":"新增","candidates":{"local":"../icons/src/common/ic-add.svg"},"winner":"../icons/src/common/ic-add.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/archive","group":"common","name":"ic-archive","label":"归档","candidates":{"local":"../icons/src/common/ic-archive.svg"},"winner":"../icons/src/common/ic-archive.svg","source":"src","status":"rescue","selected":true,"note":"src 版本是真正的归档盒；V4 使用了无法表达“归档”的标签形状。"},{"key":"common/attach","group":"common","name":"ic-attach","label":"附件 / 链接","candidates":{"local":"../icons/src/common/ic-attach.svg"},"winner":"../icons/src/common/ic-attach.svg","source":"src","status":"rescue","selected":true,"note":"src 链环语义直接；V4 与多个业务图标共用泛化形状。"},{"key":"common/backup","group":"common","name":"ic-backup","label":"备份","candidates":{"local":"../icons/src/common/ic-backup.svg"},"winner":"../icons/src/common/ic-backup.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/ban","group":"common","name":"ic-ban","label":"禁止","candidates":{"local":"../icons/src/common/ic-ban.svg"},"winner":"../icons/src/common/ic-ban.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/bell","group":"common","name":"ic-bell","label":"通知","candidates":{"local":"../icons/src/common/ic-bell.svg"},"winner":"../icons/src/common/ic-bell.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/bluetooth","group":"common","name":"ic-bluetooth","label":"蓝牙","candidates":{"local":"../icons/src/common/ic-bluetooth.svg"},"winner":"../icons/src/common/ic-bluetooth.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/bookmark","group":"common","name":"ic-bookmark","label":"书签","candidates":{"local":"../icons/src/common/ic-bookmark.svg"},"winner":"../icons/src/common/ic-bookmark.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/brush","group":"common","name":"ic-brush","label":"画笔","candidates":{"local":"../icons/src/common/ic-brush.svg"},"winner":"../icons/src/common/ic-brush.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/calendar","group":"common","name":"ic-calendar","label":"日历","candidates":{"local":"../icons/src/common/ic-calendar.svg"},"winner":"../icons/src/common/ic-calendar.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/camera","group":"common","name":"ic-camera","label":"相机","candidates":{"local":"../icons/src/common/ic-camera.svg"},"winner":"../icons/src/common/ic-camera.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/check","group":"common","name":"ic-check","label":"确认","candidates":{"local":"../icons/src/common/ic-check.svg"},"winner":"../icons/src/common/ic-check.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/check-circle","group":"common","name":"ic-check-circle","label":"已确认","candidates":{"local":"../icons/src/common/ic-check-circle.svg"},"winner":"../icons/src/common/ic-check-circle.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/chevron-down","group":"common","name":"ic-chevron-down","label":"下拉","candidates":{"local":"../icons/src/common/ic-chevron-down.svg"},"winner":"../icons/src/common/ic-chevron-down.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/chevron-left","group":"common","name":"ic-chevron-left","label":"后退","candidates":{"local":"../icons/src/common/ic-chevron-left.svg"},"winner":"../icons/src/common/ic-chevron-left.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/chevron-right","group":"common","name":"ic-chevron-right","label":"前进","candidates":{"local":"../icons/src/common/ic-chevron-right.svg"},"winner":"../icons/src/common/ic-chevron-right.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/clock","group":"common","name":"ic-clock","label":"时间","candidates":{"local":"../icons/src/common/ic-clock.svg"},"winner":"../icons/src/common/ic-clock.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/close","group":"common","name":"ic-close","label":"关闭","candidates":{"local":"../icons/src/common/ic-close.svg"},"winner":"../icons/src/common/ic-close.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/cloud-off","group":"common","name":"ic-cloud-off","label":"云端断开","candidates":{"local":"../icons/src/common/ic-cloud-off.svg"},"winner":"../icons/src/common/ic-cloud-off.svg","source":"src","status":"rescue","selected":true,"note":"src 云朵断开更易理解，V2 也可作为同语义备选。"},{"key":"common/copy","group":"common","name":"ic-copy","label":"复制","candidates":{"local":"../icons/src/common/ic-copy.svg"},"winner":"../icons/src/common/ic-copy.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/crown","group":"common","name":"ic-crown","label":"高级能力","candidates":{"local":"../icons/src/common/ic-crown.svg"},"winner":"../icons/src/common/ic-crown.svg","source":"v2","status":"rescue","selected":true,"note":"V4 未提供该图标，V2 的皇冠可补齐高级能力入口。"},{"key":"common/delete","group":"common","name":"ic-delete","label":"删除","candidates":{"local":"../icons/src/common/ic-delete.svg"},"winner":"../icons/src/common/ic-delete.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/download","group":"common","name":"ic-download","label":"下载","candidates":{"local":"../icons/src/common/ic-download.svg"},"winner":"../icons/src/common/ic-download.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/edit","group":"common","name":"ic-edit","label":"编辑","candidates":{"local":"../icons/src/common/ic-edit.svg"},"winner":"../icons/src/common/ic-edit.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/error","group":"common","name":"ic-error","label":"错误","candidates":{"local":"../icons/src/common/ic-error.svg"},"winner":"../icons/src/common/ic-error.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/exclamation","group":"common","name":"ic-exclamation","label":"警示","candidates":{"local":"../icons/src/common/ic-exclamation.svg"},"winner":"../icons/src/common/ic-exclamation.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/export","group":"common","name":"ic-export","label":"导出","candidates":{"local":"../icons/src/common/ic-export.svg"},"winner":"../icons/src/common/ic-export.svg","source":"src","status":"rescue","selected":true,"note":"V4 未提供该图标，src 的文件导出箭头可直接使用。"},{"key":"common/external-link","group":"common","name":"ic-external-link","label":"外部链接","candidates":{"local":"../icons/src/common/ic-external-link.svg"},"winner":"../icons/src/common/ic-external-link.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/filter","group":"common","name":"ic-filter","label":"筛选","candidates":{"local":"../icons/src/common/ic-filter.svg"},"winner":"../icons/src/common/ic-filter.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/flash","group":"common","name":"ic-flash","label":"快捷 / 闪光","candidates":{"local":"../icons/src/common/ic-flash.svg"},"winner":"../icons/src/common/ic-flash.svg","source":"src","status":"rescue","selected":true,"note":"src 闪电轮廓清晰；V4 的同名图形退化为泛化形状。"},{"key":"common/folder","group":"common","name":"ic-folder","label":"文件夹","candidates":{"local":"../icons/src/common/ic-folder.svg"},"winner":"../icons/src/common/ic-folder.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/headphone","group":"common","name":"ic-headphone","label":"耳机","candidates":{"local":"../icons/src/common/ic-headphone.svg"},"winner":"../icons/src/common/ic-headphone.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/headset","group":"common","name":"ic-headset","label":"耳麦","candidates":{"local":"../icons/src/common/ic-headset.svg"},"winner":"../icons/src/common/ic-headset.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/help","group":"common","name":"ic-help","label":"帮助","candidates":{"local":"../icons/src/common/ic-help.svg"},"winner":"../icons/src/common/ic-help.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/ignore","group":"common","name":"ic-ignore","label":"忽略","candidates":{"local":"../icons/src/common/ic-ignore.svg"},"winner":"../icons/src/common/ic-ignore.svg","source":"src","status":"rescue","selected":true,"note":"src 圆形叉号比 V4 菱形更符合“忽略/跳过”。"},{"key":"common/import","group":"common","name":"ic-import","label":"导入","candidates":{"local":"../icons/src/common/ic-import.svg"},"winner":"../icons/src/common/ic-import.svg","source":"src","status":"rescue","selected":true,"note":"V4 未提供该图标，src 的文件导入箭头可直接使用。"},{"key":"common/info","group":"common","name":"ic-info","label":"信息","candidates":{"local":"../icons/src/common/ic-info.svg"},"winner":"../icons/src/common/ic-info.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/keypad-delete","group":"common","name":"ic-keypad-delete","label":"键盘删除","candidates":{"local":"../icons/src/common/ic-keypad-delete.svg"},"winner":"../icons/src/common/ic-keypad-delete.svg","source":"src","status":"rescue","selected":true,"note":"src 的退格键轮廓清楚，适合 PIN/数字键盘。"},{"key":"common/language","group":"common","name":"ic-language","label":"语言","candidates":{"local":"../icons/src/common/ic-language.svg"},"winner":"../icons/src/common/ic-language.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/message","group":"common","name":"ic-message","label":"消息","candidates":{"local":"../icons/src/common/ic-message.svg"},"winner":"../icons/src/common/ic-message.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/mic","group":"common","name":"ic-mic","label":"麦克风","candidates":{"local":"../icons/src/common/ic-mic.svg"},"winner":"../icons/src/common/ic-mic.svg","source":"src","status":"rescue","selected":true,"note":"V4 未提供该图标，src 的麦克风可补位。"},{"key":"common/minus","group":"common","name":"ic-minus","label":"减少","candidates":{"local":"../icons/src/common/ic-minus.svg"},"winner":"../icons/src/common/ic-minus.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/moon","group":"common","name":"ic-moon","label":"深色模式","candidates":{"local":"../icons/src/common/ic-moon.svg"},"winner":"../icons/src/common/ic-moon.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/more","group":"common","name":"ic-more","label":"更多","candidates":{"local":"../icons/src/common/ic-more.svg"},"winner":"../icons/src/common/ic-more.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/observe-frame","group":"common","name":"ic-observe-frame","label":"观察取景","candidates":{"local":"../icons/src/common/ic-observe-frame.svg"},"winner":"../icons/src/common/ic-observe-frame.svg","source":"src","status":"rescue","selected":true,"note":"src 相机取景框最接近观察拍摄语义，V4 当前图形不可接受。"},{"key":"common/pause","group":"common","name":"ic-pause","label":"暂停","candidates":{"local":"../icons/src/common/ic-pause.svg"},"winner":"../icons/src/common/ic-pause.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/person-add","group":"common","name":"ic-person-add","label":"添加成员","candidates":{"local":"../icons/src/common/ic-person-add.svg"},"winner":"../icons/src/common/ic-person-add.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/phone","group":"common","name":"ic-phone","label":"电话","candidates":{"local":"../icons/src/common/ic-phone.svg"},"winner":"../icons/src/common/ic-phone.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/photo","group":"common","name":"ic-photo","label":"照片 / 相册","candidates":{"local":"../icons/src/common/ic-photo.svg"},"winner":"../icons/src/common/ic-photo.svg","source":"src","status":"rescue","selected":true,"note":"src 图像相框比 V4 泛化形状更准确。"},{"key":"common/pin","group":"common","name":"ic-pin","label":"置顶","candidates":{"local":"../icons/src/common/ic-pin.svg"},"winner":"../icons/src/common/ic-pin.svg","source":"src","status":"rescue","selected":true,"note":"src 图钉语义明确，V4 当前图形会被读成警示徽章。"},{"key":"common/play","group":"common","name":"ic-play","label":"播放","candidates":{"local":"../icons/src/common/ic-play.svg"},"winner":"../icons/src/common/ic-play.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/refresh","group":"common","name":"ic-refresh","label":"刷新","candidates":{"local":"../icons/src/common/ic-refresh.svg"},"winner":"../icons/src/common/ic-refresh.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/replay","group":"common","name":"ic-replay","label":"重播","candidates":{"local":"../icons/src/common/ic-replay.svg"},"winner":"../icons/src/common/ic-replay.svg","source":"src","status":"rescue","selected":true,"note":"src 的回转箭头比 V4 泛化形状更清楚。"},{"key":"common/retry","group":"common","name":"ic-retry","label":"重试","candidates":{"local":"../icons/src/common/ic-retry.svg"},"winner":"../icons/src/common/ic-retry.svg","source":"src","status":"rescue","selected":true,"note":"src 的循环箭头可直接表达重试。"},{"key":"common/scan-document","group":"common","name":"ic-scan-document","label":"扫描文档","candidates":{"local":"../icons/src/common/ic-scan-document.svg"},"winner":"../icons/src/common/ic-scan-document.svg","source":"src","status":"rescue","selected":true,"note":"src 扫描框加文档线条能表达“扫描文档”，需在 V5 统一线宽。"},{"key":"common/search","group":"common","name":"ic-search","label":"搜索","candidates":{"local":"../icons/src/common/ic-search.svg"},"winner":"../icons/src/common/ic-search.svg","source":"src","status":"rescue","selected":true,"note":"src 放大镜是唯一不需解释的搜索隐喻，V4 当前图形不合格。"},{"key":"common/send","group":"common","name":"ic-send","label":"发送","candidates":{"local":"../icons/src/common/ic-send.svg"},"winner":"../icons/src/common/ic-send.svg","source":"src","status":"rescue","selected":true,"note":"src 纸飞机比 V4 泛化形状更准确。"},{"key":"common/settings","group":"common","name":"ic-settings","label":"设置","candidates":{"local":"../icons/src/common/ic-settings.svg"},"winner":"../icons/src/common/ic-settings.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/share","group":"common","name":"ic-share","label":"分享","candidates":{"local":"../icons/src/common/ic-share.svg"},"winner":"../icons/src/common/ic-share.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/skip","group":"common","name":"ic-skip","label":"跳过","candidates":{"local":"../icons/src/common/ic-skip.svg"},"winner":"../icons/src/common/ic-skip.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/snooze","group":"common","name":"ic-snooze","label":"稍后提醒","candidates":{"local":"../icons/src/common/ic-snooze.svg"},"winner":"../icons/src/common/ic-snooze.svg","source":"src","status":"rescue","selected":true,"note":"src 闹钟可表达稍后提醒，V4 当前图形不合格。"},{"key":"common/sort","group":"common","name":"ic-sort","label":"排序","candidates":{"local":"../icons/src/common/ic-sort.svg"},"winner":"../icons/src/common/ic-sort.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/star","group":"common","name":"ic-star","label":"收藏","candidates":{"local":"../icons/src/common/ic-star.svg"},"winner":"../icons/src/common/ic-star.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/stop-octagon","group":"common","name":"ic-stop-octagon","label":"停止","candidates":{"local":"../icons/src/common/ic-stop-octagon.svg"},"winner":"../icons/src/common/ic-stop-octagon.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/sun","group":"common","name":"ic-sun","label":"浅色模式","candidates":{"local":"../icons/src/common/ic-sun.svg"},"winner":"../icons/src/common/ic-sun.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/swap","group":"common","name":"ic-swap","label":"切换","candidates":{"local":"../icons/src/common/ic-swap.svg"},"winner":"../icons/src/common/ic-swap.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/sync","group":"common","name":"ic-sync","label":"同步","candidates":{"local":"../icons/src/common/ic-sync.svg"},"winner":"../icons/src/common/ic-sync.svg","source":"src","status":"rescue","selected":true,"note":"src 双向箭头可直接表达同步；V4 未提供该图标。"},{"key":"common/tag","group":"common","name":"ic-tag","label":"标签","candidates":{"local":"../icons/src/common/ic-tag.svg"},"winner":"../icons/src/common/ic-tag.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/thumbs-down","group":"common","name":"ic-thumbs-down","label":"不喜欢","candidates":{"local":"../icons/src/common/ic-thumbs-down.svg"},"winner":"../icons/src/common/ic-thumbs-down.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/thumbs-up","group":"common","name":"ic-thumbs-up","label":"喜欢","candidates":{"local":"../icons/src/common/ic-thumbs-up.svg"},"winner":"../icons/src/common/ic-thumbs-up.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/undo","group":"common","name":"ic-undo","label":"撤销","candidates":{"local":"../icons/src/common/ic-undo.svg"},"winner":"../icons/src/common/ic-undo.svg","source":"src","status":"rescue","selected":true,"note":"src 回转箭头比 V4 泛化形状更清楚。"},{"key":"common/unlink","group":"common","name":"ic-unlink","label":"移除链接","candidates":{"local":"../icons/src/common/ic-unlink.svg"},"winner":"../icons/src/common/ic-unlink.svg","source":"src","status":"rescue","selected":true,"note":"src 断链语义明确，V4 当前图形不合格。"},{"key":"common/unlock","group":"common","name":"ic-unlock","label":"解锁","candidates":{"local":"../icons/src/common/ic-unlock.svg"},"winner":"../icons/src/common/ic-unlock.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/upload","group":"common","name":"ic-upload","label":"上传","candidates":{"local":"../icons/src/common/ic-upload.svg"},"winner":"../icons/src/common/ic-upload.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/visibility","group":"common","name":"ic-visibility","label":"查看","candidates":{"local":"../icons/src/common/ic-visibility.svg"},"winner":"../icons/src/common/ic-visibility.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/visibility-off","group":"common","name":"ic-visibility-off","label":"隐藏","candidates":{"local":"../icons/src/common/ic-visibility-off.svg"},"winner":"../icons/src/common/ic-visibility-off.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/volume","group":"common","name":"ic-volume","label":"音量","candidates":{"local":"../icons/src/common/ic-volume.svg"},"winner":"../icons/src/common/ic-volume.svg","source":"src","status":"rescue","selected":true,"note":"src 扬声器比 V4 泛化形状更准确。"},{"key":"common/volume-off","group":"common","name":"ic-volume-off","label":"静音","candidates":{"local":"../icons/src/common/ic-volume-off.svg"},"winner":"../icons/src/common/ic-volume-off.svg","source":"src","status":"rescue","selected":true,"note":"src 的扬声器与叉号能明确表达静音。"},{"key":"common/warning","group":"common","name":"ic-warning","label":"警告","candidates":{"local":"../icons/src/common/ic-warning.svg"},"winner":"../icons/src/common/ic-warning.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"common/waveform","group":"common","name":"ic-waveform","label":"波形","candidates":{"local":"../icons/src/common/ic-waveform.svg"},"winner":"../icons/src/common/ic-waveform.svg","source":"v4","status":"ready","selected":true,"note":"蓝色通用操作家族统一，适合常规入口。"},{"key":"medical/allergy","group":"medical","name":"ic-allergy","label":"过敏","candidates":{"local":"../icons/src/medical/ic-allergy.svg"},"winner":"../icons/src/medical/ic-allergy.svg","source":"v4","status":"ready","selected":true,"note":"蓝色医疗家族统一，适合记录类型入口。"},{"key":"medical/appointment","group":"medical","name":"ic-appointment","label":"预约 / 就诊","candidates":{"local":"../icons/src/medical/ic-appointment.svg"},"winner":"../icons/src/medical/ic-appointment.svg","source":"v4","status":"ready","selected":true,"note":"蓝色医疗家族统一，适合记录类型入口。"},{"key":"medical/blood-drop","group":"medical","name":"ic-blood-drop","label":"血液 / 血滴","candidates":{"local":"../icons/src/medical/ic-blood-drop.svg"},"winner":"../icons/src/medical/ic-blood-drop.svg","source":"v4","status":"ready","selected":true,"note":"蓝色医疗家族统一，适合记录类型入口。"},{"key":"medical/chart","group":"medical","name":"ic-chart","label":"图表","candidates":{"local":"../icons/src/medical/ic-chart.svg"},"winner":"../icons/src/medical/ic-chart.svg","source":"src","status":"rescue","selected":true,"note":"src 折线/柱状图比 V4 菱形占位更准确。"},{"key":"medical/doctor","group":"medical","name":"ic-doctor","label":"医生","candidates":{"local":"../icons/src/medical/ic-doctor.svg"},"winner":"../icons/src/medical/ic-doctor.svg","source":"v4","status":"ready","selected":true,"note":"蓝色医疗家族统一，适合记录类型入口。"},{"key":"medical/emergency-card","group":"medical","name":"ic-emergency-card","label":"急救信息卡","candidates":{"local":"../icons/src/medical/ic-emergency-card.svg"},"winner":"../icons/src/medical/ic-emergency-card.svg","source":"src","status":"rescue","selected":true,"note":"src 身份卡片轮廓比 V4 泛化形状更适合急救卡。"},{"key":"medical/hospital","group":"medical","name":"ic-hospital","label":"医院","candidates":{"local":"../icons/src/medical/ic-hospital.svg"},"winner":"../icons/src/medical/ic-hospital.svg","source":"v4","status":"ready","selected":true,"note":"蓝色医疗家族统一，适合记录类型入口。"},{"key":"medical/imaging-ecg","group":"medical","name":"ic-imaging-ecg","label":"影像 / 心电","candidates":{"local":"../icons/src/medical/ic-imaging-ecg.svg"},"winner":"../icons/src/medical/ic-imaging-ecg.svg","source":"v4","status":"ready","selected":true,"note":"蓝色医疗家族统一，适合记录类型入口。"},{"key":"medical/lab-clipboard","group":"medical","name":"ic-lab-clipboard","label":"检验记录","candidates":{"local":"../icons/src/medical/ic-lab-clipboard.svg"},"winner":"../icons/src/medical/ic-lab-clipboard.svg","source":"src","status":"rescue","selected":true,"note":"src 将检验波形放入夹板，医疗语义比 V4 空白夹板更强。"},{"key":"medical/medicine-box","group":"medical","name":"ic-medicine-box","label":"药箱","candidates":{"local":"../icons/src/medical/ic-medicine-box.svg"},"winner":"../icons/src/medical/ic-medicine-box.svg","source":"v4","status":"ready","selected":true,"note":"蓝色医疗家族统一，适合记录类型入口。"},{"key":"medical/pill","group":"medical","name":"ic-pill","label":"药丸","candidates":{"local":"../icons/src/medical/ic-pill.svg"},"winner":"../icons/src/medical/ic-pill.svg","source":"src","status":"rescue","selected":true,"note":"src 胶囊形状直白；V4 当前图形无法识别为药丸。"},{"key":"medical/prescription","group":"medical","name":"ic-prescription","label":"处方","candidates":{"local":"../icons/src/medical/ic-prescription.svg"},"winner":"../icons/src/medical/ic-prescription.svg","source":"v4","status":"ready","selected":true,"note":"蓝色医疗家族统一，适合记录类型入口。"},{"key":"medical/pulse","group":"medical","name":"ic-pulse","label":"脉搏","candidates":{"local":"../icons/src/medical/ic-pulse.svg"},"winner":"../icons/src/medical/ic-pulse.svg","source":"src","status":"rescue","selected":true,"note":"src 心电波形可直接表达脉搏；V4 当前图形不合格。"},{"key":"medical/refill","group":"medical","name":"ic-refill","label":"补充药品","candidates":{"local":"../icons/src/medical/ic-refill.svg"},"winner":"../icons/src/medical/ic-refill.svg","source":"src","status":"rescue","selected":true,"note":"src 的补充药箱比 V4 泛化形状更准确。"},{"key":"medical/stethoscope","group":"medical","name":"ic-stethoscope","label":"听诊 / 就诊","candidates":{"local":"../icons/src/medical/ic-stethoscope.svg"},"winner":"../icons/src/medical/ic-stethoscope.svg","source":"v4","status":"ready","selected":true,"note":"蓝色医疗家族统一，适合记录类型入口。"},{"key":"medical/thermometer","group":"medical","name":"ic-thermometer","label":"体温","candidates":{"local":"../icons/src/medical/ic-thermometer.svg"},"winner":"../icons/src/medical/ic-thermometer.svg","source":"src","status":"rescue","selected":true,"note":"src 温度计轮廓更清晰，适合小尺寸。"},{"key":"medical/timeline","group":"medical","name":"ic-timeline","label":"时间线","candidates":{"local":"../icons/src/medical/ic-timeline.svg"},"winner":"../icons/src/medical/ic-timeline.svg","source":"v2","status":"rescue","selected":true,"note":"V2 的节点时间线比 V4 缺失更好，补齐就诊记录入口。"},{"key":"medical/vaccine","group":"medical","name":"ic-vaccine","label":"疫苗","candidates":{"local":"../icons/src/medical/ic-vaccine.svg"},"winner":"../icons/src/medical/ic-vaccine.svg","source":"src","status":"rescue","selected":true,"note":"src 注射器比 V4 泛化形状更准确。"},{"key":"medical/vitals-chart","group":"medical","name":"ic-vitals-chart","label":"生命体征图","candidates":{"local":"../icons/src/medical/ic-vitals-chart.svg"},"winner":"../icons/src/medical/ic-vitals-chart.svg","source":"v4","status":"ready","selected":true,"note":"蓝色医疗家族统一，适合记录类型入口。"},{"key":"medical/weight","group":"medical","name":"ic-weight","label":"体重","candidates":{"local":"../icons/src/medical/ic-weight.svg"},"winner":"../icons/src/medical/ic-weight.svg","source":"v4","status":"ready","selected":true,"note":"蓝色医疗家族统一，适合记录类型入口。"},{"key":"symptoms/sym-custom","group":"symptoms","name":"ic-sym-custom","label":"自定义症状","candidates":{"local":"../icons/src/symptoms/ic-sym-custom.svg"},"winner":"../icons/src/symptoms/ic-sym-custom.svg","source":"v2","status":"rescue","selected":true,"note":"V2 的方框加号适合作为自定义症状入口。"},{"key":"symptoms/sym-eye","group":"symptoms","name":"ic-sym-eye","label":"眼部观察","candidates":{"local":"../icons/src/symptoms/ic-sym-eye.svg"},"winner":"../icons/src/symptoms/ic-sym-eye.svg","source":"v4","status":"ready","selected":true,"note":"橙色观察家族统一，适合敏感记录入口。"},{"key":"symptoms/sym-generic","group":"symptoms","name":"ic-sym-generic","label":"一般症状","candidates":{"local":"../icons/src/symptoms/ic-sym-generic.svg"},"winner":"../icons/src/symptoms/ic-sym-generic.svg","source":"v4","status":"ready","selected":true,"note":"橙色观察家族统一，适合敏感记录入口。"},{"key":"symptoms/sym-secretion","group":"symptoms","name":"ic-sym-secretion","label":"分泌物","candidates":{"local":"../icons/src/symptoms/ic-sym-secretion.svg"},"winner":"../icons/src/symptoms/ic-sym-secretion.svg","source":"src","status":"rescue","selected":true,"note":"src 滴管比 V4 泛化形状更接近分泌物记录。"},{"key":"symptoms/sym-skin","group":"symptoms","name":"ic-sym-skin","label":"皮肤","candidates":{"local":"../icons/src/symptoms/ic-sym-skin.svg"},"winner":"../icons/src/symptoms/ic-sym-skin.svg","source":"v4","status":"ready","selected":true,"note":"橙色观察家族统一，适合敏感记录入口。"},{"key":"symptoms/sym-stool","group":"symptoms","name":"ic-sym-stool","label":"大便颜色","candidates":{"local":"../icons/src/symptoms/ic-sym-stool.svg"},"winner":"../icons/src/symptoms/ic-sym-stool.svg","source":"v4","status":"ready","selected":true,"note":"橙色观察家族统一，适合敏感记录入口。"},{"key":"symptoms/sym-swelling","group":"symptoms","name":"ic-sym-swelling","label":"肿胀","candidates":{"local":"../icons/src/symptoms/ic-sym-swelling.svg"},"winner":"../icons/src/symptoms/ic-sym-swelling.svg","source":"v4","status":"redraw","selected":true,"note":"现有版本都没有稳定表达肿胀的形状，保留到 V5 重绘。"},{"key":"symptoms/sym-urine","group":"symptoms","name":"ic-sym-urine","label":"小便颜色","candidates":{"local":"../icons/src/symptoms/ic-sym-urine.svg"},"winner":"../icons/src/symptoms/ic-sym-urine.svg","source":"v4","status":"ready","selected":true,"note":"橙色观察家族统一，适合敏感记录入口。"},{"key":"members/member-daughter","group":"members","name":"ic-member-daughter","label":"女儿","candidates":{"local":"../icons/src/members/ic-member-daughter.svg"},"winner":"../icons/src/members/ic-member-daughter.svg","source":"v4","status":"ready","selected":true,"note":"关系轮廓简洁，V4 家族风格统一。"},{"key":"members/member-family","group":"members","name":"ic-member-family","label":"家庭","candidates":{"local":"../icons/src/members/ic-member-family.svg"},"winner":"../icons/src/members/ic-member-family.svg","source":"v4","status":"ready","selected":true,"note":"关系轮廓简洁，V4 家族风格统一。"},{"key":"members/member-father","group":"members","name":"ic-member-father","label":"父亲","candidates":{"local":"../icons/src/members/ic-member-father.svg"},"winner":"../icons/src/members/ic-member-father.svg","source":"v4","status":"ready","selected":true,"note":"关系轮廓简洁，V4 家族风格统一。"},{"key":"members/member-mother","group":"members","name":"ic-member-mother","label":"母亲","candidates":{"local":"../icons/src/members/ic-member-mother.svg"},"winner":"../icons/src/members/ic-member-mother.svg","source":"v4","status":"ready","selected":true,"note":"关系轮廓简洁，V4 家族风格统一。"},{"key":"members/member-partner","group":"members","name":"ic-member-partner","label":"伴侣","candidates":{"local":"../icons/src/members/ic-member-partner.svg"},"winner":"../icons/src/members/ic-member-partner.svg","source":"v4","status":"ready","selected":true,"note":"关系轮廓简洁，V4 家族风格统一。"},{"key":"members/member-self","group":"members","name":"ic-member-self","label":"本人","candidates":{"local":"../icons/src/members/ic-member-self.svg"},"winner":"../icons/src/members/ic-member-self.svg","source":"v4","status":"ready","selected":true,"note":"关系轮廓简洁，V4 家族风格统一。"},{"key":"members/member-son","group":"members","name":"ic-member-son","label":"儿子","candidates":{"local":"../icons/src/members/ic-member-son.svg"},"winner":"../icons/src/members/ic-member-son.svg","source":"v4","status":"ready","selected":true,"note":"关系轮廓简洁，V4 家族风格统一。"},{"key":"security/audit-shield","group":"security","name":"ic-audit-shield","label":"审计保护","candidates":{"local":"../icons/src/security/ic-audit-shield.svg"},"winner":"../icons/src/security/ic-audit-shield.svg","source":"src","status":"rescue","selected":true,"note":"src 的盾牌/钥匙孔比 V4 半盾更接近审计。"},{"key":"security/device","group":"security","name":"ic-device","label":"登录设备","candidates":{"local":"../icons/src/security/ic-device.svg"},"winner":"../icons/src/security/ic-device.svg","source":"src","status":"rescue","selected":true,"note":"src 的手机轮廓明确；V4 未提供该条目。"},{"key":"security/eye","group":"security","name":"ic-eye","label":"可见","candidates":{"local":"../icons/src/security/ic-eye.svg"},"winner":"../icons/src/security/ic-eye.svg","source":"src","status":"rescue","selected":true,"note":"src 的眼睛轮廓补齐安全可见性语义。"},{"key":"security/eye-off","group":"security","name":"ic-eye-off","label":"隐藏","candidates":{"local":"../icons/src/security/ic-eye-off.svg"},"winner":"../icons/src/security/ic-eye-off.svg","source":"v4","status":"ready","selected":true,"note":"红色安全家族统一，轮廓在小尺寸下清晰。"},{"key":"security/faceid","group":"security","name":"ic-faceid","label":"面容识别","candidates":{"local":"../icons/src/security/ic-faceid.svg"},"winner":"../icons/src/security/ic-faceid.svg","source":"v4","status":"ready","selected":true,"note":"红色安全家族统一，轮廓在小尺寸下清晰。"},{"key":"security/fingerprint","group":"security","name":"ic-fingerprint","label":"指纹识别","candidates":{"local":"../icons/src/security/ic-fingerprint.svg"},"winner":"../icons/src/security/ic-fingerprint.svg","source":"v4","status":"ready","selected":true,"note":"红色安全家族统一，轮廓在小尺寸下清晰。"},{"key":"security/lock","group":"security","name":"ic-lock","label":"锁定","candidates":{"local":"../icons/src/security/ic-lock.svg"},"winner":"../icons/src/security/ic-lock.svg","source":"v4","status":"ready","selected":true,"note":"红色安全家族统一，轮廓在小尺寸下清晰。"},{"key":"security/shield","group":"security","name":"ic-shield","label":"保护","candidates":{"local":"../icons/src/security/ic-shield.svg"},"winner":"../icons/src/security/ic-shield.svg","source":"v4","status":"ready","selected":true,"note":"红色安全家族统一，轮廓在小尺寸下清晰。"},{"key":"security/sos","group":"security","name":"ic-sos","label":"SOS 求助","candidates":{"local":"../icons/src/security/ic-sos.svg"},"winner":"../icons/src/security/ic-sos.svg","source":"src","status":"rescue","selected":true,"note":"src 的电话图标比 V4 泛化菱形更符合 SOS 求助。"},{"key":"pro/cloud-subscription","group":"pro","name":"ic-cloud-subscription","label":"云端订阅","candidates":{"local":"../icons/src/pro/ic-cloud-subscription.svg"},"winner":"../icons/src/pro/ic-cloud-subscription.svg","source":"v4","status":"ready","selected":true,"note":"紫色权益家族一致，入口语义直接。"},{"key":"pro/family-share","group":"pro","name":"ic-family-share","label":"家庭共享","candidates":{"local":"../icons/src/pro/ic-family-share.svg"},"winner":"../icons/src/pro/ic-family-share.svg","source":"v4","status":"ready","selected":true,"note":"紫色权益家族一致，入口语义直接。"},{"key":"pro/pro-diamond","group":"pro","name":"ic-pro-diamond","label":"Pro 权益","candidates":{"local":"../icons/src/pro/ic-pro-diamond.svg"},"winner":"../icons/src/pro/ic-pro-diamond.svg","source":"v4","status":"ready","selected":true,"note":"紫色权益家族一致，入口语义直接。"},{"key":"pro/restore-purchase","group":"pro","name":"ic-restore-purchase","label":"恢复购买","candidates":{"local":"../icons/src/pro/ic-restore-purchase.svg"},"winner":"../icons/src/pro/ic-restore-purchase.svg","source":"v4","status":"ready","selected":true,"note":"紫色权益家族一致，入口语义直接。"},{"key":"equipment/ambulance","group":"equipment","name":"ic-ambulance","label":"救护车","candidates":{"local":"../icons/src/equipment/ic-ambulance.svg"},"winner":"../icons/src/equipment/ic-ambulance.svg","source":"src","status":"rescue","selected":true,"note":"src 的救护车轮廓有十字和警示细节，优于缺失的 V4 版本。"},{"key":"equipment/anesthesia-machine","group":"equipment","name":"ic-anesthesia-machine","label":"麻醉机","candidates":{"local":"../icons/src/equipment/ic-anesthesia-machine.svg"},"winner":"../icons/src/equipment/ic-anesthesia-machine.svg","source":"v4","status":"ready","selected":true,"note":"蓝色器械家族统一，轮廓可在小尺寸识别。"},{"key":"equipment/bandage-adhesive","group":"equipment","name":"ic-bandage-adhesive","label":"创可贴","candidates":{"local":"../icons/src/equipment/ic-bandage-adhesive.svg"},"winner":"../icons/src/equipment/ic-bandage-adhesive.svg","source":"src","status":"rescue","selected":true,"note":"src 的创可贴轮廓直白，优于缺失的 V4 版本。"},{"key":"equipment/blood-pressure","group":"equipment","name":"ic-blood-pressure","label":"血压计","candidates":{"local":"../icons/src/equipment/ic-blood-pressure.svg"},"winner":"../icons/src/equipment/ic-blood-pressure.svg","source":"src","status":"rescue","selected":true,"note":"src 的血压计/心率细节清楚，优于缺失的 V4 版本。"},{"key":"equipment/blood-sugar","group":"equipment","name":"ic-blood-sugar","label":"血糖仪","candidates":{"local":"../icons/src/equipment/ic-blood-sugar.svg"},"winner":"../icons/src/equipment/ic-blood-sugar.svg","source":"src","status":"rescue","selected":true,"note":"src 的血糖仪轮廓清楚，优于缺失的 V4 版本。"},{"key":"equipment/crutches","group":"equipment","name":"ic-crutches","label":"拐杖","candidates":{"local":"../icons/src/equipment/ic-crutches.svg"},"winner":"../icons/src/equipment/ic-crutches.svg","source":"v4","status":"ready","selected":true,"note":"蓝色器械家族统一，轮廓可在小尺寸识别。"},{"key":"equipment/ct","group":"equipment","name":"ic-ct","label":"CT","candidates":{"local":"../icons/src/equipment/ic-ct.svg"},"winner":"../icons/src/equipment/ic-ct.svg","source":"v4","status":"ready","selected":true,"note":"蓝色器械家族统一，轮廓可在小尺寸识别。"},{"key":"equipment/defibrillator","group":"equipment","name":"ic-defibrillator","label":"除颤器","candidates":{"local":"../icons/src/equipment/ic-defibrillator.svg"},"winner":"../icons/src/equipment/ic-defibrillator.svg","source":"v4","status":"redraw","selected":true,"note":"V4 与 ECG/monitor 共用同一显示器轮廓，缺少除颤电极语义。"},{"key":"equipment/dental-chair","group":"equipment","name":"ic-dental-chair","label":"牙科椅","candidates":{"local":"../icons/src/equipment/ic-dental-chair.svg"},"winner":"../icons/src/equipment/ic-dental-chair.svg","source":"v4","status":"ready","selected":true,"note":"蓝色器械家族统一，轮廓可在小尺寸识别。"},{"key":"equipment/ecg","group":"equipment","name":"ic-ecg","label":"心电图设备","candidates":{"local":"../icons/src/equipment/ic-ecg.svg"},"winner":"../icons/src/equipment/ic-ecg.svg","source":"v4","status":"redraw","selected":true,"note":"V4 与 defibrillator/monitor 共用同一轮廓，无法表达 ECG 的独立语义。"},{"key":"equipment/endoscope","group":"equipment","name":"ic-endoscope","label":"内窥镜","candidates":{"local":"../icons/src/equipment/ic-endoscope.svg"},"winner":"../icons/src/equipment/ic-endoscope.svg","source":"v4","status":"redraw","selected":true,"note":"V4 与 otoscope/ophthalmoscope 近乎同形，需用镜头/软管差异化。"},{"key":"equipment/glucometer","group":"equipment","name":"ic-glucometer","label":"血糖仪","candidates":{"local":"../icons/src/equipment/ic-glucometer.svg"},"winner":"../icons/src/equipment/ic-glucometer.svg","source":"v4","status":"ready","selected":true,"note":"蓝色器械家族统一，轮廓可在小尺寸识别。"},{"key":"equipment/hearing-aid","group":"equipment","name":"ic-hearing-aid","label":"助听器","candidates":{"local":"../icons/src/equipment/ic-hearing-aid.svg"},"winner":"../icons/src/equipment/ic-hearing-aid.svg","source":"src","status":"rescue","selected":true,"note":"src 的耳助听器轮廓清楚，优于缺失的 V4 版本。"},{"key":"equipment/herbal","group":"equipment","name":"ic-herbal","label":"中药 / 草药","candidates":{"local":"../icons/src/equipment/ic-herbal.svg"},"winner":"../icons/src/equipment/ic-herbal.svg","source":"src","status":"rescue","selected":true,"note":"src 的药臼是中药/草药最直接的隐喻。"},{"key":"equipment/infusion-pump","group":"equipment","name":"ic-infusion-pump","label":"输液泵","candidates":{"local":"../icons/src/equipment/ic-infusion-pump.svg"},"winner":"../icons/src/equipment/ic-infusion-pump.svg","source":"v4","status":"ready","selected":true,"note":"蓝色器械家族统一，轮廓可在小尺寸识别。"},{"key":"equipment/inhaler","group":"equipment","name":"ic-inhaler","label":"吸入器","candidates":{"local":"../icons/src/equipment/ic-inhaler.svg"},"winner":"../icons/src/equipment/ic-inhaler.svg","source":"v4","status":"ready","selected":true,"note":"蓝色器械家族统一，轮廓可在小尺寸识别。"},{"key":"equipment/intravenous-drip","group":"equipment","name":"ic-intravenous-drip","label":"静脉输液","candidates":{"local":"../icons/src/equipment/ic-intravenous-drip.svg"},"winner":"../icons/src/equipment/ic-intravenous-drip.svg","source":"src","status":"rescue","selected":true,"note":"src 的输液瓶加人物标识比泛化瓶形更明确。"},{"key":"equipment/medicine-bottle","group":"equipment","name":"ic-medicine-bottle","label":"药瓶","candidates":{"local":"../icons/src/equipment/ic-medicine-bottle.svg"},"winner":"../icons/src/equipment/ic-medicine-bottle.svg","source":"src","status":"rescue","selected":true,"note":"src 的药瓶轮廓及加号可直接识别。"},{"key":"equipment/medicines","group":"equipment","name":"ic-medicines","label":"药品集合","candidates":{"local":"../icons/src/equipment/ic-medicines.svg"},"winner":"../icons/src/equipment/ic-medicines.svg","source":"src","status":"rescue","selected":true,"note":"src 将不同药片组合在一起，适合“药品集合”语义。"},{"key":"equipment/microscope","group":"equipment","name":"ic-microscope","label":"显微镜","candidates":{"local":"../icons/src/equipment/ic-microscope.svg"},"winner":"../icons/src/equipment/ic-microscope.svg","source":"src","status":"rescue","selected":true,"note":"src 的显微镜结构比 V4 缺失更完整。"},{"key":"equipment/monitor","group":"equipment","name":"ic-monitor","label":"监护仪","candidates":{"local":"../icons/src/equipment/ic-monitor.svg"},"winner":"../icons/src/equipment/ic-monitor.svg","source":"v4","status":"redraw","selected":true,"note":"V4 与 ECG/defibrillator 共用同一轮廓，需重绘为通用监护仪。"},{"key":"equipment/mri","group":"equipment","name":"ic-mri","label":"MRI","candidates":{"local":"../icons/src/equipment/ic-mri.svg"},"winner":"../icons/src/equipment/ic-mri.svg","source":"v4","status":"ready","selected":true,"note":"蓝色器械家族统一，轮廓可在小尺寸识别。"},{"key":"equipment/nebulizer","group":"equipment","name":"ic-nebulizer","label":"雾化器","candidates":{"local":"../icons/src/equipment/ic-nebulizer.svg"},"winner":"../icons/src/equipment/ic-nebulizer.svg","source":"v4","status":"redraw","selected":true,"note":"V4 当前图形接近药膏管，不能表达雾化器。"},{"key":"equipment/ointment","group":"equipment","name":"ic-ointment","label":"药膏","candidates":{"local":"../icons/src/equipment/ic-ointment.svg"},"winner":"../icons/src/equipment/ic-ointment.svg","source":"v4","status":"ready","selected":true,"note":"蓝色器械家族统一，轮廓可在小尺寸识别。"},{"key":"equipment/ophthalmoscope","group":"equipment","name":"ic-ophthalmoscope","label":"眼底镜","candidates":{"local":"../icons/src/equipment/ic-ophthalmoscope.svg"},"winner":"../icons/src/equipment/ic-ophthalmoscope.svg","source":"v4","status":"redraw","selected":true,"note":"V4 与 otoscope/endoscope 近乎同形，需加入眼底镜识别特征。"},{"key":"equipment/otoscope","group":"equipment","name":"ic-otoscope","label":"耳镜","candidates":{"local":"../icons/src/equipment/ic-otoscope.svg"},"winner":"../icons/src/equipment/ic-otoscope.svg","source":"v4","status":"redraw","selected":true,"note":"V4 与 ophthalmoscope/endoscope 近乎同形，需加入耳镜识别特征。"},{"key":"equipment/oxygen-concentrator","group":"equipment","name":"ic-oxygen-concentrator","label":"制氧机","candidates":{"local":"../icons/src/equipment/ic-oxygen-concentrator.svg"},"winner":"../icons/src/equipment/ic-oxygen-concentrator.svg","source":"v4","status":"ready","selected":true,"note":"蓝色器械家族统一，轮廓可在小尺寸识别。"},{"key":"equipment/oxygen-tank","group":"equipment","name":"ic-oxygen-tank","label":"氧气瓶","candidates":{"local":"../icons/src/equipment/ic-oxygen-tank.svg"},"winner":"../icons/src/equipment/ic-oxygen-tank.svg","source":"src","status":"rescue","selected":true,"note":"src 直接标注 O2，缩小后仍然明确。"},{"key":"equipment/ppe-gloves","group":"equipment","name":"ic-ppe-gloves","label":"防护手套","candidates":{"local":"../icons/src/equipment/ic-ppe-gloves.svg"},"winner":"../icons/src/equipment/ic-ppe-gloves.svg","source":"src","status":"rescue","selected":true,"note":"src 的手套轮廓比抽象几何更准确。"},{"key":"equipment/ppe-mask","group":"equipment","name":"ic-ppe-mask","label":"防护口罩","candidates":{"local":"../icons/src/equipment/ic-ppe-mask.svg"},"winner":"../icons/src/equipment/ic-ppe-mask.svg","source":"src","status":"rescue","selected":true,"note":"src 的口罩轮廓直白。"},{"key":"equipment/pulse-oximeter","group":"equipment","name":"ic-pulse-oximeter","label":"血氧仪","candidates":{"local":"../icons/src/equipment/ic-pulse-oximeter.svg"},"winner":"../icons/src/equipment/ic-pulse-oximeter.svg","source":"src","status":"rescue","selected":true,"note":"src 将夹式血氧仪表达为手指夹，更有辨识度。"},{"key":"equipment/scale","group":"equipment","name":"ic-scale","label":"体重秤","candidates":{"local":"../icons/src/equipment/ic-scale.svg"},"winner":"../icons/src/equipment/ic-scale.svg","source":"v4","status":"ready","selected":true,"note":"蓝色器械家族统一，轮廓可在小尺寸识别。"},{"key":"equipment/stethoscope-equipment","group":"equipment","name":"ic-stethoscope-equipment","label":"听诊器","candidates":{"local":"../icons/src/equipment/ic-stethoscope-equipment.svg"},"winner":"../icons/src/equipment/ic-stethoscope-equipment.svg","source":"v4","status":"ready","selected":true,"note":"蓝色器械家族统一，轮廓可在小尺寸识别。"},{"key":"equipment/surgery","group":"equipment","name":"ic-surgery","label":"手术器械","candidates":{"local":"../icons/src/equipment/ic-surgery.svg"},"winner":"../icons/src/equipment/ic-surgery.svg","source":"v4","status":"ready","selected":true,"note":"蓝色器械家族统一，轮廓可在小尺寸识别。"},{"key":"equipment/syringe-pump","group":"equipment","name":"ic-syringe-pump","label":"注射泵","candidates":{"local":"../icons/src/equipment/ic-syringe-pump.svg"},"winner":"../icons/src/equipment/ic-syringe-pump.svg","source":"v4","status":"ready","selected":true,"note":"蓝色器械家族统一，轮廓可在小尺寸识别。"},{"key":"equipment/syringe-vaccine","group":"equipment","name":"ic-syringe-vaccine","label":"疫苗针筒","candidates":{"local":"../icons/src/equipment/ic-syringe-vaccine.svg"},"winner":"../icons/src/equipment/ic-syringe-vaccine.svg","source":"src","status":"rescue","selected":true,"note":"src 的针筒加病毒/十字细节适合疫苗器械。"},{"key":"equipment/test-tubes","group":"equipment","name":"ic-test-tubes","label":"试管","candidates":{"local":"../icons/src/equipment/ic-test-tubes.svg"},"winner":"../icons/src/equipment/ic-test-tubes.svg","source":"src","status":"rescue","selected":true,"note":"src 的试管组比单一几何更适合检验设备。"},{"key":"equipment/therapeutic-bed","group":"equipment","name":"ic-therapeutic-bed","label":"治疗床","candidates":{"local":"../icons/src/equipment/ic-therapeutic-bed.svg"},"winner":"../icons/src/equipment/ic-therapeutic-bed.svg","source":"v4","status":"redraw","selected":true,"note":"V4 当前图形只是泛化菱形，不能表达治疗床。"},{"key":"equipment/thermometer-digital","group":"equipment","name":"ic-thermometer-digital","label":"数字体温计","candidates":{"local":"../icons/src/equipment/ic-thermometer-digital.svg"},"winner":"../icons/src/equipment/ic-thermometer-digital.svg","source":"v4","status":"ready","selected":true,"note":"蓝色器械家族统一，轮廓可在小尺寸识别。"},{"key":"equipment/ultrasound","group":"equipment","name":"ic-ultrasound","label":"超声设备","candidates":{"local":"../icons/src/equipment/ic-ultrasound.svg"},"winner":"../icons/src/equipment/ic-ultrasound.svg","source":"src","status":"rescue","selected":true,"note":"src 的探头加波纹比 V4 的泛化屏幕更接近超声检查。"},{"key":"equipment/urine-sample","group":"equipment","name":"ic-urine-sample","label":"尿液样本","candidates":{"local":"../icons/src/equipment/ic-urine-sample.svg"},"winner":"../icons/src/equipment/ic-urine-sample.svg","source":"src","status":"rescue","selected":true,"note":"src 样本杯轮廓直接。"},{"key":"equipment/ventilator","group":"equipment","name":"ic-ventilator","label":"呼吸机","candidates":{"local":"../icons/src/equipment/ic-ventilator.svg"},"winner":"../icons/src/equipment/ic-ventilator.svg","source":"src","status":"rescue","selected":true,"note":"src 将呼吸机与肺部语义组合，优于 V4 的普通监护屏。"},{"key":"equipment/vision-test","group":"equipment","name":"ic-vision-test","label":"视力检查","candidates":{"local":"../icons/src/equipment/ic-vision-test.svg"},"winner":"../icons/src/equipment/ic-vision-test.svg","source":"src","status":"rescue","selected":true,"note":"src 的视力表 E 字样缩小后仍可识别。"},{"key":"equipment/walker","group":"equipment","name":"ic-walker","label":"助行器","candidates":{"local":"../icons/src/equipment/ic-walker.svg"},"winner":"../icons/src/equipment/ic-walker.svg","source":"v4","status":"ready","selected":true,"note":"蓝色器械家族统一，轮廓可在小尺寸识别。"},{"key":"equipment/ward-bed","group":"equipment","name":"ic-ward-bed","label":"病床","candidates":{"local":"../icons/src/equipment/ic-ward-bed.svg"},"winner":"../icons/src/equipment/ic-ward-bed.svg","source":"src","status":"rescue","selected":true,"note":"src 的病床轮廓明确。"},{"key":"equipment/wheelchair","group":"equipment","name":"ic-wheelchair","label":"轮椅","candidates":{"local":"../icons/src/equipment/ic-wheelchair.svg"},"winner":"../icons/src/equipment/ic-wheelchair.svg","source":"src","status":"rescue","selected":true,"note":"src 的标准轮椅姿态比 V4 线稿更容易识别。"},{"key":"equipment/xray","group":"equipment","name":"ic-xray","label":"X 光","candidates":{"local":"../icons/src/equipment/ic-xray.svg"},"winner":"../icons/src/equipment/ic-xray.svg","source":"v4","status":"ready","selected":true,"note":"蓝色器械家族统一，轮廓可在小尺寸识别。"},{"key":"organs/organ-bladder","group":"organs","name":"ic-organ-bladder","label":"膀胱","candidates":{"local":"../icons/src/organs/ic-organ-bladder.svg"},"winner":"../icons/src/organs/ic-organ-bladder.svg","source":"v4","status":"ready","selected":true,"note":"红色器官家族统一，轮廓适合快捷选择。"},{"key":"organs/organ-blood-cells","group":"organs","name":"ic-organ-blood-cells","label":"血细胞","candidates":{"local":"../icons/src/organs/ic-organ-blood-cells.svg"},"winner":"../icons/src/organs/ic-organ-blood-cells.svg","source":"v4","status":"ready","selected":true,"note":"红色器官家族统一，轮廓适合快捷选择。"},{"key":"organs/organ-bone","group":"organs","name":"ic-organ-bone","label":"骨骼","candidates":{"local":"../icons/src/organs/ic-organ-bone.svg"},"winner":"../icons/src/organs/ic-organ-bone.svg","source":"v4","status":"ready","selected":true,"note":"红色器官家族统一，轮廓适合快捷选择。"},{"key":"organs/organ-brain","group":"organs","name":"ic-organ-brain","label":"大脑","candidates":{"local":"../icons/src/organs/ic-organ-brain.svg"},"winner":"../icons/src/organs/ic-organ-brain.svg","source":"v4","status":"ready","selected":true,"note":"红色器官家族统一，轮廓适合快捷选择。"},{"key":"organs/organ-donation","group":"organs","name":"ic-organ-donation","label":"器官捐献","candidates":{"local":"../icons/src/organs/ic-organ-donation.svg"},"winner":"../icons/src/organs/ic-organ-donation.svg","source":"src","status":"rescue","selected":true,"note":"src 的手托心形适合作为器官捐献语义；V4 未提供该条目。"},{"key":"organs/organ-ear","group":"organs","name":"ic-organ-ear","label":"耳朵","candidates":{"local":"../icons/src/organs/ic-organ-ear.svg"},"winner":"../icons/src/organs/ic-organ-ear.svg","source":"v4","status":"ready","selected":true,"note":"红色器官家族统一，轮廓适合快捷选择。"},{"key":"organs/organ-eye","group":"organs","name":"ic-organ-eye","label":"眼睛","candidates":{"local":"../icons/src/organs/ic-organ-eye.svg"},"winner":"../icons/src/organs/ic-organ-eye.svg","source":"v4","status":"ready","selected":true,"note":"红色器官家族统一，轮廓适合快捷选择。"},{"key":"organs/organ-foot","group":"organs","name":"ic-organ-foot","label":"脚部","candidates":{"local":"../icons/src/organs/ic-organ-foot.svg"},"winner":"../icons/src/organs/ic-organ-foot.svg","source":"v4","status":"ready","selected":true,"note":"红色器官家族统一，轮廓适合快捷选择。"},{"key":"organs/organ-hand","group":"organs","name":"ic-organ-hand","label":"手部","candidates":{"local":"../icons/src/organs/ic-organ-hand.svg"},"winner":"../icons/src/organs/ic-organ-hand.svg","source":"v4","status":"ready","selected":true,"note":"红色器官家族统一，轮廓适合快捷选择。"},{"key":"organs/organ-heart","group":"organs","name":"ic-organ-heart","label":"心脏","candidates":{"local":"../icons/src/organs/ic-organ-heart.svg"},"winner":"../icons/src/organs/ic-organ-heart.svg","source":"src","status":"rescue","selected":true,"note":"src 是解剖心脏；比 V4 的普通心形更适合作为器官入口。"},{"key":"organs/organ-intestine","group":"organs","name":"ic-organ-intestine","label":"肠道","candidates":{"local":"../icons/src/organs/ic-organ-intestine.svg"},"winner":"../icons/src/organs/ic-organ-intestine.svg","source":"v4","status":"ready","selected":true,"note":"红色器官家族统一，轮廓适合快捷选择。"},{"key":"organs/organ-joints","group":"organs","name":"ic-organ-joints","label":"关节","candidates":{"local":"../icons/src/organs/ic-organ-joints.svg"},"winner":"../icons/src/organs/ic-organ-joints.svg","source":"v4","status":"ready","selected":true,"note":"红色器官家族统一，轮廓适合快捷选择。"},{"key":"organs/organ-kidney","group":"organs","name":"ic-organ-kidney","label":"肾脏","candidates":{"local":"../icons/src/organs/ic-organ-kidney.svg"},"winner":"../icons/src/organs/ic-organ-kidney.svg","source":"v4","status":"ready","selected":true,"note":"红色器官家族统一，轮廓适合快捷选择。"},{"key":"organs/organ-liver","group":"organs","name":"ic-organ-liver","label":"肝脏","candidates":{"local":"../icons/src/organs/ic-organ-liver.svg"},"winner":"../icons/src/organs/ic-organ-liver.svg","source":"v4","status":"ready","selected":true,"note":"红色器官家族统一，轮廓适合快捷选择。"},{"key":"organs/organ-lungs","group":"organs","name":"ic-organ-lungs","label":"肺部","candidates":{"local":"../icons/src/organs/ic-organ-lungs.svg"},"winner":"../icons/src/organs/ic-organ-lungs.svg","source":"v4","status":"ready","selected":true,"note":"红色器官家族统一，轮廓适合快捷选择。"},{"key":"organs/organ-mouth","group":"organs","name":"ic-organ-mouth","label":"口腔","candidates":{"local":"../icons/src/organs/ic-organ-mouth.svg"},"winner":"../icons/src/organs/ic-organ-mouth.svg","source":"src","status":"rescue","selected":true,"note":"src 嘴唇轮廓比 V4 泛化形状更准确。"},{"key":"organs/organ-nose","group":"organs","name":"ic-organ-nose","label":"鼻部","candidates":{"local":"../icons/src/organs/ic-organ-nose.svg"},"winner":"../icons/src/organs/ic-organ-nose.svg","source":"v4","status":"ready","selected":true,"note":"红色器官家族统一，轮廓适合快捷选择。"},{"key":"organs/organ-pancreas","group":"organs","name":"ic-organ-pancreas","label":"胰腺","candidates":{"local":"../icons/src/organs/ic-organ-pancreas.svg"},"winner":"../icons/src/organs/ic-organ-pancreas.svg","source":"v4","status":"redraw","selected":true,"note":"V4 当前图形只是泛化菱形，不能作为胰腺语义。"},{"key":"organs/organ-prostate","group":"organs","name":"ic-organ-prostate","label":"前列腺","candidates":{"local":"../icons/src/organs/ic-organ-prostate.svg"},"winner":"../icons/src/organs/ic-organ-prostate.svg","source":"v4","status":"redraw","selected":true,"note":"现有候选缺乏可辨认的前列腺轮廓，保留到 V5 重绘。"},{"key":"organs/organ-skull","group":"organs","name":"ic-organ-skull","label":"颅骨","candidates":{"local":"../icons/src/organs/ic-organ-skull.svg"},"winner":"../icons/src/organs/ic-organ-skull.svg","source":"src","status":"rescue","selected":true,"note":"src 的骷髅轮廓清晰；V4 未提供该条目。"},{"key":"organs/organ-spine","group":"organs","name":"ic-organ-spine","label":"脊柱","candidates":{"local":"../icons/src/organs/ic-organ-spine.svg"},"winner":"../icons/src/organs/ic-organ-spine.svg","source":"v4","status":"ready","selected":true,"note":"红色器官家族统一，轮廓适合快捷选择。"},{"key":"organs/organ-spleen","group":"organs","name":"ic-organ-spleen","label":"脾脏","candidates":{"local":"../icons/src/organs/ic-organ-spleen.svg"},"winner":"../icons/src/organs/ic-organ-spleen.svg","source":"v4","status":"redraw","selected":true,"note":"V4 当前图形与具体器官形状脱节，保留到 V5 重绘。"},{"key":"organs/organ-stomach","group":"organs","name":"ic-organ-stomach","label":"胃部","candidates":{"local":"../icons/src/organs/ic-organ-stomach.svg"},"winner":"../icons/src/organs/ic-organ-stomach.svg","source":"v4","status":"ready","selected":true,"note":"红色器官家族统一，轮廓适合快捷选择。"},{"key":"organs/organ-throat","group":"organs","name":"ic-organ-throat","label":"咽喉","candidates":{"local":"../icons/src/organs/ic-organ-throat.svg"},"winner":"../icons/src/organs/ic-organ-throat.svg","source":"src","status":"rescue","selected":true,"note":"src 的侧面咽喉/咳嗽轮廓比 V4 泛化线条更准确。"},{"key":"organs/organ-thyroid","group":"organs","name":"ic-organ-thyroid","label":"甲状腺","candidates":{"local":"../icons/src/organs/ic-organ-thyroid.svg"},"winner":"../icons/src/organs/ic-organ-thyroid.svg","source":"src","status":"rescue","selected":true,"note":"src 蝴蝶形状能表达甲状腺；V4 菱形占位不合格。"},{"key":"organs/organ-tooth","group":"organs","name":"ic-organ-tooth","label":"牙齿","candidates":{"local":"../icons/src/organs/ic-organ-tooth.svg"},"winner":"../icons/src/organs/ic-organ-tooth.svg","source":"v4","status":"ready","selected":true,"note":"红色器官家族统一，轮廓适合快捷选择。"}]</script>
+  <script>
+    const catalog = JSON.parse(document.querySelector('#catalog-data').textContent);
+    const groupOrder = ['tab', 'common', 'medical', 'symptoms', 'members', 'security', 'pro', 'equipment', 'organs'];
+    const groupMeta = {
+      tab: ['主导航', '五个 Tab 的双态入口'],
+      common: ['通用操作', '搜索、编辑、分享与语音辅助'],
+      medical: ['医疗记录', '就诊、处方、检查与指标'],
+      symptoms: ['症状观察', '敏感观察入口，非诊断结论'],
+      members: ['家庭成员', '成员归属与关系识别'],
+      security: ['隐私安全', '锁定、生物识别与审计'],
+      pro: ['Pro / 账户', '购买、恢复与家庭共享'],
+      equipment: ['设备器械', '检查设备与照护器械'],
+      organs: ['器官部位', '身体部位快捷选择']
+    };
+    const sourceLabels = { local: '设计母版', src: 'src', v2: 'V2', v3: 'V3', v4: 'V4', oss: 'Fluent / MIT' };
+    const statusLabels = { ready: '直接采用', rescue: '语义补位', redraw: '需重绘', excluded: '不入选' };
+    const statusClass = status => statusLabels[status] ? status : 'excluded';
+    const escapeHTML = value => String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+    const search = document.querySelector('#search');
+    const group = document.querySelector('#group');
+    const source = document.querySelector('#source');
+    const palette = document.querySelector('#palette');
+    const collection = document.querySelector('#collection');
+    const collectionList = document.querySelector('#collection-list');
+    const auditPanel = document.querySelector('#audit-panel');
+    const empty = document.querySelector('#empty');
+    const resultCount = document.querySelector('#result-count');
+    const dialog = document.querySelector('#detail-dialog');
+    const redrawDialog = document.querySelector('#redraw-dialog');
+    let currentView = 'selected';
+    let currentBackground = 'light';
+    let assetMode = 'uniform';
+
+    const STORAGE_KEY = 'vitliber_redraw_feedback_v1';
+    const redrawSet = (() => { try { return new Set(JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]')); } catch (error) { return new Set(); } })();
+    const persistRedraw = () => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify([...redrawSet])); } catch (error) {} };
+    function updateRedrawCounter() { const el = document.querySelector('#redraw-counter'); if (el) el.textContent = `已标记 ${redrawSet.size} 个需重绘`; }
+
+    for (const key of groupOrder) {
+      const option = document.createElement('option');
+      option.value = key;
+      option.textContent = groupMeta[key][0];
+      group.appendChild(option);
+    }
+
+    function viewItems() {
+      const term = search.value.trim().toLowerCase();
+      return catalog.filter(item => {
+        if (currentView === 'selected' && !item.selected) return false;
+        if (currentView === 'ready' && (!item.selected || item.status !== 'ready')) return false;
+        if (currentView === 'rescue' && (!item.selected || item.status !== 'rescue')) return false;
+        if (currentView === 'redraw' && (!item.selected || item.status !== 'redraw')) return false;
+        if (group.value !== 'all' && item.group !== group.value) return false;
+        if (source.value !== 'all' && item.source !== source.value) return false;
+        if (!term) return true;
+        return `${item.name} ${item.label} ${item.note} ${item.group}`.toLowerCase().includes(term);
+      });
+    }
+
+    function displayPath(item) {
+      return item.winner;
+    }
+
+    function previewMarkup(item, className = '') {
+      return `<div class="preview ${className}"><img loading="lazy" src="${escapeHTML(displayPath(item))}" alt="${escapeHTML(item.label)} · ${escapeHTML(item.name)}" onerror="this.hidden=true;this.parentElement.classList.add('image-error')"></div>`;
+    }
+
+    function render() {
+      const items = viewItems();
+      const grouped = new Map(groupOrder.map(key => [key, []]));
+      items.forEach(item => grouped.get(item.group)?.push(item));
+      collectionList.innerHTML = '';
+      resultCount.innerHTML = `当前显示 <strong>${items.length}</strong> 个逻辑条目`;
+      empty.classList.toggle('show', items.length === 0);
+      for (const key of groupOrder) {
+        const list = grouped.get(key);
+        if (!list.length) continue;
+        list.sort((a, b) => a.name.localeCompare(b.name));
+        const section = document.createElement('section');
+        section.className = 'group-section';
+        section.id = `group-${key}`;
+        section.innerHTML = `<div class="group-heading"><h2>${escapeHTML(groupMeta[key][0])}</h2><span>${list.length} 枚</span><p>${escapeHTML(groupMeta[key][1])}</p></div><div class="icon-grid"></div>`;
+        const grid = section.querySelector('.icon-grid');
+        list.forEach(item => {
+          const flagged = redrawSet.has(item.key);
+          const article = document.createElement('article');
+          article.className = `icon-card status-${statusClass(item.status)}${flagged ? ' flagged' : ''}`;
+          article.innerHTML = `<button class="card-hit" type="button"><div class="card-visual">${previewMarkup(item)}</div><div class="card-line"><span class="status-chip ${statusClass(item.status)}">${escapeHTML(statusLabels[item.status])}</span><span class="source-chip">${escapeHTML(sourceLabels[item.source] || item.source)}</span></div><h3 title="${escapeHTML(item.name)}">${escapeHTML(item.name)}</h3><p class="card-label">${escapeHTML(item.label)}</p><p class="card-note">${escapeHTML(item.note)}</p></button><label class="redraw-toggle"><input type="checkbox" ${flagged ? 'checked' : ''}> 需要重绘</label>`;
+          article.querySelector('.card-hit').addEventListener('click', () => openDetail(item.key));
+          const box = article.querySelector('input[type="checkbox"]');
+          box.addEventListener('change', () => {
+            if (box.checked) redrawSet.add(item.key); else redrawSet.delete(item.key);
+            article.classList.toggle('flagged', box.checked);
+            persistRedraw();
+            updateRedrawCounter();
+          });
+          grid.appendChild(article);
+        });
+        collectionList.appendChild(section);
+      }
+    }
+
+    function updateCounts() {
+      const count = predicate => catalog.filter(predicate).length;
+      document.querySelector('#count-selected').textContent = count(item => item.selected);
+      document.querySelector('#count-ready').textContent = count(item => item.selected && item.status === 'ready');
+      document.querySelector('#count-rescue').textContent = count(item => item.selected && item.status === 'rescue');
+      document.querySelector('#count-redraw').textContent = count(item => item.selected && item.status === 'redraw');
+      document.querySelector('#count-all').textContent = catalog.length;
+    }
+
+    function setView(view) {
+      currentView = view;
+      document.querySelectorAll('.nav-button').forEach(button => button.classList.toggle('active', button.dataset.view === view));
+      const isAudit = view === 'audit';
+      collection.hidden = isAudit;
+      auditPanel.classList.toggle('show', isAudit);
+      if (!isAudit) render();
+      window.scrollTo({ top: document.querySelector('.section-nav').offsetTop - 8, behavior: 'smooth' });
+    }
+
+    function openDetail(key) {
+      const item = catalog.find(candidate => candidate.key === key);
+      if (!item) return;
+      const shownPath = displayPath(item);
+      document.querySelector('#dialog-title').textContent = item.name;
+      document.querySelector('#dialog-subtitle').textContent = `${groupMeta[item.group][0]} / ${item.label}`;
+      const candidates = Object.entries(item.candidates).sort(([a], [b]) => ['local', 'oss', 'v4', 'src', 'v2', 'v3'].indexOf(a) - ['local', 'oss', 'v4', 'src', 'v2', 'v3'].indexOf(b));
+      const candidateCards = candidates.map(([version, path]) => `<article class="candidate ${path === item.winner ? 'is-winner' : ''}"><div class="preview"><img src="${escapeHTML(path)}" alt="${escapeHTML(item.name)} · ${escapeHTML(sourceLabels[version])}" onerror="this.hidden=true;this.parentElement.classList.add('image-error')"></div><div class="candidate-label"><span>${escapeHTML(sourceLabels[version])}</span>${path === item.winner ? '<span>胜出</span>' : ''}</div><span class="candidate-path" title="${escapeHTML(path)}">${escapeHTML(path)}</span></article>`).join('');
+      document.querySelector('#dialog-body').innerHTML = `<section class="winner-pane">${previewMarkup(item)}<div class="winner-copy"><span class="status-chip ${statusClass(item.status)}">${escapeHTML(statusLabels[item.status])}</span><h3>${escapeHTML(item.label)}</h3><p>${escapeHTML(item.note)}</p><div class="path-line"><code id="winner-path">${escapeHTML(shownPath)}</code><button class="copy-button" type="button" id="copy-path">复制路径</button></div></div></section><h3 class="compare-title">已落地母版 · ${candidates.length} 个本地资源</h3><div class="candidate-grid">${candidateCards}</div><p class="dialog-footnote">胜出不等于最终发布。<strong>需重绘</strong>条目保留当前最佳预览，仅用于确认问题范围；“语义补位”条目还需要在 V5 中统一颜色、线宽和底板处理。</p>`;
+      document.querySelector('#copy-path').addEventListener('click', async event => {
+        const button = event.currentTarget;
+        try { await navigator.clipboard.writeText(shownPath); button.textContent = '已复制'; } catch { button.textContent = '请手动复制'; }
+        window.setTimeout(() => { button.textContent = '复制路径'; }, 1400);
+      });
+      if (typeof dialog.showModal === 'function') dialog.showModal();
+    }
+
+    document.querySelectorAll('.nav-button').forEach(button => button.addEventListener('click', () => setView(button.dataset.view)));
+    [search, group, source].forEach(control => control.addEventListener(control === search ? 'input' : 'change', render));
+    palette.addEventListener('change', () => { assetMode = palette.value; render(); });
+    document.querySelectorAll('.bg-button').forEach(button => button.addEventListener('click', () => {
+      currentBackground = button.dataset.bgChoice;
+      document.body.dataset.bg = currentBackground;
+      document.querySelectorAll('.bg-button').forEach(candidate => candidate.classList.toggle('active', candidate === button));
+    }));
+    document.querySelector('#dialog-close').addEventListener('click', () => dialog.close());
+    dialog.addEventListener('click', event => { if (event.target === dialog) dialog.close(); });
+
+    function buildRedrawJSON(items, stamp) {
+      return JSON.stringify({
+        generatedAt: stamp,
+        source: 'design/previews/best_selction.html',
+        total: items.length,
+        items: items.map(item => ({ key: item.key, group: item.group, name: item.name, label: item.label, source: item.source, status: item.status, winner: item.winner, note: item.note }))
+      }, null, 2);
+    }
+    function buildRedrawMarkdown(items, stamp) {
+      const rows = items.map(item => `| \`${item.name}\` | ${item.group} | ${item.label} | ${item.source} | ${item.status} |`).join('\n');
+      return `# 青囊书 · 需要重绘图标清单\n\n- 生成时间：${stamp}\n- 来源页面：design/previews/best_selction.html\n- 标记数量：${items.length}\n\n| 图标 | 分组 | 中文语义 | 当前胜出来源 | 系统状态 |\n|---|---|---|---|---|\n${rows}\n`;
+    }
+    function downloadFile(filename, content, mime) {
+      const blob = new Blob([content], { type: mime });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+    function exportRedraw() {
+      const items = catalog.filter(item => redrawSet.has(item.key)).sort((a, b) => a.group.localeCompare(b.group) || a.name.localeCompare(b.name));
+      if (!items.length) { window.alert('还没有标记任何需要重绘的图标。请在各卡片上勾选“需要重绘”。'); return; }
+      const stamp = new Date().toISOString();
+      const markdown = buildRedrawMarkdown(items, stamp);
+      downloadFile('redraw-list.md', markdown, 'text/markdown;charset=utf-8');
+      downloadFile('redraw-list.json', buildRedrawJSON(items, stamp), 'application/json');
+      document.querySelector('#redraw-subtitle').textContent = `共 ${items.length} 个 · ${stamp}`;
+      document.querySelector('#redraw-summary').textContent = markdown;
+      if (typeof redrawDialog.showModal === 'function') redrawDialog.showModal();
+    }
+    function bulkRedraw() {
+      viewItems().filter(item => item.selected).forEach(item => redrawSet.add(item.key));
+      persistRedraw();
+      updateRedrawCounter();
+      render();
+    }
+    function clearRedraw() {
+      if (!redrawSet.size || !window.confirm('确定清空所有“需要重绘”标记？')) return;
+      redrawSet.clear();
+      persistRedraw();
+      updateRedrawCounter();
+      render();
+    }
+    document.querySelector('#export-redraw').addEventListener('click', exportRedraw);
+    document.querySelector('#bulk-redraw').addEventListener('click', bulkRedraw);
+    document.querySelector('#clear-redraw').addEventListener('click', clearRedraw);
+    document.querySelector('#redraw-close').addEventListener('click', () => redrawDialog.close());
+    redrawDialog.addEventListener('click', event => { if (event.target === redrawDialog) redrawDialog.close(); });
+    document.querySelector('#redraw-download-md').addEventListener('click', () => downloadFile('redraw-list.md', document.querySelector('#redraw-summary').textContent, 'text/markdown;charset=utf-8'));
+    document.querySelector('#redraw-download-json').addEventListener('click', () => downloadFile('redraw-list.json', buildRedrawJSON(catalog.filter(item => redrawSet.has(item.key)), new Date().toISOString()), 'application/json'));
+    document.querySelector('#redraw-copy').addEventListener('click', async event => {
+      try { await navigator.clipboard.writeText(document.querySelector('#redraw-summary').textContent); event.currentTarget.textContent = '已复制'; }
+      catch (error) { event.currentTarget.textContent = '复制失败'; }
+      window.setTimeout(() => { event.currentTarget.textContent = '复制到剪贴板'; }, 1400);
+    });
+
+    updateRedrawCounter();
+    updateCounts();
+    render();
+  </script>
+</body>
+</html>

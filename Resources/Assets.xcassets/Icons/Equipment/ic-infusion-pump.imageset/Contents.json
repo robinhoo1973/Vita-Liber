@@ -1,0 +1,23 @@
+{
+  "images": [
+    {
+      "filename": "ic-infusion-pump@1x.png",
+      "idiom": "universal",
+      "scale": "x"
+    },
+    {
+      "filename": "ic-infusion-pump@2x.png",
+      "idiom": "universal",
+      "scale": "x"
+    },
+    {
+      "filename": "ic-infusion-pump@3x.png",
+      "idiom": "universal",
+      "scale": "x"
+    }
+  ],
+  "info": {
+    "author": "xcode",
+    "version": 1
+  }
+}

@@ -1,6 +1,6 @@
 # 青囊书设计资产规范（Design Assets）
 
-> 版本：V2.10
+> 版本：V2.12
 > 上游依据：`refactor/ui-ux-spec.md` §2.1 / §3.1 / §3.3 / §3.4、`refactor/tech-spec.md` §1.2、`refactor/comercial-spec.md` §1–§2
 > 本目录是**设计资产唯一母版来源**；`Resources/Assets.xcassets` 为其编译期产物（均入库，保证无设计工具链也能构建）。
 
@@ -11,6 +11,7 @@
 ```
 design/                          # 设计源文件（不参与编译）
 ├── README.md                    # 本规范
+├── icon-spec.md                 # 图标生成规格与重构需求（由 gen_icon_spec.py 程序化生成）
 ├── gallery.html                 # 浏览器可视化索引（深色底瓷砖预览）
 ├── icons/
 │   ├── fluent/                  # Fluent UI System Icons 字形（MIT，24 栅格）
@@ -21,8 +22,9 @@ design/                          # 设计源文件（不参与编译）
 │   ├── tabler/                  # Tabler Icons 字形（MIT，24 栅格，暂空）
 │   ├── mdi/                     # Material Design Icons 字形（Apache 2.0，24 栅格）
 │   ├── NOTICE.md                # 三方许可声明（上架并入开源许可页）
-│   ├── src/<group>/*.svg        # 瓷砖图标母版（96×96 画布）
-│   ├── provenance.json          # 每枚图标的字形出处（fluent/healthicons/lucide/tabler/own）
+│   ├── src/<group>/*.svg        # 当前精选瓷砖图标母版（96×96 画布）
+│   ├── best_selection.json      # 211 枚唯一精选资源清单（213 逻辑候选去重）
+│   ├── provenance.json          # 每枚图标的出处、色板与落地状态
 │   └── tools/                   # 管线脚本
 ├── illustrations/src/*.svg      # 彩色扁平空态插画母版（240×180）
 ├── brand/app-icon.svg           # App 图标 SVG 母版（1024，管线回退源）
@@ -34,15 +36,17 @@ design/                          # 设计源文件（不参与编译）
     ├── vendor_fluent.py         # 官方字形固化脚本
     ├── vendor_lucide.py         # Lucide 字形固化脚本（ISC，V2.3 起）
     ├── illustration_library.py  # 插画与 App 图标定义
+    ├── gen_icon_spec.py         # 生成 icon-spec.md（V2.11 起）
     ├── render_before_after.py   # 变更 Before/After 对比页（V2.3 起）
-    └── generate_assets.py       # 一键管线（见 §5）
+    ├── generate_assets.py       # 原始 185 枚生成管线
+    └── sync_best_selection.py   # 当前精选 211 枚资源同步管线（见 §5）
 
 Resources/                       # tech-spec §1.2 顶层 Resources/
 └── Assets.xcassets/             # 【生成】Xcode 资产目录，project.yml 已挂载
     ├── AppIcon.appiconset/      # 1024 单尺寸
     ├── AccentColor.colorset/    # = brand-primary
     ├── Colors/*.colorset/       # §3.1 token 色板（含 dark 外观）
-    ├── Icons/<Group>/*.imageset # @1x(48)/@2x(96)/@3x(144)，默认渲染（彩色）
+    ├── Icons/<Group>/*.imageset # 精选 @1x(48)/@2x(96)/@3x(144)，默认渲染（彩色）
     └── Illustrations/*.imageset # @1x/@2x/@3x，默认渲染（彩色）
 ```
 
@@ -59,6 +63,8 @@ Resources/                       # tech-spec §1.2 顶层 Resources/
 | 瓷砖基准尺寸 | 48pt；更大用途（快速拍摄 56pt 按钮等）用 `.resizable().frame()` |
 | 插画 | 240×180 彩色扁平：渐变面 + 白色元素 + 琥珀点缀，与瓷砖同色彩语言 |
 | App 图标 | 位图母版 `brand/app-icon.png`（V2.7 起 AI 生成，管线优先使用）；`app-icon.svg` 保留为回退源 |
+
+当前应用落地以 `design/icons/best_selection.json` 为准：从外部候选集中选出 213 个逻辑条目，因 Xcode 资源名全局唯一合并 2 个重复语义后，形成 211 个母版与 211 个 imageset。底板使用统一的分组色，Tab assistant 使用 Microsoft Fluent UI System Icons 的 Bot 24 regular/filled（MIT）；详细出处见 `design/icons/provenance.json` 与 `design/icons/NOTICE.md`。
 
 ### 2.1 灵感源与技法借鉴（借鉴不复制）
 
@@ -109,6 +115,7 @@ Image(VLIcon.illEmptyRecords)         // 空态插画
 ```bash
 # 依赖：pip install cairosvg pillow
 python3 design/tools/generate_assets.py     # 全量再生成（幂等）
+python3 design/tools/sync_best_selection.py # 当前精选母版 → Resources / VLIcon
 
 # 官方 Fluent 字形升级/换用时（需 node）：
 npm install @fluentui/svg-icons
@@ -123,18 +130,19 @@ python3 design/tools/vendor_lucide.py <node_modules>/lucide-static/icons
 - **vendor 命令**：`python3 design/tools/vendor_fluent.py <@fluentui/svg-icons/icons>`；`python3 design/tools/vendor_lucide.py <lucide-static/icons>`；`python3 design/tools/vendor_iconify.py <node_modules>`（需 `npm i @iconify-json/healthicons @iconify-json/tabler`）。
 - **改色/加色**：改 `generate_assets.py` 的 `OVERRIDES`/`COLORS` → 跑管线。
 - **换官方字形**：改 `fluent_map.py` 映射 → 重跑 vendor + 管线。
+- **同步精选集**：改 `design/icons/best_selection.json` 或对应 `design/icons/src/` 母版 → 重跑 `sync_best_selection.py`，禁止手改 `Resources/` 与 `VLIcon.swift`。
 - 走查：浏览器开 `design/gallery.html`（深色底瓷砖效果），或 `design/previews/contact-sheet-*.png`；变更对比用 `design/previews/icon-replace-before-after.html`（`render_before_after.py` 生成）。
 
 ## 6. 版权与出处（重要）
 
-- **字形**：直接引用 Microsoft Fluent UI System Icons（MIT）、Health Icons（CC0）、Lucide（ISC）、Tabler（MIT）、Material Symbols（Apache-2.0）、Font Awesome Free（CC BY 4.0）；vendor 副本与许可全文见 `design/icons/NOTICE.md`，逐枚出处见 `design/icons/provenance.json`（上架前将 NOTICE 并入 App 的开源许可页，SP-48 已预留该行）。
+- **字形**：直接引用 Microsoft Fluent UI System Icons（MIT，含 Tab assistant 的 Bot 24 regular/filled）、Health Icons（CC0）、Lucide（ISC）、Tabler（MIT）、Material Symbols（Apache-2.0）、Font Awesome Free（CC BY 4.0）；vendor 副本与许可全文见 `design/icons/NOTICE.md`，逐枚出处见 `design/icons/provenance.json`（上架前将 NOTICE 并入 App 的开源许可页，SP-48 已预留该行）。
 - **自绘补位（10 枚）**：`ic-prescription`、`ic-allergy`、`ic-hospital`、`ic-sym-stool`、`ic-sym-skin`、`ic-sym-swelling`、`ic-member-father/mother/son/daughter`，以及全部插画与 App 图标——本项目自有产物。
 - 瓷砖底/渐变/高光封装层为本项目自有设计；未引用任何第三方位图或带版权的图标包（参考图仅为风格基准，未复制其素材）。
 - **第三方商业包评估记录（2026-08-26）**：Iconshock「Fluent Mega Pack」经许可核查**不予采用**——其免费档仅提供 ≤72px PNG、限个人使用且强制署名，商业使用需付费授权（单包 $19 起），与本项目商业分发及 vendor 入库方式冲突；且该包为微软 Fluent 规范的第三方仿制渐变包，视觉上已被本管线等价实现。**若未来购买其商业授权**：将下载的 SVG 置于独立目录后仿照 `vendor_fluent.py` 增加来源分支即可接入，但在出示授权凭证前禁止入库。
 
 ## 7. 与需求文档的映射（抽查锚点）
 
-- **Tab 五枚**：ui-ux-spec §2.1 → `home` / `board_heart` / `alert_badge`（自带未读角标点）/ 自有双半脑 AI 徽章 / `person_circle`。
+- **Tab 五枚**：ui-ux-spec §2.1 → `home` / `board_heart` / `alert_badge`（自带未读角标点）/ Fluent `bot-24-regular/filled` / `person_circle`。
 - **业务概念映射**：§3.4 → 就诊 `ic-stethoscope`、处方 `ic-prescription`、检验 `ic-lab-clipboard`、影像 `ic-imaging-ecg`、观察 `ic-observe-frame`、敏感锁定 `ic-eye-off`、AI `ic-tab-assistant`。
 - **快速拍摄四宫格**：病历 `ic-folder`、报告 `ic-lab-clipboard`、处方 `ic-prescription`、症状 `ic-thermometer`。
 - **商业化红线**（comercial-spec §2.1）：`ic-lock`/`ic-pro-diamond` 仅用于门禁与付费墙上下文；免费能力永不配锁图标。
@@ -145,6 +153,8 @@ python3 design/tools/vendor_lucide.py <node_modules>/lucide-static/icons
 
 | 版本 | 日期 | 说明 |
 |---|---|---|
+| V2.12 | 2026-08-27 | 将外部最佳筛选集落地为 211 个唯一设计母版与 Xcode imageset；统一分组底板色；Tab assistant 改用 Microsoft Fluent Bot 24 regular/filled（MIT）；新增 `best_selection.json` 与 `sync_best_selection.py`，同步更新 provenance、VLIcon 与本地 Best Selection 预览 |
+| V2.11 | 2026-08-27 | 新增 `icon-spec.md`（图标生成规格与重构需求）与程序化生成器 `gen_icon_spec.py`：逐图标登记 180 定义/185 母版/7 插画，含分组配色、来源、上游名、双态与着色，可作为自动重构全部 SVG 图标的需求文件 |
 | V2.10 | 2026-08-27 | App 图标改用 `~/Downloads/Designer (8).png`，仅尺寸调整（1254²→1024²，LANCZOS） |
 | V2.9 | 2026-08-27 | App 图标改用 `~/Downloads/Designer (7).png`，仅尺寸调整（1254²→1024²，LANCZOS）；回退源 `app-icon.svg` 保留 |
 | V2.8 | 2026-08-27 | App 图标背景 Fluent 化：白底改为三段色相偏移对角渐变（亮蓝→主蓝→紫）+ 左上光晕 + 斜向玻璃光带 + 底部暗角 + 内容投影；边缘洪泛填充仅替换外围背景、内容原样保留；新增 `appicon_fluent_bg.py` |
