@@ -62,7 +62,8 @@ private struct EvidenceCardRow: View {
             if let ref = event.card.sourceRef {
                 // 信源链接：可打开原文（F16 验收「信源链接可打开原文」）。
                 // 有 URL 用系统 Link；无 URL 只读书目行（不臆造链接）。
-                if let url = sourceEntry?.citationUrl.flatMap({ URL(string: $0) }),
+                if let citation = sourceEntry?.citationUrl,
+                   let url = URL(string: citation),
                    !url.absoluteString.isEmpty {
                     Link(destination: url) {
                         HStack(spacing: 4) {
