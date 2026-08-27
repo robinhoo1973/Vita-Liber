@@ -317,11 +317,12 @@ public actor MedicationStore: DoseSource {
         }
     }
 
-    public struct InventorySummaryItem: Sendable, Equatable {
+    public struct InventorySummaryItem: Sendable, Equatable, Identifiable {
         public var lotId: UUID
         public var medicationName: String
         public var spec: String?
         public var unitKind: String
+        public var id: UUID { lotId }
         public var remainingPlanUnits: Double
         public var remainingConfirmedUnits: Double
         public var expireAt: Date?

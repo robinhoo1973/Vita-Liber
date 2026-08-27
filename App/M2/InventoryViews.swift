@@ -18,14 +18,19 @@ struct InventoryListView: View {
     var onExportDispenseList: (() -> Void)?
 
     var body: some View {
-        if items.isEmpty {
-            ContentUnavailableView(L10n.inventory_empty, systemImage: "pills",
-                                   description: Text(L10n.inventory_emptyHint))
-                .accessibilityIdentifier("FR9.8.inventory.empty")
-        } else {
-            List(items, id: \.lotId) { item in
-                InventoryRow(item: item, onReconcile: onReconcile)
-                    .accessibilityIdentifier("FR9.8.inventory.row")
+        // Group 承载修饰器：if/else 分支并集上直接挂 .toolbar 有类型歧义
+        // （CI「no exact matches in call to instance method 'toolbar'」，
+        // 与 RootAdaptiveView 同族）
+        Group {
+            if items.isEmpty {
+                ContentUnavailableView(L10n.inventory_empty, systemImage: "pills",
+                                       description: Text(L10n.inventory_emptyHint))
+                    .accessibilityIdentifier("FR9.8.inventory.empty")
+            } else {
+                List(items) { item in
+                    InventoryRow(item: item, onReconcile: onReconcile)
+                        .accessibilityIdentifier("FR9.8.inventory.row")
+                }
             }
         }
         .toolbar {
