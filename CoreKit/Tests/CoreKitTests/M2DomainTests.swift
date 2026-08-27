@@ -354,3 +354,31 @@ struct DeepLinkTests {
         #expect(HospitalDeepLinkRegistry.defaults.allSatisfy { !$0.template.isEmpty })
     }
 }
+
+// binds: SU-M2-CARE — FR13.8 配药清单（纯事实 CSV，不伪造医嘱原文）
+@Suite("SU-M2-CARE · FR13.8 配药清单导出")
+struct DispenseListTests {
+
+    @Test func CSV列结构与纯事实() {
+        let rows = [
+            DispenseListRules.Row(name: "阿莫西林", spec: "0.25g", unitKind: "tablet",
+                                  planUnits: 12, confirmedUnits: 9,
+                                  expireAt: Date(timeIntervalSince1970: 1_800_000_000)),
+            DispenseListRules.Row(name: "二甲双胍", spec: "0.5g", unitKind: "tablet",
+                                  planUnits: 30, confirmedUnits: 30, expireAt: nil),
+        ]
+        let csv = DispenseListRules.csv(rows: rows)
+        #expect(csv.contains("药品名,规格,单位,当前余量(安全线),当前余量(确认线),效期"))
+        #expect(csv.contains("阿莫西林"))
+        #expect(csv.contains("12"))
+        #expect(csv.contains("30"))
+        // 无医嘱原文列时不得伪造内容（BR-006 延伸）
+        #expect(!csv.contains("遵医嘱"))
+    }
+
+    @Test func 空清单不得产出空集假绿() {
+        #expect(!DispenseListRules.headers.isEmpty)
+        let empty = DispenseListRules.csv(rows: [])
+        #expect(empty.contains("药品名"), "空清单也必须有表头——空集不得判过")
+    }
+}

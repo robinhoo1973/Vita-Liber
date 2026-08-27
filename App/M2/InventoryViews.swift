@@ -15,6 +15,7 @@ import Infrastructure
 struct InventoryListView: View {
     let items: [MedicationStore.InventorySummaryItem]
     var onReconcile: ((MedicationStore.InventorySummaryItem) -> Void)?
+    var onExportDispenseList: (() -> Void)?
 
     var body: some View {
         if items.isEmpty {
@@ -26,6 +27,30 @@ struct InventoryListView: View {
                 InventoryRow(item: item, onReconcile: onReconcile)
                     .accessibilityIdentifier("FR9.8.inventory.row")
             }
+        }
+        .toolbar {
+            if let onExportDispenseList, !items.isEmpty {
+                ToolbarItem(placement: .primaryAction) {
+                    // FR13.8 配药清单单页导出：药品名/规格/当前余量——线下药店/复诊用
+                    Button {
+                        onExportDispenseList()
+                    } label: {
+                        Label("配药清单", image: "ic-export").frame(minHeight: 44)
+                    }
+                    .accessibilityIdentifier("FR13.8.dispense.export")
+                }
+            }
+        }
+    }
+
+    /// 把药箱摘要映射成配药清单行（纯数据映射，CSV 组装在 Domain DispenseListRules）
+    func dispenseRows() -> [DispenseListRules.Row] {
+        items.map { item in
+            DispenseListRules.Row(name: item.medicationName, spec: item.spec,
+                                  unitKind: item.unitKind,
+                                  planUnits: item.remainingPlanUnits,
+                                  confirmedUnits: item.remainingConfirmedUnits,
+                                  expireAt: item.expireAt)
         }
     }
 }

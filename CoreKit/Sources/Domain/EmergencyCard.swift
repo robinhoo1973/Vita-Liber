@@ -102,3 +102,42 @@ public struct InventoryReconciliation: Sendable, Equatable {
     /// 归真结果必须经用户确认才写回（FR9.8.5 验收）
     public var needsConfirmation: Bool { abs(difference) > 0.001 }
 }
+
+/// FR13.8 配药清单导出：药品名/规格/当前余量/医嘱原文单页导出，
+/// 供线下药店或复诊使用（联动 FR9.8 双轨库存）。
+///
+/// 诚实性纪律：只输出**库里有的事实**。v1 没有医嘱原文列时绝不伪造
+/// 「遵医嘱」占位——表头列可缺，内容不可编（BR-006 延伸）。
+public enum DispenseListRules {
+    public static let headers = ["药品名", "规格", "单位", "当前余量(安全线)", "当前余量(确认线)", "效期"]
+
+    public struct Row: Sendable, Equatable {
+        public var name: String
+        public var spec: String?
+        public var unitKind: String
+        public var planUnits: Double
+        public var confirmedUnits: Double
+        public var expireAt: Date?
+        public init(name: String, spec: String?, unitKind: String,
+                    planUnits: Double, confirmedUnits: Double, expireAt: Date?) {
+            self.name = name; self.spec = spec; self.unitKind = unitKind
+            self.planUnits = planUnits; self.confirmedUnits = confirmedUnits
+            self.expireAt = expireAt
+        }
+    }
+
+    /// 组装 CSV（RFC 4180 由 CSVWriter 保证；本函数只做数据→行的映射）
+    public static func csv(rows: [Row]) -> String {
+        let data = rows.map { row in
+            [
+                row.name,
+                row.spec ?? "",
+                row.unitKind,
+                String(format: "%g", row.planUnits),
+                String(format: "%g", row.confirmedUnits),
+                row.expireAt.map { $0.formatted(date: .abbreviated, time: .omitted) } ?? "",
+            ]
+        }
+        return CSVWriter.document(headers: headers, rows: data)
+    }
+}
