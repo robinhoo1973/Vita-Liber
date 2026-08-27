@@ -1,6 +1,6 @@
 import Foundation
 
-public struct PatientProfile: Sendable, Equatable, Codable {
+public struct PatientProfile: Sendable, Equatable, Codable, Identifiable {
     public let id: UUID
     public var displayName: String
     /// §4.3 v2 列（V3.40 建全表后入库需要）：relation 必填；其余可空。
