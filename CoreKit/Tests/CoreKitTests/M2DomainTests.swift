@@ -323,3 +323,34 @@ struct ImageInputRuleTests {
         #expect(!set.isUsableInTimeline, "确认前不可作为确定性陈述")
     }
 }
+
+// binds: SU-M2-CARE — FR10.6 挂号深链本地映射
+@Suite("SU-M2-CARE · FR10.6 挂号深链本地映射表")
+struct DeepLinkTests {
+
+    @Test func 精确匹配命中() {
+        let link = HospitalDeepLinkRegistry.link(for: "协和医院",
+                                                 in: HospitalDeepLinkRegistry.defaults)
+        #expect(link != nil)
+        #expect(link?.baseURL.contains("guahao") == true)
+    }
+
+    @Test func 模糊匹配降级且一字之差不丢入口() {
+        let link = HospitalDeepLinkRegistry.fuzzyLink(for: "协和医院（东院）",
+                                                      in: HospitalDeepLinkRegistry.defaults)
+        #expect(link != nil, "医院全名与表内条目一字之差不得丢深链入口")
+    }
+
+    @Test func 不在表内返回nil走手输补录() {
+        #expect(HospitalDeepLinkRegistry.link(for: "从未听说的医院",
+                                              in: HospitalDeepLinkRegistry.defaults) == nil)
+        #expect(HospitalDeepLinkRegistry.fuzzyLink(for: "从未听说的医院",
+                                                  in: HospitalDeepLinkRegistry.defaults) == nil)
+    }
+
+    @Test func 映射表默认档非空且离线可用() {
+        #expect(!HospitalDeepLinkRegistry.defaults.isEmpty,
+                "空映射表会让所有复诊提醒失去深链入口——空集不得判过")
+        #expect(HospitalDeepLinkRegistry.defaults.allSatisfy { !$0.template.isEmpty })
+    }
+}

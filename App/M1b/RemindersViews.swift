@@ -41,30 +41,34 @@ struct RemindersView: View {
                             .accessibilityIdentifier("SP-18.appointment.empty")
                     }
                     ForEach(reminders.upcomingAppointments, id: \.id) { apt in
-                        HStack(spacing: 12) {
-                            VLIcon.appointment.resizable().frame(width: 32, height: 32)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(apt.hospital).font(.headline)
-                                Text("\(apt.department) · \(apt.startsAt.formatted(date: .abbreviated, time: .shortened))")
-                                    .font(.footnote).foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 12) {
+                                VLIcon.appointment.resizable().frame(width: 32, height: 32)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(apt.hospital).font(.headline)
+                                    Text("\(apt.department) · \(apt.startsAt.formatted(date: .abbreviated, time: .shortened))")
+                                        .font(.footnote).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Text(statusLabel(apt.status))
+                                    .font(.caption2)
+                                    .padding(.horizontal, 8).padding(.vertical, 4)
+                                    .background(Capsule().fill(statusColor(apt.status).opacity(0.15)))
+                                    .foregroundStyle(statusColor(apt.status))
+                                Button {
+                                    Task { await reminders.completeAppointment(patientId: currentPatientId, id: apt.id) }
+                                } label: {
+                                    Image(systemName: "checkmark.circle")
+                                        .frame(width: 44, height: 44)
+                                }
+                                .accessibilityLabel("标记就诊完成")
+                                .accessibilityIdentifier("SP-18.appointment.complete")
                             }
-                            Spacer()
-                            Text(statusLabel(apt.status))
-                                .font(.caption2)
-                                .padding(.horizontal, 8).padding(.vertical, 4)
-                                .background(Capsule().fill(statusColor(apt.status).opacity(0.15)))
-                                .foregroundStyle(statusColor(apt.status))
-                            Button {
-                                Task { await reminders.completeAppointment(patientId: currentPatientId, id: apt.id) }
-                            } label: {
-                                Image(systemName: "checkmark.circle")
-                                    .frame(width: 44, height: 44)
-                            }
-                            .accessibilityLabel("标记就诊完成")
-                            .accessibilityIdentifier("SP-18.appointment.complete")
+                            // FR10.6 去挂号深链卡：本地映射表匹配，无网可用
+                            AppointmentDeepLinkCard(hospital: apt.hospital)
                         }
                         .padding(.vertical, 6)
-                        .accessibilityElement(children: .combine)
+                        .accessibilityElement(children: .contain)
                         .accessibilityIdentifier("SP-18.appointment.row")
                     }
                     Button {

@@ -77,4 +77,30 @@ public enum HospitalDeepLinkRegistry {
     public static func link(for hospitalName: String, in registry: [HospitalDeepLink]) -> HospitalDeepLink? {
         registry.first { $0.hospitalName == hospitalName }
     }
+
+    /// FR10.6 本地映射表（默认档）：按医院名匹配主流挂号平台的**搜索深链**。
+    /// 无网可用指「映射表在本地、不用服务端查询」——跳转后由平台自身承载联网。
+    /// 不内嵌交易、不抽佣：我们只做「一键跳到平台搜索结果页」。
+    /// 条目由本地维护；医院不在表内 → UI 提供手动补录预约编号的降级。
+    public static let defaults: [HospitalDeepLink] = [
+        HospitalDeepLink(hospitalName: "市一医院",
+                         baseURL: "https://www.114yygh.com",
+                         template: "https://www.114yygh.com/hospital/search?kw=市一医院"),
+        HospitalDeepLink(hospitalName: "协和医院",
+                         baseURL: "https://www.guahao.com",
+                         template: "https://www.guahao.com/search/all?q=协和医院"),
+        HospitalDeepLink(hospitalName: "社区卫生中心",
+                         baseURL: "https://www.jkzr.com",
+                         template: "https://www.jkzr.com/search?hospital=社区卫生中心"),
+    ]
+
+    /// 精确匹配失败时的模糊降级：按医院名关键字包含匹配（避免用户手输医院全名
+    /// 与表内条目一字之差就丢了深链入口）
+    public static func fuzzyLink(for hospitalName: String,
+                                 in registry: [HospitalDeepLink]) -> HospitalDeepLink? {
+        registry.first { entry in
+            hospitalName.contains(entry.hospitalName)
+                || entry.hospitalName.contains(hospitalName)
+        }
+    }
 }
