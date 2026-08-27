@@ -34,7 +34,9 @@ final class M2F16AcceptanceTests: XCTestCase {
         let second = try await guidelines.seedBundled()
         XCTAssertEqual(second, 0, "种子必须幂等——重复调用不得重复插入或覆盖")
 
-        let glucose = try XCTUnwrap(try await guidelines.entry(for: "glucose"))
+        // XCTUnwrap 是 autoclosure，不支持并发调用——先 await 再解包（Swift 6.0 错误）
+        let glucoseEntry = try await guidelines.entry(for: "glucose")
+        let glucose = try XCTUnwrap(glucoseEntry)
         XCTAssertEqual(glucose.metricKey, "glucose")
         XCTAssertEqual(glucose.unit, "mmol/L")
         XCTAssertNotNil(glucose.l3High, "阈值数字必须随种子入库（FR16.4 单一事实源）")
