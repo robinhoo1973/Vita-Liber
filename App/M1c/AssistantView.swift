@@ -1,17 +1,30 @@
 import SwiftUI
+import PhotosUI
+import os
 import Domain
+import Protocols
 
 /// F12 AI 助手（SP 系列 M1c 切片）：本地检索式问答——七段结构/拒识卡/急救卡。
 /// 引用完整性由类型保证（无引用的回答不存在）；E 级徽章标识 AI 解释。
+/// FR12.11 图片输入：拍照/相册 → Vision 识别 → **D 级待确认** → 确认后作为
+/// 问题提交；纯影像无文字 → 「未识别到文字」+ 手输替代（BR-003）。
 struct AssistantView: View {
     @Environment(AppState.self) private var app
     @Environment(AssistantStore.self) private var assistant
     @State private var draft = ""
+    @State private var pickerItem: PhotosPickerItem?
+    @State private var imageConfirmSet: OcrConfirmationSet?
+    @State private var imageNotice: String?
 
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
                 LazyVStack(spacing: 12) {
+                    if let imageNotice {
+                        Label(imageNotice, image: "ic-info")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .accessibilityIdentifier("FR12.11.noText")
+                    }
                     ForEach(assistant.messages) { message in
                         MessageBubble(message: message)
                     }
@@ -23,6 +36,13 @@ struct AssistantView: View {
                 .padding(16)
             }
             HStack(spacing: 8) {
+                // FR12.11：拍照/相册发起「帮我看看这张报告」
+                PhotosPicker(selection: $pickerItem, matching: .images) {
+                    VLIcon.photo.resizable().frame(width: 22, height: 22)
+                        .frame(width: 44, height: 44)
+                }
+                .accessibilityLabel("添加图片或报告照片")
+                .accessibilityIdentifier("FR12.11.pickImage")
                 TextField("问一个与你资料相关的问题", text: $draft, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
                     .lineLimit(1...3)
@@ -34,8 +54,7 @@ struct AssistantView: View {
                         await assistant.ask(q, scopePatientIds: [currentPatientId])
                     }
                 } label: {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.title2)
+                    VLIcon.send.resizable().frame(width: 20, height: 20)
                         .frame(width: 44, height: 44)
                 }
                 .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty || assistant.busy)
@@ -46,9 +65,93 @@ struct AssistantView: View {
         }
         .navigationTitle("AI 助手")
         .navigationBarTitleDisplayMode(.inline)
+        .onChange(of: pickerItem) { _, newItem in
+            guard let newItem else { return }
+            Task { await handlePickedImage(newItem) }
+        }
+        .sheet(item: $imageConfirmSet) { set in
+            ImageConfirmSheet(
+                set: set,
+                onConfirm: { confirmed in
+                    let text = confirmed.confirmedFields.first?.value ?? ""
+                    imageConfirmSet = nil
+                    draft = text
+                },
+                onCancel: { imageConfirmSet = nil })
+            .presentationDetents([.medium])
+        }
+    }
+
+    private func handlePickedImage(_ item: PhotosPickerItem) async {
+        imageNotice = nil
+        do {
+            guard let data = try await item.loadTransferable(type: Data.self) else {
+                imageNotice = "无法读取这张图片"
+                return
+            }
+            let recognition = try await app.imageRecognizer.recognize(data)
+            if recognition.isEmpty {
+                imageNotice = ImageInputRules.noTextMessage
+                return
+            }
+            // BR-003：识别文本一律 D 级待确认——确认前不得提交为问题
+            let fields = ImageInputRules.draftFields(from: recognition)
+            imageConfirmSet = VoiceInputTemplate.confirmationSet(drafts: [
+                FieldDraft(key: "image_text", value: recognition.text,
+                           confidence: recognition.confidence)
+            ])
+            _ = fields   // VoiceInputTemplate 重建（待确认态恒成立）；fields 仅作语义对照
+        } catch {
+            Logger(subsystem: "com.vitaliber", category: "assistant")
+                .error("图片识别失败: \(error)")
+            imageNotice = ImageInputRules.noTextMessage
+        }
     }
 
     private var currentPatientId: UUID { app.owner?.selfPatientId ?? app.owner?.id ?? UUID() }
+}
+
+/// FR12.11 图片识别确认卡：未确认不得提交（BR-003）。
+struct ImageConfirmSheet: View {
+    let set: OcrConfirmationSet
+    var onConfirm: (OcrConfirmationSet) -> Void
+    var onCancel: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("确认图片识别内容").font(.headline)
+            ForEach(set.fields) { field in
+                ScrollView {
+                    Text(field.value)
+                        .font(.body)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: 200)
+                .padding(12)
+                .background(RoundedRectangle(cornerRadius: 12).fill(Color("bg-grouped", bundle: .main)))
+                .overlay(RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(Color("grade-d", bundle: .main),
+                                  style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+                .accessibilityIdentifier("FR12.11.confirm.text")
+            }
+            Label("图片识别结果未经你确认，不会作为事实提交", image: "ic-warning")
+                .font(.caption).foregroundStyle(Color("grade-d", bundle: .main))
+                .accessibilityIdentifier("FR12.11.unconfirmed")
+            HStack(spacing: 12) {
+                Button("取消", action: onCancel).frame(minHeight: 44)
+                Spacer()
+                Button("确认并填入问题") {
+                    var confirmed = set
+                    for i in confirmed.fields.indices { _ = confirmed.fields[i].confirm() }
+                    onConfirm(confirmed)
+                }
+                .buttonStyle(.borderedProminent)
+                .frame(minHeight: 44)
+                .accessibilityIdentifier("FR12.11.confirm")
+            }
+        }
+        .padding(20)
+    }
 }
 
 /// 消息气泡：结构化渲染七段/拒识/急救卡（含 E 级徽章与引用列表）

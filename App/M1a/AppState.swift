@@ -48,15 +48,19 @@ final class AppState {
 
     /// TTS 端口（FR17.13/17.16）。默认注入生产适配器；测试注入 RecordingSpeechSynthesizer。
     let speechSynthesizer: any SpeechSynthesizing
+    /// FR12.11 图片文字识别端口。默认注入 Vision 生产实现；测试注入桩。
+    let imageRecognizer: any ImageTextRecognizing
 
     init(persistor: any M1aPersisting,
          capture: any DocumentCapture,
          speech: (any SpeechSynthesizing)? = nil,
+         imageRecognizer: (any ImageTextRecognizing)? = nil,
          defaults: UserDefaults = .standard,
          launchArgs: [String] = ProcessInfo.processInfo.arguments) {
         self.persistor = persistor
         self.captureProvider = capture
         self.speechSynthesizer = speech ?? AVSpeechAdapter()
+        self.imageRecognizer = imageRecognizer ?? VisionImageRecognizer()
         self.defaults = defaults
         self.launchArgs = launchArgs
         self.onboardingFinished = defaults.bool(forKey: "onboardingFinished")

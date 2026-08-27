@@ -290,3 +290,36 @@ struct F17FullGrammarTests {
         #expect(drafts.contains { $0.key == "repeat" })
     }
 }
+
+// binds: SU-M2-CARE — FR12.11 AI 图片输入（P0.5 滞留清偿）的 BR-003 判据
+@Suite("SU-M2-CARE · FR12.11 图片识别未确认判据（BR-003）")
+struct ImageInputRuleTests {
+
+    @Test func 识别文本恒为D级待确认() {
+        let rec = ImageInputRules.Recognition(lines: ["总胆固醇 6.8 mmol/L"], confidence: 0.99)
+        let fields = ImageInputRules.draftFields(from: rec)
+        #expect(fields.count == 1)
+        #expect(fields[0].grade == .ocrUnconfirmed,
+                "BR-003：图片识别结果一律『识别未确认』——置信度再高也不得为确定性陈述")
+        #expect(ImageInputRules.requiresConfirmation(rec))
+    }
+
+    @Test func 纯影像无文字给手输替代() {
+        let empty = ImageInputRules.Recognition(lines: ["  "], confidence: 0)
+        #expect(empty.isEmpty)
+        #expect(!ImageInputRules.requiresConfirmation(empty))
+        #expect(ImageInputRules.draftFields(from: empty).isEmpty)
+        // 降级文案过 BR-006 负清单（不出现建议/应该等判断词）
+        #expect(WordingBlacklist.violation(in: ImageInputRules.noTextMessage) == nil,
+                "无文字降级文案也必须过措辞负清单")
+    }
+
+    @Test func 识别结果经统一确认模板() {
+        let rec = ImageInputRules.Recognition(lines: ["血糖 6.2"], confidence: 0.95)
+        let set = VoiceInputTemplate.confirmationSet(drafts: [
+            FieldDraft(key: "image_text", value: rec.text, confidence: rec.confidence)
+        ])
+        #expect(set.fields.allSatisfy { $0.grade == .ocrUnconfirmed })
+        #expect(!set.isUsableInTimeline, "确认前不可作为确定性陈述")
+    }
+}
