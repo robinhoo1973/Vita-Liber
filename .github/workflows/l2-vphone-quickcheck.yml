@@ -1,0 +1,54 @@
+# ============================================================================
+# vphone 快速验证 CI（L2 · 自托管专属）
+# 目的：验证「vphone 建议命令」在当前 runner 上是否可执行，并产出证据报告。
+#   - hosted-probe  ：在 GitHub 托管 macOS 上跑环境探针（预期 FAIL）——
+#                     用实测证据证明「托管 runner = VM + SIP/AMFI 不可放松 → 不能跑 vphone」。
+#   - vphone-smoke  ：在自托管物理 Apple Silicon Mac 上跑 vphone 建议命令冒烟。
+# 触发：workflow_dispatch（手动，自托管机就绪时触发）；将来可加 schedule。
+# 注意：vphone-smoke 的 runs-on 标签需先注册自托管 runner（labels: self-hosted, macos-arm64, vphone）。
+#       未注册该 runner 时本 job 将保持排队——这是自托管 runner 的标准行为。
+# ============================================================================
+name: vphone-quickcheck
+
+on:
+  workflow_dispatch: {}
+  # schedule:
+  #   - cron: '0 18 * * 5'   # 可选：每周五 18:00（需要常驻自托管机时再开启）
+
+permissions:
+  contents: read
+
+jobs:
+  # ── Job 1：托管环境探针（演示/佐证「托管不可行」）────────────────────────
+  hosted-probe:
+    name: 托管环境探针（预期 FAIL = 证明托管不可行）
+    runs-on: macos-latest
+    continue-on-error: true      # 探针失败不拉红 workflow——证据即产出
+    steps:
+      - uses: actions/checkout@v4
+      - name: 运行 vphone 环境探针
+        run: bash .github/workflows/vphone-quickcheck.sh --probe-only
+      - name: 上传探针报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vphone-hosted-probe
+          path: vphone-quickcheck-report.txt
+          if-no-files-found: ignore
+
+  # ── Job 2：自托管 vphone 冒烟（验证建议命令）─────────────────────────────
+  vphone-smoke:
+    name: 自托管 vphone 冒烟（建议命令验证）
+    runs-on: [self-hosted, macos-arm64, vphone]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: 快速验证 vphone 建议命令
+        run: bash .github/workflows/vphone-quickcheck.sh
+      - name: 上传冒烟报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vphone-smoke-report
+          path: vphone-quickcheck-report.txt
+          if-no-files-found: ignore
