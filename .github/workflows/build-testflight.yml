@@ -124,7 +124,9 @@ jobs:
                    for v in devs if v.get("isAvailable") and v["name"].startswith("iPhone")]
           spec = [p for p in pairs if p[1] == "iPhone 15"]
           pick = spec[0] if spec else sorted(pairs)[0]
-          print(f"platform=iOS Simulator,name={pick[1]}")
+          # 用 UDID 而非 name：同名校验在 Xcode 26 多 runtime 下脆弱（实测
+          # macos-latest/Xcode 26.6 报 Unable to find device），UDID 精确无歧义
+          print(f"platform=iOS Simulator,id={pick[2]}")
           PY
           )
           echo "destination: $DEST"
