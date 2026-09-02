@@ -15,6 +15,14 @@ let package = Package(
     targets: [
         .target(name: "Domain"),
         .target(name: "Protocols", dependencies: ["Domain"]),
+        // ADR-026 Linux/dev 轨道：以 C modulemap 暴露 ONNX Runtime C API（libonnxruntime.so
+        // 经 Vendor/onnxruntime/lib + LD_LIBRARY_PATH 在链接/运行时解析，绝不进入 iOS 生产 target）。
+        .target(
+            name: "COnnxRuntime",
+            linkerSettings: [
+                .unsafeFlags(["-L", "Vendor/onnxruntime/lib"]),
+                .linkedLibrary("onnxruntime")
+            ]),
         .target(
             name: "Infrastructure",
             dependencies: [
@@ -26,6 +34,21 @@ let package = Package(
         .testTarget(
             name: "CoreKitTests",
             dependencies: ["Domain", "Protocols", "Infrastructure"],
-            resources: [.copy("Fixtures")])
+            resources: [.copy("Fixtures")]),
+        // ADR-026 dev 轨道：Linux 离线 OCR 测试入口（同协议跑 PaddleOCRImageRecognizer，
+        // 无 Xcode 也能验证「图片→文本行」链路；模型未捆绑时退化为空结果并提示）。
+        //
+        // COnnxRuntime 只挂在 OcrCli 上、不进 Infrastructure（评审修正）：
+        // 此前 Infrastructure 在 Linux 条件依赖 COnnxRuntime，使 CoreKitTests 测试二进制
+        // 链接 libonnxruntime.so.1——一台只有 swift toolchain 的干净 Linux（含 CI 容器）
+        // 上 `swift test` 构建成功却加载失败，Domain 门禁名存实亡。推理运行时是 dev 轨
+        // 专属能力，OcrCli 直接构造 PaddleOCRImageRecognizer；测试与 App 走 EAL 工厂
+        // （Linux 上返回 Stub），二者都不再触碰 onnxruntime。
+        .executableTarget(
+            name: "OcrCli",
+            dependencies: [
+                "Domain", "Protocols", "Infrastructure",
+                .target(name: "COnnxRuntime", condition: .when(platforms: [.linux]))
+            ])
     ]
 )
