@@ -3,8 +3,26 @@ import Testing
 import Domain
 import Protocols
 
+/// 确定性解码桩（评审修正后的注入模型：Domain 纯计算 + 解码端口注入，Linux 可测）。
+/// decode 输出由数据 SHA-256 派生填充——同输入同输出；不同输入产出不同位图，
+/// 行为接近真实解码器（确定性是 M-QUALITY 的第一设计原则）。
+struct DeterministicGrayscaleDecoder: GrayscaleDecoding {
+    func decode(_ data: Data, maxDimension: Int) throws -> GrayscaleImage {
+        let d = max(1, maxDimension)
+        let h = SHA256.hash(data: data)
+        var buf = [UInt8](repeating: 0, count: d * d)
+        for i in 0..<buf.count { buf[i] = h[i % h.count] }
+        return GrayscaleImage(width: d, height: d, buffer: buf)
+    }
+}
+
 @Suite("M-QUALITY · 拍摄质量与重复检测（纯 Domain，Linux 可跑）")
 struct QualityTests {
+    private let decoder: any GrayscaleDecoding = DeterministicGrayscaleDecoder()
+    /// 便捷入口：注入解码桩后评估（assess 本身是纯函数，不抛错）。
+    private func quality(of png: Data) throws -> CaptureQuality {
+        try CaptureQualityAssessor.assess(decoder.decode(png, maxDimension: 256))
+    }
 
     // MARK: - SHA256 向量验证
 
@@ -44,8 +62,8 @@ struct QualityTests {
     @Test("同一图片两次评估质量分完全一致（确定性）", .tags(.linuxRunnable))
     func assessDeterministic() throws {
         let png = Self.testPNG()
-        let q1 = try CaptureQualityAssessor.assess(png)
-        let q2 = try CaptureQualityAssessor.assess(png)
+        let q1 = try quality(of: png)
+        let q2 = try quality(of: png)
         #expect(q1 == q2)
         #expect(q1.score >= 0 && q1.score <= 1)
         #expect(q1.sharpness >= 0 && q1.sharpness <= 1)
@@ -57,7 +75,7 @@ struct QualityTests {
     @Test("meetsThreshold 阈值判定正确", .tags(.linuxRunnable))
     func meetsThreshold() throws {
         let png = Self.testPNG()
-        let q = try CaptureQualityAssessor.assess(png)
+        let q = try quality(of: png)
         #expect(q.meetsThreshold(0.0) == true)
         #expect(q.meetsThreshold(1.0) == false)
     }
@@ -68,8 +86,8 @@ struct QualityTests {
     func exactHashMatch() throws {
         var svc = DuplicateDetectionService()
         let png = Self.testPNG()
-        try svc.register(recordID: "rec-1", imageData: png)
-        let result = try svc.detect(png)
+        try svc.register(recordID: "rec-1", imageData: png, decoder: decoder)
+        let result = try svc.detect(png, decoder: decoder)
         #expect(result.isDuplicate == true)
         #expect(result.exactHashMatch == true)
         #expect(result.perceptualSimilarity == 1.0)
@@ -80,8 +98,8 @@ struct QualityTests {
         var svc = DuplicateDetectionService()
         let png1 = Self.testPNG()
         let png2 = Self.testPNG(suffix: "modified")
-        try svc.register(recordID: "rec-1", imageData: png1)
-        let result = try svc.detect(png2)
+        try svc.register(recordID: "rec-1", imageData: png1, decoder: decoder)
+        let result = try svc.detect(png2, decoder: decoder)
         #expect(result.exactHashMatch == false)
     }
 
@@ -89,9 +107,9 @@ struct QualityTests {
     func perceptualSimilarity() throws {
         var svc = DuplicateDetectionService()
         let png1 = Self.testPNG()
-        // Linux 占位：pHash 由 SHA256 派生，同数据 → 同 pHash
-        try svc.register(recordID: "rec-1", imageData: png1)
-        let result = try svc.detect(png1)
+        // 同数据 → 同 pHash（确定性解码桩 + 确定性 pHash 纯函数）
+        try svc.register(recordID: "rec-1", imageData: png1, decoder: decoder)
+        let result = try svc.detect(png1, decoder: decoder)
         #expect(result.perceptualSimilarity == 1.0)
     }
 
@@ -99,8 +117,8 @@ struct QualityTests {
     func zeroAutoDelete() throws {
         var svc = DuplicateDetectionService()
         let png = Self.testPNG()
-        try svc.register(recordID: "rec-1", imageData: png)
-        let result = try svc.detect(png)
+        try svc.register(recordID: "rec-1", imageData: png, decoder: decoder)
+        let result = try svc.detect(png, decoder: decoder)
         #expect(result.isDuplicate == true)
     }
 

@@ -7,6 +7,8 @@ import Infrastructure
 /// 全模块集成测试：验证 EAL + 四新模块 + SHA256 + Quality 可在同一进程中共存并正确协作。
 @Suite("集成测试 · 全模块协作验收")
 struct FoundationalModulesIntegrationTests {
+    /// 确定性解码桩（与 QualityTests 同款，internal 共享）
+    private let decoder: any GrayscaleDecoding = DeterministicGrayscaleDecoder()
 
     // MARK: - EAL + 四工厂端到端
 
@@ -40,7 +42,9 @@ struct FoundationalModulesIntegrationTests {
 
         let request = TranscriptionRequest(localeIdentifier: "zh-Hans-CN")
         let transcript = try await tx.transcribe(request, onPartial: nil)
-        #expect(transcript.text.isEmpty)
+        // 本测试注册了有数据桩（scripted: ["测试转写"]），必须回放脚本内容——
+        // 断空文本是「注册数据与断言矛盾」的存量缺陷（与工厂空桩路径混淆）
+        #expect(transcript.text == "测试转写")
 
         // 四新模块调用
         let params = PreprocessParams()
@@ -68,18 +72,18 @@ struct FoundationalModulesIntegrationTests {
         let abcHash = SHA256.hash(data: Data("abc".utf8))
         #expect(abcHash.hexString == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
 
-        // DuplicateDetection 注册 + 精确命中
+        // DuplicateDetection 注册 + 精确命中（解码经注入桩）
         var svc = DuplicateDetectionService()
         let png = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==") ?? Data()
-        try svc.register(recordID: "r1", imageData: png)
-        let hit = try svc.detect(png)
+        try svc.register(recordID: "r1", imageData: png, decoder: decoder)
+        let hit = try svc.detect(png, decoder: decoder)
         #expect(hit.isDuplicate)
         #expect(hit.exactHashMatch)
         #expect(hit.perceptualSimilarity == 1.0)
 
         // 不同数据不命中
         let other = png + Data("x".utf8)
-        let miss = try svc.detect(other)
+        let miss = try svc.detect(other, decoder: decoder)
         #expect(!miss.exactHashMatch)
     }
 
@@ -88,8 +92,8 @@ struct FoundationalModulesIntegrationTests {
     @Test("CaptureQualityAssessor 评分确定性", .tags(.linuxRunnable))
     func captureQualityFlow() throws {
         let png = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==") ?? Data()
-        let q1 = try CaptureQualityAssessor.assess(png)
-        let q2 = try CaptureQualityAssessor.assess(png)
+        let q1 = try CaptureQualityAssessor.assess(decoder.decode(png, maxDimension: 256))
+        let q2 = try CaptureQualityAssessor.assess(decoder.decode(png, maxDimension: 256))
         #expect(q1 == q2) // 确定性
         #expect(q1.meetsThreshold(0.0))
     }
