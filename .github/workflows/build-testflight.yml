@@ -144,6 +144,19 @@ jobs:
           echo "API Key 已就绪"
 
       # ── 签名归档（真机切片，release）─────────────────────────
+      - name: 归档配置诊断（GRDB bundle Debug-iphoneos 错位定位）
+        if: ${{ env.APPLE_API_KEY_P8 != '' }}
+        run: |
+          echo "--- VitaLiber.xcscheme ArchiveAction ---"
+          grep -A3 "ArchiveAction" VitaLiber.xcodeproj/xcshareddata/xcschemes/VitaLiber.xcscheme || echo "无 ArchiveAction 节点"
+          echo "--- archive 实际 CONFIGURATION（-showBuildSettings 不构建）---"
+          xcodebuild archive -project "$XCODEPROJ" -scheme "$SCHEME" \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath Build/ArchiveDerivedData \
+            -showBuildSettings 2>/dev/null \
+            | grep -E "^[[:space:]]*(CONFIGURATION|CONFIGURATION_BUILD_DIR|BUILT_PRODUCTS_DIR|PRODUCT_BUNDLE_IDENTIFIER) =" \
+            | sort -u || echo "showBuildSettings 失败"
+
       - name: 签名归档（archive）
         if: ${{ env.APPLE_API_KEY_P8 != '' }}
         run: |
