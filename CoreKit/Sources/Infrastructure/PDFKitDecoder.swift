@@ -22,7 +22,7 @@ public final class PDFKitDecoder: ImageDecoding, @unchecked Sendable {
                  kCGImageSourceShouldCacheImmediately: true] as CFDictionary) else {
             throw DecodeError.corruptData
         }
-        let originalSize = Size(width: cg.width, height: cg.height)
+        let originalSize = Size(width: Double(cg.width), height: Double(cg.height))
         let pngData = try encodeToPNG(cg)
         return DecodedImage(bitmapData: pngData, originalSize: originalSize, maxDimension: maxDimension)
     }
@@ -57,7 +57,7 @@ public final class PDFKitDecoder: ImageDecoding, @unchecked Sendable {
             }
 
             let pngData = try encodeToPNGFromData(bitmapData, width: Int(targetWidth), height: Int(targetHeight))
-            let originalSize = Size(width: pageRect.width, height: pageRect.height)
+            let originalSize = Size(width: Double(pageRect.width), height: Double(pageRect.height))
             pages.append(DecodedPage(pageIndex: i-1, bitmapData: pngData,
                                      originalSize: originalSize, scale: scale))
         }
