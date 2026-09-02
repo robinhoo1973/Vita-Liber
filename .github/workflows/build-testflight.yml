@@ -148,10 +148,16 @@ jobs:
         if: ${{ env.APPLE_API_KEY_P8 != '' }}
         run: |
           set -o pipefail
+          # 独立 DerivedData + 先清缓存：SPM 依赖（GRDB）的资源 bundle 在 archive 与
+          # 默认 DerivedData 混用时会错位到 Debug-iphoneos 切片（lstat
+          # .../Debug-iphoneos/GRDB_GRDB.bundle: No such file or directory）。
+          # 业界惯例：archive 用专属 DerivedData 且从干净状态构建。
+          rm -rf Build/ArchiveDerivedData
           xcodebuild archive \
             -project "$XCODEPROJ" -scheme "$SCHEME" \
             -configuration release \
             -destination 'generic/platform=iOS' \
+            -derivedDataPath Build/ArchiveDerivedData \
             -archivePath Build/VitaLiber.xcarchive \
             -authenticationKeyPath "$GITHUB_WORKSPACE/private_keys/AuthKey_$APPLE_API_KEY_ID.p8" \
             -authenticationKeyID "$APPLE_API_KEY_ID" \
