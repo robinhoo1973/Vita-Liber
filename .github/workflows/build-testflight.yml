@@ -4,7 +4,7 @@
 # 职责：编译项目 → 成功 → 签名归档 → 推送 TestFlight。
 #   1) L0 静态门禁（swift 容器，任意机器可跑）—— 不过不进编译；
 #   2) 编译门禁：xcodegen + xcodebuild build-for-testing —— 失败即停（不上传）；
-#   3) 签名归档：Path A（与 apple-app-bootstrap.yml 一致 = Xcode Cloud Signing）：
+#   3) 签名归档：Path A（Xcode Cloud Signing，自动签名）：
 #      ASC API Key 认证，Xcode 自动管理证书/描述文件（-allowProvisioningUpdates）；
 #   4) 导出 .ipa（method=app-store）→ fastlane pilot 推送 TestFlight。
 #
@@ -21,8 +21,7 @@
 #   FASTLANE_SESSION   （推荐）fastlane 会话缓存，免 2FA；缺省则 pilot 会要求 2FA
 #
 # 说明：
-#   - 与 apple-app-bootstrap.yml 的关系：该文件触发分支为 main（本仓库默认 master，
-#     实际不触发），负责 App 元数据/首包；本文件是 routine TestFlight 推送主通道。
+#   - 本文件是本仓库唯一的发布/分发通道（App 元数据与 Beta 审核在 ASC 网页管理）。
 #   - 未配置签名凭据时：只跑 L0 + 编译门禁，明确 WARNING 提示跳过上传（不误报绿）。
 #   - 版本号取自构建配置（CFBundleVersion），无需在此维护。
 # ============================================================================
