@@ -81,8 +81,8 @@ fi
 
 echo "Vita Liber L0 静态门禁 · 应用源码根: $APP"
 
-# ---------- [1] try? 门禁 ----------
-section "1/9" "try? 门禁 —— 全仓清零，豁免须同行注释 // try?-ok: <理由>（tech-spec §7）"
+# ---------- [1] 强制解包/try? 门禁 ----------
+section "1/10" "强制解包门禁 —— try? / as! / try! 全仓清零，豁免须同行注释 // try?-ok: <理由>（tech-spec §7）"
 try_viol=0; try_exempt=0
 while IFS= read -r line; do
   [ -n "$line" ] || continue
@@ -99,8 +99,25 @@ else
   pass "违规 0 处（豁免 ${try_exempt} 处）"
 fi
 
+# --- as! / try! 强制转换/强制 try（审查问题 1 回归防护）同纪律，豁免注释沿用 try?-ok ---
+force_viol=0
+for _pat in 'as! ' 'try! '; do
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    case "$line" in *'try?-ok:'*) continue ;; esac
+    _r=${line#*:}; _r=${_r#*:}
+    _nc=$(printf '%s\n' "$_r" | sed 's,//.*,,' )        # 剥离 // 注释（同 try? 扫描纪律）
+    case "$_nc" in *"$_pat"*) force_viol=$((force_viol + 1)); [ "$force_viol" -le 12 ] && printf '    %s\n' "$line" ;; esac
+  done < <(grep -rn --include='*.swift' --exclude-dir=.build --exclude-dir=.swiftpm --exclude-dir=DerivedData --exclude-dir=Build -F "$_pat" "$APP" 2>/dev/null || true)
+done
+if [ "$force_viol" -gt 0 ]; then
+  fail "强制类型转换/强制 try（as!/try!）${force_viol} 处 —— 改 as?/do-catch 或补 // try?-ok: 豁免"
+else
+  pass "as!/try! 违规 0 处"
+fi
+
 # ---------- [2] ADR-021 无平行视图 ----------
-section "2/9" "ADR-021 —— 禁止平行视图文件与 idiom 分支换页（tech-spec §5.26）"
+section "2/10" "ADR-021 —— 禁止平行视图文件与 idiom 分支换页（tech-spec §5.26）"
 ipad_files=$(find "$APP" \( -name .build -o -name .swiftpm -o -name DerivedData -o -name Build \) -prune -o \( -name '*_iPad*.swift' -o -name '*_iPhone*.swift' \) -print 2>/dev/null | grep -v '/CoreKit/' || true)
 if [ -n "$ipad_files" ]; then
   printf '%s\n' "$ipad_files" | head -15 | sed 's/^/    /'
@@ -125,19 +142,39 @@ else
 fi
 
 # ---------- [3] DDL 引用完整性 ----------
-section "3/9" "DDL 引用完整性 —— REFERENCES 目标已建表 + 外键开启（tech-spec §4.3）"
-ddl_text=$(find "$APP" \( -name .build -o -name .swiftpm -o -name DerivedData \) -prune -o \( -name '*.swift' -o -name '*.sql' \) -print0 2>/dev/null | xargs -0 cat 2>/dev/null || true)
+section "3/10" "DDL 引用完整性 —— REFERENCES 目标已建表 + 外键开启（tech-spec §4.3）"
 # 大文本管道防 SIGPIPE（ERR#34）：ddl_text 达数 MB 后，
 # `printf | grep -qE` 在 grep 提前命中退出时把仍在写的 printf 打死
 # （exit 141），pipefail 下整段报错——曾造成「外键开启语句缺失」假红。
 # 一律落临时文件再 grep，杜绝管道早退。
 _ddl_file=$(mktemp)
-printf '%s\n' "$ddl_text" > "$_ddl_file"
+# 逐文件追加，不用 `xargs -0 cat`：参数表超过 ARG_MAX 时 xargs 会拆成多次 cat，
+# 任一次失败都被 `2>/dev/null || true` 吞掉 → 语料被截断而门禁毫不知情。
+# 截断的后果是双向的：既可能把「CREATE TABLE 落在丢失分片里」的表报成悬空引用（假红，
+# 实测遇到过一次不可复现的 1 处悬空），也可能把真实违规读漏成 PASS（ERR#27 空扫判过）。
+# 因此改为可数的读入 + 语料完整性自证。
+_ddl_files=0
+while IFS= read -r -d '' _f; do
+  cat "$_f" >> "$_ddl_file" || { fail "DDL 语料读取失败: $_f"; break; }
+  printf '\n' >> "$_ddl_file"
+  _ddl_files=$((_ddl_files + 1))
+done < <(find "$APP" \( -name .build -o -name .swiftpm -o -name DerivedData \) -prune -o \
+         \( -name '*.swift' -o -name '*.sql' \) -print0 2>/dev/null)
 created=$(tr -d '"' < "$_ddl_file" \
   | grep -ohE 'CREATE TABLE( IF NOT EXISTS)? [A-Za-z_]+' \
   | awk '{print $NF}' | sort -u || true)
 refs=$(grep -ohE 'REFERENCES "?[A-Za-z_]+' "$_ddl_file" \
   | awk '{gsub(/"/,""); print $NF}' | sort -u || true)
+# 语料完整性自证（ERR#27）：文件数为 0、或基线必有表读不到，说明这次扫的不是全量语料，
+# 此时任何「引用完整性」结论都不成立——必须报「扫描不完整」，不得报内容判定。
+_ddl_incomplete=0
+if [ "$_ddl_files" -eq 0 ]; then
+  _ddl_incomplete=1
+else
+  for _sentinel in patient_profile document_file; do
+    printf '%s\n' "$created" | grep -qx "$_sentinel" || _ddl_incomplete=1
+  done
+fi
 ddl_missing=0
 while IFS= read -r t; do
   [ -n "$t" ] || continue
@@ -153,8 +190,10 @@ fk_on=0
 # 断言改为「schema-as-code 常量存在」+「GRDB 侧配置语义存在」双条件，
 # 与平台无关；运行时半场（PRAGMA 实测）由 iOS 模拟器 SchemaRuntimeTests 承担。
 grep -qE 'SchemaV2|foreignKeysEnabled' "$_ddl_file" && fk_on=1
-if [ "$ddl_missing" -eq 0 ] && [ "$fk_on" -eq 1 ]; then
-  pass "REFERENCES 目标全部已定义；外键开启断言通过"
+if [ "$_ddl_incomplete" -eq 1 ]; then
+  fail "DDL 语料扫描不完整（读入 ${_ddl_files} 个文件，基线必有表缺失）—— 不得据此判定引用完整性"
+elif [ "$ddl_missing" -eq 0 ] && [ "$fk_on" -eq 1 ]; then
+  pass "REFERENCES 目标全部已定义；外键开启断言通过（语料 ${_ddl_files} 个文件）"
 else
   [ "$ddl_missing" -gt 0 ] && fail "外键引用悬空 ${ddl_missing} 个目标表"
   [ "$fk_on" -eq 0 ] && fail "未找到外键开启语句（PRAGMA foreign_keys=ON / Configuration.foreignKeysEnabled）"
@@ -171,7 +210,7 @@ done
 rm -f "$_ddl_file"
 
 # ---------- [4] 红线模块禁读 EntitlementStore ----------
-section "4/9" "商业化红线 —— 红线模块代码内禁止读取 EntitlementStore（tech-spec §5.14）"
+section "4/10" "商业化红线 —— 红线模块代码内禁止读取 EntitlementStore（tech-spec §5.14）"
 DEFAULT_REDLINE="$APP/App/M1a/OnboardingViews.swift:$APP/App/M1b/RemindersViews.swift:$APP/App/M1c/ObservationViews.swift:$APP/App/M1c/AssistantView.swift"
 REDLINE_PATHS="${REDLINE_PATHS:-$DEFAULT_REDLINE}"
 redline_matched=0; ent_viol=0
@@ -198,7 +237,7 @@ else
 fi
 
 # ---------- [5] Domain 零框架依赖 ----------
-section "5/9" "分层纪律 —— Domain 零框架依赖，白名单断言 import ⊆ {Foundation}（tech-spec §1.1）"
+section "5/10" "分层纪律 —— Domain 零框架依赖，白名单断言 import ⊆ {Foundation}（tech-spec §1.1）"
 if [ ! -d "$DOMAIN" ]; then
   fail "缺少 $DOMAIN —— M0 要求 CoreKit 三目标骨架先行"
 else
@@ -217,7 +256,7 @@ else
 fi
 
 # ---------- [6] Fixtures JSON 校验 ----------
-section "6/9" "金样 Fixtures —— JSON 可解析（dev-pm-spec §9.2④）"
+section "6/10" "金样 Fixtures —— JSON 可解析（dev-pm-spec §9.2④）"
 validate_json() {
   if command -v python3 >/dev/null 2>&1; then
     python3 -c 'import json,sys; json.load(open(sys.argv[1], encoding="utf-8"))' "$1" 2>/dev/null
@@ -257,7 +296,7 @@ else
 fi
 
 # ---------- [7] Swift 语法解析门禁 ----------
-section "7/9" "Swift 解析门禁 —— App 层源码语法/保留字检查（ERR#28 shift-left）"
+section "7/10" "Swift 解析门禁 —— App 层源码语法/保留字检查（ERR#28 shift-left）"
 # 背景：App/ 的 SwiftUI 源码不属于 CoreKit SPM 包，Linux 上 `swift build` 不覆盖它，
 # 过去任何语法错误（如 `static let import`）都要等 macOS L1 编译才暴露，一次往返数分钟。
 # swiftc -parse 只做语法分析、不做语义解析与 import 解析，因此在无 SwiftUI 的 Linux 上同样有效。
@@ -284,7 +323,7 @@ else
 fi
 
 # ---------- [8] 阶段门禁套件存在性 ----------
-section "8/9" "阶段门禁套件存在性 —— test-plan §3 必过套件必须真实存在（ERR#27 原则推广）"
+section "8/10" "阶段门禁套件存在性 —— test-plan §3 必过套件必须真实存在（ERR#27 原则推广）"
 # 根因族第三次复发的治本项：ERR#27=扫到 0 个对象判 PASS；ERR#30=job skipped 判 success；
 # M1.5=套件从未创建、CI 无 job 绑定 → 无红可判 → 默认通过。三者同为「缺证据被当成有证据」。
 # 本项把「某阶段必须存在哪些套件」变成可执行断言：清单里 required=yes 的套件
@@ -352,7 +391,7 @@ else
 fi
 
 # ---------- [9] FR17.13 语音输入模板复用 ----------
-section "9/9" "FR17.13 模板复用 —— 四处确认入口必须走同一模板，禁止自建确认逻辑（TC-M15-03）"
+section "9/10" "FR17.13 模板复用 —— 四处确认入口必须走同一模板，禁止自建确认逻辑（TC-M15-03）"
 # function-spec FR17.13：语音指导每步(FR17.11)/语音速记(FR17.9)/语音提醒设定(FR17.10)/
 # 观察语音速记(FR8.9) 一律调用标准模板，**禁止各功能自建独立确认逻辑**。
 # 两条断言：
@@ -402,6 +441,72 @@ if [ "$t_bad" -gt 0 ]; then
   fail "FR17.13 模板复用断言未通过（$t_bad 类问题）"
 else
   pass "四处确认入口全部走 VoiceInputTemplate，模板外零构造"
+fi
+
+# ---------- [10] L10n 硬编码门禁（审查问题 E · 机制先于存量） ----------
+section "10/10" "L10n 单出口 —— 视图层禁止新增中文字面量（三文件纪律；存量登记 .github/workflows/l10n-legacy-allowlist.txt）"
+L10N_ALLOW="$SCRIPT_DIR/l10n-legacy-allowlist.txt"
+[ -f "$L10N_ALLOW" ] || touch "$L10N_ALLOW"
+# locale 必须「验证可用」而非「设了就算」：export 不校验合法性，无效 LC_ALL（如
+# 某些发行版无 C.UTF-8）会让 grep 报 Invalid collation character（exit 2，被
+# 2>/dev/null 吞掉）→ 扫描 0 行 → 空扫判 PASS（ERR#27 形态）。逐个候选实测，
+# 全部失败即 fail 关闸，绝不放行未经扫描的门禁。
+L10N_LOCALE=""
+for _cand in C.UTF-8 C.utf8 en_US.UTF-8 en_US.utf8 zh_CN.UTF-8 zh_CN.utf8; do
+  if LC_ALL="$_cand" grep -qE '[一-龥]' <<< '中文测试' 2>/dev/null; then
+    L10N_LOCALE="$_cand"
+    break
+  fi
+done
+if [ -n "$L10N_LOCALE" ]; then
+  export LC_ALL="$L10N_LOCALE"
+else
+  export LC_ALL=C
+fi
+l10n_bad=0
+l10n_shown=0
+l10n_scanned=0
+while IFS= read -r line; do
+  [ -n "$line" ] || continue
+  l10n_scanned=$((l10n_scanned + 1))
+  _rest=${line#*:}
+  _rest=${_rest#*:}
+  # 逐字面量判定，而非整行跳过。整行跳过（旧实现 case *systemImage*|*Image(*|//* ) continue）
+  # 会让「与豁免调用同行」的用户文案整条蒙过门禁——`Label("记录观察", systemImage: "plus")`
+  # 里的中文根本没被扫到，行尾补一句 `// 注释` 也能让整行消失（ERR#27：门禁在但不判）。
+  # 因此改为先剥掉**确定非用户可见**的参数（注释、无障碍标识、图标名、日志、颜色资源名），
+  # 再对剩余部分取字面量。注意 accessibilityLabel 是 VoiceOver 可见文案，绝不在剥离之列。
+  _scan=$(printf '%s' "$_rest" | sed -E \
+    -e 's#//.*$##' \
+    -e 's/accessibilityIdentifier\([[:space:]]*"[^"]*"[[:space:]]*\)//g' \
+    -e 's/systemImage:[[:space:]]*"[^"]*"//g' \
+    -e 's/Image\([[:space:]]*"[^"]*"//g' \
+    -e 's/Color\([[:space:]]*"[^"]*"//g' \
+    -e 's/logger\.[a-zA-Z]+\("[^"]*"\)//g')
+  _ok=1
+  while IFS= read -r lit; do
+    [ -n "$lit" ] || continue
+    _v=${lit#\"}; _v=${_v%\"}
+    # -x 整行精确匹配：子串匹配会让「提醒」被既有条目「您有一条健康提醒」放行，
+    # 新增硬编码就能靠碰巧是某条存量的子串蒙过门禁（ERR#27 同族：门禁在但不判）
+    grep -qxF "$_v" "$L10N_ALLOW" || _ok=0
+  done <<< "$(printf '%s' "$_scan" | grep -oE '\"[^\"]*[一-龥][^\"]*\"' || true)"
+  if [ "$_ok" -ne 1 ]; then
+    l10n_bad=$((l10n_bad + 1))
+    if [ "$l10n_shown" -lt 12 ]; then
+      printf '    %s\n' "$line"
+      l10n_shown=$((l10n_shown + 1))
+    fi
+  fi
+done < <(grep -rn --include='*.swift' -E '\"[^\"]*[一-龥][^\"]*\"' "$APP/App" 2>/dev/null | grep -v '/L10n.swift:' || true)
+if [ -z "$L10N_LOCALE" ]; then
+  fail "本机无可验证的 UTF-8 locale —— L10n 扫描未执行，不得空扫判 PASS（ERR#27）"
+elif [ "$l10n_scanned" -eq 0 ]; then
+  fail "L10n 扫描命中 0 行 —— locale/正则失效或扫描范围为空，不得空扫判 PASS（ERR#27）"
+elif [ "$l10n_bad" -gt 0 ]; then
+  fail "视图层未登记中文字面量 $l10n_bad 处 —— 迁入 L10n.swift（三文件），或登记 $L10N_ALLOW"
+else
+  pass "视图层无未登记中文字面量（存量豁免清单 $L10N_ALLOW；扫描 $l10n_scanned 行）"
 fi
 
 # ---------- 汇总 ----------
