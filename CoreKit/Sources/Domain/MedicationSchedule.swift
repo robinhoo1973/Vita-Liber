@@ -78,18 +78,33 @@ public enum DoseScheduleEngine {
             case .fixed(let times):
                 for t in times { append(day, t, 1.0) }
             case .interval(let everyMinutes, let start):
+                // BR-004 安全闸：非法参数（everyMinutes<=0）绝不进入死循环——跳过该日并计入 skip
+                guard everyMinutes > 0 else { skipped += 1; continue }
                 guard let startDate0 = Self.date(day: day, time: start, startDate: startDate, calendar: calendar) else { skipped += 1; continue }
-                let dayEnd = calendar.date(byAdding: .day, value: 1, to: startDate0) ?? startDate0
+                // 评审修正：日历加法失败（近乎不可达）原实现静默产出 0 剂且不计 skip，
+                // 与「绝不静默错位」纪律相悖——改为计 skip 跳过该日
+                guard let dayEnd = calendar.date(byAdding: .day, value: 1, to: startDate0)
+                else { skipped += 1; continue }
                 var t = startDate0
+                // 间隔给药按「绝对时间」推进：每 N 分钟就是每 N 真实分钟。
+                // 夏令时**不做**墙钟补偿——补偿反而会制造 3 小时或 5 小时的真实给药间隔，
+                // 对间隔给药是用药安全问题。切换日次数随当日真实长度自然增减
+                // （dayEnd 取日历日 +1，即 23/25 小时），这是预期行为。
+                // 分钟级单位下 calendar.date(byAdding:) 与 addingTimeInterval 结果等价
+                // （实测已确认），此处取后者：本循环按剂量数迭代（每 30 分钟 × 30 天
+                // ≈ 1440 次/计划），日历组件运算比一次浮点加法贵一个数量级。
+                // 先转 TimeInterval 再乘，避免 everyMinutes 极大时 Int 乘法溢出陷阱。
                 while t < dayEnd {
                     out.append(ScheduledDose(dueAt: t, doseUnits: 1.0, notifyId: "dose-\(planId.uuidString)-\(Int(t.timeIntervalSince1970))"))
-                    t = t.addingTimeInterval(TimeInterval(everyMinutes * 60))
+                    t = t.addingTimeInterval(TimeInterval(everyMinutes) * 60)
                 }
             case .meal(let relations):
                 for r in relations { append(day, Self.mealDefaultTime(r), 1.0, meal: r) }
             case .asNeeded:
                 break                                              // 按需不预排
             case .cycle(let everyDays, let daysOn):
+                // 除零保护：everyDays<=0 直接跳过（不会让日程引擎崩溃）
+                guard everyDays > 0 else { continue }
                 let dayOfCycle = ((day - 1) % everyDays) + 1
                 if dayOfCycle <= daysOn {
                     for t in ["08:00"] { append(day, t, 1.0) }

@@ -8,16 +8,20 @@ public enum BatchExpiryTier: String, Sendable, Equatable, Codable {
 
 public struct BatchExpiryRules {
     /// 三级触发点（FR9.11）：expire_at 前 30/7/3 天各一次
-    public static let offsets: [BatchExpiryTier: TimeInterval] = [
-        .t30: -30 * 86400,
-        .t7: -7 * 86400,
-        .t3: -3 * 86400,
+    public static let daysBefore: [BatchExpiryTier: Int] = [
+        .t30: 30, .t7: 7, .t3: 3,
     ]
 
-    /// 已过期批次不再提醒（到期即止）；触发点已过不补发
-    public static func fireDates(expireAt: Date, now: Date) -> [(tier: BatchExpiryTier, at: Date)] {
-        offsets.compactMap { tier, offset in
-            let fire = expireAt.addingTimeInterval(offset)
+    /// 已过期批次不再提醒（到期即止）；触发点已过不补发。
+    ///
+    /// 评审修正（DST 纪律统一）：原实现用固定 `-N×86400` 秒回推——30 天档在
+    /// 有夏令时的时区必然穿越一次调时，触发时刻漂移 1 小时，与本文件
+    /// `ObservationFollowUpRules` 的日历日纪律自相矛盾。现按日历日回推并注入
+    /// calendar（与 `DoseScheduleEngine`/`VoiceReminderRules` 同一纪律，可单测）。
+    public static func fireDates(expireAt: Date, now: Date,
+                                 calendar: Calendar = .current) -> [(tier: BatchExpiryTier, at: Date)] {
+        daysBefore.compactMap { tier, days in
+            guard let fire = calendar.date(byAdding: .day, value: -days, to: expireAt) else { return nil }
             return (fire > now && fire < expireAt) ? (tier, fire) : nil
         }.sorted { $0.at < $1.at }
     }
@@ -33,9 +37,23 @@ public enum ObservationFollowUpRules {
     public static let firstFollowUpDays = 3
     public static let repeatIntervalDays = 7
 
-    public static func followUpDate(from observedAt: Date, occurrence: Int) -> Date {
-        let days = occurrence == 0 ? firstFollowUpDays : repeatIntervalDays
-        return observedAt.addingTimeInterval(TimeInterval(days * 86400))
+    /// - Parameter calendar: 注入日历（与 `DoseScheduleEngine`/`VoiceReminderRules` 同一纪律）。
+    ///   写死 `Calendar.current` 会让「跨夏令时是否漂移」这条正是本函数存在理由的性质
+    ///   无法单测——测试跑在哪台机器的时区上就测哪个时区，等于不测。
+    public static func followUpDate(from observedAt: Date, occurrence: Int,
+                                    calendar: Calendar = .current) -> Date {
+        // FR8.10：首访 = firstFollowUpDays（默认 3 天），此后每 repeatIntervalDays（默认 7 天）累加；
+        // occurrence 为 0-based 计数，第 n 次随访 = 首访 + n×周期间隔。
+        // DST 安全：按日历日推进（与 DoseScheduleEngine 同一纪律）——固定 86400 秒跨
+        // 夏令时切换会漂移 1 小时，随访提醒时刻错位。
+        let days = firstFollowUpDays + max(0, occurrence) * repeatIntervalDays
+        guard let byCalendar = calendar.date(byAdding: .day, value: days, to: observedAt) else {
+            // 兜底（评审修正注释与实现对齐）：日历加法失败是「日历对象本身不可用」的
+            // 近乎不可达分支——此时任何按日历锚点重算的尝试同样不可信，只能退回
+            // 固定 86400 秒作为最后手段，绝不返回 nil 也不静默吞掉随访。
+            return observedAt.addingTimeInterval(TimeInterval(days) * 86_400)
+        }
+        return byCalendar
     }
 }
 
@@ -51,7 +69,10 @@ public enum BackupReminderRules {
 
 /// 语音提醒设定（FR17.10）：模糊时间必须落具体日期（FR10.2 规则）——不落不产出
 public enum VoiceReminderRules {
-    /// 相对时间短语 → 具体日期（「明天」「后天」「下周一」）
+    /// 相对时间短语 → 具体日期（「明天」「明早」「后天」「今天」）。
+    /// 评审修正（文档与实现对齐）：注释此前声称支持「下周一」，实现与
+    /// `VoiceGrammarDefaults.reminderRules` 均未支持——FR10.2 下「不落不产出」
+    /// 是正确行为，错的是文档。周几类短语属明确需求，应先在文法表登记再实现。
     public static func resolveDate(phrase: String, now: Date, calendar: Calendar = .current) -> Date? {
         switch phrase {
         case "明天", "明早": return calendar.date(byAdding: .day, value: 1, to: now)
@@ -69,9 +90,11 @@ public enum VoiceReminderRules {
         guard let phrase = drafts.first(where: { $0.key == "time" })?.value,
               let day = resolveDate(phrase: phrase, now: now, calendar: calendar)
         else { return nil }
-        guard let hourText = drafts.first(where: { $0.key == "hour" })?.value,
-              let hour = Int(hourText), (0...23).contains(hour)
-        else { return day }
+        // hour 字段缺失：日期已具体（如「明天」），允许按当天设提醒，不猜时刻
+        guard let hourText = drafts.first(where: { $0.key == "hour" })?.value else { return day }
+        // hour 字段存在但无法解析为合法时刻（如「25」）→ 返回 nil（绝不猜 00:00，
+        // 由 UI 要求澄清）；猜错的提醒比没有提醒更糟（FR10.2）
+        guard let hour = Int(hourText), (0...23).contains(hour) else { return nil }
         return calendar.date(bySettingHour: hour, minute: 0, second: 0, of: day)
     }
 }

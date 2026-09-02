@@ -46,12 +46,18 @@ public struct DoseSlot: Sendable, Equatable, Identifiable {
 public struct DoseSlotGrouping {
     public static let tolerance: TimeInterval = 30 * 60   // ±30min
 
-    /// 餐时默认时刻（分钟表；锚点 = 当日 startOfDay + 分钟）
-    static let mealMinutes: [String: Int] = [
-        "beforeBreakfast": 7 * 60 + 30, "afterBreakfast": 8 * 60 + 30,
-        "beforeLunch": 11 * 60 + 30, "afterLunch": 12 * 60 + 30,
-        "beforeDinner": 17 * 60 + 30, "afterDinner": 19 * 60 + 30,
-    ]
+    /// 餐时默认时刻（分钟表；锚点 = 当日 startOfDay + 分钟）。
+    ///
+    /// 评审修正（单一事实源）：此表此前与 `DoseScheduleEngine.mealDefaultTime`
+    /// 各自硬编码一份且**回退值不同**（此处 08:30 / 引擎 08:00）——同一餐时关系
+    /// 在「生成剂量」与「聚合锚点」两处取到不同时刻，±30min 窗口随之错位。
+    /// 现改为从引擎字符串解析派生：锚点恒等于调度引擎产出的默认时刻，改引擎即改锚点。
+    static func mealMinutes(for relation: String) -> Int {
+        let time = DoseScheduleEngine.mealDefaultTime(relation)
+        let parts = time.split(separator: ":").compactMap { Int($0) }
+        guard parts.count == 2 else { return 8 * 60 + 30 }   // 引擎输出恒为 HH:mm，兜底不可达
+        return parts[0] * 60 + parts[1]
+    }
 
     /// 时段聚合（FR9.17）：
     /// - 餐时剂量锚定「餐时默认时刻」（不是首剂时刻——否则 ±30min 窗口随
@@ -91,7 +97,7 @@ public struct DoseSlotGrouping {
 
     static func mealAnchor(for date: Date, relation: String, calendar: Calendar) -> Date {
         let start = calendar.startOfDay(for: date)
-        let minutes = mealMinutes[relation] ?? 8 * 60 + 30
+        let minutes = mealMinutes(for: relation)
         return start.addingTimeInterval(TimeInterval(minutes * 60))
     }
 
@@ -141,18 +147,32 @@ public enum InventoryRules {
         return v
     }
 
-    /// FR9.8.2 扣减矩阵（评审修正：原实现只扣确认线，把违规格写绿）：
-    /// - taken：两线各扣（计划轨消耗 + 事实轨消耗）
-    /// - skipped/missed/discomfort：仅计划轨扣（计划已过，事实线不动）
+    /// FR9.8.2 扣减矩阵（function-spec 权威文案：已服用/记录不适 → 两线各−1；
+    /// 显式跳过 → 两线均免扣（唯一已知未服情形）；忘记/无操作 miss → 安全线−1、
+    /// 确认线 0；稍后挂起待决议）：
+    /// - taken / discomfort：两线各扣（服用事实成立）
+    /// - skipped：两线均免扣（库存实际未消耗）
+    /// - missed：仅计划轨扣（安全侧偏置：未知按计划消耗推进，确认线不动）
     /// - snoozed：两线都不扣（临时延后，非终态动作）
     public static func applyResolution(_ inv: DualTrackInventory, units: Double, action: DoseUserAction) -> DualTrackInventory {
+        let d = deduction(for: action, units: units)
+        var out = inv
+        if d.plan > 0 { out = deductPlan(out, units: d.plan) }
+        if d.confirmed > 0 { out = deductConfirmed(out, units: d.confirmed) }
+        return out
+    }
+
+    /// FR9.8.2 扣减矩阵的**唯一编码**：给定用户动作，返回两条轨各自应扣的单位数。
+    ///
+    /// `applyResolution`（单批次）与 Infrastructure 的 FEFO 批次分配都必须由此派生。
+    /// 此前 Infrastructure 用两个三元表达式重新编码了同一张矩阵，同一次规格修订里
+    /// 两处各改一遍才对——漏一处就让 dose_lot_allocation 账本与 Domain 判定背离
+    /// （双轨库存的报表/续药告警同时失真），且属「BR 规则只在 Domain」的违例。
+    public static func deduction(for action: DoseUserAction, units: Double) -> (plan: Double, confirmed: Double) {
         switch action {
-        case .snoozed:
-            return inv
-        case .taken:
-            return deductConfirmed(deductPlan(inv, units: units), units: units)
-        default:
-            return deductPlan(inv, units: units)
+        case .snoozed, .skipped:   return (0, 0)          // 已知未服，库存未消耗
+        case .taken, .discomfort:  return (units, units)  // 服用事实成立
+        case .missed:              return (units, 0)      // 未知按计划推进（安全侧偏置）
         }
     }
 
@@ -176,6 +196,12 @@ public enum InventoryRules {
     }
 
     /// 当前应处的最紧急档位；不需告警返回 nil。过期批次直接按最紧急档处理。
+    ///
+    /// 契约（评审补注）：本规则**不读 status**——余量 0 的批次按最紧急档持续触达，
+    /// 这是 ADR-009「偏早告警」的有意取向（用户未处理就持续提醒）；status 过滤
+    /// （只对 active 批次告警）是**调用方**职责（见 MedicationStore.refillSummary
+    /// 的 `WHERE status = 'active'`）。不要把 status 判断塞进本函数——那会让
+    /// 「已耗尽未盘点」的批次静默退出告警，违反偏早红线。
     public static func refillTier(_ inv: DualTrackInventory, dailyPlanUnits: Double,
                                   at date: Date) -> RefillTier? {
         guard dailyPlanUnits > 0 else { return nil }
@@ -200,6 +226,12 @@ public enum InventoryRules {
     ///
     /// - Parameter elapsedScheduledDoses: 区间内**应服**剂次数（由排程引擎给出，
     ///   与用户是否确认无关）。
+    ///
+    /// ⚠️ 当前**无生产调用方**（仅 M2DomainTests 覆盖）。线上走的是
+    /// `MedicationStore.materializeMissed`：把过宽限的无动作剂量物化成 `missed`，
+    /// 再经扣减矩阵推进计划轨。二者语义等价但路径不同——本函数是「按区间批量推进」，
+    /// materializeMissed 是「按剂量逐条补账」。保留是因为它是 FR9.8.8 的可单测纯规则；
+    /// 若后续确认不再需要批量口径，应连同测试一并删除，不要让它悄悄留成第二套真相。
     public static func advancePlanTrack(_ inv: DualTrackInventory,
                                         elapsedScheduledDoses: Int,
                                         unitsPerDose: Double) -> DualTrackInventory {

@@ -54,12 +54,46 @@ public struct AIAnswer: Sendable, Equatable {
         public var reason: Reason
         public var detail: String
         public var actions: [Action]
+        public init(reason: Reason, detail: String, actions: [Action]) {
+            self.reason = reason
+            self.detail = detail
+            self.actions = actions
+        }
     }
     public var body: Body
+    public init(body: Body) { self.body = body }
 
     public var citations: [EntityReference] {
         if case .composed(let p) = body { return p.citations }
         return []
+    }
+}
+
+// MARK: - 红线答案工厂（同一情形只有一种文案）
+
+public extension AIAnswer {
+    /// BR-012 急救卡
+    static var emergency: AIAnswer { AIAnswer(body: .emergencyCard) }
+
+    /// BR-006 资料不足拒识。Provider 与纵深防御装饰器共用同一工厂，避免同一情形
+    /// 因「哪一层先判定」而产生两种 Refusal。
+    ///
+    /// 注意 `detail` 是**诊断/测试用默认值，不上屏**：Domain 是纯 Swift 层，取不到
+    /// .strings，硬编码简体一旦上屏就等于 zh-Hant/en 用户看到简体。呈现文案的唯一
+    /// 出口是 App 层按 `reason` 取 L10n（见 AssistantStore.refusalDetail）。
+    static var insufficientData: AIAnswer {
+        AIAnswer(body: .refused(Refusal(
+            reason: .insufficientData,
+            detail: "你的资料里暂时没有与这个问题相关的内容。可以补充病历、报告或自测记录后再问。",
+            actions: [.addRecords, .consultDoctor])))
+    }
+
+    /// BR-006 高风险话题拒识（调药/停药类）。同上：`detail` 不上屏，呈现走 L10n。
+    static var highRiskTopic: AIAnswer {
+        AIAnswer(body: .refused(Refusal(
+            reason: .highRiskTopic,
+            detail: "调整或停用药物必须由医生决定；请带着处方咨询医生或药师。",
+            actions: [.consultDoctor])))
     }
 }
 
@@ -133,21 +167,16 @@ public struct LocalRetrievalProvider: AIProvider {
     public func answer(_ q: AIQuery, scope: DataAccessScope) async throws -> AIAnswer {
         // BR-012 优先：疑似紧急 → 急救卡
         if EmergencyKeywordRules.match(q.text) {
-            return AIAnswer(body: .emergencyCard)
+            return .emergency
         }
-        // BR-006：调药/停药类 → 安全拒识
+        // BR-006：调药/停药类 → 安全拒识（装配层的 SafeAIProvider 亦独立拦一次；
+        // 此处保留使未加装饰器直接使用本 Provider 时红线依然成立）
         if HighRiskTopicRules.match(q.text) {
-            return AIAnswer(body: .refused(.init(
-                reason: .highRiskTopic,
-                detail: "调整或停用药物必须由医生决定；请带着处方咨询医生或药师。",
-                actions: [.consultDoctor])))
+            return .highRiskTopic
         }
         let hits = try await search.search(q.text, scope: scope, limit: 12)
         guard !hits.isEmpty else {
-            return AIAnswer(body: .refused(.init(
-                reason: .insufficientData,
-                detail: "你的资料里暂时没有与这个问题相关的内容。可以补充病历、报告或自测记录后再问。",
-                actions: [.addRecords, .consultDoctor])))
+            return .insufficientData
         }
         return AIAnswer(body: .composed(compose(hits, question: q.text)))
     }
@@ -188,5 +217,38 @@ public struct AuditedAIProvider: AIProvider {
         let ids = scope.patientIds.map(\.uuidString).sorted().joined(separator: ",")
         await audit(ids)   // 调用方负责哈希；此处只传事实
         return try await inner.answer(q, scope: scope)
+    }
+}
+
+/// 红线纵深防御装饰器（BR-012 / BR-006）。
+///
+/// 为什么在 Domain 而不是在 Store：BR 规则是 Domain 纯逻辑（架构规则 4），
+/// 且装饰器对**任何** AIProvider 生效——P1 云端实现（D1/D3）无需重复实现，
+/// 未来第二个 `provider.answer` 调用方也不可能绕过。放在某个 Store 里，
+/// 两者都不成立。
+///
+/// 三条不变量：
+/// ① 紧急关键词命中 → 必出急救卡，即便内层 Provider 误分类；
+/// ② 高风险话题（措辞负清单：调药/停药）→ 必拒识。红线是「一票否决」，
+///    因此不能只长在 LocalRetrievalProvider 里：任何 Provider（P1 云端 D1/D3）
+///    都可能返回带引用的剂量结论，装饰器必须在装配层统一拦住。
+/// ③ 组合答案 citations 为空 → 拒识。citations 是唯一类型化出处，
+///    excerpts 是无溯源纯文本，故只认 citations。
+///
+/// ①② 均**前置短路**：两者的答案都是固定内容，不读任何资料即可给出。提前返回既省掉
+/// 一次 FTS 检索/云端往返，也避免为用不到资料的提问去访问病历（最小必要访问）；
+/// 同时让「错误路径漏红线」由结构排除——内层根本不会被调用。
+public struct SafeAIProvider: AIProvider {
+    let inner: any AIProvider
+    public init(inner: any AIProvider) { self.inner = inner }
+
+    public func answer(_ q: AIQuery, scope: DataAccessScope) async throws -> AIAnswer {
+        if EmergencyKeywordRules.match(q.text) { return .emergency }        // ①
+        if HighRiskTopicRules.match(q.text) { return .highRiskTopic }       // ②
+        let answer = try await inner.answer(q, scope: scope)
+        if case .composed(let p) = answer.body, p.citations.isEmpty {
+            return .insufficientData                                       // ③
+        }
+        return answer
     }
 }
