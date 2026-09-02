@@ -16,7 +16,6 @@ targets:
   VitaLiber:
     type: application
     platform: iOS
-    bundleId: com.vitaliber.app
     sources: [App, Resources]
     settings:
       base:
@@ -24,6 +23,7 @@ targets:
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_CFBundleDisplayName: 青囊书
         INFOPLIST_FILE: VitaLiber-Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.vitaliber.app
         # 三部件版本（dev-pm-spec §9.3 / FR22.8）：GitHub Release 版本 + CI 构建序号 + 提交哈希。
         # CI 在 xcodebuild 时覆盖注入；本地构建回落默认值。
         MARKETING_VERSION: "0.0.1"
