@@ -1,6 +1,7 @@
 #if os(iOS) || os(macOS)
 import Foundation
 import AVFoundation
+import Speech
 import Domain
 import Protocols
 

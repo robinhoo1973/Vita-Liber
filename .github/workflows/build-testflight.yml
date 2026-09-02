@@ -157,6 +157,7 @@ jobs:
             -authenticationKeyID "$APPLE_API_KEY_ID" \
             -authenticationKeyIssuerID "$APPLE_API_KEY_ISSUER_ID" \
             -allowProvisioningUpdates \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
             MARKETING_VERSION="$RELEASE_VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" VITA_LIBER_CODE_HASH="$CODE_HASH" \
             2>&1 | tee Build/xcodebuild-archive.log
 
@@ -188,6 +189,11 @@ jobs:
             2>&1 | tee Build/xcodebuild-export.log
           ls -la Build/export/
           test -f Build/export/VitaLiber.ipa && echo "ipa 导出成功 ✓"
+          # 评审修正：打印 ipa 实际 bundle id 供上传诊断——pilot 应默认从 ipa 解析，
+          # 硬编码 app_identifier 曾与 project.yml（com.vitaliber.VitaLiber）不一致
+          IPA_APP_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \
+            "Build/VitaLiber.xcarchive/Products/Applications/VitaLiber.app/Info.plist" 2>/dev/null || echo unknown)"
+          echo "ipa bundle id: $IPA_APP_ID"
 
       # ── 推送 TestFlight（API Key 认证，无需 2FA）────────────
       - name: 上传 TestFlight（fastlane pilot）
@@ -195,7 +201,9 @@ jobs:
         run: |
           command -v fastlane >/dev/null 2>&1 || brew install fastlane >/dev/null 2>&1
           NOTES="${{ inputs.notes }}"
-          PILOT_OPTS=(upload --ipa Build/export/VitaLiber.ipa --app_identifier com.vitaliber.app)
+          # app_identifier 不硬编码：pilot 默认从 ipa 的 CFBundleIdentifier 解析，
+          # 与 project.yml/归档产物天然一致（评审修正——硬编码曾与真实 bundle id 不符）
+          PILOT_OPTS=(upload --ipa Build/export/VitaLiber.ipa)
           PILOT_OPTS+=(--api_key_path "private_keys/AuthKey_$APPLE_API_KEY_ID.p8")
           PILOT_OPTS+=(--api_key_id "$APPLE_API_KEY_ID")
           PILOT_OPTS+=(--api_key_issuer_id "$APPLE_API_KEY_ISSUER_ID")

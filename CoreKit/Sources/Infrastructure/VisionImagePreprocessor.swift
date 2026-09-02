@@ -2,6 +2,8 @@
 import Foundation
 import Vision
 import CoreImage
+import ImageIO
+import UniformTypeIdentifiers
 import Domain
 import Protocols
 
