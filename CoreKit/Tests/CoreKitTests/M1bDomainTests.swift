@@ -55,6 +55,26 @@ struct ScheduleEngineTests {
         #expect(doses.count == 1 && skipped == 1)   // 绝不静默错位
     }
 
+    @Test func 间隔参数非法不进入死循环() {
+        // everyMinutes<=0 必须跳过该日而非无限循环（纯函数可终止性红线）
+        let (doses, skipped) = DoseScheduleEngine.doses(
+            schedule: .interval(everyMinutes: 0, start: "08:00"),
+            planId: UUID(), startDate: start, fromDay: 1, toDay: 1, calendar: cal)
+        #expect(doses.isEmpty && skipped == 1)
+        let (doses2, _) = DoseScheduleEngine.doses(
+            schedule: .interval(everyMinutes: -30, start: "08:00"),
+            planId: UUID(), startDate: start, fromDay: 1, toDay: 1, calendar: cal)
+        #expect(doses2.isEmpty)
+    }
+
+    @Test func 周期参数非法不崩溃() {
+        // everyDays<=0 不得触发除零崩溃，必须安全跳过
+        let (doses, _) = DoseScheduleEngine.doses(
+            schedule: .cycle(everyDays: 0, daysOn: 0),
+            planId: UUID(), startDate: start, fromDay: 1, toDay: 7, calendar: cal)
+        #expect(doses.isEmpty)
+    }
+
     @Test func 计划状态闸门() {
         #expect(ScheduleGate.dosesAllowed(.active))
         #expect(!ScheduleGate.dosesAllowed(.paused))
@@ -65,8 +85,8 @@ struct ScheduleEngineTests {
 // binds: SU-M1b-STOCK — TC-M1b-06（矩阵任一行红即阶段红）
 @Suite("SU-M1b-STOCK · 双轨库存扣减矩阵（FR9.8/9.8.2，ADR-009）")
 struct DualTrackTests {
-    /// 矩阵语义（评审修正）：taken→两线各扣；skipped/missed→仅计划轨扣；
-    /// snoozed→两线不动
+    /// 矩阵语义（function-spec FR9.8.2 权威文案）：taken/discomfort→两线各扣；
+    /// skipped→两线均免扣（唯一已知未服情形）；missed→仅计划轨扣；snoozed→两线不动
     @Test func 扣减矩阵_已服两线各扣() {
         let inv = DualTrackInventory(lotId: UUID(), totalUnits: 30, unitKind: "tablet")
         let out = InventoryRules.applyResolution(inv, units: 1, action: .taken)
@@ -74,10 +94,17 @@ struct DualTrackTests {
         #expect(out.remainingConfirmedUnits == 29)
     }
 
-    @Test func 扣减矩阵_跳过仅计划轨扣() {
+    @Test func 扣减矩阵_记录不适两线各扣() {
+        let inv = DualTrackInventory(lotId: UUID(), totalUnits: 30, unitKind: "tablet")
+        let out = InventoryRules.applyResolution(inv, units: 1, action: .discomfort)
+        #expect(out.remainingPlanUnits == 29)
+        #expect(out.remainingConfirmedUnits == 29)
+    }
+
+    @Test func 扣减矩阵_跳过两线均免扣() {
         let inv = DualTrackInventory(lotId: UUID(), totalUnits: 30, unitKind: "tablet")
         let out = InventoryRules.applyResolution(inv, units: 1, action: .skipped)
-        #expect(out.remainingPlanUnits == 29)
+        #expect(out.remainingPlanUnits == 30, "显式跳过=唯一已知未服情形，计划轨免扣")
         #expect(out.remainingConfirmedUnits == 30, "BR-004：确认线只认「服了」")
     }
 
@@ -119,6 +146,20 @@ struct DualTrackTests {
         #expect(InventoryRules.refillAlertNeeded(withPlan, dailyPlanUnits: 3, at: Date()))
         let plenty = DualTrackInventory(lotId: UUID(), totalUnits: 100, unitKind: "tablet")
         #expect(!InventoryRules.refillAlertNeeded(plenty, dailyPlanUnits: 3, at: Date()))
+    }
+
+    /// 契约（评审补注）：refillTier 不读 status——余量 0 的批次持续按最紧急档触达
+    /// （ADR-009 偏早告警，用户未处理就持续提醒）；status 过滤是**调用方**职责
+    /// （MedicationStore.refillSummary 的 WHERE status='active'）。把 status 判断塞进
+    /// 规则会让「已耗尽未盘点」的批次静默退出告警，违反偏早红线。
+    @Test func 续药契约_耗尽批次持续触达且零日当量不触发() {
+        let inv = DualTrackInventory(lotId: UUID(), totalUnits: 30, unitKind: "tablet")
+        let zero = InventoryRules.deductPlan(inv, units: 30)
+        #expect(zero.remainingPlanUnits == 0)
+        #expect(InventoryRules.refillTier(zero, dailyPlanUnits: 3, at: Date()) == .t3,
+                "耗尽批次必须持续触达（偏早告警），由调用方按 status 过滤")
+        #expect(InventoryRules.refillTier(zero, dailyPlanUnits: 0, at: Date()) == nil,
+                "零日当量不得触发（无消耗速率即无剩余天数）")
     }
 }
 
@@ -185,6 +226,22 @@ struct DoseSlotTests {
         let slots = DoseSlotGrouping.group([fixed(0), fixed(15 * 60), fixed(-20 * 60), fixed(50 * 60)], calendar: cal)
         #expect(slots.count == 2)
         #expect(slots[0].records.count == 3 && slots[1].records.count == 1)
+    }
+
+    /// 单一事实源不变量（评审修正）：聚合锚点必须恒等于调度引擎的餐时默认时刻。
+    /// 两处曾各持一份硬编码分钟表且**回退值不同**（聚合 08:30 / 引擎 08:00）——
+    /// 同一条餐时关系在「生成剂量」与「聚合锚点」两处取到不同时刻，±30min 窗口错位。
+    @Test func 锚点与调度引擎默认时刻一致() {
+        let day = cal.date(from: DateComponents(year: 2026, month: 8, day: 26))!
+        for relation in ["beforeBreakfast", "afterBreakfast", "beforeLunch",
+                         "afterLunch", "beforeDinner", "afterDinner"] {
+            let (doses, _) = DoseScheduleEngine.doses(
+                schedule: .meal(relations: [relation]), planId: UUID(),
+                startDate: day, fromDay: 1, toDay: 1, calendar: cal)
+            let anchor = DoseSlotGrouping.mealAnchor(for: day, relation: relation, calendar: cal)
+            #expect(doses.count == 1, "\(relation) 应产出一剂")
+            #expect(doses[0].dueAt == anchor, "\(relation) 锚点与引擎时刻漂移")
+        }
     }
 }
 

@@ -133,12 +133,60 @@ struct ReminderRulesTests {
         #expect(BatchExpiryRules.fireDates(expireAt: expired, now: now).isEmpty)
     }
 
+    /// BatchExpiryRules 的 DST 不变量（与 followUpDate 同纪律，评审修正）：
+    /// 30 天档回推必须按日历日——固定 86400 秒的旧实现跨夏令时漂移 1 小时。
+    /// 2026-03-06（EST）与 2026-04-05（EDT）之间恰好穿越 3/8 春季调时。
+    @Test func 批次到期跨夏令时保持墙钟时刻() {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "America/New_York")!
+        var c = DateComponents()
+        c.year = 2026; c.month = 4; c.day = 5; c.hour = 12; c.minute = 0
+        guard let expire = cal.date(from: c) else { Issue.record("基准时刻构造失败"); return }
+        let fires = BatchExpiryRules.fireDates(expireAt: expire,
+                                               now: expire.addingTimeInterval(-90 * 86400),
+                                               calendar: cal)
+        guard let t30 = fires.first(where: { $0.tier == .t30 }) else {
+            Issue.record("t30 档必须触发"); return
+        }
+        let parts = cal.dateComponents([.year, .month, .day, .hour, .minute], from: t30.at)
+        #expect(parts.month == 3 && parts.day == 6, "30 日历日回推，实得 \(parts.month ?? -1)/\(parts.day ?? -1)")
+        #expect(parts.hour == 12 && parts.minute == 0,
+                "跨 DST 后仍须是 12:00，实得 \(parts.hour ?? -1):\(parts.minute ?? -1)")
+        // 反证：固定 86400 秒回推会落到 11:00——差异真实存在
+        #expect(t30.at != expire.addingTimeInterval(-30 * 86400),
+                "若与 −30×86400 秒相等，说明日历回推没有生效")
+    }
+
     @Test func 观察随访提醒节奏() {
+        // UTC 无夏令时，日历日 == 86400 秒，可用秒数表达期望值；
+        // 天数引用规则常量而非字面量 3/7——规则改了测试要跟着红，而不是继续绿着测旧公式
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
         let observed = Date(timeIntervalSince1970: 0)
-        #expect(ObservationFollowUpRules.followUpDate(from: observed, occurrence: 0)
-                == observed.addingTimeInterval(3 * 86400))
-        #expect(ObservationFollowUpRules.followUpDate(from: observed, occurrence: 2)
-                == observed.addingTimeInterval(7 * 86400))
+        let first = ObservationFollowUpRules.firstFollowUpDays
+        let step = ObservationFollowUpRules.repeatIntervalDays
+        #expect(ObservationFollowUpRules.followUpDate(from: observed, occurrence: 0, calendar: utc)
+                == observed.addingTimeInterval(TimeInterval(first) * 86400))
+        #expect(ObservationFollowUpRules.followUpDate(from: observed, occurrence: 2, calendar: utc)
+                == observed.addingTimeInterval(TimeInterval(first + 2 * step) * 86400))
+    }
+
+    /// FR8.10 的 DST 不变量：随访提醒必须落在**同一墙钟时刻**，而不是同一绝对秒数。
+    /// 这条正是 followUpDate 改用日历推进的理由，注入日历后才可测。
+    @Test func 观察随访跨夏令时保持墙钟时刻() {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "America/New_York")!
+        // 2026-03-05 09:00 EST，+3 天跨越 3/8 的春季调时
+        var c = DateComponents()
+        c.year = 2026; c.month = 3; c.day = 5; c.hour = 9; c.minute = 0
+        guard let observed = cal.date(from: c) else { Issue.record("基准时刻构造失败"); return }
+        let followUp = ObservationFollowUpRules.followUpDate(from: observed, occurrence: 0, calendar: cal)
+        let parts = cal.dateComponents([.year, .month, .day, .hour, .minute], from: followUp)
+        #expect(parts.hour == 9 && parts.minute == 0, "跨 DST 后仍须是 09:00，实得 \(parts.hour ?? -1):\(parts.minute ?? -1)")
+        #expect(parts.day == 8 && parts.month == 3)
+        // 固定 86400 秒的旧写法会落到 10:00——用绝对秒数比较可证明差异真实存在
+        #expect(followUp != observed.addingTimeInterval(3 * 86400),
+                "若与 +3×86400 秒相等，说明日历推进没有生效")
     }
 
     @Test func 定期备份提醒() {

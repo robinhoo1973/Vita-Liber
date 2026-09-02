@@ -210,6 +210,160 @@ struct AILocalTests {
     }
 }
 
+// binds: SU-M1c-AI — TC-M1c-02/03（红线纵深防御：装饰器对任何 Provider 生效）
+@Suite("SU-M1c-AI · SafeAIProvider 纵深防御（BR-006/BR-012）")
+struct SafeAIProviderTests {
+    /// 故意「坏」的 Provider：模拟误分类的 P1 云端实现
+    struct MisbehavingProvider: AIProvider {
+        var stub: AIAnswer?
+        var error: Error?
+        func answer(_ q: AIQuery, scope: DataAccessScope) async throws -> AIAnswer {
+            if let error { throw error }
+            return stub ?? .insufficientData
+        }
+    }
+
+    struct Boom: Error {}
+
+    /// BR-012：内层把紧急提问当普通问答返回，装饰器必须改写为急救卡
+    @Test func 内层误分类紧急提问时强制急救卡() async throws {
+        let inner = MisbehavingProvider(stub: AIAnswer(body: .composed(.init(
+            conclusion: "无关结论", citations: [EntityReference(kind: "x", refID: UUID(), title: "t", snippet: "s")],
+            excerpts: [], terminology: [], sources: [], uncertainties: [],
+            questionsForDoctor: [], scopeNote: "", disclaimer: "", gradeBadge: "E"))))
+        let answer = try await SafeAIProvider(inner: inner)
+            .answer(AIQuery(text: "我父亲胸痛得厉害"), scope: .init(patientIds: []))
+        #expect(answer.body == .emergencyCard)
+    }
+
+    /// BR-012 错误路径：provider 抛错也不得漏掉急救卡（降级/云端故障）
+    @Test func 内层抛错时紧急提问仍出急救卡() async throws {
+        let answer = try await SafeAIProvider(inner: MisbehavingProvider(error: Boom()))
+            .answer(AIQuery(text: "胸痛"), scope: .init(patientIds: []))
+        #expect(answer.body == .emergencyCard)
+    }
+
+    /// 非紧急提问的错误必须继续抛出——不能被静默吞成假答案
+    @Test func 非紧急提问的错误继续抛出() async {
+        await #expect(throws: Boom.self) {
+            _ = try await SafeAIProvider(inner: MisbehavingProvider(error: Boom()))
+                .answer(AIQuery(text: "我的血压怎么样"), scope: .init(patientIds: []))
+        }
+    }
+
+    /// BR-006：零引用的确定性结论一律退回拒识（excerpts 非空也不例外——
+    /// excerpts 是无溯源纯文本，citations 才是唯一类型化出处）
+    @Test func 零引用的组合答案退回拒识() async throws {
+        let inner = MisbehavingProvider(stub: AIAnswer(body: .composed(.init(
+            conclusion: "建议把阿莫西林加到 500mg 每天", citations: [],
+            excerpts: ["看起来可以加量"], terminology: [], sources: [], uncertainties: [],
+            questionsForDoctor: [], scopeNote: "", disclaimer: "", gradeBadge: "E"))))
+        let answer = try await SafeAIProvider(inner: inner)
+            .answer(AIQuery(text: "我的血压怎么样"), scope: .init(patientIds: []))
+        guard case .refused(let r) = answer.body else {
+            Issue.record("零引用组合答案必须拒识")
+            return
+        }
+        #expect(r.reason == .insufficientData)
+    }
+
+    /// 有引用的正常答案必须原样透传（装饰器不得改写合法结果）
+    @Test func 合法答案原样透传() async throws {
+        let ref = EntityReference(kind: "document_file", refID: UUID(), title: "血压", snippet: "132")
+        let stub = AIAnswer(body: .composed(.init(
+            conclusion: "结论", citations: [ref], excerpts: ["132"], terminology: [],
+            sources: [], uncertainties: [], questionsForDoctor: [],
+            scopeNote: "s", disclaimer: "d", gradeBadge: "E")))
+        let answer = try await SafeAIProvider(inner: MisbehavingProvider(stub: stub))
+            .answer(AIQuery(text: "我的血压怎么样"), scope: .init(patientIds: []))
+        #expect(answer == stub)
+    }
+
+    /// BR-006 一票否决：任何 Provider 返回的「带引用剂量结论」都必须被装饰器拦成拒识。
+    /// 这是 P1 云端（D1/D3）接入后最危险的路径——引用非空会让 ③ 的兜底失效。
+    @Test(arguments: ["把阿莫西林加到 500mg 每天", "我可以自行停药吗", "这个药我不想吃了"])
+    func 高风险话题即便带引用也拒识(_ phrase: String) async throws {
+        let ref = EntityReference(kind: "prescription", refID: UUID(), title: "处方", snippet: "阿莫西林 0.25g")
+        let inner = MisbehavingProvider(stub: AIAnswer(body: .composed(.init(
+            conclusion: "可以加到 500mg", citations: [ref], excerpts: ["阿莫西林 0.25g"],
+            terminology: [], sources: [], uncertainties: [], questionsForDoctor: [],
+            scopeNote: "s", disclaimer: "d", gradeBadge: "E"))))
+        let answer = try await SafeAIProvider(inner: inner)
+            .answer(AIQuery(text: phrase), scope: .init(patientIds: []))
+        guard case .refused(let r) = answer.body else {
+            Issue.record("高风险话题必须拒识（即便内层给了引用）: \(phrase)")
+            return
+        }
+        #expect(r.reason == .highRiskTopic)
+    }
+
+    /// 同一情形只有一种文案：Provider 与装饰器共用 .insufficientData 工厂
+    @Test func 资料不足文案单一出口() async throws {
+        let viaDecorator = try await SafeAIProvider(inner: MisbehavingProvider())
+            .answer(AIQuery(text: "我的血压怎么样"), scope: .init(patientIds: []))
+        #expect(viaDecorator == AIAnswer.insufficientData)
+    }
+}
+
+// §5.5/§5.6 审计装饰器：scope 以**排序后的哈希前形态**上报，答案原样透传。
+// 此前零测试（评审补）：审计是隐私合规证据链的一环，落库内容错了没有用例会红。
+@Suite("SU-M1c-AI · 审计装饰器（§5.5/§5.6）")
+struct AuditedAIProviderTests {
+    /// 审计写入侧替身（锁保护；audit 闭包可能来自任意并发域）
+    final class AuditSink: @unchecked Sendable {
+        private let lock = NSLock()
+        private var _calls: [String] = []
+        func record(_ s: String) { lock.lock(); defer { lock.unlock() }; _calls.append(s) }
+        var calls: [String] { lock.lock(); defer { lock.unlock() }; return _calls }
+    }
+
+    @Test func 审计收到排序成员ID且答案透传() async throws {
+        let sink = AuditSink()
+        let decorated = AuditedAIProvider(
+            inner: MisbehavingProviderStub(answer: .insufficientData)) { ids in
+                sink.record(ids)
+            }
+        let a = UUID(), b = UUID()
+        let answer = try await decorated.answer(
+            AIQuery(text: "我的血压怎么样"),
+            scope: DataAccessScope(patientIds: [b, a]))     // 乱序注入
+        #expect(answer == .insufficientData)
+        #expect(sink.calls.count == 1, "每次提问必须产生一条审计记录")
+        let expected = [a, b].map(\.uuidString).sorted().joined(separator: ",")
+        #expect(sink.calls[0] == expected, "成员 ID 必须排序后上报（哈希前形态）")
+    }
+
+    /// 内层抛错时审计仍必须已落（审计先于应答执行——失败请求同样留痕）
+    @Test func 内层抛错审计仍执行() async {
+        struct Boom: Error {}
+        let sink = AuditSink()
+        let decorated = AuditedAIProvider(
+            inner: MisbehavingProviderStub(error: Boom())) { ids in
+                sink.record(ids)
+            }
+        await #expect(throws: Boom.self) {
+            _ = try await decorated.answer(
+                AIQuery(text: "我的血压怎么样"),
+                scope: DataAccessScope(patientIds: []))
+        }
+        #expect(sink.calls.count == 1, "失败请求同样必须留痕（审计先于应答）")
+    }
+}
+
+/// 供审计装饰器测试的轻量 Provider 桩（避免与 SafeAIProviderTests 的桩互相依赖）
+private struct MisbehavingProviderStub: AIProvider {
+    var failure: Error?
+    var stub: AIAnswer
+    init(answer: AIAnswer? = nil, error: Error? = nil) {
+        self.failure = error
+        self.stub = answer ?? .insufficientData
+    }
+    func answer(_ q: AIQuery, scope: DataAccessScope) async throws -> AIAnswer {
+        if let failure { throw failure }
+        return stub
+    }
+}
+
 @Suite("M1c · 偏好设置（§5.28/FR14.7）")
 struct AppSettingsTests {
     @Test func 全键默认值齐备() {
@@ -277,5 +431,73 @@ struct MemberQuotaTests {
             #expect(PaywallRules.addingMemberWouldExceed(currentCount: count) == false,
                     "免费档 ≥4 人（FR3.7 边界），已有 \(count) 人时不弹墙")
         }
+    }
+}
+
+// binds: SU-M1c-SENSITIVE — BR-007/008 重锁策略（FR8.4 / tech-spec §5.10）
+@Suite("SU-M1c-SENSITIVE · 敏感媒体重锁策略（BR-007/008）")
+struct MediaUnlockPolicyTests {
+    @Test func 阈值为规格规定的30秒() {
+        #expect(MediaUnlockPolicy.idleTTL == 30)
+    }
+
+    /// 计时以「最后一次交互」为起点：正在读图的用户不得被打断
+    @Test func 按无操作计时而非解锁时刻() {
+        let unlocked = Date(timeIntervalSince1970: 1_000_000)
+        let stillReading = unlocked.addingTimeInterval(100)   // 解锁 100s 后仍在交互
+        #expect(!MediaUnlockPolicy.shouldRelock(lastInteraction: stillReading,
+                                                now: stillReading.addingTimeInterval(29)))
+        #expect(MediaUnlockPolicy.shouldRelock(lastInteraction: stillReading,
+                                               now: stillReading.addingTimeInterval(30)))
+    }
+
+    @Test func 活跃信号按合并窗口去抖() {
+        let t = Date(timeIntervalSince1970: 1_000_000)
+        #expect(MediaUnlockPolicy.shouldRecordActivity(lastInteraction: nil, now: t))
+        // 同一秒内的高频触摸事件不重复写状态
+        #expect(!MediaUnlockPolicy.shouldRecordActivity(lastInteraction: t,
+                                                        now: t.addingTimeInterval(0.016)))
+        #expect(MediaUnlockPolicy.shouldRecordActivity(lastInteraction: t,
+                                                       now: t.addingTimeInterval(1)))
+    }
+
+    /// 退后台立即重锁——敏感内容不得出现在任务切换器快照里（BR-007/008）
+    @Test func 退后台立即重锁() {
+        #expect(MediaUnlockPolicy.shouldRelockOnBackground())
+    }
+}
+
+// binds: SU-M15-TREND — 无障碍与可见文本的医学数字必须一致
+@Suite("M1c · 医学数值显示单一出口（无障碍一致性）")
+struct MedicalNumberFormatTests {
+    /// 这是该出口存在的理由：**计算得来**的 Double 用字符串插值会念出全部往返精度，
+    /// 与屏幕上的 1 位小数不一致——视障用户听到的医学数字必须与看到的相同。
+    /// 用参考带下界的真实算式（mean − 1.96·sd）取值，而不是字面量：
+    /// 字面量 3.7000000000000002 会被解析成最近的 Double（正好是 3.7），构不成反例。
+    @Test func 无障碍文本不得念出浮点尾数() {
+        let mean = 4.9, sd = 0.612245
+        let lower = mean - 1.96 * sd            // 实测 3.6999998000000005
+        #expect("\(lower)".count > 5, "前提：插值确实暴露尾数（实得 \("\(lower)")）")
+        #expect(MedicalNumberFormat.oneDecimal(lower) == "3.7")
+    }
+
+    @Test func 一位小数口径稳定() {
+        #expect(MedicalNumberFormat.oneDecimal(120) == "120.0")
+        #expect(MedicalNumberFormat.oneDecimal(120.44) == "120.4")
+        #expect(MedicalNumberFormat.oneDecimal(120.45) == "120.5")
+        #expect(MedicalNumberFormat.oneDecimal(-0.04) == "-0.0")
+    }
+
+    /// 件数口径：整数不带小数点（保持既有用户可见形态）
+    @Test func 件数口径保持既有形态() {
+        #expect(MedicalNumberFormat.quantity(3) == "3")
+        #expect(MedicalNumberFormat.quantity(4.5) == "4.5")
+    }
+
+    /// 两个口径都不受设备区域影响（String(format:) 默认 POSIX，非当前 locale）
+    @Test func 不随设备区域改变小数点() {
+        #expect(MedicalNumberFormat.oneDecimal(1.5).contains("."))
+        #expect(!MedicalNumberFormat.oneDecimal(1.5).contains(","))
+        #expect(!MedicalNumberFormat.quantity(1.5).contains(","))
     }
 }
