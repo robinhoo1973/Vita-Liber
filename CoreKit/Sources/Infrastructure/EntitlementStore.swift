@@ -28,13 +28,12 @@ public actor EntitlementStore {
 
     public func state() async throws -> EntitlementState {
         let owned = try await storefront.currentEntitlements()
-        let row = try await writer.read { db in
-            try Row.fetchOne(db, sql: "SELECT * FROM app_settings WHERE key IN ('aiMonthlyUsed','memberCount','cloudBackupUsedGB')")
-        }
-        var used = 0
-        if let row {
-            // M1c 简化：用量以 app_settings 键存储（值字符串）
-            used = Int(row["value"] as String) ?? 0
+        // 单键直取修复键值错位（原实现 SELECT * 取首行会把 aiMonthlyUsed 误读成
+        // 其他键的值，导致配额误判与红线误放行）；可选链解包避免非 TEXT 值崩溃。
+        let used = try await writer.read { db -> Int in
+            let row = try Row.fetchOne(db, sql: "SELECT value FROM app_settings WHERE key = 'aiMonthlyUsed'")
+            guard let row else { return 0 }
+            return Int(row["value"] as String? ?? "") ?? 0
         }
         return EntitlementState(ownedProducts: owned, aiMonthlyUsed: used)
     }

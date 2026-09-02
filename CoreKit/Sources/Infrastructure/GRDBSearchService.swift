@@ -26,9 +26,13 @@ public actor GRDBSearchService: FullTextSearch {
             switch route {
             case .trigram:
                 let match = "\"\(query.replacingOccurrences(of: "\"", with: "\"\""))\""
+                // BR-007/008：snippet 列号 0-based（1=ocr_text）且 external-content 表
+                // 从源表取实时内容——敏感行必须先 CASE 短路，否则标题命中也会把
+                // 敏感正文整段载入结果行（与 bigram 分支同一纪律：绝不取回 ocr_text）
                 let rows = try Row.fetchAll(db, sql: """
                     SELECT d.id, d.patient_id, d.doc_type, d.created_at, d.is_sensitive,
-                           snippet(document_fts, 1, '<b>', '</b>', '…', 12) AS snip
+                           CASE WHEN d.is_sensitive = 1 THEN NULL
+                                ELSE snippet(document_fts, 1, '<b>', '</b>', '…', 12) END AS snip
                     FROM document_fts f
                     JOIN document_file d ON d.rowid = f.rowid
                     WHERE document_fts MATCH ? AND d.status IN ('active','favorite')
@@ -37,9 +41,15 @@ public actor GRDBSearchService: FullTextSearch {
                     """, arguments: StatementArguments([match] + patientIds + [limit]))
                 return rows.compactMap { Self.hit($0) }
             case .bigram:
-                let grams = SearchRules.bigrams(query).joined(separator: " OR ")
+                // 每个 2-gram 必须**加引号转义**后再拼 OR：裸拼会把用户输入当 FTS5 语法。
+                // 2 字查询「OR」/「\"a」/「-(」会抛 fts5 syntax error（一路冒到 AI 助手显示
+                // 「回答失败」），「x*」会被当前缀通配符而返回过量结果。与 trigram 分支同一纪律。
+                let grams = SearchRules.bigrams(query)
+                    .map { "\"\($0.replacingOccurrences(of: "\"", with: "\"\""))\"" }
+                    .joined(separator: " OR ")
                 let rows = try Row.fetchAll(db, sql: """
-                    SELECT d.id, d.patient_id, d.doc_type, d.created_at, d.is_sensitive, d.title, d.ocr_text
+                    SELECT d.id, d.patient_id, d.doc_type, d.created_at, d.is_sensitive, d.title,
+                           CASE WHEN d.is_sensitive = 1 THEN NULL ELSE d.ocr_text END AS ocr_text
                     FROM document_fts_2gram f
                     JOIN document_file d ON d.rowid = f.rowid
                     WHERE document_fts_2gram MATCH ? AND d.status IN ('active','favorite')
@@ -49,6 +59,10 @@ public actor GRDBSearchService: FullTextSearch {
                 // contentless 表无 snippet 函数——取回源列手动高亮（V3.44）
                 return rows.compactMap { row in
                     guard let ref = Self.hit(row) else { return nil }
+                    // BR-007/008：敏感行绝不取回 ocr_text——沿用 hit() 的脱敏片段，
+                    // 否则会覆盖掉脱敏逻辑、把敏感正文泄漏进搜索结果。
+                    let sensitive = (row["is_sensitive"] as Int?) == 1
+                    guard !sensitive else { return ref }
                     let source = (row["title"] as String?) ?? (row["ocr_text"] as String?) ?? ""
                     return EntityReference(kind: ref.kind, refID: ref.refID, title: ref.title,
                                            snippet: SearchRules.highlight(source, query: query))
@@ -60,11 +74,14 @@ public actor GRDBSearchService: FullTextSearch {
                 let pattern = "%\(query)%"
                 let rows = try Row.fetchAll(db, sql: """
                     SELECT d.id, d.patient_id, d.doc_type, d.created_at, d.is_sensitive,
-                           COALESCE(d.title, d.ocr_text, d.meta_json) AS snip
+                           CASE WHEN d.is_sensitive = 1 THEN d.title
+                                ELSE COALESCE(d.title, d.ocr_text, d.meta_json) END AS snip
                     FROM document_file d
                     WHERE d.status IN ('active','favorite') AND d.created_at >= ?
                       AND d.patient_id IN (\(patientIds.map { _ in "?" }.joined(separator: ",")))
-                      AND (d.meta_json LIKE ? OR d.title LIKE ? OR d.ocr_text LIKE ? OR d.notes LIKE ?)
+                      AND (d.title LIKE ?
+                           OR (d.is_sensitive = 0
+                               AND (d.meta_json LIKE ? OR d.ocr_text LIKE ? OR d.notes LIKE ?)))
                     ORDER BY d.created_at DESC LIMIT ?
                     """, arguments: StatementArguments([since] + patientIds + [pattern, pattern, pattern, pattern, limit]))
                 return rows.compactMap { Self.hit($0) }

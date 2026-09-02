@@ -84,6 +84,80 @@ public enum SchemaMigrations {
                status TEXT NOT NULL DEFAULT 'sent' CHECK(status IN ('sent','ackPending','acked','timeout')),
                sent_at REAL NOT NULL, updated_at REAL NOT NULL);
              """),
+        Step(version: 6, name: "fts-sensitive-trigger-hardening",
+             sql: """
+             -- BR-007/008 敏感内容不入检索索引：SchemaV2.ddl 的触发器只对全新库生效，
+             -- v1-v5 老库沿用旧触发器会继续把敏感 notes 索引进 document_fts，
+             -- 升级设备上的敏感正文仍可被搜中——重建触发器 + 全量重洗索引。
+             -- 两个 SQLite 实测语义（3.46，与 iOS 同代）：
+             -- ① FTS5 的 delete 特殊命令按「已索引值」匹配，值不一致直接报
+             --    "database disk image is malformed"——脱敏插入（NULL）后必须用
+             --    同样脱敏的值做删除标记，故 AD/AU 触发器删除半段与插入半段
+             --    同用 CASE WHEN old.is_sensitive = 0 守卫；
+             -- ② 老库敏感行的已索引值是「旧触发器形态」（ocr NULL、notes 原文），
+             --    逐行 delete 无从对齐，故用 delete-all 整表清空 + 脱敏重灌，
+             --    天然幂等（重跑=再清再灌）。
+             DROP TRIGGER IF EXISTS document_file_fts_ai;
+             DROP TRIGGER IF EXISTS document_file_fts_au;
+             DROP TRIGGER IF EXISTS document_file_fts_ad;
+             -- 执行次序在此显式写明：先删旧触发器 → 重洗索引 → 再挂新触发器。
+             -- 早前是靠切分器「把 CREATE TRIGGER 统一挪到末尾」的副作用达成同样次序，
+             -- 属隐式契约（切分器一改次序即静默错序），故改为「书写顺序就是执行顺序」。
+             -- 索引重洗：external-content 表逐行 delete 会踩「值不一致即报错」，
+             -- delete-all 是唯一无值匹配的整表清空通道；contentless 同样禁用
+             -- DELETE FROM（3.46 实测 "cannot DELETE from contentless fts5 table"），
+             -- 也用 delete-all 特殊命令清空后重灌。
+             INSERT INTO document_fts(document_fts) VALUES('delete-all');
+             INSERT INTO document_fts(rowid, title, ocr_text, notes)
+               SELECT rowid, title,
+                      CASE WHEN is_sensitive = 0 THEN ocr_text END,
+                      CASE WHEN is_sensitive = 0 THEN notes END
+               FROM document_file;
+             INSERT INTO document_fts_2gram(document_fts_2gram) VALUES('delete-all');
+             INSERT INTO document_fts_2gram(rowid, title_2gram, ocr_2gram, note_2gram)
+               SELECT rowid, bigrams(title),
+                      bigrams(CASE WHEN is_sensitive = 0 THEN ocr_text END),
+                      bigrams(CASE WHEN is_sensitive = 0 THEN notes END)
+               FROM document_file;
+             CREATE TRIGGER document_file_fts_ai AFTER INSERT ON document_file BEGIN
+               INSERT INTO document_fts(rowid, title, ocr_text, notes)
+                 VALUES (new.rowid, new.title,
+                         CASE WHEN new.is_sensitive = 0 THEN new.ocr_text END,
+                         CASE WHEN new.is_sensitive = 0 THEN new.notes END);
+               INSERT INTO document_fts_2gram(rowid, title_2gram, ocr_2gram, note_2gram)
+                 VALUES (new.rowid, bigrams(new.title),
+                         bigrams(CASE WHEN new.is_sensitive = 0 THEN new.ocr_text END),
+                         bigrams(CASE WHEN new.is_sensitive = 0 THEN new.notes END));
+             END;
+             CREATE TRIGGER document_file_fts_ad AFTER DELETE ON document_file BEGIN
+               INSERT INTO document_fts(document_fts, rowid, title, ocr_text, notes)
+                 VALUES ('delete', old.rowid, old.title,
+                         CASE WHEN old.is_sensitive = 0 THEN old.ocr_text END,
+                         CASE WHEN old.is_sensitive = 0 THEN old.notes END);
+               INSERT INTO document_fts_2gram(document_fts_2gram, rowid, title_2gram, ocr_2gram, note_2gram)
+                 VALUES ('delete', old.rowid, bigrams(old.title),
+                         bigrams(CASE WHEN old.is_sensitive = 0 THEN old.ocr_text END),
+                         bigrams(CASE WHEN old.is_sensitive = 0 THEN old.notes END));
+             END;
+             CREATE TRIGGER document_file_fts_au AFTER UPDATE OF title, ocr_text, notes, is_sensitive ON document_file BEGIN
+               INSERT INTO document_fts(document_fts, rowid, title, ocr_text, notes)
+                 VALUES ('delete', old.rowid, old.title,
+                         CASE WHEN old.is_sensitive = 0 THEN old.ocr_text END,
+                         CASE WHEN old.is_sensitive = 0 THEN old.notes END);
+               INSERT INTO document_fts_2gram(document_fts_2gram, rowid, title_2gram, ocr_2gram, note_2gram)
+                 VALUES ('delete', old.rowid, bigrams(old.title),
+                         bigrams(CASE WHEN old.is_sensitive = 0 THEN old.ocr_text END),
+                         bigrams(CASE WHEN old.is_sensitive = 0 THEN old.notes END));
+               INSERT INTO document_fts(rowid, title, ocr_text, notes)
+                 VALUES (new.rowid, new.title,
+                         CASE WHEN new.is_sensitive = 0 THEN new.ocr_text END,
+                         CASE WHEN new.is_sensitive = 0 THEN new.notes END);
+               INSERT INTO document_fts_2gram(rowid, title_2gram, ocr_2gram, note_2gram)
+                 VALUES (new.rowid, bigrams(new.title),
+                         bigrams(CASE WHEN new.is_sensitive = 0 THEN new.ocr_text END),
+                         bigrams(CASE WHEN new.is_sensitive = 0 THEN new.notes END));
+             END;
+             """),
     ]
 
     /// 全新库建库后应落到的版本号
@@ -109,17 +183,107 @@ public enum SchemaMigrations {
         return (table: parts[2], column: parts[5])
     }
 
-    /// 把多语句 SQL 拆成单条（去注释、去空行）。迁移 SQL 由本仓维护，
-    /// 不含字符串字面量里的分号，故按分号切分是安全的。
+    /// 把多语句 SQL 拆成单条，**保持书写顺序**。
+    ///
+    /// 为什么要切分而不是整块 `db.execute`：GRDBStore 需要对每条 `ALTER TABLE … ADD COLUMN`
+    /// 做「列已存在则跳过」的幂等处理（SQLite 无 `ADD COLUMN IF NOT EXISTS`），
+    /// 这要求语句级粒度。
+    ///
+    /// 旧实现有两处「今天恰好对」的隐患，均已修掉：
+    /// ① **错序**：把所有 `CREATE TRIGGER` 收集后统一追加到末尾，执行顺序与书写顺序不一致。
+    ///    v6 恰好想要这个次序，于是隐患被掩盖；后续任何「先建触发器、再灌依赖它的数据」的
+    ///    步骤都会静默错序——SQLite 对两种顺序都不报错，只是结果不同（触发器没被触发）。
+    ///    v6 现已把预期次序写进 SQL 本身，不再依赖切分器的副作用。
+    /// ② **脆弱终止符**：触发器体的结束靠 `END;` 独占一行的字面约定。`END;` 与其他内容同行、
+    ///    或体内出现 `CASE … END`，都会切错（截断或吞掉后续语句）。迁移半途而废发生在
+    ///    升级设备上，且 `PRAGMA user_version` 已推进 → 丢失的 DDL 永不重放。
+    ///
+    /// 现在按字符扫描：字符串字面量（含 `''` 转义）、`--` 行注释、`/* */` 块注释内的分号
+    /// 不作边界；触发器体由 `BEGIN`…`END` 配对识别，并对体内 `CASE … END` 计数。
     public static func statements(_ sql: String) -> [String] {
-        sql.split(separator: "\n")
-            .map { line -> String in
-                guard let r = line.range(of: "--") else { return String(line) }
-                return String(line[line.startIndex..<r.lowerBound])
+        var out: [String] = []
+        var current = ""
+        var word = ""
+        var inSingleQuote = false
+        var inDoubleQuote = false
+        var inLineComment = false
+        var inBlockComment = false
+        var sawCreateTrigger = false
+        var inTriggerBody = false
+        var caseDepth = 0
+
+        func endStatement() {
+            let s = current.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !s.isEmpty { out.append(s) }
+            current = ""
+            sawCreateTrigger = false
+            inTriggerBody = false
+            caseDepth = 0
+        }
+
+        // 关键字只在「非字符串、非注释」态结算，因此 'END;' 之类的字面量不会误判
+        func closeWord() {
+            guard !word.isEmpty else { return }
+            switch word.uppercased() {
+            case "TRIGGER":
+                if current.uppercased().contains("CREATE") { sawCreateTrigger = true }
+            case "BEGIN":
+                if sawCreateTrigger, !inTriggerBody { inTriggerBody = true }
+            case "CASE":
+                // 触发器体内的 CASE ... END 必须计数，否则 CASE 的 END 会被
+                // 当成体结束标记，把后续语句吞进触发器
+                if inTriggerBody { caseDepth += 1 }
+            case "END":
+                if inTriggerBody {
+                    if caseDepth > 0 { caseDepth -= 1 } else { inTriggerBody = false }
+                }
+            default:
+                break
             }
-            .joined(separator: "\n")
-            .split(separator: ";")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
+            word = ""
+        }
+
+        let chars = Array(sql)
+        var i = 0
+        while i < chars.count {
+            let c = chars[i]
+            let next: Character? = i + 1 < chars.count ? chars[i + 1] : nil
+
+            if inLineComment {
+                if c == "\n" { inLineComment = false; current.append(c) }
+                i += 1; continue
+            }
+            if inBlockComment {
+                if c == "*", next == "/" { inBlockComment = false; i += 2; continue }
+                i += 1; continue
+            }
+            if inSingleQuote {
+                current.append(c)
+                if c == "'" {
+                    if next == "'" { current.append("'"); i += 2; continue }   // '' 转义
+                    inSingleQuote = false
+                }
+                i += 1; continue
+            }
+            if inDoubleQuote {
+                current.append(c)
+                if c == "\"" { inDoubleQuote = false }
+                i += 1; continue
+            }
+            if c == "-", next == "-" { closeWord(); inLineComment = true; i += 2; continue }
+            if c == "/", next == "*" { closeWord(); inBlockComment = true; i += 2; continue }
+            if c == "'" { closeWord(); inSingleQuote = true; current.append(c); i += 1; continue }
+            if c == "\"" { closeWord(); inDoubleQuote = true; current.append(c); i += 1; continue }
+            if c.isLetter || c == "_" { word.append(c); current.append(c); i += 1; continue }
+
+            closeWord()
+            current.append(c)
+            // 语句边界只认「触发器体外」的分号：体内分号是子语句分隔符
+            if c == ";", !inTriggerBody { endStatement() }
+            i += 1
+        }
+        closeWord()
+        endStatement()
+        return out
     }
 }

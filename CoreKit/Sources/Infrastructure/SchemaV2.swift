@@ -382,7 +382,11 @@ public enum SchemaV2 {
     -- V3.44：external-content + 触发器维护——FTS5 rowid 必须为 INTEGER（源表 TEXT UUID
     -- 主键 → content_rowid='rowid' 经隐式 rowid 联接）；external-content 表不支持直接
     -- DELETE/INSERT 更新（曾报 disk image malformed），改由源表触发器同步，
-    -- 2-gram 影子列经注册的 bigrams() SQL 函数转换（GRDBStore.init 注册）
+    -- 2-gram 影子列经注册的 bigrams() SQL 函数转换（GRDBStore.init 注册）。
+    -- V3.47：删除标记值必须与「已索引值」一致——脱敏插入（NULL）后若以原文值
+    -- 打删除标记，SQLite 直接报 database disk image is malformed（3.46 实测），
+    -- 故 AD/AU 触发器删除半段与插入半段同用 CASE WHEN is_sensitive = 0 守卫；
+    -- contentless 表禁用 DELETE FROM，清空一律走 delete-all 特殊命令。
     CREATE VIRTUAL TABLE document_fts USING fts5(
       title, ocr_text, notes, tokenize='trigram case_sensitive 0',
       content='document_file', content_rowid='rowid');
@@ -396,30 +400,40 @@ public enum SchemaV2 {
     CREATE TRIGGER document_file_fts_ai AFTER INSERT ON document_file BEGIN
       INSERT INTO document_fts(rowid, title, ocr_text, notes)
         VALUES (new.rowid, new.title,
-                CASE WHEN new.is_sensitive = 0 THEN new.ocr_text END, new.notes);
+                CASE WHEN new.is_sensitive = 0 THEN new.ocr_text END,
+                CASE WHEN new.is_sensitive = 0 THEN new.notes END);
       INSERT INTO document_fts_2gram(rowid, title_2gram, ocr_2gram, note_2gram)
         VALUES (new.rowid, bigrams(new.title),
                 bigrams(CASE WHEN new.is_sensitive = 0 THEN new.ocr_text END),
-                bigrams(new.notes));
+                bigrams(CASE WHEN new.is_sensitive = 0 THEN new.notes END));
     END;
     CREATE TRIGGER document_file_fts_ad AFTER DELETE ON document_file BEGIN
       INSERT INTO document_fts(document_fts, rowid, title, ocr_text, notes)
-        VALUES ('delete', old.rowid, old.title, old.ocr_text, old.notes);
+        VALUES ('delete', old.rowid, old.title,
+                CASE WHEN old.is_sensitive = 0 THEN old.ocr_text END,
+                CASE WHEN old.is_sensitive = 0 THEN old.notes END);
       INSERT INTO document_fts_2gram(document_fts_2gram, rowid, title_2gram, ocr_2gram, note_2gram)
-        VALUES ('delete', old.rowid, bigrams(old.title), bigrams(old.ocr_text), bigrams(old.notes));
+        VALUES ('delete', old.rowid, bigrams(old.title),
+                bigrams(CASE WHEN old.is_sensitive = 0 THEN old.ocr_text END),
+                bigrams(CASE WHEN old.is_sensitive = 0 THEN old.notes END));
     END;
     CREATE TRIGGER document_file_fts_au AFTER UPDATE OF title, ocr_text, notes, is_sensitive ON document_file BEGIN
       INSERT INTO document_fts(document_fts, rowid, title, ocr_text, notes)
-        VALUES ('delete', old.rowid, old.title, old.ocr_text, old.notes);
+        VALUES ('delete', old.rowid, old.title,
+                CASE WHEN old.is_sensitive = 0 THEN old.ocr_text END,
+                CASE WHEN old.is_sensitive = 0 THEN old.notes END);
       INSERT INTO document_fts_2gram(document_fts_2gram, rowid, title_2gram, ocr_2gram, note_2gram)
-        VALUES ('delete', old.rowid, bigrams(old.title), bigrams(old.ocr_text), bigrams(old.notes));
+        VALUES ('delete', old.rowid, bigrams(old.title),
+                bigrams(CASE WHEN old.is_sensitive = 0 THEN old.ocr_text END),
+                bigrams(CASE WHEN old.is_sensitive = 0 THEN old.notes END));
       INSERT INTO document_fts(rowid, title, ocr_text, notes)
         VALUES (new.rowid, new.title,
-                CASE WHEN new.is_sensitive = 0 THEN new.ocr_text END, new.notes);
+                CASE WHEN new.is_sensitive = 0 THEN new.ocr_text END,
+                CASE WHEN new.is_sensitive = 0 THEN new.notes END);
       INSERT INTO document_fts_2gram(rowid, title_2gram, ocr_2gram, note_2gram)
         VALUES (new.rowid, bigrams(new.title),
                 bigrams(CASE WHEN new.is_sensitive = 0 THEN new.ocr_text END),
-                bigrams(new.notes));
+                bigrams(CASE WHEN new.is_sensitive = 0 THEN new.notes END));
     END;
     """
 }

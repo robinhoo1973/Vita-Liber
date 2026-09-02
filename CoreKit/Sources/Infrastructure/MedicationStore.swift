@@ -94,8 +94,8 @@ public actor MedicationStore: DoseSource {
         }
     }
 
-    /// 跳过/忘记/不适/稍后：UPDATE 物化行 + FR9.8.2 矩阵（仅计划轨扣；
-    /// snoozed 两线不动，稍后由对账重排）
+    /// 跳过/忘记/不适/稍后：UPDATE 物化行 + FR9.8.2 矩阵（skipped 两线均免扣、
+    /// missed 仅计划轨扣、discomfort 两线各扣；snoozed 两线不动，稍后由对账重排）
     public func recordAction(notifyId: String, action: DoseUserAction) async throws {
         guard action != .taken else {
             throw StoreError.takenMustUseConfirm(notifyId)   // §7：不得静默 return
@@ -199,9 +199,12 @@ public actor MedicationStore: DoseSource {
             let counts = try Row.fetchOne(db, sql: """
                 SELECT
                   COUNT(*) AS planned,
-                  SUM(CASE WHEN user_action = 'taken' THEN 1 ELSE 0 END) AS confirmed,
+                  -- discomfort 与 taken 同属「服用事实成立」（FR9.8.2 扣减矩阵：两线各扣），
+                  -- 因此必须计入确认桶。此前归入 missed 会让 FR9.8.5 两线差异报告
+                  -- 与库存台账对同一剂量给出相反口径。
+                  SUM(CASE WHEN user_action IN ('taken','discomfort') THEN 1 ELSE 0 END) AS confirmed,
                   SUM(CASE WHEN user_action = 'skipped' THEN 1 ELSE 0 END) AS skipped,
-                  SUM(CASE WHEN user_action IS NULL OR user_action IN ('missed','discomfort')
+                  SUM(CASE WHEN user_action IS NULL OR user_action = 'missed'
                       THEN 1 ELSE 0 END) AS missed
                 FROM medication_dose_log d
                 JOIN medication_plan p ON p.id = d.plan_id
@@ -449,10 +452,15 @@ private func applyResolutionOnLots(patientId: UUID, medicationId: UUID, notifyId
             inv.remainingConfirmedUnits = row["remaining_confirmed_units"] as Double
             inventories.append(inv)
         }
-        // 确认线分配（仅 taken）；计划线按 FEFO 同样分配（矩阵语义）
-        var planRemaining = action == .snoozed ? 0 : units
-        var confirmedRemaining = action == .taken ? units : 0
-        var allocations: [(lotId: UUID, units: Double)] = []
+        // FR9.8.2 扣减矩阵由 Domain 单一编码派生（InventoryRules.deduction），
+        // 不在此重新编码——矩阵是 BR 规则，只能有一处定义
+        let matrix = InventoryRules.deduction(for: action, units: units)
+        var planRemaining = matrix.plan
+        var confirmedRemaining = matrix.confirmed
+        // 双轨账本：planned_units 记录计划线扣减，confirmed_units 记录确认线扣减，
+        // 二者独立——原实现把 confirmedTake 同时写入两列，导致计划线账本失真、
+        // 安全线（续药提醒）计算错误（FR9.8 双轨语义）。
+        var allocations: [(lotId: UUID, planUnits: Double, confirmedUnits: Double)] = []
         for sortedLot in InventoryRules.fefoOrder(inventories) {
             guard planRemaining > 0 || confirmedRemaining > 0 else { break }
             guard sortedLot.status == "active",
@@ -464,7 +472,7 @@ private func applyResolutionOnLots(patientId: UUID, medicationId: UUID, notifyId
             if confirmedTake > 0 { lot = InventoryRules.deductConfirmed(lot, units: confirmedTake); confirmedRemaining -= confirmedTake }
             if planTake > 0 || confirmedTake > 0 {
                 inventories[i] = lot
-                allocations.append((lot.lotId, confirmedTake))
+                allocations.append((lot.lotId, planTake, confirmedTake))
             }
         }
         for lot in inventories {
@@ -473,11 +481,11 @@ private func applyResolutionOnLots(patientId: UUID, medicationId: UUID, notifyId
                 WHERE id = ?
                 """, arguments: [lot.remainingPlanUnits, lot.remainingConfirmedUnits, lot.lotId.uuidString])
         }
-        for a in allocations where a.units > 0 {
+        for a in allocations {   // 追加时已过滤零扣减行（planTake/confirmedTake 双零不入账）
             try db.execute(sql: """
                 INSERT INTO dose_lot_allocation (dose_log_id, stock_lot_id, planned_units, confirmed_units)
                 VALUES (?, ?, ?, ?)
-                """, arguments: [notifyId, a.lotId.uuidString, a.units, a.units])
+                """, arguments: [notifyId, a.lotId.uuidString, a.planUnits, a.confirmedUnits])
         }
     }
 #endif
