@@ -15,15 +15,19 @@ import Protocols
 /// 无任何编译门禁）：
 /// - `SFSpeechRecognizer(locale:)` 是 failable init，locale 在这里注入（request 无 locale
 ///   属性）；`supportsOnDeviceRecognition` 是**实例**属性而非类属性；
-/// - 识别器必须被**强持有**到识别结束（Apple 文档要求），原临时量一释放识别即中断；
+/// - 识别器必须被**强持有**到识别结束（Apple 文档要求）。本实现中 recognizer/recog/audio
+///   均为 transcribe 局部量，被识别任务回调闭包捕获——task 存活期间识别器必存活，
+///   函数返回（isFinal/error）后随闭包释放，天然满足强持有语义；
 /// - 置信度位于 `bestTranscription.segments[].confidence`（SFTranscription 无 confidence）；
-/// - 清理（audio.stop/removeTap/task.cancel）在错误路径同样必须执行（原实现只在成功
-///   路径清理——抛错后 AVAudioEngine 持续采音、task 悬挂）。
+/// - 清理（audio.stop/removeTap）在错误与成功路径统一执行（do/catch + 路径内清理），
+///   修复原实现抛错后 AVAudioEngine 持续采音泄漏。
+///
+/// 注：早期版本曾用 actor 属性持有 activeTask/activeRecognizer 以便外部取消——Swift 6
+/// 下 handler 回调对 actor self 是 isolated 强捕获（[weak self] 不生效，编译报
+/// "optional chaining on non-optional"），属性管理反而制造编译障碍且与局部捕获
+/// 语义重复，故移除；外部取消/超时属后续能力（登记待办）。
 public actor SFSpeechTranscriber: TranscriptionEngine {
     public nonisolated let capability: TranscriptionCapability
-    /// 当前识别任务与识别器（识别期间强持有，结束后清空）
-    private var activeTask: SFSpeechRecognitionTask?
-    private var activeRecognizer: SFSpeechRecognizer?
 
     public init() {
         self.capability = .baseline()   // 基线轨：不支持长音频、单段 ≤60s
@@ -59,14 +63,15 @@ public actor SFSpeechTranscriber: TranscriptionEngine {
         audio.prepare()
         try audio.start()
 
-        activeRecognizer = recognizer    // 强持有至识别结束
         let maxSeg = capability.maxSegmentSeconds
 
-        // 错误/正常路径统一走 do/catch 清理（audio/移除 tap/清任务——评审修正）
+        // recognizer/audio/recog 均被回调闭包强捕获：识别期间不被释放（Apple 要求）。
+        // 错误与成功路径都执行清理，绝不让采音引擎悬挂（评审修正）。
+        let result: TranscriptionResult
         do {
-            let result = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<TranscriptionResult, Error>) in
+            result = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<TranscriptionResult, Error>) in
                 var settled = false
-                let task = recognizer.recognitionTask(with: recog) { [weak self] ts, err in
+                _ = recognizer.recognitionTask(with: recog) { ts, err in
                     if let err {
                         if !settled { settled = true; cont.resume(throwing: err) }
                         return
@@ -87,30 +92,15 @@ public actor SFSpeechTranscriber: TranscriptionEngine {
                         onPartial?(ts.bestTranscription.formattedString)
                     }
                 }
-                if let self { Task { await self.hold(task) } }   // weak 解包后再入 Task（actor 隔离）
             }
-            audio.stop()
-            inputNode.removeTap(onBus: 0)
-            await release()
-            return result
         } catch {
             audio.stop()
             inputNode.removeTap(onBus: 0)
-            await release()
             throw error
         }
-    }
-
-    /// 记录进行中的任务（识别期间保持引用，供取消/清理）
-    private func hold(_ t: SFSpeechRecognitionTask) {
-        activeTask?.cancel()
-        activeTask = t
-    }
-
-    private func release() {
-        activeTask?.cancel()
-        activeTask = nil
-        activeRecognizer = nil
+        audio.stop()
+        inputNode.removeTap(onBus: 0)
+        return result
     }
 }
 #endif
