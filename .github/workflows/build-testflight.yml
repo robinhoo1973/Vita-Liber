@@ -72,14 +72,15 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 60
     # 签名/上传凭据映射到 job env：if: 与步骤都能读（step env 不进入 if 上下文）
-    env:
-      APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
-      APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-      APPLE_API_KEY_ISSUER_ID: ${{ secrets.APPLE_API_KEY_ISSUER_ID }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      APPLE_DEV_CERT_P12: ${{ secrets.APPLE_DEV_CERT_P12 }}
-      APPLE_DIS_CERT_P12: ${{ secrets.APPLE_DIS_CERT_P12 }}
-      APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+      env:
+        APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+        APPLE_API_KEY_ISSUER_ID: ${{ secrets.APPLE_API_KEY_ISSUER_ID }}
+        APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        APPLE_DEV_CERT_P12: ${{ secrets.APPLE_DEV_CERT_P12 }}
+        APPLE_DIS_CERT_P12: ${{ secrets.APPLE_DIS_CERT_P12 }}
+        APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+        APPLE_DEV_PROVISION_PROFILE: ${{ secrets.APPLE_DEV_PROVISION_PROFILE }}
     steps:
       - uses: actions/checkout@v4
 
@@ -224,6 +225,23 @@ jobs:
           echo "已导入 identities:"
           security find-identity -v -p codesigning "$KC"
 
+      # ── 导入 Provisioning Profile ─────────────────────────────────
+      - name: 导入 Provisioning Profile
+        if: ${{ env.APPLE_DEV_PROVISION_PROFILE != '' }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          echo "$APPLE_DEV_PROVISION_PROFILE" | base64 -d > "$HOME/Library/MobileDevice/Provisioning Profiles/dev.mobileprovision"
+          # 打印 profile 信息供诊断
+          security cms -D -i "$HOME/Library/MobileDevice/Provisioning Profiles/dev.mobileprovision" 2>/dev/null | \
+            plutil -extract Name raw - 2>/dev/null && echo "profile 名称 ✓" || echo "profile 导入完成"
+          ls -la "$HOME/Library/MobileDevice/Provisioning Profiles/"
+      - name: 未配置 Provisioning Profile
+        if: ${{ env.APPLE_DEV_PROVISION_PROFILE == '' }}
+        run: |
+          echo "::warning::未配置 APPLE_DEV_PROVISION_PROFILE——签名可能因缺少 profile 失败"
+          echo "配置：Settings → Secrets → Actions → APPLE_DEV_PROVISION_PROFILE（base64 编码的 .mobileprovision）"
+
       # ── 签名归档：build + 手拼 xcarchive（绕开 Xcode 16 SPM archive bug）──────
       # 5WHY 实证（13-17 轮）：xcodebuild archive 在 Xcode 16.4 对 SPM 资源 bundle
       # （GRDB_GRDB.bundle）的自动集成 Copy phase 源固定指向 archive 空间
@@ -250,6 +268,19 @@ jobs:
             DEV_IDENTITY="$(security find-identity -v -p codesigning "$KC" | head -1 | sed 's/.*"\(.*\)".*/\1/')"
           fi
           echo "开发签名 identity: $DEV_IDENTITY"
+          # 如果有 provisioning profile，用它；否则让 Xcode 尝试自动匹配
+          PROFILE_SPEC=""
+          if [ -d "$HOME/Library/MobileDevice/Provisioning Profiles" ]; then
+            PROFILE_UUID="$(ls "$HOME/Library/MobileDevice/Provisioning Profiles/"*.mobileprovision 2>/dev/null | head -1 | xargs basename -s .mobileprovision 2>/dev/null || true)"
+            if [ -n "$PROFILE_UUID" ]; then
+              PROFILE_SPEC="$PROFILE_UUID"
+              echo "使用 provisioning profile: $PROFILE_UUID"
+            fi
+          fi
+          PROFILE_FLAG=""
+          if [ -n "$PROFILE_SPEC" ]; then
+            PROFILE_FLAG="PROVISIONING_PROFILE_SPECIFIER=$PROFILE_SPEC"
+          fi
           xcodebuild build -project "$XCODEPROJ" -scheme "$SCHEME" \
             -configuration Release -destination 'generic/platform=iOS' \
             -derivedDataPath Build/ReleaseBuild \
@@ -257,6 +288,7 @@ jobs:
             CODE_SIGNING_ALLOWED=YES \
             CODE_SIGNING_REQUIRED=YES \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            $PROFILE_FLAG \
             MARKETING_VERSION="$RELEASE_VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" VITA_LIBER_CODE_HASH="$CODE_HASH" \
             2>&1 | tee Build/xcodebuild-build-release.log
           APP="Build/ReleaseBuild/Build/Products/Release-iphoneos/VitaLiber.app"
