@@ -85,10 +85,10 @@ private struct InventoryRow: View {
                 Text(L10n.inventory_noPlanHint)
                     .font(.caption).foregroundStyle(.secondary)
             }
-            Text("安全线 \(item.remainingPlanUnits, specifier: "%g") \(item.unitKind) · 确认 \(item.remainingConfirmedUnits, specifier: "%g") \(item.unitKind)")
+            Text(L10n.inventoryDualLine(MedicalNumberFormat.quantity(item.remainingPlanUnits), item.unitKind, MedicalNumberFormat.quantity(item.remainingConfirmedUnits)))
                 .font(.caption2).foregroundStyle(.secondary)
             if let expireAt = item.expireAt {
-                Text("效期 \(expireAt.formatted(date: .abbreviated, time: .omitted))")
+                Text(L10n.inventoryExpiry(expireAt.formatted(date: .abbreviated, time: .omitted)))
                     .font(.caption2).foregroundStyle(.secondary)
             }
             // 余量行常驻「修正为 X」校正入口（FR9.8.7）
@@ -125,9 +125,9 @@ struct RefillBadge: View {
 
     private var label: String {
         switch tier {
-        case .t14: return "余量 ≤14 天"
-        case .t7:  return "余量 ≤7 天"
-        case .t3:  return "余量 ≤3 天"
+        case .t14: return L10n.inventoryTier14
+        case .t7:  return L10n.inventoryTier7
+        case .t3:  return L10n.inventoryTier3
         }
     }
 }
@@ -145,28 +145,32 @@ struct InventoryReconcileSheet: View {
 
     private var difference: Double { count - item.remainingConfirmedUnits }
 
+    /// 滑杆 step:1 只能产出整数，账面可能是半片（4.5）——用精确 == 判「与账面一致」
+    /// 会让这类批次永远显示差异、永远多一步确认。按半个最小单位容差判等。
+    private var isEqualToBook: Bool { abs(difference) < 0.5 }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(L10n.inventoryReconcileTitle(item.medicationName)).font(.headline)
-            Text("账面：\(item.remainingConfirmedUnits, specifier: "%g") \(item.unitKind)（确认线）")
+            Text(L10n.inventoryBookValue(MedicalNumberFormat.quantity(item.remainingConfirmedUnits), item.unitKind))
                 .font(.caption).foregroundStyle(.secondary)
             Slider(value: $count,
                    in: 0...max(item.remainingConfirmedUnits * 1.5, 1),
                    step: 1)
                 .accessibilityIdentifier("FR9.8.reconcile.slider")
             HStack {
-                Text("实物 \(count, specifier: "%g") \(item.unitKind)").monospacedDigit()
+                Text(L10n.inventoryPhysical(MedicalNumberFormat.quantity(count), item.unitKind)).monospacedDigit()
                 Spacer()
-                Text(difference == 0 ? "与账面一致" :
-                     difference > 0 ? "比账面多 \(String(format: "%g", difference))" :
-                     "比账面少 \(String(format: "%g", -difference))")
-                    .foregroundStyle(difference == 0 ? .secondary : Color("grade-d", bundle: .main))
+                Text(isEqualToBook ? L10n.inventoryReconcileEqual :
+                     difference > 0 ? L10n.inventoryReconcileMore(MedicalNumberFormat.quantity(difference)) :
+                     L10n.inventoryReconcileLess(MedicalNumberFormat.quantity(-difference)))
+                    .foregroundStyle(isEqualToBook ? .secondary : Color("grade-d", bundle: .main))
             }
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("FR9.8.reconcile.difference")
             // 归真必须经确认（FR9.8.5）：差异非零时先显式确认一步
-            if difference != 0 && !confirmVisible {
-                Button("确认修正为 \(String(format: "%g", count)) \(item.unitKind)") {
+            if !isEqualToBook && !confirmVisible {
+                Button(L10n.inventoryReconcileConfirm(MedicalNumberFormat.quantity(count), item.unitKind)) {
                     confirmVisible = true
                 }
                 .buttonStyle(.borderedProminent)
@@ -174,8 +178,8 @@ struct InventoryReconcileSheet: View {
                 .accessibilityIdentifier("FR9.8.reconcile.confirmStep")
             } else {
                 HStack(spacing: 12) {
-                    Button("取消") { dismiss() }.frame(minHeight: 44)
-                    Button(difference == 0 ? "保存" : "确认并写入") {
+                    Button(L10n.commonCancel) { dismiss() }.frame(minHeight: 44)
+                    Button(isEqualToBook ? L10n.commonSave : L10n.inventoryConfirmWrite) {
                         onConfirm(count)
                         dismiss()
                     }
@@ -200,8 +204,7 @@ struct InventoryMonthlyReportView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(report.periodStart.formatted(.dateTime.month(.wide).year())
-                 + " 用药消耗").font(.headline)
+            Text(L10n.inventoryMonthlySuffix(report.periodStart.formatted(.dateTime.month(.wide).year()))).font(.headline)
             if InventoryReportRules.violation(in: report.statement) != nil {
                 // 一票否决路径：违反负清单的文案不得上屏（BR-006 延伸）
                 Text(L10n.inventory_reportBlocked)

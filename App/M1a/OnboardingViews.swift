@@ -372,7 +372,7 @@ struct TimelineView: View {
             }
             .padding(.horizontal, 16)
             if app.timeline.isEmpty {
-                ContentUnavailableView("还没有资料", systemImage: "clock.arrow.circlepath",
+                ContentUnavailableView(L10n.timelineEmptyTitle, systemImage: "clock.arrow.circlepath",
                                        description: Text(L10n.onboard_timelineHint))
             } else {
                 List(app.timeline) { entry in

@@ -27,6 +27,7 @@ struct SensitiveMediaContainer<Content: View, Placeholder: View>: View {
 
     @State private var revealed = false
     @State private var showPinSheet = false
+    @State private var showSetupSheet = false
     @State private var lastInteraction: Date?
 
     init(@ViewBuilder placeholder: @escaping (Bool) -> Placeholder,
@@ -42,11 +43,34 @@ struct SensitiveMediaContainer<Content: View, Placeholder: View>: View {
         }
         .onTapGesture {
             guard !revealed else { return }
-            showPinSheet = true          // BR-007：解锁是显式动作，必经门禁验证
+            // BR-009：未设置应用 PIN 时敏感媒体仍必须锁定——引导设置 PIN，
+            // 禁止退化为单击直看；已有 PIN 则走验证。
+            if app.isPinProtected {
+                showPinSheet = true
+            } else {
+                showSetupSheet = true
+            }
         }
         .sheet(isPresented: $showPinSheet) {
             PinEntryView(mode: .verify)
                 .presentationDetents([.height(420)])
+        }
+        .sheet(isPresented: $showSetupSheet) {
+            VStack(spacing: 12) {
+                Text(L10n.sensitiveSetupHint)
+                    .font(.footnote).foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                PinEntryView(mode: .setup)
+            }
+            .padding(.top, 8)
+            .presentationDetents([.height(420)])
+        }
+        .onChange(of: app.pinHash) { _, value in
+            // BR-009 引导路径：设置完成（pinHash 从 nil 变为非 nil）即视为解锁
+            guard showSetupSheet, value != nil else { return }
+            showSetupSheet = false
+            revealed = true
+            lastInteraction = Date()
         }
         .onChange(of: app.lastVerifiedAt) { _, value in
             // showPinSheet 闸门：任意门禁验证（例如冷启动解锁）不得顺带解锁敏感内容，

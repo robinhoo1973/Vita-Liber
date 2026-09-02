@@ -23,6 +23,9 @@ final class ReminderStore {
     /// 连续重复点击在防抖窗口内只计一次（TremorGuard 是 Domain 纯函数）
     private var lastActionAt: Date?
 
+    /// 最近一次请求的成员（BR-001 成员隔离：只允许最新请求写回状态）
+    private var loadingPatientId: UUID?
+
     init(meds: MedicationStore, apts: AppointmentStore, reconciler: ReminderReconciler) {
         self.meds = meds
         self.apts = apts
@@ -35,6 +38,7 @@ final class ReminderStore {
         loading = true
         defer { loading = false }
         guard let patientId else { return }
+        loadingPatientId = patientId
         do {
             _ = try await meds.materializeWindow(now: now, calendar: .current)
             // FR9.8.8 零确认存活：先补账过期无动作剂量（安全线按计划推进），
@@ -49,8 +53,12 @@ final class ReminderStore {
             let dayEnd = cal.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart.addingTimeInterval(86400)
             let facts = try await meds.deliveryFacts(from: dayStart, to: dayEnd)
             let records = facts.map { DoseRecord(dose: $0.dose, action: $0.action) }
-            todaySlots = DoseSlotGrouping.group(records)
-            upcomingAppointments = try await apts.upcoming(patientId: patientId, now: now)
+            let slots = DoseSlotGrouping.group(records)
+            let appointments = try await apts.upcoming(patientId: patientId, now: now)
+            // 成员切换后晚到的旧结果必须丢弃，不得覆盖当前成员（BR-001）
+            guard loadingPatientId == patientId else { return }
+            todaySlots = slots
+            upcomingAppointments = appointments
         } catch {
             logger.error("提醒视图加载失败: \(error)")
         }

@@ -105,7 +105,7 @@ struct EntitlementGate<Content: View>: View {
         if PaywallRules.isBlockable(capability) {
             VStack(spacing: 8) {
                 content
-                Label("Pro 权益 · 预览", systemImage: "sparkles")
+                Label(L10n.paywallPreviewTitle, systemImage: "sparkles")
                     .font(.caption)
                     .foregroundStyle(Color("grade-e", bundle: .main))
             }

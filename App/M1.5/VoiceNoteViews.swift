@@ -12,10 +12,18 @@ final class VoiceNoteState {
     private(set) var notes: [VoiceNoteStore.VoiceNoteRow] = []
     private let store: VoiceNoteStore
     private let logger = Logger(subsystem: "com.vitaliber", category: "voicenote")
+    /// 最近一次请求的成员（BR-001 成员隔离：只允许最新请求写回状态）
+    private var loadingPatientId: UUID?
     init(store: VoiceNoteStore) { self.store = store }
 
     func load(patientId: UUID) async {
-        do { notes = try await store.list(patientId: patientId) }
+        loadingPatientId = patientId
+        do {
+            let loaded = try await store.list(patientId: patientId)
+            // 成员切换后晚到的旧结果必须丢弃，不得覆盖当前成员（BR-001）
+            guard loadingPatientId == patientId else { return }
+            notes = loaded
+        }
         catch { logger.error("速记加载失败: \(error)") }
     }
 
@@ -39,8 +47,8 @@ struct VoiceNotePanelView: View {
     var body: some View {
         VStack(spacing: 0) {
             if state.notes.isEmpty {
-                ContentUnavailableView("还没有语音速记", systemImage: "waveform",
-                                       description: Text("记录的第一条速记会出现在这里（默认不进时间轴）"))
+                ContentUnavailableView(L10n.voicenoteEmptyTitle, systemImage: "waveform",
+                                       description: Text(L10n.voicenoteEmptyHint))
                     .accessibilityIdentifier("SP-59.voicenote.empty")
             } else {
                 List(state.notes) { note in
@@ -49,7 +57,7 @@ struct VoiceNotePanelView: View {
                             Text(note.body).font(.body)
                             Spacer()
                             if note.inTimeline {
-                                Text("已入轴").font(.caption2).foregroundStyle(.secondary)
+                                Text(L10n.voicenoteInTimeline).font(.caption2).foregroundStyle(.secondary)
                             }
                         }
                         Text(note.occurredAt.formatted(date: .abbreviated, time: .shortened))
@@ -63,10 +71,10 @@ struct VoiceNotePanelView: View {
                 }
             }
             HStack(spacing: 8) {
-                TextField("记一条速记…", text: $draft, axis: .vertical)
+                TextField(L10n.voicenoteDraftPlaceholder, text: $draft, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
                     .lineLimit(1...4)
-                    .accessibilityLabel("速记内容")
+                    .accessibilityLabel(L10n.voicenoteDraftAccessibility)
                     .accessibilityIdentifier("SP-59.voicenote.input")
                 Button {
                     let body = draft.trimmingCharacters(in: .whitespaces)
@@ -80,13 +88,13 @@ struct VoiceNotePanelView: View {
                         .frame(width: 44, height: 44)
                 }
                 .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty)
-                .accessibilityLabel("保存速记")
+                .accessibilityLabel(L10n.voicenoteSaveAccessibility)
                 .accessibilityIdentifier("SP-59.voicenote.save")
             }
             .padding(12)
         }
-        .navigationTitle("语音速记")
-        .task { await state.load(patientId: currentPatientId) }
+        .navigationTitle(L10n.voicenoteTitle)
+        .task(id: currentPatientId) { await state.load(patientId: currentPatientId) }
         // 唯一确认 UI：VoiceConfirmSheet（FR17.13）。本页不再自建确认界面。
         .sheet(item: $confirmSet) { set in
             VoiceConfirmSheet(

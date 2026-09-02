@@ -34,7 +34,7 @@ struct MedicationHelpCardSheet: View {
                                     .opacity(selectedIds.contains(item.lotId) ? 1 : 0.2)
                                 VStack(alignment: .leading) {
                                     Text(item.medicationName)
-                                    Text("约剩 \(item.remainingPlanUnits, specifier: "%g") \(item.unitKind)")
+                                    Text(L10n.helpcardRemaining(MedicalNumberFormat.quantity(item.remainingPlanUnits), item.unitKind))
                                         .font(.caption).foregroundStyle(.secondary)
                                 }
                                 Spacer()
@@ -47,7 +47,7 @@ struct MedicationHelpCardSheet: View {
                     }
                 }
                 if !selectedIds.isEmpty {
-                    Section("位置照片（默认不包含）") {
+                    Section(L10n.helpcardPhotoSection) {
                         Toggle(isOn: Binding(
                             get: { !includePhotos.isEmpty },
                             set: { newValue in

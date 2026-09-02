@@ -9,83 +9,81 @@ struct SettingsView: View {
     @State private var toggles: [AppSettingKey: Bool] = [:]
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section(L10n.settings_authTitle) {
-                    ForEach(authKeys, id: \.rawValue) { key in
-                        Toggle(isOn: binding(for: key)) {
-                            Text(label(for: key))
-                        }
-                        .accessibilityIdentifier("SP-25.setting.\(key.rawValue)")
+        Form {
+            Section(L10n.settings_authTitle) {
+                ForEach(authKeys, id: \.rawValue) { key in
+                    Toggle(isOn: binding(for: key)) {
+                        Text(label(for: key))
                     }
-                }
-                Section(L10n.settings_habits) {
-                    Text(L10n.settingsRemindAdvance(settings.values[.remindAdvanceMinutes] ?? "-"))
-                    Text(L10n.settingsSnooze(settings.values[.snoozeMinutes] ?? "-"))
-                    Text(L10n.settingsQuietHours(settings.values[.quietHoursStart] ?? "-",
-                                      settings.values[.quietHoursEnd] ?? "-"))
-                }
-                Section(L10n.hub_healthRecords) {
-                    NavigationLink(L10n.member_title) {
-                        MemberManagementView()
-                    }
-                    .accessibilityIdentifier("SP-25.settings.members")
-                    NavigationLink(L10n.inventory_title) {
-                        InventoryHubView()
-                    }
-                    .accessibilityIdentifier("SP-25.settings.inventory")
-                    NavigationLink(L10n.emergency_title) {
-                        EmergencyCardHubView()
-                    }
-                    .accessibilityIdentifier("SP-25.settings.emergencyCard")
-                    NavigationLink(L10n.immunization_title) {
-                        ImmunizationHubView()
-                    }
-                    .accessibilityIdentifier("SP-25.settings.immunization")
-                    NavigationLink(L10n.claim_title) {
-                        ClaimHubView()
-                    }
-                    .accessibilityIdentifier("SP-25.settings.claim")
-                    NavigationLink(L10n.fr24_title) {
-                        SentStatusHubView()
-                    }
-                    .accessibilityIdentifier("SP-25.settings.sentStatus")
-                    NavigationLink(L10n.hub_guidelines) {
-                        GuidelineHubView()
-                    }
-                    .accessibilityIdentifier("SP-25.settings.guidelines")
-                }
-                Section(L10n.settings_pro) {
-                    NavigationLink(L10n.proOutput_title) {
-                        ProOutputHubView()
-                    }
-                    .accessibilityIdentifier("SP-25.settings.proOutputs")
-                    NavigationLink(L10n.settings_proUpgrade) {
-                        PaywallView()
-                    }
-                    .accessibilityIdentifier("SP-25.settings.pro")
-                }
-                Section(L10n.settings_privacy) {
-                    NavigationLink(L10n.settings_audit) {
-                        AuditLogView()
-                    }
-                    .accessibilityIdentifier("SP-25.settings.audit")
-                    Button(L10n.settings_restoreDefaults) {
-                        Task { try await settings.restoreDefaults() }
-                    }
-                }
-                Section(L10n.settings_about) {
-                    NavigationLink(L10n.settings_help) {
-                        HelpAboutView()
-                    }
-                    .accessibilityIdentifier("SP-25.settings.help")
-                    Text(L10n.settings_disclaimer)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("SP-25.setting.\(key.rawValue)")
                 }
             }
-            .navigationTitle("我的")
+            Section(L10n.settings_habits) {
+                Text(L10n.settingsRemindAdvance(settings.values[.remindAdvanceMinutes] ?? "-"))
+                Text(L10n.settingsSnooze(settings.values[.snoozeMinutes] ?? "-"))
+                Text(L10n.settingsQuietHours(settings.values[.quietHoursStart] ?? "-",
+                                  settings.values[.quietHoursEnd] ?? "-"))
+            }
+            Section(L10n.hub_healthRecords) {
+                NavigationLink(L10n.member_title) {
+                    MemberManagementView()
+                }
+                .accessibilityIdentifier("SP-25.settings.members")
+                NavigationLink(L10n.inventory_title) {
+                    InventoryHubView()
+                }
+                .accessibilityIdentifier("SP-25.settings.inventory")
+                NavigationLink(L10n.emergency_title) {
+                    EmergencyCardHubView()
+                }
+                .accessibilityIdentifier("SP-25.settings.emergencyCard")
+                NavigationLink(L10n.immunization_title) {
+                    ImmunizationHubView()
+                }
+                .accessibilityIdentifier("SP-25.settings.immunization")
+                NavigationLink(L10n.claim_title) {
+                    ClaimHubView()
+                }
+                .accessibilityIdentifier("SP-25.settings.claim")
+                NavigationLink(L10n.fr24_title) {
+                    SentStatusHubView()
+                }
+                .accessibilityIdentifier("SP-25.settings.sentStatus")
+                NavigationLink(L10n.hub_guidelines) {
+                    GuidelineHubView()
+                }
+                .accessibilityIdentifier("SP-25.settings.guidelines")
+            }
+            Section(L10n.settings_pro) {
+                NavigationLink(L10n.proOutput_title) {
+                    ProOutputHubView()
+                }
+                .accessibilityIdentifier("SP-25.settings.proOutputs")
+                NavigationLink(L10n.settings_proUpgrade) {
+                    PaywallView()
+                }
+                .accessibilityIdentifier("SP-25.settings.pro")
+            }
+            Section(L10n.settings_privacy) {
+                NavigationLink(L10n.settings_audit) {
+                    AuditLogView()
+                }
+                .accessibilityIdentifier("SP-25.settings.audit")
+                Button(L10n.settings_restoreDefaults) {
+                    Task { try await settings.restoreDefaults() }
+                }
+            }
+            Section(L10n.settings_about) {
+                NavigationLink(L10n.settings_help) {
+                    HelpAboutView()
+                }
+                .accessibilityIdentifier("SP-25.settings.help")
+                Text(L10n.settings_disclaimer)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
+        .navigationTitle("我的")
         .task { await settings.load() }
     }
 

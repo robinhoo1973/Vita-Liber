@@ -14,7 +14,9 @@ struct AppContainer {
     let apts: AppointmentStore
     let reconciler: ReminderReconciler
     let search: GRDBSearchService
-    let aiProvider: LocalRetrievalProvider
+    /// 协议注入（架构规则 3）：装配处包了 SafeAIProvider 纵深防御装饰器，
+    /// 消费方只依赖 AIProvider 协议，具体实现（本地检索 / P1 云端）可替换
+    let aiProvider: any AIProvider
     let settings: SettingsStore
     let observations: ObservationStore
     let allergies: AllergyStore
@@ -64,7 +66,9 @@ struct AppContainer {
                             apts: apts,
                             reconciler: reconciler,
                             search: search,
-                            aiProvider: LocalRetrievalProvider(search: search),
+                            // 红线纵深防御在装配处统一包一层：BR-012/BR-006 对所有
+                            // Provider 实现生效（含 P1 云端），消费方不需要各自设防
+                            aiProvider: SafeAIProvider(inner: LocalRetrievalProvider(search: search)),
                             settings: settings,
                             observations: observations,
                             allergies: allergies,

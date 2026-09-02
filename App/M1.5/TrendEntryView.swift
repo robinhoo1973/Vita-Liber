@@ -8,12 +8,19 @@ import Infrastructure
 final class TrendEntryState {
     private(set) var series: TrendSeries?
     private let store: TrendQueryStore
+    /// 最近一次请求的成员（BR-001 成员隔离：只允许最新请求写回状态）
+    private var loadingPatientId: UUID?
     init(store: TrendQueryStore) { self.store = store }
 
     func load(patientId: UUID) async {
+        loadingPatientId = patientId
         do {
             let range = DateInterval(start: Date().addingTimeInterval(-90 * 86400), end: Date())
-            series = try await store.series(for: patientId, metric: .glucose, range: range)
+            let loaded = try await store.series(for: patientId, metric: .glucose, range: range)
+            // BR-001 成员隔离：切换成员会取消旧 .task，但已在飞行中的 actor 调用仍会返回。
+            // 晚到的旧成员结果绝不能覆盖当前成员状态（否则甲的曲线显示在乙的档案下）。
+            guard loadingPatientId == patientId else { return }
+            series = loaded
         } catch {
             // 数据为空态经 UI 呈现；错误经调用侧日志
         }
@@ -29,12 +36,12 @@ struct TrendEntryView: View {
             if let series = state.series, !series.points.isEmpty {
                 TrendDetailView(series: series)
             } else {
-                ContentUnavailableView("暂无指标数据", systemImage: "chart.xyaxis.line",
-                                       description: Text("录入自测指标或导入报告后，趋势图会显示在这里"))
+                ContentUnavailableView(L10n.trendEmptyTitle, systemImage: "chart.xyaxis.line",
+                                       description: Text(L10n.trendEmptyHint))
                     .accessibilityIdentifier("SP-13.trend.empty")
             }
         }
-        .task { await state.load(patientId: currentPatientId) }
+        .task(id: currentPatientId) { await state.load(patientId: currentPatientId) }
     }
 
     private var currentPatientId: UUID { app.currentPatientId }

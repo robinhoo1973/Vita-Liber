@@ -29,7 +29,7 @@ struct ImmunizationListView: View {
                              + (record.administeredAt.map { " · \($0.formatted(date: .abbreviated, time: .omitted))" } ?? ""))
                             .font(.subheadline).foregroundStyle(.secondary)
                         if !record.provider.isEmpty || !record.lotNumber.isEmpty {
-                            Text("\(record.provider)\(record.lotNumber.isEmpty ? "" : " · 批号 \(record.lotNumber)")")
+                            Text("\(record.provider)\(record.lotNumber.isEmpty ? "" : L10n.immunizationLot(record.lotNumber))")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }
@@ -86,24 +86,24 @@ private struct ImmunizationCreateSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                TextField("疫苗名称", text: $name)
+                TextField(L10n.immunizationVaccineName, text: $name)
                     .accessibilityIdentifier("FR4.5.create.name")
                 Stepper(L10n.doseNumber(dose), value: $dose, in: 1...20)
                     .accessibilityIdentifier("FR4.5.create.dose")
-                DatePicker("接种日期", selection: Binding(
+                DatePicker(L10n.immunizationDate, selection: Binding(
                     get: { date ?? Date() },
                     set: { date = $0 }))
-                TextField("接种机构", text: $provider)
+                TextField(L10n.immunizationProvider, text: $provider)
                     .accessibilityIdentifier("FR4.5.create.provider")
-                TextField("批号", text: $lot)
+                TextField(L10n.immunizationLotField, text: $lot)
                     .accessibilityIdentifier("FR4.5.create.lot")
                 Text(L10n.immunization_note)
                     .font(.caption).foregroundStyle(.secondary)
             }
-            .navigationTitle("新增疫苗记录")
+            .navigationTitle(L10n.immunizationCreateTitle)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("保存") { onCreate(name, dose, date, provider, lot) }
+                    Button(L10n.commonSave) { onCreate(name, dose, date, provider, lot) }
                         .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
                         .accessibilityIdentifier("FR4.5.create.save")
                 }

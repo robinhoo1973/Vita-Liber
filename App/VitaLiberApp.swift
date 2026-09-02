@@ -58,7 +58,7 @@ struct VitaLiberApp: App {
     var body: some Scene {
         WindowGroup {
             Group {
-                if backgroundLocked {
+                if backgroundLocked || appState.needsLockScreen {
                     LockOverlayView { backgroundLocked = false }
                 } else if !appState.onboardingFinished {
                     OnboardingFlowView()

@@ -96,11 +96,11 @@ private struct GuideCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("写入系统医疗急救卡").font(.headline)
-            Text("锁屏无需解锁即可被急救人员看到。我们提供分步引导，内容由你亲自在系统里填写。")
+            Text(L10n.emergencyWriteTitle).font(.headline)
+            Text(L10n.emergencyWriteSubtitle)
                 .font(.caption).foregroundStyle(.secondary)
             if let onGuide {
-                Button("查看分步引导", action: onGuide)
+                Button(L10n.emergencyViewGuide, action: onGuide)
                     .frame(minHeight: 44)
                     .accessibilityIdentifier("F15.card.medicalIDGuide")
             }
@@ -122,18 +122,18 @@ struct EmergencyCardSelectorView: View {
 
     var body: some View {
         List {
-            selectorSection("过敏", items: candidates.allergies)
-            selectorSection("长期用药", items: candidates.medications)
-            selectorSection("健康问题", items: candidates.healthProblems)
-            selectorSection("紧急联系人", items: candidates.contacts)
+            selectorSection(L10n.emergencySectionAllergy, items: candidates.allergies)
+            selectorSection(L10n.emergencySectionMeds, items: candidates.medications)
+            selectorSection(L10n.emergencySectionHealth, items: candidates.healthProblems)
+            selectorSection(L10n.emergencySectionContacts, items: candidates.contacts)
         }
-        .navigationTitle("选择卡片内容")
+        .navigationTitle(L10n.emergencySelectTitle)
     }
 
     private func selectorSection(_ title: String, items: [EmergencyCardItem]) -> some View {
         Section(title) {
             if items.isEmpty {
-                Text("暂无候选项").font(.caption).foregroundStyle(.secondary)
+                Text(L10n.emergencyNoCandidates).font(.caption).foregroundStyle(.secondary)
             } else {
                 ForEach(items) { item in
                     Button {
@@ -154,7 +154,7 @@ struct EmergencyCardSelectorView: View {
                         .frame(minHeight: 44)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("\(item.title)：\(selectedIds.contains(item.id) ? "已选" : "未选")")
+                    .accessibilityLabel("\(item.title)：\(selectedIds.contains(item.id) ? L10n.emergencySelected : L10n.emergencyUnselected)")
                     .accessibilityIdentifier("F15.selector.item")
                 }
             }

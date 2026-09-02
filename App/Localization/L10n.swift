@@ -43,6 +43,12 @@ enum L10n {
     static var voiceAskScreen: String { t("voice.ask.screen") }
     static var voiceRouteHeadphonesOn: String { t("voice.route.headphonesOn") }
     static var voiceRouteHeadphonesOff: String { t("voice.route.headphonesOff") }
+    // FR17.10/FR10.2 语音提醒澄清提示（两处调用共用，禁止各写一份字面量）
+    static var voiceReminderTimeUnclear: String { t("voice.reminder.timeUnclear") }
+    static var voiceReminderTimeUnheard: String { t("voice.reminder.timeUnheard") }
+
+    // FR1.4 安全降级披露（阶梯锁定不可用时锁屏横幅）
+    static var securityThrottleDegraded: String { t("security.throttleDegraded") }
 
     // MARK: - FR17.12 隐私与耳机须知
     static var voicePrivacyTitle: String { t("voice.privacy.title") }
@@ -310,80 +316,253 @@ enum L10n {
         t("deeplink.open").replacingOccurrences(of: "%@", with: hospital)
     }
 
+    // MARK: - L10n 清偿批五 · SP-24 备份（FR13.2）
+    static var backupScopeNote: String { t("backup.scopeNote") }
+    static func backupExportedName(_ name: String) -> String {
+        t("backup.exportedName").replacingOccurrences(of: "%@", with: name)
+    }
+    static func backupChecksum(_ digest: String) -> String {
+        t("backup.checksum").replacingOccurrences(of: "%@", with: digest)
+    }
+    static var backupRestored: String { t("backup.restored") }
+
+    // MARK: - L10n 清偿批五 · F7 趋势图轴与图例（SP-13 / FR7.2）
+    static var trendEmptyTitle: String { t("trend.empty.title") }
+    static var trendEmptyHint: String { t("trend.empty.hint") }
+    static var trendAxisStart: String { t("trend.axis.start") }
+    static var trendAxisEnd: String { t("trend.axis.end") }
+    static var trendAxisLower: String { t("trend.axis.lower") }
+    static var trendAxisUpper: String { t("trend.axis.upper") }
+    static var trendAxisTime: String { t("trend.axis.time") }
+    static var trendAxisValue: String { t("trend.axis.value") }
+    static var trendAxisSelected: String { t("trend.axis.selected") }
+    static func trendBandAccessibility(_ source: String, _ lo: String, _ hi: String) -> String {
+        String(format: t("trend.band.accessibility"), source, lo, hi)   // %1$@ %2$@ %3$@
+    }
+    static func trendExcludedAccessibility(_ v: String) -> String {
+        t("trend.excluded.accessibility").replacingOccurrences(of: "%@", with: v)
+    }
+    static func trendChartAccessibility(_ metric: String, _ points: Int, _ bands: Int) -> String {
+        String(format: t("trend.chart.accessibility"), metric, points, bands)
+    }
+    static func trendBandLegend(_ source: String, _ lo: String, _ hi: String) -> String {
+        String(format: t("trend.band.legend"), source, lo, hi)   // %1$@ %2$@ %3$@
+    }
+    static var trendOriginSelfDevice: String { t("trend.origin.selfDevice") }
+    static var trendOriginHospital: String { t("trend.origin.hospital") }
+    static func trendRefRange(_ lo: String, _ hi: String) -> String {
+        String(format: t("trend.refRange"), lo, hi)   // %1$@ %2$@
+    }
+    static func trendRowAccessibility(_ v: String, _ unit: String, _ source: String, _ time: String) -> String {
+        String(format: t("trend.row.accessibility"), v, unit, source, time)
+    }
+    static var trendRowExcludedSuffix: String { t("trend.row.excludedSuffix") }
+    static var trendOriginSelfShort: String { t("trend.origin.selfShort") }
+    static var trendOriginHospitalShort: String { t("trend.origin.hospitalShort") }
+    static func trendConvertedFrom(_ note: String) -> String {
+        t("trend.convertedFrom").replacingOccurrences(of: "%@", with: note)
+    }
+    static var trendShowExcludedAccessibility: String { t("trend.showExcluded.accessibility") }
+
+    // MARK: - L10n 清偿批五 · 语音速记（SP-59 / FR17.14）
+    static var voicenoteEmptyTitle: String { t("voicenote.empty.title") }
+    static var voicenoteEmptyHint: String { t("voicenote.empty.hint") }
+    static var voicenoteInTimeline: String { t("voicenote.inTimeline") }
+    static var voicenoteDraftPlaceholder: String { t("voicenote.draft.placeholder") }
+    static var voicenoteDraftAccessibility: String { t("voicenote.draft.accessibility") }
+    static var voicenoteSaveAccessibility: String { t("voicenote.save.accessibility") }
+    static var voicenoteTitle: String { t("voicenote.title") }
+
+    // MARK: - L10n 清偿批五 · 观察（SP-14 / F8）
+    static func observationGroupSummary(_ count: Int, _ mark: String) -> String {
+        String(format: t("observation.groupSummary"), count, mark)   // %1$d %2$@
+    }
+    static var observationTrendImproved: String { t("observation.trend.improved") }
+    static var observationTrendUnchanged: String { t("observation.trend.unchanged") }
+    static var observationTrendWorsened: String { t("observation.trend.worsened") }
+    static var observationUnlockedPlaceholder: String { t("observation.unlockedPlaceholder") }
+    static var observationLockedHint: String { t("observation.lockedHint") }
+    static var observationUnlockedHint: String { t("observation.unlockedHint") }
+
+    // MARK: - L10n 清偿批五 · Pro 产出预览（F23）
+    static func proPreviewNote(_ product: String) -> String {
+        t("pro.previewNote").replacingOccurrences(of: "%@", with: product)
+    }
+
+    // MARK: - L10n 清偿批五 · 预警与信源（F16）
+    static var alertEmptyTitle: String { t("alert.empty.title") }
+    static var alertEmptyHint: String { t("alert.empty.hint") }
+    static func alertOpenSource(_ ref: String) -> String {
+        t("alert.openSource").replacingOccurrences(of: "%@", with: ref)
+    }
+    static func alertSeverity(_ level: String) -> String {
+        t("alert.severity").replacingOccurrences(of: "%@", with: level)
+    }
+    static var alertOpenOriginal: String { t("alert.openOriginal") }
+    static func alertLinkChecked(_ date: String) -> String {
+        t("alert.linkChecked").replacingOccurrences(of: "%@", with: date)
+    }
+    static var alertSourceTitle: String { t("alert.sourceTitle") }
+
+    // MARK: - L10n 清偿批五 · 急救卡（F15）
+    static var emergencyWriteTitle: String { t("emergency.write.title") }
+    static var emergencyWriteSubtitle: String { t("emergency.write.subtitle") }
+    static var emergencyViewGuide: String { t("emergency.viewGuide") }
+    static var emergencySectionAllergy: String { t("emergency.section.allergy") }
+    static var emergencySectionMeds: String { t("emergency.section.meds") }
+    static var emergencySectionHealth: String { t("emergency.section.health") }
+    static var emergencySectionContacts: String { t("emergency.section.contacts") }
+    static var emergencySelectTitle: String { t("emergency.select.title") }
+    static var emergencyNoCandidates: String { t("emergency.noCandidates") }
+    static var emergencySelected: String { t("emergency.selected") }
+    static var emergencyUnselected: String { t("emergency.unselected") }
+
+    // MARK: - L10n 清偿批五 · 疫苗接种（FR4.5 / SP-54）
+    static var immunizationVaccineName: String { t("immunization.vaccineName") }
+    static var immunizationDate: String { t("immunization.date") }
+    static var immunizationProvider: String { t("immunization.provider") }
+    static var immunizationLotField: String { t("immunization.lotField") }
+    static var immunizationCreateTitle: String { t("immunization.createTitle") }
+    static func immunizationLot(_ lot: String) -> String {
+        t("immunization.lot").replacingOccurrences(of: "%@", with: lot)
+    }
+
+    // MARK: - L10n 清偿批五 · 通用动作
+    static var commonSave: String { t("common.save") }
+    static var commonCancel: String { t("common.cancel") }
+
+    // MARK: - L10n 清偿批五 · 双轨库存（FR9.8）
+    static func inventoryDualLine(_ plan: String, _ unit: String, _ confirmed: String) -> String {
+        String(format: t("inventory.dualLine"), plan, unit, confirmed)   // %1$@ %2$@ · %3$@ %2$@
+    }
+    static func inventoryExpiry(_ date: String) -> String {
+        t("inventory.expiry").replacingOccurrences(of: "%@", with: date)
+    }
+    static var inventoryTier14: String { t("inventory.tier14") }
+    static var inventoryTier7: String { t("inventory.tier7") }
+    static var inventoryTier3: String { t("inventory.tier3") }
+    static func inventoryBookValue(_ v: String, _ unit: String) -> String {
+        String(format: t("inventory.bookValue"), v, unit)   // %1$@ %2$@
+    }
+    static func inventoryPhysical(_ v: String, _ unit: String) -> String {
+        String(format: t("inventory.physical"), v, unit)   // %1$@ %2$@
+    }
+    static var inventoryReconcileEqual: String { t("inventory.reconcileEqual") }
+    static func inventoryReconcileMore(_ d: String) -> String {
+        t("inventory.reconcileMore").replacingOccurrences(of: "%@", with: d)
+    }
+    static func inventoryReconcileLess(_ d: String) -> String {
+        t("inventory.reconcileLess").replacingOccurrences(of: "%@", with: d)
+    }
+    static func inventoryReconcileConfirm(_ v: String, _ unit: String) -> String {
+        String(format: t("inventory.reconcileConfirm"), v, unit)   // %1$@ %2$@
+    }
+    static var inventoryConfirmWrite: String { t("inventory.confirmWrite") }
+    static func inventoryMonthlySuffix(_ period: String) -> String {
+        t("inventory.monthlySuffix").replacingOccurrences(of: "%@", with: period)
+    }
+
+    // MARK: - L10n 清偿批五 · 用药求助卡（FR24.5）
+    static func helpcardRemaining(_ v: String, _ unit: String) -> String {
+        String(format: t("helpcard.remaining"), v, unit)   // %1$@ %2$@
+    }
+    static var helpcardPhotoSection: String { t("helpcard.photoSection") }
+
+    // MARK: - L10n 清偿批五 · AI 助手（F12）
+    static var ai_refusedNoEvidence: String { t("ai.refusedNoEvidence") }
+    static var ai_refusedHighRisk: String { t("ai.refusedHighRisk") }
+    static var ai_failedRetry: String { t("ai.failedRetry") }
+    static var ai_emergencyCardText: String { t("ai.emergencyCardText") }
+    static var ai_emergencyTitle: String { t("ai.emergencyTitle") }
+    static var ai_emergencyCall: String { t("ai.emergencyCall") }
+    static var timelineEmptyTitle: String { t("timeline.empty.title") }
+    static var paywallPreviewTitle: String { t("paywall.previewTitle") }
+    static var sensitiveSetupHint: String { t("sensitive.setupHint") }
+
     static let registeredKeys: [String] = [
-        "nav.home", "nav.records", "nav.reminders", "nav.ai", "nav.me",
-        "trend.title", "trend.range.unavailable", "trend.excluded.toggle",
-        "trend.excluded.header", "trend.openSource", "trend.point.exclude",
-        "trend.point.restore", "trend.origin.self",
-        "voice.confirm.title", "voice.confirm.pending", "voice.confirm.lowConfidence",
-        "voice.confirm.save", "voice.confirm.retry", "voice.confirm.cancel",
-        "voice.speak.button", "voice.speak.screenHint", "voice.speak.bystander",
-        "voice.ask.speak", "voice.ask.screen",
-        "voice.route.headphonesOn", "voice.route.headphonesOff",
-        "voice.privacy.title", "voice.privacy.p1", "voice.privacy.p2",
-        "voice.privacy.p3", "voice.privacy.p4",
-        "voice.privacy.accept", "voice.privacy.useTouch",
-        "backup.title", "backup.create", "backup.restore",
-        "backup.degrade.notSignedIn", "backup.degrade.noSpace", "backup.degrade.checksum",
-        "inventory.title",
-        "inventory.empty",
-        "inventory.emptyHint",
-        "inventory.approxDays",
-        "inventory.noPlanHint",
-        "inventory.fixCount",
-        "inventory.reconcileTitle",
-        "inventory.reportTitle",
-        "inventory.reportBlocked",
-        "inventory.reportFact",
-        "emergency.title",
-        "emergency.bloodType",
-        "emergency.allergy",
-        "emergency.meds",
-        "emergency.health",
-        "emergency.contacts",
-        "emergency.notSet",
-        "emergency.sos.hold",
-        "emergency.sos.confirmPrompt",
-        "emergency.sos.confirm",
-        "emergency.sos.cancel",
-        "care.title",
-        "care.footer",
-        "claim.title",
-        "claim.empty",
-        "claim.emptyHint",
-        "claim.add",
-        "claim.type.invoice",
-        "claim.type.fee",
-        "claim.type.receipt",
-        "immunization.title",
-        "immunization.empty",
-        "immunization.emptyHint",
-        "immunization.confirmed",
-        "immunization.pending",
-        "immunization.note",
-        "deeplink.title",
-        "deeplink.jump",
-        "deeplink.open",
-        "deeplink.notFound",
-        "deeplink.bookingNo",
-        "deeplink.saveNo",
-        "helpcard.title",
-        "helpcard.selectHint",
-        "helpcard.photoOptIn",
-        "helpcard.contentNote",
-        "helpcard.generate",
-        "f19.sessionTitle",
-        "f19.launch",
-        "f19.listeningHint",
-        "f19.typeHint",
-        "f19.end",
-        "f19.sayAgainHint",
-        "f19.confirm",
-        "f19.cancel",
-        "f19.rejectedTitle",
-        "f19.goTouch",
-        "f19.stopped",
-        "f19.paused"
+        "sensitive.setupHint",
+        "ai.aiBadge", "ai.askDoctor", "ai.citations", "ai.confirmImageText",
+        "ai.emergencyAction", "ai.emergencyCall", "ai.emergencyTitle", "paywall.previewTitle", "timeline.empty.title",
+        "ai.emergencyCardText", "ai.failedRetry", "ai.refusedHighRisk",
+        "ai.refusedNoEvidence",
+        "ai.source", "ai.uncertain", "alert.empty.hint", "alert.empty.title",
+        "alert.linkChecked", "alert.openOriginal", "alert.openSource", "alert.severity",
+        "alert.sourceTitle", "backup.checksum", "backup.create", "backup.degrade.checksum",
+        "backup.degrade.noSpace", "backup.degrade.notSignedIn", "backup.exportedName", "backup.restore",
+        "backup.restored", "backup.scopeNote", "backup.title", "care.footer",
+        "care.title", "claim.add", "claim.empty", "claim.emptyHint",
+        "claim.title", "claim.type.fee", "claim.type.invoice", "claim.type.receipt",
+        "common.cancel", "common.save", "deeplink.bookingNo", "deeplink.jump",
+        "deeplink.notFound", "deeplink.open", "deeplink.saveNo", "deeplink.title",
+        "dose.number", "emergency.allergy", "emergency.bloodType", "emergency.contacts",
+        "emergency.health", "emergency.meds", "emergency.noCandidates", "emergency.notSet",
+        "emergency.section.allergy", "emergency.section.contacts", "emergency.section.health", "emergency.section.meds",
+        "emergency.select.title", "emergency.selected", "emergency.sos.cancel", "emergency.sos.confirm",
+        "emergency.sos.confirmPrompt", "emergency.sos.hold", "emergency.title", "emergency.unselected",
+        "emergency.viewGuide", "emergency.write.subtitle", "emergency.write.title", "f19.cancel",
+        "f19.confirm", "f19.end", "f19.executed", "f19.goTouch",
+        "f19.launch", "f19.listeningHint", "f19.paused", "f19.rejectedTitle",
+        "f19.repeatObject", "f19.sayAgainHint", "f19.sessionTitle", "f19.stopped",
+        "f19.typeHint", "fr24.empty", "fr24.emptyHint", "fr24.kindHelpCard",
+        "fr24.kindSos", "fr24.recipient", "fr24.statusAckPending", "fr24.statusAcked",
+        "fr24.statusSent", "fr24.statusTimeout", "fr24.title", "help.appName",
+        "help.disclaimer", "help.faqPlaceholder", "help.privacyPlaceholder", "help.tagline",
+        "help.title", "help.version", "helpcard.contentNote", "helpcard.generate",
+        "helpcard.photoOptIn", "helpcard.photoSection", "helpcard.remaining", "helpcard.selectHint",
+        "helpcard.title", "hub.guidelines", "hub.healthRecords", "hub.helpCardOpen",
+        "immunization.confirmed", "immunization.createTitle", "immunization.date", "immunization.empty",
+        "immunization.emptyHint", "immunization.lot", "immunization.lotField", "immunization.note",
+        "immunization.pending", "immunization.provider", "immunization.title", "immunization.vaccineName",
+        "inventory.approxDays", "inventory.bookValue", "inventory.confirmWrite", "inventory.dualLine",
+        "inventory.empty", "inventory.emptyHint", "inventory.expiry", "inventory.fixCount",
+        "inventory.monthlySuffix", "inventory.noPlanHint", "inventory.physical", "inventory.reconcileConfirm",
+        "inventory.reconcileEqual", "inventory.reconcileLess", "inventory.reconcileMore", "inventory.reconcileTitle",
+        "inventory.reportBlocked", "inventory.reportFact", "inventory.reportTitle", "inventory.tier14",
+        "inventory.tier3", "inventory.tier7", "inventory.title", "member.add",
+        "member.addedHint", "member.birthDatePlaceholder", "member.current", "member.namePlaceholder",
+        "member.quotaHint", "member.relation", "member.save", "member.switch",
+        "member.title", "nav.ai", "nav.home", "nav.me",
+        "nav.records", "nav.reminders", "observation.groupSummary", "observation.lockedHint",
+        "observation.trend.improved", "observation.trend.unchanged", "observation.trend.worsened", "observation.unlockedHint",
+        "observation.unlockedPlaceholder", "onboard.aimPrescription", "onboard.buildProfile", "onboard.cancel",
+        "onboard.capturePrescription", "onboard.confirm", "onboard.confirmAllTimeline", "onboard.confirmResult",
+        "onboard.confirmed", "onboard.confirmedCount", "onboard.createContinue", "onboard.enterPin",
+        "onboard.finishEnterApp", "onboard.gotIt", "onboard.later", "onboard.newValue",
+        "onboard.observation", "onboard.ocrDisclaimer", "onboard.ocrRaw", "onboard.ownerNote",
+        "onboard.pinLockHint", "onboard.pinProgress", "onboard.pinPurpose", "onboard.reviseTitle",
+        "onboard.revisionHistory", "onboard.saveEdit", "onboard.scanSample", "onboard.setPin",
+        "onboard.sourceConfirmed", "onboard.tierUnconfirmed", "onboard.timelineHint", "onboard.timelineTitle",
+        "onboard.trendTitle", "onboard.unconfirmed2", "onboard.unconfirmedBadge", "onboard.voiceNote",
+        "onboard.yourName", "pay.busy", "pay.buy", "pay.restore",
+        "pay.valueProp", "pro.previewNote", "proOutput.title", "reminder.addAppt",
+        "reminder.addPlan", "reminder.appointments", "reminder.completeAppt", "reminder.emptyAppt",
+        "reminder.later", "reminder.loading", "reminder.planName", "reminder.planSpec",
+        "reminder.planTime", "reminder.save", "reminder.skip", "reminder.statusCancelled",
+        "reminder.statusCompleted", "reminder.statusMissed", "reminder.statusScheduled", "reminder.taken",
+        "reminder.takenCount", "reminder.today", "reminder.todayEmpty", "security.throttleDegraded",
+        "settings.about",
+        "settings.audit", "settings.authTitle", "settings.careMode", "settings.disclaimer",
+        "settings.habits", "settings.help", "settings.privacy", "settings.pro",
+        "settings.proUpgrade", "settings.quietHours", "settings.remindAdvance", "settings.restoreDefaults",
+        "settings.snooze", "settings.voiceEntry", "trend.axis.end", "trend.axis.lower",
+        "trend.axis.selected", "trend.axis.start", "trend.axis.time", "trend.axis.upper",
+        "trend.axis.value", "trend.band.accessibility", "trend.band.legend", "trend.chart.accessibility",
+        "trend.convertedFrom", "trend.empty.hint", "trend.empty.title", "trend.excluded.accessibility",
+        "trend.excluded.header", "trend.excluded.toggle", "trend.openSource", "trend.origin.hospital",
+        "trend.origin.hospitalShort", "trend.origin.self", "trend.origin.selfDevice", "trend.origin.selfShort",
+        "trend.point.exclude", "trend.point.restore", "trend.range.unavailable", "trend.refRange",
+        "trend.row.accessibility", "trend.row.excludedSuffix", "trend.showExcluded.accessibility", "trend.title",
+        "voice.ask.screen", "voice.ask.speak", "voice.confirm.cancel", "voice.confirm.lowConfidence",
+        "voice.confirm.pending", "voice.confirm.retry", "voice.confirm.save", "voice.confirm.title",
+        "voice.privacy.accept", "voice.privacy.p1", "voice.privacy.p2", "voice.privacy.p3",
+        "voice.privacy.p4", "voice.privacy.title", "voice.privacy.useTouch", "voice.reminder.timeUnclear", "voice.reminder.timeUnheard",
+        "voice.route.headphonesOff",
+        "voice.route.headphonesOn", "voice.speak.button", "voice.speak.bystander", "voice.speak.screenHint",
+        "voiceguide.answerHint", "voiceguide.buildDraft", "voiceguide.next", "voiceguide.profileTitle",
+        "voiceguide.promptAllergy", "voiceguide.promptContact", "voiceguide.promptHistory", "voiceguide.promptMeds",
+        "voiceguide.reminderExample", "voiceguide.reminderTitle", "voiceguide.skip", "voiceguide.stepOf",
+        "voiceguide.transcript", "voicenote.draft.accessibility", "voicenote.draft.placeholder", "voicenote.empty.hint",
+        "voicenote.empty.title", "voicenote.inTimeline", "voicenote.save.accessibility", "voicenote.title"
     ]
 
     /// 支持的本地化（三文件纪律）

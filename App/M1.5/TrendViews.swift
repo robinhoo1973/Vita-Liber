@@ -39,33 +39,38 @@ struct TrendChartView: View {
     private var xDomainEnd: Date { series.points.last?.measuredAt ?? Date() }
 
     var body: some View {
+        // 轴标签在 ForEach 内逐点求值 = 每个数据点走一次 NSLocalizedString
+        // （一年日测约 730 点，且拖动 chartXSelection 时每帧重算 body）。
+        // 循环不变量提到外层，求值一次。
+        let axisTime = L10n.trendAxisTime
+        let axisValue = L10n.trendAxisValue
         VStack(alignment: .leading, spacing: 12) {
             Chart {
                 // ① 多来源参考带：逐条独立绘制（FR7.2）
                 ForEach(Array(series.referenceBands.enumerated()), id: \.element.id) { index, band in
                     RectangleMark(
-                        xStart: .value("起", xDomainStart),
-                        xEnd: .value("止", xDomainEnd),
-                        yStart: .value("下限", band.lower),
-                        yEnd: .value("上限", band.upper)
+                        xStart: .value(L10n.trendAxisStart, xDomainStart),
+                        xEnd: .value(L10n.trendAxisEnd, xDomainEnd),
+                        yStart: .value(L10n.trendAxisLower, band.lower),
+                        yEnd: .value(L10n.trendAxisUpper, band.upper)
                     )
                     .foregroundStyle(Color("surface-tint-start", bundle: .main)
                         .opacity(bandOpacity(index)))
-                    .accessibilityLabel("\(band.sourceLabel) 参考范围 \(band.lower) 到 \(band.upper)")
+                    .accessibilityLabel(L10n.trendBandAccessibility(band.sourceLabel, MedicalNumberFormat.oneDecimal(band.lower), MedicalNumberFormat.oneDecimal(band.upper)))
                 }
                 // ② 已排除点对照（虚线空心，视觉上明确「不参与」）
                 if showExcluded {
                     ForEach(series.excludedPoints) { point in
-                        PointMark(x: .value("时间", point.measuredAt), y: .value("值", point.value))
+                        PointMark(x: .value(axisTime, point.measuredAt), y: .value(axisValue, point.value))
                             .symbolSize(90)
                             .foregroundStyle(Color("text-tertiary", bundle: .main).opacity(0.5))
                             .symbol(.cross)
-                            .accessibilityLabel("已排除 \(point.value)")
+                            .accessibilityLabel(L10n.trendExcludedAccessibility(MedicalNumberFormat.oneDecimal(point.value)))
                     }
                 }
                 // ③ 数据点：实心=医院、空心=自测/设备
                 ForEach(TrendRules.sorted(series.points)) { point in
-                    PointMark(x: .value("时间", point.measuredAt), y: .value("值", point.value))
+                    PointMark(x: .value(axisTime, point.measuredAt), y: .value(axisValue, point.value))
                         .symbolSize(120)
                         .foregroundStyle(point.isHollow
                             ? Color("bg-grouped", bundle: .main)
@@ -74,7 +79,7 @@ struct TrendChartView: View {
                 }
                 // ④ 选中点竖线（chartXSelection 气泡锚点）
                 if let selectedPoint {
-                    RuleMark(x: .value("选中", selectedPoint.measuredAt))
+                    RuleMark(x: .value(L10n.trendAxisSelected, selectedPoint.measuredAt))
                         .foregroundStyle(Color("text-tertiary", bundle: .main).opacity(0.6))
                         .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
                 }
@@ -82,7 +87,7 @@ struct TrendChartView: View {
             .chartXSelection(value: $selectedDate)
             .frame(height: 200)
             .accessibilityIdentifier("SP-13.trend.chart")
-            .accessibilityLabel("\(series.metricType.rawValue) 趋势图，共 \(series.points.count) 个数据点，\(series.referenceBands.count) 条参考范围")
+            .accessibilityLabel(L10n.trendChartAccessibility(series.metricType.rawValue, series.points.count, series.referenceBands.count))
 
             // 参考带图例：来源名必须可读——「各自显示」的可验证出口
             if series.referenceBands.isEmpty {
@@ -97,7 +102,7 @@ struct TrendChartView: View {
                                 .fill(Color("surface-tint-start", bundle: .main)
                                     .opacity(bandOpacity(index)))
                                 .frame(width: 18, height: 12)
-                            Text("\(band.sourceLabel) \(band.lower, specifier: "%.1f")–\(band.upper, specifier: "%.1f")")
+                            Text(L10n.trendBandLegend(band.sourceLabel, MedicalNumberFormat.oneDecimal(band.lower), MedicalNumberFormat.oneDecimal(band.upper)))
                                 .font(.caption2).foregroundStyle(.secondary)
                         }
                         .accessibilityElement(children: .combine)
@@ -138,14 +143,14 @@ private struct TrendPointBubble: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("\(point.value, specifier: "%.1f") \(point.unit ?? "")")
+            Text("\(MedicalNumberFormat.oneDecimal(point.value)) \(point.unit ?? "")")
                 .font(.title3).monospacedDigit()
             Text(point.measuredAt.formatted(date: .abbreviated, time: .shortened))
                 .font(.caption2).foregroundStyle(.secondary)
-            Text(point.isHollow ? "自测 / 设备读数" : (point.refSourceLabel ?? "医院报告"))
+            Text(point.isHollow ? L10n.trendOriginSelfDevice : (point.refSourceLabel ?? L10n.trendOriginHospital))
                 .font(.caption2).foregroundStyle(.secondary)
             if let lo = point.refLow, let hi = point.refHigh {
-                Text("参考范围 \(lo, specifier: "%.1f")–\(hi, specifier: "%.1f")")
+                Text(L10n.trendRefRange(MedicalNumberFormat.oneDecimal(lo), MedicalNumberFormat.oneDecimal(hi)))
                     .font(.caption2).foregroundStyle(.secondary)
             }
             if point.sourceRef != nil, let onOpenSource {
@@ -185,7 +190,7 @@ private struct TrendPointRow: View {
             Text(point.measuredAt.formatted(date: .abbreviated, time: .shortened))
                 .font(.footnote)
             Spacer()
-            Text("\(point.value, specifier: "%.1f") \(point.unit ?? "")")
+            Text("\(MedicalNumberFormat.oneDecimal(point.value)) \(point.unit ?? "")")
                 .font(.footnote).monospacedDigit()
                 .strikethrough(isExcluded)
             if point.isHollow {
@@ -210,7 +215,7 @@ private struct TrendPointRow: View {
         .contentShape(Rectangle())
         .onTapGesture { if !isExcluded { onOpenSource?(point) } }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("\(point.value) \(point.unit ?? "") · \(point.isHollow ? "自测" : (point.refSourceLabel ?? "医院")) · \(point.measuredAt.formatted(date: .abbreviated, time: .shortened))\(isExcluded ? " · 已排除" : "")")
+        .accessibilityLabel(L10n.trendRowAccessibility(MedicalNumberFormat.oneDecimal(point.value), point.unit ?? "", point.isHollow ? L10n.trendOriginSelfShort : (point.refSourceLabel ?? L10n.trendOriginHospitalShort), point.measuredAt.formatted(date: .abbreviated, time: .shortened)) + (isExcluded ? L10n.trendRowExcludedSuffix : ""))
         .accessibilityIdentifier(isExcluded ? "SP-13.trend.point.excluded" : "SP-13.trend.point")
     }
 }
@@ -231,7 +236,7 @@ struct TrendDetailView: View {
                            onOpenSource: onOpenSource,
                            onToggleExcluded: onToggleExcluded)
             if let note = conversionNote {
-                Text("换算自 \(note)")
+                Text(L10n.trendConvertedFrom(note))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .accessibilityIdentifier("SP-13.trend.conversion")
@@ -249,7 +254,7 @@ struct TrendDetailView: View {
                     .frame(minWidth: 44, minHeight: 44)
                 }
                 .toggleStyle(.button)
-                .accessibilityLabel("显示已排除的数据点")
+                .accessibilityLabel(L10n.trendShowExcludedAccessibility)
                 .accessibilityIdentifier("SP-13.trend.excluded.toggle")
             }
         }

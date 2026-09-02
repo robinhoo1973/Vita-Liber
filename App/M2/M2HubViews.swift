@@ -35,7 +35,7 @@ struct InventoryHubView: View {
                 .accessibilityIdentifier("FR9.13a.card.open")
             }
         }
-        .task { await hub.load(patientId: currentPatientId) }
+        .task(id: currentPatientId) { await hub.load(patientId: currentPatientId) }
         .sheet(item: $reconcileItem) { item in
             InventoryReconcileSheet(item: item) { count in
                 Task { await hub.reconcileLot(item: item, physicalCount: count) }
@@ -89,7 +89,7 @@ struct EmergencyCardHubView: View {
             bloodType: hub.bloodType,
             onGuideMedicalID: { UIApplication.shared.open(URL(string: "x-apple-health://") ?? URL(string: "https://support.apple.com/medical-id")!) },
             onOpenSelector: { showSelector = true })
-        .task { await hub.load(patientId: currentPatientId) }
+        .task(id: currentPatientId) { await hub.load(patientId: currentPatientId) }
         .sheet(isPresented: $showSelector) {
             NavigationStack {
                 EmergencyCardSelectorView(
@@ -118,7 +118,7 @@ struct ImmunizationHubView: View {
                                                 dose: dose, date: date,
                                                 provider: provider, lot: lot) }
         }
-        .task { await hub.load(patientId: currentPatientId) }
+        .task(id: currentPatientId) { await hub.load(patientId: currentPatientId) }
     }
 
     private var currentPatientId: UUID { app.currentPatientId }
@@ -136,7 +136,7 @@ struct ClaimHubView: View {
                                          amount: amount, date: date,
                                          merchant: merchant, summary: summary) }
         }
-        .task { await hub.load(patientId: currentPatientId) }
+        .task(id: currentPatientId) { await hub.load(patientId: currentPatientId) }
     }
 
     private var currentPatientId: UUID { app.currentPatientId }
@@ -150,7 +150,7 @@ struct SentStatusHubView: View {
 
     var body: some View {
         SentStatusListView(messages: hub.sentMessages)
-            .task { await hub.load(patientId: currentPatientId) }
+            .task(id: currentPatientId) { await hub.load(patientId: currentPatientId) }
     }
 
     private var currentPatientId: UUID { app.currentPatientId }
@@ -229,7 +229,7 @@ struct GuidelineHubView: View {
 
     var body: some View {
         GuidelineSourceListView(entries: hub.guidelineEntries)
-            .task { await hub.load(patientId: currentPatientId) }
+            .task(id: currentPatientId) { await hub.load(patientId: currentPatientId) }
     }
 
     private var currentPatientId: UUID { app.currentPatientId }

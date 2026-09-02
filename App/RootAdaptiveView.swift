@@ -63,7 +63,11 @@ struct RootAdaptiveView: View {
         if sizeClass == .compact {
             TabView(selection: $selection) {
                 ForEach(MainModule.allCases) { m in
-                    ModuleRoot(module: m)
+                    // 每个 tab 自带导航栈。放在这里而不是 ModuleRoot 内部：
+                    // ModuleRoot 为两种 idiom 共用（ADR-021 单一内容视图），
+                    // 若在其内部无条件包 NavigationStack，iPad 详情列会在
+                    // NavigationSplitView 已提供的导航上下文里再套一层嵌套栈。
+                    NavigationStack { ModuleRoot(module: m) }
                         .tabItem { Label(m.titleKey, image: m.iconName) }
                         .tag(m)
                 }
@@ -98,11 +102,13 @@ struct ModuleRoot: View {
 
     var body: some View {
         if module == .records {
+            // 导航栈由外层提供（iPhone: 每个 tab 一个；iPad: NavigationSplitView 详情列），
+            // 此处不得再包，否则 iPad 出现嵌套栈
             TimelineView(showFinishButton: false)
         } else if module == .reminders {
             RemindersView()
         } else if module == .ai {
-            NavigationStack { AssistantView() }
+            AssistantView()
         } else if module == .me {
             SettingsView()
         } else {

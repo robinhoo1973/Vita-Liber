@@ -115,20 +115,20 @@ struct BackupView: View {
                 }
                 .accessibilityIdentifier("SP-24.backup.restore")
             } footer: {
-                Text("备份包含全部结构化记录与敏感项标记；文件落点由你选择，App 不会自行上传。")
+                Text(L10n.backupScopeNote)
                     .font(.caption2)
             }
 
             switch state.phase {
             case .exported(let name, let digest):
                 Section {
-                    Label("已生成 \(name)", image: "ic-check-circle")
+                    Label(L10n.backupExportedName(name), image: "ic-check-circle")
                         .accessibilityIdentifier("SP-24.backup.exported")
-                    Text("校验码 \(digest)…").font(.caption2).monospaced()
+                    Text(L10n.backupChecksum(digest)).font(.caption2).monospaced()
                         .foregroundStyle(.secondary)
                 }
             case .restored:
-                Label("已从备份恢复", image: "ic-check-circle")
+                Label(L10n.backupRestored, image: "ic-check-circle")
                     .accessibilityIdentifier("SP-24.backup.restored")
             case .degraded(let message):
                 Label(message, image: "ic-warning")

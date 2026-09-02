@@ -24,8 +24,8 @@ struct AlertHistoryView: View {
 
     var body: some View {
         if events.isEmpty {
-            ContentUnavailableView("暂无预警记录", systemImage: "waveform.path.ecg",
-                                   description: Text("读数越过参考范围时会在这里出现提示"))
+            ContentUnavailableView(L10n.alertEmptyTitle, systemImage: "waveform.path.ecg",
+                                   description: Text(L10n.alertEmptyHint))
                 .accessibilityIdentifier("F16.alerts.empty")
         } else {
             List(l1Plus, id: \.id) { event in
@@ -72,7 +72,7 @@ private struct EvidenceCardRow: View {
                         }
                         .frame(minHeight: 44, alignment: .leading)
                     }
-                    .accessibilityLabel("打开信源原文：\(ref)")
+                    .accessibilityLabel(L10n.alertOpenSource(ref))
                     .accessibilityIdentifier("F16.evidence.source")
                 } else {
                     Text(ref).font(.caption).foregroundStyle(.secondary)
@@ -99,7 +99,7 @@ struct SeverityTag: View {
             .padding(.horizontal, 8).padding(.vertical, 3)
             .background(Capsule().fill(color.opacity(0.15)))
             .foregroundStyle(color)
-            .accessibilityLabel("预警级别 \(severity.rawValue)")
+            .accessibilityLabel(L10n.alertSeverity(severity.rawValue))
     }
 
     private var color: Color {
@@ -126,27 +126,27 @@ struct GuidelineSourceListView: View {
                 Text("\(entry.org) · \(entry.version) · \(entry.clauseRef)")
                     .font(.caption).foregroundStyle(.secondary)
                 HStack(spacing: 12) {
-                    if let lo = entry.l1Low { thresholdText("L1 ≥ \(String(format: "%g", lo))") }
-                    if let hi = entry.l1High { thresholdText("L1 ≤ \(String(format: "%g", hi))") }
-                    if let lo = entry.l2Low { thresholdText("L2 ≥ \(String(format: "%g", lo))") }
-                    if let hi = entry.l2High { thresholdText("L2 ≤ \(String(format: "%g", hi))") }
-                    if let lo = entry.l3Low { thresholdText("L3 ≥ \(String(format: "%g", lo))") }
-                    if let hi = entry.l3High { thresholdText("L3 ≤ \(String(format: "%g", hi))") }
+                    if let lo = entry.l1Low { thresholdText("L1 ≥ \(MedicalNumberFormat.quantity(lo))") }
+                    if let hi = entry.l1High { thresholdText("L1 ≤ \(MedicalNumberFormat.quantity(hi))") }
+                    if let lo = entry.l2Low { thresholdText("L2 ≥ \(MedicalNumberFormat.quantity(lo))") }
+                    if let hi = entry.l2High { thresholdText("L2 ≤ \(MedicalNumberFormat.quantity(hi))") }
+                    if let lo = entry.l3Low { thresholdText("L3 ≥ \(MedicalNumberFormat.quantity(lo))") }
+                    if let hi = entry.l3High { thresholdText("L3 ≤ \(MedicalNumberFormat.quantity(hi))") }
                 }
                 if let url = URL(string: entry.citationUrl), !entry.citationUrl.isEmpty {
-                    Link("打开原文", destination: url)
+                    Link(L10n.alertOpenOriginal, destination: url)
                         .font(.caption)
                         .frame(minHeight: 44)
                         .accessibilityIdentifier("F16.guideline.sourceLink")
                 }
-                Text("链接检查日期 \(entry.checkedAt.formatted(date: .abbreviated, time: .omitted))")
+                Text(L10n.alertLinkChecked(entry.checkedAt.formatted(date: .abbreviated, time: .omitted)))
                     .font(.caption2).foregroundStyle(.tertiary)
             }
             .padding(.vertical, 4)
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("F16.guideline.row")
         }
-        .navigationTitle("参考范围来源")
+        .navigationTitle(L10n.alertSourceTitle)
     }
 
     private func thresholdText(_ s: String) -> some View {

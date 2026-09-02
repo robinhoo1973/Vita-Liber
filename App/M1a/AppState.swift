@@ -46,21 +46,30 @@ final class AppState {
     private let launchArgs: [String]
     private let logger = Logger(subsystem: "com.vitaliber", category: "appstate")
 
-    /// TTS 端口（FR17.13/17.16）。默认注入生产适配器；测试注入 RecordingSpeechSynthesizer。
+    /// TTS 端口（FR17.13/17.16）。默认经 EAL 注册表取生产适配器；测试注入 RecordingSpeechSynthesizer。
     let speechSynthesizer: any SpeechSynthesizing
-    /// FR12.11 图片文字识别端口。默认注入 Vision 生产实现；测试注入桩。
+    /// FR12.11 图片文字识别端口。默认经 EAL 注册表取生产实现；测试注入桩。
     let imageRecognizer: any ImageTextRecognizing
+    /// F17 语音输入引擎端口（ADR-023，经 EAL 接入）。默认经注册表取；测试可注入。
+    let transcriptionEngine: any TranscriptionEngine
 
     init(persistor: any M1aPersisting,
          capture: any DocumentCapture,
          speech: (any SpeechSynthesizing)? = nil,
          imageRecognizer: (any ImageTextRecognizing)? = nil,
+         transcription: (any TranscriptionEngine)? = nil,
          defaults: UserDefaults = .standard,
          launchArgs: [String] = ProcessInfo.processInfo.arguments) {
+        // 组合根：按当前上下文一次性注册全部引擎能力（ADR-027 EAL）
+        EngineRegistry.shared.registerDefaultEngines()
+        self.speechSynthesizer = speech ?? EngineRegistry.shared.resolve(SpeechSynthesisFactory.self)
+        self.imageRecognizer = imageRecognizer ?? EngineRegistry.shared.resolve(OCRRecognizerFactory.self)
+        self.transcriptionEngine = transcription ?? EngineRegistry.shared.resolve(TranscriptionEngineFactory.self)
         self.persistor = persistor
         self.captureProvider = capture
-        self.speechSynthesizer = speech ?? AVSpeechAdapter()
-        self.imageRecognizer = imageRecognizer ?? VisionImageRecognizer()
+        // 评审修正：删除此处的 AVSpeechAdapter()/VisionImageRecognizer() 二次赋值——
+        // 它在 EAL resolve 之后把结果覆盖回具体实现，注册表解析成为死代码，
+        // ADR-027「调用方永不直接 import 具体引擎类型」名存实亡（半重构残留）。
         self.defaults = defaults
         self.launchArgs = launchArgs
         self.onboardingFinished = defaults.bool(forKey: "onboardingFinished")
@@ -164,6 +173,11 @@ final class AppState {
         let h = PinHasher.makeHash(pin: pin)
         pinHash = h.stored
         defaults.set(h.stored, forKey: "pinHashV2")
+        // 刚设定 PIN 本身就是「已证明知道 PIN」——必须同时置位验证时刻，
+        // 否则 needsLockScreen（isPinProtected && lastVerifiedAt == nil）在第 6 位
+        // 数字落下的瞬间为真，向导被锁屏遮罩顶掉，用户被迫重输刚设好的 PIN
+        // 才能继续建档（且连错 3 次会把自己锁在向导外）。
+        lastVerifiedAt = Date()
         stage = .ownerName
     }
 
@@ -179,17 +193,54 @@ final class AppState {
     }
 
     func verifyPin(_ pin: String) async -> Bool {
-        guard let machine = pinMachine else { return false }
+        guard let machine = pinMachine else {
+            // 降级路径：bootstrapPinLock() 装配失败时 pinMachine 恒为 nil。
+            // 原本的 `return false` 会让门禁永不可解——冷启动即锁之后，用户被永久
+            // 锁在自己的资料外。但「放开节流」同样不可接受：6 位 PIN 只有 10^6 空间，
+            // 无节流等于可离线穷举（FR1.3 红线）。
+            // 因此只丢失**持久化**，不丢失节流本身：内存态复用 Domain 的 PinLockPolicy
+            // 阶梯（5 次 → 30s/2min/5min），并通过 pinThrottleDegraded 让锁屏明示降级。
+            logger.error("PIN 状态机不可用，转入内存节流降级（跨重启计数不可用）")
+            pinThrottleDegraded = true
+            // 已持久化的锁定必须继续生效：lockedUntil 平时由 refreshLockSnapshot 从状态机
+            // 灌入，而降级时状态机恰好不存在——不直接读盘就等于「装配失败即清零上次锁定」，
+            // 攻击者只要制造一次装配失败就能绕过上一会话的封锁。
+            if let until = persistedLockoutUntil(), until > Date() {
+                lockedUntil = until
+                return false
+            }
+            if let until = lockedUntil, until > Date() { return false }
+            guard let stored = pinHash,
+                  case .ok(let needsRehash) = PinHasher.verify(pin: pin, stored: stored) else {
+                degradedFailures += 1
+                if degradedFailures >= PinLockPolicy.lockAfterFailures {
+                    lockedUntil = Date().addingTimeInterval(PinLockPolicy.lockout(for: degradedStage))
+                    degradedFailures = 0
+                    degradedStage = min(degradedStage + 1, PinLockPolicy.ladder.count - 1)
+                }
+                return false
+            }
+            if needsRehash { rehashPin(pin) }
+            degradedFailures = 0
+            degradedStage = 0
+            lockedUntil = nil
+            lastVerifiedAt = Date()
+            return true
+        }
         if await machine.isLocked {
             refreshLockSnapshot(await machine.snapshot())
             return false
         }
-        guard let stored = pinHash, PinHasher.verify(pin: pin, stored: stored) else {
+        guard let stored = pinHash,
+              case .ok(let needsRehash) = PinHasher.verify(pin: pin, stored: stored) else {
             do { _ = try await machine.recordFailure() }
             catch { logger.error("recordFailure 持久化失败: \(error)") }
             refreshLockSnapshot(await machine.snapshot())
             return false
         }
+        // FR1.6 透明升级：验证成功是唯一能拿到明文 PIN 的时刻，此时才可重算强哈希。
+        // 只在这里做——弱哈希多留一天就多一天可被离线穷举的窗口。
+        if needsRehash { rehashPin(pin) }
         do { try await machine.recordSuccess() }
         catch { logger.error("recordSuccess 持久化失败: \(error)") }
         refreshLockSnapshot(await machine.snapshot())
@@ -210,9 +261,17 @@ final class AppState {
         stage = .scanCapture
     }
 
-    /// FR21.9：建档可跳过——以「本人」占位，稍后在设置中修改
+    /// FR21.9：建档可跳过——以「本人」占位，稍后在设置中修改。
+    /// 占位档案必须与 createOwner 一样落盘：只存内存的话，重启后 loadOwner() 返回 nil，
+    /// currentPatientId 退回兜底值，跳过建档期间录入的资料就与锚点失联（BR-001）。
     func skipOwner() {
-        owner = LocalOwner(displayName: "本人", createdAt: Date().timeIntervalSince1970)
+        var o = LocalOwner(displayName: "本人", createdAt: Date().timeIntervalSince1970)
+        let profile = PatientProfile(displayName: "本人", relation: "本人",
+                                     createdAt: o.createdAt, updatedAt: o.createdAt)
+        o.selfPatientId = profile.id
+        owner = o
+        defaults.set(profile.id.uuidString, forKey: "selfPatientId")
+        persist { [persistor] in try await persistor.saveOwner(o, profile: profile) }
         stage = .scanCapture
     }
 
@@ -264,8 +323,42 @@ final class AppState {
     /// PIN 已建立即受门禁保护（评审修正：向导期间退后台同样锁屏——FR1.4 自 PIN 建立起成立）
     var isPinProtected: Bool { pinHash != nil }
 
+    /// 冷启动即锁：PIN 已建立且本次启动尚未通过验证（lastVerifiedAt 为 nil）。
+    /// 评审修正：锁屏是「派生状态」而非「转场标志」——冷启动无 background→foreground
+    /// 转场，原 backgroundLocked 标志不会置位，导致已设 PIN 却首屏直达主页（隐私红线）。
+    var needsLockScreen: Bool { isPinProtected && lastVerifiedAt == nil }
+
     /// 验证成功信号：LockOverlayView 观察它解除 backgroundLocked
     private(set) var lastVerifiedAt: Date?
+
+    /// 阶梯锁定不可用（PIN 状态机装配失败）——安全控制被削弱必须对用户可见
+    private(set) var pinThrottleDegraded = false
+
+    /// 降级节流的内存计数（复用 PinLockPolicy 阶梯；不跨重启）
+    private var degradedFailures = 0
+    private var degradedStage = 0
+
+    /// FR1.6 透明升级：把落盘哈希重算为当前方案（PBKDF2-600k）并覆盖。
+    /// 只在「刚验证成功」的路径上调用——此刻明文 PIN 可用且已确认正确。
+    private func rehashPin(_ pin: String) {
+        let upgraded = PinHasher.makeHash(pin: pin)
+        pinHash = upgraded.stored
+        defaults.set(upgraded.stored, forKey: "pinHashV2")
+        logger.info("PIN 哈希已透明升级至当前方案（旧条目不再留存）")
+    }
+
+    /// 直接读取 PinLockStateMachine 的持久化快照（与 UserDefaultsPinLockStore 同键同格式）。
+    /// 仅供降级路径使用：状态机装配失败时也要能看见上次会话留下的锁定。
+    private func persistedLockoutUntil() -> Date? {
+        guard let data = defaults.data(forKey: "pinLockSnapshot") else { return nil }
+        do {
+            return try JSONDecoder().decode(PinLockSnapshot.self, from: data).lockedUntil
+        } catch {
+            // 快照损坏不能静默当「无锁定」：留日志，并按最保守方式继续走内存节流
+            logger.error("PIN 锁定快照解码失败，降级节流按无历史锁定处理: \(error)")
+            return nil
+        }
+    }
 
     // MARK: - F3 成员管理（FR3.7 添加家人）
 
@@ -273,14 +366,18 @@ final class AppState {
 
     /// 当前成员（BR-001 所有资料按当前成员过滤的锚点）。
     /// 默认 = 本人档案；用户切换后持久化，重启保持。
+    /// 兜底用会话级常量 UUID：`UUID()` 每次求值都不同，`.task(id: currentPatientId)`
+    /// 会因 id 每次变化而无限取消重启（owner 未加载时的忙碌死循环），BR-001 锚点必须稳定。
     var currentPatientId: UUID {
         get {
             if let stored = defaults.string(forKey: "currentPatientId"),
                let id = UUID(uuidString: stored) { return id }
-            return owner?.selfPatientId ?? owner?.id ?? UUID()
+            return owner?.selfPatientId ?? owner?.id ?? Self.sessionFallbackPatientId
         }
         set { defaults.set(newValue.uuidString, forKey: "currentPatientId") }
     }
+
+    private static let sessionFallbackPatientId = UUID()
 
     func setCurrentPatient(_ id: UUID) {
         guard members.contains(where: { $0.id == id }) else { return }

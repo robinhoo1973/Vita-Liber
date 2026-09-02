@@ -188,14 +188,14 @@ struct AnswerBodyView: View {
         switch answer.body {
         case .emergencyCard:
             VStack(alignment: .leading, spacing: 12) {
-                Label("疑似紧急情况", systemImage: "exclamationmark.octagon.fill")
+                Label(L10n.ai_emergencyTitle, systemImage: "exclamationmark.octagon.fill")
                     .font(.headline)
                     .foregroundStyle(Color("semantic-danger", bundle: .main))
                 Text(L10n.ai_emergencyAction)
                 Button {
                     if let url = URL(string: "tel://120") { UIApplication.shared.open(url) }
                 } label: {
-                    Label("拨打 120", systemImage: "phone.fill")
+                    Label(L10n.ai_emergencyCall, systemImage: "phone.fill")
                         .frame(maxWidth: .infinity, minHeight: 50)
                 }
                 .buttonStyle(.borderedProminent)
@@ -211,7 +211,7 @@ struct AnswerBodyView: View {
                 Label(r.reason == .highRiskTopic ? "无法回答这个问题" : "资料不足",
                       systemImage: "info.circle")
                     .font(.headline)
-                Text(r.detail).font(.body)
+                Text(AssistantStore.refusalDetail(r.reason)).font(.body)
                 HStack(spacing: 8) {
                     ForEach(r.actions, id: \.rawValue) { action in
                         Button {

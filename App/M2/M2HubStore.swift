@@ -27,8 +27,7 @@ final class M2HubStore {
     private(set) var claimRows: [ClaimStore.ClaimRow] = []
     private(set) var claimTotals = ClaimStore.Totals(totalAmount: 0, itemCount: 0, currency: "CNY")
     // 发送状态
-    private(set) var sentMessages: [SentMessage] = []
-    // 信源库
+    private(set) var sentMessages: [SentMessage] = []    // 信源库
     private(set) var guidelineEntries: [GuidelineEntry] = []
 
     private let meds: MedicationStore
@@ -38,6 +37,9 @@ final class M2HubStore {
     private let messages: MessageDeliveryStore
     private let guidelines: GuidelineStore
     private let logger = Logger(subsystem: "com.vitaliber", category: "m2hub")
+
+    /// 最近一次请求的成员（BR-001 成员隔离：只允许最新请求写回状态）
+    private var loadingPatientId: UUID?
 
     init(meds: MedicationStore, emergency: EmergencyCardStore,
          immunizations: ImmunizationStore, claims: ClaimStore,
@@ -51,19 +53,34 @@ final class M2HubStore {
     }
 
     func load(patientId: UUID) async {
+        loadingPatientId = patientId
         do {
-            inventoryItems = try await meds.inventorySummary(patientId: patientId, now: Date())
-            emergencyCandidates = try await emergency.candidates(patientId: patientId)
-            emergencySelected = try await emergency.selected(patientId: patientId)
-            emergencySelectedIds = Set((emergencySelected.allergies + emergencySelected.medications
-                                        + emergencySelected.healthProblems + emergencySelected.contacts)
-                                        .map(\.id))
-            bloodType = try await emergency.bloodType(patientId: patientId)
-            immunizationRecords = try await immunizations.list(patientId: patientId)
-            claimRows = try await claims.list(patientId: patientId)
-            claimTotals = try await claims.totals(patientId: patientId)
-            sentMessages = try await messages.list(patientId: patientId)
-            guidelineEntries = try await guidelines.all()
+            // 先全部取回本地变量，再一次性提交。逐项直接赋值的话，成员切换会让
+            // 甲的药箱和乙的急救卡同时出现在界面上（跨成员脏读，BR-001 成员隔离）。
+            let inventory = try await meds.inventorySummary(patientId: patientId, now: Date())
+            let candidates = try await emergency.candidates(patientId: patientId)
+            let selected = try await emergency.selected(patientId: patientId)
+            let selectedIds = Set((selected.allergies + selected.medications
+                                   + selected.healthProblems + selected.contacts).map(\.id))
+            let blood = try await emergency.bloodType(patientId: patientId)
+            let immunizations = try await self.immunizations.list(patientId: patientId)
+            let claimList = try await claims.list(patientId: patientId)
+            let totals = try await claims.totals(patientId: patientId)
+            let sent = try await messages.list(patientId: patientId)
+            let entries = try await guidelines.all()
+
+            // 晚到的旧成员结果一律丢弃（切换成员会取消 .task，但飞行中的调用仍会返回）
+            guard loadingPatientId == patientId else { return }
+            inventoryItems = inventory
+            emergencyCandidates = candidates
+            emergencySelected = selected
+            emergencySelectedIds = selectedIds
+            bloodType = blood
+            immunizationRecords = immunizations
+            claimRows = claimList
+            claimTotals = totals
+            sentMessages = sent
+            guidelineEntries = entries
         } catch {
             logger.error("M2 装配加载失败: \(error)")
         }

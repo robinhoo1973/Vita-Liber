@@ -49,7 +49,7 @@ struct ProOutputHubView: View {
             set: { if !$0 { previewProduct = nil } })) {
             Button(L10n.onboard_gotIt, role: .cancel) {}
         } message: {
-            Text("「\(previewProduct ?? "")」将在对应版本交付；现在展示的是能力预览，不产生文件。")
+            Text(L10n.proPreviewNote(previewProduct ?? ""))
         }
     }
 }

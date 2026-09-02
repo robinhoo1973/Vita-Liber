@@ -67,12 +67,12 @@ struct VoiceReminderDraftView: View {
         unresolved = nil
         let drafts = VoiceStructuringEngine.extractReminder(transcript, rules: VoiceGrammarDefaults.reminderRules)
         guard !drafts.isEmpty else {
-            unresolved = "没听清提醒时间，请再说一次或手动选择时间"
+            unresolved = L10n.voiceReminderTimeUnheard
             return
         }
         // 模糊时间必须落成具体日期后才允许确认（FR17.10：草稿逐字段可改）
         guard VoiceReminderRules.resolveDate(from: drafts, now: Date()) != nil else {
-            unresolved = "时间不够明确，请补充具体日期或时间"
+            unresolved = L10n.voiceReminderTimeUnclear
             return
         }
         // FR17.13-entry: 提醒草稿 —— 走统一模板，不自建确认逻辑
@@ -83,7 +83,12 @@ struct VoiceReminderDraftView: View {
         let drafts = set.confirmedFields.map {
             FieldDraft(key: $0.key, value: $0.value, confidence: $0.confidence)
         }
-        guard let fireAt = VoiceReminderRules.resolveDate(from: drafts, now: Date()) else { return }
+        // resolveDate 自批四起对非法 hour 返回 nil（绝不猜 00:00）——确认卡被改成
+        // 非法时刻时不得静默丢弃，退回澄清提示（FR10.2 同语义）
+        guard let fireAt = VoiceReminderRules.resolveDate(from: drafts, now: Date()) else {
+            unresolved = L10n.voiceReminderTimeUnclear
+            return
+        }
         let title = drafts.first { $0.key == "content" }?.value ?? transcript
         let rule = drafts.first { $0.key == "repeat" }?.value
         transcript = ""

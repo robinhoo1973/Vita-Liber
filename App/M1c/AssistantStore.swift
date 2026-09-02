@@ -30,12 +30,14 @@ final class AssistantStore {
         defer { busy = false }
         messages.append(Message(role: "user", text: q, answer: nil))
         do {
+            // BR-012/BR-006 纵深防御由 Domain 的 SafeAIProvider 装饰器统一保证
+            // （装配于 AppContainer）——Store 不做业务判断，只负责会话与渲染。
             let answer = try await provider.answer(AIQuery(text: q),
                                                    scope: DataAccessScope(patientIds: scopePatientIds))
             messages.append(Message(role: "assistant", text: Self.render(answer), answer: answer))
         } catch {
             logger.error("AI 回答失败: \(error)")
-            messages.append(Message(role: "assistant", text: "回答失败，请稍后重试。", answer: nil))
+            messages.append(Message(role: "assistant", text: L10n.ai_failedRetry, answer: nil))
         }
     }
 
@@ -43,13 +45,26 @@ final class AssistantStore {
     static func render(_ answer: AIAnswer) -> String {
         switch answer.body {
         case .emergencyCard:
-            return "疑似紧急情况：请立即拨打 120 或前往最近的医院急诊。"
+            return L10n.ai_emergencyCardText
         case .refused(let r):
-            return r.detail
+            return refusalDetail(r.reason)
         case .composed(let p):
             return [p.conclusion, p.excerpts.joined(separator: "\n"),
                     p.terminology.joined(separator: "\n"),
                     p.scopeNote, p.disclaimer].joined(separator: "\n\n")
+        }
+    }
+
+    /// 拒识文案的**唯一呈现出口**：按类型化 reason 取三语文案。
+    ///
+    /// 为什么不直接用 `Refusal.detail`：Domain 里的 detail 是简体硬编码（纯 Swift 层
+    /// 拿不到 .strings），上屏就等于 zh-Hant/en 用户看到简体，且同一情形会存在
+    /// 「Domain 一套 + L10n 一套」两种说法。detail 因此降级为诊断/测试用默认值，
+    /// 呈现层一律走这里——新增 Reason 时编译器会在此强制补文案（switch 穷尽）。
+    static func refusalDetail(_ reason: AIAnswer.Refusal.Reason) -> String {
+        switch reason {
+        case .insufficientData: return L10n.ai_refusedNoEvidence
+        case .highRiskTopic:    return L10n.ai_refusedHighRisk
         }
     }
 }

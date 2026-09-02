@@ -10,103 +10,101 @@ struct RemindersView: View {
     @State private var showNewPlan = false
 
     var body: some View {
-        NavigationStack {
-            List {
-                Section(L10n.reminder_today) {
-                    if reminders.todaySlots.isEmpty {
-                        Text(reminders.loading ? L10n.reminder_loading : L10n.reminder_todayEmpty)
-                            .foregroundStyle(.secondary)
-                            .accessibilityIdentifier("SP-09.today.empty")
-                    }
-                    ForEach(reminders.todaySlots) { slot in
-                        DoseSlotCard(slot: slot) { dose in
-                            Task { await reminders.confirmTaken(patientId: currentPatientId, dose: dose, careMode: app.careMode) }
-                        } onSkip: { dose in
-                            Task { await reminders.skipDose(dose: dose, careMode: app.careMode) }
-                        } onSnooze: { dose in
-                            Task { await reminders.snoozeDose(dose: dose, patientId: currentPatientId, careMode: app.careMode) }
-                        }
-                    }
-                    Button {
-                        showNewPlan = true
-                    } label: {
-                        Label(L10n.reminder_addPlan, systemImage: "plus")
-                    }
-                    .accessibilityIdentifier("SP-09.plan.add")
+        List {
+            Section(L10n.reminder_today) {
+                if reminders.todaySlots.isEmpty {
+                    Text(reminders.loading ? L10n.reminder_loading : L10n.reminder_todayEmpty)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("SP-09.today.empty")
                 }
-                Section(L10n.reminder_appointments) {
-                    if reminders.upcomingAppointments.isEmpty {
-                        Text(L10n.reminder_emptyAppt)
-                            .foregroundStyle(.secondary)
-                            .accessibilityIdentifier("SP-18.appointment.empty")
+                ForEach(reminders.todaySlots) { slot in
+                    DoseSlotCard(slot: slot) { dose in
+                        Task { await reminders.confirmTaken(patientId: currentPatientId, dose: dose, careMode: app.careMode) }
+                    } onSkip: { dose in
+                        Task { await reminders.skipDose(dose: dose, careMode: app.careMode) }
+                    } onSnooze: { dose in
+                        Task { await reminders.snoozeDose(dose: dose, patientId: currentPatientId, careMode: app.careMode) }
                     }
-                    ForEach(reminders.upcomingAppointments, id: \.id) { apt in
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack(spacing: 12) {
-                                VLIcon.appointment.resizable().frame(width: 32, height: 32)
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(apt.hospital).font(.headline)
-                                    Text("\(apt.department) · \(apt.startsAt.formatted(date: .abbreviated, time: .shortened))")
-                                        .font(.footnote).foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                Text(statusLabel(apt.status))
-                                    .font(.caption2)
-                                    .padding(.horizontal, 8).padding(.vertical, 4)
-                                    .background(Capsule().fill(statusColor(apt.status).opacity(0.15)))
-                                    .foregroundStyle(statusColor(apt.status))
-                                Button {
-                                    Task { await reminders.completeAppointment(patientId: currentPatientId, id: apt.id) }
-                                } label: {
-                                    Image(systemName: "checkmark.circle")
-                                        .frame(width: 44, height: 44)
-                                }
-                                .accessibilityLabel(L10n.reminder_completeAppt)
-                                .accessibilityIdentifier("SP-18.appointment.complete")
+                }
+                Button {
+                    showNewPlan = true
+                } label: {
+                    Label(L10n.reminder_addPlan, systemImage: "plus")
+                }
+                .accessibilityIdentifier("SP-09.plan.add")
+            }
+            Section(L10n.reminder_appointments) {
+                if reminders.upcomingAppointments.isEmpty {
+                    Text(L10n.reminder_emptyAppt)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("SP-18.appointment.empty")
+                }
+                ForEach(reminders.upcomingAppointments, id: \.id) { apt in
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 12) {
+                            VLIcon.appointment.resizable().frame(width: 32, height: 32)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(apt.hospital).font(.headline)
+                                Text("\(apt.department) · \(apt.startsAt.formatted(date: .abbreviated, time: .shortened))")
+                                    .font(.footnote).foregroundStyle(.secondary)
                             }
-                            // FR10.6 去挂号深链卡：本地映射表匹配，无网可用
-                            AppointmentDeepLinkCard(hospital: apt.hospital)
+                            Spacer()
+                            Text(statusLabel(apt.status))
+                                .font(.caption2)
+                                .padding(.horizontal, 8).padding(.vertical, 4)
+                                .background(Capsule().fill(statusColor(apt.status).opacity(0.15)))
+                                .foregroundStyle(statusColor(apt.status))
+                            Button {
+                                Task { await reminders.completeAppointment(patientId: currentPatientId, id: apt.id) }
+                            } label: {
+                                Image(systemName: "checkmark.circle")
+                                    .frame(width: 44, height: 44)
+                            }
+                            .accessibilityLabel(L10n.reminder_completeAppt)
+                            .accessibilityIdentifier("SP-18.appointment.complete")
                         }
-                        .padding(.vertical, 6)
-                        .accessibilityElement(children: .contain)
-                        .accessibilityIdentifier("SP-18.appointment.row")
+                        // FR10.6 去挂号深链卡：本地映射表匹配，无网可用
+                        AppointmentDeepLinkCard(hospital: apt.hospital)
                     }
-                    Button {
-                        showNewAppointment = true
-                    } label: {
-                        Label(L10n.reminder_addAppt, systemImage: "plus")
+                    .padding(.vertical, 6)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("SP-18.appointment.row")
+                }
+                Button {
+                    showNewAppointment = true
+                } label: {
+                    Label(L10n.reminder_addAppt, systemImage: "plus")
+                }
+                .accessibilityIdentifier("SP-18.appointment.add")
+            }
+        }
+        .navigationTitle("提醒")
+        .task(id: currentPatientId) {
+            await reminders.refresh(patientId: currentPatientId)
+        }
+        .sheet(isPresented: $showNewAppointment) {
+            NewAppointmentSheet { hospital, department, date in
+                Task { await reminders.createAppointment(patientId: currentPatientId,
+                                                         hospital: hospital, department: department,
+                                                         startsAt: date) }
+                showNewAppointment = false
+            }
+        }
+        .sheet(isPresented: $showNewPlan) {
+            NewPlanSheet { name, spec, timeText, units in
+                Task {
+                    do {
+                        let medId = try await reminders.createMedication(
+                            patientId: currentPatientId, name: name, spec: spec, unitKind: "tablet")
+                        try await reminders.createPlan(
+                            patientId: currentPatientId, medicationId: medId, name: name, spec: spec,
+                            schedule: .fixed(times: [timeText]),
+                            startDate: Calendar.current.startOfDay(for: Date()))
+                    } catch {
+                        // 错误经 ReminderStore Logger 上报；此处仅关闭
                     }
-                    .accessibilityIdentifier("SP-18.appointment.add")
                 }
-            }
-            .navigationTitle("提醒")
-            .task {
-                await reminders.refresh(patientId: currentPatientId)
-            }
-            .sheet(isPresented: $showNewAppointment) {
-                NewAppointmentSheet { hospital, department, date in
-                    Task { await reminders.createAppointment(patientId: currentPatientId,
-                                                             hospital: hospital, department: department,
-                                                             startsAt: date) }
-                    showNewAppointment = false
-                }
-            }
-            .sheet(isPresented: $showNewPlan) {
-                NewPlanSheet { name, spec, timeText, units in
-                    Task {
-                        do {
-                            let medId = try await reminders.createMedication(
-                                patientId: currentPatientId, name: name, spec: spec, unitKind: "tablet")
-                            try await reminders.createPlan(
-                                patientId: currentPatientId, medicationId: medId, name: name, spec: spec,
-                                schedule: .fixed(times: [timeText]),
-                                startDate: Calendar.current.startOfDay(for: Date()))
-                        } catch {
-                            // 错误经 ReminderStore Logger 上报；此处仅关闭
-                        }
-                    }
-                    showNewPlan = false
-                }
+                showNewPlan = false
             }
         }
     }
