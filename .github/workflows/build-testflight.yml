@@ -71,6 +71,8 @@ jobs:
       APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
       APPLE_API_KEY_ISSUER_ID: ${{ secrets.APPLE_API_KEY_ISSUER_ID }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_CERT_P12: ${{ secrets.APPLE_CERT_P12 }}
+      APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
 
@@ -158,6 +160,26 @@ jobs:
             | sort -u || echo "showBuildSettings 失败"
           echo "--- pbxproj 中 GRDB_GRDB.bundle 引用形态 ---"
           grep -n "GRDB_GRDB.bundle" VitaLiber.xcodeproj/project.pbxproj | head -6 || echo "pbxproj 无 GRDB_GRDB.bundle 引用"
+
+      # ── 导入签名证书（p12，业界最佳实践：证书私钥持久化为 CI secret，
+      #    每轮导入 keychain 复用——避免 Xcode 自动签名每轮新建证书直至账号上限
+      #    "Choose a certificate to revoke"）─────────────────────────
+      - name: 导入签名证书（p12）
+        if: ${{ env.APPLE_CERT_P12 != '' }}
+        run: |
+          set -euo pipefail
+          KC=build.keychain
+          KC_PASS="buildkeychain"
+          echo "$APPLE_CERT_P12" | base64 -d > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KC_PASS" "$KC"
+          security default-keychain -s "$KC"
+          security unlock-keychain -p "$KC_PASS" "$KC"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KC" \
+            -P "$APPLE_CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/xcodebuild -A
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KC_PASS" "$KC"
+          security list-keychain -d user -s "$KC"
+          echo "签名证书已导入 keychain:"
+          security find-identity -v -p codesigning "$KC" | head -5
 
       # ── 签名归档：build + 手拼 xcarchive（绕开 Xcode 16 SPM archive bug）──────
       # 5WHY 实证（13-17 轮）：xcodebuild archive 在 Xcode 16.4 对 SPM 资源 bundle
