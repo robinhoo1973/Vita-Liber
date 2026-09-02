@@ -87,7 +87,7 @@ public actor SFSpeechTranscriber: TranscriptionEngine {
                         onPartial?(ts.bestTranscription.formattedString)
                     }
                 }
-                Task { await self?.hold(task) }
+                if let self { Task { await self.hold(task) } }   // weak 解包后再入 Task（actor 隔离）
             }
             audio.stop()
             inputNode.removeTap(onBus: 0)
