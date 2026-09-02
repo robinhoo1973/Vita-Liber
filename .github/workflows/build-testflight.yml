@@ -244,9 +244,9 @@ jobs:
           set -o pipefail
           # 查找 keychain 中的开发证书 identity
           KC=build.keychain
-          DEV_IDENTITY="$(security find-identity -v -p codesigning "$KC" | grep 'iPhone.*Developer' | head -1 | sed 's/.*"\(.*\)".*/\1/')"
+          DEV_IDENTITY="$(security find-identity -v -p codesigning "$KC" | grep -i 'Apple Development\|iPhone.*Developer' | head -1 | sed 's/.*"\(.*\)".*/\1/')"
           if [ -z "$DEV_IDENTITY" ]; then
-            echo "::warning::keychain 中无 iPhone Developer identity，尝试任何可用 identity"
+            echo "::warning::keychain 中无开发 identity，尝试任何可用 identity"
             DEV_IDENTITY="$(security find-identity -v -p codesigning "$KC" | head -1 | sed 's/.*"\(.*\)".*/\1/')"
           fi
           echo "开发签名 identity: $DEV_IDENTITY"
@@ -293,9 +293,9 @@ jobs:
         run: |
           KC=build.keychain
           # 查找 keychain 中的 distribution certificate identity
-          DIS_IDENTITY="$(security find-identity -v -p codesigning "$KC" | grep -i 'iPhone.*Distribution\|Apple Distribution' | head -1 | sed 's/.*"\(.*\)".*/\1/')"
+          DIS_IDENTITY="$(security find-identity -v -p codesigning "$KC" | grep -i 'Apple Distribution\|iPhone.*Distribution' | head -1 | sed 's/.*"\(.*\)".*/\1/')"
           if [ -z "$DIS_IDENTITY" ]; then
-            echo "::warning::keychain 中无 iPhone Distribution identity，尝试任何可用 identity"
+            echo "::warning::keychain 中无分发 identity，尝试任何可用 identity"
             DIS_IDENTITY="$(security find-identity -v -p codesigning "$KC" | head -1 | sed 's/.*"\(.*\)".*/\1/')"
           fi
           echo "分发签名 identity: $DIS_IDENTITY"
