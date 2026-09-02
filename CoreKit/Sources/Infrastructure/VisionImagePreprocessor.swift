@@ -37,9 +37,12 @@ public final class VisionImagePreprocessor: ImagePreprocessing, @unchecked Senda
         // 3) 色彩模式
         corrected = applyColorMode(corrected, mode: params.colorMode)
 
-        // 4) 旋转
+        // 4) 旋转（评审修正：CGImagePropertyOrientation 无 rotationDegrees 工厂——
+        //    方向枚举八态语义含 EXIF 隐含翻转，不适合表达「旋转 N 度」；
+        //    用 CGAffineTransform 旋转，正角 = 逆时针（CG 坐标），与预览旋转一致）
         if params.rotationDegrees != 0 {
-            corrected = corrected.oriented(CGImagePropertyOrientation.rotationDegrees(params.rotationDegrees))
+            let angle = Double(params.rotationDegrees) * .pi / 180.0
+            corrected = corrected.transformed(by: CGAffineTransform(rotationAngle: angle))
         }
 
         // 5) 编码为 JPEG Data
