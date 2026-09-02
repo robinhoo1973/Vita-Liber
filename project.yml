@@ -51,3 +51,8 @@ schemes:
     build: { targets: { VitaLiber: all, VitaLiberTests: [test], VitaLiberUITests: [test] } }
     test:
       targets: [VitaLiberTests, VitaLiberUITests]
+    # 评审修正：xcodebuild archive 使用 scheme 的 ArchiveAction 配置（命令行
+    # -configuration 对 archive 无效）。XcodeGen 未显式声明时默认 Debug——
+    # 归档产物落在 Debug-iphoneos，SPM bundle 路径随之错位报 lstat 错误。
+    archive:
+      config: Release
