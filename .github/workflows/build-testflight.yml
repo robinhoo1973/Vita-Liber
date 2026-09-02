@@ -159,64 +159,50 @@ jobs:
           echo "--- pbxproj 中 GRDB_GRDB.bundle 引用形态 ---"
           grep -n "GRDB_GRDB.bundle" VitaLiber.xcodeproj/project.pbxproj | head -6 || echo "pbxproj 无 GRDB_GRDB.bundle 引用"
 
-      - name: 签名归档（archive）
+      # ── 签名归档：build + 手拼 xcarchive（绕开 Xcode 16 SPM archive bug）──────
+      # 5WHY 实证（13-17 轮）：xcodebuild archive 在 Xcode 16.4 对 SPM 资源 bundle
+      # （GRDB_GRDB.bundle）的自动集成 Copy phase 源固定指向 archive 空间
+      # BuildProductsPath/Debug-iphoneos/，而产物落 UninstalledProducts——工程侧无开关、
+      # 产物侧预种入被 archive 清理，无法修复。普通 xcodebuild build 无此缺陷
+      # （bundle 正常嵌入 VitaLiber.app，第 15 轮实证）。故：Release build（自动签名
+      # development）→ 按 xcarchive 规范手拼归档（Products/Applications + Info.plist）
+      # → 既有 exportArchive 步骤以 API key 自动重签为 distribution 并导出 ipa。
+      - name: 签名归档（build + 手拼 xcarchive）
         if: ${{ env.APPLE_API_KEY_P8 != '' }}
         run: |
           set -o pipefail
-          # Xcode 16.x SPM archive 缺陷 workaround（5WHY 实证链见 12-13 轮）：
-          # CONFIGURATION=Release/BUILT_PRODUCTS_DIR=Release-iphoneos（已 dump 实证），
-          # 但 Xcode 运行时生成的 SPM 资源 bundle Copy phase 源路径字面指向
-          # BuildProductsPath/Debug-iphoneos/GRDB_GRDB.bundle（pbxproj 无字面引用，
-          # 亦非配置展开）——Xcode 16 生成期缺陷，无工程侧开关。
-          # 业界通用 workaround：先在同 DerivedData 预构建 Debug 切片，使该源路径
-          # 真实存在（Debug/Release 的 PrivacyInfo bundle 内容相同，进包无害）。
-          # 注意：不得 rm ArchiveDerivedData（否则预构建产物被清）。
           xcodebuild build -project "$XCODEPROJ" -scheme "$SCHEME" \
             -configuration Release -destination 'generic/platform=iOS' \
-            -derivedDataPath Build/ArchiveDerivedData \
-            CODE_SIGNING_ALLOWED=NO COMPILER_INDEX_STORE_ENABLE=NO \
-            2>&1 | tee Build/prebuild-release.log
-          echo "Release 预构建完成（bundle 源已含于 VitaLiber.app 内）"
-          # ---- Xcode 16 SPM archive bug 两段式绕过 ----
-          # 实证链（第 13-15 轮）：archive 空间 ArchiveIntermediates/VitaLiber/
-          # BuildProductsPath/ 由 archive 运行时创建；其下 Copy phase 源
-          # Debug-iphoneos/GRDB_GRDB.bundle 为真实目录引用，SPM bundle target 产物
-          # 却落 UninstalledProducts → lstat 失败。目录无法预建（预种入 Products 均
-          # 未命中），故：首次 archive（预期失败生成布局）→ 种入 bundle 至其
-          # Debug-iphoneos → 二次 archive（Copy 源命中）。
-          DD="$GITHUB_WORKSPACE/Build/ArchiveDerivedData"
-          archive_cmd() {
-            xcodebuild archive -project "$XCODEPROJ" -scheme "$SCHEME" \
-              -configuration release -destination 'generic/platform=iOS' \
-              -derivedDataPath Build/ArchiveDerivedData \
-              -archivePath Build/VitaLiber.xcarchive \
-              -authenticationKeyPath "$GITHUB_WORKSPACE/private_keys/AuthKey_$APPLE_API_KEY_ID.p8" \
-              -authenticationKeyID "$APPLE_API_KEY_ID" \
-              -authenticationKeyIssuerID "$APPLE_API_KEY_ISSUER_ID" \
-              -allowProvisioningUpdates \
-              DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
-              MARKETING_VERSION="$RELEASE_VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" VITA_LIBER_CODE_HASH="$CODE_HASH"
-          }
-          set +e
-          archive_cmd 2>&1 | tee Build/xcodebuild-archive-1.log
-          RC1=${PIPESTATUS[0]}
-          set -e
-          if [ "$RC1" -ne 0 ]; then
-            echo "首次 archive 未成功（预期：Xcode 16 SPM bundle 缺陷）——种入后重试"
-            BP="$(readlink -f "$DD/Build/Intermediates.noindex/ArchiveIntermediates/VitaLiber/BuildProductsPath" 2>/dev/null || echo "$DD/Build/Intermediates.noindex/ArchiveIntermediates/VitaLiber/BuildProductsPath")"
-            BUNDLE="$(find "$DD" -type d -name GRDB_GRDB.bundle 2>/dev/null | head -1)"
-            echo "BuildProductsPath 真实位置: $BP"
-            echo "bundle 源: $BUNDLE"
-            if [ -n "$BUNDLE" ] && [ -d "$BP" ]; then
-              mkdir -p "$BP/Debug-iphoneos"
-              cp -R "$BUNDLE" "$BP/Debug-iphoneos/" 2>/dev/null || true
-              ls "$BP/Debug-iphoneos/" || true
-              echo "已种入 $BP/Debug-iphoneos/GRDB_GRDB.bundle"
-            else
-              echo "::error::无法定位 BuildProductsPath 或 bundle 源"
-            fi
-            archive_cmd 2>&1 | tee Build/xcodebuild-archive-2.log
-          fi
+            -derivedDataPath Build/ReleaseBuild \
+            -authenticationKeyPath "$GITHUB_WORKSPACE/private_keys/AuthKey_$APPLE_API_KEY_ID.p8" \
+            -authenticationKeyID "$APPLE_API_KEY_ID" \
+            -authenticationKeyIssuerID "$APPLE_API_KEY_ISSUER_ID" \
+            -allowProvisioningUpdates \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            MARKETING_VERSION="$RELEASE_VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" VITA_LIBER_CODE_HASH="$CODE_HASH" \
+            2>&1 | tee Build/xcodebuild-build-release.log
+          APP="Build/ReleaseBuild/Build/Products/Release-iphoneos/VitaLiber.app"
+          test -d "$APP" || { echo "::error::Release build 未产出 VitaLiber.app"; exit 1; }
+          echo "Release build 完成（SPM bundle 已正常嵌入）"
+          # 手拼 xcarchive（结构：Products/Applications/VitaLiber.app + Info.plist）
+          ARCH="Build/VitaLiber.xcarchive"
+          rm -rf "$ARCH"
+          mkdir -p "$ARCH/Products/Applications"
+          cp -R "$APP" "$ARCH/Products/Applications/"
+          /usr/libexec/PlistBuddy -c "Add :ApplicationProperties dict" "$ARCH/Info.plist" 2>/dev/null || true
+          APP_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist")"
+          SHORT="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")"
+          VERS="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")"
+          /usr/libexec/PlistBuddy \
+            -c "Add :ApplicationProperties:CFBundleIdentifier string '$APP_ID'" \
+            -c "Add :ApplicationProperties:CFBundleShortVersionString string '$SHORT'" \
+            -c "Add :ApplicationProperties:CFBundleVersion string '$VERS'" \
+            -c "Add :ApplicationProperties:teamID string '$APPLE_TEAM_ID'" \
+            "$ARCH/Info.plist"
+          # 符号文件（uploadSymbols=true 需要 dSYM 随归档；Release 产物目录中的 .dSYM）
+          mkdir -p "$ARCH/dSYMs"
+          cp -R Build/ReleaseBuild/Build/Products/Release-iphoneos/*.dSYM "$ARCH/dSYMs/" 2>/dev/null || true
+          ls "$ARCH/Products/Applications/" && echo "xcarchive 手拼完成 ✓"
 
       # ── 导出 .ipa（app-store 方法）───────────────────────────
       - name: 导出 .ipa
@@ -243,6 +229,10 @@ jobs:
             -archivePath Build/VitaLiber.xcarchive \
             -exportOptionsPlist exportOptions.plist \
             -exportPath Build/export \
+            -authenticationKeyPath "$GITHUB_WORKSPACE/private_keys/AuthKey_$APPLE_API_KEY_ID.p8" \
+            -authenticationKeyID "$APPLE_API_KEY_ID" \
+            -authenticationKeyIssuerID "$APPLE_API_KEY_ISSUER_ID" \
+            -allowProvisioningUpdates \
             2>&1 | tee Build/xcodebuild-export.log
           ls -la Build/export/
           test -f Build/export/VitaLiber.ipa && echo "ipa 导出成功 ✓"
