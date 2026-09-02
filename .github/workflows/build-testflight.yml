@@ -278,9 +278,9 @@ jobs:
               echo "使用 provisioning profile: '$PROFILE_SPEC'"
             fi
           fi
-          PROFILE_FLAG=""
+          PROFILE_FLAG=()
           if [ -n "$PROFILE_SPEC" ]; then
-            PROFILE_FLAG="PROVISIONING_PROFILE_SPECIFIER=$PROFILE_SPEC"
+            PROFILE_FLAG=(PROVISIONING_PROFILE_SPECIFIER="$PROFILE_SPEC")
           fi
           xcodebuild build -project "$XCODEPROJ" -scheme "$SCHEME" \
             -configuration Release -destination 'generic/platform=iOS' \
@@ -289,7 +289,7 @@ jobs:
             CODE_SIGNING_ALLOWED=YES \
             CODE_SIGNING_REQUIRED=YES \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
-            $PROFILE_FLAG \
+            "${PROFILE_FLAG[@]}" \
             MARKETING_VERSION="$RELEASE_VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" VITA_LIBER_CODE_HASH="$CODE_HASH" \
             2>&1 | tee Build/xcodebuild-build-release.log
           APP="Build/ReleaseBuild/Build/Products/Release-iphoneos/VitaLiber.app"
