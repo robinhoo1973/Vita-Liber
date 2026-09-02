@@ -268,28 +268,16 @@ jobs:
             DEV_IDENTITY="$(security find-identity -v -p codesigning "$KC" | head -1 | sed 's/.*"\(.*\)".*/\1/')"
           fi
           echo "开发签名 identity: $DEV_IDENTITY"
-          # 从 mobileprovision 内部读取 ProfileName（不是文件名，文件名可能含空格）
-          PROFILE_SPEC=""
-          PROFILE_FILE="$(ls "$HOME/Library/MobileDevice/Provisioning Profiles/"*.mobileprovision 2>/dev/null | head -1)"
-          if [ -n "$PROFILE_FILE" ]; then
-            PROFILE_NAME="$(security cms -D -i "$PROFILE_FILE" 2>/dev/null | plutil -extract Name raw - 2>/dev/null || true)"
-            if [ -n "$PROFILE_NAME" ] && [ "$PROFILE_NAME" != "null" ]; then
-              PROFILE_SPEC="$PROFILE_NAME"
-              echo "使用 provisioning profile: '$PROFILE_SPEC'"
-            fi
-          fi
-          PROFILE_FLAG=()
-          if [ -n "$PROFILE_SPEC" ]; then
-            PROFILE_FLAG=(PROVISIONING_PROFILE_SPECIFIER="$PROFILE_SPEC")
-          fi
+          # build 阶段：自动签名（-allowProvisioningUpdates + API Key）
+          # export 阶段：手动签名（profile + dis cert）—— 不需要 Admin 权限
           xcodebuild build -project "$XCODEPROJ" -scheme "$SCHEME" \
             -configuration Release -destination 'generic/platform=iOS' \
             -derivedDataPath Build/ReleaseBuild \
-            CODE_SIGN_IDENTITY="Apple Development" \
-            CODE_SIGNING_ALLOWED=YES \
-            CODE_SIGNING_REQUIRED=YES \
+            -authenticationKeyPath "$GITHUB_WORKSPACE/private_keys/AuthKey_$APPLE_API_KEY_ID.p8" \
+            -authenticationKeyID "$APPLE_API_KEY_ID" \
+            -authenticationKeyIssuerID "$APPLE_API_KEY_ISSUER_ID" \
+            -allowProvisioningUpdates \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
-            "${PROFILE_FLAG[@]}" \
             MARKETING_VERSION="$RELEASE_VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" VITA_LIBER_CODE_HASH="$CODE_HASH" \
             2>&1 | tee Build/xcodebuild-build-release.log
           APP="Build/ReleaseBuild/Build/Products/Release-iphoneos/VitaLiber.app"
@@ -341,6 +329,17 @@ jobs:
               | openssl x509 -noout -fingerprint 2>/dev/null | head -1 | cut -d= -f2)"
           fi
           echo "分发证书 SHA1: $DIS_SHA1"
+          # 读取实际 profile 名称（从 mobileprovision 内部 plist）
+          PROFILE_FILE="$(ls "$HOME/Library/MobileDevice/Provisioning Profiles/"*.mobileprovision 2>/dev/null | head -1)"
+          PROFILE_NAME=""
+          if [ -n "$PROFILE_FILE" ]; then
+            PROFILE_NAME="$(security cms -D -i "$PROFILE_FILE" 2>/dev/null | plutil -extract Name raw - 2>/dev/null || true)"
+          fi
+          if [ -z "$PROFILE_NAME" ] || [ "$PROFILE_NAME" = "null" ]; then
+            echo "::error::未找到 Provisioning Profile——请先导入 APPLE_DEV_PROVISION_PROFILE"
+            exit 1
+          fi
+          echo "provisioning profile: $PROFILE_NAME"
           # 读取 bundle ID
           APP_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \
             "Build/VitaLiber.xcarchive/Products/Applications/VitaLiber.app/Info.plist" 2>/dev/null || echo 'com.vitaliber.VitaLiber')"
@@ -356,7 +355,7 @@ jobs:
               <key>signingCertificate</key><string>$DIS_SHA1</string>
               <key>provisioningProfiles</key>
               <dict>
-                  <key>$APP_ID</key><string>$APP_ID AppStore</string>
+                  <key>$APP_ID</key><string>$PROFILE_NAME</string>
               </dict>
               <key>uploadSymbols</key><true/>
               <key>compileBitcode</key><false/>
