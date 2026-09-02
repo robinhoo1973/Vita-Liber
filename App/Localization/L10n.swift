@@ -90,6 +90,21 @@ enum L10n {
     static var emergency_sos_cancel: String { t("emergency.sos.cancel") }
     static var care_title: String { t("care.title") }
     static var care_footer: String { t("care.footer") }
+    // 关怀模式「生效参数」摘要区（M2 设置页；评审补——此前为视图内联中文字面量，
+    // L0 [10/10] L10n 门禁真违规；迁入三文件后 zh-Hant/en 平价交付）
+    static var care_parameters_section: String { t("care.parameters.section") }
+    static var care_parameters_touchTarget: String { t("care.parameters.touchTarget") }
+    static var care_parameters_speechRate: String { t("care.parameters.speechRate") }
+    static var care_parameters_readback: String { t("care.parameters.readback") }
+    static var care_parameters_voiceInput: String { t("care.parameters.voiceInput") }
+    static var care_parameters_sos: String { t("care.parameters.sos") }
+    static var care_parameters_valueSlow: String { t("care.parameters.valueSlow") }
+    static var care_parameters_valueAskEachTime: String { t("care.parameters.valueAskEachTime") }
+    static var care_parameters_valueDefaultOn: String { t("care.parameters.valueDefaultOn") }
+    /// 插值串（String(format:) 取 %ld；zh-Hans/Hant 的「长按 N 秒」骨架一致）
+    static func care_parameters_sosValue(seconds: Int) -> String {
+        String(format: t("care.parameters.sosValue"), seconds)
+    }
     static var claim_title: String { t("claim.title") }
     static var claim_empty: String { t("claim.empty") }
     static var claim_emptyHint: String { t("claim.emptyHint") }
@@ -162,6 +177,12 @@ enum L10n {
     static var reminder_taken: String { t("reminder.taken") }
     static var reminder_later: String { t("reminder.later") }
     static var reminder_skip: String { t("reminder.skip") }
+    // 药名缺省词与动态 accessibilityLabel（评审补——此前为行内插值 + 中文字面量，
+    // L0 [10/10] 门禁新判定器命中；模板用 %@，药名由调用方保证不含未转义 %）
+    static var reminder_medicationFallback: String { t("reminder.medicationFallback") }
+    static func reminder_a11yTaken(name: String) -> String { String(format: t("reminder.a11yTaken"), name) }
+    static func reminder_a11ySnoozed(name: String) -> String { String(format: t("reminder.a11ySnoozed"), name) }
+    static func reminder_a11ySkipped(name: String) -> String { String(format: t("reminder.a11ySkipped"), name) }
     static var ai_confirmImageText: String { t("ai.confirmImageText") }
     static var ai_emergencyAction: String { t("ai.emergencyAction") }
     static var ai_aiBadge: String { t("ai.aiBadge") }
@@ -494,6 +515,10 @@ enum L10n {
         "alert.sourceTitle", "backup.checksum", "backup.create", "backup.degrade.checksum",
         "backup.degrade.noSpace", "backup.degrade.notSignedIn", "backup.exportedName", "backup.restore",
         "backup.restored", "backup.scopeNote", "backup.title", "care.footer",
+        "care.parameters.readback", "care.parameters.section", "care.parameters.sos",
+        "care.parameters.sosValue", "care.parameters.speechRate", "care.parameters.touchTarget",
+        "care.parameters.valueAskEachTime", "care.parameters.valueDefaultOn", "care.parameters.valueSlow",
+        "care.parameters.voiceInput",
         "care.title", "claim.add", "claim.empty", "claim.emptyHint",
         "claim.title", "claim.type.fee", "claim.type.invoice", "claim.type.receipt",
         "common.cancel", "common.save", "deeplink.bookingNo", "deeplink.jump",
@@ -538,7 +563,9 @@ enum L10n {
         "onboard.sourceConfirmed", "onboard.tierUnconfirmed", "onboard.timelineHint", "onboard.timelineTitle",
         "onboard.trendTitle", "onboard.unconfirmed2", "onboard.unconfirmedBadge", "onboard.voiceNote",
         "onboard.yourName", "pay.busy", "pay.buy", "pay.restore",
-        "pay.valueProp", "pro.previewNote", "proOutput.title", "reminder.addAppt",
+        "pay.valueProp", "pro.previewNote", "proOutput.title",
+        "reminder.a11ySkipped", "reminder.a11ySnoozed", "reminder.a11yTaken", "reminder.medicationFallback",
+        "reminder.addAppt",
         "reminder.addPlan", "reminder.appointments", "reminder.completeAppt", "reminder.emptyAppt",
         "reminder.later", "reminder.loading", "reminder.planName", "reminder.planSpec",
         "reminder.planTime", "reminder.save", "reminder.skip", "reminder.statusCancelled",

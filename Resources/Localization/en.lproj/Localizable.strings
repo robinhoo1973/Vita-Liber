@@ -67,6 +67,16 @@
 "emergency.sos.cancel" = "Cancel";
 "care.title" = "Care mode";
 "care.footer" = "When on: larger touch targets and text, voice input as default, read-back asks each time, higher SOS threshold.";
+"care.parameters.section" = "Effective parameters";
+"care.parameters.touchTarget" = "Minimum touch target";
+"care.parameters.speechRate" = "Default speech rate";
+"care.parameters.readback" = "Read-back without earbuds";
+"care.parameters.voiceInput" = "Voice input";
+"care.parameters.sos" = "SOS mis-touch guard";
+"care.parameters.valueSlow" = "Slow";
+"care.parameters.valueAskEachTime" = "Ask each time";
+"care.parameters.valueDefaultOn" = "On by default";
+"care.parameters.sosValue" = "Hold %ld s + confirm again";
 "claim.title" = "Reimbursement items";
 "claim.empty" = "No reimbursement items yet";
 "claim.emptyHint" = "Add invoices, fees or receipts, organized by visit";
@@ -138,6 +148,10 @@
 "reminder.taken" = "Taken";
 "reminder.later" = "Later";
 "reminder.skip" = "Skip";
+"reminder.medicationFallback" = "medicine";
+"reminder.a11yTaken" = "%@ — taken";
+"reminder.a11ySnoozed" = "%@ — remind later";
+"reminder.a11ySkipped" = "%@ — skipped";
 "ai.confirmImageText" = "Confirm image text";
 "ai.emergencyAction" = "Call 120 immediately or go to the nearest emergency room.";
 "ai.aiBadge" = "AI explanation (from your records)";

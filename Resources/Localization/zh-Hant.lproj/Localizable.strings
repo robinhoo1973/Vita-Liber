@@ -67,6 +67,16 @@
 "emergency.sos.cancel" = "取消";
 "care.title" = "關懷模式";
 "care.footer" = "開啟後：觸點與字型放大、語音輸入設為預設、回讀改為每次詢問、緊急求助門檻提高以防誤觸。";
+"care.parameters.section" = "生效參數";
+"care.parameters.touchTarget" = "最小觸控目標";
+"care.parameters.speechRate" = "預設語速";
+"care.parameters.readback" = "無耳機回讀";
+"care.parameters.voiceInput" = "語音輸入";
+"care.parameters.sos" = "SOS 防誤觸";
+"care.parameters.valueSlow" = "慢";
+"care.parameters.valueAskEachTime" = "每次詢問";
+"care.parameters.valueDefaultOn" = "預設開啟";
+"care.parameters.sosValue" = "長按 %ld 秒 + 二次確認";
 "claim.title" = "報銷票據";
 "claim.empty" = "還沒有報銷票據";
 "claim.emptyHint" = "錄入發票/費用/收據，按就診整理";
@@ -138,6 +148,10 @@
 "reminder.taken" = "已服用";
 "reminder.later" = "稍後";
 "reminder.skip" = "跳過";
+"reminder.medicationFallback" = "藥品";
+"reminder.a11yTaken" = "%@，已服用";
+"reminder.a11ySnoozed" = "%@，稍後提醒";
+"reminder.a11ySkipped" = "%@，跳過";
 "ai.confirmImageText" = "確認圖片辨識內容";
 "ai.emergencyAction" = "請立即撥打 120 或前往最近的醫院急診。";
 "ai.aiBadge" = "AI 解釋（基於你的資料）";

@@ -67,6 +67,16 @@
 "emergency.sos.cancel" = "取消";
 "care.title" = "关怀模式";
 "care.footer" = "开启后：触点与字号放大、语音输入设为默认、回读改为每次询问、紧急求助门槛提高以防误触。";
+"care.parameters.section" = "生效参数";
+"care.parameters.touchTarget" = "最小触控目标";
+"care.parameters.speechRate" = "默认语速";
+"care.parameters.readback" = "无耳机回读";
+"care.parameters.voiceInput" = "语音输入";
+"care.parameters.sos" = "SOS 防误触";
+"care.parameters.valueSlow" = "慢";
+"care.parameters.valueAskEachTime" = "每次询问";
+"care.parameters.valueDefaultOn" = "默认开启";
+"care.parameters.sosValue" = "长按 %ld 秒 + 二次确认";
 "claim.title" = "报销票据";
 "claim.empty" = "还没有报销票据";
 "claim.emptyHint" = "录入发票/费用/收据，按就诊整理";
@@ -138,6 +148,10 @@
 "reminder.taken" = "已服用";
 "reminder.later" = "稍后";
 "reminder.skip" = "跳过";
+"reminder.medicationFallback" = "药品";
+"reminder.a11yTaken" = "%@，已服用";
+"reminder.a11ySnoozed" = "%@，稍后提醒";
+"reminder.a11ySkipped" = "%@，跳过";
 "ai.confirmImageText" = "确认图片识别内容";
 "ai.emergencyAction" = "请立即拨打 120 或前往最近的医院急诊。";
 "ai.aiBadge" = "AI 解释（基于你的资料）";

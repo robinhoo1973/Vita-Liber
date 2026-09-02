@@ -250,12 +250,13 @@ struct CareModeSettingsView: View {
                 Text(L10n.care_footer)
             }
             if careMode {
-                Section("生效参数") {
-                    LabeledContent("最小触控目标", value: "≥64 pt")
-                    LabeledContent("默认语速", value: "慢")
-                    LabeledContent("无耳机回读", value: "每次询问")
-                    LabeledContent("语音输入", value: "默认开启")
-                    LabeledContent("SOS 防误触", value: "长按 \(Int(HoldToConfirm.requiredSeconds(mode: CareModeMetrics.care))) 秒 + 二次确认")
+                Section(L10n.care_parameters_section) {
+                    LabeledContent(L10n.care_parameters_touchTarget, value: "≥64 pt")
+                    LabeledContent(L10n.care_parameters_speechRate, value: L10n.care_parameters_valueSlow)
+                    LabeledContent(L10n.care_parameters_readback, value: L10n.care_parameters_valueAskEachTime)
+                    LabeledContent(L10n.care_parameters_voiceInput, value: L10n.care_parameters_valueDefaultOn)
+                    LabeledContent(L10n.care_parameters_sos,
+                                   value: L10n.care_parameters_sosValue(seconds: Int(HoldToConfirm.requiredSeconds(mode: CareModeMetrics.care))))
                 }
                 .accessibilityIdentifier("F18.care.parameters")
             }

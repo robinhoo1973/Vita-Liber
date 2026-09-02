@@ -200,7 +200,7 @@ struct DoseSlotCard: View {
                             Text(L10n.reminder_taken).frame(minWidth: 64, minHeight: 44)
                         }
                         .buttonStyle(.borderedProminent)
-                        .accessibilityLabel("\(record.medicationName ?? "药品")，已服用")
+                        .accessibilityLabel(L10n.reminder_a11yTaken(name: record.medicationName ?? L10n.reminder_medicationFallback))
                         .accessibilityIdentifier("SP-09.dose.taken")
                         Button {
                             onSnooze(record.dose)
@@ -208,7 +208,7 @@ struct DoseSlotCard: View {
                             Text(L10n.reminder_later).frame(minWidth: 56, minHeight: 44)
                         }
                         .buttonStyle(.bordered)
-                        .accessibilityLabel("\(record.medicationName ?? "药品")，稍后提醒")
+                        .accessibilityLabel(L10n.reminder_a11ySnoozed(name: record.medicationName ?? L10n.reminder_medicationFallback))
                         .accessibilityIdentifier("SP-09.dose.snooze")
                         Button {
                             onSkip(record.dose)
@@ -216,7 +216,7 @@ struct DoseSlotCard: View {
                             Text(L10n.reminder_skip).frame(minWidth: 56, minHeight: 44)
                         }
                         .buttonStyle(.bordered)
-                        .accessibilityLabel("\(record.medicationName ?? "药品")，跳过")
+                        .accessibilityLabel(L10n.reminder_a11ySkipped(name: record.medicationName ?? L10n.reminder_medicationFallback))
                         .accessibilityIdentifier("SP-09.dose.skip")
                     }
                 }
