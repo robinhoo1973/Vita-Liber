@@ -16,6 +16,7 @@ targets:
   VitaLiber:
     type: application
     platform: iOS
+    bundleId: com.vitaliber.app
     sources: [App, Resources]
     settings:
       base:
