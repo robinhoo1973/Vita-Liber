@@ -176,33 +176,47 @@ jobs:
             -derivedDataPath Build/ArchiveDerivedData \
             CODE_SIGNING_ALLOWED=NO COMPILER_INDEX_STORE_ENABLE=NO \
             2>&1 | tee Build/prebuild-release.log
-          echo "Release 预构建完成"
-          # find 实际产物位置后种入两个可能解析路径（A：Release-iphoneos/Debug-iphoneos 嵌套；
-          # B：Products/Debug-iphoneos）。find 定位避免路径假设再次落空（第 13/14 轮教训）。
-          BP="$GITHUB_WORKSPACE/Build/ArchiveDerivedData/Build/Products"
-          BUNDLE="$(find "$BP" -type d -name GRDB_GRDB.bundle 2>/dev/null | head -1)"
-          if [ -n "$BUNDLE" ]; then
-            echo "SPM bundle 实际位置: $BUNDLE"
-            mkdir -p "$BP/Release-iphoneos/Debug-iphoneos" "$BP/Debug-iphoneos"
-            cp -R "$BUNDLE" "$BP/Release-iphoneos/Debug-iphoneos/" 2>/dev/null || true
-            cp -R "$BUNDLE" "$BP/Debug-iphoneos/" 2>/dev/null || true
-            echo "SPM bundle 已种入路径 A/B"
-          else
-            echo "::warning::预构建未找到 GRDB_GRDB.bundle（见 Build/prebuild-release.log）"
+          echo "Release 预构建完成（bundle 源已含于 VitaLiber.app 内）"
+          # ---- Xcode 16 SPM archive bug 两段式绕过 ----
+          # 实证链（第 13-15 轮）：archive 空间 ArchiveIntermediates/VitaLiber/
+          # BuildProductsPath/ 由 archive 运行时创建；其下 Copy phase 源
+          # Debug-iphoneos/GRDB_GRDB.bundle 为真实目录引用，SPM bundle target 产物
+          # 却落 UninstalledProducts → lstat 失败。目录无法预建（预种入 Products 均
+          # 未命中），故：首次 archive（预期失败生成布局）→ 种入 bundle 至其
+          # Debug-iphoneos → 二次 archive（Copy 源命中）。
+          DD="$GITHUB_WORKSPACE/Build/ArchiveDerivedData"
+          archive_cmd() {
+            xcodebuild archive -project "$XCODEPROJ" -scheme "$SCHEME" \
+              -configuration release -destination 'generic/platform=iOS' \
+              -derivedDataPath Build/ArchiveDerivedData \
+              -archivePath Build/VitaLiber.xcarchive \
+              -authenticationKeyPath "$GITHUB_WORKSPACE/private_keys/AuthKey_$APPLE_API_KEY_ID.p8" \
+              -authenticationKeyID "$APPLE_API_KEY_ID" \
+              -authenticationKeyIssuerID "$APPLE_API_KEY_ISSUER_ID" \
+              -allowProvisioningUpdates \
+              DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+              MARKETING_VERSION="$RELEASE_VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" VITA_LIBER_CODE_HASH="$CODE_HASH"
+          }
+          set +e
+          archive_cmd 2>&1 | tee Build/xcodebuild-archive-1.log
+          RC1=${PIPESTATUS[0]}
+          set -e
+          if [ "$RC1" -ne 0 ]; then
+            echo "首次 archive 未成功（预期：Xcode 16 SPM bundle 缺陷）——种入后重试"
+            BP="$(readlink -f "$DD/Build/Intermediates.noindex/ArchiveIntermediates/VitaLiber/BuildProductsPath" 2>/dev/null || echo "$DD/Build/Intermediates.noindex/ArchiveIntermediates/VitaLiber/BuildProductsPath")"
+            BUNDLE="$(find "$DD" -type d -name GRDB_GRDB.bundle 2>/dev/null | head -1)"
+            echo "BuildProductsPath 真实位置: $BP"
+            echo "bundle 源: $BUNDLE"
+            if [ -n "$BUNDLE" ] && [ -d "$BP" ]; then
+              mkdir -p "$BP/Debug-iphoneos"
+              cp -R "$BUNDLE" "$BP/Debug-iphoneos/" 2>/dev/null || true
+              ls "$BP/Debug-iphoneos/" || true
+              echo "已种入 $BP/Debug-iphoneos/GRDB_GRDB.bundle"
+            else
+              echo "::error::无法定位 BuildProductsPath 或 bundle 源"
+            fi
+            archive_cmd 2>&1 | tee Build/xcodebuild-archive-2.log
           fi
-          xcodebuild archive \
-            -project "$XCODEPROJ" -scheme "$SCHEME" \
-            -configuration release \
-            -destination 'generic/platform=iOS' \
-            -derivedDataPath Build/ArchiveDerivedData \
-            -archivePath Build/VitaLiber.xcarchive \
-            -authenticationKeyPath "$GITHUB_WORKSPACE/private_keys/AuthKey_$APPLE_API_KEY_ID.p8" \
-            -authenticationKeyID "$APPLE_API_KEY_ID" \
-            -authenticationKeyIssuerID "$APPLE_API_KEY_ISSUER_ID" \
-            -allowProvisioningUpdates \
-            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
-            MARKETING_VERSION="$RELEASE_VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" VITA_LIBER_CODE_HASH="$CODE_HASH" \
-            2>&1 | tee Build/xcodebuild-archive.log
 
       # ── 导出 .ipa（app-store 方法）───────────────────────────
       - name: 导出 .ipa
