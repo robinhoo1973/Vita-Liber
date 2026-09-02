@@ -10,6 +10,8 @@ design/icons/best_selection.json 中的 211 枚去重精选清单。它只读取
 from __future__ import annotations
 
 import json
+
+from swift_ident import swift_identifier
 import shutil
 from datetime import date
 from pathlib import Path
@@ -38,15 +40,6 @@ GROUPS = {
 GROUP_ORDER = list(GROUPS)
 SCALES = (1, 2, 3)
 INFO = {"author": "xcode", "version": 1}
-SWIFT_KEYWORDS = {
-    "associatedtype", "class", "deinit", "enum", "extension", "fileprivate", "func",
-    "import", "init", "inout", "internal", "let", "open", "operator", "private",
-    "precedencegroup", "protocol", "public", "rethrows", "static", "struct", "subscript",
-    "typealias", "var", "break", "case", "catch", "continue", "default", "defer", "do",
-    "else", "fallthrough", "for", "guard", "if", "in", "repeat", "return", "throw",
-    "throws", "switch", "where", "while", "Any", "as", "await", "false", "is", "nil",
-    "self", "Self", "super", "true", "try", "_",
-}
 
 
 def write_json(path: Path, value) -> None:
@@ -64,11 +57,6 @@ def imageset_contents(name: str) -> dict:
     }
 
 
-def swift_identifier(asset_name: str) -> str:
-    stem = asset_name.removeprefix("ic-")
-    parts = stem.split("-")
-    identifier = parts[0] + "".join(part[:1].upper() + part[1:] for part in parts[1:])
-    return f"`{identifier}`" if identifier in SWIFT_KEYWORDS else identifier
 
 
 def load_selection() -> list[dict]:
@@ -144,11 +132,14 @@ def render_swift(icons: list[dict]) -> None:
 def render_provenance(icons: list[dict]) -> None:
     assets = {}
     for entry in icons:
+        # 落库闭环（审查问题 D）：origin 一律归一化为仓库内自引用，
+        # 外部来源保留在 source/upstream/license 字段，不再依赖本机挂载路径。
+        repo_origin = f"design/icons/src/{entry['group']}/{entry['name']}.svg"
         assets[entry["name"]] = {
             "source": entry.get("source", "curated"),
             "upstream": entry.get("upstream"),
             "license": entry.get("license"),
-            "origin": entry.get("origin", entry.get("originPath")),
+            "origin": repo_origin,
             "palette": entry.get("palette"),
             "status": entry.get("status"),
         }
@@ -168,7 +159,32 @@ def render_provenance(icons: list[dict]) -> None:
     })
 
 
+def freeze_selection() -> None:
+    """落库闭环：把 best_selection.json 的 originPath 归一化为仓库内自引用。
+    外部挂载路径仅用于精选过程；冻结后任何机器（无 OneDrive 挂载）均可复现。"""
+    selection = json.loads(SELECTION.read_text(encoding="utf-8"))
+    changed = 0
+    for entry in selection["icons"]:
+        repo_path = f"design/icons/src/{entry['group']}/{entry['name']}.svg"
+        if entry.get("originPath") != repo_path:
+            entry["originPath"] = repo_path
+            changed += 1
+    if changed:
+        selection["frozen"] = True
+        write_json(SELECTION, selection)
+        print(f"[freeze] originPath 已归一化为仓库内自引用（{changed} 条）")
+    else:
+        print("[freeze] 已冻结，无需变更")
+
+
 def main() -> None:
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--freeze", action="store_true",
+                    help="落库闭环：将 originPath 归一化为仓库内自引用后同步")
+    args = ap.parse_args()
+    if args.freeze:
+        freeze_selection()
     icons = load_selection()
     render_icons(icons)
     render_swift(icons)

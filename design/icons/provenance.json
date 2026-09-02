@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-27",
+  "generated": "2026-08-28",
   "selection": "design/icons/best_selection.json",
   "glyph_license": "Fluent MIT / Health Icons CC0 / Lucide ISC / Material Symbols Apache-2.0 / Font Awesome CC-BY-4.0 / project-owned",
   "notice": "design/icons/NOTICE.md",
@@ -13,7 +13,7 @@
       "source": "fluent",
       "upstream": "bot-24-regular",
       "license": "MIT",
-      "origin": "qingnangshu_svg_icons_v5_uniform_bg_preview/tab/ic-tab-assistant-outline.svg",
+      "origin": "design/icons/src/tab/ic-tab-assistant.svg",
       "palette": "purple",
       "status": "ready"
     },
@@ -21,7 +21,7 @@
       "source": "fluent",
       "upstream": "bot-24-filled",
       "license": "MIT",
-      "origin": "qingnangshu_svg_icons_v5_uniform_bg_preview/tab/ic-tab-assistant-filled.svg",
+      "origin": "design/icons/src/tab/ic-tab-assistant-filled.svg",
       "palette": "purple",
       "status": "ready"
     },
@@ -29,7 +29,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/tab/ic-tab-home-outline.svg",
+      "origin": "design/icons/src/tab/ic-tab-home.svg",
       "palette": "purple",
       "status": "ready"
     },
@@ -37,7 +37,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/tab/ic-tab-home-filled.svg",
+      "origin": "design/icons/src/tab/ic-tab-home-filled.svg",
       "palette": "purple",
       "status": "ready"
     },
@@ -45,7 +45,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/tab/ic-tab-me-outline.svg",
+      "origin": "design/icons/src/tab/ic-tab-me.svg",
       "palette": "purple",
       "status": "ready"
     },
@@ -53,7 +53,7 @@
       "source": "fluent",
       "upstream": "person_circle_24_filled",
       "license": "MIT",
-      "origin": "qingnangshu_svg_icons_v4_complete/tab/ic-tab-me-filled.svg",
+      "origin": "design/icons/src/tab/ic-tab-me-filled.svg",
       "palette": "purple",
       "status": "ready"
     },
@@ -61,7 +61,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/tab/ic-tab-records-outline.svg",
+      "origin": "design/icons/src/tab/ic-tab-records.svg",
       "palette": "purple",
       "status": "ready"
     },
@@ -69,7 +69,7 @@
       "source": "fluent",
       "upstream": "board_heart_24_filled",
       "license": "MIT",
-      "origin": "qingnangshu_svg_icons_v4_complete/tab/ic-tab-records-filled.svg",
+      "origin": "design/icons/src/tab/ic-tab-records-filled.svg",
       "palette": "purple",
       "status": "ready"
     },
@@ -77,7 +77,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/tab/ic-tab-reminders-outline.svg",
+      "origin": "design/icons/src/tab/ic-tab-reminders.svg",
       "palette": "purple",
       "status": "ready"
     },
@@ -85,7 +85,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/tab/ic-tab-reminders-filled.svg",
+      "origin": "design/icons/src/tab/ic-tab-reminders-filled.svg",
       "palette": "purple",
       "status": "ready"
     },
@@ -93,7 +93,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-add.svg",
+      "origin": "design/icons/src/common/ic-add.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -101,7 +101,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/common/ic-archive.svg",
+      "origin": "design/icons/src/common/ic-archive.svg",
       "palette": "commonBlue",
       "status": "rescue"
     },
@@ -109,7 +109,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/common/ic-attach.svg",
+      "origin": "design/icons/src/common/ic-attach.svg",
       "palette": "commonBlue",
       "status": "rescue"
     },
@@ -117,7 +117,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-backup.svg",
+      "origin": "design/icons/src/common/ic-backup.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -125,7 +125,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-ban.svg",
+      "origin": "design/icons/src/common/ic-ban.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -133,7 +133,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-bell.svg",
+      "origin": "design/icons/src/common/ic-bell.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -141,7 +141,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-bluetooth.svg",
+      "origin": "design/icons/src/common/ic-bluetooth.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -149,7 +149,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-bookmark.svg",
+      "origin": "design/icons/src/common/ic-bookmark.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -157,7 +157,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-brush.svg",
+      "origin": "design/icons/src/common/ic-brush.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -165,7 +165,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-calendar.svg",
+      "origin": "design/icons/src/common/ic-calendar.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -173,7 +173,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-camera.svg",
+      "origin": "design/icons/src/common/ic-camera.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -181,7 +181,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-check.svg",
+      "origin": "design/icons/src/common/ic-check.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -189,7 +189,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-check-circle.svg",
+      "origin": "design/icons/src/common/ic-check-circle.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -197,7 +197,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-chevron-down.svg",
+      "origin": "design/icons/src/common/ic-chevron-down.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -205,7 +205,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-chevron-left.svg",
+      "origin": "design/icons/src/common/ic-chevron-left.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -213,7 +213,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-chevron-right.svg",
+      "origin": "design/icons/src/common/ic-chevron-right.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -221,7 +221,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-clock.svg",
+      "origin": "design/icons/src/common/ic-clock.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -229,7 +229,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-close.svg",
+      "origin": "design/icons/src/common/ic-close.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -237,7 +237,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/common/ic-cloud-off.svg",
+      "origin": "design/icons/src/common/ic-cloud-off.svg",
       "palette": "commonBlue",
       "status": "rescue"
     },
@@ -245,7 +245,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-copy.svg",
+      "origin": "design/icons/src/common/ic-copy.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -253,7 +253,7 @@
       "source": "curated-v2",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v2/common/ic-crown.svg",
+      "origin": "design/icons/src/common/ic-crown.svg",
       "palette": "commonBlue",
       "status": "rescue"
     },
@@ -261,7 +261,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-delete.svg",
+      "origin": "design/icons/src/common/ic-delete.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -269,7 +269,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-download.svg",
+      "origin": "design/icons/src/common/ic-download.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -277,7 +277,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-edit.svg",
+      "origin": "design/icons/src/common/ic-edit.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -285,7 +285,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-error.svg",
+      "origin": "design/icons/src/common/ic-error.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -293,7 +293,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-exclamation.svg",
+      "origin": "design/icons/src/common/ic-exclamation.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -301,7 +301,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/common/ic-export.svg",
+      "origin": "design/icons/src/common/ic-export.svg",
       "palette": "commonBlue",
       "status": "rescue"
     },
@@ -309,7 +309,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-external-link.svg",
+      "origin": "design/icons/src/common/ic-external-link.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -317,7 +317,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-filter.svg",
+      "origin": "design/icons/src/common/ic-filter.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -325,7 +325,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/common/ic-flash.svg",
+      "origin": "design/icons/src/common/ic-flash.svg",
       "palette": "commonBlue",
       "status": "rescue"
     },
@@ -333,7 +333,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-folder.svg",
+      "origin": "design/icons/src/common/ic-folder.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -341,7 +341,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-headphone.svg",
+      "origin": "design/icons/src/common/ic-headphone.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -349,7 +349,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-headset.svg",
+      "origin": "design/icons/src/common/ic-headset.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -357,7 +357,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-help.svg",
+      "origin": "design/icons/src/common/ic-help.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -365,7 +365,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/common/ic-ignore.svg",
+      "origin": "design/icons/src/common/ic-ignore.svg",
       "palette": "commonBlue",
       "status": "rescue"
     },
@@ -373,7 +373,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/common/ic-import.svg",
+      "origin": "design/icons/src/common/ic-import.svg",
       "palette": "commonBlue",
       "status": "rescue"
     },
@@ -381,7 +381,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-info.svg",
+      "origin": "design/icons/src/common/ic-info.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -389,7 +389,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/common/ic-keypad-delete.svg",
+      "origin": "design/icons/src/common/ic-keypad-delete.svg",
       "palette": "commonBlue",
       "status": "rescue"
     },
@@ -397,7 +397,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-language.svg",
+      "origin": "design/icons/src/common/ic-language.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -405,7 +405,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-message.svg",
+      "origin": "design/icons/src/common/ic-message.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -413,7 +413,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/common/ic-mic.svg",
+      "origin": "design/icons/src/common/ic-mic.svg",
       "palette": "commonBlue",
       "status": "rescue"
     },
@@ -421,7 +421,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-minus.svg",
+      "origin": "design/icons/src/common/ic-minus.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -429,7 +429,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-moon.svg",
+      "origin": "design/icons/src/common/ic-moon.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -437,7 +437,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-more.svg",
+      "origin": "design/icons/src/common/ic-more.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -445,7 +445,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/common/ic-observe-frame.svg",
+      "origin": "design/icons/src/common/ic-observe-frame.svg",
       "palette": "commonBlue",
       "status": "rescue"
     },
@@ -453,7 +453,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-pause.svg",
+      "origin": "design/icons/src/common/ic-pause.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -461,7 +461,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-person-add.svg",
+      "origin": "design/icons/src/common/ic-person-add.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -469,7 +469,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-phone.svg",
+      "origin": "design/icons/src/common/ic-phone.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -477,7 +477,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/common/ic-photo.svg",
+      "origin": "design/icons/src/common/ic-photo.svg",
       "palette": "commonBlue",
       "status": "rescue"
     },
@@ -485,7 +485,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/common/ic-pin.svg",
+      "origin": "design/icons/src/common/ic-pin.svg",
       "palette": "commonBlue",
       "status": "rescue"
     },
@@ -493,7 +493,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-play.svg",
+      "origin": "design/icons/src/common/ic-play.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -501,7 +501,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-refresh.svg",
+      "origin": "design/icons/src/common/ic-refresh.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -509,7 +509,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/common/ic-replay.svg",
+      "origin": "design/icons/src/common/ic-replay.svg",
       "palette": "commonBlue",
       "status": "rescue"
     },
@@ -517,7 +517,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/common/ic-retry.svg",
+      "origin": "design/icons/src/common/ic-retry.svg",
       "palette": "commonBlue",
       "status": "rescue"
     },
@@ -525,7 +525,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/common/ic-scan-document.svg",
+      "origin": "design/icons/src/common/ic-scan-document.svg",
       "palette": "commonBlue",
       "status": "rescue"
     },
@@ -533,7 +533,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/common/ic-search.svg",
+      "origin": "design/icons/src/common/ic-search.svg",
       "palette": "commonBlue",
       "status": "rescue"
     },
@@ -541,7 +541,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/common/ic-send.svg",
+      "origin": "design/icons/src/common/ic-send.svg",
       "palette": "commonBlue",
       "status": "rescue"
     },
@@ -549,7 +549,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-settings.svg",
+      "origin": "design/icons/src/common/ic-settings.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -557,7 +557,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-share.svg",
+      "origin": "design/icons/src/common/ic-share.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -565,7 +565,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-skip.svg",
+      "origin": "design/icons/src/common/ic-skip.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -573,7 +573,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/common/ic-snooze.svg",
+      "origin": "design/icons/src/common/ic-snooze.svg",
       "palette": "commonBlue",
       "status": "rescue"
     },
@@ -581,7 +581,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-sort.svg",
+      "origin": "design/icons/src/common/ic-sort.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -589,7 +589,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-star.svg",
+      "origin": "design/icons/src/common/ic-star.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -597,7 +597,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-stop-octagon.svg",
+      "origin": "design/icons/src/common/ic-stop-octagon.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -605,7 +605,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-sun.svg",
+      "origin": "design/icons/src/common/ic-sun.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -613,7 +613,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-swap.svg",
+      "origin": "design/icons/src/common/ic-swap.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -621,7 +621,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/common/ic-sync.svg",
+      "origin": "design/icons/src/common/ic-sync.svg",
       "palette": "commonBlue",
       "status": "rescue"
     },
@@ -629,7 +629,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-tag.svg",
+      "origin": "design/icons/src/common/ic-tag.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -637,7 +637,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-thumbs-down.svg",
+      "origin": "design/icons/src/common/ic-thumbs-down.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -645,7 +645,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-thumbs-up.svg",
+      "origin": "design/icons/src/common/ic-thumbs-up.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -653,7 +653,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/common/ic-undo.svg",
+      "origin": "design/icons/src/common/ic-undo.svg",
       "palette": "commonBlue",
       "status": "rescue"
     },
@@ -661,7 +661,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/common/ic-unlink.svg",
+      "origin": "design/icons/src/common/ic-unlink.svg",
       "palette": "commonBlue",
       "status": "rescue"
     },
@@ -669,7 +669,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-unlock.svg",
+      "origin": "design/icons/src/common/ic-unlock.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -677,7 +677,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-upload.svg",
+      "origin": "design/icons/src/common/ic-upload.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -685,7 +685,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-visibility.svg",
+      "origin": "design/icons/src/common/ic-visibility.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -693,7 +693,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-visibility-off.svg",
+      "origin": "design/icons/src/common/ic-visibility-off.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -701,7 +701,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/common/ic-volume.svg",
+      "origin": "design/icons/src/common/ic-volume.svg",
       "palette": "commonBlue",
       "status": "rescue"
     },
@@ -709,7 +709,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/common/ic-volume-off.svg",
+      "origin": "design/icons/src/common/ic-volume-off.svg",
       "palette": "commonBlue",
       "status": "rescue"
     },
@@ -717,7 +717,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-warning.svg",
+      "origin": "design/icons/src/common/ic-warning.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -725,7 +725,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/common/ic-waveform.svg",
+      "origin": "design/icons/src/common/ic-waveform.svg",
       "palette": "commonBlue",
       "status": "ready"
     },
@@ -733,7 +733,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/medical/ic-allergy.svg",
+      "origin": "design/icons/src/medical/ic-allergy.svg",
       "palette": "medicalBlue",
       "status": "ready"
     },
@@ -741,7 +741,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/medical/ic-appointment.svg",
+      "origin": "design/icons/src/medical/ic-appointment.svg",
       "palette": "medicalBlue",
       "status": "ready"
     },
@@ -749,7 +749,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/medical/ic-blood-drop.svg",
+      "origin": "design/icons/src/medical/ic-blood-drop.svg",
       "palette": "medicalBlue",
       "status": "ready"
     },
@@ -757,7 +757,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/medical/ic-chart.svg",
+      "origin": "design/icons/src/medical/ic-chart.svg",
       "palette": "medicalBlue",
       "status": "rescue"
     },
@@ -765,7 +765,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/medical/ic-doctor.svg",
+      "origin": "design/icons/src/medical/ic-doctor.svg",
       "palette": "medicalBlue",
       "status": "ready"
     },
@@ -773,7 +773,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/medical/ic-emergency-card.svg",
+      "origin": "design/icons/src/medical/ic-emergency-card.svg",
       "palette": "medicalBlue",
       "status": "rescue"
     },
@@ -781,7 +781,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/medical/ic-hospital.svg",
+      "origin": "design/icons/src/medical/ic-hospital.svg",
       "palette": "medicalBlue",
       "status": "ready"
     },
@@ -789,7 +789,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/medical/ic-imaging-ecg.svg",
+      "origin": "design/icons/src/medical/ic-imaging-ecg.svg",
       "palette": "medicalBlue",
       "status": "ready"
     },
@@ -797,7 +797,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/medical/ic-lab-clipboard.svg",
+      "origin": "design/icons/src/medical/ic-lab-clipboard.svg",
       "palette": "medicalBlue",
       "status": "rescue"
     },
@@ -805,7 +805,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/medical/ic-medicine-box.svg",
+      "origin": "design/icons/src/medical/ic-medicine-box.svg",
       "palette": "medicalBlue",
       "status": "ready"
     },
@@ -813,7 +813,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/medical/ic-pill.svg",
+      "origin": "design/icons/src/medical/ic-pill.svg",
       "palette": "medicalBlue",
       "status": "rescue"
     },
@@ -821,7 +821,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/medical/ic-prescription.svg",
+      "origin": "design/icons/src/medical/ic-prescription.svg",
       "palette": "medicalBlue",
       "status": "ready"
     },
@@ -829,7 +829,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/medical/ic-pulse.svg",
+      "origin": "design/icons/src/medical/ic-pulse.svg",
       "palette": "medicalBlue",
       "status": "rescue"
     },
@@ -837,7 +837,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/medical/ic-refill.svg",
+      "origin": "design/icons/src/medical/ic-refill.svg",
       "palette": "medicalBlue",
       "status": "rescue"
     },
@@ -845,7 +845,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/medical/ic-stethoscope.svg",
+      "origin": "design/icons/src/medical/ic-stethoscope.svg",
       "palette": "medicalBlue",
       "status": "ready"
     },
@@ -853,7 +853,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/medical/ic-thermometer.svg",
+      "origin": "design/icons/src/medical/ic-thermometer.svg",
       "palette": "medicalBlue",
       "status": "rescue"
     },
@@ -861,7 +861,7 @@
       "source": "curated-v2",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v2/medical/ic-timeline.svg",
+      "origin": "design/icons/src/medical/ic-timeline.svg",
       "palette": "medicalBlue",
       "status": "rescue"
     },
@@ -869,7 +869,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/medical/ic-vaccine.svg",
+      "origin": "design/icons/src/medical/ic-vaccine.svg",
       "palette": "medicalBlue",
       "status": "rescue"
     },
@@ -877,7 +877,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/medical/ic-vitals-chart.svg",
+      "origin": "design/icons/src/medical/ic-vitals-chart.svg",
       "palette": "medicalBlue",
       "status": "ready"
     },
@@ -885,7 +885,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/medical/ic-weight.svg",
+      "origin": "design/icons/src/medical/ic-weight.svg",
       "palette": "medicalBlue",
       "status": "ready"
     },
@@ -893,7 +893,7 @@
       "source": "curated-v2",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v2/symptoms/ic-sym-custom.svg",
+      "origin": "design/icons/src/symptoms/ic-sym-custom.svg",
       "palette": "orange",
       "status": "rescue"
     },
@@ -901,7 +901,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/symptoms/ic-sym-eye.svg",
+      "origin": "design/icons/src/symptoms/ic-sym-eye.svg",
       "palette": "orange",
       "status": "ready"
     },
@@ -909,7 +909,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/symptoms/ic-sym-generic.svg",
+      "origin": "design/icons/src/symptoms/ic-sym-generic.svg",
       "palette": "orange",
       "status": "ready"
     },
@@ -917,7 +917,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/symptoms/ic-sym-secretion.svg",
+      "origin": "design/icons/src/symptoms/ic-sym-secretion.svg",
       "palette": "orange",
       "status": "rescue"
     },
@@ -925,7 +925,7 @@
       "source": "tabler",
       "upstream": "bandage",
       "license": "MIT (Tabler Icons)",
-      "origin": "qingnangshu_svg_icons_v4_complete/symptoms/ic-sym-skin.svg",
+      "origin": "design/icons/src/symptoms/ic-sym-skin.svg",
       "palette": "orange",
       "status": "ready"
     },
@@ -933,7 +933,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/symptoms/ic-sym-stool.svg",
+      "origin": "design/icons/src/symptoms/ic-sym-stool.svg",
       "palette": "orange",
       "status": "ready"
     },
@@ -941,7 +941,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/symptoms/ic-sym-swelling.svg",
+      "origin": "design/icons/src/symptoms/ic-sym-swelling.svg",
       "palette": "orange",
       "status": "redraw"
     },
@@ -949,7 +949,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/symptoms/ic-sym-urine.svg",
+      "origin": "design/icons/src/symptoms/ic-sym-urine.svg",
       "palette": "orange",
       "status": "ready"
     },
@@ -957,7 +957,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/members/ic-member-daughter.svg",
+      "origin": "design/icons/src/members/ic-member-daughter.svg",
       "palette": "purple",
       "status": "ready"
     },
@@ -965,7 +965,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/members/ic-member-family.svg",
+      "origin": "design/icons/src/members/ic-member-family.svg",
       "palette": "purple",
       "status": "ready"
     },
@@ -973,7 +973,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/members/ic-member-father.svg",
+      "origin": "design/icons/src/members/ic-member-father.svg",
       "palette": "purple",
       "status": "ready"
     },
@@ -981,7 +981,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/members/ic-member-mother.svg",
+      "origin": "design/icons/src/members/ic-member-mother.svg",
       "palette": "purple",
       "status": "ready"
     },
@@ -989,7 +989,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/members/ic-member-partner.svg",
+      "origin": "design/icons/src/members/ic-member-partner.svg",
       "palette": "purple",
       "status": "ready"
     },
@@ -997,7 +997,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/members/ic-member-self.svg",
+      "origin": "design/icons/src/members/ic-member-self.svg",
       "palette": "purple",
       "status": "ready"
     },
@@ -1005,7 +1005,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/members/ic-member-son.svg",
+      "origin": "design/icons/src/members/ic-member-son.svg",
       "palette": "purple",
       "status": "ready"
     },
@@ -1013,7 +1013,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/security/ic-audit-shield.svg",
+      "origin": "design/icons/src/security/ic-audit-shield.svg",
       "palette": "red",
       "status": "rescue"
     },
@@ -1021,7 +1021,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/security/ic-device.svg",
+      "origin": "design/icons/src/security/ic-device.svg",
       "palette": "red",
       "status": "rescue"
     },
@@ -1029,7 +1029,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/security/ic-eye.svg",
+      "origin": "design/icons/src/security/ic-eye.svg",
       "palette": "red",
       "status": "rescue"
     },
@@ -1037,7 +1037,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/security/ic-eye-off.svg",
+      "origin": "design/icons/src/security/ic-eye-off.svg",
       "palette": "red",
       "status": "ready"
     },
@@ -1045,7 +1045,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/security/ic-faceid.svg",
+      "origin": "design/icons/src/security/ic-faceid.svg",
       "palette": "red",
       "status": "ready"
     },
@@ -1053,7 +1053,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/security/ic-fingerprint.svg",
+      "origin": "design/icons/src/security/ic-fingerprint.svg",
       "palette": "red",
       "status": "ready"
     },
@@ -1061,7 +1061,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/security/ic-lock.svg",
+      "origin": "design/icons/src/security/ic-lock.svg",
       "palette": "red",
       "status": "ready"
     },
@@ -1069,7 +1069,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/security/ic-shield.svg",
+      "origin": "design/icons/src/security/ic-shield.svg",
       "palette": "red",
       "status": "ready"
     },
@@ -1077,7 +1077,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/security/ic-sos.svg",
+      "origin": "design/icons/src/security/ic-sos.svg",
       "palette": "red",
       "status": "rescue"
     },
@@ -1085,7 +1085,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/pro/ic-cloud-subscription.svg",
+      "origin": "design/icons/src/pro/ic-cloud-subscription.svg",
       "palette": "purple",
       "status": "ready"
     },
@@ -1093,7 +1093,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/pro/ic-family-share.svg",
+      "origin": "design/icons/src/pro/ic-family-share.svg",
       "palette": "purple",
       "status": "ready"
     },
@@ -1101,7 +1101,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/pro/ic-pro-diamond.svg",
+      "origin": "design/icons/src/pro/ic-pro-diamond.svg",
       "palette": "purple",
       "status": "ready"
     },
@@ -1109,7 +1109,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/pro/ic-restore-purchase.svg",
+      "origin": "design/icons/src/pro/ic-restore-purchase.svg",
       "palette": "purple",
       "status": "ready"
     },
@@ -1117,7 +1117,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/equipment/ic-ambulance.svg",
+      "origin": "design/icons/src/equipment/ic-ambulance.svg",
       "palette": "equipmentBlue",
       "status": "rescue"
     },
@@ -1125,7 +1125,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-anesthesia-machine.svg",
+      "origin": "design/icons/src/equipment/ic-anesthesia-machine.svg",
       "palette": "equipmentBlue",
       "status": "ready"
     },
@@ -1133,7 +1133,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/equipment/ic-bandage-adhesive.svg",
+      "origin": "design/icons/src/equipment/ic-bandage-adhesive.svg",
       "palette": "equipmentBlue",
       "status": "rescue"
     },
@@ -1141,7 +1141,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/equipment/ic-blood-pressure.svg",
+      "origin": "design/icons/src/equipment/ic-blood-pressure.svg",
       "palette": "equipmentBlue",
       "status": "rescue"
     },
@@ -1149,7 +1149,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/equipment/ic-blood-sugar.svg",
+      "origin": "design/icons/src/equipment/ic-blood-sugar.svg",
       "palette": "equipmentBlue",
       "status": "rescue"
     },
@@ -1157,7 +1157,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-crutches.svg",
+      "origin": "design/icons/src/equipment/ic-crutches.svg",
       "palette": "equipmentBlue",
       "status": "ready"
     },
@@ -1165,7 +1165,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-ct.svg",
+      "origin": "design/icons/src/equipment/ic-ct.svg",
       "palette": "equipmentBlue",
       "status": "ready"
     },
@@ -1173,7 +1173,7 @@
       "source": "tabler",
       "upstream": "heartbeat",
       "license": "MIT (Tabler Icons)",
-      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-defibrillator.svg",
+      "origin": "design/icons/src/equipment/ic-defibrillator.svg",
       "palette": "equipmentBlue",
       "status": "redraw"
     },
@@ -1181,7 +1181,7 @@
       "source": "tabler",
       "upstream": "dental",
       "license": "MIT (Tabler Icons)",
-      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-dental-chair.svg",
+      "origin": "design/icons/src/equipment/ic-dental-chair.svg",
       "palette": "equipmentBlue",
       "status": "ready"
     },
@@ -1189,7 +1189,7 @@
       "source": "tabler",
       "upstream": "heart-rate-monitor",
       "license": "MIT (Tabler Icons)",
-      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-ecg.svg",
+      "origin": "design/icons/src/equipment/ic-ecg.svg",
       "palette": "equipmentBlue",
       "status": "redraw"
     },
@@ -1197,7 +1197,7 @@
       "source": "own",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-endoscope.svg",
+      "origin": "design/icons/src/equipment/ic-endoscope.svg",
       "palette": "equipmentBlue",
       "status": "redraw"
     },
@@ -1205,7 +1205,7 @@
       "source": "lucide",
       "upstream": "droplet",
       "license": "ISC",
-      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-glucometer.svg",
+      "origin": "design/icons/src/equipment/ic-glucometer.svg",
       "palette": "equipmentBlue",
       "status": "ready"
     },
@@ -1213,7 +1213,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/equipment/ic-hearing-aid.svg",
+      "origin": "design/icons/src/equipment/ic-hearing-aid.svg",
       "palette": "equipmentBlue",
       "status": "rescue"
     },
@@ -1221,7 +1221,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/equipment/ic-herbal.svg",
+      "origin": "design/icons/src/equipment/ic-herbal.svg",
       "palette": "equipmentBlue",
       "status": "rescue"
     },
@@ -1229,7 +1229,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-infusion-pump.svg",
+      "origin": "design/icons/src/equipment/ic-infusion-pump.svg",
       "palette": "equipmentBlue",
       "status": "ready"
     },
@@ -1237,7 +1237,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-inhaler.svg",
+      "origin": "design/icons/src/equipment/ic-inhaler.svg",
       "palette": "equipmentBlue",
       "status": "ready"
     },
@@ -1245,7 +1245,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/equipment/ic-intravenous-drip.svg",
+      "origin": "design/icons/src/equipment/ic-intravenous-drip.svg",
       "palette": "equipmentBlue",
       "status": "rescue"
     },
@@ -1253,7 +1253,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/equipment/ic-medicine-bottle.svg",
+      "origin": "design/icons/src/equipment/ic-medicine-bottle.svg",
       "palette": "equipmentBlue",
       "status": "rescue"
     },
@@ -1261,7 +1261,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/equipment/ic-medicines.svg",
+      "origin": "design/icons/src/equipment/ic-medicines.svg",
       "palette": "equipmentBlue",
       "status": "rescue"
     },
@@ -1269,7 +1269,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/equipment/ic-microscope.svg",
+      "origin": "design/icons/src/equipment/ic-microscope.svg",
       "palette": "equipmentBlue",
       "status": "rescue"
     },
@@ -1277,7 +1277,7 @@
       "source": "lucide",
       "upstream": "monitor + heartbeat",
       "license": "ISC",
-      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-monitor.svg",
+      "origin": "design/icons/src/equipment/ic-monitor.svg",
       "palette": "equipmentBlue",
       "status": "redraw"
     },
@@ -1285,7 +1285,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-mri.svg",
+      "origin": "design/icons/src/equipment/ic-mri.svg",
       "palette": "equipmentBlue",
       "status": "ready"
     },
@@ -1293,7 +1293,7 @@
       "source": "tabler",
       "upstream": "spray",
       "license": "MIT (Tabler Icons)",
-      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-nebulizer.svg",
+      "origin": "design/icons/src/equipment/ic-nebulizer.svg",
       "palette": "equipmentBlue",
       "status": "redraw"
     },
@@ -1301,7 +1301,7 @@
       "source": "own",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-ointment.svg",
+      "origin": "design/icons/src/equipment/ic-ointment.svg",
       "palette": "equipmentBlue",
       "status": "ready"
     },
@@ -1309,7 +1309,7 @@
       "source": "lucide",
       "upstream": "eye",
       "license": "ISC",
-      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-ophthalmoscope.svg",
+      "origin": "design/icons/src/equipment/ic-ophthalmoscope.svg",
       "palette": "equipmentBlue",
       "status": "redraw"
     },
@@ -1317,7 +1317,7 @@
       "source": "lucide",
       "upstream": "ear",
       "license": "ISC",
-      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-otoscope.svg",
+      "origin": "design/icons/src/equipment/ic-otoscope.svg",
       "palette": "equipmentBlue",
       "status": "redraw"
     },
@@ -1325,7 +1325,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-oxygen-concentrator.svg",
+      "origin": "design/icons/src/equipment/ic-oxygen-concentrator.svg",
       "palette": "equipmentBlue",
       "status": "ready"
     },
@@ -1333,7 +1333,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/equipment/ic-oxygen-tank.svg",
+      "origin": "design/icons/src/equipment/ic-oxygen-tank.svg",
       "palette": "equipmentBlue",
       "status": "rescue"
     },
@@ -1341,7 +1341,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/equipment/ic-ppe-gloves.svg",
+      "origin": "design/icons/src/equipment/ic-ppe-gloves.svg",
       "palette": "equipmentBlue",
       "status": "rescue"
     },
@@ -1349,7 +1349,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/equipment/ic-ppe-mask.svg",
+      "origin": "design/icons/src/equipment/ic-ppe-mask.svg",
       "palette": "equipmentBlue",
       "status": "rescue"
     },
@@ -1357,7 +1357,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/equipment/ic-pulse-oximeter.svg",
+      "origin": "design/icons/src/equipment/ic-pulse-oximeter.svg",
       "palette": "equipmentBlue",
       "status": "rescue"
     },
@@ -1365,7 +1365,7 @@
       "source": "lucide",
       "upstream": "weight",
       "license": "ISC",
-      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-scale.svg",
+      "origin": "design/icons/src/equipment/ic-scale.svg",
       "palette": "equipmentBlue",
       "status": "ready"
     },
@@ -1373,7 +1373,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-stethoscope-equipment.svg",
+      "origin": "design/icons/src/equipment/ic-stethoscope-equipment.svg",
       "palette": "equipmentBlue",
       "status": "ready"
     },
@@ -1381,7 +1381,7 @@
       "source": "lucide",
       "upstream": "scissors",
       "license": "ISC",
-      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-surgery.svg",
+      "origin": "design/icons/src/equipment/ic-surgery.svg",
       "palette": "equipmentBlue",
       "status": "ready"
     },
@@ -1389,7 +1389,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-syringe-pump.svg",
+      "origin": "design/icons/src/equipment/ic-syringe-pump.svg",
       "palette": "equipmentBlue",
       "status": "ready"
     },
@@ -1397,7 +1397,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/equipment/ic-syringe-vaccine.svg",
+      "origin": "design/icons/src/equipment/ic-syringe-vaccine.svg",
       "palette": "equipmentBlue",
       "status": "rescue"
     },
@@ -1405,7 +1405,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/equipment/ic-test-tubes.svg",
+      "origin": "design/icons/src/equipment/ic-test-tubes.svg",
       "palette": "equipmentBlue",
       "status": "rescue"
     },
@@ -1413,7 +1413,7 @@
       "source": "lucide",
       "upstream": "bed",
       "license": "ISC",
-      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-therapeutic-bed.svg",
+      "origin": "design/icons/src/equipment/ic-therapeutic-bed.svg",
       "palette": "equipmentBlue",
       "status": "redraw"
     },
@@ -1421,7 +1421,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-thermometer-digital.svg",
+      "origin": "design/icons/src/equipment/ic-thermometer-digital.svg",
       "palette": "equipmentBlue",
       "status": "ready"
     },
@@ -1429,7 +1429,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/equipment/ic-ultrasound.svg",
+      "origin": "design/icons/src/equipment/ic-ultrasound.svg",
       "palette": "equipmentBlue",
       "status": "rescue"
     },
@@ -1437,7 +1437,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/equipment/ic-urine-sample.svg",
+      "origin": "design/icons/src/equipment/ic-urine-sample.svg",
       "palette": "equipmentBlue",
       "status": "rescue"
     },
@@ -1445,7 +1445,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/equipment/ic-ventilator.svg",
+      "origin": "design/icons/src/equipment/ic-ventilator.svg",
       "palette": "equipmentBlue",
       "status": "rescue"
     },
@@ -1453,7 +1453,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/equipment/ic-vision-test.svg",
+      "origin": "design/icons/src/equipment/ic-vision-test.svg",
       "palette": "equipmentBlue",
       "status": "rescue"
     },
@@ -1461,7 +1461,7 @@
       "source": "own",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-walker.svg",
+      "origin": "design/icons/src/equipment/ic-walker.svg",
       "palette": "equipmentBlue",
       "status": "ready"
     },
@@ -1469,7 +1469,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/equipment/ic-ward-bed.svg",
+      "origin": "design/icons/src/equipment/ic-ward-bed.svg",
       "palette": "equipmentBlue",
       "status": "rescue"
     },
@@ -1477,7 +1477,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/equipment/ic-wheelchair.svg",
+      "origin": "design/icons/src/equipment/ic-wheelchair.svg",
       "palette": "equipmentBlue",
       "status": "rescue"
     },
@@ -1485,7 +1485,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/equipment/ic-xray.svg",
+      "origin": "design/icons/src/equipment/ic-xray.svg",
       "palette": "equipmentBlue",
       "status": "ready"
     },
@@ -1493,7 +1493,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/organs/ic-organ-bladder.svg",
+      "origin": "design/icons/src/organs/ic-organ-bladder.svg",
       "palette": "red",
       "status": "ready"
     },
@@ -1501,7 +1501,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/organs/ic-organ-blood-cells.svg",
+      "origin": "design/icons/src/organs/ic-organ-blood-cells.svg",
       "palette": "red",
       "status": "ready"
     },
@@ -1509,7 +1509,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/organs/ic-organ-bone.svg",
+      "origin": "design/icons/src/organs/ic-organ-bone.svg",
       "palette": "red",
       "status": "ready"
     },
@@ -1517,7 +1517,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/organs/ic-organ-brain.svg",
+      "origin": "design/icons/src/organs/ic-organ-brain.svg",
       "palette": "red",
       "status": "ready"
     },
@@ -1525,7 +1525,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/organs/ic-organ-donation.svg",
+      "origin": "design/icons/src/organs/ic-organ-donation.svg",
       "palette": "red",
       "status": "rescue"
     },
@@ -1533,7 +1533,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/organs/ic-organ-ear.svg",
+      "origin": "design/icons/src/organs/ic-organ-ear.svg",
       "palette": "red",
       "status": "ready"
     },
@@ -1541,7 +1541,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/organs/ic-organ-eye.svg",
+      "origin": "design/icons/src/organs/ic-organ-eye.svg",
       "palette": "red",
       "status": "ready"
     },
@@ -1549,7 +1549,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/organs/ic-organ-foot.svg",
+      "origin": "design/icons/src/organs/ic-organ-foot.svg",
       "palette": "red",
       "status": "ready"
     },
@@ -1557,7 +1557,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/organs/ic-organ-hand.svg",
+      "origin": "design/icons/src/organs/ic-organ-hand.svg",
       "palette": "red",
       "status": "ready"
     },
@@ -1565,7 +1565,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/organs/ic-organ-heart.svg",
+      "origin": "design/icons/src/organs/ic-organ-heart.svg",
       "palette": "red",
       "status": "rescue"
     },
@@ -1573,7 +1573,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/organs/ic-organ-intestine.svg",
+      "origin": "design/icons/src/organs/ic-organ-intestine.svg",
       "palette": "red",
       "status": "ready"
     },
@@ -1581,7 +1581,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/organs/ic-organ-joints.svg",
+      "origin": "design/icons/src/organs/ic-organ-joints.svg",
       "palette": "red",
       "status": "ready"
     },
@@ -1589,7 +1589,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/organs/ic-organ-kidney.svg",
+      "origin": "design/icons/src/organs/ic-organ-kidney.svg",
       "palette": "red",
       "status": "ready"
     },
@@ -1597,7 +1597,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/organs/ic-organ-liver.svg",
+      "origin": "design/icons/src/organs/ic-organ-liver.svg",
       "palette": "red",
       "status": "ready"
     },
@@ -1605,7 +1605,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/organs/ic-organ-lungs.svg",
+      "origin": "design/icons/src/organs/ic-organ-lungs.svg",
       "palette": "red",
       "status": "ready"
     },
@@ -1613,7 +1613,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/organs/ic-organ-mouth.svg",
+      "origin": "design/icons/src/organs/ic-organ-mouth.svg",
       "palette": "red",
       "status": "rescue"
     },
@@ -1621,7 +1621,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/organs/ic-organ-nose.svg",
+      "origin": "design/icons/src/organs/ic-organ-nose.svg",
       "palette": "red",
       "status": "ready"
     },
@@ -1629,7 +1629,7 @@
       "source": "own",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/organs/ic-organ-pancreas.svg",
+      "origin": "design/icons/src/organs/ic-organ-pancreas.svg",
       "palette": "red",
       "status": "redraw"
     },
@@ -1637,7 +1637,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/organs/ic-organ-prostate.svg",
+      "origin": "design/icons/src/organs/ic-organ-prostate.svg",
       "palette": "red",
       "status": "redraw"
     },
@@ -1645,7 +1645,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/organs/ic-organ-skull.svg",
+      "origin": "design/icons/src/organs/ic-organ-skull.svg",
       "palette": "red",
       "status": "rescue"
     },
@@ -1653,7 +1653,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/organs/ic-organ-spine.svg",
+      "origin": "design/icons/src/organs/ic-organ-spine.svg",
       "palette": "red",
       "status": "ready"
     },
@@ -1661,7 +1661,7 @@
       "source": "own",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/organs/ic-organ-spleen.svg",
+      "origin": "design/icons/src/organs/ic-organ-spleen.svg",
       "palette": "red",
       "status": "redraw"
     },
@@ -1669,7 +1669,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/organs/ic-organ-stomach.svg",
+      "origin": "design/icons/src/organs/ic-organ-stomach.svg",
       "palette": "red",
       "status": "ready"
     },
@@ -1677,7 +1677,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/organs/ic-organ-throat.svg",
+      "origin": "design/icons/src/organs/ic-organ-throat.svg",
       "palette": "red",
       "status": "rescue"
     },
@@ -1685,7 +1685,7 @@
       "source": "curated-src",
       "upstream": null,
       "license": null,
-      "origin": "src/organs/ic-organ-thyroid.svg",
+      "origin": "design/icons/src/organs/ic-organ-thyroid.svg",
       "palette": "red",
       "status": "rescue"
     },
@@ -1693,7 +1693,7 @@
       "source": "curated-v4",
       "upstream": null,
       "license": null,
-      "origin": "qingnangshu_svg_icons_v4_complete/organs/ic-organ-tooth.svg",
+      "origin": "design/icons/src/organs/ic-organ-tooth.svg",
       "palette": "red",
       "status": "ready"
     },

@@ -1,6 +1,6 @@
 # 青囊书设计资产规范（Design Assets）
 
-> 版本：V2.12
+> 版本：V2.13
 > 上游依据：`refactor/ui-ux-spec.md` §2.1 / §3.1 / §3.3 / §3.4、`refactor/tech-spec.md` §1.2、`refactor/comercial-spec.md` §1–§2
 > 本目录是**设计资产唯一母版来源**；`Resources/Assets.xcassets` 为其编译期产物（均入库，保证无设计工具链也能构建）。
 
@@ -114,8 +114,8 @@ Image(VLIcon.illEmptyRecords)         // 空态插画
 
 ```bash
 # 依赖：pip install cairosvg pillow
-python3 design/tools/generate_assets.py     # 全量再生成（幂等）
-python3 design/tools/sync_best_selection.py # 当前精选母版 → Resources / VLIcon
+python3 design/tools/sync_best_selection.py # 当前精选母版 → Resources / VLIcon（主入口）
+python3 design/tools/generate_assets.py      # ⛔ 旧 185 体系，已退役：精选启用后默认拒绝运行（需显式 --legacy，会覆盖精选产物）
 
 # 官方 Fluent 字形升级/换用时（需 node）：
 npm install @fluentui/svg-icons
@@ -131,6 +131,7 @@ python3 design/tools/vendor_lucide.py <node_modules>/lucide-static/icons
 - **改色/加色**：改 `generate_assets.py` 的 `OVERRIDES`/`COLORS` → 跑管线。
 - **换官方字形**：改 `fluent_map.py` 映射 → 重跑 vendor + 管线。
 - **同步精选集**：改 `design/icons/best_selection.json` 或对应 `design/icons/src/` 母版 → 重跑 `sync_best_selection.py`，禁止手改 `Resources/` 与 `VLIcon.swift`。
+- **⚠️ 管线互斥（重要）**：精选体系启用后 `generate_assets.py` 默认拒绝运行（内建互斥锁）；旧管线与精选管线同写 `Resources/`、`VLIcon.swift`、`provenance.json` 与 `src` 母版，误运行会覆盖并孤儿清理精选产物。日常一律走 `sync_best_selection.py`。
 - 走查：浏览器开 `design/gallery.html`（深色底瓷砖效果），或 `design/previews/contact-sheet-*.png`；变更对比用 `design/previews/icon-replace-before-after.html`（`render_before_after.py` 生成）。
 
 ## 6. 版权与出处（重要）
@@ -153,6 +154,7 @@ python3 design/tools/vendor_lucide.py <node_modules>/lucide-static/icons
 
 | 版本 | 日期 | 说明 |
 |---|---|---|
+| V2.13 | 2026-08-28 | 代码审查修复 A/B/C/D：旧 185 管线内置互斥锁（精选启用后默认拒绝运行，`--legacy` 显式放行）并在 §5 警示；`gen_icon_spec.py` 切到精选数据源重生成 `icon-spec.md` V2.0（211 口径）；`sync_best_selection.py` 新增 `--freeze` 落库闭环（originPath 归一化为仓库内自引用，provenance origin 同）；AI Tab 决策（bot 字形）同步 ui-ux-spec V3.31 |
 | V2.12 | 2026-08-27 | 将外部最佳筛选集落地为 211 个唯一设计母版与 Xcode imageset；统一分组底板色；Tab assistant 改用 Microsoft Fluent Bot 24 regular/filled（MIT）；新增 `best_selection.json` 与 `sync_best_selection.py`，同步更新 provenance、VLIcon 与本地 Best Selection 预览 |
 | V2.11 | 2026-08-27 | 新增 `icon-spec.md`（图标生成规格与重构需求）与程序化生成器 `gen_icon_spec.py`：逐图标登记 180 定义/185 母版/7 插画，含分组配色、来源、上游名、双态与着色，可作为自动重构全部 SVG 图标的需求文件 |
 | V2.10 | 2026-08-27 | App 图标改用 `~/Downloads/Designer (8).png`，仅尺寸调整（1254²→1024²，LANCZOS） |

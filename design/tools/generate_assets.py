@@ -19,6 +19,8 @@
 """
 
 import json
+
+from swift_ident import camel as _camel, escape as _escape
 import re
 import sys
 from datetime import date
@@ -317,6 +319,21 @@ def imageset(png_names: list[str]) -> dict:
 # ── 主流程 ───────────────────────────────────────────────────────────────────
 
 def main() -> None:
+    # 互斥保护锁（审查问题 A）：精选体系启用后，本旧 185 管线默认禁止运行——
+    # 两者同写 Resources/Assets.xcassets、VLIcon.swift、provenance.json 与
+    # design/icons/src，运行会覆盖并清理精选产物（含孤儿删除）。
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--legacy", action="store_true",
+                    help="显式以旧 185 体系运行（将覆盖精选产物，仅供历史测试）")
+    args = ap.parse_args()
+    if (ROOT / "design/icons/best_selection.json").exists() and not args.legacy:
+        sys.exit(
+            "❌ 已启用精选体系（design/icons/best_selection.json 存在）。\n"
+            "本脚本为旧 185 枚生成管线，运行会覆盖精选产物（src/Resources/VLIcon/provenance）。\n"
+            "请改用：python3 design/tools/sync_best_selection.py\n"
+            "（确需历史测试时加 --legacy）")
+
     provenance, n_icons = {}, 0
 
     for name in ICONS:
@@ -436,25 +453,9 @@ def main() -> None:
                 shutil.rmtree(iset)
 
     # Swift 常量 ----------------------------------------------------------------------
-    def camel(s: str) -> str:
-        parts = s.split("-")
-        return parts[0] + "".join(p[:1].upper() + p[1:] for p in parts[1:] if p)
-
-    # Swift 保留字：作为属性名声明时必须反引号转义，否则编译期 error（ERR#28）。
-    # 宁可多转义——反引号对非保留字是恒等语法，不改变 API 名。
-    SWIFT_KEYWORDS = {
-        "associatedtype", "class", "deinit", "enum", "extension", "fileprivate", "func",
-        "import", "init", "inout", "internal", "let", "open", "operator", "private",
-        "precedencegroup", "protocol", "public", "rethrows", "static", "struct",
-        "subscript", "typealias", "var", "break", "case", "catch", "continue", "default",
-        "defer", "do", "else", "fallthrough", "for", "guard", "if", "in", "repeat",
-        "return", "throw", "throws", "switch", "where", "while", "Any", "as", "await",
-        "false", "is", "nil", "self", "Self", "super", "true", "try", "_",
-    }
-
-    def esc(ident: str) -> str:
-        """保留字转义。必须在拼接完整标识符之后调用（如 xxxFilled）。"""
-        return f"`{ident}`" if ident in SWIFT_KEYWORDS else ident
+    # 标识符与保留字转义的唯一实现在 swift_ident（两条管线共用，避免各抄一份）
+    camel = _camel
+    esc = _escape
 
     lines = [
         "// AUTO-GENERATED — 请勿手改。重新生成：python3 design/tools/generate_assets.py",
