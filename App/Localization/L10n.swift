@@ -224,6 +224,10 @@ enum L10n {
     static var help_faqPlaceholder: String { t("help.faqPlaceholder") }
     static var help_disclaimer: String { t("help.disclaimer") }
     static var help_version: String { t("help.version") }
+    /// 三部件版本：Version <Release> Build <CI序号> Code Hash <提交哈希>（FR22.8 / dev-pm §9.3）
+    static func helpVersion(_ version: String, _ build: String, _ hash: String) -> String {
+        String(format: t("help.versionFormat"), version, build, hash)   // %1$@ %2$@ %3$@
+    }
     static var help_privacyPlaceholder: String { t("help.privacyPlaceholder") }
     static var pay_busy: String { t("pay.busy") }
     static var pay_restore: String { t("pay.restore") }
@@ -480,7 +484,7 @@ enum L10n {
     static var sensitiveSetupHint: String { t("sensitive.setupHint") }
 
     static let registeredKeys: [String] = [
-        "sensitive.setupHint",
+        "sensitive.setupHint", "help.versionFormat",
         "ai.aiBadge", "ai.askDoctor", "ai.citations", "ai.confirmImageText",
         "ai.emergencyAction", "ai.emergencyCall", "ai.emergencyTitle", "paywall.previewTitle", "timeline.empty.title",
         "ai.emergencyCardText", "ai.failedRetry", "ai.refusedHighRisk",

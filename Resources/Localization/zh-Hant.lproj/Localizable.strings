@@ -180,6 +180,7 @@
 "help.faqPlaceholder" = "常見問題與使用引導（HelpContentIndex 隨 M1.5 後批接入）";
 "help.disclaimer" = "本 App 不是醫療設備：不下診斷、不給治療方案建議、不替代醫生。緊急情況請直接撥打 120 或前往醫院。";
 "help.version" = "版本 1.0.0（構建自源碼）";
+"help.versionFormat" = "版本 %1$@ · 建置 %2$@ · 程式碼雜湊 %3$@";
 "help.privacyPlaceholder" = "隱私政策與服務條款全文（M1.5 接入正式文本與版本號/生效日期）";
 "pay.busy" = "處理中…";
 "pay.restore" = "恢復購買";

@@ -18,7 +18,16 @@ targets:
     platform: iOS
     sources: [App, Resources]
     settings:
-      base: { GENERATE_INFOPLIST_FILE: YES, INFOPLIST_KEY_UILaunchScreen_Generation: YES, INFOPLIST_KEY_CFBundleDisplayName: 青囊书 }
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_CFBundleDisplayName: 青囊书
+        INFOPLIST_FILE: VitaLiber-Info.plist
+        # 三部件版本（dev-pm-spec §9.3 / FR22.8）：GitHub Release 版本 + CI 构建序号 + 提交哈希。
+        # CI 在 xcodebuild 时覆盖注入；本地构建回落默认值。
+        MARKETING_VERSION: "0.0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        VITA_LIBER_CODE_HASH: "dev"
     dependencies: [{ package: CoreKit }]
   VitaLiberTests:
     type: bundle.unit-test

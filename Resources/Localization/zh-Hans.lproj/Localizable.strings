@@ -180,6 +180,7 @@
 "help.faqPlaceholder" = "常见问题与使用引导（HelpContentIndex 随 M1.5 后批接入）";
 "help.disclaimer" = "本 App 不是医疗设备：不下诊断、不给治疗方案建议、不替代医生。紧急情况请直接拨打 120 或前往医院。";
 "help.version" = "版本 1.0.0（构建自源码）";
+"help.versionFormat" = "版本 %1$@ · 构建 %2$@ · 代码哈希 %3$@";
 "help.privacyPlaceholder" = "隐私政策与服务条款全文（M1.5 接入正式文本与版本号/生效日期）";
 "pay.busy" = "处理中…";
 "pay.restore" = "恢复购买";

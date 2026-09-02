@@ -12,6 +12,7 @@
 !/Tests/
 !/UITests/
 !/project.yml
+!/VitaLiber-Info.plist
 
 # Swift/SPM 构建产物（编译非必需，绝不入库）
 .build/

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- 三部件版本信息（本仓库版本纪律，dev-pm-spec §9.3 / function FR22.8）：
+         CFBundleShortVersionString = GitHub 最高 Release 版本（去 v，如 0.0.1）
+         CFBundleVersion            = CI 构建序号（github.run_number，如 012）
+         VitaLiberBuildHash         = 提交哈希（git rev-parse --short=8）
+         三者由 CI 在 xcodebuild 时以 MARKETING_VERSION / CURRENT_PROJECT_VERSION /
+         VITA_LIBER_CODE_HASH 注入；本地构建回落 project.yml 默认值。
+         GENERATE_INFOPLIST_FILE=YES 会与本文件合并生成最终 Info.plist。 -->
+    <key>CFBundleShortVersionString</key>
+    <string>$(MARKETING_VERSION)</string>
+    <key>CFBundleVersion</key>
+    <string>$(CURRENT_PROJECT_VERSION)</string>
+    <key>VitaLiberBuildHash</key>
+    <string>$(VITA_LIBER_CODE_HASH)</string>
+</dict>
+</plist>
