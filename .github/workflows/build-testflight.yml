@@ -4,9 +4,15 @@
 # 职责：编译项目 → 成功 → 签名归档 → 推送 TestFlight。
 #   1) L0 静态门禁（swift 容器，任意机器可跑）—— 不过不进编译；
 #   2) 编译门禁：xcodegen + xcodebuild build-for-testing —— 失败即停（不上传）；
-#   3) 签名归档：Path A（Xcode Cloud Signing，自动签名）：
-#      ASC API Key 认证，Xcode 自动管理证书/描述文件（-allowProvisioningUpdates）；
-#   4) 导出 .ipa（method=app-store）→ fastlane pilot 推送 TestFlight。
+#   3) 签名归档：p12 本地签名（绕开云签名权限限制）：
+#      导入 dev/dis p12 到 keychain → build 用 dev cert → export 用 dis cert；
+#   4) 导出 .ipa（method=app-store, manual signing）→ fastlane pilot 推送 TestFlight。
+#
+# 签名策略说明（Round 5）：
+#   - App Store Connect API Key 分两种角色：Developer（仅上传）和 Admin（可云签名）。
+#   - 云签名（-allowProvisioningUpdates + API Key）需 Admin 角色。
+#   - 若 API Key 为 Developer 角色，build/export 使用 p12 证书本地签名，
+#     API Key 仅用于 fastlane pilot 上传（Developer 权限足够）。
 #
 # 触发：
 #   - push master（日常合入即发 TestFlight）
@@ -148,18 +154,50 @@ jobs:
           chmod 600 "$GITHUB_WORKSPACE/private_keys/AuthKey_$APPLE_API_KEY_ID.p8"
           echo "API Key 已就绪"
 
-            # ── 导入签名证书（p12，业界最佳实践：证书私钥持久化为 CI secret，
-      #    每轮导入 keychain 复用——避免 Xcode 自动签名每轮新建证书直至账号上限
-      #    "Choose a certificate to revoke"）─────────────────────────
-      # ── 证书导入说明（使用API Key时无需手动导入证书）────────────
-      # App Store Connect API Key会自动管理证书和描述文件
-      # 无需导入p12证书，避免签名方式冲突
-      - name: 显示API Key签名配置
-        if: ${{ env.APPLE_API_KEY_P8 != '' }}
+      # ── 导入签名证书（p12）—— 用于本地签名，不依赖 API Key 云签名 ────────
+      # Cloud signing 需要 Admin 级 API Key；Developer 级 Key 只能上传，不能签。
+      # 用 p12 证书导入 keychain 做本地签名，彻底绕开云签名权限限制。
+      - name: 导入签名证书（p12）
+        if: ${{ env.APPLE_DEV_CERT_P12 != '' && env.APPLE_DIS_CERT_P12 != '' }}
         run: |
-          echo "✅ 使用App Store Connect API Key进行签名"
-          echo "✅ 无需手动导入证书，API Key会自动管理证书和描述文件"
-          echo "✅ 避免签名方式冲突（API Key + 手动证书 + 自动签名管理）"
+          set -euo pipefail
+          KC=build.keychain
+          KC_PASS="buildkeychain"
+          echo "$APPLE_DEV_CERT_P12" | tr -d ' \n\r' | base64 -d > "$RUNNER_TEMP/dev_cert.p12"
+          echo "$APPLE_DIS_CERT_P12" | tr -d ' \n\r' | base64 -d > "$RUNNER_TEMP/dis_cert.p12"
+          for f in dev_cert dis_cert; do
+            B="$RUNNER_TEMP/$f.p12"
+            [ -s "$B" ] || { echo "::error::$f.p12 解码为空"; exit 1; }
+            FIRST="$(xxd -p -l 1 "$B")"
+            [ "$FIRST" = "30" ] || { echo "::error::$f.p12 首字节 0x$FIRST（期望 0x30）——非合法 PKCS12"; exit 1; }
+          done
+          echo "p12 解码校验通过"
+          security create-keychain -p "$KC_PASS" "$KC" 2>/dev/null || true
+          security default-keychain -s "$KC"
+          security unlock-keychain -p "$KC_PASS" "$KC"
+          security set-keychain-settings -t 3600 "$KC"
+          import_p12() {
+            local f="$1" pass="$2"
+            security import "$f" -k "$KC" -P "$pass" -T /usr/bin/codesign -T /usr/bin/xcodebuild -A
+          }
+          # 优先 secret 密码 → 空密码
+          for f in dev_cert dis_cert; do
+            P12="$RUNNER_TEMP/$f.p12"
+            NAME="${f%%_*}"
+            if openssl pkcs12 -in "$P12" -passin "pass:$APPLE_CERT_PASSWORD" -noout 2>/dev/null; then
+              import_p12 "$P12" "$APPLE_CERT_PASSWORD"
+              echo "$NAME: secret 密码导入成功"
+            elif openssl pkcs12 -in "$P12" -passin pass: -noout 2>/dev/null; then
+              import_p12 "$P12" ""
+              echo "$NAME: 空密码导入成功"
+            else
+              echo "::error::$NAME: 密码错误"; exit 1
+            fi
+          done
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KC_PASS" "$KC"
+          security list-keychain -d user -s "$KC"
+          echo "已导入 identities:"
+          security find-identity -v -p codesigning "$KC"
 
       # ── 签名归档：build + 手拼 xcarchive（绕开 Xcode 16 SPM archive bug）──────
       # 5WHY 实证（13-17 轮）：xcodebuild archive 在 Xcode 16.4 对 SPM 资源 bundle
@@ -169,17 +207,30 @@ jobs:
       # （bundle 正常嵌入 VitaLiber.app，第 15 轮实证）。故：Release build（自动签名
       # development）→ 按 xcarchive 规范手拼归档（Products/Applications + Info.plist）
       # → 既有 exportArchive 步骤以 API key 自动重签为 distribution 并导出 ipa。
+      #
+      # 签名策略（Round 5 修正）：p12 本地签名 + API Key 仅上传
+      # - Cloud signing 需 Admin 级 API Key；Developer 级 Key 只能上传 TestFlight。
+      # - build 用 keychain 中的 dev cert（手动签名），
+      # - export 用 keychain 中的 dis cert（手动签名，重签为 App Store），
+      # - upload 用 API Key（仅需 Developer 权限）。
       - name: 签名归档（build + 手拼 xcarchive）
-        if: ${{ env.APPLE_API_KEY_P8 != '' }}
+        if: ${{ env.APPLE_DEV_CERT_P12 != '' }}
         run: |
           set -o pipefail
+          # 查找 keychain 中的开发证书 identity
+          KC=build.keychain
+          DEV_IDENTITY="$(security find-identity -v -p codesigning "$KC" | grep 'iPhone.*Developer' | head -1 | sed 's/.*"\(.*\)".*/\1/')"
+          if [ -z "$DEV_IDENTITY" ]; then
+            echo "::warning::keychain 中无 iPhone Developer identity，尝试任何可用 identity"
+            DEV_IDENTITY="$(security find-identity -v -p codesigning "$KC" | head -1 | sed 's/.*"\(.*\)".*/\1/')"
+          fi
+          echo "开发签名 identity: $DEV_IDENTITY"
           xcodebuild build -project "$XCODEPROJ" -scheme "$SCHEME" \
             -configuration Release -destination 'generic/platform=iOS' \
             -derivedDataPath Build/ReleaseBuild \
-            -authenticationKeyPath "$GITHUB_WORKSPACE/private_keys/AuthKey_$APPLE_API_KEY_ID.p8" \
-            -authenticationKeyID "$APPLE_API_KEY_ID" \
-            -authenticationKeyIssuerID "$APPLE_API_KEY_ISSUER_ID" \
-            -allowProvisioningUpdates \
+            CODE_SIGN_IDENTITY="$DEV_IDENTITY" \
+            CODE_SIGNING_ALLOWED=YES \
+            CODE_SIGNING_REQUIRED=YES \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
             MARKETING_VERSION="$RELEASE_VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" VITA_LIBER_CODE_HASH="$CODE_HASH" \
             2>&1 | tee Build/xcodebuild-build-release.log
@@ -209,40 +260,61 @@ jobs:
           if ! ls "$ARCH/dSYMs/"*.dSYM >/dev/null 2>&1; then rmdir "$ARCH/dSYMs" 2>/dev/null || true; fi
           ls "$ARCH/Products/Applications/" && echo "xcarchive 手拼完成 ✓"
 
-      # ── 导出 .ipa（app-store 方法）───────────────────────────
+      # ── 导出 .ipa（手动签名 + keychain 中的 distribution cert）────────
+      # 不用 API Key 云签名（需 Admin 权限），改用 p12 本地签名。
+      # exportOptions.plist 指定 signingStyle=manual，从 keychain 匹配 dis cert。
       - name: 导出 .ipa
-        if: ${{ env.APPLE_API_KEY_P8 != '' }}
+        if: ${{ env.APPLE_DIS_CERT_P12 != '' }}
         run: |
-          /usr/libexec/PlistBuddy -c "Delete :teamID" exportOptions.plist 2>/dev/null || true
-          cat > exportOptions.plist <<'PLIST'
+          KC=build.keychain
+          # 查找 keychain 中的 distribution certificate identity
+          DIS_IDENTITY="$(security find-identity -v -p codesigning "$KC" | grep -i 'iPhone.*Distribution\|Apple Distribution' | head -1 | sed 's/.*"\(.*\)".*/\1/')"
+          if [ -z "$DIS_IDENTITY" ]; then
+            echo "::warning::keychain 中无 iPhone Distribution identity，尝试任何可用 identity"
+            DIS_IDENTITY="$(security find-identity -v -p codesigning "$KC" | head -1 | sed 's/.*"\(.*\)".*/\1/')"
+          fi
+          echo "分发签名 identity: $DIS_IDENTITY"
+          # 从 p12 提取 SHA1 指纹用于 exportOptions
+          DIS_SHA1="$(openssl pkcs12 -in "$RUNNER_TEMP/dis_cert.p12" -passin "pass:$APPLE_CERT_PASSWORD" -nokeys 2>/dev/null \
+            | openssl x509 -noout -fingerprint 2>/dev/null | head -1 | cut -d= -f2)"
+          # 备用：空密码
+          if [ -z "$DIS_SHA1" ]; then
+            DIS_SHA1="$(openssl pkcs12 -in "$RUNNER_TEMP/dis_cert.p12" -passin pass: -nokeys 2>/dev/null \
+              | openssl x509 -noout -fingerprint 2>/dev/null | head -1 | cut -d= -f2)"
+          fi
+          echo "分发证书 SHA1: $DIS_SHA1"
+          # 读取 bundle ID
+          APP_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \
+            "Build/VitaLiber.xcarchive/Products/Applications/VitaLiber.app/Info.plist" 2>/dev/null || echo 'com.vitaliber.VitaLiber')"
+          echo "app bundle id: $APP_ID"
+          cat > exportOptions.plist <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
-              <key>method</key><string>app-store-connect</string>
-              <key>teamID</key><string>TEAM_PLACEHOLDER</string>
-              <key>signingStyle</key><string>automatic</string>
+              <key>method</key><string>app-store</string>
+              <key>teamID</key><string>$APPLE_TEAM_ID</string>
+              <key>signingStyle</key><string>manual</string>
+              <key>signingCertificate</key><string>$DIS_SHA1</string>
+              <key>provisioningProfiles</key>
+              <dict>
+                  <key>$APP_ID</key><string>$APP_ID AppStore</string>
+              </dict>
               <key>uploadSymbols</key><true/>
               <key>compileBitcode</key><false/>
           </dict>
           </plist>
           PLIST
-          /usr/libexec/PlistBuddy -c "Set :teamID $APPLE_TEAM_ID" exportOptions.plist
+          echo "exportOptions.plist:"
+          cat exportOptions.plist
           rm -rf Build/export
-          set -o pipefail
           xcodebuild -exportArchive \
             -archivePath Build/VitaLiber.xcarchive \
             -exportOptionsPlist exportOptions.plist \
             -exportPath Build/export \
-            -authenticationKeyPath "$GITHUB_WORKSPACE/private_keys/AuthKey_$APPLE_API_KEY_ID.p8" \
-            -authenticationKeyID "$APPLE_API_KEY_ID" \
-            -authenticationKeyIssuerID "$APPLE_API_KEY_ISSUER_ID" \
-            -allowProvisioningUpdates \
             2>&1 | tee Build/xcodebuild-export.log
           ls -la Build/export/
           test -f Build/export/VitaLiber.ipa && echo "ipa 导出成功 ✓"
-          # 评审修正：打印 ipa 实际 bundle id 供上传诊断——pilot 应默认从 ipa 解析，
-          # 硬编码 app_identifier 曾与 project.yml（com.vitaliber.VitaLiber）不一致
           IPA_APP_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \
             "Build/VitaLiber.xcarchive/Products/Applications/VitaLiber.app/Info.plist" 2>/dev/null || echo unknown)"
           echo "ipa bundle id: $IPA_APP_ID"
@@ -265,7 +337,7 @@ jobs:
 
       # ── 未配置凭据时明确提示（不误报）───────────────────────
       - name: 凭据未配置——仅完成编译，跳过上传
-        if: ${{ env.APPLE_API_KEY_P8 == '' }}
+        if: ${{ env.APPLE_API_KEY_P8 == '' && env.APPLE_DEV_CERT_P12 == '' }}
         run: |
           echo "::warning::未配置 APPLE_API_KEY_P8 等签名凭据——本次仅跑 L0+编译门禁，未上传 TestFlight"
           echo "配置：Settings → Secrets → Actions → APPLE_API_KEY_ID / APPLE_API_KEY_ISSUER_ID / APPLE_API_KEY_P8 / APPLE_TEAM_ID"
