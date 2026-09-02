@@ -43,7 +43,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write    # 需 gh release list/create（版本解析与无 release 时自动建 v0.0.1）
 
 env:
   SCHEME: VitaLiber
@@ -93,6 +93,27 @@ jobs:
             echo "::error::缺 project.yml 且无 xcodeproj"; exit 1
           fi
 
+      - name: 解析版本（GitHub 最高 Release → 版本主体；无则自动建 v0.0.1）
+        id: ver
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="$(gh release list --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || true)"
+          if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
+            echo "当前无 GitHub Release → 自动创建 v0.0.1"
+            gh release create v0.0.1 --title "v0.0.1" --notes "初始基线版本（CI 自动创建）" >/dev/null
+            VERSION="0.0.1"
+          else
+            VERSION="${TAG#v}"
+          fi
+          BUILD="$(printf '%03d' ${{ github.run_number }})"
+          HASH="$(git rev-parse --short=8 HEAD)"
+          echo "RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "BUILD_NUMBER=$BUILD" >> "$GITHUB_ENV"
+          echo "CODE_HASH=$HASH" >> "$GITHUB_ENV"
+          echo "三部件版本 → Version $VERSION | Build $BUILD | Code Hash $HASH"
+
       # ── 编译门禁（模拟器切片，未签名）：失败即停，绝不进上传 ──
       - name: 编译门禁（build-for-testing）
         run: |
@@ -140,6 +161,7 @@ jobs:
             -authenticationKeyID "$APPLE_API_KEY_ID" \
             -authenticationKeyIssuerID "$APPLE_API_KEY_ISSUER_ID" \
             -allowProvisioningUpdates \
+            MARKETING_VERSION="$RELEASE_VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" VITA_LIBER_CODE_HASH="$CODE_HASH" \
             2>&1 | tee Build/xcodebuild-archive.log
 
       # ── 导出 .ipa（app-store 方法）───────────────────────────
