@@ -1,0 +1,6 @@
+# ONNX Runtime 运行时为宿主端二进制，不入库（约 54MB .so）。
+# 全新检出请运行 onnxruntime/fetch.sh 从官方 GitHub release 获取（arch 自适应）。
+*
+!.gitignore
+!onnxruntime/
+!onnxruntime/fetch.sh
