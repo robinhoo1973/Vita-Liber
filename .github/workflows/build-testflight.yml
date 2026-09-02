@@ -191,26 +191,51 @@ jobs:
           # 非空字符串都会报 MAC verification failed）。openssl 先行验证密码。
           import_p12() {
             local f="$1" pass="$2"
-            security import "$f" -k "$KC" -P "$pass" -T /usr/bin/codesign -T /usr/bin/xcodebuild -A 2>/dev/null
+            security import "$f" -k "$KC" -P "$pass" -T /usr/bin/codesign -T /usr/bin/xcodebuild -A
           }
-          # 格式转换：第三方工具产出的 p12（旧式 RC2/3DES 加密）openssl 可读但
-          # SecKeychainItemImport 拒绝（MAC verification failed）。用 openssl 重封装
-          # 为默认 AES/SHA256 格式后 security 即可导入（业界标准解法）。
+          # plan B：整包 p12 导入失败时，把证书与私钥拆成 PEM 分别导入 keychain
+          # （security 对 PEM 证书与 PKCS8 私钥原生支持；同库匹配自动成 identity）。
+          split_and_import() {
+            local f="$1" pass="$2" name="$3"
+            openssl pkcs12 -in "$f" -passin "pass:$pass" -clcerts -nokeys -out "$f.cert.pem" 2>"$f.err1"
+            openssl pkcs12 -in "$f" -passin "pass:$pass" -nocerts -nodes -out "$f.key.pem" 2>"$f.err2"
+            if [ ! -s "$f.cert.pem" ] || [ ! -s "$f.key.pem" ]; then
+              echo "::error::$name 拆分失败（缺证书或密钥）：$(head -2 "$f.err1") $(head -2 "$f.err2")"
+              return 1
+            fi
+            openssl pkcs8 -topk8 -nocrypt -in "$f.key.pem" -out "$f.key.pk8.pem" 2>/dev/null || cp "$f.key.pem" "$f.key.pk8.pem"
+            if ! security import "$f.cert.pem" -k "$KC" -T /usr/bin/codesign -T /usr/bin/xcodebuild -A 2>"$f.err3"; then
+              echo "::error::$name 证书导入失败: $(head -2 "$f.err3")"; return 1
+            fi
+            if ! security import "$f.key.pk8.pem" -k "$KC" -T /usr/bin/codesign -T /usr/bin/xcodebuild -A 2>"$f.err4"; then
+              echo "::error::$name 私钥导入失败: $(head -2 "$f.err4")"; return 1
+            fi
+            echo "$name: 拆分导入成功（cert + key）"
+            return 0
+          }
+          # plan A：openssl 重封装为默认加密后整包导入
           convert_and_import() {
             local f="$1" pass="$2" name="$3"
-            openssl pkcs12 -in "$f" -passin "pass:$pass" -nodes -out "$f.pem" 2>/dev/null
-            openssl pkcs12 -export -in "$f.pem" -passout "pass:$pass" -out "$f.std.p12" 2>/dev/null
-            import_p12 "$f.std.p12" "$pass" && { echo "$name: 重封装后导入成功"; return 0; }
-            echo "::error::$name openssl 重封装导入仍失败——p12 可能不含私钥或结构异常"; return 1
+            openssl pkcs12 -in "$f" -passin "pass:$pass" -nodes -out "$f.pem" 2>"$f.c1"
+            openssl pkcs12 -export -in "$f.pem" -passout "pass:$pass" -out "$f.std.p12" 2>"$f.c2"
+            if [ -s "$f.std.p12" ] && import_p12 "$f.std.p12" "$pass"; then
+              echo "$name: 重封装后导入成功"; return 0
+            fi
+            echo "::warning::$name 重封装导入失败（$(head -2 "$f.c2")）——尝试拆分导入"
+            split_and_import "$f" "$pass" "$name"
           }
           try_import() {
             local f="$1" name="$2"
             if openssl pkcs12 -in "$f" -passin "pass:$APPLE_CERT_PASSWORD" -noout >/dev/null 2>&1; then
               echo "$name: secret 密码有效（openssl 验证通过）"
-              import_p12 "$f" "$APPLE_CERT_PASSWORD"                 || convert_and_import "$f" "$APPLE_CERT_PASSWORD" "$name"                 || exit 1
+              import_p12 "$f" "$APPLE_CERT_PASSWORD" && return 0
+              convert_and_import "$f" "$APPLE_CERT_PASSWORD" "$name" && return 0
+              echo "::error::$name 全部导入路径失败"; exit 1
             elif openssl pkcs12 -in "$f" -passin pass: -noout >/dev/null 2>&1; then
               echo "::warning::$name: secret 密码无效，但空密码有效——p12 导出时未设密码"
-              import_p12 "$f" "" || convert_and_import "$f" "" "$name" || exit 1
+              import_p12 "$f" "" && return 0
+              convert_and_import "$f" "" "$name" && return 0
+              echo "::error::$name 全部导入路径失败"; exit 1
             else
               echo "::error::$name: 密码错误（secret 密码与空密码均无法解析 p12）——请核对导出密码后更新 APPLE_CERT_PASSWORD"
               exit 1
