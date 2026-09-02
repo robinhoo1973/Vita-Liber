@@ -1,0 +1,191 @@
+# ============================================================================
+# 构建 + TestFlight 发布 CI
+#
+# 职责：编译项目 → 成功 → 签名归档 → 推送 TestFlight。
+#   1) L0 静态门禁（swift 容器，任意机器可跑）—— 不过不进编译；
+#   2) 编译门禁：xcodegen + xcodebuild build-for-testing —— 失败即停（不上传）；
+#   3) 签名归档：Path A（与 apple-app-bootstrap.yml 一致 = Xcode Cloud Signing）：
+#      ASC API Key 认证，Xcode 自动管理证书/描述文件（-allowProvisioningUpdates）；
+#   4) 导出 .ipa（method=app-store）→ fastlane pilot 推送 TestFlight。
+#
+# 触发：
+#   - push master（日常合入即发 TestFlight）
+#   - push v* 标签（发版）
+#   - workflow_dispatch（手动，可填版本说明）
+#
+# 前置凭据（仓库 Settings → Secrets → Actions）：
+#   APPLE_API_KEY_ID / APPLE_API_KEY_ISSUER_ID / APPLE_API_KEY_P8
+#       App Store Connect API Key（.p8 base64）——签名自动管理 + 上传认证
+#   APPLE_TEAM_ID      Apple Developer Team ID（exportOptions 需要）
+#   FASTLANE_USER      Apple ID（fastlane pilot 上传）
+#   FASTLANE_SESSION   （推荐）fastlane 会话缓存，免 2FA；缺省则 pilot 会要求 2FA
+#
+# 说明：
+#   - 与 apple-app-bootstrap.yml 的关系：该文件触发分支为 main（本仓库默认 master，
+#     实际不触发），负责 App 元数据/首包；本文件是 routine TestFlight 推送主通道。
+#   - 未配置签名凭据时：只跑 L0 + 编译门禁，明确 WARNING 提示跳过上传（不误报绿）。
+#   - 版本号取自构建配置（CFBundleVersion），无需在此维护。
+# ============================================================================
+name: 构建 + TestFlight 发布
+
+on:
+  workflow_dispatch:
+    inputs:
+      notes:
+        description: TestFlight 版本说明（whatsNew）
+        required: false
+        default: ''
+  push:
+    branches: [master]
+    tags: ['v*']
+
+concurrency:
+  group: testflight-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  SCHEME: VitaLiber
+  XCODEPROJ: VitaLiber.xcodeproj
+
+jobs:
+  # ── L0 静态门禁：不过不进编译 ─────────────────────────────────
+  l0-static-gate:
+    name: 'L0 · 静态门禁'
+    runs-on: ubuntu-latest
+    container: swift:6.0-jammy
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run l0-static-gate.sh
+        run: bash .github/workflows/l0-static-gate.sh
+
+  # ── 编译 → 签名归档 → TestFlight ─────────────────────────────
+  build-testflight:
+    name: '编译 + TestFlight'
+    needs: l0-static-gate
+    runs-on: macos-15
+    timeout-minutes: 60
+    # 签名/上传凭据映射到 job env：if: 与步骤都能读（step env 不进入 if 上下文）
+    env:
+      APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+      APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+      APPLE_API_KEY_ISSUER_ID: ${{ secrets.APPLE_API_KEY_ISSUER_ID }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      FASTLANE_USER: ${{ secrets.FASTLANE_USER }}
+      FASTLANE_SESSION: ${{ secrets.FASTLANE_SESSION }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 环境与工具链
+        run: |
+          xcodebuild -version
+          command -v fastlane >/dev/null 2>&1 && fastlane --version | head -1 || echo "fastlane 未预装（上传步骤会 brew 安装）"
+
+      - name: 生成 Xcode 工程
+        run: |
+          if [ -d "$XCODEPROJ" ]; then
+            echo "已有 $XCODEPROJ"
+          elif [ -f project.yml ]; then
+            brew install xcodegen >/dev/null 2>&1 && xcodegen generate
+          else
+            echo "::error::缺 project.yml 且无 xcodeproj"; exit 1
+          fi
+
+      # ── 编译门禁（模拟器切片，未签名）：失败即停，绝不进上传 ──
+      - name: 编译门禁（build-for-testing）
+        run: |
+          set -o pipefail
+          mkdir -p Build
+          DEST=$(python3 - <<'PY'
+          import json, subprocess
+          d = json.loads(subprocess.check_output(["xcrun","simctl","list","--json","devices","available"]))
+          pairs = [(rt, v["name"], v["udid"]) for rt, devs in d["devices"].items()
+                   for v in devs if v.get("isAvailable") and v["name"].startswith("iPhone")]
+          spec = [p for p in pairs if p[1] == "iPhone 15"]
+          pick = spec[0] if spec else sorted(pairs)[0]
+          print(f"platform=iOS Simulator,name={pick[1]}")
+          PY
+          )
+          echo "destination: $DEST"
+          xcodebuild build-for-testing \
+            -project "$XCODEPROJ" -scheme "$SCHEME" \
+            -destination "$DEST" \
+            -derivedDataPath Build/DerivedData \
+            COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee Build/xcodebuild-build.log
+          echo "编译门禁通过 ✓"
+
+      # ── 解码 ASC API Key（Path A 自动签名用）──────────────────
+      - name: 解码 App Store Connect API Key
+        if: ${{ env.APPLE_API_KEY_P8 != '' }}
+        run: |
+          mkdir -p private_keys
+          echo "$APPLE_API_KEY_P8" | base64 -d > "private_keys/AuthKey_$APPLE_API_KEY_ID.p8"
+          chmod 600 "private_keys/AuthKey_$APPLE_API_KEY_ID.p8"
+          echo "API Key 已就绪"
+
+      # ── 签名归档（真机切片，release）─────────────────────────
+      - name: 签名归档（archive）
+        if: ${{ env.APPLE_API_KEY_P8 != '' }}
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -project "$XCODEPROJ" -scheme "$SCHEME" \
+            -configuration release \
+            -destination 'generic/platform=iOS' \
+            -archivePath Build/VitaLiber.xcarchive \
+            -authenticationKeyPath "private_keys/AuthKey_$APPLE_API_KEY_ID.p8" \
+            -authenticationKeyID "$APPLE_API_KEY_ID" \
+            -authenticationKeyIssuerID "$APPLE_API_KEY_ISSUER_ID" \
+            -allowProvisioningUpdates \
+            2>&1 | tee Build/xcodebuild-archive.log
+
+      # ── 导出 .ipa（app-store 方法）───────────────────────────
+      - name: 导出 .ipa
+        if: ${{ env.APPLE_API_KEY_P8 != '' }}
+        run: |
+          /usr/libexec/PlistBuddy -c "Delete :teamID" exportOptions.plist 2>/dev/null || true
+          cat > exportOptions.plist <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key><string>app-store</string>
+              <key>teamID</key><string>TEAM_PLACEHOLDER</string>
+              <key>signingStyle</key><string>automatic</string>
+              <key>uploadSymbols</key><true/>
+              <key>compileBitcode</key><false/>
+          </dict>
+          </plist>
+          PLIST
+          /usr/libexec/PlistBuddy -c "Set :teamID $APPLE_TEAM_ID" exportOptions.plist
+          rm -rf Build/export
+          set -o pipefail
+          xcodebuild -exportArchive \
+            -archivePath Build/VitaLiber.xcarchive \
+            -exportOptionsPlist exportOptions.plist \
+            -exportPath Build/export \
+            2>&1 | tee Build/xcodebuild-export.log
+          ls -la Build/export/
+          test -f Build/export/VitaLiber.ipa && echo "ipa 导出成功 ✓"
+
+      # ── 推送 TestFlight ──────────────────────────────────────
+      - name: 上传 TestFlight（fastlane pilot）
+        if: ${{ env.APPLE_API_KEY_P8 != '' }}
+        run: |
+          command -v fastlane >/dev/null 2>&1 || brew install fastlane >/dev/null 2>&1
+          NOTES="${{ inputs.notes }}"
+          PILOT_OPTS=(upload --ipa Build/export/VitaLiber.ipa --app_identifier com.vitaliber.app)
+          if [ -n "$NOTES" ]; then PILOT_OPTS+=(--changelog "$NOTES"); fi
+          fastlane pilot "${PILOT_OPTS[@]}"
+          echo "TestFlight 上传完成 ✓"
+
+      # ── 未配置凭据时明确提示（不误报）───────────────────────
+      - name: 凭据未配置——仅完成编译，跳过上传
+        if: ${{ env.APPLE_API_KEY_P8 == '' }}
+        run: |
+          echo "::warning::未配置 APPLE_API_KEY_P8 等签名凭据——本次仅跑 L0+编译门禁，未上传 TestFlight"
+          echo "配置：Settings → Secrets → Actions → APPLE_API_KEY_ID / APPLE_API_KEY_ISSUER_ID / APPLE_API_KEY_P8 / APPLE_TEAM_ID / FASTLANE_USER"
