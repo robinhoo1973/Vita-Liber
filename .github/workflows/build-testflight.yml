@@ -63,7 +63,7 @@ jobs:
   build-testflight:
     name: '编译 + TestFlight'
     needs: l0-static-gate
-    runs-on: macos-15
+    runs-on: macos-latest
     timeout-minutes: 60
     # 签名/上传凭据映射到 job env：if: 与步骤都能读（step env 不进入 if 上下文）
     env:
