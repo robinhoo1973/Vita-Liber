@@ -189,16 +189,31 @@ jobs:
           rm -rf "$ARCH"
           mkdir -p "$ARCH/Products/Applications"
           cp -R "$APP" "$ARCH/Products/Applications/"
+          # xcarchive Info.plist 需完整复刻 Xcode 结构（exportArchive 的 distribution
+          # 方法探测依赖：ArchiveVersion/ApplicationProperties{SigningIdentity 等}/
+          # Name/SchemeName/CreationDate——第 17 轮缺字段致方法集为空
+          # "expected one {} but found app-store"）。
           /usr/libexec/PlistBuddy -c "Add :ApplicationProperties dict" "$ARCH/Info.plist" 2>/dev/null || true
           APP_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist")"
           SHORT="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")"
           VERS="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")"
+          # 从 app 实际签名提取身份（codesign Authority 首行，如 "Apple Development: X (TEAM)"）
+          IDENTITY="$(codesign -dv "$APP" 2>&1 | sed -n 's/^Authority=//p' | head -1)"
+          echo "签名身份: ${IDENTITY:-未签名}"
           /usr/libexec/PlistBuddy \
+            -c "Add :ArchiveVersion integer 2" \
+            -c "Add :Name string 'VitaLiber'" \
+            -c "Add :SchemeName string 'VitaLiber'" \
+            -c "Add :CreationDate date '$(date -u +%Y-%m-%dT%H:%M:%SZ)'" \
             -c "Add :ApplicationProperties:CFBundleIdentifier string '$APP_ID'" \
             -c "Add :ApplicationProperties:CFBundleShortVersionString string '$SHORT'" \
             -c "Add :ApplicationProperties:CFBundleVersion string '$VERS'" \
             -c "Add :ApplicationProperties:teamID string '$APPLE_TEAM_ID'" \
-            "$ARCH/Info.plist"
+            "$ARCH/Info.plist" 2>/dev/null || true
+          if [ -n "$IDENTITY" ]; then
+            /usr/libexec/PlistBuddy -c "Add :ApplicationProperties:SigningIdentity string '$IDENTITY'" "$ARCH/Info.plist" 2>/dev/null || true
+          fi
+          plutil -lint "$ARCH/Info.plist"
           # 符号文件（uploadSymbols=true 需要 dSYM 随归档；Release 产物目录中的 .dSYM）
           mkdir -p "$ARCH/dSYMs"
           cp -R Build/ReleaseBuild/Build/Products/Release-iphoneos/*.dSYM "$ARCH/dSYMs/" 2>/dev/null || true
