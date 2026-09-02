@@ -211,6 +211,7 @@ jobs:
           SHORT="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")"
           VERS="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")"
           /usr/libexec/PlistBuddy \
+            -c "Add :ApplicationProperties:ApplicationPath string 'VitaLiber.app'" \
             -c "Add :ApplicationProperties:CFBundleIdentifier string '$APP_ID'" \
             -c "Add :ApplicationProperties:CFBundleShortVersionString string '$SHORT'" \
             -c "Add :ApplicationProperties:CFBundleVersion string '$VERS'" \
@@ -219,6 +220,8 @@ jobs:
           # 符号文件（uploadSymbols=true 需要 dSYM 随归档；Release 产物目录中的 .dSYM）
           mkdir -p "$ARCH/dSYMs"
           cp -R Build/ReleaseBuild/Build/Products/Release-iphoneos/*.dSYM "$ARCH/dSYMs/" 2>/dev/null || true
+          # 空 dSYMs 目录会让归档被判 generic（社区实证）——无 dSYM 时移除目录
+          if ! ls "$ARCH/dSYMs/"*.dSYM >/dev/null 2>&1; then rmdir "$ARCH/dSYMs" 2>/dev/null || true; fi
           ls "$ARCH/Products/Applications/" && echo "xcarchive 手拼完成 ✓"
 
       # ── 导出 .ipa（app-store 方法）───────────────────────────
