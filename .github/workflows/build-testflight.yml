@@ -166,8 +166,22 @@ jobs:
           set -euo pipefail
           KC=build.keychain
           KC_PASS="buildkeychain"
-          echo "$APPLE_DEV_CERT_P12" | base64 -d > "$RUNNER_TEMP/dev_cert.p12"
-          echo "$APPLE_DIS_CERT_P12" | base64 -d > "$RUNNER_TEMP/dis_cert.p12"
+          echo "$APPLE_DEV_CERT_P12" | tr -d ' \n\r' | base64 -d > "$RUNNER_TEMP/dev_cert.p12"
+          echo "$APPLE_DIS_CERT_P12" | tr -d ' \n\r' | base64 -d > "$RUNNER_TEMP/dis_cert.p12"
+          # 解码自检：PKCS12 为 DER（首字节 0x30）。损坏的 secret（截断/含空格）
+          # 会报与密码错误相同的 MAC verification failed——先区分数据 vs 密码。
+          for f in dev_cert dis_cert; do
+            B="$RUNNER_TEMP/$f.p12"
+            if [ ! -s "$B" ]; then
+              echo "::error::$f.p12 解码为空——APPLE_${f%%_*}_CERT_P12 secret 缺失或为空"; exit 1
+            fi
+            FIRST="$(xxd -p -l 1 "$B")"
+            if [ "$FIRST" != "30" ]; then
+              echo "::error::$f.p12 解码后首字节 0x$FIRST（期望 0x30）——secret 值不是完整 p12 base64（检查截断/多余字符）"
+              exit 1
+            fi
+          done
+          echo "p12 解码校验通过（dev/dis 均为合法 PKCS12）"
           security create-keychain -p "$KC_PASS" "$KC"
           security default-keychain -s "$KC"
           security unlock-keychain -p "$KC_PASS" "$KC"
