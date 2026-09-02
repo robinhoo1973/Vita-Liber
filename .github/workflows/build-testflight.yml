@@ -268,13 +268,14 @@ jobs:
             DEV_IDENTITY="$(security find-identity -v -p codesigning "$KC" | head -1 | sed 's/.*"\(.*\)".*/\1/')"
           fi
           echo "开发签名 identity: $DEV_IDENTITY"
-          # 如果有 provisioning profile，用它；否则让 Xcode 尝试自动匹配
+          # 从 mobileprovision 内部读取 ProfileName（不是文件名，文件名可能含空格）
           PROFILE_SPEC=""
-          if [ -d "$HOME/Library/MobileDevice/Provisioning Profiles" ]; then
-            PROFILE_UUID="$(ls "$HOME/Library/MobileDevice/Provisioning Profiles/"*.mobileprovision 2>/dev/null | head -1 | xargs basename -s .mobileprovision 2>/dev/null || true)"
-            if [ -n "$PROFILE_UUID" ]; then
-              PROFILE_SPEC="$PROFILE_UUID"
-              echo "使用 provisioning profile: $PROFILE_UUID"
+          PROFILE_FILE="$(ls "$HOME/Library/MobileDevice/Provisioning Profiles/"*.mobileprovision 2>/dev/null | head -1)"
+          if [ -n "$PROFILE_FILE" ]; then
+            PROFILE_NAME="$(security cms -D -i "$PROFILE_FILE" 2>/dev/null | plutil -extract Name raw - 2>/dev/null || true)"
+            if [ -n "$PROFILE_NAME" ] && [ "$PROFILE_NAME" != "null" ]; then
+              PROFILE_SPEC="$PROFILE_NAME"
+              echo "使用 provisioning profile: '$PROFILE_SPEC'"
             fi
           fi
           PROFILE_FLAG=""
