@@ -63,7 +63,7 @@ jobs:
   build-testflight:
     name: '编译 + TestFlight'
     needs: l0-static-gate
-    runs-on: macos-15
+    runs-on: macos-16
     timeout-minutes: 60
     # 签名/上传凭据映射到 job env：if: 与步骤都能读（step env 不进入 if 上下文）
     env:
@@ -156,6 +156,8 @@ jobs:
             -showBuildSettings 2>/dev/null \
             | grep -E "^[[:space:]]*(CONFIGURATION|CONFIGURATION_BUILD_DIR|BUILT_PRODUCTS_DIR|PRODUCT_BUNDLE_IDENTIFIER) =" \
             | sort -u || echo "showBuildSettings 失败"
+          echo "--- pbxproj 中 GRDB_GRDB.bundle 引用形态 ---"
+          grep -n "GRDB_GRDB.bundle" VitaLiber.xcodeproj/project.pbxproj | head -6 || echo "pbxproj 无 GRDB_GRDB.bundle 引用"
 
       - name: 签名归档（archive）
         if: ${{ env.APPLE_API_KEY_P8 != '' }}
