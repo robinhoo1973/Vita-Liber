@@ -175,20 +175,20 @@ jobs:
             -configuration Release -destination 'generic/platform=iOS' \
             -derivedDataPath Build/ArchiveDerivedData \
             CODE_SIGNING_ALLOWED=NO COMPILER_INDEX_STORE_ENABLE=NO \
-            2>&1 | tail -3
-          echo "Release 预构建完成（SPM bundle 落 Products/Release-iphoneos）"
-          # 把 bundle 种入 archive Copy phase 的两个可能解析路径：
-          #   路径 A：BuildProductsPath→Products/Release-iphoneos → …/Release-iphoneos/Debug-iphoneos/
-          #   路径 B：BuildProductsPath→Products/Debug-iphoneos   → …/Products/Debug-iphoneos/
-          # （第 13 轮 Debug 预构建失败原因：产物只落在路径 B 根，未覆盖 A 的嵌套形态）
+            2>&1 | tee Build/prebuild-release.log
+          echo "Release 预构建完成"
+          # find 实际产物位置后种入两个可能解析路径（A：Release-iphoneos/Debug-iphoneos 嵌套；
+          # B：Products/Debug-iphoneos）。find 定位避免路径假设再次落空（第 13/14 轮教训）。
           BP="$GITHUB_WORKSPACE/Build/ArchiveDerivedData/Build/Products"
-          if [ -d "$BP/Release-iphoneos/GRDB_GRDB.bundle" ]; then
+          BUNDLE="$(find "$BP" -type d -name GRDB_GRDB.bundle 2>/dev/null | head -1)"
+          if [ -n "$BUNDLE" ]; then
+            echo "SPM bundle 实际位置: $BUNDLE"
             mkdir -p "$BP/Release-iphoneos/Debug-iphoneos" "$BP/Debug-iphoneos"
-            cp -R "$BP/Release-iphoneos/GRDB_GRDB.bundle" "$BP/Release-iphoneos/Debug-iphoneos/"
-            cp -R "$BP/Release-iphoneos/GRDB_GRDB.bundle" "$BP/Debug-iphoneos/"
+            cp -R "$BUNDLE" "$BP/Release-iphoneos/Debug-iphoneos/" 2>/dev/null || true
+            cp -R "$BUNDLE" "$BP/Debug-iphoneos/" 2>/dev/null || true
             echo "SPM bundle 已种入路径 A/B"
           else
-            echo "::warning::Release 预构建未产出 GRDB_GRDB.bundle——archive 可能仍失败"
+            echo "::warning::预构建未找到 GRDB_GRDB.bundle（见 Build/prebuild-release.log）"
           fi
           xcodebuild archive \
             -project "$XCODEPROJ" -scheme "$SCHEME" \
