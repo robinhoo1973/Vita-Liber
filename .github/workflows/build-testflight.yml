@@ -163,11 +163,20 @@ jobs:
         if: ${{ env.APPLE_API_KEY_P8 != '' }}
         run: |
           set -o pipefail
-          # 独立 DerivedData + 先清缓存：SPM 依赖（GRDB）的资源 bundle 在 archive 与
-          # 默认 DerivedData 混用时会错位到 Debug-iphoneos 切片（lstat
-          # .../Debug-iphoneos/GRDB_GRDB.bundle: No such file or directory）。
-          # 业界惯例：archive 用专属 DerivedData 且从干净状态构建。
-          rm -rf Build/ArchiveDerivedData
+          # Xcode 16.x SPM archive 缺陷 workaround（5WHY 实证链见 12-13 轮）：
+          # CONFIGURATION=Release/BUILT_PRODUCTS_DIR=Release-iphoneos（已 dump 实证），
+          # 但 Xcode 运行时生成的 SPM 资源 bundle Copy phase 源路径字面指向
+          # BuildProductsPath/Debug-iphoneos/GRDB_GRDB.bundle（pbxproj 无字面引用，
+          # 亦非配置展开）——Xcode 16 生成期缺陷，无工程侧开关。
+          # 业界通用 workaround：先在同 DerivedData 预构建 Debug 切片，使该源路径
+          # 真实存在（Debug/Release 的 PrivacyInfo bundle 内容相同，进包无害）。
+          # 注意：不得 rm ArchiveDerivedData（否则预构建产物被清）。
+          xcodebuild build -project "$XCODEPROJ" -scheme "$SCHEME" \
+            -configuration Debug -destination 'generic/platform=iOS' \
+            -derivedDataPath Build/ArchiveDerivedData \
+            CODE_SIGNING_ALLOWED=NO COMPILER_INDEX_STORE_ENABLE=NO \
+            2>&1 | tail -3
+          echo "Debug 预构建完成（SPM bundle 落 Debug-iphoneos，供 archive Copy phase）"
           xcodebuild archive \
             -project "$XCODEPROJ" -scheme "$SCHEME" \
             -configuration release \
