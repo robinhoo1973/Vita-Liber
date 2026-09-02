@@ -447,66 +447,39 @@ fi
 section "10/10" "L10n 单出口 —— 视图层禁止新增中文字面量（三文件纪律；存量登记 .github/workflows/l10n-legacy-allowlist.txt）"
 L10N_ALLOW="$SCRIPT_DIR/l10n-legacy-allowlist.txt"
 [ -f "$L10N_ALLOW" ] || touch "$L10N_ALLOW"
-# locale 必须「验证可用」而非「设了就算」：export 不校验合法性，无效 LC_ALL（如
-# 某些发行版无 C.UTF-8）会让 grep 报 Invalid collation character（exit 2，被
-# 2>/dev/null 吞掉）→ 扫描 0 行 → 空扫判 PASS（ERR#27 形态）。逐个候选实测，
-# 全部失败即 fail 关闸，绝不放行未经扫描的门禁。
-L10N_LOCALE=""
-for _cand in C.UTF-8 C.utf8 en_US.UTF-8 en_US.utf8 zh_CN.UTF-8 zh_CN.utf8; do
-  if LC_ALL="$_cand" grep -qE '[一-龥]' <<< '中文测试' 2>/dev/null; then
-    L10N_LOCALE="$_cand"
-    break
-  fi
-done
-if [ -n "$L10N_LOCALE" ]; then
-  export LC_ALL="$L10N_LOCALE"
+# 判定统一走 python3 显式 Unicode 码点（ERR#5WHY：`grep [一-龥]` 多字节字符区间的
+# 解释随 grep/glibc/locale 实现漂移——CI 容器（jammy grep 3.7 + setlocale 失败回退）
+# 与开发机对同一字节流给出不同判定，假红假绿双向发生。Python 按码点 U+4E00..U+9FA5
+# 判定与平台无关。剥离逻辑（注释/无障碍标识/图标名/日志/颜色资源名）与旧 sed 链等效；
+# accessibilityLabel 是 VoiceOver 可见文案，绝不在剥离之列。
+if ! command -v python3 >/dev/null 2>&1; then
+  fail "无 python3 —— L10n 判定不可执行，不得空扫判 PASS（ERR#27）"
 else
-  export LC_ALL=C
-fi
-l10n_bad=0
-l10n_shown=0
-l10n_scanned=0
-while IFS= read -r line; do
-  [ -n "$line" ] || continue
-  l10n_scanned=$((l10n_scanned + 1))
-  _rest=${line#*:}
-  _rest=${_rest#*:}
-  # 逐字面量判定，而非整行跳过。整行跳过（旧实现 case *systemImage*|*Image(*|//* ) continue）
-  # 会让「与豁免调用同行」的用户文案整条蒙过门禁——`Label("记录观察", systemImage: "plus")`
-  # 里的中文根本没被扫到，行尾补一句 `// 注释` 也能让整行消失（ERR#27：门禁在但不判）。
-  # 因此改为先剥掉**确定非用户可见**的参数（注释、无障碍标识、图标名、日志、颜色资源名），
-  # 再对剩余部分取字面量。注意 accessibilityLabel 是 VoiceOver 可见文案，绝不在剥离之列。
-  _scan=$(printf '%s' "$_rest" | sed -E \
-    -e 's#//.*$##' \
-    -e 's/accessibilityIdentifier\([[:space:]]*"[^"]*"[[:space:]]*\)//g' \
-    -e 's/systemImage:[[:space:]]*"[^"]*"//g' \
-    -e 's/Image\([[:space:]]*"[^"]*"//g' \
-    -e 's/Color\([[:space:]]*"[^"]*"//g' \
-    -e 's/logger\.[a-zA-Z]+\("[^"]*"\)//g')
-  _ok=1
-  while IFS= read -r lit; do
-    [ -n "$lit" ] || continue
-    _v=${lit#\"}; _v=${_v%\"}
-    # -x 整行精确匹配：子串匹配会让「提醒」被既有条目「您有一条健康提醒」放行，
-    # 新增硬编码就能靠碰巧是某条存量的子串蒙过门禁（ERR#27 同族：门禁在但不判）
-    grep -qxF "$_v" "$L10N_ALLOW" || _ok=0
-  done <<< "$(printf '%s' "$_scan" | grep -oE '\"[^\"]*[一-龥][^\"]*\"' || true)"
-  if [ "$_ok" -ne 1 ]; then
+  # 判定器独立成文件（l0-l10n-check.py）：heredoc 内嵌 $(...) 在 bash 3.2/5.x 间
+  # 解析不一致（实测 "unterminated here-document" warning 且剥离失效），独立文件
+  # 可单测、无嵌套坑；判定按 Unicode 码点，与 grep/locale 实现无关。
+  l10n_log="$(python3 "$SCRIPT_DIR/l0-l10n-check.py" "$L10N_ALLOW" "$APP/App" 2>&1 || true)"
+  l10n_scanned="$(printf '%s\n' "$l10n_log" | sed -n 's/^__SCANNED__ //p' | head -1)"
+  l10n_bad=0
+  l10n_shown=0
+  while IFS= read -r _line; do
+    [ -n "$_line" ] || continue
+    case "$_line" in __SCANNED__*) continue ;; esac
     l10n_bad=$((l10n_bad + 1))
     if [ "$l10n_shown" -lt 12 ]; then
-      printf '    %s\n' "$line"
+      printf '    %s\n' "$_line"
       l10n_shown=$((l10n_shown + 1))
     fi
+  done <<EOF
+$l10n_log
+EOF
+  if [ "${l10n_scanned:-0}" -eq 0 ]; then
+    fail "L10n 扫描命中 0 行 —— 正则失效或扫描范围为空，不得空扫判 PASS（ERR#27）"
+  elif [ "$l10n_bad" -gt 0 ]; then
+    fail "视图层未登记中文字面量 $l10n_bad 处 —— 迁入 L10n.swift（三文件），或登记 $L10N_ALLOW"
+  else
+    pass "视图层无未登记中文字面量（存量豁免清单 $L10N_ALLOW；扫描 $l10n_scanned 行）"
   fi
-done < <(grep -rn --include='*.swift' -E '\"[^\"]*[一-龥][^\"]*\"' "$APP/App" 2>/dev/null | grep -v '/L10n.swift:' || true)
-if [ -z "$L10N_LOCALE" ]; then
-  fail "本机无可验证的 UTF-8 locale —— L10n 扫描未执行，不得空扫判 PASS（ERR#27）"
-elif [ "$l10n_scanned" -eq 0 ]; then
-  fail "L10n 扫描命中 0 行 —— locale/正则失效或扫描范围为空，不得空扫判 PASS（ERR#27）"
-elif [ "$l10n_bad" -gt 0 ]; then
-  fail "视图层未登记中文字面量 $l10n_bad 处 —— 迁入 L10n.swift（三文件），或登记 $L10N_ALLOW"
-else
-  pass "视图层无未登记中文字面量（存量豁免清单 $L10N_ALLOW；扫描 $l10n_scanned 行）"
 fi
 
 # ---------- 汇总 ----------
