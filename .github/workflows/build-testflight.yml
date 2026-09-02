@@ -147,65 +147,50 @@ jobs:
           chmod 600 "$GITHUB_WORKSPACE/private_keys/AuthKey_$APPLE_API_KEY_ID.p8"
           echo "API Key 已就绪"
 
-      # ── 签名归档（真机切片，release）─────────────────────────
-      - name: 归档配置诊断（GRDB bundle Debug-iphoneos 错位定位）
-        if: ${{ env.APPLE_API_KEY_P8 != '' }}
-        run: |
-          echo "--- VitaLiber.xcscheme ArchiveAction ---"
-          grep -A3 "ArchiveAction" VitaLiber.xcodeproj/xcshareddata/xcschemes/VitaLiber.xcscheme || echo "无 ArchiveAction 节点"
-          echo "--- archive 实际 CONFIGURATION（-showBuildSettings 不构建）---"
-          xcodebuild archive -project "$XCODEPROJ" -scheme "$SCHEME" \
-            -destination 'generic/platform=iOS' \
-            -derivedDataPath Build/ArchiveDerivedData \
-            -showBuildSettings 2>/dev/null \
-            | grep -E "^[[:space:]]*(CONFIGURATION|CONFIGURATION_BUILD_DIR|BUILT_PRODUCTS_DIR|PRODUCT_BUNDLE_IDENTIFIER) =" \
-            | sort -u || echo "showBuildSettings 失败"
-          echo "--- pbxproj 中 GRDB_GRDB.bundle 引用形态 ---"
-          grep -n "GRDB_GRDB.bundle" VitaLiber.xcodeproj/project.pbxproj | head -6 || echo "pbxproj 无 GRDB_GRDB.bundle 引用"
-
-      # ── 导入签名证书（p12，业界最佳实践：证书私钥持久化为 CI secret，
-      #    每轮导入 keychain 复用——避免 Xcode 自动签名每轮新建证书直至账号上限
-      #    "Choose a certificate to revoke"）─────────────────────────
-      - name: 导入签名证书（p12）
-        if: ${{ env.APPLE_CERT_P12 != '' }}
-        run: |
-          set -euo pipefail
-          KC=build.keychain
-          KC_PASS="buildkeychain"
-          echo "$APPLE_CERT_P12" | base64 -d > "$RUNNER_TEMP/cert.p12"
-          security create-keychain -p "$KC_PASS" "$KC"
-          security default-keychain -s "$KC"
-          security unlock-keychain -p "$KC_PASS" "$KC"
-          security import "$RUNNER_TEMP/cert.p12" -k "$KC" \
-            -P "$APPLE_CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/xcodebuild -A
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$KC_PASS" "$KC"
-          security list-keychain -d user -s "$KC"
-          echo "签名证书已导入 keychain:"
-          security find-identity -v -p codesigning "$KC" | head -5
-
-      # ── 签名归档（真机切片，release）─────────────────────────
-      # Xcode 26.6（macos-latest）验证：Xcode 16.4 的 SPM 资源 bundle archive 缺陷
-      # （Copy 源 Debug-iphoneos lstat）在 Xcode 26 大概率已修——若已修，标准 archive
-      # 产出真实归档，导出探测天然通过（手拼归档在 Xcode 26 导出阶段方法集为空）。
-      # 若再现 lstat 缺陷，回退手拼方案并补全归档元数据。
-      - name: 签名归档（archive）
+      # ── 签名归档：build + 手拼 xcarchive（绕开 Xcode 16 SPM archive bug）──────
+      # 5WHY 实证（13-17 轮）：xcodebuild archive 在 Xcode 16.4 对 SPM 资源 bundle
+      # （GRDB_GRDB.bundle）的自动集成 Copy phase 源固定指向 archive 空间
+      # BuildProductsPath/Debug-iphoneos/，而产物落 UninstalledProducts——工程侧无开关、
+      # 产物侧预种入被 archive 清理，无法修复。普通 xcodebuild build 无此缺陷
+      # （bundle 正常嵌入 VitaLiber.app，第 15 轮实证）。故：Release build（自动签名
+      # development）→ 按 xcarchive 规范手拼归档（Products/Applications + Info.plist）
+      # → 既有 exportArchive 步骤以 API key 自动重签为 distribution 并导出 ipa。
+      - name: 签名归档（build + 手拼 xcarchive）
         if: ${{ env.APPLE_API_KEY_P8 != '' }}
         run: |
           set -o pipefail
-          rm -rf Build/ArchiveDerivedData Build/VitaLiber.xcarchive
-          xcodebuild archive \
-            -project "$XCODEPROJ" -scheme "$SCHEME" \
-            -configuration release \
-            -destination 'generic/platform=iOS' \
-            -derivedDataPath Build/ArchiveDerivedData \
-            -archivePath Build/VitaLiber.xcarchive \
+          xcodebuild build -project "$XCODEPROJ" -scheme "$SCHEME" \
+            -configuration Release -destination 'generic/platform=iOS' \
+            -derivedDataPath Build/ReleaseBuild \
             -authenticationKeyPath "$GITHUB_WORKSPACE/private_keys/AuthKey_$APPLE_API_KEY_ID.p8" \
             -authenticationKeyID "$APPLE_API_KEY_ID" \
             -authenticationKeyIssuerID "$APPLE_API_KEY_ISSUER_ID" \
             -allowProvisioningUpdates \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
             MARKETING_VERSION="$RELEASE_VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" VITA_LIBER_CODE_HASH="$CODE_HASH" \
-            2>&1 | tee Build/xcodebuild-archive.log
+            2>&1 | tee Build/xcodebuild-build-release.log
+          APP="Build/ReleaseBuild/Build/Products/Release-iphoneos/VitaLiber.app"
+          test -d "$APP" || { echo "::error::Release build 未产出 VitaLiber.app"; exit 1; }
+          echo "Release build 完成（SPM bundle 已正常嵌入）"
+          # 手拼 xcarchive（结构：Products/Applications/VitaLiber.app + Info.plist）
+          ARCH="Build/VitaLiber.xcarchive"
+          rm -rf "$ARCH"
+          mkdir -p "$ARCH/Products/Applications"
+          cp -R "$APP" "$ARCH/Products/Applications/"
+          /usr/libexec/PlistBuddy -c "Add :ApplicationProperties dict" "$ARCH/Info.plist" 2>/dev/null || true
+          APP_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist")"
+          SHORT="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")"
+          VERS="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")"
+          /usr/libexec/PlistBuddy \
+            -c "Add :ApplicationProperties:CFBundleIdentifier string '$APP_ID'" \
+            -c "Add :ApplicationProperties:CFBundleShortVersionString string '$SHORT'" \
+            -c "Add :ApplicationProperties:CFBundleVersion string '$VERS'" \
+            -c "Add :ApplicationProperties:teamID string '$APPLE_TEAM_ID'" \
+            "$ARCH/Info.plist"
+          # 符号文件（uploadSymbols=true 需要 dSYM 随归档；Release 产物目录中的 .dSYM）
+          mkdir -p "$ARCH/dSYMs"
+          cp -R Build/ReleaseBuild/Build/Products/Release-iphoneos/*.dSYM "$ARCH/dSYMs/" 2>/dev/null || true
+          ls "$ARCH/Products/Applications/" && echo "xcarchive 手拼完成 ✓"
 
       # ── 导出 .ipa（app-store 方法）───────────────────────────
       - name: 导出 .ipa
