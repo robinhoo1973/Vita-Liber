@@ -8,6 +8,11 @@ name: Check Build Status
 
 on:
   workflow_dispatch:
+    inputs:
+      delivery_uuid:
+        description: 可选，altool 日志中的 Delivery UUID（查询该 buildUpload 实例的精确状态）
+        required: false
+        default: ''
 
 jobs:
   check:
@@ -65,7 +70,25 @@ jobs:
               print(f\"Build {a.get('version','?')} state={a.get('processingState','?')} compliance={a.get('missingExportCompliance','?')} uploaded={a.get('uploadedDate','?')}\")
           print(f\"(共 {d.get('meta',{}).get('paging',{}).get('total',len(bs))} 条)\")
           "
-          echo "── ③ 最近 buildUploads 处理状态 ──"
+          echo "── ③ 指定 buildUpload 实例状态（若提供 UUID）──"
+          if [ -n "${{ inputs.delivery_uuid }}" ]; then
+            curl -sS -g --max-time 30 \
+              "https://api.appstoreconnect.apple.com/v1/buildUploads/${{ inputs.delivery_uuid }}" \
+              -H "$AUTH" 2>/dev/null | python3 -c "
+            import json,sys
+            d=json.load(sys.stdin)
+            if 'errors' in d:
+                print('API 错误:', json.dumps(d['errors'],ensure_ascii=False)[:400]); raise SystemExit
+            a=d['data']['attributes']; st=a.get('state',{})
+            print(f\"buildUpload {d['data']['id']} ver={a.get('cfBundleShortVersionString')} build={a.get('cfBundleVersion')} state={st.get('state')} errors={len(st.get('errors',[]))} warnings={len(st.get('warnings',[]))}\")
+            if st.get('errors'): print('errors:', json.dumps(st['errors'],ensure_ascii=False)[:800])
+            if st.get('warnings'): print('warnings:', json.dumps(st['warnings'],ensure_ascii=False)[:800])
+            if not (st.get('errors') or st.get('warnings')): print('(无 errors/warnings)')
+            "
+          else
+            echo "(未提供 delivery_uuid，跳过)"
+          fi
+          echo "── ④ 最近 buildUploads 处理状态（列表不可用则忽略）──"
           curl -sS -g --max-time 30 "https://api.appstoreconnect.apple.com/v1/buildUploads?sort=-uploadedDate&limit=5" \
             -H "$AUTH" 2>/dev/null | python3 -c "
           import json,sys
