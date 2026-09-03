@@ -256,104 +256,40 @@ jobs:
       # - build 用 keychain 中的 dev cert（手动签名），
       # - export 用 keychain 中的 dis cert（手动签名，重签为 App Store），
       # - upload 用 API Key（仅需 Developer 权限）。
-      - name: 签名归档（build + 手拼 xcarchive）
+      - name: 签名归档（archive + 导出）
         if: ${{ env.APPLE_DEV_CERT_P12 != '' }}
         run: |
           set -o pipefail
-          # 查找 keychain 中的开发证书 identity
-          KC=build.keychain
-          DEV_IDENTITY="$(security find-identity -v -p codesigning "$KC" | grep -i 'Apple Development\|iPhone.*Developer' | head -1 | sed 's/.*"\(.*\)".*/\1/')"
-          if [ -z "$DEV_IDENTITY" ]; then
-            echo "::warning::keychain 中无开发 identity，尝试任何可用 identity"
-            DEV_IDENTITY="$(security find-identity -v -p codesigning "$KC" | head -1 | sed 's/.*"\(.*\)".*/\1/')"
-          fi
-          echo "开发签名 identity: $DEV_IDENTITY"
-          # build 阶段：自动签名（-allowProvisioningUpdates + API Key）
-          # export 阶段：手动签名（profile + dis cert）—— 不需要 Admin 权限
-          xcodebuild build -project "$XCODEPROJ" -scheme "$SCHEME" \
-            -configuration Release -destination 'generic/platform=iOS' \
-            -derivedDataPath Build/ReleaseBuild \
+          ARCH="Build/VitaLiber.xcarchive"
+          rm -rf "$ARCH" Build/export
+          # 使用 xcodebuild archive（而非手动拼装）——确保 archive 结构完整
+          xcodebuild archive \
+            -project "$XCODEPROJ" -scheme "$SCHEME" \
+            -configuration Release \
+            -archivePath "$ARCH" \
             -authenticationKeyPath "$GITHUB_WORKSPACE/private_keys/AuthKey_$APPLE_API_KEY_ID.p8" \
             -authenticationKeyID "$APPLE_API_KEY_ID" \
             -authenticationKeyIssuerID "$APPLE_API_KEY_ISSUER_ID" \
             -allowProvisioningUpdates \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
             MARKETING_VERSION="$RELEASE_VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" VITA_LIBER_CODE_HASH="$CODE_HASH" \
-            2>&1 | tee Build/xcodebuild-build-release.log
-          APP="Build/ReleaseBuild/Build/Products/Release-iphoneos/VitaLiber.app"
-          test -d "$APP" || { echo "::error::Release build 未产出 VitaLiber.app"; exit 1; }
-          echo "Release build 完成（SPM bundle 已正常嵌入）"
-          # 手拼 xcarchive（结构：Products/Applications/VitaLiber.app + Info.plist）
-          ARCH="Build/VitaLiber.xcarchive"
-          rm -rf "$ARCH"
-          mkdir -p "$ARCH/Products/Applications"
-          cp -R "$APP" "$ARCH/Products/Applications/"
-          /usr/libexec/PlistBuddy -c "Add :ApplicationProperties dict" "$ARCH/Info.plist" 2>/dev/null || true
-          APP_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist")"
-          SHORT="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")"
-          VERS="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")"
-          # archive 顶层必须有 DTPlatformName，否则 exportArchive 按 macOS 处理
-          /usr/libexec/PlistBuddy -c "Delete :DTPlatformName" "$ARCH/Info.plist" 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Add :DTPlatformName string 'iphoneos'" "$ARCH/Info.plist"
-          /usr/libexec/PlistBuddy -c "Delete :DTSDKName" "$ARCH/Info.plist" 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Add :DTSDKName string 'iphoneos'" "$ARCH/Info.plist"
-          /usr/libexec/PlistBuddy -c "Delete :DTXcode" "$ARCH/Info.plist" 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Add :DTXcode string '16.0'" "$ARCH/Info.plist"
-          /usr/libexec/PlistBuddy -c "Delete :SchemeName" "$ARCH/Info.plist" 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Add :SchemeName string 'VitaLiber'" "$ARCH/Info.plist"
-          # ApplicationProperties（应用级元数据）
-          /usr/libexec/PlistBuddy -c "Add :ApplicationProperties:ApplicationPath string 'VitaLiber.app'" "$ARCH/Info.plist"
-          /usr/libexec/PlistBuddy -c "Add :ApplicationProperties:CFBundleIdentifier string '$APP_ID'" "$ARCH/Info.plist"
-          /usr/libexec/PlistBuddy -c "Add :ApplicationProperties:CFBundleShortVersionString string '$SHORT'" "$ARCH/Info.plist"
-          /usr/libexec/PlistBuddy -c "Add :ApplicationProperties:CFBundleVersion string '$VERS'" "$ARCH/Info.plist"
-          /usr/libexec/PlistBuddy -c "Add :ApplicationProperties:teamID string '$APPLE_TEAM_ID'" "$ARCH/Info.plist"
-          # 符号文件（uploadSymbols=true 需要 dSYM 随归档；Release 产物目录中的 .dSYM）
-          mkdir -p "$ARCH/dSYMs"
-          cp -R Build/ReleaseBuild/Build/Products/Release-iphoneos/*.dSYM "$ARCH/dSYMs/" 2>/dev/null || true
-          # 空 dSYMs 目录会让归档被判 generic（社区实证）——无 dSYM 时移除目录
-          if ! ls "$ARCH/dSYMs/"*.dSYM >/dev/null 2>&1; then rmdir "$ARCH/dSYMs" 2>/dev/null || true; fi
-          ls "$ARCH/Products/Applications/" && echo "xcarchive 手拼完成 ✓"
-          echo "=== xcarchive Info.plist ==="
+            2>&1 | tee Build/xcodebuild-archive.log
+          echo "archive 完成 ✓"
+          echo "=== archive Info.plist ==="
           plutil -p "$ARCH/Info.plist" 2>/dev/null || cat "$ARCH/Info.plist"
-
-      # ── 导出 .ipa（手动签名 + keychain 中的 distribution cert）────────
-      # 不用 API Key 云签名（需 Admin 权限），改用 p12 本地签名。
-      # exportOptions.plist 指定 signingStyle=manual，从 keychain 匹配 dis cert。
-      - name: 导出 .ipa
-        if: ${{ env.APPLE_DIS_CERT_P12 != '' }}
-        run: |
-          KC=build.keychain
-          # 查找 keychain 中的 distribution certificate identity
-          DIS_IDENTITY="$(security find-identity -v -p codesigning "$KC" | grep -i 'Apple Distribution\|iPhone.*Distribution' | head -1 | sed 's/.*"\(.*\)".*/\1/')"
-          if [ -z "$DIS_IDENTITY" ]; then
-            echo "::warning::keychain 中无分发 identity，尝试任何可用 identity"
-            DIS_IDENTITY="$(security find-identity -v -p codesigning "$KC" | head -1 | sed 's/.*"\(.*\)".*/\1/')"
-          fi
-          echo "分发签名 identity: $DIS_IDENTITY"
-          # 从 p12 提取 SHA1 指纹用于 exportOptions
-          DIS_SHA1="$(openssl pkcs12 -in "$RUNNER_TEMP/dis_cert.p12" -passin "pass:$APPLE_CERT_PASSWORD" -nokeys 2>/dev/null \
-            | openssl x509 -noout -fingerprint 2>/dev/null | head -1 | cut -d= -f2)"
-          # 备用：空密码
-          if [ -z "$DIS_SHA1" ]; then
-            DIS_SHA1="$(openssl pkcs12 -in "$RUNNER_TEMP/dis_cert.p12" -passin pass: -nokeys 2>/dev/null \
-              | openssl x509 -noout -fingerprint 2>/dev/null | head -1 | cut -d= -f2)"
-          fi
-          echo "分发证书 SHA1: $DIS_SHA1"
-          # 读取实际 profile 名称（从 mobileprovision 内部 plist）
+          # 导出 IPA
           PROFILE_FILE="$(ls "$HOME/Library/MobileDevice/Provisioning Profiles/"*.mobileprovision 2>/dev/null | head -1)"
           PROFILE_NAME=""
           if [ -n "$PROFILE_FILE" ]; then
             PROFILE_NAME="$(security cms -D -i "$PROFILE_FILE" 2>/dev/null | plutil -extract Name raw - 2>/dev/null || true)"
           fi
           if [ -z "$PROFILE_NAME" ] || [ "$PROFILE_NAME" = "null" ]; then
-            echo "::error::未找到 Provisioning Profile——请先导入 APPLE_DIS_PROVISION_PROFILE"
-            exit 1
+            echo "::error::未找到 Provisioning Profile"; exit 1
           fi
-          echo "provisioning profile: $PROFILE_NAME"
-          # 读取 bundle ID
+          echo "profile: $PROFILE_NAME"
           APP_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \
-            "Build/VitaLiber.xcarchive/Products/Applications/VitaLiber.app/Info.plist" 2>/dev/null || echo 'com.vitaliber.VitaLiber')"
-          echo "app bundle id: $APP_ID"
+            "$ARCH/Products/Applications/VitaLiber.app/Info.plist" 2>/dev/null || echo 'com.vitaliber.app')"
+          echo "bundle id: $APP_ID"
           cat > exportOptions.plist <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -362,7 +298,6 @@ jobs:
               <key>method</key><string>app-store-connect</string>
               <key>teamID</key><string>$APPLE_TEAM_ID</string>
               <key>signingStyle</key><string>manual</string>
-              <key>signingCertificate</key><string>$DIS_SHA1</string>
               <key>provisioningProfiles</key>
               <dict>
                   <key>$APP_ID</key><string>$PROFILE_NAME</string>
@@ -372,19 +307,14 @@ jobs:
           </dict>
           </plist>
           PLIST
-          echo "exportOptions.plist:"
-          cat exportOptions.plist
-          rm -rf Build/export
           xcodebuild -exportArchive \
-            -archivePath Build/VitaLiber.xcarchive \
+            -archivePath "$ARCH" \
             -exportOptionsPlist exportOptions.plist \
             -exportPath Build/export \
             2>&1 | tee Build/xcodebuild-export.log
-          ls -la Build/export/
           test -f Build/export/VitaLiber.ipa && echo "ipa 导出成功 ✓"
-          IPA_APP_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \
-            "Build/VitaLiber.xcarchive/Products/Applications/VitaLiber.app/Info.plist" 2>/dev/null || echo unknown)"
-          echo "ipa bundle id: $IPA_APP_ID"
+
+      # ── 导出 .ipa —— 已合并到「签名归档」步骤 ────────
 
       # ── 推送 TestFlight（API Key 认证，无需 2FA）────────────
       - name: 上传 TestFlight（fastlane pilot）
