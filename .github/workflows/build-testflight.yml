@@ -300,7 +300,7 @@ jobs:
     name: '上传 TestFlight'
     needs: [version, build]
     runs-on: macos-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     if: ${{ !cancelled() && needs.build.result == 'success' }}
     env:
       APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
@@ -342,7 +342,7 @@ jobs:
           data = {'key_id': sys.argv[2], 'issuer_id': sys.argv[3], 'key': key}
           with open(sys.argv[4], 'w') as f: json.dump(data, f)
           " "$P8" "$APPLE_API_KEY_ID" "$APPLE_API_KEY_ISSUER_ID" "$KEY_JSON"
-          PILOT_OPTS=(upload --ipa Build/export/VitaLiber.ipa --api_key_path "$KEY_JSON")
+          PILOT_OPTS=(upload --ipa Build/export/VitaLiber.ipa --api_key_path "$KEY_JSON" --skip_waiting_for_build_processing)
           if [ -n "$NOTES" ]; then PILOT_OPTS+=(--changelog "$NOTES"); fi
           fastlane pilot "${PILOT_OPTS[@]}"
           echo "TestFlight 上传完成 ✓"
