@@ -361,12 +361,12 @@ jobs:
           sleep 90
           P8="$GITHUB_WORKSPACE/private_keys/AuthKey_$APPLE_API_KEY_ID.p8"
           [ -f "$P8" ] || { echo "::warning::p8 文件不存在，跳过查询"; exit 0; }
-          # 生成 JWT（ES256）
+          # 生成 JWT（ES256；aud 为 Apple 要求的 appstoreconnect-v1，缺它会被 401 拒绝）
           TOKEN=$(python3 -c "
           import jwt, time, json
           with open('$P8') as f: key = f.read()
           now = int(time.time())
-          payload = {'iss': '$APPLE_API_KEY_ISSUER_ID', 'iat': now, 'exp': now + 1200}
+          payload = {'iss': '$APPLE_API_KEY_ISSUER_ID', 'iat': now, 'exp': now + 1200, 'aud': 'appstoreconnect-v1'}
           t = jwt.encode(payload, key, algorithm='ES256', headers={'alg': 'ES256', 'kid': '$APPLE_API_KEY_ID'})
           # 解码 header 校验 kid（kid 非机密）
           import base64
@@ -376,16 +376,16 @@ jobs:
           " 2>&1 || true)
           KID=$(echo "$TOKEN" | grep '^KID_CHECK=' | cut -d= -f2)
           TOKEN=$(echo "$TOKEN" | grep -v '^KID_CHECK=' | tail -1)
-          echo "JWT kid=$KID（应为 $APPLE_API_KEY_ID）；token 长度 ${#TOKEN}"
+          echo "JWT kid=$KID；token 长度 ${#TOKEN}"
           if [ -z "$TOKEN" ]; then
             echo "::error::JWT 生成失败（PyJWT/cryptography 未就绪），请查看上方 pip 输出"
             exit 0
           fi
           AUTH="Authorization: Bearer $TOKEN"
-          # curl 封装：打印 HTTP 状态码 + 完整 body
+          # curl 封装：-g 关 glob（URL 内 [] 方括号必需）、打印 HTTP 状态码 + 完整 body
           asc_get() {
             local url="$1"
-            curl -sS -w $'\n__HTTP__:%{http_code}\n' --max-time 30 "$url" -H "$AUTH" 2>&1 || true
+            curl -sS -g -w $'\n__HTTP__:%{http_code}\n' --max-time 30 "$url" -H "$AUTH" 2>&1 || true
           }
           # 1) 按 bundleId 反查 App
           echo "── ① 按 bundleId=com.vitaliber.app 查 App ──"
