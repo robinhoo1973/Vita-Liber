@@ -347,6 +347,68 @@ jobs:
           head -c 27 "$K"; echo "..."
           echo "API Key 就绪：$K"
 
+      # ── 注册/核对 Bundle ID 与 App 记录（NetDiagnostics asc_app_ensure）──
+      # 上传前确保 App ID(com.vitaliber.app) 已在开发者门户注册、App 记录存在，
+      # 并打印记录的 id/name/bundleId/sku —— 直接检验 App 名是否异常
+      # （例如自动创建产生的 "Vita Liber - com.vitaliber.app" 之类）。
+      - name: 注册/核对 Bundle ID 与 App 记录
+        run: |
+          set -euo pipefail
+          python3 -m pip install --user PyJWT cryptography >/tmp/pip.log 2>&1 \
+            || python3 -m pip install --user --break-system-packages PyJWT cryptography >/tmp/pip.log 2>&1 \
+            || true
+          P8="$HOME/.appstoreconnect/private_keys/AuthKey_$APPLE_API_KEY_ID.p8"
+          [ -f "$P8" ] || { echo "::error::p8 不存在"; exit 1; }
+          KEYID="$APPLE_API_KEY_ID" ISS="$APPLE_API_KEY_ISSUER_ID" \
+          python3 - "$P8" <<'PYEOF'
+          import sys, os, json, time, urllib.request, urllib.error
+          import jwt
+          p8 = open(sys.argv[1]).read()
+          now = int(time.time())
+          tok = jwt.encode({'iss': os.environ['ISS'], 'iat': now, 'exp': now + 1200, 'aud': 'appstoreconnect-v1'},
+                           p8, algorithm='ES256', headers={'alg': 'ES256', 'kid': os.environ['KEYID']})
+          BASE = 'https://api.appstoreconnect.apple.com/v1'
+          def call(method, url, body=None):
+              req = urllib.request.Request(url, method=method)
+              req.add_header('Authorization', 'Bearer ' + tok)
+              req.add_header('Accept', 'application/json')
+              if body is not None:
+                  req.add_header('Content-Type', 'application/json')
+                  req.data = json.dumps(body).encode()
+              try:
+                  with urllib.request.urlopen(req) as r:
+                      return r.status, json.loads(r.read() or b'{}')
+              except urllib.error.HTTPError as e:
+                  return e.code, json.loads(e.read() or b'{}')
+          BID = 'com.vitaliber.app'
+          # 1) Bundle ID（App ID）注册核对
+          st, d = call('GET', f'{BASE}/bundleIds?filter[identifier]={BID}')
+          bids = d.get('data', [])
+          if bids:
+              print(f'[OK] Bundle ID 已注册: id={bids[0]["id"]} identifier={bids[0]["attributes"].get("identifier")}')
+          else:
+              print('[..] Bundle ID 未注册 → 创建 Vita Liber / com.vitaliber.app')
+              st, d = call('POST', f'{BASE}/bundleIds', {'data': {'type': 'bundleIds', 'attributes': {'name': 'Vita Liber', 'identifier': BID, 'platform': 'IOS'}}})
+              bids = d.get('data', [])
+              if bids:
+                  print(f'[OK] Bundle ID 已创建: id={bids[0]["id"]}')
+              else:
+                  print('[X] Bundle ID 创建失败:', json.dumps(d.get("errors", d), ensure_ascii=False)[:400])
+                  raise SystemExit(1)
+          # 2) App 记录核对
+          st, d = call('GET', f'{BASE}/apps?filter[bundleId]={BID}')
+          apps = d.get('data', [])
+          if not apps:
+              print('[X] 查不到 bundleId=' + BID + ' 的 App 记录！')
+              print('    原始响应:', json.dumps(d, ensure_ascii=False)[:400])
+              raise SystemExit(1)
+          a = apps[0]['attributes']
+          print(f'[OK] App 记录: id={apps[0]["id"]} name="{a.get("name")}" bundleId={a.get("bundleId")} sku={a.get("sku")}')
+          if BID in (a.get('name') or ''):
+              print('[WARN] App name 包含 bundle id —— 记录可能由上传自动创建，名称非人工设置')
+          print('APP_ID=' + apps[0]['id'])
+          PYEOF
+
       # ── 上传：xcrun altool（同步校验，退出码即结果）─────────
       # 参考 NetDiagnostics action.yml：--upload-app + --apiKey/--apiIssuer。
       # altool 会同步完成 Apple 初步校验，失败返回非零退出码并在日志给出 ITMS 错误。
@@ -359,9 +421,9 @@ jobs:
             --verbose 2>&1 | tee Build/altool-upload.log
           echo "altool 已受理上传 ✓（Apple 处理完成前 TestFlight 不会立即可见，通常几分钟）"
 
-      # ── 复核：轮询 Build 是否登记（最多 10 分钟，避免“仅送达即报成功”）──
+      # ── 复核：轮询 Build 是否登记（最多约 4 分钟，避免“仅送达即报成功”）──
       # JWT 用 PyJWT + cryptography 签发（含 aud=appstoreconnect-v1，缺它 401）。
-      # 查询 Vita Liber（App 6806786437）下最近 builds；Apple 处理通常 2–10 分钟。
+      # 查询 Vita Liber（App 6806786437）下最近 builds。
       - name: 复核 Build 登记状态
         run: |
           set -euo pipefail
@@ -380,7 +442,7 @@ jobs:
             " 2>/dev/null || true
           }
           found=0
-          for i in $(seq 1 20); do
+          for i in $(seq 1 8); do
             TOKEN=$(mk_token)
             if [ -z "$TOKEN" ]; then echo "::warning::JWT 生成失败，跳过复核"; exit 0; fi
             OUT=$(curl -sS -g --max-time 30 \
@@ -411,7 +473,7 @@ jobs:
             sleep 30
           done
           if [ "$found" = "0" ]; then
-            echo "注意：10 分钟内 build 仍未出现在列表。请查 App Store Connect → 活动/电子邮件"
+            echo "注意：约 4 分钟内 build 仍未出现在列表。请查 App Store Connect → 活动/电子邮件"
             echo "确认 Apple 处理是否报错（如 Invalid Binary / Missing Compliance）。"
           fi
 
