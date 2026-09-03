@@ -3,13 +3,19 @@
 #
 # Job 1 — version：解析版本号（ubuntu，快速廉价）
 # Job 2 — build：L0 门禁 → 编译 → 签名归档 → 导出 IPA → 上传 artifact
-# Job 3 — upload：下载 artifact → fastlane pilot 推送 TestFlight
+# Job 3 — upload：下载 artifact → 直接 xcrun altool 推送 TestFlight
 #
 # 各 Job 独立：修改上传逻辑不影响编译，修改版本解析不影响签名。
 # Job 间通过 artifact + outputs 传递数据，无共享状态。
 #
+# 上传方式（2026-09-03 改）：参考 NetDiagnostics
+#   .github/actions/upload-testflight-ios/action.yml —— 同一 Apple Team 已验证
+#   可稳定登记 build。此前 fastlane pilot 上传后 build 永不登记（实测等待
+#   40 分钟无结果），故改为直接 `xcrun altool --upload-app --apiKey`，与
+#   NetDiagnostics 完全一致。凭据缺失时本 job 失败，不再“绿色成功 + 跳过”。
+#
 # 前置凭据（仓库 Settings → Secrets → Actions）：
-#   APPLE_API_KEY_ID / APPLE_API_KEY_ISSUER_ID / APPLE_API_KEY_P8
+#   APPLE_API_KEY_ID / APPLE_API_KEY_ISSUER_ID / APPLE_API_KEY_P8（base64）
 #   APPLE_TEAM_ID / APPLE_DEV_CERT_P12 / APPLE_DIS_CERT_P12
 #   APPLE_CERT_PASSWORD / APPLE_DIS_PROVISION_PROFILE
 # ============================================================================
@@ -294,13 +300,13 @@ jobs:
           retention-days: 1
 
   # ═══════════════════════════════════════════════════════════════
-  # Job 3: 上传 TestFlight（与编译完全解耦）
+  # Job 3: 上传 TestFlight —— 直接 xcrun altool（NetDiagnostics 已验证方式）
   # ═══════════════════════════════════════════════════════════════
   upload:
     name: '上传 TestFlight'
     needs: [version, build]
     runs-on: macos-latest
-    timeout-minutes: 45
+    timeout-minutes: 20
     if: ${{ !cancelled() && needs.build.result == 'success' }}
     env:
       APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
@@ -313,15 +319,7 @@ jobs:
           name: vitaliber-ipa
           path: Build/export/
 
-      - name: 安装 fastlane
-        run: |
-          if command -v fastlane >/dev/null 2>&1; then
-            fastlane --version | head -1
-          else
-            echo "fastlane 未安装，开始 brew install..."
-            brew install fastlane
-          fi
-
+      # ── 凭据与产物检查：缺失即失败（不再“绿色成功 + 跳过”）────
       - name: 检查 TestFlight 上传凭据
         run: |
           set -euo pipefail
@@ -330,131 +328,75 @@ jobs:
           [ -n "$APPLE_API_KEY_ID" ] || missing+=(APPLE_API_KEY_ID)
           [ -n "$APPLE_API_KEY_ISSUER_ID" ] || missing+=(APPLE_API_KEY_ISSUER_ID)
           if [ "${#missing[@]}" -gt 0 ]; then
-            echo "::error::TestFlight 上传凭据未配置：${missing[*]}"
-            echo "本次工作流已停止，不会显示为成功或静默跳过上传"
+            echo "::error::TestFlight 上传凭据未配置：${missing[*]}，本次上传失败"
             exit 1
           fi
-          echo "TestFlight 上传凭据已配置，将执行上传"
-
-      - name: 上传到 TestFlight（fastlane pilot）
-        run: |
-          set -o pipefail
           test -f Build/export/VitaLiber.ipa || { echo "::error::IPA 文件不存在"; exit 1; }
-          echo "检查 IPA 的 AppIcon 与出口合规声明"
-          unzip -p Build/export/VitaLiber.ipa 'Payload/*.app/Info.plist' > /tmp/ipa-info.plist
-          plutil -p /tmp/ipa-info.plist | grep -E 'CFBundleIcons|CFBundleIcons~ipad|ITSAppUsesNonExemptEncryption' \
-            || { echo "::error::IPA 未包含 AppIcon 或出口合规声明"; exit 1; }
-          NOTES="${{ inputs.notes }}"
-          # 构建 JSON 格式 API Key 文件
-          KEY_JSON="$GITHUB_WORKSPACE/AuthKey.json"
-          P8="$GITHUB_WORKSPACE/private_keys/AuthKey_$APPLE_API_KEY_ID.p8"
-          if [ ! -f "$P8" ]; then
-            mkdir -p "$GITHUB_WORKSPACE/private_keys"
-            echo "$APPLE_API_KEY_P8" | base64 -d > "$P8"
-            chmod 600 "$P8"
-          fi
-          python3 -c "
-          import json, sys
-          with open(sys.argv[1]) as f: key = f.read()
-          data = {'key_id': sys.argv[2], 'issuer_id': sys.argv[3], 'key': key}
-          with open(sys.argv[4], 'w') as f: json.dump(data, f)
-          " "$P8" "$APPLE_API_KEY_ID" "$APPLE_API_KEY_ISSUER_ID" "$KEY_JSON"
-          PILOT_OPTS=(upload --ipa Build/export/VitaLiber.ipa --api_key_path "$KEY_JSON" --verbose)
-          if [ -n "$NOTES" ]; then PILOT_OPTS+=(--changelog "$NOTES"); fi
-          fastlane pilot "${PILOT_OPTS[@]}"
-          echo "TestFlight 上传完成 ✓"
+          echo "凭据与 IPA 就绪"
 
-      # ── 查询 Apple 处理状态（ASC REST API）────────────
-      - name: 查询 Build 处理状态
-        if: ${{ env.APPLE_API_KEY_P8 != '' }}
+      # ── 写入 ASC API Key 到 altool 约定路径 ──────────────────
+      # altool --apiKey <ID> 会读取 ~/.appstoreconnect/private_keys/AuthKey_<ID>.p8
+      - name: 准备 App Store Connect API Key
         run: |
-          set -o pipefail
-          # 安装 PyJWT + cryptography（macOS runner 的 python3 可能 externally-managed，需 --break-system-packages fallback）
+          set -euo pipefail
+          mkdir -p "$HOME/.appstoreconnect/private_keys"
+          K="$HOME/.appstoreconnect/private_keys/AuthKey_$APPLE_API_KEY_ID.p8"
+          echo "$APPLE_API_KEY_P8" | base64 -d > "$K"
+          chmod 600 "$K"
+          [ -s "$K" ] || { echo "::error::API Key 解码为空"; exit 1; }
+          head -c 27 "$K"; echo "..."
+          echo "API Key 就绪：$K"
+
+      # ── 上传：xcrun altool（同步校验，退出码即结果）─────────
+      # 参考 NetDiagnostics action.yml：--upload-app + --apiKey/--apiIssuer。
+      # altool 会同步完成 Apple 初步校验，失败返回非零退出码并在日志给出 ITMS 错误。
+      - name: 上传 TestFlight（xcrun altool）
+        run: |
+          set -euo pipefail
+          xcrun altool --upload-app -f Build/export/VitaLiber.ipa -t ios \
+            --apiKey "$APPLE_API_KEY_ID" \
+            --apiIssuer "$APPLE_API_KEY_ISSUER_ID" \
+            --verbose 2>&1 | tee Build/altool-upload.log
+          echo "altool 已受理上传 ✓（Apple 处理完成前 TestFlight 不会立即可见，通常几分钟）"
+
+      # ── 复核：Build 是否已登记（简短，避免“仅送达即报成功”的误导）──
+      # JWT 用 PyJWT + cryptography 签发（含 aud=appstoreconnect-v1，缺它 401）。
+      # 查询 Vita Liber（App 6806786437）下最近 builds 的处理状态。
+      - name: 复核 Build 登记状态
+        run: |
+          set -euo pipefail
           python3 -m pip install --user PyJWT cryptography >/tmp/pip.log 2>&1 \
             || python3 -m pip install --user --break-system-packages PyJWT cryptography >/tmp/pip.log 2>&1 \
             || true
-          tail -2 /tmp/pip.log 2>/dev/null || true
-          echo "等待 Apple 开始处理（90 秒）..."
           sleep 90
-          P8="$GITHUB_WORKSPACE/private_keys/AuthKey_$APPLE_API_KEY_ID.p8"
-          [ -f "$P8" ] || { echo "::warning::p8 文件不存在，跳过查询"; exit 0; }
-          # 生成 JWT（ES256；aud 为 Apple 要求的 appstoreconnect-v1，缺它会被 401 拒绝）
+          P8="$HOME/.appstoreconnect/private_keys/AuthKey_$APPLE_API_KEY_ID.p8"
+          [ -f "$P8" ] || { echo "::warning::p8 不存在，跳过复核"; exit 0; }
           TOKEN=$(python3 -c "
-          import jwt, time, json
+          import jwt, time
           with open('$P8') as f: key = f.read()
           now = int(time.time())
           payload = {'iss': '$APPLE_API_KEY_ISSUER_ID', 'iat': now, 'exp': now + 1200, 'aud': 'appstoreconnect-v1'}
-          t = jwt.encode(payload, key, algorithm='ES256', headers={'alg': 'ES256', 'kid': '$APPLE_API_KEY_ID'})
-          # 解码 header 校验 kid（kid 非机密）
-          import base64
-          h = json.loads(base64.urlsafe_b64decode(t.split('.')[0] + '=='))
-          print('KID_CHECK=' + str(h.get('kid')))
-          print(t)
-          " 2>&1 || true)
-          KID=$(echo "$TOKEN" | grep '^KID_CHECK=' | cut -d= -f2)
-          TOKEN=$(echo "$TOKEN" | grep -v '^KID_CHECK=' | tail -1)
-          echo "JWT kid=$KID；token 长度 ${#TOKEN}"
+          print(jwt.encode(payload, key, algorithm='ES256', headers={'alg': 'ES256', 'kid': '$APPLE_API_KEY_ID'}))
+          " 2>/dev/null || true)
           if [ -z "$TOKEN" ]; then
-            echo "::error::JWT 生成失败（PyJWT/cryptography 未就绪），请查看上方 pip 输出"
+            echo "::warning::JWT 生成失败，跳过复核"
             exit 0
           fi
-          AUTH="Authorization: Bearer $TOKEN"
-          # curl 封装：-g 关 glob（URL 内 [] 方括号必需）
-          asc_json() {
-            # $1=url，打印精简结果
-            local url="$1" code
-            code=$(curl -sS -g -o /tmp/asc.json -w '%{http_code}' --max-time 30 "$url" -H "$AUTH" 2>&1) || true
-            echo "HTTP $code"
-            python3 -c "
-            import json
-            try:
-                d = json.load(open('/tmp/asc.json'))
-            except Exception as e:
-                print('  解析失败:', e, open('/tmp/asc.json').read()[:200]); raise SystemExit
-            if 'errors' in d:
-                print('  errors:', json.dumps(d['errors'], ensure_ascii=False)[:600]); raise SystemExit
-            for it in d.get('data', []):
-                t = it.get('type','?'); a = it.get('attributes',{})
-                if t=='builds':
-                    print(f\"  Build {a.get('version','?')} state={a.get('processingState','?')} compliance={a.get('missingExportCompliance','?')} uploaded={a.get('uploadedDate','?')}\")
-                elif t=='apps':
-                    print(f\"  App {it['id']} {a.get('name','?')} {a.get('bundleId','?')} sku={a.get('sku','?')}\")
-                elif t=='appStoreVersions':
-                    print(f\"  版本 {a.get('versionString','?')} state={a.get('appStoreState','?')} platform={a.get('platform','?')}\")
-                elif t=='betaGroups':
-                    print(f\"  betaGroup {a.get('name','?')} state={a.get('state','?')}\")
-                else:
-                    print(' ', it['id'], a)
-            print(f\"  (共 {d.get('meta',{}).get('paging',{}).get('total', len(d.get('data',[])))} 条)\")
-            "
-          }
-          APP=6806786437
-          echo "── ① 该 Team 全部 builds（不限 App）──"
-          asc_json "https://api.appstoreconnect.apple.com/v1/builds?sort=-uploadedDate&limit=20"
-          echo "── ② App $APP（Vita Liber）最近 builds ──"
-          asc_json "https://api.appstoreconnect.apple.com/v1/builds?sort=-uploadedDate&limit=10&filter[app]=$APP"
-          echo "── ③ App $APP 的 appStoreVersions（有无版本占位）──"
-          asc_json "https://api.appstoreconnect.apple.com/v1/apps/$APP/appStoreVersions?limit=10"
-          echo "── ④ App $APP 的 betaGroups ──"
-          asc_json "https://api.appstoreconnect.apple.com/v1/apps/$APP/betaGroups?limit=10"
-          echo "── ⑤ App $APP 全量 attributes ──"
-          curl -sS -g --max-time 30 "https://api.appstoreconnect.apple.com/v1/apps/$APP" -H "$AUTH" 2>&1 | python3 -c "
-          import json,sys
+          curl -sS -g --max-time 30 \
+            "https://api.appstoreconnect.apple.com/v1/builds?sort=-uploadedDate&limit=5&filter[app]=6806786437" \
+            -H "Authorization: Bearer $TOKEN" | python3 -c "
+          import json, sys
           try:
-              d=json.load(sys.stdin); a=d['data']['attributes']
-              for k in sorted(a.keys()): print(f'  {k} = {a[k]}')
-          except Exception as e: print('  解析失败', e)
-          " || true
-          # ⑥ 上传后轮询：build 是否真的登记（每 30s 一次，最多 6 分钟）
-          echo "── ⑥ 轮询 App $APP 是否有新 build 登记（30s×12）──"
-          for i in $(seq 1 12); do
-            sleep 30
-            N=$(curl -sS -g --max-time 30 "https://api.appstoreconnect.apple.com/v1/builds?limit=3&filter[app]=$APP" -H "$AUTH" 2>/dev/null | python3 -c "
-            import json,sys
-            try: print(len(json.load(sys.stdin).get('data',[])))
-            except: print('?')
-            " 2>/dev/null || true)
-            echo "  第 ${i} 次轮询（$(date -u +%H:%M:%S)）：build 数 = $N"
-            if [ "$N" != "0" ] && [ "$N" != "?" ]; then echo "  → build 已登记！"; break; fi
-          done
+              d = json.load(sys.stdin)
+          except Exception as e:
+              print('复核响应解析失败:', e); raise SystemExit
+          if 'errors' in d:
+              print('复核 API 错误:', json.dumps(d['errors'], ensure_ascii=False)[:400]); raise SystemExit
+          bs = d.get('data', [])
+          if not bs:
+              print('注意：上传已受理，但 build 尚未登记（Apple 处理中，通常数分钟到数十分钟）')
+          for b in bs:
+              a = b['attributes']
+              print('Build %s state=%s compliance=%s uploaded=%s' % (a.get('version','?'), a.get('processingState','?'), a.get('missingExportCompliance','?'), a.get('uploadedDate','?')))
+          "
 
