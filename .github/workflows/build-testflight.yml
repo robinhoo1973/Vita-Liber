@@ -382,36 +382,64 @@ jobs:
             exit 0
           fi
           AUTH="Authorization: Bearer $TOKEN"
-          # curl 封装：-g 关 glob（URL 内 [] 方括号必需）、打印 HTTP 状态码 + 完整 body
-          asc_get() {
-            local url="$1"
-            curl -sS -g -w $'\n__HTTP__:%{http_code}\n' --max-time 30 "$url" -H "$AUTH" 2>&1 || true
+          # curl 封装：-g 关 glob（URL 内 [] 方括号必需）
+          asc_json() {
+            # $1=url，打印精简结果
+            local url="$1" code
+            code=$(curl -sS -g -o /tmp/asc.json -w '%{http_code}' --max-time 30 "$url" -H "$AUTH" 2>&1) || true
+            echo "HTTP $code"
+            python3 -c "
+            import json
+            try:
+                d = json.load(open('/tmp/asc.json'))
+            except Exception as e:
+                print('  解析失败:', e, open('/tmp/asc.json').read()[:200]); raise SystemExit
+            if 'errors' in d:
+                print('  errors:', json.dumps(d['errors'], ensure_ascii=False)[:600]); raise SystemExit
+            for it in d.get('data', []):
+                t = it.get('type','?'); a = it.get('attributes',{})
+                if t=='builds':
+                    print(f\"  Build {a.get('version','?')} state={a.get('processingState','?')} compliance={a.get('missingExportCompliance','?')} uploaded={a.get('uploadedDate','?')}\")
+                elif t=='apps':
+                    print(f\"  App {it['id']} {a.get('name','?')} {a.get('bundleId','?')} sku={a.get('sku','?')}\")
+                elif t=='appStoreVersions':
+                    print(f\"  版本 {a.get('versionString','?')} state={a.get('appStoreState','?')} platform={a.get('platform','?')}\")
+                elif t=='betaGroups':
+                    print(f\"  betaGroup {a.get('name','?')} state={a.get('state','?')}\")
+                else:
+                    print(' ', it['id'], a)
+            print(f\"  (共 {d.get('meta',{}).get('paging',{}).get('total', len(d.get('data',[])))} 条)\")
+            "
           }
-          # 1) 按 bundleId 反查 App
-          echo "── ① 按 bundleId=com.vitaliber.app 查 App ──"
-          asc_get "https://api.appstoreconnect.apple.com/v1/apps?filter[bundleId]=com.vitaliber.app"
-          # 2) 直接查已知 App（fastlane 上传时解析到 6806786437）下的 builds
-          echo "── ② App 6806786437 最近 builds ──"
-          asc_get "https://api.appstoreconnect.apple.com/v1/builds?sort=-uploadedDate&limit=5&filter[app]=6806786437"
-          echo "── ③ 该 Team 全部 apps（核对 bundle id 与 App 名）──"
-          asc_get "https://api.appstoreconnect.apple.com/v1/apps?limit=50" | python3 -c "
-          import json, sys
-          raw = sys.stdin.read()
-          body = raw.rsplit('__HTTP__:', 1)[0]
-          code = raw.rsplit('__HTTP__:', 1)[-1].strip()
-          print('HTTP', code)
+          APP=6806786437
+          echo "── ① 该 Team 全部 builds（不限 App）──"
+          asc_json "https://api.appstoreconnect.apple.com/v1/builds?sort=-uploadedDate&limit=20"
+          echo "── ② App $APP（Vita Liber）最近 builds ──"
+          asc_json "https://api.appstoreconnect.apple.com/v1/builds?sort=-uploadedDate&limit=10&filter[app]=$APP"
+          echo "── ③ App $APP 的 appStoreVersions（有无版本占位）──"
+          asc_json "https://api.appstoreconnect.apple.com/v1/apps/$APP/appStoreVersions?limit=10"
+          echo "── ④ App $APP 的 betaGroups ──"
+          asc_json "https://api.appstoreconnect.apple.com/v1/apps/$APP/betaGroups?limit=10"
+          echo "── ⑤ App $APP 全量 attributes ──"
+          curl -sS -g --max-time 30 "https://api.appstoreconnect.apple.com/v1/apps/$APP" -H "$AUTH" 2>&1 | python3 -c "
+          import json,sys
           try:
-              d = json.loads(body)
-              if 'errors' in d:
-                  print('API errors:', json.dumps(d['errors'], ensure_ascii=False)[:800]); sys.exit()
-              for a in d.get('data', []):
-                  at = a['attributes']
-                  print(f\"{a['id']}  {at.get('name','?')}  {at.get('bundleId','?')}\")
-              if not d.get('data'):
-                  print('(空列表)')
-          except Exception as e:
-              print('解析失败:', e, '| 原始:', body[:300])
-          "
+              d=json.load(sys.stdin); a=d['data']['attributes']
+              for k in sorted(a.keys()): print(f'  {k} = {a[k]}')
+          except Exception as e: print('  解析失败', e)
+          " || true
+          # ⑥ 上传后轮询：build 是否真的登记（每 30s 一次，最多 6 分钟）
+          echo "── ⑥ 轮询 App $APP 是否有新 build 登记（30s×12）──"
+          for i in $(seq 1 12); do
+            sleep 30
+            N=$(curl -sS -g --max-time 30 "https://api.appstoreconnect.apple.com/v1/builds?limit=3&filter[app]=$APP" -H "$AUTH" 2>/dev/null | python3 -c "
+            import json,sys
+            try: print(len(json.load(sys.stdin).get('data',[])))
+            except: print('?')
+            " 2>/dev/null || true)
+            echo "  第 ${i} 次轮询（$(date -u +%H:%M:%S)）：build 数 = $N"
+            if [ "$N" != "0" ] && [ "$N" != "?" ]; then echo "  → build 已登记！"; break; fi
+          done
 
       - name: 凭据未配置——跳过上传
         if: ${{ env.APPLE_API_KEY_P8 == '' }}
