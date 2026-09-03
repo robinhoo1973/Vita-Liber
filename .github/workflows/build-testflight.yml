@@ -1,35 +1,19 @@
 # ============================================================================
-# 构建 + TestFlight 发布 CI
+# 构建 + TestFlight 发布 CI（三阶段独立 Job）
 #
-# 职责：编译项目 → 成功 → 签名归档 → 推送 TestFlight。
-#   1) L0 静态门禁（swift 容器，任意机器可跑）—— 不过不进编译；
-#   2) 编译门禁：xcodegen + xcodebuild build-for-testing —— 失败即停（不上传）；
-#   3) 签名归档：p12 本地签名（绕开云签名权限限制）：
-#      导入 dev/dis p12 到 keychain → build 用 dev cert → export 用 dis cert；
-#   4) 导出 .ipa（method=app-store, manual signing）→ fastlane pilot 推送 TestFlight。
+# Job 1 — version：解析版本号（ubuntu，快速廉价）
+# Job 2 — build：L0 门禁 → 编译 → 签名归档 → 导出 IPA → 上传 artifact
+# Job 3 — upload：下载 artifact → fastlane pilot 推送 TestFlight
 #
-# 签名策略说明（Round 5）：
-#   - App Store Connect API Key 分两种角色：Developer（仅上传）和 Admin（可云签名）。
-#   - 云签名（-allowProvisioningUpdates + API Key）需 Admin 角色。
-#   - 若 API Key 为 Developer 角色，build/export 使用 p12 证书本地签名，
-#     API Key 仅用于 fastlane pilot 上传（Developer 权限足够）。
-#
-# 触发：
-#   - push master（日常合入即发 TestFlight）
-#   - push v* 标签（发版）
-#   - workflow_dispatch（手动，可填版本说明）
+# 各 Job 独立：修改上传逻辑不影响编译，修改版本解析不影响签名。
+# Job 间通过 artifact + outputs 传递数据，无共享状态。
 #
 # 前置凭据（仓库 Settings → Secrets → Actions）：
 #   APPLE_API_KEY_ID / APPLE_API_KEY_ISSUER_ID / APPLE_API_KEY_P8
-#       App Store Connect API Key（.p8 base64）——签名自动管理 + 上传认证
-#   APPLE_TEAM_ID      Apple Developer Team ID（exportOptions 需要）
-#
-# 说明：
-#   - 本文件是本仓库唯一的发布/分发通道（App 元数据与 Beta 审核在 ASC 网页管理）。
-#   - 未配置签名凭据时：只跑 L0 + 编译门禁，明确 WARNING 提示跳过上传（不误报绿）。
-#   - 版本号取自构建配置（CFBundleVersion），无需在此维护。
+#   APPLE_TEAM_ID / APPLE_DEV_CERT_P12 / APPLE_DIS_CERT_P12
+#   APPLE_CERT_PASSWORD / APPLE_DIS_PROVISION_PROFILE
 # ============================================================================
-name: 构建 + TestFlight 发布
+name: Build + TestFlight
 
 on:
   workflow_dispatch:
@@ -47,57 +31,26 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: write    # 需 gh release list/create（版本解析与无 release 时自动建 v0.0.1）
+  contents: write
 
 env:
   SCHEME: VitaLiber
   XCODEPROJ: VitaLiber.xcodeproj
 
 jobs:
-  # ── L0 静态门禁：不过不进编译 ─────────────────────────────────
-  l0-static-gate:
-    name: 'L0 · 静态门禁'
+  # ═══════════════════════════════════════════════════════════════
+  # Job 1: 解析版本号（ubuntu，快速廉价）
+  # ═══════════════════════════════════════════════════════════════
+  version:
+    name: '解析版本'
     runs-on: ubuntu-latest
-    container: swift:6.0-jammy
-    timeout-minutes: 10
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      build: ${{ steps.ver.outputs.build }}
+      hash: ${{ steps.ver.outputs.hash }}
     steps:
       - uses: actions/checkout@v4
-      - name: Run l0-static-gate.sh
-        run: bash .github/workflows/l0-static-gate.sh
-
-  # ── 编译 → 签名归档 → TestFlight ─────────────────────────────
-  build-testflight:
-    name: '编译 + TestFlight'
-    needs: l0-static-gate
-    runs-on: macos-latest
-    timeout-minutes: 60
-    # 签名/上传凭据映射到 job env：if: 与步骤都能读（step env 不进入 if 上下文）
-    env:
-      APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
-      APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-      APPLE_API_KEY_ISSUER_ID: ${{ secrets.APPLE_API_KEY_ISSUER_ID }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      APPLE_DEV_CERT_P12: ${{ secrets.APPLE_DEV_CERT_P12 }}
-      APPLE_DIS_CERT_P12: ${{ secrets.APPLE_DIS_CERT_P12 }}
-      APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
-      APPLE_DIS_PROVISION_PROFILE: ${{ secrets.APPLE_DIS_PROVISION_PROFILE }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: 环境与工具链
-        run: |
-          xcodebuild -version
-          command -v fastlane >/dev/null 2>&1 && fastlane --version | head -1 || echo "fastlane 未预装（上传步骤会 brew 安装）"
-
-      - name: 生成 Xcode 工程
-        run: |
-          if [ -d "$XCODEPROJ" ]; then
-            echo "已有 $XCODEPROJ"
-          elif [ -f project.yml ]; then
-            brew install xcodegen >/dev/null 2>&1 && xcodegen generate
-          else
-            echo "::error::缺 project.yml 且无 xcodeproj"; exit 1
-          fi
 
       - name: 解析版本（GitHub 最高 Release → 版本主体；无则自动建 v0.0.1）
         id: ver
@@ -115,38 +68,50 @@ jobs:
           fi
           BUILD="$(printf '%03d' ${{ github.run_number }})"
           HASH="$(git rev-parse --short=8 HEAD)"
-          echo "RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
-          echo "BUILD_NUMBER=$BUILD" >> "$GITHUB_ENV"
-          echo "CODE_HASH=$HASH" >> "$GITHUB_ENV"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "build=$BUILD" >> "$GITHUB_OUTPUT"
+          echo "hash=$HASH" >> "$GITHUB_OUTPUT"
           echo "三部件版本 → Version $VERSION | Build $BUILD | Code Hash $HASH"
 
-      # ── 编译门禁（模拟器切片，未签名）：失败即停，绝不进上传 ──
-      - name: 编译门禁（build-for-testing）
-        run: |
-          set -o pipefail
-          mkdir -p Build
-          DEST=$(python3 - <<'PY'
-          import json, subprocess
-          d = json.loads(subprocess.check_output(["xcrun","simctl","list","--json","devices","available"]))
-          pairs = [(rt, v["name"], v["udid"]) for rt, devs in d["devices"].items()
-                   for v in devs if v.get("isAvailable") and v["name"].startswith("iPhone")]
-          spec = [p for p in pairs if p[1] == "iPhone 15"]
-          pick = spec[0] if spec else sorted(pairs)[0]
-          # 用 UDID 而非 name：同名校验在 Xcode 26 多 runtime 下脆弱（实测
-          # macos-latest/Xcode 26.6 报 Unable to find device），UDID 精确无歧义
-          print(f"platform=iOS Simulator,id={pick[2]}")
-          PY
-          )
-          echo "destination: $DEST"
-          xcodebuild build-for-testing \
-            -project "$XCODEPROJ" -scheme "$SCHEME" \
-            -destination "$DEST" \
-            -derivedDataPath Build/DerivedData \
-            COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO \
-            2>&1 | tee Build/xcodebuild-build.log
-          echo "编译门禁通过 ✓"
+  # ═══════════════════════════════════════════════════════════════
+  # Job 2: 编译 + 签名归档 + 导出 IPA
+  # ═══════════════════════════════════════════════════════════════
+  build:
+    name: '编译 + 导出 IPA'
+    needs: version
+    runs-on: macos-latest
+    timeout-minutes: 30
+    env:
+      APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+      APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+      APPLE_API_KEY_ISSUER_ID: ${{ secrets.APPLE_API_KEY_ISSUER_ID }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_DEV_CERT_P12: ${{ secrets.APPLE_DEV_CERT_P12 }}
+      APPLE_DIS_CERT_P12: ${{ secrets.APPLE_DIS_CERT_P12 }}
+      APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+      APPLE_DIS_PROVISION_PROFILE: ${{ secrets.APPLE_DIS_PROVISION_PROFILE }}
+    steps:
+      - uses: actions/checkout@v4
 
-      # ── 解码 ASC API Key（Path A 自动签名用）──────────────────
+      - name: 环境与工具链
+        run: |
+          xcodebuild -version
+
+      - name: 生成 Xcode 工程
+        run: |
+          if [ -d "$XCODEPROJ" ]; then
+            echo "已有 $XCODEPROJ"
+          elif [ -f project.yml ]; then
+            brew install xcodegen >/dev/null 2>&1 && xcodegen generate
+          else
+            echo "::error::缺 project.yml 且无 xcodeproj"; exit 1
+          fi
+
+      # ── L0 静态门禁（macOS 自带 swift，无需容器）──────
+      - name: L0 静态门禁
+        run: bash .github/workflows/l0-static-gate.sh
+
+      # ── 解码 ASC API Key ─────────────────────────────
       - name: 解码 App Store Connect API Key
         if: ${{ env.APPLE_API_KEY_P8 != '' }}
         run: |
@@ -155,9 +120,7 @@ jobs:
           chmod 600 "$GITHUB_WORKSPACE/private_keys/AuthKey_$APPLE_API_KEY_ID.p8"
           echo "API Key 已就绪"
 
-      # ── 导入签名证书（p12）—— 用于本地签名，不依赖 API Key 云签名 ────────
-      # Cloud signing 需要 Admin 级 API Key；Developer 级 Key 只能上传，不能签。
-      # 用 p12 证书导入 keychain 做本地签名，彻底绕开云签名权限限制。
+      # ── 导入签名证书（p12 via openssl PEM split）────
       - name: 导入签名证书（p12）
         if: ${{ env.APPLE_DEV_CERT_P12 != '' && env.APPLE_DIS_CERT_P12 != '' }}
         run: |
@@ -177,10 +140,8 @@ jobs:
           security default-keychain -s "$KC"
           security unlock-keychain -p "$KC_PASS" "$KC"
           security set-keychain-settings -t 3600 "$KC"
-          # 使用 openssl 导入（macOS security import 对某些 p12 格式兼容性差）
           import_p12() {
             local f="$1" pass="$2" name="$3"
-            # 方案A：openssl 导出 PEM → security 导入 PEM
             local pem="$f.pem"
             if openssl pkcs12 -in "$f" -passin "pass:$pass" -nodes -out "$pem" 2>/dev/null; then
               local cert_pem="$f.cert.pem"
@@ -194,7 +155,6 @@ jobs:
                 rm -f "$pem" "$cert_pem" "$key_pem"
                 return 0
               fi
-              # 方案B：openssl 重封装 p12 → security 导入
               local std_p12="$f.std.p12"
               openssl pkcs12 -export -in "$pem" -passout "pass:$pass" -out "$std_p12" 2>/dev/null
               if [ -s "$std_p12" ]; then
@@ -225,44 +185,51 @@ jobs:
           echo "已导入 identities:"
           security find-identity -v -p codesigning "$KC"
 
-      # ── 导入 Provisioning Profile ─────────────────────────────────
+      # ── 导入 Provisioning Profile ─────────────────────
       - name: 导入 Provisioning Profile
         if: ${{ env.APPLE_DIS_PROVISION_PROFILE != '' }}
         run: |
           set -euo pipefail
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
           echo "$APPLE_DIS_PROVISION_PROFILE" | base64 -d > "$HOME/Library/MobileDevice/Provisioning Profiles/dev.mobileprovision"
-          # 打印 profile 信息供诊断
           security cms -D -i "$HOME/Library/MobileDevice/Provisioning Profiles/dev.mobileprovision" 2>/dev/null | \
             plutil -extract Name raw - 2>/dev/null && echo "profile 名称 ✓" || echo "profile 导入完成"
           ls -la "$HOME/Library/MobileDevice/Provisioning Profiles/"
-      - name: 未配置 Provisioning Profile
-        if: ${{ env.APPLE_DIS_PROVISION_PROFILE == '' }}
-        run: |
-          echo "::warning::未配置 APPLE_DIS_PROVISION_PROFILE——签名可能因缺少 profile 失败"
-          echo "配置：Settings → Secrets → Actions → APPLE_DIS_PROVISION_PROFILE（base64 编码的 .mobileprovision）"
 
-      # ── 签名归档：build + 手拼 xcarchive（绕开 Xcode 16 SPM archive bug）──────
-      # 5WHY 实证（13-17 轮）：xcodebuild archive 在 Xcode 16.4 对 SPM 资源 bundle
-      # （GRDB_GRDB.bundle）的自动集成 Copy phase 源固定指向 archive 空间
-      # BuildProductsPath/Debug-iphoneos/，而产物落 UninstalledProducts——工程侧无开关、
-      # 产物侧预种入被 archive 清理，无法修复。普通 xcodebuild build 无此缺陷
-      # （bundle 正常嵌入 VitaLiber.app，第 15 轮实证）。故：Release build（自动签名
-      # development）→ 按 xcarchive 规范手拼归档（Products/Applications + Info.plist）
-      # → 既有 exportArchive 步骤以 API key 自动重签为 distribution 并导出 ipa。
-      #
-      # 签名策略（Round 5 修正）：p12 本地签名 + API Key 仅上传
-      # - Cloud signing 需 Admin 级 API Key；Developer 级 Key 只能上传 TestFlight。
-      # - build 用 keychain 中的 dev cert（手动签名），
-      # - export 用 keychain 中的 dis cert（手动签名，重签为 App Store），
-      # - upload 用 API Key（仅需 Developer 权限）。
-      - name: 签名归档（archive + 导出）
+      # ── 编译门禁（build-for-testing）：失败即停 ───────
+      - name: 编译门禁（build-for-testing）
+        run: |
+          set -o pipefail
+          mkdir -p Build
+          DEST=$(python3 - <<'PY'
+          import json, subprocess
+          d = json.loads(subprocess.check_output(["xcrun","simctl","list","--json","devices","available"]))
+          pairs = [(rt, v["name"], v["udid"]) for rt, devs in d["devices"].items()
+                   for v in devs if v.get("isAvailable") and v["name"].startswith("iPhone")]
+          spec = [p for p in pairs if p[1] == "iPhone 15"]
+          pick = spec[0] if spec else sorted(pairs)[0]
+          print(f"platform=iOS Simulator,id={pick[2]}")
+          PY
+          )
+          echo "destination: $DEST"
+          xcodebuild build-for-testing \
+            -project "$XCODEPROJ" -scheme "$SCHEME" \
+            -destination "$DEST" \
+            -derivedDataPath Build/DerivedData \
+            COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee Build/xcodebuild-build.log
+          echo "编译门禁通过 ✓"
+
+      # ── 签名归档 + 导出 IPA ──────────────────────────
+      - name: 签名归档 + 导出 IPA
         if: ${{ env.APPLE_DEV_CERT_P12 != '' }}
         run: |
           set -o pipefail
+          VERSION="${{ needs.version.outputs.version }}"
+          BUILD="${{ needs.version.outputs.build }}"
+          HASH="${{ needs.version.outputs.hash }}"
           ARCH="Build/VitaLiber.xcarchive"
           rm -rf "$ARCH" Build/export
-          # 使用 xcodebuild archive（而非手动拼装）——确保 archive 结构完整
           xcodebuild archive \
             -project "$XCODEPROJ" -scheme "$SCHEME" \
             -configuration Release \
@@ -272,7 +239,7 @@ jobs:
             -authenticationKeyIssuerID "$APPLE_API_KEY_ISSUER_ID" \
             -allowProvisioningUpdates \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
-            MARKETING_VERSION="$RELEASE_VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" VITA_LIBER_CODE_HASH="$CODE_HASH" \
+            MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD" VITA_LIBER_CODE_HASH="$HASH" \
             2>&1 | tee Build/xcodebuild-archive.log
           echo "archive 完成 ✓"
           echo "=== archive Info.plist ==="
@@ -314,32 +281,70 @@ jobs:
             2>&1 | tee Build/xcodebuild-export.log
           test -f Build/export/VitaLiber.ipa && echo "ipa 导出成功 ✓"
 
-      # ── 导出 .ipa —— 已合并到「签名归档」步骤 ────────
+      # ── 上传 IPA 到 Artifact（供 upload job 下载）────
+      - name: 上传 IPA artifact
+        if: ${{ env.APPLE_DEV_CERT_P12 != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: vitaliber-ipa
+          path: Build/export/VitaLiber.ipa
+          retention-days: 1
 
-      # ── 推送 TestFlight（API Key 认证，无需 2FA）────────────
-      - name: 上传 TestFlight（fastlane pilot）
+  # ═══════════════════════════════════════════════════════════════
+  # Job 3: 上传 TestFlight（与编译完全解耦）
+  # ═══════════════════════════════════════════════════════════════
+  upload:
+    name: '上传 TestFlight'
+    needs: [version, build]
+    runs-on: macos-latest
+    timeout-minutes: 30
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    env:
+      APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+      APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+      APPLE_API_KEY_ISSUER_ID: ${{ secrets.APPLE_API_KEY_ISSUER_ID }}
+    steps:
+      - name: 下载 IPA artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: vitaliber-ipa
+          path: Build/export/
+
+      - name: 安装 fastlane
+        run: |
+          if command -v fastlane >/dev/null 2>&1; then
+            fastlane --version | head -1
+          else
+            echo "fastlane 未安装，开始 brew install..."
+            brew install fastlane
+          fi
+
+      - name: 上传到 TestFlight（fastlane pilot）
         if: ${{ env.APPLE_API_KEY_P8 != '' }}
         run: |
-          command -v fastlane >/dev/null 2>&1 || brew install fastlane >/dev/null 2>&1
+          set -o pipefail
+          test -f Build/export/VitaLiber.ipa || { echo "::error::IPA 文件不存在"; exit 1; }
           NOTES="${{ inputs.notes }}"
-          # fastlane 需要 JSON 格式的 API Key 文件
+          # 构建 JSON 格式 API Key 文件
           KEY_JSON="$GITHUB_WORKSPACE/AuthKey.json"
           P8="$GITHUB_WORKSPACE/private_keys/AuthKey_$APPLE_API_KEY_ID.p8"
+          if [ ! -f "$P8" ]; then
+            mkdir -p "$GITHUB_WORKSPACE/private_keys"
+            echo "$APPLE_API_KEY_P8" | base64 -d > "$P8"
+            chmod 600 "$P8"
+          fi
           python3 -c "
           import json, sys
           with open(sys.argv[1]) as f: key = f.read()
           data = {'key_id': sys.argv[2], 'issuer_id': sys.argv[3], 'key': key}
           with open(sys.argv[4], 'w') as f: json.dump(data, f)
           " "$P8" "$APPLE_API_KEY_ID" "$APPLE_API_KEY_ISSUER_ID" "$KEY_JSON"
-          # app_identifier 不硬编码：pilot 默认从 ipa 的 CFBundleIdentifier 解析
           PILOT_OPTS=(upload --ipa Build/export/VitaLiber.ipa --api_key_path "$KEY_JSON")
           if [ -n "$NOTES" ]; then PILOT_OPTS+=(--changelog "$NOTES"); fi
           fastlane pilot "${PILOT_OPTS[@]}"
           echo "TestFlight 上传完成 ✓"
 
-      # ── 未配置凭据时明确提示（不误报）───────────────────────
-      - name: 凭据未配置——仅完成编译，跳过上传
-        if: ${{ env.APPLE_API_KEY_P8 == '' && env.APPLE_DEV_CERT_P12 == '' }}
+      - name: 凭据未配置——跳过上传
+        if: ${{ env.APPLE_API_KEY_P8 == '' }}
         run: |
-          echo "::warning::未配置 APPLE_API_KEY_P8 等签名凭据——本次仅跑 L0+编译门禁，未上传 TestFlight"
-          echo "配置：Settings → Secrets → Actions → APPLE_API_KEY_ID / APPLE_API_KEY_ISSUER_ID / APPLE_API_KEY_P8 / APPLE_TEAM_ID"
+          echo "::warning::未配置 APPLE_API_KEY_P8——跳过 TestFlight 上传"
