@@ -351,38 +351,71 @@ jobs:
       - name: 查询 Build 处理状态
         if: ${{ env.APPLE_API_KEY_P8 != '' }}
         run: |
-          pip3 install PyJWT cryptography 2>/dev/null || true
+          set -o pipefail
+          # 安装 PyJWT + cryptography（macOS runner 的 python3 可能 externally-managed，需 --break-system-packages fallback）
+          python3 -m pip install --user PyJWT cryptography >/tmp/pip.log 2>&1 \
+            || python3 -m pip install --user --break-system-packages PyJWT cryptography >/tmp/pip.log 2>&1 \
+            || true
+          tail -2 /tmp/pip.log 2>/dev/null || true
           echo "等待 Apple 开始处理（90 秒）..."
           sleep 90
           P8="$GITHUB_WORKSPACE/private_keys/AuthKey_$APPLE_API_KEY_ID.p8"
-          # 生成 JWT
+          [ -f "$P8" ] || { echo "::warning::p8 文件不存在，跳过查询"; exit 0; }
+          # 生成 JWT（ES256）
           TOKEN=$(python3 -c "
           import jwt, time
           with open('$P8') as f: key = f.read()
           now = int(time.time())
           payload = {'iss': '$APPLE_API_KEY_ISSUER_ID', 'iat': now, 'exp': now + 20*60}
           print(jwt.encode(payload, key, algorithm='ES256', headers={'alg': 'ES256', 'kid': '$APPLE_API_KEY_ID'}))
-          " 2>/dev/null || true)
+          " 2>&1 || true)
           if [ -z "$TOKEN" ]; then
-            echo "::warning::无法生成 JWT token（可能缺 PyJWT），跳过状态查询"
+            echo "::error::JWT 生成失败（PyJWT/cryptography 未就绪），请查看上方 pip 输出"
             exit 0
           fi
-          # 查询最近的 builds
-          RESP=$(curl -s -H "Authorization: Bearer $TOKEN" \
-            "https://api.appstoreconnect.apple.com/v1/builds?sort=-uploadedDate&limit=3&filter[app]=com.vitaliber.app" \
-            2>/dev/null || true)
+          AUTH="Authorization: Bearer $TOKEN"
+          # 1) 反查该 API Key 所属 Team 下 bundleId=com.vitaliber.app 的 App（核对上传目标）
+          APP_JSON=$(curl -s -H "$AUTH" \
+            "https://api.appstoreconnect.apple.com/v1/apps?filter[bundleId]=com.vitaliber.app" || true)
+          APP_ID=$(echo "$APP_JSON" | python3 -c "
+          import json,sys
+          try:
+              d=json.load(sys.stdin); a=d.get('data',[])
+              print(a[0]['id'] if a else '')
+          except: print('')
+          " 2>/dev/null || true)
+          APP_NAME=$(echo "$APP_JSON" | python3 -c "
+          import json,sys
+          try:
+              d=json.load(sys.stdin); a=d.get('data',[])
+              print(a[0]['attributes'].get('name','') if a else '')
+          except: print('')
+          " 2>/dev/null || true)
+          if [ -z "$APP_ID" ]; then
+            echo "::error::该 API Key 所属 Team 下查不到 bundleId=com.vitaliber.app 的 App！"
+            echo "说明 CI 上传目标与你 ASC 登录查看的可能不是同一 Team/账号"
+            echo "原始响应: $(echo "$APP_JSON" | head -c 400)"
+            exit 0
+          fi
+          echo "确认上传目标 → App Apple ID: $APP_ID（$APP_NAME / com.vitaliber.app）"
+          # 2) 列出该 App 最近 builds 的真实处理状态
+          RESP=$(curl -s -H "$AUTH" \
+            "https://api.appstoreconnect.apple.com/v1/builds?sort=-uploadedDate&limit=5&filter[app]=$APP_ID" || true)
           echo "$RESP" | python3 -c "
           import json, sys
           try:
-              data = json.load(sys.stdin)
-              builds = data.get('data', [])
+              d = json.load(sys.stdin)
+              if 'errors' in d:
+                  print('API 错误:', json.dumps(d['errors'], ensure_ascii=False)[:500]); sys.exit()
+              builds = d.get('data', [])
               if not builds:
-                  print('暂无 build 记录')
+                  print('!!! 该 App 下没有任何 build 记录 —— 上传可能被 Apple 拒收，或进了别的 App')
               for b in builds:
                   a = b['attributes']
-                  print(f\"Build {a.get('version','?')}: state={a.get('processingState','?')}, uploaded={a.get('uploadedDate','?')}\")
-          except: print('解析响应失败')
-          " 2>/dev/null || echo "查询失败（非阻塞）"
+                  print(f\"Build {a.get('version','?')}: state={a.get('processingState','?')}, compliance={a.get('missingExportCompliance','?')}, uploaded={a.get('uploadedDate','?')}\")
+          except Exception as e:
+              print('解析响应失败:', e)
+          " 2>&1 || echo "查询失败（非阻塞）"
 
       - name: 凭据未配置——跳过上传
         if: ${{ env.APPLE_API_KEY_P8 == '' }}
