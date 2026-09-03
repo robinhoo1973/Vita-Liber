@@ -352,7 +352,6 @@ jobs:
               <key>method</key><string>app-store-connect</string>
               <key>teamID</key><string>$APPLE_TEAM_ID</string>
               <key>signingStyle</key><string>manual</string>
-              <key>signingCertificate</key><string>$DIS_SHA1</string>
               <key>provisioningProfiles</key>
               <dict>
                   <key>$APP_ID</key><string>$PROFILE_NAME</string>
