@@ -347,6 +347,18 @@ jobs:
           fastlane pilot "${PILOT_OPTS[@]}"
           echo "TestFlight 上传完成 ✓"
 
+      # ── 查询 Apple 处理状态（上传后等 60 秒再查）────────
+      - name: 查询 Build 处理状态
+        if: ${{ env.APPLE_API_KEY_P8 != '' }}
+        run: |
+          echo "等待 Apple 开始处理（60 秒）..."
+          sleep 60
+          # 用 fastlane 查询最新 build 状态
+          KEY_JSON="$GITHUB_WORKSPACE/AuthKey.json"
+          if [ -f "$KEY_JSON" ]; then
+            fastlane pilot builds --api_key_path "$KEY_JSON" --app_identifier com.vitaliber.app 2>&1 || true
+          fi
+
       - name: 凭据未配置——跳过上传
         if: ${{ env.APPLE_API_KEY_P8 == '' }}
         run: |
