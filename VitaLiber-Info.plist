@@ -17,6 +17,19 @@
     <string>$(VITA_LIBER_CODE_HASH)</string>
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
+    <!-- 隐私用途声明（Apple 处理构建时强制校验，缺任一键 build 即 FAILED，code 90683）：
+         SFSpeechRecognizer → NSSpeechRecognitionUsageDescription；
+         语音输入麦克风 → NSMicrophoneUsageDescription；
+         拍摄病历文档 → NSCameraUsageDescription；
+         相册选图 → NSPhotoLibraryUsageDescription。 -->
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>语音识别用于在您允许时将语音输入转换为文字，以便录入用药和症状信息。所有识别均在设备端完成。</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>麦克风用于语音输入与语音识别，所有音频均只在设备端处理，不会上传。</string>
+    <key>NSCameraUsageDescription</key>
+    <string>相机用于拍摄病历、处方等文档图片，以便识别与归档。</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>相册用于选择病历、处方等文档图片，以便识别与归档。</string>
     <key>UISupportedInterfaceOrientations</key>
     <array>
         <string>UIInterfaceOrientationPortrait</string>
