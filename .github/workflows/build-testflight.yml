@@ -419,11 +419,19 @@ jobs:
             --apiKey "$APPLE_API_KEY_ID" \
             --apiIssuer "$APPLE_API_KEY_ISSUER_ID" \
             --verbose 2>&1 | tee Build/altool-upload.log
+          # 捕获 Delivery UUID（buildUpload 资源 id），供复核步骤查询 Apple 处理状态
+          UUID=$(grep -oE 'Delivery UUID: [0-9a-fA-F-]{36}' Build/altool-upload.log | awk '{print $3}' | head -1 || true)
+          if [ -n "$UUID" ]; then
+            echo "捕获 Delivery UUID: $UUID"
+            echo "DELIVERY_UUID=$UUID" >> "$GITHUB_ENV"
+          else
+            echo "::warning::未在 altool 日志中捕获到 Delivery UUID"
+          fi
           echo "altool 已受理上传 ✓（Apple 处理完成前 TestFlight 不会立即可见，通常几分钟）"
 
-      # ── 复核：轮询 Build 是否登记（最多约 4 分钟，避免“仅送达即报成功”）──
+      # ── 复核：轮询 Build 是否登记 + 查询 buildUpload 处理错误 ──
       # JWT 用 PyJWT + cryptography 签发（含 aud=appstoreconnect-v1，缺它 401）。
-      # 查询 Vita Liber（App 6806786437）下最近 builds。
+      # ① 查 Vita Liber（App 6806786437）最近 builds；② 查本次 Delivery 的处理状态。
       - name: 复核 Build 登记状态
         run: |
           set -euo pipefail
@@ -441,6 +449,34 @@ jobs:
             print(jwt.encode(payload, key, algorithm='ES256', headers={'alg': 'ES256', 'kid': '$APPLE_API_KEY_ID'}))
             " 2>/dev/null || true
           }
+          # ② 查询本次 buildUpload 的 Apple 处理状态/错误（若捕获到 UUID）
+          if [ -n "${DELIVERY_UUID:-}" ]; then
+            TOKEN=$(mk_token)
+            if [ -n "$TOKEN" ]; then
+              echo "── buildUpload ${DELIVERY_UUID} 处理状态 ──"
+              curl -sS -g --max-time 30 \
+                "https://api.appstoreconnect.apple.com/v1/buildUploads/$DELIVERY_UUID" \
+                -H "Authorization: Bearer $TOKEN" 2>/dev/null | python3 -c "
+            import json, sys
+            try:
+                d = json.load(sys.stdin)
+            except Exception as e:
+                print('解析失败:', e); raise SystemExit
+            if 'errors' in d:
+                print('API 错误:', json.dumps(d['errors'], ensure_ascii=False)[:400]); raise SystemExit
+            a = d.get('data', {}).get('attributes', {})
+            st = a.get('state', {})
+            print('cfBundle:', a.get('cfBundleShortVersionString'), 'build', a.get('cfBundleVersion'))
+            print('state:', st.get('state'))
+            if st.get('errors'):
+                print('!! errors:', json.dumps(st['errors'], ensure_ascii=False)[:800])
+            if st.get('warnings'):
+                print('!! warnings:', json.dumps(st['warnings'], ensure_ascii=False)[:800])
+            if not (st.get('errors') or st.get('warnings')):
+                print('(无 errors/warnings)')
+            "
+            fi
+          fi
           found=0
           for i in $(seq 1 8); do
             TOKEN=$(mk_token)
