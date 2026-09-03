@@ -80,7 +80,7 @@ jobs:
       APPLE_DEV_CERT_P12: ${{ secrets.APPLE_DEV_CERT_P12 }}
       APPLE_DIS_CERT_P12: ${{ secrets.APPLE_DIS_CERT_P12 }}
       APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
-      APPLE_DEV_PROVISION_PROFILE: ${{ secrets.APPLE_DEV_PROVISION_PROFILE }}
+      APPLE_DIS_PROVISION_PROFILE: ${{ secrets.APPLE_DIS_PROVISION_PROFILE }}
     steps:
       - uses: actions/checkout@v4
 
@@ -227,20 +227,20 @@ jobs:
 
       # ── 导入 Provisioning Profile ─────────────────────────────────
       - name: 导入 Provisioning Profile
-        if: ${{ env.APPLE_DEV_PROVISION_PROFILE != '' }}
+        if: ${{ env.APPLE_DIS_PROVISION_PROFILE != '' }}
         run: |
           set -euo pipefail
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-          echo "$APPLE_DEV_PROVISION_PROFILE" | base64 -d > "$HOME/Library/MobileDevice/Provisioning Profiles/dev.mobileprovision"
+          echo "$APPLE_DIS_PROVISION_PROFILE" | base64 -d > "$HOME/Library/MobileDevice/Provisioning Profiles/dev.mobileprovision"
           # 打印 profile 信息供诊断
           security cms -D -i "$HOME/Library/MobileDevice/Provisioning Profiles/dev.mobileprovision" 2>/dev/null | \
             plutil -extract Name raw - 2>/dev/null && echo "profile 名称 ✓" || echo "profile 导入完成"
           ls -la "$HOME/Library/MobileDevice/Provisioning Profiles/"
       - name: 未配置 Provisioning Profile
-        if: ${{ env.APPLE_DEV_PROVISION_PROFILE == '' }}
+        if: ${{ env.APPLE_DIS_PROVISION_PROFILE == '' }}
         run: |
-          echo "::warning::未配置 APPLE_DEV_PROVISION_PROFILE——签名可能因缺少 profile 失败"
-          echo "配置：Settings → Secrets → Actions → APPLE_DEV_PROVISION_PROFILE（base64 编码的 .mobileprovision）"
+          echo "::warning::未配置 APPLE_DIS_PROVISION_PROFILE——签名可能因缺少 profile 失败"
+          echo "配置：Settings → Secrets → Actions → APPLE_DIS_PROVISION_PROFILE（base64 编码的 .mobileprovision）"
 
       # ── 签名归档：build + 手拼 xcarchive（绕开 Xcode 16 SPM archive bug）──────
       # 5WHY 实证（13-17 轮）：xcodebuild archive 在 Xcode 16.4 对 SPM 资源 bundle
@@ -336,7 +336,7 @@ jobs:
             PROFILE_NAME="$(security cms -D -i "$PROFILE_FILE" 2>/dev/null | plutil -extract Name raw - 2>/dev/null || true)"
           fi
           if [ -z "$PROFILE_NAME" ] || [ "$PROFILE_NAME" = "null" ]; then
-            echo "::error::未找到 Provisioning Profile——请先导入 APPLE_DEV_PROVISION_PROFILE"
+            echo "::error::未找到 Provisioning Profile——请先导入 APPLE_DIS_PROVISION_PROFILE"
             exit 1
           fi
           echo "provisioning profile: $PROFILE_NAME"
