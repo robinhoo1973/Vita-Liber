@@ -292,6 +292,8 @@ jobs:
           APP_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist")"
           SHORT="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")"
           VERS="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")"
+          /usr/libexec/PlistBuddy -c "Delete :ApplicationProperties:DTPlatformName" "$ARCH/Info.plist" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Delete :ApplicationProperties:DTSDKName" "$ARCH/Info.plist" 2>/dev/null || true
           /usr/libexec/PlistBuddy \
             -c "Add :ApplicationProperties:ApplicationPath string 'VitaLiber.app'" \
             -c "Add :ApplicationProperties:CFBundleIdentifier string '$APP_ID'" \
@@ -300,6 +302,7 @@ jobs:
             -c "Add :ApplicationProperties:teamID string '$APPLE_TEAM_ID'" \
             -c "Add :ApplicationProperties:DTPlatformName string 'iphoneos'" \
             -c "Add :ApplicationProperties:DTSDKName string 'iphoneos'" \
+            -c "Add :ApplicationProperties:DTXcode string '16.0'" \
             "$ARCH/Info.plist"
           # 符号文件（uploadSymbols=true 需要 dSYM 随归档；Release 产物目录中的 .dSYM）
           mkdir -p "$ARCH/dSYMs"
@@ -307,6 +310,8 @@ jobs:
           # 空 dSYMs 目录会让归档被判 generic（社区实证）——无 dSYM 时移除目录
           if ! ls "$ARCH/dSYMs/"*.dSYM >/dev/null 2>&1; then rmdir "$ARCH/dSYMs" 2>/dev/null || true; fi
           ls "$ARCH/Products/Applications/" && echo "xcarchive 手拼完成 ✓"
+          echo "=== xcarchive Info.plist ==="
+          plutil -p "$ARCH/Info.plist" 2>/dev/null || cat "$ARCH/Info.plist"
 
       # ── 导出 .ipa（手动签名 + keychain 中的 distribution cert）────────
       # 不用 API Key 云签名（需 Admin 权限），改用 p12 本地签名。
