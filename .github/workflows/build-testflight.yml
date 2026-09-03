@@ -359,44 +359,59 @@ jobs:
             --verbose 2>&1 | tee Build/altool-upload.log
           echo "altool 已受理上传 ✓（Apple 处理完成前 TestFlight 不会立即可见，通常几分钟）"
 
-      # ── 复核：Build 是否已登记（简短，避免“仅送达即报成功”的误导）──
+      # ── 复核：轮询 Build 是否登记（最多 10 分钟，避免“仅送达即报成功”）──
       # JWT 用 PyJWT + cryptography 签发（含 aud=appstoreconnect-v1，缺它 401）。
-      # 查询 Vita Liber（App 6806786437）下最近 builds 的处理状态。
+      # 查询 Vita Liber（App 6806786437）下最近 builds；Apple 处理通常 2–10 分钟。
       - name: 复核 Build 登记状态
         run: |
           set -euo pipefail
           python3 -m pip install --user PyJWT cryptography >/tmp/pip.log 2>&1 \
             || python3 -m pip install --user --break-system-packages PyJWT cryptography >/tmp/pip.log 2>&1 \
             || true
-          sleep 90
           P8="$HOME/.appstoreconnect/private_keys/AuthKey_$APPLE_API_KEY_ID.p8"
           [ -f "$P8" ] || { echo "::warning::p8 不存在，跳过复核"; exit 0; }
-          TOKEN=$(python3 -c "
-          import jwt, time
-          with open('$P8') as f: key = f.read()
-          now = int(time.time())
-          payload = {'iss': '$APPLE_API_KEY_ISSUER_ID', 'iat': now, 'exp': now + 1200, 'aud': 'appstoreconnect-v1'}
-          print(jwt.encode(payload, key, algorithm='ES256', headers={'alg': 'ES256', 'kid': '$APPLE_API_KEY_ID'}))
-          " 2>/dev/null || true)
-          if [ -z "$TOKEN" ]; then
-            echo "::warning::JWT 生成失败，跳过复核"
-            exit 0
+          mk_token() {
+            python3 -c "
+            import jwt, time
+            with open('$P8') as f: key = f.read()
+            now = int(time.time())
+            payload = {'iss': '$APPLE_API_KEY_ISSUER_ID', 'iat': now, 'exp': now + 1200, 'aud': 'appstoreconnect-v1'}
+            print(jwt.encode(payload, key, algorithm='ES256', headers={'alg': 'ES256', 'kid': '$APPLE_API_KEY_ID'}))
+            " 2>/dev/null || true
+          }
+          found=0
+          for i in $(seq 1 20); do
+            TOKEN=$(mk_token)
+            if [ -z "$TOKEN" ]; then echo "::warning::JWT 生成失败，跳过复核"; exit 0; fi
+            OUT=$(curl -sS -g --max-time 30 \
+              "https://api.appstoreconnect.apple.com/v1/builds?sort=-uploadedDate&limit=5&filter[app]=6806786437" \
+              -H "Authorization: Bearer $TOKEN" 2>/dev/null | python3 -c "
+            import json, sys
+            try:
+                d = json.load(sys.stdin)
+            except Exception:
+                raise SystemExit
+            if 'errors' in d:
+                print('APIERR ' + json.dumps(d['errors'], ensure_ascii=False)[:300]); raise SystemExit
+            bs = d.get('data', [])
+            if not bs:
+                print('NONE')
+            else:
+                for b in bs:
+                    a = b['attributes']
+                    print('BUILD %s state=%s compliance=%s uploaded=%s' % (a.get('version','?'), a.get('processingState','?'), a.get('missingExportCompliance','?'), a.get('uploadedDate','?')))
+            " 2>/dev/null || true)
+            echo "  第 ${i} 次复核（$(date -u +%H:%M:%S)）：$(echo "$OUT" | head -1)"
+            if echo "$OUT" | grep -q '^BUILD '; then
+              echo "$OUT" | grep '^BUILD ' | head -5
+              echo "→ build 已登记（Apple 处理状态如上，TestFlight 就绪还需状态非 PROCESSING）"
+              found=1
+              break
+            fi
+            sleep 30
+          done
+          if [ "$found" = "0" ]; then
+            echo "注意：10 分钟内 build 仍未出现在列表。请查 App Store Connect → 活动/电子邮件"
+            echo "确认 Apple 处理是否报错（如 Invalid Binary / Missing Compliance）。"
           fi
-          curl -sS -g --max-time 30 \
-            "https://api.appstoreconnect.apple.com/v1/builds?sort=-uploadedDate&limit=5&filter[app]=6806786437" \
-            -H "Authorization: Bearer $TOKEN" | python3 -c "
-          import json, sys
-          try:
-              d = json.load(sys.stdin)
-          except Exception as e:
-              print('复核响应解析失败:', e); raise SystemExit
-          if 'errors' in d:
-              print('复核 API 错误:', json.dumps(d['errors'], ensure_ascii=False)[:400]); raise SystemExit
-          bs = d.get('data', [])
-          if not bs:
-              print('注意：上传已受理，但 build 尚未登记（Apple 处理中，通常数分钟到数十分钟）')
-          for b in bs:
-              a = b['attributes']
-              print('Build %s state=%s compliance=%s uploaded=%s' % (a.get('version','?'), a.get('processingState','?'), a.get('missingExportCompliance','?'), a.get('uploadedDate','?')))
-          "
 
