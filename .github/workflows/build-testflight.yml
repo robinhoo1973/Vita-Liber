@@ -363,59 +363,55 @@ jobs:
           [ -f "$P8" ] || { echo "::warning::p8 文件不存在，跳过查询"; exit 0; }
           # 生成 JWT（ES256）
           TOKEN=$(python3 -c "
-          import jwt, time
+          import jwt, time, json
           with open('$P8') as f: key = f.read()
           now = int(time.time())
-          payload = {'iss': '$APPLE_API_KEY_ISSUER_ID', 'iat': now, 'exp': now + 20*60}
-          print(jwt.encode(payload, key, algorithm='ES256', headers={'alg': 'ES256', 'kid': '$APPLE_API_KEY_ID'}))
+          payload = {'iss': '$APPLE_API_KEY_ISSUER_ID', 'iat': now, 'exp': now + 1200}
+          t = jwt.encode(payload, key, algorithm='ES256', headers={'alg': 'ES256', 'kid': '$APPLE_API_KEY_ID'})
+          # 解码 header 校验 kid（kid 非机密）
+          import base64
+          h = json.loads(base64.urlsafe_b64decode(t.split('.')[0] + '=='))
+          print('KID_CHECK=' + str(h.get('kid')))
+          print(t)
           " 2>&1 || true)
+          KID=$(echo "$TOKEN" | grep '^KID_CHECK=' | cut -d= -f2)
+          TOKEN=$(echo "$TOKEN" | grep -v '^KID_CHECK=' | tail -1)
+          echo "JWT kid=$KID（应为 $APPLE_API_KEY_ID）；token 长度 ${#TOKEN}"
           if [ -z "$TOKEN" ]; then
             echo "::error::JWT 生成失败（PyJWT/cryptography 未就绪），请查看上方 pip 输出"
             exit 0
           fi
           AUTH="Authorization: Bearer $TOKEN"
-          # 1) 反查该 API Key 所属 Team 下 bundleId=com.vitaliber.app 的 App（核对上传目标）
-          APP_JSON=$(curl -s -H "$AUTH" \
-            "https://api.appstoreconnect.apple.com/v1/apps?filter[bundleId]=com.vitaliber.app" || true)
-          APP_ID=$(echo "$APP_JSON" | python3 -c "
-          import json,sys
-          try:
-              d=json.load(sys.stdin); a=d.get('data',[])
-              print(a[0]['id'] if a else '')
-          except: print('')
-          " 2>/dev/null || true)
-          APP_NAME=$(echo "$APP_JSON" | python3 -c "
-          import json,sys
-          try:
-              d=json.load(sys.stdin); a=d.get('data',[])
-              print(a[0]['attributes'].get('name','') if a else '')
-          except: print('')
-          " 2>/dev/null || true)
-          if [ -z "$APP_ID" ]; then
-            echo "::error::该 API Key 所属 Team 下查不到 bundleId=com.vitaliber.app 的 App！"
-            echo "说明 CI 上传目标与你 ASC 登录查看的可能不是同一 Team/账号"
-            echo "原始响应: $(echo "$APP_JSON" | head -c 400)"
-            exit 0
-          fi
-          echo "确认上传目标 → App Apple ID: $APP_ID（$APP_NAME / com.vitaliber.app）"
-          # 2) 列出该 App 最近 builds 的真实处理状态
-          RESP=$(curl -s -H "$AUTH" \
-            "https://api.appstoreconnect.apple.com/v1/builds?sort=-uploadedDate&limit=5&filter[app]=$APP_ID" || true)
-          echo "$RESP" | python3 -c "
+          # curl 封装：打印 HTTP 状态码 + 完整 body
+          asc_get() {
+            local url="$1"
+            curl -sS -w $'\n__HTTP__:%{http_code}\n' --max-time 30 "$url" -H "$AUTH" 2>&1 || true
+          }
+          # 1) 按 bundleId 反查 App
+          echo "── ① 按 bundleId=com.vitaliber.app 查 App ──"
+          asc_get "https://api.appstoreconnect.apple.com/v1/apps?filter[bundleId]=com.vitaliber.app"
+          # 2) 直接查已知 App（fastlane 上传时解析到 6806786437）下的 builds
+          echo "── ② App 6806786437 最近 builds ──"
+          asc_get "https://api.appstoreconnect.apple.com/v1/builds?sort=-uploadedDate&limit=5&filter[app]=6806786437"
+          echo "── ③ 该 Team 全部 apps（核对 bundle id 与 App 名）──"
+          asc_get "https://api.appstoreconnect.apple.com/v1/apps?limit=50" | python3 -c "
           import json, sys
+          raw = sys.stdin.read()
+          body = raw.rsplit('__HTTP__:', 1)[0]
+          code = raw.rsplit('__HTTP__:', 1)[-1].strip()
+          print('HTTP', code)
           try:
-              d = json.load(sys.stdin)
+              d = json.loads(body)
               if 'errors' in d:
-                  print('API 错误:', json.dumps(d['errors'], ensure_ascii=False)[:500]); sys.exit()
-              builds = d.get('data', [])
-              if not builds:
-                  print('!!! 该 App 下没有任何 build 记录 —— 上传可能被 Apple 拒收，或进了别的 App')
-              for b in builds:
-                  a = b['attributes']
-                  print(f\"Build {a.get('version','?')}: state={a.get('processingState','?')}, compliance={a.get('missingExportCompliance','?')}, uploaded={a.get('uploadedDate','?')}\")
+                  print('API errors:', json.dumps(d['errors'], ensure_ascii=False)[:800]); sys.exit()
+              for a in d.get('data', []):
+                  at = a['attributes']
+                  print(f\"{a['id']}  {at.get('name','?')}  {at.get('bundleId','?')}\")
+              if not d.get('data'):
+                  print('(空列表)')
           except Exception as e:
-              print('解析响应失败:', e)
-          " 2>&1 || echo "查询失败（非阻塞）"
+              print('解析失败:', e, '| 原始:', body[:300])
+          "
 
       - name: 凭据未配置——跳过上传
         if: ${{ env.APPLE_API_KEY_P8 == '' }}
