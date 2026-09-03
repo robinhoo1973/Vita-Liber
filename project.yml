@@ -22,6 +22,8 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_CFBundleDisplayName: 青囊书
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
         INFOPLIST_FILE: VitaLiber-Info.plist
         PRODUCT_BUNDLE_IDENTIFIER: com.vitaliber.app
         # 三部件版本（dev-pm-spec §9.3 / FR22.8）：GitHub Release 版本 + CI 构建序号 + 提交哈希。
