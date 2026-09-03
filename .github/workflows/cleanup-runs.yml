@@ -1,0 +1,108 @@
+# ============================================================================
+# Workflow 执行记录清理
+#
+# 定时清理：只保留每个 workflow 最近一次成功的执行记录，其余全部删除。
+# 调度：中国时间每天凌晨 0:00（UTC 16:00）
+#
+# 逻辑：
+#   1. 列出仓库所有 workflow
+#   2. 对每个 workflow，按时间倒序找到最近一次 status=completed conclusion=success 的 run
+#   3. 删除该 workflow 下除该 run 以外的所有其他 run
+#   4. 跳过当前正在运行的 run（避免误删）
+# ============================================================================
+name: Cleanup Workflow Runs
+
+on:
+  schedule:
+    - cron: '0 16 * * *'   # UTC 16:00 = 北京时间 00:00
+  workflow_dispatch:         # 支持手动触发
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  cleanup:
+    name: 清理历史执行记录
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: 清理各 workflow 历史记录
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          echo "=== Workflow Run 清理开始 ==="
+          echo "时间: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          echo ""
+
+          # 获取所有 workflow 名称
+          WORKFLOWS=$(gh api repos/${{ github.repository }}/actions/workflows \
+            --jq '.workflows[].name' 2>/dev/null)
+
+          TOTAL_DELETED=0
+          TOTAL_KEPT=0
+
+          for WF in $WORKFLOWS; do
+            echo "── 处理: $WF ──"
+
+            # 找到该 workflow 最近一次成功的 run
+            LATEST_SUCCESS_ID=$(gh run list \
+              --workflow "$WF" \
+              --status completed \
+              --json databaseId,conclusion,createdAt \
+              --jq '[.[] | select(.conclusion == "success")] | sort_by(.createdAt) | last | .databaseId' \
+              2>/dev/null || true)
+
+            if [ -z "$LATEST_SUCCESS_ID" ] || [ "$LATEST_SUCCESS_ID" = "null" ]; then
+              echo "  无成功记录，跳过"
+              echo ""
+              continue
+            fi
+
+            echo "  保留最近成功 run: #$LATEST_SUCCESS_ID"
+
+            # 获取该 workflow 所有 completed 的 run（排除正在运行的）
+            ALL_RUNS=$(gh run list \
+              --workflow "$WF" \
+              --status completed \
+              --json databaseId \
+              --limit 100 \
+              --jq '.[].databaseId' \
+              2>/dev/null || true)
+
+            DELETED=0
+            KEPT=0
+            for RUN_ID in $ALL_RUNS; do
+              if [ "$RUN_ID" = "$LATEST_SUCCESS_ID" ]; then
+                KEPT=$((KEPT + 1))
+                continue
+              fi
+              # 删除旧记录
+              if gh run delete "$RUN_ID" --repo "${{ github.repository }}" --yes 2>/dev/null; then
+                DELETED=$((DELETED + 1))
+              fi
+            done
+
+            # 也清理 in-progress / queued 的旧 run（排除当前最新的）
+            ACTIVE_RUNS=$(gh run list \
+              --workflow "$WF" \
+              --status in_progress \
+              --json databaseId \
+              --jq '.[].databaseId' \
+              2>/dev/null || true)
+            for RUN_ID in $ACTIVE_RUNS; do
+              if gh run delete "$RUN_ID" --repo "${{ github.repository }}" --yes 2>/dev/null; then
+                DELETED=$((DELETED + 1))
+              fi
+            done
+
+            echo "  删除 $DELETED 条，保留 $KEPT 条"
+            TOTAL_DELETED=$((TOTAL_DELETED + DELETED))
+            TOTAL_KEPT=$((TOTAL_KEPT + KEPT))
+            echo ""
+          done
+
+          echo "=== 清理完成 ==="
+          echo "总计删除: $TOTAL_DELETED 条"
+          echo "总计保留: $TOTAL_KEPT 条"
