@@ -9,7 +9,9 @@ public enum DoseUserAction: String, Sendable, Equatable, Codable {
 }
 
 /// 剂量记录 = 调度剂量 + 用户动作 + 药品定义投影（dose_log 行语义的查询投影）
-public struct DoseRecord: Sendable, Equatable {
+public struct DoseRecord: Sendable, Equatable, Identifiable {
+    /// 身份 = 调度剂量通知 ID（dose-{planId}-{epochSlot}，天然稳定）
+    public var id: String { dose.notifyId }
     public var dose: ScheduledDose
     public var action: DoseUserAction?
     public var medicationName: String?

@@ -17,7 +17,7 @@ struct NotificationCenterView: View {
         List {
             if !pendingDoses.isEmpty {
                 Section(L10n.ncSectionPending) {
-                    ForEach(pendingDoses, id: \DoseRecord.dose.notifyId) { dose in
+                    ForEach(pendingDoses) { dose in
                         HStack {
                             Image(systemName: "pills.fill")
                                 .foregroundStyle(Color("brand-primary", bundle: .main))
