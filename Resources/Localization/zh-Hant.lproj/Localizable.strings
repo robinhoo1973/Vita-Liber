@@ -30,7 +30,6 @@
 "voice.route.headphonesOff" = "已斷開耳機，改為螢幕核對";
 "voice.reminder.timeUnclear" = "時間不夠明確，請補充具體日期或時間";
 "voice.reminder.timeUnheard" = "沒聽清提醒時間，請再說一次或手動選擇時間";
-"security.throttleDegraded" = "安全提示：本次啟動的連續錯誤延時保護不可用，請盡快重啟應用。";
 "voice.privacy.title" = "隱私與耳機建議";
 "voice.privacy.p1" = "建議佩戴耳機——保護隱私，也不打擾周圍人";
 "voice.privacy.p2" = "語音只在這台裝置上辨識，音訊即用即棄、不儲存";
@@ -143,6 +142,12 @@
 "settings.help" = "說明與關於";
 "settings.careMode" = "關懷模式";
 "settings.voiceEntry" = "語音快速入口";
+"security.unlockTitle" = "解鎖青囊書";
+"security.unlockSubtitle" = "驗證身份以查看你的健康檔案";
+"security.unlockButton" = "解鎖";
+"security.unlockReason" = "驗證以解鎖青囊書";
+"security.unlockFailed" = "驗證未通過，請重試";
+"sensitive.unlockReason" = "驗證以查看敏感內容";
 "settings.appearance" = "外觀與主題";
 "settings.themeLight" = "淺色";
 "settings.themeDark" = "深色";
@@ -165,7 +170,6 @@
 "ai.source" = "來源：";
 "ai.uncertain" = "不確定：%@";
 "ai.askDoctor" = "建議問醫生：%@";
-"onboard.pinProgress" = "PIN 輸入進度";
 "onboard.yourName" = "你的稱呼（如：王女士）";
 "onboard.saveEdit" = "儲存修改";
 "onboard.timelineTitle" = "健康時間軸";
@@ -181,18 +185,14 @@
 "onboard.trendTitle" = "指標趨勢";
 "onboard.newValue" = "新值";
 "onboard.ocrDisclaimer" = "機器辨識的藥名、劑量、日期都會先請你確認才生效；未確認的內容不會進入正式檔案。";
-"onboard.pinPurpose" = "用於保護你的醫療資料（FR1.1）";
 "onboard.gotIt" = "知道了，繼續";
 "onboard.confirm" = "確認";
 "onboard.timelineHint" = "確認後的檔案會出現在這裡";
 "onboard.confirmResult" = "確認辨識結果";
 "onboard.later" = "稍後再說";
 "onboard.observation" = "觀察";
-"onboard.setPin" = "設定 6 位數字 PIN";
 "onboard.voiceNote" = "語音速記";
 "onboard.ownerNote" = "資料以「本人」歸屬本機所有者（FR21.1）";
-"onboard.enterPin" = "輸入 PIN 解鎖";
-"onboard.pinLockHint" = "錯誤次數過多會暫時鎖定";
 "onboard.unconfirmedBadge" = "辨識未確認";
 "help.appName" = "Vita Liber · 青囊書";
 "help.tagline" = "個人醫療資料的歸檔與提醒工具";
@@ -345,4 +345,3 @@
 "paywall.previewTitle" = "Pro 權益 · 預覽";
 "observation.lockedHint" = "敏感內容已鎖定";
 "observation.unlockedHint" = "已解鎖（無操作 30 秒後自動重鎖）";
-"sensitive.setupHint" = "先設定應用程式 PIN 以保護敏感內容";

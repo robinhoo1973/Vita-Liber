@@ -3,9 +3,9 @@ import Domain
 
 /// 敏感媒体保护容器（BR-007/BR-008 · FR8.4 · tech-spec §5.10）。
 ///
-/// 一处实现，所有敏感媒体界面复用：默认锁定 → 显式门禁解锁 → 无操作自动重锁 →
-/// 退后台立即重锁。策略常量与判定全在 Domain `MediaUnlockPolicy`，本容器只负责
-/// SwiftUI 侧的机制（计时任务、活跃手势、scenePhase、PIN sheet）。
+/// 一处实现，所有敏感媒体界面复用：默认锁定 → 显式系统设备所有者认证解锁 →
+/// 无操作自动重锁 → 退后台立即重锁。策略常量与判定全在 Domain `MediaUnlockPolicy`，
+/// 本容器只负责 SwiftUI 侧的机制（计时任务、活跃手势、scenePhase、认证触发）。
 ///
 /// 为什么要有这层：BR-007/008 对每个敏感媒体面（观察记录、文档查看器、帮助卡照片、
 /// §5.38 医生展示模式）要求同一套重锁语义。逐屏各写一遍必然漂移——历史上已经
@@ -26,8 +26,6 @@ struct SensitiveMediaContainer<Content: View, Placeholder: View>: View {
     private let placeholder: (Bool) -> Placeholder
 
     @State private var revealed = false
-    @State private var showPinSheet = false
-    @State private var showSetupSheet = false
     @State private var lastInteraction: Date?
 
     init(@ViewBuilder placeholder: @escaping (Bool) -> Placeholder,
@@ -43,42 +41,15 @@ struct SensitiveMediaContainer<Content: View, Placeholder: View>: View {
         }
         .onTapGesture {
             guard !revealed else { return }
-            // BR-009：未设置应用 PIN 时敏感媒体仍必须锁定——引导设置 PIN，
-            // 禁止退化为单击直看；已有 PIN 则走验证。
-            if app.isPinProtected {
-                showPinSheet = true
-            } else {
-                showSetupSheet = true
+            // BR-007/BR-009（V3.22 修订）：无应用 PIN 后按 FR1.9 直接用系统设备所有者
+            // 认证（Face ID/Touch ID + 设备密码兜底）。每次都是新弹系统浮层的独立认证，
+            // 不存在「顺带解锁」语义问题——成功即放行本容器。
+            Task {
+                if await app.requestUnlock(reason: L10n.sensitive_unlockReason) {
+                    revealed = true
+                    lastInteraction = Date()
+                }
             }
-        }
-        .sheet(isPresented: $showPinSheet) {
-            PinEntryView(mode: .verify)
-                .presentationDetents([.height(420)])
-        }
-        .sheet(isPresented: $showSetupSheet) {
-            VStack(spacing: 12) {
-                Text(L10n.sensitiveSetupHint)
-                    .font(.footnote).foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                PinEntryView(mode: .setup)
-            }
-            .padding(.top, 8)
-            .presentationDetents([.height(420)])
-        }
-        .onChange(of: app.pinHash) { _, value in
-            // BR-009 引导路径：设置完成（pinHash 从 nil 变为非 nil）即视为解锁
-            guard showSetupSheet, value != nil else { return }
-            showSetupSheet = false
-            revealed = true
-            lastInteraction = Date()
-        }
-        .onChange(of: app.lastVerifiedAt) { _, value in
-            // showPinSheet 闸门：任意门禁验证（例如冷启动解锁）不得顺带解锁敏感内容，
-            // 只认「本容器发起的那次验证」（BR-007）
-            guard showPinSheet, value != nil else { return }
-            showPinSheet = false
-            revealed = true
-            lastInteraction = Date()
         }
         // 无操作重锁：.task(id:) 随视图销毁自动取消、随交互刷新自动重启，
         // 解锁期间零轮询、锁定期间零开销
@@ -100,7 +71,6 @@ struct SensitiveMediaContainer<Content: View, Placeholder: View>: View {
         .onChange(of: scenePhase) { _, phase in
             guard phase != .active, MediaUnlockPolicy.shouldRelockOnBackground() else { return }
             revealed = false
-            showPinSheet = false
         }
     }
 }

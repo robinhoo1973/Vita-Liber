@@ -31,9 +31,16 @@ struct VitaLiberApp: App {
             }
         }
         self.container = container
+        // 门禁测试桩（XCUITest 无法自动化 Face ID）：-uitest-gate-stub-{success,fail}
+        // 注入确定性认证结果；生产路径缺省 nil → LocalAuthGateUnlocker（真系统认证）
+        let gateUnlocker: (any GateUnlocking)? =
+            args.contains("-uitest-gate-stub-success") ? FakeGateUnlocker()
+            : args.contains("-uitest-gate-stub-fail") ? FakeGateUnlocker(result: false)
+            : nil
         _appState = State(initialValue: AppState(
             persistor: container.persistor,
-            capture: FakeOcrProvider(fixture: args.contains("-uitest-camera-fixture"))))
+            capture: FakeOcrProvider(fixture: args.contains("-uitest-camera-fixture")),
+            gateUnlocker: gateUnlocker))
         _reminderStore = State(initialValue: ReminderStore(
             meds: container.meds, apts: container.apts, reconciler: container.reconciler))
         _assistantStore = State(initialValue: AssistantStore(provider: container.aiProvider))

@@ -62,7 +62,7 @@ struct AppRootView: View {
                 // FR1.4 + FR1.7：退后台即锁。用 .inactive 而非 .background——
                 // 任务切换器快照在 inactive 时刻截取（遮罩必须此时已挂载），
                 // 且 XCUITest 的 press(.home) 场景下 .background 送达不可靠
-                if appState.isPinProtected { backgroundLocked = true }
+                if appState.onboardingFinished { backgroundLocked = true }
             case .active:
                 // 四层补偿第 2 层：每次回前台轻量对账
                 if appState.onboardingFinished {

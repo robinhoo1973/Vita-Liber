@@ -4,7 +4,7 @@ import Foundation
 ///
 /// Apple 侧可用 CryptoKit；Linux 侧用纯 Swift 实现（基于公共领域 SHA-256 算法）。
 /// 仅用于 DuplicateDetectionService 的哈希计算，不涉及安全敏感场景（仅去重/感知哈希种子）。
-/// 安全敏感 KDF（PBKDF2）在 Infrastructure/PinStorage 由 CommonCrypto/SwiftCrypto 处理。
+/// （V3.22：应用内口令已整体退役——KDF 场景随 PinStorage 删除，门禁口令交由系统保管。）
 
 public struct SHA256Digest: Sendable, Equatable, Hashable {
     public var bytes: [UInt8]

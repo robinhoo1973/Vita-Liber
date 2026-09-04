@@ -47,8 +47,14 @@ enum L10n {
     static var voiceReminderTimeUnclear: String { t("voice.reminder.timeUnclear") }
     static var voiceReminderTimeUnheard: String { t("voice.reminder.timeUnheard") }
 
-    // FR1.4 安全降级披露（阶梯锁定不可用时锁屏横幅）
-    static var securityThrottleDegraded: String { t("security.throttleDegraded") }
+    // FR1.1 · V3.22 生物识别门禁（SP-01 锁屏遮罩）
+    static var security_unlockTitle: String { t("security.unlockTitle") }
+    static var security_unlockSubtitle: String { t("security.unlockSubtitle") }
+    static var security_unlockButton: String { t("security.unlockButton") }
+    static var security_unlockReason: String { t("security.unlockReason") }
+    static var security_unlockFailed: String { t("security.unlockFailed") }
+    // BR-007/FR1.9 敏感媒体解锁理由（LocalAuthentication localizedReason）
+    static var sensitive_unlockReason: String { t("sensitive.unlockReason") }
 
     // MARK: - FR17.12 隐私与耳机须知
     static var voicePrivacyTitle: String { t("voice.privacy.title") }
@@ -217,7 +223,6 @@ enum L10n {
         t("ai.askDoctor").replacingOccurrences(of: "%@", with: v)
     }
 
-        static var onboard_pinProgress: String { t("onboard.pinProgress") }
     static var onboard_yourName: String { t("onboard.yourName") }
     static var onboard_saveEdit: String { t("onboard.saveEdit") }
     static var onboard_timelineTitle: String { t("onboard.timelineTitle") }
@@ -233,18 +238,14 @@ enum L10n {
     static var onboard_trendTitle: String { t("onboard.trendTitle") }
     static var onboard_newValue: String { t("onboard.newValue") }
     static var onboard_ocrDisclaimer: String { t("onboard.ocrDisclaimer") }
-    static var onboard_pinPurpose: String { t("onboard.pinPurpose") }
     static var onboard_gotIt: String { t("onboard.gotIt") }
     static var onboard_confirm: String { t("onboard.confirm") }
     static var onboard_timelineHint: String { t("onboard.timelineHint") }
     static var onboard_confirmResult: String { t("onboard.confirmResult") }
     static var onboard_later: String { t("onboard.later") }
     static var onboard_observation: String { t("onboard.observation") }
-    static var onboard_setPin: String { t("onboard.setPin") }
     static var onboard_voiceNote: String { t("onboard.voiceNote") }
     static var onboard_ownerNote: String { t("onboard.ownerNote") }
-    static var onboard_enterPin: String { t("onboard.enterPin") }
-    static var onboard_pinLockHint: String { t("onboard.pinLockHint") }
     static var onboard_unconfirmedBadge: String { t("onboard.unconfirmedBadge") }
     static var help_appName: String { t("help.appName") }
     static var help_tagline: String { t("help.tagline") }
@@ -509,10 +510,9 @@ enum L10n {
     static var ai_emergencyCall: String { t("ai.emergencyCall") }
     static var timelineEmptyTitle: String { t("timeline.empty.title") }
     static var paywallPreviewTitle: String { t("paywall.previewTitle") }
-    static var sensitiveSetupHint: String { t("sensitive.setupHint") }
 
     static let registeredKeys: [String] = [
-        "sensitive.setupHint", "help.versionFormat",
+        "help.versionFormat",
         "ai.aiBadge", "ai.askDoctor", "ai.citations", "ai.confirmImageText",
         "ai.emergencyAction", "ai.emergencyCall", "ai.emergencyTitle", "paywall.previewTitle", "timeline.empty.title",
         "ai.emergencyCardText", "ai.failedRetry", "ai.refusedHighRisk",
@@ -562,11 +562,11 @@ enum L10n {
         "observation.trend.improved", "observation.trend.unchanged", "observation.trend.worsened", "observation.unlockedHint",
         "observation.unlockedPlaceholder", "onboard.aimPrescription", "onboard.buildProfile", "onboard.cancel",
         "onboard.capturePrescription", "onboard.confirm", "onboard.confirmAllTimeline", "onboard.confirmResult",
-        "onboard.confirmed", "onboard.confirmedCount", "onboard.createContinue", "onboard.enterPin",
+        "onboard.confirmed", "onboard.confirmedCount", "onboard.createContinue",
         "onboard.finishEnterApp", "onboard.gotIt", "onboard.later", "onboard.newValue",
         "onboard.observation", "onboard.ocrDisclaimer", "onboard.ocrRaw", "onboard.ownerNote",
-        "onboard.pinLockHint", "onboard.pinProgress", "onboard.pinPurpose", "onboard.reviseTitle",
-        "onboard.revisionHistory", "onboard.saveEdit", "onboard.scanSample", "onboard.setPin",
+        "onboard.reviseTitle",
+        "onboard.revisionHistory", "onboard.saveEdit", "onboard.scanSample",
         "onboard.sourceConfirmed", "onboard.tierUnconfirmed", "onboard.timelineHint", "onboard.timelineTitle",
         "onboard.trendTitle", "onboard.unconfirmed2", "onboard.unconfirmedBadge", "onboard.voiceNote",
         "onboard.yourName", "pay.busy", "pay.buy", "pay.restore",
@@ -577,7 +577,9 @@ enum L10n {
         "reminder.later", "reminder.loading", "reminder.planName", "reminder.planSpec",
         "reminder.planTime", "reminder.save", "reminder.skip", "reminder.statusCancelled",
         "reminder.statusCompleted", "reminder.statusMissed", "reminder.statusScheduled", "reminder.taken",
-        "reminder.takenCount", "reminder.today", "reminder.todayEmpty", "security.throttleDegraded",
+        "reminder.takenCount", "reminder.today", "reminder.todayEmpty",
+        "security.unlockTitle", "security.unlockSubtitle", "security.unlockButton",
+        "security.unlockReason", "security.unlockFailed", "sensitive.unlockReason",
         "settings.about",
         "settings.audit", "settings.authTitle", "settings.careMode", "settings.disclaimer",
         "settings.habits", "settings.help", "settings.privacy", "settings.pro",

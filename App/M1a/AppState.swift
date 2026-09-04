@@ -8,16 +8,16 @@ import Protocols
 /// M1a 纵向切片的应用状态仓（@Observable，注入进环境）。
 /// 评审修正批（架构 A1-A3 / Swift S1-S2 / PM）：
 /// - 持久化面向 M1aPersisting 协议，生产实现 = GRDBM1aPersistor（§4.3 对应表），
-///   UserDefaults 仅承载 PIN 锁定快照与 UI 瞬态——「窄实现」窄化能力，不换存储介质；
-/// - 锁定阶梯唯一实现 = Domain 的 PinLockStateMachine（actor），App 层只镜像快照；
-/// - PIN 落盘 = PinHasher（盐+SHA256+恒时比较）；Keychain+PBKDF2 归 M1c §6 清偿；
+///   UserDefaults 仅承载 UI 瞬态与偏好——「窄实现」窄化能力，不换存储介质；
+/// - 门禁（V3.22）= 系统设备所有者认证（FR1.1）：GateUnlocking 协议注入，
+///   生产实现 LocalAuthGateUnlocker（Infrastructure），无应用内 PIN 与节流阶梯；
 /// - 假 OCR 收敛到 FakeOcrProvider（DocumentCapture 协议），生产代码无 -uitest 分支。
 @MainActor
 @Observable
 final class AppState {
     enum OnboardingStage: Equatable {
         case disclosure(index: Int)
-        case pinSetup, ownerName
+        case ownerName
         case scanCapture, ocrConfirm, timeline
         case done
     }
@@ -25,11 +25,9 @@ final class AppState {
     var stage: OnboardingStage = .disclosure(index: 0)
     var onboardingFinished: Bool
 
-    // 门禁（锁定状态 = Domain 状态机的镜像快照；唯一事实源在 actor 内）
-    private(set) var pinHash: String?          // "saltHex:digestHex"（PinHasher）
-    private(set) var failedAttempts = 0
-    private(set) var lockedUntil: Date?
-    private var pinMachine: PinLockStateMachine?
+    // 门禁（FR1.1 · V3.22：系统设备所有者认证，无应用内 PIN）
+    private let gateUnlocker: any GateUnlocking
+    private(set) var lastUnlockedAt: Date?
 
     // 所有者与档案
     private(set) var owner: LocalOwner?
@@ -58,6 +56,7 @@ final class AppState {
          speech: (any SpeechSynthesizing)? = nil,
          imageRecognizer: (any ImageTextRecognizing)? = nil,
          transcription: (any TranscriptionEngine)? = nil,
+         gateUnlocker: (any GateUnlocking)? = nil,
          defaults: UserDefaults = .standard,
          launchArgs: [String] = ProcessInfo.processInfo.arguments) {
         // 组合根：按当前上下文一次性注册全部引擎能力（ADR-027 EAL）
@@ -67,6 +66,7 @@ final class AppState {
         self.transcriptionEngine = transcription ?? EngineRegistry.shared.resolve(TranscriptionEngineFactory.self)
         self.persistor = persistor
         self.captureProvider = capture
+        self.gateUnlocker = gateUnlocker ?? LocalAuthGateUnlocker()
         // 评审修正：删除此处的 AVSpeechAdapter()/VisionImageRecognizer() 二次赋值——
         // 它在 EAL resolve 之后把结果覆盖回具体实现，注册表解析成为死代码，
         // ADR-027「调用方永不直接 import 具体引擎类型」名存实亡（半重构残留）。
@@ -77,14 +77,11 @@ final class AppState {
             defaults.removePersistentDomain(forName: Bundle.main.bundleIdentifier ?? "com.vitaliber.VitaLiber")
             self.onboardingFinished = false
         }
-        self.pinHash = defaults.string(forKey: "pinHashV2")
-        if let legacy = defaults.string(forKey: "pinHash"), !legacy.isEmpty {
-            // 评审 S1：旧实现是恒等函数，pinHash 键里存的是 PIN 明文——直接删除，
-            // 绝不做「明文→哈希」迁移（无法区分真哈希与明文）
-            defaults.removeObject(forKey: "pinHash")
-            defaults.removeObject(forKey: "failedAttempts")
-            defaults.removeObject(forKey: "lockedUntil")
-            defaults.removeObject(forKey: "lockStage")
+        // V3.22 门禁改造：应用内 PIN 整体退役。旧哈希不再有验证入口，直接清除
+        // （不做任何迁移——系统设备所有者认证严格强于 6 位应用 PIN）
+        for key in ["pinHashV2", "pinHash", "failedAttempts", "lockedUntil",
+                    "lockStage", "pinLockSnapshot"] {
+            defaults.removeObject(forKey: key)
         }
         if onboardingFinished {
             stage = .done
@@ -95,15 +92,16 @@ final class AppState {
                 stage = .disclosure(index: min(progress, disclosureCards.count - 1))
             }
         }
-        // UI 测试种子：确定性注入「已完成首启 + PIN=135790」状态——
+        // UI 测试种子：确定性注入「已完成首启」状态——
         // 锁屏用例不再依赖前序用例的持久化数据（跨用例状态依赖不可靠）
         if launchArgs.contains("-uitest-seed-finished") {
-            let h = PinHasher.makeHash(pin: "135790")
-            pinHash = h.stored
-            defaults.set(h.stored, forKey: "pinHashV2")
             onboardingFinished = true
             defaults.set(true, forKey: "onboardingFinished")
             stage = .done
+        }
+        // 门禁旁路：直接视为本会话已认证（非门禁用例避免遮罩；XCUITest 专用）
+        if launchArgs.contains("-uitest-gate-bypass") {
+            lastUnlockedAt = Date()
         }
     }
 
@@ -114,7 +112,6 @@ final class AppState {
             do { try await persistor.reset() }
             catch { logger.error("测试清态失败: \(error)") }
         }
-        await bootstrapPinLock()
         do {
             owner = try await persistor.loadOwner()
             consentRecords = try await persistor.loadConsents()
@@ -122,24 +119,6 @@ final class AppState {
         } catch {
             logger.error("持久化加载失败: \(error)")
         }
-    }
-
-    private func bootstrapPinLock() async {
-        guard pinMachine == nil else { return }
-        let store = UserDefaultsPinLockStore(defaults: defaults)
-        do {
-            let machine = try await PinLockStateMachine(storage: store)
-            pinMachine = machine
-            refreshLockSnapshot(await machine.snapshot())
-        } catch {
-            logger.error("PinLockStateMachine 装配失败: \(error)")
-        }
-    }
-
-    @MainActor
-    private func refreshLockSnapshot(_ s: PinLockSnapshot) {
-        failedAttempts = s.consecutiveFailures
-        lockedUntil = s.lockedUntil
     }
 
     // MARK: - 披露三卡
@@ -162,90 +141,35 @@ final class AppState {
         if i + 1 < disclosureCards.count {
             stage = .disclosure(index: i + 1)
         } else {
-            stage = .pinSetup
+            stage = .ownerName     // V3.22：无 PIN 步骤，三卡直接进入建档
         }
     }
 
-    // MARK: - PIN（阶梯唯一实现在 Domain actor）
+    // MARK: - 门禁（系统设备所有者认证；FR1.1 · V3.22 无应用 PIN）
 
-    func setupPin(_ pin: String) {
-        guard pin.count == 6, pin.allSatisfy(\.isNumber) else { return }
-        let h = PinHasher.makeHash(pin: pin)
-        pinHash = h.stored
-        defaults.set(h.stored, forKey: "pinHashV2")
-        // 刚设定 PIN 本身就是「已证明知道 PIN」——必须同时置位验证时刻，
-        // 否则 needsLockScreen（isPinProtected && lastVerifiedAt == nil）在第 6 位
-        // 数字落下的瞬间为真，向导被锁屏遮罩顶掉，用户被迫重输刚设好的 PIN
-        // 才能继续建档（且连错 3 次会把自己锁在向导外）。
-        lastVerifiedAt = Date()
-        stage = .ownerName
-    }
+    /// 门禁在完成首启后恒激活：无需注册步骤，系统认证自可用即生效。
+    /// 首启向导期间不锁（无健康数据可泄；敏感媒体另有逐次 deviceOwner 门禁）。
+    var isGateEnabled: Bool { onboardingFinished }
 
-    var isLocked: Bool {
-        guard let until = lockedUntil else { return false }
-        return until > Date()
-    }
+    /// 冷启动即锁：门禁生效且本会话尚未通过设备所有者认证。
+    /// 锁屏是「派生状态」而非「转场标志」——冷启动无 background→foreground
+    /// 转场，原 backgroundLocked 标志不会置位（隐私红线）。
+    var needsLockScreen: Bool { isGateEnabled && lastUnlockedAt == nil }
 
-    /// 锁屏倒计时（ui-ux §5.1）
-    var remainingLockSeconds: Int {
-        guard let until = lockedUntil else { return 0 }
-        return max(0, Int(until.timeIntervalSince(Date())) + 1)
-    }
+    /// 回前台自动弹系统认证浮层（默认开；XCUITest 用 -uitest-gate-no-auto 关闭保确定性）
+    var gateAutoAttempts: Bool { !launchArgs.contains("-uitest-gate-no-auto") }
 
-    func verifyPin(_ pin: String) async -> Bool {
-        guard let machine = pinMachine else {
-            // 降级路径：bootstrapPinLock() 装配失败时 pinMachine 恒为 nil。
-            // 原本的 `return false` 会让门禁永不可解——冷启动即锁之后，用户被永久
-            // 锁在自己的资料外。但「放开节流」同样不可接受：6 位 PIN 只有 10^6 空间，
-            // 无节流等于可离线穷举（FR1.3 红线）。
-            // 因此只丢失**持久化**，不丢失节流本身：内存态复用 Domain 的 PinLockPolicy
-            // 阶梯（5 次 → 30s/2min/5min），并通过 pinThrottleDegraded 让锁屏明示降级。
-            logger.error("PIN 状态机不可用，转入内存节流降级（跨重启计数不可用）")
-            pinThrottleDegraded = true
-            // 已持久化的锁定必须继续生效：lockedUntil 平时由 refreshLockSnapshot 从状态机
-            // 灌入，而降级时状态机恰好不存在——不直接读盘就等于「装配失败即清零上次锁定」，
-            // 攻击者只要制造一次装配失败就能绕过上一会话的封锁。
-            if let until = persistedLockoutUntil(), until > Date() {
-                lockedUntil = until
-                return false
-            }
-            if let until = lockedUntil, until > Date() { return false }
-            guard let stored = pinHash,
-                  case .ok(let needsRehash) = PinHasher.verify(pin: pin, stored: stored) else {
-                degradedFailures += 1
-                if degradedFailures >= PinLockPolicy.lockAfterFailures {
-                    lockedUntil = Date().addingTimeInterval(PinLockPolicy.lockout(for: degradedStage))
-                    degradedFailures = 0
-                    degradedStage = min(degradedStage + 1, PinLockPolicy.ladder.count - 1)
-                }
-                return false
-            }
-            if needsRehash { rehashPin(pin) }
-            degradedFailures = 0
-            degradedStage = 0
-            lockedUntil = nil
-            lastVerifiedAt = Date()
-            return true
+    /// 门禁/敏感媒体共用认证入口（BR-007 修订：任一次系统设备所有者认证成功
+    /// 即证明持机者在场——每次调用都弹新系统浮层，不存在「顺带解锁」语义问题；
+    /// 失败节流由系统处理：biometryLockout 后系统自动引导设备密码）。
+    func requestUnlock(reason: String) async -> Bool {
+        let ok = await gateUnlocker.authenticate(reason: reason)
+        if ok {
+            lastUnlockedAt = Date()
+        } else {
+            logger.error("门禁认证失败或取消")
         }
-        if await machine.isLocked {
-            refreshLockSnapshot(await machine.snapshot())
-            return false
-        }
-        guard let stored = pinHash,
-              case .ok(let needsRehash) = PinHasher.verify(pin: pin, stored: stored) else {
-            do { _ = try await machine.recordFailure() }
-            catch { logger.error("recordFailure 持久化失败: \(error)") }
-            refreshLockSnapshot(await machine.snapshot())
-            return false
-        }
-        // FR1.6 透明升级：验证成功是唯一能拿到明文 PIN 的时刻，此时才可重算强哈希。
-        // 只在这里做——弱哈希多留一天就多一天可被离线穷举的窗口。
-        if needsRehash { rehashPin(pin) }
-        do { try await machine.recordSuccess() }
-        catch { logger.error("recordSuccess 持久化失败: \(error)") }
-        refreshLockSnapshot(await machine.snapshot())
-        lastVerifiedAt = Date()
-        return true
+        return ok
     }
 
     // MARK: - 所有者
@@ -318,46 +242,6 @@ final class AppState {
         onboardingFinished = true
         defaults.set(true, forKey: "onboardingFinished")
         stage = .done
-    }
-
-    /// PIN 已建立即受门禁保护（评审修正：向导期间退后台同样锁屏——FR1.4 自 PIN 建立起成立）
-    var isPinProtected: Bool { pinHash != nil }
-
-    /// 冷启动即锁：PIN 已建立且本次启动尚未通过验证（lastVerifiedAt 为 nil）。
-    /// 评审修正：锁屏是「派生状态」而非「转场标志」——冷启动无 background→foreground
-    /// 转场，原 backgroundLocked 标志不会置位，导致已设 PIN 却首屏直达主页（隐私红线）。
-    var needsLockScreen: Bool { isPinProtected && lastVerifiedAt == nil }
-
-    /// 验证成功信号：LockOverlayView 观察它解除 backgroundLocked
-    private(set) var lastVerifiedAt: Date?
-
-    /// 阶梯锁定不可用（PIN 状态机装配失败）——安全控制被削弱必须对用户可见
-    private(set) var pinThrottleDegraded = false
-
-    /// 降级节流的内存计数（复用 PinLockPolicy 阶梯；不跨重启）
-    private var degradedFailures = 0
-    private var degradedStage = 0
-
-    /// FR1.6 透明升级：把落盘哈希重算为当前方案（PBKDF2-600k）并覆盖。
-    /// 只在「刚验证成功」的路径上调用——此刻明文 PIN 可用且已确认正确。
-    private func rehashPin(_ pin: String) {
-        let upgraded = PinHasher.makeHash(pin: pin)
-        pinHash = upgraded.stored
-        defaults.set(upgraded.stored, forKey: "pinHashV2")
-        logger.info("PIN 哈希已透明升级至当前方案（旧条目不再留存）")
-    }
-
-    /// 直接读取 PinLockStateMachine 的持久化快照（与 UserDefaultsPinLockStore 同键同格式）。
-    /// 仅供降级路径使用：状态机装配失败时也要能看见上次会话留下的锁定。
-    private func persistedLockoutUntil() -> Date? {
-        guard let data = defaults.data(forKey: "pinLockSnapshot") else { return nil }
-        do {
-            return try JSONDecoder().decode(PinLockSnapshot.self, from: data).lockedUntil
-        } catch {
-            // 快照损坏不能静默当「无锁定」：留日志，并按最保守方式继续走内存节流
-            logger.error("PIN 锁定快照解码失败，降级节流按无历史锁定处理: \(error)")
-            return nil
-        }
     }
 
     // MARK: - F3 成员管理（FR3.7 添加家人）

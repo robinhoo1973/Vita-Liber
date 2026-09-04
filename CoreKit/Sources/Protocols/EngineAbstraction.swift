@@ -72,8 +72,8 @@ public final class EngineRegistry: @unchecked Sendable {
 
     /// 评审修正（线程安全）：`shared` 是公开可变单例——注册发生在组合根（MainActor），
     /// 解析却可能来自任何 Task。无锁字典在并发 register/resolve 下是数据竞争。
-    /// NSLock 保护全部读写；`@unchecked Sendable` 与 InMemoryPinLockStore 同一纪律
-    /// （锁保护的 final class 自身线程安全）。
+    /// NSLock 保护全部读写；`@unchecked Sendable` 与锁保护 final class 同一纪律
+    /// （锁保护的实例自身线程安全）。
     private let lock = NSLock()
     private var store: [ObjectIdentifier: Registration] = [:]
 

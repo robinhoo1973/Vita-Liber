@@ -1,8 +1,8 @@
 import SwiftUI
 import Domain
 
-/// M1a 首启流程视图：L1 三卡 → 设 PIN → 建档 → 拍摄 → OCR 确认 → 时间轴。
-/// 评审修正批：VLIcon 单出口（修空图标）、锁定倒计时、a11y、L3 微文案、修订入口。
+/// M1a 首启流程视图：L1 三卡 → 建档 → 拍摄 → OCR 确认 → 时间轴（V3.22 无 PIN 步骤）。
+/// 评审修正批：VLIcon 单出口（修空图标）、a11y、L3 微文案、修订入口。
 
 struct DisclosureCardsView: View {
     @Environment(AppState.self) private var app
@@ -58,97 +58,6 @@ struct DisclosureCardsView: View {
         case .boundary: return "这不是医疗设备"
         case .storage: return "数据只在本机"
         case .skipInfo: return "这些可以稍后再做"
-        }
-    }
-}
-
-/// PIN 设置与验证（SP-01 门禁卡片；锁定阶梯唯一实现在 Domain 状态机）
-struct PinEntryView: View {
-    enum Mode { case setup, verify }
-    @Environment(AppState.self) private var app
-    let mode: Mode
-    @State private var pin = ""
-    @State private var tick = 0                      // 每秒刷新倒计时
-    private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
-
-    var body: some View {
-        VStack(spacing: 20) {
-            Text(mode == .setup ? L10n.onboard_setPin : L10n.onboard_enterPin)
-                .font(.title2.bold())
-            Text(mode == .setup ? L10n.onboard_pinPurpose : L10n.onboard_pinLockHint)
-                .font(.footnote)
-                .foregroundStyle(Color("text-secondary", bundle: .main))
-
-            HStack(spacing: 14) {
-                ForEach(0..<6, id: \.self) { i in
-                    Circle()
-                        .strokeBorder(Color("text-secondary", bundle: .main), lineWidth: 1)
-                        .background(Circle().fill(i < pin.count ? Color("brand-primary", bundle: .main) : .clear))
-                        .frame(width: 18, height: 18)
-                        .accessibilityValue(i < pin.count ? "已输入" : "空")
-                }
-            }
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel(L10n.onboard_pinProgress)
-            .padding(.vertical, 12)
-
-            // ui-ux §5.1：锁定期间显示剩余等待倒计时（非静态文案）
-            Text(app.isLocked
-                 ? "已锁定，请等待 \(app.remainingLockSeconds) 秒"
-                 : " ")
-                .font(.caption)
-                .foregroundStyle(Color("semantic-danger", bundle: .main))
-                .onReceive(timer) { _ in if app.isLocked { tick += 1 } }
-
-            // M1a 简化键盘：系统键盘不可控于 UI 测试，用数字面板（§5.46 关怀键盘雏形）
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3), spacing: 12) {
-                ForEach(1...9, id: \.self) { n in key(n) }
-                key(-1)   // 占位（不可聚焦）
-                key(0)
-                key(-2)   // 删除
-            }
-            .frame(maxWidth: 320)
-            .padding(.horizontal, 24)
-            .disabled(app.isLocked)                   // 锁定期间键盘视觉与交互禁用
-            .opacity(app.isLocked ? 0.5 : 1.0)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color("bg-grouped", bundle: .main))
-    }
-
-    @ViewBuilder
-    private func key(_ n: Int) -> some View {
-        Button {
-            tapKey(n)
-        } label: {
-            if n == -2 {
-                Image(systemName: "delete.left").frame(height: 52)
-            } else if n == -1 {
-                Color.clear.frame(height: 52)
-            } else {
-                Text("\(n)").font(.title3).frame(height: 52)
-            }
-        }
-        .buttonStyle(.bordered)
-        .accessibilityIdentifier(n >= 0 ? "SP-01.pin.key\(n)" : "SP-01.pin.delete")
-        .accessibilityHidden(n == -1)                 // 评审 S3：占位钮不可聚焦
-    }
-
-    private func tapKey(_ n: Int) {
-        guard !app.isLocked else { return }
-        if n == -2 {
-            if !pin.isEmpty { pin.removeLast() }
-            return
-        }
-        guard n >= 0, pin.count < 6 else { return }
-        pin.append("\(n)")
-        guard pin.count == 6 else { return }
-        if mode == .setup {
-            app.setupPin(pin)
-        } else {
-            Task {                                        // verifyPin 桥接 Domain actor
-                if await app.verifyPin(pin) { pin = "" }
-            }
         }
     }
 }

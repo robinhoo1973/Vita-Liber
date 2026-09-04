@@ -30,7 +30,6 @@
 "voice.route.headphonesOff" = "Headphones disconnected — switching to on-screen check";
 "voice.reminder.timeUnclear" = "The time isn't specific enough. Please add an exact date or time.";
 "voice.reminder.timeUnheard" = "I didn't catch the reminder time. Please say it again or pick a time manually.";
-"security.throttleDegraded" = "Security notice: lockout throttling is unavailable this session. Please restart the app soon.";
 "voice.privacy.title" = "Privacy and headphones";
 "voice.privacy.p1" = "Headphones are recommended — for privacy, and to avoid disturbing others";
 "voice.privacy.p2" = "Speech is recognized on this device only; audio is discarded immediately and never stored";
@@ -143,6 +142,12 @@
 "settings.help" = "Help & about";
 "settings.careMode" = "Care mode";
 "settings.voiceEntry" = "Voice quick entry";
+"security.unlockTitle" = "Unlock Vita Liber";
+"security.unlockSubtitle" = "Verify your identity to view your health records";
+"security.unlockButton" = "Unlock";
+"security.unlockReason" = "Unlock Vita Liber";
+"security.unlockFailed" = "Verification failed. Please try again.";
+"sensitive.unlockReason" = "Verify to view sensitive content";
 "settings.appearance" = "Appearance & Theme";
 "settings.themeLight" = "Light";
 "settings.themeDark" = "Dark";
@@ -165,7 +170,6 @@
 "ai.source" = "Source: ";
 "ai.uncertain" = "Uncertain: %@";
 "ai.askDoctor" = "Ask your doctor: %@";
-"onboard.pinProgress" = "PIN entry progress";
 "onboard.yourName" = "Your name (e.g. Jane)";
 "onboard.saveEdit" = "Save changes";
 "onboard.timelineTitle" = "Health timeline";
@@ -181,18 +185,14 @@
 "onboard.trendTitle" = "Trends";
 "onboard.newValue" = "New value";
 "onboard.ocrDisclaimer" = "Machine-recognized names, doses and dates take effect only after you confirm; unconfirmed content never enters your records.";
-"onboard.pinPurpose" = "Protects your medical records (FR1.1)";
 "onboard.gotIt" = "Got it, continue";
 "onboard.confirm" = "Confirm";
 "onboard.timelineHint" = "Confirmed documents appear here";
 "onboard.confirmResult" = "Confirm recognized fields";
 "onboard.later" = "Later";
 "onboard.observation" = "Observation";
-"onboard.setPin" = "Set a 6-digit PIN";
 "onboard.voiceNote" = "Voice note";
 "onboard.ownerNote" = "Records belong to the device owner as \"self\" (FR21.1)";
-"onboard.enterPin" = "Enter PIN to unlock";
-"onboard.pinLockHint" = "Too many wrong attempts will temporarily lock";
 "onboard.unconfirmedBadge" = "Unconfirmed";
 "help.appName" = "Vita Liber";
 "help.tagline" = "Archive and reminders for personal medical records";
@@ -345,4 +345,3 @@
 "paywall.previewTitle" = "Pro benefits · Preview";
 "observation.lockedHint" = "Sensitive content locked";
 "observation.unlockedHint" = "Unlocked (auto-relocks after 30 seconds of inactivity)";
-"sensitive.setupHint" = "Set an app PIN first to protect sensitive content";

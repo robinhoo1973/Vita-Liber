@@ -1,25 +1,20 @@
 import XCTest
 
 /// TC-M1a-01 端到端切片故事（test-plan-spec §4.2）：
-/// 设 PIN → 建成员 → mock 相机注入处方样张 → OCR 字段逐一确认 → 时间轴可见。
+/// 三卡 → 建成员 → mock 相机注入处方样张 → OCR 字段逐一确认 → 时间轴可见（V3.22 无 PIN 步骤）。
+/// 门禁旁路 -uitest-gate-bypass：本会话视为已认证，避免 finish 后锁屏遮罩顶掉断言。
 /// waitForExistence 显式等待，禁止 sleep（test-plan §4.2 明令）。
 // binds: SU-M1a-E2E / SU-M1a-SEC — TC-M1a-01/02
 final class M1aE2ETests: XCTestCase {
 
     private func launchFresh() -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["-uitest-reset", "-uitest-camera-fixture"]
+        app.launchArguments = ["-uitest-reset", "-uitest-camera-fixture", "-uitest-gate-bypass"]
         app.launch()
         return app
     }
 
-    private func typePin(_ pin: String, in app: XCUIApplication) {
-        for ch in pin {
-            app.buttons["SP-01.pin.key\(ch)"].tap()
-        }
-    }
-
-    func test_SU_M1a_E2E_端到端切片故事_PIN建档OCR确认时间轴() throws {
+    func test_SU_M1a_E2E_端到端切片故事_建档OCR确认时间轴() throws {
         let app = launchFresh()
 
         // L1 首启三卡
@@ -28,9 +23,6 @@ final class M1aE2ETests: XCTestCase {
             XCTAssertTrue(confirm.waitForExistence(timeout: 10), "三卡必须逐一呈现")
             confirm.tap()
         }
-
-        // 设 6 位 PIN「135790」
-        typePin("135790", in: app)
 
         // 建成员「本人」
         let nameField = app.textFields["SP-06.owner.name"]
@@ -77,24 +69,31 @@ final class M1aE2ETests: XCTestCase {
         finish.tap()
     }
 
-    /// FR1.4：退后台回前台必见锁屏；验证 PIN 后回到主界面。
-    /// 用 -uitest-seed-finished 确定性注入完成态（PIN=135790），
-    /// 不依赖前序用例的持久化数据。
+    /// FR1.4：冷启动/退后台回前台必见锁屏；系统认证成功（桩注入）后回到主界面。
+    /// XCUITest 无法自动化 Face ID → -uitest-gate-stub-success 注入确定性成功；
+    /// -uitest-gate-no-auto 关掉遮罩出现的自动认证（避免在断言前被桩自动放行）。
+    /// 用 -uitest-seed-finished 确定性注入完成态（门禁生效），不依赖前序用例持久化。
     func test_SU_M1a_SEC_退后台回前台必见锁屏() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["-uitest-seed-finished"]
+        app.launchArguments = ["-uitest-seed-finished", "-uitest-gate-stub-success",
+                               "-uitest-gate-no-auto"]
         app.launch()
 
-        // 退后台 → 回前台：必见锁屏遮罩
+        // 冷启动未认证 → 锁屏遮罩必须存在
+        let lock = app.descendants(matching: .any)["SP-01.lockOverlay"].firstMatch
+        XCTAssertTrue(lock.waitForExistence(timeout: 10), "FR1.4：冷启动必见锁屏遮罩")
+
+        // 退后台 → 回前台：锁屏遮罩仍在（backgroundLocked 置位）
         XCUIDevice.shared.press(.home)
         app.activate()
-        let lock = app.descendants(matching: .any)["SP-01.lockOverlay"].firstMatch
         XCTAssertTrue(lock.waitForExistence(timeout: 10), "FR1.4：回前台必须见锁屏")
 
-        // 验证 PIN 后回到主界面（锁屏遮罩消失）
-        typePin("135790", in: app)
+        // 点解锁 → 桩认证成功 → 遮罩消失回到主界面
+        let unlock = app.buttons["SP-01.lockOverlay.unlock"]
+        XCTAssertTrue(unlock.waitForExistence(timeout: 5))
+        unlock.tap()
         let lockGone = app.descendants(matching: .any)["SP-01.lockOverlay"].firstMatch
         XCTAssertTrue(lockGone.waitForNonExistence(timeout: 10),
-                      "验证成功后锁屏遮罩必须消失")
+                      "认证成功后锁屏遮罩必须消失")
     }
 }

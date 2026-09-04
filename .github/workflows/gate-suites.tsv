@@ -26,7 +26,7 @@ M0	SU-M0-SMOKE	yes	tests	SU_M0_SMOKE
 M1a	SU-M1a-E2E	yes	tests	SU_M1a_E2E
 M1a	SU-M1a-SEC	yes	tests	SU_M1a_SEC
 M1a	SU-M1a-GOLDEN	yes	tests	SU-M1a-GOLDEN
-M1a	SU-M1a-PIN	yes	tests	SU-M1a-PIN
+M1a	SU-M1a-BIO	yes	tests	SU_M1a_BIO
 M1b	SU-M1b-REMINDER	yes	tests	SU-M1b-REMINDER
 M1b	SU-M1b-STOCK	yes	tests	SU-M1b-STOCK
 M1b	SU-M1b-APPT	yes	tests	SU_M1b_APPT

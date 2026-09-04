@@ -6,11 +6,11 @@ import Protocols
 @testable import VitaLiber
 
 /// TC-M1a-03/05 的 App 层半场（test-plan §4.2）：
-/// 锁定阶梯与跨重启保持、L1 三卡 ConsentRecord 落库、BR-003。
+/// 生物识别门禁（FR1.1 V3.22）、L1 三卡 ConsentRecord 落库、BR-003。
 /// 评审修正：经 GRDBM1aPersistor 走真实 §4.3 表——「本人关联 patient_profile」
 /// 从 ID 断言升级为落库断言，闭合假绿。
 @MainActor
-// binds: SU-M1a-SEC / SU-M1a-GOLDEN — TC-M1a-03/04/05（BR-003 一票否决）
+// binds: SU-M1a-SEC / SU-M1a-BIO / SU-M1a-GOLDEN — TC-M1a-03/04/05（BR-003 一票否决）
 final class M1aAcceptanceTests: XCTestCase {
 
     private func freshDefaults() -> UserDefaults {
@@ -20,57 +20,67 @@ final class M1aAcceptanceTests: XCTestCase {
         return d
     }
 
-    private func makeApp(defaults: UserDefaults, fixture: Bool = false) throws -> AppState {
+    private func makeApp(defaults: UserDefaults, fixture: Bool = false,
+                         gateResult: Bool = true) throws -> AppState {
         let container = try AppContainer.preview()
         return AppState(persistor: container.persistor,
                         capture: FakeOcrProvider(fixture: fixture),
+                        gateUnlocker: FakeGateUnlocker(result: gateResult),
                         defaults: defaults, launchArgs: [])
     }
 
-    /// FR1.3：错误 PIN 5 次锁定；锁定跨 App 重启（同存储重建）保持。
-    /// 阶梯唯一实现 = Domain PinLockStateMachine（App 层只镜像）。
-    func test_错误PIN五次锁定且跨重启保持() async throws {
+    /// FR1.1 · V3.22：门禁 = 系统设备所有者认证。冷启动（本会话未认证）即锁；
+    /// 认证成功（FakeGateUnlocker 注入成功）→ 放行。完成首启前不锁。
+    func test_SU_M1a_BIO_冷启动未认证即锁_认证成功放行() async throws {
         let defaults = freshDefaults()
         let app = try makeApp(defaults: defaults)
         await app.bootstrap()
-        app.setupPin("135790")
 
-        for _ in 0..<5 {
-            let ok = await app.verifyPin("000000")
-            XCTAssertFalse(ok)
-        }
-        XCTAssertTrue(app.isLocked)
+        // 未完成首启：门禁未生效（向导内不锁）
+        XCTAssertFalse(app.isGateEnabled)
+        XCTAssertFalse(app.needsLockScreen)
 
-        // 重启（同 defaults + 同 persistor 重建）→ 锁定保持
-        let app2 = try makeApp(defaults: defaults)
-        await app2.bootstrap()
-        XCTAssertTrue(app2.isLocked, "锁定必须跨重启保持（FR1.3 用例）")
+        // 完成首启（模拟 onboardingFinished）→ 冷启动锁
+        app.finishOnboarding()
+        XCTAssertTrue(app.isGateEnabled)
+        XCTAssertTrue(app.needsLockScreen, "冷启动未认证必须见锁屏")
 
-        // 锁定期间正确 PIN 也不放行
-        let ok = await app2.verifyPin("135790")
-        XCTAssertFalse(ok)
+        // 系统认证成功 → 放行
+        let ok = await app.requestUnlock(reason: "test")
+        XCTAssertTrue(ok)
+        XCTAssertFalse(app.needsLockScreen)
+        XCTAssertNotNil(app.lastUnlockedAt)
     }
 
-    /// 成功验证复位计数与阶梯（评审 A3：App 副本曾不清 lockStage，
-    /// 阶梯永久爬升至 5min 封顶——Domain recordSuccess 必须真实接线）
-    func test_成功验证复位计数与阶梯() async throws {
+    /// 认证失败/取消不放行（FakeGateUnlocker(result: false)）
+    func test_SU_M1a_BIO_认证失败不放行() async throws {
+        let defaults = freshDefaults()
+        let app = try makeApp(defaults: defaults, gateResult: false)
+        await app.bootstrap()
+        app.finishOnboarding()
+        XCTAssertTrue(app.needsLockScreen)
+
+        let ok = await app.requestUnlock(reason: "test")
+        XCTAssertFalse(ok)
+        XCTAssertTrue(app.needsLockScreen, "认证失败必须停留在锁屏（可重试）")
+        XCTAssertNil(app.lastUnlockedAt)
+    }
+
+    /// V3.22：首启三卡后直达建档（无 PIN 步骤）
+    func test_SU_M1a_BIO_首启三卡后直达建档无PIN步骤() async throws {
         let defaults = freshDefaults()
         let app = try makeApp(defaults: defaults)
         await app.bootstrap()
-        app.setupPin("135790")
-        for _ in 0..<4 {
-            let ok = await app.verifyPin("111111")
-            XCTAssertFalse(ok)
+        app.advanceDisclosure()
+        app.advanceDisclosure()
+        app.advanceDisclosure()
+        if case .ownerName = app.stage {
+            // 符合预期
+        } else {
+            XCTFail("三卡后应直达建档（ownerName），实际 \(app.stage)")
         }
-        let ok = await app.verifyPin("135790")
-        XCTAssertTrue(ok)
-        XCTAssertFalse(app.isLocked)
-        // 复位后再错 5 次 → 仍从第一档 30s 起锁（阶梯未爬升）
-        for _ in 0..<5 {
-            _ = await app.verifyPin("222222")
-        }
-        XCTAssertTrue(app.isLocked)
-        XCTAssertEqual(app.remainingLockSeconds, 30)
+        // 旧 PIN 残留键被清除（V3.22 卫生清理）
+        XCTAssertNil(defaults.object(forKey: "pinHashV2"))
     }
 
     /// TC-M1a-05：L1 三卡逐卡确认 → 每条卡生成对应 ConsentRecord 并落 consent_record 表

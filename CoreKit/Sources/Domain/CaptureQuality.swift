@@ -12,7 +12,7 @@ import Foundation
 /// import 白名单（L0 [5]：⊆ {Foundation}）使文件无法 import 平台框架，Linux
 /// 因 #if 永远编译不到 Apple 段，直到 macOS 编译门禁（build-testflight）首次
 /// 真实编译才暴露。解码是平台能力（架构规则 3：系统服务协议注入、实现落
-/// Infrastructure）：现由 `GrayscaleDecoding` 端口注入（同 `PinLockPersisting`
+/// Infrastructure）：现由 `GrayscaleDecoding` 端口注入（同 `GateUnlocking`
 /// 先例：端口定义在 Domain，实现在 Infrastructure），本文件只留纯计算。
 
 /// 灰度位图（解码产物，纯数据）。
