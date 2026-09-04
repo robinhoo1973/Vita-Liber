@@ -170,6 +170,6 @@ private struct PendingDoseRow: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
         }
-        .accessibilityIdentifier("SP-27.notification.dose.\(dose.notifyId)")
+        .accessibilityIdentifier("SP-27.notification.dose.\(dose.id)")
     }
 }
