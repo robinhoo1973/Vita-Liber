@@ -11,7 +11,7 @@ public actor QuestionStore {
 
     public init(writer: any DatabaseWriter) { self.writer = writer }
 
-    public struct Row: Sendable, Equatable, Identifiable {
+    public struct QuestionRow: Sendable, Equatable, Identifiable {
         public var id: UUID
         public var patientId: UUID
         public var encounterId: UUID?
@@ -41,7 +41,7 @@ public actor QuestionStore {
         return id
     }
 
-    public func list(patientId: UUID, status: String? = nil) async throws -> [Row] {
+    public func list(patientId: UUID, status: String? = nil) async throws -> [QuestionRow] {
         try await writer.read { db in
             let statusClause = status.map { _ in "AND status = ?" } ?? ""
             var args: [DatabaseValueConvertible] = [patientId.uuidString]
@@ -51,7 +51,7 @@ public actor QuestionStore {
                 WHERE patient_id = ? \(statusClause)
                 ORDER BY created_at DESC
                 """, arguments: StatementArguments(args)).map { row in
-                Row(id: UUID(uuidString: row["id"] as String) ?? UUID(),
+                QuestionRow(id: UUID(uuidString: row["id"] as String) ?? UUID(),
                     patientId: UUID(uuidString: row["patient_id"] as String) ?? UUID(),
                     encounterId: (row["encounter_id"] as String?).flatMap(UUID.init(uuidString:)),
                     body: row["body"] as String,
@@ -81,7 +81,7 @@ public actor QuestionStore {
     }
 
     /// FR10.4 准备包数据源：未问问题（open 状态，最近 10 条）
-    public func openQuestions(patientId: UUID, limit: Int = 10) async throws -> [Row] {
+    public func openQuestions(patientId: UUID, limit: Int = 10) async throws -> [QuestionRow] {
         try await list(patientId: patientId, status: "open").map { Array($0.prefix(limit)) } ?? []
     }
 }

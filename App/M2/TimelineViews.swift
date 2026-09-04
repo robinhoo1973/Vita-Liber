@@ -10,7 +10,7 @@ import Infrastructure
 final class TimelineViewState {
     private(set) var entries: [TimelineEntry] = []
     private(set) var filter: TimelineFilter = .all
-    private(set) var problems: [HealthProblemStore.Row] = []
+    private(set) var problems: [HealthProblemStore.HealthProblemRow] = []
     private let store: TimelineQueryStore
     private let problemStore: HealthProblemStore
     private var loadingPatientId: UUID?
@@ -227,7 +227,7 @@ struct HealthProblemListView: View {
     @Environment(TimelineViewState.self) private var state
     @State private var showCreate = false
     @State private var showMerge = false
-    @State private var mergePrimary: HealthProblemStore.Row?
+    @State private var mergePrimary: HealthProblemStore.HealthProblemRow?
 
     var body: some View {
         List {
@@ -419,13 +419,13 @@ struct VisitPrepView: View {
 @MainActor
 @Observable
 final class QuestionsState {
-    private(set) var questions: [QuestionStore.Row] = []
+    private(set) var questions: [QuestionStore.QuestionRow] = []
     private let store: QuestionStore
     private var loadingPatientId: UUID?
 
     init(store: QuestionStore) { self.store = store }
 
-    var openQuestions: [QuestionStore.Row] {
+    var openQuestions: [QuestionStore.QuestionRow] {
         questions.filter { $0.status == "open" }
     }
 

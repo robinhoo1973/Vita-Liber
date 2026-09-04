@@ -11,7 +11,7 @@ public actor DocumentStore {
 
     public init(writer: any DatabaseWriter) { self.writer = writer }
 
-    public struct Row: Sendable, Equatable, Identifiable {
+    public struct DocumentRow: Sendable, Equatable, Identifiable {
         public var id: UUID
         public var patientId: UUID
         public var encounterId: UUID?
@@ -41,7 +41,7 @@ public actor DocumentStore {
     ]
 
     public func list(patientId: UUID, includeArchived: Bool = false,
-                     limit: Int = 200) async throws -> [Row] {
+                     limit: Int = 200) async throws -> [DocumentRow] {
         try await writer.read { db in
             let statusClause = includeArchived ? "" : "AND status != 'archived'"
             return try Row.fetchAll(db, sql: """
@@ -74,7 +74,7 @@ public actor DocumentStore {
 
     /// FR5.6 重复检测：文件哈希精确重复（感知哈希在 CaptureQuality DuplicateDetectionService）。
     /// 绝不自动删除——只提示并给并排对比（UI 层）。
-    public func duplicates(sha256: String, patientId: UUID) async throws -> [Row] {
+    public func duplicates(sha256: String, patientId: UUID) async throws -> [DocumentRow] {
         try await writer.read { db in
             try Row.fetchAll(db, sql: """
                 SELECT * FROM document_file WHERE patient_id = ? AND sha256 = ?
@@ -103,8 +103,8 @@ public actor DocumentStore {
         return id
     }
 
-    private static func row(_ row: Row) -> DocumentStore.Row {
-        Row(id: UUID(uuidString: row["id"] as String) ?? UUID(),
+    private static func row(_ row: GRDB.Row) -> DocumentStore.DocumentRow {
+        DocumentRow(id: UUID(uuidString: row["id"] as String) ?? UUID(),
             patientId: UUID(uuidString: row["patient_id"] as String) ?? UUID(),
             encounterId: (row["encounter_id"] as String?).flatMap(UUID.init(uuidString:)),
             docType: row["doc_type"] as String,

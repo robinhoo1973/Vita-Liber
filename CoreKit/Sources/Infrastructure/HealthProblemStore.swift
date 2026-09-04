@@ -12,7 +12,7 @@ public actor HealthProblemStore {
 
     public init(writer: any DatabaseWriter) { self.writer = writer }
 
-    public struct Row: Sendable, Equatable, Identifiable {
+    public struct HealthProblemRow: Sendable, Equatable, Identifiable {
         public var id: UUID
         public var patientId: UUID
         public var name: String
@@ -22,13 +22,13 @@ public actor HealthProblemStore {
         }
     }
 
-    public func list(patientId: UUID, includeArchived: Bool = false) async throws -> [Row] {
+    public func list(patientId: UUID, includeArchived: Bool = false) async throws -> [HealthProblemRow] {
         try await writer.read { db in
             let sql = includeArchived
                 ? "SELECT * FROM health_problem WHERE patient_id = ? ORDER BY created_at DESC"
                 : "SELECT * FROM health_problem WHERE patient_id = ? AND archived = 0 ORDER BY created_at DESC"
             return try Row.fetchAll(db, sql: sql, arguments: [patientId.uuidString]).map { row in
-                Row(id: UUID(uuidString: row["id"] as String) ?? UUID(),
+                HealthProblemRow(id: UUID(uuidString: row["id"] as String) ?? UUID(),
                     patientId: patientId,
                     name: row["name"] as String,
                     archived: (row["archived"] as Int) == 1)

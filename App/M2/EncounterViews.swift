@@ -8,7 +8,7 @@ import Infrastructure
 @MainActor
 @Observable
 final class EncountersState {
-    private(set) var encounters: [EncounterStore.Row] = []
+    private(set) var encounters: [EncounterStore.EncounterRow] = []
     private let store: EncounterStore
     private var loadingPatientId: UUID?
 
@@ -25,7 +25,7 @@ final class EncountersState {
         }
     }
 
-    func get(id: UUID) async -> EncounterStore.Row? {
+    func get(id: UUID) async -> EncounterStore.EncounterRow? {
         try? await store.get(id: id)   // try?-ok: 详情读取失败 = 显示「不存在」降级态
     }
 
@@ -54,7 +54,7 @@ final class EncountersState {
         }
     }
 
-    func recommendations(for encounter: EncounterStore.Row) async -> [UUID] {
+    func recommendations(for encounter: EncounterStore.EncounterRow) async -> [UUID] {
         (try? await store.recommendDocuments(encounter: encounter)) ?? []   // try?-ok: 推荐失败=空推荐区，不阻断详情
     }
 
@@ -119,10 +119,10 @@ struct EncounterListView: View {
 /// 就诊详情（§5.4）：头部卡 + 诊断与医嘱引用块 + 关联资料 + 智能推荐挂接区 +
 /// 底部 [生成就诊总结]
 struct EncounterDetailView: View {
-    let encounter: EncounterStore.Row
+    let encounter: EncounterStore.EncounterRow
     @Environment(AppState.self) private var app
     @Environment(EncountersState.self) private var state
-    @State private var current: EncounterStore.Row?
+    @State private var current: EncounterStore.EncounterRow?
     @State private var recommendations: [UUID] = []
     @State private var showSummary = false
 
@@ -246,7 +246,7 @@ struct EncounterDetailView: View {
 /// 就诊总结页（FR4.3）：已完成/待完成检查、新增药品、复诊时间、
 /// 「以下信息尚未经你确认」清单（BR-003 红点标记）
 struct EncounterSummaryView: View {
-    let encounter: EncounterStore.Row
+    let encounter: EncounterStore.EncounterRow
     @Environment(EncountersState.self) private var state
     @Environment(\.dismiss) private var dismiss
     @State private var unconfirmed: [(documentId: UUID, fieldCount: Int)] = []

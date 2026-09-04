@@ -13,8 +13,8 @@ import Protocols
 @MainActor
 @Observable
 final class DocumentsState {
-    private(set) var documents: [DocumentStore.Row] = []
-    private(set) var duplicateHits: [DocumentStore.Row] = []
+    private(set) var documents: [DocumentStore.DocumentRow] = []
+    private(set) var duplicateHits: [DocumentStore.DocumentRow] = []
     private(set) var pendingDuplicate: PendingDocument?
     private(set) var lastImportError: String?
     /// FR5.3 质量提示（最近一次导入的模糊/反光/遮挡标签——提示重拍不阻止保存）

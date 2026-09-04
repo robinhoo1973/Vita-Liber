@@ -11,7 +11,7 @@ public actor EncounterStore {
 
     public init(writer: any DatabaseWriter) { self.writer = writer }
 
-    public struct Row: Sendable, Equatable, Identifiable {
+    public struct EncounterRow: Sendable, Equatable, Identifiable {
         public var id: UUID
         public var patientId: UUID
         public var hospital: String?
@@ -69,7 +69,7 @@ public actor EncounterStore {
     }
 
     /// 就诊列表（按成员、时间倒序）
-    public func list(patientId: UUID, limit: Int = 200) async throws -> [Row] {
+    public func list(patientId: UUID, limit: Int = 200) async throws -> [EncounterRow] {
         try await writer.read { db in
             try Self.rows(db, sql: """
                 SELECT * FROM encounter WHERE patient_id = ?
@@ -78,7 +78,7 @@ public actor EncounterStore {
         }
     }
 
-    public func get(id: UUID) async throws -> Row? {
+    public func get(id: UUID) async throws -> EncounterRow? {
         try await writer.read { db in
             try Self.rows(db, sql: "SELECT * FROM encounter WHERE id = ?",
                           arguments: [id.uuidString]).first
@@ -106,7 +106,7 @@ public actor EncounterStore {
 
     /// FR4.2 智能推荐（推荐必须标「待确认」，不得自动生效）：
     /// 同医院 ±7 天的孤立资料（无 encounter 归属）。
-    public func recommendDocuments(encounter: Row, now: Date = Date()) async throws -> [UUID] {
+    public func recommendDocuments(encounter: EncounterRow, now: Date = Date()) async throws -> [UUID] {
         let windowStart = encounter.date.addingTimeInterval(-7 * 86400)
         let windowEnd = encounter.date.addingTimeInterval(7 * 86400)
         return try await writer.read { db in
@@ -148,15 +148,15 @@ public actor EncounterStore {
         public var errorDescription: String? { "资料不存在: \(self)" }
     }
 
-    private static func rows(_ db: Database, sql: String, arguments: StatementArguments) throws -> [Row] {
+    private static func rows(_ db: Database, sql: String, arguments: StatementArguments) throws -> [EncounterRow] {
         let rows = try Row.fetchAll(db, sql: sql, arguments: arguments)
-        var out: [Row] = []
+        var out: [EncounterRow] = []
         for row in rows {
             let id = UUID(uuidString: row["id"] as String) ?? UUID()
             let linked: [UUID] = try Row.fetchAll(db, sql: """
                 SELECT id FROM document_file WHERE encounter_id = ?
                 """, arguments: [id.uuidString]).compactMap { UUID(uuidString: $0["id"] as String) }
-            out.append(Row(
+            out.append(EncounterRow(
                 id: id,
                 patientId: UUID(uuidString: row["patient_id"] as String) ?? UUID(),
                 hospital: row["hospital"] as String?,
