@@ -115,7 +115,7 @@ struct AppointmentListView: View {
             Button(L10n.apptCancelReasonDoctor) { submitCancel("doctor_rescheduled") }
             Button(L10n.apptCancelReasonSelf) { submitCancel("self") }
             Button(L10n.apptCancelReasonOther) { submitCancel("other") }
-            Button(L10n.common_cancel, role: .cancel) { cancelTarget = nil }
+            Button(L10n.commonCancel, role: .cancel) { cancelTarget = nil }
         }
         // FR10.7 改期（原预约保留历史 + 新草稿）
         .sheet(item: $rescheduleTarget) { apt in
@@ -239,7 +239,7 @@ struct AppointmentFormView: View {
             .navigationTitle(L10n.apptFormTitle)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(L10n.common_cancel) { dismiss() }
+                    Button(L10n.commonCancel) { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(L10n.reminder_save) { save() }

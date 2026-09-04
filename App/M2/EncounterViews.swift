@@ -288,7 +288,7 @@ struct EncounterSummaryView: View {
             .navigationTitle(L10n.encounterSummaryTitle)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(L10n.common_cancel) { dismiss() }
+                    Button(L10n.commonCancel) { dismiss() }
                 }
             }
             .task {
@@ -341,7 +341,7 @@ struct EncounterFormView: View {
             .navigationTitle(L10n.encounterFormTitle)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(L10n.common_cancel) { dismiss() }
+                    Button(L10n.commonCancel) { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(L10n.reminder_save) {

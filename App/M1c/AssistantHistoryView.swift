@@ -102,7 +102,7 @@ struct AssistantHistoryView: View {
             Button(L10n.aiHistoryClearAll, role: .destructive) {
                 Task { await state.clearAll(patientId: app.currentPatientId) }
             }
-            Button(L10n.common_cancel, role: .cancel) { }
+            Button(L10n.commonCancel, role: .cancel) { }
         } message: {
             Text(L10n.aiHistoryClearNote)
         }

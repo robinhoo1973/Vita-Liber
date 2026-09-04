@@ -286,7 +286,7 @@ struct HealthProblemListView: View {
                     }
                 }
             }
-            Button(L10n.common_cancel, role: .cancel) { mergePrimary = nil }
+            Button(L10n.commonCancel, role: .cancel) { mergePrimary = nil }
         } message: {
             Text(L10n.problemMergeHint)
         }

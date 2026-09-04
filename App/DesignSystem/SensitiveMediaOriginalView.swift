@@ -29,7 +29,7 @@ struct SensitiveMediaOriginalView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button(L10n.common_cancel) { dismiss() }
+                Button(L10n.commonCancel) { dismiss() }
             }
         }
         .onAppear { loadDownsampled() }
@@ -81,7 +81,7 @@ struct SensitiveMediaOriginalView: View {
         .background(Color(.systemGroupedBackground))
         .onTapGesture {
             Task {
-                if await session.isUnlocked || authenticateAndUnlock() {
+                if session.isUnlocked || await authenticateAndUnlock() {
                     // 认证后由 session.isUnlocked 驱动视图切换
                 }
             }

@@ -1,5 +1,6 @@
 import SwiftUI
 import Domain   // MainModuleID（AppRoute 路由所属 Tab）
+import Protocols   // InMemoryReminderScheduler（Preview 装配）
 
 /// ADR-021 / tech-spec §5.26：五模块单一枚举，iPhone Tab 与 iPad Sidebar
 /// 是同一枚举的两种容器渲染。

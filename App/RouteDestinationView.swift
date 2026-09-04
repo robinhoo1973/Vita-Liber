@@ -49,7 +49,7 @@ struct RouteDestinationView: View {
 
         // ---- F8 观察 ----
         case .observationCreate:
-            ObservationCreateSheet()
+            ObservationCreateRouteView()
 
         // ---- F9 用药 ----
         case .medicationCabinet:
@@ -172,6 +172,23 @@ extension MainModule {
         case .reminders: self = .reminders
         case .ai: self = .ai
         case .me: self = .me
+        }
+    }
+}
+
+/// F8 观察创建路由适配：ObservationCreateSheet 要求 onCreate 闭包——
+/// 路由上下文中接线到 ObservationStoreState.create（敏感媒体资产仓全链路）。
+struct ObservationCreateRouteView: View {
+    @Environment(AppState.self) private var app
+    @Environment(ObservationStoreState.self) private var state
+
+    var body: some View {
+        ObservationCreateSheet { kind, description, selfMark, photoData in
+            Task {
+                await state.create(patientId: app.currentPatientId, kind: kind,
+                                   description: description, selfMark: selfMark,
+                                   photoData: photoData)
+            }
         }
     }
 }

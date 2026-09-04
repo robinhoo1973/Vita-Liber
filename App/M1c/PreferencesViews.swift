@@ -181,7 +181,7 @@ struct DataLifecycleView: View {
                     }
                 }
             }
-            Button(L10n.common_cancel, role: .cancel) { }
+            Button(L10n.commonCancel, role: .cancel) { }
         } message: {
             Text(L10n.lifecycleClearImpact)
         }

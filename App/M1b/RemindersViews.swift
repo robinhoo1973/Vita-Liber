@@ -233,20 +233,20 @@ struct DoseSlotCard: View {
                 // 时段级 [全部已服用]：只在有未决剂量时出现（FR9.17）
                 if !slot.allTaken && slot.records.count > 1 {
                     if allTakenHoldConfirmed {
-                        Text(L10n.reminderAllTakenConfirm)
+                        Text(L10n.reminder_allTakenConfirm)
                             .font(.caption).foregroundStyle(.orange)
-                        Button(L10n.reminderAllTakenYes) { onSlotAllTaken() }
+                        Button(L10n.reminder_allTakenYes) { onSlotAllTaken() }
                             .buttonStyle(.borderedProminent)
                             .controlSize(.small)
                             .accessibilityIdentifier("SP-09.doseSlot.allTaken.confirm")
-                        Button(L10n.common_cancel) { allTakenHoldConfirmed = false }
+                        Button(L10n.commonCancel) { allTakenHoldConfirmed = false }
                             .buttonStyle(.bordered)
                             .controlSize(.small)
                     } else {
                         Button {
                             allTakenHoldConfirmed = true
                         } label: {
-                            Text(L10n.reminderAllTaken)
+                            Text(L10n.reminder_allTaken)
                                 .font(.footnote)
                                 .frame(minHeight: 44)
                         }
@@ -311,7 +311,7 @@ struct DoseSlotCard: View {
             Button(L10n.reminder_skipReasonForgot) { submitSkip("forgot") }
             Button(L10n.reminder_skipReasonDoctor) { submitSkip("doctor_adjusted") }
             Button(L10n.reminder_skipReasonOther) { submitSkip("other") }
-            Button(L10n.common_cancel, role: .cancel) { skipCandidate = nil }
+            Button(L10n.commonCancel, role: .cancel) { skipCandidate = nil }
         }
         // FR9.5 记录不适（备注可免填）
         .alert(L10n.reminder_discomfort, isPresented: discomfortBinding) {
@@ -323,7 +323,7 @@ struct DoseSlotCard: View {
                 discomfortNote = ""
                 discomfortCandidate = nil
             }
-            Button(L10n.common_cancel, role: .cancel) {
+            Button(L10n.commonCancel, role: .cancel) {
                 discomfortNote = ""
                 discomfortCandidate = nil
             }

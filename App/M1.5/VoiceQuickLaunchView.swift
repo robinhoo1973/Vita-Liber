@@ -44,7 +44,7 @@ struct VoiceQuickLaunchView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(L10n.common_cancel) { dismiss() }
+                    Button(L10n.commonCancel) { dismiss() }
                 }
                 // FR17.15 面板内语言入口（5.54 C）——跳语音语言选择器
                 ToolbarItem(placement: .topBarTrailing) {

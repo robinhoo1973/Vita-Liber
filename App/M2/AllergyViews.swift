@@ -144,7 +144,7 @@ struct AllergyCreateView: View {
             .navigationTitle(L10n.allergyCreateTitle)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(L10n.common_cancel) { dismiss() }
+                    Button(L10n.commonCancel) { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     if step < 3 {

@@ -52,7 +52,7 @@ struct CaregiverViews: View {
         }
         .navigationTitle(L10n.caregiverTitle)
         .alert(L10n.caregiverAlertTitle, isPresented: $showConfirmAlert) {
-            Button(L10n.common_cancel, role: .cancel) { }
+            Button(L10n.commonCancel, role: .cancel) { }
             Button(L10n.caregiverAlertConfirm) {
                 if let dose = selectedDose {
                     Task {

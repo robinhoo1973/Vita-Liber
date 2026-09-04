@@ -198,7 +198,7 @@ struct MedicationPlanDetailView: View {
                     Task { await reminders.endPlan(planId: planId, reason: reason) }
                 }
             }
-            Button(L10n.common_cancel, role: .cancel) { }
+            Button(L10n.commonCancel, role: .cancel) { }
         } message: {
             Text(L10n.planEndConfirmBody)
         }
@@ -479,7 +479,7 @@ struct MedicationPlanFormView: View {
             .navigationTitle(L10n.planFormTitle)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(L10n.common_cancel) { dismiss() }
+                    Button(L10n.commonCancel) { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(L10n.reminder_save) { save() }

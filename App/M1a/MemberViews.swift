@@ -213,7 +213,7 @@ private struct DeleteMemberFlowSheet: View {
             .navigationTitle(L10n.memberDelete)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(L10n.common_cancel) { dismiss() }
+                    Button(L10n.commonCancel) { dismiss() }
                 }
             }
         }

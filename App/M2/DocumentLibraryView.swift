@@ -263,7 +263,7 @@ struct DocumentLibraryView: View {
             Button(L10n.docImportFile) { fileImporterActive = true }
             Button(L10n.docImportPhotos) { photosImporterActive = true }
             Button(L10n.docImportManual) { showManualCreate = true }
-            Button(L10n.common_cancel, role: .cancel) { }
+            Button(L10n.commonCancel, role: .cancel) { }
         }
         // FR5.6 重复检测：并排对比提示（绝不自动删除）
         .alert(L10n.docDuplicateTitle, isPresented: duplicateAlertBinding) {

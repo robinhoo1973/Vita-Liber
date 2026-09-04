@@ -151,7 +151,7 @@ struct BackupView: View {
         .navigationTitle(L10n.backupTitle)
         // FR13.4 L4 操作前确认：导出隐私提醒（明示导出内容敏感级别）
         .alert(L10n.backupExportConfirmTitle, isPresented: $showExportConfirm) {
-            Button(L10n.common_cancel, role: .cancel) { }
+            Button(L10n.commonCancel, role: .cancel) { }
             Button(L10n.onboardConfirm) {
                 Task {
                     await state.prepareBackup()
@@ -166,7 +166,7 @@ struct BackupView: View {
         }
         // FR13.5 恢复前确认：门禁验证 + 影响清单（覆盖现有数据）+ 校验承诺
         .alert(L10n.backupRestoreConfirmTitle, isPresented: $showRestoreConfirm) {
-            Button(L10n.common_cancel, role: .cancel) { pendingRestoreURL = nil }
+            Button(L10n.commonCancel, role: .cancel) { pendingRestoreURL = nil }
             Button(L10n.onboardConfirm) {
                 if let url = pendingRestoreURL {
                     Task { await state.restore(from: url) }
