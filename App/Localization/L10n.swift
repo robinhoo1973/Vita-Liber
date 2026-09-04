@@ -659,6 +659,13 @@ enum L10n {
         "doc.date", "doc.detailTitle", "doc.export", "doc.fieldsSection", "doc.historySection", "doc.titleSection"
     ]
 
+    // MARK: - FR14.8 Tab badge
+    static var tabRemindersBadge: String { t("tab.reminders.badge") }
+
+    // MARK: - §5.10 敏感媒体原始视图
+    static var sensitiveMedia_originalTitle: String { t("sensitiveMedia.original.title") }
+    static var sensitiveMedia_unlockToView: String { t("sensitiveMedia.unlockToView") }
+
     /// 支持的本地化（三文件纪律）
     static let supportedLocalizations = ["zh-Hans", "zh-Hant", "en"]
 

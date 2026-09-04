@@ -77,6 +77,15 @@ struct RemindersView: View {
                 }
                 .accessibilityIdentifier("SP-18.appointment.add")
             }
+            // FR24.5 同机照护者视图入口
+            Section {
+                NavigationLink {
+                    CaregiverViews()
+                } label: {
+                    Label("帮家人处理", systemImage: "person.2.fill")
+                }
+                .accessibilityIdentifier("FR24.5.entry")
+            }
         }
         .navigationTitle("提醒")
         .task(id: currentPatientId) {

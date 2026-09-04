@@ -372,3 +372,6 @@
 "doc.date" = "Date";
 "observation.kind.unknown" = "Other";
 "doc.historySection" = "Revision history";
+"tab.reminders.badge" = "pending";
+"sensitiveMedia.original.title" = "Original";
+"sensitiveMedia.unlockToView" = "Tap to unlock";

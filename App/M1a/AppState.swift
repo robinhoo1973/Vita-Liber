@@ -153,6 +153,15 @@ final class AppState {
         }
     }
 
+    /// FR20.3/FR20.5 L2-L4 场景须知确认：写入 ConsentRecord
+    func recordConsent(key: String, level: Int, version: String) async {
+        guard !consentRecords.contains(where: { $0.key == key }) else { return }
+        let record = ConsentRecord(key: key, level: level, version: version,
+                                   acceptedAt: Date().timeIntervalSince1970)
+        consentRecords.append(record)
+        persist { [persistor] in try await persistor.saveConsent(record) }
+    }
+
     // MARK: - 门禁（系统设备所有者认证；FR1.1 · V3.22 无应用 PIN）
 
     /// 门禁在完成首启后恒激活：无需注册步骤，系统认证自可用即生效。

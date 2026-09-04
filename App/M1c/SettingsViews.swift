@@ -87,7 +87,7 @@ struct SettingsView: View {
             }
             Section(L10n.settings_about) {
                 NavigationLink(L10n.settings_help) {
-                    HelpAboutView()
+                    HelpRootView()
                 }
                 .accessibilityIdentifier("SP-25.settings.help")
                 Text(L10n.settings_disclaimer)

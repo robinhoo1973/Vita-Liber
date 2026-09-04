@@ -45,7 +45,7 @@ struct ImmunizationListView: View {
                 Button {
                     showCreate = true
                 } label: {
-                    Label(L10n.claim_add, image: "ic-add").frame(minHeight: 44)
+                    Label(L10n.claim_add, systemImage: "plus.circle").frame(minHeight: 44)
                 }
                 .accessibilityIdentifier("FR4.5.immunization.add")
             }

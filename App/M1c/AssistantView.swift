@@ -18,10 +18,12 @@ struct AssistantView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // FR20.3 L3 常驻微文案：AI 输入栏上方横幅
+            L3DisclosureBanner(disclosure: DisclosureRegistry.l3Disclosures[0])
             ScrollView {
                 LazyVStack(spacing: 12) {
                     if let imageNotice {
-                        Label(imageNotice, image: "ic-info")
+                        Label(imageNotice, systemImage: "info.circle")
                             .font(.caption).foregroundStyle(.secondary)
                             .accessibilityIdentifier("FR12.11.noText")
                     }
@@ -69,6 +71,7 @@ struct AssistantView: View {
         }
         .navigationTitle("AI 助手")
         .navigationBarTitleDisplayMode(.inline)
+        .sceneDisclosure(scene: "ai_assistant")
         .onChange(of: pickerItem) { _, newItem in
             guard let newItem else { return }
             Task { await handlePickedImage(newItem) }
@@ -138,7 +141,7 @@ struct ImageConfirmSheet: View {
                                   style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
                 .accessibilityIdentifier("FR12.11.confirm.text")
             }
-            Label("图片识别结果未经你确认，不会作为事实提交", image: "ic-warning")
+            Label("图片识别结果未经你确认，不会作为事实提交", systemImage: "exclamationmark.triangle")
                 .font(.caption).foregroundStyle(Color("grade-d", bundle: .main))
                 .accessibilityIdentifier("FR12.11.unconfirmed")
             HStack(spacing: 12) {

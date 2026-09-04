@@ -28,7 +28,7 @@ struct VoiceReminderDraftView: View {
                 .accessibilityIdentifier("FR17.10.transcript")
 
             if let unresolved {
-                Label(unresolved, image: "ic-warning")
+                Label(unresolved, systemImage: "exclamationmark.triangle")
                     .font(.caption)
                     .foregroundStyle(Color("grade-d", bundle: .main))
                     .accessibilityIdentifier("FR17.10.unresolved")
@@ -37,7 +37,7 @@ struct VoiceReminderDraftView: View {
             Button {
                 buildDraft()
             } label: {
-                Label(L10n.voiceguide_buildDraft, image: "ic-bell").frame(minHeight: 44)
+                Label(L10n.voiceguide_buildDraft, systemImage: "bell").frame(minHeight: 44)
             }
             .disabled(transcript.trimmingCharacters(in: .whitespaces).isEmpty)
             .accessibilityIdentifier("FR17.10.build")

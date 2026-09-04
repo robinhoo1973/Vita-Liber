@@ -39,7 +39,7 @@ struct EmergencyCardView: View {
                     Button {
                         onOpenSelector()
                     } label: {
-                        Label("管理卡片内容", image: "ic-edit").frame(minHeight: 44)
+                        Label("管理卡片内容", systemImage: "pencil").frame(minHeight: 44)
                     }
                     .accessibilityIdentifier("F15.card.manage")
                 }
@@ -243,7 +243,7 @@ struct CareModeSettingsView: View {
                         careMode = newValue
                         app.careMode = newValue
                     })) {
-                    Label(L10n.care_title, image: "ic-observe-frame")
+                    Label(L10n.care_title, systemImage: "eye")
                 }
                 .accessibilityIdentifier("F18.care.toggle")
             } footer: {

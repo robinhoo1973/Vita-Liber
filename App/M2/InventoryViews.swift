@@ -40,7 +40,7 @@ struct InventoryListView: View {
                     Button {
                         onExportDispenseList()
                     } label: {
-                        Label(L10n.inventory_reportTitle, image: "ic-export").frame(minHeight: 44)
+                        Label(L10n.inventory_reportTitle, systemImage: "square.and.arrow.up").frame(minHeight: 44)
                     }
                     .accessibilityIdentifier("FR13.8.dispense.export")
                 }

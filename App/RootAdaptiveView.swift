@@ -49,7 +49,8 @@ enum MainModule: String, CaseIterable, Identifiable, Hashable {
 /// L1 外壳（§5.26.1）＋ L2 模块根占位（M0）。
 struct RootAdaptiveView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
-    @State private var selection: MainModule = .home
+    @Environment(ReminderStore.self) private var reminderStore
+    @SceneStorage("selectedModule") private var selection: MainModule = .home
 
     var body: some View {
         // 容器驱动重排（ADR-021）：compact=TabView、regular=侧边栏。
@@ -67,6 +68,8 @@ struct RootAdaptiveView: View {
                     NavigationStack { ModuleRoot(module: m) }
                         .tabItem { Label(m.title, systemImage: m.systemGlyph) }
                         .tag(m)
+                        // FR14.8/SP-27: Unread badge on reminders tab
+                        .badge(m == .reminders ? reminderStore.pendingCount : 0)
                 }
             }
         } else {
@@ -178,5 +181,6 @@ private struct PreviewRoot: View {
                                     claims: container.claims,
                                     messages: container.messages,
                                     guidelines: container.guidelines))
+            .environment(container.mediaSession)
     }
 }

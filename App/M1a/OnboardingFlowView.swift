@@ -61,7 +61,7 @@ struct LockOverlayView: View {
                     failedOnce = false
                     Task { await attempt() }
                 } label: {
-                    Label(L10n.security_unlockButton, image: "ic-faceid")
+                    Label(L10n.security_unlockButton, systemImage: "faceid")
                         .frame(maxWidth: 320, minHeight: 50)
                 }
                 .buttonStyle(.borderedProminent)

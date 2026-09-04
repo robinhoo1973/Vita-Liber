@@ -372,3 +372,6 @@
 "doc.date" = "时间";
 "observation.kind.unknown" = "其他";
 "doc.historySection" = "修订历史";
+"tab.reminders.badge" = "条待办";
+"sensitiveMedia.original.title" = "原始图片";
+"sensitiveMedia.unlockToView" = "点击解锁查看";

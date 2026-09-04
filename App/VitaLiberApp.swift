@@ -79,6 +79,7 @@ struct VitaLiberApp: App {
                 .environment(trendState)
                 .environment(voiceNoteState)
                 .environment(m2Hub)
+                .environment(container.mediaSession)
         }
     }
 }

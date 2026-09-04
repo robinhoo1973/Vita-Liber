@@ -30,7 +30,7 @@ struct InventoryHubView: View {
                 Button {
                     showHelpCard = true
                 } label: {
-                    Label("求助卡", image: "ic-share").frame(minHeight: 44)
+                    Label("求助卡", systemImage: "square.and.arrow.up").frame(minHeight: 44)
                 }
                 .accessibilityIdentifier("FR9.13a.card.open")
             }

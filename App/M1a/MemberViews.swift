@@ -47,7 +47,7 @@ struct MemberManagementView: View {
                 Button {
                     showAdd = true
                 } label: {
-                    Label(L10n.member_add, image: "ic-person-add").frame(minHeight: 44)
+                    Label(L10n.member_add, systemImage: "person.badge.plus").frame(minHeight: 44)
                 }
                 .accessibilityIdentifier("FR3.7.member.add")
             }

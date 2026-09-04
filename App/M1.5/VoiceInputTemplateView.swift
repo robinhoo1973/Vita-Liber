@@ -114,7 +114,7 @@ struct VoiceConfirmSheet: View {
                             .font(.caption2)
                             .foregroundStyle(Color("grade-d", bundle: .main))
                         if ConfidenceTier.tier(field.confidence) == .low {
-                            Label(L10n.voiceConfirmLowConfidence, image: "ic-warning")
+                            Label(L10n.voiceConfirmLowConfidence, systemImage: "exclamationmark.triangle")
                                 .font(.caption2)
                                 .foregroundStyle(Color("grade-d", bundle: .main))
                                 .labelStyle(.titleAndIcon)
@@ -133,7 +133,7 @@ struct VoiceConfirmSheet: View {
             }
 
             if bystanderWarning {
-                Label(L10n.voiceBystanderWarning, image: "ic-warning")
+                Label(L10n.voiceBystanderWarning, systemImage: "exclamationmark.triangle")
                     .font(.caption).foregroundStyle(.secondary)
                     .accessibilityIdentifier("FR17.13.bystanderWarning")
             }
@@ -145,14 +145,14 @@ struct VoiceConfirmSheet: View {
                         askAnswered = true
                         if let script { onSpeak?(script) }
                     } label: {
-                        Label(L10n.voiceAskSpeak, image: "ic-volume")
+                        Label(L10n.voiceAskSpeak, systemImage: "speaker.wave.2")
                             .frame(minHeight: 44)
                     }
                     .accessibilityIdentifier("FR17.13.ask.speak")
                     Button {
                         askAnswered = true
                     } label: {
-                        Label(L10n.voiceAskScreen, image: "ic-volume-off")
+                        Label(L10n.voiceAskScreen, systemImage: "speaker.slash")
                             .frame(minHeight: 44)
                     }
                     .accessibilityIdentifier("FR17.13.ask.screen")
@@ -163,7 +163,7 @@ struct VoiceConfirmSheet: View {
                     Button {
                         if let script { onSpeak?(script) }
                     } label: {
-                        Label(L10n.voiceSpeakAloud, image: "ic-volume").frame(minHeight: 44)
+                        Label(L10n.voiceSpeakAloud, systemImage: "speaker.wave.2").frame(minHeight: 44)
                     }
                     .accessibilityLabel("朗读当前草稿")
                     .accessibilityIdentifier("FR17.13.speakButton")

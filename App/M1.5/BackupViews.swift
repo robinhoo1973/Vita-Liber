@@ -93,7 +93,7 @@ struct BackupView: View {
             Section {
                 if !state.iCloudSignedIn {
                     // 未登录 iCloud：不隐藏功能，只如实说明落点受限（仍可导出到本机）
-                    Label(L10n.backupNotSignedIn, image: "ic-cloud-off")
+                    Label(L10n.backupNotSignedIn, systemImage: "icloud.slash")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .accessibilityIdentifier("SP-24.backup.notSignedIn")
@@ -104,14 +104,14 @@ struct BackupView: View {
                         if case .exported = state.phase { showExporter = true }
                     }
                 } label: {
-                    Label(L10n.backupCreate, image: "ic-backup").frame(minHeight: 44)
+                    Label(L10n.backupCreate, systemImage: "icloud.and.arrow.up").frame(minHeight: 44)
                 }
                 .accessibilityIdentifier("SP-24.backup.create")
 
                 Button {
                     showImporter = true
                 } label: {
-                    Label(L10n.backupRestore, image: "ic-import").frame(minHeight: 44)
+                    Label(L10n.backupRestore, systemImage: "icloud.and.arrow.down").frame(minHeight: 44)
                 }
                 .accessibilityIdentifier("SP-24.backup.restore")
             } footer: {
@@ -122,16 +122,16 @@ struct BackupView: View {
             switch state.phase {
             case .exported(let name, let digest):
                 Section {
-                    Label(L10n.backupExportedName(name), image: "ic-check-circle")
+                    Label(L10n.backupExportedName(name), systemImage: "checkmark.circle")
                         .accessibilityIdentifier("SP-24.backup.exported")
                     Text(L10n.backupChecksum(digest)).font(.caption2).monospaced()
                         .foregroundStyle(.secondary)
                 }
             case .restored:
-                Label(L10n.backupRestored, image: "ic-check-circle")
+                Label(L10n.backupRestored, systemImage: "checkmark.circle")
                     .accessibilityIdentifier("SP-24.backup.restored")
             case .degraded(let message):
-                Label(message, image: "ic-warning")
+                Label(message, systemImage: "exclamationmark.triangle")
                     .font(.footnote)
                     .accessibilityIdentifier("SP-24.backup.degraded")
             case .working:

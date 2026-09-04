@@ -15,6 +15,12 @@ final class ReminderStore {
     private(set) var upcomingAppointments: [AppointmentRow] = []
     private(set) var loading = false
 
+    /// FR14.8/SP-27: Unread reminder count for tab badge.
+    /// Counts doses with no user action across all today's slots.
+    var pendingCount: Int {
+        todaySlots.reduce(0) { $0 + $1.records.filter { $0.action == nil }.count }
+    }
+
     private let meds: MedicationStore
     private let apts: AppointmentStore
     private let reconciler: ReminderReconciler
