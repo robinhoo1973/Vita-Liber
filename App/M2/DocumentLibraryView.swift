@@ -33,7 +33,7 @@ final class DocumentsState {
         var data: Data
         var mimeType: String
         var docType: String
-        var title: String
+        var title: String?
         var sha256: String
         var isSensitive: Bool
     }
