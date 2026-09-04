@@ -199,29 +199,7 @@ struct DocumentLibraryView: View {
                         NavigationLink {
                             DocumentDetailRouteView(documentId: doc.id)
                         } label: {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 3) {
-                                    HStack(spacing: 6) {
-                                        Text(doc.docType)
-                                            .font(.caption2)
-                                            .padding(.horizontal, 6).padding(.vertical, 2)
-                                            .background(Capsule().fill(Color(.systemGray5)))
-                                        if doc.isSensitive {
-                                            Image(systemName: "lock.fill")
-                                                .font(.caption2).foregroundStyle(.orange)
-                                        }
-                                    }
-                                    Text(doc.title ?? L10n.docLibraryUntitled)
-                                        .font(.subheadline)
-                                    Text(doc.createdAt.formatted(date: .abbreviated, time: .shortened))
-                                        .font(.caption2).foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                if doc.status == "favorite" {
-                                    Image(systemName: "star.fill")
-                                        .font(.caption).foregroundStyle(.yellow)
-                                }
-                            }
+                            DocumentLibraryRow(doc: doc)
                         }
                         .swipeActions(edge: .trailing) {
                             // 三元标题拆成局部常量：降低 Button(String 三元) 在
@@ -368,6 +346,38 @@ private struct ManualDocumentSheet: View {
                     }
                     .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
+            }
+        }
+    }
+}
+
+/// 文档行标签（独立子视图：行 label 结构过重，Xcode 26 类型检查超时，
+/// 拆小检查单元——「unable to type-check in reasonable time」最佳实践）
+private struct DocumentLibraryRow: View {
+    let doc: DocumentStore.DocumentRow
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(doc.docType)
+                        .font(.caption2)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(Capsule().fill(Color(.systemGray5)))
+                    if doc.isSensitive {
+                        Image(systemName: "lock.fill")
+                            .font(.caption2).foregroundStyle(.orange)
+                    }
+                }
+                Text(doc.title ?? L10n.docLibraryUntitled)
+                    .font(.subheadline)
+                Text(doc.createdAt.formatted(date: .abbreviated, time: .shortened))
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if doc.status == "favorite" {
+                Image(systemName: "star.fill")
+                    .font(.caption).foregroundStyle(.yellow)
             }
         }
     }
