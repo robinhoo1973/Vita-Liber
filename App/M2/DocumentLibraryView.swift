@@ -196,26 +196,13 @@ struct DocumentLibraryView: View {
             } else {
                 List {
                     ForEach(state.documents) { doc in
-                        NavigationLink {
-                            DocumentDetailRouteView(documentId: doc.id)
-                        } label: {
-                            DocumentLibraryRow(doc: doc)
-                        }
-                        .swipeActions(edge: .trailing) {
-                            // 三元标题拆成局部常量：降低 Button(String 三元) 在
-                            // StringProtocol/LocalizedStringKey 重载下的类型检查压力
-                            let archiveTitle = doc.status == "archived" ? L10n.docUnarchive : L10n.docArchive
-                            let favoriteTitle = doc.status == "favorite" ? L10n.docUnfavorite : L10n.docFavorite
-                            Button(archiveTitle) {
-                                Task { await state.setArchived(id: doc.id, archived: doc.status != "archived") }
-                            }
-                            .tint(.orange)
-                            Button(favoriteTitle) {
-                                Task { await state.setFavorite(id: doc.id, favorite: doc.status != "favorite") }
-                            }
-                            .tint(.yellow)
-                        }
-                        .accessibilityIdentifier("SP-09.document.row.\(doc.id.uuidString)")
+                        DocumentLibraryRow(doc: doc,
+                                           onSetArchived: { archived in
+                                               Task { await state.setArchived(id: doc.id, archived: archived) }
+                                           },
+                                           onSetFavorite: { favorite in
+                                               Task { await state.setFavorite(id: doc.id, favorite: favorite) }
+                                           })
                     }
                 }
             }
@@ -351,34 +338,58 @@ private struct ManualDocumentSheet: View {
     }
 }
 
-/// 文档行标签（独立子视图：行 label 结构过重，Xcode 26 类型检查超时，
-/// 拆小检查单元——「unable to type-check in reasonable time」最佳实践）
+/// 文档整行（独立子视图：NavigationLink + swipeActions + 行 label 结构过重，
+/// Xcode 26 类型检查超时，拆小检查单元——「unable to type-check in
+/// reasonable time」最佳实践；swipe 按钮用 label 闭包避开 String 参数重载歧义）
 private struct DocumentLibraryRow: View {
     let doc: DocumentStore.DocumentRow
+    let onSetArchived: (Bool) -> Void
+    let onSetFavorite: (Bool) -> Void
 
     var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(doc.docType)
-                        .font(.caption2)
-                        .padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(Capsule().fill(Color(.systemGray5)))
-                    if doc.isSensitive {
-                        Image(systemName: "lock.fill")
-                            .font(.caption2).foregroundStyle(.orange)
+        NavigationLink {
+            DocumentDetailRouteView(documentId: doc.id)
+        } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text(doc.docType)
+                            .font(.caption2)
+                            .padding(.horizontal, 6).padding(.vertical, 2)
+                            .background(Capsule().fill(Color(.systemGray5)))
+                        if doc.isSensitive {
+                            Image(systemName: "lock.fill")
+                                .font(.caption2).foregroundStyle(.orange)
+                        }
                     }
+                    Text(doc.title ?? L10n.docLibraryUntitled)
+                        .font(.subheadline)
+                    Text(doc.createdAt.formatted(date: .abbreviated, time: .shortened))
+                        .font(.caption2).foregroundStyle(.secondary)
                 }
-                Text(doc.title ?? L10n.docLibraryUntitled)
-                    .font(.subheadline)
-                Text(doc.createdAt.formatted(date: .abbreviated, time: .shortened))
-                    .font(.caption2).foregroundStyle(.secondary)
-            }
-            Spacer()
-            if doc.status == "favorite" {
-                Image(systemName: "star.fill")
-                    .font(.caption).foregroundStyle(.yellow)
+                Spacer()
+                if doc.status == "favorite" {
+                    Image(systemName: "star.fill")
+                        .font(.caption).foregroundStyle(.yellow)
+                }
             }
         }
+        .swipeActions(edge: .trailing) {
+            let archiveTitle = doc.status == "archived" ? L10n.docUnarchive : L10n.docArchive
+            let favoriteTitle = doc.status == "favorite" ? L10n.docUnfavorite : L10n.docFavorite
+            Button {
+                onSetArchived(doc.status != "archived")
+            } label: {
+                Text(archiveTitle)
+            }
+            .tint(.orange)
+            Button {
+                onSetFavorite(doc.status != "favorite")
+            } label: {
+                Text(favoriteTitle)
+            }
+            .tint(.yellow)
+        }
+        .accessibilityIdentifier("SP-09.document.row.\(doc.id.uuidString)")
     }
 }
