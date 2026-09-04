@@ -140,8 +140,11 @@ public actor GRDBM1aPersistor: M1aPersisting {
 
     /// FR6.1 OCR 结果独立存储（与 notes 解耦）：每次识别记录原文块、置信度、
     /// 来源文件、识别时间、引擎版本——识别留痕与确认流解耦，可追溯。
+    /// 签名与 M1aPersisting 协议**精确一致**（额外便捷参数只放协议扩展，
+    /// 不在此处加默认参数——协议一致性与默认参数不兼容，评审修正）。
     public func saveOCRResult(documentId: UUID, fields: [CandidateField],
-                              engineVersion: String, now: Date = Date()) async throws {
+                              engineVersion: String) async throws {
+        let now = Date()
         try await writer.write { db in
             for field in fields {
                 try db.execute(sql: """

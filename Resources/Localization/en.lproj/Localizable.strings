@@ -979,3 +979,6 @@
 "medicalID.step3Hint" = "Copy the blood type, allergies, long-term medications and emergency contacts from this app's Emergency Card and save.";
 "medicalID.openHealth" = "Open Health App";
 "medicalID.note" = "This app never writes to the system Medical ID silently — you complete it manually in the Health app.";
+"settings.themeHint" = "Changes take effect immediately, no restart needed";
+"reminder.notification.title" = "You have a health reminder";
+"reminder.notification.body" = "Tap for details";

@@ -25,6 +25,49 @@ enum AppearanceRules {
 
 /// ui-ux §5.12.1 外观与主题选择器：水平三段 + 迷你预览色块，即时生效、无确认弹窗。
 /// 预览语义（mock me.html `.theme-preview`）：浅=白底黑条 / 深=黑底白条 / 跟随=半白半黑。
+/// FR14.4 外观与主题设置页（SP-25 子页路由落点）：三段选择器 + 高对比度开关。
+/// 切换即时生效（AppRootView 读 settings 注入 preferredColorScheme/contrast）。
+struct ThemeSettingsView: View {
+    @Environment(AppSettingsStore.self) private var settings
+    @Environment(AppState.self) private var app
+
+    var body: some View {
+        Form {
+            Section {
+                ThemeSegmentedPicker(selection: themeBinding)
+            } footer: {
+                Text(L10n.settings_themeHint)
+            }
+            Section {
+                Toggle(L10n.settings_highContrast, isOn: highContrastBinding)
+            } footer: {
+                Text(L10n.settings_highContrastFooter)
+            }
+        }
+        .navigationTitle(L10n.settings_appearance)
+        .task { await settings.load() }
+    }
+
+    private var themeBinding: Binding<AppTheme> {
+        Binding(
+            get: {
+                AppTheme(rawValue: settings.values[.appearance]
+                         ?? AppSettingKey.appearance.defaultValue) ?? .system
+            },
+            set: { theme in
+                Task { await settings.set(theme.rawValue, for: .appearance) }
+            })
+    }
+
+    private var highContrastBinding: Binding<Bool> {
+        Binding(
+            get: { settings.values[.highContrastEnabled] == "true" },
+            set: { on in
+                Task { await settings.set(on ? "true" : "false", for: .highContrastEnabled) }
+            })
+    }
+}
+
 struct ThemeSegmentedPicker: View {
     @Binding var selection: AppTheme
 

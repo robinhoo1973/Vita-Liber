@@ -92,7 +92,7 @@ struct GlobalSearchView: View {
             } else {
                 if !state.docHits.isEmpty {
                     Section(L10n.searchGroupDocs) {
-                        ForEach(state.docHits) { hit in
+                        ForEach(state.docHits, id: \.refID) { hit in
                             Button {
                                 router.navigate(to: .documentDetail(hit.refID))
                             } label: {

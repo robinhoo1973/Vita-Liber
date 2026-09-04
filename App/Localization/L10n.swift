@@ -841,7 +841,8 @@ enum L10n {
         "f19.markTakenDoneFmt", "f19.metricRecordedFmt", "f19.questionRecordedFmt",
         "medicalID.title", "medicalID.step1", "medicalID.step1Hint", "medicalID.step2",
         "medicalID.step2Hint", "medicalID.step3", "medicalID.step3Hint",
-        "medicalID.openHealth", "medicalID.note"
+        "medicalID.openHealth", "medicalID.note", "settings.themeHint",
+        "reminder.notification.title", "reminder.notification.body"
     ]
 
     // MARK: - FR14.8 Tab badge
@@ -1331,6 +1332,7 @@ enum L10n {
     static var authHealthLabel: String { t("auth.health") }
     static var authVoiceDictationLabel: String { t("auth.voiceDictation") }
     static var settings_dataLifecycle: String { t("settings.dataLifecycle") }
+    static var settings_themeHint: String { t("settings.themeHint") }
     static var prefGroupReminders: String { t("pref.group.reminders") }
     static var prefGroupDisplay: String { t("pref.group.display") }
     static var prefGroupVoice: String { t("pref.group.voice") }

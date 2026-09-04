@@ -154,7 +154,7 @@ public actor AppointmentStore {
     }
 }
 
-public struct AppointmentRow: Sendable, Equatable {
+public struct AppointmentRow: Sendable, Equatable, Identifiable {
     public var id: UUID
     public var hospital: String
     public var department: String

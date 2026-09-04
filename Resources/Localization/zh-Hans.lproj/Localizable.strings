@@ -979,3 +979,6 @@
 "medicalID.step3Hint" = "对照本 App 急救卡页面的血型、过敏、长期用药与紧急联系人逐项填写并保存。";
 "medicalID.openHealth" = "打开健康 App";
 "medicalID.note" = "本 App 不静默写入系统急救卡——写入由你在系统健康 App 中手动完成。";
+"settings.themeHint" = "切换即时生效，无需重启";
+"reminder.notification.title" = "您有一条健康提醒";
+"reminder.notification.body" = "点击查看详情";
