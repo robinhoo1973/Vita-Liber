@@ -295,23 +295,29 @@ final class AppState {
 
     /// FR6.8 逐字段确认（队列与单文档工作台共用同一写路径）
     func confirmTimelineField(entryId: UUID, fieldId: UUID) {
-        guard let i = timeline.firstIndex(where: { $0.id == entryId }),
-              let j = (timeline[i].fields ?? []).firstIndex(where: { $0.id == fieldId }) else { return }
-        _ = timeline[i].fields[j].confirm()
+        guard let i = timeline.firstIndex(where: { $0.id == entryId }) else { return }
+        var fields = timeline[i].fields ?? []
+        guard let j = fields.firstIndex(where: { $0.id == fieldId }) else { return }
+        _ = fields[j].confirm()
+        timeline[i].fields = fields
         persistTimeline()
     }
 
     func reviseTimelineField(entryId: UUID, fieldId: UUID, to value: String) {
-        guard let i = timeline.firstIndex(where: { $0.id == entryId }),
-              let j = (timeline[i].fields ?? []).firstIndex(where: { $0.id == fieldId }) else { return }
-        _ = timeline[i].fields[j].revise(to: value, by: owner?.displayName ?? "owner", at: Date())
+        guard let i = timeline.firstIndex(where: { $0.id == entryId }) else { return }
+        var fields = timeline[i].fields ?? []
+        guard let j = fields.firstIndex(where: { $0.id == fieldId }) else { return }
+        _ = fields[j].revise(to: value, by: owner?.displayName ?? "owner", at: Date())
+        timeline[i].fields = fields
         persistTimeline()
     }
 
     func rejectTimelineField(entryId: UUID, fieldId: UUID) {
-        guard let i = timeline.firstIndex(where: { $0.id == entryId }),
-              let j = (timeline[i].fields ?? []).firstIndex(where: { $0.id == fieldId }) else { return }
-        timeline[i].fields[j].reject()
+        guard let i = timeline.firstIndex(where: { $0.id == entryId }) else { return }
+        var fields = timeline[i].fields ?? []
+        guard let j = fields.firstIndex(where: { $0.id == fieldId }) else { return }
+        fields[j].reject()
+        timeline[i].fields = fields
         persistTimeline()
     }
 
@@ -324,9 +330,13 @@ final class AppState {
     func confirmAllPendingFields() {
         guard queueAllConfirmAllowed else { return }
         for (idx, entry) in timeline.enumerated() {
-            for (j, field) in (entry.fields ?? []).enumerated() where !field.isConfirmed && field.grade != .rejected {
-                _ = timeline[idx].fields[j].confirm()
+            var fields = entry.fields ?? []
+            var changed = false
+            for (j, field) in fields.enumerated() where !field.isConfirmed && field.grade != .rejected {
+                fields[j].confirm()
+                changed = true
             }
+            if changed { timeline[idx].fields = fields }
         }
         persistTimeline()
     }

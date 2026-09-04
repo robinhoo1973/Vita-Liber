@@ -97,7 +97,7 @@ public actor AllergyStore {
         }
     }
 
-    public struct AllergyRow: Sendable, Equatable {
+    public struct AllergyRow: Sendable, Equatable, Identifiable {
         public var id: UUID
         public var substance: String
         public var severity: String

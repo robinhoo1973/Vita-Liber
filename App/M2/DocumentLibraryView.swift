@@ -224,11 +224,15 @@ struct DocumentLibraryView: View {
                             }
                         }
                         .swipeActions(edge: .trailing) {
-                            Button(doc.status == "archived" ? L10n.docUnarchive : L10n.docArchive) {
+                            // 三元标题拆成局部常量：降低 Button(String 三元) 在
+                            // StringProtocol/LocalizedStringKey 重载下的类型检查压力
+                            let archiveTitle = doc.status == "archived" ? L10n.docUnarchive : L10n.docArchive
+                            let favoriteTitle = doc.status == "favorite" ? L10n.docUnfavorite : L10n.docFavorite
+                            Button(archiveTitle) {
                                 Task { await state.setArchived(id: doc.id, archived: doc.status != "archived") }
                             }
                             .tint(.orange)
-                            Button(doc.status == "favorite" ? L10n.docUnfavorite : L10n.docFavorite) {
+                            Button(favoriteTitle) {
                                 Task { await state.setFavorite(id: doc.id, favorite: doc.status != "favorite") }
                             }
                             .tint(.yellow)

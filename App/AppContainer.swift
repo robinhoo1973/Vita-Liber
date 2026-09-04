@@ -54,6 +54,8 @@ struct AppContainer {
     let healthReader: HealthKitReader
 
     /// 生产装配：文件库 + WAL（§4.4）+ UNUserNotificationCenter 适配。
+    /// @MainActor：mediaSession（MediaUnlockSession）为 UI 会话令牌，装配根即主线程。
+    @MainActor
     static func live(databasePath: String) throws -> AppContainer {
         let store = try GRDBStore.pool(at: databasePath)
         return assemble(store: store, scheduler: UNReminderScheduler())
@@ -61,12 +63,14 @@ struct AppContainer {
 
     /// Preview/测试装配：内存库 + 内存调度器 + 临时目录敏感资产仓
     /// （预览不得污染生产 Documents/MedicalNotes/sensitive）。
+    @MainActor
     static func preview() throws -> AppContainer {
         let store = try GRDBStore.inMemory()
         return assemble(store: store, scheduler: InMemoryReminderScheduler(),
                         mediaBaseDir: FileManager.default.temporaryDirectory)
     }
 
+    @MainActor
     private static func assemble(store: GRDBStore, scheduler: any ReminderScheduling,
                                  mediaBaseDir: URL? = nil) -> AppContainer {
         // 引擎注册提前到组装根：资产仓等依赖注入端口的能力在组合根装配时即就位。

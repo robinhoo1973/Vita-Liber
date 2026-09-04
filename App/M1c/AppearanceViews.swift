@@ -1,4 +1,5 @@
 import SwiftUI
+import Domain   // AppSettingKey / AppSettings 值类型
 
 /// FR14.4 外观主题三态（tech-spec §5.28.1 定义；ui-ux §5.12.1 交互）。
 /// ColorScheme 映射必须在 App 层——Domain 纯净规则禁止 import SwiftUI（L0 [5/11] 白名单）。
