@@ -81,7 +81,7 @@ Resources/                       # tech-spec §1.2 顶层 Resources/
 
 | 前缀 | 含义 | 例 |
 |---|---|---|
-| `ic-tab-*` | 五模块 Tab（ADR-021 同一枚举双端渲染） | `ic-tab-home` / `ic-tab-home-filled` |
+| `ic-tab-*` | 五模块 Tab（ADR-021 同一枚举双端渲染）。**V3.35 起 Tab 栏/侧边栏改用 SF Symbols 线条字形（`house`/`folder`/`bell`/`sparkles`/`person`，见 ui-ux-spec V3.35）；本组瓷砖保留供模块内大尺寸场景复用** | `ic-tab-home` / `ic-tab-home-filled` |
 | `ic-*` | 通用操作/医疗业务/安全/Pro | `ic-add`、`ic-stethoscope`、`ic-lock` |
 | `ic-sym-*` | 症状观察宫格（F8 步骤1 选类型） | `ic-sym-stool`…`ic-sym-custom` |
 | `ic-member-*` | 成员默认头像字形（瓷砖色=关系色） | `ic-member-mother` |
@@ -91,8 +91,8 @@ Resources/                       # tech-spec §1.2 顶层 Resources/
 Swift 侧经生成文件 `App/DesignSystem/VLIcon.swift` 单出口引用（对齐 `Localization/L10n.swift` 纪律）：
 
 ```swift
-Image(VLIcon.tabHome)                 // 常规态（彩色瓷砖）
-Image(VLIcon.tabRemindersFilled)      // Tab 激活态（filled 字形）
+Image(VLIcon.tabHome)                 // 模块内大尺寸场景（V3.35 起不再用于 Tab 栏，Tab/侧边栏走 SF Symbols）
+Image(VLIcon.tabRemindersFilled)      // 同上，保留供未来模块内复用
 Image(VLIcon.illEmptyRecords)         // 空态插画
 ```
 

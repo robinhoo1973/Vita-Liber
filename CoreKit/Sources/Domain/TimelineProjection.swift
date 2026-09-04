@@ -13,10 +13,14 @@ public struct TimelineDocumentEntry: Sendable, Equatable, Codable, Identifiable 
     public var state: State
     /// FR6.4 修订历史（新→旧）——确认态字段被修改时逐条入史
     public var revisionHistory: [String]
+    /// 确认集字段内容（详情/导出用）。评审修正：此前 meta_json 只存计数与标题，
+    /// 处方样张「可打开」无内容可看——自 V3.58 起随投影一并持久化。
+    /// Optional：旧行 meta_json 无此键，decodeIfPresent 兼容（不迁移）。
+    public var fields: [CandidateField]?
 
     public init(id: UUID = UUID(), patientId: UUID, title: String, occurredAt: TimeInterval,
                 confirmedFieldCount: Int, totalFieldCount: Int, state: State,
-                revisionHistory: [String] = []) {
+                revisionHistory: [String] = [], fields: [CandidateField]? = nil) {
         self.id = id
         self.patientId = patientId
         self.title = title
@@ -25,6 +29,7 @@ public struct TimelineDocumentEntry: Sendable, Equatable, Codable, Identifiable 
         self.totalFieldCount = totalFieldCount
         self.state = state
         self.revisionHistory = revisionHistory
+        self.fields = fields
     }
 }
 
@@ -43,7 +48,8 @@ public enum TimelineProjection {
                 confirmedFieldCount: set.confirmedFields.count,
                 totalFieldCount: set.fields.count,
                 state: set.isUsableInTimeline ? .confirmed : .pending,
-                revisionHistory: history)
+                revisionHistory: history,
+                fields: set.fields)
         }
     }
 

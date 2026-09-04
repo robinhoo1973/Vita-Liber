@@ -45,7 +45,7 @@ PALETTE_HEX = {
 }
 
 GROUP_CN = {
-    "tab": "五模块导航（ADR-021，含 filled 双态）", "common": "通用操作/交互",
+    "tab": "五模块导航（ADR-021，含 filled 双态）· V3.35 起 Tab/侧边栏改用 SF Symbols，本组保留供模块内大尺寸场景", "common": "通用操作/交互",
     "medical": "医疗业务", "symptoms": "症状观察宫格 F8", "members": "成员默认头像 F3",
     "security": "安全与审计 F1/F14", "pro": "Pro/订阅", "equipment": "医疗设备/器械",
     "organs": "人体器官",
@@ -67,10 +67,12 @@ def main() -> None:
     md = []
     md.append("# 青囊书图标库 · 生成规格与重构需求（Icon Generation Spec · 精选体系）")
     md.append("")
-    md.append(f"> 版本：V2.0 · {date.today().isoformat()} · 对应 best_selection.json `{sel['version']}`")
+    md.append(f"> 版本：V2.1 · {date.today().isoformat()} · 对应 best_selection.json `{sel['version']}`")
     md.append("> 用途：作为**自动重构全部 SVG 图标**的需求文件；实现者应能仅凭本文 + 数据源复现全部产物。")
     md.append("> 数据可信度：本文档由 `design/tools/gen_icon_spec.py` **程序化生成**，数据源 = `best_selection.json` + `provenance.json` + `design/icons/src` 母版。")
     md.append("> 口径：**211 枚精选母版**（213 逻辑候选去重）+ 7 张插画 = 218 项资产。")
+    md.append("")
+    md.append("> **口径注记 V2.1（随 ui-ux-spec V3.35）**：`tab` 组（10 枚，含 filled 双态）自 V3.35 起不再渲染于 Tab 栏 / iPad 侧边栏——底部 Tab 与侧边栏已改用系统 SF Symbols 线条字形（`house`/`folder`/`bell`/`sparkles`/`person`，随选中态自动着色；带背景 pad 瓷砖会挤压文字标签致截断，TestFlight 实测）。本组瓷砖**保留不删**，供未来模块内大尺寸场景（首页/空态等）复用；当前无代码消费，勿按「无引用」清理（best_selection.json 已以 note 字段留痕）。")
     md.append("")
 
     # ── 1 生成原则 ──
@@ -157,6 +159,8 @@ def main() -> None:
         for e in entries:
             name = f"`{e['name']}`"
             usage = USAGE.get(e["name"], "—")
+            if e.get("note"):
+                usage += f" · {e['note']}"
             src = e.get("source") or "—"
             if e.get("upstream"):
                 src += f" `{e['upstream']}`"

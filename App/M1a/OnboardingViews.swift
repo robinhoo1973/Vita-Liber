@@ -263,19 +263,24 @@ struct TimelineView: View {
                 NavigationLink {
                     ObservationListView()
                 } label: {
-                    Label(L10n.onboard_observation, systemImage: "plus.circle")
+                    // 评审修正：入口标签与相邻「指标趋势」「语音速记」统一为 4 字
+                    //（「观察」2 字造成三入口版式参差），中文等宽字形下 4 字标签天然等宽对齐。
+                    Label(L10n.onboard_observationAdd, systemImage: "plus.circle")
+                        .frame(minWidth: 88, alignment: .leading)
                 }
                 .accessibilityIdentifier("SP-10.timeline.observation")
                 NavigationLink {
                     TrendEntryView()
                 } label: {
                     Label(L10n.onboard_trendTitle, systemImage: "chart.xyaxis.line")
+                        .frame(minWidth: 88, alignment: .leading)
                 }
                 .accessibilityIdentifier("SP-10.timeline.trend")
                 NavigationLink {
                     VoiceNotePanelView()
                 } label: {
                     Label(L10n.onboard_voiceNote, systemImage: "waveform")
+                        .frame(minWidth: 88, alignment: .leading)
                 }
                 .accessibilityIdentifier("SP-10.timeline.voicenote")
             }
@@ -285,14 +290,19 @@ struct TimelineView: View {
                                        description: Text(L10n.onboard_timelineHint))
             } else {
                 List(app.timeline) { entry in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(entry.title).font(.body)
-                        Text(L10n.onboardConfirmedCount(entry.confirmedFieldCount, entry.totalFieldCount))
-                            .font(.caption).foregroundStyle(.secondary)
-                        if !entry.revisionHistory.isEmpty {
-                            Text(L10n.onboardRevisionHistory(entry.revisionHistory.joined(separator: " → ")))
-                                .font(.caption2)
-                                .foregroundStyle(Color("text-secondary", bundle: .main))
+                    // 评审修正：样张/处方条目可打开（此前行无路由，点击无响应）
+                    NavigationLink {
+                        TimelineDocumentDetailView(entry: entry)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(entry.title).font(.body)
+                            Text(L10n.onboardConfirmedCount(entry.confirmedFieldCount, entry.totalFieldCount))
+                                .font(.caption).foregroundStyle(.secondary)
+                            if !entry.revisionHistory.isEmpty {
+                                Text(L10n.onboardRevisionHistory(entry.revisionHistory.joined(separator: " → ")))
+                                    .font(.caption2)
+                                    .foregroundStyle(Color("text-secondary", bundle: .main))
+                            }
                         }
                     }
                     .accessibilityIdentifier("SP-10.timeline.entry")

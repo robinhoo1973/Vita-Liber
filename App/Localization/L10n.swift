@@ -1,4 +1,5 @@
 import Foundation
+import Domain   // ObservationKind 等枚举名映射（Domain 类型不上 UI，名称走本单出口）
 
 /// **文案唯一出口**（tech-spec §3 / CLAUDE.md「Strings are zh-Hans + zh-Hant via L10n」）。
 ///
@@ -243,7 +244,6 @@ enum L10n {
     static var onboard_timelineHint: String { t("onboard.timelineHint") }
     static var onboard_confirmResult: String { t("onboard.confirmResult") }
     static var onboard_later: String { t("onboard.later") }
-    static var onboard_observation: String { t("onboard.observation") }
     static var onboard_voiceNote: String { t("onboard.voiceNote") }
     static var onboard_ownerNote: String { t("onboard.ownerNote") }
     static var onboard_unconfirmedBadge: String { t("onboard.unconfirmedBadge") }
@@ -413,9 +413,53 @@ enum L10n {
     static var observationTrendImproved: String { t("observation.trend.improved") }
     static var observationTrendUnchanged: String { t("observation.trend.unchanged") }
     static var observationTrendWorsened: String { t("observation.trend.worsened") }
-    static var observationUnlockedPlaceholder: String { t("observation.unlockedPlaceholder") }
-    static var observationLockedHint: String { t("observation.lockedHint") }
-    static var observationUnlockedHint: String { t("observation.unlockedHint") }
+    // MARK: - 评审批 · F8 观察页与创建页（SP-14 硬编码中文字面量清偿）
+    static var observationTitle: String { t("observation.title") }
+    static var observationSectionTitle: String { t("observation.listSection") }
+    static var observationAllergySection: String { t("observation.allergySection") }
+    static var observationCreateTitle: String { t("observation.createTitle") }
+    static var observationKindSection: String { t("observation.kindSection") }
+    static var observationDescription: String { t("observation.description") }
+    static var observationSelfMark: String { t("observation.selfMark") }
+    static func observationMediaBadge(_ n: Int) -> String {
+        String(format: t("observation.mediaBadge"), n)   // %1$d
+    }
+    // MARK: - 评审批 · F8 八类观察类型（FR8.1：Domain ObservationKind 枚举 → 名称映射；
+    // 未知 key 兜底「其他」本地化串，rawValue 一律不上屏）
+    static func observationKindName(_ kind: ObservationKind) -> String {
+        switch kind {
+        case .stool: return t("observation.kind.stool")
+        case .urine: return t("observation.kind.urine")
+        case .skin: return t("observation.kind.skin")
+        case .eye: return t("observation.kind.eye")
+        case .secretion: return t("observation.kind.secretion")
+        case .swelling: return t("observation.kind.swelling")
+        case .generic: return t("observation.kind.generic")
+        case .custom: return t("observation.kind.custom")
+        }
+    }
+    static func observationKindName(forKey key: String) -> String {
+        ObservationKind(rawValue: key).map(observationKindName) ?? t("observation.kind.unknown")
+    }
+    // MARK: - 评审批 · F8.4 敏感媒体（SP-14 步骤2）
+    static var observationMediaSection: String { t("observation.media.section") }
+    static var observationMediaAddAlbum: String { t("observation.media.addAlbum") }
+    static var observationMediaAddCamera: String { t("observation.media.addCamera") }
+    static func observationMediaCount(_ n: Int) -> String {
+        String(format: t("observation.media.count"), n)   // %1$d
+    }
+    // MARK: - 评审批 · FR8.9/FR17.14 语音速记纯转写入口（共用听写按钮）
+    static var voicenoteDictation: String { t("voicenote.dictation") }
+    static var voicenoteDictating: String { t("voicenote.dictating") }
+    static var voicenoteDictationFailed: String { t("voicenote.dictationFailed") }
+    // MARK: - 评审批 · 文档详情与导出（SP-10 / 5.6）
+    static var docDetailTitle: String { t("doc.detailTitle") }
+    static var docFieldsSection: String { t("doc.fieldsSection") }
+    static var docExport: String { t("doc.export") }
+    static var docTitleSection: String { t("doc.titleSection") }
+    static var docDate: String { t("doc.date") }
+    static var docHistorySection: String { t("doc.historySection") }
+    static var onboard_observationAdd: String { t("onboard.observationAdd") }
 
     // MARK: - L10n 清偿批五 · Pro 产出预览（F23）
     static func proPreviewNote(_ product: String) -> String {
@@ -558,13 +602,19 @@ enum L10n {
         "member.addedHint", "member.birthDatePlaceholder", "member.current", "member.namePlaceholder",
         "member.quotaHint", "member.relation", "member.save", "member.switch",
         "member.title", "nav.ai", "nav.home", "nav.me",
-        "nav.records", "nav.reminders", "observation.groupSummary", "observation.lockedHint",
-        "observation.trend.improved", "observation.trend.unchanged", "observation.trend.worsened", "observation.unlockedHint",
-        "observation.unlockedPlaceholder", "onboard.aimPrescription", "onboard.buildProfile", "onboard.cancel",
+        "nav.records", "nav.reminders", "observation.allergySection",
+        "observation.createTitle", "observation.description", "observation.groupSummary", "observation.kind.custom",
+        "observation.kind.eye", "observation.kind.generic", "observation.kind.secretion", "observation.kind.skin",
+        "observation.kind.stool", "observation.kind.swelling", "observation.kind.unknown", "observation.kind.urine", "observation.kindSection",
+        "observation.listSection",
+        "observation.media.addAlbum", "observation.media.addCamera", "observation.media.count", "observation.media.section",
+        "observation.mediaBadge", "observation.selfMark", "observation.title",
+        "observation.trend.improved", "observation.trend.unchanged", "observation.trend.worsened",
+        "onboard.aimPrescription", "onboard.buildProfile", "onboard.cancel",
         "onboard.capturePrescription", "onboard.confirm", "onboard.confirmAllTimeline", "onboard.confirmResult",
         "onboard.confirmed", "onboard.confirmedCount", "onboard.createContinue",
         "onboard.finishEnterApp", "onboard.gotIt", "onboard.later", "onboard.newValue",
-        "onboard.observation", "onboard.ocrDisclaimer", "onboard.ocrRaw", "onboard.ownerNote",
+        "onboard.observationAdd", "onboard.ocrDisclaimer", "onboard.ocrRaw", "onboard.ownerNote",
         "onboard.reviseTitle",
         "onboard.revisionHistory", "onboard.saveEdit", "onboard.scanSample",
         "onboard.sourceConfirmed", "onboard.tierUnconfirmed", "onboard.timelineHint", "onboard.timelineTitle",
@@ -604,7 +654,9 @@ enum L10n {
         "voiceguide.promptAllergy", "voiceguide.promptContact", "voiceguide.promptHistory", "voiceguide.promptMeds",
         "voiceguide.reminderExample", "voiceguide.reminderTitle", "voiceguide.skip", "voiceguide.stepOf",
         "voiceguide.transcript", "voicenote.draft.accessibility", "voicenote.draft.placeholder", "voicenote.empty.hint",
-        "voicenote.empty.title", "voicenote.inTimeline", "voicenote.save.accessibility", "voicenote.title"
+        "voicenote.empty.title", "voicenote.inTimeline", "voicenote.save.accessibility", "voicenote.title",
+        "voicenote.dictation", "voicenote.dictating", "voicenote.dictationFailed",
+        "doc.date", "doc.detailTitle", "doc.export", "doc.fieldsSection", "doc.historySection", "doc.titleSection"
     ]
 
     /// 支持的本地化（三文件纪律）

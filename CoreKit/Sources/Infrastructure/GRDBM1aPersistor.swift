@@ -138,11 +138,29 @@ public actor GRDBM1aPersistor: M1aPersisting {
         }
     }
 
-    /// UI 测试清态：清空 M1a 相关业务表（保留 schema，等价首次安装）
+    /// UI 测试清态：清空全部业务表（保留 schema，等价首次安装）。
+    /// FK 安全顺序（评审修正，两轮）：① 此前仅清 M1a 五表，M1b/M1c 数据存在时
+    /// DELETE patient_profile 即 FK 违规、整事务回滚，「测试清态」静默失效；
+    /// ② 子表之间亦有引用（medication_plan→medication、dose_lot_allocation→stock_lot、
+    /// immunization→allergy_event、patient_profile→local_owner/asset 等）——
+    /// 顺序为拓扑序：最末级子表在前，父表在后；patient_profile 在 local_owner 之前
+    /// （local_owner.self_patient_id 引用它），asset 在 patient_profile 之后（它被其引用）。
     public func reset() async throws {
         try await writer.write { db in
-            for table in ["document_file", "consent_record", "patient_profile",
-                          "local_owner", "audit_event"] {
+            let ordered = [
+                // 最末级子表（不被他表引用，或被更末级引用）
+                "ai_message", "dose_lot_allocation", "notification_delivery", "stock_lot",
+                "ocr_result", "claim_item", "prescription", "encounter_question", "voice_note",
+                "immunization", "allergy_event", "observation", "document_file", "medication_plan",
+                "medication_dose_log", "sent_message", "emergency_card_selection", "contact",
+                "metric_sample", "alert_event", "guideline_source", "ai_conversation", "reminder",
+                "medication", "encounter", "health_problem", "appointment",
+                // local_owner 子表
+                "consent_record", "device_identity", "onboarding_progress",
+                // 父表
+                "audit_event", "patient_profile", "local_owner", "asset",
+            ]
+            for table in ordered {
                 try db.execute(sql: "DELETE FROM \(table)")
             }
         }

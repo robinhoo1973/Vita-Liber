@@ -19,6 +19,8 @@ struct AppContainer {
     let aiProvider: any AIProvider
     let settings: SettingsStore
     let observations: ObservationStore
+    /// F8.4/§5.10 敏感媒体资产仓（BR-007/008）：原始图 + blur 双产物、complete 保护
+    let mediaAssets: any SensitiveAssetStoring
     let allergies: AllergyStore
     let entitlements: EntitlementStore
     let trends: TrendQueryStore
@@ -35,19 +37,29 @@ struct AppContainer {
         return assemble(store: store, scheduler: UNReminderScheduler())
     }
 
-    /// Preview/测试装配：内存库 + 内存调度器。
+    /// Preview/测试装配：内存库 + 内存调度器 + 临时目录敏感资产仓
+    /// （预览不得污染生产 Documents/MedicalNotes/sensitive）。
     static func preview() throws -> AppContainer {
         let store = try GRDBStore.inMemory()
-        return assemble(store: store, scheduler: InMemoryReminderScheduler())
+        return assemble(store: store, scheduler: InMemoryReminderScheduler(),
+                        mediaBaseDir: FileManager.default.temporaryDirectory)
     }
 
-    private static func assemble(store: GRDBStore, scheduler: any ReminderScheduling) -> AppContainer {
+    private static func assemble(store: GRDBStore, scheduler: any ReminderScheduling,
+                                 mediaBaseDir: URL? = nil) -> AppContainer {
+        // 引擎注册提前到组装根：资产仓等依赖注入端口的能力在组合根装配时即就位。
+        // AppState.init 侧有 isRegistered 幂等守卫，重复调用不覆盖已注入桩。
+        EngineRegistry.shared.registerDefaultEngines()
         let meds = MedicationStore(writer: store.writer)
         let apts = AppointmentStore(writer: store.writer, scheduler: scheduler)
         let reconciler = ReminderReconciler(scheduler: scheduler, source: meds)
         let search = GRDBSearchService(writer: store.writer)
         let settings = SettingsStore(writer: store.writer)
         let observations = ObservationStore(writer: store.writer)
+        let mediaAssets = SensitiveAssetStore(
+            writer: store.writer,
+            compressor: EngineRegistry.shared.resolve(ImageCompressingFactory.self),
+            baseDir: mediaBaseDir)
         let allergies = AllergyStore(writer: store.writer)
         // StoreKit 2 生产接线为 L2 部署项；M1c 以桩承载全部逻辑路径（可全量单测）
         let guidelines = GuidelineStore(writer: store.writer)
@@ -71,6 +83,7 @@ struct AppContainer {
                             aiProvider: SafeAIProvider(inner: LocalRetrievalProvider(search: search)),
                             settings: settings,
                             observations: observations,
+                            mediaAssets: mediaAssets,
                             allergies: allergies,
                             entitlements: entitlements,
                             trends: trends,

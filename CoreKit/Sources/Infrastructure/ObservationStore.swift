@@ -12,23 +12,30 @@ public actor ObservationStore {
     public init(writer: any DatabaseWriter) { self.writer = writer }
 
     public func create(id: UUID = UUID(), patientId: UUID, kind: String, description: String,
-                       selfMark: String?, groupId: UUID? = nil, now: Date = Date()) async throws {
+                       selfMark: String?, groupId: UUID? = nil, mediaAssetIds: [String] = [],
+                       now: Date = Date()) async throws {
         try await writer.write { db in
+            let mediaJSON = mediaAssetIds.isEmpty ? nil
+                : String(data: try JSONEncoder().encode(mediaAssetIds), encoding: .utf8)
             try db.execute(sql: """
                 INSERT INTO observation
-                  (id, patient_id, kind, occurred_at, description, group_id, self_mark, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  (id, patient_id, kind, occurred_at, description, group_id, self_mark,
+                   media_asset_ids, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, arguments: [id.uuidString, patientId.uuidString, kind,
                                  now.timeIntervalSince1970, description,
                                  groupId?.uuidString, selfMark,
+                                 mediaJSON,
                                  now.timeIntervalSince1970, now.timeIntervalSince1970])
         }
     }
 
     public func list(patientId: UUID, limit: Int = 100) async throws -> [ObservationEvent] {
         try await writer.read { db in
-            try Row.fetchAll(db, sql: """
-                SELECT id, group_id, kind, occurred_at, description, self_mark FROM observation
+            let decoder = JSONDecoder()   // 行循环复用单例（每行 new 一个为纯浪费）
+            return try Row.fetchAll(db, sql: """
+                SELECT id, group_id, kind, occurred_at, description, self_mark, media_asset_ids
+                FROM observation
                 WHERE patient_id = ? ORDER BY occurred_at DESC LIMIT ?
                 """, arguments: [patientId.uuidString, limit]).map { row in
                 ObservationEvent(
@@ -38,9 +45,18 @@ public actor ObservationStore {
                     occurredAt: Date(timeIntervalSince1970: row["occurred_at"] as Double),
                     description: row["description"] as String?,
                     selfMark: row["self_mark"] as String?,
-                    memberId: patientId)
+                    memberId: patientId,
+                    mediaAssetIds: Self.decodeMediaIds(row["media_asset_ids"] as String?,
+                                                       decoder: decoder))
             }
         }
+    }
+
+    /// 媒体 id 列是 JSON 数组；单条损坏降级为空数组，不拖垮整个列表（§7 显式降级）。
+    private static func decodeMediaIds(_ json: String?, decoder: JSONDecoder) -> [String] {
+        guard let json, let data = json.data(using: .utf8) else { return [] }
+        do { return try decoder.decode([String].self, from: data) }
+        catch { return [] }
     }
 }
 

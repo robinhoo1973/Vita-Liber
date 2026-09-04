@@ -59,8 +59,12 @@ final class AppState {
          gateUnlocker: (any GateUnlocking)? = nil,
          defaults: UserDefaults = .standard,
          launchArgs: [String] = ProcessInfo.processInfo.arguments) {
-        // 组合根：按当前上下文一次性注册全部引擎能力（ADR-027 EAL）
-        EngineRegistry.shared.registerDefaultEngines()
+        // 组合根：按当前上下文一次性注册全部引擎能力（ADR-027 EAL）。
+        // 评审修正：AppContainer.assemble 已先行注册（资产仓装配需要）——此处幂等守卫，
+        // 避免二次注册覆盖（测试桩若先行注入会被冲掉）；AppState 独立构造（无容器）时仍自注册。
+        if !EngineRegistry.shared.isRegistered(TranscriptionEngineFactory.self) {
+            EngineRegistry.shared.registerDefaultEngines()
+        }
         self.speechSynthesizer = speech ?? EngineRegistry.shared.resolve(SpeechSynthesisFactory.self)
         self.imageRecognizer = imageRecognizer ?? EngineRegistry.shared.resolve(OCRRecognizerFactory.self)
         self.transcriptionEngine = transcription ?? EngineRegistry.shared.resolve(TranscriptionEngineFactory.self)
@@ -312,6 +316,17 @@ final class AppState {
     var careMode: Bool {
         get { defaults.bool(forKey: "careMode") }
         set { defaults.set(newValue, forKey: "careMode") }
+    }
+
+    /// SP-14 步骤1：记忆上次选择的观察类型（FR8.1 默认高亮）。
+    /// 经注入 defaults（测试可换 suite、-uitest-reset 可清），视图不得直连 UserDefaults。
+    /// 读时校验合法 case（历史/外部写入的非法值回落默认，不污染宫格选中态与落库 kind）。
+    var observationLastKind: String {
+        get {
+            let stored = defaults.string(forKey: "observation.lastKind") ?? ""
+            return ObservationKind(rawValue: stored)?.rawValue ?? ObservationKind.skin.rawValue
+        }
+        set { defaults.set(newValue, forKey: "observation.lastKind") }
     }
 
     /// TTS 单出口。**只播报已确认的结构化字段**（脚本由 Domain 的

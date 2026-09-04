@@ -16,21 +16,25 @@ enum MainModule: String, CaseIterable, Identifiable, Hashable {
     case home, records, reminders, ai, me
     var id: String { rawValue }
 
-    /// 展示文案走 L10n 键（评审 S2-1：枚举不兼职 UI 串）。
-    /// M1c 接入 L10n.swift 前以本地化键占位，禁止中文 hardcode 进枚举。
-    var titleKey: LocalizedStringKey {
+    /// 展示文案走 L10n 单出口（评审 S2-1：枚举不兼职 UI 串）。
+    /// 返回已解析的本地化串（L10n.navHome 等）——Label 直接消费，
+    /// 避免原始 key 字面量散落枚举、绕开 Localization/L10n.swift 纪律。
+    var title: String {
         switch self {
-        case .home: return "nav.home"
-        case .records: return "nav.records"
-        case .reminders: return "nav.reminders"
-        case .ai: return "nav.ai"
-        case .me: return "nav.me"
+        case .home: return L10n.navHome
+        case .records: return L10n.navRecords
+        case .reminders: return L10n.navReminders
+        case .ai: return L10n.navAI
+        case .me: return L10n.navMe
         }
     }
 
-    /// Tab/侧边栏字形（V3.35：精选瓷砖为 96pt app-icon 式带背景 pad，放进 tab 栏
-    /// 会挤压文字标签导致截断——改回系统 SF Symbols 线条字形，随选中态自动着色；
-    /// 瓷砖图形保留于模块内首页/空态等大尺寸场景）
+    /// Tab/侧边栏字形（V3.35，TestFlight 实测）：设计库 ic-tab-* 瓷砖为带背景 pad 的
+    /// app-icon 式图形（@1x 48pt，@2x 母版 96px），放进 tab 栏会与文字标签互相挤压
+    /// 致其截断——改回系统 SF Symbols 线条字形，随选中态自动着色。注意：这只修复
+    /// 默认字号下的图标挤压；辅助功能超大字号（AX）下 Tab 标签仍可能被系统截断，
+    /// 属系统 Tab 栏行为，非本字形回归。瓷砖图形保留于设计资源库（design/icons，
+    /// ui-ux-spec V3.35「保留不删」）供未来模块内大尺寸场景复用，当前无代码消费。
     var systemGlyph: String {
         switch self {
         case .home: return "house"
@@ -61,7 +65,7 @@ struct RootAdaptiveView: View {
                     // 若在其内部无条件包 NavigationStack，iPad 详情列会在
                     // NavigationSplitView 已提供的导航上下文里再套一层嵌套栈。
                     NavigationStack { ModuleRoot(module: m) }
-                        .tabItem { Label(m.titleKey, systemImage: m.systemGlyph) }
+                        .tabItem { Label(m.title, systemImage: m.systemGlyph) }
                         .tag(m)
                 }
             }
@@ -70,15 +74,20 @@ struct RootAdaptiveView: View {
                 List {
                     ForEach(MainModule.allCases) { m in
                         NavigationLink(value: m) {
-                            Label(m.titleKey, systemImage: m.systemGlyph)
+                            Label(m.title, systemImage: m.systemGlyph)
                         }
                     }
                 }
-                .navigationTitle("Vita Liber")
+                .navigationTitle(L10n.help_appName)
             } detail: {
                 ModuleRoot(module: selection)
                     .navigationDestination(for: MainModule.self) { m in
+                        // 评审修正：侧边栏推入后回写 selection——
+                        // ① 旋转至 compact 时 TabView 落在用户最后所在的模块，不再丢上下文回首页；
+                        // ② 详情列弹出后回到根时，根视图 = 最后所选模块而非恒 .home。
+                        // 异步延后一拍写：onAppear 期间直接写导航驱动状态属再入（重复 push 风险）。
                         ModuleRoot(module: m)
+                            .onAppear { DispatchQueue.main.async { selection = m } }
                     }
             }
         }
@@ -88,28 +97,32 @@ struct RootAdaptiveView: View {
 }
 
 /// L2 模块根（M1a：records 挂真实时间轴——评审修正「完成后时间轴不可达」；
-/// 其余模块占位，随 M1c 逐 SP 挂载）
+/// 其余模块随 M1c 已挂载真实视图）
 struct ModuleRoot: View {
     @Environment(AppState.self) private var app
     let module: MainModule
 
     var body: some View {
-        if module == .records {
+        // 评审修正：if/else 链的末尾 else 兼作 .home 兜底——新增枚举 case 时会
+        // 静默渲染首页占位。显式 switch 无 default：MainModule 新增 case 即编译错，
+        // 强制为每个模块显式挂载视图。
+        switch module {
+        case .records:
             // 导航栈由外层提供（iPhone: 每个 tab 一个；iPad: NavigationSplitView 详情列），
             // 此处不得再包，否则 iPad 出现嵌套栈
             TimelineView(showFinishButton: false)
-        } else if module == .reminders {
+        case .reminders:
             RemindersView()
-        } else if module == .ai {
+        case .ai:
             AssistantView()
-        } else if module == .me {
+        case .me:
             SettingsView()
-        } else {
+        case .home:
             VStack(spacing: 12) {
                 Image(systemName: "square.grid.2x2")
                     .font(.largeTitle)
                     .foregroundStyle(.secondary)
-                Text(module.titleKey)
+                Text(module.title)
                     .font(.headline)
                 // F19：关怀模式首页大卡 [开始语音]（FR19.1 入口）
                 VoiceSessionLaunchCard()
@@ -121,5 +134,34 @@ struct ModuleRoot: View {
 }
 
 #Preview("五模块外壳") {
+    // 预览注入最小环境（评审修正）：PaywallHost 读 AppEntitlementStore、
+    // ModuleRoot 读 AppState——两者均未注入时预览渲染即崩
+    //（"No Observable object of type ... found"），此前预览实际不可用。
+    // 与 VitaLiberApp 同构装配：内存库 + 内存调度器，仅 live 路径换成 preview。
+    let container: AppContainer
+    do {
+        container = try AppContainer.preview()
+    } catch {
+        fatalError("Preview container assembly failed (in-memory DB unavailable): \(error)")
+    }
+    let appState = AppState(persistor: container.persistor,
+                            capture: FakeOcrProvider(fixture: false))
     RootAdaptiveView()
+        .environment(appState)
+        .environment(ReminderStore(meds: container.meds, apts: container.apts,
+                                   reconciler: container.reconciler))
+        .environment(AssistantStore(provider: container.aiProvider))
+        .environment(AppSettingsStore(store: container.settings))
+        .environment(ObservationStoreState(store: container.observations,
+                                           allergyStore: container.allergies,
+                                           mediaAssets: container.mediaAssets))
+        .environment(AppEntitlementStore(store: container.entitlements))
+        .environment(TrendEntryState(store: container.trends))
+        .environment(VoiceNoteState(store: container.voiceNotes))
+        .environment(M2HubStore(meds: container.meds,
+                                emergency: container.emergencyCards,
+                                immunizations: container.immunizations,
+                                claims: container.claims,
+                                messages: container.messages,
+                                guidelines: container.guidelines))
 }

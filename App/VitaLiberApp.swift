@@ -37,16 +37,24 @@ struct VitaLiberApp: App {
             args.contains("-uitest-gate-stub-success") ? FakeGateUnlocker()
             : args.contains("-uitest-gate-stub-fail") ? FakeGateUnlocker(result: false)
             : nil
+        // 语音转写测试桩（同 FakeGateUnlocker 纪律）：XCUITest 无法驱动真实麦克风/语音识别，
+        // -uitest-transcription-stub 注入确定性脚本，FR8.9 静默降级路径才可确定性验证。
+        let transcriptionStub: (any TranscriptionEngine)? =
+            args.contains("-uitest-transcription-stub")
+            ? StubTranscriptionEngine(capability: .baseline(), scripted: ["这是一段测试听写文本"])
+            : nil
         _appState = State(initialValue: AppState(
             persistor: container.persistor,
             capture: FakeOcrProvider(fixture: args.contains("-uitest-camera-fixture")),
-            gateUnlocker: gateUnlocker))
+            gateUnlocker: gateUnlocker,
+            transcription: transcriptionStub))
         _reminderStore = State(initialValue: ReminderStore(
             meds: container.meds, apts: container.apts, reconciler: container.reconciler))
         _assistantStore = State(initialValue: AssistantStore(provider: container.aiProvider))
         _settingsStore = State(initialValue: AppSettingsStore(store: container.settings))
         _observationState = State(initialValue: ObservationStoreState(
-            store: container.observations, allergyStore: container.allergies))
+            store: container.observations, allergyStore: container.allergies,
+            mediaAssets: container.mediaAssets))
         _entitlementStore = State(initialValue: AppEntitlementStore(store: container.entitlements))
         _trendState = State(initialValue: TrendEntryState(store: container.trends))
         _voiceNoteState = State(initialValue: VoiceNoteState(store: container.voiceNotes))

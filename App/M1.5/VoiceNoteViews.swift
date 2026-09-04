@@ -70,26 +70,37 @@ struct VoiceNotePanelView: View {
                     .accessibilityIdentifier("SP-59.voicenote.row")
                 }
             }
-            HStack(spacing: 8) {
-                TextField(L10n.voicenoteDraftPlaceholder, text: $draft, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
-                    .lineLimit(1...4)
-                    .accessibilityLabel(L10n.voicenoteDraftAccessibility)
-                    .accessibilityIdentifier("SP-59.voicenote.input")
-                Button {
-                    let body = draft.trimmingCharacters(in: .whitespaces)
-                    guard !body.isEmpty else { return }
-                    // FR17.13-entry: 语音速记 —— 走统一模板，不自建确认逻辑
-                    confirmSet = VoiceInputTemplate.confirmationSet(drafts: [
-                        FieldDraft(key: "body", value: body, confidence: 0.9)
-                    ])
-                } label: {
-                    VLIcon.send.resizable().frame(width: 22, height: 22)
-                        .frame(width: 44, height: 44)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    TextField(L10n.voicenoteDraftPlaceholder, text: $draft, axis: .vertical)
+                        .textFieldStyle(.roundedBorder)
+                        .lineLimit(1...4)
+                        .accessibilityLabel(L10n.voicenoteDraftAccessibility)
+                        .accessibilityIdentifier("SP-59.voicenote.input")
+                    Button {
+                        let body = draft.trimmingCharacters(in: .whitespaces)
+                        guard !body.isEmpty else { return }
+                        // FR17.13-entry: 语音速记 —— 走统一模板，不自建确认逻辑
+                        confirmSet = VoiceInputTemplate.confirmationSet(drafts: [
+                            FieldDraft(key: "body", value: body, confidence: 0.9)
+                        ])
+                    } label: {
+                        VLIcon.send.resizable().frame(width: 22, height: 22)
+                            .frame(width: 44, height: 44)
+                    }
+                    .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .accessibilityLabel(L10n.voicenoteSaveAccessibility)
+                    .accessibilityIdentifier("SP-59.voicenote.save")
                 }
-                .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty)
-                .accessibilityLabel(L10n.voicenoteSaveAccessibility)
-                .accessibilityIdentifier("SP-59.voicenote.save")
+                // FR17.14 语音速记（纯转写层，评审修正）：此前速记 = 手输文本，
+                // 语音转写未接线——接入端上听写，转写文本走同一 FR17.13 确认模板。
+                // 确认前不预填 draft（评审修正）：取消/重试不留未确认转写文本。
+                VoiceDictationButton { text, confidence in
+                    confirmSet = VoiceInputTemplate.confirmationSet(drafts: [
+                        FieldDraft(key: "body", value: text, confidence: confidence)
+                    ])
+                }
+                .accessibilityIdentifier("SP-59.voicenote.dictation")
             }
             .padding(12)
         }

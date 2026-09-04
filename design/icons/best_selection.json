@@ -29,7 +29,8 @@
       "upstream": "bot-24-regular",
       "license": "MIT",
       "palette": "purple",
-      "status": "ready"
+      "status": "ready",
+      "note": "V3.35 口径：Tab/侧边栏已改用 SF Symbols 线条字形（house/folder/bell/sparkles/person），本组瓷砖保留不删（ui-ux-spec V3.35「保留不删」），供未来模块内大尺寸场景复用；勿因当前无代码消费而自 best_selection.json 清理——sync_best_selection.py 会连带删除资源与 VLIcon 成员。"
     },
     {
       "group": "tab",
@@ -42,7 +43,8 @@
       "upstream": "bot-24-filled",
       "license": "MIT",
       "palette": "purple",
-      "status": "ready"
+      "status": "ready",
+      "note": "V3.35 口径：Tab/侧边栏已改用 SF Symbols 线条字形（house/folder/bell/sparkles/person），本组瓷砖保留不删（ui-ux-spec V3.35「保留不删」），供未来模块内大尺寸场景复用；勿因当前无代码消费而自 best_selection.json 清理——sync_best_selection.py 会连带删除资源与 VLIcon 成员。"
     },
     {
       "group": "tab",
@@ -55,7 +57,8 @@
       "upstream": null,
       "license": null,
       "palette": "purple",
-      "status": "ready"
+      "status": "ready",
+      "note": "V3.35 口径：Tab/侧边栏已改用 SF Symbols 线条字形（house/folder/bell/sparkles/person），本组瓷砖保留不删（ui-ux-spec V3.35「保留不删」），供未来模块内大尺寸场景复用；勿因当前无代码消费而自 best_selection.json 清理——sync_best_selection.py 会连带删除资源与 VLIcon 成员。"
     },
     {
       "group": "tab",
@@ -68,7 +71,8 @@
       "upstream": null,
       "license": null,
       "palette": "purple",
-      "status": "ready"
+      "status": "ready",
+      "note": "V3.35 口径：Tab/侧边栏已改用 SF Symbols 线条字形（house/folder/bell/sparkles/person），本组瓷砖保留不删（ui-ux-spec V3.35「保留不删」），供未来模块内大尺寸场景复用；勿因当前无代码消费而自 best_selection.json 清理——sync_best_selection.py 会连带删除资源与 VLIcon 成员。"
     },
     {
       "group": "tab",
@@ -81,7 +85,8 @@
       "upstream": null,
       "license": null,
       "palette": "purple",
-      "status": "ready"
+      "status": "ready",
+      "note": "V3.35 口径：Tab/侧边栏已改用 SF Symbols 线条字形（house/folder/bell/sparkles/person），本组瓷砖保留不删（ui-ux-spec V3.35「保留不删」），供未来模块内大尺寸场景复用；勿因当前无代码消费而自 best_selection.json 清理——sync_best_selection.py 会连带删除资源与 VLIcon 成员。"
     },
     {
       "group": "tab",
@@ -94,7 +99,8 @@
       "upstream": "person_circle_24_filled",
       "license": "MIT",
       "palette": "purple",
-      "status": "ready"
+      "status": "ready",
+      "note": "V3.35 口径：Tab/侧边栏已改用 SF Symbols 线条字形（house/folder/bell/sparkles/person），本组瓷砖保留不删（ui-ux-spec V3.35「保留不删」），供未来模块内大尺寸场景复用；勿因当前无代码消费而自 best_selection.json 清理——sync_best_selection.py 会连带删除资源与 VLIcon 成员。"
     },
     {
       "group": "tab",
@@ -107,7 +113,8 @@
       "upstream": null,
       "license": null,
       "palette": "purple",
-      "status": "ready"
+      "status": "ready",
+      "note": "V3.35 口径：Tab/侧边栏已改用 SF Symbols 线条字形（house/folder/bell/sparkles/person），本组瓷砖保留不删（ui-ux-spec V3.35「保留不删」），供未来模块内大尺寸场景复用；勿因当前无代码消费而自 best_selection.json 清理——sync_best_selection.py 会连带删除资源与 VLIcon 成员。"
     },
     {
       "group": "tab",
@@ -120,7 +127,8 @@
       "upstream": "board_heart_24_filled",
       "license": "MIT",
       "palette": "purple",
-      "status": "ready"
+      "status": "ready",
+      "note": "V3.35 口径：Tab/侧边栏已改用 SF Symbols 线条字形（house/folder/bell/sparkles/person），本组瓷砖保留不删（ui-ux-spec V3.35「保留不删」），供未来模块内大尺寸场景复用；勿因当前无代码消费而自 best_selection.json 清理——sync_best_selection.py 会连带删除资源与 VLIcon 成员。"
     },
     {
       "group": "tab",
@@ -133,7 +141,8 @@
       "upstream": null,
       "license": null,
       "palette": "purple",
-      "status": "ready"
+      "status": "ready",
+      "note": "V3.35 口径：Tab/侧边栏已改用 SF Symbols 线条字形（house/folder/bell/sparkles/person），本组瓷砖保留不删（ui-ux-spec V3.35「保留不删」），供未来模块内大尺寸场景复用；勿因当前无代码消费而自 best_selection.json 清理——sync_best_selection.py 会连带删除资源与 VLIcon 成员。"
     },
     {
       "group": "tab",
@@ -146,7 +155,8 @@
       "upstream": null,
       "license": null,
       "palette": "purple",
-      "status": "ready"
+      "status": "ready",
+      "note": "V3.35 口径：Tab/侧边栏已改用 SF Symbols 线条字形（house/folder/bell/sparkles/person），本组瓷砖保留不删（ui-ux-spec V3.35「保留不删」），供未来模块内大尺寸场景复用；勿因当前无代码消费而自 best_selection.json 清理——sync_best_selection.py 会连带删除资源与 VLIcon 成员。"
     },
     {
       "group": "common",

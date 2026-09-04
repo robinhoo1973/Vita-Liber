@@ -1,5 +1,12 @@
 import Foundation
 
+/// FR8.1 八类观察类型的规范 key（单一事实源）。
+/// ObservationEvent.kind 存 rawValue（既有行兼容）；显示名映射在 L10n
+/// （`L10n.observationKindName`），图标映射在 App 层 VLIcon（Domain 不持 Image）。
+public enum ObservationKind: String, CaseIterable, Sendable {
+    case stool, urine, skin, eye, secretion, swelling, generic, custom
+}
+
 /// F8 观察事件聚合（§5.36）：按 group_id 聚合观察记录；就诊展示模式
 /// （DoctorShowcaseSession）会话式解锁 + 超时自动重锁 + scope 过滤（BR-007/008）。
 public struct ObservationGroup: Sendable, Equatable, Identifiable {
@@ -22,10 +29,15 @@ public struct ObservationEvent: Sendable, Equatable, Identifiable {
     public var description: String?
     public var selfMark: String?          // improved/unchanged/worsened
     public var memberId: UUID
+    /// F8.4/§5.10 敏感媒体资产 id 列表（asset 表 + 敏感目录，BR-007/008）。
+    /// 列表/时间轴只可渲染模糊缩略图，原图必须经敏感容器解锁。
+    public var mediaAssetIds: [String]
     public init(id: UUID, groupId: UUID? = nil, kind: String, occurredAt: Date,
-                description: String?, selfMark: String?, memberId: UUID) {
+                description: String?, selfMark: String?, memberId: UUID,
+                mediaAssetIds: [String] = []) {
         self.id = id; self.groupId = groupId; self.kind = kind; self.occurredAt = occurredAt
         self.description = description; self.selfMark = selfMark; self.memberId = memberId
+        self.mediaAssetIds = mediaAssetIds
     }
 }
 
@@ -43,7 +55,7 @@ public enum ObservationGroupService {
         }
         return order.map { key in
             let occurrences = (byGroup[key] ?? []).sorted { $0.occurredAt < $1.occurredAt }
-            let kind = occurrences.first?.kind ?? "observation"
+            let kind = occurrences.first?.kind ?? ObservationKind.custom.rawValue
             return ObservationGroup(groupId: key, kind: kind, occurrences: occurrences)
         }
     }

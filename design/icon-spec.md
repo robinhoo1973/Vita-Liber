@@ -1,9 +1,11 @@
 # 青囊书图标库 · 生成规格与重构需求（Icon Generation Spec · 精选体系）
 
-> 版本：V2.0 · 2026-08-28 · 对应 best_selection.json `best-selection-v1`
+> 版本：V2.1 · 2026-09-04 · 对应 best_selection.json `best-selection-v1`
 > 用途：作为**自动重构全部 SVG 图标**的需求文件；实现者应能仅凭本文 + 数据源复现全部产物。
 > 数据可信度：本文档由 `design/tools/gen_icon_spec.py` **程序化生成**，数据源 = `best_selection.json` + `provenance.json` + `design/icons/src` 母版。
 > 口径：**211 枚精选母版**（213 逻辑候选去重）+ 7 张插画 = 218 项资产。
+
+> **口径注记 V2.1（随 ui-ux-spec V3.35）**：`tab` 组（10 枚，含 filled 双态）自 V3.35 起不再渲染于 Tab 栏 / iPad 侧边栏——底部 Tab 与侧边栏已改用系统 SF Symbols 线条字形（`house`/`folder`/`bell`/`sparkles`/`person`，随选中态自动着色；带背景 pad 瓷砖会挤压文字标签致截断，TestFlight 实测）。本组瓷砖**保留不删**，供未来模块内大尺寸场景（首页/空态等）复用；当前无代码消费，勿按「无引用」清理（best_selection.json 已以 note 字段留痕）。
 
 ## 1. 生成原则
 
@@ -59,7 +61,7 @@
 
 | 分组 | 图标数 | 语义 |
 |---|---|---|
-| tab | 10 | 五模块导航（ADR-021，含 filled 双态） |
+| tab | 10 | 五模块导航（ADR-021，含 filled 双态）· V3.35 起 Tab/侧边栏改用 SF Symbols，本组保留供模块内大尺寸场景 |
 | common | 80 | 通用操作/交互 |
 | medical | 20 | 医疗业务 |
 | symptoms | 8 | 症状观察宫格 F8 |
@@ -86,16 +88,16 @@
 
 | 图标名 | 用途/语义 | 来源 | 许可 | palette | 状态 |
 |---|---|---|---|---|---|
-| `ic-tab-assistant` | AI 助手 Assistant（F12）· bot 机器人字形 | fluent `bot-24-regular` | MIT | `purple` | ✅ 已就绪 |
-| `ic-tab-assistant-filled` | — | fluent `bot-24-filled` | MIT | `purple` | ✅ 已就绪 |
-| `ic-tab-home` | 首页 Today（F2） | curated-v4 | — | `purple` | ✅ 已就绪 |
-| `ic-tab-home-filled` | — | curated-v4 | — | `purple` | ✅ 已就绪 |
-| `ic-tab-me` | 我的 Profile（F14/F21/F22） | curated-v4 | — | `purple` | ✅ 已就绪 |
-| `ic-tab-me-filled` | — | fluent `person_circle_24_filled` | MIT | `purple` | ✅ 已就绪 |
-| `ic-tab-records` | 健康档案 Records（F4-F8/F11） | curated-v4 | — | `purple` | ✅ 已就绪 |
-| `ic-tab-records-filled` | — | fluent `board_heart_24_filled` | MIT | `purple` | ✅ 已就绪 |
-| `ic-tab-reminders` | 提醒 Reminders（F9/F10） | curated-v4 | — | `purple` | ✅ 已就绪 |
-| `ic-tab-reminders-filled` | — | curated-v4 | — | `purple` | ✅ 已就绪 |
+| `ic-tab-assistant` | AI 助手 Assistant（F12）· bot 机器人字形 · V3.35 口径：Tab/侧边栏已改用 SF Symbols 线条字形（house/folder/bell/sparkles/person），本组瓷砖保留不删（ui-ux-spec V3.35「保留不删」），供未来模块内大尺寸场景复用；勿因当前无代码消费而自 best_selection.json 清理——sync_best_selection.py 会连带删除资源与 VLIcon 成员。 | fluent `bot-24-regular` | MIT | `purple` | ✅ 已就绪 |
+| `ic-tab-assistant-filled` | — · V3.35 口径：Tab/侧边栏已改用 SF Symbols 线条字形（house/folder/bell/sparkles/person），本组瓷砖保留不删（ui-ux-spec V3.35「保留不删」），供未来模块内大尺寸场景复用；勿因当前无代码消费而自 best_selection.json 清理——sync_best_selection.py 会连带删除资源与 VLIcon 成员。 | fluent `bot-24-filled` | MIT | `purple` | ✅ 已就绪 |
+| `ic-tab-home` | 首页 Today（F2） · V3.35 口径：Tab/侧边栏已改用 SF Symbols 线条字形（house/folder/bell/sparkles/person），本组瓷砖保留不删（ui-ux-spec V3.35「保留不删」），供未来模块内大尺寸场景复用；勿因当前无代码消费而自 best_selection.json 清理——sync_best_selection.py 会连带删除资源与 VLIcon 成员。 | curated-v4 | — | `purple` | ✅ 已就绪 |
+| `ic-tab-home-filled` | — · V3.35 口径：Tab/侧边栏已改用 SF Symbols 线条字形（house/folder/bell/sparkles/person），本组瓷砖保留不删（ui-ux-spec V3.35「保留不删」），供未来模块内大尺寸场景复用；勿因当前无代码消费而自 best_selection.json 清理——sync_best_selection.py 会连带删除资源与 VLIcon 成员。 | curated-v4 | — | `purple` | ✅ 已就绪 |
+| `ic-tab-me` | 我的 Profile（F14/F21/F22） · V3.35 口径：Tab/侧边栏已改用 SF Symbols 线条字形（house/folder/bell/sparkles/person），本组瓷砖保留不删（ui-ux-spec V3.35「保留不删」），供未来模块内大尺寸场景复用；勿因当前无代码消费而自 best_selection.json 清理——sync_best_selection.py 会连带删除资源与 VLIcon 成员。 | curated-v4 | — | `purple` | ✅ 已就绪 |
+| `ic-tab-me-filled` | — · V3.35 口径：Tab/侧边栏已改用 SF Symbols 线条字形（house/folder/bell/sparkles/person），本组瓷砖保留不删（ui-ux-spec V3.35「保留不删」），供未来模块内大尺寸场景复用；勿因当前无代码消费而自 best_selection.json 清理——sync_best_selection.py 会连带删除资源与 VLIcon 成员。 | fluent `person_circle_24_filled` | MIT | `purple` | ✅ 已就绪 |
+| `ic-tab-records` | 健康档案 Records（F4-F8/F11） · V3.35 口径：Tab/侧边栏已改用 SF Symbols 线条字形（house/folder/bell/sparkles/person），本组瓷砖保留不删（ui-ux-spec V3.35「保留不删」），供未来模块内大尺寸场景复用；勿因当前无代码消费而自 best_selection.json 清理——sync_best_selection.py 会连带删除资源与 VLIcon 成员。 | curated-v4 | — | `purple` | ✅ 已就绪 |
+| `ic-tab-records-filled` | — · V3.35 口径：Tab/侧边栏已改用 SF Symbols 线条字形（house/folder/bell/sparkles/person），本组瓷砖保留不删（ui-ux-spec V3.35「保留不删」），供未来模块内大尺寸场景复用；勿因当前无代码消费而自 best_selection.json 清理——sync_best_selection.py 会连带删除资源与 VLIcon 成员。 | fluent `board_heart_24_filled` | MIT | `purple` | ✅ 已就绪 |
+| `ic-tab-reminders` | 提醒 Reminders（F9/F10） · V3.35 口径：Tab/侧边栏已改用 SF Symbols 线条字形（house/folder/bell/sparkles/person），本组瓷砖保留不删（ui-ux-spec V3.35「保留不删」），供未来模块内大尺寸场景复用；勿因当前无代码消费而自 best_selection.json 清理——sync_best_selection.py 会连带删除资源与 VLIcon 成员。 | curated-v4 | — | `purple` | ✅ 已就绪 |
+| `ic-tab-reminders-filled` | — · V3.35 口径：Tab/侧边栏已改用 SF Symbols 线条字形（house/folder/bell/sparkles/person），本组瓷砖保留不删（ui-ux-spec V3.35「保留不删」），供未来模块内大尺寸场景复用；勿因当前无代码消费而自 best_selection.json 清理——sync_best_selection.py 会连带删除资源与 VLIcon 成员。 | curated-v4 | — | `purple` | ✅ 已就绪 |
 
 ### 4.2 common（80 枚）
 
