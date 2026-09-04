@@ -73,7 +73,7 @@ final class M1cAcceptanceTests: XCTestCase {
 
         // 补种八类业务数据（评审 S1-2：往返覆盖核心表全集）
         let obs = ObservationStore(writer: storeA.writer)
-        try await obs.create(patientId: profile.id, kind: "skin", description: "红疹", selfMark: "improved")
+        try await obs.create(patientId: profile.id, kind: .skin, description: "红疹", selfMark: "improved")
         let allergy = AllergyStore(writer: storeA.writer)
         try await allergy.create(patientId: profile.id, substance: "青霉素", severity: "severe",
                                  reactionTags: ["rash"], note: nil)
