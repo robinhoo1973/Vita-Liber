@@ -17,25 +17,13 @@ struct NotificationCenterView: View {
         List {
             if !pendingDoses.isEmpty {
                 Section(L10n.ncSectionPending) {
-                    ForEach(pendingDoses) { dose in
-                        HStack {
-                            Image(systemName: "pills.fill")
-                                .foregroundStyle(Color("brand-primary", bundle: .main))
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(dose.displayLabel).font(.subheadline)
-                                Text(L10n.ncNextActionDose).font(.caption).foregroundStyle(.secondary)
+                    ForEach(Array(pendingDoses.enumerated()), id: \.offset) { _, dose in
+                        PendingDoseRow(dose: dose) {
+                            Task {
+                                await reminderStore.confirmTaken(patientId: app.currentPatientId,
+                                                                 dose: dose.dose)
                             }
-                            Spacer()
-                            Button(L10n.ncConfirmDose) {
-                                Task {
-                                    await reminderStore.confirmTaken(patientId: app.currentPatientId,
-                                                                     dose: dose.dose)
-                                }
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .controlSize(.small)
                         }
-                        .accessibilityIdentifier("SP-27.notification.dose.\(dose.notifyId)")
                     }
                 }
             }
@@ -160,5 +148,28 @@ struct NotificationCenterView: View {
     private var allEmpty: Bool {
         pendingDoses.isEmpty && appointments.isEmpty && expiringLots.isEmpty
             && l1Alerts.isEmpty && pendingOCRCount == 0
+    }
+}
+
+/// 待处理剂量行（独立子视图：缩小 ForEach 内容闭包的类型检查单元，
+/// 避开 Xcode 26 上复杂闭包的重载求解失败）
+private struct PendingDoseRow: View {
+    let dose: DoseRecord
+    let onConfirm: () -> Void
+
+    var body: some View {
+        HStack {
+            Image(systemName: "pills.fill")
+                .foregroundStyle(Color("brand-primary", bundle: .main))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(dose.displayLabel).font(.subheadline)
+                Text(L10n.ncNextActionDose).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button(L10n.ncConfirmDose, action: onConfirm)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+        }
+        .accessibilityIdentifier("SP-27.notification.dose.\(dose.notifyId)")
     }
 }
