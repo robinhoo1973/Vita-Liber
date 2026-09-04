@@ -255,7 +255,7 @@ struct DoseSlotCard: View {
                     }
                 }
             }
-            ForEach(slot.records, id: \.dose.notifyId) { record in
+            ForEach(slot.records, id: \DoseRecord.dose.notifyId) { record in
                 HStack(spacing: 8) {
                     Text(record.displayLabel)          // 「药名 规格 · 剂量 单位」（评审阻断项修正）
                         .font(.subheadline)

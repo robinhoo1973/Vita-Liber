@@ -1425,7 +1425,7 @@ enum L10n {
     static var voicePanelTitle: String { t("voicePanel.title") }
     static var voicePanelHint: String { t("voicePanel.hint") }
     static var voicePanelStart: String { t("voicePanel.start") }
-    static func voiceTargetName(_ t: TargetTag) -> String { t("voiceTarget.\(t.rawValue)") }
+    static func voiceTargetName(_ tag: TargetTag) -> String { t("voiceTarget.\(tag.rawValue)") }
     static var observationFollowUpSet: String { t("observation.followUp.set") }
 
     // MARK: - F16 设备接入（SP-29/SP-30）

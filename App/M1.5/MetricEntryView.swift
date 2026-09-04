@@ -30,7 +30,7 @@ struct MetricQuickEntryView: View {
         NavigationStack {
             Form {
                 if step == 1 {
-                    Section(L10n.metricStep1) {
+                    Section {
                         // 类型宫格（FR7.5 预设 + 记忆上次选择——本入口默认高亮当前 metric）
                         ForEach(metrics, id: \.rawValue) { m in
                             Button {
@@ -46,6 +46,8 @@ struct MetricQuickEntryView: View {
                                 }
                             }
                         }
+                    } header: {
+                        Text(L10n.metricStep1)
                     } footer: {
                         Text(L10n.metricSelfMeasureNote)
                     }

@@ -256,7 +256,7 @@ struct MemberConfirmBar: View {
     }
 }
 
-private struct MemberCreateSheet: View {
+struct MemberCreateSheet: View {
     let onCreate: (String, String, String?) -> Void
     @State private var name = ""
     @State private var relation = "子女"

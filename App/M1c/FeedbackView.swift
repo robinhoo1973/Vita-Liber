@@ -31,10 +31,12 @@ struct FeedbackView: View {
                     .lineLimit(4...10)
             }
             // 默认只附版本/系统/错误码/脱敏日志；截图/原文/媒体逐项勾选（默认关）
-            Section(L10n.feedbackAttachments) {
+            Section {
                 Toggle(L10n.feedbackAttachScreenshot, isOn: $attachScreenshot)
                 Toggle(L10n.feedbackAttachOriginal, isOn: $attachOriginalText)
                 Toggle(L10n.feedbackAttachMedia, isOn: $attachMedia)
+            } header: {
+                Text(L10n.feedbackAttachments)
             } footer: {
                 Text(L10n.feedbackAttachmentHint)
             }

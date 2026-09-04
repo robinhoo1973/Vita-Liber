@@ -50,7 +50,7 @@ struct PendingOcrQueueView: View {
                             }
                         }
                     }
-                    ForEach(sortedFields, id: \.field.id) { item in
+                    ForEach(Array(sortedFields.enumerated()), id: \.offset) { _, item in
                         VStack(alignment: .leading, spacing: 8) {
                             HStack {
                                 // FR6.3 颜色语义：高绿 / 中黄 / 低红

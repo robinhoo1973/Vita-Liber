@@ -523,7 +523,7 @@ private struct BigCareCard: View {
 }
 
 /// FR2.1① 成员切换抽屉（SP-05 切片）：半屏 BottomSheet，当前成员打勾
-private struct MemberPickerSheet: View {
+struct MemberPickerSheet: View {
     @Environment(AppState.self) private var app
     @Environment(AppRouter.self) private var router
     @Environment(\.dismiss) private var dismiss
