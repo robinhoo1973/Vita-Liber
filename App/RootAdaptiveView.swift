@@ -134,34 +134,49 @@ struct ModuleRoot: View {
 }
 
 #Preview("五模块外壳") {
-    // 预览注入最小环境（评审修正）：PaywallHost 读 AppEntitlementStore、
-    // ModuleRoot 读 AppState——两者均未注入时预览渲染即崩
-    //（"No Observable object of type ... found"），此前预览实际不可用。
-    // 与 VitaLiberApp 同构装配：内存库 + 内存调度器，仅 live 路径换成 preview。
-    let container: AppContainer
-    do {
-        container = try AppContainer.preview()
-    } catch {
-        fatalError("Preview container assembly failed (in-memory DB unavailable): \(error)")
-    }
-    let appState = AppState(persistor: container.persistor,
+    PreviewRoot()
+}
+
+/// 预览装配容器（评审修正）：PaywallHost 读 AppEntitlementStore、ModuleRoot 读 AppState——
+/// 两者均未注入时预览渲染即崩（"No Observable object of type ... found"），
+/// 此前预览实际不可用。#Preview 宏的 PreviewMacroBodyBuilder 不接受 do/catch 等
+/// 控制流语句（CI 编译错：no exact matches in call to macro 'Preview'），
+/// 装配必须移出预览闭包，落在专用视图的 init 中。
+private struct PreviewRoot: View {
+    private let container: AppContainer
+    private let appState: AppState
+
+    init() {
+        // 与 VitaLiberApp 同构装配：内存库 + 内存调度器，仅 live 路径换成 preview。
+        let assembled: AppContainer
+        do {
+            assembled = try AppContainer.preview()
+        } catch {
+            fatalError("Preview container assembly failed (in-memory DB unavailable): \(error)")
+        }
+        container = assembled
+        appState = AppState(persistor: assembled.persistor,
                             capture: FakeOcrProvider(fixture: false))
-    RootAdaptiveView()
-        .environment(appState)
-        .environment(ReminderStore(meds: container.meds, apts: container.apts,
-                                   reconciler: container.reconciler))
-        .environment(AssistantStore(provider: container.aiProvider))
-        .environment(AppSettingsStore(store: container.settings))
-        .environment(ObservationStoreState(store: container.observations,
-                                           allergyStore: container.allergies,
-                                           mediaAssets: container.mediaAssets))
-        .environment(AppEntitlementStore(store: container.entitlements))
-        .environment(TrendEntryState(store: container.trends))
-        .environment(VoiceNoteState(store: container.voiceNotes))
-        .environment(M2HubStore(meds: container.meds,
-                                emergency: container.emergencyCards,
-                                immunizations: container.immunizations,
-                                claims: container.claims,
-                                messages: container.messages,
-                                guidelines: container.guidelines))
+    }
+
+    var body: some View {
+        RootAdaptiveView()
+            .environment(appState)
+            .environment(ReminderStore(meds: container.meds, apts: container.apts,
+                                       reconciler: container.reconciler))
+            .environment(AssistantStore(provider: container.aiProvider))
+            .environment(AppSettingsStore(store: container.settings))
+            .environment(ObservationStoreState(store: container.observations,
+                                               allergyStore: container.allergies,
+                                               mediaAssets: container.mediaAssets))
+            .environment(AppEntitlementStore(store: container.entitlements))
+            .environment(TrendEntryState(store: container.trends))
+            .environment(VoiceNoteState(store: container.voiceNotes))
+            .environment(M2HubStore(meds: container.meds,
+                                    emergency: container.emergencyCards,
+                                    immunizations: container.immunizations,
+                                    claims: container.claims,
+                                    messages: container.messages,
+                                    guidelines: container.guidelines))
+    }
 }
