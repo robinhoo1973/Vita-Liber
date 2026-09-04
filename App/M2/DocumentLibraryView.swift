@@ -68,8 +68,9 @@ final class DocumentsState {
     }
 
     /// 图片入库（FR5.6 前置去重；FR6.1 OCR 文本随 meta 入库）
+    /// title 与 DocumentStore.save 一致为 String?（相册导入无标题场景传 nil）
     func importImage(patientId: UUID, data: Data, mimeType: String,
-                     docType: String, title: String, isSensitive: Bool) async {
+                     docType: String, title: String?, isSensitive: Bool) async {
         lastImportError = nil
         // 去重哈希：SHA-256（Domain 有自研 SHA256 供去重/感知哈希种子——非安全场景）
         let sha = "sha:" + Self.hash(data)
