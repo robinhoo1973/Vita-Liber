@@ -28,23 +28,16 @@ enum MainModule: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
-    var iconName: String {
+    /// Tab/侧边栏字形（V3.35：精选瓷砖为 96pt app-icon 式带背景 pad，放进 tab 栏
+    /// 会挤压文字标签导致截断——改回系统 SF Symbols 线条字形，随选中态自动着色；
+    /// 瓷砖图形保留于模块内首页/空态等大尺寸场景）
+    var systemGlyph: String {
         switch self {
-        case .home: return "ic-tab-home"
-        case .records: return "ic-tab-records"
-        case .reminders: return "ic-tab-reminders"
-        case .ai: return "ic-tab-assistant"
-        case .me: return "ic-tab-me"
-        }
-    }
-
-    var icon: Image {
-        switch self {
-        case .home: return VLIcon.tabHome
-        case .records: return VLIcon.tabRecords
-        case .reminders: return VLIcon.tabReminders
-        case .ai: return VLIcon.tabAssistant
-        case .me: return VLIcon.tabMe
+        case .home: return "house"
+        case .records: return "folder"
+        case .reminders: return "bell"
+        case .ai: return "sparkles"
+        case .me: return "person"
         }
     }
 }
@@ -68,7 +61,7 @@ struct RootAdaptiveView: View {
                     // 若在其内部无条件包 NavigationStack，iPad 详情列会在
                     // NavigationSplitView 已提供的导航上下文里再套一层嵌套栈。
                     NavigationStack { ModuleRoot(module: m) }
-                        .tabItem { Label(m.titleKey, image: m.iconName) }
+                        .tabItem { Label(m.titleKey, systemImage: m.systemGlyph) }
                         .tag(m)
                 }
             }
@@ -77,7 +70,7 @@ struct RootAdaptiveView: View {
                 List {
                     ForEach(MainModule.allCases) { m in
                         NavigationLink(value: m) {
-                            Label(m.titleKey, image: m.iconName)
+                            Label(m.titleKey, systemImage: m.systemGlyph)
                         }
                     }
                 }
