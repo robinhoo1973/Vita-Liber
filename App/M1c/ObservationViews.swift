@@ -81,9 +81,12 @@ final class ObservationStoreState {
                 photoData: [Data]) async {
         var saved: [UUID] = []
         do {
+            // 局部 Sendable 快照：TaskGroup 闭包非隔离，直接引用 self.mediaAssets
+            // 会触发 Swift 6 显式捕获/隔离检查（CI 编译错），快照捕获合法且语义不变。
+            let media = mediaAssets
             let assetIds = try await withThrowingTaskGroup(of: UUID.self) { group in
                 for data in photoData {
-                    group.addTask { try await mediaAssets.savePhoto(data, memberId: patientId) }
+                    group.addTask { try await media.savePhoto(data, memberId: patientId) }
                 }
                 var ids: [UUID] = []
                 for try await id in group { ids.append(id); saved.append(id) }
@@ -189,11 +192,16 @@ struct LockedMediaStrip: View {
             .frame(height: 64)
             .accessibilityIdentifier("SP-14.observation.mediaStrip")
             .task(id: assetIds) {
-                // 并发加载 + 保持 assetIds 顺序；任务被取消（滚动/换组）时丢弃结果
-                var loaded: [UIImage] = []
+                // 并发加载 + 保持 assetIds 顺序；任务被取消（滚动/换组）时丢弃结果。
+                // 快照在 MainActor 上下文读取（此层级隐式 self 与仓库既有 .task 模式一致），
+                // 非隔离 @Sendable 的 TaskGroup/addTask 闭包只捕获这些 Sendable 局部量——
+                // 直接引用 self 属性会触发 Swift 6 显式捕获检查（CI 编译错）。
+                let state = state
+                let member = memberId
+                let ids = assetIds
                 let results = await withTaskGroup(of: (Int, UIImage?).self) { group in
-                    for (index, id) in assetIds.enumerated() {
-                        group.addTask { (index, await Self.thumb(id: id, memberId: memberId, state: state)) }
+                    for (index, id) in ids.enumerated() {
+                        group.addTask { (index, await Self.thumb(id: id, memberId: member, state: state)) }
                     }
                     var out: [(Int, UIImage)] = []
                     for await (index, img) in group {
