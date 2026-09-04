@@ -548,6 +548,25 @@ else
   pass "未使用 LocalAuthentication，无需 Face ID 用途声明"
 fi
 
+# HealthKit 用途双键（第 19 轮 CI 实测 code 90683）：entitlements 启用
+# com.apple.developer.healthkit ⟹ Info.plist 必须有 NSHealthShareUsageDescription
+# 与 NSHealthUpdateUsageDescription 双键——缺任一键，上传阶段被 App Store 拒绝，
+# 且 L0 静态检查无法在编译期发现（编译链接全过、上传才炸）。
+hk_entitlements=""
+if ls "$APP"/*.entitlements >/dev/null 2>&1; then
+  hk_entitlements=$(grep -l 'com.apple.developer.healthkit' "$APP"/*.entitlements 2>/dev/null || true)
+fi
+if [ -n "$hk_entitlements" ]; then
+  if grep -q 'NSHealthShareUsageDescription' "$INFO_PLIST" \
+     && grep -q 'NSHealthUpdateUsageDescription' "$INFO_PLIST"; then
+    pass "HealthKit entitlement 已启用，Share/Update 双用途键已声明"
+  else
+    fail "HealthKit entitlement 已启用但 Info.plist 缺 NSHealthShareUsageDescription 或 NSHealthUpdateUsageDescription（上传阶段 code 90683 实测被拒）"
+  fi
+else
+  pass "未启用 HealthKit entitlement，无需健康用途声明"
+fi
+
 # ---------- 汇总 ----------
 printf '\n========================================\n'
 if [ "$FAILURES" -eq 0 ]; then
