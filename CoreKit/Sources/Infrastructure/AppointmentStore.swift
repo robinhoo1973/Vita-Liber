@@ -29,31 +29,63 @@ public actor AppointmentStore {
                             now.timeIntervalSince1970, now.timeIntervalSince1970])
         }
         for (tier, fire) in AppointmentRules.tierFireDates(startsAt: startsAt, tiers: tiers, now: now) {
-            try await scheduler.schedule(dose: "apt-\(id.uuidString)-\(tier.label)", at: fire)
+            try await scheduler.schedule(dose: "apt-\(id.uuidString)-\(tier.label)", at: fire,
+                                         route: .appointmentList)
         }
     }
 
-    /// 改期 = 取消全部旧 tiers → 重排新 tiers（幂等，§5.4）
-    public func reschedule(id: UUID, startsAt: Date, now: Date = Date()) async throws {
+    /// 改期（FR10.7）：**原预约保留历史**（status='cancelled' + cancel_reason=
+    /// 'rescheduled'）+ 生成新草稿（rescheduled_from_id 回指原预约），
+    /// 新草稿重排四级提醒——改期不是原地 UPDATE（历史可溯）。
+    @discardableResult
+    public func reschedule(id: UUID, startsAt: Date, now: Date = Date()) async throws -> UUID {
         try await cancelReminders(id: id)
+        let newId = UUID()
         try await writer.write { db in
+            guard let old = try Row.fetchOne(db, sql: "SELECT * FROM appointment WHERE id = ?",
+                                             arguments: [id.uuidString]) else { return }
             try db.execute(
-                sql: "UPDATE appointment SET starts_at = ?, updated_at = ? WHERE id = ?",
-                arguments: [startsAt.timeIntervalSince1970, now.timeIntervalSince1970, id.uuidString])
+                sql: "UPDATE appointment SET status = 'cancelled', cancel_reason = 'rescheduled', updated_at = ? WHERE id = ?",
+                arguments: [now.timeIntervalSince1970, id.uuidString])
+            try db.execute(
+                sql: """
+                INSERT INTO appointment (id, patient_id, hospital, department, starts_at, status,
+                                         rescheduled_from_id, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, 'scheduled', ?, ?, ?)
+                """,
+                arguments: [newId.uuidString, old["patient_id"] as String,
+                            old["hospital"] as String, old["department"] as String,
+                            startsAt.timeIntervalSince1970, id.uuidString,
+                            now.timeIntervalSince1970, now.timeIntervalSince1970])
         }
         for (tier, fire) in AppointmentRules.tierFireDates(startsAt: startsAt, tiers: AppointmentTier.defaults, now: now) {
-            try await scheduler.schedule(dose: "apt-\(id.uuidString)-\(tier.label)", at: fire)
+            try await scheduler.schedule(dose: "apt-\(newId.uuidString)-\(tier.label)", at: fire,
+                                         route: .appointmentList)
         }
+        return newId
     }
 
-    /// 取消预约：状态机 cancelled + 移除全部 pending（FR10.7）
-    public func cancel(id: UUID, now: Date = Date()) async throws {
+    /// 取消预约：状态机 cancelled + 选填原因 + 移除全部 pending（FR10.7）
+    public func cancel(id: UUID, reason: String? = nil, now: Date = Date()) async throws {
         try await cancelReminders(id: id)
         try await writer.write { db in
             try db.execute(
-                sql: "UPDATE appointment SET status = 'cancelled', updated_at = ? WHERE id = ?",
+                sql: "UPDATE appointment SET status = 'cancelled', cancel_reason = ?, updated_at = ? WHERE id = ?",
+                arguments: [reason, now.timeIntervalSince1970, id.uuidString])
+        }
+    }
+
+    /// 标记「错过」（FR10.7）：missed + 触发跟进提醒（FR10.3 错过跟进）
+    public func markMissed(id: UUID, now: Date = Date()) async throws {
+        try await writer.write { db in
+            try db.execute(
+                sql: "UPDATE appointment SET status = 'missed', updated_at = ? WHERE id = ?",
                 arguments: [now.timeIntervalSince1970, id.uuidString])
         }
+        // 跟进提醒：错过当天稍后提醒补录（复用分级通道，route=预约列表）
+        let followUpAt = now.addingTimeInterval(2 * 3600)
+        try await scheduler.schedule(dose: "apt-followup-\(id.uuidString)", at: followUpAt,
+                                     route: .appointmentList)
     }
 
     /// 标记完成（FR10.7：completed）+ 补录就诊（评审修正 P0：闭环断点——
@@ -91,6 +123,25 @@ public actor AppointmentStore {
                 WHERE patient_id = ? AND status = 'scheduled' AND starts_at >= ?
                 ORDER BY starts_at
                 """, arguments: [patientId.uuidString, now.timeIntervalSince1970])
+            .map { row in
+                AppointmentRow(
+                    id: UUID(uuidString: row["id"] as String) ?? UUID(),
+                    hospital: row["hospital"] as String,
+                    department: (row["department"] as String?) ?? "",
+                    startsAt: Date(timeIntervalSince1970: row["starts_at"] as Double),
+                    status: row["status"] as String)
+            }
+        }
+    }
+
+    /// FR10.7 状态机历史（SP-18 四态分段：待就诊/已完成/已取消/错过）
+    public func history(patientId: UUID, limit: Int = 100) async throws -> [AppointmentRow] {
+        try await writer.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT * FROM appointment
+                WHERE patient_id = ?
+                ORDER BY starts_at DESC LIMIT ?
+                """, arguments: [patientId.uuidString, limit])
             .map { row in
                 AppointmentRow(
                     id: UUID(uuidString: row["id"] as String) ?? UUID(),

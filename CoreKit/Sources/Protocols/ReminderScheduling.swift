@@ -5,8 +5,10 @@ import Domain
 /// 测试实现 InMemoryReminderScheduler——提醒可靠性四用例以注入桩验证，
 /// 生产路径零改动（test-plan E7）。
 public protocol ReminderScheduling: Sendable {
-    /// 调度一条剂量提醒；body 传通用占位（锁屏隐私：默认「您有一条健康提醒」）
-    func schedule(dose notifyId: String, at fireAt: Date) async throws
+    /// 调度一条剂量提醒；body 传通用占位（锁屏隐私：默认「您有一条健康提醒」）。
+    /// route（§5.45）：通知点击后的深链目标，生产实现写入 userInfo 经 Codable 传递；
+    /// nil = 点击仅打开 App（默认落点，不视为错误）。缺路由必须降级不 crash。
+    func schedule(dose notifyId: String, at fireAt: Date, route: AppRoute?) async throws
     func cancel(_ notifyIds: [String]) async throws
     /// pending 表：notifyId → fireAt（对账与窗口管理用）
     func pending() async throws -> [String: Date]
@@ -24,12 +26,18 @@ public protocol DoseSource: Sendable {
 public actor InMemoryReminderScheduler: ReminderScheduling {
     private var pendingMap: [String: Date] = [:]
     private var deliveredSet: Set<String> = []
+    /// §5.45 测试可查：notifyId → 深链路由
+    private var routeMap: [String: AppRoute] = [:]
 
     public init() {}
 
-    public func schedule(dose notifyId: String, at fireAt: Date) async throws {
+    public func schedule(dose notifyId: String, at fireAt: Date, route: AppRoute?) async throws {
         pendingMap[notifyId] = fireAt
+        routeMap[notifyId] = route
     }
+
+    /// 测试辅助：读取某条通知携带的路由
+    public func route(for notifyId: String) -> AppRoute? { routeMap[notifyId] }
     public func cancel(_ notifyIds: [String]) async throws {
         for id in notifyIds { pendingMap.removeValue(forKey: id) }
     }

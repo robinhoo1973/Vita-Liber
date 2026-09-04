@@ -48,6 +48,28 @@ final class ObservationStoreState {
         self.mediaAssets = mediaAssets
     }
 
+    /// FR23.2 过敏三步记录落库（重度触发急救引导由视图判定，Domain SevereReactionRules）
+    func createAllergy(patientId: UUID, substance: String, severity: String,
+                       tags: [String], note: String?) async {
+        do {
+            try await allergyStore.create(patientId: patientId, substance: substance,
+                                          severity: severity, reactionTags: tags, note: note)
+            await load(patientId: patientId)
+        } catch {
+            logger.error("过敏记录失败: \(error)")
+        }
+    }
+
+    /// FR23.6 删除（删除前明示影响由视图提示）
+    func deleteAllergy(id: UUID) async {
+        do {
+            try await allergyStore.delete(id: id)
+            if let patientId = loadingPatientId { await load(patientId: patientId) }
+        } catch {
+            logger.error("过敏删除失败: \(error)")
+        }
+    }
+
     func load(patientId: UUID) async {
         loadingPatientId = patientId
         do {
@@ -110,6 +132,7 @@ final class ObservationStoreState {
 struct ObservationListView: View {
     @Environment(AppState.self) private var app
     @Environment(ObservationStoreState.self) private var state
+    @Environment(ReminderStore.self) private var reminders
     @State private var showCreate = false
 
     var body: some View {
@@ -140,6 +163,20 @@ struct ObservationListView: View {
                         }
                     }
                     .accessibilityIdentifier("SP-14.observation.group")
+                    // FR8.10 观察随访提醒：一键设置「N 天后提醒对比/复查」
+                    .contextMenu {
+                        if let latest = group.latest {
+                            Button(L10n.observationFollowUpSet) {
+                                Task {
+                                    await reminders.scheduleObservationFollowUp(
+                                        observationId: latest.id,
+                                        observedAt: latest.occurredAt,
+                                        patientId: app.currentPatientId)
+                                }
+                            }
+                            .accessibilityIdentifier("FR8.10.followUp.set")
+                        }
+                    }
                 }
                 Button {
                     showCreate = true
@@ -249,26 +286,41 @@ struct ObservationCreateSheet: View {
     @State private var loadingPicker = false
     @State private var loadGeneration = 0
     @State private var showCamera = false
+    @State private var showMemberPicker = false
 
     private var photoData: [Data] { cameraData + pickerData }
     private var previews: [UIImage] { cameraThumbs + pickerThumbs }
 
+    /// FR3.3 归属强制确认：保存前整屏醒目二次确认（头像+姓名大字）
+    private var currentMember: PatientProfile? {
+        app.members.first(where: { $0.id == app.currentPatientId })
+    }
+
     var body: some View {
         NavigationStack {
             Form {
+                // FR3.3 归属确认条置顶（SP-14 步骤3：MemberConfirmBar 置顶）
+                memberSection
                 kindSection
                 mediaSection
                 detailSection
             }
             .navigationTitle(L10n.observationCreateTitle)
+            // FR20.3 L2 场景首用须知（观察拍摄页，一次性确认）
+            .sceneDisclosure(scene: "observation")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
+                    // FR8.7 三步完成承诺：其余字段全部可选、可事后补——
+                    // 保存不得要求描述非空（类型+媒体+归属即完整保存路径）
                     Button(L10n.commonSave) {
                         onCreate(kind, description, selfMark, photoData)
                     }
-                    .disabled(description.trimmingCharacters(in: .whitespaces).isEmpty || loadingPicker)
+                    .disabled(loadingPicker)
                     .accessibilityIdentifier("SP-14.observation.save")
                 }
+            }
+            .sheet(isPresented: $showMemberPicker) {
+                MemberPickerSheet()
             }
             .sheet(item: $confirmSet) { set in
                 VoiceConfirmSheet(
@@ -322,6 +374,17 @@ struct ObservationCreateSheet: View {
     // MARK: - 分区（body 保持三层可读，评审修正）
 
     /// SP-14 步骤1：2×4 大图标宫格（FR8.1 八类），默认记忆上次选择
+    /// FR3.3 归属确认条（保存前醒目二次确认；切换经成员抽屉，不静默保存）
+    private var memberSection: some View {
+        Section {
+            MemberConfirmBar(
+                patientName: currentMember?.displayName ?? app.owner?.displayName ?? L10n.help_appName,
+                relation: currentMember?.relation ?? L10n.member_relationSelf) {
+                    showMemberPicker = true
+                }
+        }
+    }
+
     private var kindSection: some View {
         Section(L10n.observationKindSection) {
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {

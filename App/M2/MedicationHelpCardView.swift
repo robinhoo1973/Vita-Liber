@@ -105,3 +105,74 @@ struct HelpCardShareHost: UIViewControllerRepresentable {
 
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
+
+/// FR9.13a/FR24.1 求助卡收件人选择（发送前所见即所得预览 + 显式选择收件人）。
+/// 收件人候选 = 急救卡已确认联系人；可手输；确认后经系统分享渠道发送，
+/// 完成回调携带收件人（落发送状态 + 审计）。
+struct HelpCardRecipientSheet: View {
+    let text: String
+    let contacts: [String]
+    let onSent: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var recipient = ""
+    @State private var customRecipient = ""
+    @State private var showShare = false
+    @State private var pendingRecipient = ""
+    @State private var preview = true
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 16) {
+                // FR24.1 发送前所见即所得预览
+                ScrollView {
+                    Text(text)
+                        .font(.footnote)
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(RoundedRectangle(cornerRadius: 12).fill(Color(.systemGray6)))
+                }
+                .frame(maxHeight: 220)
+                Picker(L10n.helpcardRecipient, selection: $recipient) {
+                    ForEach(contacts, id: \.self) { Text($0) }
+                    Text(L10n.helpcardRecipientOther).tag("__custom__")
+                }
+                .pickerStyle(.menu)
+                if recipient == "__custom__" {
+                    TextField(L10n.helpcardRecipientPlaceholder, text: $customRecipient)
+                        .textFieldStyle(.roundedBorder)
+                }
+                Button(L10n.helpcard_generate) {
+                    let target = recipient == "__custom__" ? customRecipient : recipient
+                    guard !target.isEmpty else { return }
+                    pendingRecipient = target
+                    showShare = true
+                }
+                .buttonStyle(.borderedProminent)
+                .frame(maxWidth: .infinity, minHeight: 50)
+                .disabled(recipient == "__custom__"
+                          && customRecipient.trimmingCharacters(in: .whitespaces).isEmpty)
+                .accessibilityIdentifier("FR9.13a.recipient.send")
+            }
+            .padding(20)
+            .navigationTitle(L10n.helpcard_title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(L10n.common_cancel) { dismiss() }
+                }
+            }
+            .onAppear {
+                recipient = contacts.first ?? "__custom__"
+            }
+            // 系统分享渠道（发送事实落状态页；不含位置照片——默认不含需显式勾选）
+            .sheet(isPresented: $showShare) {
+                HelpCardShareHost(text: text, photoAttachments: []) {
+                    // 分享完成（含取消）→ 落发送状态 + 审计（FR24.2）
+                    let target = pendingRecipient
+                    dismiss()
+                    onSent(target)
+                }
+            }
+        }
+    }
+}

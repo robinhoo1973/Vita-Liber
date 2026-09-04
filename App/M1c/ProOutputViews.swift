@@ -29,7 +29,7 @@ struct ProOutputHubView: View {
                     previewProduct = product.name
                 } label: {
                     HStack {
-                        VLIcon.proDiamond.resizable().frame(width: 24, height: 24)
+                        Image(systemName: "diamond")   // §11-13 设计系统规则：行内小尺寸用 SF Symbols
                         VStack(alignment: .leading, spacing: 2) {
                             Text(product.name).font(.subheadline)
                             Text(product.detail).font(.caption).foregroundStyle(.secondary)

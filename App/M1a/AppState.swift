@@ -18,7 +18,9 @@ final class AppState {
     enum OnboardingStage: Equatable {
         case disclosure(index: Int)
         case ownerName
+        case addFamily          // FR21.9 ④（可选，可跳过）
         case scanCapture, ocrConfirm, timeline
+        case firstDayActions    // FR21.9 ⑥ 首日引导（全部可跳过）
         case done
     }
 
@@ -42,6 +44,8 @@ final class AppState {
 
     private let persistor: any M1aPersisting
     private let captureProvider: any DocumentCapture
+    /// FR3.4/FR3.5 成员删除与重新归属（影响清单 + 单事务；可选注入，测试可空）
+    private let memberDeletion: MemberDeletionService?
     private let defaults: UserDefaults
     private let launchArgs: [String]
     private let logger = Logger(subsystem: "com.vitaliber", category: "appstate")
@@ -60,6 +64,7 @@ final class AppState {
          transcription: (any TranscriptionEngine)? = nil,
          gateUnlocker: (any GateUnlocking)? = nil,
          audit: AuditLogWriter? = nil,
+         memberDeletion: MemberDeletionService? = nil,
          defaults: UserDefaults = .standard,
          launchArgs: [String] = ProcessInfo.processInfo.arguments) {
         // 组合根：按当前上下文一次性注册全部引擎能力（ADR-027 EAL）。
@@ -75,6 +80,7 @@ final class AppState {
         self.captureProvider = capture
         self.gateUnlocker = gateUnlocker ?? LocalAuthGateUnlocker()
         self.audit = audit
+        self.memberDeletion = memberDeletion
         // 评审修正：删除此处的 AVSpeechAdapter()/VisionImageRecognizer() 二次赋值——
         // 它在 EAL resolve 之后把结果覆盖回具体实现，注册表解析成为死代码，
         // ADR-027「调用方永不直接 import 具体引擎类型」名存实亡（半重构残留）。
@@ -153,9 +159,11 @@ final class AppState {
         }
     }
 
-    /// FR20.3/FR20.5 L2-L4 场景须知确认：写入 ConsentRecord
+    /// FR20.3/FR20.5 L2-L4 场景须知确认：写入 ConsentRecord。
+    /// FR20.5 变更重确认：同 key 但**版本变化**必须重新确认——
+    /// 去重只看「同 key 同 version」，条款重大修订以差异摘要重确认一次。
     func recordConsent(key: String, level: Int, version: String) async {
-        guard !consentRecords.contains(where: { $0.key == key }) else { return }
+        if consentRecords.contains(where: { $0.key == key && $0.version == version }) { return }
         let record = ConsentRecord(key: key, level: level, version: version,
                                    acceptedAt: Date().timeIntervalSince1970)
         consentRecords.append(record)
@@ -199,6 +207,11 @@ final class AppState {
         owner = o
         defaults.set(profile.id.uuidString, forKey: "selfPatientId")
         persist { [persistor] in try await persistor.saveOwner(o, profile: profile) }
+        stage = .addFamily      // FR21.9：建档后进 ④ 添加家人（可跳过）
+    }
+
+    /// FR21.9 ④ 添加家人（可跳过，跳过直接进拍摄）
+    func finishAddFamilyStep() {
         stage = .scanCapture
     }
 
@@ -213,7 +226,7 @@ final class AppState {
         owner = o
         defaults.set(profile.id.uuidString, forKey: "selfPatientId")
         persist { [persistor] in try await persistor.saveOwner(o, profile: profile) }
-        stage = .scanCapture
+        stage = .addFamily      // FR21.9 ④（可跳过）
     }
 
     // MARK: - 拍摄与 OCR 确认（DocumentCapture 协议注入）
@@ -239,26 +252,98 @@ final class AppState {
 
     func reviseField(id: UUID, to value: String) {
         guard var set = activeSet, let i = set.fields.firstIndex(where: { $0.id == id }) else { return }
-        _ = set.fields[i].revise(to: value)
+        // FR6.4：修订历史带「谁改的、何时」（本机所有者为唯一修改人）
+        _ = set.fields[i].revise(to: value, by: owner?.displayName ?? "owner", at: Date())
         activeSet = set
     }
 
-    /// BR-003：全部字段确认后才入时间轴正式区
+    /// FR6.4 ✕ 放弃：字段置 rejected（保留原识别值，不入正式区）
+    func rejectField(id: UUID) {
+        guard var set = activeSet, let i = set.fields.firstIndex(where: { $0.id == id }) else { return }
+        set.fields[i].reject()
+        activeSet = set
+    }
+
+    /// BR-003：全部字段确认后才入时间轴正式区。
+    /// FR6.1：识别结果独立落 ocr_result（原文块+置信度+引擎版本留痕），
+    /// 与文档投影 meta 解耦——识别留痕可追溯、可重放。
     func commitToTimeline() {
         guard let set = activeSet, set.isUsableInTimeline,
               let patientId = owner?.selfPatientId ?? owner?.id else { return }
         let entry = TimelineProjection.entries(from: [set], patientId: patientId,
                                                 occurredAt: Date().timeIntervalSince1970)[0]
         timeline.append(entry)
-        persist { [persistor, timeline] in try await persistor.saveTimeline(timeline) }
+        persist { [persistor, timeline] in
+            try await persistor.saveTimeline(timeline)
+            try await persistor.saveOCRResult(documentId: set.documentId, fields: set.fields,
+                                              engineVersion: "fake-ocr-v1")
+        }
         activeSet = nil
         stage = .timeline
+    }
+
+    // MARK: - FR6.8 SP-53 待确认字段聚合队列（跨文档）
+
+    /// 跨文档聚合全部未确认字段（72h 置顶由视图层按 entry.occurredAt 排序展示）
+    func pendingOcrFields() -> [(entry: TimelineDocumentEntry, field: CandidateField)] {
+        timeline.flatMap { entry in
+            entry.fields
+                .filter { !$0.isConfirmed && $0.grade != .rejected }
+                .map { (entry, $0) }
+        }
+    }
+
+    /// FR6.8 逐字段确认（队列与单文档工作台共用同一写路径）
+    func confirmTimelineField(entryId: UUID, fieldId: UUID) {
+        guard let i = timeline.firstIndex(where: { $0.id == entryId }),
+              let j = timeline[i].fields.firstIndex(where: { $0.id == fieldId }) else { return }
+        _ = timeline[i].fields[j].confirm()
+        persistTimeline()
+    }
+
+    func reviseTimelineField(entryId: UUID, fieldId: UUID, to value: String) {
+        guard let i = timeline.firstIndex(where: { $0.id == entryId }),
+              let j = timeline[i].fields.firstIndex(where: { $0.id == fieldId }) else { return }
+        _ = timeline[i].fields[j].revise(to: value, by: owner?.displayName ?? "owner", at: Date())
+        persistTimeline()
+    }
+
+    func rejectTimelineField(entryId: UUID, fieldId: UUID) {
+        guard let i = timeline.firstIndex(where: { $0.id == entryId }),
+              let j = timeline[i].fields.firstIndex(where: { $0.id == fieldId }) else { return }
+        timeline[i].fields[j].reject()
+        persistTimeline()
+    }
+
+    /// FR6.8「全部确认」闸门：仅当无红色低置信度字段时可用（Domain 判定）
+    var queueAllConfirmAllowed: Bool {
+        !pendingOcrFields().contains { ConfidenceTier.tier($0.field.confidence) == .low }
+    }
+
+    /// 全部确认（FR6.8）：逐字段确认（不含已放弃）
+    func confirmAllPendingFields() {
+        guard queueAllConfirmAllowed else { return }
+        for (idx, entry) in timeline.enumerated() {
+            for (j, field) in entry.fields.enumerated() where !field.isConfirmed && field.grade != .rejected {
+                _ = timeline[idx].fields[j].confirm()
+            }
+        }
+        persistTimeline()
+    }
+
+    private func persistTimeline() {
+        persist { [persistor, timeline] in try await persistor.saveTimeline(timeline) }
     }
 
     func finishOnboarding() {
         onboardingFinished = true
         defaults.set(true, forKey: "onboardingFinished")
         stage = .done
+    }
+
+    /// FR21.9 ⑥ 首日行动卡（全部可跳过——点击进入对应流程并继续完成向导）
+    func finishFirstDayActions() {
+        finishOnboarding()
     }
 
     // MARK: - F3 成员管理（FR3.7 添加家人）
@@ -288,6 +373,70 @@ final class AppState {
     func loadMembers() async {
         do { members = try await persistor.members() }
         catch { logger.error("成员加载失败: \(error)") }
+    }
+
+    // MARK: - FR3.1 字段补全 / FR3.4 删除 / FR3.5 重新归属
+
+    /// FR3.1 成员字段更新（血型/证件号/医保号等补全）
+    func updateMember(_ profile: PatientProfile) async -> Bool {
+        do {
+            try await persistor.updateMember(profile)
+            await loadMembers()
+            return true
+        } catch {
+            logger.error("成员更新失败: \(error)")
+            return false
+        }
+    }
+
+    /// FR3.4 影响清单（删除前展示）
+    func memberDeletionImpact(patientId: UUID) async -> MemberDeletionService.Impact {
+        guard let memberDeletion else { return MemberDeletionService.Impact() }
+        do {
+            return try await memberDeletion.impact(patientId: patientId)
+        } catch {
+            logger.error("影响清单查询失败: \(error)")
+            return MemberDeletionService.Impact()
+        }
+    }
+
+    /// FR3.4 删除成员：影响清单先行 + 姓名二次确认（UI）→ 单事务执行。
+    /// 资料不删（软删成员行），计划/预约按选择「删除」或「停用归档」。
+    func deleteMember(patientId: UUID, choice: MemberDeletionService.DeleteChoice) async -> Bool {
+        guard let memberDeletion else { return false }
+        do {
+            try await memberDeletion.deleteMember(patientId: patientId, choice: choice)
+            if let audit {
+                try await audit.record(action: "delete", entityType: "patient_profile",
+                                       entityId: patientId.uuidString, actorLocal: "owner",
+                                       meta: "choice=\(choice.rawValue)")
+            }
+            if currentPatientId == patientId {
+                currentPatientId = owner?.selfPatientId ?? patientId
+            }
+            await loadMembers()
+            return true
+        } catch {
+            logger.error("成员删除失败: \(error)")
+            return false
+        }
+    }
+
+    /// FR3.5 重新归属：资料移给另一成员（留审计——归错人必须可溯）
+    func reattributeDocument(documentId: UUID, from: UUID, to: UUID) async -> Bool {
+        guard let memberDeletion else { return false }
+        do {
+            try await memberDeletion.reattributeDocument(documentId: documentId, from: from, to: to)
+            if let audit {
+                try await audit.record(action: "update", entityType: "document_file",
+                                       entityId: documentId.uuidString, actorLocal: "owner",
+                                       meta: "reattribute \(from.uuidString)→\(to.uuidString)")
+            }
+            return true
+        } catch {
+            logger.error("重新归属失败: \(error)")
+            return false
+        }
     }
 
     /// 添加家人。返回是否成功（配额弹墙由调用方先判 `PaywallRules
@@ -344,6 +493,72 @@ final class AppState {
         set { defaults.set(newValue, forKey: AppSettingKey.observationDefaultKind.rawValue) }
     }
 
+    /// FR22.4 数据与存储健康（真实值，禁止硬编码「正常」充当诊断）
+    func databaseHealth() async throws -> (sizeBytes: Int64, integrityOK: Bool) {
+        try await persistor.databaseHealth()
+    }
+
+    /// FR14.3 清空全部（影响清单先行由 UI 承担；审计记录保留——匿名化语义）
+    func persistorReset() async throws {
+        try await persistor.reset()
+        timeline = []
+        consentRecords = []
+        members = []
+    }
+
+    /// FR22.4/FR13.10 上次备份时间（F22.4 备份健康展示；随备份完成写入）
+    var lastBackupAt: TimeInterval? {
+        let t = defaults.double(forKey: "lastBackupAt")
+        return t > 0 ? t : nil
+    }
+
+    /// FR13.10 备份完成记时（F22.4 联动展示「最近备份」；提醒只引导不自动建包）
+    func recordBackup(at date: Date = Date()) {
+        defaults.set(date.timeIntervalSince1970, forKey: "lastBackupAt")
+    }
+
+    /// FR22.5 反馈提交（默认只附版本/系统/错误码/脱敏日志；截图/原文/媒体逐项勾选）
+    func reportFeedback(category: String, detail: String, attachments: [Bool]) {
+        guard let audit else { return }
+        Task {
+            do {
+                try await audit.record(action: "feedback", entityType: "user_feedback",
+                                       entityId: category, actorLocal: "owner",
+                                       meta: "attachments=\(attachments.map { $0 ? "1" : "0" }.joined())")
+            } catch {
+                logger.error("反馈提交失败: \(error)")
+            }
+        }
+    }
+
+    /// FR6.7 报告识别问题（本地记录，P1 进审核后台）：写审计事实，不传医疗内容
+    func reportRecognitionIssue(documentId: UUID) {
+        guard let audit else { return }
+        Task {
+            do {
+                try await audit.record(action: "feedback", entityType: "ocr_result",
+                                       entityId: documentId.uuidString, actorLocal: "owner",
+                                       meta: "kind=ocr_issue")
+            } catch {
+                logger.error("识别问题报告失败: \(error)")
+            }
+        }
+    }
+
+    /// FR24.5 代确认审计：「由你代确认」必须可查（同机照护者视图）
+    func auditCaregiverConfirm(doseId: String, patientId: UUID) {
+        guard let audit else { return }
+        Task {
+            do {
+                try await audit.record(action: "confirm_field", entityType: "dose_log",
+                                       entityId: doseId, actorLocal: "caregiver",
+                                       meta: "onBehalfOf=\(patientId.uuidString)")
+            } catch {
+                logger.error("代确认审计失败: \(error)")
+            }
+        }
+    }
+
     /// 审计：文档导出（§7 七动作之一）。未注入审计（测试/预览）时静默跳过。
     func auditExport(documentId: UUID, title: String) {
         guard let audit else { return }
@@ -370,6 +585,11 @@ final class AppState {
     /// FR17.16 语音输出语言（六选一）；无对应发声时由合成器回退普通话并轻提示。
     var voiceOutputLocale: String {
         defaults.string(forKey: "voiceOutputLocale") ?? TranscriptionSegmentation.fallbackLocale
+    }
+
+    /// FR17.16 输出语言写入口（语音语言选择器调用；全局实时生效，FR14.7 例外②类）
+    func setVoiceOutputLocale(_ locale: String) {
+        defaults.set(locale, forKey: "voiceOutputLocale")
     }
 
     /// 统一异步持久化出口（§7：错误必须经 Logger 上报，不静默吞掉）

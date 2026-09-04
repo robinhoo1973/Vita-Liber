@@ -15,12 +15,18 @@ struct OnboardingFlowView: View {
             }
         case .ownerName:
             OwnerSetupView()
+        case .addFamily:
+            // FR21.9 ④ 添加家人（可跳过）
+            AddFamilyStepView()
         case .scanCapture:
             ScanCaptureView()
         case .ocrConfirm:
             OcrConfirmView()
         case .timeline:
             TimelineView()
+        case .firstDayActions:
+            // FR21.9 ⑥ 首日引导（全部可跳过）
+            FirstDayActionsView()
         case .done:
             EmptyView()
         }
@@ -74,7 +80,8 @@ struct LockOverlayView: View {
                         .accessibilityIdentifier("SP-01.lockOverlay.failed")
                 }
 
-                // 两步可达（长按 + 二次确认）由 SOSButton 承担防误触，规则在 Domain SOSRules
+                // 两步可达（长按 + 二次确认）由 SOSButton 承担防误触，规则在 Domain SOSRules。
+                // FR18.6：锁屏 SOS 直达全屏求助页（唯一免门禁路径，安全优先于隐私）
                 SOSButton { showEmergency = true }
                     .accessibilityIdentifier("SP-01.lockOverlay.sos")
             }
@@ -91,7 +98,7 @@ struct LockOverlayView: View {
             if value != nil { onUnlocked() }
         }
         .sheet(isPresented: $showEmergency) {
-            NavigationStack { EmergencyCardHubView() }
+            SOSHelpView()
         }
     }
 

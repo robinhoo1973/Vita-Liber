@@ -26,6 +26,18 @@ public enum AppSettingKey: String, Sendable, CaseIterable, Codable {
     case homeSort                  // 首页排序偏好
     case appearance                // 外观主题（FR14.4）：light/dark/system
     case highContrastEnabled       // 高对比度增强（FR14.4/FR18.16）
+    case language                  // 显示语言（FR14.5）：zh-Hans/zh-Hant，即时生效
+    case voiceInputLanguages       // 语音输入语言集（FR17.15）：逗号分隔 locale 列表
+    case notificationPreviewMedName // 锁屏通知预览是否显示药名（FR14.7，默认关）
+    // FR14.1 分目的授权九开关（撤回即时生效 BR-010；关闭只停后续处理不删数据）
+    case authOcr                  // OCR 与图像处理
+    case authAI                   // AI 分析
+    case authFamilyAccess         // 家庭成员访问
+    case authSharing              // 分享
+    case authCloudBackup          // 云备份
+    case authAnonymizedImprovement // 匿名化改进
+    case authHealthRead           // 读取 Apple 健康（F16）
+    case authVoiceDictation       // 语音速记识别
 
     /// 键默认值（单一事实源：新增键必须补 default，禁止 UserDefaults 直读兜底）
     public var defaultValue: String {
@@ -52,6 +64,13 @@ public enum AppSettingKey: String, Sendable, CaseIterable, Codable {
         case .homeSort: return "time"
         case .appearance: return "system"
         case .highContrastEnabled: return "false"
+        case .language: return "zh-Hans"
+        case .voiceInputLanguages: return "zh-Hans-CN"
+        case .notificationPreviewMedName: return "false"
+        case .authOcr, .authAI, .authFamilyAccess, .authSharing,
+             .authCloudBackup, .authAnonymizedImprovement,
+             .authHealthRead, .authVoiceDictation:
+            return "true"
         }
     }
 }

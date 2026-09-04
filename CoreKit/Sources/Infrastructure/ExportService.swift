@@ -30,6 +30,14 @@ public actor ExportService {
         public var healthProblems: [HealthProblemExport]
         public var sensitiveDocIds: Set<UUID>   // 评审 S1：敏感标记随包往返（BR-007/008 链）
 
+        /// FR13.5 恢复后数据校验报告：导入记录计数（供恢复报告展示，不算附件）
+        public var totalRecords: Int {
+            (owner != nil ? 1 : 0) + (selfProfile != nil ? 1 : 0)
+            + consentRecords.count + timeline.count + plans.count + appointments.count
+            + observations.count + allergies.count + encounters.count + metrics.count
+            + immunizations.count + voiceNotes.count + healthProblems.count
+        }
+
         public struct PlanExport: Sendable, Codable, Equatable {
             public var id: UUID
             public var medicationName: String

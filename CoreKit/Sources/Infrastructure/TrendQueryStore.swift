@@ -62,5 +62,26 @@ public actor TrendQueryStore {
                            arguments: [excluded ? 1 : 0, id.uuidString, patientId.uuidString])
         }
     }
+
+    // MARK: - FR7.5 自测两步录入（C 级 + selfMeasured 标志 + 单位记忆）
+
+    /// 自测/手输指标入库。来源语义（FR7.6）：自测数据固定 C 级并携带
+    /// self_measured 标志，趋势图以空心点区分医院实心点。
+    /// P0.5 阶段无通用参考范围（FR7.2 时序）：ref_* 一律 NULL。
+    public func addSample(patientId: UUID, metric: MetricType, value: Double,
+                          secondaryValue: Double?, unit: String,
+                          measuredAt: Date, sourceRef: String? = nil) async throws -> UUID {
+        let id = UUID()
+        try await writer.write { db in
+            try db.execute(sql: """
+                INSERT INTO metric_sample
+                  (id, patient_id, metric_key, value, secondary_value, unit, origin,
+                   self_measured, measured_at, excluded, source_ref)
+                VALUES (?, ?, ?, ?, ?, ?, 'manual', 1, ?, 0, ?)
+                """, arguments: [id.uuidString, patientId.uuidString, metric.rawValue, value,
+                                 secondaryValue, unit, measuredAt.timeIntervalSince1970, sourceRef])
+        }
+        return id
+    }
 }
 #endif

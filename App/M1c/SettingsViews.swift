@@ -6,6 +6,7 @@ import Domain
 struct SettingsView: View {
     @Environment(AppState.self) private var app
     @Environment(AppSettingsStore.self) private var settings
+    @Environment(AppEntitlementStore.self) private var entitlements
     @State private var toggles: [AppSettingKey: Bool] = [:]
 
     var body: some View {
@@ -25,22 +26,55 @@ struct SettingsView: View {
                     Text(L10n.settings_highContrast)
                 }
                 .accessibilityIdentifier("SP-25.setting.highContrast")
+                // FR14.5 显示语言（§5.12.2）+ FR17.15/16 语音语言（§5.12.3）
+                NavigationLink {
+                    LanguageSettingsView()
+                } label: {
+                    LabeledContent(L10n.languageTitle, value: currentLanguageName)
+                }
+                .accessibilityIdentifier("SP-25.setting.language")
+                NavigationLink {
+                    VoiceLanguageSettingsView()
+                } label: {
+                    LabeledContent(L10n.voiceLangTitle, value: app.voiceOutputLocale)
+                }
+                .accessibilityIdentifier("SP-25.setting.voiceLanguage")
             } header: {
                 Text(L10n.settings_appearance)
             } footer: {
                 Text(L10n.settings_highContrastFooter)
             }
             Section(L10n.settings_habits) {
-                Text(L10n.settingsRemindAdvance(settings.values[.remindAdvanceMinutes] ?? "-"))
-                Text(L10n.settingsSnooze(settings.values[.snoozeMinutes] ?? "-"))
-                Text(L10n.settingsQuietHours(settings.values[.quietHoursStart] ?? "-",
-                                  settings.values[.quietHoursEnd] ?? "-"))
+                // FR14.7 常用习惯：可编辑偏好中心（含「仅新建/全局生效」标签）
+                NavigationLink(L10n.settings_habits) {
+                    PreferencesView()
+                }
+                .accessibilityIdentifier("SP-26.preferences")
+                // FR14.3 数据生命周期页（四级删除语义 + 影响清单）
+                NavigationLink(L10n.settings_dataLifecycle) {
+                    DataLifecycleView()
+                }
+                .accessibilityIdentifier("FR14.3.dataLifecycle")
+                // FR13.1/13.2 导出向导
+                NavigationLink(L10n.exportWizardTitle) {
+                    ExportWizardView()
+                }
+                .accessibilityIdentifier("SP-22.export.entry")
+                NavigationLink(L10n.backupTitle) {
+                    BackupView()
+                }
+                .accessibilityIdentifier("SP-23.backup.entry")
             }
             Section(L10n.hub_healthRecords) {
                 NavigationLink(L10n.member_title) {
                     MemberManagementView()
                 }
                 .accessibilityIdentifier("SP-25.settings.members")
+                // F23 过敏与不良反应（SP-50 入口）
+                NavigationLink(L10n.allergyTitle) {
+                    AllergyListView()
+                }
+                .accessibilityIdentifier("SP-25.settings.allergy")
                 NavigationLink(L10n.inventory_title) {
                     InventoryHubView()
                 }
@@ -75,6 +109,11 @@ struct SettingsView: View {
                     PaywallView()
                 }
                 .accessibilityIdentifier("SP-25.settings.pro")
+                // comercial §3 免费体验保护：「恢复购买」常驻设置中心
+                Button(L10n.pay_restore) {
+                    Task { await entitlements.restore() }
+                }
+                .accessibilityIdentifier("SP-25.settings.restorePurchases")
             }
             Section(L10n.settings_privacy) {
                 NavigationLink(L10n.settings_audit) {
@@ -99,9 +138,12 @@ struct SettingsView: View {
         .task { await settings.load() }
     }
 
-    /// FR14.1 分目的授权开关（M1c 已落键的两项；其余随功能模块上线逐步接入）
+    /// FR14.1 分目的授权开关（九项独立开关；撤回即时生效 BR-010；
+    /// 存储为本机固有能力不设开关，页脚说明）
     private var authKeys: [AppSettingKey] {
-        [.careModeEnable, .voiceEntryVisible]
+        [.authOcr, .authAI, .authFamilyAccess, .authSharing, .authCloudBackup,
+         .authAnonymizedImprovement, .authHealthRead, .authVoiceDictation,
+         .careModeEnable, .voiceEntryVisible]
     }
 
     private func binding(for key: AppSettingKey) -> Binding<Bool> {
@@ -133,11 +175,24 @@ struct SettingsView: View {
             })
     }
 
+    private var currentLanguageName: String {
+        L10n.supportedDisplayLanguages
+            .first { $0.code == L10n.bundleLanguage }?.nativeName ?? L10n.bundleLanguage
+    }
+
     private func label(for key: AppSettingKey) -> String {
         switch key {
         case .careModeEnable: return L10n.settings_careMode
         case .voiceEntryVisible: return L10n.settings_voiceEntry
         case .highContrastEnabled: return L10n.settings_highContrast
+        case .authOcr: return L10n.authOcrLabel
+        case .authAI: return L10n.authAILabel
+        case .authFamilyAccess: return L10n.authFamilyLabel
+        case .authSharing: return L10n.authSharingLabel
+        case .authCloudBackup: return L10n.authCloudBackupLabel
+        case .authAnonymizedImprovement: return L10n.authAnonymizedLabel
+        case .authHealthRead: return L10n.authHealthLabel
+        case .authVoiceDictation: return L10n.authVoiceDictationLabel
         default: return key.rawValue
         }
     }

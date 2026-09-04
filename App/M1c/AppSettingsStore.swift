@@ -12,6 +12,8 @@ final class AppSettingsStore {
     private(set) var values: [AppSettingKey: String] = [:]
     private(set) var auditEntries: [AuditEntry] = []
     private let store: SettingsStore
+    /// FR14.2 授权变更审计（可选注入；关闭即停后续处理，审计可见）
+    private let audit: AuditLogWriter?
     private let logger = Logger(subsystem: "com.vitaliber", category: "settings")
 
     struct AuditEntry: Identifiable, Equatable {
@@ -24,7 +26,10 @@ final class AppSettingsStore {
         }
     }
 
-    init(store: SettingsStore) { self.store = store }
+    init(store: SettingsStore, audit: AuditLogWriter? = nil) {
+        self.store = store
+        self.audit = audit
+    }
 
     func load() async {
         do {
@@ -42,6 +47,12 @@ final class AppSettingsStore {
         do {
             try await store.set(value, for: key)
             values[key] = value
+            // FR14.1/FR14.2 授权变更写审计（grant_change——撤回即时生效且审计可见）
+            if key.rawValue.hasPrefix("auth") {
+                try await audit?.record(action: "grant_change", entityType: "setting",
+                                        entityId: key.rawValue, actorLocal: "owner",
+                                        meta: "value=\(value)")
+            }
         } catch {
             logger.error("设置写入失败: \(error)")
         }

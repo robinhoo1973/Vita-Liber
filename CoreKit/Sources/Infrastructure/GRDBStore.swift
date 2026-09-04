@@ -90,12 +90,14 @@ public struct GRDBStore {
             try db.execute(
                 sql: """
                 INSERT INTO patient_profile
-                  (id, display_name, relation, gender, birth_date, note, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                  (id, display_name, relation, gender, birth_date, blood_type, id_no,
+                   insurance_no, note, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 arguments: [
                     profile.id.uuidString, profile.displayName, profile.relation,
-                    profile.gender, profile.birthDate, profile.note,
+                    profile.gender, profile.birthDate, profile.bloodType,
+                    profile.idNo, profile.insuranceNo, profile.note,
                     profile.createdAt, profile.updatedAt,
                 ])
         }

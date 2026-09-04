@@ -73,6 +73,13 @@ enum L10n {
     static var backupNotSignedIn: String { t("backup.degrade.notSignedIn") }
     static var backupNoSpace: String { t("backup.degrade.noSpace") }
     static var backupChecksumFailed: String { t("backup.degrade.checksum") }
+    // FR13.4 导出前身份验证 + 隐私提醒 / FR13.5 恢复前确认 + 恢复后校验报告
+    static var backupUnlockReason: String { t("backup.unlockReason") }
+    static var backupExportConfirmTitle: String { t("backup.exportConfirm.title") }
+    static var backupExportConfirmBody: String { t("backup.exportConfirm.body") }
+    static var backupRestoreConfirmTitle: String { t("backup.restoreConfirm.title") }
+    static var backupRestoreConfirmBody: String { t("backup.restoreConfirm.body") }
+    static func backupRestoredCount(_ n: Int) -> String { String(format: t("backup.restoredCountFmt"), n) }
 
     static var inventory_title: String { t("inventory.title") }
     static var inventory_empty: String { t("inventory.empty") }
@@ -656,7 +663,185 @@ enum L10n {
         "voiceguide.transcript", "voicenote.draft.accessibility", "voicenote.draft.placeholder", "voicenote.empty.hint",
         "voicenote.empty.title", "voicenote.inTimeline", "voicenote.save.accessibility", "voicenote.title",
         "voicenote.dictation", "voicenote.dictating", "voicenote.dictationFailed",
-        "doc.date", "doc.detailTitle", "doc.export", "doc.fieldsSection", "doc.historySection", "doc.titleSection"
+        "doc.date", "doc.detailTitle", "doc.export", "doc.fieldsSection", "doc.historySection", "doc.titleSection",
+        "help.status.checking", "help.status.authorized", "help.status.denied", "help.status.notRequested",
+        "help.status.unknown", "help.status.provisional", "help.center.title", "help.diag.permission",
+        "help.diag.reminder", "help.diag.dataHealth", "help.diag.system", "help.diag.systemHint",
+        "help.about.legal", "help.perm.section", "help.perm.camera", "help.perm.mic", "help.perm.notification",
+        "help.perm.openSettings", "help.perm.deniedHint", "help.faceID.requiresDevice", "help.reminder.section",
+        "help.reminder.permission", "help.reminder.todaySection", "help.reminder.pendingDoses",
+        "help.reminder.todaySlots", "help.reminder.deniedHint", "help.data.dbSection", "help.data.integrity",
+        "help.data.normal", "help.data.storageSection", "help.data.dbSize", "help.data.calculating",
+        "help.data.backupSection", "help.data.lastBackup", "help.data.noBackup", "help.data.title",
+        "help.about.licenses", "help.about.section", "help.legal.section", "help.terms.title", "help.section",
+        "caregiver.title", "caregiver.empty", "caregiver.emptyHint", "caregiver.pendingFmt",
+        "caregiver.alertTitle", "caregiver.alertConfirm", "caregiver.alertBodyFmt",
+        "disclosure.title", "disclosure.acknowledge",
+        "backup.unlockReason", "backup.exportConfirm.title", "backup.exportConfirm.body",
+        "backup.restoreConfirm.title", "backup.restoreConfirm.body", "backup.restoredCountFmt",
+        "sos.help.title", "sos.call120", "sos.noContacts", "sos.viewCard", "sos.sendLocationP1",
+        "home.greeting", "home.todayTodos", "home.pendingOcrCountFmt", "home.expiringSoon",
+        "home.refill", "home.alertSummary", "home.recentObs", "home.quickCapture",
+        "home.capture.record", "home.capture.report", "home.capture.prescription", "home.capture.symptom",
+        "home.guide1", "home.guide2", "home.guide3", "home.memberSwitch",
+        "home.notifDenied", "home.notifOpen", "home.care.meds", "home.care.refill",
+        "home.care.capture", "home.care.sos", "home.doseSlot", "home.stockBacklogFmt",
+        "nc.title", "nc.section.pending", "nc.section.appointment", "nc.section.expiry",
+        "nc.section.alert", "nc.section.ocr", "nc.nextAction.dose", "nc.confirmDose",
+        "nc.expireDateFmt", "nc.ocrCountFmt", "nc.empty", "nc.emptyHint",
+        "search.title", "search.placeholder", "search.placeholderHint", "search.noResultFmt",
+        "search.loosenHint", "search.clear", "search.group.docs", "search.group.observations",
+        "search.group.meds", "search.obsLocked",
+        "language.title", "language.footer", "voiceLang.title", "voiceLang.inputSection",
+        "voiceLang.inputHint", "voiceLang.outputSection", "voiceLang.outputHint",
+        "voiceLang.bestEffort", "voiceLang.fallback", "voiceLang.mix", "voiceLang.mixHint",
+        "reminder.allTaken", "reminder.allTakenConfirm", "reminder.allTakenYes",
+        "reminder.snooze15", "reminder.snooze30", "reminder.snooze60",
+        "reminder.forgot", "reminder.discomfort", "reminder.discomfortPlaceholder",
+        "reminder.skipReason.none", "reminder.skipReason.forgot", "reminder.skipReason.doctor",
+        "reminder.skipReason.other", "reminder.moreActions",
+        "plan.listTitle", "plan.detailTitle", "plan.notFound", "plan.weekStrip",
+        "plan.todayDoses", "plan.noTodayDose", "plan.adviceText", "plan.adviceSource",
+        "plan.pause", "plan.resume", "plan.end", "plan.endedNote", "plan.history",
+        "plan.endConfirm.title", "plan.endConfirm.body",
+        "plan.endReason.doctor", "plan.endReason.course", "plan.endReason.adverse",
+        "plan.endReason.noLonger", "plan.endReason.other",
+        "plan.event.started", "plan.event.edited", "plan.event.paused", "plan.event.resumed",
+        "plan.event.ended", "plan.event.endedReasonFmt",
+        "plan.action.taken", "plan.action.skipped", "plan.action.missed",
+        "plan.action.discomfort", "plan.action.snoozed", "plan.action.pending",
+        "plan.status.active", "plan.status.paused", "plan.status.ended",
+        "plan.backfill.title", "plan.backfill.actualTime",
+        "plan.form.title", "plan.form.medication", "plan.form.genericName", "plan.form.brandName",
+        "plan.form.spec", "plan.form.dosePerTake", "plan.form.timesPerDay", "plan.form.route",
+        "plan.form.meal", "plan.form.schedule", "plan.form.fixedTimes", "plan.form.asNeeded",
+        "plan.form.startDate", "plan.form.hasEndDate", "plan.form.endDate", "plan.form.longTerm",
+        "plan.form.source", "plan.form.hospital", "plan.form.doctor", "plan.form.advice",
+        "plan.form.lot.section", "plan.form.lot.unitsFmt", "plan.form.lot.unit",
+        "plan.form.lot.expireUnknown", "plan.form.lot.expireDate", "plan.form.lot.storageNote",
+        "plan.form.lot.hint",
+        "lot.unit.tablet", "lot.unit.capsule", "lot.unit.patch", "lot.unit.vial",
+        "knowledge.title", "knowledge.advice", "knowledge.adviceBadge", "knowledge.noAdvice",
+        "knowledge.storage", "knowledge.storageHint", "knowledge.caution", "knowledge.cautionText",
+        "encounter.kind.outpatient", "encounter.kind.emergency", "encounter.kind.inpatient",
+        "encounter.kind.checkup", "encounter.kind.telemedicine", "encounter.kind.followup",
+        "encounter.listTitle", "encounter.empty", "encounter.emptyHint", "encounter.untitled",
+        "encounter.docCountFmt", "encounter.detailTitle", "encounter.diagnosisAdvice",
+        "encounter.diagnosisBadge", "encounter.adviceBadge", "encounter.followUp",
+        "encounter.linkedDocs", "encounter.noDocs", "encounter.docTitleFmt",
+        "encounter.recommend.section", "encounter.recommend.pending", "encounter.link",
+        "encounter.generateSummary", "encounter.summary.title", "encounter.summary.header",
+        "encounter.summary.unconfirmed", "encounter.summary.allConfirmed",
+        "encounter.summary.docFieldsFmt", "encounter.summary.note", "encounter.summary.noteText",
+        "encounter.form.title", "encounter.form.basic", "encounter.form.kind", "encounter.form.date",
+        "encounter.form.hospital", "encounter.form.department", "encounter.form.doctor",
+        "encounter.form.clinical", "encounter.form.complaint", "encounter.form.diagnosis",
+        "encounter.form.advice", "encounter.form.followUp", "encounter.form.fee",
+        "timeline.title", "timeline.emptyTitle", "timeline.emptyHint", "timeline.filter.all",
+        "timeline.kind.encounter", "timeline.kind.medication", "timeline.kind.observation",
+        "timeline.kind.lab", "timeline.kind.selfMeasured", "timeline.kind.vaccination",
+        "timeline.kind.allergy", "timeline.kind.voiceNote", "timeline.kind.healthProblem",
+        "timeline.problemsFilter",
+        "problem.title", "problem.empty", "problem.emptyHint", "problem.createTitle",
+        "problem.namePlaceholder", "problem.merge", "problem.mergeTitle", "problem.mergeIntoFmt",
+        "problem.mergeHint", "problem.archive", "problem.unarchive",
+        "prep.title", "prep.patient", "prep.bloodType", "prep.meds", "prep.observations",
+        "prep.questions", "prep.noData", "prep.noQuestions", "prep.daysLeftFmt", "prep.disclaimer",
+        "question.title", "question.placeholder", "question.markAsked",
+        "appt.listTitle", "appt.empty", "appt.emptyHint",
+        "appt.status.scheduled", "appt.status.completed", "appt.status.cancelled", "appt.status.missed",
+        "appt.reschedule", "appt.cancel", "appt.complete", "appt.followUpHint", "appt.newDate",
+        "appt.cancelReason.none", "appt.cancelReason.doctor", "appt.cancelReason.self",
+        "appt.cancelReason.other",
+        "appt.form.title", "appt.form.basic", "appt.form.address", "appt.form.date",
+        "appt.form.prep", "appt.form.items", "appt.form.notes", "appt.form.followUpRule",
+        "appt.followUpRule.0", "appt.followUpRule.1", "appt.followUpRule.2",
+        "appt.followUpRule.3", "appt.followUpRule.4", "appt.followUpDaysFmt",
+        "appt.followUpConcreteDate", "appt.followUpDraftOnly",
+        "member.detail.basic", "member.detail.more", "member.bloodType", "member.idNo",
+        "member.insuranceNo", "member.note", "member.delete", "member.selfNoDelete",
+        "member.delete.impact", "member.delete.impactDocs", "member.delete.impactObs",
+        "member.delete.impactPlans", "member.delete.impactAppts", "member.delete.keepDocs",
+        "member.delete.planChoice", "member.delete.plans", "member.archivePlans",
+        "member.delete.confirm", "member.delete.confirmPlaceholderFmt", "member.delete.confirmButton",
+        "member.confirm.belongsTo", "member.confirm.switch", "member.relation.self",
+        "docLibrary.title", "docLibrary.empty", "docLibrary.emptyHint", "docLibrary.untitled",
+        "doc.archive", "doc.unarchive", "doc.favorite", "doc.unfavorite",
+        "doc.importSource.title", "doc.importSource.camera", "doc.importSource.file",
+        "doc.importSource.photos", "doc.importSource.manual",
+        "doc.duplicate.title", "doc.duplicate.keepBoth", "doc.duplicate.discard",
+        "doc.duplicate.hintFmt", "doc.importFailed.title", "doc.importFailed",
+        "doc.pdfImportFailed", "doc.type.report", "doc.type.record",
+        "doc.manual.createTitle", "doc.manual.title", "doc.manual.type", "doc.manual.note",
+        "onboard.rejected", "onboard.rejectLabelFmt", "onboard.revise", "onboard.reject",
+        "ocrQueue.title", "ocrQueue.empty", "ocrQueue.emptyHint", "ocrQueue.countFmt",
+        "ocrQueue.allConfirm", "ocrQueue.allConfirmBlocked", "ocrQueue.72h",
+        "ocrQueue.jumpSource", "ocrQueue.lowConfidenceFmt", "doc.reportIssue",
+        "allergy.title", "allergy.empty", "allergy.emptyHint", "allergy.selfReportBadge",
+        "allergy.severity.轻", "allergy.severity.中", "allergy.severity.重",
+        "allergy.severity.severe", "allergy.severity.moderate", "allergy.delete",
+        "allergy.createTitle", "allergy.step1", "allergy.step2", "allergy.step3",
+        "allergy.kind", "allergy.substancePlaceholder", "allergy.customTag",
+        "allergy.severityLabel", "allergy.occurredAt", "allergy.note", "allergy.next",
+        "allergy.emergency.title", "allergy.emergency.body", "allergy.emergency.goHospital",
+        "aiHistory.title", "aiHistory.empty", "aiHistory.countFmt", "aiHistory.delete",
+        "aiHistory.clearAll", "aiHistory.clearNote",
+        "aiFeedback.useful", "aiFeedback.useless", "aiFeedback.citationError",
+        "aiFeedback.danger", "aiFeedback.more",
+        "export.wizard.title", "export.scope", "export.scope.all", "export.scope.dateRange",
+        "export.scope.doctorSummary", "export.dateFrom", "export.dateTo", "export.content",
+        "export.includeNotes", "export.watermark", "export.privacyHint", "export.start",
+        "export.unlockReason", "export.progressFmt", "export.cancel", "export.cancelled",
+        "export.failed", "export.retry", "export.finishedFmt", "export.share", "export.titleFmt",
+        "backup.reminder.title", "backup.reminder.body",
+        "auth.ocr", "auth.ai", "auth.family", "auth.sharing", "auth.cloudBackup",
+        "auth.anonymized", "auth.health", "auth.voiceDictation", "settings.dataLifecycle",
+        "pref.group.reminders", "pref.group.display", "pref.group.voice",
+        "pref.tag.global", "pref.tag.newOnly", "pref.remindAdvance", "pref.snooze",
+        "pref.quietStart", "pref.quietEnd", "pref.to", "pref.channel",
+        "pref.channel.notifyOnly", "pref.channel.ringUntilConfirm", "pref.channel.silentBanner",
+        "pref.notifPreviewMed", "pref.remindScopeNote", "pref.dateFormat", "pref.weekStart",
+        "pref.unitSystem", "pref.unit.metric", "pref.unit.imperial", "pref.reduceMotion",
+        "pref.homeSort", "pref.homeSort.time", "pref.homeSort.type",
+        "pref.readback", "pref.readback.never", "pref.readback.ask", "pref.readback.always",
+        "pref.readbackHint", "pref.restoreAll",
+        "lifecycle.single", "lifecycle.singleHint", "lifecycle.member", "lifecycle.memberHint",
+        "lifecycle.clearAll", "lifecycle.clearHint", "lifecycle.clearButton",
+        "lifecycle.clearImpact", "lifecycle.logout", "lifecycle.logoutHint",
+        "onboard.addFamily.title", "onboard.addFamily.hint", "onboard.addFamily.manual",
+        "onboard.addFamily.voiceP1", "onboard.addFamily.contactsP1", "onboard.addFamily.skip",
+        "onboard.addFamily.completeHint",
+        "onboard.firstDay.title", "onboard.firstDay.hint", "onboard.firstDay.capture",
+        "onboard.firstDay.reminder", "onboard.firstDay.ai",
+        "feedback.title", "feedback.category",
+        "feedback.category.0", "feedback.category.1", "feedback.category.2",
+        "feedback.category.3", "feedback.category.4", "feedback.category.5",
+        "feedback.detail", "feedback.detailPlaceholder", "feedback.attachments",
+        "feedback.attachScreenshot", "feedback.attachOriginal", "feedback.attachMedia",
+        "feedback.attachmentHint", "feedback.submit", "feedback.submitted",
+        "fr24.markDelivered", "fr24.offlineNote",
+        "helpcard.recipient", "helpcard.recipientOther", "helpcard.recipientPlaceholder",
+        "metric.entry.title", "metric.step1", "metric.step2",
+        "metric.name.bloodPressureSys", "metric.name.glucose", "metric.name.weight",
+        "metric.name.heartRate", "metric.name.bloodOxygen",
+        "metric.selfMeasureNote", "metric.sys", "metric.dia", "metric.value",
+        "metric.unit", "metric.measuredAt", "metric.saved", "metric.viewTrend",
+        "voicePanel.title", "voicePanel.hint", "voicePanel.start",
+        "voiceTarget.metric", "voiceTarget.observation", "voiceTarget.question",
+        "voiceTarget.ai", "voiceTarget.reminder", "voiceTarget.profile", "voiceTarget.anyText",
+        "observation.followUp.set",
+        "f16.title", "f16.authSection", "f16.authHint", "f16.requestAuth", "f16.authGranted",
+        "f16.authDisabled", "f16.authFailed", "f16.syncSection", "f16.syncHint",
+        "f16.syncNow", "f16.syncing", "f16.syncDoneFmt", "f16.syncFailed",
+        "alert.filter.all", "alert.showL0", "alert.historyEntry",
+        "f19.noTodayMeds", "f19.nextAppointmentFmt", "f19.noAppointment", "f19.recentGlucoseFmt",
+        "f19.noGlucose", "f19.stockRemainingFmt", "f19.stockNoPlanFmt", "f19.noStock",
+        "f19.stockLocationFmt", "f19.locationUnknown", "f19.noExpiring", "f19.expiringFmt",
+        "f19.taken", "f19.notTaken", "f19.slotMedStateFmt", "f19.markTakenNoMatchFmt",
+        "f19.markTakenDoneFmt", "f19.metricRecordedFmt", "f19.questionRecordedFmt",
+        "medicalID.title", "medicalID.step1", "medicalID.step1Hint", "medicalID.step2",
+        "medicalID.step2Hint", "medicalID.step3", "medicalID.step3Hint",
+        "medicalID.openHealth", "medicalID.note"
     ]
 
     // MARK: - FR14.8 Tab badge
@@ -666,10 +851,692 @@ enum L10n {
     static var sensitiveMedia_originalTitle: String { t("sensitiveMedia.original.title") }
     static var sensitiveMedia_unlockToView: String { t("sensitiveMedia.unlockToView") }
 
+    // MARK: - F22 帮助与诊断（FR22.1-22.4 · SP-42/43/44/45/48）
+    static var helpStatusChecking: String { t("help.status.checking") }
+    static var helpStatusAuthorized: String { t("help.status.authorized") }
+    static var helpStatusDenied: String { t("help.status.denied") }
+    static var helpStatusNotRequested: String { t("help.status.notRequested") }
+    static var helpStatusUnknown: String { t("help.status.unknown") }
+    static var helpStatusProvisional: String { t("help.status.provisional") }
+    static var helpCenterTitle: String { t("help.center.title") }
+    static var helpDiagPermission: String { t("help.diag.permission") }
+    static var helpDiagReminder: String { t("help.diag.reminder") }
+    static var helpDiagDataHealth: String { t("help.diag.dataHealth") }
+    static var helpDiagSystem: String { t("help.diag.system") }
+    static var helpDiagSystemHint: String { t("help.diag.systemHint") }
+    static var helpAboutLegal: String { t("help.about.legal") }
+    static var helpPermSection: String { t("help.perm.section") }
+    static var helpPermCamera: String { t("help.perm.camera") }
+    static var helpPermMic: String { t("help.perm.mic") }
+    static var helpPermNotification: String { t("help.perm.notification") }
+    static var helpPermOpenSettings: String { t("help.perm.openSettings") }
+    static var helpPermDeniedHint: String { t("help.perm.deniedHint") }
+    static var helpFaceIDRequiresDevice: String { t("help.faceID.requiresDevice") }
+    static var helpReminderSection: String { t("help.reminder.section") }
+    static var helpReminderPermission: String { t("help.reminder.permission") }
+    static var helpReminderTodaySection: String { t("help.reminder.todaySection") }
+    static var helpReminderPendingDoses: String { t("help.reminder.pendingDoses") }
+    static var helpReminderTodaySlots: String { t("help.reminder.todaySlots") }
+    static var helpReminderDeniedHint: String { t("help.reminder.deniedHint") }
+    static var helpDataDbSection: String { t("help.data.dbSection") }
+    static var helpDataIntegrity: String { t("help.data.integrity") }
+    static var helpDataNormal: String { t("help.data.normal") }
+    static var helpDataStorageSection: String { t("help.data.storageSection") }
+    static var helpDataDbSize: String { t("help.data.dbSize") }
+    static var helpDataCalculating: String { t("help.data.calculating") }
+    static var helpDataBackupSection: String { t("help.data.backupSection") }
+    static var helpDataLastBackup: String { t("help.data.lastBackup") }
+    static var helpDataNoBackup: String { t("help.data.noBackup") }
+    static var helpDataTitle: String { t("help.data.title") }
+    static var helpAboutLicenses: String { t("help.about.licenses") }
+    static var helpAboutSection: String { t("help.about.section") }
+    static var helpLegalSection: String { t("help.legal.section") }
+    static var helpTermsTitle: String { t("help.terms.title") }
+    static var helpSection: String { t("help.section") }
+
+    // MARK: - F24 同机照护者视图（FR24.5 · SP-57）
+    static var caregiverTitle: String { t("caregiver.title") }
+    static var caregiverEmpty: String { t("caregiver.empty") }
+    static var caregiverEmptyHint: String { t("caregiver.emptyHint") }
+    static func caregiverPending(_ time: String) -> String { String(format: t("caregiver.pendingFmt"), time) }
+    static var caregiverAlertTitle: String { t("caregiver.alertTitle") }
+    static var caregiverAlertConfirm: String { t("caregiver.alertConfirm") }
+    static func caregiverAlertBody(patient: String, medication: String) -> String {
+        String(format: t("caregiver.alertBodyFmt"), patient, medication)
+    }
+
+    // MARK: - F20 L2-L4 场景须知（SP-37）
+    static var disclosureTitle: String { t("disclosure.title") }
+    static var disclosureAcknowledge: String { t("disclosure.acknowledge") }
+
+    // MARK: - FR18.6 SOS 全屏求助页（SP-33，唯一免门禁路径）
+    static var sosHelpTitle: String { t("sos.help.title") }
+    static var sosCall120: String { t("sos.call120") }
+    static var sosNoContacts: String { t("sos.noContacts") }
+    static var sosViewCard: String { t("sos.viewCard") }
+    static var sosSendLocationP1: String { t("sos.sendLocationP1") }
+
+    // MARK: - F2 首页（SP-04 · FR2.1 八卡）
+    static func homeGreeting(_ name: String) -> String { String(format: t("home.greeting"), name) }
+    static var homeTodayTodos: String { t("home.todayTodos") }
+    static func homePendingOcrCount(_ n: Int) -> String { String(format: t("home.pendingOcrCountFmt"), n) }
+    static var homeExpiringSoon: String { t("home.expiringSoon") }
+    static var homeRefill: String { t("home.refill") }
+    static var homeAlertSummary: String { t("home.alertSummary") }
+    static var homeRecentObs: String { t("home.recentObs") }
+    static var homeQuickCapture: String { t("home.quickCapture") }
+    static var homeCaptureRecord: String { t("home.capture.record") }
+    static var homeCaptureReport: String { t("home.capture.report") }
+    static var homeCapturePrescription: String { t("home.capture.prescription") }
+    static var homeCaptureSymptom: String { t("home.capture.symptom") }
+    static var homeGuide1: String { t("home.guide1") }
+    static var homeGuide2: String { t("home.guide2") }
+    static var homeGuide3: String { t("home.guide3") }
+    static var homeMemberSwitch: String { t("home.memberSwitch") }
+    static var homeNotifDenied: String { t("home.notifDenied") }
+    static var homeNotifOpen: String { t("home.notifOpen") }
+    static var homeCareMeds: String { t("home.care.meds") }
+    static var homeCareRefill: String { t("home.care.refill") }
+    static var homeCareCapture: String { t("home.care.capture") }
+    static var homeCareSOS: String { t("home.care.sos") }
+    static var homeDoseSlot: String { t("home.doseSlot") }
+    static func homeStockBacklog(_ name: String) -> String { String(format: t("home.stockBacklogFmt"), name) }
+
+    // MARK: - FR14.8 通知中心（SP-27）
+    static var ncTitle: String { t("nc.title") }
+    static var ncSectionPending: String { t("nc.section.pending") }
+    static var ncSectionAppointment: String { t("nc.section.appointment") }
+    static var ncSectionExpiry: String { t("nc.section.expiry") }
+    static var ncSectionAlert: String { t("nc.section.alert") }
+    static var ncSectionOcr: String { t("nc.section.ocr") }
+    static var ncNextActionDose: String { t("nc.nextAction.dose") }
+    static var ncConfirmDose: String { t("nc.confirmDose") }
+    static func ncExpireDate(_ d: String) -> String { String(format: t("nc.expireDateFmt"), d) }
+    static func ncOcrCount(_ n: Int) -> String { String(format: t("nc.ocrCountFmt"), n) }
+    static var ncEmpty: String { t("nc.empty") }
+    static var ncEmptyHint: String { t("nc.emptyHint") }
+
+    // MARK: - F12 全局搜索（SP-20）
+    static var searchTitle: String { t("search.title") }
+    static var searchPlaceholder: String { t("search.placeholder") }
+    static var searchPlaceholderHint: String { t("search.placeholderHint") }
+    static func searchNoResult(_ q: String) -> String { String(format: t("search.noResultFmt"), q) }
+    static var searchLoosenHint: String { t("search.loosenHint") }
+    static var searchClear: String { t("search.clear") }
+    static var searchGroupDocs: String { t("search.group.docs") }
+    static var searchGroupObservations: String { t("search.group.observations") }
+    static var searchGroupMeds: String { t("search.group.meds") }
+    static var searchObsLocked: String { t("search.obsLocked") }
+
+    // MARK: - FR14.5/FR17.15/FR17.16 语言选择器
+    static var languageTitle: String { t("language.title") }
+    static var languageFooter: String { t("language.footer") }
+    /// FR14.5 可显示语言（以该语言原文显示）；en 为 P2 评估项不列
+    static var supportedDisplayLanguages: [(code: String, nativeName: String)] {
+        [("zh-Hans", "简体中文"), ("zh-Hant", "繁體中文")]
+    }
+    static var voiceLangTitle: String { t("voiceLang.title") }
+    static var voiceLangInputSection: String { t("voiceLang.inputSection") }
+    static var voiceLangInputHint: String { t("voiceLang.inputHint") }
+    static var voiceLangOutputSection: String { t("voiceLang.outputSection") }
+    static var voiceLangOutputHint: String { t("voiceLang.outputHint") }
+    static var voiceLangBestEffort: String { t("voiceLang.bestEffort") }
+    static var voiceLangFallback: String { t("voiceLang.fallback") }
+    static var voiceLangMix: String { t("voiceLang.mix") }
+    static var voiceLangMixHint: String { t("voiceLang.mixHint") }
+
+    // MARK: - FR9.5/FR9.17 动作集与时段确认
+    static var reminder_allTaken: String { t("reminder.allTaken") }
+    static var reminder_allTakenConfirm: String { t("reminder.allTakenConfirm") }
+    static var reminder_allTakenYes: String { t("reminder.allTakenYes") }
+    static var reminder_snooze15: String { t("reminder.snooze15") }
+    static var reminder_snooze30: String { t("reminder.snooze30") }
+    static var reminder_snooze60: String { t("reminder.snooze60") }
+    static var reminder_forgot: String { t("reminder.forgot") }
+    static var reminder_discomfort: String { t("reminder.discomfort") }
+    static var reminder_discomfortPlaceholder: String { t("reminder.discomfortPlaceholder") }
+    static var reminder_skipReasonNone: String { t("reminder.skipReason.none") }
+    static var reminder_skipReasonForgot: String { t("reminder.skipReason.forgot") }
+    static var reminder_skipReasonDoctor: String { t("reminder.skipReason.doctor") }
+    static var reminder_skipReasonOther: String { t("reminder.skipReason.other") }
+    static var reminder_moreActions: String { t("reminder.moreActions") }
+
+    // MARK: - FR9.15/FR9.16 计划生命周期与补录（SP-15）
+    static var planListTitle: String { t("plan.listTitle") }
+    static var planDetailTitle: String { t("plan.detailTitle") }
+    static var planNotFound: String { t("plan.notFound") }
+    static var planWeekStrip: String { t("plan.weekStrip") }
+    static var planTodayDoses: String { t("plan.todayDoses") }
+    static var planNoTodayDose: String { t("plan.noTodayDose") }
+    static var planAdviceText: String { t("plan.adviceText") }
+    static var planAdviceSource: String { t("plan.adviceSource") }
+    static var planPause: String { t("plan.pause") }
+    static var planResume: String { t("plan.resume") }
+    static var planEnd: String { t("plan.end") }
+    static var planEndedNote: String { t("plan.endedNote") }
+    static var planHistory: String { t("plan.history") }
+    static var planEndConfirmTitle: String { t("plan.endConfirm.title") }
+    static var planEndConfirmBody: String { t("plan.endConfirm.body") }
+    static var planEndDoctor: String { t("plan.endReason.doctor") }
+    static var planEndCourse: String { t("plan.endReason.course") }
+    static var planEndAdverse: String { t("plan.endReason.adverse") }
+    static var planEndNoLonger: String { t("plan.endReason.noLonger") }
+    static var planEndOther: String { t("plan.endReason.other") }
+    static var planEventStarted: String { t("plan.event.started") }
+    static var planEventEdited: String { t("plan.event.edited") }
+    static var planEventPaused: String { t("plan.event.paused") }
+    static var planEventResumed: String { t("plan.event.resumed") }
+    static func planEventEnded(_ reason: String) -> String {
+        reason.isEmpty ? t("plan.event.ended") : String(format: t("plan.event.endedReasonFmt"), reason)
+    }
+    static var planActionTaken: String { t("plan.action.taken") }
+    static var planActionSkipped: String { t("plan.action.skipped") }
+    static var planActionMissed: String { t("plan.action.missed") }
+    static var planActionDiscomfort: String { t("plan.action.discomfort") }
+    static var planActionSnoozed: String { t("plan.action.snoozed") }
+    static var planActionPending: String { t("plan.action.pending") }
+    static var planStatusActive: String { t("plan.status.active") }
+    static var planStatusPaused: String { t("plan.status.paused") }
+    static var planStatusEnded: String { t("plan.status.ended") }
+    static var planBackfillTitle: String { t("plan.backfill.title") }
+    static var planBackfillActualTime: String { t("plan.backfill.actualTime") }
+    // FR9.1-9.3 计划创建表单
+    static var planFormTitle: String { t("plan.form.title") }
+    static var planFormMedication: String { t("plan.form.medication") }
+    static var planFormGenericName: String { t("plan.form.genericName") }
+    static var planFormBrandName: String { t("plan.form.brandName") }
+    static var planFormSpec: String { t("plan.form.spec") }
+    static var planFormDosePerTake: String { t("plan.form.dosePerTake") }
+    static var planFormTimesPerDay: String { t("plan.form.timesPerDay") }
+    static var planFormRoute: String { t("plan.form.route") }
+    static var planFormMeal: String { t("plan.form.meal") }
+    static var planFormSchedule: String { t("plan.form.schedule") }
+    static var planFormFixedTimes: String { t("plan.form.fixedTimes") }
+    static var planFormAsNeeded: String { t("plan.form.asNeeded") }
+    static var planFormStartDate: String { t("plan.form.startDate") }
+    static var planFormHasEndDate: String { t("plan.form.hasEndDate") }
+    static var planFormEndDate: String { t("plan.form.endDate") }
+    static var planFormLongTerm: String { t("plan.form.longTerm") }
+    static var planFormSource: String { t("plan.form.source") }
+    static var planFormHospital: String { t("plan.form.hospital") }
+    static var planFormDoctor: String { t("plan.form.doctor") }
+    static var planFormAdvice: String { t("plan.form.advice") }
+    static var planFormLotSection: String { t("plan.form.lot.section") }
+    static func planFormLotUnits(_ n: Double) -> String { String(format: t("plan.form.lot.unitsFmt"), Int(n)) }
+    static var planFormLotUnit: String { t("plan.form.lot.unit") }
+    static var planFormExpireUnknown: String { t("plan.form.lot.expireUnknown") }
+    static var planFormExpireDate: String { t("plan.form.lot.expireDate") }
+    static var planFormStorageNote: String { t("plan.form.lot.storageNote") }
+    static var planFormLotHint: String { t("plan.form.lot.hint") }
+    static var lotUnitTablet: String { t("lot.unit.tablet") }
+    static var lotUnitCapsule: String { t("lot.unit.capsule") }
+    static var lotUnitPatch: String { t("lot.unit.patch") }
+    static var lotUnitVial: String { t("lot.unit.vial") }
+
+    // MARK: - FR9.9 药品知识卡（§5.40）
+    static var knowledgeTitle: String { t("knowledge.title") }
+    static var knowledgeAdvice: String { t("knowledge.advice") }
+    static var knowledgeAdviceBadge: String { t("knowledge.adviceBadge") }
+    static var knowledgeNoAdvice: String { t("knowledge.noAdvice") }
+    static var knowledgeStorage: String { t("knowledge.storage") }
+    static var knowledgeStorageHint: String { t("knowledge.storageHint") }
+    static var knowledgeCaution: String { t("knowledge.caution") }
+    static var knowledgeCautionText: String { t("knowledge.cautionText") }
+
+    // MARK: - F4 就诊事件（SP-08 · FR4.1-4.4）
+    static func encounterKindName(_ kind: EncounterKind) -> String { t("encounter.kind.\(kind.rawValue)") }
+    static var encounterListTitle: String { t("encounter.listTitle") }
+    static var encounterEmpty: String { t("encounter.empty") }
+    static var encounterEmptyHint: String { t("encounter.emptyHint") }
+    static var encounterUntitled: String { t("encounter.untitled") }
+    static func encounterDocCount(_ n: Int) -> String { String(format: t("encounter.docCountFmt"), n) }
+    static var encounterDetailTitle: String { t("encounter.detailTitle") }
+    static var encounterDiagnosisAdvice: String { t("encounter.diagnosisAdvice") }
+    static var encounterDiagnosisBadge: String { t("encounter.diagnosisBadge") }
+    static var encounterAdviceBadge: String { t("encounter.adviceBadge") }
+    static var encounterFollowUp: String { t("encounter.followUp") }
+    static var encounterLinkedDocs: String { t("encounter.linkedDocs") }
+    static var encounterNoDocs: String { t("encounter.noDocs") }
+    static func encounterDocTitle(_ s: String.SubSequence) -> String {
+        String(format: t("encounter.docTitleFmt"), String(s))
+    }
+    static var encounterRecommendSection: String { t("encounter.recommend.section") }
+    static var encounterRecommendPending: String { t("encounter.recommend.pending") }
+    static var encounterLink: String { t("encounter.link") }
+    static var encounterGenerateSummary: String { t("encounter.generateSummary") }
+    static var encounterSummaryTitle: String { t("encounter.summary.title") }
+    static var encounterSummaryHeader: String { t("encounter.summary.header") }
+    static var encounterSummaryUnconfirmed: String { t("encounter.summary.unconfirmed") }
+    static var encounterSummaryAllConfirmed: String { t("encounter.summary.allConfirmed") }
+    static func encounterSummaryDocFields(_ id: String, _ n: Int) -> String {
+        String(format: t("encounter.summary.docFieldsFmt"), id, n)
+    }
+    static var encounterSummaryNote: String { t("encounter.summary.note") }
+    static var encounterSummaryNoteText: String { t("encounter.summary.noteText") }
+    static var encounterFormTitle: String { t("encounter.form.title") }
+    static var encounterFormBasic: String { t("encounter.form.basic") }
+    static var encounterFormKind: String { t("encounter.form.kind") }
+    static var encounterFormDate: String { t("encounter.form.date") }
+    static var encounterFormHospital: String { t("encounter.form.hospital") }
+    static var encounterFormDepartment: String { t("encounter.form.department") }
+    static var encounterFormDoctor: String { t("encounter.form.doctor") }
+    static var encounterFormClinical: String { t("encounter.form.clinical") }
+    static var encounterFormComplaint: String { t("encounter.form.complaint") }
+    static var encounterFormDiagnosis: String { t("encounter.form.diagnosis") }
+    static var encounterFormAdvice: String { t("encounter.form.advice") }
+    static var encounterFormFollowUp: String { t("encounter.form.followUp") }
+    static var encounterFormFee: String { t("encounter.form.fee") }
+
+    // MARK: - F11 时间轴 + FR11.4 健康问题（SP-19/SP-49）
+    static var timelineTitle: String { t("timeline.title") }
+    static var timelineEmptyTitle: String { t("timeline.emptyTitle") }
+    static var timelineEmptyHint: String { t("timeline.emptyHint") }
+    static var timelineFilterAll: String { t("timeline.filter.all") }
+    static func timelineKindName(_ kind: TimelineEntryKind) -> String { t("timeline.kind.\(kind.rawValue)") }
+    static var timelineProblemsFilter: String { t("timeline.problemsFilter") }
+    static var problemTitle: String { t("problem.title") }
+    static var problemEmpty: String { t("problem.empty") }
+    static var problemEmptyHint: String { t("problem.emptyHint") }
+    static var problemCreateTitle: String { t("problem.createTitle") }
+    static var problemNamePlaceholder: String { t("problem.namePlaceholder") }
+    static var problemMerge: String { t("problem.merge") }
+    static var problemMergeTitle: String { t("problem.mergeTitle") }
+    static func problemMergeInto(_ name: String) -> String { String(format: t("problem.mergeIntoFmt"), name) }
+    static var problemMergeHint: String { t("problem.mergeHint") }
+    static var problemArchive: String { t("problem.archive") }
+    static var problemUnarchive: String { t("problem.unarchive") }
+
+    // MARK: - FR10.4 就诊准备包 / FR10.5 问诊问题
+    static var prepTitle: String { t("prep.title") }
+    static var prepPatient: String { t("prep.patient") }
+    static var prepBloodType: String { t("prep.bloodType") }
+    static var prepMeds: String { t("prep.meds") }
+    static var prepObservations: String { t("prep.observations") }
+    static var prepQuestions: String { t("prep.questions") }
+    static var prepNoData: String { t("prep.noData") }
+    static var prepNoQuestions: String { t("prep.noQuestions") }
+    static func prepDaysLeft(_ n: Int) -> String { String(format: t("prep.daysLeftFmt"), n) }
+    static var prepDisclaimer: String { t("prep.disclaimer") }
+    static var questionTitle: String { t("question.title") }
+    static var questionPlaceholder: String { t("question.placeholder") }
+    static var questionMarkAsked: String { t("question.markAsked") }
+
+    // MARK: - F10 预约（SP-18 · FR10.1-10.7）
+    static var apptListTitle: String { t("appt.listTitle") }
+    static var apptEmpty: String { t("appt.empty") }
+    static var apptEmptyHint: String { t("appt.emptyHint") }
+    static func apptStatusName(_ s: String) -> String { t("appt.status.\(s)") }
+    static var apptReschedule: String { t("appt.reschedule") }
+    static var apptCancel: String { t("appt.cancel") }
+    static var apptComplete: String { t("appt.complete") }
+    static var apptFollowUpHint: String { t("appt.followUpHint") }
+    static var apptNewDate: String { t("appt.newDate") }
+    static var apptCancelReasonNone: String { t("appt.cancelReason.none") }
+    static var apptCancelReasonDoctor: String { t("appt.cancelReason.doctor") }
+    static var apptCancelReasonSelf: String { t("appt.cancelReason.self") }
+    static var apptCancelReasonOther: String { t("appt.cancelReason.other") }
+    static var apptFormTitle: String { t("appt.form.title") }
+    static var apptFormBasic: String { t("appt.form.basic") }
+    static var apptFormAddress: String { t("appt.form.address") }
+    static var apptFormDate: String { t("appt.form.date") }
+    static var apptFormPrep: String { t("appt.form.prep") }
+    static var apptFormItems: String { t("appt.form.items") }
+    static var apptFormNotes: String { t("appt.form.notes") }
+    static var apptFormFollowUpRule: String { t("appt.form.followUpRule") }
+    static func apptFollowUpRuleName(_ r: Int) -> String { t("appt.followUpRule.\(r)") }
+    static func apptFollowUpDays(_ n: Int) -> String { String(format: t("appt.followUpDaysFmt"), n) }
+    static var apptFollowUpConcreteDate: String { t("appt.followUpConcreteDate") }
+    static var apptFollowUpDraftOnly: String { t("appt.followUpDraftOnly") }
+
+    // MARK: - F3 成员详情/删除/归属确认（FR3.1/3.3/3.4）
+    static var memberDetailBasic: String { t("member.detail.basic") }
+    static var memberDetailMore: String { t("member.detail.more") }
+    static var memberBloodType: String { t("member.bloodType") }
+    static var memberIdNo: String { t("member.idNo") }
+    static var memberInsuranceNo: String { t("member.insuranceNo") }
+    static var memberNote: String { t("member.note") }
+    static var memberDelete: String { t("member.delete") }
+    static var memberSelfNoDelete: String { t("member.selfNoDelete") }
+    static var memberDeleteImpact: String { t("member.delete.impact") }
+    static var memberDeleteImpactDocs: String { t("member.delete.impactDocs") }
+    static var memberDeleteImpactObs: String { t("member.delete.impactObs") }
+    static var memberDeleteImpactPlans: String { t("member.delete.impactPlans") }
+    static var memberDeleteImpactAppts: String { t("member.delete.impactAppts") }
+    static var memberDeleteKeepDocs: String { t("member.delete.keepDocs") }
+    static var memberDeletePlanChoice: String { t("member.delete.planChoice") }
+    static var memberDeletePlans: String { t("member.delete.plans") }
+    static var memberArchivePlans: String { t("member.archivePlans") }
+    static var memberDeleteConfirm: String { t("member.delete.confirm") }
+    static func memberDeleteConfirmPlaceholder(_ name: String) -> String {
+        String(format: t("member.delete.confirmPlaceholderFmt"), name)
+    }
+    static var memberDeleteConfirmButton: String { t("member.delete.confirmButton") }
+    static var memberConfirmBelongsTo: String { t("member.confirm.belongsTo") }
+    static var memberConfirmSwitch: String { t("member.confirm.switch") }
+    static var member_relationSelf: String { t("member.relation.self") }
+
+    // MARK: - F5 资料库（SP-09/SP-10 · FR5.1-5.8 + FR6.6）
+    static var docLibraryTitle: String { t("docLibrary.title") }
+    static var docLibraryEmpty: String { t("docLibrary.empty") }
+    static var docLibraryEmptyHint: String { t("docLibrary.emptyHint") }
+    static var docLibraryUntitled: String { t("docLibrary.untitled") }
+    static var docArchive: String { t("doc.archive") }
+    static var docUnarchive: String { t("doc.unarchive") }
+    static var docFavorite: String { t("doc.favorite") }
+    static var docUnfavorite: String { t("doc.unfavorite") }
+    static var docImportSourceTitle: String { t("doc.importSource.title") }
+    static var docImportCamera: String { t("doc.importSource.camera") }
+    static var docImportFile: String { t("doc.importSource.file") }
+    static var docImportPhotos: String { t("doc.importSource.photos") }
+    static var docImportManual: String { t("doc.importSource.manual") }
+    static var docDuplicateTitle: String { t("doc.duplicate.title") }
+    static var docDuplicateKeepBoth: String { t("doc.duplicate.keepBoth") }
+    static var docDuplicateDiscard: String { t("doc.duplicate.discard") }
+    static func docDuplicateHint(_ n: Int) -> String { String(format: t("doc.duplicate.hintFmt"), n) }
+    static var docImportFailedTitle: String { t("doc.importFailed.title") }
+    static var docImportFailed: String { t("doc.importFailed") }
+    static var docPDFImportFailed: String { t("doc.pdfImportFailed") }
+    static var docTypeReport: String { t("doc.type.report") }
+    static var docTypeRecord: String { t("doc.type.record") }
+    static var docManualCreateTitle: String { t("doc.manual.createTitle") }
+    static var docManualTitle: String { t("doc.manual.title") }
+    static var docManualType: String { t("doc.manual.type") }
+    static var docManualNote: String { t("doc.manual.note") }
+
+    // MARK: - F6 OCR 确认（FR6.3/6.4/6.8 · SP-53）
+    static var onboardRejected: String { t("onboard.rejected") }
+    static func onboardRejectLabel(_ label: String) -> String {
+        String(format: t("onboard.rejectLabelFmt"), label)
+    }
+    static var ocrQueueTitle: String { t("ocrQueue.title") }
+    static var ocrQueueEmpty: String { t("ocrQueue.empty") }
+    static var ocrQueueEmptyHint: String { t("ocrQueue.emptyHint") }
+    static func ocrQueueCount(_ n: Int) -> String { String(format: t("ocrQueue.countFmt"), n) }
+    static var ocrQueueAllConfirm: String { t("ocrQueue.allConfirm") }
+    static var ocrQueueAllConfirmBlocked: String { t("ocrQueue.allConfirmBlocked") }
+    static var ocrQueue72h: String { t("ocrQueue.72h") }
+    static var ocrQueueJumpSource: String { t("ocrQueue.jumpSource") }
+    static func ocrQueueLowConfidence(_ n: Int) -> String { String(format: t("ocrQueue.lowConfidenceFmt"), n) }
+    static var onboard_revise: String { t("onboard.revise") }
+    static var onboard_reject: String { t("onboard.reject") }
+    static var docReportIssue: String { t("doc.reportIssue") }
+
+    // MARK: - F23 过敏与不良反应（SP-50 · FR23.1-23.6）
+    static var allergyTitle: String { t("allergy.title") }
+    static var allergyEmpty: String { t("allergy.empty") }
+    static var allergyEmptyHint: String { t("allergy.emptyHint") }
+    static var allergySelfReportBadge: String { t("allergy.selfReportBadge") }
+    static func allergySeverity(_ s: String) -> String { t("allergy.severity.\(s)") }
+    static var allergyDelete: String { t("allergy.delete") }
+    static var allergyCreateTitle: String { t("allergy.createTitle") }
+    static var allergyStep1: String { t("allergy.step1") }
+    static var allergyStep2: String { t("allergy.step2") }
+    static var allergyStep3: String { t("allergy.step3") }
+    static var allergyKind: String { t("allergy.kind") }
+    static var allergySubstancePlaceholder: String { t("allergy.substancePlaceholder") }
+    static var allergyCustomTag: String { t("allergy.customTag") }
+    static var allergySeverityLabel: String { t("allergy.severityLabel") }
+    static var allergyOccurredAt: String { t("allergy.occurredAt") }
+    static var allergyNote: String { t("allergy.note") }
+    static var allergyNext: String { t("allergy.next") }
+    static var allergyEmergencyTitle: String { t("allergy.emergency.title") }
+    static var allergyEmergencyBody: String { t("allergy.emergency.body") }
+    static var allergyEmergencyGoHospital: String { t("allergy.emergency.goHospital") }
+
+    // MARK: - FR12.10 AI 会话历史 / FR12.8 反馈四键
+    static var aiHistoryTitle: String { t("aiHistory.title") }
+    static var aiHistoryEmpty: String { t("aiHistory.empty") }
+    static func aiHistoryCount(_ n: Int) -> String { String(format: t("aiHistory.countFmt"), n) }
+    static var aiHistoryDelete: String { t("aiHistory.delete") }
+    static var aiHistoryClearAll: String { t("aiHistory.clearAll") }
+    static var aiHistoryClearNote: String { t("aiHistory.clearNote") }
+    static var aiFeedbackUseful: String { t("aiFeedback.useful") }
+    static var aiFeedbackUseless: String { t("aiFeedback.useless") }
+    static var aiFeedbackCitationError: String { t("aiFeedback.citationError") }
+    static var aiFeedbackDanger: String { t("aiFeedback.danger") }
+    static var aiFeedbackMore: String { t("aiFeedback.more") }
+
+    // MARK: - FR13.1/13.2 PDF 导出向导（SP-22）+ FR13.10 定期备份提醒
+    static var exportWizardTitle: String { t("export.wizard.title") }
+    static var exportScope: String { t("export.scope") }
+    static var exportScopeAll: String { t("export.scope.all") }
+    static var exportScopeDateRange: String { t("export.scope.dateRange") }
+    static var exportScopeDoctorSummary: String { t("export.scope.doctorSummary") }
+    static var exportDateFrom: String { t("export.dateFrom") }
+    static var exportDateTo: String { t("export.dateTo") }
+    static var exportContent: String { t("export.content") }
+    static var exportIncludeNotes: String { t("export.includeNotes") }
+    static var exportWatermark: String { t("export.watermark") }
+    static var exportPrivacyHint: String { t("export.privacyHint") }
+    static var exportStart: String { t("export.start") }
+    static var exportUnlockReason: String { t("export.unlockReason") }
+    static func exportProgress(_ n: Int, _ total: Int) -> String { String(format: t("export.progressFmt"), n, total) }
+    static var exportCancel: String { t("export.cancel") }
+    static var exportCancelled: String { t("export.cancelled") }
+    static var exportFailed: String { t("export.failed") }
+    static var exportRetry: String { t("export.retry") }
+    static func exportFinished(_ n: Int, _ pages: Int) -> String { String(format: t("export.finishedFmt"), n, pages) }
+    static var exportShare: String { t("export.share") }
+    static func exportTitle(_ s: String) -> String { String(format: t("export.titleFmt"), s) }
+    static var backupReminderTitle: String { t("backup.reminder.title") }
+    static var backupReminderBody: String { t("backup.reminder.body") }
+
+    // MARK: - FR14.1 九开关 / FR14.7 偏好中心 / FR14.3 数据生命周期
+    static var authOcrLabel: String { t("auth.ocr") }
+    static var authAILabel: String { t("auth.ai") }
+    static var authFamilyLabel: String { t("auth.family") }
+    static var authSharingLabel: String { t("auth.sharing") }
+    static var authCloudBackupLabel: String { t("auth.cloudBackup") }
+    static var authAnonymizedLabel: String { t("auth.anonymized") }
+    static var authHealthLabel: String { t("auth.health") }
+    static var authVoiceDictationLabel: String { t("auth.voiceDictation") }
+    static var settings_dataLifecycle: String { t("settings.dataLifecycle") }
+    static var prefGroupReminders: String { t("pref.group.reminders") }
+    static var prefGroupDisplay: String { t("pref.group.display") }
+    static var prefGroupVoice: String { t("pref.group.voice") }
+    static var prefTagGlobal: String { t("pref.tag.global") }
+    static var prefTagNewOnly: String { t("pref.tag.newOnly") }
+    static var prefRemindAdvance: String { t("pref.remindAdvance") }
+    static var prefSnooze: String { t("pref.snooze") }
+    static var prefQuietStart: String { t("pref.quietStart") }
+    static var prefQuietEnd: String { t("pref.quietEnd") }
+    static var prefTo: String { t("pref.to") }
+    static var prefChannel: String { t("pref.channel") }
+    static var prefChannelNotifyOnly: String { t("pref.channel.notifyOnly") }
+    static var prefChannelRingUntilConfirm: String { t("pref.channel.ringUntilConfirm") }
+    static var prefChannelSilentBanner: String { t("pref.channel.silentBanner") }
+    static var prefNotifPreviewMed: String { t("pref.notifPreviewMed") }
+    static var prefRemindScopeNote: String { t("pref.remindScopeNote") }
+    static var prefDateFormat: String { t("pref.dateFormat") }
+    static var prefWeekStart: String { t("pref.weekStart") }
+    static var prefUnitSystem: String { t("pref.unitSystem") }
+    static var prefUnitMetric: String { t("pref.unit.metric") }
+    static var prefUnitImperial: String { t("pref.unit.imperial") }
+    static var prefReduceMotion: String { t("pref.reduceMotion") }
+    static var prefHomeSort: String { t("pref.homeSort") }
+    static var prefHomeSortTime: String { t("pref.homeSort.time") }
+    static var prefHomeSortType: String { t("pref.homeSort.type") }
+    static var prefReadback: String { t("pref.readback") }
+    static var prefReadbackNever: String { t("pref.readback.never") }
+    static var prefReadbackAsk: String { t("pref.readback.ask") }
+    static var prefReadbackAlways: String { t("pref.readback.always") }
+    static var prefReadbackHint: String { t("pref.readbackHint") }
+    static var prefRestoreAll: String { t("pref.restoreAll") }
+    static var lifecycleSingle: String { t("lifecycle.single") }
+    static var lifecycleSingleHint: String { t("lifecycle.singleHint") }
+    static var lifecycleMember: String { t("lifecycle.member") }
+    static var lifecycleMemberHint: String { t("lifecycle.memberHint") }
+    static var lifecycleClearAll: String { t("lifecycle.clearAll") }
+    static var lifecycleClearHint: String { t("lifecycle.clearHint") }
+    static var lifecycleClearButton: String { t("lifecycle.clearButton") }
+    static var lifecycleClearImpact: String { t("lifecycle.clearImpact") }
+    static var lifecycleLogout: String { t("lifecycle.logout") }
+    static var lifecycleLogoutHint: String { t("lifecycle.logoutHint") }
+
+    // MARK: - FR21.9 向导 ④ 添加家人 / ⑥ 首日引导
+    static var onboardAddFamilyTitle: String { t("onboard.addFamily.title") }
+    static var onboardAddFamilyHint: String { t("onboard.addFamily.hint") }
+    static var onboardAddFamilyManual: String { t("onboard.addFamily.manual") }
+    static var onboardAddFamilyVoiceP1: String { t("onboard.addFamily.voiceP1") }
+    static var onboardAddFamilyContactsP1: String { t("onboard.addFamily.contactsP1") }
+    static var onboardAddFamilySkip: String { t("onboard.addFamily.skip") }
+    static var onboardAddFamilyCompleteHint: String { t("onboard.addFamily.completeHint") }
+    static var onboardFirstDayTitle: String { t("onboard.firstDay.title") }
+    static var onboardFirstDayHint: String { t("onboard.firstDay.hint") }
+    static var onboardFirstDayCapture: String { t("onboard.firstDay.capture") }
+    static var onboardFirstDayReminder: String { t("onboard.firstDay.reminder") }
+    static var onboardFirstDayAI: String { t("onboard.firstDay.ai") }
+
+    // MARK: - FR22.5 反馈 / FR24.2 发送状态 / FR9.13a 收件人
+    static var feedbackTitle: String { t("feedback.title") }
+    static var feedbackCategory: String { t("feedback.category") }
+    static func feedbackCategoryName(_ i: Int) -> String { t("feedback.category.\(i)") }
+    static var feedbackDetail: String { t("feedback.detail") }
+    static var feedbackDetailPlaceholder: String { t("feedback.detailPlaceholder") }
+    static var feedbackAttachments: String { t("feedback.attachments") }
+    static var feedbackAttachScreenshot: String { t("feedback.attachScreenshot") }
+    static var feedbackAttachOriginal: String { t("feedback.attachOriginal") }
+    static var feedbackAttachMedia: String { t("feedback.attachMedia") }
+    static var feedbackAttachmentHint: String { t("feedback.attachmentHint") }
+    static var feedbackSubmit: String { t("feedback.submit") }
+    static var feedbackSubmitted: String { t("feedback.submitted") }
+    static var fr24_markDelivered: String { t("fr24.markDelivered") }
+    static var fr24_offlineNote: String { t("fr24.offlineNote") }
+    static var helpcardRecipient: String { t("helpcard.recipient") }
+    static var helpcardRecipientOther: String { t("helpcard.recipientOther") }
+    static var helpcardRecipientPlaceholder: String { t("helpcard.recipientPlaceholder") }
+
+    // MARK: - FR7.5 自测两步录入（SP-13 快速录入）
+    static var metricEntryTitle: String { t("metric.entry.title") }
+    static var metricStep1: String { t("metric.step1") }
+    static var metricStep2: String { t("metric.step2") }
+    static func metricName(_ m: MetricType) -> String { t("metric.name.\(m.rawValue)") }
+    static var metricSelfMeasureNote: String { t("metric.selfMeasureNote") }
+    static var metricSys: String { t("metric.sys") }
+    static var metricDia: String { t("metric.dia") }
+    static var metricValue: String { t("metric.value") }
+    static var metricUnit: String { t("metric.unit") }
+    static var metricMeasuredAt: String { t("metric.measuredAt") }
+    static var metricSaved: String { t("metric.saved") }
+    static var metricViewTrend: String { t("metric.viewTrend") }
+
+    // MARK: - FR17.9 语音速记面板（SP-55）+ FR8.10 观察随访
+    static var voicePanelTitle: String { t("voicePanel.title") }
+    static var voicePanelHint: String { t("voicePanel.hint") }
+    static var voicePanelStart: String { t("voicePanel.start") }
+    static func voiceTargetName(_ t: TargetTag) -> String { t("voiceTarget.\(t.rawValue)") }
+    static var observationFollowUpSet: String { t("observation.followUp.set") }
+
+    // MARK: - F16 设备接入（SP-29/SP-30）
+    static var f16Title: String { t("f16.title") }
+    static var f16AuthSection: String { t("f16.authSection") }
+    static var f16AuthHint: String { t("f16.authHint") }
+    static var f16RequestAuth: String { t("f16.requestAuth") }
+    static var f16AuthGranted: String { t("f16.authGranted") }
+    static var f16AuthDisabled: String { t("f16.authDisabled") }
+    static var f16AuthFailed: String { t("f16.authFailed") }
+    static var f16SyncSection: String { t("f16.syncSection") }
+    static var f16SyncHint: String { t("f16.syncHint") }
+    static var f16SyncNow: String { t("f16.syncNow") }
+    static var f16Syncing: String { t("f16.syncing") }
+    static func f16SyncDone(_ n: Int) -> String { String(format: t("f16.syncDoneFmt"), n) }
+    static var f16SyncFailed: String { t("f16.syncFailed") }
+    static var alertFilterAll: String { t("alert.filter.all") }
+    static var alertShowL0: String { t("alert.showL0") }
+    static var alert_historyEntry: String { t("alert.historyEntry") }
+
+    // MARK: - F19 附表执行矩阵播报（纯事实句式）
+    static var f19NoTodayMeds: String { t("f19.noTodayMeds") }
+    static func f19NextAppointment(_ a: String, _ d: String) -> String {
+        String(format: t("f19.nextAppointmentFmt"), a, d)
+    }
+    static var f19NoAppointment: String { t("f19.noAppointment") }
+    static func f19RecentGlucose(_ v: String) -> String { String(format: t("f19.recentGlucoseFmt"), v) }
+    static var f19NoGlucose: String { t("f19.noGlucose") }
+    static func f19StockRemaining(_ name: String, _ days: Int) -> String {
+        String(format: t("f19.stockRemainingFmt"), name, days)
+    }
+    static func f19StockNoPlan(_ name: String) -> String { String(format: t("f19.stockNoPlanFmt"), name) }
+    static var f19NoStock: String { t("f19.noStock") }
+    static func f19StockLocation(_ name: String, _ loc: String) -> String {
+        String(format: t("f19.stockLocationFmt"), name, loc)
+    }
+    static var f19LocationUnknown: String { t("f19.locationUnknown") }
+    static var f19NoExpiring: String { t("f19.noExpiring") }
+    static func f19Expiring(_ name: String, _ d: String) -> String {
+        String(format: t("f19.expiringFmt"), name, d)
+    }
+    static var f19Taken: String { t("f19.taken") }
+    static var f19NotTaken: String { t("f19.notTaken") }
+    static func f19SlotMedState(_ med: String, _ state: String) -> String {
+        String(format: t("f19.slotMedStateFmt"), med, state)
+    }
+    static func f19MarkTakenNoMatch(_ name: String) -> String { String(format: t("f19.markTakenNoMatchFmt"), name) }
+    static func f19MarkTakenDone(_ name: String) -> String { String(format: t("f19.markTakenDoneFmt"), name) }
+    static func f19MetricRecorded(_ v: Double) -> String { String(format: t("f19.metricRecordedFmt"), v) }
+    static func f19QuestionRecorded(_ q: String) -> String { String(format: t("f19.questionRecordedFmt"), q) }
+
+    // MARK: - FR15.2 系统医疗急救卡引导
+    static var medicalIDTitle: String { t("medicalID.title") }
+    static var medicalIDStep1: String { t("medicalID.step1") }
+    static var medicalIDStep1Hint: String { t("medicalID.step1Hint") }
+    static var medicalIDStep2: String { t("medicalID.step2") }
+    static var medicalIDStep2Hint: String { t("medicalID.step2Hint") }
+    static var medicalIDStep3: String { t("medicalID.step3") }
+    static var medicalIDStep3Hint: String { t("medicalID.step3Hint") }
+    static var medicalIDOpenHealth: String { t("medicalID.openHealth") }
+    static var medicalIDNote: String { t("medicalID.note") }
+
+    enum TargetTag: String, CaseIterable {
+        case metric, observation, question, ai, reminder, profile, anyText
+    }
+
     /// 支持的本地化（三文件纪律）
     static let supportedLocalizations = ["zh-Hans", "zh-Hant", "en"]
 
+    // MARK: - FR14.5 语言即时切换（无需重启）
+    //
+    // 直接按选定语言从对应 .lproj 解析——NSLocalizedString 跟随系统语言且
+    // 每进程缓存，无法满足「切换即时生效、不要求重启」（FR14.5 验收）。
+    // 视图层全部经本单出口取值：语言变更 → AppSettingsStore.values 变化 →
+    // 视图重渲染 → t() 按新语言解析。
+
+    /// 当前显示语言（"zh-Hans"/"zh-Hant"）。nonisolated(unsafe)：
+    /// 仅在 App 启动与语言设置变更时写（两者皆发生在主线程 UI 流程），
+    /// 读路径并发无害（缓存值切换的窗口期只影响一次渲染的文案）。
+    nonisolated(unsafe) private static var languageCache: String = "zh-Hans"
+    nonisolated(unsafe) private static var bundleCache: Bundle?
+
+    static var bundleLanguage: String { languageCache }
+
+    /// FR14.5 语言切换入口（设置页调用；App 启动时以持久化偏好初始化）
+    static func setLanguage(_ lang: String) {
+        guard supportedLocalizations.contains(lang) else { return }
+        languageCache = lang
+        bundleCache = nil
+        UserDefaults.standard.set(lang, forKey: "vl.language")
+    }
+
+    /// 启动恢复：从持久化偏好初始化（AppRootView .task 调用）
+    static func restoreLanguage() {
+        let stored = UserDefaults.standard.string(forKey: "vl.language") ?? "zh-Hans"
+        languageCache = stored
+        bundleCache = nil
+    }
+
     private static func t(_ key: String) -> String {
-        NSLocalizedString(key, comment: "")
+        if let bundle = currentBundle {
+            let value = bundle.localizedString(forKey: key, value: key, table: nil)
+            if value != key { return value }   // 缺译回落系统默认（三文件纪律由 SU-M15-L10N 兜底）
+        }
+        return NSLocalizedString(key, comment: "")
+    }
+
+    private static var currentBundle: Bundle? {
+        if let cached = bundleCache { return cached }
+        guard let path = Bundle.main.path(forResource: languageCache, ofType: "lproj"),
+              let bundle = Bundle(path: path) else { return nil }
+        bundleCache = bundle
+        return bundle
     }
 }

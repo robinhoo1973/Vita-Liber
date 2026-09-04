@@ -36,8 +36,13 @@ struct AppRootView: View {
         .preferredColorScheme(currentTheme.colorScheme)
         // FR14.4 高对比度初始实现 = 环境对比度增强（§5.28.1 记录为偏差：HC Token 集归 L2）
         .contrast(highContrastOn ? 1.25 : 1.0)
+        // FR18.9 感官强化：关怀模式字号放大（accessibility1 ≈ 1.33×，≥20pt 基线）
+        .dynamicTypeSize(appState.careMode ? .accessibility1 : .large)
         .task {
             await settingsStore.load()   // 主题等设置先于首帧后的首次渲染就位
+            // FR14.5 语言即时切换：以持久化偏好初始化显示语言（无需重启）
+            L10n.setLanguage(settingsStore.values[.language]
+                             ?? AppSettingKey.language.defaultValue)
             await appState.bootstrap()
             // F16 信源库种子幂等入库（离线零网络可用）
             do { try await seedBundled() }
@@ -46,10 +51,13 @@ struct AppRootView: View {
             }
             // 敏感媒体孤儿对账（评审修正）：崩溃/失败写入的残留照片启动时清除
             await observationState.reconcileAssets()
-            // 四层补偿第 1 层（§5.4 V3.29）：前台启动时对账 + 首启请求通知授权
+            // 四层补偿第 1 层（§5.4 V3.29）：前台启动时对账。
+            // FR20.2 授权时序：通知权限严禁启动即索权——请求时机移到
+            // 「完成第一个提醒计划创建后」（价值先行，ReminderStore.createPlan/createAppointment）。
             if appState.onboardingFinished {
-                await reminderStore.requestNotificationAuthorization()
                 await reminderStore.refresh(patientId: appState.currentPatientId)
+                // FR13.10 定期备份提醒（默认 30 天；只引导，不自动建包；联动 F22.4）
+                await reminderStore.scheduleBackupReminderIfNeeded(lastBackupAt: appState.lastBackupAt)
             }
         }
         // 四层补偿第 3 层：时区/时间显著变化 → 立即对账（View 级修饰符）

@@ -50,6 +50,7 @@ enum MainModule: String, CaseIterable, Identifiable, Hashable {
 struct RootAdaptiveView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(ReminderStore.self) private var reminderStore
+    @Environment(AppRouter.self) private var router
     @SceneStorage("selectedModule") private var selection: MainModule = .home
 
     var body: some View {
@@ -65,11 +66,17 @@ struct RootAdaptiveView: View {
                     // ModuleRoot 为两种 idiom 共用（ADR-021 单一内容视图），
                     // 若在其内部无条件包 NavigationStack，iPad 详情列会在
                     // NavigationSplitView 已提供的导航上下文里再套一层嵌套栈。
-                    NavigationStack { ModuleRoot(module: m) }
-                        .tabItem { Label(m.title, systemImage: m.systemGlyph) }
-                        .tag(m)
-                        // FR14.8/SP-27: Unread badge on reminders tab
-                        .badge(m == .reminders ? reminderStore.pendingCount : 0)
+                    // §5.45：栈绑定 AppRouter 对应 path + 全量路由目的地分发表
+                    NavigationStack(path: router.binding(for: MainModuleID(m))) {
+                        ModuleRoot(module: m)
+                            .navigationDestination(for: AppRoute.self) { route in
+                                RouteDestinationView(route: route)
+                            }
+                    }
+                    .tabItem { Label(m.title, systemImage: m.systemGlyph) }
+                    .tag(m)
+                    // FR14.8/SP-27: Unread badge on reminders tab
+                    .badge(m == .reminders ? reminderStore.pendingCount : 0)
                 }
             }
         } else {
@@ -79,23 +86,55 @@ struct RootAdaptiveView: View {
                         NavigationLink(value: m) {
                             Label(m.title, systemImage: m.systemGlyph)
                         }
+                        // §11-14：iPad 侧边栏补未读角标（compact 已有）
+                        .badge(m == .reminders && reminderStore.pendingCount > 0
+                               ? reminderStore.pendingCount : 0)
                     }
                 }
                 .navigationTitle(L10n.help_appName)
             } detail: {
-                ModuleRoot(module: selection)
-                    .navigationDestination(for: MainModule.self) { m in
-                        // 评审修正：侧边栏推入后回写 selection——
-                        // ① 旋转至 compact 时 TabView 落在用户最后所在的模块，不再丢上下文回首页；
-                        // ② 详情列弹出后回到根时，根视图 = 最后所选模块而非恒 .home。
-                        // 异步延后一拍写：onAppear 期间直接写导航驱动状态属再入（重复 push 风险）。
-                        ModuleRoot(module: m)
-                            .onAppear { DispatchQueue.main.async { selection = m } }
-                    }
+                NavigationStack(path: router.binding(for: MainModuleID(selection))) {
+                    ModuleRoot(module: selection)
+                        .navigationDestination(for: AppRoute.self) { route in
+                            RouteDestinationView(route: route)
+                        }
+                }
+                .navigationDestination(for: MainModule.self) { m in
+                    // 评审修正：侧边栏推入后回写 selection——
+                    // ① 旋转至 compact 时 TabView 落在用户最后所在的模块，不再丢上下文回首页；
+                    // ② 详情列弹出后回到根时，根视图 = 最后所选模块而非恒 .home。
+                    // 异步延后一拍写：onAppear 期间直接写导航驱动状态属再入（重复 push 风险）。
+                    ModuleRoot(module: m)
+                        .onAppear { DispatchQueue.main.async { selection = m } }
+                }
             }
         }
         }
         .withPaywallHost()   // 五时机弹墙统一宿主（comercial §3 / M2 收尾）
+        // FR18.6 右下角常驻 SOS 悬浮球（仅关怀模式；可半透明；设置可关闭——
+        // 悬浮球被关闭后关怀首页「呼救」大卡仍保留，求助能力不因单一开关消失）
+        .overlay(alignment: .bottomTrailing) {
+            if appState.careMode && careSettingsSOSOrbVisible {
+                SOSOrb()
+                    .padding(16)
+                    .accessibilityIdentifier("F18.sos.orb")
+            }
+        }
+    }
+
+    @Environment(AppState.self) private var appState
+    @AppStorage("vl.care.sosOrbVisible") private var careSettingsSOSOrbVisible = true
+}
+
+extension MainModuleID {
+    init(_ m: MainModule) {
+        switch m {
+        case .home: self = .home
+        case .records: self = .records
+        case .reminders: self = .reminders
+        case .ai: self = .ai
+        case .me: self = .me
+        }
     }
 }
 
@@ -112,8 +151,9 @@ struct ModuleRoot: View {
         switch module {
         case .records:
             // 导航栈由外层提供（iPhone: 每个 tab 一个；iPad: NavigationSplitView 详情列），
-            // 此处不得再包，否则 iPad 出现嵌套栈
-            TimelineView(showFinishButton: false)
+            // 此处不得再包，否则 iPad 出现嵌套栈。
+            // FR11.1-11.4：八类事件联合查询时间轴（SP-19 全量）
+            TimelineFullView()
         case .reminders:
             RemindersView()
         case .ai:
@@ -121,17 +161,8 @@ struct ModuleRoot: View {
         case .me:
             SettingsView()
         case .home:
-            VStack(spacing: 12) {
-                Image(systemName: "square.grid.2x2")
-                    .font(.largeTitle)
-                    .foregroundStyle(.secondary)
-                Text(module.title)
-                    .font(.headline)
-                // F19：关怀模式首页大卡 [开始语音]（FR19.1 入口）
-                VoiceSessionLaunchCard()
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .accessibilityIdentifier("SP-00.moduleRoot.\(module.rawValue)")
+            // F2 首页八卡（SP-04）；F19 关怀语音入口卡随关怀模式版式呈现
+            HomeView()
         }
     }
 }
@@ -166,7 +197,9 @@ private struct PreviewRoot: View {
         RootAdaptiveView()
             .environment(appState)
             .environment(ReminderStore(meds: container.meds, apts: container.apts,
-                                       reconciler: container.reconciler))
+                                       reconciler: container.reconciler,
+                                       scheduler: InMemoryReminderScheduler(),
+                                       composer: container.composer))
             .environment(AssistantStore(provider: container.aiProvider))
             .environment(AppSettingsStore(store: container.settings))
             .environment(ObservationStoreState(store: container.observations,
@@ -180,7 +213,14 @@ private struct PreviewRoot: View {
                                     immunizations: container.immunizations,
                                     claims: container.claims,
                                     messages: container.messages,
-                                    guidelines: container.guidelines))
+                                    guidelines: container.guidelines,
+                                    audit: container.audit))
             .environment(container.mediaSession)
+            .environment(AppRouter())
+            .environment(SearchViewState(search: container.search))
+            .environment(EncountersState(store: container.encounters))
+            .environment(TimelineViewState(store: container.timelineQuery,
+                                           problemStore: container.healthProblems))
+            .environment(QuestionsState(store: container.questions))
     }
 }

@@ -29,6 +29,8 @@ final class M2HubStore {
     // 发送状态
     private(set) var sentMessages: [SentMessage] = []    // 信源库
     private(set) var guidelineEntries: [GuidelineEntry] = []
+    // F16 预警事件（FR2.1⑥ 首页观察提示摘要卡 + FR16.10 预警历史页共用）
+    private(set) var alertEvents: [GuidelineStore.AlertEvent] = []
 
     private let meds: MedicationStore
     private let emergency: EmergencyCardStore
@@ -36,6 +38,8 @@ final class M2HubStore {
     private let claims: ClaimStore
     private let messages: MessageDeliveryStore
     private let guidelines: GuidelineStore
+    /// FR9.13a/FR24.2 药品信息外发审计（FR14.2 审计清单之一）
+    private let audit: AuditLogWriter
     private let logger = Logger(subsystem: "com.vitaliber", category: "m2hub")
 
     /// 最近一次请求的成员（BR-001 成员隔离：只允许最新请求写回状态）
@@ -43,13 +47,15 @@ final class M2HubStore {
 
     init(meds: MedicationStore, emergency: EmergencyCardStore,
          immunizations: ImmunizationStore, claims: ClaimStore,
-         messages: MessageDeliveryStore, guidelines: GuidelineStore) {
+         messages: MessageDeliveryStore, guidelines: GuidelineStore,
+         audit: AuditLogWriter) {
         self.meds = meds
         self.emergency = emergency
         self.immunizations = immunizations
         self.claims = claims
         self.messages = messages
         self.guidelines = guidelines
+        self.audit = audit
     }
 
     func load(patientId: UUID) async {
@@ -68,6 +74,7 @@ final class M2HubStore {
             let totals = try await claims.totals(patientId: patientId)
             let sent = try await messages.list(patientId: patientId)
             let entries = try await guidelines.all()
+            let alerts = try await guidelines.history(patientId: patientId)
 
             // 晚到的旧成员结果一律丢弃（切换成员会取消 .task，但飞行中的调用仍会返回）
             guard loadingPatientId == patientId else { return }
@@ -81,6 +88,7 @@ final class M2HubStore {
             claimTotals = totals
             sentMessages = sent
             guidelineEntries = entries
+            alertEvents = alerts
         } catch {
             logger.error("M2 装配加载失败: \(error)")
         }
@@ -120,6 +128,10 @@ final class M2HubStore {
             emergencySelectedIds = Set((emergencySelected.allergies + emergencySelected.medications
                                         + emergencySelected.healthProblems + emergencySelected.contacts)
                                         .map(\.id))
+            // FR15.4 卡片内容变更写审计（select/deselect 均记录）
+            try await audit.record(action: "update", entityType: "emergency_card",
+                                   entityId: item.id.uuidString, actorLocal: "owner",
+                                   meta: "\(selected ? "select" : "deselect") kind=\(item.kind)")
         } catch {
             logger.error("急救卡选择失败: \(error)")
         }
@@ -159,6 +171,30 @@ final class M2HubStore {
             sentMessages = try await messages.list(patientId: patientId)
         } catch {
             logger.error("发送状态记录失败: \(error)")
+        }
+    }
+
+    /// FR9.13a/FR24.2 每次分享写审计（药品信息外发——FR14.2 审计清单之一）
+    func auditHelpCardSent(recipient: String) {
+        Task {
+            do {
+                try await audit.record(action: "export", entityType: "sent_message",
+                                       entityId: recipient, actorLocal: "owner",
+                                       meta: "kind=helpCard")
+            } catch {
+                logger.error("求助卡发送审计失败: \(error)")
+            }
+        }
+    }
+
+    /// FR24.2 P0 手动「标记已送达」占位（无服务端时不伪造回执——
+    /// 用户确认对方收到后手动推进 sent → ackPending，等待回执）
+    func markDelivered(messageId: UUID, patientId: UUID) async {
+        do {
+            try await messages.updateStatus(id: messageId, to: .ackPending)
+            sentMessages = try await messages.list(patientId: patientId)
+        } catch {
+            logger.error("标记已送达失败: \(error)")
         }
     }
 }

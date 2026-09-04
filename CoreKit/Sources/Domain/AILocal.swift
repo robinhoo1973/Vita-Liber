@@ -19,8 +19,13 @@ public struct EntityReference: Sendable, Equatable {
     public var refID: UUID
     public var title: String
     public var snippet: String
-    public init(kind: String, refID: UUID, title: String, snippet: String) {
-        self.kind = kind; self.refID = refID; self.title = title; self.snippet = snippet
+    /// BR-007/008：敏感资料命中标记——搜索/AI 引用呈现必须以此决定锁定态，
+    /// 不得因搜索命中自动解锁图片（FR12.1 边界）
+    public var isSensitive: Bool
+    public init(kind: String, refID: UUID, title: String, snippet: String,
+                isSensitive: Bool = false) {
+        self.kind = kind; self.refID = refID; self.title = title
+        self.snippet = snippet; self.isSensitive = isSensitive
     }
 }
 

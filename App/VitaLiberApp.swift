@@ -6,6 +6,10 @@ import Protocols
 @main
 struct VitaLiberApp: App {
     private let container: AppContainer   // init 内装配，body/task 复用（信源播种等）
+    private let router: AppRouter
+    /// §5.45 通知点击→路由映射契约：delegate 必须被强引用（UNUserNotificationCenter
+    /// 对 delegate 是弱引用），故由 App 持有，路由经注入的 AppRouter 分发
+    private let notificationDelegate: AppNotificationDelegate
     @State private var appState: AppState
     @State private var reminderStore: ReminderStore
     @State private var assistantStore: AssistantStore
@@ -15,6 +19,14 @@ struct VitaLiberApp: App {
     @State private var trendState: TrendEntryState
     @State private var voiceNoteState: VoiceNoteState
     @State private var m2Hub: M2HubStore
+    @State private var searchState: SearchViewState
+    @State private var encountersState: EncountersState
+    @State private var timelineState: TimelineViewState
+    @State private var questionsState: QuestionsState
+    @State private var documentsState: DocumentsState
+    @State private var aiHistoryState: AIHistoryState
+    @State private var exportWizardState: ExportWizardState
+    @State private var f16DeviceState: F16DeviceState
 
     init() {
         // 组装根（评审 A2：AppContainer 由 App 消费，AppState/ReminderStore 只面向协议）。
@@ -31,6 +43,11 @@ struct VitaLiberApp: App {
             }
         }
         self.container = container
+        let appRouter = AppRouter()
+        self.router = appRouter
+        let delegate = AppNotificationDelegate(router: appRouter)
+        self.notificationDelegate = delegate
+        UNUserNotificationCenter.current().delegate = delegate
         // 门禁测试桩（XCUITest 无法自动化 Face ID）：-uitest-gate-stub-{success,fail}
         // 注入确定性认证结果；生产路径缺省 nil → LocalAuthGateUnlocker（真系统认证）
         let gateUnlocker: (any GateUnlocking)? =
@@ -48,10 +65,33 @@ struct VitaLiberApp: App {
             capture: FakeOcrProvider(fixture: args.contains("-uitest-camera-fixture")),
             transcription: transcriptionStub,
             gateUnlocker: gateUnlocker,
-            audit: container.audit))
+            audit: container.audit,
+            memberDeletion: container.memberDeletion))
         _reminderStore = State(initialValue: ReminderStore(
-            meds: container.meds, apts: container.apts, reconciler: container.reconciler))
-        _assistantStore = State(initialValue: AssistantStore(provider: container.aiProvider))
+            meds: container.meds, apts: container.apts, reconciler: container.reconciler,
+            scheduler: UNReminderScheduler(), composer: container.composer))
+        _assistantStore = State(initialValue: AssistantStore(
+            provider: container.aiProvider,
+            history: container.aiHistory,
+            feedback: { kind in
+                // FR12.8 反馈四键：本地留存（audit feedback 行动），P1 上报
+                Task {
+                    do {
+                        try await container.audit.record(action: "feedback", entityType: "ai_answer",
+                                                         entityId: kind, actorLocal: "owner", meta: nil)
+                    } catch {
+                        // 审计失败不阻断反馈交互
+                    }
+                }
+            },
+            quotaUseHook: { [store = container.entitlements] in
+                // comercial §2.3：每次成功回答计一次额度（免费档 20 次/月）
+                // 直连 EntitlementStore actor（AppEntitlementStore 展示侧 load 时同步）
+                Task {
+                    do { try await store.recordAIUse() }
+                    catch { /* 额度计数失败不阻断回答 */ }
+                }
+            }))
         _settingsStore = State(initialValue: AppSettingsStore(store: container.settings))
         _observationState = State(initialValue: ObservationStoreState(
             store: container.observations, allergyStore: container.allergies,
@@ -62,7 +102,23 @@ struct VitaLiberApp: App {
         _m2Hub = State(initialValue: M2HubStore(
             meds: container.meds, emergency: container.emergencyCards,
             immunizations: container.immunizations, claims: container.claims,
-            messages: container.messages, guidelines: container.guidelines))
+            messages: container.messages, guidelines: container.guidelines,
+            audit: container.audit))
+        _searchState = State(initialValue: SearchViewState(search: container.search))
+        _encountersState = State(initialValue: EncountersState(store: container.encounters))
+        _timelineState = State(initialValue: TimelineViewState(
+            store: container.timelineQuery, problemStore: container.healthProblems))
+        _questionsState = State(initialValue: QuestionsState(store: container.questions))
+        _documentsState = State(initialValue: DocumentsState(
+            store: container.documents,
+            pipeline: OCRPipeline(
+                recognizer: EngineRegistry.shared.resolve(OCRRecognizerFactory.self),
+                grayscaleDecoder: GrayscaleImageDecoder())))
+        _aiHistoryState = State(initialValue: AIHistoryState(store: container.aiHistory))
+        _exportWizardState = State(initialValue: ExportWizardState(service: container.pdfExport))
+        _f16DeviceState = State(initialValue: F16DeviceState(
+            reader: container.healthReader, guidelines: container.guidelines,
+            scheduler: UNReminderScheduler()))
     }
 
     var body: some Scene {
@@ -80,6 +136,15 @@ struct VitaLiberApp: App {
                 .environment(voiceNoteState)
                 .environment(m2Hub)
                 .environment(container.mediaSession)
+                .environment(router)
+                .environment(searchState)
+                .environment(encountersState)
+                .environment(timelineState)
+                .environment(questionsState)
+                .environment(documentsState)
+                .environment(aiHistoryState)
+                .environment(exportWizardState)
+                .environment(f16DeviceState)
         }
     }
 }

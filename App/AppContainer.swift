@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Domain
 import Infrastructure
 import Protocols
@@ -7,12 +8,15 @@ import Protocols
 /// 评审修正（架构 A2）：M1a 起组装根被真实消费——VitaLiberApp 在此装配
 /// 生产依赖（GRDB 库 + M1aPersisting + 审计写入口），AppState 只面向协议。
 struct AppContainer {
+    private static let logger = Logger(subsystem: "com.vitaliber", category: "container")
     let store: GRDBStore
     let audit: AuditLogWriter
     let persistor: GRDBM1aPersistor
     let meds: MedicationStore
     let apts: AppointmentStore
     let reconciler: ReminderReconciler
+    /// FR9.15/§4.2 五表原子创建与计划生命周期（处方→计划参考模板）
+    let composer: MedicationPlanComposer
     let search: GRDBSearchService
     /// §5.10 跨视图敏感媒体解锁会话
     let mediaSession: MediaUnlockSession
@@ -32,6 +36,22 @@ struct AppContainer {
     let immunizations: ImmunizationStore
     let claims: ClaimStore
     let messages: MessageDeliveryStore
+    /// F4 就诊事件（SP-08）
+    let encounters: EncounterStore
+    /// F11 时间轴联合查询 + FR11.4 健康问题 + FR10.5 问诊问题
+    let timelineQuery: TimelineQueryStore
+    let healthProblems: HealthProblemStore
+    let questions: QuestionStore
+    /// FR3.4 删除成员影响清单与单事务删除（§5.51 UnitOfWork 语义）
+    let memberDeletion: MemberDeletionService
+    /// F5 资料库（SP-09）
+    let documents: DocumentStore
+    /// FR12.10 AI 会话历史（SP-51）
+    let aiHistory: AIHistoryStore
+    /// FR13.1/13.2 PDF 导出（SP-22）
+    let pdfExport: PDFExportService
+    /// F16 只读 Apple 健康接入（FR16.1）
+    let healthReader: HealthKitReader
 
     /// 生产装配：文件库 + WAL（§4.4）+ UNUserNotificationCenter 适配。
     static func live(databasePath: String) throws -> AppContainer {
@@ -55,6 +75,8 @@ struct AppContainer {
         let meds = MedicationStore(writer: store.writer)
         let apts = AppointmentStore(writer: store.writer, scheduler: scheduler)
         let reconciler = ReminderReconciler(scheduler: scheduler, source: meds)
+        let auditWriter = AuditLogWriter(writer: store.writer)
+        let composer = MedicationPlanComposer(writer: store.writer, audit: auditWriter)
         let search = GRDBSearchService(writer: store.writer)
         let settings = SettingsStore(writer: store.writer)
         let observations = ObservationStore(writer: store.writer)
@@ -69,21 +91,45 @@ struct AppContainer {
         let immunizations = ImmunizationStore(writer: store.writer)
         let claims = ClaimStore(writer: store.writer)
         let messages = MessageDeliveryStore(writer: store.writer)
+        let encounters = EncounterStore(writer: store.writer)
+        let timelineQuery = TimelineQueryStore(writer: store.writer)
+        let healthProblems = HealthProblemStore(writer: store.writer)
+        let questions = QuestionStore(writer: store.writer)
+        let memberDeletion = MemberDeletionService(writer: store.writer)
+        let documents = DocumentStore(writer: store.writer)
+        let aiHistory = AIHistoryStore(writer: store.writer)
+        let pdfExport = PDFExportService(writer: store.writer)
+        let healthReader = HealthKitReader()
         let entitlements = EntitlementStore(writer: store.writer,
                                             storefront: EntitlementStore.InMemoryStorefront())
         let trends = TrendQueryStore(writer: store.writer)
         let voiceNotes = VoiceNoteStore(writer: store.writer)
         return AppContainer(store: store,
-                            audit: AuditLogWriter(writer: store.writer),
+                            audit: auditWriter,
                             persistor: GRDBM1aPersistor(store: store),
                             meds: meds,
                             apts: apts,
                             reconciler: reconciler,
+                            composer: composer,
                             search: search,
                             mediaSession: MediaUnlockSession(),
-                            // 红线纵深防御在装配处统一包一层：BR-012/BR-006 对所有
-                            // Provider 实现生效（含 P1 云端），消费方不需要各自设防
-                            aiProvider: SafeAIProvider(inner: LocalRetrievalProvider(search: search)),
+                            // 装饰器链（FR12.9 审计 + 红线纵深防御）：AuditedAIProvider 记
+                            // 每次调用读取的资料 ID 范围（entityId 哈希后落库，脱敏）；
+                            // SafeAIProvider 对 BR-012/BR-006 对所有 Provider 实现生效
+                            // （含 P1 云端），消费方不需要各自设防。审计失败只记日志，
+                            // 不得阻断回答（FR22 边界：诊断失败不阻塞主功能）。
+                            aiProvider: AuditedAIProvider(
+                                inner: SafeAIProvider(inner: LocalRetrievalProvider(search: search)),
+                                audit: { [writer = store.writer] ids in
+                                    let recorder = AuditLogWriter(writer: writer)
+                                    do {
+                                        try await recorder.record(action: "ai_scope", entityType: "ai_query",
+                                                                  entityId: ids, actorLocal: "owner", meta: nil)
+                                    } catch {
+                                        // 审计失败不阻断回答（FR22 边界），但必须上报（§7 不静默吞）
+                                        logger.error("AI 审计失败: \(error)")
+                                    }
+                                }),
                             settings: settings,
                             observations: observations,
                             mediaAssets: mediaAssets,
@@ -95,7 +141,16 @@ struct AppContainer {
                             emergencyCards: emergencyCards,
                             immunizations: immunizations,
                             claims: claims,
-                            messages: messages)
+                            messages: messages,
+                            encounters: encounters,
+                            timelineQuery: timelineQuery,
+                            healthProblems: healthProblems,
+                            questions: questions,
+                            memberDeletion: memberDeletion,
+                            documents: documents,
+                            aiHistory: aiHistory,
+                            pdfExport: pdfExport,
+                            healthReader: healthReader)
     }
 
     /// Application Support 下的数据库路径（生产库位置）

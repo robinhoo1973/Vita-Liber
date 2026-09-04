@@ -89,10 +89,11 @@ private struct CardRow: View {
     }
 }
 
-/// FR15.2：引导用户把同样内容写入 iOS 系统医疗急救卡——分步引导，
-/// 不替代系统能力、不静默写入。
-private struct GuideCard: View {
+/// FR15.2：引导用户把同样内容写入 iOS 系统医疗急救卡——分步图文引导，
+/// 不替代系统能力、不静默写入；引导中断可重试。
+struct GuideCard: View {
     var onGuide: (() -> Void)?
+    @State private var showGuide = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -100,14 +101,62 @@ private struct GuideCard: View {
             Text(L10n.emergencyWriteSubtitle)
                 .font(.caption).foregroundStyle(.secondary)
             if let onGuide {
-                Button(L10n.emergencyViewGuide, action: onGuide)
-                    .frame(minHeight: 44)
-                    .accessibilityIdentifier("F15.card.medicalIDGuide")
+                Button(L10n.emergencyViewGuide) {
+                    showGuide = true
+                }
+                .frame(minHeight: 44)
+                .accessibilityIdentifier("F15.card.medicalIDGuide")
             }
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color("bg-grouped", bundle: .main)))
+        .sheet(isPresented: $showGuide) {
+            MedicalIDGuideSheet()
+        }
+    }
+}
+
+/// FR15.2 系统医疗急救卡分步图文引导（可重试；写入由用户在系统健康 App 手动完成）
+private struct MedicalIDGuideSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section(L10n.medicalIDStep1) {
+                    Text(L10n.medicalIDStep1Hint)
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+                Section(L10n.medicalIDStep2) {
+                    Text(L10n.medicalIDStep2Hint)
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+                Section(L10n.medicalIDStep3) {
+                    Text(L10n.medicalIDStep3Hint)
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+                Section {
+                    Button(L10n.medicalIDOpenHealth) {
+                        if let url = URL(string: "x-apple-health://") {
+                            UIApplication.shared.open(url)
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .frame(maxWidth: .infinity, minHeight: 50)
+                    .accessibilityIdentifier("F15.card.medicalIDOpenHealth")
+                } footer: {
+                    Text(L10n.medicalIDNote)
+                }
+            }
+            .navigationTitle(L10n.medicalIDTitle)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(L10n.onboard_gotIt) { dismiss() }
+                }
+            }
+        }
     }
 }
 
@@ -222,6 +271,145 @@ struct SOSButton: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 8)
+    }
+}
+
+// MARK: - FR18.6 SOS 常驻悬浮球（关怀模式右下角；按住确认 + 环形进度反馈）
+
+/// SOS 悬浮球：长按越过防误触门槛（环形进度反馈 FR18.3），松手进入求助页。
+/// 半透明；任意页面可达（挂在根视图 overlay）；求助页零门禁（FR1.8）。
+struct SOSOrb: View {
+    @State private var holdStart: Date?
+    @State private var showHelp = false
+
+    private let requiredHold: TimeInterval = 0.6   // FR18.3 按住确认 ≥600ms
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(Color.red.opacity(0.85))
+                .frame(width: 64, height: 64)   // 关怀触点 ≥64pt（FR18.2）
+                .shadow(radius: 6)
+            // 环形进度反馈（FR18.3 按住确认的环形进度）
+            if let start = holdStart {
+                Circle()
+                    .trim(from: 0, to: progress(start))
+                    .stroke(Color.white, lineWidth: 4)
+                    .frame(width: 64, height: 64)
+                    .rotationEffect(.degrees(-90))
+            }
+            Text(L10n.emergency_sos_hold)
+                .font(.caption2.bold())
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
+        }
+        .opacity(0.9)   // 可半透明（FR18.6）
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: requiredHold)
+                .onChanged { _ in holdStart = Date() }
+                .onEnded { _ in
+                    holdStart = nil
+                    showHelp = true
+                }
+        )
+        .fullScreenCover(isPresented: $showHelp) {
+            SOSHelpView()
+        }
+        .accessibilityLabel(L10n.sosHelpTitle)
+    }
+
+    private func progress(_ start: Date) -> CGFloat {
+        min(1, Date().timeIntervalSince(start) / requiredHold)
+    }
+}
+
+// MARK: - SOS 全屏求助页（FR18.6 · BR-012 唯一免门禁路径）
+
+/// FR18.6 全屏求助页：拨打电话 / 查看急救卡 / 发送位置（P1 置灰说明）。
+/// **不设门禁**（安全优先于隐私，FR1.8 唯一豁免）；任意页面 ≤2 步可达
+/// （锁屏遮罩 SOSButton → 本页；本页内一步即达三个动作）。
+/// 紧急联系人来自 F15 急救卡已确认数据源（BR-003 未确认不入卡）。
+struct SOSHelpView: View {
+    @Environment(AppState.self) private var app
+    @Environment(M2HubStore.self) private var hub
+    @State private var showEmergencyCard = false
+
+    private var contacts: [EmergencyCardItem] {
+        hub.emergencySelected.contacts.filter(\.confirmed)
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 20) {
+                Text(L10n.sosHelpTitle)
+                    .font(.largeTitle.bold())
+                    .accessibilityIdentifier("F18.sos.title")
+
+                // 拨打 120：一步直达（免复述——紧急优先；FR19 附表语义一致）
+                Button {
+                    dial("120")
+                } label: {
+                    Label(L10n.sosCall120, systemImage: "phone.fill")
+                        .font(.title3.bold())
+                        .frame(maxWidth: .infinity, minHeight: 72)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.red)
+                .accessibilityIdentifier("F18.sos.call120")
+
+                // 紧急联系人（已配置才显示；未配置引导去急救卡补录，FR15.1）
+                if contacts.isEmpty {
+                    Text(L10n.sosNoContacts)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .accessibilityIdentifier("F18.sos.noContacts")
+                } else {
+                    ForEach(contacts) { contact in
+                        Button {
+                            dial(contact.detail)
+                        } label: {
+                            Label(contact.title, systemImage: "person.crop.circle.badge.exclamationmark")
+                                .frame(maxWidth: .infinity, minHeight: 56)
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityIdentifier("F18.sos.contact")
+                    }
+                }
+
+                // 查看急救卡（F15 配置与展示）
+                Button {
+                    showEmergencyCard = true
+                } label: {
+                    Label(L10n.sosViewCard, systemImage: "cross.case.fill")
+                        .frame(maxWidth: .infinity, minHeight: 56)
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("F18.sos.viewCard")
+
+                // 发送位置（P1，置灰说明——不假装可用）
+                Label(L10n.sosSendLocationP1, systemImage: "location.slash")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("F18.sos.sendLocationP1")
+
+                Spacer()
+            }
+            .padding(24)
+            .navigationTitle(L10n.sosHelpTitle)
+            .navigationBarTitleDisplayMode(.inline)
+            .sheet(isPresented: $showEmergencyCard) {
+                NavigationStack { EmergencyCardHubView() }
+            }
+            .task(id: app.currentPatientId) { await hub.load(patientId: app.currentPatientId) }
+        }
+    }
+
+    /// 系统拨号（tel://）：拨号动作本身由系统确认，App 不拦截不记录内容
+    private func dial(_ number: String) {
+        guard let url = URL(string: "tel://\(number)"),
+              UIApplication.shared.canOpenURL(url) else { return }
+        UIApplication.shared.open(url)
     }
 }
 

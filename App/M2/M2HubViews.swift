@@ -52,10 +52,15 @@ struct InventoryHubView: View {
                       contentType: .commaSeparatedText,
                       defaultFilename: "配药清单") { _ in }
         .sheet(isPresented: $showShareHost) {
-            HelpCardShareHost(text: shareText, photoAttachments: []) {
-                // 分享完成 → 落发送状态（FR24.2）
-                Task { await hub.recordSent(patientId: currentPatientId,
-                                            kind: "helpCard", recipient: "家人") }
+            // FR9.13a/FR24.1：收件人由用户显式选择（急救卡已确认联系人优先，
+            // 可手输）；位置照片默认不含（photoAttachments 为空——需显式勾选 P1）
+            HelpCardRecipientSheet(text: shareText,
+                                   contacts: hub.emergencySelected.contacts.map(\.title)) { recipient in
+                Task {
+                    await hub.recordSent(patientId: currentPatientId,
+                                         kind: "helpCard", recipient: recipient)
+                    hub.auditHelpCardSent(recipient: recipient)
+                }
             }
         }
     }
@@ -159,6 +164,8 @@ struct SentStatusHubView: View {
 /// FR24.2 发送状态页：只展示类型/收件人/状态/时间，**不存不显原文**（最小必要）。
 struct SentStatusListView: View {
     let messages: [SentMessage]
+    @Environment(AppState.self) private var app
+    @Environment(M2HubStore.self) private var hub
 
     var body: some View {
         List {
@@ -177,11 +184,27 @@ struct SentStatusListView: View {
                                 .font(.caption2).foregroundStyle(.tertiary)
                         }
                         Spacer()
-                        StatusBadge(status: message.status)
+                        // FR24.2 P0 手动「标记已送达」占位（不伪造回执——
+                        // 推进 sent → ackPending，等待回执；离线环境明示不可确认）
+                        if message.status == .sent {
+                            Button(L10n.fr24_markDelivered) {
+                                Task {
+                                    await hub.markDelivered(messageId: message.id,
+                                                           patientId: app.currentPatientId)
+                                }
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .accessibilityIdentifier("FR24.2.markDelivered")
+                        } else {
+                            StatusBadge(status: message.status)
+                        }
                     }
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("FR24.2.row")
                 }
+                Text(L10n.fr24_offlineNote)
+                    .font(.caption2).foregroundStyle(.secondary)
             }
         }
         .navigationTitle(L10n.fr24_title)

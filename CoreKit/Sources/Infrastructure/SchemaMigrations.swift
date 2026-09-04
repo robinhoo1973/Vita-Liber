@@ -158,6 +158,53 @@ public enum SchemaMigrations {
                          bigrams(CASE WHEN new.is_sensitive = 0 THEN new.notes END));
              END;
              """),
+        Step(version: 7, name: "plan-lifecycle-history",
+             sql: """
+             -- FR9.15 计划历史全程保留（开始/调整/暂停/恢复/结束时间轴，
+             -- 供「给医生看」视图引用）：medication_plan 只有当前态列，
+             -- 历史事件需要独立 append-only 表。生命周期写操作与事件
+             -- 落库同事务（UnitOfWork），历史与状态永不脱节。
+             CREATE TABLE IF NOT EXISTS plan_lifecycle_event (
+               id TEXT PRIMARY KEY,
+               plan_id TEXT NOT NULL REFERENCES medication_plan(id),
+               kind TEXT NOT NULL CHECK(kind IN ('started','edited','paused','resumed','ended')),
+               occurred_at REAL NOT NULL,
+               note TEXT);
+             CREATE INDEX IF NOT EXISTS idx_plan_event_plan ON plan_lifecycle_event(plan_id, occurred_at);
+             """),
+        Step(version: 8, name: "encounter-full-fields",
+             sql: """
+             -- FR4.1 就诊事件字段全集：v1 的 encounter 只有 id/patient/date/kind/
+             -- diagnosis/advice/fee——医院/科室/医生/主诉/复诊要求与改期历史
+             -- 无列可落（SP-08 详情页与 FR10.7 改期历史的数据源）。
+             ALTER TABLE encounter ADD COLUMN hospital TEXT;
+             ALTER TABLE encounter ADD COLUMN department TEXT;
+             ALTER TABLE encounter ADD COLUMN doctor TEXT;
+             ALTER TABLE encounter ADD COLUMN chief_complaint TEXT;
+             ALTER TABLE encounter ADD COLUMN follow_up_requirement TEXT;
+             ALTER TABLE encounter ADD COLUMN rescheduled_from_id TEXT REFERENCES encounter(id);
+             -- 预约改期历史（FR10.7：原预约保留历史并生成新草稿）
+             ALTER TABLE appointment ADD COLUMN rescheduled_from_id TEXT REFERENCES appointment(id);
+             ALTER TABLE appointment ADD COLUMN cancel_reason TEXT;
+             ALTER TABLE appointment ADD COLUMN doctor TEXT;
+             ALTER TABLE appointment ADD COLUMN address TEXT;
+             ALTER TABLE appointment ADD COLUMN booking_no TEXT;
+             ALTER TABLE appointment ADD COLUMN source TEXT;
+             ALTER TABLE appointment ADD COLUMN items_to_bring TEXT;
+             ALTER TABLE appointment ADD COLUMN notes TEXT;
+             """),
+        Step(version: 9, name: "member-soft-delete",
+             sql: """
+             -- FR3.4 删除成员：资料保留、归属标记清除——软删成员行（deleted_at），
+             -- 数据行保留 patient_id 指向，「未归属」筛选 = deleted_at 非空。
+             ALTER TABLE patient_profile ADD COLUMN deleted_at REAL;
+             """),
+        Step(version: 10, name: "asset-parent-link",
+             sql: """
+             -- §11-15 清偿：敏感资产父资产引用（原图→blur 双产物的显式父子链，
+             -- 删除/对账时按父级清理，不依赖命名约定推断）。
+             ALTER TABLE asset ADD COLUMN parent_id TEXT REFERENCES asset(id);
+             """),
     ]
 
     /// 全新库建库后应落到的版本号

@@ -39,10 +39,15 @@ public struct CandidateField: Sendable, Equatable, Codable, Identifiable {
         return true
     }
 
-    /// 修订（FR6.4 切片）：确认态字段改值 → 旧值入历史。未确认字段直接改。
-    public mutating func revise(to newValue: String) -> Bool {
+    /// 修订（FR6.4）：确认态字段改值 → 旧值入历史（谁改的、何时、改成什么——
+    /// 历史条目格式「旧值 → 新值 · 修改人 · 时间」）。未确认字段直接改。
+    public mutating func revise(to newValue: String, by actor: String = "owner",
+                                at date: Date = Date()) -> Bool {
         guard newValue != value else { return false }
-        if isConfirmed { revisionHistory.insert(value, at: 0) }
+        if isConfirmed {
+            let stamp = ISO8601DateFormatter().string(from: date)
+            revisionHistory.insert("\(value) → \(newValue) · \(actor) · \(stamp)", at: 0)
+        }
         value = newValue
         return true
     }

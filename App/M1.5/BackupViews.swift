@@ -20,7 +20,7 @@ final class BackupState {
         case idle
         case working
         case exported(fileName: String, sha256: String)
-        case restored
+        case restored(records: Int)    // FR13.5 恢复后数据校验报告（导入记录计数）
         case degraded(String)          // 降级文案（未登录/空间不足/校验失败）
     }
 
@@ -55,8 +55,8 @@ final class BackupState {
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         do {
             let data = try Data(contentsOf: url)
-            try await service.restore(from: data)
-            phase = .restored
+            let records = try await service.restore(from: data)
+            phase = .restored(records: records)   // FR13.5 恢复后校验报告（计数 + 哈希比对已过）
         } catch BackupService.BackupError.checksumMismatch,
                 BackupService.BackupError.unsupportedFormat {
             // 校验失败绝不部分导入——本机数据保持原样
@@ -85,8 +85,12 @@ struct BackupDocument: FileDocument {
 
 struct BackupView: View {
     @Environment(BackupState.self) private var state
+    @Environment(AppState.self) private var app
     @State private var showExporter = false
     @State private var showImporter = false
+    @State private var showExportConfirm = false
+    @State private var pendingRestoreURL: URL?
+    @State private var showRestoreConfirm = false
 
     var body: some View {
         List {
@@ -100,8 +104,9 @@ struct BackupView: View {
                 }
                 Button {
                     Task {
-                        await state.prepareBackup()
-                        if case .exported = state.phase { showExporter = true }
+                        // FR13.4：导出前身份验证（门禁复用）——验证通过才进入隐私确认
+                        guard await app.requestUnlock(reason: L10n.backupUnlockReason) else { return }
+                        showExportConfirm = true
                     }
                 } label: {
                     Label(L10n.backupCreate, systemImage: "icloud.and.arrow.up").frame(minHeight: 44)
@@ -127,9 +132,12 @@ struct BackupView: View {
                     Text(L10n.backupChecksum(digest)).font(.caption2).monospaced()
                         .foregroundStyle(.secondary)
                 }
-            case .restored:
-                Label(L10n.backupRestored, systemImage: "checkmark.circle")
-                    .accessibilityIdentifier("SP-24.backup.restored")
+            case .restored(let records):
+                // FR13.5 恢复后数据校验报告：哈希比对通过 + 导入记录计数
+                Section {
+                    Label(L10n.backupRestoredCount(records), systemImage: "checkmark.circle")
+                        .accessibilityIdentifier("SP-24.backup.restored")
+                }
             case .degraded(let message):
                 Label(message, systemImage: "exclamationmark.triangle")
                     .font(.footnote)
@@ -141,6 +149,33 @@ struct BackupView: View {
             }
         }
         .navigationTitle(L10n.backupTitle)
+        // FR13.4 L4 操作前确认：导出隐私提醒（明示导出内容敏感级别）
+        .alert(L10n.backupExportConfirmTitle, isPresented: $showExportConfirm) {
+            Button(L10n.common_cancel, role: .cancel) { }
+            Button(L10n.onboardConfirm) {
+                Task {
+                    await state.prepareBackup()
+                    if case .exported = state.phase {
+                        showExporter = true
+                        app.recordBackup()   // FR13.10/F22.4：备份完成记时（最近备份展示）
+                    }
+                }
+            }
+        } message: {
+            Text(L10n.backupExportConfirmBody)
+        }
+        // FR13.5 恢复前确认：门禁验证 + 影响清单（覆盖现有数据）+ 校验承诺
+        .alert(L10n.backupRestoreConfirmTitle, isPresented: $showRestoreConfirm) {
+            Button(L10n.common_cancel, role: .cancel) { pendingRestoreURL = nil }
+            Button(L10n.onboardConfirm) {
+                if let url = pendingRestoreURL {
+                    Task { await state.restore(from: url) }
+                }
+                pendingRestoreURL = nil
+            }
+        } message: {
+            Text(L10n.backupRestoreConfirmBody)
+        }
         .fileExporter(isPresented: $showExporter,
                       document: state.pendingDocument,
                       contentType: .json,
@@ -155,7 +190,12 @@ struct BackupView: View {
         .fileImporter(isPresented: $showImporter,
                       allowedContentTypes: [.json]) { result in
             guard case .success(let url) = result else { return }
-            Task { await state.restore(from: url) }
+            // FR13.5：选文件后不立即恢复——先门禁验证 + 影响清单确认
+            Task {
+                guard await app.requestUnlock(reason: L10n.backupUnlockReason) else { return }
+                pendingRestoreURL = url
+                showRestoreConfirm = true
+            }
         }
     }
 }

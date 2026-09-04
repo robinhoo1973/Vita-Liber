@@ -11,6 +11,7 @@ public struct AuditLogWriter: AuditLogging, Sendable {
     public static let allowedActions: Set<String> = [
         "view_sensitive", "confirm_field", "delete", "export",
         "ai_scope", "grant_change", "unlock", "create", "update",
+        "feedback",        // FR6.7 识别问题报告 / FR12.8 AI 反馈（本地记录，P1 上报）
     ]
     public let writer: any DatabaseWriter
 

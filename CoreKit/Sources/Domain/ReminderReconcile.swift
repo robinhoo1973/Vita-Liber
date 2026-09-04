@@ -20,12 +20,17 @@ public struct DoseDeliveryFact: Sendable, Equatable {
     public var medicationName: String?
     public var spec: String?
     public var unitKind: String?
+    /// 剂量所属成员（BR-001：查询侧必须可过滤成员，不得跨成员混排；
+    /// 对账引擎消费全量事实，UI 消费过滤后事实）
+    public var patientId: UUID?
     public init(dose: ScheduledDose, delivered: Bool, action: DoseUserAction?,
                 isDueSoon: Bool, isExpiredGrace: Bool,
-                medicationName: String? = nil, spec: String? = nil, unitKind: String? = nil) {
+                medicationName: String? = nil, spec: String? = nil, unitKind: String? = nil,
+                patientId: UUID? = nil) {
         self.dose = dose; self.delivered = delivered; self.action = action
         self.isDueSoon = isDueSoon; self.isExpiredGrace = isExpiredGrace
         self.medicationName = medicationName; self.spec = spec; self.unitKind = unitKind
+        self.patientId = patientId
     }
 }
 

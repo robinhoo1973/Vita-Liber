@@ -55,6 +55,16 @@ struct TimelineDocumentDetailView: View {
                 })
                 .accessibilityIdentifier("SP-10.document.export")
             }
+            // FR6.7 报告识别问题（本地记录，P1 进审核后台）
+            ToolbarItem(placement: .secondaryAction) {
+                Button {
+                    app.reportRecognitionIssue(documentId: entry.id)
+                } label: {
+                    Image(systemName: "exclamationmark.bubble")
+                }
+                .accessibilityLabel(L10n.docReportIssue)
+                .accessibilityIdentifier("SP-53.document.reportIssue")
+            }
         }
     }
 

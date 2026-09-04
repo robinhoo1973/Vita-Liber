@@ -60,7 +60,9 @@ public actor BackupService {
 
     /// 恢复：解外层 → **重算 payload 哈希并比对** → 解 envelope → 导入。
     /// 校验失败即抛错，**不做任何部分导入**——半个备份比没有备份更危险。
-    public func restore(from data: Data) async throws {
+    /// 返回导入记录计数（FR13.5 恢复后数据校验报告的数据源）。
+    @discardableResult
+    public func restore(from data: Data) async throws -> Int {
         let outer: BackupEnvelope
         do {
             outer = try JSONDecoder().decode(BackupEnvelope.self, from: data)
@@ -73,6 +75,7 @@ public actor BackupService {
         }
         let envelope = try await exporter.decode(outer.payload)
         try await exporter.importJSON(envelope)
+        return envelope.totalRecords
     }
 
     static func sha256(_ data: Data) -> String {

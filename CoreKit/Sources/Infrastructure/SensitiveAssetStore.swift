@@ -79,10 +79,13 @@ public actor SensitiveAssetStore: SensitiveAssetStoring {
             ]
             try await writer.write { db in
                 for row in rows {
+                    // §11-15 清偿：blur 行 parent_id 显式指向原图行——
+                    // 父子链确定性关联（对账/删除按父级清理，不依赖命名约定推断）
+                    let parent: String? = row.kind == "blur" ? assetId.uuidString : nil
                     try db.execute(sql: """
-                        INSERT INTO asset (id, kind, relative_path, file_protection, size_bytes, created_at)
-                        VALUES (?, ?, ?, 'complete', ?, ?)
-                        """, arguments: [row.id, row.kind, row.rel, row.size, now])
+                        INSERT INTO asset (id, kind, relative_path, file_protection, size_bytes, parent_id, created_at)
+                        VALUES (?, ?, ?, 'complete', ?, ?, ?)
+                        """, arguments: [row.id, row.kind, row.rel, row.size, parent, now])
                 }
             }
             return assetId

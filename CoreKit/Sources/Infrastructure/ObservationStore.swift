@@ -120,5 +120,23 @@ public actor AllergyStore {
             }
         }
     }
+
+    /// FR23.6 修改（严重度/过敏原等；事件是自述事实，编辑留审计由调用方记）
+    public func update(id: UUID, substance: String, severity: String,
+                       note: String?, now: Date = Date()) async throws {
+        try await writer.write { db in
+            try db.execute(sql: """
+                UPDATE allergy_event SET substance = ?, severity = ?, note = ?, updated_at = ?
+                WHERE id = ?
+                """, arguments: [substance, severity, note, now.timeIntervalSince1970, id.uuidString])
+        }
+    }
+
+    /// FR23.6 删除（删除前明示影响——紧急卡/医生摘要联动，由 UI 提示）
+    public func delete(id: UUID) async throws {
+        try await writer.write { db in
+            try db.execute(sql: "DELETE FROM allergy_event WHERE id = ?", arguments: [id.uuidString])
+        }
+    }
 }
 #endif

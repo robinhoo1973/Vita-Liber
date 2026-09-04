@@ -14,27 +14,27 @@ struct HelpRootView: View {
                 NavigationLink {
                     HelpPermissionDiagnostics()
                 } label: {
-                    Label("权限诊断", systemImage: "lock.shield")
+                    Label(L10n.helpDiagPermission, systemImage: "lock.shield")
                 }
                 .accessibilityIdentifier("FR22.2.permissionDiagnostics")
 
                 NavigationLink {
                     HelpReminderDiagnostics()
                 } label: {
-                    Label("提醒诊断", systemImage: "bell.badge.exclamationmark")
+                    Label(L10n.helpDiagReminder, systemImage: "bell.badge.exclamationmark")
                 }
                 .accessibilityIdentifier("FR22.3.reminderDiagnostics")
 
                 NavigationLink {
                     HelpDataHealth()
                 } label: {
-                    Label("数据与存储健康", systemImage: "externaldrive.badge.checkmark")
+                    Label(L10n.helpDiagDataHealth, systemImage: "externaldrive.badge.checkmark")
                 }
                 .accessibilityIdentifier("FR22.4.dataHealth")
             } header: {
-                Text("系统诊断")
+                Text(L10n.helpDiagSystem)
             } footer: {
-                Text("检查权限状态、提醒调度和存储健康状况")
+                Text(L10n.helpDiagSystemHint)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -43,12 +43,12 @@ struct HelpRootView: View {
                 NavigationLink {
                     HelpAboutView()
                 } label: {
-                    Label("关于与法律声明", systemImage: "info.circle")
+                    Label(L10n.helpAboutLegal, systemImage: "info.circle")
                 }
                 .accessibilityIdentifier("FR22.8.about")
             }
         }
-        .navigationTitle("帮助中心")
+        .navigationTitle(L10n.helpCenterTitle)
     }
 }
 
@@ -57,63 +57,65 @@ struct HelpRootView: View {
 /// FR22.2 权限诊断：汇总相机、麦克风、通知、Face ID、HealthKit 权限状态，
 /// 只引导到系统设置，不循环弹系统授权框。
 struct HelpPermissionDiagnostics: View {
-    @State private var cameraStatus: String = "检查中..."
-    @State private var micStatus: String = "检查中..."
-    @State private var notificationStatus: String = "检查中..."
-    @State private var faceIDStatus: String = "检查中..."
+    @State private var cameraStatus: String = L10n.helpStatusChecking
+    @State private var micStatus: String = L10n.helpStatusChecking
+    @State private var notificationStatus: String = L10n.helpStatusChecking
+    @State private var faceIDStatus: String = L10n.helpStatusChecking
 
     var body: some View {
         Form {
-            Section("权限状态") {
-                PermissionRow(name: "相机", status: cameraStatus, icon: "camera")
-                PermissionRow(name: "麦克风", status: micStatus, icon: "mic")
-                PermissionRow(name: "通知", status: notificationStatus, icon: "bell")
+            Section(L10n.helpPermSection) {
+                PermissionRow(name: L10n.helpPermCamera, status: cameraStatus, icon: "camera")
+                PermissionRow(name: L10n.helpPermMic, status: micStatus, icon: "mic")
+                PermissionRow(name: L10n.helpPermNotification, status: notificationStatus, icon: "bell")
                 PermissionRow(name: "Face ID", status: faceIDStatus, icon: "faceid")
             }
             Section {
-                Button("打开系统设置") {
+                Button(L10n.helpPermOpenSettings) {
                     if let url = URL(string: UIApplication.openSettingsURLString) {
                         UIApplication.shared.open(url)
                     }
                 }
                 .frame(minHeight: 44)
             } footer: {
-                Text("权限被拒绝时，请在系统设置中手动开启")
+                Text(L10n.helpPermDeniedHint)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
         }
-        .navigationTitle("权限诊断")
+        .navigationTitle(L10n.helpDiagPermission)
         .task { await checkPermissions() }
     }
 
     private func checkPermissions() async {
         // Camera
         switch AVCaptureDevice.authorizationStatus(for: .video) {
-        case .authorized: cameraStatus = "已授权"
-        case .denied, .restricted: cameraStatus = "已拒绝"
-        case .notDetermined: cameraStatus = "未请求"
-        @unknown default: cameraStatus = "未知"
+        case .authorized: cameraStatus = L10n.helpStatusAuthorized
+        case .denied, .restricted: cameraStatus = L10n.helpStatusDenied
+        case .notDetermined: cameraStatus = L10n.helpStatusNotRequested
+        @unknown default: cameraStatus = L10n.helpStatusUnknown
         }
         // Microphone
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
-        case .authorized: micStatus = "已授权"
-        case .denied, .restricted: micStatus = "已拒绝"
-        case .notDetermined: micStatus = "未请求"
-        @unknown default: micStatus = "未知"
+        case .authorized: micStatus = L10n.helpStatusAuthorized
+        case .denied, .restricted: micStatus = L10n.helpStatusDenied
+        case .notDetermined: micStatus = L10n.helpStatusNotRequested
+        @unknown default: micStatus = L10n.helpStatusUnknown
         }
         // Notifications
         let settings = await UNUserNotificationCenter.current().notificationSettings()
         switch settings.authorizationStatus {
-        case .authorized: notificationStatus = "已授权"
-        case .denied: notificationStatus = "已拒绝"
-        case .provisional: notificationStatus = "临时授权"
-        case .ephemeral: notificationStatus = "临时授权"
-        case .notDetermined: notificationStatus = "未请求"
-        @unknown default: notificationStatus = "未知"
+        case .authorized: notificationStatus = L10n.helpStatusAuthorized
+        case .denied: notificationStatus = L10n.helpStatusDenied
+        case .provisional: notificationStatus = L10n.helpStatusProvisional
+        case .ephemeral: notificationStatus = L10n.helpStatusProvisional
+        case .notDetermined: notificationStatus = L10n.helpStatusNotRequested
+        @unknown default: notificationStatus = L10n.helpStatusUnknown
         }
-        // Face ID (always available check via LAContext)
-        faceIDStatus = "需要 Face ID 设备"
+        // Face ID 可用性（LAContext 可判 canEvaluatePolicy，无授权弹窗）
+        var error: NSError?
+        let biometry = LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: &error)
+        faceIDStatus = biometry ? L10n.helpStatusAuthorized : L10n.helpFaceIDRequiresDevice
     }
 }
 
@@ -127,7 +129,7 @@ private struct PermissionRow: View {
             Label(name, systemImage: icon)
             Spacer()
             Text(status)
-                .foregroundStyle(status.contains("已授权") ? .green : .secondary)
+                .foregroundStyle(status.contains(L10n.helpStatusAuthorized) ? .green : .secondary)
         }
     }
 }
@@ -138,58 +140,58 @@ private struct PermissionRow: View {
 /// 最近调度/送达结果、时区变化和系统限制。
 struct HelpReminderDiagnostics: View {
     @Environment(ReminderStore.self) private var reminderStore
-    @State private var notificationStatus: String = "检查中..."
+    @State private var notificationStatus: String = L10n.helpStatusChecking
     @State private var hasSchedule: Bool = false
 
     var body: some View {
         Form {
-            Section("通知状态") {
+            Section(L10n.helpReminderSection) {
                 HStack {
-                    Text("通知权限")
+                    Text(L10n.helpReminderPermission)
                     Spacer()
                     Text(notificationStatus)
-                        .foregroundStyle(notificationStatus.contains("已授权") ? .green : .secondary)
+                        .foregroundStyle(notificationStatus.contains(L10n.helpStatusAuthorized) ? .green : .secondary)
                 }
             }
-            Section("今日提醒") {
+            Section(L10n.helpReminderTodaySection) {
                 HStack {
-                    Text("待处理剂量数")
+                    Text(L10n.helpReminderPendingDoses)
                     Spacer()
                     Text("\(reminderStore.pendingCount)")
                         .foregroundStyle(reminderStore.pendingCount > 0 ? .orange : .secondary)
                 }
                 HStack {
-                    Text("今日时段数")
+                    Text(L10n.helpReminderTodaySlots)
                     Spacer()
                     Text("\(reminderStore.todaySlots.count)")
                 }
             }
             Section {
-                Button("打开系统设置") {
+                Button(L10n.helpPermOpenSettings) {
                     if let url = URL(string: UIApplication.openSettingsURLString) {
                         UIApplication.shared.open(url)
                     }
                 }
                 .frame(minHeight: 44)
             } footer: {
-                Text("通知被拒绝时，提醒功能将无法正常工作")
+                Text(L10n.helpReminderDeniedHint)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
         }
-        .navigationTitle("提醒诊断")
+        .navigationTitle(L10n.helpDiagReminder)
         .task { await checkNotificationStatus() }
     }
 
     private func checkNotificationStatus() async {
         let settings = await UNUserNotificationCenter.current().notificationSettings()
         switch settings.authorizationStatus {
-        case .authorized: notificationStatus = "已授权"
-        case .denied: notificationStatus = "已拒绝"
-        case .provisional: notificationStatus = "临时授权"
-        case .ephemeral: notificationStatus = "临时授权"
-        case .notDetermined: notificationStatus = "未请求"
-        @unknown default: notificationStatus = "未知"
+        case .authorized: notificationStatus = L10n.helpStatusAuthorized
+        case .denied: notificationStatus = L10n.helpStatusDenied
+        case .provisional: notificationStatus = L10n.helpStatusProvisional
+        case .ephemeral: notificationStatus = L10n.helpStatusProvisional
+        case .notDetermined: notificationStatus = L10n.helpStatusNotRequested
+        @unknown default: notificationStatus = L10n.helpStatusUnknown
         }
     }
 }
@@ -198,55 +200,57 @@ struct HelpReminderDiagnostics: View {
 
 /// FR22.4 数据与存储健康：展示数据库完整性、存储占用、最近备份状态。
 struct HelpDataHealth: View {
-    @State private var dbIntegrity: String = "检查中..."
-    @State private var storageSize: String = "计算中..."
-    @State private var lastBackup: String = "无备份记录"
+    @Environment(AppState.self) private var app
+    @State private var dbIntegrity: String = L10n.helpStatusChecking
+    @State private var storageSize: String = L10n.helpDataCalculating
+    @State private var lastBackup: String = L10n.helpDataNoBackup
 
     var body: some View {
         Form {
-            Section("数据库") {
+            Section(L10n.helpDataDbSection) {
                 HStack {
-                    Text("完整性检查")
+                    Text(L10n.helpDataIntegrity)
                     Spacer()
                     Text(dbIntegrity)
-                        .foregroundStyle(dbIntegrity.contains("正常") ? .green : .secondary)
+                        .foregroundStyle(dbIntegrity.contains(L10n.helpDataNormal) ? .green : .secondary)
                 }
             }
-            Section("存储") {
+            Section(L10n.helpDataStorageSection) {
                 HStack {
-                    Text("数据库大小")
+                    Text(L10n.helpDataDbSize)
                     Spacer()
                     Text(storageSize)
                 }
             }
-            Section("备份") {
+            Section(L10n.helpDataBackupSection) {
                 HStack {
-                    Text("最近备份")
+                    Text(L10n.helpDataLastBackup)
                     Spacer()
                     Text(lastBackup)
                         .foregroundStyle(.secondary)
                 }
             }
         }
-        .navigationTitle("数据健康")
-        .task { checkHealth() }
+        .navigationTitle(L10n.helpDataTitle)
+        .task { await checkHealth() }
     }
 
-    private func checkHealth() {
-        // 数据库完整性：GRDB 的 integrityCheck 在生产环境中异步执行
-        // 此处展示基本状态
-        dbIntegrity = "正常"
-        // 存储大小：Documents/MedicalNotes 目录
-        let base = FileManager.default.urls(for: .applicationSupportDirectory,
-                                            in: .userDomainMask).first
-            ?? FileManager.default.temporaryDirectory
-        let dir = base.appendingPathComponent("VitaLiber")
-        if let attrs = try? FileManager.default.attributesOfItem(atPath: dir.path),
-           let size = attrs[.size] as? Int64 {
-            let mb = Double(size) / 1_048_576
-            storageSize = String(format: "%.1f MB", mb)
+    private func checkHealth() async {
+        // FR22.4 数据健康必须给真实值：PRAGMA 实测逻辑库大小与完整性，
+        // 不允许硬编码「正常」充当诊断
+        do {
+            let (bytes, ok) = try await app.databaseHealth()
+            storageSize = String(format: "%.1f MB", Double(bytes) / 1_048_576)
+            dbIntegrity = ok ? L10n.helpDataNormal : L10n.helpStatusUnknown
+        } catch {
+            dbIntegrity = L10n.helpStatusUnknown
+            storageSize = L10n.helpStatusUnknown
+        }
+        // 最近备份：读上次备份时间戳（F22.4 联动 FR13.10）
+        if let at = app.lastBackupAt {
+            lastBackup = Date(timeIntervalSince1970: at).formatted(date: .abbreviated, time: .shortened)
         } else {
-            storageSize = "未知"
+            lastBackup = L10n.helpDataNoBackup
         }
     }
 }
@@ -266,28 +270,28 @@ struct HelpAboutView: View {
 
     var body: some View {
         Form {
-            Section("关于") {
+            Section(L10n.helpAboutSection) {
                 Text(L10n.help_appName)
                 Text(buildInfo)
                     .accessibilityIdentifier("SP-48.about.version")
                 Text(L10n.help_tagline)
             }
-            Section("法律与免责声明") {
+            Section(L10n.helpLegalSection) {
                 Text(L10n.help_disclaimer)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-                NavigationLink("隐私政策与服务条款（SP-47）") {
+                NavigationLink(L10n.helpTermsTitle) {
                     Text(L10n.help_privacyPlaceholder)
                         .padding()
                         .accessibilityIdentifier("SP-47.terms.body")
                 }
                 .accessibilityIdentifier("SP-47.terms.entry")
             }
-            Section("开源许可") {
+            Section(L10n.helpAboutLicenses) {
                 Text("GRDB.swift — MIT License")
                 Text("ZIPFoundation — MIT License")
             }
-            Section("帮助") {
+            Section(L10n.helpSection) {
                 Text(L10n.help_faqPlaceholder)
                     .font(.footnote)
                     .foregroundStyle(.secondary)

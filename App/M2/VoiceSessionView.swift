@@ -120,6 +120,12 @@ struct VoiceSessionView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openURL
+    // F19 附表执行矩阵的数据源（纯事实播报；写操作经既有 Store 路径）
+    @Environment(ReminderStore.self) private var reminderStore
+    @Environment(M2HubStore.self) private var hub
+    @Environment(TrendEntryState.self) private var trendState
+    @Environment(QuestionsState.self) private var questionsState
+    @Environment(AppRouter.self) private var router
 
     @State private var session = VoiceSessionState()
     @State private var typed = ""
@@ -302,6 +308,8 @@ struct VoiceSessionView: View {
         session.clearOptions()
     }
 
+    /// F19 附表能力矩阵执行：查询类播报真实数据（纯事实句式），操作类
+    /// 执行真实写路径（BR-004：确认即如实记录），危险类已在状态机层完成分级确认。
     private func handleExecution(_ command: VoiceCommand?, object: String?) {
         guard let command else { return }
         switch command {
@@ -315,13 +323,115 @@ struct VoiceSessionView: View {
             _ = session.submit(command == .openTimeline ? "打开时间轴" : "回到首页",
                                speak: { app.speak($0) })
             dismiss()
-        default:
-            break
+        case .todayMeds:
+            // 附表①查询今日用药：时段清单播报（>3 条自动分页）
+            let names = reminderStore.todaySlots
+                .flatMap { $0.records.map(\.displayLabel) }
+            let text = names.isEmpty ? L10n.f19NoTodayMeds
+                : names.prefix(3).joined(separator: "、") + (names.count > 3 ? "……" : "")
+            _ = session.submit(text, speak: { app.speak($0) })
+        case .nextAppointment:
+            let apt = reminderStore.upcomingAppointments.first
+            let text = apt.map { L10n.f19NextAppointment("\($0.hospital)·\($0.department)", $0.startsAt.formatted(date: .abbreviated, time: .shortened)) }
+                ?? L10n.f19NoAppointment
+            _ = session.submit(text, speak: { app.speak($0) })
+        case .recentGlucose:
+            let points = trendState.series?.points.suffix(3).map { "\($0.value)" }.joined(separator: "、")
+            _ = session.submit(points.map { L10n.f19RecentGlucose($0) } ?? L10n.f19NoGlucose,
+                               speak: { app.speak($0) })
+        case .stockRemaining:
+            // 附表③查询余量：「约剩 N 天·按计划估算」（FR9.8.7 诚实性文案）
+            let text = hub.inventoryItems.map { item -> String in
+                if let days = item.approxDaysLeft {
+                    return L10n.f19StockRemaining(item.medicationName, days)
+                }
+                return L10n.f19StockNoPlan(item.medicationName)
+            }.joined(separator: "；")
+            _ = session.submit(text.isEmpty ? L10n.f19NoStock : text, speak: { app.speak($0) })
+        case .stockLocation:
+            // 附表④存放位置文本播报
+            let text = hub.inventoryItems
+                .map { L10n.f19StockLocation($0.medicationName, $0.storageNote ?? L10n.f19LocationUnknown) }
+                .joined(separator: "；")
+            _ = session.submit(text.isEmpty ? L10n.f19NoStock : text, speak: { app.speak($0) })
+        case .stockExpiry, .expiringSoon:
+            // 附表⑤⑥效期/临期清单：按 30 天 / 7 天分组播报
+            let lots = hub.inventoryItems.compactMap { item -> (String, Date)? in
+                item.expireAt.map { (item.medicationName, $0) }
+            }
+            let expiring = lots.filter { $0.1 <= Date().addingTimeInterval(30 * 86400) }
+            let text = expiring.isEmpty ? L10n.f19NoExpiring
+                : expiring.map { L10n.f19Expiring($0.0, $0.1.formatted(date: .abbreviated, time: .omitted)) }
+                    .joined(separator: "；")
+            _ = session.submit(text, speak: { app.speak($0) })
+        case .askMedicationTaken:
+            // 附表时段服药确认：逐药回读已服/未服清单
+            let lines = reminderStore.todaySlots.flatMap { slot in
+                slot.records.map { record -> String in
+                    let state = record.action == .taken || record.action == .discomfort
+                        ? L10n.f19Taken : L10n.f19NotTaken
+                    return L10n.f19SlotMedState(record.displayLabel, state)
+                }
+            }
+            _ = session.submit(lines.isEmpty ? L10n.f19NoTodayMeds : lines.joined(separator: "；"),
+                               speak: { app.speak($0) })
+        case .markTaken:
+            // 附表②标记已服用：唯一在服计划命中 → 单次口头确认后逐时段确认
+            if let object {
+                let matched = reminderStore.todaySlots
+                    .flatMap { $0.records }
+                    .filter { $0.displayLabel.contains(object) && $0.action == nil }
+                for record in matched.prefix(1) {
+                    Task { await reminderStore.confirmTaken(patientId: app.currentPatientId, dose: record.dose) }
+                }
+                let text = matched.isEmpty
+                    ? L10n.f19MarkTakenNoMatch(object)
+                    : L10n.f19MarkTakenDone(object)
+                _ = session.submit(text, speak: { app.speak($0) })
+            }
+        case .recordMetric:
+            // 附表⑦记录指标：F17 文法命中 → 落 metric_sample（C 级）
+            if let object {
+                let parts = object.split(separator: " ").compactMap { Double($0) }
+                if let systolic = parts.first {
+                    Task {
+                        await trendState.addSample(patientId: app.currentPatientId,
+                                                   metric: .bloodPressureSys,
+                                                   value: systolic,
+                                                   secondaryValue: parts.count > 1 ? parts[1] : nil,
+                                                   unit: "mmHg", measuredAt: Date())
+                    }
+                    _ = session.submit(L10n.f19MetricRecorded(systolic),
+                                       speak: { app.speak($0) })
+                }
+            }
+        case .recordQuestion:
+            // 附表⑧问诊速记：追加至 FR10.5
+            if let object, !object.isEmpty {
+                Task { await questionsState.add(patientId: app.currentPatientId, body: object) }
+                _ = session.submit(L10n.f19QuestionRecorded(object), speak: { app.speak($0) })
+            }
+        case .startCamera:
+            // 附表⑩开始拍摄：进入相机流（后续动作手动完成）
+            dismiss()
+            router.navigate(to: .observationCreate)
+        case .openSearch:
+            dismiss()
+            router.navigate(to: .globalSearch)
+        case .repeatLast, .louder, .yes, .no, .selectNumber, .selectName, .cancel:
+            break   // 会话类命令由状态机在 submit 前处理
         }
     }
 
     private func performCall(_ object: String) {
-        let number = object == "120" ? "120" : object
+        // FR19.5：联系人名→号码解析（急救卡已确认联系人）；
+        // 120 免复述（响铃倒计时 5 秒可取消由系统拨号确认承担）
+        if object == "120" {
+            if let url = URL(string: "tel://120") { openURL(url) }
+            return
+        }
+        let contact = hub.emergencySelected.contacts.first { $0.title.contains(object) }
+        let number = contact?.detail ?? object
         guard let url = URL(string: "tel://\(number)") else { return }
         openURL(url)
     }

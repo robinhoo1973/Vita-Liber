@@ -100,7 +100,8 @@ public actor GRDBSearchService: FullTextSearch {
             kind: row["doc_type"] as String,
             refID: id,
             title: "资料",
-            snippet: sensitive ? "敏感资料（解锁后可见内容）" : snippet)
+            snippet: sensitive ? "敏感资料（解锁后可见内容）" : snippet,
+            isSensitive: sensitive)
     }
 }
 #endif

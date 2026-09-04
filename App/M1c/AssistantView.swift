@@ -69,8 +69,17 @@ struct AssistantView: View {
             }
             .padding(12)
         }
-        .navigationTitle("AI 助手")
+        .navigationTitle(L10n.navAI)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            // FR12.10 会话历史入口（SP-51）
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink(value: AppRoute.assistantHistory) {
+                    Image(systemName: "clock.arrow.circlepath")
+                }
+                .accessibilityIdentifier("SP-51.history.entry")
+            }
+        }
         .sceneDisclosure(scene: "ai_assistant")
         .onChange(of: pickerItem) { _, newItem in
             guard let newItem else { return }
@@ -285,5 +294,51 @@ struct AnswerBodyView: View {
             .background(RoundedRectangle(cornerRadius: 16).fill(Color("bg-grouped", bundle: .main)))
             .accessibilityIdentifier("SP-21.ai.answer")
         }
+        // FR12.8 反馈四键：有用/无用（16pt 图标）+ 长按菜单（引用错误/疑似危险）
+        AIFeedbackRow()
+    }
+}
+
+/// FR12.8 反馈四键（本地留存，P1 上报）：有用/无用 + 长按菜单（引用错误/疑似危险）
+private struct AIFeedbackRow: View {
+    @Environment(AssistantStore.self) private var assistant
+
+    var body: some View {
+        HStack(spacing: 16) {
+            Spacer()
+            Button {
+                assistant.recordFeedback(kind: "useful")
+            } label: {
+                Image(systemName: "hand.thumbsup")
+                    .font(.system(size: 16))
+                    .foregroundStyle(.secondary)
+            }
+            .accessibilityLabel(L10n.aiFeedbackUseful)
+            .accessibilityIdentifier("SP-21.ai.feedback.useful")
+            Button {
+                assistant.recordFeedback(kind: "useless")
+            } label: {
+                Image(systemName: "hand.thumbsdown")
+                    .font(.system(size: 16))
+                    .foregroundStyle(.secondary)
+            }
+            .accessibilityLabel(L10n.aiFeedbackUseless)
+            .accessibilityIdentifier("SP-21.ai.feedback.useless")
+            Menu {
+                Button(L10n.aiFeedbackCitationError) {
+                    assistant.recordFeedback(kind: "citation_error")
+                }
+                Button(L10n.aiFeedbackDanger) {
+                    assistant.recordFeedback(kind: "suspected_danger")
+                }
+            } label: {
+                Image(systemName: "exclamationmark.bubble")
+                    .font(.system(size: 16))
+                    .foregroundStyle(.secondary)
+            }
+            .accessibilityLabel(L10n.aiFeedbackMore)
+            .accessibilityIdentifier("SP-21.ai.feedback.more")
+        }
+        .padding(.top, 4)
     }
 }

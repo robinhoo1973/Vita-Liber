@@ -13,26 +13,56 @@ import Infrastructure
 // MARK: - 预警历史
 
 struct AlertHistoryView: View {
-    let events: [GuidelineStore.AlertEvent]
     /// 装配层注入的信源条目（metricKey → entry），用于「打开原文」；
     /// 缺条目时降级为只读书目行（不臆造 URL）
     var sourceEntries: [String: GuidelineEntry] = [:]
+    @Environment(M2HubStore.self) private var hub
+    @Environment(AppState.self) private var app
+    // FR16.10 预警历史：按指标/级别筛选（L0 默认隐藏可切换）
+    @State private var severityFilter = "L1+"
+    @State private var showL0 = false
 
-    private var l1Plus: [GuidelineStore.AlertEvent] {
-        events.filter { $0.severity != .L0 }.sorted { $0.createdAt > $1.createdAt }
+    private var events: [GuidelineStore.AlertEvent] {
+        hub.alertEvents.filter { $0.patientId == app.currentPatientId }
+    }
+
+    private var filtered: [GuidelineStore.AlertEvent] {
+        events
+            .filter { showL0 || $0.severity != .L0 }
+            .filter { severityFilter == "L1+" || $0.severity.rawValue == severityFilter }
+            .sorted { $0.createdAt > $1.createdAt }
     }
 
     var body: some View {
-        if events.isEmpty {
-            ContentUnavailableView(L10n.alertEmptyTitle, systemImage: "waveform.path.ecg",
-                                   description: Text(L10n.alertEmptyHint))
-                .accessibilityIdentifier("F16.alerts.empty")
-        } else {
-            List(l1Plus, id: \.id) { event in
-                EvidenceCardRow(event: event, sourceEntry: sourceEntry(for: event))
+        Group {
+            if filtered.isEmpty {
+                ContentUnavailableView(L10n.alertEmptyTitle, systemImage: "waveform.path.ecg",
+                                       description: Text(L10n.alertEmptyHint))
+                    .accessibilityIdentifier("F16.alerts.empty")
+            } else {
+                List(filtered, id: \.id) { event in
+                    EvidenceCardRow(event: event, sourceEntry: sourceEntry(for: event))
+                }
+                .accessibilityIdentifier("F16.alerts.list")
             }
-            .accessibilityIdentifier("F16.alerts.list")
         }
+        .safeAreaInset(edge: .top) {
+            HStack(spacing: 8) {
+                Picker("", selection: $severityFilter) {
+                    Text(L10n.alertFilterAll).tag("L1+")
+                    Text("L1").tag("L1")
+                    Text("L2").tag("L2")
+                    Text("L3").tag("L3")
+                }
+                .pickerStyle(.segmented)
+                Toggle(L10n.alertShowL0, isOn: $showL0)
+                    .font(.caption)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .background(.thinMaterial)
+        }
+        .navigationTitle(L10n.alert_historyEntry)
+        .task(id: app.currentPatientId) { await hub.load(patientId: app.currentPatientId) }
     }
 
     /// 证据卡不带 metricKey（只存事实文案），按规则 id 取不到条目时

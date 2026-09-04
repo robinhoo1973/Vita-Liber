@@ -34,6 +34,9 @@
     <string>相册用于选择病历、处方等文档图片，以便识别与归档。</string>
     <key>NSFaceIDUsageDescription</key>
     <string>面容 ID 用于解锁青囊书并保护敏感医疗资料，仅在你主动验证时使用。</string>
+    <!-- F16 只读接入 Apple 健康（FR16.1）：仅在你授权后读取指标，不写入、不入诊断逻辑 -->
+    <key>NSHealthShareUsageDescription</key>
+    <string>在您授权后，只读读取健康 App 中的睡眠、心率、血氧、呼吸率与步数，用于本地观察提示。数据仅在本机处理。</string>
     <key>UISupportedInterfaceOrientations</key>
     <array>
         <string>UIInterfaceOrientationPortrait</string>

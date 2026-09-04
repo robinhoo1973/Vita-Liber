@@ -139,8 +139,16 @@ public enum DisclosureRegistry {
               version: "1.0"),
     ]
 
-    /// 检查某个场景是否已确认（L2/L4 一次性确认）
+    /// 检查某个场景是否已确认（L2/L4 一次性确认；FR20.5 版本感知——
+    /// 同场景同版本才视为已确认，条款修订后必须重新确认一次）
     public static func isConfirmed(scene: String, consents: [ConsentRecord]) -> Bool {
-        consents.contains { $0.key.contains(scene) }
+        isConfirmed(scene: scene, version: nil, consents: consents)
+    }
+
+    public static func isConfirmed(scene: String, version: String?,
+                                   consents: [ConsentRecord]) -> Bool {
+        consents.contains {
+            $0.key.contains(scene) && (version == nil || $0.version == version)
+        }
     }
 }

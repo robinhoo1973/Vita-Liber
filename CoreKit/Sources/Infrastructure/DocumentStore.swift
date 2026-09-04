@@ -1,0 +1,120 @@
+#if os(iOS) || os(macOS)
+import Foundation
+import GRDB
+import Domain
+import Protocols
+
+/// F5 资料库数据仓（SP-09）：列表/归档/收藏/去重/入库。
+/// BR-002：原件永不覆盖——写路径只 INSERT 新行或软状态变更，绝不 UPDATE 原件列。
+public actor DocumentStore {
+    private let writer: any DatabaseWriter
+
+    public init(writer: any DatabaseWriter) { self.writer = writer }
+
+    public struct Row: Sendable, Equatable, Identifiable {
+        public var id: UUID
+        public var patientId: UUID
+        public var encounterId: UUID?
+        public var docType: String
+        public var sha256: String?
+        public var mimeType: String?
+        public var origin: String
+        public var status: String          // active/favorite/archived
+        public var isSensitive: Bool
+        public var title: String?
+        public var createdAt: Date
+        public init(id: UUID, patientId: UUID, encounterId: UUID?, docType: String,
+                    sha256: String?, mimeType: String?, origin: String, status: String,
+                    isSensitive: Bool, title: String?, createdAt: Date) {
+            self.id = id; self.patientId = patientId; self.encounterId = encounterId
+            self.docType = docType; self.sha256 = sha256; self.mimeType = mimeType
+            self.origin = origin; self.status = status; self.isSensitive = isSensitive
+            self.title = title; self.createdAt = createdAt
+        }
+    }
+
+    /// FR5.5 文档类型标签（14 类 + 扩展「疫苗记录」「诊断证明」+ 自定义）
+    public static let docTypeLabels: [String] = [
+        "门诊病历", "住院病历", "检验报告", "影像报告", "处方单", "缴费单",
+        "出院小结", "诊断证明", "疫苗记录", "体检报告", "病理报告",
+        "手术记录", "过敏记录", "其他", "自定义",
+    ]
+
+    public func list(patientId: UUID, includeArchived: Bool = false,
+                     limit: Int = 200) async throws -> [Row] {
+        try await writer.read { db in
+            let statusClause = includeArchived ? "" : "AND status != 'archived'"
+            return try Row.fetchAll(db, sql: """
+                SELECT * FROM document_file
+                WHERE patient_id = ? \(statusClause)
+                ORDER BY created_at DESC LIMIT ?
+                """, arguments: [patientId.uuidString, limit]).map(Self.row)
+        }
+    }
+
+    /// FR5.8 归档/取消归档（归档资料默认不出现在列表与搜索）
+    public func setArchived(id: UUID, archived: Bool, now: Date = Date()) async throws {
+        try await writer.write { db in
+            try db.execute(sql: """
+                UPDATE document_file SET status = ?, updated_at = ? WHERE id = ?
+                """, arguments: [archived ? "archived" : "active",
+                                 now.timeIntervalSince1970, id.uuidString])
+        }
+    }
+
+    /// FR5.8 收藏
+    public func setFavorite(id: UUID, favorite: Bool, now: Date = Date()) async throws {
+        try await writer.write { db in
+            try db.execute(sql: """
+                UPDATE document_file SET status = ?, updated_at = ? WHERE id = ?
+                """, arguments: [favorite ? "favorite" : "active",
+                                 now.timeIntervalSince1970, id.uuidString])
+        }
+    }
+
+    /// FR5.6 重复检测：文件哈希精确重复（感知哈希在 CaptureQuality DuplicateDetectionService）。
+    /// 绝不自动删除——只提示并给并排对比（UI 层）。
+    public func duplicates(sha256: String, patientId: UUID) async throws -> [Row] {
+        try await writer.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT * FROM document_file WHERE patient_id = ? AND sha256 = ?
+                """, arguments: [patientId.uuidString, sha256]).map(Self.row)
+        }
+    }
+
+    /// 入库（BR-002：INSERT 新行；meta_json 承载投影元数据）
+    @discardableResult
+    public func save(patientId: UUID, docType: String, sha256: String?,
+                     mimeType: String?, origin: String, isSensitive: Bool,
+                     metaJSON: String?, title: String?,
+                     now: Date = Date()) async throws -> UUID {
+        let id = UUID()
+        try await writer.write { db in
+            try db.execute(sql: """
+                INSERT INTO document_file
+                  (id, patient_id, doc_type, sha256, mime_type, origin, status,
+                   is_sensitive, meta_json, title, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)
+                """, arguments: [id.uuidString, patientId.uuidString, docType, sha256,
+                                 mimeType, origin, isSensitive ? 1 : 0,
+                                 metaJSON, title, now.timeIntervalSince1970,
+                                 now.timeIntervalSince1970])
+        }
+        return id
+    }
+
+    private static func row(_ row: Row) -> DocumentStore.Row {
+        Row(id: UUID(uuidString: row["id"] as String) ?? UUID(),
+            patientId: UUID(uuidString: row["patient_id"] as String) ?? UUID(),
+            encounterId: (row["encounter_id"] as String?).flatMap(UUID.init(uuidString:)),
+            docType: row["doc_type"] as String,
+            sha256: row["sha256"] as String?,
+            mimeType: row["mime_type"] as String?,
+            origin: row["origin"] as String,
+            status: row["status"] as String,
+            isSensitive: (row["is_sensitive"] as Int?) == 1,
+            title: row["title"] as String?,
+            createdAt: Date(timeIntervalSince1970: row["created_at"] as Double))
+    }
+}
+#endif

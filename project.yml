@@ -17,6 +17,13 @@ targets:
     type: application
     platform: iOS
     sources: [App, Resources]
+    # F16 只读接入 Apple 健康（FR16.1）：HealthKit capability + 只读授权
+    # （不申请写入——数据方向是单向读取，符合最小必要访问）
+    entitlements:
+      path: VitaLiber.entitlements
+      properties:
+        com.apple.developer.healthkit: true
+        com.apple.developer.healthkit.access: []
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES

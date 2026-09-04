@@ -62,6 +62,123 @@ struct DisclosureCardsView: View {
     }
 }
 
+/// FR21.9 ④ 添加家人（可跳过）：方式选择（手工新建；语音/通讯录 P1 置灰说明）
+/// + 新建后「完善档案」引导。跳过不阻塞主流程。
+struct AddFamilyStepView: View {
+    @Environment(AppState.self) private var app
+    @State private var showCreate = false
+    @State private var addedHint = false
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Text(L10n.onboardAddFamilyTitle).font(.title2.bold())
+            Text(L10n.onboardAddFamilyHint)
+                .font(.footnote).foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+
+            VStack(spacing: 12) {
+                Button {
+                    showCreate = true
+                } label: {
+                    Label(L10n.onboardAddFamilyManual, systemImage: "person.badge.plus")
+                        .frame(maxWidth: .infinity, minHeight: 50)
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("FR21.9.step4.manual")
+                // P1 方式置灰说明（不假装可用）
+                Label(L10n.onboardAddFamilyVoiceP1, systemImage: "mic")
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                Label(L10n.onboardAddFamilyContactsP1, systemImage: "person.crop.rectangle")
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .padding(.horizontal, 24)
+
+            Button(L10n.onboardAddFamilySkip) {
+                app.finishAddFamilyStep()
+            }
+            .buttonStyle(.borderedProminent)
+            .frame(maxWidth: .infinity, minHeight: 50)
+            .padding(.horizontal, 24)
+            .accessibilityIdentifier("FR21.9.step4.skip")
+        }
+        .sheet(isPresented: $showCreate) {
+            MemberCreateSheet { name, relation, birthDate in
+                Task { @MainActor in
+                    _ = await app.addMember(name: name, relation: relation, birthDate: birthDate)
+                    showCreate = false
+                    addedHint = true
+                }
+            }
+        }
+        // FR3.7 新建后「完善档案」引导（过敏/既往史/紧急联系人）
+        .alert(L10n.onboardAddFamilyCompleteHint, isPresented: $addedHint) {
+            Button(L10n.onboard_gotIt, role: .cancel) { }
+        }
+    }
+}
+
+/// FR21.9 ⑥ 首日引导（全部可跳过）：三张行动卡 [拍第一份资料][设第一个提醒][了解 AI]。
+struct FirstDayActionsView: View {
+    @Environment(AppState.self) private var app
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Text(L10n.onboardFirstDayTitle).font(.title2.bold())
+            Text(L10n.onboardFirstDayHint)
+                .font(.footnote).foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+
+            VStack(spacing: 12) {
+                ActionCard(icon: "camera.fill", title: L10n.onboardFirstDayCapture) {
+                    app.stage = .scanCapture
+                }
+                ActionCard(icon: "bell.badge.fill", title: L10n.onboardFirstDayReminder) {
+                    app.finishFirstDayActions()
+                }
+                ActionCard(icon: "sparkles", title: L10n.onboardFirstDayAI) {
+                    app.finishFirstDayActions()
+                }
+            }
+            .padding(.horizontal, 24)
+
+            Button(L10n.onboardAddFamilySkip) {
+                app.finishFirstDayActions()
+            }
+            .buttonStyle(.borderedProminent)
+            .frame(maxWidth: .infinity, minHeight: 50)
+            .padding(.horizontal, 24)
+            .accessibilityIdentifier("FR21.9.step6.skip")
+        }
+    }
+}
+
+private struct ActionCard: View {
+    let icon: String
+    let title: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(.title3)
+                    .foregroundStyle(Color("brand-primary", bundle: .main))
+                    .frame(width: 44, height: 44)
+                Text(title).font(.subheadline).foregroundStyle(.primary)
+                Spacer()
+                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+            }
+            .padding(12)
+            .background(RoundedRectangle(cornerRadius: 12).fill(Color(.secondarySystemGroupedBackground)))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 struct OwnerSetupView: View {
     @Environment(AppState.self) private var app
     @State private var name = ""
@@ -144,6 +261,8 @@ struct OcrConfirmView: View {
                         app.confirmField(id: field.id)
                     } onRevise: { newValue in
                         app.reviseField(id: field.id, to: newValue)
+                    } onReject: {
+                        app.rejectField(id: field.id)
                     }
                 }
             }
@@ -173,6 +292,7 @@ struct ConfirmFieldRowView: View {
     let field: CandidateField
     let onConfirm: () -> Void
     let onRevise: (String) -> Void
+    let onReject: () -> Void
     @State private var editing = false
     @State private var draft = ""
 
@@ -181,9 +301,10 @@ struct ConfirmFieldRowView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(field.displayLabel).font(.caption).foregroundStyle(Color("text-secondary", bundle: .main))
                 Text(field.value).font(.body)
+                // FR6.3 三级置信度颜色语义：高=绿轻标注 / 中=黄提示复核 / 低=红高亮必复核
                 Text(L10n.onboardTierUnconfirmed(tierText))
                     .font(.caption2)
-                    .foregroundStyle(field.isConfirmed ? Color("grade-c", bundle: .main) : Color("grade-d", bundle: .main))
+                    .foregroundStyle(tierColor)
             }
             // ui-ux §7 单焦点朗读放在信息组（不合并操作按钮）：
             // 行级 combine 会把按钮的 identifier 提升到行元素，XCUITest 查询撞双 ID
@@ -204,11 +325,25 @@ struct ConfirmFieldRowView: View {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundStyle(Color("grade-c", bundle: .main))
                     .frame(width: 44, height: 44)
+            } else if field.grade == .rejected {
+                Text(L10n.onboardRejected)
+                    .font(.caption).foregroundStyle(.secondary)
             } else {
                 Button("确认", action: onConfirm)
                     .buttonStyle(.bordered)
                     .frame(minHeight: 44)                       // 触控目标 ≥44pt
                     .accessibilityIdentifier("SP-53.field.confirm.\(field.key)")
+                // FR6.4 ✕ 放弃：保留原识别值，不入正式区
+                Button {
+                    onReject()
+                } label: {
+                    Image(systemName: "xmark")
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(.bordered)
+                .tint(.secondary)
+                .accessibilityLabel(L10n.onboardRejectLabel(field.displayLabel))
+                .accessibilityIdentifier("SP-53.field.reject.\(field.key)")
             }
         }
         .padding(12)
@@ -246,6 +381,16 @@ struct ConfirmFieldRowView: View {
         case .high: return "高置信度"
         case .mid: return "中置信度"
         case .low: return "低置信度"
+        }
+    }
+
+    /// FR6.3：已确认 C 绿；未确认按档位——高绿轻标注 / 中黄 / 低红高亮（必须复核）
+    private var tierColor: Color {
+        if field.isConfirmed { return Color("grade-c", bundle: .main) }
+        switch ConfidenceTier.tier(field.confidence) {
+        case .high: return .green
+        case .mid: return .orange
+        case .low: return .red
         }
     }
 }
@@ -310,7 +455,9 @@ struct TimelineView: View {
             }
             if showFinishButton {
                 Button {
-                    app.finishOnboarding()
+                    // FR21.9：时间轴完成后进 ⑥ 首日引导（全部可跳过），
+                    // 不再直接 finishOnboarding
+                    app.stage = .firstDayActions
                 } label: {
                     Text(L10n.onboard_finishEnterApp).frame(maxWidth: .infinity, minHeight: 50)
                 }

@@ -28,11 +28,11 @@ struct L2DisclosureSheet: View {
                 Spacer()
             }
             .padding()
-            .navigationTitle("使用须知")
+            .navigationTitle(L10n.disclosureTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("我知道了") {
+                    Button(L10n.disclosureAcknowledge) {
                         Task {
                             await app.recordConsent(
                                 key: disclosure.key,
@@ -118,7 +118,9 @@ struct SceneDisclosureModifier: ViewModifier {
 
     private func checkAndShowDisclosure() {
         guard let disclosure = findDisclosure() else { return }
+        // FR20.5 版本感知：同场景同版本已确认才不重展；条款修订自动重确认一次
         if !DisclosureRegistry.isConfirmed(scene: disclosure.scene,
+                                           version: disclosure.version,
                                            consents: app.consentRecords) {
             showDisclosure = true
         }

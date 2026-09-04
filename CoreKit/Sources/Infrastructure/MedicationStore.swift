@@ -95,8 +95,9 @@ public actor MedicationStore: DoseSource {
     }
 
     /// 跳过/忘记/不适/稍后：UPDATE 物化行 + FR9.8.2 矩阵（skipped 两线均免扣、
-    /// missed 仅计划轨扣、discomfort 两线各扣；snoozed 两线不动，稍后由对账重排）
-    public func recordAction(notifyId: String, action: DoseUserAction) async throws {
+    /// missed 仅计划轨扣、discomfort 两线各扣；snoozed 两线不动，稍后由对账重排）。
+    /// reason：FR9.5 跳过必选原因/不适备注，落 dose_log.note（如实记录，不美化）。
+    public func recordAction(notifyId: String, action: DoseUserAction, reason: String? = nil) async throws {
         guard action != .taken else {
             throw StoreError.takenMustUseConfirm(notifyId)   // §7：不得静默 return
         }
@@ -114,9 +115,9 @@ public actor MedicationStore: DoseSource {
             let medicationId = UUID(uuidString: row["medication_id"] as String) ?? UUID()
             try db.execute(sql: """
                 UPDATE medication_dose_log
-                SET user_action = ?, acted_at = ?
+                SET user_action = ?, acted_at = ?, note = ?
                 WHERE id = ?
-                """, arguments: [action.rawValue, Date().timeIntervalSince1970, notifyId])
+                """, arguments: [action.rawValue, Date().timeIntervalSince1970, reason, notifyId])
             try applyResolutionOnLots(patientId: patientId, medicationId: medicationId,
                                 notifyId: notifyId, units: units, action: action, db: db)
         }
@@ -230,7 +231,7 @@ public actor MedicationStore: DoseSource {
             let rows = try Row.fetchAll(db, sql: """
                 SELECT l.id, l.medication_id, m.generic_name, m.spec, l.total_units,
                        l.unit_kind, l.remaining_plan_units, l.remaining_confirmed_units,
-                       l.expire_at, l.status
+                       l.expire_at, l.status, l.storage_note
                 FROM stock_lot l
                 JOIN medication m ON m.id = l.medication_id
                 WHERE l.patient_id = ? AND l.status = 'active'
@@ -273,6 +274,7 @@ public actor MedicationStore: DoseSource {
                     remainingPlanUnits: planUnits,
                     remainingConfirmedUnits: confirmedUnits,
                     expireAt: (row["expire_at"] as Double?).map { Date(timeIntervalSince1970: $0) },
+                    storageNote: row["storage_note"] as String?,
                     approxDaysLeft: daily > 0 ? Int(ceil(planUnits / daily)) : nil,
                     refillTier: tier))
             }
@@ -329,15 +331,19 @@ public actor MedicationStore: DoseSource {
         public var remainingPlanUnits: Double
         public var remainingConfirmedUnits: Double
         public var expireAt: Date?
+        /// 存放位置（FR9.10：未知/空 → 进入批次补录待办队列）
+        public var storageNote: String?
         /// 约剩 N 天·按计划估算（FR9.8.7）；无 active 计划时为 nil（不装精确）
         public var approxDaysLeft: Int?
         public var refillTier: InventoryRules.RefillTier?
         public init(lotId: UUID, medicationName: String, spec: String?, unitKind: String,
                     remainingPlanUnits: Double, remainingConfirmedUnits: Double,
-                    expireAt: Date?, approxDaysLeft: Int?, refillTier: InventoryRules.RefillTier?) {
+                    expireAt: Date?, storageNote: String? = nil,
+                    approxDaysLeft: Int?, refillTier: InventoryRules.RefillTier?) {
             self.lotId = lotId; self.medicationName = medicationName; self.spec = spec
             self.unitKind = unitKind; self.remainingPlanUnits = remainingPlanUnits
             self.remainingConfirmedUnits = remainingConfirmedUnits; self.expireAt = expireAt
+            self.storageNote = storageNote
             self.approxDaysLeft = approxDaysLeft; self.refillTier = refillTier
         }
     }
@@ -398,7 +404,7 @@ public actor MedicationStore: DoseSource {
         try await writer.read { db in
             let rows = try Row.fetchAll(db, sql: """
                 SELECT d.id AS dose_id, d.scheduled_for, d.dose_units, d.user_action, d.delivery_state,
-                       m.generic_name, m.spec, m.unit_kind
+                       m.generic_name, m.spec, m.unit_kind, p.patient_id
                 FROM medication_dose_log d
                 JOIN medication_plan p ON p.id = d.plan_id
                 JOIN medication m ON m.id = p.medication_id
@@ -417,7 +423,8 @@ public actor MedicationStore: DoseSource {
                     isExpiredGrace: scheduledFor < from.addingTimeInterval(-15 * 60),
                     medicationName: row["generic_name"] as String?,
                     spec: row["spec"] as String?,
-                    unitKind: row["unit_kind"] as String?)
+                    unitKind: row["unit_kind"] as String?,
+                    patientId: (row["patient_id"] as String?).flatMap(UUID.init(uuidString:)))
             }
         }
     }
@@ -430,12 +437,266 @@ public actor MedicationStore: DoseSource {
                 """, arguments: [notifyId])
         }
     }
+
+    // MARK: - FR9.16 补录/追溯服药（落到实际发生时间，如实记录，不引入「补服」特殊态）
+
+    /// 补记「已服用」：错过的时段可在过后补录，落在**实际发生时间**并如实记录。
+    /// 双轨按 FR9.8.2 矩阵各 −1（taken）；计划历史如实呈现补录时间点，不美化。
+    /// 若该时段已有物化行 → UPDATE 该行；否则 INSERT 新行（补录本身即证据）。
+    public func recordTakenAt(planId: UUID, patientId: UUID, medicationId: UUID,
+                              actualTime: Date, doseUnits: Double = 1,
+                              notifyId: String = UUID().uuidString) async throws {
+        try await writer.write { db in
+            guard try Row.fetchOne(db, sql: "SELECT id FROM medication_plan WHERE id = ? AND status = 'active'",
+                                   arguments: [planId.uuidString]) != nil else {
+                throw StoreError.doseNotFound(planId.uuidString)
+            }
+            // 幂等：同一补录 id 重复提交不重复扣减
+            if let existing = try Row.fetchOne(db, sql: "SELECT user_action FROM medication_dose_log WHERE id = ?",
+                                               arguments: [notifyId]),
+               (existing["user_action"] as String?) != nil {
+                throw StoreError.alreadyResolved(notifyId)
+            }
+            try db.execute(sql: """
+                INSERT INTO medication_dose_log (id, plan_id, scheduled_for, dose_units, delivery_state, user_action, acted_at, note)
+                VALUES (?, ?, ?, ?, 'delivered', 'taken', ?, 'backfill')
+                ON CONFLICT(id) DO UPDATE SET user_action = 'taken', acted_at = excluded.acted_at
+                """, arguments: [notifyId, planId.uuidString, actualTime.timeIntervalSince1970,
+                                 doseUnits, actualTime.timeIntervalSince1970])
+            try applyResolutionOnLots(patientId: patientId, medicationId: medicationId,
+                                      notifyId: notifyId, units: doseUnits, action: .taken, db: db)
+        }
+    }
+
+    // MARK: - FR9.11 批次有效期分级提醒（30/7/当日三级；阈值可自定义更短窗口）
+
+    /// 窗口内到期的活跃批次（默认 30 天，FR9.11 三级通知的数据源）。
+    /// 过期批次不在此列——它们已被排除出可用库存（applyResolutionOnLots 过滤）。
+    public func expiringLots(patientId: UUID, within days: Int = 30, now: Date = Date())
+        async throws -> [InventorySummaryItem] {
+        let window = now.addingTimeInterval(TimeInterval(days) * 86400)
+        return try await writer.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT l.id, l.medication_id, m.generic_name, m.spec, l.total_units,
+                       l.unit_kind, l.remaining_plan_units, l.remaining_confirmed_units,
+                       l.expire_at, l.status
+                FROM stock_lot l
+                JOIN medication m ON m.id = l.medication_id
+                WHERE l.patient_id = ? AND l.status = 'active'
+                  AND l.expire_at IS NOT NULL AND l.expire_at <= ?
+                ORDER BY l.expire_at
+                """, arguments: [patientId.uuidString, window.timeIntervalSince1970])
+            return rows.map { row in
+                InventorySummaryItem(
+                    lotId: UUID(uuidString: row["id"] as String) ?? UUID(),
+                    medicationName: row["generic_name"] as String,
+                    spec: row["spec"] as String?,
+                    unitKind: row["unit_kind"] as String,
+                    remainingPlanUnits: row["remaining_plan_units"] as Double,
+                    remainingConfirmedUnits: row["remaining_confirmed_units"] as Double,
+                    expireAt: (row["expire_at"] as Double?).map { Date(timeIntervalSince1970: $0) },
+                    approxDaysLeft: nil, refillTier: nil)
+            }
+        }
+    }
+
+    // MARK: - FR9.15/FR9.16 计划查询投影（详情页/日程条/补记）
+
+    public struct PlanRow: Sendable, Equatable, Identifiable {
+        public var id: UUID
+        public var patientId: UUID
+        public var medicationId: UUID
+        public var medicationName: String
+        public var spec: String?
+        public var status: String
+        public var schedule: MedicationSchedule
+        public var startDate: Date
+        public var endDate: Date?
+        public init(id: UUID, patientId: UUID, medicationId: UUID, medicationName: String,
+                    spec: String?, status: String, schedule: MedicationSchedule,
+                    startDate: Date, endDate: Date?) {
+            self.id = id; self.patientId = patientId; self.medicationId = medicationId
+            self.medicationName = medicationName; self.spec = spec; self.status = status
+            self.schedule = schedule; self.startDate = startDate; self.endDate = endDate
+        }
+    }
+
+    public struct DoseLogRow: Sendable, Equatable, Identifiable {
+        public var notifyId: String
+        public var scheduledFor: Date
+        public var doseUnits: Double
+        public var action: DoseUserAction?
+        public var actedAt: Date?
+        public var note: String?
+        public var id: String { notifyId }
+        public init(notifyId: String, scheduledFor: Date, doseUnits: Double,
+                    action: DoseUserAction?, actedAt: Date?, note: String?) {
+            self.notifyId = notifyId; self.scheduledFor = scheduledFor
+            self.doseUnits = doseUnits; self.action = action
+            self.actedAt = actedAt; self.note = note
+        }
+    }
+
+    /// 成员的全部计划（SP-15 列表/详情数据源）
+    public func plans(patientId: UUID) async throws -> [PlanRow] {
+        try await writer.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT p.id, p.patient_id, p.medication_id, p.status, p.schedule_json,
+                       p.start_date, p.end_date, m.generic_name, m.spec
+                FROM medication_plan p
+                JOIN medication m ON m.id = p.medication_id
+                WHERE p.patient_id = ?
+                ORDER BY p.status = 'active' DESC, p.start_date DESC
+                """, arguments: [patientId.uuidString])
+            return rows.compactMap { row in
+                guard let json = (row["schedule_json"] as String?)?.data(using: .utf8) else { return nil }
+                guard let schedule = try? JSONDecoder().decode(MedicationSchedule.self, from: json) else { // try?-ok: 损坏的 schedule_json 跳过该计划
+                    return nil
+                }
+                return PlanRow(
+                    id: UUID(uuidString: row["id"] as String) ?? UUID(),
+                    patientId: UUID(uuidString: row["patient_id"] as String) ?? UUID(),
+                    medicationId: UUID(uuidString: row["medication_id"] as String) ?? UUID(),
+                    medicationName: row["generic_name"] as String,
+                    spec: row["spec"] as String?,
+                    status: row["status"] as String,
+                    schedule: schedule,
+                    startDate: Date(timeIntervalSince1970: row["start_date"] as Double),
+                    endDate: (row["end_date"] as Double?).map { Date(timeIntervalSince1970: $0) })
+            }
+        }
+    }
+
+    public func plan(id: UUID) async throws -> PlanRow? {
+        try await writer.read { db in
+            guard let row = try Row.fetchOne(db, sql: """
+                SELECT p.id, p.patient_id, p.medication_id, p.status, p.schedule_json,
+                       p.start_date, p.end_date, m.generic_name, m.spec
+                FROM medication_plan p
+                JOIN medication m ON m.id = p.medication_id
+                WHERE p.id = ?
+                """, arguments: [id.uuidString]) else { return nil }
+            guard let json = (row["schedule_json"] as String?)?.data(using: .utf8) else { return nil }
+            guard let schedule = try? JSONDecoder().decode(MedicationSchedule.self, from: json) else { // try?-ok: 损坏的 schedule_json 视为计划不可读
+                return nil
+            }
+            return PlanRow(
+                id: UUID(uuidString: row["id"] as String) ?? UUID(),
+                patientId: UUID(uuidString: row["patient_id"] as String) ?? UUID(),
+                medicationId: UUID(uuidString: row["medication_id"] as String) ?? UUID(),
+                medicationName: row["generic_name"] as String,
+                spec: row["spec"] as String?,
+                status: row["status"] as String,
+                schedule: schedule,
+                startDate: Date(timeIntervalSince1970: row["start_date"] as Double),
+                endDate: (row["end_date"] as Double?).map { Date(timeIntervalSince1970: $0) })
+        }
+    }
+
+    /// 计划剂量日志（FR9.16 日程条：本周七日格，已服实心✓/漏服空心!/未来灰）
+    public func doseLog(planId: UUID, from: Date, to: Date) async throws -> [DoseLogRow] {
+        try await writer.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT id, scheduled_for, dose_units, user_action, acted_at, note
+                FROM medication_dose_log
+                WHERE plan_id = ? AND scheduled_for >= ? AND scheduled_for <= ?
+                ORDER BY scheduled_for
+                """, arguments: [planId.uuidString, from.timeIntervalSince1970, to.timeIntervalSince1970])
+            .map { row in
+                DoseLogRow(
+                    notifyId: row["id"] as String,
+                    scheduledFor: Date(timeIntervalSince1970: row["scheduled_for"] as Double),
+                    doseUnits: (row["dose_units"] as Double?) ?? 1,
+                    action: (row["user_action"] as String?).flatMap(DoseUserAction.init(rawValue:)),
+                    actedAt: (row["acted_at"] as Double?).map { Date(timeIntervalSince1970: $0) },
+                    note: row["note"] as String?)
+            }
+        }
+    }
+
+    // MARK: - FR9.9 药品知识卡数据源（医嘱原文经 stock_lot→prescription 关联）
+
+    /// 药品的医嘱原文（知识卡「医生医嘱」来源徽章 A/C）。
+    /// 处方与药品无直接外键，经 stock_lot.prescription_id 关联取最近一条。
+    public func adviceForMedication(medicationId: UUID) async throws -> String? {
+        try await writer.read { db in
+            try String.fetchOne(db, sql: """
+                SELECT rx.advice_text FROM prescription rx
+                JOIN stock_lot l ON l.prescription_id = rx.id
+                WHERE l.medication_id = ? AND rx.advice_text IS NOT NULL AND rx.advice_text != ''
+                ORDER BY rx.prescribed_at DESC LIMIT 1
+                """, arguments: [medicationId.uuidString])
+        }
+    }
+
+    // MARK: - FR9.18 送达记录（channel 字段供诊断/审计/差异分析）
+
+    /// 记一条送达事实（FR9.7 扩展：channel 字段）。
+    /// 记录的是「经哪个通道触达」，与用户确认状态完全分离（BR-004）。
+    public func recordDelivery(notifyId: String, doseLogId: String?, channel: ReminderChannelKind,
+                               outcome: String, at: Date) async throws {
+        try await writer.write { db in
+            try db.execute(sql: """
+                INSERT INTO notification_delivery (id, dose_log_id, scheduled_at, delivered_at, channel, outcome, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [notifyId, doseLogId, at.timeIntervalSince1970,
+                                 outcome == "delivered" ? at.timeIntervalSince1970 : nil,
+                                 channel.rawValue, outcome, at.timeIntervalSince1970])
+        }
+    }
+
+    // MARK: - FR24.5 同机照护者（跨成员待确认聚合，BR-001 显式携带成员）
+
+    /// 全部家庭成员待确认剂量（FR24.5「帮家人处理」数据源）。
+    /// 与 deliveryFacts 不同：**跨成员聚合**且每行携带 patient_id/成员名——
+    /// 代确认必须落回剂量所属成员，禁止用 currentPatientId 张冠李戴（BR-001）。
+    public func familyPendingDoses(from: Date, to: Date) async throws -> [FamilyPendingDose] {
+        try await writer.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT d.id AS dose_id, d.scheduled_for, d.dose_units,
+                       p.patient_id, m.generic_name, m.spec, m.unit_kind,
+                       COALESCE(pp.display_name, '') AS patient_name
+                FROM medication_dose_log d
+                JOIN medication_plan p ON p.id = d.plan_id
+                JOIN medication m ON m.id = p.medication_id
+                LEFT JOIN patient_profile pp ON pp.id = p.patient_id
+                WHERE p.status = 'active' AND d.user_action IS NULL
+                  AND d.scheduled_for >= ? AND d.scheduled_for <= ?
+                ORDER BY d.scheduled_for
+                """, arguments: [from.timeIntervalSince1970, to.timeIntervalSince1970])
+            return rows.map { row in
+                FamilyPendingDose(
+                    patientId: (row["patient_id"] as String).flatMap(UUID.init(uuidString:)) ?? UUID(),
+                    patientName: row["patient_name"] as String,
+                    medicationName: row["generic_name"] as String,
+                    spec: row["spec"] as String?,
+                    dose: ScheduledDose(dueAt: Date(timeIntervalSince1970: row["scheduled_for"] as Double),
+                                        doseUnits: (row["dose_units"] as Double?) ?? 1,
+                                        notifyId: row["dose_id"] as String))
+            }
+        }
+    }
+}
+
+/// FR24.5 家庭待确认剂量投影（携带成员，代确认落回该成员）
+public struct FamilyPendingDose: Sendable, Equatable, Identifiable {
+    public var patientId: UUID
+    public var patientName: String
+    public var medicationName: String
+    public var spec: String?
+    public var dose: ScheduledDose
+    public var id: String { dose.notifyId }
+    public init(patientId: UUID, patientName: String, medicationName: String,
+                spec: String?, dose: ScheduledDose) {
+        self.patientId = patientId; self.patientName = patientName
+        self.medicationName = medicationName; self.spec = spec; self.dose = dose
+    }
 }
 
 /// FR9.8.2 扣减矩阵落库（同事务）：按 FEFO 在**本药品**活跃且未过期批次上分配
 /// （评审 S1-1：不按 medication 过滤会把 A 药确认扣到 B 药批；过期批不得作来源）。
 /// 自由函数：在 writer.write 的同步闭包内调用，无 actor 隔离问题（Swift 6 显式 self 纪律）。
-private func applyResolutionOnLots(patientId: UUID, medicationId: UUID, notifyId: String, units: Double,
+func applyResolutionOnLots(patientId: UUID, medicationId: UUID, notifyId: String, units: Double,
                                    action: DoseUserAction, db: Database) throws {
         var inventories: [DualTrackInventory] = []
         for row in try Row.fetchAll(db, sql: """

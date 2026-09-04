@@ -15,9 +15,14 @@ final class AppEntitlementStore {
     private(set) var aiMonthlyUsed = 0
     private(set) var lastShownAt: [PaywallTrigger: Date] = [:]
     private let store: EntitlementStore
+    private let defaults: UserDefaults
     private let logger = Logger(subsystem: "com.vitaliber", category: "entitlement")
 
-    init(store: EntitlementStore) { self.store = store }
+    init(store: EntitlementStore, defaults: UserDefaults = .standard) {
+        self.store = store
+        self.defaults = defaults
+        restoreShownAt()
+    }
 
     func load() async {
         do {
@@ -27,6 +32,33 @@ final class AppEntitlementStore {
         } catch {
             logger.error("权益加载失败: \(error)")
         }
+    }
+
+    /// 免费档 AI 额度是否用尽（comercial §2.3：免费 20 次/月）
+    var aiQuotaExhausted: Bool {
+        !owned.contains(.proBase) && aiMonthlyUsed >= FreeQuota().aiMonthlyUses
+    }
+
+    // MARK: - 24h 频控持久化（comercial §3：跨启动频控不得失效）
+
+    private func restoreShownAt() {
+        guard let data = defaults.data(forKey: "vl.paywall.lastShownAt") else { return }
+        guard let dict = try? JSONDecoder().decode([String: Double].self, from: data) else { // try?-ok: 历史版本解码失败 → 频控归零（宁可多提示一次，不静默阻断付费入口）
+            return
+        }
+        var out: [PaywallTrigger: Date] = [:]
+        for (key, ts) in dict {
+            if let trigger = PaywallTrigger(rawValue: key) {
+                out[trigger] = Date(timeIntervalSince1970: ts)
+            }
+        }
+        lastShownAt = out
+    }
+
+    private func persistShownAt() {
+        let dict = lastShownAt.mapValues { $0.timeIntervalSince1970 }
+        guard let data = try? JSONEncoder().encode(dict) else { return }   // try?-ok: 编码失败=本次频控不持久化，不阻断弹墙
+        defaults.set(data, forKey: "vl.paywall.lastShownAt")
     }
 
     func purchase(_ product: ProductID) async -> Bool {
@@ -57,6 +89,7 @@ final class AppEntitlementStore {
 
     func markShown(trigger: PaywallTrigger, at: Date = Date()) {
         lastShownAt[trigger] = at
+        persistShownAt()
     }
 
     func recordAIUse() async {

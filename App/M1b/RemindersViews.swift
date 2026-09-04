@@ -18,14 +18,38 @@ struct RemindersView: View {
                         .accessibilityIdentifier("SP-09.today.empty")
                 }
                 ForEach(reminders.todaySlots) { slot in
-                    DoseSlotCard(slot: slot) { dose in
-                        Task { await reminders.confirmTaken(patientId: currentPatientId, dose: dose, careMode: app.careMode) }
-                    } onSkip: { dose in
-                        Task { await reminders.skipDose(dose: dose, careMode: app.careMode) }
-                    } onSnooze: { dose in
-                        Task { await reminders.snoozeDose(dose: dose, patientId: currentPatientId, careMode: app.careMode) }
-                    }
+                    DoseSlotCard(
+                        slot: slot,
+                        onTaken: { dose in
+                            Task { await reminders.confirmTaken(patientId: currentPatientId, dose: dose, careMode: app.careMode) }
+                        },
+                        onSkip: { dose, reason in
+                            Task { await reminders.skipDose(dose: dose, reason: reason, careMode: app.careMode) }
+                        },
+                        onSnooze: { dose, minutes in
+                            Task { await reminders.snoozeDose(dose: dose, minutes: minutes, patientId: currentPatientId, careMode: app.careMode) }
+                        },
+                        onForget: { dose in
+                            Task { await reminders.forgetDose(dose: dose, careMode: app.careMode) }
+                        },
+                        onDiscomfort: { dose, note in
+                            Task { await reminders.recordDiscomfort(dose: dose, note: note, careMode: app.careMode) }
+                        },
+                        onSlotAllTaken: {
+                            // FR9.17「全部已服用」= 逐药写 taken（底层仍按单药 dose_log）
+                            for record in slot.records where record.action == nil {
+                                Task { await reminders.confirmTaken(patientId: currentPatientId, dose: record.dose, careMode: app.careMode) }
+                            }
+                        },
+                        careMode: app.careMode)
                 }
+                // FR9.15/SP-15 计划列表入口（生命周期管理）
+                NavigationLink {
+                    MedicationPlanListView()
+                } label: {
+                    Label(L10n.planListTitle, systemImage: "list.bullet.clipboard")
+                }
+                .accessibilityIdentifier("SP-15.plan.list")
                 Button {
                     showNewPlan = true
                 } label: {
@@ -42,7 +66,7 @@ struct RemindersView: View {
                 ForEach(reminders.upcomingAppointments, id: \.id) { apt in
                     VStack(alignment: .leading, spacing: 8) {
                         HStack(spacing: 12) {
-                            VLIcon.appointment.resizable().frame(width: 32, height: 32)
+                            Image(systemName: "stethoscope").font(.title3)   // §11-13 设计系统规则：行内小尺寸用 SF Symbols，瓷砖仅供大尺寸场景
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(apt.hospital).font(.headline)
                                 Text("\(apt.department) · \(apt.startsAt.formatted(date: .abbreviated, time: .shortened))")
@@ -82,7 +106,7 @@ struct RemindersView: View {
                 NavigationLink {
                     CaregiverViews()
                 } label: {
-                    Label("帮家人处理", systemImage: "person.2.fill")
+                    Label(L10n.caregiverTitle, systemImage: "person.2.fill")
                 }
                 .accessibilityIdentifier("FR24.5.entry")
             }
@@ -169,25 +193,66 @@ struct NewPlanSheet: View {
     }
 }
 
-/// 时段卡（评审修正批）：药名/规格可区分、≥44pt 横排三选（P-flow-3 顺序：
-/// 已服用/稍后/跳过）、全部已服整卡降透明度、逐钮带药名的无障碍标签。
+/// 时段卡（评审修正批 + FR9.5/FR9.17 全量）：
+/// - 药名/规格可区分、≥44pt 触点、逐钮带药名的无障碍标签；
+/// - 动作集（FR9.5）：已服用 / 稍后（15/30/1h 自选）/ 跳过（必选原因）/
+///   忘记服用 / 记录不适；
+/// - 时段级（FR9.17）：n/N 进度 + [全部已服用] 按住确认（关怀模式防误触，
+///   规则在 Domain HoldToConfirm），底层仍按单药 dose_log 记录。
 struct DoseSlotCard: View {
     let slot: DoseSlot
     let onTaken: (ScheduledDose) -> Void
-    let onSkip: (ScheduledDose) -> Void
-    let onSnooze: (ScheduledDose) -> Void
+    let onSkip: (ScheduledDose, String) -> Void
+    let onSnooze: (ScheduledDose, Int) -> Void
+    let onForget: (ScheduledDose) -> Void
+    let onDiscomfort: (ScheduledDose, String) -> Void
+    let onSlotAllTaken: () -> Void
+    let careMode: Bool
+
+    @State private var skipCandidate: ScheduledDose?
+    @State private var discomfortCandidate: ScheduledDose?
+    @State private var discomfortNote = ""
+    @State private var allTakenHoldConfirmed = false
+
+    /// 部分确认态如实显示（FR9.17：已服 n/N）
+    private var takenCount: Int {
+        slot.records.filter { $0.action == .taken || $0.action == .discomfort }.count
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text(slot.anchorTime.formatted(date: .omitted, time: .shortened))
                     .font(.headline)
-                if slot.allTaken {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(Color("semantic-success", bundle: .main))
-                    Text(L10n.reminderTakenCount(slot.records.count, slot.records.count))
-                        .font(.footnote)
-                        .foregroundStyle(Color("semantic-success", bundle: .main))
+                // n/N 进度（部分确认如实显示，如 1/3）
+                Text(L10n.reminderTakenCount(takenCount, slot.records.count))
+                    .font(.footnote)
+                    .foregroundStyle(slot.allTaken
+                                     ? Color("semantic-success", bundle: .main) : .secondary)
+                Spacer()
+                // 时段级 [全部已服用]：只在有未决剂量时出现（FR9.17）
+                if !slot.allTaken && slot.records.count > 1 {
+                    if allTakenHoldConfirmed {
+                        Text(L10n.reminderAllTakenConfirm)
+                            .font(.caption).foregroundStyle(.orange)
+                        Button(L10n.reminderAllTakenYes) { onSlotAllTaken() }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+                            .accessibilityIdentifier("SP-09.doseSlot.allTaken.confirm")
+                        Button(L10n.common_cancel) { allTakenHoldConfirmed = false }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                    } else {
+                        Button {
+                            allTakenHoldConfirmed = true
+                        } label: {
+                            Text(L10n.reminderAllTaken)
+                                .font(.footnote)
+                                .frame(minHeight: 44)
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityIdentifier("SP-09.doseSlot.allTaken")
+                    }
                 }
             }
             ForEach(slot.records, id: \.dose.notifyId) { record in
@@ -201,8 +266,12 @@ struct DoseSlotCard: View {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundStyle(Color("semantic-success", bundle: .main))
                             .frame(width: 44, height: 44)
+                    } else if record.action != nil {
+                        Text(actionShortLabel(record.action))
+                            .font(.caption2).foregroundStyle(.secondary)
+                            .frame(minWidth: 44, minHeight: 44)
                     } else {
-                        // ≥44pt 高横排三选；顺序对齐 P-flow-3（已服用/稍后/跳过）
+                        // ≥44pt 横排：已服用（主）+ 稍后 Menu + 更多动作 Menu（FR9.5 全动作集）
                         Button {
                             onTaken(record.dose)
                         } label: {
@@ -211,22 +280,23 @@ struct DoseSlotCard: View {
                         .buttonStyle(.borderedProminent)
                         .accessibilityLabel(L10n.reminder_a11yTaken(name: record.medicationName ?? L10n.reminder_medicationFallback))
                         .accessibilityIdentifier("SP-09.dose.taken")
-                        Button {
-                            onSnooze(record.dose)
+                        Menu {
+                            Button(L10n.reminder_snooze15) { onSnooze(record.dose, 15) }
+                            Button(L10n.reminder_snooze30) { onSnooze(record.dose, 30) }
+                            Button(L10n.reminder_snooze60) { onSnooze(record.dose, 60) }
                         } label: {
-                            Text(L10n.reminder_later).frame(minWidth: 56, minHeight: 44)
+                            Text(L10n.reminder_later).frame(minWidth: 52, minHeight: 44)
                         }
-                        .buttonStyle(.bordered)
-                        .accessibilityLabel(L10n.reminder_a11ySnoozed(name: record.medicationName ?? L10n.reminder_medicationFallback))
                         .accessibilityIdentifier("SP-09.dose.snooze")
-                        Button {
-                            onSkip(record.dose)
+                        Menu {
+                            Button(L10n.reminder_skip) { skipCandidate = record.dose }
+                            Button(L10n.reminder_forgot) { onForget(record.dose) }
+                            Button(L10n.reminder_discomfort) { discomfortCandidate = record.dose }
                         } label: {
-                            Text(L10n.reminder_skip).frame(minWidth: 56, minHeight: 44)
+                            Image(systemName: "ellipsis").frame(minWidth: 44, minHeight: 44)
                         }
-                        .buttonStyle(.bordered)
-                        .accessibilityLabel(L10n.reminder_a11ySkipped(name: record.medicationName ?? L10n.reminder_medicationFallback))
-                        .accessibilityIdentifier("SP-09.dose.skip")
+                        .accessibilityLabel(L10n.reminder_moreActions)
+                        .accessibilityIdentifier("SP-09.dose.more")
                     }
                 }
             }
@@ -235,6 +305,53 @@ struct DoseSlotCard: View {
         .opacity(slot.allTaken ? 0.55 : 1.0)          // ui-ux §4.21：全部已服整卡降透明度
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("SP-09.doseSlot.card")
+        // FR9.5 跳过必选原因（可免填备注）
+        .confirmationDialog(L10n.reminder_skip, isPresented: skipBinding, titleVisibility: .visible) {
+            Button(L10n.reminder_skipReasonNone) { submitSkip(nil) }
+            Button(L10n.reminder_skipReasonForgot) { submitSkip("forgot") }
+            Button(L10n.reminder_skipReasonDoctor) { submitSkip("doctor_adjusted") }
+            Button(L10n.reminder_skipReasonOther) { submitSkip("other") }
+            Button(L10n.common_cancel, role: .cancel) { skipCandidate = nil }
+        }
+        // FR9.5 记录不适（备注可免填）
+        .alert(L10n.reminder_discomfort, isPresented: discomfortBinding) {
+            TextField(L10n.reminder_discomfortPlaceholder, text: $discomfortNote)
+            Button(L10n.reminder_save) {
+                if let dose = discomfortCandidate {
+                    onDiscomfort(dose, discomfortNote.isEmpty ? nil : discomfortNote)
+                }
+                discomfortNote = ""
+                discomfortCandidate = nil
+            }
+            Button(L10n.common_cancel, role: .cancel) {
+                discomfortNote = ""
+                discomfortCandidate = nil
+            }
+        }
+    }
+
+    private var skipBinding: Binding<Bool> {
+        Binding(get: { skipCandidate != nil }, set: { if !$0 { skipCandidate = nil } })
+    }
+    private var discomfortBinding: Binding<Bool> {
+        Binding(get: { discomfortCandidate != nil }, set: { if !$0 { discomfortCandidate = nil } })
+    }
+
+    private func submitSkip(_ reason: String?) {
+        if let dose = skipCandidate {
+            onSkip(dose, reason ?? "skip")
+        }
+        skipCandidate = nil
+    }
+
+    private func actionShortLabel(_ action: DoseUserAction?) -> String {
+        switch action {
+        case .skipped: return L10n.reminder_skip
+        case .missed: return L10n.reminder_forgot
+        case .discomfort: return L10n.reminder_discomfort
+        case .snoozed: return L10n.reminder_later
+        default: return ""
+        }
     }
 }
 

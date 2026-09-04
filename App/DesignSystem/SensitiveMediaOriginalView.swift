@@ -8,6 +8,7 @@ import Domain
 struct SensitiveMediaOriginalView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(MediaUnlockSession.self) private var session
+    @Environment(AppState.self) private var app
 
     let imageData: Data
     let caption: String
@@ -88,8 +89,9 @@ struct SensitiveMediaOriginalView: View {
     }
 
     private func authenticateAndUnlock() async -> Bool {
-        // 通过 SensitiveMediaContainer 的 tapGesture 路径认证
-        // 这里简化为直接调用 session.unlock()——实际认证由上层容器完成
+        // FR1.9：每次查看原图都是一次独立的系统设备所有者认证（Face ID/Touch ID
+        // + 设备密码兜底），与 SensitiveMediaContainer 同路径，绝不允许无认证直通。
+        guard await app.requestUnlock(reason: L10n.sensitive_unlockReason) else { return false }
         session.unlock()
         return true
     }
