@@ -82,7 +82,7 @@ struct SettingsView: View {
                 }
                 .accessibilityIdentifier("SP-25.settings.audit")
                 Button(L10n.settings_restoreDefaults) {
-                    Task { try await settings.restoreDefaults() }
+                    Task { await settings.restoreDefaults() }
                 }
             }
             Section(L10n.settings_about) {
@@ -117,7 +117,7 @@ struct SettingsView: View {
             set: { newValue in
                 toggles[key] = newValue
                 if key == .careModeEnable { app.careMode = newValue }   // 双写运行时真源
-                Task { try await settings.set(newValue ? "true" : "false", for: key) }
+                Task { await settings.set(newValue ? "true" : "false", for: key) }
             })
     }
 
@@ -129,7 +129,7 @@ struct SettingsView: View {
                          ?? AppSettingKey.appearance.defaultValue) ?? .system
             },
             set: { theme in
-                Task { try await settings.set(theme.rawValue, for: .appearance) }
+                Task { await settings.set(theme.rawValue, for: .appearance) }
             })
     }
 
