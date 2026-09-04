@@ -13,6 +13,7 @@ public enum AppSettingKey: String, Sendable, CaseIterable, Codable {
     case privacyShowGuide          // 隐私引导已读
     case defaultMemberId           // 默认家庭成员
     case defaultDocKind            // 默认资料类型
+    case observationDefaultKind    // 观察默认类型（SP-14 步骤1 记忆上次选择，FR8.1）
     case remindAdvanceMinutes      // 提醒提前量
     case snoozeMinutes             // 稍后时长
     case missGraceMinutes          // miss 宽限
@@ -38,6 +39,7 @@ public enum AppSettingKey: String, Sendable, CaseIterable, Codable {
         case .privacyShowGuide: return "false"
         case .defaultMemberId: return ""
         case .defaultDocKind: return "record"
+        case .observationDefaultKind: return "skin"
         case .remindAdvanceMinutes: return "10"
         case .snoozeMinutes: return "15"
         case .missGraceMinutes: return "60"
@@ -72,7 +74,7 @@ public enum SettingsRules {
     /// 追溯语义（FR14.7）：默认类设置只影响新建项——修改默认值不回溯既有数据
     public static func appliesToExisting(_ key: AppSettingKey) -> Bool {
         switch key {
-        case .defaultMemberId, .defaultDocKind, .remindAdvanceMinutes,
+        case .defaultMemberId, .defaultDocKind, .observationDefaultKind, .remindAdvanceMinutes,
              .snoozeMinutes, .missGraceMinutes, .dateFormat, .weekStartsOn,
              .unitSystem, .homeSort:
             return false   // 仅影响新建

@@ -15,4 +15,7 @@ public protocol SensitiveAssetStoring: Sendable {
     func blurData(for assetId: UUID, memberId: UUID) async throws -> Data?
     /// 回滚删除一张已保存照片（文件 + 资产行）——观察行写入失败时补偿用。
     func removePhoto(_ assetId: UUID, memberId: UUID) async
+    /// 启动对账：清除未被任何观察引用的孤儿照片（文件 + 资产行）——
+    /// 崩溃/断电窗口或历史失败写入的残留，防止敏感文件永久滞留。
+    func reconcileUnreferenced(validAssetIds: Set<String>) async
 }

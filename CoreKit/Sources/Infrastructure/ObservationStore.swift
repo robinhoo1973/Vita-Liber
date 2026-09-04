@@ -11,7 +11,7 @@ public actor ObservationStore {
 
     public init(writer: any DatabaseWriter) { self.writer = writer }
 
-    public func create(id: UUID = UUID(), patientId: UUID, kind: String, description: String,
+    public func create(id: UUID = UUID(), patientId: UUID, kind: ObservationKind, description: String,
                        selfMark: String?, groupId: UUID? = nil, mediaAssetIds: [String] = [],
                        now: Date = Date()) async throws {
         try await writer.write { db in
@@ -22,7 +22,7 @@ public actor ObservationStore {
                   (id, patient_id, kind, occurred_at, description, group_id, self_mark,
                    media_asset_ids, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, arguments: [id.uuidString, patientId.uuidString, kind,
+                """, arguments: [id.uuidString, patientId.uuidString, kind.rawValue,
                                  now.timeIntervalSince1970, description,
                                  groupId?.uuidString, selfMark,
                                  mediaJSON,
@@ -41,7 +41,8 @@ public actor ObservationStore {
                 ObservationEvent(
                     id: UUID(uuidString: row["id"] as String) ?? UUID(),
                     groupId: (row["group_id"] as String?).flatMap(UUID.init(uuidString:)),
-                    kind: row["kind"] as String,
+                    // SQL 边界才动 rawValue；未知历史值回落 custom（既有行兼容）
+                    kind: ObservationKind(rawValue: row["kind"] as String) ?? .custom,
                     occurredAt: Date(timeIntervalSince1970: row["occurred_at"] as Double),
                     description: row["description"] as String?,
                     selfMark: row["self_mark"] as String?,
@@ -57,6 +58,21 @@ public actor ObservationStore {
         guard let json, let data = json.data(using: .utf8) else { return [] }
         do { return try decoder.decode([String].self, from: data) }
         catch { return [] }
+    }
+
+    /// 全库被引用资产 id 集（启动孤儿对账用）：跨成员汇总 observation.media_asset_ids。
+    public func allReferencedAssetIds() async throws -> Set<String> {
+        try await writer.read { db in
+            let decoder = JSONDecoder()
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT media_asset_ids FROM observation WHERE media_asset_ids IS NOT NULL
+                """)
+            var ids: Set<String> = []
+            for row in rows {
+                ids.formUnion(Self.decodeMediaIds(row["media_asset_ids"] as String?, decoder: decoder))
+            }
+            return ids
+        }
     }
 }
 

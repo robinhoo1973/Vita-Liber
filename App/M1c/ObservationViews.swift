@@ -64,6 +64,17 @@ final class ObservationStoreState {
         }
     }
 
+    /// 启动对账：清除未被任何观察引用的孤儿照片（崩溃窗口/历史失败残留）。
+    /// 失败不阻断启动（§7 显式降级）：本轮留残，下轮再扫。
+    func reconcileAssets() async {
+        do {
+            let referenced = try await store.allReferencedAssetIds()
+            await mediaAssets.reconcileUnreferenced(validAssetIds: referenced)
+        } catch {
+            logger.error("资产对账失败: \(error)")
+        }
+    }
+
     /// 保存观察：照片先落敏感资产仓（原图 + blur），再把资产 id 随观察行入库。
     /// 任一环节失败即回滚已保存资产（补偿路径）——绝不产生「无图观察」或孤儿敏感文件。
     func create(patientId: UUID, kind: String, description: String, selfMark: String?,
@@ -78,7 +89,8 @@ final class ObservationStoreState {
                 for try await id in group { ids.append(id); saved.append(id) }
                 return ids
             }
-            try await store.create(patientId: patientId, kind: kind,
+            try await store.create(patientId: patientId,
+                                   kind: ObservationKind(rawValue: kind) ?? .custom,
                                    description: description, selfMark: selfMark,
                                    mediaAssetIds: assetIds.map(\.uuidString))
             await load(patientId: patientId)
@@ -103,7 +115,7 @@ struct ObservationListView: View {
                 ForEach(state.groups) { group in
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
-                            Text(L10n.observationKindName(forKey: group.kind)).font(.subheadline)
+                            Text(L10n.observationKindName(group.kind)).font(.subheadline)
                             Spacer()
                             if let count = group.latest?.mediaAssetIds.count, count > 0 {
                                 // BR-007/008：列表只显示「含图已锁定」徽标，绝不直接渲染原图

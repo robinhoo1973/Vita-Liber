@@ -11,6 +11,7 @@ struct AppRootView: View {
     @Environment(AppState.self) private var appState
     @Environment(ReminderStore.self) private var reminderStore
     @Environment(AppSettingsStore.self) private var settingsStore
+    @Environment(ObservationStoreState.self) private var observationState
     @Environment(\.scenePhase) private var scenePhase
 
     /// F16 信源库幂等种子（由 VitaLiberApp 注入 container.guidelines.seedBundled ——
@@ -43,6 +44,8 @@ struct AppRootView: View {
             catch {
                 Logger(subsystem: "com.vitaliber", category: "app").error("信源播种失败: \(error)")
             }
+            // 敏感媒体孤儿对账（评审修正）：崩溃/失败写入的残留照片启动时清除
+            await observationState.reconcileAssets()
             // 四层补偿第 1 层（§5.4 V3.29）：前台启动时对账 + 首启请求通知授权
             if appState.onboardingFinished {
                 await reminderStore.requestNotificationAuthorization()

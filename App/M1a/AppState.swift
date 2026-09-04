@@ -27,6 +27,8 @@ final class AppState {
 
     // 门禁（FR1.1 · V3.22：系统设备所有者认证，无应用内 PIN）
     private let gateUnlocker: any GateUnlocking
+    /// 审计写入口（可选注入）：导出等审计动作经此落 audit_event（§7 七动作）
+    private let audit: AuditLogWriter?
     private(set) var lastUnlockedAt: Date?
 
     // 所有者与档案
@@ -57,6 +59,7 @@ final class AppState {
          imageRecognizer: (any ImageTextRecognizing)? = nil,
          transcription: (any TranscriptionEngine)? = nil,
          gateUnlocker: (any GateUnlocking)? = nil,
+         audit: AuditLogWriter? = nil,
          defaults: UserDefaults = .standard,
          launchArgs: [String] = ProcessInfo.processInfo.arguments) {
         // 组合根：按当前上下文一次性注册全部引擎能力（ADR-027 EAL）。
@@ -71,6 +74,7 @@ final class AppState {
         self.persistor = persistor
         self.captureProvider = capture
         self.gateUnlocker = gateUnlocker ?? LocalAuthGateUnlocker()
+        self.audit = audit
         // 评审修正：删除此处的 AVSpeechAdapter()/VisionImageRecognizer() 二次赋值——
         // 它在 EAL resolve 之后把结果覆盖回具体实现，注册表解析成为死代码，
         // ADR-027「调用方永不直接 import 具体引擎类型」名存实亡（半重构残留）。
@@ -319,14 +323,30 @@ final class AppState {
     }
 
     /// SP-14 步骤1：记忆上次选择的观察类型（FR8.1 默认高亮）。
+    /// 键登记于 AppSettingKey.observationDefaultKind（§5.28 键枚举单一事实源），
     /// 经注入 defaults（测试可换 suite、-uitest-reset 可清），视图不得直连 UserDefaults。
     /// 读时校验合法 case（历史/外部写入的非法值回落默认，不污染宫格选中态与落库 kind）。
     var observationLastKind: String {
         get {
-            let stored = defaults.string(forKey: "observation.lastKind") ?? ""
-            return ObservationKind(rawValue: stored)?.rawValue ?? ObservationKind.skin.rawValue
+            let stored = defaults.string(forKey: AppSettingKey.observationDefaultKind.rawValue) ?? ""
+            return ObservationKind(rawValue: stored)?.rawValue
+                ?? AppSettingKey.observationDefaultKind.defaultValue
         }
-        set { defaults.set(newValue, forKey: "observation.lastKind") }
+        set { defaults.set(newValue, forKey: AppSettingKey.observationDefaultKind.rawValue) }
+    }
+
+    /// 审计：文档导出（§7 七动作之一）。未注入审计（测试/预览）时静默跳过。
+    func auditExport(documentId: UUID, title: String) {
+        guard let audit else { return }
+        Task {
+            do {
+                try await audit.record(action: "export", entityType: "document",
+                                       entityId: documentId.uuidString,
+                                       actorLocal: "owner", meta: title)
+            } catch {
+                logger.error("导出审计失败: \(error)")
+            }
+        }
     }
 
     /// TTS 单出口。**只播报已确认的结构化字段**（脚本由 Domain 的

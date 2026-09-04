@@ -47,7 +47,8 @@ struct VitaLiberApp: App {
             persistor: container.persistor,
             capture: FakeOcrProvider(fixture: args.contains("-uitest-camera-fixture")),
             gateUnlocker: gateUnlocker,
-            transcription: transcriptionStub))
+            transcription: transcriptionStub,
+            audit: container.audit))
         _reminderStore = State(initialValue: ReminderStore(
             meds: container.meds, apts: container.apts, reconciler: container.reconciler))
         _assistantStore = State(initialValue: AssistantStore(provider: container.aiProvider))

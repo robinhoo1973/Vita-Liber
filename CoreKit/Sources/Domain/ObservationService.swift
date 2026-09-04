@@ -1,9 +1,9 @@
 import Foundation
 
-/// FR8.1 八类观察类型的规范 key（单一事实源）。
-/// ObservationEvent.kind 存 rawValue（既有行兼容）；显示名映射在 L10n
+/// FR8.1 八类观察类型的规范枚举（单一事实源，评审修正：模型直接持类型，
+/// rawValue 只存在于 SQL 边界——既有行兼容不变）。显示名映射在 L10n
 /// （`L10n.observationKindName`），图标映射在 App 层 VLIcon（Domain 不持 Image）。
-public enum ObservationKind: String, CaseIterable, Sendable {
+public enum ObservationKind: String, CaseIterable, Sendable, Codable {
     case stool, urine, skin, eye, secretion, swelling, generic, custom
 }
 
@@ -11,10 +11,10 @@ public enum ObservationKind: String, CaseIterable, Sendable {
 /// （DoctorShowcaseSession）会话式解锁 + 超时自动重锁 + scope 过滤（BR-007/008）。
 public struct ObservationGroup: Sendable, Equatable, Identifiable {
     public var groupId: UUID
-    public var kind: String
+    public var kind: ObservationKind
     public var occurrences: [ObservationEvent]
     public var id: UUID { groupId }
-    public init(groupId: UUID, kind: String, occurrences: [ObservationEvent]) {
+    public init(groupId: UUID, kind: ObservationKind, occurrences: [ObservationEvent]) {
         self.groupId = groupId; self.kind = kind; self.occurrences = occurrences
     }
     public var latest: ObservationEvent? { occurrences.max { $0.occurredAt < $1.occurredAt } }
@@ -24,7 +24,7 @@ public struct ObservationGroup: Sendable, Equatable, Identifiable {
 public struct ObservationEvent: Sendable, Equatable, Identifiable {
     public var id: UUID
     public var groupId: UUID?             // 观察事件聚合（§5.36 group_id）
-    public var kind: String
+    public var kind: ObservationKind
     public var occurredAt: Date
     public var description: String?
     public var selfMark: String?          // improved/unchanged/worsened
@@ -32,7 +32,7 @@ public struct ObservationEvent: Sendable, Equatable, Identifiable {
     /// F8.4/§5.10 敏感媒体资产 id 列表（asset 表 + 敏感目录，BR-007/008）。
     /// 列表/时间轴只可渲染模糊缩略图，原图必须经敏感容器解锁。
     public var mediaAssetIds: [String]
-    public init(id: UUID, groupId: UUID? = nil, kind: String, occurredAt: Date,
+    public init(id: UUID, groupId: UUID? = nil, kind: ObservationKind, occurredAt: Date,
                 description: String?, selfMark: String?, memberId: UUID,
                 mediaAssetIds: [String] = []) {
         self.id = id; self.groupId = groupId; self.kind = kind; self.occurredAt = occurredAt
@@ -55,7 +55,7 @@ public enum ObservationGroupService {
         }
         return order.map { key in
             let occurrences = (byGroup[key] ?? []).sorted { $0.occurredAt < $1.occurredAt }
-            let kind = occurrences.first?.kind ?? ObservationKind.custom.rawValue
+            let kind = occurrences.first?.kind ?? .custom
             return ObservationGroup(groupId: key, kind: kind, occurrences: occurrences)
         }
     }
@@ -67,9 +67,9 @@ public struct DoctorShowcaseSession: Sendable, Equatable {
     public var patientId: UUID
     public var unlockedAt: Date
     public var timeoutSeconds: TimeInterval
-    public var scopeKind: String?         // 限定展示的观察类别
+    public var scopeKind: ObservationKind?   // 限定展示的观察类别
 
-    public init(patientId: UUID, unlockedAt: Date, timeoutSeconds: TimeInterval = 300, scopeKind: String? = nil) {
+    public init(patientId: UUID, unlockedAt: Date, timeoutSeconds: TimeInterval = 300, scopeKind: ObservationKind? = nil) {
         self.patientId = patientId
         self.unlockedAt = unlockedAt
         self.timeoutSeconds = timeoutSeconds

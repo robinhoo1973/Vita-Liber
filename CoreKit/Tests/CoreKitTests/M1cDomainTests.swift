@@ -96,7 +96,7 @@ struct TodayStoreTests {
     @Test func 近期观察取前三条() {
         let me = UUID()
         let obs = (0..<5).map { i in
-            ObsRef(id: UUID(), kind: "skin", occurredAt: Date(timeIntervalSince1970: TimeInterval(100 + i)), memberId: me)
+            ObsRef(id: UUID(), kind: .skin, occurredAt: Date(timeIntervalSince1970: TimeInterval(100 + i)), memberId: me)
         }
         let snap = TodayAggregator.snapshot(member: me, todos: [], pendingOCRCount: 0,
                                             expiring: [], refills: [], alerts: [], observations: obs)
@@ -398,11 +398,11 @@ struct ObservationServiceTests {
         let other = UUID()
         let g = UUID()
         let events = [
-            ObservationEvent(id: UUID(), groupId: g, kind: "skin", occurredAt: Date(timeIntervalSince1970: 100),
+            ObservationEvent(id: UUID(), groupId: g, kind: .skin, occurredAt: Date(timeIntervalSince1970: 100),
                              description: "红疹", selfMark: "worsened", memberId: me),
-            ObservationEvent(id: UUID(), groupId: g, kind: "skin", occurredAt: Date(timeIntervalSince1970: 200),
+            ObservationEvent(id: UUID(), groupId: g, kind: .skin, occurredAt: Date(timeIntervalSince1970: 200),
                              description: "消退", selfMark: "improved", memberId: me),
-            ObservationEvent(id: UUID(), kind: "skin", occurredAt: Date(timeIntervalSince1970: 300),
+            ObservationEvent(id: UUID(), kind: .skin, occurredAt: Date(timeIntervalSince1970: 300),
                              description: "他人", selfMark: nil, memberId: other),
         ]
         let groups = ObservationGroupService.groups(events, member: me)
@@ -413,15 +413,15 @@ struct ObservationServiceTests {
 
     @Test func 展示会话超时自动重锁与scope过滤() {
         let me = UUID()
-        let event = ObservationEvent(id: UUID(), kind: "skin", occurredAt: Date(),
+        let event = ObservationEvent(id: UUID(), kind: .skin, occurredAt: Date(),
                                      description: "红疹", selfMark: nil, memberId: me)
         let session = DoctorShowcaseSession(patientId: me, unlockedAt: Date(timeIntervalSince1970: 0),
-                                            timeoutSeconds: 300, scopeKind: "skin")
+                                            timeoutSeconds: 300, scopeKind: .skin)
         #expect(!session.isActive(at: Date(timeIntervalSince1970: 400)))   // 超时重锁
         #expect(DoctorShowcaseRules.visibleEvents([event], session: session,
                                                   now: Date(timeIntervalSince1970: 400)).isEmpty)
         let activeSession = DoctorShowcaseSession(patientId: me, unlockedAt: Date(timeIntervalSince1970: 0),
-                                                  timeoutSeconds: 300, scopeKind: "urine")
+                                                  timeoutSeconds: 300, scopeKind: .urine)
         #expect(DoctorShowcaseRules.visibleEvents([event], session: activeSession,
                                                   now: Date(timeIntervalSince1970: 100)).isEmpty)  // scope 过滤
     }

@@ -6,6 +6,7 @@ import Domain
 /// 本视图补两者：行 push 进入，工具栏 ShareLink 导出纯文本摘要
 /// （仅 C 级确认文本，不含任何敏感媒体，BR-007/008 不适用）。
 struct TimelineDocumentDetailView: View {
+    @Environment(AppState.self) private var app
     let entry: TimelineDocumentEntry
 
     var body: some View {
@@ -44,10 +45,14 @@ struct TimelineDocumentDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                // 导出入口（评审修正）：纯文本摘要，ShareLink 走系统分享面板
+                // 导出入口（评审修正）：纯文本摘要，ShareLink 走系统分享面板；
+                // 审计（§7 七动作之一）随点击落 audit_event（未注入审计时静默跳过）
                 ShareLink(item: exportText) {
                     Label(L10n.docExport, systemImage: "square.and.arrow.up")
                 }
+                .simultaneousGesture(TapGesture().onEnded {
+                    app.auditExport(documentId: entry.id, title: entry.title)
+                })
                 .accessibilityIdentifier("SP-10.document.export")
             }
         }

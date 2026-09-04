@@ -114,6 +114,35 @@ public actor SensitiveAssetStore: SensitiveAssetStoring {
         return data
     }
 
+    public func reconcileUnreferenced(validAssetIds: Set<String>) async {
+        do {
+            let orphans: [(id: String, rel: String)] = try await writer.read { db in
+                try Row.fetchAll(db, sql: """
+                    SELECT id, relative_path FROM asset WHERE kind = 'photo'
+                    """).map { row in
+                    (row["id"] as String, row["relative_path"] as String)
+                }
+            }
+            for orphan in orphans where !validAssetIds.contains(orphan.id) {
+                // 按 relative_path 删文件（原图 + 派生 blur），再删两行资产
+                let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                let url = docs.appendingPathComponent(orphan.rel)
+                do { try FileManager.default.removeItem(at: url) } catch { /* 不存在即无事 */ }
+                let blurURL = url.deletingPathExtension().appendingPathExtension("blur.jpg")
+                do { try FileManager.default.removeItem(at: blurURL) } catch { /* 同上 */ }
+                do {
+                    try await writer.write { db in
+                        try db.execute(sql: "DELETE FROM asset WHERE id IN (?, ?)",
+                                       arguments: [orphan.id, orphan.id + ".blur"])
+                    }
+                } catch { /* 对账路径：DB 清理失败不阻断启动 */ }
+                blurCache.cache.removeObject(forKey: orphan.id as NSString)
+            }
+        } catch {
+            // 对账失败不阻断启动：本轮留残，下轮再扫（§7 显式降级）
+        }
+    }
+
     private func memberDir(_ memberId: UUID) -> URL {
         baseDir.appendingPathComponent(memberId.uuidString, isDirectory: true)
     }
