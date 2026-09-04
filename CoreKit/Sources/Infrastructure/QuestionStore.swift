@@ -82,7 +82,8 @@ public actor QuestionStore {
 
     /// FR10.4 准备包数据源：未问问题（open 状态，最近 10 条）
     public func openQuestions(patientId: UUID, limit: Int = 10) async throws -> [QuestionRow] {
-        try await list(patientId: patientId, status: "open").map { Array($0.prefix(limit)) } ?? []
+        // list 返回非可选数组——直接 prefix 截断（此前误套可选链 map，类型漂移）
+        Array(try await list(patientId: patientId, status: "open").prefix(limit))
     }
 }
 #endif

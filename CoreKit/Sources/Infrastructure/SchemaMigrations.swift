@@ -183,12 +183,8 @@ public enum SchemaMigrations {
              ALTER TABLE encounter ADD COLUMN chief_complaint TEXT;
              ALTER TABLE encounter ADD COLUMN follow_up_requirement TEXT;
              ALTER TABLE encounter ADD COLUMN rescheduled_from_id TEXT REFERENCES encounter(id);
-             -- 预约改期历史（FR10.7：原预约保留历史并生成新草稿）
-             ALTER TABLE appointment ADD COLUMN rescheduled_from_id TEXT REFERENCES appointment(id);
-             ALTER TABLE appointment ADD COLUMN cancel_reason TEXT;
-             ALTER TABLE appointment ADD COLUMN doctor TEXT;
-             ALTER TABLE appointment ADD COLUMN address TEXT;
-             ALTER TABLE appointment ADD COLUMN booking_no TEXT;
+             -- FR10.7 改期历史：baseline 已有 rescheduled_from/cancel_reason/doctor/address/booking_no，
+             -- 此处只补 source/items_to_bring/notes（幂等守卫跳过 baseline 已有列）
              ALTER TABLE appointment ADD COLUMN source TEXT;
              ALTER TABLE appointment ADD COLUMN items_to_bring TEXT;
              ALTER TABLE appointment ADD COLUMN notes TEXT;

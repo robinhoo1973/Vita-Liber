@@ -40,7 +40,7 @@ public enum SchemaV2 {
       relation TEXT NOT NULL,
       gender TEXT, birth_date TEXT, blood_type TEXT,
       id_no TEXT, insurance_no TEXT, avatar_asset_id TEXT REFERENCES asset(id),
-      note TEXT, created_at REAL NOT NULL, updated_at REAL NOT NULL);
+      note TEXT, deleted_at REAL, created_at REAL NOT NULL, updated_at REAL NOT NULL);
     CREATE INDEX idx_patient_owner ON patient_profile(owner_local_id);
 
     -- F5 资料文件（类型/状态/哈希/敏感）
@@ -69,6 +69,7 @@ public enum SchemaV2 {
       relative_path TEXT NOT NULL,
       file_protection TEXT NOT NULL,
       width INTEGER, height INTEGER, size_bytes INTEGER NOT NULL,
+      parent_id TEXT REFERENCES asset(id),
       created_at REAL NOT NULL);
     CREATE INDEX idx_asset_kind ON asset(kind);
 
@@ -76,7 +77,9 @@ public enum SchemaV2 {
     CREATE TABLE encounter (
       id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patient_profile(id),
       date REAL NOT NULL, kind TEXT NOT NULL,
-      diagnosis_text TEXT, advice_text TEXT, fee_amount REAL,
+      hospital TEXT, department TEXT, doctor TEXT,
+      chief_complaint TEXT, diagnosis_text TEXT, advice_text TEXT,
+      follow_up_requirement TEXT, fee_amount REAL, rescheduled_from_id TEXT REFERENCES encounter(id),
       deleted_at REAL, created_at REAL NOT NULL, updated_at REAL NOT NULL);
     CREATE INDEX idx_encounter_patient_date ON encounter(patient_id, date DESC);
 
@@ -117,6 +120,15 @@ public enum SchemaV2 {
       paused_at REAL, ended_at REAL, ended_reason TEXT,
       created_at REAL NOT NULL, updated_at REAL NOT NULL);
     CREATE INDEX idx_plan_patient_status ON medication_plan(patient_id, status);
+
+    -- 计划生命周期历史（FR9.15：append-only，与状态变更同事务）
+    CREATE TABLE plan_lifecycle_event (
+      id TEXT PRIMARY KEY,
+      plan_id TEXT NOT NULL REFERENCES medication_plan(id),
+      kind TEXT NOT NULL CHECK(kind IN ('started','edited','paused','resumed','ended')),
+      occurred_at REAL NOT NULL,
+      note TEXT);
+    CREATE INDEX idx_plan_event_plan ON plan_lifecycle_event(plan_id, occurred_at);
 
     -- 服药剂量日志（FR9.7 送达状态与用户确认分离）
     CREATE TABLE medication_dose_log (
@@ -231,6 +243,7 @@ public enum SchemaV2 {
       status TEXT NOT NULL DEFAULT 'scheduled'
         CHECK(status IN ('scheduled','completed','cancelled','missed')),
       cancel_reason TEXT, rescheduled_from TEXT,
+      source TEXT, items_to_bring TEXT, notes TEXT,
       created_at REAL NOT NULL, updated_at REAL NOT NULL);
     CREATE INDEX idx_appointment_patient_time ON appointment(patient_id, starts_at);
 

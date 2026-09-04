@@ -50,11 +50,11 @@ public actor AppointmentStore {
             try db.execute(
                 sql: """
                 INSERT INTO appointment (id, patient_id, hospital, department, starts_at, status,
-                                         rescheduled_from_id, created_at, updated_at)
+                                         rescheduled_from, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, 'scheduled', ?, ?, ?)
                 """,
                 arguments: [newId.uuidString, old["patient_id"] as String,
-                            old["hospital"] as String, old["department"] as String,
+                            (old["hospital"] as String?) ?? "", (old["department"] as String?) ?? "",
                             startsAt.timeIntervalSince1970, id.uuidString,
                             now.timeIntervalSince1970, now.timeIntervalSince1970])
         }
@@ -126,7 +126,7 @@ public actor AppointmentStore {
             .map { row in
                 AppointmentRow(
                     id: UUID(uuidString: row["id"] as String) ?? UUID(),
-                    hospital: row["hospital"] as String,
+                    hospital: (row["hospital"] as String?) ?? "",
                     department: (row["department"] as String?) ?? "",
                     startsAt: Date(timeIntervalSince1970: row["starts_at"] as Double),
                     status: row["status"] as String)
@@ -145,7 +145,7 @@ public actor AppointmentStore {
             .map { row in
                 AppointmentRow(
                     id: UUID(uuidString: row["id"] as String) ?? UUID(),
-                    hospital: row["hospital"] as String,
+                    hospital: (row["hospital"] as String?) ?? "",
                     department: (row["department"] as String?) ?? "",
                     startsAt: Date(timeIntervalSince1970: row["starts_at"] as Double),
                     status: row["status"] as String)
