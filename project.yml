@@ -38,7 +38,12 @@ targets:
         MARKETING_VERSION: "0.0.1"
         CURRENT_PROJECT_VERSION: "1"
         VITA_LIBER_CODE_HASH: "dev"
-    dependencies: [{ package: CoreKit }]
+    # GRDB 直连（ERR#31 同族，第 18 轮 CI 实证）：AppContainer 经 GRDBStore.writer
+    # 把 GRDB.DatabaseWriter 暴露进 App 层签名，AppContainer.o 引用 GRDB 协议
+    # 描述符——仅靠 CoreKit 传递链接，ld 报 "protocol descriptor for
+    # GRDB.DatabaseWriter symbol(s) not found"。App 只链接不 import GRDB，
+    # 分层不变（后续可登记技术债：Infrastructure 公开 API 消除 GRDB 类型泄漏）。
+    dependencies: [{ package: CoreKit }, { package: GRDB.swift, product: GRDB }]
   VitaLiberTests:
     type: bundle.unit-test
     platform: iOS
