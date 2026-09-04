@@ -81,8 +81,10 @@ struct LockOverlayView: View {
         }
         .accessibilityIdentifier("SP-01.lockOverlay")
         .task {
-            // 冷启动/回前台呈现遮罩即自动弹系统认证（UI 测试用 -uitest-gate-no-auto 关断）
-            guard app.gateAutoAttempts, app.gateNeedsUnlock else { return }
+            // 冷启动/回前台呈现遮罩即自动弹系统认证一次。
+            // 遮罩只在 needsLockScreen || backgroundLocked 时挂载，无需再问「是否需要解锁」；
+            // UI 测试用 -uitest-gate-no-auto 关断自动尝试（Face ID 无法自动化）
+            guard app.gateAutoAttempts else { return }
             await attempt()
         }
         .onChange(of: app.lastUnlockedAt) { _, value in
@@ -94,8 +96,9 @@ struct LockOverlayView: View {
     }
 
     private func attempt() async {
-        await app.requestUnlock(reason: L10n.security_unlockReason)
-        // 遮罩存续即失败（成功会经 lastUnlockedAt onChange 解除并销毁本视图）
-        failedOnce = app.gateNeedsUnlock
+        // 成功 → lastUnlockedAt 置位 → onChange 解除遮罩并销毁本视图；
+        // 失败/取消 → 返回 false → 显示重试提示（遮罩留存可手动重试）
+        let ok = await app.requestUnlock(reason: L10n.security_unlockReason)
+        failedOnce = !ok
     }
 }
