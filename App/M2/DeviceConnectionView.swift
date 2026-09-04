@@ -1,6 +1,7 @@
 import SwiftUI
 import Domain
 import Infrastructure
+import Protocols   // ReminderScheduling（F16 预警通知调度端口）
 
 // MARK: - F16 健康设备数据接入（SP-29 · FR16.1-16.10 交付半场）
 

@@ -39,7 +39,7 @@ public actor PDFExportService {
         }
     }
 
-    public struct ExportPackage: Sendable {
+    public struct ExportPackage: Sendable, Equatable {
         public var data: Data
         public var pageCount: Int
         public var recordCount: Int

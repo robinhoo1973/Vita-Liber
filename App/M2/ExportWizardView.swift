@@ -13,7 +13,7 @@ final class ExportWizardState {
     enum Phase: Equatable {
         case idle
         case working(processed: Int, total: Int)
-        case finished(ExportPackage)
+        case finished(PDFExportService.ExportPackage)
         case degraded(String)
     }
 

@@ -1130,7 +1130,6 @@ enum L10n {
 
     // MARK: - F11 时间轴 + FR11.4 健康问题（SP-19/SP-49）
     static var timelineTitle: String { t("timeline.title") }
-    static var timelineEmptyTitle: String { t("timeline.emptyTitle") }
     static var timelineEmptyHint: String { t("timeline.emptyHint") }
     static var timelineFilterAll: String { t("timeline.filter.all") }
     static func timelineKindName(_ kind: TimelineEntryKind) -> String { t("timeline.kind.\(kind.rawValue)") }
