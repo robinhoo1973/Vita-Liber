@@ -37,28 +37,26 @@ jobs:
           echo "仓库: ${{ github.repository }}"
           echo ""
 
-          # 获取所有 workflow 名称
-          WORKFLOWS=$(gh api repos/${{ github.repository }}/actions/workflows \
-            --jq '.workflows[].name' 2>/dev/null || echo "")
+          # 获取所有 workflow（使用 ID 避免名称含空格的问题）
+          WORKFLOW_IDS=$(gh api repos/${{ github.repository }}/actions/workflows \
+            --jq '.workflows[].id' 2>/dev/null || echo "")
 
-          if [ -z "$WORKFLOWS" ]; then
+          if [ -z "$WORKFLOW_IDS" ]; then
             echo "警告: 未找到任何 workflow 或 API 调用失败"
             exit 0
           fi
 
-          echo "找到的 workflows:"
-          echo "$WORKFLOWS" | sed 's/^/  - /'
-          echo ""
-
           TOTAL_DELETED=0
           TOTAL_KEPT=0
 
-          for WF in $WORKFLOWS; do
-            echo "── 处理: $WF ──"
+          for WF_ID in $WORKFLOW_IDS; do
+            WF_NAME=$(gh api repos/${{ github.repository }}/actions/workflows/$WF_ID \
+              --jq '.name' 2>/dev/null || echo "unknown")
+            echo "── 处理: $WF_NAME (id=$WF_ID) ──"
 
             # 找到该 workflow 最近一次成功的 run
             LATEST_SUCCESS_ID=$(gh run list \
-              --workflow "$WF" \
+              --workflow "$WF_ID" \
               --status completed \
               --json databaseId,conclusion,createdAt \
               --jq '[.[] | select(.conclusion == "success")] | sort_by(.createdAt) | last | .databaseId' \
@@ -77,7 +75,7 @@ jobs:
             while true; do
               # 获取该 workflow 所有 completed 的 run
               ALL_RUNS=$(gh run list \
-                --workflow "$WF" \
+                --workflow "$WF_ID" \
                 --status completed \
                 --json databaseId \
                 --limit 100 \
