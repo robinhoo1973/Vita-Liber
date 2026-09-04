@@ -3,17 +3,17 @@
     {
       "filename": "ic-organ-mouth@1x.png",
       "idiom": "universal",
-      "scale": "x"
+      "scale": "1x"
     },
     {
       "filename": "ic-organ-mouth@2x.png",
       "idiom": "universal",
-      "scale": "x"
+      "scale": "2x"
     },
     {
       "filename": "ic-organ-mouth@3x.png",
       "idiom": "universal",
-      "scale": "x"
+      "scale": "3x"
     }
   ],
   "info": {

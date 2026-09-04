@@ -3,17 +3,17 @@
     {
       "filename": "ic-error@1x.png",
       "idiom": "universal",
-      "scale": "x"
+      "scale": "1x"
     },
     {
       "filename": "ic-error@2x.png",
       "idiom": "universal",
-      "scale": "x"
+      "scale": "2x"
     },
     {
       "filename": "ic-error@3x.png",
       "idiom": "universal",
-      "scale": "x"
+      "scale": "3x"
     }
   ],
   "info": {

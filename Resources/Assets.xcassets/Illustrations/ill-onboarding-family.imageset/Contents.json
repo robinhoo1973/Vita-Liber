@@ -3,17 +3,17 @@
     {
       "filename": "ill-onboarding-family@1x.png",
       "idiom": "universal",
-      "scale": "x"
+      "scale": "1x"
     },
     {
       "filename": "ill-onboarding-family@2x.png",
       "idiom": "universal",
-      "scale": "x"
+      "scale": "2x"
     },
     {
       "filename": "ill-onboarding-family@3x.png",
       "idiom": "universal",
-      "scale": "x"
+      "scale": "3x"
     }
   ],
   "info": {

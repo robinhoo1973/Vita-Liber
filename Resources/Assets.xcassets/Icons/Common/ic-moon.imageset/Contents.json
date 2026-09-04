@@ -3,17 +3,17 @@
     {
       "filename": "ic-moon@1x.png",
       "idiom": "universal",
-      "scale": "x"
+      "scale": "1x"
     },
     {
       "filename": "ic-moon@2x.png",
       "idiom": "universal",
-      "scale": "x"
+      "scale": "2x"
     },
     {
       "filename": "ic-moon@3x.png",
       "idiom": "universal",
-      "scale": "x"
+      "scale": "3x"
     }
   ],
   "info": {

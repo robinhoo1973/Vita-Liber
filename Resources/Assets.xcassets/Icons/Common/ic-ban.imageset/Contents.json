@@ -3,17 +3,17 @@
     {
       "filename": "ic-ban@1x.png",
       "idiom": "universal",
-      "scale": "x"
+      "scale": "1x"
     },
     {
       "filename": "ic-ban@2x.png",
       "idiom": "universal",
-      "scale": "x"
+      "scale": "2x"
     },
     {
       "filename": "ic-ban@3x.png",
       "idiom": "universal",
-      "scale": "x"
+      "scale": "3x"
     }
   ],
   "info": {

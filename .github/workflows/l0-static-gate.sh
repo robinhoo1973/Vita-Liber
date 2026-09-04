@@ -13,6 +13,9 @@
 #   [4] 红线模块禁读 EntitlementStore（tech-spec §5.14，comercial-spec §1 永久免费红线）
 #   [5] Domain 零框架依赖 —— Sources/Domain 不 import SwiftUI/UIKit/Vision/GRDB（tech-spec §1.1）
 #   [6] Fixtures/**/*.json 可解析校验（目录缺失仅告警——金样随阶段入库 §9.1）
+#   [7]–[10] Swift 解析 / 套件清单 / FR17.13 / L10n（见正文各段注释）
+#   [11] 资产目录完整性 —— Assets.xcassets 每个 imageset 槽位 scale 必须 1x/2x/3x
+#        （actool 对非法 scale 静默丢弃 imageset → 运行时图标全空，回归防护）
 #
 # 运行环境：bash 3.2+（兼容 macOS 自带 bash）/ python3 或 node 或 jq（仅 JSON 校验用）。
 #           macOS/Linux 原生可跑；Windows 用 Git Bash 或等价 l0-static-gate.py。
@@ -82,7 +85,7 @@ fi
 echo "Vita Liber L0 静态门禁 · 应用源码根: $APP"
 
 # ---------- [1] 强制解包/try? 门禁 ----------
-section "1/10" "强制解包门禁 —— try? / as! / try! 全仓清零，豁免须同行注释 // try?-ok: <理由>（tech-spec §7）"
+section "1/11" "强制解包门禁 —— try? / as! / try! 全仓清零，豁免须同行注释 // try?-ok: <理由>（tech-spec §7）"
 try_viol=0; try_exempt=0
 while IFS= read -r line; do
   [ -n "$line" ] || continue
@@ -117,7 +120,7 @@ else
 fi
 
 # ---------- [2] ADR-021 无平行视图 ----------
-section "2/10" "ADR-021 —— 禁止平行视图文件与 idiom 分支换页（tech-spec §5.26）"
+section "2/11" "ADR-021 —— 禁止平行视图文件与 idiom 分支换页（tech-spec §5.26）"
 ipad_files=$(find "$APP" \( -name .build -o -name .swiftpm -o -name DerivedData -o -name Build \) -prune -o \( -name '*_iPad*.swift' -o -name '*_iPhone*.swift' \) -print 2>/dev/null | grep -v '/CoreKit/' || true)
 if [ -n "$ipad_files" ]; then
   printf '%s\n' "$ipad_files" | head -15 | sed 's/^/    /'
@@ -142,7 +145,7 @@ else
 fi
 
 # ---------- [3] DDL 引用完整性 ----------
-section "3/10" "DDL 引用完整性 —— REFERENCES 目标已建表 + 外键开启（tech-spec §4.3）"
+section "3/11" "DDL 引用完整性 —— REFERENCES 目标已建表 + 外键开启（tech-spec §4.3）"
 # 大文本管道防 SIGPIPE（ERR#34）：ddl_text 达数 MB 后，
 # `printf | grep -qE` 在 grep 提前命中退出时把仍在写的 printf 打死
 # （exit 141），pipefail 下整段报错——曾造成「外键开启语句缺失」假红。
@@ -210,7 +213,7 @@ done
 rm -f "$_ddl_file"
 
 # ---------- [4] 红线模块禁读 EntitlementStore ----------
-section "4/10" "商业化红线 —— 红线模块代码内禁止读取 EntitlementStore（tech-spec §5.14）"
+section "4/11" "商业化红线 —— 红线模块代码内禁止读取 EntitlementStore（tech-spec §5.14）"
 DEFAULT_REDLINE="$APP/App/M1a/OnboardingViews.swift:$APP/App/M1b/RemindersViews.swift:$APP/App/M1c/ObservationViews.swift:$APP/App/M1c/AssistantView.swift"
 REDLINE_PATHS="${REDLINE_PATHS:-$DEFAULT_REDLINE}"
 redline_matched=0; ent_viol=0
@@ -237,7 +240,7 @@ else
 fi
 
 # ---------- [5] Domain 零框架依赖 ----------
-section "5/10" "分层纪律 —— Domain 零框架依赖，白名单断言 import ⊆ {Foundation}（tech-spec §1.1）"
+section "5/11" "分层纪律 —— Domain 零框架依赖，白名单断言 import ⊆ {Foundation}（tech-spec §1.1）"
 if [ ! -d "$DOMAIN" ]; then
   fail "缺少 $DOMAIN —— M0 要求 CoreKit 三目标骨架先行"
 else
@@ -256,7 +259,7 @@ else
 fi
 
 # ---------- [6] Fixtures JSON 校验 ----------
-section "6/10" "金样 Fixtures —— JSON 可解析（dev-pm-spec §9.2④）"
+section "6/11" "金样 Fixtures —— JSON 可解析（dev-pm-spec §9.2④）"
 validate_json() {
   if command -v python3 >/dev/null 2>&1; then
     python3 -c 'import json,sys; json.load(open(sys.argv[1], encoding="utf-8"))' "$1" 2>/dev/null
@@ -296,7 +299,7 @@ else
 fi
 
 # ---------- [7] Swift 语法解析门禁 ----------
-section "7/10" "Swift 解析门禁 —— App 层源码语法/保留字检查（ERR#28 shift-left）"
+section "7/11" "Swift 解析门禁 —— App 层源码语法/保留字检查（ERR#28 shift-left）"
 # 背景：App/ 的 SwiftUI 源码不属于 CoreKit SPM 包，Linux 上 `swift build` 不覆盖它，
 # 过去任何语法错误（如 `static let import`）都要等 macOS L1 编译才暴露，一次往返数分钟。
 # swiftc -parse 只做语法分析、不做语义解析与 import 解析，因此在无 SwiftUI 的 Linux 上同样有效。
@@ -323,7 +326,7 @@ else
 fi
 
 # ---------- [8] 阶段门禁套件存在性 ----------
-section "8/10" "阶段门禁套件存在性 —— test-plan §3 必过套件必须真实存在（ERR#27 原则推广）"
+section "8/11" "阶段门禁套件存在性 —— test-plan §3 必过套件必须真实存在（ERR#27 原则推广）"
 # 根因族第三次复发的治本项：ERR#27=扫到 0 个对象判 PASS；ERR#30=job skipped 判 success；
 # M1.5=套件从未创建、CI 无 job 绑定 → 无红可判 → 默认通过。三者同为「缺证据被当成有证据」。
 # 本项把「某阶段必须存在哪些套件」变成可执行断言：清单里 required=yes 的套件
@@ -391,7 +394,7 @@ else
 fi
 
 # ---------- [9] FR17.13 语音输入模板复用 ----------
-section "9/10" "FR17.13 模板复用 —— 四处确认入口必须走同一模板，禁止自建确认逻辑（TC-M15-03）"
+section "9/11" "FR17.13 模板复用 —— 四处确认入口必须走同一模板，禁止自建确认逻辑（TC-M15-03）"
 # function-spec FR17.13：语音指导每步(FR17.11)/语音速记(FR17.9)/语音提醒设定(FR17.10)/
 # 观察语音速记(FR8.9) 一律调用标准模板，**禁止各功能自建独立确认逻辑**。
 # 两条断言：
@@ -444,7 +447,7 @@ else
 fi
 
 # ---------- [10] L10n 硬编码门禁（审查问题 E · 机制先于存量） ----------
-section "10/10" "L10n 单出口 —— 视图层禁止新增中文字面量（三文件纪律；存量登记 .github/workflows/l10n-legacy-allowlist.txt）"
+section "10/11" "L10n 单出口 —— 视图层禁止新增中文字面量（三文件纪律；存量登记 .github/workflows/l10n-legacy-allowlist.txt）"
 L10N_ALLOW="$SCRIPT_DIR/l10n-legacy-allowlist.txt"
 [ -f "$L10N_ALLOW" ] || touch "$L10N_ALLOW"
 # 判定统一走 python3 显式 Unicode 码点（ERR#5WHY：`grep [一-龥]` 多字节字符区间的
@@ -479,6 +482,48 @@ EOF
     fail "视图层未登记中文字面量 $l10n_bad 处 —— 迁入 L10n.swift（三文件），或登记 $L10N_ALLOW"
   else
     pass "视图层无未登记中文字面量（存量豁免清单 $L10N_ALLOW；扫描 $l10n_scanned 行）"
+  fi
+fi
+
+# ---------- [11] 资产目录完整性 ----------
+section "11/11" "资产目录完整性 —— imageset 槽位 scale 必须 1x/2x/3x（actool 静默丢图标回归防护，ERR#28 同族）"
+ASSET_ROOT="$APP/Resources/Assets.xcassets"
+if [ ! -d "$ASSET_ROOT" ]; then
+  fail "缺少资源目录 $ASSET_ROOT —— 不得空扫判 PASS（ERR#27）"
+else
+  # 判定：scale 键存在即须 ∈ {1x,2x,3x}；某 imageset 只要有 scale 键就要求三槽齐全。
+  # AppIcon.appiconset 的条目无 scale 键（单尺寸 1024 通用）——自然豁免，不需特判。
+  a_log="$(python3 - "$ASSET_ROOT" <<'PY' 2>&1 || true
+import json, sys, pathlib
+root = pathlib.Path(sys.argv[1])
+bad, scanned = 0, 0
+for p in sorted(root.rglob("Contents.json")):
+    scanned += 1
+    try:
+        j = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        print(f"    JSON 解析失败: {p}"); bad += 1; continue
+    imgs = j.get("images")
+    if not isinstance(imgs, list):
+        continue  # colorset 等无 images 键
+    scales = [e.get("scale") for e in imgs if isinstance(e, dict) and e.get("scale") is not None]
+    if any(s not in ("1x", "2x", "3x") for s in scales):
+        print(f"    scale 非法: {p} {scales}"); bad += 1
+    elif scales and set(scales) != {"1x", "2x", "3x"}:
+        print(f"    槽位缺失: {p} {scales}"); bad += 1
+print(f"__SCANNED__ {scanned}")
+sys.exit(1 if bad else 0)
+PY
+)"
+  a_scanned="$(printf '%s\n' "$a_log" | sed -n 's/^__SCANNED__ //p' | head -1)"
+  a_bad_n="$(printf '%s\n' "$a_log" | grep -c 'scale 非法\|槽位缺失\|JSON 解析失败' || true)"
+  if [ "${a_scanned:-0}" -eq 0 ]; then
+    fail "资产扫描命中 0 个 Contents.json —— 路径漂移或判定失效，不得空扫判 PASS（ERR#27）"
+  elif [ "${a_bad_n:-0}" -gt 0 ]; then
+    printf '%s\n' "$a_log" | grep 'scale 非法\|槽位缺失\|JSON 解析失败' | head -8 | sed 's/^/    /'
+    fail "非法/缺槽 imageset ${a_bad_n} 处 —— actool 会静默丢弃，运行时图标全空"
+  else
+    pass "${a_scanned} 个 Contents.json 槽位全部合法（1x/2x/3x）"
   fi
 fi
 

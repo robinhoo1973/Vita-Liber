@@ -50,7 +50,7 @@ def write_json(path: Path, value) -> None:
 def imageset_contents(name: str) -> dict:
     return {
         "images": [
-            {"filename": f"{name}@{scale}x.png", "idiom": "universal", "scale": "x"}
+            {"filename": f"{name}@{scale}x.png", "idiom": "universal", "scale": f"{scale}x"}
             for scale in SCALES
         ],
         "info": INFO,

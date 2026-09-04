@@ -312,7 +312,10 @@ def colorset(light: str, dark: str | None) -> dict:
 
 
 def imageset(png_names: list[str]) -> dict:
-    images = [{"filename": f, "idiom": "universal", "scale": f[-5]} for f in png_names]
+    images = [
+        {"filename": f, "idiom": "universal", "scale": f.split("@")[-1].split(".")[0]}
+        for f in png_names  # "ic-add@2x.png" → "2x"
+    ]
     return {"images": images, "info": INFO}  # 彩色瓷砖：默认渲染（非 template）
 
 
