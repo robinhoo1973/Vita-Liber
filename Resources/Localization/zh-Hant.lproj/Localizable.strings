@@ -143,6 +143,12 @@
 "settings.help" = "說明與關於";
 "settings.careMode" = "關懷模式";
 "settings.voiceEntry" = "語音快速入口";
+"settings.appearance" = "外觀與主題";
+"settings.themeLight" = "淺色";
+"settings.themeDark" = "深色";
+"settings.themeSystem" = "跟隨系統";
+"settings.highContrast" = "高對比度增強";
+"settings.highContrastFooter" = "提升文字與背景的對比度，適合視力較弱的用戶";
 "reminder.emptyAppt" = "還沒有預約，記錄第一個吧";
 "reminder.takenCount" = "已服 %1$d/%2$d";
 "reminder.taken" = "已服用";

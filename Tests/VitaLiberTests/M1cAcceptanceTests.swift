@@ -142,3 +142,28 @@ final class M1cAcceptanceTests: XCTestCase {
         XCTAssertTrue(hits1.contains { $0.refID == docId }, "1 字 LIKE 兜底必须命中")
     }
 }
+
+/// FR14.4 外观与主题（tech-spec §5.28.1）：AppTheme 映射 + FR18.16 叠加规则。
+/// AppTheme 的 ColorScheme 映射依赖 SwiftUI（App 层持有）；叠加规则纯函数化以便断言。
+final class AppearanceThemeTests: XCTestCase {
+    func test_SU_M1c_FR14_主题三态映射() {
+        XCTAssertEqual(AppTheme.light.colorScheme, .light)
+        XCTAssertEqual(AppTheme.dark.colorScheme, .dark)
+        XCTAssertNil(AppTheme.system.colorScheme, "system → nil = 跟随系统")
+        XCTAssertEqual(AppTheme.allCases.count, 3)
+        // 持久化往返：rawValue 即存储字面量
+        XCTAssertEqual(AppTheme(rawValue: AppTheme.dark.rawValue), .dark)
+    }
+
+    func test_SU_M1c_FR14_高对比叠加规则与关怀回落() {
+        // 手动关 + 非关怀 → 关
+        XCTAssertFalse(AppearanceRules.highContrastEffective(highContrastEnabled: false, careMode: false))
+        // 手动开 → 开
+        XCTAssertTrue(AppearanceRules.highContrastEffective(highContrastEnabled: true, careMode: false))
+        // 关怀模式强制叠加 → 开（即便手动关）
+        XCTAssertTrue(AppearanceRules.highContrastEffective(highContrastEnabled: false, careMode: true))
+        // 关怀退出 → 回落手动选择（不落盘改写由实现保证：只读 careMode，不回写）
+        XCTAssertFalse(AppearanceRules.highContrastEffective(highContrastEnabled: false, careMode: false))
+        XCTAssertTrue(AppearanceRules.highContrastEffective(highContrastEnabled: true, careMode: true))
+    }
+}

@@ -172,6 +172,13 @@ enum L10n {
     static var settings_help: String { t("settings.help") }
     static var settings_careMode: String { t("settings.careMode") }
     static var settings_voiceEntry: String { t("settings.voiceEntry") }
+    // FR14.4 外观与主题（§5.12.1 / tech-spec §5.28.1）
+    static var settings_appearance: String { t("settings.appearance") }
+    static var settings_themeLight: String { t("settings.themeLight") }
+    static var settings_themeDark: String { t("settings.themeDark") }
+    static var settings_themeSystem: String { t("settings.themeSystem") }
+    static var settings_highContrast: String { t("settings.highContrast") }
+    static var settings_highContrastFooter: String { t("settings.highContrastFooter") }
     static var reminder_emptyAppt: String { t("reminder.emptyAppt") }
     static var reminder_takenCount: String { t("reminder.takenCount") }
     static var reminder_taken: String { t("reminder.taken") }
@@ -575,7 +582,9 @@ enum L10n {
         "settings.audit", "settings.authTitle", "settings.careMode", "settings.disclaimer",
         "settings.habits", "settings.help", "settings.privacy", "settings.pro",
         "settings.proUpgrade", "settings.quietHours", "settings.remindAdvance", "settings.restoreDefaults",
-        "settings.snooze", "settings.voiceEntry", "trend.axis.end", "trend.axis.lower",
+        "settings.snooze", "settings.voiceEntry",
+        "settings.appearance", "settings.themeLight", "settings.themeDark", "settings.themeSystem",
+        "settings.highContrast", "settings.highContrastFooter", "trend.axis.end", "trend.axis.lower",
         "trend.axis.selected", "trend.axis.start", "trend.axis.time", "trend.axis.upper",
         "trend.axis.value", "trend.band.accessibility", "trend.band.legend", "trend.chart.accessibility",
         "trend.convertedFrom", "trend.empty.hint", "trend.empty.title", "trend.excluded.accessibility",

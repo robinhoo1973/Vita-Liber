@@ -378,6 +378,16 @@ struct AppSettingsTests {
         #expect(!SettingsRules.appliesToExisting(.snoozeMinutes))
         #expect(SettingsRules.appliesToExisting(.careModeEnable))
     }
+
+    @Test func 主题键默认值_跟随系统且高对比关闭() {
+        // FR14.4（tech-spec §5.28.1）：appearance 默认 system（nil = 跟随系统）、
+        // highContrastEnabled 默认 false。落在 App 层的 AppTheme/AppearanceRules
+        // 映射与叠加规则由 App 层 XCTest（SU-M1c-FR14）覆盖。
+        #expect(AppSettingKey.appearance.defaultValue == "system")
+        #expect(AppSettingKey.highContrastEnabled.defaultValue == "false")
+        #expect(AppSettingKey.allCases.contains(.appearance))
+        #expect(AppSettingKey.allCases.contains(.highContrastEnabled))
+    }
 }
 
 // binds: SU-M1c-SEC — TC-M1c-01（敏感越权=0 一票否决）

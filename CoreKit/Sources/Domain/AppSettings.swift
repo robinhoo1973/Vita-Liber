@@ -23,6 +23,8 @@ public enum AppSettingKey: String, Sendable, CaseIterable, Codable {
     case unitSystem                // 单位制
     case reduceMotion              // 减弱动效
     case homeSort                  // 首页排序偏好
+    case appearance                // 外观主题（FR14.4）：light/dark/system
+    case highContrastEnabled       // 高对比度增强（FR14.4/FR18.16）
 
     /// 键默认值（单一事实源：新增键必须补 default，禁止 UserDefaults 直读兜底）
     public var defaultValue: String {
@@ -46,6 +48,8 @@ public enum AppSettingKey: String, Sendable, CaseIterable, Codable {
         case .unitSystem: return "metric"
         case .reduceMotion: return "false"
         case .homeSort: return "time"
+        case .appearance: return "system"
+        case .highContrastEnabled: return "false"
         }
     }
 }

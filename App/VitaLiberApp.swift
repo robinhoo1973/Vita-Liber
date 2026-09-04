@@ -1,6 +1,4 @@
 import SwiftUI
-import UIKit
-import os
 import Domain
 import Infrastructure
 import Protocols
@@ -9,10 +7,6 @@ import Protocols
 struct VitaLiberApp: App {
     private let container: AppContainer   // init 内装配，body/task 复用（信源播种等）
     @State private var appState: AppState
-    @Environment(\.scenePhase) private var scenePhase
-    /// 退后台锁屏状态（FR1.4）：scenePhase 切 background 置位，回前台由门禁遮罩接管。
-    /// 评审修正：锁定优先级在向导分支**之前**——PIN 一旦建立，向导期间退后台同样锁屏。
-    @State private var backgroundLocked = false
     @State private var reminderStore: ReminderStore
     @State private var assistantStore: AssistantStore
     @State private var settingsStore: AppSettingsStore
@@ -56,65 +50,19 @@ struct VitaLiberApp: App {
     }
 
     var body: some Scene {
+        // 门禁分支 / 生命周期补偿 / FR14.4 主题注入 均已下沉 AppRootView
+        //（@Environment 读值 + preferredColorScheme 修饰符需 View 上下文）
         WindowGroup {
-            Group {
-                if backgroundLocked || appState.needsLockScreen {
-                    LockOverlayView { backgroundLocked = false }
-                } else if !appState.onboardingFinished {
-                    OnboardingFlowView()
-                } else {
-                    RootAdaptiveView()
-                }
-            }
-            .environment(appState)
-            .environment(reminderStore)
-            .environment(assistantStore)
-            .environment(settingsStore)
-            .environment(observationState)
-            .environment(entitlementStore)
-            .environment(trendState)
-            .environment(voiceNoteState)
-            .environment(m2Hub)
-            .task {
-                await appState.bootstrap()
-                // F16 信源库种子幂等入库（离线零网络可用）
-                do { _ = try await container.guidelines.seedBundled() }
-                catch {
-                    Logger(subsystem: "com.vitaliber", category: "app").error("信源播种失败: \(error)")
-                }
-                // 四层补偿第 1 层（§5.4 V3.29）：前台启动时对账 + 首启请求通知授权
-                if appState.onboardingFinished {
-                    await reminderStore.requestNotificationAuthorization()
-                    await reminderStore.refresh(patientId: appState.currentPatientId)
-                }
-            }
-            // 四层补偿第 3 层：时区/时间显著变化 → 立即对账（View 级修饰符）
-            .onReceive(NotificationCenter.default.publisher(
-                for: UIApplication.significantTimeChangeNotification)) { _ in
-                Task {
-                    await reminderStore.refresh(patientId: appState.currentPatientId)
-                }
-            }
-        }
-        .onChange(of: scenePhase) { _, phase in
-            switch phase {
-            case .inactive, .background:
-                // FR1.4 + FR1.7：PIN 建立即锁。用 .inactive 而非 .background——
-                // 任务切换器快照在 inactive 时刻截取（遮罩必须此时已挂载），
-                // 且 XCUITest 的 press(.home) 场景下 .background 送达不可靠
-                if appState.isPinProtected { backgroundLocked = true }
-            case .active:
-                // 四层补偿第 2 层：每次回前台轻量对账
-                if appState.onboardingFinished {
-                    Task {
-                        await reminderStore.refresh(patientId: appState.currentPatientId)
-                    }
-                }
-            default:
-                break
-            }
+            AppRootView(seedBundled: { try await container.guidelines.seedBundled() })
+                .environment(appState)
+                .environment(reminderStore)
+                .environment(assistantStore)
+                .environment(settingsStore)
+                .environment(observationState)
+                .environment(entitlementStore)
+                .environment(trendState)
+                .environment(voiceNoteState)
+                .environment(m2Hub)
         }
     }
-
-
 }

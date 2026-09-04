@@ -143,6 +143,12 @@
 "settings.help" = "Help & about";
 "settings.careMode" = "Care mode";
 "settings.voiceEntry" = "Voice quick entry";
+"settings.appearance" = "Appearance & Theme";
+"settings.themeLight" = "Light";
+"settings.themeDark" = "Dark";
+"settings.themeSystem" = "Follow System";
+"settings.highContrast" = "High contrast";
+"settings.highContrastFooter" = "Boosts text-to-background contrast for users with low vision";
 "reminder.emptyAppt" = "No appointments yet — add one";
 "reminder.takenCount" = "Taken %1$d/%2$d";
 "reminder.taken" = "Taken";

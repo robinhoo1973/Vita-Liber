@@ -18,6 +18,18 @@ struct SettingsView: View {
                     .accessibilityIdentifier("SP-25.setting.\(key.rawValue)")
                 }
             }
+            // FR14.4 外观与主题（§5.12.1：三段选择器 + 高对比度开关；位置对齐 mock 我的页）
+            Section {
+                ThemeSegmentedPicker(selection: themeBinding)
+                Toggle(isOn: binding(for: .highContrastEnabled)) {
+                    Text(L10n.settings_highContrast)
+                }
+                .accessibilityIdentifier("SP-25.setting.highContrast")
+            } header: {
+                Text(L10n.settings_appearance)
+            } footer: {
+                Text(L10n.settings_highContrastFooter)
+            }
             Section(L10n.settings_habits) {
                 Text(L10n.settingsRemindAdvance(settings.values[.remindAdvanceMinutes] ?? "-"))
                 Text(L10n.settingsSnooze(settings.values[.snoozeMinutes] ?? "-"))
@@ -94,10 +106,30 @@ struct SettingsView: View {
 
     private func binding(for key: AppSettingKey) -> Binding<Bool> {
         Binding(
-            get: { toggles[key] ?? false },
+            get: {
+                switch key {
+                // 运行时真源 = AppState.careMode（驱动 CareModeMetrics/触点放大等）；
+                // DB 键为镜像。读回实际状态，避免开关显示与行为脱节（split-brain 修复）
+                case .careModeEnable: return toggles[key] ?? app.careMode
+                default: return toggles[key] ?? (settings.values[key] == "true")
+                }
+            },
             set: { newValue in
                 toggles[key] = newValue
+                if key == .careModeEnable { app.careMode = newValue }   // 双写运行时真源
                 Task { try await settings.set(newValue ? "true" : "false", for: key) }
+            })
+    }
+
+    /// FR14.4 主题绑定（tech-spec §5.28.1：值存 DB app_settings，@Observable 即时生效）
+    private var themeBinding: Binding<AppTheme> {
+        Binding(
+            get: {
+                AppTheme(rawValue: settings.values[.appearance]
+                         ?? AppSettingKey.appearance.defaultValue) ?? .system
+            },
+            set: { theme in
+                Task { try await settings.set(theme.rawValue, for: .appearance) }
             })
     }
 
@@ -105,6 +137,7 @@ struct SettingsView: View {
         switch key {
         case .careModeEnable: return L10n.settings_careMode
         case .voiceEntryVisible: return L10n.settings_voiceEntry
+        case .highContrastEnabled: return L10n.settings_highContrast
         default: return key.rawValue
         }
     }
