@@ -190,21 +190,9 @@ struct DocumentLibraryView: View {
     var body: some View {
         Group {
             if state.documents.isEmpty {
-                ContentUnavailableView(L10n.docLibraryEmpty, systemImage: "folder",
-                                       description: Text(L10n.docLibraryEmptyHint))
-                    .accessibilityIdentifier("SP-09.document.empty")
+                DocumentLibraryEmptyView()
             } else {
-                List {
-                    ForEach(state.documents) { doc in
-                        DocumentLibraryRow(doc: doc,
-                                           onSetArchived: { archived in
-                                               Task { await state.setArchived(id: doc.id, archived: archived) }
-                                           },
-                                           onSetFavorite: { favorite in
-                                               Task { await state.setFavorite(id: doc.id, favorite: favorite) }
-                                           })
-                    }
-                }
+                DocumentListView()
             }
         }
         .navigationTitle(L10n.docLibraryTitle)
@@ -391,5 +379,33 @@ private struct DocumentLibraryRow: View {
             .tint(.yellow)
         }
         .accessibilityIdentifier("SP-09.document.row.\(doc.id.uuidString)")
+    }
+}
+
+/// 空态（独立子视图：body 瘦身，类型检查单元最小化）
+private struct DocumentLibraryEmptyView: View {
+    var body: some View {
+        ContentUnavailableView(L10n.docLibraryEmpty, systemImage: "folder",
+                               description: Text(L10n.docLibraryEmptyHint))
+            .accessibilityIdentifier("SP-09.document.empty")
+    }
+}
+
+/// 列表（独立子视图：ForEach+行子视图，body 只留一次调用）
+private struct DocumentListView: View {
+    @Environment(DocumentsState.self) private var state
+
+    var body: some View {
+        List {
+            ForEach(state.documents) { doc in
+                DocumentLibraryRow(doc: doc,
+                                   onSetArchived: { archived in
+                                       Task { await state.setArchived(id: doc.id, archived: archived) }
+                                   },
+                                   onSetFavorite: { favorite in
+                                       Task { await state.setFavorite(id: doc.id, favorite: favorite) }
+                                   })
+            }
+        }
     }
 }
