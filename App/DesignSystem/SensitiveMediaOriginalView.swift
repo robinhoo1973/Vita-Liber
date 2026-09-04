@@ -81,7 +81,8 @@ struct SensitiveMediaOriginalView: View {
         .background(Color(.systemGroupedBackground))
         .onTapGesture {
             Task {
-                if session.isUnlocked || await authenticateAndUnlock() {
+                if !session.isUnlocked {
+                    _ = await authenticateAndUnlock()
                     // 认证后由 session.isUnlocked 驱动视图切换
                 }
             }

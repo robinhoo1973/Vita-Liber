@@ -99,7 +99,7 @@ struct RouteDestinationView: View {
 
         // ---- F15 ----
         case .emergencyCardConfig:
-            EmergencyCardView()
+            EmergencyCardHubView()   // 自带 hub 数据加载与选择器装配（ADR-021 单视图复用）
 
         // ---- F16 ----
         case .alertHistory:

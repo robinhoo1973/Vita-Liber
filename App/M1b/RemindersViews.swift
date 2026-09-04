@@ -205,7 +205,7 @@ struct DoseSlotCard: View {
     let onSkip: (ScheduledDose, String) -> Void
     let onSnooze: (ScheduledDose, Int) -> Void
     let onForget: (ScheduledDose) -> Void
-    let onDiscomfort: (ScheduledDose, String) -> Void
+    let onDiscomfort: (ScheduledDose, String?) -> Void
     let onSlotAllTaken: () -> Void
     let careMode: Bool
 
