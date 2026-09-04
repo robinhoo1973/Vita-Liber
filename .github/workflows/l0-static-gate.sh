@@ -294,7 +294,7 @@ else
     # ERR#27：0 个金样绝不判 PASS——空目录曾让本项长期假绿
     warn "目录 $FIXTURES 内 0 个 JSON——金样尚未入库或路径漂移，本项未实际校验"
   else
-    pass "${j_total} 个 JSON 全部可解析（$FIXTURES）"
+    pass "${j_total} 个 JSON 全部可解析（${FIXTURES}）"
   fi
 fi
 
@@ -389,7 +389,7 @@ else
   elif [ "$s_missing" -gt 0 ]; then
     fail "必过套件缺失 ${s_missing}/${s_req} 个 —— 阶段门禁形同虚设，不得进入下一阶段"
   else
-    pass "${s_req} 个必过套件全部存在（$SUITE_MANIFEST）"
+    pass "${s_req} 个必过套件全部存在（${SUITE_MANIFEST}）"
   fi
 fi
 
@@ -481,7 +481,7 @@ EOF
   elif [ "$l10n_bad" -gt 0 ]; then
     fail "视图层未登记中文字面量 $l10n_bad 处 —— 迁入 L10n.swift（三文件），或登记 $L10N_ALLOW"
   else
-    pass "视图层无未登记中文字面量（存量豁免清单 $L10N_ALLOW；扫描 $l10n_scanned 行）"
+    pass "视图层无未登记中文字面量（存量豁免清单 ${L10N_ALLOW}；扫描 $l10n_scanned 行）"
   fi
 fi
 

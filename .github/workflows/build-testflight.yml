@@ -151,7 +151,7 @@ jobs:
             B="$RUNNER_TEMP/$f.p12"
             [ -s "$B" ] || { echo "::error::$f.p12 解码为空"; exit 1; }
             FIRST="$(xxd -p -l 1 "$B")"
-            [ "$FIRST" = "30" ] || { echo "::error::$f.p12 首字节 0x$FIRST（期望 0x30）——非合法 PKCS12"; exit 1; }
+            [ "$FIRST" = "30" ] || { echo "::error::$f.p12 首字节 0x${FIRST}（期望 0x30）——非合法 PKCS12"; exit 1; }
           done
           echo "p12 解码校验通过"
           security create-keychain -p "$KC_PASS" "$KC" 2>/dev/null || true
