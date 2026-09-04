@@ -21,7 +21,9 @@
          SFSpeechRecognizer → NSSpeechRecognitionUsageDescription；
          语音输入麦克风 → NSMicrophoneUsageDescription；
          拍摄病历文档 → NSCameraUsageDescription；
-         相册选图 → NSPhotoLibraryUsageDescription。 -->
+         相册选图 → NSPhotoLibraryUsageDescription；
+         门禁/敏感媒体生物识别（V3.56 LocalAuthGateUnlocker）→ NSFaceIDUsageDescription——
+         缺失时系统对 App 静默禁用 Face ID，deviceOwnerAuthentication 退回纯密码键盘。 -->
     <key>NSSpeechRecognitionUsageDescription</key>
     <string>语音识别用于在您允许时将语音输入转换为文字，以便录入用药和症状信息。所有识别均在设备端完成。</string>
     <key>NSMicrophoneUsageDescription</key>
@@ -30,6 +32,8 @@
     <string>相机用于拍摄病历、处方等文档图片，以便识别与归档。</string>
     <key>NSPhotoLibraryUsageDescription</key>
     <string>相册用于选择病历、处方等文档图片，以便识别与归档。</string>
+    <key>NSFaceIDUsageDescription</key>
+    <string>面容 ID 用于解锁青囊书并保护敏感医疗资料，仅在你主动验证时使用。</string>
     <key>UISupportedInterfaceOrientations</key>
     <array>
         <string>UIInterfaceOrientationPortrait</string>
