@@ -73,7 +73,7 @@ public actor PDFExportService {
             let filtered = docs
             var records: [(String, String, Date, String)] = []
             for doc in filtered {
-                let detail = doc.fields.map { "\($0.displayLabel): \($0.value)" }.joined(separator: "\n")
+                let detail = (doc.fields ?? []).map { "\($0.displayLabel): \($0.value)" }.joined(separator: "\n")
                 records.append(("资料", doc.title, Date(timeIntervalSince1970: doc.occurredAt), detail))
             }
             // 观察记录（描述为 C 级自述文本；敏感媒体不出正文）
@@ -155,8 +155,7 @@ public actor PDFExportService {
         ("\(count) 条记录" as NSString).draw(at: CGPoint(x: 60, y: 210), withAttributes: [.font: UIFont.systemFont(ofSize: 14)])
         let disclaimer = "本导出仅呈现你确认过的记录，不构成医疗建议。紧急情况请拨打 120。"
         let rect = CGRect(x: 60, y: 720, width: bounds.width - 120, height: 80)
-        (disclaimer as NSString).draw(with: rect, options: .usesLineFragmentOrigin,
-                                      attributes: [.font: UIFont.systemFont(ofSize: 11)])
+        (disclaimer as NSString).draw(in: rect, withAttributes: [.font: UIFont.systemFont(ofSize: 11)])
     }
 
     private func drawTOC(_ ctx: UIGraphicsPDFRendererContext, records: [(kind: String, title: String, at: Date, detail: String)]) {
@@ -182,8 +181,7 @@ public actor PDFExportService {
                                                                               withAttributes: [.font: UIFont.systemFont(ofSize: 11)])
         y += 30
         let rect = CGRect(x: 60, y: y, width: bounds.width - 120, height: bounds.height - y - 100)
-        (record.detail as NSString).draw(with: rect, options: .usesLineFragmentOrigin,
-                                         attributes: [.font: UIFont.systemFont(ofSize: 12)])
+        (record.detail as NSString).draw(in: rect, withAttributes: [.font: UIFont.systemFont(ofSize: 12)])
         ("\(page)" as NSString).draw(at: CGPoint(x: bounds.width - 80, y: bounds.height - 50),
                                      withAttributes: [.font: UIFont.systemFont(ofSize: 10)])
     }

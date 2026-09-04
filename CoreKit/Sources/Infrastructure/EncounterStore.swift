@@ -134,7 +134,7 @@ public actor EncounterStore {
                 guard let entry = try? JSONDecoder().decode(TimelineDocumentEntry.self, from: json) else { // try?-ok: 损坏的 meta_json 跳过该行（历史行逐条降级，§7 语义）
                     continue
                 }
-                let unconfirmed = entry.fields.filter { !$0.isConfirmed }.count
+                let unconfirmed = (entry.fields ?? []).filter { !$0.isConfirmed }.count
                 if unconfirmed > 0, let id = UUID(uuidString: row["id"] as String) {
                     out.append((id, unconfirmed))
                 }

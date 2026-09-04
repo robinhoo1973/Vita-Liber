@@ -62,7 +62,7 @@ struct HomeView: View {
     // ③ 待确认 OCR 数：时间轴投影中未确认字段计数（BR-003 未确认不进正式区，
     // 首页必须持续催办直至处理，72h 置顶规则由 FR2.3 承接）
     private var pendingOCRCount: Int {
-        app.timeline.reduce(0) { $0 + $1.fields.filter { !$0.isConfirmed }.count }
+        app.timeline.reduce(0) { $0 + ($1.fields ?? []).filter { !$0.isConfirmed }.count }
     }
 
     // ④ 即将到期（7 天窗口）：预约 + 药品临期（FR9.11 批次效期在 Phase 2 并入）

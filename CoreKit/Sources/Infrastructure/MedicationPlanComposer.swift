@@ -113,12 +113,11 @@ public actor MedicationPlanComposer {
                                  initialLot.expireAt?.timeIntervalSince1970,
                                  initialLot.storageNote,
                                  now.timeIntervalSince1970])
-            // ⑤ 初始分配（安全线基线 = total_units；确认线 = 0 尚未服药）
-            try db.execute(sql: """
-                INSERT INTO dose_lot_allocation (dose_log_id, stock_lot_id, planned_units, confirmed_units)
-                VALUES (?, ?, ?, 0)
-                """, arguments: ["plan-init-\(planId.uuidString)", lotId.uuidString,
-                                 initialLot.totalUnits])
+            // ⑤ 初始分配：安全线基线 = stock_lot.remaining_plan_units = total_units
+            // （已在 ④ 写入）。dose_lot_allocation 的 dose_log_id 是 medication_dose_log
+            // 外键——基线没有可引用的真实剂量行，逐剂分配由确认时的
+            // applyResolutionOnLots 按 FR9.8.2 矩阵记账（不在建计划时伪造剂量行，
+            // 否则零确认计划会被 materializeMissed 误判为漏服）。
             // 生命周期事件：started（FR9.15 历史起点）
             try db.execute(sql: """
                 INSERT INTO plan_lifecycle_event (id, plan_id, kind, occurred_at, note)
@@ -131,11 +130,11 @@ public actor MedicationPlanComposer {
     // MARK: - FR9.15 计划生命周期（状态变更 + 历史事件同事务）
 
     public func pausePlan(planId: UUID, note: String? = nil, now: Date = Date()) async throws {
-        try await setPlanStatus(planId, to: "paused", note: note, kind: "paused", now: now)
+        try await setPlanStatus(planId: planId, to: "paused", note: note, kind: "paused", now: now)
     }
 
     public func resumePlan(planId: UUID, note: String? = nil, now: Date = Date()) async throws {
-        try await setPlanStatus(planId, to: "active", note: note, kind: "resumed", now: now)
+        try await setPlanStatus(planId: planId, to: "active", note: note, kind: "resumed", now: now)
     }
 
     public func endPlan(planId: UUID, reason: PlanEndReason, now: Date = Date()) async throws {

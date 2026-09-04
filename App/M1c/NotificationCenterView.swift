@@ -154,7 +154,7 @@ struct NotificationCenterView: View {
     }
 
     private var pendingOCRCount: Int {
-        app.timeline.reduce(0) { $0 + $1.fields.filter { !$0.isConfirmed }.count }
+        app.timeline.reduce(0) { $0 + ($1.fields ?? []).filter { !$0.isConfirmed }.count }
     }
 
     private var allEmpty: Bool {

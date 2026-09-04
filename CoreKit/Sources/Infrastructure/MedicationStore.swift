@@ -666,7 +666,7 @@ public actor MedicationStore: DoseSource {
                 """, arguments: [from.timeIntervalSince1970, to.timeIntervalSince1970])
             return rows.map { row in
                 FamilyPendingDose(
-                    patientId: (row["patient_id"] as String).flatMap(UUID.init(uuidString:)) ?? UUID(),
+                    patientId: UUID(uuidString: row["patient_id"] as String) ?? UUID(),
                     patientName: row["patient_name"] as String,
                     medicationName: row["generic_name"] as String,
                     spec: row["spec"] as String?,

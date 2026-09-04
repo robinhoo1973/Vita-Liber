@@ -287,7 +287,7 @@ final class AppState {
     /// 跨文档聚合全部未确认字段（72h 置顶由视图层按 entry.occurredAt 排序展示）
     func pendingOcrFields() -> [(entry: TimelineDocumentEntry, field: CandidateField)] {
         timeline.flatMap { entry in
-            entry.fields
+            (entry.fields ?? [])
                 .filter { !$0.isConfirmed && $0.grade != .rejected }
                 .map { (entry, $0) }
         }
@@ -296,21 +296,21 @@ final class AppState {
     /// FR6.8 逐字段确认（队列与单文档工作台共用同一写路径）
     func confirmTimelineField(entryId: UUID, fieldId: UUID) {
         guard let i = timeline.firstIndex(where: { $0.id == entryId }),
-              let j = timeline[i].fields.firstIndex(where: { $0.id == fieldId }) else { return }
+              let j = (timeline[i].fields ?? []).firstIndex(where: { $0.id == fieldId }) else { return }
         _ = timeline[i].fields[j].confirm()
         persistTimeline()
     }
 
     func reviseTimelineField(entryId: UUID, fieldId: UUID, to value: String) {
         guard let i = timeline.firstIndex(where: { $0.id == entryId }),
-              let j = timeline[i].fields.firstIndex(where: { $0.id == fieldId }) else { return }
+              let j = (timeline[i].fields ?? []).firstIndex(where: { $0.id == fieldId }) else { return }
         _ = timeline[i].fields[j].revise(to: value, by: owner?.displayName ?? "owner", at: Date())
         persistTimeline()
     }
 
     func rejectTimelineField(entryId: UUID, fieldId: UUID) {
         guard let i = timeline.firstIndex(where: { $0.id == entryId }),
-              let j = timeline[i].fields.firstIndex(where: { $0.id == fieldId }) else { return }
+              let j = (timeline[i].fields ?? []).firstIndex(where: { $0.id == fieldId }) else { return }
         timeline[i].fields[j].reject()
         persistTimeline()
     }
@@ -324,7 +324,7 @@ final class AppState {
     func confirmAllPendingFields() {
         guard queueAllConfirmAllowed else { return }
         for (idx, entry) in timeline.enumerated() {
-            for (j, field) in entry.fields.enumerated() where !field.isConfirmed && field.grade != .rejected {
+            for (j, field) in (entry.fields ?? []).enumerated() where !field.isConfirmed && field.grade != .rejected {
                 _ = timeline[idx].fields[j].confirm()
             }
         }
