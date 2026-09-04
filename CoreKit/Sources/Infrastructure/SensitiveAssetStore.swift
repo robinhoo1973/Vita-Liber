@@ -63,6 +63,9 @@ public actor SensitiveAssetStore: SensitiveAssetStoring {
             try data.write(to: originalURL, options: [.atomic, .completeFileProtection])
             // §5.10：模糊版 = CIGaussianBlur(radius:12)，锁定 UI 永远只读 blur 版。
             // 压缩为纯 CPU 密集：detached 跳出 actor 执行器，保存期间不阻塞列表读取。
+            // 局部 let 快照再捕获（评审修正）：闭包内不引用 self 属性——
+            // actor 属性在 @Sendable 闭包中要求显式 self 且受隔离检查。
+            let compressor = self.compressor
             let blurSpec = ThumbnailSpec(maxDimension: 320, blurRadius: 12, quality: 0.6)
             let blur = try await Task.detached(priority: .userInitiated) {
                 try await compressor.generateThumbnail(data, spec: blurSpec)

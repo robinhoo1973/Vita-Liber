@@ -80,7 +80,7 @@ private struct SHA256Engine {
     }
 
     func finalize() -> [UInt8] {
-        var engine = self
+        let engine = self
         var msg = engine.buffer
         let lenBits = engine.totalLen * 8
         msg.append(0x80)

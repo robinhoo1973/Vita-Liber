@@ -287,22 +287,20 @@ struct ObservationCreateSheet: View {
             .onChange(of: pickerItems) { _, items in
                 loadGeneration += 1
                 let gen = loadGeneration
+                let cameraCount = cameraData.count
                 loadingPicker = true
-                Task.detached(priority: .userInitiated) {
-                    var loaded = await MediaImport.load(items)
-                    let thumbs = loaded.compactMap { MediaImport.downsample($0) }
-                    await MainActor.run {
-                        guard gen == loadGeneration else { return }   // 旧代结果作废（评审修正：曾发生竞态覆盖）
-                        // 跨源上限钳制（评审修正）：相册选择本身不受相机已拍数约束，
-                        // 超限截断，总量恒 ≤ maxPhotos
-                        let allowed = max(0, maxPhotos - cameraData.count)
-                        if loaded.count > allowed {
-                            loaded = Array(loaded.prefix(allowed))
-                        }
-                        pickerData = loaded
-                        pickerThumbs = Array(thumbs.prefix(allowed))
-                        loadingPicker = false
-                    }
+                // MainActor Task（评审修正）：不用 Task.detached——@Sendable 闭包捕获
+                // 视图 @State 在 Swift 6 严格并发下有隔离风险；加载与下采样在
+                // MediaImport.loadWithThumbnails 的非隔离上下文中执行，只回传 Sendable Data。
+                Task {
+                    let (loaded, thumbsData) = await MediaImport.loadWithThumbnails(items)
+                    guard gen == loadGeneration else { return }   // 旧代结果作废（评审修正：曾发生竞态覆盖）
+                    // 跨源上限钳制（评审修正）：相册选择本身不受相机已拍数约束，
+                    // 超限截断，总量恒 ≤ maxPhotos
+                    let allowed = max(0, maxPhotos - cameraCount)
+                    pickerData = Array(loaded.prefix(allowed))
+                    pickerThumbs = thumbsData.prefix(allowed).compactMap(UIImage.init(data:))
+                    loadingPicker = false
                 }
             }
             .onAppear {
