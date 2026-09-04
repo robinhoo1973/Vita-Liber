@@ -50,7 +50,7 @@ public actor PDFExportService {
 
     /// 收集导出数据（按维度过滤；敏感媒体只出元数据与 C 级确认文本——BR-007/008）
     private func collect(_ request: ExportRequest) async throws -> (documents: [TimelineDocumentEntry], records: [(kind: String, title: String, at: Date, detail: String)]) {
-        try await writer.read { db -> ([TimelineDocumentEntry], [(String, String, Date, String)]) in
+        try await writer.read { db in
             var docs: [TimelineDocumentEntry] = []
             var dateClause = ""
             var args: [DatabaseValueConvertible] = [request.patientId.uuidString]
