@@ -67,7 +67,7 @@ final class M2HubStore {
     @MainActor
     private func loadSection<T>(patientId: UUID, label: String,
                                 fetch: () async throws -> T,
-                                commit: (T) -> Void) async {
+                                commit: @MainActor (T) -> Void) async {
         do {
             let value = try await fetch()
             guard loadingPatientId == patientId else { return }
