@@ -6,8 +6,8 @@ import Protocols
 
 /// F11 时间轴 GRDB 联合查询（§5.30）：八类事件投影，游标分页 date DESC / id DESC。
 /// 不落物化表——查询即投影，复用各表 idx_*_patient_date 索引；
-/// 成员隔离 BR-001 由 SQL 层强制。各表取 limit+1 候选，合并后由 Domain 语义
-/// 统一排序 + 游标截取（游标过滤在合并后做，保证跨表分页不重不漏）。
+/// 成员隔离 BR-001 由 SQL 层强制。单条 UNION ALL 全局排序 + LIMIT 精确取页，
+/// 游标谓词下推各分支（date < ? OR (date = ? AND id < ?)），保证跨表分页不重不漏。
 public actor TimelineQueryStore {
     private let writer: any DatabaseWriter
 
@@ -34,7 +34,7 @@ public actor TimelineQueryStore {
             // 每分支占位符序：patient_id + 游标三元组（date/date/id）——逐分支重复
             func branch(kind: String, sql: String) {
                 branches.append(sql)
-                args.append(contentsOf: [member.uuidString, cursorDate, cursorDate, cursorId])
+                args.append(contentsOf: [member.uuidString, cursorDate, cursorDate, cursorId] as [DatabaseValueConvertible])
             }
             if kinds.contains(.encounter) {
                 branch(kind: "encounter", sql: """
