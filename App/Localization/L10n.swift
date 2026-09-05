@@ -357,7 +357,6 @@ enum L10n {
     static var claim_summary: String { t("claim.summary") }
     static var claim_createTitle: String { t("claim.createTitle") }
     static var claim_save: String { t("claim.save") }
-    static var helpcard_title: String { t("helpcard.title") }
     static var helpcard_defaultFilename: String { t("helpcard.defaultFilename") }
     static var f19_sendA11y: String { t("f19.sendA11y") }
     static var planUnreadable: String { t("plan.unreadable") }
