@@ -43,11 +43,12 @@ public actor ObservationStore {
 
     /// FR8.11 观察详情页单行投影（与 list 同映射——详情页与列表字段不得分叉）。
     public func fetch(id: UUID) async throws -> ObservationEvent? {
-        try await writer.read { db in
-            guard let row = try Row.fetchOne(db, sql: "SELECT * FROM observation WHERE id = ?",
-                                             arguments: [id.uuidString]) else { return nil }
-            return Self.rowToEvent(row, memberId: (row["patient_id"] as String).flatMap(UUID.init(uuidString:)) ?? UUID())
+        let row = try await writer.read { db in
+            try Row.fetchOne(db, sql: "SELECT * FROM observation WHERE id = ?",
+                             arguments: [id.uuidString])
         }
+        guard let row else { return nil }
+        return Self.rowToEvent(row, memberId: (row["patient_id"] as String).flatMap(UUID.init(uuidString:)) ?? UUID())
     }
 
     /// FR8.7 事后补字段（详情页行内编辑写回）：只更新提交的列 + updated_at。

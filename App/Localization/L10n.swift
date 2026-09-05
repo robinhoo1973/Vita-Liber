@@ -102,6 +102,32 @@ enum L10n {
     static var inventory_approxDays: String { t("inventory.approxDays") }
     static var inventory_noPlanHint: String { t("inventory.noPlanHint") }
     static var inventory_fixCount: String { t("inventory.fixCount") }
+    // SP-17 批次详情/编辑（ui-ux §5.22.1）
+    static var lotDetailLoadFailed: String { t("lot.detail.loadFailed") }
+    static var lotDiscardTitle: String { t("lot.discard.title") }
+    static var lotDiscard: String { t("lot.discard") }
+    static var lotDiscardDone: String { t("lot.discard.done") }
+    static var lotArchiveTitle: String { t("lot.archive.title") }
+    static var lotTotalUnits: String { t("lot.totalUnits") }
+    static var lotOpenedAt: String { t("lot.openedAt") }
+    static var lotExpireAt: String { t("lot.expireAt") }
+    static var lotExpireUnknown: String { t("lot.expireUnknown") }
+    static var lotStorage: String { t("lot.storage") }
+    static var lotLastReconciled: String { t("lot.lastReconciled") }
+    static var lotExpiredBadge: String { t("lot.expiredBadge") }
+    static var lotEdit: String { t("lot.edit") }
+    static var lotEditTitle: String { t("lot.edit.title") }
+    static var lotEditFailed: String { t("lot.edit.failed") }
+    static var lotUnitKind: String { t("lot.unitKind") }
+    static var lotStatusActive: String { t("lot.status.active") }
+    static var lotStatusDepleted: String { t("lot.status.depleted") }
+    static var lotStatusExpired: String { t("lot.status.expired") }
+    static var lotStatusDiscarded: String { t("lot.status.discarded") }
+    static var lotStorageFridge: String { t("lot.storage.fridge") }
+    static var lotStorageNightstand: String { t("lot.storage.nightstand") }
+    static var lotStorageCabinet: String { t("lot.storage.cabinet") }
+    static var lotStorageOther: String { t("lot.storage.other") }
+    static func lotUnitName(_ kind: String) -> String { t("lot.unit.\(kind)") }
     static var inventory_reconcileTitle: String { t("inventory.reconcileTitle") }
     static var inventory_reportTitle: String { t("inventory.reportTitle") }
     static var inventory_reportBlocked: String { t("inventory.reportBlocked") }
@@ -658,6 +684,30 @@ enum L10n {
         "immunization.pending", "immunization.provider", "immunization.title", "immunization.vaccineName",
         "inventory.approxDays", "inventory.bookValue", "inventory.confirmWrite", "inventory.dualLine",
         "inventory.empty", "inventory.emptyHint", "inventory.expiry", "inventory.fixCount",
+        "lot.detail.loadFailed",
+        "lot.discard.title",
+        "lot.discard",
+        "lot.discard.done",
+        "lot.archive.title",
+        "lot.totalUnits",
+        "lot.openedAt",
+        "lot.expireAt",
+        "lot.expireUnknown",
+        "lot.storage",
+        "lot.lastReconciled",
+        "lot.expiredBadge",
+        "lot.edit",
+        "lot.edit.title",
+        "lot.edit.failed",
+        "lot.unitKind",
+        "lot.status.active",
+        "lot.status.depleted",
+        "lot.status.expired",
+        "lot.status.discarded",
+        "lot.storage.fridge",
+        "lot.storage.nightstand",
+        "lot.storage.cabinet",
+        "lot.storage.other",
         "inventory.monthlySuffix", "inventory.noPlanHint", "inventory.physical", "inventory.reconcileConfirm",
         "inventory.reconcileEqual", "inventory.reconcileLess", "inventory.reconcileMore", "inventory.reconcileTitle",
         "inventory.reportBlocked", "inventory.reportFact", "inventory.reportTitle", "inventory.tier14",

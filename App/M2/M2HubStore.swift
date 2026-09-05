@@ -133,6 +133,19 @@ final class M2HubStore {
 
     // MARK: - 药箱
 
+    // MARK: - SP-17 批次详情/编辑
+
+    func fetchLot(id: UUID) async throws -> MedicationStore.LotRow? {
+        try await meds.fetchLot(id: id)
+    }
+
+    func updateLot(id: UUID, totalUnits: Double, unitKind: String, openedAt: Date?,
+                   expireAt: Date?, storageNote: String?, status: String) async throws {
+        try await meds.updateLot(id: id, totalUnits: totalUnits, unitKind: unitKind,
+                                 openedAt: openedAt, expireAt: expireAt,
+                                 storageNote: storageNote, status: status)
+    }
+
     func reconcileLot(item: MedicationStore.InventorySummaryItem, physicalCount: Double) async {
         do {
             try await meds.reconcileLot(lotId: item.lotId, physicalCount: physicalCount, at: Date())

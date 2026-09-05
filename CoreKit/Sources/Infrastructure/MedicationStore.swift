@@ -284,6 +284,78 @@ public actor MedicationStore: DoseSource {
         }
     }
 
+    /// SP-17 批次详情行（FR9.10 档案完整字段 + FR9.8 双轨库存口径）
+    public struct LotRow: Sendable, Equatable, Identifiable {
+        public var lotId: UUID
+        public var medicationName: String
+        public var spec: String?
+        public var unitKind: String
+        public var totalUnits: Double
+        public var remainingPlanUnits: Double
+        public var remainingConfirmedUnits: Double
+        public var openedAt: Date?
+        public var expireAt: Date?
+        public var storageNote: String?
+        public var status: String
+        public var lastReconciledAt: Date
+        public var id: UUID { lotId }
+        public init(lotId: UUID, medicationName: String, spec: String?, unitKind: String,
+                    totalUnits: Double, remainingPlanUnits: Double, remainingConfirmedUnits: Double,
+                    openedAt: Date?, expireAt: Date?, storageNote: String?, status: String,
+                    lastReconciledAt: Date) {
+            self.lotId = lotId; self.medicationName = medicationName; self.spec = spec
+            self.unitKind = unitKind; self.totalUnits = totalUnits
+            self.remainingPlanUnits = remainingPlanUnits
+            self.remainingConfirmedUnits = remainingConfirmedUnits
+            self.openedAt = openedAt; self.expireAt = expireAt
+            self.storageNote = storageNote; self.status = status
+            self.lastReconciledAt = lastReconciledAt
+        }
+    }
+
+    /// SP-17 批次详情单行投影（药箱行 → 详情页；含已过期/废弃批次——详情页
+    /// 按状态分组展示，列表只出 active）
+    public func fetchLot(id: UUID) async throws -> LotRow? {
+        try await writer.read { db in
+            guard let row = try Row.fetchOne(db, sql: """
+                SELECT l.*, m.generic_name, m.spec
+                FROM stock_lot l JOIN medication m ON m.id = l.medication_id
+                WHERE l.id = ?
+                """, arguments: [id.uuidString]) else { return nil }
+            return LotRow(lotId: UUID(uuidString: row["id"] as String) ?? UUID(),
+                          medicationName: row["generic_name"] as String,
+                          spec: row["spec"] as String?,
+                          unitKind: row["unit_kind"] as String,
+                          totalUnits: row["total_units"] as Double,
+                          remainingPlanUnits: row["remaining_plan_units"] as Double,
+                          remainingConfirmedUnits: row["remaining_confirmed_units"] as Double,
+                          openedAt: (row["opened_at"] as Double?).map(Date.init(timeIntervalSince1970:)),
+                          expireAt: (row["expire_at"] as Double?).map(Date.init(timeIntervalSince1970:)),
+                          storageNote: row["storage_note"] as String?,
+                          status: row["status"] as String,
+                          lastReconciledAt: Date(timeIntervalSince1970: row["last_reconciled_at"] as Double))
+        }
+    }
+
+    /// SP-17 批次编辑写回：表单预填当前值后全字段 SET（效期/位置可清空=未知，
+    /// 清空项进批次补录待办 FR9.10）。
+    public func updateLot(id: UUID, totalUnits: Double, unitKind: String,
+                          openedAt: Date?, expireAt: Date?, storageNote: String?,
+                          status: String, now: Date = Date()) async throws {
+        try await writer.write { db in
+            try db.execute(sql: """
+                UPDATE stock_lot SET total_units = ?, unit_kind = ?, opened_at = ?,
+                  expire_at = ?, storage_note = ?, status = ?
+                WHERE id = ?
+                """, arguments: [totalUnits, unitKind, openedAt?.timeIntervalSince1970,
+                                 expireAt?.timeIntervalSince1970, storageNote, status,
+                                 id.uuidString])
+            guard db.changesCount > 0 else {
+                throw StoreError.notFound
+            }
+        }
+    }
+
     /// 盘点归真（FR9.8.5 往返）：写入**用户确认后的**实物清点，两线同时重置为
     /// 物理真值 + 记审计。归真必须显式调用且经确认（Domain 侧 `needsConfirmation`
     /// 已判差异非零），本方法不自行裁决差异——裁决发生在调用方确认之后。

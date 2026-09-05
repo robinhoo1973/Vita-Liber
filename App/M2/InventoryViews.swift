@@ -28,8 +28,11 @@ struct InventoryListView: View {
                     .accessibilityIdentifier("FR9.8.inventory.empty")
             } else {
                 List(items) { item in
-                    InventoryRow(item: item, onReconcile: onReconcile)
-                        .accessibilityIdentifier("FR9.8.inventory.row")
+                    // SP-17：批次卡 → 详情页（编辑/盘点/废弃经详情页单宿主）
+                    NavigationLink(value: AppRoute.stockLotDetail(item.lotId)) {
+                        InventoryRow(item: item, onReconcile: onReconcile)
+                    }
+                    .accessibilityIdentifier("FR9.8.inventory.row")
                 }
             }
         }

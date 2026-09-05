@@ -167,11 +167,21 @@ struct RouteDestinationView: View {
         case .observationDetail(let id):
             ObservationDetailView(observationId: id)
 
+        // ---- SP-17 批次详情/编辑（V3.65 实装：药箱批次卡 → 详情 → 编辑/
+        //      盘点/废弃；过期批次零用药建议 BR-006） ----
+        case .stockLotDetail(let id):
+            StockLotDetailView(lotId: id)
+        case .stockLotEdit(let id):
+            if let id {
+                StockLotDetailView(lotId: id)   // 编辑经详情页 sheet 呈现（单一宿主，防双弹）
+            } else {
+                RouteFallbackView(route: route)
+            }
+
         // ---- 尚未落地的页面：可见的「即将上线」提示（§5.45 缺路由降级
         //      不 crash）——审查修复：原渲染所属 Tab 模块根导致栈内套娃
         //      （用户在时间轴点观察项会「推进」一个一模一样的时间轴副本） ----
-        case .stockLotDetail, .stockLotEdit,
-             .preferences,
+        case .preferences,
              .privacyAuthorization, .guidelineSourceDetail:
             RouteFallbackView(route: route)
         }
