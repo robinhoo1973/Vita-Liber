@@ -375,6 +375,11 @@
 "alert.openOriginal" = "開啟原文";
 "alert.linkChecked" = "連結檢查日期 %@";
 "alert.sourceTitle" = "參考範圍來源";
+"gsDetail.notFound" = "這條信源條目不可用";
+"gsDetail.metric" = "指標：%@";
+"gsDetail.thresholds" = "預警閾值（照抄原文，禁止改寫）";
+"gsDetail.note" = "醫院報告自帶參考範圍（A 級）始終優先於本信源庫通用值（B 級）。閾值數字照抄權威發布原文。";
+
 "emergency.write.title" = "寫入系統醫療急救卡";
 "emergency.write.subtitle" = "鎖屏無需解鎖即可被急救人員看到。我們提供分步引導，內容由你親自到系統裡填寫。";
 "emergency.viewGuide" = "查看分步引導";

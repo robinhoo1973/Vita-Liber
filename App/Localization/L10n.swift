@@ -598,6 +598,11 @@ enum L10n {
         t("alert.linkChecked").replacingOccurrences(of: "%@", with: date)
     }
     static var alertSourceTitle: String { t("alert.sourceTitle") }
+    // FR16.3/16.4 信源原文详情页
+    static var gsDetailNotFound: String { t("gsDetail.notFound") }
+    static func gsDetailMetric(_ key: String) -> String { String(format: t("gsDetail.metric"), key) }
+    static var gsDetailThresholds: String { t("gsDetail.thresholds") }
+    static var gsDetailNote: String { t("gsDetail.note") }
 
     // MARK: - L10n 清偿批五 · 急救卡（F15）
     static var emergencyWriteTitle: String { t("emergency.write.title") }
@@ -681,7 +686,11 @@ enum L10n {
         "ai.refusedNoEvidence",
         "ai.source", "ai.uncertain", "alert.empty.hint", "alert.empty.title",
         "alert.linkChecked", "alert.openOriginal", "alert.openSource", "alert.severity",
-        "alert.sourceTitle", "backup.checksum", "backup.create", "backup.degrade.checksum",
+        "alert.sourceTitle",
+        "gsDetail.notFound",
+        "gsDetail.metric",
+        "gsDetail.thresholds",
+        "gsDetail.note", "backup.checksum", "backup.create", "backup.degrade.checksum",
         "backup.degrade.noSpace", "backup.degrade.notSignedIn", "backup.exportedName", "backup.restore",
         "backup.restored", "backup.scopeNote", "backup.title", "care.footer",
         "care.parameters.readback", "care.parameters.section", "care.parameters.sos",

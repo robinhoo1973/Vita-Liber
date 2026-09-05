@@ -156,30 +156,33 @@ struct GuidelineSourceListView: View {
 
     var body: some View {
         List(entries, id: \.id) { entry in
-            VStack(alignment: .leading, spacing: 6) {
-                Text(entry.title).font(.subheadline).bold()
-                Text("\(entry.org) · \(entry.version) · \(entry.clauseRef)")
-                    .font(.caption).foregroundStyle(.secondary)
-                HStack(spacing: 12) {
-                    if let lo = entry.l1Low { thresholdText("L1 ≥ \(MedicalNumberFormat.quantity(lo))") }
-                    if let hi = entry.l1High { thresholdText("L1 ≤ \(MedicalNumberFormat.quantity(hi))") }
-                    if let lo = entry.l2Low { thresholdText("L2 ≥ \(MedicalNumberFormat.quantity(lo))") }
-                    if let hi = entry.l2High { thresholdText("L2 ≤ \(MedicalNumberFormat.quantity(hi))") }
-                    if let lo = entry.l3Low { thresholdText("L3 ≥ \(MedicalNumberFormat.quantity(lo))") }
-                    if let hi = entry.l3High { thresholdText("L3 ≤ \(MedicalNumberFormat.quantity(hi))") }
+            // FR16.3：阈值出处条目原文可点开 → 信源原文详情页
+            NavigationLink(value: AppRoute.guidelineSourceDetail(entry.id)) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(entry.title).font(.subheadline).bold()
+                    Text("\(entry.org) · \(entry.version) · \(entry.clauseRef)")
+                        .font(.caption).foregroundStyle(.secondary)
+                    HStack(spacing: 12) {
+                        if let lo = entry.l1Low { thresholdText("L1 ≥ \(MedicalNumberFormat.quantity(lo))") }
+                        if let hi = entry.l1High { thresholdText("L1 ≤ \(MedicalNumberFormat.quantity(hi))") }
+                        if let lo = entry.l2Low { thresholdText("L2 ≥ \(MedicalNumberFormat.quantity(lo))") }
+                        if let hi = entry.l2High { thresholdText("L2 ≤ \(MedicalNumberFormat.quantity(hi))") }
+                        if let lo = entry.l3Low { thresholdText("L3 ≥ \(MedicalNumberFormat.quantity(lo))") }
+                        if let hi = entry.l3High { thresholdText("L3 ≤ \(MedicalNumberFormat.quantity(hi))") }
+                    }
+                    if let url = URL(string: entry.citationUrl), !entry.citationUrl.isEmpty {
+                        Link(L10n.alertOpenOriginal, destination: url)
+                            .font(.caption)
+                            .frame(minHeight: 44)
+                            .accessibilityIdentifier("F16.guideline.sourceLink")
+                    }
+                    Text(L10n.alertLinkChecked(entry.checkedAt.formatted(date: .abbreviated, time: .omitted)))
+                        .font(.caption2).foregroundStyle(.tertiary)
                 }
-                if let url = URL(string: entry.citationUrl), !entry.citationUrl.isEmpty {
-                    Link(L10n.alertOpenOriginal, destination: url)
-                        .font(.caption)
-                        .frame(minHeight: 44)
-                        .accessibilityIdentifier("F16.guideline.sourceLink")
-                }
-                Text(L10n.alertLinkChecked(entry.checkedAt.formatted(date: .abbreviated, time: .omitted)))
-                    .font(.caption2).foregroundStyle(.tertiary)
+                .padding(.vertical, 4)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("F16.guideline.row")
             }
-            .padding(.vertical, 4)
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("F16.guideline.row")
         }
         .navigationTitle(L10n.alertSourceTitle)
     }
@@ -187,5 +190,91 @@ struct GuidelineSourceListView: View {
     private func thresholdText(_ s: String) -> some View {
         Text(s).font(.caption2).monospacedDigit()
             .foregroundStyle(.secondary)
+    }
+}
+
+/// FR16.3/16.4 信源原文详情页（guidelineSourceDetail）：B 级信源徽章 +
+/// 完整阈值表 + 原文链接 + 准入说明（阈值照抄原文、A 级报告范围优先）。
+struct GuidelineSourceDetailView: View {
+    let entryId: UUID
+
+    @Environment(M2HubStore.self) private var hub
+    @Environment(AppState.self) private var app
+
+    private var entry: GuidelineEntry? {
+        hub.guidelineEntries.first { $0.id == entryId }
+    }
+
+    var body: some View {
+        Group {
+            if let entry {
+                content(entry)
+            } else {
+                ContentUnavailableView(L10n.gsDetailNotFound, systemImage: "doc.text.magnifyingglass")
+            }
+        }
+        .navigationTitle(entry?.title ?? "")
+        .navigationBarTitleDisplayMode(.inline)
+        .task(id: entryId) { await hub.load(patientId: app.currentPatientId) }
+    }
+
+    private func content(_ entry: GuidelineEntry) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                // 头部：标题 + B 级信源徽章 + 机构/版本/年份
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Text(entry.title).font(.title3.bold())
+                        GradeBadge(grade: "B")   // B = 指南信源库（FR16.4 准入）
+                        Spacer()
+                    }
+                    Text("\(entry.org) · v\(entry.version) · \(String(entry.year))")
+                        .font(.caption).foregroundStyle(.secondary)
+                    if !entry.metricKey.isEmpty {
+                        Text(L10n.gsDetailMetric(entry.metricKey))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                // 完整阈值表（L1/L2/L3 上下限 + 单位）
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(L10n.gsDetailThresholds).font(.headline)
+                    thresholdRow("L1", entry.l1Low, entry.l1High, entry.unit)
+                    thresholdRow("L2", entry.l2Low, entry.l2High, entry.unit)
+                    thresholdRow("L3", entry.l3Low, entry.l3High, entry.unit)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .background(RoundedRectangle(cornerRadius: 12).fill(Color("bg-grouped", bundle: .main)))
+                // 原文链接（FR16.3 可点开）
+                if let url = URL(string: entry.citationUrl), !entry.citationUrl.isEmpty {
+                    Link(destination: url) {
+                        Label(L10n.alertOpenOriginal, systemImage: "arrow.up.right.square")
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("F16.guidelineDetail.sourceLink")
+                }
+                // 准入说明（FR16.4：阈值照抄原文；A 级报告范围优先）
+                Text(L10n.gsDetailNote)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(L10n.alertLinkChecked(entry.checkedAt.formatted(date: .abbreviated, time: .omitted)))
+                    .font(.caption2).foregroundStyle(.tertiary)
+            }
+            .padding(16)
+            .frame(maxWidth: 560, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func thresholdRow(_ level: String, _ lo: Double?, _ hi: Double?, _ unit: String) -> some View {
+        HStack(spacing: 8) {
+            Text(level).bold().frame(width: 28, alignment: .leading)
+            Text(lo.map { "≥ \(MedicalNumberFormat.quantity($0))" } ?? "—")
+            Text(hi.map { "≤ \(MedicalNumberFormat.quantity($0))" } ?? "—")
+            Text(unit).foregroundStyle(.secondary)
+            Spacer()
+        }
+        .font(.footnote).monospacedDigit()
     }
 }

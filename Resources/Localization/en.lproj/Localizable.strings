@@ -375,6 +375,11 @@
 "alert.openOriginal" = "Open original";
 "alert.linkChecked" = "Link checked %@";
 "alert.sourceTitle" = "Reference range sources";
+"gsDetail.notFound" = "This source entry is not available";
+"gsDetail.metric" = "Metric: %@";
+"gsDetail.thresholds" = "Alert thresholds (copied from the source, unmodified)";
+"gsDetail.note" = "Hospital report reference ranges (Grade A) always take priority over this library default (Grade B). Thresholds are copied verbatim from the published guideline.";
+
 "emergency.write.title" = "Write to system Medical ID";
 "emergency.write.subtitle" = "Emergency responders can see it on the lock screen without unlocking. We provide step-by-step guidance and you fill in the details yourself in Settings.";
 "emergency.viewGuide" = "View step-by-step guide";

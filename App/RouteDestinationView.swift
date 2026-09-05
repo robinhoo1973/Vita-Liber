@@ -182,12 +182,15 @@ struct RouteDestinationView: View {
         case .privacyAuthorization:
             PrivacyAuthorizationView()
 
-        // ---- 尚未落地的页面：可见的「即将上线」提示（§5.45 缺路由降级
-        //      不 crash）——审查修复：原渲染所属 Tab 模块根导致栈内套娃
-        //      （用户在时间轴点观察项会「推进」一个一模一样的时间轴副本） ----
-        case .preferences,
-             .guidelineSourceDetail:
-            RouteFallbackView(route: route)
+        // ---- SP-26 偏好中心（V3.66 实装：真实生效项聚合，假偏好已按
+        //      FR14.7 移除）----
+        case .preferences:
+            PreferencesView()
+
+        // ---- FR16.3/16.4 信源原文详情（V3.66 实装：B 级徽章 + 完整阈值表
+        //      + 原文链接 + 准入说明）----
+        case .guidelineSourceDetail(let id):
+            GuidelineSourceDetailView(entryId: id)
         }
     }
 }

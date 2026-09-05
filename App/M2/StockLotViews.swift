@@ -182,6 +182,7 @@ struct StockLotDetailView: View {
         .background(RoundedRectangle(cornerRadius: 12).fill(Color("bg-grouped", bundle: .main)))
     }
 
+    @ViewBuilder
     private func archiveRow(_ label: String, _ value: String?) -> some View {
         if let value, !value.isEmpty {
             HStack(alignment: .top, spacing: 6) {

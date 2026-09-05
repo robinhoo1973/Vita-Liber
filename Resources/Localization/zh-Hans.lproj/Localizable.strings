@@ -375,6 +375,11 @@
 "alert.openOriginal" = "打开原文";
 "alert.linkChecked" = "链接检查日期 %@";
 "alert.sourceTitle" = "参考范围来源";
+"gsDetail.notFound" = "这条信源条目不可用";
+"gsDetail.metric" = "指标：%@";
+"gsDetail.thresholds" = "预警阈值（照抄原文，禁止改写）";
+"gsDetail.note" = "医院报告自带参考范围（A 级）始终优先于本信源库通用值（B 级）。阈值数字照抄权威发布原文。";
+
 "emergency.write.title" = "写入系统医疗急救卡";
 "emergency.write.subtitle" = "锁屏无需解锁即可被急救人员看到。我们提供分步引导，内容由你亲自在系统里填写。";
 "emergency.viewGuide" = "查看分步引导";

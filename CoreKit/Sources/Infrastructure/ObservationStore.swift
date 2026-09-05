@@ -51,6 +51,17 @@ public actor ObservationStore {
         return Self.rowToEvent(row, memberId: (row["patient_id"] as String?).flatMap(UUID.init(uuidString:)) ?? UUID())
     }
 
+    /// FR8.8 删除观察记录：硬删行（明示三问后执行——原图经孤儿对账清除，
+    /// 备份中的处理版本不受影响；医生摘要已生成内容保留）。
+    public func delete(id: UUID) async throws {
+        try await writer.write { db in
+            try db.execute(sql: "DELETE FROM observation WHERE id = ?", arguments: [id.uuidString])
+            guard db.changesCount > 0 else { throw DeleteError.missingRow }
+        }
+    }
+
+    public enum DeleteError: Error { case missingRow }
+
     /// FR8.7 事后补字段（详情页行内编辑写回）：只更新提交的列 + updated_at。
     public func updateExtended(id: UUID, bodyPart: String? = nil, durationMin: Int? = nil,
                                frequency: String? = nil, isFirst: Bool? = nil,

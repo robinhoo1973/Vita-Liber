@@ -170,6 +170,7 @@ struct ObservationDetailView: View {
         }
     }
 
+    @ViewBuilder
     private func row(_ label: String, _ value: String?) -> some View {
         if let value, !value.isEmpty {
             HStack(alignment: .top, spacing: 6) {
