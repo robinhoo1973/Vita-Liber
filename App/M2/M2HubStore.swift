@@ -61,7 +61,10 @@ final class M2HubStore {
     /// 分节加载助手：取回 → 成员代际守卫 → 一次性提交 → 独立错误隔离。
     /// 六节共用同一惯用法（BR-001 成员隔离只存在这一处），且经 async let
     /// 并发发起——节间互不依赖，串行等待使成员切换延迟 = 各查询之和
-    /// （ADR-001 共享 DatabasePool 支持并发读）。
+    /// （ADR-001 共享 DatabasePool 支持并发读）。@MainActor：async let 子任务
+    /// 继承 MainActor 隔离（SE-0338），状态提交合法；并发发生在各节 await
+    /// Store actor 的挂起点，主线程只承担提交。
+    @MainActor
     private func loadSection<T>(patientId: UUID, label: String,
                                 fetch: () async throws -> T,
                                 commit: (T) -> Void) async {
