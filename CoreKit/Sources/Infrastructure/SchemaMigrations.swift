@@ -239,6 +239,60 @@ public enum SchemaMigrations {
              DROP TABLE medication_dose_log;
              ALTER TABLE medication_dose_log_rebuilt RENAME TO medication_dose_log;
              """),
+        // F25 医学数据标准化引擎码表六表（tech §4.3 / §5.52，编号 v14——
+        // 注记：v12=document grade、v13=dose_log FK，F25 码表迁移从 v14 起）。
+        // 幂等：六表 CREATE TABLE IF NOT EXISTS（baseline 已含同定义的全新库
+        // 重复执行安全）；metric_sample 增列经 pragma_table_info 守卫
+        // （SQLite 无 ADD COLUMN IF NOT EXISTS，§4.3.1 纪律）。
+        Step(version: 14, name: "terminology-tables",
+             sql: """
+             CREATE TABLE IF NOT EXISTS code_concept (
+               id TEXT PRIMARY KEY,
+               canonical_code TEXT NOT NULL,
+               coding_system TEXT NOT NULL CHECK(coding_system IN ('loinc','snomed_ct','rxnorm')),
+               display_zh_hans TEXT NOT NULL, display_en TEXT NOT NULL,
+               kind TEXT NOT NULL CHECK(kind IN ('metric','medication','observation_kind','other')),
+               canonical_unit TEXT,
+               bundle_version TEXT NOT NULL,
+               UNIQUE(coding_system, canonical_code));
+             CREATE INDEX IF NOT EXISTS idx_code_concept_kind ON code_concept(kind);
+             CREATE TABLE IF NOT EXISTS code_alias (
+               alias_text TEXT NOT NULL, locale TEXT NOT NULL,
+               concept_id TEXT NOT NULL REFERENCES code_concept(id),
+               route TEXT NOT NULL CHECK(route IN ('curated','fold')),
+               priority INTEGER NOT NULL DEFAULT 0,
+               bundle_version TEXT NOT NULL);
+             CREATE INDEX IF NOT EXISTS idx_code_alias_lookup ON code_alias(alias_text, locale);
+             CREATE TABLE IF NOT EXISTS code_map (
+               source_system TEXT NOT NULL, source_code TEXT NOT NULL,
+               concept_id TEXT NOT NULL REFERENCES code_concept(id),
+               bundle_version TEXT NOT NULL,
+               PRIMARY KEY(source_system, source_code));
+             CREATE TABLE IF NOT EXISTS resolver_override (
+               id TEXT PRIMARY KEY,
+               query_pattern TEXT NOT NULL,
+               concept_id TEXT NOT NULL REFERENCES code_concept(id),
+               note TEXT NOT NULL,
+               created_at REAL NOT NULL,
+               retired_at REAL);
+             CREATE TABLE IF NOT EXISTS ucum_unit (
+               unit_code TEXT PRIMARY KEY,
+               family TEXT NOT NULL, dimension TEXT NOT NULL,
+               factor REAL NOT NULL, offset REAL NOT NULL DEFAULT 0,
+               kind TEXT NOT NULL DEFAULT 'simple');
+             CREATE TABLE IF NOT EXISTS ucum_molar_bridge (
+               concept_id TEXT NOT NULL REFERENCES code_concept(id),
+               from_unit TEXT NOT NULL, to_unit TEXT NOT NULL,
+               factor REAL NOT NULL, note TEXT NOT NULL,
+               PRIMARY KEY(concept_id, from_unit, to_unit));
+
+             -- metric_sample 增 raw_label/code_concept_id（FR25.4/FR25.12⑦，
+             -- baseline 同步含两列——全新库不重放本段）。与 v2/v10 同纪律：
+             -- 老库每条增量只跑一次（user_version 记账）；REFERENCES 子句
+             -- 要求默认 NULL——本列确认前为空正是 BR-003 语义（未确认不落编码）。
+             ALTER TABLE metric_sample ADD COLUMN raw_label TEXT;
+             ALTER TABLE metric_sample ADD COLUMN code_concept_id TEXT REFERENCES code_concept(id);
+             """),
     ]
 
     /// 全新库建库后应落到的版本号

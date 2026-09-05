@@ -187,6 +187,9 @@ public enum SchemaV2 {
       -- 不得合并成一条正常带」——ref_source_label（医院/实验室名）是各自成带的分组键；
       -- 三列缺席时该点无 A 级范围，回落信源库 B 级（P1）或渲染为「范围不可用」。
       ref_low REAL, ref_high REAL, ref_source_label TEXT,
+      -- F25（V3.69 / 迁移 v14）：raw_label=原始指标名（FR7.1 原始名保真，FR25.4）；
+      -- code_concept_id=规范编码（BR-003 确认前为空，确认后回填——编码只补不覆 FR25.11）
+      raw_label TEXT, code_concept_id TEXT REFERENCES code_concept(id),
       measured_at REAL NOT NULL, created_at REAL NOT NULL);
     CREATE INDEX idx_metric_patient_time ON metric_sample(patient_id, metric_key, measured_at);
 
@@ -456,5 +459,61 @@ public enum SchemaV2 {
                 bigrams(CASE WHEN new.is_sensitive = 0 THEN new.ocr_text END),
                 bigrams(CASE WHEN new.is_sensitive = 0 THEN new.notes END));
     END;
+
+    -- F25 医学数据标准化引擎码表(ADR-028/§5.52, V3.69): 数据许可见 §2.2; 只补不覆(FR25.11)
+    CREATE TABLE code_concept (
+      id TEXT PRIMARY KEY,                    -- 内部概念 id(UUID)
+      canonical_code TEXT NOT NULL,           -- 规范码, 如 LOINC 718-7
+      coding_system TEXT NOT NULL CHECK(coding_system IN ('loinc','snomed_ct','rxnorm')),
+      display_zh_hans TEXT NOT NULL, display_en TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK(kind IN ('metric','medication','observation_kind','other')),
+      canonical_unit TEXT,                    -- 规范单位(FR25.2 换算目标, 如 718-7 的 g/dL); 可空
+      bundle_version TEXT NOT NULL,           -- 码表版本(如 p0.5-seeds-2026-09-05)
+      UNIQUE(coding_system, canonical_code));
+    CREATE INDEX idx_code_concept_kind ON code_concept(kind);
+
+    -- 多语言别名表: curated 行 > fold 行(FR25.1 链序, 由 Domain CodeResolver 施加)
+    CREATE TABLE code_alias (
+      alias_text TEXT NOT NULL,               -- 血红蛋白 / Hb / ヘモグロビン...
+      locale TEXT NOT NULL,                   -- zh-Hans/zh-Hant/en/ja...
+      concept_id TEXT NOT NULL REFERENCES code_concept(id),
+      route TEXT NOT NULL CHECK(route IN ('curated','fold')),  -- fold=简繁脚本折叠产物
+      priority INTEGER NOT NULL DEFAULT 0,
+      bundle_version TEXT NOT NULL);
+    CREATE INDEX idx_code_alias_lookup ON code_alias(alias_text, locale);
+
+    -- 跨词表桥(含 FR25.2 单位特异编码: source_system='loinc-unit',
+    -- source_code='<conceptId>|<unit>')
+    CREATE TABLE code_map (
+      source_system TEXT NOT NULL, source_code TEXT NOT NULL,
+      concept_id TEXT NOT NULL REFERENCES code_concept(id),
+      bundle_version TEXT NOT NULL,
+      PRIMARY KEY(source_system, source_code));
+
+    -- 人工覆盖表: 人写的行永远胜过表面匹配(FR25.1); 软删纪律对齐 guideline_source
+    CREATE TABLE resolver_override (
+      id TEXT PRIMARY KEY,
+      query_pattern TEXT NOT NULL,
+      concept_id TEXT NOT NULL REFERENCES code_concept(id),
+      note TEXT NOT NULL,                     -- 纠错理由(人写行留痕)
+      created_at REAL NOT NULL,
+      retired_at REAL);
+
+    -- UCUM 单位族(FR25.3): 量纲换算(因子+偏移); 非线性函数(如 pH/log)不入本表
+    CREATE TABLE ucum_unit (
+      unit_code TEXT PRIMARY KEY,             -- 规范码, 如 mmol/L
+      family TEXT NOT NULL,                   -- 单位族(可互换判定)
+      dimension TEXT NOT NULL,                -- 量纲记号
+      factor REAL NOT NULL, offset REAL NOT NULL DEFAULT 0,
+      kind TEXT NOT NULL DEFAULT 'simple');   -- simple/arithmetic
+
+    -- 摩尔质量桥接(FR25.3): 跨量纲按指标编码取值(如血糖 mg/dL↔mmol/L),
+    -- 同一物质的摩尔质量因物质而异, 不得按单位族推断
+    CREATE TABLE ucum_molar_bridge (
+      concept_id TEXT NOT NULL REFERENCES code_concept(id),
+      from_unit TEXT NOT NULL, to_unit TEXT NOT NULL,
+      factor REAL NOT NULL,                   -- 换算系数(含摩尔质量)
+      note TEXT NOT NULL,                     -- 来源留痕(摩尔质量出处)
+      PRIMARY KEY(concept_id, from_unit, to_unit));
     """
 }

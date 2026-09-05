@@ -17,9 +17,14 @@ public struct CandidateField: Sendable, Equatable, Codable, Identifiable {
     public var confidence: Double   // 0..1
     public var grade: SourceGrade
     public var revisionHistory: [String]  // 旧值列表（新→旧）
+    /// F25 标准化槽位（FR25.12② / tech §5.52）：OCR 草稿经 CodeResolver 匹配的
+    /// 编码。BR-003：grade 未升 C 前编码不得参与任何事实链（消费侧按 grade 过滤）；
+    /// 可空向后兼容（旧档案/旧 JSON 无此键，Codable decodeIfPresent 自动兜底）。
+    public var codeResolution: CodeResolution?
 
     public init(id: UUID = UUID(), key: String, displayLabel: String, rawText: String,
-                confidence: Double, value: String? = nil, grade: SourceGrade = .ocrUnconfirmed) {
+                confidence: Double, value: String? = nil, grade: SourceGrade = .ocrUnconfirmed,
+                codeResolution: CodeResolution? = nil) {
         self.id = id
         self.key = key
         self.displayLabel = displayLabel
@@ -28,6 +33,7 @@ public struct CandidateField: Sendable, Equatable, Codable, Identifiable {
         self.confidence = confidence
         self.grade = grade
         self.revisionHistory = []
+        self.codeResolution = codeResolution
     }
 
     public var isConfirmed: Bool { grade == .userConfirmed }

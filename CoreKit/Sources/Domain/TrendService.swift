@@ -95,12 +95,14 @@ public struct TrendSeries: Sendable, Equatable {
 public struct UnitConversion: Sendable, Equatable {
     public var fromUnit: String
     public var toUnit: String
-    public var factor: Double          // value * factor = converted
+    public var factor: Double          // value * factor + offset = converted
+    public var offset: Double          // V3.69/F25：仿射换算（℃/℉ 族）；默认 0 保持既有线性语义
     public var note: String            // 「换算自 xx」小注
-    public init(fromUnit: String, toUnit: String, factor: Double, note: String) {
-        self.fromUnit = fromUnit; self.toUnit = toUnit; self.factor = factor; self.note = note
+    public init(fromUnit: String, toUnit: String, factor: Double, offset: Double = 0, note: String) {
+        self.fromUnit = fromUnit; self.toUnit = toUnit; self.factor = factor
+        self.offset = offset; self.note = note
     }
-    public func convert(_ value: Double) -> Double { value * factor }
+    public func convert(_ value: Double) -> Double { value * factor + offset }
 }
 
 public enum TrendRules {
@@ -175,5 +177,14 @@ public enum TrendRules {
     /// 稳定排序（时间升序）
     public static func sorted(_ points: [TrendPoint]) -> [TrendPoint] {
         points.sorted { $0.measuredAt < $1.measuredAt }
+    }
+
+    /// F25 聚合键（FR25.12⑦ / §5.29）：code_concept_id 优先、无编码回落 metric_key。
+    /// BR-003：未确认行 code_concept_id 为空 → 按原始 metric_key 独立成组；
+    /// 确认后编码回填即并入归一序列（编码只补不覆，FR25.11）。
+    /// 空串与 nil 同义（SQLite 边界：历史行可能存 ""）。
+    public static func aggregationKey(metricKey: String, codeConceptId: String?) -> String {
+        guard let id = codeConceptId, !id.isEmpty else { return metricKey }
+        return id
     }
 }
