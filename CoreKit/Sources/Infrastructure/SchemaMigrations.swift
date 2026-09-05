@@ -216,6 +216,29 @@ public enum SchemaMigrations {
              sql: """
              ALTER TABLE document_file ADD COLUMN grade TEXT NOT NULL DEFAULT 'C' CHECK(grade IN ('A','B','C','D','E'));
              """),
+        Step(version: 13, name: "dose-log-plan-fk",
+             sql: """
+             -- §11 清偿：老库 medication_dose_log 缺 plan_id REFERENCES（基线 DDL 已补）。
+             -- 孤儿剂量行 = 对已删计划继续提醒（FR9.15 计划生命周期破坏）。
+             -- SQLite 对既有表改 FK 需表重建：建新表（带 FK）→ 拷贝 → 换名。
+             -- 幂等：失败重跑时新表先 DROP 重建、拷贝 OR IGNORE 按主键跳过；
+             -- 全新库建库直达 latestVersion，本步只作用于 legacy 库。
+             DROP TABLE IF EXISTS medication_dose_log_rebuilt;
+             CREATE TABLE medication_dose_log_rebuilt (
+               id TEXT PRIMARY KEY, plan_id TEXT NOT NULL REFERENCES medication_plan(id),
+               scheduled_for REAL NOT NULL,
+               dose_units REAL NOT NULL DEFAULT 1,
+               delivery_state TEXT NOT NULL CHECK(delivery_state IN ('planned','sent','delivered','failed')),
+               delivered_at REAL, user_action TEXT CHECK(user_action IN
+                 ('taken','snoozed','skipped','missed','discomfort') OR user_action IS NULL),
+               acted_at REAL, snooze_until REAL, note TEXT);
+             INSERT OR IGNORE INTO medication_dose_log_rebuilt
+               SELECT id, plan_id, scheduled_for, dose_units, delivery_state,
+                      delivered_at, user_action, acted_at, snooze_until, note
+               FROM medication_dose_log;
+             DROP TABLE medication_dose_log;
+             ALTER TABLE medication_dose_log_rebuilt RENAME TO medication_dose_log;
+             """),
     ]
 
     /// 全新库建库后应落到的版本号

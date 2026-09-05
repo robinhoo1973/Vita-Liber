@@ -400,6 +400,7 @@
 "common.save" = "保存";
 "common.cancel" = "取消";
 "inventory.dualLine" = "安全线 %1$@ %2$@ · 确认 %3$@ %2$@";
+"inventory.dualLineTitle" = "双轨库存（安全线 / 确认线）";
 "inventory.expiry" = "效期 %@";
 "inventory.tier14" = "余量 ≤14 天";
 "inventory.tier0" = "当日置顶";

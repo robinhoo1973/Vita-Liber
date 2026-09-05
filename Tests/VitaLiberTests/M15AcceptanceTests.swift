@@ -193,6 +193,44 @@ final class M15AcceptanceTests: XCTestCase {
         XCTAssertNoThrow(try GRDBStore(writer: queue), "持久库二次启动必须不崩（滞留 #7）")
     }
 
+    /// v13：legacy 无 FK 的 medication_dose_log 表重建补 REFERENCES——
+    /// 数据保留 + 外键清单含 plan_id → medication_plan（§11 清偿项）
+    func test_v13_doseLog_重建补FK() async throws {
+        let queue = try DatabaseQueue(configuration: GRDBStore.configuration())
+        try await queue.write { db in
+            try db.execute(sql: """
+                CREATE TABLE patient_profile (
+                  id TEXT PRIMARY KEY, owner_local_id TEXT, display_name TEXT NOT NULL,
+                  relation TEXT NOT NULL, gender TEXT, birth_date REAL, note TEXT,
+                  created_at REAL NOT NULL, updated_at REAL NOT NULL, deleted_at REAL);
+                CREATE TABLE medication_plan (
+                  id TEXT PRIMARY KEY, patient_id TEXT NOT NULL, medication_id TEXT,
+                  status TEXT NOT NULL, schedule_json TEXT, start_date REAL NOT NULL,
+                  end_date REAL, created_at REAL NOT NULL, updated_at REAL NOT NULL);
+                CREATE TABLE medication_dose_log (
+                  id TEXT PRIMARY KEY, plan_id TEXT NOT NULL,
+                  scheduled_for REAL NOT NULL, dose_units REAL NOT NULL DEFAULT 1,
+                  delivery_state TEXT NOT NULL, delivered_at REAL, user_action TEXT,
+                  acted_at REAL, snooze_until REAL, note TEXT);
+                INSERT INTO medication_dose_log (id, plan_id, scheduled_for, delivery_state)
+                  VALUES ('legacy-dose-1', 'orphan-plan', 1, 'planned');
+                PRAGMA user_version = 12;
+                """)
+        }
+        _ = try GRDBStore(writer: queue)   // 触发 v13（唯一 pending 步）
+        let version = try await queue.read { db in
+            try Int.fetchOne(db, sql: "PRAGMA user_version") ?? 0
+        }
+        XCTAssertEqual(version, SchemaMigrations.latestVersion)
+        try await queue.read { db in
+            XCTAssertEqual(try String.fetchOne(db, sql: "SELECT id FROM medication_dose_log"),
+                           "legacy-dose-1", "重建不得丢数据")
+            let fks = try Row.fetchAll(db, sql: "PRAGMA foreign_key_list(medication_dose_log)")
+            XCTAssertTrue(fks.contains { ($0["table"] as String) == "medication_plan" },
+                          "重建后 plan_id 必须带 medication_plan 外键")
+        }
+    }
+
     // MARK: - FR13.11 备份往返与校验（一票否决：损坏包不得部分导入）
 
     func test_备份往返一致() async throws {

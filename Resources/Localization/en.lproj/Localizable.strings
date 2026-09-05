@@ -400,6 +400,7 @@
 "common.save" = "Save";
 "common.cancel" = "Cancel";
 "inventory.dualLine" = "Safety line %1$@ %2$@ · confirmed %3$@ %2$@";
+"inventory.dualLineTitle" = "Dual-track stock (plan / confirmed)";
 "inventory.expiry" = "Expires %@";
 "inventory.tier14" = "≤14 days left";
 "inventory.tier0" = "Due today";

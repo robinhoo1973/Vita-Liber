@@ -632,6 +632,7 @@ enum L10n {
     static var commonCancel: String { t("common.cancel") }
 
     // MARK: - L10n 清偿批五 · 双轨库存（FR9.8）
+    static var inventoryDualLineTitle: String { t("inventory.dualLineTitle") }
     static func inventoryDualLine(_ plan: String, _ unit: String, _ confirmed: String) -> String {
         String(format: t("inventory.dualLine"), plan, unit, confirmed)   // %1$@ %2$@ · %3$@ %2$@
     }
@@ -721,6 +722,7 @@ enum L10n {
         "immunization.emptyHint", "immunization.lot", "immunization.lotField", "immunization.note",
         "immunization.pending", "immunization.provider", "immunization.title", "immunization.vaccineName",
         "inventory.approxDays", "inventory.bookValue", "inventory.confirmWrite", "inventory.dualLine",
+        "inventory.dualLineTitle",
         "inventory.empty", "inventory.emptyHint", "inventory.expiry", "inventory.fixCount",
         "lot.detail.loadFailed",
         "lot.discard.title",

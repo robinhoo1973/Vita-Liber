@@ -152,7 +152,7 @@ struct StockLotDetailView: View {
 
     private func dualTrackCard(_ lot: MedicationStore.LotRow) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(L10n.inventory_dualLine).font(.headline)
+            Text(L10n.inventoryDualLineTitle).font(.headline)
             Text(L10n.inventoryDualLine(MedicalNumberFormat.quantity(lot.remainingPlanUnits), lot.unitKind, MedicalNumberFormat.quantity(lot.remainingConfirmedUnits)))
                 .font(.subheadline)
         }
