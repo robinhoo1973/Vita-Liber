@@ -30,10 +30,6 @@ public struct BatchExpiryRules {
         }.sorted { $0.at < $1.at }
     }
 
-    /// 提醒草稿（写通用 Reminder 实体）
-    public static func draft(lotName: String, expireAt: Date, tier: BatchExpiryTier) -> String {
-        "药品「\(lotName)」\(tier.rawValue == "t30" ? "一个月后" : tier.rawValue == "t7" ? "7 天后" : "今天")到期（\(expireAt.formatted(date: .abbreviated, time: .omitted))）"
-    }
 }
 
 public enum ObservationFollowUpRules {
