@@ -990,7 +990,7 @@
 "f19.noAppointment" = "No appointments on record";
 "f19.recentGlucoseFmt" = "Recent glucose: %@";
 "f19.noGlucose" = "No glucose records yet";
-"f19.metricNotSupportedFmt" = "Recording "%@" is not supported yet; please enter it manually on the Trends page.";
+"f19.metricNotSupportedFmt" = "Recording \"%@\" is not supported yet; please enter it manually on the Trends page.";
 "f19.stockRemainingFmt" = "%@: ~%d days left · estimated by plan";
 "f19.stockNoPlanFmt" = "%@: no active plan, days remaining cannot be estimated";
 "f19.noStock" = "No items in the medicine cabinet yet";
