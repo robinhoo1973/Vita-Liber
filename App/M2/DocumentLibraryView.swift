@@ -1,6 +1,7 @@
 import SwiftUI
 import PhotosUI
 import UniformTypeIdentifiers
+import CryptoKit
 import Domain
 import Infrastructure
 import Protocols
@@ -76,7 +77,7 @@ final class DocumentsState {
                      docType: String, title: String?, isSensitive: Bool,
                      origin: String = "import") async {
         lastImportError = nil
-        // 去重哈希：SHA-256（Domain 有自研 SHA256 供去重/感知哈希种子——非安全场景）
+        // 去重哈希：SHA-256（ADR-025：CryptoKit——经审计平台实现）
         let sha = "sha:" + Self.hash(data)
         do {
             let hits = try await store.duplicates(sha256: sha, patientId: patientId)
@@ -166,10 +167,10 @@ final class DocumentsState {
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             let data = try Data(contentsOf: url)
             let decoder = PDFKitDecoder()
-            let pages = try await decoder.decodePDF(data, scale: 2.0, maxPages: 50)
             var texts: [String] = []
             var failedPages = 0
-            for page in pages {
+            // 逐页流式：单页渲染→识别→释放（页位图不整体驻留内存）
+            try await decoder.decodePDFPages(data, scale: 2.0, maxPages: 50) { page in
                 // ADR-026：PDF 逐页识别同样经统一编排层
                 let result = (try? await pipeline.run(imageData: page.bitmapData))   // try?-ok: 单页失败继续下一页（FR6.6 汇总时标注）
                 if let result, !result.failed, result.hasText {
@@ -236,8 +237,10 @@ final class DocumentsState {
         }
     }
 
+    /// ADR-025：去重哈希走经审计的 CryptoKit（原 Domain 自研 SHA-256 引擎
+    /// 已随 dev-pm V3.8 登记的端口迁移移除——生产路径零自研 crypto）
     static func hash(_ data: Data) -> String {
-        SHA256.hash(data: data).hexString
+        CryptoKit.SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 }
 

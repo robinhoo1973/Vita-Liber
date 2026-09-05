@@ -22,7 +22,8 @@ public struct AuditLogWriter: AuditLogging, Sendable {
         guard Self.allowedActions.contains(action) else {
             throw AuditError.actionNotAllowed(action)
         }
-        let hash = Data(SHA256.hash(data: Data(entityId.utf8))).map { String(format: "%02x", $0) }.joined()
+        let hash = CryptoKit.SHA256.hash(data: Data(entityId.utf8))
+            .map { String(format: "%02x", $0) }.joined()   // ADR-025：审计脱敏走 CryptoKit
         try await writer.write { db in
             try db.execute(
                 sql: """

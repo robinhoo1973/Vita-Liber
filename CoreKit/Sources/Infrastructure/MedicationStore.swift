@@ -1,5 +1,6 @@
 #if os(iOS) || os(macOS)
 import Foundation
+import CryptoKit
 import GRDB
 import Domain
 import Protocols
@@ -210,6 +211,7 @@ public actor MedicationStore: DoseSource {
                 FROM medication_dose_log d
                 JOIN medication_plan p ON p.id = d.plan_id
                 WHERE p.patient_id = ? AND d.scheduled_for >= ? AND d.scheduled_for <= ?
+                  AND p.status = 'active'
                 """, arguments: [patientId.uuidString,
                                  from.timeIntervalSince1970, to.timeIntervalSince1970])
             return InventoryReportRules.report(
@@ -302,16 +304,16 @@ public actor MedicationStore: DoseSource {
             // 原实现提交后才经 async auditSink 写审计，审计失败即留下
             // 无审计的库存归真记录。事务内直落 audit_event（与
             // AuditLogWriter 同表同列），entity_id_hash 脱敏与 writer 一致。
+            // ADR-025：哈希走 CryptoKit；§5.6 日志最小化：meta 只记事实计数，
+            // 不记用户自由文本备注（医疗内容不入审计表）
             if auditSink != nil {
-                let digest = Domain.SHA256.hash(data: Data(lotId.uuidString.utf8))
-                var hex = ""
-                var it = digest.makeIterator()
-                while let byte = it.next() { hex += String(format: "%02x", byte) }
+                let hex = CryptoKit.SHA256.hash(data: Data(lotId.uuidString.utf8))
+                    .map { String(format: "%02x", $0) }.joined()
                 try db.execute(sql: """
                     INSERT INTO audit_event (id, actor_local, action, entity_type, entity_id_hash, at, meta_json)
                     VALUES (?, 'local', 'inventory.reconcile', 'stock_lot', ?, ?, ?)
                     """, arguments: [UUID().uuidString, hex, at.timeIntervalSince1970,
-                                     "count=\(physicalCount) note=\(note ?? "")"])
+                                     "count=\(physicalCount)"])
             }
         }
     }

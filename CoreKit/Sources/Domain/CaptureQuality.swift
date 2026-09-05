@@ -156,15 +156,21 @@ public struct DuplicateDetectionService {
     private var exactHashes: Set<String> = []        // SHA-256 hex
     private var perceptualHashes: [String: UInt64] = [:] // recordID -> pHash
 
+    /// 精确哈希函数（ADR-025：生产注入 CryptoKitContentHasher.sha256Hex；
+    /// Domain 保持零框架依赖——哈希经闭包注入而非自研实现）
+    private let hash: @Sendable (Data) -> String
+
     /// 感知哈希阈值（汉明距离上限，默认 5/64）。
     public var perceptualThreshold: Int = 5
 
-    public init() {}
+    public init(hash: @escaping @Sendable (Data) -> String) {
+        self.hash = hash
+    }
 
     /// 注册一张已存在的图片（用于后续比对）。
     public mutating func register(recordID: String, imageData: Data,
                                   decoder: any GrayscaleDecoding) throws {
-        let exact = SHA256.hash(data: imageData).hexString
+        let exact = hash(imageData)
         exactHashes.insert(exact)
         let image = try decoder.decode(imageData, maxDimension: 32)
         perceptualHashes[recordID] = Self.perceptualHash(from: image)
@@ -173,7 +179,7 @@ public struct DuplicateDetectionService {
     /// 检测新图片是否重复。
     public func detect(_ imageData: Data,
                        decoder: any GrayscaleDecoding) throws -> DuplicateDetectionResult {
-        let exact = SHA256.hash(data: imageData).hexString
+        let exact = hash(imageData)
         if exactHashes.contains(exact) {
             return DuplicateDetectionResult(isDuplicate: true, exactHashMatch: true, perceptualSimilarity: 1.0)
         }
