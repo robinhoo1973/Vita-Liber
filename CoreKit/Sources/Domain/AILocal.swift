@@ -37,7 +37,12 @@ public struct AIAnswer: Sendable, Equatable {
         case emergencyCard
     }
     public struct SevenPart: Sendable, Equatable {
-        public var conclusion: String        // ①结论（仅复述检索事实）
+        /// V3.68：模板句（结论/不确定/建议提问/scope/免责）由 App 层经 L10n
+        /// 渲染——citationCount 非 nil 即新结构（旧行 nil 时回落 legacy 文本）。
+        public var citationCount: Int?
+        /// 术语解释结构化对（App 层 L10n.aiTerm 渲染「term：explanation」）
+        public var terminologyPairs: [(term: String, explanation: String)]?
+        public var conclusion: String        // ①结论（仅复述检索事实）——legacy
         public var citations: [EntityReference]  // ②引用（类型保证非空）
         public var excerpts: [String]        // ③原文摘录
         public var terminology: [String]     // ④B 级术语词典通俗解释
@@ -203,20 +208,25 @@ public struct LocalRetrievalProvider: AIProvider {
     func compose(_ hits: [EntityReference], question: String) -> AIAnswer.SevenPart? {
         let excerpts = hits.prefix(3).map(\.snippet)
         let terms = terminology.terms(in: question)
-            .compactMap { term in terminology.explain(term).map { "\(term)：\($0)" } }
+            .compactMap { term in terminology.explain(term).map { (term, $0) } }
         let card = AIAnswer.SevenPart(
-            conclusion: "找到 \(hits.count) 条与你的问题相关的资料。",
+            // V3.68：模板句不再在 Domain 拼中文——App 层经 L10n 渲染
+            citationCount: hits.count,
+            terminologyPairs: terms,
+            conclusion: "",
             citations: hits,
             excerpts: excerpts,
-            terminology: terms,
+            terminology: [],
             sources: hits.map { "\($0.kind)（\($0.title)）" },
-            uncertainties: ["你的资料中可能还有纸质资料未收录；本回答只基于已归档内容。"],
-            questionsForDoctor: ["就诊时可以带着这些资料，请医生确认与你的情况是否一致。"],
-            scopeNote: "本次回答只读取了 \(hits.count) 条与你相关的资料。",
-            disclaimer: "以上内容来自你的资料与通用术语解释，不能替代医生诊断或用药指导。",
+            uncertainties: [],
+            questionsForDoctor: [],
+            scopeNote: "",
+            disclaimer: "",
             gradeBadge: "E")
-        let generated = [card.conclusion, card.uncertainties.joined(),
-                         card.questionsForDoctor.joined(), card.scopeNote, card.disclaimer]
+        // BR-006 一票否决：术语解释与来源是唯一含生成文案的字段（模板句已
+        // 移出 Domain）；App 层渲染后再检一次（SafeAIProvider 纵深防御不变）
+        let generated = card.terminologyPairs.map { $0.explanation }
+            + card.sources
         for text in generated where WordingBlacklist.violation(in: text) != nil {
             return nil   // 负清单命中：整卡安全降级，不展示违规文案
         }
