@@ -99,7 +99,7 @@ struct HomeView: View {
         hub.alertEvents
             .filter { $0.severity != .L0 && $0.patientId == app.currentPatientId }
             .map { AlertRef(severity: $0.severity.rawValue,
-                            title: $0.card.sourceRef ?? $0.card.facts,
+                            title: $0.card.summaryTitle ?? $0.severity.rawValue,
                             memberId: app.currentPatientId) }
     }
 

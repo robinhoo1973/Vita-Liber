@@ -373,6 +373,13 @@
 "alert.openSource" = "開啟信源原文：%@";
 "alert.severity" = "預警級別 %@";
 "alert.openOriginal" = "開啟原文";
+"alert.evidenceFacts" = "%@ %@ %@（%@ 來源，%@）";
+"alert.evidenceSource" = "%@ · %@ %d · %@";
+"alert.evidencePath.retest" = "請立即複測；如症狀持續，請儘快聯繫醫生或前往急診。";
+"alert.evidencePath.visit" = "建議近期複測，並攜帶最近記錄就診。";
+"alert.evidencePath.observe" = "建議繼續觀察並記錄，就診時出示趨勢記錄。";
+"alert.evidenceDisclaimer" = "公開指南閾值比對，不構成診斷或醫療建議；裝置資料可能存在誤差。";
+
 "alert.linkChecked" = "連結檢查日期 %@";
 "alert.sourceTitle" = "參考範圍來源";
 "gsDetail.notFound" = "這條信源條目不可用";

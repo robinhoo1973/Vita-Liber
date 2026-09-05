@@ -65,17 +65,15 @@ struct AlertHistoryView: View {
         .task(id: app.currentPatientId) { await hub.load(patientId: app.currentPatientId) }
     }
 
-    /// 证据卡不带 metricKey（只存事实文案），按规则 id 取不到条目时
-    /// 由装配层在注入前就按 metric 归类——这里以 event.card.sourceRef 的
-    /// 书目行为退化键，命中则给链接。
-    /// 审查修复：sourceEntries 全仓无注入点（Link 分支永不渲染，F16 验收
-    /// 「信源链接可打开原文」失效）——回退用已加载的信源库条目。
+    /// V3.68：证据卡已结构化——按 sourceTitle 命中信源库条目给原文链接
+    /// （旧行 legacySourceRef 为书目字符串时退化为包含匹配）。
     private func sourceEntry(for event: GuidelineStore.AlertEvent) -> GuidelineEntry? {
-        guard let ref = event.card.sourceRef else { return nil }
-        if let injected = sourceEntries.values.first(where: { ref.contains($0.title) }) {
+        let key = event.card.sourceTitle ?? event.card.legacySourceRef
+        guard let key else { return nil }
+        if let injected = sourceEntries.values.first(where: { key.contains($0.title) }) {
             return injected
         }
-        return hub.guidelineEntries.first { ref.contains($0.title) }
+        return hub.guidelineEntries.first { key.contains($0.title) }
     }
 }
 
@@ -91,10 +89,22 @@ private struct EvidenceCardRow: View {
                 Text(event.createdAt.formatted(date: .abbreviated, time: .shortened))
                     .font(.caption2).foregroundStyle(.secondary)
             }
-            Text(event.card.facts)
-                .font(.subheadline)
-                .accessibilityIdentifier("F16.evidence.facts")
-            if let ref = event.card.sourceRef {
+            // V3.68：结构化卡经 L10n 渲染；旧行（legacy*）直出历史文案
+            if let legacy = event.card.legacyFacts {
+                Text(legacy)
+                    .font(.subheadline)
+                    .accessibilityIdentifier("F16.evidence.facts")
+            } else if let metricKey = event.card.metricKey, let value = event.card.value,
+                      let unit = event.card.unit, let origin = event.card.origin,
+                      let measuredAt = event.card.measuredAt {
+                Text(L10n.alertEvidenceFacts(metricKey, MedicalNumberFormat.quantity(value), unit,
+                                             L10n.alertOriginName(origin),
+                                             measuredAt.formatted(date: .abbreviated, time: .shortened)))
+                    .font(.subheadline)
+                    .accessibilityIdentifier("F16.evidence.facts")
+            }
+            if let ref = event.card.sourceTitle ?? event.card.legacySourceRef {
+                let display = event.card.sourceTitle.map { L10n.alertEvidenceSource($0, event.card.sourceOrg ?? "", event.card.sourceYear ?? 0, event.card.sourceClause ?? "") } ?? ref
                 // 信源链接：可打开原文（F16 验收「信源链接可打开原文」）。
                 // 有 URL 用系统 Link；无 URL 只读书目行（不臆造链接）。
                 if let citation = sourceEntry?.citationUrl,
@@ -103,25 +113,34 @@ private struct EvidenceCardRow: View {
                     Link(destination: url) {
                         HStack(spacing: 4) {
                             VLIcon.externalLink.resizable().frame(width: 14, height: 14)
-                            Text(ref).font(.caption).multilineTextAlignment(.leading)
+                            Text(display).font(.caption).multilineTextAlignment(.leading)
                         }
                         .frame(minHeight: 44, alignment: .leading)
                     }
-                    .accessibilityLabel(L10n.alertOpenSource(ref))
+                    .accessibilityLabel(L10n.alertOpenSource(display))
                     .accessibilityIdentifier("F16.evidence.source")
                 } else {
-                    Text(ref).font(.caption).foregroundStyle(.secondary)
+                    Text(display).font(.caption).foregroundStyle(.secondary)
                         .accessibilityIdentifier("F16.evidence.sourceRef")
                 }
             }
-            Text(event.card.suggestedPath)
+            Text(Self.pathText(event.card))
                 .font(.caption).foregroundStyle(.secondary)
-            Text(event.card.disclaimer)
+            Text(event.card.legacyDisclaimer ?? L10n.alertEvidenceDisclaimer)
                 .font(.caption2).foregroundStyle(.tertiary)
         }
         .padding(.vertical, 4)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("F16.evidence.card")
+    }
+
+    static func pathText(_ card: AlertEvidenceCard) -> String {
+        if let legacy = card.legacyPath { return legacy }
+        switch card.path {
+        case .retestNow: return L10n.alertEvidencePathRetest
+        case .scheduleVisit: return L10n.alertEvidencePathVisit
+        case .observe, nil: return L10n.alertEvidencePathObserve
+        }
     }
 }
 
@@ -276,5 +295,16 @@ struct GuidelineSourceDetailView: View {
             Spacer()
         }
         .font(.footnote).monospacedDigit()
+    }
+}
+
+/// V3.68：证据卡摘要行（首页预警卡/通知中心共用）——
+/// 结构化信源书目 → 旧行书目 → 旧行事实 → 指标键，逐级回落。
+extension AlertEvidenceCard {
+    var summaryTitle: String? {
+        if let title = sourceTitle {
+            return L10n.alertEvidenceSource(title, sourceOrg ?? "", sourceYear ?? 0, sourceClause ?? "")
+        }
+        return legacySourceRef ?? legacyFacts ?? metricKey
     }
 }

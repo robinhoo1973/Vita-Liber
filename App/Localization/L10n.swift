@@ -594,6 +594,26 @@ enum L10n {
         t("alert.severity").replacingOccurrences(of: "%@", with: level)
     }
     static var alertOpenOriginal: String { t("alert.openOriginal") }
+    // FR16.3 证据卡（V3.68 结构化：Domain 输出类型化数据，本层 L10n 渲染）
+    static func alertEvidenceFacts(_ metric: String, _ value: String, _ unit: String,
+                                   _ origin: String, _ time: String) -> String {
+        String(format: t("alert.evidenceFacts"), metric, value, unit, origin, time)
+    }
+    static func alertEvidenceSource(_ title: String, _ org: String, _ year: Int, _ clause: String) -> String {
+        String(format: t("alert.evidenceSource"), title, org, year, clause)
+    }
+    static var alertEvidencePathRetest: String { t("alert.evidencePath.retest") }
+    static var alertEvidencePathVisit: String { t("alert.evidencePath.visit") }
+    static var alertEvidencePathObserve: String { t("alert.evidencePath.observe") }
+    static var alertEvidenceDisclaimer: String { t("alert.evidenceDisclaimer") }
+    /// 证据卡来源名（复用趋势来源三键，不新增词表）
+    static func alertOriginName(_ origin: String) -> String {
+        switch origin {
+        case "hospital": return trendOriginHospital
+        case "device": return trendOriginSelfDevice
+        default: return trendSelfMeasured
+        }
+    }
     static func alertLinkChecked(_ date: String) -> String {
         t("alert.linkChecked").replacingOccurrences(of: "%@", with: date)
     }
@@ -686,7 +706,13 @@ enum L10n {
         "ai.emergencyCardText", "ai.failedRetry", "ai.refusedHighRisk",
         "ai.refusedNoEvidence",
         "ai.source", "ai.uncertain", "alert.empty.hint", "alert.empty.title",
-        "alert.linkChecked", "alert.openOriginal", "alert.openSource", "alert.severity",
+        "alert.linkChecked", "alert.openOriginal",
+        "alert.evidenceFacts",
+        "alert.evidenceSource",
+        "alert.evidencePath.retest",
+        "alert.evidencePath.visit",
+        "alert.evidencePath.observe",
+        "alert.evidenceDisclaimer", "alert.openSource", "alert.severity",
         "alert.sourceTitle",
         "gsDetail.notFound",
         "gsDetail.metric",

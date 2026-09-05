@@ -373,6 +373,13 @@
 "alert.openSource" = "Open source text: %@";
 "alert.severity" = "Alert level %@";
 "alert.openOriginal" = "Open original";
+"alert.evidenceFacts" = "%@ %@ %@ (%@ source, %@)";
+"alert.evidenceSource" = "%@ · %@ %d · %@";
+"alert.evidencePath.retest" = "Please retest immediately; if symptoms persist, contact a doctor or go to emergency care.";
+"alert.evidencePath.visit" = "Consider retesting soon and bring your recent records to a visit.";
+"alert.evidencePath.observe" = "Keep observing and recording; show the trend records at your next visit.";
+"alert.evidenceDisclaimer" = "Compared against public guideline thresholds; not a diagnosis or medical advice. Device data may have errors.";
+
 "alert.linkChecked" = "Link checked %@";
 "alert.sourceTitle" = "Reference range sources";
 "gsDetail.notFound" = "This source entry is not available";

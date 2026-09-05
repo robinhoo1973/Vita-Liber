@@ -80,7 +80,7 @@ struct NotificationCenterView: View {
                             HStack {
                                 Image(systemName: "waveform.path.ecg").foregroundStyle(Color("semantic-danger", bundle: .main))
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(event.card.sourceRef ?? event.card.facts).font(.subheadline)
+                                    Text(event.card.summaryTitle ?? event.severity.rawValue).font(.subheadline)
                                     Text("\(event.severity.rawValue) · \(event.createdAt.formatted(date: .abbreviated, time: .shortened))")
                                         .font(.caption).foregroundStyle(Color("semantic-danger", bundle: .main))
                                 }

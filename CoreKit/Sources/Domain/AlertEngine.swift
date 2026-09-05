@@ -56,18 +56,52 @@ public struct MetricReading: Sendable, Equatable {
 }
 
 /// 五段证据卡（§5.12/FR16.2）：事实 → 阈值来源链接 → 建议路径 → 固定免责 → 级别标签
+/// 证据卡建议路径（FR16.3 五段之三）：引用式提示，非诊断；App 层经 L10n 渲染
+public enum EvidencePath: String, Sendable, Equatable, Codable {
+    case retestNow      // L3：立即复测
+    case scheduleVisit  // L2：近期复测并携带记录就诊
+    case observe        // L0/L1：继续观察记录
+}
+
 public struct AlertEvidenceCard: Sendable, Equatable, Codable {
     public var severity: AlertSeverity
-    public var facts: String               // 纯事实句式
-    public var sourceRef: String?          // 信源条目引用（可打开原文）
-    public var suggestedPath: String       // 建议路径（引用式提示，非诊断）
-    public var disclaimer: String          // 固定免责
     public var levelTag: String            // L1/L2/L3
-    public init(severity: AlertSeverity, facts: String, sourceRef: String?,
-                suggestedPath: String, disclaimer: String) {
-        self.severity = severity; self.facts = facts; self.sourceRef = sourceRef
-        self.suggestedPath = suggestedPath; self.disclaimer = disclaimer
-        self.levelTag = severity.rawValue
+    /// V3.68 结构化字段：事实读数/信源书目/建议路径均为类型化数据，
+    /// 视图层经 L10n 渲染（zh-Hant/en 用户不再看到简体句式——
+    /// §11「Domain 文案硬编码」清偿项）。
+    public var metricKey: String?
+    public var value: Double?
+    public var unit: String?
+    public var origin: String?
+    public var measuredAt: Date?
+    public var sourceTitle: String?
+    public var sourceOrg: String?
+    public var sourceYear: Int?
+    public var sourceClause: String?
+    public var path: EvidencePath?
+    /// 旧行兼容：历史 evidence JSON 按旧字段直出展示（decodeIfPresent，
+    /// 不重排不丢数据）。
+    public var legacyFacts: String?
+    public var legacySourceRef: String?
+    public var legacyPath: String?
+    public var legacyDisclaimer: String?
+    public init(severity: AlertSeverity, levelTag: String? = nil,
+                metricKey: String? = nil, value: Double? = nil, unit: String? = nil,
+                origin: String? = nil, measuredAt: Date? = nil,
+                sourceTitle: String? = nil, sourceOrg: String? = nil,
+                sourceYear: Int? = nil, sourceClause: String? = nil,
+                path: EvidencePath? = nil,
+                legacyFacts: String? = nil, legacySourceRef: String? = nil,
+                legacyPath: String? = nil, legacyDisclaimer: String? = nil) {
+        self.severity = severity
+        self.levelTag = levelTag ?? severity.rawValue
+        self.metricKey = metricKey; self.value = value; self.unit = unit
+        self.origin = origin; self.measuredAt = measuredAt
+        self.sourceTitle = sourceTitle; self.sourceOrg = sourceOrg
+        self.sourceYear = sourceYear; self.sourceClause = sourceClause
+        self.path = path
+        self.legacyFacts = legacyFacts; self.legacySourceRef = legacySourceRef
+        self.legacyPath = legacyPath; self.legacyDisclaimer = legacyDisclaimer
     }
 }
 
@@ -132,21 +166,26 @@ public enum AlertRuleEngine {
     /// 五段证据卡组装（引用式提示，禁止生成式解读——ADR-010）
     public static func evidenceCard(for reading: MetricReading, severity: AlertSeverity,
                                     guideline: GuidelineEntry?) -> AlertEvidenceCard {
-        let facts = "\(reading.metricKey) \(reading.value) \(reading.unit)（\(reading.origin.rawValue) 来源，\(reading.measuredAt.formatted(date: .abbreviated, time: .shortened))）"
-        let sourceRef = guideline.map { "\($0.title) · \($0.org) \($0.year) · \($0.clauseRef)" }
-        let suggestedPath: String
+        let path: EvidencePath
         switch severity {
-        case .L3: suggestedPath = "请立即复测；如症状持续，请尽快联系医生或前往急诊。"
-        case .L2: suggestedPath = "建议近期复测，并携带最近记录就诊。"
-        default: suggestedPath = "建议继续观察并记录，就诊时出示趋势记录。"
+        case .L3: path = .retestNow
+        case .L2: path = .scheduleVisit
+        default: path = .observe
         }
+        // V3.68：结构化输出——事实/信源/建议路径均为类型化数据，
+        // 中文句式由视图层经 L10n 组装（§11 Domain 文案硬编码清偿）。
+        // 免责为固定语义（无文案）：视图层渲染 L10n 固定免责键。
         return AlertEvidenceCard(
             severity: severity,
-            facts: facts,
-            sourceRef: sourceRef,
-            suggestedPath: suggestedPath,
-            // FR16.3 固定免责原文（不含急救号码——号码按语言区域由视图层
-            // 经 L10n.emergencyNumber 提供，Domain 不硬编码 120）
-            disclaimer: "公开指南阈值比对，不构成诊断或医疗建议；设备数据可能存在误差。")
+            metricKey: reading.metricKey,
+            value: reading.value,
+            unit: reading.unit,
+            origin: reading.origin.rawValue,
+            measuredAt: reading.measuredAt,
+            sourceTitle: guideline?.title,
+            sourceOrg: guideline?.org,
+            sourceYear: guideline?.year,
+            sourceClause: guideline?.clauseRef,
+            path: path)
     }
 }

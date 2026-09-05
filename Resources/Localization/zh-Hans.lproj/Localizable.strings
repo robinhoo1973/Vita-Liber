@@ -373,6 +373,13 @@
 "alert.openSource" = "打开信源原文：%@";
 "alert.severity" = "预警级别 %@";
 "alert.openOriginal" = "打开原文";
+"alert.evidenceFacts" = "%@ %@ %@（%@ 来源，%@）";
+"alert.evidenceSource" = "%@ · %@ %d · %@";
+"alert.evidencePath.retest" = "请立即复测；如症状持续，请尽快联系医生或前往急诊。";
+"alert.evidencePath.visit" = "建议近期复测，并携带最近记录就诊。";
+"alert.evidencePath.observe" = "建议继续观察并记录，就诊时出示趋势记录。";
+"alert.evidenceDisclaimer" = "公开指南阈值比对，不构成诊断或医疗建议；设备数据可能存在误差。";
+
 "alert.linkChecked" = "链接检查日期 %@";
 "alert.sourceTitle" = "参考范围来源";
 "gsDetail.notFound" = "这条信源条目不可用";
