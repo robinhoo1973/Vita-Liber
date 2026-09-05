@@ -40,8 +40,16 @@ public struct AIAnswer: Sendable, Equatable {
         /// V3.68：模板句（结论/不确定/建议提问/scope/免责）由 App 层经 L10n
         /// 渲染——citationCount 非 nil 即新结构（旧行 nil 时回落 legacy 文本）。
         public var citationCount: Int?
-        /// 术语解释结构化对（App 层 L10n.aiTerm 渲染「term：explanation」）
-        public var terminologyPairs: [(term: String, explanation: String)]?
+        /// 术语解释结构化对（App 层 L10n.aiTerm 渲染「term：explanation」；
+        /// 结构体而非元组——元组不满足 Equatable，SevenPart 需保持 Equatable）
+        public struct TermExplanation: Sendable, Equatable {
+            public var term: String
+            public var explanation: String
+            public init(term: String, explanation: String) {
+                self.term = term; self.explanation = explanation
+            }
+        }
+        public var terminologyPairs: [TermExplanation]?
         public var conclusion: String        // ①结论（仅复述检索事实）——legacy
         public var citations: [EntityReference]  // ②引用（类型保证非空）
         public var excerpts: [String]        // ③原文摘录
@@ -208,7 +216,7 @@ public struct LocalRetrievalProvider: AIProvider {
     func compose(_ hits: [EntityReference], question: String) -> AIAnswer.SevenPart? {
         let excerpts = hits.prefix(3).map(\.snippet)
         let terms = terminology.terms(in: question)
-            .compactMap { term in terminology.explain(term).map { (term, $0) } }
+            .compactMap { term in terminology.explain(term).map { AIAnswer.SevenPart.TermExplanation(term: term, explanation: $0) } }
         let card = AIAnswer.SevenPart(
             // V3.68：模板句不再在 Domain 拼中文——App 层经 L10n 渲染
             citationCount: hits.count,
