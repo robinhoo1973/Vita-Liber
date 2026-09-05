@@ -4,6 +4,21 @@ import Foundation
 /// 渲染选型 = Swift Charts（ADR-022）；本层只负责查询语义，UI 层做图表。
 public enum MetricType: String, Sendable, Equatable, Codable, CaseIterable {
     case bloodPressureSys, bloodPressureDia, glucose, weight, heartRate, bloodOxygen
+
+    /// 语音文法键（snake_case，VoiceGrammarDefaults.metricRules 单一事实源）→ 指标类型。
+    /// 语音确认卡与语音会话共用同一映射——键词汇只存在这一处
+    /// （此前视图层各写一份第三份拷贝，键漂移即静默错落指标）。
+    public init?(grammarKey: String) {
+        switch grammarKey {
+        case "blood_pressure_sys": self = .bloodPressureSys
+        case "blood_pressure_dia": self = .bloodPressureDia
+        case "glucose": self = .glucose
+        case "heart_rate": self = .heartRate
+        case "weight": self = .weight
+        case "blood_oxygen": self = .bloodOxygen
+        default: return nil
+        }
+    }
 }
 
 public enum MetricOrigin: String, Sendable, Equatable, Codable {

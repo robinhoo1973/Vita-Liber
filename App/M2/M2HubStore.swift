@@ -58,58 +58,74 @@ final class M2HubStore {
         self.audit = audit
     }
 
+    /// 分节加载助手：取回 → 成员代际守卫 → 一次性提交 → 独立错误隔离。
+    /// 六节共用同一惯用法（BR-001 成员隔离只存在这一处），且经 async let
+    /// 并发发起——节间互不依赖，串行等待使成员切换延迟 = 各查询之和
+    /// （ADR-001 共享 DatabasePool 支持并发读）。
+    private func loadSection<T>(patientId: UUID, label: String,
+                                fetch: () async throws -> T,
+                                commit: (T) -> Void) async {
+        do {
+            let value = try await fetch()
+            guard loadingPatientId == patientId else { return }
+            commit(value)
+        } catch {
+            logger.error("\(label): \(error)")
+        }
+    }
+
     func load(patientId: UUID) async {
         loadingPatientId = patientId
         // 先全部取回本地变量，再一次性提交。逐项直接赋值的话，成员切换会让
         // 甲的药箱和乙的急救卡同时出现在界面上（跨成员脏读，BR-001 成员隔离）。
         // 审查修复：单项失败隔离——原实现 8 个 fetch 串在同一个 do/catch，
         // 任意一项抛错即全量放弃（续药卡/预警摘要/药箱待办一起消失）。
-        do {
-            let inventory = try await meds.inventorySummary(patientId: patientId, now: Date())
-            guard loadingPatientId == patientId else { return }
-            inventoryItems = inventory
-        } catch { logger.error("药箱加载失败: \(error)") }
-
-        do {
-            let candidates = try await emergency.candidates(patientId: patientId)
-            let selected = try await emergency.selected(patientId: patientId)
-            let selectedIds = Set((selected.allergies + selected.medications
-                                   + selected.healthProblems + selected.contacts).map(\.id))
-            let blood = try await emergency.bloodType(patientId: patientId)
-            guard loadingPatientId == patientId else { return }
-            emergencyCandidates = candidates
-            emergencySelected = selected
-            emergencySelectedIds = selectedIds
-            bloodType = blood
-        } catch { logger.error("急救卡加载失败: \(error)") }
-
-        do {
-            let immunizations = try await self.immunizations.list(patientId: patientId)
-            guard loadingPatientId == patientId else { return }
-            immunizationRecords = immunizations
-        } catch { logger.error("疫苗加载失败: \(error)") }
-
-        do {
-            let claimList = try await claims.list(patientId: patientId)
-            let totals = try await claims.totals(patientId: patientId)
-            guard loadingPatientId == patientId else { return }
-            claimRows = claimList
-            claimTotals = totals
-        } catch { logger.error("报销加载失败: \(error)") }
-
-        do {
-            let sent = try await messages.list(patientId: patientId)
-            guard loadingPatientId == patientId else { return }
-            sentMessages = sent
-        } catch { logger.error("发送状态加载失败: \(error)") }
-
-        do {
-            let entries = try await guidelines.all()
-            let alerts = try await guidelines.history(patientId: patientId)
-            guard loadingPatientId == patientId else { return }
-            guidelineEntries = entries
-            alertEvents = alerts
-        } catch { logger.error("信源库/预警加载失败: \(error)") }
+        async let s1: Void = loadSection(patientId: patientId, label: "药箱加载失败",
+            fetch: { try await meds.inventorySummary(patientId: patientId, now: Date()) },
+            commit: { inventoryItems = $0 })
+        async let s2: Void = loadSection(patientId: patientId, label: "急救卡加载失败",
+            fetch: {
+                async let c = emergency.candidates(patientId: patientId)
+                async let s = emergency.selected(patientId: patientId)
+                async let b = emergency.bloodType(patientId: patientId)
+                let (candidates, selected, blood) = try await (c, s, b)
+                let ids = Set((selected.allergies + selected.medications
+                               + selected.healthProblems + selected.contacts).map(\.id))
+                return (candidates, selected, ids, blood)
+            },
+            commit: { values in
+                emergencyCandidates = values.0
+                emergencySelected = values.1
+                emergencySelectedIds = values.2
+                bloodType = values.3
+            })
+        async let s3: Void = loadSection(patientId: patientId, label: "疫苗加载失败",
+            fetch: { try await immunizations.list(patientId: patientId) },
+            commit: { immunizationRecords = $0 })
+        async let s4: Void = loadSection(patientId: patientId, label: "报销加载失败",
+            fetch: {
+                async let l = claims.list(patientId: patientId)
+                async let t = claims.totals(patientId: patientId)
+                return try await (l, t)
+            },
+            commit: { values in
+                claimRows = values.0
+                claimTotals = values.1
+            })
+        async let s5: Void = loadSection(patientId: patientId, label: "发送状态加载失败",
+            fetch: { try await messages.list(patientId: patientId) },
+            commit: { sentMessages = $0 })
+        async let s6: Void = loadSection(patientId: patientId, label: "信源库/预警加载失败",
+            fetch: {
+                async let e = guidelines.all()
+                async let h = guidelines.history(patientId: patientId)
+                return try await (e, h)
+            },
+            commit: { values in
+                guidelineEntries = values.0
+                alertEvents = values.1
+            })
+        _ = await (s1, s2, s3, s4, s5, s6)
     }
 
     // MARK: - 药箱

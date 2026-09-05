@@ -63,25 +63,42 @@ public actor BackupService {
     }
 
     /// ADR-019 冲突预览：解码 + 校验 + 冲突清单（UI 逐项呈现裁决）。
-    public func analyzeConflicts(from data: Data) async throws -> [ExportService.ConflictItem] {
+    /// 返回已校验的 envelope 随预览一起给调用方——恢复时直接复用，
+    /// 避免同一包在预览→恢复两步间被完整哈希+解码两遍（大档案数百 MB 时
+    /// 2× 全文件 SHA-256 + 2× 全量解码 + 28 次冲突 IN 扫描）。
+    public struct ConflictAnalysis: Sendable {
+        public var conflicts: [ExportService.ConflictItem]
+        public var envelope: ExportService.Envelope
+    }
+    public func analyzeConflicts(from data: Data) async throws -> ConflictAnalysis {
         let envelope = try await verifiedEnvelope(from: data)
-        return try await exporter.conflictReport(envelope)
+        return ConflictAnalysis(conflicts: try await exporter.conflictReport(envelope),
+                                envelope: envelope)
     }
 
-    /// 恢复：解外层（二进制 v1 / 遗留 JSON 兼容）→ **重算 payload 哈希并比对** →
-    /// 解 envelope → 导入。校验失败即抛错，**不做任何部分导入**——半个备份
-    /// 比没有备份更危险。返回导入记录计数（FR13.5 恢复后数据校验报告的数据源）。
-    /// resolutions = ADR-019 逐项裁决（由 analyzeConflicts 驱动的预览 UI 提供）。
+    /// 恢复（已校验 envelope 直用）：导入失败即抛错，**不做任何部分导入**——
+    /// 半个备份比没有备份更危险。返回导入记录计数（FR13.5 恢复后数据校验
+    /// 报告的数据源）。resolutions = ADR-019 逐项裁决（预览 UI 提供）。
     @discardableResult
-    public func restore(from data: Data,
+    public func restore(envelope: ExportService.Envelope,
                         resolutions: [UUID: ExportService.ConflictResolution] = [:]) async throws -> Int {
-        let envelope = try await verifiedEnvelope(from: data)
         do {
             try await exporter.importJSON(envelope, resolutions: resolutions)
         } catch ExportService.ExportError.conflict {
             throw BackupError.conflictDetected
         }
         return envelope.totalRecords
+    }
+
+    /// 恢复（原始 Data 入口）：解外层（二进制 v1 / 遗留 JSON 兼容）→
+    /// **重算 payload 哈希并比对** → 解 envelope → 委托上一重载。供无预览的
+    /// 直接恢复路径使用（预览流程请用 analyzeConflicts 拿 envelope 复用，
+    /// 避免整包被哈希+解码两遍）。
+    @discardableResult
+    public func restore(from data: Data,
+                        resolutions: [UUID: ExportService.ConflictResolution] = [:]) async throws -> Int {
+        let envelope = try await verifiedEnvelope(from: data)
+        return try await restore(envelope: envelope, resolutions: resolutions)
     }
 
     /// 解码 + 校验（双格式兼容），返回已校验的 envelope

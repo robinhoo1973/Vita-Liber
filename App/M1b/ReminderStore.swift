@@ -75,11 +75,15 @@ final class ReminderStore {
             guard loadingPatientId == patientId else { return }
             todaySlots = slots
             upcomingAppointments = appointments
+            // 系统通知清单一次拉取、两个调度器共用——此前二者各自 pending()+
+            // delivered()，每次 refresh 共 4 次全量系统 IPC + trigger 解析
+            let pending = try await scheduler.pending()
+            let delivered = try await scheduler.delivered()
             // FR9.11 批次到期三级提醒（幂等；FR13.10 备份提醒随 Phase 5 接入）
-            await scheduleExpiryReminders(patientId: patientId)
+            await scheduleExpiryReminders(patientId: patientId, pending: pending, delivered: delivered)
             // FR9.8.3 分级续药通知（≤3 天 / 当日置顶）——审查修复：此前
             // 只有首页卡片，通知级触达全仓无调度点
-            await scheduleRefillReminders(patientId: patientId)
+            await scheduleRefillReminders(patientId: patientId, pending: pending, delivered: delivered)
         } catch {
             logger.error("提醒视图加载失败: \(error)")
         }
@@ -141,15 +145,14 @@ final class ReminderStore {
     /// 同 id 幂等）。触发时刻 = 剩余天数到达该档位的当天（当日档 = 余量归零日）。
     /// 零确认存活（FR9.8.8）：materializeMissed 已推进安全线，本调度与其共用
     /// 事实源；某档触发时 App 未运行 → 本次启动即时补发（5 分钟后），不静默吞掉。
-    func scheduleRefillReminders(patientId: UUID) async {
+    /// pending/delivered 由 refresh 一次性拉取传入（避免每次 refresh 4 次系统 IPC）。
+    /// 已送达通知必须跳过：pending 守卫只管「尚未触发」——通知一旦送达便不再
+    /// pending，每次 refresh（启动/回前台/时间变化）都以同一 id 重新调度，
+    /// 形成「每次回前台 +5 分钟」的无限重发（FR9.8.3「同 id 幂等」只对送达前成立）。
+    func scheduleRefillReminders(patientId: UUID, pending: [String: Date], delivered: Set<String>) async {
         do {
             let items = try await meds.inventorySummary(patientId: patientId, now: Date())
-            var pending = try await scheduler.pending()
-            // 审查修复：已送达的续药通知必须跳过——pending 守卫只管「尚未触发」，
-            // 通知一旦送达便不再 pending，每次 refresh（启动/回前台/时间变化）
-            // 都以同一 id 重新调度，形成「每次回前台 +5 分钟」的无限重发
-            // （FR9.8.3「同 id 幂等」只对送达前成立）。
-            let delivered = try await scheduler.delivered()
+            var pending = pending
             let now = Date()
             for item in items {
                 guard let tier = item.refillTier, let daysLeft = item.approxDaysLeft,
@@ -171,15 +174,15 @@ final class ReminderStore {
 
     /// 为 30 天窗口内的活跃批次调度三级到期提醒（"exp-" 前缀，不受对账
     /// dose-/slot- 清理影响；同 id 幂等不重排）。点击路由 = 药箱页。
-    func scheduleExpiryReminders(patientId: UUID) async {
+    /// pending/delivered 由 refresh 一次性拉取传入。
+    /// 已送达的到期提醒必须跳过——否则送达后不再 pending，下次 refresh 以同一
+    /// id 重排 + 重插 recordDelivery：同 id 违反 notification_delivery 主键，
+    /// 异常中止整个 for 循环，其余批次静默失去到期提醒（FR9.11 链断），
+    /// 且已送达提醒死而复生。
+    func scheduleExpiryReminders(patientId: UUID, pending: [String: Date], delivered: Set<String>) async {
         do {
             let lots = try await meds.expiringLots(patientId: patientId, within: 30)
-            var pending = try await scheduler.pending()
-            // 审查修复：已送达的到期提醒必须跳过——否则送达后不再 pending，
-            // 下次 refresh 以同一 id 重排 + 重插 recordDelivery：同 id 违反
-            // notification_delivery 主键，异常中止整个 for 循环，其余批次
-            // 静默失去到期提醒（FR9.11 链断），且已送达提醒死而复生。
-            let delivered = try await scheduler.delivered()
+            var pending = pending
             for lot in lots {
                 guard let expireAt = lot.expireAt else { continue }
                 for (tier, fire) in BatchExpiryRules.fireDates(expireAt: expireAt, now: Date()) {

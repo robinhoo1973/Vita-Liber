@@ -474,15 +474,7 @@ struct VoiceSessionView: View {
     /// 语音文法指标键 → MetricType（文法键 snake_case 为单一事实源；
     /// 温度等 MetricType 未覆盖的指标返回 nil——不臆造落库）
     private static func metricType(for grammarKey: String) -> MetricType? {
-        switch grammarKey {
-        case "blood_pressure_sys": return .bloodPressureSys
-        case "blood_pressure_dia": return .bloodPressureDia
-        case "glucose": return .glucose
-        case "heart_rate": return .heartRate
-        case "weight": return .weight
-        case "blood_oxygen": return .bloodOxygen
-        default: return nil
-        }
+        MetricType(grammarKey: grammarKey)   // Domain 单一映射（VoiceGrammarDefaults 同源键）
     }
 
     private func performCall(_ object: String) {

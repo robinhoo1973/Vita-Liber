@@ -154,6 +154,7 @@ struct ExportWizardView: View {
                                             dateTo: scopeKind == .dateRange ? dateTo : nil,
                                             includeNotes: includeNotes,
                                             watermark: watermark,
+                                            emergencyNumber: L10n.emergencyNumber,
                                             scopeKind: scopeKind)
                                         state.run(request)
                                         step = 3

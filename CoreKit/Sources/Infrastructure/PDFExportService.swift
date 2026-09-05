@@ -25,17 +25,22 @@ public actor PDFExportService {
         public var includeNotes: Bool
         public var watermark: Bool
         public var scopeKind: ScopeKind
+        /// 免责声明中的急救号码（120/119/911 由 App 层按区域经 L10n 注入——
+        /// Infrastructure 不持有区域知识，默认 120 仅供无 App 层的调用方）
+        public var emergencyNumber: String
         public enum ScopeKind: String, Sendable {
             case all, member, dateRange, docType, doctorSummary   // 健康问题/就诊维度随挂接数据
         }
         public init(patientId: UUID, title: String, dateFrom: Date? = nil,
                     dateTo: Date? = nil, docTypes: Set<String>? = nil,
                     includeNotes: Bool = true, watermark: Bool = true,
+                    emergencyNumber: String = "120",
                     scopeKind: ScopeKind = .all) {
             self.patientId = patientId; self.title = title
             self.dateFrom = dateFrom; self.dateTo = dateTo
             self.docTypes = docTypes; self.includeNotes = includeNotes
-            self.watermark = watermark; self.scopeKind = scopeKind
+            self.watermark = watermark; self.emergencyNumber = emergencyNumber
+            self.scopeKind = scopeKind
         }
     }
 
@@ -157,7 +162,7 @@ public actor PDFExportService {
         let rangeText = "\(request.dateFrom?.formatted(date: .abbreviated, time: .omitted) ?? "—") ~ \(request.dateTo?.formatted(date: .abbreviated, time: .omitted) ?? "—")"
         (rangeText as NSString).draw(at: CGPoint(x: 60, y: 180), withAttributes: [.font: UIFont.systemFont(ofSize: 14)])
         ("\(count) 条记录" as NSString).draw(at: CGPoint(x: 60, y: 210), withAttributes: [.font: UIFont.systemFont(ofSize: 14)])
-        let disclaimer = "本导出仅呈现你确认过的记录，不构成医疗建议。紧急情况请拨打 120。"
+        let disclaimer = "本导出仅呈现你确认过的记录，不构成医疗建议。紧急情况请拨打 \(request.emergencyNumber)。"
         let rect = CGRect(x: 60, y: 720, width: bounds.width - 120, height: 80)
         (disclaimer as NSString).draw(in: rect, withAttributes: [.font: UIFont.systemFont(ofSize: 11)])
     }

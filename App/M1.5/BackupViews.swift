@@ -30,7 +30,8 @@ final class BackupState {
     private(set) var pendingDocument: BackupDocument?
     /// 冲突裁决（默认保留本机——绝不静默覆盖）
     private(set) var resolutions: [UUID: ExportService.ConflictResolution] = [:]
-    private var pendingConflictData: Data?
+    /// 已校验的冲突分析（含 envelope）——裁决后恢复直接复用，不再二次哈希+解码整包
+    private var pendingAnalysis: BackupService.ConflictAnalysis?
 
     private let service: BackupService
     private let logger = Logger(subsystem: "com.vitaliber", category: "backup")
@@ -60,16 +61,17 @@ final class BackupState {
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         do {
             let data = try Data(contentsOf: url)
-            // ADR-019：先分析冲突——无冲突直接恢复；有冲突进入逐项裁决预览
-            let conflicts = try await service.analyzeConflicts(from: data)
-            guard !conflicts.isEmpty else {
-                let records = try await service.restore(from: data)
+            // ADR-019：先分析冲突——无冲突直接恢复；有冲突进入逐项裁决预览。
+            // 校验后的 envelope 随分析返回，恢复路径复用（整包只哈希+解码一次）
+            let analysis = try await service.analyzeConflicts(from: data)
+            guard !analysis.conflicts.isEmpty else {
+                let records = try await service.restore(envelope: analysis.envelope)
                 phase = .restored(records: records)
                 return
             }
-            pendingConflictData = data
-            resolutions = Dictionary(uniqueKeysWithValues: conflicts.map { ($0.id, .keep) })
-            phase = .conflicts(conflicts)
+            pendingAnalysis = analysis
+            resolutions = Dictionary(uniqueKeysWithValues: analysis.conflicts.map { ($0.id, .keep) })
+            phase = .conflicts(analysis.conflicts)
         } catch BackupService.BackupError.checksumMismatch,
                 BackupService.BackupError.unsupportedFormat {
             // 校验失败绝不部分导入——本机数据保持原样
@@ -86,11 +88,11 @@ final class BackupState {
 
     /// 应用裁决并恢复（ADR-019：确认后才执行；任何一项未裁决均已在服务层拒绝）
     func applyConflicts() async {
-        guard case .conflicts = phase, let data = pendingConflictData else { return }
+        guard case .conflicts = phase, let analysis = pendingAnalysis else { return }
         phase = .working
         do {
-            let records = try await service.restore(from: data, resolutions: resolutions)
-            pendingConflictData = nil
+            let records = try await service.restore(envelope: analysis.envelope, resolutions: resolutions)
+            pendingAnalysis = nil
             resolutions = [:]
             phase = .restored(records: records)
         } catch BackupService.BackupError.conflictDetected {
@@ -103,7 +105,7 @@ final class BackupState {
     }
 
     func cancelConflicts() {
-        pendingConflictData = nil
+        pendingAnalysis = nil
         resolutions = [:]
         phase = .idle
     }

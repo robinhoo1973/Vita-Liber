@@ -144,12 +144,13 @@ struct MetricQuickEntryView: View {
         }
     }
 
-    /// 确认后的指标字段 → 录入框（血压双值分别落收缩压/舒张压）
+    /// 确认后的指标字段 → 录入框（血压双值分别落收缩压/舒张压）；
+    /// 键匹配走 MetricType(grammarKey:) Domain 单一映射（文法键词汇一处维护）
     private func applyConfirmed(_ set: OcrConfirmationSet) {
         let fields = set.confirmedFields
-        if let sys = fields.first(where: { $0.key == "blood_pressure_sys" })?.value {
+        if let sys = fields.first(where: { MetricType(grammarKey: $0.key) == .bloodPressureSys })?.value {
             primaryText = sys
-            if let dia = fields.first(where: { $0.key == "blood_pressure_dia" })?.value {
+            if let dia = fields.first(where: { MetricType(grammarKey: $0.key) == .bloodPressureDia })?.value {
                 secondaryText = dia
             }
         } else if let v = fields.first(where: { $0.key != "title" && !$0.value.isEmpty })?.value {

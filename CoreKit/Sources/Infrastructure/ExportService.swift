@@ -335,6 +335,20 @@ public actor ExportService {
                 memberProfiles.first { $0.id.uuidString == id }?.displayName
                     ?? (envelope.selfProfile?.id.uuidString == id ? envelope.selfProfile?.displayName : nil)
             }
+
+            // 备份侧标题字典：冲突预览对每个冲突 id 直接查表——此前每 id 对全数组
+            // 线性扫描，整库冲突时放大为 O(n²)（同库重导入的最坏情形）
+            let consentTitle = Dictionary(uniqueKeysWithValues: envelope.consentRecords.map { ($0.id.uuidString, $0.key) })
+            let timelineTitle = Dictionary(uniqueKeysWithValues: envelope.timeline.map { ($0.id.uuidString, $0.title) })
+            let planTitle = Dictionary(uniqueKeysWithValues: envelope.plans.map { ($0.id.uuidString, $0.medicationName) })
+            let aptTitle = Dictionary(uniqueKeysWithValues: envelope.appointments.map { ($0.id.uuidString, $0.hospital) })
+            let obsTitle = Dictionary(uniqueKeysWithValues: envelope.observations.map { ($0.id.uuidString, $0.kind) })
+            let allergyTitle = Dictionary(uniqueKeysWithValues: envelope.allergies.map { ($0.id.uuidString, $0.substance) })
+            let encTitle = Dictionary(uniqueKeysWithValues: envelope.encounters.map { ($0.id.uuidString, $0.kind) })
+            let metricTitle = Dictionary(uniqueKeysWithValues: envelope.metrics.map { ($0.id.uuidString, $0.key) })
+            let immTitle = Dictionary(uniqueKeysWithValues: envelope.immunizations.map { ($0.id.uuidString, $0.vaccineName) })
+            let noteTitle = Dictionary(uniqueKeysWithValues: envelope.voiceNotes.map { ($0.id.uuidString, $0.body) })
+            let problemTitle = Dictionary(uniqueKeysWithValues: envelope.healthProblems.map { ($0.id.uuidString, $0.name) })
             func existingTitle(_ table: String, _ id: String, _ column: String = "display_name") -> String? {
                 (try? String.fetchOne(db, sql: "SELECT \(column) FROM \(table) WHERE id = ?", arguments: [id])) ?? nil   // try?-ok: 摘要列缺失即 nil（纯展示）
             }
@@ -345,37 +359,37 @@ public actor ExportService {
                     backupTitle: { _ in envelope.owner?.displayName },
                     existingTitle: { existingTitle("local_owner", $0) })
             try add("consent_record", ids: envelope.consentRecords.map { $0.id.uuidString },
-                    backupTitle: { id in envelope.consentRecords.first { $0.id.uuidString == id }?.key },
+                    backupTitle: { id in consentTitle[id] ?? nil },
                     existingTitle: { existingTitle("consent_record", $0, "key") })
             try add("document_file", ids: envelope.timeline.map { $0.id.uuidString },
-                    backupTitle: { id in envelope.timeline.first { $0.id.uuidString == id }?.title },
+                    backupTitle: { id in timelineTitle[id] ?? nil },
                     existingTitle: { existingTitle("document_file", $0, "title") })
             try add("medication_plan", ids: envelope.plans.map { $0.id.uuidString },
-                    backupTitle: { id in envelope.plans.first { $0.id.uuidString == id }?.medicationName },
+                    backupTitle: { id in planTitle[id] ?? nil },
                     existingTitle: { _ in nil })
             try add("appointment", ids: envelope.appointments.map { $0.id.uuidString },
-                    backupTitle: { id in envelope.appointments.first { $0.id.uuidString == id }?.hospital },
+                    backupTitle: { id in aptTitle[id] ?? nil },
                     existingTitle: { existingTitle("appointment", $0, "hospital") })
             try add("observation", ids: envelope.observations.map { $0.id.uuidString },
-                    backupTitle: { id in envelope.observations.first { $0.id.uuidString == id }?.kind },
+                    backupTitle: { id in obsTitle[id] ?? nil },
                     existingTitle: { existingTitle("observation", $0, "kind") })
             try add("allergy_event", ids: envelope.allergies.map { $0.id.uuidString },
-                    backupTitle: { id in envelope.allergies.first { $0.id.uuidString == id }?.substance },
+                    backupTitle: { id in allergyTitle[id] ?? nil },
                     existingTitle: { existingTitle("allergy_event", $0, "substance") })
             try add("encounter", ids: envelope.encounters.map { $0.id.uuidString },
-                    backupTitle: { id in envelope.encounters.first { $0.id.uuidString == id }?.kind },
+                    backupTitle: { id in encTitle[id] ?? nil },
                     existingTitle: { existingTitle("encounter", $0, "kind") })
             try add("metric_sample", ids: envelope.metrics.map { $0.id.uuidString },
-                    backupTitle: { id in envelope.metrics.first { $0.id.uuidString == id }?.key },
+                    backupTitle: { id in metricTitle[id] ?? nil },
                     existingTitle: { existingTitle("metric_sample", $0, "metric_key") })
             try add("immunization", ids: envelope.immunizations.map { $0.id.uuidString },
-                    backupTitle: { id in envelope.immunizations.first { $0.id.uuidString == id }?.vaccineName },
+                    backupTitle: { id in immTitle[id] ?? nil },
                     existingTitle: { existingTitle("immunization", $0, "vaccine_name") })
             try add("voice_note", ids: envelope.voiceNotes.map { $0.id.uuidString },
-                    backupTitle: { id in envelope.voiceNotes.first { $0.id.uuidString == id }?.body },
+                    backupTitle: { id in noteTitle[id] ?? nil },
                     existingTitle: { existingTitle("voice_note", $0, "body") })
             try add("health_problem", ids: envelope.healthProblems.map { $0.id.uuidString },
-                    backupTitle: { id in envelope.healthProblems.first { $0.id.uuidString == id }?.name },
+                    backupTitle: { id in problemTitle[id] ?? nil },
                     existingTitle: { existingTitle("health_problem", $0, "name") })
             return items
         }
@@ -397,62 +411,73 @@ public actor ExportService {
                     """, arguments: StatementArguments(ids)))
             }
             func resolution(_ id: UUID) -> ConflictResolution {
-                resolutions[id] ?? .keep
-            }
-            // 裁决缺失的冲突行 → 抛错（UI 必须先把 preview 呈现给用户——
-            // 缺省不得静默按 keep 处理，否则「未裁决即恢复」退化为静默丢弃）
-            func rejectUnresolved(_ table: String, _ ids: Set<String>, allowResolutions: [ConflictResolution]) throws {
-                for id in ids {
-                    guard let uid = UUID(uuidString: id) else { continue }
-                    guard let chosen = resolutions[uid], allowResolutions.contains(chosen) else {
-                        throw ExportError.conflict(table: table, id: id)
-                    }
-                }
+                // 冲突 id 必带显式裁决：下方检测循环已对每个冲突 id 强制存在性
+                // （缺失即抛 .conflict），此处强制解包是类型级承诺——ADR-019
+                // 绝不静默默认，不再保留隐藏的 ?? .keep 兜底。
+                resolutions[id]!
             }
             let memberProfiles = envelope.members ?? []
             let allProfileIds = ([envelope.selfProfile].compactMap { $0 }.map(\.id)
                                  + memberProfiles.map(\.id)).map(\.uuidString)
 
-            // 身份行（keep/adopt；coexist 也允许——见 idMap 外键重写）
-            let profileConflicts = try conflictingIds(table: "patient_profile", ids: allProfileIds)
-            try rejectUnresolved("patient_profile", profileConflicts,
-                                 allowResolutions: [.keep, .adopt, .coexist])
-            let ownerConflicts = try conflictingIds(
-                table: "local_owner", ids: [envelope.owner].compactMap { $0 }.map { $0.id.uuidString })
-            try rejectUnresolved("local_owner", ownerConflicts, allowResolutions: [.keep, .adopt, .coexist])
-            let consentConflicts = try conflictingIds(table: "consent_record",
-                                                      ids: envelope.consentRecords.map { $0.id.uuidString })
-            try rejectUnresolved("consent_record", consentConflicts, allowResolutions: [.keep, .adopt, .coexist])
-            let timelineConflicts = try conflictingIds(table: "document_file",
-                                                       ids: envelope.timeline.map { $0.id.uuidString })
-            try rejectUnresolved("document_file", timelineConflicts, allowResolutions: [.keep, .adopt, .coexist])
-            let planConflicts = try conflictingIds(table: "medication_plan",
-                                                   ids: envelope.plans.map { $0.id.uuidString })
-            try rejectUnresolved("medication_plan", planConflicts, allowResolutions: [.keep, .adopt, .coexist])
-            let aptConflicts = try conflictingIds(table: "appointment",
-                                                  ids: envelope.appointments.map { $0.id.uuidString })
-            try rejectUnresolved("appointment", aptConflicts, allowResolutions: [.keep, .adopt, .coexist])
-            let obsConflicts = try conflictingIds(table: "observation",
-                                                  ids: envelope.observations.map { $0.id.uuidString })
-            try rejectUnresolved("observation", obsConflicts, allowResolutions: [.keep, .adopt, .coexist])
-            let allergyConflicts = try conflictingIds(table: "allergy_event",
-                                                      ids: envelope.allergies.map { $0.id.uuidString })
-            try rejectUnresolved("allergy_event", allergyConflicts, allowResolutions: [.keep, .adopt, .coexist])
-            let encConflicts = try conflictingIds(table: "encounter",
-                                                  ids: envelope.encounters.map { $0.id.uuidString })
-            try rejectUnresolved("encounter", encConflicts, allowResolutions: [.keep, .adopt, .coexist])
-            let metricConflicts = try conflictingIds(table: "metric_sample",
-                                                     ids: envelope.metrics.map { $0.id.uuidString })
-            try rejectUnresolved("metric_sample", metricConflicts, allowResolutions: [.keep, .adopt, .coexist])
-            let immConflicts = try conflictingIds(table: "immunization",
-                                                  ids: envelope.immunizations.map { $0.id.uuidString })
-            try rejectUnresolved("immunization", immConflicts, allowResolutions: [.keep, .adopt, .coexist])
-            let noteConflicts = try conflictingIds(table: "voice_note",
-                                                   ids: envelope.voiceNotes.map { $0.id.uuidString })
-            try rejectUnresolved("voice_note", noteConflicts, allowResolutions: [.keep, .adopt, .coexist])
-            let problemConflicts = try conflictingIds(table: "health_problem",
-                                                      ids: envelope.healthProblems.map { $0.id.uuidString })
-            try rejectUnresolved("health_problem", problemConflicts, allowResolutions: [.keep, .adopt, .coexist])
+            // 冲突检测 + 未裁决拒绝（ADR-019）：13 张表同构——(表名, id 清单)
+            // 一行描述，单循环完成检测与裁决缺失检查（缺裁决抛 .conflict——
+            // UI 必须先呈现 preview，否则「未裁决即恢复」退化为静默丢弃）。
+            let conflictPairs: [(table: String, ids: [String])] = [
+                ("patient_profile", allProfileIds),
+                ("local_owner", [envelope.owner].compactMap { $0 }.map { $0.id.uuidString }),
+                ("consent_record", envelope.consentRecords.map { $0.id.uuidString }),
+                ("document_file", envelope.timeline.map { $0.id.uuidString }),
+                ("medication_plan", envelope.plans.map { $0.id.uuidString }),
+                ("appointment", envelope.appointments.map { $0.id.uuidString }),
+                ("observation", envelope.observations.map { $0.id.uuidString }),
+                ("allergy_event", envelope.allergies.map { $0.id.uuidString }),
+                ("encounter", envelope.encounters.map { $0.id.uuidString }),
+                ("metric_sample", envelope.metrics.map { $0.id.uuidString }),
+                ("immunization", envelope.immunizations.map { $0.id.uuidString }),
+                ("voice_note", envelope.voiceNotes.map { $0.id.uuidString }),
+                ("health_problem", envelope.healthProblems.map { $0.id.uuidString }),
+            ]
+            var conflictSets: [String: Set<String>] = [:]
+            for (table, ids) in conflictPairs {
+                let hits = try conflictingIds(table: table, ids: ids)
+                for id in hits {
+                    guard let uid = UUID(uuidString: id), resolutions[uid] != nil else {
+                        throw ExportError.conflict(table: table, id: id)
+                    }
+                }
+                conflictSets[table] = hits
+            }
+            let profileConflicts = conflictSets["patient_profile"] ?? []
+            let ownerConflicts = conflictSets["local_owner"] ?? []
+            let consentConflicts = conflictSets["consent_record"] ?? []
+            let timelineConflicts = conflictSets["document_file"] ?? []
+            let planConflicts = conflictSets["medication_plan"] ?? []
+            let aptConflicts = conflictSets["appointment"] ?? []
+            let obsConflicts = conflictSets["observation"] ?? []
+            let allergyConflicts = conflictSets["allergy_event"] ?? []
+            let encConflicts = conflictSets["encounter"] ?? []
+            let metricConflicts = conflictSets["metric_sample"] ?? []
+            let immConflicts = conflictSets["immunization"] ?? []
+            let noteConflicts = conflictSets["voice_note"] ?? []
+            let problemConflicts = conflictSets["health_problem"] ?? []
+
+            /// ADR-019 三路裁决的唯一形态：冲突表任一行的 keep→跳过 / adopt→执行
+            /// 覆盖并跳过 / coexist→落 INSERT（新 id 已由 idMap 重写）。
+            /// 全部 11 张实体表共用（错误曾以 3 种手写姿态出现，审计要读 4 个版本）。
+            func adoptOrSkip(_ conflicts: Set<String>, _ id: UUID,
+                             adopt: () throws -> Void) throws -> Bool {
+                guard conflicts.contains(id.uuidString) else { return false }
+                switch resolution(id) {
+                case .keep:
+                    return true
+                case .adopt:
+                    try adopt()
+                    return true
+                case .coexist:
+                    return false
+                }
+            }
 
             // coexist 的 id 重写映射：备份行以新 id 落库，子行外键随映射重写
             var idMap: [UUID: UUID] = [:]
@@ -460,62 +485,22 @@ public actor ExportService {
                 guard let id else { return nil }
                 return idMap[id] ?? id
             }
-            for id in profileConflicts {
-                guard let uid = UUID(uuidString: id), resolution(uid) == .coexist else { continue }
-                idMap[uid] = UUID()
-            }
-            for id in ownerConflicts {
-                guard let uid = UUID(uuidString: id), resolution(uid) == .coexist else { continue }
-                idMap[uid] = UUID()
-            }
-            for id in consentConflicts {
-                guard let uid = UUID(uuidString: id), resolution(uid) == .coexist else { continue }
-                idMap[uid] = UUID()
-            }
-            for id in timelineConflicts {
-                guard let uid = UUID(uuidString: id), resolution(uid) == .coexist else { continue }
-                idMap[uid] = UUID()
-            }
-            for id in planConflicts {
-                guard let uid = UUID(uuidString: id), resolution(uid) == .coexist else { continue }
-                idMap[uid] = UUID()
-            }
-            for id in aptConflicts {
-                guard let uid = UUID(uuidString: id), resolution(uid) == .coexist else { continue }
-                idMap[uid] = UUID()
-            }
-            for id in obsConflicts {
-                guard let uid = UUID(uuidString: id), resolution(uid) == .coexist else { continue }
-                idMap[uid] = UUID()
-            }
-            for id in allergyConflicts {
-                guard let uid = UUID(uuidString: id), resolution(uid) == .coexist else { continue }
-                idMap[uid] = UUID()
-            }
-            for id in encConflicts {
-                guard let uid = UUID(uuidString: id), resolution(uid) == .coexist else { continue }
-                idMap[uid] = UUID()
-            }
-            for id in metricConflicts {
-                guard let uid = UUID(uuidString: id), resolution(uid) == .coexist else { continue }
-                idMap[uid] = UUID()
-            }
-            for id in immConflicts {
-                guard let uid = UUID(uuidString: id), resolution(uid) == .coexist else { continue }
-                idMap[uid] = UUID()
-            }
-            for id in noteConflicts {
-                guard let uid = UUID(uuidString: id), resolution(uid) == .coexist else { continue }
-                idMap[uid] = UUID()
-            }
-            for id in problemConflicts {
-                guard let uid = UUID(uuidString: id), resolution(uid) == .coexist else { continue }
-                idMap[uid] = UUID()
+            for (_, hits) in conflictSets {
+                for id in hits {
+                    guard let uid = UUID(uuidString: id), resolution(uid) == .coexist else { continue }
+                    idMap[uid] = UUID()
+                }
             }
 
             // FK 拓扑序（ERR#35）：patient_profile 先落——本人档案必须随 envelope
             // 往返（medication/plan/document 的 patient_id 外键目标）
             var profileId = envelope.owner?.selfPatientId ?? envelope.selfProfile?.id
+            /// 备份行 patient_id 的最终落点：coexist 重映射 → 原 id → 本人档案。
+            /// 12 处 INSERT/UPDATE 共用同一回落链（此前每处手写三元链）。
+            func patientID(_ id: UUID?) -> String {
+                (remap(id) ?? id)?.uuidString ?? profileId?.uuidString ?? ""
+            }
+
             func putProfile(_ profile: PatientProfile) throws {
                 let targetId = remap(profile.id) ?? profile.id
                 if profileConflicts.contains(profile.id.uuidString) {
@@ -587,41 +572,25 @@ public actor ExportService {
             }
             profileId = remap(envelope.owner?.selfPatientId) ?? profileId
             for c in envelope.consentRecords {
-                if consentConflicts.contains(c.id.uuidString) {
-                    switch resolution(c.id) {
-                    case .keep:
-                        continue
-                    case .adopt:
-                        try db.execute(sql: """
-                            UPDATE consent_record SET key = ?, level = ?, version = ?, accepted_at = ? WHERE id = ?
-                            """, arguments: [c.key, c.level, c.version, c.acceptedAt, c.id.uuidString])
-                        continue
-                    case .coexist:
-                        break
-                    }
-                }
+                if try adoptOrSkip(consentConflicts, c.id, adopt: {
+                    try db.execute(sql: """
+                        UPDATE consent_record SET key = ?, level = ?, version = ?, accepted_at = ? WHERE id = ?
+                        """, arguments: [c.key, c.level, c.version, c.acceptedAt, c.id.uuidString])
+                }) { continue }
                 try db.execute(sql: """
                     INSERT INTO consent_record (id, key, level, version, accepted_at)
                     VALUES (?, ?, ?, ?, ?)
                     """, arguments: [(remap(c.id) ?? c.id).uuidString, c.key, c.level, c.version, c.acceptedAt])
             }
             for e in envelope.timeline {
-                if timelineConflicts.contains(e.id.uuidString) {
-                    switch resolution(e.id) {
-                    case .keep:
-                        continue
-                    case .adopt:
-                        let meta = String(data: try JSONEncoder().encode(e), encoding: .utf8) ?? "{}"
-                        try db.execute(sql: """
-                            UPDATE document_file SET patient_id = ?, meta_json = ?, title = ?, created_at = ?, updated_at = ?
-                            WHERE id = ?
-                            """, arguments: [(remap(e.patientId) ?? e.patientId).uuidString, meta, e.title,
-                                             e.occurredAt, e.occurredAt, e.id.uuidString])
-                        continue
-                    case .coexist:
-                        break
-                    }
-                }
+                if try adoptOrSkip(timelineConflicts, e.id, adopt: {
+                    let meta = String(data: try JSONEncoder().encode(e), encoding: .utf8) ?? "{}"
+                    try db.execute(sql: """
+                        UPDATE document_file SET patient_id = ?, meta_json = ?, title = ?, created_at = ?, updated_at = ?
+                        WHERE id = ?
+                        """, arguments: [(remap(e.patientId) ?? e.patientId).uuidString, meta, e.title,
+                                         e.occurredAt, e.occurredAt, e.id.uuidString])
+                }) { continue }
                 let meta = String(data: try JSONEncoder().encode(e), encoding: .utf8) ?? "{}"
                 let targetId = remap(e.id) ?? e.id
                 try db.execute(sql: """
@@ -633,23 +602,15 @@ public actor ExportService {
                                      meta, e.occurredAt, e.occurredAt])
             }
             for p in envelope.plans {
-                if planConflicts.contains(p.id.uuidString) {
-                    switch resolution(p.id) {
-                    case .keep:
-                        continue
-                    case .adopt:
-                        let scheduleJSON = String(data: try JSONEncoder().encode(p.schedule), encoding: .utf8) ?? "{}"
-                        try db.execute(sql: """
-                            UPDATE medication_plan SET status = ?, schedule_json = ?, start_date = ?, end_date = ?
-                            WHERE id = ?
-                            """, arguments: [p.status.rawValue, scheduleJSON,
-                                             p.startDate.timeIntervalSince1970,
-                                             p.endDate?.timeIntervalSince1970, p.id.uuidString])
-                        continue
-                    case .coexist:
-                        break
-                    }
-                }
+                if try adoptOrSkip(planConflicts, p.id, adopt: {
+                    let scheduleJSON = String(data: try JSONEncoder().encode(p.schedule), encoding: .utf8) ?? "{}"
+                    try db.execute(sql: """
+                        UPDATE medication_plan SET status = ?, schedule_json = ?, start_date = ?, end_date = ?
+                        WHERE id = ?
+                        """, arguments: [p.status.rawValue, scheduleJSON,
+                                         p.startDate.timeIntervalSince1970,
+                                         p.endDate?.timeIntervalSince1970, p.id.uuidString])
+                }) { continue }
                 // 药品行先落（medication_plan.medication_id 外键，ERR#35）
                 let planPatient = remap(p.patientId) ?? p.patientId ?? profileId
                 let medId = UUID()
@@ -668,19 +629,6 @@ public actor ExportService {
                                      p.startDate.timeIntervalSince1970, p.endDate?.timeIntervalSince1970,
                                      p.startDate.timeIntervalSince1970, p.startDate.timeIntervalSince1970])
             }
-            func adoptOrSkip(_ conflicts: Set<String>, _ id: UUID,
-                                adopt: () throws -> Void) throws -> Bool {
-                guard conflicts.contains(id.uuidString) else { return false }
-                switch resolution(id) {
-                case .keep:
-                    return true
-                case .adopt:
-                    try adopt()
-                    return true
-                case .coexist:
-                    return false
-                }
-            }
             for a in envelope.appointments {
                 if try adoptOrSkip(aptConflicts, a.id, adopt: {
                     try db.execute(sql: """
@@ -692,7 +640,7 @@ public actor ExportService {
                 try db.execute(sql: """
                     INSERT INTO appointment (id, patient_id, hospital, department, starts_at, status, created_at, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """, arguments: [(remap(a.id) ?? a.id).uuidString, (remap(a.patientId) ?? a.patientId)?.uuidString ?? profileId?.uuidString ?? "", a.hospital, a.department,
+                    """, arguments: [(remap(a.id) ?? a.id).uuidString, patientID(a.patientId), a.hospital, a.department,
                                      a.startsAt.timeIntervalSince1970, a.status,
                                      a.startsAt.timeIntervalSince1970, a.startsAt.timeIntervalSince1970])
             }
@@ -707,7 +655,7 @@ public actor ExportService {
                 try db.execute(sql: """
                     INSERT INTO observation (id, patient_id, kind, occurred_at, description, self_mark, created_at, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """, arguments: [(remap(o.id) ?? o.id).uuidString, (remap(o.patientId) ?? o.patientId)?.uuidString ?? profileId?.uuidString ?? "", o.kind,
+                    """, arguments: [(remap(o.id) ?? o.id).uuidString, patientID(o.patientId), o.kind,
                                      o.occurredAt.timeIntervalSince1970, o.description, o.selfMark,
                                      o.occurredAt.timeIntervalSince1970, o.occurredAt.timeIntervalSince1970])
             }
@@ -722,7 +670,7 @@ public actor ExportService {
                 try db.execute(sql: """
                     INSERT INTO allergy_event (id, patient_id, substance, reaction_tags, severity, occurred_at, created_at, updated_at)
                     VALUES (?, ?, ?, '[]', ?, ?, ?, ?)
-                    """, arguments: [(remap(a.id) ?? a.id).uuidString, (remap(a.patientId) ?? a.patientId)?.uuidString ?? profileId?.uuidString ?? "", a.substance, a.severity,
+                    """, arguments: [(remap(a.id) ?? a.id).uuidString, patientID(a.patientId), a.substance, a.severity,
                                      a.occurredAt.timeIntervalSince1970,
                                      a.occurredAt.timeIntervalSince1970, a.occurredAt.timeIntervalSince1970])
             }
@@ -737,7 +685,7 @@ public actor ExportService {
                 try db.execute(sql: """
                     INSERT INTO encounter (id, patient_id, date, kind, diagnosis_text, created_at, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """, arguments: [(remap(e.id) ?? e.id).uuidString, (remap(e.patientId) ?? e.patientId)?.uuidString ?? profileId?.uuidString ?? "", e.date.timeIntervalSince1970,
+                    """, arguments: [(remap(e.id) ?? e.id).uuidString, patientID(e.patientId), e.date.timeIntervalSince1970,
                                      e.kind, e.diagnosisText,
                                      e.date.timeIntervalSince1970, e.date.timeIntervalSince1970])
             }
@@ -752,7 +700,7 @@ public actor ExportService {
                 try db.execute(sql: """
                     INSERT INTO metric_sample (id, patient_id, metric_key, value, unit, origin, self_measured, excluded, source_ref, measured_at, created_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, arguments: [(remap(m.id) ?? m.id).uuidString, (remap(m.patientId) ?? m.patientId)?.uuidString ?? profileId?.uuidString ?? "", m.key, m.value, m.unit, m.origin,
+                    """, arguments: [(remap(m.id) ?? m.id).uuidString, patientID(m.patientId), m.key, m.value, m.unit, m.origin,
                                      m.origin == "hospital" ? 0 : 1, m.excluded ? 1 : 0, m.sourceRef,
                                      m.measuredAt.timeIntervalSince1970, m.measuredAt.timeIntervalSince1970])
             }
@@ -767,7 +715,7 @@ public actor ExportService {
                 try db.execute(sql: """
                     INSERT INTO immunization (id, patient_id, vaccine_name, administered_at, created_at, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?)
-                    """, arguments: [(remap(i.id) ?? i.id).uuidString, (remap(i.patientId) ?? i.patientId)?.uuidString ?? profileId?.uuidString ?? "", i.vaccineName,
+                    """, arguments: [(remap(i.id) ?? i.id).uuidString, patientID(i.patientId), i.vaccineName,
                                      i.administeredAt.timeIntervalSince1970,
                                      i.administeredAt.timeIntervalSince1970, i.administeredAt.timeIntervalSince1970])
             }
@@ -784,7 +732,7 @@ public actor ExportService {
                 try db.execute(sql: """
                     INSERT INTO voice_note (id, patient_id, body, occurred_at, tags, in_timeline, created_at, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """, arguments: [(remap(v.id) ?? v.id).uuidString, (remap(v.patientId) ?? v.patientId)?.uuidString ?? profileId?.uuidString ?? "", v.body,
+                    """, arguments: [(remap(v.id) ?? v.id).uuidString, patientID(v.patientId), v.body,
                                      v.occurredAt.timeIntervalSince1970, tagsJSON, v.inTimeline ? 1 : 0,
                                      v.occurredAt.timeIntervalSince1970, v.occurredAt.timeIntervalSince1970])
             }
@@ -804,7 +752,7 @@ public actor ExportService {
                 try db.execute(sql: """
                     INSERT INTO health_problem (id, patient_id, name, archived, created_at, updated_at)
                     VALUES (?, ?, ?, 0, ?, ?)
-                    """, arguments: [(remap(h.id) ?? h.id).uuidString, (remap(h.patientId) ?? h.patientId)?.uuidString ?? profileId?.uuidString ?? "", h.name,
+                    """, arguments: [(remap(h.id) ?? h.id).uuidString, patientID(h.patientId), h.name,
                                      h.createdAt.timeIntervalSince1970, h.createdAt.timeIntervalSince1970])
             }
         }
