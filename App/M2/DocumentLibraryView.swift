@@ -22,11 +22,16 @@ final class DocumentsState {
     private(set) var lastQualityTags: [String] = []
     private let store: DocumentStore
     private let pipeline: OCRPipeline
+    /// FR14.1 authOcr 消费点：授权关闭时不运行识别（资料照常入库，仅无识别文本）。
+    /// 撤回即时生效——每次导入实时读值，不缓存授权状态。
+    private let ocrAuthorized: @MainActor () -> Bool
     private var loadingPatientId: UUID?
 
-    init(store: DocumentStore, pipeline: OCRPipeline) {
+    init(store: DocumentStore, pipeline: OCRPipeline,
+         ocrAuthorized: @escaping @MainActor () -> Bool = { true }) {
         self.store = store
         self.pipeline = pipeline
+        self.ocrAuthorized = ocrAuthorized
     }
 
     struct PendingDocument: Identifiable, Equatable {
@@ -91,23 +96,27 @@ final class DocumentsState {
             }
             // FR6.1/ADR-026：OCR 经统一编排层（质量评估 + 识别）；
             // 识别文本写入 ocr_text 检索列（FTS 触发器自动索引）；
-            // 机器识别未确认 = grade 'D'（BR-003：检索/AI 事实链排除，确认后升 C）
+            // 机器识别未确认 = grade 'D'（BR-003：检索/AI 事实链排除，确认后升 C）。
+            // FR14.1 authOcr：授权关闭 → 跳过识别，资料照常入库仅无识别文本
+            // （撤回即时生效，关闭只停后续处理不删数据）。
             var ocrText: String?
-            do {
-                let result = try await pipeline.run(imageData: data)
-                lastQualityTags = result.qualityTags
-                if result.failed {
-                    // FR6.6：识别引擎失败必须可见，绝不静默按「无文字」入库
+            if ocrAuthorized() {
+                do {
+                    let result = try await pipeline.run(imageData: data)
+                    lastQualityTags = result.qualityTags
+                    if result.failed {
+                        // FR6.6：识别引擎失败必须可见，绝不静默按「无文字」入库
+                        lastImportError = L10n.docImportFailed
+                        return
+                    }
+                    if !result.lines.isEmpty {
+                        ocrText = result.lines.joined(separator: "\n")
+                    }
+                } catch {
+                    // FR6.6：识别失败可见反馈，不静默按「无文字」入库
                     lastImportError = L10n.docImportFailed
                     return
                 }
-                if !result.lines.isEmpty {
-                    ocrText = result.lines.joined(separator: "\n")
-                }
-            } catch {
-                // FR6.6：识别失败可见反馈，不静默按「无文字」入库
-                lastImportError = L10n.docImportFailed
-                return
             }
             _ = try await store.save(patientId: patientId, docType: docType,
                                      sha256: sha, mimeType: mimeType, origin: origin,
@@ -169,20 +178,25 @@ final class DocumentsState {
             let decoder = PDFKitDecoder()
             var texts: [String] = []
             var failedPages = 0
-            // 逐页流式：单页渲染→识别→释放（页位图不整体驻留内存）
-            try await decoder.decodePDFPages(data, scale: 2.0, maxPages: 50) { page in
-                // ADR-026：PDF 逐页识别同样经统一编排层
-                let result = (try? await self.pipeline.run(imageData: page.bitmapData))   // try?-ok: 单页失败继续下一页（FR6.6 汇总时标注）
-                if let result, !result.failed, result.hasText {
-                    texts.append(result.lines.joined(separator: "\n"))
-                } else {
-                    // 引擎失败与无文字分别标注（FR6.6：失败必须可见，不静默）
-                    failedPages += 1
-                    texts.append("")
+            // FR14.1 authOcr：授权关闭 → 不逐页识别（只归档，meta 标 skipped）
+            let ocrOn = ocrAuthorized()
+            if ocrOn {
+                // 逐页流式：单页渲染→识别→释放（页位图不整体驻留内存）
+                try await decoder.decodePDFPages(data, scale: 2.0, maxPages: 50) { page in
+                    // ADR-026：PDF 逐页识别同样经统一编排层
+                    let result = (try? await self.pipeline.run(imageData: page.bitmapData))   // try?-ok: 单页失败继续下一页（FR6.6 汇总时标注）
+                    if let result, !result.failed, result.hasText {
+                        texts.append(result.lines.joined(separator: "\n"))
+                    } else {
+                        // 引擎失败与无文字分别标注（FR6.6：失败必须可见，不静默）
+                        failedPages += 1
+                        texts.append("")
+                    }
                 }
             }
             let joined = texts.filter { !$0.isEmpty }.joined(separator: "\n---\n")
-            let metaPayload = ["engine": "vision", "page_count": texts.count,
+            let metaPayload = ["engine": ocrOn ? "vision" : "skipped-auth",
+                               "page_count": texts.count,
                                "failed_pages": failedPages] as [String: Any]
             let metaJSON = String(data: try JSONSerialization.data(withJSONObject: metaPayload, options: []),
                                   encoding: .utf8)

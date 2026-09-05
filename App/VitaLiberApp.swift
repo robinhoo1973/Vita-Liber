@@ -99,7 +99,9 @@ struct VitaLiberApp: App {
                     catch { /* 额度计数失败不阻断回答 */ }
                 }
             }))
-        _settingsStore = State(initialValue: AppSettingsStore(store: container.settings))
+        // 单一实例：环境注入与 DocumentsState 授权闭包共用（AppRootView 启动即 load）
+        let appSettings = AppSettingsStore(store: container.settings)
+        _settingsStore = State(initialValue: appSettings)
         _observationState = State(initialValue: ObservationStoreState(
             store: container.observations, allergyStore: container.allergies,
             mediaAssets: container.mediaAssets))
@@ -120,7 +122,9 @@ struct VitaLiberApp: App {
             store: container.documents,
             pipeline: OCRPipeline(
                 recognizer: EngineRegistry.shared.resolve(OCRRecognizerFactory.self),
-                grayscaleDecoder: GrayscaleImageDecoder())))
+                grayscaleDecoder: GrayscaleImageDecoder()),
+            // FR14.1 authOcr 消费点：每次导入实时读授权（撤回即时生效）
+            ocrAuthorized: { appSettings.values[.authOcr] != "false" }))
         _aiHistoryState = State(initialValue: AIHistoryState(store: container.aiHistory))
         _exportWizardState = State(initialValue: ExportWizardState(service: container.pdfExport))
         _f16DeviceState = State(initialValue: F16DeviceState(

@@ -128,6 +128,7 @@ public actor MedicationStore: DoseSource {
         case doseNotFound(String)
         case alreadyResolved(String)
         case takenMustUseConfirm(String)
+        case notFound                 // SP-17 updateLot：目标批次不存在（软删竞态/过期删除）
         public var errorDescription: String? { "剂量行操作失败: \(self)" }
     }
 

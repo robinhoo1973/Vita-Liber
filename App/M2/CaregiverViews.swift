@@ -12,11 +12,28 @@ import Infrastructure   // FamilyPendingDose（FR24.5 跨成员投影）
 struct CaregiverViews: View {
     @Environment(AppState.self) private var app
     @Environment(ReminderStore.self) private var reminderStore
+    @Environment(AppSettingsStore.self) private var settings
+    @Environment(AppRouter.self) private var router
     @State private var pendingDoses: [FamilyPendingDose] = []
     @State private var showConfirmAlert = false
     @State private var selectedDose: FamilyPendingDose?
 
     var body: some View {
+        // FR14.1 authFamilyAccess 消费点：关闭 → 照护者视图呈禁用说明态
+        if settings.values[.authFamilyAccess] == "false" {
+            ContentUnavailableView(L10n.privacyAuthFamilyDisabled,
+                                   systemImage: "person.2.slash",
+                                   description: Text(L10n.privacyAuthFamilyDisabledBody))
+            .safeAreaInset(edge: .bottom) {
+                Button {
+                    router.navigate(to: .privacyAuthorization)
+                } label: {
+                    Text(L10n.privacyAuthOpen).frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.borderedProminent)
+                .padding(16)
+            }
+        } else {
         List {
             if pendingDoses.isEmpty {
                 ContentUnavailableView(L10n.caregiverEmpty,
@@ -67,6 +84,7 @@ struct CaregiverViews: View {
             }
         }
         .task { await loadPendingDoses() }
+        }
     }
 
     private func loadPendingDoses() async {

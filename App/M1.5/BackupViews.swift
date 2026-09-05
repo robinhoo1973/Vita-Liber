@@ -131,6 +131,7 @@ struct BackupDocument: FileDocument {
 struct BackupView: View {
     @Environment(BackupState.self) private var state
     @Environment(AppState.self) private var app
+    @Environment(AppSettingsStore.self) private var settings
     @State private var showExporter = false
     @State private var showImporter = false
     @State private var showExportConfirm = false
@@ -140,6 +141,14 @@ struct BackupView: View {
     var body: some View {
         List {
             Section {
+                // FR14.1 authCloudBackup 消费点：关闭 → iCloud 项呈降级说明
+                // （本地「保存到文件」导出不受影响），撤回即时生效
+                if settings.values[.authCloudBackup] == "false" {
+                    Label(L10n.privacyAuthBackupDisabled, systemImage: "icloud.slash")
+                        .font(.footnote)
+                        .foregroundStyle(.orange)
+                        .accessibilityIdentifier("SP-24.backup.authDisabled")
+                }
                 if !state.iCloudSignedIn {
                     // 未登录 iCloud：不隐藏功能，只如实说明落点受限（仍可导出到本机）
                     Label(L10n.backupNotSignedIn, systemImage: "icloud.slash")

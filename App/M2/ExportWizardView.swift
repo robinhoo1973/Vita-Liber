@@ -62,6 +62,7 @@ final class ExportWizardState {
 struct ExportWizardView: View {
     @Environment(AppState.self) private var app
     @Environment(ExportWizardState.self) private var state
+    @Environment(AppSettingsStore.self) private var settings
     @Environment(\.dismiss) private var dismiss
 
     @State private var step = 1
@@ -143,6 +144,8 @@ struct ExportWizardView: View {
                             if step < 2 {
                                 Button(L10n.allergyNext) { step = 2 }
                             } else {
+                                // FR14.1 authSharing 消费点：关闭 → 导出开始禁用 +
+                                // 影响说明（撤回即时生效；设置页跳转由工具条按钮承担）
                                 Button(L10n.exportStart) {
                                     Task {
                                         // FR13.4 导出前身份验证（门禁复用）+ 隐私提醒
@@ -160,7 +163,12 @@ struct ExportWizardView: View {
                                         step = 3
                                     }
                                 }
+                                .disabled(settings.values[.authSharing] == "false")
                                 .accessibilityIdentifier("SP-22.export.start")
+                                if settings.values[.authSharing] == "false" {
+                                    Label(L10n.privacyAuthSharingDisabled, systemImage: "square.and.arrow.up.trianglebadge.exclamationmark")
+                                        .font(.caption).foregroundStyle(.orange)
+                                }
                             }
                         }
                     }

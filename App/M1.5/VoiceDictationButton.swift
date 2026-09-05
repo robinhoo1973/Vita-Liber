@@ -23,7 +23,15 @@ struct VoiceDictationButton: View {
 
     var body: some View {
         Group {
-            if let model {
+            // FR14.1 authVoiceDictation 消费点：关闭 → 禁用态回落手输
+            // （FR8.9 降级语义：识别失败/未授权均静默降级为手输 + 轻提示）
+            if settings.values[.authVoiceDictation] == "false" {
+                Label(L10n.privacyAuthVoiceDisabled, systemImage: "mic.slash")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .accessibilityIdentifier("voice.dictation.authDisabled")
+            } else if let model {
                 VStack(alignment: .leading, spacing: 6) {
                     Button {
                         model.start()

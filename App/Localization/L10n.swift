@@ -219,6 +219,35 @@ enum L10n {
     static var settings_habits: String { t("settings.habits") }
     static var settings_pro: String { t("settings.pro") }
     static var settings_privacy: String { t("settings.privacy") }
+    // FR14.1 分目的授权面板（ui-ux §5.22.2）
+    static var privacyAuthTitle: String { t("privacyAuth.title") }
+    static var privacyAuthFooter: String { t("privacyAuth.footer") }
+    static var privacyAuthExplainers: String { t("privacyAuth.explainers") }
+    static var privacyAuthStorageNote: String { t("privacyAuth.storageNote") }
+    static var privacyAuthAnonymizedNote: String { t("privacyAuth.anonymizedNote") }
+    static var privacyAuthLocationNote: String { t("privacyAuth.locationNote") }
+    static var privacyAuthOcrTitle: String { t("privacyAuth.ocr.title") }
+    static var privacyAuthOcrSub: String { t("privacyAuth.ocr.sub") }
+    static var privacyAuthAITitle: String { t("privacyAuth.ai.title") }
+    static var privacyAuthAISub: String { t("privacyAuth.ai.sub") }
+    static var privacyAuthFamilyTitle: String { t("privacyAuth.family.title") }
+    static var privacyAuthFamilySub: String { t("privacyAuth.family.sub") }
+    static var privacyAuthSharingTitle: String { t("privacyAuth.sharing.title") }
+    static var privacyAuthSharingSub: String { t("privacyAuth.sharing.sub") }
+    static var privacyAuthBackupTitle: String { t("privacyAuth.backup.title") }
+    static var privacyAuthBackupSub: String { t("privacyAuth.backup.sub") }
+    static var privacyAuthHealthTitle: String { t("privacyAuth.health.title") }
+    static var privacyAuthHealthSub: String { t("privacyAuth.health.sub") }
+    static var privacyAuthVoiceTitle: String { t("privacyAuth.voice.title") }
+    static var privacyAuthVoiceSub: String { t("privacyAuth.voice.sub") }
+    static var privacyAuthAIDisabledTitle: String { t("privacyAuth.ai.disabledTitle") }
+    static var privacyAuthAIDisabledBody: String { t("privacyAuth.ai.disabledBody") }
+    static var privacyAuthOpen: String { t("privacyAuth.open") }
+    static var privacyAuthSharingDisabled: String { t("privacyAuth.sharing.disabled") }
+    static var privacyAuthFamilyDisabled: String { t("privacyAuth.family.disabled") }
+    static var privacyAuthFamilyDisabledBody: String { t("privacyAuth.family.disabledBody") }
+    static var privacyAuthVoiceDisabled: String { t("privacyAuth.voice.disabled") }
+    static var privacyAuthBackupDisabled: String { t("privacyAuth.backup.disabled") }
     static var settings_about: String { t("settings.about") }
     static var settings_remindAdvance: String { t("settings.remindAdvance") }
     static var settings_snooze: String { t("settings.snooze") }
@@ -775,7 +804,35 @@ enum L10n {
         "security.unlockReason", "security.unlockFailed", "sensitive.unlockReason",
         "settings.about",
         "settings.audit", "settings.authTitle", "settings.careMode", "settings.disclaimer",
-        "settings.habits", "settings.help", "settings.privacy", "settings.pro",
+        "settings.habits", "settings.help", "settings.privacy",
+        "privacyAuth.title",
+        "privacyAuth.footer",
+        "privacyAuth.explainers",
+        "privacyAuth.storageNote",
+        "privacyAuth.anonymizedNote",
+        "privacyAuth.locationNote",
+        "privacyAuth.ocr.title",
+        "privacyAuth.ocr.sub",
+        "privacyAuth.ai.title",
+        "privacyAuth.ai.sub",
+        "privacyAuth.family.title",
+        "privacyAuth.family.sub",
+        "privacyAuth.sharing.title",
+        "privacyAuth.sharing.sub",
+        "privacyAuth.backup.title",
+        "privacyAuth.backup.sub",
+        "privacyAuth.health.title",
+        "privacyAuth.health.sub",
+        "privacyAuth.voice.title",
+        "privacyAuth.voice.sub",
+        "privacyAuth.ai.disabledTitle",
+        "privacyAuth.ai.disabledBody",
+        "privacyAuth.open",
+        "privacyAuth.sharing.disabled",
+        "privacyAuth.family.disabled",
+        "privacyAuth.family.disabledBody",
+        "privacyAuth.voice.disabled",
+        "privacyAuth.backup.disabled", "settings.pro",
         "settings.proUpgrade", "settings.quietHours", "settings.remindAdvance", "settings.restoreDefaults",
         "settings.snooze", "settings.voiceEntry",
         "settings.appearance", "settings.themeLight", "settings.themeDark", "settings.themeSystem",

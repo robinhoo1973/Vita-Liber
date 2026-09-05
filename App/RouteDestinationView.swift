@@ -178,11 +178,15 @@ struct RouteDestinationView: View {
                 RouteFallbackView(route: route)
             }
 
+        // ---- FR14.1 分目的授权面板（V3.66 实装：七开关 + 两说明行） ----
+        case .privacyAuthorization:
+            PrivacyAuthorizationView()
+
         // ---- 尚未落地的页面：可见的「即将上线」提示（§5.45 缺路由降级
         //      不 crash）——审查修复：原渲染所属 Tab 模块根导致栈内套娃
         //      （用户在时间轴点观察项会「推进」一个一模一样的时间轴副本） ----
         case .preferences,
-             .privacyAuthorization, .guidelineSourceDetail:
+             .guidelineSourceDetail:
             RouteFallbackView(route: route)
         }
     }

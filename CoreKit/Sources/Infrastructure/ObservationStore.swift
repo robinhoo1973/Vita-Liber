@@ -48,7 +48,7 @@ public actor ObservationStore {
                              arguments: [id.uuidString])
         }
         guard let row else { return nil }
-        return Self.rowToEvent(row, memberId: (row["patient_id"] as String).flatMap(UUID.init(uuidString:)) ?? UUID())
+        return Self.rowToEvent(row, memberId: (row["patient_id"] as String?).flatMap(UUID.init(uuidString:)) ?? UUID())
     }
 
     /// FR8.7 事后补字段（详情页行内编辑写回）：只更新提交的列 + updated_at。

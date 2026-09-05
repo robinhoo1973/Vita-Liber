@@ -11,13 +11,31 @@ import Protocols
 struct AssistantView: View {
     @Environment(AppState.self) private var app
     @Environment(AssistantStore.self) private var assistant
+    @Environment(AppSettingsStore.self) private var settings
+    @Environment(AppRouter.self) private var router
     @State private var draft = ""
     @State private var pickerItem: PhotosPickerItem?
     @State private var imageConfirmSet: OcrConfirmationSet?
     @State private var imageNotice: String?
 
     var body: some View {
-        VStack(spacing: 0) {
+        // FR14.1 authAI 消费点：关闭 → 解释性禁用态（入口灰显 + 影响说明 +
+        // 跳转授权面板），撤回即时生效（BR-010）
+        if settings.values[.authAI] == "false" {
+            ContentUnavailableView(L10n.privacyAuthAIDisabledTitle,
+                                   systemImage: "sparkles.slash",
+                                   description: Text(L10n.privacyAuthAIDisabledBody))
+            .safeAreaInset(edge: .bottom) {
+                Button {
+                    router.navigate(to: .privacyAuthorization)
+                } label: {
+                    Text(L10n.privacyAuthOpen).frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.borderedProminent)
+                .padding(16)
+            }
+        } else {
+            VStack(spacing: 0) {
             // FR20.3 L3 常驻微文案：AI 输入栏上方横幅
             L3DisclosureBanner(disclosure: DisclosureRegistry.l3Disclosures[0])
             ScrollView {
@@ -95,6 +113,7 @@ struct AssistantView: View {
                 },
                 onCancel: { imageConfirmSet = nil })
             .presentationDetents([.medium])
+        }
         }
     }
 

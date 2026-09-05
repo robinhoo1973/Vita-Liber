@@ -128,6 +128,11 @@ struct SettingsView: View {
                 .accessibilityIdentifier("SP-25.settings.restorePurchases")
             }
             Section(L10n.settings_privacy) {
+                // FR14.1 分目的授权面板入口
+                NavigationLink(L10n.privacyAuthTitle) {
+                    PrivacyAuthorizationView()
+                }
+                .accessibilityIdentifier("SP-25.settings.privacyAuth")
                 NavigationLink(L10n.settings_audit) {
                     AuditLogView()
                 }
