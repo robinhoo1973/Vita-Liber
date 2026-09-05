@@ -73,7 +73,11 @@ public actor PDFExportService {
             let filtered = docs
             var records: [(String, String, Date, String)] = []
             for doc in filtered {
-                let detail = (doc.fields ?? []).map { "\($0.displayLabel): \($0.value)" }.joined(separator: "\n")
+                // 审查修复（BR-003/BR-007）：导出正文只含已确认字段——
+                // 原实现把未确认 D 级 OCR 猜测以正式记录姿态拼入导出文件，
+                // 与文件头纪律与 PDF 免责声明（仅呈现你确认过的记录）直接矛盾
+                let confirmed = (doc.fields ?? []).filter { $0.isConfirmed }
+                let detail = confirmed.map { "\($0.displayLabel): \($0.value)" }.joined(separator: "\n")
                 records.append(("资料", doc.title, Date(timeIntervalSince1970: doc.occurredAt), detail))
             }
             // 观察记录（描述为 C 级自述文本；敏感媒体不出正文）

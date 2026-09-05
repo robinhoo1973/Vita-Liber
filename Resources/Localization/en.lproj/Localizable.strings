@@ -43,6 +43,7 @@
 "backup.degrade.notSignedIn" = "Not signed in to iCloud, so iCloud Drive backup is unavailable. You can still export to local files.";
 "backup.degrade.noSpace" = "Not enough iCloud space, so this backup did not complete. Free up space and try again; your local data is unaffected.";
 "backup.degrade.checksum" = "The backup file failed verification, so nothing was restored. Please try a different backup file.";
+"backup.degrade.conflict" = "This device already contains health data. The restore was not performed to avoid overwriting it. Back up and clear this device first, or contact support for migration help.";
 "inventory.title" = "Medicine cabinet";
 "inventory.empty" = "No cabinet records yet";
 "inventory.emptyHint" = "Create a plan or add a batch, and remaining amounts and expiry will appear here";
@@ -78,6 +79,7 @@
 "care.parameters.sosValue" = "Hold %ld s + confirm again";
 "claim.title" = "Reimbursement items";
 "claim.empty" = "No reimbursement items yet";
+"claim.totalsFmt" = "%d items, total %@ %@";
 "claim.emptyHint" = "Add invoices, fees or receipts, organized by visit";
 "claim.add" = "Add";
 "claim.type.invoice" = "Invoice";
@@ -751,9 +753,13 @@
 "doc.manual.title" = "Title";
 "doc.manual.type" = "Type";
 "doc.manual.note" = "Note";
+"doc.grade.unconfirmed" = "Machine-recognized, unconfirmed";
+"doc.confirmText" = "Confirm recognized text";
 "onboard.rejected" = "Discarded";
 "onboard.rejectLabelFmt" = "Discard \"%@\"";
 "ocrQueue.title" = "Pending Recognized Fields";
+"ocr.field.text" = "Recognized text";
+"ocr.field.title" = "Title";
 "ocrQueue.empty" = "No pending fields";
 "ocrQueue.emptyHint" = "All recognized fields are handled. Newly recognized medication names, doses and dates appear here first and only take effect after confirmation.";
 "ocrQueue.countFmt" = "%d fields pending";
@@ -923,6 +929,9 @@
 "metric.unit" = "Unit";
 "metric.measuredAt" = "Measured at";
 "metric.saved" = "Saved";
+"metric.entryError.title" = "Could not save the measurement";
+"metric.entryError.invalid" = "Please enter a valid number (e.g. 5.6).";
+"metric.entryError.saveFailed" = "Saving failed, please retry. Your input was kept.";
 "metric.viewTrend" = "View trend";
 "voicePanel.title" = "Voice Notes";
 "voicePanel.hint" = "Pick a target: record a metric, observation, reminder or profile in one sentence (all on-device)";
@@ -947,6 +956,7 @@
 "f16.syncNow" = "Sync & evaluate now";
 "f16.syncing" = "Syncing & evaluating…";
 "f16.syncDoneFmt" = "This sync produced %d L1+ observation alert(s)";
+"f16.noRangeFmt" = "%d readings have no available reference range and were not evaluated (treated as manual self-tests).";
 "f16.syncFailed" = "Sync failed — check the Health app authorization and retry";
 "alert.filter.all" = "All";
 "alert.showL0" = "Show L0";
@@ -956,6 +966,7 @@
 "f19.noAppointment" = "No appointments on record";
 "f19.recentGlucoseFmt" = "Recent glucose: %@";
 "f19.noGlucose" = "No glucose records yet";
+"f19.metricNotSupportedFmt" = "Recording "%@" is not supported yet; please enter it manually on the Trends page.";
 "f19.stockRemainingFmt" = "%@: ~%d days left · estimated by plan";
 "f19.stockNoPlanFmt" = "%@: no active plan, days remaining cannot be estimated";
 "f19.noStock" = "No items in the medicine cabinet yet";

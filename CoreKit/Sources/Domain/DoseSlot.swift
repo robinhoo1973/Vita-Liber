@@ -79,7 +79,10 @@ public struct DoseSlotGrouping {
                 }) {
                     slots[i].records.append(r)
                 } else {
-                    slots.append(DoseSlot(id: "\(Int(anchor.timeIntervalSince1970))-\(meal)",
+                    // 审查修复：id 必须含剂量时刻——同日同餐的超容差自定义时刻
+                    // 会「另起一段」，纯锚点 id 与首段重复（ForEach 重复 Identifiable
+                    // id 行丢失 + slot-<id> 通知互相覆盖）
+                    slots.append(DoseSlot(id: "\(Int(anchor.timeIntervalSince1970))-\(meal)-\(Int(d.dueAt.timeIntervalSince1970))",
                                           anchorTime: anchor, mealRelation: meal, records: [r]))
                 }
             } else {

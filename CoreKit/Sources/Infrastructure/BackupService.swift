@@ -43,6 +43,7 @@ public actor BackupService {
     public enum BackupError: Error, Sendable, Equatable {
         case checksumMismatch      // 文件损坏——一律拒绝导入，绝不「尽力恢复」
         case unsupportedFormat
+        case conflictDetected      // ADR-019：目标库已有同名数据——不静默覆盖/丢弃
     }
 
     public func createBackup() async throws -> BackupPackage {
@@ -74,7 +75,11 @@ public actor BackupService {
             throw BackupError.checksumMismatch
         }
         let envelope = try await exporter.decode(outer.payload)
-        try await exporter.importJSON(envelope)
+        do {
+            try await exporter.importJSON(envelope)
+        } catch ExportService.ExportError.conflict {
+            throw BackupError.conflictDetected
+        }
         return envelope.totalRecords
     }
 

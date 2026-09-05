@@ -61,6 +61,9 @@ final class BackupState {
                 BackupService.BackupError.unsupportedFormat {
             // 校验失败绝不部分导入——本机数据保持原样
             phase = .degraded(L10n.backupChecksumFailed)
+        } catch BackupService.BackupError.conflictDetected {
+            // ADR-019：目标设备已有数据——不静默覆盖/丢弃，如实呈现冲突
+            phase = .degraded(L10n.backupConflictDetected)
         } catch {
             logger.error("备份恢复失败: \(error)")
             phase = .degraded(L10n.backupChecksumFailed)

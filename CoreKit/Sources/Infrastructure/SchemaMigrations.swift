@@ -209,6 +209,13 @@ public enum SchemaMigrations {
              DROP INDEX IF EXISTS idx_document_sha;
              CREATE INDEX IF NOT EXISTS idx_document_sha ON document_file(sha256);
              """),
+        // 审查修复：document_file 增补来源徽章 grade 列（BR-003 闸门）——
+        // 机器识别入库 = 'D'（未确认，检索/AI 事实链排除），用户显式确认升 'C'；
+        // 老库既有行回填 'C'（此前无徽章语义，视为已入库历史数据，不追溯降级）。
+        Step(version: 12, name: "document-provenance-grade",
+             sql: """
+             ALTER TABLE document_file ADD COLUMN grade TEXT NOT NULL DEFAULT 'C' CHECK(grade IN ('A','B','C','D','E'));
+             """),
     ]
 
     /// 全新库建库后应落到的版本号

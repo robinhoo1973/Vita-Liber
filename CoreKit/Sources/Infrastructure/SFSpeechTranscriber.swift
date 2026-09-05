@@ -49,6 +49,18 @@ public actor SFSpeechTranscriber: TranscriptionEngine {
         guard auth == .authorized else { throw TranscriptionError.unauthorized }
 
         let audio = AVAudioEngine()
+        // 审查修复：AVAudioSession 必须显式配置为录音类别并激活——
+        // 默认 soloAmbient 无录音输入，inputNode.installTap 后 audio.start()
+        // 在真机上收不到任何 buffer（FR17.16 语音速记生产不可用）。
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try session.setCategory(.record, mode: .measurement, options: [.duckOthers])
+            try session.setActive(true, options: [])
+        } catch {
+            throw TranscriptionError.engineUnavailable
+        }
+        defer { try? session.setActive(false, options: [.notifyOthersOnDeactivation]) }   // try?-ok: 会话复位失败不掩盖主结果
+
         let recog = SFSpeechAudioBufferRecognitionRequest()
         recog.requiresOnDeviceRecognition = true
         recog.shouldReportPartialResults = true

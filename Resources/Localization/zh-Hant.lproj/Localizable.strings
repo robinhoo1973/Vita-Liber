@@ -43,6 +43,7 @@
 "backup.degrade.notSignedIn" = "未登入 iCloud，無法備份到 iCloud Drive。你仍可匯出到本機檔案。";
 "backup.degrade.noSpace" = "iCloud 空間不足，本次備份未完成。清理空間後可重試，本機資料未受影響。";
 "backup.degrade.checksum" = "備份檔案校驗未通過，未還原任何資料。請換一個備份檔案重試。";
+"backup.degrade.conflict" = "此裝置上已有健康資料，為避免覆蓋，本次恢復未執行。請先備份並清空本機資料後再恢復（或聯絡支援取得移轉協助）。";
 "inventory.title" = "藥箱與庫存";
 "inventory.empty" = "藥箱還沒有記錄";
 "inventory.emptyHint" = "建立用藥計畫或補充批次後，餘量與效期會出現在這裡";
@@ -78,6 +79,7 @@
 "care.parameters.sosValue" = "長按 %ld 秒 + 二次確認";
 "claim.title" = "報銷票據";
 "claim.empty" = "還沒有報銷票據";
+"claim.totalsFmt" = "共 %d 筆，合計 %@ %@";
 "claim.emptyHint" = "錄入發票/費用/收據，按就診整理";
 "claim.add" = "新增";
 "claim.type.invoice" = "發票";
@@ -751,9 +753,13 @@
 "doc.manual.title" = "標題";
 "doc.manual.type" = "類型";
 "doc.manual.note" = "備註";
+"doc.grade.unconfirmed" = "機器識別未確認";
+"doc.confirmText" = "確認識別文本";
 "onboard.rejected" = "已放棄";
 "onboard.rejectLabelFmt" = "放棄「%@」";
 "ocrQueue.title" = "待確認辨識欄位";
+"ocr.field.text" = "識別文字";
+"ocr.field.title" = "標題";
 "ocrQueue.empty" = "暫無待確認欄位";
 "ocrQueue.emptyHint" = "全部辨識欄位已處理。新辨識的藥名、劑量、日期會先出現在這裡，確認後才生效。";
 "ocrQueue.countFmt" = "%d 個欄位待確認";
@@ -923,6 +929,9 @@
 "metric.unit" = "單位";
 "metric.measuredAt" = "測量時間";
 "metric.saved" = "已儲存";
+"metric.entryError.title" = "未能儲存指標";
+"metric.entryError.invalid" = "請輸入有效數值（如 5.6）";
+"metric.entryError.saveFailed" = "儲存失敗，請重試；原輸入已保留。";
 "metric.viewTrend" = "查看趨勢";
 "voicePanel.title" = "語音速記";
 "voicePanel.hint" = "選擇目標：一句話完成指標、觀察、提醒或檔案錄入（全部在本機辨識）";
@@ -947,6 +956,7 @@
 "f16.syncNow" = "立即同步並評估";
 "f16.syncing" = "正在同步與評估…";
 "f16.syncDoneFmt" = "本次同步產生 %d 條 L1+ 觀察提示";
+"f16.noRangeFmt" = "%d 筆讀數暫無可用參考範圍，未生成提示（已按手動自測模式處理）";
 "f16.syncFailed" = "同步失敗——請檢查健康 App 授權後重試";
 "alert.filter.all" = "全部";
 "alert.showL0" = "顯示 L0";
@@ -956,6 +966,7 @@
 "f19.noAppointment" = "沒有預約記錄";
 "f19.recentGlucoseFmt" = "最近血糖：%@";
 "f19.noGlucose" = "還沒有血糖記錄";
+"f19.metricNotSupportedFmt" = "暫不支援記錄「%@」類指標，請在趨勢頁手動輸入";
 "f19.stockRemainingFmt" = "%@ 約剩 %d 天 · 按計畫估算";
 "f19.stockNoPlanFmt" = "%@：無進行中的用藥計畫，無法估算剩餘天數";
 "f19.noStock" = "藥箱還沒有記錄";

@@ -96,10 +96,11 @@ public enum VoiceCommandGrammar {
         Pattern(command: .cancel, regex: #"取消"#),
         Pattern(command: .exitSession, regex: #"退出"#),
         Pattern(command: .callContact, regex: #"(?:帮我)?(?:打|打给|拨打)(.+)"#),
-        Pattern(command: .callEmergency120, regex: #"(?:帮我)?打?120"#),
+        // 审查修复：急救号码不再写死 120——按语言区域注入（120/119/911），
+        // 动态正则见 parse(_:emergencyNumber:)
     ]
 
-    public static func parse(_ transcript: String) -> VoiceIntent {
+    public static func parse(_ transcript: String, emergencyNumber: String = "120") -> VoiceIntent {
         let text = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return .unrecognized }
         for pattern in patterns {
@@ -119,6 +120,17 @@ public enum VoiceCommandGrammar {
                     return .record(metricText: body.isEmpty ? text : body)
                 }
                 return .command(pattern.command)
+            }
+        }
+        // 急救号码按语言区域匹配（仅数字，天然无正则元字符）
+        let emergencyDigits = emergencyNumber.filter(\.isNumber)
+        if !emergencyDigits.isEmpty {
+            let regex: NSRegularExpression
+            do { regex = try NSRegularExpression(pattern: "(?:帮我)?打?\(emergencyDigits)") }
+            catch { return .unrecognized }
+            let range = NSRange(text.startIndex..<text.endIndex, in: text)
+            if regex.firstMatch(in: text, range: range) != nil {
+                return .command(.callEmergency120)
             }
         }
         return .unrecognized
@@ -182,7 +194,8 @@ public enum VoiceConversationEngine {
     public static let maxSilentRounds = 2          // FR19.6
     public static let maxOptions = 3               // FR19.4
 
-    public static func step(state: ConversationState, transcript: String) -> (state: ConversationState, events: [ConversationEvent]) {
+    public static func step(state: ConversationState, transcript: String,
+                           emergencyNumber: String = "120") -> (state: ConversationState, events: [ConversationEvent]) {
         var s = state
         var events: [ConversationEvent] = []
         let text = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -210,7 +223,7 @@ public enum VoiceConversationEngine {
 
         switch s.phase {
         case .listening, .selecting:
-            let intent = VoiceCommandGrammar.parse(text)
+            let intent = VoiceCommandGrammar.parse(text, emergencyNumber: emergencyNumber)
             switch intent {
             case .unrecognized:
                 s.silentRounds += 1
@@ -257,12 +270,13 @@ public enum VoiceConversationEngine {
                     events.append(.requireRepeatObject(object))
                     events.append(.speak(prompt))
                 case .callEmergency120:
+                    // 审查修复：号码按语言区域注入（120/119/911），不再写死 120
                     s.phase = .repeatingObject
                     s.pendingCommand = .callEmergency120
-                    s.pendingObject = "120"
-                    let prompt = "将拨打 120，请说「确认」或「取消」。"
+                    s.pendingObject = emergencyNumber
+                    let prompt = "将拨打 \(emergencyNumber)，请说「确认」或「取消」。"
                     s.lastPrompt = prompt
-                    events.append(.requireRepeatObject("120"))
+                    events.append(.requireRepeatObject(emergencyNumber))
                     events.append(.speak(prompt))
                 case .markTaken:
                     // FR19.5：标记服药 = 写操作，单次口头确认（BR-004 同语义）
@@ -289,7 +303,7 @@ public enum VoiceConversationEngine {
                 events.append(.speak(prompt))
             }
         case .repeatingObject:
-            let intent = VoiceCommandGrammar.parse(text)
+            let intent = VoiceCommandGrammar.parse(text, emergencyNumber: emergencyNumber)
             switch intent {
             case .command(.yes):
                 guard let object = s.pendingObject else {
@@ -308,7 +322,7 @@ public enum VoiceConversationEngine {
             }
         case .confirming:
             // 确认相位只认 是/否/取消；其余一律视为未听清（不计入危险误执行）
-            switch VoiceCommandGrammar.parse(text) {
+            switch VoiceCommandGrammar.parse(text, emergencyNumber: emergencyNumber) {
             case .command(.yes):
                 handleYesNo(&s, &events, yes: true)
             case .command(.no), .command(.cancel):

@@ -121,6 +121,18 @@ public actor GuidelineStore {
             throw StoreError.encodeFailed
         }
         try await writer.write { db in
+            // FR16.2 同一事件 24 小时去重：同一成员+规则+级别近 24h 已落过 →
+            // 不重复 INSERT（反复同步不再堆积重复预警行）
+            if let existingId = try String.fetchOne(db, sql: """
+                SELECT id FROM alert_event
+                WHERE patient_id = ? AND rule_id = ? AND severity = ?
+                  AND created_at >= ?
+                LIMIT 1
+                """, arguments: [patientId.uuidString, ruleId, severity.rawValue,
+                                 event.createdAt.timeIntervalSince1970 - 24 * 3600]) {
+                _ = existingId
+                return
+            }
             try db.execute(sql: """
                 INSERT INTO alert_event
                   (id, patient_id, rule_id, severity, evidence_json, delivered_state, created_at)

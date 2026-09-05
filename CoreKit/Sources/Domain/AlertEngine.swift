@@ -145,6 +145,8 @@ public enum AlertRuleEngine {
             facts: facts,
             sourceRef: sourceRef,
             suggestedPath: suggestedPath,
-            disclaimer: "以上为基于参考范围的提示，不是诊断。紧急情况请拨打 120。")
+            // FR16.3 固定免责原文（不含急救号码——号码按语言区域由视图层
+            // 经 L10n.emergencyNumber 提供，Domain 不硬编码 120）
+            disclaimer: "公开指南阈值比对，不构成诊断或医疗建议；设备数据可能存在误差。")
     }
 }

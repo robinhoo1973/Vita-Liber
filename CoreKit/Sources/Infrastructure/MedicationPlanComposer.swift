@@ -61,15 +61,29 @@ public actor MedicationPlanComposer {
         let planId = UUID()
         let scheduleJSON = String(data: try JSONEncoder().encode(plan.schedule), encoding: .utf8) ?? "{}"
         return try await writer.write { db -> (UUID, UUID, UUID, UUID) in
-            // ① 药品定义（按 generic_name+spec 去重复用，§4.2 upsertReturningId）
-            let medId = UUID()
-            try db.execute(sql: """
-                INSERT INTO medication (id, patient_id, generic_name, brand_name, spec, unit_kind, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, arguments: [medId.uuidString, prescription.patientId.uuidString,
-                                 prescription.genericName, prescription.brandName,
-                                 prescription.spec, initialLot.unitKind,
-                                 now.timeIntervalSince1970, now.timeIntervalSince1970])
+            // ① 药品定义（§4.2 upsertReturningId：同成员 generic_name+spec 复用既有行）。
+            // 审查修复：原实现注释声称去重但恒 INSERT 新 UUID——同一药品多计划
+            // 生成重复药品行，药柜按 medication_id 分栏显示同一药品两栏、
+            // adviceForMedication 取任意一行
+            let medId: UUID
+            if let existing = try String.fetchOne(db, sql: """
+                SELECT id FROM medication
+                WHERE patient_id = ? AND generic_name = ?
+                  AND (spec IS ? OR spec IS NULL)
+                LIMIT 1
+                """, arguments: [prescription.patientId.uuidString,
+                                 prescription.genericName, prescription.spec]) {
+                medId = UUID(uuidString: existing) ?? UUID()
+            } else {
+                medId = UUID()
+                try db.execute(sql: """
+                    INSERT INTO medication (id, patient_id, generic_name, brand_name, spec, unit_kind, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """, arguments: [medId.uuidString, prescription.patientId.uuidString,
+                                     prescription.genericName, prescription.brandName,
+                                     prescription.spec, initialLot.unitKind,
+                                     now.timeIntervalSince1970, now.timeIntervalSince1970])
+            }
             // ② 处方记录（BR-003 全确认才 confirmed=1）
             let rxId = prescription.id
             try db.execute(sql: """

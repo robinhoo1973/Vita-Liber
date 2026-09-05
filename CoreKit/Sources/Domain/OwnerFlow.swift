@@ -76,7 +76,7 @@ public enum DisclosureRegistry {
     /// M1a 首启三卡（对齐 FR20.3 L1：产品定位与非目标 / 数据本地存储承诺 / 可跳过项说明）
     public static let l1Cards: [DisclosureCard] = [
         .init(kind: .boundary, key: "disclosure.l1.boundary", version: "1.1",
-              body: "本 App 是个人医疗资料的归档与提醒工具，不是医疗设备：不下诊断、不给治疗方案建议、不替代医生。紧急情况请直接拨打 120 或前往医院。"),
+              body: "本 App 是个人医疗资料的归档与提醒工具，不是医疗设备：不下诊断、不给治疗方案建议、不替代医生。紧急情况请直接拨打当地急救电话或前往医院。"),
         .init(kind: .storage, key: "disclosure.l1.storage", version: "1.1",
               body: "你的资料只保存在本机、功能完全离线。所有上传、分析、分享、备份都是独立开关，关掉即停。更换设备前请用导出功能备份（资料不会自动上传云端）。"),
         .init(kind: .skipInfo, key: "disclosure.l1.skipInfo", version: "1.1",
@@ -140,15 +140,24 @@ public enum DisclosureRegistry {
     ]
 
     /// 检查某个场景是否已确认（L2/L4 一次性确认；FR20.5 版本感知——
-    /// 同场景同版本才视为已确认，条款修订后必须重新确认一次）
+    /// 同场景同版本才视为已确认，条款修订后必须重新确认一次）。
+    /// 审查修复：改为按注册表场景反查 key 做精确匹配——原 `key.contains(scene)`
+    /// 把 key（"disclosure.l2.ai"）与场景（"ai_assistant"）做子串比较恒为 false，
+    /// L2 须知每次进入都重复弹出（FR20.5 一次性确认失效）。
     public static func isConfirmed(scene: String, consents: [ConsentRecord]) -> Bool {
         isConfirmed(scene: scene, version: nil, consents: consents)
     }
 
     public static func isConfirmed(scene: String, version: String?,
                                    consents: [ConsentRecord]) -> Bool {
-        consents.contains {
-            $0.key.contains(scene) && (version == nil || $0.version == version)
+        let registeredKey = (l2Disclosures + l3Disclosures + l4Disclosures)
+            .first { $0.scene == scene }?.key
+        return consents.contains {
+            if let registeredKey {
+                return $0.key == registeredKey && (version == nil || $0.version == version)
+            }
+            // 未注册场景：保持旧的包含匹配作为兼容（无注册即无强制须知）
+            return $0.key.contains(scene) && (version == nil || $0.version == version)
         }
     }
 }

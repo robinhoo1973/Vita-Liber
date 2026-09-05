@@ -29,6 +29,7 @@ struct VitaLiberApp: App {
     @State private var aiHistoryState: AIHistoryState
     @State private var exportWizardState: ExportWizardState
     @State private var f16DeviceState: F16DeviceState
+    @State private var backupState: BackupState
 
     init() {
         // 组装根（评审 A2：AppContainer 由 App 消费，AppState/ReminderStore 只面向协议）。
@@ -45,7 +46,10 @@ struct VitaLiberApp: App {
         self.notificationDelegate = delegate
         UNUserNotificationCenter.current().delegate = delegate
         // 门禁测试桩（XCUITest 无法自动化 Face ID）：-uitest-gate-stub-{success,fail}
-        // 注入确定性认证结果；生产路径缺省 nil → LocalAuthGateUnlocker（真系统认证）
+        // 注入确定性认证结果；生产路径缺省 nil → LocalAuthGateUnlocker（真系统认证）。
+        // 审查修复：全部测试桩与 launch-arg 旁路收敛进 #if DEBUG——
+        // 发布构建里不存在任何可绕过门禁/伪造 OCR 的启动参数开关。
+        #if DEBUG
         let gateUnlocker: (any GateUnlocking)? =
             args.contains("-uitest-gate-stub-success") ? FakeGateUnlocker()
             : args.contains("-uitest-gate-stub-fail") ? FakeGateUnlocker(result: false)
@@ -56,9 +60,16 @@ struct VitaLiberApp: App {
             args.contains("-uitest-transcription-stub")
             ? StubTranscriptionEngine(capability: .baseline(), scripted: ["这是一段测试听写文本"])
             : nil
+        let captureStub: (any DocumentCapture)? =
+            args.contains("-uitest-camera-fixture") ? FakeOcrProvider(fixture: true) : nil
+        #else
+        let gateUnlocker: (any GateUnlocking)? = nil
+        let transcriptionStub: (any TranscriptionEngine)? = nil
+        let captureStub: (any DocumentCapture)? = nil
+        #endif
         _appState = State(initialValue: AppState(
             persistor: container.persistor,
-            capture: FakeOcrProvider(fixture: args.contains("-uitest-camera-fixture")),
+            capture: captureStub,
             transcription: transcriptionStub,
             gateUnlocker: gateUnlocker,
             audit: container.audit,
@@ -115,6 +126,9 @@ struct VitaLiberApp: App {
         _f16DeviceState = State(initialValue: F16DeviceState(
             reader: container.healthReader, guidelines: container.guidelines,
             scheduler: UNReminderScheduler()))
+        // 审查修复：BackupState 此前从未装配——SP-24 打开即
+        // "No Observable object of type BackupState found" 崩溃
+        _backupState = State(initialValue: BackupState(service: container.backup))
     }
 
     var body: some Scene {
@@ -157,5 +171,6 @@ struct VitaLiberApp: App {
             .environment(aiHistoryState)
             .environment(exportWizardState)
             .environment(f16DeviceState)
+            .environment(backupState)
     }
 }

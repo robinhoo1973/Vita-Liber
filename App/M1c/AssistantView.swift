@@ -205,7 +205,8 @@ struct AnswerBodyView: View {
                     .foregroundStyle(Color("semantic-danger", bundle: .main))
                 Text(L10n.ai_emergencyAction)
                 Button {
-                    if let url = URL(string: "tel://120") { UIApplication.shared.open(url) }
+                    // 审查修复：急救号码按语言区域（120/119/911），不硬编码 120
+                    if let url = URL(string: "tel://\(L10n.emergencyNumber)") { UIApplication.shared.open(url) }
                 } label: {
                     Label(L10n.ai_emergencyCall, systemImage: "phone.fill")
                         .frame(maxWidth: .infinity, minHeight: 50)
@@ -312,7 +313,7 @@ private struct AIFeedbackRow: View {
                 assistant.recordFeedback(kind: "useful")
             } label: {
                 Image(systemName: "hand.thumbsup")
-                    .font(.system(size: 16))
+                    .font(.body)
                     .foregroundStyle(.secondary)
             }
             .accessibilityLabel(L10n.aiFeedbackUseful)
@@ -321,7 +322,7 @@ private struct AIFeedbackRow: View {
                 assistant.recordFeedback(kind: "useless")
             } label: {
                 Image(systemName: "hand.thumbsdown")
-                    .font(.system(size: 16))
+                    .font(.body)
                     .foregroundStyle(.secondary)
             }
             .accessibilityLabel(L10n.aiFeedbackUseless)
@@ -335,7 +336,7 @@ private struct AIFeedbackRow: View {
                 }
             } label: {
                 Image(systemName: "exclamationmark.bubble")
-                    .font(.system(size: 16))
+                    .font(.body)
                     .foregroundStyle(.secondary)
             }
             .accessibilityLabel(L10n.aiFeedbackMore)

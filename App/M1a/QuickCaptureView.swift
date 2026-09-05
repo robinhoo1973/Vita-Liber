@@ -116,7 +116,8 @@ struct QuickCaptureView: View {
                 if let data = try? await item.loadTransferable(type: Data.self) {   // try?-ok: 单项加载失败走错误路径可见，不阻塞后续
                     await docs.importImage(patientId: app.currentPatientId, data: data,
                                            mimeType: "image/jpeg", docType: docTypeText,
-                                           title: nil, isSensitive: markSensitive)
+                                           title: nil, isSensitive: markSensitive,
+                                           origin: "photoLibrary")
                     finishImport()
                 } else {
                     importFailed = true
@@ -186,7 +187,8 @@ struct QuickCaptureView: View {
         Task {
             await docs.importImage(patientId: app.currentPatientId, data: data,
                                    mimeType: "image/jpeg", docType: docTypeText,
-                                   title: nil, isSensitive: markSensitive)
+                                   title: nil, isSensitive: markSensitive,
+                                   origin: "camera")
             finishImport()
         }
     }

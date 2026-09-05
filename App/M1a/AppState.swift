@@ -43,7 +43,11 @@ final class AppState {
     private(set) var consentRecords: [ConsentRecord] = []
 
     private let persistor: any M1aPersisting
-    private let captureProvider: any DocumentCapture
+    /// 测试桩注入点（XCUITest 假样张）；生产为 nil——真实拍摄走
+    /// `captureFrom(imageData:)` 的 Vision 编排层（BR-003 D→C 同闸门）。
+    private let captureProvider: (any DocumentCapture)?
+    /// 生产 OCR 编排层（ADR-026）：真实图片 → 识别 → 确认集
+    private let ocrPipeline: OCRPipeline?
     /// FR3.4/FR3.5 成员删除与重新归属（影响清单 + 单事务；可选注入，测试可空）
     private let memberDeletion: MemberDeletionService?
     private let defaults: UserDefaults
@@ -58,7 +62,7 @@ final class AppState {
     let transcriptionEngine: any TranscriptionEngine
 
     init(persistor: any M1aPersisting,
-         capture: any DocumentCapture,
+         capture: (any DocumentCapture)? = nil,
          speech: (any SpeechSynthesizing)? = nil,
          imageRecognizer: (any ImageTextRecognizing)? = nil,
          transcription: (any TranscriptionEngine)? = nil,
@@ -74,10 +78,16 @@ final class AppState {
             EngineRegistry.shared.registerDefaultEngines()
         }
         self.speechSynthesizer = speech ?? EngineRegistry.shared.resolve(SpeechSynthesisFactory.self)
-        self.imageRecognizer = imageRecognizer ?? EngineRegistry.shared.resolve(OCRRecognizerFactory.self)
+        let recognizer = imageRecognizer ?? EngineRegistry.shared.resolve(OCRRecognizerFactory.self)
+        self.imageRecognizer = recognizer
         self.transcriptionEngine = transcription ?? EngineRegistry.shared.resolve(TranscriptionEngineFactory.self)
         self.persistor = persistor
         self.captureProvider = capture
+        // 生产拍摄路径：真实 Vision 编排层（识别器经 EAL 取，灰度解码为生产实现）。
+        // 测试注入 capture 桩时管线仍可用但不会被 captureSample 走。
+        self.ocrPipeline = OCRPipeline(
+            recognizer: recognizer,
+            grayscaleDecoder: GrayscaleImageDecoder())
         self.gateUnlocker = gateUnlocker ?? LocalAuthGateUnlocker()
         self.audit = audit
         self.memberDeletion = memberDeletion
@@ -136,16 +146,29 @@ final class AppState {
         }
     }
 
+    /// 审查修复：时间轴内存镜像只在启动时加载一次——资料库/快速拍摄
+    /// 经 DocumentStore 入库的新文档永不进入镜像，首页待确认 OCR 徽标与
+    /// 通知中心计数停留在旧快照。回前台时刷新镜像。
+    func refreshTimeline() async {
+        do {
+            timeline = try await persistor.loadTimeline()
+        } catch {
+            logger.error("时间轴刷新失败: \(error)")
+        }
+    }
+
     // MARK: - 披露三卡
 
     var disclosureCards: [DisclosureCard] { DisclosureRegistry.l1Cards }
 
     func advanceDisclosure() {
         guard case .disclosure(let i) = stage else { return }
-        // 每张卡确认即落 ConsentRecord（FR20.5 / TC-M1a-05）；按 key 去重，
-        // 杀进程重走三卡不得重复落库（评审修正）
+        // 每张卡确认即落 ConsentRecord（FR20.5 / TC-M1a-05）；按 key+version 去重，
+        // 杀进程重走三卡不得重复落库（评审修正）。
+        // 审查修复：原只按 key 去重——卡版本升级（条款重大修订）后不再重新确认，
+        // 与 FR20.5「版本变化必须重新确认」及 recordConsent 的 key+version 语义矛盾
         let card = disclosureCards[i]
-        if !consentRecords.contains(where: { $0.key == card.key }) {
+        if !consentRecords.contains(where: { $0.key == card.key && $0.version == card.version }) {
             let record = ConsentRecord(key: card.key, version: card.version,
                                        acceptedAt: Date().timeIntervalSince1970)
             consentRecords.append(record)
@@ -188,7 +211,13 @@ final class AppState {
     /// 门禁/敏感媒体共用认证入口（BR-007 修订：任一次系统设备所有者认证成功
     /// 即证明持机者在场——每次调用都弹新系统浮层，不存在「顺带解锁」语义问题；
     /// 失败节流由系统处理：biometryLockout 后系统自动引导设备密码）。
+    /// authPromptInFlight：系统认证浮层会使 scenePhase 短暂进入 .inactive——
+    /// 锁屏逻辑必须据此豁免，否则自己的 Face ID 弹窗会触发锁屏覆盖层、
+    /// 销毁在途视图状态并二次弹认证（审查修复）。
+    private(set) var authPromptInFlight = false
     func requestUnlock(reason: String) async -> Bool {
+        authPromptInFlight = true
+        defer { authPromptInFlight = false }
         let ok = await gateUnlocker.authenticate(reason: reason)
         if ok {
             lastUnlockedAt = Date()
@@ -234,7 +263,11 @@ final class AppState {
 
     private(set) var activeSet: OcrConfirmationSet?
 
+    /// 测试桩拍摄入口（XCUITest 假样张；生产无桩时不可达）
+    var hasTestCapture: Bool { captureProvider != nil }
+
     func captureSample() {
+        guard let captureProvider else { return }
         Task {
             do {
                 activeSet = try await captureProvider.capture()
@@ -242,6 +275,36 @@ final class AppState {
             } catch {
                 logger.error("拍摄管线失败: \(error)")
             }
+        }
+    }
+
+    /// 生产拍摄路径：真实图片经 Vision 编排层产出确认集（BR-003 同闸门）。
+    /// 识别引擎失败返回 false 由视图层给出可见反馈（FR6.6 绝不静默）。
+    @discardableResult
+    func captureFrom(imageData: Data) async -> Bool {
+        guard let ocrPipeline else { return false }
+        do {
+            let result = try await ocrPipeline.run(imageData: imageData)
+            guard !result.failed else {
+                logger.error("OCR 管线识别引擎失败")
+                return false
+            }
+            var fields: [CandidateField] = []
+            if !result.lines.isEmpty {
+                let joined = result.lines.joined(separator: "\n")
+                fields.append(CandidateField(key: "ocr_text", displayLabel: L10n.ocrFieldText,
+                                             rawText: joined,
+                                             confidence: 0.5))   // 无逐字段置信度→中档，必复核
+                let title = String(result.lines.first?.prefix(30) ?? L10n.ocrFieldText)
+                fields.append(CandidateField(key: "title", displayLabel: L10n.ocrFieldTitle,
+                                             rawText: title, confidence: 0.9))
+            }
+            activeSet = OcrConfirmationSet(fields: fields)   // confirm-ok: F6 OCR 确认集是合法产出方（非语音路径），FR17.13 只约束语音草稿确认
+            stage = .ocrConfirm
+            return true
+        } catch {
+            logger.error("拍摄管线失败: \(error)")
+            return false
         }
     }
 
@@ -277,7 +340,7 @@ final class AppState {
         persist { [persistor, timeline] in
             try await persistor.saveTimeline(timeline)
             try await persistor.saveOCRResult(documentId: set.documentId, fields: set.fields,
-                                              engineVersion: "fake-ocr-v1")
+                                              engineVersion: captureProvider == nil ? "ocr-pipeline" : "fake-ocr-v1")
         }
         activeSet = nil
         stage = .timeline

@@ -4,7 +4,9 @@ import Domain
 /// §5.45 路由目的地映射：AppRoute → 具体视图的唯一分发表。
 ///
 /// 纪律：新增 SP 页面必须在此登记 case → 视图；**未登记的 case 落入降级分支**——
-/// 回到该路由所属 Tab 的模块根（§5.45 缺路由降级不 crash，绝不渲染假占位页）。
+/// 渲染可见的「即将上线」提示页（不 crash）。历史注记：原「回到所属 Tab 模块根」
+/// 会在路由已 push 进栈时形成栈内套娃（推进一个一模一样的模块根副本），
+/// 故降级落点改为提示页，返回即弹回原页——缺路由降级绝不 crash 的纪律不变。
 /// 页面陆续落地（M1c→M2 各批）时在此逐条点亮。
 struct RouteDestinationView: View {
     let route: AppRoute
@@ -19,8 +21,6 @@ struct RouteDestinationView: View {
         // ---- F3 成员 ----
         case .memberList:
             MemberManagementView()
-        case .memberDetail:
-            RouteFallbackView(route: route)
 
         // ---- F4 就诊 ----
         case .encounterList:

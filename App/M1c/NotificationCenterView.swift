@@ -130,7 +130,7 @@ struct NotificationCenterView: View {
 
     /// 临期批次（30 天内到期，FR9.11 窗口对齐）
     private var expiringLots: [MedicationStore.InventorySummaryItem] {
-        let window = Date().addingTimeInterval(30 * 86400)
+        let window = DayArithmetic.offset(days: 30)
         return hub.inventoryItems.filter { item in
             guard let expireAt = item.expireAt else { return false }
             return expireAt <= window

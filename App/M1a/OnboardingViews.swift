@@ -1,4 +1,6 @@
 import SwiftUI
+import UIKit
+import PhotosUI
 import Domain
 
 /// M1a 首启流程视图：L1 三卡 → 建档 → 拍摄 → OCR 确认 → 时间轴（V3.22 无 PIN 步骤）。
@@ -216,6 +218,14 @@ struct OwnerSetupView: View {
 
 struct ScanCaptureView: View {
     @Environment(AppState.self) private var app
+    @State private var showCamera = false
+    @State private var pickedItem: PhotosPickerItem?
+    @State private var captureFailed = false
+
+    /// 无相机设备时隐藏拍照入口（与 QuickCaptureView 同一防崩溃纪律）
+    private var cameraAvailable: Bool {
+        UIImagePickerController.isSourceTypeAvailable(.camera)
+    }
 
     var body: some View {
         VStack(spacing: 24) {
@@ -227,17 +237,71 @@ struct ScanCaptureView: View {
                 .foregroundStyle(Color("brand-primary", bundle: .main))
                 .overlay(VLIcon.scanDocument.resizable().frame(width: 56, height: 56))
                 .frame(maxWidth: 320, minHeight: 240)
-            Button {
-                app.captureSample()
-            } label: {
-                Label(L10n.onboard_scanSample, systemImage: "camera")
-                    .frame(maxWidth: 320, minHeight: 50)
+
+            if app.hasTestCapture {
+                // XCUITest 假样张路径（生产无桩时不可达）
+                Button {
+                    app.captureSample()
+                } label: {
+                    Label(L10n.onboard_scanSample, systemImage: "camera")
+                        .frame(maxWidth: 320, minHeight: 50)
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("SP-07.scan.capture")
+            } else {
+                // 生产路径：真实拍摄/相册 → Vision 编排层 → 确认工作台（BR-003）
+                if cameraAvailable {
+                    Button {
+                        showCamera = true
+                    } label: {
+                        Label(L10n.onboard_scanSample, systemImage: "camera.fill")
+                            .frame(maxWidth: 320, minHeight: 50)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("SP-07.scan.capture")
+                } else {
+                    Label(L10n.homeCaptureNoCamera, systemImage: "camera.fill")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                PhotosPicker(selection: $pickedItem, matching: .images) {
+                    Label(L10n.homeCaptureLibrary, systemImage: "photo.on.rectangle")
+                        .frame(maxWidth: 320, minHeight: 50)
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("SP-07.scan.library")
             }
-            .buttonStyle(.borderedProminent)
-            .accessibilityIdentifier("SP-07.scan.capture")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color("bg-grouped", bundle: .main))
+        .fullScreenCover(isPresented: $showCamera) {
+            CameraPicker { image in
+                showCamera = false
+                guard let data = image.jpegData(compressionQuality: 0.85) else {
+                    captureFailed = true
+                    return
+                }
+                Task { await runCapture(data) }
+            }
+        }
+        .onChange(of: pickedItem) { _, item in
+            guard let item else { return }
+            pickedItem = nil
+            Task {
+                if let data = try? await item.loadTransferable(type: Data.self) {   // try?-ok: 加载失败走可见错误
+                    await runCapture(data)
+                } else {
+                    captureFailed = true
+                }
+            }
+        }
+        .alert(L10n.docImportFailed, isPresented: $captureFailed) {
+            Button(L10n.onboard_gotIt, role: .cancel) { }
+        }
+    }
+
+    private func runCapture(_ data: Data) async {
+        let ok = await app.captureFrom(imageData: data)
+        if !ok { captureFailed = true }
     }
 }
 
@@ -387,10 +451,11 @@ struct ConfirmFieldRowView: View {
     /// FR6.3：已确认 C 绿；未确认按档位——高绿轻标注 / 中黄 / 低红高亮（必须复核）
     private var tierColor: Color {
         if field.isConfirmed { return Color("grade-c", bundle: .main) }
+        // 审查修复：语义令牌替代系统原色——高对比度/深色模式重映射才能生效
         switch ConfidenceTier.tier(field.confidence) {
-        case .high: return .green
-        case .mid: return .orange
-        case .low: return .red
+        case .high: return Color("semantic-success", bundle: .main)
+        case .mid: return Color("semantic-warning", bundle: .main)
+        case .low: return Color("semantic-danger", bundle: .main)
         }
     }
 }

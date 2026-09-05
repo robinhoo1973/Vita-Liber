@@ -96,7 +96,9 @@ private struct FlowChips<T: Hashable>: View {
                         .foregroundStyle(selected == item.tag ? .white : .primary)
                 }
                 .buttonStyle(.plain)
-                .accessibilityIdentifier("SP-55.panel.chip.\(item.tag.hashValue)")
+                // 审查修复：hashValue 每进程随机（SipHash），自动化/辅助功能
+                // 无法稳定寻址——用 rawValue 描述作为确定性标识
+                .accessibilityIdentifier("SP-55.panel.chip.\(String(describing: item.tag))")
             }
         }
         .padding(.horizontal, 24)

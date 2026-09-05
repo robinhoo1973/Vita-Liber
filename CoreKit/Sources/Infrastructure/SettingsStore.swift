@@ -30,6 +30,23 @@ public actor SettingsStore: SettingsStoring {
         }
     }
 
+    /// 全量读取（一次查询）——审查修复：原 App 层逐键 SELECT（~35 次
+    /// 串行 actor 往返 + 事务）拖慢启动路径与语言切换
+    public func allValues() async throws -> [AppSettingKey: String] {
+        try await writer.read { db in
+            let rows = try Row.fetchAll(db, sql: "SELECT key, value FROM app_settings")
+            var stored: [String: String] = [:]
+            for row in rows {
+                stored[row["key"] as String] = row["value"] as String
+            }
+            var out: [AppSettingKey: String] = [:]
+            for key in AppSettingKey.allCases {
+                out[key] = SettingsRules.resolved(stored[key.rawValue], key: key)
+            }
+            return out
+        }
+    }
+
     public func restoreDefaults() async throws {
         try await writer.write { db in
             try db.execute(sql: "DELETE FROM app_settings")

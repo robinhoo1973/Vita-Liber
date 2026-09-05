@@ -23,8 +23,11 @@ struct PreferencesView: View {
                     Text(L10n.prefReadbackAsk).tag("ask")
                     Text(L10n.prefReadbackAlways).tag("alwaysInCareMode")
                 }
-                .disabled(!ReadbackPolicy.isSelectable(
-                    ReadbackPreference(rawValue: readback) ?? .never, careMode: app.careMode))
+                // 审查修复：禁用态不得由「当前选中值」推导——关怀模式关闭后
+                // readback=alwaysInCareMode 时 isSelectable=false，整个 Picker
+                // 被禁用，用户再也改不回 never/ask（恢复默认又被 onDisappear
+                // 的 save() 用陈旧 @State 覆盖）。始终可选；非法组合由
+                // AppState.readbackPreference 写入口按 ReadbackPolicy 拒绝。
             } header: {
                 LabeledContent(L10n.prefGroupVoice) {
                     Text(L10n.prefTagGlobal)
@@ -52,6 +55,10 @@ struct PreferencesView: View {
     }
 
     private func save() {
+        // ReadbackPolicy：总是 仅关怀模式可选——非法组合不落盘
+        // （保留原值，配合 AppState.readbackPreference 写入口的同一道校验）
+        let pref = ReadbackPreference(rawValue: readback) ?? .never
+        guard ReadbackPolicy.isSelectable(pref, careMode: app.careMode) else { return }
         Task {
             await settings.set(readback, for: .readBackOptIn)
         }

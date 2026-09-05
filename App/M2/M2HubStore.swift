@@ -60,38 +60,56 @@ final class M2HubStore {
 
     func load(patientId: UUID) async {
         loadingPatientId = patientId
+        // 先全部取回本地变量，再一次性提交。逐项直接赋值的话，成员切换会让
+        // 甲的药箱和乙的急救卡同时出现在界面上（跨成员脏读，BR-001 成员隔离）。
+        // 审查修复：单项失败隔离——原实现 8 个 fetch 串在同一个 do/catch，
+        // 任意一项抛错即全量放弃（续药卡/预警摘要/药箱待办一起消失）。
         do {
-            // 先全部取回本地变量，再一次性提交。逐项直接赋值的话，成员切换会让
-            // 甲的药箱和乙的急救卡同时出现在界面上（跨成员脏读，BR-001 成员隔离）。
             let inventory = try await meds.inventorySummary(patientId: patientId, now: Date())
+            guard loadingPatientId == patientId else { return }
+            inventoryItems = inventory
+        } catch { logger.error("药箱加载失败: \(error)") }
+
+        do {
             let candidates = try await emergency.candidates(patientId: patientId)
             let selected = try await emergency.selected(patientId: patientId)
             let selectedIds = Set((selected.allergies + selected.medications
                                    + selected.healthProblems + selected.contacts).map(\.id))
             let blood = try await emergency.bloodType(patientId: patientId)
-            let immunizations = try await self.immunizations.list(patientId: patientId)
-            let claimList = try await claims.list(patientId: patientId)
-            let totals = try await claims.totals(patientId: patientId)
-            let sent = try await messages.list(patientId: patientId)
-            let entries = try await guidelines.all()
-            let alerts = try await guidelines.history(patientId: patientId)
-
-            // 晚到的旧成员结果一律丢弃（切换成员会取消 .task，但飞行中的调用仍会返回）
             guard loadingPatientId == patientId else { return }
-            inventoryItems = inventory
             emergencyCandidates = candidates
             emergencySelected = selected
             emergencySelectedIds = selectedIds
             bloodType = blood
+        } catch { logger.error("急救卡加载失败: \(error)") }
+
+        do {
+            let immunizations = try await self.immunizations.list(patientId: patientId)
+            guard loadingPatientId == patientId else { return }
             immunizationRecords = immunizations
+        } catch { logger.error("疫苗加载失败: \(error)") }
+
+        do {
+            let claimList = try await claims.list(patientId: patientId)
+            let totals = try await claims.totals(patientId: patientId)
+            guard loadingPatientId == patientId else { return }
             claimRows = claimList
             claimTotals = totals
+        } catch { logger.error("报销加载失败: \(error)") }
+
+        do {
+            let sent = try await messages.list(patientId: patientId)
+            guard loadingPatientId == patientId else { return }
             sentMessages = sent
+        } catch { logger.error("发送状态加载失败: \(error)") }
+
+        do {
+            let entries = try await guidelines.all()
+            let alerts = try await guidelines.history(patientId: patientId)
+            guard loadingPatientId == patientId else { return }
             guidelineEntries = entries
             alertEvents = alerts
-        } catch {
-            logger.error("M2 装配加载失败: \(error)")
-        }
+        } catch { logger.error("信源库/预警加载失败: \(error)") }
     }
 
     // MARK: - 药箱
@@ -99,6 +117,11 @@ final class M2HubStore {
     func reconcileLot(item: MedicationStore.InventorySummaryItem, physicalCount: Double) async {
         do {
             try await meds.reconcileLot(lotId: item.lotId, physicalCount: physicalCount, at: Date())
+            // 审查修复：盘点归真后重载缓存——原实现只写库，药箱继续显示
+            // 盘点前的旧余量/旧续药档位，直到下次全量 load
+            if let patientId = loadingPatientId {
+                inventoryItems = try await meds.inventorySummary(patientId: patientId, now: Date())
+            }
         } catch {
             logger.error("盘点归真失败: \(error)")
         }

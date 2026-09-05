@@ -18,6 +18,7 @@ struct HomeView: View {
     @Environment(M2HubStore.self) private var hub
     @Environment(ObservationStoreState.self) private var observationState
     @Environment(AppRouter.self) private var router
+    @Environment(AppSettingsStore.self) private var settingsStore
     @State private var showMemberPicker = false
     @State private var showSOS = false
     @State private var showVoiceNote = false
@@ -69,19 +70,24 @@ struct HomeView: View {
         app.timeline.reduce(0) { $0 + ($1.fields ?? []).filter { !$0.isConfirmed }.count }
     }
 
-    // ④ 即将到期（7 天窗口）：预约 + 药品临期（FR9.11 批次效期在 Phase 2 并入）
+    // ④ 即将到期（7 天窗口）：预约 + 药品临期（FR9.11 批次效期在 Phase 2 并入）。
+    // DST 纪律：窗口用日历加一天，禁止固定 86400 秒（切换日 ±1 小时漂移）
     private var expiringItems: [ExpiryItem] {
-        let window = Date().addingTimeInterval(7 * 86400)
+        let cal = Calendar.current
+        let window = cal.date(byAdding: .day, value: 7, to: Date()) ?? Date()
         return reminderStore.upcomingAppointments
             .filter { $0.startsAt <= window }
             .map { ExpiryItem(title: "\($0.hospital)·\($0.department)", date: $0.startsAt,
                               memberId: app.currentPatientId) }
     }
 
-    // ⑤ 续药卡（FR9.8.3）：余量≤7 天出现——诚实性文案「约剩 N 天·按计划估算」
+    // ⑤ 续药卡（FR9.8.3）：出现判定走 Domain 单一事实源 InventoryRules.refillTier
+    // （t14/t7/t3，ADR-009 安全线偏早）——视图不得自设 ≤7 天阈值
+    //（审查修复：原视图硬编码 ≤7 天，t14 档 8–14 天的提前告警被吞掉）。
+    // 诚实性文案「约剩 N 天·按计划估算」。
     private var refillItems: [RefillItem] {
         hub.inventoryItems.compactMap { item in
-            guard let days = item.approxDaysLeft, days <= 7 else { return nil }
+            guard let days = item.approxDaysLeft, item.refillTier != nil else { return nil }
             return RefillItem(medicationName: item.medicationName,
                               remainingPlanUnits: item.remainingPlanUnits,
                               memberId: app.currentPatientId,
@@ -233,8 +239,12 @@ struct HomeView: View {
             Button {
                 dismissNotifBanner = true
             } label: {
+                // 审查修复：触控目标 ≥44pt（原 ~16pt 图标，关怀模式要求 64pt）
                 Image(systemName: "xmark").font(.footnote).foregroundStyle(.secondary)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
+            .accessibilityLabel(L10n.commonCancel)
             .accessibilityIdentifier("SP-04.home.notifDenied.dismiss")
         }
         .padding(12)
@@ -457,7 +467,10 @@ struct HomeView: View {
         return L10n.homeGreeting(name)
     }
 
-    private var settingsVoiceEntryVisible: Bool { true }   // Phase 5 接 AppSettingsStore
+    /// FR14.7 语音入口显示开关（审查修复：原硬编码 true——设置页开关零效果）
+    private var settingsVoiceEntryVisible: Bool {
+        settingsStore.values[.voiceEntryVisible] != "false"
+    }
 
     private func load() async {
         await reminderStore.refresh(patientId: app.currentPatientId)

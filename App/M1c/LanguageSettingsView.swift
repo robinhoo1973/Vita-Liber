@@ -50,7 +50,6 @@ struct VoiceLanguageSettingsView: View {
     @Environment(AppSettingsStore.self) private var settings
     @Environment(AppState.self) private var app
     @State private var inputLangs: Set<String> = []
-    @State private var mixEnabled = true
 
     private var outputLang: String {
         app.voiceOutputLocale
@@ -86,11 +85,9 @@ struct VoiceLanguageSettingsView: View {
                 Text(L10n.voiceLangInputHint)
             }
 
-            Section {
-                Toggle(L10n.voiceLangMix, isOn: $mixEnabled)
-            } footer: {
-                Text(L10n.voiceLangMixHint)
-            }
+            // 审查修复（诚实性，FR14.7）：混合输入开关此前为本地 @State——
+            // 不持久化、全仓零消费点（「可调但无效果」）——与 PreferencesViews
+            // 同纪律移除，接线 AppSettingsStore 与识别链路后恢复。
 
             Section {
                 ForEach(EngineCapabilityProfile.sixLanguages, id: \.locale) { lang in

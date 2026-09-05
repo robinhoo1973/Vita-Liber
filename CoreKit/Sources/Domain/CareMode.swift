@@ -18,7 +18,11 @@ public struct CareModeMetrics: Sendable, Equatable {
         self.tremorGuardSeconds = tremorGuardSeconds
         self.holdConfirmSeconds = holdConfirmSeconds
     }
-    public static let standard = CareModeMetrics()
+    /// 审查修复：常规模式同样 0.6s 长按（SOSRules 契约「SOS 大按钮需 0.6s
+    /// 长按（常规模式）触发，误触率 <1%」）——原 standard.holdConfirmSeconds=0，
+    /// SOS LongPressGesture(minimumDuration: 0) 在单次轻点即触发确认弹窗，
+    /// 口袋误触一次即进入紧急页
+    public static let standard = CareModeMetrics(holdConfirmSeconds: 0.6)
     public static let care = CareModeMetrics(touchTarget: 64, spacing: 16,
                                              primaryButtonHeight: 72,
                                              tremorGuardSeconds: 0.3,

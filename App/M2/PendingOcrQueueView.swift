@@ -133,10 +133,11 @@ struct PendingOcrQueueView: View {
     }
 
     private func tierColor(_ field: CandidateField) -> Color {
+        // 审查修复：语义令牌替代系统原色（与确认工作台同一 FR6.3 语义）
         switch ConfidenceTier.tier(field.confidence) {
-        case .high: return .green
-        case .mid: return .orange
-        case .low: return .red
+        case .high: return Color("semantic-success", bundle: .main)
+        case .mid: return Color("semantic-warning", bundle: .main)
+        case .low: return Color("semantic-danger", bundle: .main)
         }
     }
 

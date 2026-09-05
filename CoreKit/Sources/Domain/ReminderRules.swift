@@ -98,7 +98,13 @@ public enum VoiceReminderRules {
                   (1...31).contains(parts[1]) else { return nil }
             var comps = calendar.dateComponents([.year], from: now)
             comps.month = parts[0]; comps.day = parts[1]
-            var day = calendar.date(from: comps) ?? now
+            guard let built = calendar.date(from: comps) else { return nil }
+            // 审查修复（FR10.2 绝不猜时间）：Calendar 对非法月日（2月30/4月31）
+            // 静默进位到下月——回读校验月日一致，不一致即拒绝并交 UI 澄清，
+            // 「猜错的提醒比没有提醒更糟」。
+            let check = calendar.dateComponents([.month, .day], from: built)
+            guard check.month == parts[0], check.day == parts[1] else { return nil }
+            var day = built
             // 审查修复（P0）：按「天」比较——原以午夜时刻与 now 比较，
             // 今天/过去的日期恒被顺延一年（语音设定当天提醒系统性失效）
             if calendar.startOfDay(for: day) < calendar.startOfDay(for: now) {
@@ -118,6 +124,46 @@ public enum VoiceReminderRules {
         // 由 UI 要求澄清）；猜错的提醒比没有提醒更糟（FR10.2）
         guard let hour = Int(hourText), (0...23).contains(hour) else { return nil }
         return calendar.date(bySettingHour: hour, minute: 0, second: 0, of: day)
+    }
+}
+
+/// 日历日偏移的统一出口（DST 纪律）：固定 86400 秒在切换日偏差 ±1 小时。
+/// 审查修复：Infrastructure/视图层多处仍用 +N*86400（预排窗口/合并窗口/
+/// 检索窗口），与 Domain 已定的日历日纪律漂移——全部走本出口。
+public enum DayArithmetic {
+    public static func offset(days: Int, from date: Date = Date(),
+                              calendar: Calendar = .current) -> Date {
+        calendar.date(byAdding: .day, value: days, to: date)
+            ?? date.addingTimeInterval(TimeInterval(days) * 86400)
+    }
+
+    /// days 天前的 Unix 时刻（检索窗口用）
+    public static func since(days: Int, now: Date = Date(),
+                             calendar: Calendar = .current) -> TimeInterval {
+        offset(days: -days, from: now, calendar: calendar).timeIntervalSince1970
+    }
+}
+
+/// FR17.10 重复短语 → 触发组件（与 VoiceGrammarDefaults.repeatPatterns
+/// 同一事实源——文法里登记的短语这里必须可映射，禁止两套词表）。
+public enum VoiceRepeatRules {
+    /// 返回 weekday 集合（Calendar：1=周日…7=周六）；空数组 = 每天。
+    /// nil = 未知短语（调度层回落一次性，绝不猜语义——FR10.2 同款纪律）。
+    public static func weekdays(for phrase: String, fireWeekday: Int) -> [Int]? {
+        switch phrase {
+        case "每天", "每日": return []
+        case "每周一": return [2]
+        case "每周二": return [3]
+        case "每周三": return [4]
+        case "每周四": return [5]
+        case "每周五": return [6]
+        case "每周六": return [7]
+        case "每周日", "每周天": return [1]
+        case "每周": return [fireWeekday]
+        case "工作日": return [2, 3, 4, 5, 6]
+        case "周末": return [1, 7]
+        default: return nil
+        }
     }
 }
 

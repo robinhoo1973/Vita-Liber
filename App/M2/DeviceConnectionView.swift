@@ -19,6 +19,9 @@ final class F16DeviceState {
     }
 
     private(set) var phase: Phase = .idle
+    /// FR16.4：无信源阈值的读数计数——「范围不可用」是独立呈现态，
+    /// 不静默跳过（审查修复：原 catch continue 让用户以为同步正常）
+    private(set) var noRangeCount = 0
     private let reader: HealthKitReader
     private let guidelines: GuidelineStore
     private let scheduler: any ReminderScheduling
@@ -52,6 +55,7 @@ final class F16DeviceState {
     /// 同步并评估：读数 → evaluateAndRecord → 24h 去重 → 夜间静默 → L1+ 通知
     func sync(patientId: UUID) async {
         phase = .syncing
+        noRangeCount = 0
         defer { if case .syncing = phase { phase = .done(count: 0) } }
         do {
             let readings = try await reader.recentReadings(within: 24)
@@ -61,7 +65,7 @@ final class F16DeviceState {
                     let event = try await guidelines.evaluateAndRecord(
                         reading: reading, patientId: patientId, ruleId: "f16.healthkit")
                     guard event.severity != .L0 else { continue }
-                    // FR16.2 同一事件 24 小时去重（按指标+级别）
+                    // FR16.2 同一事件 24 小时去重（按指标+级别；落库侧另有同日级别去重）
                     let key = "\(reading.metricKey)-\(event.severity.rawValue)"
                     if let last = lastAlertKey[key],
                        Date().timeIntervalSince(last) < 24 * 3600 { continue }
@@ -74,7 +78,8 @@ final class F16DeviceState {
                         dose: "alert-\(event.id.uuidString)", at: Date().addingTimeInterval(5),
                         route: .alertHistory)
                 } catch GuidelineStore.StoreError.noApplicableRange {
-                    continue   // 该指标无信源阈值 → 不评估（FR16.4 时序：P0.5 无通用范围）
+                    // FR16.4「范围不可用」独立呈现态：计数并如实展示，不静默
+                    noRangeCount += 1
                 } catch {
                     continue
                 }
@@ -136,6 +141,12 @@ struct DeviceConnectionView: View {
                 case .done(let count):
                     Text(L10n.f16SyncDone(count))
                         .accessibilityIdentifier("SP-29.health.syncDone")
+                    if deviceState.noRangeCount > 0 {
+                        // FR16.4：范围不可用是独立呈现态——如实告知，不假装全量评估
+                        Text(L10n.f16NoRange(deviceState.noRangeCount))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 case .degraded(let message):
                     Label(message, systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.orange)

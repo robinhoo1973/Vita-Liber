@@ -13,8 +13,15 @@ import Protocols
 /// 全程单事务（UnitOfWork），任一步失败整体回滚。
 public actor MemberDeletionService {
     private let writer: any DatabaseWriter
+    /// 通知调度端口（可选注入）：删除成员时取消其预约分级提醒——
+    /// 对账引擎只清理 dose-/slot- 前缀，apt- 必须由删除路径显式取消
+    /// （否则已删成员/已取消预约的提醒仍按时弹出，隐私与 FR3.4 双违）。
+    private let scheduler: (any ReminderScheduling)?
 
-    public init(writer: any DatabaseWriter) { self.writer = writer }
+    public init(writer: any DatabaseWriter, scheduler: (any ReminderScheduling)? = nil) {
+        self.writer = writer
+        self.scheduler = scheduler
+    }
 
     public struct Impact: Sendable, Equatable {
         public var documentCount: Int
@@ -56,6 +63,13 @@ public actor MemberDeletionService {
     /// 归属标记由软删的成员行承载（「未归属」筛选语义）。
     public func deleteMember(patientId: UUID, choice: DeleteChoice,
                              now: Date = Date()) async throws {
+        // FR3.4：预约分级提醒（apt-）须随删除/取消一并移除——先取预约 id 清单
+        //（写事务后行已删/已取消，查不到），写事务成功后再取消系统侧 pending。
+        let aptIds = try await writer.read { db in
+            try String.fetchAll(db, sql: """
+                SELECT id FROM appointment WHERE patient_id = ? AND status = 'scheduled'
+                """, arguments: [patientId.uuidString])
+        }
         try await writer.write { db in
             guard try Row.fetchOne(db, sql: "SELECT id FROM patient_profile WHERE id = ? AND deleted_at IS NULL",
                                    arguments: [patientId.uuidString]) != nil else {
@@ -63,18 +77,34 @@ public actor MemberDeletionService {
             }
             switch choice {
             case .deletePlans:
-                // 拓扑序清理：dose_lot_allocation → medication_dose_log → stock_lot → plan
+                // 拓扑序清理（FK 开启，REFERENCES 目标必须先行）：
+                // dose_lot_allocation → notification_delivery(dose_log_id) →
+                // medication_dose_log → plan_lifecycle_event → stock_lot →
+                // medication_plan → reminder/appointment
+                // 审查修复：原序漏删 plan_lifecycle_event 与 notification_delivery——
+                // DELETE medication_plan/dose_log 时外键违约整事务回滚，成员删不掉。
                 try db.execute(sql: """
                     DELETE FROM dose_lot_allocation WHERE stock_lot_id IN
                       (SELECT id FROM stock_lot WHERE patient_id = ?)
                     """, arguments: [patientId.uuidString])
                 try db.execute(sql: """
+                    DELETE FROM notification_delivery WHERE dose_log_id IN
+                      (SELECT id FROM medication_dose_log WHERE plan_id IN
+                        (SELECT id FROM medication_plan WHERE patient_id = ?))
+                    """, arguments: [patientId.uuidString])
+                try db.execute(sql: """
                     DELETE FROM medication_dose_log WHERE plan_id IN
+                      (SELECT id FROM medication_plan WHERE patient_id = ?)
+                    """, arguments: [patientId.uuidString])
+                try db.execute(sql: """
+                    DELETE FROM plan_lifecycle_event WHERE plan_id IN
                       (SELECT id FROM medication_plan WHERE patient_id = ?)
                     """, arguments: [patientId.uuidString])
                 try db.execute(sql: "DELETE FROM stock_lot WHERE patient_id = ?",
                                arguments: [patientId.uuidString])
                 try db.execute(sql: "DELETE FROM medication_plan WHERE patient_id = ?",
+                               arguments: [patientId.uuidString])
+                try db.execute(sql: "DELETE FROM reminder WHERE patient_id = ?",
                                arguments: [patientId.uuidString])
                 try db.execute(sql: "DELETE FROM appointment WHERE patient_id = ?",
                                arguments: [patientId.uuidString])
@@ -91,6 +121,16 @@ public actor MemberDeletionService {
             // 软删成员行（资料保留，归属标记清除语义）
             try db.execute(sql: "UPDATE patient_profile SET deleted_at = ? WHERE id = ?",
                            arguments: [now.timeIntervalSince1970, patientId.uuidString])
+        }
+        // 写事务成功后才取消系统侧通知：删除/取消的预约不再按时弹出提醒
+        if let scheduler, !aptIds.isEmpty {
+            let pending = try await scheduler.pending()
+            let stale = pending.keys.filter { id in
+                aptIds.contains { id.hasPrefix("apt-\($0)") }
+            }
+            if !stale.isEmpty {
+                try await scheduler.cancel(Array(stale))
+            }
         }
     }
 

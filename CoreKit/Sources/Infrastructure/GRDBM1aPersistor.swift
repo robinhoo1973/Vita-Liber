@@ -198,12 +198,17 @@ public actor GRDBM1aPersistor: M1aPersisting {
 
     public func reset() async throws {
         try await writer.write { db in
+            // 拓扑序（FK 开启）：最末级子表在前，父表在后。
+            // 审查修复：原序 medication_plan 在 medication_dose_log 之前且漏
+            // plan_lifecycle_event——剂量日志存在时 DELETE medication_plan 外键
+            // 违约、整事务回滚，UI 测试清态在脏数据上静默失效。
             let ordered = [
                 // 最末级子表（不被他表引用，或被更末级引用）
-                "ai_message", "dose_lot_allocation", "notification_delivery", "stock_lot",
+                "ai_message", "dose_lot_allocation", "notification_delivery",
+                "medication_dose_log", "plan_lifecycle_event", "stock_lot",
                 "ocr_result", "claim_item", "prescription", "encounter_question", "voice_note",
                 "immunization", "allergy_event", "observation", "document_file", "medication_plan",
-                "medication_dose_log", "sent_message", "emergency_card_selection", "contact",
+                "sent_message", "emergency_card_selection", "contact",
                 "metric_sample", "alert_event", "guideline_source", "ai_conversation", "reminder",
                 "medication", "encounter", "health_problem", "appointment",
                 // local_owner 子表

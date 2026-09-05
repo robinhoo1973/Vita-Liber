@@ -58,6 +58,9 @@ public enum SchemaV2 {
       title TEXT,                        -- V3.43: FTS 检索列（external-content 需与虚表列同名）
       ocr_text TEXT,                     -- V3.43: OCR 原文检索列
       notes TEXT,                        -- V3.43: 用户笔记检索列
+      -- 审查修复：来源徽章 A–E 的 D 级闸门（BR-003）。机器识别入库默认 'D'（未确认），
+      -- 检索/AI 事实链排除 D 级；用户显式确认后升 'C'。手工录入默认 'C'。
+      grade TEXT NOT NULL DEFAULT 'C' CHECK(grade IN ('A','B','C','D','E')),
       created_at REAL NOT NULL, updated_at REAL NOT NULL);
     -- 审查修复（P0）：UNIQUE → 普通索引。唯一索引与 FR5.6「重复只提示」
     -- 及 ADR-019 keep/adopt/coexist 语义直接冲突：同一文件二次入库必抛约束

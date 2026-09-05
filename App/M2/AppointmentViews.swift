@@ -187,13 +187,13 @@ struct AppointmentFormView: View {
     @State private var department = ""
     @State private var doctor = ""
     @State private var address = ""
-    @State private var startsAt = Date().addingTimeInterval(86400)
+    @State private var startsAt = DayArithmetic.offset(days: 1)
     @State private var notes = ""
     @State private var itemsToBring = ""
     // FR10.2 复诊规则五种：指定日期 / N 天周月后 / 检查完成后 / 疗程结束后 / 慢病随访
     @State private var followUpRule = 0
     @State private var followUpDays = 90
-    @State private var followUpDate = Date().addingTimeInterval(90 * 86400)
+    @State private var followUpDate = DayArithmetic.offset(days: 90)
 
     private let rules = [0, 1, 2, 3, 4]
 
@@ -223,11 +223,17 @@ struct AppointmentFormView: View {
                     case 1:
                         // N 天/周/月后：必须确认到具体日期方可生效
                         Stepper(L10n.apptFollowUpDays(followUpDays), value: $followUpDays, in: 1...730)
-                        DatePicker(L10n.apptFollowUpConcreteDate,
-                                   selection: Binding(
-                                    get: { Date().addingTimeInterval(TimeInterval(followUpDays * 86400)) },
-                                    set: { followUpDays = max(1, Int($0.timeIntervalSinceNow / 86400)) }),
+                        DatePicker(L10n.apptFollowUpConcreteDate, selection: $followUpDate,
                                    displayedComponents: .date)
+                        .onChange(of: followUpDate) { _, date in
+                            // 审查修复：原绑定 get 每次渲染从 Date() 重算、set 用 86400
+                            // 整除截断——选中的日期最多提前一天且随渲染漂移。
+                            // 以日历日差反推天数（DST 安全），日期为唯一事实源。
+                            let cal = Calendar.current
+                            let days = cal.dateComponents([.day], from: cal.startOfDay(for: startsAt),
+                                                          to: cal.startOfDay(for: date)).day ?? followUpDays
+                            followUpDays = max(1, days)
+                        }
                     case 2, 3:
                         // 检查完成后/疗程结束后：无具体日期 → 待确认草稿（不排提醒）
                         Text(L10n.apptFollowUpDraftOnly)
@@ -255,13 +261,20 @@ struct AppointmentFormView: View {
     }
 
     private func save() {
-        // 规则 2/3（检查完成后/疗程结束后）无法落具体日期 → 本次不排提醒，
-        // 保存预约本身（预约提醒照常）；复诊日期留待用户稍后确认（FR10.2）
+        // 规则 2/3（检查完成后/疗程结束后）无法落具体日期 → 本次不排复诊提醒，
+        // 保存预约本身（预约提醒照常）；复诊日期留待用户稍后确认（FR10.2）。
+        // 审查修复：医生/地址/物品/备注与复诊配置此前被静默丢弃——全部随单保存
         Task {
             await reminders.createAppointment(patientId: app.currentPatientId,
                                               hospital: hospital,
                                               department: department,
-                                              startsAt: startsAt)
+                                              startsAt: startsAt,
+                                              doctor: doctor.isEmpty ? nil : doctor,
+                                              address: address.isEmpty ? nil : address,
+                                              itemsToBring: itemsToBring.isEmpty ? nil : itemsToBring,
+                                              notes: notes.isEmpty ? nil : notes,
+                                              followUpRule: followUpRule,
+                                              followUpDays: followUpRule == 1 || followUpRule == 4 ? followUpDays : nil)
             dismiss()
         }
     }

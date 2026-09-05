@@ -42,24 +42,31 @@ final class AssistantStore {
         busy = true
         defer { busy = false }
         messages.append(Message(role: "user", text: q, answer: nil))
-        // FR12.10：首问即开新会话（标题=首问摘要，截断 30 字）
-        if let history, currentConversationId == nil,
-           let patientId = scopePatientIds.first {
-            do {
-                let title = String(q.prefix(30))
-                currentConversationId = try await history.startConversation(patientId: patientId, title: title)
-                conversationPatientId = patientId
-                try await history.appendMessage(conversationId: currentConversationId!, role: "user",
-                                                content: q, citationIds: nil)
-            } catch {
-                logger.error("会话开立失败: \(error)")
-            }
-        } else if let history, let conv = currentConversationId {
-            do {
-                try await history.appendMessage(conversationId: conv, role: "user",
-                                                content: q, citationIds: nil)
-            } catch {
-                logger.error("会话追加失败: \(error)")
+        // FR12.10：首问即开新会话（标题=首问摘要，截断 30 字）。
+        // 审查修复（BR-001）：成员切换必须开新会话——原实现只判
+        // currentConversationId == nil，A 成员开立的会话在切到 B 成员后
+        // 继续追加 B 的问题与回答，B 的健康信息混进 A 的会话历史。
+        if let history {
+            let patientId = scopePatientIds.first
+            if currentConversationId == nil || (patientId != nil && patientId != conversationPatientId) {
+                if let patientId {
+                    do {
+                        let title = String(q.prefix(30))
+                        currentConversationId = try await history.startConversation(patientId: patientId, title: title)
+                        conversationPatientId = patientId
+                        try await history.appendMessage(conversationId: currentConversationId!, role: "user",
+                                                        content: q, citationIds: nil)
+                    } catch {
+                        logger.error("会话开立失败: \(error)")
+                    }
+                }
+            } else if let conv = currentConversationId {
+                do {
+                    try await history.appendMessage(conversationId: conv, role: "user",
+                                                    content: q, citationIds: nil)
+                } catch {
+                    logger.error("会话追加失败: \(error)")
+                }
             }
         }
         do {

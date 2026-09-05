@@ -22,10 +22,17 @@ public actor ReminderReconciler {
 
     /// 稍后提醒（S1-2 修正）：取消该剂量所属时段通知 + 按新时刻单排 snooze 通知。
     /// 调用方已写 user_action=.snoozed；本方法只做调度侧。
+    /// 审查修复：再次稍后前先取消同剂量的旧 snooze——旧实现每次新排一个
+    /// epoch 后缀 id，重复稍后叠加幽灵通知。
     public func snooze(doseNotifyId: String, slotNotifyId: String?, until: Date) async {
         do {
             if let slotId = slotNotifyId {
                 try await scheduler.cancel([slotId])
+            }
+            let pending = try await scheduler.pending()
+            let previous = pending.keys.filter { $0.hasPrefix("snooze-\(doseNotifyId)-") }
+            if !previous.isEmpty {
+                try await scheduler.cancel(Array(previous))
             }
             let snoozeId = "snooze-\(doseNotifyId)-\(Int(until.timeIntervalSince1970))"
             try await scheduler.schedule(dose: snoozeId, at: until, route: nil)
@@ -48,8 +55,8 @@ public actor ReminderReconciler {
         defer { isReconciling = false }
         do {
             // 评审修正：窗口含前一天——过期剂量才能走 markAwaitingUser 分支
-            let windowStart = now.addingTimeInterval(-86400)
-            let windowEnd = now.addingTimeInterval(TimeInterval(ReconcileEngine.preScheduleWindowDays * 86400))
+            let windowStart = DayArithmetic.offset(days: -1, from: now)
+            let windowEnd = DayArithmetic.offset(days: ReconcileEngine.preScheduleWindowDays, from: now)
             let facts = try await source.deliveryFacts(from: windowStart, to: windowEnd)
             let delivered = try await scheduler.delivered()
             var pending = try await scheduler.pending()
@@ -101,8 +108,20 @@ public actor ReminderReconciler {
             // 到期自动停（FR9.15）：只清 dose-/slot- 前缀的残留 pending——
             // 评审修正 P0：旧实现把 apt- 预约提醒当「无事实来源」全删，预约闭环每次对账即断
             let activeSlotIds = Set(slots.map { "slot-\($0.id)" })
+            // 审查修复：剂量已被确定动作（服/跳/忘/不适）解决的 snooze 幽灵通知
+            // 也必须清——旧前缀过滤只清 dose-/slot-，稍后通知在确认后仍按时弹出
+            let resolvedNotifyIds = Set(merged
+                .filter { $0.action != nil && $0.action != .snoozed }
+                .map { $0.dose.notifyId })
             let stale = pending.keys.filter { id in
-                (id.hasPrefix("dose-") || id.hasPrefix("slot-")) && !activeSlotIds.contains(id)
+                if id.hasPrefix("snooze-") {
+                    let rest = String(id.dropFirst("snooze-".count))
+                    let parts = rest.split(separator: "-")
+                    guard let last = parts.last, Int(last) != nil else { return false }
+                    let doseNotifyId = parts.dropLast().joined(separator: "-")
+                    return resolvedNotifyIds.contains(doseNotifyId)
+                }
+                return (id.hasPrefix("dose-") || id.hasPrefix("slot-")) && !activeSlotIds.contains(id)
             }
             if !stale.isEmpty {
                 try await scheduler.cancel(Array(stale))

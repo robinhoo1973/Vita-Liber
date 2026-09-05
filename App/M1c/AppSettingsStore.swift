@@ -33,11 +33,8 @@ final class AppSettingsStore {
 
     func load() async {
         do {
-            var map: [AppSettingKey: String] = [:]
-            for key in AppSettingKey.allCases {
-                map[key] = try await store.value(for: key)
-            }
-            values = map
+            // 审查修复：一次批量查询替代逐键 SELECT（~35 次串行 actor 往返）
+            values = try await store.allValues()
         } catch {
             logger.error("设置加载失败: \(error)")
         }

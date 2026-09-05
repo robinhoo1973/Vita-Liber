@@ -36,6 +36,7 @@ public actor GRDBSearchService: FullTextSearch {
                     FROM document_fts f
                     JOIN document_file d ON d.rowid = f.rowid
                     WHERE document_fts MATCH ? AND d.status IN ('active','favorite')
+                      AND d.grade != 'D'
                       AND d.patient_id IN (\(patientIds.map { _ in "?" }.joined(separator: ",")))
                     ORDER BY rank LIMIT ?
                     """, arguments: StatementArguments([match] + patientIds + [limit]))
@@ -53,6 +54,7 @@ public actor GRDBSearchService: FullTextSearch {
                     FROM document_fts_2gram f
                     JOIN document_file d ON d.rowid = f.rowid
                     WHERE document_fts_2gram MATCH ? AND d.status IN ('active','favorite')
+                      AND d.grade != 'D'
                       AND d.patient_id IN (\(patientIds.map { _ in "?" }.joined(separator: ",")))
                     ORDER BY rank LIMIT ?
                     """, arguments: StatementArguments([grams] + patientIds + [limit]))
@@ -70,7 +72,7 @@ public actor GRDBSearchService: FullTextSearch {
             case .like:
                 // 1 字兜底：低频高噪音，限定最近 90 天窗口 + 成员过滤缩小扫描集；
                 // 检索列 = title/ocr_text/notes/meta_json（V3.43 起标题等独立列）
-                let since = Date().timeIntervalSince1970 - 90 * 86400
+                let since = DayArithmetic.since(days: 90)
                 let pattern = "%\(query)%"
                 let rows = try Row.fetchAll(db, sql: """
                     SELECT d.id, d.patient_id, d.doc_type, d.created_at, d.is_sensitive,
@@ -78,6 +80,7 @@ public actor GRDBSearchService: FullTextSearch {
                                 ELSE COALESCE(d.title, d.ocr_text, d.meta_json) END AS snip
                     FROM document_file d
                     WHERE d.status IN ('active','favorite') AND d.created_at >= ?
+                      AND d.grade != 'D'
                       AND d.patient_id IN (\(patientIds.map { _ in "?" }.joined(separator: ",")))
                       AND (d.title LIKE ?
                            OR (d.is_sensitive = 0

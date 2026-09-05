@@ -17,17 +17,24 @@ public actor AppointmentStore {
         self.scheduler = scheduler
     }
 
-    /// 创建预约 + 反算四级触发点预排（§5.4 V3.31；已过期层级不补发）
+    /// 创建预约 + 反算四级触发点预排（§5.4 V3.31；已过期层级不补发）。
+    /// 返回预约 id（调用方据此排复诊提醒）。
+    @discardableResult
     public func create(id: UUID = UUID(), patientId: UUID, hospital: String,
-                       department: String, startsAt: Date, tiers: [AppointmentTier] = AppointmentTier.defaults,
-                       now: Date = Date()) async throws {
+                       department: String, startsAt: Date,
+                       doctor: String? = nil, address: String? = nil,
+                       itemsToBring: String? = nil, notes: String? = nil,
+                       tiers: [AppointmentTier] = AppointmentTier.defaults,
+                       now: Date = Date()) async throws -> UUID {
         try await writer.write { db in
             try db.execute(
                 sql: """
-                INSERT INTO appointment (id, patient_id, hospital, department, starts_at, status, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, 'scheduled', ?, ?)
+                INSERT INTO appointment (id, patient_id, hospital, department, doctor, address,
+                                         items_to_bring, notes, starts_at, status, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', ?, ?)
                 """,
                 arguments: [id.uuidString, patientId.uuidString, hospital, department,
+                            doctor, address, itemsToBring, notes,
                             startsAt.timeIntervalSince1970,
                             now.timeIntervalSince1970, now.timeIntervalSince1970])
         }
@@ -35,6 +42,7 @@ public actor AppointmentStore {
             try await scheduler.schedule(dose: "apt-\(id.uuidString)-\(tier.label)", at: fire,
                                          route: .appointmentList)
         }
+        return id
     }
 
     /// 改期（FR10.7）：**原预约保留历史**（status='cancelled' + cancel_reason=
@@ -42,7 +50,6 @@ public actor AppointmentStore {
     /// 新草稿重排四级提醒——改期不是原地 UPDATE（历史可溯）。
     @discardableResult
     public func reschedule(id: UUID, startsAt: Date, now: Date = Date()) async throws -> UUID {
-        try await cancelReminders(id: id)
         let newId = UUID()
         try await writer.write { db in
             // 审查修复（§7 不得静默 return）：目标不存在时抛错——原实现
@@ -66,6 +73,10 @@ public actor AppointmentStore {
                             startsAt.timeIntervalSince1970, id.uuidString,
                             now.timeIntervalSince1970, now.timeIntervalSince1970])
         }
+        // 审查修复：取消旧提醒移到写事务成功之后——原顺序先取消后校验，
+        // 写失败（notFound）时预约仍在 scheduled 态但提醒已被移除且对账
+        // 不复排 apt- 通知，留下永不再提醒的预约
+        try await cancelReminders(id: id)
         for (tier, fire) in AppointmentRules.tierFireDates(startsAt: startsAt, tiers: AppointmentTier.defaults, now: now) {
             try await scheduler.schedule(dose: "apt-\(newId.uuidString)-\(tier.label)", at: fire,
                                          route: .appointmentList)
@@ -75,12 +86,13 @@ public actor AppointmentStore {
 
     /// 取消预约：状态机 cancelled + 选填原因 + 移除全部 pending（FR10.7）
     public func cancel(id: UUID, reason: String? = nil, now: Date = Date()) async throws {
-        try await cancelReminders(id: id)
         try await writer.write { db in
             try db.execute(
                 sql: "UPDATE appointment SET status = 'cancelled', cancel_reason = ?, updated_at = ? WHERE id = ?",
                 arguments: [reason, now.timeIntervalSince1970, id.uuidString])
         }
+        // 写成功后才取消提醒（同 reschedule/complete 的次序纪律）
+        try await cancelReminders(id: id)
     }
 
     /// 标记「错过」（FR10.7）：missed + 触发跟进提醒（FR10.3 错过跟进）
@@ -99,7 +111,6 @@ public actor AppointmentStore {
     /// 标记完成（FR10.7：completed）+ 补录就诊（评审修正 P0：闭环断点——
     /// 「标记完成→补录就诊」此前只改状态无 encounter 写入）
     public func complete(id: UUID, now: Date = Date()) async throws {
-        try await cancelReminders(id: id)
         try await writer.write { db in
             // 审查修复（§7 不得静默 return）：同 reschedule
             guard let apt = try Row.fetchOne(db, sql: "SELECT * FROM appointment WHERE id = ?",
@@ -118,6 +129,8 @@ public actor AppointmentStore {
                 arguments: [UUID().uuidString, apt["patient_id"] as String,
                             apt["starts_at"] as Double, now.timeIntervalSince1970, now.timeIntervalSince1970])
         }
+        // 审查修复：写成功后才取消提醒（先取消后校验的旧序见 reschedule 注释）
+        try await cancelReminders(id: id)
     }
 
     private func cancelReminders(id: UUID) async throws {

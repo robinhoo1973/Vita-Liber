@@ -36,6 +36,7 @@ final class DocumentsState {
         var title: String?
         var sha256: String
         var isSensitive: Bool
+        var origin: String = "import"
     }
 
     func load(patientId: UUID, includeArchived: Bool = false) async {
@@ -69,8 +70,11 @@ final class DocumentsState {
 
     /// 图片入库（FR5.6 前置去重；FR6.1 OCR 文本随 meta 入库）
     /// title 与 DocumentStore.save 一致为 String?（相册导入无标题场景传 nil）
+    /// origin 必须落在 document_file.origin CHECK 枚举内（camera/photoLibrary/import/
+    /// scanner/manual）——曾用 "file" 触发 SQLITE_CONSTRAINT_CHECK，全部导入失败。
     func importImage(patientId: UUID, data: Data, mimeType: String,
-                     docType: String, title: String?, isSensitive: Bool) async {
+                     docType: String, title: String?, isSensitive: Bool,
+                     origin: String = "import") async {
         lastImportError = nil
         // 去重哈希：SHA-256（Domain 有自研 SHA256 供去重/感知哈希种子——非安全场景）
         let sha = "sha:" + Self.hash(data)
@@ -80,26 +84,34 @@ final class DocumentsState {
                 duplicateHits = hits
                 pendingDuplicate = PendingDocument(data: data, mimeType: mimeType,
                                                    docType: docType, title: title,
-                                                   sha256: sha, isSensitive: isSensitive)
+                                                   sha256: sha, isSensitive: isSensitive,
+                                                   origin: origin)
                 return
             }
             // FR6.1/ADR-026：OCR 经统一编排层（质量评估 + 识别）；
-            // 识别文本随 meta_json 入库（失败不阻塞保存——文本为空）
-            var metaJSON: String?
+            // 识别文本写入 ocr_text 检索列（FTS 触发器自动索引）；
+            // 机器识别未确认 = grade 'D'（BR-003：检索/AI 事实链排除，确认后升 C）
+            var ocrText: String?
             do {
                 let result = try await pipeline.run(imageData: data)
                 lastQualityTags = result.qualityTags
+                if result.failed {
+                    // FR6.6：识别引擎失败必须可见，绝不静默按「无文字」入库
+                    lastImportError = L10n.docImportFailed
+                    return
+                }
                 if !result.lines.isEmpty {
-                    let payload = ["ocr_text": result.lines.joined(separator: "\n"),
-                                   "engine": "evaluation"]
-                    metaJSON = String(data: try JSONEncoder().encode(payload), encoding: .utf8)
+                    ocrText = result.lines.joined(separator: "\n")
                 }
             } catch {
-                metaJSON = nil   // 识别失败文本留空（FR6.6 边界：影像无文字不视为错误）
+                // FR6.6：识别失败可见反馈，不静默按「无文字」入库
+                lastImportError = L10n.docImportFailed
+                return
             }
             _ = try await store.save(patientId: patientId, docType: docType,
-                                     sha256: sha, mimeType: mimeType, origin: "file",
-                                     isSensitive: isSensitive, metaJSON: metaJSON, title: title)
+                                     sha256: sha, mimeType: mimeType, origin: origin,
+                                     isSensitive: isSensitive, metaJSON: nil, title: title,
+                                     ocrText: ocrText, grade: "D")
             await load(patientId: patientId)
         } catch {
             lastImportError = L10n.docImportFailed
@@ -125,14 +137,14 @@ final class DocumentsState {
             }
             await importImage(patientId: patientId, data: data, mimeType: url.pathExtension,
                               docType: docType, title: url.lastPathComponent,
-                              isSensitive: isSensitive)
+                              isSensitive: isSensitive, origin: "import")
         default:
             // Word/其他格式：元数据入库（文件名/哈希），文本解析待升级
             do {
                 let data = try Data(contentsOf: url)
                 _ = try await store.save(patientId: patientId, docType: docType,
                                          sha256: "file:" + Self.hash(data),
-                                         mimeType: url.pathExtension, origin: "file",
+                                         mimeType: url.pathExtension, origin: "import",
                                          isSensitive: isSensitive,
                                          metaJSON: "{\"pendingParse\":\"docx\"}",
                                          title: url.lastPathComponent)
@@ -145,6 +157,8 @@ final class DocumentsState {
 
     /// FR6.6 PDF 逐页 OCR：PDFKitDecoder 渲染 → 逐页识别 → 文本入库。
     /// 渲染失败上抛 → lastImportError 可见（绝不静默）。
+    /// 识别文本写入 ocr_text 检索列（原 base64 塞 meta_json：FTS 无法索引）；
+    /// 机器识别未确认 = grade 'D'（BR-003），确认后升 C 才进入检索/AI 事实链。
     func importPDF(patientId: UUID, url: URL, docType: String, isSensitive: Bool = false) async {
         lastImportError = nil
         do {
@@ -154,22 +168,28 @@ final class DocumentsState {
             let decoder = PDFKitDecoder()
             let pages = try await decoder.decodePDF(data, scale: 2.0, maxPages: 50)
             var texts: [String] = []
+            var failedPages = 0
             for page in pages {
                 // ADR-026：PDF 逐页识别同样经统一编排层
                 let result = (try? await pipeline.run(imageData: page.bitmapData))   // try?-ok: 单页失败继续下一页（FR6.6 汇总时标注）
-                if let result, result.hasText {
+                if let result, !result.failed, result.hasText {
                     texts.append(result.lines.joined(separator: "\n"))
                 } else {
+                    // 引擎失败与无文字分别标注（FR6.6：失败必须可见，不静默）
+                    failedPages += 1
                     texts.append("")
                 }
             }
             let joined = texts.filter { !$0.isEmpty }.joined(separator: "\n---\n")
-            let metaPayload = ["ocr_text": joined, "engine": "vision", "page_count": pages.count] as [String: Any]
-            let metaJSON = try JSONSerialization.data(withJSONObject: metaPayload, options: []).base64EncodedString()
+            let metaPayload = ["engine": "vision", "page_count": pages.count,
+                               "failed_pages": failedPages] as [String: Any]
+            let metaJSON = String(data: try JSONSerialization.data(withJSONObject: metaPayload, options: []),
+                                  encoding: .utf8)
             _ = try await store.save(patientId: patientId, docType: docType,
                                      sha256: "pdf:" + Self.hash(data), mimeType: "application/pdf",
-                                     origin: "file", isSensitive: isSensitive,
-                                     metaJSON: metaJSON, title: url.lastPathComponent)
+                                     origin: "import", isSensitive: isSensitive,
+                                     metaJSON: metaJSON, title: url.lastPathComponent,
+                                     ocrText: joined.isEmpty ? nil : joined, grade: "D")
             await load(patientId: patientId)
         } catch {
             // FR6.6：失败必须给出可见错误反馈，绝不静默
@@ -198,11 +218,21 @@ final class DocumentsState {
         do {
             _ = try await store.save(patientId: patientId, docType: pending.docType,
                                      sha256: pending.sha256, mimeType: pending.mimeType,
-                                     origin: "file", isSensitive: pending.isSensitive,
-                                     metaJSON: nil, title: pending.title)
+                                     origin: pending.origin, isSensitive: pending.isSensitive,
+                                     metaJSON: nil, title: pending.title, grade: "D")
             await load(patientId: patientId)
         } catch {
             // 同上
+        }
+    }
+
+    /// BR-003 D→C：用户显式确认机器识别文本后才进入检索与 AI 事实链。
+    func confirmText(id: UUID) async {
+        do {
+            try await store.confirmText(id: id)
+            if let patientId = loadingPatientId { await load(patientId: patientId) }
+        } catch {
+            // 错误经日志；列表刷新即真实状态
         }
     }
 
@@ -293,7 +323,7 @@ struct DocumentLibraryView: View {
                     await state.importImage(patientId: app.currentPatientId, data: data,
                                             mimeType: url.pathExtension,
                                             docType: L10n.docTypeReport, title: url.lastPathComponent,
-                                            isSensitive: false)
+                                            isSensitive: false, origin: "import")
                 }
             }
         }
@@ -308,7 +338,7 @@ struct DocumentLibraryView: View {
                         await state.importImage(patientId: app.currentPatientId, data: data,
                                                 mimeType: "image",
                                                 docType: L10n.docTypeRecord, title: nil,
-                                                isSensitive: false)
+                                                isSensitive: false, origin: "photoLibrary")
                     }
                 }
             }
@@ -371,6 +401,7 @@ private struct DocumentLibraryRow: View {
     let doc: DocumentStore.DocumentRow
     let onSetArchived: (Bool) -> Void
     let onSetFavorite: (Bool) -> Void
+    let onConfirmText: (() -> Void)?
 
     var body: some View {
         NavigationLink {
@@ -383,6 +414,15 @@ private struct DocumentLibraryRow: View {
                             .font(.caption2)
                             .padding(.horizontal, 6).padding(.vertical, 2)
                             .background(Capsule().fill(Color(.systemGray5)))
+                        // BR-003 来源徽章：D = 机器识别未确认（不进入检索/AI 事实链）
+                        if doc.grade == "D" {
+                            Text("D")
+                                .font(.caption2).bold()
+                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .background(Capsule().fill(Color("grade-d", bundle: .main)))
+                                .foregroundStyle(.white)
+                                .accessibilityLabel(L10n.docGradeUnconfirmed)
+                        }
                         if doc.isSensitive {
                             Image(systemName: "lock.fill")
                                 .font(.caption2).foregroundStyle(.orange)
@@ -416,6 +456,16 @@ private struct DocumentLibraryRow: View {
             }
             .tint(.yellow)
         }
+        .contextMenu {
+            if doc.grade == "D", let onConfirmText {
+                // BR-003 D→C：显式确认机器识别文本后才进入检索与 AI 事实链
+                Button {
+                    onConfirmText()
+                } label: {
+                    Label(L10n.docConfirmText, systemImage: "checkmark.seal")
+                }
+            }
+        }
         .accessibilityIdentifier("SP-09.document.row.\(doc.id.uuidString)")
     }
 }
@@ -442,7 +492,10 @@ private struct DocumentListView: View {
                                    },
                                    onSetFavorite: { favorite in
                                        Task { await state.setFavorite(id: doc.id, favorite: favorite) }
-                                   })
+                                   },
+                                   onConfirmText: doc.grade == "D"
+                                       ? { Task { await state.confirmText(id: doc.id) } }
+                                       : nil)
             }
         }
     }

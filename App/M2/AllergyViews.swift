@@ -160,7 +160,8 @@ struct AllergyCreateView: View {
             // FR23.3 重度/关键词命中：急救引导卡（BR-012），不阻塞保存、可关闭
             .alert(L10n.allergyEmergencyTitle, isPresented: $showEmergencyCard) {
                 Button(L10n.ai_emergencyCall) {
-                    if let url = URL(string: "tel://120") { UIApplication.shared.open(url) }
+                    // 审查修复：急救号码按语言区域（120/119/911），不硬编码 120
+                    if let url = URL(string: "tel://\(L10n.emergencyNumber)") { UIApplication.shared.open(url) }
                 }
                 Button(L10n.allergyEmergencyGoHospital, role: .cancel) {
                     dismiss()

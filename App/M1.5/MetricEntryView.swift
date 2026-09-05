@@ -22,6 +22,7 @@ struct MetricQuickEntryView: View {
     @State private var measuredAt = Date()
     @State private var saved = false
     @State private var confirmSet: OcrConfirmationSet?
+    @State private var entryError: String?
     @State private var routeMonitor = AudioRouteMonitor()
     @FocusState private var focusField: Bool
 
@@ -107,6 +108,14 @@ struct MetricQuickEntryView: View {
                 }
                 Button(L10n.onboard_gotIt, role: .cancel) { dismiss() }
             }
+            // 解析失败/写失败可见反馈（FR7.5：绝不静默丢弃读数）
+            .alert(L10n.metricEntryErrorTitle,
+                   isPresented: Binding(get: { entryError != nil },
+                                        set: { if !$0 { entryError = nil } })) {
+                Button(L10n.onboard_gotIt, role: .cancel) { entryError = nil }
+            } message: {
+                Text(entryError ?? "")
+            }
             .onAppear {
                 // 单位记忆（FR7.8：每种指标记忆上次单位）
                 unitText = state.rememberedUnit(for: metric)
@@ -149,14 +158,25 @@ struct MetricQuickEntryView: View {
     }
 
     private func save() {
-        guard let value = Double(primaryText) else { return }
-        let secondary = secondaryText.isEmpty ? nil : Double(secondaryText)
+        // 审查修复：逗号小数点（部分区域 decimalPad 产出）归一后解析；
+        // 解析失败必须可见反馈，绝不静默丢弃读数
+        guard let value = Double(primaryText.replacingOccurrences(of: ",", with: ".")) else {
+            entryError = L10n.metricInvalidValue
+            return
+        }
+        let secondary = secondaryText.isEmpty ? nil
+            : Double(secondaryText.replacingOccurrences(of: ",", with: "."))
         let unit = unitText.isEmpty ? "1" : unitText
         Task {
-            await state.addSample(patientId: app.currentPatientId, metric: metric,
-                                  value: value, secondaryValue: secondary, unit: unit,
-                                  measuredAt: measuredAt)
-            saved = true
+            let ok = await state.addSample(patientId: app.currentPatientId, metric: metric,
+                                           value: value, secondaryValue: secondary, unit: unit,
+                                           measuredAt: measuredAt)
+            if ok {
+                saved = true
+            } else {
+                // 写失败：保留输入，可见错误（FR7.5 绝不假装保存成功）
+                entryError = L10n.metricSaveFailed
+            }
         }
     }
 }
@@ -173,17 +193,22 @@ extension TrendEntryState {
         UserDefaults.standard.set(unit, forKey: "metric.unit.\(metric.rawValue)")
     }
 
-    /// FR7.5 自测两步录入落库（C 级 + selfMeasured 标志）
+    /// FR7.5 自测两步录入落库（C 级 + selfMeasured 标志）。
+    /// 返回是否成功——审查修复：原实现吞掉 store 错误且调用方无条件弹
+    /// 「保存成功」，写失败时用户以为已记录、健康读数静默丢失。
+    @discardableResult
     func addSample(patientId: UUID, metric: MetricType, value: Double,
-                   secondaryValue: Double?, unit: String, measuredAt: Date) async {
+                   secondaryValue: Double?, unit: String, measuredAt: Date) async -> Bool {
         do {
             _ = try await store.addSample(patientId: patientId, metric: metric, value: value,
                                           secondaryValue: secondaryValue, unit: unit,
                                           measuredAt: measuredAt)
             rememberUnit(unit, for: metric)
             await load(patientId: patientId)
+            return true
         } catch {
             // 失败保留输入可重试（错误经调用侧呈现）
+            return false
         }
     }
 

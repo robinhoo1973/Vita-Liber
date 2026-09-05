@@ -38,6 +38,17 @@ public enum GuidelineSource {
             version: "2021", checkedAt: Date(timeIntervalSince1970: 1_753_000_000),
             metricKey: "blood_oxygen", unit: "%",
             l1Low: 94, l2Low: 90, l3Low: 85),
+        // 审查修复：HealthKitReader 的心率读数需要对应信源键（FR16.4 单一事实源），
+        // 否则 noApplicableRange 静默跳过。仅录入 AHA 有明确出处的静息心率
+        // >100 bpm（tachycardia）为 L1 越限；L2/L3 无权威出处则留空，
+        // 遵循「缺失的指标/档位 = 范围不可用，绝不臆造阈值」。
+        GuidelineEntry(
+            title: "AHA 血氧与心率参考", org: "American Heart Association",
+            year: 2021, clauseRef: "Tachycardia: Fast Heart Rate",
+            citationUrl: "https://www.heart.org/en/health-topics/arrhythmia/about-arrhythmia/tachycardia--fast-heart-rate",
+            version: "2021", checkedAt: Date(timeIntervalSince1970: 1_753_000_000),
+            metricKey: "heart_rate", unit: "bpm",
+            l1High: 100),
     ]
 
     /// **发布前评审闸门**：L3 阈值清单未经医疗顾问逐条评审前，App 不得上架。

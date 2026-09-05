@@ -124,12 +124,10 @@ public enum VoiceStructuringEngine {
                       match.numberOfRanges > 1,    // Linux ICU：无捕获组时 range(at:) 直接 trap
                       let valueRange = Range(match.range(at: 1), in: transcript) else { continue }
                 let raw = String(transcript[valueRange])
-                let unit: String
-                if match.numberOfRanges > 2, let uRange = Range(match.range(at: 2), in: transcript) {
-                    unit = String(transcript[uRange])
-                } else {
-                    unit = rule.unitDefault
-                }
+                // 审查修复：单位一律取 rule.unitDefault——现有全部指标正则的第二捕获组
+                // 是数值而非单位（如「血压 148 92」的 92 是舒张压），原「第二组=单位」
+                // 分支把舒张压塞进收缩压草稿的 unit（FR7.10 验收句产垃圾单位）。
+                let unit = rule.unitDefault
                 let normalized = NumberNormalizer.normalize(raw)
                 let isMixed = raw.contains("点") || raw.contains(".")
                 drafts.append(FieldDraft(key: rule.metricKey,

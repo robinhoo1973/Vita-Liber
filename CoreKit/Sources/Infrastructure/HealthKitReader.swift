@@ -57,24 +57,26 @@ public actor HealthKitReader {
         guard HKHealthStore.isHealthDataAvailable() else { throw ReaderError.unavailable }
         let start = now.addingTimeInterval(TimeInterval(-hours * 3600))
         var readings: [MetricReading] = []
-        // 静息心率（越限判断主指标之一）
+        // 静息心率（越限判断主指标之一）。
+        // 审查修复：metricKey 必须与信源库种子键 snake_case 一致——
+        // 驼峰 "heartRate" 查库恒空 → noApplicableRange → L1-L3 预警链整体失效。
         if let rhrType = HKQuantityType.quantityType(forIdentifier: .restingHeartRate) {
             let samples = try await querySamples(type: rhrType,
                                                  unit: HKUnit.count().unitDivided(by: .minute()),
                                                  from: start, to: now)
             for (value, at) in samples {
-                readings.append(MetricReading(metricKey: "heartRate",
-                                              value: value, unit: "count/min",
+                readings.append(MetricReading(metricKey: "heart_rate",
+                                              value: value, unit: "bpm",
                                               origin: .device, measuredAt: at))
             }
         }
-        // 血氧
+        // 血氧（键对齐信源库 "blood_oxygen"；HK 值 0–1 分数 → %）
         if let spo2Type = HKQuantityType.quantityType(forIdentifier: .oxygenSaturation) {
             let samples = try await querySamples(type: spo2Type,
                                                  unit: HKUnit.percent(),
                                                  from: start, to: now)
             for (value, at) in samples {
-                readings.append(MetricReading(metricKey: "bloodOxygen",
+                readings.append(MetricReading(metricKey: "blood_oxygen",
                                               value: value * 100, unit: "%",
                                               origin: .device, measuredAt: at))
             }

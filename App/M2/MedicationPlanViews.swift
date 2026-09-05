@@ -145,7 +145,12 @@ struct MedicationPlanDetailView: View {
                     switch plan.status {
                     case "active":
                         Button(L10n.planPause) {
-                            Task { await reminders.pausePlan(planId: planId) }
+                            // 审查修复：操作后重载本地 @State——原实现写库不重载，
+                            // 状态徽标/按钮停留在旧态（可重复提交同一操作）
+                            Task {
+                                await reminders.pausePlan(planId: planId, patientId: app.currentPatientId)
+                                await load()
+                            }
                         }
                         .accessibilityIdentifier("SP-15.detail.pause")
                         Button(L10n.planEnd, role: .destructive) {
@@ -154,7 +159,10 @@ struct MedicationPlanDetailView: View {
                         .accessibilityIdentifier("SP-15.detail.end")
                     case "paused":
                         Button(L10n.planResume) {
-                            Task { await reminders.resumePlan(planId: planId) }
+                            Task {
+                                await reminders.resumePlan(planId: planId, patientId: app.currentPatientId)
+                                await load()
+                            }
                         }
                         .accessibilityIdentifier("SP-15.detail.resume")
                         Button(L10n.planEnd, role: .destructive) {
@@ -203,15 +211,21 @@ struct MedicationPlanDetailView: View {
         .confirmationDialog(L10n.planEndConfirmTitle, isPresented: $showEndConfirm, titleVisibility: .visible) {
             ForEach(PlanEndReason.allCases, id: \.rawValue) { reason in
                 Button(endReasonLabel(reason), role: .destructive) {
-                    Task { await reminders.endPlan(planId: planId, reason: reason,
-                                                   patientId: app.currentPatientId) }
+                    Task {
+                        await reminders.endPlan(planId: planId, reason: reason,
+                                                patientId: app.currentPatientId)
+                        await load()
+                    }
                 }
             }
             Button(L10n.commonCancel, role: .cancel) { }
         } message: {
             Text(L10n.planEndConfirmBody)
         }
-        .sheet(isPresented: $showBackfill) {
+        .sheet(isPresented: $showBackfill, onDismiss: {
+            // 审查修复：补记后重载——原 dismiss 无回调，漏服格继续显示「!」
+            Task { await load() }
+        }) {
             if let target = backfillTarget, let plan {
                 BackfillSheet(plan: plan, targetTime: target)
             }
@@ -240,8 +254,11 @@ struct MedicationPlanDetailView: View {
             let cal = Calendar.current
             let weekStart = cal.date(byAdding: .day, value: -6,
                                      to: cal.startOfDay(for: Date())) ?? Date()
+            // DST 纪律：日历加一天，禁止固定 86400 秒（切换日 ±1 小时漂移）
+            let weekEnd = cal.date(byAdding: .day, value: 7,
+                                   to: cal.startOfDay(for: Date())) ?? Date()
             weekLog = try await reminders.doseLog(planId: planId, from: weekStart,
-                                                  to: Date().addingTimeInterval(7 * 86400))
+                                                  to: weekEnd)
         } catch {
             plan = nil
         }
@@ -329,7 +346,7 @@ private struct WeekStrip: View {
                         Text(day.formatted(.dateTime.weekday(.narrow)))
                             .font(.caption2).foregroundStyle(.secondary)
                         Image(systemName: daySymbol(dayRows, day: day))
-                            .font(.system(size: 16))
+                            .font(.body)
                             .foregroundStyle(daySymbolColor(dayRows, day: day))
                         Text(day.formatted(.dateTime.day()))
                             .font(.caption2).foregroundStyle(.secondary)
@@ -424,14 +441,14 @@ struct MedicationPlanFormView: View {
     @State private var isLongTerm = true
     @State private var isAsNeeded = false
     @State private var startDate = Date()
-    @State private var endDate = Date().addingTimeInterval(30 * 86400)
+    @State private var endDate = DayArithmetic.offset(days: 30)
     @State private var hasEndDate = false
     // 调度：固定时间（逗号分隔 HH:mm）
     @State private var fixedTimes = "08:00"
     // FR9.10 初始批次
     @State private var lotUnits = 30.0
     @State private var lotUnitKind = "tablet"
-    @State private var lotExpireDate = Date().addingTimeInterval(180 * 86400)
+    @State private var lotExpireDate = DayArithmetic.offset(days: 180)
     @State private var lotExpireUnknown = false
     @State private var storageNote = ""
 

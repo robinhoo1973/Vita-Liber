@@ -73,6 +73,8 @@ enum L10n {
     static var backupNotSignedIn: String { t("backup.degrade.notSignedIn") }
     static var backupNoSpace: String { t("backup.degrade.noSpace") }
     static var backupChecksumFailed: String { t("backup.degrade.checksum") }
+    // ADR-019：目标设备已有数据——恢复被整体拒绝（不静默覆盖/丢弃）
+    static var backupConflictDetected: String { t("backup.degrade.conflict") }
     // FR13.4 导出前身份验证 + 隐私提醒 / FR13.5 恢复前确认 + 恢复后校验报告
     static var backupUnlockReason: String { t("backup.unlockReason") }
     static var backupExportConfirmTitle: String { t("backup.exportConfirm.title") }
@@ -122,6 +124,9 @@ enum L10n {
     static var claim_title: String { t("claim.title") }
     static var claim_empty: String { t("claim.empty") }
     static var claim_emptyHint: String { t("claim.emptyHint") }
+    static func claimTotals(_ count: Int, _ amount: String, _ currency: String) -> String {
+        String(format: t("claim.totalsFmt"), count, amount, currency)
+    }
     static var claim_add: String { t("claim.add") }
     static var claim_type_invoice: String { t("claim.type.invoice") }
     static var claim_type_fee: String { t("claim.type.fee") }
@@ -1291,12 +1296,17 @@ enum L10n {
     static var docManualTitle: String { t("doc.manual.title") }
     static var docManualType: String { t("doc.manual.type") }
     static var docManualNote: String { t("doc.manual.note") }
+    // BR-003 来源徽章：机器识别未确认（D 级）与显式确认升 C 的入口
+    static var docGradeUnconfirmed: String { t("doc.grade.unconfirmed") }
+    static var docConfirmText: String { t("doc.confirmText") }
 
     // MARK: - F6 OCR 确认（FR6.3/6.4/6.8 · SP-53）
     static var onboardRejected: String { t("onboard.rejected") }
     static func onboardRejectLabel(_ label: String) -> String {
         String(format: t("onboard.rejectLabelFmt"), label)
     }
+    static var ocrFieldText: String { t("ocr.field.text") }
+    static var ocrFieldTitle: String { t("ocr.field.title") }
     static var ocrQueueTitle: String { t("ocrQueue.title") }
     static var ocrQueueEmpty: String { t("ocrQueue.empty") }
     static var ocrQueueEmptyHint: String { t("ocrQueue.emptyHint") }
@@ -1468,6 +1478,10 @@ enum L10n {
     static var metricUnit: String { t("metric.unit") }
     static var metricMeasuredAt: String { t("metric.measuredAt") }
     static var metricSaved: String { t("metric.saved") }
+    // FR7.5 录入失败可见反馈（解析失败/写失败——绝不静默丢弃读数）
+    static var metricEntryErrorTitle: String { t("metric.entryError.title") }
+    static var metricInvalidValue: String { t("metric.entryError.invalid") }
+    static var metricSaveFailed: String { t("metric.entryError.saveFailed") }
     static var metricViewTrend: String { t("metric.viewTrend") }
 
     // MARK: - FR17.9 语音速记面板（SP-55）+ FR8.10 观察随访
@@ -1491,6 +1505,8 @@ enum L10n {
     static var f16SyncNow: String { t("f16.syncNow") }
     static var f16Syncing: String { t("f16.syncing") }
     static func f16SyncDone(_ n: Int) -> String { String(format: t("f16.syncDoneFmt"), n) }
+    // FR16.4「范围不可用」独立呈现态（无信源阈值的读数计数）
+    static func f16NoRange(_ n: Int) -> String { String(format: t("f16.noRangeFmt"), n) }
     static var f16SyncFailed: String { t("f16.syncFailed") }
     static var alertFilterAll: String { t("alert.filter.all") }
     static var alertShowL0: String { t("alert.showL0") }
@@ -1504,6 +1520,9 @@ enum L10n {
     static var f19NoAppointment: String { t("f19.noAppointment") }
     static func f19RecentGlucose(_ v: String) -> String { String(format: t("f19.recentGlucoseFmt"), v) }
     static var f19NoGlucose: String { t("f19.noGlucose") }
+    static func f19MetricNotSupported(_ key: String) -> String {
+        String(format: t("f19.metricNotSupportedFmt"), key)
+    }
     static func f19StockRemaining(_ name: String, _ days: Int) -> String {
         String(format: t("f19.stockRemainingFmt"), name, days)
     }

@@ -107,8 +107,8 @@ public actor EncounterStore {
     /// FR4.2 智能推荐（推荐必须标「待确认」，不得自动生效）：
     /// 同医院 ±7 天的孤立资料（无 encounter 归属）。
     public func recommendDocuments(encounter: EncounterRow, now: Date = Date()) async throws -> [UUID] {
-        let windowStart = encounter.date.addingTimeInterval(-7 * 86400)
-        let windowEnd = encounter.date.addingTimeInterval(7 * 86400)
+        let windowStart = DayArithmetic.offset(days: -7, from: encounter.date)
+        let windowEnd = DayArithmetic.offset(days: 7, from: encounter.date)
         return try await writer.read { db in
             let rows = try Row.fetchAll(db, sql: """
                 SELECT id FROM document_file

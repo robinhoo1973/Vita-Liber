@@ -25,13 +25,19 @@ public struct OCRPipeline: Sendable {
         public var hasText: Bool
         /// FR5.3 质量提示标签（模糊/过暗/疑似遮挡——提示重拍但不阻止保存）
         public var qualityTags: [String]
-        public init(lines: [String], hasText: Bool, qualityTags: [String] = []) {
-            self.lines = lines; self.hasText = hasText; self.qualityTags = qualityTags
+        /// FR6.6：识别引擎失败标记——「引擎崩溃」与「页面无文字」必须可区分，
+        /// 失败必须走可见错误反馈，绝不静默按「无文字」入库。
+        public var failed: Bool
+        public init(lines: [String], hasText: Bool, qualityTags: [String] = [],
+                    failed: Bool = false) {
+            self.lines = lines; self.hasText = hasText
+            self.qualityTags = qualityTags; self.failed = failed
         }
     }
 
     /// 单图管线：灰度解码 → 质量评估（FR5.3）→ 识别。
-    /// 识别失败 = 空结果 + 质量标签（FR6.6 边界：纯影像页无文字不视为错误流程）。
+    /// 识别引擎失败 → failed=true（FR6.6：调用方必须可见反馈）；
+    /// 纯影像页无文字（failed=false）不视为错误流程。
     public func run(imageData: Data) async throws -> Result {
         var tags: [String] = []
         do {
@@ -45,7 +51,7 @@ public struct OCRPipeline: Sendable {
             return Result(lines: recognition.lines, hasText: !recognition.lines.isEmpty,
                           qualityTags: tags)
         } catch {
-            return Result(lines: [], hasText: false, qualityTags: tags)
+            return Result(lines: [], hasText: false, qualityTags: tags, failed: true)
         }
     }
 }

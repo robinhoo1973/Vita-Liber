@@ -77,14 +77,17 @@ struct CaregiverViews: View {
             let dayEnd = cal.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart
             pendingDoses = try await reminderStore.familyPendingDoses(from: dayStart, to: dayEnd)
         } catch {
-            pendingDoses = []
+            // 审查修复：读取失败保留旧列表（原置空让未确认剂量从队列静默消失）
         }
     }
 
     private func confirmOnBehalf(of item: FamilyPendingDose) async {
         // 代确认走同一 apply(.taken) 路径，落回剂量所属成员（BR-001），
-        // 成功后写审计「由你代确认」（FR24.5）
-        await reminderStore.confirmTaken(patientId: item.patientId, dose: item.dose)
+        // 成功后写审计「由你代确认」（FR24.5）。
+        // 审查修复：确认失败不得写代确认审计、不得清空待办列表（审计=事实，
+        // 写失败即审计撒谎；列表被 reload 错误清空则未确认剂量从队列消失）
+        let ok = await reminderStore.confirmTaken(patientId: item.patientId, dose: item.dose)
+        guard ok else { return }
         app.auditCaregiverConfirm(doseId: item.dose.notifyId, patientId: item.patientId)
         await loadPendingDoses()
     }

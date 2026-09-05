@@ -368,7 +368,7 @@ public actor MedicationStore: DoseSource {
     /// 7 天的老计划全部生成在过去被过滤，inserted=0 永不再物化。
     /// 返回本窗口新物化的行数。
     public func materializeWindow(now: Date, calendar: Calendar) async throws -> Int {
-        let windowEnd = now.addingTimeInterval(TimeInterval(ReconcileEngine.preScheduleWindowDays * 86400))
+        let windowEnd = DayArithmetic.offset(days: ReconcileEngine.preScheduleWindowDays, from: now)
         // 返回式写闭包：不在闭包内突变捕获变量（Swift 6 并发纪律——
         // 「mutation of captured var in concurrently-executing code」是 6 模式下的错误）
         return try await writer.write { db -> Int in
@@ -395,7 +395,7 @@ public actor MedicationStore: DoseSource {
                     fromDay: fromDay, toDay: toDay, calendar: calendar)
                 for d in doses {
                     guard d.dueAt >= now && d.dueAt <= windowEnd else { continue }
-                    if let end = endDate, d.dueAt > end.addingTimeInterval(86400) { continue }   // 到期次日不物化
+                    if let end = endDate, d.dueAt > DayArithmetic.offset(days: 1, from: end) { continue }   // 到期次日不物化
                     try db.execute(
                         sql: """
                         INSERT INTO medication_dose_log (id, plan_id, scheduled_for, dose_units, delivery_state, user_action)
@@ -431,7 +431,7 @@ public actor MedicationStore: DoseSource {
                                         notifyId: row["dose_id"] as String),
                     delivered: (row["delivery_state"] as String) == "delivered",
                     action: action,
-                    isDueSoon: scheduledFor <= from.addingTimeInterval(30 * 60),
+                    isDueSoon: scheduledFor <= from.addingTimeInterval(DoseSlotGrouping.tolerance),   // ±30min 单一事实源（DoseSlot 聚合容差）
                     isExpiredGrace: scheduledFor < from.addingTimeInterval(-15 * 60),
                     medicationName: row["generic_name"] as String?,
                     spec: row["spec"] as String?,
@@ -486,7 +486,7 @@ public actor MedicationStore: DoseSource {
     /// 过期批次不在此列——它们已被排除出可用库存（applyResolutionOnLots 过滤）。
     public func expiringLots(patientId: UUID, within days: Int = 30, now: Date = Date())
         async throws -> [InventorySummaryItem] {
-        let window = now.addingTimeInterval(TimeInterval(days) * 86400)
+        let window = DayArithmetic.offset(days: days, from: now)
         return try await writer.read { db in
             let rows = try Row.fetchAll(db, sql: """
                 SELECT l.id, l.medication_id, m.generic_name, m.spec, l.total_units,
@@ -664,7 +664,7 @@ public actor MedicationStore: DoseSource {
     /// 记一条送达事实（FR9.7 扩展：channel 字段）。
     /// 记录的是「经哪个通道触达」，与用户确认状态完全分离（BR-004）。
     public func recordDelivery(notifyId: String, doseLogId: String?, channel: ReminderChannelKind,
-                               outcome: String, at: Date) async throws {
+                               outcome: String? = nil, at: Date) async throws {
         try await writer.write { db in
             try db.execute(sql: """
                 INSERT INTO notification_delivery (id, dose_log_id, scheduled_at, delivered_at, channel, outcome, created_at)

@@ -47,7 +47,8 @@ final class VoiceSessionState {
     @discardableResult
     func submit(_ text: String, speak: (String) -> Void) -> VoiceCommand? {
         let (newState, events) = VoiceConversationEngine.step(state: engineState,
-                                                              transcript: text)
+                                                              transcript: text,
+                                                              emergencyNumber: L10n.emergencyNumber)
         engineState = newState
         // 引擎相位是唯一事实源：离开复述相位即清除本地镜像
         if newState.phase != .repeatingObject { pendingObject = nil }
@@ -342,9 +343,16 @@ struct VoiceSessionView: View {
                 ?? L10n.f19NoAppointment
             _ = session.submit(text, speak: { app.speak($0) })
         case .recentGlucose:
-            let points = trendState.series?.points.suffix(3).map { "\($0.value)" }.joined(separator: "、")
-            _ = session.submit(points.map { L10n.f19RecentGlucose($0) } ?? L10n.f19NoGlucose,
-                               speak: { app.speak($0) })
+            // 审查修复：trendState.series 只在趋势页被访问过时才加载——
+            // 直接进语音会话会误报「暂无血糖记录」（F19 事实播报）。
+            // 先按需加载再播报。
+            let patientId = app.currentPatientId
+            Task {
+                await trendState.load(patientId: patientId)
+                let points = trendState.series?.points.suffix(3).map { "\($0.value)" }.joined(separator: "、")
+                _ = session.submit(points.map { L10n.f19RecentGlucose($0) } ?? L10n.f19NoGlucose,
+                                   speak: { app.speak($0) })
+            }
         case .stockRemaining:
             // 附表③查询余量：「约剩 N 天·按计划估算」（FR9.8.7 诚实性文案）
             let text = hub.inventoryItems.map { item -> String in
@@ -365,7 +373,7 @@ struct VoiceSessionView: View {
             let lots = hub.inventoryItems.compactMap { item -> (String, Date)? in
                 item.expireAt.map { (item.medicationName, $0) }
             }
-            let expiring = lots.filter { $0.1 <= Date().addingTimeInterval(30 * 86400) }
+            let expiring = lots.filter { $0.1 <= DayArithmetic.offset(days: 30) }
             let text = expiring.isEmpty ? L10n.f19NoExpiring
                 : expiring.map { L10n.f19Expiring($0.0, $0.1.formatted(date: .abbreviated, time: .omitted)) }
                     .joined(separator: "；")
@@ -403,18 +411,46 @@ struct VoiceSessionView: View {
                 }
             }
         case .recordMetric:
-            // 附表⑦记录指标：F17 文法命中 → 落 metric_sample（C 级）
+            // 附表⑦记录指标：F17 文法命中 → 落 metric_sample（C 级）。
+            // 审查修复：原实现无视指标类型一律记 bloodPressureSys + "mmHg"——
+            // 「血糖 5.6」「体温 37.5」全部落成血压样本（FR19 附表⑦失效）。
+            // 改用与语音确认卡同一文法抽取（VoiceGrammarDefaults 单一事实源）。
             if let object {
-                let parts = object.split(separator: " ").compactMap { Double($0) }
-                if let systolic = parts.first {
+                let drafts = VoiceStructuringEngine.extractMetric(
+                    object, rules: VoiceGrammarDefaults.metricRules)
+                let byKey = Dictionary(grouping: drafts, by: { $0.key })
+                    .compactMapValues { $0.first }
+                let unitByKey: [String: String] = byKey.mapValues { $0.unit }
+                if let sys = byKey["blood_pressure_sys"], let sysV = Double(sys.value), sysV > 0 {
+                    let diaV = byKey["blood_pressure_dia"].flatMap { Double($0.value) }
                     Task {
                         await trendState.addSample(patientId: app.currentPatientId,
                                                    metric: .bloodPressureSys,
-                                                   value: systolic,
-                                                   secondaryValue: parts.count > 1 ? parts[1] : nil,
-                                                   unit: "mmHg", measuredAt: Date())
+                                                   value: sysV,
+                                                   secondaryValue: diaV,
+                                                   unit: unitByKey["blood_pressure_sys"] ?? "mmHg",
+                                                   measuredAt: Date())
                     }
-                    _ = session.submit(L10n.f19MetricRecorded(systolic),
+                    _ = session.submit(L10n.f19MetricRecorded(sysV),
+                                       speak: { app.speak($0) })
+                } else if let draft = drafts.first(where: { $0.key != "title" }),
+                          let v = Double(draft.value), v > 0 {
+                    let metric = Self.metricType(for: draft.key)
+                    guard let metric else {
+                        // 文法命中了 MetricType 未覆盖的指标（如体温）——不臆造落库
+                        _ = session.submit(L10n.f19MetricNotSupported(draft.key),
+                                           speak: { app.speak($0) })
+                        return
+                    }
+                    Task {
+                        await trendState.addSample(patientId: app.currentPatientId,
+                                                   metric: metric,
+                                                   value: v,
+                                                   secondaryValue: nil,
+                                                   unit: draft.unit,
+                                                   measuredAt: Date())
+                    }
+                    _ = session.submit(L10n.f19MetricRecorded(v),
                                        speak: { app.speak($0) })
                 }
             }
@@ -433,6 +469,20 @@ struct VoiceSessionView: View {
             router.navigate(to: .globalSearch)
         case .repeatLast, .louder, .yes, .no, .selectNumber, .selectName, .cancel:
             break   // 会话类命令由状态机在 submit 前处理
+        }
+    }
+
+    /// 语音文法指标键 → MetricType（文法键 snake_case 为单一事实源；
+    /// 温度等 MetricType 未覆盖的指标返回 nil——不臆造落库）
+    private static func metricType(for grammarKey: String) -> MetricType? {
+        switch grammarKey {
+        case "blood_pressure_sys": return .bloodPressureSys
+        case "blood_pressure_dia": return .bloodPressureDia
+        case "glucose": return .glucose
+        case "heart_rate": return .heartRate
+        case "weight": return .weight
+        case "blood_oxygen": return .bloodOxygen
+        default: return nil
         }
     }
 

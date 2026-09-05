@@ -12,7 +12,10 @@ struct ClaimListView: View {
     var body: some View {
         List {
             Section {
-                Text(totals.statement)
+                // 审查修复：汇总文案经 L10n 组装（原 Infrastructure 硬编码简中）
+                Text(L10n.claimTotals(totals.itemCount,
+                                      String(format: "%.2f", totals.totalAmount),
+                                      totals.currency))
                     .font(.headline).monospacedDigit()
                     .accessibilityIdentifier("FR13.7.claim.totals")
             }

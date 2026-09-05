@@ -9,11 +9,22 @@ public protocol ReminderScheduling: Sendable {
     /// route（§5.45）：通知点击后的深链目标，生产实现写入 userInfo 经 Codable 传递；
     /// nil = 点击仅打开 App（默认落点，不视为错误）。缺路由必须降级不 crash。
     func schedule(dose notifyId: String, at fireAt: Date, route: AppRoute?) async throws
+    /// FR17.10 重复提醒：repeatRule 为语音文法产出的重复短语（每天/每周一…周日/
+    /// 每周/工作日/周末）。默认实现回落一次性（未知规则不猜语义）。
+    func scheduleRepeating(dose notifyId: String, at fireAt: Date, route: AppRoute?,
+                           repeatRule: String?) async throws
     func cancel(_ notifyIds: [String]) async throws
     /// pending 表：notifyId → fireAt（对账与窗口管理用）
     func pending() async throws -> [String: Date]
     /// 已送达标识集合
     func delivered() async throws -> Set<String>
+}
+
+public extension ReminderScheduling {
+    func scheduleRepeating(dose notifyId: String, at fireAt: Date, route: AppRoute?,
+                           repeatRule: String?) async throws {
+        try await schedule(dose: notifyId, at: fireAt, route: route)
+    }
 }
 
 /// 剂量事实源（对账输入）：dose_log 查询投影

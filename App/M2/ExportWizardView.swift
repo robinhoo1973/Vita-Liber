@@ -66,7 +66,7 @@ struct ExportWizardView: View {
 
     @State private var step = 1
     @State private var scopeKind: PDFExportService.ExportRequest.ScopeKind = .all
-    @State private var dateFrom = Date().addingTimeInterval(-90 * 86400)
+    @State private var dateFrom = DayArithmetic.offset(days: -90)
     @State private var dateTo = Date()
     @State private var includeNotes = true
     @State private var watermark = true
@@ -102,7 +102,13 @@ struct ExportWizardView: View {
                 case .degraded(let message):
                     Label(message, systemImage: "exclamationmark.triangle")
                         .padding(24)
-                    Button(L10n.exportRetry) { state.reset() }
+                    Button(L10n.exportRetry) {
+                        // 审查修复：重试同时重置步进——原只 reset() 状态机，
+                        // step 停留在 3，idle 表单无 step1/step2 分支可渲染
+                        // （空白表单，无法改导出设置）
+                        state.reset()
+                        step = 1
+                    }
                 case .idle:
                     Form {
                         if step == 1 {

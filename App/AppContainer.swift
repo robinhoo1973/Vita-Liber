@@ -50,6 +50,8 @@ struct AppContainer {
     let memberDeletion: MemberDeletionService
     /// F5 资料库（SP-09）
     let documents: DocumentStore
+    /// FR13.11 备份与恢复（SP-24）——BackupState 的服务端
+    let backup: BackupService
     /// FR12.10 AI 会话历史（SP-51）
     let aiHistory: AIHistoryStore
     /// FR13.1/13.2 PDF 导出（SP-22）
@@ -122,8 +124,9 @@ struct AppContainer {
         let timelineQuery = TimelineQueryStore(writer: store.writer)
         let healthProblems = HealthProblemStore(writer: store.writer)
         let questions = QuestionStore(writer: store.writer)
-        let memberDeletion = MemberDeletionService(writer: store.writer)
+        let memberDeletion = MemberDeletionService(writer: store.writer, scheduler: scheduler)
         let documents = DocumentStore(writer: store.writer)
+        let backup = BackupService(writer: store.writer)
         let aiHistory = AIHistoryStore(writer: store.writer)
         let pdfExport = PDFExportService(writer: store.writer)
         let healthReader = HealthKitReader()
@@ -176,6 +179,7 @@ struct AppContainer {
                             questions: questions,
                             memberDeletion: memberDeletion,
                             documents: documents,
+                            backup: backup,
                             aiHistory: aiHistory,
                             pdfExport: pdfExport,
                             healthReader: healthReader)

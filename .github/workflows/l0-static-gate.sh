@@ -217,7 +217,7 @@ rm -f "$_ddl_file"
 
 # ---------- [4] 红线模块禁读 EntitlementStore ----------
 section "4/12" "商业化红线 —— 红线模块代码内禁止读取 EntitlementStore（tech-spec §5.14）"
-DEFAULT_REDLINE="$APP/App/M1a/OnboardingViews.swift:$APP/App/M1b/RemindersViews.swift:$APP/App/M1c/ObservationViews.swift:$APP/App/M1c/AssistantView.swift"
+DEFAULT_REDLINE="$APP/App/M1a/OnboardingViews.swift:$APP/App/M1b/RemindersViews.swift:$APP/App/M1c/ObservationViews.swift:$APP/App/M1c/AssistantView.swift:$APP/App/M2/EmergencyCareViews.swift:$APP/App/M1c/GlobalSearchView.swift:$APP/App/M1c/HelpViews.swift:$APP/App/DesignSystem/SensitiveMediaContainer.swift:$APP/App/M2/AlertViews.swift:$APP/App/M2/MedicationPlanViews.swift:$APP/App/M2/InventoryViews.swift:$APP/App/M2/DeviceConnectionView.swift"
 REDLINE_PATHS="${REDLINE_PATHS:-$DEFAULT_REDLINE}"
 redline_matched=0; ent_viol=0
 OLDIFS=$IFS; IFS=':'

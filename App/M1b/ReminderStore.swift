@@ -86,13 +86,17 @@ final class ReminderStore {
 
     /// 语音提醒设定（FR17.10）：确认卡确认后经调度通道落「voice-rem-」通知。
     /// 删除/取消类指令在语音通道拒绝（F19 语义）；提醒只是触达不自动执行（BR-004）。
+    /// 审查修复：repeatRule 生效（每天/每周X/工作日/周末，未知规则回落一次性）；
+    /// 送达记录不再在调度时刻伪造「delivered」——BR-004 送达≠已服的事实链
+    /// 只允许 outcome=NULL（仅 scheduled 行），delivered 由系统送达事实回写。
     func scheduleVoiceReminder(title: String, fireAt: Date, repeatRule: String?,
                                patientId: UUID) async {
         do {
             let notifyId = "voice-rem-\(UUID().uuidString)"
-            try await scheduler.schedule(dose: notifyId, at: fireAt, route: .questionList)
+            try await scheduler.scheduleRepeating(dose: notifyId, at: fireAt,
+                                                  route: .questionList, repeatRule: repeatRule)
             try await meds.recordDelivery(notifyId: notifyId, doseLogId: nil,
-                                          channel: .local, outcome: "delivered", at: Date())
+                                          channel: .local, outcome: nil, at: Date())
         } catch {
             logger.error("语音提醒调度失败: \(error)")
         }
@@ -143,9 +147,10 @@ final class ReminderStore {
                     guard pending[notifyId] == nil else { continue }
                     try await scheduler.schedule(dose: notifyId, at: fire, route: .medicationCabinet)
                     pending[notifyId] = fire
-                    // FR9.18 送达记录：channel=local（通知权限由系统决定是否实际送达）
+                    // FR9.18 送达记录：channel=local（通知权限由系统决定是否实际送达）；
+                    // 审查修复：调度时刻不伪造 delivered（BR-004 事实链只记 scheduled）
                     try await meds.recordDelivery(notifyId: notifyId, doseLogId: nil,
-                                                  channel: .local, outcome: "delivered", at: Date())
+                                                  channel: .local, outcome: nil, at: Date())
                 }
             }
         } catch {
@@ -156,40 +161,53 @@ final class ReminderStore {
     /// 服药确认动作集（FR9.7）：动作按 notifyId UPDATE 物化行（评审修正 P0）。
     /// careMode=true 时经 TremorGuard 防抖——震颤模拟下连续重复点击只计一次
     /// （F18 关怀模式验收的落点；Domain 纯函数，本层只做门卫）。
-    func confirmTaken(patientId: UUID, dose: ScheduledDose, careMode: Bool = false) async {
-        guard tremorAccepted(careMode: careMode) else { return }
+    /// 返回是否确认成功——审查修复：原 Void 且内部吞错，代确认方无条件写
+    /// 「由你代确认」审计（写失败的剂量被审计成已确认，事实链被污染）
+    @discardableResult
+    func confirmTaken(patientId: UUID, dose: ScheduledDose, careMode: Bool = false) async -> Bool {
+        guard tremorAccepted(careMode: careMode) else { return false }
         do {
             try await meds.confirmTaken(notifyId: dose.notifyId, patientId: patientId)
             await refresh(patientId: patientId)
+            return true
         } catch {
             logger.error("确认服药失败: \(error)")
+            return false
         }
     }
 
-    func skipDose(dose: ScheduledDose, reason: String? = nil, careMode: Bool = false) async {
+    func skipDose(dose: ScheduledDose, reason: String? = nil, careMode: Bool = false,
+                  patientId: UUID? = nil) async {
         guard tremorAccepted(careMode: careMode) else { return }
         do {
             try await meds.recordAction(notifyId: dose.notifyId, action: .skipped, reason: reason)
+            // 审查修复：动作后刷新今日时段缓存——原实现跳过/忘记/不适不刷新，
+            // 时段卡继续显示「待确认」直到下次对账触发（与 confirmTaken 对齐）
+            if let patientId { await refresh(patientId: patientId) }
         } catch {
             logger.error("跳过记录失败: \(error)")
         }
     }
 
     /// FR9.5 忘记服用（显式记录，与超时自动 missed 区分——BR-004 送达≠已服）
-    func forgetDose(dose: ScheduledDose, careMode: Bool = false) async {
+    func forgetDose(dose: ScheduledDose, careMode: Bool = false,
+                    patientId: UUID? = nil) async {
         guard tremorAccepted(careMode: careMode) else { return }
         do {
             try await meds.recordAction(notifyId: dose.notifyId, action: .missed)
+            if let patientId { await refresh(patientId: patientId) }
         } catch {
             logger.error("忘记记录失败: \(error)")
         }
     }
 
     /// FR9.5 记录不适（discomfort 按扣减矩阵两线各 −1）
-    func recordDiscomfort(dose: ScheduledDose, note: String?, careMode: Bool = false) async {
+    func recordDiscomfort(dose: ScheduledDose, note: String?, careMode: Bool = false,
+                          patientId: UUID? = nil) async {
         guard tremorAccepted(careMode: careMode) else { return }
         do {
             try await meds.recordAction(notifyId: dose.notifyId, action: .discomfort, reason: note)
+            if let patientId { await refresh(patientId: patientId) }
         } catch {
             logger.error("不适记录失败: \(error)")
         }
@@ -275,13 +293,24 @@ final class ReminderStore {
         try await meds.adviceForMedication(medicationId: medicationId)
     }
 
-    func pausePlan(planId: UUID) async {
-        do { try await composer.pausePlan(planId: planId) }
+    func pausePlan(planId: UUID, patientId: UUID? = nil) async {
+        do {
+            try await composer.pausePlan(planId: planId)
+            // 审查修复：暂停/恢复/结束后立即对账——原实现只翻状态行，
+            // 已排的剂量通知要等到下次启动/回前台才被对账清理，
+            // 暂停的计划继续按时弹提醒（用户以为暂停失败）
+            if let patientId { await refresh(patientId: patientId) }
+            else { await reconciler.reconcile(now: Date()) }
+        }
         catch { logger.error("暂停计划失败: \(error)") }
     }
 
-    func resumePlan(planId: UUID) async {
-        do { try await composer.resumePlan(planId: planId) }
+    func resumePlan(planId: UUID, patientId: UUID? = nil) async {
+        do {
+            try await composer.resumePlan(planId: planId)
+            if let patientId { await refresh(patientId: patientId) }
+            else { await reconciler.reconcile(now: Date()) }
+        }
         catch { logger.error("恢复计划失败: \(error)") }
     }
 
@@ -311,10 +340,24 @@ final class ReminderStore {
     }
 
     func createAppointment(patientId: UUID, hospital: String, department: String,
-                           startsAt: Date) async {
+                           startsAt: Date, doctor: String? = nil, address: String? = nil,
+                           itemsToBring: String? = nil, notes: String? = nil,
+                           followUpRule: Int? = nil, followUpDays: Int? = nil) async {
         do {
-            try await apts.create(patientId: patientId, hospital: hospital,
-                                  department: department, startsAt: startsAt, now: Date())
+            let aptId = try await apts.create(patientId: patientId, hospital: hospital,
+                                              department: department, startsAt: startsAt,
+                                              doctor: doctor, address: address,
+                                              itemsToBring: itemsToBring, notes: notes,
+                                              now: Date())
+            // FR10.2 复诊规则：规则 1（N 天后）/4（慢病定期随访 N 天）落具体
+            // 日期 → 排复诊提醒（此前表单收集的复诊配置被静默丢弃）
+            if let rule = followUpRule, rule == 1 || rule == 4,
+               let days = followUpDays, days > 0 {
+                let cal = Calendar.current
+                let followUpAt = cal.date(byAdding: .day, value: days, to: startsAt) ?? startsAt
+                try await scheduler.schedule(dose: "followup-apt-\(aptId.uuidString)",
+                                             at: followUpAt, route: .appointmentList)
+            }
             await requestNotificationAuthorization()   // FR20.2 价值先行（首个提醒创建后）
             await refresh(patientId: patientId)
         } catch {

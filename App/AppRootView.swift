@@ -13,6 +13,7 @@ struct AppRootView: View {
     @Environment(AppSettingsStore.self) private var settingsStore
     @Environment(ObservationStoreState.self) private var observationState
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dynamicTypeSize) private var systemDynamicType
 
     /// F16 信源库幂等种子（由 VitaLiberApp 注入 container.guidelines.seedBundled ——
     /// AppContainer 不进环境，闭包传递保持装配根单一）
@@ -36,8 +37,12 @@ struct AppRootView: View {
         .preferredColorScheme(currentTheme.colorScheme)
         // FR14.4 高对比度初始实现 = 环境对比度增强（§5.28.1 记录为偏差：HC Token 集归 L2）
         .contrast(highContrastOn ? 1.25 : 1.0)
-        // FR18.9 感官强化：关怀模式字号放大（accessibility1 ≈ 1.33×，≥20pt 基线）
-        .dynamicTypeSize(appState.careMode ? .accessibility1 : .large)
+        // FR18.9 感官强化：关怀模式在**用户系统字号基础上**放大（≥accessibility1
+        // 且再高一档，上限 accessibility5）。
+        // 审查修复：原实现两态都钉死固定档——常规模式强制 .large（AX2 用户被
+        // 压回大字号），关怀模式钉死 .accessibility1（不随用户设置），
+        // Dynamic Type 全局承诺对两组用户都失效
+        .dynamicTypeSize(effectiveDynamicTypeSize)
         .task {
             await settingsStore.load()   // 主题等设置先于首帧后的首次渲染就位
             // FR14.5 语言即时切换：以持久化偏好初始化显示语言（无需重启）
@@ -72,13 +77,20 @@ struct AppRootView: View {
             case .inactive, .background:
                 // FR1.4 + FR1.7：退后台即锁。用 .inactive 而非 .background——
                 // 任务切换器快照在 inactive 时刻截取（遮罩必须此时已挂载），
-                // 且 XCUITest 的 press(.home) 场景下 .background 送达不可靠
-                if appState.onboardingFinished { backgroundLocked = true }
+                // 且 XCUITest 的 press(.home) 场景下 .background 送达不可靠。
+                // 审查修复：应用自身的系统认证浮层（Face ID）同样令场景短暂
+                // inactive——豁免在途认证，否则导出向导/备份等动作被锁屏覆盖
+                // 层销毁状态并二次弹认证
+                if appState.onboardingFinished && !appState.authPromptInFlight {
+                    backgroundLocked = true
+                }
             case .active:
                 // 四层补偿第 2 层：每次回前台轻量对账
                 if appState.onboardingFinished {
                     Task {
                         await reminderStore.refresh(patientId: appState.currentPatientId)
+                        // 时间轴镜像随前台刷新（资料库入库的文档进入待确认计数）
+                        await appState.refreshTimeline()
                     }
                 }
             default:
@@ -88,6 +100,17 @@ struct AppRootView: View {
     }
 
     // MARK: - FR14.4 外观与主题
+
+    /// 常规模式 = 系统字号原样；关怀模式 = 系统字号基础上再放大一档
+    ///（至少 accessibility1，上限 accessibility5）
+    private var effectiveDynamicTypeSize: DynamicTypeSize {
+        guard appState.careMode else { return systemDynamicType }
+        let sizes = DynamicTypeSize.allCases
+        let floor: DynamicTypeSize = .accessibility1
+        let base = systemDynamicType >= floor ? systemDynamicType : floor
+        guard let idx = sizes.firstIndex(of: base), idx + 1 < sizes.count else { return base }
+        return sizes[idx + 1]
+    }
 
     private var currentTheme: AppTheme {
         AppTheme(rawValue: settingsStore.values[.appearance]

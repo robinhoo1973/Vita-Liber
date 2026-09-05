@@ -67,15 +67,14 @@ public actor ClaimStore {
     }
 
     /// 纯事实汇总（FR13.7）：只求和，**不提供报销建议/不评判是否可报**。
+    /// 审查修复：移除 Infrastructure 内硬编码 zh-Hans 文案（statement）——
+    /// 展示文案由视图层经 L10n 单出口组装（zh-Hant/en 用户此前看到简中句子）
     public struct Totals: Sendable, Equatable {
         public var totalAmount: Double
         public var itemCount: Int
         public var currency: String
         public init(totalAmount: Double, itemCount: Int, currency: String) {
             self.totalAmount = totalAmount; self.itemCount = itemCount; self.currency = currency
-        }
-        public var statement: String {
-            "共 \(itemCount) 笔，合计 \(String(format: "%.2f", totalAmount)) \(currency)"
         }
     }
 

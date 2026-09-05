@@ -24,16 +24,16 @@ struct RemindersView: View {
                             Task { await reminders.confirmTaken(patientId: currentPatientId, dose: dose, careMode: app.careMode) }
                         },
                         onSkip: { dose, reason in
-                            Task { await reminders.skipDose(dose: dose, reason: reason, careMode: app.careMode) }
+                            Task { await reminders.skipDose(dose: dose, reason: reason, careMode: app.careMode, patientId: currentPatientId) }
                         },
                         onSnooze: { dose, minutes in
                             Task { await reminders.snoozeDose(dose: dose, minutes: minutes, patientId: currentPatientId, careMode: app.careMode) }
                         },
                         onForget: { dose in
-                            Task { await reminders.forgetDose(dose: dose, careMode: app.careMode) }
+                            Task { await reminders.forgetDose(dose: dose, careMode: app.careMode, patientId: currentPatientId) }
                         },
                         onDiscomfort: { dose, note in
-                            Task { await reminders.recordDiscomfort(dose: dose, note: note, careMode: app.careMode) }
+                            Task { await reminders.recordDiscomfort(dose: dose, note: note, careMode: app.careMode, patientId: currentPatientId) }
                         },
                         onSlotAllTaken: {
                             // FR9.17「全部已服用」= 逐药写 taken（底层仍按单药 dose_log）
