@@ -38,7 +38,7 @@ final class F16DeviceState {
         guard authEnabled else { return false }
         do {
             try await reader.requestAuthorization()
-            if let status = reader.authorizationStatus(), status == .sharingAuthorized {
+            if let status = await reader.authorizationStatus(), status == .sharingAuthorized {
                 return true
             }
             phase = .degraded(L10n.f16AuthDenied)   // 拒绝/未定：呈现降级手测引导
