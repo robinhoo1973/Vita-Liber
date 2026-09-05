@@ -233,7 +233,9 @@ public struct LocalRetrievalProvider: AIProvider {
             gradeBadge: "E")
         // BR-006 一票否决：术语解释与来源是唯一含生成文案的字段（模板句已
         // 移出 Domain）；App 层渲染后再检一次（SafeAIProvider 纵深防御不变）
-        let generated = card.terminologyPairs.map { $0.explanation }
+        // 注意 terminologyPairs 是可选项——`.map` 会绑定到整个数组而非元素，
+        // 必须先解包（V3.68 可选化时此处漏改的编译事故）。
+        let generated = (card.terminologyPairs ?? []).map { $0.explanation }
             + card.sources
         for text in generated where WordingBlacklist.violation(in: text) != nil {
             return nil   // 负清单命中：整卡安全降级，不展示违规文案
