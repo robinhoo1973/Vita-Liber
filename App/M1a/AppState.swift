@@ -317,7 +317,7 @@ final class AppState {
                 fields.append(CandidateField(key: "ocr_text", displayLabel: L10n.ocrFieldText,
                                              rawText: joined,
                                              confidence: 0.5))   // 无逐字段置信度→中档，必复核
-                let title = String(result.lines.first?.prefix(30) ?? L10n.ocrFieldText)
+                let title = result.lines.first.map { String($0.prefix(30)) } ?? L10n.ocrFieldText
                 fields.append(CandidateField(key: "title", displayLabel: L10n.ocrFieldTitle,
                                              rawText: title, confidence: 0.9))
             }
@@ -359,10 +359,11 @@ final class AppState {
         let entry = TimelineProjection.entries(from: [set], patientId: patientId,
                                                 occurredAt: Date().timeIntervalSince1970)[0]
         timeline.append(entry)
+        let engineVersion = captureProvider == nil ? "ocr-pipeline" : "fake-ocr-v1"
         persist { [persistor, timeline] in
             try await persistor.saveTimeline(timeline)
             try await persistor.saveOCRResult(documentId: set.documentId, fields: set.fields,
-                                              engineVersion: captureProvider == nil ? "ocr-pipeline" : "fake-ocr-v1")
+                                              engineVersion: engineVersion)
         }
         activeSet = nil
         stage = .timeline

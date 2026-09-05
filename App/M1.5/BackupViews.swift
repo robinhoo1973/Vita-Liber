@@ -94,7 +94,7 @@ final class BackupState {
             resolutions = [:]
             phase = .restored(records: records)
         } catch BackupService.BackupError.conflictDetected {
-            logger.error("冲突裁决不完整: \(error)")
+            logger.error("冲突裁决不完整")
             phase = .degraded(L10n.backupConflictDetected)
         } catch {
             logger.error("恢复失败: \(error)")

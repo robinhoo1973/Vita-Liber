@@ -172,7 +172,7 @@ final class DocumentsState {
             // 逐页流式：单页渲染→识别→释放（页位图不整体驻留内存）
             try await decoder.decodePDFPages(data, scale: 2.0, maxPages: 50) { page in
                 // ADR-026：PDF 逐页识别同样经统一编排层
-                let result = (try? await pipeline.run(imageData: page.bitmapData))   // try?-ok: 单页失败继续下一页（FR6.6 汇总时标注）
+                let result = (try? await self.pipeline.run(imageData: page.bitmapData))   // try?-ok: 单页失败继续下一页（FR6.6 汇总时标注）
                 if let result, !result.failed, result.hasText {
                     texts.append(result.lines.joined(separator: "\n"))
                 } else {
@@ -182,7 +182,7 @@ final class DocumentsState {
                 }
             }
             let joined = texts.filter { !$0.isEmpty }.joined(separator: "\n---\n")
-            let metaPayload = ["engine": "vision", "page_count": pages.count,
+            let metaPayload = ["engine": "vision", "page_count": texts.count,
                                "failed_pages": failedPages] as [String: Any]
             let metaJSON = String(data: try JSONSerialization.data(withJSONObject: metaPayload, options: []),
                                   encoding: .utf8)
