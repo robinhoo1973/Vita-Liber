@@ -994,7 +994,7 @@ enum L10n {
         "voiceguide.note.history",
         "voiceguide.note.meds",
         "voiceguide.saved"
-    ]    ]
+    ]
 
     // MARK: - FR14.8 Tab badge
     static var tabRemindersBadge: String { t("tab.reminders.badge") }
