@@ -7,8 +7,9 @@ import Foundation
 enum ReminderIDNames {
     static func appointmentPrefix(_ id: UUID) -> String { "apt-\(id.uuidString)" }
 
-    /// pending 里以任意给定预约 id 开头的全部取回（一次 pending 拉取、一次遍历）
-    static func staleAppointments(in pending: [String: Date], ids: [UUID]) -> [String] {
-        pending.keys.filter { key in ids.contains { key.hasPrefix(appointmentPrefix($0)) } }
+    /// pending 里以任意给定预约 id 开头的全部取回（一次 pending 拉取、一次遍历）。
+    /// ids 为 uuidString 形态（MemberDeletionService 的待删清单即 String 形态）
+    static func staleAppointments(in pending: [String: Date], ids: [String]) -> [String] {
+        pending.keys.filter { key in ids.contains { key.hasPrefix("apt-\($0)") } }
     }
 }
