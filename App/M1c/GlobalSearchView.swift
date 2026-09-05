@@ -22,8 +22,6 @@ final class SearchViewState {
     private let search: any FullTextSearch
     init(search: any FullTextSearch) { self.search = search }
 
-    func setQuery(_ q: String) { query = q }
-
     /// 查询代际守卫（审查修复）：逐键发起的无约束 Task 存在乱序写回——
     /// 慢的旧查询晚于新查询返回时会覆盖新结果。取结果前校验代际，
     /// 与 ObservationViews 的 loadGeneration 同一纪律。
