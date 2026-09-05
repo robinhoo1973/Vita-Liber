@@ -67,6 +67,17 @@ public enum VoiceIntent: Sendable, Equatable {
 /// 列选循环由会话状态机负责（FR19.4：≤3 项编号列选）。
 public enum VoiceCommandGrammar {
 
+    /// 命令词词汇表（单一事实源）：App 键盘降级输入的快捷词必须与文法
+    /// 解析同源——此处定义的词即文法接受的词（F19 词汇表归 Domain，
+    /// App 层不得自建第二份拷贝）。
+    public static let confirmWord = "确认"
+    public static let cancelWord = "取消"
+    public static func ordinalWord(_ n: Int) -> String? {
+        let words = ["第一个", "第二个", "第三个"]
+        guard n >= 1 && n <= words.count else { return nil }
+        return words[n - 1]
+    }
+
     struct Pattern: Sendable {
         let command: VoiceCommand
         let regex: String

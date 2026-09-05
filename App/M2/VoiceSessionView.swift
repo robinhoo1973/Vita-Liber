@@ -255,14 +255,14 @@ struct VoiceSessionView: View {
                     .accessibilityIdentifier("F19.session.repeatObject")
                 HStack(spacing: 16) {
                     Button(L10n.f19_cancel) {
-                        _ = session.submit("取消", speak: { app.speak($0) })
+                        _ = session.submit(VoiceCommandGrammar.cancelWord, speak: { app.speak($0) })
                     }
                     .frame(minWidth: 88, minHeight: 64)
                     .accessibilityIdentifier("F19.session.cancelCall")
                     Button(L10n.f19_confirm) {
                         // 走引擎的 repeatingObject 确认语义——UI 触屏确认
                         // 与语音「确认」同一条路径，不绕过状态机（FR19.5）
-                        let executed = session.submit("确认", speak: { app.speak($0) })
+                        let executed = session.submit(VoiceCommandGrammar.confirmWord, speak: { app.speak($0) })
                         handleExecution(executed, object: session.pendingObject)
                     }
                     .buttonStyle(.borderedProminent)
@@ -312,7 +312,7 @@ struct VoiceSessionView: View {
     }
 
     private func handleChoice(number: Int) {
-        let text = number == 1 ? "第一个" : number == 2 ? "第二个" : "第三个"
+        let text = VoiceCommandGrammar.ordinalWord(number) ?? "\(number)"
         let executed = session.submit(text, speak: { app.speak($0) })
         handleExecution(executed, object: session.pendingObject)
         session.clearOptions()
