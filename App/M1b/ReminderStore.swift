@@ -155,9 +155,8 @@ final class ReminderStore {
                 guard let tier = item.refillTier, let daysLeft = item.approxDaysLeft,
                       tier == .t3 || tier == .t0 else { continue }
                 let thresholdDays = Int(tier.daysLeftThreshold)
-                let daysUntilFire = max(0, daysLeft - thresholdDays)
-                let computed = Calendar.current.date(byAdding: .day, value: daysUntilFire, to: now) ?? now
-                let fire = computed > now ? computed : now.addingTimeInterval(300)
+                let computed = DayArithmetic.offset(days: max(0, daysLeft - thresholdDays), from: now)
+                let fire = max(computed, now.addingTimeInterval(300))   // max(0,…) 已保证 computed ≥ now，直接取上界
                 let notifyId = "refill-\(item.lotId.uuidString)-\(tier.rawValue)"
                 guard pending[notifyId] == nil, !delivered.contains(notifyId) else { continue }
                 try await scheduler.schedule(dose: notifyId, at: fire, route: .medicationCabinet)

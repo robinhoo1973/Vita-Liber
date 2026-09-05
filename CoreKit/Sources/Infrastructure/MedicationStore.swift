@@ -307,8 +307,7 @@ public actor MedicationStore: DoseSource {
             // ADR-025：哈希走 CryptoKit；§5.6 日志最小化：meta 只记事实计数，
             // 不记用户自由文本备注（医疗内容不入审计表）
             if auditSink != nil {
-                let hex = CryptoKit.SHA256.hash(data: Data(lotId.uuidString.utf8))
-                    .map { String(format: "%02x", $0) }.joined()
+                let hex = CryptoKitContentHasher().sha256Hex(Data(lotId.uuidString.utf8))
                 try db.execute(sql: """
                     INSERT INTO audit_event (id, actor_local, action, entity_type, entity_id_hash, at, meta_json)
                     VALUES (?, 'local', 'inventory.reconcile', 'stock_lot', ?, ?, ?)

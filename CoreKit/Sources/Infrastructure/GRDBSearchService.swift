@@ -10,6 +10,10 @@ import Protocols
 public actor GRDBSearchService: FullTextSearch {
     private let writer: any DatabaseWriter
 
+    /// BR-003：D 级（机器识别未确认）文档不进入任何检索路由——三条路由共用
+    /// 同一谓词，新增路由必须复用；漏一处即把未确认 OCR 内容漏进检索。
+    private static let searchableDocPredicate = "d.status IN ('active','favorite') AND d.grade != 'D'"
+
     public init(writer: any DatabaseWriter) { self.writer = writer }
 
     /// FTS 同步由源表触发器维护（SchemaV2 V3.44：external-content 表不支持直接
@@ -35,8 +39,7 @@ public actor GRDBSearchService: FullTextSearch {
                                 ELSE snippet(document_fts, 1, '<b>', '</b>', '…', 12) END AS snip
                     FROM document_fts f
                     JOIN document_file d ON d.rowid = f.rowid
-                    WHERE document_fts MATCH ? AND d.status IN ('active','favorite')
-                      AND d.grade != 'D'
+                    WHERE document_fts MATCH ? AND \(Self.searchableDocPredicate)
                       AND d.patient_id IN (\(patientIds.map { _ in "?" }.joined(separator: ",")))
                     ORDER BY rank LIMIT ?
                     """, arguments: StatementArguments([match] + patientIds + [limit]))
@@ -53,8 +56,7 @@ public actor GRDBSearchService: FullTextSearch {
                            CASE WHEN d.is_sensitive = 1 THEN NULL ELSE d.ocr_text END AS ocr_text
                     FROM document_fts_2gram f
                     JOIN document_file d ON d.rowid = f.rowid
-                    WHERE document_fts_2gram MATCH ? AND d.status IN ('active','favorite')
-                      AND d.grade != 'D'
+                    WHERE document_fts_2gram MATCH ? AND \(Self.searchableDocPredicate)
                       AND d.patient_id IN (\(patientIds.map { _ in "?" }.joined(separator: ",")))
                     ORDER BY rank LIMIT ?
                     """, arguments: StatementArguments([grams] + patientIds + [limit]))
@@ -79,8 +81,7 @@ public actor GRDBSearchService: FullTextSearch {
                            CASE WHEN d.is_sensitive = 1 THEN d.title
                                 ELSE COALESCE(d.title, d.ocr_text, d.meta_json) END AS snip
                     FROM document_file d
-                    WHERE d.status IN ('active','favorite') AND d.created_at >= ?
-                      AND d.grade != 'D'
+                    WHERE \(Self.searchableDocPredicate) AND d.created_at >= ?
                       AND d.patient_id IN (\(patientIds.map { _ in "?" }.joined(separator: ",")))
                       AND (d.title LIKE ?
                            OR (d.is_sensitive = 0

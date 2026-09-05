@@ -103,9 +103,11 @@ struct AppRootView: View {
 
     /// 常规模式 = 系统字号原样；关怀模式 = 系统字号基础上再放大一档
     ///（至少 accessibility1，上限 accessibility5）
+    private static let dynamicTypeSizes = DynamicTypeSize.allCases   // 静态缓存：allCases 数组避免每次 body 求值重分配
+
     private var effectiveDynamicTypeSize: DynamicTypeSize {
         guard appState.careMode else { return systemDynamicType }
-        let sizes = DynamicTypeSize.allCases
+        let sizes = Self.dynamicTypeSizes
         let floor: DynamicTypeSize = .accessibility1
         let base = systemDynamicType >= floor ? systemDynamicType : floor
         guard let idx = sizes.firstIndex(of: base), idx + 1 < sizes.count else { return base }

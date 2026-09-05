@@ -71,10 +71,9 @@ struct HomeView: View {
     }
 
     // ④ 即将到期（7 天窗口）：预约 + 药品临期（FR9.11 批次效期在 Phase 2 并入）。
-    // DST 纪律：窗口用日历加一天，禁止固定 86400 秒（切换日 ±1 小时漂移）
+    // DST 纪律：窗口用 DayArithmetic 日历出口，禁止固定 86400 秒（切换日 ±1 小时漂移）
     private var expiringItems: [ExpiryItem] {
-        let cal = Calendar.current
-        let window = cal.date(byAdding: .day, value: 7, to: Date()) ?? Date()
+        let window = DayArithmetic.offset(days: 7, from: Date())
         return reminderStore.upcomingAppointments
             .filter { $0.startsAt <= window }
             .map { ExpiryItem(title: "\($0.hospital)·\($0.department)", date: $0.startsAt,

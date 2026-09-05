@@ -135,7 +135,7 @@ public actor AppointmentStore {
 
     private func cancelReminders(id: UUID) async throws {
         let pending = try await scheduler.pending()
-        let ids = pending.keys.filter { $0.hasPrefix("apt-\(id.uuidString)") }
+        let ids = pending.keys.filter { $0.hasPrefix(ReminderIDNames.appointmentPrefix(id)) }
         try await scheduler.cancel(Array(ids))
     }
 

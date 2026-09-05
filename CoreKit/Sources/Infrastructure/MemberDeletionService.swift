@@ -125,9 +125,7 @@ public actor MemberDeletionService {
         // 写事务成功后才取消系统侧通知：删除/取消的预约不再按时弹出提醒
         if let scheduler, !aptIds.isEmpty {
             let pending = try await scheduler.pending()
-            let stale = pending.keys.filter { id in
-                aptIds.contains { id.hasPrefix("apt-\($0)") }
-            }
+            let stale = ReminderIDNames.staleAppointments(in: pending, ids: aptIds)
             if !stale.isEmpty {
                 try await scheduler.cancel(Array(stale))
             }

@@ -237,10 +237,10 @@ final class DocumentsState {
         }
     }
 
-    /// ADR-025：去重哈希走经审计的 CryptoKit（原 Domain 自研 SHA-256 引擎
-    /// 已随 dev-pm V3.8 登记的端口迁移移除——生产路径零自研 crypto）
+    /// ADR-025：去重哈希收敛到 ContentHashing 单实现（Infrastructure
+    /// CryptoKitContentHasher）——生产路径零自研 crypto
     static func hash(_ data: Data) -> String {
-        CryptoKit.SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        CryptoKitContentHasher().sha256Hex(data)
     }
 }
 
@@ -419,12 +419,7 @@ private struct DocumentLibraryRow: View {
                             .background(Capsule().fill(Color(.systemGray5)))
                         // BR-003 来源徽章：D = 机器识别未确认（不进入检索/AI 事实链）
                         if doc.grade == "D" {
-                            Text("D")
-                                .font(.caption2).bold()
-                                .padding(.horizontal, 6).padding(.vertical, 2)
-                                .background(Capsule().fill(Color("grade-d", bundle: .main)))
-                                .foregroundStyle(.white)
-                                .accessibilityLabel(L10n.docGradeUnconfirmed)
+                            GradeBadge(grade: "D")
                         }
                         if doc.isSensitive {
                             Image(systemName: "lock.fill")

@@ -121,36 +121,20 @@ final class AppRouter {
     /// 审查修复注记：曾尝试 lazy 缓存绑定避免每帧新建 Binding 的身份抖动，
     /// 但 @Observable 宏不支持 lazy 存储属性（ObservationTracked 展开后
     /// 「lazy cannot be used on a computed property」编译失败）——回落为
-    /// 普通计算属性（SwiftUI 常规模式，绑定身份抖动不构成实际问题，
-    /// crash 2 根因在恢复时点与双导航变更，与此无关）。
-    private var homeBinding: Binding<[AppRoute]> {
-        Binding(get: { [weak self] in self?.homePath ?? [] },
-                set: { [weak self] in self?.homePath = $0; self?.persist() })
-    }
-    private var recordsBinding: Binding<[AppRoute]> {
-        Binding(get: { [weak self] in self?.recordsPath ?? [] },
-                set: { [weak self] in self?.recordsPath = $0; self?.persist() })
-    }
-    private var remindersBinding: Binding<[AppRoute]> {
-        Binding(get: { [weak self] in self?.remindersPath ?? [] },
-                set: { [weak self] in self?.remindersPath = $0; self?.persist() })
-    }
-    private var aiBinding: Binding<[AppRoute]> {
-        Binding(get: { [weak self] in self?.aiPath ?? [] },
-                set: { [weak self] in self?.aiPath = $0; self?.persist() })
-    }
-    private var meBinding: Binding<[AppRoute]> {
-        Binding(get: { [weak self] in self?.mePath ?? [] },
-                set: { [weak self] in self?.mePath = $0; self?.persist() })
+    /// keyPath 参数化的单一构造（SwiftUI 常规模式，绑定身份抖动不构成
+    /// 实际问题，crash 2 根因在恢复时点与双导航变更，与此无关）。
+    private func pathBinding(_ keyPath: ReferenceWritableKeyPath<AppRouter, [AppRoute]>) -> Binding<[AppRoute]> {
+        Binding(get: { [weak self] in self?[keyPath: keyPath] ?? [] },
+                set: { [weak self] in self?[keyPath: keyPath] = $0; self?.persist() })
     }
 
     func binding(for tab: MainModuleID) -> Binding<[AppRoute]> {
         switch tab {
-        case .home: return homeBinding
-        case .records: return recordsBinding
-        case .reminders: return remindersBinding
-        case .ai: return aiBinding
-        case .me: return meBinding
+        case .home: return pathBinding(\.homePath)
+        case .records: return pathBinding(\.recordsPath)
+        case .reminders: return pathBinding(\.remindersPath)
+        case .ai: return pathBinding(\.aiPath)
+        case .me: return pathBinding(\.mePath)
         }
     }
 

@@ -199,14 +199,7 @@ private struct TimelineRowView: View {
                     // 来源徽章（设计系统：每个结构化数据有来源徽章）；
                     // D = 机器识别未确认（不进入检索/AI 事实链，BR-003）
                     if let grade = entry.grade {
-                        Text(grade)
-                            .font(.caption2).bold()
-                            .padding(.horizontal, 5).padding(.vertical, 1)
-                            .background(Capsule().fill(
-                                grade == "D" ? Color("grade-d", bundle: .main)
-                                             : Color("grade-c", bundle: .main)))
-                            .foregroundStyle(.white)
-                            .accessibilityLabel(grade == "D" ? L10n.docGradeUnconfirmed : L10n.timelineGradeConfirmed)
+                        GradeBadge(grade: grade)
                     }
                 }
                 if let summary = entry.summary {
