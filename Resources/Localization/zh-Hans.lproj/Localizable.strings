@@ -22,6 +22,7 @@
 "voice.confirm.retry" = "重新说";
 "voice.confirm.cancel" = "取消";
 "voice.speak.button" = "🔊 朗读";
+"voice.fallbackNotice" = "当前使用备用语音朗读。";
 "voice.speak.screenHint" = "请核对屏幕上的数据；朗读前请确认周围无人";
 "voice.speak.bystander" = "将朗读内容，请确认周围无人";
 "voice.ask.speak" = "朗读一遍";
@@ -44,6 +45,17 @@
 "backup.degrade.noSpace" = "iCloud 空间不足，本次备份未完成。清理空间后可重试，本机数据未受影响。";
 "backup.degrade.checksum" = "备份文件校验未通过，未恢复任何数据。请换一个备份文件重试。";
 "backup.degrade.conflict" = "此设备上已有健康数据，为避免覆盖，本次恢复未执行。请先备份并清空本机数据后再恢复（或联系支持获取迁移帮助）。";
+"backup.conflict.title" = "数据冲突预览";
+"backup.conflict.choice" = "处理方式";
+"backup.conflict.keep" = "保留本机";
+"backup.conflict.adopt" = "采用备份";
+"backup.conflict.coexist" = "并存";
+"backup.conflict.apply" = "应用选择并恢复";
+"backup.conflict.hint" = "此设备已有同名数据。请逐项选择处理方式：保留本机跳过该条；采用备份覆盖本机该条；并存则两者都保留（备份条目以新编号入库）。";
+"backup.conflict.kind.profile" = "成员档案";
+"backup.conflict.kind.consent" = "同意记录";
+"backup.conflict.kind.document" = "资料文档";
+"backup.conflict.kind.record" = "健康记录";
 "inventory.title" = "药箱与库存";
 "inventory.empty" = "药箱还没有记录";
 "inventory.emptyHint" = "创建用药计划或补充批次后，余量与效期会出现在这里";
@@ -156,6 +168,7 @@
 "settings.themeSystem" = "跟随系统";
 "settings.highContrast" = "高对比度增强";
 "settings.highContrastFooter" = "提升文字与背景的对比度，适合视力较弱的用户";
+"settings.highContrastForced" = "关怀模式已强制启用高对比度（当前生效）。";
 "reminder.emptyAppt" = "还没有预约，记录第一个吧";
 "reminder.takenCount" = "已服 %1$d/%2$d";
 "reminder.taken" = "已服用";
@@ -205,6 +218,7 @@
 "help.privacyPlaceholder" = "隐私政策与服务条款全文（M1.5 接入正式文本与版本号/生效日期）";
 "pay.busy" = "处理中…";
 "pay.restore" = "恢复购买";
+"paywall.purchaseFailed" = "购买未完成（可能已取消或网络不可用），可稍后重试。";
 "pay.valueProp" = "解锁增量生产型能力，核心功能永久免费";
 "pay.buy" = "购买 Pro";
 "member.title" = "成员管理";
@@ -323,6 +337,7 @@
 "inventory.dualLine" = "安全线 %1$@ %2$@ · 确认 %3$@ %2$@";
 "inventory.expiry" = "效期 %@";
 "inventory.tier14" = "余量 ≤14 天";
+"inventory.tier0" = "当日置顶";
 "inventory.tier7" = "余量 ≤7 天";
 "inventory.tier3" = "余量 ≤3 天";
 "inventory.bookValue" = "账面：%1$@ %2$@（确认线）";
@@ -408,6 +423,7 @@
 "help.data.dbSection" = "数据库";
 "help.data.integrity" = "完整性检查";
 "help.data.normal" = "正常";
+"help.data.corrupt" = "异常（数据库完整性检查未通过）";
 "help.data.storageSection" = "存储";
 "help.data.dbSize" = "数据库大小";
 "help.data.calculating" = "计算中...";
@@ -638,6 +654,8 @@
 "timeline.emptyTitle" = "时间轴为空";
 "timeline.emptyHint" = "切换成员、时间范围或事件类型筛选后再看；档案、就诊与用药记录会随时间出现在这里";
 "timeline.filter.all" = "全部";
+"timeline.kind.document" = "资料";
+"timeline.grade.confirmed" = "已确认";
 "timeline.kind.encounter" = "就诊";
 "timeline.kind.medication" = "用药";
 "timeline.kind.observation" = "观察";
@@ -727,6 +745,12 @@
 "member.confirm.belongsTo" = "归属成员";
 "member.confirm.switch" = "更换";
 "member.relation.self" = "本人";
+"member.relation.partner" = "配偶";
+"member.relation.child" = "子女";
+"member.relation.parent" = "父母";
+"member.relation.grandparent" = "祖父母";
+"member.relation.other" = "其他";
+"member.relation.family" = "家人";
 "docLibrary.title" = "资料库";
 "docLibrary.empty" = "资料库是空的";
 "docLibrary.emptyHint" = "拍摄、扫描或导入你的第一份医疗资料";

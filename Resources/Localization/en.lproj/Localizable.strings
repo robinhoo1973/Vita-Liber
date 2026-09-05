@@ -22,6 +22,7 @@
 "voice.confirm.retry" = "Say again";
 "voice.confirm.cancel" = "Cancel";
 "voice.speak.button" = "🔊 Read aloud";
+"voice.fallbackNotice" = "Reading with the fallback voice.";
 "voice.speak.screenHint" = "Please check the data on screen; make sure nobody is nearby before reading aloud";
 "voice.speak.bystander" = "Content will be read aloud — make sure nobody is nearby";
 "voice.ask.speak" = "Read it aloud";
@@ -44,6 +45,17 @@
 "backup.degrade.noSpace" = "Not enough iCloud space, so this backup did not complete. Free up space and try again; your local data is unaffected.";
 "backup.degrade.checksum" = "The backup file failed verification, so nothing was restored. Please try a different backup file.";
 "backup.degrade.conflict" = "This device already contains health data. The restore was not performed to avoid overwriting it. Back up and clear this device first, or contact support for migration help.";
+"backup.conflict.title" = "Data conflict preview";
+"backup.conflict.choice" = "Resolution";
+"backup.conflict.keep" = "Keep local";
+"backup.conflict.adopt" = "Use backup";
+"backup.conflict.coexist" = "Keep both";
+"backup.conflict.apply" = "Apply and restore";
+"backup.conflict.hint" = "This device already has data with the same IDs. Choose per item: Keep local skips it; Use backup overwrites the local copy; Keep both preserves both (the backup item is imported under a new ID).";
+"backup.conflict.kind.profile" = "Member profile";
+"backup.conflict.kind.consent" = "Consent record";
+"backup.conflict.kind.document" = "Document";
+"backup.conflict.kind.record" = "Health record";
 "inventory.title" = "Medicine cabinet";
 "inventory.empty" = "No cabinet records yet";
 "inventory.emptyHint" = "Create a plan or add a batch, and remaining amounts and expiry will appear here";
@@ -156,6 +168,7 @@
 "settings.themeSystem" = "Follow System";
 "settings.highContrast" = "High contrast";
 "settings.highContrastFooter" = "Boosts text-to-background contrast for users with low vision";
+"settings.highContrastForced" = "Care Mode has force-enabled high contrast (currently active).";
 "reminder.emptyAppt" = "No appointments yet — add one";
 "reminder.takenCount" = "Taken %1$d/%2$d";
 "reminder.taken" = "Taken";
@@ -205,6 +218,7 @@
 "help.privacyPlaceholder" = "Privacy policy and terms (full text to be wired)";
 "pay.busy" = "Processing…";
 "pay.restore" = "Restore purchases";
+"paywall.purchaseFailed" = "Purchase did not complete (cancelled or offline). You can retry later.";
 "pay.valueProp" = "Unlock productivity add-ons; core features stay free forever";
 "pay.buy" = "Buy Pro";
 "member.title" = "Family members";
@@ -323,6 +337,7 @@
 "inventory.dualLine" = "Safety line %1$@ %2$@ · confirmed %3$@ %2$@";
 "inventory.expiry" = "Expires %@";
 "inventory.tier14" = "≤14 days left";
+"inventory.tier0" = "Due today";
 "inventory.tier7" = "≤7 days left";
 "inventory.tier3" = "≤3 days left";
 "inventory.bookValue" = "Book value: %1$@ %2$@ (confirmed line)";
@@ -408,6 +423,7 @@
 "help.data.dbSection" = "Database";
 "help.data.integrity" = "Integrity Check";
 "help.data.normal" = "OK";
+"help.data.corrupt" = "Corrupted (database integrity check failed)";
 "help.data.storageSection" = "Storage";
 "help.data.dbSize" = "Database Size";
 "help.data.calculating" = "Calculating...";
@@ -638,6 +654,8 @@
 "timeline.emptyTitle" = "Timeline is empty";
 "timeline.emptyHint" = "Try switching member, date range or event-type filters. Records, encounters and medications appear here over time";
 "timeline.filter.all" = "All";
+"timeline.kind.document" = "Document";
+"timeline.grade.confirmed" = "Confirmed";
 "timeline.kind.encounter" = "Encounters";
 "timeline.kind.medication" = "Medications";
 "timeline.kind.observation" = "Observations";
@@ -727,6 +745,12 @@
 "member.confirm.belongsTo" = "Belongs to";
 "member.confirm.switch" = "Switch";
 "member.relation.self" = "Self";
+"member.relation.partner" = "Partner";
+"member.relation.child" = "Child";
+"member.relation.parent" = "Parent";
+"member.relation.grandparent" = "Grandparent";
+"member.relation.other" = "Other";
+"member.relation.family" = "Family";
 "docLibrary.title" = "Document Library";
 "docLibrary.empty" = "Library is empty";
 "docLibrary.emptyHint" = "Capture, scan or import your first medical record";

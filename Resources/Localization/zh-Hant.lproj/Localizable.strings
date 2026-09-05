@@ -22,6 +22,7 @@
 "voice.confirm.retry" = "重新說";
 "voice.confirm.cancel" = "取消";
 "voice.speak.button" = "🔊 朗讀";
+"voice.fallbackNotice" = "目前使用備用語音朗讀。";
 "voice.speak.screenHint" = "請核對螢幕上的資料；朗讀前請確認周圍無人";
 "voice.speak.bystander" = "將朗讀內容，請確認周圍無人";
 "voice.ask.speak" = "朗讀一遍";
@@ -44,6 +45,17 @@
 "backup.degrade.noSpace" = "iCloud 空間不足，本次備份未完成。清理空間後可重試，本機資料未受影響。";
 "backup.degrade.checksum" = "備份檔案校驗未通過，未還原任何資料。請換一個備份檔案重試。";
 "backup.degrade.conflict" = "此裝置上已有健康資料，為避免覆蓋，本次恢復未執行。請先備份並清空本機資料後再恢復（或聯絡支援取得移轉協助）。";
+"backup.conflict.title" = "資料衝突預覽";
+"backup.conflict.choice" = "處理方式";
+"backup.conflict.keep" = "保留本機";
+"backup.conflict.adopt" = "採用備份";
+"backup.conflict.coexist" = "並存";
+"backup.conflict.apply" = "套用選擇並恢復";
+"backup.conflict.hint" = "此裝置已有同名資料。請逐項選擇處理方式：保留本機跳過該筆；採用備份覆蓋本機該筆；並存則兩者都保留（備份條目以新編號入庫）。";
+"backup.conflict.kind.profile" = "成員檔案";
+"backup.conflict.kind.consent" = "同意記錄";
+"backup.conflict.kind.document" = "資料文件";
+"backup.conflict.kind.record" = "健康記錄";
 "inventory.title" = "藥箱與庫存";
 "inventory.empty" = "藥箱還沒有記錄";
 "inventory.emptyHint" = "建立用藥計畫或補充批次後，餘量與效期會出現在這裡";
@@ -156,6 +168,7 @@
 "settings.themeSystem" = "跟隨系統";
 "settings.highContrast" = "高對比度增強";
 "settings.highContrastFooter" = "提升文字與背景的對比度，適合視力較弱的用戶";
+"settings.highContrastForced" = "關懷模式已強制啟用高對比度（目前生效）。";
 "reminder.emptyAppt" = "還沒有預約，記錄第一個吧";
 "reminder.takenCount" = "已服 %1$d/%2$d";
 "reminder.taken" = "已服用";
@@ -205,6 +218,7 @@
 "help.privacyPlaceholder" = "隱私政策與服務條款全文（M1.5 接入正式文本與版本號/生效日期）";
 "pay.busy" = "處理中…";
 "pay.restore" = "恢復購買";
+"paywall.purchaseFailed" = "購買未完成（可能已取消或網路不可用），可稍後重試。";
 "pay.valueProp" = "解鎖增量生產型能力，核心功能永久免費";
 "pay.buy" = "購買 Pro";
 "member.title" = "成員管理";
@@ -323,6 +337,7 @@
 "inventory.dualLine" = "安全線 %1$@ %2$@ · 確認 %3$@ %2$@";
 "inventory.expiry" = "效期 %@";
 "inventory.tier14" = "餘量 ≤14 天";
+"inventory.tier0" = "當日置頂";
 "inventory.tier7" = "餘量 ≤7 天";
 "inventory.tier3" = "餘量 ≤3 天";
 "inventory.bookValue" = "帳面：%1$@ %2$@（確認線）";
@@ -408,6 +423,7 @@
 "help.data.dbSection" = "數據庫";
 "help.data.integrity" = "完整性檢查";
 "help.data.normal" = "正常";
+"help.data.corrupt" = "異常（資料庫完整性檢查未通過）";
 "help.data.storageSection" = "存儲";
 "help.data.dbSize" = "數據庫大小";
 "help.data.calculating" = "計算中...";
@@ -638,6 +654,8 @@
 "timeline.emptyTitle" = "時間軸为空";
 "timeline.emptyHint" = "切換成員、時間范围或事件類型篩選后再看；檔案、就診与用藥記錄会随時間出现在这里";
 "timeline.filter.all" = "全部";
+"timeline.kind.document" = "資料";
+"timeline.grade.confirmed" = "已確認";
 "timeline.kind.encounter" = "就診";
 "timeline.kind.medication" = "用藥";
 "timeline.kind.observation" = "觀察";
@@ -727,6 +745,12 @@
 "member.confirm.belongsTo" = "歸屬成員";
 "member.confirm.switch" = "更換";
 "member.relation.self" = "本人";
+"member.relation.partner" = "配偶";
+"member.relation.child" = "子女";
+"member.relation.parent" = "父母";
+"member.relation.grandparent" = "祖父母";
+"member.relation.other" = "其他";
+"member.relation.family" = "家人";
 "docLibrary.title" = "資料庫";
 "docLibrary.empty" = "資料庫是空的";
 "docLibrary.emptyHint" = "拍攝、掃描或匯入你的第一份醫療資料";

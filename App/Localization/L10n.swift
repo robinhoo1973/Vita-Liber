@@ -38,6 +38,7 @@ enum L10n {
     static var voiceConfirmRetry: String { t("voice.confirm.retry") }
     static var voiceConfirmCancel: String { t("voice.confirm.cancel") }
     static var voiceSpeakAloud: String { t("voice.speak.button") }
+    static var voiceFallbackNotice: String { t("voice.fallbackNotice") }
     static var voiceScreenCheckHint: String { t("voice.speak.screenHint") }
     static var voiceBystanderWarning: String { t("voice.speak.bystander") }
     static var voiceAskSpeak: String { t("voice.ask.speak") }
@@ -75,6 +76,18 @@ enum L10n {
     static var backupChecksumFailed: String { t("backup.degrade.checksum") }
     // ADR-019：目标设备已有数据——恢复被整体拒绝（不静默覆盖/丢弃）
     static var backupConflictDetected: String { t("backup.degrade.conflict") }
+    // ADR-019 冲突预览：逐项裁决（保留本机/采用备份/并存）
+    static var backupConflictTitle: String { t("backup.conflict.title") }
+    static var backupConflictChoice: String { t("backup.conflict.choice") }
+    static var backupConflictKeep: String { t("backup.conflict.keep") }
+    static var backupConflictAdopt: String { t("backup.conflict.adopt") }
+    static var backupConflictCoexist: String { t("backup.conflict.coexist") }
+    static var backupConflictApply: String { t("backup.conflict.apply") }
+    static var backupConflictHint: String { t("backup.conflict.hint") }
+    static var backupConflictKindProfile: String { t("backup.conflict.kind.profile") }
+    static var backupConflictKindConsent: String { t("backup.conflict.kind.consent") }
+    static var backupConflictKindDocument: String { t("backup.conflict.kind.document") }
+    static var backupConflictKindRecord: String { t("backup.conflict.kind.record") }
     // FR13.4 导出前身份验证 + 隐私提醒 / FR13.5 恢复前确认 + 恢复后校验报告
     static var backupUnlockReason: String { t("backup.unlockReason") }
     static var backupExportConfirmTitle: String { t("backup.exportConfirm.title") }
@@ -198,6 +211,7 @@ enum L10n {
     static var settings_themeSystem: String { t("settings.themeSystem") }
     static var settings_highContrast: String { t("settings.highContrast") }
     static var settings_highContrastFooter: String { t("settings.highContrastFooter") }
+    static var settings_highContrastForced: String { t("settings.highContrastForced") }
     static var reminder_emptyAppt: String { t("reminder.emptyAppt") }
     static var reminder_takenCount: String { t("reminder.takenCount") }
     static var reminder_taken: String { t("reminder.taken") }
@@ -272,6 +286,8 @@ enum L10n {
     static var help_privacyPlaceholder: String { t("help.privacyPlaceholder") }
     static var pay_busy: String { t("pay.busy") }
     static var pay_restore: String { t("pay.restore") }
+    static var paywallPurchaseFailed: String { t("paywall.purchaseFailed") }
+    static var paywallRestoreNothing: String { t("paywall.restoreNothing") }
     static var pay_valueProp: String { t("pay.valueProp") }
     static var pay_buy: String { t("pay.buy") }
 
@@ -561,7 +577,7 @@ enum L10n {
     static func inventoryExpiry(_ date: String) -> String {
         t("inventory.expiry").replacingOccurrences(of: "%@", with: date)
     }
-    static var inventoryTier14: String { t("inventory.tier14") }
+    static var inventoryTier0: String { t("inventory.tier0") }
     static var inventoryTier7: String { t("inventory.tier7") }
     static var inventoryTier3: String { t("inventory.tier3") }
     static func inventoryBookValue(_ v: String, _ unit: String) -> String {
@@ -921,6 +937,7 @@ enum L10n {
     static var helpDataDbSection: String { t("help.data.dbSection") }
     static var helpDataIntegrity: String { t("help.data.integrity") }
     static var helpDataNormal: String { t("help.data.normal") }
+    static var helpDataCorrupt: String { t("help.data.corrupt") }
     static var helpDataStorageSection: String { t("help.data.storageSection") }
     static var helpDataDbSize: String { t("help.data.dbSize") }
     static var helpDataCalculating: String { t("help.data.calculating") }
@@ -1187,6 +1204,7 @@ enum L10n {
     static var timelineEmptyHint: String { t("timeline.emptyHint") }
     static var timelineFilterAll: String { t("timeline.filter.all") }
     static func timelineKindName(_ kind: TimelineEntryKind) -> String { t("timeline.kind.\(kind.rawValue)") }
+    static var timelineGradeConfirmed: String { t("timeline.grade.confirmed") }
     static var timelineProblemsFilter: String { t("timeline.problemsFilter") }
     static var problemTitle: String { t("problem.title") }
     static var problemEmpty: String { t("problem.empty") }
@@ -1268,6 +1286,12 @@ enum L10n {
     static var memberConfirmBelongsTo: String { t("member.confirm.belongsTo") }
     static var memberConfirmSwitch: String { t("member.confirm.switch") }
     static var member_relationSelf: String { t("member.relation.self") }
+    static var member_relationPartner: String { t("member.relation.partner") }
+    static var member_relationChild: String { t("member.relation.child") }
+    static var member_relationParent: String { t("member.relation.parent") }
+    static var member_relationGrandparent: String { t("member.relation.grandparent") }
+    static var member_relationOther: String { t("member.relation.other") }
+    static var member_relationFamily: String { t("member.relation.family") }
 
     // MARK: - F5 资料库（SP-09/SP-10 · FR5.1-5.8 + FR6.6）
     static var docLibraryTitle: String { t("docLibrary.title") }
@@ -1325,7 +1349,10 @@ enum L10n {
     static var allergyEmpty: String { t("allergy.empty") }
     static var allergyEmptyHint: String { t("allergy.emptyHint") }
     static var allergySelfReportBadge: String { t("allergy.selfReportBadge") }
-    static func allergySeverity(_ s: String) -> String { t("allergy.severity.\(s)") }
+    /// 严重度展示：落库规范值（mild/moderate/severe）先映射回展示词再取文案
+    static func allergySeverity(_ s: String) -> String {
+        t("allergy.severity.\(SevereReactionRules.displaySeverity(s))")
+    }
     static var allergyDelete: String { t("allergy.delete") }
     static var allergyCreateTitle: String { t("allergy.createTitle") }
     static var allergyStep1: String { t("allergy.step1") }

@@ -21,11 +21,16 @@ final class BackupState {
         case working
         case exported(fileName: String, sha256: String)
         case restored(records: Int)    // FR13.5 恢复后数据校验报告（导入记录计数）
+        /// ADR-019：冲突预览——逐项裁决（保留本机/采用备份/并存）后确认应用
+        case conflicts([ExportService.ConflictItem])
         case degraded(String)          // 降级文案（未登录/空间不足/校验失败）
     }
 
     private(set) var phase: Phase = .idle
     private(set) var pendingDocument: BackupDocument?
+    /// 冲突裁决（默认保留本机——绝不静默覆盖）
+    private(set) var resolutions: [UUID: ExportService.ConflictResolution] = [:]
+    private var pendingConflictData: Data?
 
     private let service: BackupService
     private let logger = Logger(subsystem: "com.vitaliber", category: "backup")
@@ -55,27 +60,62 @@ final class BackupState {
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         do {
             let data = try Data(contentsOf: url)
-            let records = try await service.restore(from: data)
-            phase = .restored(records: records)   // FR13.5 恢复后校验报告（计数 + 哈希比对已过）
+            // ADR-019：先分析冲突——无冲突直接恢复；有冲突进入逐项裁决预览
+            let conflicts = try await service.analyzeConflicts(from: data)
+            guard !conflicts.isEmpty else {
+                let records = try await service.restore(from: data)
+                phase = .restored(records: records)
+                return
+            }
+            pendingConflictData = data
+            resolutions = Dictionary(uniqueKeysWithValues: conflicts.map { ($0.id, .keep) })
+            phase = .conflicts(conflicts)
         } catch BackupService.BackupError.checksumMismatch,
                 BackupService.BackupError.unsupportedFormat {
             // 校验失败绝不部分导入——本机数据保持原样
             phase = .degraded(L10n.backupChecksumFailed)
-        } catch BackupService.BackupError.conflictDetected {
-            // ADR-019：目标设备已有数据——不静默覆盖/丢弃，如实呈现冲突
-            phase = .degraded(L10n.backupConflictDetected)
         } catch {
             logger.error("备份恢复失败: \(error)")
             phase = .degraded(L10n.backupChecksumFailed)
         }
     }
 
+    func setResolution(_ id: UUID, _ choice: ExportService.ConflictResolution) {
+        resolutions[id] = choice
+    }
+
+    /// 应用裁决并恢复（ADR-019：确认后才执行；任何一项未裁决均已在服务层拒绝）
+    func applyConflicts() async {
+        guard case .conflicts = phase, let data = pendingConflictData else { return }
+        phase = .working
+        do {
+            let records = try await service.restore(from: data, resolutions: resolutions)
+            pendingConflictData = nil
+            resolutions = [:]
+            phase = .restored(records: records)
+        } catch BackupService.BackupError.conflictDetected {
+            logger.error("冲突裁决不完整: \(error)")
+            phase = .degraded(L10n.backupConflictDetected)
+        } catch {
+            logger.error("恢复失败: \(error)")
+            phase = .degraded(L10n.backupChecksumFailed)
+        }
+    }
+
+    func cancelConflicts() {
+        pendingConflictData = nil
+        resolutions = [:]
+        phase = .idle
+    }
+
     func clearDocument() { pendingDocument = nil }
 }
 
-/// `fileExporter` 需要的 FileDocument 包装（纯字节搬运，无业务逻辑）
+/// `fileExporter` 需要的 FileDocument 包装（纯字节搬运，无业务逻辑）。
+/// 审查修复：备份信封已改为二进制（.vlbu）——content type 用 .data，
+/// 遗留 .json 备份继续可导入（restore 双格式兼容）
 struct BackupDocument: FileDocument {
-    static var readableContentTypes: [UTType] { [.json] }
+    static var readableContentTypes: [UTType] { [.data, .json] }
     var data: Data
     init(data: Data) { self.data = data }
     init(configuration: ReadConfiguration) throws {
@@ -128,6 +168,40 @@ struct BackupView: View {
             }
 
             switch state.phase {
+            case .conflicts(let items):
+                // ADR-019 冲突预览：逐项裁决（保留本机/采用备份/并存），
+                // 确认后整体应用——绝不静默覆盖或丢弃
+                Section(L10n.backupConflictTitle) {
+                    ForEach(items) { item in
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(conflictKindLabel(item.table))
+                                .font(.caption).foregroundStyle(.secondary)
+                            Text(item.backupTitle ?? L10n.docLibraryUntitled)
+                                .font(.subheadline)
+                            Picker(L10n.backupConflictChoice, selection: conflictChoice(item.id)) {
+                                Text(L10n.backupConflictKeep).tag(ExportService.ConflictResolution.keep)
+                                Text(L10n.backupConflictAdopt).tag(ExportService.ConflictResolution.adopt)
+                                Text(L10n.backupConflictCoexist).tag(ExportService.ConflictResolution.coexist)
+                            }
+                            .pickerStyle(.segmented)
+                            .accessibilityIdentifier("SP-24.conflict.choice.\(item.id.uuidString)")
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    Button(L10n.backupConflictApply) {
+                        Task { await state.applyConflicts() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .frame(minHeight: 44)
+                    .accessibilityIdentifier("SP-24.conflict.apply")
+                    Button(L10n.commonCancel, role: .cancel) {
+                        state.cancelConflicts()
+                    }
+                    .frame(minHeight: 44)
+                } footer: {
+                    Text(L10n.backupConflictHint)
+                        .font(.caption2)
+                }
             case .exported(let name, let digest):
                 Section {
                     Label(L10n.backupExportedName(name), systemImage: "checkmark.circle")
@@ -183,7 +257,7 @@ struct BackupView: View {
         }
         .fileExporter(isPresented: $showExporter,
                       document: state.pendingDocument,
-                      contentType: .json,
+                      contentType: .data,
                       defaultFilename: "vitaliber-backup") { result in
             switch result {
             case .success:
@@ -198,7 +272,7 @@ struct BackupView: View {
             state.clearDocument()
         }
         .fileImporter(isPresented: $showImporter,
-                      allowedContentTypes: [.json]) { result in
+                      allowedContentTypes: [.data, .json]) { result in
             guard case .success(let url) = result else { return }
             // FR13.5：选文件后不立即恢复——先门禁验证 + 影响清单确认
             Task {
@@ -207,5 +281,21 @@ struct BackupView: View {
                 showRestoreConfirm = true
             }
         }
+    }
+
+    /// ADR-019：表名 → 可读类别（Infrastructure 不携带展示文案）
+    private func conflictKindLabel(_ table: String) -> String {
+        switch table {
+        case "patient_profile", "local_owner": return L10n.backupConflictKindProfile
+        case "consent_record": return L10n.backupConflictKindConsent
+        case "document_file": return L10n.backupConflictKindDocument
+        default: return L10n.backupConflictKindRecord
+        }
+    }
+
+    private func conflictChoice(_ id: UUID) -> Binding<ExportService.ConflictResolution> {
+        Binding(
+            get: { state.resolutions[id] ?? .keep },
+            set: { state.setResolution(id, $0) })
     }
 }
