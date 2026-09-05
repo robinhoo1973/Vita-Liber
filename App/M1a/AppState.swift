@@ -85,6 +85,7 @@ final class AppState {
         // 它在 EAL resolve 之后把结果覆盖回具体实现，注册表解析成为死代码，
         // ADR-027「调用方永不直接 import 具体引擎类型」名存实亡（半重构残留）。
         self.defaults = defaults
+        self.voiceInterviewCompleted = Set(defaults.stringArray(forKey: "voiceInterviewSteps") ?? [])
         self.launchArgs = launchArgs
         self.onboardingFinished = defaults.bool(forKey: "onboardingFinished")
         if launchArgs.contains("-uitest-reset") {
@@ -375,8 +376,13 @@ final class AppState {
 
     private static let sessionFallbackPatientId = UUID()
 
+    /// 语音访谈已完成步骤（持久化到 defaults——审查修复：原按 note 段落文本
+    /// 扫描计分，切换显示语言后历史标记失配，完成度从 8 掉回 0；持久化键
+    /// 与显示语言无关）
+    private(set) var voiceInterviewCompleted: Set<String>
+
     /// 档案完善进度（首页进度卡 · mock 对齐项）：血型/证件/医保/生日 4 个直接字段
-    /// + 语音访谈四段（过敏/既往史/当前用药/紧急联系人，暂存于 note 结构化段落）。
+    /// + 语音访谈四段（过敏/既往史/当前用药/紧急联系人）。
     /// 展示性计算（非 BR 业务规则），随档案更新实时反映。
     var profileCompletion: (done: Int, total: Int) {
         let total = 8
@@ -386,13 +392,18 @@ final class AppState {
         if !(p.idNo?.isEmpty ?? true) { done += 1 }
         if !(p.insuranceNo?.isEmpty ?? true) { done += 1 }
         if !(p.birthDate?.isEmpty ?? true) { done += 1 }
-        let note = p.note ?? ""
-        for marker in [L10n.voiceguide_noteAllergy, L10n.voiceguide_noteHistory,
-                       L10n.voiceguide_noteMeds, L10n.voiceguide_noteContact]
-        where note.contains("【\(marker)】") {
+        for step in ["allergy", "pastHistory", "currentMeds", "emergencyContact"]
+        where voiceInterviewCompleted.contains(step) {
             done += 1
         }
         return (done, total)
+    }
+
+    /// 访谈完成一步即记录（适配器 onCommitField 调用；语言无关持久化）
+    func markVoiceInterviewStep(_ key: String) {
+        guard ["allergy", "pastHistory", "currentMeds", "emergencyContact"].contains(key) else { return }
+        voiceInterviewCompleted.insert(key)
+        defaults.set(Array(voiceInterviewCompleted), forKey: "voiceInterviewSteps")
     }
 
     func setCurrentPatient(_ id: UUID) {
@@ -548,13 +559,16 @@ final class AppState {
     }
 
     /// FR22.5 反馈提交（默认只附版本/系统/错误码/脱敏日志；截图/原文/媒体逐项勾选）
+    /// 审查修复：detail（用户反馈正文）此前在函数体内从未使用——正文被
+    /// 静默丢弃。现截断进 meta（保留前 200 字），审计事实不丢。
     func reportFeedback(category: String, detail: String, attachments: [Bool]) {
         guard let audit else { return }
         Task {
             do {
+                let trimmed = String(detail.prefix(200))
                 try await audit.record(action: "feedback", entityType: "user_feedback",
                                        entityId: category, actorLocal: "owner",
-                                       meta: "attachments=\(attachments.map { $0 ? "1" : "0" }.joined())")
+                                       meta: "attachments=\(attachments.map { $0 ? "1" : "0" }.joined()) detail=\(trimmed)")
             } catch {
                 logger.error("反馈提交失败: \(error)")
             }

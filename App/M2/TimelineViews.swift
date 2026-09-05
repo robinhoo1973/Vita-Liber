@@ -132,7 +132,8 @@ struct TimelineFullView: View {
                 } label: {
                     Text(L10n.timelineProblemsFilter)
                         .font(.caption)
-                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .padding(.horizontal, 10)
+                        .frame(minHeight: 44)   // 审查修复：触点 ≥44pt
                         .background(Capsule().fill(Color(.systemGray5)))
                 }
             }
@@ -223,7 +224,8 @@ private struct FilterChip: View {
         Button(action: action) {
             Text(title)
                 .font(.caption)
-                .padding(.horizontal, 10).padding(.vertical, 6)
+                .padding(.horizontal, 10)
+                .frame(minHeight: 44)   // 审查修复：触点 ≥44pt（原 ≈25pt，违反 ui-ux §4.2）
                 .background(Capsule().fill(selected
                                            ? Color("brand-primary", bundle: .main)
                                            : Color(.systemGray5)))

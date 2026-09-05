@@ -342,6 +342,14 @@ enum L10n {
     static var voiceFieldContent: String { t("voice.field.content") }
     static var voiceConfirmFillHint: String { t("voice.confirm.fillHint") }
     static var voiceguide_saved: String { t("voiceguide.saved") }
+    static var reminderNotificationTitle: String { t("reminder.notification.title") }
+    static var reminderNotificationBody: String { t("reminder.notification.body") }
+    static var emergency_manageCard: String { t("emergency.manageCard") }
+    static var emergencyNumber: String { t("emergency.number") }
+    static var searchSensitive: String { t("search.sensitiveBadge") }
+    static var docDetailNotFound: String { t("doc.detailNotFound") }
+    static var assistant_addRecords: String { t("assistant.addRecords") }
+    static var assistant_consultDoctor: String { t("assistant.consultDoctor") }
     static var voiceguide_promptAllergy: String { t("voiceguide.promptAllergy") }
     static var voiceguide_promptHistory: String { t("voiceguide.promptHistory") }
     static var voiceguide_promptMeds: String { t("voiceguide.promptMeds") }

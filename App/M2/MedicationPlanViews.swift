@@ -195,7 +195,8 @@ struct MedicationPlanDetailView: View {
         .confirmationDialog(L10n.planEndConfirmTitle, isPresented: $showEndConfirm, titleVisibility: .visible) {
             ForEach(PlanEndReason.allCases, id: \.rawValue) { reason in
                 Button(endReasonLabel(reason), role: .destructive) {
-                    Task { await reminders.endPlan(planId: planId, reason: reason) }
+                    Task { await reminders.endPlan(planId: planId, reason: reason,
+                                                   patientId: app.currentPatientId) }
                 }
             }
             Button(L10n.commonCancel, role: .cancel) { }

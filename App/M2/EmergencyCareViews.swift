@@ -15,6 +15,9 @@ struct EmergencyCardView: View {
     var bloodType: String?
     var onGuideMedicalID: (() -> Void)?
     var onOpenSelector: (() -> Void)?
+    /// 审查修复：关怀模式透传 SOS 门槛参数（原 SOSButton() 硬编码 careMode=false，
+    /// 设置页展示的「SOS 门槛提升」在急救卡入口从未生效）
+    var careMode: Bool = false
 
     var body: some View {
         ScrollView {
@@ -39,11 +42,11 @@ struct EmergencyCardView: View {
                     Button {
                         onOpenSelector()
                     } label: {
-                        Label("管理卡片内容", systemImage: "pencil").frame(minHeight: 44)
+                        Label(L10n.emergency_manageCard, systemImage: "pencil").frame(minHeight: 44)
                     }
                     .accessibilityIdentifier("F15.card.manage")
                 }
-                SOSButton()
+                SOSButton(careMode: careMode)
                 Spacer()
             }
             .padding(16)
@@ -347,7 +350,7 @@ struct SOSHelpView: View {
 
                 // 拨打 120：一步直达（免复述——紧急优先；FR19 附表语义一致）
                 Button {
-                    dial("120")
+                    dial(L10n.emergencyNumber)   // 审查修复：号码按语言区域取 L10n
                 } label: {
                     Label(L10n.sosCall120, systemImage: "phone.fill")
                         .font(.title3.bold())

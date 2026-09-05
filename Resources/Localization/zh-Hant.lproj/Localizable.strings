@@ -1011,3 +1011,9 @@
 "home.capture.library" = "從相簿選擇";
 "home.capture.file" = "從檔案匯入（PDF / 圖片 / Word）";
 "home.capture.noCamera" = "此裝置無相機，請使用相簿或檔案匯入";
+"emergency.manageCard" = "管理卡片內容";
+"emergency.number" = "119";
+"search.sensitiveBadge" = "敏感";
+"doc.detailNotFound" = "該文件已刪除或尚未進入時間軸";
+"assistant.addRecords" = "去補充資料";
+"assistant.consultDoctor" = "諮詢醫生或藥師";

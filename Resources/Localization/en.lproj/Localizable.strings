@@ -1011,3 +1011,9 @@
 "home.capture.library" = "Choose from Photos";
 "home.capture.file" = "Import File (PDF / Image / Word)";
 "home.capture.noCamera" = "No camera on this device — use Photos or Files";
+"emergency.manageCard" = "Manage Card Contents";
+"emergency.number" = "911";
+"search.sensitiveBadge" = "Sensitive";
+"doc.detailNotFound" = "This document was deleted or is not on the timeline yet";
+"assistant.addRecords" = "Add Records";
+"assistant.consultDoctor" = "Consult a Doctor or Pharmacist";

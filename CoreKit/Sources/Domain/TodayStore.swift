@@ -55,9 +55,15 @@ public struct RefillItem: Sendable, Equatable, Identifiable {
     public var medicationName: String
     public var remainingPlanUnits: Double
     public var memberId: UUID
-    public var id: String { "refill-\(medicationName)" }
-    public init(medicationName: String, remainingPlanUnits: Double, memberId: UUID) {
+    /// 批次 ID——审查修复：id 原为 "refill-药名"，同一药品多个活跃批次
+    /// （双轨库存 + FEFO 正是为此设计）时 SwiftUI ForEach id 碰撞，
+    /// 行丢失/未定义行为。纳入 lotId 保证唯一。
+    public var lotId: String
+    public var id: String { "refill-\(lotId)" }
+    public init(medicationName: String, remainingPlanUnits: Double, memberId: UUID,
+                lotId: String) {
         self.medicationName = medicationName; self.remainingPlanUnits = remainingPlanUnits
+        self.lotId = lotId
         self.memberId = memberId
     }
 }

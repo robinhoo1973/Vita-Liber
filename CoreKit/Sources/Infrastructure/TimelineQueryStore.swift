@@ -84,6 +84,7 @@ public actor TimelineQueryStore {
                 let rows = try Row.fetchAll(db, sql: """
                     SELECT id, metric_key, value, unit, origin, measured_at FROM metric_sample
                     WHERE patient_id = ?
+                      AND excluded = 0
                       AND (measured_at < ? OR (measured_at = ? AND id < ?))
                     ORDER BY measured_at DESC, id DESC LIMIT ?
                     """, arguments: [member.uuidString, cursorDate, cursorDate, cursorId, fetchLimit])

@@ -59,7 +59,11 @@ public enum SchemaV2 {
       ocr_text TEXT,                     -- V3.43: OCR 原文检索列
       notes TEXT,                        -- V3.43: 用户笔记检索列
       created_at REAL NOT NULL, updated_at REAL NOT NULL);
-    CREATE UNIQUE INDEX idx_document_sha ON document_file(sha256);
+    -- 审查修复（P0）：UNIQUE → 普通索引。唯一索引与 FR5.6「重复只提示」
+    -- 及 ADR-019 keep/adopt/coexist 语义直接冲突：同一文件二次入库必抛约束
+    -- 错误（且跨成员全表唯一，家人扫同一份报告也炸）；去重由流程层
+    -- duplicates() 查询执行（SchemaMigrations v+1 对老库同步降级）。
+    CREATE INDEX idx_document_sha ON document_file(sha256);
     CREATE INDEX idx_document_patient_type ON document_file(patient_id, doc_type, created_at DESC);
 
     -- 二进制附件
@@ -132,7 +136,8 @@ public enum SchemaV2 {
 
     -- 服药剂量日志（FR9.7 送达状态与用户确认分离）
     CREATE TABLE medication_dose_log (
-      id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, scheduled_for REAL NOT NULL,
+      id TEXT PRIMARY KEY, plan_id TEXT NOT NULL REFERENCES medication_plan(id),
+      scheduled_for REAL NOT NULL,
       dose_units REAL NOT NULL DEFAULT 1,   -- V3.42: 物化时的计划剂量（taper 不失真）
       delivery_state TEXT NOT NULL CHECK(delivery_state IN ('planned','sent','delivered','failed')),
       delivered_at REAL, user_action TEXT CHECK(user_action IN

@@ -74,9 +74,11 @@ struct TimelineDocumentDetailView: View {
 
     /// 纯文本导出：标题 + 时间 + 字段（名称: 值）+ 修订历史。
     /// 不含任何媒体资产引用（BR-007/008：敏感媒体永不出分享面板）。
+    /// 审查修复（BR-003 代码级兜底）：只导出已确认字段——rejected/未确认
+    /// 字段的识别值此前会经 ShareLink 流出设备，「仅 C 级」只写在注释里。
     private var exportText: String {
         var lines: [String] = [entry.title, occurredDateText]
-        for field in fields {
+        for field in fields.filter(\.isConfirmed) {
             lines.append("\(field.displayLabel): \(field.value)")
         }
         if !entry.revisionHistory.isEmpty {

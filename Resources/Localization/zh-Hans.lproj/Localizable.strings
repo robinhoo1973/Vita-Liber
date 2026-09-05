@@ -1011,3 +1011,9 @@
 "home.capture.library" = "从相册选择";
 "home.capture.file" = "从文件导入（PDF / 图片 / Word）";
 "home.capture.noCamera" = "此设备无相机，请使用相册或文件导入";
+"emergency.manageCard" = "管理卡片内容";
+"emergency.number" = "120";
+"search.sensitiveBadge" = "敏感";
+"doc.detailNotFound" = "该文档已删除或尚未进入时间轴";
+"assistant.addRecords" = "去补充资料";
+"assistant.consultDoctor" = "咨询医生或药师";

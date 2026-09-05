@@ -97,7 +97,7 @@ struct GlobalSearchView: View {
                                 router.navigate(to: .documentDetail(hit.refID))
                             } label: {
                                 SearchResultRow(title: hit.title, snippet: hit.snippet,
-                                                badge: hit.isSensitive ? "🔒" : "A",
+                                                badge: hit.isSensitive ? L10n.searchSensitive : nil,
                                                 date: nil)
                             }
                             .accessibilityIdentifier("SP-20.search.doc.\(hit.refID.uuidString)")
@@ -113,7 +113,7 @@ struct GlobalSearchView: View {
                                 // BR-007/008：敏感观察命中仍以锁定媒体态呈现
                                 SearchResultRow(title: obs.description ?? L10n.observationKindName(obs.kind),
                                                 snippet: L10n.searchObsLocked,
-                                                badge: "🔒",
+                                                badge: L10n.searchSensitive,
                                                 date: obs.occurredAt)
                             }
                             .accessibilityIdentifier("SP-20.search.obs.\(obs.id.uuidString)")
@@ -151,19 +151,23 @@ struct GlobalSearchView: View {
 }
 
 /// 搜索结果行：来源徽章 + 标题 + 片段 + 日期（GradeBadge 全仓组件的 P0 形态）
+/// 审查修复：badge 改可选——原对一切非敏感文档硬编码「A 级医院原始」徽章
+/// 属来源等级造假（来源是属性，不是默认可赋值）；敏感命中显示「敏感」徽章。
 private struct SearchResultRow: View {
     let title: String
     let snippet: String
-    let badge: String
+    let badge: String?
     let date: Date?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
-                Text(badge)
-                    .font(.caption2.bold())
-                    .padding(.horizontal, 6).padding(.vertical, 2)
-                    .background(Capsule().fill(Color(.systemGray5)))
+                if let badge {
+                    Text(badge)
+                        .font(.caption2.bold())
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(Capsule().fill(Color(.systemGray5)))
+                }
                 Text(title).font(.subheadline)
                 Spacer()
                 if let date {

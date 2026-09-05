@@ -209,8 +209,9 @@ struct DocumentDetailRouteView: View {
             if let entry = app.timeline.first(where: { $0.id == documentId }) {
                 TimelineDocumentDetailView(entry: entry)
             } else {
+                // 审查修复：原错用趋势页文案「趋势范围不可用」——补专用文案
                 ContentUnavailableView(L10n.docDetailTitle, systemImage: "doc.text.magnifyingglass",
-                                       description: Text(L10n.trendRangeUnavailable))
+                                       description: Text(L10n.docDetailNotFound))
             }
         }
     }

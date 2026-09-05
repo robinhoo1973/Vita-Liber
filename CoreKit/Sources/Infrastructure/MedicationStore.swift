@@ -298,9 +298,21 @@ public actor MedicationStore: DoseSource {
             guard db.changesCount > 0 else {
                 throw StoreError.doseNotFound(lotId.uuidString)
             }
-        }
-        if let auditSink {
-            try await auditSink("inventory.reconcile", "lot=\(lotId.uuidString) count=\(physicalCount) note=\(note ?? "")")
+            // 审查修复：审计与业务同事务（对齐「审计不落半条」纪律）——
+            // 原实现提交后才经 async auditSink 写审计，审计失败即留下
+            // 无审计的库存归真记录。事务内直落 audit_event（与
+            // AuditLogWriter 同表同列），entity_id_hash 脱敏与 writer 一致。
+            if auditSink != nil {
+                let digest = Domain.SHA256.hash(data: Data(lotId.uuidString.utf8))
+                var hex = ""
+                var it = digest.makeIterator()
+                while let byte = it.next() { hex += String(format: "%02x", byte) }
+                try db.execute(sql: """
+                    INSERT INTO audit_event (id, actor_local, action, entity_type, entity_id_hash, at, meta_json)
+                    VALUES (?, 'local', 'inventory.reconcile', 'stock_lot', ?, ?, ?)
+                    """, arguments: [UUID().uuidString, hex, at.timeIntervalSince1970,
+                                     "count=\(physicalCount) note=\(note ?? "")"])
+            }
         }
     }
 

@@ -285,10 +285,13 @@ final class ReminderStore {
         catch { logger.error("恢复计划失败: \(error)") }
     }
 
-    func endPlan(planId: UUID, reason: PlanEndReason) async {
+    func endPlan(planId: UUID, reason: PlanEndReason, patientId: UUID) async {
         do {
             try await composer.endPlan(planId: planId, reason: reason)
-            await refresh(patientId: loadingPatientId ?? UUID())
+            // 审查修复：原 loadingPatientId ?? UUID()——loading 为 nil 时以随机
+            // UUID 刷新，事实过滤后今日时段被清空（用户看到空列表）且污染
+            // loadingPatientId（BR-001 锚点语义破坏）。显式携带 patientId。
+            await refresh(patientId: patientId)
         } catch {
             logger.error("结束计划失败: \(error)")
         }

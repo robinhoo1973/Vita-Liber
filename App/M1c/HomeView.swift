@@ -84,7 +84,8 @@ struct HomeView: View {
             guard let days = item.approxDaysLeft, days <= 7 else { return nil }
             return RefillItem(medicationName: item.medicationName,
                               remainingPlanUnits: item.remainingPlanUnits,
-                              memberId: app.currentPatientId)
+                              memberId: app.currentPatientId,
+                              lotId: item.lotId.uuidString)
         }
     }
 

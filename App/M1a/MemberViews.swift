@@ -135,8 +135,10 @@ struct MemberDetailView: View {
                 .accessibilityIdentifier("FR3.1.member.update")
             }
             // 删除流（FR3.4：影响清单 → 姓名确认 → 计划处置选择）
+            // 审查修复：删除保护闸门改按 ID 判定本人——原以显示串
+            // 「本人」比较，zh-Hant/未来多语言下闸门失效
             Section {
-                if member.relation != "本人" {
+                if member.id != app.owner?.selfPatientId {
                     Button(L10n.memberDelete, role: .destructive) {
                         Task {
                             impact = await app.memberDeletionImpact(patientId: member.id)

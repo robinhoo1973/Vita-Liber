@@ -63,7 +63,9 @@ struct VoiceGuidedProfileRouteView: View {
                 case "note": profile.note = value
                 case "birthDate": profile.birthDate = value
                 default:
-                    // 访谈四步结构化落库待接（技术债），先追加进备注保证零丢失
+                    // 访谈四步结构化落库待接（技术债），先追加进备注保证零丢失；
+                    // 同时记录完成步骤（语言无关持久化，驱动首页完善度进度卡）
+                    app.markVoiceInterviewStep(key)
                     if let section = Self.noteSectionTitle(key) {
                         let line = "【\(section)】\(value)"
                         profile.note = [profile.note, line]

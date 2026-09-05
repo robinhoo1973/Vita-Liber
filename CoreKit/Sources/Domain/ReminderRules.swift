@@ -96,7 +96,11 @@ public enum VoiceReminderRules {
             var comps = calendar.dateComponents([.year], from: now)
             comps.month = parts[0]; comps.day = parts[1]
             var day = calendar.date(from: comps) ?? now
-            if day < now { day = calendar.date(byAdding: .year, value: 1, to: day) ?? day }
+            // 审查修复（P0）：按「天」比较——原以午夜时刻与 now 比较，
+            // 今天/过去的日期恒被顺延一年（语音设定当天提醒系统性失效）
+            if calendar.startOfDay(for: day) < calendar.startOfDay(for: now) {
+                day = calendar.date(byAdding: .year, value: 1, to: day) ?? day
+            }
             guard let hourText = drafts.first(where: { $0.key == "hour" })?.value else { return day }
             guard let hour = Int(hourText), (0...23).contains(hour) else { return nil }
             return calendar.date(bySettingHour: hour, minute: 0, second: 0, of: day)

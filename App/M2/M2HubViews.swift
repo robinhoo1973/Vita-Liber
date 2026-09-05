@@ -93,7 +93,8 @@ struct EmergencyCardHubView: View {
             card: hub.emergencySelected,
             bloodType: hub.bloodType,
             onGuideMedicalID: { UIApplication.shared.open(URL(string: "x-apple-health://") ?? URL(string: "https://support.apple.com/medical-id")!) },
-            onOpenSelector: { showSelector = true })
+            onOpenSelector: { showSelector = true },
+            careMode: app.careMode)
         .task(id: currentPatientId) { await hub.load(patientId: currentPatientId) }
         .sheet(isPresented: $showSelector) {
             NavigationStack {

@@ -6,6 +6,9 @@ import Protocols
 
 /// F10 预约数据仓（actor）：创建/改期/取消 + 分级提醒（FR10.3）+ 状态机（FR10.7）
 public actor AppointmentStore {
+    /// 审查修复新增：目标不存在时抛错（§7 不得静默 return）
+    public enum StoreError: Error, Equatable { case notFound }
+
     private let writer: any DatabaseWriter
     private let scheduler: any ReminderScheduling
 
@@ -42,8 +45,13 @@ public actor AppointmentStore {
         try await cancelReminders(id: id)
         let newId = UUID()
         try await writer.write { db in
+            // 审查修复（§7 不得静默 return）：目标不存在时抛错——原实现
+            // 静默返回一个无对应行的 newId，上层以为改期成功，四级提醒
+            // 被排到不存在的预约上（与 MedicationStore.recordAction 对齐）
             guard let old = try Row.fetchOne(db, sql: "SELECT * FROM appointment WHERE id = ?",
-                                             arguments: [id.uuidString]) else { return }
+                                             arguments: [id.uuidString]) else {
+                throw StoreError.notFound
+            }
             try db.execute(
                 sql: "UPDATE appointment SET status = 'cancelled', cancel_reason = 'rescheduled', updated_at = ? WHERE id = ?",
                 arguments: [now.timeIntervalSince1970, id.uuidString])
@@ -93,8 +101,11 @@ public actor AppointmentStore {
     public func complete(id: UUID, now: Date = Date()) async throws {
         try await cancelReminders(id: id)
         try await writer.write { db in
+            // 审查修复（§7 不得静默 return）：同 reschedule
             guard let apt = try Row.fetchOne(db, sql: "SELECT * FROM appointment WHERE id = ?",
-                                             arguments: [id.uuidString]) else { return }
+                                             arguments: [id.uuidString]) else {
+                throw StoreError.notFound
+            }
             try db.execute(
                 sql: "UPDATE appointment SET status = 'completed', updated_at = ? WHERE id = ?",
                 arguments: [now.timeIntervalSince1970, id.uuidString])

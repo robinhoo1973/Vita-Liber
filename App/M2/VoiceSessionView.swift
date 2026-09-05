@@ -179,7 +179,13 @@ struct VoiceSessionView: View {
         }
         .padding(16)
         .accessibilityIdentifier("F19.session.view")
-        .onAppear { session.start() }
+        .onAppear {
+            session.start()
+            // 审查修复：进入会话即加载 hub 数据——原缺此加载，未先访问
+            // 药箱/急救卡页时「药还剩多少/联系人」全部报空（关怀模式
+            // 核心场景空答）
+            Task { await hub.load(patientId: app.currentPatientId) }
+        }
         .onChange(of: scenePhase) { _, phase in
             // FR19.1：退出后台立即停止监听（不结束会话，回前台可继续）
             if phase == .background {
@@ -425,9 +431,11 @@ struct VoiceSessionView: View {
 
     private func performCall(_ object: String) {
         // FR19.5：联系人名→号码解析（急救卡已确认联系人）；
-        // 120 免复述（响铃倒计时 5 秒可取消由系统拨号确认承担）
-        if object == "120" {
-            if let url = URL(string: "tel://120") { openURL(url) }
+        // 急救号码免复述（响铃倒计时 5 秒可取消由系统拨号确认承担）。
+        // 审查修复：号码按语言区域取 L10n（120/119/911），不再硬编码大陆 120
+        let emergency = L10n.emergencyNumber
+        if object == emergency {
+            if let url = URL(string: "tel://\(emergency)") { openURL(url) }
             return
         }
         let contact = hub.emergencySelected.contacts.first { $0.title.contains(object) }

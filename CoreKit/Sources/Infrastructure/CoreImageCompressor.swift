@@ -12,8 +12,11 @@ import Protocols
 /// - 缩略图：`CIPixelate`/`CIGaussianBlur` + ImageIO 降采样（避免全量解码）。
 /// - 敏感媒体链（BR-007/008）：LAContext 生物识别/密码，敏感缩略图强制模糊。
 public final class CoreImageCompressor: ImageCompressing, SensitiveMediaProtection, @unchecked Sendable {
-    private let laContext = LAContext()
+    /// 审查修复：不再复用 LAContext——复用旧 context 携带取消/锁定残留，
+    /// 后续认证静默失败（与 LocalAuthGateUnlocker 同仓教训一致）；
+    /// 敏感媒体解锁是 BR-007/008 红线路径，每次认证独立 context。
     private var protectedMedia: Set<String> = []
+    private let mediaLock = NSLock()
 
     public init() {}
 
@@ -50,7 +53,7 @@ public final class CoreImageCompressor: ImageCompressing, SensitiveMediaProtecti
         guard policy.requireAuthForOriginal else { return data }
 
         let reason = "访问敏感医疗影像原图"
-        let success = try await laContext.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)
+        let success = try await LAContext().evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)
         guard success else { throw CompressError.authRequiredForOriginal }
         return data
     }
@@ -58,12 +61,18 @@ public final class CoreImageCompressor: ImageCompressing, SensitiveMediaProtecti
     // MARK: - SensitiveMediaProtection
 
     public func isProtected(_ mediaID: String) -> Bool {
-        protectedMedia.contains(mediaID)
+        mediaLock.lock()
+        defer { mediaLock.unlock() }
+        return protectedMedia.contains(mediaID)
     }
 
     public func requestAccess(_ mediaID: String, reason: String) async throws -> Bool {
-        let success = try await laContext.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)
-        if success { protectedMedia.insert(mediaID) }
+        let success = try await LAContext().evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)
+        if success {
+            mediaLock.lock()
+            protectedMedia.insert(mediaID)
+            mediaLock.unlock()
+        }
         return success
     }
 }

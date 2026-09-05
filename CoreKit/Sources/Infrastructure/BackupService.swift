@@ -79,7 +79,10 @@ public actor BackupService {
     }
 
     static func sha256(_ data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        // 审查修复（P0）：显式限定 CryptoKit.SHA256——同名 Domain.SHA256（非泛型）
+        // 在重载决议中胜出，其 Digest 未声明 Sequence 一致，.map 无法编译
+        // （Apple 平台编译失败，Linux L0 因 #if 守卫扫不到）
+        CryptoKit.SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 }
 #endif

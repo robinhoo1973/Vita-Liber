@@ -66,9 +66,14 @@ public enum NumberNormalizer {
         if chars.contains(where: { $0.isNumber }) && !chars.contains(where: { cnDigits[$0] != nil }) {
             return text
         }
-        // 纯中文数字序列归一化
+        // 纯中文数字序列归一化。
+        // 审查修复（P0 医疗数值）：口语省位形态「一百二」= 120（百位后的
+        // 单数词按位权 = 上一个单位的 1/10）；「一百零二」= 102（「零」
+        // 打断位权继承，其后数词按个位）。原实现两者都归一成 102——
+        // 血压「一百二」被静默写入 102 mmHg 且高置信。
         var total = 0
         var section = 0
+        var lastUnit = 1
         var hasValue = false
         for ch in chars {
             if let d = cnDigits[ch] {
@@ -78,11 +83,15 @@ public enum NumberNormalizer {
                 section = (section == 0 ? 1 : section) * u
                 total += section
                 section = 0
+                lastUnit = u
+            } else if ch == "零" {
+                lastUnit = 1   // 「零」后数词按个位（「一百零二」= 102）
             } else if ch == "." || ch == "点" {
                 return text   // 混合形态不做归一（交由确认卡）
             }
         }
-        total += section
+        // 尾部剩余数词：前一单位 ≥10 且无「零」隔断 → 按 1/10 位权（一百二=120）
+        total += section * (lastUnit >= 10 ? lastUnit / 10 : 1)
         return hasValue ? String(total) : text
     }
 }

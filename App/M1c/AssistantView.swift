@@ -226,10 +226,12 @@ struct AnswerBodyView: View {
                 Text(AssistantStore.refusalDetail(r.reason)).font(.body)
                 HStack(spacing: 8) {
                     ForEach(r.actions, id: \.rawValue) { action in
-                        Button {
-                            // 动作跳转：去补充资料 / 咨询医生药师（占位路由，M1.5 接 AppRoute）
-                        } label: {
-                            Text(action == .addRecords ? "去补充资料" : "咨询医生或药师")
+                        // 审查修复：原空动作死按钮——接真实路由
+                        // （补充资料→成员管理；咨询医生或药师→帮助与诊断）
+                        NavigationLink(value: action == .addRecords
+                                       ? AppRoute.memberList : AppRoute.helpCenter) {
+                            Text(action == .addRecords
+                                 ? L10n.assistant_addRecords : L10n.assistant_consultDoctor)
                                 .frame(minHeight: 44)
                         }
                         .buttonStyle(.bordered)

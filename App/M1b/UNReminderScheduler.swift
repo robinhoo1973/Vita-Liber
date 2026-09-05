@@ -15,8 +15,8 @@ actor UNReminderScheduler: ReminderScheduling {
 
     func schedule(dose notifyId: String, at fireAt: Date, route: AppRoute?) async throws {
         let content = UNMutableNotificationContent()
-        content.title = NSLocalizedString("reminder.notification.title", comment: "")
-        content.body = NSLocalizedString("reminder.notification.body", comment: "")
+        content.title = L10n.reminderNotificationTitle
+        content.body = L10n.reminderNotificationBody
         // §5.45 通知点击→路由映射契约：route 以 Codable 数据写入 userInfo
         if let route {
             // try?-ok: AppRoute 为 Foundation 标量枚举编码，无抛错路径；编码失败

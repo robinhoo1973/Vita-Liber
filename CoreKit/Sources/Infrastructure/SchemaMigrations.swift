@@ -201,6 +201,14 @@ public enum SchemaMigrations {
              -- 删除/对账时按父级清理，不依赖命名约定推断）。
              ALTER TABLE asset ADD COLUMN parent_id TEXT REFERENCES asset(id);
              """),
+        // 审查修复（P0）：document_sha 唯一索引降级为普通索引（与 FR5.6 重复
+        // 共存语义 / ADR-019 coexist 冲突）。幂等：DROP IF EXISTS +
+        // CREATE IF NOT EXISTS，全新库（baseline 已含普通索引）重复执行安全。
+        Step(version: 11, name: "document-sha-nonunique",
+             sql: """
+             DROP INDEX IF EXISTS idx_document_sha;
+             CREATE INDEX IF NOT EXISTS idx_document_sha ON document_file(sha256);
+             """),
     ]
 
     /// 全新库建库后应落到的版本号
