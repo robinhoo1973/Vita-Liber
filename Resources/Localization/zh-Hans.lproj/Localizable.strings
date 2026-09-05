@@ -121,6 +121,7 @@
 
 "inventory.reconcileTitle" = "修正 %@ 余量";
 "inventory.reportTitle" = "消耗差异月报";
+"inventory.monthlyReportFmt" = "计划 %d 次 / 确认 %d 次 / 跳过 %d 次 / 未确认 %d 次";
 "inventory.reportBlocked" = "月报生成异常，已拦截显示";
 "inventory.reportFact" = "本报告只呈现计划与确认次数的事实，不构成任何医疗评价。";
 "emergency.title" = "紧急信息卡";
@@ -975,6 +976,13 @@
 "export.finishedFmt" = "已导出 %d 条记录 · %d 页";
 "export.share" = "分享 / 打开";
 "export.titleFmt" = "健康档案导出 · %@";
+"export.recordCount" = "共 %d 条记录";
+"export.disclaimer" = "本导出仅呈现你确认过的记录，不构成医疗建议。紧急情况请拨打 %@。";
+"export.kind.record" = "资料";
+"export.kind.observation" = "观察";
+"export.kind.plan" = "用药";
+"export.kind.encounter" = "就诊";
+
 "backup.reminder.title" = "您有一条健康提醒";
 "backup.reminder.body" = "该备份了：点击查看上次备份时间并执行备份";
 

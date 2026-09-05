@@ -64,10 +64,8 @@ public struct InventoryMonthlyReport: Sendable, Equatable {
     public var skippedDoses: Int
     public var missedDoses: Int
 
-    /// 唯一允许的月报句式（纯事实，禁止任何评价词）
-    public var statement: String {
-        "计划 \(plannedDoses) 次 / 确认 \(confirmedDoses) 次 / 跳过 \(skippedDoses) 次 / 未确认 \(missedDoses) 次"
-    }
+    /// V3.68：句式由 App 层经 L10n.inventoryMonthlyReportFmt 渲染
+    /// （纯事实，禁止任何评价词——BR-006 负清单由 InventoryReportRules 把关）。
 }
 
 public enum InventoryReportRules {

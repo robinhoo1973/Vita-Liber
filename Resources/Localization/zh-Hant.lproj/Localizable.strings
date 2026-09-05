@@ -121,6 +121,7 @@
 
 "inventory.reconcileTitle" = "修正 %@ 餘量";
 "inventory.reportTitle" = "消耗差異月報";
+"inventory.monthlyReportFmt" = "計畫 %d 次 / 確認 %d 次 / 跳過 %d 次 / 未確認 %d 次";
 "inventory.reportBlocked" = "月報產生異常，已攔截顯示";
 "inventory.reportFact" = "本報告只呈現計畫與確認次數的事實，不構成任何醫療評價。";
 "emergency.title" = "緊急資訊卡";
@@ -975,6 +976,13 @@
 "export.finishedFmt" = "已匯出 %d 筆記錄 · %d 頁";
 "export.share" = "分享 / 開啟";
 "export.titleFmt" = "健康檔案匯出 · %@";
+"export.recordCount" = "共 %d 條記錄";
+"export.disclaimer" = "本匯出僅呈現你確認過的記錄，不構成醫療建議。緊急情況請撥打 %@。";
+"export.kind.record" = "資料";
+"export.kind.observation" = "觀察";
+"export.kind.plan" = "用藥";
+"export.kind.encounter" = "就診";
+
 "backup.reminder.title" = "您有一條健康提醒";
 "backup.reminder.body" = "該備份了：點擊查看上次備份時間並執行備份";
 

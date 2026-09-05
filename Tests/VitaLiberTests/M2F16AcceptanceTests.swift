@@ -71,14 +71,18 @@ final class M2F16AcceptanceTests: XCTestCase {
                                     origin: .device, measuredAt: Date())
         let event = try await guidelines.evaluateAndRecord(reading: reading, patientId: patient)
         XCTAssertEqual(event.severity, .L3, "17.2 超出 l3High=16.7 应定 L3")
-        XCTAssertNil(WordingBlacklist.violation(in: event.card.facts),
-                     "落库事实句式过措辞负清单（一票否决）")
-        XCTAssertNotNil(event.card.sourceRef)
+        // V3.68：证据卡结构化——事实为类型化字段（metricKey/value/unit/origin），
+        // 措辞负清单在 App 层模板保证；落库事实数据本身无文案可违规
+        XCTAssertEqual(event.card.metricKey, "glucose")
+        XCTAssertEqual(event.card.value, 17.2)
+        XCTAssertEqual(event.card.path, .retestNow, "L3 建议路径 = 立即复测")
+        XCTAssertNotNil(event.card.sourceTitle, "信源书目随卡落库")
 
         let history = try await guidelines.history(patientId: patient)
         XCTAssertEqual(history.count, 1)
         XCTAssertEqual(history[0].severity, .L3)
-        XCTAssertEqual(history[0].card.facts, event.card.facts)
+        XCTAssertEqual(history[0].card.metricKey, event.card.metricKey)
+        XCTAssertEqual(history[0].card.value, event.card.value)
         // 成员隔离：他人查不到
         let others = try await guidelines.history(patientId: UUID())
         XCTAssertTrue(others.isEmpty, "BR-001：跨成员预警历史必须隔离")

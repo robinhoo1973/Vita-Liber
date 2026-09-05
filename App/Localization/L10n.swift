@@ -155,6 +155,10 @@ enum L10n {
     static func lotUnitName(_ kind: String) -> String { t("lot.unit.\(kind)") }
     static var inventory_reconcileTitle: String { t("inventory.reconcileTitle") }
     static var inventory_reportTitle: String { t("inventory.reportTitle") }
+    // FR9.8.3 差异月报句式（V3.68：Domain 只出数值，本层渲染）
+    static func inventoryMonthlyReportFmt(_ planned: Int, _ confirmed: Int, _ skipped: Int, _ missed: Int) -> String {
+        String(format: t("inventory.monthlyReportFmt"), planned, confirmed, skipped, missed)
+    }
     static var inventory_reportBlocked: String { t("inventory.reportBlocked") }
     static var inventory_reportFact: String { t("inventory.reportFact") }
     static var emergency_title: String { t("emergency.title") }
@@ -848,7 +852,8 @@ enum L10n {
         "lot.storage.other",
         "inventory.monthlySuffix", "inventory.noPlanHint", "inventory.physical", "inventory.reconcileConfirm",
         "inventory.reconcileEqual", "inventory.reconcileLess", "inventory.reconcileMore", "inventory.reconcileTitle",
-        "inventory.reportBlocked", "inventory.reportFact", "inventory.reportTitle", "inventory.tier14",
+        "inventory.reportBlocked", "inventory.reportFact", "inventory.reportTitle",
+        "inventory.monthlyReportFmt", "inventory.tier14",
         "inventory.tier3", "inventory.tier7", "inventory.title", "member.add",
         "member.addedHint", "member.birthDatePlaceholder", "member.current", "member.namePlaceholder",
         "member.quotaHint", "member.relation", "member.save", "member.switch",
@@ -1122,7 +1127,12 @@ enum L10n {
         "export.includeNotes", "export.watermark", "export.privacyHint", "export.start",
         "export.unlockReason", "export.progressFmt", "export.cancel", "export.cancelled",
         "export.failed", "export.retry", "export.finishedFmt", "export.share", "export.titleFmt",
-        "backup.reminder.title", "backup.reminder.body",
+        "export.recordCount",
+        "export.disclaimer",
+        "export.kind.record",
+        "export.kind.observation",
+        "export.kind.plan",
+        "export.kind.encounter", "backup.reminder.title", "backup.reminder.body",
         "auth.ocr", "auth.ai", "auth.family", "auth.sharing", "auth.cloudBackup",
         "auth.anonymized", "auth.health", "auth.voiceDictation", "settings.dataLifecycle",
         "pref.group.reminders", "pref.group.display", "pref.group.voice",
@@ -1773,6 +1783,21 @@ enum L10n {
     static func exportFinished(_ n: Int, _ pages: Int) -> String { String(format: t("export.finishedFmt"), n, pages) }
     static var exportShare: String { t("export.share") }
     static func exportTitle(_ s: String) -> String { String(format: t("export.titleFmt"), s) }
+    // FR13.2 PDF 封面文案（V3.68：Infrastructure 不拼中文，本层注入）
+    static func exportRecordCount(_ count: Int) -> String { String(format: t("export.recordCount"), count) }
+    static func exportDisclaimer(_ emergency: String) -> String { String(format: t("export.disclaimer"), emergency) }
+    static func exportKindName(_ kind: String) -> String {
+        switch kind {
+        case "record": return t("export.kind.record")
+        case "observation": return t("export.kind.observation")
+        case "plan": return t("export.kind.plan")
+        case "encounter": return t("export.kind.encounter")
+        default: return kind   // 观察类型原文（未知回落不臆造）
+        }
+    }
+    // FR13.2 PDF 封面文案（V3.68：Infrastructure 不拼中文，本层注入）
+    static func exportRecordCount(_ count: Int) -> String { String(format: t("export.recordCount"), count) }
+    static func exportDisclaimer(_ emergency: String) -> String { String(format: t("export.disclaimer"), emergency) }
     static var backupReminderTitle: String { t("backup.reminder.title") }
     static var backupReminderBody: String { t("backup.reminder.body") }
 

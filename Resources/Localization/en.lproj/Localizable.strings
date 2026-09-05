@@ -121,6 +121,7 @@
 
 "inventory.reconcileTitle" = "Correct amount for %@";
 "inventory.reportTitle" = "Consumption report";
+"inventory.monthlyReportFmt" = "Planned %d / confirmed %d / skipped %d / unconfirmed %d";
 "inventory.reportBlocked" = "Report generation error — display blocked";
 "inventory.reportFact" = "This report states planned vs. confirmed counts only, and is not medical advice.";
 "emergency.title" = "Emergency card";
@@ -975,6 +976,13 @@
 "export.finishedFmt" = "Exported %d records · %d pages";
 "export.share" = "Share / Open";
 "export.titleFmt" = "Health archive export · %@";
+"export.recordCount" = "%d record(s)";
+"export.disclaimer" = "This export contains only records you confirmed and is not medical advice. In an emergency call %@.";
+"export.kind.record" = "Document";
+"export.kind.observation" = "Observation";
+"export.kind.plan" = "Medication";
+"export.kind.encounter" = "Visit";
+
 "backup.reminder.title" = "You have a health reminder";
 "backup.reminder.body" = "Time to back up: tap to check the last backup and run one";
 

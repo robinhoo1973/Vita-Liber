@@ -28,6 +28,12 @@ public actor PDFExportService {
         /// 免责声明中的急救号码（120/119/911 由 App 层按区域经 L10n 注入——
         /// Infrastructure 不持有区域知识，默认 120 仅供无 App 层的调用方）
         public var emergencyNumber: String
+        /// V3.68 封面文案（Infrastructure 不拼中文）：
+        /// 记录数标签与免责全文由 App 层经 L10n 注入；空免责不绘制。
+        public var countLabel: @Sendable (Int) -> String
+        public var disclaimer: String
+        /// 记录类型名（资料/观察/用药/就诊）——App 层经 L10n 注入
+        public var kindLabel: @Sendable (String) -> String
         public enum ScopeKind: String, Sendable {
             case all, member, dateRange, docType, doctorSummary   // 健康问题/就诊维度随挂接数据
         }
@@ -35,11 +41,16 @@ public actor PDFExportService {
                     dateTo: Date? = nil, docTypes: Set<String>? = nil,
                     includeNotes: Bool = true, watermark: Bool = true,
                     emergencyNumber: String = "120",
+                    countLabel: @escaping @Sendable (Int) -> String = { "\($0)" },
+                    disclaimer: String = "",
+                    kindLabel: @escaping @Sendable (String) -> String = { $0 },
                     scopeKind: ScopeKind = .all) {
             self.patientId = patientId; self.title = title
             self.dateFrom = dateFrom; self.dateTo = dateTo
             self.docTypes = docTypes; self.includeNotes = includeNotes
             self.watermark = watermark; self.emergencyNumber = emergencyNumber
+            self.countLabel = countLabel; self.disclaimer = disclaimer
+            self.kindLabel = kindLabel
             self.scopeKind = scopeKind
         }
     }
@@ -83,7 +94,7 @@ public actor PDFExportService {
                 // 与文件头纪律与 PDF 免责声明（仅呈现你确认过的记录）直接矛盾
                 let confirmed = (doc.fields ?? []).filter { $0.isConfirmed }
                 let detail = confirmed.map { "\($0.displayLabel): \($0.value)" }.joined(separator: "\n")
-                records.append(("资料", doc.title, Date(timeIntervalSince1970: doc.occurredAt), detail))
+                records.append((request.kindLabel("record"), doc.title, Date(timeIntervalSince1970: doc.occurredAt), detail))
             }
             // 观察记录（描述为 C 级自述文本；敏感媒体不出正文）
             let obsRows = try Row.fetchAll(db, sql: """
@@ -91,7 +102,7 @@ public actor PDFExportService {
                 WHERE patient_id = ? ORDER BY occurred_at ASC
                 """, arguments: [request.patientId.uuidString])
             for row in obsRows {
-                records.append(("观察", L10nFallback.observationTitle(row["kind"] as String),
+                records.append((request.kindLabel("observation"), request.kindLabel(row["kind"] as String),
                                 Date(timeIntervalSince1970: (row["occurred_at"] as Double?) ?? 0),
                                 (row["description"] as String?) ?? ""))
             }
@@ -102,7 +113,7 @@ public actor PDFExportService {
                 WHERE p.patient_id = ? ORDER BY p.start_date ASC
                 """, arguments: [request.patientId.uuidString])
             for row in planRows {
-                records.append(("用药", row["generic_name"] as String,
+                records.append((request.kindLabel("plan"), row["generic_name"] as String,
                                 Date(timeIntervalSince1970: row["start_date"] as Double),
                                 "\(row["spec"] as String? ?? "") · \(row["status"] as String)"))
             }
@@ -112,7 +123,7 @@ public actor PDFExportService {
                 WHERE patient_id = ? ORDER BY date ASC
                 """, arguments: [request.patientId.uuidString])
             for row in encRows {
-                records.append(("就诊", "\(row["hospital"] as String? ?? "") · \(row["kind"] as String)",
+                records.append((request.kindLabel("encounter"), "\(row["hospital"] as String? ?? "") · \(row["kind"] as String)",
                                 Date(timeIntervalSince1970: row["date"] as Double),
                                 (row["diagnosis_text"] as String?) ?? ""))
             }
@@ -161,10 +172,11 @@ public actor PDFExportService {
         (request.title as NSString).draw(at: CGPoint(x: 60, y: 120), withAttributes: [.font: titleFont])
         let rangeText = "\(request.dateFrom?.formatted(date: .abbreviated, time: .omitted) ?? "—") ~ \(request.dateTo?.formatted(date: .abbreviated, time: .omitted) ?? "—")"
         (rangeText as NSString).draw(at: CGPoint(x: 60, y: 180), withAttributes: [.font: UIFont.systemFont(ofSize: 14)])
-        ("\(count) 条记录" as NSString).draw(at: CGPoint(x: 60, y: 210), withAttributes: [.font: UIFont.systemFont(ofSize: 14)])
-        let disclaimer = "本导出仅呈现你确认过的记录，不构成医疗建议。紧急情况请拨打 \(request.emergencyNumber)。"
-        let rect = CGRect(x: 60, y: 720, width: bounds.width - 120, height: 80)
-        (disclaimer as NSString).draw(in: rect, withAttributes: [.font: UIFont.systemFont(ofSize: 11)])
+        (request.countLabel(count) as NSString).draw(at: CGPoint(x: 60, y: 210), withAttributes: [.font: UIFont.systemFont(ofSize: 14)])
+        if !request.disclaimer.isEmpty {
+            let rect = CGRect(x: 60, y: 720, width: bounds.width - 120, height: 80)
+            (request.disclaimer as NSString).draw(in: rect, withAttributes: [.font: UIFont.systemFont(ofSize: 11)])
+        }
     }
 
     private func drawTOC(_ ctx: UIGraphicsPDFRendererContext, records: [(kind: String, title: String, at: Date, detail: String)]) {
@@ -196,8 +208,4 @@ public actor PDFExportService {
     }
 }
 
-/// Infrastructure 不可 import App L10n——观察类型展示名经此桥接（视图层不复用）。
-enum L10nFallback {
-    static func observationTitle(_ kind: String) -> String { kind }
-}
 #endif

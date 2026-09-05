@@ -208,13 +208,14 @@ struct InventoryMonthlyReportView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(L10n.inventoryMonthlySuffix(report.periodStart.formatted(.dateTime.month(.wide).year()))).font(.headline)
-            if InventoryReportRules.violation(in: report.statement) != nil {
+            let statement = L10n.inventoryMonthlyReportFmt(report.plannedDoses, report.confirmedDoses, report.skippedDoses, report.missedDoses)
+            if InventoryReportRules.violation(in: statement) != nil {
                 // 一票否决路径：违反负清单的文案不得上屏（BR-006 延伸）
                 Text(L10n.inventory_reportBlocked)
                     .foregroundStyle(Color("grade-d", bundle: .main))
                     .accessibilityIdentifier("FR9.8.report.blocked")
             } else {
-                Text(report.statement)
+                Text(statement)
                     .font(.title3)
                     .accessibilityIdentifier("FR9.8.report.statement")
                 Text(L10n.inventory_reportFact)
