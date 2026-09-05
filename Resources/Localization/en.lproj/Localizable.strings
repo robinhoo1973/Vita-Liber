@@ -1002,3 +1002,12 @@
 "home.disclaimer" = "On-device medical records · Offline · No diagnosis";
 "timeline.quickEntry" = "Shortcuts";
 "settings.offlineNote" = "On-device mode · No cloud account";
+"voice.field.date" = "Date";
+"voice.field.hour" = "Time";
+"voice.field.repeat" = "Repeat";
+"voice.field.content" = "Content";
+"voice.confirm.fillHint" = "Not recognized — tap to fill in";
+"voiceguide.saved" = "Reminder set";
+"home.capture.library" = "Choose from Photos";
+"home.capture.file" = "Import File (PDF / Image / Word)";
+"home.capture.noCamera" = "No camera on this device — use Photos or Files";

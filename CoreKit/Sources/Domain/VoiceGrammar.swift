@@ -25,10 +25,17 @@ public struct MetricGrammarRule: Sendable, Equatable {
 
 public struct ReminderGrammarRule: Sendable, Equatable {
     public var kind: String                // followUp / examPrep / selfTest / medLog / any
+    /// 相对日期短语（明天/明早/后天/今天）→ 抽取键 "time"
     public var timePatterns: [String]
+    /// 小时短语（\d+点 / 上下午）→ 抽取键 "hour"
+    public var hourPatterns: [String]
+    /// 具体日期（\d+月\d+[日号]）→ 抽取键 "date"
+    public var datePatterns: [String]
     public var repeatPatterns: [String]
-    public init(kind: String, timePatterns: [String], repeatPatterns: [String]) {
+    public init(kind: String, timePatterns: [String], repeatPatterns: [String],
+                hourPatterns: [String] = [], datePatterns: [String] = []) {
         self.kind = kind; self.timePatterns = timePatterns; self.repeatPatterns = repeatPatterns
+        self.hourPatterns = hourPatterns; self.datePatterns = datePatterns
     }
 }
 
@@ -130,28 +137,74 @@ public enum VoiceStructuringEngine {
     public static func extractReminder(_ transcript: String,
                                        rules: [ReminderGrammarRule]) -> [FieldDraft] {
         var drafts: [FieldDraft] = []
+        // TestFlight 实测修复（双条提醒 + 字段契约错位）：
+        // ① 每个字段类别全局只取首个命中——此前对每个 rule 都 append，两条规则
+        //    同时命中即产出重复字段（确认卡显示两个「时间」=「两个提醒信息」）；
+        // ② 小时短语此前被抽成 "time" 键，resolveDate 只认相对日期短语，
+        //    「8点」类表达必然解析失败——现分离为 "hour"/"date"/"time" 三键。
+        var hasDate = false, hasHour = false, hasRepeat = false
         for rule in rules {
-            for pattern in rule.timePatterns {
-                guard let regex = compiled(pattern) else { continue }
-                let range = NSRange(transcript.startIndex..<transcript.endIndex, in: transcript)
-                if let match = regex.firstMatch(in: transcript, range: range),
-                   match.numberOfRanges > 1,
-                   let vRange = Range(match.range(at: 1), in: transcript) {
-                    drafts.append(FieldDraft(key: "time",
-                                             value: NumberNormalizer.normalize(String(transcript[vRange])),
-                                             confidence: 0.9))
-                    break
+            if !hasDate {
+                for pattern in rule.timePatterns {
+                    guard let regex = compiled(pattern) else { continue }
+                    let range = NSRange(transcript.startIndex..<transcript.endIndex, in: transcript)
+                    if let match = regex.firstMatch(in: transcript, range: range),
+                       match.numberOfRanges > 1,
+                       let vRange = Range(match.range(at: 1), in: transcript) {
+                        drafts.append(FieldDraft(key: "time",
+                                                 value: NumberNormalizer.normalize(String(transcript[vRange])),
+                                                 confidence: 0.9))
+                        hasDate = true
+                        break
+                    }
                 }
             }
-            for pattern in rule.repeatPatterns {
-                guard let regex = compiled(pattern) else { continue }
-                let range = NSRange(transcript.startIndex..<transcript.endIndex, in: transcript)
-                if let match = regex.firstMatch(in: transcript, range: range),
-                   match.numberOfRanges > 1,
-                   let vRange = Range(match.range(at: 1), in: transcript) {
-                    drafts.append(FieldDraft(key: "repeat", value: String(transcript[vRange]),
-                                             confidence: 0.85))
-                    break
+            if !hasDate {
+                for pattern in rule.datePatterns {
+                    guard let regex = compiled(pattern) else { continue }
+                    let range = NSRange(transcript.startIndex..<transcript.endIndex, in: transcript)
+                    if let match = regex.firstMatch(in: transcript, range: range),
+                       match.numberOfRanges > 2,
+                       let mRange = Range(match.range(at: 1), in: transcript),
+                       let dRange = Range(match.range(at: 2), in: transcript) {
+                        // 具体日期 "date" 键：value 存 "月 日" 双段，resolveDate 解析
+                        drafts.append(FieldDraft(key: "date",
+                                                 value: "\(String(transcript[mRange])) \(String(transcript[dRange]))",
+                                                 confidence: 0.95))
+                        hasDate = true
+                        break
+                    }
+                }
+            }
+            if !hasHour {
+                for pattern in rule.hourPatterns {
+                    guard let regex = compiled(pattern) else { continue }
+                    let range = NSRange(transcript.startIndex..<transcript.endIndex, in: transcript)
+                    if let match = regex.firstMatch(in: transcript, range: range),
+                       match.numberOfRanges > 1,
+                       let vRange = Range(match.range(at: 1), in: transcript) {
+                        let raw = NumberNormalizer.normalize(String(transcript[vRange]))
+                        // FR10.2 绝不猜时间：「上/下午」等无具体点的短语不产出 hour
+                        // （由 UI 引导补充），只落数值时刻
+                        guard Int(raw) != nil else { continue }
+                        drafts.append(FieldDraft(key: "hour", value: raw, confidence: 0.8))
+                        hasHour = true
+                        break
+                    }
+                }
+            }
+            if !hasRepeat {
+                for pattern in rule.repeatPatterns {
+                    guard let regex = compiled(pattern) else { continue }
+                    let range = NSRange(transcript.startIndex..<transcript.endIndex, in: transcript)
+                    if let match = regex.firstMatch(in: transcript, range: range),
+                       match.numberOfRanges > 1,
+                       let vRange = Range(match.range(at: 1), in: transcript) {
+                        drafts.append(FieldDraft(key: "repeat", value: String(transcript[vRange]),
+                                                 confidence: 0.85))
+                        hasRepeat = true
+                        break
+                    }
                 }
             }
         }

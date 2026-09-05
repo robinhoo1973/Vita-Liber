@@ -76,6 +76,8 @@ struct VoiceConfirmSheet: View {
 
     @State private var askAnswered = false
     @State private var didAutoSpeak = false
+    /// TestFlight 实测修复：字段可编辑——未识别/识别错的字段由用户在卡上直接补全
+    @State private var edits: [UUID: String] = [:]
 
     /// 回读脚本 = 已确认字段（BR-003：未确认内容不得被当作事实播报）。
     /// 确认卡呈现时字段尚未确认，故按「即将保存的取值」构造预览脚本：
@@ -91,6 +93,24 @@ struct VoiceConfirmSheet: View {
         return false
     }
 
+    private func binding(for field: CandidateField) -> Binding<String> {
+        Binding(
+            get: { edits[field.id] ?? field.value },
+            set: { edits[field.id] = $0 })
+    }
+
+    /// 字段友好标签（确认卡展示用；Domain 键保持英文不兼职 UI 串）
+    private func label(for key: String) -> String {
+        switch key {
+        case "time": return L10n.voiceFieldDate
+        case "date": return L10n.voiceFieldDate
+        case "hour": return L10n.voiceFieldHour
+        case "repeat": return L10n.voiceFieldRepeat
+        case "content": return L10n.voiceFieldContent
+        default: return key
+        }
+    }
+
     private var bystanderWarning: Bool {
         if case .readAloud(let warn) = decision { return warn }
         return false
@@ -104,11 +124,17 @@ struct VoiceConfirmSheet: View {
                 Spacer()
             }
 
-            // 字段列表：一律「待确认」态呈现（BR-003 未确认不入正式区）
+            // 字段列表：一律「待确认」态呈现（BR-003 未确认不入正式区）；
+            // 值可编辑（未识别/识别错的字段在卡上直接补全，业界确认卡惯例）
             ForEach(set.fields) { field in
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(field.displayLabel).font(.caption).foregroundStyle(.secondary)
-                    Text(field.value).font(.body)
+                    Text(label(for: field.key))
+                        .font(.caption).foregroundStyle(.secondary)
+                    TextField(field.value.isEmpty ? L10n.voiceConfirmFillHint : field.value,
+                              text: binding(for: field), axis: .vertical)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.body)
+                        .accessibilityIdentifier("FR17.13.confirm.field.edit")
                     HStack(spacing: 6) {
                         Text(L10n.voiceConfirmPending)
                             .font(.caption2)
@@ -182,7 +208,13 @@ struct VoiceConfirmSheet: View {
                 Spacer()
                 Button(L10n.voiceConfirmSave) {
                     var confirmed = set
-                    for i in confirmed.fields.indices { _ = confirmed.fields[i].confirm() }
+                    for i in confirmed.fields.indices {
+                        let id = confirmed.fields[i].id
+                        if let edited = edits[id], !edited.trimmingCharacters(in: .whitespaces).isEmpty {
+                            confirmed.fields[i].value = edited   // 用户在卡上补全的值生效
+                        }
+                        _ = confirmed.fields[i].confirm()
+                    }
                     onConfirm(confirmed)
                 }
                 .buttonStyle(.borderedProminent)

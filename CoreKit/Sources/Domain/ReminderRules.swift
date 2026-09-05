@@ -82,11 +82,26 @@ public enum VoiceReminderRules {
         }
     }
 
-    /// 草稿集 → 具体触发时刻。`time` 字段给日期，`hour` 字段（若有）给时刻；
+    /// 草稿集 → 具体触发时刻。日期来源三选一：`date`（具体月日）优先、
+    /// `time`（相对短语），`hour` 字段（若有）给时刻；
     /// 任一环节无法落具体值即返回 nil，由 UI 要求补充——**绝不猜时间**，
     /// 猜错的提醒比没有提醒更糟（用户以为已设好而错过）。
     public static func resolveDate(from drafts: [FieldDraft], now: Date,
                                    calendar: Calendar = .current) -> Date? {
+        // 具体日期（"9 10" = 9月10日）优先——年份取当前（已过则顺延一年）
+        if let dateValue = drafts.first(where: { $0.key == "date" })?.value {
+            let parts = dateValue.split(separator: " ").compactMap { Int($0) }
+            guard parts.count == 2, (1...12).contains(parts[0]),
+                  (1...31).contains(parts[1]) else { return nil }
+            var comps = calendar.dateComponents([.year], from: now)
+            comps.month = parts[0]; comps.day = parts[1]
+            var day = calendar.date(from: comps) ?? now
+            if day < now { day = calendar.date(byAdding: .year, value: 1, to: day) ?? day }
+            guard let hourText = drafts.first(where: { $0.key == "hour" })?.value else { return day }
+            guard let hour = Int(hourText), (0...23).contains(hour) else { return nil }
+            return calendar.date(bySettingHour: hour, minute: 0, second: 0, of: day)
+        }
+        // 相对日期短语（明天/后天/今天）
         guard let phrase = drafts.first(where: { $0.key == "time" })?.value,
               let day = resolveDate(phrase: phrase, now: now, calendar: calendar)
         else { return nil }
@@ -137,12 +152,15 @@ public enum VoiceGrammarDefaults {
 
     public static let reminderRules: [ReminderGrammarRule] = [
         ReminderGrammarRule(kind: "any",
-                            timePatterns: [#"(明天|明早|后天|今天)"#, #"(\d+)点"#,
-                                           #"([上下]午)"#],
-                            repeatPatterns: [#"(每天|每日|每周一|每周二|每周三|每周四|每周五|每周六|每周日|周一|周二|周三|周四|周五|周六|周日|每周|工作日|周末)"#]),
+                            timePatterns: [#"(明天|明早|后天|今天)"#],
+                            repeatPatterns: [#"(每天|每日|每周一|每周二|每周三|每周四|每周五|每周六|每周日|周一|周二|周三|周四|周五|周六|周日|每周|工作日|周末)"#],
+                            hourPatterns: [#"(\d+)点"#, #"([上下]午)"#],
+                            datePatterns: [#"(\d{1,2})月(\d{1,2})[日号]"#]),
         ReminderGrammarRule(kind: "selfTest",
                             timePatterns: [#"(明天|后天|今天)"#],
-                            repeatPatterns: [#"(每天|每周)"#]),
+                            repeatPatterns: [#"(每天|每周)"#],
+                            hourPatterns: [#"(\d+)点"#],
+                            datePatterns: [#"(\d{1,2})月(\d{1,2})[日号]"#]),
     ]
 
     public static let profileRules: [ProfileGrammarRule] = [

@@ -24,6 +24,10 @@ struct HomeView: View {
     @State private var showVoicePanel = false
     @State private var notifDenied = false
     @State private var dismissNotifBanner = false
+    /// 快速拍摄以 sheet 呈现（TestFlight 实测修复：此前 navigate 进 records Tab
+    /// 栈——返回落到健康档案页、path 残留套娃、重复进入出错；模态呈现则
+    /// 拍完即回首页，不改变导航上下文）
+    @State private var quickCaptureKind: CaptureKind?
 
     private var snapshot: TodaySnapshot {
         TodayAggregator.snapshot(
@@ -138,6 +142,9 @@ struct HomeView: View {
         .sheet(isPresented: $showSOS) { SOSHelpView() }
         .sheet(isPresented: $showVoicePanel) { VoiceQuickLaunchView() }
         .sheet(isPresented: $showVoiceNote) { VoiceNotePanelView() }
+        .sheet(item: $quickCaptureKind) { kind in
+            NavigationStack { QuickCaptureView(kind: kind) }
+        }
         .task(id: app.currentPatientId) { await load() }
     }
 
@@ -201,7 +208,7 @@ struct HomeView: View {
                 router.navigate(to: .memberList)
             }
             GuideTaskCard(icon: "camera.fill", title: L10n.homeGuide2, done: !app.timeline.isEmpty) {
-                router.navigate(to: .scanCapture(.record))
+                quickCaptureKind = .record
             }
             GuideTaskCard(icon: "bell.badge.fill", title: L10n.homeGuide3, done: !reminderStore.todaySlots.isEmpty) {
                 router.navigate(to: .medicationPlanForm(nil))
@@ -399,13 +406,13 @@ struct HomeView: View {
         CardSection(title: L10n.homeQuickCapture) {
             HStack(spacing: 12) {
                 QuickCaptureButton(icon: "doc.text.fill", label: L10n.homeCaptureRecord) {
-                    router.navigate(to: .scanCapture(.record))
+                    quickCaptureKind = .record
                 }
                 QuickCaptureButton(icon: "chart.bar.doc.horizontal.fill", label: L10n.homeCaptureReport) {
-                    router.navigate(to: .scanCapture(.report))
+                    quickCaptureKind = .report
                 }
                 QuickCaptureButton(icon: "pills.fill", label: L10n.homeCapturePrescription) {
-                    router.navigate(to: .scanCapture(.prescription))
+                    quickCaptureKind = .prescription
                 }
                 QuickCaptureButton(icon: "waveform.path.ecg", label: L10n.homeCaptureSymptom) {
                     router.navigate(to: .observationCreate)

@@ -83,9 +83,11 @@ public struct ObsRef: Sendable, Equatable, Identifiable {
 }
 
 /// 快速拍摄类别（今日快照 + AppRoute.scanCapture 共用单一事实源；
-/// Codable/Hashable 为路由编码与 NavigationStack path 所需）
-public enum CaptureKind: String, Sendable, Equatable, Codable, Hashable, CaseIterable {
+/// Codable/Hashable 为路由编码与 NavigationStack path 所需，
+/// Identifiable 供 sheet(item:) 呈现）
+public enum CaptureKind: String, Sendable, Equatable, Codable, Hashable, CaseIterable, Identifiable {
     case record, report, prescription, symptom
+    public var id: String { rawValue }
 }
 
 public enum TodayAggregator {

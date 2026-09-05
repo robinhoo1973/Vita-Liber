@@ -16,12 +16,17 @@ struct VoiceReminderDraftView: View {
     @State private var confirmSet: OcrConfirmationSet?
     @State private var routeMonitor = AudioRouteMonitor()
     @State private var unresolved: String?
+    @State private var savedAlert = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(L10n.voiceguide_reminderTitle).font(.headline)
             Text(L10n.voiceguide_reminderExample)
                 .font(.caption).foregroundStyle(.secondary)
+            // TestFlight 实测修复：录音听写按钮（与手输共填同一文本，on-device 识别）
+            VoiceDictationButton { text, _ in
+                if !text.isEmpty { transcript = text }
+            }
             TextField(L10n.voiceguide_transcript, text: $transcript, axis: .vertical)
                 .textFieldStyle(.roundedBorder)
                 .lineLimit(1...3)
@@ -61,11 +66,16 @@ struct VoiceReminderDraftView: View {
         }
         .onAppear { routeMonitor.start() }
         .onDisappear { routeMonitor.stop() }
+        .alert(L10n.voiceguide_saved, isPresented: $savedAlert) {
+            Button(L10n.onboard_gotIt, role: .cancel) { }
+        }
     }
 
     private func buildDraft() {
         unresolved = nil
-        let drafts = VoiceStructuringEngine.extractReminder(transcript, rules: VoiceGrammarDefaults.reminderRules)
+        var drafts = VoiceStructuringEngine.extractReminder(transcript, rules: VoiceGrammarDefaults.reminderRules)
+        // 提醒内容 = 原文（确认卡上可编辑，业界确认卡惯例：内容恒可改）
+        drafts.append(FieldDraft(key: "content", value: transcript, confidence: 0.9))
         guard !drafts.isEmpty else {
             unresolved = L10n.voiceReminderTimeUnheard
             return
@@ -93,6 +103,7 @@ struct VoiceReminderDraftView: View {
         let rule = drafts.first { $0.key == "repeat" }?.value
         transcript = ""
         onCommit(title, fireAt, rule)
+        savedAlert = true   // TestFlight 实测修复：保存后必须有可见反馈（引导用户知道提醒已设置）
     }
 }
 

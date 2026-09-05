@@ -1002,3 +1002,12 @@
 "home.disclaimer" = "本地医疗档案 · 不联网 · 不诊断";
 "timeline.quickEntry" = "快捷入口";
 "settings.offlineNote" = "本机离线模式 · 未注册云账户";
+"voice.field.date" = "日期";
+"voice.field.hour" = "时间";
+"voice.field.repeat" = "重复";
+"voice.field.content" = "内容";
+"voice.confirm.fillHint" = "未识别，点击填写";
+"voiceguide.saved" = "提醒已设置";
+"home.capture.library" = "从相册选择";
+"home.capture.file" = "从文件导入（PDF / 图片 / Word）";
+"home.capture.noCamera" = "此设备无相机，请使用相册或文件导入";

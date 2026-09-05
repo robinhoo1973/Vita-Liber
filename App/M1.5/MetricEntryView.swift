@@ -21,6 +21,8 @@ struct MetricQuickEntryView: View {
     @State private var unitText = ""
     @State private var measuredAt = Date()
     @State private var saved = false
+    @State private var confirmSet: OcrConfirmationSet?
+    @State private var routeMonitor = AudioRouteMonitor()
     @FocusState private var focusField: Bool
 
     private let metrics: [MetricType] = [.bloodPressureSys, .glucose, .weight,
@@ -53,6 +55,13 @@ struct MetricQuickEntryView: View {
                     }
                 } else {
                     Section(L10n.metricStep2) {
+                        // 语音录入（举一反三修复：指标速记面板「指标」chip 进入后
+                        // 原本只能手输——接入听写 + 统一确认模板，与观察/提醒同路径）
+                        VoiceDictationButton { text, _ in
+                            let drafts = VoiceStructuringEngine.extractMetric(
+                                text, rules: VoiceGrammarDefaults.metricRules)
+                            confirmSet = VoiceInputTemplate.confirmationSet(drafts: drafts)
+                        }
                         if metric == .bloodPressureSys {
                             // 血压双值联排：收缩压输完自动跳格舒张压（FR7.5 §5.13）
                             HStack {
@@ -101,10 +110,41 @@ struct MetricQuickEntryView: View {
             .onAppear {
                 // 单位记忆（FR7.8：每种指标记忆上次单位）
                 unitText = state.rememberedUnit(for: metric)
+                routeMonitor.start()
             }
             .onChange(of: metric) { _, newMetric in
                 unitText = state.rememberedUnit(for: newMetric)
             }
+            .onDisappear { routeMonitor.stop() }
+            // FR17.13-entry：指标语音草稿 —— 统一确认模板，不自建确认逻辑
+            .sheet(item: $confirmSet) { set in
+                VoiceConfirmSheet(
+                    set: set,
+                    decision: ReadbackPolicy.decide(route: routeMonitor.route,
+                                                    preference: app.readbackPreference,
+                                                    careMode: app.careMode),
+                    onSpeak: { app.speak($0) },
+                    onConfirm: { confirmed in
+                        applyConfirmed(confirmed)
+                        confirmSet = nil
+                    },
+                    onRetry: { confirmSet = nil },
+                    onCancel: { confirmSet = nil })
+                .presentationDetents([.medium])
+            }
+        }
+    }
+
+    /// 确认后的指标字段 → 录入框（血压双值分别落收缩压/舒张压）
+    private func applyConfirmed(_ set: OcrConfirmationSet) {
+        let fields = set.confirmedFields
+        if let sys = fields.first(where: { $0.key == "blood_pressure_sys" })?.value {
+            primaryText = sys
+            if let dia = fields.first(where: { $0.key == "blood_pressure_dia" })?.value {
+                secondaryText = dia
+            }
+        } else if let v = fields.first(where: { $0.key != "title" && !$0.value.isEmpty })?.value {
+            primaryText = v
         }
     }
 

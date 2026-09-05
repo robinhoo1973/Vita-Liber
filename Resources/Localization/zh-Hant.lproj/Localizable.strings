@@ -1002,3 +1002,12 @@
 "home.disclaimer" = "本機醫療檔案 · 不聯網 · 不診斷";
 "timeline.quickEntry" = "快捷入口";
 "settings.offlineNote" = "本機離線模式 · 未註冊雲端帳號";
+"voice.field.date" = "日期";
+"voice.field.hour" = "時間";
+"voice.field.repeat" = "重複";
+"voice.field.content" = "內容";
+"voice.confirm.fillHint" = "未辨識，點擊填寫";
+"voiceguide.saved" = "提醒已設定";
+"home.capture.library" = "從相簿選擇";
+"home.capture.file" = "從檔案匯入（PDF / 圖片 / Word）";
+"home.capture.noCamera" = "此裝置無相機，請使用相簿或檔案匯入";

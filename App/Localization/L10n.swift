@@ -336,6 +336,12 @@ enum L10n {
     static var voiceguide_noteHistory: String { t("voiceguide.note.history") }
     static var voiceguide_noteMeds: String { t("voiceguide.note.meds") }
     static var voiceguide_noteContact: String { t("voiceguide.note.contact") }
+    static var voiceFieldDate: String { t("voice.field.date") }
+    static var voiceFieldHour: String { t("voice.field.hour") }
+    static var voiceFieldRepeat: String { t("voice.field.repeat") }
+    static var voiceFieldContent: String { t("voice.field.content") }
+    static var voiceConfirmFillHint: String { t("voice.confirm.fillHint") }
+    static var voiceguide_saved: String { t("voiceguide.saved") }
     static var voiceguide_promptAllergy: String { t("voiceguide.promptAllergy") }
     static var voiceguide_promptHistory: String { t("voiceguide.promptHistory") }
     static var voiceguide_promptMeds: String { t("voiceguide.promptMeds") }
@@ -942,6 +948,9 @@ enum L10n {
     static var homeCaptureSymptom: String { t("home.capture.symptom") }
     static var homeCaptureHint: String { t("home.capture.hint") }
     static var homeCaptureShoot: String { t("home.capture.shoot") }
+    static var homeCaptureLibrary: String { t("home.capture.library") }
+    static var homeCaptureFile: String { t("home.capture.file") }
+    static var homeCaptureNoCamera: String { t("home.capture.noCamera") }
     static var homeCaptureSaved: String { t("home.capture.saved") }
     static var docTypePrescription: String { t("doc.type.prescription") }
     static var homeProfileProgressTitle: String { t("home.profileProgress") }
