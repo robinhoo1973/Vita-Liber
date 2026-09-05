@@ -56,6 +56,8 @@ public enum EmergencyCardService {
 
 /// F9.8.3 差异月报：纯事实句式（「计划 30 次 / 确认 21 次」），
 /// 不做评分、不推断病因（BR-004 延伸）；措辞负清单适用。
+/// V3.68：句式由 App 层经 L10n.inventoryMonthlyReportFmt 渲染（Domain 只出
+/// 数值），禁止任何评价词——BR-006 负清单由 InventoryReportRules 把关。
 public struct InventoryMonthlyReport: Sendable, Equatable {
     public var periodStart: Date
     public var periodEnd: Date
@@ -63,9 +65,6 @@ public struct InventoryMonthlyReport: Sendable, Equatable {
     public var confirmedDoses: Int
     public var skippedDoses: Int
     public var missedDoses: Int
-
-    /// V3.68：句式由 App 层经 L10n.inventoryMonthlyReportFmt 渲染
-    /// （纯事实，禁止任何评价词——BR-006 负清单由 InventoryReportRules 把关）。
 }
 
 public enum InventoryReportRules {

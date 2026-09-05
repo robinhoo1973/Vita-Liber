@@ -80,8 +80,27 @@ struct VoiceConversationTests {
     @Test func 再说一遍重播当前问题与选项() {
         let (state, _) = VoiceConversationEngine.optionsPrompt(["甲", "乙"])
         let (_, events) = VoiceConversationEngine.step(state: state, transcript: "再说一遍")
-        #expect(events.contains(where: { if case .speak(let s) = $0 { return !s.isEmpty }; return false }))
+        // V3.68：提示语类型化（SpeechPrompt）——空提示在类型上不存在，断言播报事件存在即可
+        #expect(events.contains(where: { if case .speak = $0 { return true }; return false }))
         #expect(events.contains(.askOptions(["甲", "乙"])), "重播必须包含当前选项（FR19.4）")
+    }
+
+    // MARK: 词汇表与文法一致性（V3.70 审查修复：单一事实源锁定）
+
+    /// VoiceCommandGrammar.confirmWord/cancelWord/ordinalWord 是 App 触屏降级
+    /// 输入的词汇源——必须与文法解析同义。此前常量与正则各自硬编码、无任何
+    /// 测试绑定：文法一旦扩展别名（如「确定」），触屏确认按钮即静默失效。
+    @Test func 词汇表常量与文法一致() {
+        #expect(VoiceCommandGrammar.parse(VoiceCommandGrammar.confirmWord) == .command(.yes))
+        #expect(VoiceCommandGrammar.parse(VoiceCommandGrammar.cancelWord) == .command(.no))
+        for n in 1...3 {
+            guard let word = VoiceCommandGrammar.ordinalWord(n) else {
+                Issue.record("ordinalWord(\(n)) 必须产出词")
+                continue
+            }
+            #expect(VoiceCommandGrammar.parse(word) == .command(.selectNumber),
+                    "「\(word)」必须被文法解析为列选")
+        }
     }
 
     // MARK: FR19.6 超时降级
@@ -133,19 +152,17 @@ struct VoiceConversationTests {
 
     // MARK: FR19.3 / BR-006 播报文案红线
 
-    @Test func 播报文案过措辞负清单() {
-        // 状态机产出的所有播报都必须过 BR-006 负清单（纯事实句式）
+    @Test func 播报均为类型化提示语() {
+        // V3.68：播报提示语类型化（SpeechPrompt）——文案经 App 层 L10n 模板渲染，
+        // BR-006 措辞负清单对模板句的执法随迁至 App 层模板测试（三语模板过负清单）；
+        // Domain 侧保留结构性断言：每条播报都是合法提示语枚举，不存在自由文本分支。
         var state = ConversationState()
-        var collected: [String] = []
+        var collected: [SpeechPrompt] = []
         for phrase in ["今天吃什么药", "帮我打给女儿", "删除阿司匹林", "没听清", "不知道"] {
             let (s, events) = VoiceConversationEngine.step(state: state, transcript: phrase)
             state = s
             for event in events {
-                if case .speak(let text) = event {
-                    collected.append(text)
-                    #expect(WordingBlacklist.violation(in: text) == nil,
-                            "播报「\(text)」违反措辞负清单（BR-006）")
-                }
+                if case .speak(let prompt) = event { collected.append(prompt) }
             }
         }
         #expect(!collected.isEmpty)

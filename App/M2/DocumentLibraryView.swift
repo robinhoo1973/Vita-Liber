@@ -440,7 +440,7 @@ private struct DocumentLibraryRow: View {
                                 .font(.caption2).foregroundStyle(.orange)
                         }
                     }
-                    Text(doc.title ?? L10n.docLibraryUntitled)
+                    Text(L10n.docTitle(doc.title))
                         .font(.subheadline)
                     Text(doc.createdAt.formatted(date: .abbreviated, time: .shortened))
                         .font(.caption2).foregroundStyle(.secondary)

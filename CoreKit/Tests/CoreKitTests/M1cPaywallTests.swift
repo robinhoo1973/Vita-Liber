@@ -41,7 +41,6 @@ struct PaywallTests {
         #expect(state.quotaExceeded(quota) == nil)   // 已购 Pro 不受免费额度限制
     }
 
-    @Test func 信任文案固定() {
-        #expect(PaywallRules.trustCopy.contains("不续费不会删除你的任何数据"))
-    }
+    // V3.68：信任文案已移出 Domain（L10n.payTrustCopy，App 层三语文案），
+    // Domain 仅保留行为规则——文案断言随迁移一并撤销，不再自建第二份拷贝。
 }

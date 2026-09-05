@@ -153,8 +153,9 @@ struct StandardizationTests {
             raw: "血糖", value: "200", unit: "mg/dL",
             locale: Locale(identifier: "zh-Hans"), index: idx, units: idx)
         #expect(reading.resolution?.canonicalCode == "2345-7")
-        // canonicalUnit = mg/dL，同单位无需换算 → canonicalValue nil
-        #expect(reading.canonicalValue == nil)
+        // canonicalUnit = mg/dL，同单位 → 恒等规范值（V3.70 审查：同单位
+        // 无需换算 ≠ 无法换算，§5.52 骨架 nil 语义只留给「换算不了」）
+        #expect(reading.canonicalValue == 200.0)
         // 显式 mg/dL→mmol/L：留痕换算（原值+规则）
         let conv = try await UcumRules.convert(200, from: "mg/dL", to: "mmol/L",
                                                units: idx, conceptId: "c-glu-mass")

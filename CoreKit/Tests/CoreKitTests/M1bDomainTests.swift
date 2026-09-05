@@ -156,8 +156,8 @@ struct DualTrackTests {
         let inv = DualTrackInventory(lotId: UUID(), totalUnits: 30, unitKind: "tablet")
         let zero = InventoryRules.deductPlan(inv, units: 30)
         #expect(zero.remainingPlanUnits == 0)
-        #expect(InventoryRules.refillTier(zero, dailyPlanUnits: 3, at: Date()) == .t3,
-                "耗尽批次必须持续触达（偏早告警），由调用方按 status 过滤")
+        #expect(InventoryRules.refillTier(zero, dailyPlanUnits: 3, at: Date()) == .t0,
+                "耗尽批次必须持续触达最紧急档（当日置顶，偏早告警），由调用方按 status 过滤")
         #expect(InventoryRules.refillTier(zero, dailyPlanUnits: 0, at: Date()) == nil,
                 "零日当量不得触发（无消耗速率即无剩余天数）")
     }

@@ -287,6 +287,7 @@
 "ai.citations" = "相关原文：";
 "ai.conclusion" = "找到 %d 条与你的问题相关的资料。";
 "ai.term" = "%@：%@";
+"ai.sourceLine" = "%1$@（%2$@）";
 "ai.uncertaintiesFixed" = "你的资料中可能还有纸质资料未收录；本回答只基于已归档内容。";
 "ai.questionsFixed" = "就诊时可以带着这些资料，请医生确认与你的情况是否一致。";
 "ai.scopeNote" = "本次回答只读取了 %d 条与你相关的资料。";

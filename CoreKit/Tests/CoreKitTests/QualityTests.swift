@@ -4,12 +4,14 @@ import Domain
 import Protocols
 
 /// 确定性解码桩（评审修正后的注入模型：Domain 纯计算 + 解码端口注入，Linux 可测）。
-/// decode 输出由数据 SHA-256 派生填充——同输入同输出；不同输入产出不同位图，
+/// decode 输出由数据字节派生填充——同输入同输出；不同输入产出不同位图，
 /// 行为接近真实解码器（确定性是 M-QUALITY 的第一设计原则）。
+/// ADR-025 注记：自研 SHA256 已随 CryptoKit 迁移退役（生产 = CryptoKitContentHasher），
+/// 本桩只需确定性，直接取原始字节即可——空数据回落单字节，防 i % 0。
 struct DeterministicGrayscaleDecoder: GrayscaleDecoding {
     func decode(_ data: Data, maxDimension: Int) throws -> GrayscaleImage {
         let d = max(1, maxDimension)
-        let h = SHA256.hash(data: data)
+        let h = data.isEmpty ? [UInt8(0x5A)] : Array(data)
         var buf = [UInt8](repeating: 0, count: d * d)
         for i in 0..<buf.count { buf[i] = h[i % h.count] }
         return GrayscaleImage(width: d, height: d, buffer: buf)
@@ -24,37 +26,10 @@ struct QualityTests {
         try CaptureQualityAssessor.assess(decoder.decode(png, maxDimension: 256))
     }
 
-    // MARK: - SHA256 向量验证
-
-    @Test("SHA-256 空串已知向量", .tags(.linuxRunnable))
-    func sha256EmptyVector() throws {
-        let h = SHA256.hash(data: Data())
-        #expect(h.hexString == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
-    }
-
-    @Test("SHA-256 \"abc\" 已知向量", .tags(.linuxRunnable))
-    func sha256AbcVector() throws {
-        let h = SHA256.hash(data: Data("abc".utf8))
-        #expect(h.hexString == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
-    }
-
-    @Test("SHA-256 确定性：同数据两次哈希一致", .tags(.linuxRunnable))
-    func sha256Deterministic() throws {
-        let d = Data("hello world".utf8)
-        let h1 = SHA256.hash(data: d)
-        let h2 = SHA256.hash(data: d)
-        #expect(h1 == h2)
-    }
-
-    @Test("SHA256Hasher 流式与一次性结果一致", .tags(.linuxRunnable))
-    func sha256HasherConsistency() throws {
-        let d = Data("streaming test".utf8)
-        let h1 = SHA256.hash(data: d)
-
-        var hasher = SHA256.SHA256Hasher()
-        hasher.update(data: d)
-        let h2 = hasher.finalize()
-        #expect(h1 == h2)
+    /// 确定性哈希桩（ADR-025：自研 SHA256 已退役，生产注入 CryptoKitContentHasher；
+    /// Linux 无 CryptoKit——重复检测只要求「同数据同哈希」，base64 保真即可）。
+    private func makeService() -> DuplicateDetectionService {
+        DuplicateDetectionService(hash: { $0.base64EncodedString() })
     }
 
     // MARK: - CaptureQualityAssessor
@@ -84,7 +59,7 @@ struct QualityTests {
 
     @Test("精确哈希：同一文件副本命中 exactHashMatch", .tags(.linuxRunnable))
     func exactHashMatch() throws {
-        var svc = DuplicateDetectionService()
+        var svc = makeService()
         let png = Self.testPNG()
         try svc.register(recordID: "rec-1", imageData: png, decoder: decoder)
         let result = try svc.detect(png, decoder: decoder)
@@ -95,7 +70,7 @@ struct QualityTests {
 
     @Test("精确哈希：不同文件不命中", .tags(.linuxRunnable))
     func exactHashMiss() throws {
-        var svc = DuplicateDetectionService()
+        var svc = makeService()
         let png1 = Self.testPNG()
         let png2 = Self.testPNG(suffix: "modified")
         try svc.register(recordID: "rec-1", imageData: png1, decoder: decoder)
@@ -105,7 +80,7 @@ struct QualityTests {
 
     @Test("感知哈希：Linux 占位基于 SHA256 派生、同数据同 pHash", .tags(.linuxRunnable))
     func perceptualSimilarity() throws {
-        var svc = DuplicateDetectionService()
+        var svc = makeService()
         let png1 = Self.testPNG()
         // 同数据 → 同 pHash（确定性解码桩 + 确定性 pHash 纯函数）
         try svc.register(recordID: "rec-1", imageData: png1, decoder: decoder)
@@ -115,7 +90,7 @@ struct QualityTests {
 
     @Test("零自动删除：detect 仅返回标记，不产生删除动作", .tags(.linuxRunnable))
     func zeroAutoDelete() throws {
-        var svc = DuplicateDetectionService()
+        var svc = makeService()
         let png = Self.testPNG()
         try svc.register(recordID: "rec-1", imageData: png, decoder: decoder)
         let result = try svc.detect(png, decoder: decoder)

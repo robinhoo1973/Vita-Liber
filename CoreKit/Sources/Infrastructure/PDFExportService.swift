@@ -25,32 +25,35 @@ public actor PDFExportService {
         public var includeNotes: Bool
         public var watermark: Bool
         public var scopeKind: ScopeKind
-        /// 免责声明中的急救号码（120/119/911 由 App 层按区域经 L10n 注入——
-        /// Infrastructure 不持有区域知识，默认 120 仅供无 App 层的调用方）
-        public var emergencyNumber: String
-        /// V3.68 封面文案（Infrastructure 不拼中文）：
+        /// V3.68/V3.70 封面文案（Infrastructure 不拼中文）：
         /// 记录数标签与免责全文由 App 层经 L10n 注入；空免责不绘制。
+        /// emergencyNumber 已随免责全文注入而退役（审查：无读取点后仍保留
+        /// 参数是静默失效的死 API——号码只在 App 层拼进 disclaimer）。
         public var countLabel: @Sendable (Int) -> String
         public var disclaimer: String
         /// 记录类型名（资料/观察/用药/就诊）——App 层经 L10n 注入
         public var kindLabel: @Sendable (String) -> String
+        /// 标题显示回落（App 层经 L10n.docTitle 注入——TimelineProjection 对
+        /// 无题资料输出 ""（数据保真），Infrastructure 不持有「未命名资料」文案）
+        public var titleLabel: @Sendable (String) -> String
         public enum ScopeKind: String, Sendable {
             case all, member, dateRange, docType, doctorSummary   // 健康问题/就诊维度随挂接数据
         }
         public init(patientId: UUID, title: String, dateFrom: Date? = nil,
                     dateTo: Date? = nil, docTypes: Set<String>? = nil,
                     includeNotes: Bool = true, watermark: Bool = true,
-                    emergencyNumber: String = "120",
                     countLabel: @escaping @Sendable (Int) -> String = { "\($0)" },
                     disclaimer: String = "",
                     kindLabel: @escaping @Sendable (String) -> String = { $0 },
+                    titleLabel: @escaping @Sendable (String) -> String = { $0 },
                     scopeKind: ScopeKind = .all) {
             self.patientId = patientId; self.title = title
             self.dateFrom = dateFrom; self.dateTo = dateTo
             self.docTypes = docTypes; self.includeNotes = includeNotes
-            self.watermark = watermark; self.emergencyNumber = emergencyNumber
+            self.watermark = watermark
             self.countLabel = countLabel; self.disclaimer = disclaimer
             self.kindLabel = kindLabel
+            self.titleLabel = titleLabel
             self.scopeKind = scopeKind
         }
     }
@@ -77,10 +80,11 @@ public actor PDFExportService {
                 WHERE patient_id = ? AND status IN ('active','favorite') \(dateClause)
                 ORDER BY created_at ASC
                 """, arguments: StatementArguments(args))
+            let decoder = JSONDecoder()   // 审查修复：解码器提到循环外（per-row 类型元数据初始化）
             for row in rows {
                 guard let json = row["meta_json"] as String?,
                       let data = json.data(using: .utf8) else { continue }
-                do { docs.append(try JSONDecoder().decode(TimelineDocumentEntry.self, from: data)) }
+                do { docs.append(try decoder.decode(TimelineDocumentEntry.self, from: data)) }
                 catch { continue }
             }
             // FR13.2 按类型维度：TimelineDocumentEntry 无 doc_type 列（meta 投影），
@@ -94,7 +98,8 @@ public actor PDFExportService {
                 // 与文件头纪律与 PDF 免责声明（仅呈现你确认过的记录）直接矛盾
                 let confirmed = (doc.fields ?? []).filter { $0.isConfirmed }
                 let detail = confirmed.map { "\($0.displayLabel): \($0.value)" }.joined(separator: "\n")
-                records.append((request.kindLabel("record"), doc.title, Date(timeIntervalSince1970: doc.occurredAt), detail))
+                records.append((request.kindLabel("record"), request.titleLabel(doc.title),
+                                Date(timeIntervalSince1970: doc.occurredAt), detail))
             }
             // 观察记录（描述为 C 级自述文本；敏感媒体不出正文）
             let obsRows = try Row.fetchAll(db, sql: """

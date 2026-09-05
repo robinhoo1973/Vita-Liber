@@ -193,7 +193,7 @@ private struct TimelineRowView: View {
                 .padding(.top, 5)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Text(entry.title)
+                    Text(L10n.docTitle(entry.title))
                         .font(.subheadline)
                         .foregroundStyle(entry.kind == .allergy ? .red : .primary)
                     // 来源徽章（设计系统：每个结构化数据有来源徽章）；

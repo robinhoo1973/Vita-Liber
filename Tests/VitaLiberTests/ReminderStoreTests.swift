@@ -29,9 +29,12 @@ final class ReminderStoreTests: XCTestCase {
                   remaining_plan_units, remaining_confirmed_units, expire_at, status, last_reconciled_at)
                 SELECT ?, patient_id, id, 30, 'tablet', 30, 30, ?, 'active', 0
                 FROM medication WHERE generic_name = '测试药'
-                """, arguments: [lotId.uuidString, Date().addingTimeInterval(7 * 86400).timeIntervalSince1970])
+                """, arguments: [lotId.uuidString, Date().addingTimeInterval(8 * 86400).timeIntervalSince1970])
         }
-        // 首次调度：t7（now）与 t0（+7d）两档
+        // 首次调度：t7（+1d）与 t0（+8d）两档——用 +8d 而非 +7d：
+        // fireDates 的 t7 触发点 = expireAt−7 日历日，若 expireAt 恰好 +7d，
+        // 触发点即 INSERT 时刻，随后的 now 已越过它（fire >= now 守卫剔除），
+        // 断言必然失败（时钟竞态固化进夹具——审查修复）
         var pending = try await scheduler.pending()
         let delivered0 = try await scheduler.delivered()
         await store.scheduleExpiryReminders(patientId: patient, pending: pending, delivered: delivered0)
@@ -72,8 +75,8 @@ final class ReminderStoreTests: XCTestCase {
         XCTAssertTrue(SOSRules.requiresHoldConfirm("sos", mode: .standard))
         XCTAssertGreaterThanOrEqual(CareModeMetrics.standard.holdConfirmSeconds, 0.6,
                                     "常规模式 SOS 必须 ≥0.6s 长按（build 147 回归防护）")
-        let care = CareModeMetrics.standard
-        XCTAssertGreaterThanOrEqual(care.holdConfirmSeconds, 0.6)
+        XCTAssertGreaterThanOrEqual(CareModeMetrics.care.holdConfirmSeconds, 0.6,
+                                    "关怀模式按住确认同样生效（不得 0s 立即触发）")
     }
 
     // MARK: - 装配

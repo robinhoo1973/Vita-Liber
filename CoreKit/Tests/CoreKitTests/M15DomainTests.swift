@@ -122,9 +122,9 @@ struct ReminderRulesTests {
         let now = Date(timeIntervalSince1970: 1_700_000_000)
         let expire = now.addingTimeInterval(20 * 86400)
         let fires = BatchExpiryRules.fireDates(expireAt: expire, now: now)
-        #expect(fires.count == 2)   // 30 天前已过（不补发），7 天与 3 天两级
+        #expect(fires.count == 2)   // 30 天前已过（不补发），7 天与当日两级
         #expect(fires[0].tier == .t7)
-        #expect(fires[1].tier == .t3)
+        #expect(fires[1].tier == .t0)
     }
 
     @Test func 过期批次不再提醒() {

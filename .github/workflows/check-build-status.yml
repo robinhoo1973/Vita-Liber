@@ -56,20 +56,31 @@ jobs:
           if not d.get('data'): print('(无 App 记录)')
           "
           echo "── ② 最近 builds（builds 列表）──"
-          curl -sS -g --max-time 30 \
-            "https://api.appstoreconnect.apple.com/v1/builds?sort=-uploadedDate&limit=10&filter[app]=6806786437" \
+          # 审查修复：App id 不再硬编码（重建 App 记录后旧 id 失效，本工作流
+          # 静默查询错误 App）——按 bundleId 解析，与上传 job 同口径
+          APP_ID=$(curl -sS -g --max-time 30 "https://api.appstoreconnect.apple.com/v1/apps?filter[bundleId]=$BID" \
             -H "$AUTH" 2>/dev/null | python3 -c "
           import json,sys
-          d=json.load(sys.stdin)
-          if 'errors' in d:
-              print('API 错误:', json.dumps(d['errors'],ensure_ascii=False)[:400]); raise SystemExit
-          bs=d.get('data',[])
-          if not bs: print('(builds 列表为空 —— 尚无 build 登记)')
-          for b in bs:
-              a=b['attributes']
-              print(f\"Build {a.get('version','?')} state={a.get('processingState','?')} compliance={a.get('missingExportCompliance','?')} uploaded={a.get('uploadedDate','?')}\")
-          print(f\"(共 {d.get('meta',{}).get('paging',{}).get('total',len(bs))} 条)\")
-          "
+          try: print(json.load(sys.stdin)['data'][0]['id'])
+          except Exception: print('')" 2>/dev/null || true)
+          if [ -z "$APP_ID" ]; then
+            echo "(无 App 记录 —— 尚无 App id 可查 builds)"
+          else
+            curl -sS -g --max-time 30 \
+              "https://api.appstoreconnect.apple.com/v1/builds?sort=-uploadedDate&limit=10&filter[app]=$APP_ID" \
+              -H "$AUTH" 2>/dev/null | python3 -c "
+            import json,sys
+            d=json.load(sys.stdin)
+            if 'errors' in d:
+                print('API 错误:', json.dumps(d['errors'],ensure_ascii=False)[:400]); raise SystemExit
+            bs=d.get('data',[])
+            if not bs: print('(builds 列表为空 —— 尚无 build 登记)')
+            for b in bs:
+                a=b['attributes']
+                print(f\"Build {a.get('version','?')} state={a.get('processingState','?')} compliance={a.get('missingExportCompliance','?')} uploaded={a.get('uploadedDate','?')}\")
+            print(f\"(共 {d.get('meta',{}).get('paging',{}).get('total',len(bs))} 条)\")
+            "
+          fi
           echo "── ③ 指定 buildUpload 实例状态（若提供 UUID）──"
           if [ -n "${{ inputs.delivery_uuid }}" ]; then
             curl -sS -g --max-time 30 \

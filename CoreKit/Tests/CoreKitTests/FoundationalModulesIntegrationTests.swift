@@ -61,19 +61,13 @@ struct FoundationalModulesIntegrationTests {
         #expect(!sensitive.isProtected("test-media-id"))
     }
 
-    // MARK: - SHA256 + DuplicateDetection 全流程
+    // MARK: - 注入哈希 + DuplicateDetection 全流程
 
-    @Test("SHA256 → 注册 → 检测 全流程", .tags(.linuxRunnable))
-    func sha256DuplicateDetectionFlow() throws {
-        // SHA-256 已知向量验证
-        let emptyHash = SHA256.hash(data: Data())
-        #expect(emptyHash.hexString == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
-
-        let abcHash = SHA256.hash(data: Data("abc".utf8))
-        #expect(abcHash.hexString == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
-
-        // DuplicateDetection 注册 + 精确命中（解码经注入桩）
-        var svc = DuplicateDetectionService()
+    @Test("注入哈希 → 注册 → 检测 全流程", .tags(.linuxRunnable))
+    func injectedHashDuplicateDetectionFlow() throws {
+        // ADR-025：自研 SHA256 已退役（生产注入 CryptoKitContentHasher，iOS/macOS）；
+        // Linux 上重复检测只要求「同数据同哈希」——base64 确定性桩即可。
+        var svc = DuplicateDetectionService(hash: { $0.base64EncodedString() })
         let png = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==") ?? Data()
         try svc.register(recordID: "r1", imageData: png, decoder: decoder)
         let hit = try svc.detect(png, decoder: decoder)

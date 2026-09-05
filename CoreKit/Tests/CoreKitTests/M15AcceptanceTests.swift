@@ -217,16 +217,14 @@ struct SUM15VoiceTests {
         #expect(r != nil, "「\(sample)」必须被语音通道拒绝（BR-003/006）")
     }
 
-    /// 拒绝卡文案过 BR-006 措辞负清单（不得出现建议/应该/遵医嘱等判断性措辞）
-    @Test func 拒绝卡文案过负清单() {
-        let banned = ["建议", "应该", "需遵医嘱", "推荐", "最好", "可能是"]
+    /// 拒绝卡为类型化数据（V3.68：文案移 App 层 L10n 模板渲染，
+    /// BR-006 措辞负清单对模板句的执法随迁至 App 层模板测试）——
+    /// Domain 侧断言：每个类别都有确定性拒绝卡，且保留命中短语留痕。
+    @Test func 拒绝卡类型化与留痕() {
         for category in VoiceModificationGuard.Category.allCases {
             let r = VoiceModificationGuard.rejection(category: category, phrase: "测试")
-            for word in banned {
-                #expect(!r.title.contains(word) && !r.body.contains(word),
-                        "拒绝卡出现负清单词「\(word)」：\(r.body)")
-            }
-            #expect(!r.actionLabel.isEmpty, "拒绝必须给出触屏替代路径，不能只说不行")
+            #expect(r.category == category, "拒绝卡类别必须与触发类别一致")
+            #expect(r.matchedPhrase == "测试", "命中短语留痕（用户可见改了什么）")
         }
     }
 

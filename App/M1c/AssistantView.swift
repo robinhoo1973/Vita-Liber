@@ -271,55 +271,32 @@ struct AnswerBodyView: View {
                         .foregroundStyle(Color("grade-e", bundle: .main))
                     Text(L10n.ai_aiBadge).font(.caption).foregroundStyle(.secondary)
                 }
-                // V3.68：新结构化卡（citationCount 非 nil）经 L10n 渲染；
-                // 历史行回落 legacy 文本直出
-                if let count = p.citationCount {
-                    Text(L10n.aiConclusion(count)).font(.body)
-                } else {
-                    Text(p.conclusion).font(.body)
-                }
+                // V3.70（审查收敛）：七段卡单一结构化形态——模板句经 L10n 渲染，
+                // 术语/来源为结构化对（无 legacy 双形态分支）
+                Text(L10n.aiConclusion(p.citationCount)).font(.body)
                 if !p.excerpts.isEmpty {
                     Text(L10n.ai_citations).font(.caption.bold())
                     ForEach(p.excerpts, id: \.self) { e in
                         Text(e).font(.footnote).foregroundStyle(.secondary)
                     }
                 }
-                if let pairs = p.terminologyPairs, !pairs.isEmpty {
-                    ForEach(pairs.indices, id: \.self) { i in
-                        Text(L10n.aiTerm(pairs[i].term, pairs[i].explanation)).font(.footnote)
-                    }
-                } else if !p.terminology.isEmpty {
-                    ForEach(p.terminology, id: \.self) { t in
-                        Text(t).font(.footnote)
+                if !p.terminologyPairs.isEmpty {
+                    // 卡片数据静态不变，索引 ID 无错位复用（term 可能重复，不可作 id）
+                    ForEach(p.terminologyPairs.indices, id: \.self) { i in
+                        Text(L10n.aiTerm(p.terminologyPairs[i].term, p.terminologyPairs[i].explanation)).font(.footnote)
                     }
                 }
                 if !p.sources.isEmpty {
                     Text(L10n.ai_source).font(.caption.bold())
-                    ForEach(p.sources, id: \.self) { s in
-                        Text(s).font(.caption2).foregroundStyle(.secondary)
+                    ForEach(p.sources.indices, id: \.self) { i in
+                        Text(L10n.aiSourceLine(p.sources[i].kind, p.sources[i].title)).font(.caption2).foregroundStyle(.secondary)
                     }
                 }
-                if p.citationCount != nil {
-                    Text(L10n.aiUncertaintiesFixed).font(.caption2).foregroundStyle(.secondary)
-                    Text(L10n.aiQuestionsFixed).font(.caption2)
-                        .foregroundStyle(Color("brand-primary", bundle: .main))
-                    Text(L10n.aiScopeNote(p.citationCount ?? 0)).font(.caption2).foregroundStyle(.secondary)
-                    Text(L10n.aiDisclaimerFixed).font(.caption2).foregroundStyle(.secondary)
-                } else {
-                    if !p.uncertainties.isEmpty {
-                        ForEach(p.uncertainties, id: \.self) { u in
-                            Text(L10n.aiUncertain(u)).font(.caption2).foregroundStyle(.secondary)
-                        }
-                    }
-                    if !p.questionsForDoctor.isEmpty {
-                        ForEach(p.questionsForDoctor, id: \.self) { q in
-                            Text(L10n.aiAskDoctor(q)).font(.caption2)
-                                .foregroundStyle(Color("brand-primary", bundle: .main))
-                        }
-                    }
-                    Text(p.scopeNote).font(.caption2).foregroundStyle(.secondary)
-                    Text(p.disclaimer).font(.caption2).foregroundStyle(.secondary)
-                }
+                Text(L10n.aiUncertaintiesFixed).font(.caption2).foregroundStyle(.secondary)
+                Text(L10n.aiQuestionsFixed).font(.caption2)
+                    .foregroundStyle(Color("brand-primary", bundle: .main))
+                Text(L10n.aiScopeNote(p.citationCount)).font(.caption2).foregroundStyle(.secondary)
+                Text(L10n.aiDisclaimerFixed).font(.caption2).foregroundStyle(.secondary)
                 ForEach(p.citations, id: \.refID) { c in
                     HStack(spacing: 4) {
                         Image(systemName: "doc.text")

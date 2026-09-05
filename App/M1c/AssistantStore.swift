@@ -112,7 +112,8 @@ final class AssistantStore {
         messages = []
     }
 
-    /// 七段/拒识/急救卡的文本渲染（视图侧以结构化字段渲染，此处为无障碍合并文案）
+    /// 七段/拒识/急救卡的文本渲染（视图侧以结构化字段渲染，此处为无障碍合并文案
+    /// 与持久化历史文本的单一出口——V3.70 与视图同走结构化字段，历史不再丢内容）
     static func render(_ answer: AIAnswer) -> String {
         switch answer.body {
         case .emergencyCard:
@@ -120,9 +121,14 @@ final class AssistantStore {
         case .refused(let r):
             return refusalDetail(r.reason)
         case .composed(let p):
-            return [p.conclusion, p.excerpts.joined(separator: "\n"),
-                    p.terminology.joined(separator: "\n"),
-                    p.scopeNote, p.disclaimer].joined(separator: "\n\n")
+            let terms = p.terminologyPairs
+                .map { L10n.aiTerm($0.term, $0.explanation) }
+                .joined(separator: "\n")
+            return [L10n.aiConclusion(p.citationCount),
+                    p.excerpts.joined(separator: "\n"),
+                    terms,
+                    L10n.aiScopeNote(p.citationCount),
+                    L10n.aiDisclaimerFixed].joined(separator: "\n\n")
         }
     }
 

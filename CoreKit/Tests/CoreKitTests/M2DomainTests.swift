@@ -50,14 +50,16 @@ struct AlertEngineTests {
         #expect(AlertRuleEngine.escalate(recent: two, guideline: glucoseGuideline) == nil)
     }
 
-    @Test func 五段证据卡与固定免责() {
+    @Test func 五段证据卡结构化字段() {
         let reading = MetricReading(metricKey: "glucose", value: 17.0, unit: "mmol/L",
                                     origin: .manual, measuredAt: Date())
         let card = AlertRuleEngine.evidenceCard(for: reading, severity: .L3, guideline: glucoseGuideline)
         #expect(card.severity == .L3)
-        #expect(card.facts.contains("17.0"))
-        #expect(card.sourceRef?.contains("糖尿病防治指南") == true)
-        #expect(card.disclaimer.contains("不是诊断"))
+        // V3.68：事实为类型化数据（App 层经 L10n 渲染句式；措辞负清单在模板层把关）
+        #expect(card.metricKey == "glucose")
+        #expect(card.value == 17.0)
+        #expect(card.unit == "mmol/L")
+        #expect(card.sourceTitle?.contains("糖尿病防治指南") == true)
         #expect(card.levelTag == "L3")
     }
 
@@ -88,8 +90,13 @@ struct EmergencyCardTests {
     @Test func 差异月报纯事实句式() {
         let report = InventoryReportRules.report(periodStart: Date(), periodEnd: Date(),
                                                  planned: 30, confirmed: 21, skipped: 3, missed: 6)
-        #expect(report.statement == "计划 30 次 / 确认 21 次 / 跳过 3 次 / 未确认 6 次")
-        #expect(InventoryReportRules.violation(in: report.statement) == nil)   // 负清单通过
+        // V3.68：句式移出 Domain——数值字段断言；负清单对同形句式（App 层
+        // L10n 模板渲染结果）依然一票否决
+        #expect(report.plannedDoses == 30)
+        #expect(report.confirmedDoses == 21)
+        #expect(report.skippedDoses == 3)
+        #expect(report.missedDoses == 6)
+        #expect(InventoryReportRules.violation(in: "计划 30 次 / 确认 21 次 / 跳过 3 次 / 未确认 6 次") == nil)   // 负清单通过
         #expect(InventoryReportRules.violation(in: "你的依从性差") != nil)      // 一票否决
         #expect(InventoryReportRules.violation(in: "建议你按时吃药") != nil)
     }
@@ -130,7 +137,9 @@ struct CareModeTests {
     @Test func 长按确认门槛() {
         #expect(HoldToConfirm.accepted(holdSeconds: 0.7, mode: .care))
         #expect(!HoldToConfirm.accepted(holdSeconds: 0.3, mode: .care))
-        #expect(HoldToConfirm.accepted(holdSeconds: 0.1, mode: .standard))   // 常规模式不强制
+        // 常规模式同样 0.6s（build 147 审查修复：0s 即触发 = 口袋误触即进紧急页）
+        #expect(!HoldToConfirm.accepted(holdSeconds: 0.1, mode: .standard))
+        #expect(HoldToConfirm.accepted(holdSeconds: 0.7, mode: .standard))
     }
 
     @Test func SOS两步可达且门禁豁免() {
@@ -169,11 +178,11 @@ struct SUM2StockTests {
             initialUnits: 30, dailyPlanUnits: 1,
             from: epoch, to: epoch.addingTimeInterval(35 * day), calendar: gregorian)
         let tiers = fired.map(\.tier)
-        #expect(tiers.contains(.t14), "14 天档未触达 —— 零确认存活失败")
         #expect(tiers.contains(.t7), "7 天档未触达 —— 零确认存活失败")
         #expect(tiers.contains(.t3), "3 天档未触达 —— 零确认存活失败")
+        #expect(tiers.contains(.t0), "当日档未触达 —— 零确认存活失败")
         // 顺序必须由宽到紧，且各档只触发一次（不得重复轰炸）
-        #expect(tiers == [.t14, .t7, .t3])
+        #expect(tiers == [.t7, .t3, .t0])
         #expect(Set(tiers).count == tiers.count)
     }
 
@@ -211,8 +220,8 @@ struct SUM2StockTests {
         var inv = DualTrackInventory(lotId: UUID(), totalUnits: 100, unitKind: "片",
                                      expireAt: epoch.addingTimeInterval(-day))
         inv.remainingPlanUnits = 100
-        #expect(InventoryRules.refillTier(inv, dailyPlanUnits: 1, at: epoch) == .t3,
-                "已过期即便余量充足也须最紧急档")
+        #expect(InventoryRules.refillTier(inv, dailyPlanUnits: 1, at: epoch) == .t0,
+                "已过期即便余量充足也须最紧急档（当日置顶）")
     }
 
     /// 余量充足时不得告警（反向断言——防「永远告警」的坏秤，ERR#32 同族）
@@ -233,14 +242,18 @@ struct SUM2StockTests {
                                                 calendar: gregorian).isEmpty)
     }
 
-    /// TC-M2-02 差异月报纯事实句式（负清单一票否决）
+    /// TC-M2-02 差异月报纯事实句式（负清单一票否决；V3.68 句式移出 Domain——
+    /// 数值字段断言 + 与 App 层 L10n 模板同形的句子过负清单）
     @Test func 差异月报纯事实且过负清单() {
         let report = InventoryReportRules.report(
             periodStart: epoch, periodEnd: epoch.addingTimeInterval(30 * day),
             planned: 30, confirmed: 21, skipped: 5, missed: 4)
-        #expect(report.statement.contains("计划 30 次"))
-        #expect(report.statement.contains("确认 21 次"))
-        #expect(InventoryReportRules.violation(in: report.statement) == nil,
+        #expect(report.plannedDoses == 30)
+        #expect(report.confirmedDoses == 21)
+        #expect(report.skippedDoses == 5)
+        #expect(report.missedDoses == 4)
+        let statement = "计划 30 次 / 确认 21 次 / 跳过 5 次 / 未确认 4 次"
+        #expect(InventoryReportRules.violation(in: statement) == nil,
                 "月报出现评价/建议句式即一票否决")
     }
 
@@ -367,7 +380,9 @@ struct DispenseListTests {
             DispenseListRules.Row(name: "二甲双胍", spec: "0.5g", unitKind: "tablet",
                                   planUnits: 30, confirmedUnits: 30, expireAt: nil),
         ]
-        let csv = DispenseListRules.csv(rows: rows)
+        // V3.68：表头由调用方经 L10n 传入（Domain 不硬编码中文表头）
+        let headers = ["药品名", "规格", "单位", "当前余量(安全线)", "当前余量(确认线)", "效期"]
+        let csv = DispenseListRules.csv(rows: rows, headers: headers)
         #expect(csv.contains("药品名,规格,单位,当前余量(安全线),当前余量(确认线),效期"))
         #expect(csv.contains("阿莫西林"))
         #expect(csv.contains("12"))
@@ -377,8 +392,8 @@ struct DispenseListTests {
     }
 
     @Test func 空清单不得产出空集假绿() {
-        #expect(!DispenseListRules.headers.isEmpty)
-        let empty = DispenseListRules.csv(rows: [])
+        let headers = ["药品名", "规格", "单位", "当前余量(安全线)", "当前余量(确认线)", "效期"]
+        let empty = DispenseListRules.csv(rows: [], headers: headers)
         #expect(empty.contains("药品名"), "空清单也必须有表头——空集不得判过")
     }
 }

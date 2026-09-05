@@ -243,6 +243,7 @@ struct StockLotEditView: View {
     let onSave: (LotEditDraft) async -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppState.self) private var app
     @State private var totalText = ""
     @State private var unitKind = "tablet"
     @State private var openedAt: Date?
@@ -288,7 +289,10 @@ struct StockLotEditView: View {
                                 Button(label) { storageNote = label }
                                     .buttonStyle(.bordered)
                                     .controlSize(.small)
-                                    .frame(minHeight: 44)   // 触点≥44pt（ui-ux §4.2）
+                                    // 触点≥44pt（ui-ux §4.2）；关怀模式 ≥64pt（FR18.2）
+                                    .frame(minHeight: app.careMode
+                                           ? CareModeMetrics.care.touchTarget
+                                           : CareModeMetrics.standard.touchTarget)
                             }
                         }
                     }

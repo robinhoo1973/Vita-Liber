@@ -505,7 +505,7 @@ struct TimelineView: View {
                         TimelineDocumentDetailView(entry: entry)
                     } label: {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(entry.title).font(.body)
+                            Text(L10n.docTitle(entry.title)).font(.body)
                             Text(L10n.onboardConfirmedCount(entry.confirmedFieldCount, entry.totalFieldCount))
                                 .font(.caption).foregroundStyle(.secondary)
                             if !entry.revisionHistory.isEmpty {

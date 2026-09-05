@@ -37,9 +37,13 @@ public struct AIAnswer: Sendable, Equatable {
         case emergencyCard
     }
     public struct SevenPart: Sendable, Equatable {
-        /// V3.68：模板句（结论/不确定/建议提问/scope/免责）由 App 层经 L10n
-        /// 渲染——citationCount 非 nil 即新结构（旧行 nil 时回落 legacy 文本）。
-        public var citationCount: Int?
+        /// V3.70（审查收敛）：七段结构单一形态——模板句（结论/不确定/建议提问/
+        /// scope/免责）由 App 层经 L10n 渲染，Domain 只出类型化数据。原
+        /// 「citationCount 可选 + legacy 字符串字段」双形态经核查无持久化路径
+        /// 支撑（AIHistoryStore 只存 render 后的纯文本、SevenPart 非 Codable），
+        /// 且第二个消费方 AssistantStore.render 已因未同步而静默丢内容——
+        /// 双形态即双源漂移，收敛为单一结构。
+        public var citationCount: Int
         /// 术语解释结构化对（App 层 L10n.aiTerm 渲染「term：explanation」；
         /// 结构体而非元组——元组不满足 Equatable，SevenPart 需保持 Equatable）
         public struct TermExplanation: Sendable, Equatable {
@@ -49,16 +53,19 @@ public struct AIAnswer: Sendable, Equatable {
                 self.term = term; self.explanation = explanation
             }
         }
-        public var terminologyPairs: [TermExplanation]?
-        public var conclusion: String        // ①结论（仅复述检索事实）——legacy
+        public var terminologyPairs: [TermExplanation]
+        /// 来源行结构化对（App 层 L10n.aiSourceLine 渲染「kind（title）」——
+        /// 中文全角括号不再由 Domain 拼接，en/zh-Hant 用户不再看到残渣）
+        public struct SourceLine: Sendable, Equatable {
+            public var kind: String
+            public var title: String
+            public init(kind: String, title: String) {
+                self.kind = kind; self.title = title
+            }
+        }
         public var citations: [EntityReference]  // ②引用（类型保证非空）
         public var excerpts: [String]        // ③原文摘录
-        public var terminology: [String]     // ④B 级术语词典通俗解释
-        public var sources: [String]         // ⑤来源说明（评审补：每条引用来自哪类资料）
-        public var uncertainties: [String]   // ⑥不确定与缺失（评审补：资料中查不到的部分）
-        public var questionsForDoctor: [String]  // ⑦建议向医生提问（评审补）
-        public var scopeNote: String         // 只读了哪些资料（最小必要访问）
-        public var disclaimer: String        // 固定免责
+        public var sources: [SourceLine]     // ⑤来源说明（每条引用来自哪类资料）
         public var gradeBadge: String        // E 级标识（AI 解释）
     }
     public struct Refusal: Sendable, Equatable {
@@ -211,33 +218,24 @@ public struct LocalRetrievalProvider: AIProvider {
     /// 七段组装（FR12.5）：结论只复述检索事实；术语解释来自 B 级词典；
     /// 固定免责句；E 级徽章标识 AI 解释。
     /// 审查修复（BR-006 一票否决执法）：组装完成后对**生成文案**跑
-    /// WordingBlacklist——全仓此前只有定义与测试、无任何生产调用点。
-    /// 命中即返回 nil（调用侧安全降级 .insufficientData），拦截优于展示。
+    /// WordingBlacklist。命中即返回 nil（调用侧安全降级 .insufficientData），
+    /// 拦截优于展示。审查再修复：负清单只扫生成文案（术语解释）——
+    /// `sources` 的 title 是用户资料标题的原样引用（溯源数据而非生成措辞），
+    /// 标题含「确诊」等词（如「高血压确诊单」）是常见病历命名，扫它会让
+    /// 持有真实资料的 P0 用户被误拒为「资料不足」（审查发现，5WHY：负清单
+    /// 被误当「非模板字段全扫」）。
     func compose(_ hits: [EntityReference], question: String) -> AIAnswer.SevenPart? {
         let excerpts = hits.prefix(3).map(\.snippet)
         let terms = terminology.terms(in: question)
             .compactMap { term in terminology.explain(term).map { AIAnswer.SevenPart.TermExplanation(term: term, explanation: $0) } }
         let card = AIAnswer.SevenPart(
-            // V3.68：模板句不再在 Domain 拼中文——App 层经 L10n 渲染
             citationCount: hits.count,
             terminologyPairs: terms,
-            conclusion: "",
             citations: hits,
             excerpts: excerpts,
-            terminology: [],
-            sources: hits.map { "\($0.kind)（\($0.title)）" },
-            uncertainties: [],
-            questionsForDoctor: [],
-            scopeNote: "",
-            disclaimer: "",
+            sources: hits.map { AIAnswer.SevenPart.SourceLine(kind: $0.kind, title: $0.title) },
             gradeBadge: "E")
-        // BR-006 一票否决：术语解释与来源是唯一含生成文案的字段（模板句已
-        // 移出 Domain）；App 层渲染后再检一次（SafeAIProvider 纵深防御不变）
-        // 注意 terminologyPairs 是可选项——`.map` 会绑定到整个数组而非元素，
-        // 必须先解包（V3.68 可选化时此处漏改的编译事故）。
-        let generated = (card.terminologyPairs ?? []).map { $0.explanation }
-            + card.sources
-        for text in generated where WordingBlacklist.violation(in: text) != nil {
+        for term in card.terminologyPairs where WordingBlacklist.violation(in: term.explanation) != nil {
             return nil   // 负清单命中：整卡安全降级，不展示违规文案
         }
         return card

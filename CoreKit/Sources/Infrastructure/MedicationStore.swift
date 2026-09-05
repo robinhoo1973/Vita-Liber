@@ -194,9 +194,9 @@ public actor MedicationStore: DoseSource {
 
     // MARK: - 消耗差异月报（FR9.8.5）
 
-    /// 月报输入 = 两线差值，逐日可溯。**纯事实聚合**，句式由 Domain 的
-    /// `InventoryMonthlyReport.statement` 唯一产出（禁止任何评价/评分句式，
-    /// 负清单由 `InventoryReportRules.violation` 一票否决）。
+    /// 月报输入 = 两线差值，逐日可溯。**纯事实聚合**（V3.68：句式由 App 层
+    /// 经 L10n.inventoryMonthlyReportFmt 渲染，Domain 只出数值；禁止任何
+    /// 评价/评分句式，负清单由 `InventoryReportRules.violation` 一票否决）。
     public func monthlyReport(patientId: UUID, from: Date, to: Date) async throws -> InventoryMonthlyReport {
         try await writer.read { db in
             let counts = try Row.fetchOne(db, sql: """

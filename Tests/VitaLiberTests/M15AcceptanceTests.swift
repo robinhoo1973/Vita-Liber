@@ -353,4 +353,43 @@ final class M15LocalizationTests: XCTestCase {
                        .command(.callEmergency120))
         L10n.setLanguage("zh-Hans")
     }
+
+    /// BR-006 措辞负清单一票否决的模板层执法（V3.70 审查修复）：
+    /// AI 七段固定句/语音提示语/证据卡句式移出 Domain 后不再被运行时负清单
+    /// 覆盖——此测试把「渲染后的 zh-Hans 模板句」全部过一遍负清单，
+    /// 负清单词（确诊/建议服用/因为…所以/可能…病 等）进入任一模板即变红。
+    func test_模板句过BR006措辞负清单() {
+        L10n.setLanguage("zh-Hans")
+        var violations: [String] = []
+        func check(_ text: String, _ label: String) {
+            if WordingBlacklist.violation(in: text) != nil {
+                violations.append("\(label)：\(text)")
+            }
+        }
+        // AI 七段固定句（FR12.5）
+        check(L10n.aiConclusion(3), "ai.conclusion")
+        check(L10n.aiTerm("血糖", "血液中的葡萄糖浓度"), "ai.term")
+        check(L10n.aiSourceLine("lab_report", "血压记录"), "ai.sourceLine")
+        check(L10n.aiUncertaintiesFixed, "ai.uncertaintiesFixed")
+        check(L10n.aiQuestionsFixed, "ai.questionsFixed")
+        check(L10n.aiScopeNote(3), "ai.scopeNote")
+        check(L10n.aiDisclaimerFixed, "ai.disclaimerFixed")
+        // 语音会话提示语（F19 SpeechPrompt 全枚举）
+        let prompts: [SpeechPrompt] = [
+            .repeatHint, .pickOption, .optionNotFound, .callConfirm(target: "女儿"),
+            .markTakenConfirm(object: "阿司匹林"), .forbiddenHint,
+            .recordConfirm(metricText: "血糖 5.0"), .sayCallTargetAgain, .cancelled,
+            .confirmToCall, .confirmToSave, .multipleMatches(options: ["甲", "乙"]),
+        ]
+        for (i, p) in prompts.enumerated() {
+            check(L10n.voicePromptText(p), "voice.prompt[\(i)]")
+        }
+        // F16 证据卡句式（L1+ 引用式提示）
+        check(L10n.alertEvidenceFacts("glucose", "17.0", "mmol/L", "device", "2026-09-05"), "alert.evidenceFacts")
+        check(L10n.alertEvidenceDisclaimer, "alert.evidenceDisclaimer")
+        check(L10n.alertEvidencePathRetest, "alert.evidencePath.retest")
+        check(L10n.alertEvidencePathVisit, "alert.evidencePath.visit")
+        check(L10n.alertEvidencePathObserve, "alert.evidencePath.observe")
+        XCTAssertTrue(violations.isEmpty, "模板句违反措辞负清单：\(violations)")
+    }
 }

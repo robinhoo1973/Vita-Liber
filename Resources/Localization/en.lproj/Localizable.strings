@@ -287,6 +287,7 @@
 "ai.citations" = "Source excerpts: ";
 "ai.conclusion" = "Found %d record(s) related to your question.";
 "ai.term" = "%@: %@";
+"ai.sourceLine" = "%1$@ (%2$@)";
 "ai.uncertaintiesFixed" = "Some of your records may not be archived here; this answer is based only on what is on this device.";
 "ai.questionsFixed" = "You can bring these records to your visit and ask your doctor to confirm whether they match your situation.";
 "ai.scopeNote" = "This answer read %d record(s) related to you.";

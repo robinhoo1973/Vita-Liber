@@ -13,7 +13,7 @@ struct TimelineDocumentDetailView: View {
         List {
             Section(L10n.docTitleSection) {
                 // 导航栏已是「文档详情」，行内不再重复标题标签，直接呈现条目名
-                Text(entry.title.isEmpty ? L10n.docLibraryUntitled : entry.title).font(.headline)
+                Text(L10n.docTitle(entry.title)).font(.headline)
                 LabeledContent(L10n.docDate, value: occurredDateText)
             }
             Section(L10n.docFieldsSection) {
@@ -51,7 +51,7 @@ struct TimelineDocumentDetailView: View {
                     Label(L10n.docExport, systemImage: "square.and.arrow.up")
                 }
                 .simultaneousGesture(TapGesture().onEnded {
-                    app.auditExport(documentId: entry.id, title: entry.title)
+                    app.auditExport(documentId: entry.id, title: L10n.docTitle(entry.title))
                 })
                 .accessibilityIdentifier("SP-10.document.export")
             }
@@ -77,7 +77,7 @@ struct TimelineDocumentDetailView: View {
     /// 审查修复（BR-003 代码级兜底）：只导出已确认字段——rejected/未确认
     /// 字段的识别值此前会经 ShareLink 流出设备，「仅 C 级」只写在注释里。
     private var exportText: String {
-        var lines: [String] = [entry.title, occurredDateText]
+        var lines: [String] = [L10n.docTitle(entry.title), occurredDateText]
         for field in fields.filter(\.isConfirmed) {
             lines.append("\(field.displayLabel): \(field.value)")
         }

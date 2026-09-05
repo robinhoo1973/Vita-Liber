@@ -200,8 +200,12 @@ struct AILocalTests {
         #expect(p.citations.count == 1)
         #expect(p.excerpts == ["收缩压 132 mmHg"])
         #expect(p.gradeBadge == "E")
-        #expect(p.disclaimer.contains("不能替代医生"))
-        #expect(!p.scopeNote.isEmpty)
+        // V3.70：模板句移 App 层 L10n 渲染——Domain 侧断言类型化字段
+        // （免责/scope 句式随 App 层模板测试过 BR-006 负清单）
+        #expect(p.citationCount == 1)
+        #expect(!p.terminologyPairs.isEmpty, "问题含「血压」应命中 B 级术语词典")
+        #expect(p.sources.count == 1)
+        #expect(p.sources[0].title == "血压记录")
     }
 
     @Test func 术语词典独立于信源库() {
@@ -228,9 +232,9 @@ struct SafeAIProviderTests {
     /// BR-012：内层把紧急提问当普通问答返回，装饰器必须改写为急救卡
     @Test func 内层误分类紧急提问时强制急救卡() async throws {
         let inner = MisbehavingProvider(stub: AIAnswer(body: .composed(.init(
-            conclusion: "无关结论", citations: [EntityReference(kind: "x", refID: UUID(), title: "t", snippet: "s")],
-            excerpts: [], terminology: [], sources: [], uncertainties: [],
-            questionsForDoctor: [], scopeNote: "", disclaimer: "", gradeBadge: "E"))))
+            citationCount: 1, terminologyPairs: [],
+            citations: [EntityReference(kind: "x", refID: UUID(), title: "t", snippet: "s")],
+            excerpts: [], sources: [], gradeBadge: "E"))))
         let answer = try await SafeAIProvider(inner: inner)
             .answer(AIQuery(text: "我父亲胸痛得厉害"), scope: .init(patientIds: []))
         #expect(answer.body == .emergencyCard)
@@ -255,9 +259,9 @@ struct SafeAIProviderTests {
     /// excerpts 是无溯源纯文本，citations 才是唯一类型化出处）
     @Test func 零引用的组合答案退回拒识() async throws {
         let inner = MisbehavingProvider(stub: AIAnswer(body: .composed(.init(
-            conclusion: "建议把阿莫西林加到 500mg 每天", citations: [],
-            excerpts: ["看起来可以加量"], terminology: [], sources: [], uncertainties: [],
-            questionsForDoctor: [], scopeNote: "", disclaimer: "", gradeBadge: "E"))))
+            citationCount: 0, terminologyPairs: [],
+            citations: [],
+            excerpts: ["看起来可以加量"], sources: [], gradeBadge: "E"))))
         let answer = try await SafeAIProvider(inner: inner)
             .answer(AIQuery(text: "我的血压怎么样"), scope: .init(patientIds: []))
         guard case .refused(let r) = answer.body else {
@@ -271,9 +275,9 @@ struct SafeAIProviderTests {
     @Test func 合法答案原样透传() async throws {
         let ref = EntityReference(kind: "document_file", refID: UUID(), title: "血压", snippet: "132")
         let stub = AIAnswer(body: .composed(.init(
-            conclusion: "结论", citations: [ref], excerpts: ["132"], terminology: [],
-            sources: [], uncertainties: [], questionsForDoctor: [],
-            scopeNote: "s", disclaimer: "d", gradeBadge: "E")))
+            citationCount: 1, terminologyPairs: [],
+            citations: [ref], excerpts: ["132"],
+            sources: [], gradeBadge: "E")))
         let answer = try await SafeAIProvider(inner: MisbehavingProvider(stub: stub))
             .answer(AIQuery(text: "我的血压怎么样"), scope: .init(patientIds: []))
         #expect(answer == stub)
@@ -285,9 +289,9 @@ struct SafeAIProviderTests {
     func 高风险话题即便带引用也拒识(_ phrase: String) async throws {
         let ref = EntityReference(kind: "prescription", refID: UUID(), title: "处方", snippet: "阿莫西林 0.25g")
         let inner = MisbehavingProvider(stub: AIAnswer(body: .composed(.init(
-            conclusion: "可以加到 500mg", citations: [ref], excerpts: ["阿莫西林 0.25g"],
-            terminology: [], sources: [], uncertainties: [], questionsForDoctor: [],
-            scopeNote: "s", disclaimer: "d", gradeBadge: "E"))))
+            citationCount: 1, terminologyPairs: [],
+            citations: [ref], excerpts: ["阿莫西林 0.25g"],
+            sources: [], gradeBadge: "E"))))
         let answer = try await SafeAIProvider(inner: inner)
             .answer(AIQuery(text: phrase), scope: .init(patientIds: []))
         guard case .refused(let r) = answer.body else {

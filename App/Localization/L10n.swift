@@ -333,6 +333,8 @@ enum L10n {
     // FR12.5 七段模板句（V3.68：Domain 只出数据，模板本层渲染）
     static func aiConclusion(_ count: Int) -> String { String(format: t("ai.conclusion"), count) }
     static func aiTerm(_ term: String, _ explanation: String) -> String { String(format: t("ai.term"), term, explanation) }
+    // V3.70：来源行结构化对（Domain 不再拼中文全角括号——en/zh-Hant 各自句式）
+    static func aiSourceLine(_ kind: String, _ title: String) -> String { String(format: t("ai.sourceLine"), kind, title) }
     static var aiUncertaintiesFixed: String { t("ai.uncertaintiesFixed") }
     static var aiQuestionsFixed: String { t("ai.questionsFixed") }
     static func aiScopeNote(_ count: Int) -> String { String(format: t("ai.scopeNote"), count) }
@@ -760,6 +762,7 @@ enum L10n {
         "ai.aiBadge", "ai.askDoctor", "ai.citations",
         "ai.conclusion",
         "ai.term",
+        "ai.sourceLine",
         "ai.uncertaintiesFixed",
         "ai.questionsFixed",
         "ai.scopeNote",
@@ -1679,6 +1682,13 @@ enum L10n {
     static var docLibraryEmpty: String { t("docLibrary.empty") }
     static var docLibraryEmptyHint: String { t("docLibrary.emptyHint") }
     static var docLibraryUntitled: String { t("docLibrary.untitled") }
+    /// 标题显示回落（V3.70 审查）：TimelineProjection 对无题资料输出 ""（数据保真），
+    /// 列表/详情/导出/审计/冲突预览等一切显示出口统一经此回落——nil 与空串同义，
+    /// 不再让每个消费方各自记住 isEmpty 检查（此前已漏 5 处显示空行）。
+    static func docTitle(_ title: String?) -> String {
+        guard let title, !title.isEmpty else { return t("docLibrary.untitled") }
+        return title
+    }
     static var docArchive: String { t("doc.archive") }
     static var docUnarchive: String { t("doc.unarchive") }
     static var docFavorite: String { t("doc.favorite") }
@@ -1794,7 +1804,9 @@ enum L10n {
         case "observation": return t("export.kind.observation")
         case "plan": return t("export.kind.plan")
         case "encounter": return t("export.kind.encounter")
-        default: return kind   // 观察类型原文（未知回落不臆造）
+        // F8 观察类型名复用既有映射（审查修复：PDF 此前直出英文 raw key
+        // ——export.kind.* 与 observation.kind.* 两套映射合流，防漂移）
+        default: return ObservationKind(rawValue: kind).map(observationKindName) ?? kind
         }
     }
     static var backupReminderTitle: String { t("backup.reminder.title") }
@@ -2034,26 +2046,37 @@ enum L10n {
     // 视图重渲染 → t() 按新语言解析。
 
     /// 当前显示语言（"zh-Hans"/"zh-Hant"）。nonisolated(unsafe)：
-    /// 仅在 App 启动与语言设置变更时写（两者皆发生在主线程 UI 流程），
-    /// 读路径并发无害（缓存值切换的窗口期只影响一次渲染的文案）。
+    /// 写只发生在 App 启动与语言设置变更（主线程 UI 流程）。
+    /// 审查修复（V3.70）：PDF 导出的 @Sendable 文案闭包使 t() 从
+    /// Infrastructure actor 后台执行器并发可达——无锁读写语言/包缓存存在
+    /// 撕裂风险（导出中途切语言 → 半新半旧文案或裸 key 上 PDF）。
+    /// 缓存读写统一加锁，读路径成本可忽略（锁内仅字典/指针级操作）。
     nonisolated(unsafe) private static var languageCache: String = "zh-Hans"
     nonisolated(unsafe) private static var bundleCache: Bundle?
+    nonisolated(unsafe) private static let cacheLock = NSLock()
 
-    static var bundleLanguage: String { languageCache }
+    static var bundleLanguage: String {
+        cacheLock.lock(); defer { cacheLock.unlock() }
+        return languageCache
+    }
 
     /// FR14.5 语言切换入口（设置页调用；App 启动时以持久化偏好初始化）
     static func setLanguage(_ lang: String) {
         guard supportedLocalizations.contains(lang) else { return }
+        cacheLock.lock()
         languageCache = lang
         bundleCache = nil
+        cacheLock.unlock()
         UserDefaults.standard.set(lang, forKey: "vl.language")
     }
 
     /// 启动恢复：从持久化偏好初始化（AppRootView .task 调用）
     static func restoreLanguage() {
         let stored = UserDefaults.standard.string(forKey: "vl.language") ?? "zh-Hans"
+        cacheLock.lock()
         languageCache = stored
         bundleCache = nil
+        cacheLock.unlock()
     }
 
     private static func t(_ key: String) -> String {
@@ -2065,6 +2088,7 @@ enum L10n {
     }
 
     private static var currentBundle: Bundle? {
+        cacheLock.lock(); defer { cacheLock.unlock() }
         if let cached = bundleCache { return cached }
         guard let path = Bundle.main.path(forResource: languageCache, ofType: "lproj"),
               let bundle = Bundle(path: path) else { return nil }

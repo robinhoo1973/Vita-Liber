@@ -157,10 +157,10 @@ struct ExportWizardView: View {
                                             dateTo: scopeKind == .dateRange ? dateTo : nil,
                                             includeNotes: includeNotes,
                                             watermark: watermark,
-                                            emergencyNumber: L10n.emergencyNumber,
                                             countLabel: { L10n.exportRecordCount($0) },
                                             disclaimer: L10n.exportDisclaimer(L10n.emergencyNumber),
                                             kindLabel: { L10n.exportKindName($0) },
+                                            titleLabel: { L10n.docTitle($0) },
                                             scopeKind: scopeKind)
                                         state.run(request)
                                         step = 3

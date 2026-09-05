@@ -220,10 +220,18 @@ public enum CodeResolver {
         // 严格解析：不做逗号归一化——「1,200」是千分位还是小数逗号无法判别，
         // 猜错即产出错误医学数值。解析失败 = nil（原值保留，绝不静默近似）。
         if let parsed = Double(value),
-           let res = resolution, let targetUnit = res.canonicalUnit,
-           let conversion = try await UcumRules.convert(parsed, from: cleanedUnit, to: targetUnit,
-                                                        units: units, conceptId: res.conceptId) {
-            canonicalValue = conversion.convert(parsed)
+           let res = resolution, let targetUnit = res.canonicalUnit {
+            if cleanedUnit == targetUnit {
+                // 已是规范单位：无需换算 ≠ 无法换算——按 §5.52 骨架 nil 语义
+                // （「nil = 无法换算」），同单位直接产出规范值（恒等），消费方
+                // 不必回查单位才能区分「已是规范」与「换算不了」
+                canonicalValue = parsed
+            } else if let conversion = try await UcumRules.convert(parsed, from: cleanedUnit,
+                                                                   to: targetUnit,
+                                                                   units: units,
+                                                                   conceptId: res.conceptId) {
+                canonicalValue = conversion.convert(parsed)
+            }
         }
         return ResolvedReading(resolution: resolution,
                                canonicalUnit: resolution?.canonicalUnit,

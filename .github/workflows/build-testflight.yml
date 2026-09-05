@@ -2,6 +2,7 @@
 # 构建 + TestFlight 发布 CI（三阶段独立 Job）
 #
 # Job 1 — version：解析版本号（ubuntu，快速廉价）
+# Job 1.5 — corekit-linux-tests：CoreKit SPM 测试（Linux 容器，独立信号不阻塞上传）
 # Job 2 — build：L0 门禁 → 编译 → 签名归档 → 导出 IPA → 上传 artifact
 # Job 3 — upload：下载 artifact → 直接 xcrun altool 推送 TestFlight
 #
@@ -87,6 +88,33 @@ jobs:
           echo "build=$BUILD" >> "$GITHUB_OUTPUT"
           echo "hash=$HASH" >> "$GITHUB_OUTPUT"
           echo "三部件版本 → Version $VERSION | Build $BUILD | Code Hash $HASH"
+
+  # ═══════════════════════════════════════════════════════════════
+  # Job 1.5: CoreKit 域层测试（Linux 容器）
+  #
+  # project.yml 注记「CoreKit 的 SPM 测试目标在 Linux 容器里跑」此前
+  # 从未落地为任何工作流——Domain 公共 API 移除后测试残留引用长期不红
+  # （V3.70 审查发现 6 个测试文件 75 处编译错误无人察觉）。本 job 把该
+  # 套件接线为仓库状态信号：独立于上传链，红绿不阻塞 TestFlight 上传，
+  # 但 master 推送的红叉即为可见的域层回归。
+  # ═══════════════════════════════════════════════════════════════
+  corekit-linux-tests:
+    name: 'CoreKit Linux 测试'
+    runs-on: ubuntu-latest
+    container: swift:6.1
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: CoreKit swift test（Domain 纯逻辑套件）
+        run: |
+          cd CoreKit
+          swift test 2>&1 | tee /tmp/corekit-swift-test.log
+
+      - name: 失败清单（编译错误/失败用例摘要）
+        if: failure()
+        run: |
+          grep -E "error:|✘" /tmp/corekit-swift-test.log | head -40 || true
 
   # ═══════════════════════════════════════════════════════════════
   # Job 2: 编译 + 签名归档 + 导出 IPA

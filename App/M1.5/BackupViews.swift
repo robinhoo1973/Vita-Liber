@@ -187,7 +187,7 @@ struct BackupView: View {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(conflictKindLabel(item.table))
                                 .font(.caption).foregroundStyle(.secondary)
-                            Text(item.backupTitle ?? L10n.docLibraryUntitled)
+                            Text(L10n.docTitle(item.backupTitle))
                                 .font(.subheadline)
                             Picker(L10n.backupConflictChoice, selection: conflictChoice(item.id)) {
                                 Text(L10n.backupConflictKeep).tag(ExportService.ConflictResolution.keep)
