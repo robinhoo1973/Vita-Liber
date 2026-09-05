@@ -668,7 +668,7 @@ public actor ExportService {
                                      p.startDate.timeIntervalSince1970, p.endDate?.timeIntervalSince1970,
                                      p.startDate.timeIntervalSince1970, p.startDate.timeIntervalSince1970])
             }
-            func adoptOrSkip<T>(_ conflicts: Set<String>, _ id: UUID,
+            func adoptOrSkip(_ conflicts: Set<String>, _ id: UUID,
                                 adopt: () throws -> Void) throws -> Bool {
                 guard conflicts.contains(id.uuidString) else { return false }
                 switch resolution(id) {
