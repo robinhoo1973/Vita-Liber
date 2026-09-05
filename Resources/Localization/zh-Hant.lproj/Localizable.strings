@@ -284,6 +284,13 @@
 "ai.emergencyAction" = "請立即撥打 120 或前往最近的醫院急診。";
 "ai.aiBadge" = "AI 解釋（基於你的資料）";
 "ai.citations" = "相關原文：";
+"ai.conclusion" = "找到 %d 條與你的問題相關的資料。";
+"ai.term" = "%@：%@";
+"ai.uncertaintiesFixed" = "你的資料中可能還有紙本資料未收錄；本回答只基於已歸檔內容。";
+"ai.questionsFixed" = "就診時可以帶著這些資料，請醫生確認與你的情況是否一致。";
+"ai.scopeNote" = "本次回答只讀取了 %d 條與你相關的資料。";
+"ai.disclaimerFixed" = "以上內容來自你的資料與通用術語解釋，不能替代醫生診斷或用藥指導。";
+
 "ai.source" = "來源：";
 "ai.uncertain" = "不確定：%@";
 "ai.askDoctor" = "建議問醫生：%@";

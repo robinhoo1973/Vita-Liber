@@ -326,6 +326,13 @@ enum L10n {
     static var ai_emergencyAction: String { t("ai.emergencyAction") }
     static var ai_aiBadge: String { t("ai.aiBadge") }
     static var ai_citations: String { t("ai.citations") }
+    // FR12.5 七段模板句（V3.68：Domain 只出数据，模板本层渲染）
+    static func aiConclusion(_ count: Int) -> String { String(format: t("ai.conclusion"), count) }
+    static func aiTerm(_ term: String, _ explanation: String) -> String { String(format: t("ai.term"), term, explanation) }
+    static var aiUncertaintiesFixed: String { t("ai.uncertaintiesFixed") }
+    static var aiQuestionsFixed: String { t("ai.questionsFixed") }
+    static func aiScopeNote(_ count: Int) -> String { String(format: t("ai.scopeNote"), count) }
+    static var aiDisclaimerFixed: String { t("ai.disclaimerFixed") }
     static var ai_source: String { t("ai.source") }
     static var ai_uncertain: String { t("ai.uncertain") }
     static var ai_askDoctor: String { t("ai.askDoctor") }
@@ -745,7 +752,13 @@ enum L10n {
 
     static let registeredKeys: [String] = [
         "help.versionFormat",
-        "ai.aiBadge", "ai.askDoctor", "ai.citations", "ai.confirmImageText",
+        "ai.aiBadge", "ai.askDoctor", "ai.citations",
+        "ai.conclusion",
+        "ai.term",
+        "ai.uncertaintiesFixed",
+        "ai.questionsFixed",
+        "ai.scopeNote",
+        "ai.disclaimerFixed", "ai.confirmImageText",
         "ai.emergencyAction", "ai.emergencyCall", "ai.emergencyTitle", "paywall.previewTitle", "timeline.empty.title",
         "ai.emergencyCardText", "ai.failedRetry", "ai.refusedHighRisk",
         "ai.refusedNoEvidence",
