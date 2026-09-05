@@ -326,6 +326,16 @@ enum L10n {
     static var voiceguide_next: String { t("voiceguide.next") }
     static var voiceguide_answerHint: String { t("voiceguide.answerHint") }
     static var voiceguide_profileTitle: String { t("voiceguide.profileTitle") }
+    static var voiceguide_micTitle: String { t("voiceguide.micTitle") }
+    static var voiceguide_micPrompt: String { t("voiceguide.micPrompt") }
+    static var voiceguide_micPhrase: String { t("voiceguide.micPhrase") }
+    static var voiceguide_micTooLow: String { t("voiceguide.micTooLow") }
+    static var voiceguide_micSkip: String { t("voiceguide.micSkip") }
+    static var voiceguide_micPass: String { t("voiceguide.micPass") }
+    static var voiceguide_noteAllergy: String { t("voiceguide.note.allergy") }
+    static var voiceguide_noteHistory: String { t("voiceguide.note.history") }
+    static var voiceguide_noteMeds: String { t("voiceguide.note.meds") }
+    static var voiceguide_noteContact: String { t("voiceguide.note.contact") }
     static var voiceguide_promptAllergy: String { t("voiceguide.promptAllergy") }
     static var voiceguide_promptHistory: String { t("voiceguide.promptHistory") }
     static var voiceguide_promptMeds: String { t("voiceguide.promptMeds") }
@@ -930,6 +940,18 @@ enum L10n {
     static var homeCaptureReport: String { t("home.capture.report") }
     static var homeCapturePrescription: String { t("home.capture.prescription") }
     static var homeCaptureSymptom: String { t("home.capture.symptom") }
+    static var homeCaptureHint: String { t("home.capture.hint") }
+    static var homeCaptureShoot: String { t("home.capture.shoot") }
+    static var homeCaptureSaved: String { t("home.capture.saved") }
+    static var docTypePrescription: String { t("doc.type.prescription") }
+    static var homeProfileProgressTitle: String { t("home.profileProgress") }
+    static func homeProfileProgressFmt(_ done: Int, _ total: Int) -> String {
+        String(format: t("home.profileProgressFmt"), done, total)   // 位置参数 %1$d / %2$d
+    }
+    static var homeProfileContinue: String { t("home.profileContinue") }
+    static var homeDisclaimer: String { t("home.disclaimer") }
+    static var timelineQuickEntry: String { t("timeline.quickEntry") }
+    static var settings_offlineNote: String { t("settings.offlineNote") }
     static var homeGuide1: String { t("home.guide1") }
     static var homeGuide2: String { t("home.guide2") }
     static var homeGuide3: String { t("home.guide3") }

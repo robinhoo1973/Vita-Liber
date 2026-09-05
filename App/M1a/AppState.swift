@@ -375,6 +375,26 @@ final class AppState {
 
     private static let sessionFallbackPatientId = UUID()
 
+    /// 档案完善进度（首页进度卡 · mock 对齐项）：血型/证件/医保/生日 4 个直接字段
+    /// + 语音访谈四段（过敏/既往史/当前用药/紧急联系人，暂存于 note 结构化段落）。
+    /// 展示性计算（非 BR 业务规则），随档案更新实时反映。
+    var profileCompletion: (done: Int, total: Int) {
+        let total = 8
+        guard let p = members.first(where: { $0.id == currentPatientId }) else { return (0, total) }
+        var done = 0
+        if !(p.bloodType?.isEmpty ?? true) { done += 1 }
+        if !(p.idNo?.isEmpty ?? true) { done += 1 }
+        if !(p.insuranceNo?.isEmpty ?? true) { done += 1 }
+        if !(p.birthDate?.isEmpty ?? true) { done += 1 }
+        let note = p.note ?? ""
+        for marker in [L10n.voiceguide_noteAllergy, L10n.voiceguide_noteHistory,
+                       L10n.voiceguide_noteMeds, L10n.voiceguide_noteContact]
+        where note.contains("【\(marker)】") {
+            done += 1
+        }
+        return (done, total)
+    }
+
     func setCurrentPatient(_ id: UUID) {
         guard members.contains(where: { $0.id == id }) else { return }
         currentPatientId = id

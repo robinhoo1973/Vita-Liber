@@ -23,7 +23,7 @@ public enum AppRoute: Hashable, Sendable, Codable {
     case documentList                    // SP-09
     case documentDetail(UUID)            // SP-09 详情
     case importSource                    // SP-10
-    case scanCapture                     // SP-11 相机流
+    case scanCapture(CaptureKind)        // SP-11 相机流（病历/报告/处方；症状走 observationCreate）
 
     // ---- F6 OCR ----
     case ocrConfirm(documentId: UUID)    // SP-12 单文档确认

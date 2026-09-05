@@ -113,6 +113,7 @@ struct VoiceGuidedProfileView: View {
     ]
 
     @State private var consentGiven = false
+    @State private var micChecked = false
     @State private var stepIndex = 0
     @State private var answer = ""
     @State private var confirmSet: OcrConfirmationSet?
@@ -126,6 +127,12 @@ struct VoiceGuidedProfileView: View {
                 VoicePrivacyHeadphoneCard(
                     onAccept: { consentGiven = true },
                     onUseTouch: { onCommitField("__useTouch", "1") })
+            } else if !micChecked {
+                // TestFlight 实测修复：语音访谈前先做音量自检（实时音量条 +
+                // 测试句朗读指导），低音量可重试、无障碍用户可跳过保留手输
+                VoiceLevelCheck(
+                    onPass: { micChecked = true },
+                    onSkip: { micChecked = true })
             } else {
                 interview
             }
@@ -167,6 +174,11 @@ struct VoiceGuidedProfileView: View {
             Text(steps[stepIndex].prompt)
                 .font(.headline)
                 .accessibilityIdentifier("FR17.11.prompt")
+            // TestFlight 实测修复：提问自动语音朗读（不看屏幕也能访谈），
+            // 每次进入新步骤重读一遍；听写按钮接同一回答输入（可手输可语音）
+            VoiceDictationButton { text, _ in
+                if !text.isEmpty { answer = text }
+            }
             TextField(L10n.voiceguide_answerHint, text: $answer, axis: .vertical)
                 .textFieldStyle(.roundedBorder)
                 .lineLimit(1...4)
@@ -188,6 +200,11 @@ struct VoiceGuidedProfileView: View {
             Spacer()
         }
         .padding(16)
+        // TestFlight 实测修复：提问自动朗读——进入访谈与每次换步都读一遍
+        .onAppear { app.speak(steps[stepIndex].prompt) }
+        .onChange(of: stepIndex) { _, newStep in
+            app.speak(steps[newStep].prompt)
+        }
     }
 
     private func buildDraft() {

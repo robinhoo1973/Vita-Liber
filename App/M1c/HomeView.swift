@@ -155,6 +155,9 @@ struct HomeView: View {
                     if !snapshot.todoItems.isEmpty {
                         todoCard
                     }
+                    if app.profileCompletion.done < app.profileCompletion.total {
+                        profileProgressCard   // mock 对齐项：档案完善进度卡（成熟用户续填入口）
+                    }
                     if snapshot.pendingOCRCount > 0 {
                         pendingOcrCard
                     }
@@ -171,6 +174,13 @@ struct HomeView: View {
                         recentObservationsCard
                     }
                     quickCaptureCard
+                    // mock 对齐项：底部免责声明（医疗产品信任资产，呼应「不联网·不诊断」承诺）
+                    Text(L10n.homeDisclaimer)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 4)
+                        .accessibilityIdentifier("SP-04.home.disclaimer")
                 }
             }
             .padding(.horizontal, 16)
@@ -191,7 +201,7 @@ struct HomeView: View {
                 router.navigate(to: .memberList)
             }
             GuideTaskCard(icon: "camera.fill", title: L10n.homeGuide2, done: !app.timeline.isEmpty) {
-                router.navigate(to: .scanCapture)
+                router.navigate(to: .scanCapture(.record))
             }
             GuideTaskCard(icon: "bell.badge.fill", title: L10n.homeGuide3, done: !reminderStore.todaySlots.isEmpty) {
                 router.navigate(to: .medicationPlanForm(nil))
@@ -257,6 +267,34 @@ struct HomeView: View {
                 .accessibilityIdentifier("SP-04.home.todo.\(item.kind.rawValue)")
             }
         }
+    }
+
+    /// 档案完善进度卡（mock 对齐项）：显示已完善 X/Y 项 + 一键续填语音访谈
+    private var profileProgressCard: some View {
+        let c = app.profileCompletion
+        return Button {
+            router.navigate(to: .voiceGuideProfile)   // 续填走语音访谈（可手输，FR17.11）
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "person.text.rectangle")
+                    .foregroundStyle(Color("brand-primary", bundle: .main))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(L10n.homeProfileProgressTitle).font(.subheadline).bold()
+                    Text(L10n.homeProfileProgressFmt(c.done, c.total))
+                        .font(.caption).foregroundStyle(.secondary)
+                    ProgressView(value: Double(c.done), total: Double(c.total))
+                        .tint(Color("brand-primary", bundle: .main))
+                }
+                Spacer()
+                Text(L10n.homeProfileContinue)
+                    .font(.caption).fontWeight(.semibold)
+                    .foregroundStyle(Color("brand-primary", bundle: .main))
+            }
+            .padding(14)
+            .background(RoundedRectangle(cornerRadius: 12).fill(Color(.systemBackground)))
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("SP-04.home.profileProgress")
     }
 
     private var pendingOcrCard: some View {
@@ -361,13 +399,13 @@ struct HomeView: View {
         CardSection(title: L10n.homeQuickCapture) {
             HStack(spacing: 12) {
                 QuickCaptureButton(icon: "doc.text.fill", label: L10n.homeCaptureRecord) {
-                    router.navigate(to: .scanCapture)
+                    router.navigate(to: .scanCapture(.record))
                 }
                 QuickCaptureButton(icon: "chart.bar.doc.horizontal.fill", label: L10n.homeCaptureReport) {
-                    router.navigate(to: .scanCapture)
+                    router.navigate(to: .scanCapture(.report))
                 }
                 QuickCaptureButton(icon: "pills.fill", label: L10n.homeCapturePrescription) {
-                    router.navigate(to: .scanCapture)
+                    router.navigate(to: .scanCapture(.prescription))
                 }
                 QuickCaptureButton(icon: "waveform.path.ecg", label: L10n.homeCaptureSymptom) {
                     router.navigate(to: .observationCreate)

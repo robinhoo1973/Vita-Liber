@@ -53,7 +53,15 @@ struct RootAdaptiveView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(ReminderStore.self) private var reminderStore
     @Environment(AppRouter.self) private var router
-    @SceneStorage("selectedModule") private var selection: MainModule = .home
+
+    /// 选中模块由 AppRouter 单一状态源驱动（TestFlight 实测：SceneStorage 与
+    /// navigate 双源分离导致跨 Tab 路由只 append 不切 Tab、点击无反应）。
+    /// SceneStorage 持久化并入 router 的 defaults 持久化（§5.48 同族）。
+    private var selection: Binding<MainModule> {
+        Binding(
+            get: { MainModule(tabID: router.selection) },
+            set: { router.select(MainModuleID(rawValue: $0.rawValue) ?? .home) })
+    }
 
     var body: some View {
         // 容器驱动重排（ADR-021）：compact=TabView、regular=侧边栏。
@@ -62,7 +70,7 @@ struct RootAdaptiveView: View {
         // 'withPaywallHost' cannot be used on type 'View'）
         Group {
         if sizeClass == .compact {
-            TabView(selection: $selection) {
+            TabView(selection: selection) {
                 ForEach(MainModule.allCases) { m in
                     // 每个 tab 自带导航栈。放在这里而不是 ModuleRoot 内部：
                     // ModuleRoot 为两种 idiom 共用（ADR-021 单一内容视图），
@@ -95,8 +103,8 @@ struct RootAdaptiveView: View {
                 }
                 .navigationTitle(L10n.help_appName)
             } detail: {
-                NavigationStack(path: router.binding(for: MainModuleID(selection))) {
-                    ModuleRoot(module: selection)
+                NavigationStack(path: router.binding(for: MainModuleID(selection.wrappedValue))) {
+                    ModuleRoot(module: selection.wrappedValue)
                         .navigationDestination(for: AppRoute.self) { route in
                             RouteDestinationView(route: route)
                         }
@@ -107,7 +115,7 @@ struct RootAdaptiveView: View {
                     // ② 详情列弹出后回到根时，根视图 = 最后所选模块而非恒 .home。
                     // 异步延后一拍写：onAppear 期间直接写导航驱动状态属再入（重复 push 风险）。
                     ModuleRoot(module: m)
-                        .onAppear { DispatchQueue.main.async { selection = m } }
+                        .onAppear { DispatchQueue.main.async { router.select(MainModuleID(m)) } }
                 }
             }
         }

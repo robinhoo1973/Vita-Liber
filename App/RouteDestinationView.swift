@@ -145,8 +145,13 @@ struct RouteDestinationView: View {
         case .paywall:
             PaywallView()
 
+        // ---- SP-11 快速拍摄（TestFlight 实测修复：原先列入「尚未落地」降级，
+        //      三入口点击静默回档案根——现接真实相机流 + 资料库入库管线） ----
+        case .scanCapture(let kind):
+            QuickCaptureView(kind: kind)
+
         // ---- 尚未落地的页面：降级回所属 Tab 模块根（§5.45 缺路由降级不 crash） ----
-        case .scanCapture, .ocrConfirm,
+        case .ocrConfirm,
              .observationDetail,
              .stockLotDetail, .stockLotEdit,
              .preferences,

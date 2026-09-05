@@ -17,6 +17,11 @@ final class AppRouter {
     var aiPath: [AppRoute] = []
     var mePath: [AppRoute] = []
 
+    /// 当前选中模块——导航单一状态源（评审修正，TestFlight 实测：navigate 只 append
+    /// 不切 Tab，跨 Tab 路由点击无任何反应）。§5.45 契约「切换 selection + append」
+    /// 的两半必须同源完成，selection 亦随 paths 一起持久化（§5.48 跨启动恢复）。
+    private(set) var selection: MainModuleID = .home
+
     private let defaults: UserDefaults
     /// 恢复中标志：从 UserDefaults 解码失败时静默归零（缺路由降级不 crash，§5.45）
     private var isRestoring = false
@@ -26,10 +31,13 @@ final class AppRouter {
         restore()
     }
 
-    /// 通知点击 → 路由分发：SOS 免门禁（FR1.8），其余路由在门禁通过后可见
-    /// （锁屏遮罩在 AppRootView 层始终盖住，路由只决定解锁后的落点）。
+    /// 通知点击 → 路由分发：先切 selection 到 route 所属 Tab，再 append 到对应 path
+    /// （跨 Tab 路由若不切 selection，用户留在原 Tab 看不到任何推进——TestFlight 实测
+    /// 首页快速拍摄/语音速记面板选择栏目均因此无反应）。
+    /// SOS 免门禁（FR1.8），其余路由在门禁通过后可见。
     func navigate(to route: AppRoute) {
         let tab = MainModuleID.tab(of: route)
+        selection = tab
         switch tab {
         case .home: homePath.append(route)
         case .records: recordsPath.append(route)
@@ -38,6 +46,20 @@ final class AppRouter {
         case .me: mePath.append(route)
         }
         persist()
+    }
+
+    /// Tab/侧边栏选中回写（RootAdaptiveView 统一入口，避免散落直接赋值）
+    func select(_ tab: MainModuleID) {
+        guard selection != tab else { return }
+        selection = tab
+        persist()
+    }
+
+    /// TabView selection / Sidebar 回写的统一绑定
+    var selectionBinding: Binding<MainModuleID> {
+        Binding(
+            get: { [weak self] in self?.selection ?? .home },
+            set: { [weak self] in self?.select($0) })
     }
 
     /// Tab 内的 path 绑定（NavigationStack(path:) 消费）
@@ -59,7 +81,7 @@ final class AppRouter {
     // MARK: - §5.48 跨启动恢复
 
     private enum Key: String, CaseIterable {
-        case home, records, reminders, ai, me
+        case home, records, reminders, ai, me, selectedModule
         var storageKey: String { "router.path.\(rawValue)" }
     }
 
@@ -67,6 +89,7 @@ final class AppRouter {
         guard !isRestoring else { return }
         set(Key.home, homePath); set(Key.records, recordsPath)
         set(Key.reminders, remindersPath); set(Key.ai, aiPath); set(Key.me, mePath)
+        defaults.set(selection.rawValue, forKey: Key.selectedModule.storageKey)
     }
 
     private func set(_ key: Key, _ path: [AppRoute]) {
@@ -83,6 +106,10 @@ final class AppRouter {
         defer { isRestoring = false }
         homePath = load(Key.home); recordsPath = load(Key.records)
         remindersPath = load(Key.reminders); aiPath = load(Key.ai); mePath = load(Key.me)
+        if let raw = defaults.string(forKey: Key.selectedModule.storageKey),
+           let restored = MainModuleID(rawValue: raw) {
+            selection = restored
+        }
     }
 
     private func load(_ key: Key) -> [AppRoute] {
