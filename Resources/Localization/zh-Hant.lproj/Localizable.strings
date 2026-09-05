@@ -177,6 +177,22 @@
 "f19.typeHint" = "也可以打字輸入指令";
 "f19.end" = "結束會話";
 "f19.sayAgainHint" = "沒聽清？說「再說一遍」";
+"voice.prompt.repeatHint" = "沒聽清，請再說一遍，或者說「退出」結束。";
+"voice.prompt.pickOption" = "請說第一到第三個中的一個。";
+"voice.prompt.optionNotFound" = "沒找到這個選項，請說選項的名字或第幾個。";
+"voice.prompt.callConfirm" = "將撥打%@，請說「確認」或「取消」。";
+"voice.prompt.contactFallback" = "聯絡人";
+"voice.prompt.markTakenConfirm" = "標記%@已服用，對嗎？請說「確認」或「取消」。";
+"voice.prompt.thisMedFallback" = "該藥";
+"voice.prompt.forbiddenHint" = "語音通道不能刪除或修改劑量。請在螢幕上操作，或讓家人協助。";
+"voice.prompt.recordConfirm" = "記錄 %@。對嗎？請說「確認」或「取消」。";
+"voice.prompt.sayCallTargetAgain" = "請重新說出要撥打的對象。";
+"voice.prompt.cancelled" = "已取消。";
+"voice.prompt.confirmToCall" = "請說「確認」撥打，或「取消」。";
+"voice.prompt.confirmToSave" = "請說「確認」儲存，或「取消」。";
+"voice.prompt.multipleMatches" = "找到多個符合：%@。請說第幾個，或說選項名。";
+"voice.prompt.listSeparator" = "，";
+
 "f19.confirm" = "確認";
 "f19.cancel" = "取消";
 "f19.rejectedTitle" = "語音通道不能執行這個操作";

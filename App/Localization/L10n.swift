@@ -219,6 +219,25 @@ enum L10n {
     static var f19_typeHint: String { t("f19.typeHint") }
     static var f19_end: String { t("f19.end") }
     static var f19_sayAgainHint: String { t("f19.sayAgainHint") }
+    // F19 会话提示语（V3.68：SpeechPrompt → 本层渲染）
+    static func voicePromptText(_ p: SpeechPrompt) -> String {
+        switch p {
+        case .repeatHint: return t("voice.prompt.repeatHint")
+        case .pickOption: return t("voice.prompt.pickOption")
+        case .optionNotFound: return t("voice.prompt.optionNotFound")
+        case .callConfirm(let target): return String(format: t("voice.prompt.callConfirm"), target.isEmpty ? t("voice.prompt.contactFallback") : target)
+        case .markTakenConfirm(let object): return String(format: t("voice.prompt.markTakenConfirm"), object.isEmpty ? t("voice.prompt.thisMedFallback") : object)
+        case .forbiddenHint: return t("voice.prompt.forbiddenHint")
+        case .recordConfirm(let metric): return String(format: t("voice.prompt.recordConfirm"), metric)
+        case .sayCallTargetAgain: return t("voice.prompt.sayCallTargetAgain")
+        case .cancelled: return t("voice.prompt.cancelled")
+        case .confirmToCall: return t("voice.prompt.confirmToCall")
+        case .confirmToSave: return t("voice.prompt.confirmToSave")
+        case .multipleMatches(let options):
+            let numbered = options.enumerated().map { "\($0.offset + 1) \($0.element)" }.joined(separator: t("voice.prompt.listSeparator"))
+            return String(format: t("voice.prompt.multipleMatches"), numbered)
+        }
+    }
     static var f19_confirm: String { t("f19.confirm") }
     static var f19_cancel: String { t("f19.cancel") }
     static var f19_rejectedTitle: String { t("f19.rejectedTitle") }
@@ -761,7 +780,22 @@ enum L10n {
         "emergency.viewGuide", "emergency.write.subtitle", "emergency.write.title", "f19.cancel",
         "f19.confirm", "f19.end", "f19.executed", "f19.goTouch",
         "f19.launch", "f19.listeningHint", "f19.paused", "f19.rejectedTitle",
-        "f19.repeatObject", "f19.sayAgainHint", "f19.sessionTitle", "f19.stopped",
+        "f19.repeatObject", "f19.sayAgainHint",
+        "voice.prompt.repeatHint",
+        "voice.prompt.pickOption",
+        "voice.prompt.optionNotFound",
+        "voice.prompt.callConfirm",
+        "voice.prompt.contactFallback",
+        "voice.prompt.markTakenConfirm",
+        "voice.prompt.thisMedFallback",
+        "voice.prompt.forbiddenHint",
+        "voice.prompt.recordConfirm",
+        "voice.prompt.sayCallTargetAgain",
+        "voice.prompt.cancelled",
+        "voice.prompt.confirmToCall",
+        "voice.prompt.confirmToSave",
+        "voice.prompt.multipleMatches",
+        "voice.prompt.listSeparator", "f19.sessionTitle", "f19.stopped",
         "f19.typeHint", "fr24.empty", "fr24.emptyHint", "fr24.kindHelpCard",
         "fr24.kindSos", "fr24.recipient", "fr24.statusAckPending", "fr24.statusAcked",
         "fr24.statusSent", "fr24.statusTimeout", "fr24.title", "help.appName",

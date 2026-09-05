@@ -55,9 +55,12 @@ final class VoiceSessionState {
         var executed: VoiceCommand?
         for event in events {
             switch event {
-            case .speak(let t):
-                caption = t
-                speak(t)                 // FR19.3：TTS 播报与屏幕字幕一致
+            case .speak(let prompt):
+                // V3.68：提示语类型化——Domain 出 SpeechPrompt，本层经 L10n
+                // 渲染后播报（TTS 与字幕一致，FR19.3）
+                let text = L10n.voicePromptText(prompt)
+                caption = text
+                speak(text)
             case .askOptions(let opts):
                 options = opts
             case .requireRepeatObject(let obj):

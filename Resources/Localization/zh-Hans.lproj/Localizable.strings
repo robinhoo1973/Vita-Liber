@@ -177,6 +177,22 @@
 "f19.typeHint" = "也可以打字输入指令";
 "f19.end" = "结束会话";
 "f19.sayAgainHint" = "没听清？说「再说一遍」";
+"voice.prompt.repeatHint" = "没听清，请再说一遍，或者说「退出」结束。";
+"voice.prompt.pickOption" = "请说第一到第三个中的一个。";
+"voice.prompt.optionNotFound" = "没找到这个选项，请说选项的名字或第几个。";
+"voice.prompt.callConfirm" = "将拨打%@，请说「确认」或「取消」。";
+"voice.prompt.contactFallback" = "联系人";
+"voice.prompt.markTakenConfirm" = "标记%@已服用，对吗？请说「确认」或「取消」。";
+"voice.prompt.thisMedFallback" = "该药";
+"voice.prompt.forbiddenHint" = "语音通道不能删除或修改剂量。请在屏幕上操作，或让家人协助。";
+"voice.prompt.recordConfirm" = "记录 %@。对吗？请说「确认」或「取消」。";
+"voice.prompt.sayCallTargetAgain" = "请重新说出要拨打的对象。";
+"voice.prompt.cancelled" = "已取消。";
+"voice.prompt.confirmToCall" = "请说「确认」拨打，或「取消」。";
+"voice.prompt.confirmToSave" = "请说「确认」保存，或「取消」。";
+"voice.prompt.multipleMatches" = "找到多个匹配：%@。请说第几个，或说选项名。";
+"voice.prompt.listSeparator" = "，";
+
 "f19.confirm" = "确认";
 "f19.cancel" = "取消";
 "f19.rejectedTitle" = "语音通道不能执行这个操作";

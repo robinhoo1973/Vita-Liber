@@ -175,17 +175,34 @@ public struct ConversationState: Sendable, Equatable {
     public var pendingCommand: VoiceCommand?
     public var pendingObject: String?          // 复述对象名
     public var silentRounds = 0                // 连续无效应答轮数（FR19.6）
-    public var lastPrompt: String = ""         // 重播源（再说一遍）
+    public var lastPrompt: SpeechPrompt? = nil   // 重播源（再说一遍）
     public init() {}
 }
 
 public enum ConversationEvent: Sendable, Equatable {
-    case speak(String)                // 需要播报（纯事实句式）
+    case speak(SpeechPrompt)          // 需要播报（V3.68：提示语类型化，App 经 L10n 渲染）
     case askOptions([String])         // 需要列选（≤3）
     case requireRepeatObject(String)  // 需要复述对象（拨号前）
     case execute(VoiceCommand, payload: String?)   // 可执行的低风险动作
     case rejectForbidden              // 删除/剂量变更拒绝卡
     case exitGracefully               // 礼貌退出（超时/两轮无应答）
+}
+
+/// V3.68 语音提示语（类型化：Domain 不再拼中文句式；App 层经
+/// L10n.voicePromptText 渲染，BR-006 措辞负清单在模板层保证）。
+public enum SpeechPrompt: Sendable, Equatable {
+    case repeatHint                       // 没听清，再说一遍/退出
+    case pickOption                       // 请说第一到第三个中的一个
+    case optionNotFound                   // 没找到这个选项
+    case callConfirm(target: String)      // 将拨打 X
+    case markTakenConfirm(object: String) // 标记 X 已服用
+    case forbiddenHint                    // 语音通道不能删除/修改剂量
+    case recordConfirm(metricText: String)
+    case sayCallTargetAgain
+    case cancelled
+    case confirmToCall
+    case confirmToSave
+    case multipleMatches(options: [String])
 }
 
 /// F19 会话规则引擎（纯函数：输入 = 现有状态 + 转写，输出 = 事件 + 新状态）
@@ -205,15 +222,15 @@ public enum VoiceConversationEngine {
             events.append(.rejectForbidden)
             s.phase = .listening
             s.silentRounds = 0
-            s.lastPrompt = "语音通道不能删除或修改剂量。请在屏幕上操作，或让家人协助。"
-            events.append(.speak(s.lastPrompt))
+            s.lastPrompt = .forbiddenHint
+            events.append(.speak(.forbiddenHint))
             return (s, events)
         }
 
         // FR19.4：任何步骤「再说一遍」= 完整重播当前问题与选项
         if text.contains("再说一遍") || text.contains("重复") {
-            if !s.lastPrompt.isEmpty {
-                events.append(.speak(s.lastPrompt))
+            if let lastPrompt = s.lastPrompt {
+                events.append(.speak(lastPrompt))
             }
             if s.phase == .selecting, !s.options.isEmpty {
                 events.append(.askOptions(s.options))
@@ -231,8 +248,8 @@ public enum VoiceConversationEngine {
                     events.append(.exitGracefully)
                     s.phase = .ended
                 } else {
-                    s.lastPrompt = "没听清，请再说一遍，或者说「退出」结束。"
-                    events.append(.speak(s.lastPrompt))
+                    s.lastPrompt = .repeatHint
+                    events.append(.speak(.repeatHint))
                 }
             case .command(let c):
                 switch c {
@@ -240,7 +257,7 @@ public enum VoiceConversationEngine {
                     // 第 N 个 → 选项执行
                     let index = numberIndex(text) ?? 0
                     guard index >= 0 && index < s.options.count else {
-                        events.append(.speak("请说第一到第三个中的一个。"))
+                        events.append(.speak(.pickOption))
                         return (s, events)
                     }
                     let chosen = s.options[index]
@@ -249,7 +266,7 @@ public enum VoiceConversationEngine {
                 case .selectName where s.phase == .selecting:
                     let matched = s.options.first { text.contains($0) || $0.contains(text) }
                     guard let chosen = matched else {
-                        events.append(.speak("没找到这个选项，请说选项的名字或第几个。"))
+                        events.append(.speak(.optionNotFound))
                         return (s, events)
                     }
                     events.append(.execute(s.pendingCommand ?? .todayMeds, payload: chosen))
@@ -265,28 +282,26 @@ public enum VoiceConversationEngine {
                     s.phase = .repeatingObject
                     s.pendingCommand = .callContact
                     s.pendingObject = object
-                    let prompt = "将拨打\(object.isEmpty ? "联系人" : "\(object)")，请说「确认」或「取消」。"
-                    s.lastPrompt = prompt
+                    let target = object.isEmpty ? "" : object
+                    s.lastPrompt = .callConfirm(target: target)
                     events.append(.requireRepeatObject(object))
-                    events.append(.speak(prompt))
+                    events.append(.speak(.callConfirm(target: target)))
                 case .callEmergency120:
                     // 审查修复：号码按语言区域注入（120/119/911），不再写死 120
                     s.phase = .repeatingObject
                     s.pendingCommand = .callEmergency120
                     s.pendingObject = emergencyNumber
-                    let prompt = "将拨打 \(emergencyNumber)，请说「确认」或「取消」。"
-                    s.lastPrompt = prompt
+                    s.lastPrompt = .callConfirm(target: emergencyNumber)
                     events.append(.requireRepeatObject(emergencyNumber))
-                    events.append(.speak(prompt))
+                    events.append(.speak(.callConfirm(target: emergencyNumber)))
                 case .markTaken:
                     // FR19.5：标记服药 = 写操作，单次口头确认（BR-004 同语义）
                     let object = extractMarkTakenObject(text)
                     s.phase = .confirming
                     s.pendingCommand = .markTaken
                     s.pendingObject = object
-                    let prompt = "标记\(object.isEmpty ? "该药" : object)已服用，对吗？请说「确认」或「取消」。"
-                    s.lastPrompt = prompt
-                    events.append(.speak(prompt))
+                    s.lastPrompt = .markTakenConfirm(object: object)
+                    events.append(.speak(.markTakenConfirm(object: object)))
                 default:
                     // 低风险查询/导航：直接执行
                     events.append(.execute(c, payload: extractPayload(text)))
@@ -298,9 +313,8 @@ public enum VoiceConversationEngine {
                 s.phase = .confirming
                 s.pendingCommand = .recordMetric
                 s.pendingObject = metricText
-                let prompt = "记录 \(metricText)。对吗？请说「确认」或「取消」。"
-                s.lastPrompt = prompt
-                events.append(.speak(prompt))
+                s.lastPrompt = .recordConfirm(metricText: metricText)
+                events.append(.speak(.recordConfirm(metricText: metricText)))
             }
         case .repeatingObject:
             let intent = VoiceCommandGrammar.parse(text, emergencyNumber: emergencyNumber)
@@ -308,17 +322,17 @@ public enum VoiceConversationEngine {
             case .command(.yes):
                 guard let object = s.pendingObject else {
                     s.phase = .listening
-                    events.append(.speak("请重新说出要拨打的对象。"))
+                    events.append(.speak(.sayCallTargetAgain))
                     return (s, events)
                 }
                 events.append(.execute(s.pendingCommand ?? .callContact, payload: object))
                 s.phase = .listening; s.pendingObject = nil; s.silentRounds = 0
             case .command(.no), .command(.cancel):
                 s.phase = .listening; s.pendingObject = nil; s.silentRounds = 0
-                events.append(.speak("已取消。"))
+                events.append(.speak(.cancelled))
             default:
                 s.silentRounds += 1
-                events.append(.speak("请说「确认」拨打，或「取消」。"))
+                events.append(.speak(.confirmToCall))
             }
         case .confirming:
             // 确认相位只认 是/否/取消；其余一律视为未听清（不计入危险误执行）
@@ -329,7 +343,7 @@ public enum VoiceConversationEngine {
                 handleYesNo(&s, &events, yes: false)
             default:
                 s.silentRounds += 1
-                events.append(.speak("请说「确认」保存，或「取消」。"))
+                events.append(.speak(.confirmToSave))
             }
         case .ended:
             break
@@ -344,7 +358,7 @@ public enum VoiceConversationEngine {
             if yes {
                 events.append(.execute(s.pendingCommand ?? .recordMetric, payload: s.pendingObject))
             } else {
-                events.append(.speak("已取消。"))
+                events.append(.speak(.cancelled))
             }
             s.phase = .listening; s.pendingObject = nil; s.silentRounds = 0
         default:
@@ -358,9 +372,8 @@ public enum VoiceConversationEngine {
         var s = ConversationState()
         s.phase = .selecting
         s.options = trimmed
-        let numbered = trimmed.enumerated().map { "\($0.offset + 1) \($0.element)" }.joined(separator: "，")
-        s.lastPrompt = "找到多个匹配：\(numbered)。请说第几个，或说选项名。"
-        return (s, [.askOptions(trimmed), .speak(s.lastPrompt)])
+        s.lastPrompt = .multipleMatches(options: trimmed)
+        return (s, [.askOptions(trimmed), .speak(.multipleMatches(options: trimmed))])
     }
 
     private static func numberIndex(_ text: String) -> Int? {

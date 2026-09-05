@@ -177,6 +177,22 @@
 "f19.typeHint" = "You can also type commands";
 "f19.end" = "End session";
 "f19.sayAgainHint" = "Didn't catch that? Say \"repeat\"";
+"voice.prompt.repeatHint" = "Didn't catch that — please say it again, or say \"exit\" to end.";
+"voice.prompt.pickOption" = "Please say a number from one to three.";
+"voice.prompt.optionNotFound" = "Option not found — please say the option name or its number.";
+"voice.prompt.callConfirm" = "Will call %@. Please say \"confirm\" or \"cancel\".";
+"voice.prompt.contactFallback" = "the contact";
+"voice.prompt.markTakenConfirm" = "Mark %@ as taken, correct? Please say \"confirm\" or \"cancel\".";
+"voice.prompt.thisMedFallback" = "this medication";
+"voice.prompt.forbiddenHint" = "Voice cannot delete or change doses. Please do it on screen, or ask a family member for help.";
+"voice.prompt.recordConfirm" = "Record %@. Correct? Please say \"confirm\" or \"cancel\".";
+"voice.prompt.sayCallTargetAgain" = "Please say again who to call.";
+"voice.prompt.cancelled" = "Cancelled.";
+"voice.prompt.confirmToCall" = "Say \"confirm\" to call, or \"cancel\".";
+"voice.prompt.confirmToSave" = "Say \"confirm\" to save, or \"cancel\".";
+"voice.prompt.multipleMatches" = "Found several matches: %@. Say the number, or the option name.";
+"voice.prompt.listSeparator" = ", ";
+
 "f19.confirm" = "Confirm";
 "f19.cancel" = "Cancel";
 "f19.rejectedTitle" = "Voice can't perform this action";
