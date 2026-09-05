@@ -217,7 +217,7 @@ struct DocumentLibraryView: View {
         .confirmationDialog(L10n.docImportSourceTitle, isPresented: $showImportSource,
                             titleVisibility: .visible) {
             // FR5.1 五入口：相机拍摄 / 文件导入（PDF/图片）/ 相册导入 / 手工新建
-            Button(L10n.docImportCamera) { router.navigate(to: .scanCapture) }
+            Button(L10n.docImportCamera) { router.navigate(to: .scanCapture(.record)) }
             Button(L10n.docImportFile) { fileImporterActive = true }
             Button(L10n.docImportPhotos) { photosImporterActive = true }
             Button(L10n.docImportManual) { showManualCreate = true }
