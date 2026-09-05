@@ -420,7 +420,6 @@ struct VoiceSessionView: View {
                     object, rules: VoiceGrammarDefaults.metricRules)
                 let byKey = Dictionary(grouping: drafts, by: { $0.key })
                     .compactMapValues { $0.first }
-                let unitByKey: [String: String?] = byKey.mapValues { $0.unit }
                 if let sys = byKey["blood_pressure_sys"], let sysV = Double(sys.value), sysV > 0 {
                     let diaV = byKey["blood_pressure_dia"].flatMap { Double($0.value) }
                     Task {
@@ -428,7 +427,7 @@ struct VoiceSessionView: View {
                                                    metric: .bloodPressureSys,
                                                    value: sysV,
                                                    secondaryValue: diaV,
-                                                   unit: unitByKey["blood_pressure_sys"] ?? "mmHg",
+                                                   unit: byKey["blood_pressure_sys"]?.unit ?? "mmHg",
                                                    measuredAt: Date())
                     }
                     _ = session.submit(L10n.f19MetricRecorded(sysV),
