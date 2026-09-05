@@ -42,13 +42,15 @@ final class ReminderStoreTests: XCTestCase {
 
         // 模拟系统送达：pending → delivered
         await scheduler.simulateDelivery(upTo: Date().addingTimeInterval(8 * 86400))
-        XCTAssertTrue(try await scheduler.pending().isEmpty)
+        let pendingAfterDelivery = try await scheduler.pending()
+        XCTAssertTrue(pendingAfterDelivery.isEmpty)
 
         // 再次 refresh：delivered 守卫必须阻止重排
         let pending2 = try await scheduler.pending()
         let delivered2 = try await scheduler.delivered()
         await store.scheduleExpiryReminders(patientId: patient, pending: pending2, delivered: delivered2)
-        XCTAssertTrue(try await scheduler.pending().isEmpty,
+        let pendingAfterRefresh = try await scheduler.pending()
+        XCTAssertTrue(pendingAfterRefresh.isEmpty,
                       "已送达提醒不得重新调度（无限重发 + delivery 主键冲突）")
     }
 
@@ -60,8 +62,8 @@ final class ReminderStoreTests: XCTestCase {
                                                 patientId: patient)
         let pending = try await scheduler.pending()
         XCTAssertTrue(pending.keys.contains("followup-\(obsId.uuidString)"))
-        XCTAssertEqual(await scheduler.route(for: "followup-\(obsId.uuidString)"),
-                       AppRoute.observationDetail(obsId))
+        let route = await scheduler.route(for: "followup-\(obsId.uuidString)")
+        XCTAssertEqual(route, AppRoute.observationDetail(obsId))
     }
 
     /// BR-012 SOS 误触契约：常规模式 0.6s 长按（误触率 <1% 验收），
@@ -89,7 +91,7 @@ final class ReminderStoreTests: XCTestCase {
         let meds = MedicationStore(writer: db.writer)
         let apts = AppointmentStore(writer: db.writer, scheduler: scheduler)
         let reconciler = ReminderReconciler(scheduler: scheduler, source: meds)
-        let composer = MedicationPlanComposer(writer: db.writer)
+        let composer = MedicationPlanComposer(writer: db.writer, audit: AuditLogWriter(writer: db.writer))
         let store = ReminderStore(meds: meds, apts: apts, reconciler: reconciler,
                                   scheduler: scheduler, composer: composer)
         return (store, scheduler, db, patient)
