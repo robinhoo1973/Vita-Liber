@@ -4,6 +4,8 @@ import Foundation
 /// Domain 持有投影语义（合并/排序/过滤/游标），Infrastructure 提供 GRDB 联合查询。
 public enum TimelineEntryKind: String, Sendable, Equatable, Codable, CaseIterable {
     case encounter, medication, observation, lab, selfMeasured, vaccination, allergy, voiceNote, healthProblem
+    /// 资料文档（F5）——唯一携带真实来源徽章的投影分支（grade D = 机器识别未确认）
+    case document
 }
 
 public struct TimelineEntry: Sendable, Equatable, Identifiable {
@@ -14,10 +16,18 @@ public struct TimelineEntry: Sendable, Equatable, Identifiable {
     public var refID: UUID
     /// BR-001 成员隔离：投影条目必须携带所属成员
     public var memberId: UUID
+    /// 来源徽章 A–E（设计系统「每个结构化数据有来源徽章」）——
+    /// 用户录入类条目 = 'C'；资料条目随 document_file.grade（D = 未确认）
+    public var grade: String?
+    /// 指标类条目（lab/selfMeasured）的指标键——详情跳转必须用真实键，
+    /// 不得在视图层硬编码（审查修复：原 open() 恒跳 glucose 趋势图）
+    public var metricKey: String?
     public var id: String { "\(kind.rawValue)-\(refID.uuidString)" }
-    public init(kind: TimelineEntryKind, date: Date, title: String, summary: String?, refID: UUID, memberId: UUID) {
+    public init(kind: TimelineEntryKind, date: Date, title: String, summary: String?, refID: UUID,
+                memberId: UUID, grade: String? = nil, metricKey: String? = nil) {
         self.kind = kind; self.date = date; self.title = title; self.summary = summary
-        self.refID = refID; self.memberId = memberId
+        self.refID = refID; self.memberId = memberId; self.grade = grade
+        self.metricKey = metricKey
     }
 }
 

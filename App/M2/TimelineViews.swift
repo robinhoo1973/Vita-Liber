@@ -164,11 +164,19 @@ struct TimelineFullView: View {
         case .encounter: router.navigate(to: .encounterList)
         case .medication: router.navigate(to: .medicationPlan(entry.refID))
         case .observation, .selfMeasured: router.navigate(to: .observationDetail(entry.refID))
-        case .lab: router.navigate(to: .trendChart(patientId: entry.memberId, metric: "glucose"))
+        // 审查修复：用条目携带的真实指标键跳转——原硬编码 "glucose"，
+        // 血压/心率化验点开的是血糖趋势图（张冠李戴）；无键时降级快速录入
+        case .lab:
+            if let m = entry.metricKey {
+                router.navigate(to: .trendChart(patientId: entry.memberId, metric: m))
+            } else {
+                router.navigate(to: .metricQuickEntry)
+            }
         case .vaccination: router.navigate(to: .encounterList)   // SP-54 列表经设置入口
         case .allergy: router.navigate(to: .allergyList)
         case .voiceNote: router.navigate(to: .assistantChat)
         case .healthProblem: router.navigate(to: .memberList)
+        case .document: router.navigate(to: .documentDetail(entry.refID))
         }
     }
 }
@@ -184,9 +192,23 @@ private struct TimelineRowView: View {
                 .frame(width: 10, height: 10)
                 .padding(.top, 5)
             VStack(alignment: .leading, spacing: 3) {
-                Text(entry.title)
-                    .font(.subheadline)
-                    .foregroundStyle(entry.kind == .allergy ? .red : .primary)
+                HStack(spacing: 6) {
+                    Text(entry.title)
+                        .font(.subheadline)
+                        .foregroundStyle(entry.kind == .allergy ? .red : .primary)
+                    // 来源徽章（设计系统：每个结构化数据有来源徽章）；
+                    // D = 机器识别未确认（不进入检索/AI 事实链，BR-003）
+                    if let grade = entry.grade {
+                        Text(grade)
+                            .font(.caption2).bold()
+                            .padding(.horizontal, 5).padding(.vertical, 1)
+                            .background(Capsule().fill(
+                                grade == "D" ? Color("grade-d", bundle: .main)
+                                             : Color("grade-c", bundle: .main)))
+                            .foregroundStyle(.white)
+                            .accessibilityLabel(grade == "D" ? L10n.docGradeUnconfirmed : L10n.timelineGradeConfirmed)
+                    }
+                }
                 if let summary = entry.summary {
                     Text(summary)
                         .font(.caption)
@@ -202,15 +224,18 @@ private struct TimelineRowView: View {
     }
 
     private var color: Color {
+        // 审查修复：语义令牌替代 SwiftUI 调色板原色——深色/高对比度/关怀模式
+        // 下随主题重映射，不会出现与语义令牌体系不一致的固定色
         switch entry.kind {
         case .encounter: return Color("brand-primary", bundle: .main)
-        case .medication: return .purple
-        case .observation: return .orange
-        case .lab, .selfMeasured: return .teal
-        case .vaccination: return .green
-        case .allergy: return .red
-        case .voiceNote: return .gray
-        case .healthProblem: return .blue
+        case .medication: return Color("grade-c", bundle: .main)
+        case .observation: return Color("semantic-warning", bundle: .main)
+        case .lab, .selfMeasured: return Color("brand-primary", bundle: .main)
+        case .vaccination: return Color("semantic-success", bundle: .main)
+        case .allergy: return Color("semantic-danger", bundle: .main)
+        case .voiceNote: return Color("text-secondary", bundle: .main)
+        case .healthProblem: return Color("brand-primary", bundle: .main)
+        case .document: return Color("text-secondary", bundle: .main)
         }
     }
 }
