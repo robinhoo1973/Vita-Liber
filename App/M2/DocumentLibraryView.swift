@@ -385,7 +385,7 @@ struct DocumentLibraryView: View {
 private struct ManualDocumentSheet: View {
     let onCreate: (String, String, String) -> Void
     @State private var title = ""
-    @State private var type = DocumentStore.docTypeLabels[0]
+    @State private var type = L10n.docTypeLabels[0]
     @State private var note = ""
 
     var body: some View {
@@ -393,7 +393,7 @@ private struct ManualDocumentSheet: View {
             Form {
                 TextField(L10n.docManualTitle, text: $title)
                 Picker(L10n.docManualType, selection: $type) {
-                    ForEach(DocumentStore.docTypeLabels, id: \.self) { Text($0) }
+                    ForEach(L10n.docTypeLabels, id: \.self) { Text($0) }
                 }
                 TextField(L10n.docManualNote, text: $note, axis: .vertical)
                     .lineLimit(3...8)

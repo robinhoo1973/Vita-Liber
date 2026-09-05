@@ -141,14 +141,10 @@ public enum VoiceModificationGuard {
     public struct Rejection: Sendable, Equatable {
         public var category: Category
         public var matchedPhrase: String
-        /// 拒绝卡文案（纯事实 + 指路，不含任何医学建议——BR-006 措辞负清单）
-        public var title: String
-        public var body: String
-        public var actionLabel: String
-        public init(category: Category, matchedPhrase: String,
-                    title: String, body: String, actionLabel: String) {
+        /// V3.68：拒绝卡文案由 App 层经 L10n 组装（Domain 不再拼中文句式；
+        /// BR-006 措辞负清单在模板层保证——模板本身零判断词）。
+        public init(category: Category, matchedPhrase: String) {
             self.category = category; self.matchedPhrase = matchedPhrase
-            self.title = title; self.body = body; self.actionLabel = actionLabel
         }
     }
 
@@ -177,18 +173,6 @@ public enum VoiceModificationGuard {
     }
 
     static func rejection(category: Category, phrase: String) -> Rejection {
-        let what: String
-        switch category {
-        case .dosage:      what = "剂量"
-        case .frequency:   what = "服用频次"
-        case .discontinue: what = "停用药物"
-        }
-        return Rejection(
-            category: category,
-            matchedPhrase: phrase,
-            title: "语音不能修改\(what)",
-            // 纯事实句式：陈述限制 + 指路，不含「建议/应该/需遵医嘱」等负清单词
-            body: "为避免识别误差造成用药差错，\(what)的修改只能在屏幕上手动完成。你刚才说的内容没有被保存。",
-            actionLabel: "去用药计划修改")
+        Rejection(category: category, matchedPhrase: phrase)
     }
 }

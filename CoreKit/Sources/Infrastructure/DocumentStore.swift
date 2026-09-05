@@ -35,13 +35,6 @@ public actor DocumentStore {
         }
     }
 
-    /// FR5.5 文档类型标签（14 类 + 扩展「疫苗记录」「诊断证明」+ 自定义）
-    public static let docTypeLabels: [String] = [
-        "门诊病历", "住院病历", "检验报告", "影像报告", "处方单", "缴费单",
-        "出院小结", "诊断证明", "疫苗记录", "体检报告", "病理报告",
-        "手术记录", "过敏记录", "其他", "自定义",
-    ]
-
     public func list(patientId: UUID, includeArchived: Bool = false,
                      limit: Int = 200) async throws -> [DocumentRow] {
         try await writer.read { db in

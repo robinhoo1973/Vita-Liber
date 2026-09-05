@@ -286,15 +286,15 @@ struct VoiceModificationRejectionCard: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
                 VLIcon.ban.resizable().frame(width: 24, height: 24)
-                Text(rejection.title).font(.headline)
+                Text(L10n.voiceRejectTitle(L10n.voiceRejectWhat(rejection.category.rawValue))).font(.headline)
             }
-            Text(rejection.body).font(.subheadline).foregroundStyle(.secondary)
+            Text(L10n.voiceRejectBody(L10n.voiceRejectWhat(rejection.category.rawValue))).font(.subheadline).foregroundStyle(.secondary)
             HStack(spacing: 12) {
-                Button("知道了", action: onDismiss)
+                Button(L10n.onboard_gotIt, action: onDismiss)
                     .frame(minHeight: 44)
                     .accessibilityIdentifier("FR17.11.reject.dismiss")
                 Spacer()
-                Button(rejection.actionLabel, action: onGoToPlan)
+                Button(L10n.voiceRejectAction, action: onGoToPlan)
                     .buttonStyle(.borderedProminent)
                     .frame(minHeight: 44)
                     .accessibilityIdentifier("FR17.11.reject.goToPlan")

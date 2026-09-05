@@ -116,7 +116,10 @@ public struct InventoryReconciliation: Sendable, Equatable {
 /// 诚实性纪律：只输出**库里有的事实**。v1 没有医嘱原文列时绝不伪造
 /// 「遵医嘱」占位——表头列可缺，内容不可编（BR-006 延伸）。
 public enum DispenseListRules {
-    public static let headers = ["药品名", "规格", "单位", "当前余量(安全线)", "当前余量(确认线)", "效期"]
+    /// V3.68：表头由调用方经 L10n 传入（Domain 不硬编码中文表头）
+    public enum Header: Int, Sendable, CaseIterable {
+        case name, spec, unit, planUnits, confirmedUnits, expireAt
+    }
 
     public struct Row: Sendable, Equatable {
         public var name: String
@@ -133,8 +136,9 @@ public enum DispenseListRules {
         }
     }
 
-    /// 组装 CSV（RFC 4180 由 CSVWriter 保证；本函数只做数据→行的映射）
-    public static func csv(rows: [Row]) -> String {
+    /// 组装 CSV（RFC 4180 由 CSVWriter 保证；本函数只做数据→行的映射；
+    /// headers 由调用方按 Header 序提供本地化表头）
+    public static func csv(rows: [Row], headers: [String]) -> String {
         let data = rows.map { row in
             [
                 row.name,

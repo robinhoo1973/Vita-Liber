@@ -167,7 +167,7 @@ final class M2HubStore {
                                   confirmedUnits: item.remainingConfirmedUnits,
                                   expireAt: item.expireAt)
         }
-        return DispenseListRules.csv(rows: rows)
+        return DispenseListRules.csv(rows: rows, headers: L10n.dispenseHeaders())
     }
 
     // MARK: - 急救卡

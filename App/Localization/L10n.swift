@@ -40,6 +40,31 @@ enum L10n {
     static var voiceSpeakAloud: String { t("voice.speak.button") }
     static var voiceFallbackNotice: String { t("voice.fallbackNotice") }
     static var voiceScreenCheckHint: String { t("voice.speak.screenHint") }
+    // FR17.13 受限修改拒绝卡（V3.68：Domain 只出 category，文案本层组装）
+    static func voiceRejectWhat(_ category: String) -> String {
+        switch category {
+        case "frequency": return t("voice.rejectWhat.frequency")
+        case "discontinue": return t("voice.rejectWhat.discontinue")
+        default: return t("voice.rejectWhat.dosage")
+        }
+    }
+    static func voiceRejectTitle(_ what: String) -> String { String(format: t("voice.rejectTitle"), what) }
+    static func voiceRejectBody(_ what: String) -> String { String(format: t("voice.rejectBody"), what) }
+    static var voiceRejectAction: String { t("voice.rejectAction") }
+    // FR13.8 配药清单 CSV 表头（V3.68：Domain 参数化，本层提供本地化表头）
+    static var dispenseHeaders: [String] {
+        [t("dispense.header.name"), t("dispense.header.spec"), t("dispense.header.unit"),
+         t("dispense.header.plan"), t("dispense.header.confirmed"), t("dispense.header.expire")]
+    }
+    // FR5.5 文档类型标签（V3.68：从 Infrastructure 上移本层 L10n 化）
+    static var docTypeLabels: [String] {
+        [t("docTypeLabel.outpatient"), t("docTypeLabel.inpatient"), t("docTypeLabel.labReport"),
+         t("docTypeLabel.imageReport"), t("docTypeLabel.prescription"), t("docTypeLabel.payment"),
+         t("docTypeLabel.dischargeSummary"), t("docTypeLabel.diagnosisProof"),
+         t("docTypeLabel.vaccineRecord"), t("docTypeLabel.checkupReport"),
+         t("docTypeLabel.pathologyReport"), t("docTypeLabel.surgeryRecord"),
+         t("docTypeLabel.allergyRecord"), t("docTypeLabel.other"), t("docTypeLabel.custom")]
+    }
     static var voiceBystanderWarning: String { t("voice.speak.bystander") }
     static var voiceAskSpeak: String { t("voice.ask.speak") }
     static var voiceAskScreen: String { t("voice.ask.screen") }
@@ -887,6 +912,33 @@ enum L10n {
         "voice.privacy.p4", "voice.privacy.title", "voice.privacy.useTouch", "voice.reminder.timeUnclear", "voice.reminder.timeUnheard",
         "voice.route.headphonesOff",
         "voice.route.headphonesOn", "voice.speak.button", "voice.speak.bystander", "voice.speak.screenHint",
+        "voice.rejectWhat.dosage",
+        "voice.rejectWhat.frequency",
+        "voice.rejectWhat.discontinue",
+        "voice.rejectTitle",
+        "voice.rejectBody",
+        "voice.rejectAction",
+        "dispense.header.name",
+        "dispense.header.spec",
+        "dispense.header.unit",
+        "dispense.header.plan",
+        "dispense.header.confirmed",
+        "dispense.header.expire",
+        "docTypeLabel.outpatient",
+        "docTypeLabel.inpatient",
+        "docTypeLabel.labReport",
+        "docTypeLabel.imageReport",
+        "docTypeLabel.prescription",
+        "docTypeLabel.payment",
+        "docTypeLabel.dischargeSummary",
+        "docTypeLabel.diagnosisProof",
+        "docTypeLabel.vaccineRecord",
+        "docTypeLabel.checkupReport",
+        "docTypeLabel.pathologyReport",
+        "docTypeLabel.surgeryRecord",
+        "docTypeLabel.allergyRecord",
+        "docTypeLabel.other",
+        "docTypeLabel.custom", 
         "voiceguide.answerHint", "voiceguide.buildDraft", "voiceguide.next", "voiceguide.profileTitle",
         "voiceguide.promptAllergy", "voiceguide.promptContact", "voiceguide.promptHistory", "voiceguide.promptMeds",
         "voiceguide.reminderExample", "voiceguide.reminderTitle", "voiceguide.skip", "voiceguide.stepOf",
