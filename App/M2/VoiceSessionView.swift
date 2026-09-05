@@ -382,18 +382,25 @@ struct VoiceSessionView: View {
             _ = session.submit(lines.isEmpty ? L10n.f19NoTodayMeds : lines.joined(separator: "；"),
                                speak: { app.speak($0) })
         case .markTaken:
-            // 附表②标记已服用：唯一在服计划命中 → 单次口头确认后逐时段确认
+            // 附表②标记已服用：唯一在服计划命中 → 单次口头确认后逐时段确认。
+            // 审查修复（BR-004）：多条命中时不再静默确认第一条——回读清单
+            // 让用户点名确认，只确认用户显式指定的那一条。
             if let object {
                 let matched = reminderStore.todaySlots
                     .flatMap { $0.records }
                     .filter { $0.displayLabel.contains(object) && $0.action == nil }
-                for record in matched.prefix(1) {
+                if matched.count == 1, let record = matched.first {
                     Task { await reminderStore.confirmTaken(patientId: app.currentPatientId, dose: record.dose) }
+                    _ = session.submit(L10n.f19MarkTakenDone(object),
+                                       speak: { app.speak($0) })
+                } else if matched.isEmpty {
+                    _ = session.submit(L10n.f19MarkTakenNoMatch(object),
+                                       speak: { app.speak($0) })
+                } else {
+                    let names = matched.map { $0.displayLabel }.joined(separator: "、")
+                    _ = session.submit(L10n.f19MarkTakenMultiple(names),
+                                       speak: { app.speak($0) })
                 }
-                let text = matched.isEmpty
-                    ? L10n.f19MarkTakenNoMatch(object)
-                    : L10n.f19MarkTakenDone(object)
-                _ = session.submit(text, speak: { app.speak($0) })
             }
         case .recordMetric:
             // 附表⑦记录指标：F17 文法命中 → 落 metric_sample（C 级）

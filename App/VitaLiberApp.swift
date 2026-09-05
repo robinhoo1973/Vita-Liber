@@ -6,6 +6,8 @@ import Protocols
 @main
 struct VitaLiberApp: App {
     private let container: AppContainer   // init 内装配，body/task 复用（信源播种等）
+    /// 审查修复：生产库打开失败的可见降级标记——非 nil 时 body 渲染
+    /// 降级引导页而非主界面（绝不静默跑内存库写入）
     private let router: AppRouter
     /// §5.45 通知点击→路由映射契约：delegate 必须被强引用（UNUserNotificationCenter
     /// 对 delegate 是弱引用），故由 App 持有，路由经注入的 AppRouter 分发
@@ -33,15 +35,9 @@ struct VitaLiberApp: App {
         // 数据层装配是启动不变量：live 失败降级 preview（内存库）；连内存库都建不出来
         // 意味着 SQLite 损坏——此时任何降级都无意义，显式终止并留清晰信息。
         let args = ProcessInfo.processInfo.arguments
-        let container: AppContainer
-        do {
-            container = try AppContainer.live(databasePath: AppContainer.defaultDatabasePath())
-        } catch {
-            do { container = try AppContainer.preview() }
-            catch {
-                fatalError("数据层初始化失败（live 与 preview 均不可用）: \(error)")
-            }
-        }
+        // 审查修复：live 失败走显式降级容器（degradedReason 非 nil），
+        // body 显示可见引导——原静默降级内存库、用户看到空档案且写入即丢
+        let container = AppContainer.liveOrDegraded(databasePath: AppContainer.defaultDatabasePath())
         self.container = container
         let appRouter = AppRouter()
         self.router = appRouter
@@ -125,26 +121,41 @@ struct VitaLiberApp: App {
         // 门禁分支 / 生命周期补偿 / FR14.4 主题注入 均已下沉 AppRootView
         //（@Environment 读值 + preferredColorScheme 修饰符需 View 上下文）
         WindowGroup {
-            AppRootView(seedBundled: { try await container.guidelines.seedBundled() })
-                .environment(appState)
-                .environment(reminderStore)
-                .environment(assistantStore)
-                .environment(settingsStore)
-                .environment(observationState)
-                .environment(entitlementStore)
-                .environment(trendState)
-                .environment(voiceNoteState)
-                .environment(m2Hub)
-                .environment(container.mediaSession)
-                .environment(router)
-                .environment(searchState)
-                .environment(encountersState)
-                .environment(timelineState)
-                .environment(questionsState)
-                .environment(documentsState)
-                .environment(aiHistoryState)
-                .environment(exportWizardState)
-                .environment(f16DeviceState)
+            if let reason = container.degradedReason {
+                // 审查修复：生产库打开失败 → 可见降级页（不渲染主界面、
+                // 不写入内存库——数据零风险）
+                ContentUnavailableView(
+                    L10n.startupDegradedTitle, systemImage: "externaldrive.badge.exclamationmark",
+                    description: Text(L10n.startupDegradedBody(reason)))
+                    .accessibilityIdentifier("STARTUP.degraded")
+            } else {
+                mainRoot
+            }
         }
+    }
+
+    /// 主界面装配（降级路径不执行——内存库上的环境装配无意义）
+    @ViewBuilder
+    private var mainRoot: some View {
+        AppRootView(seedBundled: { try await container.guidelines.seedBundled() })
+            .environment(appState)
+            .environment(reminderStore)
+            .environment(assistantStore)
+            .environment(settingsStore)
+            .environment(observationState)
+            .environment(entitlementStore)
+            .environment(trendState)
+            .environment(voiceNoteState)
+            .environment(m2Hub)
+            .environment(container.mediaSession)
+            .environment(router)
+            .environment(searchState)
+            .environment(encountersState)
+            .environment(timelineState)
+            .environment(questionsState)
+            .environment(documentsState)
+            .environment(aiHistoryState)
+            .environment(exportWizardState)
+            .environment(f16DeviceState)
     }
 }

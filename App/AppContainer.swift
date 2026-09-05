@@ -9,6 +9,10 @@ import Protocols
 /// 生产依赖（GRDB 库 + M1aPersisting + 审计写入口），AppState 只面向协议。
 struct AppContainer {
     private static let logger = Logger(subsystem: "com.vitaliber", category: "container")
+    /// 生产库打开失败的降级标记（非 nil = 只读安全模式，App 层据此显示
+    /// 降级页而不是继续跑内存库——审查修复：原静默降级 preview 内存库，
+    /// 用户看到空档案（以为数据丢失），期间写入随内存丢弃形成数据分裂）
+    let degradedReason: String?
     let store: GRDBStore
     let audit: AuditLogWriter
     let persistor: GRDBM1aPersistor
@@ -70,9 +74,28 @@ struct AppContainer {
                         mediaBaseDir: FileManager.default.temporaryDirectory)
     }
 
+    /// 生产装配 + 显式降级路径：live 失败时返回 degradedReason 非 nil 的
+    /// 占位容器（内存库），App 层不渲染主界面、显示可见降级引导——
+    /// 绝不静默空库继续写入（审查修复，tech-spec「迁移失败只读降级」）
+    @MainActor
+    static func liveOrDegraded(databasePath: String) -> AppContainer {
+        do {
+            return try live(databasePath: databasePath)
+        } catch {
+            do {
+                let store = try GRDBStore.inMemory()
+                return assemble(store: store, scheduler: UNReminderScheduler(),
+                                degradedReason: "\(error)")
+            } catch {
+                fatalError("数据层初始化失败（live 与内存降级均不可用）: \(error)")
+            }
+        }
+    }
+
     @MainActor
     private static func assemble(store: GRDBStore, scheduler: any ReminderScheduling,
-                                 mediaBaseDir: URL? = nil) -> AppContainer {
+                                 mediaBaseDir: URL? = nil,
+                                 degradedReason: String? = nil) -> AppContainer {
         // 引擎注册提前到组装根：资产仓等依赖注入端口的能力在组合根装配时即就位。
         // AppState.init 侧有 isRegistered 幂等守卫，重复调用不覆盖已注入桩。
         EngineRegistry.shared.registerDefaultEngines()
@@ -108,7 +131,8 @@ struct AppContainer {
                                             storefront: EntitlementStore.InMemoryStorefront())
         let trends = TrendQueryStore(writer: store.writer)
         let voiceNotes = VoiceNoteStore(writer: store.writer)
-        return AppContainer(store: store,
+        return AppContainer(degradedReason: degradedReason,
+                            store: store,
                             audit: auditWriter,
                             persistor: GRDBM1aPersistor(store: store),
                             meds: meds,

@@ -32,11 +32,17 @@ final class F16DeviceState {
     }
 
     /// FR16.1 只读授权请求（一次性；F14.1 authHealthRead 开关关闭时直接拒绝执行）
+    /// 审查修复：请求后显式查授权状态——用户拒绝时 requestAuthorization
+    /// 不抛错，原实现恒返 true，「拒绝→降级手测」路径（FR16.1）失效
     func requestAuthorization(authEnabled: Bool) async -> Bool {
         guard authEnabled else { return false }
         do {
             try await reader.requestAuthorization()
-            return true
+            if let status = reader.authorizationStatus(), status == .sharingAuthorized {
+                return true
+            }
+            phase = .degraded(L10n.f16AuthDenied)   // 拒绝/未定：呈现降级手测引导
+            return false
         } catch {
             phase = .degraded(L10n.f16AuthFailed)
             return false

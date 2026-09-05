@@ -47,6 +47,12 @@ final class AppSettingsStore {
         do {
             try await store.set(value, for: key)
             values[key] = value
+            // 审查修复（分裂脑）：readbackPreference 与 careMode 的运行时真源
+            // 在 UserDefaults（AppState 读），DB 写而镜像不写 = 设置无效；
+            // restoreDefaults 亦需同步清镜像（幂等双写）
+            if key == .readBackOptIn || key == .careModeEnable {
+                UserDefaults.standard.set(value, forKey: key.rawValue)
+            }
             // FR14.1/FR14.2 授权变更写审计（grant_change——撤回即时生效且审计可见）
             if key.rawValue.hasPrefix("auth") {
                 try await audit?.record(action: "grant_change", entityType: "setting",
@@ -61,6 +67,10 @@ final class AppSettingsStore {
     func restoreDefaults() async {
         do {
             try await store.restoreDefaults()
+            // 审查修复：运行时镜像同步重置——原只清 DB，careMode 仍为 true
+            // 而开关显示关闭（首页仍是关怀版式，设置页却关着）
+            UserDefaults.standard.removeObject(forKey: AppSettingKey.readBackOptIn.rawValue)
+            UserDefaults.standard.removeObject(forKey: AppSettingKey.careModeEnable.rawValue)
             await load()
         } catch {
             logger.error("恢复默认失败: \(error)")

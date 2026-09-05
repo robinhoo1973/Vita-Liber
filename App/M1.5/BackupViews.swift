@@ -157,7 +157,9 @@ struct BackupView: View {
                     await state.prepareBackup()
                     if case .exported = state.phase {
                         showExporter = true
-                        app.recordBackup()   // FR13.10/F22.4：备份完成记时（最近备份展示）
+                        // 审查修复：recordBackup 移入 fileExporter 成功分支——
+                        // 原实现用户取消系统导出器也留下「最近备份」时间戳
+                        // （FR13.10/F22.4 展示假事实）
                     }
                 }
             }
@@ -180,7 +182,12 @@ struct BackupView: View {
                       document: state.pendingDocument,
                       contentType: .json,
                       defaultFilename: "vitaliber-backup") { result in
-            if case .failure(let error) = result {
+            switch result {
+            case .success:
+                // FR13.10/F22.4：备份**实际落盘成功**才记时（审查修复：
+                // 取消导出不得留下假时间戳）
+                app.recordBackup()
+            case .failure(let error):
                 // 系统 picker 失败最常见的可归因原因就是空间不足
                 Logger(subsystem: "com.vitaliber", category: "backup")
                     .error("导出落点失败: \(error)")

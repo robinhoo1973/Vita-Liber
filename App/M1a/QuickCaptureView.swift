@@ -31,6 +31,8 @@ struct QuickCaptureView: View {
     @State private var fileImporterActive = false
     @State private var savedToast = false
     @State private var importFailed = false
+    /// BR-007 敏感默认锁定：病历/报告/处方类照片默认按敏感资料入库
+    @State private var markSensitive = true
 
     /// 无相机设备时隐藏拍照来源（防崩溃 + 不误导用户）
     private var cameraAvailable: Bool {
@@ -82,6 +84,14 @@ struct QuickCaptureView: View {
                 .buttonStyle(.bordered)
                 .accessibilityIdentifier("SP-11.capture.file")
             }
+
+            // BR-007 敏感默认锁定（审查修复：原所有来源 isSensitive=false，
+            // 敏感标记只能事后补救）
+            Toggle(isOn: $markSensitive) {
+                Text(L10n.captureSensitiveToggle).font(.subheadline)
+            }
+            .padding(.horizontal, 24)
+            .accessibilityIdentifier("SP-11.capture.sensitive")
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -106,7 +116,7 @@ struct QuickCaptureView: View {
                 if let data = try? await item.loadTransferable(type: Data.self) {   // try?-ok: 单项加载失败走错误路径可见，不阻塞后续
                     await docs.importImage(patientId: app.currentPatientId, data: data,
                                            mimeType: "image/jpeg", docType: docTypeText,
-                                           title: nil, isSensitive: false)
+                                           title: nil, isSensitive: markSensitive)
                     finishImport()
                 } else {
                     importFailed = true
@@ -121,7 +131,7 @@ struct QuickCaptureView: View {
                 let scoped = url.startAccessingSecurityScopedResource()
                 Task {
                     await docs.importDocument(patientId: app.currentPatientId, url: url,
-                                              docType: docTypeText)
+                                              docType: docTypeText, isSensitive: markSensitive)
                     if scoped { url.stopAccessingSecurityScopedResource() }
                     finishImport()
                 }
@@ -176,7 +186,7 @@ struct QuickCaptureView: View {
         Task {
             await docs.importImage(patientId: app.currentPatientId, data: data,
                                    mimeType: "image/jpeg", docType: docTypeText,
-                                   title: nil, isSensitive: false)
+                                   title: nil, isSensitive: markSensitive)
             finishImport()
         }
     }

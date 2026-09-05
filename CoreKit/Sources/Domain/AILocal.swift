@@ -183,16 +183,23 @@ public struct LocalRetrievalProvider: AIProvider {
         guard !hits.isEmpty else {
             return .insufficientData
         }
-        return AIAnswer(body: .composed(compose(hits, question: q.text)))
+        // BR-006 执法：负清单命中 → 安全降级（拦截优于展示错误文案）
+        guard let composed = compose(hits, question: q.text) else {
+            return .insufficientData
+        }
+        return AIAnswer(body: .composed(composed))
     }
 
     /// 七段组装（FR12.5）：结论只复述检索事实；术语解释来自 B 级词典；
     /// 固定免责句；E 级徽章标识 AI 解释。
-    func compose(_ hits: [EntityReference], question: String) -> AIAnswer.SevenPart {
+    /// 审查修复（BR-006 一票否决执法）：组装完成后对**生成文案**跑
+    /// WordingBlacklist——全仓此前只有定义与测试、无任何生产调用点。
+    /// 命中即返回 nil（调用侧安全降级 .insufficientData），拦截优于展示。
+    func compose(_ hits: [EntityReference], question: String) -> AIAnswer.SevenPart? {
         let excerpts = hits.prefix(3).map(\.snippet)
         let terms = terminology.terms(in: question)
             .compactMap { term in terminology.explain(term).map { "\(term)：\($0)" } }
-        return AIAnswer.SevenPart(
+        let card = AIAnswer.SevenPart(
             conclusion: "找到 \(hits.count) 条与你的问题相关的资料。",
             citations: hits,
             excerpts: excerpts,
@@ -203,6 +210,12 @@ public struct LocalRetrievalProvider: AIProvider {
             scopeNote: "本次回答只读取了 \(hits.count) 条与你相关的资料。",
             disclaimer: "以上内容来自你的资料与通用术语解释，不能替代医生诊断或用药指导。",
             gradeBadge: "E")
+        let generated = [card.conclusion, card.uncertainties.joined(),
+                         card.questionsForDoctor.joined(), card.scopeNote, card.disclaimer]
+        for text in generated where WordingBlacklist.violation(in: text) != nil {
+            return nil   // 负清单命中：整卡安全降级，不展示违规文案
+        }
+        return card
     }
 }
 

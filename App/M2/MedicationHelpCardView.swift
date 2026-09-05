@@ -48,6 +48,8 @@ struct MedicationHelpCardSheet: View {
                 }
                 if !selectedIds.isEmpty {
                     Section(L10n.helpcardPhotoSection) {
+                        // 审查修复：photoAttachments 恒空（分享宿主收不到附件，
+                        // P1 未接）——原开关是「勾了也没用」的死开关，禁用并说明
                         Toggle(isOn: Binding(
                             get: { !includePhotos.isEmpty },
                             set: { newValue in
@@ -55,7 +57,10 @@ struct MedicationHelpCardSheet: View {
                             })) {
                             Text(L10n.helpcard_photoOptIn)
                         }
+                        .disabled(true)
                         .accessibilityIdentifier("FR9.13a.card.photoOptIn")
+                        Text(L10n.helpcard_photoPending)
+                            .font(.caption2).foregroundStyle(.secondary)
                     }
                     Text(L10n.helpcard_contentNote)
                         .font(.caption2).foregroundStyle(.secondary)
@@ -99,7 +104,11 @@ struct HelpCardShareHost: UIViewControllerRepresentable {
             if let image = UIImage(data: data) { items.append(image) }
         }
         let controller = UIActivityViewController(activityItems: items, applicationActivities: nil)
-        controller.completionWithItemsHandler = { _, _, _, _ in onComplete() }
+        // 审查修复：判 completed——原实现取消分享也回调 onComplete，
+        // 「已发送」与审计被伪造（与 SentStatusList「不伪造回执」自相矛盾）
+        controller.completionWithItemsHandler = { _, completed, _, _ in
+            if completed { onComplete() }
+        }
         return controller
     }
 

@@ -109,18 +109,23 @@ final class DocumentsState {
     /// 通用文件入库（快速拍摄「文件」来源）：PDF 走逐页 OCR 管线，图片走
     /// Vision 管线，其余格式（Word 等）归档元数据记录——原文件 body 落盘
     /// 待 FilesStore 接齐（技术债），文本解析同样待升级，绝不静默吞文件。
-    func importDocument(patientId: UUID, url: URL, docType: String) async {
+    /// isSensitive：快速拍摄默认 true（BR-007 敏感默认锁定）；资料库导入
+    /// 沿用原语义 false（用户可后续标记）。
+    func importDocument(patientId: UUID, url: URL, docType: String,
+                        isSensitive: Bool = false) async {
         lastImportError = nil
         switch url.pathExtension.lowercased() {
         case "pdf":
-            await importPDF(patientId: patientId, url: url, docType: docType)
+            await importPDF(patientId: patientId, url: url, docType: docType,
+                            isSensitive: isSensitive)
         case "png", "jpg", "jpeg", "heic", "heif", "gif", "webp":
             guard let data = try? Data(contentsOf: url) else {   // try?-ok: 读取失败走错误路径可见，不阻塞后续导入
                 lastImportError = L10n.docImportFailed
                 return
             }
             await importImage(patientId: patientId, data: data, mimeType: url.pathExtension,
-                              docType: docType, title: url.lastPathComponent, isSensitive: false)
+                              docType: docType, title: url.lastPathComponent,
+                              isSensitive: isSensitive)
         default:
             // Word/其他格式：元数据入库（文件名/哈希），文本解析待升级
             do {
@@ -128,7 +133,7 @@ final class DocumentsState {
                 _ = try await store.save(patientId: patientId, docType: docType,
                                          sha256: "file:" + Self.hash(data),
                                          mimeType: url.pathExtension, origin: "file",
-                                         isSensitive: false,
+                                         isSensitive: isSensitive,
                                          metaJSON: "{\"pendingParse\":\"docx\"}",
                                          title: url.lastPathComponent)
                 await load(patientId: patientId)
@@ -140,7 +145,7 @@ final class DocumentsState {
 
     /// FR6.6 PDF 逐页 OCR：PDFKitDecoder 渲染 → 逐页识别 → 文本入库。
     /// 渲染失败上抛 → lastImportError 可见（绝不静默）。
-    func importPDF(patientId: UUID, url: URL, docType: String) async {
+    func importPDF(patientId: UUID, url: URL, docType: String, isSensitive: Bool = false) async {
         lastImportError = nil
         do {
             let scoped = url.startAccessingSecurityScopedResource()
@@ -163,7 +168,7 @@ final class DocumentsState {
             let metaJSON = try JSONSerialization.data(withJSONObject: metaPayload, options: []).base64EncodedString()
             _ = try await store.save(patientId: patientId, docType: docType,
                                      sha256: "pdf:" + Self.hash(data), mimeType: "application/pdf",
-                                     origin: "file", isSensitive: false,
+                                     origin: "file", isSensitive: isSensitive,
                                      metaJSON: metaJSON, title: url.lastPathComponent)
             await load(patientId: patientId)
         } catch {

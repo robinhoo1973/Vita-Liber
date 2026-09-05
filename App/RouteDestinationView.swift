@@ -8,6 +8,7 @@ import Domain
 /// 页面陆续落地（M1c→M2 各批）时在此逐条点亮。
 struct RouteDestinationView: View {
     let route: AppRoute
+    @Environment(AppState.self) private var app
 
     var body: some View {
         switch route {
@@ -150,9 +151,21 @@ struct RouteDestinationView: View {
         case .scanCapture(let kind):
             QuickCaptureView(kind: kind)
 
-        // ---- 尚未落地的页面：降级回所属 Tab 模块根（§5.45 缺路由降级不 crash） ----
-        case .ocrConfirm,
-             .observationDetail,
+        // ---- 审查修复：已落地视图补登记（原落入降级分支，用户点观察项/成员
+        //      通知深链落到重复的模块根套娃） ----
+        case .memberDetail(let id):
+            if let member = app.members.first(where: { $0.id == id }) {
+                MemberDetailView(member: member)
+            } else {
+                RouteFallbackView(route: route)
+            }
+        case .ocrConfirm:
+            OcrConfirmView()
+
+        // ---- 尚未落地的页面：可见的「即将上线」提示（§5.45 缺路由降级
+        //      不 crash）——审查修复：原渲染所属 Tab 模块根导致栈内套娃
+        //      （用户在时间轴点观察项会「推进」一个一模一样的时间轴副本） ----
+        case .observationDetail,
              .stockLotDetail, .stockLotEdit,
              .preferences,
              .privacyAuthorization, .guidelineSourceDetail:
@@ -161,11 +174,17 @@ struct RouteDestinationView: View {
     }
 }
 
-/// 未登记路由的降级落点：回所属 Tab 模块根（不 crash、不渲染假页面）
+/// 未登记路由的降级落点（不 crash、不渲染假页面）。
+/// 审查修复：原渲染所属 Tab 模块根——路由已 push 进栈时再挂一个模块根
+/// 形成「栈内套娃」（用户点观察项推进一个一模一样的时间轴副本，返回
+/// 观感失效）。改为可见的「即将上线」提示页，返回即弹回原页。
 private struct RouteFallbackView: View {
     let route: AppRoute
     var body: some View {
-        ModuleRoot(module: MainModule(tabID: MainModuleID.tab(of: route)))
+        ContentUnavailableView(L10n.routeComingSoon, systemImage: "hammer",
+                               description: Text(L10n.routeComingSoonHint))
+            .navigationTitle(L10n.help_appName)
+            .navigationBarTitleDisplayMode(.inline)
     }
 }
 

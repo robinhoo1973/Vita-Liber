@@ -1475,6 +1475,7 @@ enum L10n {
     static var f16AuthGranted: String { t("f16.authGranted") }
     static var f16AuthDisabled: String { t("f16.authDisabled") }
     static var f16AuthFailed: String { t("f16.authFailed") }
+    static var f16AuthDenied: String { t("f16.authDenied") }
     static var f16SyncSection: String { t("f16.syncSection") }
     static var f16SyncHint: String { t("f16.syncHint") }
     static var f16SyncNow: String { t("f16.syncNow") }
@@ -1513,6 +1514,18 @@ enum L10n {
     }
     static func f19MarkTakenNoMatch(_ name: String) -> String { String(format: t("f19.markTakenNoMatchFmt"), name) }
     static func f19MarkTakenDone(_ name: String) -> String { String(format: t("f19.markTakenDoneFmt"), name) }
+    static func f19MarkTakenMultiple(_ names: String) -> String { String(format: t("f19.markTakenMultipleFmt"), names) }
+    static func emergency_sos_holdA11y(_ seconds: Int) -> String {
+        String(format: t("emergency.sosHoldA11yFmt"), seconds)
+    }
+    static var helpcard_photoPending: String { t("helpcard.photoPending") }
+    static var captureSensitiveToggle: String { t("home.capture.sensitive") }
+    static var routeComingSoon: String { t("route.comingSoon") }
+    static var routeComingSoonHint: String { t("route.comingSoonHint") }
+    static var startupDegradedTitle: String { t("startup.degradedTitle") }
+    static func startupDegradedBody(_ reason: String) -> String {
+        String(format: t("startup.degradedBodyFmt"), reason)
+    }
     static func f19MetricRecorded(_ v: Double) -> String { String(format: t("f19.metricRecordedFmt"), v) }
     static func f19QuestionRecorded(_ q: String) -> String { String(format: t("f19.questionRecordedFmt"), q) }
 

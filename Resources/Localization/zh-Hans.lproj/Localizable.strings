@@ -1017,3 +1017,12 @@
 "doc.detailNotFound" = "该文档已删除或尚未进入时间轴";
 "assistant.addRecords" = "去补充资料";
 "assistant.consultDoctor" = "咨询医生或药师";
+"f19.markTakenMultipleFmt" = "找到多条匹配：%@。请说出要标记的具体名称";
+"emergency.sosHoldA11yFmt" = "紧急求助：长按 %1$d 秒激活";
+"helpcard.photoPending" = "照片附件即将支持，敬请期待";
+"home.capture.sensitive" = "标记为敏感资料（默认锁定查看）";
+"route.comingSoon" = "功能即将上线";
+"route.comingSoonHint" = "该页面正在建设，敬请期待";
+"f16.authDenied" = "未授权读取健康数据——已降级为手动自测模式";
+"startup.degradedTitle" = "数据打开异常";
+"startup.degradedBodyFmt" = "本地数据暂无法打开（%@）。您的资料未被修改；请重启应用重试，如持续出现请联系支持。";

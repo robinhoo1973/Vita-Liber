@@ -517,8 +517,18 @@ final class AppState {
 
     /// 关怀模式（F18）。M1.5 只需读取以驱动回读决策与触点放大；全量随 M2。
     var careMode: Bool {
-        get { defaults.bool(forKey: "careMode") }
-        set { defaults.set(newValue, forKey: "careMode") }
+        // 审查修复：统一到 AppSettingKey.careModeEnable.rawValue（与设置仓
+        // 双写镜像同键）；旧键 "careMode" 只读兼容（已装机用户平滑迁移）
+        get {
+            if defaults.object(forKey: AppSettingKey.careModeEnable.rawValue) != nil {
+                return defaults.bool(forKey: AppSettingKey.careModeEnable.rawValue)
+            }
+            return defaults.bool(forKey: "careMode")
+        }
+        set {
+            defaults.set(newValue, forKey: AppSettingKey.careModeEnable.rawValue)
+            defaults.removeObject(forKey: "careMode")   // 旧键一次性迁移后移除
+        }
     }
 
     /// SP-14 步骤1：记忆上次选择的观察类型（FR8.1 默认高亮）。

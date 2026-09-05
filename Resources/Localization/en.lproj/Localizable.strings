@@ -1017,3 +1017,12 @@
 "doc.detailNotFound" = "This document was deleted or is not on the timeline yet";
 "assistant.addRecords" = "Add Records";
 "assistant.consultDoctor" = "Consult a Doctor or Pharmacist";
+"f19.markTakenMultipleFmt" = "Multiple matches found: %@. Please say the exact name to mark";
+"emergency.sosHoldA11yFmt" = "Emergency SOS: press and hold for %1$d seconds";
+"helpcard.photoPending" = "Photo attachments coming soon";
+"home.capture.sensitive" = "Mark as sensitive (locked by default)";
+"route.comingSoon" = "Coming Soon";
+"route.comingSoonHint" = "This page is under construction";
+"f16.authDenied" = "Health data not authorized — manual self-test mode enabled";
+"startup.degradedTitle" = "Data Open Error";
+"startup.degradedBodyFmt" = "Your local data could not be opened (%@). Nothing has been modified; please restart the app, or contact support if this persists.";

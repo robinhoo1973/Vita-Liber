@@ -68,9 +68,14 @@ struct AlertHistoryView: View {
     /// 证据卡不带 metricKey（只存事实文案），按规则 id 取不到条目时
     /// 由装配层在注入前就按 metric 归类——这里以 event.card.sourceRef 的
     /// 书目行为退化键，命中则给链接。
+    /// 审查修复：sourceEntries 全仓无注入点（Link 分支永不渲染，F16 验收
+    /// 「信源链接可打开原文」失效）——回退用已加载的信源库条目。
     private func sourceEntry(for event: GuidelineStore.AlertEvent) -> GuidelineEntry? {
         guard let ref = event.card.sourceRef else { return nil }
-        return sourceEntries.values.first { ref.contains($0.title) }
+        if let injected = sourceEntries.values.first(where: { ref.contains($0.title) }) {
+            return injected
+        }
+        return hub.guidelineEntries.first { ref.contains($0.title) }
     }
 }
 

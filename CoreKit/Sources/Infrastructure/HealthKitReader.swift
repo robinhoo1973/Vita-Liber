@@ -43,6 +43,15 @@ public actor HealthKitReader {
         try await store.requestAuthorization(toShare: [], read: Self.readTypes)
     }
 
+    /// 授权状态查询（FR16.1 审查修复：requestAuthorization 对用户拒绝
+    /// **不抛错**、completion 也是 success——必须显式查 authorizationStatus，
+    /// 否则拒绝被误报为「已授权」、同步按钮空转、降级手测路径永不呈现）
+    public func authorizationStatus() -> HKAuthorizationStatus? {
+        guard HKHealthStore.isHealthDataAvailable(),
+              let hr = HKQuantityType.quantityType(forIdentifier: .heartRate) else { return nil }
+        return store.authorizationStatus(for: hr)
+    }
+
     /// 近窗读数（默认 24 小时）：六指标 → [MetricReading]（引擎评估的事实源）
     public func recentReadings(within hours: Int = 24, now: Date = Date()) async throws -> [MetricReading] {
         guard HKHealthStore.isHealthDataAvailable() else { throw ReaderError.unavailable }
