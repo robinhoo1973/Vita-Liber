@@ -518,8 +518,8 @@ public actor ExportService {
             var profileId = envelope.owner?.selfPatientId ?? envelope.selfProfile?.id
             func putProfile(_ profile: PatientProfile) throws {
                 let targetId = remap(profile.id) ?? profile.id
-                if let existing = profile.id, profileConflicts.contains(existing.uuidString) {
-                    switch resolution(existing) {
+                if profileConflicts.contains(profile.id.uuidString) {
+                    switch resolution(profile.id) {
                     case .keep:
                         return
                     case .adopt:
@@ -528,7 +528,7 @@ public actor ExportService {
                               birth_date = ?, note = ?, created_at = ?, updated_at = ? WHERE id = ?
                             """, arguments: [profile.displayName, profile.relation, profile.gender,
                                              profile.birthDate, profile.note, profile.createdAt,
-                                             profile.updatedAt, existing.uuidString])
+                                             profile.updatedAt, profile.id.uuidString])
                         return
                     case .coexist:
                         break   // 落到下方 INSERT（新 id）
@@ -555,15 +555,15 @@ public actor ExportService {
             if let owner = envelope.owner {
                 let targetOwnerId = remap(owner.id) ?? owner.id
                 let selfPatientId = remap(owner.selfPatientId) ?? owner.selfPatientId
-                if let ownerId = owner.id, ownerConflicts.contains(ownerId.uuidString) {
-                    switch resolution(ownerId) {
+                if ownerConflicts.contains(owner.id.uuidString) {
+                    switch resolution(owner.id) {
                     case .keep:
                         break
                     case .adopt:
                         try db.execute(sql: """
                             UPDATE local_owner SET display_name = ?, self_patient_id = ?, created_at = ? WHERE id = ?
                             """, arguments: [owner.displayName, selfPatientId?.uuidString,
-                                             owner.createdAt, ownerId.uuidString])
+                                             owner.createdAt, owner.id.uuidString])
                     case .coexist:
                         try db.execute(sql: """
                             INSERT INTO local_owner (id, display_name, self_patient_id, created_at)
