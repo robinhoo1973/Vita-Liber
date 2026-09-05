@@ -91,6 +91,21 @@ struct TimelineFullView: View {
                         }
                         .accessibilityIdentifier("SP-19.timeline.row.\(entry.kind.rawValue)")
                     }
+                    // mock 对齐项：快捷入口区（只挂真实可用的落点，不放未落地入口）
+                    Section(L10n.timelineQuickEntry) {
+                        NavigationLink(value: AppRoute.documentList) {
+                            Label(L10n.docLibraryTitle, systemImage: "folder")
+                        }
+                        .accessibilityIdentifier("SP-19.quick.documents")
+                        NavigationLink(value: AppRoute.allergyList) {
+                            Label(L10n.allergyTitle, systemImage: "allergens")
+                        }
+                        .accessibilityIdentifier("SP-19.quick.allergy")
+                        NavigationLink(value: AppRoute.medicationCabinet) {
+                            Label(L10n.inventory_title, systemImage: "pills")
+                        }
+                        .accessibilityIdentifier("SP-19.quick.cabinet")
+                    }
                 }
                 .accessibilityIdentifier("SP-19.timeline.list")
             }

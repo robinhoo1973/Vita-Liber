@@ -11,6 +11,13 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
+            // mock 对齐项：离线模式副标题（数据透明信任资产）
+            Section {
+                Label(L10n.settings_offlineNote, systemImage: "checkmark.shield")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("SP-25.settings.offlineNote")
+            }
             Section(L10n.settings_authTitle) {
                 ForEach(authKeys, id: \.rawValue) { key in
                     Toggle(isOn: binding(for: key)) {
@@ -66,6 +73,11 @@ struct SettingsView: View {
                 .accessibilityIdentifier("SP-23.backup.entry")
             }
             Section(L10n.hub_healthRecords) {
+                // mock 对齐项：语音指导模式入口（FR17.11 档案完善/修改，可语音可手输）
+                NavigationLink(value: AppRoute.voiceGuideProfile) {
+                    Label(L10n.voiceguide_profileTitle, systemImage: "waveform.and.mic")
+                }
+                .accessibilityIdentifier("SP-25.settings.voiceGuide")
                 NavigationLink(L10n.member_title) {
                     MemberManagementView()
                 }
@@ -134,7 +146,7 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .navigationTitle("我的")
+        .navigationTitle(L10n.navMe)
         .task { await settings.load() }
     }
 
