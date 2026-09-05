@@ -174,10 +174,15 @@ final class M2StockAcceptanceTests: XCTestCase {
         let monthStart = cal.date(byAdding: .day, value: -30, to: Date())!
         let report = try await meds.monthlyReport(patientId: patient,
                                                   from: monthStart, to: Date())
-        XCTAssertTrue(report.statement.contains("计划 \(report.plannedDoses) 次"))
-        XCTAssertTrue(report.statement.contains("确认 \(report.confirmedDoses) 次"))
+        // V3.68：句式已移出 Domain——数值字段断言 + L10n 模板组装后过负清单
+        XCTAssertEqual(report.plannedDoses, 2)
         XCTAssertEqual(report.confirmedDoses, 1, "唯一一条 taken 事实计入确认")
-        XCTAssertNil(InventoryReportRules.violation(in: report.statement),
+        XCTAssertEqual(report.missedDoses, 1, "唯一一条未决行补账为 missed")
+        let statement = L10n.inventoryMonthlyReportFmt(report.plannedDoses, report.confirmedDoses,
+                                                       report.skippedDoses, report.missedDoses)
+        XCTAssertTrue(statement.contains("2"))
+        XCTAssertTrue(statement.contains("1"))
+        XCTAssertNil(InventoryReportRules.violation(in: statement),
                      "月报出现评价/建议句式即一票否决（FR9.8.5）")
     }
 
