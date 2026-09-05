@@ -77,7 +77,6 @@ public enum PaywallRules {
     }
 
     /// 信任文案（固定，不随状态变化）
-    public static let trustCopy = "核心功能永久免费，付费只解锁增量能力。不续费不会删除你的任何数据。"
 }
 
 /// 权益状态（EntitlementStore 的领域模型；红线模块禁读该 store——静态断言）

@@ -332,6 +332,7 @@
 "paywall.restoreNothing" = "No previous purchases found to restore.";
 "paywall.restoreFailed" = "Restore failed (offline or unavailable). Please try again later.";
 "pay.valueProp" = "Unlock productivity add-ons; core features stay free forever";
+"pay.trustCopy" = "Core features stay free forever; paid tiers only unlock add-ons. Your data is never deleted when you stop paying.";
 "pay.buy" = "Buy Pro";
 "member.title" = "Family members";
 "member.add" = "Add family member";

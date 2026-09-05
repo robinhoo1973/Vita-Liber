@@ -13,7 +13,7 @@ struct TimelineDocumentDetailView: View {
         List {
             Section(L10n.docTitleSection) {
                 // 导航栏已是「文档详情」，行内不再重复标题标签，直接呈现条目名
-                Text(entry.title).font(.headline)
+                Text(entry.title.isEmpty ? L10n.docLibraryUntitled : entry.title).font(.headline)
                 LabeledContent(L10n.docDate, value: occurredDateText)
             }
             Section(L10n.docFieldsSection) {

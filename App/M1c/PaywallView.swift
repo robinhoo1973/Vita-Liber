@@ -71,7 +71,7 @@ struct PaywallView: View {
                     .foregroundStyle(.orange)
             }
 
-            Text(PaywallRules.trustCopy)
+            Text(L10n.payTrustCopy)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

@@ -288,6 +288,7 @@ struct StockLotEditView: View {
                                 Button(label) { storageNote = label }
                                     .buttonStyle(.bordered)
                                     .controlSize(.small)
+                                    .frame(minHeight: 44)   // 触点≥44pt（ui-ux §4.2）
                             }
                         }
                     }

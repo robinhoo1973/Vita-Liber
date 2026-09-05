@@ -400,6 +400,7 @@ enum L10n {
     static var paywallRestoreNothing: String { t("paywall.restoreNothing") }
     static var paywallRestoreFailed: String { t("paywall.restoreFailed") }
     static var pay_valueProp: String { t("pay.valueProp") }
+    static var payTrustCopy: String { t("pay.trustCopy") }
     static var pay_buy: String { t("pay.buy") }
 
         static var member_title: String { t("member.title") }
@@ -906,7 +907,8 @@ enum L10n {
         "onboard.sourceConfirmed", "onboard.tierUnconfirmed", "onboard.timelineHint", "onboard.timelineTitle",
         "onboard.trendTitle", "onboard.unconfirmed2", "onboard.unconfirmedBadge", "onboard.voiceNote",
         "onboard.yourName", "pay.busy", "pay.buy", "pay.restore",
-        "pay.valueProp", "pro.previewNote", "proOutput.title",
+        "pay.valueProp",
+        "pay.trustCopy", "pro.previewNote", "proOutput.title",
         "reminder.a11ySkipped", "reminder.a11ySnoozed", "reminder.a11yTaken", "reminder.medicationFallback",
         "reminder.addAppt",
         "reminder.addPlan", "reminder.appointments", "reminder.completeAppt", "reminder.emptyAppt",
@@ -1795,9 +1797,6 @@ enum L10n {
         default: return kind   // 观察类型原文（未知回落不臆造）
         }
     }
-    // FR13.2 PDF 封面文案（V3.68：Infrastructure 不拼中文，本层注入）
-    static func exportRecordCount(_ count: Int) -> String { String(format: t("export.recordCount"), count) }
-    static func exportDisclaimer(_ emergency: String) -> String { String(format: t("export.disclaimer"), emergency) }
     static var backupReminderTitle: String { t("backup.reminder.title") }
     static var backupReminderBody: String { t("backup.reminder.body") }
 

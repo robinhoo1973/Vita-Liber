@@ -332,6 +332,7 @@
 "paywall.restoreNothing" = "未找到可恢复的购买记录。";
 "paywall.restoreFailed" = "恢复失败（可能网络不可用），请稍后重试。";
 "pay.valueProp" = "解锁增量生产型能力，核心功能永久免费";
+"pay.trustCopy" = "核心功能永久免费，付费只解锁增量能力。不续费不会删除你的任何数据。";
 "pay.buy" = "购买 Pro";
 "member.title" = "成员管理";
 "member.add" = "添加家人";

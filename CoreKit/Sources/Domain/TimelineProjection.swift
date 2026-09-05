@@ -43,7 +43,7 @@ public enum TimelineProjection {
             return TimelineDocumentEntry(
                 id: set.documentId,
                 patientId: patientId,
-                title: set.fields.first(where: { $0.key == "title" })?.value ?? "未命名资料",
+                title: set.fields.first(where: { $0.key == "title" })?.value ?? "",
                 occurredAt: occurredAt,
                 confirmedFieldCount: set.confirmedFields.count,
                 totalFieldCount: set.fields.count,
