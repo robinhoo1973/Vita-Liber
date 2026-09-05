@@ -162,11 +162,15 @@ struct RouteDestinationView: View {
         case .ocrConfirm:
             OcrConfirmView()
 
+        // ---- FR8.11 观察详情页（V3.65 实装：四入口直达——首页待办/搜索/
+        //      时间轴/随访通知深链） ----
+        case .observationDetail(let id):
+            ObservationDetailView(observationId: id)
+
         // ---- 尚未落地的页面：可见的「即将上线」提示（§5.45 缺路由降级
         //      不 crash）——审查修复：原渲染所属 Tab 模块根导致栈内套娃
         //      （用户在时间轴点观察项会「推进」一个一模一样的时间轴副本） ----
-        case .observationDetail,
-             .stockLotDetail, .stockLotEdit,
+        case .stockLotDetail, .stockLotEdit,
              .preferences,
              .privacyAuthorization, .guidelineSourceDetail:
             RouteFallbackView(route: route)

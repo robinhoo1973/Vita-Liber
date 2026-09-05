@@ -32,25 +32,71 @@ public actor ObservationStore {
 
     public func list(patientId: UUID, limit: Int = 100) async throws -> [ObservationEvent] {
         try await writer.read { db in
-            let decoder = JSONDecoder()   // 行循环复用单例（每行 new 一个为纯浪费）
             return try Row.fetchAll(db, sql: """
-                SELECT id, group_id, kind, occurred_at, description, self_mark, media_asset_ids
-                FROM observation
+                SELECT * FROM observation
                 WHERE patient_id = ? ORDER BY occurred_at DESC LIMIT ?
                 """, arguments: [patientId.uuidString, limit]).map { row in
-                ObservationEvent(
-                    id: UUID(uuidString: row["id"] as String) ?? UUID(),
-                    groupId: (row["group_id"] as String?).flatMap(UUID.init(uuidString:)),
-                    // SQL 边界才动 rawValue；未知历史值回落 custom（既有行兼容）
-                    kind: ObservationKind(rawValue: row["kind"] as String) ?? .custom,
-                    occurredAt: Date(timeIntervalSince1970: row["occurred_at"] as Double),
-                    description: row["description"] as String?,
-                    selfMark: row["self_mark"] as String?,
-                    memberId: patientId,
-                    mediaAssetIds: Self.decodeMediaIds(row["media_asset_ids"] as String?,
-                                                       decoder: decoder))
+                Self.rowToEvent(row, memberId: patientId)
             }
         }
+    }
+
+    /// FR8.11 观察详情页单行投影（与 list 同映射——详情页与列表字段不得分叉）。
+    public func fetch(id: UUID) async throws -> ObservationEvent? {
+        try await writer.read { db in
+            guard let row = try Row.fetchOne(db, sql: "SELECT * FROM observation WHERE id = ?",
+                                             arguments: [id.uuidString]) else { return nil }
+            return Self.rowToEvent(row, memberId: (row["patient_id"] as String).flatMap(UUID.init(uuidString:)) ?? UUID())
+        }
+    }
+
+    /// FR8.7 事后补字段（详情页行内编辑写回）：只更新提交的列 + updated_at。
+    public func updateExtended(id: UUID, bodyPart: String? = nil, durationMin: Int? = nil,
+                               frequency: String? = nil, isFirst: Bool? = nil,
+                               trigger: String? = nil, accompanying: String? = nil,
+                               painScore: Int? = nil, medsDiet: String? = nil,
+                               consultedDoctor: Bool? = nil, description: String? = nil,
+                               now: Date = Date()) async throws {
+        try await writer.write { db in
+            try db.execute(sql: """
+                UPDATE observation SET body_part = COALESCE(?, body_part),
+                  duration_min = COALESCE(?, duration_min), frequency = COALESCE(?, frequency),
+                  is_first = COALESCE(?, is_first), trigger = COALESCE(?, trigger),
+                  accompanying = COALESCE(?, accompanying), pain_score = COALESCE(?, pain_score),
+                  meds_diet = COALESCE(?, meds_diet), consulted_doctor = COALESCE(?, consulted_doctor),
+                  description = COALESCE(?, description), updated_at = ?
+                WHERE id = ?
+                """, arguments: [bodyPart, durationMin, frequency,
+                                 isFirst.map { $0 ? 1 : 0 }, trigger, accompanying, painScore,
+                                 medsDiet, consultedDoctor.map { $0 ? 1 : 0 }, description,
+                                 now.timeIntervalSince1970, id.uuidString])
+        }
+    }
+
+    /// 行 → 事件（V3.65 全字段投影的唯一出口：list/fetch 共用，
+    /// 新列上线只改这一处）。
+    private static func rowToEvent(_ row: Row, memberId: UUID) -> ObservationEvent {
+        ObservationEvent(
+            id: UUID(uuidString: row["id"] as String) ?? UUID(),
+            groupId: (row["group_id"] as String?).flatMap(UUID.init(uuidString:)),
+            kind: ObservationKind(rawValue: row["kind"] as String) ?? .custom,
+            occurredAt: Date(timeIntervalSince1970: row["occurred_at"] as Double),
+            capturedAt: (row["captured_at"] as Double?).map(Date.init(timeIntervalSince1970:)),
+            description: row["description"] as String?,
+            selfMark: row["self_mark"] as String?,
+            memberId: memberId,
+            mediaAssetIds: decodeMediaIds(row["media_asset_ids"] as String?, decoder: JSONDecoder()),
+            bodyPart: row["body_part"] as String?,
+            durationMin: row["duration_min"] as Int?,
+            frequency: row["frequency"] as String?,
+            isFirst: (row["is_first"] as Int?).map { $0 != 0 },
+            trigger: row["trigger"] as String?,
+            accompanying: row["accompanying"] as String?,
+            painScore: row["pain_score"] as Int?,
+            medsDiet: row["meds_diet"] as String?,
+            consultedDoctor: (row["consulted_doctor"] as Int? ?? 0) != 0,
+            encounterId: (row["encounter_id"] as String?).flatMap(UUID.init(uuidString:)),
+            healthProblemId: (row["health_problem_id"] as String?).flatMap(UUID.init(uuidString:)))
     }
 
     /// 媒体 id 列是 JSON 数组；单条损坏降级为空数组，不拖垮整个列表（§7 显式降级）。

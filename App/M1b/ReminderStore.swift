@@ -109,12 +109,20 @@ final class ReminderStore {
         }
     }
 
-    /// FR8.10 观察随访提醒：保存后可设置「N 天后提醒对比/复查」（默认 3 天）。
-    /// 到期生成首页待办；锁屏不泄露观察类型词（BR-007 引申——文案走通用标题）。
+    /// FR8.10 观察随访提醒：保存后可设置「N 天后提醒对比/复查」。
+    /// days 缺省 = Domain 规则默认（首访 3 天，此后每周——列表入口）；
+    /// 详情页传入自定义天数（日历日推进，DST 安全）。到期生成首页待办；
+    /// 锁屏不泄露观察类型词（BR-007 引申——文案走通用标题）。
     func scheduleObservationFollowUp(observationId: UUID, observedAt: Date,
-                                     patientId: UUID) async {
+                                     patientId: UUID,
+                                     days: Int? = nil) async {
         do {
-            let fireAt = ObservationFollowUpRules.followUpDate(from: observedAt, occurrence: 0)
+            let fireAt: Date
+            if let days {
+                fireAt = DayArithmetic.offset(days: days, from: Date())
+            } else {
+                fireAt = ObservationFollowUpRules.followUpDate(from: observedAt, occurrence: 0)
+            }
             let notifyId = "followup-\(observationId.uuidString)"
             try await scheduler.schedule(dose: notifyId, at: fireAt, route: .observationDetail(observationId))
         } catch {

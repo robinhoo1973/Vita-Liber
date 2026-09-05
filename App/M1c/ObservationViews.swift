@@ -86,6 +86,57 @@ final class ObservationStoreState {
         }
     }
 
+    // MARK: - FR8.11 观察详情页（SP-14 §5.7.1）
+
+    enum DetailPhase: Equatable { case loading, loaded, failed }
+    private(set) var detail: ObservationEvent?
+    private(set) var detailPhase: DetailPhase = .loading
+
+    func loadDetail(id: UUID) async {
+        detailPhase = .loading
+        do {
+            detail = try await store.fetch(id: id)
+            detailPhase = .loaded
+        } catch {
+            logger.error("观察详情加载失败: \(error)")
+            detail = nil
+            detailPhase = .failed
+        }
+    }
+
+    /// FR8.7 事后补字段行内写回（只更新提交列 + updated_at）；成功即刷新详情
+    @discardableResult
+    func saveExtended(id: UUID, bodyPart: String?, durationMin: Int?, frequency: String?,
+                      isFirst: Bool?, trigger: String?, accompanying: String?,
+                      painScore: Int?, medsDiet: String?, consultedDoctor: Bool?,
+                      description: String?) async -> Bool {
+        do {
+            try await store.updateExtended(id: id, bodyPart: bodyPart,
+                                           durationMin: durationMin, frequency: frequency,
+                                           isFirst: isFirst, trigger: trigger,
+                                           accompanying: accompanying, painScore: painScore,
+                                           medsDiet: medsDiet, consultedDoctor: consultedDoctor,
+                                           description: description)
+            await loadDetail(id: id)
+            return true
+        } catch {
+            logger.error("观察补充信息保存失败: \(error)")
+            return false
+        }
+    }
+
+    /// FR8.8 删除：原图随孤儿对账清除（下次启动 reconcileUnreferenced）
+    @discardableResult
+    func deleteObservation(id: UUID) async -> Bool {
+        do {
+            try await store.delete(id: id)
+            return true
+        } catch {
+            logger.error("观察删除失败: \(error)")
+            return false
+        }
+    }
+
     /// 启动对账：清除未被任何观察引用的孤儿照片（崩溃窗口/历史失败残留）。
     /// 失败不阻断启动（§7 显式降级）：本轮留残，下轮再扫。
     func reconcileAssets() async {

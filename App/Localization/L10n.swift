@@ -671,7 +671,37 @@ enum L10n {
         "observation.kind.stool", "observation.kind.swelling", "observation.kind.unknown", "observation.kind.urine", "observation.kindSection",
         "observation.listSection",
         "observation.media.addAlbum", "observation.media.addCamera", "observation.media.count", "observation.media.section",
-        "observation.mediaBadge", "observation.selfMark", "observation.title",
+        "observation.mediaBadge", "observation.selfMark",
+        "observation.detail.capturedAt",
+        "observation.detail.member",
+        "observation.detail.bodyPart",
+        "observation.detail.duration",
+        "observation.detail.durationFmt",
+        "observation.detail.frequency",
+        "observation.detail.isFirst",
+        "observation.detail.trigger",
+        "observation.detail.accompanying",
+        "observation.detail.painScore",
+        "observation.detail.medsDiet",
+        "observation.detail.consulted",
+        "observation.detail.encounter",
+        "observation.detail.healthProblem",
+        "observation.detail.group",
+        "observation.detail.edit",
+        "observation.detail.editSave",
+        "observation.detail.editSaved",
+        "observation.detail.delete",
+        "observation.detail.deleteTitle",
+        "observation.detail.deleteBody",
+        "observation.detail.deleteDone",
+        "observation.detail.followUpTitle",
+        "observation.detail.followUpDays",
+        "observation.detail.followUpDone",
+        "observation.detail.loadFailed",
+        "observation.detail.retry",
+        "observation.detail.empty",
+        "observation.detail.viewGroup",
+        "observation.title",
         "observation.trend.improved", "observation.trend.unchanged", "observation.trend.worsened",
         "onboard.aimPrescription", "onboard.buildProfile", "onboard.cancel",
         "onboard.capturePrescription", "onboard.confirm", "onboard.confirmAllTimeline", "onboard.confirmResult",
@@ -1613,6 +1643,36 @@ enum L10n {
     static var voicePanelStart: String { t("voicePanel.start") }
     static func voiceTargetName(_ tag: TargetTag) -> String { t("voiceTarget.\(tag.rawValue)") }
     static var observationFollowUpSet: String { t("observation.followUp.set") }
+    // FR8.11 观察详情页（SP-14 §5.7.1）
+    static var obsDetailCapturedAt: String { t("observation.detail.capturedAt") }
+    static var obsDetailMember: String { t("observation.detail.member") }
+    static var obsDetailBodyPart: String { t("observation.detail.bodyPart") }
+    static var obsDetailDuration: String { t("observation.detail.duration") }
+    static var obsDetailDurationFmt: String { t("observation.detail.durationFmt") }
+    static var obsDetailFrequency: String { t("observation.detail.frequency") }
+    static var obsDetailIsFirst: String { t("observation.detail.isFirst") }
+    static var obsDetailTrigger: String { t("observation.detail.trigger") }
+    static var obsDetailAccompanying: String { t("observation.detail.accompanying") }
+    static var obsDetailPainScore: String { t("observation.detail.painScore") }
+    static var obsDetailMedsDiet: String { t("observation.detail.medsDiet") }
+    static var obsDetailConsulted: String { t("observation.detail.consulted") }
+    static var obsDetailEncounter: String { t("observation.detail.encounter") }
+    static var obsDetailHealthProblem: String { t("observation.detail.healthProblem") }
+    static var obsDetailGroup: String { t("observation.detail.group") }
+    static var obsDetailEdit: String { t("observation.detail.edit") }
+    static var obsDetailEditSave: String { t("observation.detail.editSave") }
+    static var obsDetailEditSaved: String { t("observation.detail.editSaved") }
+    static var obsDetailDelete: String { t("observation.detail.delete") }
+    static var obsDetailDeleteTitle: String { t("observation.detail.deleteTitle") }
+    static var obsDetailDeleteBody: String { t("observation.detail.deleteBody") }
+    static var obsDetailDeleteDone: String { t("observation.detail.deleteDone") }
+    static var obsDetailFollowUpTitle: String { t("observation.detail.followUpTitle") }
+    static var obsDetailFollowUpDays: String { t("observation.detail.followUpDays") }
+    static var obsDetailFollowUpDone: String { t("observation.detail.followUpDone") }
+    static var obsDetailLoadFailed: String { t("observation.detail.loadFailed") }
+    static var obsDetailRetry: String { t("observation.detail.retry") }
+    static var obsDetailEmpty: String { t("observation.detail.empty") }
+    static var obsDetailViewGroup: String { t("observation.detail.viewGroup") }
 
     // MARK: - F16 设备接入（SP-29/SP-30）
     static var f16Title: String { t("f16.title") }

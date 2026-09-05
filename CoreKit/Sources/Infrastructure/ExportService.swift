@@ -64,8 +64,24 @@ public actor ExportService {
             public var patientId: UUID?
             public var kind: String
             public var occurredAt: Date
+            public var capturedAt: Date?
             public var description: String?
             public var selfMark: String?
+            /// FR8.2 扩展字段（FR13.5 V3.28 补强：随包往返，缺失即数据丢失）。
+            /// 旧包无这些键 → decodeIfPresent 兼容（nil），但导出侧必须全量写出。
+            public var mediaAssetIds: [String]
+            public var bodyPart: String?
+            public var durationMin: Int?
+            public var frequency: String?
+            public var isFirst: Bool?
+            public var trigger: String?
+            public var accompanying: String?
+            public var painScore: Int?
+            public var medsDiet: String?
+            public var consultedDoctor: Bool
+            public var encounterId: UUID?
+            public var healthProblemId: UUID?
+            public var groupId: UUID?
         }
         public struct AllergyExport: Sendable, Codable, Equatable {
             public var id: UUID
@@ -210,8 +226,22 @@ public actor ExportService {
                     patientId: (row["patient_id"] as String?).flatMap(UUID.init(uuidString:)),
                     kind: row["kind"] as String,
                     occurredAt: Date(timeIntervalSince1970: row["occurred_at"] as Double),
+                    capturedAt: (row["captured_at"] as Double?).map(Date.init(timeIntervalSince1970:)),
                     description: row["description"] as String?,
-                    selfMark: row["self_mark"] as String?)
+                    selfMark: row["self_mark"] as String?,
+                    mediaAssetIds: Self.decodeMediaIds(row["media_asset_ids"] as String?),
+                    bodyPart: row["body_part"] as String?,
+                    durationMin: row["duration_min"] as Int?,
+                    frequency: row["frequency"] as String?,
+                    isFirst: (row["is_first"] as Int?).map { $0 != 0 },
+                    trigger: row["trigger"] as String?,
+                    accompanying: row["accompanying"] as String?,
+                    painScore: row["pain_score"] as Int?,
+                    medsDiet: row["meds_diet"] as String?,
+                    consultedDoctor: (row["consulted_doctor"] as Int? ?? 0) != 0,
+                    encounterId: (row["encounter_id"] as String?).flatMap(UUID.init(uuidString:)),
+                    healthProblemId: (row["health_problem_id"] as String?).flatMap(UUID.init(uuidString:)),
+                    groupId: (row["group_id"] as String?).flatMap(UUID.init(uuidString:)))
             }
             let allergies = try Row.fetchAll(db, sql: "SELECT * FROM allergy_event").map { row in
                 Envelope.AllergyExport(
@@ -645,18 +675,38 @@ public actor ExportService {
                                      a.startsAt.timeIntervalSince1970, a.startsAt.timeIntervalSince1970])
             }
             for o in envelope.observations {
+                // FR13.5 V3.28：扩展字段随包往返——adopt 全列覆盖、INSERT 全列写入
                 if try adoptOrSkip(obsConflicts, o.id, adopt: {
                     try db.execute(sql: """
-                        UPDATE observation SET patient_id = ?, kind = ?, occurred_at = ?, description = ?, self_mark = ?
+                        UPDATE observation SET patient_id = ?, kind = ?, occurred_at = ?, captured_at = ?,
+                          description = ?, self_mark = ?, media_asset_ids = ?, body_part = ?,
+                          duration_min = ?, frequency = ?, is_first = ?, trigger = ?,
+                          accompanying = ?, pain_score = ?, meds_diet = ?, consulted_doctor = ?,
+                          encounter_id = ?, health_problem_id = ?, group_id = ?
                         WHERE id = ?
                         """, arguments: [(remap(o.patientId) ?? o.patientId)?.uuidString ?? "", o.kind,
-                                         o.occurredAt.timeIntervalSince1970, o.description, o.selfMark, o.id.uuidString])
+                                         o.occurredAt.timeIntervalSince1970, o.capturedAt?.timeIntervalSince1970,
+                                         o.description, o.selfMark, Self.encodeMediaIds(o.mediaAssetIds),
+                                         o.bodyPart, o.durationMin, o.frequency,
+                                         o.isFirst.map { $0 ? 1 : 0 }, o.trigger, o.accompanying,
+                                         o.painScore, o.medsDiet, o.consultedDoctor ? 1 : 0,
+                                         o.encounterId?.uuidString, o.healthProblemId?.uuidString,
+                                         o.groupId?.uuidString, o.id.uuidString])
                 }) { continue }
                 try db.execute(sql: """
-                    INSERT INTO observation (id, patient_id, kind, occurred_at, description, self_mark, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO observation (id, patient_id, kind, occurred_at, captured_at,
+                      description, self_mark, media_asset_ids, body_part, duration_min, frequency,
+                      is_first, trigger, accompanying, pain_score, meds_diet, consulted_doctor,
+                      encounter_id, health_problem_id, group_id, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, arguments: [(remap(o.id) ?? o.id).uuidString, patientID(o.patientId), o.kind,
-                                     o.occurredAt.timeIntervalSince1970, o.description, o.selfMark,
+                                     o.occurredAt.timeIntervalSince1970, o.capturedAt?.timeIntervalSince1970,
+                                     o.description, o.selfMark, Self.encodeMediaIds(o.mediaAssetIds),
+                                     o.bodyPart, o.durationMin, o.frequency,
+                                     o.isFirst.map { $0 ? 1 : 0 }, o.trigger, o.accompanying,
+                                     o.painScore, o.medsDiet, o.consultedDoctor ? 1 : 0,
+                                     o.encounterId?.uuidString, o.healthProblemId?.uuidString,
+                                     o.groupId?.uuidString,
                                      o.occurredAt.timeIntervalSince1970, o.occurredAt.timeIntervalSince1970])
             }
             for a in envelope.allergies {
@@ -765,6 +815,22 @@ public actor ExportService {
     }
 
     /// patient_profile 行 → PatientProfile 实体（本人/成员共用一条映射）
+    /// media_asset_ids JSON 列编解码（与 ObservationStore 同语义：损坏降级空数组/空列）。
+    private static func decodeMediaIds(_ json: String?) -> [String] {
+        guard let json, let data = json.data(using: .utf8) else { return [] }
+        do { return try JSONDecoder().decode([String].self, from: data) }
+        catch { return [] }
+    }
+    private static func encodeMediaIds(_ ids: [String]) -> String? {
+        guard !ids.isEmpty else { return nil }
+        do {
+            let data = try JSONEncoder().encode(ids)
+            return String(data: data, encoding: .utf8)
+        } catch {
+            return nil
+        }
+    }
+
     private static func profileRow(_ row: Row) -> PatientProfile {
         PatientProfile(id: UUID(uuidString: row["id"] as String) ?? UUID(),
                        displayName: row["display_name"] as String,

@@ -26,18 +26,40 @@ public struct ObservationEvent: Sendable, Equatable, Identifiable {
     public var groupId: UUID?             // 观察事件聚合（§5.36 group_id）
     public var kind: ObservationKind
     public var occurredAt: Date
+    public var capturedAt: Date?          // 拍摄时间（FR8.2）
     public var description: String?
     public var selfMark: String?          // improved/unchanged/worsened
     public var memberId: UUID
     /// F8.4/§5.10 敏感媒体资产 id 列表（asset 表 + 敏感目录，BR-007/008）。
     /// 列表/时间轴只可渲染模糊缩略图，原图必须经敏感容器解锁。
     public var mediaAssetIds: [String]
+    /// FR8.2 扩展字段（V3.65 全量投影）：详情页为唯一完整呈现面，
+    /// 备份往返必须携带（FR13.5 V3.28 补强，缺失即数据丢失）。
+    public var bodyPart: String?
+    public var durationMin: Int?
+    public var frequency: String?
+    public var isFirst: Bool?
+    public var trigger: String?
+    public var accompanying: String?
+    public var painScore: Int?
+    public var medsDiet: String?
+    public var consultedDoctor: Bool
+    public var encounterId: UUID?
+    public var healthProblemId: UUID?
     public init(id: UUID, groupId: UUID? = nil, kind: ObservationKind, occurredAt: Date,
-                description: String?, selfMark: String?, memberId: UUID,
-                mediaAssetIds: [String] = []) {
+                capturedAt: Date? = nil, description: String?, selfMark: String?,
+                memberId: UUID, mediaAssetIds: [String] = [],
+                bodyPart: String? = nil, durationMin: Int? = nil, frequency: String? = nil,
+                isFirst: Bool? = nil, trigger: String? = nil, accompanying: String? = nil,
+                painScore: Int? = nil, medsDiet: String? = nil, consultedDoctor: Bool = false,
+                encounterId: UUID? = nil, healthProblemId: UUID? = nil) {
         self.id = id; self.groupId = groupId; self.kind = kind; self.occurredAt = occurredAt
-        self.description = description; self.selfMark = selfMark; self.memberId = memberId
-        self.mediaAssetIds = mediaAssetIds
+        self.capturedAt = capturedAt; self.description = description; self.selfMark = selfMark
+        self.memberId = memberId; self.mediaAssetIds = mediaAssetIds
+        self.bodyPart = bodyPart; self.durationMin = durationMin; self.frequency = frequency
+        self.isFirst = isFirst; self.trigger = trigger; self.accompanying = accompanying
+        self.painScore = painScore; self.medsDiet = medsDiet; self.consultedDoctor = consultedDoctor
+        self.encounterId = encounterId; self.healthProblemId = healthProblemId
     }
 }
 
