@@ -87,7 +87,7 @@ struct AppContainer {
                 return assemble(store: store, scheduler: UNReminderScheduler(),
                                 degradedReason: "\(error)")
             } catch {
-                fatalError("数据层初始化失败（live 与内存降级均不可用）: \(error)")
+                fatalError("Data layer init failed (live and in-memory degraded both unavailable): \(error)")
             }
         }
     }
