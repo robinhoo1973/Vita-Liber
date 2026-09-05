@@ -33,8 +33,11 @@ final class M2ClaimAcceptanceTests: XCTestCase {
         let totals = try await claims.totals(patientId: patient)
         XCTAssertEqual(totals.itemCount, 2)
         XCTAssertEqual(totals.totalAmount, 173.5, accuracy: 0.001)
-        XCTAssertTrue(totals.statement.contains("共 2 笔"))
-        XCTAssertTrue(totals.statement.contains("173.50"))
+        XCTAssertEqual(totals.currency, "CNY")
+        // 展示语句已移入视图层（L10n 单出口）：断言组装结果原样携带数量与金额
+        let statement = L10n.claimTotals(totals.itemCount, "173.50", totals.currency)
+        XCTAssertTrue(statement.contains("2"))
+        XCTAssertTrue(statement.contains("173.50"))
     }
 
     /// FR13.7 边界：汇总只求和——不评判「哪些可报」、不生成报销建议
@@ -43,8 +46,11 @@ final class M2ClaimAcceptanceTests: XCTestCase {
         try await claims.create(patientId: patient, itemType: "receipt", amount: 10,
                                 date: Date(), merchant: "药店", summary: "")
         let totals = try await claims.totals(patientId: patient)
+        // FR13.7 纯事实边界现在由两层共同保证：Totals 结构只有数值+币种字段，
+        // 展示模板（L10n）不得加入任何报销判断词——此处直接锁模板本身。
+        let statement = L10n.claimTotals(totals.itemCount, "10.00", totals.currency)
         for banned in ["可报销", "不可报销", "建议", "应该"] {
-            XCTAssertFalse(totals.statement.contains(banned),
+            XCTAssertFalse(statement.contains(banned),
                            "汇总出现报销判断词「\(banned)」——FR13.7 纯事实边界")
         }
     }
