@@ -118,20 +118,31 @@ final class AppRouter {
     }
 
     /// Tab 内的 path 绑定（NavigationStack(path:) 消费）。
-    /// 审查修复：绑定缓存为惰性常量——此前每次 body 求值都新建 Binding，
-    /// selection/path 任一变更都会触发外壳重算，转场窗口内绑定身份抖动
-    /// （每栈每帧换实例）叠加 iOS 26 借用控制器路径。lazy 避免 init 期间
-    /// self 捕获问题（首访发生在外壳 body，晚于 init 完成）。
-    private lazy var homeBinding = Binding(get: { [weak self] in self?.homePath ?? [] },
-                                           set: { [weak self] in self?.homePath = $0; self?.persist() })
-    private lazy var recordsBinding = Binding(get: { [weak self] in self?.recordsPath ?? [] },
-                                              set: { [weak self] in self?.recordsPath = $0; self?.persist() })
-    private lazy var remindersBinding = Binding(get: { [weak self] in self?.remindersPath ?? [] },
-                                                set: { [weak self] in self?.remindersPath = $0; self?.persist() })
-    private lazy var aiBinding = Binding(get: { [weak self] in self?.aiPath ?? [] },
-                                         set: { [weak self] in self?.aiPath = $0; self?.persist() })
-    private lazy var meBinding = Binding(get: { [weak self] in self?.mePath ?? [] },
-                                         set: { [weak self] in self?.mePath = $0; self?.persist() })
+    /// 审查修复注记：曾尝试 lazy 缓存绑定避免每帧新建 Binding 的身份抖动，
+    /// 但 @Observable 宏不支持 lazy 存储属性（ObservationTracked 展开后
+    /// 「lazy cannot be used on a computed property」编译失败）——回落为
+    /// 普通计算属性（SwiftUI 常规模式，绑定身份抖动不构成实际问题，
+    /// crash 2 根因在恢复时点与双导航变更，与此无关）。
+    private var homeBinding: Binding<[AppRoute]> {
+        Binding(get: { [weak self] in self?.homePath ?? [] },
+                set: { [weak self] in self?.homePath = $0; self?.persist() })
+    }
+    private var recordsBinding: Binding<[AppRoute]> {
+        Binding(get: { [weak self] in self?.recordsPath ?? [] },
+                set: { [weak self] in self?.recordsPath = $0; self?.persist() })
+    }
+    private var remindersBinding: Binding<[AppRoute]> {
+        Binding(get: { [weak self] in self?.remindersPath ?? [] },
+                set: { [weak self] in self?.remindersPath = $0; self?.persist() })
+    }
+    private var aiBinding: Binding<[AppRoute]> {
+        Binding(get: { [weak self] in self?.aiPath ?? [] },
+                set: { [weak self] in self?.aiPath = $0; self?.persist() })
+    }
+    private var meBinding: Binding<[AppRoute]> {
+        Binding(get: { [weak self] in self?.mePath ?? [] },
+                set: { [weak self] in self?.mePath = $0; self?.persist() })
+    }
 
     func binding(for tab: MainModuleID) -> Binding<[AppRoute]> {
         switch tab {
