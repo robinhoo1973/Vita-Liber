@@ -26,7 +26,15 @@ struct MedicationPlanListView: View {
                             }
                         }
                         Spacer()
-                        PlanStatusBadge(status: plan.status)
+                        if plan.isUnreadable {
+                            // 审查修复：schedule_json 损坏的可见降级态——
+                            // 原静默消失（计划不可管理但提醒继续）
+                            Label(L10n.planUnreadable, systemImage: "exclamationmark.triangle")
+                                .font(.caption)
+                                .foregroundStyle(Color("semantic-warning", bundle: .main))
+                        } else {
+                            PlanStatusBadge(status: plan.status)
+                        }
                     }
                 }
                 .accessibilityIdentifier("SP-15.plan.row.\(plan.id.uuidString)")

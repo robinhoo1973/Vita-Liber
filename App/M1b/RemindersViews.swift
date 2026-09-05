@@ -238,10 +238,12 @@ struct DoseSlotCard: View {
                         Button(L10n.reminder_allTakenYes) { onSlotAllTaken() }
                             .buttonStyle(.borderedProminent)
                             .controlSize(.small)
+                                .frame(minHeight: 44)   // 触点≥44pt（审查修复）
                             .accessibilityIdentifier("SP-09.doseSlot.allTaken.confirm")
                         Button(L10n.commonCancel) { allTakenHoldConfirmed = false }
                             .buttonStyle(.bordered)
                             .controlSize(.small)
+                                .frame(minHeight: 44)   // 触点≥44pt（审查修复）
                     } else {
                         Button {
                             allTakenHoldConfirmed = true

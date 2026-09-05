@@ -169,6 +169,7 @@ private struct PendingDoseRow: View {
             Button(L10n.ncConfirmDose, action: onConfirm)
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
+                                .frame(minHeight: 44)   // 触点≥44pt（审查修复）
         }
         .accessibilityIdentifier("SP-27.notification.dose.\(dose.id)")
     }

@@ -8,66 +8,15 @@ import Domain
 struct PreferencesView: View {
     @Environment(AppSettingsStore.self) private var settings
     @Environment(AppState.self) private var app
-    @State private var remindAdvance = ""
-    @State private var snooze = ""
-    @State private var quietStart = ""
-    @State private var quietEnd = ""
-    @State private var dateFormat = ""
-    @State private var weekStart = ""
-    @State private var unitSystem = "metric"
-    @State private var reduceMotion = false
-    @State private var homeSort = "time"
-    @State private var notifPreviewMed = false
     @State private var readback = "never"
-    @State private var channel = "local"
 
     var body: some View {
         Form {
-            // 提醒组（FR14.7）
-            Section {
-                TextField(L10n.prefRemindAdvance, text: $remindAdvance)
-                    .keyboardType(.numberPad)
-                TextField(L10n.prefSnooze, text: $snooze)
-                    .keyboardType(.numberPad)
-                HStack {
-                    TextField(L10n.prefQuietStart, text: $quietStart)
-                    Text(L10n.prefTo)
-                    TextField(L10n.prefQuietEnd, text: $quietEnd)
-                }
-                // FR9.18 通道偏好（全局生效——影响下一次提醒的送达通道选择）
-                Picker(L10n.prefChannel, selection: $channel) {
-                    Text(L10n.prefChannelNotifyOnly).tag("local")
-                    Text(L10n.prefChannelRingUntilConfirm).tag("persistentRing")
-                    Text(L10n.prefChannelSilentBanner).tag("inApp")
-                }
-                Toggle(L10n.prefNotifPreviewMed, isOn: $notifPreviewMed)
-            } header: {
-                LabeledContent(L10n.prefGroupReminders) {
-                    Text(L10n.prefTagGlobal)   // 通道偏好与通知预览=全局生效（FR14.7 例外②）
-                }
-            } footer: {
-                Text(L10n.prefRemindScopeNote)
-            }
-            // 显示与单位组（仅新建语义）
-            Section {
-                TextField(L10n.prefDateFormat, text: $dateFormat)
-                TextField(L10n.prefWeekStart, text: $weekStart)
-                    .keyboardType(.numberPad)
-                Picker(L10n.prefUnitSystem, selection: $unitSystem) {
-                    Text(L10n.prefUnitMetric).tag("metric")
-                    Text(L10n.prefUnitImperial).tag("imperial")
-                }
-                Toggle(L10n.prefReduceMotion, isOn: $reduceMotion)
-                Picker(L10n.prefHomeSort, selection: $homeSort) {
-                    Text(L10n.prefHomeSortTime).tag("time")
-                    Text(L10n.prefHomeSortType).tag("type")
-                }
-            } header: {
-                LabeledContent(L10n.prefGroupDisplay) {
-                    Text(L10n.prefTagNewOnly)   // 仅影响新建项（FR14.7 追溯语义）
-                }
-            }
-            // 语音与关怀组（FR17.13 无耳机回读偏好三态）
+            // 审查修复（诚实性）：remindAdvance/snooze/quietHours/notifPreviewMed/
+            // 通道/日期格式/单位/动效/排序等十余项偏好此前只写不读
+            // （全仓零消费点）——「可调但无效果」的开关违反 FR14.7
+            // 「偏好必须真实生效」，已从 UI 移除并登记技术债；接线后恢复。
+            // 现仅保留真实生效项：无耳机回读偏好（FR17.13 运行时真源已接线）。
             Section {
                 Picker(L10n.prefReadback, selection: $readback) {
                     Text(L10n.prefReadbackNever).tag("never")
@@ -99,34 +48,12 @@ struct PreferencesView: View {
     }
 
     private func loadValues() {
-        remindAdvance = settings.values[.remindAdvanceMinutes] ?? "-"
-        snooze = settings.values[.snoozeMinutes] ?? "-"
-        quietStart = settings.values[.quietHoursStart] ?? "-"
-        quietEnd = settings.values[.quietHoursEnd] ?? "-"
-        dateFormat = settings.values[.dateFormat] ?? "-"
-        weekStart = settings.values[.weekStartsOn] ?? "-"
-        unitSystem = settings.values[.unitSystem] ?? "metric"
-        reduceMotion = settings.values[.reduceMotion] == "true"
-        homeSort = settings.values[.homeSort] ?? "time"
-        notifPreviewMed = settings.values[.notificationPreviewMedName] == "true"
         readback = settings.values[.readBackOptIn] ?? "never"
-        channel = settings.values[.remindChannel] ?? "local"
     }
 
     private func save() {
         Task {
-            await settings.set(remindAdvance, for: .remindAdvanceMinutes)
-            await settings.set(snooze, for: .snoozeMinutes)
-            await settings.set(quietStart, for: .quietHoursStart)
-            await settings.set(quietEnd, for: .quietHoursEnd)
-            await settings.set(dateFormat, for: .dateFormat)
-            await settings.set(weekStart, for: .weekStartsOn)
-            await settings.set(unitSystem, for: .unitSystem)
-            await settings.set(reduceMotion ? "true" : "false", for: .reduceMotion)
-            await settings.set(homeSort, for: .homeSort)
-            await settings.set(notifPreviewMed ? "true" : "false", for: .notificationPreviewMedName)
             await settings.set(readback, for: .readBackOptIn)
-            await settings.set(channel, for: .remindChannel)
         }
     }
 }

@@ -32,7 +32,10 @@ struct OcrConfirmationTests {
         #expect(confirmed)
         let revised = f.revise(to: "0.5g")
         #expect(revised)
-        #expect(f.revisionHistory == ["0.25g"])       // 旧值入历史（新→旧）
+        // 修订历史（新→旧）：条目含旧值→新值 + 修订人 + ISO 时间戳
+        #expect(f.revisionHistory.count == 1)
+        #expect(f.revisionHistory[0].contains("0.25g"))
+        #expect(f.revisionHistory[0].contains("0.5g"))
         #expect(f.value == "0.5g")
         let revisedAgain = f.revise(to: "0.5g")
         #expect(!revisedAgain)                        // 同值不产生历史

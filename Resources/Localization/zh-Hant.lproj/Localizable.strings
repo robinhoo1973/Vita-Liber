@@ -1026,3 +1026,14 @@
 "f16.authDenied" = "未授權讀取健康資料——已降級為手動自測模式";
 "startup.degradedTitle" = "資料開啟異常";
 "startup.degradedBodyFmt" = "本機資料暫無法開啟（%@）。您的資料未被修改；請重新啟動應用程式重試，如持續出現請聯絡支援。";
+"claim.amount" = "金額";
+"claim.date" = "日期";
+"claim.merchant" = "機構/商家";
+"claim.summary" = "摘要";
+"claim.createTitle" = "新增票據";
+"claim.save" = "儲存";
+"claim.type" = "類型";
+"helpcard.title" = "求助卡";
+"helpcard.defaultFilename" = "配藥清單";
+"f19.sendA11y" = "發送指令";
+"plan.unreadable" = "計劃資料損壞";

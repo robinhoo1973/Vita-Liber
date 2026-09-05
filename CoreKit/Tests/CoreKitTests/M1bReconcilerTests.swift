@@ -132,7 +132,7 @@ struct ReminderReliabilityTests {
                 delivered: false, action: nil, isDueSoon: false, isExpiredGrace: false))
         }
         // 预约提醒由 AppointmentStore 直接预排——对账不得触碰
-        try await scheduler.schedule(dose: "apt-protected", at: now.addingTimeInterval(3600))
+        try await scheduler.schedule(dose: "apt-protected", at: now.addingTimeInterval(3600), route: nil)
         await source.set(facts)
         await reconciler.reconcile(now: now)
         let pending = try await scheduler.pending()

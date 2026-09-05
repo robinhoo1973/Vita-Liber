@@ -96,7 +96,7 @@ struct TodayStoreTests {
     @Test func 近期观察取前三条() {
         let me = UUID()
         let obs = (0..<5).map { i in
-            ObsRef(id: UUID(), kind: .skin, occurredAt: Date(timeIntervalSince1970: TimeInterval(100 + i)), memberId: me)
+            ObsRef(id: UUID(), kind: "skin", occurredAt: Date(timeIntervalSince1970: TimeInterval(100 + i)), memberId: me)
         }
         let snap = TodayAggregator.snapshot(member: me, todos: [], pendingOCRCount: 0,
                                             expiring: [], refills: [], alerts: [], observations: obs)

@@ -30,7 +30,7 @@ struct InventoryHubView: View {
                 Button {
                     showHelpCard = true
                 } label: {
-                    Label("求助卡", systemImage: "square.and.arrow.up").frame(minHeight: 44)
+                    Label(L10n.helpcard_title, systemImage: "square.and.arrow.up").frame(minHeight: 44)
                 }
                 .accessibilityIdentifier("FR9.13a.card.open")
             }
@@ -50,7 +50,7 @@ struct InventoryHubView: View {
         .fileExporter(isPresented: $showDispenseExport,
                       document: CSVTextDocument(text: hub.dispenseCSV()),
                       contentType: .commaSeparatedText,
-                      defaultFilename: "配药清单") { _ in }
+                      defaultFilename: L10n.helpcard_defaultFilename) { _ in }
         .sheet(isPresented: $showShareHost) {
             // FR9.13a/FR24.1：收件人由用户显式选择（急救卡已确认联系人优先，
             // 可手输）；位置照片默认不含（photoAttachments 为空——需显式勾选 P1）
@@ -196,6 +196,7 @@ struct SentStatusListView: View {
                             }
                             .buttonStyle(.bordered)
                             .controlSize(.small)
+                                .frame(minHeight: 44)   // 触点≥44pt（审查修复）
                             .accessibilityIdentifier("FR24.2.markDelivered")
                         } else {
                             StatusBadge(status: message.status)

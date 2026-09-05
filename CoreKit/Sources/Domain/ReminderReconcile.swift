@@ -80,24 +80,32 @@ public enum ReconcileEngine {
 /// 预约分级提醒（FR10.3 / §5.4 V3.31）：从 starts_at 反算四级触发点
 public struct AppointmentTier: Sendable, Equatable, Hashable {
     public var label: String
-    public var offsetSeconds: TimeInterval
-    public init(label: String, offsetSeconds: TimeInterval) {
-        self.label = label; self.offsetSeconds = offsetSeconds
+    /// 负值 = 提前 N **日历日**（审查修复：原固定秒 -N×86400 在 DST
+    /// 切换日偏差 ±1 小时，与 BatchExpiryRules 已统一的日历日纪律一致）
+    public var offsetDays: Int
+    /// day 档（offsetDays=0）当天近似时刻（小时；确认 UI 可覆盖）
+    public var dayHour: Int?
+    public init(label: String, offsetDays: Int, dayHour: Int? = nil) {
+        self.label = label; self.offsetDays = offsetDays; self.dayHour = dayHour
     }
     public static let defaults: [AppointmentTier] = [
-        .init(label: "7d", offsetSeconds: -7 * 86400),
-        .init(label: "3d", offsetSeconds: -3 * 86400),
-        .init(label: "1d", offsetSeconds: -86400),
-        .init(label: "day", offsetSeconds: -4 * 3600),   // 当天 09:00 近似（确认 UI 可覆盖）
+        .init(label: "7d", offsetDays: -7),
+        .init(label: "3d", offsetDays: -3),
+        .init(label: "1d", offsetDays: -1),
+        .init(label: "day", offsetDays: 0, dayHour: 9),
     ]
 }
 
 public enum AppointmentRules {
     /// 预约改期 = 取消全部旧 tiers → 重排新 tiers（幂等）
-    public static func tierFireDates(startsAt: Date, tiers: [AppointmentTier], now: Date) -> [AppointmentTier: Date] {
+    public static func tierFireDates(startsAt: Date, tiers: [AppointmentTier], now: Date,
+                                     calendar: Calendar = .current) -> [AppointmentTier: Date] {
         var out: [AppointmentTier: Date] = [:]
         for t in tiers {
-            let fire = startsAt.addingTimeInterval(t.offsetSeconds)
+            var fire = calendar.date(byAdding: .day, value: t.offsetDays, to: startsAt) ?? startsAt
+            if let hour = t.dayHour {
+                fire = calendar.date(bySettingHour: hour, minute: 0, second: 0, of: fire) ?? fire
+            }
             if fire > now { out[t] = fire }               // 已过期的层级不补发
         }
         return out

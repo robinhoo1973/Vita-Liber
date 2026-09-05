@@ -266,12 +266,14 @@ struct HealthProblemListView: View {
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
+                        .frame(minHeight: 44)   // 触点≥44pt（审查修复）
                         Button(problem.archived ? L10n.problemUnarchive : L10n.problemArchive) {
                             Task { await state.setArchived(problemId: problem.id,
                                                            archived: !problem.archived) }
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
+                        .frame(minHeight: 44)   // 触点≥44pt（审查修复）
                     }
                     .accessibilityIdentifier("SP-49.problem.row.\(problem.id.uuidString)")
                 }
@@ -500,6 +502,7 @@ struct QuestionListView: View {
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
+                        .frame(minHeight: 44)   // 触点≥44pt（审查修复）
                     }
                 }
                 .accessibilityIdentifier("FR10.5.question.row")

@@ -1026,3 +1026,14 @@
 "f16.authDenied" = "Health data not authorized — manual self-test mode enabled";
 "startup.degradedTitle" = "Data Open Error";
 "startup.degradedBodyFmt" = "Your local data could not be opened (%@). Nothing has been modified; please restart the app, or contact support if this persists.";
+"claim.amount" = "Amount";
+"claim.date" = "Date";
+"claim.merchant" = "Merchant";
+"claim.summary" = "Summary";
+"claim.createTitle" = "New Claim";
+"claim.save" = "Save";
+"claim.type" = "Type";
+"helpcard.title" = "Help Card";
+"helpcard.defaultFilename" = "Medication List";
+"f19.sendA11y" = "Send command";
+"plan.unreadable" = "Plan data corrupted";

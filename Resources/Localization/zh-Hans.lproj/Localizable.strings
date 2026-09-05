@@ -1026,3 +1026,14 @@
 "f16.authDenied" = "未授权读取健康数据——已降级为手动自测模式";
 "startup.degradedTitle" = "数据打开异常";
 "startup.degradedBodyFmt" = "本地数据暂无法打开（%@）。您的资料未被修改；请重启应用重试，如持续出现请联系支持。";
+"claim.amount" = "金额";
+"claim.date" = "日期";
+"claim.merchant" = "机构/商家";
+"claim.summary" = "摘要";
+"claim.createTitle" = "新增票据";
+"claim.save" = "保存";
+"claim.type" = "类型";
+"helpcard.title" = "求助卡";
+"helpcard.defaultFilename" = "配药清单";
+"f19.sendA11y" = "发送指令";
+"plan.unreadable" = "计划数据损坏";

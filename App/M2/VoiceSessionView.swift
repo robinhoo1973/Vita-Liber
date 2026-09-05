@@ -172,7 +172,7 @@ struct VoiceSessionView: View {
                         .frame(width: 64, height: 64)
                 }
                 .disabled(typed.trimmingCharacters(in: .whitespaces).isEmpty)
-                .accessibilityLabel("发送指令")
+                .accessibilityLabel(L10n.f19_sendA11y)
                 .accessibilityIdentifier("F19.session.send")
             }
             .padding(.horizontal, 12)

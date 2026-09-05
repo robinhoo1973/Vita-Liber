@@ -43,6 +43,7 @@ struct PendingOcrQueueView: View {
                                 }
                                 .buttonStyle(.borderedProminent)
                                 .controlSize(.small)
+                                .frame(minHeight: 44)   // 触点≥44pt（审查修复）
                                 .accessibilityIdentifier("SP-53.queue.confirmAll")
                             } else {
                                 Text(L10n.ocrQueueAllConfirmBlocked)
@@ -73,6 +74,7 @@ struct PendingOcrQueueView: View {
                                 }
                                 .buttonStyle(.bordered)
                                 .controlSize(.small)
+                                .frame(minHeight: 44)   // 触点≥44pt（审查修复）
                             }
                             Text(item.field.value)
                                 .font(.body)
@@ -85,17 +87,20 @@ struct PendingOcrQueueView: View {
                                 }
                                 .buttonStyle(.borderedProminent)
                                 .controlSize(.small)
+                                .frame(minHeight: 44)   // 触点≥44pt（审查修复）
                                 .accessibilityIdentifier("SP-53.queue.confirm.\(item.field.key)")
                                 Button(L10n.onboard_revise) {
                                     reviseField(item)
                                 }
                                 .buttonStyle(.bordered)
                                 .controlSize(.small)
+                                .frame(minHeight: 44)   // 触点≥44pt（审查修复）
                                 Button(L10n.onboard_reject) {
                                     app.rejectTimelineField(entryId: item.entry.id, fieldId: item.field.id)
                                 }
                                 .buttonStyle(.bordered)
                                 .controlSize(.small)
+                                .frame(minHeight: 44)   // 触点≥44pt（审查修复）
                                 .tint(.secondary)
                             }
                         }

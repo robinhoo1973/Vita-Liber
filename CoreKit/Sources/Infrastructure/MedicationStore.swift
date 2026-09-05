@@ -524,12 +524,17 @@ public actor MedicationStore: DoseSource {
         public var schedule: MedicationSchedule
         public var startDate: Date
         public var endDate: Date?
+        /// 审查修复：schedule_json 损坏时的可见降级标记——原实现静默 nil，
+        /// 计划从 UI 消失不可管理，但物化 dose_log 仍被对账引擎继续提醒
+        /// （不可见、不可停的提醒源）。UI 据此渲染「计划数据损坏」降级态。
+        public var isUnreadable: Bool
         public init(id: UUID, patientId: UUID, medicationId: UUID, medicationName: String,
                     spec: String?, status: String, schedule: MedicationSchedule,
-                    startDate: Date, endDate: Date?) {
+                    startDate: Date, endDate: Date?, isUnreadable: Bool = false) {
             self.id = id; self.patientId = patientId; self.medicationId = medicationId
             self.medicationName = medicationName; self.spec = spec; self.status = status
             self.schedule = schedule; self.startDate = startDate; self.endDate = endDate
+            self.isUnreadable = isUnreadable
         }
     }
 
@@ -560,21 +565,28 @@ public actor MedicationStore: DoseSource {
                 WHERE p.patient_id = ?
                 ORDER BY p.status = 'active' DESC, p.start_date DESC
                 """, arguments: [patientId.uuidString])
-            return rows.compactMap { row in
-                guard let json = (row["schedule_json"] as String?)?.data(using: .utf8) else { return nil }
-                guard let schedule = try? JSONDecoder().decode(MedicationSchedule.self, from: json) else { // try?-ok: 损坏的 schedule_json 跳过该计划
-                    return nil
+            return rows.map { row in
+                let id = UUID(uuidString: row["id"] as String) ?? UUID()
+                let patientId = UUID(uuidString: row["patient_id"] as String) ?? UUID()
+                let medicationId = UUID(uuidString: row["medication_id"] as String) ?? UUID()
+                let medicationName = row["generic_name"] as String
+                let spec = row["spec"] as String?
+                let status = row["status"] as String
+                let startDate = Date(timeIntervalSince1970: row["start_date"] as Double)
+                let endDate = (row["end_date"] as Double?).map { Date(timeIntervalSince1970: $0) }
+                let schedule: MedicationSchedule
+                var unreadable = false
+                if let json = (row["schedule_json"] as String?)?.data(using: .utf8),
+                   let decoded = try? JSONDecoder().decode(MedicationSchedule.self, from: json) { // try?-ok: 解码失败走可见降级行（不静默消失）
+                    schedule = decoded
+                } else {
+                    schedule = .fixed(times: [])
+                    unreadable = true
                 }
-                return PlanRow(
-                    id: UUID(uuidString: row["id"] as String) ?? UUID(),
-                    patientId: UUID(uuidString: row["patient_id"] as String) ?? UUID(),
-                    medicationId: UUID(uuidString: row["medication_id"] as String) ?? UUID(),
-                    medicationName: row["generic_name"] as String,
-                    spec: row["spec"] as String?,
-                    status: row["status"] as String,
-                    schedule: schedule,
-                    startDate: Date(timeIntervalSince1970: row["start_date"] as Double),
-                    endDate: (row["end_date"] as Double?).map { Date(timeIntervalSince1970: $0) })
+                return PlanRow(id: id, patientId: patientId, medicationId: medicationId,
+                               medicationName: medicationName, spec: spec, status: status,
+                               schedule: schedule, startDate: startDate, endDate: endDate,
+                               isUnreadable: unreadable)
             }
         }
     }
@@ -588,9 +600,14 @@ public actor MedicationStore: DoseSource {
                 JOIN medication m ON m.id = p.medication_id
                 WHERE p.id = ?
                 """, arguments: [id.uuidString]) else { return nil }
-            guard let json = (row["schedule_json"] as String?)?.data(using: .utf8) else { return nil }
-            guard let schedule = try? JSONDecoder().decode(MedicationSchedule.self, from: json) else { // try?-ok: 损坏的 schedule_json 视为计划不可读
-                return nil
+            let schedule: MedicationSchedule
+            var unreadable = false
+            if let json = (row["schedule_json"] as String?)?.data(using: .utf8),
+               let decoded = try? JSONDecoder().decode(MedicationSchedule.self, from: json) { // try?-ok: 解码失败走可见降级行（不静默消失）
+                schedule = decoded
+            } else {
+                schedule = .fixed(times: [])
+                unreadable = true
             }
             return PlanRow(
                 id: UUID(uuidString: row["id"] as String) ?? UUID(),
@@ -601,7 +618,8 @@ public actor MedicationStore: DoseSource {
                 status: row["status"] as String,
                 schedule: schedule,
                 startDate: Date(timeIntervalSince1970: row["start_date"] as Double),
-                endDate: (row["end_date"] as Double?).map { Date(timeIntervalSince1970: $0) })
+                endDate: (row["end_date"] as Double?).map { Date(timeIntervalSince1970: $0) },
+                isUnreadable: unreadable)
         }
     }
 

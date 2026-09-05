@@ -51,11 +51,13 @@ struct AppointmentListView: View {
                                     }
                                     .buttonStyle(.bordered)
                                     .controlSize(.small)
+                                .frame(minHeight: 44)   // 触点≥44pt（审查修复）
                                     Button(L10n.apptCancel) {
                                         cancelTarget = apt
                                     }
                                     .buttonStyle(.bordered)
                                     .controlSize(.small)
+                                .frame(minHeight: 44)   // 触点≥44pt（审查修复）
                                     Button(L10n.apptComplete) {
                                         Task {
                                             await reminders.completeAppointment(patientId: app.currentPatientId, id: apt.id)
@@ -64,6 +66,7 @@ struct AppointmentListView: View {
                                     }
                                     .buttonStyle(.borderedProminent)
                                     .controlSize(.small)
+                                .frame(minHeight: 44)   // 触点≥44pt（审查修复）
                                 }
                             } else if apt.status == "missed" {
                                 Button(L10n.apptFollowUpHint) {
@@ -74,6 +77,7 @@ struct AppointmentListView: View {
                                 }
                                 .buttonStyle(.bordered)
                                 .controlSize(.small)
+                                .frame(minHeight: 44)   // 触点≥44pt（审查修复）
                             }
                             // FR10.6 去挂号深链卡（本地映射表，无网可用）
                             if apt.status == "scheduled" {

@@ -350,6 +350,17 @@ enum L10n {
     static var docDetailNotFound: String { t("doc.detailNotFound") }
     static var assistant_addRecords: String { t("assistant.addRecords") }
     static var assistant_consultDoctor: String { t("assistant.consultDoctor") }
+    static var claim_type: String { t("claim.type") }
+    static var claim_amount: String { t("claim.amount") }
+    static var claim_date: String { t("claim.date") }
+    static var claim_merchant: String { t("claim.merchant") }
+    static var claim_summary: String { t("claim.summary") }
+    static var claim_createTitle: String { t("claim.createTitle") }
+    static var claim_save: String { t("claim.save") }
+    static var helpcard_title: String { t("helpcard.title") }
+    static var helpcard_defaultFilename: String { t("helpcard.defaultFilename") }
+    static var f19_sendA11y: String { t("f19.sendA11y") }
+    static var planUnreadable: String { t("plan.unreadable") }
     static var voiceguide_promptAllergy: String { t("voiceguide.promptAllergy") }
     static var voiceguide_promptHistory: String { t("voiceguide.promptHistory") }
     static var voiceguide_promptMeds: String { t("voiceguide.promptMeds") }

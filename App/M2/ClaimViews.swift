@@ -79,24 +79,24 @@ private struct ClaimCreateSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Picker("类型", selection: $type) {
+                Picker(L10n.claim_type, selection: $type) {
                     Text(L10n.claim_type_invoice).tag("invoice")
                     Text(L10n.claim_type_fee).tag("fee")
                     Text(L10n.claim_type_receipt).tag("receipt")
                 }
-                TextField("金额", text: $amount)
+                TextField(L10n.claim_amount, text: $amount)
                     .keyboardType(.decimalPad)
                     .accessibilityIdentifier("FR13.7.create.amount")
-                DatePicker("日期", selection: $date)
-                TextField("机构/商家", text: $merchant)
+                DatePicker(L10n.claim_date, selection: $date)
+                TextField(L10n.claim_merchant, text: $merchant)
                     .accessibilityIdentifier("FR13.7.create.merchant")
-                TextField("摘要", text: $summary)
+                TextField(L10n.claim_summary, text: $summary)
                     .accessibilityIdentifier("FR13.7.create.summary")
             }
-            .navigationTitle("新增票据")
+            .navigationTitle(L10n.claim_createTitle)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("保存") {
+                    Button(L10n.claim_save) {
                         onCreate(type, Double(amount) ?? 0, date, merchant, summary)
                     }
                     .disabled(Double(amount) == nil)

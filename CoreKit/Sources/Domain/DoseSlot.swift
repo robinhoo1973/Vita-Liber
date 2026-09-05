@@ -98,9 +98,11 @@ public struct DoseSlotGrouping {
     }
 
     static func mealAnchor(for date: Date, relation: String, calendar: Calendar) -> Date {
-        let start = calendar.startOfDay(for: date)
+        // 审查修复（DST）：startOfDay + 分钟×60 固定秒在切换日偏差 ±1 小时——
+        // 改用 bySettingHour/minute 日历构造（与 BatchExpiryRules 纪律一致）
         let minutes = mealMinutes(for: relation)
-        return start.addingTimeInterval(TimeInterval(minutes * 60))
+        return calendar.date(bySettingHour: minutes / 60, minute: minutes % 60,
+                             second: 0, of: date) ?? date
     }
 
     /// 单剂量的时段归属 id（通知 id = "slot-\(slotId)"；对账与稍后取消共用）
@@ -251,7 +253,8 @@ public enum InventoryRules {
         guard dailyPlanUnits > 0, initialUnits > 0, now > start else { return [] }
         var fired: [(RefillTier, Date)] = []
         var pending = Set(RefillTier.allCases)
-        let totalDays = Int(now.timeIntervalSince(start) / 86400)
+        // 审查修复（DST）：日历日差替代固定 86400 秒除法（切换日 ±1 小时漂移）
+        let totalDays = calendar.dateComponents([.day], from: start, to: now).day ?? 0
         for day in 0...max(0, totalDays) {
             guard let at = calendar.date(byAdding: .day, value: day, to: start) else { continue }
             let remaining = max(0, initialUnits - Double(day) * dailyPlanUnits)

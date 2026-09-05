@@ -61,9 +61,12 @@ public enum BackupReminderRules {
     /// FR13.10：定期备份提醒——距上次备份超过 30 天提醒（可配置）
     public static let defaultIntervalDays = 30
 
-    public static func needsReminder(lastBackupAt: Date?, now: Date, intervalDays: Int = defaultIntervalDays) -> Bool {
+    public static func needsReminder(lastBackupAt: Date?, now: Date, intervalDays: Int = defaultIntervalDays,
+                                     calendar: Calendar = .current) -> Bool {
         guard let last = lastBackupAt else { return true }   // 从未备份 → 提醒
-        return now.timeIntervalSince(last) >= TimeInterval(intervalDays * 86400)
+        // 审查修复（DST）：日历日推进替代固定 86400 秒（切换日偏差 ±1 小时）
+        guard let due = calendar.date(byAdding: .day, value: intervalDays, to: last) else { return true }
+        return now >= due
     }
 }
 

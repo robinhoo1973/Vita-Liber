@@ -216,6 +216,7 @@ struct EncounterDetailView: View {
                             }
                             .buttonStyle(.bordered)
                             .controlSize(.small)
+                                .frame(minHeight: 44)   // 触点≥44pt（审查修复）
                         }
                     }
                 } header: {
