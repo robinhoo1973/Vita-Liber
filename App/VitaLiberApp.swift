@@ -151,13 +151,7 @@ struct VitaLiberApp: App {
     /// 主界面装配（降级路径不执行——内存库上的环境装配无意义）
     @ViewBuilder
     private var mainRoot: some View {
-        AppRootView(seedBundled: { try await container.guidelines.seedBundled() },
-                    launchReady: { [router, delegate = notificationDelegate] in
-                        // 首帧后导航就绪（顺序不可反）：先恢复持久化 path，
-                        // 再投递启动窗口内暂存的通知路由（crash 1/2 根因修复）
-                        router.finishRestore()
-                        delegate.markReadyAndDeliverPending()
-                    })
+        AppRootView(seedBundled: { try await container.guidelines.seedBundled() })
             .environment(appState)
             .environment(reminderStore)
             .environment(assistantStore)

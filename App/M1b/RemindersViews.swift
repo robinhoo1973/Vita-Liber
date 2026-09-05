@@ -362,7 +362,8 @@ struct NewAppointmentSheet: View {
     let onCreate: (String, String, Date) -> Void
     @State private var hospital = ""
     @State private var department = ""
-    @State private var date = Date().addingTimeInterval(86400)
+    // 审查修复：+86400 秒跨 DST 会漂移 ±1 小时——默认日期用日历加一天（DayArithmetic）
+    @State private var date = DayArithmetic.offset(days: 1)
 
     var body: some View {
         NavigationStack {

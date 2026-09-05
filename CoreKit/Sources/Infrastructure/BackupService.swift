@@ -100,7 +100,12 @@ public actor BackupService {
             let length = data[lenStart..<lenEnd].withUnsafeBytes {
                 $0.loadUnaligned(as: UInt64.self)
             }.bigEndian
-            guard data.count == lenEnd + Int(length) else {
+            // 审查修复：length 来自用户挑选的文件——UInt64→Int 转换在 ≥2^63 时
+            // 直接 trap（"Not enough bits"，do/catch 捕获不到），且 lenEnd + length
+            // 可加性溢出同样 trap。先限界再减法比较，损坏文件一律走 unsupportedFormat。
+            guard length <= UInt64(Int.max),
+                  data.count >= lenEnd,
+                  data.count - lenEnd == Int(length) else {
                 throw BackupError.unsupportedFormat
             }
             claimedSHA = String(data: data[shaStart..<shaEnd], encoding: .ascii) ?? ""

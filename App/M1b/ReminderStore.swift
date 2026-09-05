@@ -145,6 +145,11 @@ final class ReminderStore {
         do {
             let items = try await meds.inventorySummary(patientId: patientId, now: Date())
             var pending = try await scheduler.pending()
+            // 审查修复：已送达的续药通知必须跳过——pending 守卫只管「尚未触发」，
+            // 通知一旦送达便不再 pending，每次 refresh（启动/回前台/时间变化）
+            // 都以同一 id 重新调度，形成「每次回前台 +5 分钟」的无限重发
+            // （FR9.8.3「同 id 幂等」只对送达前成立）。
+            let delivered = try await scheduler.delivered()
             let now = Date()
             for item in items {
                 guard let tier = item.refillTier, let daysLeft = item.approxDaysLeft,
@@ -154,7 +159,7 @@ final class ReminderStore {
                 let computed = Calendar.current.date(byAdding: .day, value: daysUntilFire, to: now) ?? now
                 let fire = computed > now ? computed : now.addingTimeInterval(300)
                 let notifyId = "refill-\(item.lotId.uuidString)-\(tier.rawValue)"
-                guard pending[notifyId] == nil else { continue }
+                guard pending[notifyId] == nil, !delivered.contains(notifyId) else { continue }
                 try await scheduler.schedule(dose: notifyId, at: fire, route: .medicationCabinet)
                 pending[notifyId] = fire
             }
@@ -171,11 +176,16 @@ final class ReminderStore {
         do {
             let lots = try await meds.expiringLots(patientId: patientId, within: 30)
             var pending = try await scheduler.pending()
+            // 审查修复：已送达的到期提醒必须跳过——否则送达后不再 pending，
+            // 下次 refresh 以同一 id 重排 + 重插 recordDelivery：同 id 违反
+            // notification_delivery 主键，异常中止整个 for 循环，其余批次
+            // 静默失去到期提醒（FR9.11 链断），且已送达提醒死而复生。
+            let delivered = try await scheduler.delivered()
             for lot in lots {
                 guard let expireAt = lot.expireAt else { continue }
                 for (tier, fire) in BatchExpiryRules.fireDates(expireAt: expireAt, now: Date()) {
                     let notifyId = "exp-\(lot.lotId.uuidString)-\(tier.rawValue)"
-                    guard pending[notifyId] == nil else { continue }
+                    guard pending[notifyId] == nil, !delivered.contains(notifyId) else { continue }
                     try await scheduler.schedule(dose: notifyId, at: fire, route: .medicationCabinet)
                     pending[notifyId] = fire
                     // FR9.18 送达记录：channel=local（通知权限由系统决定是否实际送达）；

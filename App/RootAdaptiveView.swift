@@ -121,6 +121,13 @@ struct RootAdaptiveView: View {
         }
         }
         .withPaywallHost()   // 五时机弹墙统一宿主（comercial §3 / M2 收尾）
+        // 导航外壳挂载钩子：挂载后才允许恢复持久化 path / 投递暂存的通知路由
+        // （门禁冷启动时本视图在 Face ID 解锁后才挂载；markNavigationReady
+        // 幂等且内部再延一拍——挂载帧提交后才 push，避开 iOS 26 转场环境断言，
+        // TestFlight 2026-09-05 crash 2 根因修正）
+        .onAppear {
+            Task { @MainActor in router.markNavigationReady() }
+        }
         // FR18.6 右下角常驻 SOS 悬浮球（仅关怀模式；可半透明；设置可关闭——
         // 悬浮球被关闭后关怀首页「呼救」大卡仍保留，求助能力不因单一开关消失）
         .overlay(alignment: .bottomTrailing) {

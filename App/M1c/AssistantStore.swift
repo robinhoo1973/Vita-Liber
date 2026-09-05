@@ -52,9 +52,12 @@ final class AssistantStore {
                 if let patientId {
                     do {
                         let title = String(q.prefix(30))
-                        currentConversationId = try await history.startConversation(patientId: patientId, title: title)
+                        // 审查修复：去掉 currentConversationId!——改为局部绑定，
+                        // 赋值与使用之间永不出现隐式解包 trap 的窗口
+                        let conv = try await history.startConversation(patientId: patientId, title: title)
+                        currentConversationId = conv
                         conversationPatientId = patientId
-                        try await history.appendMessage(conversationId: currentConversationId!, role: "user",
+                        try await history.appendMessage(conversationId: conv, role: "user",
                                                         content: q, citationIds: nil)
                     } catch {
                         logger.error("会话开立失败: \(error)")
