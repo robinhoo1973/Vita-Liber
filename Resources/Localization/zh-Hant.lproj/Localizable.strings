@@ -219,6 +219,8 @@
 "pay.busy" = "處理中…";
 "pay.restore" = "恢復購買";
 "paywall.purchaseFailed" = "購買未完成（可能已取消或網路不可用），可稍後重試。";
+"paywall.restoreNothing" = "未找到可恢復的購買記錄。";
+"paywall.restoreFailed" = "恢復失敗（可能網路不可用），請稍後重試。";
 "pay.valueProp" = "解鎖增量生產型能力，核心功能永久免費";
 "pay.buy" = "購買 Pro";
 "member.title" = "成員管理";

@@ -72,11 +72,16 @@ final class AppEntitlementStore {
         }
     }
 
-    func restore() async {
+    /// 恢复购买：成功返回已恢复的产品集（可能为空=无历史购买），失败返回 nil——
+    /// 付费墙据此区分「无记录」与「恢复出错」两种提示（四态契约错误态）
+    func restore() async -> Set<ProductID>? {
         do {
-            owned = try await store.restore()
+            let restored = try await store.restore()
+            owned = restored
+            return restored
         } catch {
             logger.error("恢复购买失败: \(error)")
+            return nil
         }
     }
 

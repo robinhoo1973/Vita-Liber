@@ -219,6 +219,8 @@
 "pay.busy" = "Processing…";
 "pay.restore" = "Restore purchases";
 "paywall.purchaseFailed" = "Purchase did not complete (cancelled or offline). You can retry later.";
+"paywall.restoreNothing" = "No previous purchases found to restore.";
+"paywall.restoreFailed" = "Restore failed (offline or unavailable). Please try again later.";
 "pay.valueProp" = "Unlock productivity add-ons; core features stay free forever";
 "pay.buy" = "Buy Pro";
 "member.title" = "Family members";

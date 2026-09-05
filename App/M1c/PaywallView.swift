@@ -34,6 +34,7 @@ struct PaywallView: View {
     @Environment(AppState.self) private var app
     @Environment(AppEntitlementStore.self) private var entitlements
     @State private var busy = false
+    @State private var errorText: String?
 
     var body: some View {
         VStack(spacing: 16) {
@@ -101,12 +102,15 @@ struct PaywallView: View {
         busy = true
         defer { busy = false }
         let ok = await entitlements.purchase(p)
-        if !ok { errorText = L10n.paywallPurchaseFailed }
+        errorText = ok ? nil : L10n.paywallPurchaseFailed
     }
     private func restore() async {
         busy = true
         defer { busy = false }
-        let restored = await entitlements.restore()
+        guard let restored = await entitlements.restore() else {
+            errorText = L10n.paywallRestoreFailed
+            return
+        }
         errorText = restored.isEmpty ? L10n.paywallRestoreNothing : nil
     }
 }

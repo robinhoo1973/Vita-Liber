@@ -288,6 +288,7 @@ enum L10n {
     static var pay_restore: String { t("pay.restore") }
     static var paywallPurchaseFailed: String { t("paywall.purchaseFailed") }
     static var paywallRestoreNothing: String { t("paywall.restoreNothing") }
+    static var paywallRestoreFailed: String { t("paywall.restoreFailed") }
     static var pay_valueProp: String { t("pay.valueProp") }
     static var pay_buy: String { t("pay.buy") }
 
