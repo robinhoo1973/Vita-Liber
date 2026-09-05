@@ -150,12 +150,13 @@ struct SettingsView: View {
         .task { await settings.load() }
     }
 
-    /// FR14.1 分目的授权开关（九项独立开关；撤回即时生效 BR-010；
-    /// 存储为本机固有能力不设开关，页脚说明）
+    /// FR14.1 分目的授权开关。
+    /// 审查修复（诚实性，FR14.7）：七项授权开关（OCR/AI/家庭/分享/云备份/
+    /// 匿名改进/语音速记）此前全仓零消费点——「可调但无效果」的开关违反
+    /// FR14.7 与 BR-010「撤回即时生效」承诺，与 PreferencesViews 同纪律移除，
+    /// 接线后恢复（撤回立即生效的实现需消费端在权限检查点读取本键）。
     private var authKeys: [AppSettingKey] {
-        [.authOcr, .authAI, .authFamilyAccess, .authSharing, .authCloudBackup,
-         .authAnonymizedImprovement, .authHealthRead, .authVoiceDictation,
-         .careModeEnable, .voiceEntryVisible]
+        [.authHealthRead, .careModeEnable, .voiceEntryVisible]
     }
 
     private func binding(for key: AppSettingKey) -> Binding<Bool> {

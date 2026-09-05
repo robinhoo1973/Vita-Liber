@@ -27,14 +27,23 @@ public struct SpeechOutcome: Sendable, Equatable {
 
 /// 发声语言回退链（FR17.16），纯函数——两端实现共用，避免第二套规则。
 public enum SpeechFallback {
-    /// - Parameter availableVoices: 平台探测到的可发声 locale 集合
+    /// - Parameter availableVoices: 平台探测到的可发声 locale 集合。
+    /// 审查修复：回退目标必须真实可用——原实现直接返回 fallbackLocale 而不
+    /// 校验其存在（语音包被清理时 utterance.voice = nil，系统默认音朗读中文
+    /// 成乱码，而 outcome 仍虚报「普通话已回退」）。回退语音也不可用时
+    /// 如实报告实际使用的语音。
     public static func resolve(requested: String,
                                availableVoices: Set<String>) -> SpeechOutcome {
         if availableVoices.contains(requested) {
             return SpeechOutcome(spokenLocale: requested, didFallback: false)
         }
-        return SpeechOutcome(spokenLocale: TranscriptionSegmentation.fallbackLocale,
-                             didFallback: true)
+        let fallback = TranscriptionSegmentation.fallbackLocale
+        if availableVoices.contains(fallback) {
+            return SpeechOutcome(spokenLocale: fallback, didFallback: true)
+        }
+        let anyChinese = availableVoices.first { $0.hasPrefix("zh") }
+        let actual = anyChinese ?? availableVoices.first ?? fallback
+        return SpeechOutcome(spokenLocale: actual, didFallback: true)
     }
 }
 

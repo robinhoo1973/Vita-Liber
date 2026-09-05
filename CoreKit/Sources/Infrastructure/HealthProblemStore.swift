@@ -69,19 +69,25 @@ public actor HealthProblemStore {
     /// 关联数据转移（document/observation 的 problem 引用）由后续版本承载；
     /// 本方法保证「合并」语义的最小不变量：被合并问题从默认筛选消失。
     public func merge(primary: UUID, into secondary: UUID, now: Date = Date()) async throws {
+        // 审查修复：① primary != secondary（同一行合并自己 = 幸存者被归档）；
+        // ② 被合并问题必须存在且未归档（UPDATE 0 行曾静默「成功」）；
+        // ③ 主问题存在性校验（原校验的是被合并侧，主问题缺失时抛 notFound 语义相反）
+        guard primary != secondary else { throw StoreError.sameProblem }
         try await writer.write { db in
             guard try Row.fetchOne(db, sql: "SELECT id FROM health_problem WHERE id = ? AND archived = 0",
-                                   arguments: [primary.uuidString]) != nil else {
-                throw StoreError.notFound(primary)
+                                   arguments: [secondary.uuidString]) != nil else {
+                throw StoreError.notFound(secondary)
             }
             try db.execute(sql: "UPDATE health_problem SET archived = 1, updated_at = ? WHERE id = ?",
                            arguments: [now.timeIntervalSince1970, secondary.uuidString])
+            guard db.changesCount > 0 else { throw StoreError.notFound(secondary) }
         }
     }
 
     public enum StoreError: Error, LocalizedError {
         case notFound(UUID)
-        public var errorDescription: String? { "健康问题不存在: \(self)" }
+        case sameProblem
+        public var errorDescription: String? { "健康问题操作失败: \(self)" }
     }
 }
 #endif

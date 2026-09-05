@@ -101,7 +101,8 @@ final class M1bAcceptanceTests: XCTestCase {
         XCTAssertEqual(target?.action, .taken, "已服动作必须对 deliveryFacts 可见（不再重发、不再重复扣减）")
     }
 
-    /// 跳过：仅计划轨扣；确认线不动（BR-004）
+    /// 跳过：两线均免扣（FR9.8.2 修正矩阵 (0,0)——function-spec 权威；
+    /// BR-004 送达≠已服：跳过不构成服用事实，确认线必然不动）
     func test_跳过仅计划轨扣() async throws {
         let (store, meds, _, _, patient, med) = try await makeStore()
         let lot = DualTrackInventory(lotId: UUID(), totalUnits: 10, unitKind: "tablet",
@@ -113,7 +114,7 @@ final class M1bAcceptanceTests: XCTestCase {
             try Row.fetchOne(db, sql: "SELECT * FROM stock_lot")
         }
         let unwrapped = try XCTUnwrap(row)
-        XCTAssertEqual(unwrapped["remaining_plan_units"] as Double, 9, "跳过扣计划轨")
+        XCTAssertEqual(unwrapped["remaining_plan_units"] as Double, 10, "跳过两线均免扣（修正矩阵 0,0）")
         XCTAssertEqual(unwrapped["remaining_confirmed_units"] as Double, 10, "跳过不扣确认线（BR-004）")
     }
 

@@ -96,7 +96,14 @@ final class AppState {
         // ADR-027「调用方永不直接 import 具体引擎类型」名存实亡（半重构残留）。
         self.defaults = defaults
         self.voiceInterviewCompleted = Set(defaults.stringArray(forKey: "voiceInterviewSteps") ?? [])
+        // 审查修复：-uitest-* 旁路（门禁直通/清态/种子完成）只在 DEBUG 生效——
+        // 发布构建即使被注入启动参数也不执行任何测试旁路（FR1.1 门禁强度
+        // 不得依赖「启动参数不可信」的假设）
+        #if DEBUG
         self.launchArgs = launchArgs
+        #else
+        self.launchArgs = []
+        #endif
         self.onboardingFinished = defaults.bool(forKey: "onboardingFinished")
         if launchArgs.contains("-uitest-reset") {
             defaults.removePersistentDomain(forName: Bundle.main.bundleIdentifier ?? "com.vitaliber.VitaLiber")
@@ -143,6 +150,21 @@ final class AppState {
             timeline = try await persistor.loadTimeline()
         } catch {
             logger.error("持久化加载失败: \(error)")
+        }
+        // 审查修复（FR20.5 断点续填）：裸索引恢复不校验版本——① 卡版本升级后
+        // 旧版本确认过的卡被跳过、修订条款永不重新确认；② 完成三卡后杀进程
+        // 重启会被 clamp 重放最后一张已接受的卡。重启后从「第一个未以当前版本
+        // 确认的卡」续填；全部已确认则越过三卡进入建档。
+        if case .disclosure(let idx) = stage, idx > 0 {
+            let firstUnconfirmed = disclosureCards.firstIndex { card in
+                !consentRecords.contains { $0.key == card.key && $0.version == card.version }
+            }
+            if let firstUnconfirmed {
+                stage = .disclosure(index: firstUnconfirmed)
+                defaults.set(firstUnconfirmed, forKey: "disclosureProgress")
+            } else {
+                stage = .ownerName
+            }
         }
     }
 
@@ -696,8 +718,16 @@ final class AppState {
     /// 也为了 FR17.16 输出语言指定将来只需改这一处。
     func speak(_ text: String) {
         guard !text.isEmpty else { return }
-        speechSynthesizer.speak(text, localeIdentifier: voiceOutputLocale)
+        // 审查修复（FR17.16）：回退发生后播报前轻提示当前发声语言——
+        // 原实现丢弃 SpeechOutcome(didFallback)，运行时回退提示从不出现。
+        // 首次回退后的每次播报先入队提示再入队正文（合成器顺序队列）。
+        if voiceFallbackActive {
+            speechSynthesizer.speak(L10n.voiceFallbackNotice, localeIdentifier: voiceOutputLocale)
+        }
+        let outcome = speechSynthesizer.speak(text, localeIdentifier: voiceOutputLocale)
+        voiceFallbackActive = outcome.didFallback
     }
+    private var voiceFallbackActive = false
 
     /// FR17.16 语音输出语言（六选一）；无对应发声时由合成器回退普通话并轻提示。
     var voiceOutputLocale: String {

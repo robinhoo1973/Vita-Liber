@@ -60,7 +60,10 @@ public actor ObservationStore {
         catch { return [] }
     }
 
-    /// 全库被引用资产 id 集（启动孤儿对账用）：跨成员汇总 observation.media_asset_ids。
+    /// 全库被引用资产 id 集（启动孤儿对账用）：observation.media_asset_ids +
+    /// patient_profile.avatar_asset_id + stock_lot.storage_photo_id/box_photo_id。
+    /// 审查修复：原实现只汇总观察媒体——成员头像与库存照片（均 REFERENCES asset）
+    /// 会被孤儿对账当垃圾永久删除，BR-002 原件不可逆丢失
     public func allReferencedAssetIds() async throws -> Set<String> {
         try await writer.read { db in
             let decoder = JSONDecoder()
@@ -71,6 +74,15 @@ public actor ObservationStore {
             for row in rows {
                 ids.formUnion(Self.decodeMediaIds(row["media_asset_ids"] as String?, decoder: decoder))
             }
+            let avatarIds = try String.fetchAll(db, sql: """
+                SELECT avatar_asset_id FROM patient_profile WHERE avatar_asset_id IS NOT NULL
+                """)
+            ids.formUnion(avatarIds)
+            let stockPhotoIds = try String.fetchAll(db, sql: """
+                SELECT storage_photo_id FROM stock_lot WHERE storage_photo_id IS NOT NULL
+                UNION SELECT box_photo_id FROM stock_lot WHERE box_photo_id IS NOT NULL
+                """)
+            ids.formUnion(stockPhotoIds)
             return ids
         }
     }
@@ -85,13 +97,16 @@ public actor AllergyStore {
     public func create(id: UUID = UUID(), patientId: UUID, substance: String,
                        severity: String, reactionTags: [String], note: String?,
                        now: Date = Date()) async throws {
+        // 审查修复：展示词（轻/中/重）→ 规范值（mild/moderate/severe）——
+        // DDL CHECK 只接受英文枚举，原样 INSERT 违反约束、每次保存静默失败
+        let canonical = SevereReactionRules.canonicalSeverity(severity)
         try await writer.write { db in
             let tags = String(data: try JSONEncoder().encode(reactionTags), encoding: .utf8) ?? "[]"
             try db.execute(sql: """
                 INSERT INTO allergy_event
                   (id, patient_id, substance, reaction_tags, severity, occurred_at, note, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, arguments: [id.uuidString, patientId.uuidString, substance, tags, severity,
+                """, arguments: [id.uuidString, patientId.uuidString, substance, tags, canonical,
                                  now.timeIntervalSince1970, note,
                                  now.timeIntervalSince1970, now.timeIntervalSince1970])
         }

@@ -295,7 +295,7 @@ struct VoiceSessionView: View {
     private var listeningIndicator: some View {
         HStack(spacing: 8) {
             Circle()
-                .fill(session.isListening ? Color.green : Color("text-tertiary", bundle: .main))
+                .fill(session.isListening ? Color("semantic-success", bundle: .main) : Color("text-tertiary", bundle: .main))
                 .frame(width: 10, height: 10)
             Text(session.isListening ? L10n.f19_listeningHint : L10n.f19_stopped)
                 .font(.caption).foregroundStyle(.secondary)

@@ -241,7 +241,9 @@ struct HelpDataHealth: View {
         do {
             let (bytes, ok) = try await app.databaseHealth()
             storageSize = String(format: "%.1f MB", Double(bytes) / 1_048_576)
-            dbIntegrity = ok ? L10n.helpDataNormal : L10n.helpStatusUnknown
+            // 审查修复：integrity_check 非 ok 是「已知损坏」的实测结果，
+            // 伪装成「未知」让用户无从得知数据已损坏（FR22.4 诊断目的落空）
+            dbIntegrity = ok ? L10n.helpDataNormal : L10n.helpDataCorrupt
         } catch {
             dbIntegrity = L10n.helpStatusUnknown
             storageSize = L10n.helpStatusUnknown

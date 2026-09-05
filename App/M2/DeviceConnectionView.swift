@@ -52,6 +52,13 @@ final class F16DeviceState {
         }
     }
 
+    /// 进入页面时恢复授权状态（审查修复：原 authorized 为会话级 @State，
+    /// 离开再进入恒回「请求授权」——FR16.1 不得误导性呈现、不得重复索权）
+    func currentAuthorization() async -> Bool {
+        guard let status = await reader.authorizationStatus() else { return false }
+        return status == .sharingAuthorized
+    }
+
     /// 同步并评估：读数 → evaluateAndRecord → 24h 去重 → 夜间静默 → L1+ 通知
     func sync(patientId: UUID) async {
         phase = .syncing
@@ -176,7 +183,10 @@ struct DeviceConnectionView: View {
         .navigationTitle(L10n.f16Title)
         .task {
             await settings.load()
-            if requested { authorized = true }   // 已请求过授权 → 不再重复弹系统框
+            // 审查修复：进入即按系统真实授权状态回显（此前依赖会话内 requested
+            // 标志，重进恒显示「请求授权」；FR16.1 不得重复索权/误导状态）
+            authorized = await deviceState.currentAuthorization()
+            if authorized { requested = true }
         }
     }
 }

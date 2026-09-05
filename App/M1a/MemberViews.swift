@@ -19,6 +19,7 @@ struct MemberManagementView: View {
                 ForEach(app.members) { member in
                     HStack {
                         memberIcon(member.relation).resizable().frame(width: 24, height: 24)
+                            .accessibilityLabel(memberIconLabel(member.relation))
                         NavigationLink {
                             MemberDetailView(member: member)
                         } label: {
@@ -293,7 +294,10 @@ struct MemberCreateSheet: View {
 
 
 extension MemberManagementView {
-    /// 按关系选图标（design/Resources Members 系列；未知关系回退家庭图标）
+    /// 按关系选图标（FR3.1 关系枚举：本人/配偶/子女/父母/祖父母/其他）。
+    /// 审查修复：sheet 只提供粗粒度关系（子女/父母/祖父母/其他），原映射
+    /// 只覆盖细粒度（父亲/母亲/儿子/女儿）——粗粒度全部回落通用家庭图标。
+    /// 无专属资产的关系用 SF Symbols 兜底 + 无障碍标签，不留空、不误导。
     private func memberIcon(_ relation: String) -> Image {
         switch relation {
         case "配偶": return VLIcon.memberPartner
@@ -302,7 +306,25 @@ extension MemberManagementView {
         case "儿子": return VLIcon.memberSon
         case "女儿": return VLIcon.memberDaughter
         case "本人": return VLIcon.memberSelf
+        case "子女": return Image(systemName: "figure.child")
+        case "父母": return Image(systemName: "figure.2.arms.open")
+        case "祖父母": return Image(systemName: "figure.2")
+        case "其他": return Image(systemName: "person.crop.circle")
         default: return VLIcon.memberFamily
+        }
+    }
+
+    /// 图标无障碍标签（VoiceOver 读出关系语义，而非「图标」）
+    private func memberIconLabel(_ relation: String) -> String {
+        switch relation {
+        case "配偶": return L10n.member_relationPartner
+        case "父亲", "母亲", "儿子", "女儿": return relation
+        case "本人": return L10n.member_relationSelf
+        case "子女": return L10n.member_relationChild
+        case "父母": return L10n.member_relationParent
+        case "祖父母": return L10n.member_relationGrandparent
+        case "其他": return L10n.member_relationOther
+        default: return L10n.member_relationFamily
         }
     }
 }

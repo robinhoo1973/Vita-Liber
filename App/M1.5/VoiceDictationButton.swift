@@ -15,6 +15,7 @@ import Protocols
 /// 即 Sendable），回调只捕获 model 并按 MainActor 投递。
 struct VoiceDictationButton: View {
     @Environment(AppState.self) private var app
+    @Environment(AppSettingsStore.self) private var settings
     /// 完成回调：文本 + 引擎置信度（落 C 级草稿、低置信强制复核由 FR17.13 模板承担）
     let onTranscript: (String, Double) -> Void
 
@@ -56,7 +57,12 @@ struct VoiceDictationButton: View {
     /// 引擎在环境就绪后装配一次（@Environment 不可用于 @State 初始值）。
     private func ensureModel() {
         guard model == nil else { return }
-        let m = VoiceDictationModel(engine: app.transcriptionEngine)
+        // FR17.15 审查修复：用户选择的输入语言必须生效——此前识别 locale 只由
+        // 引擎能力探测决定，设置页多选「可调但无效果」（FR14.7 V3.26 违例）。
+        // 单一选择 = 该语言；多选 = 取第一个（引擎内再按能力回落）。
+        let preferred = (settings.values[.voiceInputLanguages] ?? AppSettingKey.voiceInputLanguages.defaultValue)
+            .split(separator: ",").first.map(String.init)
+        let m = VoiceDictationModel(engine: app.transcriptionEngine, preferredLocale: preferred)
         m.onTranscript = onTranscript
         model = m
     }
@@ -72,10 +78,14 @@ final class VoiceDictationModel {
     var onTranscript: ((String, Double) -> Void)?
 
     private let engine: any TranscriptionEngine
+    private let preferredLocale: String?
     private var task: Task<Void, Never>?
     private var stopped = false
 
-    init(engine: any TranscriptionEngine) { self.engine = engine }
+    init(engine: any TranscriptionEngine, preferredLocale: String? = nil) {
+        self.engine = engine
+        self.preferredLocale = preferredLocale
+    }
 
     func start() {
         // 重入守卫：.disabled 只是渲染态，快速双击的第二次点击在重渲染前仍会进来
@@ -96,7 +106,9 @@ final class VoiceDictationModel {
         let engine = self.engine
         // FR17.15：方言不可用时引擎内回落（SFSpeechTranscriber 已映射）；
         // 这里只补「无可用 locale 探测结果」的末级兜底——单一口径 TranscriptionSegmentation.fallbackLocale。
-        let locale = engine.capability.availableLocales.first ?? TranscriptionSegmentation.fallbackLocale
+        let locale = preferredLocale
+            ?? engine.capability.availableLocales.first
+            ?? TranscriptionSegmentation.fallbackLocale
         do {
             let result = try await engine.transcribe(
                 TranscriptionRequest(localeIdentifier: locale),

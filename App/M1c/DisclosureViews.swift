@@ -67,10 +67,14 @@ struct L3DisclosureBanner: View {
                 Button {
                     isExpanded = false
                 } label: {
+                    // 审查修复：触点 ≥44pt（原 ~16pt 图标，关怀模式要求 64pt）
                     Image(systemName: "xmark.circle.fill")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
+                .accessibilityLabel(L10n.commonCancel)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)

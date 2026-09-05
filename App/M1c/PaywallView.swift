@@ -63,6 +63,13 @@ struct PaywallView: View {
             }
             .accessibilityIdentifier("SP-61.paywall.restore")
 
+            // 审查修复：购买/恢复失败的错误态（四态契约）
+            if let errorText {
+                Label(errorText, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+
             Text(PaywallRules.trustCopy)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
@@ -88,12 +95,20 @@ struct PaywallView: View {
     }
 
     private func load() async { await entitlements.load() }
+    // 审查修复：购买/恢复必须有错误态（默认/空/加载/错误四态契约）——
+    // 原实现丢弃结果，StoreKit 取消/离线/挂起时无声无息
     private func purchase(_ p: ProductID) async {
         busy = true
         defer { busy = false }
-        _ = await entitlements.purchase(p)
+        let ok = await entitlements.purchase(p)
+        if !ok { errorText = L10n.paywallPurchaseFailed }
     }
-    private func restore() async { await entitlements.restore() }
+    private func restore() async {
+        busy = true
+        defer { busy = false }
+        let restored = await entitlements.restore()
+        errorText = restored.isEmpty ? L10n.paywallRestoreNothing : nil
+    }
 }
 
 /// 权益门（§5.14）：未解锁=预览态（可用但提示升级），绝不以报错阻断

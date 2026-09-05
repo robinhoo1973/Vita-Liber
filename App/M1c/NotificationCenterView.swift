@@ -34,7 +34,7 @@ struct NotificationCenterView: View {
                             router.navigate(to: .appointmentList)
                         } label: {
                             HStack {
-                                Image(systemName: "stethoscope").foregroundStyle(.blue)
+                                Image(systemName: "stethoscope").foregroundStyle(Color("brand-primary", bundle: .main))
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("\(apt.hospital)·\(apt.department)").font(.subheadline)
                                     Text(apt.startsAt.formatted(date: .abbreviated, time: .shortened))
@@ -55,13 +55,13 @@ struct NotificationCenterView: View {
                             router.navigate(to: .medicationCabinet)
                         } label: {
                             HStack {
-                                Image(systemName: "clock.badge.exclamationmark").foregroundStyle(.orange)
+                                Image(systemName: "clock.badge.exclamationmark").foregroundStyle(Color("semantic-warning", bundle: .main))
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(item.medicationName).font(.subheadline)
                                     if let expireAt = item.expireAt {
                                         Text(L10n.ncExpireDate(
                                             expireAt.formatted(date: .abbreviated, time: .omitted)))
-                                            .font(.caption).foregroundStyle(.orange)
+                                            .font(.caption).foregroundStyle(Color("semantic-warning", bundle: .main))
                                     }
                                 }
                                 Spacer()
@@ -78,11 +78,11 @@ struct NotificationCenterView: View {
                             router.navigate(to: .alertHistory)
                         } label: {
                             HStack {
-                                Image(systemName: "waveform.path.ecg").foregroundStyle(.red)
+                                Image(systemName: "waveform.path.ecg").foregroundStyle(Color("semantic-danger", bundle: .main))
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(event.card.sourceRef ?? event.card.facts).font(.subheadline)
                                     Text("\(event.severity.rawValue) · \(event.createdAt.formatted(date: .abbreviated, time: .shortened))")
-                                        .font(.caption).foregroundStyle(.red)
+                                        .font(.caption).foregroundStyle(Color("semantic-danger", bundle: .main))
                                 }
                                 Spacer()
                                 Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
@@ -97,7 +97,7 @@ struct NotificationCenterView: View {
                         router.navigate(to: .pendingOcrQueue)
                     } label: {
                         HStack {
-                            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.yellow)
+                            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Color("semantic-warning", bundle: .main))
                             Text(L10n.ncOcrCount(pendingOCRCount)).font(.subheadline)
                             Spacer()
                             Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)

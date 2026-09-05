@@ -297,4 +297,22 @@ final class M15LocalizationTests: XCTestCase {
         XCTAssertGreaterThan(differing, L10n.registeredKeys.count / 4,
                              "zh-Hant 与 zh-Hans 差异过少，疑似整体复制未真正转换")
     }
+
+    /// BR-012/V3.25 急救号码按语言区域（120/119/911）——值必须真实，
+    /// 且语音引擎注入的号码必须生效（审查修复：此前该契约零测试覆盖，
+    /// 键缺失或调用方漏传 emergencyNumber 均不会变红）
+    func test_急救号码按语言区域() {
+        L10n.setLanguage("zh-Hans")
+        XCTAssertEqual(L10n.emergencyNumber, "120", "zh-Hans 急救号码")
+        L10n.setLanguage("zh-Hant")
+        XCTAssertEqual(L10n.emergencyNumber, "119", "zh-Hant 急救号码")
+        L10n.setLanguage("en")
+        XCTAssertEqual(L10n.emergencyNumber, "911", "en 急救号码")
+        // 注入号码的语音指令必须命中急救拨号（119/911 不再是静默丢弃）
+        XCTAssertEqual(VoiceCommandGrammar.parse("帮我打119", emergencyNumber: "119"),
+                       .command(.callEmergency120))
+        XCTAssertEqual(VoiceCommandGrammar.parse("帮我打911", emergencyNumber: "911"),
+                       .command(.callEmergency120))
+        L10n.setLanguage("zh-Hans")
+    }
 }

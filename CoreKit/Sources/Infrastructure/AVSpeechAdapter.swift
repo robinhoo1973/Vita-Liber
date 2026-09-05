@@ -29,6 +29,8 @@ public final class AVSpeechAdapter: SpeechSynthesizing, @unchecked Sendable {
         let outcome = SpeechFallback.resolve(requested: localeIdentifier,
                                              availableVoices: availableVoices)
         let utterance = AVSpeechUtterance(string: text)
+        // 审查修复：解析结果保证可用（SpeechFallback 已校验），
+        // 极端情况下 voice 仍为 nil 时按系统默认如实发声（不再虚报 locale）
         utterance.voice = AVSpeechSynthesisVoice(language: outcome.spokenLocale)
         if let rate = rateProvider() { utterance.rate = rate }
         synthesizer.speak(utterance)

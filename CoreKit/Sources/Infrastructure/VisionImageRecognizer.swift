@@ -23,8 +23,11 @@ public final class VisionImageRecognizer: ImageTextRecognizing, @unchecked Senda
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = true
-        // 报告类文档常为多语言混排（中英数字），自动检测优于指定单一语言
-        request.recognitionLanguages = ["zh-Hans", "en-US"]
+        // 报告类文档常为多语言混排（中英数字），自动检测优于指定单一语言。
+        // 审查修复：原硬编码 ["zh-Hans","en-US"] 恰好关掉了自动检测——
+        // zh-Hant 与其它语言文档被强制走简体模型（药/藥 类字形误识）。
+        // 置 nil = Vision 自动语言检测（zh-Hant 用户扫描繁体报告走对模型）。
+        request.recognitionLanguages = nil
         do {
             try handler.perform([request])
         } catch {

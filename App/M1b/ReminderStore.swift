@@ -77,6 +77,9 @@ final class ReminderStore {
             upcomingAppointments = appointments
             // FR9.11 批次到期三级提醒（幂等；FR13.10 备份提醒随 Phase 5 接入）
             await scheduleExpiryReminders(patientId: patientId)
+            // FR9.8.3 分级续药通知（≤3 天 / 当日置顶）——审查修复：此前
+            // 只有首页卡片，通知级触达全仓无调度点
+            await scheduleRefillReminders(patientId: patientId)
         } catch {
             logger.error("提醒视图加载失败: \(error)")
         }
@@ -132,7 +135,35 @@ final class ReminderStore {
         }
     }
 
-    // MARK: - FR9.11 批次到期三级提醒（30/7/3 天 → 到期即止，不补发）
+    // MARK: - FR9.8.3 分级续药通知（≤3 天通知 / 当日置顶；≤7 天由首页卡承担）
+
+    /// 为安全线余量进入 ≤3 天/当日档的活跃批次调度续药通知（"refill-" 前缀，
+    /// 同 id 幂等）。触发时刻 = 剩余天数到达该档位的当天（当日档 = 余量归零日）。
+    /// 零确认存活（FR9.8.8）：materializeMissed 已推进安全线，本调度与其共用
+    /// 事实源；某档触发时 App 未运行 → 本次启动即时补发（5 分钟后），不静默吞掉。
+    func scheduleRefillReminders(patientId: UUID) async {
+        do {
+            let items = try await meds.inventorySummary(patientId: patientId, now: Date())
+            var pending = try await scheduler.pending()
+            let now = Date()
+            for item in items {
+                guard let tier = item.refillTier, let daysLeft = item.approxDaysLeft,
+                      tier == .t3 || tier == .t0 else { continue }
+                let thresholdDays = Int(tier.daysLeftThreshold)
+                let daysUntilFire = max(0, daysLeft - thresholdDays)
+                let computed = Calendar.current.date(byAdding: .day, value: daysUntilFire, to: now) ?? now
+                let fire = computed > now ? computed : now.addingTimeInterval(300)
+                let notifyId = "refill-\(item.lotId.uuidString)-\(tier.rawValue)"
+                guard pending[notifyId] == nil else { continue }
+                try await scheduler.schedule(dose: notifyId, at: fire, route: .medicationCabinet)
+                pending[notifyId] = fire
+            }
+        } catch {
+            logger.error("续药提醒调度失败: \(error)")
+        }
+    }
+
+    // MARK: - FR9.11 批次到期三级提醒（30/7/当日 → 到期即止，已过不补发）
 
     /// 为 30 天窗口内的活跃批次调度三级到期提醒（"exp-" 前缀，不受对账
     /// dose-/slot- 清理影响；同 id 幂等不重排）。点击路由 = 药箱页。

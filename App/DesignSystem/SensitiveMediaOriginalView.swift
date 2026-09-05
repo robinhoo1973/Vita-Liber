@@ -45,12 +45,18 @@ struct SensitiveMediaOriginalView: View {
                     .offset(offset)
                     .gesture(
                         MagnificationGesture()
-                            .onChanged { scale = $0 }
+                            .onChanged {
+                                scale = $0
+                                session.recordActivity()   // 审查修复：缩放亦属活跃（政策「读图/点击/拖动/滚动均视为活跃」），否则持续缩放 >30s 被中途重锁
+                            }
                             .onEnded { scale = max(1, $0) }
                     )
                     .gesture(
                         DragGesture()
-                            .onChanged { offset = $0.translation }
+                            .onChanged {
+                                offset = $0.translation
+                                session.recordActivity()
+                            }
                             .onEnded { _ in
                                 // 超过边界回弹
                                 let maxX = (geo.size.width * (scale - 1)) / 2

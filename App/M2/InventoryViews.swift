@@ -125,9 +125,9 @@ struct RefillBadge: View {
 
     private var label: String {
         switch tier {
-        case .t14: return L10n.inventoryTier14
         case .t7:  return L10n.inventoryTier7
         case .t3:  return L10n.inventoryTier3
+        case .t0:  return L10n.inventoryTier0
         }
     }
 }

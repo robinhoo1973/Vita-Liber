@@ -42,7 +42,11 @@ struct ThemeSettingsView: View {
             Section {
                 Toggle(L10n.settings_highContrast, isOn: highContrastBinding)
             } footer: {
-                Text(L10n.settings_highContrastFooter)
+                // 审查修复（FR18.16 叠加规则明示条款）：关怀模式强制叠加高对比度时，
+                // 必须明示当前生效的是哪一层——否则开关显示「关」但界面实际高对比，
+                // 用户拨动开关看不到变化、无法判断状态
+                Text(app.careMode ? L10n.settings_highContrastForced
+                                  : L10n.settings_highContrastFooter)
             }
         }
         .navigationTitle(L10n.settings_appearance)

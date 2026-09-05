@@ -137,7 +137,10 @@ struct VoiceGuidedProfileView: View {
                 // FR17.12：进入访谈前的一次性隐私与耳机须知
                 VoicePrivacyHeadphoneCard(
                     onAccept: { consentGiven = true },
-                    onUseTouch: { onCommitField("__useTouch", "1") })
+                    // 审查修复：触屏入口此前是死路（__useTouch 提交被
+                    // markVoiceInterviewStep 白名单拒绝，卡面原地不动）——
+                    // 实际语义 = 跳过语音自检、直接以键盘输入继续访谈
+                    onUseTouch: { consentGiven = true; micChecked = true })
             } else if !micChecked {
                 // TestFlight 实测修复：语音访谈前先做音量自检（实时音量条 +
                 // 测试句朗读指导），低音量可重试、无障碍用户可跳过保留手输

@@ -191,13 +191,15 @@ public enum InventoryRules {
     /// 续药分级（FR9.8.3 三级触达）：按**安全线**剩余天数定级。
     /// 用安全线而非确认线是 ADR-009 不可协商的取向——误差必须偏向**更早**告警。
     public enum RefillTier: String, Sendable, Equatable, CaseIterable, Codable {
-        case t14, t7, t3
+        // 审查修复（spec 对齐，FR9.8.3 授权档位）：≤7 天卡 / ≤3 天通知 / 当日置顶——
+        // 原 t14 为规格外发明档（8–14 天提前告警与规格文案不符）
+        case t7, t3, t0
         /// 触发阈值（剩余天数 ≤ 该值）
         public var daysLeftThreshold: Double {
             switch self {
-            case .t14: return 14
             case .t7:  return 7
             case .t3:  return 3
+            case .t0:  return 0
             }
         }
     }
@@ -212,10 +214,10 @@ public enum InventoryRules {
     public static func refillTier(_ inv: DualTrackInventory, dailyPlanUnits: Double,
                                   at date: Date) -> RefillTier? {
         guard dailyPlanUnits > 0 else { return nil }
-        if let e = inv.expireAt, e < date { return .t3 }      // 过期即最紧急
+        if let e = inv.expireAt, e < date { return .t0 }      // 过期即最紧急（当日置顶）
         let daysLeft = inv.remainingPlanUnits / dailyPlanUnits
         // 从最紧急往回判，返回命中的最紧急档
-        for tier in [RefillTier.t3, .t7, .t14] where daysLeft <= tier.daysLeftThreshold {
+        for tier in [RefillTier.t0, .t3, .t7] where daysLeft <= tier.daysLeftThreshold {
             return tier
         }
         return nil
@@ -262,7 +264,7 @@ public enum InventoryRules {
             guard let at = calendar.date(byAdding: .day, value: day, to: start) else { continue }
             let remaining = max(0, initialUnits - Double(day) * dailyPlanUnits)
             let daysLeft = remaining / dailyPlanUnits
-            for tier in [RefillTier.t14, .t7, .t3]
+            for tier in [RefillTier.t7, .t3, .t0]
             where pending.contains(tier) && daysLeft <= tier.daysLeftThreshold {
                 pending.remove(tier)
                 fired.append((tier, at))

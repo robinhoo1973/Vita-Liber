@@ -3,13 +3,16 @@ import Foundation
 /// M1.5 提醒规则扩展（FR9.11 批次到期三级 / FR8.10 观察随访 / FR13.10 定期备份）。
 /// Domain 纯函数：规则判定与提醒草稿构造，调度经既有 ReminderScheduling 通道。
 public enum BatchExpiryTier: String, Sendable, Equatable, Codable {
-    case t30, t7, t3            // 到期前 30/7/3 天三级提醒
+    // 审查修复（spec 对齐，FR9.11 权威文案「提前 30 天 / 7 天 / 当日」）：
+    // 原 t3（提前 3 天）为规格外档，且 fire < expireAt 使「当日」语义永远
+    // 不可触达——到期前 2 天至到期日整段无任何临期通知
+    case t30, t7, t0
 }
 
 public struct BatchExpiryRules {
     /// 三级触发点（FR9.11）：expire_at 前 30/7/3 天各一次
     public static let daysBefore: [BatchExpiryTier: Int] = [
-        .t30: 30, .t7: 7, .t3: 3,
+        .t30: 30, .t7: 7, .t0: 0,
     ]
 
     /// 已过期批次不再提醒（到期即止）；触发点已过不补发。
@@ -22,13 +25,14 @@ public struct BatchExpiryRules {
                                  calendar: Calendar = .current) -> [(tier: BatchExpiryTier, at: Date)] {
         daysBefore.compactMap { tier, days in
             guard let fire = calendar.date(byAdding: .day, value: -days, to: expireAt) else { return nil }
-            return (fire > now && fire < expireAt) ? (tier, fire) : nil
+            // 当日档 fire == expireAt；已过触发点不补发
+            return (fire >= now && fire <= expireAt) ? (tier, fire) : nil
         }.sorted { $0.at < $1.at }
     }
 
     /// 提醒草稿（写通用 Reminder 实体）
     public static func draft(lotName: String, expireAt: Date, tier: BatchExpiryTier) -> String {
-        "药品「\(lotName)」\(tier.rawValue == "t30" ? "一个月后" : tier.rawValue == "t7" ? "7 天后" : "3 天后")到期（\(expireAt.formatted(date: .abbreviated, time: .omitted))）"
+        "药品「\(lotName)」\(tier.rawValue == "t30" ? "一个月后" : tier.rawValue == "t7" ? "7 天后" : "今天")到期（\(expireAt.formatted(date: .abbreviated, time: .omitted))）"
     }
 }
 

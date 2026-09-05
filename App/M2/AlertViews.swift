@@ -142,7 +142,7 @@ struct SeverityTag: View {
         case .L0: return Color("text-tertiary", bundle: .main)
         case .L1: return Color("brand-primary", bundle: .main)
         case .L2: return Color("grade-d", bundle: .main)
-        case .L3: return .red
+        case .L3: return Color("semantic-danger", bundle: .main)
         }
     }
 }

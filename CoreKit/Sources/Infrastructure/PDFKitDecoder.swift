@@ -28,18 +28,35 @@ public final class PDFKitDecoder: ImageDecoding, @unchecked Sendable {
     }
 
     public func decodePDF(_ data: Data, scale: Double, maxPages: Int) async throws -> [DecodedPage] {
+        // 兼容保留：全量路径（调用方一般用逐页流式 decodePDFPages）
+        var pages: [DecodedPage] = []
+        try await decodePDFPages(data, scale: scale, maxPages: maxPages) { page in
+            pages.append(page)
+        }
+        return pages
+    }
+
+    /// 逐页流式渲染（审查修复）：单页渲染→回调→释放，页位图不再全部驻留内存
+    /// （50 页 A4 @2x ≈ 数百 MB 的峰值内存 → 单页峰值 ≈ 数十 MB）。
+    /// 单页渲染失败上抛（FR6.6 绝不静默）；调用方经 do/catch 决定继续或终止。
+    public func decodePDFPages(_ data: Data, scale: Double, maxPages: Int,
+                               _ consume: @escaping @Sendable (DecodedPage) async throws -> Void) async throws {
         guard let provider = CGDataProvider(data: data as CFData),
               let pdf = CGPDFDocument(provider) else { throw DecodeError.corruptData }
 
         let pageCount = min(pdf.numberOfPages, maxPages)
         guard pageCount > 0 else { throw DecodeError.pageIndexOutOfBounds }
 
-        var pages: [DecodedPage] = []
-        pages.reserveCapacity(pageCount)
-
         for i in 1...pageCount {
+            try Task.checkCancellation()
             guard let page = pdf.page(at: i) else { throw DecodeError.renderFailed }
             let pageRect = page.getBoxRect(.mediaBox)
+            // 审查修复：MediaBox 不可信（海报/超大版面或损坏 PDF）——无上限的
+            // Data(count:) 分配直接 OOM。单页最长边封顶 5000pt@scale，
+            // 超限视为不可渲染（FR6.6 可见失败而非崩溃）
+            guard pageRect.width * scale <= 5000, pageRect.height * scale <= 5000 else {
+                throw DecodeError.renderFailed
+            }
             let targetWidth = pageRect.width * scale
             let targetHeight = pageRect.height * scale
 
@@ -58,10 +75,9 @@ public final class PDFKitDecoder: ImageDecoding, @unchecked Sendable {
 
             let pngData = try encodeToPNGFromData(bitmapData, width: Int(targetWidth), height: Int(targetHeight))
             let originalSize = Size(width: Double(pageRect.width), height: Double(pageRect.height))
-            pages.append(DecodedPage(pageIndex: i-1, bitmapData: pngData,
-                                     originalSize: originalSize, scale: scale))
+            try await consume(DecodedPage(pageIndex: i-1, bitmapData: pngData,
+                                          originalSize: originalSize, scale: scale))
         }
-        return pages
     }
 
     // MARK: - 私有编码
