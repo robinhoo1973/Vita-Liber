@@ -19,6 +19,12 @@ struct AppRootView: View {
     /// AppContainer 不进环境，闭包传递保持装配根单一）
     let seedBundled: () async throws -> Void
 
+    /// 首帧后导航就绪钩子（由 VitaLiberApp 注入）：恢复持久化 path + 投递
+    /// 启动窗口内暂存的通知路由。必须在 init 之外的首帧后才执行——
+    /// init 阶段非空 NavigationStack path 会在首帧渲染期触发 push 转场
+    /// 环境断言（TestFlight 2026-09-05 crash 2 根因，§5.48 恢复时点修正）。
+    var launchReady: @MainActor () -> Void = {}
+
     /// 退后台锁屏状态（FR1.4）：scenePhase 切 background 置位，回前台由门禁遮罩接管。
     /// 评审修正：锁定优先级在向导分支**之前**——门禁一旦建立，向导期间退后台同样锁屏。
     @State private var backgroundLocked = false
@@ -44,6 +50,9 @@ struct AppRootView: View {
         // Dynamic Type 全局承诺对两组用户都失效
         .dynamicTypeSize(effectiveDynamicTypeSize)
         .task {
+            // 首帧已渲染：先恢复持久化路由、再投递启动窗口暂存的通知路由
+            // （顺序不可反——persist 在 restore 前为 no-op，先投递会丢持久化）
+            launchReady()
             await settingsStore.load()   // 主题等设置先于首帧后的首次渲染就位
             // FR14.5 语言即时切换：以持久化偏好初始化显示语言（无需重启）
             L10n.setLanguage(settingsStore.values[.language]

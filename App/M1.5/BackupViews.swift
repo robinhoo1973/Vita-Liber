@@ -198,9 +198,11 @@ struct BackupView: View {
                         state.cancelConflicts()
                     }
                     .frame(minHeight: 44)
-                } footer: {
+                    // SwiftUI 无「字符串标题 + footer」的 Section 初始化器，
+                    // hint 落内容区脚注（与 footer 视觉等价）
                     Text(L10n.backupConflictHint)
                         .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
             case .exported(let name, let digest):
                 Section {
