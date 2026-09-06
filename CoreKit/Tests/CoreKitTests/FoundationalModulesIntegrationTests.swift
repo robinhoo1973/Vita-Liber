@@ -36,7 +36,11 @@ struct FoundationalModulesIntegrationTests {
         let compress: any ImageCompressing = r.resolve(ImageCompressingFactory.self)
         let sensitive: any SensitiveMediaProtection = r.resolve(SensitiveMediaProtectionFactory.self)
 
-        // 各协议可调用（不崩即通过）
+        // 各协议可调用（不崩即通过）——仅 Linux 占位路径：Apple 平台工厂返回
+        // 真实引擎（Vision OCR/真实解码器/SensitiveAssetStore 等），对空 Data()
+        // 抛 .engineFailed，调用级断言只对桩行为成立（CI 34018919463 实证）。
+        // EAL 契约本身（7 工厂注册+解析）在两端一致验证。
+        #if os(Linux)
         let recognition = try await ocr.recognize(Data())
         #expect(recognition.lines.isEmpty)
 
@@ -59,6 +63,7 @@ struct FoundationalModulesIntegrationTests {
         #expect(thumb.count > 0)
 
         #expect(!sensitive.isProtected("test-media-id"))
+        #endif
     }
 
     // MARK: - 注入哈希 + DuplicateDetection 全流程

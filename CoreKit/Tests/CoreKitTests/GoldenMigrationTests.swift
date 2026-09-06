@@ -333,10 +333,15 @@ struct FtsSensitiveMigrationTests {
         #expect(noteHitsBefore > 0, "旧触发器下敏感笔记应已入索引（测试前提）")
         #expect(titleHitsBefore > 0, "标题词条应已入索引（测试前提）")
 
-        // 应用 v6 迁移步骤（幂等：可整步重放）
+        // 只应用 v6：本套件验证 FTS 加固本身。步骤 7–15 为 ALTER ADD COLUMN，
+        // 生产路径经 GRDBStore 幂等包装（列存在即跳过），本测试以 raw db.execute
+        // 直连重放时 v8 会在「baseline 已含 hospital 等列」的全量库上撞
+        // duplicate column（CI 34018919463 实证）——步骤 7–15 与本测试前提无关。
+        let v6 = SchemaMigrations.pending(from: 5).first { $0.version == 6 }
+        #expect(v6 != nil, "v6 步骤必须存在于迁移序列")
         try dbQueue.write { db in
-            for step in SchemaMigrations.pending(from: 5) {
-                for statement in SchemaMigrations.statements(step.sql) {
+            if let v6 {
+                for statement in SchemaMigrations.statements(v6.sql) {
                     try db.execute(sql: statement)
                 }
             }
@@ -355,10 +360,10 @@ struct FtsSensitiveMigrationTests {
         #expect(noteHitsAfter == 0, "BR-007/008：敏感笔记词条必须被重洗清除")
         #expect(titleHitsAfter > 0, "敏感文档仍按元数据（标题）可检索")
 
-        // 幂等重放：同一步再跑一遍不炸、结果不变
+        // 幂等重放：v6 再跑一遍不炸、结果不变
         try dbQueue.write { db in
-            for step in SchemaMigrations.pending(from: 5) {
-                for statement in SchemaMigrations.statements(step.sql) {
+            if let v6 {
+                for statement in SchemaMigrations.statements(v6.sql) {
                     try db.execute(sql: statement)
                 }
             }
