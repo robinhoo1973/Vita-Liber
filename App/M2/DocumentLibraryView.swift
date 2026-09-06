@@ -483,26 +483,30 @@ struct DocumentLibraryView: View {
     /// 用户逐条确认/改正才写入数据库。
     @State private var pendingDraft: DocumentsState.ImportDraft?
 
+    @ToolbarContentBuilder private var libraryToolbar: some ToolbarContent {
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            Button {
+                showArchived.toggle()
+                Task { await state.load(patientId: app.currentPatientId, includeArchived: showArchived) }
+            } label: {
+                Image(systemName: showArchived ? "archivebox.fill" : "archivebox")
+            }
+            .accessibilityLabel(L10n.docArchive)
+            Button {
+                showImportSource = true
+            } label: {
+                Image(systemName: "plus")
+            }
+            .accessibilityLabel(L10n.docAdd)
+            .accessibilityIdentifier("SP-09.document.add")
+        }
+    }
+
     var body: some View {
         importContent
             .navigationTitle(L10n.docLibraryTitle)
             .toolbar {
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button {
-                        showArchived.toggle()
-                        Task { await state.load(patientId: app.currentPatientId, includeArchived: showArchived) }
-                    } label: {
-                        Image(systemName: showArchived ? "archivebox.fill" : "archivebox")
-                    }
-                    .accessibilityLabel(L10n.docArchive)
-                    Button {
-                        showImportSource = true
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                    .accessibilityLabel(L10n.docAdd)
-                    .accessibilityIdentifier("SP-09.document.add")
-                }
+                libraryToolbar
             }
             .confirmationDialog(L10n.docImportSourceTitle, isPresented: $showImportSource,
                                 titleVisibility: .visible) {
@@ -528,55 +532,28 @@ struct DocumentLibraryView: View {
             Text(state.lastImportError ?? L10n.docImportFailed)
         }
         .onChange(of: state.lastImportError) { _, err in
-            // pendingDraft 打开时由确认卡自带「保存失败」告警呈现（Phase 3
-            // 补漏：父级不叠加，同一失败不得双弹窗）
-            showImportError = err != nil && pendingDraft == nil
+            handleImportErrorChange(err)
         }
         // FR5.1/FR5.7 文件导入（PDF/图片；批量多选逐份入库，归属确认在文档层 FR3.3 覆盖）。
-        // 串行队列（第四轮全仓审查修复：多选图片时多个草稿写同一 pendingDraft
-        // 单槽，前一份被静默覆盖丢弃）
         .fileImporter(isPresented: $fileImporterActive,
                       allowedContentTypes: [.pdf, .image],
                       allowsMultipleSelection: true) { result in
-            guard case .success(let urls) = result else { return }
-            // 追加而非替换（Phase 3 补漏：前一批未处理完时重开不丢件）
-            fileQueue.append(contentsOf: urls)
-            processFileQueue()
+            enqueueFiles(result)
         }
         // FR5.1 相册导入（逐份走归属确认——当前成员确认条在文档层已有 FR3.3 覆盖）
         .photosPicker(isPresented: $photosImporterActive, selection: $pickedPhotos,
                       maxSelectionCount: 5, matching: .images)
         .onChange(of: pickedPhotos) { _, items in
-            guard !items.isEmpty else { return }
-            // 第四轮全仓审查修复（5WHY）：原实现每项一个并发 Task 各自写
-            // pendingDraft/pendingDuplicate 单槽——多选命中多份重复时后完成者
-            // 覆盖先完成者，前面的照片静默丢弃。改为串行队列 + 单槽占用时
-            // 暂停推进（确认卡/重复裁决 sheet 关掉后经 onChange 续跑）。
-            // 追加而非替换（Phase 3 补漏）：前一批仍在处理时重开选择器，
-            // 替换会静默丢弃未处理的剩余项。
-            photoQueue.append(contentsOf: items)
-            pickedPhotos = []
-            processPhotoQueue()
+            enqueuePhotos(items)
         }
-        .onChange(of: state.pendingDuplicate) { _, dup in
-            if dup == nil {
-                processPhotoQueue()
-                processFileQueue()
-            }
-        }
-        .onChange(of: pendingDraft) { _, draft in
-            if draft == nil {
-                processPhotoQueue()
-                processFileQueue()
-            }
+        // 单槽（确认卡/重复裁决 sheet）释放即续跑串行队列——两个 onChange
+        // 合并为一个 Bool 观察，缩减 body 推断负载（CI 34038910193 实证）
+        .onChange(of: queueSlotFree) { _, free in
+            if free { resumeQueues() }
         }
         .sheet(isPresented: $showManualCreate) {
             ManualDocumentSheet { title, type, note in
-                Task {
-                    await state.createManual(patientId: app.currentPatientId, title: title,
-                                             docType: type, note: note)
-                    showManualCreate = false
-                }
+                createManual(title: title, type: type, note: note)
             }
         }
         .task(id: app.currentPatientId) {
@@ -587,6 +564,46 @@ struct DocumentLibraryView: View {
     private var duplicateAlertBinding: Binding<Bool> {
         Binding(get: { state.pendingDuplicate != nil },
                 set: { if !$0 { Task { await state.resolveDuplicate(.keep) } } })
+    }
+
+    /// 单槽占用态：确认卡或重复裁决 sheet 任一打开即占用（串行队列暂停条件）
+    private var queueSlotFree: Bool {
+        state.pendingDuplicate == nil && pendingDraft == nil
+    }
+
+    private func handleImportErrorChange(_ err: String?) {
+        // pendingDraft 打开时由确认卡自带「保存失败」告警呈现（Phase 3
+        // 补漏：父级不叠加，同一失败不得双弹窗）
+        showImportError = err != nil && pendingDraft == nil
+    }
+
+    /// 文件导入入队：追加而非替换（Phase 3 补漏：前一批未处理完时重开不丢件）
+    private func enqueueFiles(_ result: Result<[URL], Error>) {
+        guard case .success(let urls) = result else { return }
+        fileQueue.append(contentsOf: urls)
+        processFileQueue()
+    }
+
+    /// 相册导入入队：串行队列（第四轮全仓审查修复）——多选命中多份重复时
+    /// 后完成者不再覆盖先完成者；单槽占用时暂停，sheet 关掉后 onChange 续跑。
+    private func enqueuePhotos(_ items: [PhotosPickerItem]) {
+        guard !items.isEmpty else { return }
+        photoQueue.append(contentsOf: items)
+        pickedPhotos = []
+        processPhotoQueue()
+    }
+
+    private func resumeQueues() {
+        processPhotoQueue()
+        processFileQueue()
+    }
+
+    private func createManual(title: String, type: String, note: String) {
+        Task {
+            await state.createManual(patientId: app.currentPatientId, title: title,
+                                     docType: type, note: note)
+            showManualCreate = false
+        }
     }
 
     /// 相册多选串行推进：单槽（确认卡/重复裁决 sheet）被占用时暂停，
