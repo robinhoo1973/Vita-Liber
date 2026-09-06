@@ -71,7 +71,7 @@ struct EncounterListView: View {
     /// §5.44 成员筛选（V3.72）
     @State private var memberFilter: UUID?
 
-    private var filteredEncounters: [Encounter] {
+    private var filteredEncounters: [EncounterStore.EncounterRow] {
         guard let m = memberFilter else { return state.encounters }
         return state.encounters.filter { $0.patientId == m }
     }
