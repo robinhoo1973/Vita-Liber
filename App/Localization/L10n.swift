@@ -1823,6 +1823,9 @@ enum L10n {
     static var helpcardPreviewContinue: String { t("helpcard.previewContinue") }
     static var helpcardPreviewHint: String { t("helpcard.previewHint") }
     static var prefDateFormat: String { t("pref.dateFormat") }
+    static var prefDateFormatYMD: String { t("pref.dateFormatYMD") }
+    static var prefDateFormatMD: String { t("pref.dateFormatMD") }
+    static var prefDateFormatISO: String { t("pref.dateFormatISO") }
     static func immunizationDoseCount(_ n: Int) -> String { t("immunization.doseCount").replacingOccurrences(of: "%d", with: String(n)) }
     static var immunization_childPlanComing: String { t("immunization.childPlanComing") }
     static var helpTutorialTitle: String { t("help.tutorialTitle") }

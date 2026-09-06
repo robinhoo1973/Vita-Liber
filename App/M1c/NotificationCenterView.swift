@@ -160,14 +160,13 @@ struct NotificationCenterView: View {
     private func state(for key: String) -> NotificationItemState { itemStates[key] ?? .unread }
 
     private func loadStates() async {
-        let keys = pendingDoses.map { "dose-\($0.dose.id)" }
-            + appointments.map { "apt-\($0.id)" }
-            + expiringLots.map { "lot-\($0.lotId)" }
-            + l1Alerts.map { "alert-\($0.id)" }
-            + (pendingOCRCount > 0 ? ["ocr-queue"] : [])
-        if let loaded = try? await notificationState.states(for: keys) {   // try?-ok: 状态读取失败按未读渲染，不阻断列表
-            itemStates = loaded
-        }
+        var keys: [String] = []
+        keys += pendingDoses.map { "dose-\($0.dose.id)" }
+        keys += appointments.map { "apt-\($0.id)" }
+        keys += expiringLots.map { "lot-\($0.lotId)" }
+        keys += l1Alerts.map { "alert-\($0.id)" }
+        if pendingOCRCount > 0 { keys.append("ocr-queue") }
+        await notificationState.load(keys: keys)
     }
 
     private func markRead(_ key: String) {
