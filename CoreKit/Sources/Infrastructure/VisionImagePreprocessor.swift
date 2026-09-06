@@ -99,7 +99,7 @@ public final class VisionImagePreprocessor: ImagePreprocessing, @unchecked Senda
     /// 对图像做透视矫正——Y 轴翻转把 UIKit 惯例换算成 Core Image 的左下原点像素坐标。
     private func perspectiveCorrect(_ ciImage: CIImage, quad: QuadCorners) throws -> CIImage {
         let extent = ciImage.extent
-        func toVector(_ p: NormalizedPoint) -> CIVector {
+        func toVector(_ p: Domain.NormalizedPoint) -> CIVector {
             CIVector(x: CGFloat(p.x) * extent.width, y: (1 - CGFloat(p.y)) * extent.height)
         }
         return try applyPerspectiveFilter(ciImage, topLeft: toVector(quad.topLeft), topRight: toVector(quad.topRight),
@@ -173,7 +173,7 @@ public final class VisionImagePreprocessor: ImagePreprocessing, @unchecked Senda
         let ciImage = CIImage(cgImage: cgImage)
         guard let obs = try? await detectQuad(ciImage) else { return nil }   // try?-ok: 检测失败按「未检出」处理，UI 回落整图四角，不是错误流程
         // Vision 左下原点 → QuadCorners 左上原点（UIKit 惯例）：y 取反
-        func flip(_ p: CGPoint) -> NormalizedPoint { NormalizedPoint(x: Double(p.x), y: 1 - Double(p.y)) }
+        func flip(_ p: CGPoint) -> Domain.NormalizedPoint { Domain.NormalizedPoint(x: Double(p.x), y: 1 - Double(p.y)) }
         return QuadCorners(topLeft: flip(obs.topLeft), topRight: flip(obs.topRight),
                            bottomLeft: flip(obs.bottomLeft), bottomRight: flip(obs.bottomRight))
     }
