@@ -138,7 +138,8 @@ struct VitaLiberApp: App {
                 grayscaleDecoder: GrayscaleImageDecoder()),
             // FR14.1 authOcr 消费点：每次导入实时读授权（撤回即时生效）
             ocrAuthorized: { appSettings.values[.authOcr] != "false" },
-            originalsDir: AppContainer.defaultOriginalsDir()))
+            originalsDir: AppContainer.defaultOriginalsDir(),
+            prescriptionStore: container.prescriptions))
         _aiHistoryState = State(initialValue: AIHistoryState(store: container.aiHistory))
         _exportWizardState = State(initialValue: ExportWizardState(service: container.pdfExport))
         _f16DeviceState = State(initialValue: F16DeviceState(

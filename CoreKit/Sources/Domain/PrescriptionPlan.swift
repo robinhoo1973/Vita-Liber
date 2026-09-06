@@ -91,6 +91,65 @@ public enum PrescriptionConfirmation {
     }
 }
 
+/// 处方 OCR 逐行 → 带处方语义标签的候选字段（FR5.1/FR9.1 拍处方入口）。
+///
+/// 关键词启发式只决定「展示标签」，不预设任何字段为事实——每个字段仍是
+/// `CandidateField`（恒 D 级，BR-003），必须用户逐条确认/改正才生效。
+/// **口径说明**：`prescription` 表当前 schema 只有 `hospital`/`doctor`/
+/// `advice_text` 等列，没有药名/剂量/频次的独立结构化列（那需要一次单独的
+/// schema 迁移，本次不擅自新增）——`buildAdviceText` 把全部已确认字段折叠进
+/// 一段带标签的文本，写入 `advice_text`，确保用户确认过的内容不会因为「暂无
+/// 列可落」而被静默丢弃。
+public enum PrescriptionFieldMapper {
+    /// FR5.1 三处方相关文案（首页快速拍摄/资料库标签）之一即视为处方文档类型。
+    public static func isPrescriptionDocType(_ docType: String, prescriptionLabel: String) -> Bool {
+        docType == prescriptionLabel
+    }
+
+    public static func draftFields(from lines: [String], labels: Labels) -> [CandidateField] {
+        lines.enumerated().map { idx, line in
+            CandidateField(key: "rx_line_\(idx)", displayLabel: guessLabel(line, isFirst: idx == 0, labels: labels),
+                           rawText: line, confidence: 0.55)
+        }
+    }
+
+    /// 用户确认后的字段 → 落库用的 hospital/doctor/adviceText 三元组。
+    public static func buildAdviceText(confirmed: [CandidateField]) -> (hospital: String?, doctor: String?, adviceText: String) {
+        var hospital: String?
+        var doctor: String?
+        let lines = confirmed.map { field -> String in
+            if field.displayLabel.contains("医院") { hospital = field.value }
+            if field.displayLabel.contains("医生") || field.displayLabel.contains("医师") { doctor = field.value }
+            return "\(field.displayLabel)：\(field.value)"
+        }
+        return (hospital, doctor, lines.joined(separator: "\n"))
+    }
+
+    public struct Labels: Sendable {
+        public var hospital: String
+        public var doctor: String
+        public var frequency: String
+        public var dosage: String
+        public var drugName: String
+        public var other: String
+        public init(hospital: String, doctor: String, frequency: String, dosage: String,
+                    drugName: String, other: String) {
+            self.hospital = hospital; self.doctor = doctor; self.frequency = frequency
+            self.dosage = dosage; self.drugName = drugName; self.other = other
+        }
+    }
+
+    private static func guessLabel(_ line: String, isFirst: Bool, labels: Labels) -> String {
+        if line.contains("医院") { return labels.hospital }
+        if line.contains("医生") || line.contains("医师") { return labels.doctor }
+        if line.contains("每") && (line.contains("日") || line.contains("天")) && line.contains("次") { return labels.frequency }
+        if line.contains("片") || line.contains("粒") || line.contains("毫升") || line.contains("mg")
+            || line.contains("ml") || line.contains("mL") { return labels.dosage }
+        if isFirst { return labels.drugName }
+        return labels.other
+    }
+}
+
 /// 用药计划草稿（FR9.4/§5.4）：schedule 按 §5.4 schema 编码
 public struct MedicationPlanDraft: Sendable, Equatable {
     public var schedule: MedicationSchedule

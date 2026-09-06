@@ -61,10 +61,51 @@ public enum PreprocessError: Error, Sendable, Equatable {
     case encodeFailed
 }
 
+/// 归一化坐标点（0...1，左上原点——UIKit/SwiftUI 惯例）。不用 CGPoint：
+/// Domain 层零框架依赖（import ⊆ {Foundation}），CGPoint 属 CoreGraphics，
+/// Linux 侧不一定可用；坐标系换算（Vision 左下原点）留在 Infrastructure 实现内部。
+public struct NormalizedPoint: Sendable, Equatable, Codable {
+    public var x: Double
+    public var y: Double
+    public init(x: Double, y: Double) { self.x = x; self.y = y }
+}
+
+/// 手动/自动四角选区（交互式裁剪 UI 与透视矫正共用的坐标契约）。
+public struct QuadCorners: Sendable, Equatable, Codable {
+    public var topLeft: NormalizedPoint
+    public var topRight: NormalizedPoint
+    public var bottomLeft: NormalizedPoint
+    public var bottomRight: NormalizedPoint
+
+    public init(topLeft: NormalizedPoint, topRight: NormalizedPoint,
+                bottomLeft: NormalizedPoint, bottomRight: NormalizedPoint) {
+        self.topLeft = topLeft
+        self.topRight = topRight
+        self.bottomLeft = bottomLeft
+        self.bottomRight = bottomRight
+    }
+
+    /// 自动检测失败/尚未检测时的初始选区：5% 内缩的整图四角（避免选区贴边，
+    /// 矫正时裁掉纸张边缘内容）。
+    public static let fullImageInset = QuadCorners(
+        topLeft: NormalizedPoint(x: 0.05, y: 0.05),
+        topRight: NormalizedPoint(x: 0.95, y: 0.05),
+        bottomLeft: NormalizedPoint(x: 0.05, y: 0.95),
+        bottomRight: NormalizedPoint(x: 0.95, y: 0.95))
+}
+
 /// 预处理协议（跨平台统一接口）。
 public protocol ImagePreprocessing: Sendable {
     /// 对原始图像进行预处理（边缘检测+透视矫正+色彩模式+旋转）。
     /// - 原始帧 `originalData` 不被修改（BR-002）。
     /// - 返回 `PreprocessedImage`，含处理后 Data + 原始帧引用 + 版本号。
     func preprocess(_ originalData: Data, params: PreprocessParams, baseVersion: Int) async throws -> PreprocessedImage
+
+    /// 自动检测文档四角（供交互式选区 UI 预置拖拽手柄初始位置）。
+    /// 未检测到/置信度不足时返回 nil——UI 回落 `QuadCorners.fullImageInset`。
+    func detectQuad(_ originalData: Data) async -> QuadCorners?
+
+    /// 按显式四角（用户拖拽调整后的选区）做透视矫正，跳过自动检测。
+    /// 四角构成退化四边形（近似共线/面积过小）时抛 `perspectiveCorrectionFailed`。
+    func correctPerspective(_ originalData: Data, corners: QuadCorners) async throws -> Data
 }

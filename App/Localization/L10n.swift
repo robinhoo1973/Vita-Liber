@@ -1808,6 +1808,25 @@ enum L10n {
     static var docImportFailed: String { t("doc.importFailed") }
     static var docPDFImportFailed: String { t("doc.pdfImportFailed") }
     static var docTypeReport: String { t("doc.type.report") }
+
+    // MARK: - 扫描选区 + 文档确认卡（图片入库四角矫正/字段确认）
+    static var scanRegionTitle: String { t("scanRegion.title") }
+    static var scanRegionHint: String { t("scanRegion.hint") }
+    static var scanRegionReset: String { t("scanRegion.reset") }
+    static var scanRegionConfirm: String { t("scanRegion.confirm") }
+    static var scanRegionAutoDetectFailed: String { t("scanRegion.autoDetectFailed") }
+    static var scanRegionCorrectionFailed: String { t("scanRegion.correctionFailed") }
+    static var docConfirmTitle: String { t("docConfirm.title") }
+    static var docConfirmViewRegion: String { t("docConfirm.viewRegion") }
+    static var docConfirmSaveAll: String { t("docConfirm.saveAll") }
+    static var docConfirmHint: String { t("docConfirm.hint") }
+    static func docConfirmUnconfirmedCount(_ n: Int) -> String { String(format: t("docConfirm.unconfirmedCountFmt"), n) }
+    static var prescriptionFieldHospital: String { t("prescription.field.hospital") }
+    static var prescriptionFieldDoctor: String { t("prescription.field.doctor") }
+    static var prescriptionFieldFrequency: String { t("prescription.field.frequency") }
+    static var prescriptionFieldDosage: String { t("prescription.field.dosage") }
+    static var prescriptionFieldDrugName: String { t("prescription.field.drugName") }
+    static var prescriptionFieldOther: String { t("prescription.field.other") }
     static var docTypeRecord: String { t("doc.type.record") }
     static var docManualCreateTitle: String { t("doc.manual.createTitle") }
     static var docManualTitle: String { t("doc.manual.title") }
