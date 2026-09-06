@@ -26,6 +26,8 @@ struct AppRootView: View {
     /// 此前只做了「重排」半句，用户跨时区后按错误墙钟时刻服药（V3.72 补全）
     @State private var lastTimeZoneId = TimeZone.current.identifier
     @State private var timezoneChanged = false
+    /// FR1.4 宽限锁任务（V3.72 接线：0/15/60 秒可配置；此前键死、立即锁无宽限）
+    @State private var graceLockTask: Task<Void, Never>?
 
     var body: some View {
         Group {
@@ -96,9 +98,22 @@ struct AppRootView: View {
                 // inactive——豁免在途认证，否则导出向导/备份等动作被锁屏覆盖
                 // 层销毁状态并二次弹认证
                 if appState.onboardingFinished && !appState.authPromptInFlight {
-                    backgroundLocked = true
+                    let grace = Double(Int(settingsStore.values[.gateGraceSeconds] ?? "0") ?? 0)
+                    if grace > 0 {
+                        // 宽限窗口内回前台即取消（切换任务器快照在 inactive 已挂遮罩，
+                        // 宽限只影响正式锁定时刻）
+                        graceLockTask = Task {
+                            try? await Task.sleep(nanoseconds: UInt64(grace * 1_000_000_000))   // try?-ok: 宽限计时取消即停
+                            guard !Task.isCancelled else { return }
+                            backgroundLocked = true
+                        }
+                    } else {
+                        backgroundLocked = true
+                    }
                 }
             case .active:
+                graceLockTask?.cancel()
+                graceLockTask = nil
                 // 四层补偿第 2 层：每次回前台轻量对账
                 if appState.onboardingFinished {
                     Task {

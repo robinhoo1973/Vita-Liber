@@ -21,6 +21,8 @@ struct AlertHistoryView: View {
     // FR16.10 预警历史：按指标/级别筛选（L0 默认隐藏可切换）
     @State private var severityFilter = "L1+"
     @State private var showL0 = false
+    /// §5.15 指标筛选（V3.72）：空 = 全部
+    @State private var metricFilter: String?
 
     private var events: [GuidelineStore.AlertEvent] {
         hub.alertEvents.filter { $0.patientId == app.currentPatientId }
@@ -30,7 +32,13 @@ struct AlertHistoryView: View {
         events
             .filter { showL0 || $0.severity != .L0 }
             .filter { severityFilter == "L1+" || $0.severity.rawValue == severityFilter }
+            .filter { metricFilter == nil || $0.card.metricKey == metricFilter }
             .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    /// 指标筛选项（当前数据中出现的全部指标键）
+    private var metricOptions: [String] {
+        Array(Set(events.compactMap { $0.card.metricKey })).sorted()
     }
 
     var body: some View {
@@ -57,6 +65,19 @@ struct AlertHistoryView: View {
                 .pickerStyle(.segmented)
                 Toggle(L10n.alertShowL0, isOn: $showL0)
                     .font(.caption)
+                // §5.15 指标筛选（V3.72）
+                if !metricOptions.isEmpty {
+                    Menu {
+                        Button(L10n.filterAll) { metricFilter = nil }
+                        ForEach(metricOptions, id: \.self) { m in
+                            Button(m) { metricFilter = m }
+                        }
+                    } label: {
+                        Text(metricFilter ?? L10n.filterAll)
+                            .font(.caption).padding(.horizontal, 10).frame(minHeight: 44)
+                            .background(Capsule().fill(Color(.systemGray5)))
+                    }
+                }
             }
             .padding(.horizontal, 12).padding(.vertical, 6)
             .background(.thinMaterial)

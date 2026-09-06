@@ -19,6 +19,8 @@ struct ObservationDetailView: View {
     @State private var draftBodyPart = ""
     @State private var draftDuration: Int?
     @State private var draftFrequency = ""
+    /// §5.7.1 [查看同组]（V3.72 修正）：此前误跳资料库——改为同组条目列表
+    @State private var showGroupSheet = false
     @State private var draftIsFirst = false
     @State private var draftTrigger = ""
     @State private var draftAccompanying = ""
@@ -49,6 +51,13 @@ struct ObservationDetailView: View {
                     ContentUnavailableView(L10n.obsDetailLoadFailed, systemImage: "doc.text.magnifyingglass")
                 }
             }
+        }
+        .sheet(isPresented: $showGroupSheet) {
+            SameGroupSheet(events: (state.detail?.groupId).map { gid in
+                state.groups.flatMap(\.occurrences).filter { $0.groupId == gid }
+                    .sorted { $0.occurredAt < $1.occurredAt }
+            } ?? [])
+            .presentationDetents([.medium])
         }
         .navigationTitle(navTitle)
         .navigationBarTitleDisplayMode(.inline)
@@ -124,7 +133,7 @@ struct ObservationDetailView: View {
             }
             if let groupId = event.groupId {
                 Button {
-                    router.navigate(to: .documentList)   // 列表胶片带（FR8.5 对比视图随补齐批落地）
+                    showGroupSheet = true
                 } label: {
                     Label(L10n.obsDetailViewGroup, systemImage: "rectangle.stack")
                         .font(.caption)
@@ -299,6 +308,32 @@ struct ObservationDetailView: View {
         case "improved": return L10n.observationTrendImproved
         case "worsened": return L10n.observationTrendWorsened
         default: return L10n.observationTrendUnchanged
+        }
+    }
+}
+
+/// 同组观察条目列表（FR8.5 同组对比的列表形态；对比视图随 W4 登记）
+struct SameGroupSheet: View {
+    let events: [ObservationEvent]
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List(events) { e in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(e.occurredAt.formatted(date: .abbreviated, time: .shortened))
+                        .font(.subheadline)
+                    if let d = e.description, !d.isEmpty {
+                        Text(d).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .navigationTitle(L10n.obsDetailViewGroup)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(L10n.onboard_gotIt) { dismiss() }
+                }
+            }
         }
     }
 }

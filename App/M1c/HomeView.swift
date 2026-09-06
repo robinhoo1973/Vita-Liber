@@ -70,14 +70,21 @@ struct HomeView: View {
         app.timeline.reduce(0) { $0 + ($1.fields ?? []).filter { !$0.isConfirmed }.count }
     }
 
-    // ④ 即将到期（7 天窗口）：预约 + 药品临期（FR9.11 批次效期在 Phase 2 并入）。
+    // ④ 即将到期（7 天窗口）：预约 + 药品临期（V3.72 回填：批次效期 ≤7 天并入）
     // DST 纪律：窗口用 DayArithmetic 日历出口，禁止固定 86400 秒（切换日 ±1 小时漂移）
     private var expiringItems: [ExpiryItem] {
-        let window = DayArithmetic.offset(days: 7, from: Date())
-        return reminderStore.upcomingAppointments
+        let now = Date()
+        let window = DayArithmetic.offset(days: 7, from: now)
+        var items = reminderStore.upcomingAppointments
             .filter { $0.startsAt <= window }
             .map { ExpiryItem(title: "\($0.hospital)·\($0.department)", date: $0.startsAt,
                               memberId: app.currentPatientId) }
+        items += hub.inventoryItems.compactMap { item in
+            guard let expireAt = item.expireAt, expireAt <= window, expireAt >= now else { return nil }
+            return ExpiryItem(title: L10n.homeExpiryMed(item.medicationName), date: expireAt,
+                              memberId: app.currentPatientId)
+        }
+        return items.sorted { $0.date < $1.date }
     }
 
     // ⑤ 续药卡（FR9.8.3）：出现判定走 Domain 单一事实源 InventoryRules.refillTier
@@ -177,13 +184,16 @@ struct HomeView: View {
                     if notifDenied && !dismissNotifBanner {
                         notifDeniedBanner
                     }
+                    if hasOverdueOcr {
+                        pendingOcrCard   // 72h+ 未处理钉住置顶（§5.2）
+                    }
                     if !snapshot.todoItems.isEmpty {
                         todoCard
                     }
                     if app.profileCompletion.done < app.profileCompletion.total {
                         profileProgressCard   // mock 对齐项：档案完善进度卡（成熟用户续填入口）
                     }
-                    if snapshot.pendingOCRCount > 0 {
+                    if snapshot.pendingOCRCount > 0 && !hasOverdueOcr {
                         pendingOcrCard
                     }
                     if !snapshot.expiringSoon.isEmpty {
@@ -199,14 +209,14 @@ struct HomeView: View {
                         recentObservationsCard
                     }
                     quickCaptureCard
-                    // mock 对齐项：底部免责声明（医疗产品信任资产，呼应「不联网·不诊断」承诺）
-                    Text(L10n.homeDisclaimer)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 4)
-                        .accessibilityIdentifier("SP-04.home.disclaimer")
                 }
+                // §5.2 免责声明恒显示（V3.72：新用户空态此前不渲染信任文案）
+                Text(L10n.homeDisclaimer)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 4)
+                    .accessibilityIdentifier("SP-04.home.disclaimer")
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -326,6 +336,16 @@ struct HomeView: View {
         .accessibilityIdentifier("SP-04.home.profileProgress")
     }
 
+    /// §5.2 72h 未处理置顶钉住（V3.72）：任一未确认字段超 72 小时 → 红胶囊 +
+    /// 该卡移至全部卡片之前（与聚合队列同一条 Domain 判定语义）
+    private var hasOverdueOcr: Bool {
+        let cutoff = DayArithmetic.offset(days: -3, from: Date())
+        return app.timeline.contains { entry in
+            entry.occurredAt < cutoff.timeIntervalSince1970
+                && (entry.fields ?? []).contains { !$0.isConfirmed && $0.grade != .rejected }
+        }
+    }
+
     private var pendingOcrCard: some View {
         Button {
             router.navigate(to: .pendingOcrQueue)
@@ -334,6 +354,13 @@ struct HomeView: View {
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.yellow)
                 Text(L10n.homePendingOcrCount(snapshot.pendingOCRCount))
                     .font(.subheadline).foregroundStyle(.primary)
+                if hasOverdueOcr {
+                    Text(L10n.homeOcrOverdue)
+                        .font(.caption2.bold())
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(Capsule().fill(Color("semantic-danger", bundle: .main)))
+                        .foregroundStyle(.white)
+                }
                 Spacer()
                 Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
             }

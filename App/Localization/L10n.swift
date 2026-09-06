@@ -1257,6 +1257,8 @@ enum L10n {
         "remch.title", "remch.sectionHint", "remch.sectionFooter", "remch.meds", "remch.apts", "remch.exam", "remch.expiry", "remch.alert", "remch.backup", "remch.local", "remch.ring", "remch.inApp", "remch.bannerToggle", "remch.bannerFooter",
         "banner.doseDue", "banner.confirm", "banner.later",
         "occlusion.title", "occlusion.skip", "occlusion.done",
+        "home.ocrOverdue", "home.expiryMed",
+        "filter.all", "filter.3d", "filter.72h",
         "paywall.purchaseFailed",
         "paywall.restoreFailed",
         "paywall.restoreNothing",
@@ -1764,6 +1766,28 @@ enum L10n {
     static var occlusionTitle: String { t("occlusion.title") }
     static var occlusionSkip: String { t("occlusion.skip") }
     static var occlusionDone: String { t("occlusion.done") }
+    static var homeOcrOverdue: String { t("home.ocrOverdue") }
+    static func homeExpiryMed(_ name: String) -> String { t("home.expiryMed", name) }
+    static var filterAll: String { t("filter.all") }
+    static var filter3d: String { t("filter.3d") }
+    static var filter72h: String { t("filter.72h") }
+    static var voiceLangMixedToggle: String { t("voicelang.mixedToggle") }
+    static var voiceLangMixedHint: String { t("voicelang.mixedHint") }
+    static func voiceLangT2Title(_ name: String) -> String { t("voicelang.t2Title", name) }
+    static var voiceLangT2Point1: String { t("voicelang.t2Point1") }
+    static var voiceLangT2Point2: String { t("voicelang.t2Point2") }
+    static var voiceLangT2Point3: String { t("voicelang.t2Point3") }
+    static var gradeBadgeA: String { t("gradebadge.a") }
+    static var gradeBadgeB: String { t("gradebadge.b") }
+    static var gradeBadgeC: String { t("gradebadge.c") }
+    static var gradeBadgeD: String { t("gradebadge.d") }
+    static var gradeBadgeE: String { t("gradebadge.e") }
+    static var gradeBadgePending: String { t("gradebadge.pending") }
+    static var settings_gateGrace: String { t("settings.gateGrace") }
+    static var settings_autoLock: String { t("settings.autoLock") }
+    static var settings_grace0: String { t("settings.grace0") }
+    static var settings_grace15: String { t("settings.grace15") }
+    static var settings_grace60: String { t("settings.grace60") }
     static var ocrQueueTitle: String { t("ocrQueue.title") }
     static var ocrQueueEmpty: String { t("ocrQueue.empty") }
     static var ocrQueueEmptyHint: String { t("ocrQueue.emptyHint") }

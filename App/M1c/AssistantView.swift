@@ -265,10 +265,8 @@ struct AnswerBodyView: View {
         case .composed(let p):
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
-                    Text("E").font(.caption.bold())
-                        .padding(4)
-                        .background(Circle().fill(Color("grade-e", bundle: .main).opacity(0.2)))
-                        .foregroundStyle(Color("grade-e", bundle: .main))
+                    // V3.72：E 徽章改走 GradeBadge 唯一出口（五态统一）
+                    GradeBadge(grade: "E")
                     Text(L10n.ai_aiBadge).font(.caption).foregroundStyle(.secondary)
                 }
                 // V3.70（审查收敛）：七段卡单一结构化形态——模板句经 L10n 渲染，

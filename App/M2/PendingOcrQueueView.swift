@@ -9,10 +9,23 @@ import Domain
 struct PendingOcrQueueView: View {
     @Environment(AppState.self) private var app
     @Environment(AppRouter.self) private var router
+    /// §5.30 筛选（V3.72）：成员 + 时间窗（全部/3 天/72h+）
+    @State private var memberFilter: UUID?
+    @State private var windowFilter: Int = 0   // 0=全部 1=3 天 2=72h+
 
     /// 低置信度置顶 + 72h 置顶钉住（FR2.3/FR6.8 排序规则）
     private var sortedFields: [(entry: TimelineDocumentEntry, field: CandidateField)] {
-        app.pendingOcrFields().sorted { a, b in
+        app.pendingOcrFields().filter { item in
+            if let m = memberFilter, item.entry.patientId != m { return false }
+            switch windowFilter {
+            case 1:
+                return item.entry.occurredAt > Date().timeIntervalSince1970 - 3 * 86400
+            case 2:
+                return isOver72h(item.entry)
+            default:
+                return true
+            }
+        }.sorted { a, b in
             let aLow = ConfidenceTier.tier(a.field.confidence) == .low
             let bLow = ConfidenceTier.tier(b.field.confidence) == .low
             if aLow != bLow { return aLow }
@@ -109,6 +122,28 @@ struct PendingOcrQueueView: View {
                     }
                 }
             }
+        }
+        .safeAreaInset(edge: .top) {
+            HStack(spacing: 8) {
+                Menu {
+                    Button(L10n.filterAll) { memberFilter = nil }
+                    ForEach(app.members) { m in
+                        Button(m.displayName) { memberFilter = m.id }
+                    }
+                } label: {
+                    Text(memberFilter.flatMap { id in app.members.first(where: { $0.id == id })?.displayName }
+                         ?? L10n.filterAll)
+                        .font(.caption).padding(.horizontal, 10).frame(minHeight: 44)
+                        .background(Capsule().fill(Color(.systemGray5)))
+                }
+                ForEach([(0, L10n.filterAll), (1, L10n.filter3d), (2, L10n.filter72h)], id: \.0) { tag, name in
+                    Button(name) { windowFilter = tag }
+                        .font(.caption).padding(.horizontal, 10).frame(minHeight: 44)
+                        .background(Capsule().fill(windowFilter == tag ? Color("brand-primary", bundle: .main).opacity(0.2) : Color(.systemGray5)))
+                }
+            }
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .background(.thinMaterial)
         }
         .navigationTitle(L10n.ocrQueueTitle)
         // FR6.4 修订入口（队列与工作台同语义：原识别值永久保留 + 修订历史）

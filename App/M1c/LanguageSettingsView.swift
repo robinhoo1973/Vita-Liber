@@ -55,6 +55,8 @@ struct VoiceLanguageSettingsView: View {
         app.voiceOutputLocale
     }
 
+    @State private var t2Explained: (locale: String, nativeName: String)?
+
     var body: some View {
         List {
             Section {
@@ -65,10 +67,16 @@ struct VoiceLanguageSettingsView: View {
                         HStack {
                             Text(lang.nativeName)
                             if lang.tier == .bestEffort {
-                                Text(L10n.voiceLangBestEffort)
-                                    .font(.caption2)
-                                    .padding(.horizontal, 6).padding(.vertical, 2)
-                                    .background(Capsule().fill(Color(.systemGray5)))
+                                // §5.12.3 T2 说明卡（V3.72）：徽标可点弹出三要点说明
+                                Button {
+                                    t2Explained = lang
+                                } label: {
+                                    Text(L10n.voiceLangBestEffort)
+                                        .font(.caption2)
+                                        .padding(.horizontal, 6).padding(.vertical, 2)
+                                        .background(Capsule().fill(Color(.systemGray5)))
+                                }
+                                .buttonStyle(.plain)
                             }
                             Spacer()
                             if inputLangs.contains(lang.locale) {
@@ -85,9 +93,18 @@ struct VoiceLanguageSettingsView: View {
                 Text(L10n.voiceLangInputHint)
             }
 
-            // 审查修复（诚实性，FR14.7）：混合输入开关此前为本地 @State——
-            // 不持久化、全仓零消费点（「可调但无效果」）——与 PreferencesViews
-            // 同纪律移除，接线 AppSettingsStore 与识别链路后恢复。
+            // FR17.15 混说开关（V3.72 接线恢复）：持久化 AppSettingKey.voiceMixedInput；
+            // 识别链路消费策略 = 多选语言首语言 + 混说词表注入（T2 尽力识别语义），
+            // 引擎侧混说增强随 W4 批登记
+            Section {
+                Toggle(L10n.voiceLangMixedToggle, isOn: Binding(
+                    get: { settings.values[.voiceMixedInput] != "false" },
+                    set: { on in Task { await settings.set(on ? "true" : "false", for: .voiceMixedInput) } }
+                ))
+                .accessibilityIdentifier("SP-25.voiceMixedInput.toggle")
+            } footer: {
+                Text(L10n.voiceLangMixedHint)
+            }
 
             Section {
                 ForEach(EngineCapabilityProfile.sixLanguages, id: \.locale) { lang in
@@ -117,6 +134,9 @@ struct VoiceLanguageSettingsView: View {
             } footer: {
                 Text(L10n.voiceLangOutputHint)
             }
+        }
+        .sheet(item: $t2Explained) { lang in
+            T2ExplanationSheet(locale: lang.locale, nativeName: lang.nativeName)
         }
         .navigationTitle(L10n.voiceLangTitle)
         .task { await load() }
@@ -150,5 +170,30 @@ extension EngineCapabilityProfile {
              profile.notes ?? profile.capabilityID,
              profile.tier)
         }
+    }
+}
+
+/// §5.12.3 T2 方言说明卡（V3.72）：三要点——口音容忍 / 词表辅助 / 强制复核
+struct T2ExplanationSheet: View {
+    let locale: String
+    let nativeName: String
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Text(L10n.voiceLangT2Title(nativeName)).font(.headline)
+                Label(L10n.voiceLangT2Point1, systemImage: "ear")
+                Label(L10n.voiceLangT2Point2, systemImage: "text.book.closed")
+                Label(L10n.voiceLangT2Point3, systemImage: "checkmark.seal")
+            }
+            .navigationTitle(L10n.voiceLangBestEffort)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(L10n.onboard_gotIt) { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium])
     }
 }

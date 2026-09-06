@@ -51,6 +51,19 @@ struct SettingsView: View {
             } footer: {
                 Text(L10n.settings_highContrastFooter)
             }
+            // §5.12 安全（自动锁定）组（V3.72 接线：FR1.4 宽限 0/15/60 秒）
+            Section(L10n.settings_gateGrace) {
+                Picker(selection: Binding(
+                    get: { settings.values[.gateGraceSeconds] ?? "0" },
+                    set: { v in Task { await settings.set(v, for: .gateGraceSeconds) } }
+                )) {
+                    Text(L10n.settings_grace0).tag("0")
+                    Text(L10n.settings_grace15).tag("15")
+                    Text(L10n.settings_grace60).tag("60")
+                } label: {
+                    Text(L10n.settings_autoLock)
+                }
+            }
             // §5.12 通知中心与提醒偏好组（V3.72 补：此前设置中心无通知中心入口，
             // 首页铃铛是唯一路径；提醒触达设置页亦缺失）
             Section(L10n.ncTitle) {

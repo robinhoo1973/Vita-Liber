@@ -161,7 +161,8 @@ struct EncounterDetailView: View {
                         .overlay(alignment: .leading) {
                             Rectangle().fill(Color("brand-primary", bundle: .main)).frame(width: 3)
                         }
-                    Text(L10n.encounterDiagnosisBadge)
+                    // V3.72：A 徽章改走 GradeBadge 唯一出口
+                    GradeBadge(grade: "A")
                         .font(.caption2).foregroundStyle(Color("grade-a", bundle: .main))
                 }
                 if let advice = current?.adviceText ?? encounter.adviceText {

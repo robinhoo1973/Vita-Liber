@@ -47,6 +47,8 @@ public enum AppSettingKey: String, Sendable, CaseIterable, Codable {
     case remindChannelAlert
     case remindChannelBackup
     case inAppBannerEnabled        // 应用内横幅总开关（默认开）
+    case voiceMixedInput           // FR17.15 混说开关（默认开）
+    case gateGraceSeconds          // FR1.4 退后台自动锁定宽限（秒：0/15/60）
 
     /// 键默认值（单一事实源：新增键必须补 default，禁止 UserDefaults 直读兜底）
     public var defaultValue: String {
@@ -84,6 +86,8 @@ public enum AppSettingKey: String, Sendable, CaseIterable, Codable {
              .remindChannelExpiry, .remindChannelAlert, .remindChannelBackup:
             return "local"
         case .inAppBannerEnabled: return "true"
+        case .voiceMixedInput: return "true"
+        case .gateGraceSeconds: return "0"
         }
     }
 }
