@@ -1767,13 +1767,13 @@ enum L10n {
     static var occlusionSkip: String { t("occlusion.skip") }
     static var occlusionDone: String { t("occlusion.done") }
     static var homeOcrOverdue: String { t("home.ocrOverdue") }
-    static func homeExpiryMed(_ name: String) -> String { t("home.expiryMed", name) }
+    static func homeExpiryMed(_ name: String) -> String { t("home.expiryMed").replacingOccurrences(of: "%@", with: name) }
     static var filterAll: String { t("filter.all") }
     static var filter3d: String { t("filter.3d") }
     static var filter72h: String { t("filter.72h") }
     static var voiceLangMixedToggle: String { t("voicelang.mixedToggle") }
     static var voiceLangMixedHint: String { t("voicelang.mixedHint") }
-    static func voiceLangT2Title(_ name: String) -> String { t("voicelang.t2Title", name) }
+    static func voiceLangT2Title(_ name: String) -> String { t("voicelang.t2Title").replacingOccurrences(of: "%@", with: name) }
     static var voiceLangT2Point1: String { t("voicelang.t2Point1") }
     static var voiceLangT2Point2: String { t("voicelang.t2Point2") }
     static var voiceLangT2Point3: String { t("voicelang.t2Point3") }
@@ -1823,7 +1823,7 @@ enum L10n {
     static var helpcardPreviewContinue: String { t("helpcard.previewContinue") }
     static var helpcardPreviewHint: String { t("helpcard.previewHint") }
     static var prefDateFormat: String { t("pref.dateFormat") }
-    static func immunizationDoseCount(_ n: Int) -> String { t("immunization.doseCount", n) }
+    static func immunizationDoseCount(_ n: Int) -> String { t("immunization.doseCount").replacingOccurrences(of: "%d", with: String(n)) }
     static var immunization_childPlanComing: String { t("immunization.childPlanComing") }
     static var helpTutorialTitle: String { t("help.tutorialTitle") }
     static var helpTopicGettingStarted: String { t("help.topicGettingStarted") }
@@ -1848,7 +1848,7 @@ enum L10n {
     static var helpVoice1: String { t("help.voice1") }
     static var helpVoice2: String { t("help.voice2") }
     static var helpVoiceSpeak: String { t("help.voiceSpeak") }
-    static func inventoryBarAccessibility(_ pct: Int) -> String { t("inventory.barAccessibility", pct) }
+    static func inventoryBarAccessibility(_ pct: Int) -> String { t("inventory.barAccessibility").replacingOccurrences(of: "%d", with: String(pct)) }
     static var prepExport: String { t("prep.export") }
     static var prepTrendSnapshot: String { t("prep.trendSnapshot") }
     static var reminder_planScheduleKind: String { t("reminder.planScheduleKind") }

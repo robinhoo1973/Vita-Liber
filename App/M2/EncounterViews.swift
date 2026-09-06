@@ -68,15 +68,22 @@ struct EncounterListView: View {
     @Environment(AppState.self) private var app
     @Environment(EncountersState.self) private var state
     @State private var showForm = false
+    /// §5.44 成员筛选（V3.72）
+    @State private var memberFilter: UUID?
+
+    private var filteredEncounters: [Encounter] {
+        guard let m = memberFilter else { return state.encounters }
+        return state.encounters.filter { $0.patientId == m }
+    }
 
     var body: some View {
         List {
-            if state.encounters.isEmpty {
+            if filteredEncounters.isEmpty {
                 ContentUnavailableView(L10n.encounterEmpty, systemImage: "stethoscope",
                                        description: Text(L10n.encounterEmptyHint))
                     .accessibilityIdentifier("SP-08.encounter.empty")
             } else {
-                ForEach(state.encounters) { enc in
+                ForEach(filteredEncounters) { enc in
                     NavigationLink {
                         EncounterDetailView(encounter: enc)
                     } label: {

@@ -37,7 +37,7 @@ public enum AppRoute: Hashable, Sendable, Codable {
     // ---- F8 观察 ----
     case observationCreate               // SP-14 三步流程
     case observationDetail(UUID)         // SP-14 详情/对比
-    case doctorShowcase(UUID)            // §5.8 就诊展示模式（V3.72 点亮）
+    case doctorShowcase(patientId: UUID) // §5.8 就诊展示模式（V3.72 点亮）
 
     // ---- F9 用药 ----
     case medicationPlan(UUID)            // SP-15 计划详情

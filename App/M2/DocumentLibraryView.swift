@@ -391,7 +391,7 @@ struct DocumentLibraryView: View {
 
     private var duplicateAlertBinding: Binding<Bool> {
         Binding(get: { state.pendingDuplicate != nil },
-                set: { if !$0 { Task { await state.resolveDuplicate(keepBoth: false) } } })
+                set: { if !$0 { Task { await state.resolveDuplicate(.keep) } } })
     }
 }
 
