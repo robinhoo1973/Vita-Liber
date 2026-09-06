@@ -123,18 +123,23 @@ final class M2Round2RegressionTests: XCTestCase {
     func test_物化窗口幂等且时区重锚不重复建行() async throws {
         let (store, meds, patient, med) = try await makeStore()
         let planId = UUID()
+        // 时钟确定性（CI 34045372069 实证）：逻辑剂量身份 = 本地日历日+序号——
+        // 真实时钟落在 +0800 午夜窗口（UTC 仍在前一日）时两日历时区日分叉，
+        // 同日剂量被判为异日新行。固定 12:00 UTC（= 20:00 +0800，两日历时区
+        // 同日）锚定，与预约四级触发点测试同款日历注入纪律。
+        let anchor = Date(timeIntervalSince1970: 1_800_014_400)   // 2027-01-15 12:00 UTC
         try await meds.createPlan(planId: planId, patientId: patient, medicationId: med,
                                   schedule: .fixed(times: ["08:00"]), status: .active,
-                                  startDate: Date(), endDate: nil)
-        let first = try await meds.materializeWindow(now: Date(), calendar: cal)
-        let again = try await meds.materializeWindow(now: Date(), calendar: cal)
+                                  startDate: anchor, endDate: nil)
+        let first = try await meds.materializeWindow(now: anchor, calendar: cal)
+        let again = try await meds.materializeWindow(now: anchor, calendar: cal)
         XCTAssertEqual(again, 0, "同窗口重复物化必须零新增（幂等）")
         XCTAssertGreaterThan(first, 0)
 
         // 换 UTC 日历（模拟时区变化）：同一逻辑剂量 ON CONFLICT 重锚，行数不变
         var utc = Calendar(identifier: .gregorian)
         utc.timeZone = TimeZone(identifier: "UTC")!
-        _ = try await meds.materializeWindow(now: Date(), calendar: utc)
+        _ = try await meds.materializeWindow(now: anchor, calendar: utc)
         let count = try await store.writer.read { db in
             try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM medication_dose_log WHERE plan_id = ?",
                              arguments: [planId.uuidString]) ?? 0
