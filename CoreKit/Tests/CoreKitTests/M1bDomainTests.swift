@@ -297,13 +297,27 @@ struct ReconcileTests {
     }
 
     @Test func 预约四级触发点反算() {
-        let startsAt = Date(timeIntervalSince1970: 1_800_000_000)
+        // 时区确定性（CI 34019241962 实证）：本测试对时区敏感——day 层 dayHour=9
+        // 相对预约时刻的先后取决于日历时区，UTC 跑机上 Calendar.current 与开发机
+        // （+0800）不一致会翻转断言。规则接受 calendar 注入（生产用设备本地日历），
+        // 测试注入固定日历并覆盖 UTC 与 +0800 两种时区。
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
+        var cn = Calendar(identifier: .gregorian)
+        cn.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+
+        // 预约时刻选在两种时区下都晚于 dayHour（09:00）：UTC 12:00 / +0800 20:00
+        let startsAt = Date(timeIntervalSince1970: 1_800_014_400)   // 2027-01-15 12:00 UTC
         let now = startsAt.addingTimeInterval(-30 * 86400)
-        let dates = AppointmentRules.tierFireDates(startsAt: startsAt, tiers: AppointmentTier.defaults, now: now)
+        let dates = AppointmentRules.tierFireDates(startsAt: startsAt, tiers: AppointmentTier.defaults, now: now, calendar: utc)
         #expect(dates.count == 4)
+        let datesCN = AppointmentRules.tierFireDates(startsAt: startsAt, tiers: AppointmentTier.defaults, now: now, calendar: cn)
+        #expect(datesCN.count == 4)
         // 已过期层级不补发
         let lateNow = startsAt.addingTimeInterval(-1 * 3600)
-        let datesLate = AppointmentRules.tierFireDates(startsAt: startsAt, tiers: AppointmentTier.defaults, now: lateNow)
+        let datesLate = AppointmentRules.tierFireDates(startsAt: startsAt, tiers: AppointmentTier.defaults, now: lateNow, calendar: utc)
         #expect(datesLate.isEmpty)   // 全部层级已过期
+        let datesLateCN = AppointmentRules.tierFireDates(startsAt: startsAt, tiers: AppointmentTier.defaults, now: lateNow, calendar: cn)
+        #expect(datesLateCN.isEmpty)
     }
 }
