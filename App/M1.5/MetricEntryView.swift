@@ -27,7 +27,7 @@ struct MetricQuickEntryView: View {
     @FocusState private var focusField: Bool
 
     private let metrics: [MetricType] = [.bloodPressureSys, .glucose, .weight,
-                                         .heartRate, .bloodOxygen]
+                                         .temperature, .heartRate, .bloodOxygen]
 
     var body: some View {
         NavigationStack {
@@ -117,6 +117,11 @@ struct MetricQuickEntryView: View {
                 Text(entryError ?? "")
             }
             .onAppear {
+                // §5.13 记忆上次选择（V3.72）：此前恒为血糖，六类指标每次都要重选
+                if let last = UserDefaults.standard.string(forKey: "metric.lastSelected"),
+                   let m = MetricType(rawValue: last) {
+                    metric = m
+                }
                 // 单位记忆（FR7.8：每种指标记忆上次单位）
                 unitText = state.rememberedUnit(for: metric)
                 // FR17.9 面板确认草稿预填（AppRouter.pendingVoiceDraft 一次性投递）
@@ -128,6 +133,7 @@ struct MetricQuickEntryView: View {
             }
             .onChange(of: metric) { _, newMetric in
                 unitText = state.rememberedUnit(for: newMetric)
+                UserDefaults.standard.set(newMetric.rawValue, forKey: "metric.lastSelected")
             }
             .onDisappear { routeMonitor.stop() }
             // FR17.13-entry：指标语音草稿 —— 统一确认模板，不自建确认逻辑

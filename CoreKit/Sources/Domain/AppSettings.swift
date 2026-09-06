@@ -107,6 +107,24 @@ public enum SettingsRules {
         stored ?? key.defaultValue
     }
 
+    /// 日期格式 tag ↔ 存储值（FR14.7/§5.19）：tag 供 UI 选择器（无本地化格式串
+    /// 进入视图层），值存 app_settings；单一映射维护（V3.72）
+    public static func dateFormatTag(of value: String) -> String {
+        switch value {
+        case "yyyy年M月d日": return "ymd"
+        case "M月d日": return "md"
+        default: return "iso"
+        }
+    }
+
+    public static func dateFormatValue(of tag: String) -> String {
+        switch tag {
+        case "ymd": return "yyyy年M月d日"
+        case "md": return "M月d日"
+        default: return "yyyy-MM-dd"
+        }
+    }
+
     /// 追溯语义（FR14.7）：默认类设置只影响新建项——修改默认值不回溯既有数据
     public static func appliesToExisting(_ key: AppSettingKey) -> Bool {
         switch key {

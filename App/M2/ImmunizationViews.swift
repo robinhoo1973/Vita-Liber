@@ -11,6 +11,17 @@ struct ImmunizationListView: View {
     var onCreate: ((String, Int, Date?, String, String) -> Void)?
     @State private var showCreate = false
 
+    /// 按疫苗名分组（保序：首次出现顺序）
+    private var groupedRecords: [(name: String, records: [ImmunizationStore.Record])] {
+        var order: [String] = []
+        var map: [String: [ImmunizationStore.Record]] = [:]
+        for r in records {
+            if map[r.vaccineName] == nil { order.append(r.vaccineName) }
+            map[r.vaccineName, default: []].append(r)
+        }
+        return order.map { (name: $0, records: map[$0] ?? []) }
+    }
+
     var body: some View {
         List {
             if records.isEmpty {
@@ -18,24 +29,40 @@ struct ImmunizationListView: View {
                                        description: Text(L10n.immunization_emptyHint))
                     .accessibilityIdentifier("FR4.5.immunization.empty")
             } else {
-                ForEach(records) { record in
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text(record.vaccineName).font(.headline)
-                            Spacer()
-                            GradeBadgeText(confirmed: record.confirmed)
+                // §5.31 按疫苗分组 + 剂次进度（V3.72）：已接 n 剂；应接 N 由用户登记
+                //（本版以「已接剂次数」呈现，不判定漏种——FR4.6 边界）
+                ForEach(groupedRecords, id: \.name) { group in
+                    Section {
+                        ForEach(group.records) { record in
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Text(L10n.doseNumber(record.doseNumber)).font(.subheadline)
+                                    Spacer()
+                                    GradeBadgeText(confirmed: record.confirmed)
+                                }
+                                Text(record.administeredAt.map { $0.formatted(date: .abbreviated, time: .omitted) } ?? "")
+                                    .font(.caption).foregroundStyle(.secondary)
+                                if !record.provider.isEmpty || !record.lotNumber.isEmpty {
+                                    Text("\(record.provider)\(record.lotNumber.isEmpty ? "" : L10n.immunizationLot(record.lotNumber))")
+                                        .font(.caption2).foregroundStyle(.secondary)
+                                }
+                            }
+                            .padding(.vertical, 2)
+                            .accessibilityElement(children: .combine)
+                            .accessibilityIdentifier("FR4.5.immunization.row")
                         }
-                        Text(L10n.doseNumber(record.doseNumber)
-                             + (record.administeredAt.map { " · \($0.formatted(date: .abbreviated, time: .omitted))" } ?? ""))
-                            .font(.subheadline).foregroundStyle(.secondary)
-                        if !record.provider.isEmpty || !record.lotNumber.isEmpty {
-                            Text("\(record.provider)\(record.lotNumber.isEmpty ? "" : L10n.immunizationLot(record.lotNumber))")
-                                .font(.caption).foregroundStyle(.secondary)
+                    } header: {
+                        LabeledContent(L10n.immunizationDoseCount(group.records.count)) {
+                            Text(group.name)
                         }
                     }
-                    .padding(.vertical, 2)
-                    .accessibilityElement(children: .combine)
-                    .accessibilityIdentifier("FR4.5.immunization.row")
+                }
+                // L3 常驻微文案 + 儿童免疫计划置灰占位（§5.31）
+                Section {
+                    Text(L10n.immunization_note)
+                        .font(.caption2).foregroundStyle(.secondary)
+                    Text(L10n.immunization_childPlanComing)
+                        .font(.caption2).foregroundStyle(.tertiary)
                 }
             }
         }

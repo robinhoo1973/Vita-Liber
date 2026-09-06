@@ -997,6 +997,16 @@
 "doc.duplicateReplace" = "替換";
 "doc.duplicateNeverAutoDelete" = "絕不自動刪除，替換=封存舊版";
 "doc.untitled" = "未命名資料";
+"onboard.skipped" = "跳過";
+"helpcard.previewTitle" = "發送前預覽";
+"helpcard.previewContinue" = "繼續發送";
+"helpcard.previewHint" = "純文字，不含敏感圖片；含行動指引、有效期與回執提示";
+"pref.dateFormat" = "日期格式";
+"pref.dateFormatYMD" = "2026年9月5日";
+"pref.dateFormatMD" = "9月5日";
+"pref.dateFormatISO" = "2026-09-05";
+"immunization.doseCount" = "已接種 %d 劑";
+"immunization.childPlanComing" = "兒童免疫接種計劃 · 即將推出";
 "ocr.field.title" = "標題";
 "ocrQueue.empty" = "暫無待確認欄位";
 "ocrQueue.emptyHint" = "全部辨識欄位已處理。新辨識的藥名、劑量、日期會先出現在這裡，確認後才生效。";

@@ -1818,6 +1818,16 @@ enum L10n {
     static var docDuplicateReplace: String { t("doc.duplicateReplace") }
     static var docDuplicateNeverAutoDelete: String { t("doc.duplicateNeverAutoDelete") }
     static var docUntitled: String { t("doc.untitled") }
+    static var onboard_skipped: String { t("onboard.skipped") }
+    static var helpcardPreviewTitle: String { t("helpcard.previewTitle") }
+    static var helpcardPreviewContinue: String { t("helpcard.previewContinue") }
+    static var helpcardPreviewHint: String { t("helpcard.previewHint") }
+    static var prefDateFormat: String { t("pref.dateFormat") }
+    static var prefDateFormatYMD: String { t("pref.dateFormatYMD") }
+    static var prefDateFormatMD: String { t("pref.dateFormatMD") }
+    static var prefDateFormatISO: String { t("pref.dateFormatISO") }
+    static func immunizationDoseCount(_ n: Int) -> String { t("immunization.doseCount", n) }
+    static var immunization_childPlanComing: String { t("immunization.childPlanComing") }
     static var ocrQueueTitle: String { t("ocrQueue.title") }
     static var ocrQueueEmpty: String { t("ocrQueue.empty") }
     static var ocrQueueEmptyHint: String { t("ocrQueue.emptyHint") }

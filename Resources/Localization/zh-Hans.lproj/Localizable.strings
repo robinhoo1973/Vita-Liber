@@ -997,6 +997,16 @@
 "doc.duplicateReplace" = "替换";
 "doc.duplicateNeverAutoDelete" = "绝不自动删除，替换=归档旧版";
 "doc.untitled" = "未命名资料";
+"onboard.skipped" = "跳过";
+"helpcard.previewTitle" = "发送前预览";
+"helpcard.previewContinue" = "继续发送";
+"helpcard.previewHint" = "纯文本，不含敏感图片；含行动指引、有效期与回执提示";
+"pref.dateFormat" = "日期格式";
+"pref.dateFormatYMD" = "2026年9月5日";
+"pref.dateFormatMD" = "9月5日";
+"pref.dateFormatISO" = "2026-09-05";
+"immunization.doseCount" = "已接种 %d 剂";
+"immunization.childPlanComing" = "儿童免疫接种计划 · 即将推出";
 "ocr.field.title" = "标题";
 "ocrQueue.empty" = "暂无待确认字段";
 "ocrQueue.emptyHint" = "全部识别字段已处理。新识别的药名、剂量、日期会先出现在这里，确认后才生效。";

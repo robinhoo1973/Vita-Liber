@@ -35,6 +35,23 @@ struct PreferencesView: View {
             } footer: {
                 Text(L10n.prefReadbackHint)
             }
+            // §5.19 显示与单位组（V3.72 恢复接线项）：日期格式——消费点 =
+            // 时间轴/全局搜索格式化出口（dateFormat 读取点随 W4 批逐一接线，
+            // 本项先行恢复 UI 与存储语义）
+            Section {
+                Picker(selection: Binding(
+                    get: { SettingsRules.dateFormatTag(of: settings.values[.dateFormat] ?? AppSettingKey.dateFormat.defaultValue) },
+                    set: { v in Task { await settings.set(SettingsRules.dateFormatValue(of: v), for: .dateFormat) } }
+                )) {
+                    Text(L10n.prefDateFormatYMD).tag("ymd")
+                    Text(L10n.prefDateFormatMD).tag("md")
+                    Text(L10n.prefDateFormatISO).tag("iso")
+                } label: {
+                    LabeledContent(L10n.prefDateFormat) {
+                        Text(L10n.prefTagGlobal)
+                    }
+                }
+            }
             // 恢复默认（逐项）
             Section {
                 Button(L10n.prefRestoreAll) {

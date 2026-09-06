@@ -6,7 +6,23 @@ struct OnboardingFlowView: View {
     @Environment(AppState.self) private var app
 
     var body: some View {
-        switch app.stage {
+        // §5.62 六步进度条（V3.72）：已跳过步骤打「跳过」徽标
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                ForEach(0..<6, id: \.self) { idx in
+                    Capsule()
+                        .fill(idx <= stepIndex
+                              ? Color("brand-primary", bundle: .main)
+                              : Color(.systemGray5))
+                        .frame(height: 4)
+                }
+                if skippedIndex == 4 {
+                    Text(L10n.onboard_skipped)
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 20).padding(.vertical, 8)
+            switch app.stage {
         case .disclosure(let i):
             if i < app.disclosureCards.count {
                 DisclosureCardsView(card: app.disclosureCards[i])
@@ -30,6 +46,26 @@ struct OnboardingFlowView: View {
         case .done:
             EmptyView()
         }
+        }
+    }
+
+    /// 六步映射：三卡/本人档案/添加家人/拍摄/确认/时间轴（首日引导不计入）
+    private var stepIndex: Int {
+        switch app.stage {
+        case .disclosure: return 0
+        case .ownerName: return 1
+        case .addFamily: return 2
+        case .scanCapture, .ocrConfirm: return 3
+        case .timeline, .firstDayActions, .done: return 5
+        }
+    }
+
+    /// 被跳过的步骤位置（无跳过时 = 不渲染徽标）
+    private var skippedIndex: Int? {
+        if app.stage == .timeline || app.stage == .firstDayActions || app.stage == .done {
+            return 4   // 未拍摄确认直接完成时在「确认」位打跳过
+        }
+        return nil
     }
 }
 

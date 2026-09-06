@@ -997,6 +997,16 @@
 "doc.duplicateReplace" = "Replace";
 "doc.duplicateNeverAutoDelete" = "Never auto-deleted — replace archives the old version";
 "doc.untitled" = "Untitled";
+"onboard.skipped" = "Skipped";
+"helpcard.previewTitle" = "Preview";
+"helpcard.previewContinue" = "Continue";
+"helpcard.previewHint" = "Plain text, no sensitive images; includes action guidance, validity and receipt notice";
+"pref.dateFormat" = "Date format";
+"pref.dateFormatYMD" = "Sep 5, 2026";
+"pref.dateFormatMD" = "Sep 5";
+"pref.dateFormatISO" = "2026-09-05";
+"immunization.doseCount" = "%d doses received";
+"immunization.childPlanComing" = "Child immunization plan · Coming soon";
 "ocrQueue.empty" = "No pending fields";
 "ocrQueue.emptyHint" = "All recognized fields are handled. Newly recognized medication names, doses and dates appear here first and only take effect after confirmation.";
 "ocrQueue.countFmt" = "%d fields pending";

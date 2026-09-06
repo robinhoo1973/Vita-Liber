@@ -52,10 +52,9 @@ struct InventoryHubView: View {
                       contentType: .commaSeparatedText,
                       defaultFilename: L10n.helpcard_defaultFilename) { _ in }
         .sheet(isPresented: $showShareHost) {
-            // FR9.13a/FR24.1：收件人由用户显式选择（急救卡已确认联系人优先，
-            // 可手输）；位置照片默认不含（photoAttachments 为空——需显式勾选 P1）
-            HelpCardRecipientSheet(text: shareText,
-                                   contacts: hub.emergencySelected.contacts.map(\.title)) { recipient in
+            // FR24.1 发送前模板预览（V3.72）：所见即所得，确认后再选收件人
+            HelpCardSendHost(text: shareText,
+                             contacts: hub.emergencySelected.contacts.map(\.title)) { recipient in
                 Task {
                     await hub.recordSent(patientId: currentPatientId,
                                          kind: "helpCard", recipient: recipient)
@@ -258,4 +257,45 @@ struct GuidelineHubView: View {
     }
 
     private var currentPatientId: UUID { app.currentPatientId }
+}
+
+/// FR24.1 发送前预览 + 收件人选择（V3.72）：第一步所见即所得预览
+/// （纯文本、行动指引、有效期、回执提示），确认后进入收件人选择。
+struct HelpCardSendHost: View {
+    let text: String
+    let contacts: [String]
+    let onSend: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var confirmed = false
+
+    var body: some View {
+        Group {
+            if confirmed {
+                HelpCardRecipientSheet(text: text, contacts: contacts, onSend: onSend)
+            } else {
+                NavigationStack {
+                    ScrollView {
+                        Text(text)
+                            .font(.body)
+                            .padding(16)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .navigationTitle(L10n.helpcardPreviewTitle)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button(L10n.commonCancel) { dismiss() }
+                        }
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button(L10n.helpcardPreviewContinue) { confirmed = true }
+                        }
+                    }
+                    .safeAreaInset(edge: .bottom) {
+                        Text(L10n.helpcardPreviewHint)
+                            .font(.caption2).foregroundStyle(.secondary)
+                            .padding(8)
+                    }
+                }
+            }
+        }
+    }
 }
