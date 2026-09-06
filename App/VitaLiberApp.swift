@@ -68,16 +68,14 @@ struct VitaLiberApp: App {
             args.contains("-uitest-transcription-stub")
             ? StubTranscriptionEngine(capability: .baseline(), scripted: ["这是一段测试听写文本"])
             : nil
-        let captureStub: (any DocumentCapture)? =
-            args.contains("-uitest-camera-fixture") ? FakeOcrProvider(fixture: true) : nil
+        // V3.39：-uitest-camera-fixture 样张注入退役——首启向导不再含拍摄/OCR 步，
+        // BR-003 闸门覆盖由单元/验收测试直接注入 FakeOcrProvider（M1aAcceptanceTests）。
         #else
         let gateUnlocker: (any GateUnlocking)? = nil
         let transcriptionStub: (any TranscriptionEngine)? = nil
-        let captureStub: (any DocumentCapture)? = nil
         #endif
         _appState = State(initialValue: AppState(
             persistor: container.persistor,
-            capture: captureStub,
             transcription: transcriptionStub,
             gateUnlocker: gateUnlocker,
             audit: container.audit,

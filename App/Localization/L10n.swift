@@ -364,25 +364,18 @@ enum L10n {
 
     static var onboard_yourName: String { t("onboard.yourName") }
     static var onboard_saveEdit: String { t("onboard.saveEdit") }
-    static var onboard_timelineTitle: String { t("onboard.timelineTitle") }
     static var onboard_confirmAllTimeline: String { t("onboard.confirmAllTimeline") }
     static var onboard_createContinue: String { t("onboard.createContinue") }
     static var onboard_cancel: String { t("onboard.cancel") }
     static var onboard_finishEnterApp: String { t("onboard.finishEnterApp") }
-    static var onboard_aimPrescription: String { t("onboard.aimPrescription") }
     static var onboard_confirmed: String { t("onboard.confirmed") }
     static var onboard_buildProfile: String { t("onboard.buildProfile") }
-    static var onboard_scanSample: String { t("onboard.scanSample") }
-    static var onboard_capturePrescription: String { t("onboard.capturePrescription") }
-    static var onboard_trendTitle: String { t("onboard.trendTitle") }
     static var onboard_newValue: String { t("onboard.newValue") }
     static var onboard_ocrDisclaimer: String { t("onboard.ocrDisclaimer") }
     static var onboard_gotIt: String { t("onboard.gotIt") }
     static var onboard_confirm: String { t("onboard.confirm") }
-    static var onboard_timelineHint: String { t("onboard.timelineHint") }
     static var onboard_confirmResult: String { t("onboard.confirmResult") }
     static var onboard_later: String { t("onboard.later") }
-    static var onboard_voiceNote: String { t("onboard.voiceNote") }
     static var onboard_ownerNote: String { t("onboard.ownerNote") }
     static var onboard_unconfirmedBadge: String { t("onboard.unconfirmedBadge") }
     static var onboardBoundaryTitle: String { t("onboard.boundaryTitle") }
@@ -458,12 +451,6 @@ enum L10n {
     }
     static func onboardTierUnconfirmed(_ tier: String) -> String {
         t("onboard.tierUnconfirmed").replacingOccurrences(of: "%@", with: tier)
-    }
-    static func onboardConfirmedCount(_ a: Int, _ b: Int) -> String {
-        String(format: t("onboard.confirmedCount"), a, b)
-    }
-    static func onboardRevisionHistory(_ history: String) -> String {
-        t("onboard.revisionHistory").replacingOccurrences(of: "%@", with: history)
     }
     static var onboard_sourceConfirmed: String { t("onboard.sourceConfirmed") }
     static var onboard_unconfirmed2: String { t("onboard.unconfirmed2") }
@@ -675,7 +662,6 @@ enum L10n {
     static var docTitleSection: String { t("doc.titleSection") }
     static var docDate: String { t("doc.date") }
     static var docHistorySection: String { t("doc.historySection") }
-    static var onboard_observationAdd: String { t("onboard.observationAdd") }
 
     // MARK: - L10n 清偿批五 · Pro 产出预览（F23）
     static func proPreviewNote(_ product: String) -> String {
@@ -1928,7 +1914,6 @@ enum L10n {
     static var docDuplicateReplace: String { t("doc.duplicateReplace") }
     static var docDuplicateNeverAutoDelete: String { t("doc.duplicateNeverAutoDelete") }
     static var docUntitled: String { t("doc.untitled") }
-    static var onboard_skipped: String { t("onboard.skipped") }
     static var helpcardPreviewTitle: String { t("helpcard.previewTitle") }
     static var helpcardPreviewContinue: String { t("helpcard.previewContinue") }
     static var helpcardPreviewHint: String { t("helpcard.previewHint") }
@@ -2119,7 +2104,7 @@ enum L10n {
     static var lifecycleLogout: String { t("lifecycle.logout") }
     static var lifecycleLogoutHint: String { t("lifecycle.logoutHint") }
 
-    // MARK: - FR21.9 向导 ④ 添加家人 / ⑥ 首日引导
+    // MARK: - FR21.9 向导 ④ 添加家人（⑥ 首日引导 V3.39 起由首页空态引导卡承载，不再占用向导步骤）
     static var onboardAddFamilyTitle: String { t("onboard.addFamily.title") }
     static var onboardAddFamilyHint: String { t("onboard.addFamily.hint") }
     static var onboardAddFamilyManual: String { t("onboard.addFamily.manual") }
@@ -2127,11 +2112,6 @@ enum L10n {
     static var onboardAddFamilyContactsP1: String { t("onboard.addFamily.contactsP1") }
     static var onboardAddFamilySkip: String { t("onboard.addFamily.skip") }
     static var onboardAddFamilyCompleteHint: String { t("onboard.addFamily.completeHint") }
-    static var onboardFirstDayTitle: String { t("onboard.firstDay.title") }
-    static var onboardFirstDayHint: String { t("onboard.firstDay.hint") }
-    static var onboardFirstDayCapture: String { t("onboard.firstDay.capture") }
-    static var onboardFirstDayReminder: String { t("onboard.firstDay.reminder") }
-    static var onboardFirstDayAI: String { t("onboard.firstDay.ai") }
 
     // MARK: - FR22.5 反馈 / FR24.2 发送状态 / FR9.13a 收件人
     static var feedbackTitle: String { t("feedback.title") }

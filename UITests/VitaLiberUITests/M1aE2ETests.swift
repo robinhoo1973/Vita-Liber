@@ -1,20 +1,23 @@
 import XCTest
 
-/// TC-M1a-01 端到端切片故事（test-plan-spec §4.2）：
-/// 三卡 → 建成员 → mock 相机注入处方样张 → OCR 字段逐一确认 → 时间轴可见（V3.22 无 PIN 步骤）。
-/// 门禁旁路 -uitest-gate-bypass：本会话视为已认证，避免 finish 后锁屏遮罩顶掉断言。
+/// TC-M1a-01 端到端切片故事（test-plan-spec §4.2，随 function-spec V3.39 简化向导对齐）：
+/// 三卡 → 建成员「本人」→ 添加家人步（可跳过）→ 向导完成 → 首页空态引导卡呈现。
+/// V3.39：向导不再包含 mock 相机样张/OCR 字段确认/时间轴步骤——BR-003 确认闸门与
+/// 字段级确认/修订语义由 M1aAcceptanceTests 在单元层覆盖（FakeOcrProvider 直注 AppState）；
+/// 生产资料采集走 SP-11 快速拍摄/SP-10 资料库管线（XCUITest 无法驱动相机/相册picker，归 L2）。
+/// 门禁旁路 -uitest-gate-bypass：本会话视为已认证，避免完成后锁屏遮罩顶掉断言。
 /// waitForExistence 显式等待，禁止 sleep（test-plan §4.2 明令）。
 // binds: SU-M1a-E2E / SU-M1a-SEC — TC-M1a-01/02
 final class M1aE2ETests: XCTestCase {
 
     private func launchFresh() -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["-uitest-reset", "-uitest-camera-fixture", "-uitest-gate-bypass"]
+        app.launchArguments = ["-uitest-reset", "-uitest-gate-bypass"]
         app.launch()
         return app
     }
 
-    func test_SU_M1a_E2E_端到端切片故事_建档OCR确认时间轴() throws {
+    func test_SU_M1a_E2E_端到端切片故事_三卡建档家人完成进首页() throws {
         let app = launchFresh()
 
         // L1 首启三卡
@@ -31,49 +34,20 @@ final class M1aE2ETests: XCTestCase {
         nameField.typeText("王女士")
         app.buttons["SP-06.owner.create"].tap()
 
-        // FR21.9 ④ 添加家人（可跳过）：V3.72 六步编排在建档与拍摄之间新增
-        // 本步——E2E 切片不含家人场景，跳过进入拍摄（CI 34021989599 实证：
-        // 建成员后停在 AddFamily 步，SP-07 不出现）
+        // FR21.9 ④ 添加家人（可跳过）：V3.39 起为向导最后一步——跳过即完成向导
         let skipFamily = app.buttons["FR21.9.step4.skip"]
         XCTAssertTrue(skipFamily.waitForExistence(timeout: 5), "建档后必须呈现添加家人步")
         skipFamily.tap()
 
-        // 拍摄（mock 相机注入处方样张）
-        let capture = app.buttons["SP-07.scan.capture"]
-        XCTAssertTrue(capture.waitForExistence(timeout: 5))
-        capture.tap()
+        // 回归护栏：向导内绝不再出现强制拍摄步（M1a 切片残留）
+        let legacyScan = app.buttons["SP-07.scan.capture"]
+        XCTAssertFalse(legacyScan.waitForExistence(timeout: 2),
+                       "V3.39：首启向导不再含拍摄/OCR 步骤")
 
-        // OCR 字段确认 → 改一条字段留修订历史（FR6.4 退出准则步骤）
-        let commit = app.buttons["SP-53.ocr.commit"]
-        // 剂量字段：确认 → 修改 → 保存（旧值入修订历史）
-        let confirmDosage = app.buttons["SP-53.field.confirm.dosage"]
-        XCTAssertTrue(confirmDosage.waitForExistence(timeout: 5))
-        confirmDosage.tap()
-        let editDosage = app.buttons["SP-53.field.edit.dosage"]
-        XCTAssertTrue(editDosage.waitForExistence(timeout: 5), "确认后必须出现修改入口")
-        editDosage.tap()
-        let editField = app.textFields["SP-53.field.editField"]
-        XCTAssertTrue(editField.waitForExistence(timeout: 5))
-        editField.tap()
-        editField.typeText("每日两次")
-        app.buttons["SP-53.field.editSave"].tap()
-        // 其余字段逐一确认（BR-003：未全部确认前 commit 不可用）
-        for key in ["drug_name", "title"] {
-            let confirmField = app.buttons["SP-53.field.confirm.\(key)"]
-            XCTAssertTrue(confirmField.waitForExistence(timeout: 5), "字段 \(key) 必须呈现")
-            confirmField.tap()
-        }
-        XCTAssertTrue(commit.waitForExistence(timeout: 5), "全部确认后 commit 可用")
-        commit.tap()
-
-        // 时间轴可见该文档（List 行是 cell 元素；用 descendants(.any) 容忍类型差异）
-        let entry = app.descendants(matching: .any)["SP-10.timeline.entry"].firstMatch
-        XCTAssertTrue(entry.waitForExistence(timeout: 8), "确认后的文档必须进入时间轴正式区")
-
-        // 完成设置
-        let finish = app.buttons["SP-01.onboarding.finish"]
-        XCTAssertTrue(finish.waitForExistence(timeout: 5))
-        finish.tap()
+        // 向导完成 → 首页空态引导卡（首日引导三任务由 SP-04 首页承载：建档/拍第一份资料/设第一个提醒）
+        let guide = app.descendants(matching: .any)["SP-04.home.emptyGuide"].firstMatch
+        XCTAssertTrue(guide.waitForExistence(timeout: 8),
+                      "完成向导后必须呈现首页空态引导卡（首日引导改由首页承载）")
     }
 
     /// FR1.4：冷启动/退后台回前台必见锁屏；系统认证成功（桩注入）后回到主界面。

@@ -11,16 +11,17 @@ import Protocols
 ///   UserDefaults 仅承载 UI 瞬态与偏好——「窄实现」窄化能力，不换存储介质；
 /// - 门禁（V3.22）= 系统设备所有者认证（FR1.1）：GateUnlocking 协议注入，
 ///   生产实现 LocalAuthGateUnlocker（Infrastructure），无应用内 PIN 与节流阶梯；
-/// - 假 OCR 收敛到 FakeOcrProvider（DocumentCapture 协议），生产代码无 -uitest 分支。
+/// - 假 OCR 收敛到 FakeOcrProvider（DocumentCapture 协议，仅测试注入）；
+///   首启向导不含拍摄/OCR 步骤（V3.39 FR21.9 简化：三卡 → 建档 → 家人 → 完成，
+///   资料采集走 SP-11/SP-10 生产管线由用户主动触发，首日引导由首页空态卡承载）。
 @MainActor
 @Observable
 final class AppState {
+    /// FR21.9（V3.39 简化）：向导状态机仅保留与初始化用户信息直接相关的步骤。
     enum OnboardingStage: Equatable {
         case disclosure(index: Int)
         case ownerName
         case addFamily          // FR21.9 ④（可选，可跳过）
-        case scanCapture, ocrConfirm, timeline
-        case firstDayActions    // FR21.9 ⑥ 首日引导（全部可跳过）
         case done
     }
 
@@ -266,9 +267,10 @@ final class AppState {
         stage = .addFamily      // FR21.9：建档后进 ④ 添加家人（可跳过）
     }
 
-    /// FR21.9 ④ 添加家人（可跳过，跳过直接进拍摄）
+    /// FR21.9 ④ 添加家人（可跳过）——向导最后一步，完成即结束首启流程
+    ///（V3.39：不再强制拍摄样张；首日引导由首页空态引导卡 SP-04 承载）。
     func finishAddFamilyStep() {
-        stage = .scanCapture
+        finishOnboarding()
     }
 
     /// FR21.9：建档可跳过——以「本人」占位，稍后在设置中修改。
@@ -292,15 +294,13 @@ final class AppState {
     private(set) var pendingOriginalURL: URL?
     private let originalsBaseDir: URL
 
-    /// 测试桩拍摄入口（XCUITest 假样张；生产无桩时不可达）
-    var hasTestCapture: Bool { captureProvider != nil }
-
+    /// 测试桩样张入口（验收/单元测试注入 FakeOcrProvider 驱动 BR-003 闸门用例；
+    /// 首启向导不再含拍摄步（V3.39），生产 UI 不经由此路径）
     func captureSample() {
         guard let captureProvider else { return }
         Task {
             do {
                 activeSet = try await captureProvider.capture()
-                stage = .ocrConfirm      // activeSet 先于 stage 赋值（UI 渲染竞态修正）
             } catch {
                 logger.error("拍摄管线失败: \(error)")
             }
@@ -340,7 +340,7 @@ final class AppState {
             }
             pendingOriginalURL = originalURL
             activeSet = OcrConfirmationSet(fields: fields)   // confirm-ok: F6 OCR 确认集是合法产出方（非语音路径），FR17.13 只约束语音草稿确认
-            stage = .ocrConfirm
+            // V3.39：确认工作台的呈现由调用方驱动（SP-12 路由），不再写入向导状态机
             return true
         } catch {
             logger.error("拍摄管线失败: \(error)")
@@ -413,7 +413,7 @@ final class AppState {
         }
         activeSet = nil
         pendingOriginalURL = nil   // 原件已随 entry 归档（路径入 meta_json），仅清会话引用
-        stage = .timeline
+        // V3.39：入库后导航由调用方驱动（确认集引擎与向导状态机解耦）
     }
 
     // MARK: - FR6.8 SP-53 待确认字段聚合队列（跨文档）
@@ -483,11 +483,6 @@ final class AppState {
         onboardingFinished = true
         defaults.set(true, forKey: "onboardingFinished")
         stage = .done
-    }
-
-    /// FR21.9 ⑥ 首日行动卡（全部可跳过——点击进入对应流程并继续完成向导）
-    func finishFirstDayActions() {
-        finishOnboarding()
     }
 
     // MARK: - F3 成员管理（FR3.7 添加家人）

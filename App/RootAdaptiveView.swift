@@ -220,8 +220,7 @@ private struct PreviewRoot: View {
             fatalError("Preview container assembly failed (in-memory DB unavailable): \(error)")
         }
         container = assembled
-        appState = AppState(persistor: assembled.persistor,
-                            capture: FakeOcrProvider(fixture: false))
+        appState = AppState(persistor: assembled.persistor)
     }
 
     var body: some View {
