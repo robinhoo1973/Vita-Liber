@@ -2,6 +2,7 @@
 # Workflow 执行记录清理
 #
 # 定时清理：只保留每个 workflow 最近一次成功的执行记录，其余全部删除。
+# 包括已删除的 workflow 的历史记录也会被清理。
 # 调度：中国时间每天凌晨 0:00（UTC 16:00）
 # ============================================================================
 name: Cleanup Workflow Runs
@@ -31,48 +32,56 @@ jobs:
           echo "仓库: $REPO"
           echo ""
 
+          # ── 第1步：收集所有现存 workflow 名称 ──
+          EXISTING_WFS=$(gh api "repos/$REPO/actions/workflows" \
+            --jq '.workflows[].name' 2>/dev/null)
+
+          # ── 第2步：拉取所有已完成的 run，按 workflow 分组 ──
+          ALL_RUNS_FILE=$(mktemp)
+          gh run list \
+            --repo "$REPO" \
+            --status completed \
+            --limit 500 \
+            --json databaseId,name,conclusion,createdAt \
+            2>/dev/null > "$ALL_RUNS_FILE"
+
+          # 按 workflow name 分组（用临时文件）
+          GROUP_DIR=$(mktemp -d)
+          jq -r '.[] | "\(.name)\t\(.databaseId)\t\(.conclusion)\t\(.createdAt)"' \
+            "$ALL_RUNS_FILE" | while IFS=$'\t' read -r WF_NAME RUN_ID CONCLUSION CREATED_AT; do
+            echo "$RUN_ID" >> "$GROUP_DIR/$WF_NAME"
+          done
+
           TOTAL_DELETED=0
           TOTAL_KEPT=0
 
-          # 获取所有 workflow 文件名
-          WORKFLOW_FILES=$(gh api "repos/$REPO/actions/workflows" \
-            --jq '.workflows[].path' 2>/dev/null)
-
-          if [ -z "$WORKFLOW_FILES" ]; then
-            echo "未找到任何 workflow"
-            exit 0
-          fi
-
-          while IFS= read -r WF_PATH; do
-            WF_NAME=$(basename "$WF_PATH")
+          # ── 第3步：遍历每个 workflow（包括已删除的） ──
+          for WF_FILE in "$GROUP_DIR"/*; do
+            WF_NAME=$(basename "$WF_FILE")
             echo "── $WF_NAME ──"
 
-            # 找最近一次成功的 run ID
-            LATEST_SUCCESS_ID=$(gh run list \
-              --repo "$REPO" \
-              --workflow "$WF_NAME" \
-              --status completed \
-              --limit 200 \
-              --json databaseId,conclusion,createdAt \
-              --jq '[.[] | select(.conclusion == "success")] | sort_by(.createdAt) | last | .databaseId' \
-              2>/dev/null)
+            # 找该 workflow 最近一次成功的 run
+            LATEST_SUCCESS_ID=$(jq -r \
+              --arg wf "$WF_NAME" \
+              '[.[] | select(.name == $wf and .conclusion == "success")] |
+               sort_by(.createdAt) | last | .databaseId // empty' \
+              "$ALL_RUNS_FILE" 2>/dev/null)
 
-            if [ -z "$LATEST_SUCCESS_ID" ] || [ "$LATEST_SUCCESS_ID" = "null" ]; then
-              echo "  无成功记录，跳过"
+            # 如果没有成功记录，用最新的任何 run
+            if [ -z "$LATEST_SUCCESS_ID" ]; then
+              LATEST_SUCCESS_ID=$(jq -r \
+                --arg wf "$WF_NAME" \
+                '[.[] | select(.name == $wf)] |
+                 sort_by(.createdAt) | last | .databaseId // empty' \
+                "$ALL_RUNS_FILE" 2>/dev/null)
+            fi
+
+            if [ -z "$LATEST_SUCCESS_ID" ]; then
+              echo "  无任何记录，跳过"
               echo ""
               continue
             fi
             echo "  保留: #$LATEST_SUCCESS_ID"
-
-            # 获取所有已完成的 run ID（用临时文件避免子 shell 问题）
-            RUN_IDS_FILE=$(mktemp)
-            gh run list \
-              --repo "$REPO" \
-              --workflow "$WF_NAME" \
-              --status completed \
-              --limit 500 \
-              --json databaseId \
-              --jq '.[].databaseId' 2>/dev/null > "$RUN_IDS_FILE"
 
             DELETED=0
             KEPT=0
@@ -85,14 +94,16 @@ jobs:
                 echo "  删除: #$RUN_ID"
                 DELETED=$((DELETED + 1))
               fi
-            done < "$RUN_IDS_FILE"
-            rm -f "$RUN_IDS_FILE"
+            done < "$WF_FILE"
 
             TOTAL_DELETED=$((TOTAL_DELETED + DELETED))
             TOTAL_KEPT=$((TOTAL_KEPT + KEPT))
             echo "  本轮删除 $DELETED，保留 $KEPT"
             echo ""
-          done <<< "$WORKFLOW_FILES"
+          done
+
+          # ── 清理 ──
+          rm -rf "$ALL_RUNS_FILE" "$GROUP_DIR"
 
           echo "=== 清理完成 ==="
           echo "总计删除: $TOTAL_DELETED 条"
