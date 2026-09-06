@@ -203,6 +203,11 @@ final class M15AcceptanceTests: XCTestCase {
     /// 数据保留 + 外键清单含 plan_id → medication_plan（§11 清偿项）
     func test_v13_doseLog_重建补FK() async throws {
         let queue = try DatabaseQueue(configuration: GRDBStore.configuration())
+        // 合成 v12 老库必须覆盖 pending 链（v13→v15）会触碰的全部表：
+        // v13 重建 dose_log、v14 需 metric_sample 增列、v15 清 user_action IS NULL 行。
+        // 此行带 user_action='taken' 以在 v15 后存活（数据保留断言的前提）；
+        // plan_id 指向不存在的计划——验证孤儿行在 FK-off 重建中不被丢弃
+        // （CI 34020363188 实证：旧事务内重建会即时触发 FK 违规）。
         try await queue.write { db in
             try db.execute(sql: """
                 CREATE TABLE patient_profile (
@@ -218,8 +223,15 @@ final class M15AcceptanceTests: XCTestCase {
                   scheduled_for REAL NOT NULL, dose_units REAL NOT NULL DEFAULT 1,
                   delivery_state TEXT NOT NULL, delivered_at REAL, user_action TEXT,
                   acted_at REAL, snooze_until REAL, note TEXT);
-                INSERT INTO medication_dose_log (id, plan_id, scheduled_for, delivery_state)
-                  VALUES ('legacy-dose-1', 'orphan-plan', 1, 'planned');
+                CREATE TABLE metric_sample (
+                  id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+                  metric_key TEXT NOT NULL, value REAL NOT NULL, secondary_value REAL,
+                  unit TEXT NOT NULL, origin TEXT NOT NULL, self_measured INTEGER NOT NULL,
+                  excluded INTEGER NOT NULL DEFAULT 0, source_ref TEXT,
+                  measured_at REAL NOT NULL, created_at REAL NOT NULL);
+                INSERT INTO medication_dose_log (id, plan_id, scheduled_for, delivery_state,
+                                                user_action, delivered_at, acted_at)
+                  VALUES ('legacy-dose-1', 'orphan-plan', 1, 'delivered', 'taken', 1, 1);
                 PRAGMA user_version = 12;
                 """)
         }
