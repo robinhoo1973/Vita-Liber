@@ -123,7 +123,9 @@ struct PendingOcrQueueView: View {
     private func windowMatch(_ doc: DocumentStore.DocumentRow) -> Bool {
         switch windowFilter {
         case 1:
-            return doc.createdAt > Date().timeIntervalSince1970 - 3 * 86400
+            // Date 与 TimeInterval 不能直接比较（CI 34032245120 实证：
+            // Linux swiftc -parse 不查语义，类型错误仅 macOS 编译门禁可查）
+            return doc.createdAt > Date().addingTimeInterval(-3 * 86400)
         case 2:
             return isOver72h(doc)
         default:
