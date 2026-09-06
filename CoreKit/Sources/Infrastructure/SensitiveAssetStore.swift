@@ -166,11 +166,15 @@ public actor SensitiveAssetStore: SensitiveAssetStoring {
 
     /// relative_path → 注入 baseDir 下的绝对 URL（对账路径唯一出口——
     /// 第四轮全仓审查修复，见 reconcileUnreferenced）。
+    /// 第五轮全仓审查修复（防御纵深）：relative_path 只由本仓 UUID 拼接构造，
+    /// 但本函数产出的是**删除路径**——任何畸形值（DB 损坏/被篡改备份导入）
+    /// 含 ".."/空段时不得逃逸 baseDir 误删外部文件；不安全段直接丢弃。
     private func orphanFileURL(_ rel: String) -> URL {
         var components = rel.split(separator: "/").map(String.init)
         if let i = components.lastIndex(of: "sensitive") {
             components.removeFirst(i + 1)
         }
+        components = components.filter { !$0.isEmpty && $0 != "." && $0 != ".." }
         var url = baseDir
         for (j, c) in components.enumerated() {
             url.appendPathComponent(c, isDirectory: j < components.count - 1)

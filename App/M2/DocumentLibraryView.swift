@@ -401,16 +401,21 @@ final class DocumentsState {
 
     /// FR5.6/§5.52 三态裁决（V3.72）：保留已有（丢弃新）/两者并存/替换（归档旧版+存新版）。
     /// 绝不自动删除（归档=软删语义）。并存/替换同样经确认卡（返回草稿而非直接写库）。
+    /// 第五轮全仓审查修复（5WHY）：pendingDuplicate 的清理由调用方在草稿挂载后
+    /// 经 clearPendingDuplicate 显式执行——若在返回草稿前释放裁决槽（原 defer），
+    /// onChange(queueSlotFree) 会在 pendingDraft 赋值前放行串行队列，下一队列项
+    /// 完成后覆盖刚裁决出的草稿（用户选的并存/替换被静默丢弃）；同时 sheet
+    /// dismiss 触发的 .keep 任务会与选择任务竞速消费 pendingDuplicate。
     func resolveDuplicate(_ resolution: DuplicateResolution) async -> ImportDraft? {
-        defer { pendingDuplicate = nil; duplicateHits = [] }
-        // 第四轮全仓审查修复（5WHY）：归属用 pending 自带的 patientId（导入时
-        // 固化），绝不用 loadingPatientId——导入后裁决前切换成员/从未 load
-        // 时，草稿会被挂到错误成员名下或被静默丢弃且误报「已保存」。
         guard let pending = pendingDuplicate else { return nil }
         let patientId = pending.patientId
+        let hits = duplicateHits
         switch resolution {
         case .keep:
-            return nil   // 丢弃新文件——原件未被写入，无清理动作
+            // 丢弃新文件——原件未被写入，无清理动作；裁决槽同步释放
+            pendingDuplicate = nil
+            duplicateHits = []
+            return nil
         case .coexist, .replace:
             break
         }
@@ -419,7 +424,14 @@ final class DocumentsState {
                                 processedData: pending.processedData, mimeType: pending.mimeType,
                                 docType: pending.docType, title: pending.title,
                                 isSensitive: pending.isSensitive, origin: pending.origin, sha256: pending.sha256,
-                                replaceDocumentId: resolution == .replace ? duplicateHits.first?.id : nil)
+                                replaceDocumentId: resolution == .replace ? hits.first?.id : nil)
+    }
+
+    /// 重复裁决槽显式释放：调用方必须在 pendingDraft 挂载之后调用，
+    /// 保证串行队列的「槽空即续跑」（onChange(queueSlotFree)）不早于草稿挂载触发。
+    func clearPendingDuplicate() {
+        pendingDuplicate = nil
+        duplicateHits = []
     }
 
     /// BR-003 D→C：用户显式确认机器识别文本后才进入检索与 AI 事实链。
@@ -478,6 +490,17 @@ struct DocumentLibraryView: View {
     @State private var pickedPhotos: [PhotosPickerItem] = []
     /// 相册多选串行队列（第四轮全仓审查修复：防并发 Task 覆盖单槽状态）
     @State private var photoQueue: [PhotosPickerItem] = []
+    /// 两个队列共用的在途互斥（第五轮全仓审查修复）：fileQueue 与 photoQueue
+    /// 各自守卫 pendingDraft/pendingDuplicate 后并发启动 Task——两条队列同时
+    /// 在途时后完成者覆盖先完成者的 pendingDraft，先完成的草稿（含原件字节）
+    /// 静默丢失。单槽互斥保证任一时刻至多一个导入在途。
+    @State private var queueProcessing = false
+    /// 重复裁决「已作出选择」标记（第五轮全仓审查修复）：sheet 保存按钮
+    /// onResolve 与 dismiss() 同一事务先后触发——dismiss 令 duplicateAlertBinding
+    /// 的 setter 发出 .keep 任务，与选择任务竞速消费 pendingDuplicate（先到者
+    /// 清槽、后到者 guard 落空 → 用户选的并存/替换被静默丢弃）。选择已作出时
+    /// setter 不得再发 keep。
+    @State private var duplicateChoiceMade = false
     @State private var showImportError = false
     /// FR6.1 确认卡（此前导入即以 D 级静默入库，无用户确认环节）：OCR 后展示，
     /// 用户逐条确认/改正才写入数据库。
@@ -517,7 +540,15 @@ struct DocumentLibraryView: View {
             DuplicateCompareSheet(
                 existing: state.duplicateHits.first,
                 newTitle: state.pendingDuplicate?.title ?? L10n.docDuplicateNewFile) { resolution in
-                Task { pendingDraft = await state.resolveDuplicate(resolution) }
+                // 先挂草稿再释放裁决槽：clearPendingDuplicate 之后
+                // queueSlotFree 才可能变 true，续跑队列不会覆盖刚裁决的草稿
+                duplicateChoiceMade = true
+                Task {
+                    let draft = await state.resolveDuplicate(resolution)
+                    pendingDraft = draft
+                    state.clearPendingDuplicate()
+                    duplicateChoiceMade = false
+                }
             }
             .presentationDetents([.medium])
         }
@@ -563,7 +594,9 @@ struct DocumentLibraryView: View {
 
     private var duplicateAlertBinding: Binding<Bool> {
         Binding(get: { state.pendingDuplicate != nil },
-                set: { if !$0 { Task { await state.resolveDuplicate(.keep) } } })
+                set: { if !$0 && !duplicateChoiceMade {
+                    Task { await state.resolveDuplicate(.keep) }
+                } })
     }
 
     /// 单槽占用态：确认卡或重复裁决 sheet 任一打开即占用（串行队列暂停条件）
@@ -609,13 +642,18 @@ struct DocumentLibraryView: View {
     /// 相册多选串行推进：单槽（确认卡/重复裁决 sheet）被占用时暂停，
     /// 关掉后续跑（onChange 驱动）。一张处理完再下一张——多选命中多份
     /// 重复时逐一呈现，绝不静默丢弃（第四轮全仓审查修复）。
+    /// queueProcessing 互斥（第五轮全仓审查修复）：两条队列共用同一在途标志，
+    /// 任一时刻至多一个导入在途——防止 fileQueue 与 photoQueue 并发在途时
+    /// 后完成者覆盖先完成者的 pendingDraft、先完成草稿静默丢失。
     private func processPhotoQueue() {
+        guard !queueProcessing else { return }
         guard !photoQueue.isEmpty else { return }
         guard state.pendingDuplicate == nil else { return }
         guard pendingDraft == nil else { return }
+        queueProcessing = true
         let item = photoQueue.removeFirst()
         Task {
-            if let data = try? await item.loadTransferable(type: Data.self) {   // try?-ok: 单项失败跳过，不阻塞批次（错误经 lastImportError 可见）
+            if let data = try? await item.loadTransferable(type: Data.self) {   // try?-ok: 单项失败跳过，不阻塞批次（跳过即该项目不导入；准备/入库失败经 lastImportError 可见）
                 // MIME 按字节嗅探（第四轮全仓审查修复：相册 HEIC 曾硬编码
                 // image/jpeg 导致原件扩展名与内容不符）
                 let mime = ImageInputRules.sniffMimeType(of: data)
@@ -626,15 +664,18 @@ struct DocumentLibraryView: View {
                     pendingDraft = draft
                 }
             }
-            processPhotoQueue()
+            queueProcessing = false
+            resumeQueues()
         }
     }
 
     /// 文件多选串行推进（与 processPhotoQueue 同纪律）
     private func processFileQueue() {
+        guard !queueProcessing else { return }
         guard !fileQueue.isEmpty else { return }
         guard state.pendingDuplicate == nil else { return }
         guard pendingDraft == nil else { return }
+        queueProcessing = true
         let url = fileQueue.removeFirst()
         Task {
             if url.pathExtension.lowercased() == "pdf" {
@@ -644,7 +685,8 @@ struct DocumentLibraryView: View {
                                                               docType: L10n.docTypeReport) {
                 pendingDraft = draft
             }
-            processFileQueue()
+            queueProcessing = false
+            resumeQueues()
         }
     }
 }

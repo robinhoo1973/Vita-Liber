@@ -3,7 +3,7 @@
 # ============================================================================
 # L0 [15] 类型层启发式门禁 —— l0-typecheck-heuristics.py
 # 背景：App/（SwiftUI）无法在 Linux 上编译，swiftc -parse 只查语法不查语义，
-# 以下四族类型错误只有 macOS L1 编译门禁才能暴露（每族均有 CI 实证），
+# 以下五族类型错误只有 macOS L1 编译门禁才能暴露（每族均有 CI 实证），
 # 本脚本用静态启发式在 L0 左移拦截：
 #   A. 跨层引用缺 import —— CI d0c1008：RootAdaptiveView 引用 Infrastructure
 #      符号但未 import Infrastructure（parse 不解析符号，本地一直绿）
@@ -14,8 +14,13 @@
 #      'unavailable in macOS'
 #   D. #if os(Linux) 内声明的桩类型在非守卫区使用 —— CI 34018552283（b8384b1，
 #      10 处）：macOS 上桩类型不存在、报 cannot find in scope
+#   E. `any X?` 可选 any 拼写（须写作 `(any X)?`）—— CI ad1d767 实证：
+#      swiftc -parse 静默放行（第五轮本地实测 6.3.1）、仅 macOS L1 类型检查
+#      报 'optional any type must be written (any P)?'
 # 判定与平台无关（python3 标准库）；ERR#27 纪律：扫 0 文件/无计数一律 FAIL。
 # 豁免标记（与 try?-ok/adr021-ok 同惯例，仅同行注释）：`// tius-ok: <理由>`
+# ——第五轮全仓审查修复：本标记此前只在文档声明、判定器从未读取（假豁免），
+#   现四族判定点统一读取（exempted()）。
 # ============================================================================
 import re
 import sys
@@ -46,6 +51,14 @@ SYMBOL_RE = re.compile(
     re.M,
 )
 IMPORT_RE = re.compile(r"^(?:@testable )?import\s+(\w+)")
+# 家族 E：`any X?`（可选 any 拼写）。`(any X)?` 的 any 前为左括号，lookbehind
+# 排除；该拼写在任何 Swift 版本下都不合法（5.7+ 必须加括号），零假红。
+PATTERN_E = re.compile(r"(?<![\w(])\bany\s+[A-Za-z_]\w*\s*\?")
+
+
+def exempted(raw_lines, lineno):
+    """同行 `// tius-ok:` 豁免判定（与 try?-ok/adr021-ok 同惯例）。"""
+    return "tius-ok" in raw_lines[lineno - 1]
 
 
 def code_lines(text):
@@ -153,7 +166,8 @@ def main():
         except Exception:
             continue
         imports = set()
-        for raw in txt.splitlines():
+        raw_lines = txt.splitlines()
+        for raw in raw_lines:
             m = IMPORT_RE.match(raw.strip())
             if m:
                 imports.add(m.group(1))
@@ -161,6 +175,8 @@ def main():
             if mod in imports:
                 continue
             for lineno, code in code_lines(txt):
+                if exempted(raw_lines, lineno):
+                    continue
                 for s in sorted(syms):
                     if re.search(r"\b" + re.escape(s) + r"\b", code):
                         fails.append(
@@ -177,8 +193,11 @@ def main():
             txt = f.read_text(encoding="utf-8")
         except Exception:
             continue
+        raw_lines = txt.splitlines()
         for lineno, code in code_lines(txt):
             if not code.strip():
+                continue
+            if exempted(raw_lines, lineno):
                 continue
             for name, pat in PATTERNS_B.items():
                 if pat.search(code):
@@ -205,6 +224,8 @@ def main():
         for lineno, code in code_lines(txt):
             if lineno not in stack_map:
                 continue
+            if exempted(raw_lines, lineno):
+                continue
             stack, else_flags = stack_map[lineno]
             for sym in IOS_ONLY_SYMBOLS:
                 if re.search(r"\b" + sym + r"\b", code):
@@ -228,6 +249,8 @@ def main():
         stack_map = guard_stack(raw_lines)
         linux_names = {}
         for lineno, code in code_lines(txt):
+            if exempted(raw_lines, lineno):
+                continue
             stack, else_flags = stack_map.get(lineno, ([], []))
             linux_only = bool(stack) and all(
                 (("os(Linux)" in e or "os(linux)" in e) and not fl)
@@ -247,8 +270,32 @@ def main():
                             f"——macOS 编译 cannot find in scope（CI 34018552283 同族）"
                         )
 
+    # ---- 家族 E：`any X?` 可选 any 拼写（App/Tests/UITests + CoreKit）——
+    # CI ad1d767 实证 + 第五轮本地实测（swiftc 6.3.1 -parse 静默、-typecheck 报
+    # 'optional any type must be written (any P)?'）。必须写作 `(any X)?`。
+    e_files = list(a_files) + list(c_files)
+    scanned["E"] = len(e_files)
+    for f in e_files:
+        try:
+            txt = f.read_text(encoding="utf-8")
+        except Exception:
+            continue
+        raw_lines = txt.splitlines()
+        for lineno, code in code_lines(txt):
+            if not code.strip():
+                continue
+            if exempted(raw_lines, lineno):
+                continue
+            if PATTERN_E.search(code):
+                fails.append(
+                    f"{f.relative_to(root)}:{lineno}: `any X?` 拼写非法——"
+                    f"可选 any 必须写作 `(any X)?`（CI ad1d767 同族：swiftc -parse "
+                    f"静默放行，仅 macOS L1 类型检查报 'optional any type must be "
+                    f"written (any P)?'）"
+                )
+
     print(f"__SCANNED__ A={scanned.get('A',0)} B={scanned.get('B',0)} "
-          f"C={scanned.get('C',0)} D={scanned.get('D',0)}")
+          f"C={scanned.get('C',0)} D={scanned.get('D',0)} E={scanned.get('E',0)}")
     seen = set()
     for msg in fails:
         if msg in seen:

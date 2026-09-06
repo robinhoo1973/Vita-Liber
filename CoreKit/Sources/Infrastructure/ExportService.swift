@@ -690,7 +690,17 @@ public actor ExportService {
                 let targetId = remap(d.id) ?? d.id
                 let targetPatientId = (remap(d.patientId) ?? d.patientId)?.uuidString
                 let targetEncounterId = (remap(d.encounterId) ?? d.encounterId)
-                docEncounterLinks[targetId.uuidString] = targetEncounterId
+                // 第五轮全仓审查修复（5WHY）：keep 裁决的行必须原样保留、绝不
+                // 记入回填清单——此前回填循环对所有 envelope 行统一
+                // UPDATE encounter_id，keep 行（既有行被跳过、未被 INSERT/UPDATE）
+                // 的 encounter_id 被备份值（或 nil）覆写：本地已挂接的就诊关系
+                // 被静默改写或摘除，keep=「现有行不触碰」的 ADR-019 语义被破坏。
+                // adopt 行 UPDATE 不含 encounter_id 列，故回填仍须覆盖 adopt 行；
+                // 回填只应发生在插入/采纳的行上。
+                let keepExisting = timelineConflicts.contains(d.id.uuidString) && resolution(d.id) == .keep
+                if !keepExisting {
+                    docEncounterLinks[targetId.uuidString] = targetEncounterId
+                }
                 if try adoptOrSkip(timelineConflicts, d.id, adopt: {
                     try db.execute(sql: """
                         UPDATE document_file SET

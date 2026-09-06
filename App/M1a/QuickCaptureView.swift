@@ -47,6 +47,12 @@ struct QuickCaptureView: View {
     @State private var fileImporterActive = false
     @State private var savedToast = false
     @State private var importFailed = false
+    /// 重复裁决「已作出选择」标记（第五轮全仓审查修复）：sheet 保存按钮的
+    /// onResolve 与 dismiss() 同一事务先后触发——dismiss 令 duplicateAlertBinding
+    /// 的 setter 发出 .keep 任务，与选择任务竞速消费 pendingDuplicate：keep 先
+    /// 到即清槽并弹「已保存」，而用户选的并存/替换草稿仍在 OCR 中——误报
+    /// 已保存且裁决被静默降级为放弃。选择已作出时 setter 不得再发 keep。
+    @State private var duplicateChoiceMade = false
     /// BR-007 敏感默认锁定：病历/报告/处方类照片默认按敏感资料入库
     @State private var markSensitive = true
     /// FR6.1 确认卡（此前 OCR 完成即以 D 级静默入库，无用户确认环节）：OCR 后
@@ -190,10 +196,16 @@ struct QuickCaptureView: View {
             DuplicateCompareSheet(
                 existing: docs.duplicateHits.first,
                 newTitle: docs.pendingDuplicate?.title ?? L10n.docDuplicateNewFile) { resolution in
+                // 先挂草稿再释放裁决槽（clearPendingDuplicate 在 pendingDraft
+                // 赋值之后）——否则槽空即触发 finishImport/「已保存」误报，
+                // 且并存/替换草稿与 keep 任务竞速被静默丢弃
+                duplicateChoiceMade = true
                 Task {
-                    if let draft = await docs.resolveDuplicate(resolution) {
-                        pendingDraft = draft
-                    } else {
+                    let draft = await docs.resolveDuplicate(resolution)
+                    pendingDraft = draft
+                    docs.clearPendingDuplicate()
+                    duplicateChoiceMade = false
+                    if draft == nil {
                         finishImport()
                     }
                 }
@@ -288,7 +300,12 @@ struct QuickCaptureView: View {
 
     private var duplicateAlertBinding: Binding<Bool> {
         Binding(get: { docs.pendingDuplicate != nil },
-                set: { if !$0 { Task { _ = await docs.resolveDuplicate(.keep); finishImport() } } })
+                set: { if !$0 && !duplicateChoiceMade {
+                    Task {
+                        _ = await docs.resolveDuplicate(.keep)
+                        finishImport()
+                    }
+                } })
     }
 
     private func handleImage(_ image: UIImage) {
