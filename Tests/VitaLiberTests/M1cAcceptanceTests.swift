@@ -111,7 +111,8 @@ final class M1cAcceptanceTests: XCTestCase {
         XCTAssertEqual(envelope.selfProfile?.bloodType, "A", "血型必须随包")
         XCTAssertEqual(envelope.selfProfile?.idNo, "110101199001011234", "证件号必须随包")
         XCTAssertEqual(envelope.selfProfile?.insuranceNo, "SI-9001", "医保号必须随包")
-        XCTAssertEqual(envelope.members?.count, 1, "软删成员必须随包导出（FR13.5 换机恢复）")
+        // 种子库的「测试患者」无 local_owner 关联（非本人档案）→ 普通成员 + 软删成员
+        XCTAssertEqual(envelope.members?.count, 2, "普通成员+软删成员必须随包导出（FR13.5 换机恢复）")
         let softDeleted = envelope.members?.first { $0.displayName == "已删除成员" }
         XCTAssertEqual(softDeleted?.deletedAt, deletedAtValue, "deletedAt 必须随包")
 
