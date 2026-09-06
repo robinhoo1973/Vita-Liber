@@ -68,12 +68,16 @@ public actor VoiceNoteStore {
     /// 修订语义从简：速记是 C 级自述备忘，非医疗结构数据（删除明示「仅删除该条备忘」）。
     public func update(id: UUID, patientId: UUID, body: String, tags: [String]?,
                        inTimeline: Bool) async throws {
+        // 第六轮全仓审查修复：tags 落库形态必须与 list 的读取器一致
+        // （JSON 数组）——原实现写逗号拼接串，list 的 JSONDecoder 解码
+        // 失败静默回空：每次编辑速记正文都清空标签列表（读写契约断裂）。
+        let tagsJSON = String(data: try JSONEncoder().encode(tags ?? []), encoding: .utf8) ?? "[]"
         try await writer.write { db in
             try db.execute(sql: """
                 UPDATE voice_note
                 SET body = ?, tags = ?, in_timeline = ?, updated_at = ?
                 WHERE id = ? AND patient_id = ?
-                """, arguments: [body, (tags ?? []).joined(separator: ","),
+                """, arguments: [body, tagsJSON,
                                  inTimeline ? 1 : 0, Date().timeIntervalSince1970,
                                  id.uuidString, patientId.uuidString])
         }

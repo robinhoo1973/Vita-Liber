@@ -18,6 +18,8 @@ struct EmergencyCardView: View {
     /// 审查修复：关怀模式透传 SOS 门槛参数（原 SOSButton() 硬编码 careMode=false，
     /// 设置页展示的「SOS 门槛提升」在急救卡入口从未生效）
     var careMode: Bool = false
+    /// SOS 确认后呈现求助页（第六轮全仓审查修复：急救卡 SOS 死控件接线）
+    @State private var showSOSHelp = false
 
     var body: some View {
         ScrollView {
@@ -46,12 +48,18 @@ struct EmergencyCardView: View {
                     }
                     .accessibilityIdentifier("F15.card.manage")
                 }
-                SOSButton(careMode: careMode)
+                // 第六轮全仓审查修复：SOSButton 此前无 onTrigger 接线——
+                // 按住确认后执行 nil 闭包，急救卡上的 SOS 是死控件
+                // （BR-012 唯一可达路径只剩关怀悬浮球）
+                SOSButton(careMode: careMode) { showSOSHelp = true }
                 Spacer()
             }
             .padding(16)
         }
         .navigationTitle(L10n.emergency_title)
+        .fullScreenCover(isPresented: $showSOSHelp) {
+            SOSHelpView()
+        }
     }
 
     private func section(_ title: String, items: [EmergencyCardItem], empty: String) -> some View {
@@ -296,13 +304,18 @@ struct SOSOrb: View {
                 .fill(Color.red.opacity(0.85))
                 .frame(width: 64, height: 64)   // 关怀触点 ≥64pt（FR18.2）
                 .shadow(radius: 6)
-            // 环形进度反馈（FR18.3 按住确认的环形进度）
-            if let start = holdStart {
-                Circle()
-                    .trim(from: 0, to: progress(start))
-                    .stroke(Color.white, lineWidth: 4)
-                    .frame(width: 64, height: 64)
-                    .rotationEffect(.degrees(-90))
+            // 环形进度反馈（FR18.3 按住确认的环形进度）——第六轮全仓审查
+            // 修复：progress(start) 只在 body 重渲染时求值，按住期间无任何
+            // 状态驱动重渲染，圆环恒为 0。改由 TimelineView 以动画帧率
+            // 驱动（仅按住期间挂载，松开即卸载）
+            if holdStart != nil {
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
+                    Circle()
+                        .trim(from: 0, to: progress(timeline.date))
+                        .stroke(Color.white, lineWidth: 4)
+                        .frame(width: 64, height: 64)
+                        .rotationEffect(.degrees(-90))
+                }
             }
             Text(L10n.emergency_sos_hold)
                 .font(.caption2.bold())
@@ -328,8 +341,11 @@ struct SOSOrb: View {
         .accessibilityLabel(L10n.sosHelpTitle)
     }
 
-    private func progress(_ start: Date) -> CGFloat {
-        min(1, Date().timeIntervalSince(start) / requiredHold)
+    private func progress(_ now: Date) -> CGFloat {
+        // 第六轮全仓审查修复：以 TimelineView 的当前帧时间求值（holdStart
+        // 为按住起点），按住期间圆环连续推进
+        guard let start = holdStart else { return 0 }
+        return min(1, now.timeIntervalSince(start) / requiredHold)
     }
 }
 

@@ -41,6 +41,19 @@ final class AppSettingsStore {
     }
 
     func set(_ value: String, for key: AppSettingKey) async {
+        // 第六轮全仓审查修复：非法组合（alwaysInCareMode 而关怀模式关闭）
+        // 必须在写入入口拦截——原校验只存在于 PreferencesView.save 与
+        // AppState.readbackPreference 两个调用点，任何直接 set() 路径
+        // （恢复/未来 UI/测试）都能把非法值写进 UserDefaults 镜像并被
+        // AppState 原样读回（「非法组合不落盘」的不变量应守在写入口）
+        if key == .readBackOptIn {
+            let pref = ReadbackPreference(rawValue: value) ?? .never
+            let careModeOn = (values[.careModeEnable] ?? AppSettingKey.careModeEnable.defaultValue) == "true"
+            guard ReadbackPolicy.isSelectable(pref, careMode: careModeOn) else {
+                logger.info("非法回读组合被拒：\(value)（careMode=\(careModeOn)）")
+                return
+            }
+        }
         do {
             try await store.set(value, for: key)
             values[key] = value

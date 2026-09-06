@@ -58,6 +58,10 @@ struct QuickCaptureView: View {
     /// FR6.1 确认卡（此前 OCR 完成即以 D 级静默入库，无用户确认环节）：OCR 后
     /// 展示，用户逐条确认/改正才写入数据库；处方类文档带处方语义字段标签。
     @State private var pendingDraft: DocumentsState.ImportDraft?
+    /// 相册加载代际号（第六轮全仓审查修复：连续选片竞速裁决）
+    @State private var photoPickGeneration = 0
+    /// 相机 cover 收起后再呈现选区 sheet 的延后标记（第六轮全仓审查修复）
+    @State private var deferRegionEditorAfterCamera = false
 
     /// 无相机设备时隐藏拍照来源（防崩溃 + 不误导用户）
     private var cameraAvailable: Bool {
@@ -163,6 +167,14 @@ struct QuickCaptureView: View {
                 showOcclusion = true
             }
         }
+        .onChange(of: showCamera) { _, showing in
+            // 相机拍摄完成：等 cover 完全收起再开选区 sheet（同族冲突纪律，
+            // 见 handleImage）
+            if !showing && deferRegionEditorAfterCamera {
+                deferRegionEditorAfterCamera = false
+                showRegionEditor = true
+            }
+        }
         .onChange(of: showOcclusion) { _, showing in
             if !showing {
                 // 取消遮挡编辑器时清残留（第四轮全仓审查修复：原状态滞留，
@@ -215,13 +227,20 @@ struct QuickCaptureView: View {
         .onChange(of: pickedItem) { _, item in
             guard let item else { return }
             pickedItem = nil
+            // 第六轮全仓审查修复（竞速）：快速连续选片会并发两个
+            // loadTransferable Task——慢的旧片后返回并覆写选区状态，展示图
+            // 与「原件」字节分属两张照片（BR-002 原件保真断裂）。代际号
+            // 使过期结果作废：只有最新一次选择的加载结果能进入选区。
+            photoPickGeneration += 1
+            let generation = photoPickGeneration
             Task {
                 if let data = try? await item.loadTransferable(type: Data.self),   // try?-ok: 单项加载失败走错误路径可见，不阻塞后续
                    let image = UIImage(data: data) {
+                    guard generation == photoPickGeneration else { return }
                     // 原始字节贯穿选区/矫正链（BR-002 原件保真）
                     beginRegionSelect(image: image, originalData: data,
                                       needsOcclusion: false, origin: "photoLibrary")
-                } else {
+                } else if generation == photoPickGeneration {
                     importFailed = true
                 }
             }
@@ -309,11 +328,17 @@ struct QuickCaptureView: View {
     }
 
     private func handleImage(_ image: UIImage) {
+        // 第六轮全仓审查修复：cover 关闭中不得同事务再 present sheet——
+        // 与「选区→遮挡」跳转同族冲突（iOS 17 实测 sheet 可能不呈现、
+        // 流程静默卡死），改为 onChange(showCamera) 延后呈现
         showCamera = false
         // 相机无源字节：1.0 质量编码兜底（BR-002 尽量保真；相机帧本身是
         // 传感器 JPEG，不再叠加 0.9 二次损失）
-        beginRegionSelect(image: image, originalData: image.jpegData(compressionQuality: 1.0),
-                          needsOcclusion: true, origin: "camera")
+        regionOrigin = "camera"
+        regionNeedsOcclusion = true
+        pendingRegionImage = image
+        pendingRegionOriginalData = image.jpegData(compressionQuality: 1.0)
+        deferRegionEditorAfterCamera = true
     }
 
     /// FR5.2 拍摄/选取后先进入四角选区，成功后按来源决定是否还要过 FR5.4 遮挡步骤。

@@ -289,6 +289,8 @@ struct AppointmentDetailRouteView: View {
     @Environment(AppState.self) private var app
     @Environment(ReminderStore.self) private var reminders
     @State private var apt: AppointmentRow?
+    @State private var showReschedule = false
+    @State private var newDate = DayArithmetic.offset(days: 1)
 
     var body: some View {
         Group {
@@ -311,9 +313,12 @@ struct AppointmentDetailRouteView: View {
                     }
                     if apt.status == "scheduled" {
                         Section {
-                            NavigationLink(L10n.apptReschedule) {
-                                AppointmentFormView()
-                            }
+                            // 第六轮全仓审查修复：改期此前打开新建表单——
+                            // save 走 createAppointment 生成一张**新**预约，
+                            // 原预约仍在 scheduled 态继续响铃（重复预约 +
+                            // 从未发生的改期）。与列表页同用 reschedule
+                            // 语义（原预约保留历史 + 新草稿）
+                            Button(L10n.apptReschedule) { showReschedule = true }
                         }
                     }
                 }
@@ -323,6 +328,26 @@ struct AppointmentDetailRouteView: View {
         }
         .navigationTitle(L10n.apptListTitle)
         .task { await load() }
+        .sheet(isPresented: $showReschedule) {
+            NavigationStack {
+                Form {
+                    DatePicker(L10n.apptNewDate, selection: $newDate, in: Date()...)
+                }
+                .navigationTitle(L10n.apptReschedule)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(L10n.reminder_save) {
+                            Task {
+                                await reminders.rescheduleAppointment(patientId: app.currentPatientId,
+                                                                      id: appointmentId, to: newDate)
+                                showReschedule = false
+                                await load()
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private func load() async {

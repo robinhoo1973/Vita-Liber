@@ -117,10 +117,13 @@ def guard_stack(raw_lines):
             if stack:
                 stack[-1] = s[8:].strip()
                 else_flag[-1] = False
-        elif s == "#else":
+        elif s.startswith("#else"):
+            # 第六轮全仓审查修复：用 startswith 而非全等比较——`#else // 注释`
+            # 会失配导致栈永不弹出，后续行的守卫判定全部错位（D 族误放行/
+            # C 族误报）
             if else_flag:
                 else_flag[-1] = True
-        elif s == "#endif":
+        elif s.startswith("#endif"):
             if stack:
                 stack.pop()
                 else_flag.pop()
@@ -252,16 +255,23 @@ def main():
             if exempted(raw_lines, lineno):
                 continue
             stack, else_flags = stack_map.get(lineno, ([], []))
-            linux_only = bool(stack) and all(
-                (("os(Linux)" in e or "os(linux)" in e) and not fl)
+            # 第六轮全仓审查修复：Linux 独占 = 任一祖先守卫为 os(Linux) 且非
+            # #else 分支（嵌套 #if canImport 等子守卫不改变外层平台排除）——
+            # 原 all() 语义要求全栈均为 os(Linux)，嵌套子守卫（canImport 等）
+            # 使 linux_only 恒假，Linux 专属文件内合法引用被误报
+            linux_only = any(
+                ("os(Linux)" in e or "os(linux)" in e) and not fl
                 for e, fl in zip(stack, else_flags)
             )
             if linux_only:
                 m = DECL_RE.search(code)
                 if m:
                     linux_names[m.group(1)] = lineno
-            elif not stack:
-                # 非守卫区（无条件编译）引用 Linux 桩名 = macOS 编译 cannot find in scope
+            elif not linux_only:
+                # 任何在 macOS 上会被编译的区域（无条件 / #if os(macOS) /
+                # #else 分支）引用 Linux 桩名 = macOS 编译 cannot find in scope。
+                # 第六轮全仓审查修复：原判定为 `not stack`（仅顶层），
+                # #if os(macOS) 守卫区内的引用漏检（栈非空即放行）
                 for name, decl_ln in list(linux_names.items()):
                     if re.search(r"\b" + re.escape(name) + r"\b", code):
                         fails.append(

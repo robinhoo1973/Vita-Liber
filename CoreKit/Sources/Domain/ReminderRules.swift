@@ -152,13 +152,13 @@ public enum VoiceRepeatRules {
     public static func weekdays(for phrase: String, fireWeekday: Int) -> [Int]? {
         switch phrase {
         case "每天", "每日": return []
-        case "每周一": return [2]
-        case "每周二": return [3]
-        case "每周三": return [4]
-        case "每周四": return [5]
-        case "每周五": return [6]
-        case "每周六": return [7]
-        case "每周日", "每周天": return [1]
+        case "每周一", "周一": return [2]
+        case "每周二", "周二": return [3]
+        case "每周三", "周三": return [4]
+        case "每周四", "周四": return [5]
+        case "每周五", "周五": return [6]
+        case "每周六", "周六": return [7]
+        case "每周日", "每周天", "周日": return [1]
         case "每周": return [fireWeekday]
         case "工作日": return [2, 3, 4, 5, 6]
         case "周末": return [1, 7]
@@ -176,8 +176,8 @@ public enum VoiceRepeatRules {
 public enum VoiceGrammarDefaults {
     public static let metricRules: [MetricGrammarRule] = [
         MetricGrammarRule(metricKey: "glucose",
-                          patterns: [#"血糖\s*(\d+(?:\.\d+)?|[一二两三四五六七八九十百点]+)"#,
-                                     #"血糖仪?\s*([一二两三四五六七八九十百点]+\s*[点\.]\s*[一二两三四五六七八九十]+)"#],
+                          patterns: [#"血糖\s*(\d+(?:\.\d+)?|[零一二两三四五六七八九十百点]+)"#,
+                                     #"血糖仪?\s*([零一二两三四五六七八九十百点]+\s*[点\.]\s*[零一二两三四五六七八九十]+)"#],
                           unitDefault: "mmol/L"),
         MetricGrammarRule(metricKey: "blood_pressure_sys",
                           patterns: [#"高压\s*(\d+)"#, #"收缩压\s*(\d+)"#,
@@ -193,7 +193,7 @@ public enum VoiceGrammarDefaults {
                           patterns: [#"心率\s*(\d+)"#, #"脉搏\s*(\d+)"#],
                           unitDefault: "次/分"),
         MetricGrammarRule(metricKey: "weight",
-                          patterns: [#"体重\s*(\d+(?:\.\d+)?|[一二两三四五六七八九十百点]+)"#],
+                          patterns: [#"体重\s*(\d+(?:\.\d+)?|[零一二两三四五六七八九十百点]+)"#],
                           unitDefault: "kg"),
         MetricGrammarRule(metricKey: "blood_oxygen",
                           patterns: [#"血氧\s*(\d+)"#],

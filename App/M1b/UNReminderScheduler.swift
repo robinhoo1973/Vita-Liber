@@ -66,12 +66,26 @@ actor UNReminderScheduler: ReminderScheduling {
     }
 
     func cancel(_ notifyIds: [String]) async throws {
-        center.removePendingNotificationRequests(withIdentifiers: notifyIds)
+        // 第六轮全仓审查修复：scheduleRepeating 按「-wd{1..7}」后缀为每周
+        // 重复排 7 条请求，按基础 id 取消会全部漏网（重复提醒不可取消）。
+        // 取消一律展开 weekday 后缀；系统对不存在的 id 天然 no-op。
+        var expanded: [String] = []
+        for id in notifyIds {
+            expanded.append(id)
+            for weekday in 1...7 { expanded.append("\(id)-wd\(weekday)") }
+        }
+        center.removePendingNotificationRequests(withIdentifiers: expanded)
     }
 
     /// 移除已送达通知（确认/跳过后清锁屏残留）
     func removeDelivered(_ notifyIds: [String]) async throws {
-        center.removeDeliveredNotifications(withIdentifiers: notifyIds)
+        // 与 cancel 同纪律：展开 -wd{1..7} 后缀（每周重复的送达残留同样带后缀）
+        var expanded: [String] = []
+        for id in notifyIds {
+            expanded.append(id)
+            for weekday in 1...7 { expanded.append("\(id)-wd\(weekday)") }
+        }
+        center.removeDeliveredNotifications(withIdentifiers: expanded)
     }
 
     /// FR14.5 语言切换：待投递通知的标题/正文在排程时以当前语言固化，

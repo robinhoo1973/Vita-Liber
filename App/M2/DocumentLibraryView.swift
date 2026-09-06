@@ -455,6 +455,13 @@ final class DocumentsState {
 /// 导入源（SP-10：相机/文件/相册/手工）+ 重复检测对比提示。
 struct DocumentLibraryView: View {
 
+    /// 第六轮全仓审查修复：.importSource 路由（SP-10 导入来源选择）此前
+    /// 与 .documentList 渲染同一屏（栈内套娃另一个完整资料库）——现经
+    /// autoPresentImport 直达五入口确认弹窗，两路由语义分离
+    init(autoPresentImport: Bool = false) {
+        _showImportSource = State(initialValue: autoPresentImport)
+    }
+
     /// 列表主体与导入入口动作拆为独立计算属性（CI 34037986523 实证：
     /// 巨型 body 表达式超出 Swift 类型推断预算——「unable to type-check
     /// in reasonable time」。拆分为显式类型边界后各段独立推断）。

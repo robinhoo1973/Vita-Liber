@@ -227,12 +227,24 @@ public struct GRDBStore {
                 }
             }
             if let newId = recomputed, newId != currentId {
-                do { try db.execute(sql: "UPDATE medication_dose_log SET id = ? WHERE id = ?",
-                                    arguments: [newId, currentId]) }
+                do {
+                    // 第六轮全仓审查修复：id 原地改写必须先同步引用行——本迁移
+                    // 在 foreign_keys=OFF 下运行，无级联更新，原实现让
+                    // dose_lot_allocation/notification_delivery 的历史行悬空
+                    // （引用不存在的剂量 id，账本/送达证据链断裂且无任何报错）
+                    try db.execute(sql: "UPDATE dose_lot_allocation SET dose_log_id = ? WHERE dose_log_id = ?",
+                                   arguments: [newId, currentId])
+                    try db.execute(sql: "UPDATE notification_delivery SET dose_log_id = ? WHERE dose_log_id = ?",
+                                   arguments: [newId, currentId])
+                    try db.execute(sql: "UPDATE medication_dose_log SET id = ? WHERE id = ?",
+                                   arguments: [newId, currentId])
+                }
                 catch {
                     // PK 冲突：同一逻辑身份已被另一行占用（历史重复行）——
                     // 未决议行清除（物化窗口会以正确身份重建），已决议行保留原 id
                     if (row["user_action"] as String?) == nil {
+                        try db.execute(sql: "DELETE FROM dose_lot_allocation WHERE dose_log_id = ?",
+                                       arguments: [currentId])
                         try db.execute(sql: "DELETE FROM medication_dose_log WHERE id = ?",
                                        arguments: [currentId])
                     }

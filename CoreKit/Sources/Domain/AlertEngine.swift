@@ -133,6 +133,13 @@ public enum AlertRuleEngine {
     /// 单次读数定级：报告自带 A 级范围优先（FR16.4 铁律）；
     /// 无报告范围 → 信源库 B 级；无信源 → 不定级（范围不可用独立状态）
     public static func severity(for reading: MetricReading, guideline: GuidelineEntry?) -> AlertSeverity? {
+        // 第六轮全仓审查修复：① NaN/∞（传感器失败读数）
+        // 不得静默穿过全部比较落成 L0「健康」；② 双方单位均非空且不等时
+        // 绝不跨单位比较数字——血糖信源为 mmol/L（3.9/7.0/13.9/16.7），
+        // 110 mg/dL（≈6.1 mmol/L，正常）曾被 13.9 阈值定成 L2 并出证据卡。
+        // 单位换算（mg/dL↔mmol/L 摩尔桥接）属 F25 接线批次，未接线前
+        // 以「范围不可用」拒绝定级（宁可少警，不可错警）。
+        guard reading.value.isFinite else { return nil }
         // A 级优先：报告自带参考范围
         if let report = reading.reportRange, report.grade == .A {
             if reading.value > report.upper || reading.value < report.lower {
@@ -141,6 +148,9 @@ public enum AlertRuleEngine {
             return .L0
         }
         guard let g = guideline else { return nil }   // 无信源 = 范围不可用
+        let ru = reading.unit.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let gu = g.unit.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if !ru.isEmpty, !gu.isEmpty, gu != "1", ru != gu { return nil }
         if let high = g.l3High, reading.value >= high { return .L3 }
         if let low = g.l3Low, reading.value <= low { return .L3 }
         if let high = g.l2High, reading.value >= high { return .L2 }
@@ -152,12 +162,15 @@ public enum AlertRuleEngine {
 
     /// 连续 3 次越限 → 至少 L1（FR16.2 验收句）
     public static func escalate(recent: [MetricReading], guideline: GuidelineEntry?) -> AlertSeverity? {
-        let levels = recent.compactMap { severity(for: $0, guideline: guideline) }
-        guard levels.count >= consecutiveThreshold else { return nil }
+        // 第六轮全仓审查修复：计数与判定必须同一窗口——原实现 levels.count
+        // 对全数组计数、判定却只取 suffix(3)，两者错位；且空窗口
+        // allSatisfy 恒真，窗口内仅 1 次越限即可升级（FR16.2「连续 3 次」
+        // 口径被绕过）。修复：窗口内必须恰有 3 次全部定级且全部越限。
+        guard recent.count >= consecutiveThreshold else { return nil }
         let last = recent.suffix(consecutiveThreshold)
         let lastLevels = last.compactMap { severity(for: $0, guideline: guideline) }
-        let allBeyondL0 = lastLevels.allSatisfy { $0 != .L0 }
-        guard allBeyondL0 else { return nil }
+        guard lastLevels.count == consecutiveThreshold,
+              lastLevels.allSatisfy({ $0 != .L0 }) else { return nil }
         return lastLevels.max { a, b in
             AlertSeverity.allCases.firstIndex(of: a)! < AlertSeverity.allCases.firstIndex(of: b)!
         }

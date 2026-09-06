@@ -65,6 +65,9 @@ public enum DoseScheduleEngine {
     ) -> (doses: [ScheduledDose], skippedTimes: Int) {
         var out: [ScheduledDose] = []
         var skipped = 0
+        // 第六轮全仓审查修复：fromDay > toDay 时闭区间 `fromDay...toDay`
+        // 触发 precondition 崩溃——公开纯函数必须返回空而非 trap。
+        guard fromDay <= toDay else { return ([], 0) }
         // 日内序号（逻辑身份第二分量）：固定/餐时/周期天然有序；interval 按推进序递增
         var ordinalByDay: [Int: Int] = [:]
         func nextOrdinal(_ day: Int) -> Int {

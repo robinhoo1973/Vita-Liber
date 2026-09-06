@@ -78,8 +78,11 @@ public actor AppointmentStore {
         // 不复排 apt- 通知，留下永不再提醒的预约
         try await cancelReminders(id: id)
         for (tier, fire) in AppointmentRules.tierFireDates(startsAt: startsAt, tiers: AppointmentTier.defaults, now: now) {
+            // 第六轮全仓审查修复：route 必须指向改期后的新行——原实现带
+            // 原预约 id，通知点击直达一张已取消的旧预约卡（改期后主流程
+            // 深层断链）
             try await scheduler.schedule(dose: "apt-\(newId.uuidString)-\(tier.label)", at: fire,
-                                         route: .appointmentDetail(id))
+                                         route: .appointmentDetail(newId))
         }
         return newId
     }
@@ -135,7 +138,13 @@ public actor AppointmentStore {
 
     private func cancelReminders(id: UUID) async throws {
         let pending = try await scheduler.pending()
-        let ids = pending.keys.filter { $0.hasPrefix(ReminderIDNames.appointmentPrefix(id)) }
+        // 第六轮全仓审查修复：错过跟进提醒（apt-followup-{id}）此前不在
+        // 前缀过滤内——完成/取消/改期后跟进提醒仍会在 2h 后为一个已结束
+        // 的预约响起
+        let ids = pending.keys.filter {
+            $0.hasPrefix(ReminderIDNames.appointmentPrefix(id))
+            || $0.hasPrefix("apt-followup-\(id.uuidString)")
+        }
         try await scheduler.cancel(Array(ids))
     }
 

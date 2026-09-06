@@ -1195,8 +1195,10 @@
 "metric.step1" = "第 1 步 · 選擇指標";
 "metric.step2" = "第 2 步 · 錄入數值";
 "metric.name.bloodPressureSys" = "血壓";
+"metric.name.bloodPressureDia" = "舒張壓";
 "metric.name.glucose" = "血糖";
 "metric.name.weight" = "體重";
+"metric.name.temperature" = "體溫";
 "metric.name.heartRate" = "心率";
 "metric.name.bloodOxygen" = "血氧";
 "metric.selfMeasureNote" = "自測資料僅作觀察記錄，不構成醫療判斷";
@@ -1231,6 +1233,7 @@
 "observation.detail.trigger" = "自述誘因";
 "observation.detail.accompanying" = "伴隨症狀";
 "observation.detail.painScore" = "疼痛自評";
+"observation.detail.painUnset" = "未記錄";
 "observation.detail.medsDiet" = "當時用藥與飲食";
 "observation.detail.consulted" = "是否已諮詢醫生";
 "observation.detail.encounter" = "關聯就診";

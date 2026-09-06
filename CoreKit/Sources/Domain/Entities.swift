@@ -14,16 +14,21 @@ public struct PatientProfile: Sendable, Equatable, Codable, Identifiable {
     public var note: String?
     public var createdAt: TimeInterval
     public var updatedAt: TimeInterval
+    /// 软删时间戳（nil = 活跃成员）——第六轮全仓审查修复：备份/恢复
+    /// 必须随包往返软删状态，否则已删成员在换机恢复后被复活为活跃行。
+    public var deletedAt: TimeInterval?
     public init(id: UUID = UUID(), displayName: String, relation: String = "本人",
                 gender: String? = nil, birthDate: String? = nil,
                 bloodType: String? = nil, idNo: String? = nil, insuranceNo: String? = nil,
                 note: String? = nil,
-                createdAt: TimeInterval = 0, updatedAt: TimeInterval = 0) {
+                createdAt: TimeInterval = 0, updatedAt: TimeInterval = 0,
+                deletedAt: TimeInterval? = nil) {
         self.id = id; self.displayName = displayName; self.relation = relation
         self.gender = gender; self.birthDate = birthDate
         self.bloodType = bloodType; self.idNo = idNo; self.insuranceNo = insuranceNo
         self.note = note
         self.createdAt = createdAt; self.updatedAt = updatedAt
+        self.deletedAt = deletedAt
     }
 }
 

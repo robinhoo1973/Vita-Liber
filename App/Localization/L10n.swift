@@ -1007,6 +1007,7 @@ enum L10n {
         "observation.detail.trigger",
         "observation.detail.accompanying",
         "observation.detail.painScore",
+        "observation.detail.painUnset",
         "observation.detail.medsDiet",
         "observation.detail.consulted",
         "observation.detail.encounter",
@@ -1291,8 +1292,9 @@ enum L10n {
         "fr24.markDelivered", "fr24.offlineNote",
         "helpcard.recipient", "helpcard.recipientOther", "helpcard.recipientPlaceholder",
         "metric.entry.title", "metric.step1", "metric.step2",
-        "metric.name.bloodPressureSys", "metric.name.glucose", "metric.name.weight",
-        "metric.name.heartRate", "metric.name.bloodOxygen",
+        "metric.name.bloodPressureSys", "metric.name.bloodPressureDia", "metric.name.glucose",
+        "metric.name.weight", "metric.name.temperature", "metric.name.heartRate",
+        "metric.name.bloodOxygen",
         "metric.selfMeasureNote", "metric.sys", "metric.dia", "metric.value",
         "metric.unit", "metric.measuredAt", "metric.saved", "metric.viewTrend",
         "voicePanel.title", "voicePanel.hint", "voicePanel.start",
@@ -2270,6 +2272,7 @@ enum L10n {
     static var obsDetailTrigger: String { t("observation.detail.trigger") }
     static var obsDetailAccompanying: String { t("observation.detail.accompanying") }
     static var obsDetailPainScore: String { t("observation.detail.painScore") }
+    static var obsDetailPainUnset: String { t("observation.detail.painUnset") }
     static var obsDetailMedsDiet: String { t("observation.detail.medsDiet") }
     static var obsDetailConsulted: String { t("observation.detail.consulted") }
     static var obsDetailEncounter: String { t("observation.detail.encounter") }

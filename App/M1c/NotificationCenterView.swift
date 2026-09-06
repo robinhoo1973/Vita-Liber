@@ -104,7 +104,9 @@ struct NotificationCenterView: View {
                     }
                 }
             }
-            if pendingOCRCount > 0 {
+            // 第六轮全仓审查修复：归档动作此前是死控件——行可见性从不读取
+            // "ocr-queue" 归档态，滑掉的行原地不动、归档态只增不消
+            if pendingOCRCount > 0 && state(for: "ocr-queue") != .archived {
                 Section(L10n.ncSectionOcr) {
                     Button {
                         router.navigate(to: .pendingOcrQueue)

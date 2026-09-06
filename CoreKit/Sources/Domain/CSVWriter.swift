@@ -39,7 +39,9 @@ public enum CSVWriter {
 
     public static func split(baseName: String, headers: [String], rows: [[String]],
                              maxRows: Int) -> [SplitPart] {
-        guard rows.count > maxRows else {
+        // 第六轮全仓审查修复：maxRows<=0 时原实现 end=min(0,count)=0、
+        // start 永不推进 → 死循环。非法参数按单文件回落（绝不 hang）。
+        guard maxRows > 0, rows.count > maxRows else {
             return [SplitPart(name: "\(baseName).csv", rows: rows)]
         }
         var parts: [SplitPart] = []

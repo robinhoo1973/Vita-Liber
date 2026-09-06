@@ -37,7 +37,10 @@ struct RouteDestinationView: View {
         case .documentDetail(let id):
             DocumentDetailRouteView(documentId: id)
         case .importSource:
-            DocumentLibraryView()
+            // SP-10 导入来源选择：资料库 + 自动弹出五入口确认弹窗
+            // （第六轮全仓审查修复：此前渲染完整资料库 = documentList 的
+            // 翻版，注册表对 .importSource 的真实落点名不副实）
+            DocumentLibraryView(autoPresentImport: true)
 
         // ---- F6 OCR ----
         case .pendingOcrQueue:

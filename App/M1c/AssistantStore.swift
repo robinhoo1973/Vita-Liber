@@ -41,6 +41,16 @@ final class AssistantStore {
         guard !q.isEmpty, !busy else { return }
         busy = true
         defer { busy = false }
+        // 第六轮全仓审查修复（BR-001 残留）：成员切换时历史层开新会话，
+        // 但内存 messages 从未清屏——A 成员的全部问答继续显示在 B 成员的
+        // 会话之上（UI 层成员隔离破裂）。切成员即清屏（history 可空时
+        // conversationPatientId 仍须跟踪以维持隔离，不依赖历史注入）
+        let patientId = scopePatientIds.first
+        if let patientId, patientId != conversationPatientId {
+            messages = []
+            conversationPatientId = patientId
+            currentConversationId = nil
+        }
         messages.append(Message(role: "user", text: q, answer: nil))
         // FR12.10：首问即开新会话（标题=首问摘要，截断 30 字）。
         // 审查修复（BR-001）：成员切换必须开新会话——原实现只判

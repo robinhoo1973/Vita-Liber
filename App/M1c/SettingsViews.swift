@@ -197,7 +197,12 @@ struct SettingsView: View {
                 // 运行时真源 = AppState.careMode（驱动 CareModeMetrics/触点放大等）；
                 // DB 键为镜像。读回实际状态，避免开关显示与行为脱节（split-brain 修复）
                 case .careModeEnable: return toggles[key] ?? app.careMode
-                default: return toggles[key] ?? (settings.values[key] == "true")
+                // 第六轮全仓审查修复：与消费者口径对齐——消费端均为
+                // `values[key] != "false"`（未设置 = 允许，默认真源在
+                // defaultValue）；原实现 `== "true"` 让全新装机把已生效的
+                // 功能显示成关闭，点一次「开启」写 true（无变化）、再点
+                // 一次才真正关闭（自翻转控件）
+                default: return toggles[key] ?? (settings.values[key] != "false")
                 }
             },
             set: { newValue in

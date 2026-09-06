@@ -129,10 +129,18 @@ public actor SensitiveAssetStore: SensitiveAssetStoring {
 
     public func reconcileUnreferenced(validAssetIds: Set<String>) async {
         do {
+            // 第六轮全仓审查修复（竞态）：调用方的有效 id 快照先于本 actor
+            // 的扫描——两者之间 savePhoto+观察行 INSERT 若已完成，新照片
+            // 会被判为孤儿删除（BR-002 原图不可恢复）。加入创建时间宽限窗：
+            // 近 10 分钟内创建的资产不参与本轮清扫（下一轮启动再扫，届时
+            // 引用行必然已落库）；老孤儿照常清理，仅把「新建在途」窗口
+            // 从「扫描间隙」放大到不可达。
+            let graceCutoff = Date().timeIntervalSince1970 - 600
             let orphans: [(id: String, rel: String)] = try await writer.read { db in
                 try Row.fetchAll(db, sql: """
-                    SELECT id, relative_path FROM asset WHERE kind = 'photo'
-                    """).map { row in
+                    SELECT id, relative_path FROM asset
+                    WHERE kind = 'photo' AND created_at < ?
+                    """, arguments: [graceCutoff]).map { row in
                     (row["id"] as String, row["relative_path"] as String)
                 }
             }

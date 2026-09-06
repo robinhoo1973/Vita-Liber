@@ -130,6 +130,11 @@ final class AppRouter {
     func degradeToHome() {
         homePath = []; recordsPath = []; remindersPath = []; aiPath = []; mePath = []
         selection = .home
+        // 第六轮全仓审查修复：启动窗口内已暂存的通知路由同样作废——
+        // 「无路由 → 显式回首页」契约（§5.45）要求清空队列，否则早先
+        // 暂存的有效路由在 markNavigationReady 后被照常投递，用户落地
+        // 到与「无路由通知」无关的目的页
+        pendingRoutes = []
         for key in Key.allCases {
             defaults.removeObject(forKey: key.storageKey)
         }

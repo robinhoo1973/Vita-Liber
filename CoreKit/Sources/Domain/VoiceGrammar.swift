@@ -75,8 +75,15 @@ public enum NumberNormalizer {
         var section = 0
         var lastUnit = 1
         var hasValue = false
+        var zeroSeen = false
         for ch in chars {
-            if let d = cnDigits[ch] {
+            // 第六轮全仓审查修复：「零」在 cnDigits 中（值 0），必须先于
+            // cnDigits 分支判定——原实现 else if ch == "零" 恒不可达，
+            // 「一百零二」走 0 位权 → 120（实测），医疗数值静默错 18%。
+            if ch == "零" {
+                zeroSeen = true
+                section = 0
+            } else if let d = cnDigits[ch] {
                 section = d
                 hasValue = true
             } else if let u = cnUnits[ch] {
@@ -84,14 +91,13 @@ public enum NumberNormalizer {
                 total += section
                 section = 0
                 lastUnit = u
-            } else if ch == "零" {
-                lastUnit = 1   // 「零」后数词按个位（「一百零二」= 102）
             } else if ch == "." || ch == "点" {
                 return text   // 混合形态不做归一（交由确认卡）
             }
         }
-        // 尾部剩余数词：前一单位 ≥10 且无「零」隔断 → 按 1/10 位权（一百二=120）
-        total += section * (lastUnit >= 10 ? lastUnit / 10 : 1)
+        // 尾部剩余数词：「零」隔断后按个位（一百零二=102）；
+        // 前一单位 ≥10 且无隔断 → 按 1/10 位权（一百二=120）
+        total += section * (zeroSeen || lastUnit < 10 ? 1 : lastUnit / 10)
         return hasValue ? String(total) : text
     }
 }

@@ -152,6 +152,13 @@ struct GlobalSearchView: View {
         }
         .navigationTitle(L10n.searchTitle)
         .searchable(text: $filterText, prompt: L10n.searchPlaceholder)
+        .onAppear {
+            // 语音会话「搜索 X」确认后经共享状态注入搜索词（第六轮全仓
+            // 审查修复：词随 openSearch 指令丢弃，搜索页空开）
+            if filterText.isEmpty && !state.query.isEmpty {
+                filterText = state.query
+            }
+        }
         .task(id: app.currentPatientId) {
             await hub.load(patientId: app.currentPatientId)
             await observationState.load(patientId: app.currentPatientId)

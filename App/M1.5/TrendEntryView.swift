@@ -130,7 +130,12 @@ struct TrendEntryView: View {
 extension TrendEntryState {
     /// 宫格最新点加载（try?-ok: 读取失败按空态渲染，不阻断总览页）
     func loadLatest(patientId: UUID) async {
+        // 第六轮全仓审查修复（BR-001 残留）：与 load/loadDetail 同款
+        // loadingPatientId 守卫——原实现无守卫，A 成员的慢查询在切换到
+        // B 成员后返回并覆写 latestMetrics，A 的最新值挂在 B 名下展示
+        loadingPatientId = patientId
         if let rows = try? await store.latestPerMetric(patientId: patientId) {   // try?-ok: 读取失败按空态渲染，不阻断总览页
+            guard loadingPatientId == patientId else { return }
             latestMetrics = rows
         }
     }

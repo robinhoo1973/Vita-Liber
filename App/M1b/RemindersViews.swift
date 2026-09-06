@@ -36,10 +36,11 @@ struct RemindersView: View {
                             Task { await reminders.recordDiscomfort(dose: dose, note: note, careMode: app.careMode, patientId: currentPatientId) }
                         },
                         onSlotAllTaken: {
-                            // FR9.17「全部已服用」= 逐药写 taken（底层仍按单药 dose_log）
-                            for record in slot.records where record.action == nil {
-                                Task { await reminders.confirmTaken(patientId: currentPatientId, dose: record.dose, careMode: app.careMode) }
-                            }
+                            // FR9.17「全部已服用」= 逐药写 taken（底层仍按单药 dose_log）；
+                            // 防抖只判一次（批量动作单闸门——关怀模式循环逐条
+                            // confirmTaken 会被 0.3s 震颤窗拦下除第一条外的全部）
+                            let pending = slot.records.filter { $0.action == nil }.map(\.dose)
+                            Task { await reminders.confirmSlotAllTaken(patientId: currentPatientId, doses: pending, careMode: app.careMode) }
                         },
                         careMode: app.careMode)
                 }
@@ -124,14 +125,31 @@ struct RemindersView: View {
             }
         }
         .sheet(isPresented: $showNewPlan) {
-            NewPlanSheet { name, spec, timeText, units in
+            NewPlanSheet { name, spec, timeText, kind, units in
                 Task {
                     do {
                         let medId = try await reminders.createMedication(
                             patientId: currentPatientId, name: name, spec: spec, unitKind: "tablet")
+                        // 第六轮全仓审查修复：调度类型此前只换提示文案、实际
+                        // 恒建 fixed——选「间隔」输入 480 会把 "480" 当 HH:mm
+                        // 时刻解析失败（计划零剂量），选「餐锚/按需」同样静默
+                        // 丢弃。现按 kind 映射真实调度（interval 分钟数、meal
+                        // 关系原样保留用户输入、asNeeded 无排程）。
+                        let schedule: MedicationSchedule
+                        switch kind {
+                        case "interval":
+                            guard let minutes = Int(timeText), minutes > 0 else { return }
+                            schedule = .interval(everyMinutes: minutes, start: "00:00")
+                        case "meal":
+                            schedule = .meal(relations: [timeText])
+                        case "asNeeded":
+                            schedule = .asNeeded
+                        default:
+                            schedule = .fixed(times: [timeText])
+                        }
                         try await reminders.createPlan(
                             patientId: currentPatientId, medicationId: medId, name: name, spec: spec,
-                            schedule: .fixed(times: [timeText]),
+                            schedule: schedule,
                             startDate: Calendar.current.startOfDay(for: Date()),
                             doseUnits: units)   // D1：每剂剂量落 dose_plan_units，不得丢弃
                     } catch {
@@ -166,7 +184,7 @@ struct RemindersView: View {
 
 /// 用药计划创建（评审修正 P0：提醒链用户起点——处方→计划 UI 此前缺失）
 struct NewPlanSheet: View {
-    let onCreate: (String, String, String, Double) -> Void
+    let onCreate: (String, String, String, String, Double) -> Void
     @State private var name = ""
     @State private var spec = ""
     @State private var timeText = "08:00"
@@ -199,8 +217,8 @@ struct NewPlanSheet: View {
             .navigationTitle(L10n.reminder_planNew)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(L10n.reminder_save) { onCreate(name, spec, timeText, units) }
-                        .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+                    Button(L10n.reminder_save) { onCreate(name, spec, timeText, scheduleKind, units) }
+                        .disabled(!canSave)
                         .accessibilityIdentifier("SP-09.plan.save")
                 }
             }
@@ -215,6 +233,16 @@ struct NewPlanSheet: View {
         case "asNeeded": return L10n.reminder_planKindAsNeededHint
         default: return L10n.reminder_planTime
         }
+    }
+
+    /// 可保存判定：名字非空；间隔类必须为正整数分钟（否则解析失败会
+    /// 静默建出零剂量计划）
+    private var canSave: Bool {
+        guard !name.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
+        if scheduleKind == "interval" {
+            guard let minutesValue = Int(timeText), minutesValue > 0 else { return false }
+        }
+        return true
     }
 }
 

@@ -150,6 +150,10 @@ struct VoiceLanguageSettingsView: View {
     }
 
     private func load() async {
+        // 第六轮全仓审查修复（写前读竞态）：必须先等 settings.load()——
+        // 原实现直接读 values（可能为空）回落默认单语言，用户首次切换
+        // 即把已存的多语言集合重写为 {默认, 新选}，其余语种静默丢失
+        await settings.load()
         let stored = settings.values[.voiceInputLanguages] ?? AppSettingKey.voiceInputLanguages.defaultValue
         inputLangs = Set(stored.split(separator: ",").map(String.init))
     }

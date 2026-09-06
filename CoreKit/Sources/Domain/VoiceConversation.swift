@@ -57,8 +57,13 @@ public enum VoiceCommandDangerLevel: Int, Sendable, Comparable, Equatable {
 
 public enum VoiceIntent: Sendable, Equatable {
     case command(VoiceCommand)
-    /// 记录类携带正文（如指标读数/问题速记）
+    /// 记录类携带正文（如指标读数）
     case record(metricText: String)
+    /// 问诊速记携带正文（FR10.5）——与 recordMetric 分离：第六轮全仓审查
+    /// 修复——原实现把 recordQuestion 折叠进 .record(metricText:)，
+    /// step 硬编码 pendingCommand = .recordMetric：确认的问题速记被当
+    /// 指标解析（可伪造 C 级读数）或静默丢弃，问诊列表永不可达。
+    case recordQuestion(text: String)
     case unrecognized
 }
 
@@ -153,7 +158,7 @@ public enum VoiceCommandGrammar {
                 if pattern.command == .recordQuestion {
                     let body = text.replacingOccurrences(of: #"^(?:记|记录)一个?(?:问题|下)[:：]?\s*"#,
                                                          with: "", options: .regularExpression)
-                    return .record(metricText: body.isEmpty ? text : body)
+                    return .recordQuestion(text: body.isEmpty ? text : body)
                 }
                 return .command(pattern.command)
             }
@@ -171,6 +176,7 @@ public enum VoiceCommandGrammar {
             default: return .low
             }
         case .record: return .elevated
+        case .recordQuestion: return .elevated
         case .unrecognized: return .low
         }
     }
@@ -340,6 +346,14 @@ public enum VoiceConversationEngine {
                 s.pendingObject = metricText
                 s.lastPrompt = .recordConfirm(metricText: metricText)
                 events.append(.speak(.recordConfirm(metricText: metricText)))
+            case .recordQuestion(let questionText):
+                // FR10.5 问诊速记：单次口头确认后落问诊列表（独立指令，
+                // 不与 recordMetric 混流）
+                s.phase = .confirming
+                s.pendingCommand = .recordQuestion
+                s.pendingObject = questionText
+                s.lastPrompt = .recordConfirm(metricText: questionText)
+                events.append(.speak(.recordConfirm(metricText: questionText)))
             }
         case .repeatingObject:
             let intent = VoiceCommandGrammar.parse(text, emergencyNumber: emergencyNumber)
@@ -392,11 +406,15 @@ public enum VoiceConversationEngine {
     }
 
     /// 列选提示（FR19.4）：≤3 项，编号 + 逐个朗读
-    public static func optionsPrompt(_ options: [String]) -> (state: ConversationState, events: [ConversationEvent]) {
+    public static func optionsPrompt(_ options: [String], pendingCommand: VoiceCommand? = nil) -> (state: ConversationState, events: [ConversationEvent]) {
         let trimmed = Array(options.prefix(maxOptions))
         var s = ConversationState()
         s.phase = .selecting
         s.options = trimmed
+        // 第六轮全仓审查修复：原实现新开空 ConversationState，pendingCommand
+        // 丢失——列选执行时 `pendingCommand ?? .todayMeds` 恒回落今天吃药，
+        // 用户选中的查询项（如库存）永远执行成错误指令
+        s.pendingCommand = pendingCommand
         s.lastPrompt = .multipleMatches(options: trimmed)
         return (s, [.askOptions(trimmed), .speak(.multipleMatches(options: trimmed))])
     }
@@ -430,6 +448,14 @@ public enum VoiceConversationEngine {
     }
 
     private static func extractPayload(_ text: String) -> String? {
-        nil   // 导航/查询类无载荷；载荷由装配层按指令另行解析
+        // 第六轮全仓审查修复：搜索类指令带载荷（搜索词）——原实现恒 nil，
+        // 「搜索阿司匹林」确认后执行 .openSearch 却丢弃查询词，搜索页
+        // 空开。载荷剥离文法前缀（与 patterns 单一事实源同一词表）。
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        for prefix in ["搜索", "找"] where t.hasPrefix(prefix) {
+            let body = String(t.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            return body.isEmpty ? nil : body
+        }
+        return nil   // 其余导航/查询类无载荷
     }
 }

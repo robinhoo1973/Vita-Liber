@@ -150,6 +150,12 @@ struct SensitiveMediaOriginalView: View {
         relockTask?.cancel()
         relockTask = nil
         unlocked = false
+        // 第六轮全仓审查修复：重锁必须把已解码的降采样字节一并清出——
+        // 原实现只翻转 unlocked，解码图仍驻留内存（下次解锁直接从内存
+        // 渲染），「重锁 = 回到认证前内存态」的 BR-007 快照防护语义
+        // 名存实亡
+        image = nil
+        displayData = nil
     }
 
     private func loadDownsampled() {

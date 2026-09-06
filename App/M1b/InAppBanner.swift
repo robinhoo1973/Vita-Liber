@@ -12,6 +12,9 @@ struct InAppBannerHost: View {
 
     @State private var dismissedUntil: Date = .distantPast
     @State private var autoDismiss: Task<Void, Never>?
+    /// 5 秒自动收起标记（第六轮全仓审查修复：横幅判读状态之一；
+    /// 新横幅出现（task id 变化）时复位）
+    @State private var autoHidden = false
 
     var body: some View {
         Group {
@@ -54,17 +57,23 @@ struct InAppBannerHost: View {
             // 5 秒自动收起（§4.22）；新横幅出现时重置计时
             guard currentBanner != nil else { return }
             autoDismiss?.cancel()
+            autoHidden = false
             autoDismiss = Task {
                 try? await Task.sleep(nanoseconds: 5_000_000_000)   // try?-ok: 自动收起计时取消即停
                 guard !Task.isCancelled else { return }
-                withAnimation { hide() }
+                // 第六轮全仓审查修复：原 hide() 只取消计时任务、不改任何
+                // currentBanner 读取的状态——5 秒后横幅纹丝不动，永久遮挡
+                // 内容。自动收起必须写入被 currentBanner 判读的开关；
+                // 「稍后」路径仍走 dismissedUntil（15 分钟后自然复现）
+                withAnimation { autoHidden = true }
             }
         }
     }
 
-    /// 横幅触发条件：开关开启 + 当前成员存在到期未处理剂量 + 未被稍后静默
+    /// 横幅触发条件：开关开启 + 当前成员存在到期未处理剂量 + 未被稍后静默/自动收起
     private var currentBanner: DoseRecord? {
         guard settings.values[.inAppBannerEnabled] != "false" else { return nil }
+        guard !autoHidden else { return nil }
         guard Date() >= dismissedUntil else { return nil }
         let now = Date()
         // 2 小时窗口内到期且未处理的剂量（早于窗口视为历史遗留，交提醒 Tab 处理）

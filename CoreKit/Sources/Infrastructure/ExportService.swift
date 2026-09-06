@@ -134,6 +134,9 @@ public actor ExportService {
             public var date: Date
             public var kind: String
             public var diagnosisText: String?
+            /// 软删时间戳（第六轮全仓审查修复：旧实现导出未过滤、恢复未携带，
+            /// 软删就诊在换机恢复后被复活为活跃行）
+            public var deletedAt: TimeInterval?
         }
         public struct MetricExport: Sendable, Codable, Equatable {
             public var id: UUID
@@ -210,12 +213,15 @@ public actor ExportService {
                 """).map { row in
                 Self.profileRow(row)
             }
-            // 审查修复（BR-001/FR13.5）：全部未删除成员档案随包往返——
-            // 恢复时各成员数据各归其位，绝不再静默改挂本人名下
+            // 审查修复（BR-001/FR13.5）：全部成员档案随包往返——
+            // 恢复时各成员数据各归其位，绝不再静默改挂本人名下。
+            // 第六轮全仓审查修复：不再过滤软删成员——已删成员的数据行
+            // （文档/观察/就诊）仍以 patient_id 外键引用其档案，档案缺席
+            // 会让换机恢复在 FK 上整体回滚（FR13.2 主路径不可恢复）；
+            // 软删状态经 deletedAt 随包往返，恢复后保持软删。
             let members = try Row.fetchAll(db, sql: """
                 SELECT * FROM patient_profile
-                WHERE deleted_at IS NULL
-                  AND id != COALESCE((SELECT self_patient_id FROM local_owner LIMIT 1), '')
+                WHERE id != COALESCE((SELECT self_patient_id FROM local_owner LIMIT 1), '')
                 ORDER BY created_at
                 """).map(Self.profileRow)
             let consents = try Row.fetchAll(db, sql: "SELECT * FROM consent_record ORDER BY accepted_at").map { row in
@@ -315,7 +321,8 @@ public actor ExportService {
                     patientId: (row["patient_id"] as String?).flatMap(UUID.init(uuidString:)),
                     date: Date(timeIntervalSince1970: row["date"] as Double),
                     kind: row["kind"] as String,
-                    diagnosisText: row["diagnosis_text"] as String?)
+                    diagnosisText: row["diagnosis_text"] as String?,
+                    deletedAt: row["deleted_at"] as Double?)
             }
             let metrics = try Row.fetchAll(db, sql: "SELECT * FROM metric_sample").map { row in
                 Envelope.MetricExport(
@@ -606,10 +613,13 @@ public actor ExportService {
                     case .adopt:
                         try db.execute(sql: """
                             UPDATE patient_profile SET display_name = ?, relation = ?, gender = ?,
-                              birth_date = ?, note = ?, created_at = ?, updated_at = ? WHERE id = ?
+                              birth_date = ?, blood_type = ?, id_no = ?, insurance_no = ?,
+                              note = ?, created_at = ?, updated_at = ?, deleted_at = ? WHERE id = ?
                             """, arguments: [profile.displayName, profile.relation, profile.gender,
-                                             profile.birthDate, profile.note, profile.createdAt,
-                                             profile.updatedAt, profile.id.uuidString])
+                                             profile.birthDate, profile.bloodType, profile.idNo,
+                                             profile.insuranceNo, profile.note, profile.createdAt,
+                                             profile.updatedAt, profile.deletedAt,
+                                             profile.id.uuidString])
                         return
                     case .coexist:
                         break   // 落到下方 INSERT（新 id）
@@ -617,11 +627,14 @@ public actor ExportService {
                 }
                 try db.execute(sql: """
                     INSERT INTO patient_profile
-                      (id, owner_local_id, display_name, relation, gender, birth_date, note, created_at, updated_at)
-                    VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?)
+                      (id, owner_local_id, display_name, relation, gender, birth_date,
+                       blood_type, id_no, insurance_no, note, created_at, updated_at, deleted_at)
+                    VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, arguments: [targetId.uuidString, profile.displayName,
                                        profile.relation, profile.gender, profile.birthDate,
-                                       profile.note, profile.createdAt, profile.updatedAt])
+                                       profile.bloodType, profile.idNo, profile.insuranceNo,
+                                       profile.note, profile.createdAt, profile.updatedAt,
+                                       profile.deletedAt])
             }
             if let profile = envelope.selfProfile {
                 try putProfile(profile)
@@ -845,16 +858,17 @@ public actor ExportService {
             for e in envelope.encounters {
                 if try adoptOrSkip(encConflicts, e.id, adopt: {
                     try db.execute(sql: """
-                        UPDATE encounter SET patient_id = ?, date = ?, kind = ?, diagnosis_text = ?
+                        UPDATE encounter SET patient_id = ?, date = ?, kind = ?, diagnosis_text = ?,
+                          deleted_at = ?
                         WHERE id = ?
                         """, arguments: [(remap(e.patientId) ?? e.patientId)?.uuidString ?? "", e.date.timeIntervalSince1970,
-                                         e.kind, e.diagnosisText, e.id.uuidString])
+                                         e.kind, e.diagnosisText, e.deletedAt, e.id.uuidString])
                 }) { continue }
                 try db.execute(sql: """
-                    INSERT INTO encounter (id, patient_id, date, kind, diagnosis_text, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO encounter (id, patient_id, date, kind, diagnosis_text, deleted_at, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """, arguments: [(remap(e.id) ?? e.id).uuidString, patientID(e.patientId), e.date.timeIntervalSince1970,
-                                     e.kind, e.diagnosisText,
+                                     e.kind, e.diagnosisText, e.deletedAt,
                                      e.date.timeIntervalSince1970, e.date.timeIntervalSince1970])
             }
             // document_file.encounter_id 外键回填（第四轮全仓审查 Phase 3 补漏）：
@@ -911,7 +925,13 @@ public actor ExportService {
                                      v.occurredAt.timeIntervalSince1970, v.occurredAt.timeIntervalSince1970])
             }
             // 敏感标记回写（BR-007/008 链必须随往返保持）
+            // 第六轮全仓审查修复：keep 裁决的行绝不触碰（ADR-019）——原实现
+            // 无条件回写 is_sensitive=1，用户「保留本机」且本机已解除敏感
+            // 标记的行被备份值反改回敏感（与 docEncounterLinks 同族残根）
             for docId in envelope.sensitiveDocIds {
+                if timelineConflicts.contains(docId.uuidString), resolution(docId) == .keep {
+                    continue
+                }
                 try db.execute(sql: "UPDATE document_file SET is_sensitive = 1 WHERE id = ?",
                                arguments: [(remap(docId) ?? docId).uuidString])
             }
@@ -956,14 +976,20 @@ public actor ExportService {
     }
 
     private static func profileRow(_ row: Row) -> PatientProfile {
+        // 第六轮全仓审查修复：血型/证件号/医保号（FR3.1 P0 字段）此前
+        // 未映射——备份→恢复静默清零，急救卡血型消失（FR13.5 一票否决项）
         PatientProfile(id: UUID(uuidString: row["id"] as String) ?? UUID(),
                        displayName: row["display_name"] as String,
                        relation: row["relation"] as String,
                        gender: row["gender"] as String?,
                        birthDate: row["birth_date"] as String?,
+                       bloodType: row["blood_type"] as String?,
+                       idNo: row["id_no"] as String?,
+                       insuranceNo: row["insurance_no"] as String?,
                        note: row["note"] as String?,
                        createdAt: row["created_at"] as Double,
-                       updatedAt: row["updated_at"] as Double)
+                       updatedAt: row["updated_at"] as Double,
+                       deletedAt: row["deleted_at"] as Double?)
     }
 
     /// 编码 envelope 为 JSON Data（含 UTF-8）

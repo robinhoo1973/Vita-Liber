@@ -111,15 +111,19 @@ extension TrendQueryStore {
 
     public func latestPerMetric(patientId: UUID) async throws -> [LatestMetric] {
         try await writer.read { db in
+            // 第六轮全仓审查修复：MAX(measured_at) 等值 JOIN 在同一时刻存在
+            // 多条样本时返回重复行（每分钟粒度录入器可达成）——同 key 重复
+            // id 让指标宫格 ForEach 崩溃/重砖。改「每个 key 单行 id 子查询」，
+            // 同刻并列取 rowid 最新的一条。
             let rows = try Row.fetchAll(db, sql: """
                 SELECT m.metric_key, m.value, m.unit, m.origin, m.measured_at
                 FROM metric_sample m
-                JOIN (SELECT metric_key, MAX(measured_at) AS mx
-                      FROM metric_sample
-                      WHERE patient_id = ? AND excluded = 0
-                      GROUP BY metric_key) latest
-                  ON latest.metric_key = m.metric_key AND latest.mx = m.measured_at
                 WHERE m.patient_id = ? AND m.excluded = 0
+                  AND m.id = (SELECT m2.id FROM metric_sample m2
+                              WHERE m2.patient_id = ? AND m2.excluded = 0
+                                AND m2.metric_key = m.metric_key
+                              ORDER BY m2.measured_at DESC, m2.rowid DESC
+                              LIMIT 1)
                 ORDER BY m.measured_at DESC
                 """, arguments: [patientId.uuidString, patientId.uuidString])
             return rows.map { row in

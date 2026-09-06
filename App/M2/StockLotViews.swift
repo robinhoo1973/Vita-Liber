@@ -19,6 +19,10 @@ struct StockLotDetailView: View {
     @State private var showReconcile = false
     @State private var showDiscard = false
     @State private var discardDoneToast = false
+    /// 第六轮全仓审查修复：store 写入失败的可见反馈——原实现静默 return，
+    /// sheet 不关、无任何提示（注释声称「错误条由编辑页呈现」但该信号
+    /// 从未发送，用户反复重试无反馈）
+    @State private var saveFailed = false
 
     var body: some View {
         Group {
@@ -83,6 +87,11 @@ struct StockLotDetailView: View {
         .alert(L10n.lotDiscardDone, isPresented: $discardDoneToast) {
             Button(L10n.onboard_gotIt, role: .cancel) { dismiss() }
         }
+        .alert(L10n.docConfirmSaveFailedTitle, isPresented: $saveFailed) {
+            Button(L10n.commonCancel, role: .cancel) { }
+        } message: {
+            Text(L10n.metricSaveFailed)
+        }
     }
 
     private func load() async {
@@ -104,7 +113,8 @@ struct StockLotDetailView: View {
             showEdit = false
             await load()
         } catch {
-            // 保存失败保留表单（sheet 不关闭，错误条由编辑页呈现）
+            // 保存失败保留表单（sheet 不关闭），并给出可见错误（原实现静默）
+            saveFailed = true
             return
         }
     }

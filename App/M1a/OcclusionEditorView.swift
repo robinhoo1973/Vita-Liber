@@ -44,8 +44,15 @@ struct OcclusionEditorView: View {
 /// PencilKit 叠层（UIViewRepresentable）：透明画布叠在原图上，工具黑色马克笔。
 struct OcclusionCanvas: UIViewRepresentable {
     let image: UIImage
-    /// 共享画布状态（渲染时取用；单编辑器实例无并发）
-    static var sharedDrawing = PKDrawing()
+    /// 共享画布状态（渲染时取用；单编辑器实例无并发）。
+    /// 第六轮全仓审查修复：原实现只把 sharedDrawing 拷贝进画布、从不回写——
+    /// 用户涂写只存在于 PKCanvasView 内部，「遮挡完成」合成的是空画布，
+    /// 证件号/地址等敏感区域原样保存（FR5.4 名存实亡 + BR-007 暴露面）。
+    /// nonisolated(unsafe) 理由（L10n 静态表同款先例）：PKCanvasView 委托
+    /// 回调与合成读取均只发生在主线程，无跨线程竞争面。
+    nonisolated(unsafe) static var sharedDrawing = PKDrawing()
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeUIView(context: Context) -> PKCanvasView {
         let canvas = PKCanvasView()
@@ -54,10 +61,18 @@ struct OcclusionCanvas: UIViewRepresentable {
         canvas.drawingPolicy = .anyInput
         canvas.tool = PKInkingTool(.marker, color: .black, width: 24)
         canvas.drawing = Self.sharedDrawing
+        canvas.delegate = context.coordinator
         return canvas
     }
 
     func updateUIView(_ canvas: PKCanvasView, context: Context) {}
+
+    /// 画布变更回调：把最新涂写回写共享状态（合成读取的唯一事实源）
+    final class Coordinator: NSObject, PKCanvasViewDelegate {
+        func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
+            OcclusionCanvas.sharedDrawing = canvasView.drawing
+        }
+    }
 
     /// 合成：原图 + 涂写（像素级合成，不可逆遮挡语义）
     static func render(image: UIImage, drawing: PKDrawing) -> UIImage? {

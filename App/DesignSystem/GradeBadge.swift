@@ -55,6 +55,6 @@ struct GradeBadge: View {
                                   style: StrokeStyle(lineWidth: 1, dash: [3]))
             }
         }
-        .accessibilityLabel(grade == "D" ? L10n.docGradeUnconfirmed : L10n.timelineGradeConfirmed)
+        .accessibilityLabel(isUnconfirmed ? L10n.docGradeUnconfirmed : L10n.timelineGradeConfirmed)
     }
 }

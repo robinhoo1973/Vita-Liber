@@ -68,9 +68,10 @@ final class VoiceSessionState {
             case .execute(let command, let payload):
                 executed = command
                 caption = L10n.f19Executed(command.rawValue) + (payload.map { "（\($0)）" } ?? "")
-                if command == .callContact || command == .callEmergency120 {
-                    pendingObject = payload
-                }
+                // 第六轮全仓审查修复：载荷镜像此前只对拨号类命令生效——
+                // markTaken/recordMetric/recordQuestion/搜索的执行对象恒 nil，
+                // handleExecution 全部落入 no-op（「已执行」宣告但什么都没做）
+                pendingObject = payload
             case .rejectForbidden:
                 rejected = true
             case .exitGracefully:
@@ -129,6 +130,7 @@ struct VoiceSessionView: View {
     @Environment(M2HubStore.self) private var hub
     @Environment(TrendEntryState.self) private var trendState
     @Environment(QuestionsState.self) private var questionsState
+    @Environment(SearchViewState.self) private var searchState
     @Environment(AppRouter.self) private var router
 
     @State private var session = VoiceSessionState()
@@ -467,6 +469,10 @@ struct VoiceSessionView: View {
             dismiss()
             router.navigate(to: .observationCreate)
         case .openSearch:
+            // 第六轮全仓审查修复：确认的搜索词此前被丢弃（Domain
+            // extractPayload 已返回载荷）——注入搜索共享状态，全局搜索
+            // 页打开即带词检索
+            if let object, !object.isEmpty { searchState.setQuery(object) }
             dismiss()
             router.navigate(to: .globalSearch)
         case .repeatLast, .louder, .yes, .no, .selectNumber, .selectName, .cancel:

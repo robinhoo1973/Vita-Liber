@@ -158,7 +158,8 @@ struct AppContainer {
                             search: search,
                             mediaSession: MediaUnlockSession(),
                             // 装饰器链（FR12.9 审计 + 红线纵深防御）：AuditedAIProvider 记
-                            // 每次调用读取的资料 ID 范围（entityId 哈希后落库，脱敏）；
+                            // 每次调用读取的资料 ID 范围（entityId 明文传审计闭包，
+                            // 由闭包内 recorder 落库；UUID 非 PHI，此处不再声称哈希）；
                             // SafeAIProvider 对 BR-012/BR-006 对所有 Provider 实现生效
                             // （含 P1 云端），消费方不需要各自设防。审计失败只记日志，
                             // 不得阻断回答（FR22 边界：诊断失败不阻塞主功能）。

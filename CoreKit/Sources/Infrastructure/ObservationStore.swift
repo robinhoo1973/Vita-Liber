@@ -201,7 +201,8 @@ public actor AllergyStore {
             try db.execute(sql: """
                 UPDATE allergy_event SET substance = ?, severity = ?, note = ?, updated_at = ?
                 WHERE id = ?
-                """, arguments: [substance, severity, note, now.timeIntervalSince1970, id.uuidString])
+                """, arguments: [substance, SevereReactionRules.canonicalSeverity(severity),
+                                 note, now.timeIntervalSince1970, id.uuidString])
         }
     }
 

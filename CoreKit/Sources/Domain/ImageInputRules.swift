@@ -70,9 +70,15 @@ public enum ImageInputRules {
            b[8] == 0x57, b[9] == 0x45, b[10] == 0x42, b[11] == 0x50 {
             return "image/webp"
         }
-        if b.count >= 12, b[4] == 0x66, b[5] == 0x74, b[6] == 0x79, b[7] == 0x70,
-           b[8] == 0x68, b[9] == 0x65, b[10] == 0x69, b[11] == 0x63 {
-            return "image/heic"   // ftyp heic（heif/heix/mif1 同族）
+        // 第六轮全仓审查修复：HEIF 容器品牌不止 heic——heix/heif/mif1/msf1/
+        // hevc/hevx 同为 HEIF 族，原实现只认 "heic" 四字节，其余品牌落
+        // fallback(image/jpeg) → 原件以 .jpg 扩展名落盘（BR-002 扩展名与
+        // 内容一致的约定被破坏）。
+        if b.count >= 12, b[4] == 0x66, b[5] == 0x74, b[6] == 0x79, b[7] == 0x70 {
+            let brand = String(bytes: b[8..<12], encoding: .ascii) ?? ""
+            if ["heic", "heix", "heif", "mif1", "msf1", "hevc", "hevx"].contains(brand) {
+                return "image/heic"
+            }
         }
         return fallback
     }

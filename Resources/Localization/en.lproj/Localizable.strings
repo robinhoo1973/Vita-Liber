@@ -1195,8 +1195,10 @@
 "metric.step1" = "Step 1 · Choose metric";
 "metric.step2" = "Step 2 · Enter value";
 "metric.name.bloodPressureSys" = "Blood pressure";
+"metric.name.bloodPressureDia" = "Blood pressure (diastolic)";
 "metric.name.glucose" = "Glucose";
 "metric.name.weight" = "Weight";
+"metric.name.temperature" = "Body temperature";
 "metric.name.heartRate" = "Heart rate";
 "metric.name.bloodOxygen" = "Blood oxygen";
 "metric.selfMeasureNote" = "Self-measured data is observational only, not a medical judgment";
@@ -1231,6 +1233,7 @@
 "observation.detail.trigger" = "Self-reported trigger";
 "observation.detail.accompanying" = "Accompanying symptoms";
 "observation.detail.painScore" = "Pain score (self-reported)";
+"observation.detail.painUnset" = "Not recorded";
 "observation.detail.medsDiet" = "Medication & diet at the time";
 "observation.detail.consulted" = "Already consulted a doctor";
 "observation.detail.encounter" = "Related visit";

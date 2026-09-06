@@ -285,6 +285,28 @@ final class ReminderStore {
         }
     }
 
+    /// FR9.17「全部已服用」批量动作（第六轮全仓审查修复）：单次震颤防抖
+    /// 判定——一次按住确认 = 一个用户动作，不得被 0.3s 窗口逐条拦截
+    /// （原实现视图层循环调 confirmTaken，关怀模式下只有第一条落库、
+    /// 其余静默拒绝，卡片停在「1/3 已服」）。BR-004 语义不变：仍按单药
+    /// 逐条写 dose_log；返回实际确认条数。
+    func confirmSlotAllTaken(patientId: UUID, doses: [ScheduledDose],
+                             careMode: Bool = false) async -> Int {
+        guard tremorAccepted(careMode: careMode) else { return 0 }
+        var confirmed = 0
+        for dose in doses {
+            do {
+                try await meds.confirmTaken(notifyId: dose.notifyId, patientId: patientId)
+                await removeDeliveredReminders(for: dose)
+                confirmed += 1
+            } catch {
+                logger.error("批量确认服药失败: \(error)")
+            }
+        }
+        if confirmed > 0 { await refresh(patientId: patientId) }
+        return confirmed
+    }
+
     func skipDose(dose: ScheduledDose, reason: String? = nil, careMode: Bool = false,
                   patientId: UUID? = nil) async {
         guard tremorAccepted(careMode: careMode) else { return }

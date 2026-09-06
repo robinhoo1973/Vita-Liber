@@ -91,7 +91,13 @@ final class AppState {
         self.launchArgs = []
         #endif
         self.onboardingFinished = defaults.bool(forKey: "onboardingFinished")
-        if launchArgs.contains("-uitest-reset") {
+        // 第六轮全仓审查修复：以下三处 -uitest-* 旁路必须读 DEBUG 门控后的
+        // self.launchArgs——原实现读 init 参数（参数遮蔽属性），发布构建被
+        // 注入启动参数时照常执行测试旁路：-uitest-reset 清空整个
+        // UserDefaults 域（含 onboarding/BR-001 锚点）、-uitest-seed-finished
+        // 强置首启完成、-uitest-gate-bypass 直接视为已认证（FR1.1 门禁
+        // 强度依赖「启动参数不可信」的假设被推翻）
+        if self.launchArgs.contains("-uitest-reset") {
             defaults.removePersistentDomain(forName: Bundle.main.bundleIdentifier ?? "com.vitaliber.VitaLiber")
             self.onboardingFinished = false
         }
@@ -110,12 +116,12 @@ final class AppState {
         }
         // UI 测试种子：确定性注入「已完成首启」状态——
         // 锁屏用例不再依赖前序用例的持久化数据（跨用例状态依赖不可靠）
-        if launchArgs.contains("-uitest-seed-finished") {
+        if self.launchArgs.contains("-uitest-seed-finished") {
             onboardingFinished = true
             defaults.set(true, forKey: "onboardingFinished")
         }
         // 门禁旁路：直接视为本会话已认证（非门禁用例避免遮罩；XCUITest 专用）
-        if launchArgs.contains("-uitest-gate-bypass") {
+        if self.launchArgs.contains("-uitest-gate-bypass") {
             lastUnlockedAt = Date()
         }
     }

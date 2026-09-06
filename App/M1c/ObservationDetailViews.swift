@@ -21,12 +21,12 @@ struct ObservationDetailView: View {
     @State private var draftFrequency = ""
     /// §5.7.1 [查看同组]（V3.72 修正）：此前误跳资料库——改为同组条目列表
     @State private var showGroupSheet = false
-    @State private var draftIsFirst = false
+    @State private var draftIsFirst: Bool?
     @State private var draftTrigger = ""
     @State private var draftAccompanying = ""
-    @State private var draftPainScore: Double = 0
+    @State private var draftPainScore: Double?
     @State private var draftMedsDiet = ""
-    @State private var draftConsulted = false
+    @State private var draftConsulted: Bool?
     @State private var draftDescription = ""
     @State private var showDeleteConfirm = false
     @State private var showFollowUp = false
@@ -199,15 +199,17 @@ struct ObservationDetailView: View {
                 Text(String(format: L10n.obsDetailDurationFmt, draftDuration ?? 30))
             }
             TextField(L10n.obsDetailFrequency, text: $draftFrequency).textFieldStyle(.roundedBorder)
-            Toggle(L10n.obsDetailIsFirst, isOn: $draftIsFirst)
+            Toggle(L10n.obsDetailIsFirst, isOn: Binding(get: { draftIsFirst ?? false }, set: { draftIsFirst = $0 }))
             TextField(L10n.obsDetailTrigger, text: $draftTrigger).textFieldStyle(.roundedBorder)
             TextField(L10n.obsDetailAccompanying, text: $draftAccompanying).textFieldStyle(.roundedBorder)
             VStack(alignment: .leading) {
-                Text("\(L10n.obsDetailPainScore)：\(Int(draftPainScore))/10")
-                Slider(value: $draftPainScore, in: 1...10, step: 1)
+                Text(draftPainScore.map { "\(L10n.obsDetailPainScore)：\(Int($0))/10" }
+                     ?? L10n.obsDetailPainUnset)
+                Slider(value: Binding(get: { draftPainScore ?? 1 }, set: { draftPainScore = $0 }),
+                       in: 1...10, step: 1)
             }
             TextField(L10n.obsDetailMedsDiet, text: $draftMedsDiet).textFieldStyle(.roundedBorder)
-            Toggle(L10n.obsDetailConsulted, isOn: $draftConsulted)
+            Toggle(L10n.obsDetailConsulted, isOn: Binding(get: { draftConsulted ?? false }, set: { draftConsulted = $0 }))
             TextField("", text: $draftDescription, axis: .vertical)
                 .lineLimit(2...5)
                 .textFieldStyle(.roundedBorder)
@@ -228,16 +230,21 @@ struct ObservationDetailView: View {
         draftBodyPart = event.bodyPart ?? ""
         draftDuration = event.durationMin
         draftFrequency = event.frequency ?? ""
-        draftIsFirst = event.isFirst ?? false
+        draftIsFirst = event.isFirst
         draftTrigger = event.trigger ?? ""
         draftAccompanying = event.accompanying ?? ""
-        draftPainScore = Double(event.painScore ?? 1)
+        draftPainScore = event.painScore.map(Double.init)
         draftMedsDiet = event.medsDiet ?? ""
-        draftConsulted = event.consultedDoctor
+        draftConsulted = event.consultedDoctor ? true : nil
         draftDescription = event.description ?? ""
     }
 
     private func save(_ event: ObservationEvent) {
+        // 第六轮全仓审查修复：updateExtended 用 COALESCE(?, col)——非 nil
+        // 参数即覆盖。原实现三个字段恒非 nil（painScore 预填 1、isFirst/
+        // consulted 预填 false），用户只改一个字段也会把未触碰的列写成
+        // 「疼痛 1/10」「非首次」——凭空制造未确认事实（BR-004 同族）。
+        // 改为可选草稿：未触碰即传 nil，绝不覆写。
         Task {
             let ok = await state.saveExtended(
                 id: event.id,
@@ -247,7 +254,7 @@ struct ObservationDetailView: View {
                 isFirst: draftIsFirst,
                 trigger: draftTrigger.isEmpty ? nil : draftTrigger,
                 accompanying: draftAccompanying.isEmpty ? nil : draftAccompanying,
-                painScore: Int(draftPainScore),
+                painScore: draftPainScore.map(Int.init),
                 medsDiet: draftMedsDiet.isEmpty ? nil : draftMedsDiet,
                 consultedDoctor: draftConsulted,
                 description: draftDescription.isEmpty ? nil : draftDescription)

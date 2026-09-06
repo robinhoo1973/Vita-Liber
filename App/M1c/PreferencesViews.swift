@@ -9,6 +9,11 @@ struct PreferencesView: View {
     @Environment(AppSettingsStore.self) private var settings
     @Environment(AppState.self) private var app
     @State private var readback = "never"
+    /// 第六轮全仓审查修复：settings.load() 完成前 onDisappear 不得 save——
+    /// 原实现用初始 @State（"never"）写回：进入即退出（load 未完成）会把
+    /// 已存的 ask/alwaysInCareMode 静默改写成 never；全新装机首访即退出
+    /// 也会把 Domain 默认 ask 落成显式 never（写前读竞态）
+    @State private var loaded = false
 
     var body: some View {
         Form {
@@ -63,6 +68,7 @@ struct PreferencesView: View {
         .task {
             await settings.load()
             loadValues()
+            loaded = true
         }
         .onDisappear { save() }
     }
@@ -72,6 +78,7 @@ struct PreferencesView: View {
     }
 
     private func save() {
+        guard loaded else { return }
         // ReadbackPolicy：总是 仅关怀模式可选——非法组合不落盘
         // （保留原值，配合 AppState.readbackPreference 写入口的同一道校验）
         let pref = ReadbackPreference(rawValue: readback) ?? .never
