@@ -197,6 +197,28 @@ final class DocumentsState {
     /// OCR 跑完后组装待确认草稿：处方文档类型用处方语义标签（药品名/剂量/频次/医院/医生），
     /// 其余类型用通用 line_N 标签。FR6.1/ADR-026：OCR 经统一编排层（质量评估+识别）；
     /// FR14.1 authOcr：授权关闭 → 跳过识别，草稿无候选字段但仍可确认保存（只是无识别文本）。
+    /// 列表主体与导入入口动作拆为独立计算属性（CI 34037986523 实证：
+    /// 巨型 body 表达式超出 Swift 类型推断预算——「unable to type-check
+    /// in reasonable time」。拆分为显式类型边界后各段独立推断）。
+    private var importContent: some View {
+        Group {
+            if state.documents.isEmpty {
+                DocumentLibraryEmptyView()
+            } else {
+                DocumentListView()
+            }
+        }
+    }
+
+    /// FR5.1 五入口确认弹窗内容：相机拍摄 / 文件导入（PDF/图片）/ 相册导入 / 手工新建
+    @ViewBuilder private var importSourceActions: some View {
+        Button(L10n.docImportCamera) { router.navigate(to: .scanCapture(.record)) }
+        Button(L10n.docImportFile) { fileImporterActive = true }
+        Button(L10n.docImportPhotos) { photosImporterActive = true }
+        Button(L10n.docImportManual) { showManualCreate = true }
+        Button(L10n.commonCancel, role: .cancel) { }
+    }
+
     private func buildDraft(patientId: UUID, originalData: Data, processedData: Data, mimeType: String,
                             docType: String, title: String?, isSensitive: Bool, origin: String,
                             sha256: String, replaceDocumentId: UUID? = nil) async -> ImportDraft? {
@@ -461,41 +483,30 @@ struct DocumentLibraryView: View {
     @State private var pendingDraft: DocumentsState.ImportDraft?
 
     var body: some View {
-        Group {
-            if state.documents.isEmpty {
-                DocumentLibraryEmptyView()
-            } else {
-                DocumentListView()
-            }
-        }
-        .navigationTitle(L10n.docLibraryTitle)
-        .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                Button {
-                    showArchived.toggle()
-                    Task { await state.load(patientId: app.currentPatientId, includeArchived: showArchived) }
-                } label: {
-                    Image(systemName: showArchived ? "archivebox.fill" : "archivebox")
+        importContent
+            .navigationTitle(L10n.docLibraryTitle)
+            .toolbar {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button {
+                        showArchived.toggle()
+                        Task { await state.load(patientId: app.currentPatientId, includeArchived: showArchived) }
+                    } label: {
+                        Image(systemName: showArchived ? "archivebox.fill" : "archivebox")
+                    }
+                    .accessibilityLabel(L10n.docArchive)
+                    Button {
+                        showImportSource = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel(L10n.docAdd)
+                    .accessibilityIdentifier("SP-09.document.add")
                 }
-                .accessibilityLabel(L10n.docArchive)
-                Button {
-                    showImportSource = true
-                } label: {
-                    Image(systemName: "plus")
-                }
-                .accessibilityLabel(L10n.docAdd)
-                .accessibilityIdentifier("SP-09.document.add")
             }
-        }
-        .confirmationDialog(L10n.docImportSourceTitle, isPresented: $showImportSource,
-                            titleVisibility: .visible) {
-            // FR5.1 五入口：相机拍摄 / 文件导入（PDF/图片）/ 相册导入 / 手工新建
-            Button(L10n.docImportCamera) { router.navigate(to: .scanCapture(.record)) }
-            Button(L10n.docImportFile) { fileImporterActive = true }
-            Button(L10n.docImportPhotos) { photosImporterActive = true }
-            Button(L10n.docImportManual) { showManualCreate = true }
-            Button(L10n.commonCancel, role: .cancel) { }
-        }
+            .confirmationDialog(L10n.docImportSourceTitle, isPresented: $showImportSource,
+                                titleVisibility: .visible) {
+                importSourceActions
+            }
         // FR5.6/§5.52 重复检测：并排对比三态裁决 sheet（V3.72，绝不自动删除）
         .sheet(isPresented: duplicateAlertBinding) {
             DuplicateCompareSheet(
@@ -800,11 +811,15 @@ struct DocumentStoreDetailView: View {
                 } else {
                     // 非敏感原图也走 ImageIO 降采样（§5.10 大图 OOM 纪律）
                     NavigationStack {
-                        if let data = try? Data(contentsOf: URL(fileURLWithPath: path)),   // try?-ok: 读取失败按「不可查看」降级
-                           let image = ImageIOImageLoader.downsample(data: data, maxDimension: 2048) {
-                            Image(uiImage: image)
-                                .resizable().scaledToFit()
-                                .padding(12)
+                        // 裸修饰符位于 ViewBuilder 内 if 之后会以 View 类型为基解析
+                        // 失败（CI 34037986523 实证）——Group 包裹后修饰符挂 Group 结果
+                        Group {
+                            if let data = try? Data(contentsOf: URL(fileURLWithPath: path)),   // try?-ok: 读取失败按「不可查看」降级
+                               let image = ImageIOImageLoader.downsample(data: data, maxDimension: 2048) {
+                                Image(uiImage: image)
+                                    .resizable().scaledToFit()
+                                    .padding(12)
+                            }
                         }
                         .navigationTitle(L10n.docViewOriginal)
                         .navigationBarTitleDisplayMode(.inline)

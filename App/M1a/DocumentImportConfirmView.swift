@@ -90,15 +90,19 @@ struct DocumentImportConfirmView: View {
     private var regionPreview: some View {
         let downsampled = ImageIOImageLoader.downsample(data: draft.processedData, maxDimension: 2048)
         return NavigationStack {
-            if draft.isSensitive {
-                SensitiveMediaContainer { _ in
-                    Label(L10n.sensitiveMedia_unlockToView, systemImage: "lock.fill")
-                        .foregroundStyle(.secondary)
-                } content: { _ in
+            // 裸修饰符位于 ViewBuilder 内 if/else 之后会以 View 类型为基解析失败
+            // （CI 34037986523 实证）——Group 包裹后修饰符挂在 Group 结果上
+            Group {
+                if draft.isSensitive {
+                    SensitiveMediaContainer { _ in
+                        Label(L10n.sensitiveMedia_unlockToView, systemImage: "lock.fill")
+                            .foregroundStyle(.secondary)
+                    } content: { _ in
+                        previewImage(downsampled)
+                    }
+                } else {
                     previewImage(downsampled)
                 }
-            } else {
-                previewImage(downsampled)
             }
             .navigationTitle(L10n.docConfirmViewRegion)
             .navigationBarTitleDisplayMode(.inline)
