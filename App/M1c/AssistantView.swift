@@ -55,6 +55,21 @@ struct AssistantView: View {
                 }
                 .padding(16)
             }
+            // §5.10 快捷提问 chips（V3.72）：新用户一问即用
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach([L10n.aiQuickGlucose, L10n.aiQuickMeds, L10n.aiQuickNext], id: \.self) { q in
+                        Button(q) {
+                            Task { await assistant.ask(q, scopePatientIds: [currentPatientId]) }
+                        }
+                        .font(.caption)
+                        .padding(.horizontal, 10)
+                        .frame(minHeight: 36)
+                        .background(Capsule().fill(Color(.systemGray5)))
+                    }
+                }
+                .padding(.horizontal, 12)
+            }
             HStack(spacing: 8) {
                 // FR12.11：拍照/相册发起「帮我看看这张报告」
                 PhotosPicker(selection: $pickerItem, matching: .images) {

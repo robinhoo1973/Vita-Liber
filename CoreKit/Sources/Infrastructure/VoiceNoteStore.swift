@@ -63,5 +63,28 @@ public actor VoiceNoteStore {
             }
         }
     }
+
+    /// FR17.14 编辑（V3.72）：正文/标签/入轴开关；updated_at 刷新。
+    /// 修订语义从简：速记是 C 级自述备忘，非医疗结构数据（删除明示「仅删除该条备忘」）。
+    public func update(id: UUID, patientId: UUID, body: String, tags: [String]?,
+                       inTimeline: Bool) async throws {
+        try await writer.write { db in
+            try db.execute(sql: """
+                UPDATE voice_note
+                SET body = ?, tags = ?, in_timeline = ?, updated_at = ?
+                WHERE id = ? AND patient_id = ?
+                """, arguments: [body, (tags ?? []).joined(separator: ","),
+                                 inTimeline ? 1 : 0, Date().timeIntervalSince1970,
+                                 id.uuidString, patientId.uuidString])
+        }
+    }
+
+    public func delete(id: UUID, patientId: UUID) async throws {
+        try await writer.write { db in
+            try db.execute(sql: "DELETE FROM voice_note WHERE id = ? AND patient_id = ?",
+                           arguments: [id.uuidString, patientId.uuidString])
+        }
+    }
+
 }
 #endif

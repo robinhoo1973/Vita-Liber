@@ -98,6 +98,24 @@ struct EncounterListView: View {
                 }
             }
         }
+        .safeAreaInset(edge: .top) {
+            HStack(spacing: 8) {
+                Menu {
+                    Button(L10n.filterAll) { memberFilter = nil }
+                    ForEach(app.members) { m in
+                        Button(m.displayName) { memberFilter = m.id }
+                    }
+                } label: {
+                    Text(memberFilter.flatMap { id in app.members.first(where: { $0.id == id })?.displayName }
+                         ?? L10n.filterAll)
+                        .font(.caption).padding(.horizontal, 10).frame(minHeight: 44)
+                        .background(Capsule().fill(Color(.systemGray5)))
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .background(.thinMaterial)
+        }
         .navigationTitle(L10n.encounterListTitle)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {

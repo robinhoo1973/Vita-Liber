@@ -719,13 +719,14 @@ final class AppState {
     }
 
     /// FR6.7 报告识别问题（本地记录，P1 进审核后台）：写审计事实，不传医疗内容
-    func reportRecognitionIssue(documentId: UUID) {
+    /// FR6.7 识别问题报告（V3.72 表单化）：错误类型/字段/备注随 meta 落审计
+    func reportRecognitionIssue(documentId: UUID, meta: String = "kind=ocr_issue") {
         guard let audit else { return }
         Task {
             do {
                 try await audit.record(action: "feedback", entityType: "ocr_result",
                                        entityId: documentId.uuidString, actorLocal: "owner",
-                                       meta: "kind=ocr_issue")
+                                       meta: meta)
             } catch {
                 logger.error("识别问题报告失败: \(error)")
             }

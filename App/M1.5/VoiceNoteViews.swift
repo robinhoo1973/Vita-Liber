@@ -35,6 +35,25 @@ final class VoiceNoteState {
             logger.error("速记创建失败: \(error)")
         }
     }
+
+    func update(id: UUID, patientId: UUID, body: String, tags: [String]?, inTimeline: Bool) async {
+        do {
+            try await store.update(id: id, patientId: patientId, body: body,
+                                   tags: tags, inTimeline: inTimeline)
+            await load(patientId: patientId)
+        } catch {
+            logger.error("速记更新失败: \(error)")
+        }
+    }
+
+    func delete(id: UUID, patientId: UUID) async {
+        do {
+            try await store.delete(id: id, patientId: patientId)
+            await load(patientId: patientId)
+        } catch {
+            logger.error("速记删除失败: \(error)")
+        }
+    }
 }
 
 struct VoiceNotePanelView: View {
@@ -43,6 +62,8 @@ struct VoiceNotePanelView: View {
     @State private var draft = ""
     @State private var confirmSet: OcrConfirmationSet?
     @State private var routeMonitor = AudioRouteMonitor()
+    /// §5.61 详情/编辑（V3.72）：行点击进入编辑（正文/标签/入轴/删除）
+    @State private var editingNote: VoiceNoteStore.VoiceNoteRow?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -52,7 +73,10 @@ struct VoiceNotePanelView: View {
                     .accessibilityIdentifier("SP-59.voicenote.empty")
             } else {
                 List(state.notes) { note in
-                    VStack(alignment: .leading, spacing: 4) {
+                    Button {
+                        editingNote = note
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
                         HStack {
                             Text(note.body).font(.body)
                             Spacer()
@@ -66,8 +90,10 @@ struct VoiceNotePanelView: View {
                             Text(note.tags.joined(separator: " · ")).font(.caption2).foregroundStyle(.secondary)
                         }
                     }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityIdentifier("SP-59.voicenote.row")
+                        .accessibilityElement(children: .combine)
+                        .accessibilityIdentifier("SP-59.voicenote.row")
+                    }
+                    .buttonStyle(.plain)
                 }
             }
             VStack(alignment: .leading, spacing: 8) {
@@ -125,9 +151,86 @@ struct VoiceNotePanelView: View {
                 onCancel: { confirmSet = nil })
             .presentationDetents([.medium])
         }
+        .sheet(item: $editingNote) { note in
+            VoiceNoteDetailSheet(note: note) { body, tags, inTimeline in
+                editingNote = nil
+                Task {
+                    await state.update(id: note.id, patientId: currentPatientId,
+                                       body: body, tags: tags, inTimeline: inTimeline)
+                }
+            } onDelete: {
+                editingNote = nil
+                Task { await state.delete(id: note.id, patientId: currentPatientId) }
+            }
+            .presentationDetents([.medium])
+        }
         .onAppear { routeMonitor.start() }
         .onDisappear { routeMonitor.stop() }
     }
 
     private var currentPatientId: UUID { app.currentPatientId }
+}
+
+/// §5.61 语音速记详情/编辑（V3.72）：正文可编辑、标签输入、入时间轴开关、
+/// 删除前明示「仅删除该条备忘，不影响医疗数据」（FR6.4 修订语义从简）
+struct VoiceNoteDetailSheet: View {
+    let note: VoiceNoteStore.VoiceNoteRow
+    let onSave: (String, [String]?, Bool) -> Void
+    let onDelete: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var body = ""
+    @State private var tagsText = ""
+    @State private var inTimeline = false
+    @State private var confirmDelete = false
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section(L10n.voicenoteDetailBody) {
+                    TextField(L10n.voicenoteDraftPlaceholder, text: $body, axis: .vertical)
+                        .lineLimit(3...8)
+                }
+                Section(L10n.voicenoteDetailTags) {
+                    TextField(L10n.voicenoteDetailTagsHint, text: $tagsText)
+                }
+                Section {
+                    Toggle(L10n.voicenoteDetailTimeline, isOn: $inTimeline)
+                } footer: {
+                    Text(L10n.voicenoteDetailTimelineHint)
+                }
+                Section {
+                    Button(role: .destructive) { confirmDelete = true } label: {
+                        Text(L10n.voicenoteDetailDelete)
+                    }
+                }
+            }
+            .navigationTitle(L10n.voicenoteTitle)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(L10n.commonCancel) { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(L10n.reminder_save) {
+                        let tags = tagsText.split(separator: ",").map { String($0.trimmingCharacters(in: .whitespaces)) }
+                        onSave(body, tags.isEmpty ? nil : tags, inTimeline)
+                        dismiss()
+                    }
+                    .disabled(body.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+            .alert(L10n.voicenoteDetailDeleteConfirm, isPresented: $confirmDelete) {
+                Button(L10n.voicenoteDetailDelete, role: .destructive) {
+                    onDelete()
+                    dismiss()
+                }
+                Button(L10n.onboard_cancel, role: .cancel) {}
+            }
+            .onAppear {
+                body = note.body
+                tagsText = note.tags.joined(separator: ", ")
+                inTimeline = note.inTimeline
+            }
+        }
+    }
 }

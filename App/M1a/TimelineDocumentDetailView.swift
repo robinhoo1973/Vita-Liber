@@ -9,6 +9,11 @@ struct TimelineDocumentDetailView: View {
     @Environment(AppState.self) private var app
     let entry: TimelineDocumentEntry
 
+    @State private var reviseTarget: CandidateField?
+    @State private var reviseDraft = ""
+    @State private var showOriginal = false
+    @State private var showIssueSheet = false
+
     var body: some View {
         List {
             Section(L10n.docTitleSection) {
@@ -41,6 +46,42 @@ struct TimelineDocumentDetailView: View {
                 }
             }
         }
+        .sheet(isPresented: $showIssueSheet) {
+            ReportIssueSheet(documentId: entry.id, fields: fields) { kind, fieldKey, note in
+                app.reportRecognitionIssue(documentId: entry.id,
+                                           meta: "kind=\(kind);field=\(fieldKey);note=\(note)")
+            }
+        }
+        .sheet(isPresented: $showOriginal) {
+            if let path = entry.originalPath, let image = UIImage(contentsOfFile: path) {
+                NavigationStack {
+                    Image(uiImage: image)
+                        .resizable().scaledToFit()
+                        .padding(12)
+                        .navigationTitle(L10n.docViewOriginal)
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button(L10n.onboard_gotIt) { showOriginal = false }
+                            }
+                        }
+                }
+            }
+        }
+        .alert(L10n.onboardReviseTitle(reviseTarget?.displayLabel ?? ""),
+               isPresented: Binding(get: { reviseTarget != nil },
+                                    set: { if !$0 { reviseTarget = nil } })) {
+            TextField(L10n.onboard_newValue, text: $reviseDraft)
+            Button(L10n.onboard_saveEdit) {
+                if let target = reviseTarget {
+                    app.reviseTimelineField(entryId: entry.id, fieldId: target.id, to: reviseDraft)
+                }
+                reviseTarget = nil
+            }
+            Button(L10n.onboard_cancel, role: .cancel) { reviseTarget = nil }
+        } message: {
+            Text(L10n.onboardOcrRaw(reviseTarget?.rawText ?? ""))
+        }
         .navigationTitle(L10n.docDetailTitle)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -55,10 +96,21 @@ struct TimelineDocumentDetailView: View {
                 })
                 .accessibilityIdentifier("SP-10.document.export")
             }
-            // FR6.7 报告识别问题（本地记录，P1 进审核后台）
+            // BR-002 看原图（V3.72）：固定右上入口，原件只读展示
+            if entry.originalPath != nil {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showOriginal = true
+                    } label: {
+                        Label(L10n.docViewOriginal, systemImage: "doc.text.image")
+                    }
+                    .accessibilityIdentifier("SP-10.document.viewOriginal")
+                }
+            }
+            // FR6.7 报告识别问题（V3.72：表单化——错误类型/字段/备注，提交落审计）
             ToolbarItem(placement: .secondaryAction) {
                 Button {
-                    app.reportRecognitionIssue(documentId: entry.id)
+                    showIssueSheet = true
                 } label: {
                     Image(systemName: "exclamationmark.bubble")
                 }
@@ -85,5 +137,71 @@ struct TimelineDocumentDetailView: View {
             lines.append(entry.revisionHistory.joined(separator: " → "))
         }
         return lines.joined(separator: "\n")
+    }
+}
+
+/// §5.53 识别错误反馈表单（V3.72）：错误类型四分类 + 错误字段 + 备注；
+/// 提交即落审计并 Toast 已记录（FR22.5 最小化：默认只附脱敏信息）。
+struct ReportIssueSheet: View {
+    let documentId: UUID
+    let fields: [CandidateField]
+    let onSubmit: (String, String, String) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var kind = "fieldWrong"
+    @State private var fieldKey: String?
+    @State private var note = ""
+    @State private var submitted = false
+
+    private let kinds = [
+        ("fieldWrong", L10n.reportIssueFieldWrong),
+        ("missingField", L10n.reportIssueMissing),
+        ("layout", L10n.reportIssueLayout),
+        ("engine", L10n.reportIssueEngine),
+    ]
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section(L10n.reportIssueKind) {
+                    Picker("", selection: $kind) {
+                        ForEach(kinds, id: \.0) { k in Text(k.1).tag(k.0) }
+                    }
+                    .pickerStyle(.inline)
+                }
+                Section(L10n.reportIssueField) {
+                    Picker("", selection: $fieldKey) {
+                        Text(L10n.reportIssueFieldAll).tag(String?.none)
+                        ForEach(fields) { f in
+                            Text(f.displayLabel).tag(String?.some(f.key))
+                        }
+                    }
+                }
+                Section(L10n.reportIssueNote) {
+                    TextField(L10n.reportIssueNoteHint, text: $note, axis: .vertical)
+                        .lineLimit(2...5)
+                }
+                Section {
+                    Text(L10n.reportIssueMinimal)
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+            .navigationTitle(L10n.docReportIssue)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(L10n.onboard_cancel) { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(L10n.reportIssueSubmit) {
+                        onSubmit(kind, fieldKey ?? "", note)
+                        submitted = true
+                    }
+                }
+            }
+            .alert(L10n.reportIssueSubmitted, isPresented: $submitted) {
+                Button(L10n.onboard_gotIt, role: .cancel) { dismiss() }
+            }
+        }
+        .presentationDetents([.medium])
     }
 }

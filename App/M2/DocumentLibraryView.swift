@@ -227,10 +227,23 @@ final class DocumentsState {
     }
 
     /// 重复提示后的用户裁决：并存（绝不自动删除）或放弃
-    func resolveDuplicate(keepBoth: Bool) async {
+    enum DuplicateResolution { case keep, coexist, replace }
+
+    /// FR5.6/§5.52 三态裁决（V3.72）：保留已有（丢弃新）/两者并存/替换（归档旧版+存新版）。
+    /// 绝不自动删除（归档=软删语义）。
+    func resolveDuplicate(_ resolution: DuplicateResolution) async {
         defer { pendingDuplicate = nil; duplicateHits = [] }
-        guard keepBoth, let pending = pendingDuplicate, let patientId = loadingPatientId else { return }
+        guard let pending = pendingDuplicate, let patientId = loadingPatientId else { return }
+        switch resolution {
+        case .keep:
+            return   // 丢弃新文件——原件未被写入，无清理动作
+        case .coexist, .replace:
+            break
+        }
         do {
+            if resolution == .replace, let old = duplicateHits.first {
+                try await store.setArchived(id: old.id, archived: true)
+            }
             _ = try await store.save(patientId: patientId, docType: pending.docType,
                                      sha256: pending.sha256, mimeType: pending.mimeType,
                                      origin: pending.origin, isSensitive: pending.isSensitive,
@@ -307,16 +320,14 @@ struct DocumentLibraryView: View {
             Button(L10n.docImportManual) { showManualCreate = true }
             Button(L10n.commonCancel, role: .cancel) { }
         }
-        // FR5.6 重复检测：并排对比提示（绝不自动删除）
-        .alert(L10n.docDuplicateTitle, isPresented: duplicateAlertBinding) {
-            Button(L10n.docDuplicateKeepBoth) {
-                Task { await state.resolveDuplicate(keepBoth: true) }
+        // FR5.6/§5.52 重复检测：并排对比三态裁决 sheet（V3.72，绝不自动删除）
+        .sheet(isPresented: duplicateAlertBinding) {
+            DuplicateCompareSheet(
+                existing: state.duplicateHits.first,
+                newTitle: state.pendingDuplicate?.title ?? L10n.docDuplicateNewFile) { resolution in
+                Task { await state.resolveDuplicate(resolution) }
             }
-            Button(L10n.docDuplicateDiscard, role: .cancel) {
-                Task { await state.resolveDuplicate(keepBoth: false) }
-            }
-        } message: {
-            Text(L10n.docDuplicateHint(state.duplicateHits.count))
+            .presentationDetents([.medium])
         }
         // FR6.6 导入失败可见错误
         .alert(L10n.docImportFailedTitle, isPresented: $showImportError) {
@@ -513,5 +524,68 @@ private struct DocumentListView: View {
                                        : nil)
             }
         }
+    }
+}
+
+/// §5.52 重复检测对比（V3.72）：左右两栏（已有 vs 新）+ 三选一裁决，
+/// 默认「保留已有」；绝不自动删除。
+struct DuplicateCompareSheet: View {
+    let existing: DocumentStore.DocumentRow?
+    let newTitle: String
+    let onResolve: (DocumentsState.DuplicateResolution) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var choice: DocumentsState.DuplicateResolution = .keep
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 16) {
+                Text(L10n.docDuplicateTitle).font(.headline)
+                HStack(alignment: .top, spacing: 8) {
+                    compareColumn(
+                        title: L10n.docDuplicateExisting,
+                        name: existing?.title ?? L10n.docUntitled,
+                        date: existing.map { $0.createdAt.formatted(date: .abbreviated, time: .omitted) } ?? "",
+                        grade: "C")
+                    compareColumn(
+                        title: L10n.docDuplicateNewFile,
+                        name: newTitle,
+                        date: "",
+                        grade: "D")
+                }
+                Picker("", selection: $choice) {
+                    Text(L10n.docDuplicateKeep).tag(DocumentsState.DuplicateResolution.keep)
+                    Text(L10n.docDuplicateReplace).tag(DocumentsState.DuplicateResolution.replace)
+                    Text(L10n.docDuplicateKeepBoth).tag(DocumentsState.DuplicateResolution.coexist)
+                }
+                .pickerStyle(.segmented)
+                .accessibilityIdentifier("SP-09.duplicate.choice")
+                HStack {
+                    Button(L10n.onboard_cancel) { dismiss() }
+                        .buttonStyle(.bordered)
+                    Button(L10n.onboard_saveEdit) {
+                        onResolve(choice)
+                        dismiss()
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                Text(L10n.docDuplicateNeverAutoDelete)
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            .padding(20)
+        }
+    }
+
+    private func compareColumn(title: String, name: String, date: String, grade: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.caption).foregroundStyle(.secondary)
+            Text(name).font(.subheadline).lineLimit(2)
+            if !date.isEmpty {
+                Text(date).font(.caption2).foregroundStyle(.secondary)
+            }
+            GradeBadge(grade: grade)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color(.secondarySystemGroupedBackground)))
     }
 }

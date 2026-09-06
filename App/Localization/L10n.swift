@@ -1788,6 +1788,36 @@ enum L10n {
     static var settings_grace0: String { t("settings.grace0") }
     static var settings_grace15: String { t("settings.grace15") }
     static var settings_grace60: String { t("settings.grace60") }
+    static var aiQuickGlucose: String { t("ai.quickGlucose") }
+    static var aiQuickMeds: String { t("ai.quickMeds") }
+    static var aiQuickNext: String { t("ai.quickNext") }
+    static var voicenoteDetailBody: String { t("voicenote.detailBody") }
+    static var voicenoteDetailTags: String { t("voicenote.detailTags") }
+    static var voicenoteDetailTagsHint: String { t("voicenote.detailTagsHint") }
+    static var voicenoteDetailTimeline: String { t("voicenote.detailTimeline") }
+    static var voicenoteDetailTimelineHint: String { t("voicenote.detailTimelineHint") }
+    static var voicenoteDetailDelete: String { t("voicenote.detailDelete") }
+    static var voicenoteDetailDeleteConfirm: String { t("voicenote.detailDeleteConfirm") }
+    static var docViewOriginal: String { t("doc.viewOriginal") }
+    static var onboardRevise: String { t("onboard.revise") }
+    static var reportIssueKind: String { t("report.issueKind") }
+    static var reportIssueField: String { t("report.issueField") }
+    static var reportIssueFieldAll: String { t("report.issueFieldAll") }
+    static var reportIssueNote: String { t("report.issueNote") }
+    static var reportIssueNoteHint: String { t("report.issueNoteHint") }
+    static var reportIssueMinimal: String { t("report.issueMinimal") }
+    static var reportIssueSubmit: String { t("report.issueSubmit") }
+    static var reportIssueSubmitted: String { t("report.issueSubmitted") }
+    static var reportIssueFieldWrong: String { t("report.issueFieldWrong") }
+    static var reportIssueMissing: String { t("report.issueMissing") }
+    static var reportIssueLayout: String { t("report.issueLayout") }
+    static var reportIssueEngine: String { t("report.issueEngine") }
+    static var docDuplicateExisting: String { t("doc.duplicateExisting") }
+    static var docDuplicateNewFile: String { t("doc.duplicateNewFile") }
+    static var docDuplicateKeep: String { t("doc.duplicateKeep") }
+    static var docDuplicateReplace: String { t("doc.duplicateReplace") }
+    static var docDuplicateNeverAutoDelete: String { t("doc.duplicateNeverAutoDelete") }
+    static var docUntitled: String { t("doc.untitled") }
     static var ocrQueueTitle: String { t("ocrQueue.title") }
     static var ocrQueueEmpty: String { t("ocrQueue.empty") }
     static var ocrQueueEmptyHint: String { t("ocrQueue.emptyHint") }
