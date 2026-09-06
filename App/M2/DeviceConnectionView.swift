@@ -66,6 +66,10 @@ final class F16DeviceState {
         defer { if case .syncing = phase { phase = .done(count: 0) } }
         do {
             let readings = try await reader.recentReadings(within: 24)
+            // 评审修正第二轮：跨重启 24h 去重需要送达清单——session 级 lastAlertKey
+            // 重启即失忆，同一读数（去重键命中既有行、event.id 稳定）会重新弹窗。
+            // delivered 守卫与稳定 event.id 配合：重启后同读数不再通知。
+            let delivered = try await scheduler.delivered()
             var elevated = 0
             for reading in readings {
                 do {
@@ -77,12 +81,14 @@ final class F16DeviceState {
                     if let last = lastAlertKey[key],
                        Date().timeIntervalSince(last) < 24 * 3600 { continue }
                     lastAlertKey[key] = Date()
+                    let alertId = "alert-\(event.id.uuidString)"
+                    guard !delivered.contains(alertId) else { continue }
                     // 夜间静默仅对 L0/L1 生效（L2/L3 不静默）
                     if event.severity == .L1 && isQuietHours { continue }
                     elevated += 1
                     // FR16.7 预警通知：正文只含类别，不含数值与病名
                     try await scheduler.schedule(
-                        dose: "alert-\(event.id.uuidString)", at: Date().addingTimeInterval(5),
+                        dose: alertId, at: Date().addingTimeInterval(5),
                         route: .alertHistory)
                 } catch GuidelineStore.StoreError.noApplicableRange {
                     // FR16.4「范围不可用」独立呈现态：计数并如实展示，不静默

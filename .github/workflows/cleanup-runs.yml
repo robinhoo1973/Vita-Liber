@@ -36,6 +36,15 @@ jobs:
           EXISTING_WFS=$(gh api "repos/$REPO/actions/workflows" \
             --jq '.workflows[].name' 2>/dev/null)
 
+          # 评审修正第二轮（防误删全库）：gh api 瞬时失败（限流/中断）时
+          # EXISTING_WFS 为空——规则 1「workflow 不存在 → 删除」会把全部
+          # completed run（含各 workflow 最近成功记录）当作已删 workflow 清空。
+          # API 失败必须整体退出，绝不落入删除路径。
+          if [ -z "$EXISTING_WFS" ]; then
+            echo "警告: 获取 workflow 列表失败——本轮跳过清理（防误删）"
+            exit 0
+          fi
+
           # ── 拉取所有已完成的 run（按时间倒序，最新在前） ──
           ALL_RUNS_FILE=$(mktemp)
           gh run list \

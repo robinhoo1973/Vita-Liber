@@ -53,8 +53,10 @@ enum MainModule: String, CaseIterable, Identifiable, Hashable {
 /// L1 外壳（§5.26.1）＋ L2 模块根占位（M0）。
 struct RootAdaptiveView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(ReminderStore.self) private var reminderStore
     @Environment(AppRouter.self) private var router
+    @Environment(MediaUnlockSession.self) private var mediaSession
 
     /// 选中模块由 AppRouter 单一状态源驱动（TestFlight 实测：SceneStorage 与
     /// navigate 双源分离导致跨 Tab 路由只 append 不切 Tab、点击无反应）。
@@ -123,6 +125,15 @@ struct RootAdaptiveView: View {
         }
         }
         .withPaywallHost()   // 五时机弹墙统一宿主（comercial §3 / M2 收尾）
+        // 评审修正第二轮（会话令牌退后台）：MediaUnlockSession.onBackground 此前
+        // 零调用方——展示模式等会话级解锁退后台不重锁（BR-007 快照防护缺口）；
+        // 逐视图的 SensitiveMediaContainer/OriginalView 已自行重锁，此处补
+        // 会话级统一钩子（含 300s showcase 会话的退后台终止）。
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active {
+                mediaSession.onBackground()
+            }
+        }
         // 导航外壳挂载钩子：挂载后才允许恢复持久化 path / 投递暂存的通知路由
         // （门禁冷启动时本视图在 Face ID 解锁后才挂载；markNavigationReady
         // 幂等且内部再延一拍——挂载帧提交后才 push，避开 iOS 26 转场环境断言，
@@ -254,7 +265,8 @@ private struct PreviewRoot: View {
                     recognizer: EngineRegistry.shared.resolve(OCRRecognizerFactory.self),
                     grayscaleDecoder: GrayscaleImageDecoder()),
                 ocrAuthorized: { true },
-                originalsDir: FileManager.default.temporaryDirectory))
+                originalsDir: FileManager.default.temporaryDirectory,
+                prescriptionStore: container.prescriptions))
             .environment(AIHistoryState(store: container.aiHistory))
             .environment(ExportWizardState(service: container.pdfExport))
             .environment(F16DeviceState(reader: container.healthReader,

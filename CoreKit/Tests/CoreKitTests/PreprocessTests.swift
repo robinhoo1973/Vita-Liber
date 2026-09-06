@@ -9,7 +9,6 @@ struct PreprocessTests {
 
     @Test("重置参数：resetToOriginal 返回原始帧、版本号+1", .tags(.linuxRunnable))
     func resetToOriginal() async throws {
-        #if os(Linux)
         let preprocessor = StubImagePreprocessor()
 
         let png = Self.testPNG()
@@ -19,15 +18,10 @@ struct PreprocessTests {
         #expect(result.processedData == png)
         #expect(result.originalData == png)
         #expect(result.appliedParams.resetToOriginal == true)
-        #else
-        // Apple 路径在 Linux 单测不跑，仅占位
-        return
-        #endif
     }
 
     @Test("非重置：Linux 占位返回原始帧、版本号+1、标记未实际矫正", .tags(.linuxRunnable))
     func linuxPlaceholderNoCorrection() async throws {
-        #if os(Linux)
         let preprocessor = StubImagePreprocessor()
 
         let png = Self.testPNG()
@@ -38,9 +32,6 @@ struct PreprocessTests {
         #expect(result.appliedParams.enablePerspectiveCorrection == false) // 占位标记未实际矫正
         #expect(result.appliedParams.colorMode == .grayscale)
         #expect(result.appliedParams.rotationDegrees == 90)
-        #else
-        return
-        #endif
     }
 
     @Test("参数确定性：相同参数产生相同 appliedParams", .tags(.linuxRunnable))
@@ -61,7 +52,6 @@ struct PreprocessTests {
 
     @Test("PreprocessedImage 版本号递增", .tags(.linuxRunnable))
     func versionIncrements() async throws {
-        #if os(Linux)
         let preprocessor = StubImagePreprocessor()
         let png = Self.testPNG()
         let params = PreprocessParams()
@@ -69,9 +59,6 @@ struct PreprocessTests {
         let r2 = try await StubImagePreprocessor().preprocess(Self.testPNG(), params: PreprocessParams(), baseVersion: 2)
         #expect(r1.version == 2)
         #expect(r2.version == 3)
-        #else
-        return
-        #endif
     }
 }
 

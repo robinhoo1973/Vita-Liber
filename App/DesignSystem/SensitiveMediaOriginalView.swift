@@ -12,12 +12,19 @@ struct SensitiveMediaOriginalView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(AppState.self) private var app
 
-    let imageData: Data
+    /// 评审修正第二轮（BR-007 读取时序）：原图字节必须在**设备所有者认证通过后**
+    /// 才落内存——此前调用方在认证前预取原图并持有（认证取消仍驻留）。
+    /// 有 loader 时走「认证后拉取」路径（imageData 可为 nil）；无 loader 的
+    /// 调用方（演示/预览）仍可直接传入 imageData。
+    let imageData: Data?
     let caption: String
     /// 资产锚点（评审修正）：解锁成功后的审计锚点；nil = 无资产来源（如演示场景）
     var assetId: UUID?
+    /// 认证通过后按需拉取原图字节的加载器（LockedMediaStrip 注入；nil = 用 imageData）
+    var originalLoader: (() async -> Data?)?
 
     @State private var image: UIImage?
+    @State private var displayData: Data?
     @State private var scale: CGFloat = 1
     @State private var offset: CGSize = .zero
     @State private var unlocked = false
@@ -38,7 +45,10 @@ struct SensitiveMediaOriginalView: View {
                 Button(L10n.commonCancel) { dismiss() }
             }
         }
-        .onAppear { loadDownsampled() }
+        .onAppear {
+            displayData = imageData
+            loadDownsampled()
+        }
         // 评审修正（BR-007/008）：任务切换器快照防护——SensitiveMediaContainer
         // 已在 inactive 时重锁，本视图此前缺失同款处理，退后台后快照可能
         // 仍展示已解锁原图（AppRootView 遮罩提交与系统快照竞态）。
@@ -112,6 +122,13 @@ struct SensitiveMediaOriginalView: View {
         // FR1.9：每次查看原图都是一次独立的系统设备所有者认证（Face ID/Touch ID
         // + 设备密码兜底），与 SensitiveMediaContainer 同路径，绝不允许无认证直通。
         guard await app.requestUnlock(reason: L10n.sensitive_unlockReason) else { return false }
+        // BR-007 时序：认证通过后才拉取原图字节（loader 路径）——取消认证
+        // 的用户从未让原图进内存。加载失败回落直接传入的 imageData（若有）。
+        if let originalLoader, let loaded = await originalLoader(), !loaded.isEmpty {
+            displayData = loaded
+            image = nil
+            loadDownsampled()
+        }
         unlocked = true
         scheduleRelock()
         // FR14.2 审计：敏感原图查看留痕（评审修正——原视图零审计锚点）
@@ -136,10 +153,10 @@ struct SensitiveMediaOriginalView: View {
     }
 
     private func loadDownsampled() {
-        guard image == nil else { return }
+        guard image == nil, let data = displayData else { return }
         // ImageIO 降采样：避免将完整原图加载进内存
         let maxDimension: CGFloat = 2048
-        image = ImageIOImageLoader.downsample(data: imageData, maxDimension: maxDimension)
+        image = ImageIOImageLoader.downsample(data: data, maxDimension: maxDimension)
     }
 }
 

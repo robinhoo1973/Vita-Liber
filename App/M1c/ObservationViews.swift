@@ -332,8 +332,9 @@ struct LockedMediaStrip: View {
 
     struct MediaViewerPayload: Identifiable {
         let assetId: UUID
-        let data: Data
         let caption: String
+        /// 认证通过后由查看器回调拉取原图（BR-007：认证前原图字节不得进内存）
+        let originalLoader: () async -> Data?
         var id: UUID { assetId }
     }
 
@@ -343,13 +344,14 @@ struct LockedMediaStrip: View {
             .contentShape(Rectangle())
             .onTapGesture {
                 guard let first = assetIds.first, let assetId = UUID(uuidString: first) else { return }
-                Task { await openOriginal(assetId: assetId) }
+                openOriginal(assetId: assetId)
             }
             .fullScreenCover(item: $viewer) { payload in
                 NavigationStack {
-                    SensitiveMediaOriginalView(imageData: payload.data,
+                    SensitiveMediaOriginalView(imageData: nil,
                                                caption: payload.caption,
-                                               assetId: payload.assetId)
+                                               assetId: payload.assetId,
+                                               originalLoader: payload.originalLoader)
                 }
             }
             .accessibilityLabel(L10n.observationMediaUnlockHint)
@@ -387,17 +389,19 @@ struct LockedMediaStrip: View {
         return img
     }
 
-    /// 点击解锁流程（§5.7.1）：读取原图 → 全屏查看器（逐次设备所有者认证 +
-    /// 30s 空闲重锁，BR-007/008 由查看器自身执行）
-    private func openOriginal(assetId: UUID) async {
+    /// 点击解锁流程（§5.7.1）：全屏查看器（逐次设备所有者认证 +
+    /// 30s 空闲重锁，BR-007/008 由查看器自身执行）。
+    /// 评审修正第二轮：原图字节不在点击时预取——loader 由查看器在**认证通过后**
+    /// 回调，认证取消的用户从未让原图进内存（BR-007 读取时序）。
+    private func openOriginal(assetId: UUID) {
         let media = state.mediaAssets
         let member = memberId
-        let data: Data?
-        do { data = try await media.originalData(for: assetId, memberId: member) }
-        catch { data = nil }
-        guard let data, !data.isEmpty else { return }   // 原图缺失：静默不可查看（§7 显式降级）
-        viewer = MediaViewerPayload(assetId: assetId, data: data,
-                                    caption: L10n.observationMediaCount(assetIds.count))
+        viewer = MediaViewerPayload(
+            assetId: assetId,
+            caption: L10n.observationMediaCount(assetIds.count)) {
+                do { return try await media.originalData(for: assetId, memberId: member) }
+                catch { return nil }   // 原图缺失：静默不可查看（§7 显式降级）
+            }
     }
 }
 

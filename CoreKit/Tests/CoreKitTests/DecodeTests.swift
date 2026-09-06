@@ -13,7 +13,6 @@ struct DecodeTests {
 
     @Test("decodeImage：Linux 占位返回 1x1 透明 PNG、尺寸正确", .tags(.linuxRunnable))
     func decodeImagePlaceholder() async throws {
-        #if os(Linux)
         let decoder = StubPDFDecoder()
 
         let png = testPNG()
@@ -21,14 +20,10 @@ struct DecodeTests {
         #expect(result.maxDimension == 2400)
         #expect(result.bitmapData.count > 0)
         #expect(result.originalSize.width == 1 && result.originalSize.height == 1)
-        #else
-        return
-        #endif
     }
 
     @Test("decodePDF：Linux 占位返回 1 页空白、页码正确", .tags(.linuxRunnable))
     func decodePDFPlaceholder() async throws {
-        #if os(Linux)
         let decoder = StubPDFDecoder()
 
         let pdfData = Data() // 空数据也能跑占位
@@ -38,21 +33,14 @@ struct DecodeTests {
         #expect(pages[0].scale == 2.0)
         #expect(pages[0].bitmapData.count > 0)
         #expect(pages[0].originalSize.width > 0 && pages[0].originalSize.height > 0)
-        #else
-        return
-        #endif
     }
 
     @Test("decodePDF：maxPages 截断不崩（Linux 占位固定 1 页）", .tags(.linuxRunnable))
     func decodePDFMaxPages() async throws {
-        #if os(Linux)
         let decoder = StubPDFDecoder()
         let pdfData = Data()
         let pages = try await decoder.decodePDF(pdfData, scale: 1.0, maxPages: 1)
         #expect(pages.count <= 1)
-        #else
-        return
-        #endif
     }
 
     @Test("DecodedImage/DecodedPage Codable 往返", .tags(.linuxRunnable))

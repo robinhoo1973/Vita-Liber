@@ -20,6 +20,26 @@ struct VoiceConversationTests {
         #expect(VoiceCommandGrammar.parse("血压 148 92 心率 76") == .record(metricText: "血压 148 92 心率 76"))
     }
 
+    /// 评审修正第二轮：急救号码文法回归防护——
+    /// ① 号码形优先于泛化联系人文法（此前「帮我打119」被 callContact 抢先命中）；
+    /// ② 句尾标点剥离（转写引擎常补「。/！？」，「拨打120。」不得失配）；
+    /// ③ 急救语义词（急救/救命/叫救护车）经语音可达（BR-012 出口）；
+    /// ④ 「记录119条」不误命中（句尾锚定 + 动词要求）。
+    @Test func 急救号码文法() {
+        #expect(VoiceCommandGrammar.parse("帮我打120") == .command(.callEmergency120))
+        #expect(VoiceCommandGrammar.parse("打120") == .command(.callEmergency120))
+        #expect(VoiceCommandGrammar.parse("拨打120。") == .command(.callEmergency120))
+        #expect(VoiceCommandGrammar.parse("打给120！") == .command(.callEmergency120))
+        #expect(VoiceCommandGrammar.parse("帮我打119", emergencyNumber: "119") == .command(.callEmergency120))
+        #expect(VoiceCommandGrammar.parse("急救") == .command(.callEmergency120))
+        #expect(VoiceCommandGrammar.parse("救命") == .command(.callEmergency120))
+        #expect(VoiceCommandGrammar.parse("叫救护车") == .command(.callEmergency120))
+        #expect(VoiceCommandGrammar.parse("打救护车") == .command(.callEmergency120))
+        #expect(VoiceCommandGrammar.parse("帮我叫救护车") == .command(.callEmergency120))
+        #expect(VoiceCommandGrammar.parse("记录119条") != .command(.callEmergency120))
+        #expect(VoiceCommandGrammar.parse("血压120") != .command(.callEmergency120))
+    }
+
     @Test func 开放域不解析() {
         // FR19.9：不做自由对话与医疗问答
         #expect(VoiceCommandGrammar.parse("我最近心情不好怎么办") == .unrecognized)

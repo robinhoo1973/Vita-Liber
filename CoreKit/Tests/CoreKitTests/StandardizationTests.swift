@@ -293,7 +293,8 @@ struct StandardizationTests {
 
     /// 审查发现 4：SQL 层（六表 DDL / 迁移 v14 / 种子装载）运行时无 GRDB 可跑——
     /// 以静态契约断言锁定结构存在性与版本序列（GRDB 往返金样随 L1 执行，
-    /// test-plan TC-M15-08 已注记）。v15（剂量行逻辑 id）随评审修正 D5 追加。
+    /// test-plan TC-M15-08 已注记）。v15（剂量行逻辑 id，代码迁移）随评审修正
+    /// D5 追加；v16（dose_plan_units 归一 + 热路径索引）随评审修正第二轮追加。
     @Test func 码表六表DDL与迁移静态契约() {
         let ddl = SchemaV2.ddl
         for table in ["code_concept", "code_alias", "code_map",
@@ -301,7 +302,7 @@ struct StandardizationTests {
             #expect(ddl.contains("CREATE TABLE \(table)"), "baseline 缺表 \(table)")
         }
         #expect(ddl.contains("raw_label TEXT, code_concept_id TEXT REFERENCES code_concept(id)"))
-        #expect(SchemaMigrations.latestVersion == 15)
+        #expect(SchemaMigrations.latestVersion == 16)
         let v14 = SchemaMigrations.steps.first { $0.version == 14 }
         #expect(v14?.name == "terminology-tables")
         for table in ["code_concept", "code_alias", "code_map",
@@ -311,8 +312,20 @@ struct StandardizationTests {
         }
         #expect(v14?.sql.contains("ALTER TABLE metric_sample ADD COLUMN raw_label") == true)
         #expect(v14?.sql.contains("ALTER TABLE metric_sample ADD COLUMN code_concept_id") == true)
+        // v13/v15 为代码迁移（GRDBStore.migrateIncremental 私有实现），sql 置空占位
+        let v13 = SchemaMigrations.steps.first { $0.version == 13 }
+        #expect(v13?.name == "dose-log-plan-fk")
+        #expect(v13?.sql.isEmpty == true)
         let v15 = SchemaMigrations.steps.first { $0.version == 15 }
         #expect(v15?.name == "dose-logical-ids")
-        #expect(v15?.sql.contains("DELETE FROM medication_dose_log WHERE user_action IS NULL") == true)
+        #expect(v15?.sql.isEmpty == true)
+        // v16：legacy 整盒数量归一 + 物化/去重热路径索引（基线 DDL 同含）
+        let v16 = SchemaMigrations.steps.first { $0.version == 16 }
+        #expect(v16?.name == "dose-units-normalize-and-indexes")
+        #expect(v16?.sql.contains("UPDATE medication_plan SET dose_plan_units = NULL WHERE dose_plan_units > 100") == true)
+        #expect(v16?.sql.contains("CREATE INDEX IF NOT EXISTS idx_dose_log_plan_time") == true)
+        #expect(v16?.sql.contains("CREATE INDEX IF NOT EXISTS idx_alert_event_patient_rule") == true)
+        #expect(ddl.contains("CREATE INDEX idx_dose_log_plan_time") == true)
+        #expect(ddl.contains("CREATE INDEX idx_alert_event_patient_rule") == true)
     }
 }

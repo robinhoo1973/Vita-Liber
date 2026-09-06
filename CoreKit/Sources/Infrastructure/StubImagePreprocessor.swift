@@ -1,4 +1,3 @@
-#if os(Linux)
 import Foundation
 import Domain
 import Protocols
@@ -25,5 +24,12 @@ public struct StubImagePreprocessor: ImagePreprocessing {
                                  appliedParams: p,
                                  version: baseVersion + 1)
     }
+
+    /// Linux 兜底：无 Vision，恒未检出——UI 回落 `QuadCorners.fullImageInset`。
+    public func detectQuad(_ originalData: Data) async -> QuadCorners? { nil }
+
+    /// Linux 兜底：无 Core Image，原样返回（不做真实矫正，保证 Linux 构建/测试可跑）。
+    public func correctPerspective(_ originalData: Data, corners: QuadCorners) async throws -> Data {
+        originalData
+    }
 }
-#endif

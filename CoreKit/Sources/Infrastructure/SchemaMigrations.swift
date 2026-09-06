@@ -216,29 +216,10 @@ public enum SchemaMigrations {
              sql: """
              ALTER TABLE document_file ADD COLUMN grade TEXT NOT NULL DEFAULT 'C' CHECK(grade IN ('A','B','C','D','E'));
              """),
-        Step(version: 13, name: "dose-log-plan-fk",
-             sql: """
-             -- §11 清偿：老库 medication_dose_log 缺 plan_id REFERENCES（基线 DDL 已补）。
-             -- 孤儿剂量行 = 对已删计划继续提醒（FR9.15 计划生命周期破坏）。
-             -- SQLite 对既有表改 FK 需表重建：建新表（带 FK）→ 拷贝 → 换名。
-             -- 幂等：失败重跑时新表先 DROP 重建、拷贝 OR IGNORE 按主键跳过；
-             -- 全新库建库直达 latestVersion，本步只作用于 legacy 库。
-             DROP TABLE IF EXISTS medication_dose_log_rebuilt;
-             CREATE TABLE medication_dose_log_rebuilt (
-               id TEXT PRIMARY KEY, plan_id TEXT NOT NULL REFERENCES medication_plan(id),
-               scheduled_for REAL NOT NULL,
-               dose_units REAL NOT NULL DEFAULT 1,
-               delivery_state TEXT NOT NULL CHECK(delivery_state IN ('planned','sent','delivered','failed')),
-               delivered_at REAL, user_action TEXT CHECK(user_action IN
-                 ('taken','snoozed','skipped','missed','discomfort') OR user_action IS NULL),
-               acted_at REAL, snooze_until REAL, note TEXT);
-             INSERT OR IGNORE INTO medication_dose_log_rebuilt
-               SELECT id, plan_id, scheduled_for, dose_units, delivery_state,
-                      delivered_at, user_action, acted_at, snooze_until, note
-               FROM medication_dose_log;
-             DROP TABLE medication_dose_log;
-             ALTER TABLE medication_dose_log_rebuilt RENAME TO medication_dose_log;
-             """),
+        // v13 为代码迁移（GRDBStore.migrateIncremental 的 rename-first 可恢复重建，
+        // 见下方 v15 注释段）；sql 置空仅作占位。孤儿剂量行 = 对已删计划继续提醒
+        // （FR9.15 计划生命周期破坏）——重建补 plan_id REFERENCES，历史孤儿行保留。
+        Step(version: 13, name: "dose-log-plan-fk", sql: ""),
         // F25 医学数据标准化引擎码表六表（tech §4.3 / §5.52，编号 v14——
         // 注记：v12=document grade、v13=dose_log FK，F25 码表迁移从 v14 起）。
         // 幂等：六表 CREATE TABLE IF NOT EXISTS（baseline 已含同定义的全新库
@@ -293,15 +274,24 @@ public enum SchemaMigrations {
              ALTER TABLE metric_sample ADD COLUMN raw_label TEXT;
              ALTER TABLE metric_sample ADD COLUMN code_concept_id TEXT REFERENCES code_concept(id);
              """),
-        // v15：剂量行 id 由绝对 epoch 迁移为逻辑身份（day+ordinal，评审修正 D5）。
-        // 旧 id 在时区变化后与逻辑剂量脱钩：同剂量双行/双通知/计划轨双扣。
-        // 未决议行整体清除——下次 refresh 的物化窗口（含 30 日回溯）按逻辑 id
-        // 重建，materializeMissed 随即把过期行决议为 missed；已决议行保留
-        // （用户动作是事实，物化侧以「±60s 内已有决议行」守卫避免重复建行）。
-        // 幂等：重复执行仍为空操作。待投递的旧 id 通知由对账 stale-cleanup 取消。
-        Step(version: 15, name: "dose-logical-ids",
+        // v15 为**代码迁移**（GRDBStore.migrateIncremental 私有实现，本处 sql 置空）：
+        // 剂量行 id 由绝对 epoch 迁移为逻辑身份（day+ordinal，评审修正 D5）——
+        // 原地重算而非 DELETE 全清：已决议行/送达证据（delivered_at）全程保留；
+        // 无法重算的未决议行清除（物化窗口按逻辑 id 重建，materializeMissed 随即决议）。
+        Step(version: 15, name: "dose-logical-ids", sql: ""),
+        // v16：数据修复 + 索引补齐（评审修正第二轮）：
+        // ① dose_plan_units 归一——旧 MedicationPlanComposer 曾把整盒数量
+        //   （initialLot.totalUnits，如 20/30）误写本列，读取侧按「每剂剂量」
+        //   解释会令安全线瞬间崩塌（每剂扣一整盒）——异常大值（>100）复位 NULL
+        //   （读取侧回落 1）。
+        // ② 物化/补录热路径索引——materializeWindow 的 NOT EXISTS 守卫与
+        //   recordTakenAt 的时段解析均按 plan_id + scheduled_for 扫描，
+        //   此前全表扫随剂量行累积线性劣化；alert_event 去重键按 patient+rule 扫。
+        Step(version: 16, name: "dose-units-normalize-and-indexes",
              sql: """
-             DELETE FROM medication_dose_log WHERE user_action IS NULL;
+             UPDATE medication_plan SET dose_plan_units = NULL WHERE dose_plan_units > 100;
+             CREATE INDEX IF NOT EXISTS idx_dose_log_plan_time ON medication_dose_log(plan_id, scheduled_for);
+             CREATE INDEX IF NOT EXISTS idx_alert_event_patient_rule ON alert_event(patient_id, rule_id);
              """),
     ]
 

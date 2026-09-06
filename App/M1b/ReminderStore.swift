@@ -41,6 +41,13 @@ final class ReminderStore {
     /// 系统 IPC）——触发型入口统一走 refreshTriggered 合并；动作型入口
     /// （确认/跳过/补录…）仍走 refresh，保证自己的写入即时可见。
     private var lastTriggerRefreshAt: Date = .distantPast
+    /// 评审修正第二轮：去抖键必须含成员维度——500ms 窗口内切换到另一成员，
+    /// 新成员的触发型刷新被静默丢弃 = 上一成员的时段卡挂在新成员名下
+    /// （BR-001 成员隔离违例）。成员变化永远放行。
+    private var lastTriggerPatientId: UUID?
+    /// 在途守卫：refresh 链耗时可达秒级（30 日物化+对账+系统 IPC），
+    /// 500ms 去抖挡不住「第一条还在跑、第二条又放行」的重复全量链。
+    private var refreshInFlight = false
 
     init(meds: MedicationStore, apts: AppointmentStore, reconciler: ReminderReconciler,
          scheduler: any ReminderScheduling, composer: MedicationPlanComposer) {
@@ -53,9 +60,17 @@ final class ReminderStore {
 
     /// 触发型刷新入口（启动/回前台/时区变化/Tab 出现）：500ms 内合并为一次，
     /// 消除启动窗口内的重复全量对账与系统 IPC。now 参数注入保持测试确定性。
-    func refreshTriggered(patientId: UUID?, now: Date = Date()) async {
-        guard now.timeIntervalSince(lastTriggerRefreshAt) >= 0.5 else { return }
+    /// 成员维度例外：换成员永远立即放行（BR-001 隔离，去抖不得吞新成员加载）。
+    /// force 例外（评审修正第二轮）：时区显著变化（FR9.6 第 3 层）必须立即对账
+    /// ——墙钟重锚拖到下次前台会让剂量通知在错误当地时间触发，去抖不得吞它。
+    func refreshTriggered(patientId: UUID?, now: Date = Date(), force: Bool = false) async {
+        guard !refreshInFlight else { return }
+        let isNewPatient = patientId != lastTriggerPatientId
+        guard force || isNewPatient || now.timeIntervalSince(lastTriggerRefreshAt) >= 0.5 else { return }
         lastTriggerRefreshAt = now
+        lastTriggerPatientId = patientId
+        refreshInFlight = true
+        defer { refreshInFlight = false }
         await refresh(patientId: patientId, now: now)
     }
 
@@ -170,6 +185,15 @@ final class ReminderStore {
         } catch {
             logger.error("备份提醒调度失败: \(error)")
         }
+    }
+
+    /// 评审修正第二轮：备份完成 → 清「backup-reminder 已送达」记录——
+    /// 该记录是 FR13.10 周期提醒的「本周期已提醒」标记：不清理则送达一次后
+    /// 永久一次性（30 天周期提醒在第 60/90 天静默消失）。AppRootView 在
+    /// lastBackupAt 变化时调用，下一周期 needsReminder 重新放行。
+    func clearBackupReminderDelivered() async {
+        do { try await scheduler.removeDelivered(["backup-reminder"]) }
+        catch { logger.error("备份提醒送达记录清理失败: \(error)") }
     }
 
     // MARK: - FR9.8.3 分级续药通知（≤3 天通知 / 当日置顶；≤7 天由首页卡承担）

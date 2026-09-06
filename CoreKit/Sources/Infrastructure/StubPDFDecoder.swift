@@ -1,4 +1,3 @@
-#if os(Linux)
 import Foundation
 import Domain
 import Protocols
@@ -29,4 +28,3 @@ public struct StubPDFDecoder: ImageDecoding {
         Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==") ?? Data()
     }
 }
-#endif

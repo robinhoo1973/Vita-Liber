@@ -203,8 +203,10 @@ final class M15AcceptanceTests: XCTestCase {
     /// 数据保留 + 外键清单含 plan_id → medication_plan（§11 清偿项）
     func test_v13_doseLog_重建补FK() async throws {
         let queue = try DatabaseQueue(configuration: GRDBStore.configuration())
-        // 合成 v12 老库必须覆盖 pending 链（v13→v15）会触碰的全部表：
-        // v13 重建 dose_log、v14 需 metric_sample 增列、v15 清 user_action IS NULL 行。
+        // 合成 v12 老库必须覆盖 pending 链（v13→v16）会触碰的全部表：
+        // v13 代码迁移重建 dose_log、v14 需 metric_sample 增列、v15 代码迁移
+        // 重算逻辑 id、v16 需 medication_plan（dose_plan_units 归一）与
+        // alert_event（索引创建）——任一缺表即整链失败。
         // 此行带 user_action='taken' 以在 v15 后存活（数据保留断言的前提）；
         // plan_id 指向不存在的计划——验证孤儿行在 FK-off 重建中不被丢弃
         // （CI 34020363188 实证：旧事务内重建会即时触发 FK 违规）。
@@ -217,7 +219,8 @@ final class M15AcceptanceTests: XCTestCase {
                 CREATE TABLE medication_plan (
                   id TEXT PRIMARY KEY, patient_id TEXT NOT NULL, medication_id TEXT,
                   status TEXT NOT NULL, schedule_json TEXT, start_date REAL NOT NULL,
-                  end_date REAL, created_at REAL NOT NULL, updated_at REAL NOT NULL);
+                  end_date REAL, dose_plan_units REAL,
+                  created_at REAL NOT NULL, updated_at REAL NOT NULL);
                 CREATE TABLE medication_dose_log (
                   id TEXT PRIMARY KEY, plan_id TEXT NOT NULL,
                   scheduled_for REAL NOT NULL, dose_units REAL NOT NULL DEFAULT 1,
@@ -229,17 +232,23 @@ final class M15AcceptanceTests: XCTestCase {
                   unit TEXT NOT NULL, origin TEXT NOT NULL, self_measured INTEGER NOT NULL,
                   excluded INTEGER NOT NULL DEFAULT 0, source_ref TEXT,
                   measured_at REAL NOT NULL, created_at REAL NOT NULL);
+                CREATE TABLE alert_event (
+                  id TEXT PRIMARY KEY, patient_id TEXT NOT NULL, rule_id TEXT NOT NULL,
+                  severity TEXT NOT NULL, evidence_json TEXT NOT NULL,
+                  delivered_state TEXT NOT NULL, created_at REAL NOT NULL);
                 INSERT INTO medication_dose_log (id, plan_id, scheduled_for, delivery_state,
                                                 user_action, delivered_at, acted_at)
                   VALUES ('legacy-dose-1', 'orphan-plan', 1, 'delivered', 'taken', 1, 1);
                 PRAGMA user_version = 12;
                 """)
         }
-        _ = try GRDBStore(writer: queue)   // 触发 v13（唯一 pending 步）
+        let store = try GRDBStore(writer: queue)   // 触发 v13→v16 全链（FK-off 窗口 + 代码迁移）
         let version = try await queue.read { db in
             try Int.fetchOne(db, sql: "PRAGMA user_version") ?? 0
         }
         XCTAssertEqual(version, SchemaMigrations.latestVersion)
+        // 评审修正第二轮：迁移后 FK 执法必须回到开启（defer 复位 + 显式校验）
+        XCTAssertTrue(store.foreignKeysOn, "迁移后 PRAGMA foreign_keys 必须复位为 1")
         try await queue.read { db in
             XCTAssertEqual(try String.fetchOne(db, sql: "SELECT id FROM medication_dose_log"),
                            "legacy-dose-1", "重建不得丢数据")

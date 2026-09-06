@@ -101,7 +101,11 @@ final class AppRouter {
         // （ModuleRoot）——append 会把同一 RemindersView 叠在 Tab 根之上，
         // 每次剂量通知点击再叠一层（RouteDestinationView 头注所禁的套娃模式）。
         // 同根路由 = 仅切 Tab（selection 已同步），不入栈。
+        // 评审修正第二轮：切 Tab 同时**弹栈到根**——用户深处提醒栈（如计划详情）
+        // 时点剂量通知，旧实现栈顶仍是详情页，§5.45 契约「点击抵达今日剂量」
+        // 落空；弹栈后 Tab 根（RemindersView 今日时段）即为落点。
         guard route != .reminderToday else {
+            remindersPath = []
             persist()
             return
         }
@@ -252,14 +256,16 @@ final class AppNotificationDelegate: NSObject, UNUserNotificationCenterDelegate 
     }
 
     /// 前台呈现（评审修正）：此前未实现 willPresent，delegate 存在即前台
-    /// 通知静默——P0 服药提醒在应用打开时无声无横幅。refill-/exp- 两类
-    /// 由 InAppBannerHost 应用内横幅承担（§4.22），系统横幅抑制以避免
-    /// 同一到期事件前台双弹；其余本仓通知正常横幅+声音。
+    /// 通知静默——P0 服药提醒在应用打开时无声无横幅。
+    /// 评审修正第二轮（抑制集反转）：InAppBannerHost（§4.22）只渲染**剂量到期**
+    /// 横幅（todaySlots 驱动）——应抑制的是 dose-/slot-（否则系统横幅 + 应用内
+    /// 横幅同事件双弹）；refill-/exp- 没有任何应用内横幅承接，抑制即静默丢失
+    /// （续药/到期是 ADR-009 早告警链，前台不可见违背「偏早」铁律）。
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
                                             willPresent notification: UNNotification,
                                             withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
         let id = notification.request.identifier
-        let hasInAppBanner = id.hasPrefix("refill-") || id.hasPrefix("exp-")
+        let hasInAppBanner = id.hasPrefix("dose-") || id.hasPrefix("slot-")
         completionHandler(hasInAppBanner ? [] : [.banner, .sound])
     }
 }

@@ -77,7 +77,6 @@ struct EncounterListView: View {
     }
 
     var body: some View {
-        // §9.1 正文行宽 ≤672pt（iPad 常宽列可读性）
         List {
             if filteredEncounters.isEmpty {
                 ContentUnavailableView(L10n.encounterEmpty, systemImage: "stethoscope",
@@ -106,6 +105,7 @@ struct EncounterListView: View {
                 }
             }
         }
+        .frame(maxWidth: 672)   // §9.1 正文行宽 ≤672pt（iPad 常宽列可读性）
         .safeAreaInset(edge: .top) {
             HStack(spacing: 8) {
                 Menu {

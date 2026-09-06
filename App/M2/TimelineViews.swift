@@ -115,6 +115,7 @@ struct TimelineFullView: View {
                 }
                 .accessibilityIdentifier("SP-19.timeline.list")
             }
+            .frame(maxWidth: 672)   // §9.1 正文行宽 ≤672pt（iPad 常宽列可读性）
         }
         .safeAreaInset(edge: .top) { filterBar }
         .navigationTitle(L10n.timelineTitle)

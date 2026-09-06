@@ -690,15 +690,22 @@ final class AppState {
         members = []
     }
 
-    /// FR22.4/FR13.10 上次备份时间（F22.4 备份健康展示；随备份完成写入）
-    var lastBackupAt: TimeInterval? {
-        let t = defaults.double(forKey: "lastBackupAt")
-        return t > 0 ? t : nil
-    }
+    /// FR22.4/FR13.10 上次备份时间（F22.4 备份健康展示；随备份完成写入）。
+    /// 评审修正第二轮：由计算属性改 **@Observable 存储属性**——计算属性直读
+    /// UserDefaults 无观察注册，备份完成后视图 onChange(of:) 永不触发，
+    /// 「清已送达记录再武装下一周期」的 FR13.10 联动（AppRootView）落空。
+    private(set) var lastBackupAt: TimeInterval?
 
     /// FR13.10 备份完成记时（F22.4 联动展示「最近备份」；提醒只引导不自动建包）
     func recordBackup(at date: Date = Date()) {
         defaults.set(date.timeIntervalSince1970, forKey: "lastBackupAt")
+        lastBackupAt = date.timeIntervalSince1970
+    }
+
+    /// 启动恢复上次备份时刻镜像（与 recordBackup 同一事实源，供观察注册）
+    func restoreBackupMark() {
+        let t = defaults.double(forKey: "lastBackupAt")
+        lastBackupAt = t > 0 ? t : nil
     }
 
     /// FR22.5 反馈提交（默认只附版本/系统/错误码/脱敏日志；截图/原文/媒体逐项勾选）

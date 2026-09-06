@@ -120,23 +120,34 @@ public actor GuidelineStore {
         guard let json = String(data: evidence, encoding: .utf8) else {
             throw StoreError.encodeFailed
         }
-        try await writer.write { db in
-            // FR16.2 同一事件去重：去重键 = 事件身份（成员+规则+读数时刻），
-            // 反复同步同一读数不再堆积重复行。旧实现按「成员+规则+级别+24h 窗口」
+        let resolved: AlertEvent = try await writer.write { db in
+            // FR16.2 同一事件去重：去重键 = 事件身份（成员+规则+读数时刻+级别），
+            // 反复同步同一读数不堆积重复行。旧实现按「成员+规则+级别+24h 窗口」
             // 去重，把同一窗口内**不同读数**（同级别）也折叠成一条——L1 持续性
-            // 门槛的逐读数证据链被抹平，预警历史（FR16.10 全部提示可回溯）失真
-            // （CI 34020363188 实证：连续 3 次读数落库仅剩 1 条）。
+            // 门槛的逐读数证据链被抹平（CI 34020363188 实证）。
+            // 评审修正第二轮（双补丁）：① 级别并入去重键——阈值变更后同一读数
+            // 重新评估出更高定级时，必须落新行（升级证据链，FR16.10 全部提示
+            // 可回溯），同级别重同步才去重；② 命中时返回**既有行**的 id/createdAt
+            // ——通知 id 稳定（alert-{event.id}），配合 DeviceConnectionView 的
+            // delivered 守卫实现跨重启 24h 通知去重（旧实现返回全新 id，重启后
+            // 同一读数重新弹窗）。
             // measuredAt 在 evidence_json 内（JSONEncoder Date 编码为
             // reference-date Double），json_extract 与入参同编码可直接比较。
             if let existingId = try String.fetchOne(db, sql: """
                 SELECT id FROM alert_event
-                WHERE patient_id = ? AND rule_id = ?
+                WHERE patient_id = ? AND rule_id = ? AND severity = ?
                   AND json_extract(evidence_json, '$.measuredAt') = ?
                 LIMIT 1
-                """, arguments: [patientId.uuidString, ruleId,
+                """, arguments: [patientId.uuidString, ruleId, severity.rawValue,
                                  reading.measuredAt.timeIntervalSinceReferenceDate]) {
-                _ = existingId
-                return
+                let createdAt = (try Double.fetchOne(db, sql: """
+                    SELECT created_at FROM alert_event WHERE id = ?
+                    """, arguments: [existingId])) ?? event.createdAt.timeIntervalSince1970
+                return AlertEvent(
+                    id: UUID(uuidString: existingId) ?? event.id,
+                    patientId: patientId, ruleId: ruleId, severity: severity,
+                    card: card, deliveredState: "pending",
+                    createdAt: Date(timeIntervalSince1970: createdAt))
             }
             try db.execute(sql: """
                 INSERT INTO alert_event
@@ -145,8 +156,9 @@ public actor GuidelineStore {
                 """, arguments: [event.id.uuidString, patientId.uuidString, ruleId,
                                  severity.rawValue, json,
                                  event.createdAt.timeIntervalSince1970])
+            return event
         }
-        return event
+        return resolved
     }
 
     /// 预警历史（L0 起全量；L1+ 单独过滤是 UI 的事）

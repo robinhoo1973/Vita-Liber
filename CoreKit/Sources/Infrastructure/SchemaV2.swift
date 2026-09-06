@@ -146,6 +146,10 @@ public enum SchemaV2 {
       delivered_at REAL, user_action TEXT CHECK(user_action IN
         ('taken','snoozed','skipped','missed','discomfort') OR user_action IS NULL),
       acted_at REAL, snooze_until REAL, note TEXT);
+    -- 物化/补录热路径（评审修正第二轮）：materializeWindow 的 NOT EXISTS 决议行
+    -- 守卫与 recordTakenAt 的时段解析均按 plan_id + scheduled_for 扫描——
+    -- 无索引时每剂一次全表扫，随剂量行累积线性劣化。
+    CREATE INDEX idx_dose_log_plan_time ON medication_dose_log(plan_id, scheduled_for);
 
     -- 双轨库存（F9.8 / ADR-009/016）
     CREATE TABLE stock_lot (
@@ -213,6 +217,9 @@ public enum SchemaV2 {
       rule_id TEXT NOT NULL, severity TEXT NOT NULL CHECK(severity IN ('L0','L1','L2','L3')),
       evidence_json TEXT NOT NULL,
       delivered_state TEXT NOT NULL, created_at REAL NOT NULL);
+    -- FR16.2 去重键（patient_id + rule_id）前缀扫描——无索引时每次预警评估
+    -- 全表扫并逐行 json_extract，随事件累积线性劣化。
+    CREATE INDEX idx_alert_event_patient_rule ON alert_event(patient_id, rule_id);
 
     -- 健康问题（F11.4）
     CREATE TABLE health_problem (

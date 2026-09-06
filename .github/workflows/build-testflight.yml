@@ -256,6 +256,9 @@ jobs:
           PY
           )
           echo "destination: $DEST"
+          # 评审修正第二轮（三份拷贝合并）：L1 单元/UI 两步复用同一目的地——
+          # 模拟器解析逻辑单一来源，命名漂移只改一处
+          echo "DEST=$DEST" >> "$GITHUB_ENV"
           xcodebuild build-for-testing \
             -project "$XCODEPROJ" -scheme "$SCHEME" \
             -destination "$DEST" \
@@ -276,17 +279,7 @@ jobs:
       - name: L1 单元测试（VitaLiberTests）
         run: |
           set -o pipefail
-          DEST=$(python3 - <<'PY'
-          import json, subprocess
-          d = json.loads(subprocess.check_output(["xcrun","simctl","list","--json","devices","available"]))
-          pairs = [(rt, v["name"], v["udid"]) for rt, devs in d["devices"].items()
-                   for v in devs if v.get("isAvailable") and v["name"].startswith("iPhone")]
-          spec = [p for p in pairs if p[1] == "iPhone 15"]
-          pick = spec[0] if spec else sorted(pairs)[0]
-          print(f"platform=iOS Simulator,id={pick[2]}")
-          PY
-          )
-          echo "destination: $DEST"
+          echo "destination: ${DEST}"
           xcodebuild test-without-building \
             -project "$XCODEPROJ" -scheme "$SCHEME" \
             -destination "$DEST" \
@@ -300,20 +293,10 @@ jobs:
       - name: L1 UI 测试（VitaLiberUITests）
         run: |
           set -o pipefail
-          DEST=$(python3 - <<'PY'
-          import json, subprocess
-          d = json.loads(subprocess.check_output(["xcrun","simctl","list","--json","devices","available"]))
-          pairs = [(rt, v["name"], v["udid"]) for rt, devs in d["devices"].items()
-                   for v in devs if v.get("isAvailable") and v["name"].startswith("iPhone")]
-          spec = [p for p in pairs if p[1] == "iPhone 15"]
-          pick = spec[0] if spec else sorted(pairs)[0]
-          print(f"platform=iOS Simulator,id={pick[2]}")
-          PY
-          )
-          echo "destination: $DEST"
+          echo "destination: ${DEST}"
           xcodebuild test-without-building \
             -project "$XCODEPROJ" -scheme "$SCHEME" \
-            -destination "$DEST" \
+            -destination "${DEST}" \
             -derivedDataPath Build/DerivedData \
             -only-testing:VitaLiberUITests \
             CODE_SIGNING_ALLOWED=NO \

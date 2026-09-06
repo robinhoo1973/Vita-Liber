@@ -627,15 +627,18 @@ if bad:
     sys.exit(1)
 print(f"PASS: {len(files)} 个 .strings 结构合法、无重复键、键集一致")
 PYEOF
-)"
+)" || STRINGS_SCAN=""    # 评审修正第二轮：python 判 FAIL 时 exit 1——set -e 下赋值即中止脚本
+                          # （红但零诊断输出）；|| 兜底捕获后统一在父 shell 判定计数
   scanned="$(printf '%s\n' "$STRINGS_SCAN" | grep '^__SCANNED__' || true)"
-  if [ -z "$scanned" ] || printf '%s\n' "$STRINGS_SCAN" | grep -q '^FAIL:'; then
-    printf '%s\n' "$STRINGS_SCAN" | grep '^FAIL:' | while IFS= read -r ln; do fail "$ln"; done
-    if [ -z "$scanned" ]; then
-      fail ".strings 扫描无 __SCANNED__ 计数 —— 判定器失效，不得判 PASS（ERR#27）"
+  if [ -z "$scanned" ]; then
+    fail ".strings 扫描无 __SCANNED__ 计数 —— 判定器失效，不得判 PASS（ERR#27）"
+  elif printf '%s\n' "$STRINGS_SCAN" | grep -q '^FAIL:'; then
+    # 评审修正第二轮：while 管道会让 fail() 落在子 shell、FAILURES 增量丢失——
+    # 改进程替换（循环在父 shell 执行），门禁真正能红
+    while IFS= read -r ln; do fail "$ln"; done < <(printf '%s\n' "$STRINGS_SCAN" | grep '^FAIL:')
+    if printf '%s\n' "$scanned" | grep -q '__SCANNED__ 0'; then
+      fail ".strings 扫描 0 个文件 —— 资源目录缺失或路径漂移，不得空扫判 PASS（ERR#27）"
     fi
-  elif printf '%s\n' "$scanned" | grep -q '__SCANNED__ 0'; then
-    fail ".strings 扫描 0 个文件 —— 资源目录缺失或路径漂移，不得空扫判 PASS（ERR#27）"
   else
     pass "$(printf '%s\n' "$STRINGS_SCAN" | grep '^PASS:' | head -1)"
   fi
@@ -699,13 +702,12 @@ if bad:
     sys.exit(1)
 print(f"PASS: {len(schemes)} 个 scheme 的测试目标全部为项目内声明 target，无包测试引用")
 PYEOF
-)"
+)" || PYML_SCAN=""    # 评审修正第二轮：与 [13] 同族——set -e 赋值中止 + 子 shell fail 丢失
   scanned="$(printf '%s\n' "$PYML_SCAN" | grep '^__SCANNED__' || true)"
-  if [ -z "$scanned" ] || printf '%s\n' "$PYML_SCAN" | grep -q '^FAIL:'; then
-    printf '%s\n' "$PYML_SCAN" | grep '^FAIL:' | while IFS= read -r ln; do fail "$ln"; done
-    if [ -z "$scanned" ]; then
-      fail "project.yml 扫描无 __SCANNED__ 计数 —— 判定器失效，不得判 PASS（ERR#27）"
-    fi
+  if [ -z "$scanned" ]; then
+    fail "project.yml 扫描无 __SCANNED__ 计数 —— 判定器失效，不得判 PASS（ERR#27）"
+  elif printf '%s\n' "$PYML_SCAN" | grep -q '^FAIL:'; then
+    while IFS= read -r ln; do fail "$ln"; done < <(printf '%s\n' "$PYML_SCAN" | grep '^FAIL:')
   else
     pass "$(printf '%s\n' "$PYML_SCAN" | grep '^PASS:' | head -1)"
   fi

@@ -60,8 +60,15 @@ struct AppRootView: View {
         .task {
             await settingsStore.load()   // 主题等设置先于首帧后的首次渲染就位
             // 语言初始化已移至 VitaLiberApp.init（L10n.restoreLanguage 同步恢复，
-            // 首帧即正确语言，无闪烁；此处不再重复 setLanguage）
+            // 首帧即正确语言，无闪烁）；但 restoreLanguage 只读 vl.language 镜像，
+            // 设置库（DB，随备份迁移）才是权威事实源——备份恢复到新设备时二者
+            // 可能分叉（L10n 渲染 zh-Hans、设置页却选中 zh-Hant）。加载完成后
+            // 以 DB 值对账一次（setLanguage 相等性守卫保证幂等、不误广播）。
+            if let dbLang = settingsStore.values[.language] {
+                L10n.setLanguage(dbLang)
+            }
             await appState.bootstrap()
+            appState.restoreBackupMark()   // 上次备份时刻镜像就位（FR13.10 观察联动）
             // F16 信源库种子幂等入库（离线零网络可用）
             do { try await seedBundled() }
             catch {
@@ -87,6 +94,13 @@ struct AppRootView: View {
                 await reminderStore.reloadLocalizedScheduledContent()
             }
         }
+        // 评审修正第二轮（FR13.10 周期再武装）：backup-reminder 的已送达记录是
+        // 「本周期已提醒」标记——完成一次备份即开启新周期，必须清除，否则
+        // 提醒送达一次后永久静默。lastBackupAt 变化 = 备份完成信号。
+        .onChange(of: appState.lastBackupAt) { oldValue, newValue in
+            guard newValue != nil, newValue != oldValue else { return }
+            Task { await reminderStore.clearBackupReminderDelivered() }
+        }
         // 四层补偿第 3 层：时区/时间显著变化 → 立即对账（View 级修饰符）
         .onReceive(NotificationCenter.default.publisher(
             for: UIApplication.significantTimeChangeNotification)) { _ in
@@ -96,7 +110,8 @@ struct AppRootView: View {
                 timezoneChanged = true   // FR9.6：时区变化必须提示核对（不静默重排）
             }
             Task {
-                await reminderStore.refreshTriggered(patientId: appState.currentPatientId)
+                // FR9.6 第 3 层：时区变化即时对账不得被 500ms 去抖吞掉（force）
+                await reminderStore.refreshTriggered(patientId: appState.currentPatientId, force: true)
             }
         }
         .alert(L10n.timezoneChangedTitle, isPresented: $timezoneChanged) {

@@ -106,6 +106,12 @@ public enum VoiceCommandGrammar {
         Pattern(command: .selectNumber, regex: #"^(?:第)?([一二三123])个?"#),
         Pattern(command: .cancel, regex: #"取消"#),
         Pattern(command: .exitSession, regex: #"退出"#),
+        // 评审修正第二轮（BR-012 急救语义词）：号码文法要求「打/拨打+号码」形态，
+        // 单说「急救/救命/叫救护车/打救护车」此前无任何命中 → unrecognized（或被
+        // callContact 抢先），急救出口经语音不可达。语义词直连 callEmergency120
+        // （会话层仍走高危确认）——必须排在 callContact **之前**，否则「打救护车」
+        // 被泛化联系人文法抢先。
+        Pattern(command: .callEmergency120, regex: #"^(?:急救|救命)|(?:帮我)?(?:叫|打|拨打)救护车"#),
         Pattern(command: .callContact, regex: #"(?:帮我)?(?:打|打给|拨打)(.+)"#),
         // 审查修复：急救号码不再写死 120——按语言区域注入（120/119/911），
         // 动态正则见 parse(_:emergencyNumber:)
@@ -118,14 +124,17 @@ public enum VoiceCommandGrammar {
         // callContact 文法——「帮我打119」会被 (?:帮我)?(?:打|打给|拨打)(.+)
         // 抢先命中成泛化联系人拨号，注入号码的急救拨号契约形同虚设
         // （CI 34020363188 实证）。锚定句尾防「记录119条」误命中。
+        // 评审修正第二轮：句尾锚定前先剥离常见句尾标点——转写引擎常补「。/！？」
+        // 使「拨打120。」失配并回落泛化联系人拨号（急救契约静默丢失）。
+        let emergencyText = text.trimmingCharacters(in: CharacterSet(charactersIn: "。！？!?，,."))
         let emergencyDigits = emergencyNumber.filter(\.isNumber)
         if !emergencyDigits.isEmpty {
             let regex: NSRegularExpression?
             do { regex = try NSRegularExpression(pattern: "(?:帮我)?(?:打|打给|拨打)\\s*\(emergencyDigits)\\s*$") }
             catch { regex = nil }   // 注入号码非纯数字的极端情形：回落通用文法（文法表由本仓维护）
             if let regex {
-                let range = NSRange(text.startIndex..<text.endIndex, in: text)
-                if regex.firstMatch(in: text, range: range) != nil {
+                let range = NSRange(emergencyText.startIndex..<emergencyText.endIndex, in: emergencyText)
+                if regex.firstMatch(in: emergencyText, range: range) != nil {
                     return .command(.callEmergency120)
                 }
             }

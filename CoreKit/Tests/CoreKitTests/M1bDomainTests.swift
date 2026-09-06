@@ -321,3 +321,88 @@ struct ReconcileTests {
         #expect(datesLateCN.isEmpty)
     }
 }
+
+// MARK: - 补录转场扣减矩阵（评审修正第二轮 D3 回归防护）
+
+@Suite("FR9.16×FR9.8.8 补录转场扣减矩阵")
+struct TransitionDeductionTests {
+    @Test func missed转taken仅补扣确认轨() {
+        // materializeMissed 已扣计划轨 (units, 0)——补录转场不得重复扣计划轨
+        let m = InventoryRules.transitionDeduction(from: .missed, to: .taken, units: 2)
+        #expect(m.plan == 0)
+        #expect(m.confirmed == 2)
+    }
+
+    @Test func missed转discomfort仅补扣确认轨() {
+        let m = InventoryRules.transitionDeduction(from: .missed, to: .discomfort, units: 2)
+        #expect(m.plan == 0)
+        #expect(m.confirmed == 2)
+    }
+
+    @Test func skipped转taken全额扣减() {
+        // skipped 原矩阵 (0,0) 未扣任何轨——转场 taken 全额扣双轨
+        let m = InventoryRules.transitionDeduction(from: .skipped, to: .taken, units: 2)
+        #expect(m.plan == 2)
+        #expect(m.confirmed == 2)
+    }
+
+    @Test func 未决议转taken全额扣减() {
+        let m = InventoryRules.transitionDeduction(from: nil, to: .taken, units: 3)
+        #expect(m.plan == 3)
+        #expect(m.confirmed == 3)
+    }
+
+    @Test func 与单轨矩阵互补不越界() {
+        for action in [DoseUserAction.taken, .skipped, .missed, .discomfort, .snoozed] {
+            let base = InventoryRules.deduction(for: action, units: 1)
+            #expect(base.plan >= 0 && base.confirmed >= 0)
+        }
+    }
+}
+
+// MARK: - 逻辑剂量身份（D5 回归防护：时区/日历变化下 notifyId 稳定）
+
+@Suite("D5 逻辑剂量身份")
+struct LogicalDoseIdentityTests {
+    @Test func 同一逻辑剂量跨时区id稳定() {
+        let planId = UUID()
+        let startDate = Date(timeIntervalSince1970: 1_800_000_000)   // 任意锚点
+        var cn = Calendar(identifier: .gregorian)
+        cn.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
+        let (dosesCN, _) = DoseScheduleEngine.doses(
+            schedule: .fixed(times: ["08:00"]), planId: planId,
+            startDate: startDate, fromDay: 3, toDay: 3, calendar: cn)
+        let (dosesUTC, _) = DoseScheduleEngine.doses(
+            schedule: .fixed(times: ["08:00"]), planId: planId,
+            startDate: startDate, fromDay: 3, toDay: 3, calendar: utc)
+        #expect(dosesCN.count == 1 && dosesUTC.count == 1)
+        // 逻辑身份 = day+ordinal，与日历无关——时区重排后 id 必须稳定
+        #expect(dosesCN[0].notifyId == dosesUTC[0].notifyId)
+    }
+
+    @Test func 同一日多剂序号递增() {
+        let planId = UUID()
+        let startDate = Date(timeIntervalSince1970: 1_800_000_000)
+        let (doses, _) = DoseScheduleEngine.doses(
+            schedule: .fixed(times: ["08:00", "12:00", "20:00"]), planId: planId,
+            startDate: startDate, fromDay: 1, toDay: 1, calendar: .current)
+        #expect(doses.count == 3)
+        let ids = Set(doses.map(\.notifyId))
+        #expect(ids.count == 3, "同计划同日多剂必须身份互异")
+        let ordinals = doses.map { Int($0.notifyId.split(separator: "-").last ?? "0") ?? 0 }
+        #expect(ordinals == [1, 2, 3])
+    }
+
+    @Test func 每剂剂量随unitsPerDose物化() {
+        let planId = UUID()
+        let startDate = Date(timeIntervalSince1970: 1_800_000_000)
+        let (doses, _) = DoseScheduleEngine.doses(
+            schedule: .fixed(times: ["08:00"]), planId: planId,
+            startDate: startDate, fromDay: 1, toDay: 2, calendar: .current,
+            unitsPerDose: 2)
+        #expect(doses.count == 2)
+        #expect(doses.allSatisfy { $0.doseUnits == 2 }, "D1：每剂剂量必须随物化行落库口径一致")
+    }
+}

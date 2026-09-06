@@ -70,7 +70,11 @@ struct MemberManagementView: View {
                     if PaywallRules.memberAdditionBlocked(
                         currentCount: app.members.count,
                         ownedProducts: entitlements.owned) {
-                        _ = entitlements.evaluateTrigger(.memberQuotaReached)
+                        // 评审修正第二轮：弹墙被 24h 频控抑制时不得静默关单——
+                        // 回落为列表内常驻配额提示（用户至少知道为什么没加上）
+                        if !entitlements.evaluateTrigger(.memberQuotaReached) {
+                            quotaHint = L10n.member_quotaHint
+                        }
                         showAdd = false
                         return
                     }
@@ -80,7 +84,7 @@ struct MemberManagementView: View {
                 }
             }
         }
-        .alert(L10n.member_addedHint, isPresented: Binding(
+        .alert(quotaHint ?? L10n.member_addedHint, isPresented: Binding(
             get: { quotaHint != nil },
             set: { if !$0 { quotaHint = nil } })) {
             Button(L10n.onboard_gotIt, role: .cancel) {}
