@@ -11,10 +11,6 @@ struct PreprocessTests {
     func resetToOriginal() async throws {
         #if os(Linux)
         let preprocessor = StubImagePreprocessor()
-        #else
-        // Apple 路径在 Linux 单测不跑，仅占位
-        return
-        #endif
 
         let png = Self.testPNG()
         let params = PreprocessParams(resetToOriginal: true)
@@ -23,15 +19,16 @@ struct PreprocessTests {
         #expect(result.processedData == png)
         #expect(result.originalData == png)
         #expect(result.appliedParams.resetToOriginal == true)
+        #else
+        // Apple 路径在 Linux 单测不跑，仅占位
+        return
+        #endif
     }
 
     @Test("非重置：Linux 占位返回原始帧、版本号+1、标记未实际矫正", .tags(.linuxRunnable))
     func linuxPlaceholderNoCorrection() async throws {
         #if os(Linux)
         let preprocessor = StubImagePreprocessor()
-        #else
-        return
-        #endif
 
         let png = Self.testPNG()
         let params = PreprocessParams(enablePerspectiveCorrection: true, colorMode: .grayscale, rotationDegrees: 90)
@@ -41,6 +38,9 @@ struct PreprocessTests {
         #expect(result.appliedParams.enablePerspectiveCorrection == false) // 占位标记未实际矫正
         #expect(result.appliedParams.colorMode == .grayscale)
         #expect(result.appliedParams.rotationDegrees == 90)
+        #else
+        return
+        #endif
     }
 
     @Test("参数确定性：相同参数产生相同 appliedParams", .tags(.linuxRunnable))

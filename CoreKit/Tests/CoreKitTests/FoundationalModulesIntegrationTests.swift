@@ -96,16 +96,21 @@ struct FoundationalModulesIntegrationTests {
 
     @Test("预处理版本递增", .tags(.linuxRunnable))
     func preprocessVersioning() async throws {
+        #if os(Linux)
         let preprocessor = StubImagePreprocessor()
         let r1 = try await preprocessor.preprocess(Data(), params: PreprocessParams(), baseVersion: 0)
         let r2 = try await preprocessor.preprocess(Data(), params: PreprocessParams(), baseVersion: r1.version)
         #expect(r2.version > r1.version)
+        #else
+        return
+        #endif
     }
 
     // MARK: - Decode + Compress 组合
 
     @Test("解码后缩略图全流程", .tags(.linuxRunnable))
     func decodeThenCompress() async throws {
+        #if os(Linux)
         let decoder = StubPDFDecoder()
         let compressor = StubImageCompressor()
 
@@ -113,6 +118,9 @@ struct FoundationalModulesIntegrationTests {
         let spec = ThumbnailSpec(maxDimension: 320, blurRadius: 10, quality: 0.7)
         let thumb = try await compressor.generateThumbnail(decoded.bitmapData, spec: spec)
         #expect(thumb.count > 0)
+        #else
+        return
+        #endif
     }
 
     // MARK: - Offline guard 全 7 工厂
