@@ -21,6 +21,9 @@
 #        不可用 → 门禁退回纯密码键盘）
 #   [13] .strings 结构校验 —— 三语 Localizable.strings 行级语法/重复键/键集一致
 #        （CopyStringsFile 对损坏行静默容忍 → 运行时文案劣化/裸 key，L0 必须左移拦截）
+#   [14] project.yml scheme 校验 —— scheme 测试目标必须是项目内声明的 target，
+#        禁止 {name, package} 包测试引用（XcodeGen Spec validation error，
+#        CI 34017824105 实证：包测试目标进 scheme 会在 macOS 首步即炸）
 #
 # 运行环境：bash 3.2+（兼容 macOS 自带 bash）/ python3 或 node 或 jq（仅 JSON 校验用）。
 #           macOS/Linux 原生可跑；Windows 用 Git Bash 或等价 l0-static-gate.py。
@@ -90,7 +93,7 @@ fi
 echo "Vita Liber L0 静态门禁 · 应用源码根: $APP"
 
 # ---------- [1] 强制解包/try? 门禁 ----------
-section "1/13" "强制解包门禁 —— try? / as! / try! 全仓清零，豁免须同行注释 // try?-ok: <理由>（tech-spec §7）"
+section "1/14" "强制解包门禁 —— try? / as! / try! 全仓清零，豁免须同行注释 // try?-ok: <理由>（tech-spec §7）"
 try_viol=0; try_exempt=0
 while IFS= read -r line; do
   [ -n "$line" ] || continue
@@ -125,7 +128,7 @@ else
 fi
 
 # ---------- [2] ADR-021 无平行视图 ----------
-section "2/13" "ADR-021 —— 禁止平行视图文件与 idiom 分支换页（tech-spec §5.26）"
+section "2/14" "ADR-021 —— 禁止平行视图文件与 idiom 分支换页（tech-spec §5.26）"
 ipad_files=$(find "$APP" \( -name .build -o -name .swiftpm -o -name DerivedData -o -name Build \) -prune -o \( -name '*_iPad*.swift' -o -name '*_iPhone*.swift' \) -print 2>/dev/null | grep -v '/CoreKit/' || true)
 if [ -n "$ipad_files" ]; then
   printf '%s\n' "$ipad_files" | head -15 | sed 's/^/    /'
@@ -150,7 +153,7 @@ else
 fi
 
 # ---------- [3] DDL 引用完整性 ----------
-section "3/13" "DDL 引用完整性 —— REFERENCES 目标已建表 + 外键开启（tech-spec §4.3）"
+section "3/14" "DDL 引用完整性 —— REFERENCES 目标已建表 + 外键开启（tech-spec §4.3）"
 # 大文本管道防 SIGPIPE（ERR#34）：ddl_text 达数 MB 后，
 # `printf | grep -qE` 在 grep 提前命中退出时把仍在写的 printf 打死
 # （exit 141），pipefail 下整段报错——曾造成「外键开启语句缺失」假红。
@@ -218,7 +221,7 @@ done
 rm -f "$_ddl_file"
 
 # ---------- [4] 红线模块禁读 EntitlementStore ----------
-section "4/13" "商业化红线 —— 红线模块代码内禁止读取 EntitlementStore（tech-spec §5.14）"
+section "4/14" "商业化红线 —— 红线模块代码内禁止读取 EntitlementStore（tech-spec §5.14）"
 DEFAULT_REDLINE="$APP/App/M1a/OnboardingViews.swift:$APP/App/M1b/RemindersViews.swift:$APP/App/M1c/ObservationViews.swift:$APP/App/M1c/AssistantView.swift:$APP/App/M2/EmergencyCareViews.swift:$APP/App/M1c/GlobalSearchView.swift:$APP/App/M1c/HelpViews.swift:$APP/App/DesignSystem/SensitiveMediaContainer.swift:$APP/App/M2/AlertViews.swift:$APP/App/M2/MedicationPlanViews.swift:$APP/App/M2/InventoryViews.swift:$APP/App/M2/DeviceConnectionView.swift"
 REDLINE_PATHS="${REDLINE_PATHS:-$DEFAULT_REDLINE}"
 redline_matched=0; ent_viol=0
@@ -245,7 +248,7 @@ else
 fi
 
 # ---------- [5] Domain 零框架依赖 ----------
-section "5/13" "分层纪律 —— Domain 零框架依赖，白名单断言 import ⊆ {Foundation}（tech-spec §1.1）"
+section "5/14" "分层纪律 —— Domain 零框架依赖，白名单断言 import ⊆ {Foundation}（tech-spec §1.1）"
 if [ ! -d "$DOMAIN" ]; then
   fail "缺少 $DOMAIN —— M0 要求 CoreKit 三目标骨架先行"
 else
@@ -264,7 +267,7 @@ else
 fi
 
 # ---------- [6] Fixtures JSON 校验 ----------
-section "6/13" "金样 Fixtures —— JSON 可解析（dev-pm-spec §9.2④）"
+section "6/14" "金样 Fixtures —— JSON 可解析（dev-pm-spec §9.2④）"
 validate_json() {
   if command -v python3 >/dev/null 2>&1; then
     python3 -c 'import json,sys; json.load(open(sys.argv[1], encoding="utf-8"))' "$1" 2>/dev/null
@@ -304,7 +307,7 @@ else
 fi
 
 # ---------- [7] Swift 语法解析门禁 ----------
-section "7/13" "Swift 解析门禁 —— App 层源码语法/保留字检查（ERR#28 shift-left）"
+section "7/14" "Swift 解析门禁 —— App 层源码语法/保留字检查（ERR#28 shift-left）"
 # 背景：App/ 的 SwiftUI 源码不属于 CoreKit SPM 包，Linux 上 `swift build` 不覆盖它，
 # 过去任何语法错误（如 `static let import`）都要等 macOS L1 编译才暴露，一次往返数分钟。
 # swiftc -parse 只做语法分析、不做语义解析与 import 解析，因此在无 SwiftUI 的 Linux 上同样有效。
@@ -331,7 +334,7 @@ else
 fi
 
 # ---------- [8] 阶段门禁套件存在性 ----------
-section "8/13" "阶段门禁套件存在性 —— test-plan §3 必过套件必须真实存在（ERR#27 原则推广）"
+section "8/14" "阶段门禁套件存在性 —— test-plan §3 必过套件必须真实存在（ERR#27 原则推广）"
 # 根因族第三次复发的治本项：ERR#27=扫到 0 个对象判 PASS；ERR#30=job skipped 判 success；
 # M1.5=套件从未创建、CI 无 job 绑定 → 无红可判 → 默认通过。三者同为「缺证据被当成有证据」。
 # 本项把「某阶段必须存在哪些套件」变成可执行断言：清单里 required=yes 的套件
@@ -399,7 +402,7 @@ else
 fi
 
 # ---------- [9] FR17.13 语音输入模板复用 ----------
-section "9/13" "FR17.13 模板复用 —— 四处确认入口必须走同一模板，禁止自建确认逻辑（TC-M15-03）"
+section "9/14" "FR17.13 模板复用 —— 四处确认入口必须走同一模板，禁止自建确认逻辑（TC-M15-03）"
 # function-spec FR17.13：语音指导每步(FR17.11)/语音速记(FR17.9)/语音提醒设定(FR17.10)/
 # 观察语音速记(FR8.9) 一律调用标准模板，**禁止各功能自建独立确认逻辑**。
 # 两条断言：
@@ -452,7 +455,7 @@ else
 fi
 
 # ---------- [10] L10n 硬编码门禁（审查问题 E · 机制先于存量） ----------
-section "10/13" "L10n 单出口 —— 视图层禁止新增中文字面量（三文件纪律；存量登记 .github/workflows/l10n-legacy-allowlist.txt）"
+section "10/14" "L10n 单出口 —— 视图层禁止新增中文字面量（三文件纪律；存量登记 .github/workflows/l10n-legacy-allowlist.txt）"
 L10N_ALLOW="$SCRIPT_DIR/l10n-legacy-allowlist.txt"
 [ -f "$L10N_ALLOW" ] || touch "$L10N_ALLOW"
 # 判定统一走 python3 显式 Unicode 码点（ERR#5WHY：`grep [一-龥]` 多字节字符区间的
@@ -491,7 +494,7 @@ EOF
 fi
 
 # ---------- [11] 资产目录完整性 ----------
-section "11/13" "资产目录完整性 —— imageset 槽位 scale 必须 1x/2x/3x（actool 静默丢图标回归防护，ERR#28 同族）"
+section "11/14" "资产目录完整性 —— imageset 槽位 scale 必须 1x/2x/3x（actool 静默丢图标回归防护，ERR#28 同族）"
 ASSET_ROOT="$APP/Resources/Assets.xcassets"
 if [ ! -d "$ASSET_ROOT" ]; then
   fail "缺少资源目录 $ASSET_ROOT —— 不得空扫判 PASS（ERR#27）"
@@ -533,7 +536,7 @@ PY
 fi
 
 # ---------- [12] 生物识别权限声明 ----------
-section "12/13" "生物识别权限声明 —— 代码用 LocalAuthentication ⟹ Info.plist 有 NSFaceIDUsageDescription（缺失 = Face ID 静默不可用）"
+section "12/14" "生物识别权限声明 —— 代码用 LocalAuthentication ⟹ Info.plist 有 NSFaceIDUsageDescription（缺失 = Face ID 静默不可用）"
 la_used=0
 if grep -rqE --include='*.swift' 'deviceOwnerAuthentication|import LocalAuthentication' \
      "$APP/CoreKit/Sources" "$APP/App" 2>/dev/null; then
@@ -570,7 +573,7 @@ else
 fi
 
 # ---------- [13] .strings 结构校验 ----------
-section "13/13" ".strings 结构校验 —— 行级语法/重复键/三语键集一致（CopyStringsFile 容忍损坏=沉默劣化，ERR#48 同族）"
+section "13/14" ".strings 结构校验 —— 行级语法/重复键/三语键集一致（CopyStringsFile 容忍损坏=沉默劣化，ERR#48 同族）"
 # 背景：zh-Hans/zh-Hant 曾各有一行 8 个键值碎片挤单行、三文件各 7 个重复键（部分值
 # 冲突如瓶/支）、en 缺键——CopyStringsFile 均容忍通过，管道绿但运行时文案损坏/裸 key。
 # 判定与平台无关的 python3（ERR#5WHY 纪律）；ERR#27 空扫不得判 PASS。
@@ -635,6 +638,76 @@ PYEOF
     fail ".strings 扫描 0 个文件 —— 资源目录缺失或路径漂移，不得空扫判 PASS（ERR#27）"
   else
     pass "$(printf '%s\n' "$STRINGS_SCAN" | grep '^PASS:' | head -1)"
+  fi
+fi
+
+# ---------- [14] project.yml scheme 校验 ----------
+section "14/14" "project.yml scheme 校验 —— 测试目标必须是项目内声明 target，禁止包测试引用（XcodeGen Spec validation error，CI 34017824105 实证）"
+# 背景：scheme test targets 曾写 { name: CoreKitTests, package: CoreKit }——CoreKitTests 是
+# SPM 包内测试目标，不在 .xcodeproj 目标图里，XcodeGen 校验直接拒绝；本地 Linux 无 xcodegen，
+# 该错误只能烧一次完整 CI 在「生成 Xcode 工程」首步才暴露。纯 python3 标准库实现（macOS runner
+# 无 pyyaml，见运行环境契约）；ERR#27 空扫/判定器失效一律不得判 PASS。
+if ! command -v python3 >/dev/null 2>&1; then
+  fail "无 python3 —— project.yml scheme 校验不可执行，不得空扫判 PASS（ERR#27）"
+else
+  PYML_SCAN="$(python3 - "$APP" <<'PYEOF'
+import re, sys
+from pathlib import Path
+p = Path(sys.argv[1]) / "project.yml"
+if not p.exists():
+    print("FAIL: project.yml 不存在 —— 不得空扫判 PASS（ERR#27）")
+    sys.exit(1)
+text = p.read_text(encoding="utf-8")
+# 顶层 target 声明：只取 targets: 节主体内的 2 空格缩进键（排除工程设置项）
+tm_sec = re.search(r"^targets:\n([\s\S]*?)(?=^\S|\Z)", text, re.M)
+declared = set(re.findall(r"^  ([A-Za-z0-9_]+):", tm_sec.group(1), re.M)) if tm_sec else set()
+print(f"__SCANNED__ targets={len(declared)}")
+if not declared:
+    print("FAIL: project.yml 无 targets 声明 —— 判定器失效，不得判 PASS（ERR#27）")
+    sys.exit(1)
+# schemes 节主体（2 空格缩进键为 scheme 名）
+m = re.search(r"^schemes:\n([\s\S]*?)(?=^\S|\Z)", text, re.M)
+if not m:
+    print("FAIL: project.yml 无 schemes 节 —— 不得空扫判 PASS（ERR#27）")
+    sys.exit(1)
+body = m.group(1)
+schemes = re.findall(r"^  ([A-Za-z0-9_]+):", body, re.M)
+print(f"__SCANNED__ schemes={len(schemes)}")
+if not schemes:
+    print("FAIL: schemes 节为空 —— 判定器失效，不得判 PASS（ERR#27）")
+    sys.exit(1)
+bad = []
+n_test_lists = 0
+for tm in re.finditer(r"targets:\s*\[([^\]]*)\]", body):
+    raw = tm.group(1)
+    # 该 flow 列表属于哪个小节（build/test）不关键：包引用在任何 targets 列表都非法
+    n_test_lists += 1
+    if "{" in raw:
+        bad.append(f"targets 含包引用测试目标: {raw.strip()[:80]} —— XcodeGen 不支持包测试目标进 scheme")
+    for name in re.findall(r"([A-Za-z0-9_]+)", raw):
+        if name not in declared:
+            bad.append(f"scheme 测试目标 {name} 未在 targets 中声明")
+# 块序列格式的包引用（- { name: ..., package: ... }）单独拦截
+for dm in re.finditer(r"-\s*\{\s*name:\s*[A-Za-z0-9_]+", body):
+    bad.append(f"包引用测试目标（块序列）: {dm.group(0).strip()} —— XcodeGen 不支持包测试目标进 scheme")
+if n_test_lists == 0:
+    print("FAIL: 未解析到任何 targets: [...] 列表 —— 判定器失效，不得判 PASS（ERR#27）")
+    sys.exit(1)
+if bad:
+    for msg in bad[:20]:
+        print("FAIL:", msg)
+    sys.exit(1)
+print(f"PASS: {len(schemes)} 个 scheme 的测试目标全部为项目内声明 target，无包测试引用")
+PYEOF
+)"
+  scanned="$(printf '%s\n' "$PYML_SCAN" | grep '^__SCANNED__' || true)"
+  if [ -z "$scanned" ] || printf '%s\n' "$PYML_SCAN" | grep -q '^FAIL:'; then
+    printf '%s\n' "$PYML_SCAN" | grep '^FAIL:' | while IFS= read -r ln; do fail "$ln"; done
+    if [ -z "$scanned" ]; then
+      fail "project.yml 扫描无 __SCANNED__ 计数 —— 判定器失效，不得判 PASS（ERR#27）"
+    fi
+  else
+    pass "$(printf '%s\n' "$PYML_SCAN" | grep '^PASS:' | head -1)"
   fi
 fi
 

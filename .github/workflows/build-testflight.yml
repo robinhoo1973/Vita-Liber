@@ -227,6 +227,19 @@ jobs:
             plutil -extract Name raw - 2>/dev/null && echo "profile 名称 ✓" || echo "profile 导入完成"
           ls -la "$HOME/Library/MobileDevice/Provisioning Profiles/"
 
+      # ── CoreKit 包测试（swift test）：域层真实执行 ──────
+      # 包测试目标不能进 app scheme（XcodeGen 拒绝包测试引用，run 34017824105
+      # 实证）——Domain/双轨库存/调度引擎 264 测试在此以 SPM 原生方式执行；
+      # 红即阻断后续编译/归档/上传（缺证据≠有证据，ERR#27/30/39 同族）。
+      # 运行于 macOS runner 本身（非 Linux 容器，业主 2026-09-06 决定）。
+      - name: CoreKit 域层测试（swift test）
+        run: |
+          set -o pipefail
+          mkdir -p Build
+          cd CoreKit
+          swift test 2>&1 | tee ../Build/corekit-swift-test.log
+          echo "CoreKit 域层测试通过 ✓"
+
       # ── 编译门禁（build-for-testing）：失败即停 ───────
       - name: 编译门禁（build-for-testing）
         run: |
@@ -255,10 +268,12 @@ jobs:
       # 此前全流水线仅 build-for-testing（编译），gate-suites.tsv 里 26 个
       # required 测试套件**从未被执行**——「套件存在」≠「套件跑过」
       # （ERR#27/30/39 同族）。业主决定：Linux CoreKit job 整体移除，
-      # 域层/应用层/UI 套件统一在 iOS 模拟器真实执行（scheme 测试目标 =
-      # VitaLiberTests + VitaLiberUITests + CoreKitTests）。复用 build-for-testing
-      # 产物（test-without-building）省去二次编译；任一 red 即阻断归档上传。
-      - name: L1 单元测试（VitaLiberTests + CoreKitTests）
+      # 应用层/UI 套件在 iOS 模拟器真实执行（scheme 测试目标 =
+      # VitaLiberTests + VitaLiberUITests）；CoreKit 包测试由上方
+      # `swift test` 步骤在 macOS runner 真实执行（XcodeGen 不支持
+      # 包测试目标进 scheme）。复用 build-for-testing 产物
+      # （test-without-building）省去二次编译；任一 red 即阻断归档上传。
+      - name: L1 单元测试（VitaLiberTests）
         run: |
           set -o pipefail
           DEST=$(python3 - <<'PY'
@@ -277,7 +292,6 @@ jobs:
             -destination "$DEST" \
             -derivedDataPath Build/DerivedData \
             -only-testing:VitaLiberTests \
-            -only-testing:CoreKitTests \
             CODE_SIGNING_ALLOWED=NO \
             2>&1 | tee Build/xcodebuild-test.log
           echo "L1 单元测试通过 ✓"
