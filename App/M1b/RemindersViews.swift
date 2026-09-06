@@ -170,6 +170,9 @@ struct NewPlanSheet: View {
     @State private var spec = ""
     @State private var timeText = "08:00"
     @State private var units = 1.0
+    /// FR9.4 调度类型（V3.72）：fixed/interval/meal/asNeeded 可建；
+    /// cycle（注射周期）/taper（递增递减表）多段编辑器随 W4 余项登记
+    @State private var scheduleKind = "fixed"
 
     var body: some View {
         NavigationStack {
@@ -178,10 +181,21 @@ struct NewPlanSheet: View {
                     .accessibilityIdentifier("SP-09.plan.name")
                 TextField(L10n.reminder_planSpec, text: $spec)
                     .accessibilityIdentifier("SP-09.plan.spec")
-                TextField(L10n.reminder_planTime, text: $timeText)
+                Section(L10n.reminder_planScheduleKind) {
+                    Picker("", selection: $scheduleKind) {
+                        Text(L10n.reminder_planKindFixed).tag("fixed")
+                        Text(L10n.reminder_planKindInterval).tag("interval")
+                        Text(L10n.reminder_planKindMeal).tag("meal")
+                        Text(L10n.reminder_planKindAsNeeded).tag("asNeeded")
+                    }
+                    .pickerStyle(.segmented)
+                }
+                // 简单输入映射：fixed=时刻；interval=分钟数（如 480）；meal=餐锚
+                // （早/午/晚/睡前 前缀）；asNeeded 无排程仅按需
+                TextField(scheduleHint, text: $timeText)
                     .accessibilityIdentifier("SP-09.plan.time")
             }
-            .navigationTitle("添加用药计划")
+            .navigationTitle(L10n.reminder_planNew)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button(L10n.reminder_save) { onCreate(name, spec, timeText, units) }
@@ -189,6 +203,16 @@ struct NewPlanSheet: View {
                         .accessibilityIdentifier("SP-09.plan.save")
                 }
             }
+        }
+    }
+
+    /// 排程参数输入提示（按类型）
+    private var scheduleHint: String {
+        switch scheduleKind {
+        case "interval": return L10n.reminder_planKindIntervalHint
+        case "meal": return L10n.reminder_planKindMealHint
+        case "asNeeded": return L10n.reminder_planKindAsNeededHint
+        default: return L10n.reminder_planTime
         }
     }
 }

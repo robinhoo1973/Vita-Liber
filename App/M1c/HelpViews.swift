@@ -8,8 +8,20 @@ import LocalAuthentication
 
 /// F22 帮助中心入口：按功能提供诊断工具、教程、FAQ 和关于页。
 struct HelpRootView: View {
+    @Environment(AppState.self) private var app
+
     var body: some View {
         Form {
+            // §5.20 七类教程入口（V3.72 补：此前只有三项诊断 + 关于页）
+            Section(L10n.helpTutorialTitle) {
+                ForEach(helpTopics, id: \.title) { topic in
+                    NavigationLink {
+                        HelpTopicView(title: topic.title, bullets: topic.bullets)
+                    } label: {
+                        Label(topic.title, systemImage: topic.icon)
+                    }
+                }
+            }
             Section {
                 NavigationLink {
                     HelpPermissionDiagnostics()
@@ -48,7 +60,46 @@ struct HelpRootView: View {
                 .accessibilityIdentifier("FR22.8.about")
             }
         }
+        .searchable(text: .constant(""), placement: .navigationBarDrawer(displayMode: .always))
         .navigationTitle(L10n.helpCenterTitle)
+    }
+
+    private var helpTopics: [(title: String, icon: String, bullets: [String])] {
+        [
+            (L10n.helpTopicGettingStarted, "person.crop.circle.badge.plus", [L10n.helpGettingStarted1, L10n.helpGettingStarted2]),
+            (L10n.helpTopicImportOcr, "doc.viewfinder", [L10n.helpImportOcr1, L10n.helpImportOcr2]),
+            (L10n.helpTopicReminders, "bell.badge", [L10n.helpReminders1, L10n.helpReminders2]),
+            (L10n.helpTopicPrivacy, "lock.shield", [L10n.helpPrivacy1, L10n.helpPrivacy2]),
+            (L10n.helpTopicCare, "figure.walk", [L10n.helpCare1, L10n.helpCare2]),
+            (L10n.helpTopicBackup, "externaldrive", [L10n.helpBackup1, L10n.helpBackup2]),
+            (L10n.helpTopicVoice, "mic", [L10n.helpVoice1, L10n.helpVoice2]),
+        ]
+    }
+}
+
+/// 教程主题页（静态条目 + 语音输入主题附带 [🔊 朗读] 出口）
+struct HelpTopicView: View {
+    let title: String
+    let bullets: [String]
+    @Environment(AppState.self) private var app
+
+    var body: some View {
+        List(bullets, id: \.self) { b in
+            Text(b).font(.body)
+        }
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if title == L10n.helpTopicVoice {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        app.speak(bullets.joined(separator: "。"))
+                    } label: {
+                        Label(L10n.helpVoiceSpeak, systemImage: "speaker.wave.2")
+                    }
+                }
+            }
+        }
     }
 }
 

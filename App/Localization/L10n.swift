@@ -1828,6 +1828,39 @@ enum L10n {
     static var prefDateFormatISO: String { t("pref.dateFormatISO") }
     static func immunizationDoseCount(_ n: Int) -> String { t("immunization.doseCount", n) }
     static var immunization_childPlanComing: String { t("immunization.childPlanComing") }
+    static var helpTutorialTitle: String { t("help.tutorialTitle") }
+    static var helpTopicGettingStarted: String { t("help.topicGettingStarted") }
+    static var helpTopicImportOcr: String { t("help.topicImportOcr") }
+    static var helpTopicReminders: String { t("help.topicReminders") }
+    static var helpTopicPrivacy: String { t("help.topicPrivacy") }
+    static var helpTopicCare: String { t("help.topicCare") }
+    static var helpTopicBackup: String { t("help.topicBackup") }
+    static var helpTopicVoice: String { t("help.topicVoice") }
+    static var helpGettingStarted1: String { t("help.gettingStarted1") }
+    static var helpGettingStarted2: String { t("help.gettingStarted2") }
+    static var helpImportOcr1: String { t("help.importOcr1") }
+    static var helpImportOcr2: String { t("help.importOcr2") }
+    static var helpReminders1: String { t("help.reminders1") }
+    static var helpReminders2: String { t("help.reminders2") }
+    static var helpPrivacy1: String { t("help.privacy1") }
+    static var helpPrivacy2: String { t("help.privacy2") }
+    static var helpCare1: String { t("help.care1") }
+    static var helpCare2: String { t("help.care2") }
+    static var helpBackup1: String { t("help.backup1") }
+    static var helpBackup2: String { t("help.backup2") }
+    static var helpVoice1: String { t("help.voice1") }
+    static var helpVoice2: String { t("help.voice2") }
+    static var helpVoiceSpeak: String { t("help.voiceSpeak") }
+    static func inventoryBarAccessibility(_ pct: Int) -> String { t("inventory.barAccessibility", pct) }
+    static var reminder_planScheduleKind: String { t("reminder.planScheduleKind") }
+    static var reminder_planKindFixed: String { t("reminder.planKindFixed") }
+    static var reminder_planKindInterval: String { t("reminder.planKindInterval") }
+    static var reminder_planKindMeal: String { t("reminder.planKindMeal") }
+    static var reminder_planKindAsNeeded: String { t("reminder.planKindAsNeeded") }
+    static var reminder_planKindIntervalHint: String { t("reminder.planKindIntervalHint") }
+    static var reminder_planKindMealHint: String { t("reminder.planKindMealHint") }
+    static var reminder_planKindAsNeededHint: String { t("reminder.planKindAsNeededHint") }
+    static var reminder_planNew: String { t("reminder.planNew") }
     static var ocrQueueTitle: String { t("ocrQueue.title") }
     static var ocrQueueEmpty: String { t("ocrQueue.empty") }
     static var ocrQueueEmptyHint: String { t("ocrQueue.emptyHint") }

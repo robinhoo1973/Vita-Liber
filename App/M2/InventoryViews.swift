@@ -88,6 +88,8 @@ private struct InventoryRow: View {
                 Text(L10n.inventory_noPlanHint)
                     .font(.caption).foregroundStyle(.secondary)
             }
+            // §4.11 InventoryBar 分段余量条（V3.72）：绿>50%/琥珀20-50%/红<20%
+            InventoryBar(planUnits: item.remainingPlanUnits, confirmedUnits: item.remainingConfirmedUnits)
             Text(L10n.inventoryDualLine(MedicalNumberFormat.quantity(item.remainingPlanUnits), item.unitKind, MedicalNumberFormat.quantity(item.remainingConfirmedUnits)))
                 .font(.caption2).foregroundStyle(.secondary)
             if let expireAt = item.expireAt {
@@ -202,6 +204,40 @@ struct InventoryReconcileSheet: View {
 
 /// 纯事实句式由 Domain 唯一产出；本页只呈现 + 过期负清单的 UI 兜底
 /// （若 statement 违规则不渲染——负清单一票否决，不展示比展示错误更安全）。
+/// §4.11 InventoryBar（V3.72）：分段余量条——安全线占比三档着色
+/// （绿 >50% / 琥珀 20-50% / 红 <20%），右侧「约剩 N 天 · 按计划估算」。
+private struct InventoryBar: View {
+    let planUnits: Double
+    let confirmedUnits: Double
+
+    private var ratio: Double {
+        guard confirmedUnits > 0 else { return 0 }
+        return min(1, max(0, planUnits / confirmedUnits))
+    }
+
+    private var color: Color {
+        switch ratio {
+        case ..<0.2: return Color("semantic-danger", bundle: .main)
+        case 0.2..<0.5: return Color("semantic-warning", bundle: .main)
+        default: return Color("semantic-success", bundle: .main)
+        }
+    }
+
+    var body: some View {
+        GeometryReader { geo in
+            Capsule()
+                .fill(Color(.systemGray5))
+                .overlay(alignment: .leading) {
+                    Capsule()
+                        .fill(color)
+                        .frame(width: max(4, geo.size.width * ratio))
+                }
+        }
+        .frame(height: 6)
+        .accessibilityLabel(L10n.inventoryBarAccessibility(Int(ratio * 100)))
+    }
+}
+
 struct InventoryMonthlyReportView: View {
     let report: InventoryMonthlyReport
     @Environment(AppState.self) private var app
