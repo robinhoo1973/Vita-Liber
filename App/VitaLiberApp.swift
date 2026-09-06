@@ -167,7 +167,7 @@ struct VitaLiberApp: App {
             .environment(assistantStore)
             .environment(settingsStore)
             .environment(observationState)
-            .environment(container.notificationState)
+            .environment(container.notificationCenterState)
             .environment(entitlementStore)
             .environment(trendState)
             .environment(voiceNoteState)

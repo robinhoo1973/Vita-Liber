@@ -18,13 +18,13 @@ struct InAppBannerHost: View {
             if let banner = currentBanner {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(L10n.bannerDoseDue).font(.subheadline.bold())
-                    Text(banner.record.displayLabel)
+                    Text(banner.displayLabel)
                         .font(.caption).foregroundStyle(.secondary)
                     HStack(spacing: 12) {
                         Button(L10n.bannerConfirm) {
                             Task {
                                 _ = await reminders.confirmTaken(patientId: app.currentPatientId,
-                                                                 dose: banner.record.dose)
+                                                                 dose: banner.dose)
                                 hide()
                             }
                         }
@@ -49,8 +49,8 @@ struct InAppBannerHost: View {
                 .accessibilityIdentifier("SP-04.inAppBanner")
             }
         }
-        .animation(.easeInOut(duration: 0.25), value: currentBanner?.record.id)
-        .task(id: currentBanner?.record.id) {
+        .animation(.easeInOut(duration: 0.25), value: currentBanner?.id)
+        .task(id: currentBanner?.id) {
             // 5 秒自动收起（§4.22）；新横幅出现时重置计时
             guard currentBanner != nil else { return }
             autoDismiss?.cancel()
@@ -63,7 +63,7 @@ struct InAppBannerHost: View {
     }
 
     /// 横幅触发条件：开关开启 + 当前成员存在到期未处理剂量 + 未被稍后静默
-    private var currentBanner: (record: DoseRecord)? {
+    private var currentBanner: DoseRecord? {
         guard settings.values[.inAppBannerEnabled] != "false" else { return nil }
         guard Date() >= dismissedUntil else { return nil }
         let now = Date()

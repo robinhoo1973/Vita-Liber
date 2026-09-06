@@ -179,7 +179,7 @@ struct VoiceNoteDetailSheet: View {
     let onDelete: () -> Void
     @Environment(\.dismiss) private var dismiss
 
-    @State private var body = ""
+    @State private var draftBody = ""
     @State private var tagsText = ""
     @State private var inTimeline = false
     @State private var confirmDelete = false
@@ -188,7 +188,7 @@ struct VoiceNoteDetailSheet: View {
         NavigationStack {
             Form {
                 Section(L10n.voicenoteDetailBody) {
-                    TextField(L10n.voicenoteDraftPlaceholder, text: $body, axis: .vertical)
+                    TextField(L10n.voicenoteDraftPlaceholder, text: $draftBody, axis: .vertical)
                         .lineLimit(3...8)
                 }
                 Section(L10n.voicenoteDetailTags) {
@@ -213,10 +213,10 @@ struct VoiceNoteDetailSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button(L10n.reminder_save) {
                         let tags = tagsText.split(separator: ",").map { String($0.trimmingCharacters(in: .whitespaces)) }
-                        onSave(body, tags.isEmpty ? nil : tags, inTimeline)
+                        onSave(draftBody, tags.isEmpty ? nil : tags, inTimeline)
                         dismiss()
                     }
-                    .disabled(body.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .disabled(draftBody.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
             .alert(L10n.voicenoteDetailDeleteConfirm, isPresented: $confirmDelete) {
@@ -227,7 +227,7 @@ struct VoiceNoteDetailSheet: View {
                 Button(L10n.onboard_cancel, role: .cancel) {}
             }
             .onAppear {
-                body = note.body
+                draftBody = note.body
                 tagsText = note.tags.joined(separator: ", ")
                 inTimeline = note.inTimeline
             }

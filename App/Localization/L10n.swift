@@ -1823,9 +1823,6 @@ enum L10n {
     static var helpcardPreviewContinue: String { t("helpcard.previewContinue") }
     static var helpcardPreviewHint: String { t("helpcard.previewHint") }
     static var prefDateFormat: String { t("pref.dateFormat") }
-    static var prefDateFormatYMD: String { t("pref.dateFormatYMD") }
-    static var prefDateFormatMD: String { t("pref.dateFormatMD") }
-    static var prefDateFormatISO: String { t("pref.dateFormatISO") }
     static func immunizationDoseCount(_ n: Int) -> String { t("immunization.doseCount", n) }
     static var immunization_childPlanComing: String { t("immunization.childPlanComing") }
     static var helpTutorialTitle: String { t("help.tutorialTitle") }
@@ -1980,7 +1977,6 @@ enum L10n {
     static var prefChannelSilentBanner: String { t("pref.channel.silentBanner") }
     static var prefNotifPreviewMed: String { t("pref.notifPreviewMed") }
     static var prefRemindScopeNote: String { t("pref.remindScopeNote") }
-    static var prefDateFormat: String { t("pref.dateFormat") }
     static var prefWeekStart: String { t("pref.weekStart") }
     static var prefUnitSystem: String { t("pref.unitSystem") }
     static var prefUnitMetric: String { t("pref.unit.metric") }

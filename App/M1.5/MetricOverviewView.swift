@@ -1,6 +1,7 @@
 import SwiftUI
 import Charts
 import Domain
+import Infrastructure
 
 /// §5.45 指标总览（F7 · SP-13 · V3.72 点亮）：双列 MetricTile 宫格——
 /// 大数字当前值（mono-numeric）+ 单位 + 来源点（医院实心/自测·设备空心，

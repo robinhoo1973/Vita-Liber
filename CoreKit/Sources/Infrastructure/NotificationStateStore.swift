@@ -62,3 +62,38 @@ public actor NotificationStateStore {
     }
 }
 #endif
+
+#if os(iOS) || os(macOS)
+import Observation
+
+/// App 层环境注入外观（V3.72）：@Environment 要求 @Observable 类型，
+/// actor 不可直接注入——本门面把已读/归档语义暴露为可观察状态并委托 actor。
+@MainActor
+@Observable
+public final class NotificationCenterState {
+    public private(set) var itemStates: [String: NotificationItemState] = [:]
+    private let store: NotificationStateStore
+
+    public init(store: NotificationStateStore) { self.store = store }
+
+    public func load(keys: [String]) async {
+        if let loaded = try? await store.states(for: keys) {   // try?-ok: 读取失败按未读渲染
+            itemStates = loaded
+        }
+    }
+
+    public func markRead(_ key: String) {
+        itemStates[key] = .read
+        Task {
+            try? await store.markRead(key)   // try?-ok: 标记失败下次重试
+        }
+    }
+
+    public func markArchived(_ key: String) {
+        itemStates[key] = .archived
+        Task {
+            try? await store.markArchived(key)   // try?-ok: 归档失败本地态兜底
+        }
+    }
+}
+#endif

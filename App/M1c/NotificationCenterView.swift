@@ -12,7 +12,7 @@ struct NotificationCenterView: View {
     @Environment(ReminderStore.self) private var reminderStore
     @Environment(M2HubStore.self) private var hub
     @Environment(AppRouter.self) private var router
-    @Environment(NotificationStateStore.self) private var notificationState
+    @Environment(NotificationCenterState.self) private var notificationState
 
     /// 条目处理状态（已读/归档持久化；未登记 = .unread）
     @State private var itemStates: [String: NotificationItemState] = [:]

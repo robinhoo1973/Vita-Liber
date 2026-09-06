@@ -39,6 +39,8 @@ struct AppContainer {
     let codeIndex: GRDBCodeIndex
     /// FR14.8 通知处理状态持久化（notification_state 表，V3.72 死 DDL 接线）
     let notificationState: NotificationStateStore
+    /// 通知中心可观察门面（@Environment 注入要求 @Observable）
+    let notificationCenterState: NotificationCenterState
     let voiceNotes: VoiceNoteStore
     let guidelines: GuidelineStore
     let emergencyCards: EmergencyCardStore
@@ -140,6 +142,7 @@ struct AppContainer {
         let trends = TrendQueryStore(writer: store.writer)
         let codeIndex = GRDBCodeIndex(writer: store.writer)
         let notificationState = NotificationStateStore(writer: store.writer)
+        let notificationCenterState = NotificationCenterState(store: notificationState)
         let voiceNotes = VoiceNoteStore(writer: store.writer)
         return AppContainer(degradedReason: degradedReason,
                             store: store,
@@ -176,6 +179,7 @@ struct AppContainer {
                             trends: trends,
                             codeIndex: codeIndex,
                             notificationState: notificationState,
+                            notificationCenterState: notificationCenterState,
                             voiceNotes: voiceNotes,
                             guidelines: guidelines,
                             emergencyCards: emergencyCards,
