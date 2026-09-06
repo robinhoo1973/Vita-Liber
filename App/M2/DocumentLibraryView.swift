@@ -39,7 +39,7 @@ final class DocumentsState {
     private var loadingPatientId: UUID?
 
     init(store: DocumentStore, pipeline: OCRPipeline,
-         decoder: any ImageDecoding? = nil,
+         decoder: (any ImageDecoding)? = nil,
          ocrAuthorized: @escaping @MainActor () -> Bool = { true },
          originalsDir: URL? = nil, prescriptionStore: PrescriptionStore? = nil,
          prescriptionDocTypeLabel: String = L10n.docTypePrescription) {
