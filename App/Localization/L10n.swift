@@ -1171,6 +1171,7 @@ enum L10n {
         "metric.selfMeasureNote", "metric.sys", "metric.dia", "metric.value",
         "metric.unit", "metric.measuredAt", "metric.saved", "metric.viewTrend",
         "voicePanel.title", "voicePanel.hint", "voicePanel.start",
+        "voicenote.saved", "voicenote.view",
         "voiceTarget.metric", "voiceTarget.observation", "voiceTarget.question",
         "voiceTarget.ai", "voiceTarget.reminder", "voiceTarget.profile", "voiceTarget.anyText",
         "observation.followUp.set",
@@ -1247,7 +1248,10 @@ enum L10n {
         "metric.entryError.saveFailed",
         "metric.entryError.title",
         "ocr.field.text",
-        "ocr.field.title",
+        "ocr.field.title", "ocr.field.line", "ocr.storage.hint",
+        "timezone.changed.title", "timezone.changed.body",
+        "observation.colorDisclaimer",
+        "nc.archive",
         "paywall.purchaseFailed",
         "paywall.restoreFailed",
         "paywall.restoreNothing",
@@ -1722,6 +1726,12 @@ enum L10n {
     }
     static var ocrFieldText: String { t("ocr.field.text") }
     static var ocrFieldTitle: String { t("ocr.field.title") }
+    static var ocrFieldLine: String { t("ocr.field.line") }
+    static var ocrStorageHint: String { t("ocr.storage.hint") }
+    static var timezoneChangedTitle: String { t("timezone.changed.title") }
+    static var timezoneChangedBody: String { t("timezone.changed.body") }
+    static var observationColorDisclaimer: String { t("observation.colorDisclaimer") }
+    static var ncArchive: String { t("nc.archive") }
     static var ocrQueueTitle: String { t("ocrQueue.title") }
     static var ocrQueueEmpty: String { t("ocrQueue.empty") }
     static var ocrQueueEmptyHint: String { t("ocrQueue.emptyHint") }
@@ -1920,6 +1930,8 @@ enum L10n {
     static var voicePanelTitle: String { t("voicePanel.title") }
     static var voicePanelHint: String { t("voicePanel.hint") }
     static var voicePanelStart: String { t("voicePanel.start") }
+    static var voicePanelSaved: String { t("voicenote.saved") }
+    static var voicenoteView: String { t("voicenote.view") }
     static func voiceTargetName(_ tag: TargetTag) -> String { t("voiceTarget.\(tag.rawValue)") }
     static var observationFollowUpSet: String { t("observation.followUp.set") }
     // FR8.11 观察详情页（SP-14 §5.7.1）

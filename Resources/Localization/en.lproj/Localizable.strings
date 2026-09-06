@@ -499,6 +499,8 @@
 "observation.media.addCamera" = "Take photo";
 "observation.media.count" = "%1$d photo(s) selected (locked by default — tap to unlock)";
 "voicenote.dictation" = "Dictate";
+"voicenote.saved" = "Saved to Voice Notes";
+"voicenote.view" = "View";
 "voicenote.dictating" = "Listening… please speak";
 "voicenote.dictationFailed" = "No speech detected — you can type instead";
 "doc.detailTitle" = "Document";
@@ -910,7 +912,13 @@
 "onboard.rejectLabelFmt" = "Discard \"%@\"";
 "ocrQueue.title" = "Pending Recognized Fields";
 "ocr.field.text" = "Recognized text";
-"ocr.field.title" = "Title";
+"ocr.field.line" = "Line %d";
+"ocr.storage.hint"
+"timezone.changed.title" = "Time Zone Changed";
+"timezone.changed.body"
+"observation.colorDisclaimer"
+"nc.archive" = "Archive"; = "Photo colors are affected by lighting, white balance and the container — never use them for self-diagnosis."; = "Your device time zone has changed. Please double-check your medication and appointment times."; = "Saved to Timeline and your library after confirmation;
+ originals stay on this device, written once and never modified";"ocr.field.title" = "Title";
 "ocrQueue.empty" = "No pending fields";
 "ocrQueue.emptyHint" = "All recognized fields are handled. Newly recognized medication names, doses and dates appear here first and only take effect after confirmation.";
 "ocrQueue.countFmt" = "%d fields pending";

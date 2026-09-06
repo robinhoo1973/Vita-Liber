@@ -35,7 +35,7 @@ public actor ReminderReconciler {
                 try await scheduler.cancel(Array(previous))
             }
             let snoozeId = "snooze-\(doseNotifyId)-\(Int(until.timeIntervalSince1970))"
-            try await scheduler.schedule(dose: snoozeId, at: until, route: nil)
+            try await scheduler.schedule(dose: snoozeId, at: until, route: .reminderToday)
         } catch {
             logger?.log("snooze 调度失败: \(error)")
         }
@@ -88,7 +88,7 @@ public actor ReminderReconciler {
                         try await scheduler.cancel([slotId])
                     }
                     let snoozeId = "snooze-\(fact.dose.notifyId)-\(Int(until.timeIntervalSince1970))"
-                    try await scheduler.schedule(dose: snoozeId, at: until, route: nil)
+                    try await scheduler.schedule(dose: snoozeId, at: until, route: .reminderToday)
                     pending[snoozeId] = until
                 case .none:
                     break
@@ -100,7 +100,7 @@ public actor ReminderReconciler {
                 guard slot.records.contains(where: { _ in true }) else { continue }
                 let slotNotifyId = "slot-\(slot.id)"
                 if pending[slotNotifyId] == nil {
-                    try await scheduler.schedule(dose: slotNotifyId, at: slot.anchorTime, route: nil)
+                    try await scheduler.schedule(dose: slotNotifyId, at: slot.anchorTime, route: .reminderToday)
                     pending[slotNotifyId] = slot.anchorTime
                 }
             }

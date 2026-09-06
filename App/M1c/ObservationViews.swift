@@ -482,6 +482,13 @@ struct ObservationCreateSheet: View {
                 .contentShape(Rectangle())   // 空白区也参与点击命中（解锁手势不落空）
                 .accessibilityIdentifier("SP-14.observation.mediaPreview")
             }
+            // FR8.3 专项文案（V3.72）：大小便等敏感类型拍摄页固定提示——
+            // 照片颜色受光线/白平衡/容器影响，不能用于自我诊断（BR-006 防线）
+            if let k = ObservationKind(rawValue: kind), k == .stool || k == .urine {
+                Text(L10n.observationColorDisclaimer)
+                    .font(.caption)
+                    .foregroundStyle(Color("text-secondary", bundle: .main))
+            }
         }
     }
 

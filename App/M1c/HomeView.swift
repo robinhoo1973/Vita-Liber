@@ -121,8 +121,20 @@ struct HomeView: View {
                 standardHome
             }
         }
-        .navigationTitle(headerTitle)
         .toolbar {
+            // §5.2 首页成员切换入口（V3.72）：大标题可点击 → 成员抽屉。
+            // 此前抽屉组件已建但全仓无首页触发点，多成员家庭无法从首页换人。
+            ToolbarItem(placement: .principal) {
+                Button {
+                    showMemberPicker = true
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(headerTitle).font(.headline)
+                        Image(systemName: "chevron.down").font(.caption2)
+                    }
+                }
+                .accessibilityIdentifier("SP-04.home.memberSwitch")
+            }
             ToolbarItemGroup(placement: .topBarTrailing) {
                 // FR17.9 全局语音入口（FR14.7 voiceEntryVisible 可隐藏）→ 语音速记面板 SP-55
                 if settingsVoiceEntryVisible {

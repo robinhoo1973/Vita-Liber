@@ -37,12 +37,19 @@ public struct TrendPoint: Sendable, Equatable, Identifiable {
     public var refLow: Double?
     public var refHigh: Double?
     public var refSourceLabel: String?   // 医院/实验室名 = 分组键
+    /// F25（V3.72）：原始指标名与规范编码投影——读侧聚合键
+    /// code_concept_id 优先、无编码回落 metric_key（FR25.12⑦/§5.29）。
+    /// 未确认行 code_concept_id 为空（BR-003，确认前不落编码）。
+    public var rawLabel: String?
+    public var codeConceptId: String?
     public init(id: UUID, measuredAt: Date, value: Double, unit: String? = nil,
                 origin: MetricOrigin, excluded: Bool = false, sourceRef: String? = nil,
-                refLow: Double? = nil, refHigh: Double? = nil, refSourceLabel: String? = nil) {
+                refLow: Double? = nil, refHigh: Double? = nil, refSourceLabel: String? = nil,
+                rawLabel: String? = nil, codeConceptId: String? = nil) {
         self.id = id; self.measuredAt = measuredAt; self.value = value
         self.unit = unit; self.origin = origin; self.excluded = excluded; self.sourceRef = sourceRef
         self.refLow = refLow; self.refHigh = refHigh; self.refSourceLabel = refSourceLabel
+        self.rawLabel = rawLabel; self.codeConceptId = codeConceptId
     }
     /// 空心=自测/设备；实心=医院报告（ui-ux 4.7 一眼可辨）
     public var isHollow: Bool { origin != .hospital }

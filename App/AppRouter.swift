@@ -39,6 +39,13 @@ final class AppRouter {
     /// 队列而非单槽——启动窗口内连点两条通知时逐条投递，不丢后到/先到的路由）
     private var pendingRoutes: [AppRoute] = []
 
+    /// FR17.9 语音速记面板确认后的结构化草稿暂存（字段 key → 确认值）。
+    /// **内存态、不持久化**（§5.48 恢复只序列化 paths/selection——这是转瞬即逝
+    /// 的录入中间态，跨启动恢复它等于把未完成的录入带进新会话）；消费方
+    /// 取用后必须置 nil（一次性投递语义）。消费方：MetricEntryView（已接）；
+    /// 提醒草稿/档案引导/观察/问诊/AI 预填读取为后续批（登记 tech §11）。
+    var pendingVoiceDraft: [String: String]?
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         // restore() 不在 init 执行——见 didRestore 注释（§5.48 恢复时点修正）

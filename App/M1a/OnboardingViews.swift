@@ -319,6 +319,25 @@ struct OcrConfirmView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
 
+            // V3.72 原文图对照（BR-002）：确认卡顶部展示刚落盘的原件——
+            // 「OCR 识别出什么」与「原图写着什么」同屏可核对（FR6.2 原文对照）
+            if let url = app.pendingOriginalURL,
+               let image = UIImage(contentsOfFile: url.path) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxHeight: 180)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .padding(.horizontal, 24)
+                    .accessibilityIdentifier("SP-53.ocr.originalPreview")
+            }
+            // 去向提示：确认后存哪里（FR6 成功结果支持面）
+            Text(L10n.ocrStorageHint)
+                .font(.caption)
+                .foregroundStyle(Color("text-secondary", bundle: .main))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+
             if let set = app.activeSet {
                 ForEach(set.fields) { field in
                     ConfirmFieldRowView(field: field) {

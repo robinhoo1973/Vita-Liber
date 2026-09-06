@@ -12,6 +12,10 @@ struct NotificationCenterView: View {
     @Environment(ReminderStore.self) private var reminderStore
     @Environment(M2HubStore.self) private var hub
     @Environment(AppRouter.self) private var router
+    @Environment(NotificationStateStore.self) private var notificationState
+
+    /// 条目处理状态（已读/归档持久化；未登记 = .unread）
+    @State private var itemStates: [String: NotificationItemState] = [:]
 
     var body: some View {
         List {
@@ -29,9 +33,10 @@ struct NotificationCenterView: View {
             }
             if !appointments.isEmpty {
                 Section(L10n.ncSectionAppointment) {
-                    ForEach(appointments) { apt in
+                    ForEach(appointments.filter { state(for: "apt-\($0.id)") != .archived }) { apt in
                         Button {
-                            router.navigate(to: .appointmentList)
+                            markRead("apt-\(apt.id)")
+                            router.navigate(to: .appointmentDetail(apt.id))
                         } label: {
                             HStack {
                                 Image(systemName: "stethoscope").foregroundStyle(Color("brand-primary", bundle: .main))
@@ -45,13 +50,15 @@ struct NotificationCenterView: View {
                             }
                         }
                         .accessibilityIdentifier("SP-27.notification.appointment")
+                        .swipeActions { archiveAction("apt-\(apt.id)") }
                     }
                 }
             }
             if !expiringLots.isEmpty {
                 Section(L10n.ncSectionExpiry) {
-                    ForEach(expiringLots) { item in
+                    ForEach(expiringLots.filter { state(for: "lot-\($0.lotId)") != .archived }) { item in
                         Button {
+                            markRead("lot-\(item.lotId)")
                             router.navigate(to: .medicationCabinet)
                         } label: {
                             HStack {
@@ -68,13 +75,15 @@ struct NotificationCenterView: View {
                                 Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
                             }
                         }
+                        .swipeActions { archiveAction("lot-\(item.lotId)") }
                     }
                 }
             }
             if !l1Alerts.isEmpty {
                 Section(L10n.ncSectionAlert) {
-                    ForEach(l1Alerts) { event in
+                    ForEach(l1Alerts.filter { state(for: "alert-\($0.id)") != .archived }) { event in
                         Button {
+                            markRead("alert-\(event.id)")
                             router.navigate(to: .alertHistory)
                         } label: {
                             HStack {
@@ -88,6 +97,7 @@ struct NotificationCenterView: View {
                                 Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
                             }
                         }
+                        .swipeActions { archiveAction("alert-\(event.id)") }
                     }
                 }
             }
@@ -104,6 +114,7 @@ struct NotificationCenterView: View {
                         }
                     }
                     .accessibilityIdentifier("SP-27.notification.ocr")
+                    .swipeActions { archiveAction("ocr-queue") }
                 }
             }
             if allEmpty {
@@ -116,6 +127,7 @@ struct NotificationCenterView: View {
         .task(id: app.currentPatientId) {
             await reminderStore.refresh(patientId: app.currentPatientId)
             await hub.load(patientId: app.currentPatientId)
+            await loadStates()
         }
     }
 
@@ -143,6 +155,38 @@ struct NotificationCenterView: View {
 
     private var pendingOCRCount: Int {
         app.timeline.reduce(0) { $0 + ($1.fields ?? []).filter { !$0.isConfirmed }.count }
+    }
+
+    private func state(for key: String) -> NotificationItemState { itemStates[key] ?? .unread }
+
+    private func loadStates() async {
+        let keys = pendingDoses.map { "dose-\($0.dose.id)" }
+            + appointments.map { "apt-\($0.id)" }
+            + expiringLots.map { "lot-\($0.lotId)" }
+            + l1Alerts.map { "alert-\($0.id)" }
+            + (pendingOCRCount > 0 ? ["ocr-queue"] : [])
+        if let loaded = try? await notificationState.states(for: keys) {   // try?-ok: 状态读取失败按未读渲染，不阻断列表
+            itemStates = loaded
+        }
+    }
+
+    private func markRead(_ key: String) {
+        itemStates[key] = .read
+        Task {
+            try? await notificationState.markRead(key)   // try?-ok: 标记失败下次进入仍可重试，不阻断导航
+        }
+    }
+
+    @ViewBuilder
+    private func archiveAction(_ key: String) -> some View {
+        Button(role: .destructive) {
+            itemStates[key] = .archived
+            Task {
+                try? await notificationState.markArchived(key)   // try?-ok: 归档失败保留本地态，下次重载校正
+            }
+        } label: {
+            Label(L10n.ncArchive, systemImage: "archivebox")
+        }
     }
 
     private var allEmpty: Bool {

@@ -22,7 +22,8 @@ public actor TrendQueryStore {
             // 两次查询会在并发写入下取到不一致的两个快照。
             let rows = try Row.fetchAll(db, sql: """
                 SELECT id, metric_key, value, secondary_value, unit, origin, self_measured,
-                       measured_at, excluded, source_ref, ref_low, ref_high, ref_source_label
+                       measured_at, excluded, source_ref, ref_low, ref_high, ref_source_label,
+                       raw_label, code_concept_id
                 FROM metric_sample
                 WHERE patient_id = ? AND metric_key = ?
                   AND measured_at >= ? AND measured_at <= ?
@@ -40,7 +41,9 @@ public actor TrendQueryStore {
                     sourceRef: row["source_ref"] as String?,
                     refLow: row["ref_low"] as Double?,
                     refHigh: row["ref_high"] as Double?,
-                    refSourceLabel: row["ref_source_label"] as String?)
+                    refSourceLabel: row["ref_source_label"] as String?,
+                    rawLabel: row["raw_label"] as String?,
+                    codeConceptId: row["code_concept_id"] as String?)
             }
             let visible = TrendRules.visible(all)
             return TrendSeries(

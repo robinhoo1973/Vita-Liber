@@ -25,8 +25,8 @@ struct RouteDestinationView: View {
         // ---- F4 就诊 ----
         case .encounterList:
             EncounterListView()
-        case .encounterDetail:
-            RouteFallbackView(route: route)   // 需 store 查询上下文，从列表进入
+        case .encounterDetail(let id):
+            EncounterDetailRouteView(encounterId: id)
         case .encounterForm:
             EncounterFormView()
 
@@ -59,10 +59,14 @@ struct RouteDestinationView: View {
             MedicationPlanDetailView(planId: id)
         case .medicationPlanForm:
             MedicationPlanFormView()
+        case .reminderToday:
+            RemindersView()
 
         // ---- F10 预约 ----
         case .appointmentList:
             AppointmentListView()
+        case .appointmentDetail(let id):
+            AppointmentDetailRouteView(appointmentId: id)
         case .appointmentForm:
             AppointmentFormView()
         case .visitPrepPackage:

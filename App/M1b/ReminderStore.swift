@@ -407,7 +407,7 @@ final class ReminderStore {
                 let cal = Calendar.current
                 let followUpAt = cal.date(byAdding: .day, value: days, to: startsAt) ?? startsAt
                 try await scheduler.schedule(dose: "followup-apt-\(aptId.uuidString)",
-                                             at: followUpAt, route: .appointmentList)
+                                             at: followUpAt, route: .appointmentDetail(aptId))
             }
             await requestNotificationAuthorization()   // FR20.2 价值先行（首个提醒创建后）
             await refresh(patientId: patientId)

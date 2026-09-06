@@ -4,14 +4,24 @@ import Domain
 /// FR17.9 全局语音快速入口（SP-55 语音速记面板 · ui-ux §5.54）：
 /// 目标 chips（指标 / 观察 / 问诊问题 / AI 提问 / 提醒设定 / 档案设定 / 任意文本），
 /// 上下文感知默认高亮当前页相关目标，可一键切换。
-/// 仅限受限文法与结构化录入，不做自由对话（F19 边界延续）；
-/// 各目标复用既有流程与 FR17.13 标准确认模板。
+/// 仅限受限文法与结构化录入，不做自由对话（F19 边界延续）。
+///
+/// **§5.54 契约（V3.71 修复）**：面板自身承载录音环节——chips → 按住说话
+/// （波形+实时转写）→ 结构化草稿卡（按目标经 VoiceStructuringEngine 抽取）
+/// → FR17.13 统一确认模板 → 按目标分发（任意文本 = 面板内直接落 VoiceNote；
+/// 其余目标 = 确认字段经 AppRouter.pendingVoiceDraft 暂存后跳转目标页预填）。
+/// 此前实现为「chips + 开始跳转」的路由中转，中部录音环节整体缺失——
+/// 5.50 登记表按父 SP 覆盖校验掩盖了组件粒度缺失（面板无任何录音按钮）。
 struct VoiceQuickLaunchView: View {
     @Environment(AppState.self) private var app
     @Environment(AppRouter.self) private var router
+    @Environment(VoiceNoteState.self) private var voiceNoteState
     @Environment(\.dismiss) private var dismiss
 
     @State private var target: L10n.TargetTag = .anyText
+    @State private var confirmSet: OcrConfirmationSet?
+    @State private var savedNote = false
+    @State private var routeMonitor = AudioRouteMonitor()
 
     var body: some View {
         NavigationStack {
@@ -29,14 +39,14 @@ struct VoiceQuickLaunchView: View {
                 ) { selected in
                     target = selected
                 }
-                Button(L10n.voicePanelStart) {
-                    open(target)
-                    dismiss()
+                // §5.54 中部录音环节：按住说话 + 实时转写（组件自带部分文本/失败态/
+                // 授权关闭回落提示）；完成回调按目标抽取结构化草稿 → 确认卡
+                // FR17.13-entry: 语音速记面板 —— 统一确认模板，不自建确认逻辑
+                VoiceDictationButton { text, confidence in
+                    confirmSet = VoiceInputTemplate.confirmationSet(
+                        drafts: drafts(for: text, confidence: confidence))
                 }
-                .buttonStyle(.borderedProminent)
-                .frame(maxWidth: .infinity, minHeight: 50)
                 .padding(.horizontal, 24)
-                .accessibilityIdentifier("SP-55.panel.start")
                 Spacer()
             }
             .padding(.top, 24)
@@ -56,8 +66,67 @@ struct VoiceQuickLaunchView: View {
                     .accessibilityIdentifier("SP-55.panel.language")
                 }
             }
+            .onAppear { routeMonitor.start() }
+            .onDisappear { routeMonitor.stop() }
+            .sheet(item: $confirmSet) { set in
+                VoiceConfirmSheet(
+                    set: set,
+                    decision: ReadbackPolicy.decide(route: routeMonitor.route,
+                                                    preference: app.readbackPreference,
+                                                    careMode: app.careMode),
+                    onSpeak: { app.speak($0) },
+                    onConfirm: { confirmed in
+                        confirmSet = nil
+                        dispatch(confirmed)
+                    },
+                    onRetry: { confirmSet = nil },
+                    onCancel: { confirmSet = nil })
+                .presentationDetents([.medium])
+            }
+            .alert(L10n.voicePanelSaved, isPresented: $savedNote) {
+                Button(L10n.voicenoteView) { router.navigate(to: .voiceNotePanel) }
+                Button(L10n.onboard_gotIt, role: .cancel) {}
+            }
         }
         .presentationDetents([.medium])
+    }
+
+    /// 按目标抽取结构化草稿（§5.54「结构化草稿卡」）；抽取零命中回落纯文本
+    /// 草稿（确认卡可编辑补全——绝不静默丢弃转写，FR17.13 编辑语义）。
+    private func drafts(for text: String, confidence: Double) -> [FieldDraft] {
+        let extracted: [FieldDraft]
+        switch target {
+        case .metric:
+            extracted = VoiceStructuringEngine.extractMetric(text, rules: VoiceGrammarDefaults.metricRules)
+        case .reminder:
+            extracted = VoiceStructuringEngine.extractReminder(text, rules: VoiceGrammarDefaults.reminderRules)
+        case .profile:
+            extracted = VoiceStructuringEngine.extractProfile(text, rules: VoiceGrammarDefaults.profileRules)
+        case .anyText, .observation, .question, .ai:
+            extracted = []
+        }
+        return extracted.isEmpty
+            ? [FieldDraft(key: "note", value: text, unit: nil, confidence: confidence)]
+            : extracted
+    }
+
+    /// 确认后分发（§5.54）：任意文本 = 面板内落 VoiceNote + 已存提示（[查看]
+    /// 直达 SP-59）；其余目标 = 确认字段经 pendingVoiceDraft 暂存后跳目标页预填。
+    private func dispatch(_ set: OcrConfirmationSet) {
+        let fields = set.confirmedFields
+        let map = Dictionary(uniqueKeysWithValues: fields.map { ($0.key, $0.value) })
+        switch target {
+        case .anyText:
+            guard let body = fields.first?.value, !body.isEmpty else { return }
+            Task {
+                await voiceNoteState.create(patientId: app.currentPatientId, body: body, tags: nil)
+                savedNote = true
+            }
+        default:
+            router.pendingVoiceDraft = map
+            open(target)
+            dismiss()
+        }
     }
 
     private func open(_ target: L10n.TargetTag) {
@@ -68,9 +137,7 @@ struct VoiceQuickLaunchView: View {
         case .ai: router.navigate(to: .assistantChat)
         case .reminder: router.navigate(to: .voiceReminderDraft)
         case .profile: router.navigate(to: .voiceGuideProfile)
-        case .anyText:
-            // 任意文本 = 语音速记条目（FR17.14）——VoiceNote 面板
-            router.navigate(to: .voiceNotePanel)
+        case .anyText: router.navigate(to: .voiceNotePanel)
         }
     }
 }

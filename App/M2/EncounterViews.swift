@@ -367,3 +367,20 @@ struct EncounterFormView: View {
         }
     }
 }
+
+/// §5.45 路由式就诊详情（V3.72）：深链/通知指向就诊时按 id 从
+/// EncountersState 投影查找并渲染详情；查无（已删除/跨成员）回落可见降级。
+struct EncounterDetailRouteView: View {
+    let encounterId: UUID
+    @Environment(EncountersState.self) private var state
+
+    var body: some View {
+        Group {
+            if let enc = state.encounters.first(where: { $0.id == encounterId }) {
+                EncounterDetailView(encounter: enc)
+            } else {
+                RouteFallbackView(route: .encounterDetail(encounterId))
+            }
+        }
+    }
+}

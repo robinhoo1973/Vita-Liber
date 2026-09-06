@@ -22,6 +22,10 @@ struct AppRootView: View {
     /// 退后台锁屏状态（FR1.4）：scenePhase 切 background 置位，回前台由门禁遮罩接管。
     /// 评审修正：锁定优先级在向导分支**之前**——门禁一旦建立，向导期间退后台同样锁屏。
     @State private var backgroundLocked = false
+    /// FR9.6 时区变化提示：重排是数据层义务、提示核对是 UI 义务——
+    /// 此前只做了「重排」半句，用户跨时区后按错误墙钟时刻服药（V3.72 补全）
+    @State private var lastTimeZoneId = TimeZone.current.identifier
+    @State private var timezoneChanged = false
 
     var body: some View {
         Group {
@@ -68,9 +72,19 @@ struct AppRootView: View {
         // 四层补偿第 3 层：时区/时间显著变化 → 立即对账（View 级修饰符）
         .onReceive(NotificationCenter.default.publisher(
             for: UIApplication.significantTimeChangeNotification)) { _ in
+            let newId = TimeZone.current.identifier
+            if newId != lastTimeZoneId {
+                lastTimeZoneId = newId
+                timezoneChanged = true   // FR9.6：时区变化必须提示核对（不静默重排）
+            }
             Task {
                 await reminderStore.refresh(patientId: appState.currentPatientId)
             }
+        }
+        .alert(L10n.timezoneChangedTitle, isPresented: $timezoneChanged) {
+            Button(L10n.onboard_gotIt, role: .cancel) {}
+        } message: {
+            Text(L10n.timezoneChangedBody)
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {

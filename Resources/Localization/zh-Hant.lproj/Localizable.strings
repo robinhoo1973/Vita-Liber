@@ -499,6 +499,8 @@
 "observation.media.addCamera" = "拍攝";
 "observation.media.count" = "已選 %1$d 張照片（預設鎖定，點擊解鎖查看）";
 "voicenote.dictation" = "語音速記";
+"voicenote.saved" = "已存入語音速記";
+"voicenote.view" = "查看";
 "voicenote.dictating" = "聆聽中…請說話";
 "voicenote.dictationFailed" = "未識別到語音，可繼續手動輸入";
 "doc.detailTitle" = "文件詳情";
@@ -910,6 +912,12 @@
 "onboard.rejectLabelFmt" = "放棄「%@」";
 "ocrQueue.title" = "待確認辨識欄位";
 "ocr.field.text" = "識別文字";
+"ocr.field.line" = "第 %d 行";
+"ocr.storage.hint"
+"timezone.changed.title" = "時區已變化";
+"timezone.changed.body"
+"observation.colorDisclaimer"
+"nc.archive" = "封存"; = "照片顏色受光線、白平衡與容器影響，不能用於自我診斷"; = "偵測到裝置時區發生變化，請核對用藥與預約的計劃時間。"; = "確認後存入時間軸與資料庫；原件保留在本機專用目錄，只寫一次、永不修改";
 "ocr.field.title" = "標題";
 "ocrQueue.empty" = "暫無待確認欄位";
 "ocrQueue.emptyHint" = "全部辨識欄位已處理。新辨識的藥名、劑量、日期會先出現在這裡，確認後才生效。";

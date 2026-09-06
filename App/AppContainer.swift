@@ -34,6 +34,11 @@ struct AppContainer {
     let allergies: AllergyStore
     let entitlements: EntitlementStore
     let trends: TrendQueryStore
+    /// F25 码表索引（ADR-028/§5.52）：六表读取 + 内置种子装载（装配层注入消费侧 Store 前
+    /// 先 seedCodeSetsIfNeeded()；引擎未接入消费侧的六点由 §11 逐点跟踪）
+    let codeIndex: GRDBCodeIndex
+    /// FR14.8 通知处理状态持久化（notification_state 表，V3.72 死 DDL 接线）
+    let notificationState: NotificationStateStore
     let voiceNotes: VoiceNoteStore
     let guidelines: GuidelineStore
     let emergencyCards: EmergencyCardStore
@@ -133,6 +138,8 @@ struct AppContainer {
         let entitlements = EntitlementStore(writer: store.writer,
                                             storefront: EntitlementStore.InMemoryStorefront())
         let trends = TrendQueryStore(writer: store.writer)
+        let codeIndex = GRDBCodeIndex(writer: store.writer)
+        let notificationState = NotificationStateStore(writer: store.writer)
         let voiceNotes = VoiceNoteStore(writer: store.writer)
         return AppContainer(degradedReason: degradedReason,
                             store: store,
@@ -167,6 +174,8 @@ struct AppContainer {
                             allergies: allergies,
                             entitlements: entitlements,
                             trends: trends,
+                            codeIndex: codeIndex,
+                            notificationState: notificationState,
                             voiceNotes: voiceNotes,
                             guidelines: guidelines,
                             emergencyCards: emergencyCards,
@@ -194,5 +203,14 @@ struct AppContainer {
         do { try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) }
         catch { /* 目录创建失败由 GRDB 打开时报错，不在此吞掉 */ }
         return dir.appendingPathComponent("vitaliber.sqlite").path
+    }
+
+    /// 原件专用目录（BR-002）：`<Documents>/MedicalNotes/originals/`——
+    /// 与敏感目录 `<Documents>/MedicalNotes/sensitive/` 同根（§6 文件保护分区）。
+    /// 拍摄/导入原图只写一次、永不修改；预览/测试注入临时目录。
+    static func defaultOriginalsDir() -> URL {
+        let base = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        return base.appendingPathComponent("MedicalNotes", isDirectory: true)
     }
 }

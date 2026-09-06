@@ -17,10 +17,15 @@ public struct TimelineDocumentEntry: Sendable, Equatable, Codable, Identifiable 
     /// 处方样张「可打开」无内容可看——自 V3.58 起随投影一并持久化。
     /// Optional：旧行 meta_json 无此键，decodeIfPresent 兼容（不迁移）。
     public var fields: [CandidateField]?
+    /// 原件落盘路径（BR-002：原件不可变、必须保真留档）。V3.72 前拍摄原图在
+    /// OCR 后即丢弃——「原件不动/永远能看原图」的产品承诺无物可指。
+    /// Optional：旧行无此键，decodeIfPresent 兼容（不迁移）。
+    public var originalPath: String?
 
     public init(id: UUID = UUID(), patientId: UUID, title: String, occurredAt: TimeInterval,
                 confirmedFieldCount: Int, totalFieldCount: Int, state: State,
-                revisionHistory: [String] = [], fields: [CandidateField]? = nil) {
+                revisionHistory: [String] = [], fields: [CandidateField]? = nil,
+                originalPath: String? = nil) {
         self.id = id
         self.patientId = patientId
         self.title = title
@@ -30,13 +35,15 @@ public struct TimelineDocumentEntry: Sendable, Equatable, Codable, Identifiable 
         self.state = state
         self.revisionHistory = revisionHistory
         self.fields = fields
+        self.originalPath = originalPath
     }
 }
 
 /// 投影规则（Domain 纯函数）：正式区 = 全部字段确认；待确认区 = 其余。
 public enum TimelineProjection {
     public static func entries(from docs: [OcrConfirmationSet], patientId: UUID,
-                               occurredAt: TimeInterval) -> [TimelineDocumentEntry] {
+                               occurredAt: TimeInterval,
+                               originalPaths: [UUID: String] = [:]) -> [TimelineDocumentEntry] {
         docs.map { set in
             // 保持字段序 + 各字段历史新→旧（flatMap 天然保序，不 sort）
             let history = set.fields.flatMap { $0.revisionHistory }
@@ -49,7 +56,8 @@ public enum TimelineProjection {
                 totalFieldCount: set.fields.count,
                 state: set.isUsableInTimeline ? .confirmed : .pending,
                 revisionHistory: history,
-                fields: set.fields)
+                fields: set.fields,
+                originalPath: originalPaths[set.documentId])
         }
     }
 

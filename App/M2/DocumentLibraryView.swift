@@ -327,20 +327,23 @@ struct DocumentLibraryView: View {
         .onChange(of: state.lastImportError) { _, err in
             showImportError = err != nil
         }
-        // FR5.1 文件导入（PDF/图片）
+        // FR5.1/FR5.7 文件导入（PDF/图片；批量多选逐份入库，归属确认在文档层 FR3.3 覆盖）
         .fileImporter(isPresented: $fileImporterActive,
-                      allowedContentTypes: [.pdf, .image]) { result in
-            guard case .success(let url) = result else { return }
+                      allowedContentTypes: [.pdf, .image],
+                      allowsMultipleSelection: true) { result in
+            guard case .success(let urls) = result else { return }
             Task {
-                if url.pathExtension.lowercased() == "pdf" {
-                    await state.importPDF(patientId: app.currentPatientId, url: url,
-                                          docType: L10n.docTypeReport)
-                } else {
-                    let data = (try? Data(contentsOf: url)) ?? Data()   // try?-ok: 读取失败走空数据→错误路径可见
-                    await state.importImage(patientId: app.currentPatientId, data: data,
-                                            mimeType: url.pathExtension,
-                                            docType: L10n.docTypeReport, title: url.lastPathComponent,
-                                            isSensitive: false, origin: "import")
+                for url in urls {
+                    if url.pathExtension.lowercased() == "pdf" {
+                        await state.importPDF(patientId: app.currentPatientId, url: url,
+                                              docType: L10n.docTypeReport)
+                    } else {
+                        let data = (try? Data(contentsOf: url)) ?? Data()   // try?-ok: 读取失败走空数据→错误路径可见
+                        await state.importImage(patientId: app.currentPatientId, data: data,
+                                                mimeType: url.pathExtension,
+                                                docType: L10n.docTypeReport, title: url.lastPathComponent,
+                                                isSensitive: false, origin: "import")
+                    }
                 }
             }
         }

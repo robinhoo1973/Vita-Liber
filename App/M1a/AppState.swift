@@ -69,6 +69,7 @@ final class AppState {
          gateUnlocker: (any GateUnlocking)? = nil,
          audit: AuditLogWriter? = nil,
          memberDeletion: MemberDeletionService? = nil,
+         originalsBaseDir: URL? = nil,
          defaults: UserDefaults = .standard,
          launchArgs: [String] = ProcessInfo.processInfo.arguments) {
         // 组合根：按当前上下文一次性注册全部引擎能力（ADR-027 EAL）。
@@ -91,6 +92,9 @@ final class AppState {
         self.gateUnlocker = gateUnlocker ?? LocalAuthGateUnlocker()
         self.audit = audit
         self.memberDeletion = memberDeletion
+        // 原件落盘目录（BR-002）：生产 = Documents/MedicalNotes/originals（装配层注入）；
+        // 测试/预览注入临时目录。nil（旧装配未接）时回落 temp——绝不静默丢原件。
+        self.originalsBaseDir = originalsBaseDir ?? FileManager.default.temporaryDirectory
         // 评审修正：删除此处的 AVSpeechAdapter()/VisionImageRecognizer() 二次赋值——
         // 它在 EAL resolve 之后把结果覆盖回具体实现，注册表解析成为死代码，
         // ADR-027「调用方永不直接 import 具体引擎类型」名存实亡（半重构残留）。
@@ -284,6 +288,9 @@ final class AppState {
     // MARK: - 拍摄与 OCR 确认（DocumentCapture 协议注入）
 
     private(set) var activeSet: OcrConfirmationSet?
+    /// 当前待确认拍摄的原件路径（BR-002 落盘后待 commit 归档；确认卡原图对照读取）
+    private(set) var pendingOriginalURL: URL?
+    private let originalsBaseDir: URL
 
     /// 测试桩拍摄入口（XCUITest 假样张；生产无桩时不可达）
     var hasTestCapture: Bool { captureProvider != nil }
@@ -302,32 +309,66 @@ final class AppState {
 
     /// 生产拍摄路径：真实图片经 Vision 编排层产出确认集（BR-003 同闸门）。
     /// 识别引擎失败返回 false 由视图层给出可见反馈（FR6.6 绝不静默）。
+    /// **BR-002 原件落盘（V3.72）**：OCR 前先写原图到专用目录
+    /// `<Documents>/MedicalNotes/originals/{patientId}/`——此前拍摄原图识别完即
+    /// 丢弃，「永远能看原图」无物可指；确认卡同时以该原件做原文图对照。
+    /// 识别失败/取消时清理刚写的文件，不落孤儿。
     @discardableResult
     func captureFrom(imageData: Data) async -> Bool {
         guard let ocrPipeline else { return false }
+        let originalURL = saveOriginal(imageData)
         do {
             let result = try await ocrPipeline.run(imageData: imageData)
             guard !result.failed else {
                 logger.error("OCR 管线识别引擎失败")
+                try? FileManager.default.removeItem(at: originalURL)   // try?-ok: 识别失败时 best-effort 清理刚落盘原件，失败不阻断主流程（孤儿由启动对账清扫）
                 return false
             }
+            // 逐行字段（FR6.1 字段级确认）：每行一个候选字段 + 首行标题——
+            // 全文拼接让「细调」无从谈起；行级粒度 + 原图对照才构成可用的细调界面
             var fields: [CandidateField] = []
             if !result.lines.isEmpty {
-                let joined = result.lines.joined(separator: "\n")
-                fields.append(CandidateField(key: "ocr_text", displayLabel: L10n.ocrFieldText,
-                                             rawText: joined,
-                                             confidence: 0.5))   // 无逐字段置信度→中档，必复核
+                fields = result.lines.enumerated().map { idx, line in
+                    CandidateField(key: "line_\(idx)",
+                                   displayLabel: String(format: L10n.ocrFieldLine, idx + 1),
+                                   rawText: line, confidence: 0.5)   // 无逐字段置信度→中档，必复核
+                }
                 let title = result.lines.first.map { String($0.prefix(30)) } ?? L10n.ocrFieldText
-                fields.append(CandidateField(key: "title", displayLabel: L10n.ocrFieldTitle,
-                                             rawText: title, confidence: 0.9))
+                fields.insert(CandidateField(key: "title", displayLabel: L10n.ocrFieldTitle,
+                                             rawText: title, confidence: 0.9),
+                              at: 0)
             }
+            pendingOriginalURL = originalURL
             activeSet = OcrConfirmationSet(fields: fields)   // confirm-ok: F6 OCR 确认集是合法产出方（非语音路径），FR17.13 只约束语音草稿确认
             stage = .ocrConfirm
             return true
         } catch {
             logger.error("拍摄管线失败: \(error)")
+            try? FileManager.default.removeItem(at: originalURL)   // try?-ok: OCR 管线异常时 best-effort 清理刚落盘原件，失败不阻断错误上报路径
             return false
         }
+    }
+
+    /// 原图落盘（BR-002）：`originals/{patientId}/{uuid}.jpg`——原件只写一次，
+    /// 此后永不修改（修订/删除只作用于 meta 与副本，FR6.4 语义）。
+    private func saveOriginal(_ imageData: Data) -> URL {
+        let patientId = owner?.selfPatientId ?? owner?.id ?? UUID()
+        let dir = originalsBaseDir
+            .appendingPathComponent("originals", isDirectory: true)
+            .appendingPathComponent(patientId.uuidString, isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        } catch {
+            logger.error("原件目录创建失败: \(error)")   // 回落 temp 由调用方 continue 语义兜底
+        }
+        let url = dir.appendingPathComponent("\(UUID().uuidString).jpg")
+        do {
+            try imageData.write(to: url, options: .atomic)
+        } catch {
+            logger.error("原件写入失败: \(error)")
+            return originalsBaseDir.appendingPathComponent("\(UUID().uuidString).jpg")
+        }
+        return url
     }
 
     func confirmField(id: UUID) {
@@ -356,8 +397,13 @@ final class AppState {
     func commitToTimeline() {
         guard let set = activeSet, set.isUsableInTimeline,
               let patientId = owner?.selfPatientId ?? owner?.id else { return }
+        var originalPaths: [UUID: String] = [:]
+        if let url = pendingOriginalURL {
+            originalPaths[set.documentId] = url.path
+        }
         let entry = TimelineProjection.entries(from: [set], patientId: patientId,
-                                                occurredAt: Date().timeIntervalSince1970)[0]
+                                                occurredAt: Date().timeIntervalSince1970,
+                                                originalPaths: originalPaths)[0]
         timeline.append(entry)
         let engineVersion = captureProvider == nil ? "ocr-pipeline" : "fake-ocr-v1"
         persist { [persistor, timeline] in
@@ -366,6 +412,7 @@ final class AppState {
                                               engineVersion: engineVersion)
         }
         activeSet = nil
+        pendingOriginalURL = nil   // 原件已随 entry 归档（路径入 meta_json），仅清会话引用
         stage = .timeline
     }
 

@@ -119,6 +119,11 @@ struct MetricQuickEntryView: View {
             .onAppear {
                 // 单位记忆（FR7.8：每种指标记忆上次单位）
                 unitText = state.rememberedUnit(for: metric)
+                // FR17.9 面板确认草稿预填（AppRouter.pendingVoiceDraft 一次性投递）
+                if let draft = router.pendingVoiceDraft {
+                    router.pendingVoiceDraft = nil
+                    applyDraft(draft)
+                }
                 routeMonitor.start()
             }
             .onChange(of: metric) { _, newMetric in
@@ -145,15 +150,19 @@ struct MetricQuickEntryView: View {
     }
 
     /// 确认后的指标字段 → 录入框（血压双值分别落收缩压/舒张压）；
-    /// 键匹配走 MetricType(grammarKey:) Domain 单一映射（文法键词汇一处维护）
+    /// 键匹配走 MetricType(grammarKey:) Domain 单一映射（文法键词汇一处维护）。
+    /// 与面板草稿预填（pendingVoiceDraft）共用同一映射——两入口语义一处维护。
     private func applyConfirmed(_ set: OcrConfirmationSet) {
-        let fields = set.confirmedFields
-        if let sys = fields.first(where: { MetricType(grammarKey: $0.key) == .bloodPressureSys })?.value {
+        applyDraft(Dictionary(uniqueKeysWithValues: set.confirmedFields.map { ($0.key, $0.value) }))
+    }
+
+    private func applyDraft(_ map: [String: String]) {
+        if let sys = map.first(where: { MetricType(grammarKey: $0.key) == .bloodPressureSys })?.value {
             primaryText = sys
-            if let dia = fields.first(where: { MetricType(grammarKey: $0.key) == .bloodPressureDia })?.value {
+            if let dia = map.first(where: { MetricType(grammarKey: $0.key) == .bloodPressureDia })?.value {
                 secondaryText = dia
             }
-        } else if let v = fields.first(where: { $0.key != "title" && !$0.value.isEmpty })?.value {
+        } else if let v = map.first(where: { $0.key != "title" && !$0.value.isEmpty })?.value {
             primaryText = v
         }
     }

@@ -40,7 +40,7 @@ public actor AppointmentStore {
         }
         for (tier, fire) in AppointmentRules.tierFireDates(startsAt: startsAt, tiers: tiers, now: now) {
             try await scheduler.schedule(dose: "apt-\(id.uuidString)-\(tier.label)", at: fire,
-                                         route: .appointmentList)
+                                         route: .appointmentDetail(id))
         }
         return id
     }
@@ -79,7 +79,7 @@ public actor AppointmentStore {
         try await cancelReminders(id: id)
         for (tier, fire) in AppointmentRules.tierFireDates(startsAt: startsAt, tiers: AppointmentTier.defaults, now: now) {
             try await scheduler.schedule(dose: "apt-\(newId.uuidString)-\(tier.label)", at: fire,
-                                         route: .appointmentList)
+                                         route: .appointmentDetail(id))
         }
         return newId
     }
@@ -105,7 +105,7 @@ public actor AppointmentStore {
         // 跟进提醒：错过当天稍后提醒补录（复用分级通道，route=预约列表）
         let followUpAt = now.addingTimeInterval(2 * 3600)
         try await scheduler.schedule(dose: "apt-followup-\(id.uuidString)", at: followUpAt,
-                                     route: .appointmentList)
+                                     route: .appointmentDetail(id))
     }
 
     /// 标记完成（FR10.7：completed）+ 补录就诊（评审修正 P0：闭环断点——

@@ -499,6 +499,8 @@
 "observation.media.addCamera" = "拍摄";
 "observation.media.count" = "已选 %1$d 张照片（默认锁定，点击解锁查看）";
 "voicenote.dictation" = "语音速记";
+"voicenote.saved" = "已存入语音速记";
+"voicenote.view" = "查看";
 "voicenote.dictating" = "聆听中…请说话";
 "voicenote.dictationFailed" = "未识别到语音，可继续手动输入";
 "doc.detailTitle" = "文档详情";
@@ -910,6 +912,12 @@
 "onboard.rejectLabelFmt" = "放弃「%@」";
 "ocrQueue.title" = "待确认识别字段";
 "ocr.field.text" = "识别文本";
+"ocr.field.line" = "第 %d 行";
+"ocr.storage.hint"
+"timezone.changed.title" = "时区已变化";
+"timezone.changed.body"
+"observation.colorDisclaimer"
+"nc.archive" = "归档"; = "照片颜色受光线、白平衡与容器影响，不能用于自我诊断"; = "检测到设备时区发生变化，请核对用药与预约的计划时间。"; = "确认后存入时间轴与资料库；原件保留在本机专用目录，只写一次、永不修改";
 "ocr.field.title" = "标题";
 "ocrQueue.empty" = "暂无待确认字段";
 "ocrQueue.emptyHint" = "全部识别字段已处理。新识别的药名、剂量、日期会先出现在这里，确认后才生效。";

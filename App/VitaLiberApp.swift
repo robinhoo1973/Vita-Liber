@@ -73,7 +73,8 @@ struct VitaLiberApp: App {
             transcription: transcriptionStub,
             gateUnlocker: gateUnlocker,
             audit: container.audit,
-            memberDeletion: container.memberDeletion))
+            memberDeletion: container.memberDeletion,
+            originalsBaseDir: AppContainer.defaultOriginalsDir()))
         _reminderStore = State(initialValue: ReminderStore(
             meds: container.meds, apts: container.apts, reconciler: container.reconciler,
             scheduler: UNReminderScheduler(), composer: container.composer))
@@ -155,12 +156,18 @@ struct VitaLiberApp: App {
     /// 主界面装配（降级路径不执行——内存库上的环境装配无意义）
     @ViewBuilder
     private var mainRoot: some View {
-        AppRootView(seedBundled: { try await container.guidelines.seedBundled() })
+        AppRootView(seedBundled: {
+            try await container.guidelines.seedBundled()
+            // F25 码表种子装载（V3.72）：装配层唯一调用点——幂等（app_settings
+            // 记 bundle_version），失败记日志不阻断启动（码表缺 = 未解析态，FR25.1）
+            try await container.codeIndex.loadBundledSeedsIfNeeded()
+        })
             .environment(appState)
             .environment(reminderStore)
             .environment(assistantStore)
             .environment(settingsStore)
             .environment(observationState)
+            .environment(container.notificationState)
             .environment(entitlementStore)
             .environment(trendState)
             .environment(voiceNoteState)

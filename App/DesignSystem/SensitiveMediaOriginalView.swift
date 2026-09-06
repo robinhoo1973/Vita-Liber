@@ -5,9 +5,10 @@ import Domain
 /// §5.10 敏感媒体原始视图：ImageIO 降采样渲染，避免大图 OOM。
 /// 通过 MediaUnlockSession 共享解锁状态——从缩略图进入时
 /// 若会话已解锁则直接展示，否则先走认证流程。
+/// FR1.9 逐次解锁（V3.72）：解锁态为本视图私有——每次查看原图都是一次
+/// 独立系统认证，不再经全局会话顺带解锁（与 SensitiveMediaContainer 同纪律）。
 struct SensitiveMediaOriginalView: View {
     @Environment(\.dismiss) private var dismiss
-    @Environment(MediaUnlockSession.self) private var session
     @Environment(AppState.self) private var app
 
     let imageData: Data
@@ -16,10 +17,12 @@ struct SensitiveMediaOriginalView: View {
     @State private var image: UIImage?
     @State private var scale: CGFloat = 1
     @State private var offset: CGSize = .zero
+    @State private var unlocked = false
+    @State private var relockTask: Task<Void, Never>?
 
     var body: some View {
         Group {
-            if session.isUnlocked {
+            if unlocked {
                 unlockedContent
             } else {
                 lockedPlaceholder
@@ -47,7 +50,7 @@ struct SensitiveMediaOriginalView: View {
                         MagnificationGesture()
                             .onChanged {
                                 scale = $0
-                                session.recordActivity()   // 审查修复：缩放亦属活跃（政策「读图/点击/拖动/滚动均视为活跃」），否则持续缩放 >30s 被中途重锁
+                                scheduleRelock()   // 缩放亦属活跃，否则持续缩放 >30s 被中途重锁
                             }
                             .onEnded { scale = max(1, $0) }
                     )
@@ -55,7 +58,7 @@ struct SensitiveMediaOriginalView: View {
                         DragGesture()
                             .onChanged {
                                 offset = $0.translation
-                                session.recordActivity()
+                                scheduleRelock()
                             }
                             .onEnded { _ in
                                 // 超过边界回弹
@@ -66,7 +69,7 @@ struct SensitiveMediaOriginalView: View {
                             }
                     )
                     .frame(width: geo.size.width, height: geo.size.height)
-                    .onTapGesture { session.recordActivity() }
+                    .onTapGesture { scheduleRelock() }
             } else {
                 ProgressView()
             }
@@ -87,9 +90,8 @@ struct SensitiveMediaOriginalView: View {
         .background(Color(.systemGroupedBackground))
         .onTapGesture {
             Task {
-                if !session.isUnlocked {
+                if !unlocked {
                     _ = await authenticateAndUnlock()
-                    // 认证后由 session.isUnlocked 驱动视图切换
                 }
             }
         }
@@ -99,8 +101,25 @@ struct SensitiveMediaOriginalView: View {
         // FR1.9：每次查看原图都是一次独立的系统设备所有者认证（Face ID/Touch ID
         // + 设备密码兜底），与 SensitiveMediaContainer 同路径，绝不允许无认证直通。
         guard await app.requestUnlock(reason: L10n.sensitive_unlockReason) else { return false }
-        session.unlock()
+        unlocked = true
+        scheduleRelock()
         return true
+    }
+
+    private func scheduleRelock() {
+        relockTask?.cancel()
+        let ttl = MediaUnlockPolicy.idleTTL
+        relockTask = Task {
+            try? await Task.sleep(nanoseconds: UInt64(ttl * 1_000_000_000))   // try?-ok: 空闲重锁计时被取消即停，sleep 失败无副作用
+            guard !Task.isCancelled else { return }
+            relock()
+        }
+    }
+
+    private func relock() {
+        relockTask?.cancel()
+        relockTask = nil
+        unlocked = false
     }
 
     private func loadDownsampled() {

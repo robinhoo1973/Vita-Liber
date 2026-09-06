@@ -279,3 +279,53 @@ struct AppointmentFormView: View {
         }
     }
 }
+
+/// §5.45 通知点击直达（V3.72）：预约提醒点击后落到该预约详情卡，
+/// 而非预约列表（契约「点预约提醒直达该预约」）。查询不到（已删除/跨成员）
+/// 回落可见降级，绝不 crash（缺路由降级纪律不变）。
+struct AppointmentDetailRouteView: View {
+    let appointmentId: UUID
+    @Environment(AppState.self) private var app
+    @Environment(ReminderStore.self) private var reminders
+    @State private var apt: AppointmentRow?
+
+    var body: some View {
+        Group {
+            if let apt {
+                List {
+                    Section {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(apt.hospital).font(.title3.bold())
+                            Text("\(apt.department)").font(.subheadline)
+                            Text(apt.startsAt.formatted(date: .long, time: .shortened))
+                                .font(.body).monospacedDigit()
+                            Text(L10n.apptStatusName(apt.status))
+                                .font(.caption2)
+                                .padding(.horizontal, 8).padding(.vertical, 4)
+                                .background(Capsule().fill(Color(.systemGray5)))
+                        }
+                        .padding(.vertical, 4)
+                    } header: {
+                        Text(L10n.apptListTitle)
+                    }
+                    if apt.status == "scheduled" {
+                        Section {
+                            NavigationLink(L10n.apptReschedule) {
+                                AppointmentFormView()
+                            }
+                        }
+                    }
+                }
+            } else {
+                RouteFallbackView(route: .appointmentDetail(appointmentId))
+            }
+        }
+        .navigationTitle(L10n.apptListTitle)
+        .task { await load() }
+    }
+
+    private func load() async {
+        let history = await reminders.appointmentHistory(patientId: app.currentPatientId)
+        apt = history.first { $0.id == appointmentId }
+    }
+}

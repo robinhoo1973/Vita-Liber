@@ -43,9 +43,11 @@ public enum AppRoute: Hashable, Sendable, Codable {
     case stockLotDetail(UUID)            // SP-17 批次详情
     case stockLotEdit(UUID?)             // SP-17 批次编辑（nil=新建，含效期/位置/照片）
     case medicationCabinet               // SP-16 药箱（FR9.8.9 家庭总览为 Pro）
+    case reminderToday                   // 今日用药时段聚合（通知点击落地，§5.45 映射表补行 V3.72）
 
     // ---- F10 预约 ----
     case appointmentList                 // SP-18
+    case appointmentDetail(UUID)         // SP-18 详情（通知点击直达该预约，§5.45 V3.72）
     case appointmentForm(UUID?)          // SP-18 新建/改期
     case visitPrepPackage                // FR10.4 就诊准备包
 
@@ -115,7 +117,8 @@ public enum MainModuleID: String, Sendable, Hashable, Codable {
              .caregiverTasks, .voiceNotePanel:
             return .records
         case .medicationPlan, .medicationPlanForm, .stockLotDetail, .stockLotEdit,
-             .medicationCabinet, .appointmentList, .appointmentForm, .visitPrepPackage,
+             .medicationCabinet, .reminderToday, .appointmentList, .appointmentDetail,
+             .appointmentForm, .visitPrepPackage,
              .sentStatusHub, .questionList:
             return .reminders
         case .globalSearch, .assistantChat, .assistantHistory, .voiceSession:
