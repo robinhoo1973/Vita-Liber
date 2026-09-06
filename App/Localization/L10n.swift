@@ -2365,19 +2365,40 @@ enum L10n {
     private static var currentBundle: Bundle? {
         cacheLock.lock(); defer { cacheLock.unlock() }
         if let cached = bundleCache { return cached }
+        let lang = languageCache
         // 首选：Bundle 根目录下的 .lproj（标准 Xcode 打包路径）
-        if let path = Bundle.main.path(forResource: languageCache, ofType: "lproj"),
+        if let path = Bundle.main.path(forResource: lang, ofType: "lproj"),
            let bundle = Bundle(path: path) {
             bundleCache = bundle
             return bundle
         }
-        // 回落：Resources/Localization/ 子目录（XcodeGen 源码树保留路径）
-        if let url = Bundle.main.url(forResource: languageCache,
+        // 回落 1：Resources/Localization/ 子目录（XcodeGen 源码树保留路径）
+        if let url = Bundle.main.url(forResource: lang,
                                       withExtension: "lproj",
                                       subdirectory: "Resources/Localization"),
            let bundle = Bundle(url: url) {
             bundleCache = bundle
             return bundle
+        }
+        // 回落 2：直接查找 Localizable.strings 并取其父目录作为 bundle
+        if let stringsURL = Bundle.main.url(forResource: "Localizable",
+                                             withExtension: "strings",
+                                             subdirectory: "\(lang).lproj"),
+           let bundle = Bundle(url: stringsURL.deletingLastPathComponent()) {
+            bundleCache = bundle
+            return bundle
+        }
+        // 回落 3：在所有 .lproj 目录中搜索匹配的语言
+        if let allPaths = Bundle.main.paths(forResourcesOfType: "lproj", inDirectory: nil) {
+            for p in allPaths {
+                let name = URL(fileURLWithPath: p).lastPathComponent
+                if name == "\(lang).lproj" || name == lang {
+                    if let bundle = Bundle(path: p) {
+                        bundleCache = bundle
+                        return bundle
+                    }
+                }
+            }
         }
         return nil
     }
