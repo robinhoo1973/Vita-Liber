@@ -27,6 +27,9 @@ struct QuickCaptureView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var showCamera = false
+    /// FR5.4 遮挡编辑原图（入库前步骤；UIImage 非 Identifiable，sheet 用布尔呈现）
+    @State private var pendingOcclusionImage: UIImage?
+    @State private var showOcclusion = false
     @State private var pickedItem: PhotosPickerItem?
     @State private var fileImporterActive = false
     @State private var savedToast = false
@@ -109,6 +112,15 @@ struct QuickCaptureView: View {
                 handleImage(image)
             }
         }
+        .sheet(isPresented: $showOcclusion) {
+            if let img = pendingOcclusionImage {
+                OcclusionEditorView(originalImage: img) { processed in
+                    pendingOcclusionImage = nil
+                    showOcclusion = false
+                    completeOcclusion(processed)
+                }
+            }
+        }
         .onChange(of: pickedItem) { _, item in
             guard let item else { return }
             pickedItem = nil
@@ -178,12 +190,17 @@ struct QuickCaptureView: View {
     }
 
     private func handleImage(_ image: UIImage) {
-        guard let data = image.jpegData(compressionQuality: 0.85) else {
-            showCamera = false
+        showCamera = false
+        // FR5.4 遮挡步骤（V3.72）：入库前涂鸦遮挡身份证号/地址等无关区域
+        pendingOcclusionImage = image
+        showOcclusion = true
+    }
+
+    private func completeOcclusion(_ processed: UIImage) {
+        guard let data = processed.jpegData(compressionQuality: 0.85) else {
             importFailed = true
             return
         }
-        showCamera = false
         Task {
             await docs.importImage(patientId: app.currentPatientId, data: data,
                                    mimeType: "image/jpeg", docType: docTypeText,

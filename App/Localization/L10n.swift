@@ -1256,6 +1256,7 @@ enum L10n {
         "showcase.title", "showcase.exit", "showcase.empty", "showcase.unlockReason",
         "remch.title", "remch.sectionHint", "remch.sectionFooter", "remch.meds", "remch.apts", "remch.exam", "remch.expiry", "remch.alert", "remch.backup", "remch.local", "remch.ring", "remch.inApp", "remch.bannerToggle", "remch.bannerFooter",
         "banner.doseDue", "banner.confirm", "banner.later",
+        "occlusion.title", "occlusion.skip", "occlusion.done",
         "paywall.purchaseFailed",
         "paywall.restoreFailed",
         "paywall.restoreNothing",
@@ -1760,6 +1761,9 @@ enum L10n {
     static var bannerDoseDue: String { t("banner.doseDue") }
     static var bannerConfirm: String { t("banner.confirm") }
     static var bannerLater: String { t("banner.later") }
+    static var occlusionTitle: String { t("occlusion.title") }
+    static var occlusionSkip: String { t("occlusion.skip") }
+    static var occlusionDone: String { t("occlusion.done") }
     static var ocrQueueTitle: String { t("ocrQueue.title") }
     static var ocrQueueEmpty: String { t("ocrQueue.empty") }
     static var ocrQueueEmptyHint: String { t("ocrQueue.emptyHint") }

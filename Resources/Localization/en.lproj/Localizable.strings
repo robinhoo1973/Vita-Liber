@@ -942,6 +942,9 @@
 "banner.doseDue" = "Time for your medication";
 "banner.confirm" = "Confirm taken";
 "banner.later" = "Later";
+"occlusion.title" = "Hide unrelated areas";
+"occlusion.skip" = "Skip";
+"occlusion.done" = "Done";
 "ocrQueue.empty" = "No pending fields";
 "ocrQueue.emptyHint" = "All recognized fields are handled. Newly recognized medication names, doses and dates appear here first and only take effect after confirmation.";
 "ocrQueue.countFmt" = "%d fields pending";
