@@ -137,9 +137,13 @@ public actor SensitiveAssetStore: SensitiveAssetStoring {
                 }
             }
             for orphan in orphans where !validAssetIds.contains(orphan.id) {
-                // 按 relative_path 删文件（原图 + 派生 blur），再删两行资产
-                let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-                let url = docs.appendingPathComponent(orphan.rel)
+                // 按 relative_path 删文件（原图 + 派生 blur），再删两行资产。
+                // 第四轮全仓审查修复（5WHY）：此前用 documentDirectory 硬拼路径，
+                // 绕过注入的 baseDir——预览/测试注入临时目录时删除动作落到生产
+                // 目录（temp 孤儿永不清理；真机同路径同名文件有误删风险）。
+                // rel 格式 "MedicalNotes/sensitive/{memberId}/{assetId}.jpg"，
+                // 与 baseDir（= …/MedicalNotes/sensitive）对齐后取敏感段之后的部分。
+                let url = orphanFileURL(orphan.rel)
                 do { try FileManager.default.removeItem(at: url) } catch { /* 不存在即无事 */ }
                 let blurURL = url.deletingPathExtension().appendingPathExtension("blur.jpg")
                 do { try FileManager.default.removeItem(at: blurURL) } catch { /* 同上 */ }
@@ -158,6 +162,20 @@ public actor SensitiveAssetStore: SensitiveAssetStoring {
 
     private func memberDir(_ memberId: UUID) -> URL {
         baseDir.appendingPathComponent(memberId.uuidString, isDirectory: true)
+    }
+
+    /// relative_path → 注入 baseDir 下的绝对 URL（对账路径唯一出口——
+    /// 第四轮全仓审查修复，见 reconcileUnreferenced）。
+    private func orphanFileURL(_ rel: String) -> URL {
+        var components = rel.split(separator: "/").map(String.init)
+        if let i = components.lastIndex(of: "sensitive") {
+            components.removeFirst(i + 1)
+        }
+        var url = baseDir
+        for (j, c) in components.enumerated() {
+            url.appendPathComponent(c, isDirectory: j < components.count - 1)
+        }
+        return url
     }
 }
 

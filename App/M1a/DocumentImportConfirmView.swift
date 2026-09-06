@@ -15,6 +15,7 @@ struct DocumentImportConfirmView: View {
     @State var draft: DocumentsState.ImportDraft
     @State private var showRegionImage = false
     @State private var saving = false
+    @State private var showSaveError = false
 
     var body: some View {
         NavigationStack {
@@ -23,7 +24,9 @@ struct DocumentImportConfirmView: View {
                     Section {
                         ForEach(draft.qualityTags, id: \.self) { tag in
                             Label(tag, systemImage: "exclamationmark.triangle")
-                                .font(.caption).foregroundStyle(.orange)
+                                .font(.caption)
+                                // 语义令牌替代系统原色（第四轮全仓审查修复）
+                                .foregroundStyle(Color("semantic-warning", bundle: .main))
                         }
                     }
                 }
@@ -39,10 +42,18 @@ struct DocumentImportConfirmView: View {
                 }
                 Section {
                     if draft.confirmationSet.fields.isEmpty {
-                        Text(ImageInputRules.noTextMessage).font(.footnote).foregroundStyle(.secondary)
+                        Text(L10n.imageInputNoText).font(.footnote).foregroundStyle(.secondary)
                     } else {
                         ForEach($draft.confirmationSet.fields) { $field in
                             FieldConfirmRow(field: $field)
+                        }
+                        // §5.30 全部确认闸门（第四轮全仓审查修复：低置信度红色
+                        // 字段存在时按钮禁用并给出原因——原实现无条件批量确认，
+                        // 低置信误读值未经核对即升 C 进入事实链）
+                        if !draft.confirmationSet.allConfirmAllowed {
+                            Text(L10n.docConfirmAllConfirmBlocked)
+                                .font(.caption)
+                                .foregroundStyle(Color("semantic-danger", bundle: .main))
                         }
                     }
                 }
@@ -56,39 +67,70 @@ struct DocumentImportConfirmView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(L10n.docConfirmSaveAll) {
-                        confirmAllRemaining()
-                        saving = true
-                        Task {
-                            await docs.commitDraft(draft)
-                            saving = false
-                            dismiss()
-                        }
+                        saveAll()
                     }
-                    .disabled(saving)
+                    .disabled(saving || !draft.confirmationSet.allConfirmAllowed)
                     .accessibilityIdentifier("SP-11.docConfirm.saveAll")
                 }
             }
             .sheet(isPresented: $showRegionImage) {
-                if let image = UIImage(data: draft.processedData) {
-                    NavigationStack {
-                        Image(uiImage: image).resizable().scaledToFit().padding(12)
-                            .navigationTitle(L10n.docConfirmViewRegion)
-                            .navigationBarTitleDisplayMode(.inline)
-                            .toolbar {
-                                ToolbarItem(placement: .confirmationAction) {
-                                    Button(L10n.onboard_gotIt) { showRegionImage = false }
-                                }
-                            }
-                    }
+                regionPreview
+            }
+            .alert(L10n.docConfirmSaveFailedTitle, isPresented: $showSaveError) {
+                Button(L10n.onboard_gotIt, role: .cancel) { }
+            } message: {
+                Text(docs.lastImportError ?? L10n.docImportFailed)
+            }
+        }
+    }
+
+    /// 矫正区域预览（第四轮全仓审查修复）：敏感草稿经 SensitiveMediaContainer
+    /// 显式解锁才可见（BR-007 零解锁门直显断裂）；非敏感也走 ImageIO 降采样
+    /// （§5.10 大图 OOM 纪律），不再全分辨率直显。
+    private var regionPreview: some View {
+        let downsampled = ImageIOImageLoader.downsample(data: draft.processedData, maxDimension: 2048)
+        return NavigationStack {
+            if draft.isSensitive {
+                SensitiveMediaContainer { _ in
+                    Label(L10n.sensitiveMedia_unlockToView, systemImage: "lock.fill")
+                        .foregroundStyle(.secondary)
+                } content: { _ in
+                    previewImage(downsampled)
+                }
+            } else {
+                previewImage(downsampled)
+            }
+            .navigationTitle(L10n.docConfirmViewRegion)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(L10n.onboard_gotIt) { showRegionImage = false }
                 }
             }
         }
     }
 
-    /// 「确认并保存」= 批量确认剩余未确认字段（用户已手动编辑过的值视为最终值）。
-    private func confirmAllRemaining() {
-        for i in draft.confirmationSet.fields.indices where draft.confirmationSet.fields[i].grade != .userConfirmed {
-            _ = draft.confirmationSet.fields[i].confirm()
+    @ViewBuilder
+    private func previewImage(_ image: UIImage?) -> some View {
+        if let image {
+            Image(uiImage: image).resizable().scaledToFit().padding(12)
+        }
+    }
+
+    /// 「确认并保存」= 批量确认剩余未确认字段（Domain confirmAllRemaining；
+    /// 已拒绝字段不升格）。写库失败绝不 dismiss——失败必须可见（FR6.6），
+    /// 用户逐条确认过的数据不因静默吞错而丢（第四轮全仓审查修复）。
+    private func saveAll() {
+        saving = true
+        Task {
+            draft.confirmationSet.confirmAllRemaining()
+            await docs.commitDraft(draft)
+            saving = false
+            if docs.lastImportError != nil {
+                showSaveError = true
+            } else {
+                dismiss()
+            }
         }
     }
 }
@@ -98,9 +140,41 @@ private struct FieldConfirmRow: View {
     @State private var editing = false
     @State private var draftValue = ""
 
+    /// FR6.3 三级置信度（第四轮全仓审查修复：旧高绿/中黄/低红三级呈现随
+    /// 向导简化删除后无重建 UI——低置信与高置信字段视觉无差别地被批量确认；
+    /// 重建为语义令牌三档，未确认字段恒显示）
+    private var tier: ConfidenceTier { ConfidenceTier.tier(field.confidence) }
+    private var tierLabel: String {
+        switch tier {
+        case .high: return L10n.docConfirmConfidenceHigh
+        case .mid: return L10n.docConfirmConfidenceMid
+        case .low: return L10n.docConfirmConfidenceLow
+        }
+    }
+    private var tierColor: Color {
+        switch tier {
+        case .high: return Color("semantic-success", bundle: .main)
+        case .mid: return Color("semantic-warning", bundle: .main)
+        case .low: return Color("semantic-danger", bundle: .main)
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(field.displayLabel).font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: 6) {
+                Text(field.displayLabel).font(.caption).foregroundStyle(.secondary)
+                if !field.isConfirmed && field.grade != .rejected {
+                    Text(tierLabel)
+                        .font(.caption2)
+                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(Capsule().fill(tierColor.opacity(0.15)))
+                        .foregroundStyle(tierColor)
+                }
+                Spacer()
+                // GradeBadge 唯一渲染出口（第四轮全仓审查修复：原手写
+                // C/D 状态色文本绕过设计系统组件）
+                GradeBadge(grade: field.isConfirmed ? "C" : "D")
+            }
             if editing {
                 TextField(field.displayLabel, text: $draftValue)
                     .textFieldStyle(.roundedBorder)
@@ -116,13 +190,22 @@ private struct FieldConfirmRow: View {
             } else {
                 Text(field.value).font(.body)
                 HStack(spacing: 12) {
-                    Text(field.isConfirmed ? L10n.onboard_confirmed : L10n.onboard_unconfirmedBadge)
-                        .font(.caption2)
-                        .foregroundStyle(field.isConfirmed ? Color("grade-c", bundle: .main) : Color("grade-d", bundle: .main))
-                    if !field.isConfirmed {
+                    if field.grade == .rejected {
+                        // ✕ 放弃后的逆向操作（Domain reenable）
+                        Button(L10n.docConfirmReenable) {
+                            _ = field.reenable()
+                        }
+                        .font(.caption)
+                    } else if !field.isConfirmed {
                         Button(L10n.onboard_revise) {
                             draftValue = field.value
                             editing = true
+                        }
+                        .font(.caption)
+                        // FR6.4 ✕ 放弃（第四轮全仓审查修复：三操作之一随
+                        // 旧确认视图删除后无重建点，用户被迫确认错误文本入库）
+                        Button(L10n.docConfirmReject, role: .destructive) {
+                            field.reject()
                         }
                         .font(.caption)
                     }

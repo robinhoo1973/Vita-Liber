@@ -18,15 +18,16 @@ struct PendingOcrQueueView: View {
     @State private var memberFilter: UUID?
     @State private var windowFilter: Int = 0   // 0=全部 1=3 天 2=72h+
 
-    /// 72h 置顶钉住（FR2.3/FR6.8 排序规则）+ 新到旧
+    /// 72h 置顶钉住（FR2.3/FR6.8 排序规则）+ 新到旧。
+    /// 数据源 = DocumentsState.pendingDocuments（跨成员聚合）——第四轮全仓
+    /// 审查修复：此前读 docs.documents（仅当前成员），成员筛选对其他成员恒空。
     private var pendingDocs: [DocumentStore.DocumentRow] {
-        docs.documents.filter { doc in
-            doc.grade == "D"
-                && (memberFilter == nil || doc.patientId == memberFilter)
+        docs.pendingDocuments.filter { doc in
+            (memberFilter == nil || doc.patientId == memberFilter)
                 && windowMatch(doc)
         }.sorted { a, b in
-            let a72 = isOver72h(a)
-            let b72 = isOver72h(b)
+            let a72 = PendingOcrRules.isOverdue(createdAt: a.createdAt)
+            let b72 = PendingOcrRules.isOverdue(createdAt: b.createdAt)
             if a72 != b72 { return a72 }
             return a.createdAt > b.createdAt
         }
@@ -53,17 +54,16 @@ struct PendingOcrQueueView: View {
                             HStack {
                                 Text(doc.title ?? L10n.docUntitled)
                                     .font(.subheadline)
-                                Text(L10n.gradeBadgeD)
-                                    .font(.caption2)
-                                    .padding(.horizontal, 6).padding(.vertical, 2)
-                                    .background(Capsule().fill(Color("grade-d", bundle: .main).opacity(0.15)))
-                                    .foregroundStyle(Color("grade-d", bundle: .main))
-                                if isOver72h(doc) {
+                                // GradeBadge 全仓唯一渲染出口（第四轮全仓审查修复：
+                                // 原手写 Capsule 徽章缺虚线边框与「待确认」角标，
+                                // 关怀模式/高对比主题下不随语义令牌重映射）
+                                GradeBadge(grade: "D")
+                                if PendingOcrRules.isOverdue(createdAt: doc.createdAt) {
                                     Text(L10n.ocrQueue72h)
                                         .font(.caption2)
                                         .padding(.horizontal, 6).padding(.vertical, 2)
-                                        .background(Capsule().fill(Color.red.opacity(0.12)))
-                                        .foregroundStyle(.red)
+                                        .background(Capsule().fill(Color("semantic-danger", bundle: .main).opacity(0.12)))
+                                        .foregroundStyle(Color("semantic-danger", bundle: .main))
                                 }
                                 Spacer()
                                 // FR6.8 一键跳回来源文档原文（BR-002）
@@ -115,25 +115,22 @@ struct PendingOcrQueueView: View {
             .background(.thinMaterial)
         }
         .navigationTitle(L10n.ocrQueueTitle)
-        .task(id: app.currentPatientId) {
-            await docs.load(patientId: app.currentPatientId)
+        .task(id: app.members.map(\.id)) {
+            // 跨成员聚合加载（第四轮全仓审查修复：成员筛选对其他成员恒空态）
+            await docs.loadPending(patientIds: app.members.map(\.id))
         }
     }
 
     private func windowMatch(_ doc: DocumentStore.DocumentRow) -> Bool {
         switch windowFilter {
         case 1:
-            // Date 与 TimeInterval 不能直接比较（CI 34032245120 实证：
-            // Linux swiftc -parse 不查语义，类型错误仅 macOS 编译门禁可查）
-            return doc.createdAt > Date().addingTimeInterval(-3 * 86400)
+            // DST 纪律 + 单一 Domain 出口（第四轮全仓审查修复：原固定
+            // -3*86400 秒与 HomeView 的日历日口径在 DST 切换日分歧 ±1 小时）
+            return PendingOcrRules.isWithinLastDays(3, createdAt: doc.createdAt)
         case 2:
-            return isOver72h(doc)
+            return PendingOcrRules.isOverdue(createdAt: doc.createdAt)
         default:
             return true
         }
-    }
-
-    private func isOver72h(_ doc: DocumentStore.DocumentRow) -> Bool {
-        Date().timeIntervalSince1970 - doc.createdAt.timeIntervalSince1970 > 72 * 3600
     }
 }

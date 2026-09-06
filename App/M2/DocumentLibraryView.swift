@@ -15,13 +15,17 @@ import Protocols
 @Observable
 final class DocumentsState {
     private(set) var documents: [DocumentStore.DocumentRow] = []
+    /// SP-53 队列数据源：跨成员聚合的 D 级文档（成员筛选在视图层做——
+    /// 此前队列复用 docs.documents（仅当前成员），选其他成员恒空态）。
+    private(set) var pendingDocuments: [DocumentStore.DocumentRow] = []
     private(set) var duplicateHits: [DocumentStore.DocumentRow] = []
     private(set) var pendingDuplicate: PendingDocument?
     private(set) var lastImportError: String?
-    /// FR5.3 质量提示（最近一次导入的模糊/反光/遮挡标签——提示重拍不阻止保存）
-    private(set) var lastQualityTags: [String] = []
     private let store: DocumentStore
     private let pipeline: OCRPipeline
+    /// PDF 解码（ADR-027：经 EAL 注入，调用方不直接实例化具体引擎——
+    /// 第四轮全仓审查修复：importPDF 曾直接 new PDFKitDecoder() 绕过注册表）。
+    private let decoder: any ImageDecoding
     /// F9 处方落库（只有确认后才会被调用，未注入时（预览/测试）静默跳过）。
     private let prescriptionStore: PrescriptionStore?
     /// “处方单”文档类型标签（与 L10n.docTypePrescription 同源）——命中时启用处方语义字段标签。
@@ -35,11 +39,13 @@ final class DocumentsState {
     private var loadingPatientId: UUID?
 
     init(store: DocumentStore, pipeline: OCRPipeline,
+         decoder: any ImageDecoding? = nil,
          ocrAuthorized: @escaping @MainActor () -> Bool = { true },
          originalsDir: URL? = nil, prescriptionStore: PrescriptionStore? = nil,
          prescriptionDocTypeLabel: String = L10n.docTypePrescription) {
         self.store = store
         self.pipeline = pipeline
+        self.decoder = decoder ?? EngineRegistry.shared.resolve(ImageDecodingFactory.self)
         self.ocrAuthorized = ocrAuthorized
         self.originalsDir = originalsDir ?? FileManager.default.temporaryDirectory
         self.prescriptionStore = prescriptionStore
@@ -48,6 +54,10 @@ final class DocumentsState {
 
     struct PendingDocument: Identifiable, Equatable {
         let id = UUID()
+        /// 导入时的所属成员（第四轮全仓审查修复：裁决落库必须用它，绝不用
+        /// loadingPatientId——导入后、裁决前切换成员时后者已指向他人，
+        /// 或从未 load 时为 nil → 并存/替换静默丢弃且误报「已保存」）。
+        var patientId: UUID
         var originalData: Data
         var processedData: Data
         var mimeType: String
@@ -76,6 +86,10 @@ final class DocumentsState {
         var qualityTags: [String]
         var confirmationSet: OcrConfirmationSet
         var isPrescription: Bool
+        /// 「替换」裁决的旧文档（第四轮全仓审查修复：旧版归档延后到新版本
+        /// 确认入库**之后**——此前 resolveDuplicate 先归档旧版再弹确认卡，
+        /// 用户取消 = 旧版已从活跃列表消失 + 新版未入库，资料凭空少一份）
+        var replaceDocumentId: UUID?
     }
 
     func load(patientId: UUID, includeArchived: Bool = false) async {
@@ -86,6 +100,15 @@ final class DocumentsState {
             documents = rows
         } catch {
             documents = []
+        }
+    }
+
+    /// SP-53 待确认队列：跨成员聚合 D 级文档（成员筛选视图层做）。
+    func loadPending(patientIds: [UUID]) async {
+        do {
+            pendingDocuments = try await store.listPending(patientIds: patientIds)
+        } catch {
+            pendingDocuments = []
         }
     }
 
@@ -157,7 +180,7 @@ final class DocumentsState {
             let hits = try await store.duplicates(sha256: sha, patientId: patientId)
             guard hits.isEmpty else {
                 duplicateHits = hits
-                pendingDuplicate = PendingDocument(originalData: originalData, processedData: processedData,
+                pendingDuplicate = PendingDocument(patientId: patientId, originalData: originalData, processedData: processedData,
                                                    mimeType: mimeType, docType: docType, title: title,
                                                    sha256: sha, isSensitive: isSensitive, origin: origin)
                 return nil
@@ -176,8 +199,10 @@ final class DocumentsState {
     /// FR14.1 authOcr：授权关闭 → 跳过识别，草稿无候选字段但仍可确认保存（只是无识别文本）。
     private func buildDraft(patientId: UUID, originalData: Data, processedData: Data, mimeType: String,
                             docType: String, title: String?, isSensitive: Bool, origin: String,
-                            sha256: String) async -> ImportDraft? {
-        let isPrescription = docType == prescriptionDocTypeLabel
+                            sha256: String, replaceDocumentId: UUID? = nil) async -> ImportDraft? {
+        // BR 判定走 Domain 纯函数（第四轮全仓审查修复：原内联 docType == label
+        // 绕过 PrescriptionFieldMapper，口径演进时两处漂移）
+        let isPrescription = PrescriptionFieldMapper.isPrescriptionDocType(docType, prescriptionLabel: prescriptionDocTypeLabel)
         var fields: [CandidateField] = []
         var tags: [String] = []
         if ocrAuthorized() {
@@ -203,12 +228,11 @@ final class DocumentsState {
                 return nil
             }
         }
-        lastQualityTags = tags
         return ImportDraft(patientId: patientId, docType: docType, title: title, isSensitive: isSensitive,
                            origin: origin, sha256: sha256, originalData: originalData, processedData: processedData,
                            mimeType: mimeType, qualityTags: tags,
                            confirmationSet: OcrConfirmationSet(fields: fields),   // confirm-ok: F6/F9 图片入库 OCR 确认集是合法产出方（非语音路径），FR17.13 只约束语音草稿确认
-                           isPrescription: isPrescription)
+                           isPrescription: isPrescription, replaceDocumentId: replaceDocumentId)
     }
 
     private static let prescriptionLabels = PrescriptionFieldMapper.Labels(
@@ -220,7 +244,13 @@ final class DocumentsState {
     /// document_file 直接以 grade='C' 写入（确认已完成，不再经 D），处方文档额外落
     /// 一条 prescription 行（复用现有 hospital/doctor/advice_text 列，不新增迁移）。
     func commitDraft(_ draft: ImportDraft) async {
-        let ext = draft.mimeType.lowercased().contains("png") ? "png" : "jpg"
+        // 错误态归零：保存失败必须可见、成功必须清除残留（第四轮全仓审查
+        // 修复——确认卡以 lastImportError 判成功/失败并决定是否 dismiss）
+        lastImportError = nil
+        // 原件扩展名按真实 MIME 映射（第四轮全仓审查修复：原仅判 "png" 其余
+        // 一律 .jpg——HEIC/GIF/WebP 原件以 .jpg 落盘，扩展名与内容不符，
+        // BR-002 原图语义受损）
+        let ext = ImageInputRules.fileExtension(for: draft.mimeType)
         let originalPath = persistOriginal(patientId: draft.patientId, data: draft.originalData, ext: ext)
         let processedPath = persistOriginal(patientId: draft.patientId, data: draft.processedData, ext: ext)
         var meta: [String: Any] = [:]
@@ -235,7 +265,8 @@ final class DocumentsState {
                                              isSensitive: draft.isSensitive, metaJSON: metaJSON, title: draft.title,
                                              ocrText: ocrText.isEmpty ? nil : ocrText, grade: "C")
             if draft.isPrescription, let prescriptionStore {
-                let (hospital, doctor, adviceText) = PrescriptionFieldMapper.buildAdviceText(confirmed: draft.confirmationSet.confirmedFields)
+                let (hospital, doctor, adviceText) = PrescriptionFieldMapper.buildAdviceText(confirmed: draft.confirmationSet.confirmedFields,
+                                                                                             labels: Self.prescriptionLabels)
                 try? await prescriptionStore.create(patientId: draft.patientId, documentFileId: docId,   // try?-ok: 处方行写入失败不回滚 document_file（主记录已入库），鼓励用户到资料库重新确认后重试，不能因副表失败丢主文档
                                                      hospital: hospital, doctor: doctor, adviceText: adviceText)
             }
@@ -246,6 +277,12 @@ final class DocumentsState {
                 try? await store.saveOCRResult(documentId: docId,   // try?-ok: 留痕失败不阻断主入库，主记录已落盘
                                                fields: draft.confirmationSet.confirmedFields,
                                                engineVersion: "ocr-pipeline")
+            }
+            // 「替换」语义：新版本已确认入库，此时才归档旧版（第四轮全仓审查
+            // 修复——此前先归档后确认，取消确认卡 = 旧版已归档+新版未入库，
+            // 用户资料凭空少一份）。归档失败不阻断：列表刷新即真实状态。
+            if let replaceId = draft.replaceDocumentId {
+                try? await store.setArchived(id: replaceId, archived: true)   // try?-ok: 归档旧版失败不阻断主入库流程，下次列表刷新自愈
             }
             await load(patientId: draft.patientId)
         } catch {
@@ -270,8 +307,12 @@ final class DocumentsState {
                 lastImportError = L10n.docImportFailed
                 return nil
             }
+            // MIME 按字节嗅探（第四轮全仓审查修复：原把扩展名直接当 MIME 传，
+            // 扩展名与内容脱钩后 fileExtension(for:) 映射恒回落 .jpg）
+            let mime = ImageInputRules.sniffMimeType(of: data,
+                                                     fallback: "image/\(url.pathExtension.lowercased())")
             return await prepareImageDraft(patientId: patientId, originalData: data, processedData: data,
-                                           mimeType: url.pathExtension, docType: docType,
+                                           mimeType: mime, docType: docType,
                                            title: url.lastPathComponent, isSensitive: isSensitive, origin: "import")
         default:
             // Word/其他格式：元数据入库（文件名/哈希）+ 原件落盘（BR-002），文本解析待升级
@@ -303,13 +344,14 @@ final class DocumentsState {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             let data = try Data(contentsOf: url)
-            let decoder = PDFKitDecoder()
             var texts: [String] = []
             var failedPages = 0
             // FR14.1 authOcr：授权关闭 → 不逐页识别（只归档，meta 标 skipped）
             let ocrOn = ocrAuthorized()
             if ocrOn {
-                // 逐页流式：单页渲染→识别→释放（页位图不整体驻留内存）
+                // 逐页流式：单页渲染→识别→释放（页位图不整体驻留内存）。
+                // 解码器经 EAL 注入（ADR-027：调用方不直接实例化具体引擎——
+                // 第四轮全仓审查修复，测试可替身、注册表解码工厂不再死代码）。
                 try await decoder.decodePDFPages(data, scale: 2.0, maxPages: 50) { page in
                     // ADR-026：PDF 逐页识别同样经统一编排层
                     let result = (try? await self.pipeline.run(imageData: page.bitmapData))   // try?-ok: 单页失败继续下一页（FR6.6 汇总时标注）
@@ -361,20 +403,23 @@ final class DocumentsState {
     /// 绝不自动删除（归档=软删语义）。并存/替换同样经确认卡（返回草稿而非直接写库）。
     func resolveDuplicate(_ resolution: DuplicateResolution) async -> ImportDraft? {
         defer { pendingDuplicate = nil; duplicateHits = [] }
-        guard let pending = pendingDuplicate, let patientId = loadingPatientId else { return nil }
+        // 第四轮全仓审查修复（5WHY）：归属用 pending 自带的 patientId（导入时
+        // 固化），绝不用 loadingPatientId——导入后裁决前切换成员/从未 load
+        // 时，草稿会被挂到错误成员名下或被静默丢弃且误报「已保存」。
+        guard let pending = pendingDuplicate else { return nil }
+        let patientId = pending.patientId
         switch resolution {
         case .keep:
             return nil   // 丢弃新文件——原件未被写入，无清理动作
         case .coexist, .replace:
             break
         }
-        if resolution == .replace, let old = duplicateHits.first {
-            try? await store.setArchived(id: old.id, archived: true)   // try?-ok: 归档旧版失败不阻断新版入库确认流程，归档状态列表刷新时会自愈
-        }
+        // 「替换」的归档动作延后到确认卡入库之后（见 ImportDraft.replaceDocumentId）
         return await buildDraft(patientId: patientId, originalData: pending.originalData,
                                 processedData: pending.processedData, mimeType: pending.mimeType,
                                 docType: pending.docType, title: pending.title,
-                                isSensitive: pending.isSensitive, origin: pending.origin, sha256: pending.sha256)
+                                isSensitive: pending.isSensitive, origin: pending.origin, sha256: pending.sha256,
+                                replaceDocumentId: resolution == .replace ? duplicateHits.first?.id : nil)
     }
 
     /// BR-003 D→C：用户显式确认机器识别文本后才进入检索与 AI 事实链。
@@ -403,9 +448,13 @@ struct DocumentLibraryView: View {
     @State private var showImportSource = false
     @State private var showArchived = false
     @State private var fileImporterActive = false
+    /// 文件多选串行队列（与 photoQueue 同纪律：单槽占用时暂停）
+    @State private var fileQueue: [URL] = []
     @State private var photosImporterActive = false
     @State private var showManualCreate = false
     @State private var pickedPhotos: [PhotosPickerItem] = []
+    /// 相册多选串行队列（第四轮全仓审查修复：防并发 Task 覆盖单槽状态）
+    @State private var photoQueue: [PhotosPickerItem] = []
     @State private var showImportError = false
     /// FR6.1 确认卡（此前导入即以 D 级静默入库，无用户确认环节）：OCR 后展示，
     /// 用户逐条确认/改正才写入数据库。
@@ -467,43 +516,47 @@ struct DocumentLibraryView: View {
             Text(state.lastImportError ?? L10n.docImportFailed)
         }
         .onChange(of: state.lastImportError) { _, err in
-            showImportError = err != nil
+            // pendingDraft 打开时由确认卡自带「保存失败」告警呈现（Phase 3
+            // 补漏：父级不叠加，同一失败不得双弹窗）
+            showImportError = err != nil && pendingDraft == nil
         }
-        // FR5.1/FR5.7 文件导入（PDF/图片；批量多选逐份入库，归属确认在文档层 FR3.3 覆盖）
+        // FR5.1/FR5.7 文件导入（PDF/图片；批量多选逐份入库，归属确认在文档层 FR3.3 覆盖）。
+        // 串行队列（第四轮全仓审查修复：多选图片时多个草稿写同一 pendingDraft
+        // 单槽，前一份被静默覆盖丢弃）
         .fileImporter(isPresented: $fileImporterActive,
                       allowedContentTypes: [.pdf, .image],
                       allowsMultipleSelection: true) { result in
             guard case .success(let urls) = result else { return }
-            Task {
-                for url in urls {
-                    if url.pathExtension.lowercased() == "pdf" {
-                        await state.importPDF(patientId: app.currentPatientId, url: url,
-                                              docType: L10n.docTypeReport)
-                    } else if let draft = await state.importDocument(patientId: app.currentPatientId, url: url,
-                                                                      docType: L10n.docTypeReport) {
-                        pendingDraft = draft
-                    }
-                }
-            }
+            // 追加而非替换（Phase 3 补漏：前一批未处理完时重开不丢件）
+            fileQueue.append(contentsOf: urls)
+            processFileQueue()
         }
         // FR5.1 相册导入（逐份走归属确认——当前成员确认条在文档层已有 FR3.3 覆盖）
         .photosPicker(isPresented: $photosImporterActive, selection: $pickedPhotos,
                       maxSelectionCount: 5, matching: .images)
         .onChange(of: pickedPhotos) { _, items in
             guard !items.isEmpty else { return }
-            for item in items {
-                Task {
-                    if let data = try? await item.loadTransferable(type: Data.self) {   // try?-ok: 单项失败跳过，不阻塞批次
-                        if let draft = await state.prepareImageDraft(
-                            patientId: app.currentPatientId, originalData: data, processedData: data,
-                            mimeType: "image/jpeg", docType: L10n.docTypeRecord, title: nil,
-                            isSensitive: false, origin: "photoLibrary") {
-                            pendingDraft = draft
-                        }
-                    }
-                }
-            }
+            // 第四轮全仓审查修复（5WHY）：原实现每项一个并发 Task 各自写
+            // pendingDraft/pendingDuplicate 单槽——多选命中多份重复时后完成者
+            // 覆盖先完成者，前面的照片静默丢弃。改为串行队列 + 单槽占用时
+            // 暂停推进（确认卡/重复裁决 sheet 关掉后经 onChange 续跑）。
+            // 追加而非替换（Phase 3 补漏）：前一批仍在处理时重开选择器，
+            // 替换会静默丢弃未处理的剩余项。
+            photoQueue.append(contentsOf: items)
             pickedPhotos = []
+            processPhotoQueue()
+        }
+        .onChange(of: state.pendingDuplicate) { _, dup in
+            if dup == nil {
+                processPhotoQueue()
+                processFileQueue()
+            }
+        }
+        .onChange(of: pendingDraft) { _, draft in
+            if draft == nil {
+                processPhotoQueue()
+                processFileQueue()
+            }
         }
         .sheet(isPresented: $showManualCreate) {
             ManualDocumentSheet { title, type, note in
@@ -522,6 +575,48 @@ struct DocumentLibraryView: View {
     private var duplicateAlertBinding: Binding<Bool> {
         Binding(get: { state.pendingDuplicate != nil },
                 set: { if !$0 { Task { await state.resolveDuplicate(.keep) } } })
+    }
+
+    /// 相册多选串行推进：单槽（确认卡/重复裁决 sheet）被占用时暂停，
+    /// 关掉后续跑（onChange 驱动）。一张处理完再下一张——多选命中多份
+    /// 重复时逐一呈现，绝不静默丢弃（第四轮全仓审查修复）。
+    private func processPhotoQueue() {
+        guard !photoQueue.isEmpty else { return }
+        guard state.pendingDuplicate == nil else { return }
+        guard pendingDraft == nil else { return }
+        let item = photoQueue.removeFirst()
+        Task {
+            if let data = try? await item.loadTransferable(type: Data.self) {   // try?-ok: 单项失败跳过，不阻塞批次（错误经 lastImportError 可见）
+                // MIME 按字节嗅探（第四轮全仓审查修复：相册 HEIC 曾硬编码
+                // image/jpeg 导致原件扩展名与内容不符）
+                let mime = ImageInputRules.sniffMimeType(of: data)
+                if let draft = await state.prepareImageDraft(
+                    patientId: app.currentPatientId, originalData: data, processedData: data,
+                    mimeType: mime, docType: L10n.docTypeRecord, title: nil,
+                    isSensitive: false, origin: "photoLibrary") {
+                    pendingDraft = draft
+                }
+            }
+            processPhotoQueue()
+        }
+    }
+
+    /// 文件多选串行推进（与 processPhotoQueue 同纪律）
+    private func processFileQueue() {
+        guard !fileQueue.isEmpty else { return }
+        guard state.pendingDuplicate == nil else { return }
+        guard pendingDraft == nil else { return }
+        let url = fileQueue.removeFirst()
+        Task {
+            if url.pathExtension.lowercased() == "pdf" {
+                await state.importPDF(patientId: app.currentPatientId, url: url,
+                                      docType: L10n.docTypeReport)
+            } else if let draft = await state.importDocument(patientId: app.currentPatientId, url: url,
+                                                              docType: L10n.docTypeReport) {
+                pendingDraft = draft
+            }
+            processFileQueue()
+        }
     }
 }
 
@@ -648,6 +743,7 @@ struct DocumentStoreDetailView: View {
     @Environment(AppState.self) private var app
     let doc: DocumentStore.DocumentRow
     @State private var showOriginal = false
+    @State private var showIssueSheet = false
 
     private var originalPath: String? {
         guard let json = doc.metaJSON, let data = json.data(using: .utf8),
@@ -694,11 +790,22 @@ struct DocumentStoreDetailView: View {
             }
         }
         .sheet(isPresented: $showOriginal) {
-            if let path = originalPath, let image = UIImage(contentsOfFile: path) {
-                NavigationStack {
-                    Image(uiImage: image)
-                        .resizable().scaledToFit()
-                        .padding(12)
+            if let path = originalPath {
+                if doc.isSensitive {
+                    // BR-007/008：敏感原图经 SensitiveMediaOriginalView——认证后
+                    // 拉取字节、逐次解锁、退后台重锁、ImageIO 降采样（第四轮
+                    // 全仓审查修复：原手写 sheet 全分辨率直显且无快照重锁）
+                    SensitiveMediaOriginalView(imageData: nil, caption: L10n.docTitle(doc.title),
+                                               originalLoader: { try? Data(contentsOf: URL(fileURLWithPath: path)) })   // try?-ok: 读取失败按「不可查看」降级
+                } else {
+                    // 非敏感原图也走 ImageIO 降采样（§5.10 大图 OOM 纪律）
+                    NavigationStack {
+                        if let data = try? Data(contentsOf: URL(fileURLWithPath: path)),   // try?-ok: 读取失败按「不可查看」降级
+                           let image = ImageIOImageLoader.downsample(data: data, maxDimension: 2048) {
+                            Image(uiImage: image)
+                                .resizable().scaledToFit()
+                                .padding(12)
+                        }
                         .navigationTitle(L10n.docViewOriginal)
                         .navigationBarTitleDisplayMode(.inline)
                         .toolbar {
@@ -706,11 +813,32 @@ struct DocumentStoreDetailView: View {
                                 Button(L10n.onboard_gotIt) { showOriginal = false }
                             }
                         }
+                    }
                 }
             }
         }
         .navigationTitle(L10n.docDetailTitle)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            // FR6.7 报告识别问题（第四轮全仓审查修复：入口随旧详情页删除后
+            // 全链路静默消失——reportRecognitionIssue 成为零调用死 API，
+            // 用户无法反馈 OCR 错识；§5.53 表单随本页重建）
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showIssueSheet = true
+                } label: {
+                    Image(systemName: "exclamationmark.bubble")
+                }
+                .accessibilityLabel(L10n.docReportIssue)
+                .accessibilityIdentifier("SP-09.document.detail.reportIssue")
+            }
+        }
+        .sheet(isPresented: $showIssueSheet) {
+            ReportIssueSheet(documentId: doc.id, fields: []) { kind, fieldKey, note in
+                app.reportRecognitionIssue(documentId: doc.id,
+                                           meta: "kind=\(kind);field=\(fieldKey);note=\(note)")
+            }
+        }
     }
 }
 
@@ -755,7 +883,9 @@ struct DuplicateCompareSheet: View {
                         title: L10n.docDuplicateExisting,
                         name: existing?.title ?? L10n.docUntitled,
                         date: existing.map { $0.createdAt.formatted(date: .abbreviated, time: .omitted) } ?? "",
-                        grade: "C")
+                        // 第四轮全仓审查修复：原硬编码 "C"——已存在的 D 级未确认
+                        // 文档在对比页被按已确认事实呈现（D 当事实渲染点）
+                        grade: existing?.grade ?? "C")
                     compareColumn(
                         title: L10n.docDuplicateNewFile,
                         name: newTitle,
@@ -797,5 +927,74 @@ struct DuplicateCompareSheet: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
         .background(RoundedRectangle(cornerRadius: 10).fill(Color(.secondarySystemGroupedBackground)))
+    }
+}
+
+/// §5.53 识别错误反馈表单（V3.72）：错误类型四分类 + 错误字段 + 备注；
+/// 提交即落审计并 Toast 已记录（FR22.5 最小化：默认只附脱敏信息）。
+/// 第四轮全仓审查修复：随旧 TimelineDocumentDetailView 删除的 FR6.7 入口
+/// 重建于 SP-09 文档详情页——错误类型/字段/备注随 meta 落审计。
+struct ReportIssueSheet: View {
+    let documentId: UUID
+    let fields: [CandidateField]
+    let onSubmit: (String, String, String) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var kind = "fieldWrong"
+    @State private var fieldKey: String?
+    @State private var note = ""
+    @State private var submitted = false
+
+    private let kinds = [
+        ("fieldWrong", L10n.reportIssueFieldWrong),
+        ("missingField", L10n.reportIssueMissing),
+        ("layout", L10n.reportIssueLayout),
+        ("engine", L10n.reportIssueEngine),
+    ]
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section(L10n.reportIssueKind) {
+                    Picker("", selection: $kind) {
+                        ForEach(kinds, id: \.0) { k in Text(k.1).tag(k.0) }
+                    }
+                    .pickerStyle(.inline)
+                }
+                if !fields.isEmpty {
+                    Section(L10n.reportIssueField) {
+                        Picker("", selection: $fieldKey) {
+                            Text(L10n.reportIssueFieldAll).tag(String?.none)
+                            ForEach(fields) { f in
+                                Text(f.displayLabel).tag(String?.some(f.key))
+                            }
+                        }
+                    }
+                }
+                Section(L10n.reportIssueNote) {
+                    TextField(L10n.reportIssueNoteHint, text: $note, axis: .vertical)
+                        .lineLimit(2...5)
+                }
+                Section {
+                    Text(L10n.reportIssueMinimal)
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+            .navigationTitle(L10n.docReportIssue)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(L10n.onboard_cancel) { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(L10n.reportIssueSubmit) {
+                        onSubmit(kind, fieldKey ?? "", note)
+                        submitted = true
+                    }
+                }
+            }
+            .alert(L10n.reportIssueSubmitted, isPresented: $submitted) {
+                Button(L10n.onboard_gotIt, role: .cancel) { dismiss() }
+            }
+        }
     }
 }

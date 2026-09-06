@@ -1410,3 +1410,11 @@
 "question.add" = "新增問題";
 "home.voice" = "語音輸入";
 "notification.center" = "通知中心";
+"image_input.noText" = "未識別到文字。你可以直接輸入報告內容，或換一張更清晰的照片。";
+"docConfirm.confidenceHigh" = "高置信度";
+"docConfirm.confidenceMid" = "中置信度";
+"docConfirm.confidenceLow" = "低置信度";
+"docConfirm.reject" = "放棄";
+"docConfirm.reenable" = "恢復";
+"docConfirm.allConfirmBlocked" = "存在低置信度欄位，請逐項核對後再儲存。";
+"docConfirm.saveFailedTitle" = "儲存失敗";

@@ -26,8 +26,10 @@ struct HomeView: View {
     @State private var showVoicePanel = false
     @State private var notifDenied = false
     @State private var dismissNotifBanner = false
-    /// 「了解 AI」引导任务完成态（会话级——点击即打勾，不持久化）
-    @State private var aiGuideVisited = false
+    /// 「了解 AI」引导任务完成态（第四轮全仓审查修复：原为会话级 @State——
+    /// 重启即复现，「完成打勾消失」的卡片承诺落空；改持久化，
+    /// 与其余三项「数据驱动完成」同为准持久事实源）
+    @AppStorage("homeGuide4Visited") private var aiGuideVisited = false
     /// 快速拍摄以 sheet 呈现（TestFlight 实测修复：此前 navigate 进 records Tab
     /// 栈——返回落到健康档案页、path 残留套娃、重复进入出错；模态呈现则
     /// 拍完即回首页，不改变导航上下文）
@@ -67,11 +69,13 @@ struct HomeView: View {
         return items.sorted { $0.at < $1.at }
     }
 
-    // ③ 待确认 OCR 数：grade 'D' 文档数（BR-003 机器识别未确认；V3.39 起
+    // ③ 待确认 OCR 数：D 级文档数（BR-003 机器识别未确认；V3.39 起
     // 数据源 = DocumentStore 活管线——旧 app.timeline 投影镜像已随向导简化删除，
-    // 首页必须持续催办直至处理，72h 置顶规则由 FR2.3 承接）
+    // 首页必须持续催办直至处理，72h 置顶规则由 FR2.3 承接）。
+    // 判定走 DocumentRow.isPendingConfirmation（第四轮全仓审查修复：
+    // grade=="D" 裸字符串 8 处内联收敛为单一谓词）
     private var pendingOCRCount: Int {
-        docs.documents.filter { $0.grade == "D" }.count
+        docs.documents.filter(\.isPendingConfirmation).count
     }
 
     // ④ 即将到期（7 天窗口）：预约 + 药品临期（V3.72 回填：批次效期 ≤7 天并入）
@@ -348,11 +352,13 @@ struct HomeView: View {
         .accessibilityIdentifier("SP-04.home.profileProgress")
     }
 
-    /// §5.2 72h 未处理置顶钉住（V3.72）：任一 grade 'D' 文档超 72 小时未确认 →
-    /// 红胶囊 + 该卡移至全部卡片之前（与聚合队列同一条 Domain 判定语义）
+    /// §5.2 72h 未处理置顶钉住（V3.72）：任一 D 级文档超 72 小时未确认 →
+    /// 红胶囊 + 该卡移至全部卡片之前。单一 Domain 出口 PendingOcrRules
+    /// （第四轮全仓审查修复：此前首页/队列/通知中心三种表述各写一遍，
+    /// 日历日与固定秒数在 DST 切换日口径分歧——注释自称「同一条 Domain
+    /// 判定语义」而实际并无共享函数，现已收敛）
     private var hasOverdueOcr: Bool {
-        let cutoff = DayArithmetic.offset(days: -3, from: Date())
-        return docs.documents.contains { $0.grade == "D" && $0.createdAt < cutoff }
+        docs.documents.contains { PendingOcrRules.isOverdue(createdAt: $0.createdAt) }
     }
 
     private var pendingOcrCard: some View {
@@ -530,11 +536,15 @@ struct HomeView: View {
     }
 
     private func load() async {
-        await reminderStore.refreshTriggered(patientId: app.currentPatientId)
-        await hub.load(patientId: app.currentPatientId)
-        await observationState.load(patientId: app.currentPatientId)
-        await docs.load(patientId: app.currentPatientId)
-        await app.loadMembers()
+        // 五个相互独立的仓并发加载（第四轮全仓审查效率修复：原五连串行
+        // await——每次切回首页串行支付 5 轮 actor 往返 + 查询延迟；共享
+        // DatabasePool 支持并发读，同仓 M2HubStore.load 已确立 async let 模式）
+        async let r: Void = reminderStore.refreshTriggered(patientId: app.currentPatientId)
+        async let h: Void = hub.load(patientId: app.currentPatientId)
+        async let o: Void = observationState.load(patientId: app.currentPatientId)
+        async let d: Void = docs.load(patientId: app.currentPatientId)
+        async let m: Void = app.loadMembers()
+        _ = await (r, h, o, d, m)
         // FR9.6：通知权限关闭时首页常驻提示（可关、次日重现——以 dismiss 态重置实现）
         notifDenied = await reminderStore.notificationDenied
         dismissNotifBanner = false

@@ -177,6 +177,28 @@ public struct GRDBStore {
     ///   物化窗口重建，留存只会重复；无法重算的已决议行保留原 id（事实优先）。
     private static func recomputeLogicalDoseIds(_ db: Database) throws {
         let calendar = Calendar.current
+        // 第四轮全仓审查效率修复（5WHY）：原实现每条 dose_log 行内嵌套查
+        // medication_plan（N+1）+ 行内新建 JSONDecoder——长期用药用户数千至
+        // 数万行时启动迁移按行数线性放大。计划表一次性读入字典（计划数
+        // 远小于剂量行数），JSONDecoder 提到循环外复用（PDFExportService
+        // 同仓先例）。语义不变：无法匹配计划的行为沿用原降级路径。
+        let decoder = JSONDecoder()
+        let planRows = try Row.fetchAll(db, sql: """
+            SELECT id, schedule_json, start_date FROM medication_plan
+            """)
+        var plans: [String: (schedule: MedicationSchedule, startDate: Date)] = [:]
+        for plan in planRows {
+            guard let planId = plan["id"] as String?,
+                  let start = plan["start_date"] as Double? else { continue }
+            let schedule: MedicationSchedule
+            if let json = (plan["schedule_json"] as String?)?.data(using: .utf8),
+               let decoded = try? decoder.decode(MedicationSchedule.self, from: json) {   // try?-ok: 单条计划日程损坏沿用 asNeeded 降级（与原逐行语义一致）
+                schedule = decoded
+            } else {
+                schedule = MedicationSchedule.asNeeded
+            }
+            plans[planId] = (schedule, Date(timeIntervalSince1970: start))
+        }
         let rows = try Row.fetchAll(db, sql: """
             SELECT id, plan_id, scheduled_for, user_action FROM medication_dose_log
             """)
@@ -187,28 +209,21 @@ public struct GRDBStore {
             let planId = row["plan_id"] as String
             let scheduledFor = row["scheduled_for"] as Double
             var recomputed: String?
-            if let plan = try Row.fetchOne(db, sql: """
-                SELECT schedule_json, start_date FROM medication_plan WHERE id = ?
-                """, arguments: [planId]) {
-                if let json = (plan["schedule_json"] as String?)?.data(using: .utf8) {
-                    let schedule: MedicationSchedule
-                    do { schedule = try JSONDecoder().decode(MedicationSchedule.self, from: json) }
-                    catch { schedule = MedicationSchedule.asNeeded }
-                    let startDate = Date(timeIntervalSince1970: plan["start_date"] as Double)
-                    let time = Date(timeIntervalSince1970: scheduledFor)
-                    let dayOf = calendar.dateComponents([.day],
-                        from: calendar.startOfDay(for: startDate),
-                        to: calendar.startOfDay(for: time)).day ?? 0
-                    let fromDay = max(1, dayOf - 2)
-                    let (doses, _) = DoseScheduleEngine.doses(
-                        schedule: schedule, planId: UUID(uuidString: planId) ?? UUID(),
-                        startDate: startDate, fromDay: fromDay, toDay: fromDay + 4,
-                        calendar: calendar)
-                    if let nearest = doses.min(by: {
-                        abs($0.dueAt.timeIntervalSince(time)) < abs($1.dueAt.timeIntervalSince(time))
-                    }) {
-                        recomputed = nearest.notifyId
-                    }
+            if let plan = plans[planId] {
+                let startDate = plan.startDate
+                let time = Date(timeIntervalSince1970: scheduledFor)
+                let dayOf = calendar.dateComponents([.day],
+                    from: calendar.startOfDay(for: startDate),
+                    to: calendar.startOfDay(for: time)).day ?? 0
+                let fromDay = max(1, dayOf - 2)
+                let (doses, _) = DoseScheduleEngine.doses(
+                    schedule: plan.schedule, planId: UUID(uuidString: planId) ?? UUID(),
+                    startDate: startDate, fromDay: fromDay, toDay: fromDay + 4,
+                    calendar: calendar)
+                if let nearest = doses.min(by: {
+                    abs($0.dueAt.timeIntervalSince(time)) < abs($1.dueAt.timeIntervalSince(time))
+                }) {
+                    recomputed = nearest.notifyId
                 }
             }
             if let newId = recomputed, newId != currentId {

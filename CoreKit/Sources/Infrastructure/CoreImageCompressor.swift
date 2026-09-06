@@ -17,6 +17,7 @@ public final class CoreImageCompressor: ImageCompressing, SensitiveMediaProtecti
     /// 敏感媒体解锁是 BR-007/008 红线路径，每次认证独立 context。
     private var protectedMedia: Set<String> = []
     private let mediaLock = NSLock()
+    private static let sharedContext = CIContext()
 
     public init() {}
 
@@ -37,7 +38,9 @@ public final class CoreImageCompressor: ImageCompressing, SensitiveMediaProtecti
             ci = filter.outputImage ?? ci
         }
 
-        let context = CIContext()
+        // 共享 CIContext（GPU 上下文创建成本高；CIContext 线程安全可跨调用
+        // 复用——第四轮全仓审查效率修复，与 VisionImagePreprocessor 同纪律）
+        let context = Self.sharedContext
         guard let cgOut = context.createCGImage(ci, from: ci.extent),
               let data = NSMutableData() as CFMutableData?,
               let dest = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil) else {

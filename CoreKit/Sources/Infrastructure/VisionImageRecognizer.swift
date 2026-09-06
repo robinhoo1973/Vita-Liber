@@ -15,6 +15,16 @@ public final class VisionImageRecognizer: ImageTextRecognizing, @unchecked Senda
     public init() {}
 
     public func recognize(_ imageData: Data) async throws -> ImageInputRules.Recognition {
+        // 第四轮全仓审查效率修复（5WHY）：函数体无 actor 跳转，从 MainActor
+        // （OCRPipeline ← DocumentsState 导入流）await 进来时全分辨率
+        // .accurate 识别在主线程同步执行，逐页 PDF 连续卡 UI。detached 跳出
+        // 主线程；VN handler/request 非 Sendable，全部在闭包内构造不外逃。
+        try await Task.detached(priority: .userInitiated) {
+            try Self.performRecognition(imageData)
+        }.value
+    }
+
+    private static func performRecognition(_ imageData: Data) throws -> ImageInputRules.Recognition {
         // VNImageRequestHandler(data:) 在 iOS 18 SDK 是非 failable 初始化器，
         // `guard let` 的 optional 绑定直接编译失败（CI Xcode 16 报
         // 「initializer for conditional binding must have Optional type」；

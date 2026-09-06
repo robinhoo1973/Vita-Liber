@@ -68,38 +68,37 @@ public actor PDFExportService {
     }
 
     /// 收集导出数据（按维度过滤；敏感媒体只出元数据与 C 级确认文本——BR-007/008）
-    private func collect(_ request: ExportRequest) async throws -> (documents: [TimelineDocumentEntry], records: [(kind: String, title: String, at: Date, detail: String)]) {
+    private func collect(_ request: ExportRequest) async throws -> (documents: [(title: String?, at: Date)], records: [(kind: String, title: String, at: Date, detail: String)]) {
         try await writer.read { db in
-            var docs: [TimelineDocumentEntry] = []
             var dateClause = ""
             var args: [DatabaseValueConvertible] = [request.patientId.uuidString]
             if let from = request.dateFrom { dateClause += " AND created_at >= ?"; args.append(from.timeIntervalSince1970) }
             if let to = request.dateTo { dateClause += " AND created_at <= ?"; args.append(to.timeIntervalSince1970) }
+            // 第四轮全仓审查修复（5WHY）：此前按 TimelineDocumentEntry 解码
+            // meta_json——V3.39 拆镜像后该投影无写入方，解码恒失败被静默
+            // continue，活管线入库文档从 PDF 导出中全部消失（FR13.2 数据丢失）。
+            // 改读 document_file 直列：正文 = ocr_text（commitDraft 只写入已确认
+            // 字段值），且仅导出 grade='C'（BR-003/BR-007：未确认 D 级文本
+            // 绝不进入导出文件）；docTypes 维度过滤在此正确下沉 SQL。
+            var typeClause = ""
+            if let docTypes = request.docTypes, !docTypes.isEmpty {
+                typeClause += " AND doc_type IN (\(docTypes.map { _ in "?" }.joined(separator: ",")))"
+                args += docTypes.map { $0 as DatabaseValueConvertible }
+            }
             let rows = try Row.fetchAll(db, sql: """
-                SELECT meta_json FROM document_file
-                WHERE patient_id = ? AND status IN ('active','favorite') \(dateClause)
+                SELECT title, ocr_text, created_at FROM document_file
+                WHERE patient_id = ? AND status IN ('active','favorite')
+                  AND grade = 'C' AND ocr_text IS NOT NULL AND ocr_text != '' \(dateClause) \(typeClause)
                 ORDER BY created_at ASC
                 """, arguments: StatementArguments(args))
-            let decoder = JSONDecoder()   // 审查修复：解码器提到循环外（per-row 类型元数据初始化）
-            for row in rows {
-                guard let json = row["meta_json"] as String?,
-                      let data = json.data(using: .utf8) else { continue }
-                do { docs.append(try decoder.decode(TimelineDocumentEntry.self, from: data)) }
-                catch { continue }
-            }
-            // FR13.2 按类型维度：TimelineDocumentEntry 无 doc_type 列（meta 投影），
-            // 类型过滤依赖文档层元数据——此处对「全部/未指定」直通，具体类型
-            // 过滤由导出向导在文档列表维度执行（不静默扩大导出范围）。
-            let filtered = docs
+            var docs: [(title: String?, at: Date)] = []
             var records: [(String, String, Date, String)] = []
-            for doc in filtered {
-                // 审查修复（BR-003/BR-007）：导出正文只含已确认字段——
-                // 原实现把未确认 D 级 OCR 猜测以正式记录姿态拼入导出文件，
-                // 与文件头纪律与 PDF 免责声明（仅呈现你确认过的记录）直接矛盾
-                let confirmed = (doc.fields ?? []).filter { $0.isConfirmed }
-                let detail = confirmed.map { "\($0.displayLabel): \($0.value)" }.joined(separator: "\n")
-                records.append((request.kindLabel("record"), request.titleLabel(doc.title),
-                                Date(timeIntervalSince1970: doc.occurredAt), detail))
+            for row in rows {
+                let title = row["title"] as String?
+                let detail = row["ocr_text"] as String? ?? ""
+                let at = Date(timeIntervalSince1970: row["created_at"] as Double)
+                docs.append((title, at))
+                records.append((request.kindLabel("record"), request.titleLabel(title ?? ""), at, detail))
             }
             // 观察记录（描述为 C 级自述文本；敏感媒体不出正文）
             let obsRows = try Row.fetchAll(db, sql: """
@@ -132,7 +131,7 @@ public actor PDFExportService {
                                 Date(timeIntervalSince1970: row["date"] as Double),
                                 (row["diagnosis_text"] as String?) ?? ""))
             }
-            return (filtered, records)
+            return (docs, records)
         }
     }
 

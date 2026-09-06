@@ -22,18 +22,19 @@ struct OnboardingFlowView: View {
             }
             .padding(.horizontal, 20).padding(.vertical, 8)
             switch app.stage {
-        case .disclosure(let i):
-            if i < app.disclosureCards.count {
-                DisclosureCardsView(card: app.disclosureCards[i])
-            } else {
-                EmptyView()
+            case .disclosure(let i):
+                // else 分支为防御性兜底（disclosureCards 为空时索引越界→空白而非崩溃）
+                if i < app.disclosureCards.count {
+                    DisclosureCardsView(card: app.disclosureCards[i])
+                } else {
+                    EmptyView()
+                }
+            case .ownerName:
+                OwnerSetupView()
+            case .addFamily:
+                // FR21.9 ④ 添加家人（可跳过）——向导最后一步
+                AddFamilyStepView()
             }
-        case .ownerName:
-            OwnerSetupView()
-        case .addFamily:
-            // FR21.9 ④ 添加家人（可跳过）——向导最后一步
-            AddFamilyStepView()
-        }
         }
     }
 

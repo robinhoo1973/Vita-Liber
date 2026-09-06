@@ -15,8 +15,10 @@ struct NotificationCenterView: View {
     @Environment(NotificationCenterState.self) private var notificationState
     @Environment(DocumentsState.self) private var docs
 
-    /// 条目处理状态（已读/归档持久化；未登记 = .unread）
-    @State private var itemStates: [String: NotificationItemState] = [:]
+    /// 第四轮全仓审查修复（5WHY）：视图曾维护本地 @State itemStates 影子副本，
+    /// 而 NotificationCenterState.load(keys:) 灌入的持久化状态（重启后已读/
+    /// 归档）从不被消费——持久化形同虚设、重启即全部回到未读（FR14.8
+    /// 回归）。渲染与写入一律走门面 itemStates，删除影子副本。
 
     var body: some View {
         List {
@@ -155,12 +157,15 @@ struct NotificationCenterView: View {
         hub.alertEvents.filter { $0.severity != .L0 && $0.patientId == app.currentPatientId }
     }
 
-    /// 待确认 OCR 数：grade 'D' 文档数（V3.39 起数据源 = DocumentStore 活管线）
+    /// 待确认 OCR 数：D 级文档数（V3.39 起数据源 = DocumentStore 活管线；
+    /// 谓词收敛为 DocumentRow.isPendingConfirmation）
     private var pendingOCRCount: Int {
-        docs.documents.filter { $0.grade == "D" }.count
+        docs.documents.filter(\.isPendingConfirmation).count
     }
 
-    private func state(for key: String) -> NotificationItemState { itemStates[key] ?? .unread }
+    private func state(for key: String) -> NotificationItemState {
+        notificationState.itemStates[key] ?? .unread
+    }
 
     private func loadStates() async {
         var keys: [String] = []
@@ -173,19 +178,13 @@ struct NotificationCenterView: View {
     }
 
     private func markRead(_ key: String) {
-        itemStates[key] = .read
-        Task {
-            try? await notificationState.markRead(key)   // try?-ok: 标记失败下次进入仍可重试，不阻断导航
-        }
+        notificationState.markRead(key)
     }
 
     @ViewBuilder
     private func archiveAction(_ key: String) -> some View {
         Button(role: .destructive) {
-            itemStates[key] = .archived
-            Task {
-                try? await notificationState.markArchived(key)   // try?-ok: 归档失败保留本地态，下次重载校正
-            }
+            notificationState.markArchived(key)
         } label: {
             Label(L10n.ncArchive, systemImage: "archivebox")
         }

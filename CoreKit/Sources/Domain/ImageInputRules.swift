@@ -32,15 +32,60 @@ public enum ImageInputRules {
                                value: body, grade: .ocrUnconfirmed)]
     }
 
-    /// 无文字时的降级文案（纯事实 + 手输替代——不含建议/应该等负清单词，
-    /// BR-006 措辞纪律同样适用）
-    public static let noTextMessage = "未识别到文字。你可以直接输入报告内容，或换一张更清晰的照片。"
+    /// 无文字时的降级提示（纯事实 + 手输替代——不含建议/应该等负清单词，
+    /// BR-006 措辞纪律同样适用）。Domain 只出类型化键，文案由 App 层 L10n
+    /// 渲染（第四轮全仓审查修复：原 `noTextMessage` 为 Domain 硬编码简体
+    /// 中文，zh-Hant/en 用户直见简体，且 L0 中文扫描只覆盖视图层、门禁永不红）。
     public static let noTextKey = "image_input.noText"
 
     /// 图片文本可否直接作为「提问」提交：
     /// - 有文字 → 必须先经确认卡（用户逐条确认后才可提交，BR-003）；
-    /// - 无文字 → 返回 nil，UI 展示 `noTextMessage`。
+    /// - 无文字 → 返回 nil，UI 展示 noTextKey 对应文案。
     public static func requiresConfirmation(_ recognition: Recognition) -> Bool {
         !recognition.isEmpty
+    }
+
+    /// 支持的图片扩展名白名单（全仓唯一出处——快速拍摄/资料库两入口共用；
+    /// 第四轮全仓审查修复：原为两份手写副本，新增格式只改一处时另一入口
+    /// 对同格式悄然走「归档元数据」降级路径）。
+    public static let supportedImageExtensions: Set<String> = [
+        "png", "jpg", "jpeg", "heic", "heif", "gif", "webp",
+    ]
+
+    /// 按文件字节头嗅探真实图片 MIME（扩展名不可信——相册 HEIC 曾被
+    /// 硬编码为 image/jpeg，PNG 原件以 .jpg 落盘，扩展名与内容不符，
+    /// BR-002 原图语义受损）。未知字节回落调用方提供的兜底值。
+    public static func sniffMimeType(of data: Data, fallback: String = "image/jpeg") -> String {
+        let b = [UInt8](data.prefix(12))
+        if b.count >= 8, b[0] == 0x89, b[1] == 0x50, b[2] == 0x4E, b[3] == 0x47 {
+            return "image/png"
+        }
+        if b.count >= 3, b[0] == 0xFF, b[1] == 0xD8, b[2] == 0xFF {
+            return "image/jpeg"
+        }
+        if b.count >= 6, b[0] == 0x47, b[1] == 0x49, b[2] == 0x46, b[3] == 0x38 {
+            return "image/gif"
+        }
+        if b.count >= 12, b[0] == 0x52, b[1] == 0x49, b[2] == 0x46, b[3] == 0x46,
+           b[8] == 0x57, b[9] == 0x45, b[10] == 0x42, b[11] == 0x50 {
+            return "image/webp"
+        }
+        if b.count >= 12, b[4] == 0x66, b[5] == 0x74, b[6] == 0x79, b[7] == 0x70,
+           b[8] == 0x68, b[9] == 0x65, b[10] == 0x69, b[11] == 0x63 {
+            return "image/heic"   // ftyp heic（heif/heix/mif1 同族）
+        }
+        return fallback
+    }
+
+    /// MIME → 落盘扩展名（BR-002 原件扩展名与内容一致；未知回落 "jpg"）。
+    public static func fileExtension(for mimeType: String) -> String {
+        switch mimeType.lowercased() {
+        case "image/png": return "png"
+        case "image/gif": return "gif"
+        case "image/webp": return "webp"
+        case "image/heic", "image/heif": return "heic"
+        case "image/jpeg", "image/jpg": return "jpg"
+        default: return "jpg"
+        }
     }
 }

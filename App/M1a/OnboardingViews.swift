@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 import Domain
 
 /// M1a 首启流程视图（V3.39 简化）：L1 三卡 → 建档 → 添加家人（无 PIN 步骤）。

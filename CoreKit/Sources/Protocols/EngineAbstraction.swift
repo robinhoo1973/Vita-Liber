@@ -86,6 +86,18 @@ public final class EngineRegistry: @unchecked Sendable {
         store[ObjectIdentifier(factory)] = Registration(capability: capability, factory: factory)
     }
 
+    /// 注册（仅当未注册）——测试桩先行注入后默认引擎不得覆盖。
+    /// 第四轮全仓审查修复（5WHY）：默认引擎批量注册为无条件 register，
+    /// 部分注册（仅注入 OCR/语音桩之一）时其余默认引擎的注册会覆盖已注入桩；
+    /// AppState 的幂等守卫只探测单一工厂键，与消费的三个工厂键不一致，
+    /// 注入静默失效。改为逐工厂 if-absent 语义后调用方无需探测。
+    public func registerIfAbsent<C, F: EngineFactory>(_ capability: C, for factory: F.Type)
+        where C == F.Capability {
+        lock.lock(); defer { lock.unlock() }
+        guard store[ObjectIdentifier(factory)] == nil else { return }
+        store[ObjectIdentifier(factory)] = Registration(capability: capability, factory: factory)
+    }
+
     /// 解析某能力协议（调用方只拿协议，不拿具体类型）。
     /// 未注册即 fatalError：这是装配次序契约（组合根必须先 register），
     /// 宁可启动即崩也不带病运行——调用方可用 `isRegistered` 先探。

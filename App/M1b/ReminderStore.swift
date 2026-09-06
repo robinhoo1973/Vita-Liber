@@ -64,8 +64,14 @@ final class ReminderStore {
     /// force 例外（评审修正第二轮）：时区显著变化（FR9.6 第 3 层）必须立即对账
     /// ——墙钟重锚拖到下次前台会让剂量通知在错误当地时间触发，去抖不得吞它。
     func refreshTriggered(patientId: UUID?, now: Date = Date(), force: Bool = false) async {
-        guard !refreshInFlight else { return }
+        // 第四轮全仓审查修复（5WHY）：成员维度例外必须先于在途/去抖守卫判定——
+        // 原实现 refreshInFlight 守卫在最前，刷新在途时切换成员被整体丢弃，
+        // 与注释「换成员永远立即放行（BR-001 隔离）」直接矛盾：旧刷新完成后
+        // loadingPatientId==旧成员校验通过、把旧成员时段卡写入状态。成员变化
+        // 与 force 同样绕过在途与去抖；并发写状态由 refresh 内
+        // 「loadingPatientId == patientId」守卫兜底（只允许最新请求写回）。
         let isNewPatient = patientId != lastTriggerPatientId
+        guard force || isNewPatient || !refreshInFlight else { return }
         guard force || isNewPatient || now.timeIntervalSince(lastTriggerRefreshAt) >= 0.5 else { return }
         lastTriggerRefreshAt = now
         lastTriggerPatientId = patientId

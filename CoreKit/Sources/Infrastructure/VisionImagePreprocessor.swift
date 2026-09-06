@@ -25,46 +25,66 @@ public final class VisionImagePreprocessor: ImagePreprocessing, @unchecked Senda
                                      version: baseVersion + 1)
         }
 
-        // 1) 解码为 CGImage
-        guard let cgImage = decodeCGImage(originalData) else { throw PreprocessError.decodeFailed }
+        // 从 MainActor 视图 await 进来时函数体无 actor 跳转（Vision 检测/
+        // 矫正/JPEG 编码全程 CPU 密集），detached 跳出主线程执行（H3 效率修复）。
+        return try await Task.detached(priority: .userInitiated) {
+            // 1) 解码为 CGImage（EXIF 方向已归一化——decodeCGImage 见下）
+            guard let cgImage = decodeCGImage(originalData) else { throw PreprocessError.decodeFailed }
 
-        // 2) 透视矫正（若启用）
-        var corrected: CIImage = CIImage(cgImage: cgImage)
-        if params.enablePerspectiveCorrection {
-            corrected = try await detectAndCorrectPerspective(corrected)
-        }
+            // 2) 透视矫正（若启用）
+            var corrected: CIImage = CIImage(cgImage: cgImage)
+            if params.enablePerspectiveCorrection {
+                corrected = try await detectAndCorrectPerspective(corrected)
+            }
 
-        // 3) 色彩模式
-        corrected = applyColorMode(corrected, mode: params.colorMode)
+            // 3) 色彩模式
+            corrected = applyColorMode(corrected, mode: params.colorMode)
 
-        // 4) 旋转（评审修正：CGImagePropertyOrientation 无 rotationDegrees 工厂——
-        //    方向枚举八态语义含 EXIF 隐含翻转，不适合表达「旋转 N 度」；
-        //    用 CGAffineTransform 旋转，正角 = 逆时针（CG 坐标），与预览旋转一致）
-        if params.rotationDegrees != 0 {
-            let angle = Double(params.rotationDegrees) * .pi / 180.0
-            corrected = corrected.transformed(by: CGAffineTransform(rotationAngle: angle))
-        }
+            // 4) 旋转（评审修正：CGImagePropertyOrientation 无 rotationDegrees 工厂——
+            //    方向枚举八态语义含 EXIF 隐含翻转，不适合表达「旋转 N 度」；
+            //    用 CGAffineTransform 旋转，正角 = 逆时针（CG 坐标），与预览旋转一致）
+            if params.rotationDegrees != 0 {
+                let angle = Double(params.rotationDegrees) * .pi / 180.0
+                corrected = corrected.transformed(by: CGAffineTransform(rotationAngle: angle))
+            }
 
-        // 5) 编码为 JPEG Data
-        let processedData = try encodeToJPEG(corrected)
+            // 5) 编码为 JPEG Data
+            let processedData = try encodeToJPEG(corrected)
 
-        return PreprocessedImage(processedData: processedData,
-                                 originalData: originalData,
-                                 appliedParams: params,
-                                 version: baseVersion + 1)
+            return PreprocessedImage(processedData: processedData,
+                                     originalData: originalData,
+                                     appliedParams: params,
+                                     version: baseVersion + 1)
+        }.value
     }
 
     // MARK: - 私有实现
 
+    /// 解码并归一化 EXIF 方向（第四轮全仓审查修复，5WHY 根因）：
+    /// 竖拍照片（EXIF orientation 6/8）的原始传感器像素是横版，而 UI 显示
+    /// （UIImage）按方向元数据旋转为竖版——此前 decodeCGImage 用
+    /// CGImageSourceCreateImageAtIndex 不应用方向变换，检测/矫正作用于横版
+    /// 像素空间、四角手柄作用于竖版显示空间，两者相差 90°→矫正输出旋转/畸变。
+    /// 改走 Thumbnail API（kCGImageSourceCreateThumbnailWithTransform 应用
+    /// EXIF 变换），MaxPixelSize 取原图最长边——不降采样只归正。
     private func decodeCGImage(_ data: Data) -> CGImage? {
-        guard let src = CGImageSourceCreateWithData(data as CFData, nil),
-              let cg = CGImageSourceCreateImageAtIndex(src, 0, nil) else { return nil }
-        return cg
+        guard let src = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any]
+        let width = (props?[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue ?? 0
+        let height = (props?[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue ?? 0
+        let maxPixels = max(width, height, 1)
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixels,
+        ]
+        return CGImageSourceCreateThumbnailAtIndex(src, 0, options as CFDictionary)
     }
 
     private func detectAndCorrectPerspective(_ ciImage: CIImage) async throws -> CIImage {
         guard let obs = try await detectQuad(ciImage) else { throw PreprocessError.noDocumentDetected }
-        return try perspectiveCorrect(ciImage, obs: obs)
+        return try perspectiveCorrect(ciImage, quad: quadCorners(from: obs))
     }
 
     /// Vision 矩形检测（后台队列，不阻塞主线程 —— C7）：返回归一化四角
@@ -84,15 +104,16 @@ public final class VisionImagePreprocessor: ImagePreprocessing, @unchecked Senda
         return obs
     }
 
-    /// 按四角（Vision 左下原点归一化坐标）对图像做透视矫正。
-    private func perspectiveCorrect(_ ciImage: CIImage, obs: VNRectangleObservation) throws -> CIImage {
-        let extent = ciImage.extent
-        let inputTopLeft = CIVector(x: obs.topLeft.x * extent.width, y: (1 - obs.topLeft.y) * extent.height)
-        let inputTopRight = CIVector(x: obs.topRight.x * extent.width, y: (1 - obs.topRight.y) * extent.height)
-        let inputBottomLeft = CIVector(x: obs.bottomLeft.x * extent.width, y: (1 - obs.bottomLeft.y) * extent.height)
-        let inputBottomRight = CIVector(x: obs.bottomRight.x * extent.width, y: (1 - obs.bottomRight.y) * extent.height)
-        return try applyPerspectiveFilter(ciImage, topLeft: inputTopLeft, topRight: inputTopRight,
-                                          bottomLeft: inputBottomLeft, bottomRight: inputBottomRight)
+    /// Vision 左下原点 → QuadCorners 左上原点（UIKit 惯例）：y 取反。
+    /// 全仓唯一换算出口（第四轮全仓审查修复：原「1 - y」翻转曾以三种形态
+    /// 散落三处——obs 重载内联×4、quad 重载 toVector、detectQuad flip，
+    /// 坐标系语义修正须同步三处，漏改一处即自动/手动矫正镜像错位）。
+    private func quadCorners(from obs: VNRectangleObservation) -> QuadCorners {
+        func flip(_ p: CGPoint) -> Domain.NormalizedPoint {
+            Domain.NormalizedPoint(x: Double(p.x), y: 1 - Double(p.y))
+        }
+        return QuadCorners(topLeft: flip(obs.topLeft), topRight: flip(obs.topRight),
+                           bottomLeft: flip(obs.bottomLeft), bottomRight: flip(obs.bottomRight))
     }
 
     /// 按四角（`QuadCorners`：左上原点归一化坐标，交互式选区 UI 的坐标契约）
@@ -155,7 +176,9 @@ public final class VisionImagePreprocessor: ImagePreprocessing, @unchecked Senda
     }
 
     private func encodeToJPEG(_ image: CIImage) throws -> Data {
-        let context = CIContext()
+        // 共享 CIContext（GPU 上下文创建成本高；CIContext 线程安全可跨调用复用——
+        // 第四轮全仓审查效率修复，与 CoreImageCompressor 同纪律）
+        let context = Self.sharedContext
         guard let cg = context.createCGImage(image, from: image.extent),
               let data = NSMutableData() as CFMutableData?,
               let dest = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil) else {
@@ -166,23 +189,29 @@ public final class VisionImagePreprocessor: ImagePreprocessing, @unchecked Senda
         return data as Data
     }
 
+    private static let sharedContext = CIContext()
+
     // MARK: - 交互式选区（M-PREPROC 手动裁剪，用户拖拽四角）
 
     public func detectQuad(_ originalData: Data) async -> QuadCorners? {
-        guard let cgImage = decodeCGImage(originalData) else { return nil }
-        let ciImage = CIImage(cgImage: cgImage)
-        guard let obs = try? await detectQuad(ciImage) else { return nil }   // try?-ok: 检测失败按「未检出」处理，UI 回落整图四角，不是错误流程
-        // Vision 左下原点 → QuadCorners 左上原点（UIKit 惯例）：y 取反
-        func flip(_ p: CGPoint) -> Domain.NormalizedPoint { Domain.NormalizedPoint(x: Double(p.x), y: 1 - Double(p.y)) }
-        return QuadCorners(topLeft: flip(obs.topLeft), topRight: flip(obs.topRight),
-                           bottomLeft: flip(obs.bottomLeft), bottomRight: flip(obs.bottomRight))
+        // 从 MainActor 视图（ScanRegionEditorView）await 进来：detached 跳出主线程，
+        // 解码+Vision 检测不冻结 UI（H3 效率修复）
+        await Task.detached(priority: .userInitiated) {
+            guard let cgImage = decodeCGImage(originalData) else { return nil }
+            let ciImage = CIImage(cgImage: cgImage)
+            guard let obs = try? await detectQuad(ciImage) else { return nil }   // try?-ok: 检测失败按「未检出」处理，UI 回落整图四角，不是错误流程
+            return quadCorners(from: obs)
+        }.value
     }
 
     public func correctPerspective(_ originalData: Data, corners: QuadCorners) async throws -> Data {
-        guard let cgImage = decodeCGImage(originalData) else { throw PreprocessError.decodeFailed }
-        let ciImage = CIImage(cgImage: cgImage)
-        let corrected = try perspectiveCorrect(ciImage, quad: corners)
-        return try encodeToJPEG(corrected)
+        // detached：透视矫正 + JPEG 编码为 CPU/GPU 密集，不阻塞主线程（H3 效率修复）
+        try await Task.detached(priority: .userInitiated) {
+            guard let cgImage = decodeCGImage(originalData) else { throw PreprocessError.decodeFailed }
+            let ciImage = CIImage(cgImage: cgImage)
+            let corrected = try perspectiveCorrect(ciImage, quad: corners)
+            return try encodeToJPEG(corrected)
+        }.value
     }
 }
 #endif

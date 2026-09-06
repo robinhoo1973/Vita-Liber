@@ -243,24 +243,37 @@ public actor MedicationStore: DoseSource {
                 ORDER BY m.generic_name, l.expire_at
                 """, arguments: [patientId.uuidString])
             var items: [InventorySummaryItem] = []
+            // 第四轮全仓审查效率修复（5WHY）：原实现每个批次行内嵌套查该药的
+            // schedule_json（N+1）且每次解码新建 JSONDecoder——首页续药卡热路径
+            // 随批次×计划数线性劣化。解码器提到循环外复用；同药的 schedule 按
+            // medicationId 缓存（同药多批次常见）。语义不变。
+            let decoder = JSONDecoder()
+            var dailyCache: [String: Double] = [:]
             for row in rows {
                 // 日当量：active 计划的 schedule_json 在 Swift 侧解码估算——
                 // 枚举 JSON 形态多样（fixed/interval/meal/…），SQL JSON1 路径
                 // 会静默失配，宁可多写几行解码也不把「约剩 N 天」建在静默失效上。
                 let medicationId = row["medication_id"] as String
-                let schedules = try String.fetchAll(db, sql: """
-                    SELECT schedule_json FROM medication_plan
-                    WHERE medication_id = ? AND status = 'active'
-                    """, arguments: [medicationId])
-                var daily = 0.0
-                for json in schedules {
-                    guard let data = json.data(using: .utf8) else { continue }
-                    // 损坏的 schedule_json 跳过该计划（与 materializeWindow 同语义；
-                    // 不用 try? —— tech-spec §7 红线）
-                    let schedule: MedicationSchedule
-                    do { schedule = try JSONDecoder().decode(MedicationSchedule.self, from: data) }
-                    catch { continue }
-                    daily += Self.estimatedDailyUnits(schedule)
+                let daily: Double
+                if let cached = dailyCache[medicationId] {
+                    daily = cached
+                } else {
+                    let schedules = try String.fetchAll(db, sql: """
+                        SELECT schedule_json FROM medication_plan
+                        WHERE medication_id = ? AND status = 'active'
+                        """, arguments: [medicationId])
+                    var total = 0.0
+                    for json in schedules {
+                        guard let data = json.data(using: .utf8) else { continue }
+                        // 损坏的 schedule_json 跳过该计划（与 materializeWindow 同语义；
+                        // 不用 try? —— tech-spec §7 红线）
+                        let schedule: MedicationSchedule
+                        do { schedule = try decoder.decode(MedicationSchedule.self, from: data) }
+                        catch { continue }
+                        total += Self.estimatedDailyUnits(schedule)
+                    }
+                    dailyCache[medicationId] = total
+                    daily = total
                 }
                 let planUnits = row["remaining_plan_units"] as Double
                 let confirmedUnits = row["remaining_confirmed_units"] as Double

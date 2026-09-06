@@ -24,6 +24,11 @@
 #   [14] project.yml scheme 校验 —— scheme 测试目标必须是项目内声明的 target，
 #        禁止 {name, package} 包测试引用（XcodeGen Spec validation error，
 #        CI 34017824105 实证：包测试目标进 scheme 会在 macOS 首步即炸）
+#   [15] 类型层启发式门禁 —— Linux 无法编译 App/（SwiftUI 缺失），swiftc -parse
+#        只查语法；以下四族类型错误仅 macOS L1 编译门禁可暴露，静态启发式左移拦截：
+#        跨层引用缺 import（CI d0c1008）/ Date 与 Double 混比较（CI 34032245120）
+#        / iOS 专用符号未套 #if os(iOS)（CI 34018308312）/ #if os(Linux) 桩
+#        类型在非守卫区使用（CI 34018552283）。豁免标记 `// tius-ok: <理由>`。
 #
 # 运行环境：bash 3.2+（兼容 macOS 自带 bash）/ python3 或 node 或 jq（仅 JSON 校验用）。
 #           macOS/Linux 原生可跑；Windows 用 Git Bash 或等价 l0-static-gate.py。
@@ -646,6 +651,14 @@ if l10n_swift.exists():
         reg_missing = sorted(registered - keysets[files[0]])
         if reg_missing:
             bad.append(f"L10n.swift: registeredKeys 有 {len(reg_missing)} 个键不在 .strings: {reg_missing[:8]}")
+    # 第四轮全仓审查修复（反向判定）：静态 t() 键必须登记 registeredKeys——
+    # 原单方向检查（registeredKeys ⊆ .strings）覆盖不到「键被删出 .strings 而
+    # 登记表未同步」与「新键从未登记」两条路径，L0/L1 全绿、运行时裸 key 上屏。
+    # 动态键（t("prefix.\\(expr)")）按其展开键落 .strings，不参与静态判定。
+    static_t_keys = {k for k in re.findall(r't\(\s*"([^"]+)"', src) if "\\(" not in k}
+    unregistered = sorted(static_t_keys - registered)
+    if unregistered:
+        bad.append(f"L10n.swift: {len(unregistered)} 个静态 t() 键未登记 registeredKeys: {unregistered[:8]}")
 if bad:
     for msg in bad[:20]:
         print("FAIL:", msg)
@@ -735,6 +748,28 @@ PYEOF
     while IFS= read -r ln; do fail "$ln"; done < <(printf '%s\n' "$PYML_SCAN" | grep '^FAIL:')
   else
     pass "$(printf '%s\n' "$PYML_SCAN" | grep '^PASS:' | head -1)"
+  fi
+fi
+
+# ---------- [15] 类型层启发式门禁 ----------
+section "15/15" "类型层启发式 —— 跨层 import 覆盖/Date·Double 混比/iOS 专用符号守卫/Linux 桩守卫外使用（四族 CI 实证左移）"
+# 背景：App/（SwiftUI）在 Linux 无法编译，swiftc -parse 只查语法不查语义，
+# 以下四族类型错误只有 macOS L1 编译门禁才能暴露（每族均有 CI 实证）：
+#   跨层引用缺 import（d0c1008）/ Date 与 Double 混比较（34032245120）
+#   / iOS 专用符号未套 #if os(iOS)（34018308312）/ Linux 桩类型守卫外使用（34018552283）。
+# 判定器独立成文件（l0-typecheck-heuristics.py），与 [10]/[13] 同纪律：
+# python3 平台无关判定 + ERR#27 空扫/失效一律不得判 PASS。
+if ! command -v python3 >/dev/null 2>&1; then
+  fail "无 python3 —— 类型层启发式不可执行，不得空扫判 PASS（ERR#27）"
+else
+  THEUR="$(python3 "$SCRIPT_DIR/l0-typecheck-heuristics.py" "$APP" 2>&1 || true)"
+  t_scanned="$(printf '%s\n' "$THEUR" | sed -n 's/^__SCANNED__ //p' | head -1)"
+  if [ -z "$t_scanned" ]; then
+    fail "类型层启发式无 __SCANNED__ 计数 —— 判定器失效，不得判 PASS（ERR#27）"
+  elif printf '%s\n' "$THEUR" | grep -q '^FAIL:'; then
+    while IFS= read -r ln; do fail "$ln"; done < <(printf '%s\n' "$THEUR" | grep '^FAIL:')
+  else
+    pass "$(printf '%s\n' "$THEUR" | sed -n 's/^__SCANNED__ //p') 个文件通过四族启发式"
   fi
 fi
 

@@ -114,12 +114,17 @@ public enum PrescriptionFieldMapper {
     }
 
     /// 用户确认后的字段 → 落库用的 hospital/doctor/adviceText 三元组。
-    public static func buildAdviceText(confirmed: [CandidateField]) -> (hospital: String?, doctor: String?, adviceText: String) {
+    /// 医院/医生按**标签身份**（labels 注入的 L10n 文案）判定，绝不用简体
+    /// 字面量匹配——第四轮全仓审查修复：原 contains("医院")/contains("医生")
+    /// 在 zh-Hant/en 环境下 displayLabel 为「醫院/醫師」/Doctor 等本地化串，
+    /// 简体字面量永不命中 → hospital/doctor 结构化列恒为 NULL，用户已确认的
+    /// 信息静默丢失。
+    public static func buildAdviceText(confirmed: [CandidateField], labels: Labels) -> (hospital: String?, doctor: String?, adviceText: String) {
         var hospital: String?
         var doctor: String?
         let lines = confirmed.map { field -> String in
-            if field.displayLabel.contains("医院") { hospital = field.value }
-            if field.displayLabel.contains("医生") || field.displayLabel.contains("医师") { doctor = field.value }
+            if field.displayLabel == labels.hospital { hospital = field.value }
+            if field.displayLabel == labels.doctor { doctor = field.value }
             return "\(field.displayLabel)：\(field.value)"
         }
         return (hospital, doctor, lines.joined(separator: "\n"))
@@ -140,8 +145,12 @@ public enum PrescriptionFieldMapper {
     }
 
     private static func guessLabel(_ line: String, isFirst: Bool, labels: Labels) -> String {
-        if line.contains("医院") { return labels.hospital }
-        if line.contains("医生") || line.contains("医师") { return labels.doctor }
+        // 关键词启发式只决定「展示标签」（BR-003 不预设事实）。医院/医生关键词
+        // 须覆盖繁简两种字形（zh-Hant 处方原文为「醫院/醫師/醫生」）——
+        // 第四轮全仓审查修复：原仅简体字面量，繁体 OCR 原文的医院/医生行
+        // 全部落「其他」标签。
+        if line.contains("医院") || line.contains("醫院") { return labels.hospital }
+        if line.contains("医生") || line.contains("醫生") || line.contains("医师") || line.contains("醫師") { return labels.doctor }
         if line.contains("每") && (line.contains("日") || line.contains("天")) && line.contains("次") { return labels.frequency }
         if line.contains("片") || line.contains("粒") || line.contains("毫升") || line.contains("mg")
             || line.contains("ml") || line.contains("mL") { return labels.dosage }

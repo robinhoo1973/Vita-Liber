@@ -124,25 +124,21 @@ public actor EncounterStore {
         }
     }
 
-    /// FR4.3 就诊总结页数据源：待确认 OCR 字段清单（BR-003 红点标记）
+    /// FR4.3 就诊总结页数据源：待确认 OCR 资料清单（BR-003 红点标记）。
+    /// 第四轮全仓审查修复（5WHY）：此前按 TimelineDocumentEntry 解码 meta_json——
+    /// V3.39 拆镜像后该投影无写入方（活管线写 {original_path,...} 信封），
+    /// 解码恒失败被 continue 跳过，红点清单对全部新文档恒空、BR-003 提示
+    /// 静默失效。现按文档级 D 级语义直查：grade='D' 即「整体未确认」，
+    /// fieldCount=1（资料级未确认单位——字段级队列语义随 SP-53 决策项另行裁定）。
     public func unconfirmedFields(patientId: UUID) async throws -> [(documentId: UUID, fieldCount: Int)] {
         try await writer.read { db in
             let rows = try Row.fetchAll(db, sql: """
-                SELECT id, meta_json FROM document_file
-                WHERE patient_id = ? AND status IN ('active','favorite')
+                SELECT id FROM document_file
+                WHERE patient_id = ? AND status IN ('active','favorite') AND grade = 'D'
                 """, arguments: [patientId.uuidString])
-            var out: [(UUID, Int)] = []
-            for row in rows {
-                guard let json = (row["meta_json"] as String?)?.data(using: .utf8) else { continue }
-                guard let entry = try? JSONDecoder().decode(TimelineDocumentEntry.self, from: json) else { // try?-ok: 损坏的 meta_json 跳过该行（历史行逐条降级，§7 语义）
-                    continue
-                }
-                let unconfirmed = (entry.fields ?? []).filter { !$0.isConfirmed }.count
-                if unconfirmed > 0, let id = UUID(uuidString: row["id"] as String) {
-                    out.append((id, unconfirmed))
-                }
+            return rows.compactMap { row in
+                UUID(uuidString: row["id"] as String).map { ($0, 1) }
             }
-            return out
         }
     }
 
@@ -153,14 +149,27 @@ public actor EncounterStore {
 
     private static func rows(_ db: Database, sql: String, arguments: StatementArguments) throws -> [EncounterRow] {
         let rows = try Row.fetchAll(db, sql: sql, arguments: arguments)
+        // 第四轮全仓审查效率修复（5WHY）：原实现每个就诊行内再发一条 SELECT
+        // 取关联文档（N+1——SP-08 列表热路径随就诊数线性劣化）。改为一次
+        // GROUP BY 取回全部关联（归档文档不计入，与列表/搜索活跃态口径一致）。
+        let encounterIds = rows.compactMap { $0["id"] as String }
+        var linkedByEncounter: [String: [UUID]] = [:]
+        if !encounterIds.isEmpty {
+            let placeholders = Array(repeating: "?", count: encounterIds.count).joined(separator: ",")
+            let docRows = try Row.fetchAll(db, sql: """
+                SELECT encounter_id, id FROM document_file
+                WHERE encounter_id IN (\(placeholders)) AND status IN ('active','favorite')
+                """, arguments: StatementArguments(encounterIds))
+            for doc in docRows {
+                guard let enc = doc["encounter_id"] as String?,
+                      let docId = UUID(uuidString: doc["id"] as String) else { continue }
+                linkedByEncounter[enc, default: []].append(docId)
+            }
+        }
         var out: [EncounterRow] = []
         for row in rows {
             let id = UUID(uuidString: row["id"] as String) ?? UUID()
-            // 评审修正：归档文档不再计入关联数（与列表/搜索的活跃态口径一致）
-            let linked: [UUID] = try Row.fetchAll(db, sql: """
-                SELECT id FROM document_file
-                WHERE encounter_id = ? AND status IN ('active','favorite')
-                """, arguments: [id.uuidString]).compactMap { UUID(uuidString: $0["id"] as String) }
+            let linked = linkedByEncounter[row["id"] as String] ?? []
             out.append(EncounterRow(
                 id: id,
                 patientId: UUID(uuidString: row["patient_id"] as String) ?? UUID(),

@@ -22,7 +22,9 @@ final class TrendEntryState {
     func load(patientId: UUID) async {
         loadingPatientId = patientId
         do {
-            let range = DateInterval(start: Date().addingTimeInterval(-90 * 86400), end: Date())
+            // DST 纪律（第四轮全仓审查修复：原固定 -90*86400 秒，切换日窗口
+            // 边界漂移 ±1 小时——仓库既定出口 DayArithmetic 日历日）
+            let range = DateInterval(start: DayArithmetic.offset(days: -90, from: Date()), end: Date())
             let loaded = try await store.series(for: patientId, metric: .glucose, range: range)
             // BR-001 成员隔离：切换成员会取消旧 .task，但已在飞行中的 actor 调用仍会返回。
             // 晚到的旧成员结果绝不能覆盖当前成员状态（否则甲的曲线显示在乙的档案下）。
@@ -41,7 +43,8 @@ final class TrendEntryState {
     func loadDetail(patientId: UUID, metricKey: String) async {
         loadingPatientId = patientId
         do {
-            let range = DateInterval(start: Date().addingTimeInterval(-365 * 86400), end: Date())
+            // DST 纪律（同上）
+            let range = DateInterval(start: DayArithmetic.offset(days: -365, from: Date()), end: Date())
             let metric = MetricType(rawValue: metricKey) ?? .glucose
             let loaded = try await store.series(for: patientId, metric: metric, range: range)
             guard loadingPatientId == patientId else { return }

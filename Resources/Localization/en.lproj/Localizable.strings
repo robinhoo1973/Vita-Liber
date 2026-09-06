@@ -1410,3 +1410,11 @@
 "question.add" = "Add question";
 "home.voice" = "Voice input";
 "notification.center" = "Notification Center";
+"image_input.noText" = "No text recognized. You can enter the report content manually or try a clearer photo.";
+"docConfirm.confidenceHigh" = "High confidence";
+"docConfirm.confidenceMid" = "Mid confidence";
+"docConfirm.confidenceLow" = "Low confidence";
+"docConfirm.reject" = "Discard";
+"docConfirm.reenable" = "Restore";
+"docConfirm.allConfirmBlocked" = "Some fields have low confidence — review each one before saving.";
+"docConfirm.saveFailedTitle" = "Save Failed";

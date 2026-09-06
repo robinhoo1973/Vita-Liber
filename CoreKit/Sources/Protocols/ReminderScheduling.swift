@@ -63,6 +63,14 @@ public actor InMemoryReminderScheduler: ReminderScheduling {
     public func pending() async throws -> [String: Date] { pendingMap }
     public func delivered() async throws -> Set<String> { deliveredSet }
 
+    /// 生产 UNReminderScheduler.removeDelivered 清 delivered 集；桩此前继承
+    /// 协议空默认实现——simulateDelivery 后 delivered 永不清理，经桩验证
+    /// 「确认后清锁屏残留/备份提醒下周期再武装」的用例与生产行为漂移
+    /// （假绿/假红双向）。第四轮全仓审查修复：覆写与生产同语义。
+    public func removeDelivered(_ notifyIds: [String]) async throws {
+        for id in notifyIds { deliveredSet.remove(id) }
+    }
+
     /// 测试辅助：模拟系统送达（把 pending 移入 delivered）
     public func simulateDelivery(upTo now: Date) async {
         let fired = pendingMap.filter { $0.value <= now }

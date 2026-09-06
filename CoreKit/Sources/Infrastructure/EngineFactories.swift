@@ -112,14 +112,16 @@ public enum SensitiveMediaProtectionFactory: EngineFactory {
 
 extension EngineRegistry {
     /// App 启动处调用：按当前上下文一次性注册全部引擎能力。
+    /// if-absent 语义（第四轮全仓审查修复）：部分注册的测试桩不得被
+    /// 默认引擎覆盖——注册表幂等，组合根可安全重复调用。
     public func registerDefaultEngines() {
         let ctx = EngineContext.current
-        register(OCRRecognizerFactory.make(ctx), for: OCRRecognizerFactory.self)
-        register(SpeechSynthesisFactory.make(ctx), for: SpeechSynthesisFactory.self)
-        register(TranscriptionEngineFactory.make(ctx), for: TranscriptionEngineFactory.self)
-        register(ImagePreprocessingFactory.make(ctx), for: ImagePreprocessingFactory.self)
-        register(ImageDecodingFactory.make(ctx), for: ImageDecodingFactory.self)
-        register(ImageCompressingFactory.make(ctx), for: ImageCompressingFactory.self)
-        register(SensitiveMediaProtectionFactory.make(ctx), for: SensitiveMediaProtectionFactory.self)
+        registerIfAbsent(OCRRecognizerFactory.make(ctx), for: OCRRecognizerFactory.self)
+        registerIfAbsent(SpeechSynthesisFactory.make(ctx), for: SpeechSynthesisFactory.self)
+        registerIfAbsent(TranscriptionEngineFactory.make(ctx), for: TranscriptionEngineFactory.self)
+        registerIfAbsent(ImagePreprocessingFactory.make(ctx), for: ImagePreprocessingFactory.self)
+        registerIfAbsent(ImageDecodingFactory.make(ctx), for: ImageDecodingFactory.self)
+        registerIfAbsent(ImageCompressingFactory.make(ctx), for: ImageCompressingFactory.self)
+        registerIfAbsent(SensitiveMediaProtectionFactory.make(ctx), for: SensitiveMediaProtectionFactory.self)
     }
 }

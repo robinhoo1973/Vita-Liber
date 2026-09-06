@@ -29,6 +29,10 @@ struct QuickCaptureView: View {
     @State private var showCamera = false
     /// FR5.2 四角选区+透视矫正（拍摄/相册/文件图片共用）：待选区的原始图片。
     @State private var pendingRegionImage: UIImage?
+    /// 原始字节（BR-002 原件保真——第四轮全仓审查修复：原相册/文件来源读到的
+    /// 原始 Data 被丢弃，落盘的「原件」是 0.9 质量 JPEG 重编码，校验值/内容
+    /// 均与源文件不符；相机无源字节时用 1.0 质量编码兜底）
+    @State private var pendingRegionOriginalData: Data?
     @State private var regionOrigin = "import"
     /// 相机来源需要选区后再走遮挡步骤（FR5.4）；相册/文件图片没有遮挡步骤。
     @State private var regionNeedsOcclusion = false
@@ -37,6 +41,7 @@ struct QuickCaptureView: View {
     @State private var pendingOcclusionImage: UIImage?
     /// 遮挡前的原始帧（未矫正/未遮挡，BR-002）——与遮挡后的展示版一同落盘。
     @State private var pendingOcclusionOriginal: UIImage?
+    @State private var pendingOcclusionOriginalData: Data?
     @State private var showOcclusion = false
     @State private var pickedItem: PhotosPickerItem?
     @State private var fileImporterActive = false
@@ -128,27 +133,49 @@ struct QuickCaptureView: View {
         .sheet(isPresented: $showRegionEditor) {
             if let img = pendingRegionImage {
                 ScanRegionEditorView(image: img) { original, rectified in
+                    let originalData = pendingRegionOriginalData
                     pendingRegionImage = nil
                     if regionNeedsOcclusion {
+                        // 遮挡 sheet 的呈现交给 onChange(showRegionEditor)：同一
+                        // MainActor 事务内「关选区 sheet + 开遮挡 sheet」存在
+                        // 已知的 sheet 过渡冲突（第四轮全仓审查修复——遮挡
+                        // sheet 可能不呈现、流程卡死）
                         pendingOcclusionOriginal = original
+                        pendingOcclusionOriginalData = originalData
                         pendingOcclusionImage = rectified
-                        showOcclusion = true
                     } else {
-                        Task { await commitRectified(original: original, processed: rectified) }
+                        Task { await commitRectified(originalData: originalData, processed: rectified) }
                     }
                 } onSkip: {
                     pendingRegionImage = nil
+                    pendingRegionOriginalData = nil
                 }
+            }
+        }
+        .onChange(of: showRegionEditor) { _, showing in
+            if !showing && pendingOcclusionImage != nil {
+                showOcclusion = true
+            }
+        }
+        .onChange(of: showOcclusion) { _, showing in
+            if !showing {
+                // 取消遮挡编辑器时清残留（第四轮全仓审查修复：原状态滞留，
+                // 下次拍摄可能复用上一张的遮挡原图）
+                pendingOcclusionImage = nil
+                pendingOcclusionOriginal = nil
+                pendingOcclusionOriginalData = nil
             }
         }
         .sheet(isPresented: $showOcclusion) {
             if let img = pendingOcclusionImage {
                 OcclusionEditorView(originalImage: img) { processed in
-                    let original = pendingOcclusionOriginal ?? img
+                    let originalData = pendingOcclusionOriginalData
+                        ?? pendingOcclusionOriginal?.jpegData(compressionQuality: 1.0)
                     pendingOcclusionImage = nil
                     pendingOcclusionOriginal = nil
+                    pendingOcclusionOriginalData = nil
                     showOcclusion = false
-                    Task { await commitRectified(original: original, processed: processed) }
+                    Task { await commitRectified(originalData: originalData, processed: processed) }
                 }
             }
         }
@@ -179,7 +206,9 @@ struct QuickCaptureView: View {
             Task {
                 if let data = try? await item.loadTransferable(type: Data.self),   // try?-ok: 单项加载失败走错误路径可见，不阻塞后续
                    let image = UIImage(data: data) {
-                    beginRegionSelect(image: image, needsOcclusion: false, origin: "photoLibrary")
+                    // 原始字节贯穿选区/矫正链（BR-002 原件保真）
+                    beginRegionSelect(image: image, originalData: data,
+                                      needsOcclusion: false, origin: "photoLibrary")
                 } else {
                     importFailed = true
                 }
@@ -191,11 +220,13 @@ struct QuickCaptureView: View {
             case .success(let urls):
                 guard let url = urls.first else { return }
                 let scoped = url.startAccessingSecurityScopedResource()
-                let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "heic", "heif", "gif", "webp"]
-                if imageExtensions.contains(url.pathExtension.lowercased()),
+                // 扩展名白名单单一出处（第四轮全仓审查修复：原与
+                // DocumentLibraryView 各持一份手写副本）
+                if ImageInputRules.supportedImageExtensions.contains(url.pathExtension.lowercased()),
                    let data = try? Data(contentsOf: url), let image = UIImage(data: data) {   // try?-ok: 读取失败走错误路径可见
                     if scoped { url.stopAccessingSecurityScopedResource() }
-                    beginRegionSelect(image: image, needsOcclusion: false, origin: "import")
+                    beginRegionSelect(image: image, originalData: data,
+                                      needsOcclusion: false, origin: "import")
                 } else {
                     Task {
                         _ = await docs.importDocument(patientId: app.currentPatientId, url: url,
@@ -216,6 +247,16 @@ struct QuickCaptureView: View {
         }
         .alert(L10n.docImportFailed, isPresented: $importFailed) {
             Button(L10n.commonCancel, role: .cancel) { }
+        }
+        // 第四轮全仓审查修复：确认卡内 commitDraft 失败（磁盘满/约束错误）
+        // 只置 lastImportError 不抛出——本视图无 finishImport 兜底时失败
+        // 静默（用户以为已保存）。监听错误态并弹可见告警（FR6.6）。
+        // pendingDraft == nil 守卫（Phase 3 补漏）：确认卡打开时由其自带
+        // 「保存失败」告警呈现，父级不再叠加「导入失败」——同一失败双弹窗。
+        .onChange(of: docs.lastImportError) { _, err in
+            if err != nil && pendingDraft == nil {
+                importFailed = true
+            }
         }
     }
 
@@ -252,28 +293,35 @@ struct QuickCaptureView: View {
 
     private func handleImage(_ image: UIImage) {
         showCamera = false
-        beginRegionSelect(image: image, needsOcclusion: true, origin: "camera")
+        // 相机无源字节：1.0 质量编码兜底（BR-002 尽量保真；相机帧本身是
+        // 传感器 JPEG，不再叠加 0.9 二次损失）
+        beginRegionSelect(image: image, originalData: image.jpegData(compressionQuality: 1.0),
+                          needsOcclusion: true, origin: "camera")
     }
 
     /// FR5.2 拍摄/选取后先进入四角选区，成功后按来源决定是否还要过 FR5.4 遮挡步骤。
-    private func beginRegionSelect(image: UIImage, needsOcclusion: Bool, origin: String) {
+    private func beginRegionSelect(image: UIImage, originalData: Data?, needsOcclusion: Bool, origin: String) {
         regionOrigin = origin
         regionNeedsOcclusion = needsOcclusion
         pendingRegionImage = image
+        pendingRegionOriginalData = originalData
         showRegionEditor = true
     }
 
     /// 区域矫正（+ 可能的遮挡）完成后：跑 OCR 组装确认草稿，交给确认卡，
     /// 用户确认后才真正写库（BR-003）。
-    private func commitRectified(original: UIImage, processed: UIImage) async {
-        guard let originalData = original.jpegData(compressionQuality: 0.9),
+    /// 原件 = 来源原始字节（BR-002 原件保真，第四轮全仓审查修复）；处理版
+    /// 才是有损 JPEG 重编码。MIME 按字节嗅探（不再硬编码 image/jpeg）。
+    private func commitRectified(originalData: Data?, processed: UIImage) async {
+        guard let originalData = originalData ?? processed.jpegData(compressionQuality: 1.0),
               let processedData = processed.jpegData(compressionQuality: 0.85) else {
             importFailed = true
             return
         }
+        let mime = ImageInputRules.sniffMimeType(of: originalData)
         if let draft = await docs.prepareImageDraft(
             patientId: app.currentPatientId, originalData: originalData, processedData: processedData,
-            mimeType: "image/jpeg", docType: docTypeText, title: nil,
+            mimeType: mime, docType: docTypeText, title: nil,
             isSensitive: markSensitive, origin: regionOrigin) {
             pendingDraft = draft
         } else {

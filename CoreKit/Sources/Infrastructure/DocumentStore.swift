@@ -27,6 +27,10 @@ public actor DocumentStore {
         /// 投影元数据（标题/确认计数/修订历史/原件路径等 JSON 侧载，V3.41）。
         public var metaJSON: String?
         public var createdAt: Date
+        /// BR-003 D 级判定（第四轮全仓审查修复：`grade == "D"` 裸字符串曾
+        /// 散落 4 个视图文件 8 处内联——视图层不得承载业务判定，收敛为
+        /// 行投影谓词，徽章语义唯一出处是 Domain 来源徽章纪律）。
+        public var isPendingConfirmation: Bool { grade == "D" }
         public init(id: UUID, patientId: UUID, encounterId: UUID?, docType: String,
                     sha256: String?, mimeType: String?, origin: String, status: String,
                     isSensitive: Bool, title: String?, grade: String = "C",
@@ -57,6 +61,23 @@ public actor DocumentStore {
         try await writer.read { db in
             try Row.fetchOne(db, sql: "SELECT * FROM document_file WHERE id = ?",
                              arguments: [id.uuidString]).map(Self.row)
+        }
+    }
+
+    /// SP-53 待确认队列：跨成员聚合 D 级文档（第四轮全仓审查修复——队列
+    /// 此前复用 list(patientId:)（仅当前成员），成员筛选对其他成员恒空态）。
+    /// 占位符由 count 构造（非用户输入，无注入面）；上限保护查询规模。
+    public func listPending(patientIds: [UUID], limit: Int = 500) async throws -> [DocumentRow] {
+        guard !patientIds.isEmpty else { return [] }
+        let placeholders = Array(repeating: "?", count: patientIds.count).joined(separator: ",")
+        var args: [DatabaseValueConvertible] = patientIds.map { $0.uuidString as DatabaseValueConvertible }
+        args.append(limit)
+        return try await writer.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT * FROM document_file
+                WHERE patient_id IN (\(placeholders)) AND grade = 'D' AND status IN ('active','favorite')
+                ORDER BY created_at DESC LIMIT ?
+                """, arguments: StatementArguments(args)).map(Self.row)
         }
     }
 
@@ -149,17 +170,24 @@ public actor DocumentStore {
     /// FR6.1 OCR 结果留痕：每已确认字段一行（原文块+置信度+引擎版本，可追溯可重放）。
     /// V3.39 起为唯一写入口——旧 AppState 引擎（经 M1aPersisting）已随向导简化删除，
     /// 活管线 DocumentsState.commitDraft 在确认入库后调用。
+    /// 第四轮全仓审查修复（FR6.4）：修订历史随留痕行持久化——用户改值后
+    /// 「旧值 → 新值 · 修改人 · 时间」入 raw_blocks 尾部，修订链路可追溯
+    /// （此前 revisionHistory 只在内存中、入不了库也无任何渲染）。
     public func saveOCRResult(documentId: UUID, fields: [CandidateField],
                               engineVersion: String) async throws {
         let now = Date()
         try await writer.write { db in
             for field in fields {
+                var raw = "\(field.key): \(field.rawText) [confidence=\(field.confidence)]"
+                if !field.revisionHistory.isEmpty {
+                    raw += " | revised: " + field.revisionHistory.joined(separator: "; ")
+                }
                 try db.execute(sql: """
                     INSERT INTO ocr_result
                       (id, document_file_id, page_index, raw_blocks, engine_version, created_at)
                     VALUES (?, ?, 0, ?, ?, ?)
                     """, arguments: [UUID().uuidString, documentId.uuidString,
-                                     "\(field.key): \(field.rawText) [confidence=\(field.confidence)]",
+                                     raw,
                                      engineVersion, now.timeIntervalSince1970])
             }
         }

@@ -49,4 +49,20 @@ public protocol ImageDecoding: Sendable {
     func decodeImage(_ data: Data, maxDimension: Int) async throws -> DecodedImage
     /// 解码 PDF，返回每页位图（最多 maxPages）。
     func decodePDF(_ data: Data, scale: Double, maxPages: Int) async throws -> [DecodedPage]
+    /// PDF 逐页流式解码（内存有界——页位图不整体驻留）：每页渲染完即回调并释放。
+    /// 默认实现回落到 decodePDF 逐页派发；生产实现（PDFKitDecoder）覆写为真流式。
+    /// 第四轮全仓审查修复：原调用方直接实例化具体引擎 PDFKitDecoder 绕过 EAL
+    /// （ADR-027「调用方永不直接 import 具体引擎类型」违例）——此需求为协议面，
+    /// 调用方经 ImageDecodingFactory 注入。
+    func decodePDFPages(_ data: Data, scale: Double, maxPages: Int,
+                        onPage: @Sendable (DecodedPage) async throws -> Void) async throws
+}
+
+public extension ImageDecoding {
+    func decodePDFPages(_ data: Data, scale: Double, maxPages: Int,
+                        onPage: @Sendable (DecodedPage) async throws -> Void) async throws {
+        for page in try await decodePDF(data, scale: scale, maxPages: maxPages) {
+            try await onPage(page)
+        }
+    }
 }

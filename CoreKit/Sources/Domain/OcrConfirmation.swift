@@ -61,6 +61,15 @@ public struct CandidateField: Sendable, Equatable, Codable, Identifiable {
     public mutating func reject() {
         grade = .rejected
     }
+
+    /// 重新启用已拒绝字段（回到 D 级未确认——确认卡「✕ 放弃」的逆向操作；
+    /// 第四轮全仓审查修复：拒绝后原状态机无任何回到未确认态的路径，
+    /// 误点放弃即永久无法确认该字段）。
+    public mutating func reenable() -> Bool {
+        guard grade == .rejected else { return false }
+        grade = .ocrUnconfirmed
+        return true
+    }
 }
 
 /// 置信度三档（tech §5.2/5.3）：高/中/低，低档强制确认卡片醒目呈现。
@@ -91,5 +100,30 @@ public struct OcrConfirmationSet: Sendable, Equatable, Codable, Identifiable {
     public mutating func confirm(field id: UUID) {
         guard let i = fields.firstIndex(where: { $0.id == id }) else { return }
         _ = fields[i].confirm()
+    }
+
+    /// 未确认字段中是否存在低置信度（红色档）——§5.30「全部确认」闸门的判据：
+    /// 只要还有红色低置信字段未逐条核对，「全部确认」必须禁用（BR-003 事实链闸门）。
+    /// 只统计 .ocrUnconfirmed（第四轮全仓审查 Phase 3 补漏：已放弃字段 grade 为
+    /// .rejected，批量确认本就不触碰它——若计入则放弃低置信字段后闸门永久
+    /// 禁用，用户被迫接受其明确丢弃的字段才能保存，防护为零纯阻断）。
+    public var hasUnconfirmedLowConfidence: Bool {
+        fields.contains { $0.grade == .ocrUnconfirmed && ConfidenceTier.tier($0.confidence) == .low }
+    }
+
+    /// 「全部确认」是否可用（无红色低置信度未确认字段）。
+    public var allConfirmAllowed: Bool { !hasUnconfirmedLowConfidence }
+
+    /// 批量确认剩余未确认字段（已拒绝字段不升格——confirm() 只接受
+    /// .ocrUnconfirmed）。返回本次升格数量。
+    /// 调用方必须先检查 `allConfirmAllowed`（低置信闸门不在此处代位执行，
+    /// 因为 UI 需要能分别禁用按钮与解释原因）。
+    @discardableResult
+    public mutating func confirmAllRemaining() -> Int {
+        var confirmed = 0
+        for i in fields.indices where fields[i].confirm() {
+            confirmed += 1
+        }
+        return confirmed
     }
 }

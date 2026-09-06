@@ -155,24 +155,31 @@ private struct QuadOverlay: View {
     @ViewBuilder
     private func handle(_ keyPath: WritableKeyPath<QuadCorners, Domain.NormalizedPoint>, id: String) -> some View {
         let p = point(corners[keyPath: keyPath])
-        Circle()
-            .fill(.white)
-            .overlay(Circle().stroke(Color("brand-primary", bundle: .main), lineWidth: 3))
-            .frame(width: 28, height: 28)
-            .position(p)
-            .gesture(
-                DragGesture(minimumDistance: 0, coordinateSpace: .named(space))
-                    .onChanged { value in
-                        let clampedX = min(max(value.location.x, frame.minX), frame.maxX)
-                        let clampedY = min(max(value.location.y, frame.minY), frame.maxY)
-                        guard frame.width > 0, frame.height > 0 else { return }
-                        // 显式 Domain 限定：iOS 18+ Vision 亦有 NormalizedPoint（原点在左下、
-                        // y 向上），与 Domain（原点左上、y 向下）语义镜像——免限定会在
-                        // 本文件引入 Vision 时静默绑定错类型（16ccc60 已实证撞名）
-                        corners[keyPath: keyPath] = Domain.NormalizedPoint(x: (clampedX - frame.minX) / frame.width,
-                                                                           y: (clampedY - frame.minY) / frame.height)
-                    }
-            )
-            .accessibilityIdentifier("SP-11.scanRegion.handle.\(id)")
+        // 触点 ≥44pt（第四轮全仓审查修复：原 28pt 视觉手柄即命中区——四角
+        // 间距近时极易误触相邻角/拖动失败，关怀模式大字体用户更甚；视觉
+        // 手柄保持 28pt，命中区扩到 44pt 透明层）
+        ZStack {
+            Circle()
+                .fill(.white)
+                .overlay(Circle().stroke(Color("brand-primary", bundle: .main), lineWidth: 3))
+                .frame(width: 28, height: 28)
+        }
+        .frame(width: 44, height: 44)
+        .contentShape(Circle())
+        .position(p)
+        .gesture(
+            DragGesture(minimumDistance: 0, coordinateSpace: .named(space))
+                .onChanged { value in
+                    let clampedX = min(max(value.location.x, frame.minX), frame.maxX)
+                    let clampedY = min(max(value.location.y, frame.minY), frame.maxY)
+                    guard frame.width > 0, frame.height > 0 else { return }
+                    // 显式 Domain 限定：iOS 18+ Vision 亦有 NormalizedPoint（原点在左下、
+                    // y 向上），与 Domain（原点左上、y 向下）语义镜像——免限定会在
+                    // 本文件引入 Vision 时静默绑定错类型（16ccc60 已实证撞名）
+                    corners[keyPath: keyPath] = Domain.NormalizedPoint(x: (clampedX - frame.minX) / frame.width,
+                                                                       y: (clampedY - frame.minY) / frame.height)
+                }
+        )
+        .accessibilityIdentifier("SP-11.scanRegion.handle.\(id)")
     }
 }

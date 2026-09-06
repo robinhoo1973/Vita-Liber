@@ -19,7 +19,7 @@ import Protocols
 final class AppState {
     /// FR21.9（V3.39 简化）：向导状态机仅保留与初始化用户信息直接相关的步骤。
     /// 无 done 态——完成与否由 onboardingFinished 单源判定（AppRootView 据此切主界面）。
-    enum OnboardingStage: Equatable {
+    enum OnboardingStage {
         case disclosure(index: Int)
         case ownerName
         case addFamily          // FR21.9 ④（可选，可跳过）
@@ -64,11 +64,12 @@ final class AppState {
          defaults: UserDefaults = .standard,
          launchArgs: [String] = ProcessInfo.processInfo.arguments) {
         // 组合根：按当前上下文一次性注册全部引擎能力（ADR-027 EAL）。
-        // 评审修正：AppContainer.assemble 已先行注册（资产仓装配需要）——此处幂等守卫，
-        // 避免二次注册覆盖（测试桩若先行注入会被冲掉）；AppState 独立构造（无容器）时仍自注册。
-        if !EngineRegistry.shared.isRegistered(TranscriptionEngineFactory.self) {
-            EngineRegistry.shared.registerDefaultEngines()
-        }
+        // 第四轮全仓审查修复（5WHY）：原幂等守卫只探测 TranscriptionEngineFactory
+        // 单一键，却随后 resolve SpeechSynthesisFactory/OCRRecognizerFactory——
+        // 探测键与消费键不一致，部分注册（仅注入 OCR/语音桩）时误判未注册，
+        // 默认注册覆盖已注入桩。registerDefaultEngines 已改为逐工厂
+        // if-absent 语义（EngineFactories），调用方无需再探测——重复调用安全。
+        EngineRegistry.shared.registerDefaultEngines()
         self.speechSynthesizer = speech ?? EngineRegistry.shared.resolve(SpeechSynthesisFactory.self)
         self.imageRecognizer = imageRecognizer ?? EngineRegistry.shared.resolve(OCRRecognizerFactory.self)
         self.transcriptionEngine = transcription ?? EngineRegistry.shared.resolve(TranscriptionEngineFactory.self)
@@ -120,7 +121,7 @@ final class AppState {
     }
 
     /// 启动装配（VitaLiberApp .task 调用）：清态（UI 测试）→ 装配锁定状态机 →
-    /// 从 GRDB 加载所有者/同意/时间轴。
+    /// 从 GRDB 加载所有者/同意（时间轴镜像已随 V3.39 拆除，文档事实源 = DocumentStore）。
     func bootstrap() async {
         if launchArgs.contains("-uitest-reset") {
             do { try await persistor.reset() }

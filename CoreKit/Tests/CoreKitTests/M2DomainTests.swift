@@ -322,9 +322,11 @@ struct ImageInputRuleTests {
         #expect(empty.isEmpty)
         #expect(!ImageInputRules.requiresConfirmation(empty))
         #expect(ImageInputRules.draftFields(from: empty).isEmpty)
-        // 降级文案过 BR-006 负清单（不出现建议/应该等判断词）
-        #expect(WordingBlacklist.violation(in: ImageInputRules.noTextMessage) == nil,
-                "无文字降级文案也必须过措辞负清单")
+        // 第四轮全仓审查修复：降级文案改 App 层 L10n 渲染（Domain 只出类型化键，
+        // 零硬编码中文）；BR-006 措辞负清单对 .strings 值全量校验由
+        // VitaLiberTests M15 套件承担（本键已登记 registeredKeys 即被覆盖）
+        #expect(ImageInputRules.noTextKey == "image_input.noText",
+                "无文字降级键必须稳定——App 层 L10n 契约")
     }
 
     @Test func 识别结果经统一确认模板() {
@@ -454,5 +456,98 @@ struct MessageStatusTests {
                 "无回执不得跳到已回执")
         #expect(!MessageStatusRules.canTransition(from: .timeout, to: .acked),
                 "超时后不补回执")
+    }
+}
+
+@Suite("SU-M2-DOC · 第四轮全仓审查修复回归（PendingOcrRules/OcrConfirmationSet/ImageInputRules）")
+struct Round4DomainTests {
+
+    @Test func 超72h置顶判定走日历日单一出口() {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "America/New_York")!
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        // 恰好 72 小时（3 个日历日整）不算超窗——严格大于语义
+        let exactly3d = DayArithmetic.offset(days: -3, from: now, calendar: cal)
+        #expect(!PendingOcrRules.isOverdue(createdAt: exactly3d, now: now))
+        let older = DayArithmetic.offset(days: -4, from: now, calendar: cal)
+        #expect(PendingOcrRules.isOverdue(createdAt: older, now: now))
+        // 3 天筛选窗：边界内侧命中、外侧不命中
+        let within = DayArithmetic.offset(days: -2, from: now, calendar: cal)
+        #expect(PendingOcrRules.isWithinLastDays(3, createdAt: within, now: now))
+        #expect(!PendingOcrRules.isWithinLastDays(3, createdAt: older, now: now))
+    }
+
+    @Test func 全部确认闸门只拦低置信度未确认字段() {
+        var set = OcrConfirmationSet(fields: [
+            CandidateField(key: "a", displayLabel: "A", rawText: "x", confidence: 0.9),
+            CandidateField(key: "b", displayLabel: "B", rawText: "y", confidence: 0.3),
+        ])
+        #expect(set.hasUnconfirmedLowConfidence, "低置信度未确认 → 全部确认禁用")
+        #expect(!set.allConfirmAllowed)
+        // 逐条确认低置信字段后闸门放开（§5.30：仅当无红色低置信可全部确认）
+        _ = set.fields[1].confirm()
+        #expect(set.allConfirmAllowed)
+        // 批量确认：已确认字段不动、已拒绝字段不升格
+        var set2 = OcrConfirmationSet(fields: [
+            CandidateField(key: "a", displayLabel: "A", rawText: "x", confidence: 0.9),
+            CandidateField(key: "b", displayLabel: "B", rawText: "y", confidence: 0.9),
+        ])
+        set2.fields[1].reject()
+        let confirmed = set2.confirmAllRemaining()
+        #expect(confirmed == 1)
+        #expect(set2.fields[0].isConfirmed)
+        #expect(set2.fields[1].grade == .rejected, "已拒绝字段不得批量升格（BR-003）")
+        // 拒绝可恢复（reenable 状态机补全）
+        let reenabled = set2.fields[1].reenable()
+        #expect(reenabled)
+        #expect(set2.fields[1].grade == .ocrUnconfirmed)
+    }
+
+    @Test func 已放弃的低置信字段不得卡死全部确认闸门() {
+        var set = OcrConfirmationSet(fields: [
+            CandidateField(key: "a", displayLabel: "A", rawText: "x", confidence: 0.9),
+            CandidateField(key: "b", displayLabel: "B", rawText: "y", confidence: 0.2),
+        ])
+        #expect(!set.allConfirmAllowed)
+        // ✕ 放弃低置信字段 → 闸门必须放开（rejected 不被批量确认触碰）
+        set.fields[1].reject()
+        #expect(set.allConfirmAllowed, "已放弃字段不得卡死保存——Phase 3 补漏回归")
+        #expect(set.confirmAllRemaining() == 1)
+    }
+
+    @Test func MIME字节嗅探与扩展名映射() {
+        let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+        #expect(ImageInputRules.sniffMimeType(of: png) == "image/png")
+        #expect(ImageInputRules.fileExtension(for: "image/png") == "png")
+        let jpg = Data([0xFF, 0xD8, 0xFF, 0xE0])
+        #expect(ImageInputRules.sniffMimeType(of: jpg) == "image/jpeg")
+        let gif = Data([0x47, 0x49, 0x46, 0x38, 0x39, 0x61])
+        #expect(ImageInputRules.sniffMimeType(of: gif) == "image/gif")
+        let webp = Data([0x52, 0x49, 0x46, 0x46, 0x00, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50])
+        #expect(ImageInputRules.sniffMimeType(of: webp) == "image/webp")
+        let heic = Data([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63])
+        #expect(ImageInputRules.sniffMimeType(of: heic) == "image/heic")
+        #expect(ImageInputRules.fileExtension(for: "image/heic") == "heic")
+        // 未知字节回落调用方兜底
+        #expect(ImageInputRules.sniffMimeType(of: Data([0x01, 0x02]), fallback: "image/jpeg") == "image/jpeg")
+    }
+
+    @Test func 处方标签按身份匹配不受本地化影响() {
+        let labels = PrescriptionFieldMapper.Labels(
+            hospital: "醫院", doctor: "醫師", frequency: "頻次",
+            dosage: "劑量", drugName: "藥名", other: "其他")
+        let fields = [
+            CandidateField(key: "h", displayLabel: labels.hospital, rawText: "XX醫院", confidence: 0.8, grade: .userConfirmed),
+            CandidateField(key: "d", displayLabel: labels.doctor, rawText: "王醫師", confidence: 0.8, grade: .userConfirmed),
+            CandidateField(key: "o", displayLabel: labels.other, rawText: "說明", confidence: 0.8, grade: .userConfirmed),
+        ]
+        let (hospital, doctor, advice) = PrescriptionFieldMapper.buildAdviceText(confirmed: fields, labels: labels)
+        #expect(hospital == "XX醫院", "zh-Hant 标签按身份匹配——原简体字面量匹配恒 NULL")
+        #expect(doctor == "王醫師")
+        #expect(advice.contains("醫院"))
+        // 繁体原文关键词启发式（guessLabel 经 draftFields 间接验证）
+        let drafts = PrescriptionFieldMapper.draftFields(from: ["XX醫院", "每 日三次"], labels: labels)
+        #expect(drafts[0].displayLabel == labels.hospital, "繁体「醫院」行不得落「其他」")
+        #expect(drafts[1].displayLabel == labels.frequency)
     }
 }

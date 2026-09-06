@@ -40,7 +40,7 @@ public final class PDFKitDecoder: ImageDecoding, @unchecked Sendable {
     /// （50 页 A4 @2x ≈ 数百 MB 的峰值内存 → 单页峰值 ≈ 数十 MB）。
     /// 单页渲染失败上抛（FR6.6 绝不静默）；调用方经 do/catch 决定继续或终止。
     public func decodePDFPages(_ data: Data, scale: Double, maxPages: Int,
-                               _ consume: @escaping @Sendable (DecodedPage) async throws -> Void) async throws {
+                               onPage consume: @escaping @Sendable (DecodedPage) async throws -> Void) async throws {
         guard let provider = CGDataProvider(data: data as CFData),
               let pdf = CGPDFDocument(provider) else { throw DecodeError.corruptData }
 

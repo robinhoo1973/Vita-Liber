@@ -22,6 +22,11 @@ public actor ExportService {
         public var members: [PatientProfile]?
         public var consentRecords: [ConsentRecord]
         public var timeline: [TimelineDocumentEntry]
+        /// V3.39+ 文档维度（第四轮全仓审查修复）：document_file 直列导出。
+        /// 旧 `timeline` 只承载历史备份包的 meta_json 投影（V3.39 起无写入方，
+        /// 解码新格式恒失败导致活管线文档在备份恢复中静默丢失）——恢复时
+        /// 优先 `documents`，缺失（旧包）回落 `timeline`。
+        public var documents: [DocumentExport]?
         public var plans: [PlanExport]
         public var appointments: [AppointmentExport]
         public var observations: [ObservationExport]
@@ -36,9 +41,42 @@ public actor ExportService {
         /// FR13.5 恢复后数据校验报告：导入记录计数（供恢复报告展示，不算附件）
         public var totalRecords: Int {
             (owner != nil ? 1 : 0) + (selfProfile != nil ? 1 : 0) + (members?.count ?? 0)
-            + consentRecords.count + timeline.count + plans.count + appointments.count
+            + consentRecords.count + (documents?.count ?? timeline.count) + plans.count + appointments.count
             + observations.count + allergies.count + encounters.count + metrics.count
             + immunizations.count + voiceNotes.count + healthProblems.count
+        }
+
+        /// document_file 直列导出（第四轮全仓审查修复：FR13.2 备份/恢复
+        /// 的文档维度载体——meta_json 投影已退役，原图/OCR 文本/徽章/状态
+        /// 全部按真实列随包往返）。
+        public struct DocumentExport: Sendable, Codable, Equatable {
+            public var id: UUID
+            public var patientId: UUID?
+            public var encounterId: UUID?
+            public var docType: String
+            public var status: String
+            public var sha256: String?
+            public var mimeType: String?
+            public var isSensitive: Bool
+            public var origin: String
+            public var metaJson: String?
+            public var title: String?
+            public var ocrText: String?
+            public var notes: String?
+            public var grade: String
+            public var createdAt: Date
+            public var updatedAt: Date
+            public init(id: UUID, patientId: UUID?, encounterId: UUID?, docType: String,
+                        status: String, sha256: String?, mimeType: String?, isSensitive: Bool,
+                        origin: String, metaJson: String?, title: String?, ocrText: String?,
+                        notes: String?, grade: String, createdAt: Date, updatedAt: Date) {
+                self.id = id; self.patientId = patientId; self.encounterId = encounterId
+                self.docType = docType; self.status = status; self.sha256 = sha256
+                self.mimeType = mimeType; self.isSensitive = isSensitive; self.origin = origin
+                self.metaJson = metaJson; self.title = title; self.ocrText = ocrText
+                self.notes = notes; self.grade = grade; self.createdAt = createdAt
+                self.updatedAt = updatedAt
+            }
         }
 
         public struct PlanExport: Sendable, Codable, Equatable {
@@ -141,6 +179,7 @@ public actor ExportService {
             self.members = members
             self.consentRecords = consentRecords
             self.timeline = timeline
+            self.documents = nil
             self.plans = plans
             self.appointments = appointments
             self.observations = []
@@ -186,12 +225,31 @@ public actor ExportService {
                               version: row["version"] as String,
                               acceptedAt: row["accepted_at"] as Double)
             }
-            let timeline = try Row.fetchAll(db, sql: """
-                SELECT meta_json FROM document_file WHERE meta_json IS NOT NULL ORDER BY created_at
-                """).compactMap { row -> TimelineDocumentEntry? in
-                guard let json = row["meta_json"] as String?, let data = json.data(using: .utf8) else { return nil }
-                do { return try JSONDecoder().decode(TimelineDocumentEntry.self, from: data) }
-                catch { return nil }
+            // V3.39 起 meta_json 不再承载 TimelineDocumentEntry 投影（孤儿镜像已拆，
+            // 写入方删除），文档维度改从 document_file 直列导出。第四轮全仓审查修复：
+            // 此前按 TimelineDocumentEntry 解码 meta_json（新格式为 {original_path,...}
+            // 信封）恒失败被静默丢弃——经活管线入库的文档在备份/恢复中全部丢失
+            // （FR13.2 数据丢失）。timeline 字段保留为空数组（历史兼容：旧包恢复
+            // 仍走该维度，新包不再生产）。
+            let timeline: [TimelineDocumentEntry] = []
+            let documents = try Row.fetchAll(db, sql: "SELECT * FROM document_file ORDER BY created_at").map { row in
+                Envelope.DocumentExport(
+                    id: UUID(uuidString: row["id"] as String) ?? UUID(),
+                    patientId: (row["patient_id"] as String).flatMap(UUID.init(uuidString:)),
+                    encounterId: (row["encounter_id"] as String?).flatMap(UUID.init(uuidString:)),
+                    docType: row["doc_type"] as String,
+                    status: row["status"] as String,
+                    sha256: row["sha256"] as String?,
+                    mimeType: row["mime_type"] as String?,
+                    isSensitive: (row["is_sensitive"] as Int?) == 1,
+                    origin: row["origin"] as String,
+                    metaJson: row["meta_json"] as String?,
+                    title: row["title"] as String?,
+                    ocrText: row["ocr_text"] as String?,
+                    notes: row["notes"] as String?,
+                    grade: (row["grade"] as String?) ?? "C",
+                    createdAt: Date(timeIntervalSince1970: row["created_at"] as Double),
+                    updatedAt: Date(timeIntervalSince1970: row["updated_at"] as Double))
             }
             let plans = try Row.fetchAll(db, sql: """
                 SELECT p.id, p.patient_id, p.status, p.start_date, p.end_date, p.schedule_json, m.generic_name, m.spec
@@ -305,6 +363,7 @@ public actor ExportService {
                                     owner: owner, selfProfile: selfProfile, members: members,
                                     consentRecords: consents,
                                     timeline: timeline, plans: plans, appointments: appointments)
+            envelope.documents = documents
             envelope.sensitiveDocIds = Set(sensitiveIds)
             envelope.observations = observations
             envelope.allergies = allergies
@@ -369,7 +428,10 @@ public actor ExportService {
             // 备份侧标题字典：冲突预览对每个冲突 id 直接查表——此前每 id 对全数组
             // 线性扫描，整库冲突时放大为 O(n²)（同库重导入的最坏情形）
             let consentTitle = Dictionary(uniqueKeysWithValues: envelope.consentRecords.map { ($0.id.uuidString, $0.key) })
-            let timelineTitle = Dictionary(uniqueKeysWithValues: envelope.timeline.map { ($0.id.uuidString, $0.title) })
+            // 文档维度：新包走 documents（直列），旧包回落 timeline（meta 投影）
+            let documentIds: [String] = (envelope.documents ?? []).map { $0.id.uuidString } + envelope.timeline.map { $0.id.uuidString }
+            let timelineTitle = Dictionary(uniqueKeysWithValues: (envelope.documents ?? []).map { ($0.id.uuidString, $0.title) }
+                                           + envelope.timeline.map { ($0.id.uuidString, $0.title) })
             let planTitle = Dictionary(uniqueKeysWithValues: envelope.plans.map { ($0.id.uuidString, $0.medicationName) })
             let aptTitle = Dictionary(uniqueKeysWithValues: envelope.appointments.map { ($0.id.uuidString, $0.hospital) })
             let obsTitle = Dictionary(uniqueKeysWithValues: envelope.observations.map { ($0.id.uuidString, $0.kind) })
@@ -391,7 +453,7 @@ public actor ExportService {
             try add("consent_record", ids: envelope.consentRecords.map { $0.id.uuidString },
                     backupTitle: { id in consentTitle[id] ?? nil },
                     existingTitle: { existingTitle("consent_record", $0, "key") })
-            try add("document_file", ids: envelope.timeline.map { $0.id.uuidString },
+            try add("document_file", ids: documentIds,
                     backupTitle: { id in timelineTitle[id] ?? nil },
                     existingTitle: { existingTitle("document_file", $0, "title") })
             try add("medication_plan", ids: envelope.plans.map { $0.id.uuidString },
@@ -450,6 +512,10 @@ public actor ExportService {
             let allProfileIds = ([envelope.selfProfile].compactMap { $0 }.map(\.id)
                                  + memberProfiles.map(\.id)).map(\.uuidString)
 
+            // 文档维度 id 清单：新包 documents（直列）+ 旧包 timeline（meta 投影）
+            let documentIds = (envelope.documents ?? []).map { $0.id.uuidString }
+                + envelope.timeline.map { $0.id.uuidString }
+
             // 冲突检测 + 未裁决拒绝（ADR-019）：13 张表同构——(表名, id 清单)
             // 一行描述，单循环完成检测与裁决缺失检查（缺裁决抛 .conflict——
             // UI 必须先呈现 preview，否则「未裁决即恢复」退化为静默丢弃）。
@@ -457,7 +523,7 @@ public actor ExportService {
                 ("patient_profile", allProfileIds),
                 ("local_owner", [envelope.owner].compactMap { $0 }.map { $0.id.uuidString }),
                 ("consent_record", envelope.consentRecords.map { $0.id.uuidString }),
-                ("document_file", envelope.timeline.map { $0.id.uuidString }),
+                ("document_file", documentIds),
                 ("medication_plan", envelope.plans.map { $0.id.uuidString }),
                 ("appointment", envelope.appointments.map { $0.id.uuidString }),
                 ("observation", envelope.observations.map { $0.id.uuidString }),
@@ -612,6 +678,48 @@ public actor ExportService {
                     VALUES (?, ?, ?, ?, ?)
                     """, arguments: [(remap(c.id) ?? c.id).uuidString, c.key, c.level, c.version, c.acceptedAt])
             }
+            // V3.39+ 文档维度恢复：document_file 直列随包往返（第四轮全仓审查修复——
+            // 旧路径按 TimelineDocumentEntry 解码 meta_json 只能恢复历史投影行，
+            // 经活管线入库的文档（title/ocr_text/grade 直列）在恢复中全部丢失）。
+            // encounter_id 外键两段式：encounter 行恢复在文档之后（FK 拓扑序），
+            // 先行落 NULL、encounters 恢复完成后统一回填——直接携带 encounter_id
+            // 插入会触发 FOREIGN KEY constraint failed、整包恢复回滚（第四轮
+            // 全仓审查 Phase 3 补漏：旧 timeline 路径从不写该列，无此失败模式）。
+            var docEncounterLinks: [String: UUID?] = [:]
+            for d in envelope.documents ?? [] {
+                let targetId = remap(d.id) ?? d.id
+                let targetPatientId = (remap(d.patientId) ?? d.patientId)?.uuidString
+                let targetEncounterId = (remap(d.encounterId) ?? d.encounterId)
+                docEncounterLinks[targetId.uuidString] = targetEncounterId
+                if try adoptOrSkip(timelineConflicts, d.id, adopt: {
+                    try db.execute(sql: """
+                        UPDATE document_file SET
+                            patient_id = ?, doc_type = ?, status = ?,
+                            sha256 = ?, mime_type = ?, is_sensitive = ?, origin = ?,
+                            meta_json = ?, title = ?, ocr_text = ?, notes = ?, grade = ?,
+                            created_at = ?, updated_at = ?
+                        WHERE id = ?
+                        """, arguments: [targetPatientId,
+                                         d.docType, d.status, d.sha256, d.mimeType,
+                                         d.isSensitive ? 1 : 0, d.origin, d.metaJson, d.title,
+                                         d.ocrText, d.notes, d.grade,
+                                         d.createdAt.timeIntervalSince1970,
+                                         d.updatedAt.timeIntervalSince1970, targetId.uuidString])
+                }) { continue }
+                try db.execute(sql: """
+                    INSERT INTO document_file
+                      (id, patient_id, encounter_id, doc_type, status, sha256, mime_type,
+                       is_sensitive, origin, meta_json, title, ocr_text, notes, grade,
+                       created_at, updated_at)
+                    VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, arguments: [targetId.uuidString, targetPatientId,
+                                     d.docType, d.status, d.sha256, d.mimeType,
+                                     d.isSensitive ? 1 : 0, d.origin, d.metaJson, d.title,
+                                     d.ocrText, d.notes, d.grade,
+                                     d.createdAt.timeIntervalSince1970,
+                                     d.updatedAt.timeIntervalSince1970])
+            }
+            // 旧备份包（无 documents 维度）的投影行恢复——历史兼容路径
             for e in envelope.timeline {
                 if try adoptOrSkip(timelineConflicts, e.id, adopt: {
                     let meta = String(data: try JSONEncoder().encode(e), encoding: .utf8) ?? "{}"
@@ -738,6 +846,12 @@ public actor ExportService {
                     """, arguments: [(remap(e.id) ?? e.id).uuidString, patientID(e.patientId), e.date.timeIntervalSince1970,
                                      e.kind, e.diagnosisText,
                                      e.date.timeIntervalSince1970, e.date.timeIntervalSince1970])
+            }
+            // document_file.encounter_id 外键回填（第四轮全仓审查 Phase 3 补漏）：
+            // encounter 行已全部落库，此时统一挂接（含 nil → 清除 adopt 行残留）
+            for (docId, encId) in docEncounterLinks {
+                try db.execute(sql: "UPDATE document_file SET encounter_id = ? WHERE id = ?",
+                               arguments: [encId?.uuidString, docId])
             }
             for m in envelope.metrics {
                 if try adoptOrSkip(metricConflicts, m.id, adopt: {
