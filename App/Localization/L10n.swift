@@ -2389,14 +2389,16 @@ enum L10n {
             return bundle
         }
         // 回落 3：在所有 .lproj 目录中搜索匹配的语言
-        if let allPaths = Bundle.main.paths(forResourcesOfType: "lproj", inDirectory: nil) {
-            for p in allPaths {
-                let name = URL(fileURLWithPath: p).lastPathComponent
-                if name == "\(lang).lproj" || name == lang {
-                    if let bundle = Bundle(path: p) {
-                        bundleCache = bundle
-                        return bundle
-                    }
+        // paths(forResourcesOfType:inDirectory:) 返回 [String]（非 Optional），
+        // 空数组由 for 循环自然空转——if let 绑定非 Optional 是类型错误
+        // （CI 34019956499 实证：此回落链此前从未通过真实编译）。
+        let allPaths = Bundle.main.paths(forResourcesOfType: "lproj", inDirectory: nil)
+        for p in allPaths {
+            let name = URL(fileURLWithPath: p).lastPathComponent
+            if name == "\(lang).lproj" || name == lang {
+                if let bundle = Bundle(path: p) {
+                    bundleCache = bundle
+                    return bundle
                 }
             }
         }
