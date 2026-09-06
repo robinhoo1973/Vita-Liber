@@ -161,7 +161,7 @@ struct NotificationCenterView: View {
 
     private func loadStates() async {
         var keys: [String] = []
-        keys += pendingDoses.map { "dose-\($0.dose.id)" }
+        keys += pendingDoses.map { "dose-\($0.id)" }
         keys += appointments.map { "apt-\($0.id)" }
         keys += expiringLots.map { "lot-\($0.lotId)" }
         keys += l1Alerts.map { "alert-\($0.id)" }
