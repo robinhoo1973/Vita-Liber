@@ -1405,6 +1405,7 @@ enum L10n {
         "search.sensitiveBadge",
         "sensitiveMedia.original.title",
         "sensitiveMedia.unlockToView",
+        "sensitiveMedia.loadFailed",
         "settings.highContrastForced",
         "settings.offlineNote",
         "startup.degradedBodyFmt",
@@ -1464,6 +1465,7 @@ enum L10n {
     // MARK: - §5.10 敏感媒体原始视图
     static var sensitiveMedia_originalTitle: String { t("sensitiveMedia.original.title") }
     static var sensitiveMedia_unlockToView: String { t("sensitiveMedia.unlockToView") }
+    static var sensitiveMedia_loadFailed: String { t("sensitiveMedia.loadFailed") }
 
     // MARK: - F22 帮助与诊断（FR22.1-22.4 · SP-42/43/44/45/48）
     static var helpStatusChecking: String { t("help.status.checking") }

@@ -507,6 +507,7 @@
 "tab.reminders.badge" = "條待辦";
 "sensitiveMedia.original.title" = "原始圖片";
 "sensitiveMedia.unlockToView" = "點擊解鎖查看";
+"sensitiveMedia.loadFailed" = "原圖載入失敗";
 
 // F22 幫助與診斷（FR22.1-22.4）+ F24 照護者（FR24.5）+ F20 須知
 "help.status.checking" = "檢查中...";

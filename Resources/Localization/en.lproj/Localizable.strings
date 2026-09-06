@@ -507,6 +507,7 @@
 "tab.reminders.badge" = "pending";
 "sensitiveMedia.original.title" = "Original";
 "sensitiveMedia.unlockToView" = "Tap to unlock";
+"sensitiveMedia.loadFailed" = "Failed to load the original";
 
 // F22 Help & Diagnostics (FR22.1-22.4) + F24 Caregiver (FR24.5) + F20 Disclosures
 "help.status.checking" = "Checking...";

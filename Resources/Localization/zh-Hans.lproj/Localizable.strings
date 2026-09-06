@@ -507,6 +507,7 @@
 "tab.reminders.badge" = "条待办";
 "sensitiveMedia.original.title" = "原始图片";
 "sensitiveMedia.unlockToView" = "点击解锁查看";
+"sensitiveMedia.loadFailed" = "原图加载失败";
 
 // F22 帮助与诊断（FR22.1-22.4）+ F24 照护者（FR24.5）+ F20 须知
 "help.status.checking" = "检查中...";
