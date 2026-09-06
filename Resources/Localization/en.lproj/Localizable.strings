@@ -1348,7 +1348,7 @@
 "assistant.addRecords" = "Add Records";
 "assistant.consultDoctor" = "Consult a Doctor or Pharmacist";
 "f19.markTakenMultipleFmt" = "Multiple matches found: %@. Please say the exact name to mark";
-"emergency.sosHoldA11yFmt" = "Emergency SOS: press and hold for %1$d seconds";
+"emergency.sosHoldA11yFmt" = "Emergency SOS: press and hold for %1$.1f seconds";
 "helpcard.photoPending" = "Photo attachments coming soon";
 "home.capture.sensitive" = "Mark as sensitive (locked by default)";
 "route.comingSoon" = "Coming Soon";

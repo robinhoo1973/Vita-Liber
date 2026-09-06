@@ -1348,7 +1348,7 @@
 "assistant.addRecords" = "去補充資料";
 "assistant.consultDoctor" = "諮詢醫生或藥師";
 "f19.markTakenMultipleFmt" = "找到多條符合：%@。請說出要標記的具體名稱";
-"emergency.sosHoldA11yFmt" = "緊急求助：長按 %1$d 秒啟動";
+"emergency.sosHoldA11yFmt" = "緊急求助：長按 %1$.1f 秒啟動";
 "helpcard.photoPending" = "相片附件即將支援，敬請期待";
 "home.capture.sensitive" = "標記為敏感資料（預設鎖定檢視）";
 "route.comingSoon" = "功能即將上線";

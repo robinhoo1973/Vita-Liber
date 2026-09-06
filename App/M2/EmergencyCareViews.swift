@@ -257,7 +257,7 @@ struct SOSButton: View {
                 // 审查修复（BR-012 辅助功能通路）：VoiceOver 用户无法执行长按，
                 // 双击默认动作等效激活 SOS——关怀模式恰是面向弱能力用户的场景
                 .accessibilityAction { holdConfirmed = true }
-                .accessibilityLabel(L10n.emergency_sos_holdA11y(Int(requiredHold)))
+                .accessibilityLabel(L10n.emergency_sos_holdA11y(requiredHold))
                 .accessibilityIdentifier("F15.card.sos.hold")
             } else {
                 Text(L10n.emergency_sos_confirmPrompt)
@@ -320,7 +320,7 @@ struct SOSOrb: View {
         )
         // 审查修复（BR-012 辅助功能通路）：VoiceOver 双击等效激活求助页
         .accessibilityAddTraits(.isButton)
-        .accessibilityLabel(L10n.emergency_sos_holdA11y(Int(requiredHold)))
+        .accessibilityLabel(L10n.emergency_sos_holdA11y(requiredHold))
         .accessibilityAction { showHelp = true }
         .fullScreenCover(isPresented: $showHelp) {
             SOSHelpView()

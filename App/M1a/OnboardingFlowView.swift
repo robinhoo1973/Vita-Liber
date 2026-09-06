@@ -122,6 +122,11 @@ struct LockOverlayView: View {
                     .accessibilityIdentifier("SP-01.lockOverlay.sos")
             }
         }
+        // 容器 identifier 必须配 accessibilityElement(children: .contain)——
+        // 否则 SwiftUI 把容器标识下放覆盖到每个子元素自身标识（解锁按钮的
+        // SP-01.lockOverlay.unlock 被顶成 SP-01.lockOverlay，XCUITest 找不到，
+        // CI 34021989599 实证层级 dump：两按钮同挂容器标识）。
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("SP-01.lockOverlay")
         .task {
             // 冷启动/回前台呈现遮罩即自动弹系统认证一次。

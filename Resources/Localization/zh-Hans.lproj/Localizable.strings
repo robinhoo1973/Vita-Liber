@@ -1348,7 +1348,7 @@
 "assistant.addRecords" = "去补充资料";
 "assistant.consultDoctor" = "咨询医生或药师";
 "f19.markTakenMultipleFmt" = "找到多条匹配：%@。请说出要标记的具体名称";
-"emergency.sosHoldA11yFmt" = "紧急求助：长按 %1$d 秒激活";
+"emergency.sosHoldA11yFmt" = "紧急求助：长按 %1$.1f 秒激活";
 "helpcard.photoPending" = "照片附件即将支持，敬请期待";
 "home.capture.sensitive" = "标记为敏感资料（默认锁定查看）";
 "route.comingSoon" = "功能即将上线";

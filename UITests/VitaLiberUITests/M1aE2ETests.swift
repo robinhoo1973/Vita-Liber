@@ -31,6 +31,13 @@ final class M1aE2ETests: XCTestCase {
         nameField.typeText("王女士")
         app.buttons["SP-06.owner.create"].tap()
 
+        // FR21.9 ④ 添加家人（可跳过）：V3.72 六步编排在建档与拍摄之间新增
+        // 本步——E2E 切片不含家人场景，跳过进入拍摄（CI 34021989599 实证：
+        // 建成员后停在 AddFamily 步，SP-07 不出现）
+        let skipFamily = app.buttons["FR21.9.step4.skip"]
+        XCTAssertTrue(skipFamily.waitForExistence(timeout: 5), "建档后必须呈现添加家人步")
+        skipFamily.tap()
+
         // 拍摄（mock 相机注入处方样张）
         let capture = app.buttons["SP-07.scan.capture"]
         XCTAssertTrue(capture.waitForExistence(timeout: 5))

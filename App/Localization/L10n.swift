@@ -2243,7 +2243,9 @@ enum L10n {
     static func f19MarkTakenNoMatch(_ name: String) -> String { String(format: t("f19.markTakenNoMatchFmt"), name) }
     static func f19MarkTakenDone(_ name: String) -> String { String(format: t("f19.markTakenDoneFmt"), name) }
     static func f19MarkTakenMultiple(_ names: String) -> String { String(format: t("f19.markTakenMultipleFmt"), names) }
-    static func emergency_sos_holdA11y(_ seconds: Int) -> String {
+    static func emergency_sos_holdA11y(_ seconds: Double) -> String {
+        // 必须 Double + %1$.1f：Int 截断把 0.6 秒显示成「长按 0 秒激活」
+        // （CI 34021989599 层级 dump 实证）——SOS 防误触语义在提示层失真
         String(format: t("emergency.sosHoldA11yFmt"), seconds)
     }
     static var helpcard_photoPending: String { t("helpcard.photoPending") }
