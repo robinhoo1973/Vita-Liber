@@ -168,6 +168,9 @@
 "deeplink.bookingNo" = "预约编号（挂号后补录）";
 "deeplink.saveNo" = "保存预约编号";
 "helpcard.title" = "药品求助卡";
+"helpcard.cardRemainingPrefix" = "剩余：约";
+"helpcard.cardStoragePrefix" = "存放位置：";
+"helpcard.cardExpiryPrefix" = "效期：";
 "helpcard.selectHint" = "选择药品批次（可多选）";
 "helpcard.photoOptIn" = "包含存放位置照片（外发家庭内部影像，请确认确有需要）";
 "helpcard.contentNote" = "卡片内容：药名/规格/剩余量/存放位置文字/效期。不包含任何诊断类信息。";
@@ -447,7 +450,6 @@
 "inventory.dualLine" = "安全线 %1$@ %2$@ · 确认 %3$@ %2$@";
 "inventory.dualLineTitle" = "双轨库存（安全线 / 确认线）";
 "inventory.expiry" = "效期 %@";
-"inventory.tier14" = "余量 ≤14 天";
 "inventory.tier0" = "当日置顶";
 "inventory.tier7" = "余量 ≤7 天";
 "inventory.tier3" = "余量 ≤3 天";
@@ -540,6 +542,7 @@
 "help.data.storageSection" = "存储";
 "help.data.dbSize" = "数据库大小";
 "help.data.calculating" = "计算中...";
+"help.data.storageSizeFmt" = "%@ MB";
 "help.data.backupSection" = "备份";
 "help.data.lastBackup" = "最近备份";
 "help.data.noBackup" = "无备份记录";
@@ -761,7 +764,6 @@
 "encounter.form.fee" = "费用（元，可选）";
 
 "timeline.title" = "健康时间轴";
-"timeline.emptyTitle" = "时间轴为空";
 "timeline.emptyHint" = "切换成员、时间范围或事件类型筛选后再看；档案、就诊与用药记录会随时间出现在这里";
 "timeline.filter.all" = "全部";
 "timeline.kind.document" = "资料";
@@ -811,6 +813,7 @@
 "appt.cancel" = "取消";
 "appt.complete" = "标记完成";
 "appt.followUpHint" = "重新跟进（生成跟进提醒）";
+"appt.markMissed" = "标记错过";
 "appt.newDate" = "新的就诊时间";
 "appt.cancelReason.none" = "直接取消";
 "appt.cancelReason.doctor" = "医生调整";
@@ -1051,6 +1054,17 @@
 "allergy.emptyHint" = "记录已知过敏，看病时医生一眼能看到";
 "allergy.selfReportBadge" = "自述记录 · C 级";
 "allergy.severity.轻" = "轻";
+"allergy.kind.药品" = "药品";
+"allergy.kind.食物" = "食物";
+"allergy.kind.其他" = "其他";
+"allergy.tag.皮疹" = "皮疹";
+"allergy.tag.荨麻疹" = "荨麻疹";
+"allergy.tag.恶心呕吐" = "恶心呕吐";
+"allergy.tag.腹泻" = "腹泻";
+"allergy.tag.呼吸困难" = "呼吸困难";
+"allergy.tag.喉头水肿" = "喉头水肿";
+"allergy.tag.过敏性休克" = "过敏性休克";
+"allergy.tag.其他" = "其他";
 "allergy.severity.中" = "中";
 "allergy.severity.重" = "重";
 "allergy.severity.severe" = "重";
@@ -1272,6 +1286,8 @@
 "alert.showL0" = "显示 L0";
 "alert.historyEntry" = "预警历史";
 "f19.noTodayMeds" = "今天没有需要服用的药物";
+"f19.goTimeline" = "已打开时间轴";
+"f19.goHome" = "已回到首页";
 "f19.nextAppointmentFmt" = "下次预约：%@，%@";
 "f19.noAppointment" = "没有预约记录";
 "f19.recentGlucoseFmt" = "最近血糖：%@";
@@ -1344,6 +1360,8 @@
 "home.capture.sensitive" = "标记为敏感资料（默认锁定查看）";
 "route.comingSoon" = "功能即将上线";
 "route.comingSoonHint" = "该页面正在建设，敬请期待";
+"route.entityGone" = "该资料已不存在";
+"route.entityGoneHint" = "目标记录已被删除或已切换成员，即将返回";
 "f16.authDenied" = "未授权读取健康数据——已降级为手动自测模式";
 "startup.degradedTitle" = "数据打开异常";
 "startup.degradedBodyFmt" = "本地数据暂无法打开（%@）。您的资料未被修改；请重启应用重试，如持续出现请联系支持。";

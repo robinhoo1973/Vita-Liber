@@ -133,15 +133,21 @@ struct RemindersView: View {
                         // 第六轮全仓审查修复：调度类型此前只换提示文案、实际
                         // 恒建 fixed——选「间隔」输入 480 会把 "480" 当 HH:mm
                         // 时刻解析失败（计划零剂量），选「餐锚/按需」同样静默
-                        // 丢弃。现按 kind 映射真实调度（interval 分钟数、meal
-                        // 关系原样保留用户输入、asNeeded 无排程）。
+                        // 丢弃。现按 kind 映射真实调度。
+                        // 第七轮修复：餐锚经 MealAnchorRules 中文词表解析（原样
+                        // 传中文 token 全部落到 mealDefaultTime 的 default 08:00）；
+                        // 间隔设下限 60 分钟（<60 分钟的 8 天预排窗口物化过万
+                        // dose_log 行，且远超 iOS 64 pending 上限——更细频次应
+                        // 走固定时刻）
                         let schedule: MedicationSchedule
                         switch kind {
                         case "interval":
-                            guard let minutes = Int(timeText), minutes > 0 else { return }
+                            guard let minutes = Int(timeText), minutes >= 60 else { return }
                             schedule = .interval(everyMinutes: minutes, start: "00:00")
                         case "meal":
-                            schedule = .meal(relations: [timeText])
+                            let relations = DoseScheduleEngine.MealAnchorRules.parse(timeText)
+                            guard !relations.isEmpty else { return }
+                            schedule = .meal(relations: relations)
                         case "asNeeded":
                             schedule = .asNeeded
                         default:
@@ -235,12 +241,16 @@ struct NewPlanSheet: View {
         }
     }
 
-    /// 可保存判定：名字非空；间隔类必须为正整数分钟（否则解析失败会
-    /// 静默建出零剂量计划）
+    /// 可保存判定：名字非空；间隔类必须为 ≥60 的整数分钟（第七轮修复：
+    /// 无下限时 1 分钟间隔会在 8 天预排窗口物化 ~1.1 万 dose_log 行）；
+    /// 餐锚必须至少解析出一个引擎关系词（全未知 token 拒绝保存并提示）
     private var canSave: Bool {
         guard !name.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
         if scheduleKind == "interval" {
-            guard let minutesValue = Int(timeText), minutesValue > 0 else { return false }
+            guard let minutesValue = Int(timeText), minutesValue >= 60 else { return false }
+        }
+        if scheduleKind == "meal" {
+            guard !DoseScheduleEngine.MealAnchorRules.parse(timeText).isEmpty else { return false }
         }
         return true
     }

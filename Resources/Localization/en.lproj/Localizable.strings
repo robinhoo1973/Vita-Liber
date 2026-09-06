@@ -168,6 +168,9 @@
 "deeplink.bookingNo" = "Booking number (add after booking)";
 "deeplink.saveNo" = "Save booking number";
 "helpcard.title" = "Medication help card";
+"helpcard.cardRemainingPrefix" = "About";
+"helpcard.cardStoragePrefix" = "Stored at:";
+"helpcard.cardExpiryPrefix" = "Expires:";
 "helpcard.selectHint" = "Select medication batches (multiple)";
 "helpcard.photoOptIn" = "Include storage photo (family-only image sharing — please confirm)";
 "helpcard.contentNote" = "Card contents: name, spec, remaining amount, storage text, expiry. No diagnosis information.";
@@ -447,7 +450,6 @@
 "inventory.dualLine" = "Safety line %1$@ %2$@ · confirmed %3$@ %2$@";
 "inventory.dualLineTitle" = "Dual-track stock (plan / confirmed)";
 "inventory.expiry" = "Expires %@";
-"inventory.tier14" = "≤14 days left";
 "inventory.tier0" = "Due today";
 "inventory.tier7" = "≤7 days left";
 "inventory.tier3" = "≤3 days left";
@@ -540,6 +542,7 @@
 "help.data.storageSection" = "Storage";
 "help.data.dbSize" = "Database Size";
 "help.data.calculating" = "Calculating...";
+"help.data.storageSizeFmt" = "%@ MB";
 "help.data.backupSection" = "Backup";
 "help.data.lastBackup" = "Last Backup";
 "help.data.noBackup" = "No backup yet";
@@ -761,7 +764,6 @@
 "encounter.form.fee" = "Fee (CNY, optional)";
 
 "timeline.title" = "Health Timeline";
-"timeline.emptyTitle" = "Timeline is empty";
 "timeline.emptyHint" = "Try switching member, date range or event-type filters. Records, encounters and medications appear here over time";
 "timeline.filter.all" = "All";
 "timeline.kind.document" = "Document";
@@ -811,6 +813,7 @@
 "appt.cancel" = "Cancel";
 "appt.complete" = "Mark Complete";
 "appt.followUpHint" = "Follow up again (creates a follow-up reminder)";
+"appt.markMissed" = "Mark Missed";
 "appt.newDate" = "New visit time";
 "appt.cancelReason.none" = "Cancel";
 "appt.cancelReason.doctor" = "Doctor adjusted";
@@ -1051,6 +1054,17 @@
 "allergy.emptyHint" = "Record known allergies so doctors can see them at a glance";
 "allergy.selfReportBadge" = "Self-reported · Grade C";
 "allergy.severity.轻" = "Mild";
+"allergy.kind.药品" = "Medicine";
+"allergy.kind.食物" = "Food";
+"allergy.kind.其他" = "Other";
+"allergy.tag.皮疹" = "Rash";
+"allergy.tag.荨麻疹" = "Hives";
+"allergy.tag.恶心呕吐" = "Nausea & vomiting";
+"allergy.tag.腹泻" = "Diarrhea";
+"allergy.tag.呼吸困难" = "Difficulty breathing";
+"allergy.tag.喉头水肿" = "Throat swelling";
+"allergy.tag.过敏性休克" = "Anaphylaxis";
+"allergy.tag.其他" = "Other";
 "allergy.severity.中" = "Moderate";
 "allergy.severity.重" = "Severe";
 "allergy.severity.severe" = "Severe";
@@ -1272,6 +1286,8 @@
 "alert.showL0" = "Show L0";
 "alert.historyEntry" = "Alert History";
 "f19.noTodayMeds" = "No medications to take today";
+"f19.goTimeline" = "Timeline opened";
+"f19.goHome" = "Back to home";
 "f19.nextAppointmentFmt" = "Next appointment: %@, %@";
 "f19.noAppointment" = "No appointments on record";
 "f19.recentGlucoseFmt" = "Recent glucose: %@";
@@ -1344,6 +1360,8 @@
 "home.capture.sensitive" = "Mark as sensitive (locked by default)";
 "route.comingSoon" = "Coming Soon";
 "route.comingSoonHint" = "This page is under construction";
+"route.entityGone" = "This Record No Longer Exists";
+"route.entityGoneHint" = "The record was deleted or the member was switched; returning now";
 "f16.authDenied" = "Health data not authorized — manual self-test mode enabled";
 "startup.degradedTitle" = "Data Open Error";
 "startup.degradedBodyFmt" = "Your local data could not be opened (%@). Nothing has been modified; please restart the app, or contact support if this persists.";

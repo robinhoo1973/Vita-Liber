@@ -29,20 +29,40 @@ public enum MedicationHelpCardRules {
         }
     }
 
+    /// 卡片文案标签（第七轮全仓审查修复）：Domain 不得硬编码用户可见文案——
+    /// 标题/字段前缀经 HelpCardLabels 注入，App 层取 L10n 三语词表；
+    /// `zhFallback` 仅为诊断/测试默认值（Refusal.detail 同款降级纪律），
+    /// 生产调用方必须注入本地化标签。
+    public struct HelpCardLabels: Sendable, Equatable {
+        public var title: String
+        public var remainingPrefix: String   // 「剩余：约」
+        public var storagePrefix: String     // 「存放位置：」
+        public var expiryPrefix: String      // 「效期：」
+        public static let zhFallback = HelpCardLabels(
+            title: "药品求助卡", remainingPrefix: "剩余：约",
+            storagePrefix: "存放位置：", expiryPrefix: "效期：")
+        public init(title: String, remainingPrefix: String,
+                    storagePrefix: String, expiryPrefix: String) {
+            self.title = title; self.remainingPrefix = remainingPrefix
+            self.storagePrefix = storagePrefix; self.expiryPrefix = expiryPrefix
+        }
+    }
+
     /// 组装单页文本。**位置照片不入文本**——照片以附件形式随分享带出，
     /// 且仅当 `includeStoragePhoto` 为 true 时由调用方附加（本函数无法、
     /// 也不应该接触二进制）。
-    public static func cardText(_ items: [Input]) -> String {
-        var lines = ["药品求助卡"]
+    public static func cardText(_ items: [Input],
+                                labels: HelpCardLabels = .zhFallback) -> String {
+        var lines = [labels.title]
         lines.append("")
         for item in items {
             lines.append("· \(item.medicationName)\(item.spec.map { "（\($0)）" } ?? "")")
-            lines.append("  剩余：约 \(String(format: "%g", item.remainingUnits)) \(item.unitKind)")
+            lines.append("  \(labels.remainingPrefix) \(String(format: "%g", item.remainingUnits)) \(item.unitKind)")
             if let note = item.storageNote, !note.isEmpty {
-                lines.append("  存放位置：\(note)")
+                lines.append("  \(labels.storagePrefix)\(note)")
             }
             if let expire = item.expireAt {
-                lines.append("  效期：\(expire.formatted(date: .abbreviated, time: .omitted))")
+                lines.append("  \(labels.expiryPrefix)\(expire.formatted(date: .abbreviated, time: .omitted))")
             }
             lines.append("")
         }

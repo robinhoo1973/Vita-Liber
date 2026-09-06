@@ -258,6 +258,112 @@ final class M15AcceptanceTests: XCTestCase {
         }
     }
 
+    /// v15 剂量 id 补偿改写：dose_lot_allocation/notification_delivery 引用行
+    /// 必须跟随父行改写（第六轮修复、第七轮重排顺序后的回归锚点）。
+    /// 覆盖两条路径：① 目标未占用 → 引用行整体迁移；② 历史重复行（同一
+    /// 逻辑身份已被占用）→ 未决议行连同证据清除、已决议行事实保留。
+    func test_v15_剂量ID补偿引用行跟随() async throws {
+        let queue = try DatabaseQueue(configuration: GRDBStore.configuration())
+        let planId = UUID()
+        let schedule = MedicationSchedule.fixed(times: ["08:00"])
+        let scheduleJSON = String(data: try JSONEncoder().encode(schedule), encoding: .utf8) ?? ""
+        let now = Date().timeIntervalSince1970
+        let today0800 = Calendar.current.date(bySettingHour: 8, minute: 0, second: 0, of: Date()) ?? Date()
+        try await queue.write { db in
+            try db.execute(sql: """
+                CREATE TABLE patient_profile (
+                  id TEXT PRIMARY KEY, owner_local_id TEXT, display_name TEXT NOT NULL,
+                  relation TEXT NOT NULL, gender TEXT, birth_date REAL, note TEXT,
+                  created_at REAL NOT NULL, updated_at REAL NOT NULL, deleted_at REAL);
+                CREATE TABLE medication_plan (
+                  id TEXT PRIMARY KEY, patient_id TEXT NOT NULL, medication_id TEXT,
+                  status TEXT NOT NULL, schedule_json TEXT, start_date REAL NOT NULL,
+                  end_date REAL, dose_plan_units REAL,
+                  created_at REAL NOT NULL, updated_at REAL NOT NULL);
+                CREATE TABLE medication_dose_log (
+                  id TEXT PRIMARY KEY, plan_id TEXT NOT NULL,
+                  scheduled_for REAL NOT NULL, dose_units REAL NOT NULL DEFAULT 1,
+                  delivery_state TEXT NOT NULL, delivered_at REAL, user_action TEXT,
+                  acted_at REAL, snooze_until REAL, note TEXT);
+                CREATE TABLE metric_sample (
+                  id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+                  metric_key TEXT NOT NULL, value REAL NOT NULL, secondary_value REAL,
+                  unit TEXT NOT NULL, origin TEXT NOT NULL, self_measured INTEGER NOT NULL,
+                  excluded INTEGER NOT NULL DEFAULT 0, source_ref TEXT,
+                  measured_at REAL NOT NULL, created_at REAL NOT NULL);
+                CREATE TABLE alert_event (
+                  id TEXT PRIMARY KEY, patient_id TEXT NOT NULL, rule_id TEXT NOT NULL,
+                  severity TEXT NOT NULL, evidence_json TEXT NOT NULL,
+                  delivered_state TEXT NOT NULL, created_at REAL NOT NULL);
+                CREATE TABLE dose_lot_allocation (
+                  dose_log_id TEXT NOT NULL, stock_lot_id TEXT NOT NULL,
+                  planned_units REAL NOT NULL, confirmed_units REAL NOT NULL DEFAULT 0,
+                  PRIMARY KEY(dose_log_id, stock_lot_id));
+                CREATE TABLE notification_delivery (
+                  id TEXT PRIMARY KEY, reminder_id TEXT, dose_log_id TEXT,
+                  scheduled_at REAL NOT NULL, delivered_at REAL,
+                  channel TEXT NOT NULL, level TEXT, outcome TEXT, created_at REAL NOT NULL);
+                INSERT INTO medication_plan (id, patient_id, status, schedule_json, start_date, created_at, updated_at)
+                  VALUES (?, 'p-1', 'active', ?, ?, ?, ?);
+                """, arguments: [planId.uuidString, scheduleJSON, now, now, now])
+            // ① 单行（taken）4 段 legacy id：重写后引用行必须跟随
+            try db.execute(sql: """
+                INSERT INTO medication_dose_log (id, plan_id, scheduled_for, delivery_state, user_action, delivered_at, acted_at)
+                  VALUES ('dose-legacy-taken-1', ?, ?, 'delivered', 'taken', ?, ?);
+                """, arguments: [planId.uuidString, today0800.timeIntervalSince1970,
+                                 today0800.timeIntervalSince1970, today0800.timeIntervalSince1970])
+            try db.execute(sql: """
+                INSERT INTO dose_lot_allocation (dose_log_id, stock_lot_id, planned_units, confirmed_units)
+                  VALUES ('dose-legacy-taken-1', 'lot-1', 1, 1);
+                """)
+            try db.execute(sql: """
+                INSERT INTO notification_delivery (id, dose_log_id, scheduled_at, channel, created_at)
+                  VALUES ('nd-1', 'dose-legacy-taken-1', ?, 'local', ?);
+                """, arguments: [today0800.timeIntervalSince1970, now])
+            // ② 历史重复行：同计划同时刻的另一行（未决议）→ 目标被占，
+            //    未决议行连同证据清除
+            try db.execute(sql: """
+                INSERT INTO medication_dose_log (id, plan_id, scheduled_for, delivery_state, user_action)
+                  VALUES ('dose-legacy-dup-1', ?, ?, 'planned', NULL);
+                """, arguments: [planId.uuidString, today0800.timeIntervalSince1970 + 60])
+            try db.execute(sql: """
+                INSERT INTO dose_lot_allocation (dose_log_id, stock_lot_id, planned_units, confirmed_units)
+                  VALUES ('dose-legacy-dup-1', 'lot-2', 1, 0);
+                """)
+            try db.execute(sql: """
+                INSERT INTO notification_delivery (id, dose_log_id, scheduled_at, channel, created_at)
+                  VALUES ('nd-2', 'dose-legacy-dup-1', ?, 'local', ?);
+                """, arguments: [today0800.timeIntervalSince1970, now])
+            try db.execute(sql: "PRAGMA user_version = 12;")
+        }
+        _ = try GRDBStore(writer: queue)   // 触发 v13→v16 全链
+        try await queue.read { db in
+            // ① 已决议行：父行已改写为逻辑 id，引用行全部跟随
+            let takenId = try String.fetchOne(db, sql: """
+                SELECT id FROM medication_dose_log WHERE user_action = 'taken'
+                """) ?? ""
+            XCTAssertTrue(takenId.hasPrefix("dose-\(planId.uuidString)-"), "已决议行必须改写为逻辑 id，实际=\(takenId)")
+            let allocId = try String.fetchOne(db, sql: """
+                SELECT dose_log_id FROM dose_lot_allocation WHERE stock_lot_id = 'lot-1'
+                """)
+            XCTAssertEqual(allocId, takenId, "dose_lot_allocation 必须跟随父行改写（悬空=账本断链）")
+            let deliveryId = try String.fetchOne(db, sql: """
+                SELECT dose_log_id FROM notification_delivery WHERE id = 'nd-1'
+                """)
+            XCTAssertEqual(deliveryId, takenId, "notification_delivery 必须跟随父行改写")
+            // ② 历史重复行：未决议行连同证据清除，不留悬空引用
+            XCTAssertEqual(try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM medication_dose_log WHERE id = 'dose-legacy-dup-1'
+                """), 0, "重复未决议行必须清除（物化窗口以正确身份重建）")
+            XCTAssertEqual(try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM dose_lot_allocation WHERE stock_lot_id = 'lot-2'
+                """), 0, "重复行账本证据必须随行清除")
+            XCTAssertEqual(try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM notification_delivery WHERE id = 'nd-2'
+                """), 0, "重复行送达证据必须随行清除")
+        }
+    }
+
     // MARK: - FR13.11 备份往返与校验（一票否决：损坏包不得部分导入）
 
     func test_备份往返一致() async throws {

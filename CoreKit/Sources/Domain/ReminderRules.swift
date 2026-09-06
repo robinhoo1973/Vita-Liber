@@ -158,7 +158,7 @@ public enum VoiceRepeatRules {
         case "每周四", "周四": return [5]
         case "每周五", "周五": return [6]
         case "每周六", "周六": return [7]
-        case "每周日", "每周天", "周日": return [1]
+        case "每周日", "每周天", "周日", "周天": return [1]
         case "每周": return [fireWeekday]
         case "工作日": return [2, 3, 4, 5, 6]
         case "周末": return [1, 7]
@@ -206,7 +206,11 @@ public enum VoiceGrammarDefaults {
     public static let reminderRules: [ReminderGrammarRule] = [
         ReminderGrammarRule(kind: "any",
                             timePatterns: [#"(明天|明早|后天|今天)"#],
-                            repeatPatterns: [#"(每天|每日|每周一|每周二|每周三|每周四|每周五|每周六|每周日|周一|周二|周三|周四|周五|周六|周日|每周|工作日|周末)"#],
+                            // 第七轮全仓审查修复：alternation 必须「长短语在前」——
+                            // 「每周天」若列在「每周」之后，NSRegularExpression 左首优先
+                            // 先命中「每周」两字，周日提醒错排到设定日（FR17.10 重复语义
+                            // 静默错日）；「周天」缺位则整短语无匹配、回落一次性提醒
+                            repeatPatterns: [#"(每天|每日|每周一|每周二|每周三|每周四|每周五|每周六|每周日|每周天|周一|周二|周三|周四|周五|周六|周日|周天|每周|工作日|周末)"#],
                             hourPatterns: [#"(\d+)点"#, #"([上下]午)"#],
                             datePatterns: [#"(\d{1,2})月(\d{1,2})[日号]"#]),
         ReminderGrammarRule(kind: "selfTest",

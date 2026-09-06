@@ -83,6 +83,7 @@ public enum NumberNormalizer {
             if ch == "零" {
                 zeroSeen = true
                 section = 0
+                hasValue = true   // 第七轮修复：「零」本身是数值（血糖零=0）——hasValue 不置位则归一结果原样返回「零」
             } else if let d = cnDigits[ch] {
                 section = d
                 hasValue = true

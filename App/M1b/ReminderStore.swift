@@ -323,10 +323,21 @@ final class ReminderStore {
 
     /// 移除该剂量的已送达通知（dose- 本体与所属时段 slot-）
     private func removeDeliveredReminders(for dose: ScheduledDose) async {
-        let slotId = DoseSlotGrouping.slotId(for: DoseRecord(dose: dose)).map { "slot-\($0)" }
-        let ids = [dose.notifyId, slotId].compactMap { $0 }
+        let ids = [dose.notifyId, slotNotifyId(for: dose)].compactMap { $0 }
         do { try await scheduler.removeDelivered(ids) }
         catch { logger.error("已送达通知清理失败: \(error)") }
+    }
+
+    /// 第七轮全仓审查修复：合并时段（≤30min 双剂）内非锚剂量的单剂派生
+    /// slot id 与排程时段的合并 id 分叉——清理/取消命中不存在的 id，
+    /// 已送达的时段通知残留锁屏（BR-004 反向事实链）。今日时段卡已持有
+    /// 聚合结果，直接按剂量反查真实时段 id；不在今日窗口（历史剂量）时
+    /// 回落单剂派生（单剂时段二者一致）。
+    private func slotNotifyId(for dose: ScheduledDose) -> String? {
+        if let slot = todaySlots.first(where: { $0.records.contains { $0.id == dose.notifyId } }) {
+            return "slot-\(slot.id)"
+        }
+        return DoseSlotGrouping.slotId(for: DoseRecord(dose: dose)).map { "slot-\($0)" }
     }
 
     /// FR9.5 忘记服用（显式记录，与超时自动 missed 区分——BR-004 送达≠已服）
@@ -371,8 +382,9 @@ final class ReminderStore {
         do {
             try await meds.recordAction(notifyId: dose.notifyId, action: .snoozed)
             // S1-2 修正：稍后=取消时段通知 + 按新时刻单排（FR9.5）
-            let slotId = DoseSlotGrouping.slotId(for: DoseRecord(dose: dose)).map { "slot-\($0)" }
-            await reconciler.snooze(doseNotifyId: dose.notifyId, slotNotifyId: slotId,
+            // 第七轮修复：时段 id 经聚合结果反查（slotNotifyId），
+            // 合并时段内非锚剂量不再取消到不存在的 id
+            await reconciler.snooze(doseNotifyId: dose.notifyId, slotNotifyId: slotNotifyId(for: dose),
                                     until: Date().addingTimeInterval(TimeInterval(minutes * 60)))
             if let patientId { await refresh(patientId: patientId) }
         } catch {

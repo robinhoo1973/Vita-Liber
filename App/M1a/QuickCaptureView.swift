@@ -134,7 +134,17 @@ struct QuickCaptureView: View {
                     .accessibilityIdentifier("SP-11.capture.cancel")
             }
         }
-        .fullScreenCover(isPresented: $showCamera) {
+        .fullScreenCover(isPresented: $showCamera, onDismiss: {
+            // 第七轮全仓审查修复：选区 sheet 必须在 cover **完全收起后**呈现——
+            // 原 onChange(showCamera) 只在 showCamera=false 的下一渲染帧触发，
+            // 彼时 cover 仍在退场动画中，同事务 present 仍可撞转场冲突
+            // （选区 sheet 不呈现、流程卡死——第六轮修复只延后了一个渲染帧，
+            // 未跨过整个退场动画）。onDismiss 是系统给出的退场完成锚点。
+            if deferRegionEditorAfterCamera {
+                deferRegionEditorAfterCamera = false
+                showRegionEditor = true
+            }
+        }) {
             CameraPicker { image in
                 handleImage(image)
             }
@@ -167,14 +177,8 @@ struct QuickCaptureView: View {
                 showOcclusion = true
             }
         }
-        .onChange(of: showCamera) { _, showing in
-            // 相机拍摄完成：等 cover 完全收起再开选区 sheet（同族冲突纪律，
-            // 见 handleImage）
-            if !showing && deferRegionEditorAfterCamera {
-                deferRegionEditorAfterCamera = false
-                showRegionEditor = true
-            }
-        }
+        // 相机拍摄完成 → 选区 sheet 的延后呈现已移至 fullScreenCover 的
+        // onDismiss（退场完成锚点，第七轮修复——见 cover 声明处注释）
         .onChange(of: showOcclusion) { _, showing in
             if !showing {
                 // 取消遮挡编辑器时清残留（第四轮全仓审查修复：原状态滞留，
@@ -330,7 +334,8 @@ struct QuickCaptureView: View {
     private func handleImage(_ image: UIImage) {
         // 第六轮全仓审查修复：cover 关闭中不得同事务再 present sheet——
         // 与「选区→遮挡」跳转同族冲突（iOS 17 实测 sheet 可能不呈现、
-        // 流程静默卡死），改为 onChange(showCamera) 延后呈现
+        // 流程静默卡死）。第七轮升级为 cover onDismiss 锚点（退场完成）：
+        // onChange(showCamera) 只跨一个渲染帧，仍在退场动画窗口内
         showCamera = false
         // 相机无源字节：1.0 质量编码兜底（BR-002 尽量保真；相机帧本身是
         // 传感器 JPEG，不再叠加 0.9 二次损失）

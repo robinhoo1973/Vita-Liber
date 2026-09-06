@@ -134,3 +134,33 @@ public enum ChannelFallback {
         fallbackChain(from: preferred).first { availability[$0] == true }
     }
 }
+
+/// FR9.18 分通道偏好的投递判定（第七轮全仓审查修复：六类提醒三选一的偏好
+/// 此前零生产消费方——用户选「静音仅横幅」仍按时锁屏响铃（假宣告）。
+/// 本判定是系统通知投递门的 Domain 规则：notifyId 前缀 → 类别 → 偏好值；
+/// 「inApp」= 不投递系统通知（应用内横幅是唯一通道）；「persistentRing」
+/// 在 Critical Alerts 授权益落地（W4/P2）前按降级链落到 local 照常投递。
+public enum ReminderChannelRules {
+    /// notifyId → 类别偏好键（§5.44 六源）；未识别前缀返回 nil（消费侧回落
+    /// 全局 remindChannel 缺省，绝不臆断类别）
+    public static func categoryKey(for notifyId: String) -> AppSettingKey? {
+        if notifyId.hasPrefix("dose-") || notifyId.hasPrefix("slot-") || notifyId.hasPrefix("snooze-") {
+            return .remindChannelMeds
+        }
+        if notifyId.hasPrefix("apt-") || notifyId.hasPrefix("followup-apt-") {
+            return .remindChannelApts
+        }
+        if notifyId.hasPrefix("followup-") { return .remindChannelExam }   // 观察随访
+        if notifyId.hasPrefix("exp-") || notifyId.hasPrefix("refill-") { return .remindChannelExpiry }
+        if notifyId.hasPrefix("backup-") { return .remindChannelBackup }
+        return nil
+    }
+
+    /// 是否投递系统通知。preference 取类别键对应值，未识别类别回落全局缺省；
+    /// 非法值（含历史脏数据）不改变现状（照常投递）——绝不因偏好解读失败
+    /// 而静默 P0 提醒。
+    public static func shouldDeliverSystem(_ notifyId: String,
+                                           preference: String?) -> Bool {
+        preference != ReminderChannelKind.inApp.rawValue
+    }
+}

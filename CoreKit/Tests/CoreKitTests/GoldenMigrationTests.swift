@@ -88,6 +88,36 @@ struct LoadGateAuditTests {
         #expect(attempt == 2)
     }
 
+    /// 第七轮补充锚点：失败时有并发等待者——全部任务（发起方 + 等待者 +
+    /// 失败后重试者）都收到错误，不得有任务误以为成功（第六轮「等待者
+    /// rethrow」修复此前无并发用例守护；`failure = nil` 与
+    /// `waiters.resume` 的次序契约由本用例钉住）
+    @Test func LoadGate失败并发等待者全收到错误() async {
+        struct Boom: Error {}
+        let gate = LoadGate()
+        actor Counter { var n = 0; func inc() { n += 1 }; var v: Int { n } }
+        let errors = Counter()
+        await withTaskGroup(of: Void.self) { g in
+            for _ in 0..<8 {
+                g.addTask {
+                    do {
+                        try await gate.enter {
+                            // 留出等待者到达窗口：首个发起方挂起时其余任务进入
+                            // .loading 分支成为等待者，失败唤醒后 rethrow 路径
+                            // 被真实执行
+                            try? await Task.sleep(nanoseconds: 50_000_000)   // try?-ok: 睡眠取消无副作用
+                            throw Boom()
+                        }
+                    } catch {
+                        await errors.inc()
+                    }
+                }
+            }
+        }
+        #expect(await errors.v == 8, "失败不得被任何等待者/重试者吞掉——全部收到错误")
+        #expect(await gate.currentState == .idle, "失败后必须回 idle（可重试，不得误置 ready）")
+    }
+
     /// dev-pm §3.1：金样五类样本 + flutter 版真实备份样本一份。
     /// 混型样本覆盖 prescription/lab/medication/other/空资产五种形态——
     /// 断言「迁移条数等于输入条数」且「分类路由与实际类型一致」。

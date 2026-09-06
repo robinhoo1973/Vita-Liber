@@ -43,7 +43,13 @@ struct InventoryHubView: View {
         }
         .sheet(isPresented: $showHelpCard) {
             MedicationHelpCardSheet(items: hub.inventoryItems) { inputs in
-                shareText = MedicationHelpCardRules.cardText(inputs)
+                // 第七轮修复：卡文本标签经 L10n 三语词表注入（Domain 不再
+                // 硬编码中文——en 用户分享出的是英文卡）
+                shareText = MedicationHelpCardRules.cardText(inputs, labels: .init(
+                    title: L10n.helpcard_title,
+                    remainingPrefix: L10n.helpcardCardRemainingPrefix,
+                    storagePrefix: L10n.helpcardCardStoragePrefix,
+                    expiryPrefix: L10n.helpcardCardExpiryPrefix))
                 showShareHost = true
             }
         }

@@ -81,6 +81,51 @@ struct VoiceGrammarTests {
         #expect(NumberNormalizer.normalize("6.8") == "6.8")
     }
 
+    /// 第七轮修复锚点：零分支（zeroSeen/tail-weight）回归——此前
+    /// 「一百零二」产出 120（零分支不可达），仅手工审查发现、无测试钉住
+    @Test func 中文数字零分支归一() {
+        #expect(NumberNormalizer.normalize("一百零二") == "102")
+        #expect(NumberNormalizer.normalize("一百零一") == "101")
+        #expect(NumberNormalizer.normalize("一千零二") == "1002")
+        #expect(NumberNormalizer.normalize("二百") == "200")
+        #expect(NumberNormalizer.normalize("零") == "0")
+    }
+
+    /// 第七轮修复锚点：周短式映射全 7 天 + 每周天/周天（第六轮补 switch、
+    /// 第七轮补文法）——语音重复短语映射错误会把服药提醒排到错误星期
+    @Test func 周短式映射全表() {
+        #expect(VoiceRepeatRules.weekdays(for: "周一", fireWeekday: 4) == [2])
+        #expect(VoiceRepeatRules.weekdays(for: "周二", fireWeekday: 4) == [3])
+        #expect(VoiceRepeatRules.weekdays(for: "周三", fireWeekday: 4) == [4])
+        #expect(VoiceRepeatRules.weekdays(for: "周四", fireWeekday: 4) == [5])
+        #expect(VoiceRepeatRules.weekdays(for: "周五", fireWeekday: 4) == [6])
+        #expect(VoiceRepeatRules.weekdays(for: "周六", fireWeekday: 4) == [7])
+        #expect(VoiceRepeatRules.weekdays(for: "周日", fireWeekday: 4) == [1])
+        #expect(VoiceRepeatRules.weekdays(for: "周天", fireWeekday: 4) == [1])
+        #expect(VoiceRepeatRules.weekdays(for: "每周天", fireWeekday: 4) == [1])
+        #expect(VoiceRepeatRules.weekdays(for: "每天", fireWeekday: 4) == [])
+        #expect(VoiceRepeatRules.weekdays(for: "每周", fireWeekday: 4) == [4])
+        #expect(VoiceRepeatRules.weekdays(for: "工作日", fireWeekday: 4) == [2, 3, 4, 5, 6])
+        #expect(VoiceRepeatRules.weekdays(for: "周末", fireWeekday: 4) == [1, 7])
+        #expect(VoiceRepeatRules.weekdays(for: "隔天", fireWeekday: 4) == nil)
+    }
+
+    /// 第七轮修复锚点：「每周天晚上八点提醒吃药」不得被「每周」前缀抢先命中
+    /// （alternation 长短语在前），「周天…」不得丢失重复语义回落一次性
+    @Test func 周天短语提取优先级() {
+        let rules = [
+            ReminderGrammarRule(kind: "any",
+                                timePatterns: [#"(\d+)点"#],
+                                repeatPatterns: [#"(每天|每日|每周一|每周二|每周三|每周四|每周五|每周六|每周日|每周天|周一|周二|周三|周四|周五|周六|周日|周天|每周|工作日|周末)"#]),
+        ]
+        let drafts = VoiceStructuringEngine.extractReminder("每周天晚上八点提醒吃药", rules: rules)
+        #expect(drafts.contains { $0.key == "repeat" && $0.value == "每周天" },
+                "「每周天」必须整体命中（每周天 ≠ 每周）")
+        let bare = VoiceStructuringEngine.extractReminder("周天晚上八点提醒吃药", rules: rules)
+        #expect(bare.contains { $0.key == "repeat" && $0.value == "周天" },
+                "「周天」必须命中重复短语（不得丢弃为一次性）")
+    }
+
     @Test func 指标抽取阿拉伯数字() {
         let drafts = VoiceStructuringEngine.extractMetric("高压132", rules: metricRules)
         #expect(drafts.contains { $0.key == "blood_pressure_sys" && $0.value == "132" })

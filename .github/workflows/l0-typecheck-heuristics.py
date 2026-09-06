@@ -140,7 +140,17 @@ def ios_only_guard_ok(expr, in_else):
     tokens = re.findall(r"os\(\w+\)", expr)
     if not tokens:
         return False
-    return all(t in ("os(iOS)", "os(visionOS)") for t in tokens)
+    # 第七轮全仓审查修复：否定守卫 `#if !os(iOS)` 在 macOS 上**会被编译**——
+    # 原判定只认 token 集合（findall 丢掉了 !），把否定守卫误判为 iOS 独占，
+    # AVAudioSession/UIScreen 等引用在 macOS 编译失败却通过门禁
+    return all(t in ("os(iOS)", "os(visionOS)") and not is_negated(expr, t)
+               for t in tokens)
+
+
+def is_negated(expr, token):
+    """token 是否被紧跟其前的 `!` 否定（`#if !os(iOS)` / `!canImport(...)`）。"""
+    idx = expr.find(token)
+    return idx > 0 and expr[idx - 1] == "!"
 
 
 def main():
@@ -259,8 +269,13 @@ def main():
             # #else 分支（嵌套 #if canImport 等子守卫不改变外层平台排除）——
             # 原 all() 语义要求全栈均为 os(Linux)，嵌套子守卫（canImport 等）
             # 使 linux_only 恒假，Linux 专属文件内合法引用被误报
+            # 第七轮修复：否定守卫 `#if !os(Linux)` 在 macOS 上会被编译——
+            # 裸子串匹配把否定守卫误判为 Linux 独占（LocalAuthGateUnlocker 全文件
+            # 即此形态），其声明被记为 Linux 桩、macOS 区域引用被误杀/漏杀
             linux_only = any(
-                ("os(Linux)" in e or "os(linux)" in e) and not fl
+                (re.search(r"os\(\s*[Ll]inux\s*\)", e) is not None
+                 and not is_negated(e, re.search(r"os\(\s*[Ll]inux\s*\)", e).group(0)))
+                and not fl
                 for e, fl in zip(stack, else_flags)
             )
             if linux_only:

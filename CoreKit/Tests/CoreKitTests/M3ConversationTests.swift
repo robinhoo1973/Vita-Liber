@@ -88,13 +88,40 @@ struct VoiceConversationTests {
     // MARK: FR19.4 选择循环 + 再说一遍
 
     @Test func 列选不超过三项且按编号选择() {
-        let (state, events) = VoiceConversationEngine.optionsPrompt(["阿司匹林 100mg", "阿司匹林 81mg", "拜阿司匹林", "第四个被截断"])
+        // 第七轮修复：必须传 pendingCommand 且断言执行命令——原测试漏传参数、
+        // 断言只匹配 payload 不匹配命令，引擎 `pendingCommand ?? .todayMeds`
+        // 的回落把「药还剩多少」错执行成「今天吃什么药」仍全绿（假宣告）
+        let (state, events) = VoiceConversationEngine.optionsPrompt(
+            ["阿司匹林 100mg", "阿司匹林 81mg", "拜阿司匹林", "第四个被截断"],
+            pendingCommand: .stockRemaining)
         #expect(state.options.count == 3, "FR19.4：选项必须 ≤3")
         #expect(events.contains(.askOptions(["阿司匹林 100mg", "阿司匹林 81mg", "拜阿司匹林"])))
         let (s2, e2) = VoiceConversationEngine.step(state: state, transcript: "第二个")
-        #expect(e2.contains(where: { if case .execute(_, let payload) = $0 { return payload == "阿司匹林 81mg" }
-                              return false }))
+        #expect(e2.contains(where: { if case .execute(let cmd, let payload) = $0 { return cmd == .stockRemaining && payload == "阿司匹林 81mg" }
+                              return false }),
+            "列选必须执行传入的 pendingCommand（漏传回落 .todayMeds 即错误命令）")
         #expect(s2.phase == .listening)
+    }
+
+    /// 第七轮修复锚点：搜索载荷剥离（第六轮修复）零测试——载荷丢失 = 搜索页空开。
+    /// openSearch 为低风险查询类，直接执行（无确认轮）
+    @Test func 搜索指令载荷保留() {
+        let (_, events) = VoiceConversationEngine.step(state: ConversationState(),
+                                                       transcript: "搜索阿司匹林")
+        #expect(events.contains(where: { if case .execute(.openSearch, let payload) = $0 { return payload == "阿司匹林" }
+                              return false }),
+                "搜索词必须随 .openSearch 载荷带出（搜索页打开即带词）")
+    }
+
+    /// 第七轮修复锚点：recordQuestion 载荷（记一个问题：…）零测试
+    @Test func 记录问题载荷抽取() {
+        var state = ConversationState()
+        let (s1, _) = VoiceConversationEngine.step(state: state, transcript: "记一个问题：头晕三天")
+        state = s1
+        let (_, e2) = VoiceConversationEngine.step(state: state, transcript: "确认")
+        #expect(e2.contains(where: { if case .execute(.recordQuestion, let payload) = $0 { return payload == "头晕三天" }
+                              return false }),
+                "问题正文必须随 .recordQuestion 载荷带出（FR10.5 落库）")
     }
 
     @Test func 再说一遍重播当前问题与选项() {

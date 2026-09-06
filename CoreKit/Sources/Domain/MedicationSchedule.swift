@@ -142,11 +142,39 @@ public enum DoseScheduleEngine {
         case "afterLunch": return "12:30"
         case "beforeDinner": return "17:30"
         case "afterDinner": return "19:30"
+        case "beforeSleep": return "21:30"   // FR9.4 睡前（第七轮补齐：UI 餐锚提示含「睡前」，此前落入 default 08:00）
         default: return "08:00"
         }
     }
 
+    /// 中文餐锚词表 → 引擎餐时关系 token（FR9.4；第七轮全仓审查修复：
+    /// UI 提示邀请「早/午/晚/睡前，逗号分隔」，原实现把整串中文原样传给
+    /// `.meal(relations:)`——mealDefaultTime 只认英文 token，未知词一律
+    /// 落到 default 08:00：睡前药 13 小时提前响、「早,晚」合成一个 08:00
+    /// 剂量。本表是餐锚词表的单一事实源；未知 token 一律丢弃（绝不猜语义，
+    /// FR10.2 同款纪律），调用侧对空结果拒绝建计划并提示。
+    public enum MealAnchorRules {
+        public static func parse(_ raw: String) -> [String] {
+            raw.components(separatedBy: CharacterSet(charactersIn: "，,、；; ").union(.whitespaces))
+                .compactMap { tokenMap[$0] }
+        }
+
+        private static let tokenMap: [String: String] = [
+            "早": "beforeBreakfast", "早上": "beforeBreakfast",
+            "早餐前": "beforeBreakfast", "早饭前": "beforeBreakfast", "空腹": "beforeBreakfast",
+            "早饭后": "afterBreakfast", "早餐后": "afterBreakfast",
+            "午": "beforeLunch", "中午": "beforeLunch",
+            "午餐前": "beforeLunch", "午饭前": "beforeLunch",
+            "午饭后": "afterLunch", "午餐后": "afterLunch",
+            "晚": "beforeDinner", "晚上": "beforeDinner",
+            "晚餐前": "beforeDinner", "晚饭前": "beforeDinner",
+            "晚饭后": "afterDinner", "晚餐后": "afterDinner",
+            "睡前": "beforeSleep",
+        ]
+    }
+
     static func date(day: Int, time: String, startDate: Date, calendar: Calendar) -> Date? {
+
         let parts = time.split(separator: ":").compactMap { Int($0) }
         guard parts.count == 2, (0..<24).contains(parts[0]), (0..<60).contains(parts[1]) else { return nil }
         let dayStart = calendar.startOfDay(for: startDate)

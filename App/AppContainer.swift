@@ -70,10 +70,12 @@ struct AppContainer {
 
     /// 生产装配：文件库 + WAL（§4.4）+ UNUserNotificationCenter 适配。
     /// @MainActor：mediaSession（MediaUnlockSession）为 UI 会话令牌，装配根即主线程。
+    /// 第七轮修复：UNReminderScheduler 外包 FR9.18 通道投递门（ChannelGated
+    /// Scheduler）——「静音仅横幅」偏好真实生效（不再锁屏响铃的假宣告）
     @MainActor
     static func live(databasePath: String) throws -> AppContainer {
         let store = try GRDBStore.pool(at: databasePath)
-        return assemble(store: store, scheduler: UNReminderScheduler())
+        return assemble(store: store, scheduler: ChannelGatedScheduler(inner: UNReminderScheduler()))
     }
 
     /// Preview/测试装配：内存库 + 内存调度器 + 临时目录敏感资产仓
@@ -95,7 +97,8 @@ struct AppContainer {
         } catch {
             do {
                 let store = try GRDBStore.inMemory()
-                return assemble(store: store, scheduler: UNReminderScheduler(),
+                return assemble(store: store,
+                                scheduler: ChannelGatedScheduler(inner: UNReminderScheduler()),
                                 degradedReason: "\(error)")
             } catch {
                 fatalError("Data layer init failed (live and in-memory degraded both unavailable): \(error)")

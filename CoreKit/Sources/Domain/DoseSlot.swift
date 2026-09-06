@@ -108,9 +108,30 @@ public struct DoseSlotGrouping {
                              second: 0, of: date) ?? date
     }
 
-    /// 单剂量的时段归属 id（通知 id = "slot-\(slotId)"；对账与稍后取消共用）
+    /// 单剂量的时段归属 id（通知 id = "slot-\(slotId)"；对账与稍后取消共用）。
+    ///
+    /// ⚠️ 仅对「单剂量时段」正确：合并时段（≤30min 双剂）的 id 以**锚剂量**
+    /// （最早一剂）时刻派生，非锚剂量单独分组会得到不同的 id——合并时段内
+    /// 的剂量判定/取消必须用 `slotIds(_:)` 全量映射（第七轮修复，见下）。
     public static func slotId(for record: DoseRecord, calendar: Calendar = .current) -> String? {
         group([record], calendar: calendar).first?.id
+    }
+
+    /// 全量记录 → 所属时段 id 映射（第七轮全仓审查修复）：对同一记录集
+    /// 分组后按实际合并结果反查每剂的 slot id。多剂合并时段（07:30+08:00
+    /// 合并锚 07:30）中，非锚剂量的 slotId(for:) 单独分组会得出未排程的
+    /// 假 id——送达判定漏判 → 重复时段通知（FR9.17 每时段一条被破坏）、
+    /// 确认/跳过清不掉已送达通知、稍后取消错误 id 通知照常响起。
+    /// 消费方（对账 merge/稍后、ReminderStore 清理）必须以本映射为准。
+    public static func slotIds(_ records: [DoseRecord],
+                               calendar: Calendar = .current) -> [String: String] {
+        var map: [String: String] = [:]
+        for slot in group(records, calendar: calendar) {
+            for record in slot.records {
+                map[record.id] = slot.id
+            }
+        }
+        return map
     }
 }
 

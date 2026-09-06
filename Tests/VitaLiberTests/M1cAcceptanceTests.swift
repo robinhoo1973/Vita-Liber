@@ -85,11 +85,35 @@ final class M1cAcceptanceTests: XCTestCase {
                                  Date().timeIntervalSince1970, Date().timeIntervalSince1970])
         }
 
+        // 第七轮全仓审查修复的回归锚点：血型/证件/医保号 + 软删成员随包往返——
+        // 原种子全 nil、无软删成员，round-6 的 profileRow 字段映射与
+        // 「不再过滤软删成员」零测试守护，回退即静默丢急救卡血型、复活
+        // 软删成员
+        let deletedAtValue = Date().timeIntervalSince1970 - 3600
+        try await storeA.writer.write { db in
+            try db.execute(sql: """
+                UPDATE patient_profile SET blood_type = 'A', id_no = '110101199001011234', insurance_no = 'SI-9001'
+                WHERE id = ?
+                """, arguments: [profile.id.uuidString])
+            try db.execute(sql: """
+                INSERT INTO patient_profile (id, display_name, relation, blood_type, deleted_at, created_at, updated_at)
+                VALUES (?, '已删除成员', '其他', 'B', ?, ?, ?)
+                """, arguments: [UUID().uuidString, deletedAtValue,
+                                 Date().timeIntervalSince1970, Date().timeIntervalSince1970])
+        }
+
         let envelope = try await exportA.exportJSON()
         XCTAssertEqual(envelope.plans.count, 1)
         XCTAssertEqual(envelope.observations.count, 2)  // makeStore 已种 1 条 + 本用例 1 条
         XCTAssertEqual(envelope.allergies.count, 1)
         XCTAssertEqual(envelope.metrics.count, 1)
+        // round-6 字段映射回归锚点
+        XCTAssertEqual(envelope.selfProfile?.bloodType, "A", "血型必须随包")
+        XCTAssertEqual(envelope.selfProfile?.idNo, "110101199001011234", "证件号必须随包")
+        XCTAssertEqual(envelope.selfProfile?.insuranceNo, "SI-9001", "医保号必须随包")
+        XCTAssertEqual(envelope.members?.count, 1, "软删成员必须随包导出（FR13.5 换机恢复）")
+        let softDeleted = envelope.members?.first { $0.displayName == "已删除成员" }
+        XCTAssertEqual(softDeleted?.deletedAt, deletedAtValue, "deletedAt 必须随包")
 
         // 全新库导入 → 再导出 → 结构一致（往返一致性）
         let storeB = try GRDBStore.inMemory()

@@ -4,6 +4,13 @@ import Infrastructure
 
 // MARK: - F4 就诊事件（SP-08 · FR4.1-4.4）
 
+/// 第七轮修复：就诊类型显示名统一经 L10n 词表——表单以 rawValue
+/// （"outpatient"…）落库，列表行/详情胶囊此前渲染英文枚举值；
+/// 历史/未知值（如旧版中文默认）原样降级显示，不 crash
+private func encounterKindDisplayName(_ raw: String) -> String {
+    EncounterKind(rawValue: raw).map { L10n.encounterKindName($0) } ?? raw
+}
+
 /// 就诊模块状态仓：列表/详情/挂接/智能推荐（BR-001 成员隔离）
 @MainActor
 @Observable
@@ -91,7 +98,7 @@ struct EncounterListView: View {
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(enc.hospital ?? L10n.encounterUntitled)
                                     .font(.subheadline)
-                                Text("\(enc.kind) · \(enc.date.formatted(date: .abbreviated, time: .omitted))")
+                                Text("\(encounterKindDisplayName(enc.kind)) · \(enc.date.formatted(date: .abbreviated, time: .omitted))")
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()
@@ -162,7 +169,7 @@ struct EncounterDetailView: View {
                         Text(current?.hospital ?? encounter.hospital ?? L10n.encounterUntitled)
                             .font(.title2.bold())
                         Spacer()
-                        Text(current?.kind ?? encounter.kind)
+                        Text(encounterKindDisplayName(current?.kind ?? encounter.kind))
                             .font(.caption)
                             .padding(.horizontal, 8).padding(.vertical, 4)
                             .background(Capsule().fill(Color("brand-primary", bundle: .main).opacity(0.12)))

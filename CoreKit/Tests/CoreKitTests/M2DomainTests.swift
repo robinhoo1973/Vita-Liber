@@ -50,6 +50,51 @@ struct AlertEngineTests {
         #expect(AlertRuleEngine.escalate(recent: two, guideline: glucoseGuideline) == nil)
     }
 
+    // 第七轮全仓审查修复的回归锚点：跨单位拒绝/NaN 拒绝/单位同义标签
+    @Test func 跨单位读数拒绝定级() {
+        // mg/dL 读数对 mmol/L 信源：拒绝定级（宁可少警不可错警，F25 摩尔桥接未接线）
+        let mgdl = MetricReading(metricKey: "glucose", value: 110.0, unit: "mg/dL",
+                                 origin: .manual, measuredAt: Date())
+        #expect(AlertRuleEngine.severity(for: mgdl, guideline: glucoseGuideline) == nil,
+                "110 mg/dL（≈6.1 mmol/L 正常）不得被 13.9 阈值错定 L2")
+    }
+
+    @Test func 非有限读数拒绝定级() {
+        let nan = MetricReading(metricKey: "glucose", value: .nan, unit: "mmol/L",
+                                origin: .manual, measuredAt: Date())
+        #expect(AlertRuleEngine.severity(for: nan, guideline: glucoseGuideline) == nil)
+        let inf = MetricReading(metricKey: "glucose", value: .infinity, unit: "mmol/L",
+                                origin: .manual, measuredAt: Date())
+        #expect(AlertRuleEngine.severity(for: inf, guideline: glucoseGuideline) == nil)
+    }
+
+    @Test func 同义单位标签正常定级() {
+        // 心率信源 'bpm' vs 录入 '次/分'：同一物理单位，不得被守卫误杀（第七轮修复）
+        let heartGuideline = GuidelineEntry(
+            title: "AHA 心动过速标准", org: "AHA", year: 2020,
+            clauseRef: "tachycardia", citationUrl: "https://example.org/hrt",
+            version: "2020", checkedAt: Date(), metricKey: "heart_rate", unit: "bpm",
+            l1High: 100)
+        let reading = MetricReading(metricKey: "heart_rate", value: 112.0, unit: "次/分",
+                                    origin: .manual, measuredAt: Date())
+        #expect(AlertRuleEngine.severity(for: reading, guideline: heartGuideline) == .L1,
+                "112 次/分（=112 bpm）必须命中 AHA L1（>100）")
+    }
+
+    @Test func 升级窗口含L0则拒绝升级() {
+        // 第七轮修复锚点：窗口内恰 3 次全部越限才升级——混入 L0 不得升级
+        let base = Date(timeIntervalSince1970: 2000)
+        let readings = [
+            MetricReading(metricKey: "glucose", value: 7.8, unit: "mmol/L", origin: .manual, measuredAt: base),
+            MetricReading(metricKey: "glucose", value: 5.6, unit: "mmol/L", origin: .manual,
+                          measuredAt: base.addingTimeInterval(60)),
+            MetricReading(metricKey: "glucose", value: 7.9, unit: "mmol/L", origin: .manual,
+                          measuredAt: base.addingTimeInterval(120)),
+        ]
+        #expect(AlertRuleEngine.escalate(recent: readings, guideline: glucoseGuideline) == nil,
+                "窗口内存在 L0（正常值）不得升级——FR16.2「连续 3 次越限」口径")
+    }
+
     @Test func 五段证据卡结构化字段() {
         let reading = MetricReading(metricKey: "glucose", value: 17.0, unit: "mmol/L",
                                     origin: .manual, measuredAt: Date())

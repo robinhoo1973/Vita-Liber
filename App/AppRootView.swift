@@ -47,6 +47,11 @@ struct AppRootView: View {
                 RootAdaptiveView()
             }
         }
+        // 第七轮全仓审查修复（FR1.7/BR-007 任务切换器快照）：宽限 >0 时遮罩
+        // 未在 .inactive 快照时刻挂载——切换器快照拍到解锁态的病历界面。
+        // privacySensitive 让系统在非 active 相位对快照做隐私遮罩（redact），
+        // 与宽限锁独立：不改变宽限锁的正式锁定时刻，只遮快照。
+        .privacySensitive(scenePhase != .active)
         // FR14.4 主题注入（tech-spec §5.28.1）：nil = 跟随系统；@Observable 读值即时生效
         .preferredColorScheme(currentTheme.colorScheme)
         // FR14.4 高对比度初始实现 = 环境对比度增强（§5.28.1 记录为偏差：HC Token 集归 L2）
@@ -131,14 +136,21 @@ struct AppRootView: View {
                 if appState.onboardingFinished && !appState.authPromptInFlight {
                     let grace = Double(Int(settingsStore.values[.gateGraceSeconds] ?? "0") ?? 0)
                     if grace > 0 {
-                        // 宽限窗口内回前台即取消（切换任务器快照在 inactive 已挂遮罩，
-                        // 宽限只影响正式锁定时刻）
+                        // 宽限窗口内回前台即取消（宽限只影响正式锁定时刻）
+                        // 第七轮全仓审查修复：回前台同样经过 .inactive（active→
+                        // inactive→background→inactive→active），本分支会再跑一次
+                        // 并**覆盖** graceLockTask——旧任务未取消，其宽限期满后
+                        // 在用户正使用中置 backgroundLocked，使用中突然被锁屏
+                        // （FR1.4 语义破坏）。覆盖前必须先取消旧任务。
+                        graceLockTask?.cancel()
                         graceLockTask = Task {
                             try? await Task.sleep(nanoseconds: UInt64(grace * 1_000_000_000))   // try?-ok: 宽限计时取消即停
                             guard !Task.isCancelled else { return }
                             backgroundLocked = true
                         }
                     } else {
+                        graceLockTask?.cancel()
+                        graceLockTask = nil
                         backgroundLocked = true
                     }
                 }

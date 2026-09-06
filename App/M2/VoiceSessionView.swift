@@ -38,6 +38,33 @@ final class VoiceSessionState {
     func clearRejection() { rejected = false }
     func end() { ended = true; isListening = false }
     func start() { isListening = true }
+
+    /// 第七轮全仓审查修复：执行结果反馈不得再经 submit 喂回状态机——
+    /// 反馈句（如「已记录…为已服用」）被引擎当作用户输入解析为未识别轮，
+    /// silentRounds 累积、字幕被「没听清」提示覆盖（动作成功后反而显示
+    /// 没听清，且两轮未识别后整个会话被 exitGracefully 关闭）。
+    /// 反馈只更新字幕 + 播报，不进状态机。
+    func systemFeedback(_ text: String, speak: (String) -> Void) {
+        caption = text
+        speak(text)
+    }
+
+    /// 多命中歧义消除（FR19.4，第七轮接线）：进入列选相位——选定编号后
+    /// 引擎以 pendingCommand 执行（不再回落 .todayMeds），载荷 = 所选条目。
+    /// 此前仅测试调用 optionsPrompt，生产路径零接线：多命中确认是死胡同
+    /// （用户复述药名被解析为未识别，BR-004 确认永远无法完成）。
+    func presentOptions(_ opts: [String], for command: VoiceCommand, speak: (String) -> Void) {
+        let (state, events) = VoiceConversationEngine.optionsPrompt(opts, pendingCommand: command)
+        engineState = state
+        options = state.options
+        for event in events {
+            if case .speak(let prompt) = event {
+                let text = L10n.voicePromptText(prompt)
+                caption = text
+                speak(text)
+            }
+        }
+    }
     func pause() { isListening = false }       // 退出前台（FR19.1）
     func resume() { isListening = true }
 
@@ -324,6 +351,15 @@ struct VoiceSessionView: View {
     /// 执行真实写路径（BR-004：确认即如实记录），危险类已在状态机层完成分级确认。
     private func handleExecution(_ command: VoiceCommand?, object: String?) {
         guard let command else { return }
+        // 第七轮修复：载荷一次性消费——非拨号命令消费后即清镜像，防
+        // 异步落库路径（recordMetric 的 Task 未完成前）出现与拨号无关的
+        // 复述确认卡；拨号类（callContact/callEmergency120）由 FR19.5
+        // 复述确认卡承接，保持镜像直到确认。
+        defer {
+            if command != .callContact, command != .callEmergency120 {
+                session.clearPendingObject()
+            }
+        }
         switch command {
         case .callContact, .callEmergency120:
             // FR19.5：复述对象 + 确认之后才真正拨号
@@ -332,8 +368,8 @@ struct VoiceSessionView: View {
         case .openTimeline, .goHome, .exitSession:
             // 会话以 fullScreenCover 呈现，无法直接驱动 Tab 切换——
             // 回落入口页并如实提示（FR19.3：不假装导航成功）
-            _ = session.submit(command == .openTimeline ? "打开时间轴" : "回到首页",
-                               speak: { app.speak($0) })
+            session.systemFeedback(command == .openTimeline ? L10n.f19GoTimeline : L10n.f19GoHome,
+                                   speak: { app.speak($0) })
             dismiss()
         case .todayMeds:
             // 附表①查询今日用药：时段清单播报（>3 条自动分页）
@@ -341,12 +377,12 @@ struct VoiceSessionView: View {
                 .flatMap { $0.records.map(\.displayLabel) }
             let text = names.isEmpty ? L10n.f19NoTodayMeds
                 : names.prefix(3).joined(separator: "、") + (names.count > 3 ? "……" : "")
-            _ = session.submit(text, speak: { app.speak($0) })
+            session.systemFeedback(text, speak: { app.speak($0) })
         case .nextAppointment:
             let apt = reminderStore.upcomingAppointments.first
             let text = apt.map { L10n.f19NextAppointment("\($0.hospital)·\($0.department)", $0.startsAt.formatted(date: .abbreviated, time: .shortened)) }
                 ?? L10n.f19NoAppointment
-            _ = session.submit(text, speak: { app.speak($0) })
+            session.systemFeedback(text, speak: { app.speak($0) })
         case .recentGlucose:
             // 审查修复：trendState.series 只在趋势页被访问过时才加载——
             // 直接进语音会话会误报「暂无血糖记录」（F19 事实播报）。
@@ -355,8 +391,8 @@ struct VoiceSessionView: View {
             Task {
                 await trendState.load(patientId: patientId)
                 let points = trendState.series?.points.suffix(3).map { "\($0.value)" }.joined(separator: "、")
-                _ = session.submit(points.map { L10n.f19RecentGlucose($0) } ?? L10n.f19NoGlucose,
-                                   speak: { app.speak($0) })
+                session.systemFeedback(points.map { L10n.f19RecentGlucose($0) } ?? L10n.f19NoGlucose,
+                                      speak: { app.speak($0) })
             }
         case .stockRemaining:
             // 附表③查询余量：「约剩 N 天·按计划估算」（FR9.8.7 诚实性文案）
@@ -366,13 +402,13 @@ struct VoiceSessionView: View {
                 }
                 return L10n.f19StockNoPlan(item.medicationName)
             }.joined(separator: "；")
-            _ = session.submit(text.isEmpty ? L10n.f19NoStock : text, speak: { app.speak($0) })
+            session.systemFeedback(text.isEmpty ? L10n.f19NoStock : text, speak: { app.speak($0) })
         case .stockLocation:
             // 附表④存放位置文本播报
             let text = hub.inventoryItems
                 .map { L10n.f19StockLocation($0.medicationName, $0.storageNote ?? L10n.f19LocationUnknown) }
                 .joined(separator: "；")
-            _ = session.submit(text.isEmpty ? L10n.f19NoStock : text, speak: { app.speak($0) })
+            session.systemFeedback(text.isEmpty ? L10n.f19NoStock : text, speak: { app.speak($0) })
         case .stockExpiry, .expiringSoon:
             // 附表⑤⑥效期/临期清单：按 30 天 / 7 天分组播报
             let lots = hub.inventoryItems.compactMap { item -> (String, Date)? in
@@ -382,7 +418,7 @@ struct VoiceSessionView: View {
             let text = expiring.isEmpty ? L10n.f19NoExpiring
                 : expiring.map { L10n.f19Expiring($0.0, $0.1.formatted(date: .abbreviated, time: .omitted)) }
                     .joined(separator: "；")
-            _ = session.submit(text, speak: { app.speak($0) })
+            session.systemFeedback(text, speak: { app.speak($0) })
         case .askMedicationTaken:
             // 附表时段服药确认：逐药回读已服/未服清单
             let lines = reminderStore.todaySlots.flatMap { slot in
@@ -392,8 +428,8 @@ struct VoiceSessionView: View {
                     return L10n.f19SlotMedState(record.displayLabel, state)
                 }
             }
-            _ = session.submit(lines.isEmpty ? L10n.f19NoTodayMeds : lines.joined(separator: "；"),
-                               speak: { app.speak($0) })
+            session.systemFeedback(lines.isEmpty ? L10n.f19NoTodayMeds : lines.joined(separator: "；"),
+                                   speak: { app.speak($0) })
         case .markTaken:
             // 附表②标记已服用：唯一在服计划命中 → 单次口头确认后逐时段确认。
             // 审查修复（BR-004）：多条命中时不再静默确认第一条——回读清单
@@ -404,15 +440,18 @@ struct VoiceSessionView: View {
                     .filter { $0.displayLabel.contains(object) && $0.action == nil }
                 if matched.count == 1, let record = matched.first {
                     Task { await reminderStore.confirmTaken(patientId: app.currentPatientId, dose: record.dose) }
-                    _ = session.submit(L10n.f19MarkTakenDone(object),
-                                       speak: { app.speak($0) })
+                    session.systemFeedback(L10n.f19MarkTakenDone(object),
+                                           speak: { app.speak($0) })
                 } else if matched.isEmpty {
-                    _ = session.submit(L10n.f19MarkTakenNoMatch(object),
-                                       speak: { app.speak($0) })
+                    session.systemFeedback(L10n.f19MarkTakenNoMatch(object),
+                                           speak: { app.speak($0) })
                 } else {
-                    let names = matched.map { $0.displayLabel }.joined(separator: "、")
-                    _ = session.submit(L10n.f19MarkTakenMultiple(names),
-                                       speak: { app.speak($0) })
+                    // 第七轮修复：多命中进入 FR19.4 列选（编号选择）——
+                    // 原实现播报清单后是死胡同：用户复述药名的自由输入被
+                    // 状态机解析为未识别（silentRounds 累积直至会话被关），
+                    // 确认永远无法完成；列选选定后引擎以 .markTaken 执行
+                    let labels = matched.map { $0.displayLabel }
+                    session.presentOptions(labels, for: .markTaken, speak: { app.speak($0) })
                 }
             }
         case .recordMetric:
@@ -435,15 +474,15 @@ struct VoiceSessionView: View {
                                                    unit: byKey["blood_pressure_sys"]?.unit ?? "mmHg",
                                                    measuredAt: Date())
                     }
-                    _ = session.submit(L10n.f19MetricRecorded(sysV),
-                                       speak: { app.speak($0) })
+                    session.systemFeedback(L10n.f19MetricRecorded(sysV),
+                                           speak: { app.speak($0) })
                 } else if let draft = drafts.first(where: { $0.key != "title" }),
                           let v = Double(draft.value), v > 0 {
                     let metric = Self.metricType(for: draft.key)
                     guard let metric else {
                         // 文法命中了 MetricType 未覆盖的指标（如体温）——不臆造落库
-                        _ = session.submit(L10n.f19MetricNotSupported(draft.key),
-                                           speak: { app.speak($0) })
+                        session.systemFeedback(L10n.f19MetricNotSupported(draft.key),
+                                               speak: { app.speak($0) })
                         return
                     }
                     Task {
@@ -454,15 +493,15 @@ struct VoiceSessionView: View {
                                                    unit: draft.unit ?? "",
                                                    measuredAt: Date())
                     }
-                    _ = session.submit(L10n.f19MetricRecorded(v),
-                                       speak: { app.speak($0) })
+                    session.systemFeedback(L10n.f19MetricRecorded(v),
+                                           speak: { app.speak($0) })
                 }
             }
         case .recordQuestion:
             // 附表⑧问诊速记：追加至 FR10.5
             if let object, !object.isEmpty {
                 Task { await questionsState.add(patientId: app.currentPatientId, body: object) }
-                _ = session.submit(L10n.f19QuestionRecorded(object), speak: { app.speak($0) })
+                session.systemFeedback(L10n.f19QuestionRecorded(object), speak: { app.speak($0) })
             }
         case .startCamera:
             // 附表⑩开始拍摄：进入相机流（后续动作手动完成）
@@ -472,7 +511,7 @@ struct VoiceSessionView: View {
             // 第六轮全仓审查修复：确认的搜索词此前被丢弃（Domain
             // extractPayload 已返回载荷）——注入搜索共享状态，全局搜索
             // 页打开即带词检索
-            if let object, !object.isEmpty { searchState.setQuery(object) }
+            if let object, !object.isEmpty { searchState.injectQuery(object) }
             dismiss()
             router.navigate(to: .globalSearch)
         case .repeatLast, .louder, .yes, .no, .selectNumber, .selectName, .cancel:

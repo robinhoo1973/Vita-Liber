@@ -3,9 +3,14 @@ import Domain
 
 /// §5.58 提醒触达设置（FR9.18/FR14.7 · V3.72 点亮）：每类提醒三选一
 /// （仅通知 / 通知+响铃直到确认 / 静音仅横幅）+ 应用内横幅总开关。
-/// 偏好写 app_settings（AppSettingKey 单一事实源）；UNReminderScheduler 消费
-/// ChannelFallback.fallbackChain 的接线随 W4（persistentRing 依赖 Critical Alerts
-/// entitlement，P2 申请）。
+/// 偏好写 app_settings（AppSettingKey 单一事实源）。
+/// 第七轮全仓审查修复接线：偏好此前零生产消费方（假宣告）——
+/// 「静音仅横幅」现经 ChannelGatedScheduler（AppContainer 装配的调度器
+/// 装饰器，Domain 规则 = ReminderChannelRules）真实生效：该类别的系统
+/// 通知投递被跳过，应用内横幅是唯一通道；「仅通知」为现状；「响铃直到
+/// 确认」在 Critical Alerts entitlement（P2/W4）申请前按降级链落到
+/// 通知照常投递（footer 已如实说明）。偏好变更只作用于新排程通知，
+/// 已 pending 的旧通知在下次对账/语言重写时收敛（登记技术债）。
 struct ReminderChannelSettingsView: View {
     @Environment(AppSettingsStore.self) private var settings
 

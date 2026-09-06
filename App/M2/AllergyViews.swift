@@ -99,19 +99,20 @@ struct AllergyCreateView: View {
                 if step == 1 {
                     Section(L10n.allergyStep1) {
                         Picker(L10n.allergyKind, selection: $allergenKind) {
-                            ForEach(kinds, id: \.self) { Text($0) }
+                            // 第七轮修复：显示名经 L10n 词表（存储值仍是 Domain 词表原文）
+                            ForEach(kinds, id: \.self) { Text(L10n.allergyKindName($0)) }
                         }
                     }
                 } else if step == 2 {
                     Section(L10n.allergyStep2) {
                         TextField(L10n.allergySubstancePlaceholder, text: $substance)
-                        // 反应标签 chips 多选 + 自由输入
+                        // 反应标签 chips 多选 + 自由输入（显示名经 L10n 词表）
                         ForEach(reactionTags, id: \.self) { tag in
                             Button {
                                 toggleTag(tag)
                             } label: {
                                 HStack {
-                                    Text(tag)
+                                    Text(L10n.allergyTagName(tag))
                                     Spacer()
                                     if selectedTags.contains(tag) {
                                         Image(systemName: "checkmark")

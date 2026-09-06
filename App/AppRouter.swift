@@ -72,12 +72,29 @@ final class AppRouter {
     /// 通知点击 → 路由入队（AppNotificationDelegate 调用）：
     /// 外壳就绪 → 立即分发；未就绪（启动窗口/门禁中）→ 暂存，
     /// 由 markNavigationReady 在挂载帧之后投递。
+    /// 第七轮修复：启动窗口内同一通知连点两次入队两次 → 解锁后同一目的地
+    /// 叠两层（返回观感失效）；队列尾去重（navigate 侧另有栈顶去重兜底）
     func enqueue(route: AppRoute) {
         if navigationReady {
             navigate(to: route)
         } else {
+            guard pendingRoutes.last != route else { return }
             pendingRoutes.append(route)
         }
+    }
+
+    /// §5.48：目的地视图自弹回根（已删除实体降级）——移除该路由在其所属
+    /// Tab 栈中的条目并持久化。RouteDestinationView 的 NotFound 降级落点调用。
+    func pop(_ route: AppRoute) {
+        let tab = MainModuleID.tab(of: route)
+        switch tab {
+        case .home: homePath.removeAll { $0 == route }
+        case .records: recordsPath.removeAll { $0 == route }
+        case .reminders: remindersPath.removeAll { $0 == route }
+        case .ai: aiPath.removeAll { $0 == route }
+        case .me: mePath.removeAll { $0 == route }
+        }
+        persist()
     }
 
     /// 外壳挂载后恢复（markNavigationReady 调用）。幂等：多次调用只恢复一次。
@@ -104,19 +121,41 @@ final class AppRouter {
         // 评审修正第二轮：切 Tab 同时**弹栈到根**——用户深处提醒栈（如计划详情）
         // 时点剂量通知，旧实现栈顶仍是详情页，§5.45 契约「点击抵达今日剂量」
         // 落空；弹栈后 Tab 根（RemindersView 今日时段）即为落点。
-        guard route != .reminderToday else {
-            remindersPath = []
+        // 第七轮修复：.assistantChat 同族——AI Tab 根（ModuleRoot(.ai)）即
+        // AssistantView，首页引导卡/语音速启点 AI 助手会叠出第二个一模一样
+        // 的聊天页（套娃），第六轮只特判了 reminderToday 漏掉本族。
+        guard route != .reminderToday, route != .assistantChat else {
+            let tab = MainModuleID.tab(of: route)
+            switch tab {
+            case .ai: aiPath = []
+            case .reminders: remindersPath = []
+            default: break
+            }
             persist()
             return
         }
         Task { @MainActor [weak self] in
             guard let self else { return }
+            // 第七轮修复：同路由连点去重——同一通知双点（启动窗口入队两次）
+            // 或同一预约的 t0/t1 分级通知先后点击会把同一目的地叠两层；
+            // 栈顶已是该路由时不再入栈（正常「返回再进同一页」不受影响，
+            // 因为返回后栈顶已不是它）
             switch tab {
-            case .home: self.homePath.append(route)
-            case .records: self.recordsPath.append(route)
-            case .reminders: self.remindersPath.append(route)
-            case .ai: self.aiPath.append(route)
-            case .me: self.mePath.append(route)
+            case .home:
+                guard self.homePath.last != route else { return }
+                self.homePath.append(route)
+            case .records:
+                guard self.recordsPath.last != route else { return }
+                self.recordsPath.append(route)
+            case .reminders:
+                guard self.remindersPath.last != route else { return }
+                self.remindersPath.append(route)
+            case .ai:
+                guard self.aiPath.last != route else { return }
+                self.aiPath.append(route)
+            case .me:
+                guard self.mePath.last != route else { return }
+                self.mePath.append(route)
             }
             self.persist()
         }
@@ -266,11 +305,23 @@ final class AppNotificationDelegate: NSObject, UNUserNotificationCenterDelegate 
     /// 横幅（todaySlots 驱动）——应抑制的是 dose-/slot-（否则系统横幅 + 应用内
     /// 横幅同事件双弹）；refill-/exp- 没有任何应用内横幅承接，抑制即静默丢失
     /// （续药/到期是 ADR-009 早告警链，前台不可见违背「偏早」铁律）。
+    /// 第七轮修复：抑制必须咨询横幅总开关与用药通道偏好（UserDefaults 镜像，
+    /// AppSettingsStore.set 双写，本方法在系统线程执行故不得触碰 @MainActor）——
+    /// 横幅总开关关闭时原无条件抑制使服药提醒在前台**完全静默**（无系统横幅、
+    /// 无应用内横幅，仅 Tab 角标）；「静音仅横幅」偏好（remindChannelMeds
+    /// =inApp）时系统横幅必须让位（应用内横幅是唯一通道，即使开关关闭也是
+    /// 用户对「静音」的显式选择）。
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
                                             willPresent notification: UNNotification,
                                             withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
         let id = notification.request.identifier
-        let hasInAppBanner = id.hasPrefix("dose-") || id.hasPrefix("slot-")
-        completionHandler(hasInAppBanner ? [] : [.banner, .sound])
+        if id.hasPrefix("dose-") || id.hasPrefix("slot-") {
+            let defaults = UserDefaults.standard
+            let bannerOn = defaults.string(forKey: AppSettingKey.inAppBannerEnabled.rawValue) != "false"
+            let inAppOnly = defaults.string(forKey: AppSettingKey.remindChannelMeds.rawValue) == "inApp"
+            completionHandler(bannerOn || inAppOnly ? [] : [.banner, .sound])
+        } else {
+            completionHandler([.banner, .sound])
+        }
     }
 }

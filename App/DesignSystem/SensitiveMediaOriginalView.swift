@@ -28,6 +28,9 @@ struct SensitiveMediaOriginalView: View {
     @State private var scale: CGFloat = 1
     @State private var offset: CGSize = .zero
     @State private var unlocked = false
+    /// 第七轮修复：加载失败态（loader 返回 nil/空 = 文件不可读/已清理）——
+    /// 原实现 unlocked=true 但 image/displayData 均 nil，永远转圈无出口
+    @State private var loadFailed = false
     @State private var relockTask: Task<Void, Never>?
 
     var body: some View {
@@ -46,8 +49,11 @@ struct SensitiveMediaOriginalView: View {
             }
         }
         .onAppear {
+            // 第七轮修复（BR-007 时序）：预传 imageData 的路径也把**解码**推迟到
+            // 认证通过之后——原实现在 onAppear 即降采样渲染，认证取消时解码图
+            // 仍驻留内存（文件头契约「认证通过后才落内存」对非 loader 路径失效）
             displayData = imageData
-            loadDownsampled()
+            if unlocked { loadDownsampled() }
         }
         // 评审修正（BR-007/008）：任务切换器快照防护——SensitiveMediaContainer
         // 已在 inactive 时重锁，本视图此前缺失同款处理，退后台后快照可能
@@ -91,6 +97,9 @@ struct SensitiveMediaOriginalView: View {
                     )
                     .frame(width: geo.size.width, height: geo.size.height)
                     .onTapGesture { scheduleRelock() }
+            } else if loadFailed {
+                ContentUnavailableView(L10n.sensitiveMedia_loadFailed,
+                                       systemImage: "exclamationmark.triangle")
             } else {
                 ProgressView()
             }
@@ -123,13 +132,20 @@ struct SensitiveMediaOriginalView: View {
         // + 设备密码兜底），与 SensitiveMediaContainer 同路径，绝不允许无认证直通。
         guard await app.requestUnlock(reason: L10n.sensitive_unlockReason) else { return false }
         // BR-007 时序：认证通过后才拉取原图字节（loader 路径）——取消认证
-        // 的用户从未让原图进内存。加载失败回落直接传入的 imageData（若有）。
-        if let originalLoader, let loaded = await originalLoader(), !loaded.isEmpty {
-            displayData = loaded
-            image = nil
-            loadDownsampled()
+        // 的用户从未让原图进内存。加载失败回落直接传入的 imageData（若有）；
+        // 两者皆无 = 加载失败态（第七轮修复：明示失败，不再永远转圈）。
+        loadFailed = false
+        if let originalLoader {
+            if let loaded = await originalLoader(), !loaded.isEmpty {
+                displayData = loaded
+                image = nil
+                loadDownsampled()
+            } else if displayData == nil {
+                loadFailed = true
+            }
         }
         unlocked = true
+        if !loadFailed, image == nil { loadDownsampled() }   // 预传 imageData 路径的解码（认证后）
         scheduleRelock()
         // FR14.2 审计：敏感原图查看留痕（评审修正——原视图零审计锚点）
         if let assetId { app.auditViewSensitiveOriginal(documentId: assetId, title: caption) }

@@ -32,6 +32,24 @@ final class SearchViewState {
         searchGeneration += 1
     }
 
+    /// 第七轮全仓审查修复：语音「搜索 X」注入为**一次性投递**——
+    /// 原实现把注入词写进持久 query，搜索页每次新开会复活上一次的注入词
+    /// 并自动检索（用户新开搜索却撞上旧词的旧结果，意图被劫持）。
+    /// 用户键入仍走 setQuery；注入走 injectQuery，视图 onAppear 经
+    /// consumeInjectedQuery 取走即清（pendingVoiceDraft 同款一次性语义）。
+    private var injectedQuery: String?
+
+    func injectQuery(_ q: String) {
+        query = q
+        injectedQuery = q
+        searchGeneration += 1
+    }
+
+    func consumeInjectedQuery() -> String? {
+        defer { injectedQuery = nil }
+        return injectedQuery
+    }
+
     func search(patientId: UUID) async {
         let generation = searchGeneration
         let trimmed = query.trimmingCharacters(in: .whitespaces)
@@ -154,9 +172,12 @@ struct GlobalSearchView: View {
         .searchable(text: $filterText, prompt: L10n.searchPlaceholder)
         .onAppear {
             // 语音会话「搜索 X」确认后经共享状态注入搜索词（第六轮全仓
-            // 审查修复：词随 openSearch 指令丢弃，搜索页空开）
-            if filterText.isEmpty && !state.query.isEmpty {
-                filterText = state.query
+            // 审查修复：词随 openSearch 指令丢弃，搜索页空开）。
+            // 第七轮修复：改经一次性投递通道取词（consumeInjectedQuery 取走
+            // 即清）——不再读持久 query，旧会话的搜索词不会在新开搜索页
+            // 复活并自动检索；注入词由 filterText 变化驱动既有防抖检索。
+            if filterText.isEmpty, let injected = state.consumeInjectedQuery() {
+                filterText = injected
             }
         }
         .task(id: app.currentPatientId) {

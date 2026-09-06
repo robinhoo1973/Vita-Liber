@@ -227,26 +227,47 @@ public struct GRDBStore {
                 }
             }
             if let newId = recomputed, newId != currentId {
-                do {
-                    // 第六轮全仓审查修复：id 原地改写必须先同步引用行——本迁移
-                    // 在 foreign_keys=OFF 下运行，无级联更新，原实现让
-                    // dose_lot_allocation/notification_delivery 的历史行悬空
-                    // （引用不存在的剂量 id，账本/送达证据链断裂且无任何报错）
-                    try db.execute(sql: "UPDATE dose_lot_allocation SET dose_log_id = ? WHERE dose_log_id = ?",
-                                   arguments: [newId, currentId])
-                    try db.execute(sql: "UPDATE notification_delivery SET dose_log_id = ? WHERE dose_log_id = ?",
-                                   arguments: [newId, currentId])
-                    try db.execute(sql: "UPDATE medication_dose_log SET id = ? WHERE id = ?",
-                                   arguments: [newId, currentId])
-                }
-                catch {
-                    // PK 冲突：同一逻辑身份已被另一行占用（历史重复行）——
-                    // 未决议行清除（物化窗口会以正确身份重建），已决议行保留原 id
+                // 第七轮全仓审查修复（第六轮补偿改写的顺序缺陷）：
+                // writeWithoutTransaction 下每条语句自提交，无跨语句回滚——
+                // 原「先改引用行、后改父行」顺序中，父行 UPDATE 因 PK 冲突
+                // （历史重复行占用 newId）失败时，引用行已先被移到 newId、
+                // catch 按 currentId 清理全部落空：失败行的账本/送达证据
+                // 挂到另一个剂量行名下（ADR-009 确认线错挂），或 notification_
+                // delivery 保持悬空（与本次修复宣称消灭的悬空同族）。
+                // 修正：先预检目标占用，再决定「改写」还是「清除」，
+                // 两个方向都不再产生半提交状态。
+                let occupied = (try Int.fetchOne(db, sql: """
+                    SELECT COUNT(*) FROM medication_dose_log WHERE id = ?
+                    """, arguments: [newId])) ?? 0 > 0
+                if occupied {
+                    // 历史重复行：未决议行连同其全部证据一并清除（物化窗口
+                    // 会以正确身份重建）；已决议行事实优先保留原 id
                     if (row["user_action"] as String?) == nil {
-                        try db.execute(sql: "DELETE FROM dose_lot_allocation WHERE dose_log_id = ?",
-                                       arguments: [currentId])
+                        try Self.deleteDoseEvidence(db, doseLogId: currentId)
                         try db.execute(sql: "DELETE FROM medication_dose_log WHERE id = ?",
                                        arguments: [currentId])
+                    }
+                } else {
+                    do {
+                        // 第六轮全仓审查修复：id 原地改写必须同步引用行——本迁移
+                        // 在 foreign_keys=OFF 下运行，无级联更新，原实现让
+                        // dose_lot_allocation/notification_delivery 的历史行悬空。
+                        // 目标未占用（已预检）→ 引用行迁移不可能撞 PK/UNIQUE，
+                        // 先移引用行再改父行的原顺序在此前提下安全。
+                        try Self.moveDoseEvidence(db, from: currentId, to: newId)
+                        try db.execute(sql: "UPDATE medication_dose_log SET id = ? WHERE id = ?",
+                                       arguments: [newId, currentId])
+                    }
+                    catch {
+                        // 仅剩 DB 级错误（磁盘/损坏）会走到这里——按 currentId
+                        // 清理自身证据与父行（两处均幂等）；清理失败向上抛出
+                        // = 迁移失败（上层进入只读降级，绝不重播种），
+                        // 不允许半迁移状态静默留存
+                        if (row["user_action"] as String?) == nil {
+                            try Self.deleteDoseEvidence(db, doseLogId: currentId)
+                            try db.execute(sql: "DELETE FROM medication_dose_log WHERE id = ?",
+                                           arguments: [currentId])
+                        }
                     }
                 }
             }
@@ -255,10 +276,54 @@ public struct GRDBStore {
         // 保留会与逻辑 id 物化窗口重复计账，且物化只覆盖 active 计划，不会被重建。
         // GLOB 判定：逻辑 id = dose-{uuid}-{day}-{ordinal}（前缀 dose- + 4 段），
         // 其余形态（旧 epoch 三段 id / 随机 UUID 补录 id）一律视为不可重算残留。
+        // 第七轮修复：先清这些行的引用证据（foreign_keys=OFF 无级联删除，
+        // 不清则 dose_lot_allocation/notification_delivery 悬空）
+        try Self.deleteEvidenceOfUnresolvedLegacyRows(db)
         try db.execute(sql: """
             DELETE FROM medication_dose_log
             WHERE user_action IS NULL AND id NOT GLOB 'dose-*-*-*-*'
             """)
+    }
+
+    /// 迁移引用行同步助手：dose_lot_allocation / notification_delivery
+    /// （两表自 v13 起存在；旧版测试库可能缺表，tableExists 守卫防误抛）
+    private static func moveDoseEvidence(_ db: Database, from currentId: String, to newId: String) throws {
+        if try tableExists(db, "dose_lot_allocation") {
+            try db.execute(sql: "UPDATE dose_lot_allocation SET dose_log_id = ? WHERE dose_log_id = ?",
+                           arguments: [newId, currentId])
+        }
+        if try tableExists(db, "notification_delivery") {
+            try db.execute(sql: "UPDATE notification_delivery SET dose_log_id = ? WHERE dose_log_id = ?",
+                           arguments: [newId, currentId])
+        }
+    }
+
+    private static func deleteDoseEvidence(_ db: Database, doseLogId: String) throws {
+        if try tableExists(db, "dose_lot_allocation") {
+            try db.execute(sql: "DELETE FROM dose_lot_allocation WHERE dose_log_id = ?",
+                           arguments: [doseLogId])
+        }
+        if try tableExists(db, "notification_delivery") {
+            try db.execute(sql: "DELETE FROM notification_delivery WHERE dose_log_id = ?",
+                           arguments: [doseLogId])
+        }
+    }
+
+    private static func deleteEvidenceOfUnresolvedLegacyRows(_ db: Database) throws {
+        if try tableExists(db, "dose_lot_allocation") {
+            try db.execute(sql: """
+                DELETE FROM dose_lot_allocation WHERE dose_log_id IN
+                  (SELECT id FROM medication_dose_log
+                   WHERE user_action IS NULL AND id NOT GLOB 'dose-*-*-*-*')
+                """)
+        }
+        if try tableExists(db, "notification_delivery") {
+            try db.execute(sql: """
+                DELETE FROM notification_delivery WHERE dose_log_id IN
+                  (SELECT id FROM medication_dose_log
+                   WHERE user_action IS NULL AND id NOT GLOB 'dose-*-*-*-*')
+                """)
+        }
     }
 
     private static func tableExists(_ db: Database, _ name: String) throws -> Bool {

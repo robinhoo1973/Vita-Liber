@@ -63,12 +63,18 @@ public actor ReminderReconciler {
 
             // FR9.17 通知半场（评审 P0）：时段级单条通知——未送达且未决剂量按时段
             // 聚合，每时段只发一条（展开内容由 UI 按 slot 查询实时组装）
+            // 第七轮全仓审查修复：时段归属必须按**全量未决议记录**分组反查——
+            // 单剂派生 slotId 在合并时段（≤30min 双剂）对非锚剂量产生未排程的
+            // 假 id：送达判定漏判 → 同一时段被重复调度第二条通知（FR9.17 破坏）、
+            // 稍后取消错误 id。映射与下方调度分组同源（未决议记录集）。
+            let unresolvedRecords = facts.filter { $0.action == nil }.map { DoseRecord(dose: $0.dose) }
+            let slotIdByDose = DoseSlotGrouping.slotIds(unresolvedRecords)
             let merged = facts.map { f -> DoseDeliveryFact in
                 var m = f
                 // 送达事实以系统 delivered 集为准（评审修正：DB 的 delivery_state
                 // 只记迁移状态，decide 的 delivered 输入必须来自调度器）——
                 // 剂量所属时段的通知送达即视为该剂量送达
-                let slotNotifyId = DoseSlotGrouping.slotId(for: DoseRecord(dose: f.dose)).map { "slot-\($0)" }
+                let slotNotifyId = slotIdByDose[f.dose.notifyId].map { "slot-\($0)" }
                 m.delivered = f.delivered
                     || delivered.contains(f.dose.notifyId)
                     || (slotNotifyId.map { delivered.contains($0) } ?? false)
@@ -84,7 +90,7 @@ public actor ReminderReconciler {
                 case .markAwaitingUser:
                     try await source.markAwaitingUser(fact.dose.notifyId)
                 case .snooze(let until):
-                    if let slotId = DoseSlotGrouping.slotId(for: DoseRecord(dose: fact.dose)).map({ "slot-\($0)" }) {
+                    if let slotId = slotIdByDose[fact.dose.notifyId].map({ "slot-\($0)" }) {
                         try await scheduler.cancel([slotId])
                     }
                     let snoozeId = "snooze-\(fact.dose.notifyId)-\(Int(until.timeIntervalSince1970))"

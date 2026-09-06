@@ -15,7 +15,7 @@ public struct EncounterDraft: Sendable, Equatable {
     public var adviceText: String?
     public var followUpRequirement: String?
     public var feeAmount: Double?
-    public init(id: UUID = UUID(), patientId: UUID, date: Date = Date(), kind: String = "门诊",
+    public init(id: UUID = UUID(), patientId: UUID, date: Date = Date(), kind: String = EncounterKind.outpatient.rawValue,
                 hospital: String? = nil, department: String? = nil, doctor: String? = nil,
                 chiefComplaint: String? = nil, diagnosisText: String? = nil,
                 adviceText: String? = nil, followUpRequirement: String? = nil,

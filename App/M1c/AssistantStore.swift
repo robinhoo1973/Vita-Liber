@@ -38,26 +38,29 @@ final class AssistantStore {
 
     func ask(_ question: String, scopePatientIds: Set<UUID>) async {
         let q = question.trimmingCharacters(in: .whitespaces)
-        guard !q.isEmpty, !busy else { return }
-        busy = true
-        defer { busy = false }
         // 第六轮全仓审查修复（BR-001 残留）：成员切换时历史层开新会话，
         // 但内存 messages 从未清屏——A 成员的全部问答继续显示在 B 成员的
         // 会话之上（UI 层成员隔离破裂）。切成员即清屏（history 可空时
         // conversationPatientId 仍须跟踪以维持隔离，不依赖历史注入）
+        // 第七轮修复：清屏必须在 !busy 守卫**之前**——A 的问答在途时切到
+        // B，B 的第一问被 busy 守卫丢弃且 A 的回答随后追加到清屏后的列表，
+        // A 的健康信息呈现在 B 身份下（BR-001）。清屏先行 + 回答落地前复查
+        // 成员未切换（在途回答落在已切走的成员则丢弃，不跨成员混屏）。
         let patientId = scopePatientIds.first
         if let patientId, patientId != conversationPatientId {
             messages = []
             conversationPatientId = patientId
             currentConversationId = nil
         }
+        guard !q.isEmpty, !busy else { return }
+        busy = true
+        defer { busy = false }
         messages.append(Message(role: "user", text: q, answer: nil))
         // FR12.10：首问即开新会话（标题=首问摘要，截断 30 字）。
         // 审查修复（BR-001）：成员切换必须开新会话——原实现只判
         // currentConversationId == nil，A 成员开立的会话在切到 B 成员后
         // 继续追加 B 的问题与回答，B 的健康信息混进 A 的会话历史。
         if let history {
-            let patientId = scopePatientIds.first
             if currentConversationId == nil || (patientId != nil && patientId != conversationPatientId) {
                 if let patientId {
                     do {
@@ -87,6 +90,9 @@ final class AssistantStore {
             // （装配于 AppContainer）——Store 不做业务判断，只负责会话与渲染。
             let answer = try await provider.answer(AIQuery(text: q),
                                                    scope: DataAccessScope(patientIds: scopePatientIds))
+            // BR-001 隔离复查：回答在途期间成员被切走 → 丢弃（不得呈现在
+            // 新成员名下）；无成员上下文（patientId == nil）时照常呈现
+            guard patientId == nil || conversationPatientId == patientId else { return }
             messages.append(Message(role: "assistant", text: Self.render(answer), answer: answer))
             recordQuotaUse()   // comercial §2.3：AI 用量真实计数（免费档 20 次/月）
             if let history, let conv = currentConversationId {
@@ -99,6 +105,7 @@ final class AssistantStore {
             }
         } catch {
             logger.error("AI 回答失败: \(error)")
+            guard patientId == nil || conversationPatientId == patientId else { return }
             messages.append(Message(role: "assistant", text: L10n.ai_failedRetry, answer: nil))
         }
     }

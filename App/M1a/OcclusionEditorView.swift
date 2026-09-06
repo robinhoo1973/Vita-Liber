@@ -37,6 +37,10 @@ struct OcclusionEditorView: View {
                         .accessibilityIdentifier("SP-11.occlusion.done")
                     }
                 }
+                // 第七轮全仓审查修复（BR-007 内存卫生）：会话结束即清共享涂写——
+                // 敏感文档的遮挡笔迹不得在进程内滞留到下一份文档（与 makeUIView
+                // 的创建时重置互为双保险：本行在 dismiss 后清，画布创建再兜底）
+                .onDisappear { OcclusionCanvas.sharedDrawing = PKDrawing() }
         }
     }
 }
@@ -55,6 +59,10 @@ struct OcclusionCanvas: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeUIView(context: Context) -> PKCanvasView {
+        // 第七轮全仓审查修复：每次新画布创建即重置共享涂写——上一份文档的
+        // 遮挡笔迹若不清除，会被预载进新文档画布并在「遮挡完成」时永久合成
+        // 进新文档（BR-002 展示版污染 + BR-007 未遮挡区域暴露）。
+        Self.sharedDrawing = PKDrawing()
         let canvas = PKCanvasView()
         canvas.backgroundColor = .clear
         canvas.isOpaque = false

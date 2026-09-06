@@ -58,6 +58,18 @@ struct AppointmentListView: View {
                                     .buttonStyle(.bordered)
                                     .controlSize(.small)
                                 .frame(minHeight: 44)   // 触点≥44pt（审查修复）
+                                    // 第七轮全仓审查修复：FR10.7「标记错过」此前无任何
+                                    // 入口——scheduled 行只有改期/取消/完成，missed 状态
+                                    // 与 FR10.3 错过跟进提醒（2h 后）全链路不可达
+                                    Button(L10n.apptMarkMissed) {
+                                        Task {
+                                            await reminders.markAppointmentMissed(patientId: app.currentPatientId, id: apt.id)
+                                            await load()
+                                        }
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+                                .frame(minHeight: 44)   // 触点≥44pt（审查修复）
                                     Button(L10n.apptComplete) {
                                         Task {
                                             await reminders.completeAppointment(patientId: app.currentPatientId, id: apt.id)

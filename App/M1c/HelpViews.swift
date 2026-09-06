@@ -288,7 +288,10 @@ struct HelpDataHealth: View {
         // 不允许硬编码「正常」充当诊断
         do {
             let (bytes, ok) = try await app.databaseHealth()
-            storageSize = String(format: "%.1f MB", Double(bytes) / 1_048_576)
+            // 第七轮修复：大小文案经 L10n 单出口（三语词表 + %@ 占位），
+            // 不再硬编码 "%.1f MB"
+            let mb = String(format: "%.1f", Double(bytes) / 1_048_576)
+            storageSize = L10n.helpDataStorageSize(mb)
             // 审查修复：integrity_check 非 ok 是「已知损坏」的实测结果，
             // 伪装成「未知」让用户无从得知数据已损坏（FR22.4 诊断目的落空）
             dbIntegrity = ok ? L10n.helpDataNormal : L10n.helpDataCorrupt

@@ -217,17 +217,26 @@ struct RouteDestinationView: View {
     }
 }
 
-/// 未登记路由的降级落点（不 crash、不渲染假页面）。
-/// 审查修复：原渲染所属 Tab 模块根——路由已 push 进栈时再挂一个模块根
-/// 形成「栈内套娃」（用户点观察项推进一个一模一样的时间轴副本，返回
-/// 观感失效）。改为可见的「即将上线」提示页，返回即弹回原页。
+/// §5.48 已删除实体降级落点（第七轮全仓审查修复）：目标实体查无（已删除/
+/// 跨成员）时渲染「该资料已不存在」并**自弹回根**——原「即将上线」页把
+/// 数据缺失误报成功能未上线，且路由项滞留在栈里（返回观感失效），与
+/// §5.48「目的地视图自弹回根 + 提示」契约不符。「未登记路由」语义已随
+/// switch 穷尽化退役（未登记 case 编译期即不可达，缺路由通知走
+/// degradeToHome）。短暂停留让提示可见，随后经 AppRouter.pop 弹栈。
 struct RouteFallbackView: View {
     let route: AppRoute
+    @Environment(AppRouter.self) private var router
+
     var body: some View {
-        ContentUnavailableView(L10n.routeComingSoon, systemImage: "hammer",
-                               description: Text(L10n.routeComingSoonHint))
+        ContentUnavailableView(L10n.routeEntityGone, systemImage: "exclamationmark.circle",
+                               description: Text(L10n.routeEntityGoneHint))
             .navigationTitle(L10n.help_appName)
             .navigationBarTitleDisplayMode(.inline)
+            .task {
+                try? await Task.sleep(nanoseconds: 1_200_000_000)   // try?-ok: 睡眠被取消（视图已弹出销毁）即停
+                guard !Task.isCancelled else { return }
+                router.pop(route)
+            }
     }
 }
 
@@ -266,6 +275,7 @@ struct ObservationCreateRouteView: View {
 struct DocumentDetailRouteView: View {
     let documentId: UUID
     @Environment(DocumentsState.self) private var documentsState
+    @Environment(AppRouter.self) private var router
     @State private var storeRow: DocumentStore.DocumentRow?
     @State private var lookupDone = false
 
@@ -275,8 +285,14 @@ struct DocumentDetailRouteView: View {
                 DocumentStoreDetailView(doc: storeRow)
             } else if lookupDone {
                 // 审查修复：原错用趋势页文案「趋势范围不可用」——补专用文案
+                // 第七轮修复：§5.48 契约——查无实体（已删除）自弹回根
                 ContentUnavailableView(L10n.docDetailTitle, systemImage: "doc.text.magnifyingglass",
                                        description: Text(L10n.docDetailNotFound))
+                    .task {
+                        try? await Task.sleep(nanoseconds: 1_200_000_000)   // try?-ok: 睡眠被取消（视图已弹出销毁）即停
+                        guard !Task.isCancelled else { return }
+                        router.pop(.documentDetail(documentId))
+                    }
             } else {
                 ProgressView()
                     .task {

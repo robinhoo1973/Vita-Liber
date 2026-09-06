@@ -361,6 +361,14 @@ struct SUM15CalibrationTests {
 
     /// 放行线不变量：未达标 ⟹ 语音结构化开关必须关闭
     @Test func 未达标则语音结构化必须关闭() throws {
+        // 第七轮修复：applyCalibration 写进程级静态 voiceCalibrationPassed 且无
+        // 公开复位入口——语料库增长到放行线（运营工件，预期会增长）后本测试
+        // 会把全局静态翻绿，污染同进程其余套件（本套件不变量「强制
+        // voiceStructuringEnabled == false」失效）。测试收尾必须复位。
+        defer {
+            FeatureFlags.applyCalibration(VoiceCalibration.evaluate(
+                corpus: VoiceCalibration.Corpus(version: "reset", samples: [])) { _ in [:] })
+        }
         let corpus = try loadCorpus()
         let report = VoiceCalibration.evaluate(corpus: corpus) { sample in
             var out: [String: String] = [:]

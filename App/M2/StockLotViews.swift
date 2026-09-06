@@ -19,10 +19,8 @@ struct StockLotDetailView: View {
     @State private var showReconcile = false
     @State private var showDiscard = false
     @State private var discardDoneToast = false
-    /// 第六轮全仓审查修复：store 写入失败的可见反馈——原实现静默 return，
-    /// sheet 不关、无任何提示（注释声称「错误条由编辑页呈现」但该信号
-    /// 从未发送，用户反复重试无反馈）
-    @State private var saveFailed = false
+    // 编辑保存失败信号已随第七轮修复移入 sheet 内呈现（onSave 返回值 →
+    // StockLotEditView.saveFailed 标签）；父视图 alert 被 sheet 压住无法弹出
 
     var body: some View {
         Group {
@@ -87,11 +85,6 @@ struct StockLotDetailView: View {
         .alert(L10n.lotDiscardDone, isPresented: $discardDoneToast) {
             Button(L10n.onboard_gotIt, role: .cancel) { dismiss() }
         }
-        .alert(L10n.docConfirmSaveFailedTitle, isPresented: $saveFailed) {
-            Button(L10n.commonCancel, role: .cancel) { }
-        } message: {
-            Text(L10n.metricSaveFailed)
-        }
     }
 
     private func load() async {
@@ -104,7 +97,7 @@ struct StockLotDetailView: View {
         }
     }
 
-    private func save(_ draft: LotEditDraft) async {
+    private func save(_ draft: LotEditDraft) async -> Bool {
         do {
             try await hub.updateLot(id: lotId, totalUnits: draft.totalUnits,
                                     unitKind: draft.unitKind, openedAt: draft.openedAt,
@@ -112,10 +105,12 @@ struct StockLotDetailView: View {
                                     status: lot?.status ?? "active")
             showEdit = false
             await load()
+            return true
         } catch {
-            // 保存失败保留表单（sheet 不关闭），并给出可见错误（原实现静默）
-            saveFailed = true
-            return
+            // 保存失败保留表单（sheet 不关闭）；错误信号经返回值回传，
+            // 由 sheet 内的错误标签呈现（第七轮修复：父视图 alert 被 sheet
+            // 压住无法呈现，用户此前反复重试零反馈）
+            return false
         }
     }
 
@@ -250,7 +245,11 @@ struct LotEditDraft {
 
 struct StockLotEditView: View {
     let lot: MedicationStore.LotRow
-    let onSave: (LotEditDraft) async -> Void
+    /// 第七轮修复：onSave 返回是否成功——store 写失败的错误信号此前只落
+    /// 在**父视图**（StockLotDetailView.saveFailed → .alert），但父视图被本
+    /// sheet 覆盖，SwiftUI 会把 alert 排队到 sheet 关闭之后才弹——用户
+    /// 反复点保存零反馈。错误须在 sheet 内呈现（本视图 saveFailed 标签）。
+    let onSave: (LotEditDraft) async -> Bool
 
     @Environment(\.dismiss) private var dismiss
     @Environment(AppState.self) private var app
@@ -347,7 +346,10 @@ struct StockLotEditView: View {
                                  expireAt: hasExpireDate ? expireAt : nil,
                                  storageNote: storageNote.isEmpty ? nil : storageNote)
         Task {
-            await onSave(draft)
+            // 第七轮修复：写失败在 sheet 内可见（父视图 alert 被 sheet 压住
+            // 无法呈现；标签 = lot.edit.failed）
+            let ok = await onSave(draft)
+            if !ok { saveFailed = true }
         }
     }
 }

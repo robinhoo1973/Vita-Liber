@@ -21,11 +21,26 @@ struct DoctorShowcaseView: View {
 
     var body: some View {
         Group {
-            if authenticated {
+            // 第七轮全仓审查修复：会话令牌此前是死状态——isUnlocked 无任何
+            // 读取方，300s TTL 空闲重锁/退后台重锁翻牌后展示内容照常渲染
+            // （BR-007/008 会话级解锁形同虚设）。渲染门必须同时判读
+            // authenticated 与会话令牌；令牌被 TTL 重锁 → 内容下线并给出
+            // 重新认证入口（不得无出口转圈）。
+            if authenticated && session.isUnlocked {
                 showcaseContent
             } else {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // 认证前 / TTL 重锁后：锁占位 + 重新认证入口（无出口转圈）
+                VStack(spacing: 16) {
+                    Image(systemName: "lock.fill")
+                        .font(.largeTitle)
+                        .foregroundStyle(.secondary)
+                    Button(L10n.sensitiveMedia_unlockToView) {
+                        Task { await authenticate() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .frame(minHeight: 64)   // 关怀模式 ≥64pt
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .navigationTitle(L10n.showcaseTitle)
@@ -55,15 +70,11 @@ struct DoctorShowcaseView: View {
         }
         .onAppear {
             guard !authenticated else { return }
-            Task {
-                // 进入展示模式需一次设备所有者认证（门禁联动，§5.8）
-                if await app.requestUnlock(reason: L10n.showcaseUnlockReason) {
-                    authenticated = true
-                    session.unlock()   // 会话级解锁（300s TTL 由会话令牌管理，FR1.9 专场景豁免）
-                } else {
-                    dismiss()
-                }
-            }
+            Task { await authenticate() }
+        }
+        .onChange(of: session.isUnlocked) { _, unlocked in
+            // 令牌被 TTL/退后台重锁 → 内容立即下线，重新认证（第七轮修复）
+            if !unlocked { authenticated = false }
         }
         .onReceive(timer) { _ in
             guard authenticated else { return }
@@ -74,6 +85,18 @@ struct DoctorShowcaseView: View {
             }
         }
         .onDisappear { exit() }
+    }
+
+    /// 进入展示模式需一次设备所有者认证（门禁联动，§5.8）；
+    /// 认证成功后开 300s 会话令牌（FR1.9 专场景豁免）。onAppear 首次进入
+    /// 与 TTL 重锁后的重新认证共用本路径（第七轮修复）。
+    private func authenticate() async {
+        if await app.requestUnlock(reason: L10n.showcaseUnlockReason) {
+            authenticated = true
+            session.unlock()
+        } else {
+            dismiss()
+        }
     }
 
     private var showcaseContent: some View {

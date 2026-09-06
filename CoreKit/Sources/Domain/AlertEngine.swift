@@ -130,6 +130,18 @@ public enum WordingBlacklist {
 public enum AlertRuleEngine {
     public static let consecutiveThreshold = 3
 
+    /// 单位同义标签归一（第七轮修复）：同一物理单位在信源库与录入路径的
+    /// 标签不同（心率 bpm vs 次/分）——守卫判定前归一，非换算。
+    /// 未识别标签原样返回（宁可少警的守卫语义不变）。
+    static func unitAlias(_ unit: String) -> String {
+        switch unit {
+        case "次/分", "次每分钟", "次/分钟", "bpm", "beats/min", "beats/minute":
+            return "bpm"
+        default:
+            return unit
+        }
+    }
+
     /// 单次读数定级：报告自带 A 级范围优先（FR16.4 铁律）；
     /// 无报告范围 → 信源库 B 级；无信源 → 不定级（范围不可用独立状态）
     public static func severity(for reading: MetricReading, guideline: GuidelineEntry?) -> AlertSeverity? {
@@ -150,7 +162,15 @@ public enum AlertRuleEngine {
         guard let g = guideline else { return nil }   // 无信源 = 范围不可用
         let ru = reading.unit.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let gu = g.unit.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if !ru.isEmpty, !gu.isEmpty, gu != "1", ru != gu { return nil }
+        // 第七轮全仓审查修复：单位守卫只做 trim/lowercase，同一物理单位的
+        // 两种标签被当成跨单位拒绝——心率信源 'bpm'（GuidelineSource）与
+        // 语音/本地录入 '次/分'（VoiceGrammarDefaults）是同一单位，被拒后
+        // 本地录入的心率 L1（AHA l1High=100）整体静默失效（宁可少警的红线
+        // 被误伤）。守卫判定前先经同义归一（仅同义标签，非换算——
+        // mg/dL↔mmol/L 摩尔桥接仍属 F25 接线批次，登记不在此实现）。
+        let ruNorm = Self.unitAlias(ru)
+        let guNorm = Self.unitAlias(gu)
+        if !ru.isEmpty, !gu.isEmpty, gu != "1", ruNorm != guNorm { return nil }
         if let high = g.l3High, reading.value >= high { return .L3 }
         if let low = g.l3Low, reading.value <= low { return .L3 }
         if let high = g.l2High, reading.value >= high { return .L2 }

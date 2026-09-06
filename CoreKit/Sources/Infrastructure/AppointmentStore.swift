@@ -140,10 +140,14 @@ public actor AppointmentStore {
         let pending = try await scheduler.pending()
         // 第六轮全仓审查修复：错过跟进提醒（apt-followup-{id}）此前不在
         // 前缀过滤内——完成/取消/改期后跟进提醒仍会在 2h 后为一个已结束
-        // 的预约响起
+        // 的预约响起。
+        // 第七轮全仓审查修复：复诊提醒 `followup-apt-{id}`（ReminderStore.
+        // createAppointment 排程）此前同样漏网——取消/改期/完成后原复诊
+        // 提醒照常触发并深链到已取消的历史行
         let ids = pending.keys.filter {
             $0.hasPrefix(ReminderIDNames.appointmentPrefix(id))
             || $0.hasPrefix("apt-followup-\(id.uuidString)")
+            || $0.hasPrefix("followup-apt-\(id.uuidString)")
         }
         try await scheduler.cancel(Array(ids))
     }

@@ -756,6 +756,10 @@ enum L10n {
     static func helpcardRemaining(_ v: String, _ unit: String) -> String {
         String(format: t("helpcard.remaining"), v, unit)   // %1$@ %2$@
     }
+    /// 第七轮修复：求助卡文本组装标签（Domain 注入，生产走三语词表）
+    static var helpcardCardRemainingPrefix: String { t("helpcard.cardRemainingPrefix") }
+    static var helpcardCardStoragePrefix: String { t("helpcard.cardStoragePrefix") }
+    static var helpcardCardExpiryPrefix: String { t("helpcard.cardExpiryPrefix") }
     static var helpcardPhotoSection: String { t("helpcard.photoSection") }
 
     // MARK: - L10n 清偿批五 · AI 助手（F12）
@@ -951,7 +955,8 @@ enum L10n {
         "help.disclaimer", "help.faqPlaceholder", "help.privacyPlaceholder", "help.tagline",
         "help.title", "help.version", "helpcard.contentNote", "helpcard.generate",
         "helpcard.photoOptIn", "helpcard.photoSection", "helpcard.remaining", "helpcard.selectHint",
-        "helpcard.title", "hub.guidelines", "hub.healthRecords", "hub.helpCardOpen",
+        "helpcard.title", "helpcard.cardRemainingPrefix", "helpcard.cardStoragePrefix", "helpcard.cardExpiryPrefix",
+        "hub.guidelines", "hub.healthRecords", "hub.helpCardOpen",
         "immunization.confirmed", "immunization.createTitle", "immunization.date", "immunization.empty",
         "immunization.emptyHint", "immunization.lot", "immunization.lotField", "immunization.note",
         "immunization.pending", "immunization.provider", "immunization.title", "immunization.vaccineName",
@@ -985,7 +990,7 @@ enum L10n {
         "inventory.monthlySuffix", "inventory.noPlanHint", "inventory.physical", "inventory.reconcileConfirm",
         "inventory.reconcileEqual", "inventory.reconcileLess", "inventory.reconcileMore", "inventory.reconcileTitle",
         "inventory.reportBlocked", "inventory.reportFact", "inventory.reportTitle",
-        "inventory.monthlyReportFmt", "inventory.tier14",
+        "inventory.monthlyReportFmt",
         "inventory.tier3", "inventory.tier7", "inventory.title", "member.add",
         "member.addedHint", "member.birthDatePlaceholder", "member.current", "member.namePlaceholder",
         "member.quotaHint", "member.relation", "member.save", "member.switch",
@@ -1139,6 +1144,7 @@ enum L10n {
         "help.reminder.permission", "help.reminder.todaySection", "help.reminder.pendingDoses",
         "help.reminder.todaySlots", "help.reminder.deniedHint", "help.data.dbSection", "help.data.integrity",
         "help.data.normal", "help.data.storageSection", "help.data.dbSize", "help.data.calculating",
+        "help.data.storageSizeFmt",
         "help.data.backupSection", "help.data.lastBackup", "help.data.noBackup", "help.data.title",
         "help.about.licenses", "help.about.section", "help.legal.section", "help.terms.title", "help.section",
         "caregiver.title", "caregiver.empty", "caregiver.emptyHint", "caregiver.pendingFmt",
@@ -1204,7 +1210,7 @@ enum L10n {
         "encounter.form.hospital", "encounter.form.department", "encounter.form.doctor",
         "encounter.form.clinical", "encounter.form.complaint", "encounter.form.diagnosis",
         "encounter.form.advice", "encounter.form.followUp", "encounter.form.fee",
-        "timeline.title", "timeline.emptyTitle", "timeline.emptyHint", "timeline.filter.all",
+        "timeline.title", "timeline.emptyHint", "timeline.filter.all",
         "timeline.kind.encounter", "timeline.kind.medication", "timeline.kind.observation",
         "timeline.kind.lab", "timeline.kind.selfMeasured", "timeline.kind.vaccination",
         "timeline.kind.allergy", "timeline.kind.voiceNote", "timeline.kind.healthProblem",
@@ -1217,7 +1223,7 @@ enum L10n {
         "question.title", "question.placeholder", "question.markAsked",
         "appt.listTitle", "appt.empty", "appt.emptyHint",
         "appt.status.scheduled", "appt.status.completed", "appt.status.cancelled", "appt.status.missed",
-        "appt.reschedule", "appt.cancel", "appt.complete", "appt.followUpHint", "appt.newDate",
+        "appt.reschedule", "appt.cancel", "appt.complete", "appt.followUpHint", "appt.markMissed", "appt.newDate",
         "appt.cancelReason.none", "appt.cancelReason.doctor", "appt.cancelReason.self",
         "appt.cancelReason.other",
         "appt.form.title", "appt.form.basic", "appt.form.address", "appt.form.date",
@@ -1246,6 +1252,9 @@ enum L10n {
         "ocrQueue.jumpSource", "doc.reportIssue",
         "allergy.title", "allergy.empty", "allergy.emptyHint", "allergy.selfReportBadge",
         "allergy.severity.轻", "allergy.severity.中", "allergy.severity.重",
+        "allergy.kind.药品", "allergy.kind.食物", "allergy.kind.其他",
+        "allergy.tag.皮疹", "allergy.tag.荨麻疹", "allergy.tag.恶心呕吐", "allergy.tag.腹泻",
+        "allergy.tag.呼吸困难", "allergy.tag.喉头水肿", "allergy.tag.过敏性休克", "allergy.tag.其他",
         "allergy.severity.severe", "allergy.severity.moderate", "allergy.delete",
         "allergy.createTitle", "allergy.step1", "allergy.step2", "allergy.step3",
         "allergy.kind", "allergy.substancePlaceholder", "allergy.customTag",
@@ -1307,6 +1316,7 @@ enum L10n {
         "f16.syncNow", "f16.syncing", "f16.syncDoneFmt", "f16.syncFailed",
         "alert.filter.all", "alert.showL0", "alert.historyEntry",
         "f19.noTodayMeds", "f19.nextAppointmentFmt", "f19.noAppointment", "f19.recentGlucoseFmt",
+        "f19.goTimeline", "f19.goHome",
         "f19.noGlucose", "f19.stockRemainingFmt", "f19.stockNoPlanFmt", "f19.noStock",
         "f19.stockLocationFmt", "f19.locationUnknown", "f19.noExpiring", "f19.expiringFmt",
         "f19.taken", "f19.notTaken", "f19.slotMedStateFmt", "f19.markTakenNoMatchFmt",
@@ -1390,6 +1400,7 @@ enum L10n {
         "paywall.restoreNothing",
         "plan.unreadable",
         "route.comingSoon",
+        "route.entityGone", "route.entityGoneHint",
         "route.comingSoonHint",
         "search.sensitiveBadge",
         "sensitiveMedia.original.title",
@@ -1488,6 +1499,10 @@ enum L10n {
     static var helpDataStorageSection: String { t("help.data.storageSection") }
     static var helpDataDbSize: String { t("help.data.dbSize") }
     static var helpDataCalculating: String { t("help.data.calculating") }
+    /// 第七轮修复：诊断存储大小格式化——「%.1f MB」硬编码单位绕过单出口
+    static func helpDataStorageSize(_ mb: String) -> String {
+        String(format: t("help.data.storageSizeFmt"), mb)   // %@
+    }
     static var helpDataBackupSection: String { t("help.data.backupSection") }
     static var helpDataLastBackup: String { t("help.data.lastBackup") }
     static var helpDataNoBackup: String { t("help.data.noBackup") }
@@ -1791,6 +1806,9 @@ enum L10n {
     static var apptCancel: String { t("appt.cancel") }
     static var apptComplete: String { t("appt.complete") }
     static var apptFollowUpHint: String { t("appt.followUpHint") }
+    /// 第七轮修复：FR10.7 错过状态此前无入口（scheduled 行只有改期/取消/完成，
+    /// 「错过」过滤段与错过跟进提醒永远空转）
+    static var apptMarkMissed: String { t("appt.markMissed") }
     static var apptNewDate: String { t("appt.newDate") }
     static var apptCancelReasonNone: String { t("appt.cancelReason.none") }
     static var apptCancelReasonDoctor: String { t("appt.cancelReason.doctor") }
@@ -2085,6 +2103,12 @@ enum L10n {
     static func allergySeverity(_ s: String) -> String {
         t("allergy.severity.\(SevereReactionRules.displaySeverity(s))")
     }
+
+    /// 第七轮修复：过敏类型/反应标签词表本地化——表单此前直接渲染 Domain
+    /// 中文词表（药品/食物/其他 · 皮疹/荨麻疹/…），en/zh-Hant 用户看到简体；
+    /// 与 allergySeverity 同一「词表键」模式
+    static func allergyKindName(_ v: String) -> String { t("allergy.kind.\(v)") }
+    static func allergyTagName(_ v: String) -> String { t("allergy.tag.\(v)") }
     static var allergyDelete: String { t("allergy.delete") }
     static var allergyCreateTitle: String { t("allergy.createTitle") }
     static var allergyStep1: String { t("allergy.step1") }
@@ -2316,6 +2340,9 @@ enum L10n {
 
     // MARK: - F19 附表执行矩阵播报（纯事实句式）
     static var f19NoTodayMeds: String { t("f19.noTodayMeds") }
+    /// 第七轮修复：会话内导航指令回落提示（原「打开时间轴/回到首页」硬编码中文字面量）
+    static var f19GoTimeline: String { t("f19.goTimeline") }
+    static var f19GoHome: String { t("f19.goHome") }
     static func f19NextAppointment(_ a: String, _ d: String) -> String {
         String(format: t("f19.nextAppointmentFmt"), a, d)
     }
@@ -2355,6 +2382,9 @@ enum L10n {
     static var captureSensitiveToggle: String { t("home.capture.sensitive") }
     static var routeComingSoon: String { t("route.comingSoon") }
     static var routeComingSoonHint: String { t("route.comingSoonHint") }
+    /// §5.48 已删除实体降级（第七轮修复）：目标实体已删除/跨成员 → 提示并自弹回根
+    static var routeEntityGone: String { t("route.entityGone") }
+    static var routeEntityGoneHint: String { t("route.entityGoneHint") }
     static var startupDegradedTitle: String { t("startup.degradedTitle") }
     static func startupDegradedBody(_ reason: String) -> String {
         String(format: t("startup.degradedBodyFmt"), reason)

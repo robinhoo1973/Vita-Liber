@@ -198,10 +198,14 @@ struct TimelineFullView: View {
             } else {
                 router.navigate(to: .metricQuickEntry)
             }
-        case .vaccination: router.navigate(to: .encounterList)   // SP-54 列表经设置入口
+        // 第七轮全仓审查修复（三处错路）：疫苗条目落到就诊列表、健康问题
+        // 落到成员管理、语音速记落到 AI 聊天——全部张冠李戴。疫苗/健康问题
+        // 均有已登记的专用路由（immunizationList/healthProblemList，注册表
+        // 全覆盖）；语音速记落点 = 速记面板（voiceNotePanel，FR17.14）。
+        case .vaccination: router.navigate(to: .immunizationList)   // SP-54
         case .allergy: router.navigate(to: .allergyList)
-        case .voiceNote: router.navigate(to: .assistantChat)
-        case .healthProblem: router.navigate(to: .memberList)
+        case .voiceNote: router.navigate(to: .voiceNotePanel)       // FR17.14 速记面板
+        case .healthProblem: router.navigate(to: .healthProblemList)   // SP-49
         case .document: router.navigate(to: .documentDetail(entry.refID))
         }
     }
