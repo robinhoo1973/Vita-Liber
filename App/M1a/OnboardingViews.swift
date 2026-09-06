@@ -4,8 +4,9 @@ import Domain
 
 /// M1a 首启流程视图（V3.39 简化）：L1 三卡 → 建档 → 添加家人（无 PIN 步骤）。
 /// 拍摄/OCR/时间轴不再属于向导（FR21.9 V3.39：资料采集走 SP-11/SP-10 生产管线，
-/// 首日引导三张行动卡由首页空态引导 SP-04 承载）；本文件保留 OcrConfirmView /
-/// ConfirmFieldRowView——SP-12 单文档确认路由与 FR6.8/SP-53 待确认队列的共用工作台。
+/// 首日引导三张行动卡由首页空态引导 SP-04 承载）。原 OcrConfirmView/ConfirmFieldRowView
+/// 已随向导简化删除——SP-12 单文档确认由 SP-11 确认卡 DocumentImportConfirmView 承载，
+/// SP-53 队列改为 grade 'D' 文档聚合（PendingOcrQueueView，DocumentStore 单源）。
 /// 评审修正批：VLIcon 单出口（修空图标）、a11y、L3 微文案、修订入口。
 
 struct DisclosureCardsView: View {
@@ -68,10 +69,13 @@ struct DisclosureCardsView: View {
 
 /// FR21.9 ④ 添加家人（可跳过）：方式选择（手工新建；语音/通讯录 P1 置灰说明）
 /// + 新建后「完善档案」引导。跳过不阻塞主流程。
+/// V3.39 起为向导最后一步——完成即结束首启。新增成员后主按钮切换为
+/// 「完成，进入应用」（跳过按钮保留，语义不再歧义：未新增成员时只有跳过）。
 struct AddFamilyStepView: View {
     @Environment(AppState.self) private var app
     @State private var showCreate = false
     @State private var addedHint = false
+    @State private var addedCount = 0
 
     var body: some View {
         VStack(spacing: 20) {
@@ -100,7 +104,10 @@ struct AddFamilyStepView: View {
             }
             .padding(.horizontal, 24)
 
-            Button(L10n.onboardAddFamilySkip) {
+            // V3.39 语义修正：新增过成员后主按钮为「完成，进入应用」——
+            // 此前无论是否新增成员都只能点「跳过」完成向导，动作语义与用户
+            // 实际行为矛盾（新增了家人还要「跳过」）
+            Button(addedCount > 0 ? L10n.onboardAddFamilyFinish : L10n.onboardAddFamilySkip) {
                 app.finishAddFamilyStep()
             }
             .buttonStyle(.borderedProminent)
@@ -111,7 +118,9 @@ struct AddFamilyStepView: View {
         .sheet(isPresented: $showCreate) {
             MemberCreateSheet { name, relation, birthDate in
                 Task { @MainActor in
-                    _ = await app.addMember(name: name, relation: relation, birthDate: birthDate)
+                    if await app.addMember(name: name, relation: relation, birthDate: birthDate) {
+                        addedCount += 1
+                    }
                     showCreate = false
                     addedHint = true
                 }
@@ -156,179 +165,5 @@ struct OwnerSetupView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color("bg-grouped", bundle: .main))
-    }
-}
-
-/// OCR 字段确认工作台（SP-12 单文档确认 / SP-53 的 M1a 切片；BR-003 闸门 + L3 常驻微文案）
-struct OcrConfirmView: View {
-    @Environment(AppState.self) private var app
-
-    var body: some View {
-        VStack(spacing: 16) {
-            Text(L10n.onboard_confirmResult).font(.title2.bold())
-            // FR20.3 L3 常驻微文案：机器识别确认免责从 L1 第三卡移入此处
-            Text(L10n.onboard_ocrDisclaimer)
-                .font(.footnote)
-                .foregroundStyle(Color("text-secondary", bundle: .main))
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
-
-            // V3.72 原文图对照（BR-002）：确认卡顶部展示刚落盘的原件——
-            // 「OCR 识别出什么」与「原图写着什么」同屏可核对（FR6.2 原文对照）
-            if let url = app.pendingOriginalURL,
-               let image = UIImage(contentsOfFile: url.path) {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxHeight: 180)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .padding(.horizontal, 24)
-                    .accessibilityIdentifier("SP-53.ocr.originalPreview")
-            }
-            // 去向提示：确认后存哪里（FR6 成功结果支持面）
-            Text(L10n.ocrStorageHint)
-                .font(.caption)
-                .foregroundStyle(Color("text-secondary", bundle: .main))
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
-
-            if let set = app.activeSet {
-                ForEach(set.fields) { field in
-                    ConfirmFieldRowView(field: field) {
-                        app.confirmField(id: field.id)
-                    } onRevise: { newValue in
-                        app.reviseField(id: field.id, to: newValue)
-                    } onReject: {
-                        app.rejectField(id: field.id)
-                    }
-                }
-            }
-
-            Spacer()
-
-            if let set = app.activeSet, set.isUsableInTimeline {
-                Button {
-                    app.commitToTimeline()
-                } label: {
-                    Text(L10n.onboard_confirmAllTimeline).frame(maxWidth: .infinity, minHeight: 50)
-                }
-                .buttonStyle(.borderedProminent)
-                .padding(.horizontal, 24)
-                .accessibilityIdentifier("SP-53.ocr.commit")
-            }
-        }
-        .padding(.vertical, 24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color("bg-grouped", bundle: .main))
-    }
-}
-
-/// 确认行：草稿=虚线 D 级 / 确认=实线绿（ui-ux §1 原则 3）；
-/// 修订入口（评审：退出准则「改一条留修订历史」此前无 UI 不可达）
-struct ConfirmFieldRowView: View {
-    let field: CandidateField
-    let onConfirm: () -> Void
-    let onRevise: (String) -> Void
-    let onReject: () -> Void
-    @State private var editing = false
-    @State private var draft = ""
-
-    var body: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(field.displayLabel).font(.caption).foregroundStyle(Color("text-secondary", bundle: .main))
-                Text(field.value).font(.body)
-                // FR6.3 三级置信度颜色语义：高=绿轻标注 / 中=黄提示复核 / 低=红高亮必复核
-                Text(L10n.onboardTierUnconfirmed(tierText))
-                    .font(.caption2)
-                    .foregroundStyle(tierColor)
-            }
-            // ui-ux §7 单焦点朗读放在信息组（不合并操作按钮）：
-            // 行级 combine 会把按钮的 identifier 提升到行元素，XCUITest 查询撞双 ID
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("\(field.displayLabel)，\(field.value)，\(field.isConfirmed ? L10n.onboard_confirmed : L10n.onboard_unconfirmedBadge)")
-            Spacer()
-            if field.isConfirmed {
-                Button {
-                    draft = field.value
-                    editing = true
-                } label: {
-                    Image(systemName: "pencil")
-                        .frame(width: 44, height: 44)          // 触控目标 ≥44pt（ui-ux §4.2）
-                }
-                .buttonStyle(.bordered)
-                .accessibilityLabel(L10n.onboardReviseA11y(field.displayLabel))
-                .accessibilityIdentifier("SP-53.field.edit.\(field.key)")
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(Color("grade-c", bundle: .main))
-                    .frame(width: 44, height: 44)
-            } else if field.grade == .rejected {
-                Text(L10n.onboardRejected)
-                    .font(.caption).foregroundStyle(.secondary)
-            } else {
-                Button(L10n.onboard_confirm, action: onConfirm)
-                    .buttonStyle(.bordered)
-                    .frame(minHeight: 44)                       // 触控目标 ≥44pt
-                    .accessibilityIdentifier("SP-53.field.confirm.\(field.key)")
-                // FR6.4 ✕ 放弃：保留原识别值，不入正式区
-                Button {
-                    onReject()
-                } label: {
-                    Image(systemName: "xmark")
-                        .frame(width: 44, height: 44)
-                }
-                .buttonStyle(.bordered)
-                .tint(.secondary)
-                .accessibilityLabel(L10n.onboardRejectLabel(field.displayLabel))
-                .accessibilityIdentifier("SP-53.field.reject.\(field.key)")
-            }
-        }
-        .padding(12)
-        .background(RoundedRectangle(cornerRadius: 12).fill(.background))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(field.isConfirmed ? Color("grade-c", bundle: .main) : Color("grade-d", bundle: .main),
-                              style: StrokeStyle(lineWidth: field.isConfirmed ? 1 : 1.5, dash: field.isConfirmed ? [] : [5]))
-        )
-        .padding(.horizontal, 16)
-        .sheet(isPresented: $editing) {
-            VStack(spacing: 16) {
-                Text(L10n.onboardReviseTitle(field.displayLabel)).font(.headline)
-                Text(L10n.onboardOcrRaw(field.rawText)).font(.caption).foregroundStyle(.secondary)
-                TextField(L10n.onboard_newValue, text: $draft)
-                    .textFieldStyle(.roundedBorder)
-                    .accessibilityIdentifier("SP-53.field.editField")
-                HStack {
-                    Button(L10n.onboard_cancel) { editing = false }
-                    Button(L10n.onboard_saveEdit) {
-                        onRevise(draft)
-                        editing = false
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .accessibilityIdentifier("SP-53.field.editSave")
-                }
-            }
-            .padding(24)
-            .presentationDetents([.height(260)])
-        }
-    }
-
-    private var tierText: String {
-        switch ConfidenceTier.tier(field.confidence) {
-        case .high: return L10n.onboardConfidenceHigh
-        case .mid: return L10n.onboardConfidenceMid
-        case .low: return L10n.onboardConfidenceLow
-        }
-    }
-
-    /// FR6.3：已确认 C 绿；未确认按档位——高绿轻标注 / 中黄 / 低红高亮（必须复核）
-    private var tierColor: Color {
-        if field.isConfirmed { return Color("grade-c", bundle: .main) }
-        // 审查修复：语义令牌替代系统原色——高对比度/深色模式重映射才能生效
-        switch ConfidenceTier.tier(field.confidence) {
-        case .high: return Color("semantic-success", bundle: .main)
-        case .mid: return Color("semantic-warning", bundle: .main)
-        case .low: return Color("semantic-danger", bundle: .main)
-        }
     }
 }

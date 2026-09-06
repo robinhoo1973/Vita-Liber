@@ -621,6 +621,31 @@ if files:
             bad.append(f"{f}: 缺 {len(missing)} 个键: {missing[:8]}")
         if extra:
             bad.append(f"{f}: 多 {len(extra)} 个键: {extra[:8]}")
+# 第三轮全仓审查修复（V3.39 连带）：registeredKeys 登记表 ⊆ .strings——
+# M15 缺译测试遍历 registeredKeys，键被删出 .strings 而登记表未同步时 L1 必红；
+# 此前 L0 三文件互查覆盖不到（46d46fa 漏删登记表 = 该缺陷的实证）。
+l10n_swift = root / "App/Localization/L10n.swift"
+if l10n_swift.exists():
+    src = l10n_swift.read_text(encoding="utf-8")
+    i = src.index("registeredKeys")
+    j = src.index("[", src.index("=", i))
+    depth = 0
+    k = j
+    while k < len(src):
+        if src[k] == "[":
+            depth += 1
+        elif src[k] == "]":
+            depth -= 1
+            if depth == 0:
+                break
+        k += 1
+    registered = set(re.findall(r'"([^"]+)"', src[j + 1:k]))
+    if not registered:
+        bad.append("L10n.registeredKeys 解析为空 —— 判定器失效，不得判 PASS（ERR#27）")
+    else:
+        reg_missing = sorted(registered - keysets[files[0]])
+        if reg_missing:
+            bad.append(f"L10n.swift: registeredKeys 有 {len(reg_missing)} 个键不在 .strings: {reg_missing[:8]}")
 if bad:
     for msg in bad[:20]:
         print("FAIL:", msg)

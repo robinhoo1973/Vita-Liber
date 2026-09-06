@@ -239,6 +239,14 @@ final class DocumentsState {
                 try? await prescriptionStore.create(patientId: draft.patientId, documentFileId: docId,   // try?-ok: 处方行写入失败不回滚 document_file（主记录已入库），鼓励用户到资料库重新确认后重试，不能因副表失败丢主文档
                                                      hospital: hospital, doctor: doctor, adviceText: adviceText)
             }
+            // FR6.1 识别留痕：已确认字段逐行落 ocr_result（原文块+置信度+引擎版本，
+            // 可追溯可重放）。V3.39 起此处是唯一写入口——旧 AppState 引擎已删除；
+            // 留痕副表失败不回滚主记录（与处方副表同策略）。
+            if !draft.confirmationSet.confirmedFields.isEmpty {
+                try? await store.saveOCRResult(documentId: docId,   // try?-ok: 留痕失败不阻断主入库，主记录已落盘
+                                               fields: draft.confirmationSet.confirmedFields,
+                                               engineVersion: "ocr-pipeline")
+            }
             await load(patientId: draft.patientId)
         } catch {
             lastImportError = L10n.docImportFailed
@@ -629,9 +637,9 @@ private struct DocumentLibraryEmptyView: View {
 
 /// F5 资料库文档详情（DocumentStore 落地行专用）。
 ///
-/// 修复记录：此前 `DocumentDetailRouteView` 只查 `app.timeline`（M1a 旧管线专用
-/// 内存数组）——经 `DocumentsState.importImage/importDocument/importPDF`（首页
-/// 快速拍摄 + 资料库导入的当前生产路径）入库的文档点开恒显示「未找到」，且原图
+/// 修复记录：此前 `DocumentDetailRouteView` 先查 `app.timeline`（M1a 旧管线专用
+/// 内存数组，V3.39 已随向导简化删除）——经 `DocumentsState`（首页快速拍摄 +
+/// 资料库导入的当前生产路径）入库的文档点开恒显示「未找到」，且原图
 /// 从未落盘、无处可查（BR-002/FR5.2 违规）。本视图 + `persistOriginal`/
 /// `mergeOriginalPath`（`DocumentsState`）配合补齐：入库时落盘原图并记路径，
 /// 详情页读路径展示；敏感文档经 `SensitiveMediaContainer` 逐次系统认证解锁

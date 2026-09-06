@@ -19,12 +19,15 @@ struct HomeView: View {
     @Environment(ObservationStoreState.self) private var observationState
     @Environment(AppRouter.self) private var router
     @Environment(AppSettingsStore.self) private var settingsStore
+    @Environment(DocumentsState.self) private var docs
     @State private var showMemberPicker = false
     @State private var showSOS = false
     @State private var showVoiceNote = false
     @State private var showVoicePanel = false
     @State private var notifDenied = false
     @State private var dismissNotifBanner = false
+    /// 「了解 AI」引导任务完成态（会话级——点击即打勾，不持久化）
+    @State private var aiGuideVisited = false
     /// 快速拍摄以 sheet 呈现（TestFlight 实测修复：此前 navigate 进 records Tab
     /// 栈——返回落到健康档案页、path 残留套娃、重复进入出错；模态呈现则
     /// 拍完即回首页，不改变导航上下文）
@@ -64,10 +67,11 @@ struct HomeView: View {
         return items.sorted { $0.at < $1.at }
     }
 
-    // ③ 待确认 OCR 数：时间轴投影中未确认字段计数（BR-003 未确认不进正式区，
+    // ③ 待确认 OCR 数：grade 'D' 文档数（BR-003 机器识别未确认；V3.39 起
+    // 数据源 = DocumentStore 活管线——旧 app.timeline 投影镜像已随向导简化删除，
     // 首页必须持续催办直至处理，72h 置顶规则由 FR2.3 承接）
     private var pendingOCRCount: Int {
-        app.timeline.reduce(0) { $0 + ($1.fields ?? []).filter { !$0.isConfirmed }.count }
+        docs.documents.filter { $0.grade == "D" }.count
     }
 
     // ④ 即将到期（7 天窗口）：预约 + 药品临期（V3.72 回填：批次效期 ≤7 天并入）
@@ -227,9 +231,10 @@ struct HomeView: View {
         .accessibilityIdentifier("SP-04.home.standard")
     }
 
-    // 空态：新用户三引导任务（建档/拍第一份资料/设第一个提醒），完成打勾消失
+    // 空态：新用户四引导任务（建档/拍第一份资料/设第一个提醒/了解AI），完成打勾消失
+    //（V3.39：首日引导三张行动卡由本卡承载，其中「了解 AI」为原 ⑥ 步卡片的替代落点）
     private var isEmptyNewUser: Bool {
-        snapshot.todoItems.isEmpty && app.timeline.isEmpty
+        snapshot.todoItems.isEmpty && docs.documents.isEmpty
             && observationState.groups.isEmpty
     }
 
@@ -238,11 +243,15 @@ struct HomeView: View {
             GuideTaskCard(icon: "person.crop.circle.badge.plus", title: L10n.homeGuide1, done: !app.members.isEmpty) {
                 router.navigate(to: .memberList)
             }
-            GuideTaskCard(icon: "camera.fill", title: L10n.homeGuide2, done: !app.timeline.isEmpty) {
+            GuideTaskCard(icon: "camera.fill", title: L10n.homeGuide2, done: !docs.documents.isEmpty) {
                 quickCaptureKind = .record
             }
             GuideTaskCard(icon: "bell.badge.fill", title: L10n.homeGuide3, done: !reminderStore.todaySlots.isEmpty) {
                 router.navigate(to: .medicationPlanForm(nil))
+            }
+            GuideTaskCard(icon: "sparkles", title: L10n.homeGuide4, done: aiGuideVisited) {
+                aiGuideVisited = true
+                router.navigate(to: .assistantChat)
             }
         }
         .accessibilityIdentifier("SP-04.home.emptyGuide")
@@ -339,14 +348,11 @@ struct HomeView: View {
         .accessibilityIdentifier("SP-04.home.profileProgress")
     }
 
-    /// §5.2 72h 未处理置顶钉住（V3.72）：任一未确认字段超 72 小时 → 红胶囊 +
-    /// 该卡移至全部卡片之前（与聚合队列同一条 Domain 判定语义）
+    /// §5.2 72h 未处理置顶钉住（V3.72）：任一 grade 'D' 文档超 72 小时未确认 →
+    /// 红胶囊 + 该卡移至全部卡片之前（与聚合队列同一条 Domain 判定语义）
     private var hasOverdueOcr: Bool {
         let cutoff = DayArithmetic.offset(days: -3, from: Date())
-        return app.timeline.contains { entry in
-            entry.occurredAt < cutoff.timeIntervalSince1970
-                && (entry.fields ?? []).contains { !$0.isConfirmed && $0.grade != .rejected }
-        }
+        return docs.documents.contains { $0.grade == "D" && $0.createdAt < cutoff }
     }
 
     private var pendingOcrCard: some View {
@@ -527,6 +533,7 @@ struct HomeView: View {
         await reminderStore.refreshTriggered(patientId: app.currentPatientId)
         await hub.load(patientId: app.currentPatientId)
         await observationState.load(patientId: app.currentPatientId)
+        await docs.load(patientId: app.currentPatientId)
         await app.loadMembers()
         // FR9.6：通知权限关闭时首页常驻提示（可关、次日重现——以 dismiss 态重置实现）
         notifDenied = await reminderStore.notificationDenied

@@ -26,7 +26,8 @@ public enum AppRoute: Hashable, Sendable, Codable {
     case scanCapture(CaptureKind)        // SP-11 相机流（病历/报告/处方；症状走 observationCreate）
 
     // ---- F6 OCR ----
-    case ocrConfirm(documentId: UUID)    // SP-12 单文档确认
+    // SP-12 单文档确认（V3.39 起）：由 SP-11 确认卡 DocumentImportConfirmView 内嵌承载，
+    // 不入路由注册表——原 .ocrConfirm(documentId:) 路由的消费视图已随向导简化删除。
     case pendingOcrQueue                 // SP-53 待确认聚合队列
 
     // ---- F7 指标 ----
@@ -121,7 +122,7 @@ public enum MainModuleID: String, Sendable, Hashable, Codable {
         switch route {
         case .sosHelp, .memberList, .memberDetail, .encounterList, .encounterDetail,
              .encounterForm, .documentList, .documentDetail, .importSource, .scanCapture,
-             .ocrConfirm, .pendingOcrQueue, .trendChart, .metricOverview, .metricQuickEntry,
+             .pendingOcrQueue, .trendChart, .metricOverview, .metricQuickEntry,
              .observationCreate, .observationDetail, .doctorShowcase,
              .allergyList, .allergyCreate,
              .caregiverTasks, .voiceNotePanel,

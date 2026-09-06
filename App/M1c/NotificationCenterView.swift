@@ -13,6 +13,7 @@ struct NotificationCenterView: View {
     @Environment(M2HubStore.self) private var hub
     @Environment(AppRouter.self) private var router
     @Environment(NotificationCenterState.self) private var notificationState
+    @Environment(DocumentsState.self) private var docs
 
     /// 条目处理状态（已读/归档持久化；未登记 = .unread）
     @State private var itemStates: [String: NotificationItemState] = [:]
@@ -127,6 +128,7 @@ struct NotificationCenterView: View {
         .task(id: app.currentPatientId) {
             await reminderStore.refreshTriggered(patientId: app.currentPatientId)
             await hub.load(patientId: app.currentPatientId)
+            await docs.load(patientId: app.currentPatientId)
             await loadStates()
         }
     }
@@ -153,8 +155,9 @@ struct NotificationCenterView: View {
         hub.alertEvents.filter { $0.severity != .L0 && $0.patientId == app.currentPatientId }
     }
 
+    /// 待确认 OCR 数：grade 'D' 文档数（V3.39 起数据源 = DocumentStore 活管线）
     private var pendingOCRCount: Int {
-        app.timeline.reduce(0) { $0 + ($1.fields ?? []).filter { !$0.isConfirmed }.count }
+        docs.documents.filter { $0.grade == "D" }.count
     }
 
     private func state(for key: String) -> NotificationItemState { itemStates[key] ?? .unread }

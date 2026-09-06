@@ -364,26 +364,19 @@ enum L10n {
 
     static var onboard_yourName: String { t("onboard.yourName") }
     static var onboard_saveEdit: String { t("onboard.saveEdit") }
-    static var onboard_confirmAllTimeline: String { t("onboard.confirmAllTimeline") }
     static var onboard_createContinue: String { t("onboard.createContinue") }
     static var onboard_cancel: String { t("onboard.cancel") }
     static var onboard_finishEnterApp: String { t("onboard.finishEnterApp") }
     static var onboard_confirmed: String { t("onboard.confirmed") }
     static var onboard_buildProfile: String { t("onboard.buildProfile") }
-    static var onboard_newValue: String { t("onboard.newValue") }
-    static var onboard_ocrDisclaimer: String { t("onboard.ocrDisclaimer") }
     static var onboard_gotIt: String { t("onboard.gotIt") }
     static var onboard_confirm: String { t("onboard.confirm") }
-    static var onboard_confirmResult: String { t("onboard.confirmResult") }
     static var onboard_later: String { t("onboard.later") }
     static var onboard_ownerNote: String { t("onboard.ownerNote") }
     static var onboard_unconfirmedBadge: String { t("onboard.unconfirmedBadge") }
     static var onboardBoundaryTitle: String { t("onboard.boundaryTitle") }
     static var onboardStorageTitle: String { t("onboard.storageTitle") }
     static var onboardSkipInfoTitle: String { t("onboard.skipInfoTitle") }
-    static var onboardConfidenceHigh: String { t("onboard.confidenceHigh") }
-    static var onboardConfidenceMid: String { t("onboard.confidenceMid") }
-    static var onboardConfidenceLow: String { t("onboard.confidenceLow") }
     static var help_appName: String { t("help.appName") }
     static var help_tagline: String { t("help.tagline") }
     static var help_title: String { t("help.title") }
@@ -443,15 +436,6 @@ enum L10n {
         static var proOutput_title: String { t("proOutput.title") }
 
         static func doseNumber(_ n: Int) -> String { String(format: t("dose.number"), n) }
-    static func onboardReviseTitle(_ label: String) -> String {
-        t("onboard.reviseTitle").replacingOccurrences(of: "%@", with: label)
-    }
-    static func onboardOcrRaw(_ text: String) -> String {
-        t("onboard.ocrRaw").replacingOccurrences(of: "%@", with: text)
-    }
-    static func onboardTierUnconfirmed(_ tier: String) -> String {
-        t("onboard.tierUnconfirmed").replacingOccurrences(of: "%@", with: tier)
-    }
     static var onboard_sourceConfirmed: String { t("onboard.sourceConfirmed") }
     static var onboard_unconfirmed2: String { t("onboard.unconfirmed2") }
 
@@ -927,15 +911,14 @@ enum L10n {
         "observation.detail.viewGroup",
         "observation.title",
         "observation.trend.improved", "observation.trend.unchanged", "observation.trend.worsened",
-        "onboard.aimPrescription", "onboard.buildProfile", "onboard.cancel",
-        "onboard.capturePrescription", "onboard.confirm", "onboard.confirmAllTimeline", "onboard.confirmResult",
-        "onboard.confirmed", "onboard.confirmedCount", "onboard.createContinue",
-        "onboard.finishEnterApp", "onboard.gotIt", "onboard.later", "onboard.newValue",
-        "onboard.observationAdd", "onboard.ocrDisclaimer", "onboard.ocrRaw", "onboard.ownerNote",
-        "onboard.reviseTitle",
-        "onboard.revisionHistory", "onboard.saveEdit", "onboard.scanSample",
-        "onboard.sourceConfirmed", "onboard.tierUnconfirmed", "onboard.timelineHint", "onboard.timelineTitle",
-        "onboard.trendTitle", "onboard.unconfirmed2", "onboard.unconfirmedBadge", "onboard.voiceNote",
+        "onboard.buildProfile", "onboard.cancel",
+        "onboard.confirm",
+        "onboard.confirmed", "onboard.createContinue",
+        "onboard.finishEnterApp", "onboard.gotIt", "onboard.later",
+        "onboard.ownerNote",
+        "onboard.saveEdit",
+        "onboard.sourceConfirmed",
+        "onboard.unconfirmed2", "onboard.unconfirmedBadge",
         "onboard.yourName", "pay.busy", "pay.buy", "pay.restore",
         "pay.valueProp",
         "pay.trustCopy", "pro.previewNote", "proOutput.title",
@@ -1049,7 +1032,7 @@ enum L10n {
         "home.greeting", "home.todayTodos", "home.pendingOcrCountFmt", "home.expiringSoon",
         "home.refill", "home.alertSummary", "home.recentObs", "home.quickCapture",
         "home.capture.record", "home.capture.report", "home.capture.prescription", "home.capture.symptom",
-        "home.guide1", "home.guide2", "home.guide3", "home.memberSwitch",
+        "home.guide1", "home.guide2", "home.guide3", "home.guide4", "home.memberSwitch",
         "home.notifDenied", "home.notifOpen", "home.care.meds", "home.care.refill",
         "home.care.capture", "home.care.sos", "home.doseSlot", "home.stockBacklogFmt",
         "nc.title", "nc.section.pending", "nc.section.appointment", "nc.section.expiry",
@@ -1139,10 +1122,10 @@ enum L10n {
         "doc.duplicate.hintFmt", "doc.importFailed.title", "doc.importFailed",
         "doc.pdfImportFailed", "doc.type.report", "doc.type.record",
         "doc.manual.createTitle", "doc.manual.title", "doc.manual.type", "doc.manual.note",
-        "onboard.rejected", "onboard.rejectLabelFmt", "onboard.revise", "onboard.reject",
+        "onboard.revise",
         "ocrQueue.title", "ocrQueue.empty", "ocrQueue.emptyHint", "ocrQueue.countFmt",
-        "ocrQueue.allConfirm", "ocrQueue.allConfirmBlocked", "ocrQueue.72h",
-        "ocrQueue.jumpSource", "ocrQueue.lowConfidenceFmt", "doc.reportIssue",
+        "ocrQueue.hint", "ocrQueue.72h",
+        "ocrQueue.jumpSource", "doc.reportIssue",
         "allergy.title", "allergy.empty", "allergy.emptyHint", "allergy.selfReportBadge",
         "allergy.severity.轻", "allergy.severity.中", "allergy.severity.重",
         "allergy.severity.severe", "allergy.severity.moderate", "allergy.delete",
@@ -1181,9 +1164,7 @@ enum L10n {
         "lifecycle.clearImpact", "lifecycle.logout", "lifecycle.logoutHint",
         "onboard.addFamily.title", "onboard.addFamily.hint", "onboard.addFamily.manual",
         "onboard.addFamily.voiceP1", "onboard.addFamily.contactsP1", "onboard.addFamily.skip",
-        "onboard.addFamily.completeHint",
-        "onboard.firstDay.title", "onboard.firstDay.hint", "onboard.firstDay.capture",
-        "onboard.firstDay.reminder", "onboard.firstDay.ai",
+        "onboard.addFamily.finish", "onboard.addFamily.completeHint",
         "feedback.title", "feedback.category",
         "feedback.category.0", "feedback.category.1", "feedback.category.2",
         "feedback.category.3", "feedback.category.4", "feedback.category.5",
@@ -1274,8 +1255,7 @@ enum L10n {
         "metric.entryError.invalid",
         "metric.entryError.saveFailed",
         "metric.entryError.title",
-        "ocr.field.text",
-        "ocr.field.title", "ocr.field.line", "ocr.storage.hint",
+        "ocr.field.line",
         "timezone.changed.title", "timezone.changed.body",
         "observation.colorDisclaimer",
         "nc.archive",
@@ -1338,10 +1318,9 @@ enum L10n {
         "assistant.confirmFillIn", "assistant.cannotAnswer", "assistant.insufficient",
         "assistant.addImageLabel",
         "onboard.boundaryTitle", "onboard.storageTitle", "onboard.skipInfoTitle",
-        "onboard.confidenceHigh", "onboard.confidenceMid", "onboard.confidenceLow",
         "member.relation.father", "member.relation.mother",
         "member.relation.son", "member.relation.daughter",
-        "assistant.sendLabel", "onboard.reviseA11y", "voice.readAloudA11y",
+        "assistant.sendLabel", "voice.readAloudA11y",
         "observation.listEmpty", "observation.listEmptyHint",
         "observation.listError", "observation.listRetry",
         "doc.add", "plan.add", "encounter.add", "appointment.add", "allergy.add",
@@ -1453,6 +1432,8 @@ enum L10n {
     static var homeGuide1: String { t("home.guide1") }
     static var homeGuide2: String { t("home.guide2") }
     static var homeGuide3: String { t("home.guide3") }
+    /// V3.39：原首日引导「了解 AI」行动卡的替代落点（SP-04 空态引导第四任务）
+    static var homeGuide4: String { t("home.guide4") }
     static var homeMemberSwitch: String { t("home.memberSwitch") }
     static var homeNotifDenied: String { t("home.notifDenied") }
     static var homeNotifOpen: String { t("home.notifOpen") }
@@ -1823,14 +1804,7 @@ enum L10n {
     static var docConfirmText: String { t("doc.confirmText") }
 
     // MARK: - F6 OCR 确认（FR6.3/6.4/6.8 · SP-53）
-    static var onboardRejected: String { t("onboard.rejected") }
-    static func onboardRejectLabel(_ label: String) -> String {
-        String(format: t("onboard.rejectLabelFmt"), label)
-    }
-    static var ocrFieldText: String { t("ocr.field.text") }
-    static var ocrFieldTitle: String { t("ocr.field.title") }
     static var ocrFieldLine: String { t("ocr.field.line") }
-    static var ocrStorageHint: String { t("ocr.storage.hint") }
     static var timezoneChangedTitle: String { t("timezone.changed.title") }
     static var timezoneChangedBody: String { t("timezone.changed.body") }
     static var observationColorDisclaimer: String { t("observation.colorDisclaimer") }
@@ -1895,7 +1869,6 @@ enum L10n {
     static var voicenoteDetailDelete: String { t("voicenote.detailDelete") }
     static var voicenoteDetailDeleteConfirm: String { t("voicenote.detailDeleteConfirm") }
     static var docViewOriginal: String { t("doc.viewOriginal") }
-    static var onboardRevise: String { t("onboard.revise") }
     static var reportIssueKind: String { t("report.issueKind") }
     static var reportIssueField: String { t("report.issueField") }
     static var reportIssueFieldAll: String { t("report.issueFieldAll") }
@@ -1966,13 +1939,11 @@ enum L10n {
     static var ocrQueueEmpty: String { t("ocrQueue.empty") }
     static var ocrQueueEmptyHint: String { t("ocrQueue.emptyHint") }
     static func ocrQueueCount(_ n: Int) -> String { String(format: t("ocrQueue.countFmt"), n) }
-    static var ocrQueueAllConfirm: String { t("ocrQueue.allConfirm") }
-    static var ocrQueueAllConfirmBlocked: String { t("ocrQueue.allConfirmBlocked") }
+    /// V3.39：队列改为 D 级文档聚合后新增的诚实性说明（BR-003 事实链闸门）
+    static var ocrQueueHint: String { t("ocrQueue.hint") }
     static var ocrQueue72h: String { t("ocrQueue.72h") }
     static var ocrQueueJumpSource: String { t("ocrQueue.jumpSource") }
-    static func ocrQueueLowConfidence(_ n: Int) -> String { String(format: t("ocrQueue.lowConfidenceFmt"), n) }
     static var onboard_revise: String { t("onboard.revise") }
-    static var onboard_reject: String { t("onboard.reject") }
     static var docReportIssue: String { t("doc.reportIssue") }
 
     // MARK: - F23 过敏与不良反应（SP-50 · FR23.1-23.6）
@@ -2111,6 +2082,8 @@ enum L10n {
     static var onboardAddFamilyVoiceP1: String { t("onboard.addFamily.voiceP1") }
     static var onboardAddFamilyContactsP1: String { t("onboard.addFamily.contactsP1") }
     static var onboardAddFamilySkip: String { t("onboard.addFamily.skip") }
+    /// V3.39：新增成员后向导最后一步的主按钮文案（跳过与完成语义分离）
+    static var onboardAddFamilyFinish: String { t("onboard.addFamily.finish") }
     static var onboardAddFamilyCompleteHint: String { t("onboard.addFamily.completeHint") }
 
     // MARK: - FR22.5 反馈 / FR24.2 发送状态 / FR9.13a 收件人
@@ -2300,9 +2273,6 @@ enum L10n {
 
     // MARK: - 评审批新增键（2026-09-06 全仓审查）
     static var assistantSendLabel: String { t("assistant.sendLabel") }
-    static func onboardReviseA11y(_ label: String) -> String {
-        t("onboard.reviseA11y").replacingOccurrences(of: "%@", with: label)
-    }
     static var voiceReadAloudA11y: String { t("voice.readAloudA11y") }
     static var observationListEmpty: String { t("observation.listEmpty") }
     static var observationListEmptyHint: String { t("observation.listEmptyHint") }

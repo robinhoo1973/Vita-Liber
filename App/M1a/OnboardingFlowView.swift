@@ -33,8 +33,6 @@ struct OnboardingFlowView: View {
         case .addFamily:
             // FR21.9 ④ 添加家人（可跳过）——向导最后一步
             AddFamilyStepView()
-        case .done:
-            EmptyView()
         }
         }
     }
@@ -44,7 +42,7 @@ struct OnboardingFlowView: View {
         switch app.stage {
         case .disclosure: return 0
         case .ownerName: return 1
-        case .addFamily, .done: return 2
+        case .addFamily: return 2
         }
     }
 }

@@ -148,12 +148,12 @@ private struct QuadOverlay: View {
         }
     }
 
-    private func point(_ p: NormalizedPoint) -> CGPoint {
+    private func point(_ p: Domain.NormalizedPoint) -> CGPoint {
         CGPoint(x: frame.minX + p.x * frame.width, y: frame.minY + p.y * frame.height)
     }
 
     @ViewBuilder
-    private func handle(_ keyPath: WritableKeyPath<QuadCorners, NormalizedPoint>, id: String) -> some View {
+    private func handle(_ keyPath: WritableKeyPath<QuadCorners, Domain.NormalizedPoint>, id: String) -> some View {
         let p = point(corners[keyPath: keyPath])
         Circle()
             .fill(.white)
@@ -166,8 +166,11 @@ private struct QuadOverlay: View {
                         let clampedX = min(max(value.location.x, frame.minX), frame.maxX)
                         let clampedY = min(max(value.location.y, frame.minY), frame.maxY)
                         guard frame.width > 0, frame.height > 0 else { return }
-                        corners[keyPath: keyPath] = NormalizedPoint(x: (clampedX - frame.minX) / frame.width,
-                                                                    y: (clampedY - frame.minY) / frame.height)
+                        // 显式 Domain 限定：iOS 18+ Vision 亦有 NormalizedPoint（原点在左下、
+                        // y 向上），与 Domain（原点左上、y 向下）语义镜像——免限定会在
+                        // 本文件引入 Vision 时静默绑定错类型（16ccc60 已实证撞名）
+                        corners[keyPath: keyPath] = Domain.NormalizedPoint(x: (clampedX - frame.minX) / frame.width,
+                                                                           y: (clampedY - frame.minY) / frame.height)
                     }
             )
             .accessibilityIdentifier("SP-11.scanRegion.handle.\(id)")

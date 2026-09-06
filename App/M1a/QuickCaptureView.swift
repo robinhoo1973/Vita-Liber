@@ -56,7 +56,8 @@ struct QuickCaptureView: View {
     var body: some View {
         VStack(spacing: 20) {
             Spacer()
-            // 扫描引导图（虚线取景框呼应 onboarding 样张页视觉语言）
+            // 扫描引导图（虚线取景框——视觉规范出处：§5.13 拍摄引导占位框，
+            // 四角选区编辑器 ScanRegionEditorView 与之同源）
             RoundedRectangle(cornerRadius: 16)
                 .strokeBorder(style: StrokeStyle(lineWidth: 2, dash: [6]))
                 .foregroundStyle(Color("brand-primary", bundle: .main))

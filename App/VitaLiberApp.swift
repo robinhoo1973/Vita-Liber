@@ -69,7 +69,8 @@ struct VitaLiberApp: App {
             ? StubTranscriptionEngine(capability: .baseline(), scripted: ["这是一段测试听写文本"])
             : nil
         // V3.39：-uitest-camera-fixture 样张注入退役——首启向导不再含拍摄/OCR 步，
-        // BR-003 闸门覆盖由单元/验收测试直接注入 FakeOcrProvider（M1aAcceptanceTests）。
+        // BR-003 闸门覆盖在活管线：单元/验收测试直测 DocumentsState.commitDraft /
+        // DocumentStore.confirmText（M1aAcceptanceTests）+ Domain 层 OcrConfirmationTests。
         #else
         let gateUnlocker: (any GateUnlocking)? = nil
         let transcriptionStub: (any TranscriptionEngine)? = nil
@@ -79,8 +80,7 @@ struct VitaLiberApp: App {
             transcription: transcriptionStub,
             gateUnlocker: gateUnlocker,
             audit: container.audit,
-            memberDeletion: container.memberDeletion,
-            originalsBaseDir: AppContainer.defaultOriginalsDir()))
+            memberDeletion: container.memberDeletion))
         _reminderStore = State(initialValue: ReminderStore(
             meds: container.meds, apts: container.apts, reconciler: container.reconciler,
             scheduler: UNReminderScheduler(), composer: container.composer))

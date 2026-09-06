@@ -1,79 +1,64 @@
 import SwiftUI
 import Domain
+import Infrastructure
 
-/// FR6.8 待确认字段聚合队列（SP-53 · ui-ux §5.30）：
-/// 跨文档聚合全部未确认高风险字段，按成员/来源文档分组、低置信度置顶；
-/// 支持逐字段确认与「全部确认」（仅当无红色低置信度字段时可用）；
-/// 每条可一键跳回来源文档原文（BR-002）。
-/// FR2.3：超过 72 小时未处理的字段置顶钉住（重复置顶提醒）。
+/// FR6.8 待确认聚合队列（SP-53 · ui-ux §5.30，V3.39 对齐）：
+/// 活管线（SP-11 确认卡）确认即入库（grade 'C'）；机器识别未确认文本以
+/// grade 'D' 文档形态入库（如 PDF 导入、无确认环节的导入路径）——队列跨文档
+/// 聚合全部 D 级文档，逐条可「确认」（D→C，BR-003 事实链闸门：确认后才进入
+/// 检索与 AI 事实链）或跳回来源文档原文（BR-002）。
+/// FR2.3：超过 72 小时未处理的文档置顶钉住（重复置顶提醒）。
+/// V3.39 前本视图消费 app.timeline 投影镜像（旧向导管线专属），该镜像已随
+/// 向导简化删除——DocumentStore 是唯一生产事实源。
 struct PendingOcrQueueView: View {
     @Environment(AppState.self) private var app
+    @Environment(DocumentsState.self) private var docs
     @Environment(AppRouter.self) private var router
     /// §5.30 筛选（V3.72）：成员 + 时间窗（全部/3 天/72h+）
     @State private var memberFilter: UUID?
     @State private var windowFilter: Int = 0   // 0=全部 1=3 天 2=72h+
 
-    /// 低置信度置顶 + 72h 置顶钉住（FR2.3/FR6.8 排序规则）
-    private var sortedFields: [(entry: TimelineDocumentEntry, field: CandidateField)] {
-        app.pendingOcrFields().filter { item in
-            if let m = memberFilter, item.entry.patientId != m { return false }
-            switch windowFilter {
-            case 1:
-                return item.entry.occurredAt > Date().timeIntervalSince1970 - 3 * 86400
-            case 2:
-                return isOver72h(item.entry)
-            default:
-                return true
-            }
+    /// 72h 置顶钉住（FR2.3/FR6.8 排序规则）+ 新到旧
+    private var pendingDocs: [DocumentStore.DocumentRow] {
+        docs.documents.filter { doc in
+            doc.grade == "D"
+                && (memberFilter == nil || doc.patientId == memberFilter)
+                && windowMatch(doc)
         }.sorted { a, b in
-            let aLow = ConfidenceTier.tier(a.field.confidence) == .low
-            let bLow = ConfidenceTier.tier(b.field.confidence) == .low
-            if aLow != bLow { return aLow }
-            let a72 = isOver72h(a.entry)
-            let b72 = isOver72h(b.entry)
+            let a72 = isOver72h(a)
+            let b72 = isOver72h(b)
             if a72 != b72 { return a72 }
-            return a.entry.occurredAt > b.entry.occurredAt
+            return a.createdAt > b.createdAt
         }
     }
 
     var body: some View {
         Group {
-            if sortedFields.isEmpty {
+            if pendingDocs.isEmpty {
                 ContentUnavailableView(L10n.ocrQueueEmpty, systemImage: "checkmark.seal",
                                        description: Text(L10n.ocrQueueEmptyHint))
                     .accessibilityIdentifier("SP-53.queue.empty")
             } else {
                 List {
                     Section {
-                        HStack {
-                            Text(L10n.ocrQueueCount(sortedFields.count))
-                                .font(.subheadline)
-                            Spacer()
-                            // FR6.8：全部确认闸门（红色低置信度存在时禁用）
-                            if app.queueAllConfirmAllowed {
-                                Button(L10n.ocrQueueAllConfirm) {
-                                    app.confirmAllPendingFields()
-                                }
-                                .buttonStyle(.borderedProminent)
-                                .controlSize(.small)
-                                .frame(minHeight: 44)   // 触点≥44pt（审查修复）
-                                .accessibilityIdentifier("SP-53.queue.confirmAll")
-                            } else {
-                                Text(L10n.ocrQueueAllConfirmBlocked)
-                                    .font(.caption2).foregroundStyle(.orange)
-                            }
-                        }
+                        Text(L10n.ocrQueueCount(pendingDocs.count))
+                            .font(.subheadline)
+                        // BR-003 诚实性说明：D 级文档未确认前不进检索与 AI 事实链
+                        Text(L10n.ocrQueueHint)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
                     }
-                    ForEach(Array(sortedFields.enumerated()), id: \.offset) { _, item in
+                    ForEach(Array(pendingDocs.enumerated()), id: \.offset) { _, doc in
                         VStack(alignment: .leading, spacing: 8) {
                             HStack {
-                                // FR6.3 颜色语义：高绿 / 中黄 / 低红
-                                Circle()
-                                    .fill(tierColor(item.field))
-                                    .frame(width: 10, height: 10)
-                                Text(item.field.displayLabel)
+                                Text(doc.title ?? L10n.docUntitled)
                                     .font(.subheadline)
-                                if isOver72h(item.entry) {
+                                Text(L10n.gradeBadgeD)
+                                    .font(.caption2)
+                                    .padding(.horizontal, 6).padding(.vertical, 2)
+                                    .background(Capsule().fill(Color("grade-d", bundle: .main).opacity(0.15)))
+                                    .foregroundStyle(Color("grade-d", bundle: .main))
+                                if isOver72h(doc) {
                                     Text(L10n.ocrQueue72h)
                                         .font(.caption2)
                                         .padding(.horizontal, 6).padding(.vertical, 2)
@@ -83,39 +68,23 @@ struct PendingOcrQueueView: View {
                                 Spacer()
                                 // FR6.8 一键跳回来源文档原文（BR-002）
                                 Button(L10n.ocrQueueJumpSource) {
-                                    router.navigate(to: .documentDetail(item.entry.id))
+                                    router.navigate(to: .documentDetail(doc.id))
                                 }
                                 .buttonStyle(.bordered)
                                 .controlSize(.small)
                                 .frame(minHeight: 44)   // 触点≥44pt（审查修复）
                             }
-                            Text(item.field.value)
-                                .font(.body)
-                            Text(item.field.rawText)
+                            Text(doc.createdAt.formatted(date: .abbreviated, time: .shortened))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                            HStack(spacing: 10) {
-                                Button(L10n.onboard_confirm) {
-                                    app.confirmTimelineField(entryId: item.entry.id, fieldId: item.field.id)
-                                }
-                                .buttonStyle(.borderedProminent)
-                                .controlSize(.small)
-                                .frame(minHeight: 44)   // 触点≥44pt（审查修复）
-                                .accessibilityIdentifier("SP-53.queue.confirm.\(item.field.key)")
-                                Button(L10n.onboard_revise) {
-                                    reviseField(item)
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                                .frame(minHeight: 44)   // 触点≥44pt（审查修复）
-                                Button(L10n.onboard_reject) {
-                                    app.rejectTimelineField(entryId: item.entry.id, fieldId: item.field.id)
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                                .frame(minHeight: 44)   // 触点≥44pt（审查修复）
-                                .tint(.secondary)
+                            // BR-003 D→C：用户显式确认机器识别文本后才进入检索与 AI 事实链
+                            Button(L10n.onboard_confirm) {
+                                Task { await docs.confirmText(id: doc.id) }
                             }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+                            .frame(minHeight: 44)   // 触点≥44pt（审查修复）
+                            .accessibilityIdentifier("SP-53.queue.confirm.doc.\(doc.id.uuidString)")
                         }
                         .padding(.vertical, 6)
                         .accessibilityIdentifier("SP-53.queue.row")
@@ -146,46 +115,23 @@ struct PendingOcrQueueView: View {
             .background(.thinMaterial)
         }
         .navigationTitle(L10n.ocrQueueTitle)
-        // FR6.4 修订入口（队列与工作台同语义：原识别值永久保留 + 修订历史）
-        .alert(L10n.onboardReviseTitle(reviseTarget?.field.displayLabel ?? ""),
-               isPresented: reviseBinding) {
-            TextField(L10n.onboard_newValue, text: $reviseDraft)
-            Button(L10n.onboard_saveEdit) {
-                if let target = reviseTarget {
-                    app.reviseTimelineField(entryId: target.entry.id,
-                                            fieldId: target.field.id, to: reviseDraft)
-                }
-                reviseTarget = nil
-            }
-            Button(L10n.onboard_cancel, role: .cancel) { reviseTarget = nil }
-        } message: {
-            Text(L10n.onboardOcrRaw(reviseTarget?.field.rawText ?? ""))
+        .task(id: app.currentPatientId) {
+            await docs.load(patientId: app.currentPatientId)
         }
     }
 
-    private func isOver72h(_ entry: TimelineDocumentEntry) -> Bool {
-        Date().timeIntervalSince1970 - entry.occurredAt > 72 * 3600
-    }
-
-    private func tierColor(_ field: CandidateField) -> Color {
-        // 审查修复：语义令牌替代系统原色（与确认工作台同一 FR6.3 语义）
-        switch ConfidenceTier.tier(field.confidence) {
-        case .high: return Color("semantic-success", bundle: .main)
-        case .mid: return Color("semantic-warning", bundle: .main)
-        case .low: return Color("semantic-danger", bundle: .main)
+    private func windowMatch(_ doc: DocumentStore.DocumentRow) -> Bool {
+        switch windowFilter {
+        case 1:
+            return doc.createdAt > Date().timeIntervalSince1970 - 3 * 86400
+        case 2:
+            return isOver72h(doc)
+        default:
+            return true
         }
     }
 
-    private func reviseField(_ item: (entry: TimelineDocumentEntry, field: CandidateField)) {
-        // FR6.4：修改留「谁改的、何时、改成什么」历史（写入路径在 AppState）
-        reviseTarget = item
-        reviseDraft = item.field.value
-    }
-
-    @State private var reviseTarget: (entry: TimelineDocumentEntry, field: CandidateField)?
-    @State private var reviseDraft = ""
-
-    private var reviseBinding: Binding<Bool> {
-        Binding(get: { reviseTarget != nil }, set: { if !$0 { reviseTarget = nil } })
+    private func isOver72h(_ doc: DocumentStore.DocumentRow) -> Bool {
+        Date().timeIntervalSince1970 - doc.createdAt.timeIntervalSince1970 > 72 * 3600
     }
 }

@@ -146,6 +146,25 @@ public actor DocumentStore {
         }
     }
 
+    /// FR6.1 OCR 结果留痕：每已确认字段一行（原文块+置信度+引擎版本，可追溯可重放）。
+    /// V3.39 起为唯一写入口——旧 AppState 引擎（经 M1aPersisting）已随向导简化删除，
+    /// 活管线 DocumentsState.commitDraft 在确认入库后调用。
+    public func saveOCRResult(documentId: UUID, fields: [CandidateField],
+                              engineVersion: String) async throws {
+        let now = Date()
+        try await writer.write { db in
+            for field in fields {
+                try db.execute(sql: """
+                    INSERT INTO ocr_result
+                      (id, document_file_id, page_index, raw_blocks, engine_version, created_at)
+                    VALUES (?, ?, 0, ?, ?, ?)
+                    """, arguments: [UUID().uuidString, documentId.uuidString,
+                                     "\(field.key): \(field.rawText) [confidence=\(field.confidence)]",
+                                     engineVersion, now.timeIntervalSince1970])
+            }
+        }
+    }
+
     private static func row(_ row: GRDB.Row) -> DocumentStore.DocumentRow {
         DocumentRow(id: UUID(uuidString: row["id"] as String) ?? UUID(),
             patientId: UUID(uuidString: row["patient_id"] as String) ?? UUID(),

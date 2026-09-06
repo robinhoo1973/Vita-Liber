@@ -4,11 +4,13 @@ import GRDB
 import Domain
 import Protocols
 
-/// M1a 生产持久化（评审修正：owner/consent/timeline 落 §4.3 对应表，
+/// M1a 生产持久化（评审修正：owner/consent 落 §4.3 对应表，
 /// 不再整体塞 UserDefaults）：
 ///   LocalOwner           → local_owner（+ PatientProfile → patient_profile）
 ///   ConsentRecord        → consent_record
-///   TimelineDocumentEntry→ document_file（meta_json 承载投影元数据）
+/// V3.39 起不再承载时间轴投影与 OCR 留痕（loadTimeline/saveTimeline/saveOCRResult
+/// 已删除）——文档事实源统一为 DocumentStore（document_file 直读，
+/// FR6.1 留痕走 DocumentStore.saveOCRResult）。
 public actor GRDBM1aPersistor: M1aPersisting {
     private let store: GRDBStore
 
@@ -117,64 +119,6 @@ public actor GRDBM1aPersistor: M1aPersisting {
                 VALUES (?, ?, ?, ?, ?)
                 """,
                 arguments: [c.id.uuidString, c.key, c.level, c.version, c.acceptedAt])
-        }
-    }
-
-    public func loadTimeline() async throws -> [TimelineDocumentEntry] {
-        try await writer.read { db in
-            let rows = try Row.fetchAll(db, sql: """
-                SELECT meta_json FROM document_file
-                WHERE meta_json IS NOT NULL ORDER BY created_at DESC
-                """)
-            var out: [TimelineDocumentEntry] = []
-            for row in rows {
-                guard let json = row["meta_json"] as String?,
-                      let data = json.data(using: .utf8) else { continue }
-                // 单条损坏元数据跳过，不拖垮整轴（§7 禁 try?，显式降级）
-                do { out.append(try JSONDecoder().decode(TimelineDocumentEntry.self, from: data)) }
-                catch { continue }
-            }
-            return out
-        }
-    }
-
-    /// FR6.1 OCR 结果独立存储（与 notes 解耦）：每次识别记录原文块、置信度、
-    /// 来源文件、识别时间、引擎版本——识别留痕与确认流解耦，可追溯。
-    /// 签名与 M1aPersisting 协议**精确一致**（额外便捷参数只放协议扩展，
-    /// 不在此处加默认参数——协议一致性与默认参数不兼容，评审修正）。
-    public func saveOCRResult(documentId: UUID, fields: [CandidateField],
-                              engineVersion: String) async throws {
-        let now = Date()
-        try await writer.write { db in
-            for field in fields {
-                try db.execute(sql: """
-                    INSERT INTO ocr_result
-                      (id, document_file_id, page_index, raw_blocks, engine_version, created_at)
-                    VALUES (?, ?, 0, ?, ?, ?)
-                    """, arguments: [UUID().uuidString, documentId.uuidString,
-                                     "\(field.key): \(field.rawText) [confidence=\(field.confidence)]",
-                                     engineVersion, now.timeIntervalSince1970])
-            }
-        }
-    }
-
-    public func saveTimeline(_ entries: [TimelineDocumentEntry]) async throws {
-        try await writer.write { db in
-            for e in entries {
-                let meta = String(data: try JSONEncoder().encode(e), encoding: .utf8) ?? "{}"
-                // UPSERT 而非 INSERT OR REPLACE：REPLACE=先删后插，会触发 FK 级联语义
-                // （ERR#35 纪律：FK 写入禁用 IGNORE/REPLACE）
-                try db.execute(
-                    sql: """
-                    INSERT INTO document_file
-                      (id, patient_id, doc_type, sha256, mime_type, origin, meta_json, created_at, updated_at)
-                    VALUES (?, ?, 'ocr_document', ?, 'application/json', 'scanner', ?, ?, ?)
-                    ON CONFLICT(id) DO UPDATE SET meta_json = excluded.meta_json,
-                        updated_at = excluded.updated_at
-                    """,
-                    arguments: [e.id.uuidString, e.patientId.uuidString,
-                                "sha:" + e.id.uuidString, meta, e.occurredAt, e.occurredAt])
-            }
         }
     }
 

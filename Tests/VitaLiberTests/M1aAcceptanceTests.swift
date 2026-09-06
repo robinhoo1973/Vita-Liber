@@ -1,5 +1,6 @@
 import XCTest
 import Foundation
+import GRDB
 import Domain
 import Infrastructure
 import Protocols
@@ -9,6 +10,9 @@ import Protocols
 /// 生物识别门禁（FR1.1 V3.22）、L1 三卡 ConsentRecord 落库、BR-003。
 /// 评审修正：经 GRDBM1aPersistor 走真实 §4.3 表——「本人关联 patient_profile」
 /// 从 ID 断言升级为落库断言，闭合假绿。
+/// V3.39 对齐：BR-003 闸门用例从旧 AppState 引擎（captureSample/commitToTimeline，
+/// 已随向导简化删除）迁移到活管线 DocumentsState.commitDraft / DocumentStore——
+/// 红线验收覆盖生产路径而非死代码。
 @MainActor
 // binds: SU-M1a-SEC / SU-M1a-BIO / SU-M1a-GOLDEN — TC-M1a-03/04/05（BR-003 一票否决）
 final class M1aAcceptanceTests: XCTestCase {
@@ -20,13 +24,33 @@ final class M1aAcceptanceTests: XCTestCase {
         return d
     }
 
-    private func makeApp(defaults: UserDefaults, fixture: Bool = false,
-                         gateResult: Bool = true) throws -> AppState {
+    private func makeApp(defaults: UserDefaults, gateResult: Bool = true) throws -> AppState {
         let container = try AppContainer.preview()
         return AppState(persistor: container.persistor,
-                        capture: FakeOcrProvider(fixture: fixture),
                         gateUnlocker: FakeGateUnlocker(result: gateResult),
                         defaults: defaults, launchArgs: [])
+    }
+
+    /// 活管线状态仓（V3.39 BR-003 用例载体）：真实 DocumentStore + 桩识别器
+    private func makeDocs(container: AppContainer) -> DocumentsState {
+        DocumentsState(
+            store: container.documents,
+            pipeline: OCRPipeline(recognizer: StubImageTextRecognizer(scripted: .init(lines: [], confidence: 0)),
+                                  grayscaleDecoder: GrayscaleImageDecoder()),
+            originalsDir: FileManager.default.temporaryDirectory)
+    }
+
+    /// 建所有者并等 patient_profile 落库（document_file 外键依赖）
+    private func ensureOwner(app: AppState, container: AppContainer) async throws -> UUID {
+        app.createOwner(name: "王女士")
+        for _ in 0..<20 {
+            let count = try await container.store.writer.read {
+                try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM patient_profile") ?? 0
+            }
+            if count == 1 { break }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        return app.currentPatientId
     }
 
     /// FR1.1 · V3.22：门禁 = 系统设备所有者认证。冷启动（本会话未认证）即锁；
@@ -87,7 +111,7 @@ final class M1aAcceptanceTests: XCTestCase {
     func test_三卡确认写入ConsentRecord且落库() async throws {
         let defaults = freshDefaults()
         let container = try AppContainer.preview()
-        let app = AppState(persistor: container.persistor, capture: FakeOcrProvider(fixture: false),
+        let app = AppState(persistor: container.persistor,
                            defaults: defaults, launchArgs: [])
         await app.bootstrap()
         XCTAssertEqual(app.disclosureCards.count, 3)
@@ -107,7 +131,7 @@ final class M1aAcceptanceTests: XCTestCase {
         XCTAssertEqual(stored.count, 3, "ConsentRecord 必须真实写入 consent_record 表")
 
         // 重启不重复落库（评审修正：杀进程重走三卡去重）
-        let app2 = AppState(persistor: container.persistor, capture: FakeOcrProvider(fixture: false),
+        let app2 = AppState(persistor: container.persistor,
                             defaults: defaults, launchArgs: [])
         await app2.bootstrap()
         XCTAssertEqual(app2.consentRecords.count, 3)
@@ -119,7 +143,7 @@ final class M1aAcceptanceTests: XCTestCase {
     func test_建档后本人关联落库() async throws {
         let defaults = freshDefaults()
         let container = try AppContainer.preview()
-        let app = AppState(persistor: container.persistor, capture: FakeOcrProvider(fixture: false),
+        let app = AppState(persistor: container.persistor,
                            defaults: defaults, launchArgs: [])
         await app.bootstrap()
         app.createOwner(name: "王女士")
@@ -141,51 +165,68 @@ final class M1aAcceptanceTests: XCTestCase {
         XCTAssertEqual(ownerCount, 1, "local_owner 必须出现所有者行")
     }
 
-    /// BR-003：字段未全部确认前 commit 不生效，全部确认后才入时间轴
-    func test_未全部确认不得入时间轴_BR003() async throws {
+    /// BR-003 活管线：确认集未全部确认时，只有已确认字段进入正式区——
+    /// commitDraft 的 ocrText/留痕仅含已确认字段（V3.39 后生产闸门 =
+    /// DocumentsState.commitDraft，旧 AppState 引擎已删除，红线验收不得覆盖死代码）。
+    func test_BR003_活管线_未确认字段不入正式区且留痕仅已确认() async throws {
         let defaults = freshDefaults()
-        let app = try makeApp(defaults: defaults, fixture: true)
+        let container = try AppContainer.preview()
+        let app = AppState(persistor: container.persistor, defaults: defaults, launchArgs: [])
         await app.bootstrap()
-        app.createOwner(name: "王女士")
-        app.captureSample()
-        // 等异步拍摄完成
-        for _ in 0..<20 {
-            if app.activeSet != nil { break }
-            try await Task.sleep(nanoseconds: 50_000_000)
+        let patientId = try await ensureOwner(app: app, container: container)
+
+        let docs = makeDocs(container: container)
+        var set = OcrConfirmationSet(fields: [
+            CandidateField(key: "drug_name", displayLabel: "药名", rawText: "阿莫西林", confidence: 0.93),
+            CandidateField(key: "dosage", displayLabel: "剂量", rawText: "每日三次", confidence: 0.88),
+        ])
+        set.confirm(field: set.fields[0].id)   // 只确认药名
+
+        let draft = DocumentsState.ImportDraft(
+            patientId: patientId, docType: "病历", title: "样张", isSensitive: true,
+            origin: "import", sha256: "sha:test",
+            originalData: Data([0x01]), processedData: Data([0x02]), mimeType: "image/jpeg",
+            qualityTags: [], confirmationSet: set, isPrescription: false)
+        await docs.commitDraft(draft)
+
+        let rows = try await container.documents.list(patientId: patientId)
+        XCTAssertEqual(rows.count, 1, "确认保存后 document_file 必须有一条记录")
+        XCTAssertEqual(rows[0].grade, "C", "经确认卡入库的文档必须是 C 级（用户已确认）")
+
+        // ocrText 只含已确认字段（未确认的「每日三次」不得进入正式区）
+        let ocrText = try await container.store.writer.read {
+            try String.fetchOne($0, sql: "SELECT ocr_text FROM document_file LIMIT 1")
         }
-        let set = try XCTUnwrap(app.activeSet)
-        app.confirmField(id: set.fields[0].id)
-        app.commitToTimeline()                       // 只确认一个字段 → 不得入轴
-        XCTAssertTrue(app.timeline.isEmpty, "BR-003：未全部确认不得进入时间轴正式区")
-        app.confirmField(id: set.fields[1].id)
-        app.confirmField(id: set.fields[2].id)
-        app.commitToTimeline()
-        XCTAssertEqual(app.timeline.count, 1)
+        XCTAssertTrue(ocrText?.contains("阿莫西林") == true, "已确认字段必须进入正式区")
+        XCTAssertFalse(ocrText?.contains("每日三次") == true, "BR-003：未确认字段不得进入正式区")
+
+        // FR6.1 留痕：ocr_result 只落已确认字段（一行），未确认字段不留痕
+        let traceCount = try await container.store.writer.read {
+            try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM ocr_result") ?? 0
+        }
+        XCTAssertEqual(traceCount, 1, "识别留痕必须仅含已确认字段")
     }
 
-    /// 修订历史：确认态字段修改 → 旧值入史（FR6.4 退出准则的 U 半场）
-    func test_确认后修改留修订历史() async throws {
+    /// BR-003 D→C：机器识别未确认（grade 'D'）的文档，用户显式确认后才升 C
+    /// 进入检索与 AI 事实链（V3.39 后 SP-53 队列的「确认」动作即此闸门）。
+    func test_BR003_D级文档确认后升C() async throws {
         let defaults = freshDefaults()
-        let app = try makeApp(defaults: defaults, fixture: true)
+        let container = try AppContainer.preview()
+        let app = AppState(persistor: container.persistor, defaults: defaults, launchArgs: [])
         await app.bootstrap()
-        app.createOwner(name: "王女士")
-        app.captureSample()
-        for _ in 0..<20 {
-            if app.activeSet != nil { break }
-            try await Task.sleep(nanoseconds: 50_000_000)
-        }
-        let set = try XCTUnwrap(app.activeSet)
-        let dosage = set.fields.first { $0.key == "dosage" }!
-        app.confirmField(id: dosage.id)
-        app.reviseField(id: dosage.id, to: "每日两次 每次一粒")
-        app.confirmField(id: set.fields.first { $0.key == "drug_name" }!.id)
-        app.confirmField(id: set.fields.first { $0.key == "title" }!.id)
-        app.commitToTimeline()
-        XCTAssertEqual(app.timeline.count, 1)
-        XCTAssertFalse(app.timeline[0].revisionHistory.isEmpty, "修订历史必须随文档入轴")
-        // revisionHistory 是 [String]：元素级 contains 比较整条「旧 → 新 · 人 · 时间」，
-        // 必须用谓词 contains 检查任一条目内含旧值（CI 34020363188 实证——此断言
-        // 此前从未真实执行，数组 contains 恒 false）
-        XCTAssertTrue(app.timeline[0].revisionHistory.contains { $0.contains("每日三次 每次一粒") })
+        let patientId = try await ensureOwner(app: app, container: container)
+
+        let docId = try await container.documents.save(
+            patientId: patientId, docType: "病历", sha256: "pdf:test",
+            mimeType: "application/pdf", origin: "import", isSensitive: false,
+            metaJSON: nil, title: "PDF 导入", ocrText: "识别文本", grade: "D")
+        var row = try await container.documents.fetch(id: docId)
+        XCTAssertEqual(row?.grade, "D", "机器识别未确认的文档必须以 D 级入库")
+
+        let docs = makeDocs(container: container)
+        await docs.confirmText(id: docId)
+
+        row = try await container.documents.fetch(id: docId)
+        XCTAssertEqual(row?.grade, "C", "用户显式确认后文档必须升 C 级")
     }
 }

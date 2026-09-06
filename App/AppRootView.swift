@@ -149,8 +149,6 @@ struct AppRootView: View {
                 if appState.onboardingFinished {
                     Task {
                         await reminderStore.refreshTriggered(patientId: appState.currentPatientId)
-                        // 时间轴镜像随前台刷新（资料库入库的文档进入待确认计数）
-                        await appState.refreshTimeline()
                     }
                 }
             default:

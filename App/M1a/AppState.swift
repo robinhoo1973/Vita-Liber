@@ -11,18 +11,18 @@ import Protocols
 ///   UserDefaults 仅承载 UI 瞬态与偏好——「窄实现」窄化能力，不换存储介质；
 /// - 门禁（V3.22）= 系统设备所有者认证（FR1.1）：GateUnlocking 协议注入，
 ///   生产实现 LocalAuthGateUnlocker（Infrastructure），无应用内 PIN 与节流阶梯；
-/// - 假 OCR 收敛到 FakeOcrProvider（DocumentCapture 协议，仅测试注入）；
-///   首启向导不含拍摄/OCR 步骤（V3.39 FR21.9 简化：三卡 → 建档 → 家人 → 完成，
-///   资料采集走 SP-11/SP-10 生产管线由用户主动触发，首日引导由首页空态卡承载）。
+/// - 首启向导不含拍摄/OCR 步骤（V3.39 FR21.9 简化：三卡 → 建档 → 家人 → 完成，
+///   资料采集走 SP-11/SP-10 生产管线（DocumentsState/DocumentStore，BR-003
+///   D→C 同闸门），首日引导由首页空态卡承载）。
 @MainActor
 @Observable
 final class AppState {
     /// FR21.9（V3.39 简化）：向导状态机仅保留与初始化用户信息直接相关的步骤。
+    /// 无 done 态——完成与否由 onboardingFinished 单源判定（AppRootView 据此切主界面）。
     enum OnboardingStage: Equatable {
         case disclosure(index: Int)
         case ownerName
         case addFamily          // FR21.9 ④（可选，可跳过）
-        case done
     }
 
     var stage: OnboardingStage = .disclosure(index: 0)
@@ -37,18 +37,10 @@ final class AppState {
     // 所有者与档案
     private(set) var owner: LocalOwner?
 
-    // 时间轴
-    private(set) var timeline: [TimelineDocumentEntry] = []
-
     // L1 首启三卡确认（ConsentRecord 语义，FR20.5）
     private(set) var consentRecords: [ConsentRecord] = []
 
     private let persistor: any M1aPersisting
-    /// 测试桩注入点（XCUITest 假样张）；生产为 nil——真实拍摄走
-    /// `captureFrom(imageData:)` 的 Vision 编排层（BR-003 D→C 同闸门）。
-    private let captureProvider: (any DocumentCapture)?
-    /// 生产 OCR 编排层（ADR-026）：真实图片 → 识别 → 确认集
-    private let ocrPipeline: OCRPipeline?
     /// FR3.4/FR3.5 成员删除与重新归属（影响清单 + 单事务；可选注入，测试可空）
     private let memberDeletion: MemberDeletionService?
     private let defaults: UserDefaults
@@ -63,14 +55,12 @@ final class AppState {
     let transcriptionEngine: any TranscriptionEngine
 
     init(persistor: any M1aPersisting,
-         capture: (any DocumentCapture)? = nil,
          speech: (any SpeechSynthesizing)? = nil,
          imageRecognizer: (any ImageTextRecognizing)? = nil,
          transcription: (any TranscriptionEngine)? = nil,
          gateUnlocker: (any GateUnlocking)? = nil,
          audit: AuditLogWriter? = nil,
          memberDeletion: MemberDeletionService? = nil,
-         originalsBaseDir: URL? = nil,
          defaults: UserDefaults = .standard,
          launchArgs: [String] = ProcessInfo.processInfo.arguments) {
         // 组合根：按当前上下文一次性注册全部引擎能力（ADR-027 EAL）。
@@ -80,22 +70,12 @@ final class AppState {
             EngineRegistry.shared.registerDefaultEngines()
         }
         self.speechSynthesizer = speech ?? EngineRegistry.shared.resolve(SpeechSynthesisFactory.self)
-        let recognizer = imageRecognizer ?? EngineRegistry.shared.resolve(OCRRecognizerFactory.self)
-        self.imageRecognizer = recognizer
+        self.imageRecognizer = imageRecognizer ?? EngineRegistry.shared.resolve(OCRRecognizerFactory.self)
         self.transcriptionEngine = transcription ?? EngineRegistry.shared.resolve(TranscriptionEngineFactory.self)
         self.persistor = persistor
-        self.captureProvider = capture
-        // 生产拍摄路径：真实 Vision 编排层（识别器经 EAL 取，灰度解码为生产实现）。
-        // 测试注入 capture 桩时管线仍可用但不会被 captureSample 走。
-        self.ocrPipeline = OCRPipeline(
-            recognizer: recognizer,
-            grayscaleDecoder: GrayscaleImageDecoder())
         self.gateUnlocker = gateUnlocker ?? LocalAuthGateUnlocker()
         self.audit = audit
         self.memberDeletion = memberDeletion
-        // 原件落盘目录（BR-002）：生产 = Documents/MedicalNotes/originals（装配层注入）；
-        // 测试/预览注入临时目录。nil（旧装配未接）时回落 temp——绝不静默丢原件。
-        self.originalsBaseDir = originalsBaseDir ?? FileManager.default.temporaryDirectory
         // 评审修正：删除此处的 AVSpeechAdapter()/VisionImageRecognizer() 二次赋值——
         // 它在 EAL resolve 之后把结果覆盖回具体实现，注册表解析成为死代码，
         // ADR-027「调用方永不直接 import 具体引擎类型」名存实亡（半重构残留）。
@@ -120,9 +100,7 @@ final class AppState {
                     "lockStage", "pinLockSnapshot"] {
             defaults.removeObject(forKey: key)
         }
-        if onboardingFinished {
-            stage = .done
-        } else {
+        if !onboardingFinished {
             // 三卡断点续填：重启后从上次进度的下一张卡继续
             let progress = defaults.integer(forKey: "disclosureProgress")
             if progress > 0 {
@@ -134,7 +112,6 @@ final class AppState {
         if launchArgs.contains("-uitest-seed-finished") {
             onboardingFinished = true
             defaults.set(true, forKey: "onboardingFinished")
-            stage = .done
         }
         // 门禁旁路：直接视为本会话已认证（非门禁用例避免遮罩；XCUITest 专用）
         if launchArgs.contains("-uitest-gate-bypass") {
@@ -152,7 +129,6 @@ final class AppState {
         do {
             owner = try await persistor.loadOwner()
             consentRecords = try await persistor.loadConsents()
-            timeline = try await persistor.loadTimeline()
         } catch {
             logger.error("持久化加载失败: \(error)")
         }
@@ -170,17 +146,6 @@ final class AppState {
             } else {
                 stage = .ownerName
             }
-        }
-    }
-
-    /// 审查修复：时间轴内存镜像只在启动时加载一次——资料库/快速拍摄
-    /// 经 DocumentStore 入库的新文档永不进入镜像，首页待确认 OCR 徽标与
-    /// 通知中心计数停留在旧快照。回前台时刷新镜像。
-    func refreshTimeline() async {
-        do {
-            timeline = try await persistor.loadTimeline()
-        } catch {
-            logger.error("时间轴刷新失败: \(error)")
         }
     }
 
@@ -287,202 +252,11 @@ final class AppState {
         stage = .addFamily      // FR21.9 ④（可跳过）
     }
 
-    // MARK: - 拍摄与 OCR 确认（DocumentCapture 协议注入）
-
-    private(set) var activeSet: OcrConfirmationSet?
-    /// 当前待确认拍摄的原件路径（BR-002 落盘后待 commit 归档；确认卡原图对照读取）
-    private(set) var pendingOriginalURL: URL?
-    private let originalsBaseDir: URL
-
-    /// 测试桩样张入口（验收/单元测试注入 FakeOcrProvider 驱动 BR-003 闸门用例；
-    /// 首启向导不再含拍摄步（V3.39），生产 UI 不经由此路径）
-    func captureSample() {
-        guard let captureProvider else { return }
-        Task {
-            do {
-                activeSet = try await captureProvider.capture()
-            } catch {
-                logger.error("拍摄管线失败: \(error)")
-            }
-        }
-    }
-
-    /// 生产拍摄路径：真实图片经 Vision 编排层产出确认集（BR-003 同闸门）。
-    /// 识别引擎失败返回 false 由视图层给出可见反馈（FR6.6 绝不静默）。
-    /// **BR-002 原件落盘（V3.72）**：OCR 前先写原图到专用目录
-    /// `<Documents>/MedicalNotes/originals/{patientId}/`——此前拍摄原图识别完即
-    /// 丢弃，「永远能看原图」无物可指；确认卡同时以该原件做原文图对照。
-    /// 识别失败/取消时清理刚写的文件，不落孤儿。
-    @discardableResult
-    func captureFrom(imageData: Data) async -> Bool {
-        guard let ocrPipeline else { return false }
-        let originalURL = saveOriginal(imageData)
-        do {
-            let result = try await ocrPipeline.run(imageData: imageData)
-            guard !result.failed else {
-                logger.error("OCR 管线识别引擎失败")
-                try? FileManager.default.removeItem(at: originalURL)   // try?-ok: 识别失败时 best-effort 清理刚落盘原件，失败不阻断主流程（孤儿由启动对账清扫）
-                return false
-            }
-            // 逐行字段（FR6.1 字段级确认）：每行一个候选字段 + 首行标题——
-            // 全文拼接让「细调」无从谈起；行级粒度 + 原图对照才构成可用的细调界面
-            var fields: [CandidateField] = []
-            if !result.lines.isEmpty {
-                fields = result.lines.enumerated().map { idx, line in
-                    CandidateField(key: "line_\(idx)",
-                                   displayLabel: String(format: L10n.ocrFieldLine, idx + 1),
-                                   rawText: line, confidence: 0.5)   // 无逐字段置信度→中档，必复核
-                }
-                let title = result.lines.first.map { String($0.prefix(30)) } ?? L10n.ocrFieldText
-                fields.insert(CandidateField(key: "title", displayLabel: L10n.ocrFieldTitle,
-                                             rawText: title, confidence: 0.9),
-                              at: 0)
-            }
-            pendingOriginalURL = originalURL
-            activeSet = OcrConfirmationSet(fields: fields)   // confirm-ok: F6 OCR 确认集是合法产出方（非语音路径），FR17.13 只约束语音草稿确认
-            // V3.39：确认工作台的呈现由调用方驱动（SP-12 路由），不再写入向导状态机
-            return true
-        } catch {
-            logger.error("拍摄管线失败: \(error)")
-            try? FileManager.default.removeItem(at: originalURL)   // try?-ok: OCR 管线异常时 best-effort 清理刚落盘原件，失败不阻断错误上报路径
-            return false
-        }
-    }
-
-    /// 原图落盘（BR-002）：`originals/{patientId}/{uuid}.jpg`——原件只写一次，
-    /// 此后永不修改（修订/删除只作用于 meta 与副本，FR6.4 语义）。
-    private func saveOriginal(_ imageData: Data) -> URL {
-        let patientId = owner?.selfPatientId ?? owner?.id ?? UUID()
-        let dir = originalsBaseDir
-            .appendingPathComponent("originals", isDirectory: true)
-            .appendingPathComponent(patientId.uuidString, isDirectory: true)
-        do {
-            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        } catch {
-            logger.error("原件目录创建失败: \(error)")   // 回落 temp 由调用方 continue 语义兜底
-        }
-        let url = dir.appendingPathComponent("\(UUID().uuidString).jpg")
-        do {
-            try imageData.write(to: url, options: .atomic)
-        } catch {
-            logger.error("原件写入失败: \(error)")
-            return originalsBaseDir.appendingPathComponent("\(UUID().uuidString).jpg")
-        }
-        return url
-    }
-
-    func confirmField(id: UUID) {
-        guard var set = activeSet else { return }
-        set.confirm(field: id)
-        activeSet = set
-    }
-
-    func reviseField(id: UUID, to value: String) {
-        guard var set = activeSet, let i = set.fields.firstIndex(where: { $0.id == id }) else { return }
-        // FR6.4：修订历史带「谁改的、何时」（本机所有者为唯一修改人）
-        _ = set.fields[i].revise(to: value, by: owner?.displayName ?? "owner", at: Date())
-        activeSet = set
-    }
-
-    /// FR6.4 ✕ 放弃：字段置 rejected（保留原识别值，不入正式区）
-    func rejectField(id: UUID) {
-        guard var set = activeSet, let i = set.fields.firstIndex(where: { $0.id == id }) else { return }
-        set.fields[i].reject()
-        activeSet = set
-    }
-
-    /// BR-003：全部字段确认后才入时间轴正式区。
-    /// FR6.1：识别结果独立落 ocr_result（原文块+置信度+引擎版本留痕），
-    /// 与文档投影 meta 解耦——识别留痕可追溯、可重放。
-    func commitToTimeline() {
-        guard let set = activeSet, set.isUsableInTimeline,
-              let patientId = owner?.selfPatientId ?? owner?.id else { return }
-        var originalPaths: [UUID: String] = [:]
-        if let url = pendingOriginalURL {
-            originalPaths[set.documentId] = url.path
-        }
-        let entry = TimelineProjection.entries(from: [set], patientId: patientId,
-                                                occurredAt: Date().timeIntervalSince1970,
-                                                originalPaths: originalPaths)[0]
-        timeline.append(entry)
-        let engineVersion = captureProvider == nil ? "ocr-pipeline" : "fake-ocr-v1"
-        persist { [persistor, timeline] in
-            try await persistor.saveTimeline(timeline)
-            try await persistor.saveOCRResult(documentId: set.documentId, fields: set.fields,
-                                              engineVersion: engineVersion)
-        }
-        activeSet = nil
-        pendingOriginalURL = nil   // 原件已随 entry 归档（路径入 meta_json），仅清会话引用
-        // V3.39：入库后导航由调用方驱动（确认集引擎与向导状态机解耦）
-    }
-
-    // MARK: - FR6.8 SP-53 待确认字段聚合队列（跨文档）
-
-    /// 跨文档聚合全部未确认字段（72h 置顶由视图层按 entry.occurredAt 排序展示）
-    func pendingOcrFields() -> [(entry: TimelineDocumentEntry, field: CandidateField)] {
-        timeline.flatMap { entry in
-            (entry.fields ?? [])
-                .filter { !$0.isConfirmed && $0.grade != .rejected }
-                .map { (entry, $0) }
-        }
-    }
-
-    /// FR6.8 逐字段确认（队列与单文档工作台共用同一写路径）
-    func confirmTimelineField(entryId: UUID, fieldId: UUID) {
-        guard let i = timeline.firstIndex(where: { $0.id == entryId }) else { return }
-        var fields = timeline[i].fields ?? []
-        guard let j = fields.firstIndex(where: { $0.id == fieldId }) else { return }
-        _ = fields[j].confirm()
-        timeline[i].fields = fields
-        persistTimeline()
-    }
-
-    func reviseTimelineField(entryId: UUID, fieldId: UUID, to value: String) {
-        guard let i = timeline.firstIndex(where: { $0.id == entryId }) else { return }
-        var fields = timeline[i].fields ?? []
-        guard let j = fields.firstIndex(where: { $0.id == fieldId }) else { return }
-        _ = fields[j].revise(to: value, by: owner?.displayName ?? "owner", at: Date())
-        timeline[i].fields = fields
-        persistTimeline()
-    }
-
-    func rejectTimelineField(entryId: UUID, fieldId: UUID) {
-        guard let i = timeline.firstIndex(where: { $0.id == entryId }) else { return }
-        var fields = timeline[i].fields ?? []
-        guard let j = fields.firstIndex(where: { $0.id == fieldId }) else { return }
-        fields[j].reject()
-        timeline[i].fields = fields
-        persistTimeline()
-    }
-
-    /// FR6.8「全部确认」闸门：仅当无红色低置信度字段时可用（Domain 判定）
-    var queueAllConfirmAllowed: Bool {
-        !pendingOcrFields().contains { ConfidenceTier.tier($0.field.confidence) == .low }
-    }
-
-    /// 全部确认（FR6.8）：逐字段确认（不含已放弃）
-    func confirmAllPendingFields() {
-        guard queueAllConfirmAllowed else { return }
-        for (idx, entry) in timeline.enumerated() {
-            var fields = entry.fields ?? []
-            var changed = false
-            for (j, field) in fields.enumerated() where !field.isConfirmed && field.grade != .rejected {
-                fields[j].confirm()
-                changed = true
-            }
-            if changed { timeline[idx].fields = fields }
-        }
-        persistTimeline()
-    }
-
-    private func persistTimeline() {
-        persist { [persistor, timeline] in try await persistor.saveTimeline(timeline) }
-    }
-
     func finishOnboarding() {
         onboardingFinished = true
         defaults.set(true, forKey: "onboardingFinished")
-        stage = .done
+        // stage 不再写 done：OnboardingStage 无 done 态，完成与否由 onboardingFinished
+        // 单源判定（AppRootView 据此卸载向导）——V3.39 三步化后的双源冗余已消除
     }
 
     // MARK: - F3 成员管理（FR3.7 添加家人）
@@ -680,7 +454,6 @@ final class AppState {
     /// FR14.3 清空全部（影响清单先行由 UI 承担；审计记录保留——匿名化语义）
     func persistorReset() async throws {
         try await persistor.reset()
-        timeline = []
         consentRecords = []
         members = []
     }
