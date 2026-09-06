@@ -18,18 +18,20 @@ public actor MedicationStore: DoseSource {
 
     public func createPlan(planId: UUID, patientId: UUID, medicationId: UUID,
                            schedule: MedicationSchedule, status: PlanStatus,
-                           startDate: Date, endDate: Date?) async throws {
+                           startDate: Date, endDate: Date?,
+                           doseUnits: Double? = nil) async throws {
         try await writer.write { db in
             let scheduleJSON = String(data: try JSONEncoder().encode(schedule), encoding: .utf8) ?? "{}"
             try db.execute(
                 sql: """
                 INSERT INTO medication_plan
-                  (id, patient_id, medication_id, status, schedule_json, start_date, end_date, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  (id, patient_id, medication_id, status, schedule_json, start_date, end_date,
+                   dose_plan_units, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 arguments: [planId.uuidString, patientId.uuidString, medicationId.uuidString,
                             status.rawValue, scheduleJSON, startDate.timeIntervalSince1970,
-                            endDate?.timeIntervalSince1970, Date().timeIntervalSince1970,
+                            endDate?.timeIntervalSince1970, doseUnits, Date().timeIntervalSince1970,
                             Date().timeIntervalSince1970])
         }
     }
@@ -397,8 +399,10 @@ public actor MedicationStore: DoseSource {
         switch schedule {
         case .fixed(let times): return Double(max(1, times.count))
         case .interval(let everyMinutes, _):
-            let perDay = 1440.0 / Double(max(1, everyMinutes))
-            return min(perDay, 24)
+            // 评审修正 D4：原 min(perDay, 24) 上限把亚小时间隔（如每 30 分钟）
+            // 的日消耗砍半 → daysLeft 虚高、续药分级晚发（ADR-009 反方向）。
+            // 上限无规格依据（FR9.4 对间隔无下限），删除之。
+            return 1440.0 / Double(max(1, everyMinutes))
         case .meal(let relations): return Double(max(1, relations.count))
         case .asNeeded: return 0
         case .cycle(let everyDays, let daysOn): return Double(daysOn) / Double(max(1, everyDays))
@@ -440,15 +444,23 @@ public actor MedicationStore: DoseSource {
     /// 计划——否则 DoseSource.deliveryFacts 的 JOIN 恒空，提醒链断裂。
     /// 评审修正 P0：窗口日界必须以 now 为锚——fromDay 硬编码 1 会让开立超过
     /// 7 天的老计划全部生成在过去被过滤，inserted=0 永不再物化。
+    /// 评审修正 D2（零确认离线缺口）：窗口回溯 30 个计划日——应用关闭超过
+    /// 预排窗口时，缺口剂量从未物化过，materializeMissed 只改已有行、对缺口
+    /// 无能为力 → 安全线冻结、续药告警晚发（ADR-009 反方向）。回溯行由紧随其
+    /// 后的 materializeMissed 决议为 missed（计划轨按计划推进），幂等。
+    /// 评审修正 D5（时区重锚）：notifyId 为逻辑身份（day+ordinal），时区变化后
+    /// 同一逻辑剂量以新墙钟重排——未决议行 ON CONFLICT 更新 scheduled_for/
+    /// dose_units 重锚到新时区；已决议行不动（用户动作是事实，绝不改写）。
     /// 返回本窗口新物化的行数。
     public func materializeWindow(now: Date, calendar: Calendar) async throws -> Int {
         let windowEnd = DayArithmetic.offset(days: ReconcileEngine.preScheduleWindowDays, from: now)
+        let lookbackStart = DayArithmetic.offset(days: -30, from: now)
         // 返回式写闭包：不在闭包内突变捕获变量（Swift 6 并发纪律——
         // 「mutation of captured var in concurrently-executing code」是 6 模式下的错误）
         return try await writer.write { db -> Int in
             var inserted = 0
             let plans = try Row.fetchAll(db, sql: """
-                SELECT id, patient_id, schedule_json, start_date, end_date
+                SELECT id, patient_id, schedule_json, start_date, end_date, dose_plan_units
                 FROM medication_plan WHERE status = 'active'
                 """)
             for plan in plans {
@@ -459,24 +471,41 @@ public actor MedicationStore: DoseSource {
                 let schedule: MedicationSchedule
                 do { schedule = try JSONDecoder().decode(MedicationSchedule.self, from: json) }
                 catch { continue }   // 损坏的 schedule_json 跳过该计划（§7 禁 try?）
+                // 评审修正 D1：每剂剂量读 dose_plan_units（安全线单剂基线）——
+                // 此前引擎硬编码 1.0，每次 2 片的计划扣减恒按 1 片 → 告警晚发
+                let unitsPerDose = (plan["dose_plan_units"] as Double?) ?? 1
                 // 以 now 锚定日界：计划期第 N 天 = startDate 后第 N-1 天
                 let dayOfPlan = calendar.dateComponents([.day], from: calendar.startOfDay(for: startDate),
                                                         to: calendar.startOfDay(for: now)).day ?? 0
-                let fromDay = max(1, dayOfPlan + 1)
-                let toDay = fromDay + ReconcileEngine.preScheduleWindowDays
+                // D2：回溯 30 计划日补齐缺口（封顶计划起始日）
+                let fromDay = max(1, dayOfPlan - 30)
+                let toDay = max(1, dayOfPlan) + ReconcileEngine.preScheduleWindowDays
                 let (doses, _) = DoseScheduleEngine.doses(
                     schedule: schedule, planId: planId, startDate: startDate,
-                    fromDay: fromDay, toDay: toDay, calendar: calendar)
+                    fromDay: fromDay, toDay: toDay, calendar: calendar,
+                    unitsPerDose: unitsPerDose)
                 for d in doses {
-                    guard d.dueAt >= now && d.dueAt <= windowEnd else { continue }
+                    guard d.dueAt >= lookbackStart && d.dueAt <= windowEnd else { continue }
                     if let end = endDate, d.dueAt > DayArithmetic.offset(days: 1, from: end) { continue }   // 到期次日不物化
+                    // D5 守卫：±60s 内已有**决议行**（旧 epoch id 的历史行/补录行）
+                    // 则不重复建行——否则迁移后回溯物化会把已服剂量再建一行并决议
+                    // missed，计划轨双扣、月报双计。同时段未决议行走 ON CONFLICT 重锚。
                     try db.execute(
                         sql: """
                         INSERT INTO medication_dose_log (id, plan_id, scheduled_for, dose_units, delivery_state, user_action)
-                        VALUES (?, ?, ?, ?, 'planned', NULL)
-                        ON CONFLICT(id) DO NOTHING
+                        SELECT ?, ?, ?, ?, 'planned', NULL
+                        WHERE NOT EXISTS (
+                          SELECT 1 FROM medication_dose_log e
+                          WHERE e.plan_id = ? AND e.user_action IS NOT NULL
+                            AND ABS(e.scheduled_for - ?) <= 60
+                        )
+                        ON CONFLICT(id) DO UPDATE SET
+                          scheduled_for = excluded.scheduled_for,
+                          dose_units = excluded.dose_units
+                        WHERE user_action IS NULL
                         """,
-                        arguments: [d.notifyId, planId.uuidString, d.dueAt.timeIntervalSince1970, d.doseUnits])
+                        arguments: [d.notifyId, planId.uuidString, d.dueAt.timeIntervalSince1970,
+                                    d.doseUnits, planId.uuidString, d.dueAt.timeIntervalSince1970])
                     inserted += db.changesCount
                 }
             }
@@ -528,30 +557,98 @@ public actor MedicationStore: DoseSource {
 
     /// 补记「已服用」：错过的时段可在过后补录，落在**实际发生时间**并如实记录。
     /// 双轨按 FR9.8.2 矩阵各 −1（taken）；计划历史如实呈现补录时间点，不美化。
+    /// 评审修正 D3：先按计划+时间容差解析既有物化行——materializeMissed 可能已
+    /// 把同一逻辑剂量决议为 missed（计划轨已 −units）；直接 INSERT 新行再按
+    /// taken 扣减 = 计划轨双扣（安全线虚低、月报双计）。转场修正：
+    /// missed→taken 仅补扣确认轨（Domain InventoryRules.transitionDeduction）。
     /// 若该时段已有物化行 → UPDATE 该行；否则 INSERT 新行（补录本身即证据）。
     public func recordTakenAt(planId: UUID, patientId: UUID, medicationId: UUID,
                               actualTime: Date, doseUnits: Double = 1,
                               notifyId: String = UUID().uuidString) async throws {
         try await writer.write { db in
-            guard try Row.fetchOne(db, sql: "SELECT id FROM medication_plan WHERE id = ? AND status = 'active'",
-                                   arguments: [planId.uuidString]) != nil else {
+            guard let plan = try Row.fetchOne(db, sql: """
+                SELECT id, schedule_json, start_date, dose_plan_units
+                FROM medication_plan WHERE id = ? AND status = 'active'
+                """, arguments: [planId.uuidString]) else {
                 throw StoreError.doseNotFound(planId.uuidString)
             }
-            // 幂等：同一补录 id 重复提交不重复扣减
-            if let existing = try Row.fetchOne(db, sql: "SELECT user_action FROM medication_dose_log WHERE id = ?",
-                                               arguments: [notifyId]),
-               (existing["user_action"] as String?) != nil {
-                throw StoreError.alreadyResolved(notifyId)
+            // 时段解析：同一计划、±30min 容差内的既有物化行（DoseSlotGrouping.tolerance 单一事实源）
+            let tolerance = DoseSlotGrouping.tolerance
+            let existing = try Row.fetchOne(db, sql: """
+                SELECT id, user_action, dose_units FROM medication_dose_log
+                WHERE plan_id = ? AND ABS(scheduled_for - ?) <= ?
+                ORDER BY ABS(scheduled_for - ?) LIMIT 1
+                """, arguments: [planId.uuidString, actualTime.timeIntervalSince1970,
+                                 tolerance, actualTime.timeIntervalSince1970])
+            if let existing {
+                let existingAction = (existing["user_action"] as String?).flatMap(DoseUserAction.init(rawValue:))
+                let existingUnits = (existing["dose_units"] as Double?) ?? doseUnits
+                switch existingAction {
+                case .taken, .discomfort:
+                    throw StoreError.alreadyResolved(existing["id"] as String)
+                default:
+                    break
+                }
+                let existingId = existing["id"] as String
+                // 转场扣减：missed → taken 仅确认轨补扣；未决议 → 全额 taken
+                let matrix = InventoryRules.transitionDeduction(
+                    from: existingAction, to: .taken, units: existingUnits)
+                try db.execute(sql: """
+                    UPDATE medication_dose_log
+                    SET user_action = 'taken', acted_at = ?, note = 'backfill', dose_units = ?
+                    WHERE id = ?
+                    """, arguments: [actualTime.timeIntervalSince1970, existingUnits, existingId])
+                try applyResolutionOnLots(patientId: patientId, medicationId: medicationId,
+                                          notifyId: existingId, units: existingUnits,
+                                          action: .taken, transitionMatrix: matrix, db: db)
+                return
+            }
+            // 无既有行：补录落在可排程时段内时复用**逻辑剂量 id**（D5 同源）——
+            // 后续物化窗口 ON CONFLICT 命中已决议行，绝不重复建行/双扣；
+            // 排程外（asNeeded 等）回落调用方 id（补录本身即证据）。
+            var backfillId = notifyId
+            if let json = (plan["schedule_json"] as String?)?.data(using: .utf8) {
+                let decoded: MedicationSchedule?
+                do { decoded = try JSONDecoder().decode(MedicationSchedule.self, from: json) }
+                catch { decoded = nil }   // 损坏的 schedule_json：回落调用方 id（§7 禁 try?）
+                if let schedule = decoded {
+                    let startDate = Date(timeIntervalSince1970: plan["start_date"] as Double)
+                    let unitsPerDose = (plan["dose_plan_units"] as Double?) ?? doseUnits
+                    if let logical = Self.logicalDose(
+                        forPlan: planId, schedule: schedule, startDate: startDate,
+                        at: actualTime, unitsPerDose: unitsPerDose, tolerance: tolerance) {
+                        backfillId = logical.notifyId
+                    }
+                }
             }
             try db.execute(sql: """
                 INSERT INTO medication_dose_log (id, plan_id, scheduled_for, dose_units, delivery_state, user_action, acted_at, note)
                 VALUES (?, ?, ?, ?, 'delivered', 'taken', ?, 'backfill')
                 ON CONFLICT(id) DO UPDATE SET user_action = 'taken', acted_at = excluded.acted_at
-                """, arguments: [notifyId, planId.uuidString, actualTime.timeIntervalSince1970,
+                """, arguments: [backfillId, planId.uuidString, actualTime.timeIntervalSince1970,
                                  doseUnits, actualTime.timeIntervalSince1970])
             try applyResolutionOnLots(patientId: patientId, medicationId: medicationId,
-                                      notifyId: notifyId, units: doseUnits, action: .taken, db: db)
+                                      notifyId: backfillId, units: doseUnits, action: .taken, db: db)
         }
+    }
+
+    /// 补录时段 → 逻辑剂量身份（D5）：在 actualTime 前后 1 个计划日窗口内
+    /// 枚举排程，取 ±30min 容差内最近的 ScheduledDose；无匹配（asNeeded/窗口外）返回 nil。
+    private static func logicalDose(forPlan planId: UUID, schedule: MedicationSchedule,
+                                    startDate: Date, at time: Date, unitsPerDose: Double,
+                                    tolerance: TimeInterval) -> ScheduledDose? {
+        let calendar = Calendar.current
+        let dayOf = calendar.dateComponents([.day], from: calendar.startOfDay(for: startDate),
+                                            to: calendar.startOfDay(for: time)).day ?? 0
+        let fromDay = max(1, dayOf - 1)
+        let (doses, _) = DoseScheduleEngine.doses(
+            schedule: schedule, planId: planId, startDate: startDate,
+            fromDay: fromDay, toDay: fromDay + 2, calendar: calendar,
+            unitsPerDose: unitsPerDose)
+        guard let nearest = doses.min(by: {
+            abs($0.dueAt.timeIntervalSince(time)) < abs($1.dueAt.timeIntervalSince(time))
+        }), abs(nearest.dueAt.timeIntervalSince(time)) <= tolerance else { return nil }
+        return nearest
     }
 
     // MARK: - FR9.11 批次有效期分级提醒（30/7/当日三级；阈值可自定义更短窗口）
@@ -602,13 +699,17 @@ public actor MedicationStore: DoseSource {
         /// 计划从 UI 消失不可管理，但物化 dose_log 仍被对账引擎继续提醒
         /// （不可见、不可停的提醒源）。UI 据此渲染「计划数据损坏」降级态。
         public var isUnreadable: Bool
+        /// 每剂剂量（dose_plan_units，评审修正 D1）——补录/详情按计划单剂基线扣减
+        public var dosePlanUnits: Double?
         public init(id: UUID, patientId: UUID, medicationId: UUID, medicationName: String,
                     spec: String?, status: String, schedule: MedicationSchedule,
-                    startDate: Date, endDate: Date?, isUnreadable: Bool = false) {
+                    startDate: Date, endDate: Date?, isUnreadable: Bool = false,
+                    dosePlanUnits: Double? = nil) {
             self.id = id; self.patientId = patientId; self.medicationId = medicationId
             self.medicationName = medicationName; self.spec = spec; self.status = status
             self.schedule = schedule; self.startDate = startDate; self.endDate = endDate
             self.isUnreadable = isUnreadable
+            self.dosePlanUnits = dosePlanUnits
         }
     }
 
@@ -633,7 +734,7 @@ public actor MedicationStore: DoseSource {
         try await writer.read { db in
             let rows = try Row.fetchAll(db, sql: """
                 SELECT p.id, p.patient_id, p.medication_id, p.status, p.schedule_json,
-                       p.start_date, p.end_date, m.generic_name, m.spec
+                       p.start_date, p.end_date, p.dose_plan_units, m.generic_name, m.spec
                 FROM medication_plan p
                 JOIN medication m ON m.id = p.medication_id
                 WHERE p.patient_id = ?
@@ -660,7 +761,8 @@ public actor MedicationStore: DoseSource {
                 return PlanRow(id: id, patientId: patientId, medicationId: medicationId,
                                medicationName: medicationName, spec: spec, status: status,
                                schedule: schedule, startDate: startDate, endDate: endDate,
-                               isUnreadable: unreadable)
+                               isUnreadable: unreadable,
+                               dosePlanUnits: row["dose_plan_units"] as Double?)
             }
         }
     }
@@ -669,7 +771,7 @@ public actor MedicationStore: DoseSource {
         try await writer.read { db in
             guard let row = try Row.fetchOne(db, sql: """
                 SELECT p.id, p.patient_id, p.medication_id, p.status, p.schedule_json,
-                       p.start_date, p.end_date, m.generic_name, m.spec
+                       p.start_date, p.end_date, p.dose_plan_units, m.generic_name, m.spec
                 FROM medication_plan p
                 JOIN medication m ON m.id = p.medication_id
                 WHERE p.id = ?
@@ -693,7 +795,8 @@ public actor MedicationStore: DoseSource {
                 schedule: schedule,
                 startDate: Date(timeIntervalSince1970: row["start_date"] as Double),
                 endDate: (row["end_date"] as Double?).map { Date(timeIntervalSince1970: $0) },
-                isUnreadable: unreadable)
+                isUnreadable: unreadable,
+                dosePlanUnits: row["dose_plan_units"] as Double?)
         }
     }
 
@@ -801,7 +904,9 @@ public struct FamilyPendingDose: Sendable, Equatable, Identifiable {
 /// （评审 S1-1：不按 medication 过滤会把 A 药确认扣到 B 药批；过期批不得作来源）。
 /// 自由函数：在 writer.write 的同步闭包内调用，无 actor 隔离问题（Swift 6 显式 self 纪律）。
 func applyResolutionOnLots(patientId: UUID, medicationId: UUID, notifyId: String, units: Double,
-                                   action: DoseUserAction, db: Database) throws {
+                                   action: DoseUserAction,
+                                   transitionMatrix: (plan: Double, confirmed: Double)? = nil,
+                                   db: Database) throws {
         var inventories: [DualTrackInventory] = []
         for row in try Row.fetchAll(db, sql: """
             SELECT * FROM stock_lot
@@ -818,8 +923,9 @@ func applyResolutionOnLots(patientId: UUID, medicationId: UUID, notifyId: String
             inventories.append(inv)
         }
         // FR9.8.2 扣减矩阵由 Domain 单一编码派生（InventoryRules.deduction），
-        // 不在此重新编码——矩阵是 BR 规则，只能有一处定义
-        let matrix = InventoryRules.deduction(for: action, units: units)
+        // 不在此重新编码——矩阵是 BR 规则，只能有一处定义。
+        // transitionMatrix：补录转场修正（missed→taken 计划轨已扣）由 Domain 判定传入。
+        let matrix = transitionMatrix ?? InventoryRules.deduction(for: action, units: units)
         var planRemaining = matrix.plan
         var confirmedRemaining = matrix.confirmed
         // 双轨账本：planned_units 记录计划线扣减，confirmed_units 记录确认线扣减，

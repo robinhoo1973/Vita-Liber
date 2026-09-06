@@ -97,10 +97,15 @@ public struct MedicationPlanDraft: Sendable, Equatable {
     public var startDate: Date
     public var endDate: Date?
     public var status: PlanStatus
+    /// 每剂剂量（评审修正 D1）：落 dose_plan_units（安全线单剂基线）——
+    /// 此前表单收集后被丢弃，物化行恒按 1.0 扣减（ADR-009 反方向）。
+    public var dosePerTake: Double?
     public init(schedule: MedicationSchedule, startDate: Date,
-                endDate: Date? = nil, status: PlanStatus = .active) {
+                endDate: Date? = nil, status: PlanStatus = .active,
+                dosePerTake: Double? = nil) {
         self.schedule = schedule; self.startDate = startDate
         self.endDate = endDate; self.status = status
+        self.dosePerTake = dosePerTake
     }
 }
 

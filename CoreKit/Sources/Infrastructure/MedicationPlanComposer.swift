@@ -109,7 +109,10 @@ public actor MedicationPlanComposer {
                                  medId.uuidString, plan.status.rawValue, scheduleJSON,
                                  plan.startDate.timeIntervalSince1970,
                                  plan.endDate?.timeIntervalSince1970,
-                                 initialLot.totalUnits,
+                                 // 评审修正 D1：dose_plan_units = 每剂剂量（安全线
+                                 // 单剂基线，data-flow-spec line 463）——此前误写
+                                 // initialLot.totalUnits（整盒数量），且无任何读取方
+                                 plan.dosePerTake,
                                  now.timeIntervalSince1970, now.timeIntervalSince1970])
             // ④ 初始库存批次（处方 OCR 回填数量/效期/位置；FR9.10）
             let lotId = UUID()

@@ -175,13 +175,16 @@ final class M2StockAcceptanceTests: XCTestCase {
         let report = try await meds.monthlyReport(patientId: patient,
                                                   from: monthStart, to: Date())
         // V3.68：句式已移出 Domain——数值字段断言 + L10n 模板组装后过负清单
-        XCTAssertEqual(report.plannedDoses, 2)
+        // 评审修正：原断言 planned==2/missed==1 与种子数据矛盾（3 条未决 + 1 条
+        // taken = 计划 4/确认 1/漏服 3）——此前 CI 从不执行 iOS 测试（仅
+        // build-for-testing），该内部矛盾从未暴露；随 L1 测试接入一并校正。
+        XCTAssertEqual(report.plannedDoses, 4)
         XCTAssertEqual(report.confirmedDoses, 1, "唯一一条 taken 事实计入确认")
-        XCTAssertEqual(report.missedDoses, 1, "唯一一条未决行补账为 missed")
+        XCTAssertEqual(report.missedDoses, 3, "三条未决行补账为 missed")
         let statement = L10n.inventoryMonthlyReportFmt(report.plannedDoses, report.confirmedDoses,
                                                        report.skippedDoses, report.missedDoses)
-        XCTAssertTrue(statement.contains("2"))
-        XCTAssertTrue(statement.contains("1"))
+        XCTAssertTrue(statement.contains("4"))
+        XCTAssertTrue(statement.contains("3"))
         XCTAssertNil(InventoryReportRules.violation(in: statement),
                      "月报出现评价/建议句式即一票否决（FR9.8.5）")
     }

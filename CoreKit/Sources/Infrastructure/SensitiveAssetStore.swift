@@ -120,6 +120,13 @@ public actor SensitiveAssetStore: SensitiveAssetStoring {
         return data
     }
 
+    /// 原图读取（评审修正 U3）：只在显式解锁动作后由详情页调用；不缓存
+    /// （原图是敏感数据，驻留内存/缓存扩大暴露面——每次查看即弃）。
+    public func originalData(for assetId: UUID, memberId: UUID) async throws -> Data? {
+        let url = memberDir(memberId).appendingPathComponent("\(assetId.uuidString).jpg")
+        return try? Data(contentsOf: url)   // try?-ok: 原图缺失降级为「不可查看」，不阻断详情页
+    }
+
     public func reconcileUnreferenced(validAssetIds: Set<String>) async {
         do {
             let orphans: [(id: String, rel: String)] = try await writer.read { db in

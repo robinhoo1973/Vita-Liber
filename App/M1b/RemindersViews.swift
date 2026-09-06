@@ -113,7 +113,7 @@ struct RemindersView: View {
         }
         .navigationTitle(L10n.navReminders)
         .task(id: currentPatientId) {
-            await reminders.refresh(patientId: currentPatientId)
+            await reminders.refreshTriggered(patientId: currentPatientId)
         }
         .sheet(isPresented: $showNewAppointment) {
             NewAppointmentSheet { hospital, department, date in
@@ -132,7 +132,8 @@ struct RemindersView: View {
                         try await reminders.createPlan(
                             patientId: currentPatientId, medicationId: medId, name: name, spec: spec,
                             schedule: .fixed(times: [timeText]),
-                            startDate: Calendar.current.startOfDay(for: Date()))
+                            startDate: Calendar.current.startOfDay(for: Date()),
+                            doseUnits: units)   // D1：每剂剂量落 dose_plan_units，不得丢弃
                     } catch {
                         // 错误经 ReminderStore Logger 上报；此处仅关闭
                     }

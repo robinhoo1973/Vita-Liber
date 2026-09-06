@@ -18,6 +18,12 @@ public protocol ReminderScheduling: Sendable {
     func pending() async throws -> [String: Date]
     /// 已送达标识集合
     func delivered() async throws -> Set<String>
+    /// 移除已送达通知（评审修正）：确认/跳过后清通知中心残留——
+    /// 已服剂量不得继续躺在锁屏（BR-004 反向事实链：已服≠未送达）
+    func removeDelivered(_ notifyIds: [String]) async throws
+    /// FR14.5：语言切换后重写待投递通知文案（同 identifier 的 add 即替换；
+    /// fireAt 保持不变，仅重建 content）
+    func reloadLocalizedContent() async throws
 }
 
 public extension ReminderScheduling {
@@ -25,6 +31,8 @@ public extension ReminderScheduling {
                            repeatRule: String?) async throws {
         try await schedule(dose: notifyId, at: fireAt, route: route)
     }
+    func removeDelivered(_ notifyIds: [String]) async throws {}
+    func reloadLocalizedContent() async throws {}
 }
 
 /// 剂量事实源（对账输入）：dose_log 查询投影

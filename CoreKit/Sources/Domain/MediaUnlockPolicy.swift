@@ -15,6 +15,12 @@ public enum MediaUnlockPolicy: Sendable {
     /// 无操作后自动重锁的阈值（tech-spec §5.10：30s TTL）
     public static let idleTTL: TimeInterval = 30
 
+    /// 医生展示模式会话 TTL（评审修正 H3）：spec V3.71/V3.72（§5.10 line 1379、
+    /// §11 line 3149）将 MediaUnlockSession 预留给 DoctorShowcase 且锚定 300s——
+    /// 此前会话令牌沿用手感 30s，任何后接消费方（嵌套媒体/后台校验）都会在
+    /// 咨询中途被重锁。展示模式消费方必须用本值而非 idleTTL。
+    public static let showcaseTTL: TimeInterval = 300
+
     /// 活跃信号合并窗口：触摸移动事件按 60–120Hz 送达，逐事件刷新时钟会让
     /// 计时任务每帧重启。1 秒粒度足够表达「仍在活跃」，对 30s 阈值无可感差异。
     public static let activityCoalescingWindow: TimeInterval = 1

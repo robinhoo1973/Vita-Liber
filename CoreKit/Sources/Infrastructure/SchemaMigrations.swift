@@ -293,6 +293,16 @@ public enum SchemaMigrations {
              ALTER TABLE metric_sample ADD COLUMN raw_label TEXT;
              ALTER TABLE metric_sample ADD COLUMN code_concept_id TEXT REFERENCES code_concept(id);
              """),
+        // v15：剂量行 id 由绝对 epoch 迁移为逻辑身份（day+ordinal，评审修正 D5）。
+        // 旧 id 在时区变化后与逻辑剂量脱钩：同剂量双行/双通知/计划轨双扣。
+        // 未决议行整体清除——下次 refresh 的物化窗口（含 30 日回溯）按逻辑 id
+        // 重建，materializeMissed 随即把过期行决议为 missed；已决议行保留
+        // （用户动作是事实，物化侧以「±60s 内已有决议行」守卫避免重复建行）。
+        // 幂等：重复执行仍为空操作。待投递的旧 id 通知由对账 stale-cleanup 取消。
+        Step(version: 15, name: "dose-logical-ids",
+             sql: """
+             DELETE FROM medication_dose_log WHERE user_action IS NULL;
+             """),
     ]
 
     /// 全新库建库后应落到的版本号

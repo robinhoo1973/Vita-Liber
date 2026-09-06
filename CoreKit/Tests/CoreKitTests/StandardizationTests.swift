@@ -293,15 +293,15 @@ struct StandardizationTests {
 
     /// 审查发现 4：SQL 层（六表 DDL / 迁移 v14 / 种子装载）运行时无 GRDB 可跑——
     /// 以静态契约断言锁定结构存在性与版本序列（GRDB 往返金样随 L1 执行，
-    /// test-plan TC-M15-08 已注记）。
-    @Test func 码表六表DDL与迁移v14静态契约() {
+    /// test-plan TC-M15-08 已注记）。v15（剂量行逻辑 id）随评审修正 D5 追加。
+    @Test func 码表六表DDL与迁移静态契约() {
         let ddl = SchemaV2.ddl
         for table in ["code_concept", "code_alias", "code_map",
                       "resolver_override", "ucum_unit", "ucum_molar_bridge"] {
             #expect(ddl.contains("CREATE TABLE \(table)"), "baseline 缺表 \(table)")
         }
         #expect(ddl.contains("raw_label TEXT, code_concept_id TEXT REFERENCES code_concept(id)"))
-        #expect(SchemaMigrations.latestVersion == 14)
+        #expect(SchemaMigrations.latestVersion == 15)
         let v14 = SchemaMigrations.steps.first { $0.version == 14 }
         #expect(v14?.name == "terminology-tables")
         for table in ["code_concept", "code_alias", "code_map",
@@ -311,5 +311,8 @@ struct StandardizationTests {
         }
         #expect(v14?.sql.contains("ALTER TABLE metric_sample ADD COLUMN raw_label") == true)
         #expect(v14?.sql.contains("ALTER TABLE metric_sample ADD COLUMN code_concept_id") == true)
+        let v15 = SchemaMigrations.steps.first { $0.version == 15 }
+        #expect(v15?.name == "dose-logical-ids")
+        #expect(v15?.sql.contains("DELETE FROM medication_dose_log WHERE user_action IS NULL") == true)
     }
 }

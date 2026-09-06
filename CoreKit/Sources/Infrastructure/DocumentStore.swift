@@ -41,7 +41,9 @@ public actor DocumentStore {
     public func list(patientId: UUID, includeArchived: Bool = false,
                      limit: Int = 200) async throws -> [DocumentRow] {
         try await writer.read { db in
-            let statusClause = includeArchived ? "" : "AND status != 'archived'"
+            // 评审修正：status != 'archived' 会把 archived_favorite 组合态漏进活跃
+            // 列表——白名单式过滤只放行活跃/收藏两态
+            let statusClause = includeArchived ? "" : "AND status IN ('active','favorite')"
             return try Row.fetchAll(db, sql: """
                 SELECT * FROM document_file
                 WHERE patient_id = ? \(statusClause)
@@ -58,23 +60,45 @@ public actor DocumentStore {
         }
     }
 
-    /// FR5.8 归档/取消归档（归档资料默认不出现在列表与搜索）
+    /// FR5.8 归档/取消归档（归档资料默认不出现在列表与搜索）。
+    /// 评审修正：状态机坍缩——归档/收藏是正交标志但共用一列（CHECK 允许
+    /// 'archived_favorite'），原实现写绝对值互相覆盖：收藏一个已归档文档
+    /// 会把它静默移回活跃列表（FR5.8 归档语义破裂）。改为读当前状态计算
+    /// 目标值：archived_favorite 组合态可产生、可逆。
     public func setArchived(id: UUID, archived: Bool, now: Date = Date()) async throws {
         try await writer.write { db in
+            let current = try String.fetchOne(db, sql: "SELECT status FROM document_file WHERE id = ?",
+                                               arguments: [id.uuidString])
+            let target: String
+            switch (current ?? "active", archived) {
+            case (_, true) where current == "favorite" || current == "archived_favorite": target = "archived_favorite"
+            case (_, true): target = "archived"
+            case ("archived_favorite", false): target = "favorite"
+            case ("archived", false): target = "active"
+            case (let c, false): target = c ?? "active"
+            }
             try db.execute(sql: """
                 UPDATE document_file SET status = ?, updated_at = ? WHERE id = ?
-                """, arguments: [archived ? "archived" : "active",
-                                 now.timeIntervalSince1970, id.uuidString])
+                """, arguments: [target, now.timeIntervalSince1970, id.uuidString])
         }
     }
 
-    /// FR5.8 收藏
+    /// FR5.8 收藏（对已归档文档收藏 → archived_favorite，绝不解除归档）
     public func setFavorite(id: UUID, favorite: Bool, now: Date = Date()) async throws {
         try await writer.write { db in
+            let current = try String.fetchOne(db, sql: "SELECT status FROM document_file WHERE id = ?",
+                                               arguments: [id.uuidString])
+            let target: String
+            switch (current ?? "active", favorite) {
+            case ("archived", true), ("archived_favorite", true): target = "archived_favorite"
+            case (_, true): target = "favorite"
+            case ("archived_favorite", false): target = "archived"
+            case ("favorite", false): target = "active"
+            case (let c, false): target = c ?? "active"
+            }
             try db.execute(sql: """
                 UPDATE document_file SET status = ?, updated_at = ? WHERE id = ?
-                """, arguments: [favorite ? "favorite" : "active",
-                                 now.timeIntervalSince1970, id.uuidString])
+                """, arguments: [target, now.timeIntervalSince1970, id.uuidString])
         }
     }
 

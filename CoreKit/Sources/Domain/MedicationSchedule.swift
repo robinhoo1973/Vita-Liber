@@ -33,7 +33,10 @@ public struct ScheduledDose: Sendable, Equatable {
     public var dueAt: Date
     public var doseUnits: Double
     public var mealRelation: String?
-    public var notifyId: String        // dose-{planId}-{epochSlot}
+    /// dose-{planId}-{day}-{ordinal}：逻辑身份（评审修正 D5）——此前以绝对 epoch
+    /// 为 id，时区变化后同一逻辑剂量生成新 id，旧行滞留成重复卡片/重复通知/
+    /// 双扣计划轨（FR9.6 违约）。
+    public var notifyId: String
     public init(dueAt: Date, doseUnits: Double, mealRelation: String? = nil, notifyId: String) {
         self.dueAt = dueAt; self.doseUnits = doseUnits; self.mealRelation = mealRelation
         self.notifyId = notifyId
@@ -57,26 +60,33 @@ public enum DoseScheduleEngine {
         startDate: Date,
         fromDay: Int,
         toDay: Int,
-        calendar: Calendar
+        calendar: Calendar,
+        unitsPerDose: Double = 1
     ) -> (doses: [ScheduledDose], skippedTimes: Int) {
         var out: [ScheduledDose] = []
         var skipped = 0
+        // 日内序号（逻辑身份第二分量）：固定/餐时/周期天然有序；interval 按推进序递增
+        var ordinalByDay: [Int: Int] = [:]
+        func nextOrdinal(_ day: Int) -> Int {
+            let n = (ordinalByDay[day] ?? 0) + 1
+            ordinalByDay[day] = n
+            return n
+        }
         func append(_ day: Int, _ time: String, _ units: Double, meal: String? = nil) {
             guard let due = Self.date(day: day, time: time, startDate: startDate, calendar: calendar) else {
                 skipped += 1
                 return
             }
-            let slot = Int(due.timeIntervalSince1970)
             out.append(ScheduledDose(
                 dueAt: due,
                 doseUnits: units,
                 mealRelation: meal,
-                notifyId: "dose-\(planId.uuidString)-\(slot)"))
+                notifyId: "dose-\(planId.uuidString)-\(day)-\(nextOrdinal(day))"))
         }
         for day in fromDay...toDay {
             switch schedule {
             case .fixed(let times):
-                for t in times { append(day, t, 1.0) }
+                for t in times { append(day, t, unitsPerDose) }
             case .interval(let everyMinutes, let start):
                 // BR-004 安全闸：非法参数（everyMinutes<=0）绝不进入死循环——跳过该日并计入 skip
                 guard everyMinutes > 0 else { skipped += 1; continue }
@@ -95,11 +105,12 @@ public enum DoseScheduleEngine {
                 // ≈ 1440 次/计划），日历组件运算比一次浮点加法贵一个数量级。
                 // 先转 TimeInterval 再乘，避免 everyMinutes 极大时 Int 乘法溢出陷阱。
                 while t < dayEnd {
-                    out.append(ScheduledDose(dueAt: t, doseUnits: 1.0, notifyId: "dose-\(planId.uuidString)-\(Int(t.timeIntervalSince1970))"))
+                    out.append(ScheduledDose(dueAt: t, doseUnits: unitsPerDose,
+                                             notifyId: "dose-\(planId.uuidString)-\(day)-\(nextOrdinal(day))"))
                     t = t.addingTimeInterval(TimeInterval(everyMinutes) * 60)
                 }
             case .meal(let relations):
-                for r in relations { append(day, Self.mealDefaultTime(r), 1.0, meal: r) }
+                for r in relations { append(day, Self.mealDefaultTime(r), unitsPerDose, meal: r) }
             case .asNeeded:
                 break                                              // 按需不预排
             case .cycle(let everyDays, let daysOn):
@@ -107,7 +118,7 @@ public enum DoseScheduleEngine {
                 guard everyDays > 0 else { continue }
                 let dayOfCycle = ((day - 1) % everyDays) + 1
                 if dayOfCycle <= daysOn {
-                    for t in ["08:00"] { append(day, t, 1.0) }
+                    for t in ["08:00"] { append(day, t, unitsPerDose) }
                 }
             case .taper(let stages):
                 for s in stages where day >= s.fromDay && day <= s.toDay {

@@ -138,8 +138,10 @@ public actor EmergencyCardStore {
     /// 血型（F3 P1 字段，随急救卡直接带出——用户档案字段即确认态）
     public func bloodType(patientId: UUID) async throws -> String? {
         try await writer.read { db in
+            // 评审修正：软删成员不得再供急救卡数据（§13.1 口径一致）
             try String.fetchOne(db, sql: """
-                SELECT blood_type FROM patient_profile WHERE id = ?
+                SELECT blood_type FROM patient_profile
+                WHERE id = ? AND deleted_at IS NULL
                 """, arguments: [patientId.uuidString])
         }
     }

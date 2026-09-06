@@ -69,6 +69,38 @@ actor UNReminderScheduler: ReminderScheduling {
         center.removePendingNotificationRequests(withIdentifiers: notifyIds)
     }
 
+    /// 移除已送达通知（确认/跳过后清锁屏残留）
+    func removeDelivered(_ notifyIds: [String]) async throws {
+        center.removeDeliveredNotifications(withIdentifiers: notifyIds)
+    }
+
+    /// FR14.5 语言切换：待投递通知的标题/正文在排程时以当前语言固化，
+    /// 切换后须重写——同 identifier 的 add 即替换，fireAt 保持原样。
+    /// 只重建本仓调度的提醒（前缀白名单）；路由从 userInfo 还原。
+    func reloadLocalizedContent() async throws {
+        for request in await center.pendingNotificationRequests() {
+            guard Self.isAppOwned(request.identifier) else { continue }
+            guard let trigger = request.trigger as? UNCalendarNotificationTrigger else { continue }
+            // 历史 userInfo 的 route 数据若损坏，等价「无路由」降级语义（§5.45）
+            let route = (request.content.userInfo["route"] as? Data)
+                .flatMap { try? JSONDecoder().decode(AppRoute.self, from: $0) }   // try?-ok: 解码失败等价无路由降级（§5.45），不得 crash
+            let content = Self.content(route: route)
+            // 原组件与 repeats 原样保留（含重复语音提醒的 weekday 形态），只换文案
+            let newTrigger = UNCalendarNotificationTrigger(
+                dateMatching: trigger.dateComponents, repeats: trigger.repeats)
+            try await center.add(UNNotificationRequest(
+                identifier: request.identifier, content: content, trigger: newTrigger))
+        }
+    }
+
+    /// 本仓通知 id 前缀（对账 dose-/slot-、到期 exp-、续药 refill-、
+    /// 备份 backup-、随访 followup-、语音 voice-rem-）
+    private static func isAppOwned(_ id: String) -> Bool {
+        id.hasPrefix("dose-") || id.hasPrefix("slot-") || id.hasPrefix("refill-")
+            || id.hasPrefix("exp-") || id.hasPrefix("followup-")
+            || id.hasPrefix("backup-") || id.hasPrefix("voice-rem-")
+    }
+
     func pending() async throws -> [String: Date] {
         var out: [String: Date] = [:]
         for r in await center.pendingNotificationRequests() {

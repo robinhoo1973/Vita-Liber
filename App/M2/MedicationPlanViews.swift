@@ -40,6 +40,7 @@ struct MedicationPlanListView: View {
                 .accessibilityIdentifier("SP-15.plan.row.\(plan.id.uuidString)")
             }
         }
+        .frame(maxWidth: 672)   // §9.1 正文行宽 ≤672pt（iPad 常宽列可读性）
         .navigationTitle(L10n.planListTitle)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
@@ -48,6 +49,7 @@ struct MedicationPlanListView: View {
                 } label: {
                     Image(systemName: "plus")
                 }
+                .accessibilityLabel(L10n.planAdd)
                 .accessibilityIdentifier("SP-15.plan.add")
             }
         }
@@ -405,7 +407,8 @@ private struct BackfillSheet: View {
                             await reminders.backfillTaken(
                                 planId: plan.id, patientId: plan.patientId,
                                 medicationId: plan.medicationId,
-                                actualTime: actualTime, doseUnits: 1)
+                                actualTime: actualTime,
+                                doseUnits: plan.dosePlanUnits ?? 1)   // D1：用计划单剂基线，非硬编码 1
                             dismiss()
                         }
                     }
@@ -537,8 +540,12 @@ struct MedicationPlanFormView: View {
             adviceText: adviceText,
             isLongTerm: isLongTerm, isAsNeeded: isAsNeeded,
             confirmedFields: PrescriptionConfirmation.initialConfirmedFields(source: source))
+        // D1：dosePerTake 解析落 MedicationPlanDraft → composer 写 dose_plan_units
+        // （安全线单剂基线）；此前只留在 Prescription 展示字符串里被丢弃
+        let parsedDosePerTake = Double(dosePerTake.trimmingCharacters(in: .whitespaces))
         let draft = MedicationPlanDraft(schedule: schedule, startDate: startDate,
-                                        endDate: hasEndDate ? endDate : nil)
+                                        endDate: hasEndDate ? endDate : nil,
+                                        dosePerTake: parsedDosePerTake)
         let lot = StockLotDraft(totalUnits: lotUnits, unitKind: lotUnitKind,
                                 expireAt: lotExpireUnknown ? nil : lotExpireDate,
                                 storageNote: storageNote)
@@ -579,8 +586,10 @@ struct MedicationKnowledgeCardView: View {
                         .overlay(alignment: .leading) {
                             Rectangle().fill(Color("brand-primary", bundle: .main)).frame(width: 3)
                         }
-                    Text(L10n.knowledgeAdviceBadge)
-                        .font(.caption2).foregroundStyle(Color("grade-a", bundle: .main))
+                    // 评审修正 U2：手写徽章变体 → GradeBadge 唯一出口。
+                    // 医嘱文本在 PlanRow 无医院原文溯源（A 需要来源链路），
+                    // 用户记录口径取 C（用户确认）。
+                    GradeBadge(grade: "C")
                 } else {
                     Text(L10n.knowledgeNoAdvice).font(.caption).foregroundStyle(.secondary)
                 }

@@ -183,6 +183,21 @@ public enum InventoryRules {
         }
     }
 
+    /// 补录转场扣减（评审修正 D3，FR9.16×FR9.8.8）：同一逻辑剂量先被
+    /// materializeMissed 决议为 missed（计划轨已 −units、确认轨未扣），随后
+    /// 用户补录为 taken——计划轨**不得**重复扣减，仅确认轨补扣。
+    /// from == nil（未决议）→ 全额 taken。矩阵单一事实源纪律：
+    /// 本函数是 deduction 的补集，全仓只此一处编码转场语义。
+    public static func transitionDeduction(from: DoseUserAction?, to: DoseUserAction,
+                                           units: Double) -> (plan: Double, confirmed: Double) {
+        switch (from, to) {
+        case (.missed, .taken), (.missed, .discomfort):
+            return (0, units)
+        default:
+            return deduction(for: to, units: units)
+        }
+    }
+
     /// 续药告警（FR9.8.3）：安全线余量 ≤7 天当量 → 需告警（偏早）
     public static func refillAlertNeeded(_ inv: DualTrackInventory, dailyPlanUnits: Double, at date: Date) -> Bool {
         refillTier(inv, dailyPlanUnits: dailyPlanUnits, at: date) != nil

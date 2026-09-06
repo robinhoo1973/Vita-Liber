@@ -76,6 +76,16 @@ public enum PaywallRules {
         currentCount + 1 > quota.maxMembers
     }
 
+    /// 成员添加闸门（评审修正）：放行判定必须与「弹墙」解耦——24h 频控只管
+    /// 墙弹不弹，绝不能成为放行通道（此前免费档满员后弹墙、用户在 24h 内
+    /// 可无限加人）。闸门 = 超额度 且 未持有 Pro。
+    public static func memberAdditionBlocked(currentCount: Int,
+                                             ownedProducts: Set<ProductID>,
+                                             quota: FreeQuota = FreeQuota()) -> Bool {
+        addingMemberWouldExceed(currentCount: currentCount, quota: quota)
+            && !ownedProducts.contains(.proBase)
+    }
+
     /// 信任文案（固定，不随状态变化）
 }
 

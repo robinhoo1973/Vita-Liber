@@ -36,6 +36,12 @@ final class ReminderStore {
     /// 最近一次请求的成员（BR-001 成员隔离：只允许最新请求写回状态）
     private var loadingPatientId: UUID?
 
+    /// 触发型刷新的去抖锚点（评审修正）：启动/回前台/时区变化/各 Tab 的
+    /// .task 在启动窗口内会叠加 2-4 次完整 refresh（每次含物化+对账+两次
+    /// 系统 IPC）——触发型入口统一走 refreshTriggered 合并；动作型入口
+    /// （确认/跳过/补录…）仍走 refresh，保证自己的写入即时可见。
+    private var lastTriggerRefreshAt: Date = .distantPast
+
     init(meds: MedicationStore, apts: AppointmentStore, reconciler: ReminderReconciler,
          scheduler: any ReminderScheduling, composer: MedicationPlanComposer) {
         self.meds = meds
@@ -43,6 +49,21 @@ final class ReminderStore {
         self.reconciler = reconciler
         self.scheduler = scheduler
         self.composer = composer
+    }
+
+    /// 触发型刷新入口（启动/回前台/时区变化/Tab 出现）：500ms 内合并为一次，
+    /// 消除启动窗口内的重复全量对账与系统 IPC。now 参数注入保持测试确定性。
+    func refreshTriggered(patientId: UUID?, now: Date = Date()) async {
+        guard now.timeIntervalSince(lastTriggerRefreshAt) >= 0.5 else { return }
+        lastTriggerRefreshAt = now
+        await refresh(patientId: patientId, now: now)
+    }
+
+    /// FR14.5 语言切换：重写待投递通知的本地化文案（AppRootView 监听
+    /// languageDidChange 调用；同 identifier add 即替换，fireAt 不变）
+    func reloadLocalizedScheduledContent() async {
+        do { try await scheduler.reloadLocalizedContent() }
+        catch { logger.error("通知文案重写失败: \(error)") }
     }
 
     /// 四层补偿的入口统一走 reconcile；加载今日视图数据。
@@ -140,6 +161,10 @@ final class ReminderStore {
         do {
             let pending = try await scheduler.pending()
             guard pending.keys.contains("backup-reminder") == false else { return }
+            // 评审修正：与续药/到期提醒同纪律——送达后不再 pending，同 id 重排
+            // = 每次启动 +1 小时无限重发；必须同时查已送达清单
+            let delivered = try await scheduler.delivered()
+            guard delivered.contains("backup-reminder") == false else { return }
             let fireAt = now.addingTimeInterval(3600)
             try await scheduler.schedule(dose: "backup-reminder", at: fireAt, route: .backupRestore)
         } catch {
@@ -219,6 +244,9 @@ final class ReminderStore {
         guard tremorAccepted(careMode: careMode) else { return false }
         do {
             try await meds.confirmTaken(notifyId: dose.notifyId, patientId: patientId)
+            // 评审修正：清通知中心残留——已确认服用的剂量不得继续躺在锁屏
+            // （BR-004 反向事实链：已服≠未送达）
+            await removeDeliveredReminders(for: dose)
             await refresh(patientId: patientId)
             return true
         } catch {
@@ -234,10 +262,19 @@ final class ReminderStore {
             try await meds.recordAction(notifyId: dose.notifyId, action: .skipped, reason: reason)
             // 审查修复：动作后刷新今日时段缓存——原实现跳过/忘记/不适不刷新，
             // 时段卡继续显示「待确认」直到下次对账触发（与 confirmTaken 对齐）
+            await removeDeliveredReminders(for: dose)
             if let patientId { await refresh(patientId: patientId) }
         } catch {
             logger.error("跳过记录失败: \(error)")
         }
+    }
+
+    /// 移除该剂量的已送达通知（dose- 本体与所属时段 slot-）
+    private func removeDeliveredReminders(for dose: ScheduledDose) async {
+        let slotId = DoseSlotGrouping.slotId(for: DoseRecord(dose: dose)).map { "slot-\($0)" }
+        let ids = [dose.notifyId, slotId].compactMap { $0 }
+        do { try await scheduler.removeDelivered(ids) }
+        catch { logger.error("已送达通知清理失败: \(error)") }
     }
 
     /// FR9.5 忘记服用（显式记录，与超时自动 missed 区分——BR-004 送达≠已服）
@@ -303,11 +340,15 @@ final class ReminderStore {
 
     /// 计划创建（评审修正 P0：提醒链此前无用户起点——处方→计划 UI 缺失）。
     /// FR20.2 价值先行：完成第一个提醒计划创建后才请求通知授权（严禁启动即索权）。
+    /// doseUnits（评审修正 D1）：每剂剂量落 dose_plan_units（安全线单剂基线，
+    /// data-flow-spec line 463）——此前表单收集的剂量被静默丢弃、物化行恒为 1.0。
     func createPlan(patientId: UUID, medicationId: UUID, name: String, spec: String,
-                    schedule: MedicationSchedule, startDate: Date) async throws {
+                    schedule: MedicationSchedule, startDate: Date,
+                    doseUnits: Double = 1) async throws {
         try await meds.createPlan(planId: UUID(), patientId: patientId, medicationId: medicationId,
                                   schedule: schedule, status: .active,
-                                  startDate: startDate, endDate: nil)
+                                  startDate: startDate, endDate: nil,
+                                  doseUnits: doseUnits)
         await requestNotificationAuthorization()
         await refresh(patientId: patientId)
     }

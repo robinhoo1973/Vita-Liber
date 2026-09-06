@@ -68,11 +68,14 @@ public actor EncounterStore {
         }
     }
 
-    /// 就诊列表（按成员、时间倒序）
+    /// 就诊列表（按成员、时间倒序）。
+    /// 评审修正：补 deleted_at IS NULL——encounter 携带软删列（SchemaV2），
+    /// data-flow-spec §13.1 要求软删就诊隐藏至恢复；此前读路径未过滤，
+    /// 一旦删除功能落地，已删就诊会继续出现在列表（与时间轴口径背离）。
     public func list(patientId: UUID, limit: Int = 200) async throws -> [EncounterRow] {
         try await writer.read { db in
             try Self.rows(db, sql: """
-                SELECT * FROM encounter WHERE patient_id = ?
+                SELECT * FROM encounter WHERE patient_id = ? AND deleted_at IS NULL
                 ORDER BY date DESC LIMIT ?
                 """, arguments: [patientId.uuidString, limit])
         }
@@ -80,7 +83,7 @@ public actor EncounterStore {
 
     public func get(id: UUID) async throws -> EncounterRow? {
         try await writer.read { db in
-            try Self.rows(db, sql: "SELECT * FROM encounter WHERE id = ?",
+            try Self.rows(db, sql: "SELECT * FROM encounter WHERE id = ? AND deleted_at IS NULL",
                           arguments: [id.uuidString]).first
         }
     }
@@ -153,8 +156,10 @@ public actor EncounterStore {
         var out: [EncounterRow] = []
         for row in rows {
             let id = UUID(uuidString: row["id"] as String) ?? UUID()
+            // 评审修正：归档文档不再计入关联数（与列表/搜索的活跃态口径一致）
             let linked: [UUID] = try Row.fetchAll(db, sql: """
-                SELECT id FROM document_file WHERE encounter_id = ?
+                SELECT id FROM document_file
+                WHERE encounter_id = ? AND status IN ('active','favorite')
                 """, arguments: [id.uuidString]).compactMap { UUID(uuidString: $0["id"] as String) }
             out.append(EncounterRow(
                 id: id,
