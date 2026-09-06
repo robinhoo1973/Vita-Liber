@@ -141,10 +141,27 @@ struct TimelineFullView: View {
                         .frame(minHeight: 44)   // 审查修复：触点 ≥44pt
                         .background(Capsule().fill(Color(.systemGray5)))
                 }
+                // §5.35 时间轴成员切换（V3.72）：此前时间轴无成员切换入口
+                Menu {
+                    ForEach(app.members) { m in
+                        Button(m.displayName) { app.setCurrentPatient(m.id) }
+                    }
+                } label: {
+                    Text(currentMemberName)
+                        .font(.caption)
+                        .padding(.horizontal, 10)
+                        .frame(minHeight: 44)
+                        .background(Capsule().fill(Color(.systemGray5)))
+                }
             }
             .padding(.horizontal, 12).padding(.vertical, 6)
         }
         .background(.thinMaterial)
+    }
+
+    private var currentMemberName: String {
+        app.members.first(where: { $0.id == app.currentPatientId })?.displayName
+            ?? app.owner?.displayName ?? L10n.help_appName
     }
 
     private var isAllSelected: Bool {

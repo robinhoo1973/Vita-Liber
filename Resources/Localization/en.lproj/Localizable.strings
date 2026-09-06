@@ -1031,6 +1031,8 @@
 "help.voice2" = "Common failures: noisy environment or heavy dialect — you can always type instead";
 "help.voiceSpeak" = "Speak";
 "inventory.barAccessibility" = "About %d%% remaining";
+"prep.export" = "Print/Export";
+"prep.trendSnapshot" = "Self-measured trend snapshot";
 "reminder.planScheduleKind" = "Schedule";
 "reminder.planKindFixed" = "Fixed times";
 "reminder.planKindInterval" = "Interval";

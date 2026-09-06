@@ -1852,6 +1852,8 @@ enum L10n {
     static var helpVoice2: String { t("help.voice2") }
     static var helpVoiceSpeak: String { t("help.voiceSpeak") }
     static func inventoryBarAccessibility(_ pct: Int) -> String { t("inventory.barAccessibility", pct) }
+    static var prepExport: String { t("prep.export") }
+    static var prepTrendSnapshot: String { t("prep.trendSnapshot") }
     static var reminder_planScheduleKind: String { t("reminder.planScheduleKind") }
     static var reminder_planKindFixed: String { t("reminder.planKindFixed") }
     static var reminder_planKindInterval: String { t("reminder.planKindInterval") }

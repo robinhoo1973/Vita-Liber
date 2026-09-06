@@ -1031,6 +1031,8 @@
 "help.voice2" = "常见失败原因：环境嘈杂、方言口音较重——失败可手动输入";
 "help.voiceSpeak" = "朗读";
 "inventory.barAccessibility" = "余量约 %d%%";
+"prep.export" = "打印/导出";
+"prep.trendSnapshot" = "自测趋势快照";
 "reminder.planScheduleKind" = "服药安排";
 "reminder.planKindFixed" = "固定时刻";
 "reminder.planKindInterval" = "间隔时长";
