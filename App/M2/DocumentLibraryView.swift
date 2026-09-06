@@ -197,28 +197,6 @@ final class DocumentsState {
     /// OCR 跑完后组装待确认草稿：处方文档类型用处方语义标签（药品名/剂量/频次/医院/医生），
     /// 其余类型用通用 line_N 标签。FR6.1/ADR-026：OCR 经统一编排层（质量评估+识别）；
     /// FR14.1 authOcr：授权关闭 → 跳过识别，草稿无候选字段但仍可确认保存（只是无识别文本）。
-    /// 列表主体与导入入口动作拆为独立计算属性（CI 34037986523 实证：
-    /// 巨型 body 表达式超出 Swift 类型推断预算——「unable to type-check
-    /// in reasonable time」。拆分为显式类型边界后各段独立推断）。
-    private var importContent: some View {
-        Group {
-            if state.documents.isEmpty {
-                DocumentLibraryEmptyView()
-            } else {
-                DocumentListView()
-            }
-        }
-    }
-
-    /// FR5.1 五入口确认弹窗内容：相机拍摄 / 文件导入（PDF/图片）/ 相册导入 / 手工新建
-    @ViewBuilder private var importSourceActions: some View {
-        Button(L10n.docImportCamera) { router.navigate(to: .scanCapture(.record)) }
-        Button(L10n.docImportFile) { fileImporterActive = true }
-        Button(L10n.docImportPhotos) { photosImporterActive = true }
-        Button(L10n.docImportManual) { showManualCreate = true }
-        Button(L10n.commonCancel, role: .cancel) { }
-    }
-
     private func buildDraft(patientId: UUID, originalData: Data, processedData: Data, mimeType: String,
                             docType: String, title: String?, isSensitive: Bool, origin: String,
                             sha256: String, replaceDocumentId: UUID? = nil) async -> ImportDraft? {
@@ -464,6 +442,29 @@ final class DocumentsState {
 /// 资料库列表（SP-09）：文档类型徽章 + 敏感锁标 + 归档/收藏滑动操作 +
 /// 导入源（SP-10：相机/文件/相册/手工）+ 重复检测对比提示。
 struct DocumentLibraryView: View {
+
+    /// 列表主体与导入入口动作拆为独立计算属性（CI 34037986523 实证：
+    /// 巨型 body 表达式超出 Swift 类型推断预算——「unable to type-check
+    /// in reasonable time」。拆分为显式类型边界后各段独立推断）。
+    private var importContent: some View {
+        Group {
+            if state.documents.isEmpty {
+                DocumentLibraryEmptyView()
+            } else {
+                DocumentListView()
+            }
+        }
+    }
+
+    /// FR5.1 五入口确认弹窗内容：相机拍摄 / 文件导入（PDF/图片）/ 相册导入 / 手工新建
+    @ViewBuilder private var importSourceActions: some View {
+        Button(L10n.docImportCamera) { router.navigate(to: .scanCapture(.record)) }
+        Button(L10n.docImportFile) { fileImporterActive = true }
+        Button(L10n.docImportPhotos) { photosImporterActive = true }
+        Button(L10n.docImportManual) { showManualCreate = true }
+        Button(L10n.commonCancel, role: .cancel) { }
+    }
+
     @Environment(AppState.self) private var app
     @Environment(DocumentsState.self) private var state
     @Environment(AppRouter.self) private var router
