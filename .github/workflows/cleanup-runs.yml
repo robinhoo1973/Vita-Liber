@@ -54,16 +54,21 @@ jobs:
               --jq '.name' 2>/dev/null || echo "unknown")
             echo "── 处理: $WF_NAME (id=$WF_ID) ──"
 
-            # 找到该 workflow 最近一次成功的 run
+            # 找到该 workflow 最近一次成功的 run。
+            # 评审修正 C5：gh run list 默认只取最近 20 条——长红链会把
+            # 「最近一次绿」挤出窗口，被误判「无成功记录」而清掉最后一绿
+            # （与 ERR#27「缺证据当成有证据」同族，此处是「窗口外当成不存在」）。
+            # 显式 --limit 200（与下方删除窗口同宽）。
             LATEST_SUCCESS_ID=$(gh run list \
               --workflow "$WF_ID" \
               --status completed \
+              --limit 200 \
               --json databaseId,conclusion,createdAt \
               --jq '[.[] | select(.conclusion == "success")] | sort_by(.createdAt) | last | .databaseId' \
               2>/dev/null || true)
 
             if [ -z "$LATEST_SUCCESS_ID" ] || [ "$LATEST_SUCCESS_ID" = "null" ]; then
-              echo "  无成功记录，清理所有失败 run"
+              echo "  无成功记录（200 条内），清理所有失败 run"
               LATEST_SUCCESS_ID=""
             else
               echo "  保留最近成功 run: #$LATEST_SUCCESS_ID"

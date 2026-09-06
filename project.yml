@@ -50,7 +50,8 @@ targets:
     sources: [Tests/VitaLiberTests]
     # CoreKit 直连（不只是通过 VitaLiber 传递）：TC-M0-06 运行时断言需要 import
     # Domain/Infrastructure，且 GRDB 只在 iOS/macOS 链接（ERR#8），本目标是这些
-    # 断言唯一真实生效的执行位置（CoreKit 的 SPM 测试目标在 Linux 容器里跑）。
+    # 断言唯一真实生效的执行位置（CoreKitTests 随 scheme 在 iOS 模拟器执行，
+    # 2026-09-06 业主决定移除 Linux 容器测试 job——单一执行平面）。
     # GRDB 亦需直连：测试代码直接调用了 Int.fetchOne 等 GRDB API，其 protocol
     # witness table 必须能解析到 GRDB 库——仅靠 CoreKit 的传递链接，ld 报
     # "protocol witness table for Swift.Int : GRDB.StatementColumnConvertible ...
@@ -65,7 +66,10 @@ schemes:
   VitaLiber:
     build: { targets: { VitaLiber: all, VitaLiberTests: [test], VitaLiberUITests: [test] } }
     test:
-      targets: [VitaLiberTests, VitaLiberUITests]
+      # 评审修正（业主决定第 7 项）：CoreKitTests（Domain 纯逻辑/双轨库存/调度
+      # 引擎套件）纳入 scheme——Linux 容器 job 移除后，26 个门禁套件必须全部
+      # 在 iOS 模拟器真实执行（缺证据≠有证据，ERR#27/30/39 同族）。
+      targets: [VitaLiberTests, VitaLiberUITests, { name: CoreKitTests, package: CoreKit }]
     # 评审修正：xcodebuild archive 使用 scheme 的 ArchiveAction 配置（命令行
     # -configuration 对 archive 无效）。XcodeGen 未显式声明时默认 Debug——
     # 归档产物落在 Debug-iphoneos，SPM bundle 路径随之错位报 lstat 错误。

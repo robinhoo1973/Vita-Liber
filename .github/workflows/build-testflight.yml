@@ -2,8 +2,8 @@
 # 构建 + TestFlight 发布 CI（三阶段独立 Job）
 #
 # Job 1 — version：解析版本号（ubuntu，快速廉价）
-# Job 1.5 — corekit-linux-tests：CoreKit SPM 测试（Linux 容器，独立信号不阻塞上传）
-# Job 2 — build：L0 门禁 → 编译 → 签名归档 → 导出 IPA → 上传 artifact
+# Job 2 — build：L0 门禁 → 编译 → L1 单元/UI 测试（26 个门禁套件真实执行）→
+#         签名归档 → 导出 IPA → 上传 artifact
 # Job 3 — upload：下载 artifact → 直接 xcrun altool 推送 TestFlight
 #
 # 各 Job 独立：修改上传逻辑不影响编译，修改版本解析不影响签名。
@@ -77,44 +77,29 @@ jobs:
           TAG="$(gh release list --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || true)"
           if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
             echo "当前无 GitHub Release → 自动创建 v0.0.1"
-            gh release create v0.0.1 --title "v0.0.1" --notes "初始基线版本（CI 自动创建）" >/dev/null
+            # 评审修正 C6：master push 与 tag push 属不同 concurrency 组，可能并发
+            # 抢建首个 release——失败方容忍（另一组已建成），版本统一取 v0.0.1
+            gh release create v0.0.1 --title "v0.0.1" --notes "初始基线版本（CI 自动创建）" >/dev/null 2>&1 || true
             VERSION="0.0.1"
           else
             VERSION="${TAG#v}"
           fi
-          BUILD="$(printf '%03d' ${{ github.run_number }})"
+          # 评审修正 C2：短版本串直接进 MARKETING_VERSION——非 semver tag
+          # （v1.0.0-rc1/四段式）在编译期不报错、上传期被 ASC 以 ITMS-90060
+          # 拒收（浪费约 7 分钟 macOS 时长）。左移到版本解析 job 显式失败。
+          if ! printf '%s' "$VERSION" | grep -qE '^[0-9]{1,3}(\.[0-9]{1,3}){0,2}$'; then
+            echo "::error::最新 Release tag「$TAG」非 App Store 合法短版本（1–3 段非负整数），将触发 ITMS-90060"
+            exit 1
+          fi
+          # 评审修正 C1：BUILD 用 run_number 在「重跑失败 job」时复用同一号码 →
+          # 同版本同构建号重复上传被 ASC 以 ITMS-90189 拒收。附加 run_attempt
+          # 保证每次尝试唯一（CFBundleVersion 允许点分整数，如 040.2）。
+          BUILD="$(printf '%03d' ${{ github.run_number }}).${{ github.run_attempt }}"
           HASH="$(git rev-parse --short=8 HEAD)"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "build=$BUILD" >> "$GITHUB_OUTPUT"
           echo "hash=$HASH" >> "$GITHUB_OUTPUT"
           echo "三部件版本 → Version $VERSION | Build $BUILD | Code Hash $HASH"
-
-  # ═══════════════════════════════════════════════════════════════
-  # Job 1.5: CoreKit 域层测试（Linux 容器）
-  #
-  # project.yml 注记「CoreKit 的 SPM 测试目标在 Linux 容器里跑」此前
-  # 从未落地为任何工作流——Domain 公共 API 移除后测试残留引用长期不红
-  # （V3.70 审查发现 6 个测试文件 75 处编译错误无人察觉）。本 job 把该
-  # 套件接线为仓库状态信号：独立于上传链，红绿不阻塞 TestFlight 上传，
-  # 但 master 推送的红叉即为可见的域层回归。
-  # ═══════════════════════════════════════════════════════════════
-  corekit-linux-tests:
-    name: 'CoreKit Linux 测试'
-    runs-on: ubuntu-latest
-    container: swift:6.1
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: CoreKit swift test（Domain 纯逻辑套件）
-        run: |
-          cd CoreKit
-          swift test 2>&1 | tee /tmp/corekit-swift-test.log
-
-      - name: 失败清单（编译错误/失败用例摘要）
-        if: failure()
-        run: |
-          grep -E "error:|✘" /tmp/corekit-swift-test.log | head -40 || true
 
   # ═══════════════════════════════════════════════════════════════
   # Job 2: 编译 + 签名归档 + 导出 IPA
@@ -123,7 +108,7 @@ jobs:
     name: '编译 + 导出 IPA'
     needs: version
     runs-on: macos-latest
-    timeout-minutes: 30
+    timeout-minutes: 120
     env:
       APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
       APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
@@ -150,12 +135,12 @@ jobs:
             echo "::error::缺 project.yml 且无 xcodeproj"; exit 1
           fi
 
-      # ── L0 静态门禁（macOS 自带 swift；非阻塞——编译门禁才是硬卡点）──────
+      # ── L0 静态门禁（评审修正 C3：失败即停——dev-pm §9.4「L0 不过不进 L1」；
+      # 此前被 || warning 吞成非阻塞，红线违规仍能归档上传，属
+      # 「缺证据被当成有证据」同族）──────────
       - name: L0 静态门禁
         run: |
-          bash .github/workflows/l0-static-gate.sh || {
-            echo "::warning::L0 静态门禁未完全通过（非阻塞）"
-          }
+          bash .github/workflows/l0-static-gate.sh
 
       # ── 解码 ASC API Key ─────────────────────────────
       - name: 解码 App Store Connect API Key
@@ -265,6 +250,61 @@ jobs:
             COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO \
             2>&1 | tee Build/xcodebuild-build.log
           echo "编译门禁通过 ✓"
+
+      # ── L1 测试（评审修正 C4 + 业主决定第 7 项）────────────
+      # 此前全流水线仅 build-for-testing（编译），gate-suites.tsv 里 26 个
+      # required 测试套件**从未被执行**——「套件存在」≠「套件跑过」
+      # （ERR#27/30/39 同族）。业主决定：Linux CoreKit job 整体移除，
+      # 域层/应用层/UI 套件统一在 iOS 模拟器真实执行（scheme 测试目标 =
+      # VitaLiberTests + VitaLiberUITests + CoreKitTests）。复用 build-for-testing
+      # 产物（test-without-building）省去二次编译；任一 red 即阻断归档上传。
+      - name: L1 单元测试（VitaLiberTests + CoreKitTests）
+        run: |
+          set -o pipefail
+          DEST=$(python3 - <<'PY'
+          import json, subprocess
+          d = json.loads(subprocess.check_output(["xcrun","simctl","list","--json","devices","available"]))
+          pairs = [(rt, v["name"], v["udid"]) for rt, devs in d["devices"].items()
+                   for v in devs if v.get("isAvailable") and v["name"].startswith("iPhone")]
+          spec = [p for p in pairs if p[1] == "iPhone 15"]
+          pick = spec[0] if spec else sorted(pairs)[0]
+          print(f"platform=iOS Simulator,id={pick[2]}")
+          PY
+          )
+          echo "destination: $DEST"
+          xcodebuild test-without-building \
+            -project "$XCODEPROJ" -scheme "$SCHEME" \
+            -destination "$DEST" \
+            -derivedDataPath Build/DerivedData \
+            -only-testing:VitaLiberTests \
+            -only-testing:CoreKitTests \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee Build/xcodebuild-test.log
+          echo "L1 单元测试通过 ✓"
+
+      # ── L1 UI 测试（XCUITest，CLAUDE.md L1 第二条命令）────────
+      - name: L1 UI 测试（VitaLiberUITests）
+        run: |
+          set -o pipefail
+          DEST=$(python3 - <<'PY'
+          import json, subprocess
+          d = json.loads(subprocess.check_output(["xcrun","simctl","list","--json","devices","available"]))
+          pairs = [(rt, v["name"], v["udid"]) for rt, devs in d["devices"].items()
+                   for v in devs if v.get("isAvailable") and v["name"].startswith("iPhone")]
+          spec = [p for p in pairs if p[1] == "iPhone 15"]
+          pick = spec[0] if spec else sorted(pairs)[0]
+          print(f"platform=iOS Simulator,id={pick[2]}")
+          PY
+          )
+          echo "destination: $DEST"
+          xcodebuild test-without-building \
+            -project "$XCODEPROJ" -scheme "$SCHEME" \
+            -destination "$DEST" \
+            -derivedDataPath Build/DerivedData \
+            -only-testing:VitaLiberUITests \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee Build/xcodebuild-uitest.log
+          echo "L1 UI 测试通过 ✓"
 
       # ── 签名归档 + 导出 IPA ──────────────────────────
       - name: 签名归档 + 导出 IPA
