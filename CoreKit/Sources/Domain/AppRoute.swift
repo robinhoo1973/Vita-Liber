@@ -31,11 +31,13 @@ public enum AppRoute: Hashable, Sendable, Codable {
 
     // ---- F7 指标 ----
     case trendChart(patientId: UUID, metric: String)   // SP-13
+    case metricOverview                 // SP-13 指标总览宫格（§5.45，V3.72 点亮）
     case metricQuickEntry                // SP-13 快速录入
 
     // ---- F8 观察 ----
     case observationCreate               // SP-14 三步流程
     case observationDetail(UUID)         // SP-14 详情/对比
+    case doctorShowcase(UUID)            // §5.8 就诊展示模式（V3.72 点亮）
 
     // ---- F9 用药 ----
     case medicationPlan(UUID)            // SP-15 计划详情
@@ -112,8 +114,9 @@ public enum MainModuleID: String, Sendable, Hashable, Codable {
         switch route {
         case .sosHelp, .memberList, .memberDetail, .encounterList, .encounterDetail,
              .encounterForm, .documentList, .documentDetail, .importSource, .scanCapture,
-             .ocrConfirm, .pendingOcrQueue, .trendChart, .metricQuickEntry,
-             .observationCreate, .observationDetail, .allergyList, .allergyCreate,
+             .ocrConfirm, .pendingOcrQueue, .trendChart, .metricOverview, .metricQuickEntry,
+             .observationCreate, .observationDetail, .doctorShowcase,
+             .allergyList, .allergyCreate,
              .caregiverTasks, .voiceNotePanel:
             return .records
         case .medicationPlan, .medicationPlanForm, .stockLotDetail, .stockLotEdit,

@@ -7,6 +7,8 @@ import Infrastructure
 @Observable
 final class TrendEntryState {
     private(set) var series: TrendSeries?
+    /// §5.45 指标总览宫格最新点（V3.72）
+    private(set) var latestMetrics: [TrendQueryStore.LatestMetric] = []
     /// internal：MetricEntryView 扩展（录入/单位记忆/排除接线）跨文件访问
     let store: TrendQueryStore
     /// FR7.2 点回原报告（sourceRef 深链）——视图层持有，气泡五要素由 TrendDetailView 渲染
@@ -118,4 +120,15 @@ struct TrendEntryView: View {
     }
 
     private var currentPatientId: UUID { app.currentPatientId }
+}
+
+// MARK: - §5.45 指标总览宫格数据（V3.72）
+
+extension TrendEntryState {
+    /// 宫格最新点加载（try?-ok: 读取失败按空态渲染，不阻断总览页）
+    func loadLatest(patientId: UUID) async {
+        if let rows = try? await store.latestPerMetric(patientId: patientId) {   // try?-ok: 读取失败按空态渲染，不阻断总览页
+            latestMetrics = rows
+        }
+    }
 }

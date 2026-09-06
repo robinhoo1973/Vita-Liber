@@ -1252,6 +1252,8 @@ enum L10n {
         "timezone.changed.title", "timezone.changed.body",
         "observation.colorDisclaimer",
         "nc.archive",
+        "metric.overview.title", "metric.overview.empty", "metric.overview.emptyHint",
+        "showcase.title", "showcase.exit", "showcase.empty", "showcase.unlockReason",
         "paywall.purchaseFailed",
         "paywall.restoreFailed",
         "paywall.restoreNothing",
@@ -1732,6 +1734,13 @@ enum L10n {
     static var timezoneChangedBody: String { t("timezone.changed.body") }
     static var observationColorDisclaimer: String { t("observation.colorDisclaimer") }
     static var ncArchive: String { t("nc.archive") }
+    static var metricOverviewTitle: String { t("metric.overview.title") }
+    static var metricOverviewEmpty: String { t("metric.overview.empty") }
+    static var metricOverviewEmptyHint: String { t("metric.overview.emptyHint") }
+    static var showcaseTitle: String { t("showcase.title") }
+    static var showcaseExit: String { t("showcase.exit") }
+    static var showcaseEmpty: String { t("showcase.empty") }
+    static var showcaseUnlockReason: String { t("showcase.unlockReason") }
     static var ocrQueueTitle: String { t("ocrQueue.title") }
     static var ocrQueueEmpty: String { t("ocrQueue.empty") }
     static var ocrQueueEmptyHint: String { t("ocrQueue.emptyHint") }

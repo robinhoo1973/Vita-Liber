@@ -87,4 +87,49 @@ public actor TrendQueryStore {
         return id
     }
 }
+
+
+/// §5.45 指标总览宫格数据源（V3.72）：每个已录入指标的最新点（值/单位/来源），
+/// 用于 MetricTile 大数字 + 来源点渲染。未录入的指标不产出行（宫格只显示有数据项，
+/// 空态由视图层引导 [快速录入]）。
+extension TrendQueryStore {
+    public struct LatestMetric: Sendable, Equatable, Identifiable {
+        public let metricKey: String
+        public let value: Double
+        public let unit: String?
+        public let origin: String
+        public let measuredAt: Date
+        public var id: String { metricKey }
+        public init(metricKey: String, value: Double, unit: String?, origin: String, measuredAt: Date) {
+            self.metricKey = metricKey
+            self.value = value
+            self.unit = unit
+            self.origin = origin
+            self.measuredAt = measuredAt
+        }
+    }
+
+    public func latestPerMetric(patientId: UUID) async throws -> [LatestMetric] {
+        try await writer.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT m.metric_key, m.value, m.unit, m.origin, m.measured_at
+                FROM metric_sample m
+                JOIN (SELECT metric_key, MAX(measured_at) AS mx
+                      FROM metric_sample
+                      WHERE patient_id = ? AND excluded = 0
+                      GROUP BY metric_key) latest
+                  ON latest.metric_key = m.metric_key AND latest.mx = m.measured_at
+                WHERE m.patient_id = ? AND m.excluded = 0
+                ORDER BY m.measured_at DESC
+                """, arguments: [patientId.uuidString, patientId.uuidString])
+            return rows.map { row in
+                LatestMetric(metricKey: row["metric_key"] as String,
+                             value: row["value"] as Double,
+                             unit: row["unit"] as String?,
+                             origin: row["origin"] as String,
+                             measuredAt: Date(timeIntervalSince1970: row["measured_at"] as Double))
+            }
+        }
+    }
+}
 #endif

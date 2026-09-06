@@ -41,7 +41,7 @@ public actor NotificationStateStore {
     /// 批量读取处理状态（键集合 → 状态；未登记键 = .unread）
     public func states(for keys: [String]) async throws -> [String: NotificationItemState] {
         guard !keys.isEmpty else { return [:] }
-        try await writer.read { db in
+        return try await writer.read { db in
             let rows = try Row.fetchAll(db, sql: """
                 SELECT item_key, read_at, archived_at FROM notification_state
                 WHERE item_key IN (\(keys.map { _ in "?" }.joined(separator: ",")))

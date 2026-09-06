@@ -45,6 +45,8 @@ struct RouteDestinationView: View {
         // ---- F7 指标 ----
         case .trendChart(let patientId, let metric):
             TrendChartRouteView(patientId: patientId, metricKey: metric)
+        case .metricOverview:
+            MetricOverviewView()
         case .metricQuickEntry:
             MetricQuickEntryView()
 
@@ -170,6 +172,8 @@ struct RouteDestinationView: View {
         //      时间轴/随访通知深链） ----
         case .observationDetail(let id):
             ObservationDetailView(observationId: id)
+        case .doctorShowcase(let patientId):
+            DoctorShowcaseView(patientId: patientId)
 
         // ---- SP-17 批次详情/编辑（V3.65 实装：药箱批次卡 → 详情 → 编辑/
         //      盘点/废弃；过期批次零用药建议 BR-006） ----

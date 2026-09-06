@@ -917,7 +917,14 @@
 "timezone.changed.title" = "时区已变化";
 "timezone.changed.body"
 "observation.colorDisclaimer"
-"nc.archive" = "归档"; = "照片颜色受光线、白平衡与容器影响，不能用于自我诊断"; = "检测到设备时区发生变化，请核对用药与预约的计划时间。"; = "确认后存入时间轴与资料库；原件保留在本机专用目录，只写一次、永不修改";
+"nc.archive"
+"metric.overview.title" = "指标";
+"metric.overview.empty" = "还没有指标记录";
+"metric.overview.emptyHint"
+"showcase.title" = "给医生看";
+"showcase.exit" = "退出展示";
+"showcase.empty" = "暂无观察记录";
+"showcase.unlockReason" = "进入就诊展示模式"; = "点右上角 + 快速录入第一条自测读数"; = "归档"; = "照片颜色受光线、白平衡与容器影响，不能用于自我诊断"; = "检测到设备时区发生变化，请核对用药与预约的计划时间。"; = "确认后存入时间轴与资料库；原件保留在本机专用目录，只写一次、永不修改";
 "ocr.field.title" = "标题";
 "ocrQueue.empty" = "暂无待确认字段";
 "ocrQueue.emptyHint" = "全部识别字段已处理。新识别的药名、剂量、日期会先出现在这里，确认后才生效。";

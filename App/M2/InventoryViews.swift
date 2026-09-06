@@ -204,10 +204,19 @@ struct InventoryReconcileSheet: View {
 /// （若 statement 违规则不渲染——负清单一票否决，不展示比展示错误更安全）。
 struct InventoryMonthlyReportView: View {
     let report: InventoryMonthlyReport
+    @Environment(AppState.self) private var app
+    @Environment(AppRouter.self) private var router
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(L10n.inventoryMonthlySuffix(report.periodStart.formatted(.dateTime.month(.wide).year()))).font(.headline)
+            // §5.14 右上 [给医生看]（V3.72 点亮——复用 5.8 展示模式）
+            Button {
+                router.navigate(to: .doctorShowcase(patientId: app.currentPatientId))
+            } label: {
+                Label(L10n.showcaseTitle, systemImage: "stethoscope")
+            }
+            .buttonStyle(.bordered)
             let statement = L10n.inventoryMonthlyReportFmt(report.plannedDoses, report.confirmedDoses, report.skippedDoses, report.missedDoses)
             if InventoryReportRules.violation(in: statement) != nil {
                 // 一票否决路径：违反负清单的文案不得上屏（BR-006 延伸）

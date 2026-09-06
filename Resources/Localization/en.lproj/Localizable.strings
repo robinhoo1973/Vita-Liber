@@ -917,7 +917,14 @@
 "timezone.changed.title" = "Time Zone Changed";
 "timezone.changed.body"
 "observation.colorDisclaimer"
-"nc.archive" = "Archive"; = "Photo colors are affected by lighting, white balance and the container — never use them for self-diagnosis."; = "Your device time zone has changed. Please double-check your medication and appointment times."; = "Saved to Timeline and your library after confirmation;
+"nc.archive"
+"metric.overview.title" = "Metrics";
+"metric.overview.empty" = "No metrics yet";
+"metric.overview.emptyHint"
+"showcase.title" = "Show Doctor";
+"showcase.exit" = "Exit";
+"showcase.empty" = "No observations yet";
+"showcase.unlockReason" = "Enter doctor showcase mode"; = "Tap + to record your first reading"; = "Archive"; = "Photo colors are affected by lighting, white balance and the container — never use them for self-diagnosis."; = "Your device time zone has changed. Please double-check your medication and appointment times."; = "Saved to Timeline and your library after confirmation;
  originals stay on this device, written once and never modified";"ocr.field.title" = "Title";
 "ocrQueue.empty" = "No pending fields";
 "ocrQueue.emptyHint" = "All recognized fields are handled. Newly recognized medication names, doses and dates appear here first and only take effect after confirmation.";

@@ -105,6 +105,11 @@ struct TimelineFullView: View {
                             Label(L10n.inventory_title, systemImage: "pills")
                         }
                         .accessibilityIdentifier("SP-19.quick.cabinet")
+                        // §5.45 指标总览入口（V3.72）：records 模块此前无任何指标入口
+                        NavigationLink(value: AppRoute.metricOverview) {
+                            Label(L10n.metricOverviewTitle, systemImage: "waveform.path.ecg")
+                        }
+                        .accessibilityIdentifier("SP-19.quick.metrics")
                     }
                 }
                 .accessibilityIdentifier("SP-19.timeline.list")
@@ -365,12 +370,28 @@ private struct ProblemCreateSheet: View {
 /// F16/F7 分区按功能可用性动态出现，P0 阶段以「无相关数据」占位而非报错。
 struct VisitPrepView: View {
     @Environment(AppState.self) private var app
+    @Environment(AppRouter.self) private var router
     @Environment(ReminderStore.self) private var reminders
     @Environment(ObservationStoreState.self) private var observationState
     @Environment(M2HubStore.self) private var hub
     @Environment(QuestionsState.self) private var questionsState
 
     var body: some View {
+        VStack(spacing: 0) {
+            // §5.34 顶部 [给医生看]（V3.72 点亮——复用 5.8 展示模式）
+            HStack {
+                Spacer()
+                Button {
+                    router.navigate(to: .doctorShowcase(patientId: app.currentPatientId))
+                } label: {
+                    Label(L10n.showcaseTitle, systemImage: "stethoscope")
+                }
+                .buttonStyle(.bordered)
+                .padding(.trailing, 16)
+            }
+            .padding(.top, 8)
+        }
+
         List {
             // 患者信息
             Section(L10n.prepPatient) {
