@@ -125,7 +125,7 @@ struct NotificationCenterView: View {
         }
         .navigationTitle(L10n.ncTitle)
         .task(id: app.currentPatientId) {
-            await reminderStore.refresh(patientId: app.currentPatientId)
+            await reminderStore.refreshTriggered(patientId: app.currentPatientId)
             await hub.load(patientId: app.currentPatientId)
             await loadStates()
         }

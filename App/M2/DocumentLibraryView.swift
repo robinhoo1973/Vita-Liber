@@ -357,6 +357,7 @@ struct DocumentLibraryView: View {
                 } label: {
                     Image(systemName: "plus")
                 }
+                .accessibilityLabel(L10n.docAdd)
                 .accessibilityIdentifier("SP-09.document.add")
             }
         }
@@ -638,6 +639,7 @@ private struct DocumentListView: View {
     @Environment(DocumentsState.self) private var state
 
     var body: some View {
+        // §9.1 正文行宽 ≤672pt（iPad 常宽列可读性）
         List {
             ForEach(state.documents) { doc in
                 DocumentLibraryRow(doc: doc,

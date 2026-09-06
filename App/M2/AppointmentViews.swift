@@ -107,6 +107,7 @@ struct AppointmentListView: View {
                 } label: {
                     Image(systemName: "plus")
                 }
+                .accessibilityLabel(L10n.appointmentAdd)
                 .accessibilityIdentifier("SP-18.appointment.add")
             }
         }

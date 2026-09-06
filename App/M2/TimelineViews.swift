@@ -82,6 +82,7 @@ struct TimelineFullView: View {
                                        description: Text(L10n.timelineEmptyHint))
                     .accessibilityIdentifier("SP-19.timeline.empty")
             } else {
+                // §9.1 正文行宽 ≤672pt（iPad 常宽列可读性；共享内容视图自身约束，ADR-021）
                 List {
                     ForEach(state.entries) { entry in
                         Button {
@@ -132,9 +133,8 @@ struct TimelineFullView: View {
                         toggle(kind)
                     }
                 }
-                NavigationLink {
-                    HealthProblemListView()
-                } label: {
+                // 评审修正 H15：走类型安全路由（注册表覆盖 SP-49）
+                NavigationLink(value: AppRoute.healthProblemList) {
                     Text(L10n.timelineProblemsFilter)
                         .font(.caption)
                         .padding(.horizontal, 10)
@@ -327,6 +327,7 @@ struct HealthProblemListView: View {
                 } label: {
                     Image(systemName: "plus")
                 }
+                .accessibilityLabel(L10n.problemAdd)
                 .accessibilityIdentifier("SP-49.problem.add")
             }
         }
@@ -481,7 +482,7 @@ struct VisitPrepView: View {
         }
         .navigationTitle(L10n.prepTitle)
         .task(id: app.currentPatientId) {
-            await reminders.refresh(patientId: app.currentPatientId)
+            await reminders.refreshTriggered(patientId: app.currentPatientId)
             await hub.load(patientId: app.currentPatientId)
             await observationState.load(patientId: app.currentPatientId)
             await questionsState.load(patientId: app.currentPatientId)
@@ -572,6 +573,7 @@ struct QuestionListView: View {
                 } label: {
                     Image(systemName: "plus")
                 }
+                .accessibilityLabel(L10n.questionAdd)
                 .accessibilityIdentifier("FR10.5.question.add")
             }
         }

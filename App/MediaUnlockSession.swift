@@ -2,7 +2,8 @@ import Foundation
 import Domain
 
 /// §5.10 敏感媒体跨视图会话令牌：一次认证换取会话级解锁，连看多个敏感文件
-/// 不必逐个验证。30s 无操作自动重锁；退后台立即重锁。
+/// 不必逐个验证。300s 无操作自动重锁（spec V3.71/V3.72 DoctorShowcase 锚定值）；
+/// 退后台立即重锁。
 ///
 /// BR-007/BR-008: 敏感内容不跨生命周期存活——任务切换器快照、锁屏预览
 /// 都不得出现敏感内容。会话令牌仅在 active scene 内有效。
@@ -16,7 +17,9 @@ final class MediaUnlockSession {
     /// 当前活跃的解锁任务（idle 超时取消用）
     private var idleTask: Task<Void, Never>?
 
-    /// 解锁：写入令牌 + 启动 idle 计时 + 记录交互
+    /// 解锁：写入令牌 + 启动 idle 计时 + 记录交互。
+    /// TTL 取 showcaseTTL（评审修正 H3）：spec V3.71/V3.72 将本会话预留给
+    /// 医生展示模式并锚定 300s——此前沿用手感 30s，咨询中途被重锁。
     func unlock() {
         isUnlocked = true
         lastInteraction = Date()
@@ -52,7 +55,7 @@ final class MediaUnlockSession {
         idleTask = Task { [weak self] in
             guard let self else { return }
             do {
-                try await Task.sleep(nanoseconds: UInt64(MediaUnlockPolicy.idleTTL * 1_000_000_000))
+                try await Task.sleep(nanoseconds: UInt64(MediaUnlockPolicy.showcaseTTL * 1_000_000_000))
             } catch { return }
             await MainActor.run { self.relock() }
         }

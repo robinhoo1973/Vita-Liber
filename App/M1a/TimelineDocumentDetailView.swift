@@ -28,11 +28,9 @@ struct TimelineDocumentDetailView: View {
                             .font(.caption)
                             .foregroundStyle(Color("text-secondary", bundle: .main))
                         Text(field.value).font(.body)
-                        Text(field.isConfirmed ? L10n.onboard_confirmed : L10n.onboard_unconfirmedBadge)
-                            .font(.caption2)
-                            .foregroundStyle(field.isConfirmed
-                                ? Color("grade-c", bundle: .main)
-                                : Color("grade-d", bundle: .main))
+                        // 评审修正 U2：手写徽章变体 → GradeBadge 唯一出口——
+                        // D 级（识别未确认）丢失虚线+待确认胶囊视觉承诺（§1 原则 3）
+                        GradeBadge(grade: field.isConfirmed ? "C" : "D")
                     }
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("SP-10.document.field.\(field.key)")

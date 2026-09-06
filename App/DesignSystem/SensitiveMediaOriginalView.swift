@@ -9,10 +9,13 @@ import Domain
 /// 独立系统认证，不再经全局会话顺带解锁（与 SensitiveMediaContainer 同纪律）。
 struct SensitiveMediaOriginalView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(AppState.self) private var app
 
     let imageData: Data
     let caption: String
+    /// 资产锚点（评审修正）：解锁成功后的审计锚点；nil = 无资产来源（如演示场景）
+    var assetId: UUID?
 
     @State private var image: UIImage?
     @State private var scale: CGFloat = 1
@@ -36,6 +39,14 @@ struct SensitiveMediaOriginalView: View {
             }
         }
         .onAppear { loadDownsampled() }
+        // 评审修正（BR-007/008）：任务切换器快照防护——SensitiveMediaContainer
+        // 已在 inactive 时重锁，本视图此前缺失同款处理，退后台后快照可能
+        // 仍展示已解锁原图（AppRootView 遮罩提交与系统快照竞态）。
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active, unlocked {
+                relock()
+            }
+        }
     }
 
     private var unlockedContent: some View {
@@ -103,6 +114,8 @@ struct SensitiveMediaOriginalView: View {
         guard await app.requestUnlock(reason: L10n.sensitive_unlockReason) else { return false }
         unlocked = true
         scheduleRelock()
+        // FR14.2 审计：敏感原图查看留痕（评审修正——原视图零审计锚点）
+        if let assetId { app.auditViewSensitiveOriginal(documentId: assetId, title: caption) }
         return true
     }
 

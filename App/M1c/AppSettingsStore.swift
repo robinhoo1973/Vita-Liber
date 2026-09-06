@@ -68,6 +68,10 @@ final class AppSettingsStore {
             // 而开关显示关闭（首页仍是关怀版式，设置页却关着）
             UserDefaults.standard.removeObject(forKey: AppSettingKey.readBackOptIn.rawValue)
             UserDefaults.standard.removeObject(forKey: AppSettingKey.careModeEnable.rawValue)
+            // 评审修正（sweep）：语言有第二事实源（L10n.languageCache + vl.language
+            // 镜像）——恢复默认后 UI 显示简体选中、文案却停留在旧语言直到重启。
+            // 同步重置语言缓存/镜像并广播（setLanguage 相等性守卫保证幂等）
+            L10n.setLanguage(AppSettingKey.language.defaultValue)
             await load()
         } catch {
             logger.error("恢复默认失败: \(error)")

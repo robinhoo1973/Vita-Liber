@@ -240,5 +240,24 @@ private struct PreviewRoot: View {
             .environment(TimelineViewState(store: container.timelineQuery,
                                            problemStore: container.healthProblems))
             .environment(QuestionsState(store: container.questions))
+            // 评审修正：与 VitaLiberApp.mainRoot 的 21 项注入对齐——此前缺 6 项，
+            // Preview 一旦导航到通知中心/资料详情/导出向导/备份/设备/历史页即
+            // 命中「No Observable object found」断言（与 build-147 同类崩溃，
+            // 且 Preview 无法充当该崩溃族的回归探针）。预览禁触生产目录：
+            // originalsDir 用临时目录，调度器用内存桩。
+            .environment(container.notificationCenterState)
+            .environment(DocumentsState(
+                store: container.documents,
+                pipeline: OCRPipeline(
+                    recognizer: EngineRegistry.shared.resolve(OCRRecognizerFactory.self),
+                    grayscaleDecoder: GrayscaleImageDecoder()),
+                ocrAuthorized: { true },
+                originalsDir: FileManager.default.temporaryDirectory))
+            .environment(AIHistoryState(store: container.aiHistory))
+            .environment(ExportWizardState(service: container.pdfExport))
+            .environment(F16DeviceState(reader: container.healthReader,
+                                        guidelines: container.guidelines,
+                                        scheduler: InMemoryReminderScheduler()))
+            .environment(BackupState(service: container.backup))
     }
 }

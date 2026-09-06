@@ -102,6 +102,13 @@ public enum AppRoute: Hashable, Sendable, Codable {
     case caregiverTasks                  // SP-57 同机照护者
     case sentStatusHub                   // SP-56 发送状态
 
+    // ---- 评审批 H15：补登记曾缺失的活跃页面（路由注册表必须覆盖全部 SP）----
+    case healthProblemList               // SP-49 健康问题列表
+    case immunizationList                // SP-54 疫苗记录列表
+    case helpPermissionDiagnostics       // SP-45 权限诊断
+    case helpReminderDiagnostics         // SP-45 提醒诊断
+    case termsAndPrivacy                 // SP-47/48 条款与关于
+
     // ---- 商业化 ----
     case paywall                         // SP-61
 }
@@ -117,7 +124,8 @@ public enum MainModuleID: String, Sendable, Hashable, Codable {
              .ocrConfirm, .pendingOcrQueue, .trendChart, .metricOverview, .metricQuickEntry,
              .observationCreate, .observationDetail, .doctorShowcase,
              .allergyList, .allergyCreate,
-             .caregiverTasks, .voiceNotePanel:
+             .caregiverTasks, .voiceNotePanel,
+             .healthProblemList, .immunizationList:
             return .records
         case .medicationPlan, .medicationPlanForm, .stockLotDetail, .stockLotEdit,
              .medicationCabinet, .reminderToday, .appointmentList, .appointmentDetail,
@@ -131,7 +139,8 @@ public enum MainModuleID: String, Sendable, Hashable, Codable {
              .voiceLanguageSettings, .emergencyCardConfig, .deviceConnection,
              .alertHistory, .guidelineSourceDetail, .careModeConfig,
              .voiceGuideProfile, .voiceReminderDraft, .helpCenter, .feedbackReport,
-             .exportWizard, .backupRestore, .paywall:
+             .exportWizard, .backupRestore, .paywall,
+             .helpPermissionDiagnostics, .helpReminderDiagnostics, .termsAndPrivacy:
             return .me
         }
     }

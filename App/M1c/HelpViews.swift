@@ -23,16 +23,14 @@ struct HelpRootView: View {
                 }
             }
             Section {
-                NavigationLink {
-                    HelpPermissionDiagnostics()
-                } label: {
+                // 评审修正 H15：走类型安全路由（注册表覆盖 SP-45）
+                NavigationLink(value: AppRoute.helpPermissionDiagnostics) {
                     Label(L10n.helpDiagPermission, systemImage: "lock.shield")
                 }
                 .accessibilityIdentifier("FR22.2.permissionDiagnostics")
 
-                NavigationLink {
-                    HelpReminderDiagnostics()
-                } label: {
+                // 评审修正 H15：走类型安全路由（注册表覆盖 SP-45）
+                NavigationLink(value: AppRoute.helpReminderDiagnostics) {
                     Label(L10n.helpDiagReminder, systemImage: "bell.badge.exclamationmark")
                 }
                 .accessibilityIdentifier("FR22.3.reminderDiagnostics")
@@ -52,9 +50,8 @@ struct HelpRootView: View {
             }
 
             Section {
-                NavigationLink {
-                    HelpAboutView()
-                } label: {
+                // 评审修正 H15：走类型安全路由（注册表覆盖 SP-47/48）
+                NavigationLink(value: AppRoute.termsAndPrivacy) {
                     Label(L10n.helpAboutLegal, systemImage: "info.circle")
                 }
                 .accessibilityIdentifier("FR22.8.about")

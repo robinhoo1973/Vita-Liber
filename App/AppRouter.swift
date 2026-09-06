@@ -97,6 +97,14 @@ final class AppRouter {
     func navigate(to route: AppRoute) {
         let tab = MainModuleID.tab(of: route)
         selection = tab
+        // 评审修正（套娃防护）：.reminderToday 的落点视图就是提醒 Tab 根视图
+        // （ModuleRoot）——append 会把同一 RemindersView 叠在 Tab 根之上，
+        // 每次剂量通知点击再叠一层（RouteDestinationView 头注所禁的套娃模式）。
+        // 同根路由 = 仅切 Tab（selection 已同步），不入栈。
+        guard route != .reminderToday else {
+            persist()
+            return
+        }
         Task { @MainActor [weak self] in
             guard let self else { return }
             switch tab {
@@ -107,6 +115,19 @@ final class AppRouter {
             case .me: self.mePath.append(route)
             }
             self.persist()
+        }
+    }
+
+    /// 缺路由降级到首页（§5.45 契约，评审修正）：通知 userInfo 无「route」键
+    /// 或解码失败时**显式归零**导航状态——此前「什么都不做」等价于落回
+    /// UserDefaults 里持久化的上次状态（可能深处某个 push 栈），与契约不符。
+    /// 同时清除持久化键：冷启动时序下 persist 在 didRestore 前是 no-op，
+    /// 必须直接删键，否则稍后的 restore() 仍会把旧路径加载回来。
+    func degradeToHome() {
+        homePath = []; recordsPath = []; remindersPath = []; aiPath = []; mePath = []
+        selection = .home
+        for key in Key.allCases {
+            defaults.removeObject(forKey: key.storageKey)
         }
     }
 
@@ -217,6 +238,10 @@ final class AppNotificationDelegate: NSObject, UNUserNotificationCenterDelegate 
         completionHandler()
         guard let data = response.notification.request.content.userInfo["route"] as? Data,
               let route = try? JSONDecoder().decode(AppRoute.self, from: data) else { // try?-ok: 历史/损坏路由解码失败降级默认落点，不得 crash（§5.45）
+            // §5.45：缺 route 键/解码失败 → 显式降级到首页（非落回持久化状态）
+            Task { @MainActor [weak self] in
+                self?.router.degradeToHome()
+            }
             return
         }
         // 主线程异步入队：无论系统在哪个线程回调，路由工作都落在主线程
@@ -224,5 +249,17 @@ final class AppNotificationDelegate: NSObject, UNUserNotificationCenterDelegate 
         Task { @MainActor [weak self] in
             self?.router.enqueue(route: route)
         }
+    }
+
+    /// 前台呈现（评审修正）：此前未实现 willPresent，delegate 存在即前台
+    /// 通知静默——P0 服药提醒在应用打开时无声无横幅。refill-/exp- 两类
+    /// 由 InAppBannerHost 应用内横幅承担（§4.22），系统横幅抑制以避免
+    /// 同一到期事件前台双弹；其余本仓通知正常横幅+声音。
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                            willPresent notification: UNNotification,
+                                            withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        let id = notification.request.identifier
+        let hasInAppBanner = id.hasPrefix("refill-") || id.hasPrefix("exp-")
+        completionHandler(hasInAppBanner ? [] : [.banner, .sound])
     }
 }

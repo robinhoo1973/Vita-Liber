@@ -29,9 +29,8 @@ struct AllergyListView: View {
                                     .padding(.vertical, 2)
                                 Text(allergy.substance).font(.subheadline)
                                 Spacer()
-                                Text(L10n.allergySelfReportBadge)
-                                    .font(.caption2)
-                                    .foregroundStyle(Color("grade-c", bundle: .main))
+                                // 评审修正 U2：手写徽章变体 → GradeBadge 唯一出口
+                                GradeBadge(grade: "C")
                             }
                             Text("\(L10n.allergySeverity(allergy.severity)) · \(allergy.occurredAt.formatted(date: .abbreviated, time: .omitted))")
                                 .font(.caption).foregroundStyle(.secondary)
@@ -54,6 +53,7 @@ struct AllergyListView: View {
                 } label: {
                     Image(systemName: "plus")
                 }
+                .accessibilityLabel(L10n.allergyAdd)
                 .accessibilityIdentifier("SP-50.allergy.add")
             }
         }

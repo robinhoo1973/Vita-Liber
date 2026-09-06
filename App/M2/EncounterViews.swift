@@ -77,6 +77,7 @@ struct EncounterListView: View {
     }
 
     var body: some View {
+        // §9.1 正文行宽 ≤672pt（iPad 常宽列可读性）
         List {
             if filteredEncounters.isEmpty {
                 ContentUnavailableView(L10n.encounterEmpty, systemImage: "stethoscope",
@@ -131,6 +132,7 @@ struct EncounterListView: View {
                 } label: {
                     Image(systemName: "plus")
                 }
+                .accessibilityLabel(L10n.encounterAdd)
                 .accessibilityIdentifier("SP-08.encounter.add")
             }
         }
@@ -186,9 +188,10 @@ struct EncounterDetailView: View {
                         .overlay(alignment: .leading) {
                             Rectangle().fill(Color("brand-primary", bundle: .main)).frame(width: 3)
                         }
-                    // V3.72：A 徽章改走 GradeBadge 唯一出口
-                    GradeBadge(grade: "A")
-                        .font(.caption2).foregroundStyle(Color("grade-a", bundle: .main))
+                    // 评审修正 U1：就诊正文由用户手输/复诊自动建档（无医院原文链路），
+                    // 硬编码 A（医院原文）是伪造来源（BR-003/§4.1 一眼可辨来源）——
+                    // 应为 C（用户确认）。GradeBadge 自带色彩，去除手写覆盖。
+                    GradeBadge(grade: "C")
                 }
                 if let advice = current?.adviceText ?? encounter.adviceText {
                     Text(advice)
@@ -196,8 +199,8 @@ struct EncounterDetailView: View {
                         .overlay(alignment: .leading) {
                             Rectangle().fill(Color("brand-primary", bundle: .main)).frame(width: 3)
                         }
-                    Text(L10n.encounterAdviceBadge)
-                        .font(.caption2).foregroundStyle(Color("grade-a", bundle: .main))
+                    // 评审修正 U1：手写徽章变体 → GradeBadge 唯一出口（C 用户确认）
+                    GradeBadge(grade: "C")
                 }
                 if let followUp = current?.followUpRequirement ?? encounter.followUpRequirement {
                     LabeledContent(L10n.encounterFollowUp, value: followUp)

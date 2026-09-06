@@ -120,8 +120,9 @@ struct SettingsView: View {
                     EmergencyCardHubView()
                 }
                 .accessibilityIdentifier("SP-25.settings.emergencyCard")
-                NavigationLink(L10n.immunization_title) {
-                    ImmunizationHubView()
+                // 评审修正 H15：走类型安全路由（注册表覆盖 SP-54，通知深链可直达）
+                NavigationLink(value: AppRoute.immunizationList) {
+                    Text(L10n.immunization_title)
                 }
                 .accessibilityIdentifier("SP-25.settings.immunization")
                 NavigationLink(L10n.claim_title) {

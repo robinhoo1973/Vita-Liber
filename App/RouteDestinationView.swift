@@ -153,6 +153,19 @@ struct RouteDestinationView: View {
         case .paywall:
             PaywallView()
 
+        // ---- 评审批 H15：补登记曾缺失的活跃页面（§5.45 注册表必须覆盖全部 SP；
+        // 此前仅内联 NavigationLink 可达 → 通知深链/跨启动恢复均落空） ----
+        case .healthProblemList:
+            HealthProblemListView()
+        case .immunizationList:
+            ImmunizationHubView()
+        case .helpPermissionDiagnostics:
+            HelpPermissionDiagnostics()
+        case .helpReminderDiagnostics:
+            HelpReminderDiagnostics()
+        case .termsAndPrivacy:
+            HelpAboutView()
+
         // ---- SP-11 快速拍摄（TestFlight 实测修复：原先列入「尚未落地」降级，
         //      三入口点击静默回档案根——现接真实相机流 + 资料库入库管线） ----
         case .scanCapture(let kind):
