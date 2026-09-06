@@ -80,6 +80,10 @@ public enum AppSettingKey: String, Sendable, CaseIterable, Codable {
              .authCloudBackup, .authAnonymizedImprovement,
              .authHealthRead, .authVoiceDictation:
             return "true"
+        case .remindChannelMeds, .remindChannelApts, .remindChannelExam,
+             .remindChannelExpiry, .remindChannelAlert, .remindChannelBackup:
+            return "local"
+        case .inAppBannerEnabled: return "true"
         }
     }
 }
