@@ -207,7 +207,7 @@ struct RouteDestinationView: View {
 /// 审查修复：原渲染所属 Tab 模块根——路由已 push 进栈时再挂一个模块根
 /// 形成「栈内套娃」（用户点观察项推进一个一模一样的时间轴副本，返回
 /// 观感失效）。改为可见的「即将上线」提示页，返回即弹回原页。
-private struct RouteFallbackView: View {
+struct RouteFallbackView: View {
     let route: AppRoute
     var body: some View {
         ContentUnavailableView(L10n.routeComingSoon, systemImage: "hammer",
