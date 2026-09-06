@@ -32,79 +32,71 @@ jobs:
           echo "仓库: $REPO"
           echo ""
 
-          # ── 第1步：收集所有现存 workflow 名称 ──
+          # ── 收集现存 workflow 名称 ──
           EXISTING_WFS=$(gh api "repos/$REPO/actions/workflows" \
             --jq '.workflows[].name' 2>/dev/null)
 
-          # ── 第2步：拉取所有已完成的 run，按 workflow 分组 ──
+          # ── 拉取所有已完成的 run（按时间倒序，最新在前） ──
           ALL_RUNS_FILE=$(mktemp)
           gh run list \
             --repo "$REPO" \
             --status completed \
             --limit 500 \
             --json databaseId,name,conclusion,createdAt \
+            --jq 'sort_by(.createdAt) | reverse' \
             2>/dev/null > "$ALL_RUNS_FILE"
 
-          # 按 workflow name 分组（用临时文件）
-          GROUP_DIR=$(mktemp -d)
-          jq -r '.[] | "\(.name)\t\(.databaseId)\t\(.conclusion)\t\(.createdAt)"' \
-            "$ALL_RUNS_FILE" | while IFS=$'\t' read -r WF_NAME RUN_ID CONCLUSION CREATED_AT; do
-            echo "$RUN_ID" >> "$GROUP_DIR/$WF_NAME"
-          done
+          # ── 单次遍历，逐条判断 ──
+          # 已记录「首次成功」的 workflow
+          FOUND_FIRST_SUCCESS=$(mktemp)
+          COUNTS_FILE=$(mktemp)
+          echo "0 0" > "$COUNTS_FILE"
 
-          TOTAL_DELETED=0
-          TOTAL_KEPT=0
+          # 用 process substitution 避免子 shell 问题
+          while IFS=$'\t' read -r WF_NAME CONCLUSION RUN_ID; do
+            read DELETED KEPT < "$COUNTS_FILE"
 
-          # ── 第3步：遍历每个 workflow（包括已删除的） ──
-          for WF_FILE in "$GROUP_DIR"/*; do
-            WF_NAME=$(basename "$WF_FILE")
-            echo "── $WF_NAME ──"
-
-            # 找该 workflow 最近一次成功的 run
-            LATEST_SUCCESS_ID=$(jq -r \
-              --arg wf "$WF_NAME" \
-              '[.[] | select(.name == $wf and .conclusion == "success")] |
-               sort_by(.createdAt) | last | .databaseId // empty' \
-              "$ALL_RUNS_FILE" 2>/dev/null)
-
-            # 如果没有成功记录，用最新的任何 run
-            if [ -z "$LATEST_SUCCESS_ID" ]; then
-              LATEST_SUCCESS_ID=$(jq -r \
-                --arg wf "$WF_NAME" \
-                '[.[] | select(.name == $wf)] |
-                 sort_by(.createdAt) | last | .databaseId // empty' \
-                "$ALL_RUNS_FILE" 2>/dev/null)
-            fi
-
-            if [ -z "$LATEST_SUCCESS_ID" ]; then
-              echo "  无任何记录，跳过"
-              echo ""
-              continue
-            fi
-            echo "  保留: #$LATEST_SUCCESS_ID"
-
-            DELETED=0
-            KEPT=0
-            while read -r RUN_ID; do
-              if [ "$RUN_ID" = "$LATEST_SUCCESS_ID" ]; then
-                KEPT=$((KEPT + 1))
-                continue
-              fi
+            # 规则1：workflow 不存在 → 直接删除
+            if ! echo "$EXISTING_WFS" | grep -qxF "$WF_NAME"; then
               if gh run delete "$RUN_ID" --repo "$REPO" 2>/dev/null; then
-                echo "  删除: #$RUN_ID"
+                echo "  删除: #$RUN_ID ($WF_NAME - workflow 已删除)"
                 DELETED=$((DELETED + 1))
               fi
-            done < "$WF_FILE"
+              echo "$DELETED $KEPT" > "$COUNTS_FILE"
+              continue
+            fi
 
-            TOTAL_DELETED=$((TOTAL_DELETED + DELETED))
-            TOTAL_KEPT=$((TOTAL_KEPT + KEPT))
-            echo "  本轮删除 $DELETED，保留 $KEPT"
-            echo ""
-          done
+            # 规则2：未成功 → 直接删除
+            if [ "$CONCLUSION" != "success" ]; then
+              if gh run delete "$RUN_ID" --repo "$REPO" 2>/dev/null; then
+                echo "  删除: #$RUN_ID ($WF_NAME - 未成功)"
+                DELETED=$((DELETED + 1))
+              fi
+              echo "$DELETED $KEPT" > "$COUNTS_FILE"
+              continue
+            fi
 
-          # ── 清理 ──
-          rm -rf "$ALL_RUNS_FILE" "$GROUP_DIR"
+            # 规则3：成功但不是首次成功 → 删除
+            if grep -qxF "$WF_NAME" "$FOUND_FIRST_SUCCESS"; then
+              if gh run delete "$RUN_ID" --repo "$REPO" 2>/dev/null; then
+                echo "  删除: #$RUN_ID ($WF_NAME - 非首次成功)"
+                DELETED=$((DELETED + 1))
+              fi
+              echo "$DELETED $KEPT" > "$COUNTS_FILE"
+              continue
+            fi
 
+            # 规则4：首次成功 → 保留，记录
+            echo "$WF_NAME" >> "$FOUND_FIRST_SUCCESS"
+            echo "  保留: #$RUN_ID ($WF_NAME - 首次成功)"
+            KEPT=$((KEPT + 1))
+            echo "$DELETED $KEPT" > "$COUNTS_FILE"
+          done < <(jq -r '.[] | "\(.name)\t\(.conclusion)\t\(.databaseId)"' "$ALL_RUNS_FILE")
+
+          read TOTAL_DELETED TOTAL_KEPT < "$COUNTS_FILE"
+          rm -f "$ALL_RUNS_FILE" "$FOUND_FIRST_SUCCESS" "$COUNTS_FILE"
+
+          echo ""
           echo "=== 清理完成 ==="
           echo "总计删除: $TOTAL_DELETED 条"
           echo "总计保留: $TOTAL_KEPT 条"
