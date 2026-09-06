@@ -53,8 +53,19 @@ jobs:
           echo "0 0" > "$COUNTS_FILE"
 
           # 用 process substitution 避免子 shell 问题
+          MY_NAME="Cleanup Workflow Runs"
           while IFS=$'\t' read -r WF_NAME CONCLUSION RUN_ID; do
             read DELETED KEPT < "$COUNTS_FILE"
+
+            # 规则0：cleanup 自身 → 全部删除（当前运行的 run 是 in_progress，不在列表中）
+            if [ "$WF_NAME" = "$MY_NAME" ]; then
+              if gh run delete "$RUN_ID" --repo "$REPO" 2>/dev/null; then
+                echo "  删除: #$RUN_ID (cleanup 自身)"
+                DELETED=$((DELETED + 1))
+              fi
+              echo "$DELETED $KEPT" > "$COUNTS_FILE"
+              continue
+            fi
 
             # 规则1：workflow 不存在 → 直接删除
             if ! echo "$EXISTING_WFS" | grep -qxF "$WF_NAME"; then
