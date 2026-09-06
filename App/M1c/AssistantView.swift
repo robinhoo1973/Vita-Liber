@@ -141,7 +141,7 @@ struct AssistantView: View {
             }
             let recognition = try await app.imageRecognizer.recognize(data)
             if recognition.isEmpty {
-                imageNotice = ImageInputRules.noTextMessage
+                imageNotice = L10n.imageInputNoText
                 return
             }
             // BR-003：识别文本一律 D 级待确认——确认前不得提交为问题
@@ -154,7 +154,7 @@ struct AssistantView: View {
         } catch {
             Logger(subsystem: "com.vitaliber", category: "assistant")
                 .error("图片识别失败: \(error)")
-            imageNotice = ImageInputRules.noTextMessage
+            imageNotice = L10n.imageInputNoText
         }
     }
 
