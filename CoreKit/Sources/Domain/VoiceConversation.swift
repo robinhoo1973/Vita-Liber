@@ -114,6 +114,22 @@ public enum VoiceCommandGrammar {
     public static func parse(_ transcript: String, emergencyNumber: String = "120") -> VoiceIntent {
         let text = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return .unrecognized }
+        // 急救号码按语言区域匹配（仅数字，天然无正则元字符）：必须先于通用
+        // callContact 文法——「帮我打119」会被 (?:帮我)?(?:打|打给|拨打)(.+)
+        // 抢先命中成泛化联系人拨号，注入号码的急救拨号契约形同虚设
+        // （CI 34020363188 实证）。锚定句尾防「记录119条」误命中。
+        let emergencyDigits = emergencyNumber.filter(\.isNumber)
+        if !emergencyDigits.isEmpty {
+            let regex: NSRegularExpression?
+            do { regex = try NSRegularExpression(pattern: "(?:帮我)?(?:打|打给|拨打)\\s*\(emergencyDigits)\\s*$") }
+            catch { regex = nil }   // 注入号码非纯数字的极端情形：回落通用文法（文法表由本仓维护）
+            if let regex {
+                let range = NSRange(text.startIndex..<text.endIndex, in: text)
+                if regex.firstMatch(in: text, range: range) != nil {
+                    return .command(.callEmergency120)
+                }
+            }
+        }
         for pattern in patterns {
             // 不用 try?（tech-spec §7 红线）；文法表由本仓维护，
             // 编译失败属维护错误——显式跳过并保持白名单其余条目可用。
@@ -131,17 +147,6 @@ public enum VoiceCommandGrammar {
                     return .record(metricText: body.isEmpty ? text : body)
                 }
                 return .command(pattern.command)
-            }
-        }
-        // 急救号码按语言区域匹配（仅数字，天然无正则元字符）
-        let emergencyDigits = emergencyNumber.filter(\.isNumber)
-        if !emergencyDigits.isEmpty {
-            let regex: NSRegularExpression
-            do { regex = try NSRegularExpression(pattern: "(?:帮我)?打?\(emergencyDigits)") }
-            catch { return .unrecognized }
-            let range = NSRange(text.startIndex..<text.endIndex, in: text)
-            if regex.firstMatch(in: text, range: range) != nil {
-                return .command(.callEmergency120)
             }
         }
         return .unrecognized

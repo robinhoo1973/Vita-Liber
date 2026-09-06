@@ -66,6 +66,25 @@ public struct GRDBStore {
                 try db.execute(sql: "PRAGMA user_version = \(SchemaMigrations.latestVersion)")
                 return
             }
+        }
+        try migrateIncremental(writer: writer)
+    }
+
+    /// 既有库增量迁移：在**事务外**执行并临时关闭外键检查。
+    ///
+    /// 为什么不能沿用单事务：v13 等步骤是 SQLite 表重建（建新表→拷贝→换名），
+    /// 老库 dose_log 可能携带孤儿行（plan 已删）——重建 INSERT 会即时触发 FK
+    /// 违规（OR IGNORE 不覆盖 FOREIGN KEY 约束），迁移整体回滚、升级卡死
+    /// （CI 34020363188 实证）。`PRAGMA foreign_keys` 在事务内是 no-op，
+    /// 故按 SQLite 官方表重建流程：事务外关闭 FK → 迁移 → 重新开启；
+    /// 重建后 FK 声明仍在（运行时执法），历史孤儿行得以保留（数据保留原则）。
+    /// 原子性由「每步幂等 + user_version 逐步推进」保证（SchemaMigrations 头注纪律）。
+    private func migrateIncremental(writer: any DatabaseWriter) throws {
+        try writer.writeWithoutTransaction { db in
+            let version = try Int.fetchOne(db, sql: "PRAGMA user_version") ?? 0
+            guard version > 0, version < SchemaMigrations.latestVersion else { return }
+            try db.execute(sql: "PRAGMA foreign_keys = OFF")
+            defer { try? db.execute(sql: "PRAGMA foreign_keys = ON") }   // try?-ok: 复位失败仅影响后续运行时 FK 执法，不掩盖迁移主路径
             for step in SchemaMigrations.pending(from: version) {
                 for statement in SchemaMigrations.statements(step.sql) {
                     // 幂等：baseline 已含该列的库上重放 ADD COLUMN 会报 duplicate column

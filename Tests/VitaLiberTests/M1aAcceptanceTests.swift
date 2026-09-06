@@ -183,6 +183,9 @@ final class M1aAcceptanceTests: XCTestCase {
         app.commitToTimeline()
         XCTAssertEqual(app.timeline.count, 1)
         XCTAssertFalse(app.timeline[0].revisionHistory.isEmpty, "修订历史必须随文档入轴")
-        XCTAssertTrue(app.timeline[0].revisionHistory.contains("每日三次 每次一粒"))
+        // revisionHistory 是 [String]：元素级 contains 比较整条「旧 → 新 · 人 · 时间」，
+        // 必须用谓词 contains 检查任一条目内含旧值（CI 34020363188 实证——此断言
+        // 此前从未真实执行，数组 contains 恒 false）
+        XCTAssertTrue(app.timeline[0].revisionHistory.contains { $0.contains("每日三次 每次一粒") })
     }
 }

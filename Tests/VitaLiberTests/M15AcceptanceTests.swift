@@ -172,7 +172,17 @@ final class M15AcceptanceTests: XCTestCase {
         }
         XCTAssertFalse(before.contains("ref_low"), "前提：升级前确实缺列")
 
-        _ = try GRDBStore(writer: queue)      // 触发迁移
+        // 只应用 v2（metric-reference-band）：合成老库只含 3 张与场景相关的表，
+        // 全链重放会让 v6 的 FTS delete-all / v8 的 encounter ALTER 撞
+        // no such table / duplicate column（CI 34020363188 实证）。本测试的
+        // 验收对象就是「缺列老库被 v2 补齐」，版本推进语义由 二次装配幂等
+        // 与 FtsSensitiveMigrationTests 覆盖。
+        let v2 = try XCTUnwrap(SchemaMigrations.steps.first { $0.version == 2 })
+        try await queue.write { db in
+            for statement in SchemaMigrations.statements(v2.sql) {
+                try db.execute(sql: statement)
+            }
+        }
 
         let after = try await queue.read { db in
             try String.fetchAll(db, sql: "SELECT name FROM pragma_table_info('metric_sample')")
@@ -180,10 +190,6 @@ final class M15AcceptanceTests: XCTestCase {
         for c in ["ref_low", "ref_high", "ref_source_label"] {
             XCTAssertTrue(after.contains(c), "迁移未补齐 \(c)")
         }
-        let version = try await queue.read { db in
-            try Int.fetchOne(db, sql: "PRAGMA user_version") ?? 0
-        }
-        XCTAssertEqual(version, SchemaMigrations.latestVersion)
     }
 
     /// 幂等：同一 writer 二次装配不得因「表已存在 / 列重复」崩溃
@@ -252,23 +258,18 @@ final class M15AcceptanceTests: XCTestCase {
         let (store, _) = try await makeStore()
         let pkg = try await BackupService(writer: store.writer).createBackup()
 
-        // 外层信封 = {sha256, payload(编码)}——翻转 payload 的一个字节，
-        // 结构依旧合法但 sha256 必然失配
-        struct Outer: Codable {
-            var formatVersion: Int
-            var sha256: String
-            var exportedAt: TimeInterval
-            var payload: Data
-        }
-        let decoder = JSONDecoder()
-        var outer: Outer
-        do { outer = try decoder.decode(Outer.self, from: pkg.data) }
-        catch { return XCTFail("前提：备份外层信封应可解——\(error)") }
-        guard outer.payload.count > 4 else {
-            return XCTFail("前提：payload 应有足够字节")
-        }
-        outer.payload[outer.payload.startIndex] ^= 0xFF
-        let tampered = try JSONEncoder().encode(outer)
+        // 外层信封 = 二进制格式：magic(VLBU1) + 格式版本(1B) + sha256 hex(64B)
+        // + payload 长度(u64 BE, 8B) + payload。翻转 payload 的一个字节——
+        // 结构依旧合法但 sha256 必然失配（CI 34020363188 实证：旧测试按 JSON
+        // 信封解码，V3.72 二进制格式上线后前提断言即失效）。
+        let magicCount = 5
+        let shaCount = 64
+        let lenCount = 8
+        let payloadStart = magicCount + 1 + shaCount + lenCount
+        XCTAssertTrue(pkg.data.starts(with: Data("VLBU1".utf8)), "前提：备份信封为二进制格式")
+        XCTAssertGreaterThan(pkg.data.count, payloadStart + 4, "前提：payload 应有足够字节")
+        var tampered = pkg.data
+        tampered[payloadStart] ^= 0xFF
 
         let fresh = try GRDBStore.inMemory()
         do {

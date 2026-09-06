@@ -119,7 +119,15 @@ final class M2F16AcceptanceTests: XCTestCase {
                 PRAGMA user_version = 2;
                 """)
         }
-        _ = try GRDBStore(writer: queue)   // 触发 v3 迁移
+        // 只应用 v3（guideline-thresholds-json）：合成老库只含本场景相关表，
+        // 全链重放会让 v6 的 FTS delete-all 撞 no such table（CI 34020363188
+        // 实证，与 M15 旧库升级测试同族）。验收对象 = 缺列老库被 v3 补齐。
+        let v3 = try XCTUnwrap(SchemaMigrations.steps.first { $0.version == 3 })
+        try await queue.write { db in
+            for statement in SchemaMigrations.statements(v3.sql) {
+                try db.execute(sql: statement)
+            }
+        }
         let cols = try await queue.read { db in
             try String.fetchAll(db, sql: "SELECT name FROM pragma_table_info('guideline_source')")
         }

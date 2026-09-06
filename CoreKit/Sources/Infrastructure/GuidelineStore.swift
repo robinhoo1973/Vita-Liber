@@ -121,15 +121,20 @@ public actor GuidelineStore {
             throw StoreError.encodeFailed
         }
         try await writer.write { db in
-            // FR16.2 同一事件 24 小时去重：同一成员+规则+级别近 24h 已落过 →
-            // 不重复 INSERT（反复同步不再堆积重复预警行）
+            // FR16.2 同一事件去重：去重键 = 事件身份（成员+规则+读数时刻），
+            // 反复同步同一读数不再堆积重复行。旧实现按「成员+规则+级别+24h 窗口」
+            // 去重，把同一窗口内**不同读数**（同级别）也折叠成一条——L1 持续性
+            // 门槛的逐读数证据链被抹平，预警历史（FR16.10 全部提示可回溯）失真
+            // （CI 34020363188 实证：连续 3 次读数落库仅剩 1 条）。
+            // measuredAt 在 evidence_json 内（JSONEncoder Date 编码为
+            // reference-date Double），json_extract 与入参同编码可直接比较。
             if let existingId = try String.fetchOne(db, sql: """
                 SELECT id FROM alert_event
-                WHERE patient_id = ? AND rule_id = ? AND severity = ?
-                  AND created_at >= ?
+                WHERE patient_id = ? AND rule_id = ?
+                  AND json_extract(evidence_json, '$.measuredAt') = ?
                 LIMIT 1
-                """, arguments: [patientId.uuidString, ruleId, severity.rawValue,
-                                 event.createdAt.timeIntervalSince1970 - 24 * 3600]) {
+                """, arguments: [patientId.uuidString, ruleId,
+                                 reading.measuredAt.timeIntervalSinceReferenceDate]) {
                 _ = existingId
                 return
             }
