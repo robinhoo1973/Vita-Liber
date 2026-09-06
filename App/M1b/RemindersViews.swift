@@ -111,7 +111,7 @@ struct RemindersView: View {
                 .accessibilityIdentifier("FR24.5.entry")
             }
         }
-        .navigationTitle("提醒")
+        .navigationTitle(L10n.navReminders)
         .task(id: currentPatientId) {
             await reminders.refresh(patientId: currentPatientId)
         }
@@ -392,16 +392,16 @@ struct NewAppointmentSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                TextField("医院", text: $hospital)
+                TextField(L10n.reminderApptHospital, text: $hospital)
                     .accessibilityIdentifier("SP-12.appointment.hospital")
-                TextField("科室", text: $department)
+                TextField(L10n.reminderApptDepartment, text: $department)
                     .accessibilityIdentifier("SP-12.appointment.department")
-                DatePicker("时间", selection: $date, in: Date()...)
+                DatePicker(L10n.reminderApptTime, selection: $date, in: Date()...)
             }
-            .navigationTitle("添加预约")
+            .navigationTitle(L10n.reminderApptAdd)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("保存") { onCreate(hospital, department, date) }
+                    Button(L10n.commonSave) { onCreate(hospital, department, date) }
                         .disabled(hospital.trimmingCharacters(in: .whitespaces).isEmpty)
                         .accessibilityIdentifier("SP-12.appointment.save")
                 }

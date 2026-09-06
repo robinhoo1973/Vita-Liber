@@ -49,7 +49,7 @@ struct AssistantView: View {
                         MessageBubble(message: message)
                     }
                     if assistant.busy {
-                        ProgressView("正在检索你的资料…")
+                        ProgressView(L10n.assistantSearching)
                             .padding()
                     }
                 }
@@ -76,9 +76,9 @@ struct AssistantView: View {
                     VLIcon.photo.resizable().frame(width: 22, height: 22)
                         .frame(width: 44, height: 44)
                 }
-                .accessibilityLabel("添加图片或报告照片")
+                .accessibilityLabel(L10n.assistantAddImageLabel)
                 .accessibilityIdentifier("FR12.11.pickImage")
-                TextField("问一个与你资料相关的问题", text: $draft, axis: .vertical)
+                TextField(L10n.assistantQuestionPlaceholder, text: $draft, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
                     .lineLimit(1...3)
                     .accessibilityIdentifier("SP-21.ai.input")
@@ -136,7 +136,7 @@ struct AssistantView: View {
         imageNotice = nil
         do {
             guard let data = try await item.loadTransferable(type: Data.self) else {
-                imageNotice = "无法读取这张图片"
+                imageNotice = L10n.assistantImageReadError
                 return
             }
             let recognition = try await app.imageRecognizer.recognize(data)
@@ -184,13 +184,13 @@ struct ImageConfirmSheet: View {
                                   style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
                 .accessibilityIdentifier("FR12.11.confirm.text")
             }
-            Label("图片识别结果未经你确认，不会作为事实提交", systemImage: "exclamationmark.triangle")
+            Label(L10n.assistantImageConfirmNotice, systemImage: "exclamationmark.triangle")
                 .font(.caption).foregroundStyle(Color("grade-d", bundle: .main))
                 .accessibilityIdentifier("FR12.11.unconfirmed")
             HStack(spacing: 12) {
-                Button("取消", action: onCancel).frame(minHeight: 44)
+                Button(L10n.commonCancel, action: onCancel).frame(minHeight: 44)
                 Spacer()
-                Button("确认并填入问题") {
+                Button(L10n.assistantConfirmFillIn) {
                     var confirmed = set
                     for i in confirmed.fields.indices { _ = confirmed.fields[i].confirm() }
                     onConfirm(confirmed)
@@ -255,7 +255,7 @@ struct AnswerBodyView: View {
             .accessibilityIdentifier("SP-21.ai.emergency")
         case .refused(let r):
             VStack(alignment: .leading, spacing: 8) {
-                Label(r.reason == .highRiskTopic ? "无法回答这个问题" : "资料不足",
+                Label(r.reason == .highRiskTopic ? L10n.assistantCannotAnswer : L10n.assistantInsufficient,
                       systemImage: "info.circle")
                     .font(.headline)
                 Text(AssistantStore.refusalDetail(r.reason)).font(.body)

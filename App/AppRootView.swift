@@ -28,6 +28,8 @@ struct AppRootView: View {
     @State private var timezoneChanged = false
     /// FR1.4 宽限锁任务（V3.72 接线：0/15/60 秒可配置；此前键死、立即锁无宽限）
     @State private var graceLockTask: Task<Void, Never>?
+    /// FR14.5 语言切换即时生效：L10n.setLanguage 发通知，递增计数器强制视图重建
+    @State private var languageVersion = 0
 
     var body: some View {
         Group {
@@ -39,6 +41,8 @@ struct AppRootView: View {
                 RootAdaptiveView()
             }
         }
+        // FR14.5 语言切换即时生效：L10n 变更后强制重建整个视图树
+        .id(languageVersion)
         // FR14.4 主题注入（tech-spec §5.28.1）：nil = 跟随系统；@Observable 读值即时生效
         .preferredColorScheme(currentTheme.colorScheme)
         // FR14.4 高对比度初始实现 = 环境对比度增强（§5.28.1 记录为偏差：HC Token 集归 L2）
@@ -70,6 +74,11 @@ struct AppRootView: View {
                 // FR13.10 定期备份提醒（默认 30 天；只引导，不自动建包；联动 F22.4）
                 await reminderStore.scheduleBackupReminderIfNeeded(lastBackupAt: appState.lastBackupAt)
             }
+        }
+        // FR14.5 语言切换即时生效：监听 L10n 通知，递增版本号强制视图重建
+        .onReceive(NotificationCenter.default.publisher(
+            for: L10n.languageDidChange)) { _ in
+            languageVersion += 1
         }
         // 四层补偿第 3 层：时区/时间显著变化 → 立即对账（View 级修饰符）
         .onReceive(NotificationCenter.default.publisher(

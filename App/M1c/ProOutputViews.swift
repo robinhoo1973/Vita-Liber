@@ -12,12 +12,12 @@ struct ProOutputHubView: View {
     @State private var previewProduct: String?
 
     private let products: [(name: String, detail: String, capability: String)] = [
-        ("医生摘要定制模板", "按就诊生成可定制的医生沟通摘要", "doctorSummary"),
-        ("报销汇总导出", "报销票据一键汇总导出", "claimSummaryExport"),
-        ("药箱总览", "家庭药箱跨成员总览视图", "familyCabinet"),
-        ("核保资料包", "勾选范围加密打包（追加包）", "insurancePack"),
-        ("自定义预警阈值", "F16 预警阈值个性化（追加包）", "customThreshold"),
-        ("配药清单高级模板", "配药清单模板定制（追加包）", "dispenseTemplate"),
+        (L10n.proFeatureDoctorSummary, L10n.proFeatureDoctorSummaryDesc, "doctorSummary"),
+        (L10n.proFeatureClaimExport, L10n.proFeatureClaimExportDesc, "claimSummaryExport"),
+        (L10n.proFeatureFamilyCabinet, L10n.proFeatureFamilyCabinetDesc, "familyCabinet"),
+        (L10n.proFeatureInsurancePack, L10n.proFeatureInsurancePackDesc, "insurancePack"),
+        (L10n.proFeatureCustomThreshold, L10n.proFeatureCustomThresholdDesc, "customThreshold"),
+        (L10n.proFeatureDispenseTemplate, L10n.proFeatureDispenseTemplateDesc, "dispenseTemplate"),
     ]
 
     var body: some View {
@@ -43,8 +43,8 @@ struct ProOutputHubView: View {
                 .accessibilityIdentifier("SP-61.output.\(product.capability)")
             }
         }
-        .navigationTitle("Pro 产出包")
-        .alert("产出预览", isPresented: Binding(
+        .navigationTitle(L10n.proOutputTitle)
+        .alert(L10n.proOutputPreview, isPresented: Binding(
             get: { previewProduct != nil },
             set: { if !$0 { previewProduct = nil } })) {
             Button(L10n.onboard_gotIt, role: .cancel) {}

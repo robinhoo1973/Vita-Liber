@@ -43,9 +43,9 @@ struct PaywallView: View {
             Text(L10n.pay_valueProp).font(.footnote).foregroundStyle(.secondary)
 
             VStack(spacing: 12) {
-                productCard("Pro 年度", "¥68/年", detail: "多成员扩展 · 医生摘要模板 · 报销导出 · 药箱总览")
-                productCard("Pro 月度", "¥12/月", detail: "同上能力，按月订阅（7 天免费试用）")
-                productCard("追加包", "单独定价", detail: "核保资料包 · 自定义预警阈值 · 配药清单高级模板")
+                productCard(L10n.payProYearly, L10n.payProYearlyPrice, detail: L10n.payProYearlyDetail)
+                productCard(L10n.payProMonthly, L10n.payProMonthlyPrice, detail: L10n.payProMonthlyDetail)
+                productCard(L10n.payAddonPack, L10n.payAddonPrice, detail: L10n.payAddonDetail)
             }
             .padding(.horizontal, 16)
 

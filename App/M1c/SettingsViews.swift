@@ -252,7 +252,7 @@ struct AuditLogView: View {
                     .font(.caption2).foregroundStyle(.secondary)
             }
         }
-        .navigationTitle("审计记录")
+        .navigationTitle(L10n.settings_audit)
         .task { await settings.loadAudit() }
     }
 }

@@ -57,9 +57,9 @@ struct DisclosureCardsView: View {
     }
     private var title: String {
         switch card.kind {
-        case .boundary: return "这不是医疗设备"
-        case .storage: return "数据只在本机"
-        case .skipInfo: return "这些可以稍后再做"
+        case .boundary: return L10n.onboardBoundaryTitle
+        case .storage: return L10n.onboardStorageTitle
+        case .skipInfo: return L10n.onboardSkipInfoTitle
         }
     }
 }
@@ -412,7 +412,7 @@ struct ConfirmFieldRowView: View {
                 Text(L10n.onboardRejected)
                     .font(.caption).foregroundStyle(.secondary)
             } else {
-                Button("确认", action: onConfirm)
+                Button(L10n.onboard_confirm, action: onConfirm)
                     .buttonStyle(.bordered)
                     .frame(minHeight: 44)                       // 触控目标 ≥44pt
                     .accessibilityIdentifier("SP-53.field.confirm.\(field.key)")
@@ -461,9 +461,9 @@ struct ConfirmFieldRowView: View {
 
     private var tierText: String {
         switch ConfidenceTier.tier(field.confidence) {
-        case .high: return "高置信度"
-        case .mid: return "中置信度"
-        case .low: return "低置信度"
+        case .high: return L10n.onboardConfidenceHigh
+        case .mid: return L10n.onboardConfidenceMid
+        case .low: return L10n.onboardConfidenceLow
         }
     }
 

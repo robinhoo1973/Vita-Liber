@@ -267,13 +267,27 @@ struct MemberCreateSheet: View {
 
     private let relations = ["配偶", "子女", "父母", "祖父母", "其他"]
 
+    /// 关系显示名本地化映射（存储值仍为中文原始值，仅显示时本地化）
+    private func localizedRelation(_ raw: String) -> String {
+        switch raw {
+        case "配偶": return L10n.memberRelationPartner
+        case "子女": return L10n.memberRelationChild
+        case "父母": return L10n.memberRelationParent
+        case "祖父母": return L10n.memberRelationGrandparent
+        case "其他": return L10n.memberRelationOther
+        default: return raw
+        }
+    }
+
     var body: some View {
         NavigationStack {
             Form {
                 TextField(L10n.member_namePlaceholder, text: $name)
                     .accessibilityIdentifier("FR3.7.create.name")
                 Picker(L10n.member_relation, selection: $relation) {
-                    ForEach(relations, id: \.self) { Text($0) }
+                    ForEach(relations, id: \.self) { rel in
+                        Text(localizedRelation(rel)).tag(rel)
+                    }
                 }
                 TextField(L10n.member_birthDatePlaceholder, text: $birthDate)
                     .accessibilityIdentifier("FR3.7.create.birthDate")

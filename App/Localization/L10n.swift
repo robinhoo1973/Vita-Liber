@@ -385,6 +385,12 @@ enum L10n {
     static var onboard_voiceNote: String { t("onboard.voiceNote") }
     static var onboard_ownerNote: String { t("onboard.ownerNote") }
     static var onboard_unconfirmedBadge: String { t("onboard.unconfirmedBadge") }
+    static var onboardBoundaryTitle: String { t("onboard.boundaryTitle") }
+    static var onboardStorageTitle: String { t("onboard.storageTitle") }
+    static var onboardSkipInfoTitle: String { t("onboard.skipInfoTitle") }
+    static var onboardConfidenceHigh: String { t("onboard.confidenceHigh") }
+    static var onboardConfidenceMid: String { t("onboard.confidenceMid") }
+    static var onboardConfidenceLow: String { t("onboard.confidenceLow") }
     static var help_appName: String { t("help.appName") }
     static var help_tagline: String { t("help.tagline") }
     static var help_title: String { t("help.title") }
@@ -404,6 +410,31 @@ enum L10n {
     static var pay_valueProp: String { t("pay.valueProp") }
     static var payTrustCopy: String { t("pay.trustCopy") }
     static var pay_buy: String { t("pay.buy") }
+    static var payProYearly: String { t("pay.proYearly") }
+    static var payProYearlyPrice: String { t("pay.proYearlyPrice") }
+    static var payProYearlyDetail: String { t("pay.proYearlyDetail") }
+    static var payProMonthly: String { t("pay.proMonthly") }
+    static var payProMonthlyPrice: String { t("pay.proMonthlyPrice") }
+    static var payProMonthlyDetail: String { t("pay.proMonthlyDetail") }
+    static var payAddonPack: String { t("pay.addonPack") }
+    static var payAddonPrice: String { t("pay.addonPrice") }
+    static var payAddonDetail: String { t("pay.addonDetail") }
+
+    // MARK: - Pro 产出包
+    static var proOutputTitle: String { t("pro.outputTitle") }
+    static var proOutputPreview: String { t("pro.outputPreview") }
+    static var proFeatureDoctorSummary: String { t("pro.featureDoctorSummary") }
+    static var proFeatureDoctorSummaryDesc: String { t("pro.featureDoctorSummaryDesc") }
+    static var proFeatureClaimExport: String { t("pro.featureClaimExport") }
+    static var proFeatureClaimExportDesc: String { t("pro.featureClaimExportDesc") }
+    static var proFeatureFamilyCabinet: String { t("pro.featureFamilyCabinet") }
+    static var proFeatureFamilyCabinetDesc: String { t("pro.featureFamilyCabinetDesc") }
+    static var proFeatureInsurancePack: String { t("pro.featureInsurancePack") }
+    static var proFeatureInsurancePackDesc: String { t("pro.featureInsurancePackDesc") }
+    static var proFeatureCustomThreshold: String { t("pro.featureCustomThreshold") }
+    static var proFeatureCustomThresholdDesc: String { t("pro.featureCustomThresholdDesc") }
+    static var proFeatureDispenseTemplate: String { t("pro.featureDispenseTemplate") }
+    static var proFeatureDispenseTemplateDesc: String { t("pro.featureDispenseTemplateDesc") }
 
         static var member_title: String { t("member.title") }
     static var member_add: String { t("member.add") }
@@ -413,6 +444,11 @@ enum L10n {
     static var member_relation: String { t("member.relation") }
     static var member_birthDatePlaceholder: String { t("member.birthDatePlaceholder") }
     static var member_save: String { t("member.save") }
+    static var memberRelationPartner: String { t("member.relationPartner") }
+    static var memberRelationChild: String { t("member.relationChild") }
+    static var memberRelationParent: String { t("member.relationParent") }
+    static var memberRelationGrandparent: String { t("member.relationGrandparent") }
+    static var memberRelationOther: String { t("member.relationOther") }
     static var member_quotaHint: String { t("member.quotaHint") }
     static var member_addedHint: String { t("member.addedHint") }
 
@@ -485,6 +521,14 @@ enum L10n {
     static var docDetailNotFound: String { t("doc.detailNotFound") }
     static var assistant_addRecords: String { t("assistant.addRecords") }
     static var assistant_consultDoctor: String { t("assistant.consultDoctor") }
+    static var assistantSearching: String { t("assistant.searching") }
+    static var assistantQuestionPlaceholder: String { t("assistant.questionPlaceholder") }
+    static var assistantImageReadError: String { t("assistant.imageReadError") }
+    static var assistantImageConfirmNotice: String { t("assistant.imageConfirmNotice") }
+    static var assistantConfirmFillIn: String { t("assistant.confirmFillIn") }
+    static var assistantCannotAnswer: String { t("assistant.cannotAnswer") }
+    static var assistantInsufficient: String { t("assistant.insufficient") }
+    static var assistantAddImageLabel: String { t("assistant.addImageLabel") }
     static var claim_type: String { t("claim.type") }
     static var claim_amount: String { t("claim.amount") }
     static var claim_date: String { t("claim.date") }
@@ -708,6 +752,7 @@ enum L10n {
     // MARK: - L10n 清偿批五 · 通用动作
     static var commonSave: String { t("common.save") }
     static var commonCancel: String { t("common.cancel") }
+    static var commonConfirm: String { t("common.confirm") }
 
     // MARK: - L10n 清偿批五 · 双轨库存（FR9.8）
     static var inventoryDualLineTitle: String { t("inventory.dualLineTitle") }
@@ -1292,7 +1337,28 @@ enum L10n {
         "voiceguide.note.contact",
         "voiceguide.note.history",
         "voiceguide.note.meds",
-        "voiceguide.saved"
+        "voiceguide.saved",
+        // 本地化清偿批（2026-09-06）：硬编码字符串替换
+        "common.confirm",
+        "pay.proYearly", "pay.proYearlyPrice", "pay.proYearlyDetail",
+        "pay.proMonthly", "pay.proMonthlyPrice", "pay.proMonthlyDetail",
+        "pay.addonPack", "pay.addonPrice", "pay.addonDetail",
+        "pro.outputTitle", "pro.outputPreview",
+        "pro.featureDoctorSummary", "pro.featureDoctorSummaryDesc",
+        "pro.featureClaimExport", "pro.featureClaimExportDesc",
+        "pro.featureFamilyCabinet", "pro.featureFamilyCabinetDesc",
+        "pro.featureInsurancePack", "pro.featureInsurancePackDesc",
+        "pro.featureCustomThreshold", "pro.featureCustomThresholdDesc",
+        "pro.featureDispenseTemplate", "pro.featureDispenseTemplateDesc",
+        "reminder.apptAdd", "reminder.apptHospital", "reminder.apptDepartment", "reminder.apptTime",
+        "assistant.searching", "assistant.questionPlaceholder",
+        "assistant.imageReadError", "assistant.imageConfirmNotice",
+        "assistant.confirmFillIn", "assistant.cannotAnswer", "assistant.insufficient",
+        "assistant.addImageLabel",
+        "onboard.boundaryTitle", "onboard.storageTitle", "onboard.skipInfoTitle",
+        "onboard.confidenceHigh", "onboard.confidenceMid", "onboard.confidenceLow",
+        "member.relationPartner", "member.relationChild", "member.relationParent",
+        "member.relationGrandparent", "member.relationOther"
     ]
 
     // MARK: - FR14.8 Tab badge
@@ -1863,6 +1929,10 @@ enum L10n {
     static var reminder_planKindMealHint: String { t("reminder.planKindMealHint") }
     static var reminder_planKindAsNeededHint: String { t("reminder.planKindAsNeededHint") }
     static var reminder_planNew: String { t("reminder.planNew") }
+    static var reminderApptAdd: String { t("reminder.apptAdd") }
+    static var reminderApptHospital: String { t("reminder.apptHospital") }
+    static var reminderApptDepartment: String { t("reminder.apptDepartment") }
+    static var reminderApptTime: String { t("reminder.apptTime") }
     static var ocrQueueTitle: String { t("ocrQueue.title") }
     static var ocrQueueEmpty: String { t("ocrQueue.empty") }
     static var ocrQueueEmptyHint: String { t("ocrQueue.emptyHint") }
@@ -2202,6 +2272,9 @@ enum L10n {
         return languageCache
     }
 
+    /// 语言切换通知：setLanguage 发送，AppRootView 监听以强制视图重建
+    static let languageDidChange = Notification.Name("L10nLanguageDidChange")
+
     /// FR14.5 语言切换入口（设置页调用；App 启动时以持久化偏好初始化）
     static func setLanguage(_ lang: String) {
         guard supportedLocalizations.contains(lang) else { return }
@@ -2210,6 +2283,7 @@ enum L10n {
         bundleCache = nil
         cacheLock.unlock()
         UserDefaults.standard.set(lang, forKey: "vl.language")
+        NotificationCenter.default.post(name: languageDidChange, object: lang)
     }
 
     /// 启动恢复：从持久化偏好初始化（AppRootView .task 调用）
