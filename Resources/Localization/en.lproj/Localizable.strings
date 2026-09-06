@@ -913,19 +913,35 @@
 "ocrQueue.title" = "Pending Recognized Fields";
 "ocr.field.text" = "Recognized text";
 "ocr.field.line" = "Line %d";
-"ocr.storage.hint"
+"ocr.storage.hint" = "Saved to Timeline and your library after confirmation; originals stay on this device, written once and never modified";
 "timezone.changed.title" = "Time Zone Changed";
-"timezone.changed.body"
-"observation.colorDisclaimer"
-"nc.archive"
+"timezone.changed.body" = "Your device time zone has changed. Please double-check your medication and appointment times.";
+"observation.colorDisclaimer" = "Photo colors are affected by lighting, white balance and the container — never use them for self-diagnosis.";
+"nc.archive" = "Archive";
 "metric.overview.title" = "Metrics";
 "metric.overview.empty" = "No metrics yet";
-"metric.overview.emptyHint"
+"metric.overview.emptyHint" = "Tap + to record your first reading";
 "showcase.title" = "Show Doctor";
 "showcase.exit" = "Exit";
 "showcase.empty" = "No observations yet";
-"showcase.unlockReason" = "Enter doctor showcase mode"; = "Tap + to record your first reading"; = "Archive"; = "Photo colors are affected by lighting, white balance and the container — never use them for self-diagnosis."; = "Your device time zone has changed. Please double-check your medication and appointment times."; = "Saved to Timeline and your library after confirmation;
- originals stay on this device, written once and never modified";"ocr.field.title" = "Title";
+"showcase.unlockReason" = "Enter doctor showcase mode";
+"remch.title" = "Reminder Delivery";
+"remch.sectionHint" = "Delivery style for each reminder type";
+"remch.sectionFooter" = "Ring-until-confirmed requires a special system permission; it takes effect after approval in a later version";
+"remch.meds" = "Medications";
+"remch.apts" = "Appointments";
+"remch.exam" = "Exam prep";
+"remch.expiry" = "Expiring meds";
+"remch.alert" = "Health alerts";
+"remch.backup" = "Backup reminders";
+"remch.local" = "Notification only";
+"remch.ring" = "Notify + ring until confirmed";
+"remch.inApp" = "Silent, banner only";
+"remch.bannerToggle" = "In-app banners";
+"remch.bannerFooter" = "Due reminders appear as banners while the app is open, auto-dismissed in 5s";
+"banner.doseDue" = "Time for your medication";
+"banner.confirm" = "Confirm taken";
+"banner.later" = "Later";
 "ocrQueue.empty" = "No pending fields";
 "ocrQueue.emptyHint" = "All recognized fields are handled. Newly recognized medication names, doses and dates appear here first and only take effect after confirmation.";
 "ocrQueue.countFmt" = "%d fields pending";

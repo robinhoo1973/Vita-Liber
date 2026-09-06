@@ -130,6 +130,7 @@ struct RootAdaptiveView: View {
         }
         // FR18.6 右下角常驻 SOS 悬浮球（仅关怀模式；可半透明；设置可关闭——
         // 悬浮球被关闭后关怀首页「呼救」大卡仍保留，求助能力不因单一开关消失）
+        .overlay(alignment: .top) { InAppBannerHost() }   // §4.22 前台到期横幅（V3.72）
         .overlay(alignment: .bottomTrailing) {
             if appState.careMode && careSettingsSOSOrbVisible {
                 SOSOrb()

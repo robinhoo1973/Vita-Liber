@@ -913,18 +913,35 @@
 "ocrQueue.title" = "待确认识别字段";
 "ocr.field.text" = "识别文本";
 "ocr.field.line" = "第 %d 行";
-"ocr.storage.hint"
+"ocr.storage.hint" = "确认后存入时间轴与资料库；原件保留在本机专用目录，只写一次、永不修改";
 "timezone.changed.title" = "时区已变化";
-"timezone.changed.body"
-"observation.colorDisclaimer"
-"nc.archive"
+"timezone.changed.body" = "检测到设备时区发生变化，请核对用药与预约的计划时间。";
+"observation.colorDisclaimer" = "照片颜色受光线、白平衡与容器影响，不能用于自我诊断";
+"nc.archive" = "归档";
 "metric.overview.title" = "指标";
 "metric.overview.empty" = "还没有指标记录";
-"metric.overview.emptyHint"
+"metric.overview.emptyHint" = "点右上角 + 快速录入第一条自测读数";
 "showcase.title" = "给医生看";
 "showcase.exit" = "退出展示";
 "showcase.empty" = "暂无观察记录";
-"showcase.unlockReason" = "进入就诊展示模式"; = "点右上角 + 快速录入第一条自测读数"; = "归档"; = "照片颜色受光线、白平衡与容器影响，不能用于自我诊断"; = "检测到设备时区发生变化，请核对用药与预约的计划时间。"; = "确认后存入时间轴与资料库；原件保留在本机专用目录，只写一次、永不修改";
+"showcase.unlockReason" = "进入就诊展示模式";
+"remch.title" = "提醒触达";
+"remch.sectionHint" = "每类提醒的触达方式";
+"remch.sectionFooter" = "响铃直到确认需要系统特殊权限，将在后续版本申请后生效";
+"remch.meds" = "用药";
+"remch.apts" = "预约";
+"remch.exam" = "检查准备";
+"remch.expiry" = "药品临期";
+"remch.alert" = "健康预警";
+"remch.backup" = "备份提醒";
+"remch.local" = "仅通知";
+"remch.ring" = "通知+响铃直到确认";
+"remch.inApp" = "静音仅横幅";
+"remch.bannerToggle" = "应用内横幅";
+"remch.bannerFooter" = "App 打开时到期提醒以横幅呈现，5 秒收起";
+"banner.doseDue" = "服药时间到";
+"banner.confirm" = "确认服药";
+"banner.later" = "稍后"; = "App 打开时到期提醒以横幅呈现，5 秒收起"; = "进入就诊展示模式"; = "点右上角 + 快速录入第一条自测读数"; = "归档"; = "照片颜色受光线、白平衡与容器影响，不能用于自我诊断"; = "检测到设备时区发生变化，请核对用药与预约的计划时间。"; = "确认后存入时间轴与资料库；原件保留在本机专用目录，只写一次、永不修改";
 "ocr.field.title" = "标题";
 "ocrQueue.empty" = "暂无待确认字段";
 "ocrQueue.emptyHint" = "全部识别字段已处理。新识别的药名、剂量、日期会先出现在这里，确认后才生效。";

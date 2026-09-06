@@ -51,6 +51,18 @@ struct SettingsView: View {
             } footer: {
                 Text(L10n.settings_highContrastFooter)
             }
+            // §5.12 通知中心与提醒偏好组（V3.72 补：此前设置中心无通知中心入口，
+            // 首页铃铛是唯一路径；提醒触达设置页亦缺失）
+            Section(L10n.ncTitle) {
+                NavigationLink(L10n.ncTitle) {
+                    NotificationCenterView()
+                }
+                .accessibilityIdentifier("SP-26.notificationCenter")
+                NavigationLink(L10n.remchTitle) {
+                    ReminderChannelSettingsView()
+                }
+                .accessibilityIdentifier("SP-26.remch.entry")
+            }
             Section(L10n.settings_habits) {
                 // FR14.7 常用习惯：可编辑偏好中心（含「仅新建/全局生效」标签）
                 NavigationLink(L10n.settings_habits) {

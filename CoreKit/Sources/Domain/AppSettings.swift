@@ -38,6 +38,15 @@ public enum AppSettingKey: String, Sendable, CaseIterable, Codable {
     case authAnonymizedImprovement // 匿名化改进
     case authHealthRead           // 读取 Apple 健康（F16）
     case authVoiceDictation       // 语音速记识别
+    // FR9.18 分通道偏好（§5.58，V3.72）：每类提醒三选一（local 仅通知/
+    // persistentRing 通知+响铃直到确认/inApp 静音仅横幅）；remindChannel 为全局缺省
+    case remindChannelMeds
+    case remindChannelApts
+    case remindChannelExam
+    case remindChannelExpiry
+    case remindChannelAlert
+    case remindChannelBackup
+    case inAppBannerEnabled        // 应用内横幅总开关（默认开）
 
     /// 键默认值（单一事实源：新增键必须补 default，禁止 UserDefaults 直读兜底）
     public var defaultValue: String {

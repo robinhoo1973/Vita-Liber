@@ -1254,6 +1254,8 @@ enum L10n {
         "nc.archive",
         "metric.overview.title", "metric.overview.empty", "metric.overview.emptyHint",
         "showcase.title", "showcase.exit", "showcase.empty", "showcase.unlockReason",
+        "remch.title", "remch.sectionHint", "remch.sectionFooter", "remch.meds", "remch.apts", "remch.exam", "remch.expiry", "remch.alert", "remch.backup", "remch.local", "remch.ring", "remch.inApp", "remch.bannerToggle", "remch.bannerFooter",
+        "banner.doseDue", "banner.confirm", "banner.later",
         "paywall.purchaseFailed",
         "paywall.restoreFailed",
         "paywall.restoreNothing",
@@ -1741,6 +1743,23 @@ enum L10n {
     static var showcaseExit: String { t("showcase.exit") }
     static var showcaseEmpty: String { t("showcase.empty") }
     static var showcaseUnlockReason: String { t("showcase.unlockReason") }
+    static var remchTitle: String { t("remch.title") }
+    static var remchSectionHint: String { t("remch.sectionHint") }
+    static var remchSectionFooter: String { t("remch.sectionFooter") }
+    static var remchMeds: String { t("remch.meds") }
+    static var remchApts: String { t("remch.apts") }
+    static var remchExam: String { t("remch.exam") }
+    static var remchExpiry: String { t("remch.expiry") }
+    static var remchAlert: String { t("remch.alert") }
+    static var remchBackup: String { t("remch.backup") }
+    static var remchLocal: String { t("remch.local") }
+    static var remchRing: String { t("remch.ring") }
+    static var remchInApp: String { t("remch.inApp") }
+    static var remchBannerToggle: String { t("remch.bannerToggle") }
+    static var remchBannerFooter: String { t("remch.bannerFooter") }
+    static var bannerDoseDue: String { t("banner.doseDue") }
+    static var bannerConfirm: String { t("banner.confirm") }
+    static var bannerLater: String { t("banner.later") }
     static var ocrQueueTitle: String { t("ocrQueue.title") }
     static var ocrQueueEmpty: String { t("ocrQueue.empty") }
     static var ocrQueueEmptyHint: String { t("ocrQueue.emptyHint") }
