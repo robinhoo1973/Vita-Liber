@@ -3,19 +3,13 @@
 #
 # 定时清理：只保留每个 workflow 最近一次成功的执行记录，其余全部删除。
 # 调度：中国时间每天凌晨 0:00（UTC 16:00）
-#
-# 逻辑：
-#   1. 列出仓库所有 workflow
-#   2. 对每个 workflow，按时间倒序找到最近一次 status=completed conclusion=success 的 run
-#   3. 删除该 workflow 下除该 run 以外的所有其他 run
-#   4. 跳过当前正在运行的 run（避免误删）
 # ============================================================================
 name: Cleanup Workflow Runs
 
 on:
   schedule:
     - cron: '0 16 * * *'   # UTC 16:00 = 北京时间 00:00
-  workflow_dispatch:         # 支持手动触发
+  workflow_dispatch:
 
 permissions:
   actions: write
@@ -32,101 +26,71 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -uo pipefail
+          REPO="${{ github.repository }}"
           echo "=== Workflow Run 清理开始 ==="
-          echo "时间: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-          echo "仓库: ${{ github.repository }}"
-          echo ""
-
-          # 获取所有 workflow 文件名（gh run list --workflow 需要文件名，不是 ID）
-          WORKFLOW_FILES=$(gh api "repos/${{ github.repository }}/actions/workflows" \
-            --jq '.workflows[].path' 2>&1) || {
-            echo "错误: 获取 workflow 列表失败"
-            echo "$WORKFLOW_FILES"
-            exit 1
-          }
-
-          if [ -z "$WORKFLOW_FILES" ]; then
-            echo "警告: 未找到任何 workflow"
-            exit 0
-          fi
-
-          echo "找到的 workflow 文件:"
-          echo "$WORKFLOW_FILES" | sed 's/^/  /'
+          echo "仓库: $REPO"
           echo ""
 
           TOTAL_DELETED=0
           TOTAL_KEPT=0
 
-          while IFS= read -r WF_PATH; do
-            # WF_PATH 类似 ".github/workflows/build-testflight.yml"
-            WF_NAME=$(basename "$WF_PATH")
-            echo "── 处理: $WF_NAME ──"
+          # 获取所有 workflow 文件名
+          WORKFLOW_FILES=$(gh api "repos/$REPO/actions/workflows" \
+            --jq '.workflows[].path' 2>/dev/null)
 
-            # 找到该 workflow 最近一次成功的 run
-            # 评审修正 C5：--limit 200 防止长红链把最后一绿挤出窗口
+          if [ -z "$WORKFLOW_FILES" ]; then
+            echo "未找到任何 workflow"
+            exit 0
+          fi
+
+          while IFS= read -r WF_PATH; do
+            WF_NAME=$(basename "$WF_PATH")
+            echo "── $WF_NAME ──"
+
+            # 找最近一次成功的 run ID
             LATEST_SUCCESS_ID=$(gh run list \
-              --repo "${{ github.repository }}" \
+              --repo "$REPO" \
               --workflow "$WF_NAME" \
               --status completed \
               --limit 200 \
               --json databaseId,conclusion,createdAt \
               --jq '[.[] | select(.conclusion == "success")] | sort_by(.createdAt) | last | .databaseId' \
-              2>&1) || true
+              2>/dev/null)
 
             if [ -z "$LATEST_SUCCESS_ID" ] || [ "$LATEST_SUCCESS_ID" = "null" ]; then
-              echo "  无成功记录（200 条内），将清理所有已完成 run"
-              LATEST_SUCCESS_ID=""
-            else
-              echo "  保留最近成功 run: #$LATEST_SUCCESS_ID"
+              echo "  无成功记录，跳过"
+              echo ""
+              continue
             fi
+            echo "  保留: #$LATEST_SUCCESS_ID"
 
-            # 循环删除，直到没有更多需要清理的 run
+            # 获取所有已完成的 run ID（用临时文件避免子 shell 问题）
+            RUN_IDS_FILE=$(mktemp)
+            gh run list \
+              --repo "$REPO" \
+              --workflow "$WF_NAME" \
+              --status completed \
+              --limit 500 \
+              --json databaseId \
+              --jq '.[].databaseId' 2>/dev/null > "$RUN_IDS_FILE"
+
             DELETED=0
             KEPT=0
-            while true; do
-              # 获取该 workflow 所有已完成的 run
-              ALL_RUNS=$(gh run list \
-                --repo "${{ github.repository }}" \
-                --workflow "$WF_NAME" \
-                --status completed \
-                --json databaseId \
-                --limit 100 \
-                --jq '.[].databaseId' \
-                2>&1) || true
-
-              # 如果没有 run，退出循环
-              if [ -z "$ALL_RUNS" ]; then
-                break
+            while read -r RUN_ID; do
+              if [ "$RUN_ID" = "$LATEST_SUCCESS_ID" ]; then
+                KEPT=$((KEPT + 1))
+                continue
               fi
-
-              DELETE_THIS_ROUND=0
-              for RUN_ID in $ALL_RUNS; do
-                if [ -n "$LATEST_SUCCESS_ID" ] && [ "$RUN_ID" = "$LATEST_SUCCESS_ID" ]; then
-                  if [ $KEPT -eq 0 ]; then
-                    echo "    保留: #$RUN_ID (最近成功)"
-                  fi
-                  KEPT=$((KEPT + 1))
-                  continue
-                fi
-                # 删除旧记录
-                if OUTPUT=$(gh run delete "$RUN_ID" --repo "${{ github.repository }}" 2>&1); then
-                  echo "    已删除: #$RUN_ID"
-                  DELETED=$((DELETED + 1))
-                  DELETE_THIS_ROUND=$((DELETE_THIS_ROUND + 1))
-                else
-                  echo "    删除失败: #$RUN_ID — $OUTPUT"
-                fi
-              done
-
-              # 如果本轮没有删除任何 run，退出循环
-              if [ $DELETE_THIS_ROUND -eq 0 ]; then
-                break
+              if gh run delete "$RUN_ID" --repo "$REPO" 2>/dev/null; then
+                echo "  删除: #$RUN_ID"
+                DELETED=$((DELETED + 1))
               fi
-            done
+            done < "$RUN_IDS_FILE"
+            rm -f "$RUN_IDS_FILE"
 
-            echo "  删除 $DELETED 条，保留 $KEPT 条"
             TOTAL_DELETED=$((TOTAL_DELETED + DELETED))
             TOTAL_KEPT=$((TOTAL_KEPT + KEPT))
+            echo "  本轮删除 $DELETED，保留 $KEPT"
             echo ""
           done <<< "$WORKFLOW_FILES"
 
