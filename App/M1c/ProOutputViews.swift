@@ -11,14 +11,19 @@ struct ProOutputHubView: View {
     @Environment(AppEntitlementStore.self) private var entitlements
     @State private var previewProduct: String?
 
-    private let products: [(name: String, detail: String, capability: String)] = [
-        (L10n.proFeatureDoctorSummary, L10n.proFeatureDoctorSummaryDesc, "doctorSummary"),
-        (L10n.proFeatureClaimExport, L10n.proFeatureClaimExportDesc, "claimSummaryExport"),
-        (L10n.proFeatureFamilyCabinet, L10n.proFeatureFamilyCabinetDesc, "familyCabinet"),
-        (L10n.proFeatureInsurancePack, L10n.proFeatureInsurancePackDesc, "insurancePack"),
-        (L10n.proFeatureCustomThreshold, L10n.proFeatureCustomThresholdDesc, "customThreshold"),
-        (L10n.proFeatureDispenseTemplate, L10n.proFeatureDispenseTemplateDesc, "dispenseTemplate"),
-    ]
+    /// 评审修正：let 存储属性在结构体初始化时一次性求值——语言切换后本页
+    /// 文案停留在旧语言（曾依赖 .id 全树重建兜底）；改为计算属性，
+    /// 每次 body 求值按当前语言重新解析。
+    private var products: [(name: String, detail: String, capability: String)] {
+        [
+            (L10n.proFeatureDoctorSummary, L10n.proFeatureDoctorSummaryDesc, "doctorSummary"),
+            (L10n.proFeatureClaimExport, L10n.proFeatureClaimExportDesc, "claimSummaryExport"),
+            (L10n.proFeatureFamilyCabinet, L10n.proFeatureFamilyCabinetDesc, "familyCabinet"),
+            (L10n.proFeatureInsurancePack, L10n.proFeatureInsurancePackDesc, "insurancePack"),
+            (L10n.proFeatureCustomThreshold, L10n.proFeatureCustomThresholdDesc, "customThreshold"),
+            (L10n.proFeatureDispenseTemplate, L10n.proFeatureDispenseTemplateDesc, "dispenseTemplate"),
+        ]
+    }
 
     var body: some View {
         List(products, id: \.capability) { product in

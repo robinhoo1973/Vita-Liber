@@ -97,7 +97,7 @@ struct AssistantView: View {
                         .frame(width: 44, height: 44)
                 }
                 .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty || assistant.busy)
-                .accessibilityLabel("发送问题")
+                .accessibilityLabel(L10n.assistantSendLabel)
                 .accessibilityIdentifier("SP-21.ai.send")
             }
             .padding(12)

@@ -1,4 +1,5 @@
 import SwiftUI
+import os
 import Domain
 import Infrastructure
 import Protocols
@@ -32,6 +33,13 @@ struct VitaLiberApp: App {
     @State private var backupState: BackupState
 
     init() {
+        // FR14.5 启动语言恢复（评审修正）：同步执行、首帧前完成——
+        // 消除非默认语言用户首帧 zh-Hans 闪烁；不广播（重渲染由
+        // settingsStore.values[.language] 观察驱动，见 AppRootView）。
+        L10n.restoreLanguage()
+        // 评审修正（§7 不静默吞）：审计/额度失败必须记日志（不阻断交互）。
+        // 局部常量：init 闭包捕获 self 成员须待全部成员初始化，故此处用局部值。
+        let logger = Logger(subsystem: "com.vitaliber", category: "app")
         // 组装根（评审 A2：AppContainer 由 App 消费，AppState/ReminderStore 只面向协议）。
         // 数据层装配是启动不变量：live 失败降级 preview（内存库）；连内存库都建不出来
         // 意味着 SQLite 损坏——此时任何降级都无意义，显式终止并留清晰信息。
@@ -88,7 +96,8 @@ struct VitaLiberApp: App {
                         try await container.audit.record(action: "feedback", entityType: "ai_answer",
                                                          entityId: kind, actorLocal: "owner", meta: nil)
                     } catch {
-                        // 审计失败不阻断反馈交互
+                        // 审计失败不阻断反馈交互，但必须上报（§7 不静默吞）
+                        logger.error("AI 反馈审计失败: \(error)")
                     }
                 }
             },
@@ -97,7 +106,10 @@ struct VitaLiberApp: App {
                 // 直连 EntitlementStore actor（AppEntitlementStore 展示侧 load 时同步）
                 Task {
                     do { try await store.recordAIUse() }
-                    catch { /* 额度计数失败不阻断回答 */ }
+                    catch {
+                        // 额度计数失败不阻断回答，但必须上报（§7 不静默吞）
+                        logger.error("AI 额度计数失败: \(error)")
+                    }
                 }
             }))
         // 单一实例：环境注入与 DocumentsState 授权闭包共用（AppRootView 启动即 load）

@@ -93,7 +93,7 @@ struct L4DisclosureAlert {
             title: Text(disclosure.title),
             message: Text(disclosure.body),
             primaryButton: .cancel(Text(L10n.commonCancel)),
-            secondaryButton: .default(Text(L10n.onboard_confirm))
+            secondaryButton: .default(Text(L10n.commonConfirm))
         )
     }
 }

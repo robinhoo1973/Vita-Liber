@@ -444,11 +444,6 @@ enum L10n {
     static var member_relation: String { t("member.relation") }
     static var member_birthDatePlaceholder: String { t("member.birthDatePlaceholder") }
     static var member_save: String { t("member.save") }
-    static var memberRelationPartner: String { t("member.relationPartner") }
-    static var memberRelationChild: String { t("member.relationChild") }
-    static var memberRelationParent: String { t("member.relationParent") }
-    static var memberRelationGrandparent: String { t("member.relationGrandparent") }
-    static var memberRelationOther: String { t("member.relationOther") }
     static var member_quotaHint: String { t("member.quotaHint") }
     static var member_addedHint: String { t("member.addedHint") }
 
@@ -668,6 +663,7 @@ enum L10n {
     static func observationMediaCount(_ n: Int) -> String {
         String(format: t("observation.media.count"), n)   // %1$d
     }
+    static var observationMediaUnlockHint: String { t("observation.media.unlockHint") }
     // MARK: - 评审批 · FR8.9/FR17.14 语音速记纯转写入口（共用听写按钮）
     static var voicenoteDictation: String { t("voicenote.dictation") }
     static var voicenoteDictating: String { t("voicenote.dictating") }
@@ -1357,8 +1353,14 @@ enum L10n {
         "assistant.addImageLabel",
         "onboard.boundaryTitle", "onboard.storageTitle", "onboard.skipInfoTitle",
         "onboard.confidenceHigh", "onboard.confidenceMid", "onboard.confidenceLow",
-        "member.relationPartner", "member.relationChild", "member.relationParent",
-        "member.relationGrandparent", "member.relationOther"
+        "member.relation.father", "member.relation.mother",
+        "member.relation.son", "member.relation.daughter",
+        "assistant.sendLabel", "onboard.reviseA11y", "voice.readAloudA11y",
+        "observation.listEmpty", "observation.listEmptyHint",
+        "observation.listError", "observation.listRetry",
+        "doc.add", "plan.add", "encounter.add", "appointment.add", "allergy.add",
+        "problem.add", "question.add", "home.voice", "notification.center",
+        "observation.media.unlockHint"
     ]
 
     // MARK: - FR14.8 Tab badge
@@ -1753,6 +1755,29 @@ enum L10n {
     static var member_relationGrandparent: String { t("member.relation.grandparent") }
     static var member_relationOther: String { t("member.relation.other") }
     static var member_relationFamily: String { t("member.relation.family") }
+    static var member_relationFather: String { t("member.relation.father") }
+    static var member_relationMother: String { t("member.relation.mother") }
+    static var member_relationSon: String { t("member.relation.son") }
+    static var member_relationDaughter: String { t("member.relation.daughter") }
+
+    /// 关系显示名单一出口（评审修正）：存储值为中文原始字面量（历史设计），
+    /// 显示/无障碍标签必须统一经本映射本地化——此前 Picker、列表行、详情、
+    /// 确认条、图标标签各写各的映射，en 界面混排中文。粗细粒度全覆盖。
+    static func memberRelationDisplayName(_ raw: String) -> String {
+        switch raw {
+        case "本人": return member_relationSelf
+        case "配偶": return member_relationPartner
+        case "子女": return member_relationChild
+        case "父母": return member_relationParent
+        case "祖父母": return member_relationGrandparent
+        case "父亲": return member_relationFather
+        case "母亲": return member_relationMother
+        case "儿子": return member_relationSon
+        case "女儿": return member_relationDaughter
+        case "其他": return member_relationOther
+        default: return raw.isEmpty ? member_relationFamily : raw
+        }
+    }
 
     // MARK: - F5 资料库（SP-09/SP-10 · FR5.1-5.8 + FR6.6）
     static var docLibraryTitle: String { t("docLibrary.title") }
@@ -2272,23 +2297,57 @@ enum L10n {
         return languageCache
     }
 
-    /// 语言切换通知：setLanguage 发送，AppRootView 监听以强制视图重建
+    // MARK: - 评审批新增键（2026-09-06 全仓审查）
+    static var assistantSendLabel: String { t("assistant.sendLabel") }
+    static func onboardReviseA11y(_ label: String) -> String {
+        t("onboard.reviseA11y").replacingOccurrences(of: "%@", with: label)
+    }
+    static var voiceReadAloudA11y: String { t("voice.readAloudA11y") }
+    static var observationListEmpty: String { t("observation.listEmpty") }
+    static var observationListEmptyHint: String { t("observation.listEmptyHint") }
+    static var observationListError: String { t("observation.listError") }
+    static var observationListRetry: String { t("observation.listRetry") }
+    static var docAdd: String { t("doc.add") }
+    static var planAdd: String { t("plan.add") }
+    static var encounterAdd: String { t("encounter.add") }
+    static var appointmentAdd: String { t("appointment.add") }
+    static var allergyAdd: String { t("allergy.add") }
+    static var problemAdd: String { t("problem.add") }
+    static var questionAdd: String { t("question.add") }
+    static var homeVoice: String { t("home.voice") }
+    static var notificationCenterTitle: String { t("notification.center") }
+
+    /// 语言切换通知：setLanguage 仅在语言真正变化时发送。
+    /// 视图重渲染由 AppSettingsStore.values[.language] 的 @Observable 读值驱动
+    /// （AppRootView body 读取），本通知仅作非视图副作用信号
+    /// （ReminderStore 重写待投递通知的本地化文案）。
     static let languageDidChange = Notification.Name("L10nLanguageDidChange")
 
-    /// FR14.5 语言切换入口（设置页调用；App 启动时以持久化偏好初始化）
+    /// FR14.5 语言切换入口（设置页调用；App 启动时以持久化偏好初始化）。
+    /// 相等性守卫（评审修正）：同值重复设置不得再发通知——此前每次启动
+    /// 的 .task 都会以「已存储语言」再设一遍并广播，触发整树重建/重启循环。
     static func setLanguage(_ lang: String) {
         guard supportedLocalizations.contains(lang) else { return }
         cacheLock.lock()
-        languageCache = lang
-        bundleCache = nil
+        let changed = languageCache != lang
+        if changed {
+            languageCache = lang
+            bundleCache = nil
+        }
         cacheLock.unlock()
         UserDefaults.standard.set(lang, forKey: "vl.language")
-        NotificationCenter.default.post(name: languageDidChange, object: lang)
+        if changed {
+            NotificationCenter.default.post(name: languageDidChange, object: lang)
+        }
     }
 
-    /// 启动恢复：从持久化偏好初始化（AppRootView .task 调用）
+    /// 启动恢复：从持久化偏好初始化（VitaLiberApp.init 同步调用——
+    /// 首帧渲染前语言已就位，消除非默认语言用户的启动语言闪烁）。
+    /// 只恢复不发通知：视图重渲染由 AppSettingsStore.values[.language]
+    /// 的 @Observable 读值驱动（见本文件语言机制注释）。
     static func restoreLanguage() {
         let stored = UserDefaults.standard.string(forKey: "vl.language") ?? "zh-Hans"
+        guard supportedLocalizations.contains(stored) else { return }
         cacheLock.lock()
         languageCache = stored
         bundleCache = nil
@@ -2306,9 +2365,20 @@ enum L10n {
     private static var currentBundle: Bundle? {
         cacheLock.lock(); defer { cacheLock.unlock() }
         if let cached = bundleCache { return cached }
-        guard let path = Bundle.main.path(forResource: languageCache, ofType: "lproj"),
-              let bundle = Bundle(path: path) else { return nil }
-        bundleCache = bundle
-        return bundle
+        // 首选：Bundle 根目录下的 .lproj（标准 Xcode 打包路径）
+        if let path = Bundle.main.path(forResource: languageCache, ofType: "lproj"),
+           let bundle = Bundle(path: path) {
+            bundleCache = bundle
+            return bundle
+        }
+        // 回落：Resources/Localization/ 子目录（XcodeGen 源码树保留路径）
+        if let url = Bundle.main.url(forResource: languageCache,
+                                      withExtension: "lproj",
+                                      subdirectory: "Resources/Localization"),
+           let bundle = Bundle(url: url) {
+            bundleCache = bundle
+            return bundle
+        }
+        return nil
     }
 }

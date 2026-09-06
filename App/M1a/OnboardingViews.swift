@@ -403,7 +403,7 @@ struct ConfirmFieldRowView: View {
                         .frame(width: 44, height: 44)          // 触控目标 ≥44pt（ui-ux §4.2）
                 }
                 .buttonStyle(.bordered)
-                .accessibilityLabel("修改\(field.displayLabel)")
+                .accessibilityLabel(L10n.onboardReviseA11y(field.displayLabel))
                 .accessibilityIdentifier("SP-53.field.edit.\(field.key)")
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundStyle(Color("grade-c", bundle: .main))

@@ -32,6 +32,10 @@ private struct MediaThumbRow: View {
 final class ObservationStoreState {
     private(set) var groups: [ObservationGroup] = []
     private(set) var allergies: [AllergyStore.AllergyRow] = []
+    /// 评审修正 U4：§6 四态契约（加载/空/错误/默认）——此前加载失败只进日志，
+    /// 视图无从分支：空列表与「还没加载」与「加载失败」三种状态渲染同一形态
+    private(set) var isLoading = false
+    private(set) var loadFailed = false
     private let store: ObservationStore
     private let allergyStore: AllergyStore
     /// F8.4/§5.10 敏感媒体资产仓（BR-007/008）——保存照片时写入资产并返回 id。
@@ -72,6 +76,8 @@ final class ObservationStoreState {
 
     func load(patientId: UUID) async {
         loadingPatientId = patientId
+        isLoading = true
+        defer { isLoading = false }
         do {
             // 两个独立仓库并发读（各自 actor），一轮往返
             async let events = store.list(patientId: patientId)
@@ -81,7 +87,9 @@ final class ObservationStoreState {
             guard loadingPatientId == patientId else { return }
             groups = ObservationGroupService.groups(ev, member: patientId)
             allergies = al
+            loadFailed = false
         } catch {
+            loadFailed = true
             logger.error("观察加载失败: \(error)")
         }
     }
@@ -187,6 +195,59 @@ struct ObservationListView: View {
     @State private var showCreate = false
 
     var body: some View {
+        Group {
+            if state.isLoading && state.groups.isEmpty && state.allergies.isEmpty {
+                // §6 加载态 = 骨架屏（列表类禁旋转菊花）
+                List {
+                    ForEach(0..<3, id: \.self) { _ in
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color(.systemGray5))
+                            .frame(height: 72)
+                    }
+                }
+            } else if state.loadFailed && state.groups.isEmpty && state.allergies.isEmpty {
+                // §6 错误态 = 行内错误条 + [重试]
+                List {
+                    Section {
+                        HStack {
+                            Label(L10n.observationListError, systemImage: "exclamationmark.triangle")
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Button(L10n.observationListRetry) {
+                                Task { await state.load(patientId: currentPatientId) }
+                            }
+                            .frame(minHeight: 44)
+                        }
+                    }
+                }
+            } else if state.groups.isEmpty && state.allergies.isEmpty {
+                // §6 空态 = 插画 + 一句话 + 唯一主行动按钮
+                ContentUnavailableView {
+                    Label(L10n.observationListEmpty, systemImage: "clipboard")
+                } description: {
+                    Text(L10n.observationListEmptyHint)
+                } actions: {
+                    Button(L10n.observationCreateTitle) { showCreate = true }
+                        .buttonStyle(.borderedProminent)
+                }
+                .accessibilityIdentifier("SP-14.observation.empty")
+            } else {
+                contentList
+            }
+        }
+        .navigationTitle(L10n.observationTitle)
+        .task(id: currentPatientId) { await state.load(patientId: currentPatientId) }
+        .sheet(isPresented: $showCreate) {
+            ObservationCreateSheet { kind, desc, mark, photos in
+                Task { await state.create(patientId: currentPatientId, kind: kind,
+                                          description: desc, selfMark: mark,
+                                          photoData: photos) }
+                showCreate = false
+            }
+        }
+    }
+
+    private var contentList: some View {
         List {
             Section(L10n.observationSectionTitle) {
                 ForEach(state.groups) { group in
@@ -249,16 +310,6 @@ struct ObservationListView: View {
                 }
             }
         }
-        .navigationTitle(L10n.observationTitle)
-        .task(id: currentPatientId) { await state.load(patientId: currentPatientId) }
-        .sheet(isPresented: $showCreate) {
-            ObservationCreateSheet { kind, desc, mark, photos in
-                Task { await state.create(patientId: currentPatientId, kind: kind,
-                                          description: desc, selfMark: mark,
-                                          photoData: photos) }
-                showCreate = false
-            }
-        }
     }
 
     private var currentPatientId: UUID { app.currentPatientId }
@@ -272,12 +323,36 @@ struct LockedMediaStrip: View {
     let memberId: UUID
     @Environment(ObservationStoreState.self) private var state
     @State private var blurImages: [UIImage] = []
+    /// 评审修正 U3：点击解锁查看原图（§5.7.1）——此前媒体条无任何手势，
+    /// 原图在 UI 层不可达（SensitiveMediaOriginalView 零调用方，违背
+    /// 永久免费「原图/离线访问」红线）。查看器承载逐次认证 + 30s 空闲重锁。
+    @State private var viewer: MediaViewerPayload?
     /// 解码缓存：行回收重建时跳过重复解码（blur Data 已在仓内缓存）
     private static let imageCache = NSCache<NSString, UIImage>()
+
+    struct MediaViewerPayload: Identifiable {
+        let assetId: UUID
+        let data: Data
+        let caption: String
+        var id: UUID { assetId }
+    }
 
     var body: some View {
         MediaThumbRow(images: blurImages, size: 56)
             .frame(height: 64)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                guard let first = assetIds.first, let assetId = UUID(uuidString: first) else { return }
+                Task { await openOriginal(assetId: assetId) }
+            }
+            .fullScreenCover(item: $viewer) { payload in
+                NavigationStack {
+                    SensitiveMediaOriginalView(imageData: payload.data,
+                                               caption: payload.caption,
+                                               assetId: payload.assetId)
+                }
+            }
+            .accessibilityLabel(L10n.observationMediaUnlockHint)
             .accessibilityIdentifier("SP-14.observation.mediaStrip")
             .task(id: assetIds) {
                 // 并发加载 + 保持 assetIds 顺序；任务被取消（滚动/换组）时丢弃结果。
@@ -310,6 +385,19 @@ struct LockedMediaStrip: View {
               let img = UIImage(data: data) else { return nil }
         imageCache.setObject(img, forKey: id as NSString)
         return img
+    }
+
+    /// 点击解锁流程（§5.7.1）：读取原图 → 全屏查看器（逐次设备所有者认证 +
+    /// 30s 空闲重锁，BR-007/008 由查看器自身执行）
+    private func openOriginal(assetId: UUID) async {
+        let media = state.mediaAssets
+        let member = memberId
+        let data: Data?
+        do { data = try await media.originalData(for: assetId, memberId: member) }
+        catch { data = nil }
+        guard let data, !data.isEmpty else { return }   // 原图缺失：静默不可查看（§7 显式降级）
+        viewer = MediaViewerPayload(assetId: assetId, data: data,
+                                    caption: L10n.observationMediaCount(assetIds.count))
     }
 }
 

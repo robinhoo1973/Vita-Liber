@@ -191,7 +191,7 @@ struct VoiceConfirmSheet: View {
                     } label: {
                         Label(L10n.voiceSpeakAloud, systemImage: "speaker.wave.2").frame(minHeight: 44)
                     }
-                    .accessibilityLabel("朗读当前草稿")
+                    .accessibilityLabel(L10n.voiceReadAloudA11y)
                     .accessibilityIdentifier("FR17.13.speakButton")
                     Text(L10n.voiceScreenCheckHint)
                         .font(.caption2).foregroundStyle(.secondary)

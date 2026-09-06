@@ -25,7 +25,8 @@ struct MemberManagementView: View {
                         } label: {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(member.displayName).font(.subheadline)
-                                Text(member.relation).font(.caption).foregroundStyle(.secondary)
+                                Text(L10n.memberRelationDisplayName(member.relation))
+                                    .font(.caption).foregroundStyle(.secondary)
                             }
                         }
                         Spacer()
@@ -63,12 +64,15 @@ struct MemberManagementView: View {
         .sheet(isPresented: $showAdd) {
             MemberCreateSheet { name, relation, birthDate in
                 Task { @MainActor in
-                    // 五时机 memberQuotaReached（Domain 判定 + 弹墙调度 + 24h 频控）
-                    if PaywallRules.addingMemberWouldExceed(currentCount: app.members.count) {
-                        if entitlements.evaluateTrigger(.memberQuotaReached) {
-                            showAdd = false
-                            return
-                        }
+                    // 五时机 memberQuotaReached（Domain 判定 + 弹墙调度 + 24h 频控）。
+                    // 评审修正：闸门与弹墙解耦——放行只看「额度未超 或 已持 Pro」，
+                    // evaluateTrigger 仅决定墙弹不弹（24h 频控不得成为放行通道）
+                    if PaywallRules.memberAdditionBlocked(
+                        currentCount: app.members.count,
+                        ownedProducts: entitlements.owned) {
+                        _ = entitlements.evaluateTrigger(.memberQuotaReached)
+                        showAdd = false
+                        return
                     }
                     let ok = await app.addMember(name: name, relation: relation, birthDate: birthDate)
                     quotaHint = ok ? L10n.member_addedHint : nil
@@ -111,7 +115,8 @@ struct MemberDetailView: View {
         Form {
             Section(L10n.memberDetailBasic) {
                 LabeledContent(L10n.member_namePlaceholder, value: current.displayName)
-                LabeledContent(L10n.member_relation, value: current.relation)
+                LabeledContent(L10n.member_relation,
+                               value: L10n.memberRelationDisplayName(current.relation))
                 if let birth = current.birthDate {
                     LabeledContent(L10n.member_birthDatePlaceholder, value: birth)
                 }
@@ -244,7 +249,7 @@ struct MemberConfirmBar: View {
                     .font(.caption).foregroundStyle(.secondary)
                 Text(patientName)
                     .font(.title3.bold())
-                Text(relation)
+                Text(L10n.memberRelationDisplayName(relation))
                     .font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
@@ -267,16 +272,10 @@ struct MemberCreateSheet: View {
 
     private let relations = ["配偶", "子女", "父母", "祖父母", "其他"]
 
-    /// 关系显示名本地化映射（存储值仍为中文原始值，仅显示时本地化）
+    /// 关系显示名本地化映射（存储值仍为中文原始值，仅显示时本地化；
+    /// 单一出口 = L10n.memberRelationDisplayName）
     private func localizedRelation(_ raw: String) -> String {
-        switch raw {
-        case "配偶": return L10n.memberRelationPartner
-        case "子女": return L10n.memberRelationChild
-        case "父母": return L10n.memberRelationParent
-        case "祖父母": return L10n.memberRelationGrandparent
-        case "其他": return L10n.memberRelationOther
-        default: return raw
-        }
+        L10n.memberRelationDisplayName(raw)
     }
 
     var body: some View {
@@ -328,17 +327,9 @@ extension MemberManagementView {
         }
     }
 
-    /// 图标无障碍标签（VoiceOver 读出关系语义，而非「图标」）
+    /// 图标无障碍标签（VoiceOver 读出关系语义，而非「图标」；
+    /// 单一出口 = L10n.memberRelationDisplayName，细粒度关系同样本地化）
     private func memberIconLabel(_ relation: String) -> String {
-        switch relation {
-        case "配偶": return L10n.member_relationPartner
-        case "父亲", "母亲", "儿子", "女儿": return relation
-        case "本人": return L10n.member_relationSelf
-        case "子女": return L10n.member_relationChild
-        case "父母": return L10n.member_relationParent
-        case "祖父母": return L10n.member_relationGrandparent
-        case "其他": return L10n.member_relationOther
-        default: return L10n.member_relationFamily
-        }
+        L10n.memberRelationDisplayName(relation)
     }
 }

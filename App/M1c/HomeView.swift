@@ -150,12 +150,14 @@ struct HomeView: View {
                     } label: {
                         Image(systemName: "mic.fill")
                     }
+                    .accessibilityLabel(L10n.homeVoice)
                     .accessibilityIdentifier("SP-04.home.mic")
                 }
                 // FR14.8 通知中心铃铛（未读角标不显示病名药名，§5 通知隐私）
                 NavigationLink(value: AppRoute.notificationCenter) {
                     Image(systemName: "bell")
                 }
+                .accessibilityLabel(L10n.notificationCenterTitle)
                 .accessibilityIdentifier("SP-04.home.bell")
                 .badge(reminderStore.pendingCount > 0 ? reminderStore.pendingCount : 0)
             }
@@ -220,6 +222,7 @@ struct HomeView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
+            .frame(maxWidth: 672)   // §9.1 正文行宽 ≤672pt（iPad 常宽列可读性）
         }
         .accessibilityIdentifier("SP-04.home.standard")
     }
@@ -486,9 +489,19 @@ struct HomeView: View {
                 BigCareCard(icon: "camera.fill", title: L10n.homeCareCapture, tint: .green) {
                     router.navigate(to: .observationCreate)
                 }
+                // 评审修正 U7：§7.1 防误触——SOS 大卡此前单击即开求助页
+                // （里面全是拨号按钮，震颤误触后果严重）；改为按住 600ms
+                // 才进入（与 SOSOrb/EmergencyCareViews 同一门槛），
+                // VoiceOver 经 accessibilityAction 显式触发（BR-012 无障碍路径）。
                 BigCareCard(icon: "sos", title: L10n.homeCareSOS, tint: .red) {
-                    showSOS = true
+                    // 常规点击被下面手势接管后 Button action 不再触发；
+                    // 保留 action 仅为 accessibilityAction 兜底
                 }
+                .simultaneousGesture(
+                    LongPressGesture(minimumDuration: HoldToConfirm.requiredSeconds(mode: .care))
+                        .onEnded { _ in showSOS = true }
+                )
+                .accessibilityAction { showSOS = true }
                 // FR19.1：关怀模式首页大卡 [开始语音]（与四大卡并列、互不干扰）
                 VoiceSessionLaunchCard()
             }
@@ -511,7 +524,7 @@ struct HomeView: View {
     }
 
     private func load() async {
-        await reminderStore.refresh(patientId: app.currentPatientId)
+        await reminderStore.refreshTriggered(patientId: app.currentPatientId)
         await hub.load(patientId: app.currentPatientId)
         await observationState.load(patientId: app.currentPatientId)
         await app.loadMembers()
@@ -635,7 +648,8 @@ struct MemberPickerSheet: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(member.displayName).font(.body)
-                            Text(member.relation).font(.caption).foregroundStyle(.secondary)
+                            Text(L10n.memberRelationDisplayName(member.relation))
+                                .font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
                         if member.id == app.currentPatientId {

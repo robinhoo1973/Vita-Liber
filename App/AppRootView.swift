@@ -28,10 +28,16 @@ struct AppRootView: View {
     @State private var timezoneChanged = false
     /// FR1.4 宽限锁任务（V3.72 接线：0/15/60 秒可配置；此前键死、立即锁无宽限）
     @State private var graceLockTask: Task<Void, Never>?
-    /// FR14.5 语言切换即时生效：L10n.setLanguage 发通知，递增计数器强制视图重建
-    @State private var languageVersion = 0
 
     var body: some View {
+        // FR14.5 语言切换即时生效（评审修正）：此前 .id(languageVersion) 全树
+        // 身份重置实现「重建」——销毁所有子孙 @State（草稿/弹窗/滚动）、重跑
+        // 各 Tab 的 .task，且从语言页（自身是 push 路由）切换时深栈重挂载，
+        // 与 build-147 崩溃同类（EnvironmentValues 断言）。正确机制 = 本行
+        // 读 settingsStore.values[.language]：@Observable 读值注册观察，
+        // 设置页 await settings.set(...) 变更即触发重渲染，L10n.t() 按新语言
+        // 解析——视图身份不变、零状态丢失（与 currentTheme 同一模式）。
+        let _ = currentLanguage
         Group {
             if backgroundLocked || appState.needsLockScreen {
                 LockOverlayView { backgroundLocked = false }
@@ -41,8 +47,6 @@ struct AppRootView: View {
                 RootAdaptiveView()
             }
         }
-        // FR14.5 语言切换即时生效：L10n 变更后强制重建整个视图树
-        .id(languageVersion)
         // FR14.4 主题注入（tech-spec §5.28.1）：nil = 跟随系统；@Observable 读值即时生效
         .preferredColorScheme(currentTheme.colorScheme)
         // FR14.4 高对比度初始实现 = 环境对比度增强（§5.28.1 记录为偏差：HC Token 集归 L2）
@@ -55,9 +59,8 @@ struct AppRootView: View {
         .dynamicTypeSize(effectiveDynamicTypeSize)
         .task {
             await settingsStore.load()   // 主题等设置先于首帧后的首次渲染就位
-            // FR14.5 语言即时切换：以持久化偏好初始化显示语言（无需重启）
-            L10n.setLanguage(settingsStore.values[.language]
-                             ?? AppSettingKey.language.defaultValue)
+            // 语言初始化已移至 VitaLiberApp.init（L10n.restoreLanguage 同步恢复，
+            // 首帧即正确语言，无闪烁；此处不再重复 setLanguage）
             await appState.bootstrap()
             // F16 信源库种子幂等入库（离线零网络可用）
             do { try await seedBundled() }
@@ -70,15 +73,19 @@ struct AppRootView: View {
             // FR20.2 授权时序：通知权限严禁启动即索权——请求时机移到
             // 「完成第一个提醒计划创建后」（价值先行，ReminderStore.createPlan/createAppointment）。
             if appState.onboardingFinished {
-                await reminderStore.refresh(patientId: appState.currentPatientId)
+                await reminderStore.refreshTriggered(patientId: appState.currentPatientId)
                 // FR13.10 定期备份提醒（默认 30 天；只引导，不自动建包；联动 F22.4）
                 await reminderStore.scheduleBackupReminderIfNeeded(lastBackupAt: appState.lastBackupAt)
             }
         }
-        // FR14.5 语言切换即时生效：监听 L10n 通知，递增版本号强制视图重建
+        // FR14.5 语言切换的非视图副作用：已排程通知的标题/正文在排程时固化，
+        // 语言变化后须以新语言重写待投递请求（相同 identifier 的 add 即替换）。
+        // 视图重渲染不依赖本通知（由 settingsStore.values[.language] 观察驱动）。
         .onReceive(NotificationCenter.default.publisher(
             for: L10n.languageDidChange)) { _ in
-            languageVersion += 1
+            Task {
+                await reminderStore.reloadLocalizedScheduledContent()
+            }
         }
         // 四层补偿第 3 层：时区/时间显著变化 → 立即对账（View 级修饰符）
         .onReceive(NotificationCenter.default.publisher(
@@ -89,7 +96,7 @@ struct AppRootView: View {
                 timezoneChanged = true   // FR9.6：时区变化必须提示核对（不静默重排）
             }
             Task {
-                await reminderStore.refresh(patientId: appState.currentPatientId)
+                await reminderStore.refreshTriggered(patientId: appState.currentPatientId)
             }
         }
         .alert(L10n.timezoneChangedTitle, isPresented: $timezoneChanged) {
@@ -126,7 +133,7 @@ struct AppRootView: View {
                 // 四层补偿第 2 层：每次回前台轻量对账
                 if appState.onboardingFinished {
                     Task {
-                        await reminderStore.refresh(patientId: appState.currentPatientId)
+                        await reminderStore.refreshTriggered(patientId: appState.currentPatientId)
                         // 时间轴镜像随前台刷新（资料库入库的文档进入待确认计数）
                         await appState.refreshTimeline()
                     }
@@ -155,6 +162,12 @@ struct AppRootView: View {
     private var currentTheme: AppTheme {
         AppTheme(rawValue: settingsStore.values[.appearance]
                  ?? AppSettingKey.appearance.defaultValue) ?? .system
+    }
+
+    /// FR14.5 当前显示语言：body 顶层读值注册 @Observable 观察，
+    /// 设置页 `settings.set(_, for: .language)` 变更即整树重渲染。
+    private var currentLanguage: String {
+        settingsStore.values[.language] ?? AppSettingKey.language.defaultValue
     }
 
     /// FR18.16：手动开关 OR 关怀模式；关怀模式退出自动回落手动选择
