@@ -52,6 +52,10 @@ public actor SFSpeechTranscriber: TranscriptionEngine {
         // 审查修复：AVAudioSession 必须显式配置为录音类别并激活——
         // 默认 soloAmbient 无录音输入，inputNode.installTap 后 audio.start()
         // 在真机上收不到任何 buffer（FR17.16 语音速记生产不可用）。
+        // AVAudioSession 仅 iOS 可用（CI 34018308312 实证：macOS 编译报
+        // 'unavailable in macOS'）——macOS 无音频会话概念，AVAudioEngine
+        // 无需 session 配置即可工作，故整块 #if os(iOS) 限定。
+        #if os(iOS)
         let session = AVAudioSession.sharedInstance()
         do {
             try session.setCategory(.record, mode: .measurement, options: [.duckOthers])
@@ -60,6 +64,7 @@ public actor SFSpeechTranscriber: TranscriptionEngine {
             throw TranscriptionError.engineUnavailable
         }
         defer { try? session.setActive(false, options: [.notifyOthersOnDeactivation]) }   // try?-ok: 会话复位失败不掩盖主结果
+        #endif
 
         let recog = SFSpeechAudioBufferRecognitionRequest()
         recog.requiresOnDeviceRecognition = true
