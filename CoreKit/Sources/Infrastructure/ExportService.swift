@@ -235,7 +235,7 @@ public actor ExportService {
             let documents = try Row.fetchAll(db, sql: "SELECT * FROM document_file ORDER BY created_at").map { row in
                 Envelope.DocumentExport(
                     id: UUID(uuidString: row["id"] as String) ?? UUID(),
-                    patientId: (row["patient_id"] as String).flatMap(UUID.init(uuidString:)),
+                    patientId: (row["patient_id"] as String?).flatMap(UUID.init(uuidString:)),
                     encounterId: (row["encounter_id"] as String?).flatMap(UUID.init(uuidString:)),
                     docType: row["doc_type"] as String,
                     status: row["status"] as String,

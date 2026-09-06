@@ -29,16 +29,16 @@ public final class VisionImagePreprocessor: ImagePreprocessing, @unchecked Senda
         // 矫正/JPEG 编码全程 CPU 密集），detached 跳出主线程执行（H3 效率修复）。
         return try await Task.detached(priority: .userInitiated) {
             // 1) 解码为 CGImage（EXIF 方向已归一化——decodeCGImage 见下）
-            guard let cgImage = decodeCGImage(originalData) else { throw PreprocessError.decodeFailed }
+            guard let cgImage = self.decodeCGImage(originalData) else { throw PreprocessError.decodeFailed }
 
             // 2) 透视矫正（若启用）
             var corrected: CIImage = CIImage(cgImage: cgImage)
             if params.enablePerspectiveCorrection {
-                corrected = try await detectAndCorrectPerspective(corrected)
+                corrected = try await self.detectAndCorrectPerspective(corrected)
             }
 
             // 3) 色彩模式
-            corrected = applyColorMode(corrected, mode: params.colorMode)
+            corrected = self.applyColorMode(corrected, mode: params.colorMode)
 
             // 4) 旋转（评审修正：CGImagePropertyOrientation 无 rotationDegrees 工厂——
             //    方向枚举八态语义含 EXIF 隐含翻转，不适合表达「旋转 N 度」；
@@ -49,7 +49,7 @@ public final class VisionImagePreprocessor: ImagePreprocessing, @unchecked Senda
             }
 
             // 5) 编码为 JPEG Data
-            let processedData = try encodeToJPEG(corrected)
+            let processedData = try self.encodeToJPEG(corrected)
 
             return PreprocessedImage(processedData: processedData,
                                      originalData: originalData,
@@ -197,20 +197,20 @@ public final class VisionImagePreprocessor: ImagePreprocessing, @unchecked Senda
         // 从 MainActor 视图（ScanRegionEditorView）await 进来：detached 跳出主线程，
         // 解码+Vision 检测不冻结 UI（H3 效率修复）
         await Task.detached(priority: .userInitiated) {
-            guard let cgImage = decodeCGImage(originalData) else { return nil }
+            guard let cgImage = self.decodeCGImage(originalData) else { return nil }
             let ciImage = CIImage(cgImage: cgImage)
-            guard let obs = try? await detectQuad(ciImage) else { return nil }   // try?-ok: 检测失败按「未检出」处理，UI 回落整图四角，不是错误流程
-            return quadCorners(from: obs)
+            guard let obs = try? await self.detectQuad(ciImage) else { return nil }   // try?-ok: 检测失败按「未检出」处理，UI 回落整图四角，不是错误流程
+            return self.quadCorners(from: obs)
         }.value
     }
 
     public func correctPerspective(_ originalData: Data, corners: QuadCorners) async throws -> Data {
         // detached：透视矫正 + JPEG 编码为 CPU/GPU 密集，不阻塞主线程（H3 效率修复）
         try await Task.detached(priority: .userInitiated) {
-            guard let cgImage = decodeCGImage(originalData) else { throw PreprocessError.decodeFailed }
+            guard let cgImage = self.decodeCGImage(originalData) else { throw PreprocessError.decodeFailed }
             let ciImage = CIImage(cgImage: cgImage)
-            let corrected = try perspectiveCorrect(ciImage, quad: corners)
-            return try encodeToJPEG(corrected)
+            let corrected = try self.perspectiveCorrect(ciImage, quad: corners)
+            return try self.encodeToJPEG(corrected)
         }.value
     }
 }
