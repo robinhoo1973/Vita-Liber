@@ -115,8 +115,11 @@ struct TimelineFullView: View {
                 }
                 .accessibilityIdentifier("SP-19.timeline.list")
             }
-            .frame(maxWidth: 672)   // §9.1 正文行宽 ≤672pt（iPad 常宽列可读性）
         }
+        // §9.1 正文行宽 ≤672pt（iPad 常宽列可读性）——必须挂在 Group 上：
+        // 裸修饰符位于 ViewBuilder 内 if/else 之后会以 View 类型为基解析失败
+        // （CI 34027680175 实证 "instance member 'frame' cannot be used on type 'View'"）
+        .frame(maxWidth: 672)
         .safeAreaInset(edge: .top) { filterBar }
         .navigationTitle(L10n.timelineTitle)
         .task(id: app.currentPatientId) { await state.load(patientId: app.currentPatientId) }
