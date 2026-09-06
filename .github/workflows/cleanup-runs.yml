@@ -37,38 +37,43 @@ jobs:
           echo "仓库: ${{ github.repository }}"
           echo ""
 
-          # 获取所有 workflow（使用 ID 避免名称含空格的问题）
-          WORKFLOW_IDS=$(gh api repos/${{ github.repository }}/actions/workflows \
-            --jq '.workflows[].id' 2>/dev/null || echo "")
+          # 获取所有 workflow 文件名（gh run list --workflow 需要文件名，不是 ID）
+          WORKFLOW_FILES=$(gh api "repos/${{ github.repository }}/actions/workflows" \
+            --jq '.workflows[].path' 2>&1) || {
+            echo "错误: 获取 workflow 列表失败"
+            echo "$WORKFLOW_FILES"
+            exit 1
+          }
 
-          if [ -z "$WORKFLOW_IDS" ]; then
-            echo "警告: 未找到任何 workflow 或 API 调用失败"
+          if [ -z "$WORKFLOW_FILES" ]; then
+            echo "警告: 未找到任何 workflow"
             exit 0
           fi
+
+          echo "找到的 workflow 文件:"
+          echo "$WORKFLOW_FILES" | sed 's/^/  /'
+          echo ""
 
           TOTAL_DELETED=0
           TOTAL_KEPT=0
 
-          for WF_ID in $WORKFLOW_IDS; do
-            WF_NAME=$(gh api repos/${{ github.repository }}/actions/workflows/$WF_ID \
-              --jq '.name' 2>/dev/null || echo "unknown")
-            echo "── 处理: $WF_NAME (id=$WF_ID) ──"
+          while IFS= read -r WF_PATH; do
+            # WF_PATH 类似 ".github/workflows/build-testflight.yml"
+            WF_NAME=$(basename "$WF_PATH")
+            echo "── 处理: $WF_NAME ──"
 
-            # 找到该 workflow 最近一次成功的 run。
-            # 评审修正 C5：gh run list 默认只取最近 20 条——长红链会把
-            # 「最近一次绿」挤出窗口，被误判「无成功记录」而清掉最后一绿
-            # （与 ERR#27「缺证据当成有证据」同族，此处是「窗口外当成不存在」）。
-            # 显式 --limit 200（与下方删除窗口同宽）。
+            # 找到该 workflow 最近一次成功的 run
+            # 评审修正 C5：--limit 200 防止长红链把最后一绿挤出窗口
             LATEST_SUCCESS_ID=$(gh run list \
-              --workflow "$WF_ID" \
+              --workflow "$WF_NAME" \
               --status completed \
               --limit 200 \
               --json databaseId,conclusion,createdAt \
               --jq '[.[] | select(.conclusion == "success")] | sort_by(.createdAt) | last | .databaseId' \
-              2>/dev/null || true)
+              2>&1) || true
 
             if [ -z "$LATEST_SUCCESS_ID" ] || [ "$LATEST_SUCCESS_ID" = "null" ]; then
-              echo "  无成功记录（200 条内），清理所有失败 run"
+              echo "  无成功记录（200 条内），将清理所有已完成 run"
               LATEST_SUCCESS_ID=""
             else
               echo "  保留最近成功 run: #$LATEST_SUCCESS_ID"
@@ -78,14 +83,14 @@ jobs:
             DELETED=0
             KEPT=0
             while true; do
-              # 获取该 workflow 所有 completed 的 run
+              # 获取该 workflow 所有已完成的 run
               ALL_RUNS=$(gh run list \
-                --workflow "$WF_ID" \
+                --workflow "$WF_NAME" \
                 --status completed \
                 --json databaseId \
                 --limit 100 \
                 --jq '.[].databaseId' \
-                2>/dev/null || true)
+                2>&1) || true
 
               # 如果没有 run，退出循环
               if [ -z "$ALL_RUNS" ]; then
@@ -102,12 +107,12 @@ jobs:
                   continue
                 fi
                 # 删除旧记录
-                if gh run delete "$RUN_ID" --repo "${{ github.repository }}" --yes 2>/dev/null; then
+                if OUTPUT=$(gh run delete "$RUN_ID" --repo "${{ github.repository }}" --yes 2>&1); then
                   echo "    已删除: #$RUN_ID"
                   DELETED=$((DELETED + 1))
                   DELETE_THIS_ROUND=$((DELETE_THIS_ROUND + 1))
                 else
-                  echo "    删除失败: #$RUN_ID"
+                  echo "    删除失败: #$RUN_ID — $OUTPUT"
                 fi
               done
 
@@ -121,7 +126,7 @@ jobs:
             TOTAL_DELETED=$((TOTAL_DELETED + DELETED))
             TOTAL_KEPT=$((TOTAL_KEPT + KEPT))
             echo ""
-          done
+          done <<< "$WORKFLOW_FILES"
 
           echo "=== 清理完成 ==="
           echo "总计删除: $TOTAL_DELETED 条"
