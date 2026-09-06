@@ -761,6 +761,21 @@ final class AppState {
         }
     }
 
+    /// 审计：查看敏感原图（FR14.2「查看敏感原图」为审计记录页必列动作之一）。
+    /// 未注入审计（测试/预览）时静默跳过。
+    func auditViewSensitiveOriginal(documentId: UUID, title: String) {
+        guard let audit else { return }
+        Task {
+            do {
+                try await audit.record(action: "viewSensitiveOriginal", entityType: "document",
+                                       entityId: documentId.uuidString,
+                                       actorLocal: "owner", meta: title)
+            } catch {
+                logger.error("查看敏感原图审计失败: \(error)")
+            }
+        }
+    }
+
     /// TTS 单出口。**只播报已确认的结构化字段**（脚本由 Domain 的
     /// `ReadbackPolicy.readbackScript` 生成，本方法不拼文案、不做业务判断）。
     /// 抽成方法而非在各视图直接调 AVSpeechSynthesizer，是为了让测试可替身、

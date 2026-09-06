@@ -1,5 +1,6 @@
 import SwiftUI
 import Domain
+import Infrastructure
 
 /// §5.45 路由目的地映射：AppRoute → 具体视图的唯一分发表。
 ///
@@ -251,15 +252,29 @@ struct ObservationCreateRouteView: View {
 struct DocumentDetailRouteView: View {
     let documentId: UUID
     @Environment(AppState.self) private var app
+    @Environment(DocumentsState.self) private var documentsState
+    @State private var storeRow: DocumentStore.DocumentRow?
+    @State private var lookupDone = false
 
     var body: some View {
         Group {
             if let entry = app.timeline.first(where: { $0.id == documentId }) {
                 TimelineDocumentDetailView(entry: entry)
-            } else {
+            } else if let storeRow {
+                DocumentStoreDetailView(doc: storeRow)
+            } else if lookupDone {
                 // 审查修复：原错用趋势页文案「趋势范围不可用」——补专用文案
                 ContentUnavailableView(L10n.docDetailTitle, systemImage: "doc.text.magnifyingglass",
                                        description: Text(L10n.docDetailNotFound))
+            } else {
+                // 未在 app.timeline（旧管线）命中——回退查 DocumentStore（当前
+                // 生产入库路径，见 DocumentsState.importImage 等），修复此前
+                // 恒「未找到」的路由缺口
+                ProgressView()
+                    .task {
+                        storeRow = await documentsState.fetch(id: documentId)
+                        lookupDone = true
+                    }
             }
         }
     }

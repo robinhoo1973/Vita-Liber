@@ -24,14 +24,17 @@ public actor DocumentStore {
         public var title: String?
         /// 来源徽章 A–E（BR-003）：机器识别未确认 = 'D'，用户确认升 'C'。
         public var grade: String
+        /// 投影元数据（标题/确认计数/修订历史/原件路径等 JSON 侧载，V3.41）。
+        public var metaJSON: String?
         public var createdAt: Date
         public init(id: UUID, patientId: UUID, encounterId: UUID?, docType: String,
                     sha256: String?, mimeType: String?, origin: String, status: String,
-                    isSensitive: Bool, title: String?, grade: String = "C", createdAt: Date) {
+                    isSensitive: Bool, title: String?, grade: String = "C",
+                    metaJSON: String? = nil, createdAt: Date) {
             self.id = id; self.patientId = patientId; self.encounterId = encounterId
             self.docType = docType; self.sha256 = sha256; self.mimeType = mimeType
             self.origin = origin; self.status = status; self.isSensitive = isSensitive
-            self.title = title; self.grade = grade; self.createdAt = createdAt
+            self.title = title; self.grade = grade; self.metaJSON = metaJSON; self.createdAt = createdAt
         }
     }
 
@@ -44,6 +47,14 @@ public actor DocumentStore {
                 WHERE patient_id = ? \(statusClause)
                 ORDER BY created_at DESC LIMIT ?
                 """, arguments: [patientId.uuidString, limit]).map(Self.row)
+        }
+    }
+
+    /// 单文档取回（详情页用：列表不携带 meta_json，详情页需要解析原图路径等扩展字段）。
+    public func fetch(id: UUID) async throws -> DocumentRow? {
+        try await writer.read { db in
+            try Row.fetchOne(db, sql: "SELECT * FROM document_file WHERE id = ?",
+                             arguments: [id.uuidString]).map(Self.row)
         }
     }
 
@@ -123,6 +134,7 @@ public actor DocumentStore {
             isSensitive: (row["is_sensitive"] as Int?) == 1,
             title: row["title"] as String?,
             grade: (row["grade"] as String?) ?? "C",
+            metaJSON: row["meta_json"] as String?,
             createdAt: Date(timeIntervalSince1970: row["created_at"] as Double))
     }
 }

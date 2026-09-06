@@ -25,13 +25,18 @@ final class DocumentsState {
     /// FR14.1 authOcr 消费点：授权关闭时不运行识别（资料照常入库，仅无识别文本）。
     /// 撤回即时生效——每次导入实时读值，不缓存授权状态。
     private let ocrAuthorized: @MainActor () -> Bool
+    /// 原件专用目录根（BR-002，与 AppContainer.defaultOriginalsDir() 同约定）：
+    /// `<base>/originals/{patientId}/{uuid}.{ext}`；预览/测试注入临时目录。
+    private let originalsDir: URL
     private var loadingPatientId: UUID?
 
     init(store: DocumentStore, pipeline: OCRPipeline,
-         ocrAuthorized: @escaping @MainActor () -> Bool = { true }) {
+         ocrAuthorized: @escaping @MainActor () -> Bool = { true },
+         originalsDir: URL? = nil) {
         self.store = store
         self.pipeline = pipeline
         self.ocrAuthorized = ocrAuthorized
+        self.originalsDir = originalsDir ?? FileManager.default.temporaryDirectory
     }
 
     struct PendingDocument: Identifiable, Equatable {
@@ -54,6 +59,41 @@ final class DocumentsState {
         } catch {
             documents = []
         }
+    }
+
+    /// 详情页用：单条取回（列表投影不含 meta_json，详情页需要解析原件路径等扩展字段）。
+    func fetch(id: UUID) async -> DocumentStore.DocumentRow? {
+        try? await store.fetch(id: id)   // try?-ok: 取回失败按「未找到」降级，不阻断详情页展示错误态
+    }
+
+    /// 原件落盘（BR-002：原件不可变，必须留档才能满足「永远能看原图」的产品承诺）。
+    /// 与 AppState.saveOriginal 同约定：`<base>/originals/{patientId}/{uuid}.{ext}`，
+    /// 只写一次不再修改。失败返回 nil——调用方仍照常入库，只是缺原图可查，
+    /// 不能因为原件落盘失败就丢弃整份已识别资料（FR6.6 绝不静默丢失，但也绝不因小失大）。
+    private func persistOriginal(patientId: UUID, data: Data, ext: String) -> String? {
+        let dir = originalsDir
+            .appendingPathComponent("originals", isDirectory: true)
+            .appendingPathComponent(patientId.uuidString, isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let url = dir.appendingPathComponent("\(UUID().uuidString).\(ext)")
+            try data.write(to: url, options: .atomic)
+            return url.path
+        } catch {
+            return nil
+        }
+    }
+
+    /// 把原件路径合并进已有 meta 载荷（不覆盖既有键）；无原件路径时原样返回 base。
+    private func mergeOriginalPath(_ path: String?, into base: [String: Any]) -> String? {
+        guard let path else {
+            return base.isEmpty ? nil : (try? JSONSerialization.data(withJSONObject: base))   // try?-ok: 序列化本方法内部构造的纯 String 字典，理论不会失败；失败时静默回退 nil（即无 meta），不阻断文档入库主流程
+                .flatMap { String(data: $0, encoding: .utf8) }
+        }
+        var merged = base
+        merged["original_path"] = path
+        return (try? JSONSerialization.data(withJSONObject: merged))   // try?-ok: 同上，序列化失败时静默回退 nil，不阻断文档入库主流程
+            .flatMap { String(data: $0, encoding: .utf8) }
     }
 
     func setArchived(id: UUID, archived: Bool) async {
@@ -120,8 +160,12 @@ final class DocumentsState {
             }
             _ = try await store.save(patientId: patientId, docType: docType,
                                      sha256: sha, mimeType: mimeType, origin: origin,
-                                     isSensitive: isSensitive, metaJSON: nil, title: title,
-                                     ocrText: ocrText, grade: "D")
+                                     isSensitive: isSensitive,
+                                     metaJSON: mergeOriginalPath(
+                                         persistOriginal(patientId: patientId, data: data,
+                                                        ext: mimeType.lowercased().contains("png") ? "png" : "jpg"),
+                                         into: [:]),
+                                     title: title, ocrText: ocrText, grade: "D")
             await load(patientId: patientId)
         } catch {
             lastImportError = L10n.docImportFailed
@@ -149,14 +193,16 @@ final class DocumentsState {
                               docType: docType, title: url.lastPathComponent,
                               isSensitive: isSensitive, origin: "import")
         default:
-            // Word/其他格式：元数据入库（文件名/哈希），文本解析待升级
+            // Word/其他格式：元数据入库（文件名/哈希）+ 原件落盘（BR-002），文本解析待升级
             do {
                 let data = try Data(contentsOf: url)
+                let ext = url.pathExtension.isEmpty ? "docx" : url.pathExtension
+                let path = persistOriginal(patientId: patientId, data: data, ext: ext)
                 _ = try await store.save(patientId: patientId, docType: docType,
                                          sha256: "file:" + Self.hash(data),
                                          mimeType: url.pathExtension, origin: "import",
                                          isSensitive: isSensitive,
-                                         metaJSON: "{\"pendingParse\":\"docx\"}",
+                                         metaJSON: mergeOriginalPath(path, into: ["pendingParse": ext]),
                                          title: url.lastPathComponent)
                 await load(patientId: patientId)
             } catch {
@@ -198,8 +244,8 @@ final class DocumentsState {
             let metaPayload = ["engine": ocrOn ? "vision" : "skipped-auth",
                                "page_count": texts.count,
                                "failed_pages": failedPages] as [String: Any]
-            let metaJSON = String(data: try JSONSerialization.data(withJSONObject: metaPayload, options: []),
-                                  encoding: .utf8)
+            let originalPath = persistOriginal(patientId: patientId, data: data, ext: "pdf")
+            let metaJSON = mergeOriginalPath(originalPath, into: metaPayload)
             _ = try await store.save(patientId: patientId, docType: docType,
                                      sha256: "pdf:" + Self.hash(data), mimeType: "application/pdf",
                                      origin: "import", isSensitive: isSensitive,
@@ -244,10 +290,13 @@ final class DocumentsState {
             if resolution == .replace, let old = duplicateHits.first {
                 try await store.setArchived(id: old.id, archived: true)
             }
+            let ext = pending.mimeType.lowercased().contains("png") ? "png" : "jpg"
+            let path = persistOriginal(patientId: patientId, data: pending.data, ext: ext)
             _ = try await store.save(patientId: patientId, docType: pending.docType,
                                      sha256: pending.sha256, mimeType: pending.mimeType,
                                      origin: pending.origin, isSensitive: pending.isSensitive,
-                                     metaJSON: nil, title: pending.title, grade: "D")
+                                     metaJSON: mergeOriginalPath(path, into: [:]),
+                                     title: pending.title, grade: "D")
             await load(patientId: patientId)
         } catch {
             // 同上
@@ -502,6 +551,85 @@ private struct DocumentLibraryEmptyView: View {
         ContentUnavailableView(L10n.docLibraryEmpty, systemImage: "folder",
                                description: Text(L10n.docLibraryEmptyHint))
             .accessibilityIdentifier("SP-09.document.empty")
+    }
+}
+
+/// F5 资料库文档详情（DocumentStore 落地行专用）。
+///
+/// 修复记录：此前 `DocumentDetailRouteView` 只查 `app.timeline`（M1a 旧管线专用
+/// 内存数组）——经 `DocumentsState.importImage/importDocument/importPDF`（首页
+/// 快速拍摄 + 资料库导入的当前生产路径）入库的文档点开恒显示「未找到」，且原图
+/// 从未落盘、无处可查（BR-002/FR5.2 违规）。本视图 + `persistOriginal`/
+/// `mergeOriginalPath`（`DocumentsState`）配合补齐：入库时落盘原图并记路径，
+/// 详情页读路径展示；敏感文档经 `SensitiveMediaContainer` 逐次系统认证解锁
+/// （BR-007/008），非敏感文档直接可看（与 `TimelineDocumentDetailView` 既有行为一致）。
+struct DocumentStoreDetailView: View {
+    @Environment(AppState.self) private var app
+    let doc: DocumentStore.DocumentRow
+    @State private var showOriginal = false
+
+    private var originalPath: String? {
+        guard let json = doc.metaJSON, let data = json.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]   // try?-ok: meta_json 解析失败（如老版非 JSON 格式或损坏）按「无原图路径」降级，不阻断详情页展示其余字段
+        else { return nil }
+        return obj["original_path"] as? String
+    }
+
+    var body: some View {
+        List {
+            Section(L10n.docTitleSection) {
+                Text(L10n.docTitle(doc.title)).font(.headline)
+                LabeledContent(L10n.docDate, value: doc.createdAt.formatted(date: .abbreviated, time: .shortened))
+                HStack(spacing: 6) {
+                    Text(doc.docType).font(.caption).foregroundStyle(.secondary)
+                    if doc.grade == "D" { GradeBadge(grade: "D") }
+                }
+            }
+            if originalPath != nil {
+                Section {
+                    if doc.isSensitive {
+                        // BR-007/008：敏感文档原图逐次系统认证解锁，不做免认证直显
+                        SensitiveMediaContainer { _ in
+                            Label(L10n.sensitiveMedia_unlockToView, systemImage: "lock.fill")
+                                .foregroundStyle(.secondary)
+                        } content: { _ in
+                            Button {
+                                showOriginal = true
+                                app.auditViewSensitiveOriginal(documentId: doc.id, title: doc.title ?? "")
+                            } label: {
+                                Label(L10n.docViewOriginal, systemImage: "photo")
+                            }
+                        }
+                        .accessibilityIdentifier("SP-09.document.detail.originalLocked")
+                    } else {
+                        Button {
+                            showOriginal = true
+                        } label: {
+                            Label(L10n.docViewOriginal, systemImage: "photo")
+                        }
+                        .accessibilityIdentifier("SP-09.document.detail.original")
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showOriginal) {
+            if let path = originalPath, let image = UIImage(contentsOfFile: path) {
+                NavigationStack {
+                    Image(uiImage: image)
+                        .resizable().scaledToFit()
+                        .padding(12)
+                        .navigationTitle(L10n.docViewOriginal)
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button(L10n.onboard_gotIt) { showOriginal = false }
+                            }
+                        }
+                }
+            }
+        }
+        .navigationTitle(L10n.docDetailTitle)
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
