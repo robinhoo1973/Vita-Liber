@@ -55,7 +55,14 @@ struct VoiceLanguageSettingsView: View {
         app.voiceOutputLocale
     }
 
-    @State private var t2Explained: (locale: String, nativeName: String)?
+    @State private var t2Explained: T2Info?
+
+    /// T2 说明卡载体（Identifiable 供 sheet(item:)）
+    private struct T2Info: Identifiable {
+        let locale: String
+        let nativeName: String
+        var id: String { locale }
+    }
 
     var body: some View {
         List {
@@ -69,7 +76,7 @@ struct VoiceLanguageSettingsView: View {
                             if lang.tier == .bestEffort {
                                 // §5.12.3 T2 说明卡（V3.72）：徽标可点弹出三要点说明
                                 Button {
-                                    t2Explained = lang
+                                    t2Explained = T2Info(locale: lang.locale, nativeName: lang.nativeName)
                                 } label: {
                                     Text(L10n.voiceLangBestEffort)
                                         .font(.caption2)

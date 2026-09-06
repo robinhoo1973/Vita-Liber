@@ -271,7 +271,7 @@ struct HelpCardSendHost: View {
     var body: some View {
         Group {
             if confirmed {
-                HelpCardRecipientSheet(text: text, contacts: contacts, onSend: onSend)
+                HelpCardRecipientSheet(text: text, contacts: contacts, onSent: onSend)
             } else {
                 NavigationStack {
                     ScrollView {
