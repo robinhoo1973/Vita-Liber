@@ -444,7 +444,7 @@ struct MedicationPlanFormView: View {
     /// （响亮拒绝）——绝不静默落 NULL 后被安全线按 1.0/次扣账
     private var doseParseFailed: Bool {
         let trimmed = dosePerTake.trimmingCharacters(in: .whitespaces)
-        return !trimmed.isEmpty && DoseInputParser.parse(trimmed) == nil
+        return !trimmed.isEmpty && DoseScheduleEngine.DoseInputParser.parse(trimmed) == nil
     }
     @State private var timesPerDay = "1"
     @State private var route = ""
@@ -565,7 +565,7 @@ struct MedicationPlanFormView: View {
         // NULL、物化链路 ?? 1——医嘱「半片」被安全线按 1.0/次扣账。改经
         // Domain DoseInputParser（词尾单位剥离/半/分数/中文数字归一），
         // 不可解析时保存按钮已禁用（响亮拒绝）。
-        let parsedDosePerTake = DoseInputParser.parse(dosePerTake)
+        let parsedDosePerTake = DoseScheduleEngine.DoseInputParser.parse(dosePerTake)
         let draft = MedicationPlanDraft(schedule: schedule, startDate: startDate,
                                         endDate: hasEndDate ? endDate : nil,
                                         dosePerTake: parsedDosePerTake)
