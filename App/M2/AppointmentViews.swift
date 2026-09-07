@@ -4,6 +4,13 @@ import Infrastructure
 
 // MARK: - F10 预约与复诊（SP-18 · FR10.1-10.7）
 
+/// 改期种子：已过开始时间仍 scheduled 的预约，startsAt 为过去时刻，
+/// 落在 DatePicker in: Date()... 范围外——钳制到「现在」，防保存回过去
+/// 日期（过去预约的负偏移提醒层级全部不补发，改期即失声）。列表/详情同源。
+private func rescheduleSeed(from startsAt: Date) -> Date {
+    max(startsAt, Date())
+}
+
 /// 预约列表：按状态分段筛选（待就诊/已完成/已取消/错过）；
 /// 行 = TaskCard 变体（医院 + 日期 + 状态胶囊）。
 /// 详情底部：改期（原预约保留历史）/取消（选填原因）/标记完成（提示补录就诊）/标记错过。
@@ -16,6 +23,9 @@ struct AppointmentListView: View {
     @State private var cancelTarget: AppointmentRow?
     @State private var rescheduleTarget: AppointmentRow?
     @State private var newDate = Date()
+    /// FR10.7 标记错过需确认（此前零门槛直写：未来预约可被误标错过、
+    /// 四档分级提醒被取消、2h 跟进提前武装）
+    @State private var missTarget: AppointmentRow?
 
     private let statuses = ["scheduled", "completed", "cancelled", "missed"]
 
@@ -47,7 +57,7 @@ struct AppointmentListView: View {
                                 HStack(spacing: 10) {
                                     Button(L10n.apptReschedule) {
                                         rescheduleTarget = apt
-                                        newDate = apt.startsAt
+                                        newDate = rescheduleSeed(from: apt.startsAt)
                                     }
                                     .buttonStyle(.bordered)
                                     .controlSize(.small)
@@ -60,16 +70,18 @@ struct AppointmentListView: View {
                                 .frame(minHeight: 44)   // 触点≥44pt（审查修复）
                                     // 第七轮全仓审查修复：FR10.7「标记错过」此前无任何
                                     // 入口——scheduled 行只有改期/取消/完成，missed 状态
-                                    // 与 FR10.3 错过跟进提醒（2h 后）全链路不可达
-                                    Button(L10n.apptMarkMissed) {
-                                        Task {
-                                            await reminders.markAppointmentMissed(patientId: app.currentPatientId, id: apt.id)
-                                            await load()
+                                    // 与 FR10.3 错过跟进提醒（2h 后）全链路不可达。
+                                    // 时间门槛（Domain AppointmentRules 单一出口）+
+                                    // 确认（store 注释自认「按钮无时间门槛」）：
+                                    // 未到开始时间不呈现，防未来预约被误标错过
+                                    if AppointmentRules.canMarkMissed(startsAt: apt.startsAt) {
+                                        Button(L10n.apptMarkMissed) {
+                                            missTarget = apt
                                         }
+                                        .buttonStyle(.bordered)
+                                        .controlSize(.small)
+                                        .frame(minHeight: 44)   // 触点≥44pt（审查修复）
                                     }
-                                    .buttonStyle(.bordered)
-                                    .controlSize(.small)
-                                .frame(minHeight: 44)   // 触点≥44pt（审查修复）
                                     Button(L10n.apptComplete) {
                                         Task {
                                             await reminders.completeAppointment(patientId: app.currentPatientId, id: apt.id)
@@ -134,6 +146,22 @@ struct AppointmentListView: View {
             Button(L10n.apptCancelReasonOther) { submitCancel("other") }
             Button(L10n.commonCancel, role: .cancel) { cancelTarget = nil }
         }
+        // 标记错过确认（取消分级提醒 + 2h 跟进，需明示后果）。
+        // presenting: 形式直接注入目标行——按钮动作不再依赖与对话框
+        // 关闭 setter 的共享可变状态竞态（动作/置 nil 顺序无关）
+        .confirmationDialog(L10n.apptMarkMissed, isPresented:
+            Binding(get: { missTarget != nil }, set: { if !$0 { missTarget = nil } }),
+                            presenting: missTarget, titleVisibility: .visible) { apt in
+            Button(L10n.apptMarkMissed, role: .destructive) {
+                Task {
+                    await reminders.markAppointmentMissed(patientId: app.currentPatientId, id: apt.id)
+                    await load()
+                }
+            }
+            Button(L10n.commonCancel, role: .cancel) { }
+        } message: { _ in
+            Text(L10n.apptMarkMissedHint)
+        }
         // FR10.7 改期（原预约保留历史 + 新草稿）
         .sheet(item: $rescheduleTarget) { apt in
             NavigationStack {
@@ -182,7 +210,7 @@ struct AppointmentListView: View {
         case "scheduled": return Color("brand-primary", bundle: .main)
         case "completed": return Color("semantic-success", bundle: .main)
         case "cancelled": return Color("text-secondary", bundle: .main)
-        case "missed": return .red
+        case "missed": return Color("semantic-danger", bundle: .main)
         default: return .secondary
         }
     }
@@ -234,7 +262,10 @@ struct AppointmentFormView: View {
                         // 指定日期：本次预约本身即复诊
                         EmptyView()
                     case 1:
-                        // N 天/周/月后：必须确认到具体日期方可生效
+                        // N 天/周/月后：必须确认到具体日期方可生效。
+                        // 双控件互为投影（日历日差，DST 安全）：此前只有
+                        // DatePicker→days 单向同步，Stepper 拨动后日期显示
+                        // 与保存值分叉（提醒提前/推迟于用户看到的日期响起）
                         Stepper(L10n.apptFollowUpDays(followUpDays), value: $followUpDays, in: 1...730)
                         DatePicker(L10n.apptFollowUpConcreteDate, selection: $followUpDate,
                                    displayedComponents: .date)
@@ -246,6 +277,23 @@ struct AppointmentFormView: View {
                             let days = cal.dateComponents([.day], from: cal.startOfDay(for: startsAt),
                                                           to: cal.startOfDay(for: date)).day ?? followUpDays
                             followUpDays = max(1, days)
+                        }
+                        .onChange(of: followUpDays) { _, days in
+                            let cal = Calendar.current
+                            followUpDate = DayArithmetic.offset(days: days, from: cal.startOfDay(for: startsAt))
+                        }
+                        // 预约日期改动后投影重新锚定——此前具体日期仍按旧
+                        // startsAt 计算，提醒在用户看到的新就诊日上提前/推迟响起
+                        .onChange(of: startsAt) { _, newDate in
+                            followUpDate = DayArithmetic.offset(days: followUpDays,
+                                                                from: Calendar.current.startOfDay(for: newDate))
+                        }
+                        // 首次进入/重新进入规则 1：默认值（now+90）锚定到
+                        // startsAt——否则初始 DatePicker 显示与保存值差一天
+                        // （startsAt 默认明天，store 按 startsAt+days 排期）
+                        .onAppear {
+                            followUpDate = DayArithmetic.offset(days: followUpDays,
+                                                                from: Calendar.current.startOfDay(for: startsAt))
                         }
                     case 2, 3:
                         // 检查完成后/疗程结束后：无具体日期 → 待确认草稿（不排提醒）
@@ -330,7 +378,10 @@ struct AppointmentDetailRouteView: View {
                             // 原预约仍在 scheduled 态继续响铃（重复预约 +
                             // 从未发生的改期）。与列表页同用 reschedule
                             // 语义（原预约保留历史 + 新草稿）
-                            Button(L10n.apptReschedule) { showReschedule = true }
+                            Button(L10n.apptReschedule) {
+                                newDate = rescheduleSeed(from: apt.startsAt)
+                                showReschedule = true
+                            }
                         }
                     }
                 }

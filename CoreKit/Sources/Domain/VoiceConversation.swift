@@ -313,6 +313,13 @@ public enum VoiceConversationEngine {
                     s.pendingObject = object
                     s.lastPrompt = .markTakenConfirm(object: object)
                     events.append(.speak(.markTakenConfirm(object: object)))
+                case .stockExpiry, .stockRemaining, .stockLocation:
+                    // 库存查询载荷 = 句首药品名（「阿司匹林还剩多少/什么时候过期/
+                    // 放在哪」）——此前 extractPayload 只剥「搜索/找」前缀，库存
+                    // 指令载荷恒 nil，视图回全局清单答非所问
+                    events.append(.execute(c, payload: extractStockObject(text)))
+                    s.phase = .listening
+                    s.silentRounds = 0
                 default:
                     // 低风险查询/导航：直接执行
                     events.append(.execute(c, payload: extractPayload(text)))
@@ -425,6 +432,23 @@ public enum VoiceConversationEngine {
         object = object.replacingOccurrences(of: "了。", with: "")
             .replacingOccurrences(of: "了", with: "")
         return object.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// 库存类指令载荷：在最早的动词边界（还/放/什么时候）截断，句首即药品名。
+    /// 词表与 patterns 逐条对齐（(?:药)? 前缀 → 「药」是泛化问句；放(?:在|的)?
+    /// 直连哪/什么地方 → 必须收「放哪/放什么地方」两形）。
+    /// 泛化药词（「药/我的药」等）与无边界（纯列表问句）返回 nil。
+    private static func extractStockObject(_ text: String) -> String? {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cutWords = ["什么时候", "还剩", "还有", "剩多", "放在", "放的", "放哪", "放什么地方"]
+        guard let earliest = cutWords.compactMap({ t.range(of: $0)?.lowerBound }).min() else { return nil }
+        let object = String(t[..<earliest]).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !object.isEmpty else { return nil }
+        // 泛化药词过滤：patterns 的 (?:药)? 使「药还剩多少/药放在哪」命中
+        // 库存指令——载荷「药」不是药名，按药名匹配会误报「未找到」或
+        // 命中首个含「药」字的药品（答非所问）。泛化问句回落全清单。
+        let genericWords = ["药", "药品", "药片", "药丸", "我的药", "这个药", "那个药"]
+        return genericWords.contains(object) ? nil : object
     }
 
     private static func extractPayload(_ text: String) -> String? {

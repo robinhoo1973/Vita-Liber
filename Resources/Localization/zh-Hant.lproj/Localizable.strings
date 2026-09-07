@@ -150,7 +150,7 @@
 "care.parameters.sosValue" = "長按 %ld 秒 + 二次確認";
 "claim.title" = "報銷票據";
 "claim.empty" = "還沒有報銷票據";
-"claim.totalsFmt" = "共 %d 筆，合計 %@ %@";
+"claim.totalsFmt" = "共 %d 筆，合計 %@";
 "claim.emptyHint" = "錄入發票/費用/收據，按就診整理";
 "claim.add" = "新增";
 "claim.type.invoice" = "發票";
@@ -650,6 +650,8 @@
 "plan.listTitle" = "用藥計畫";
 "plan.detailTitle" = "計畫詳情";
 "plan.notFound" = "計畫不存在或已被刪除";
+"plan.loadFailed" = "計劃資訊載入失敗";
+"common.retry" = "重試";
 "plan.weekStrip" = "本週日程";
 "plan.todayDoses" = "今日劑量";
 "plan.noTodayDose" = "今日暫無劑量安排";
@@ -684,6 +686,9 @@
 "plan.status.ended" = "已結束";
 "plan.backfill.title" = "補記已服用";
 "plan.backfill.actualTime" = "實際服用時間";
+"plan.backfill.noBaseline" = "該計劃缺少單劑基線劑量，無法安全補記；請先在計劃中補充劑量信息";
+"plan.form.saveFailed" = "儲存失敗";
+"plan.form.saveFailedHint" = "用藥計劃未能建立，請重試；若持續失敗請檢查裝置儲存空間";
 "plan.form.title" = "新增用藥計畫";
 "plan.form.medication" = "藥品資訊";
 "plan.form.genericName" = "藥品通用名";
@@ -730,6 +735,8 @@
 "encounter.kind.followup" = "複診";
 "encounter.listTitle" = "就診記錄";
 "encounter.empty" = "還沒有就診記錄";
+"encounter.saveFailed" = "儲存失敗";
+"encounter.saveFailedHint" = "就診記錄未能儲存，請重試；若持續失敗請檢查裝置儲存空間";
 "encounter.emptyHint" = "記錄一次就診，把資料、處方和複診串在一起";
 "encounter.untitled" = "未命名就診";
 "encounter.docCountFmt" = "%d 份資料";
@@ -785,6 +792,7 @@
 "problem.empty" = "還沒有健康問題";
 "problem.emptyHint" = "健康問題由就診、觀察和資料自動歸類，也可手動建立";
 "problem.createTitle" = "新增健康問題";
+"problem.saveFailedHint" = "健康問題未能儲存，請重試";
 "problem.namePlaceholder" = "問題名稱（如：高血壓）";
 "problem.merge" = "合併";
 "problem.mergeTitle" = "合併到哪個問題？";
@@ -817,6 +825,7 @@
 "appt.complete" = "標記完成";
 "appt.followUpHint" = "重新跟進（生成跟進提醒）";
 "appt.markMissed" = "標記錯過";
+"appt.markMissedHint" = "標記錯過將取消該預約的全部分級提醒，並在 2 小時後提醒跟進";
 "appt.newDate" = "新的就診時間";
 "appt.cancelReason.none" = "直接取消";
 "appt.cancelReason.doctor" = "醫生調整";
@@ -1076,6 +1085,10 @@
 "allergy.severity.severe" = "重";
 "allergy.severity.moderate" = "中";
 "allergy.delete" = "刪除";
+"allergy.saveFailed" = "過敏記錄儲存失敗";
+"allergy.saveFailedHint" = "過敏記錄未能儲存，請重試";
+"allergy.deleteConfirmTitle" = "刪除這條過敏記錄？";
+"allergy.deleteConfirmHint" = "刪除後急救卡與醫生摘要中的該條目將一併移除";
 "allergy.createTitle" = "記錄過敏/不良反應";
 "allergy.step1" = "第 1 步 · 過敏原類型";
 "allergy.step2" = "第 2 步 · 過敏原與反應";
@@ -1307,13 +1320,18 @@
 "f19.locationUnknown" = "未登記存放位置";
 "f19.noExpiring" = "沒有 30 天內到期的藥品";
 "f19.expiringFmt" = "%@：%@ 到期";
+"f19.expiredFmt" = "%@：%@ 已過期";
+"f19.expiryUnknownFmt" = "「%@」未登記效期";
+"f19.stockNoMatchFmt" = "沒有找到「%@」的庫存記錄";
 "f19.taken" = "已服";
 "f19.notTaken" = "未服";
 "f19.slotMedStateFmt" = "%@：%@";
 "f19.markTakenNoMatchFmt" = "沒有找到「%@」對應的在服計畫";
 "f19.markTakenDoneFmt" = "已記錄「%@」為已服用";
+"f19.markTakenFailedFmt" = "「%@」確認失敗，請稍後重試或到用藥頁手動確認";
 "f19.metricRecordedFmt" = "已記錄血壓 %.0f";
 "f19.questionRecordedFmt" = "已記錄問題：%@";
+"f19.recordFailed" = "記錄失敗，請稍後重試";
 "medicalID.title" = "寫入系統醫療急救卡";
 "medicalID.step1" = "第 1 步 · 開啟系統健康 App";
 "medicalID.step1Hint" = "點擊下方按鈕開啟 Apple 健康 App（系統內建，鎖定畫面無需解鎖即可查看）。";

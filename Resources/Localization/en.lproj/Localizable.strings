@@ -150,7 +150,7 @@
 "care.parameters.sosValue" = "Hold %ld s + confirm again";
 "claim.title" = "Reimbursement items";
 "claim.empty" = "No reimbursement items yet";
-"claim.totalsFmt" = "%d items, total %@ %@";
+"claim.totalsFmt" = "%d items, total %@";
 "claim.emptyHint" = "Add invoices, fees or receipts, organized by visit";
 "claim.add" = "Add";
 "claim.type.invoice" = "Invoice";
@@ -650,6 +650,8 @@
 "plan.listTitle" = "Medication Plans";
 "plan.detailTitle" = "Plan Detail";
 "plan.notFound" = "Plan not found or deleted";
+"plan.loadFailed" = "Could not load plan details";
+"common.retry" = "Retry";
 "plan.weekStrip" = "This Week";
 "plan.todayDoses" = "Today's Doses";
 "plan.noTodayDose" = "No doses scheduled today";
@@ -684,6 +686,9 @@
 "plan.status.ended" = "Ended";
 "plan.backfill.title" = "Backfill Taken";
 "plan.backfill.actualTime" = "Actual time taken";
+"plan.backfill.noBaseline" = "This plan has no per-dose baseline, so a safe backfill is not possible; add the dose first.";
+"plan.form.saveFailed" = "Save Failed";
+"plan.form.saveFailedHint" = "The medication plan could not be created. Please retry; if it keeps failing, check available storage.";
 "plan.form.title" = "New Medication Plan";
 "plan.form.medication" = "Medication";
 "plan.form.genericName" = "Generic name";
@@ -730,6 +735,8 @@
 "encounter.kind.followup" = "Follow-up";
 "encounter.listTitle" = "Encounters";
 "encounter.empty" = "No encounters yet";
+"encounter.saveFailed" = "Save Failed";
+"encounter.saveFailedHint" = "The encounter could not be saved. Please retry; if it keeps failing, check available storage.";
 "encounter.emptyHint" = "Record an encounter to tie records, prescriptions and follow-ups together";
 "encounter.untitled" = "Untitled encounter";
 "encounter.docCountFmt" = "%d documents";
@@ -785,6 +792,7 @@
 "problem.empty" = "No health problems yet";
 "problem.emptyHint" = "Health problems are classified automatically from encounters, observations and documents, or you can create one manually";
 "problem.createTitle" = "New Health Problem";
+"problem.saveFailedHint" = "The health problem could not be saved. Please retry.";
 "problem.namePlaceholder" = "Problem name (e.g. hypertension)";
 "problem.merge" = "Merge";
 "problem.mergeTitle" = "Merge into which problem?";
@@ -817,6 +825,7 @@
 "appt.complete" = "Mark Complete";
 "appt.followUpHint" = "Follow up again (creates a follow-up reminder)";
 "appt.markMissed" = "Mark Missed";
+"appt.markMissedHint" = "Marking as missed cancels all tiered reminders and schedules a follow-up in 2 hours.";
 "appt.newDate" = "New visit time";
 "appt.cancelReason.none" = "Cancel";
 "appt.cancelReason.doctor" = "Doctor adjusted";
@@ -1076,6 +1085,10 @@
 "allergy.severity.severe" = "Severe";
 "allergy.severity.moderate" = "Moderate";
 "allergy.delete" = "Delete";
+"allergy.saveFailed" = "Failed to Save Allergy";
+"allergy.saveFailedHint" = "The allergy record could not be saved. Please retry.";
+"allergy.deleteConfirmTitle" = "Delete This Allergy Record?";
+"allergy.deleteConfirmHint" = "The entry will also be removed from the emergency card and doctor summary.";
 "allergy.createTitle" = "Record Allergy / Reaction";
 "allergy.step1" = "Step 1 · Allergen type";
 "allergy.step2" = "Step 2 · Allergen & reactions";
@@ -1307,13 +1320,18 @@
 "f19.locationUnknown" = "Location not recorded";
 "f19.noExpiring" = "No medications expiring within 30 days";
 "f19.expiringFmt" = "%@: expires %@";
+"f19.expiredFmt" = "%@: expired %@";
+"f19.expiryUnknownFmt" = "No expiry date on file for \"%@\"";
+"f19.stockNoMatchFmt" = "No stock record found for \"%@\"";
 "f19.taken" = "taken";
 "f19.notTaken" = "not taken";
 "f19.slotMedStateFmt" = "%@: %@";
 "f19.markTakenNoMatchFmt" = "No active plan matches \"%@\"";
 "f19.markTakenDoneFmt" = "Recorded \"%@\" as taken";
+"f19.markTakenFailedFmt" = "Could not record \"%@\" as taken; please retry or confirm on the medication page";
 "f19.metricRecordedFmt" = "Blood pressure %.0f recorded";
 "f19.questionRecordedFmt" = "Question recorded: %@";
+"f19.recordFailed" = "Could not save the record; please try again later.";
 "medicalID.title" = "Write to System Medical ID";
 "medicalID.step1" = "Step 1 · Open the Health app";
 "medicalID.step1Hint" = "Tap the button below to open Apple Health (viewable from the lock screen without unlocking).";

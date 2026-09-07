@@ -10,7 +10,30 @@ public enum BatchExpiryTier: String, Sendable, Equatable, Codable {
 }
 
 public struct BatchExpiryRules {
-    /// 三级触发点（FR9.11）：expire_at 前 30/7/3 天各一次
+    /// 效期状态分类（FR9.11 三级播报共用，单一事实源）——视图不得自建
+    /// 阈值边界或 `?? 7`/`?? 30` 兜底字面量（此前 expiringSummary 视图内
+    /// 手写三级过滤，阈值与 Domain 漂移即答非所问）
+    public enum ExpiryStatus: String, Sendable, Equatable {
+        case expired    // 已过期
+        case within7    // ≤7 天内到期（t7 档）
+        case within30   // 7 < 天 ≤30 内到期（t30 档）
+        case later      // 30 天外（临期播报不涉及）
+    }
+
+    /// 效期分类：expireAt 对照 now 落入 FR9.11 三档之一。
+    /// 日历日加法（DST 纪律），与 fireDates 同一注入 calendar 模式。
+    public static func status(expireAt: Date, now: Date,
+                              calendar: Calendar = .current) -> ExpiryStatus {
+        if expireAt < now { return .expired }
+        guard let d7 = calendar.date(byAdding: .day, value: daysBefore[.t7] ?? 7, to: now)
+        else { return .later }
+        if expireAt <= d7 { return .within7 }
+        guard let d30 = calendar.date(byAdding: .day, value: daysBefore[.t30] ?? 30, to: now)
+        else { return .later }
+        return expireAt <= d30 ? .within30 : .later
+    }
+
+    /// 三级触发点（FR9.11）：expire_at 前 30/7/0 天各一次
     public static let daysBefore: [BatchExpiryTier: Int] = [
         .t30: 30, .t7: 7, .t0: 0,
     ]

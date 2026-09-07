@@ -16,7 +16,7 @@ struct DoctorShowcaseView: View {
     @Environment(MediaUnlockSession.self) private var session
     @Environment(\.dismiss) private var dismiss
 
-    @State private var remaining: TimeInterval = 300
+    @State private var remaining: TimeInterval = MediaUnlockPolicy.showcaseTTL
     @State private var authenticated = false
     /// 第八轮全仓审查修复（倒计时按需订阅 + 重新认证复位）：
     /// ① autoconnect 常开订阅在锁定占位态每秒空转（guard 返回）——改为
@@ -34,7 +34,19 @@ struct DoctorShowcaseView: View {
             // authenticated 与会话令牌；令牌被 TTL 重锁 → 内容下线并给出
             // 重新认证入口（不得无出口转圈）。
             if authenticated && session.isUnlocked {
-                showcaseContent
+                // 渲染门必须同时判读装载成员：.task(id: patientId) 的加载是
+                // 异步的，且 state.groups 为跨视图共享状态——首帧与加载竞态
+                // 下会渲染上一成员/其他视图装载的观察组（BR-001/BR-007
+                // 跨成员敏感媒体泄漏）。装载成功前只呈现加载态。
+                if state.loadedPatientId == patientId {
+                    showcaseContent
+                } else if state.loadFailed {
+                    ContentUnavailableView(L10n.observationListError,
+                                           systemImage: "exclamationmark.triangle")
+                } else {
+                    ProgressView()
+                        .accessibilityIdentifier("SP-28.showcase.loading")
+                }
             } else {
                 // 认证前 / TTL 重锁后：锁占位 + 重新认证入口（无出口转圈）
                 VStack(spacing: 16) {
@@ -59,7 +71,7 @@ struct DoctorShowcaseView: View {
                     Circle()
                         .stroke(Color(.systemGray5), lineWidth: 3)
                     Circle()
-                        .trim(from: 0, to: CGFloat(remaining / 300))
+                        .trim(from: 0, to: CGFloat(remaining / MediaUnlockPolicy.showcaseTTL))
                         .stroke(remaining <= 60 ? Color("semantic-danger", bundle: .main)
                                                 : Color("brand-primary", bundle: .main),
                                 style: StrokeStyle(lineWidth: 3, lineCap: .round))
@@ -78,6 +90,12 @@ struct DoctorShowcaseView: View {
         .onAppear {
             guard !authenticated else { return }
             Task { await authenticate() }
+        }
+        // 审查修复：展示模式必须按路由 patientId 加载该成员的观察组——此前
+        // 直接渲染 ObservationStoreState.groups（上一成员浏览残留），跨成员
+        // 敏感媒体泄漏（BR-001/BR-007），或冷启动恒空态。
+        .task(id: patientId) {
+            await state.load(patientId: patientId)
         }
         .onChange(of: session.isUnlocked) { _, unlocked in
             // 令牌被 TTL/退后台重锁 → 内容立即下线，重新认证（第七轮修复）
@@ -113,7 +131,7 @@ struct DoctorShowcaseView: View {
     /// 第八轮修复：每次重新认证成功复位倒计时（新会话 = 全新 300s）。
     private func authenticate() async {
         if await app.requestUnlock(reason: L10n.showcaseUnlockReason) {
-            remaining = 300
+            remaining = MediaUnlockPolicy.showcaseTTL
             authenticated = true
             session.unlock()
         } else {
@@ -158,7 +176,9 @@ private struct ShowcasePage: View {
                     Text(description).font(.body)
                 }
                 if let mark = latest.selfMark {
-                    Text("\(L10n.observationSelfMark)：\(mark)")
+                    // 展示名经 markName 映射（BR-006：只译值本身）——此前直接
+                    // 渲染英文机器值 improved/unchanged/worsened
+                    Text("\(ObservationDetailView.markName(mark))（\(L10n.observationSelfMark)）")
                         .font(.caption)
                         .foregroundStyle(Color("semantic-warning", bundle: .main))
                 }

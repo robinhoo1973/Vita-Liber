@@ -144,16 +144,35 @@ final class M2HubStore {
         try await meds.updateLot(id: id, totalUnits: totalUnits, unitKind: unitKind,
                                  openedAt: openedAt, expireAt: expireAt,
                                  storageNote: storageNote, status: status)
+        // 审查修复：编辑/废弃后重载缓存——此前只写库，药箱继续显示
+        // 编辑前的旧效期/旧存放位置/旧状态。刷新尽力而为：写库已成功，
+        // 摘要读失败若回抛会让调用方把「已写入」报成「保存失败」并诱导
+        // 重试二次写入（BR-004 真实性）——refreshInventory 内吞错记日志
+        await refreshInventory()
+    }
+
+    /// 药箱缓存刷新单一出口（updateLot/reconcileLot 共用）：
+    /// 尽力而为——写库成功即返回，摘要读失败只记日志，
+    /// 绝不把「已写入」回传成「保存失败」。
+    private func refreshInventory() async {
+        guard let patientId = loadingPatientId else { return }
+        do {
+            inventoryItems = try await meds.inventorySummary(patientId: patientId, now: Date())
+        } catch {
+            logger.error("药箱缓存刷新失败: \(error)")
+        }
     }
 
     func reconcileLot(item: MedicationStore.InventorySummaryItem, physicalCount: Double) async {
         do {
-            try await meds.reconcileLot(lotId: item.lotId, physicalCount: physicalCount, at: Date())
+            // FR9.8.5/FR14.2：归真写入必须留审计——reconcileLot 的审计行由
+            // Store 在事务内直落（auditSink 非 nil 即启用，与业务同事务，
+            // 「审计不落半条」）；此前未传 sink，库存归真从审计记录页消失
+            try await meds.reconcileLot(lotId: item.lotId, physicalCount: physicalCount,
+                                        at: Date(), auditSink: { _, _ in })
             // 审查修复：盘点归真后重载缓存——原实现只写库，药箱继续显示
             // 盘点前的旧余量/旧续药档位，直到下次全量 load
-            if let patientId = loadingPatientId {
-                inventoryItems = try await meds.inventorySummary(patientId: patientId, now: Date())
-            }
+            await refreshInventory()
         } catch {
             logger.error("盘点归真失败: \(error)")
         }
@@ -179,10 +198,17 @@ final class M2HubStore {
             } else {
                 try await emergency.deselect(patientId: patientId, itemId: item.id)
             }
-            emergencySelected = try await emergency.selected(patientId: patientId)
-            emergencySelectedIds = Set((emergencySelected.allergies + emergencySelected.medications
-                                        + emergencySelected.healthProblems + emergencySelected.contacts)
-                                        .map(\.id))
+            // BR-001 成员隔离：写后回读经 loadSection 单一出口（fetch →
+            // 代际守卫 → 提交）——此前 guard 在读前、提交在读后：成员在
+            // 读取 await 期间切换时，旧成员行仍会覆盖新成员刚提交的投影
+            await loadSection(patientId: patientId, label: "急救卡写后刷新失败",
+                fetch: { try await emergency.selected(patientId: patientId) },
+                commit: { selectedNow in
+                    emergencySelected = selectedNow
+                    emergencySelectedIds = Set((selectedNow.allergies + selectedNow.medications
+                                                + selectedNow.healthProblems + selectedNow.contacts)
+                                                .map(\.id))
+                })
             // FR15.4 卡片内容变更写审计（select/deselect 均记录）
             try await audit.record(action: "update", entityType: "emergency_card",
                                    entityId: item.id.uuidString, actorLocal: "owner",
@@ -200,7 +226,11 @@ final class M2HubStore {
             try await immunizations.create(patientId: patientId, vaccineName: name,
                                            doseNumber: dose, administeredAt: date,
                                            provider: provider, lotNumber: lot)
-            immunizationRecords = try await immunizations.list(patientId: patientId)
+            // BR-001 成员隔离：写后回读经 loadSection 单一出口
+            // （fetch → 代际守卫 → 提交，杜绝成员切换竞态窗口）
+            await loadSection(patientId: patientId, label: "疫苗写后刷新失败",
+                fetch: { try await immunizations.list(patientId: patientId) },
+                commit: { immunizationRecords = $0 })
         } catch {
             logger.error("疫苗记录失败: \(error)")
         }
@@ -211,8 +241,15 @@ final class M2HubStore {
         do {
             try await claims.create(patientId: patientId, itemType: type, amount: amount,
                                     date: date, merchant: merchant, summary: summary)
-            claimRows = try await claims.list(patientId: patientId)
-            claimTotals = try await claims.totals(patientId: patientId)
+            // BR-001 成员隔离：写后回读经 loadSection 单一出口
+            // （fetch → 代际守卫 → 提交，杜绝成员切换竞态窗口）
+            await loadSection(patientId: patientId, label: "报销写后刷新失败",
+                fetch: {
+                    async let r = claims.list(patientId: patientId)
+                    async let t = claims.totals(patientId: patientId)
+                    return try await (r, t)
+                },
+                commit: { claimRows = $0.0; claimTotals = $0.1 })
         } catch {
             logger.error("报销票据失败: \(error)")
         }
@@ -223,7 +260,11 @@ final class M2HubStore {
     func recordSent(patientId: UUID, kind: String, recipient: String) async {
         do {
             _ = try await messages.recordSent(patientId: patientId, kind: kind, recipient: recipient)
-            sentMessages = try await messages.list(patientId: patientId)
+            // BR-001 成员隔离：写后回读经 loadSection 单一出口
+            // （fetch → 代际守卫 → 提交，杜绝成员切换竞态窗口）
+            await loadSection(patientId: patientId, label: "发送状态写后刷新失败",
+                fetch: { try await messages.list(patientId: patientId) },
+                commit: { sentMessages = $0 })
         } catch {
             logger.error("发送状态记录失败: \(error)")
         }
@@ -247,7 +288,11 @@ final class M2HubStore {
     func markDelivered(messageId: UUID, patientId: UUID) async {
         do {
             try await messages.updateStatus(id: messageId, to: .ackPending)
-            sentMessages = try await messages.list(patientId: patientId)
+            // BR-001 成员隔离：写后回读经 loadSection 单一出口
+            // （fetch → 代际守卫 → 提交，杜绝成员切换竞态窗口）
+            await loadSection(patientId: patientId, label: "送达状态写后刷新失败",
+                fetch: { try await messages.list(patientId: patientId) },
+                commit: { sentMessages = $0 })
         } catch {
             logger.error("标记已送达失败: \(error)")
         }

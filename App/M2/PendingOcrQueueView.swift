@@ -17,15 +17,17 @@ struct PendingOcrQueueView: View {
     /// §5.30 筛选（V3.72）：成员 + 时间窗（全部/3 天/72h+）
     @State private var memberFilter: UUID?
     @State private var windowFilter: Int = 0   // 0=全部 1=3 天 2=72h+
+    /// 确认写库失败提示（confirmText 返回 Bool——失败绝不静默留 D 级行）
+    @State private var confirmFailed = false
 
     /// 72h 置顶钉住（FR2.3/FR6.8 排序规则）+ 新到旧。
     /// 数据源 = DocumentsState.pendingDocuments（跨成员聚合）——第四轮全仓
     /// 审查修复：此前读 docs.documents（仅当前成员），成员筛选对其他成员恒空。
-    private var pendingDocs: [DocumentStore.DocumentRow] {
-        // 第八轮全仓审查修复（排序比较器重复日历运算）：isOverdue 含
-        // DayArithmetic 日历运算，原比较器每次比较对 a/b 各算一遍 =
-        // O(n log n) 次日历日计算，且行内渲染再算一遍。先映射一次性
-        // 预计算逾期旗标，排序/渲染共用同一结果。
+    /// 第八轮全仓审查修复（排序比较器重复日历运算）：isOverdue 含
+    /// DayArithmetic 日历运算，原比较器每次比较对 a/b 各算一遍 =
+    /// O(n log n) 次日历日计算，且行内渲染再算一遍。先映射一次性
+    /// 预计算逾期旗标，排序/渲染共用同一结果（携旗标贯穿，行内不重算）。
+    private var pendingRows: [(doc: DocumentStore.DocumentRow, overdue: Bool)] {
         docs.pendingDocuments.filter { doc in
             (memberFilter == nil || doc.patientId == memberFilter)
                 && windowMatch(doc)
@@ -35,26 +37,32 @@ struct PendingOcrQueueView: View {
             if a.overdue != b.overdue { return a.overdue }
             return a.doc.createdAt > b.doc.createdAt
         }
-        .map(\.doc)
     }
 
     var body: some View {
+        // 单次求值：此前 pendingRows 在 isEmpty/count/ForEach 各算一遍
+        // （每遍重做 filter + isOverdue 日历运算 + 排序）
+        let rows = pendingRows
         Group {
-            if pendingDocs.isEmpty {
+            if rows.isEmpty {
                 ContentUnavailableView(L10n.ocrQueueEmpty, systemImage: "checkmark.seal",
                                        description: Text(L10n.ocrQueueEmptyHint))
                     .accessibilityIdentifier("SP-53.queue.empty")
             } else {
                 List {
                     Section {
-                        Text(L10n.ocrQueueCount(pendingDocs.count))
+                        Text(L10n.ocrQueueCount(rows.count))
                             .font(.subheadline)
                         // BR-003 诚实性说明：D 级文档未确认前不进检索与 AI 事实链
                         Text(L10n.ocrQueueHint)
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
-                    ForEach(Array(pendingDocs.enumerated()), id: \.offset) { _, doc in
+                    // id 用文档自身 id（此前 \.offset 位置身份：确认一条后
+                    // 行序整体移位，SwiftUI 按位置复用行视图，标题/徽章与
+                    // accessibilityIdentifier 短暂错配）
+                    ForEach(rows, id: \.doc.id) { row in
+                        let doc = row.doc
                         VStack(alignment: .leading, spacing: 8) {
                             HStack {
                                 Text(doc.title ?? L10n.docUntitled)
@@ -63,7 +71,7 @@ struct PendingOcrQueueView: View {
                                 // 原手写 Capsule 徽章缺虚线边框与「待确认」角标，
                                 // 关怀模式/高对比主题下不随语义令牌重映射）
                                 GradeBadge(grade: "D")
-                                if PendingOcrRules.isOverdue(createdAt: doc.createdAt) {
+                                if row.overdue {
                                     Text(L10n.ocrQueue72h)
                                         .font(.caption2)
                                         .padding(.horizontal, 6).padding(.vertical, 2)
@@ -84,7 +92,16 @@ struct PendingOcrQueueView: View {
                                 .foregroundStyle(.secondary)
                             // BR-003 D→C：用户显式确认机器识别文本后才进入检索与 AI 事实链
                             Button(L10n.onboard_confirm) {
-                                Task { await docs.confirmText(id: doc.id) }
+                                Task {
+                                    // 写库结果决定后续（confirmText 已把成功行
+                                    // 移出待确认投影）；失败必须可见，不得
+                                    // 静默留 D 级行（BR-003/BR-004 真实性）
+                                    if await docs.confirmText(id: doc.id) {
+                                        await docs.loadPending(patientIds: app.members.map(\.id))
+                                    } else {
+                                        confirmFailed = true
+                                    }
+                                }
                             }
                             .buttonStyle(.borderedProminent)
                             .controlSize(.small)
@@ -120,6 +137,9 @@ struct PendingOcrQueueView: View {
             .background(.thinMaterial)
         }
         .navigationTitle(L10n.ocrQueueTitle)
+        .saveFailedAlert(title: L10n.encounterSaveFailed,
+                         hint: L10n.f19RecordFailed,
+                         isPresented: $confirmFailed)
         .task(id: app.members.map(\.id)) {
             // 跨成员聚合加载（第四轮全仓审查修复：成员筛选对其他成员恒空态）
             await docs.loadPending(patientIds: app.members.map(\.id))

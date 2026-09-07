@@ -83,6 +83,8 @@ struct MedicationPlanDetailView: View {
     @State private var showEndConfirm = false
     @State private var showBackfill = false
     @State private var backfillTarget: Date?
+    /// 瞬态读失败与真「不存在」分离：读失败呈现重试，不冒充「计划不存在」
+    @State private var loadFailed = false
 
     var body: some View {
         List {
@@ -192,7 +194,17 @@ struct MedicationPlanDetailView: View {
                     }
                 }
             } else {
-                ContentUnavailableView(L10n.planNotFound, systemImage: "pills")
+                if loadFailed {
+                    ContentUnavailableView(L10n.planLoadFailed, systemImage: "arrow.clockwise.circle") {
+                        Button(L10n.retry) {
+                            Task { await load() }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .frame(minHeight: 44)   // 触点≥44pt（设计系统）
+                    }
+                } else {
+                    ContentUnavailableView(L10n.planNotFound, systemImage: "pills")
+                }
             }
         }
         .navigationTitle(L10n.planDetailTitle)
@@ -252,7 +264,15 @@ struct MedicationPlanDetailView: View {
 
     private func load() async {
         do {
-            plan = try await reminders.plan(id: planId)
+            let fetched = try await reminders.plan(id: planId)
+            // 真不存在（已删除）→ 「计划不存在」；取回成功才继续副表
+            guard let fetched else {
+                plan = nil
+                loadFailed = false
+                return
+            }
+            plan = fetched
+            loadFailed = false
             history = try await reminders.lifecycleEvents(planId: planId)
             let cal = Calendar.current
             // DST 纪律：日历加一天，禁止固定 86400 秒（切换日 ±1 小时漂移）
@@ -266,7 +286,12 @@ struct MedicationPlanDetailView: View {
             weekLog = try await reminders.doseLog(planId: planId, from: weekStart,
                                                   to: weekEnd)
         } catch {
+            // 瞬态读失败：清空并呈现重试态——不得把存在的计划渲染成
+            // 「计划不存在」，也不得带着半载数据（history/weekLog 部分
+            // 写入）冒充完整详情。plan 必须置 nil：loadFailed 只在
+            // plan==nil 分支被读取，plan 残留时错误态永远不可见
             plan = nil
+            loadFailed = true
         }
     }
 
@@ -284,9 +309,9 @@ struct MedicationPlanDetailView: View {
     private func actionColor(_ action: DoseUserAction?) -> Color {
         switch action {
         case .taken: return Color("semantic-success", bundle: .main)
-        case .missed, .discomfort: return .orange
+        case .missed, .discomfort: return Color("semantic-warning", bundle: .main)
         case .skipped, .snoozed: return .secondary
-        case nil: return .blue
+        case nil: return Color("brand-primary", bundle: .main)
         }
     }
 
@@ -342,8 +367,11 @@ private struct WeekStrip: View {
                 let dayRows = rows.filter {
                     cal.isDate($0.scheduledFor, inSameDayAs: day)
                 }
+                // 日程条为「今日回溯 6 天」的尾随七日（days = today-6…today），
+                // 未来日从不渲染——FR9.16 未来灰门槛在此布局下不可达
+                // （此前加的 day > today 守卫与 future 参数为死代码）
                 Button {
-                    // 漏服格可点补记（FR9.16）；已服/未来格不可点
+                    // 漏服格可点补记（FR9.16）；已服格不可点
                     if let missed = dayRows.first(where: { $0.action == nil || $0.action == .missed }) {
                         onBackfill(missed)
                     }
@@ -351,9 +379,9 @@ private struct WeekStrip: View {
                     VStack(spacing: 4) {
                         Text(day.formatted(.dateTime.weekday(.narrow)))
                             .font(.caption2).foregroundStyle(.secondary)
-                        Image(systemName: daySymbol(dayRows, day: day))
+                        Image(systemName: daySymbol(dayRows))
                             .font(.body)
-                            .foregroundStyle(daySymbolColor(dayRows, day: day))
+                            .foregroundStyle(daySymbolColor(dayRows))
                         Text(day.formatted(.dateTime.day()))
                             .font(.caption2).foregroundStyle(.secondary)
                     }
@@ -369,9 +397,13 @@ private struct WeekStrip: View {
         }
     }
 
-    private func daySymbol(_ rows: [MedicationStore.DoseLogRow], day: Date) -> String {
+    /// 全部剂量已处理才显示 ✓——此前任一已服即 ✓，同日第二剂漏服被
+    /// 掩藏（残留未确认剂量从日程条不可见）。「已处理」含 skipped/snoozed
+    /// （用户主动跳过/延后同样是终端态）；nil/missed 为待处理 → 空心！
+    private func daySymbol(_ rows: [MedicationStore.DoseLogRow]) -> String {
         if rows.isEmpty { return "minus" }
-        if rows.contains(where: { $0.action == .taken || $0.action == .discomfort }) {
+        if rows.allSatisfy({ $0.action == .taken || $0.action == .discomfort
+                             || $0.action == .skipped || $0.action == .snoozed }) {
             return "checkmark.circle.fill"
         }
         if rows.contains(where: { $0.action == nil || $0.action == .missed }) {
@@ -380,12 +412,15 @@ private struct WeekStrip: View {
         return "minus"
     }
 
-    private func daySymbolColor(_ rows: [MedicationStore.DoseLogRow], day: Date) -> Color {
+    private func daySymbolColor(_ rows: [MedicationStore.DoseLogRow]) -> Color {
         if rows.isEmpty { return Color(.systemGray3) }
-        if rows.contains(where: { $0.action == .taken || $0.action == .discomfort }) {
+        if rows.allSatisfy({ $0.action == .taken || $0.action == .discomfort
+                             || $0.action == .skipped || $0.action == .snoozed }) {
             return Color("semantic-success", bundle: .main)
         }
-        if rows.contains(where: { $0.action == nil || $0.action == .missed }) { return .orange }
+        if rows.contains(where: { $0.action == nil || $0.action == .missed }) {
+            return Color("semantic-warning", bundle: .main)
+        }
         return .secondary
     }
 }
@@ -402,20 +437,31 @@ private struct BackfillSheet: View {
         NavigationStack {
             Form {
                 DatePicker(L10n.planBackfillActualTime, selection: $actualTime, in: ...Date())
+                // 单剂基线缺失：响亮拒绝——此前 ?? 1 静默按 1.0/次扣账
+                // （「半片」医嘱被安全线按整片扣减，续药档位失准）
+                if plan.dosePlanUnits == nil {
+                    Section {
+                        Label(L10n.planBackfillNoBaseline, systemImage: "exclamationmark.triangle")
+                            .font(.footnote)
+                            .foregroundStyle(Color("semantic-warning", bundle: .main))
+                    }
+                }
             }
             .navigationTitle(L10n.planBackfillTitle)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button(L10n.reminder_save) {
                         Task {
+                            guard let units = plan.dosePlanUnits else { return }
                             await reminders.backfillTaken(
                                 planId: plan.id, patientId: plan.patientId,
                                 medicationId: plan.medicationId,
                                 actualTime: actualTime,
-                                doseUnits: plan.dosePlanUnits ?? 1)   // D1：用计划单剂基线，非硬编码 1
+                                doseUnits: units)
                             dismiss()
                         }
                     }
+                    .disabled(plan.dosePlanUnits == nil)
                     .accessibilityIdentifier("SP-15.detail.backfill.save")
                 }
             }
@@ -439,6 +485,7 @@ struct MedicationPlanFormView: View {
     @State private var brandName = ""
     @State private var spec = ""
     @State private var dosePerTake = ""
+    @State private var saveFailed = false
 
     /// 第八轮全仓审查修复：非空但不可解析的剂量文本就地报错并禁用保存
     /// （响亮拒绝）——绝不静默落 NULL 后被安全线按 1.0/次扣账
@@ -525,6 +572,9 @@ struct MedicationPlanFormView: View {
                 }
             }
             .navigationTitle(L10n.planFormTitle)
+            .saveFailedAlert(title: L10n.planFormSaveFailed,
+                             hint: L10n.planFormSaveFailedHint,
+                             isPresented: $saveFailed)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(L10n.commonCancel) { dismiss() }
@@ -578,7 +628,9 @@ struct MedicationPlanFormView: View {
                                                                plan: draft, initialLot: lot)
                 dismiss()
             } catch {
-                // 错误经 ReminderStore Logger 上报；BR-003 拒绝时表单保留可修
+                // 保存失败必须可见（响亮拒绝纪律）——此前仅注释吞错，按钮
+                // 无响应、无提示，用户以为计划已建而提醒从未排期
+                saveFailed = true
             }
         }
     }
@@ -663,7 +715,7 @@ struct PlanStatusBadge: View {
     private var color: Color {
         switch status {
         case "active": return Color("brand-primary", bundle: .main)
-        case "paused": return .orange
+        case "paused": return Color("semantic-warning", bundle: .main)
         case "ended": return Color("text-secondary", bundle: .main)
         default: return .secondary
         }

@@ -8,9 +8,24 @@ public struct EmergencyCardItem: Sendable, Equatable, Identifiable {
     public var kind: String            // allergy/medication/healthProblem/contact
     public var title: String
     public var detail: String
+    public var phone: String?          // contact 结构化号码（存储层直取 phone 列）
     public var confirmed: Bool         // 仅 confirmed=true 入卡
-    public init(id: UUID, kind: String, title: String, detail: String, confirmed: Bool) {
-        self.id = id; self.kind = kind; self.title = title; self.detail = detail; self.confirmed = confirmed
+    public init(id: UUID, kind: String, title: String, detail: String,
+                phone: String? = nil, confirmed: Bool) {
+        self.id = id; self.kind = kind; self.title = title; self.detail = detail
+        self.phone = phone; self.confirmed = confirmed
+    }
+
+    /// 紧急联系人拨号号码：优先结构化 phone 字段；无则回退解析 detail
+    /// 「关系 · 电话」复合展示串（旧数据/测试夹具），拨号取尾段纯号码
+    /// （BR-012 SOS 路径不得因展示串含 CJK/分隔符而失效）。
+    /// 无分隔符（历史数据）时整串视为号码；其余 kind 返回 nil。
+    public var contactPhone: String? {
+        guard kind == "contact" else { return nil }
+        if let phone, !phone.isEmpty { return phone }
+        let parts = detail.split(separator: "·").map { $0.trimmingCharacters(in: .whitespaces) }
+        guard let last = parts.last, !last.isEmpty else { return nil }
+        return last
     }
 }
 

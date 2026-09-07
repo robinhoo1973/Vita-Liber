@@ -153,8 +153,15 @@ struct ExportWizardView: View {
                                         let request = PDFExportService.ExportRequest(
                                             patientId: app.currentPatientId,
                                             title: L10n.exportTitle(app.currentPatientId.uuidString.prefix(8).description),
-                                            dateFrom: scopeKind == .dateRange ? dateFrom : nil,
-                                            dateTo: scopeKind == .dateRange ? dateTo : nil,
+                                            // 日期边界归一化到整天：DatePicker 保留
+                                            // 时分，服务按原始时间戳比较——此前
+                                            // 「9/1–9/7」实际导出 9/1 14:30–9/7 14:30，
+                                            // 首尾整天的资料被静默截掉
+                                            dateFrom: scopeKind == .dateRange
+                                                ? Calendar.current.startOfDay(for: dateFrom) : nil,
+                                            dateTo: scopeKind == .dateRange
+                                                ? (Calendar.current.dateInterval(of: .day, for: dateTo)?.end
+                                                    .addingTimeInterval(-0.001)) : nil,
                                             includeNotes: includeNotes,
                                             watermark: watermark,
                                             countLabel: { L10n.exportRecordCount($0) },

@@ -194,8 +194,8 @@ enum L10n {
     static var claim_title: String { t("claim.title") }
     static var claim_empty: String { t("claim.empty") }
     static var claim_emptyHint: String { t("claim.emptyHint") }
-    static func claimTotals(_ count: Int, _ amount: String, _ currency: String) -> String {
-        String(format: t("claim.totalsFmt"), count, amount, currency)
+    static func claimTotals(_ count: Int, _ amount: String) -> String {
+        String(format: t("claim.totalsFmt"), count, amount)
     }
     static var claim_add: String { t("claim.add") }
     static var claim_type_invoice: String { t("claim.type.invoice") }
@@ -1323,8 +1323,10 @@ enum L10n {
         "f19.goTimeline", "f19.goHome",
         "f19.noGlucose", "f19.stockRemainingFmt", "f19.stockNoPlanFmt", "f19.noStock",
         "f19.stockLocationFmt", "f19.locationUnknown", "f19.noExpiring", "f19.expiringFmt",
+        "f19.expiredFmt", "f19.expiryUnknownFmt", "f19.stockNoMatchFmt",
         "f19.taken", "f19.notTaken", "f19.slotMedStateFmt", "f19.markTakenNoMatchFmt",
-        "f19.markTakenDoneFmt", "f19.metricRecordedFmt", "f19.questionRecordedFmt",
+        "f19.markTakenDoneFmt", "f19.markTakenFailedFmt", "f19.metricRecordedFmt", "f19.questionRecordedFmt",
+        "f19.recordFailed",
         "medicalID.title", "medicalID.step1", "medicalID.step1Hint", "medicalID.step2",
         "medicalID.step2Hint", "medicalID.step3", "medicalID.step3Hint",
         "medicalID.openHealth", "medicalID.note", "settings.themeHint",
@@ -1461,7 +1463,15 @@ enum L10n {
         "observation.listError", "observation.listRetry",
         "doc.add", "plan.add", "encounter.add", "appointment.add", "allergy.add",
         "problem.add", "question.add", "home.voice", "notification.center",
-        "observation.media.unlockHint"
+        "observation.media.unlockHint",
+        "f19.expiredFmt", "f19.expiryUnknownFmt", "f19.stockNoMatchFmt",
+        "f19.markTakenFailedFmt", "f19.recordFailed",
+        "encounter.saveFailed", "encounter.saveFailedHint",
+        "allergy.saveFailed", "allergy.saveFailedHint",
+        "allergy.deleteConfirmTitle", "allergy.deleteConfirmHint",
+        "plan.backfill.noBaseline", "plan.form.saveFailed", "plan.form.saveFailedHint",
+        "plan.loadFailed", "appt.markMissedHint", "problem.saveFailedHint",
+        "common.retry"
     ]
 
     // MARK: - FR14.8 Tab badge
@@ -1648,6 +1658,8 @@ enum L10n {
     static var planListTitle: String { t("plan.listTitle") }
     static var planDetailTitle: String { t("plan.detailTitle") }
     static var planNotFound: String { t("plan.notFound") }
+    static var planLoadFailed: String { t("plan.loadFailed") }
+    static var retry: String { t("common.retry") }
     static var planWeekStrip: String { t("plan.weekStrip") }
     static var planTodayDoses: String { t("plan.todayDoses") }
     static var planNoTodayDose: String { t("plan.noTodayDose") }
@@ -1683,6 +1695,9 @@ enum L10n {
     static var planStatusEnded: String { t("plan.status.ended") }
     static var planBackfillTitle: String { t("plan.backfill.title") }
     static var planBackfillActualTime: String { t("plan.backfill.actualTime") }
+    static var planBackfillNoBaseline: String { t("plan.backfill.noBaseline") }
+    static var planFormSaveFailed: String { t("plan.form.saveFailed") }
+    static var planFormSaveFailedHint: String { t("plan.form.saveFailedHint") }
     // FR9.1-9.3 计划创建表单
     static var planFormTitle: String { t("plan.form.title") }
     static var planFormMedication: String { t("plan.form.medication") }
@@ -1735,6 +1750,8 @@ enum L10n {
     static var encounterEmptyHint: String { t("encounter.emptyHint") }
     static var encounterUntitled: String { t("encounter.untitled") }
     static func encounterDocCount(_ n: Int) -> String { String(format: t("encounter.docCountFmt"), n) }
+    static var encounterSaveFailed: String { t("encounter.saveFailed") }
+    static var encounterSaveFailedHint: String { t("encounter.saveFailedHint") }
     static var encounterDetailTitle: String { t("encounter.detailTitle") }
     static var encounterDiagnosisAdvice: String { t("encounter.diagnosisAdvice") }
     static var encounterDiagnosisBadge: String { t("encounter.diagnosisBadge") }
@@ -1783,6 +1800,7 @@ enum L10n {
     static var problemEmpty: String { t("problem.empty") }
     static var problemEmptyHint: String { t("problem.emptyHint") }
     static var problemCreateTitle: String { t("problem.createTitle") }
+    static var problemSaveFailedHint: String { t("problem.saveFailedHint") }
     static var problemNamePlaceholder: String { t("problem.namePlaceholder") }
     static var problemMerge: String { t("problem.merge") }
     static var problemMergeTitle: String { t("problem.mergeTitle") }
@@ -1818,6 +1836,7 @@ enum L10n {
     /// 第七轮修复：FR10.7 错过状态此前无入口（scheduled 行只有改期/取消/完成，
     /// 「错过」过滤段与错过跟进提醒永远空转）
     static var apptMarkMissed: String { t("appt.markMissed") }
+    static var apptMarkMissedHint: String { t("appt.markMissedHint") }
     static var apptNewDate: String { t("appt.newDate") }
     static var apptCancelReasonNone: String { t("appt.cancelReason.none") }
     static var apptCancelReasonDoctor: String { t("appt.cancelReason.doctor") }
@@ -2124,6 +2143,10 @@ enum L10n {
     static func allergyKindName(_ v: String) -> String { t("allergy.kind.\(v)") }
     static func allergyTagName(_ v: String) -> String { t("allergy.tag.\(v)") }
     static var allergyDelete: String { t("allergy.delete") }
+    static var allergySaveFailed: String { t("allergy.saveFailed") }
+    static var allergySaveFailedHint: String { t("allergy.saveFailedHint") }
+    static var allergyDeleteConfirmTitle: String { t("allergy.deleteConfirmTitle") }
+    static var allergyDeleteConfirmHint: String { t("allergy.deleteConfirmHint") }
     static var allergyCreateTitle: String { t("allergy.createTitle") }
     static var allergyStep1: String { t("allergy.step1") }
     static var allergyStep2: String { t("allergy.step2") }
@@ -2379,6 +2402,15 @@ enum L10n {
     static func f19Expiring(_ name: String, _ d: String) -> String {
         String(format: t("f19.expiringFmt"), name, d)
     }
+    static func f19Expired(_ name: String, _ d: String) -> String {
+        String(format: t("f19.expiredFmt"), name, d)
+    }
+    static func f19ExpiryUnknown(_ name: String) -> String {
+        String(format: t("f19.expiryUnknownFmt"), name)
+    }
+    static func f19StockNoMatch(_ name: String) -> String {
+        String(format: t("f19.stockNoMatchFmt"), name)
+    }
     static var f19Taken: String { t("f19.taken") }
     static var f19NotTaken: String { t("f19.notTaken") }
     static func f19SlotMedState(_ med: String, _ state: String) -> String {
@@ -2386,6 +2418,7 @@ enum L10n {
     }
     static func f19MarkTakenNoMatch(_ name: String) -> String { String(format: t("f19.markTakenNoMatchFmt"), name) }
     static func f19MarkTakenDone(_ name: String) -> String { String(format: t("f19.markTakenDoneFmt"), name) }
+    static func f19MarkTakenFailed(_ name: String) -> String { String(format: t("f19.markTakenFailedFmt"), name) }
     static func f19MarkTakenMultiple(_ names: String) -> String { String(format: t("f19.markTakenMultipleFmt"), names) }
     static func emergency_sos_holdA11y(_ seconds: Double) -> String {
         // 必须 Double + %1$.1f：Int 截断把 0.6 秒显示成「长按 0 秒激活」
@@ -2405,6 +2438,7 @@ enum L10n {
     }
     static func f19MetricRecorded(_ v: Double) -> String { String(format: t("f19.metricRecordedFmt"), v) }
     static func f19QuestionRecorded(_ q: String) -> String { String(format: t("f19.questionRecordedFmt"), q) }
+    static var f19RecordFailed: String { t("f19.recordFailed") }
     /// 第八轮修复：文法命中数值但 ≤0（如「血糖零」）——响亮拒绝，绝不静默丢弃
     static var f19MetricInvalidValue: String { t("f19.metricInvalidValue") }
 

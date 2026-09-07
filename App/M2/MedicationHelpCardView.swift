@@ -97,6 +97,7 @@ struct HelpCardShareHost: UIViewControllerRepresentable {
     let text: String
     let photoAttachments: [Data]
     let onComplete: () -> Void
+    let onCancel: () -> Void
 
     func makeUIViewController(context: Context) -> UIActivityViewController {
         var items: [Any] = [text]
@@ -105,9 +106,11 @@ struct HelpCardShareHost: UIViewControllerRepresentable {
         }
         let controller = UIActivityViewController(activityItems: items, applicationActivities: nil)
         // 审查修复：判 completed——原实现取消分享也回调 onComplete，
-        // 「已发送」与审计被伪造（与 SentStatusList「不伪造回执」自相矛盾）
+        // 「已发送」与审计被伪造（与 SentStatusList「不伪造回执」自相矛盾）。
+        // 取消路径必须回落外层 sheet——此前取消后仅剩一个惰性分享面板，
+        // 用户被困在空白宿主 sheet 且无任何反馈
         controller.completionWithItemsHandler = { _, completed, _, _ in
-            if completed { onComplete() }
+            if completed { onComplete() } else { onCancel() }
         }
         return controller
     }
@@ -127,7 +130,6 @@ struct HelpCardRecipientSheet: View {
     @State private var customRecipient = ""
     @State private var showShare = false
     @State private var pendingRecipient = ""
-    @State private var preview = true
 
     var body: some View {
         NavigationStack {
@@ -142,7 +144,11 @@ struct HelpCardRecipientSheet: View {
                 }
                 .frame(maxHeight: 220)
                 Picker(L10n.helpcardRecipient, selection: $recipient) {
-                    ForEach(contacts, id: \.self) { Text($0) }
+                    // id 用位置：同名联系人（如两位「妈妈」）此前 \.self
+                    // 碰撞合并为一行，第二位永远不可选
+                    ForEach(Array(contacts.enumerated()), id: \.offset) { _, name in
+                        Text(name).tag(name)
+                    }
                     Text(L10n.helpcardRecipientOther).tag("__custom__")
                 }
                 .pickerStyle(.menu)
@@ -176,10 +182,12 @@ struct HelpCardRecipientSheet: View {
             // 系统分享渠道（发送事实落状态页；不含位置照片——默认不含需显式勾选）
             .sheet(isPresented: $showShare) {
                 HelpCardShareHost(text: text, photoAttachments: []) {
-                    // 分享完成（含取消）→ 落发送状态 + 审计（FR24.2）
+                    // 分享完成 → 落发送状态 + 审计（FR24.2）
                     let target = pendingRecipient
                     dismiss()
                     onSent(target)
+                } onCancel: {
+                    showShare = false
                 }
             }
         }

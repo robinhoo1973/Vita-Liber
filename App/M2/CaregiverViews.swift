@@ -53,8 +53,13 @@ struct CaregiverViews: View {
                                     .foregroundStyle(.secondary)
                                 Text(item.medicationName)
                                     .font(.headline)
+                                // 窗口含前一日（昨日漏确认剂量在 sweep 前仍可代确认）：
+                                // 非今日剂量必须带日期，否则昨日 10:00 与今日 10:00
+                                // 无法区分，代确认可能错认日期
+                                let isToday = Calendar.current.isDate(item.dose.dueAt, inSameDayAs: Date())
                                 Text(L10n.caregiverPending(
-                                    item.dose.dueAt.formatted(date: .omitted, time: .shortened)))
+                                    item.dose.dueAt.formatted(date: isToday ? .omitted : .abbreviated,
+                                                              time: .shortened)))
                                     .font(.caption)
                                     .foregroundStyle(.orange)
                             }
@@ -94,7 +99,10 @@ struct CaregiverViews: View {
             let dayStart = cal.startOfDay(for: Date())
             // 第八轮修复：日界统一经 DayArithmetic 出口（DST 纪律单一事实源）
             let dayEnd = DayArithmetic.offset(days: 1, from: dayStart, calendar: cal)
-            pendingDoses = try await reminderStore.familyPendingDoses(from: dayStart, to: dayEnd)
+            // 窗口含前一日：昨日漏确认的剂量在 sweep 物化为 missed 之前
+            // 仍可代确认（此前 [今日,明日) 窗口使逾期待办从队列永久消失）
+            let windowStart = DayArithmetic.offset(days: -1, from: dayStart, calendar: cal)
+            pendingDoses = try await reminderStore.familyPendingDoses(from: windowStart, to: dayEnd)
         } catch {
             // 审查修复：读取失败保留旧列表（原置空让未确认剂量从队列静默消失）
         }

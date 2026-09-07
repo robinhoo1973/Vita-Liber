@@ -28,7 +28,8 @@ final class EncountersState {
             guard loadingPatientId == patientId else { return }
             encounters = rows
         } catch {
-            encounters = []
+            // 读取失败保留旧列表（DocumentsState/CaregiverViews 同款
+            // doctrine）——原置空把存在记录渲染成「暂无就诊记录」假空态
         }
     }
 
@@ -36,12 +37,26 @@ final class EncountersState {
         try? await store.get(id: id)   // try?-ok: 详情读取失败 = 显示「不存在」降级态
     }
 
-    func upsert(_ draft: EncounterDraft) async {
+    /// 返回是否保存成功——调用侧据此决定 dismiss 或呈现错误（保存失败
+    /// 绝不静默呈现为「已保存」，四态纪律）
+    @discardableResult
+    func upsert(_ draft: EncounterDraft) async -> Bool {
         do {
             _ = try await store.upsert(encounter: draft)
-            await load(patientId: draft.patientId)
+            // 刷新必须按发起成员回读（loadSection 同款惯用法）：列表当前
+            // 展示的成员（memberFilter 投影）与表单写入成员（currentPatientId）
+            // 可能不同——此前 load(draft.patientId) 无条件改 loadingPatientId
+            // 并提交，把筛选成员的投影覆盖掉（BR-001 跨成员脏读）
+            do {
+                let rows = try await store.list(patientId: draft.patientId)
+                guard loadingPatientId == draft.patientId else { return true }
+                encounters = rows
+            } catch {
+                // 刷新失败保留旧列表；写入已成功，不得回传失败诱导重试
+            }
+            return true
         } catch {
-            // 错误经调用侧呈现（表单保留可重试）
+            return false
         }
     }
 
@@ -146,7 +161,11 @@ struct EncounterListView: View {
         .sheet(isPresented: $showForm) {
             EncounterFormView()
         }
-        .task(id: app.currentPatientId) { await state.load(patientId: app.currentPatientId) }
+        // 成员筛选必须触发对应成员的加载——此前只按 currentPatientId 加载，
+        // 选其他成员恒为「暂无就诊记录」空态（§5.44 成员筛选失效）
+        .task(id: memberFilter.map { $0.uuidString } ?? app.currentPatientId.uuidString) {
+            await state.load(patientId: memberFilter ?? app.currentPatientId)
+        }
     }
 }
 
@@ -309,7 +328,8 @@ struct EncounterSummaryView: View {
                         // BR-003：未确认清单红点标记，确认前不进入确定性陈述
                         ForEach(unconfirmed, id: \.documentId) { item in
                             HStack {
-                                Image(systemName: "circle.fill").font(.caption2).foregroundStyle(.red)
+                                Image(systemName: "circle.fill").font(.caption2)
+                                    .foregroundStyle(Color("semantic-danger", bundle: .main))
                                 Text(L10n.encounterSummaryDocFields(
                                     String(item.documentId.uuidString.prefix(8)), item.fieldCount))
                                     .font(.subheadline)
@@ -351,6 +371,7 @@ struct EncounterFormView: View {
     @State private var adviceText = ""
     @State private var followUpRequirement = ""
     @State private var feeText = ""
+    @State private var saveFailed = false
 
     private let kinds = EncounterKind.allCases
 
@@ -376,6 +397,9 @@ struct EncounterFormView: View {
                 }
             }
             .navigationTitle(L10n.encounterFormTitle)
+            .saveFailedAlert(title: L10n.encounterSaveFailed,
+                             hint: L10n.encounterSaveFailedHint,
+                             isPresented: $saveFailed)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(L10n.commonCancel) { dismiss() }
@@ -393,8 +417,13 @@ struct EncounterFormView: View {
                             followUpRequirement: followUpRequirement.isEmpty ? nil : followUpRequirement,
                             feeAmount: Double(feeText))
                         Task {
-                            await state.upsert(draft)
-                            dismiss()
+                            // 保存失败保留表单并提示可重试——此前 upsert 吞错后
+                            // 无条件 dismiss，失败呈现为「已保存」而数据丢失
+                            if await state.upsert(draft) {
+                                dismiss()
+                            } else {
+                                saveFailed = true
+                            }
                         }
                     }
                     .accessibilityIdentifier("SP-08.encounter.form.save")
@@ -405,17 +434,25 @@ struct EncounterFormView: View {
 }
 
 /// §5.45 路由式就诊详情（V3.72）：深链/通知指向就诊时按 id 从
-/// EncountersState 投影查找并渲染详情；查无（已删除/跨成员）回落可见降级。
+/// EncountersState 投影查找并渲染详情；查无（已删除）回落可见降级。
 struct EncounterDetailRouteView: View {
     let encounterId: UUID
     @Environment(EncountersState.self) private var state
+    /// 深链冷启动投影未加载时按 id 直取（跨成员可见，路由成员即就诊成员）
+    @State private var direct: EncounterStore.EncounterRow?
 
     var body: some View {
         Group {
-            if let enc = state.encounters.first(where: { $0.id == encounterId }) {
+            if let enc = state.encounters.first(where: { $0.id == encounterId }) ?? direct {
                 EncounterDetailView(encounter: enc)
             } else {
                 RouteFallbackView(route: .encounterDetail(encounterId))
+            }
+        }
+        .task {
+            // 此前视图从不加载：冷启动深链恒渲染「该资料已不存在」并自动弹回
+            if state.encounters.first(where: { $0.id == encounterId }) == nil {
+                direct = await state.get(id: encounterId)
             }
         }
     }

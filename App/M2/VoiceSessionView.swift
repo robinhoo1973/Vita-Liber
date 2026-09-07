@@ -1,6 +1,7 @@
 import SwiftUI
 import os
 import Domain
+import Infrastructure
 import Protocols
 
 /// F19 关怀语音助手会话 UI（M3 零阻塞项的后半场）。
@@ -47,6 +48,17 @@ final class VoiceSessionState {
     func systemFeedback(_ text: String, speak: (String) -> Void) {
         caption = text
         speak(text)
+    }
+
+    /// BR-004 真实性单一出口：写库结果决定播报——成功/失败文案二选一，
+    /// 绝不无条件播报「已记录」而数据未落账。各写命令共用本机制。
+    func systemFeedback(success: String, failure: String,
+                        speak: @escaping (String) -> Void,
+                        perform: @escaping @MainActor () async -> Bool) {
+        Task {
+            let ok = await perform()
+            systemFeedback(ok ? success : failure, speak: speak)
+        }
     }
 
     /// 多命中歧义消除（FR19.4，第七轮接线）：进入列选相位——选定编号后
@@ -217,12 +229,21 @@ struct VoiceSessionView: View {
             session.start()
             // 审查修复：进入会话即加载 hub 数据——原缺此加载，未先访问
             // 药箱/急救卡页时「药还剩多少/联系人」全部报空（关怀模式
-            // 核心场景空答）
-            Task { await hub.load(patientId: app.currentPatientId) }
+            // 核心场景空答）。今日时段/预约同源加载：首页物化在途时
+            // 直接进会话，「今天吃什么药/药都吃了吗」不得空答。
+            Task {
+                // 两路加载相互独立（药箱六节 vs 今日时段/预约）——并发发起，
+                // 就绪时延取最慢一路而非两者之和（关怀模式首问不得空答）
+                async let a: Void = hub.load(patientId: app.currentPatientId)
+                async let b: Void = reminderStore.refreshTriggered(patientId: app.currentPatientId,
+                                                                   force: true)
+                _ = await (a, b)
+            }
         }
         .onChange(of: scenePhase) { _, phase in
-            // FR19.1：退出后台立即停止监听（不结束会话，回前台可继续）
-            if phase == .background {
+            // FR19.1：离开前台立即停止监听（不结束会话，回前台可继续）——
+            // .inactive（App 切换器/控制中心覆盖）同样停，防快照期间继续收音
+            if phase == .background || phase == .inactive {
                 session.pause()
             } else if phase == .active {
                 session.resume()
@@ -396,30 +417,59 @@ struct VoiceSessionView: View {
                                       speak: { app.speak($0) })
             }
         case .stockRemaining:
-            // 附表③查询余量：「约剩 N 天·按计划估算」（FR9.8.7 诚实性文案）
-            let text = hub.inventoryItems.map { item -> String in
-                if let days = item.approxDaysLeft {
-                    return L10n.f19StockRemaining(item.medicationName, days)
-                }
-                return L10n.f19StockNoPlan(item.medicationName)
-            }.joined(separator: "；")
-            session.systemFeedback(text.isEmpty ? L10n.f19NoStock : text, speak: { app.speak($0) })
-        case .stockLocation:
-            // 附表④存放位置文本播报
-            let text = hub.inventoryItems
-                .map { L10n.f19StockLocation($0.medicationName, $0.storageNote ?? L10n.f19LocationUnknown) }
-                .joined(separator: "；")
-            session.systemFeedback(text.isEmpty ? L10n.f19NoStock : text, speak: { app.speak($0) })
-        case .stockExpiry, .expiringSoon:
-            // 附表⑤⑥效期/临期清单：按 30 天 / 7 天分组播报
-            let lots = hub.inventoryItems.compactMap { item -> (String, Date)? in
-                item.expireAt.map { (item.medicationName, $0) }
+            // 附表③查询余量：「约剩 N 天·按计划估算」（FR9.8.7 诚实性文案）。
+            // 指定药名（引擎载荷）时只回该药的全部批次；纯列表问句回全部。
+            if let object, matchingLots(object).isEmpty {
+                // 指定药名无匹配：如实报未找到，绝不回全库清单
+                // （答非所问 + 泄露无关药品余量）
+                session.systemFeedback(L10n.f19StockNoMatch(object), speak: { app.speak($0) })
+            } else {
+                let items = object.map { matchingLots($0) } ?? hub.inventoryItems
+                let text = items.map { item -> String in
+                    if let days = item.approxDaysLeft {
+                        return L10n.f19StockRemaining(item.medicationName, days)
+                    }
+                    return L10n.f19StockNoPlan(item.medicationName)
+                }.joined(separator: "；")
+                session.systemFeedback(text.isEmpty ? L10n.f19NoStock : text, speak: { app.speak($0) })
             }
-            let expiring = lots.filter { $0.1 <= DayArithmetic.offset(days: 30) }
-            let text = expiring.isEmpty ? L10n.f19NoExpiring
-                : expiring.map { L10n.f19Expiring($0.0, $0.1.formatted(date: .abbreviated, time: .omitted)) }
+        case .stockLocation:
+            // 附表④存放位置文本播报（指定药名时只回该药的全部批次）
+            if let object, matchingLots(object).isEmpty {
+                session.systemFeedback(L10n.f19StockNoMatch(object), speak: { app.speak($0) })
+            } else {
+                let items = object.map { matchingLots($0) } ?? hub.inventoryItems
+                let text = items
+                    .map { L10n.f19StockLocation($0.medicationName, $0.storageNote ?? L10n.f19LocationUnknown) }
                     .joined(separator: "；")
-            session.systemFeedback(text, speak: { app.speak($0) })
+                session.systemFeedback(text.isEmpty ? L10n.f19NoStock : text, speak: { app.speak($0) })
+            }
+        case .stockExpiry:
+            // 附表⑤查询有效期：「X 什么时候过期」必须回该药效期日期——
+            // 此前与临期清单混流：载荷被弃、回全局 ≤30 天清单（答非所问）。
+            // 同名药多批次逐批回效期；泛化问句（载荷 nil）回落三级清单。
+            let matched = object.map { matchingLots($0) } ?? []
+            if let object, matched.isEmpty {
+                session.systemFeedback(L10n.f19StockNoMatch(object), speak: { app.speak($0) })
+            } else if !matched.isEmpty {
+                let lines = matched.map { item -> String in
+                    guard let expireAt = item.expireAt else {
+                        return L10n.f19ExpiryUnknown(item.medicationName)
+                    }
+                    let date = expireAt.formatted(date: .abbreviated, time: .omitted)
+                    return expireAt < Date()
+                        ? L10n.f19Expired(item.medicationName, date)
+                        : L10n.f19Expiring(item.medicationName, date)
+                }
+                session.systemFeedback(lines.joined(separator: "；"), speak: { app.speak($0) })
+            } else {
+                // 载荷 nil（「药什么时候过期」等泛化问句）：回落三级清单，
+                // 不得谎报「没有库存记录」
+                session.systemFeedback(expiringSummary(), speak: { app.speak($0) })
+            }
+        case .expiringSoon:
+            // 附表⑥临期/过期清单：三级分组播报（expiringSummary 单一出口）
+            session.systemFeedback(expiringSummary(), speak: { app.speak($0) })
         case .askMedicationTaken:
             // 附表时段服药确认：逐药回读已服/未服清单
             let lines = reminderStore.todaySlots.flatMap { slot in
@@ -440,9 +490,15 @@ struct VoiceSessionView: View {
                     .flatMap { $0.records }
                     .filter { $0.displayLabel.contains(object) && $0.action == nil }
                 if matched.count == 1, let record = matched.first {
-                    Task { await reminderStore.confirmTaken(patientId: app.currentPatientId, dose: record.dose) }
-                    session.systemFeedback(L10n.f19MarkTakenDone(object),
-                                           speak: { app.speak($0) })
+                    // BR-004 真实性：写库结果决定反馈（systemFeedback 单一出口）
+                    session.systemFeedback(
+                        success: L10n.f19MarkTakenDone(object),
+                        failure: L10n.f19MarkTakenFailed(object),
+                        speak: { app.speak($0) },
+                        perform: {
+                            await reminderStore.confirmTaken(patientId: app.currentPatientId,
+                                                             dose: record.dose)
+                        })
                 } else if matched.isEmpty {
                     session.systemFeedback(L10n.f19MarkTakenNoMatch(object),
                                            speak: { app.speak($0) })
@@ -467,16 +523,19 @@ struct VoiceSessionView: View {
                     .compactMapValues { $0.first }
                 if let sysDraft = byKey["blood_pressure_sys"], let sysV = Double(sysDraft.value), sysV > 0 {
                     let diaV = byKey["blood_pressure_dia"].flatMap { Double($0.value) }
-                    Task {
-                        await trendState.addSample(patientId: app.currentPatientId,
-                                                   metric: .bloodPressureSys,
-                                                   value: sysV,
-                                                   secondaryValue: diaV,
-                                                   unit: sysDraft.unit ?? "mmHg",
-                                                   measuredAt: Date())
-                    }
-                    session.systemFeedback(L10n.f19MetricRecorded(sysV),
-                                           speak: { app.speak($0) })
+                    // 写库结果决定反馈（BR-004 真实性；systemFeedback 单一出口）
+                    session.systemFeedback(
+                        success: L10n.f19MetricRecorded(sysV),
+                        failure: L10n.f19RecordFailed,
+                        speak: { app.speak($0) },
+                        perform: {
+                            await trendState.addSample(patientId: app.currentPatientId,
+                                                       metric: .bloodPressureSys,
+                                                       value: sysV,
+                                                       secondaryValue: diaV,
+                                                       unit: sysDraft.unit ?? "mmHg",
+                                                       measuredAt: Date())
+                        })
                 } else if let draft = drafts.first(where: { $0.key != "title" }),
                           let v = Double(draft.value), v > 0 {
                     let metric = Self.metricType(for: draft.key)
@@ -494,16 +553,18 @@ struct VoiceSessionView: View {
                                                speak: { app.speak($0) })
                         return
                     }
-                    Task {
-                        await trendState.addSample(patientId: app.currentPatientId,
-                                                   metric: metric,
-                                                   value: v,
-                                                   secondaryValue: nil,
-                                                   unit: unit,
-                                                   measuredAt: Date())
-                    }
-                    session.systemFeedback(L10n.f19MetricRecorded(v),
-                                           speak: { app.speak($0) })
+                    session.systemFeedback(
+                        success: L10n.f19MetricRecorded(v),
+                        failure: L10n.f19RecordFailed,
+                        speak: { app.speak($0) },
+                        perform: {
+                            await trendState.addSample(patientId: app.currentPatientId,
+                                                       metric: metric,
+                                                       value: v,
+                                                       secondaryValue: nil,
+                                                       unit: unit,
+                                                       measuredAt: Date())
+                        })
                 } else if drafts.contains(where: { $0.key != "title" && Double($0.value) != nil }) {
                     // 第八轮全仓审查修复（响亮拒绝）：文法命中了数值但 ≤0
                     // （如「血糖零」经 NumberNormalizer 归一为 "0"）——不落库
@@ -514,10 +575,17 @@ struct VoiceSessionView: View {
                 }
             }
         case .recordQuestion:
-            // 附表⑧问诊速记：追加至 FR10.5
+            // 附表⑧问诊速记：追加至 FR10.5。写库结果决定反馈——此前
+            // 无条件播报「已记录」而写入可能失败（BR-004 真实性）
             if let object, !object.isEmpty {
-                Task { await questionsState.add(patientId: app.currentPatientId, body: object) }
-                session.systemFeedback(L10n.f19QuestionRecorded(object), speak: { app.speak($0) })
+                // 写库结果决定反馈（BR-004 真实性；systemFeedback 单一出口）
+                session.systemFeedback(
+                    success: L10n.f19QuestionRecorded(object),
+                    failure: L10n.f19RecordFailed,
+                    speak: { app.speak($0) },
+                    perform: {
+                        await questionsState.add(patientId: app.currentPatientId, body: object)
+                    })
             }
         case .startCamera:
             // 附表⑩开始拍摄：进入相机流（后续动作手动完成）
@@ -562,9 +630,56 @@ struct VoiceSessionView: View {
             return
         }
         let contact = hub.emergencySelected.contacts.first { $0.title.contains(object) }
-        let number = contact?.detail ?? object
+        // detail 为「关系 · 电话」复合展示串——拨号取纯号码（BR-012 语义）
+        let number = contact?.contactPhone ?? object
         guard let url = URL(string: "tel://\(number)") else { return }
         openURL(url)
+    }
+
+    /// 指定药名的全部匹配批次（双轨库存/StockLot：同名药品可多批次）——
+    /// 此前 first 只回首批，多批次药余量/效期/位置被少报。
+    /// 精确名优先：短词（「钙」）不得先命中「葡萄糖酸钙」等包含关系药品。
+    private func matchingLots(_ obj: String) -> [MedicationStore.InventorySummaryItem] {
+        let candidates = hub.inventoryItems.filter {
+            $0.medicationName.contains(obj) || obj.contains($0.medicationName)
+        }
+        let exact = candidates.filter { $0.medicationName == obj }
+        return exact.isEmpty ? candidates : exact
+    }
+
+    /// 附表⑥临期/过期三级分组播报（FR9.11；BatchExpiryRules 单一事实源）——
+    /// 已过期如实报「已过期」，不再混入「到期」模板。.expiringSoon 与
+    /// .stockExpiry 泛化问句回落共用此单一出口。
+    private func expiringSummary() -> String {
+        let now = Date()
+        let lots = hub.inventoryItems.compactMap { item -> (String, Date)? in
+            item.expireAt.map { (item.medicationName, $0) }
+        }
+        let dateText: (Date) -> String = { $0.formatted(date: .abbreviated, time: .omitted) }
+        // FR9.11 三级分类经 Domain BatchExpiryRules.status 单一出口——
+        // 此前视图内手写三档过滤 + ?? 7/?? 30 兜底字面量，阈值与 Domain
+        // 漂移即答非所问（BR 规则只应存在于 Domain 纯函数）
+        var expired: [(String, Date)] = []
+        var soon7: [(String, Date)] = []
+        var soon30: [(String, Date)] = []
+        for lot in lots {
+            switch BatchExpiryRules.status(expireAt: lot.1, now: now) {
+            case .expired: expired.append(lot)
+            case .within7: soon7.append(lot)
+            case .within30: soon30.append(lot)
+            case .later: break
+            }
+        }
+        var parts: [String] = []
+        let groups: [([(String, Date)], (String, String) -> String)] = [
+            (expired, L10n.f19Expired),
+            (soon7, L10n.f19Expiring),
+            (soon30, L10n.f19Expiring),
+        ]
+        for (group, fmt) in groups where !group.isEmpty {
+            parts.append(group.map { fmt($0.0, dateText($0.1)) }.joined(separator: "；"))
+        }
+        return parts.isEmpty ? L10n.f19NoExpiring : parts.joined(separator: "；")
     }
 
     private func endSession() {

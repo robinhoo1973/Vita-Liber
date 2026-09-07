@@ -45,6 +45,9 @@ final class ObservationStoreState {
 
     /// 最近一次请求的成员（BR-001 成员隔离：只允许最新请求写回状态）
     private var loadingPatientId: UUID?
+    /// 最近一次成功装载的成员——展示类消费者（DoctorShowcaseView）以此
+    /// 门控渲染：groups 未装载本成员前绝不渲染（防上一成员敏感媒体泄漏）
+    private(set) var loadedPatientId: UUID?
 
     init(store: ObservationStore, allergyStore: AllergyStore, mediaAssets: any SensitiveAssetStoring) {
         self.store = store
@@ -53,14 +56,19 @@ final class ObservationStoreState {
     }
 
     /// FR23.2 过敏三步记录落库（重度触发急救引导由视图判定，Domain SevereReactionRules）
+    /// 返回是否保存成功——调用侧据此决定 dismiss 或呈现错误（保存失败
+    /// 绝不静默呈现为「已保存」）
+    @discardableResult
     func createAllergy(patientId: UUID, substance: String, severity: String,
-                       tags: [String], note: String?) async {
+                       tags: [String], note: String?) async -> Bool {
         do {
             try await allergyStore.create(patientId: patientId, substance: substance,
                                           severity: severity, reactionTags: tags, note: note)
             await load(patientId: patientId)
+            return true
         } catch {
             logger.error("过敏记录失败: \(error)")
+            return false
         }
     }
 
@@ -87,8 +95,10 @@ final class ObservationStoreState {
             guard loadingPatientId == patientId else { return }
             groups = ObservationGroupService.groups(ev, member: patientId)
             allergies = al
+            loadedPatientId = patientId
             loadFailed = false
         } catch {
+            loadedPatientId = nil
             loadFailed = true
             logger.error("观察加载失败: \(error)")
         }

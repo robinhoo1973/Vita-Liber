@@ -12,10 +12,14 @@ struct ClaimListView: View {
     var body: some View {
         List {
             Section {
-                // 审查修复：汇总文案经 L10n 组装（原 Infrastructure 硬编码简中）
+                // 审查修复：汇总文案经 L10n 组装（原 Infrastructure 硬编码简中）。
+                // 金额经 Foundation 货币格式化（与行金额同一 FormatStyle，
+                // locale 币符/千分位/小数位）——此前 %.2f 无币符无分组，
+                // 同一屏幕两种金额形态。币符由 FormatStyle 产出，模板不再
+                // 追加币种代码（此前「¥1,234.56 CNY」双重币符）。
                 Text(L10n.claimTotals(totals.itemCount,
-                                      String(format: "%.2f", totals.totalAmount),
-                                      totals.currency))
+                                      totals.totalAmount.formatted(
+                                          .currency(code: totals.currency).precision(.fractionLength(2)))))
                     .font(.headline).monospacedDigit()
                     .accessibilityIdentifier("FR13.7.claim.totals")
             }

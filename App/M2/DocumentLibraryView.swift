@@ -92,8 +92,14 @@ final class DocumentsState {
         var replaceDocumentId: UUID?
     }
 
+    /// 最近一次 load 的归档视图开关（setArchived/setFavorite 重载沿用——
+    /// 此前重载恒用默认 false：归档视图内取消归档后列表突跳回活跃视图，
+    /// 工具条开关与实际内容脱节）
+    private var lastIncludeArchived = false
+
     func load(patientId: UUID, includeArchived: Bool = false) async {
         loadingPatientId = patientId
+        lastIncludeArchived = includeArchived
         do {
             let rows = try await store.list(patientId: patientId, includeArchived: includeArchived)
             guard loadingPatientId == patientId else { return }
@@ -104,11 +110,13 @@ final class DocumentsState {
     }
 
     /// SP-53 待确认队列：跨成员聚合 D 级文档（成员筛选视图层做）。
+    /// 读取失败保留旧列表（第八轮 doctrine：置空让未确认剂量/文档从
+    /// 队列静默消失 = 假「全部已确认」空态，误漏待确认工作）
     func loadPending(patientIds: [UUID]) async {
         do {
             pendingDocuments = try await store.listPending(patientIds: patientIds)
         } catch {
-            pendingDocuments = []
+            // 保留上次成功结果，队列不因瞬时读失败清空
         }
     }
 
@@ -150,7 +158,9 @@ final class DocumentsState {
     func setArchived(id: UUID, archived: Bool) async {
         do {
             try await store.setArchived(id: id, archived: archived)
-            if let patientId = loadingPatientId { await load(patientId: patientId) }
+            if let patientId = loadingPatientId {
+                await load(patientId: patientId, includeArchived: lastIncludeArchived)
+            }
         } catch {
             // 错误经日志；列表刷新即真实状态
         }
@@ -159,7 +169,9 @@ final class DocumentsState {
     func setFavorite(id: UUID, favorite: Bool) async {
         do {
             try await store.setFavorite(id: id, favorite: favorite)
-            if let patientId = loadingPatientId { await load(patientId: patientId) }
+            if let patientId = loadingPatientId {
+                await load(patientId: patientId, includeArchived: lastIncludeArchived)
+            }
         } catch {
             // 同上
         }
@@ -298,6 +310,11 @@ final class DocumentsState {
     func importDocument(patientId: UUID, url: URL, docType: String,
                         isSensitive: Bool = false) async -> ImportDraft? {
         lastImportError = nil
+        // 文件导入 URL 为安全作用域（fileImporter）——图片/其他分支此前
+        // 未启动作用域即 Data(contentsOf:)（importPDF 有），真机上
+        // iCloud/第三方提供方拒绝读取 → 全部图片导入报「导入失败」
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         switch url.pathExtension.lowercased() {
         case "pdf":
             await importPDF(patientId: patientId, url: url, docType: docType, isSensitive: isSensitive)
@@ -370,8 +387,26 @@ final class DocumentsState {
                                "failed_pages": failedPages] as [String: Any]
             let originalPath = persistOriginal(patientId: patientId, data: data, ext: "pdf")
             let metaJSON = mergeOriginalPath(originalPath, into: metaPayload)
+            // FR5.6 重复检测同样适用 PDF 导入（此前仅图片路径查重，同一 PDF
+            // 重复导入静默生成重复行）——命中即挂 pendingDuplicate，由调用方
+            // 呈现并排对比裁决（keep/adopt/coexist，绝不自动删除）
+            let pdfSHA = "pdf:" + Self.hash(data)
+            do {
+                let hits = try await store.duplicates(sha256: pdfSHA, patientId: patientId)
+                guard hits.isEmpty else {
+                    duplicateHits = hits
+                    pendingDuplicate = PendingDocument(patientId: patientId, originalData: data,
+                                                       processedData: data, mimeType: "application/pdf",
+                                                       docType: docType, title: url.lastPathComponent,
+                                                       sha256: pdfSHA, isSensitive: isSensitive,
+                                                       origin: "import")
+                    return
+                }
+            } catch {
+                // 查重失败不阻断导入（宁可重复入库也不丢资料）
+            }
             _ = try await store.save(patientId: patientId, docType: docType,
-                                     sha256: "pdf:" + Self.hash(data), mimeType: "application/pdf",
+                                     sha256: pdfSHA, mimeType: "application/pdf",
                                      origin: "import", isSensitive: isSensitive,
                                      metaJSON: metaJSON, title: url.lastPathComponent,
                                      ocrText: joined.isEmpty ? nil : joined, grade: "D")
@@ -435,12 +470,18 @@ final class DocumentsState {
     }
 
     /// BR-003 D→C：用户显式确认机器识别文本后才进入检索与 AI 事实链。
-    func confirmText(id: UUID) async {
+    /// 返回是否写入成功；成功后立即把该行移出待确认投影——后续的
+    /// loadPending 对账若失败也不得让已确认行滞留（D 徽章 + 可重复确认）。
+    @discardableResult
+    func confirmText(id: UUID) async -> Bool {
         do {
             try await store.confirmText(id: id)
+            pendingDocuments.removeAll { $0.id == id }
             if let patientId = loadingPatientId { await load(patientId: patientId) }
+            return true
         } catch {
-            // 错误经日志；列表刷新即真实状态
+            // 写入失败经返回值呈现；列表刷新即真实状态
+            return false
         }
     }
 

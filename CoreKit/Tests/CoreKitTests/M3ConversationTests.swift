@@ -124,6 +124,38 @@ struct VoiceConversationTests {
                 "问题正文必须随 .recordQuestion 载荷带出（FR10.5 落库）")
     }
 
+    /// 库存指令载荷：句首药品名必须带出（此前载荷恒 nil，视图回全清单答非所问）
+    @Test func 库存指令载荷截取药品名() {
+        let cases: [(String, VoiceCommand, String)] = [
+            ("阿司匹林还剩多少", .stockRemaining, "阿司匹林"),
+            ("阿司匹林什么时候过期", .stockExpiry, "阿司匹林"),
+            ("阿司匹林放在哪", .stockLocation, "阿司匹林"),
+            ("阿司匹林放哪", .stockLocation, "阿司匹林"),        // 放(?:在|的)? 直连哪——词表必须覆盖
+            ("阿司匹林放什么地方", .stockLocation, "阿司匹林"),  // 同上
+        ]
+        for (utterance, command, payload) in cases {
+            let (_, events) = VoiceConversationEngine.step(state: ConversationState(),
+                                                           transcript: utterance)
+            #expect(events.contains(where: { if case .execute(let c, let p) = $0 {
+                return c == command && p == payload
+            }
+                return false
+            }), "「\(utterance)」载荷应为「\(payload)」")
+        }
+    }
+
+    /// 泛化药词（patterns 的 (?:药)? 前缀）：「药还剩多少」是库存查询的
+    /// 全局问句——载荷不得是「药」（会误报未找到或命中首个含药字药品）
+    @Test func 泛化药词载荷为空() {
+        for utterance in ["药还剩多少", "药放在哪", "我的药什么时候过期", "这个药还剩多少"] {
+            let (_, events) = VoiceConversationEngine.step(state: ConversationState(),
+                                                           transcript: utterance)
+            #expect(events.contains(where: { if case .execute(_, let p) = $0 { return p == nil }
+                              return false }),
+                    "「\(utterance)」为泛化问句，载荷必须为 nil（回落全清单）")
+        }
+    }
+
     @Test func 再说一遍重播当前问题与选项() {
         let (state, _) = VoiceConversationEngine.optionsPrompt(["甲", "乙"])
         let (_, events) = VoiceConversationEngine.step(state: state, transcript: "再说一遍")
@@ -178,7 +210,7 @@ struct VoiceConversationTests {
         let rounds = 100
         for i in 0..<rounds {
             // 三种「查今日用药」变体轮换 + 各一步完成三连
-            var state = ConversationState()
+            let state = ConversationState()
             let query = i % 3 == 0 ? "今天吃什么药" : (i % 3 == 1 ? "现在吃哪些药" : "今天有什么药")
             let (s1, e1) = VoiceConversationEngine.step(state: state, transcript: query)
             guard e1.contains(where: { if case .execute(.todayMeds, _) = $0 { return true }; return false }) else { continue }

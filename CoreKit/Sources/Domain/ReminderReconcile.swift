@@ -110,6 +110,13 @@ public enum AppointmentRules {
         }
         return out
     }
+
+    /// 标记错过的时间门槛（FR10.7）：未到开始时间的预约不可标错过——错标会取消
+    /// 全部分级提醒并提前武装 2h 跟进（误标未来预约 = 提醒失声）。
+    /// 视图/商店共享本规则，不得各自内联 `startsAt <= now`。
+    public static func canMarkMissed(startsAt: Date, now: Date = Date()) -> Bool {
+        startsAt <= now
+    }
 }
 
 /// 通道分层（FR9.18）降级矩阵：目标通道不可用 → InApp → Local → Persistent 顺序回退

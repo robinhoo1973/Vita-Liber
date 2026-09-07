@@ -39,12 +39,16 @@ final class TimelineViewState {
         filter = kinds.map { TimelineFilter.kinds($0) } ?? .all
     }
 
-    func createProblem(patientId: UUID, name: String) async {
+    /// 返回是否写入成功——调用侧据此决定 dismiss 或呈现错误
+    @discardableResult
+    func createProblem(patientId: UUID, name: String) async -> Bool {
         do {
             _ = try await problemStore.create(patientId: patientId, name: name)
             await load(patientId: patientId)
+            return true
         } catch {
-            // 错误经日志；UI 保留输入可重试
+            // 错误经调用侧呈现；UI 保留输入可重试
+            return false
         }
     }
 
@@ -225,7 +229,9 @@ private struct TimelineRowView: View {
                 HStack(spacing: 6) {
                     Text(L10n.docTitle(entry.title))
                         .font(.subheadline)
-                        .foregroundStyle(entry.kind == .allergy ? .red : .primary)
+                        .foregroundStyle(entry.kind == .allergy
+                                         ? Color("semantic-danger", bundle: .main)
+                                         : .primary)
                     // 来源徽章（设计系统：每个结构化数据有来源徽章）；
                     // D = 机器识别未确认（不进入检索/AI 事实链，BR-003）
                     if let grade = entry.grade {
@@ -348,8 +354,11 @@ struct HealthProblemListView: View {
                 ForEach(state.problems.filter { $0.id != primary.id && !$0.archived }) { other in
                     Button(L10n.problemMergeInto(other.name)) {
                         Task {
-                            // 合并语义由 HealthProblemStore.merge 承载（被合并问题归档）
-                            await state.mergeProblems(primary: primary.id, secondary: other.id)
+                            // 「合并到哪个问题？」——被点选的问题为主问题（存活），
+                            // 长按发起的问题并入归档（ui-ux §5.25：选择主问题，
+                            // 两问题历史并入主问题下）。此前参数颠倒：按钮承诺
+                            // 「并入「B」」而实际归档 B 保留 A。
+                            await state.mergeProblems(primary: other.id, secondary: primary.id)
                         }
                     }
                 }
@@ -367,6 +376,7 @@ private struct ProblemCreateSheet: View {
     @Environment(TimelineViewState.self) private var state
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
+    @State private var saveFailed = false
 
     var body: some View {
         NavigationStack {
@@ -374,12 +384,19 @@ private struct ProblemCreateSheet: View {
                 TextField(L10n.problemNamePlaceholder, text: $name)
             }
             .navigationTitle(L10n.problemCreateTitle)
+            .saveFailedAlert(title: L10n.encounterSaveFailed,
+                             hint: L10n.problemSaveFailedHint,
+                             isPresented: $saveFailed)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button(L10n.reminder_save) {
                         Task {
-                            await state.createProblem(patientId: app.currentPatientId, name: name)
-                            dismiss()
+                            // 写库失败保留输入并提示——此前吞错后无条件 dismiss
+                            if await state.createProblem(patientId: app.currentPatientId, name: name) {
+                                dismiss()
+                            } else {
+                                saveFailed = true
+                            }
                         }
                     }
                     .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
@@ -453,8 +470,9 @@ struct VisitPrepView: View {
                     ForEach(allergies) { a in
                         HStack {
                             Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.red)
-                            Text(a.title).font(.subheadline).foregroundStyle(.red)
+                                .foregroundStyle(Color("semantic-danger", bundle: .main))
+                            Text(a.title).font(.subheadline)
+                                .foregroundStyle(Color("semantic-danger", bundle: .main))
                         }
                     }
                 }
@@ -524,12 +542,16 @@ final class QuestionsState {
         }
     }
 
-    func add(patientId: UUID, body: String) async {
+    /// 返回是否写入成功——调用侧据此决定反馈（写失败绝不播报「已记录」）
+    @discardableResult
+    func add(patientId: UUID, body: String) async -> Bool {
         do {
             _ = try await store.add(patientId: patientId, body: body)
             await load(patientId: patientId)
+            return true
         } catch {
-            // 失败保留输入可重试
+            // 失败保留输入可重试（错误经调用侧呈现）
+            return false
         }
     }
 
@@ -551,6 +573,9 @@ struct QuestionListView: View {
     @Environment(QuestionsState.self) private var state
     @State private var newText = ""
     @State private var showAdd = false
+    /// 写库失败保留输入并提示——QuestionsState.add 已返回 Bool，
+    /// 本调用侧此前仍无条件清空关闭（问题静默丢失，BR-004 真实性）
+    @State private var saveFailed = false
 
     var body: some View {
         List {
@@ -592,13 +617,23 @@ struct QuestionListView: View {
                         .lineLimit(3...8)
                 }
                 .navigationTitle(L10n.questionTitle)
+                // 警报必须挂在 sheet 内容内：父视图的 alert 会被 sheet
+                // 压住无法呈现（StockLotViews 第七轮同款教训）
+                .saveFailedAlert(title: L10n.encounterSaveFailed,
+                                 hint: L10n.f19RecordFailed,
+                                 isPresented: $saveFailed)
                 .toolbar {
                     ToolbarItem(placement: .confirmationAction) {
                         Button(L10n.reminder_save) {
                             Task {
-                                await state.add(patientId: app.currentPatientId, body: newText)
-                                newText = ""
-                                showAdd = false
+                                // 写库结果决定关闭/清空——此前吞错后无条件
+                                // 清空并 dismiss，问题静默丢失（BR-004）
+                                if await state.add(patientId: app.currentPatientId, body: newText) {
+                                    newText = ""
+                                    showAdd = false
+                                } else {
+                                    saveFailed = true
+                                }
                             }
                         }
                         .disabled(newText.trimmingCharacters(in: .whitespaces).isEmpty)

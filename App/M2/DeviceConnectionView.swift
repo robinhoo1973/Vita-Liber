@@ -19,6 +19,8 @@ final class F16DeviceState {
     }
 
     private(set) var phase: Phase = .idle
+    /// 同步中判定（视图据以禁用按钮；sync 据以拒绝重入）
+    var isSyncing: Bool { if case .syncing = phase { return true }; return false }
     /// FR16.4：无信源阈值的读数计数——「范围不可用」是独立呈现态，
     /// 不静默跳过（审查修复：原 catch continue 让用户以为同步正常）
     private(set) var noRangeCount = 0
@@ -59,8 +61,20 @@ final class F16DeviceState {
         return status == .sharingAuthorized
     }
 
-    /// 同步并评估：读数 → evaluateAndRecord → 24h 去重 → 夜间静默 → L1+ 通知
-    func sync(patientId: UUID) async {
+    /// 同步并评估：读数 → evaluateAndRecord → 24h 去重 → 夜间静默 → L1+ 通知。
+    /// authEnabled：FR14.1 authHealthRead 开关实时值——关闭即拒绝执行
+    /// （撤回即时生效，与 requestAuthorization 同一纪律）。
+    /// quietStart/quietEnd：用户配置的安静时段（AppSettings 单一事实源，
+    /// 缺省 22:00/07:00）——此前视图内硬编码 22-7，忽略用户设置。
+    func sync(patientId: UUID, authEnabled: Bool = true,
+              quietStart: String = "22:00", quietEnd: String = "07:00") async {
+        guard authEnabled else {
+            phase = .degraded(L10n.f16AuthDisabled)
+            return
+        }
+        // 重入守卫：同步按钮在 syncing 期间仍可点——双击并发两次 sync
+        // 会双写 evaluateAndRecord 并互相覆盖 phase/count，进行中直接忽略
+        guard !isSyncing else { return }
         phase = .syncing
         noRangeCount = 0
         defer { if case .syncing = phase { phase = .done(count: 0) } }
@@ -76,15 +90,19 @@ final class F16DeviceState {
                     let event = try await guidelines.evaluateAndRecord(
                         reading: reading, patientId: patientId, ruleId: "f16.healthkit")
                     guard event.severity != .L0 else { continue }
-                    // FR16.2 同一事件 24 小时去重（按指标+级别；落库侧另有同日级别去重）
-                    let key = "\(reading.metricKey)-\(event.severity.rawValue)"
+                    // FR16.2 同一事件 24 小时去重（按成员+指标+级别；落库侧另有
+                    // 同日级别去重）。此前键缺 patientId：成员 A 的 L1 命中会
+                    // 抑制 24h 内成员 B 的同读数预警（BR-001 成员隔离）。
+                    let key = "\(patientId.uuidString)-\(reading.metricKey)-\(event.severity.rawValue)"
                     if let last = lastAlertKey[key],
-                       Date().timeIntervalSince(last) < 24 * 3600 { continue }
-                    lastAlertKey[key] = Date()
+                       Date() < DayArithmetic.offset(days: 1, from: last) { continue }
                     let alertId = "alert-\(event.id.uuidString)"
                     guard !delivered.contains(alertId) else { continue }
-                    // 夜间静默仅对 L0/L1 生效（L2/L3 不静默）
-                    if event.severity == .L1 && isQuietHours { continue }
+                    // 夜间静默仅对 L0/L1 生效（L2/L3 不静默）。去重键必须在本
+                    // 门之后写——此前先写键再静默丢弃：夜间被静默的 L1 在
+                    // 24h 窗口内白天重同步时被键永久抑制，预警永远不送达。
+                    if event.severity == .L1 && isQuietHours(start: quietStart, end: quietEnd) { continue }
+                    lastAlertKey[key] = Date()
                     elevated += 1
                     // FR16.7 预警通知：正文只含类别，不含数值与病名
                     try await scheduler.schedule(
@@ -103,10 +121,22 @@ final class F16DeviceState {
         }
     }
 
-    private var isQuietHours: Bool {
-        let cal = Calendar.current
-        let hour = cal.component(.hour, from: Date())
-        return hour >= 22 || hour < 7
+    /// 安静时段判定（支持跨午夜区间：start > end 时按「晚 22 → 早 7」跨日）。
+    /// start == end 是非法窗口（s >= e 分支恒真 → 全天静默，所有 L1 预警
+    /// 无声丢失）——按失败开放处理（不静默），绝不静默吞掉全部预警。
+    private func isQuietHours(start: String, end: String) -> Bool {
+        guard let s = Self.hourOf(start), let e = Self.hourOf(end), s != e else { return false }
+        let hour = Calendar.current.component(.hour, from: Date())
+        return s < e ? (hour >= s && hour < e) : (hour >= s || hour < e)
+    }
+
+    /// "HH:mm" → 小时（仅小时粒度；AppSettings 缺省即整点）。
+    /// 时/分双段校验：非法值（"22:99"/"garbage"）返回 nil → 判定失败开放
+    private static func hourOf(_ hhmm: String) -> Int? {
+        let parts = hhmm.split(separator: ":")
+        guard parts.count == 2, let h = Int(parts[0]), let m = Int(parts[1]),
+              (0...23).contains(h), (0...59).contains(m) else { return nil }
+        return h
     }
 }
 
@@ -116,7 +146,6 @@ struct DeviceConnectionView: View {
     @Environment(AppSettingsStore.self) private var settings
     @Environment(F16DeviceState.self) private var deviceState
     @State private var authorized = false
-    @State private var requested = false
 
     var body: some View {
         List {
@@ -133,7 +162,6 @@ struct DeviceConnectionView: View {
                         Task {
                             // FR20.1 价值先行：说明卡（此处列表文案）+ 用户主动点击才触发系统权限框
                             authorized = await deviceState.requestAuthorization(authEnabled: true)
-                            requested = true
                         }
                     }
                     .buttonStyle(.borderedProminent)
@@ -164,10 +192,25 @@ struct DeviceConnectionView: View {
                     Label(message, systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.orange)
                 }
-                if authorized {
+                // FR14.1 authHealthRead 开关联动（关闭即停）：同步入口同样受
+                // 开关门控——此前只隐藏请求区，撤回后系统授权仍可继续读 HealthKit。
+                // 开关值求值一次；安静时段缺省经 SettingsRules 读 Domain 默认
+                // （单一事实源），不再视图内硬编码第二份 22:00/07:00
+                let healthAuthOn = settings.values[.authHealthRead] != "false"
+                if authorized && healthAuthOn {
                     Button(L10n.f16SyncNow) {
-                        Task { await deviceState.sync(patientId: app.currentPatientId) }
+                        Task {
+                            await deviceState.sync(
+                                patientId: app.currentPatientId,
+                                authEnabled: healthAuthOn,
+                                quietStart: SettingsRules.resolved(
+                                    settings.values[.quietHoursStart], key: .quietHoursStart),
+                                quietEnd: SettingsRules.resolved(
+                                    settings.values[.quietHoursEnd], key: .quietHoursEnd))
+                        }
                     }
+                    // 同步进行中禁用——双击并发两次 sync 会双写评估并互覆状态
+                    .disabled(deviceState.isSyncing)
                     .accessibilityIdentifier("SP-29.health.sync")
                 }
             } header: {
@@ -189,10 +232,8 @@ struct DeviceConnectionView: View {
         .navigationTitle(L10n.f16Title)
         .task {
             await settings.load()
-            // 审查修复：进入即按系统真实授权状态回显（此前依赖会话内 requested
-            // 标志，重进恒显示「请求授权」；FR16.1 不得重复索权/误导状态）
+            // 审查修复：进入即按系统真实授权状态回显（FR16.1 不得重复索权/误导状态）
             authorized = await deviceState.currentAuthorization()
-            if authorized { requested = true }
         }
     }
 }

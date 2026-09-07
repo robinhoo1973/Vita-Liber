@@ -278,7 +278,12 @@ struct StockLotEditView: View {
                 Section(L10n.lotOpenedAt) {
                     Toggle(L10n.lotOpenedAt, isOn: $hasOpenedDate)
                     if hasOpenedDate {
+                        // 开启时立即落值：get 恒返新 Date() 的绑定此前在
+                        // 每次渲染重置滚轮位置、且「未拨滚轮直接保存」时
+                        // openedAt 仍为 nil 被静默丢弃（所见非所存）
                         DatePicker(L10n.lotOpenedAt, selection: Binding(get: { openedAt ?? Date() }, set: { openedAt = $0 }), displayedComponents: .date)
+                            .onAppear { if openedAt == nil { openedAt = Date() } }
+                            .onChange(of: hasOpenedDate) { _, on in if on && openedAt == nil { openedAt = Date() } }
                     }
                 }
                 Section(L10n.lotExpireAt) {
@@ -286,6 +291,8 @@ struct StockLotEditView: View {
                     Toggle(L10n.lotExpireAt, isOn: $hasExpireDate)
                     if hasExpireDate {
                         DatePicker(L10n.lotExpireAt, selection: Binding(get: { expireAt ?? Date() }, set: { expireAt = $0 }), displayedComponents: .date)
+                            .onAppear { if expireAt == nil { expireAt = Date() } }
+                            .onChange(of: hasExpireDate) { _, on in if on && expireAt == nil { expireAt = Date() } }
                     }
                 }
                 Section(L10n.lotStorage) {

@@ -591,8 +591,12 @@ public actor MedicationStore: DoseSource {
     /// taken 扣减 = 计划轨双扣（安全线虚低、月报双计）。转场修正：
     /// missed→taken 仅补扣确认轨（Domain InventoryRules.transitionDeduction）。
     /// 若该时段已有物化行 → UPDATE 该行；否则 INSERT 新行（补录本身即证据）。
+    /// 评审修正（响亮拒绝纪律）：doseUnits 不再带 `= 1` 默认——单剂基线
+    /// 缺失时静默按 1.0/次扣账会让「半片」医嘱被安全线按整片扣减、续药
+    /// 档位失准。调用方必须显式传计划基线（唯一调用方 ReminderStore.backfillTaken
+    /// 已由视图层 dosePlanUnits 门控）。补录即证据：missed→taken 仅补扣确认轨。
     public func recordTakenAt(planId: UUID, patientId: UUID, medicationId: UUID,
-                              actualTime: Date, doseUnits: Double = 1,
+                              actualTime: Date, doseUnits: Double,
                               notifyId: String = UUID().uuidString) async throws {
         try await writer.write { db in
             guard let plan = try Row.fetchOne(db, sql: """

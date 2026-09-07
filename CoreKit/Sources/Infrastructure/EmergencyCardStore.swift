@@ -131,6 +131,7 @@ public actor EmergencyCardStore {
             EmergencyCardItem(id: UUID(uuidString: row["id"] as String) ?? UUID(),
                               kind: "contact", title: row["name"] as String,
                               detail: "\(row["relation"] as String) · \(row["phone"] as String)",
+                              phone: row["phone"] as String,
                               confirmed: true)
         }
     }

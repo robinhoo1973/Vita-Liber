@@ -641,3 +641,59 @@ struct Round8DomainFixTests {
     }
 }
 
+
+/// FR10.7 标记错过时间门槛（Domain 规则单一出口）——视图与商店共享，
+/// 未来预约不可误标错过（错标 = 分级提醒全取消 + 2h 跟进提前武装）。
+struct AppointmentRulesTests {
+    @Test func 未到开始时间不可标错过() {
+        let future = Date().addingTimeInterval(3600)
+        #expect(!AppointmentRules.canMarkMissed(startsAt: future),
+                "未来预约不得标记错过")
+    }
+
+    @Test func 已过开始时间可标错过() {
+        let past = Date().addingTimeInterval(-3600)
+        #expect(AppointmentRules.canMarkMissed(startsAt: past),
+                "已开始/已过预约可标记错过")
+    }
+
+    @Test func 边界恰为当前时刻可标错过() {
+        let now = Date()
+        #expect(AppointmentRules.canMarkMissed(startsAt: now),
+                "startsAt == now 时（已开始）可标错过")
+    }
+}
+
+/// FR9.11 效期状态分类（BatchExpiryRules.status 单一出口）——视图三级
+/// 播报与临期提醒共用同一阈值，域外不得自建 7/30 边界。
+struct BatchExpiryStatusTests {
+    @Test func 已过期归类expired() {
+        let now = Date()
+        #expect(BatchExpiryRules.status(expireAt: now.addingTimeInterval(-1), now: now) == .expired,
+                "expireAt < now 必须归类 expired")
+    }
+
+    @Test func 七天内归类within7() {
+        let now = Date()
+        let d6 = DayArithmetic.offset(days: 6, from: now)
+        #expect(BatchExpiryRules.status(expireAt: d6, now: now) == .within7,
+                "6 天后到期必须归类 within7")
+    }
+
+    @Test func 三十天内归类within30() {
+        let now = Date()
+        let d8 = DayArithmetic.offset(days: 8, from: now)
+        let d30 = DayArithmetic.offset(days: 30, from: now)
+        #expect(BatchExpiryRules.status(expireAt: d8, now: now) == .within30,
+                "8 天后到期必须归类 within30")
+        #expect(BatchExpiryRules.status(expireAt: d30, now: now) == .within30,
+                "恰 30 天到期必须含边界（此前视图内 <= 与 > 边界不一致）")
+    }
+
+    @Test func 三十天外归类later() {
+        let now = Date()
+        let d31 = DayArithmetic.offset(days: 31, from: now)
+        #expect(BatchExpiryRules.status(expireAt: d31, now: now) == .later,
+                "31 天后到期必须归类 later（临期播报不涉及）")
+    }
+}

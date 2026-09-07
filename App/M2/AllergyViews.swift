@@ -10,6 +10,8 @@ struct AllergyListView: View {
     @Environment(AppState.self) private var app
     @Environment(ObservationStoreState.self) private var state
     @State private var showCreate = false
+    /// FR23.6：删除前明示影响（急救卡/医生摘要）——此前滑扫即删、不可撤销
+    @State private var pendingDelete: AllergyStore.AllergyRow?
 
     var body: some View {
         Group {
@@ -37,7 +39,7 @@ struct AllergyListView: View {
                         }
                         .swipeActions {
                             Button(L10n.allergyDelete, role: .destructive) {
-                                Task { await state.deleteAllergy(id: allergy.id) }
+                                pendingDelete = allergy
                             }
                         }
                         .accessibilityIdentifier("SP-50.allergy.row.\(allergy.id.uuidString)")
@@ -46,6 +48,19 @@ struct AllergyListView: View {
             }
         }
         .navigationTitle(L10n.allergyTitle)
+        // presenting: 形式直接注入目标行——按钮动作不再依赖与对话框关闭
+        // setter 的共享可变状态竞态（动作/置 nil 顺序无关）
+        .confirmationDialog(L10n.allergyDeleteConfirmTitle, isPresented:
+            Binding(get: { pendingDelete != nil },
+                    set: { if !$0 { pendingDelete = nil } }),
+                            presenting: pendingDelete, titleVisibility: .visible) { target in
+            Button(L10n.allergyDelete, role: .destructive) {
+                Task { await state.deleteAllergy(id: target.id) }
+            }
+            Button(L10n.commonCancel, role: .cancel) { }
+        } message: { _ in
+            Text(L10n.allergyDeleteConfirmHint)
+        }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
@@ -92,6 +107,7 @@ struct AllergyCreateView: View {
     @State private var occurredAt = Date()
     @State private var note = ""
     @State private var showEmergencyCard = false
+    @State private var saveFailed = false
 
     // FR23.1 选项来自 Domain 常量（数据词汇单一来源，视图不内联中文）
     private var kinds: [String] { SevereReactionRules.allergenKinds }
@@ -162,6 +178,11 @@ struct AllergyCreateView: View {
                     }
                 }
             }
+            // 保存失败错误态（四态纪律：失败绝不静默呈现为已保存；
+            // SaveFailedAlert 统一出口）
+            .saveFailedAlert(title: L10n.allergySaveFailed,
+                             hint: L10n.allergySaveFailedHint,
+                             isPresented: $saveFailed)
             // FR23.3 重度/关键词命中：急救引导卡（BR-012），不阻塞保存、可关闭
             .alert(L10n.allergyEmergencyTitle, isPresented: $showEmergencyCard) {
                 Button(L10n.ai_emergencyCall) {
@@ -187,8 +208,14 @@ struct AllergyCreateView: View {
         let severe = SevereReactionRules.triggersEmergencyCard(severity: severity,
                                                                reactionTags: tags, note: note)
         Task {
-            await state.createAllergy(patientId: app.currentPatientId, substance: substance,
-                                      severity: severity, tags: tags, note: note.isEmpty ? nil : note)
+            // 写库失败保留表单并提示——此前 createAllergy 吞错后无条件
+            // dismiss，失败呈现为「已保存」而记录丢失
+            let saved = await state.createAllergy(patientId: app.currentPatientId, substance: substance,
+                                                  severity: severity, tags: tags, note: note.isEmpty ? nil : note)
+            guard saved else {
+                saveFailed = true
+                return
+            }
             if severe {
                 showEmergencyCard = true
             } else {

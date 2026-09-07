@@ -231,8 +231,6 @@ struct SOSButton: View {
     var onTrigger: (() -> Void)?
 
     @State private var holdConfirmed = false
-    @State private var holdStart: Date?
-    @State private var holdProgress: Double = 0
 
     private var metrics: CareModeMetrics {
         careMode ? CareModeMetrics.care : CareModeMetrics.standard
@@ -255,7 +253,7 @@ struct SOSButton: View {
                         .frame(minWidth: careMode ? 200 : 160,
                                minHeight: careMode ? 64 : 44)
                         .background(RoundedRectangle(cornerRadius: 14)
-                            .fill(Color.red.opacity(0.9)))
+                            .fill(Color("semantic-danger", bundle: .main)))
                         .foregroundStyle(.white)
                 }
                 .simultaneousGesture(
@@ -277,7 +275,7 @@ struct SOSButton: View {
                         .accessibilityIdentifier("F15.card.sos.cancel")
                     Button(L10n.emergency_sos_confirm) { onTrigger?() }
                         .buttonStyle(.borderedProminent)
-                        .tint(.red)
+                        .tint(Color("semantic-danger", bundle: .main))
                         .frame(minHeight: careMode ? 64 : 44)
                         .accessibilityIdentifier("F15.card.sos.confirm")
                 }
@@ -296,7 +294,9 @@ struct SOSOrb: View {
     @State private var holdStart: Date?
     @State private var showHelp = false
 
-    private let requiredHold: TimeInterval = 0.6   // FR18.3 按住确认 ≥600ms
+    // FR18.3 按住确认 ≥600ms——阈值来自 Domain 单一事实源（CareModeMetrics
+    // 关怀档，SOSButton 同源），此前 0.6 硬编码：关怀门槛调参时两处漂移
+    private let requiredHold: TimeInterval = HoldToConfirm.requiredSeconds(mode: CareModeMetrics.care)
 
     var body: some View {
         ZStack {
@@ -395,7 +395,9 @@ struct SOSHelpView: View {
                 } else {
                     ForEach(contacts) { contact in
                         Button {
-                            dial(contact.detail)
+                            // detail 为「关系 · 电话」复合展示串——拨号取纯号码
+                            // （BR-012 SOS 路径不得因 CJK/分隔符使 tel: 失效）
+                            dial(contact.contactPhone ?? contact.detail)
                         } label: {
                             Label(contact.title, systemImage: "person.crop.circle.badge.exclamationmark")
                                 .frame(maxWidth: .infinity, minHeight: 56)
