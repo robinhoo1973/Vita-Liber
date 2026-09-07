@@ -454,8 +454,13 @@ jobs:
         run: |
           set -euo pipefail
           # 固定版本并禁用缓存/交互；依赖安装失败立即停，绝不在含 p8 的 job 中继续执行未知代码。
-          python3 -m pip install --user --disable-pip-version-check --no-cache-dir \
-            "PyJWT==2.10.1" "cryptography==44.0.0" >/tmp/pip.log 2>&1
+          if ! python3 -m pip install --user --disable-pip-version-check --no-cache-dir \
+            "PyJWT==2.10.1" "cryptography==44.0.0" >/tmp/pip.log 2>&1; then
+            echo "::error::Python 依赖安装失败"
+            cat /tmp/pip.log
+            exit 1
+          fi
+          echo "Python 依赖安装成功"
           P8="$HOME/.appstoreconnect/private_keys/AuthKey_$APPLE_API_KEY_ID.p8"
           [ -f "$P8" ] || { echo "::error::p8 不存在"; exit 1; }
           KEYID="$APPLE_API_KEY_ID" ISS="$APPLE_API_KEY_ISSUER_ID" \
@@ -562,8 +567,13 @@ jobs:
       - name: 复核 Build 登记状态
         run: |
           set -euo pipefail
-          python3 -m pip install --user --disable-pip-version-check --no-cache-dir \
-            "PyJWT==2.10.1" "cryptography==44.0.0" >/tmp/pip.log 2>&1
+          if ! python3 -m pip install --user --disable-pip-version-check --no-cache-dir \
+            "PyJWT==2.10.1" "cryptography==44.0.0" >/tmp/pip.log 2>&1; then
+            echo "::warning::复核步骤 Python 依赖安装失败，跳过复核"
+            cat /tmp/pip.log
+            exit 0
+          fi
+          echo "Python 依赖安装成功"
           P8="$HOME/.appstoreconnect/private_keys/AuthKey_$APPLE_API_KEY_ID.p8"
           [ -f "$P8" ] || { echo "::warning::p8 不存在，跳过复核"; exit 0; }
           mk_token() {
