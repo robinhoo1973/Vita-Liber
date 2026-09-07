@@ -461,7 +461,7 @@ public actor ExportService {
                     backupTitle: { consentTitle[$0] },
                     existingTitle: { existingTitle("consent_record", $0, "key") })
             try add("document_file", ids: documentIds,
-                    backupTitle: { timelineTitle[$0] },
+                    backupTitle: { timelineTitle[$0] ?? nil },
                     existingTitle: { existingTitle("document_file", $0, "title") })
             try add("medication_plan", ids: envelope.plans.map { $0.id.uuidString },
                     backupTitle: { planTitle[$0] },
