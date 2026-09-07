@@ -100,7 +100,9 @@ final class VoiceDictationModel {
     var onTranscript: ((String, Double) -> Void)?
 
     private let engine: any TranscriptionEngine
-    private(set) var preferredLocale: String?
+    // 视图在每次渲染时按最新设置更新（FR14.7 即时生效），故 setter 为 internal——
+    // 与 phase/partial 的 private(set) 不同（第九轮 M1.5 审查：stale 闭包修复）
+    var preferredLocale: String?
     private var task: Task<Void, Never>?
     private var stopped = false
     /// 每会话独立的节流门（审查修复：此前为全局单例，两个同时在途的听写

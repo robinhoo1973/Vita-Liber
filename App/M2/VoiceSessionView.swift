@@ -406,13 +406,13 @@ struct VoiceSessionView: View {
                 ?? L10n.f19NoAppointment
             session.systemFeedback(text, speak: { app.speak($0) })
         case .recentGlucose:
-            // 审查修复：trendState.series 只在趋势页被访问过时才加载——
+            // 审查修复：trendState.detailSeries 只在趋势页被访问过时才加载——
             // 直接进语音会话会误报「暂无血糖记录」（F19 事实播报）。
-            // 先按需加载再播报。
+            // 先按需加载再播报（loadDetail 校验 metricKey 为注册表成员）。
             let patientId = app.currentPatientId
             Task {
-                await trendState.load(patientId: patientId)
-                let points = trendState.series?.points.suffix(3).map { "\($0.value)" }.joined(separator: "、")
+                await trendState.loadDetail(patientId: patientId, metricKey: MetricType.glucose.rawValue)
+                let points = trendState.detailSeries?.points.suffix(3).map { "\($0.value)" }.joined(separator: "、")
                 session.systemFeedback(points.map { L10n.f19RecentGlucose($0) } ?? L10n.f19NoGlucose,
                                       speak: { app.speak($0) })
             }
