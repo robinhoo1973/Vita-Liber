@@ -341,7 +341,7 @@ final class ReminderStore {
             return "slot-\(slot.id)"
         }
         let cal = Calendar.current
-        let dayStart = cal.startOfDay(for: dose.scheduledFor)
+        let dayStart = cal.startOfDay(for: dose.dueAt)
         let dayEnd = cal.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart.addingTimeInterval(86400)
         if let facts = try? await meds.deliveryFacts(from: dayStart, to: dayEnd) {   // try?-ok: 反查失败退回单剂派生（清理尽力而为，绝不阻断确认主流程）
             let records = facts.map { DoseRecord(dose: $0.dose, action: $0.action) }
