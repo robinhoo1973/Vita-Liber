@@ -257,7 +257,10 @@ struct MedicationPlanDetailView: View {
     @ViewBuilder
     private func emptyState() -> some View {
         if loadFailed {
-            ContentUnavailableView(L10n.planLoadFailed, systemImage: "arrow.clockwise.circle") {
+            // title+systemImage 便捷构造器无 actions 重载——按钮须走 label/actions 闭包形式
+            ContentUnavailableView {
+                Label(L10n.planLoadFailed, systemImage: "arrow.clockwise.circle")
+            } actions: {
                 Button(L10n.retry) {
                     Task { await load() }
                 }
