@@ -40,12 +40,23 @@ struct DoctorShowcaseView: View {
                 // 跨成员敏感媒体泄漏）。装载成功前只呈现加载态。
                 if state.loadedPatientId == patientId {
                     showcaseContent
-                } else if state.loadFailed {
-                    ContentUnavailableView(L10n.observationListError,
-                                           systemImage: "exclamationmark.triangle")
-                } else {
+                } else if state.isLoading {
+                    // 评审修复：装载中优先呈现加载态——loadFailed 是全局标志，
+                    // 其他视图此前的旧失败会在本视图装载完成前误闪错误卡
                     ProgressView()
                         .accessibilityIdentifier("SP-28.showcase.loading")
+                } else {
+                    // 评审修复：错误卡补 [重试] 出口——此前无任何动作，
+                    // .task(id:) 的 id 为常量不重跑，瞬时失败即成死胡同
+                    ContentUnavailableView {
+                        Label(L10n.observationListError, systemImage: "exclamationmark.triangle")
+                    } actions: {
+                        Button(L10n.observationListRetry) {
+                            Task { await state.load(patientId: patientId) }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .accessibilityIdentifier("SP-28.showcase.retry")
+                    }
                 }
             } else {
                 // 认证前 / TTL 重锁后：锁占位 + 重新认证入口（无出口转圈）

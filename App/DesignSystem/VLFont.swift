@@ -14,4 +14,6 @@ enum VLFont {
     static let disclosureIcon: Font = .system(size: 48)
     /// 导出向导完成态大图标（56pt）
     static let exportIcon: Font = .system(size: 56)
+    /// 指标总览宫格大数字（§5.45；28pt bold rounded，硬编码字号收敛出口）
+    static let metricTileValue: Font = .system(size: 28, weight: .bold, design: .rounded)
 }

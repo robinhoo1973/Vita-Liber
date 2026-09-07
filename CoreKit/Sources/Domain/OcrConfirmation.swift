@@ -94,6 +94,16 @@ public struct OcrConfirmationSet: Sendable, Equatable, Codable, Identifiable {
     public var allConfirmed: Bool { !fields.isEmpty && fields.allSatisfy(\.isConfirmed) }
     public var confirmedFields: [CandidateField] { fields.filter(\.isConfirmed) }
 
+    /// 已确认字段的 key → value 映射（语音面板/录入预填共用）。
+    /// 单一出口：此前三个视图各自内联 `Dictionary(uniqueKeysWithValues:)`，
+    /// 字段键语义变更（如 trim/去空）须三处同步；该构造器遇重复键即 trap，
+    /// 风险点散落三处。
+    public var keyedValues: [String: String] {
+        var map: [String: String] = [:]
+        for field in confirmedFields { map[field.key] = field.value }
+        return map
+    }
+
     /// 未确认字段不得入时间轴（BR-003 最小验证的文档级版本）
     public var isUsableInTimeline: Bool { allConfirmed }
 

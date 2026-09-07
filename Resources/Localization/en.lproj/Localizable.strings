@@ -59,6 +59,7 @@
 "voice.route.headphonesOff" = "Headphones disconnected — switching to on-screen check";
 "voice.reminder.timeUnclear" = "The time isn't specific enough. Please add an exact date or time.";
 "voice.reminder.timeUnheard" = "I didn't catch the reminder time. Please say it again or pick a time manually.";
+"voice.reminder.saveFailed" = "Failed to set the reminder. Please try again.";
 "voice.privacy.title" = "Privacy and headphones";
 "voice.privacy.p1" = "Headphones are recommended — for privacy, and to avoid disturbing others";
 "voice.privacy.p2" = "Speech is recognized on this device only; audio is discarded immediately and never stored";
@@ -71,6 +72,7 @@
 "backup.restore" = "Restore from backup";
 "backup.degrade.notSignedIn" = "Not signed in to iCloud, so iCloud Drive backup is unavailable. You can still export to local files.";
 "backup.degrade.noSpace" = "Not enough iCloud space, so this backup did not complete. Free up space and try again; your local data is unaffected.";
+"backup.degrade.createFailed" = "Backup creation failed; your local data is unaffected. Please retry. If it keeps failing, update the app or contact support.";
 "backup.degrade.checksum" = "The backup file failed verification, so nothing was restored. Please try a different backup file.";
 "backup.degrade.restoreFailed" = "Restore did not complete; your local data is unaffected. Please retry. If it keeps failing, update the app or contact support.";
 "backup.degrade.conflict" = "This device already contains health data. The restore was not performed to avoid overwriting it. Back up and clear this device first, or contact support for migration help.";
@@ -405,6 +407,7 @@
 "voicenote.draft.accessibility" = "Note content";
 "voicenote.save.accessibility" = "Save note";
 "voicenote.title" = "Voice Notes";
+"voicenote.saveFailed" = "Failed to save the note. Please try again.";
 "observation.groupSummary" = "%1$d records · latest %2$@";
 "observation.trend.improved" = "Improved";
 "observation.trend.unchanged" = "Unchanged";
@@ -489,6 +492,7 @@
 "voicenote.saved" = "Saved to Voice Notes";
 "voicenote.view" = "View";
 "voicenote.dictating" = "Listening… please speak";
+"voicenote.stop" = "Stop dictation";
 "voicenote.dictationFailed" = "No speech detected — you can type instead";
 "doc.detailTitle" = "Document";
 "doc.fieldsSection" = "Recognized fields";
@@ -501,6 +505,8 @@
 "observation.description" = "Description";
 "observation.selfMark" = "Self-assessment";
 "observation.mediaBadge" = "%1$d photo(s) · locked";
+"observation.saveFailed" = "Failed to Save Observation";
+"observation.saveFailedHint" = "The observation could not be saved. Please retry.";
 "doc.titleSection" = "Document info";
 "doc.date" = "Date";
 "observation.kind.unknown" = "Other";

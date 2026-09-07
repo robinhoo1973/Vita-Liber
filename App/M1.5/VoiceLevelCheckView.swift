@@ -19,7 +19,9 @@ struct VoiceLevelCheck: View {
     @Environment(AppState.self) private var app
     @State private var meter = VoiceLevelMeter()
     @State private var level: Float = 0
-    @State private var tooLow = false
+    /// 派生态（审查修复：此前与 level 在回调里并排赋值——两处存储
+    /// 锁步更新必然漂移；阈值只维护 VoiceLevelMeter.lowThreshold 一处）
+    private var tooLow: Bool { level < VoiceLevelMeter.lowThreshold }
 
     var body: some View {
         VStack(spacing: 20) {
@@ -37,13 +39,13 @@ struct VoiceLevelCheck: View {
             Text(meter.testPhrase)
                 .font(.headline)
                 .padding(.horizontal, 20).padding(.vertical, 14)
-                .background(RoundedRectangle(cornerRadius: 12).fill(Color(.systemGray6)))
+                .background(RoundedRectangle(cornerRadius: 12).fill(Color("bg-grouped", bundle: .main)))
                 .onAppear { app.speak(meter.testPhrase) }
 
             // 实时音量条（RMS 归一化；达标段绿、不足段警示色）
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(Color(.systemGray5))
+                    Capsule().fill(Color("bg-grouped", bundle: .main))
                     Capsule()
                         .fill(tooLow ? Color("semantic-warning", bundle: .main)
                                      : Color("semantic-success", bundle: .main))
@@ -73,10 +75,7 @@ struct VoiceLevelCheck: View {
         }
         .padding(.top, 32)
         .onAppear {
-            meter.onLevel = { rms in
-                level = rms
-                tooLow = rms < VoiceLevelMeter.lowThreshold
-            }
+            meter.onLevel = { rms in level = rms }
             meter.start()
         }
         .onDisappear { meter.stop() }
@@ -108,6 +107,10 @@ final class VoiceLevelMeter {
         try? session.setActive(true)   // try?-ok: 激活失败同上——音量条静默无数据，访谈仍可继续
         let input = engine.inputNode
         let format = input.inputFormat(forBus: 0)
+        // 投递节流（审查修复）：48kHz/1024 ≈ 47 buffer/秒，此前每个 buffer
+        // 都 hop 主线程并触发整个视图 body 重算——电平条视觉上只需 ~10Hz
+        // 即足够平滑；|Δ|<0.01 的微小抖动跳过，归零必达（结束即清零）
+        var lastSent: Float = -1
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
             guard let channel = buffer.floatChannelData?[0] else { return }
             let n = Int(buffer.frameLength)
@@ -115,6 +118,8 @@ final class VoiceLevelMeter {
             for i in 0..<n { let s = channel[i]; sum += s * s }
             let rms = sqrt(sum / Float(max(n, 1)))
             let clamped = min(max(rms, 0), 1)
+            guard abs(clamped - lastSent) >= 0.01 || clamped == 0 else { return }
+            lastSent = clamped
             // tap 回调在音频线程；电平投递到主线程后按 MainActor 断言消费
             DispatchQueue.main.async {
                 MainActor.assumeIsolated { self?.onLevel?(clamped) }

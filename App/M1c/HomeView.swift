@@ -120,7 +120,11 @@ struct HomeView: View {
 
     // ⑦ 最近异常观察（横向缩略图列，锁定态联动 F8 保护链）
     private var obsRefs: [ObsRef] {
-        observationState.groups
+        // 评审修复：BR-001 门控——shared 状态已装载成员与当前成员不一致时
+        // 不渲染（成员切换装载中/装载失败时，防止上一成员的观察串显到
+        // 本成员首页，且 memberId 不得虚构为当前成员）
+        guard observationState.loadedPatientId == app.currentPatientId else { return [] }
+        return observationState.groups
             .flatMap { $0.occurrences }
             .sorted { $0.occurredAt > $1.occurredAt }
             .prefix(3)

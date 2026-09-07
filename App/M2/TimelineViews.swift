@@ -477,9 +477,11 @@ struct VisitPrepView: View {
                     }
                 }
             }
-            // 症状观察（最近）
+            // 症状观察（最近）——BR-001 门控（第九轮审查 M1c 同族修复）：
+            // 共享观察组仅当属于当前成员时才渲染，切换窗口/加载失败不串成员
             Section(L10n.prepObservations) {
-                let obs = observationState.groups.flatMap(\.occurrences).prefix(5)
+                let obs = observationState.loadedPatientId == app.currentPatientId
+                    ? observationState.groups.flatMap(\.occurrences).prefix(5) : [].prefix(5)
                 if obs.isEmpty {
                     Text(L10n.prepNoData).font(.caption).foregroundStyle(.secondary)
                 } else {

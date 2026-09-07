@@ -73,6 +73,7 @@ enum L10n {
     // FR17.10/FR10.2 语音提醒澄清提示（两处调用共用，禁止各写一份字面量）
     static var voiceReminderTimeUnclear: String { t("voice.reminder.timeUnclear") }
     static var voiceReminderTimeUnheard: String { t("voice.reminder.timeUnheard") }
+    static var voiceReminderSaveFailed: String { t("voice.reminder.saveFailed") }
 
     // FR1.1 · V3.22 生物识别门禁（SP-01 锁屏遮罩）
     static var security_unlockTitle: String { t("security.unlockTitle") }
@@ -98,6 +99,7 @@ enum L10n {
     static var backupRestore: String { t("backup.restore") }
     static var backupNotSignedIn: String { t("backup.degrade.notSignedIn") }
     static var backupNoSpace: String { t("backup.degrade.noSpace") }
+    static var backupCreateFailed: String { t("backup.degrade.createFailed") }
     static var backupChecksumFailed: String { t("backup.degrade.checksum") }
     /// 第八轮修复：非校验类恢复失败（读文件/磁盘/约束/新版本 schema）——不归罪文件损坏
     static var backupRestoreFailed: String { t("backup.degrade.restoreFailed") }
@@ -593,6 +595,7 @@ enum L10n {
     static var voicenoteDraftAccessibility: String { t("voicenote.draft.accessibility") }
     static var voicenoteSaveAccessibility: String { t("voicenote.save.accessibility") }
     static var voicenoteTitle: String { t("voicenote.title") }
+    static var voicenoteSaveFailed: String { t("voicenote.saveFailed") }
 
     // MARK: - L10n 清偿批五 · 观察（SP-14 / F8）
     static func observationGroupSummary(_ count: Int, _ mark: String) -> String {
@@ -612,6 +615,8 @@ enum L10n {
     static func observationMediaBadge(_ n: Int) -> String {
         String(format: t("observation.mediaBadge"), n)   // %1$d
     }
+    static var observationSaveFailed: String { t("observation.saveFailed") }
+    static var observationSaveFailedHint: String { t("observation.saveFailedHint") }
     // MARK: - 评审批 · F8 八类观察类型（FR8.1：Domain ObservationKind 枚举 → 名称映射；
     // 未知 key 兜底「其他」本地化串，rawValue 一律不上屏）
     static func observationKindName(_ kind: ObservationKind) -> String {
@@ -640,6 +645,7 @@ enum L10n {
     // MARK: - 评审批 · FR8.9/FR17.14 语音速记纯转写入口（共用听写按钮）
     static var voicenoteDictation: String { t("voicenote.dictation") }
     static var voicenoteDictating: String { t("voicenote.dictating") }
+    static var voicenoteStop: String { t("voicenote.stop") }
     static var voicenoteDictationFailed: String { t("voicenote.dictationFailed") }
     // MARK: - 评审批 · 文档详情与导出（SP-10 / 5.6）
     static var docDetailTitle: String { t("doc.detailTitle") }
@@ -918,7 +924,7 @@ enum L10n {
         "gsDetail.notFound",
         "gsDetail.metric",
         "gsDetail.thresholds",
-        "gsDetail.note", "backup.checksum", "backup.create", "backup.degrade.checksum", "backup.degrade.restoreFailed",
+        "gsDetail.note", "backup.checksum", "backup.create", "backup.degrade.checksum", "backup.degrade.createFailed", "backup.degrade.restoreFailed",
         "backup.degrade.noSpace", "backup.degrade.notSignedIn", "backup.exportedName", "backup.restore",
         "backup.restored", "backup.scopeNote", "backup.title", "care.footer",
         "care.parameters.readback", "care.parameters.section", "care.parameters.sos",
@@ -1103,7 +1109,7 @@ enum L10n {
         "voice.ask.screen", "voice.ask.speak", "voice.confirm.cancel", "voice.confirm.lowConfidence",
         "voice.confirm.pending", "voice.confirm.retry", "voice.confirm.save", "voice.confirm.title",
         "voice.privacy.accept", "voice.privacy.p1", "voice.privacy.p2", "voice.privacy.p3",
-        "voice.privacy.p4", "voice.privacy.title", "voice.privacy.useTouch", "voice.reminder.timeUnclear", "voice.reminder.timeUnheard",
+        "voice.privacy.p4", "voice.privacy.title", "voice.privacy.useTouch", "voice.reminder.saveFailed", "voice.reminder.timeUnclear", "voice.reminder.timeUnheard",
         "voice.route.headphonesOff",
         "voice.route.headphonesOn", "voice.speak.button", "voice.speak.bystander", "voice.speak.screenHint",
         "voice.rejectWhat.dosage",
@@ -1137,8 +1143,8 @@ enum L10n {
         "voiceguide.promptAllergy", "voiceguide.promptContact", "voiceguide.promptHistory", "voiceguide.promptMeds",
         "voiceguide.reminderExample", "voiceguide.reminderTitle", "voiceguide.skip", "voiceguide.stepOf",
         "voiceguide.transcript", "voicenote.draft.accessibility", "voicenote.draft.placeholder", "voicenote.empty.hint",
-        "voicenote.empty.title", "voicenote.inTimeline", "voicenote.save.accessibility", "voicenote.title",
-        "voicenote.dictation", "voicenote.dictating", "voicenote.dictationFailed",
+        "voicenote.empty.title", "voicenote.inTimeline", "voicenote.save.accessibility", "voicenote.saveFailed", "voicenote.title",
+        "voicenote.dictation", "voicenote.dictating", "voicenote.dictationFailed", "voicenote.stop",
         "doc.date", "doc.detailTitle", "doc.export", "doc.fieldsSection", "doc.historySection", "doc.titleSection",
         "help.status.checking", "help.status.authorized", "help.status.denied", "help.status.notRequested",
         "help.status.unknown", "help.status.provisional", "help.center.title", "help.diag.permission",
@@ -1466,6 +1472,7 @@ enum L10n {
         "observation.media.unlockHint",
         "encounter.saveFailed", "encounter.saveFailedHint",
         "allergy.saveFailed", "allergy.saveFailedHint",
+        "observation.saveFailed", "observation.saveFailedHint",
         "allergy.deleteConfirmTitle", "allergy.deleteConfirmHint",
         "plan.backfill.noBaseline", "plan.form.saveFailed", "plan.form.saveFailedHint",
         "plan.loadFailed", "appt.markMissedHint", "problem.saveFailedHint",

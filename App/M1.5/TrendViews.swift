@@ -44,6 +44,10 @@ struct TrendChartView: View {
         // 循环不变量提到外层，求值一次。
         let axisTime = L10n.trendAxisTime
         let axisValue = L10n.trendAxisValue
+        // 排序结果同样只求一次（审查修复：此前 Chart 数据点与数据列表
+        // 各排一遍 O(n log n)，拖动选点时每帧两趟——曲线与列表永远同序，
+        // 同一份排序即可）
+        let sortedPoints = TrendRules.sorted(series.points)
         VStack(alignment: .leading, spacing: 12) {
             Chart {
                 // ① 多来源参考带：逐条独立绘制（FR7.2）
@@ -69,7 +73,7 @@ struct TrendChartView: View {
                     }
                 }
                 // ③ 数据点：实心=医院、空心=自测/设备
-                ForEach(TrendRules.sorted(series.points)) { point in
+                ForEach(sortedPoints) { point in
                     PointMark(x: .value(axisTime, point.measuredAt), y: .value(axisValue, point.value))
                         .symbolSize(120)
                         .foregroundStyle(point.isHollow
@@ -117,7 +121,7 @@ struct TrendChartView: View {
             }
 
             // 数据列表并存（VoiceOver 主通道）
-            ForEach(TrendRules.sorted(series.points)) { point in
+            ForEach(sortedPoints) { point in
                 TrendPointRow(point: point, isExcluded: false,
                               onOpenSource: onOpenSource, onToggleExcluded: onToggleExcluded)
             }
@@ -220,10 +224,12 @@ private struct TrendPointRow: View {
     }
 }
 
-/// 双来源趋势页面壳（数据经 TrendQueryStore 注入；换算注记随 series 呈现）
+/// 双来源趋势页面壳（数据经 TrendQueryStore 注入）。
+/// 审查修复：conversionNote 参数与渲染块删除——状态层恒 nil 的换算注记
+/// 曾是「管道齐全但用户永远看不到」的假接线（FR7.8 留痕待查询层
+/// 换算注记真正产出时再挂回，接点即此壳）。
 struct TrendDetailView: View {
     let series: TrendSeries
-    var conversionNote: String?
     var onOpenSource: ((TrendPoint) -> Void)?
     var onToggleExcluded: ((TrendPoint) -> Void)?
 
@@ -235,12 +241,6 @@ struct TrendDetailView: View {
                            showExcluded: showExcluded,
                            onOpenSource: onOpenSource,
                            onToggleExcluded: onToggleExcluded)
-            if let note = conversionNote {
-                Text(L10n.trendConvertedFrom(note))
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("SP-13.trend.conversion")
-            }
         }
         .navigationTitle(L10n.trendTitle)
         .navigationBarTitleDisplayMode(.inline)

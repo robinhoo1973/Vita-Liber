@@ -55,7 +55,9 @@ struct AllergyListView: View {
                     set: { if !$0 { pendingDelete = nil } }),
                             titleVisibility: .visible, presenting: pendingDelete) { target in
             Button(L10n.allergyDelete, role: .destructive) {
-                Task { await state.deleteAllergy(id: target.id) }
+                // 评审修复：显式传入被删行所属成员（当前展示成员）——此前
+                // state 内部经 loadingPatientId 推断，可能与展示成员不一致
+                Task { await state.deleteAllergy(id: target.id, patientId: app.currentPatientId) }
             }
             Button(L10n.commonCancel, role: .cancel) { }
         } message: { _ in

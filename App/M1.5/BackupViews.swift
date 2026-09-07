@@ -36,11 +36,23 @@ final class BackupState {
     private let service: BackupService
     private let logger = Logger(subsystem: "com.vitaliber", category: "backup")
 
-    init(service: BackupService) { self.service = service }
-
     /// iCloud 可用性判定：`ubiquityIdentityToken == nil` 即未登录 iCloud 账号。
     /// 这是 Apple 官方的登录态判定方式，且**不需要任何权限**。
-    var iCloudSignedIn: Bool { FileManager.default.ubiquityIdentityToken != nil }
+    /// 审查修复：令牌查询是同步 KVS/ubiquity 协调调用，此前作为 computed
+    /// property 在每次 body 求值时都查一遍——快照缓存 + 登录态变更通知刷新。
+    private(set) var iCloudSignedIn: Bool
+    private var ubiquityObserver: NSObjectProtocol?
+
+    init(service: BackupService) {
+        self.service = service
+        self.iCloudSignedIn = FileManager.default.ubiquityIdentityToken != nil
+        ubiquityObserver = NotificationCenter.default.addObserver(
+            forName: .NSUbiquityIdentityDidChange, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.iCloudSignedIn = FileManager.default.ubiquityIdentityToken != nil
+            }
+        }
+    }
 
     func prepareBackup() async {
         phase = .working
@@ -50,7 +62,10 @@ final class BackupState {
             phase = .exported(fileName: pkg.fileName, sha256: String(pkg.sha256.prefix(12)))
         } catch {
             logger.error("备份创建失败: \(error)")
-            phase = .degraded(L10n.backupNoSpace)
+            // 审查修复：创建失败未必是空间不足（信封序列化/DB 读取失败同样
+            // 落入此分支）——此前恒报「iCloud 空间不足」，用户清理空间后
+            // 重试依旧失败。通用失败文案，不把错误原因归罪为空间。
+            phase = .degraded(L10n.backupCreateFailed)
         }
     }
 
@@ -145,8 +160,10 @@ struct BackupView: View {
     @State private var showExporter = false
     @State private var showImporter = false
     @State private var showExportConfirm = false
+    /// 恢复确认弹窗的呈现态由此 URL 派生（审查修复：此前 showRestoreConfirm
+    /// 与 pendingRestoreURL 双状态须三处同步维护——取消按钮只清了 URL，
+    /// 依赖 SwiftUI 自动复位布尔；派生绑定使「有 URL ⇔ 弹确认」不可分家）
     @State private var pendingRestoreURL: URL?
-    @State private var showRestoreConfirm = false
 
     var body: some View {
         List {
@@ -267,7 +284,9 @@ struct BackupView: View {
             Text(L10n.backupExportConfirmBody)
         }
         // FR13.5 恢复前确认：门禁验证 + 影响清单（覆盖现有数据）+ 校验承诺
-        .alert(L10n.backupRestoreConfirmTitle, isPresented: $showRestoreConfirm) {
+        .alert(L10n.backupRestoreConfirmTitle,
+               isPresented: Binding(get: { pendingRestoreURL != nil },
+                                    set: { if !$0 { pendingRestoreURL = nil } })) {
             Button(L10n.commonCancel, role: .cancel) { pendingRestoreURL = nil }
             Button(L10n.onboard_confirm) {
                 if let url = pendingRestoreURL {
@@ -301,7 +320,6 @@ struct BackupView: View {
             Task {
                 guard await app.requestUnlock(reason: L10n.backupUnlockReason) else { return }
                 pendingRestoreURL = url
-                showRestoreConfirm = true
             }
         }
     }

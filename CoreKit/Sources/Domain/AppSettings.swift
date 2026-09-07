@@ -109,6 +109,18 @@ public enum SettingsRules {
     public static func rememberedUnitKey(for metricRawValue: String) -> String {
         "metric.unit.\(metricRawValue)"
     }
+
+    /// FR7.5 上次选择指标的记忆键（与 rememberedUnitKey 同族——键构造单一
+    /// 事实源，此前视图层内联 "metric.lastSelected" 字面量，AppSettingsStore
+    /// 诊断/恢复通道看不到该键）。
+    public static var lastSelectedMetricKey: String { "metric.lastSelected" }
+
+    /// FR14.7/FR17.15 语音输入首选 locale：单一选择 = 该语言；多选 = 取第一个
+    /// （引擎内再按能力回落）。解析规则与设置页存储格式同源（逗号分隔）。
+    public static func preferredVoiceLocale(_ stored: String?) -> String? {
+        (stored ?? AppSettingKey.voiceInputLanguages.defaultValue)
+            .split(separator: ",").first.map(String.init)
+    }
     /// 未设置 → 默认值（读路径语义；存储层只存非默认覆盖）
     public static func resolved(_ stored: String?, key: AppSettingKey) -> String {
         stored ?? key.defaultValue

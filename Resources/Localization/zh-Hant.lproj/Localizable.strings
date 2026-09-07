@@ -59,6 +59,7 @@
 "voice.route.headphonesOff" = "已斷開耳機，改為螢幕核對";
 "voice.reminder.timeUnclear" = "時間不夠明確，請補充具體日期或時間";
 "voice.reminder.timeUnheard" = "沒聽清提醒時間，請再說一次或手動選擇時間";
+"voice.reminder.saveFailed" = "提醒設定失敗，請重試。";
 "voice.privacy.title" = "隱私與耳機建議";
 "voice.privacy.p1" = "建議佩戴耳機——保護隱私，也不打擾周圍人";
 "voice.privacy.p2" = "語音只在這台裝置上辨識，音訊即用即棄、不儲存";
@@ -71,6 +72,7 @@
 "backup.restore" = "從備份還原";
 "backup.degrade.notSignedIn" = "未登入 iCloud，無法備份到 iCloud Drive。你仍可匯出到本機檔案。";
 "backup.degrade.noSpace" = "iCloud 空間不足，本次備份未完成。清理空間後可重試，本機資料未受影響。";
+"backup.degrade.createFailed" = "備份建立失敗，本機資料未受影響。請重試；若反覆失敗，請更新 App 或聯絡支援。";
 "backup.degrade.checksum" = "備份檔案校驗未通過，未還原任何資料。請換一個備份檔案重試。";
 "backup.degrade.restoreFailed" = "還原未完成，本機資料未受影響。請重試；若反覆失敗，請更新 App 或聯繫支援。";
 "backup.degrade.conflict" = "此裝置上已有健康資料，為避免覆蓋，本次恢復未執行。請先備份並清空本機資料後再恢復（或聯絡支援取得移轉協助）。";
@@ -405,6 +407,7 @@
 "voicenote.draft.accessibility" = "速記內容";
 "voicenote.save.accessibility" = "保存速記";
 "voicenote.title" = "語音速記";
+"voicenote.saveFailed" = "速記儲存失敗，請重試。";
 "observation.groupSummary" = "%1$d 次記錄 · 最近 %2$@";
 "observation.trend.improved" = "好轉";
 "observation.trend.unchanged" = "無變化";
@@ -489,6 +492,7 @@
 "voicenote.saved" = "已存入語音速記";
 "voicenote.view" = "查看";
 "voicenote.dictating" = "聆聽中…請說話";
+"voicenote.stop" = "停止聽寫";
 "voicenote.dictationFailed" = "未識別到語音，可繼續手動輸入";
 "doc.detailTitle" = "文件詳情";
 "doc.fieldsSection" = "識別欄位";
@@ -501,6 +505,8 @@
 "observation.description" = "描述";
 "observation.selfMark" = "自評";
 "observation.mediaBadge" = "含 %1$d 張照片 · 已鎖定";
+"observation.saveFailed" = "觀察記錄儲存失敗";
+"observation.saveFailedHint" = "觀察記錄未能儲存，請重試";
 "doc.titleSection" = "文件資訊";
 "doc.date" = "時間";
 "observation.kind.unknown" = "其他";

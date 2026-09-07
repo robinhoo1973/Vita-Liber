@@ -10,7 +10,10 @@ import Protocols
 /// 一句话说出提醒 → 文法抽取时间/重复 → 统一模板确认 → 入 Reminder 实体。
 struct VoiceReminderDraftView: View {
     @Environment(AppState.self) private var app
-    let onCommit: (_ title: String, _ fireAt: Date, _ repeatRule: String?) -> Void
+    @Environment(AppRouter.self) private var router
+    /// 调度结果必须回传（审查修复：此前 Void——调度失败仍弹「已保存」，
+    /// 用户以为提醒已设置实则永不触发）
+    let onCommit: (_ title: String, _ fireAt: Date, _ repeatRule: String?) async -> Bool
 
     @State private var transcript = ""
     @State private var confirmSet: OcrConfirmationSet?
@@ -49,22 +52,21 @@ struct VoiceReminderDraftView: View {
             Spacer()
         }
         .padding(16)
-        .sheet(item: $confirmSet) { set in
-            VoiceConfirmSheet(
-                set: set,
-                decision: ReadbackPolicy.decide(route: routeMonitor.route,
-                                                preference: app.readbackPreference,
-                                                careMode: app.careMode),
-                onSpeak: { app.speak($0) },
-                onConfirm: { confirmed in
-                    commit(confirmed)
-                    confirmSet = nil
-                },
-                onRetry: { confirmSet = nil },
-                onCancel: { confirmSet = nil })
-            .presentationDetents([.medium])
+        .voiceConfirmSheet($confirmSet, route: routeMonitor.route) { confirmed in
+            confirmSet = nil
+            Task { await commit(confirmed) }
         }
-        .onAppear { routeMonitor.start() }
+        .onAppear {
+            routeMonitor.start()
+            // FR17.9 §5.54：语音面板确认后的提醒草稿一次性预填——
+            // 确认字段回填转写输入，本页二次核对后走本页自己的确认
+            if let draft = router.pendingVoiceDraft {
+                router.pendingVoiceDraft = nil
+                if transcript.isEmpty, let content = draft["content"], !content.isEmpty {
+                    transcript = content
+                }
+            }
+        }
         .onDisappear { routeMonitor.stop() }
         .alert(L10n.voiceguide_saved, isPresented: $savedAlert) {
             Button(L10n.onboard_gotIt, role: .cancel) { }
@@ -74,12 +76,9 @@ struct VoiceReminderDraftView: View {
     private func buildDraft() {
         unresolved = nil
         var drafts = VoiceStructuringEngine.extractReminder(transcript, rules: VoiceGrammarDefaults.reminderRules)
-        // 提醒内容 = 原文（确认卡上可编辑，业界确认卡惯例：内容恒可改）
+        // 提醒内容 = 原文（确认卡上可编辑，业界确认卡惯例：内容恒可改）——
+        // content 恒被追加，drafts 不可能为空，时间可解析性由 resolveDate 统一判
         drafts.append(FieldDraft(key: "content", value: transcript, confidence: 0.9))
-        guard !drafts.isEmpty else {
-            unresolved = L10n.voiceReminderTimeUnheard
-            return
-        }
         // 模糊时间必须落成具体日期后才允许确认（FR17.10：草稿逐字段可改）
         guard VoiceReminderRules.resolveDate(from: drafts, now: Date()) != nil else {
             unresolved = L10n.voiceReminderTimeUnclear
@@ -89,7 +88,7 @@ struct VoiceReminderDraftView: View {
         confirmSet = VoiceInputTemplate.confirmationSet(drafts: drafts)
     }
 
-    private func commit(_ set: OcrConfirmationSet) {
+    private func commit(_ set: OcrConfirmationSet) async {
         let drafts = set.confirmedFields.map {
             FieldDraft(key: $0.key, value: $0.value, confidence: $0.confidence)
         }
@@ -102,8 +101,14 @@ struct VoiceReminderDraftView: View {
         let title = drafts.first { $0.key == "content" }?.value ?? transcript
         let rule = drafts.first { $0.key == "repeat" }?.value
         transcript = ""
-        onCommit(title, fireAt, rule)
-        savedAlert = true   // TestFlight 实测修复：保存后必须有可见反馈（引导用户知道提醒已设置）
+        // 审查修复：调度失败必须可见（此前后台吞错 + 无条件弹「已保存」，
+        // 用户以为提醒已设置——通知权限被拒/调度抛错时提醒永不触发）
+        let ok = await onCommit(title, fireAt, rule)
+        if ok {
+            savedAlert = true   // TestFlight 实测修复：保存后必须有可见反馈（引导用户知道提醒已设置）
+        } else {
+            unresolved = L10n.voiceReminderSaveFailed
+        }
     }
 }
 
@@ -113,7 +118,10 @@ struct VoiceReminderDraftView: View {
 /// 对既有用药计划的剂量/频次/停用修改一律弹拒绝卡（BR-003/006）。
 struct VoiceGuidedProfileView: View {
     @Environment(AppState.self) private var app
-    let onCommitField: (_ key: String, _ value: String) -> Void
+    @Environment(AppRouter.self) private var router
+    /// 写入成败必须回传（审查修复：此前 Void + 调用方丢弃——落库失败时
+    /// 答案静默丢失而访谈照常前进，用户以为已保存）
+    let onCommitField: (_ key: String, _ value: String) async -> Bool
 
     /// 访谈步骤（FR17.11 + FR3.1 紧急联系人基础字段随本条提前至 P0.5）
     private let steps: [(key: String, prompt: String)] = [
@@ -123,62 +131,96 @@ struct VoiceGuidedProfileView: View {
         ("emergencyContact", L10n.voiceguide_promptContact),
     ]
 
-    @State private var consentGiven = false
-    @State private var micChecked = false
+    /// 访谈三阶段（审查修复：此前 consentGiven/micChecked 两布尔构造出
+    /// 四态、其中「未同意+已测麦」不可能态靠两处同时置位的约定避免——
+    /// 枚举使不可能态不可表达，隐私卡绝不因疏忽被跳过）
+    private enum InterviewPhase { case consent, micCheck, interview }
+
+    @State private var phase: InterviewPhase = .consent
     @State private var stepIndex = 0
     @State private var answer = ""
     @State private var confirmSet: OcrConfirmationSet?
     @State private var rejection: VoiceModificationGuard.Rejection?
     @State private var routeMonitor = AudioRouteMonitor()
+    @State private var saveFailed = false
 
     var body: some View {
         Group {
-            if !consentGiven {
+            if phase == .consent && !voiceConsentRecorded {
                 // FR17.12：进入访谈前的一次性隐私与耳机须知
                 VoicePrivacyHeadphoneCard(
-                    onAccept: { consentGiven = true },
+                    onAccept: { recordVoiceConsent(); phase = .micCheck },
                     // 审查修复：触屏入口此前是死路（__useTouch 提交被
                     // markVoiceInterviewStep 白名单拒绝，卡面原地不动）——
                     // 实际语义 = 跳过语音自检、直接以键盘输入继续访谈
-                    onUseTouch: { consentGiven = true; micChecked = true })
-            } else if !micChecked {
+                    onUseTouch: { recordVoiceConsent(); phase = .interview })
+            } else if phase != .interview {
                 // TestFlight 实测修复：语音访谈前先做音量自检（实时音量条 +
                 // 测试句朗读指导），低音量可重试、无障碍用户可跳过保留手输
                 VoiceLevelCheck(
-                    onPass: { micChecked = true },
-                    onSkip: { micChecked = true })
+                    onPass: { phase = .interview },
+                    onSkip: { phase = .interview })
             } else {
                 interview
             }
         }
         .navigationTitle(L10n.voiceguide_profileTitle)
-        .sheet(item: $confirmSet) { set in
-            VoiceConfirmSheet(
-                set: set,
-                decision: ReadbackPolicy.decide(route: routeMonitor.route,
-                                                preference: app.readbackPreference,
-                                                careMode: app.careMode),
-                onSpeak: { app.speak($0) },
-                onConfirm: { confirmed in
-                    for field in confirmed.confirmedFields { onCommitField(field.key, field.value) }
-                    confirmSet = nil
-                    answer = ""
-                    if stepIndex + 1 < steps.count { stepIndex += 1 }
-                },
-                onRetry: { confirmSet = nil },
-                onCancel: { confirmSet = nil })
-            .presentationDetents([.medium])
+        .voiceConfirmSheet($confirmSet, route: routeMonitor.route) { confirmed in
+            confirmSet = nil
+            Task { await commitFields(confirmed) }
         }
         .sheet(item: Binding(get: { rejection.map(RejectionBox.init) },
                              set: { if $0 == nil { rejection = nil } })) { box in
             VoiceModificationRejectionCard(
                 rejection: box.value,
-                onGoToPlan: { rejection = nil; onCommitField("__goToPlan", "1") },
+                onGoToPlan: {
+                    rejection = nil
+                    Task { _ = await onCommitField("__goToPlan", "1") }
+                },
                 onDismiss: { rejection = nil; answer = "" })
             .presentationDetents([.height(260)])
         }
-        .onAppear { routeMonitor.start() }
+        .alert(L10n.voicenoteSaveFailed, isPresented: $saveFailed) {
+            Button(L10n.onboard_gotIt, role: .cancel) { }
+        }
+        .onAppear {
+            routeMonitor.start()
+            // FR17.9 §5.54：语音面板确认后的档案草稿一次性预填（与提醒入口同款）
+            if let draft = router.pendingVoiceDraft {
+                router.pendingVoiceDraft = nil
+                if answer.isEmpty,
+                   let v = draft.values.first(where: { !$0.isEmpty }) {
+                    answer = v
+                }
+            }
+        }
         .onDisappear { routeMonitor.stop() }
+    }
+
+    /// FR17.12 一次性语义：确认即写 ConsentRecord（F20.5 判定重展）——
+    /// 此前只置视图内 @State，每次进入都重展且无落库
+    private var voiceConsentRecorded: Bool {
+        DisclosureRegistry.isConfirmed(scene: "voice_session", consents: app.consentRecords)
+    }
+
+    private func recordVoiceConsent() {
+        guard let d = DisclosureRegistry.l2Disclosures.first(where: { $0.scene == "voice_session" }) else { return }
+        Task { await app.recordConsent(key: d.key, level: d.level, version: d.version) }
+    }
+
+    /// 确认后逐字段落库；任一失败即停下并可见报错（审查修复：此前
+    /// updateMember 的 Bool 被 `_ =` 丢弃，写失败仍推进下一步）
+    private func commitFields(_ set: OcrConfirmationSet) async {
+        var allOK = true
+        for field in set.confirmedFields {
+            if !(await onCommitField(field.key, field.value)) { allOK = false; break }
+        }
+        guard allOK else {
+            saveFailed = true
+            return
+        }
+        answer = ""
+        if stepIndex + 1 < steps.count { stepIndex += 1 }
     }
 
     private var interview: some View {

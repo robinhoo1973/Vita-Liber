@@ -34,14 +34,20 @@ struct VoiceDictationButton: View {
             } else if let model {
                 VStack(alignment: .leading, spacing: 6) {
                     Button {
-                        model.start()
+                        // §5.54「按住说话」的触屏等价：录音中再按即停止——
+                        // 此前录音态按钮被 disabled，引擎未自动收尾时麦克风
+                        // 只能等视图销毁才停（隐私/UX 死胡同，无障碍不可达）
+                        if model.phase == .recording {
+                            model.stop()
+                        } else {
+                            model.start()
+                        }
                     } label: {
-                        Label(model.phase == .recording ? L10n.voicenoteDictating : L10n.voicenoteDictation,
-                              systemImage: model.phase == .recording ? "waveform" : "mic")
+                        Label(model.phase == .recording ? L10n.voicenoteStop : L10n.voicenoteDictation,
+                              systemImage: model.phase == .recording ? "stop.circle" : "mic")
                             .frame(maxWidth: .infinity, minHeight: 44)   // 触控目标 ≥44pt（ui-ux §4.2）
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(model.phase == .recording)
                     .accessibilityIdentifier("voice.dictation.start")
                     if model.phase == .recording && !model.partial.isEmpty {
                         Text(model.partial)
@@ -62,17 +68,25 @@ struct VoiceDictationButton: View {
         .task { ensureModel() }   // 引擎在环境就绪后装配一次（@Environment 不可用于 @State 初始值）
     }
 
-    /// 引擎在环境就绪后装配一次（@Environment 不可用于 @State 初始值）。
+    /// 引擎在环境就绪后装配（@Environment 不可用于 @State 初始值）。
+    /// 审查修复：每次调用都刷新 `onTranscript`——SwiftUI 父视图每次重渲染
+    /// 都会传入捕获最新 @State 的新闭包；此前只装配一次，模型持有首帧的
+    /// 旧闭包，用户在面板出现后点的目标 chip（userPickedTarget）对听写
+    /// 回调不可见，确认/分发按旧状态执行（FR17.9 显式覆盖失效）。
     private func ensureModel() {
-        guard model == nil else { return }
         // FR17.15 审查修复：用户选择的输入语言必须生效——此前识别 locale 只由
         // 引擎能力探测决定，设置页多选「可调但无效果」（FR14.7 V3.26 违例）。
         // 单一选择 = 该语言；多选 = 取第一个（引擎内再按能力回落）。
-        let preferred = (settings.values[.voiceInputLanguages] ?? AppSettingKey.voiceInputLanguages.defaultValue)
-            .split(separator: ",").first.map(String.init)
-        let m = VoiceDictationModel(engine: app.transcriptionEngine, preferredLocale: preferred)
-        m.onTranscript = onTranscript
-        model = m
+        // 解析规则收敛 Domain SettingsRules（与设置页存储格式同源）。
+        let preferred = SettingsRules.preferredVoiceLocale(settings.values[.voiceInputLanguages])
+        if let m = model {
+            m.onTranscript = onTranscript
+            m.preferredLocale = preferred
+        } else {
+            let m = VoiceDictationModel(engine: app.transcriptionEngine, preferredLocale: preferred)
+            m.onTranscript = onTranscript
+            model = m
+        }
     }
 }
 
@@ -86,9 +100,13 @@ final class VoiceDictationModel {
     var onTranscript: ((String, Double) -> Void)?
 
     private let engine: any TranscriptionEngine
-    private let preferredLocale: String?
+    private(set) var preferredLocale: String?
     private var task: Task<Void, Never>?
     private var stopped = false
+    /// 每会话独立的节流门（审查修复：此前为全局单例，两个同时在途的听写
+    /// 会话共享 lastText——A 先吐出的文本会把 B 的相同部分结果压掉，
+    /// 「每次会话独立节流状态」的语义落空；reset 也会互相踩）。
+    private let partialGate = PartialGate()
 
     init(engine: any TranscriptionEngine, preferredLocale: String? = nil) {
         self.engine = engine
@@ -101,13 +119,17 @@ final class VoiceDictationModel {
         phase = .recording
         partial = ""
         stopped = false
-        PartialGate.shared.reset()   // 每次会话独立节流状态（跨会话文本不互相吞）
+        partialGate.reset()   // 每次会话独立节流状态（跨会话文本不互相吞）
         task = Task { await dictate() }
     }
 
     func stop() {
         stopped = true
         task?.cancel()
+        // 审查修复：此前取消后 phase 滞留 .recording——TabView 切走再切回时
+        // @State model 仍在，按钮永久呈「正在听写」禁用态，start() 被重入
+        // 守卫拦下，听写死掉直到视图身份重建。终止会话即回 idle。
+        phase = .idle
     }
 
     private func dictate() async {
@@ -117,13 +139,14 @@ final class VoiceDictationModel {
         let locale = preferredLocale
             ?? engine.capability.availableLocales.first
             ?? TranscriptionSegmentation.fallbackLocale
+        let gate = partialGate
         do {
             let result = try await engine.transcribe(
                 TranscriptionRequest(localeIdentifier: locale),
                 onPartial: { [weak self] text in
-                    // @Sendable 非隔离回调：只捕获 model（MainActor 类 = Sendable），
-                    // 经 PartialGate 去重后按 MainActor 投递。
-                    PartialGate.shared.pass(text) { latest in
+                    // @Sendable 非隔离回调：只捕获 model（MainActor 类 = Sendable）
+                    // 与会话门（局部拷贝，非隔离可安全捕获），去重后按 MainActor 投递。
+                    gate.pass(text) { latest in
                         Task { @MainActor in self?.applyPartial(latest) }
                     }
                 })
@@ -150,9 +173,9 @@ final class VoiceDictationModel {
 
 /// 部分结果节流门：SFSpeechRecognizer 每秒数次回调，文本未变即跳过——
 /// 避免高频 Task 分配与重复渲染；文本变化立即放行（不引入丢尾部风险）。
-/// 每次会话 start 时 reset，跨会话/跨屏不串扰。
+/// 每次会话 start 时 reset；实例归单个 VoiceDictationModel 所有，
+/// 跨会话/跨屏不串扰（并发会话不共享节流状态）。
 private final class PartialGate: @unchecked Sendable {
-    static let shared = PartialGate()
     private let lock = NSLock()
     private var lastText = ""
 

@@ -64,19 +64,38 @@ final class ObservationStoreState {
         do {
             try await allergyStore.create(patientId: patientId, substance: substance,
                                           severity: severity, reactionTags: tags, note: note)
-            await load(patientId: patientId)
-            return true
         } catch {
             logger.error("过敏记录失败: \(error)")
             return false
         }
+        // 评审修复：只刷新过敏列表，不走全量 load——过敏写入不影响观察组，
+        // 全量重载会以保存时捕获的 patientId 重写 loadingPatientId/groups，
+        // 成员切换后迟到的保存会击穿 BR-001 守卫（与 deleteAllergy 同型）。
+        // 刷新仅在本成员仍是「最近请求成员」时回写。
+        guard loadingPatientId == patientId else { return true }
+        do {
+            let al = try await allergyStore.list(patientId: patientId)
+            guard loadingPatientId == patientId else { return true }
+            allergies = al
+            loadFailed = false
+        } catch {
+            // 写已成功；只读刷新失败不宣判「保存失败」（误导重试会致重复行），
+            // 也不污染全局 loadFailed/loadedPatientId——下次任一 load 自然回补。
+            logger.error("过敏列表刷新失败: \(error)")
+        }
+        return true
     }
 
     /// FR23.6 删除（删除前明示影响由视图提示）
-    func deleteAllergy(id: UUID) async {
+    func deleteAllergy(id: UUID, patientId: UUID) async {
         do {
             try await allergyStore.delete(id: id)
-            if let patientId = loadingPatientId { await load(patientId: patientId) }
+            // 评审修复：显式传入被删行所属成员，不再经由 loadingPatientId
+            // （该值可能指向他处或与展示成员不一致）；且与 createAllergy 同型，
+            // 仅在本成员仍是「最近请求成员」时回写刷新（BR-001）
+            if loadingPatientId == patientId {
+                await load(patientId: patientId)
+            }
         } catch {
             logger.error("过敏删除失败: \(error)")
         }
@@ -85,7 +104,8 @@ final class ObservationStoreState {
     func load(patientId: UUID) async {
         loadingPatientId = patientId
         isLoading = true
-        defer { isLoading = false }
+        // 迟到的旧任务退出不得翻转 isLoading——只由最新请求收尾（BR-001）
+        defer { if loadingPatientId == patientId { isLoading = false } }
         do {
             // 两个独立仓库并发读（各自 actor），一轮往返
             async let events = store.list(patientId: patientId)
@@ -98,6 +118,10 @@ final class ObservationStoreState {
             loadedPatientId = patientId
             loadFailed = false
         } catch {
+            // 评审修复：失败路径同样必须守卫——旧请求（成员切换后取消的
+            // async let 读抛 CancellationError，或过期读失败）不得清除当前
+            // 成员的 loadedPatientId / 置 loadFailed（BR-001 双向写回纪律）
+            guard loadingPatientId == patientId else { return }
             loadedPatientId = nil
             loadFailed = true
             logger.error("观察加载失败: \(error)")
@@ -109,20 +133,31 @@ final class ObservationStoreState {
     enum DetailPhase: Equatable { case loading, loaded, failed }
     private(set) var detail: ObservationEvent?
     private(set) var detailPhase: DetailPhase = .loading
+    /// 最近一次请求的详情 id——与 load 同型的晚到丢弃守卫（BR-001 双向写回纪律）
+    private var loadingDetailId: UUID?
 
     func loadDetail(id: UUID) async {
+        loadingDetailId = id
         detailPhase = .loading
         do {
-            detail = try await store.fetch(id: id)
+            let fetched = try await store.fetch(id: id)
+            // 评审修复：晚到的旧详情读不得覆盖新详情（详情页 A→B 连开，
+            // A 的慢读在 B 就绪后落盘会把 B 页渲染成 A）
+            guard loadingDetailId == id else { return }
+            detail = fetched
             detailPhase = .loaded
         } catch {
+            guard loadingDetailId == id else { return }
             logger.error("观察详情加载失败: \(error)")
             detail = nil
             detailPhase = .failed
         }
     }
 
-    /// FR8.7 事后补字段行内写回（只更新提交列 + updated_at）；成功即刷新详情
+    /// FR8.7 事后补字段行内写回（只更新提交列 + updated_at）；成功即按提交值
+    /// 就地镜像详情——不再依赖一次可能失败的全量重取（重取失败会把刚保存
+    /// 成功的页面翻成失败态，与「已保存」提示自相矛盾；与 createAllergy
+    /// 「只刷新受影响面」同族）
     @discardableResult
     func saveExtended(id: UUID, bodyPart: String?, durationMin: Int?, frequency: String?,
                       isFirst: Bool?, trigger: String?, accompanying: String?,
@@ -135,7 +170,22 @@ final class ObservationStoreState {
                                            accompanying: accompanying, painScore: painScore,
                                            medsDiet: medsDiet, consultedDoctor: consultedDoctor,
                                            description: description)
-            await loadDetail(id: id)
+            // 写库语义为 COALESCE（非 nil 即覆盖），镜像同型：非 nil 提交值回填，
+            // nil 保持现值
+            if var current = detail, current.id == id {
+                if let v = bodyPart { current.bodyPart = v }
+                if let v = durationMin { current.durationMin = v }
+                if let v = frequency { current.frequency = v }
+                if let v = isFirst { current.isFirst = v }
+                if let v = trigger { current.trigger = v }
+                if let v = accompanying { current.accompanying = v }
+                if let v = painScore { current.painScore = v }
+                if let v = medsDiet { current.medsDiet = v }
+                if let v = consultedDoctor { current.consultedDoctor = v }
+                if let v = description { current.description = v }
+                detail = current
+            }
+            detailPhase = .loaded
             return true
         } catch {
             logger.error("观察补充信息保存失败: \(error)")
@@ -168,8 +218,11 @@ final class ObservationStoreState {
 
     /// 保存观察：照片先落敏感资产仓（原图 + blur），再把资产 id 随观察行入库。
     /// 任一环节失败即回滚已保存资产（补偿路径）——绝不产生「无图观察」或孤儿敏感文件。
+    /// 返回是否保存成功——调用侧据此决定 dismiss 或保留表单告警（与
+    /// createAllergy 同族：保存失败绝不静默呈现为「已保存」）。
+    @discardableResult
     func create(patientId: UUID, kind: String, description: String, selfMark: String?,
-                photoData: [Data]) async {
+                photoData: [Data]) async -> Bool {
         var saved: [UUID] = []
         do {
             // 局部 Sendable 快照：TaskGroup 闭包非隔离，直接引用 self.mediaAssets
@@ -187,13 +240,20 @@ final class ObservationStoreState {
                                    kind: ObservationKind(rawValue: kind) ?? .custom,
                                    description: description, selfMark: selfMark,
                                    mediaAssetIds: assetIds.map(\.uuidString))
-            await load(patientId: patientId)
+            // 评审修复：成员切换后迟到的保存不重写共享状态——创建页含成员
+            // 切换入口，保存期间切换成员后此 load 会以旧 patientId 击穿
+            // BR-001 守卫；切换回该成员时 .task(id:) 自会重载
+            if loadingPatientId == patientId {
+                await load(patientId: patientId)
+            }
+            return true
         } catch {
             // 补偿回滚：已落盘的敏感照片与资产行一并清除，不留孤儿（BR-007/008 簿记）
             for id in saved {
                 await mediaAssets.removePhoto(id, memberId: patientId)
             }
             logger.error("观察创建失败: \(error)")
+            return false
         }
     }
 }
@@ -206,55 +266,78 @@ struct ObservationListView: View {
 
     var body: some View {
         Group {
-            if state.isLoading && state.groups.isEmpty && state.allergies.isEmpty {
-                // §6 加载态 = 骨架屏（列表类禁旋转菊花）
-                List {
-                    ForEach(0..<3, id: \.self) { _ in
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(Color(.systemGray5))
-                            .frame(height: 72)
-                    }
+            if state.loadedPatientId == currentPatientId {
+                // 已装载本成员——四态分支（§6 加载/错误/空/默认）
+                if state.isLoading && state.groups.isEmpty && state.allergies.isEmpty {
+                    skeletonState
+                } else if state.loadFailed && state.groups.isEmpty && state.allergies.isEmpty {
+                    errorState
+                } else if state.groups.isEmpty && state.allergies.isEmpty {
+                    emptyState
+                } else {
+                    contentList
                 }
-            } else if state.loadFailed && state.groups.isEmpty && state.allergies.isEmpty {
-                // §6 错误态 = 行内错误条 + [重试]
-                List {
-                    Section {
-                        HStack {
-                            Label(L10n.observationListError, systemImage: "exclamationmark.triangle")
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            Button(L10n.observationListRetry) {
-                                Task { await state.load(patientId: currentPatientId) }
-                            }
-                            .frame(minHeight: 44)
-                        }
-                    }
-                }
-            } else if state.groups.isEmpty && state.allergies.isEmpty {
-                // §6 空态 = 插画 + 一句话 + 唯一主行动按钮
-                ContentUnavailableView {
-                    Label(L10n.observationListEmpty, systemImage: "clipboard")
-                } description: {
-                    Text(L10n.observationListEmptyHint)
-                } actions: {
-                    Button(L10n.observationCreateTitle) { showCreate = true }
-                        .buttonStyle(.borderedProminent)
-                }
-                .accessibilityIdentifier("SP-14.observation.empty")
+            } else if state.loadFailed {
+                // 评审修复：本成员装载失败——即使残留上一成员的旧 groups/
+                // allergies 也绝不渲染（BR-001/BR-007 跨成员敏感媒体泄漏），
+                // 此前错误分支要求列表为空，残留数据使该分支永不可达
+                errorState
             } else {
-                contentList
+                // 本成员尚未装载（首载或切换成员装载中）——骨架屏，而非
+                // 上一成员的残留内容
+                skeletonState
             }
         }
         .navigationTitle(L10n.observationTitle)
         .task(id: currentPatientId) { await state.load(patientId: currentPatientId) }
         .sheet(isPresented: $showCreate) {
             ObservationCreateSheet { kind, desc, mark, photos in
-                Task { await state.create(patientId: currentPatientId, kind: kind,
-                                          description: desc, selfMark: mark,
-                                          photoData: photos) }
-                showCreate = false
+                await state.create(patientId: currentPatientId, kind: kind,
+                                   description: desc, selfMark: mark,
+                                   photoData: photos)
             }
         }
+    }
+
+    /// §6 加载态 = 骨架屏（列表类禁旋转菊花）
+    private var skeletonState: some View {
+        List {
+            ForEach(0..<3, id: \.self) { _ in
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color(.systemGray5))
+                    .frame(height: 72)
+            }
+        }
+    }
+
+    /// §6 错误态 = 行内错误条 + [重试]
+    private var errorState: some View {
+        List {
+            Section {
+                HStack {
+                    Label(L10n.observationListError, systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button(L10n.observationListRetry) {
+                        Task { await state.load(patientId: currentPatientId) }
+                    }
+                    .frame(minHeight: 44)
+                }
+            }
+        }
+    }
+
+    /// §6 空态 = 插画 + 一句话 + 唯一主行动按钮
+    private var emptyState: some View {
+        ContentUnavailableView {
+            Label(L10n.observationListEmpty, systemImage: "clipboard")
+        } description: {
+            Text(L10n.observationListEmptyHint)
+        } actions: {
+            Button(L10n.observationCreateTitle) { showCreate = true }
+                .buttonStyle(.borderedProminent)
+        }
+        .accessibilityIdentifier("SP-14.observation.empty")
     }
 
     private var contentList: some View {
@@ -417,7 +500,9 @@ struct LockedMediaStrip: View {
 
 struct ObservationCreateSheet: View {
     @Environment(AppState.self) private var app
-    let onCreate: (String, String, String?, [Data]) -> Void
+    @Environment(\.dismiss) private var dismiss
+    /// 返回是否保存成功——false 时保留表单并告警，绝不静默呈现为「已保存」
+    let onCreate: (String, String, String?, [Data]) async -> Bool
 
     /// SP-14 步骤1：默认值在 onAppear 从 AppState 记忆项回填（FR8.1 默认高亮）
     @State private var kind = ObservationKind.skin.rawValue
@@ -425,6 +510,8 @@ struct ObservationCreateSheet: View {
     @State private var selfMark = "unchanged"
     @State private var confirmSet: OcrConfirmationSet?
     @State private var routeMonitor = AudioRouteMonitor()
+    @State private var saveFailed = false
+    @State private var saving = false
 
     /// SP-14 步骤2 媒体：相册与相机分源存储——相册 onChange 全量替换，
     /// 相机逐张追加；两者互不覆盖（评审修正：曾整体替换致相机照片被静默丢弃）。
@@ -466,12 +553,27 @@ struct ObservationCreateSheet: View {
                     // FR8.7 三步完成承诺：其余字段全部可选、可事后补——
                     // 保存不得要求描述非空（类型+媒体+归属即完整保存路径）
                     Button(L10n.commonSave) {
-                        onCreate(kind, description, selfMark, photoData)
+                        // 评审修复：保存失败保留表单并告警（SaveFailedAlert 统一
+                        // 出口）——此前无条件 dismiss，失败呈现为「已保存」而
+                        // 照片已补偿删除、记录丢失（与 AllergyViews 同族）
+                        saving = true
+                        Task {
+                            if await onCreate(kind, description, selfMark, photoData) {
+                                dismiss()
+                            } else {
+                                saveFailed = true
+                            }
+                            saving = false
+                        }
                     }
-                    .disabled(loadingPicker)
+                    .disabled(loadingPicker || saving)
                     .accessibilityIdentifier("SP-14.observation.save")
                 }
             }
+            // 保存失败错误态（四态纪律：失败绝不静默呈现为已保存）
+            .saveFailedAlert(title: L10n.observationSaveFailed,
+                             hint: L10n.observationSaveFailedHint,
+                             isPresented: $saveFailed)
             .sheet(isPresented: $showMemberPicker) {
                 MemberPickerSheet()
             }
@@ -500,7 +602,6 @@ struct ObservationCreateSheet: View {
             .onChange(of: pickerItems) { _, items in
                 loadGeneration += 1
                 let gen = loadGeneration
-                let cameraCount = cameraData.count
                 loadingPicker = true
                 // MainActor Task（评审修正）：不用 Task.detached——@Sendable 闭包捕获
                 // 视图 @State 在 Swift 6 严格并发下有隔离风险；加载与下采样在
@@ -509,8 +610,10 @@ struct ObservationCreateSheet: View {
                     let (loaded, thumbsData) = await MediaImport.loadWithThumbnails(items)
                     guard gen == loadGeneration else { return }   // 旧代结果作废（评审修正：曾发生竞态覆盖）
                     // 跨源上限钳制（评审修正）：相册选择本身不受相机已拍数约束，
-                    // 超限截断，总量恒 ≤ maxPhotos
-                    let allowed = max(0, maxPhotos - cameraCount)
+                    // 超限截断，总量恒 ≤ maxPhotos。cameraCount 必须取完成时点
+                    // 的实值——此前在选择时点捕获，加载期间相机可再拍满 6 张，
+                    // 完成时 allowed 仍按 0 算，总量可达 12 张
+                    let allowed = max(0, maxPhotos - cameraData.count)
                     pickerData = Array(loaded.prefix(allowed))
                     pickerThumbs = thumbsData.prefix(allowed).compactMap(UIImage.init(data:))
                     loadingPicker = false
@@ -645,7 +748,10 @@ struct ObservationCreateSheet: View {
     }
 
     private func appendCamera(_ image: UIImage) {
-        guard cameraData.count + pickerData.count < maxPhotos,
+        // 评审修复：占用数须含仍在加载中的相册选择（pickerItems 为选择态、
+        // pickerData 为已落值），否则相册加载窗口内相机可把总量拍超 maxPhotos
+        let occupied = cameraData.count + max(pickerData.count, pickerItems.count)
+        guard occupied < maxPhotos,
               let data = image.jpegData(compressionQuality: 0.8) else { return }
         cameraData.append(data)
         cameraThumbs.append(MediaImport.downsample(data) ?? image)

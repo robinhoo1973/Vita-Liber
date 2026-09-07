@@ -260,11 +260,11 @@ struct ObservationCreateRouteView: View {
 
     var body: some View {
         ObservationCreateSheet { kind, description, selfMark, photoData in
-            Task {
-                await state.create(patientId: app.currentPatientId, kind: kind,
-                                   description: description, selfMark: selfMark,
-                                   photoData: photoData)
-            }
+            // 评审修复：Bool 回传透传——失败由 sheet 保留表单并告警
+            // （SaveFailedAlert），不再无条件 dismiss
+            await state.create(patientId: app.currentPatientId, kind: kind,
+                               description: description, selfMark: selfMark,
+                               photoData: photoData)
         }
     }
 }

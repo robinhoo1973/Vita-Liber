@@ -27,6 +27,11 @@ struct VoiceQuickLaunchView: View {
     @State private var savedNote = false
     @State private var routeMonitor = AudioRouteMonitor()
 
+    /// 生效目标 = 显式选择覆盖自动判定。合并表达式此前在 chips 高亮/
+    /// dispatch/导航三处各复制一份 `userPickedTarget ?? target`——语义
+    /// 只维护这一处，新增消费点不再有遗漏风险。
+    private var effectiveTarget: L10n.TargetTag { userPickedTarget ?? target }
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 16) {
@@ -40,7 +45,7 @@ struct VoiceQuickLaunchView: View {
                 // 用户显式选择，可一键覆盖（消歧兜底，非前置必选）
                 FlowChips(
                     items: L10n.TargetTag.allCases.map { (title: L10n.voiceTargetName($0), tag: $0) },
-                    selected: userPickedTarget ?? target
+                    selected: effectiveTarget
                 ) { selected in
                     userPickedTarget = selected
                 }
@@ -81,20 +86,9 @@ struct VoiceQuickLaunchView: View {
             }
             .onAppear { routeMonitor.start() }
             .onDisappear { routeMonitor.stop() }
-            .sheet(item: $confirmSet) { set in
-                VoiceConfirmSheet(
-                    set: set,
-                    decision: ReadbackPolicy.decide(route: routeMonitor.route,
-                                                    preference: app.readbackPreference,
-                                                    careMode: app.careMode),
-                    onSpeak: { app.speak($0) },
-                    onConfirm: { confirmed in
-                        confirmSet = nil
-                        dispatch(confirmed)
-                    },
-                    onRetry: { confirmSet = nil },
-                    onCancel: { confirmSet = nil })
-                .presentationDetents([.medium])
+            .voiceConfirmSheet($confirmSet, route: routeMonitor.route) { confirmed in
+                confirmSet = nil
+                dispatch(confirmed)
             }
             .alert(L10n.voicePanelSaved, isPresented: $savedNote) {
                 Button(L10n.voicenoteView) { router.navigate(to: .voiceNotePanel) }
@@ -123,7 +117,7 @@ struct VoiceQuickLaunchView: View {
             return best.1
         }
         target = .anyText
-        return [FieldDraft(key: "note", value: text, unit: nil, confidence: confidence)]
+        return [VoiceInputTemplate.fallbackDraft(value: text, confidence: confidence)]
     }
 
     /// 显式 chip 抽取（消歧兜底）：observation/question/ai 无独立文法，
@@ -142,7 +136,7 @@ struct VoiceQuickLaunchView: View {
             extracted = []
         }
         return extracted.isEmpty
-            ? [FieldDraft(key: "note", value: text, unit: nil, confidence: confidence)]
+            ? [VoiceInputTemplate.fallbackDraft(value: text, confidence: confidence)]
             : extracted
     }
 
@@ -151,17 +145,24 @@ struct VoiceQuickLaunchView: View {
     /// 分发目标 = 用户显式 chip 覆盖，否则自动判定结果（FR17.9）。
     private func dispatch(_ set: OcrConfirmationSet) {
         let fields = set.confirmedFields
-        let map = Dictionary(uniqueKeysWithValues: fields.map { ($0.key, $0.value) })
-        switch userPickedTarget ?? target {
+        let map = set.keyedValues
+        switch effectiveTarget {
         case .anyText:
             guard let body = fields.first?.value, !body.isEmpty else { return }
             Task {
-                await voiceNoteState.create(patientId: app.currentPatientId, body: body, tags: nil)
-                savedNote = true
+                // 审查修复：写失败不得弹「已保存」——create 返回成败，
+                // [查看] 直达的列表里没有这条速记会当场露馅（假事实）
+                savedNote = await voiceNoteState.create(patientId: app.currentPatientId, body: body, tags: nil)
             }
         default:
-            router.pendingVoiceDraft = map
-            open(userPickedTarget ?? target)
+            // 只对「有消费方」的目标暂存草稿——指标/提醒/档案三入口已接
+            // pendingVoiceDraft 一次性投递；观察/问诊/AI 尚无消费方（§11
+            // 登记技术债），写入只会滞留并被**下一次**指标快速录入误消费，
+            // 把旧目标的确认值填进指标表单（假读数入库）
+            if [.metric, .reminder, .profile].contains(effectiveTarget) {
+                router.pendingVoiceDraft = map
+            }
+            open(effectiveTarget)
             dismiss()
         }
     }
@@ -193,7 +194,8 @@ private struct FlowChips<T: Hashable>: View {
                 } label: {
                     Text(item.title)
                         .font(.subheadline)
-                        .padding(.horizontal, 14).padding(.vertical, 10)
+                        .frame(minHeight: 44)   // 触控目标 ≥44pt（ui-ux §3.3，此前 ~40pt）
+                        .padding(.horizontal, 14)
                         .background(Capsule().fill(selected == item.tag
                                                    ? Color("brand-primary", bundle: .main)
                                                    : Color(.systemGray5)))

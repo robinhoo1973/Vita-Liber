@@ -27,31 +27,53 @@ final class VoiceNoteState {
         catch { logger.error("速记加载失败: \(error)") }
     }
 
-    func create(patientId: UUID, body: String, tags: [String]?) async {
+    /// 写操作统一出口（审查修复）：此前 create/update/delete 三段复制粘贴
+    /// 且错误被吞、返回 Void——调用方无条件弹「已保存」。现在写失败
+    /// 返回 false 由调用侧可见呈现；写后重载列表策略只维护一处。
+    private func perform(patientId: UUID, _ op: () async throws -> Void) async -> Bool {
         do {
-            try await store.create(patientId: patientId, body: body, tags: tags)
-            await load(patientId: patientId)
+            try await op()
+            await refreshIfCurrent(patientId: patientId)
+            return true
         } catch {
-            logger.error("速记创建失败: \(error)")
+            logger.error("速记写操作失败: \(error)")
+            return false
         }
     }
 
-    func update(id: UUID, patientId: UUID, body: String, tags: [String]?, inTimeline: Bool) async {
+    /// 写后刷新（不重盖 loadingPatientId 标记）：写路径若经 load() 刷新，
+    /// 慢写（A）完成后会把标记改回 A——B 成员已在途的加载结果被守卫误弃、
+    /// 旧成员笔记挂到新成员名下（BR-001 残留）。只在本请求仍是最新时应用。
+    private func refreshIfCurrent(patientId: UUID) async {
+        guard loadingPatientId == patientId else { return }
         do {
+            let loaded = try await store.list(patientId: patientId)
+            guard loadingPatientId == patientId else { return }
+            notes = loaded
+        } catch {
+            logger.error("速记刷新失败: \(error)")
+        }
+    }
+
+    @discardableResult
+    func create(patientId: UUID, body: String, tags: [String]?) async -> Bool {
+        await perform(patientId: patientId) {
+            try await store.create(patientId: patientId, body: body, tags: tags)
+        }
+    }
+
+    @discardableResult
+    func update(id: UUID, patientId: UUID, body: String, tags: [String]?, inTimeline: Bool) async -> Bool {
+        await perform(patientId: patientId) {
             try await store.update(id: id, patientId: patientId, body: body,
                                    tags: tags, inTimeline: inTimeline)
-            await load(patientId: patientId)
-        } catch {
-            logger.error("速记更新失败: \(error)")
         }
     }
 
-    func delete(id: UUID, patientId: UUID) async {
-        do {
+    @discardableResult
+    func delete(id: UUID, patientId: UUID) async -> Bool {
+        await perform(patientId: patientId) {
             try await store.delete(id: id, patientId: patientId)
-            await load(patientId: patientId)
-        } catch {
-            logger.error("速记删除失败: \(error)")
         }
     }
 }
@@ -64,6 +86,9 @@ struct VoiceNotePanelView: View {
     @State private var routeMonitor = AudioRouteMonitor()
     /// §5.61 详情/编辑（V3.72）：行点击进入编辑（正文/标签/入轴/删除）
     @State private var editingNote: VoiceNoteStore.VoiceNoteRow?
+    /// 写失败可见反馈（审查修复：此前 store 错误被吞、无任何 UI 反馈——
+    /// 用户以为速记已保存/已更新/已删除，刷新后发现记录依旧）
+    @State private var writeFailed = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -132,35 +157,37 @@ struct VoiceNotePanelView: View {
         }
         .navigationTitle(L10n.voicenoteTitle)
         .task(id: currentPatientId) { await state.load(patientId: currentPatientId) }
+        .alert(L10n.voicenoteSaveFailed, isPresented: $writeFailed) {
+            Button(L10n.onboard_gotIt, role: .cancel) { }
+        }
         // 唯一确认 UI：VoiceConfirmSheet（FR17.13）。本页不再自建确认界面。
-        .sheet(item: $confirmSet) { set in
-            VoiceConfirmSheet(
-                set: set,
-                decision: ReadbackPolicy.decide(route: routeMonitor.route,
-                                                preference: app.readbackPreference,
-                                                careMode: app.careMode),
-                onSpeak: { app.speak($0) },
-                onConfirm: { confirmed in
-                    let body = confirmed.confirmedFields.first?.value ?? ""
-                    draft = ""
-                    confirmSet = nil
-                    guard !body.isEmpty else { return }
-                    Task { await state.create(patientId: currentPatientId, body: body, tags: nil) }
-                },
-                onRetry: { confirmSet = nil },
-                onCancel: { confirmSet = nil })
-            .presentationDetents([.medium])
+        .voiceConfirmSheet($confirmSet, route: routeMonitor.route) { confirmed in
+            let body = confirmed.confirmedFields.first?.value ?? ""
+            draft = ""
+            confirmSet = nil
+            guard !body.isEmpty else { return }
+            Task {
+                if !(await state.create(patientId: currentPatientId, body: body, tags: nil)) {
+                    writeFailed = true
+                }
+            }
         }
         .sheet(item: $editingNote) { note in
             VoiceNoteDetailSheet(note: note) { body, tags, inTimeline in
                 editingNote = nil
                 Task {
-                    await state.update(id: note.id, patientId: currentPatientId,
-                                       body: body, tags: tags, inTimeline: inTimeline)
+                    if !(await state.update(id: note.id, patientId: currentPatientId,
+                                            body: body, tags: tags, inTimeline: inTimeline)) {
+                        writeFailed = true
+                    }
                 }
             } onDelete: {
                 editingNote = nil
-                Task { await state.delete(id: note.id, patientId: currentPatientId) }
+                Task {
+                    if !(await state.delete(id: note.id, patientId: currentPatientId)) {
+                        writeFailed = true
+                    }
+                }
             }
             .presentationDetents([.medium])
         }

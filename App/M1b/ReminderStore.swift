@@ -138,16 +138,24 @@ final class ReminderStore {
     /// 审查修复：repeatRule 生效（每天/每周X/工作日/周末，未知规则回落一次性）；
     /// 送达记录不再在调度时刻伪造「delivered」——BR-004 送达≠已服的事实链
     /// 只允许 outcome=NULL（仅 scheduled 行），delivered 由系统送达事实回写。
+    @discardableResult
     func scheduleVoiceReminder(title: String, fireAt: Date, repeatRule: String?,
-                               patientId: UUID) async {
+                               patientId: UUID) async -> Bool {
         do {
             let notifyId = "voice-rem-\(UUID().uuidString)"
+            // 审查修复：route 此前硬编码 .questionList——点按送达的语音提醒
+            // 会跳转无关的问诊问题列表页；语音提醒无自然目的地，
+            // §5.45 契约应为无路由 → 降级回首页。
             try await scheduler.scheduleRepeating(dose: notifyId, at: fireAt,
-                                                  route: .questionList, repeatRule: repeatRule)
+                                                  route: nil, repeatRule: repeatRule)
             try await meds.recordDelivery(notifyId: notifyId, doseLogId: nil,
                                           channel: .local, outcome: nil, at: Date())
+            return true
         } catch {
             logger.error("语音提醒调度失败: \(error)")
+            // 审查修复：返回成败——此前错误被吞、调用方无条件弹「已保存」，
+            // 用户以为提醒已设置（实则永不触发）
+            return false
         }
     }
 

@@ -2,48 +2,38 @@ import SwiftUI
 import Domain
 import Infrastructure
 
-/// F7 趋势入口（records 模块）：按成员加载血糖序列（demo 指标，M1.5 全量后可选指标）。
+/// F7 趋势状态（records 模块）：按指标加载指定序列 + 指标总览宫格最新点。
+///
+/// 审查修复（死代码清除）：原 TrendEntryView 是零实例化死视图——其专属的
+/// 90 天血糖默认序列 `series`/`load()`、`lastOpenedSource`（写入无读者）、
+/// `detailMetric`（写入无读者）、恒 nil 的 `conversionNote` 连同视图一并删除；
+/// 趋势页真实挂载点是 TrendChartRouteView（.trendChart 路由），FR7.4 排除/
+/// 恢复与 FR20.3 L2 须知已接线到该视图。
 @MainActor
 @Observable
 final class TrendEntryState {
-    private(set) var series: TrendSeries?
     /// §5.45 指标总览宫格最新点（V3.72）
     private(set) var latestMetrics: [TrendQueryStore.LatestMetric] = []
     /// internal：MetricEntryView 扩展（录入/单位记忆/排除接线）跨文件访问
     let store: TrendQueryStore
-    /// FR7.2 点回原报告（sourceRef 深链）——视图层持有，气泡五要素由 TrendDetailView 渲染
-    var lastOpenedSource: String?
-    /// FR7.8 换算留痕（原值+规则）——查询层换算后携带注记
-    var conversionNote: String? { nil }
     /// 最近一次请求的成员（BR-001 成员隔离：只允许最新请求写回状态）
     private var loadingPatientId: UUID?
+    /// 最近一次详情请求的指标键（与 loadingPatientId 同款守卫：同一成员下
+    /// 快速切指标时，晚到的旧指标结果不得覆写新指标的 detailSeries——
+    /// 路由页的 metricType 校验会把被覆写后的序列显示成「不可用」，
+    /// 真数据存在却渲染空态）
+    private var loadingMetricKey: String?
     init(store: TrendQueryStore) { self.store = store }
-
-    func load(patientId: UUID) async {
-        loadingPatientId = patientId
-        do {
-            // DST 纪律（第四轮全仓审查修复：原固定 -90*86400 秒，切换日窗口
-            // 边界漂移 ±1 小时——仓库既定出口 DayArithmetic 日历日）
-            let range = DateInterval(start: DayArithmetic.offset(days: -90, from: Date()), end: Date())
-            let loaded = try await store.series(for: patientId, metric: .glucose, range: range)
-            // BR-001 成员隔离：切换成员会取消旧 .task，但已在飞行中的 actor 调用仍会返回。
-            // 晚到的旧成员结果绝不能覆盖当前成员状态（否则甲的曲线显示在乙的档案下）。
-            guard loadingPatientId == patientId else { return }
-            series = loaded
-        } catch {
-            // 数据为空态经 UI 呈现；错误经调用侧日志
-        }
-    }
 
     /// §5.45 深链：按指标加载指定序列（SP-13 趋势详情路由）。
     /// 独立状态槽避免覆盖入口页的血糖默认序列。
     private(set) var detailSeries: TrendSeries?
-    private(set) var detailMetric: String?
 
     func loadDetail(patientId: UUID, metricKey: String) async {
         loadingPatientId = patientId
+        loadingMetricKey = metricKey
         do {
-            // DST 纪律（同上）
+            // DST 纪律（同日 load 修复）：日历日窗口，切换日不漂移
             let range = DateInterval(start: DayArithmetic.offset(days: -365, from: Date()), end: Date())
             // 第八轮全仓审查修复（错误指标静默替代）：未知/拼错的 metricKey
             // 此前 ?? .glucose——深链打开错误的血糖图表冒充目标指标（张冠
@@ -52,21 +42,26 @@ final class TrendEntryState {
             // 用真实指标顶替。
             guard let metric = MetricType(rawValue: metricKey) else {
                 detailSeries = nil
-                detailMetric = metricKey
                 return
             }
+            // 加载期间即清槽（审查修复）：切指标/切成员时旧指标的曲线
+            // 不得在新指标名下继续渲染（路由页另有 metricKey 一致校验兜底）
+            detailSeries = nil
             let loaded = try await store.series(for: patientId, metric: metric, range: range)
-            guard loadingPatientId == patientId else { return }
+            guard loadingPatientId == patientId, loadingMetricKey == metricKey else { return }
             detailSeries = loaded
-            detailMetric = metricKey
         } catch {
+            // 过期请求（已切成员/切指标）的失败不触碰当前数据；当前请求
+            // 失败才清槽（空态渲染，不残留旧曲线）
+            guard loadingPatientId == patientId, loadingMetricKey == metricKey else { return }
             detailSeries = nil
         }
     }
 }
 
 /// §5.45 路由目的地：指定成员+指标的独立趋势页（SP-13）。
-/// 点回原报告/排除恢复/换算注记接线随 F7 录入批（Phase 6）补全。
+/// FR7.2 点回原报告深链待 F7 录入批（Phase 6）接线——在无真实导航前
+/// 不渲染「回原报告」按钮（onOpenSource 传 nil，杜绝点了没反应的假入口）。
 struct TrendChartRouteView: View {
     let patientId: UUID
     let metricKey: String
@@ -74,8 +69,17 @@ struct TrendChartRouteView: View {
 
     var body: some View {
         Group {
-            if let series = state.detailSeries, !series.points.isEmpty {
-                TrendDetailView(series: series)
+            // 审查修复：detailSeries 必须与当前 metricKey 同指标——加载
+            // 在途/失败期间旧指标曲线不得顶替渲染（张冠李戴同族）
+            if let series = state.detailSeries,
+               series.metricType.rawValue == metricKey, !series.points.isEmpty {
+                // FR7.4 排除/恢复软删（此前唯一接线点在已删除的死视图
+                // TrendEntryView 上，App 内不可达）
+                TrendDetailView(
+                    series: series,
+                    onToggleExcluded: { point in
+                        Task { await state.toggleExcluded(point, patientId: patientId, metricKey: metricKey) }
+                    })
             } else {
                 ContentUnavailableView(L10n.trendTitle, systemImage: "chart.xyaxis.line",
                                        description: Text(L10n.trendRangeUnavailable))
@@ -85,53 +89,10 @@ struct TrendChartRouteView: View {
         .task(id: "\(patientId.uuidString)-\(metricKey)") {
             await state.loadDetail(patientId: patientId, metricKey: metricKey)
         }
-    }
-}
-
-struct TrendEntryView: View {
-    @Environment(AppState.self) private var app
-    @Environment(TrendEntryState.self) private var state
-    @Environment(AppRouter.self) private var router
-
-    var body: some View {
-        Group {
-            if let series = state.series, !series.points.isEmpty {
-                // FR7.2 点回原报告（sourceRef 深链）；FR7.4 排除/恢复软删；
-                // FR7.8 换算留痕——此前挂载点三参数全 nil，App 内不可达
-                TrendDetailView(
-                    series: series,
-                    conversionNote: state.conversionNote,
-                    onOpenSource: { point in
-                        if let ref = point.sourceRef {
-                            state.lastOpenedSource = ref
-                        }
-                    },
-                    onToggleExcluded: { point in
-                        Task { await state.toggleExcluded(point, patientId: currentPatientId) }
-                    })
-            } else {
-                ContentUnavailableView(L10n.trendEmptyTitle, systemImage: "chart.xyaxis.line",
-                                       description: Text(L10n.trendEmptyHint))
-                    .accessibilityIdentifier("SP-13.trend.empty")
-            }
-        }
-        .toolbar {
-            // FR7.5 两步录入入口（SP-13 快速录入）
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    router.navigate(to: .metricQuickEntry)
-                } label: {
-                    Image(systemName: "plus")
-                }
-                .accessibilityIdentifier("SP-13.metric.add")
-            }
-        }
-        .task(id: currentPatientId) { await state.load(patientId: currentPatientId) }
-        // FR20.3 L2 场景首用须知（趋势图表页，一次性确认）
+        // FR20.3 L2 场景首用须知（趋势图表页，一次性确认——此前挂在
+        // 零实例化死视图上，须知从未展示）
         .sceneDisclosure(scene: "trends")
     }
-
-    private var currentPatientId: UUID { app.currentPatientId }
 }
 
 // MARK: - §5.45 指标总览宫格数据（V3.72）
@@ -139,13 +100,43 @@ struct TrendEntryView: View {
 extension TrendEntryState {
     /// 宫格最新点加载（try?-ok: 读取失败按空态渲染，不阻断总览页）
     func loadLatest(patientId: UUID) async {
-        // 第六轮全仓审查修复（BR-001 残留）：与 load/loadDetail 同款
+        // 第六轮全仓审查修复（BR-001 残留）：与 loadDetail 同款
         // loadingPatientId 守卫——原实现无守卫，A 成员的慢查询在切换到
         // B 成员后返回并覆写 latestMetrics，A 的最新值挂在 B 名下展示
         loadingPatientId = patientId
         if let rows = try? await store.latestPerMetric(patientId: patientId) {   // try?-ok: 读取失败按空态渲染，不阻断总览页
             guard loadingPatientId == patientId else { return }
             latestMetrics = rows
+        } else {
+            // 审查修复：当前请求失败时清空——否则上一成员的宫格数据
+            // 在新成员名下持续渲染（BR-001）；过期请求的失败不触碰新数据
+            guard loadingPatientId == patientId else { return }
+            latestMetrics = []
+        }
+    }
+
+    /// 写路径刷新（不重盖 loadingPatientId 标记）：写后刷新若经 loadLatest
+    /// 会把标记改回旧成员，导致新成员已在途的加载结果被守卫误弃、旧成员
+    /// 数据挂到新成员名下（BR-001）。只在本请求仍是最新时应用结果。
+    func refreshLatestIfCurrent(patientId: UUID) async {
+        guard loadingPatientId == patientId else { return }
+        if let rows = try? await store.latestPerMetric(patientId: patientId) {   // try?-ok: 读取失败按空态渲染，不阻断总览页
+            guard loadingPatientId == patientId else { return }
+            latestMetrics = rows
+        }
+    }
+
+    /// 写后详情刷新（排除/恢复动作；不重盖标记，同 refreshLatestIfCurrent 纪律）
+    func refreshDetailIfCurrent(patientId: UUID, metricKey: String) async {
+        guard loadingPatientId == patientId, loadingMetricKey == metricKey,
+              let metric = MetricType(rawValue: metricKey) else { return }
+        do {
+            let range = DateInterval(start: DayArithmetic.offset(days: -365, from: Date()), end: Date())
+            let loaded = try await store.series(for: patientId, metric: metric, range: range)
+            guard loadingPatientId == patientId, loadingMetricKey == metricKey else { return }
+            detailSeries = loaded
+        } catch {
+            // 刷新失败保留原状（软删失败无数据损失；错误经日志）
         }
     }
 }

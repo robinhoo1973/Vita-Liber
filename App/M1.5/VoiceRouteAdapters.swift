@@ -11,13 +11,12 @@ struct VoiceReminderDraftRouteView: View {
 
     var body: some View {
         VoiceReminderDraftView { title, fireAt, repeatRule in
-            Task {
-                // 通用 Reminder 语义（FR8.10 同实体）：经调度通道落「voice-rem-」通知；
-                // 模糊时间必须落具体日期（FR10.2）——视图层 resolveDate 已强制
-                await reminders.scheduleVoiceReminder(title: title, fireAt: fireAt,
-                                                      repeatRule: repeatRule,
-                                                      patientId: app.currentPatientId)
-            }
+            // 通用 Reminder 语义（FR8.10 同实体）：经调度通道落「voice-rem-」通知；
+            // 模糊时间必须落具体日期（FR10.2）——视图层 resolveDate 已强制。
+            // 调度成败回传（审查修复）：失败时调用方可见报错、绝不弹「已保存」
+            await reminders.scheduleVoiceReminder(title: title, fireAt: fireAt,
+                                                  repeatRule: repeatRule,
+                                                  patientId: app.currentPatientId)
         }
     }
 }
@@ -54,28 +53,28 @@ struct VoiceGuidedProfileRouteView: View {
 
     var body: some View {
         VoiceGuidedProfileView { key, value in
-            Task {
-                guard var profile = app.members.first(where: { $0.id == app.currentPatientId }) else { return }
-                switch key {
-                case "bloodType": profile.bloodType = value
-                case "idNo": profile.idNo = value
-                case "insuranceNo": profile.insuranceNo = value
-                case "note": profile.note = value
-                case "birthDate": profile.birthDate = value
-                default:
-                    // 访谈四步结构化落库待接（技术债），先追加进备注保证零丢失；
-                    // 同时记录完成步骤（语言无关持久化，驱动首页完善度进度卡）
-                    app.markVoiceInterviewStep(key)
-                    if let section = Self.noteSectionTitle(key) {
-                        let line = "【\(section)】\(value)"
-                        profile.note = [profile.note, line]
-                            .compactMap { $0?.isEmpty == false ? $0 : nil }
-                            .joined(separator: "\n")
-                    }
+            guard var profile = app.members.first(where: { $0.id == app.currentPatientId }) else { return false }
+            switch key {
+            case "bloodType": profile.bloodType = value
+            case "idNo": profile.idNo = value
+            case "insuranceNo": profile.insuranceNo = value
+            case "note": profile.note = value
+            case "birthDate": profile.birthDate = value
+            default:
+                // 访谈四步结构化落库待接（技术债），先追加进备注保证零丢失；
+                // 同时记录完成步骤（语言无关持久化，驱动首页完善度进度卡）
+                app.markVoiceInterviewStep(key)
+                if let section = Self.noteSectionTitle(key) {
+                    let line = "【\(section)】\(value)"
+                    profile.note = [profile.note, line]
+                        .compactMap { $0?.isEmpty == false ? $0 : nil }
+                        .joined(separator: "\n")
                 }
-                profile.updatedAt = Date().timeIntervalSince1970
-                _ = await app.updateMember(profile)
             }
+            profile.updatedAt = Date().timeIntervalSince1970
+            // 审查修复：落库成败回传——写失败时访谈停在当前步并可见报错，
+            // 不再静默丢答案后读下一题
+            return await app.updateMember(profile)
         }
     }
 }

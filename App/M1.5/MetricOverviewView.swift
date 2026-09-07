@@ -28,7 +28,13 @@ struct MetricOverviewView: View {
                 ScrollView {
                     LazyVGrid(columns: columns, spacing: 12) {
                         ForEach(state.latestMetrics) { item in
-                            MetricTile(item: item, sparkLoader: { key in
+                            MetricTile(item: item,
+                                       // 成员纳入 task id（审查修复）：仅按 metricKey
+                                       // 作 id 时，A→B 切换成员后 tile 身份不变、
+                                       // @State spark 不重载——A 的 30 天迷你线
+                                       // 挂在 B 名下（BR-001 同族）
+                                       taskId: "\(app.currentPatientId.uuidString)-\(item.metricKey)",
+                                       sparkLoader: { key in
                                 guard let m = MetricType(rawValue: key) else { return nil }
                                 let end = Date()
                                 let start = DayArithmetic.offset(days: -30, from: end)
@@ -56,7 +62,7 @@ struct MetricOverviewView: View {
                         text, rules: VoiceGrammarDefaults.metricRules)
                     confirmSet = VoiceInputTemplate.confirmationSet(
                         drafts: drafts.isEmpty
-                            ? [FieldDraft(key: "note", value: text, unit: nil, confidence: confidence)]
+                            ? [VoiceInputTemplate.fallbackDraft(value: text, confidence: confidence)]
                             : drafts)
                 }
                 .frame(width: 96)
@@ -70,28 +76,16 @@ struct MetricOverviewView: View {
                 .accessibilityIdentifier("SP-13.overview.quickEntry")
             }
         }
-        .onAppear {
-            routeMonitor.start()
-            Task { await state.loadLatest(patientId: app.currentPatientId) }
-        }
+        .onAppear { routeMonitor.start() }
+        // BR-001 成员切换：与 TrendEntryView/VoiceNotePanel 同款 task(id:)——
+        // onAppear 只在首次挂载触发，切换成员后宫格仍显示上一成员的指标
+        .task(id: app.currentPatientId) { await state.loadLatest(patientId: app.currentPatientId) }
         .onDisappear { routeMonitor.stop() }
         // FR17.13-entry: 指标总览语音入口 —— 统一确认模板，不自建确认逻辑
-        .sheet(item: $confirmSet) { set in
-            VoiceConfirmSheet(
-                set: set,
-                decision: ReadbackPolicy.decide(route: routeMonitor.route,
-                                                preference: app.readbackPreference,
-                                                careMode: app.careMode),
-                onSpeak: { app.speak($0) },
-                onConfirm: { confirmed in
-                    confirmSet = nil
-                    let map = Dictionary(uniqueKeysWithValues: confirmed.confirmedFields.map { ($0.key, $0.value) })
-                    router.pendingVoiceDraft = map
-                    router.navigate(to: .metricQuickEntry)
-                },
-                onRetry: { confirmSet = nil },
-                onCancel: { confirmSet = nil })
-            .presentationDetents([.medium])
+        .voiceConfirmSheet($confirmSet, route: routeMonitor.route) { confirmed in
+            confirmSet = nil
+            router.pendingVoiceDraft = confirmed.keyedValues
+            router.navigate(to: .metricQuickEntry)
         }
     }
 }
@@ -99,6 +93,8 @@ struct MetricOverviewView: View {
 /// §4.10 MetricTile：大数字 + 单位 + 来源点 + 30 天迷你趋势线
 struct MetricTile: View {
     let item: TrendQueryStore.LatestMetric
+    /// 迷你趋势加载任务 id（成员+指标键）——变化即重载 spark
+    let taskId: String
     /// 30 天迷你趋势数据源（按 metricKey 独立查询——每 tile 各画各的线）
     let sparkLoader: (String) async -> TrendSeries?
     @State private var spark: TrendSeries?
@@ -119,10 +115,13 @@ struct MetricTile: View {
                     .frame(width: 10, height: 10)
             }
             HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(item.value.formatted(.number.precision(.fractionLength(0...1))))
-                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                // 医学数值显示单一出口（审查修复：此前内联 .formatted，
+                // 与趋势页 oneDecimal 双规则漂移——同一值宫格显示 62、
+                // 趋势页显示 62.0）；大数字字号收敛 VLFont 令牌
+                Text(MedicalNumberFormat.quantity(item.value))
+                    .font(VLFont.metricTileValue)
                     .monospacedDigit()
-                if let unit = item.unit {
+                if let unit = item.unit, !unit.isEmpty {
                     Text(unit).font(.caption).foregroundStyle(.secondary)
                 }
             }
@@ -137,8 +136,8 @@ struct MetricTile: View {
             }
         }
         .padding(12)
-        .background(RoundedRectangle(cornerRadius: 14).fill(Color(.secondarySystemGroupedBackground)))
-        .task(id: item.metricKey) {
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color("bg-grouped", bundle: .main)))
+        .task(id: taskId) {
             spark = await sparkLoader(item.metricKey)
         }
     }

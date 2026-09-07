@@ -268,4 +268,13 @@ public enum VoiceInputTemplate {
                            grade: .ocrUnconfirmed)
         })
     }
+
+    /// FR17.19 unknown 语义的回落草稿（抽取零命中时整句原文进草稿，确认卡
+    /// 可编辑补全——绝不静默丢弃转写）。此前三处入口各自内联构造
+    /// `FieldDraft(key: "note"/"body", …)`，键语义漂移（同一句话从面板落
+    /// "note" 键、从速记页落 "body" 键）；键/置信度只维护这一处。
+    public static func fallbackDraft(key: String = "note", value: String,
+                                     confidence: Double) -> FieldDraft {
+        FieldDraft(key: key, value: value, unit: nil, confidence: confidence)
+    }
 }

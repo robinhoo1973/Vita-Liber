@@ -81,11 +81,33 @@ struct VoiceConfirmSheet: View {
 
     /// 回读脚本 = 已确认字段（BR-003：未确认内容不得被当作事实播报）。
     /// 确认卡呈现时字段尚未确认，故按「即将保存的取值」构造预览脚本：
-    /// 走 Domain 的同一函数，先在本地副本上确认再取脚本，保证与保存后播报一致。
+    /// 与保存按钮走**同一个** applyingEdits 变换（审查修复：此前脚本用
+    /// 未编辑原值、保存用编辑后值——用户在卡上改完字段再点 [朗读]，
+    /// 听到的与最终落库的不一致，无障碍用户听到从未被记录的数值）。
     private var script: String? {
-        var preview = set
-        for i in preview.fields.indices { _ = preview.fields[i].confirm() }
-        return ReadbackPolicy.readbackScript(preview)
+        ReadbackPolicy.readbackScript(applyingEdits())
+    }
+
+    /// 编辑应用 + 全体确认（脚本预览与保存共用的唯一变换；BR-003 语义
+    /// 单一维护：回读必须播报即将保存的取值）。编辑经 Domain
+    /// `revise(to:)` 走修订语义，视图不直接改字段值。
+    /// 审查修复（清空即删除）：用户清空的字段从确认集中移除——此前清空
+    /// 被静默丢弃、原机器识别值照样保存，纠正错误识别的唯一手段反而
+    /// 失效（BR-003 修正语义落空）
+    private func applyingEdits() -> OcrConfirmationSet {
+        var applied = set
+        applied.fields = applied.fields.filter { field in
+            guard let edited = edits[field.id] else { return true }
+            return !edited.trimmingCharacters(in: .whitespaces).isEmpty
+        }
+        for i in applied.fields.indices {
+            let id = applied.fields[i].id
+            if let edited = edits[id] {
+                _ = applied.fields[i].revise(to: edited)
+            }
+            _ = applied.fields[i].confirm()
+        }
+        return applied
     }
 
     private var showsAsk: Bool {
@@ -99,15 +121,24 @@ struct VoiceConfirmSheet: View {
             set: { edits[field.id] = $0 })
     }
 
-    /// 字段友好标签（确认卡展示用；Domain 键保持英文不兼职 UI 串）
+    /// 字段友好标签（确认卡展示用；Domain 键保持英文不兼职 UI 串）。
+    /// 审查修复：此前 default 直接返回英文 Domain 键（"blood_pressure_sys"、
+    /// "allergy"、'note'…），确认卡上用户看到的是未本地化的内部键——
+    /// 指标键经 MetricType(grammarKey:) 单一映射取本地化名；未知键宁回原键
+    /// 不编造标签。
     private func label(for key: String) -> String {
         switch key {
-        case "time": return L10n.voiceFieldDate
-        case "date": return L10n.voiceFieldDate
+        case "time", "date": return L10n.voiceFieldDate
         case "hour": return L10n.voiceFieldHour
         case "repeat": return L10n.voiceFieldRepeat
-        case "content": return L10n.voiceFieldContent
-        default: return key
+        case "content", "body", "note": return L10n.voiceFieldContent
+        case "allergy": return L10n.voiceguide_noteAllergy
+        case "pastHistory": return L10n.voiceguide_noteHistory
+        case "currentMeds": return L10n.voiceguide_noteMeds
+        case "emergencyContact": return L10n.voiceguide_noteContact
+        default:
+            if let m = MetricType(grammarKey: key) { return L10n.metricName(m) }
+            return key
         }
     }
 
@@ -136,9 +167,10 @@ struct VoiceConfirmSheet: View {
                         .font(.body)
                         .accessibilityIdentifier("FR17.13.confirm.field.edit")
                     HStack(spacing: 6) {
-                        Text(L10n.voiceConfirmPending)
-                            .font(.caption2)
-                            .foregroundStyle(Color("grade-d", bundle: .main))
+                        // D 级「待确认」态经 GradeBadge 唯一渲染出口
+                        // （审查修复：此前此处内联 grade-d 文案，与设计系统
+                        // D/E 视觉契约双实现，徽章改版时本卡被落下）
+                        GradeBadge(grade: "D")
                         if ConfidenceTier.tier(field.confidence) == .low {
                             Label(L10n.voiceConfirmLowConfidence, systemImage: "exclamationmark.triangle")
                                 .font(.caption2)
@@ -207,15 +239,8 @@ struct VoiceConfirmSheet: View {
                     .accessibilityIdentifier("FR17.13.retry")
                 Spacer()
                 Button(L10n.voiceConfirmSave) {
-                    var confirmed = set
-                    for i in confirmed.fields.indices {
-                        let id = confirmed.fields[i].id
-                        if let edited = edits[id], !edited.trimmingCharacters(in: .whitespaces).isEmpty {
-                            confirmed.fields[i].value = edited   // 用户在卡上补全的值生效
-                        }
-                        _ = confirmed.fields[i].confirm()
-                    }
-                    onConfirm(confirmed)
+                    // 编辑应用 + 确认走 applyingEdits 唯一变换（与回读脚本同源）
+                    onConfirm(applyingEdits())
                 }
                 .buttonStyle(.borderedProminent)
                 .frame(minHeight: 44)
@@ -302,5 +327,42 @@ struct VoiceModificationRejectionCard: View {
         }
         .padding(20)
         .accessibilityIdentifier("FR17.11.rejectionCard")
+    }
+}
+
+// MARK: - 统一确认卡挂载器（七处语音入口共用同一 wiring）
+
+/// VoiceConfirmSheet 的装配单出口：回读决策（ReadbackPolicy.decide）+
+/// TTS 注入 + 取消/重试语义此前在七个入口各复制一份——决策函数加参数时
+/// 一处漏改即静默使用旧语义。FR17.13「唯一确认 UI」补上「唯一装配」。
+struct VoiceConfirmSheetPresenter: ViewModifier {
+    @Environment(AppState.self) private var app
+    @Binding var confirmSet: OcrConfirmationSet?
+    let route: AudioRoute
+    let onConfirm: (OcrConfirmationSet) -> Void
+
+    func body(content: Content) -> some View {
+        content.sheet(item: $confirmSet) { set in
+            VoiceConfirmSheet(
+                set: set,
+                decision: ReadbackPolicy.decide(route: route,
+                                                preference: app.readbackPreference,
+                                                careMode: app.careMode),
+                onSpeak: { app.speak($0) },
+                onConfirm: onConfirm,
+                onRetry: { confirmSet = nil },
+                onCancel: { confirmSet = nil })
+            .presentationDetents([.medium])
+        }
+    }
+}
+
+extension View {
+    func voiceConfirmSheet(_ confirmSet: Binding<OcrConfirmationSet?>,
+                           route: AudioRoute,
+                           onConfirm: @escaping (OcrConfirmationSet) -> Void) -> some View {
+        modifier(VoiceConfirmSheetPresenter(confirmSet: confirmSet,
+                                            route: route,
+                                            onConfirm: onConfirm))
     }
 }
