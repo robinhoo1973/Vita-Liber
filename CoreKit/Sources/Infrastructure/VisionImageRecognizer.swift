@@ -33,12 +33,11 @@ public final class VisionImageRecognizer: ImageTextRecognizing, @unchecked Senda
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = true
-        // 报告类文档常为多语言混排（中英数字），自动检测优于指定单一语言。
-        // 审查修复：原硬编码 ["zh-Hans","en-US"] 恰好关掉了自动检测——
-        // zh-Hant 与其它语言文档被强制走简体模型（药/藥 类字形误识）。
-        // 置空数组 = Vision 自动语言检测（zh-Hant 用户扫描繁体报告走对模型；
-        // 该属性为 [String] 非可选，nil 赋值在 Xcode 26 SDK 编译失败）。
-        request.recognitionLanguages = []
+        // FR5.x（OCR 语言契约）：默认识别简体/繁体/英文三语——显式列出
+        // ["zh-Hans","zh-Hant","en-US"]，Vision 按候选语言逐块选最优模型。
+        // 不得置空依赖自动检测：空数组在准确级下会退回设备主语言优先的
+        // 弱检测，繁体/英文混排文档易被简体模型误识（药/藥 类字形错别）。
+        request.recognitionLanguages = ["zh-Hans", "zh-Hant", "en-US"]
         do {
             try handler.perform([request])
         } catch {
