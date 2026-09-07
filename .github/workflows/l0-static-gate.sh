@@ -645,13 +645,19 @@ if l10n_swift.exists():
             if depth == 0:
                 break
         k += 1
-    registered = set(re.findall(r'"([^"]+)"', src[j + 1:k]))
+    registered_list = re.findall(r'"([^"]+)"', src[j + 1:k])
+    registered = set(registered_list)
     if not registered:
         bad.append("L10n.registeredKeys 解析为空 —— 判定器失效，不得判 PASS（ERR#27）")
     else:
         reg_missing = sorted(registered - keysets[files[0]])
         if reg_missing:
             bad.append(f"L10n.swift: registeredKeys 有 {len(reg_missing)} 个键不在 .strings: {reg_missing[:8]}")
+        # 第十轮全仓审查修复（ERR#53）：登记表重复 key——set() 会静默去重掩盖
+        # 重复登记，须先按列表比对计数（重复登记 = L1 M15LocalizationTests 红）
+        if len(registered_list) != len(registered):
+            dups = sorted({k for k in registered_list if registered_list.count(k) > 1})
+            bad.append(f"L10n.swift: registeredKeys 有 {len(registered_list) - len(registered)} 处重复 key: {dups[:8]}")
     # 第四轮全仓审查修复（反向判定）：静态 t() 键必须登记 registeredKeys——
     # 原单方向检查（registeredKeys ⊆ .strings）覆盖不到「键被删出 .strings 而
     # 登记表未同步」与「新键从未登记」两条路径，L0/L1 全绿、运行时裸 key 上屏。

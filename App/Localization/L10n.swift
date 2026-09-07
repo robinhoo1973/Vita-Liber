@@ -1464,8 +1464,6 @@ enum L10n {
         "doc.add", "plan.add", "encounter.add", "appointment.add", "allergy.add",
         "problem.add", "question.add", "home.voice", "notification.center",
         "observation.media.unlockHint",
-        "f19.expiredFmt", "f19.expiryUnknownFmt", "f19.stockNoMatchFmt",
-        "f19.markTakenFailedFmt", "f19.recordFailed",
         "encounter.saveFailed", "encounter.saveFailedHint",
         "allergy.saveFailed", "allergy.saveFailedHint",
         "allergy.deleteConfirmTitle", "allergy.deleteConfirmHint",
