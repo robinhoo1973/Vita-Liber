@@ -29,6 +29,40 @@ struct AppointmentListView: View {
 
     private let statuses = ["scheduled", "completed", "cancelled", "missed"]
 
+    /// scheduled 行操作钮（拆子视图：四钮重复修饰符链曾致 Swift 6 类型检查
+    /// 超时 CI 编译红——统一 .apptRowButton 样式 + 独立 subview 收敛表达式体量）
+    @ViewBuilder
+    private func scheduledActions(for apt: AppointmentRow) -> some View {
+        HStack(spacing: 10) {
+            Button(L10n.apptReschedule) {
+                rescheduleTarget = apt
+                newDate = rescheduleSeed(from: apt.startsAt)
+            }
+            .apptRowButton()
+            Button(L10n.apptCancel) {
+                cancelTarget = apt
+            }
+            .apptRowButton()
+            // 第七轮全仓审查修复：FR10.7「标记错过」此前无任何入口——scheduled 行
+            // 只有改期/取消/完成，missed 状态与 FR10.3 错过跟进提醒（2h 后）全链路
+            // 不可达。时间门槛（Domain AppointmentRules 单一出口）+ 确认（store 注释
+            // 自认「按钮无时间门槛」）：未到开始时间不呈现，防未来预约被误标错过
+            if AppointmentRules.canMarkMissed(startsAt: apt.startsAt) {
+                Button(L10n.apptMarkMissed) {
+                    missTarget = apt
+                }
+                .apptRowButton()
+            }
+            Button(L10n.apptComplete) {
+                Task {
+                    await reminders.completeAppointment(patientId: app.currentPatientId, id: apt.id)
+                    await load()
+                }
+            }
+            .apptRowButton(prominent: true)
+        }
+    }
+
     var body: some View {
         Group {
             let filtered = rows.filter { $0.status == statusFilter }
@@ -54,44 +88,7 @@ struct AppointmentListView: View {
                                     .foregroundStyle(statusColor(apt.status))
                             }
                             if apt.status == "scheduled" {
-                                HStack(spacing: 10) {
-                                    Button(L10n.apptReschedule) {
-                                        rescheduleTarget = apt
-                                        newDate = rescheduleSeed(from: apt.startsAt)
-                                    }
-                                    .buttonStyle(.bordered)
-                                    .controlSize(.small)
-                                .frame(minHeight: 44)   // 触点≥44pt（审查修复）
-                                    Button(L10n.apptCancel) {
-                                        cancelTarget = apt
-                                    }
-                                    .buttonStyle(.bordered)
-                                    .controlSize(.small)
-                                .frame(minHeight: 44)   // 触点≥44pt（审查修复）
-                                    // 第七轮全仓审查修复：FR10.7「标记错过」此前无任何
-                                    // 入口——scheduled 行只有改期/取消/完成，missed 状态
-                                    // 与 FR10.3 错过跟进提醒（2h 后）全链路不可达。
-                                    // 时间门槛（Domain AppointmentRules 单一出口）+
-                                    // 确认（store 注释自认「按钮无时间门槛」）：
-                                    // 未到开始时间不呈现，防未来预约被误标错过
-                                    if AppointmentRules.canMarkMissed(startsAt: apt.startsAt) {
-                                        Button(L10n.apptMarkMissed) {
-                                            missTarget = apt
-                                        }
-                                        .buttonStyle(.bordered)
-                                        .controlSize(.small)
-                                        .frame(minHeight: 44)   // 触点≥44pt（审查修复）
-                                    }
-                                    Button(L10n.apptComplete) {
-                                        Task {
-                                            await reminders.completeAppointment(patientId: app.currentPatientId, id: apt.id)
-                                            await load()
-                                        }
-                                    }
-                                    .buttonStyle(.borderedProminent)
-                                    .controlSize(.small)
-                                .frame(minHeight: 44)   // 触点≥44pt（审查修复）
-                                }
+                                scheduledActions(for: apt)
                             } else if apt.status == "missed" {
                                 Button(L10n.apptFollowUpHint) {
                                     Task {
@@ -151,7 +148,7 @@ struct AppointmentListView: View {
         // 关闭 setter 的共享可变状态竞态（动作/置 nil 顺序无关）
         .confirmationDialog(L10n.apptMarkMissed, isPresented:
             Binding(get: { missTarget != nil }, set: { if !$0 { missTarget = nil } }),
-                            presenting: missTarget, titleVisibility: .visible) { apt in
+                            titleVisibility: .visible, presenting: missTarget) { apt in
             Button(L10n.apptMarkMissed, role: .destructive) {
                 Task {
                     await reminders.markAppointmentMissed(patientId: app.currentPatientId, id: apt.id)
@@ -416,5 +413,20 @@ struct AppointmentDetailRouteView: View {
     private func load() async {
         let history = await reminders.appointmentHistory(patientId: app.currentPatientId)
         apt = history.first { $0.id == appointmentId }
+    }
+}
+
+/// 预约行操作钮统一样式：触点 ≥44pt（ui-ux 设计系统）
+private extension View {
+    func apptRowButton(prominent: Bool = false) -> some View {
+        Group {
+            if prominent {
+                self.buttonStyle(.borderedProminent)
+            } else {
+                self.buttonStyle(.bordered)
+            }
+        }
+        .controlSize(.small)
+        .frame(minHeight: 44)
     }
 }

@@ -53,7 +53,7 @@ struct AllergyListView: View {
         .confirmationDialog(L10n.allergyDeleteConfirmTitle, isPresented:
             Binding(get: { pendingDelete != nil },
                     set: { if !$0 { pendingDelete = nil } }),
-                            presenting: pendingDelete, titleVisibility: .visible) { target in
+                            titleVisibility: .visible, presenting: pendingDelete) { target in
             Button(L10n.allergyDelete, role: .destructive) {
                 Task { await state.deleteAllergy(id: target.id) }
             }
