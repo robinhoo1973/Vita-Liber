@@ -111,7 +111,12 @@ struct FoundationalModulesIntegrationTests {
         // return 零断言——真实（非桩）预处理引擎的任何回归在 L1 全绿下
         // 不可见。Apple 分支断言真实引擎的可调用契约：对空 Data 要么
         // 产出结果、要么抛预期错误，绝不崩溃/挂起。
-        let real: any ImagePreprocessing = EngineRegistry.shared.resolve(ImagePreprocessingFactory.self)
+        // 本地注册表 + 注册（CI 34079451319 实证：EngineRegistry.shared
+        // 是 App 组装根装配的，包测试进程为空 → resolve fatalError 崩进程）
+        let registry = EngineRegistry()
+        registry.register(ImagePreprocessingFactory.make(EngineContext.current),
+                          for: ImagePreprocessingFactory.self)
+        let real: any ImagePreprocessing = registry.resolve(ImagePreprocessingFactory.self)
         do {
             _ = try await real.preprocess(Data(), params: PreprocessParams(), baseVersion: 0)
         } catch {
@@ -134,9 +139,14 @@ struct FoundationalModulesIntegrationTests {
         #expect(thumb.count > 0)
         #else
         // 第八轮全仓审查修复（Apple 分支空断言）：同上——真实解码/压缩
-        // 引擎经注册表解析并调用，回归不可静默绿
-        let realDecoder: any ImageDecoding = EngineRegistry.shared.resolve(ImageDecodingFactory.self)
-        let realCompressor: any ImageCompressing = EngineRegistry.shared.resolve(ImageCompressingFactory.self)
+        // 引擎经注册表解析并调用，回归不可静默绿。本地注册表（shared 在
+        // 包测试进程为空，resolve fatalError——CI 34079451319 实证）。
+        let registry = EngineRegistry()
+        let ctx = EngineContext.current
+        registry.register(ImageDecodingFactory.make(ctx), for: ImageDecodingFactory.self)
+        registry.register(ImageCompressingFactory.make(ctx), for: ImageCompressingFactory.self)
+        let realDecoder: any ImageDecoding = registry.resolve(ImageDecodingFactory.self)
+        let realCompressor: any ImageCompressing = registry.resolve(ImageCompressingFactory.self)
         do {
             let decoded = try await realDecoder.decodeImage(Data(), maxDimension: 2400)
             let spec = ThumbnailSpec(maxDimension: 320, blurRadius: 10, quality: 0.7)
