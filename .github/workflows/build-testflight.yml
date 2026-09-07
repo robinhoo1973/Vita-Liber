@@ -47,7 +47,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   SCHEME: VitaLiber
@@ -61,12 +61,16 @@ jobs:
     name: '解析版本'
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # 仅此 job 会在首次发布时创建 GitHub Release；构建/上传不继承写权限。
+    permissions:
+      contents: write
     outputs:
       version: ${{ steps.ver.outputs.version }}
       build: ${{ steps.ver.outputs.build }}
       hash: ${{ steps.ver.outputs.hash }}
     steps:
-      - uses: actions/checkout@v4
+      # v4.2.2；固定完整 SHA，防可变 tag 被上游供应链替换。
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
       - name: 解析版本（GitHub 最高 Release → 版本主体；无则自动建 v0.0.1）
         id: ver
@@ -119,7 +123,8 @@ jobs:
       APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
       APPLE_DIS_PROVISION_PROFILE: ${{ secrets.APPLE_DIS_PROVISION_PROFILE }}
     steps:
-      - uses: actions/checkout@v4
+      # v4.2.2；固定完整 SHA，防可变 tag 被上游供应链替换。
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
       - name: 环境与工具链
         run: |
@@ -146,6 +151,7 @@ jobs:
       - name: 解码 App Store Connect API Key
         if: ${{ env.APPLE_API_KEY_P8 != '' }}
         run: |
+          umask 077
           mkdir -p "$GITHUB_WORKSPACE/private_keys"
           echo "$APPLE_API_KEY_P8" | base64 -d > "$GITHUB_WORKSPACE/private_keys/AuthKey_$APPLE_API_KEY_ID.p8"
           chmod 600 "$GITHUB_WORKSPACE/private_keys/AuthKey_$APPLE_API_KEY_ID.p8"
@@ -156,8 +162,10 @@ jobs:
         if: ${{ env.APPLE_DEV_CERT_P12 != '' && env.APPLE_DIS_CERT_P12 != '' }}
         run: |
           set -euo pipefail
+          umask 077
           KC=build.keychain
           KC_PASS="buildkeychain"
+          export P12_PASS="$APPLE_CERT_PASSWORD"
           echo "$APPLE_DEV_CERT_P12" | tr -d ' \n\r' | base64 -d > "$RUNNER_TEMP/dev_cert.p12"
           echo "$APPLE_DIS_CERT_P12" | tr -d ' \n\r' | base64 -d > "$RUNNER_TEMP/dis_cert.p12"
           for f in dev_cert dis_cert; do
@@ -174,11 +182,11 @@ jobs:
           import_p12() {
             local f="$1" pass="$2" name="$3"
             local pem="$f.pem"
-            if openssl pkcs12 -in "$f" -passin "pass:$pass" -nodes -out "$pem" 2>/dev/null; then
+            P12_PASS="$pass" openssl pkcs12 -in "$f" -passin env:P12_PASS -nodes -out "$pem" 2>/dev/null; then
               local cert_pem="$f.cert.pem"
               local key_pem="$f.key.pem"
-              openssl pkcs12 -in "$f" -passin "pass:$pass" -clcerts -nokeys -out "$cert_pem" 2>/dev/null
-              openssl pkcs12 -in "$f" -passin "pass:$pass" -nocerts -nodes -out "$key_pem" 2>/dev/null
+              P12_PASS="$pass" openssl pkcs12 -in "$f" -passin env:P12_PASS -clcerts -nokeys -out "$cert_pem" 2>/dev/null
+              P12_PASS="$pass" openssl pkcs12 -in "$f" -passin env:P12_PASS -nocerts -nodes -out "$key_pem" 2>/dev/null
               if [ -s "$cert_pem" ] && [ -s "$key_pem" ]; then
                 security import "$cert_pem" -k "$KC" -T /usr/bin/codesign -T /usr/bin/xcodebuild -A 2>/dev/null
                 security import "$key_pem" -k "$KC" -T /usr/bin/codesign -T /usr/bin/xcodebuild -A 2>/dev/null
@@ -187,9 +195,11 @@ jobs:
                 return 0
               fi
               local std_p12="$f.std.p12"
-              openssl pkcs12 -export -in "$pem" -passout "pass:$pass" -out "$std_p12" 2>/dev/null
+              # 仅在 umask 077 的 RUNNER_TEMP 内临时重封装为空密码 p12；
+              # 不把 APPLE_CERT_PASSWORD 传给 security -P（该参数会出现在进程列表）。
+              openssl pkcs12 -export -in "$pem" -passout pass: -out "$std_p12" 2>/dev/null
               if [ -s "$std_p12" ]; then
-                security import "$std_p12" -k "$KC" -P "$pass" -T /usr/bin/codesign -T /usr/bin/xcodebuild -A 2>/dev/null
+                security import "$std_p12" -k "$KC" -P '' -T /usr/bin/codesign -T /usr/bin/xcodebuild -A 2>/dev/null
                 echo "$name: 重封装 p12 导入成功"
                 rm -f "$pem" "$std_p12"
                 return 0
@@ -202,7 +212,7 @@ jobs:
           for f in dev_cert dis_cert; do
             P12="$RUNNER_TEMP/$f.p12"
             NAME="${f%%_*}"
-            if openssl pkcs12 -in "$P12" -passin "pass:$APPLE_CERT_PASSWORD" -noout 2>/dev/null; then
+            if openssl pkcs12 -in "$P12" -passin env:P12_PASS -noout 2>/dev/null; then
               import_p12 "$P12" "$APPLE_CERT_PASSWORD" "$NAME" && continue
             fi
             if openssl pkcs12 -in "$P12" -passin pass: -noout 2>/dev/null; then
@@ -221,6 +231,7 @@ jobs:
         if: ${{ env.APPLE_DIS_PROVISION_PROFILE != '' }}
         run: |
           set -euo pipefail
+          umask 077
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
           echo "$APPLE_DIS_PROVISION_PROFILE" | base64 -d > "$HOME/Library/MobileDevice/Provisioning Profiles/dev.mobileprovision"
           security cms -D -i "$HOME/Library/MobileDevice/Provisioning Profiles/dev.mobileprovision" 2>/dev/null | \
@@ -367,11 +378,22 @@ jobs:
       # ── 上传 IPA 到 Artifact（供 upload job 下载）────
       - name: 上传 IPA artifact
         if: ${{ env.APPLE_DEV_CERT_P12 != '' }}
-        uses: actions/upload-artifact@v4
+        # v4.6.0；固定完整 SHA，artifact action 运行在含签名材料的 job 中。
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
         with:
           name: vitaliber-ipa
           path: Build/export/VitaLiber.ipa
           retention-days: 1
+          if-no-files-found: error
+
+      # hosted runner 会销毁，但失败/取消路径也必须主动删签名材料，避免后续步骤误上传。
+      - name: 清理构建签名材料
+        if: ${{ always() }}
+        run: |
+          rm -rf "$GITHUB_WORKSPACE/private_keys" "$HOME/.appstoreconnect"
+          rm -f "$RUNNER_TEMP/dev_cert.p12" "$RUNNER_TEMP/dis_cert.p12" \
+            "$HOME/Library/MobileDevice/Provisioning Profiles/dev.mobileprovision" \
+            build.keychain-db build.keychain exportOptions.plist
 
   # ═══════════════════════════════════════════════════════════════
   # Job 3: 上传 TestFlight —— 直接 xcrun altool（NetDiagnostics 已验证方式）
@@ -388,7 +410,8 @@ jobs:
       APPLE_API_KEY_ISSUER_ID: ${{ secrets.APPLE_API_KEY_ISSUER_ID }}
     steps:
       - name: 下载 IPA artifact
-        uses: actions/download-artifact@v4
+        # v4.3.0；固定完整 SHA，避免可变 tag 供应链风险。
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: vitaliber-ipa
           path: Build/export/
@@ -413,6 +436,7 @@ jobs:
       - name: 准备 App Store Connect API Key
         run: |
           set -euo pipefail
+          umask 077
           mkdir -p "$HOME/.appstoreconnect/private_keys"
           K="$HOME/.appstoreconnect/private_keys/AuthKey_$APPLE_API_KEY_ID.p8"
           echo "$APPLE_API_KEY_P8" | base64 -d > "$K"
@@ -429,9 +453,9 @@ jobs:
           APP_NAME: ${{ inputs.app_name }}
         run: |
           set -euo pipefail
-          python3 -m pip install --user PyJWT cryptography >/tmp/pip.log 2>&1 \
-            || python3 -m pip install --user --break-system-packages PyJWT cryptography >/tmp/pip.log 2>&1 \
-            || true
+          # 固定版本并禁用缓存/交互；依赖安装失败立即停，绝不在含 p8 的 job 中继续执行未知代码。
+          python3 -m pip install --user --disable-pip-version-check --no-cache-dir \
+            "PyJWT==2.10.1" "cryptography==44.0.0" >/tmp/pip.log 2>&1
           P8="$HOME/.appstoreconnect/private_keys/AuthKey_$APPLE_API_KEY_ID.p8"
           [ -f "$P8" ] || { echo "::error::p8 不存在"; exit 1; }
           KEYID="$APPLE_API_KEY_ID" ISS="$APPLE_API_KEY_ISSUER_ID" \
@@ -538,9 +562,8 @@ jobs:
       - name: 复核 Build 登记状态
         run: |
           set -euo pipefail
-          python3 -m pip install --user PyJWT cryptography >/tmp/pip.log 2>&1 \
-            || python3 -m pip install --user --break-system-packages PyJWT cryptography >/tmp/pip.log 2>&1 \
-            || true
+          python3 -m pip install --user --disable-pip-version-check --no-cache-dir \
+            "PyJWT==2.10.1" "cryptography==44.0.0" >/tmp/pip.log 2>&1
           P8="$HOME/.appstoreconnect/private_keys/AuthKey_$APPLE_API_KEY_ID.p8"
           [ -f "$P8" ] || { echo "::warning::p8 不存在，跳过复核"; exit 0; }
           mk_token() {
@@ -552,14 +575,20 @@ jobs:
             print(jwt.encode(payload, key, algorithm='ES256', headers={'alg': 'ES256', 'kid': '$APPLE_API_KEY_ID'}))
             " 2>/dev/null || true
           }
+          # 避免把短期 JWT 作为 curl -H 命令行参数暴露给同 runner 的进程列表。
+          asc_curl() {
+            local url="$1" cfg="$RUNNER_TEMP/asc-curl-${RANDOM}.conf"
+            umask 077
+            printf 'header = "Authorization: Bearer %s"\n' "$TOKEN" > "$cfg"
+            curl -sS -g --max-time 30 --config "$cfg" "$url"
+            rm -f "$cfg"
+          }
           # ② 查询本次 buildUpload 的 Apple 处理状态/错误（若捕获到 UUID）
           if [ -n "${DELIVERY_UUID:-}" ]; then
             TOKEN=$(mk_token)
             if [ -n "$TOKEN" ]; then
               echo "── buildUpload ${DELIVERY_UUID} 处理状态 ──"
-              curl -sS -g --max-time 30 \
-                "https://api.appstoreconnect.apple.com/v1/buildUploads/$DELIVERY_UUID" \
-                -H "Authorization: Bearer $TOKEN" 2>/dev/null | python3 -c "
+              asc_curl "https://api.appstoreconnect.apple.com/v1/buildUploads/$DELIVERY_UUID" 2>/dev/null | python3 -c "
             import json, sys
             try:
                 d = json.load(sys.stdin)
@@ -586,9 +615,7 @@ jobs:
             echo "按 bundleId=com.vitaliber.app 解析当前 App id..."
             TOKEN=$(mk_token)
             if [ -n "$TOKEN" ]; then
-              APP=$(curl -sS -g --max-time 30 \
-                "https://api.appstoreconnect.apple.com/v1/apps?filter[bundleId]=com.vitaliber.app" \
-                -H "Authorization: Bearer $TOKEN" 2>/dev/null | python3 -c "
+              APP=$(asc_curl "https://api.appstoreconnect.apple.com/v1/apps?filter[bundleId]=com.vitaliber.app" 2>/dev/null | python3 -c "
             import json,sys
             try: print(json.load(sys.stdin)['data'][0]['id'])
             except Exception: print('')" 2>/dev/null || true)
@@ -600,9 +627,7 @@ jobs:
             TOKEN=$(mk_token)
             if [ -z "$TOKEN" ]; then echo "::warning::JWT 生成失败，跳过复核"; exit 0; fi
             if [ -z "$APP" ]; then echo "::warning::仍无 App 记录（上传未自动创建），请手动在 ASC 创建后重跑"; break; fi
-            OUT=$(curl -sS -g --max-time 30 \
-              "https://api.appstoreconnect.apple.com/v1/builds?sort=-uploadedDate&limit=5&filter[app]=$APP" \
-              -H "Authorization: Bearer $TOKEN" 2>/dev/null | python3 -c "
+            OUT=$(asc_curl "https://api.appstoreconnect.apple.com/v1/builds?sort=-uploadedDate&limit=5&filter[app]=$APP" 2>/dev/null | python3 -c "
             import json, sys
             try:
                 d = json.load(sys.stdin)
@@ -631,4 +656,10 @@ jobs:
             echo "注意：约 4 分钟内 build 仍未出现在列表。请查 App Store Connect → 活动/电子邮件"
             echo "确认 Apple 处理是否报错（如 Invalid Binary / Missing Compliance）。"
           fi
+
+      - name: 清理上传凭据
+        if: ${{ always() }}
+        run: |
+          rm -rf "$HOME/.appstoreconnect"
+          rm -f "$RUNNER_TEMP"/asc-curl-*.conf
 
