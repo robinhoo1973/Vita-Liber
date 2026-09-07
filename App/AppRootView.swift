@@ -74,20 +74,29 @@ struct AppRootView: View {
             }
             await appState.bootstrap()
             appState.restoreBackupMark()   // 上次备份时刻镜像就位（FR13.10 观察联动）
-            // F16 信源库种子幂等入库（离线零网络可用）
-            do { try await seedBundled() }
-            catch {
-                Logger(subsystem: "com.vitaliber", category: "app").error("信源播种失败: \(error)")
-            }
-            // 敏感媒体孤儿对账（评审修正）：崩溃/失败写入的残留照片启动时清除
-            await observationState.reconcileAssets()
-            // 四层补偿第 1 层（§5.4 V3.29）：前台启动时对账。
-            // FR20.2 授权时序：通知权限严禁启动即索权——请求时机移到
-            // 「完成第一个提醒计划创建后」（价值先行，ReminderStore.createPlan/createAppointment）。
-            if appState.onboardingFinished {
-                await reminderStore.refreshTriggered(patientId: appState.currentPatientId)
-                // FR13.10 定期备份提醒（默认 30 天；只引导，不自动建包；联动 F22.4）
-                await reminderStore.scheduleBackupReminderIfNeeded(lastBackupAt: appState.lastBackupAt)
+            // 第八轮全仓审查修复（启动串行链并行化）：信源播种（DB 写）、
+            // 敏感媒体孤儿对账（文件系统扫描）、提醒链（物化+对账+备份提醒）
+            // 三链互不依赖，此前严格串行 = 三者延迟之和拖慢提醒数据就位。
+            // 并发执行（同一 actor 的内部串行由 actor 语义保证；各链失败
+            // 上报，互不阻断）。
+            do {
+                // F16 信源库种子幂等入库（离线零网络可用）
+                async let seed: Void = seedBundled()
+                // 敏感媒体孤儿对账（评审修正）：崩溃/失败写入的残留照片启动时清除
+                async let reconcile: Void = observationState.reconcileAssets()
+                // 四层补偿第 1 层（§5.4 V3.29）：前台启动时对账。
+                // FR20.2 授权时序：通知权限严禁启动即索权——请求时机移到
+                // 「完成第一个提醒计划创建后」（价值先行）。
+                if appState.onboardingFinished {
+                    async let refresh: Void = reminderStore.refreshTriggered(patientId: appState.currentPatientId)
+                    // FR13.10 定期备份提醒（默认 30 天；只引导，不自动建包）
+                    async let backup: Void = reminderStore.scheduleBackupReminderIfNeeded(lastBackupAt: appState.lastBackupAt)
+                    _ = try await (seed, reconcile, refresh, backup)
+                } else {
+                    _ = try await (seed, reconcile)
+                }
+            } catch {
+                Logger(subsystem: "com.vitaliber", category: "app").error("启动预载失败: \(error)")
             }
         }
         // FR14.5 语言切换的非视图副作用：已排程通知的标题/正文在排程时固化，

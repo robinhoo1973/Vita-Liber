@@ -136,8 +136,13 @@ struct ReminderReliabilityTests {
         await source.set(facts)
         await reconciler.reconcile(now: now)
         let pending = try await scheduler.pending()
-        #expect(pending.count == ReminderReconciler.pendingBudget, "超限裁到预算内（66→60：六条时段让位）")
+        // 第八轮修复锚点：预算裁撤只裁对账自有命名空间（dose-/slot-/snooze-），
+        // 他仓预约不受裁撤——66 条（65 时段 + 1 预约）→ 60 时段 + 1 预约
+        #expect(pending.count == ReminderReconciler.pendingBudget + 1,
+                "自有命名空间裁到预算内，他仓预约不受对账裁撤（65+1→60+1）")
         #expect(pending["apt-protected"] != nil, "apt- 预约提醒必须存活（评审 S0-1 修正）")
+        #expect(pending.keys.filter { $0.hasPrefix("slot-") }.count == ReminderReconciler.pendingBudget,
+                "时段通知裁到预算内")
     }
 
     /// 稍后提醒：取消原通知 + 新 trigger；「跳过/忘记」不产生任何调度动作

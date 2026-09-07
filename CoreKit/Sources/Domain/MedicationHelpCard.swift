@@ -51,8 +51,13 @@ public enum MedicationHelpCardRules {
     /// 组装单页文本。**位置照片不入文本**——照片以附件形式随分享带出，
     /// 且仅当 `includeStoragePhoto` 为 true 时由调用方附加（本函数无法、
     /// 也不应该接触二进制）。
+    /// 第八轮全仓审查修复（空选择契约）：FR9.13a 前提是「选择一个或多个
+    /// 药品批次/包装后」生成——空选择返回 nil。原实现恒返回标题行，测试
+    /// 「空选择不产出卡片」断言 cardText([]) 含标题、恒真永不可败，反向
+    /// 锁死了与规格相悖的行为。
     public static func cardText(_ items: [Input],
-                                labels: HelpCardLabels = .zhFallback) -> String {
+                                labels: HelpCardLabels = .zhFallback) -> String? {
+        guard !items.isEmpty else { return nil }
         var lines = [labels.title]
         lines.append("")
         for item in items {

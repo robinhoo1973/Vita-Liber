@@ -214,6 +214,12 @@ public enum InventoryRules {
         switch (from, to) {
         case (.missed, .taken), (.missed, .discomfort):
             return (0, units)
+        // 第八轮全仓审查修复：taken/discomfort → taken/discomfort 恒为重复
+        // 决议（同一逻辑剂量二次补录的防再扣兜底）——任一未来查询放宽
+        // 到 taken 行时，转场也必须零扣减，绝不双扣双轨。
+        case (.taken, .taken), (.taken, .discomfort),
+             (.discomfort, .taken), (.discomfort, .discomfort):
+            return (0, 0)
         default:
             return deduction(for: to, units: units)
         }
@@ -252,8 +258,15 @@ public enum InventoryRules {
         guard dailyPlanUnits > 0 else { return nil }
         if let e = inv.expireAt, e < date { return .t0 }      // 过期即最紧急（当日置顶）
         let daysLeft = inv.remainingPlanUnits / dailyPlanUnits
-        // 从最紧急往回判，返回命中的最紧急档
-        for tier in [RefillTier.t0, .t3, .t7] where daysLeft <= tier.daysLeftThreshold {
+        // 从最紧急往回判，返回命中的最紧急档。
+        // 第八轮全仓审查修复（浮点边界偏晚）：余量/日耗均为 Double，非二进制
+        // 可精确剂量（0.1/次）逐日扣减后 daysLeft 越过阈值 ~1e-16（实测
+        // 3.0000000000000004 > 3 → t3 漏档、7.000000000000175 > 7 → nil
+        // 整档消失）——误差方向落在「偏晚/漏警」侧，违反 ADR-009「误差必须
+        // 偏向更早告警」。阈值 +1e-9 容差只吸收浮点噪声、不改变真实余量边界，
+        // 边界命中一律判入更紧急档（偏早）。
+        for tier in [RefillTier.t0, .t3, .t7]
+        where daysLeft <= tier.daysLeftThreshold + 1e-9 {
             return tier
         }
         return nil
@@ -300,8 +313,9 @@ public enum InventoryRules {
             guard let at = calendar.date(byAdding: .day, value: day, to: start) else { continue }
             let remaining = max(0, initialUnits - Double(day) * dailyPlanUnits)
             let daysLeft = remaining / dailyPlanUnits
+            // 第八轮修复：与 refillTier 同款浮点容差（+1e-9，偏早不偏晚）
             for tier in [RefillTier.t7, .t3, .t0]
-            where pending.contains(tier) && daysLeft <= tier.daysLeftThreshold {
+            where pending.contains(tier) && daysLeft <= tier.daysLeftThreshold + 1e-9 {
                 pending.remove(tier)
                 fired.append((tier, at))
             }

@@ -638,19 +638,32 @@ public actor MedicationStore: DoseSource {
             // 常落在排程容差之外（如晚 2 小时补记）——若直接 INSERT 随机 id 新行，
             // 已被 materializeMissed 决议 missed 的原行留在原地（计划轨已扣），
             // 新行再按 taken 全额扣减 = 计划轨双扣（ADR-009 反方向）。
-            // 宽窗口（±12h）内找到 missed/snoozed/skipped/未决议行 → 转场该行；
+            // 宽窗口（±12h）内优先找 missed/snoozed/skipped/未决议行 → 转场该行；
             // 找不到才 INSERT 新行（补录本身即证据）。
+            // 第八轮全仓审查修复（宽窗口幂等）：原查询把 taken/discomfort 排除
+            // 在外——同一逻辑剂量二次补录（首次已决 taken）在宽窗口内找不到
+            // 任何行 → INSERT 重复行并再按 taken 全额扣减双轨。改为「非 taken/
+            // discomfort 优先」，仅当窗口内全部行均已决为 taken/discomfort 时
+            // 才命中该行并抛 alreadyResolved（与窄路径同款响亮拒绝）。
             let wideWindow: TimeInterval = 12 * 3600
             if let wide = try Row.fetchOne(db, sql: """
                 SELECT id, user_action, dose_units FROM medication_dose_log
                 WHERE plan_id = ? AND scheduled_for BETWEEN ? AND ?
-                  AND (user_action IS NULL OR user_action IN ('missed','snoozed','skipped'))
-                ORDER BY ABS(scheduled_for - ?) LIMIT 1
+                ORDER BY CASE WHEN user_action IN ('taken','discomfort') THEN 1 ELSE 0 END,
+                         ABS(scheduled_for - ?) LIMIT 1
                 """, arguments: [planId.uuidString,
                                  actualTime.timeIntervalSince1970 - wideWindow,
                                  actualTime.timeIntervalSince1970 + wideWindow,
                                  actualTime.timeIntervalSince1970]) {
                 let wideAction = (wide["user_action"] as String?).flatMap(DoseUserAction.init(rawValue:))
+                // 第八轮全仓审查修复（宽窗口幂等）：窄窗口（±30min）对 taken/
+                // discomfort 抛 alreadyResolved（响亮拒绝），宽窗口（±12h）却
+                // 把这些决议态排除在查询外——同一逻辑剂量二次补录时 INSERT
+                // 重复行并再按 taken 全额扣减双轨（月报 confirmed 计二）。宽
+                // 窗口命中的 taken/discomfort 行按窄路径同款语义拒绝（幂等）。
+                if wideAction == .taken || wideAction == .discomfort {
+                    throw StoreError.alreadyResolved(wide["id"] as String)
+                }
                 let wideUnits = (wide["dose_units"] as Double?) ?? doseUnits
                 let wideId = wide["id"] as String
                 let matrix = InventoryRules.transitionDeduction(

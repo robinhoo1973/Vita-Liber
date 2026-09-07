@@ -35,7 +35,10 @@ struct ClaimListView: View {
                                 .font(.caption2).foregroundStyle(.tertiary)
                         }
                         Spacer()
-                        Text("\(row.amount, specifier: "%.2f") \(row.currency)")
+                        // 第八轮修复：货币金额经 Foundation 货币格式化
+                        // （locale 币符/千分位/小数位），替代硬编码 %.2f
+                        Text(row.amount.formatted(
+                            .currency(code: row.currency).precision(.fractionLength(2))))
                             .monospacedDigit()
                     }
                     .accessibilityElement(children: .combine)

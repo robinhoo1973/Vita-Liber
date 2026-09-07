@@ -35,8 +35,36 @@ final class AppSettingsStore {
         do {
             // 审查修复：一次批量查询替代逐键 SELECT（~35 次串行 actor 往返）
             values = try await store.allValues()
+            seedMirrorsIfNeeded()
         } catch {
             logger.error("设置加载失败: \(error)")
+        }
+    }
+
+    /// 第八轮全仓审查修复（升级分裂脑）：UserDefaults 镜像只在 set()/
+    /// restoreDefaults() 写入——旧版本已落库的偏好（DB 有值、镜像无值）
+    /// 升级后投递门/willPresent/关怀模式读到 nil 即回落默认（锁屏照常响铃、
+    /// 横幅复活、关怀版式关闭而开关显示开）。load() 后一次性补齐：镜像缺项
+    /// 即回填 DB 值；等于缺省值不写（保持 nil=默认语义）；只补不覆盖（幂等）。
+    private func seedMirrorsIfNeeded() {
+        let defaults = UserDefaults.standard
+        for key in Self.mirroredKeys {
+            guard defaults.object(forKey: key.rawValue) == nil else { continue }
+            guard let stored = values[key], stored != key.defaultValue else { continue }
+            defaults.set(stored, forKey: key.rawValue)
+        }
+        // 关怀模式镜像必须写 Bool（AppState.careMode/careModeTruth 以
+        // bool(forKey:) 读；String "true" 在 Apple 平台恒读 false）
+        if defaults.object(forKey: AppSettingKey.careModeEnable.rawValue) == nil,
+           let stored = values[.careModeEnable],
+           stored != AppSettingKey.careModeEnable.defaultValue {
+            defaults.set(stored == "true", forKey: AppSettingKey.careModeEnable.rawValue)
+        }
+        // 回读偏好镜像（AppState.readbackPreference 同键读取）
+        if defaults.object(forKey: AppSettingKey.readBackOptIn.rawValue) == nil,
+           let stored = values[.readBackOptIn],
+           stored != AppSettingKey.readBackOptIn.defaultValue {
+            defaults.set(stored, forKey: AppSettingKey.readBackOptIn.rawValue)
         }
     }
 
@@ -78,8 +106,16 @@ final class AppSettingsStore {
             // 审查修复（分裂脑）：readbackPreference 与 careMode 的运行时真源
             // 在 UserDefaults（AppState 读），DB 写而镜像不写 = 设置无效；
             // restoreDefaults 亦需同步清镜像（幂等双写）
-            if key == .readBackOptIn || key == .careModeEnable {
+            // 第八轮修复（类型分裂脑）：careModeEnable 镜像此前写 String
+            // "true"/"false"，而全部读取方（AppState.careMode/careModeTruth）
+            // 用 bool(forKey:)——Apple 平台 NSString 恒读 false，开关显示开而
+            // 关怀版式实际关闭。镜像改写 Bool（与 CareModeSettingsView 的
+            // app.careMode 写入同型）。
+            if key == .readBackOptIn {
                 UserDefaults.standard.set(value, forKey: key.rawValue)
+            }
+            if key == .careModeEnable {
+                UserDefaults.standard.set(value == "true", forKey: key.rawValue)
             }
             // 第七轮全仓审查修复（FR9.18 通道偏好接线）：remindChannel* 与
             // inAppBannerEnabled 镜像 UserDefaults——通知投递门（ChannelGated

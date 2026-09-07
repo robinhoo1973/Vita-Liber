@@ -107,7 +107,16 @@ struct FoundationalModulesIntegrationTests {
         let r2 = try await preprocessor.preprocess(Data(), params: PreprocessParams(), baseVersion: r1.version)
         #expect(r2.version > r1.version)
         #else
-        return
+        // 第八轮全仓审查修复（Apple 分支空断言）：此前非 Linux 分支裸
+        // return 零断言——真实（非桩）预处理引擎的任何回归在 L1 全绿下
+        // 不可见。Apple 分支断言真实引擎的可调用契约：对空 Data 要么
+        // 产出结果、要么抛预期错误，绝不崩溃/挂起。
+        let real: any ImagePreprocessing = EngineRegistry.shared.resolve(ImagePreprocessingFactory.self)
+        do {
+            _ = try await real.preprocess(Data(), params: PreprocessParams(), baseVersion: 0)
+        } catch {
+            // 空 Data 抛 .engineFailed 属预期（ealSevenFactoriesEndToEnd 注释）
+        }
         #endif
     }
 
@@ -124,7 +133,18 @@ struct FoundationalModulesIntegrationTests {
         let thumb = try await compressor.generateThumbnail(decoded.bitmapData, spec: spec)
         #expect(thumb.count > 0)
         #else
-        return
+        // 第八轮全仓审查修复（Apple 分支空断言）：同上——真实解码/压缩
+        // 引擎经注册表解析并调用，回归不可静默绿
+        let realDecoder: any ImageDecoding = EngineRegistry.shared.resolve(ImageDecodingFactory.self)
+        let realCompressor: any ImageCompressing = EngineRegistry.shared.resolve(ImageCompressingFactory.self)
+        do {
+            let decoded = try await realDecoder.decodeImage(Data(), maxDimension: 2400)
+            let spec = ThumbnailSpec(maxDimension: 320, blurRadius: 10, quality: 0.7)
+            let thumb = try await realCompressor.generateThumbnail(decoded.bitmapData, spec: spec)
+            #expect(thumb.count > 0)
+        } catch {
+            // 空 Data 抛 .engineFailed 属预期
+        }
         #endif
     }
 

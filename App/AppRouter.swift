@@ -315,7 +315,11 @@ final class AppNotificationDelegate: NSObject, UNUserNotificationCenterDelegate 
                                             willPresent notification: UNNotification,
                                             withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
         let id = notification.request.identifier
-        if id.hasPrefix("dose-") || id.hasPrefix("slot-") {
+        // 第八轮全仓审查修复：snooze-（稍后提醒，归属用药类通道）补入抑制
+        // 集合——「静音仅横幅/横幅关闭」时其系统横幅同样必须让位/让过，
+        // 与 dose-/slot- 同等待遇（旧逻辑对稍后提醒恒弹系统横幅，与用药
+        // 通道偏好矛盾）
+        if id.hasPrefix("dose-") || id.hasPrefix("slot-") || id.hasPrefix("snooze-") {
             let defaults = UserDefaults.standard
             let bannerOn = defaults.string(forKey: AppSettingKey.inAppBannerEnabled.rawValue) != "false"
             let inAppOnly = defaults.string(forKey: AppSettingKey.remindChannelMeds.rawValue) == "inApp"

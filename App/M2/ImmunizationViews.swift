@@ -38,7 +38,7 @@ struct ImmunizationListView: View {
                                 HStack {
                                     Text(L10n.doseNumber(record.doseNumber)).font(.subheadline)
                                     Spacer()
-                                    GradeBadgeText(confirmed: record.confirmed)
+                                    GradeBadge(grade: record.confirmed ? "C" : "D")
                                 }
                                 Text(record.administeredAt.map { $0.formatted(date: .abbreviated, time: .omitted) } ?? "")
                                     .font(.caption).foregroundStyle(.secondary)
@@ -86,21 +86,11 @@ struct ImmunizationListView: View {
     }
 }
 
-/// 确认状态徽章：C 级已确认实心 / D 级待确认虚线（BR-003）
-private struct GradeBadgeText: View {
-    let confirmed: Bool
-    var body: some View {
-        Text(confirmed ? L10n.immunization_confirmed : L10n.immunization_pending)
-            .font(.caption2)
-            .padding(.horizontal, 6).padding(.vertical, 2)
-            .background(Capsule().fill(Color("surface-tint-start", bundle: .main)))
-            .overlay(Capsule().strokeBorder(
-                confirmed ? Color("brand-primary", bundle: .main) : Color("grade-d", bundle: .main),
-                style: StrokeStyle(lineWidth: 1, dash: confirmed ? [] : [3, 2])))
-            .foregroundStyle(confirmed ? Color("brand-primary", bundle: .main) : Color("grade-d", bundle: .main))
-            .accessibilityLabel(confirmed ? L10n.onboard_sourceConfirmed : L10n.onboard_unconfirmed2)
-    }
-}
+// 第八轮全仓审查修复（GradeBadge 唯一渲染出口）：原 GradeBadgeText 手写
+// Capsule 徽章变体——GradeBadge.swift 文档明令「全仓唯一渲染出口，禁止
+// 视图手写 Capsule 徽章变体」（V3.72 五态统一；第四轮已在 EncounterViews/
+// MedicationPlanViews/PendingOcrQueueView 删除同款手写变体）。已改用
+// GradeBadge(grade: confirmed ? "C" : "D") 并删除本结构。
 
 private struct ImmunizationCreateSheet: View {
     let onCreate: (String, Int, Date?, String, String) -> Void

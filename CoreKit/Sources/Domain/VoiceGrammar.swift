@@ -101,6 +101,15 @@ public enum NumberNormalizer {
         total += section * (zeroSeen || lastUnit < 10 ? 1 : lastUnit / 10)
         return hasValue ? String(total) : text
     }
+
+    /// 数值录入解析单一出口（第八轮全仓审查修复）：逗号小数点（部分区域
+    /// decimalPad 产出）归一后解析——此前三个录入点各自内联
+    /// `replacingOccurrences(of: ",", with: ".")`，任何新数值输入框都可能
+    /// 漏掉该区域化怪癖而把合法输入报错。返回 nil 表示不可解析（调用方
+    /// 响亮拒绝）。
+    public static func parseDecimal(_ text: String) -> Double? {
+        Double(text.replacingOccurrences(of: ",", with: "."))
+    }
 }
 
 /// 受限文法引擎（FR17.9-14 子集：指标/提醒/档案访谈）

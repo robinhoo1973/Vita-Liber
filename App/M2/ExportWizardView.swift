@@ -86,7 +86,7 @@ struct ExportWizardView: View {
                 case .finished(let pkg):
                     VStack(spacing: 16) {
                         Image(systemName: "doc.richtext")
-                            .font(.system(size: 56))
+                            .font(VLFont.exportIcon)
                             .foregroundStyle(Color("brand-primary", bundle: .main))
                         Text(L10n.exportFinished(pkg.recordCount, pkg.pageCount))
                         ShareLink(item: state.exportURL ?? URL(fileURLWithPath: "/")) {

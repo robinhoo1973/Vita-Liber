@@ -335,7 +335,11 @@ struct SUM15VoiceTests {
 ///     语音结构化路径已启用 ⟹ 定标已通过
 /// 真人语料未交付时，本套件强制 `voiceStructuringEnabled == false`，
 /// 于是「未达标仍放行」在产品行为层面不可能发生。
-@Suite("SU-M15-VOICE · TC-M15-01 金样定标放行线")
+// 第八轮全仓审查修复：本套件的「未达标则语音结构化必须关闭」测试会
+// mutate 进程级静态 voiceCalibrationPassed（仅 defer 复位）——Swift Testing
+// 默认并行执行下，与同进程其他读取 FeatureFlags 的套件并发观察会看到瞬时
+// 翻转的全局。.serialized 串行化本套件（全局静态与并行执行不兼容）。
+@Suite("SU-M15-VOICE · TC-M15-01 金样定标放行线", .serialized)
 struct SUM15CalibrationTests {
 
     /// `.copy("Fixtures")` 保留目录结构，资源落在 bundle 的 Fixtures 子目录下，

@@ -72,6 +72,7 @@
 "backup.degrade.notSignedIn" = "未登入 iCloud，無法備份到 iCloud Drive。你仍可匯出到本機檔案。";
 "backup.degrade.noSpace" = "iCloud 空間不足，本次備份未完成。清理空間後可重試，本機資料未受影響。";
 "backup.degrade.checksum" = "備份檔案校驗未通過，未還原任何資料。請換一個備份檔案重試。";
+"backup.degrade.restoreFailed" = "還原未完成，本機資料未受影響。請重試；若反覆失敗，請更新 App 或聯繫支援。";
 "backup.degrade.conflict" = "此裝置上已有健康資料，為避免覆蓋，本次恢復未執行。請先備份並清空本機資料後再恢復（或聯絡支援取得移轉協助）。";
 "backup.conflict.title" = "資料衝突預覽";
 "backup.conflict.choice" = "處理方式";
@@ -689,6 +690,7 @@
 "plan.form.brandName" = "商品名（可選）";
 "plan.form.spec" = "劑型規格";
 "plan.form.dosePerTake" = "單次劑量";
+"plan.form.doseParseError" = "無法識別這個劑量。請用數字輸入，例如 1、0.5、半 或 1/2";
 "plan.form.timesPerDay" = "每日次數";
 "plan.form.route" = "給藥方式";
 "plan.form.meal" = "餐食關係（如：隨餐）";
@@ -912,7 +914,7 @@
 "showcase.unlockReason" = "進入就診展示模式";
 "remch.title" = "提醒觸達";
 "remch.sectionHint" = "每類提醒的觸達方式";
-"remch.sectionFooter" = "響鈴直到確認需要系統特殊權限，將在後續版本申請後生效";
+"remch.sectionFooter" = "響鈴直到確認需要系統特殊權限，將在後續版本申請後生效；「靜音僅橫幅」目前僅對用藥劑量與時段提醒生效，其餘類別暫按系統提醒投遞（應用內橫幅通道就緒後逐類生效）";
 "remch.meds" = "用藥";
 "remch.apts" = "預約";
 "remch.exam" = "檢查準備";
@@ -977,6 +979,8 @@
 "docConfirm.title" = "確認識別結果";
 "docConfirm.viewRegion" = "查看掃描區域";
 "docConfirm.saveAll" = "確認並儲存";
+"docConfirm.docType" = "文件類型";
+"docConfirm.docTypeHint" = "類型為識別建議，可在此修改；確認後仍可在資料庫中調整。";
 "docConfirm.hint" = "請逐項核對識別內容，確認後才計入正式記錄";
 "docConfirm.unconfirmedCountFmt" = "還有 %d 項待確認";
 "prescription.field.hospital" = "醫院";
@@ -1003,6 +1007,7 @@
 "helpcard.previewContinue" = "繼續發送";
 "helpcard.previewHint" = "純文字，不含敏感圖片；含行動指引、有效期與回執提示";
 "pref.dateFormat" = "日期格式";
+"pref.dateFormatPending" = "該格式將在後續版本接入時間軸與搜尋結果後生效";
 "pref.dateFormatYMD" = "2026年9月5日";
 "pref.dateFormatMD" = "9月5日";
 "pref.dateFormatISO" = "2026-09-05";
@@ -1293,6 +1298,7 @@
 "f19.noAppointment" = "沒有預約記錄";
 "f19.recentGlucoseFmt" = "最近血糖：%@";
 "f19.noGlucose" = "還沒有血糖記錄";
+"f19.metricInvalidValue" = "這個數值似乎無效，請再說一次（例如「血糖 5.6」）";
 "f19.metricNotSupportedFmt" = "暫不支援記錄「%@」類指標，請在趨勢頁手動輸入";
 "f19.stockRemainingFmt" = "%@ 約剩 %d 天 · 按計畫估算";
 "f19.stockNoPlanFmt" = "%@：無進行中的用藥計畫，無法估算剩餘天數";

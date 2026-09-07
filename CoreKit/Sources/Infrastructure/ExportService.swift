@@ -458,37 +458,37 @@ public actor ExportService {
                     backupTitle: { _ in envelope.owner?.displayName },
                     existingTitle: { existingTitle("local_owner", $0) })
             try add("consent_record", ids: envelope.consentRecords.map { $0.id.uuidString },
-                    backupTitle: { id in consentTitle[id] ?? nil },
+                    backupTitle: { consentTitle[$0] },
                     existingTitle: { existingTitle("consent_record", $0, "key") })
             try add("document_file", ids: documentIds,
-                    backupTitle: { id in timelineTitle[id] ?? nil },
+                    backupTitle: { timelineTitle[$0] },
                     existingTitle: { existingTitle("document_file", $0, "title") })
             try add("medication_plan", ids: envelope.plans.map { $0.id.uuidString },
-                    backupTitle: { id in planTitle[id] ?? nil },
+                    backupTitle: { planTitle[$0] },
                     existingTitle: { _ in nil })
             try add("appointment", ids: envelope.appointments.map { $0.id.uuidString },
-                    backupTitle: { id in aptTitle[id] ?? nil },
+                    backupTitle: { aptTitle[$0] },
                     existingTitle: { existingTitle("appointment", $0, "hospital") })
             try add("observation", ids: envelope.observations.map { $0.id.uuidString },
-                    backupTitle: { id in obsTitle[id] ?? nil },
+                    backupTitle: { obsTitle[$0] },
                     existingTitle: { existingTitle("observation", $0, "kind") })
             try add("allergy_event", ids: envelope.allergies.map { $0.id.uuidString },
-                    backupTitle: { id in allergyTitle[id] ?? nil },
+                    backupTitle: { allergyTitle[$0] },
                     existingTitle: { existingTitle("allergy_event", $0, "substance") })
             try add("encounter", ids: envelope.encounters.map { $0.id.uuidString },
-                    backupTitle: { id in encTitle[id] ?? nil },
+                    backupTitle: { encTitle[$0] },
                     existingTitle: { existingTitle("encounter", $0, "kind") })
             try add("metric_sample", ids: envelope.metrics.map { $0.id.uuidString },
-                    backupTitle: { id in metricTitle[id] ?? nil },
+                    backupTitle: { metricTitle[$0] },
                     existingTitle: { existingTitle("metric_sample", $0, "metric_key") })
             try add("immunization", ids: envelope.immunizations.map { $0.id.uuidString },
-                    backupTitle: { id in immTitle[id] ?? nil },
+                    backupTitle: { immTitle[$0] },
                     existingTitle: { existingTitle("immunization", $0, "vaccine_name") })
             try add("voice_note", ids: envelope.voiceNotes.map { $0.id.uuidString },
-                    backupTitle: { id in noteTitle[id] ?? nil },
+                    backupTitle: { noteTitle[$0] },
                     existingTitle: { existingTitle("voice_note", $0, "body") })
             try add("health_problem", ids: envelope.healthProblems.map { $0.id.uuidString },
-                    backupTitle: { id in problemTitle[id] ?? nil },
+                    backupTitle: { problemTitle[$0] },
                     existingTitle: { existingTitle("health_problem", $0, "name") })
             return items
         }

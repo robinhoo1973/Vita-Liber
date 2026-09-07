@@ -198,6 +198,7 @@ struct VoiceSessionView: View {
                 Button {
                     let text = typed
                     typed = ""
+                    if routeEmergencyIfNeeded(text) { return }
                     let executed = session.submit(text, speak: { app.speak($0) })
                     if let executed { handleExecution(executed, object: session.pendingObject) }
                 } label: {
@@ -464,14 +465,14 @@ struct VoiceSessionView: View {
                     object, rules: VoiceGrammarDefaults.metricRules)
                 let byKey = Dictionary(grouping: drafts, by: { $0.key })
                     .compactMapValues { $0.first }
-                if let sys = byKey["blood_pressure_sys"], let sysV = Double(sys.value), sysV > 0 {
+                if let sysDraft = byKey["blood_pressure_sys"], let sysV = Double(sysDraft.value), sysV > 0 {
                     let diaV = byKey["blood_pressure_dia"].flatMap { Double($0.value) }
                     Task {
                         await trendState.addSample(patientId: app.currentPatientId,
                                                    metric: .bloodPressureSys,
                                                    value: sysV,
                                                    secondaryValue: diaV,
-                                                   unit: byKey["blood_pressure_sys"]?.unit ?? "mmHg",
+                                                   unit: sysDraft.unit ?? "mmHg",
                                                    measuredAt: Date())
                     }
                     session.systemFeedback(L10n.f19MetricRecorded(sysV),
@@ -485,15 +486,30 @@ struct VoiceSessionView: View {
                                                speak: { app.speak($0) })
                         return
                     }
+                    // 第八轮全仓审查修复：单位必取非空——空单位样本会绕过
+                    // AlertEngine 的跨单位守卫（ru.isEmpty 跳过拒判定级），
+                    // 静默混入趋势与告警证据链
+                    guard let unit = draft.unit, !unit.isEmpty else {
+                        session.systemFeedback(L10n.f19MetricNotSupported(draft.key),
+                                               speak: { app.speak($0) })
+                        return
+                    }
                     Task {
                         await trendState.addSample(patientId: app.currentPatientId,
                                                    metric: metric,
                                                    value: v,
                                                    secondaryValue: nil,
-                                                   unit: draft.unit ?? "",
+                                                   unit: unit,
                                                    measuredAt: Date())
                     }
                     session.systemFeedback(L10n.f19MetricRecorded(v),
+                                           speak: { app.speak($0) })
+                } else if drafts.contains(where: { $0.key != "title" && Double($0.value) != nil }) {
+                    // 第八轮全仓审查修复（响亮拒绝）：文法命中了数值但 ≤0
+                    // （如「血糖零」经 NumberNormalizer 归一为 "0"）——不落库
+                    // （0 值无生理意义，污染趋势并误导 L1–L3 告警），但必须
+                    // 反馈，绝不静默丢弃（原实现双分支落空即无声无息）。
+                    session.systemFeedback(L10n.f19MetricInvalidValue,
                                            speak: { app.speak($0) })
                 }
             }
@@ -523,6 +539,17 @@ struct VoiceSessionView: View {
     /// 温度等 MetricType 未覆盖的指标返回 nil——不臆造落库）
     private static func metricType(for grammarKey: String) -> MetricType? {
         MetricType(grammarKey: grammarKey)   // Domain 单一映射（VoiceGrammarDefaults 同源键）
+    }
+
+    /// BR-012 紧急关键词前置（V3.40 语音指令入口，复用 F12 词表单一事实源）：
+    /// 命中即急救卡、终止本会话——先于 F19 文法（「我胸闷」不再落入速记/
+    /// 指标草稿）。返回是否已拦截。
+    private func routeEmergencyIfNeeded(_ text: String) -> Bool {
+        guard EmergencyKeywordRules.match(text) else { return false }
+        session.end()
+        dismiss()
+        router.navigate(to: .emergencyCardConfig)
+        return true
     }
 
     private func performCall(_ object: String) {

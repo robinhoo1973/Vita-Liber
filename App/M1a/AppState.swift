@@ -483,79 +483,63 @@ final class AppState {
         lastBackupAt = t > 0 ? t : nil
     }
 
+    /// 第八轮全仓审查修复（审计样板收敛）：五处 fire-and-forget 调用点
+    /// 此前重复同一脚手架（guard let audit + Task + do/catch + logger.error）
+    /// ——改错误处理策略（重试/脱敏）要改五处且极易漏一处。收缩为单出口；
+    /// 未注入审计（测试/预览）时静默跳过语义不变。
+    private func fireAudit(action: String, entityType: String, entityId: String,
+                           actorLocal: String = "owner", meta: String? = nil,
+                           logLabel: String) {
+        guard let audit else { return }
+        Task {
+            do {
+                try await audit.record(action: action, entityType: entityType,
+                                       entityId: entityId, actorLocal: actorLocal, meta: meta)
+            } catch {
+                logger.error("\(logLabel): \(error)")
+            }
+        }
+    }
+
     /// FR22.5 反馈提交（默认只附版本/系统/错误码/脱敏日志；截图/原文/媒体逐项勾选）
     /// 审查修复：detail（用户反馈正文）此前在函数体内从未使用——正文被
     /// 静默丢弃。现截断进 meta（保留前 200 字），审计事实不丢。
     func reportFeedback(category: String, detail: String, attachments: [Bool]) {
-        guard let audit else { return }
-        Task {
-            do {
-                let trimmed = String(detail.prefix(200))
-                try await audit.record(action: "feedback", entityType: "user_feedback",
-                                       entityId: category, actorLocal: "owner",
-                                       meta: "attachments=\(attachments.map { $0 ? "1" : "0" }.joined()) detail=\(trimmed)")
-            } catch {
-                logger.error("反馈提交失败: \(error)")
-            }
-        }
+        let trimmed = String(detail.prefix(200))
+        fireAudit(action: "feedback", entityType: "user_feedback", entityId: category,
+                  meta: "attachments=\(attachments.map { $0 ? "1" : "0" }.joined()) detail=\(trimmed)",
+                  logLabel: "反馈提交失败")
     }
 
     /// FR6.7 报告识别问题（本地记录，P1 进审核后台）：写审计事实，不传医疗内容
     /// FR6.7 识别问题报告（V3.72 表单化）：错误类型/字段/备注随 meta 落审计
     func reportRecognitionIssue(documentId: UUID, meta: String = "kind=ocr_issue") {
-        guard let audit else { return }
-        Task {
-            do {
-                try await audit.record(action: "feedback", entityType: "ocr_result",
-                                       entityId: documentId.uuidString, actorLocal: "owner",
-                                       meta: meta)
-            } catch {
-                logger.error("识别问题报告失败: \(error)")
-            }
-        }
+        fireAudit(action: "feedback", entityType: "ocr_result",
+                  entityId: documentId.uuidString, meta: meta,
+                  logLabel: "识别问题报告失败")
     }
 
     /// FR24.5 代确认审计：「由你代确认」必须可查（同机照护者视图）
     func auditCaregiverConfirm(doseId: String, patientId: UUID) {
-        guard let audit else { return }
-        Task {
-            do {
-                try await audit.record(action: "confirm_field", entityType: "dose_log",
-                                       entityId: doseId, actorLocal: "caregiver",
-                                       meta: "onBehalfOf=\(patientId.uuidString)")
-            } catch {
-                logger.error("代确认审计失败: \(error)")
-            }
-        }
+        fireAudit(action: "confirm_field", entityType: "dose_log",
+                  entityId: doseId, actorLocal: "caregiver",
+                  meta: "onBehalfOf=\(patientId.uuidString)",
+                  logLabel: "代确认审计失败")
     }
 
     /// 审计：文档导出（§7 七动作之一）。未注入审计（测试/预览）时静默跳过。
     func auditExport(documentId: UUID, title: String) {
-        guard let audit else { return }
-        Task {
-            do {
-                try await audit.record(action: "export", entityType: "document",
-                                       entityId: documentId.uuidString,
-                                       actorLocal: "owner", meta: title)
-            } catch {
-                logger.error("导出审计失败: \(error)")
-            }
-        }
+        fireAudit(action: "export", entityType: "document",
+                  entityId: documentId.uuidString, meta: title,
+                  logLabel: "导出审计失败")
     }
 
     /// 审计：查看敏感原图（FR14.2「查看敏感原图」为审计记录页必列动作之一）。
     /// 未注入审计（测试/预览）时静默跳过。
     func auditViewSensitiveOriginal(documentId: UUID, title: String) {
-        guard let audit else { return }
-        Task {
-            do {
-                try await audit.record(action: "viewSensitiveOriginal", entityType: "document",
-                                       entityId: documentId.uuidString,
-                                       actorLocal: "owner", meta: title)
-            } catch {
-                logger.error("查看敏感原图审计失败: \(error)")
-            }
-        }
+        fireAudit(action: "viewSensitiveOriginal", entityType: "document",
+                  entityId: documentId.uuidString, meta: title,
+                  logLabel: "查看敏感原图审计失败")
     }
 
     /// TTS 单出口。**只播报已确认的结构化字段**（脚本由 Domain 的

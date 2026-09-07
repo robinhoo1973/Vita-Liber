@@ -144,7 +144,11 @@ public enum ReminderChannelRules {
     /// notifyId → 类别偏好键（§5.44 六源）；未识别前缀返回 nil（消费侧回落
     /// 全局 remindChannel 缺省，绝不臆断类别）
     public static func categoryKey(for notifyId: String) -> AppSettingKey? {
-        if notifyId.hasPrefix("dose-") || notifyId.hasPrefix("slot-") || notifyId.hasPrefix("snooze-") {
+        // 第八轮全仓审查修复（前缀分类表补全）：voice-rem-（语音提醒，归属
+        // 用药类通道）与 alert-（F16 设备预警，对应 remch.alert 六类偏好项）
+        // 此前漏登记——落回全局 remindChannel 缺省，各自类别偏好零效果。
+        if notifyId.hasPrefix("dose-") || notifyId.hasPrefix("slot-") || notifyId.hasPrefix("snooze-")
+            || notifyId.hasPrefix("voice-rem-") {
             return .remindChannelMeds
         }
         if notifyId.hasPrefix("apt-") || notifyId.hasPrefix("followup-apt-") {
@@ -153,6 +157,7 @@ public enum ReminderChannelRules {
         if notifyId.hasPrefix("followup-") { return .remindChannelExam }   // 观察随访
         if notifyId.hasPrefix("exp-") || notifyId.hasPrefix("refill-") { return .remindChannelExpiry }
         if notifyId.hasPrefix("backup-") { return .remindChannelBackup }
+        if notifyId.hasPrefix("alert-") { return .remindChannelAlert }
         return nil
     }
 

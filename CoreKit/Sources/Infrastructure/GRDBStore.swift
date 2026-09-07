@@ -204,8 +204,13 @@ public struct GRDBStore {
             """)
         for row in rows {
             let currentId = row["id"] as String
-            // 逻辑 id 形态 = dose-{planUUID}-{day}-{ordinal}（5 段）；legacy = 4 段
-            guard currentId.split(separator: "-").count == 4 else { continue }
+            // 第八轮全仓审查修复（v15 重算守卫形态错误）：逻辑 id =
+            // dose-{planUUID}-{day}-{ordinal} = 8 段（7 连字符）；真实 legacy
+            // epoch id = dose-{uuidString}-{epoch} = 7 段（6 连字符）。原守卫
+            // `count == 4` 匹配的是从未有生产写入方产生过的形态（仅测试
+            // 夹具），使重算对**全部**真实 legacy 行空转；8 段逻辑行已正确
+            // （跳过），5 段随机 UUID 补录行恒已决议（不参与）。
+            guard currentId.split(separator: "-").count == 7 else { continue }
             let planId = row["plan_id"] as String
             let scheduledFor = row["scheduled_for"] as Double
             var recomputed: String?
@@ -259,14 +264,21 @@ public struct GRDBStore {
                                        arguments: [newId, currentId])
                     }
                     catch {
-                        // 仅剩 DB 级错误（磁盘/损坏）会走到这里——按 currentId
-                        // 清理自身证据与父行（两处均幂等）；清理失败向上抛出
-                        // = 迁移失败（上层进入只读降级，绝不重播种），
-                        // 不允许半迁移状态静默留存
+                        // 仅剩 DB 级错误（磁盘/损坏）会走到这里——未决议行按
+                        // currentId **与 newId 双侧**清理证据（第八轮修复：两表
+                        // UPDATE 各自独立提交，半迁移时证据可能已整体/部分挂在
+                        // newId，只清 currentId 会留下指向不存在父行的悬空引用），
+                        // 再删父行；已决议行事实优先保留原 id，半迁移证据从
+                        // newId 滚回 currentId。清理失败向上抛出 = 迁移失败
+                        // （上层进入只读降级，绝不重播种），不允许半迁移状态
+                        // 静默留存。
                         if (row["user_action"] as String?) == nil {
                             try Self.deleteDoseEvidence(db, doseLogId: currentId)
+                            try Self.deleteDoseEvidence(db, doseLogId: newId)
                             try db.execute(sql: "DELETE FROM medication_dose_log WHERE id = ?",
                                            arguments: [currentId])
+                        } else {
+                            try Self.moveDoseEvidence(db, from: newId, to: currentId)
                         }
                     }
                 }
@@ -274,14 +286,18 @@ public struct GRDBStore {
         }
         // 残余清除：无法重算的未决议行（计划已删/日程损坏/旧 epoch id）——
         // 保留会与逻辑 id 物化窗口重复计账，且物化只覆盖 active 计划，不会被重建。
-        // GLOB 判定：逻辑 id = dose-{uuid}-{day}-{ordinal}（前缀 dose- + 4 段），
-        // 其余形态（旧 epoch 三段 id / 随机 UUID 补录 id）一律视为不可重算残留。
+        // 第八轮全仓审查修复（GLOB 形态错误）：逻辑 id = dose-{uuid}-{day}-
+        // {ordinal}（前缀 dose- 后 7 段、共 7 连字符）；原 'dose-*-*-*-*' 只要求
+        // ≥4 连字符——真实 legacy epoch id（6 连字符）也命中，被「保留」而
+        // 逃过清除，升级后物化窗口插入逻辑 id 重复行 → 双轨双扣账。改用
+        // 精确 7 连字符模式：仅 8 段逻辑行幸存，其余形态（旧 epoch 7 段 /
+        // 随机 UUID 补录 / 测试夹具）一律视为不可重算残留。
         // 第七轮修复：先清这些行的引用证据（foreign_keys=OFF 无级联删除，
         // 不清则 dose_lot_allocation/notification_delivery 悬空）
         try Self.deleteEvidenceOfUnresolvedLegacyRows(db)
         try db.execute(sql: """
             DELETE FROM medication_dose_log
-            WHERE user_action IS NULL AND id NOT GLOB 'dose-*-*-*-*'
+            WHERE user_action IS NULL AND id NOT GLOB 'dose-*-*-*-*-*-*-*'
             """)
     }
 
@@ -314,14 +330,14 @@ public struct GRDBStore {
             try db.execute(sql: """
                 DELETE FROM dose_lot_allocation WHERE dose_log_id IN
                   (SELECT id FROM medication_dose_log
-                   WHERE user_action IS NULL AND id NOT GLOB 'dose-*-*-*-*')
+                   WHERE user_action IS NULL AND id NOT GLOB 'dose-*-*-*-*-*-*-*')
                 """)
         }
         if try tableExists(db, "notification_delivery") {
             try db.execute(sql: """
                 DELETE FROM notification_delivery WHERE dose_log_id IN
                   (SELECT id FROM medication_dose_log
-                   WHERE user_action IS NULL AND id NOT GLOB 'dose-*-*-*-*')
+                   WHERE user_action IS NULL AND id NOT GLOB 'dose-*-*-*-*-*-*-*')
                 """)
         }
     }

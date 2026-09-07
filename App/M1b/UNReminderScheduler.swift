@@ -107,15 +107,18 @@ actor UNReminderScheduler: ReminderScheduling {
         }
     }
 
-    /// 本仓通知 id 前缀（对账 dose-/slot-、预约分级 apt- 与错过跟进
+    /// 本仓通知 id 前缀（对账 dose-/slot-/snooze-、预约分级 apt- 与错过跟进
     /// apt-followup-/复诊 followup-apt-、到期 exp-、续药 refill-、
-    /// 备份 backup-、随访 followup-、语音 voice-rem-）。
+    /// 备份 backup-、随访 followup-、语音 voice-rem-、预警 alert-）。
     /// 第七轮修复：apt- 前缀漏登记——语言切换时预约分级提醒跳过文案重写，
-    /// 旧语言的标题/正文永久滞留（FR14.5 对预约通道失效）
+    /// 旧语言的标题/正文永久滞留（FR14.5 对预约通道失效）。
+    /// 第八轮修复：snooze- 漏登记——稍后提醒语言切换时同样跳过重写。
     private static func isAppOwned(_ id: String) -> Bool {
-        id.hasPrefix("dose-") || id.hasPrefix("slot-") || id.hasPrefix("refill-")
+        id.hasPrefix("dose-") || id.hasPrefix("slot-") || id.hasPrefix("snooze-")
+            || id.hasPrefix("refill-")
             || id.hasPrefix("exp-") || id.hasPrefix("followup-")
             || id.hasPrefix("apt-") || id.hasPrefix("backup-") || id.hasPrefix("voice-rem-")
+            || id.hasPrefix("alert-")
     }
 
     func pending() async throws -> [String: Date] {

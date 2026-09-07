@@ -34,13 +34,13 @@ public struct DecodedImage: Sendable, Codable, Equatable {
 }
 
 /// 解码错误。
+/// 第八轮全仓审查修复：memoryPressure/exceedsMaxPages 零构造零 catch
+/// （不可达 case）——已删除；对应防护随实现方引入。
 public enum DecodeError: Error, Sendable, Equatable {
     case corruptData
     case unsupportedFormat
     case renderFailed
-    case memoryPressure
     case pageIndexOutOfBounds
-    case exceedsMaxPages
 }
 
 /// 解码协议（跨平台统一接口）。

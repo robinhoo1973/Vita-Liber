@@ -37,7 +37,9 @@ final class SearchViewState {
     /// 并自动检索（用户新开搜索却撞上旧词的旧结果，意图被劫持）。
     /// 用户键入仍走 setQuery；注入走 injectQuery，视图 onAppear 经
     /// consumeInjectedQuery 取走即清（pendingVoiceDraft 同款一次性语义）。
-    private var injectedQuery: String?
+    /// 第八轮修复：改为可观察（private(set)）——搜索页已在栈顶时
+    /// onChange 就地消费注入词（router 去重下 onAppear 不再触发）。
+    private(set) var injectedQuery: String?
 
     func injectQuery(_ q: String) {
         query = q
@@ -106,12 +108,18 @@ struct GlobalSearchView: View {
     }
 
     var body: some View {
-        List {
+        // 第八轮全仓审查修复（每帧重复计算）：observationHits 对全量观察
+        // 事件做 flatMap+两次本地化子串过滤+排序，medicationHits 同族——
+        // 原实现每帧 body 求值各算两遍（allEmpty 一遍 + 分区一遍）。改为
+        // 每帧求值一次的局部常量，两次消费同一结果。
+        let obsHits = observationHits
+        let medHits = medicationHits
+        return List {
             if query.isEmpty {
                 ContentUnavailableView(L10n.searchTitle, systemImage: "magnifyingglass",
                                        description: Text(L10n.searchPlaceholderHint))
                     .accessibilityIdentifier("SP-20.search.idle")
-            } else if allEmpty {
+            } else if state.docHits.isEmpty && obsHits.isEmpty && medHits.isEmpty {
                 ContentUnavailableView {
                     Label(L10n.searchNoResult(query), systemImage: "magnifyingglass")
                 } description: {
@@ -135,9 +143,9 @@ struct GlobalSearchView: View {
                         }
                     }
                 }
-                if !observationHits.isEmpty {
+                if !obsHits.isEmpty {
                     Section(L10n.searchGroupObservations) {
-                        ForEach(observationHits) { obs in
+                        ForEach(obsHits) { obs in
                             Button {
                                 router.navigate(to: .observationDetail(obs.id))
                             } label: {
@@ -151,9 +159,9 @@ struct GlobalSearchView: View {
                         }
                     }
                 }
-                if !medicationHits.isEmpty {
+                if !medHits.isEmpty {
                     Section(L10n.searchGroupMeds) {
-                        ForEach(medicationHits) { item in
+                        ForEach(medHits) { item in
                             Button {
                                 router.navigate(to: .medicationCabinet)
                             } label: {
@@ -179,6 +187,16 @@ struct GlobalSearchView: View {
             if filterText.isEmpty, let injected = state.consumeInjectedQuery() {
                 filterText = injected
             }
+        }
+        .onChange(of: state.injectedQuery) { _, injected in
+            // 第八轮全仓审查修复（栈顶去重下的语音搜索）：搜索页已是 AI
+            // Tab 栈顶时 router 去重守卫把「搜索 X」变成静默 no-op——注入词
+            // 滞留共享状态，直到下次新开搜索页才被 onAppear 消费（陈旧词
+            // 劫持一次无关搜索）。注入词变化即就地消费：更新输入框并触发
+            // 既有防抖检索，任何路径都即时生效。
+            guard let injected, injected != filterText else { return }
+            filterText = injected
+            _ = state.consumeInjectedQuery()
         }
         .task(id: app.currentPatientId) {
             await hub.load(patientId: app.currentPatientId)

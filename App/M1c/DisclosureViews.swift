@@ -12,7 +12,7 @@ struct L2DisclosureSheet: View {
         NavigationStack {
             VStack(spacing: 20) {
                 Image(systemName: "info.circle.fill")
-                    .font(.system(size: 48))
+                    .font(VLFont.disclosureIcon)
                     .foregroundStyle(Color("brand-primary", bundle: .main))
 
                 Text(disclosure.title)

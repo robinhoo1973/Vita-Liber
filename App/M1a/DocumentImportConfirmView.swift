@@ -30,6 +30,31 @@ struct DocumentImportConfirmView: View {
                         }
                     }
                 }
+                // V3.41 文档类型后置判定（第八轮全仓审查修复）：类型不再是
+                // 导入前静默定死的标签——确认卡以 D 级草稿呈现当前判定
+                // （入口 hint/手动指定），可一键改（FR5.5 覆盖语义；FR17.18
+                // 共享理解层期一落地后判定建议由此处汇入）。可选项 = 内置
+                // 标签 + 当前自定义值（防自定义标签不在内置清单时 Picker
+                // 无匹配 tag）。
+                Section {
+                    HStack {
+                        Text(L10n.docConfirmDocType).font(.subheadline)
+                        Spacer()
+                        GradeBadge(grade: "D")
+                    }
+                    Picker(L10n.docConfirmDocType, selection: $draft.docType) {
+                        let options = L10n.docTypeLabels.contains(draft.docType)
+                            ? L10n.docTypeLabels
+                            : L10n.docTypeLabels + [draft.docType]
+                        ForEach(options, id: \.self) { label in
+                            Text(label).tag(label)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .accessibilityIdentifier("SP-11.docConfirm.docType")
+                } footer: {
+                    Text(L10n.docConfirmDocTypeHint)
+                }
                 Section {
                     Button {
                         showRegionImage = true

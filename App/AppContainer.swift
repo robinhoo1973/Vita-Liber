@@ -19,6 +19,12 @@ struct AppContainer {
     let meds: MedicationStore
     let apts: AppointmentStore
     let reconciler: ReminderReconciler
+    /// 第八轮全仓审查修复（通道假宣告遗留面）：组装根唯一经 FR9.18 投递门
+    /// 的调度器（ChannelGatedScheduler）——VitaLiberApp 装配的 ReminderStore
+    /// 与 F16DeviceState 此前绕过本门直连裸 UNReminderScheduler（到期/续药/
+    /// 备份/随访/语音/预警六族提醒的「静音仅横幅」偏好全部假宣告）。所有
+    /// 生产通知生产者必须经本实例投递。
+    let reminderScheduler: any ReminderScheduling
     /// FR9.15/§4.2 五表原子创建与计划生命周期（处方→计划参考模板）
     let composer: MedicationPlanComposer
     let search: GRDBSearchService
@@ -157,6 +163,7 @@ struct AppContainer {
                             meds: meds,
                             apts: apts,
                             reconciler: reconciler,
+                            reminderScheduler: scheduler,
                             composer: composer,
                             search: search,
                             mediaSession: MediaUnlockSession(),

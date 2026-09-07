@@ -72,14 +72,34 @@ final class SchemaRuntimeTests: XCTestCase {
 
     /// dev-pm §3.1 M0 第 5 条：FR9.10-9.14 依赖的批次/药品表必须在 M0 迁移中一并建库
     /// （批次表属 schema 基础设施，不推迟到 M1b）。
+    /// 第八轮全仓审查修复（部分清单假绿）：原断言只覆盖 6 张表——迁移
+    /// 若把其余二十余张表（appointment/immunization/consent_record/
+    /// guideline_source/alert_event/ocr_result/notification_delivery/
+    /// local_owner/F25 码表等）删掉或改名，全部金样/运行时测试依然全绿，
+    /// 只在功能运行时炸。改为 tech-spec §4.3 全量清单逐一断言。
     func test_M0全量建表含双轨库存五表() throws {
         let store = try GRDBStore.inMemory()
         let tables = try store.writer.read { db in
             try String.fetchAll(db, sql: "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
         }
-        for required in ["prescription", "medication", "medication_plan",
-                         "medication_dose_log", "stock_lot", "dose_lot_allocation"] {
-            XCTAssertTrue(tables.contains(required), "M0 建库必须包含 \(required)（dev-pm §3.1 第 5 条）")
+        // §4.3 全量表清单（与 MigrationEngine/SchemaV2 DDL 的 CREATE TABLE 集一致）
+        let required: [String] = [
+            "prescription", "medication", "medication_plan",
+            "medication_dose_log", "stock_lot", "dose_lot_allocation",
+            "local_owner", "device_identity", "patient_profile", "document_file",
+            "asset", "app_settings", "audit_event", "appointment", "immunization",
+            "claim_item", "sent_message", "consent_record",
+            "emergency_card_selection", "guideline_source", "allergy_event",
+            "ocr_result", "encounter", "encounter_question", "health_problem",
+            "observation", "metric_sample", "alert_event",
+            "notification_delivery", "notification_state", "voice_note",
+            "onboarding_progress", "plan_lifecycle_event", "reminder",
+            "ai_conversation", "ai_message", "contact",
+            "code_alias", "code_concept", "code_map", "resolver_override",
+            "ucum_molar_bridge", "ucum_unit",
+        ]
+        for table in required {
+            XCTAssertTrue(tables.contains(table), "M0 建库必须包含 \(table)（tech-spec §4.3 全量清单）")
         }
         let indexes = try store.writer.read { db in
             try String.fetchAll(db, sql: "SELECT name FROM sqlite_master WHERE type='index'")

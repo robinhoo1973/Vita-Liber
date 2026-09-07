@@ -133,9 +133,12 @@ public enum AlertRuleEngine {
     /// 单位同义标签归一（第七轮修复）：同一物理单位在信源库与录入路径的
     /// 标签不同（心率 bpm vs 次/分）——守卫判定前归一，非换算。
     /// 未识别标签原样返回（宁可少警的守卫语义不变）。
+    /// 第八轮修复：补全角斜杠/带空格/「次/min」形态（OCR/IME 常见）——
+    /// 「次／分」此前未归一而整条 L1 心率告警静默漏警。
     static func unitAlias(_ unit: String) -> String {
         switch unit {
-        case "次/分", "次每分钟", "次/分钟", "bpm", "beats/min", "beats/minute":
+        case "次/分", "次／分", "次 / 分", "次/min", "次／min",
+             "次每分钟", "次/分钟", "次／分钟", "bpm", "beats/min", "beats/minute":
             return "bpm"
         default:
             return unit

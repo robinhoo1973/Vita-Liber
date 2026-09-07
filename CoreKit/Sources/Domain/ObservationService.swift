@@ -13,11 +13,16 @@ public struct ObservationGroup: Sendable, Equatable, Identifiable {
     public var groupId: UUID
     public var kind: ObservationKind
     public var occurrences: [ObservationEvent]
+    /// 第八轮全仓审查修复（重复最大值扫描）：latest 原为计算属性，每次
+    /// 访问 O(k) max——观察列表每行渲染读 3 次、就诊展示页每页约 5 次，
+    /// 同一最大值被重复扫描。改为构建时一次算出（存储属性，Equatable
+    /// 语义不变——值由 occurrences 唯一决定）。
+    public let latest: ObservationEvent?
     public var id: UUID { groupId }
     public init(groupId: UUID, kind: ObservationKind, occurrences: [ObservationEvent]) {
         self.groupId = groupId; self.kind = kind; self.occurrences = occurrences
+        self.latest = occurrences.max { $0.occurredAt < $1.occurredAt }
     }
-    public var latest: ObservationEvent? { occurrences.max { $0.occurredAt < $1.occurredAt } }
     public var selfMark: String? { occurrences.compactMap(\.selfMark).last }
 }
 

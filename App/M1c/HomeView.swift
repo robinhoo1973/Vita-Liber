@@ -186,7 +186,11 @@ struct HomeView: View {
     // MARK: - 标准八卡
 
     private var standardHome: some View {
-        ScrollView {
+        // 第八轮全仓审查修复（每帧重复聚合）：snapshot 每次访问全量重算
+        // 六组子数组（过滤/排序/flatMap）——body 一次求值原需 13 次。此处
+        // 每帧只算一次，经参数传入各卡（卡片签名随之为其接收）。
+        let snap = snapshot
+        return ScrollView {
             VStack(spacing: 16) {
                 if isEmptyNewUser {
                     newUserGuide
@@ -195,28 +199,28 @@ struct HomeView: View {
                         notifDeniedBanner
                     }
                     if hasOverdueOcr {
-                        pendingOcrCard   // 72h+ 未处理钉住置顶（§5.2）
+                        pendingOcrCard(snap)   // 72h+ 未处理钉住置顶（§5.2）
                     }
-                    if !snapshot.todoItems.isEmpty {
-                        todoCard
+                    if !snap.todoItems.isEmpty {
+                        todoCard(snap)
                     }
                     if app.profileCompletion.done < app.profileCompletion.total {
                         profileProgressCard   // mock 对齐项：档案完善进度卡（成熟用户续填入口）
                     }
-                    if snapshot.pendingOCRCount > 0 && !hasOverdueOcr {
-                        pendingOcrCard
+                    if snap.pendingOCRCount > 0 && !hasOverdueOcr {
+                        pendingOcrCard(snap)
                     }
-                    if !snapshot.expiringSoon.isEmpty {
-                        expiringSoonCard
+                    if !snap.expiringSoon.isEmpty {
+                        expiringSoonCard(snap)
                     }
-                    if !snapshot.refill.isEmpty {
-                        refillCard
+                    if !snap.refill.isEmpty {
+                        refillCard(snap)
                     }
-                    if !snapshot.alertSummary.isEmpty {
-                        alertSummaryCard
+                    if !snap.alertSummary.isEmpty {
+                        alertSummaryCard(snap)
                     }
-                    if !snapshot.recentObservations.isEmpty {
-                        recentObservationsCard
+                    if !snap.recentObservations.isEmpty {
+                        recentObservationsCard(snap)
                     }
                     quickCaptureCard
                 }
@@ -289,9 +293,9 @@ struct HomeView: View {
         .accessibilityIdentifier("SP-04.home.notifDenied")
     }
 
-    private var todoCard: some View {
+    private func todoCard(_ snap: TodaySnapshot) -> some View {
         CardSection(title: L10n.homeTodayTodos) {
-            ForEach(snapshot.todoItems) { item in
+            ForEach(snap.todoItems) { item in
                 Button {
                     switch item.kind {
                     case .doseSlot:
@@ -361,13 +365,13 @@ struct HomeView: View {
         docs.documents.contains { PendingOcrRules.isOverdue(createdAt: $0.createdAt) }
     }
 
-    private var pendingOcrCard: some View {
+    private func pendingOcrCard(_ snap: TodaySnapshot) -> some View {
         Button {
             router.navigate(to: .pendingOcrQueue)
         } label: {
             HStack {
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.yellow)
-                Text(L10n.homePendingOcrCount(snapshot.pendingOCRCount))
+                Text(L10n.homePendingOcrCount(snap.pendingOCRCount))
                     .font(.subheadline).foregroundStyle(.primary)
                 if hasOverdueOcr {
                     Text(L10n.homeOcrOverdue)
@@ -385,9 +389,9 @@ struct HomeView: View {
         .accessibilityIdentifier("SP-04.home.pendingOcr")
     }
 
-    private var expiringSoonCard: some View {
+    private func expiringSoonCard(_ snap: TodaySnapshot) -> some View {
         CardSection(title: L10n.homeExpiringSoon) {
-            ForEach(snapshot.expiringSoon) { item in
+            ForEach(snap.expiringSoon) { item in
                 HStack {
                     Image(systemName: "calendar.badge.clock").foregroundStyle(.blue)
                     Text(item.title).font(.subheadline)
@@ -400,9 +404,9 @@ struct HomeView: View {
         }
     }
 
-    private var refillCard: some View {
+    private func refillCard(_ snap: TodaySnapshot) -> some View {
         CardSection(title: L10n.homeRefill) {
-            ForEach(snapshot.refill) { item in
+            ForEach(snap.refill) { item in
                 Button {
                     router.navigate(to: .medicationCabinet)
                 } label: {
@@ -419,9 +423,9 @@ struct HomeView: View {
         .accessibilityIdentifier("SP-04.home.refill")
     }
 
-    private var alertSummaryCard: some View {
+    private func alertSummaryCard(_ snap: TodaySnapshot) -> some View {
         CardSection(title: L10n.homeAlertSummary) {
-            ForEach(snapshot.alertSummary) { ref in
+            ForEach(snap.alertSummary) { ref in
                 Button {
                     router.navigate(to: .alertHistory)
                 } label: {
@@ -437,11 +441,11 @@ struct HomeView: View {
         }
     }
 
-    private var recentObservationsCard: some View {
+    private func recentObservationsCard(_ snap: TodaySnapshot) -> some View {
         CardSection(title: L10n.homeRecentObs) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 10) {
-                    ForEach(snapshot.recentObservations) { obs in
+                    ForEach(snap.recentObservations) { obs in
                         Button {
                             router.navigate(to: .observationDetail(obs.id))
                         } label: {
@@ -632,7 +636,7 @@ private struct BigCareCard: View {
         Button(action: action) {
             HStack(spacing: 20) {
                 Image(systemName: icon)
-                    .font(.system(size: 40))
+                    .font(VLFont.homeActionIcon)
                     .foregroundStyle(tint)
                     .frame(width: 64, height: 64)
                     .background(RoundedRectangle(cornerRadius: 16).fill(tint.opacity(0.12)))

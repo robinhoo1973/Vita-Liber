@@ -72,6 +72,7 @@
 "backup.degrade.notSignedIn" = "Not signed in to iCloud, so iCloud Drive backup is unavailable. You can still export to local files.";
 "backup.degrade.noSpace" = "Not enough iCloud space, so this backup did not complete. Free up space and try again; your local data is unaffected.";
 "backup.degrade.checksum" = "The backup file failed verification, so nothing was restored. Please try a different backup file.";
+"backup.degrade.restoreFailed" = "Restore did not complete; your local data is unaffected. Please retry. If it keeps failing, update the app or contact support.";
 "backup.degrade.conflict" = "This device already contains health data. The restore was not performed to avoid overwriting it. Back up and clear this device first, or contact support for migration help.";
 "backup.conflict.title" = "Data conflict preview";
 "backup.conflict.choice" = "Resolution";
@@ -689,6 +690,7 @@
 "plan.form.brandName" = "Brand name (optional)";
 "plan.form.spec" = "Strength / form";
 "plan.form.dosePerTake" = "Dose per take";
+"plan.form.doseParseError" = "This dose cannot be recognized. Please use numbers, e.g. 1, 0.5, half, or 1/2.";
 "plan.form.timesPerDay" = "Times per day";
 "plan.form.route" = "Route";
 "plan.form.meal" = "Meal relation (e.g. with food)";
@@ -912,7 +914,7 @@
 "showcase.unlockReason" = "Enter doctor showcase mode";
 "remch.title" = "Reminder Delivery";
 "remch.sectionHint" = "Delivery style for each reminder type";
-"remch.sectionFooter" = "Ring-until-confirmed requires a special system permission; it takes effect after approval in a later version";
+"remch.sectionFooter" = "Ring-until-confirmed requires a special system permission; it takes effect after approval in a later version. \"Mute, banner only\" currently applies only to medication dose and slot reminders; other categories still deliver as system notifications until in-app banner channels land.";
 "remch.meds" = "Medications";
 "remch.apts" = "Appointments";
 "remch.exam" = "Exam prep";
@@ -977,6 +979,8 @@
 "docConfirm.title" = "Confirm Recognized Result";
 "docConfirm.viewRegion" = "View Scan Region";
 "docConfirm.saveAll" = "Confirm & Save";
+"docConfirm.docType" = "Document type";
+"docConfirm.docTypeHint" = "The type is a suggestion and can be changed here; it can also be adjusted later in the document library.";
 "docConfirm.hint" = "Review each recognized item; only confirmed items become part of the formal record";
 "docConfirm.unconfirmedCountFmt" = "%d item(s) still need confirmation";
 "prescription.field.hospital" = "Hospital";
@@ -1003,6 +1007,7 @@
 "helpcard.previewContinue" = "Continue";
 "helpcard.previewHint" = "Plain text, no sensitive images; includes action guidance, validity and receipt notice";
 "pref.dateFormat" = "Date format";
+"pref.dateFormatPending" = "This format takes effect after timeline and search results are wired in a later version";
 "pref.dateFormatYMD" = "Sep 5, 2026";
 "pref.dateFormatMD" = "Sep 5";
 "pref.dateFormatISO" = "2026-09-05";
@@ -1293,6 +1298,7 @@
 "f19.noAppointment" = "No appointments on record";
 "f19.recentGlucoseFmt" = "Recent glucose: %@";
 "f19.noGlucose" = "No glucose records yet";
+"f19.metricInvalidValue" = "That value looks invalid; please say it again (e.g. \"glucose 5.6\").";
 "f19.metricNotSupportedFmt" = "Recording \"%@\" is not supported yet; please enter it manually on the Trends page.";
 "f19.stockRemainingFmt" = "%@: ~%d days left · estimated by plan";
 "f19.stockNoPlanFmt" = "%@: no active plan, days remaining cannot be estimated";

@@ -99,6 +99,8 @@ enum L10n {
     static var backupNotSignedIn: String { t("backup.degrade.notSignedIn") }
     static var backupNoSpace: String { t("backup.degrade.noSpace") }
     static var backupChecksumFailed: String { t("backup.degrade.checksum") }
+    /// 第八轮修复：非校验类恢复失败（读文件/磁盘/约束/新版本 schema）——不归罪文件损坏
+    static var backupRestoreFailed: String { t("backup.degrade.restoreFailed") }
     // ADR-019：目标设备已有数据——恢复被整体拒绝（不静默覆盖/丢弃）
     static var backupConflictDetected: String { t("backup.degrade.conflict") }
     // ADR-019 冲突预览：逐项裁决（保留本机/采用备份/并存）
@@ -790,6 +792,8 @@ enum L10n {
     "docConfirm.confidenceHigh",
     "docConfirm.confidenceLow",
     "docConfirm.confidenceMid",
+    "docConfirm.docType",
+    "docConfirm.docTypeHint",
     "docConfirm.hint",
     "docConfirm.reenable",
     "docConfirm.reject",
@@ -914,7 +918,7 @@ enum L10n {
         "gsDetail.notFound",
         "gsDetail.metric",
         "gsDetail.thresholds",
-        "gsDetail.note", "backup.checksum", "backup.create", "backup.degrade.checksum",
+        "gsDetail.note", "backup.checksum", "backup.create", "backup.degrade.checksum", "backup.degrade.restoreFailed",
         "backup.degrade.noSpace", "backup.degrade.notSignedIn", "backup.exportedName", "backup.restore",
         "backup.restored", "backup.scopeNote", "backup.title", "care.footer",
         "care.parameters.readback", "care.parameters.section", "care.parameters.sos",
@@ -1186,7 +1190,7 @@ enum L10n {
         "plan.status.active", "plan.status.paused", "plan.status.ended",
         "plan.backfill.title", "plan.backfill.actualTime",
         "plan.form.title", "plan.form.medication", "plan.form.genericName", "plan.form.brandName",
-        "plan.form.spec", "plan.form.dosePerTake", "plan.form.timesPerDay", "plan.form.route",
+        "plan.form.spec", "plan.form.dosePerTake", "plan.form.doseParseError", "plan.form.timesPerDay", "plan.form.route",
         "plan.form.meal", "plan.form.schedule", "plan.form.fixedTimes", "plan.form.asNeeded",
         "plan.form.startDate", "plan.form.hasEndDate", "plan.form.endDate", "plan.form.longTerm",
         "plan.form.source", "plan.form.hospital", "plan.form.doctor", "plan.form.advice",
@@ -1281,7 +1285,7 @@ enum L10n {
         "pref.tag.global", "pref.tag.newOnly", "pref.remindAdvance", "pref.snooze",
         "pref.quietStart", "pref.quietEnd", "pref.to", "pref.channel",
         "pref.channel.notifyOnly", "pref.channel.ringUntilConfirm", "pref.channel.silentBanner",
-        "pref.notifPreviewMed", "pref.remindScopeNote", "pref.dateFormat", "pref.weekStart",
+        "pref.notifPreviewMed", "pref.remindScopeNote", "pref.dateFormat", "pref.dateFormatPending", "pref.weekStart",
         "pref.unitSystem", "pref.unit.metric", "pref.unit.imperial", "pref.reduceMotion",
         "pref.homeSort", "pref.homeSort.time", "pref.homeSort.type",
         "pref.readback", "pref.readback.never", "pref.readback.ask", "pref.readback.always",
@@ -1358,6 +1362,7 @@ enum L10n {
         "f16.authDenied",
         "f16.noRangeFmt",
         "f19.markTakenMultipleFmt",
+        "f19.metricInvalidValue",
         "f19.metricNotSupportedFmt",
         "f19.sendA11y",
         "help.data.corrupt",
@@ -1685,6 +1690,8 @@ enum L10n {
     static var planFormBrandName: String { t("plan.form.brandName") }
     static var planFormSpec: String { t("plan.form.spec") }
     static var planFormDosePerTake: String { t("plan.form.dosePerTake") }
+    /// 第八轮修复：非空但不可解析的剂量文本就地报错（响亮拒绝）
+    static var planFormDoseParseError: String { t("plan.form.doseParseError") }
     static var planFormTimesPerDay: String { t("plan.form.timesPerDay") }
     static var planFormRoute: String { t("plan.form.route") }
     static var planFormMeal: String { t("plan.form.meal") }
@@ -1926,6 +1933,9 @@ enum L10n {
     static var docConfirmViewRegion: String { t("docConfirm.viewRegion") }
     static var docConfirmSaveAll: String { t("docConfirm.saveAll") }
     static var docConfirmHint: String { t("docConfirm.hint") }
+    /// V3.41 文档类型后置判定：确认卡 D 级类型草稿行（可一键改）
+    static var docConfirmDocType: String { t("docConfirm.docType") }
+    static var docConfirmDocTypeHint: String { t("docConfirm.docTypeHint") }
     // 第四轮全仓审查修复：FR6.3 三级置信度/FR6.4 放弃/全部确认闸门/保存失败可见
     static var docConfirmConfidenceHigh: String { t("docConfirm.confidenceHigh") }
     static var docConfirmConfidenceMid: String { t("docConfirm.confidenceMid") }
@@ -2041,6 +2051,8 @@ enum L10n {
     static var helpcardPreviewContinue: String { t("helpcard.previewContinue") }
     static var helpcardPreviewHint: String { t("helpcard.previewHint") }
     static var prefDateFormat: String { t("pref.dateFormat") }
+    /// 第八轮修复：读取点随 W4 批接线前的诚实预告
+    static var prefDateFormatPending: String { t("pref.dateFormatPending") }
     static var prefDateFormatYMD: String { t("pref.dateFormatYMD") }
     static var prefDateFormatMD: String { t("pref.dateFormatMD") }
     static var prefDateFormatISO: String { t("pref.dateFormatISO") }
@@ -2393,6 +2405,8 @@ enum L10n {
     }
     static func f19MetricRecorded(_ v: Double) -> String { String(format: t("f19.metricRecordedFmt"), v) }
     static func f19QuestionRecorded(_ q: String) -> String { String(format: t("f19.questionRecordedFmt"), q) }
+    /// 第八轮修复：文法命中数值但 ≤0（如「血糖零」）——响亮拒绝，绝不静默丢弃
+    static var f19MetricInvalidValue: String { t("f19.metricInvalidValue") }
 
     // MARK: - FR15.2 系统医疗急救卡引导
     static var medicalIDTitle: String { t("medicalID.title") }

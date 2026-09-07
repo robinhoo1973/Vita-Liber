@@ -17,6 +17,20 @@ import Protocols
 // binds: SU-M1a-SEC / SU-M1a-BIO / SU-M1a-GOLDEN — TC-M1a-03/04/05（BR-003 一票否决）
 final class M1aAcceptanceTests: XCTestCase {
 
+    /// 第八轮全仓审查修复（临时目录残留清理）：makeDocs 此前把 BR-002
+    /// 不可变原件直接写进系统共享临时目录（originals/<patientId>/），
+    /// 无 teardown 清理——原件按设计永不删除，每次运行永久累积。改为
+    /// 每用例独立子目录并在 tearDown 统一清除。
+    private var testOriginalsDirs: [URL] = []
+
+    override func tearDownWithError() throws {
+        for dir in testOriginalsDirs {
+            try? FileManager.default.removeItem(at: dir)   // try?-ok: 清理尽力而为——失败只留残留测试目录，不阻断后续用例
+        }
+        testOriginalsDirs = []
+        try super.tearDownWithError()
+    }
+
     private func freshDefaults() -> UserDefaults {
         let suite = "M1aAcceptanceTests-\(UUID().uuidString)"
         let d = UserDefaults(suiteName: suite)!
@@ -33,11 +47,15 @@ final class M1aAcceptanceTests: XCTestCase {
 
     /// 活管线状态仓（V3.39 BR-003 用例载体）：真实 DocumentStore + 桩识别器
     private func makeDocs(container: AppContainer) -> DocumentsState {
-        DocumentsState(
+        // 第八轮修复：每用例独立原件目录（tearDown 清除，见 testOriginalsDirs）
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vitaliber-originals-\(UUID().uuidString)", isDirectory: true)
+        testOriginalsDirs.append(dir)
+        return DocumentsState(
             store: container.documents,
             pipeline: OCRPipeline(recognizer: StubImageTextRecognizer(scripted: .init(lines: [], confidence: 0)),
                                   grayscaleDecoder: GrayscaleImageDecoder()),
-            originalsDir: FileManager.default.temporaryDirectory)
+            originalsDir: dir)
     }
 
     /// 建所有者并等 patient_profile 落库（document_file 外键依赖）

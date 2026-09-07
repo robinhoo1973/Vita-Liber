@@ -64,10 +64,14 @@ struct AllergyListView: View {
     }
 
     private func severityColor(_ s: String) -> Color {
-        // 严重度原值来自 Domain 常量（视图不内联中文）
-        if s == SevereReactionRules.severityValues[2] || s == "severe" { return .red }
-        if s == SevereReactionRules.severityValues[1] || s == "moderate" { return .orange }
-        return .gray
+        // 第八轮全仓审查修复：严重度→颜色经 Domain 等级函数判定（单一
+        // 事实源，展示词/规范值均可），语义色令牌替代魔法字符串 + 硬编码
+        // .red/.orange/.gray（§3.1 深色模式语义色纪律）
+        switch SevereReactionRules.severityLevel(of: s) {
+        case 2: return Color("semantic-danger", bundle: .main)
+        case 1: return Color("semantic-warning", bundle: .main)
+        default: return Color.secondary
+        }
     }
 }
 

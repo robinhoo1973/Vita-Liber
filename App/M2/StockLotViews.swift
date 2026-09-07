@@ -337,7 +337,7 @@ struct StockLotEditView: View {
     }
 
     private func save() {
-        guard let total = Double(totalText.replacingOccurrences(of: ",", with: ".")), total > 0 else {
+        guard let total = NumberNormalizer.parseDecimal(totalText), total > 0 else {
             saveFailed = true
             return
         }

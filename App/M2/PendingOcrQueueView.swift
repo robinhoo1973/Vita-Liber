@@ -22,15 +22,20 @@ struct PendingOcrQueueView: View {
     /// 数据源 = DocumentsState.pendingDocuments（跨成员聚合）——第四轮全仓
     /// 审查修复：此前读 docs.documents（仅当前成员），成员筛选对其他成员恒空。
     private var pendingDocs: [DocumentStore.DocumentRow] {
+        // 第八轮全仓审查修复（排序比较器重复日历运算）：isOverdue 含
+        // DayArithmetic 日历运算，原比较器每次比较对 a/b 各算一遍 =
+        // O(n log n) 次日历日计算，且行内渲染再算一遍。先映射一次性
+        // 预计算逾期旗标，排序/渲染共用同一结果。
         docs.pendingDocuments.filter { doc in
             (memberFilter == nil || doc.patientId == memberFilter)
                 && windowMatch(doc)
-        }.sorted { a, b in
-            let a72 = PendingOcrRules.isOverdue(createdAt: a.createdAt)
-            let b72 = PendingOcrRules.isOverdue(createdAt: b.createdAt)
-            if a72 != b72 { return a72 }
-            return a.createdAt > b.createdAt
         }
+        .map { (doc: $0, overdue: PendingOcrRules.isOverdue(createdAt: $0.createdAt)) }
+        .sorted { a, b in
+            if a.overdue != b.overdue { return a.overdue }
+            return a.doc.createdAt > b.doc.createdAt
+        }
+        .map(\.doc)
     }
 
     var body: some View {

@@ -56,6 +56,11 @@ struct PreferencesView: View {
                         Text(L10n.prefTagGlobal)
                     }
                 }
+            } footer: {
+                // 第八轮全仓审查修复（诚实性）：读取点接线（时间轴/搜索/今日
+                // 卡等格式化出口）属 W4 批——接线前本项选择不改变任何显示，
+                // 与 remch.sectionFooter 同款预告纪律，避免用户改完发现无效。
+                Text(L10n.prefDateFormatPending)
             }
             // 恢复默认（逐项）
             Section {

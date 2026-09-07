@@ -178,4 +178,21 @@ final class M1bAcceptanceTests: XCTestCase {
         let remainingApt2 = try await scheduler.pending().keys.filter { $0.hasPrefix("apt-\(apt2.uuidString)") }
         XCTAssertTrue(remainingApt2.isEmpty, "取消后全部 pending 必须移除")
     }
+
+    /// 第八轮全仓审查修复锚点：标记错过必须取消已排分级提醒——原实现只改
+    /// status 并排跟进提醒，后续档位（3d/1d/day）仍按时弹出并指向已错过的
+    /// 预约（幽灵提醒 + 深链失效数据）。
+    func test_标记错过取消分级提醒仅留跟进() async throws {
+        let (_, _, scheduler, apts, patient, _) = try await makeStore()
+        let startsAt = Date().addingTimeInterval(10 * 86400)
+        let aptId = UUID()
+        try await apts.create(id: aptId, patientId: patient, hospital: "市一医院",
+                              department: "心内科", startsAt: startsAt, now: Date())
+        try await apts.markMissed(id: aptId)
+        let pending = try await scheduler.pending()
+        XCTAssertTrue(pending.keys.contains("apt-followup-\(aptId.uuidString)"),
+                      "错过跟进提醒必须已排")
+        XCTAssertFalse(pending.keys.contains { $0.hasPrefix("apt-\(aptId.uuidString)-") },
+                       "标记错过后分级提醒必须全部取消（幽灵提醒回归）")
+    }
 }

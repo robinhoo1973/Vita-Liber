@@ -53,10 +53,12 @@ public struct PreprocessedImage: Sendable {
 }
 
 /// 预处理错误。
+/// 第八轮全仓审查修复：invalidRotation 全仓零构造、零 catch 分支（不可达
+/// case 拉低覆盖率并掩盖真实错误处理缺位）——已删除；计划内路径随实现
+/// 方一并引入。
 public enum PreprocessError: Error, Sendable, Equatable {
     case noDocumentDetected       // 未检测到文档四边
     case perspectiveCorrectionFailed
-    case invalidRotation
     case decodeFailed
     case encodeFailed
 }

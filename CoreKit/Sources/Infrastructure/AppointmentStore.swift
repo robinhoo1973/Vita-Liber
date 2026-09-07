@@ -105,6 +105,11 @@ public actor AppointmentStore {
                 sql: "UPDATE appointment SET status = 'missed', updated_at = ? WHERE id = ?",
                 arguments: [now.timeIntervalSince1970, id.uuidString])
         }
+        // 第八轮全仓审查修复：标记错过此前不取消已排的**分级提醒**（7d/3d/1d/day
+        // 四档）——用户在到期前点「错过」（按钮无时间门槛），后续档位仍按时
+        // 弹出并指向一张已错过的预约。写成功后先取消该预约全部 pending 提醒
+        // （与 reschedule/cancel/complete 同款次序纪律），再排跟进提醒。
+        try await cancelReminders(id: id)
         // 跟进提醒：错过当天稍后提醒补录（复用分级通道，route=预约列表）
         let followUpAt = now.addingTimeInterval(2 * 3600)
         try await scheduler.schedule(dose: "apt-followup-\(id.uuidString)", at: followUpAt,

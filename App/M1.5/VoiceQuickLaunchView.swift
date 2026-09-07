@@ -19,6 +19,10 @@ struct VoiceQuickLaunchView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var target: L10n.TargetTag = .anyText
+    /// 第八轮全仓审查修复（FR17.9 V3.40 定案）：chips 由「前置必选」降级为
+    /// 「自动判定 + 消歧兜底」——用户未显式点过 chip 时按识别文本自动判定
+    /// 意图（三套文法并行抽取、命中多者胜）；用户点 chip = 显式覆盖自动判定。
+    @State private var userPickedTarget: L10n.TargetTag?
     @State private var confirmSet: OcrConfirmationSet?
     @State private var savedNote = false
     @State private var routeMonitor = AudioRouteMonitor()
@@ -32,17 +36,26 @@ struct VoiceQuickLaunchView: View {
                     .font(.footnote).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 20)
-                // 目标 chips 横排（换行布局）
+                // 目标 chips 横排（换行布局）——预选高亮 = 自动判定结果或
+                // 用户显式选择，可一键覆盖（消歧兜底，非前置必选）
                 FlowChips(
                     items: L10n.TargetTag.allCases.map { (title: L10n.voiceTargetName($0), tag: $0) },
-                    selected: target
+                    selected: userPickedTarget ?? target
                 ) { selected in
-                    target = selected
+                    userPickedTarget = selected
                 }
                 // §5.54 中部录音环节：按住说话 + 实时转写（组件自带部分文本/失败态/
                 // 授权关闭回落提示）；完成回调按目标抽取结构化草稿 → 确认卡
                 // FR17.13-entry: 语音速记面板 —— 统一确认模板，不自建确认逻辑
                 VoiceDictationButton { text, confidence in
+                    // BR-012 紧急关键词前置（V3.40 语音指令入口，复用 F12 词表
+                    // 单一事实源）：命中即急救卡、终止解析——「我胸闷」绝不
+                    // 落速记或指标草稿
+                    if EmergencyKeywordRules.match(text) {
+                        dismiss()
+                        router.navigate(to: .emergencyCardConfig)
+                        return
+                    }
                     confirmSet = VoiceInputTemplate.confirmationSet(
                         drafts: drafts(for: text, confidence: confidence))
                 }
@@ -93,9 +106,32 @@ struct VoiceQuickLaunchView: View {
 
     /// 按目标抽取结构化草稿（§5.54「结构化草稿卡」）；抽取零命中回落纯文本
     /// 草稿（确认卡可编辑补全——绝不静默丢弃转写，FR17.13 编辑语义）。
+    /// 第八轮全仓审查修复（FR17.9 自动判定）：用户未显式点 chip 时，三套
+    /// 文法并行抽取、按命中数自动判定意图（第一选择）并同步高亮 chips；
+    /// 全零命中回落 note 草稿（FR17.19 unknown 语义：整句原文进速记）。
     private func drafts(for text: String, confidence: Double) -> [FieldDraft] {
+        if let picked = userPickedTarget {
+            return Self.extract(for: picked, text: text, confidence: confidence)
+        }
+        let candidates: [(L10n.TargetTag, [FieldDraft])] = [
+            (.metric, VoiceStructuringEngine.extractMetric(text, rules: VoiceGrammarDefaults.metricRules)),
+            (.reminder, VoiceStructuringEngine.extractReminder(text, rules: VoiceGrammarDefaults.reminderRules)),
+            (.profile, VoiceStructuringEngine.extractProfile(text, rules: VoiceGrammarDefaults.profileRules)),
+        ]
+        if let best = candidates.max(by: { $0.1.count < $1.1.count }), !best.1.isEmpty {
+            target = best.0   // chips 预选猜测随自动判定高亮（用户可一键覆盖）
+            return best.1
+        }
+        target = .anyText
+        return [FieldDraft(key: "note", value: text, unit: nil, confidence: confidence)]
+    }
+
+    /// 显式 chip 抽取（消歧兜底）：observation/question/ai 无独立文法，
+    /// 回落纯文本草稿（原语义不变）
+    private static func extract(for picked: L10n.TargetTag, text: String,
+                                confidence: Double) -> [FieldDraft] {
         let extracted: [FieldDraft]
-        switch target {
+        switch picked {
         case .metric:
             extracted = VoiceStructuringEngine.extractMetric(text, rules: VoiceGrammarDefaults.metricRules)
         case .reminder:
@@ -112,10 +148,11 @@ struct VoiceQuickLaunchView: View {
 
     /// 确认后分发（§5.54）：任意文本 = 面板内落 VoiceNote + 已存提示（[查看]
     /// 直达 SP-59）；其余目标 = 确认字段经 pendingVoiceDraft 暂存后跳目标页预填。
+    /// 分发目标 = 用户显式 chip 覆盖，否则自动判定结果（FR17.9）。
     private func dispatch(_ set: OcrConfirmationSet) {
         let fields = set.confirmedFields
         let map = Dictionary(uniqueKeysWithValues: fields.map { ($0.key, $0.value) })
-        switch target {
+        switch userPickedTarget ?? target {
         case .anyText:
             guard let body = fields.first?.value, !body.isEmpty else { return }
             Task {
@@ -124,7 +161,7 @@ struct VoiceQuickLaunchView: View {
             }
         default:
             router.pendingVoiceDraft = map
-            open(target)
+            open(userPickedTarget ?? target)
             dismiss()
         }
     }

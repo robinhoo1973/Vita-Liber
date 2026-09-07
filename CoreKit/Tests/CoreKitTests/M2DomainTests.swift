@@ -468,7 +468,7 @@ struct MedicationHelpCardTests {
             remainingUnits: 8, unitKind: "tablet",
             expireAt: Date(timeIntervalSince1970: 1_800_000_000),
             storageNote: "客厅药箱第二层", includeStoragePhoto: false)
-        let text = MedicationHelpCardRules.cardText([item])
+        let text = MedicationHelpCardRules.cardText([item]) ?? ""   // 非空输入必非 nil；nil 时下方 contains 全失败（响亮）
         #expect(text.contains("阿司匹林"))
         #expect(text.contains("100mg"))
         #expect(text.contains("客厅药箱第二层"))
@@ -478,7 +478,9 @@ struct MedicationHelpCardTests {
     }
 
     @Test func 空选择不产出卡片() {
-        #expect(MedicationHelpCardRules.cardText([]).contains("药品求助卡"))
+        // 第八轮修复：空选择返回 nil（FR9.13a 前提「选择一个或多个」）——
+        // 原断言 cardText([]) 恒含标题、永不可败，锁定了与规格相反的行为
+        #expect(MedicationHelpCardRules.cardText([]) == nil)
     }
 }
 
@@ -596,3 +598,46 @@ struct Round4DomainTests {
         #expect(drafts[1].displayLabel == labels.frequency)
     }
 }
+
+/// 第八轮全仓审查修复锚点：单剂剂量解析单一事实源（1/2/半/0.5片 此前
+/// 裸 Double 全 nil → NULL dose_plan_units → 安全线 ?? 1 双倍扣账）与
+/// 餐锚同义词去重（「早,早餐前」此前生成同一时刻双剂量行）。
+@Suite("SU-M2-R8 · 第八轮修复锚点（剂量解析/餐锚去重/紧急词表）")
+struct Round8DomainFixTests {
+
+    @Test func 剂量解析覆盖口语形态() {
+        #expect(DoseScheduleEngine.DoseInputParser.parse("1") == 1)
+        #expect(DoseScheduleEngine.DoseInputParser.parse("0.5") == 0.5)
+        #expect(DoseScheduleEngine.DoseInputParser.parse("0.5片") == 0.5)
+        #expect(DoseScheduleEngine.DoseInputParser.parse("半") == 0.5)
+        #expect(DoseScheduleEngine.DoseInputParser.parse("半片") == 0.5)
+        #expect(DoseScheduleEngine.DoseInputParser.parse("1/2") == 0.5)
+        #expect(DoseScheduleEngine.DoseInputParser.parse("1/2片") == 0.5)
+        #expect(DoseScheduleEngine.DoseInputParser.parse("二") == 2)
+        #expect(DoseScheduleEngine.DoseInputParser.parse("abc") == nil)
+        #expect(DoseScheduleEngine.DoseInputParser.parse("1/0") == nil)
+        #expect(DoseScheduleEngine.DoseInputParser.parse("") == nil)
+        #expect(DoseScheduleEngine.DoseInputParser.parse("1/2/3") == nil)
+    }
+
+    @Test func 餐锚同义词去重() {
+        #expect(DoseScheduleEngine.MealAnchorRules.parse("早,早餐前") == ["beforeBreakfast"])
+        #expect(DoseScheduleEngine.MealAnchorRules.parse("空腹,早") == ["beforeBreakfast"])
+        #expect(DoseScheduleEngine.MealAnchorRules.parse("早,晚") == ["beforeBreakfast", "beforeDinner"])
+        #expect(DoseScheduleEngine.MealAnchorRules.parse("未知词") == [])
+    }
+
+    @Test func 紧急词表含语音语义词() {
+        // V3.40 三轨定案：F19 语义词并入 F12 单一词表（语音入口紧急前置）
+        for word in ["急救", "救命", "救护车", "叫120", "打120", "拨打120", "胸闷"] {
+            #expect(EmergencyKeywordRules.match("我\(word)"), "「\(word)」必须命中 BR-012 前置")
+        }
+        // 严重反应词表 = F12 基础表 + 过敏补充（单一事实源复合）
+        for word in EmergencyKeywordRules.keywords {
+            #expect(SevereReactionRules.severeKeywords.contains(word),
+                    "F12 词「\(word)」必须包含在严重反应词表中")
+        }
+        #expect(SevereReactionRules.severeKeywords.contains("过敏性休克"))
+    }
+}
+

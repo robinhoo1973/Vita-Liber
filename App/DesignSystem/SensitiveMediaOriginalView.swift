@@ -178,7 +178,15 @@ struct SensitiveMediaOriginalView: View {
         guard image == nil, let data = displayData else { return }
         // ImageIO 降采样：避免将完整原图加载进内存
         let maxDimension: CGFloat = 2048
-        image = ImageIOImageLoader.downsample(data: data, maxDimension: maxDimension)
+        if let downsampled = ImageIOImageLoader.downsample(data: data, maxDimension: maxDimension) {
+            image = downsampled
+        } else {
+            // 第八轮全仓审查修复：非空但不可解码的载荷（截断/损坏 JPEG、
+            // 误标非图文件）——downsample 返回 nil 而 loadFailed 恒 false，
+            // 解锁后永远转圈无出口（第七轮只修了 nil/空数据形态）。明示
+            // 失败态，与既有失败出口（ContentUnavailableView）同路径。
+            loadFailed = true
+        }
     }
 }
 

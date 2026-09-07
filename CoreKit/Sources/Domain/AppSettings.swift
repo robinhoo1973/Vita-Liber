@@ -102,6 +102,13 @@ public protocol SettingsStoring: Sendable {
 
 /// 设置语义规则（Domain 纯函数）
 public enum SettingsRules {
+    /// FR7.8 每种指标上次录入单位的记忆键（UserDefaults 直存；键构造单一
+    /// 事实源——第八轮全仓审查修复：此前键在视图层内联拼装，与 app_settings
+    /// 诊断/恢复通道完全脱钩；键构造收敛此处，后续迁入 AppSettingsStore
+    /// 家庭键（restoreDefaults 可重置）时只改本函数）。
+    public static func rememberedUnitKey(for metricRawValue: String) -> String {
+        "metric.unit.\(metricRawValue)"
+    }
     /// 未设置 → 默认值（读路径语义；存储层只存非默认覆盖）
     public static func resolved(_ stored: String?, key: AppSettingKey) -> String {
         stored ?? key.defaultValue

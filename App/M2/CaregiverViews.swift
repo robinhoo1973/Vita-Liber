@@ -92,7 +92,8 @@ struct CaregiverViews: View {
         do {
             let cal = Calendar.current
             let dayStart = cal.startOfDay(for: Date())
-            let dayEnd = cal.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart
+            // 第八轮修复：日界统一经 DayArithmetic 出口（DST 纪律单一事实源）
+            let dayEnd = DayArithmetic.offset(days: 1, from: dayStart, calendar: cal)
             pendingDoses = try await reminderStore.familyPendingDoses(from: dayStart, to: dayEnd)
         } catch {
             // 审查修复：读取失败保留旧列表（原置空让未确认剂量从队列静默消失）

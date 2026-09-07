@@ -45,7 +45,16 @@ final class TrendEntryState {
         do {
             // DST 纪律（同上）
             let range = DateInterval(start: DayArithmetic.offset(days: -365, from: Date()), end: Date())
-            let metric = MetricType(rawValue: metricKey) ?? .glucose
+            // 第八轮全仓审查修复（错误指标静默替代）：未知/拼错的 metricKey
+            // 此前 ?? .glucose——深链打开错误的血糖图表冒充目标指标（张冠
+            // 李戴，与 TimelineViews 已修同族）。注册表必须覆盖全部 metricKey，
+            // 未知即拒绝：detailSeries 置 nil → 路由页呈现不可用空态，绝不
+            // 用真实指标顶替。
+            guard let metric = MetricType(rawValue: metricKey) else {
+                detailSeries = nil
+                detailMetric = metricKey
+                return
+            }
             let loaded = try await store.series(for: patientId, metric: metric, range: range)
             guard loadingPatientId == patientId else { return }
             detailSeries = loaded

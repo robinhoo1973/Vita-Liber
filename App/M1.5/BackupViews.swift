@@ -60,7 +60,13 @@ final class BackupState {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         do {
-            let data = try Data(contentsOf: url)
+            // 第八轮全仓审查修复（主线程大文件读）：整包 Data(contentsOf:)
+            // 是同步读——数百 MB 备份此前在 MainActor 上执行，冻结 UI 且有
+            // 看门狗杀进程风险。detached 移出主线程（security-scoped 句柄
+            // 在调用方线程已取用，读取无需主线程）。
+            let data = try await Task.detached(priority: .userInitiated) {
+                try Data(contentsOf: url)
+            }.value
             // ADR-019：先分析冲突——无冲突直接恢复；有冲突进入逐项裁决预览。
             // 校验后的 envelope 随分析返回，恢复路径复用（整包只哈希+解码一次）
             let analysis = try await service.analyzeConflicts(from: data)
@@ -78,7 +84,10 @@ final class BackupState {
             phase = .degraded(L10n.backupChecksumFailed)
         } catch {
             logger.error("备份恢复失败: \(error)")
-            phase = .degraded(L10n.backupChecksumFailed)
+            // 第八轮修复：非校验类失败（读文件/磁盘满/FK/schema 不匹配）
+            // 此前一律显示「文件校验失败」——把完好的备份归罪为损坏，用户
+            // 可能丢弃有效备份。通用失败独立文案，不误导换文件重试。
+            phase = .degraded(L10n.backupRestoreFailed)
         }
     }
 
@@ -100,7 +109,8 @@ final class BackupState {
             phase = .degraded(L10n.backupConflictDetected)
         } catch {
             logger.error("恢复失败: \(error)")
-            phase = .degraded(L10n.backupChecksumFailed)
+            // 第八轮修复：与 restore(from:) 同款——非校验类失败不归罪文件损坏
+            phase = .degraded(L10n.backupRestoreFailed)
         }
     }
 

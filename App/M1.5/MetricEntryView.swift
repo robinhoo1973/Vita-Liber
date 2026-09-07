@@ -175,13 +175,14 @@ struct MetricQuickEntryView: View {
 
     private func save() {
         // 审查修复：逗号小数点（部分区域 decimalPad 产出）归一后解析；
-        // 解析失败必须可见反馈，绝不静默丢弃读数
-        guard let value = Double(primaryText.replacingOccurrences(of: ",", with: ".")) else {
+        // 解析失败必须可见反馈，绝不静默丢弃读数。
+        // 第八轮修复：解析经 Domain 单一出口 NumberNormalizer.parseDecimal
+        guard let value = NumberNormalizer.parseDecimal(primaryText) else {
             entryError = L10n.metricInvalidValue
             return
         }
         let secondary = secondaryText.isEmpty ? nil
-            : Double(secondaryText.replacingOccurrences(of: ",", with: "."))
+            : NumberNormalizer.parseDecimal(secondaryText)
         let unit = unitText.isEmpty ? "1" : unitText
         Task {
             let ok = await state.addSample(patientId: app.currentPatientId, metric: metric,
@@ -200,13 +201,14 @@ struct MetricQuickEntryView: View {
 // MARK: - FR7.5/7.8 TrendEntryState 扩展（录入 + 单位记忆 + 排除接线）
 
 extension TrendEntryState {
-    /// FR7.8 每种指标记忆上次单位（UserDefaults 键由本扩展承载；键登记于 AppSettings 语义之外）
+    /// FR7.8 每种指标记忆上次单位（键构造经 Domain SettingsRules 单一事实源
+    /// ——第八轮修复：原视图层内联拼装键，第二设置通道与 AppSettings 脱钩）
     func rememberedUnit(for metric: MetricType) -> String {
-        UserDefaults.standard.string(forKey: "metric.unit.\(metric.rawValue)") ?? ""
+        UserDefaults.standard.string(forKey: SettingsRules.rememberedUnitKey(for: metric.rawValue)) ?? ""
     }
 
     private func rememberUnit(_ unit: String, for metric: MetricType) {
-        UserDefaults.standard.set(unit, forKey: "metric.unit.\(metric.rawValue)")
+        UserDefaults.standard.set(unit, forKey: SettingsRules.rememberedUnitKey(for: metric.rawValue))
     }
 
     /// FR7.5 自测两步录入落库（C 级 + selfMeasured 标志）。

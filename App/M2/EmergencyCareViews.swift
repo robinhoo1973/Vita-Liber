@@ -301,7 +301,9 @@ struct SOSOrb: View {
     var body: some View {
         ZStack {
             Circle()
-                .fill(Color.red.opacity(0.85))
+                // 第八轮修复：语义危险色令牌替代硬编码 Color.red（§3.1
+                // 语义色表：semantic/danger = 紧急/SOS 专用，深色模式自动映射）
+                .fill(Color("semantic-danger", bundle: .main).opacity(0.85))
                 .frame(width: 64, height: 64)   // 关怀触点 ≥64pt（FR18.2）
                 .shadow(radius: 6)
             // 环形进度反馈（FR18.3 按住确认的环形进度）——第六轮全仓审查

@@ -5,10 +5,15 @@ import Foundation
 /// 保存后立即展示急救引导卡（就近就医/拨打 120，BR-012）。
 /// 不做任何诊断表述、不阻塞保存——App 只如实记录用户自述事实。
 public enum SevereReactionRules {
+    /// 第八轮全仓审查修复（关键词单一事实源）：严重反应词表与 F12 紧急
+    /// 词表（EmergencyKeywordRules，BR-012 单一事实源）此前各自维护一份
+    /// 重叠漂移集——新增关键词只进一份，另一路径静默漏触发。改为
+    /// 「F12 基础表 + 过敏专属补充」复合（过敏性休克/英文同义词不在
+    /// F12 内，属过敏领域补充）。
     public static let severeKeywords: [String] = [
-        "呼吸困难", "喉头水肿", "意识不清", "过敏性休克", "窒息",
-        "anaphylaxis", "anaphylactic", "breathing difficulty", "throat swelling",
-    ]
+        "过敏性休克", "anaphylaxis", "anaphylactic",
+        "breathing difficulty", "throat swelling",
+    ] + EmergencyKeywordRules.keywords
 
     /// 是否触发急救引导（重度 或 关键词命中）
     public static func triggersEmergencyCard(severity: String,
@@ -37,6 +42,20 @@ public enum SevereReactionRules {
         case "中": return "moderate"
         case "重": return "severe"
         default: return display
+        }
+    }
+
+    /// 严重度等级（升序：0=mild/轻，1=moderate/中，2=severe/重；未知返回
+    /// nil）——视图配色/排序的单一事实源（第八轮全仓审查修复：视图此前
+    /// 内联 `severityValues[2] || "severe"` 魔法字符串，与 DDL CHECK 词
+    /// 汇表（mild/moderate/severe）双源漂移——任一改动即漏配一处）。
+    /// 展示词与规范值都经 canonicalSeverity 归一后判定。
+    public static func severityLevel(of displayOrCanonical: String) -> Int? {
+        switch canonicalSeverity(displayOrCanonical) {
+        case "mild": return 0
+        case "moderate": return 1
+        case "severe": return 2
+        default: return nil
         }
     }
 

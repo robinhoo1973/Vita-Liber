@@ -24,7 +24,7 @@ struct VoiceLevelCheck: View {
     var body: some View {
         VStack(spacing: 20) {
             Image(systemName: "waveform.and.mic")
-                .font(.system(size: 44))
+                .font(VLFont.levelDisplay)
                 .foregroundStyle(tooLow ? Color("semantic-warning", bundle: .main)
                                        : Color("brand-primary", bundle: .main))
             Text(L10n.voiceguide_micTitle).font(.title3.bold())

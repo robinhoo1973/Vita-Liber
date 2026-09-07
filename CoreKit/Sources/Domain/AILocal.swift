@@ -145,8 +145,15 @@ public struct TerminologyStore: Sendable {
 public enum EmergencyKeywordRules {
     // 审查修复：补「胸闷」——常见急性心脏主诉（原词表只收「胸闷得厉害」，
     // 用户说「我胸闷」走不到 BR-012 急救卡短路）
+    // 第八轮全仓审查修复（V3.40 三轨定案，F12 词表单一事实源）：语音指令
+    // 入口的紧急前置（FR17.18/FR17.9）必须复用本词表——F19 语义词
+    // （急救/救命/叫救护车/打救护车）此前只在 VoiceConversation 的正则里
+    // 硬编码第二份词源，「我胸闷」经语音落速记而不触发急救卡。语义词并
+    // 入本表（单一事实源）；F19 号码拨号文法保留（拨号确认语义），但词
+    // 判定一律先经本表。
     static let keywords = ["胸痛", "胸口疼", "胸闷", "呼吸困难", "喘不上气",
-                       "意识不清", "大出血", "抽搐", "休克", "窒息", "喉头水肿", "喘不过气"]
+                       "意识不清", "大出血", "抽搐", "休克", "窒息", "喉头水肿", "喘不过气",
+                       "急救", "救命", "救护车", "叫120", "打120", "拨打120"]
     public static func match(_ text: String) -> Bool {
         keywords.contains { text.contains($0) }
     }
@@ -255,9 +262,29 @@ public struct AuditedAIProvider: AIProvider {
         self.audit = audit
     }
     public func answer(_ q: AIQuery, scope: DataAccessScope) async throws -> AIAnswer {
+        // 第八轮全仓审查修复（审计事实准确性）：原顺序先记 ai_scope 再委托——
+        // BR-012 急救短路与 BR-006 高危拒识**零数据读取**（纯词表判定），
+        // 审计行仍断言「读取了这些资料 ID」，最小必要访问审计被高估。改为
+        // 先委托后审计：仅对真实发生检索的作答（composed/insufficientData）
+        // 记审计——急救/高危拒识路径不产生访问事实、不落审计。内层抛错时
+        // 检索尝试已发起，审计仍需记录（既有契约：审计不因回答失败缺失）。
         let ids = scope.patientIds.map(\.uuidString).sorted().joined(separator: ",")
-        await audit(ids)   // 调用方负责哈希；此处只传事实
-        return try await inner.answer(q, scope: scope)
+        let answer: AIAnswer
+        do {
+            answer = try await inner.answer(q, scope: scope)
+        } catch {
+            await audit(ids)   // 调用方负责哈希；此处只传事实
+            throw error
+        }
+        switch answer.body {
+        case .emergencyCard:
+            break   // BR-012 零访问路径：无读取事实可记
+        case .refused(let refusal) where refusal.reason == .highRiskTopic:
+            break   // BR-006 高危拒识：零访问
+        default:
+            await audit(ids)   // 调用方负责哈希；此处只传事实
+        }
+        return answer
     }
 }
 

@@ -150,16 +150,22 @@ struct QuickCaptureView: View {
             }
         }
         // FR5.2 四角选区+透视矫正：自动预测四角，用户可拖拽微调，确认后矫正为正视图。
-        .sheet(isPresented: $showRegionEditor) {
+        .sheet(isPresented: $showRegionEditor, onDismiss: {
+            // 第八轮全仓审查修复：选区→遮挡的过渡沿用 cover 退场完成锚点
+            // 纪律——原 onChange(showRegionEditor) 只在关掉的下一渲染帧触发，
+            // 彼时选区 sheet 仍在退场动画中（第七轮对 cover→选区过渡的同一
+            // 结论：onChange「只跨一个渲染帧，未跨过整个退场动画」），遮挡
+            // sheet 可能不呈现、矫正图滞留在 pendingOcclusionImage、流程卡死。
+            // onDismiss 是系统给出的退场完成锚点。
+            if pendingOcclusionImage != nil {
+                showOcclusion = true
+            }
+        }) {
             if let img = pendingRegionImage {
                 ScanRegionEditorView(image: img) { original, rectified in
                     let originalData = pendingRegionOriginalData
                     pendingRegionImage = nil
                     if regionNeedsOcclusion {
-                        // 遮挡 sheet 的呈现交给 onChange(showRegionEditor)：同一
-                        // MainActor 事务内「关选区 sheet + 开遮挡 sheet」存在
-                        // 已知的 sheet 过渡冲突（第四轮全仓审查修复——遮挡
-                        // sheet 可能不呈现、流程卡死）
                         pendingOcclusionOriginal = original
                         pendingOcclusionOriginalData = originalData
                         pendingOcclusionImage = rectified
@@ -170,11 +176,6 @@ struct QuickCaptureView: View {
                     pendingRegionImage = nil
                     pendingRegionOriginalData = nil
                 }
-            }
-        }
-        .onChange(of: showRegionEditor) { _, showing in
-            if !showing && pendingOcclusionImage != nil {
-                showOcclusion = true
             }
         }
         // 相机拍摄完成 → 选区 sheet 的延后呈现已移至 fullScreenCover 的

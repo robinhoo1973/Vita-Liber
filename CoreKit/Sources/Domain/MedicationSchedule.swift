@@ -155,8 +155,14 @@ public enum DoseScheduleEngine {
     /// FR10.2 同款纪律），调用侧对空结果拒绝建计划并提示。
     public enum MealAnchorRules {
         public static func parse(_ raw: String) -> [String] {
-            raw.components(separatedBy: CharacterSet(charactersIn: "，,、；; ").union(.whitespaces))
+            // 第八轮全仓审查修复（同义锚词去重）：「早,早餐前」「空腹,早」等
+            // 同义组合映射到同一 meal token——.meal(relations:) 按 token 逐条
+            // 物化剂量，重复 token 生成同一时刻的双剂量行（双轨双扣、今日卡
+            // 重复）。按出现序去重，首个命中者胜。
+            var seen: Set<String> = []
+            return raw.components(separatedBy: CharacterSet(charactersIn: "，,、；; ").union(.whitespaces))
                 .compactMap { tokenMap[$0] }
+                .filter { seen.insert($0).inserted }
         }
 
         private static let tokenMap: [String: String] = [
@@ -171,6 +177,42 @@ public enum DoseScheduleEngine {
             "晚饭后": "afterDinner", "晚餐后": "afterDinner",
             "睡前": "beforeSleep",
         ]
+    }
+
+    /// 第八轮全仓审查修复（单剂剂量解析单一事实源）：计划表单自由文本
+    /// 「单次剂量」此前在视图层裸 `Double()` 解析——"1/2"/"半"/"0.5片"
+    /// 全部 nil，随后 composer 写 NULL `dose_plan_units`、物化链路 `?? 1`
+    /// ——医嘱「半片」被安全线按 1.0/次扣账（库存事实 2 倍速虚耗，月报
+    /// 两线失真）。本解析器归一常见口语剂量形态：词尾单位剥离 / 「半」
+    /// = 0.5 / a/b 分数 / 中文数字（复用 NumberNormalizer）；不可解析
+    /// 返回 nil（调用方必须响亮拒绝，绝不静默落 NULL）。
+    public enum DoseInputParser {
+        public static func parse(_ raw: String) -> Double? {
+            var text = raw.trimmingCharacters(in: .whitespaces)
+            guard !text.isEmpty else { return nil }
+            // 词尾单位词剥离（中英文常见形态；只剥一层）
+            let unitSuffixes = ["片/次", "片", "粒", "颗", "丸", "袋",
+                                "毫升", "ml", "mg", "克", "g", "次"]
+            for suffix in unitSuffixes where text.hasSuffix(suffix) {
+                text = String(text.dropLast(suffix.count))
+                    .trimmingCharacters(in: .whitespaces)
+                break
+            }
+            guard !text.isEmpty else { return nil }
+            if text == "半" { return 0.5 }
+            // a/b 分数（分子/分母均为数字形态）
+            if let slash = text.firstIndex(of: "/") {
+                let num = String(text[..<slash]).trimmingCharacters(in: .whitespaces)
+                let den = String(text[text.index(after: slash)...])
+                    .trimmingCharacters(in: .whitespaces)
+                guard let n = Double(num), let d = Double(den), d > 0 else { return nil }
+                return n / d
+            }
+            let normalized = NumberNormalizer.normalize(text)
+            // 混合口语形态（「零点五」）不做归一猜测——拒绝由用户改数字
+            if normalized == text && text.contains("点") { return nil }
+            return Double(normalized)
+        }
     }
 
     static func date(day: Int, time: String, startDate: Date, calendar: Calendar) -> Date? {

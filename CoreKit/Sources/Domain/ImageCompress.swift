@@ -33,11 +33,12 @@ public struct SensitiveMediaPolicy: Sendable, Equatable, Codable {
 }
 
 /// 压缩/缩略图错误。
+/// 第八轮全仓审查修复：sensitiveMediaBlocked 零构造零 catch（不可达
+/// case）——已删除；BR-007/008 鉴权语义由 authRequiredForOriginal 承载。
 public enum CompressError: Error, Sendable, Equatable {
     case encodeFailed
     case decodeFailed
     case authRequiredForOriginal
-    case sensitiveMediaBlocked
 }
 
 /// 压缩/缩略图协议（跨平台统一接口）。

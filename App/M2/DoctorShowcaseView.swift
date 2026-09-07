@@ -17,7 +17,13 @@ struct DoctorShowcaseView: View {
 
     @State private var remaining: TimeInterval = 300
     @State private var authenticated = false
-    private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    /// 第八轮全仓审查修复（倒计时按需订阅 + 重新认证复位）：
+    /// ① autoconnect 常开订阅在锁定占位态每秒空转（guard 返回）——改为
+    /// authenticated 翻转时启停的 sink 订阅（锁定时零唤醒）；
+    /// ② `remaining` 此前只在计时回调递减、从不复位——退后台重锁停在
+    /// ~200s 后重新认证，新 300s 会话仍从 200 继续倒计，约提前 100s 被
+    /// exit() 弹出。重新认证成功即复位 300。
+    @State private var countdown: AnyCancellable?
 
     var body: some View {
         Group {
@@ -76,22 +82,37 @@ struct DoctorShowcaseView: View {
             // 令牌被 TTL/退后台重锁 → 内容立即下线，重新认证（第七轮修复）
             if !unlocked { authenticated = false }
         }
-        .onReceive(timer) { _ in
-            guard authenticated else { return }
-            if remaining <= 1 {
-                exit()
-            } else {
-                remaining -= 1
-            }
+        .onChange(of: authenticated) { _, on in
+            if on { startCountdown() } else { stopCountdown() }
         }
-        .onDisappear { exit() }
+        .onDisappear { stopCountdown(); exit() }
+    }
+
+    private func startCountdown() {
+        stopCountdown()
+        countdown = Timer.publish(every: 1, on: .main, in: .common)
+            .autoconnect()
+            .sink { _ in
+                if remaining <= 1 {
+                    exit()
+                } else {
+                    remaining -= 1
+                }
+            }
+    }
+
+    private func stopCountdown() {
+        countdown?.cancel()
+        countdown = nil
     }
 
     /// 进入展示模式需一次设备所有者认证（门禁联动，§5.8）；
     /// 认证成功后开 300s 会话令牌（FR1.9 专场景豁免）。onAppear 首次进入
     /// 与 TTL 重锁后的重新认证共用本路径（第七轮修复）。
+    /// 第八轮修复：每次重新认证成功复位倒计时（新会话 = 全新 300s）。
     private func authenticate() async {
         if await app.requestUnlock(reason: L10n.showcaseUnlockReason) {
+            remaining = 300
             authenticated = true
             session.unlock()
         } else {

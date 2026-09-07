@@ -71,7 +71,7 @@ public actor EntitlementStore {
         try await writer.write { db in
             let month = Self.monthKey()
             let row = try Row.fetchOne(db, sql: "SELECT value FROM app_settings WHERE key = 'aiMonthlyUsed'")
-            let rawValue: String? = row.map { $0["value"] as String? } ?? nil
+            let rawValue: String? = row?["value"] as? String   // 第八轮修复：`?? nil` 手工拍平 String?? 是空操作，Row? 下标直取
             let previous = Self.parseUsage(rawValue, for: month)
             let payload: [String: Any] = ["month": month, "count": previous + 1]
             let data: Data

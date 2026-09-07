@@ -40,11 +40,11 @@ final class ReminderStore {
     /// .task 在启动窗口内会叠加 2-4 次完整 refresh（每次含物化+对账+两次
     /// 系统 IPC）——触发型入口统一走 refreshTriggered 合并；动作型入口
     /// （确认/跳过/补录…）仍走 refresh，保证自己的写入即时可见。
-    private var lastTriggerRefreshAt: Date = .distantPast
-    /// 评审修正第二轮：去抖键必须含成员维度——500ms 窗口内切换到另一成员，
-    /// 新成员的触发型刷新被静默丢弃 = 上一成员的时段卡挂在新成员名下
-    /// （BR-001 成员隔离违例）。成员变化永远放行。
-    private var lastTriggerPatientId: UUID?
+    /// 第八轮全仓审查修复（冗余状态对收敛）：lastTriggerRefreshAt 与
+    /// lastTriggerPatientId 只在 refreshTriggered 一处同时写入、同时读取——
+    /// 恒同步运动的两个变量，任何单侧更新（如 force 路径只刷时间戳）都会
+    /// 静默破坏成员维度去抖键（BR-001 隔离违例）。合并为单值对。
+    private var lastTrigger: (at: Date, patientId: UUID?) = (.distantPast, nil)
     /// 在途守卫：refresh 链耗时可达秒级（30 日物化+对账+系统 IPC），
     /// 500ms 去抖挡不住「第一条还在跑、第二条又放行」的重复全量链。
     private var refreshInFlight = false
@@ -70,11 +70,10 @@ final class ReminderStore {
         // loadingPatientId==旧成员校验通过、把旧成员时段卡写入状态。成员变化
         // 与 force 同样绕过在途与去抖；并发写状态由 refresh 内
         // 「loadingPatientId == patientId」守卫兜底（只允许最新请求写回）。
-        let isNewPatient = patientId != lastTriggerPatientId
+        let isNewPatient = patientId != lastTrigger.patientId
         guard force || isNewPatient || !refreshInFlight else { return }
-        guard force || isNewPatient || now.timeIntervalSince(lastTriggerRefreshAt) >= 0.5 else { return }
-        lastTriggerRefreshAt = now
-        lastTriggerPatientId = patientId
+        guard force || isNewPatient || now.timeIntervalSince(lastTrigger.at) >= 0.5 else { return }
+        lastTrigger = (now, patientId)
         refreshInFlight = true
         defer { refreshInFlight = false }
         await refresh(patientId: patientId, now: now)
@@ -105,7 +104,8 @@ final class ReminderStore {
             let cal = Calendar.current
             let dayStart = cal.startOfDay(for: now)
             // S2-2 修正：DST 日 23/25 小时——日界必须用日历加一天，禁止 +86400 秒
-            let dayEnd = cal.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart.addingTimeInterval(86400)
+            // （第八轮修复：统一经 DayArithmetic 出口，禁裸 86400 兜底）
+            let dayEnd = DayArithmetic.offset(days: 1, from: dayStart, calendar: cal)
             let facts = try await meds.deliveryFacts(from: dayStart, to: dayEnd)
             // BR-001 成员隔离：facts 为全量事实（对账引擎消费），UI 时段卡
             // 必须过滤到当前成员——否则 A 成员剂量会混进 B 成员今日待办
@@ -323,7 +323,7 @@ final class ReminderStore {
 
     /// 移除该剂量的已送达通知（dose- 本体与所属时段 slot-）
     private func removeDeliveredReminders(for dose: ScheduledDose) async {
-        let ids = [dose.notifyId, slotNotifyId(for: dose)].compactMap { $0 }
+        let ids = [dose.notifyId, await slotNotifyId(for: dose)].compactMap { $0 }
         do { try await scheduler.removeDelivered(ids) }
         catch { logger.error("已送达通知清理失败: \(error)") }
     }
@@ -331,11 +331,23 @@ final class ReminderStore {
     /// 第七轮全仓审查修复：合并时段（≤30min 双剂）内非锚剂量的单剂派生
     /// slot id 与排程时段的合并 id 分叉——清理/取消命中不存在的 id，
     /// 已送达的时段通知残留锁屏（BR-004 反向事实链）。今日时段卡已持有
-    /// 聚合结果，直接按剂量反查真实时段 id；不在今日窗口（历史剂量）时
-    /// 回落单剂派生（单剂时段二者一致）。
-    private func slotNotifyId(for dose: ScheduledDose) -> String? {
+    /// 聚合结果，直接按剂量反查真实时段 id。
+    /// 第八轮修复：非今日持有路径（跨成员代确认/冷启动横幅/历史日剂量）
+    /// 的单剂派生回落在合并时段同样分叉——改为按该剂量所在日全量记录
+    /// 分组反查（与对账引擎同一 id 来源）；查询失败才退回单剂派生
+    /// （单剂时段二者一致，语义安全；清理尽力而为）。
+    private func slotNotifyId(for dose: ScheduledDose) async -> String? {
         if let slot = todaySlots.first(where: { $0.records.contains { $0.id == dose.notifyId } }) {
             return "slot-\(slot.id)"
+        }
+        let cal = Calendar.current
+        let dayStart = cal.startOfDay(for: dose.scheduledFor)
+        let dayEnd = cal.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart.addingTimeInterval(86400)
+        if let facts = try? await meds.deliveryFacts(from: dayStart, to: dayEnd) {   // try?-ok: 反查失败退回单剂派生（清理尽力而为，绝不阻断确认主流程）
+            let records = facts.map { DoseRecord(dose: $0.dose, action: $0.action) }
+            if let slotId = DoseSlotGrouping.slotIds(records)[dose.notifyId] {
+                return "slot-\(slotId)"
+            }
         }
         return DoseSlotGrouping.slotId(for: DoseRecord(dose: dose)).map { "slot-\($0)" }
     }
@@ -384,7 +396,7 @@ final class ReminderStore {
             // S1-2 修正：稍后=取消时段通知 + 按新时刻单排（FR9.5）
             // 第七轮修复：时段 id 经聚合结果反查（slotNotifyId），
             // 合并时段内非锚剂量不再取消到不存在的 id
-            await reconciler.snooze(doseNotifyId: dose.notifyId, slotNotifyId: slotNotifyId(for: dose),
+            await reconciler.snooze(doseNotifyId: dose.notifyId, slotNotifyId: await slotNotifyId(for: dose),
                                     until: Date().addingTimeInterval(TimeInterval(minutes * 60)))
             if let patientId { await refresh(patientId: patientId) }
         } catch {

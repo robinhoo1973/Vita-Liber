@@ -44,12 +44,15 @@ struct InventoryHubView: View {
         .sheet(isPresented: $showHelpCard) {
             MedicationHelpCardSheet(items: hub.inventoryItems) { inputs in
                 // 第七轮修复：卡文本标签经 L10n 三语词表注入（Domain 不再
-                // 硬编码中文——en 用户分享出的是英文卡）
-                shareText = MedicationHelpCardRules.cardText(inputs, labels: .init(
+                // 硬编码中文——en 用户分享出的是英文卡）。
+                // 第八轮修复：空选择返回 nil（FR9.13a 前提「选择一个或多个」）
+                // ——按钮本已禁用，此处防御性守卫避免空卡进入分享
+                guard let text = MedicationHelpCardRules.cardText(inputs, labels: .init(
                     title: L10n.helpcard_title,
                     remainingPrefix: L10n.helpcardCardRemainingPrefix,
                     storagePrefix: L10n.helpcardCardStoragePrefix,
-                    expiryPrefix: L10n.helpcardCardExpiryPrefix))
+                    expiryPrefix: L10n.helpcardCardExpiryPrefix)) else { return }
+                shareText = text
                 showShareHost = true
             }
         }

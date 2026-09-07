@@ -269,6 +269,11 @@ final class M15AcceptanceTests: XCTestCase {
         let scheduleJSON = String(data: try JSONEncoder().encode(schedule), encoding: .utf8) ?? ""
         let now = Date().timeIntervalSince1970
         let today0800 = Calendar.current.date(bySettingHour: 8, minute: 0, second: 0, of: Date()) ?? Date()
+        // 真实 legacy epoch id 形态 = dose-{uuidString}-{epoch}（7 段、6 连字符）
+        // ——第八轮修复：v15 重算守卫此前只认 4 段合成形态（生产写入方从未
+        // 产出过），真实 legacy 行从未被测试覆盖；夹具改用真实形态锚定重算。
+        let legacyTakenId = "dose-\(planId.uuidString)-\(Int(today0800.timeIntervalSince1970))"
+        let legacyDupId = "dose-\(planId.uuidString)-\(Int(today0800.timeIntervalSince1970) + 60)"
         try await queue.write { db in
             try db.execute(sql: """
                 CREATE TABLE patient_profile (
@@ -306,33 +311,33 @@ final class M15AcceptanceTests: XCTestCase {
                 INSERT INTO medication_plan (id, patient_id, status, schedule_json, start_date, created_at, updated_at)
                   VALUES (?, 'p-1', 'active', ?, ?, ?, ?);
                 """, arguments: [planId.uuidString, scheduleJSON, now, now, now])
-            // ① 单行（taken）4 段 legacy id：重写后引用行必须跟随
+            // ① 单行（taken）真实 legacy epoch id：重写后引用行必须跟随
             try db.execute(sql: """
                 INSERT INTO medication_dose_log (id, plan_id, scheduled_for, delivery_state, user_action, delivered_at, acted_at)
-                  VALUES ('dose-legacy-taken-1', ?, ?, 'delivered', 'taken', ?, ?);
+                  VALUES ('\(legacyTakenId)', ?, ?, 'delivered', 'taken', ?, ?);
                 """, arguments: [planId.uuidString, today0800.timeIntervalSince1970,
                                  today0800.timeIntervalSince1970, today0800.timeIntervalSince1970])
             try db.execute(sql: """
                 INSERT INTO dose_lot_allocation (dose_log_id, stock_lot_id, planned_units, confirmed_units)
-                  VALUES ('dose-legacy-taken-1', 'lot-1', 1, 1);
+                  VALUES ('\(legacyTakenId)', 'lot-1', 1, 1);
                 """)
             try db.execute(sql: """
                 INSERT INTO notification_delivery (id, dose_log_id, scheduled_at, channel, created_at)
-                  VALUES ('nd-1', 'dose-legacy-taken-1', ?, 'local', ?);
+                  VALUES ('nd-1', '\(legacyTakenId)', ?, 'local', ?);
                 """, arguments: [today0800.timeIntervalSince1970, now])
             // ② 历史重复行：同计划同时刻的另一行（未决议）→ 目标被占，
             //    未决议行连同证据清除
             try db.execute(sql: """
                 INSERT INTO medication_dose_log (id, plan_id, scheduled_for, delivery_state, user_action)
-                  VALUES ('dose-legacy-dup-1', ?, ?, 'planned', NULL);
+                  VALUES ('\(legacyDupId)', ?, ?, 'planned', NULL);
                 """, arguments: [planId.uuidString, today0800.timeIntervalSince1970 + 60])
             try db.execute(sql: """
                 INSERT INTO dose_lot_allocation (dose_log_id, stock_lot_id, planned_units, confirmed_units)
-                  VALUES ('dose-legacy-dup-1', 'lot-2', 1, 0);
+                  VALUES ('\(legacyDupId)', 'lot-2', 1, 0);
                 """)
             try db.execute(sql: """
                 INSERT INTO notification_delivery (id, dose_log_id, scheduled_at, channel, created_at)
-                  VALUES ('nd-2', 'dose-legacy-dup-1', ?, 'local', ?);
+                  VALUES ('nd-2', '\(legacyDupId)', ?, 'local', ?);
                 """, arguments: [today0800.timeIntervalSince1970, now])
             try db.execute(sql: "PRAGMA user_version = 12;")
         }
@@ -353,7 +358,7 @@ final class M15AcceptanceTests: XCTestCase {
             XCTAssertEqual(deliveryId, takenId, "notification_delivery 必须跟随父行改写")
             // ② 历史重复行：未决议行连同证据清除，不留悬空引用
             XCTAssertEqual(try Int.fetchOne(db, sql: """
-                SELECT COUNT(*) FROM medication_dose_log WHERE id = 'dose-legacy-dup-1'
+                SELECT COUNT(*) FROM medication_dose_log WHERE id = '\(legacyDupId)'
                 """), 0, "重复未决议行必须清除（物化窗口以正确身份重建）")
             XCTAssertEqual(try Int.fetchOne(db, sql: """
                 SELECT COUNT(*) FROM dose_lot_allocation WHERE stock_lot_id = 'lot-2'

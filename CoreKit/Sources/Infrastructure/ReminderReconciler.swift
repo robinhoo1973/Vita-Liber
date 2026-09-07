@@ -41,9 +41,14 @@ public actor ReminderReconciler {
         }
     }
 
-    /// 标识符优先级（dose- 用药 > apt- 预约 > 其余随访/临期）
+    /// 标识符优先级（dose-/slot-/snooze- 用药 > apt- 预约 > 其余随访/临期）。
+    /// 第八轮全仓审查修复：slot-/snooze-（用药剂量时段与稍后提醒）此前落
+    /// 入 tier 2（低于预约）——60 条预算裁剪时用药时段提醒先于预约被取消，
+    /// 与「用药 > 预约」的声明层级矛盾。
     static func priorityOf(_ notifyId: String) -> Int {
-        if notifyId.hasPrefix("dose-") { return 0 }
+        if notifyId.hasPrefix("dose-") || notifyId.hasPrefix("slot-") || notifyId.hasPrefix("snooze-") {
+            return 0
+        }
         if notifyId.hasPrefix("apt-") { return 1 }
         return 2
     }
@@ -63,12 +68,16 @@ public actor ReminderReconciler {
 
             // FR9.17 通知半场（评审 P0）：时段级单条通知——未送达且未决剂量按时段
             // 聚合，每时段只发一条（展开内容由 UI 按 slot 查询实时组装）
-            // 第七轮全仓审查修复：时段归属必须按**全量未决议记录**分组反查——
+            // 第七轮全仓审查修复：时段归属必须按**全量记录**分组反查——
             // 单剂派生 slotId 在合并时段（≤30min 双剂）对非锚剂量产生未排程的
             // 假 id：送达判定漏判 → 同一时段被重复调度第二条通知（FR9.17 破坏）、
-            // 稍后取消错误 id。映射与下方调度分组同源（未决议记录集）。
-            let unresolvedRecords = facts.filter { $0.action == nil }.map { DoseRecord(dose: $0.dose) }
-            let slotIdByDose = DoseSlotGrouping.slotIds(unresolvedRecords)
+            // 稍后取消错误 id。
+            // 第八轮修复：锚剂量已决议、仅非锚剂量未决议时，按**未决议子集**
+            // 分组会以非锚剂量重新锚定出第二个时段 id——送达判定再次漏判、
+            // 重复调度。分组（id 来源）恒用全量记录；调度对象只保留含未决
+            // 记录的时段（已全决时段不再触发通知）。
+            let allRecords = facts.map { DoseRecord(dose: $0.dose) }
+            let slotIdByDose = DoseSlotGrouping.slotIds(allRecords)
             let merged = facts.map { f -> DoseDeliveryFact in
                 var m = f
                 // 送达事实以系统 delivered 集为准（评审修正：DB 的 delivery_state
@@ -81,7 +90,10 @@ public actor ReminderReconciler {
                 return m
             }
             let undecided = merged.filter { $0.action == nil && !$0.delivered }
-            let slots = DoseSlotGrouping.group(undecided.map { DoseRecord(dose: $0.dose) })
+            let undecidedIds = Set(undecided.map(\.dose.notifyId))
+            let slots = DoseSlotGrouping.group(allRecords).filter {
+                $0.records.contains { undecidedIds.contains($0.id) }
+            }
 
             for fact in merged {
                 switch ReconcileEngine.decide(fact, now: now) {
@@ -133,9 +145,19 @@ public actor ReminderReconciler {
                 try await scheduler.cancel(Array(stale))
             }
             // iOS 64 pending 上限（§5.4）：留 4 条余量，超限按优先级裁撤
-            // （用药 > 预约 > 随访/临期；同优先级裁最晚触发者）
+            // （用药 > 预约 > 随访/临期；同优先级裁最晚触发者）。
+            // 第八轮全仓审查修复（预算裁撤不得越权）：裁撤集只含对账自有
+            // 命名空间（dose-/slot-/snooze-）——priorityOf 把 slot-/snooze-
+            // 修正为用药档后，混合 pending 里 apt-（预约仓直排、对账不管理）
+            // 反而先于用药被裁；旧 tier 2 又使 slot- 先于 apt- 被裁。两个
+            // 方向都错：对账的预算阀只裁自己命名空间的通知，他仓（apt-/
+            // followup-apt-/exp-/refill-/backup-/voice-rem-/alert-）由各自
+            // 调度方负责。
             if pending.count > Self.pendingBudget {
-                let entries = pending.map { (id: $0.key, fireAt: $0.value) }
+                let owned = pending.filter { id, _ in
+                    id.hasPrefix("dose-") || id.hasPrefix("slot-") || id.hasPrefix("snooze-")
+                }
+                let entries = owned.map { (id: $0.key, fireAt: $0.value) }
                     .sorted {
                         if Self.priorityOf($0.id) != Self.priorityOf($1.id) { return Self.priorityOf($0.id) < Self.priorityOf($1.id) }
                         return $0.fireAt < $1.fireAt

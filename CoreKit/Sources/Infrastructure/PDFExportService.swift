@@ -95,7 +95,9 @@ public actor PDFExportService {
             var records: [(String, String, Date, String)] = []
             for row in rows {
                 let title = row["title"] as String?
-                let detail = row["ocr_text"] as String? ?? ""
+                // 第八轮修复：includeNotes 此前零读取点（水印开关同族死参数）——
+                // 「不含正文」开关被静默忽略，正文照常进入导出
+                let detail = request.includeNotes ? (row["ocr_text"] as String? ?? "") : ""
                 let at = Date(timeIntervalSince1970: row["created_at"] as Double)
                 docs.append((title, at))
                 records.append((request.kindLabel("record"), request.titleLabel(title ?? ""), at, detail))
@@ -108,7 +110,7 @@ public actor PDFExportService {
             for row in obsRows {
                 records.append((request.kindLabel("observation"), request.kindLabel(row["kind"] as String),
                                 Date(timeIntervalSince1970: (row["occurred_at"] as Double?) ?? 0),
-                                (row["description"] as String?) ?? ""))
+                                request.includeNotes ? ((row["description"] as String?) ?? "") : ""))
             }
             // 用药计划
             let planRows = try Row.fetchAll(db, sql: """
@@ -129,7 +131,7 @@ public actor PDFExportService {
             for row in encRows {
                 records.append((request.kindLabel("encounter"), "\(row["hospital"] as String? ?? "") · \(row["kind"] as String)",
                                 Date(timeIntervalSince1970: row["date"] as Double),
-                                (row["diagnosis_text"] as String?) ?? ""))
+                                request.includeNotes ? ((row["diagnosis_text"] as String?) ?? "") : ""))
             }
             return (docs, records)
         }
@@ -151,15 +153,18 @@ public actor PDFExportService {
             // 封面
             ctx.beginPage()
             drawCover(ctx, request: request, count: records.count)
+            drawWatermark(ctx, request: request)
             pageCount += 1
             // 目录（带页码——近似：每记录一页，页码 = 3 + index）
             ctx.beginPage()
             drawTOC(ctx, records: records)
+            drawWatermark(ctx, request: request)
             pageCount += 1
             // 逐记录页
             for (index, record) in records.enumerated() {
                 ctx.beginPage()
                 drawRecord(ctx, record: record, page: pageCount + 1)
+                drawWatermark(ctx, request: request)
                 pageCount += 1
                 progress?((index + 1), records.count)
             }
@@ -209,6 +214,30 @@ public actor PDFExportService {
         (record.detail as NSString).draw(in: rect, withAttributes: [.font: UIFont.systemFont(ofSize: 12)])
         ("\(page)" as NSString).draw(at: CGPoint(x: bounds.width - 80, y: bounds.height - 50),
                                      withAttributes: [.font: UIFont.systemFont(ofSize: 10)])
+    }
+
+    /// FR13.1 可选水印（第八轮全仓审查修复）：ExportWizardView 的水印开关
+    /// 传入 request.watermark 后全文件零读取点——用户以为导出的 PDF 已
+    /// 标记，实际任何页面都无水印（静默失效的死 API，与已退役的
+    /// emergencyNumber 参数同族）。每页（封面/目录/记录页）绘制低透明度
+    /// 斜置水印：标题 + 导出时间（标题由 App 层经 L10n 注入，本层不持有
+    /// 中文文案）。
+    private func drawWatermark(_ ctx: UIGraphicsPDFRendererContext, request: ExportRequest) {
+        guard request.watermark else { return }
+        let bounds = ctx.cgContext.boundingBoxOfClipPath
+        let text = "\(request.title) · \(Date().formatted(date: .numeric, time: .shortened))"
+        let cg = ctx.cgContext
+        cg.saveGState()
+        cg.translateBy(x: bounds.midX, y: bounds.midY)
+        cg.rotate(by: -0.5)   // 对角线斜置
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.boldSystemFont(ofSize: 28),
+            .foregroundColor: UIColor.gray.withAlphaComponent(0.16),
+        ]
+        let size = (text as NSString).size(withAttributes: attrs)
+        (text as NSString).draw(at: CGPoint(x: -size.width / 2, y: -size.height / 2),
+                                withAttributes: attrs)
+        cg.restoreGState()
     }
 }
 

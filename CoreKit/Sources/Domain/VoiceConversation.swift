@@ -43,17 +43,12 @@ public enum VoiceCommand: String, Sendable, Equatable, CaseIterable {
     case callEmergency120     // 帮我打 120
 }
 
-/// 危险分级（FR19.5）
-public enum VoiceCommandDangerLevel: Int, Sendable, Comparable, Equatable {
-    case low = 0        // 查询、导航、记录——至多单次口头确认
-    case elevated = 1   // 标记服药等写操作——单次口头确认（BR-004）
-    case high = 2       // 拨打联系人——必须复述对象再确认
-    case forbidden = 3  // 删除/剂量变更——语音通道一律拒绝（BR-006）
-
-    public static func < (lhs: VoiceCommandDangerLevel, rhs: VoiceCommandDangerLevel) -> Bool {
-        lhs.rawValue < rhs.rawValue
-    }
-}
+/// 第八轮全仓审查修复（死抽象清除）：VoiceCommandDangerLevel 四级枚举与
+/// dangerLevel(_:) 分类函数「计算后从未被消费」——App/域/测试零引用；会话
+/// 状态机对每条命令硬编码确认路由（.repeatingObject/.confirming），
+/// isForbidden 又用独立词表拦截，「.forbidden」等级永不返回。确认策略的
+/// 唯一事实源在状态机；保留分级分类只会让未来两处漂移（BR-006/FR19.5
+/// 语义分裂）。已删除枚举与函数。
 
 public enum VoiceIntent: Sendable, Equatable {
     case command(VoiceCommand)
@@ -164,21 +159,6 @@ public enum VoiceCommandGrammar {
             }
         }
         return .unrecognized
-    }
-
-    public static func dangerLevel(_ intent: VoiceIntent) -> VoiceCommandDangerLevel {
-        switch intent {
-        case .command(let c):
-            switch c {
-            case .markTaken, .recordMetric, .recordQuestion: return .elevated
-            case .callContact: return .high
-            case .callEmergency120: return .high
-            default: return .low
-            }
-        case .record: return .elevated
-        case .recordQuestion: return .elevated
-        case .unrecognized: return .low
-        }
     }
 
     /// FR19.5 删除/剂量变更：语音通道**一律拒绝**——无论怎么表述。

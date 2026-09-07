@@ -80,7 +80,12 @@ public actor ClaimStore {
 
     public func totals(patientId: UUID) async throws -> Totals {
         let rows = try await list(patientId: patientId)
-        return Totals(totalAmount: rows.reduce(0) { $0 + $1.amount },
+        // 第八轮全仓审查修复（浮点货币归整）：金额以 Double 存储求和，
+        // 0.1+0.2 → 0.30000000000000004——展示层 %.2f 掩蔽但 API 值错误，
+        // 任何精确比较/导出消费者都会踩雷。以分（×100）四舍五入归整到
+        // 2 位小数（CNY 币种精度；币种字段保留原值）。
+        let raw = rows.reduce(0) { $0 + $1.amount }
+        return Totals(totalAmount: (raw * 100).rounded() / 100,
                       itemCount: rows.count,
                       currency: rows.first?.currency ?? "CNY")
     }

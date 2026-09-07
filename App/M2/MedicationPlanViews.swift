@@ -241,7 +241,8 @@ struct MedicationPlanDetailView: View {
     private var todayRows: [MedicationStore.DoseLogRow] {
         let cal = Calendar.current
         let start = cal.startOfDay(for: Date())
-        let end = cal.date(byAdding: .day, value: 1, to: start) ?? start
+        // 第八轮修复：日界统一经 DayArithmetic 出口（DST 纪律单一事实源）
+        let end = DayArithmetic.offset(days: 1, from: start, calendar: cal)
         return weekLog.filter { $0.scheduledFor >= start && $0.scheduledFor < end }
     }
 
@@ -254,11 +255,14 @@ struct MedicationPlanDetailView: View {
             plan = try await reminders.plan(id: planId)
             history = try await reminders.lifecycleEvents(planId: planId)
             let cal = Calendar.current
-            let weekStart = cal.date(byAdding: .day, value: -6,
-                                     to: cal.startOfDay(for: Date())) ?? Date()
             // DST 纪律：日历加一天，禁止固定 86400 秒（切换日 ±1 小时漂移）
-            let weekEnd = cal.date(byAdding: .day, value: 7,
-                                   to: cal.startOfDay(for: Date())) ?? Date()
+            // 第八轮修复：统一经 DayArithmetic 出口
+            let weekStart = DayArithmetic.offset(days: -6,
+                                                 from: cal.startOfDay(for: Date()),
+                                                 calendar: cal)
+            let weekEnd = DayArithmetic.offset(days: 7,
+                                               from: cal.startOfDay(for: Date()),
+                                               calendar: cal)
             weekLog = try await reminders.doseLog(planId: planId, from: weekStart,
                                                   to: weekEnd)
         } catch {
@@ -435,6 +439,13 @@ struct MedicationPlanFormView: View {
     @State private var brandName = ""
     @State private var spec = ""
     @State private var dosePerTake = ""
+
+    /// 第八轮全仓审查修复：非空但不可解析的剂量文本就地报错并禁用保存
+    /// （响亮拒绝）——绝不静默落 NULL 后被安全线按 1.0/次扣账
+    private var doseParseFailed: Bool {
+        let trimmed = dosePerTake.trimmingCharacters(in: .whitespaces)
+        return !trimmed.isEmpty && DoseInputParser.parse(trimmed) == nil
+    }
     @State private var timesPerDay = "1"
     @State private var route = ""
     @State private var mealRelation = ""
@@ -463,6 +474,14 @@ struct MedicationPlanFormView: View {
                     TextField(L10n.planFormBrandName, text: $brandName)
                     TextField(L10n.planFormSpec, text: $spec)
                     TextField(L10n.planFormDosePerTake, text: $dosePerTake)
+                    // 第八轮全仓审查修复（响亮拒绝）：非空但不可解析的剂量
+                    // 文本（"1/2"/"半"曾可解析，反例 "abc"）就地报错并禁用
+                    // 保存——绝不静默落 NULL 后被安全线按 1.0/次扣账
+                    if doseParseFailed {
+                        Text(L10n.planFormDoseParseError)
+                            .font(.caption)
+                            .foregroundStyle(Color("semantic-danger", bundle: .main))
+                    }
                     TextField(L10n.planFormTimesPerDay, text: $timesPerDay)
                         .keyboardType(.numberPad)
                     TextField(L10n.planFormRoute, text: $route)
@@ -512,7 +531,7 @@ struct MedicationPlanFormView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(L10n.reminder_save) { save() }
-                        .disabled(genericName.trimmingCharacters(in: .whitespaces).isEmpty)
+                        .disabled(genericName.trimmingCharacters(in: .whitespaces).isEmpty || doseParseFailed)
                         .accessibilityIdentifier("SP-15.form.save")
                 }
             }
@@ -541,8 +560,12 @@ struct MedicationPlanFormView: View {
             isLongTerm: isLongTerm, isAsNeeded: isAsNeeded,
             confirmedFields: PrescriptionConfirmation.initialConfirmedFields(source: source))
         // D1：dosePerTake 解析落 MedicationPlanDraft → composer 写 dose_plan_units
-        // （安全线单剂基线）；此前只留在 Prescription 展示字符串里被丢弃
-        let parsedDosePerTake = Double(dosePerTake.trimmingCharacters(in: .whitespaces))
+        // （安全线单剂基线）；此前只留在 Prescription 展示字符串里被丢弃。
+        // 第八轮修复：裸 Double() 对「1/2/半/0.5片」全 nil → composer 落
+        // NULL、物化链路 ?? 1——医嘱「半片」被安全线按 1.0/次扣账。改经
+        // Domain DoseInputParser（词尾单位剥离/半/分数/中文数字归一），
+        // 不可解析时保存按钮已禁用（响亮拒绝）。
+        let parsedDosePerTake = DoseInputParser.parse(dosePerTake)
         let draft = MedicationPlanDraft(schedule: schedule, startDate: startDate,
                                         endDate: hasEndDate ? endDate : nil,
                                         dosePerTake: parsedDosePerTake)

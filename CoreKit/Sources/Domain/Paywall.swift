@@ -3,21 +3,21 @@ import Foundation
 /// 商业化基础设施（comercial-spec V1.5 / tech §5.14）：
 /// Pro 买断（¥68/年 或 ¥12/月，7 天试用）+ 三追加包；云订阅 D1 后。
 /// 免费额度：云备份 5GB、高级 AI 20 次/月、成员 ≥4 免费。
+/// 第八轮全仓审查修复（死 case 清除）：addonInsurance/addonThreshold/
+/// addonDispense/cloudSubscription 与 cloudSyncFirstToggle/settingsResident
+/// 六个 case 全仓（含测试）零引用——D1/云同步与 L2 StoreKit 接线前的预留
+/// 脚手架，任何代码路径不可达，却让频控持久化（restoreShownAt 按 rawValue
+/// 解码）为不存在的触发器存取状态。待 P1/D1 落地时随消费方一并重新引入
+/// （rawValue 历史兼容由服务端解码兜底）。
 public enum ProductID: String, Sendable, CaseIterable, Codable {
     case proBase            // Pro 买断基础包
-    case addonInsurance     // 核保资料包
-    case addonThreshold     // 自定义预警阈值
-    case addonDispense      // 配药清单高级模板
-    case cloudSubscription  // 云订阅（D1 后）
 }
 
-/// 五时机弹墙矩阵（comercial §3）：只有价值触发点弹墙，反向约束=免费边界绝不弹墙
+/// 弹墙时机矩阵（comercial §3）：只有价值触发点弹墙，反向约束=免费边界绝不弹墙
 public enum PaywallTrigger: String, Sendable, Equatable, Codable {
     case memberQuotaReached      // 第 5 个成员
     case proOutputFirstTap       // Pro 产出包首次点击
-    case cloudSyncFirstToggle    // 云同步首次开启
     case aiQuotaExhausted        // 高级 AI 额度用尽
-    case settingsResident        // 设置中心常驻入口（非弹墙，主动访问）
 }
 
 /// 免费红线能力清单（comercial §2.1：收费=产品缺陷）
