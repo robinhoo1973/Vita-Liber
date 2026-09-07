@@ -144,67 +144,13 @@ struct MedicationPlanDetailView: View {
                     }
                 }
 
-                // §5.26 生命周期操作区（按钮随状态变化）
-                Section {
-                    switch plan.status {
-                    case "active":
-                        Button(L10n.planPause) {
-                            // 审查修复：操作后重载本地 @State——原实现写库不重载，
-                            // 状态徽标/按钮停留在旧态（可重复提交同一操作）
-                            Task {
-                                await reminders.pausePlan(planId: planId, patientId: app.currentPatientId)
-                                await load()
-                            }
-                        }
-                        .accessibilityIdentifier("SP-15.detail.pause")
-                        Button(L10n.planEnd, role: .destructive) {
-                            showEndConfirm = true
-                        }
-                        .accessibilityIdentifier("SP-15.detail.end")
-                    case "paused":
-                        Button(L10n.planResume) {
-                            Task {
-                                await reminders.resumePlan(planId: planId, patientId: app.currentPatientId)
-                                await load()
-                            }
-                        }
-                        .accessibilityIdentifier("SP-15.detail.resume")
-                        Button(L10n.planEnd, role: .destructive) {
-                            showEndConfirm = true
-                        }
-                    default:
-                        Text(L10n.planEndedNote).font(.caption).foregroundStyle(.secondary)
-                    }
-                }
+                // §5.26 生命周期操作区（按钮随状态变化；拆子视图控制类型检查预算）
+                lifecycleSection(status: plan.status)
 
                 // FR9.15 计划历史时间轴（开始/调整/暂停/恢复/结束）
-                if !history.isEmpty {
-                    Section(L10n.planHistory) {
-                        ForEach(history) { event in
-                            HStack(alignment: .top, spacing: 10) {
-                                Image(systemName: eventIcon(event.kind))
-                                    .foregroundStyle(Color("brand-primary", bundle: .main))
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(eventLabel(event)).font(.caption)
-                                    Text(event.at.formatted(date: .abbreviated, time: .shortened))
-                                        .font(.caption2).foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-                    }
-                }
+                historySection()
             } else {
-                if loadFailed {
-                    ContentUnavailableView(L10n.planLoadFailed, systemImage: "arrow.clockwise.circle") {
-                        Button(L10n.retry) {
-                            Task { await load() }
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .frame(minHeight: 44)   // 触点≥44pt（设计系统）
-                    }
-                } else {
-                    ContentUnavailableView(L10n.planNotFound, systemImage: "pills")
-                }
+                emptyState()
             }
         }
         .navigationTitle(L10n.planDetailTitle)
@@ -247,6 +193,79 @@ struct MedicationPlanDetailView: View {
         .task(id: planId) { await load() }
         .onChange(of: app.currentPatientId) { _, _ in
             Task { await load() }
+        }
+    }
+
+    /// §5.26 生命周期操作区（按钮随状态变化；拆子视图控制类型检查预算——
+    /// CI 实测 189 行类型检查超时，收敛表达式体量）
+    @ViewBuilder
+    private func lifecycleSection(status: String) -> some View {
+        Section {
+            switch status {
+            case "active":
+                Button(L10n.planPause) {
+                    // 审查修复：操作后重载本地 @State——原实现写库不重载，
+                    // 状态徽标/按钮停留在旧态（可重复提交同一操作）
+                    Task {
+                        await reminders.pausePlan(planId: planId, patientId: app.currentPatientId)
+                        await load()
+                    }
+                }
+                .accessibilityIdentifier("SP-15.detail.pause")
+                Button(L10n.planEnd, role: .destructive) {
+                    showEndConfirm = true
+                }
+                .accessibilityIdentifier("SP-15.detail.end")
+            case "paused":
+                Button(L10n.planResume) {
+                    Task {
+                        await reminders.resumePlan(planId: planId, patientId: app.currentPatientId)
+                        await load()
+                    }
+                }
+                .accessibilityIdentifier("SP-15.detail.resume")
+                Button(L10n.planEnd, role: .destructive) {
+                    showEndConfirm = true
+                }
+            default:
+                Text(L10n.planEndedNote).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// FR9.15 计划历史时间轴（拆子视图控制类型检查预算）
+    @ViewBuilder
+    private func historySection() -> some View {
+        if !history.isEmpty {
+            Section(L10n.planHistory) {
+                ForEach(history) { event in
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: eventIcon(event.kind))
+                            .foregroundStyle(Color("brand-primary", bundle: .main))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(eventLabel(event)).font(.caption)
+                            Text(event.at.formatted(date: .abbreviated, time: .shortened))
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// 加载失败/不存在两态分离（拆子视图控制类型检查预算）
+    @ViewBuilder
+    private func emptyState() -> some View {
+        if loadFailed {
+            ContentUnavailableView(L10n.planLoadFailed, systemImage: "arrow.clockwise.circle") {
+                Button(L10n.retry) {
+                    Task { await load() }
+                }
+                .buttonStyle(.borderedProminent)
+                .frame(minHeight: 44)   // 触点≥44pt（设计系统）
+            }
+        } else {
+            ContentUnavailableView(L10n.planNotFound, systemImage: "pills")
         }
     }
 
