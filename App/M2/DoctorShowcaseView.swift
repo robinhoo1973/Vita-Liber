@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine   // AnyCancellable（TTL 倒计时订阅，第八轮会话令牌判读）
 import Domain
 
 /// ui-ux §5.8 就诊展示模式（FR8.6 · V3.72 点亮）：全屏临时解锁的时间线轮播——
