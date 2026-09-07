@@ -418,8 +418,7 @@ jobs:
           echo "$APPLE_API_KEY_P8" | base64 -d > "$K"
           chmod 600 "$K"
           [ -s "$K" ] || { echo "::error::API Key 解码为空"; exit 1; }
-          head -c 27 "$K"; echo "..."
-          echo "API Key 就绪：$K"
+          echo "API Key 文件已就绪：$K"
 
       # ── 注册/核对 Bundle ID 与 App 记录（NetDiagnostics asc_app_ensure）──
       # 上传前确保 App ID(com.vitaliber.app) 已在开发者门户注册、App 记录存在。
