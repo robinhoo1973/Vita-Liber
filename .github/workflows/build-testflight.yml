@@ -182,7 +182,7 @@ jobs:
           import_p12() {
             local f="$1" pass="$2" name="$3"
             local pem="$f.pem"
-            P12_PASS="$pass" openssl pkcs12 -in "$f" -passin env:P12_PASS -nodes -out "$pem" 2>/dev/null; then
+            if P12_PASS="$pass" openssl pkcs12 -in "$f" -passin env:P12_PASS -nodes -out "$pem" 2>/dev/null; then
               local cert_pem="$f.cert.pem"
               local key_pem="$f.key.pem"
               P12_PASS="$pass" openssl pkcs12 -in "$f" -passin env:P12_PASS -clcerts -nokeys -out "$cert_pem" 2>/dev/null
