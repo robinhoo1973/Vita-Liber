@@ -176,7 +176,7 @@ struct GlobalSearchView: View {
                                 // 如实反映属性，普通「头痛」条目被系统性误标）
                                 if obs.mediaAssetIds.isEmpty {
                                     SearchResultRow(title: obs.description ?? L10n.observationKindName(obs.kind),
-                                                    snippet: nil, badge: nil,
+                                                    snippet: "", badge: nil,
                                                     date: obs.occurredAt)
                                 } else {
                                     SearchResultRow(title: obs.description ?? L10n.observationKindName(obs.kind),

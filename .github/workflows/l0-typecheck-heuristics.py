@@ -3,7 +3,7 @@
 # ============================================================================
 # L0 [15] 类型层启发式门禁 —— l0-typecheck-heuristics.py
 # 背景：App/（SwiftUI）无法在 Linux 上编译，swiftc -parse 只查语法不查语义，
-# 以下五族类型错误只有 macOS L1 编译门禁才能暴露（每族均有 CI 实证），
+# 以下六族类型错误只有 macOS L1 编译门禁才能暴露（每族均有 CI 实证），
 # 本脚本用静态启发式在 L0 左移拦截：
 #   A. 跨层引用缺 import —— CI d0c1008：RootAdaptiveView 引用 Infrastructure
 #      符号但未 import Infrastructure（parse 不解析符号，本地一直绿）
@@ -17,6 +17,14 @@
 #   E. `any X?` 可选 any 拼写（须写作 `(any X)?`）—— CI ad1d767 实证：
 #      swiftc -parse 静默放行（第五轮本地实测 6.3.1）、仅 macOS L1 类型检查
 #      报 'optional any type must be written (any P)?'
+#   F. nil 字面量传非可选 String 参数/成员 —— CI 34289498685 实证：
+#      GlobalSearchView.swift:179 `snippet: nil`（SearchResultRow 成员
+#      `let snippet: String`），parse 静默放行、仅 macOS L1 报
+#      "'nil' is not compatible with expected argument type 'String'"。
+#      判定：同文件 private/fileprivate struct 体（调用点必在同文件，跨文件
+#      可选签名假红不可能）内声明非可选 `let/var x: String` 且调用点实参
+#      `x: nil`；同名可选声明/参数存在则整名豁免（保守零误报）；字典字面量
+#      `[x: nil]`（最近未闭合括号为 [）为合法值跳过。
 # 判定与平台无关（python3 标准库）；ERR#27 纪律：扫 0 文件/无计数一律 FAIL。
 # 豁免标记（与 try?-ok/adr021-ok 同惯例，仅同行注释）：`// tius-ok: <理由>`
 # ——第五轮全仓审查修复：本标记此前只在文档声明、判定器从未读取（假豁免），
@@ -54,6 +62,11 @@ IMPORT_RE = re.compile(r"^(?:@testable )?import\s+(\w+)")
 # 家族 E：`any X?`（可选 any 拼写）。`(any X)?` 的 any 前为左括号，lookbehind
 # 排除；该拼写在任何 Swift 版本下都不合法（5.7+ 必须加括号），零假红。
 PATTERN_E = re.compile(r"(?<![\w(])\bany\s+[A-Za-z_]\w*\s*\?")
+# 家族 F：非可选 String 成员声明 / 同名可选声明（整名豁免）/ 调用点 nil 实参
+NONOPT_STR = re.compile(r"\b(?:let|var)\s+(\w+)\s*:\s*String\b")
+OPT_NAME = re.compile(r"\b(?:let|var)\s+(\w+)\s*:\s*[A-Za-z_]\w*\s*[?!]")
+OPT_PARAM = re.compile(r"(\w+)\s*:\s*[A-Za-z_]\w*\s*[?!]\s*(?:=|,|\))")
+ARG_NIL = re.compile(r"(\w+)\s*:\s*nil\b")
 
 
 def exempted(raw_lines, lineno):
@@ -319,8 +332,79 @@ def main():
                     f"written (any P)?'）"
                 )
 
+    # ---- 家族 F：nil 字面量传非可选 String 参数/成员（App/Tests/UITests）
+    # 判定：同文件 private/fileprivate struct 体内的非可选 `let/var x: String`
+    # 成员名集合；调用点实参 `x: nil` 命中即 FAIL（私有结构体调用点必在同
+    # 文件，不存在跨文件可选签名假红）。同名可选声明/参数整名豁免；字典字面
+    # 量 `[x: nil]`（最近未闭合括号为 [）跳过。
+    f_files = list(a_files)
+    scanned["F"] = len(f_files)
+    priv_struct = re.compile(r"^\s*(?:private|fileprivate)\s+struct\s+")
+    for f in f_files:
+        try:
+            txt = f.read_text(encoding="utf-8")
+        except Exception:
+            continue
+        raw_lines = txt.splitlines()
+        cl = code_lines(txt)
+        opt = set()
+        for _, code in cl:
+            for m in OPT_NAME.finditer(code):
+                opt.add(m.group(1))
+            for m in OPT_PARAM.finditer(code):
+                opt.add(m.group(1))
+        nonopt = set()
+        i = 0
+        while i < len(cl):
+            lineno, code = cl[i]
+            if not priv_struct.match(code.strip()):
+                i += 1
+                continue
+            depth = 0
+            j = i
+            while j < len(cl):
+                depth += cl[j][1].count("{") - cl[j][1].count("}")
+                j += 1
+                if depth <= 0:
+                    break
+            for ln, body_code in cl[i + 1 : j - 1]:
+                for m in NONOPT_STR.finditer(body_code):
+                    nonopt.add(m.group(1))
+            i = j
+        if not nonopt:
+            continue
+        for lineno, code in cl:
+            if not code.strip():
+                continue
+            if exempted(raw_lines, lineno):
+                continue
+            for m in ARG_NIL.finditer(code):
+                name = m.group(1)
+                if name in opt or name not in nonopt:
+                    continue
+                # 字典字面量 [x: nil] 合法——最近未闭合括号为 [ 则跳过
+                stack = []
+                for ch in code[: m.start()]:
+                    if ch == "(":
+                        stack.append("(")
+                    elif ch == "[":
+                        stack.append("[")
+                    elif ch in ")]":
+                        if stack:
+                            stack.pop()
+                if stack and stack[-1] == "[":
+                    continue
+                fails.append(
+                    f"{f.relative_to(root)}:{lineno}: 实参 `{name}: nil` 与同文件 private/"
+                    f"fileprivate struct 的非可选 `String` 成员冲突——（CI 34289498685 "
+                    f"同族：仅 macOS L1 报 'nil' is not compatible with expected "
+                    f"argument type 'String'）——传 \"\" 或改声明为可选，"
+                    f"或加 // tius-ok: 豁免"
+                )
+
     print(f"__SCANNED__ A={scanned.get('A',0)} B={scanned.get('B',0)} "
-          f"C={scanned.get('C',0)} D={scanned.get('D',0)} E={scanned.get('E',0)}")
+          f"C={scanned.get('C',0)} D={scanned.get('D',0)} E={scanned.get('E',0)} "
+          f"F={scanned.get('F',0)}")
     seen = set()
     for msg in fails:
         if msg in seen:
