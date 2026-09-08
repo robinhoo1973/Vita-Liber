@@ -581,6 +581,7 @@ final class QuestionsState {
 struct QuestionListView: View {
     @Environment(AppState.self) private var app
     @Environment(QuestionsState.self) private var state
+    @Environment(AppDataChangeCenter.self) private var dataChange
     @State private var newText = ""
     @State private var showAdd = false
     /// 写库失败保留输入并提示——QuestionsState.add 已返回 Bool，
