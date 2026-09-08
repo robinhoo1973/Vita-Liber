@@ -71,14 +71,15 @@ public actor HealthKitSyncService {
     public func startBackgroundObservation() {
         guard observers.isEmpty else { return }
         for type in HealthKitReader.readTypes {
-            let query = HKObserverQuery(sampleType: type, predicate: nil) { [weak self] _, completion, _ in
+            guard let sampleType = type as? HKSampleType else { continue }
+            let query = HKObserverQuery(sampleType: sampleType, predicate: nil) { [weak self] _, completion, _ in
                 completion()
                 Task { await self?.scheduleBackgroundRefresh() }
             }
             healthStore.execute(query)
             observers.append(query)
         }
-        enableBackgroundDelivery()
+        Task { await self.enableBackgroundDelivery() }
     }
 
     /// BGTaskScheduler 注册（VitaLiberApp.init 调用）。
@@ -91,8 +92,9 @@ public actor HealthKitSyncService {
                 return
             }
             Task {
-                // 后台唤起路径经服务实例执行（App 装配期注入）
-                let success = await Self.backgroundSyncHandler?()
+                // 后台唤起路径经服务实例执行（App 装配期注入）；
+                // handler 未装配（装配失败/早于 init）按失败上报，不假成功
+                let success = (await Self.backgroundSyncHandler?()) ?? false
                 refresh.setTaskCompleted(success: success)
             }
         }
@@ -113,8 +115,9 @@ public actor HealthKitSyncService {
     /// 首跑（无锚）恒 true（全量初始化，防洪流：首跑只聚合近 24h 窗口）。
     public func hasNewData() async -> Bool {
         for type in HealthKitReader.readTypes {
+            guard let sampleType = type as? HKSampleType else { continue }
             guard let anchor = await loadAnchor(key: anchorKey(type)) else { return true }
-            if let changes = try? await reader.anchoredChanges(type: type, anchor: anchor),   // try?-ok: 单类型锚点探测失败按「有新数据」继续，绝不因探测失败跳过同步
+            if let changes = try? await reader.anchoredChanges(type: sampleType, anchor: anchor),   // try?-ok: 单类型锚点探测失败按「有新数据」继续，绝不因探测失败跳过同步
                !changes.added.isEmpty {
                 return true
             }
@@ -159,7 +162,8 @@ public actor HealthKitSyncService {
         let persisted = try await trends.addDeviceSamples(patientId: patientId, rows: rows)
         // 锚点推进（逐类型；失败不阻断主流程——下次同步重查增量）
         for type in HealthKitReader.readTypes {
-            if let changes = try? await reader.anchoredChanges(type: type,   // try?-ok: 锚点推进失败下次同步按旧锚重查增量，不阻断主流程
+            guard let sampleType = type as? HKSampleType else { continue }
+            if let changes = try? await reader.anchoredChanges(type: sampleType,   // try?-ok: 锚点推进失败下次同步按旧锚重查增量，不阻断主流程
                                                                anchor: await loadAnchor(key: anchorKey(type))) {
                 if let newAnchor = changes.anchor {
                     await saveAnchor(key: anchorKey(type), anchor: newAnchor)
@@ -178,10 +182,10 @@ public actor HealthKitSyncService {
         try? BGTaskScheduler.shared.submit(request)   // try?-ok: 调度失败（系统忙）不阻断观察回调，前台兜底路径仍可用
     }
 
-    private func enableBackgroundDelivery() {
+    private func enableBackgroundDelivery() async {
         guard let hrType = HKQuantityType.quantityType(forIdentifier: .heartRate) else { return }
-        try? healthStore.enableBackgroundDelivery(for: hrType,   // try?-ok: 投递注册失败回落手动/前台路径，不阻断
-                                                  frequency: .hourly)
+        _ = try? await healthStore.enableBackgroundDelivery(for: hrType,   // try?-ok: 投递注册失败回落手动/前台路径，不阻断
+                                                            frequency: .hourly)
     }
 
     /// 锚点 key：`hk.{typeIdentifier}`（patient 维度不参与——HealthKit 为设备级）

@@ -297,13 +297,15 @@ public actor HealthKitReader {
     // MARK: - 前台锚点增量（FR16.1 V3.46：HKAnchoredObjectQuery 兜底）
 
     /// 锚点增量查询（单类型）：返回自 anchor 以来的样本事件与删除事件。
-    /// 无锚首跑传 nil（全量）。
-    public func anchoredChanges(type: HKObjectType, anchor: HKQueryAnchor?,
+    /// 无锚首跑传 nil（全量）。类型参数 HKSampleType（锚点查询仅样本——
+    /// HKObjectType 直传 L1 类型错误，34187657668 暴露；六类指标均为
+    /// quantity/category，调用方 `as? HKSampleType` 恒可下转）。
+    public func anchoredChanges(type: HKSampleType, anchor: HKQueryAnchor?,
                                 limit: Int = 500) async throws -> (anchor: HKQueryAnchor?,
-                                                                   added: [HKObject],
-                                                                   deletedCount: Int) {
+                                                                   added: [HKSample],
+                                                                   deleted: [HKDeletedObject]) {
         try await withCheckedThrowingContinuation { continuation in
-            // 单次 resume 纪律：resultsHandler 可在后续更新时再次回调——
+            // 单次 resume 纪律：handler 可在后续更新时再次回调——
             // settled 守卫（与 SFSpeechTranscriber isFinal 守卫同款），
             // 双 resume 是 continuation 陷阱
             var settled = false
@@ -314,7 +316,7 @@ public actor HealthKitReader {
                 if let error {
                     continuation.resume(throwing: error)
                 } else {
-                    continuation.resume(returning: (newAnchor, samples ?? [], deleted))
+                    continuation.resume(returning: (newAnchor, samples ?? [], deleted ?? []))
                 }
             }
             store.execute(query)
