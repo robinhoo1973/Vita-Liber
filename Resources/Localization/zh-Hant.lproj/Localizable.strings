@@ -340,7 +340,6 @@
 "member.save" = "儲存";
 "member.quotaHint" = "免費檔最多 4 位成員；超過後可隨 Pro 解鎖。";
 "member.addedHint" = "已新增，可在完善檔案中補充健康史。";
-"proOutput.title" = "Pro 產出包";
 "dose.number" = "第 %1$d 劑";
 "onboard.sourceConfirmed" = "來源已確認";
 "onboard.unconfirmed2" = "辨識未確認";
@@ -391,6 +390,7 @@
 "trend.excluded.accessibility" = "已排除 %@";
 "trend.chart.accessibility" = "%1$@ 趨勢圖，共 %2$d 個資料點，%3$d 條參考範圍";
 "trend.band.legend" = "%1$@ %2$@–%3$@";
+"trend.band.unlabeled" = "未標註來源";
 "trend.origin.selfDevice" = "自測 / 設備讀數";
 "trend.origin.hospital" = "醫院報告";
 "trend.refRange" = "參考範圍 %1$@–%2$@";
@@ -470,6 +470,8 @@
 "ai.refusedNoEvidence" = "缺少可引用的資料，無法給出確定性結論。請補充記錄或諮詢醫生/藥師。";
 "ai.refusedHighRisk" = "調整或停用藥物必須由醫生決定；請帶著處方諮詢醫生或藥師。";
 "ai.failedRetry" = "回答失敗，請稍後重試。";
+"ai.history.loadFailed" = "歷史記錄載入失敗";
+"ai.history.loadFailedHint" = "請稍後重試";
 "ai.emergencyCardText" = "疑似緊急情況：請立即撥打 120 或前往最近的醫院急診。";
 "ai.emergencyTitle" = "疑似緊急情況";
 "ai.emergencyCall" = "撥打 119";
@@ -1190,6 +1192,12 @@
 "pref.readback.always" = "總是（僅關懷模式可設）";
 "pref.readbackHint" = "無耳機時是否允許朗讀錄入內容（保護隱私，避免打擾周圍人）";
 "pref.restoreAll" = "恢復全部預設設定";
+"quality.blurry" = "模糊";
+"quality.good" = "質量良好";
+"quality.occlusion" = "疑似遮擋/過曝";
+"quality.tooBright" = "過亮";
+"quality.tooDark" = "過暗";
+"quality.unassessable" = "不可評估";
 "lifecycle.single" = "刪除單筆記錄";
 "lifecycle.singleHint" = "在記錄詳情頁執行；稽核日誌保留刪除事件，下次備份自然消失。";
 "lifecycle.member" = "刪除成員";
@@ -1349,6 +1357,7 @@
 "medicalID.note" = "本 App 不靜默寫入系統急救卡——寫入由你在系統健康 App 中手動完成。";
 "settings.themeHint" = "切換即時生效，無需重新啟動";
 "reminder.notification.title" = "您有一條健康提醒";
+"reminder.planSaveFailed" = "計劃儲存失敗，請重試";
 "reminder.notification.body" = "點擊查看詳情";
 "home.capture.hint" = "對準文件拍攝，系統將自動辨識文字並存入檔案";
 "home.capture.shoot" = "開始拍攝";
@@ -1373,6 +1382,7 @@
 "voice.field.date" = "日期";
 "voice.field.hour" = "時間";
 "voice.field.repeat" = "重複";
+"voice.readbackFmt" = "已錄入：%@。對嗎？";
 "voice.field.content" = "內容";
 "voice.confirm.fillHint" = "未辨識，點擊填寫";
 "voiceguide.saved" = "提醒已設定";

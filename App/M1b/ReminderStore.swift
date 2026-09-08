@@ -350,7 +350,10 @@ final class ReminderStore {
         }
         let cal = Calendar.current
         let dayStart = cal.startOfDay(for: dose.dueAt)
-        let dayEnd = cal.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart.addingTimeInterval(86400)
+        // 审查修复（DST 纪律）：裸 86400 秒兜底与本文件 106-108 行第八轮
+        // 修复注释「禁裸 86400、统一经 DayArithmetic」自相矛盾——日历加法
+        // 失败的兜底必须走同一出口（其内部有文档化的最后手段回落）。
+        let dayEnd = DayArithmetic.offset(days: 1, from: dayStart, calendar: cal)
         if let facts = try? await meds.deliveryFacts(from: dayStart, to: dayEnd) {   // try?-ok: 反查失败退回单剂派生（清理尽力而为，绝不阻断确认主流程）
             let records = facts.map { DoseRecord(dose: $0.dose, action: $0.action) }
             if let slotId = DoseSlotGrouping.slotIds(records)[dose.notifyId] {

@@ -50,7 +50,10 @@ final class AppSettingsStore {
         let defaults = UserDefaults.standard
         for key in Self.mirroredKeys {
             guard defaults.object(forKey: key.rawValue) == nil else { continue }
-            guard let stored = values[key], stored != key.defaultValue else { continue }
+            // values 来自 allValues()（逐键默认值解析，恒有值）——`values[key]`
+            // 的 nil 分支为不可达死代码，显式以 defaultValue 兜底并注明。
+            let stored = values[key] ?? key.defaultValue
+            guard stored != key.defaultValue else { continue }
             defaults.set(stored, forKey: key.rawValue)
         }
         // 关怀模式镜像必须写 Bool（AppState.careMode/careModeTruth 以
@@ -166,8 +169,14 @@ final class AppSettingsStore {
         return defaults.bool(forKey: "careMode")
     }
 
-    /// 通知投递门/willPresent 消费的 UserDefaults 镜像键集合（第七轮修复）
+    /// 通知投递门/willPresent 消费的 UserDefaults 镜像键集合（第七轮修复）。
+    /// 审查修复（镜像不对称）：全局 .remindChannel 此前不在集合内——set() 的
+    /// 前缀镜像（"remindChannel" 前缀含全局键）会写它，但 seedMirrorsIfNeeded
+    /// 不补种（升级后 DB 已存的全局通道偏好被投递门的 `?? default` 回落吞掉）、
+    /// restoreDefaults 不复位（恢复默认后全局通道镜像残留旧值）——写入路径
+    /// 与复位/补种路径不对称。全局键是 String 形态，泛型循环直接适用。
     static let mirroredKeys: [AppSettingKey] = [
+        .remindChannel,
         .remindChannelMeds, .remindChannelApts, .remindChannelExam,
         .remindChannelExpiry, .remindChannelAlert, .remindChannelBackup,
         .inAppBannerEnabled,

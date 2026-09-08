@@ -32,19 +32,33 @@ enum MediaImport {
     /// 并发加载所选照片并产出下采样缩略图（保持选择顺序；单张失败跳过）。
     /// 非隔离 async（静态函数）：调用方从 MainActor Task 调用时在通用执行器上执行，
     /// 只跨边界传递 Sendable 值。
+    /// 有界并发（在途上限 4 张，滑动窗口）：原图整图载入（HEIC/JPEG 常见
+    /// 5–20MB/张）+ 缩略图重编码——全量并发时多选（15–30 张）瞬时峰值
+    /// 100–500MB，低内存机型有 jetsam 风险。滑动窗口与分批等待的内存峰值
+    /// 等价（≤4 张同时在途），但无批间壁垒——任一图完成即补发下一张，
+    /// 慢图不再拖住整批（分批的尾部延迟 ≈ ceil(N/4) × 最慢一张）。
     static func loadWithThumbnails(_ items: [PhotosPickerItem]) async -> (data: [Data], thumbs: [Data]) {
         let results = await withTaskGroup(of: (Int, Data?, Data?).self) { group in
-            for (index, item) in items.enumerated() {
-                group.addTask {
-                    let data = try? await item.loadTransferable(type: Data.self) // try?-ok: 单张照片传输失败跳过该张，其余照常（§7 显式降级）
-                    return (index, data, data.flatMap { thumbnailData($0) })
-                }
-            }
             var out: [(Int, Data)] = []
             var thumbs: [(Int, Data)] = []
-            for await (index, data, thumb) in group {
-                if let data { out.append((index, data)) }
-                if let thumb { thumbs.append((index, thumb)) }
+            var next = 0
+            var inFlight = 0
+            while next < items.count || inFlight > 0 {
+                while inFlight < 4, next < items.count {
+                    let i = next
+                    group.addTask {
+                        let data = try? await items[i].loadTransferable(type: Data.self) // try?-ok: 单张照片传输失败跳过该张，其余照常（§7 显式降级）
+                        return (i, data, data.flatMap { thumbnailData($0) })
+                    }
+                    next += 1
+                    inFlight += 1
+                }
+                // 正常路径每任务恰产出一条结果；nil 仅在取消/空组时出现，
+                // 届时丢弃剩余收尾（与分批版本同语义）
+                guard let (i, data, thumb) = await group.next() else { break }
+                inFlight -= 1
+                if let data { out.append((i, data)) }
+                if let thumb { thumbs.append((i, thumb)) }
             }
             return (out.sorted { $0.0 < $1.0 }, thumbs.sorted { $0.0 < $1.0 })
         }

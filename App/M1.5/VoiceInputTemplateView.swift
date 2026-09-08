@@ -32,6 +32,11 @@ final class AudioRouteMonitor {
 
     func start() {
         refresh()
+        // 审查修复（观察者泄漏）：start() 此前非幂等——每次调用无条件
+        // addObserver 覆盖旧 token，先前注册的 NotificationCenter 块被
+        // 中心永久持有直至进程结束（stop() 只能移除最后一次注册的）。
+        // 幂等守卫：已注册则直接返回（与 VoiceLevelMeter.started 同款）。
+        guard observer == nil else { return }
         observer = NotificationCenter.default.addObserver(
             forName: AVAudioSession.routeChangeNotification,
             object: nil, queue: .main) { [weak self] _ in
@@ -85,7 +90,13 @@ struct VoiceConfirmSheet: View {
     /// 未编辑原值、保存用编辑后值——用户在卡上改完字段再点 [朗读]，
     /// 听到的与最终落库的不一致，无障碍用户听到从未被记录的数值）。
     private var script: String? {
-        ReadbackPolicy.readbackScript(applyingEdits())
+        // 审查修复（V3.68 §11 清偿残根）：句式经 L10n.voiceReadbackFmt 组装、
+        // 字段名经 label(for:) 本地化映射——原 Domain readbackScript 直拼
+        // displayLabel（语音路径下是英文内部键），TTS 把 "blood_pressure_sys"
+        // 原样念给用户听。
+        guard let parts = ReadbackPolicy.readbackParts(applyingEdits()) else { return nil }
+        let body = parts.map { "\(label(for: $0.key))：\($0.value)" }.joined(separator: "，")
+        return String(format: L10n.voiceReadbackFmt, body)
     }
 
     /// 编辑应用 + 全体确认（脚本预览与保存共用的唯一变换；BR-003 语义

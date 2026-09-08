@@ -110,6 +110,10 @@ struct AllergyCreateView: View {
     @State private var note = ""
     @State private var showEmergencyCard = false
     @State private var saveFailed = false
+    /// FR3.3 归属切换抽屉（审查修复：MemberConfirmBar 的 [更换] 此前接空
+    /// 闭包——可点但零动作，多成员下过敏记录静默归入 currentPatientId，
+    /// 恰是 FR3.3 明令禁止的行为）
+    @State private var showMemberPicker = false
 
     // FR23.1 选项来自 Domain 常量（数据词汇单一来源，视图不内联中文）
     private var kinds: [String] { SevereReactionRules.allergenKinds }
@@ -161,9 +165,12 @@ struct AllergyCreateView: View {
                     MemberConfirmBar(
                         patientName: app.members.first(where: { $0.id == app.currentPatientId })?.displayName
                             ?? app.owner?.displayName ?? L10n.help_appName,
-                        relation: L10n.member_relationSelf) { }
+                        relation: L10n.member_relationSelf) {
+                            showMemberPicker = true
+                        }
                 }
             }
+            .sheet(isPresented: $showMemberPicker) { MemberPickerSheet() }
             .navigationTitle(L10n.allergyCreateTitle)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

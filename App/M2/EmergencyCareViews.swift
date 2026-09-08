@@ -340,7 +340,9 @@ struct SOSOrb: View {
         .fullScreenCover(isPresented: $showHelp) {
             SOSHelpView()
         }
-        .accessibilityLabel(L10n.sosHelpTitle)
+        // 审查修复：删除重复的 .accessibilityLabel(sosHelpTitle)——同一视图
+        // 连续两次 label，后者覆盖前者：VoiceOver 用户失去「按住 N 秒」
+        // 时长指导（BR-012 辅助功能通路的刻意产物被吞）。
     }
 
     private func progress(_ now: Date) -> CGFloat {

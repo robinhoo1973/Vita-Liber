@@ -23,7 +23,7 @@ struct DocumentImportConfirmView: View {
                 if !draft.qualityTags.isEmpty {
                     Section {
                         ForEach(draft.qualityTags, id: \.self) { tag in
-                            Label(tag, systemImage: "exclamationmark.triangle")
+                            Label(L10n.qualityTag(tag), systemImage: "exclamationmark.triangle")
                                 .font(.caption)
                                 // 语义令牌替代系统原色（第四轮全仓审查修复）
                                 .foregroundStyle(Color("semantic-warning", bundle: .main))

@@ -340,7 +340,6 @@
 "member.save" = "Save";
 "member.quotaHint" = "The free tier supports up to 4 members; Pro unlocks more.";
 "member.addedHint" = "Added — you can complete their health history later.";
-"proOutput.title" = "Pro outputs";
 "dose.number" = "Dose %1$d";
 "onboard.sourceConfirmed" = "Source confirmed";
 "onboard.unconfirmed2" = "Unconfirmed";
@@ -391,6 +390,7 @@
 "trend.excluded.accessibility" = "Excluded %@";
 "trend.chart.accessibility" = "%1$@ trend chart with %2$d data points and %3$d reference ranges";
 "trend.band.legend" = "%1$@ %2$@–%3$@";
+"trend.band.unlabeled" = "Unlabeled source";
 "trend.origin.selfDevice" = "Self-measured / device reading";
 "trend.origin.hospital" = "Hospital report";
 "trend.refRange" = "Reference range %1$@–%2$@";
@@ -470,6 +470,8 @@
 "ai.refusedNoEvidence" = "No citable sources, so no definitive conclusion can be given. Add records or consult a doctor or pharmacist.";
 "ai.refusedHighRisk" = "Changing or stopping a medication must be decided by a doctor. Please consult a doctor or pharmacist with your prescription.";
 "ai.failedRetry" = "Failed to answer, please try again later.";
+"ai.history.loadFailed" = "Failed to load history";
+"ai.history.loadFailedHint" = "Please try again later";
 "ai.emergencyCardText" = "Possible emergency: call your local emergency number immediately or go to the nearest hospital emergency room.";
 "ai.emergencyTitle" = "Possible emergency";
 "ai.emergencyCall" = "Call emergency services";
@@ -1190,6 +1192,12 @@
 "pref.readback.always" = "Always (care mode only)";
 "pref.readbackHint" = "Whether to read entered content aloud without headphones (privacy, avoid disturbing others)";
 "pref.restoreAll" = "Restore all defaults";
+"quality.blurry" = "Blurry";
+"quality.good" = "Good quality";
+"quality.occlusion" = "Possible obstruction";
+"quality.tooBright" = "Too bright";
+"quality.tooDark" = "Too dark";
+"quality.unassessable" = "Cannot assess";
 "lifecycle.single" = "Delete a single record";
 "lifecycle.singleHint" = "Done from the record's detail page; the audit log keeps the deletion event, the next backup drops it.";
 "lifecycle.member" = "Delete a member";
@@ -1349,6 +1357,7 @@
 "medicalID.note" = "This app never writes to the system Medical ID silently — you complete it manually in the Health app.";
 "settings.themeHint" = "Changes take effect immediately, no restart needed";
 "reminder.notification.title" = "You have a health reminder";
+"reminder.planSaveFailed" = "Failed to save the plan. Please try again.";
 "reminder.notification.body" = "Tap for details";
 "home.capture.hint" = "Aim at the document; text is recognized automatically and saved to your library";
 "home.capture.shoot" = "Start Capture";
@@ -1373,6 +1382,7 @@
 "voice.field.date" = "Date";
 "voice.field.hour" = "Time";
 "voice.field.repeat" = "Repeat";
+"voice.readbackFmt" = "Recorded: %@. Is that correct?";
 "voice.field.content" = "Content";
 "voice.confirm.fillHint" = "Not recognized — tap to fill in";
 "voiceguide.saved" = "Reminder set";

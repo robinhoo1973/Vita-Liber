@@ -69,16 +69,32 @@ final class AppRouter {
         }
     }
 
+    /// 导航外壳卸载（门禁重锁/向导分支替换 RootAdaptiveView）时调用：
+    /// 卸载期间 navigate 必须退回暂存（enqueue）——外壳未挂载时把路由写进
+    /// path 并持久化，解锁后 NavigationStack 以**非空 path 挂载**，首帧渲染
+    /// 触发 push 转场，命中 iOS 26 转场环境断言（crash 2 同族：本文件的
+    /// 恢复时点修正防的是冷启动窗口，门禁重锁窗口此前漏防）。外壳重新挂载
+    /// 时 markNavigationReady 再次放行（幂等；finishRestore 有 didRestore 守卫，
+    /// 暂存队列在放行帧后逐条投递）。
+    func markNavigationSuspended() {
+        navigationReady = false
+    }
+
     /// 通知点击 → 路由入队（AppNotificationDelegate 调用）：
     /// 外壳就绪 → 立即分发；未就绪（启动窗口/门禁中）→ 暂存，
     /// 由 markNavigationReady 在挂载帧之后投递。
     /// 第七轮修复：启动窗口内同一通知连点两次入队两次 → 解锁后同一目的地
-    /// 叠两层（返回观感失效）；队列尾去重（navigate 侧另有栈顶去重兜底）
+    /// 叠两层（返回观感失效）。去重语义（第十一轮审查修正）：同路由**移队尾**
+    /// （move-to-end）——既保证队列无重复路由（相邻/交错连点都挡），又让
+    /// 最后一次点击胜出（contains 直接丢弃会把 A→B→A 交错序列的最终点击
+    /// A 吞掉，解锁后落在 B，最新意图失效；尾比对只挡相邻同样失效）。
     func enqueue(route: AppRoute) {
         if navigationReady {
             navigate(to: route)
         } else {
-            guard pendingRoutes.last != route else { return }
+            if let index = pendingRoutes.firstIndex(of: route) {
+                pendingRoutes.remove(at: index)
+            }
             pendingRoutes.append(route)
         }
     }
@@ -86,15 +102,9 @@ final class AppRouter {
     /// §5.48：目的地视图自弹回根（已删除实体降级）——移除该路由在其所属
     /// Tab 栈中的条目并持久化。RouteDestinationView 的 NotFound 降级落点调用。
     func pop(_ route: AppRoute) {
-        let tab = MainModuleID.tab(of: route)
-        switch tab {
-        case .home: homePath.removeAll { $0 == route }
-        case .records: recordsPath.removeAll { $0 == route }
-        case .reminders: remindersPath.removeAll { $0 == route }
-        case .ai: aiPath.removeAll { $0 == route }
-        case .me: mePath.removeAll { $0 == route }
-        }
-        persist()
+        let row = Self.row(for: MainModuleID.tab(of: route))
+        self[keyPath: row.keyPath].removeAll { $0 == route }
+        persist(path: row.key, row.keyPath)
     }
 
     /// 外壳挂载后恢复（markNavigationReady 调用）。幂等：多次调用只恢复一次。
@@ -105,7 +115,7 @@ final class AppRouter {
     }
 
     /// 通知点击 → 路由分发：先切 selection 到 route 所属 Tab（本拍），
-    /// 再 append 到对应 path（下一拍）——同一 update 内 TabView 换栈 +
+    /// 再改对应 path（下一拍）——同一 update 内 TabView 换栈 +
     /// NavigationStack 推入会让 iOS 26 借用控制器缓存路径在环境未装配时
     /// 配置转场（TestFlight crash 2 断言栈：configurePreferredTransition）。
     /// 跨 Tab 路由若不切 selection，用户留在原 Tab 看不到任何推进
@@ -114,50 +124,56 @@ final class AppRouter {
     func navigate(to route: AppRoute) {
         let tab = MainModuleID.tab(of: route)
         selection = tab
-        // 评审修正（套娃防护）：.reminderToday 的落点视图就是提醒 Tab 根视图
-        // （ModuleRoot）——append 会把同一 RemindersView 叠在 Tab 根之上，
-        // 每次剂量通知点击再叠一层（RouteDestinationView 头注所禁的套娃模式）。
-        // 同根路由 = 仅切 Tab（selection 已同步），不入栈。
-        // 评审修正第二轮：切 Tab 同时**弹栈到根**——用户深处提醒栈（如计划详情）
-        // 时点剂量通知，旧实现栈顶仍是详情页，§5.45 契约「点击抵达今日剂量」
-        // 落空；弹栈后 Tab 根（RemindersView 今日时段）即为落点。
-        // 第七轮修复：.assistantChat 同族——AI Tab 根（ModuleRoot(.ai)）即
-        // AssistantView，首页引导卡/语音速启点 AI 助手会叠出第二个一模一样
-        // 的聊天页（套娃），第六轮只特判了 reminderToday 漏掉本族。
-        guard route != .reminderToday, route != .assistantChat else {
-            let tab = MainModuleID.tab(of: route)
-            switch tab {
-            case .ai: aiPath = []
-            case .reminders: remindersPath = []
-            default: break
-            }
-            persist()
-            return
-        }
+        // selection 本拍同步落盘（persist(path:) 不再捎带——同 Tab push/pop
+        // 手势不应重复写未变化的 selection 键）
+        persistSelection()
+        let row = Self.row(for: tab)
         Task { @MainActor [weak self] in
             guard let self else { return }
+            // 挂起竞态复核（第十一轮审查）：markNavigationSuspended 只门
+            // enqueue 入口，本延迟执行点同样可能落在门禁重锁/外壳卸载之后
+            // ——未就绪则退回暂存队列，放行后按序投递（不直写已卸载外壳
+            // 的 path，杜绝解锁后非空 path 首帧 push 的 crash 2 同族）。
+            guard self.navigationReady else {
+                self.enqueue(route)
+                return
+            }
+            // 评审修正（套娃防护）：.reminderToday 的落点视图就是提醒 Tab 根视图
+            // （ModuleRoot）——append 会把同一 RemindersView 叠在 Tab 根之上，
+            // 每次剂量通知点击再叠一层（RouteDestinationView 头注所禁的套娃模式）。
+            // 评审修正第二轮：切 Tab 同时**弹栈到根**——用户深处提醒栈（如计划详情）
+            // 时点剂量通知，旧实现栈顶仍是详情页，§5.45 契约「点击抵达今日剂量」
+            // 落空；弹栈后 Tab 根（RemindersView 今日时段）即为落点。
+            // 弹栈与本函数其余 append 同在延迟 Task 内执行——同步清栈 + 延迟
+            // append 的混合会把同一 runloop 内先入的预约路由复活到清空后的
+            // 栈顶（第十一轮审查：暂存队列 [.appointmentDetail, .reminderToday]
+            // 投递时落在预约详情而非今日剂量，最后点击失效）。
+            if route == .reminderToday {
+                self.remindersPath = []
+                self.persist(path: .reminders, \.remindersPath)
+                return
+            }
+            // 第七轮修复（.assistantChat 套娃防护）：AI Tab 根（ModuleRoot(.ai)）
+            // 即 AssistantView。第十一轮审查修正：不再无条件清空 AI 栈（抹除返回
+            // 上下文），改为**弹栈到已存在的聊天页**——栈中已有 .assistantChat
+            // 时移除其及上方全部条目（防叠出第二个聊天页），其下方上下文
+            // 保留；空栈时仅切 Tab 不入栈（根即聊天页）；栈中无聊天页时
+            // 维持栈不动（保留历史/搜索上下文）。
+            if route == .assistantChat {
+                guard !self.aiPath.isEmpty else { return }
+                if let idx = self.aiPath.firstIndex(of: .assistantChat) {
+                    self.aiPath.removeSubrange(idx...)
+                    self.persist(path: .ai, \.aiPath)
+                }
+                return
+            }
             // 第七轮修复：同路由连点去重——同一通知双点（启动窗口入队两次）
             // 或同一预约的 t0/t1 分级通知先后点击会把同一目的地叠两层；
             // 栈顶已是该路由时不再入栈（正常「返回再进同一页」不受影响，
-            // 因为返回后栈顶已不是它）
-            switch tab {
-            case .home:
-                guard self.homePath.last != route else { return }
-                self.homePath.append(route)
-            case .records:
-                guard self.recordsPath.last != route else { return }
-                self.recordsPath.append(route)
-            case .reminders:
-                guard self.remindersPath.last != route else { return }
-                self.remindersPath.append(route)
-            case .ai:
-                guard self.aiPath.last != route else { return }
-                self.aiPath.append(route)
-            case .me:
-                guard self.mePath.last != route else { return }
-                self.mePath.append(route)
-            }
-            self.persist()
+            // 因为返回后栈顶已不是它）。
+            guard self[keyPath: row.keyPath].last != route else { return }
+            self[keyPath: row.keyPath].append(route)
+            self.persist(path: row.key, row.keyPath)
         }
     }
 
@@ -183,7 +199,7 @@ final class AppRouter {
     func select(_ tab: MainModuleID) {
         guard selection != tab else { return }
         selection = tab
-        persist()
+        persistSelection()
     }
 
     /// TabView selection / Sidebar 回写的统一绑定
@@ -199,19 +215,15 @@ final class AppRouter {
     /// 「lazy cannot be used on a computed property」编译失败）——回落为
     /// keyPath 参数化的单一构造（SwiftUI 常规模式，绑定身份抖动不构成
     /// 实际问题，crash 2 根因在恢复时点与双导航变更，与此无关）。
-    private func pathBinding(_ keyPath: ReferenceWritableKeyPath<AppRouter, [AppRoute]>) -> Binding<[AppRoute]> {
+    private func pathBinding(_ keyPath: ReferenceWritableKeyPath<AppRouter, [AppRoute]>,
+                             key: Key) -> Binding<[AppRoute]> {
         Binding(get: { [weak self] in self?[keyPath: keyPath] ?? [] },
-                set: { [weak self] in self?[keyPath: keyPath] = $0; self?.persist() })
+                set: { [weak self] in self?[keyPath: keyPath] = $0; self?.persist(path: key, keyPath) })
     }
 
     func binding(for tab: MainModuleID) -> Binding<[AppRoute]> {
-        switch tab {
-        case .home: return pathBinding(\.homePath)
-        case .records: return pathBinding(\.recordsPath)
-        case .reminders: return pathBinding(\.remindersPath)
-        case .ai: return pathBinding(\.aiPath)
-        case .me: return pathBinding(\.mePath)
-        }
+        let row = Self.row(for: tab)
+        return pathBinding(row.keyPath, key: row.key)
     }
 
     // MARK: - §5.48 跨启动恢复
@@ -221,10 +233,42 @@ final class AppRouter {
         var storageKey: String { "router.path.\(rawValue)" }
     }
 
-    private func persist() {
+    /// Tab ↔ 持久化键 ↔ path 的**单一映射表**（pop/navigate/binding/persist/
+    /// restore 共用）。此前五路 switch 散落四处，Tab 重排时漏改一处即静默
+    /// 错栈/错键；全部消费方收敛到本表。
+    private static let pathTable: [(tab: MainModuleID, key: Key, keyPath: ReferenceWritableKeyPath<AppRouter, [AppRoute]>)] = [
+        (.home, .home, \.homePath),
+        (.records, .records, \.recordsPath),
+        (.reminders, .reminders, \.remindersPath),
+        (.ai, .ai, \.aiPath),
+        (.me, .me, \.mePath),
+    ]
+
+    /// 单一映射表行取用。表漂移（新增 MainModuleID 未补登记）在此**大声
+    /// 失败**而非静默错栈——旧 `?? \.homePath` 兜底会把新 Tab 的 navigate/
+    /// pop/持久化全部写进 home 栈与 home 键（跨启动污染），且无任何告警，
+    /// 与本表「单一事实源」的设立目的自相矛盾。
+    private static func row(for tab: MainModuleID) -> (key: Key, keyPath: ReferenceWritableKeyPath<AppRouter, [AppRoute]>) {
+        guard let row = pathTable.first(where: { $0.tab == tab }) else {
+            fatalError("AppRouter.pathTable missing row for MainModuleID: \(tab) — register the new module in pathTable")
+        }
+        return (row.key, row.keyPath)
+    }
+
+    private static let encoder = JSONEncoder()   // 静态复用：persist 在每次导航热路径执行，逐次新建 encoder 是纯浪费
+
+    /// 导航热路径增量落盘：只编码发生变化的 path（keyPath 由调用侧自带，
+    /// 不再回查映射表）。此前每次 push/pop/切 Tab 都全量重编码五条路径并写
+    /// 六键（cfprefsd 提交流量 × 每次手势，四条未变路径是纯冗余 MainActor
+    /// CPU）。selection 由 navigate/select 各自的 persistSelection 落盘，
+    /// 本方法不捎带（同 Tab push/pop 不重复写未变化的 selection 键）。
+    private func persist(path key: Key, _ keyPath: ReferenceWritableKeyPath<AppRouter, [AppRoute]>) {
         guard !isRestoring, didRestore else { return }
-        set(Key.home, homePath); set(Key.records, recordsPath)
-        set(Key.reminders, remindersPath); set(Key.ai, aiPath); set(Key.me, mePath)
+        set(key, self[keyPath: keyPath])
+    }
+
+    private func persistSelection() {
+        guard !isRestoring, didRestore else { return }
         defaults.set(selection.rawValue, forKey: Key.selectedModule.storageKey)
     }
 
@@ -233,15 +277,16 @@ final class AppRouter {
             defaults.removeObject(forKey: key.storageKey)
             return
         }
-        guard let data = try? JSONEncoder().encode(path) else { return }   // try?-ok: 编码失败即放弃持久化，不阻塞导航（§5.48 降级语义）
+        guard let data = try? Self.encoder.encode(path) else { return }   // try?-ok: 编码失败即放弃持久化，不阻塞导航（§5.48 降级语义）
         defaults.set(data, forKey: key.storageKey)
     }
 
     private func restore() {
         isRestoring = true
         defer { isRestoring = false }
-        homePath = load(Key.home); recordsPath = load(Key.records)
-        remindersPath = load(Key.reminders); aiPath = load(Key.ai); mePath = load(Key.me)
+        for row in Self.pathTable {
+            self[keyPath: row.keyPath] = load(row.key)
+        }
         if let raw = defaults.string(forKey: Key.selectedModule.storageKey),
            let restored = MainModuleID(rawValue: raw) {
             selection = restored
@@ -301,31 +346,33 @@ final class AppNotificationDelegate: NSObject, UNUserNotificationCenterDelegate 
 
     /// 前台呈现（评审修正）：此前未实现 willPresent，delegate 存在即前台
     /// 通知静默——P0 服药提醒在应用打开时无声无横幅。
-    /// 评审修正第二轮（抑制集反转）：InAppBannerHost（§4.22）只渲染**剂量到期**
-    /// 横幅（todaySlots 驱动）——应抑制的是 dose-/slot-（否则系统横幅 + 应用内
-    /// 横幅同事件双弹）；refill-/exp- 没有任何应用内横幅承接，抑制即静默丢失
-    /// （续药/到期是 ADR-009 早告警链，前台不可见违背「偏早」铁律）。
-    /// 第七轮修复：抑制必须咨询横幅总开关与用药通道偏好（UserDefaults 镜像，
-    /// AppSettingsStore.set 双写，本方法在系统线程执行故不得触碰 @MainActor）——
-    /// 横幅总开关关闭时原无条件抑制使服药提醒在前台**完全静默**（无系统横幅、
-    /// 无应用内横幅，仅 Tab 角标）；「静音仅横幅」偏好（remindChannelMeds
-    /// =inApp）时系统横幅必须让位（应用内横幅是唯一通道，即使开关关闭也是
-    /// 用户对「静音」的显式选择）。
+    /// 抑制集纪律：只有**有应用内横幅承接**的 dose-/slot- 才让系统横幅让位
+    /// （否则系统横幅 + 应用内横幅同事件双弹）；snooze-/voice-rem- 与其余
+    /// 类别无应用内承接，照常系统投递（宁响铃、绝不静默丢弃，ADR-009 偏早
+    /// 铁律）。判定统一走 Domain ReminderChannelRules.foregroundDelivery 纯
+    /// 规则（App 层只做 UserDefaults 镜像读取——本方法在系统线程执行，不得
+    /// 触碰 @MainActor——与 UNNotificationPresentationOptions 的映射）：
+    /// 「静音仅横幅」= 静默（用户显式选择，且仅在横幅总开关开启时——开关
+    /// 关闭则应用内横幅不存在，按 §5.58 降级为系统投递）；横幅开启 +
+    /// 「响铃直到确认」= 仅声音（声音保留、横幅双弹抑制）。
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
                                             willPresent notification: UNNotification,
                                             withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
         let id = notification.request.identifier
-        // 第八轮全仓审查修复：snooze-（稍后提醒，归属用药类通道）补入抑制
-        // 集合——「静音仅横幅/横幅关闭」时其系统横幅同样必须让位/让过，
-        // 与 dose-/slot- 同等待遇（旧逻辑对稍后提醒恒弹系统横幅，与用药
-        // 通道偏好矛盾）
-        if id.hasPrefix("dose-") || id.hasPrefix("slot-") || id.hasPrefix("snooze-") {
-            let defaults = UserDefaults.standard
-            let bannerOn = defaults.string(forKey: AppSettingKey.inAppBannerEnabled.rawValue) != "false"
-            let inAppOnly = defaults.string(forKey: AppSettingKey.remindChannelMeds.rawValue) == "inApp"
-            completionHandler(bannerOn || inAppOnly ? [] : [.banner, .sound])
-        } else {
-            completionHandler([.banner, .sound])
+        let defaults = UserDefaults.standard
+        let delivery = ReminderChannelRules.foregroundDelivery(
+            for: id,
+            bannerEnabled: defaults.string(forKey: AppSettingKey.inAppBannerEnabled.rawValue) != "false",
+            medsPreference: defaults.string(forKey: AppSettingKey.remindChannelMeds.rawValue))
+        completionHandler(Self.presentation(for: delivery))
+    }
+
+    /// nonisolated：willPresent 在系统线程执行（见调用侧注），不得沾 @MainActor。
+    private nonisolated static func presentation(for delivery: ForegroundDelivery) -> UNNotificationPresentationOptions {
+        switch delivery {
+        case .bannerAndSound: return [.banner, .sound]
+        case .soundOnly: return [.sound]
+        case .silent: return []
         }
     }
 }

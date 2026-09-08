@@ -412,7 +412,10 @@ struct VoiceSessionView: View {
             let patientId = app.currentPatientId
             Task {
                 await trendState.loadDetail(patientId: patientId, metricKey: MetricType.glucose.rawValue)
-                let points = trendState.detailSeries?.points.suffix(3).map { "\($0.value)" }.joined(separator: "、")
+                // 审查修复：裸插值绕过医学数值单一出口（62.0 → "62.0" 与
+                // 趋势页 oneDecimal 口径漂移）——统一走 MedicalNumberFormat
+                let points = trendState.detailSeries?.points.suffix(3)
+                    .map { MedicalNumberFormat.oneDecimal($0.value) }.joined(separator: "、")
                 session.systemFeedback(points.map { L10n.f19RecentGlucose($0) } ?? L10n.f19NoGlucose,
                                       speak: { app.speak($0) })
             }
@@ -638,13 +641,12 @@ struct VoiceSessionView: View {
 
     /// 指定药名的全部匹配批次（双轨库存/StockLot：同名药品可多批次）——
     /// 此前 first 只回首批，多批次药余量/效期/位置被少报。
-    /// 精确名优先：短词（「钙」）不得先命中「葡萄糖酸钙」等包含关系药品。
+    /// 精确名优先（Domain InventoryRules.preferredExactMatches 单一事实源，
+    /// 审查修复：匹配语义此前内联本视图，规则调整须改视图且不可单测）。
     private func matchingLots(_ obj: String) -> [MedicationStore.InventorySummaryItem] {
-        let candidates = hub.inventoryItems.filter {
-            $0.medicationName.contains(obj) || obj.contains($0.medicationName)
-        }
-        let exact = candidates.filter { $0.medicationName == obj }
-        return exact.isEmpty ? candidates : exact
+        InventoryRules.preferredExactMatches(hub.inventoryItems,
+                                             name: { $0.medicationName },
+                                             query: obj)
     }
 
     /// 附表⑥临期/过期三级分组播报（FR9.11；BatchExpiryRules 单一事实源）——

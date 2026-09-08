@@ -437,8 +437,6 @@ enum L10n {
     static var member_quotaHint: String { t("member.quotaHint") }
     static var member_addedHint: String { t("member.addedHint") }
 
-        static var proOutput_title: String { t("proOutput.title") }
-
         static func doseNumber(_ n: Int) -> String { String(format: t("dose.number"), n) }
     static var onboard_sourceConfirmed: String { t("onboard.sourceConfirmed") }
     static var onboard_unconfirmed2: String { t("onboard.unconfirmed2") }
@@ -482,8 +480,13 @@ enum L10n {
     static var voiceFieldRepeat: String { t("voice.field.repeat") }
     static var voiceFieldContent: String { t("voice.field.content") }
     static var voiceConfirmFillHint: String { t("voice.confirm.fillHint") }
+    /// 回读句式（FR17.13）：%@ = 已确认字段列表（App 层经字段标签映射组装，
+    /// Domain 不再拼接句式——V3.68 §11 清偿残根修复）
+    static var voiceReadbackFmt: String { t("voice.readbackFmt") }
     static var voiceguide_saved: String { t("voiceguide.saved") }
     static var reminderNotificationTitle: String { t("reminder.notification.title") }
+    /// 计划保存失败告警（响亮失败：创建失败保留表单，不静默关 sheet）
+    static var reminder_planSaveFailed: String { t("reminder.planSaveFailed") }
     static var reminderNotificationBody: String { t("reminder.notification.body") }
     static var emergency_manageCard: String { t("emergency.manageCard") }
     static var emergencyNumber: String { t("emergency.number") }
@@ -571,6 +574,9 @@ enum L10n {
     static func trendBandLegend(_ source: String, _ lo: String, _ hi: String) -> String {
         String(format: t("trend.band.legend"), source, lo, hi)   // %1$@ %2$@ %3$@
     }
+    static var trendBandUnlabeled: String { t("trend.band.unlabeled") }
+    /// 拍摄质量标签（Domain QualityTag 键 → 本地化文案；未知键原样回落）
+    static func qualityTag(_ raw: String) -> String { t(raw) }
     static var trendOriginSelfDevice: String { t("trend.origin.selfDevice") }
     static var trendOriginHospital: String { t("trend.origin.hospital") }
     static func trendRefRange(_ lo: String, _ hi: String) -> String {
@@ -774,6 +780,8 @@ enum L10n {
     static var ai_refusedNoEvidence: String { t("ai.refusedNoEvidence") }
     static var ai_refusedHighRisk: String { t("ai.refusedHighRisk") }
     static var ai_failedRetry: String { t("ai.failedRetry") }
+    static var aiHistoryLoadFailed: String { t("ai.history.loadFailed") }
+    static var aiHistoryLoadFailedHint: String { t("ai.history.loadFailedHint") }
     static var ai_emergencyCardText: String { t("ai.emergencyCardText") }
     static var ai_emergencyTitle: String { t("ai.emergencyTitle") }
     static var ai_emergencyCall: String { t("ai.emergencyCall") }
@@ -910,7 +918,7 @@ enum L10n {
         "ai.scopeNote",
         "ai.disclaimerFixed", "ai.confirmImageText",
         "ai.emergencyAction", "ai.emergencyCall", "ai.emergencyTitle", "paywall.previewTitle", "timeline.empty.title",
-        "ai.emergencyCardText", "ai.failedRetry", "ai.refusedHighRisk",
+        "ai.emergencyCardText", "ai.failedRetry", "ai.history.loadFailed", "ai.history.loadFailedHint", "ai.refusedHighRisk",
         "ai.refusedNoEvidence",
         "ai.source", "ai.uncertain", "alert.empty.hint", "alert.empty.title",
         "alert.linkChecked", "alert.openOriginal",
@@ -1054,7 +1062,7 @@ enum L10n {
         "onboard.unconfirmed2", "onboard.unconfirmedBadge",
         "onboard.yourName", "pay.busy", "pay.buy", "pay.restore",
         "pay.valueProp",
-        "pay.trustCopy", "pro.previewNote", "proOutput.title",
+        "pay.trustCopy", "pro.previewNote",
         "reminder.a11ySkipped", "reminder.a11ySnoozed", "reminder.a11yTaken", "reminder.medicationFallback",
         "reminder.addAppt",
         "reminder.addPlan", "reminder.appointments", "reminder.completeAppt", "reminder.emptyAppt",
@@ -1100,7 +1108,7 @@ enum L10n {
         "settings.appearance", "settings.themeLight", "settings.themeDark", "settings.themeSystem",
         "settings.highContrast", "settings.highContrastFooter", "trend.axis.end", "trend.axis.lower",
         "trend.axis.selected", "trend.axis.start", "trend.axis.time", "trend.axis.upper",
-        "trend.axis.value", "trend.band.accessibility", "trend.band.legend", "trend.chart.accessibility",
+        "trend.axis.value", "trend.band.accessibility", "trend.band.legend", "trend.band.unlabeled", "trend.chart.accessibility",
         "trend.convertedFrom", "trend.empty.hint", "trend.empty.title", "trend.excluded.accessibility",
         "trend.excluded.header", "trend.excluded.toggle", "trend.openSource", "trend.origin.hospital",
         "trend.origin.hospitalShort", "trend.origin.self", "trend.origin.selfDevice", "trend.origin.selfShort",
@@ -1296,6 +1304,8 @@ enum L10n {
         "pref.homeSort", "pref.homeSort.time", "pref.homeSort.type",
         "pref.readback", "pref.readback.never", "pref.readback.ask", "pref.readback.always",
         "pref.readbackHint", "pref.restoreAll",
+        "quality.blurry", "quality.good", "quality.occlusion", "quality.tooBright",
+        "quality.tooDark", "quality.unassessable",
         "lifecycle.single", "lifecycle.singleHint", "lifecycle.member", "lifecycle.memberHint",
         "lifecycle.clearAll", "lifecycle.clearHint", "lifecycle.clearButton",
         "lifecycle.clearImpact", "lifecycle.logout", "lifecycle.logoutHint",
@@ -1337,6 +1347,7 @@ enum L10n {
         "medicalID.step2Hint", "medicalID.step3", "medicalID.step3Hint",
         "medicalID.openHealth", "medicalID.note", "settings.themeHint",
         "reminder.notification.title", "reminder.notification.body",
+        "reminder.planSaveFailed",
         // 审查补充登记（2026-09-05）：此前仅入三语文件未入登记表的键
         "assistant.addRecords",
         "assistant.consultDoctor",
@@ -1433,6 +1444,7 @@ enum L10n {
         "voice.field.date",
         "voice.field.hour",
         "voice.field.repeat",
+        "voice.readbackFmt",
         "voiceguide.micPass",
         "voiceguide.micPhrase",
         "voiceguide.micPrompt",
@@ -2105,7 +2117,10 @@ enum L10n {
     static var helpVoice1: String { t("help.voice1") }
     static var helpVoice2: String { t("help.voice2") }
     static var helpVoiceSpeak: String { t("help.voiceSpeak") }
-    static func inventoryBarAccessibility(_ pct: Int) -> String { t("inventory.barAccessibility").replacingOccurrences(of: "%d", with: String(pct)) }
+    /// 审查修复：模板为 "余量约 %d%%"——replacingOccurrences 填充后
+    /// "%%" 转义永不解除，VoiceOver 念出「余量约 60%%」（双百分号，
+    /// 三语同病）。改 String(format:) 由格式器消化 %d 与 %%。
+    static func inventoryBarAccessibility(_ pct: Int) -> String { String(format: t("inventory.barAccessibility"), pct) }
     static var prepExport: String { t("prep.export") }
     static var prepTrendSnapshot: String { t("prep.trendSnapshot") }
     static var reminder_planScheduleKind: String { t("reminder.planScheduleKind") }

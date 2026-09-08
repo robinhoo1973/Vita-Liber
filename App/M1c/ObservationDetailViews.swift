@@ -210,7 +210,7 @@ struct ObservationDetailView: View {
             }
             TextField(L10n.obsDetailMedsDiet, text: $draftMedsDiet).textFieldStyle(.roundedBorder)
             Toggle(L10n.obsDetailConsulted, isOn: Binding(get: { draftConsulted ?? false }, set: { draftConsulted = $0 }))
-            TextField("", text: $draftDescription, axis: .vertical)
+            TextField(L10n.observationDescription, text: $draftDescription, axis: .vertical)
                 .lineLimit(2...5)
                 .textFieldStyle(.roundedBorder)
 

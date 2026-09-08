@@ -9,6 +9,10 @@ import Infrastructure
 @Observable
 final class AIHistoryState {
     private(set) var conversations: [AIHistoryStore.Conversation] = []
+    /// 审查修复（四态契约 error 态）：加载失败此前把 conversations 置空——
+    /// 失败与「真空历史」渲染同一形态（空态冒充），且已有内容被抹掉。
+    /// 改为保留旧列表 + loadFailed 独立状态，视图渲染可见错误与重试。
+    private(set) var loadFailed = false
     private let store: AIHistoryStore
     private var loadingPatientId: UUID?
 
@@ -16,12 +20,15 @@ final class AIHistoryState {
 
     func load(patientId: UUID) async {
         loadingPatientId = patientId
+        loadFailed = false
         do {
             let rows = try await store.conversations(patientId: patientId)
             guard loadingPatientId == patientId else { return }
             conversations = rows
         } catch {
-            conversations = []
+            loadFailed = true
+            // 保留旧列表（读取失败不抹已呈现内容——与 EncountersState
+            // 同纪律：把存在记录渲染成假空态比错误态更糟）
         }
     }
 
@@ -58,7 +65,22 @@ struct AssistantHistoryView: View {
 
     var body: some View {
         List {
-            if state.conversations.isEmpty {
+            if state.loadFailed && state.conversations.isEmpty {
+                // 审查修复（四态 error 态）：加载失败与真空历史必须可区分——
+                // 此前失败清空列表渲染「历史为空」，用户无从知道是错误。
+                ContentUnavailableView {
+                    Label(L10n.aiHistoryLoadFailed, systemImage: "wifi.exclamationmark")
+                } description: {
+                    Text(L10n.aiHistoryLoadFailedHint)
+                } actions: {
+                    Button(L10n.ai_failedRetry) {
+                        Task { await state.load(patientId: app.currentPatientId) }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .frame(minHeight: 44)
+                }
+                .accessibilityIdentifier("SP-51.history.loadFailed")
+            } else if state.conversations.isEmpty {
                 ContentUnavailableView(L10n.aiHistoryEmpty, systemImage: "bubble.left.and.bubble.right")
                     .accessibilityIdentifier("SP-51.history.empty")
             } else {

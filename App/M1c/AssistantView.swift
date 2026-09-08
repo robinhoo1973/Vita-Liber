@@ -64,7 +64,8 @@ struct AssistantView: View {
                         }
                         .font(.caption)
                         .padding(.horizontal, 10)
-                        .frame(minHeight: 36)
+                        // 审查修复：触点 ≥44pt 规范（原 36pt，关怀模式要求 64pt）
+                        .frame(minHeight: app.careMode ? 64 : 44)
                         .background(Capsule().fill(Color(.systemGray5)))
                     }
                 }
@@ -342,6 +343,10 @@ private struct AIFeedbackRow: View {
                 Image(systemName: "hand.thumbsup")
                     .font(.body)
                     .foregroundStyle(.secondary)
+                    // 审查修复：裸 SF Symbol 命中区 ≈ 图标尺寸（~20pt），
+                    // 违反 ≥44pt 规范——放大命中区
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .accessibilityLabel(L10n.aiFeedbackUseful)
             .accessibilityIdentifier("SP-21.ai.feedback.useful")
@@ -351,6 +356,8 @@ private struct AIFeedbackRow: View {
                 Image(systemName: "hand.thumbsdown")
                     .font(.body)
                     .foregroundStyle(.secondary)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .accessibilityLabel(L10n.aiFeedbackUseless)
             .accessibilityIdentifier("SP-21.ai.feedback.useless")
@@ -365,6 +372,8 @@ private struct AIFeedbackRow: View {
                 Image(systemName: "exclamationmark.bubble")
                     .font(.body)
                     .foregroundStyle(.secondary)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .accessibilityLabel(L10n.aiFeedbackMore)
             .accessibilityIdentifier("SP-21.ai.feedback.more")

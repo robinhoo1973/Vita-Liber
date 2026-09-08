@@ -29,8 +29,13 @@ struct ProOutputHubView: View {
         List(products, id: \.capability) { product in
             EntitlementGate(capability: product.capability) {
                 Button {
-                    // 五时机 proOutputFirstTap：价值触发 + 24h 频控（Domain 调度）
-                    _ = entitlements.evaluateTrigger(.proOutputFirstTap)
+                    // 五时机 proOutputFirstTap：价值触发 + 24h 频控（Domain 调度）。
+                    // 审查修复：evaluateTrigger 返回 true = 已弹墙（PaywallHost
+                    // 观察 pendingPaywallTrigger 呈现），此时必须跳过预览 alert——
+                    // 原实现丢弃返回值继续设 previewProduct，弹墙 sheet 与本
+                    // alert 双模态同时呈现（文档化契约「true=已弹墙，调用方应
+                    // 跳过原动作」被违反）。
+                    if entitlements.evaluateTrigger(.proOutputFirstTap) { return }
                     previewProduct = product.name
                 } label: {
                     HStack {

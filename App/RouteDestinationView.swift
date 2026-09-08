@@ -4,11 +4,10 @@ import Infrastructure
 
 /// §5.45 路由目的地映射：AppRoute → 具体视图的唯一分发表。
 ///
-/// 纪律：新增 SP 页面必须在此登记 case → 视图；**未登记的 case 落入降级分支**——
-/// 渲染可见的「即将上线」提示页（不 crash）。历史注记：原「回到所属 Tab 模块根」
-/// 会在路由已 push 进栈时形成栈内套娃（推进一个一模一样的模块根副本），
-/// 故降级落点改为提示页，返回即弹回原页——缺路由降级绝不 crash 的纪律不变。
-/// 页面陆续落地（M1c→M2 各批）时在此逐条点亮。
+/// 纪律：新增 SP 页面必须在此登记 case → 视图。switch 已穷尽 AppRoute
+/// （未登记 case 编译期不可达）；通知缺路由/解码失败走 AppRouter.degradeToHome
+/// 降级回首页。已删除实体（查无）由各路由视图渲染 RouteFallbackView / 同款
+/// 降级落点并自弹回根（§5.48）。页面陆续落地（M1c→M2 各批）时在此逐条点亮。
 struct RouteDestinationView: View {
     let route: AppRoute
     @Environment(AppState.self) private var app
@@ -225,18 +224,35 @@ struct RouteDestinationView: View {
 /// degradeToHome）。短暂停留让提示可见，随后经 AppRouter.pop 弹栈。
 struct RouteFallbackView: View {
     let route: AppRoute
-    @Environment(AppRouter.self) private var router
 
     var body: some View {
         ContentUnavailableView(L10n.routeEntityGone, systemImage: "exclamationmark.circle",
                                description: Text(L10n.routeEntityGoneHint))
             .navigationTitle(L10n.help_appName)
             .navigationBarTitleDisplayMode(.inline)
-            .task {
-                try? await Task.sleep(nanoseconds: 1_200_000_000)   // try?-ok: 睡眠被取消（视图已弹出销毁）即停
-                guard !Task.isCancelled else { return }
-                router.pop(route)
-            }
+            .autoPop(route: route)
+    }
+}
+
+/// §5.48 自弹回根共享修饰器（RouteFallbackView 与各查无降级落点共用同一
+/// 时序与取消语义；此前 RouteFallbackView 与 DocumentDetailRouteView 各自
+/// 复制 sleep-1.2s-then-pop，改时长/加审计须同步多处）。
+private struct AutoPopModifier: ViewModifier {
+    @Environment(AppRouter.self) private var router
+    let route: AppRoute
+
+    func body(content: Content) -> some View {
+        content.task {
+            try? await Task.sleep(nanoseconds: 1_200_000_000)   // try?-ok: 睡眠被取消（视图已弹出销毁）即停
+            guard !Task.isCancelled else { return }
+            router.pop(route)
+        }
+    }
+}
+
+private extension View {
+    func autoPop(route: AppRoute) -> some View {
+        modifier(AutoPopModifier(route: route))
     }
 }
 
@@ -275,7 +291,6 @@ struct ObservationCreateRouteView: View {
 struct DocumentDetailRouteView: View {
     let documentId: UUID
     @Environment(DocumentsState.self) private var documentsState
-    @Environment(AppRouter.self) private var router
     @State private var storeRow: DocumentStore.DocumentRow?
     @State private var lookupDone = false
 
@@ -286,13 +301,10 @@ struct DocumentDetailRouteView: View {
             } else if lookupDone {
                 // 审查修复：原错用趋势页文案「趋势范围不可用」——补专用文案
                 // 第七轮修复：§5.48 契约——查无实体（已删除）自弹回根
+                // （autoPop 与 RouteFallbackView 共用同一弹栈时序）
                 ContentUnavailableView(L10n.docDetailTitle, systemImage: "doc.text.magnifyingglass",
                                        description: Text(L10n.docDetailNotFound))
-                    .task {
-                        try? await Task.sleep(nanoseconds: 1_200_000_000)   // try?-ok: 睡眠被取消（视图已弹出销毁）即停
-                        guard !Task.isCancelled else { return }
-                        router.pop(.documentDetail(documentId))
-                    }
+                    .autoPop(route: .documentDetail(documentId))
             } else {
                 ProgressView()
                     .task {

@@ -32,6 +32,15 @@ struct SensitiveMediaOriginalView: View {
     /// 原实现 unlocked=true 但 image/displayData 均 nil，永远转圈无出口
     @State private var loadFailed = false
     @State private var relockTask: Task<Void, Never>?
+    /// 解锁在途守卫：同步置位——连点两次只触发一次系统认证（二次并发
+    /// LAContext 求值必败且可能双弹认证层）
+    @State private var unlocking = false
+    /// 解锁在途任务句柄（第十一轮审查）：onDisappear/relock 必须能取消在途
+    /// 解锁——认证已通过但 originalLoader 仍在读盘时用户关闭视图，任务恢复
+    /// 后会把原图字节重新解进内存、再武装 30s TTL 并写「已查看」审计，
+    /// 用户从未看到内容（BR-007「重锁 = 回到认证前内存态」对离开场景失效，
+    /// onDisappear 重锁拦不住无句柄的在途任务）
+    @State private var unlockTask: Task<Void, Never>?
 
     var body: some View {
         Group {
@@ -63,6 +72,10 @@ struct SensitiveMediaOriginalView: View {
                 relock()
             }
         }
+        // 与 SensitiveMediaContainer 同纪律：离开即重锁并取消空闲计时——
+        // 原视图弹出销毁后 relockTask 仍持有解码图至 30s TTL（BR-007
+        // 「重锁 = 回到认证前内存态」对离开场景失效）
+        .onDisappear { relock() }
     }
 
     private var unlockedContent: some View {
@@ -119,10 +132,13 @@ struct SensitiveMediaOriginalView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(.systemGroupedBackground))
         .onTapGesture {
-            Task {
-                if !unlocked {
-                    _ = await authenticateAndUnlock()
-                }
+            guard !unlocking else { return }   // 解锁在途守卫（连点只认证一次）
+            unlocking = true
+            // 占位视图仅在 !unlocked 时渲染，故此处无需再查 unlocked——
+            // authenticateAndUnlock 内部有取消检查，relock() 会取消本任务。
+            unlockTask = Task {
+                _ = await authenticateAndUnlock()
+                unlocking = false
             }
         }
     }
@@ -131,18 +147,29 @@ struct SensitiveMediaOriginalView: View {
         // FR1.9：每次查看原图都是一次独立的系统设备所有者认证（Face ID/Touch ID
         // + 设备密码兜底），与 SensitiveMediaContainer 同路径，绝不允许无认证直通。
         guard await app.requestUnlock(reason: L10n.sensitive_unlockReason) else { return false }
+        // 认证途中视图已离开（relock 取消了本任务）：不得继续——原图字节、
+        // 30s TTL 与「已查看」审计都不能在用户从未看到内容的场景下复活。
+        guard !Task.isCancelled else { return false }
         // BR-007 时序：认证通过后才拉取原图字节（loader 路径）——取消认证
         // 的用户从未让原图进内存。加载失败回落直接传入的 imageData（若有）；
         // 两者皆无 = 加载失败态（第七轮修复：明示失败，不再永远转圈）。
         loadFailed = false
         if let originalLoader {
             if let loaded = await originalLoader(), !loaded.isEmpty {
+                // 读盘期间视图已离开：同样不得复活解码与审计
+                guard !Task.isCancelled else { return false }
                 displayData = loaded
                 image = nil
                 loadDownsampled()
             } else if displayData == nil {
                 loadFailed = true
             }
+        } else if displayData == nil {
+            // 预传 imageData 路径：空闲重锁已把 displayData 镜像清空（BR-007
+            // 清内存），重新解锁须从不可变的 imageData 源重建——否则
+            // loadDownsampled 的 guard 落空，解锁后永久转圈无出口
+            displayData = imageData
+            if imageData == nil { loadFailed = true }
         }
         unlocked = true
         if !loadFailed, image == nil { loadDownsampled() }   // 预传 imageData 路径的解码（认证后）
@@ -165,6 +192,9 @@ struct SensitiveMediaOriginalView: View {
     private func relock() {
         relockTask?.cancel()
         relockTask = nil
+        unlockTask?.cancel()   // 取消在途解锁（离开/重锁后认证结果不得复活解码与审计）
+        unlockTask = nil
+        unlocking = false      // 立即释放守卫：被取消任务的复位有调度延迟，置位可避免回场首击被吞
         unlocked = false
         // 第六轮全仓审查修复：重锁必须把已解码的降采样字节一并清出——
         // 原实现只翻转 unlocked，解码图仍驻留内存（下次解锁直接从内存

@@ -25,6 +25,10 @@ struct SensitiveMediaContainer<Content: View, Placeholder: View>: View {
     @State private var unlocked = false
     /// 空闲重锁任务（活跃信号重置窗口）
     @State private var relockTask: Task<Void, Never>?
+    /// 解锁在途守卫：同步置位——连点两次只触发一次系统认证（unlocked 只在
+    /// await 完成后翻转，双 Task 并发 requestUnlock 会产生两个并发
+    /// LAContext 求值：第二个必败且可能双弹认证层）
+    @State private var unlocking = false
 
     init(@ViewBuilder placeholder: @escaping (Bool) -> Placeholder,
          @ViewBuilder content: @escaping (Bool) -> Content) {
@@ -38,14 +42,16 @@ struct SensitiveMediaContainer<Content: View, Placeholder: View>: View {
             if unlocked { content(unlocked) }
         }
         .onTapGesture {
-            guard !unlocked else { return }
+            guard !unlocked, !unlocking else { return }
             // BR-007/BR-009（V3.22 修订）：无应用 PIN 后按 FR1.9 直接用系统设备所有者
             // 认证（Face ID/Touch ID + 设备密码兜底）。每次都是新弹系统浮层的独立认证。
+            unlocking = true   // 同步置位（防连点双认证，见属性注）
             Task {
                 if await app.requestUnlock(reason: L10n.sensitive_unlockReason) {
                     unlocked = true
                     scheduleRelock()
                 }
+                unlocking = false
             }
         }
         // 读图/点击/拖动/滚动均视为活跃——活跃即重置空闲重锁窗口

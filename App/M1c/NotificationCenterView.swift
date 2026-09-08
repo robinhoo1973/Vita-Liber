@@ -34,9 +34,9 @@ struct NotificationCenterView: View {
                     }
                 }
             }
-            if !appointments.isEmpty {
+            if !visibleAppointments.isEmpty {
                 Section(L10n.ncSectionAppointment) {
-                    ForEach(appointments.filter { state(for: "apt-\($0.id)") != .archived }) { apt in
+                    ForEach(visibleAppointments) { apt in
                         Button {
                             markRead("apt-\(apt.id)")
                             router.navigate(to: .appointmentDetail(apt.id))
@@ -57,9 +57,9 @@ struct NotificationCenterView: View {
                     }
                 }
             }
-            if !expiringLots.isEmpty {
+            if !visibleExpiringLots.isEmpty {
                 Section(L10n.ncSectionExpiry) {
-                    ForEach(expiringLots.filter { state(for: "lot-\($0.lotId)") != .archived }) { item in
+                    ForEach(visibleExpiringLots) { item in
                         Button {
                             markRead("lot-\(item.lotId)")
                             router.navigate(to: .medicationCabinet)
@@ -82,9 +82,9 @@ struct NotificationCenterView: View {
                     }
                 }
             }
-            if !l1Alerts.isEmpty {
+            if !visibleL1Alerts.isEmpty {
                 Section(L10n.ncSectionAlert) {
-                    ForEach(l1Alerts.filter { state(for: "alert-\($0.id)") != .archived }) { event in
+                    ForEach(visibleL1Alerts) { event in
                         Button {
                             markRead("alert-\(event.id)")
                             router.navigate(to: .alertHistory)
@@ -146,6 +146,13 @@ struct NotificationCenterView: View {
 
     private var appointments: [AppointmentRow] { reminderStore.upcomingAppointments }
 
+    // 审查修复（归档过滤与空态同源）：此前行渲染按归档过滤、节头与 allEmpty
+    // 用未过滤数组——全部归档后节头空挂（有标题零行）、空态永不出现
+    // （整页空白）。可见性谓词收敛为单一计算属性，节头/行/空态三处同源。
+    private var visibleAppointments: [AppointmentRow] {
+        appointments.filter { state(for: "apt-\($0.id)") != .archived }
+    }
+
     /// 临期批次（30 天内到期，FR9.11 窗口对齐）
     private var expiringLots: [MedicationStore.InventorySummaryItem] {
         let window = DayArithmetic.offset(days: 30)
@@ -155,8 +162,16 @@ struct NotificationCenterView: View {
         }
     }
 
+    private var visibleExpiringLots: [MedicationStore.InventorySummaryItem] {
+        expiringLots.filter { state(for: "lot-\($0.lotId)") != .archived }
+    }
+
     private var l1Alerts: [GuidelineStore.AlertEvent] {
         hub.alertEvents.filter { $0.severity != .L0 && $0.patientId == app.currentPatientId }
+    }
+
+    private var visibleL1Alerts: [GuidelineStore.AlertEvent] {
+        l1Alerts.filter { state(for: "alert-\($0.id)") != .archived }
     }
 
     /// 待确认 OCR 数：D 级文档数（V3.39 起数据源 = DocumentStore 活管线；
@@ -193,8 +208,10 @@ struct NotificationCenterView: View {
     }
 
     private var allEmpty: Bool {
-        pendingDoses.isEmpty && appointments.isEmpty && expiringLots.isEmpty
-            && l1Alerts.isEmpty && pendingOCRCount == 0
+        // 审查修复（与行可见性同源）：改用归档过滤后的可见数组——
+        // 原实现全部归档后空态不出现、整页空白。
+        pendingDoses.isEmpty && visibleAppointments.isEmpty && visibleExpiringLots.isEmpty
+            && visibleL1Alerts.isEmpty && pendingOCRCount == 0
     }
 }
 

@@ -147,18 +147,25 @@ struct MemberDetailView: View {
             // 删除流（FR3.4：影响清单 → 姓名确认 → 计划处置选择）
             // 审查修复：删除保护闸门改按 ID 判定本人——原以显示串
             // 「本人」比较，zh-Hant/未来多语言下闸门失效
+            // 审查修复第二轮：owner 未装载（启动加载失败/降级容器）时
+            // `member.id != app.owner?.selfPatientId` 对全部成员成立（含本人）——
+            // 本人档案可被删，BR-001 锚点随 `owner?.selfPatientId ?? patientId`
+            // 回落到已软删成员。无法确立「谁是本人」时一律隐藏删除入口
+            // （纵深防线在 MemberDeletionService 服务端二次拒绝）。
             Section {
-                if member.id != app.owner?.selfPatientId {
-                    Button(L10n.memberDelete, role: .destructive) {
-                        Task {
-                            impact = await app.memberDeletionImpact(patientId: member.id)
-                            showDeleteFlow = true
+                if let selfId = app.owner?.selfPatientId {
+                    if member.id != selfId {
+                        Button(L10n.memberDelete, role: .destructive) {
+                            Task {
+                                impact = await app.memberDeletionImpact(patientId: member.id)
+                                showDeleteFlow = true
+                            }
                         }
+                        .accessibilityIdentifier("FR3.4.member.delete")
+                    } else {
+                        Text(L10n.memberSelfNoDelete)
+                            .font(.caption).foregroundStyle(.secondary)
                     }
-                    .accessibilityIdentifier("FR3.4.member.delete")
-                } else {
-                    Text(L10n.memberSelfNoDelete)
-                        .font(.caption).foregroundStyle(.secondary)
                 }
             }
         }

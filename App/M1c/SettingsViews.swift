@@ -139,7 +139,7 @@ struct SettingsView: View {
                 .accessibilityIdentifier("SP-25.settings.guidelines")
             }
             Section(L10n.settings_pro) {
-                NavigationLink(L10n.proOutput_title) {
+                NavigationLink(L10n.proOutputTitle) {
                     ProOutputHubView()
                 }
                 .accessibilityIdentifier("SP-25.settings.proOutputs")
@@ -164,6 +164,10 @@ struct SettingsView: View {
                 }
                 .accessibilityIdentifier("SP-25.settings.audit")
                 Button(L10n.settings_restoreDefaults) {
+                    // 审查修复：恢复默认后必须清本地 toggles 影子——get 优先
+                    // 读 toggles，不清则开关显示仍停留在用户改过的旧值
+                    // （隐私开关虚显示），离开重进才自愈。
+                    toggles = [:]
                     Task { await settings.restoreDefaults() }
                 }
             }
@@ -197,12 +201,11 @@ struct SettingsView: View {
                 // 运行时真源 = AppState.careMode（驱动 CareModeMetrics/触点放大等）；
                 // DB 键为镜像。读回实际状态，避免开关显示与行为脱节（split-brain 修复）
                 case .careModeEnable: return toggles[key] ?? app.careMode
-                // 第六轮全仓审查修复：与消费者口径对齐——消费端均为
-                // `values[key] != "false"`（未设置 = 允许，默认真源在
-                // defaultValue）；原实现 `== "true"` 让全新装机把已生效的
-                // 功能显示成关闭，点一次「开启」写 true（无变化）、再点
-                // 一次才真正关闭（自翻转控件）
-                default: return toggles[key] ?? (settings.values[key] != "false")
+                // 审查修复（口径统一）：布尔读一律与键默认值比较——
+                // `!= "false"` 与 `== "true"` 在 values 未装载（nil）时对
+                // 同一键显示相反状态（本页开/外观页关）；统一
+                // `(values[key] ?? defaultValue) == "true"` 装载前后一致。
+                default: return toggles[key] ?? ((settings.values[key] ?? key.defaultValue) == "true")
                 }
             },
             set: { newValue in

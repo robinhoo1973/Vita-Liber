@@ -84,27 +84,20 @@ struct L3DisclosureBanner: View {
     }
 }
 
-/// FR20.3 L4 操作前确认弹窗
-struct L4DisclosureAlert {
-    let disclosure: SceneDisclosure
-
-    var alert: Alert {
-        Alert(
-            title: Text(disclosure.title),
-            message: Text(disclosure.body),
-            primaryButton: .cancel(Text(L10n.commonCancel)),
-            secondaryButton: .default(Text(L10n.commonConfirm))
-        )
-    }
-}
-
-/// 场景须知包装器：根据场景和确认状态自动展示 L2/L3/L4 须知
+/// 场景须知包装器：根据场景和确认状态自动展示 L2/L4 须知。
+///
+/// 审查修复（L4 渲染错配）：此前 L4「操作前确认」走 L2 半屏 sheet + 单
+/// 「我知道了」按钮——无取消/确认语义，L4DisclosureAlert 从未被接线
+/// （死代码），导出等操作前确认的实际 UX 与 FR20.3 相悖。现按 level 分流：
+/// L2 → 半屏 sheet（单确认），L4 → 取消/确认弹窗，确认才写 ConsentRecord。
 struct SceneDisclosureModifier: ViewModifier {
     let scene: String
-    let level: Int  // 2, 3, or 4
+    let level: Int  // 2 or 4（L3 常驻微文案不走本修饰器）
 
     @Environment(AppState.self) private var app
-    @State private var showDisclosure = false
+    @State private var showSheet = false
+    @State private var showAlert = false
+    @State private var alertDisclosure: SceneDisclosure?
 
     func body(content: Content) -> some View {
         content
@@ -113,10 +106,25 @@ struct SceneDisclosureModifier: ViewModifier {
                     checkAndShowDisclosure()
                 }
             }
-            .sheet(isPresented: $showDisclosure) {
+            .sheet(isPresented: $showSheet) {
                 if let disclosure = findDisclosure() {
                     L2DisclosureSheet(disclosure: disclosure)
                 }
+            }
+            .alert(isPresented: $showAlert) {
+                guard let d = alertDisclosure else {
+                    return Alert(title: Text(L10n.disclosureTitle))
+                }
+                return Alert(
+                    title: Text(d.title),
+                    message: Text(d.body),
+                    primaryButton: .cancel(Text(L10n.commonCancel)),
+                    secondaryButton: .default(Text(L10n.commonConfirm)) {
+                        Task {
+                            await app.recordConsent(key: d.key, level: d.level, version: d.version)
+                        }
+                    }
+                )
             }
     }
 
@@ -126,7 +134,12 @@ struct SceneDisclosureModifier: ViewModifier {
         if !DisclosureRegistry.isConfirmed(scene: disclosure.scene,
                                            version: disclosure.version,
                                            consents: app.consentRecords) {
-            showDisclosure = true
+            if level == 4 {
+                alertDisclosure = disclosure
+                showAlert = true
+            } else {
+                showSheet = true
+            }
         }
     }
 

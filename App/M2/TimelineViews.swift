@@ -30,8 +30,8 @@ final class TimelineViewState {
             entries = p.entries
             problems = pr
         } catch {
-            entries = []
-            problems = []
+            // 审查修复：读取失败保留旧列表（EncountersState/DocumentsState
+            // 同款 doctrine）——原置空把存在记录渲染成「暂无记录」假空态。
         }
     }
 
@@ -540,7 +540,8 @@ final class QuestionsState {
             guard loadingPatientId == patientId else { return }
             questions = rows
         } catch {
-            questions = []
+            // 审查修复：读取失败保留旧列表（同上 doctrine）——原置空把
+            // 存在的问题记录渲染成「暂无问题」假空态。
         }
     }
 

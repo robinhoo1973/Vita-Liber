@@ -14,6 +14,10 @@ import Protocols
 private struct MediaThumbRow: View {
     let images: [UIImage]
     let size: CGFloat
+    /// 逐张点击回调（审查修复：多图观察的每张原图都必须可达——原条级点击
+    /// 只打开第一张，第 2..n 张原图全仓无入口，与「原图/离线访问」永久
+    /// 免费红线相悖）。nil = 纯展示（预览行复用）。
+    var onTapImage: ((Int) -> Void)? = nil
 
     var body: some View {
         HStack(spacing: 6) {
@@ -22,6 +26,8 @@ private struct MediaThumbRow: View {
                     .resizable().scaledToFill()
                     .frame(width: size, height: size)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .contentShape(Rectangle())
+                    .onTapGesture { onTapImage?(i) }
             }
         }
     }
@@ -432,13 +438,13 @@ struct LockedMediaStrip: View {
     }
 
     var body: some View {
-        MediaThumbRow(images: blurImages, size: 56)
+        MediaThumbRow(images: blurImages, size: 56) { index in
+            // 逐张打开原图（审查修复：原条级点击只开第一张，其余资产不可达）
+            guard assetIds.indices.contains(index),
+                  let assetId = UUID(uuidString: assetIds[index]) else { return }
+            openOriginal(assetId: assetId)
+        }
             .frame(height: 64)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                guard let first = assetIds.first, let assetId = UUID(uuidString: first) else { return }
-                openOriginal(assetId: assetId)
-            }
             .fullScreenCover(item: $viewer) { payload in
                 NavigationStack {
                     SensitiveMediaOriginalView(imageData: nil,

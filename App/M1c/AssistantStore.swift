@@ -61,7 +61,11 @@ final class AssistantStore {
         // currentConversationId == nil，A 成员开立的会话在切到 B 成员后
         // 继续追加 B 的问题与回答，B 的健康信息混进 A 的会话历史。
         if let history {
-            if currentConversationId == nil || (patientId != nil && patientId != conversationPatientId) {
+            // 审查修复（死分支清除）：第二个子句恒假——上方成员同步块已保证
+            // patientId 非 nil 时必等于 conversationPatientId；成员切换后
+            // currentConversationId 已置 nil（第一子句覆盖）。保留只会让
+            // 未来读者误以为切换后旧会话仍可能被复用。
+            if currentConversationId == nil {
                 if let patientId {
                     do {
                         let title = String(q.prefix(30))

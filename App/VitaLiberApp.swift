@@ -84,9 +84,10 @@ struct VitaLiberApp: App {
         _reminderStore = State(initialValue: ReminderStore(
             meds: container.meds, apts: container.apts, reconciler: container.reconciler,
             // 第八轮全仓审查修复：第七轮通道门只接到 AppointmentStore 与
-            // ReminderReconciler——本 store 直连裸 UNReminderScheduler，使
-            // 到期/续药/备份/随访/复诊/语音提醒的「静音仅横幅」全部假宣告
-            // （锁屏照常响铃）。改经组装根的投递门统一实例。
+            // ReminderReconciler——本 store 直连裸 UNReminderScheduler。
+            // 改经组装根的投递门统一实例。门的作用域：dose-/slot- 的「静音
+            // 仅横幅」真实生效（有应用内横幅承接）；预约/随访/临期/备份等
+            // 无承接族照常系统投递（§5.58 降级链，W4 逐类别收紧）。
             scheduler: container.reminderScheduler, composer: container.composer))
         _assistantStore = State(initialValue: AssistantStore(
             provider: container.aiProvider,
@@ -146,8 +147,10 @@ struct VitaLiberApp: App {
         _exportWizardState = State(initialValue: ExportWizardState(service: container.pdfExport))
         _f16DeviceState = State(initialValue: F16DeviceState(
             reader: container.healthReader, guidelines: container.guidelines,
-            // 第八轮全仓审查修复：L1–L3 设备预警（alert- 族）同样绕过投递门，
-            // 「预警=静音仅横幅」偏好零效果——统一经组装根门实例。
+            // 第八轮全仓审查修复：L1–L3 设备预警（alert- 族）此前绕过组装根
+            // 统一调度实例。注：门对 alert- 族目前**照常放行**（无应用内
+            // 承接，§5.58 降级链不静默）——统一实例是 W4 预警横幅接线后
+            // 「预警=静音仅横幅」生效的必经前置。
             scheduler: container.reminderScheduler))
         // 审查修复：BackupState 此前从未装配——SP-24 打开即
         // "No Observable object of type BackupState found" 崩溃

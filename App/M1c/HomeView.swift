@@ -196,7 +196,7 @@ struct HomeView: View {
         let snap = snapshot
         return ScrollView {
             VStack(spacing: 16) {
-                if isEmptyNewUser {
+                if isEmptyNewUser(snap) {
                     newUserGuide
                 } else {
                     if notifDenied && !dismissNotifBanner {
@@ -245,8 +245,11 @@ struct HomeView: View {
 
     // 空态：新用户四引导任务（建档/拍第一份资料/设第一个提醒/了解AI），完成打勾消失
     //（V3.39：首日引导三张行动卡由本卡承载，其中「了解 AI」为原 ⑥ 步卡片的替代落点）
-    private var isEmptyNewUser: Bool {
-        snapshot.todoItems.isEmpty && docs.documents.isEmpty
+    // 审查修复（每帧重复聚合残余）：改接收上方已算好的 snap——原计算属性
+    // 在 body 内被二次求值，snapshot 全量聚合（过滤/排序/flatMap）每帧重复
+    // 跑一遍，与「每帧只算一次」修复的意图自相矛盾。
+    private func isEmptyNewUser(_ snap: TodaySnapshot) -> Bool {
+        snap.todoItems.isEmpty && docs.documents.isEmpty
             && observationState.groups.isEmpty
     }
 

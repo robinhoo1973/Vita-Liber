@@ -66,7 +66,8 @@ struct ThemeSettingsView: View {
 
     private var highContrastBinding: Binding<Bool> {
         Binding(
-            get: { settings.values[.highContrastEnabled] == "true" },
+            // 与 SettingsViews 的布尔读口径统一（values 未装载时同样落默认值）
+            get: { (settings.values[.highContrastEnabled] ?? AppSettingKey.highContrastEnabled.defaultValue) == "true" },
             set: { on in
                 Task { await settings.set(on ? "true" : "false", for: .highContrastEnabled) }
             })

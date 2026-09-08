@@ -248,7 +248,9 @@ struct StatusBadge: View {
         switch status {
         case .sent: return Color("brand-primary", bundle: .main)
         case .ackPending: return Color("grade-d", bundle: .main)
-        case .acked: return .green
+        // 审查修复：.acked 硬编码 .green 违反 token-only（深色/高对比/
+        // 关怀模式不随主题重映射）——改语义令牌（其余徽章同纪律）
+        case .acked: return Color("semantic-success", bundle: .main)
         case .timeout: return Color("text-tertiary", bundle: .main)
         }
     }

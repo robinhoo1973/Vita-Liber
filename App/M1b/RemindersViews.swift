@@ -8,6 +8,9 @@ struct RemindersView: View {
     @Environment(ReminderStore.self) private var reminders
     @State private var showNewAppointment = false
     @State private var showNewPlan = false
+    /// 审查修复（计划创建静默吞错）：创建失败保留 sheet 并弹可见告警——
+    /// 原实现空 catch 后无条件关闭 sheet：用户以为计划已建，实际零落库。
+    @State private var planSaveFailed = false
 
     var body: some View {
         List {
@@ -151,6 +154,10 @@ struct RemindersView: View {
                         case "asNeeded":
                             schedule = .asNeeded
                         default:
+                            // 审查修复（fixed 零剂量纵深防御）：canSave 已拦非法时刻，
+                            // 此处再以 Domain 同一规则兜底（表单状态与提交之间的
+                            // 任何路径都不得把不可解析时刻写库）。
+                            guard DoseScheduleEngine.isValidTime(timeText) else { return }
                             schedule = .fixed(times: [timeText])
                         }
                         try await reminders.createPlan(
@@ -158,12 +165,18 @@ struct RemindersView: View {
                             schedule: schedule,
                             startDate: Calendar.current.startOfDay(for: Date()),
                             doseUnits: units)   // D1：每剂剂量落 dose_plan_units，不得丢弃
+                        // 创建成功才关闭 sheet；失败保留表单（用户已填内容不丢）
+                        showNewPlan = false
                     } catch {
-                        // 错误经 ReminderStore Logger 上报；此处仅关闭
+                        // 审查修复（响亮失败纪律）：保留 sheet + 可见告警——
+                        // 原实现空吞错误并关闭 sheet，用户以为计划已建。
+                        planSaveFailed = true
                     }
                 }
-                showNewPlan = false
             }
+        }
+        .alert(L10n.reminder_planSaveFailed, isPresented: $planSaveFailed) {
+            Button(L10n.commonConfirm, role: .cancel) { }
         }
     }
 
@@ -251,6 +264,12 @@ struct NewPlanSheet: View {
         }
         if scheduleKind == "meal" {
             guard !DoseScheduleEngine.MealAnchorRules.parse(timeText).isEmpty else { return false }
+        }
+        // 审查修复（fixed 零剂量）：fixed 时刻此前无校验——任意字符串（"8点"）
+        // 可保存，引擎解析失败只计 skip → 计划以零剂量静默建成（与 interval
+        // 同类 bug 的漏网通道）。闸门与引擎共用 Domain isValidTime 单一事实源。
+        if scheduleKind == "fixed" {
+            guard DoseScheduleEngine.isValidTime(timeText) else { return false }
         }
         return true
     }

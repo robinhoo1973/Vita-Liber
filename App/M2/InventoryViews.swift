@@ -150,11 +150,11 @@ struct InventoryReconcileSheet: View {
 
     private var difference: Double { count - item.remainingConfirmedUnits }
 
-    /// 滑杆 step:1 只能产出整数，账面可能是半片（4.5）——用精确 == 判「与账面一致」
-    /// 会让这类批次永远显示差异、永远多一步确认。按半个最小单位容差判等。
-    /// 严格 < 0.5 在恰好差 0.5（半片账面的唯一可达差）时仍判不等——
-    /// 必须含边界 <= 0.5。
-    private var isEqualToBook: Bool { abs(difference) <= 0.5 }
+    /// 审查修复（BR 规则下沉 Domain）：容差判等是 FR9.8.5 差异确认步骤的
+    /// 业务规则，视图只消费 Domain 判定（架构规则 4——View 不得内联 BR）。
+    private var isEqualToBook: Bool {
+        InventoryRules.isEqualToBook(physical: count, confirmed: item.remainingConfirmedUnits)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {

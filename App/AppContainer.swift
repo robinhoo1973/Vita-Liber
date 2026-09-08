@@ -21,9 +21,13 @@ struct AppContainer {
     let reconciler: ReminderReconciler
     /// 第八轮全仓审查修复（通道假宣告遗留面）：组装根唯一经 FR9.18 投递门
     /// 的调度器（ChannelGatedScheduler）——VitaLiberApp 装配的 ReminderStore
-    /// 与 F16DeviceState 此前绕过本门直连裸 UNReminderScheduler（到期/续药/
-    /// 备份/随访/语音/预警六族提醒的「静音仅横幅」偏好全部假宣告）。所有
-    /// 生产通知生产者必须经本实例投递。
+    /// 与 F16DeviceState 此前绕过本门直连裸 UNReminderScheduler。所有生产
+    /// 通知生产者必须经本实例投递。
+    /// 门的作用域（与 ui-ux §5.58 降级链一致）：只有**有应用内横幅承接
+    /// 且横幅总开关开启**的 dose-/slot- 在「静音仅横幅」时被抑制——横幅
+    /// 开关关闭时承接不存在，按降级链照常系统投递（第十一轮审查）；预约/
+    /// 随访/临期/预警/备份五族无应用内承接，照常系统投递（宁响铃不静默），
+    /// 其「静音仅横幅」偏好随 W4 横幅通道扩展后逐类别收紧。
     let reminderScheduler: any ReminderScheduling
     /// FR9.15/§4.2 五表原子创建与计划生命周期（处方→计划参考模板）
     let composer: MedicationPlanComposer
@@ -81,15 +85,27 @@ struct AppContainer {
     @MainActor
     static func live(databasePath: String) throws -> AppContainer {
         let store = try GRDBStore.pool(at: databasePath)
-        return assemble(store: store, scheduler: ChannelGatedScheduler(inner: UNReminderScheduler()))
+        return assemble(store: store, scheduler: productionScheduler())
+    }
+
+    /// 生产投递门统一装配（live 与降级路径共用）——装饰器链只此一处定义：
+    /// 两处分别构造时，任一侧新增装饰器（如静默时段门）即与另一侧漂移，
+    /// 降级路径重新打开本修复所堵的绕门通道。
+    private static func productionScheduler() -> any ReminderScheduling {
+        ChannelGatedScheduler(inner: UNReminderScheduler())
     }
 
     /// Preview/测试装配：内存库 + 内存调度器 + 临时目录敏感资产仓
     /// （预览不得污染生产 Documents/MedicalNotes/sensitive）。
+    /// 第十一轮审查：内存调度器同样外包 ChannelGatedScheduler 投递门——
+    /// 此前预览直连裸 InMemoryReminderScheduler，接线回归探针（RootAdaptiveView
+    /// PreviewRoot「预览与生产同构」注释所依赖的探测能力）看不到任何通道
+    /// 抑制行为，门作用域回归在预览/XCTest 上不可见。
     @MainActor
     static func preview() throws -> AppContainer {
         let store = try GRDBStore.inMemory()
-        return assemble(store: store, scheduler: InMemoryReminderScheduler(),
+        return assemble(store: store,
+                        scheduler: ChannelGatedScheduler(inner: InMemoryReminderScheduler()),
                         mediaBaseDir: FileManager.default.temporaryDirectory)
     }
 
@@ -104,7 +120,7 @@ struct AppContainer {
             do {
                 let store = try GRDBStore.inMemory()
                 return assemble(store: store,
-                                scheduler: ChannelGatedScheduler(inner: UNReminderScheduler()),
+                                scheduler: productionScheduler(),
                                 degradedReason: "\(error)")
             } catch {
                 fatalError("Data layer init failed (live and in-memory degraded both unavailable): \(error)")

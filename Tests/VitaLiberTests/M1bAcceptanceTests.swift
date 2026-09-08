@@ -103,7 +103,9 @@ final class M1bAcceptanceTests: XCTestCase {
 
     /// 跳过：两线均免扣（FR9.8.2 修正矩阵 (0,0)——function-spec 权威；
     /// BR-004 送达≠已服：跳过不构成服用事实，确认线必然不动）
-    func test_跳过仅计划轨扣() async throws {
+    /// 审查修复（命名对齐）：旧名「跳过仅计划轨扣」与修正矩阵 (0,0) 语义
+    /// 相反——按名读码者会误判计划轨应扣减。
+    func test_跳过两线均免扣() async throws {
         let (store, meds, _, _, patient, med) = try await makeStore()
         let lot = DualTrackInventory(lotId: UUID(), totalUnits: 10, unitKind: "tablet",
                                      expireAt: Date(timeIntervalSince1970: 9999999999))

@@ -22,6 +22,11 @@ struct TrendChartView: View {
 
     /// 参考带用同一中性色的不同不透明度区分来源——避免语义色（BR-006），
     /// 同时保证色觉障碍下仍可经图例文字辨识（无障碍不依赖颜色单通道）。
+    /// 参考带来源标签：空串（Domain 缺失来源，不臆造文案）→ L10n 缺省标签
+    private func bandLabel(_ source: String) -> String {
+        source.isEmpty ? L10n.trendBandUnlabeled : source
+    }
+
     private func bandOpacity(_ index: Int) -> Double {
         let steps = [0.30, 0.22, 0.16, 0.12]
         return steps[min(index, steps.count - 1)]
@@ -60,7 +65,7 @@ struct TrendChartView: View {
                     )
                     .foregroundStyle(Color("surface-tint-start", bundle: .main)
                         .opacity(bandOpacity(index)))
-                    .accessibilityLabel(L10n.trendBandAccessibility(band.sourceLabel, MedicalNumberFormat.oneDecimal(band.lower), MedicalNumberFormat.oneDecimal(band.upper)))
+                    .accessibilityLabel(L10n.trendBandAccessibility(bandLabel(band.sourceLabel), MedicalNumberFormat.oneDecimal(band.lower), MedicalNumberFormat.oneDecimal(band.upper)))
                 }
                 // ② 已排除点对照（虚线空心，视觉上明确「不参与」）
                 if showExcluded {
@@ -106,7 +111,7 @@ struct TrendChartView: View {
                                 .fill(Color("surface-tint-start", bundle: .main)
                                     .opacity(bandOpacity(index)))
                                 .frame(width: 18, height: 12)
-                            Text(L10n.trendBandLegend(band.sourceLabel, MedicalNumberFormat.oneDecimal(band.lower), MedicalNumberFormat.oneDecimal(band.upper)))
+                            Text(L10n.trendBandLegend(bandLabel(band.sourceLabel), MedicalNumberFormat.oneDecimal(band.lower), MedicalNumberFormat.oneDecimal(band.upper)))
                                 .font(.caption2).foregroundStyle(.secondary)
                         }
                         .accessibilityElement(children: .combine)

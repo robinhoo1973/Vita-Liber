@@ -1,7 +1,7 @@
 import SwiftUI
 import Domain   // MainModuleID（AppRoute 路由所属 Tab）
-import Protocols   // InMemoryReminderScheduler（Preview 装配）
-import Infrastructure   // Preview 装配直连适配器：OCRPipeline/EngineRegistry/GrayscaleImageDecoder
+import Protocols // EngineRegistry（EAL 引擎注册表抽象）
+import Infrastructure   // Preview 装配直连适配器：OCRPipeline/OCRRecognizerFactory/GrayscaleImageDecoder
 // （App 层是组装根，与 AppContainer 同权接 Infrastructure——架构图 App(组装根) → Infrastructure）
 
 /// ADR-021 / tech-spec §5.26：五模块单一枚举，iPhone Tab 与 iPad Sidebar
@@ -141,6 +141,11 @@ struct RootAdaptiveView: View {
         .onAppear {
             Task { @MainActor in router.markNavigationReady() }
         }
+        // 卸载钩子（markNavigationSuspended）挂在 AppRootView 的 RootAdaptiveView()
+        // 调用点而非本 Group——本处修饰符逐子视图生效：iPad 旋转 compact↔regular
+        // 分支互换、相机/语音/SOS 等 fullScreenCover 盖住外壳都会触发 onDisappear，
+        // 挂在本处会把「外壳已卸载」误判成覆盖/换分支瞬间，通知深链被滞留
+        // pendingRoutes 至覆盖层消失（第十一轮审查修正）。
         // FR18.6 右下角常驻 SOS 悬浮球（仅关怀模式；可半透明；设置可关闭——
         // 悬浮球被关闭后关怀首页「呼救」大卡仍保留，求助能力不因单一开关消失）
         .overlay(alignment: .top) { InAppBannerHost() }   // §4.22 前台到期横幅（V3.72）
@@ -228,7 +233,11 @@ private struct PreviewRoot: View {
             .environment(appState)
             .environment(ReminderStore(meds: container.meds, apts: container.apts,
                                        reconciler: container.reconciler,
-                                       scheduler: InMemoryReminderScheduler(),
+                                       // 预览与生产同构：统一经组装根单实例调度器
+                                       // （此前此处 new 新实例——reconciler 排程落在
+                                       // assemble 注入的实例 A，本 store 经实例 B，
+                                       // 对账/取消互不可见，预览无法充当接线回归探针）
+                                       scheduler: container.reminderScheduler,
                                        composer: container.composer))
             .environment(AssistantStore(provider: container.aiProvider))
             .environment(AppSettingsStore(store: container.settings))
@@ -270,7 +279,7 @@ private struct PreviewRoot: View {
             .environment(ExportWizardState(service: container.pdfExport))
             .environment(F16DeviceState(reader: container.healthReader,
                                         guidelines: container.guidelines,
-                                        scheduler: InMemoryReminderScheduler()))
+                                        scheduler: container.reminderScheduler))
             .environment(BackupState(service: container.backup))
     }
 }

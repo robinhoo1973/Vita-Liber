@@ -63,7 +63,8 @@ struct MedicationPlanListView: View {
         do {
             plans = try await reminders.plans(patientId: app.currentPatientId)
         } catch {
-            plans = []
+            // 审查修复：读取失败保留旧列表（EncountersState 同款 doctrine）——
+            // 原置空把存在计划渲染成「暂无计划」假空态。
         }
     }
 }

@@ -57,7 +57,8 @@ struct HelpRootView: View {
                 .accessibilityIdentifier("FR22.8.about")
             }
         }
-        .searchable(text: .constant(""), placement: .navigationBarDrawer(displayMode: .always))
+        // 审查修复（死控件清除）：.searchable(.constant("")) 渲染永久失效的
+        // 搜索条（绑定常量、零搜索逻辑）——删除。
         .navigationTitle(L10n.helpCenterTitle)
     }
 

@@ -113,12 +113,11 @@ actor UNReminderScheduler: ReminderScheduling {
     /// 第七轮修复：apt- 前缀漏登记——语言切换时预约分级提醒跳过文案重写，
     /// 旧语言的标题/正文永久滞留（FR14.5 对预约通道失效）。
     /// 第八轮修复：snooze- 漏登记——稍后提醒语言切换时同样跳过重写。
+    /// 第十轮收敛：前缀知识收敛 Domain ReminderChannelRules.categoryKey
+    /// 单一事实源——本处不再维护第二份前缀清单（此前三处并行副本已两度
+    /// 漂移：apt- 与 snooze- 各漏一次）。
     private static func isAppOwned(_ id: String) -> Bool {
-        id.hasPrefix("dose-") || id.hasPrefix("slot-") || id.hasPrefix("snooze-")
-            || id.hasPrefix("refill-")
-            || id.hasPrefix("exp-") || id.hasPrefix("followup-")
-            || id.hasPrefix("apt-") || id.hasPrefix("backup-") || id.hasPrefix("voice-rem-")
-            || id.hasPrefix("alert-")
+        ReminderChannelRules.categoryKey(for: id) != nil
     }
 
     func pending() async throws -> [String: Date] {

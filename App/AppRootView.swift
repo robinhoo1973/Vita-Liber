@@ -12,6 +12,7 @@ struct AppRootView: View {
     @Environment(ReminderStore.self) private var reminderStore
     @Environment(AppSettingsStore.self) private var settingsStore
     @Environment(ObservationStoreState.self) private var observationState
+    @Environment(AppRouter.self) private var router
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var systemDynamicType
 
@@ -45,6 +46,17 @@ struct AppRootView: View {
                 OnboardingFlowView()
             } else {
                 RootAdaptiveView()
+                    // 卸载钩子（门禁重锁/向导分支替换 RootAdaptiveView）：卸载期间
+                    // notification 深链必须退回 AppRouter.enqueue 暂存而非直写 path
+                    // ——外壳未挂载时写 path 并持久化，解锁后 NavigationStack 以
+                    // 非空 path 挂载 = 首帧 push 转场（crash 2 同族）。挂在本调用点
+                    // 而非 RootAdaptiveView 内部的 Group：iPad 旋转分支互换与
+                    // fullScreenCover 盖住外壳也会触发 Group 的 onDisappear，会把
+                    // 「覆盖/换分支瞬间」误判成外壳卸载、滞留通知深链。
+                    // markNavigationReady 幂等，重挂载自动再放行。
+                    .onDisappear {
+                        router.markNavigationSuspended()
+                    }
             }
         }
         // 第七轮全仓审查修复（FR1.7/BR-007 任务切换器快照）：宽限 >0 时遮罩
@@ -77,26 +89,32 @@ struct AppRootView: View {
             // 第八轮全仓审查修复（启动串行链并行化）：信源播种（DB 写）、
             // 敏感媒体孤儿对账（文件系统扫描）、提醒链（物化+对账+备份提醒）
             // 三链互不依赖，此前严格串行 = 三者延迟之和拖慢提醒数据就位。
-            // 并发执行（同一 actor 的内部串行由 actor 语义保证；各链失败
-            // 上报，互不阻断）。
-            do {
-                // F16 信源库种子幂等入库（离线零网络可用）
-                async let seed: Void = seedBundled()
-                // 敏感媒体孤儿对账（评审修正）：崩溃/失败写入的残留照片启动时清除
-                async let reconcile: Void = observationState.reconcileAssets()
-                // 四层补偿第 1 层（§5.4 V3.29）：前台启动时对账。
-                // FR20.2 授权时序：通知权限严禁启动即索权——请求时机移到
-                // 「完成第一个提醒计划创建后」（价值先行）。
-                if appState.onboardingFinished {
-                    async let refresh: Void = reminderStore.refreshTriggered(patientId: appState.currentPatientId)
-                    // FR13.10 定期备份提醒（默认 30 天；只引导，不自动建包）
-                    async let backup: Void = reminderStore.scheduleBackupReminderIfNeeded(lastBackupAt: appState.lastBackupAt)
-                    _ = try await (seed, reconcile, refresh, backup)
-                } else {
-                    _ = try await (seed, reconcile)
-                }
-            } catch {
-                Logger(subsystem: "com.vitaliber", category: "app").error("启动预载失败: \(error)")
+            // 失败隔离纪律（修正第八轮 tuple 形态）：seed 是唯一会抛出的链，
+            // 其失败单独捕获——`try await (seed, reconcile, refresh, backup)`
+            // 会让第一个抛错者**隐式取消其余 async let 子任务**（structured
+            // concurrency 作用域退出语义），种子失败拖垮 P0 提醒物化链，
+            // 与「互不阻断」意图相反。四链先行全部启动（保持第八轮并行），
+            // seed 的 await 单独 try/catch——错误不传播出作用域即不触发
+            // 隐式取消；其余链均不抛错，无此问题。
+            // 注：多数链共享 DatabasePool 写事务/ReminderStore @MainActor，
+            // 并行收益主要来自系统 IPC 与文件扫描，语义以失败隔离为先。
+            // F16 信源库种子幂等入库（离线零网络可用）。错误消化在
+            // seedBundledOrLog 内完成（两分支共用同一错误路径，此前逐分支
+            // 复制同款 do/catch）——错误不传播出作用域即不触发 async let
+            // 兄弟任务的隐式取消。
+            async let seed: Void = seedBundledOrLog()
+            // 敏感媒体孤儿对账（评审修正）：崩溃/失败写入的残留照片启动时清除
+            async let reconcile: Void = observationState.reconcileAssets()
+            // 四层补偿第 1 层（§5.4 V3.29）：前台启动时对账。
+            // FR20.2 授权时序：通知权限严禁启动即索权——请求时机移到
+            // 「完成第一个提醒计划创建后」（价值先行）。
+            if appState.onboardingFinished {
+                async let refresh: Void = reminderStore.refreshTriggered(patientId: appState.currentPatientId)
+                // FR13.10 定期备份提醒（默认 30 天；只引导，不自动建包）
+                async let backup: Void = reminderStore.scheduleBackupReminderIfNeeded(lastBackupAt: appState.lastBackupAt)
+                _ = await (seed, reconcile, refresh, backup)
+            } else {
+                _ = await (seed, reconcile)
             }
         }
         // FR14.5 语言切换的非视图副作用：已排程通知的标题/正文在排程时固化，
@@ -143,7 +161,17 @@ struct AppRootView: View {
                 // inactive——豁免在途认证，否则导出向导/备份等动作被锁屏覆盖
                 // 层销毁状态并二次弹认证
                 if appState.onboardingFinished && !appState.authPromptInFlight {
-                    let grace = Double(Int(settingsStore.values[.gateGraceSeconds] ?? "0") ?? 0)
+                    // 宽限值域钳制：合法域 0/15/60（SettingsRules.
+                    // gateGraceSecondsLegalValues 单一事实源，设置页 Picker 同域），
+                    // 但值经可编辑 JSON 备份往返，脏数据可注入任意字符串——
+                    // 超界天文值下 UInt64(grace × 1e9) 是运行时 trap（切
+                    // 任务器即崩）；超大但未越界的值（如 1e10 秒 ≈ 317 年）
+                    // 则永不锁定；范围判定（0...3600）会让 "300" 等非法档
+                    // 通过并制造规格外宽限窗（FR1.4 退后台即锁静默失效）——
+                    // 一律按合法集成员判定，非法值按 0 处理。
+                    let rawGrace = Double(Int(SettingsRules.resolved(settingsStore.values[.gateGraceSeconds],
+                                                                     key: .gateGraceSeconds)) ?? 0)
+                    let grace = SettingsRules.gateGraceSecondsLegalValues.contains(rawGrace) ? rawGrace : 0
                     if grace > 0 {
                         // 宽限窗口内回前台即取消（宽限只影响正式锁定时刻）
                         // 第七轮全仓审查修复：回前台同样经过 .inactive（active→
@@ -175,6 +203,18 @@ struct AppRootView: View {
             default:
                 break
             }
+        }
+    }
+
+    /// F16 信源播种失败隔离（失败隔离纪律的单一落点）：seedBundled 是启动链
+    /// 中唯一会抛出的链，错误必须在本函数内消化——错误不传播出 async let
+    /// 所在作用域，就不会触发 structured concurrency 对兄弟子任务（对账/
+    /// 提醒物化/备份提醒）的隐式取消，其余链照常完成。
+    private func seedBundledOrLog() async {
+        do {
+            try await seedBundled()
+        } catch {
+            Logger(subsystem: "com.vitaliber", category: "app").error("信源播种失败: \(error)")
         }
     }
 

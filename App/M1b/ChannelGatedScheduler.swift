@@ -43,12 +43,21 @@ actor ChannelGatedScheduler: ReminderScheduling {
             ?? AppSettingKey.remindChannel.defaultValue
     }
 
-    /// 「静音仅横幅」只对 dose-/slot- 生效（InAppBannerHost 唯一渲染的类别）；
-    /// 其余类别按 §5.58 降级链照常系统投递（见类文档第八轮修复说明）。
+    /// 「静音仅横幅」只对**有应用内横幅承接**的 dose-/slot- 生效（InAppBannerHost
+    /// 唯一渲染的类别）；snooze-/voice-rem- 虽归用药通道偏好但无应用内承接，
+    /// 按 §5.58 降级链照常系统投递（宁响铃、绝不静默丢弃，见类文档第八轮修复
+    /// 说明；第十轮曾按 categoryKey 把抑制放宽到整个用药族，使稍后提醒/语音
+    /// 提醒落入零通道——收敛回 Domain hasInAppBannerCoverage 单一事实源）。
+    /// 第十一轮审查：抑制还必须咨询横幅总开关——开关关闭时应用内横幅不
+    /// 渲染（InAppBannerHost 守卫），「静音仅横幅」的承接不存在，抑制即
+    /// 零通道；判定统一走 Domain ReminderChannelRules.suppressSystemDelivery
+    /// （与前台 foregroundDelivery 同口径，本类只读 UserDefaults 镜像）。
     private nonisolated static func shouldSuppressSystem(_ notifyId: String) -> Bool {
-        guard notifyId.hasPrefix("dose-") || notifyId.hasPrefix("slot-") else { return false }
-        return !ReminderChannelRules.shouldDeliverSystem(notifyId,
-                                                         preference: preference(for: notifyId))
+        let defaults = UserDefaults.standard
+        return ReminderChannelRules.suppressSystemDelivery(
+            notifyId,
+            bannerEnabled: defaults.string(forKey: AppSettingKey.inAppBannerEnabled.rawValue) != "false",
+            preference: preference(for: notifyId))
     }
 
     func schedule(dose notifyId: String, at fireAt: Date, route: AppRoute?) async throws {
