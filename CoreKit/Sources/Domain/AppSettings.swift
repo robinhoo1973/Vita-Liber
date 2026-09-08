@@ -126,6 +126,12 @@ public enum SettingsRules {
         stored ?? key.defaultValue
     }
 
+    /// FR1.4 退后台自动锁定宽限的合法值域（秒）：0/15/60——设置页 Picker
+    /// 与消费侧钳制同源（第十一轮审查：钳制曾用 0...3600 范围判定，备份
+    /// 注入的 "300" 等非合法档可通过并制造规格外宽限窗，FR1.4「退后台
+    /// 即锁」静默失效；另见 AppRootView 消费侧成员判定）。
+    public static let gateGraceSecondsLegalValues: [Double] = [0, 15, 60]
+
     /// 日期格式 tag ↔ 存储值（FR14.7/§5.19）：tag 供 UI 选择器（无本地化格式串
     /// 进入视图层），值存 app_settings；单一映射维护（V3.72）
     public static func dateFormatTag(of value: String) -> String {

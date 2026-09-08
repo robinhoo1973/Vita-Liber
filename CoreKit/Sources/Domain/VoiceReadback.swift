@@ -72,12 +72,27 @@ public enum ReadbackPolicy {
         return decide(route: new, preference: preference, careMode: careMode)
     }
 
-    /// 回读文本 = **已确认的结构化字段**，绝不含音频原文（FR17.13）。
+    /// 回读字段对（key 为 Domain 语义键，App 层经其字段标签映射取本地化名）。
+    public struct ReadbackPart: Sendable, Equatable {
+        public var key: String
+        public var value: String
+        public init(key: String, value: String) {
+            self.key = key; self.value = value
+        }
+    }
+
+    /// 回读字段 = **已确认的结构化字段**，绝不含音频原文（FR17.13）。
     /// 传入未确认字段会被过滤掉——未确认内容不得被当作事实播报（BR-003）。
-    public static func readbackScript(_ set: OcrConfirmationSet) -> String? {
-        let parts = set.confirmedFields.map { "\($0.displayLabel)：\($0.value)" }
-        guard !parts.isEmpty else { return nil }
-        return "已录入：" + parts.joined(separator: "，") + "。对吗？"
+    ///
+    /// 审查修复（V3.68 §11 清偿残根）：原 `readbackScript` 在 Domain 拼中文
+    /// 句式（「已录入：…。对吗？」），且用 `displayLabel` 直拼——语音路径的
+    /// displayLabel 是英文内部键（blood_pressure_sys/allergy/note），TTS 会把
+    /// 内部键原样念给用户听。改为只出类型化字段对，句式由 App 层经 L10n
+    /// （voice.readbackFmt）与字段标签映射组装——与 V3.68「Domain 只出
+    /// 类型化数据、文案经 L10n 单出口」同一纪律。
+    public static func readbackParts(_ set: OcrConfirmationSet) -> [ReadbackPart]? {
+        let parts = set.confirmedFields.map { ReadbackPart(key: $0.key, value: $0.value) }
+        return parts.isEmpty ? nil : parts
     }
 }
 

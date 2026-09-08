@@ -515,3 +515,41 @@ struct MedicalNumberFormatTests {
         #expect(!MedicalNumberFormat.quantity(1.5).contains(","))
     }
 }
+
+// binds: 审查修复锚点（2026-09-07 全源码轮）——新增 Domain 单一事实源断言
+@Suite("SU-M1c-RULES · 盘点判等与药品名匹配下沉 Domain（FR9.8.5/语音库存查询）")
+struct InventoryViewRulesTests {
+
+    @Test func 盘点判等含半片容差边界() {
+        // 账面 4.5、滑杆整数 5 → 差 0.5 必须判等（含边界；严格 < 会永远多一步确认）
+        #expect(InventoryRules.isEqualToBook(physical: 5, confirmed: 4.5))
+        #expect(InventoryRules.isEqualToBook(physical: 4, confirmed: 4.5))
+        #expect(!InventoryRules.isEqualToBook(physical: 6, confirmed: 4.5), "差 1.5 必须判不等")
+        // 整数账面精确一致
+        #expect(InventoryRules.isEqualToBook(physical: 10, confirmed: 10))
+    }
+
+    @Test func 药品名匹配精确名优先() {
+        let lots = ["钙片", "葡萄糖酸钙", "阿莫西林"]
+        // 精确命中「钙片」时不回落包含匹配
+        #expect(InventoryRules.preferredExactMatches(lots, name: { $0 }, query: "钙片") == ["钙片"])
+        // 无精确命中时包含匹配（「钙」命中两个含钙药品）
+        #expect(Set(InventoryRules.preferredExactMatches(lots, name: { $0 }, query: "钙")) == Set(["钙片", "葡萄糖酸钙"]))
+        // 查询词是简称（双向包含）
+        #expect(InventoryRules.preferredExactMatches(["阿莫西林胶囊"], name: { $0 }, query: "阿莫西林") == ["阿莫西林胶囊"])
+        // 零命中返回空
+        #expect(InventoryRules.preferredExactMatches(lots, name: { $0 }, query: "胰岛素").isEmpty)
+    }
+
+    @Test func 时刻合法性单一事实源() {
+        // 审查修复锚点：fixed 时刻保存闸门与引擎解析共用 isValidTime
+        #expect(DoseScheduleEngine.isValidTime("08:00"))
+        #expect(DoseScheduleEngine.isValidTime("8:00"))
+        #expect(DoseScheduleEngine.isValidTime("23:59"))
+        #expect(!DoseScheduleEngine.isValidTime("8点"), "中文时刻必须拒绝（此前零剂量计划静默建成）")
+        #expect(!DoseScheduleEngine.isValidTime("25:00"))
+        #expect(!DoseScheduleEngine.isValidTime("08:60"))
+        #expect(!DoseScheduleEngine.isValidTime(""))
+        #expect(!DoseScheduleEngine.isValidTime("8"))
+    }
+}

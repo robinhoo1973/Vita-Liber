@@ -12,7 +12,7 @@ struct FoundationalModulesIntegrationTests {
 
     // MARK: - EAL + 四工厂端到端
 
-    @Test("EAL 注册全部 7 工厂后可解析并调用协议方法", .tags(.linuxRunnable))
+    @Test("EAL 注册全部 7 工厂后可解析并调用协议方法")
     func ealSevenFactoriesEndToEnd() async throws {
         let r = EngineRegistry()
         let ctx = EngineContext.current
@@ -68,7 +68,7 @@ struct FoundationalModulesIntegrationTests {
 
     // MARK: - 注入哈希 + DuplicateDetection 全流程
 
-    @Test("注入哈希 → 注册 → 检测 全流程", .tags(.linuxRunnable))
+    @Test("注入哈希 → 注册 → 检测 全流程")
     func injectedHashDuplicateDetectionFlow() throws {
         // ADR-025：自研 SHA256 已退役（生产注入 CryptoKitContentHasher，iOS/macOS）；
         // Linux 上重复检测只要求「同数据同哈希」——base64 确定性桩即可。
@@ -88,7 +88,7 @@ struct FoundationalModulesIntegrationTests {
 
     // MARK: - CaptureQuality 评分流程
 
-    @Test("CaptureQualityAssessor 评分确定性", .tags(.linuxRunnable))
+    @Test("CaptureQualityAssessor 评分确定性")
     func captureQualityFlow() throws {
         let png = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==") ?? Data()
         let q1 = try CaptureQualityAssessor.assess(decoder.decode(png, maxDimension: 256))
@@ -99,7 +99,7 @@ struct FoundationalModulesIntegrationTests {
 
     // MARK: - Preprocess 版本递增
 
-    @Test("预处理版本递增", .tags(.linuxRunnable))
+    @Test("预处理版本递增")
     func preprocessVersioning() async throws {
         #if os(Linux)
         let preprocessor = StubImagePreprocessor()
@@ -127,7 +127,7 @@ struct FoundationalModulesIntegrationTests {
 
     // MARK: - Decode + Compress 组合
 
-    @Test("解码后缩略图全流程", .tags(.linuxRunnable))
+    @Test("解码后缩略图全流程")
     func decodeThenCompress() async throws {
         #if os(Linux)
         let decoder = StubPDFDecoder()
@@ -160,7 +160,7 @@ struct FoundationalModulesIntegrationTests {
 
     // MARK: - Offline guard 全 7 工厂
 
-    @Test("全部 7 工厂均端侧、离线守卫通过", .tags(.linuxRunnable))
+    @Test("全部 7 工厂均端侧、离线守卫通过")
     func offlineGuardAllSeven() {
         let r = EngineRegistry()
         let ctx = EngineContext.current

@@ -142,9 +142,12 @@ public enum TrendRules {
         var bands: [ReferenceBand] = []
         for p in points {
             guard let lo = p.refLow, let hi = p.refHigh else { continue }
-            // 来源标签缺失时不臆造：按「未标注来源」独立成带，仍不与他人合并
-            let label = p.refSourceLabel?.trimmingCharacters(in: .whitespaces)
-            let source = (label?.isEmpty == false) ? label! : "未标注来源"
+            // 来源标签缺失时保留空串（数据缺失如实表达），不臆造文案——
+            // 审查修复（V3.68 §11 清偿残根）：原实现 Domain 硬编码简体
+            // 「未标注来源」直接上屏（zh-Hant/en 用户直见简体），展示缺省
+            // 文案由 App 层经 L10n.trendBandUnlabeled 渲染；空串与有标签
+            // 来源绝不合并（分组键不同）。
+            let source = p.refSourceLabel?.trimmingCharacters(in: .whitespaces) ?? ""
             let band = ReferenceBand(sourceLabel: source, lower: lo, upper: hi, grade: .A)
             if seen.insert(band.id).inserted { bands.append(band) }
         }

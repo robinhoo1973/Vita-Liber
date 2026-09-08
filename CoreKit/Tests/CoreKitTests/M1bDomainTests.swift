@@ -358,6 +358,61 @@ struct TransitionDeductionTests {
             #expect(base.plan >= 0 && base.confirmed >= 0)
         }
     }
+
+    /// 第十轮闭式推导锚点（第九轮 Angle E 缺口）：已服转场到 missed 必须零扣减——
+    /// 原枚举表 default 落 full deduction(.missed) 会二次扣计划轨（双轨双扣）
+    @Test func 已服转场missed零扣减() {
+        for from in [DoseUserAction.taken, .discomfort] {
+            let m = InventoryRules.transitionDeduction(from: from, to: .missed, units: 2)
+            #expect(m.plan == 0, "\(from) → missed 计划轨不得二次扣减")
+            #expect(m.confirmed == 0)
+        }
+    }
+
+    /// 第十轮闭式推导等价性：全部 5×5 转场 = max(0, deduction(to) − deduction(from))
+    @Test func 转场闭式与矩阵差一致() {
+        let actions: [DoseUserAction] = [.taken, .skipped, .missed, .discomfort, .snoozed]
+        for from in actions {
+            for to in actions {
+                let m = InventoryRules.transitionDeduction(from: from, to: to, units: 2)
+                let d = InventoryRules.deduction(for: to, units: 2)
+                let s = InventoryRules.deduction(for: from, units: 2)
+                #expect(m.plan == max(0, d.plan - s.plan))
+                #expect(m.confirmed == max(0, d.confirmed - s.confirmed))
+            }
+        }
+    }
+}
+
+/// 第十一轮审查锚点：投递门单一决策函数（suppressSystemDelivery 与
+/// foregroundDelivery 同口径）——「静音仅横幅 + 横幅总开关关闭」不得
+/// 落入零通道（§5.58 目标通道不可用自动降级，宁响铃不静默）。
+struct ChannelDeliveryRulesTests {
+    @Test func 静音仅横幅且横幅关闭仍系统投递() {
+        #expect(!ReminderChannelRules.suppressSystemDelivery("dose-x", bannerEnabled: false, preference: "inApp"))
+        #expect(ReminderChannelRules.foregroundDelivery(for: "dose-x", bannerEnabled: false, medsPreference: "inApp") == .bannerAndSound)
+    }
+
+    @Test func 静音仅横幅且横幅开启才抑制() {
+        #expect(ReminderChannelRules.suppressSystemDelivery("dose-x", bannerEnabled: true, preference: "inApp"))
+        #expect(ReminderChannelRules.foregroundDelivery(for: "dose-x", bannerEnabled: true, medsPreference: "inApp") == .silent)
+    }
+
+    @Test func 响铃直到确认横幅开启仅声音() {
+        #expect(!ReminderChannelRules.suppressSystemDelivery("slot-x", bannerEnabled: true, preference: "persistentRing"))
+        #expect(ReminderChannelRules.foregroundDelivery(for: "slot-x", bannerEnabled: true, medsPreference: "persistentRing") == .soundOnly)
+    }
+
+    @Test func 无承接族永不抑制() {
+        for id in ["snooze-1", "voice-rem-1", "refill-1", "apt-1", "alert-1"] {
+            #expect(!ReminderChannelRules.suppressSystemDelivery(id, bannerEnabled: true, preference: "inApp"))
+            #expect(ReminderChannelRules.foregroundDelivery(for: id, bannerEnabled: true, medsPreference: "inApp") == .bannerAndSound)
+        }
+    }
+
+    @Test func 宽限合法域单一事实源() {
+        #expect(SettingsRules.gateGraceSecondsLegalValues == [0, 15, 60])
+    }
 }
 
 // MARK: - 逻辑剂量身份（D5 回归防护：时区/日历变化下 notifyId 稳定）

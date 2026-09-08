@@ -175,4 +175,67 @@ public enum ReminderChannelRules {
                                            preference: String?) -> Bool {
         preference != ReminderChannelKind.inApp.rawValue
     }
+
+    /// 应用内横幅承接覆盖判定：§4.22 InAppBannerHost 只渲染今日时段内
+    /// **未决**剂量（todaySlots · action == nil，且另有横幅总开关、约 2h
+    /// 到期窗口等运行时过滤），即 dose-/slot- 二族。
+    /// 只有此二族的系统投递抑制（「静音仅横幅」/横幅开关）才有应用内承接；
+    /// snooze-（剂量已置 .snoozed，被横幅过滤排除）与 voice-rem-（非剂量
+    /// 记录，永不在 todaySlots）虽归用药通道偏好，但无应用内承接——按
+    /// §5.58「目标通道不可用自动降级」纪律照常系统投递（宁响铃、绝不静默
+    /// 丢弃），待 W4 横幅通道扩展后逐类别收紧。第十轮曾把抑制集放宽到整个
+    /// .remindChannelMeds 族，使稍后提醒/语音提醒落入零通道（前台无声无横幅、
+    /// 后台/锁屏被排程门直接丢弃）——本判定即该修复的单一事实源。
+    /// 注：本判定是「该族存在应用内承接」的静态近似；横幅总开关关闭等
+    /// 运行时不可用由 suppressSystemDelivery/foregroundDelivery 的
+    /// bannerEnabled 参数逐判定降级（见各函数文档）。
+    public static func hasInAppBannerCoverage(_ notifyId: String) -> Bool {
+        notifyId.hasPrefix("dose-") || notifyId.hasPrefix("slot-")
+    }
+
+    /// 排程时系统投递抑制判定（ChannelGatedScheduler 消费，与前台
+    /// foregroundDelivery 同口径）。抑制必须三者同时成立：
+    /// (a) 该通知有应用内横幅承接 (b) 横幅总开关开启——承接真实存在
+    /// (c) 偏好为「静音仅横幅」；否则照常系统投递（§5.58「目标通道不可用
+    /// 自动降级」，宁响铃绝不静默丢弃）。第十一轮审查：排程门此前只查
+    /// (a)(c) 不查 (b)——用户把用药设为「静音仅横幅」后又关闭横幅总开关
+    /// （两个设置控件互相独立）时，剂量通知排程即被丢弃、前台呈现亦静默、
+    /// 应用内横幅因开关关闭不渲染，P0 服药提醒落入零通道。
+    public static func suppressSystemDelivery(_ notifyId: String,
+                                              bannerEnabled: Bool,
+                                              preference: String?) -> Bool {
+        guard hasInAppBannerCoverage(notifyId), bannerEnabled else { return false }
+        return !shouldDeliverSystem(notifyId, preference: preference)
+    }
+
+    /// 前台系统呈现策略（Domain 纯规则；App 层映射为 UNNotificationPresentationOptions，
+    /// Domain 不得 import UserNotifications）：
+    /// - 非用药族 / 用药族无应用内横幅承接（snooze-/voice-rem-）→ 横幅+声音
+    /// - 用药族且有承接 +「静音仅横幅」+ 横幅总开关开启 → 完全静默（用户
+    ///   对静音的显式选择；开关关闭时应用内横幅不存在，降级为系统横幅+声音）
+    /// - 有承接 + 横幅开关开启 + 「响铃直到确认」→ 仅声音（横幅由应用内横幅承接，避免双弹；声音保留）
+    /// - 有承接 + 横幅开关开启 + 其余通道 → 静默（应用内横幅是唯一前台呈现）
+    /// - 有承接 + 横幅开关关闭 + 非 inApp 通道 → 横幅+声音（应用内横幅已关，系统横幅须照常）
+    public static func foregroundDelivery(for notifyId: String,
+                                          bannerEnabled: Bool,
+                                          medsPreference: String?) -> ForegroundDelivery {
+        guard categoryKey(for: notifyId) == .remindChannelMeds,
+              hasInAppBannerCoverage(notifyId) else {
+            return .bannerAndSound
+        }
+        let preference = medsPreference ?? AppSettingKey.remindChannelMeds.defaultValue
+        if preference == ReminderChannelKind.inApp.rawValue {
+            return bannerEnabled ? .silent : .bannerAndSound
+        }
+        guard bannerEnabled else { return .bannerAndSound }
+        return preference == ReminderChannelKind.persistentRing.rawValue ? .soundOnly : .silent
+    }
+}
+
+/// 前台系统呈现策略的中性枚举（Domain 零框架依赖，App 层再映射到
+/// UNNotificationPresentationOptions）。
+public enum ForegroundDelivery: Sendable, Equatable {
+    case bannerAndSound   // 系统横幅 + 声音
+    case soundOnly        // 仅声音（横幅由应用内横幅承接）
+    case silent           // 完全静默（用户「静音仅横幅」显式选择）
 }

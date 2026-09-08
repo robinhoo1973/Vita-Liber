@@ -7,7 +7,7 @@ import Infrastructure
 @Suite("M-PREPROC · 扫描预处理 / 图片变形校正（Linux 占位可跑）")
 struct PreprocessTests {
 
-    @Test("重置参数：resetToOriginal 返回原始帧、版本号+1", .tags(.linuxRunnable))
+    @Test("重置参数：resetToOriginal 返回原始帧、版本号+1")
     func resetToOriginal() async throws {
         let preprocessor = StubImagePreprocessor()
 
@@ -20,7 +20,7 @@ struct PreprocessTests {
         #expect(result.appliedParams.resetToOriginal == true)
     }
 
-    @Test("非重置：Linux 占位返回原始帧、版本号+1、标记未实际矫正", .tags(.linuxRunnable))
+    @Test("非重置：Linux 占位返回原始帧、版本号+1、标记未实际矫正")
     func linuxPlaceholderNoCorrection() async throws {
         let preprocessor = StubImagePreprocessor()
 
@@ -34,14 +34,14 @@ struct PreprocessTests {
         #expect(result.appliedParams.rotationDegrees == 90)
     }
 
-    @Test("参数确定性：相同参数产生相同 appliedParams", .tags(.linuxRunnable))
+    @Test("参数确定性：相同参数产生相同 appliedParams")
     func paramsDeterministic() {
         let p1 = PreprocessParams(enablePerspectiveCorrection: true, colorMode: .grayscale, rotationDegrees: 90)
         let p2 = PreprocessParams(enablePerspectiveCorrection: true, colorMode: .grayscale, rotationDegrees: 90)
         #expect(p1 == p2)
     }
 
-    @Test("ColorMode Codable 往返", .tags(.linuxRunnable))
+    @Test("ColorMode Codable 往返")
     func colorModeCodable() throws {
         for mode in PreprocessParams.ColorMode.allCases {
             let data = try JSONEncoder().encode(mode)
@@ -50,7 +50,7 @@ struct PreprocessTests {
         }
     }
 
-    @Test("PreprocessedImage 版本号递增", .tags(.linuxRunnable))
+    @Test("PreprocessedImage 版本号递增")
     func versionIncrements() async throws {
         let preprocessor = StubImagePreprocessor()
         let png = Self.testPNG()

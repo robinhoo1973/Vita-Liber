@@ -39,9 +39,7 @@ struct EngineAbstractionTests {
         #expect(tts is any SpeechSynthesizing)
         #expect(tx is any TranscriptionEngine)
 
-        #if os(Linux)
-        // Linux 工厂返回桩（评审修正：真实 PaddleOCR 归 OcrCli dev 轨直接构造，
-        // 工厂不再把 onnxruntime 拉进测试二进制——见 Package.swift OcrCli 头注）
+        #if !os(iOS) && !os(macOS)
         #expect(ocr is StubImageTextRecognizer)
         #expect(tts is RecordingSpeechSynthesizer)
         #expect(tx is StubTranscriptionEngine)

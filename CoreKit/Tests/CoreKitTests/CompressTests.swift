@@ -7,7 +7,7 @@ import Infrastructure
 @Suite("M-COMPRESS · 缩略图/模糊与敏感脱敏（Linux 占位可跑）")
 struct CompressTests {
 
-    @Test("generateThumbnail：Linux 占位返回 1x1 透明 PNG", .tags(.linuxRunnable))
+    @Test("generateThumbnail：Linux 占位返回 1x1 透明 PNG")
     func generateThumbnailPlaceholder() async throws {
         let compressor = StubImageCompressor()
 
@@ -18,7 +18,7 @@ struct CompressTests {
         #expect(thumb.count == Self.transparentPNG().count)
     }
 
-    @Test("authorizeOriginalAccess：非敏感策略直接返回数据", .tags(.linuxRunnable))
+    @Test("authorizeOriginalAccess：非敏感策略直接返回数据")
     func authorizeNonSensitive() async throws {
         let compressor = StubImageCompressor()
 
@@ -28,7 +28,7 @@ struct CompressTests {
         #expect(result == data)
     }
 
-    @Test("authorizeOriginalAccess：敏感且需鉴权 → Linux 抛 authRequiredForOriginal", .tags(.linuxRunnable))
+    @Test("authorizeOriginalAccess：敏感且需鉴权 → Linux 抛 authRequiredForOriginal")
     func authorizeSensitiveRequiresAuth() async throws {
         let compressor = StubImageCompressor()
 
@@ -39,7 +39,7 @@ struct CompressTests {
         }
     }
 
-    @Test("SensitiveMediaProtection：isProtected / requestAccess 记录集合", .tags(.linuxRunnable))
+    @Test("SensitiveMediaProtection：isProtected / requestAccess 记录集合")
     func sensitiveMediaProtection() async throws {
         let protector = StubImageCompressor()
 
@@ -49,7 +49,7 @@ struct CompressTests {
         #expect(protector.isProtected("media-1") == true)
     }
 
-    @Test("ThumbnailSpec / SensitiveMediaPolicy Codable 往返", .tags(.linuxRunnable))
+    @Test("ThumbnailSpec / SensitiveMediaPolicy Codable 往返")
     func codableRoundtrip() throws {
         let spec = ThumbnailSpec(maxDimension: 256, blurRadius: 8, quality: 0.8)
         let sdata = try JSONEncoder().encode(spec)
@@ -62,7 +62,7 @@ struct CompressTests {
         #expect(pdec == policy)
     }
 
-    @Test("CompressError 可比较", .tags(.linuxRunnable))
+    @Test("CompressError 可比较")
     func errorEquatable() {
         #expect(CompressError.encodeFailed == CompressError.encodeFailed)
         #expect(CompressError.encodeFailed != CompressError.decodeFailed)

@@ -75,6 +75,11 @@ public actor MemberDeletionService {
                                    arguments: [patientId.uuidString]) != nil else {
                 throw StoreError.memberNotFound(patientId)
             }
+            // 本人档案拒绝删除（纵深防御：与视图层闸门双保险——见 StoreError 注）
+            if let selfId = try String.fetchOne(db, sql: "SELECT self_patient_id FROM local_owner LIMIT 1"),
+               selfId == patientId.uuidString {
+                throw StoreError.cannotDeleteSelf
+            }
             switch choice {
             case .deletePlans:
                 // 拓扑序清理（FK 开启，REFERENCES 目标必须先行）：
@@ -151,7 +156,17 @@ public actor MemberDeletionService {
     public enum StoreError: Error, LocalizedError {
         case memberNotFound(UUID)
         case documentNotFound(UUID)
-        public var errorDescription: String? { "删除/归属操作目标不存在: \(self)" }
+        /// 审查修复（本人删除纵深防御）：视图层 owner 未装载时闸门失效——
+        /// 本服务在事务内二次校验，拒绝删除 local_owner.self_patient_id 指向的
+        /// 本人档案（BR-001 锚点：本人档案是当前成员回落目标，删除即锚点
+        /// 落到软删行）。UI 外的任何调用路径同样被拦。
+        case cannotDeleteSelf
+        public var errorDescription: String? {
+            switch self {
+            case .cannotDeleteSelf: return "本人档案不可删除（BR-001 锚点保护）"
+            default: return "删除/归属操作目标不存在: \(self)"
+            }
+        }
     }
 }
 #endif

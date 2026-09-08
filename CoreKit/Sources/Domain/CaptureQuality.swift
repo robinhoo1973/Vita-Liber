@@ -37,6 +37,17 @@ public enum ImageDecodeError: Error, Sendable, Equatable {
     case corruptData
 }
 
+/// 质量标签键（§11 清偿：Domain 只出类型化键，文案经 App 层 L10n.qualityTag 渲染）。
+/// rawValue 即 L10n 键名；未知键（未来扩展）视图原样回落显示。
+public enum QualityTag: String, Sendable, Equatable, CaseIterable {
+    case blurry = "quality.blurry"
+    case tooDark = "quality.tooDark"
+    case tooBright = "quality.tooBright"
+    case occlusion = "quality.occlusion"
+    case good = "quality.good"
+    case unassessable = "quality.unassessable"
+}
+
 /// 单张图片的质量评估结果。
 public struct CaptureQuality: Sendable, Equatable {
     /// 综合质量分（0..1，越高越清晰）。
@@ -95,7 +106,7 @@ public enum CaptureQualityAssessor {
         guard w >= 3, h >= 3, buf.count >= w * h else {
             // 过小图像无法做拉普拉斯邻域差分：返回最保守的「疑似不合格」，
             // 不崩溃、不产生 NaN（评审修正：原实现对 1xN/2x2 输入会越界/除零）。
-            return CaptureQuality(score: 0, sharpness: 0, brightness: 0, occlusion: 1, tags: ["不可评估"])
+            return CaptureQuality(score: 0, sharpness: 0, brightness: 0, occlusion: 1, tags: [QualityTag.unassessable.rawValue])
         }
 
         // 1) Sharpness: 拉普拉斯二阶差分方差
@@ -130,11 +141,16 @@ public enum CaptureQualityAssessor {
         let score = 0.5 * sharpness + 0.3 * brightness + 0.2 * occlusionScore
 
         // 5) 可解释标签
+        // 审查修复（V3.68 §11 清偿残根）：标签此前为 Domain 硬编码简体中文
+        // （模糊/过暗/过亮/疑似遮挡/质量良好/不可评估），确认卡 ForEach 原样
+        // 渲染——zh-Hant/en 用户直见简体。改为类型化键（QualityTag），App 层
+        // 经 L10n.qualityTag 渲染；键为数据词汇，未持久化（导入会话内数据），
+        // 无旧数据兼容负担。
         var tags: [String] = []
-        if sharpness < 0.35 { tags.append("模糊") }
-        if brightness < 0.6 { tags.append(mean < 0.3 ? "过暗" : "过亮") }
-        if occlusion > 0.15 { tags.append("疑似遮挡/过曝") }
-        if tags.isEmpty { tags.append("质量良好") }
+        if sharpness < 0.35 { tags.append(QualityTag.blurry.rawValue) }
+        if brightness < 0.6 { tags.append((mean < 0.3 ? QualityTag.tooDark : QualityTag.tooBright).rawValue) }
+        if occlusion > 0.15 { tags.append(QualityTag.occlusion.rawValue) }
+        if tags.isEmpty { tags.append(QualityTag.good.rawValue) }
 
         return CaptureQuality(score: score, sharpness: sharpness, brightness: brightness,
                               occlusion: occlusion, tags: tags)

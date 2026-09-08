@@ -34,7 +34,7 @@ struct QualityTests {
 
     // MARK: - CaptureQualityAssessor
 
-    @Test("同一图片两次评估质量分完全一致（确定性）", .tags(.linuxRunnable))
+    @Test("同一图片两次评估质量分完全一致（确定性）")
     func assessDeterministic() throws {
         let png = Self.testPNG()
         let q1 = try quality(of: png)
@@ -47,7 +47,7 @@ struct QualityTests {
         #expect(!q1.tags.isEmpty)
     }
 
-    @Test("meetsThreshold 阈值判定正确", .tags(.linuxRunnable))
+    @Test("meetsThreshold 阈值判定正确")
     func meetsThreshold() throws {
         let png = Self.testPNG()
         let q = try quality(of: png)
@@ -57,7 +57,7 @@ struct QualityTests {
 
     // MARK: - DuplicateDetectionService
 
-    @Test("精确哈希：同一文件副本命中 exactHashMatch", .tags(.linuxRunnable))
+    @Test("精确哈希：同一文件副本命中 exactHashMatch")
     func exactHashMatch() throws {
         var svc = makeService()
         let png = Self.testPNG()
@@ -68,7 +68,7 @@ struct QualityTests {
         #expect(result.perceptualSimilarity == 1.0)
     }
 
-    @Test("精确哈希：不同文件不命中", .tags(.linuxRunnable))
+    @Test("精确哈希：不同文件不命中")
     func exactHashMiss() throws {
         var svc = makeService()
         let png1 = Self.testPNG()
@@ -78,7 +78,7 @@ struct QualityTests {
         #expect(result.exactHashMatch == false)
     }
 
-    @Test("感知哈希：Linux 占位基于 SHA256 派生、同数据同 pHash", .tags(.linuxRunnable))
+    @Test("感知哈希：Linux 占位基于 SHA256 派生、同数据同 pHash")
     func perceptualSimilarity() throws {
         var svc = makeService()
         let png1 = Self.testPNG()
@@ -88,7 +88,7 @@ struct QualityTests {
         #expect(result.perceptualSimilarity == 1.0)
     }
 
-    @Test("零自动删除：detect 仅返回标记，不产生删除动作", .tags(.linuxRunnable))
+    @Test("零自动删除：detect 仅返回标记，不产生删除动作")
     func zeroAutoDelete() throws {
         var svc = makeService()
         let png = Self.testPNG()
@@ -106,6 +106,9 @@ struct QualityTests {
     }
 }
 
+// 审查修复（标签命名残留，2026-09-07）：Linux 测试 job 已废除，本标签不再
+// 被任何 CI/工具消费；保留定义仅为 EngineAbstractionTests（同批 diff 文件）
+// 的引用可编译——待该文件随下一批清掉标签后本扩展一并删除。
 extension Tag {
     @Tag static var linuxRunnable: Tag
 }

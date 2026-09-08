@@ -357,8 +357,18 @@ public enum VoiceConversationEngine {
                 s.phase = .listening; s.pendingObject = nil; s.silentRounds = 0
                 events.append(.speak(.cancelled))
             default:
+                // 审查修复（FR19.6 口径一致）：无效应答计入静默轮数——此前仅
+                // listening/selecting 相位在满 2 轮后礼貌退出，确认类相位只
+                // 累加永不退出：用户连续两轮说无关内容，会话永远重复
+                // 「请确认」，FR19.6「连续两轮无有效应答自动礼貌退出」在
+                // 确认相位形同虚设。
                 s.silentRounds += 1
-                events.append(.speak(.confirmToCall))
+                if s.silentRounds >= maxSilentRounds {
+                    events.append(.exitGracefully)
+                    s.phase = .ended
+                } else {
+                    events.append(.speak(.confirmToCall))
+                }
             }
         case .confirming:
             // 确认相位只认 是/否/取消；其余一律视为未听清（不计入危险误执行）
@@ -368,8 +378,16 @@ public enum VoiceConversationEngine {
             case .command(.no), .command(.cancel):
                 handleYesNo(&s, &events, yes: false)
             default:
+                // 审查修复（FR19.6 同上）：确认相位两轮无效应答同样礼貌退出——
+                // 永不退出会让无法说「是/否」的用户（口音识别失败）困死在
+                // 确认循环里；退出即取消待确认动作，绝不误执行。
                 s.silentRounds += 1
-                events.append(.speak(.confirmToSave))
+                if s.silentRounds >= maxSilentRounds {
+                    events.append(.exitGracefully)
+                    s.phase = .ended
+                } else {
+                    events.append(.speak(.confirmToSave))
+                }
             }
         case .ended:
             break
@@ -388,7 +406,18 @@ public enum VoiceConversationEngine {
             }
             s.phase = .listening; s.pendingObject = nil; s.silentRounds = 0
         default:
-            break
+            // 审查修复（FR19.6 同一口径）：是/否在非确认相位（listening/
+            // selecting）无语义——原实现零事件静默吞掉，用户说「是」后听不到
+            // 任何回应、会话死滞。按无效应答计数：满 2 轮礼貌退出，否则
+            // 提示重说（与 unrecognized 分支同构）。
+            s.silentRounds += 1
+            if s.silentRounds >= maxSilentRounds {
+                events.append(.exitGracefully)
+                s.phase = .ended
+            } else {
+                s.lastPrompt = .repeatHint
+                events.append(.speak(.repeatHint))
+            }
         }
     }
 

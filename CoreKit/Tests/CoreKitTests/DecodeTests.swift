@@ -11,7 +11,7 @@ private func testPNG() -> Data {
 @Suite("M-DECODE · PDF→位图解码与图片降采样（Linux 占位可跑）")
 struct DecodeTests {
 
-    @Test("decodeImage：Linux 占位返回 1x1 透明 PNG、尺寸正确", .tags(.linuxRunnable))
+    @Test("decodeImage：Linux 占位返回 1x1 透明 PNG、尺寸正确")
     func decodeImagePlaceholder() async throws {
         let decoder = StubPDFDecoder()
 
@@ -22,7 +22,7 @@ struct DecodeTests {
         #expect(result.originalSize.width == 1 && result.originalSize.height == 1)
     }
 
-    @Test("decodePDF：Linux 占位返回 1 页空白、页码正确", .tags(.linuxRunnable))
+    @Test("decodePDF：Linux 占位返回 1 页空白、页码正确")
     func decodePDFPlaceholder() async throws {
         let decoder = StubPDFDecoder()
 
@@ -35,7 +35,7 @@ struct DecodeTests {
         #expect(pages[0].originalSize.width > 0 && pages[0].originalSize.height > 0)
     }
 
-    @Test("decodePDF：maxPages 截断不崩（Linux 占位固定 1 页）", .tags(.linuxRunnable))
+    @Test("decodePDF：maxPages 截断不崩（Linux 占位固定 1 页）")
     func decodePDFMaxPages() async throws {
         let decoder = StubPDFDecoder()
         let pdfData = Data()
@@ -43,7 +43,7 @@ struct DecodeTests {
         #expect(pages.count <= 1)
     }
 
-    @Test("DecodedImage/DecodedPage Codable 往返", .tags(.linuxRunnable))
+    @Test("DecodedImage/DecodedPage Codable 往返")
     func codableRoundtrip() throws {
         let img = DecodedImage(bitmapData: Data([1,2,3]), originalSize: Size(width: 100, height: 200), maxDimension: 1000)
         let data = try JSONEncoder().encode(img)
@@ -56,7 +56,7 @@ struct DecodeTests {
         #expect(pdecoded == page)
     }
 
-    @Test("DecodeError 可比较", .tags(.linuxRunnable))
+    @Test("DecodeError 可比较")
     func errorEquatable() {
         #expect(DecodeError.corruptData == DecodeError.corruptData)
         #expect(DecodeError.corruptData != DecodeError.unsupportedFormat)

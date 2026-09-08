@@ -207,22 +207,19 @@ public enum InventoryRules {
     /// 补录转场扣减（评审修正 D3，FR9.16×FR9.8.8）：同一逻辑剂量先被
     /// materializeMissed 决议为 missed（计划轨已 −units、确认轨未扣），随后
     /// 用户补录为 taken——计划轨**不得**重复扣减，仅确认轨补扣。
-    /// from == nil（未决议）→ 全额 taken。矩阵单一事实源纪律：
-    /// 本函数是 deduction 的补集，全仓只此一处编码转场语义。
+    /// from == nil（未决议）→ 全额 taken。
+    ///
+    /// 第十轮闭式推导（单一矩阵事实源）：转场扣减 = max(0, deduction(to) −
+    /// deduction(from))——原枚举表随状态数增长，且 (taken/discomfort → missed)
+    /// 落入 default 全额 deduction(.missed) 造成计划轨二次扣减（缺口不对称，
+    /// 第九轮 Angle E 发现）。闭式自动覆盖全部转场组合，新增动作只改
+    /// deduction 一处；已用既有 4 组零扣减与 missed→taken 断言锚定等价性。
     public static func transitionDeduction(from: DoseUserAction?, to: DoseUserAction,
                                            units: Double) -> (plan: Double, confirmed: Double) {
-        switch (from, to) {
-        case (.missed, .taken), (.missed, .discomfort):
-            return (0, units)
-        // 第八轮全仓审查修复：taken/discomfort → taken/discomfort 恒为重复
-        // 决议（同一逻辑剂量二次补录的防再扣兜底）——任一未来查询放宽
-        // 到 taken 行时，转场也必须零扣减，绝不双扣双轨。
-        case (.taken, .taken), (.taken, .discomfort),
-             (.discomfort, .taken), (.discomfort, .discomfort):
-            return (0, 0)
-        default:
-            return deduction(for: to, units: units)
-        }
+        guard let from else { return deduction(for: to, units: units) }
+        let d = deduction(for: to, units: units)
+        let s = deduction(for: from, units: units)
+        return (max(0, d.plan - s.plan), max(0, d.confirmed - s.confirmed))
     }
 
     /// 续药告警（FR9.8.3）：安全线余量 ≤7 天当量 → 需告警（偏早）
@@ -246,6 +243,17 @@ public enum InventoryRules {
         }
     }
 
+    /// ADR-009「偏早不偏晚」浮点容差：阈值比较统一 +1e-9，只吸收浮点噪声、
+    /// 不改变真实余量边界（第八轮修复沉淀为单一常量——两处独立字面量曾面临
+    /// 只改一处即口径漂移的风险）。internal：唯一消费方是文件内 hitsThreshold，
+    /// 不扩大 Domain 冻结 API 面。
+    static let daysThresholdTolerance = 1e-9
+
+    /// 阈值命中判定（含容差，偏早）：daysLeft 越界即命中更紧急档。
+    public static func hitsThreshold(_ daysLeft: Double, tier: RefillTier) -> Bool {
+        daysLeft <= tier.daysLeftThreshold + daysThresholdTolerance
+    }
+
     /// 当前应处的最紧急档位；不需告警返回 nil。过期批次直接按最紧急档处理。
     ///
     /// 契约（评审补注）：本规则**不读 status**——余量 0 的批次按最紧急档持续触达，
@@ -264,9 +272,8 @@ public enum InventoryRules {
         // 3.0000000000000004 > 3 → t3 漏档、7.000000000000175 > 7 → nil
         // 整档消失）——误差方向落在「偏晚/漏警」侧，违反 ADR-009「误差必须
         // 偏向更早告警」。阈值 +1e-9 容差只吸收浮点噪声、不改变真实余量边界，
-        // 边界命中一律判入更紧急档（偏早）。
-        for tier in [RefillTier.t0, .t3, .t7]
-        where daysLeft <= tier.daysLeftThreshold + 1e-9 {
+        // 边界命中一律判入更紧急档（偏早）。判定经 hitsThreshold 单一出口。
+        for tier in RefillTier.allCases.reversed() where hitsThreshold(daysLeft, tier: tier) {
             return tier
         }
         return nil
@@ -313,9 +320,11 @@ public enum InventoryRules {
             guard let at = calendar.date(byAdding: .day, value: day, to: start) else { continue }
             let remaining = max(0, initialUnits - Double(day) * dailyPlanUnits)
             let daysLeft = remaining / dailyPlanUnits
-            // 第八轮修复：与 refillTier 同款浮点容差（+1e-9，偏早不偏晚）
-            for tier in [RefillTier.t7, .t3, .t0]
-            where pending.contains(tier) && daysLeft <= tier.daysLeftThreshold + 1e-9 {
+            // 第八轮修复：与 refillTier 同款浮点容差（hitsThreshold 单一出口）；
+            // 档位顺序派生自 CaseIterable（声明序 t7→t3→t0 = 升序触达），
+            // 不再维护第三份档位数组字面量
+            for tier in RefillTier.allCases
+            where pending.contains(tier) && hitsThreshold(daysLeft, tier: tier) {
                 pending.remove(tier)
                 fired.append((tier, at))
             }
@@ -354,5 +363,27 @@ public enum InventoryRules {
             }
         }
         return (updated, allocations)
+    }
+
+    /// 盘点归真「与账面一致」容差判定（FR9.8.5 差异确认步骤的前置判定）。
+    /// 滑杆 step:1 只能产出整数，账面可为半片（4.5）——精确 == 会让这类
+    /// 批次永远显示差异、永远多一步确认；含边界 <= tolerance 判等
+    /// （0.5 是半片账面的唯一可达差）。BR 规则单一出处（视图不得内联——
+    /// 审查修复：判定此前内联在 InventoryReconcileSheet，属架构规则 4 违例）。
+    public static func isEqualToBook(physical: Double, confirmed: Double,
+                                     tolerance: Double = 0.5) -> Bool {
+        abs(physical - confirmed) <= tolerance
+    }
+
+    /// 药品名匹配（语音库存查询）：**精确名优先**——短词（「钙」）不得先
+    /// 命中「葡萄糖酸钙」等包含关系药品；无精确命中时才回落包含匹配
+    /// （双向包含：查询词可能是简称）。查询语义业务规则单一出处
+    /// （审查修复：判定此前内联在 VoiceSessionView 私有函数，不可单测）。
+    public static func preferredExactMatches<T>(_ candidates: [T],
+                                                name: (T) -> String,
+                                                query: String) -> [T] {
+        let filtered = candidates.filter { name($0).contains(query) || query.contains(name($0)) }
+        let exact = filtered.filter { name($0) == query }
+        return exact.isEmpty ? filtered : exact
     }
 }

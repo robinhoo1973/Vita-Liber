@@ -10,13 +10,6 @@ public enum OCRRecognizerFactory: EngineFactory {
     public static func make(_ context: EngineContext) -> any ImageTextRecognizing {
         #if os(iOS) || os(macOS)
         return VisionImageRecognizer()
-        #elseif os(Linux)
-        // ADR-026 Linux/dev 轨道：真实 OCR（PaddleOCR-on-ONNX）由 OcrCli 直接构造，
-        // 不再经本工厂——推理运行时只挂 OcrCli target，CoreKitTests 与 App 均不链接
-        // onnxruntime（评审修正：此前 Infrastructure 条件依赖 COnnxRuntime，使测试二进制
-        // 在干净 Linux 上加载失败、Domain 门禁名存实亡）。Linux 工厂返回桩以满足
-        // EAL 契约（EngineAbstractionTests 在此平台断言该桩）。
-        return StubImageTextRecognizer(scripted: ImageInputRules.Recognition(lines: [], confidence: 0))
         #else
         return StubImageTextRecognizer(scripted: ImageInputRules.Recognition(lines: [], confidence: 0))
         #endif

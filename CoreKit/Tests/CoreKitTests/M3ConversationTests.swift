@@ -193,6 +193,46 @@ struct VoiceConversationTests {
         #expect(s2.phase == .ended)
     }
 
+    /// 审查修复锚点（FR19.6 相位一致性）：确认相位/复述相位此前只累加
+    /// silentRounds 永不退出——无法说「是/否」的用户被困死在确认循环。
+    @Test func 确认相位两轮无效应答同样退出() {
+        var state = ConversationState()
+        let (s1, _) = VoiceConversationEngine.step(state: state, transcript: "血压 148")
+        #expect(s1.phase == .confirming)
+        _ = VoiceConversationEngine.step(state: s1, transcript: "今天天气不错")   // 第 1 轮无效
+        state = s1
+        state.silentRounds = 1
+        let (s2, e2) = VoiceConversationEngine.step(state: state, transcript: "不知道")   // 第 2 轮无效
+        #expect(e2.contains(.exitGracefully), "确认相位连续两轮无效应答必须礼貌退出（FR19.6）")
+        #expect(s2.phase == .ended)
+    }
+
+    /// 审查修复锚点（复述相位 FR19.6）：拨号前复述对象相位同样遵守两轮退出——
+    /// 退出即取消待确认拨号，绝不误执行。
+    @Test func 复述相位两轮无效应答退出且不拨号() {
+        var state = ConversationState()
+        let (s1, _) = VoiceConversationEngine.step(state: state, transcript: "帮我打给女儿")
+        #expect(s1.phase == .repeatingObject)
+        _ = VoiceConversationEngine.step(state: s1, transcript: "今天天气不错")
+        state = s1
+        state.silentRounds = 1
+        let (s2, e2) = VoiceConversationEngine.step(state: state, transcript: "不知道")
+        #expect(e2.contains(.exitGracefully), "复述相位连续两轮无效应答必须礼貌退出（FR19.6）")
+        #expect(s2.phase == .ended)
+        #expect(!e2.contains(where: { if case .execute(.callContact, _) = $0 { return true }; return false }),
+                "退出不得产生拨号执行")
+    }
+
+    /// 审查修复锚点（是/否在非确认相位）：listening 下说「是」原为零事件死滞——
+    /// 现按无效应答计数并提示（与 unrecognized 分支同构）。
+    @Test func 非确认相位是否按无效应答处理() {
+        let (s, e) = VoiceConversationEngine.step(state: ConversationState(), transcript: "是")
+        #expect(s.silentRounds == 1, "listening 相位「是」必须计入静默轮数")
+        #expect(e.contains(where: { if case .speak = $0 { return true }; return false }),
+                "必须给出回应提示，不得零事件死滞")
+        #expect(s.phase == .listening)
+    }
+
     @Test func 有效应答清零静默计数() {
         var state = ConversationState()
         state.silentRounds = 1

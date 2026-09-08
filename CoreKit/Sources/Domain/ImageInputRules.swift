@@ -27,7 +27,11 @@ public enum ImageInputRules {
         // 一边说无文字、一边产出空白草稿。
         guard !recognition.isEmpty else { return [] }
         let body = recognition.text
-        return [CandidateField(key: "image_text", displayLabel: "图片识别文本",
+        // displayLabel 用语义键（与 VoiceInputTemplate.confirmationSet 同约定）——
+        // 审查修复（§11 清偿残根）：原「图片识别文本」为 Domain 硬编码简体；
+        // 确认卡渲染只读 value 不经 displayLabel（ImageConfirmSheet），
+        // 键语义与语音路径的 displayLabel=key 约定对齐。
+        return [CandidateField(key: "image_text", displayLabel: "image_text",
                                rawText: body, confidence: recognition.confidence,
                                value: body, grade: .ocrUnconfirmed)]
     }

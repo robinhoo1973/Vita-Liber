@@ -215,10 +215,19 @@ public enum DoseScheduleEngine {
         }
     }
 
-    static func date(day: Int, time: String, startDate: Date, calendar: Calendar) -> Date? {
-
+    /// "HH:mm" 时刻合法性——`date(day:time:)` 解析与视图保存闸门共用的
+    /// 单一事实源。审查修复（fixed 通道零剂量）：表单 fixed 自由文本此前
+    /// 无任何校验（"8点" 可保存），引擎解析失败只计 skip → 计划以零剂量
+    /// 静默建成、sheet 关闭、用户无感知——与 interval/meal 已修的同类 bug
+    /// 在 fixed 通道漏网。
+    public static func isValidTime(_ time: String) -> Bool {
         let parts = time.split(separator: ":").compactMap { Int($0) }
-        guard parts.count == 2, (0..<24).contains(parts[0]), (0..<60).contains(parts[1]) else { return nil }
+        return parts.count == 2 && (0..<24).contains(parts[0]) && (0..<60).contains(parts[1])
+    }
+
+    static func date(day: Int, time: String, startDate: Date, calendar: Calendar) -> Date? {
+        guard isValidTime(time) else { return nil }
+        let parts = time.split(separator: ":").compactMap { Int($0) }
         let dayStart = calendar.startOfDay(for: startDate)
         guard let dayDate = calendar.date(byAdding: .day, value: day - 1, to: dayStart) else { return nil }
         return calendar.date(bySettingHour: parts[0], minute: parts[1], second: 0, of: dayDate)

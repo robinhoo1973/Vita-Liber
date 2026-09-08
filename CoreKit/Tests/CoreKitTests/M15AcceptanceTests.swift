@@ -147,11 +147,15 @@ struct SUM15VoiceTests {
             FieldDraft(key: "name", value: "王女士", confidence: 0.95),
             FieldDraft(key: "birth", value: "1962年3月", confidence: 0.6),
         ])
-        #expect(ReadbackPolicy.readbackScript(set) == nil, "全未确认时无可播报内容")
+        #expect(ReadbackPolicy.readbackParts(set) == nil, "全未确认时无可播报内容")
         _ = set.fields[0].confirm()
-        let script = ReadbackPolicy.readbackScript(set)
-        #expect(script?.contains("王女士") == true)
-        #expect(script?.contains("1962年3月") == false, "未确认字段不得进入回读")
+        let parts = ReadbackPolicy.readbackParts(set)
+        #expect(parts?.contains { $0.value == "王女士" } == true)
+        #expect(parts?.contains { $0.value == "1962年3月" } == false, "未确认字段不得进入回读")
+        // 审查修复锚点：Domain 只出类型化字段对（key/value），不再拼接含
+        // displayLabel 的句式——语音路径 displayLabel 是英文内部键，
+        // 句式组装与本地化标签映射归 App 层（V3.68 §11 清偿残根）。
+        #expect(parts?.contains { $0.key == "name" } == true)
     }
 
     // MARK: FR17.13 回读三态 + 🔊 朗读出口

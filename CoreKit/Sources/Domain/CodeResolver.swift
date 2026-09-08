@@ -254,6 +254,11 @@ public enum UcumRules {
         // out = v*(f_from/f_to) + (o_from - o_to)/f_to —— 系数与 v 无关，v=0 无除零
         if let uf = try await units.unit(from), let ut = try await units.unit(to),
            uf.family == ut.family {
+            // 审查修复（除零守卫）：ut.factor 为 0 的畸形码表行（导入/损坏）
+            // 会产出 factor=inf/NaN 的换算——任何下游比较（阈值定级/图表）
+            // 拿到 NaN 即静默错判。除零即「无法换算」（nil 原值保留），
+            // 绝不产出 NaN 换算。
+            guard ut.factor != 0 else { return nil }
             return UnitConversion(fromUnit: from, toUnit: to,
                                   factor: uf.factor / ut.factor,
                                   offset: (uf.offset - ut.offset) / ut.factor,
