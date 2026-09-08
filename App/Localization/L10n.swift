@@ -1262,7 +1262,7 @@ enum L10n {
         "doc.importSource.photos", "doc.importSource.manual",
         "doc.duplicate.title", "doc.duplicate.keepBoth", "doc.duplicate.discard",
         "doc.duplicate.hintFmt", "doc.importFailed.title", "doc.importFailed",
-        "doc.pdfImportFailed", "doc.type.report", "doc.type.record",
+        "doc.pdfImportFailed", "doc.prescriptionSyncFailed", "doc.type.report", "doc.type.record",
         "doc.manual.createTitle", "doc.manual.title", "doc.manual.type", "doc.manual.note",
         "onboard.revise",
         "ocrQueue.title", "ocrQueue.empty", "ocrQueue.emptyHint", "ocrQueue.countFmt",
@@ -1956,6 +1956,8 @@ enum L10n {
     static var docImportFailedTitle: String { t("doc.importFailed.title") }
     static var docImportFailed: String { t("doc.importFailed") }
     static var docPDFImportFailed: String { t("doc.pdfImportFailed") }
+    /// 处方副表同步失败的非阻断告警（主文档已保存不回滚，但必须可见）
+    static var docPrescriptionSyncFailed: String { t("doc.prescriptionSyncFailed") }
     static var docTypeReport: String { t("doc.type.report") }
 
     // MARK: - 扫描选区 + 文档确认卡（图片入库四角矫正/字段确认）

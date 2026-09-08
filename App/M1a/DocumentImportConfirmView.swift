@@ -16,6 +16,9 @@ struct DocumentImportConfirmView: View {
     @State private var showRegionImage = false
     @State private var saving = false
     @State private var showSaveError = false
+    /// 主文档已保存、处方副表同步失败的**非阻断**告警（审查修复：处方行
+    /// 失败不得回滚主记录，但也不能像此前 try? 吞错那样按成功静默 dismiss）
+    @State private var showPrescriptionWarning = false
 
     var body: some View {
         NavigationStack {
@@ -107,6 +110,13 @@ struct DocumentImportConfirmView: View {
                 Text(docs.lastImportError ?? L10n.docImportFailed)
             }
         }
+        // 双 alert 不得挂同一视图节点（SwiftUI 只呈现最后一个）——
+        // 处方告警挂在 NavigationStack 层，与保存失败告警分层共存
+        .alert(L10n.homeCaptureSaved, isPresented: $showPrescriptionWarning) {
+            Button(L10n.onboard_gotIt, role: .cancel) { dismiss() }
+        } message: {
+            Text(L10n.docPrescriptionSyncFailed)
+        }
     }
 
     /// 矫正区域预览（第四轮全仓审查修复）：敏感草稿经 SensitiveMediaContainer
@@ -157,6 +167,10 @@ struct DocumentImportConfirmView: View {
             saving = false
             if docs.lastImportError != nil {
                 showSaveError = true
+            } else if docs.prescriptionSyncFailed {
+                // 主文档已保存（成功语义），处方副表失败单独提示——
+                // 不阻断 dismiss（主记录在库），但用户必须知道处方未同步
+                showPrescriptionWarning = true
             } else {
                 dismiss()
             }

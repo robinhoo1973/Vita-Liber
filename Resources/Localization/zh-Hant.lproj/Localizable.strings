@@ -908,6 +908,7 @@
 "doc.importFailed.title" = "匯入失敗";
 "doc.importFailed" = "資料匯入失敗，請重試";
 "doc.pdfImportFailed" = "PDF 渲染或辨識失敗：檔案可能損壞或為純掃描低品質圖，請重試或改用拍照";
+"doc.prescriptionSyncFailed" = "文件已保存，但處方資訊未能同步至用藥記錄，請稍後在資料庫中重新確認";
 "doc.type.report" = "檢驗報告";
 "doc.type.record" = "門診病歷";
 "doc.manual.createTitle" = "手動新增資料";

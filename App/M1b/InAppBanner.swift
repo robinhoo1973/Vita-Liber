@@ -72,9 +72,13 @@ struct InAppBannerHost: View {
         }
         .animation(.easeInOut(duration: 0.25), value: currentBanner?.id)
         .task(id: currentBanner?.id) {
-            // 5 秒自动收起（§4.22）；新横幅（id 变化）出现时重置计时
-            guard let banner = currentBanner else { return }
+            // 5 秒自动收起（§4.22）；新横幅（id 变化）出现时重置计时。
+            // 取消必须先于 guard（审查修复）：currentBanner 变 nil（开关关闭/
+            // 成员切换）时旧计时任务必须作废——原 guard 先行 return，取消分支
+            // 不可达；5 秒后旧任务把用户从未见过的剂量 id 写入 autoHiddenIds，
+            // currentBanner 过滤恒排除该剂量 → 本会话横幅永久不复发（FR9.18）。
             autoDismiss?.cancel()
+            guard let banner = currentBanner else { return }
             autoDismiss = Task {
                 try? await Task.sleep(nanoseconds: 5_000_000_000)   // try?-ok: 自动收起计时取消即停
                 guard !Task.isCancelled else { return }

@@ -102,12 +102,16 @@ final class F16DeviceState {
                     // 门之后写——此前先写键再静默丢弃：夜间被静默的 L1 在
                     // 24h 窗口内白天重同步时被键永久抑制，预警永远不送达。
                     if event.severity == .L1 && isQuietHours(start: quietStart, end: quietEnd) { continue }
-                    lastAlertKey[key] = Date()
-                    elevated += 1
                     // FR16.7 预警通知：正文只含类别，不含数值与病名
                     try await scheduler.schedule(
                         dose: alertId, at: Date().addingTimeInterval(5),
                         route: .alertHistory)
+                    // 审查修复：去重键与计数必须在 schedule 成功之后写入——
+                    // 此前先写键再调度，调度抛错被外层 catch 吞掉时，未送达的
+                    // 预警已被计为「已送达」（elevated 计数含它）且 24h 去重键
+                    // 抑制重试，用户收不到通知也看不到任何失败迹象。
+                    lastAlertKey[key] = Date()
+                    elevated += 1
                 } catch GuidelineStore.StoreError.noApplicableRange {
                     // FR16.4「范围不可用」独立呈现态：计数并如实展示，不静默
                     noRangeCount += 1

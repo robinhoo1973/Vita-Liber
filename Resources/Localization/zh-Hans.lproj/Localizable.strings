@@ -908,6 +908,7 @@
 "doc.importFailed.title" = "导入失败";
 "doc.importFailed" = "资料导入失败，请重试";
 "doc.pdfImportFailed" = "PDF 渲染或识别失败：文件可能损坏或为纯扫描低质量图，请重试或改用拍照";
+"doc.prescriptionSyncFailed" = "文档已保存，但处方信息未能同步到用药记录，请稍后在资料库中重新确认";
 "doc.type.report" = "检验报告";
 "doc.type.record" = "门诊病历";
 "doc.manual.createTitle" = "手工新建资料";

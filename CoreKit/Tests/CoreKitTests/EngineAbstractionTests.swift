@@ -35,12 +35,13 @@ struct EngineAbstractionTests {
         let ocr = OCRRecognizerFactory.make(.current)
         let tts = SpeechSynthesisFactory.make(.current)
         let tx = TranscriptionEngineFactory.make(.current)
-        // 运行时动态断言（静态 `is any X` 恒真已清除，警告族清扫批）：
-        // Apple 平台返回生产实现，其余平台返回契约桩
+        // 运行时动态断言：只钉「Apple 平台不得回落契约桩」（TC-MT-ENGINEBUS-01
+        // 调用方零感知具体引擎——具体实现类不烘焙进抽象层验收；实现类更换
+        // 不得让本套件误红），其余平台返回契约桩
         #if os(iOS) || os(macOS)
-        #expect(ocr is VisionImageRecognizer)
-        #expect(tts is AVSpeechAdapter)
-        #expect(tx is SFSpeechTranscriber)
+        #expect(!(ocr is StubImageTextRecognizer))
+        #expect(!(tts is RecordingSpeechSynthesizer))
+        #expect(!(tx is StubTranscriptionEngine))
         #else
         #expect(ocr is StubImageTextRecognizer)
         #expect(tts is RecordingSpeechSynthesizer)
@@ -163,13 +164,14 @@ struct EngineAbstractionTests {
         let resolvedCompress: any ImageCompressing = r.resolve(ImageCompressingFactory.self)
         let resolvedSensitive: any SensitiveMediaProtection = r.resolve(SensitiveMediaProtectionFactory.self)
 
-        // 运行时动态断言（静态 `is X` 恒真已清除，警告族清扫批）：
-        // Apple 平台返回生产实现，其余平台返回契约桩
+        // 运行时动态断言：只钉「Apple 平台不得回落契约桩」（TC-MT-ENGINEBUS-01
+        // 调用方零感知具体引擎——具体实现类不烘焙进抽象层验收；实现类更换
+        // 不得让本套件误红），其余平台返回契约桩
         #if os(iOS) || os(macOS)
-        #expect(resolvedPreproc is VisionImagePreprocessor)
-        #expect(resolvedDecode is PDFKitDecoder)
-        #expect(resolvedCompress is CoreImageCompressor)
-        #expect(resolvedSensitive is CoreImageCompressor)
+        #expect(!(resolvedPreproc is StubImagePreprocessor))
+        #expect(!(resolvedDecode is StubPDFDecoder))
+        #expect(!(resolvedCompress is StubImageCompressor))
+        #expect(!(resolvedSensitive is StubImageCompressor))
         #else
         #expect(resolvedPreproc is StubImagePreprocessor)
         #expect(resolvedDecode is StubPDFDecoder)

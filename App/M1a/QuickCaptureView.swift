@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 import PhotosUI
 import UniformTypeIdentifiers
+import AVFoundation
 import Domain
 import Infrastructure
 
@@ -45,8 +46,14 @@ struct QuickCaptureView: View {
     @State private var showOcclusion = false
     @State private var pickedItem: PhotosPickerItem?
     @State private var fileImporterActive = false
-    @State private var savedToast = false
-    @State private var importFailed = false
+    /// 单一告警入口（审查修复：双 .alert 同节点时 SwiftUI 只呈现最后一个，
+    /// 「导入失败」会被「已保存」吞掉——统一为枚举单 alert）
+    @State private var activeAlert: CaptureAlert?
+    enum CaptureAlert: String, Identifiable {
+        case saved
+        case importFailed
+        var id: String { rawValue }
+    }
     /// 重复裁决「已作出选择」标记（第五轮全仓审查修复）：sheet 保存按钮的
     /// onResolve 与 dismiss() 同一事务先后触发——dismiss 令 duplicateAlertBinding
     /// 的 setter 发出 .keep 任务，与选择任务竞速消费 pendingDuplicate：keep 先
@@ -88,7 +95,20 @@ struct QuickCaptureView: View {
             VStack(spacing: 12) {
                 if cameraAvailable {
                     Button {
-                        showCamera = true
+                        Task {
+                            // 首次进入白屏修复（审查修复）：此前无权限预检直接
+                            // present UIImagePickerController——首次进入时 TCC
+                            // 相机授权弹窗与 picker 预览首帧竞速，预览层挂不上
+                            // 呈现白屏/空 picker，退出重进（权限已授予、弹窗不再
+                            // 出现）才正常。先显式请求权限、待系统弹窗了结后再
+                            // 呈现 cover；已授予/已拒绝路径跳过请求直接呈现
+                            // （.denied 由 picker 自身隐私提示兜底，不改变既有行为）。
+                            let status = AVCaptureDevice.authorizationStatus(for: .video)
+                            if status == .notDetermined {
+                                _ = await AVCaptureDevice.requestAccess(for: .video)
+                            }
+                            showCamera = true
+                        }
                     } label: {
                         Label(L10n.homeCaptureShoot, systemImage: "camera.fill")
                             .frame(maxWidth: 320, minHeight: 50)
@@ -176,6 +196,17 @@ struct QuickCaptureView: View {
                     pendingRegionImage = nil
                     pendingRegionOriginalData = nil
                 }
+            } else {
+                // 白屏兜底（审查修复）：选区 sheet 呈现时若无待选区图片
+                // （权限弹窗打断 cover、状态竞态），给可见错误态而非空白
+                // sheet——此前裸 `if let` 无 else，nil 时纯白屏且无退路。
+                VStack(spacing: 16) {
+                    Text(L10n.docImportFailed).font(.body)
+                    Button(L10n.commonCancel) { showRegionEditor = false }
+                        .buttonStyle(.bordered)
+                        .frame(minHeight: 44)
+                }
+                .padding(24)
             }
         }
         // 相机拍摄完成 → 选区 sheet 的延后呈现已移至 fullScreenCover 的
@@ -246,7 +277,7 @@ struct QuickCaptureView: View {
                     beginRegionSelect(image: image, originalData: data,
                                       needsOcclusion: false, origin: "photoLibrary")
                 } else if generation == photoPickGeneration {
-                    importFailed = true
+                    activeAlert = .importFailed
                 }
             }
         }
@@ -272,17 +303,27 @@ struct QuickCaptureView: View {
                     }
                 }
             case .failure:
-                importFailed = true
+                activeAlert = .importFailed
             }
         }
-        .alert(L10n.homeCaptureSaved, isPresented: $savedToast) {
-            Button(L10n.docLibraryTitle) {
-                router.navigate(to: .documentList)
+        .alert(
+            activeAlert == .saved ? L10n.homeCaptureSaved : L10n.docImportFailed,
+            isPresented: Binding(
+                get: { activeAlert != nil },
+                set: { if !$0 { activeAlert = nil } })
+        ) {
+            if activeAlert == .saved {
+                Button(L10n.docLibraryTitle) {
+                    // 审查修复：跳转前必须先收起本 sheet——router.navigate 只切
+                    // Tab/推路径，不收起已呈现的 sheet，「资料库」按钮此前在
+                    // sheet 之下切页、视觉无任何变化，用户只能手动关闭。
+                    dismiss()
+                    router.navigate(to: .documentList)
+                }
+                Button(L10n.commonCancel, role: .cancel) { }
+            } else {
+                Button(L10n.commonCancel, role: .cancel) { }
             }
-            Button(L10n.commonCancel, role: .cancel) { }
-        }
-        .alert(L10n.docImportFailed, isPresented: $importFailed) {
-            Button(L10n.commonCancel, role: .cancel) { }
         }
         // 第四轮全仓审查修复：确认卡内 commitDraft 失败（磁盘满/约束错误）
         // 只置 lastImportError 不抛出——本视图无 finishImport 兜底时失败
@@ -291,7 +332,7 @@ struct QuickCaptureView: View {
         // 「保存失败」告警呈现，父级不再叠加「导入失败」——同一失败双弹窗。
         .onChange(of: docs.lastImportError) { _, err in
             if err != nil && pendingDraft == nil {
-                importFailed = true
+                activeAlert = .importFailed
             }
         }
     }
@@ -363,7 +404,7 @@ struct QuickCaptureView: View {
     private func commitRectified(originalData: Data?, processed: UIImage) async {
         guard let originalData = originalData ?? processed.jpegData(compressionQuality: 1.0),
               let processedData = processed.jpegData(compressionQuality: 0.85) else {
-            importFailed = true
+            activeAlert = .importFailed
             return
         }
         let mime = ImageInputRules.sniffMimeType(of: originalData)
@@ -379,10 +420,10 @@ struct QuickCaptureView: View {
 
     private func finishImport() {
         if docs.lastImportError != nil {
-            importFailed = true
+            activeAlert = .importFailed
         } else if docs.pendingDuplicate == nil {
             // 命中重复时交给重复裁决 sheet 处理，不在此提前报「已保存」
-            savedToast = true
+            activeAlert = .saved
         }
     }
 }

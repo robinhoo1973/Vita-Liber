@@ -105,5 +105,3 @@ struct QualityTests {
         return base + Data(suffix.utf8)
     }
 }
-
-// 审查修复（标签命名残留，2026-09-07）：Linux 测试 job 已废除，本标签不再

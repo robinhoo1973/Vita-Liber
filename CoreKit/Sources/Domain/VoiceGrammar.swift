@@ -209,8 +209,23 @@ public enum VoiceStructuringEngine {
                         let raw = NumberNormalizer.normalize(String(transcript[vRange]))
                         // FR10.2 绝不猜时间：「上/下午」等无具体点的短语不产出 hour
                         // （由 UI 引导补充），只落数值时刻
-                        guard Int(raw) != nil else { continue }
-                        drafts.append(FieldDraft(key: "hour", value: raw, confidence: 0.8))
+                        guard var hour = Int(raw) else { continue }
+                        // 审查修复：带「下午/晚上/傍晚」限定词的数值时刻此前被
+                        // (\d+)点 先命中、限定词被静默丢弃——「下午3点」抽成
+                        // hour=3，提醒提前 12 小时（FR10.2 语义：有具体点又有
+                        // 限定词时使用限定词，而非猜 24 小时制的默认支）。限定
+                        // 词必须锚定到命中短语紧邻的前文（3 字符窗口同时容纳
+                        // 「下午的3点」类虚词间隔）——二轮审查：全文搜索会把
+                        // 「上午9点吃药，下午再测血糖」的 9 点误移为 21 点。
+                        // 12 点（中午/凌晨两可）与「上午/凌晨/早上」不位移。
+                        if hour >= 1 && hour <= 11,
+                           let fullRange = Range(match.range(at: 0), in: transcript) {
+                            let tail = String(transcript[..<fullRange.lowerBound].suffix(3))
+                            if tail.contains("下午") || tail.contains("晚上") || tail.contains("傍晚") {
+                                hour += 12
+                            }
+                        }
+                        drafts.append(FieldDraft(key: "hour", value: "\(hour)", confidence: 0.8))
                         hasHour = true
                         break
                     }

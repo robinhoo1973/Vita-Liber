@@ -20,6 +20,8 @@ struct VoiceDictationButton: View {
     let onTranscript: (String, Double) -> Void
 
     @State private var model: VoiceDictationModel?
+    /// 长按手势按下起点（用于判定「真长按」vs 快速点按）
+    @State private var pressBeganAt: Date?
 
     var body: some View {
         Group {
@@ -34,9 +36,11 @@ struct VoiceDictationButton: View {
             } else if let model {
                 VStack(alignment: .leading, spacing: 6) {
                     Button {
-                        // §5.54「按住说话」的触屏等价：录音中再按即停止——
-                        // 此前录音态按钮被 disabled，引擎未自动收尾时麦克风
-                        // 只能等视图销毁才停（隐私/UX 死胡同，无障碍不可达）
+                        // §5.54「按住说话」的触屏等价（点按切换）：录音中再按
+                        // 即停止——此前录音态按钮被 disabled，引擎未自动收尾时
+                        // 麦克风只能等视图销毁才停（隐私/UX 死胡同，无障碍不可达）。
+                        // 长按即录/松手即停由下方 onLongPressGesture 承担（FR17.1）；
+                        // 两种停录都走 stop() 软收尾，在途转写保留投递。
                         if model.phase == .recording {
                             model.stop()
                         } else {
@@ -49,6 +53,30 @@ struct VoiceDictationButton: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .accessibilityIdentifier("voice.dictation.start")
+                    // FR17.1「按住说话」实装（审查修复）：此前全 App 零长按
+                    // 录音入口（grep 仅 SOS 按住确认在用 LongPress）。长按
+                    // ≥0.2s 即开始录音（perform 内开录）、松手即停；长按被
+                    // 手势识别后 Button 点按动作不再触发（手势优先），快速
+                    // 点按完全走上方切换逻辑。
+                    // 状态纪律（二轮审查修复）：开录不得放 pressing(true)——
+                    // 该回调在手指落下的瞬间触发，早于 0.2s 判定，会把快速
+                    // 点按也拖进「开录→松手停录」；随后 Button 动作看到的是
+                    // 已被按停的 idle 态，点按切换被反转（录音中点按停不了、
+                    // 空闲点按触发 start→stop→start 三次引擎翻动）。pressBeganAt
+                    // 只在松手侧按持有时长判定是否真长按，点按路径零干预。
+                    .onLongPressGesture(minimumDuration: 0.2, pressing: { pressing in
+                        if pressing {
+                            pressBeganAt = Date()
+                        } else {
+                            let heldLong = pressBeganAt.map { Date().timeIntervalSince($0) >= 0.2 } ?? false
+                            pressBeganAt = nil
+                            if heldLong && model.phase == .recording {
+                                model.stop()
+                            }
+                        }
+                    }, perform: {
+                        model.start()   // 长按成立（≥0.2s）才开录——快速点按不经过此路径
+                    })
                     if model.phase == .recording && !model.partial.isEmpty {
                         Text(model.partial)
                             .font(.footnote)
@@ -62,7 +90,7 @@ struct VoiceDictationButton: View {
                             .foregroundStyle(Color("semantic-warning", bundle: .main))
                     }
                 }
-                .onDisappear { model.stop() }   // 视图销毁即终止在途听写投递（引擎无内部取消）
+                .onDisappear { model.stopForDisappear() }   // 视图销毁即终止在途听写投递（引擎无内部取消）
             }
         }
         .task { ensureModel() }   // 引擎在环境就绪后装配一次（@Environment 不可用于 @State 初始值）
@@ -105,6 +133,9 @@ final class VoiceDictationModel {
     var preferredLocale: String?
     private var task: Task<Void, Never>?
     private var stopped = false
+    /// 会话代次：start 递增。收尾期（stop 后引擎仍在等静音端点）旧会话的
+    /// 结果/部分文本按代次丢弃，防「快速重录时旧引擎文本污染新会话」。
+    private var session = 0
     /// 每会话独立的节流门（审查修复：此前为全局单例，两个同时在途的听写
     /// 会话共享 lastText——A 先吐出的文本会把 B 的相同部分结果压掉，
     /// 「每次会话独立节流状态」的语义落空；reset 也会互相踩）。
@@ -118,23 +149,35 @@ final class VoiceDictationModel {
     func start() {
         // 重入守卫：.disabled 只是渲染态，快速双击的第二次点击在重渲染前仍会进来
         guard phase != .recording else { return }
+        session += 1
         phase = .recording
         partial = ""
         stopped = false
         partialGate.reset()   // 每次会话独立节流状态（跨会话文本不互相吞）
-        task = Task { await dictate() }
+        task = Task { [session] in await dictate(session: session) }
     }
 
+    /// 用户收尾（松手/点按停止，FR17.1）：立即回 idle 可重录，但不取消
+    /// 引擎——SFSpeechRecognizer 在静音端点后给出 isFinal 最终文本，在途
+    /// 转写必须投递（二轮审查：此前 stop 即取消，`guard !stopped` 把松手后
+    /// 的全文静默丢弃，速记/指标/提醒草稿从不落编辑区）。引擎侧无外部取消
+    /// （已登记待办），收尾由会话代次守卫界定归属。
     func stop() {
-        stopped = true
-        task?.cancel()
-        // 审查修复：此前取消后 phase 滞留 .recording——TabView 切走再切回时
-        // @State model 仍在，按钮永久呈「正在听写」禁用态，start() 被重入
-        // 守卫拦下，听写死掉直到视图身份重建。终止会话即回 idle。
+        guard phase == .recording else { return }
         phase = .idle
     }
 
-    private func dictate() async {
+    /// 视图销毁硬停：取消在途会话、不再投递（引擎仍由 isFinal 自然收尾，
+    /// 到达后按 stopped 守卫丢弃——与既有取消路径行为一致）。
+    func stopForDisappear() {
+        stopped = true
+        task?.cancel()
+        // 终止会话即回 idle——phase 滞留 .recording 时 start() 被重入守卫
+        // 拦下，听写死掉直到视图身份重建（TabView 切走再切回场景）。
+        phase = .idle
+    }
+
+    private func dictate(session: Int) async {
         let engine = self.engine
         // FR17.15：方言不可用时引擎内回落（SFSpeechTranscriber 已映射）；
         // 这里只补「无可用 locale 探测结果」的末级兜底——单一口径 TranscriptionSegmentation.fallbackLocale。
@@ -149,10 +192,12 @@ final class VoiceDictationModel {
                     // @Sendable 非隔离回调：只捕获 model（MainActor 类 = Sendable）
                     // 与会话门（局部拷贝，非隔离可安全捕获），去重后按 MainActor 投递。
                     gate.pass(text) { latest in
-                        Task { @MainActor in self?.applyPartial(latest) }
+                        Task { @MainActor in self?.applyPartial(latest, session: session) }
                     }
                 })
-            guard !stopped else { return }   // 视图已消失：不投递、不改状态
+            // 收尾期旧会话结果按代次丢弃：快速重录时（stop 后 ~1s 内再
+            // start）前会话引擎的最终文本不得投递为新会话内容
+            guard !stopped, self.session == session else { return }   // 硬停/换代：不投递、不改状态
             if !result.text.trimmingCharacters(in: .whitespaces).isEmpty {
                 phase = .idle
                 onTranscript?(result.text, result.confidence)
@@ -160,15 +205,15 @@ final class VoiceDictationModel {
                 phase = .failed   // FR8.9：识别失败静默降级为手输并给输入框轻提示
             }
         } catch is CancellationError {
-            return   // 视图级取消：非失败
+            return   // 硬停/视图级取消：非失败
         } catch {
-            guard !stopped else { return }
+            guard !stopped, self.session == session else { return }
             phase = .failed
         }
     }
 
-    private func applyPartial(_ text: String) {
-        guard phase == .recording else { return }   // 视图已不在录音态则不投递
+    private func applyPartial(_ text: String, session: Int) {
+        guard phase == .recording, self.session == session else { return }   // 视图不在录音态或会话已换代则不投递
         partial = text
     }
 }

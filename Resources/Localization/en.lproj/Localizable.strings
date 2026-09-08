@@ -908,6 +908,7 @@
 "doc.importFailed.title" = "Import Failed";
 "doc.importFailed" = "Import failed, please retry";
 "doc.pdfImportFailed" = "PDF rendering or recognition failed: the file may be corrupted or a low-quality scan. Retry or use the camera instead.";
+"doc.prescriptionSyncFailed" = "The document was saved, but the prescription details could not be synced to the medication record. Please reconfirm them in the document library later.";
 "doc.type.report" = "Lab report";
 "doc.type.record" = "Clinic record";
 "doc.manual.createTitle" = "New Manual Document";

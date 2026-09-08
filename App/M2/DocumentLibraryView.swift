@@ -21,6 +21,11 @@ final class DocumentsState {
     private(set) var duplicateHits: [DocumentStore.DocumentRow] = []
     private(set) var pendingDuplicate: PendingDocument?
     private(set) var lastImportError: String?
+    /// 处方副表写入失败的可见标记（审查修复：commitDraft 曾以 try? 静默吞
+    /// 处方行失败——主记录已入库不阻断，但确认卡按「保存成功」dismiss 后
+    /// 用户永远不知道处方未进入用药记录，且注释承诺的「到资料库重试」路径
+    /// 并不存在）。置位时确认卡以非阻断告警呈现，主文档保存语义不变。
+    private(set) var prescriptionSyncFailed = false
     private let store: DocumentStore
     private let pipeline: OCRPipeline
     /// PDF 解码（ADR-027：经 EAL 注入，调用方不直接实例化具体引擎——
@@ -259,6 +264,7 @@ final class DocumentsState {
         // 错误态归零：保存失败必须可见、成功必须清除残留（第四轮全仓审查
         // 修复——确认卡以 lastImportError 判成功/失败并决定是否 dismiss）
         lastImportError = nil
+        prescriptionSyncFailed = false
         // 原件扩展名按真实 MIME 映射（第四轮全仓审查修复：原仅判 "png" 其余
         // 一律 .jpg——HEIC/GIF/WebP 原件以 .jpg 落盘，扩展名与内容不符，
         // BR-002 原图语义受损）
@@ -279,8 +285,16 @@ final class DocumentsState {
             if draft.isPrescription, let prescriptionStore {
                 let (hospital, doctor, adviceText) = PrescriptionFieldMapper.buildAdviceText(confirmed: draft.confirmationSet.confirmedFields,
                                                                                              labels: Self.prescriptionLabels)
-                _ = try? await prescriptionStore.create(patientId: draft.patientId, documentFileId: docId,   // try?-ok: 处方行写入失败不回滚 document_file（主记录已入库），鼓励用户到资料库重新确认后重试，不能因副表失败丢主文档
-                                                     hospital: hospital, doctor: doctor, adviceText: adviceText)
+                do {
+                    try await prescriptionStore.create(patientId: draft.patientId, documentFileId: docId,
+                                                       hospital: hospital, doctor: doctor, adviceText: adviceText)
+                } catch {
+                    // 审查修复：处方行写入失败不回滚 document_file（主记录已入库），
+                    // 但绝不静默——置位 prescriptionSyncFailed，确认卡以非阻断
+                    // 告警提示「文档已保存、处方未同步」（此前 try? 吞错 +
+                    // 注释承诺的重试路径并不存在 = 处方行永久丢失且无感知）
+                    prescriptionSyncFailed = true
+                }
             }
             // FR6.1 识别留痕：已确认字段逐行落 ocr_result（原文块+置信度+引擎版本，
             // 可追溯可重放）。V3.39 起此处是唯一写入口——旧 AppState 引擎已删除；

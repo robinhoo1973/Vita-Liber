@@ -11,6 +11,14 @@ import Protocols
 // binds: SU-M1b-STOCK / SU-M1b-APPT — TC-M1b-06/07
 final class M1bAcceptanceTests: XCTestCase {
 
+    /// 时区固定 Asia/Shanghai 的日历——三处用例各自手写同一构造（含一处
+    /// 闭包 IIFE），下沉为单一出口（与 M2StockAcceptanceTests 的 cal 同型）
+    private var shanghaiCalendar: Calendar {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+        return c
+    }
+
     private func makeStore() async throws -> (store: GRDBStore, meds: MedicationStore, scheduler: InMemoryReminderScheduler, apts: AppointmentStore, patient: UUID, med: UUID) {
         let store = try GRDBStore.inMemory()
         let scheduler = InMemoryReminderScheduler()
@@ -35,8 +43,7 @@ final class M1bAcceptanceTests: XCTestCase {
     /// 创建 active 计划并物化今日窗口，返回首个剂量 notifyId
     private func materializedDose(store: GRDBStore, meds: MedicationStore, patient: UUID, med: UUID,
                                   times: [String] = ["08:00"]) async throws -> String {
-        var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+        let cal = shanghaiCalendar
         let planId = UUID()
         try await meds.createPlan(planId: planId, patientId: patient, medicationId: med,
                                   schedule: .fixed(times: times), status: .active,
@@ -79,8 +86,7 @@ final class M1bAcceptanceTests: XCTestCase {
         }
 
         // 动作对事实链可见（BR-004 生产链闭环）
-        var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+        let cal = shanghaiCalendar
         let dayStart = cal.startOfDay(for: Date())
         // 窗口含未来 8 天：CI 模拟器时钟在晚间时，今天 08:00 已过（正确被
         // 物化过滤），首个未来剂量落在明天——事实窗口必须覆盖整个预排窗口
@@ -123,11 +129,7 @@ final class M1bAcceptanceTests: XCTestCase {
     /// 计划→剂量物化→对账事实 数据链闭合 + 老计划窗口锚定（S0-3 修正）
     func test_老计划窗口锚定今天() async throws {
         let (store, meds, _, _, patient, med) = try await makeStore()
-        let cal: Calendar = {
-            var c = Calendar(identifier: .gregorian)
-            c.timeZone = TimeZone(identifier: "Asia/Shanghai")!
-            return c
-        }()
+        let cal = shanghaiCalendar
         let planId = UUID()
         // 计划 30 天前开立——旧实现 fromDay 固定 1 会物化 0 行
         let start = cal.date(byAdding: .day, value: -30, to: cal.startOfDay(for: Date()))!

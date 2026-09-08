@@ -91,7 +91,13 @@ struct VoiceQuickLaunchView: View {
                 dispatch(confirmed)
             }
             .alert(L10n.voicePanelSaved, isPresented: $savedNote) {
-                Button(L10n.voicenoteView) { router.navigate(to: .voiceNotePanel) }
+                Button(L10n.voicenoteView) {
+                    // 审查修复：跳转前必须先收起本面板 sheet——router.navigate
+                    // 只切 Tab/推路径，不收起已呈现的 sheet，「查看」按钮此前
+                    // 在面板之下切页、视觉无任何变化，用户只能手动关闭。
+                    dismiss()
+                    router.navigate(to: .voiceNotePanel)
+                }
                 Button(L10n.onboard_gotIt, role: .cancel) {}
             }
         }

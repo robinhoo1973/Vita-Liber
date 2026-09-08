@@ -71,23 +71,26 @@ struct LoadGateAuditTests {
     @Test func LoadGate失败回idle且可重试() async throws {
         struct Boom: Error {}
         let gate = LoadGate()
-        // Swift 6 收敛：enter 闭包并发执行，计数经引用型累加器（串行调用）
-        final class Counter: @unchecked Sendable { var value = 0 }
+        // Swift 6 收敛：enter 闭包为 @Sendable，捕获 var 计数触发「变异捕获
+        // 逃逸」警告（LoadGate 在自身执行器上串行执行闭包，与「并发」无关——
+        // 原注释表述有误，已纠正）；计数下沉为与同文件兄弟用例一致的
+        // actor Counter，@unchecked Sendable 不再必要。
+        actor Counter { var n = 0; func inc() { n += 1 }; var v: Int { n } }
         let attempt = Counter()
         var firstErrorReachedCaller = false
         do {
             try await gate.enter {
-                attempt.value += 1
-                if attempt.value == 1 { throw Boom() }
+                await attempt.inc()
+                if await attempt.v == 1 { throw Boom() }
             }
         } catch {
             firstErrorReachedCaller = true  // 第一次失败，错误到达发起方
         }
         #expect(firstErrorReachedCaller)
         #expect(await gate.currentState == .idle)          // 失败不得置 ready
-        try await gate.enter { attempt.value += 1 }        // 重试走 idle 分支
+        try await gate.enter { await attempt.inc() }       // 重试走 idle 分支
         #expect(await gate.currentState == .ready)
-        #expect(attempt.value == 2)
+        #expect(await attempt.v == 2)
     }
 
     /// 第七轮补充锚点：失败时有并发等待者——全部任务（发起方 + 等待者 +
