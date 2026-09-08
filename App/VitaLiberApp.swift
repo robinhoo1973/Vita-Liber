@@ -177,12 +177,14 @@ struct VitaLiberApp: App {
         // 且必须在此处先行赋值：下方 backgroundSyncHandler 的捕获列表
         // [appState] 创建时求值（触 self）——本 State 是最后一个未初始化
         // 存储属性，Swift 明确初始化纪律要求其先行（L1 34193285034）。
-        _backupState = State(initialValue: BackupState(service: container.backup,
-            onRestored: { [appState, reminderStore] in
-                // data-flow §9.2 恢复末步：重建提醒投影——此前恢复后零排程，
-                // 恢复的计划要到下次回前台/重启才补排，恢复后首剂提醒静默漏发
-                await reminderStore.refreshTriggered(patientId: appState.currentPatientId, force: true)
-            }))
+        _backupState = State(initialValue: BackupState(service: container.backup))
+        // data-flow §9.2 恢复末步：重建提醒投影——此前恢复后零排程，恢复的
+        // 计划要到下次回前台/重启才补排，恢复后首剂提醒静默漏发。回调在此
+        // 装配（self 完全初始化之后）：init 内捕获 self 会触发「backupState
+        // 未初始化」编译错（L1 34288551094）
+        backupState.onRestored = { [appState, reminderStore] in
+            await reminderStore.refreshTriggered(patientId: appState.currentPatientId, force: true)
+        }
         // FR16.1 V3.86 后台自动化同步：BGTask 注册（App init 唯一注册点，
         // 标识符已登记 Info.plist BGTaskSchedulerPermittedIdentifiers）+
         // 后台唤起执行体（BG 启动无 UI——未建档/未授权即跳过，前台锚点

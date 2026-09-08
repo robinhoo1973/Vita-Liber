@@ -18,8 +18,9 @@ import Infrastructure
 final class BackupState {
     /// 恢复末步回调（data-flow §9.2「事务导入 → 重建 FTS/提醒/时间轴投影」）：
     /// 此前恢复后不重建提醒投影——恢复的计划在下次回前台/重启前零排程，
-    /// 恢复后首剂提醒静默漏发
-    private let onRestored: (() async -> Void)?
+    /// 恢复后首剂提醒静默漏发。var：App init 内捕获 self 会触发「backupState
+    /// 未初始化」编译错（L1 34288551094），改为 self 完全初始化后装配。
+    var onRestored: (() async -> Void)?
     enum Phase: Equatable {
         case idle
         case working
