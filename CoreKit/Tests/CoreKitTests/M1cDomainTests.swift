@@ -381,8 +381,10 @@ struct AuditedAIProviderTests {
 }
 
 
-    // MARK: - BR-006 高风险句式（V3.94 修复锚点：换药/改剂自然句式此前漏判）
-
+/// BR-006 高风险句式（V3.94 修复锚点：换药/改剂自然句式此前漏判——
+/// 动词与单位间隔虚词时逐字紧邻正则全漏，BR-006 一票否决被绕过）
+@Suite("SU-M1c-AI · 高风险句式词表（BR-006）")
+struct HighRiskTopicRulesTests {
     @Test func 换药改剂句式必须拦截() {
         #expect(HighRiskTopicRules.match("帮我改成每天3片"))
         #expect(HighRiskTopicRules.match("能不能换成布洛芬"))
@@ -397,6 +399,7 @@ struct AuditedAIProviderTests {
         #expect(!HighRiskTopicRules.match("药吃完了吗"))
         #expect(!HighRiskTopicRules.match("记录一下今天血压"))
     }
+}
 
 /// 供审计装饰器测试的轻量 Provider 桩（避免与 SafeAIProviderTests 的桩互相依赖）
 private struct MisbehavingProviderStub: AIProvider {
