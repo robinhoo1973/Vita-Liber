@@ -1481,3 +1481,30 @@
 "docConfirm.reenable" = "Restore";
 "docConfirm.allConfirmBlocked" = "Some fields have low confidence — review each one before saving.";
 "docConfirm.saveFailedTitle" = "Save Failed";
+
+// V3.49 Info-card grouping (4.28) / FR11.4 lazy creation / FR17.19 intent catalog / voice panel chips removal
+"oc.group.rx" = "Medication Info";
+"oc.group.lab" = "Lab Results";
+"oc.group.visit" = "Visit Info";
+"oc.group.generic" = "Uncategorized";
+"oc.confirm.cardAll" = "Confirm Card";
+"oc.field.dept" = "Department";
+"oc.field.reportDate" = "Date";
+"oc.field.labItem" = "Lab Item";
+"oc.field.chiefComplaint" = "Chief Complaint";
+"oc.field.diagnosis" = "Diagnosis";
+"oc.field.treatment" = "Treatment";
+"healthProblem.offer.title" = "Medical Document Saved";
+"healthProblem.offer.body" = "Create a health problem entry for this record? Once confirmed, you can filter by health problem in the timeline.";
+"healthProblem.create" = "Create Health Problem";
+"voiceIntent.recordMetric" = "Record Metric";
+"voiceIntent.recordObservation" = "Record Observation";
+"voiceIntent.createReminder" = "Set Reminder";
+"voiceIntent.createAppointment" = "Book Appointment";
+"voiceIntent.appendProfile" = "Update Profile";
+"voiceIntent.appendMedDraft" = "Medication Draft";
+"voiceIntent.appendNote" = "Voice Note";
+"voiceIntent.askAssistant" = "Ask Assistant";
+"voiceIntent.createQuestion" = "Doctor Question";
+"voiceIntent.unknown" = "Free Text";
+"voicePanel.autoHint" = "Say what you want to record — the destination will be decided automatically.";

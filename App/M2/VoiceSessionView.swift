@@ -353,7 +353,7 @@ struct VoiceSessionView: View {
         // 此前恒渲染绿点「正在聆听」误导用户（声称在听却没有任何采集）。
         // 门控放行前渲染「已停止」且不提供 resume（无处可 resume）。
         let listening = session.isListening && FeatureFlags.voiceStructuringEnabled
-        HStack(spacing: 8) {
+        return HStack(spacing: 8) {
             Circle()
                 .fill(listening ? Color("semantic-success", bundle: .main) : Color("text-tertiary", bundle: .main))
                 .frame(width: 10, height: 10)

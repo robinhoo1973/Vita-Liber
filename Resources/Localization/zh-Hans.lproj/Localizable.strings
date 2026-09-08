@@ -1481,3 +1481,30 @@
 "docConfirm.reenable" = "恢复";
 "docConfirm.allConfirmBlocked" = "存在低置信度字段，请逐条核对后再保存。";
 "docConfirm.saveFailedTitle" = "保存失败";
+
+// V3.49 信息卡分组（4.28）/ FR11.4 懒创建 / FR17.19 意图目录 / 语音面板去 chips
+"oc.group.rx" = "药品信息";
+"oc.group.lab" = "检查结果";
+"oc.group.visit" = "就诊信息";
+"oc.group.generic" = "未分类";
+"oc.confirm.cardAll" = "确认本卡";
+"oc.field.dept" = "科室";
+"oc.field.reportDate" = "日期";
+"oc.field.labItem" = "检查项";
+"oc.field.chiefComplaint" = "主诉";
+"oc.field.diagnosis" = "诊断";
+"oc.field.treatment" = "处理";
+"healthProblem.offer.title" = "已保存病历文档";
+"healthProblem.offer.body" = "要为这份病历创建对应的健康问题条目吗？确认后可在时间轴按健康问题筛选。";
+"healthProblem.create" = "创建健康问题";
+"voiceIntent.recordMetric" = "记录指标";
+"voiceIntent.recordObservation" = "记录观察";
+"voiceIntent.createReminder" = "提醒设定";
+"voiceIntent.createAppointment" = "预约复诊";
+"voiceIntent.appendProfile" = "档案完善";
+"voiceIntent.appendMedDraft" = "用药草稿";
+"voiceIntent.appendNote" = "语音速记";
+"voiceIntent.askAssistant" = "AI 提问";
+"voiceIntent.createQuestion" = "问诊问题";
+"voiceIntent.unknown" = "任意文本";
+"voicePanel.autoHint" = "说出要记录的内容，将自动判断去向并生成草稿";

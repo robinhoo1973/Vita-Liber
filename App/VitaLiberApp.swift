@@ -30,6 +30,8 @@ struct VitaLiberApp: App {
     @State private var aiHistoryState: AIHistoryState
     @State private var exportWizardState: ExportWizardState
     @State private var f16DeviceState: F16DeviceState
+    /// 类型化数据变更信号（V3.49：文档保存/设备读数落库 → 版本计数 → 跨页刷新）
+    @State private var dataChangeCenter: AppDataChangeCenter
     @State private var backupState: BackupState
 
     init() {
@@ -134,6 +136,8 @@ struct VitaLiberApp: App {
         _timelineState = State(initialValue: TimelineViewState(
             store: container.timelineQuery, problemStore: container.healthProblems))
         _questionsState = State(initialValue: QuestionsState(store: container.questions))
+        // 类型化数据变更信号（先于 DocumentsState 装配——后者携带本实例注入）
+        _dataChangeCenter = State(initialValue: AppDataChangeCenter())
         _documentsState = State(initialValue: DocumentsState(
             store: container.documents,
             pipeline: OCRPipeline(
@@ -142,7 +146,13 @@ struct VitaLiberApp: App {
             // FR14.1 authOcr 消费点：每次导入实时读授权（撤回即时生效）
             ocrAuthorized: { appSettings.values[.authOcr] != "false" },
             originalsDir: AppContainer.defaultOriginalsDir(),
-            prescriptionStore: container.prescriptions))
+            prescriptionStore: container.prescriptions,
+            // FR17.18 期一（V3.49）：共享文本理解引擎 + F25 惰性接线 +
+            // FR11.4 懒创建 + 保存后跨页刷新信号
+            understandingEngine: EngineRegistry.shared.resolve(TextUnderstandingFactory.self),
+            codeIndex: container.codeIndex,
+            problemStore: container.healthProblems,
+            dataChange: dataChangeCenter))
         _aiHistoryState = State(initialValue: AIHistoryState(store: container.aiHistory))
         _exportWizardState = State(initialValue: ExportWizardState(service: container.pdfExport))
         _f16DeviceState = State(initialValue: F16DeviceState(
@@ -188,6 +198,7 @@ struct VitaLiberApp: App {
             .environment(assistantStore)
             .environment(settingsStore)
             .environment(observationState)
+            .environment(dataChangeCenter)
             .environment(container.notificationCenterState)
             .environment(entitlementStore)
             .environment(trendState)

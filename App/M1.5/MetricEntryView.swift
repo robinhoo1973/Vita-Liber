@@ -136,10 +136,10 @@ struct MetricQuickEntryView: View {
                 }
                 // 单位记忆（FR7.8：每种指标记忆上次单位）
                 unitText = state.rememberedUnit(for: metric)
-                // FR17.9 面板确认草稿预填（AppRouter.pendingVoiceDraft 一次性投递）
-                if let draft = router.pendingVoiceDraft {
-                    router.pendingVoiceDraft = nil
-                    applyDraft(draft)
+                // FR17.9 面板确认草稿预填（类型化 pendingVoiceIntent 一次性投递）
+                if let draft = router.pendingVoiceIntent {
+                    router.pendingVoiceIntent = nil
+                    applyDraft(draft.keyedValues)
                 }
                 routeMonitor.start()
             }

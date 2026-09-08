@@ -101,6 +101,24 @@ public enum SensitiveMediaProtectionFactory: EngineFactory {
     }
 }
 
+// MARK: - 共享文本理解工厂（ADR-029 期一，V3.86 第 8 工厂）
+
+/// FR17.18 识别后文本理解（OCR/语音共用）——经 EAL 接入。
+/// 期一：Apple 平台=兜底轨组合器（NL+正则+启发式，零资产）；其余平台=契约桩。
+/// 期二/期三在同工厂内增备轨/主轨成员，调用方零感知。
+public enum TextUnderstandingFactory: EngineFactory {
+    public typealias Capability = any TextUnderstanding
+    public static var onDeviceOnly: Bool { true }
+    public static func make(_ context: EngineContext) -> any TextUnderstanding {
+        #if os(iOS) || os(macOS)
+        // 期一降级链成员=[兜底轨]；期二加备轨编码器、期三加主轨 Foundation Models
+        return FallbackTextUnderstanding(tracks: [NLTextUnderstanding()])
+        #else
+        return StubTextUnderstanding()
+        #endif
+    }
+}
+
 // MARK: - 组合根：默认引擎注册
 
 extension EngineRegistry {
@@ -116,5 +134,6 @@ extension EngineRegistry {
         registerIfAbsent(ImageDecodingFactory.make(ctx), for: ImageDecodingFactory.self)
         registerIfAbsent(ImageCompressingFactory.make(ctx), for: ImageCompressingFactory.self)
         registerIfAbsent(SensitiveMediaProtectionFactory.make(ctx), for: SensitiveMediaProtectionFactory.self)
+        registerIfAbsent(TextUnderstandingFactory.make(ctx), for: TextUnderstandingFactory.self)
     }
 }

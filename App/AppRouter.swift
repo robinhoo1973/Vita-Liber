@@ -8,6 +8,32 @@ import Domain
 ///
 /// 持久化（§5.48 NavigationStack 跨启动恢复）：paths 经 Codable 编码落
 /// UserDefaults，冷启动恢复；恢复后路由指向已删除实体时由目的地视图自弹回根。
+
+/// FR17.19 类型化语音意图草稿（coreml-minilm-spec §8.2，V3.49 落）：
+/// 意图 key + 已确认字段（D→C 后）——替代旧 `[String: String]` 字典暂存。
+/// 一次性投递语义：消费方取用后置 nil。
+struct PendingVoiceIntent: Sendable, Equatable {
+    /// FR17.19 意图目录 key（VoiceIntentKey.rawValue）
+    var intent: String
+    /// 已确认字段（C 级映射；rawText 保留原文）
+    var fields: [FieldDraft]
+    /// 预填消费方的统一读取出口（旧字典形态语义保留——键→确认值）
+    var keyedValues: [String: String] {
+        var map: [String: String] = [:]
+        for field in fields { map[field.key] = field.value }
+        return map
+    }
+}
+
+extension OcrConfirmationSet {
+    /// 已确认字段 → 类型化意图草稿（语音确认卡唯一出口）
+    func pendingIntent(_ intent: String) -> PendingVoiceIntent {
+        PendingVoiceIntent(intent: intent, fields: confirmedFields.map {
+            FieldDraft(key: $0.key, value: $0.value, confidence: 1.0, rawText: $0.rawText)
+        })
+    }
+}
+
 @MainActor
 @Observable
 final class AppRouter {
@@ -39,12 +65,13 @@ final class AppRouter {
     /// 队列而非单槽——启动窗口内连点两条通知时逐条投递，不丢后到/先到的路由）
     private var pendingRoutes: [AppRoute] = []
 
-    /// FR17.9 语音速记面板确认后的结构化草稿暂存（字段 key → 确认值）。
+    /// FR17.9/FR17.19 语音面板确认后的类型化草稿暂存（coreml-minilm-spec
+    /// §8.2 破坏性变更，V3.49 落）：意图 key + 已确认字段（D→C 后）。
     /// **内存态、不持久化**（§5.48 恢复只序列化 paths/selection——这是转瞬即逝
     /// 的录入中间态，跨启动恢复它等于把未完成的录入带进新会话）；消费方
-    /// 取用后必须置 nil（一次性投递语义）。消费方：MetricEntryView（已接）；
-    /// 提醒草稿/档案引导/观察/问诊/AI 预填读取为后续批（登记 tech §11）。
-    var pendingVoiceDraft: [String: String]?
+    /// 取用后必须置 nil（一次性投递语义）。消费方：MetricEntryView /
+    /// VoiceGuidedViews（提醒/档案）；观察/问诊/AI 预填读取为后续批（登记 tech §11）。
+    var pendingVoiceIntent: PendingVoiceIntent?
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults

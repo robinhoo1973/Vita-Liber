@@ -795,6 +795,33 @@ enum L10n {
     "ai.quickGlucose",
     "ai.quickMeds",
     "ai.quickNext",
+    // V3.49：动态键（voiceIntentName(_:) 拼装）——十意图目录标签，静态扫描不可见
+    "voiceIntent.recordMetric",
+    "voiceIntent.recordObservation",
+    "voiceIntent.createReminder",
+    "voiceIntent.createAppointment",
+    "voiceIntent.appendProfile",
+    "voiceIntent.appendMedDraft",
+    "voiceIntent.appendNote",
+    "voiceIntent.askAssistant",
+    "voiceIntent.createQuestion",
+    "voiceIntent.unknown",
+    // V3.49：4.28 信息卡分组 / FR11.4 懒创建 / 语音面板去 chips
+    "oc.group.rx",
+    "oc.group.lab",
+    "oc.group.visit",
+    "oc.group.generic",
+    "oc.confirm.cardAll",
+    "oc.field.dept",
+    "oc.field.reportDate",
+    "oc.field.labItem",
+    "oc.field.chiefComplaint",
+    "oc.field.diagnosis",
+    "oc.field.treatment",
+    "healthProblem.offer.title",
+    "healthProblem.offer.body",
+    "healthProblem.create",
+    "voicePanel.autoHint",
     "doc.duplicateExisting",
     "doc.duplicateKeep",
     "doc.duplicateNeverAutoDelete",
@@ -1982,6 +2009,32 @@ enum L10n {
     static var docConfirmReenable: String { t("docConfirm.reenable") }
     static var docConfirmAllConfirmBlocked: String { t("docConfirm.allConfirmBlocked") }
     static var docConfirmSaveFailedTitle: String { t("docConfirm.saveFailedTitle") }
+    // MARK: - 4.28 OCR 信息卡分组（V3.49 · FR17.18 期一）
+    /// 信息卡类别标签（Domain FieldGroupRules 类别键 → L10n 单一映射）
+    static func ocGroupName(_ category: String) -> String {
+        switch category {
+        case "rx": return t("oc.group.rx")
+        case "lab": return t("oc.group.lab")
+        case "visit": return t("oc.group.visit")
+        default: return t("oc.group.generic")
+        }
+    }
+    static var ocConfirmCardAll: String { t("oc.confirm.cardAll") }
+    /// 理解层语义字段标签（DocumentTypeClassifierFallback 角色键 → L10n）
+    static var ocFieldDept: String { t("oc.field.dept") }
+    static var ocFieldReportDate: String { t("oc.field.reportDate") }
+    static var ocFieldLabItem: String { t("oc.field.labItem") }
+    static var ocFieldChiefComplaint: String { t("oc.field.chiefComplaint") }
+    static var ocFieldDiagnosis: String { t("oc.field.diagnosis") }
+    static var ocFieldTreatment: String { t("oc.field.treatment") }
+    // MARK: - FR11.4 健康问题懒创建（V3.49）
+    static var healthProblemOfferTitle: String { t("healthProblem.offer.title") }
+    static var healthProblemOfferBody: String { t("healthProblem.offer.body") }
+    static var healthProblemCreate: String { t("healthProblem.create") }
+    // MARK: - FR17.19 意图目录确认标签（V3.49 · 十意图动态键，App 映射）
+    static func voiceIntentName(_ key: String) -> String { t("voiceIntent.\(key)") }
+    /// 语音速记面板去 chips 后的提示语（判定由本地理解层自动完成）
+    static var voicePanelAutoHint: String { t("voicePanel.autoHint") }
     /// 无文字降级提示（Domain ImageInputRules.noTextKey 的 App 层渲染——
     /// Domain 只出类型化键，零硬编码文案）
     static var imageInputNoText: String { t("image_input.noText") }

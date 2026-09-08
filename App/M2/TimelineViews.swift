@@ -78,6 +78,7 @@ struct TimelineFullView: View {
     @Environment(AppState.self) private var app
     @Environment(TimelineViewState.self) private var state
     @Environment(AppRouter.self) private var router
+    @Environment(AppDataChangeCenter.self) private var dataChange
 
     var body: some View {
         Group {
@@ -127,6 +128,11 @@ struct TimelineFullView: View {
         .safeAreaInset(edge: .top) { filterBar }
         .navigationTitle(L10n.timelineTitle)
         .task(id: app.currentPatientId) { await state.load(patientId: app.currentPatientId) }
+        // FR17.18 保存后跨页刷新（V3.49）：文档确认保存（含健康问题懒创建）
+        // 后按类型化版本计数重载——时间轴/健康问题条目即时反映新文档/新问题
+        .onChange(of: dataChange.documentsVersion) { _, _ in
+            Task { await state.load(patientId: app.currentPatientId) }
+        }
     }
 
     private var filterBar: some View {
@@ -296,6 +302,7 @@ private struct FilterChip: View {
 struct HealthProblemListView: View {
     @Environment(AppState.self) private var app
     @Environment(TimelineViewState.self) private var state
+    @Environment(AppDataChangeCenter.self) private var dataChange
     @State private var showCreate = false
     @State private var showMerge = false
     @State private var mergePrimary: HealthProblemStore.HealthProblemRow?
@@ -645,5 +652,9 @@ struct QuestionListView: View {
             }
         }
         .task(id: app.currentPatientId) { await state.load(patientId: app.currentPatientId) }
+        // FR11.4 懒创建后刷新（V3.49）：文档保存/健康问题创建 → 版本计数重载
+        .onChange(of: dataChange.documentsVersion) { _, _ in
+            Task { await state.load(patientId: app.currentPatientId) }
+        }
     }
 }

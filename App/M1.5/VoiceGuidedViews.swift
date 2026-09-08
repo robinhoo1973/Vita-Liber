@@ -60,9 +60,10 @@ struct VoiceReminderDraftView: View {
             routeMonitor.start()
             // FR17.9 §5.54：语音面板确认后的提醒草稿一次性预填——
             // 确认字段回填转写输入，本页二次核对后走本页自己的确认
-            if let draft = router.pendingVoiceDraft {
-                router.pendingVoiceDraft = nil
-                if transcript.isEmpty, let content = draft["content"], !content.isEmpty {
+            if let draft = router.pendingVoiceIntent {
+                router.pendingVoiceIntent = nil
+                if transcript.isEmpty,
+                   let content = draft.keyedValues["content"], !content.isEmpty {
                     transcript = content
                 }
             }
@@ -186,10 +187,10 @@ struct VoiceGuidedProfileView: View {
         .onAppear {
             routeMonitor.start()
             // FR17.9 §5.54：语音面板确认后的档案草稿一次性预填（与提醒入口同款）
-            if let draft = router.pendingVoiceDraft {
-                router.pendingVoiceDraft = nil
+            if let draft = router.pendingVoiceIntent {
+                router.pendingVoiceIntent = nil
                 if answer.isEmpty,
-                   let v = draft.values.first(where: { !$0.isEmpty }) {
+                   let v = draft.keyedValues.values.first(where: { !$0.isEmpty }) {
                     answer = v
                 }
             }

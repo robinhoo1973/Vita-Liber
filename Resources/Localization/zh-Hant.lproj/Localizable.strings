@@ -1481,3 +1481,30 @@
 "docConfirm.reenable" = "恢復";
 "docConfirm.allConfirmBlocked" = "存在低置信度欄位，請逐項核對後再儲存。";
 "docConfirm.saveFailedTitle" = "儲存失敗";
+
+// V3.49 資訊卡分組（4.28）/ FR11.4 懶建立 / FR17.19 意圖目錄 / 語音面板去 chips
+"oc.group.rx" = "藥品資訊";
+"oc.group.lab" = "檢查結果";
+"oc.group.visit" = "就診資訊";
+"oc.group.generic" = "未分類";
+"oc.confirm.cardAll" = "確認本卡";
+"oc.field.dept" = "科室";
+"oc.field.reportDate" = "日期";
+"oc.field.labItem" = "檢查項";
+"oc.field.chiefComplaint" = "主訴";
+"oc.field.diagnosis" = "診斷";
+"oc.field.treatment" = "處理";
+"healthProblem.offer.title" = "已儲存病歷文件";
+"healthProblem.offer.body" = "要為這份病歷建立對應的健康問題條目嗎？確認後可在時間軸按健康問題篩選。";
+"healthProblem.create" = "建立健康問題";
+"voiceIntent.recordMetric" = "記錄指標";
+"voiceIntent.recordObservation" = "記錄觀察";
+"voiceIntent.createReminder" = "提醒設定";
+"voiceIntent.createAppointment" = "預約複診";
+"voiceIntent.appendProfile" = "檔案完善";
+"voiceIntent.appendMedDraft" = "用藥草稿";
+"voiceIntent.appendNote" = "語音速記";
+"voiceIntent.askAssistant" = "AI 提問";
+"voiceIntent.createQuestion" = "問診問題";
+"voiceIntent.unknown" = "任意文字";
+"voicePanel.autoHint" = "說出要記錄的內容，將自動判斷去向並產生草稿";

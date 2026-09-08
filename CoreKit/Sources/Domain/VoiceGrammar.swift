@@ -8,9 +8,18 @@ public struct FieldDraft: Sendable, Equatable, Identifiable {
     public var value: String
     public var unit: String?
     public var confidence: Double          // 0..1，低置信强制 UI 复核
+    // V3.86/契约 §3.2 V1.4 扩展（可选字段默认 nil，向后兼容，既有调用点零改）：
+    public var rawText: String?            // 原文（BR-002 不丢内容；nil 时 = value）
+    public var suggestedLabel: String?     // 建议显示标签（L10n 键语义，nil 时 = key）
+    public var source: UnderstandingSource?// 产出轨（跨轨置信度不直接比较，仅呈现标注）
+    public var codeResolution: CodeResolution?  // F25 惰性建议（医疗槽位，BR-003）
     public var id: String { key }
-    public init(key: String, value: String, unit: String? = nil, confidence: Double = 0.9) {
+    public init(key: String, value: String, unit: String? = nil, confidence: Double = 0.9,
+                rawText: String? = nil, suggestedLabel: String? = nil,
+                source: UnderstandingSource? = nil, codeResolution: CodeResolution? = nil) {
         self.key = key; self.value = value; self.unit = unit; self.confidence = confidence
+        self.rawText = rawText; self.suggestedLabel = suggestedLabel
+        self.source = source; self.codeResolution = codeResolution
     }
 }
 
@@ -275,12 +284,18 @@ public enum VoiceStructuringEngine {
 /// 语音指导每步/速记/提醒草稿/观察速记四处确认必须走同一模板——禁止自建确认逻辑。
 /// 引擎只产出 FieldDraft（待确认态）；确认一律经 OcrConfirmationSet.confirm。
 public enum VoiceInputTemplate {
-    /// 把语音草稿转成统一确认集（四处共用同一入口）
+    /// 把语音草稿转成统一确认集（四处共用同一入口）。
+    /// V3.86/契约 §8.6.2 唯一映射点扩展：suggestedLabel → displayLabel、
+    /// rawText 保留原文、codeResolution 透传（D→C 生命周期合同——映射点
+    /// 丢字段 = 理解层元数据静默丢失，与 §8.6 必测断言②直接相关）。
     public static func confirmationSet(drafts: [FieldDraft], documentId: UUID = UUID()) -> OcrConfirmationSet {
         OcrConfirmationSet(documentId: documentId, fields: drafts.map { draft in
-            CandidateField(key: draft.key, displayLabel: draft.key, rawText: draft.value,
+            CandidateField(key: draft.key,
+                           displayLabel: draft.suggestedLabel ?? draft.key,
+                           rawText: draft.rawText ?? draft.value,
                            confidence: draft.confidence, value: draft.value,
-                           grade: .ocrUnconfirmed)
+                           grade: .ocrUnconfirmed,
+                           codeResolution: draft.codeResolution)
         })
     }
 

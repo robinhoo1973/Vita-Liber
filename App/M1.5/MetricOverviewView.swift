@@ -84,7 +84,7 @@ struct MetricOverviewView: View {
         // FR17.13-entry: 指标总览语音入口 —— 统一确认模板，不自建确认逻辑
         .voiceConfirmSheet($confirmSet, route: routeMonitor.route) { confirmed in
             confirmSet = nil
-            router.pendingVoiceDraft = confirmed.keyedValues
+            router.pendingVoiceIntent = confirmed.pendingIntent(VoiceIntentKey.recordMetric.rawValue)
             router.navigate(to: .metricQuickEntry)
         }
     }

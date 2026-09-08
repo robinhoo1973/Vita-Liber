@@ -41,13 +41,26 @@ final class DocumentsState {
     /// 原件专用目录根（BR-002，与 AppContainer.defaultOriginalsDir() 同约定）：
     /// `<base>/originals/{patientId}/{uuid}.{ext}`；预览/测试注入临时目录。
     private let originalsDir: URL
+    /// FR17.18 共享文本理解层（ADR-029 期一；经 EAL 注入，默认解析注册表第 8 工厂）
+    private let understandingEngine: any TextUnderstanding
+    /// F25 码表索引（医疗槽位惰性 codeResolution——FR17.18 首个生产消费点；
+    /// 未注入时（预览/测试）跳过标准化，不影响确认主流程）
+    private let codeIndex: (any CodeIndex)?
+    /// 健康问题懒创建（FR11.4 V3.49 触发点；未注入时静默跳过）。
+    private let problemStore: HealthProblemStore?
+    /// 类型化数据变更信号（保存成功后 documentsVersion+1 触发跨页刷新）
+    private let dataChange: AppDataChangeCenter?
     private var loadingPatientId: UUID?
 
     init(store: DocumentStore, pipeline: OCRPipeline,
          decoder: (any ImageDecoding)? = nil,
          ocrAuthorized: @escaping @MainActor () -> Bool = { true },
          originalsDir: URL? = nil, prescriptionStore: PrescriptionStore? = nil,
-         prescriptionDocTypeLabel: String = L10n.docTypePrescription) {
+         prescriptionDocTypeLabel: String = L10n.docTypePrescription,
+         understandingEngine: (any TextUnderstanding)? = nil,
+         codeIndex: (any CodeIndex)? = nil,
+         problemStore: HealthProblemStore? = nil,
+         dataChange: AppDataChangeCenter? = nil) {
         self.store = store
         self.pipeline = pipeline
         self.decoder = decoder ?? EngineRegistry.shared.resolve(ImageDecodingFactory.self)
@@ -55,6 +68,11 @@ final class DocumentsState {
         self.originalsDir = originalsDir ?? FileManager.default.temporaryDirectory
         self.prescriptionStore = prescriptionStore
         self.prescriptionDocTypeLabel = prescriptionDocTypeLabel
+        self.understandingEngine = understandingEngine
+            ?? EngineRegistry.shared.resolve(TextUnderstandingFactory.self)
+        self.codeIndex = codeIndex
+        self.problemStore = problemStore
+        self.dataChange = dataChange
     }
 
     struct PendingDocument: Identifiable, Equatable {
@@ -91,6 +109,12 @@ final class DocumentsState {
         var qualityTags: [String]
         var confirmationSet: OcrConfirmationSet
         var isPrescription: Bool
+        /// FR17.18 判定稳定类型键（V3.49）：nil=无法判定（确认卡引导选择；
+        /// 低置信不落 doc_type，§8.6 断言④）
+        var stableTypeKey: String? = nil
+        /// FR11.4 懒创建触发判定：病历类文档保存成功后向用户提供
+        /// 「创建健康问题」入口（Domain 纯函数派生候选名）
+        var isClinicalType: Bool = false
         /// 「替换」裁决的旧文档（第四轮全仓审查修复：旧版归档延后到新版本
         /// 确认入库**之后**——此前 resolveDuplicate 先归档旧版再弹确认卡，
         /// 用户取消 = 旧版已从活跃列表消失 + 新版未入库，资料凭空少一份）
@@ -211,17 +235,23 @@ final class DocumentsState {
                                 isSensitive: isSensitive, origin: origin, sha256: sha)
     }
 
-    /// OCR 跑完后组装待确认草稿：处方文档类型用处方语义标签（药品名/剂量/频次/医院/医生），
-    /// 其余类型用通用 line_N 标签。FR6.1/ADR-026：OCR 经统一编排层（质量评估+识别）；
-    /// FR14.1 authOcr：授权关闭 → 跳过识别，草稿无候选字段但仍可确认保存（只是无识别文本）。
+    /// OCR 跑完后组装待确认草稿（FR17.18 期一接线，V3.49）：行文本先过共享
+    /// 文本理解层（文档类型判定 D 级草稿 + 多类候选），字段目录随判定类型
+    /// 收敛——处方走 PrescriptionFieldMapper 语义标签、检验/病历走启发式
+    /// 语义字段（科室/日期/项目/主诉/诊断/处理）、未命中行通用 line_N 兜底；
+    /// 入口 docType 仅作 documentTypeHint（提示，不替代判定，FR5.5/FR6.2）。
+    /// FR6.1/ADR-026：OCR 经统一编排层（质量评估+识别）；
+    /// FR14.1 authOcr：授权关闭 → 跳过识别，草稿无候选字段但仍可确认保存。
     private func buildDraft(patientId: UUID, originalData: Data, processedData: Data, mimeType: String,
                             docType: String, title: String?, isSensitive: Bool, origin: String,
                             sha256: String, replaceDocumentId: UUID? = nil) async -> ImportDraft? {
-        // BR 判定走 Domain 纯函数（第四轮全仓审查修复：原内联 docType == label
-        // 绕过 PrescriptionFieldMapper，口径演进时两处漂移）
-        let isPrescription = PrescriptionFieldMapper.isPrescriptionDocType(docType, prescriptionLabel: prescriptionDocTypeLabel)
         var fields: [CandidateField] = []
         var tags: [String] = []
+        var effectiveDocType = docType
+        var stableTypeKey: String?
+        var isClinicalType = false
+        var isPrescription = PrescriptionFieldMapper.isPrescriptionDocType(
+            docType, prescriptionLabel: prescriptionDocTypeLabel)
         if ocrAuthorized() {
             do {
                 let result = try await pipeline.run(imageData: processedData)
@@ -231,25 +261,89 @@ final class DocumentsState {
                     lastImportError = L10n.docImportFailed
                     return nil
                 }
+                // FR17.18：类型判定（D 级建议，可改；低置信/零命中由确认卡
+                // 引导选择，入口 hint 仅作提示输入）
+                let understanding = await understandingEngine.understand(
+                    TextUnderstandingInput(text: result.lines.joined(separator: "\n"),
+                                           lines: result.lines,
+                                           source: .ocr(documentTypeHint: docType)))
+                if let judged = understanding.suggestedTarget {
+                    stableTypeKey = judged
+                    isClinicalType = DocumentTypeClassifierFallback.isClinicalType(judged)
+                    if let judgedLabel = Self.docTypeLabel(forStableKey: judged) {
+                        effectiveDocType = judgedLabel
+                    }
+                    isPrescription = judged == "prescription"
+                        || (isPrescription && judgedLabel == nil)
+                }
                 if isPrescription {
                     fields = PrescriptionFieldMapper.draftFields(from: result.lines, labels: Self.prescriptionLabels)
                 } else {
-                    fields = result.lines.enumerated().map { idx, line in
-                        CandidateField(key: "line_\(idx)",
-                                       displayLabel: String(format: L10n.ocrFieldLine, idx + 1),
-                                       rawText: line, confidence: 0.6)
+                    // 启发式语义字段（Domain 纯函数）；未命中行 line_N 兜底
+                    var claimed = Set<Int>()
+                    var draftFields: [FieldDraft] = []
+                    for (idx, line) in result.lines.enumerated() {
+                        for draft in DocumentTypeClassifierFallback.guessFields(line: line) {
+                            claimed.insert(idx)
+                            draftFields.append(draft)
+                        }
                     }
+                    // F25 惰性接线（医疗槽位过 CodeResolver；FR17.18 首个
+                    // 生产消费点，FR25.12⑫ 核销——未注入索引时跳过不阻断）
+                    if let codeIndex {
+                        draftFields = await UnderstandingCodeResolution.resolve(
+                            draftFields, locale: Locale(identifier: "zh_Hans"),
+                            index: codeIndex, units: codeIndex)
+                    }
+                    fields = draftFields.map { draft in
+                        CandidateField(key: draft.key,
+                                       displayLabel: Self.fieldLabel(forKey: draft.key),
+                                       rawText: draft.rawText ?? draft.value,
+                                       confidence: draft.confidence, value: draft.value,
+                                       codeResolution: draft.codeResolution)
+                    }
+                    fields.append(contentsOf: result.lines.enumerated().compactMap { idx, line in
+                        claimed.contains(idx) ? nil : CandidateField(
+                            key: "line_\(idx)",
+                            displayLabel: String(format: L10n.ocrFieldLine, idx + 1),
+                            rawText: line, confidence: 0.6)
+                    })
                 }
             } catch {
                 lastImportError = L10n.docImportFailed
                 return nil
             }
         }
-        return ImportDraft(patientId: patientId, docType: docType, title: title, isSensitive: isSensitive,
+        return ImportDraft(patientId: patientId, docType: effectiveDocType, title: title, isSensitive: isSensitive,
                            origin: origin, sha256: sha256, originalData: originalData, processedData: processedData,
                            mimeType: mimeType, qualityTags: tags,
                            confirmationSet: OcrConfirmationSet(fields: fields),   // confirm-ok: F6/F9 图片入库 OCR 确认集是合法产出方（非语音路径），FR17.13 只约束语音草稿确认
-                           isPrescription: isPrescription, replaceDocumentId: replaceDocumentId)
+                           isPrescription: isPrescription, stableTypeKey: stableTypeKey,
+                           isClinicalType: isClinicalType, replaceDocumentId: replaceDocumentId)
+    }
+
+    /// 稳定类型键 → 文档类型标签（App 层映射；键族单一事实源在
+    /// Domain DocumentTypeClassifierFallback）
+    private static func docTypeLabel(forStableKey key: String) -> String? {
+        switch key {
+        case "prescription": return L10n.docTypePrescription
+        case "lab_report": return L10n.docTypeReport
+        case "outpatient_record", "diagnosis_certificate": return L10n.docTypeRecord
+        default: return nil
+        }
+    }
+
+    /// 理解层字段键 → 确认卡展示标签（L10n 单出口）
+    private static func fieldLabel(forKey key: String) -> String {
+        switch key {
+        case "dept": return L10n.ocFieldDept
+        case "report_date": return L10n.ocFieldReportDate
+        case "lab_item": return L10n.ocFieldLabItem
+        case "chief_complaint": return L10n.ocFieldChiefComplaint
+        case "diagnosis": return L10n.ocFieldDiagnosis
+        case "treatment": return L10n.ocFieldTreatment
+        default: return key
+        }
     }
 
     private static let prescriptionLabels = PrescriptionFieldMapper.Labels(
@@ -311,8 +405,27 @@ final class DocumentsState {
                 try? await store.setArchived(id: replaceId, archived: true)   // try?-ok: 归档旧版失败不阻断主入库流程，下次列表刷新自愈
             }
             await load(patientId: draft.patientId)
+            // FR17.18 保存后跨页刷新（V3.49）：类型化变更信号 +1——健康资料/
+            // 时间轴/健康问题页据 documentsVersion 失效重载；lastSavedDocument
+            // 携带 FR11.4 懒创建触发信息（病历类 + 稳定类型键）
+            dataChange?.documentSaved(AppDataChangeCenter.SavedDocumentSignal(
+                documentId: docId, docTypeKey: draft.stableTypeKey ?? "",
+                isClinical: draft.isClinicalType))
         } catch {
             lastImportError = L10n.docImportFailed
+        }
+    }
+
+    /// FR11.4 懒创建（V3.49）：病历类文档确认保存后由确认卡触发——候选名
+    /// 由 Domain 纯函数派生（HealthProblemDerivation），用户确认后才落库。
+    /// 返回成败；失败静默降级（健康问题条目为可选增强，不阻断文档主流程）。
+    func createHealthProblem(patientId: UUID, name: String) async -> Bool {
+        guard let problemStore else { return false }
+        do {
+            _ = try await problemStore.create(patientId: patientId, name: name)
+            return true
+        } catch {
+            return false
         }
     }
 

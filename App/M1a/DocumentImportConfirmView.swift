@@ -15,10 +15,18 @@ struct DocumentImportConfirmView: View {
     @State var draft: DocumentsState.ImportDraft
     @State private var showRegionImage = false
     @State private var saving = false
-    @State private var showSaveError = false
-    /// 主文档已保存、处方副表同步失败的**非阻断**告警（审查修复：处方行
-    /// 失败不得回滚主记录，但也不能像此前 try? 吞错那样按成功静默 dismiss）
-    @State private var showPrescriptionWarning = false
+    /// 保存结果单一告警入口（审查修复：多 alert 挂同层视图节点时 SwiftUI
+    /// 只呈现最后一个——保存失败/处方未同步/健康问题入口统一为枚举单 alert）
+    @State private var activeAlert: ConfirmAlert?
+    enum ConfirmAlert: String, Identifiable {
+        case saveFailed
+        /// 主文档已保存、处方副表同步失败的非阻断告警（处方行失败不得回滚
+        /// 主记录，但也不能像此前 try? 吞错那样按成功静默 dismiss）
+        case prescriptionWarning
+        /// FR11.4：病历类文档保存成功后提供「创建健康问题」入口
+        case healthProblemOffer
+        var id: String { rawValue }
+    }
 
     var body: some View {
         NavigationStack {
@@ -72,8 +80,28 @@ struct DocumentImportConfirmView: View {
                     if draft.confirmationSet.fields.isEmpty {
                         Text(L10n.imageInputNoText).font(.footnote).foregroundStyle(.secondary)
                     } else {
-                        ForEach($draft.confirmationSet.fields) { $field in
-                            FieldConfirmRow(field: $field)
+                        // 4.28 OcrFieldGroupCard 信息卡分组（V3.49）：字段按
+                        // 判定类别分组为多卡（卡头=类别+D 徽章+卡级确认），
+                        // 未匹配字段进「未分类」卡兜底——不阻塞确认
+                        ForEach(fieldGroups(), id: \.category) { group in
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack {
+                                    Text(L10n.ocGroupName(group.category))
+                                        .font(.subheadline.bold())
+                                    GradeBadge(grade: "D")
+                                    Spacer()
+                                    Button(L10n.ocConfirmCardAll) {
+                                        confirmCard(group.indices)
+                                    }
+                                    .font(.caption)
+                                    .disabled(cardHasLowConfidence(group.indices))
+                                    .accessibilityIdentifier("SP-11.docConfirm.cardAll.\(group.category)")
+                                }
+                                ForEach(group.indices, id: \.self) { idx in
+                                    FieldConfirmRow(field: $draft.confirmationSet.fields[idx])
+                                }
+                            }
+                            .padding(.vertical, 4)
                         }
                         // §5.30 全部确认闸门（第四轮全仓审查修复：低置信度红色
                         // 字段存在时按钮禁用并给出原因——原实现无条件批量确认，
@@ -104,18 +132,78 @@ struct DocumentImportConfirmView: View {
             .sheet(isPresented: $showRegionImage) {
                 regionPreview
             }
-            .alert(L10n.docConfirmSaveFailedTitle, isPresented: $showSaveError) {
+        }
+        // 单一告警入口：多 alert 不得挂同一视图节点（SwiftUI 只呈现最后一个）
+        .alert(
+            activeAlert == .saveFailed ? L10n.docConfirmSaveFailedTitle
+                : activeAlert == .prescriptionWarning ? L10n.homeCaptureSaved
+                : L10n.healthProblemOfferTitle,
+            isPresented: Binding(
+                get: { activeAlert != nil },
+                set: { if !$0 { activeAlert = nil } })
+        ) {
+            switch activeAlert {
+            case .saveFailed:
                 Button(L10n.onboard_gotIt, role: .cancel) { }
-            } message: {
+            case .prescriptionWarning:
+                Button(L10n.onboard_gotIt, role: .cancel) { dismiss() }
+            case .healthProblemOffer:
+                Button(L10n.healthProblemCreate) {
+                    createHealthProblem()
+                }
+                Button(L10n.onboard_gotIt, role: .cancel) { dismiss() }
+            case nil:
+                EmptyView()
+            }
+        } message: {
+            switch activeAlert {
+            case .saveFailed:
                 Text(docs.lastImportError ?? L10n.docImportFailed)
+            case .prescriptionWarning:
+                Text(L10n.docPrescriptionSyncFailed)
+            case .healthProblemOffer:
+                Text(L10n.healthProblemOfferBody)
+            case nil:
+                EmptyView()
             }
         }
-        // 双 alert 不得挂同一视图节点（SwiftUI 只呈现最后一个）——
-        // 处方告警挂在 NavigationStack 层，与保存失败告警分层共存
-        .alert(L10n.homeCaptureSaved, isPresented: $showPrescriptionWarning) {
-            Button(L10n.onboard_gotIt, role: .cancel) { dismiss() }
-        } message: {
-            Text(L10n.docPrescriptionSyncFailed)
+    }
+
+    /// 4.28 信息卡分组：字段键 → 类别键（Domain FieldGroupRules 单一事实源），
+    /// 卡序固定 rx → lab → visit → generic；索引保持确认集原序（绑定寻址）。
+    private func fieldGroups() -> [(category: String, indices: [Int])] {
+        var map: [String: [Int]] = [:]
+        for (idx, field) in draft.confirmationSet.fields.enumerated() {
+            map[FieldGroupRules.category(ofKey: field.key), default: []].append(idx)
+        }
+        return FieldGroupRules.categoryOrder.compactMap { key in
+            map[key].map { (category: key, indices: $0) }
+        }
+    }
+
+    /// 卡级确认（4.28）：确认本卡全部未确认字段——低置信闸门与页面级同语义
+    /// （卡内有未确认低置信字段时按钮已禁用，此处不再代位复核）
+    private func confirmCard(_ indices: [Int]) {
+        for idx in indices {
+            _ = draft.confirmationSet.fields[idx].confirm()
+        }
+    }
+
+    private func cardHasLowConfidence(_ indices: [Int]) -> Bool {
+        indices.contains { idx in
+            let field = draft.confirmationSet.fields[idx]
+            return field.grade == .ocrUnconfirmed && ConfidenceTier.tier(field.confidence) == .low
+        }
+    }
+
+    /// FR11.4 懒创建：候选名由 Domain 纯函数派生（诊断字段优先），
+    /// 用户确认后经 DocumentsState 落 health_problem，成功/失败均收卡
+    private func createHealthProblem() {
+        let name = HealthProblemDerivation.candidateName(
+            fields: draft.confirmationSet.confirmedFields, docTypeLabel: draft.docType)
+        Task {
+            _ = await docs.createHealthProblem(patientId: draft.patientId, name: name)
+            dismiss()
         }
     }
 
@@ -166,11 +254,15 @@ struct DocumentImportConfirmView: View {
             await docs.commitDraft(draft)
             saving = false
             if docs.lastImportError != nil {
-                showSaveError = true
+                activeAlert = .saveFailed
             } else if docs.prescriptionSyncFailed {
                 // 主文档已保存（成功语义），处方副表失败单独提示——
                 // 不阻断 dismiss（主记录在库），但用户必须知道处方未同步
-                showPrescriptionWarning = true
+                activeAlert = .prescriptionWarning
+            } else if docs.lastSavedDocument?.isClinical == true {
+                // FR11.4 懒创建触发（V3.49）：病历类文档保存成功 →
+                // 「创建健康问题」入口（候选名 Domain 派生、用户确认落库）
+                activeAlert = .healthProblemOffer
             } else {
                 dismiss()
             }
