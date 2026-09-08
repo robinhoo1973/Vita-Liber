@@ -156,8 +156,8 @@ public actor MedicationPlanComposer {
 
     public func endPlan(planId: UUID, reason: PlanEndReason, now: Date = Date()) async throws {
         try await writer.write { db in
-            guard let row = try Row.fetchOne(db, sql: "SELECT id, patient_id FROM medication_plan WHERE id = ?",
-                                             arguments: [planId.uuidString]) else {
+            guard try Row.fetchOne(db, sql: "SELECT id, patient_id FROM medication_plan WHERE id = ?",
+                                   arguments: [planId.uuidString]) != nil else {
                 throw ComposerError.planNotFound(planId)
             }
             try db.execute(sql: """

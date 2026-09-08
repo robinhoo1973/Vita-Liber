@@ -24,7 +24,6 @@ struct PreprocessTests {
     func linuxPlaceholderNoCorrection() async throws {
         let preprocessor = StubImagePreprocessor()
 
-        let png = Self.testPNG()
         let params = PreprocessParams(enablePerspectiveCorrection: true, colorMode: .grayscale, rotationDegrees: 90)
         let result = try await preprocessor.preprocess(Self.testPNG(), params: params, baseVersion: 5)
         #expect(result.version == 6)
@@ -52,9 +51,6 @@ struct PreprocessTests {
 
     @Test("PreprocessedImage 版本号递增")
     func versionIncrements() async throws {
-        let preprocessor = StubImagePreprocessor()
-        let png = Self.testPNG()
-        let params = PreprocessParams()
         let r1 = try await StubImagePreprocessor().preprocess(Self.testPNG(), params: PreprocessParams(), baseVersion: 1)
         let r2 = try await StubImagePreprocessor().preprocess(Self.testPNG(), params: PreprocessParams(), baseVersion: 2)
         #expect(r1.version == 2)

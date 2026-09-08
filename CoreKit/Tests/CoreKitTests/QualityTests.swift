@@ -107,8 +107,3 @@ struct QualityTests {
 }
 
 // 审查修复（标签命名残留，2026-09-07）：Linux 测试 job 已废除，本标签不再
-// 被任何 CI/工具消费；保留定义仅为 EngineAbstractionTests（同批 diff 文件）
-// 的引用可编译——待该文件随下一批清掉标签后本扩展一并删除。
-extension Tag {
-    @Tag static var linuxRunnable: Tag
-}

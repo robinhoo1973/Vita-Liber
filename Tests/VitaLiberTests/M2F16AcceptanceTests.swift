@@ -27,7 +27,7 @@ final class M2F16AcceptanceTests: XCTestCase {
 
     /// 信源库：种子入库幂等、按指标检索命中、零网络即可用
     func test_信源库种子幂等且离线可检索() async throws {
-        let (store, guidelines, _) = try await makeStore()
+        let (_, guidelines, _) = try await makeStore()
 
         let first = try await guidelines.seedBundled()
         XCTAssertGreaterThan(first, 0, "内置信源种子必须入库")

@@ -111,7 +111,7 @@ struct GuideCard: View {
             Text(L10n.emergencyWriteTitle).font(.headline)
             Text(L10n.emergencyWriteSubtitle)
                 .font(.caption).foregroundStyle(.secondary)
-            if let onGuide {
+            if onGuide != nil {
                 Button(L10n.emergencyViewGuide) {
                     showGuide = true
                 }

@@ -279,7 +279,7 @@ final class DocumentsState {
             if draft.isPrescription, let prescriptionStore {
                 let (hospital, doctor, adviceText) = PrescriptionFieldMapper.buildAdviceText(confirmed: draft.confirmationSet.confirmedFields,
                                                                                              labels: Self.prescriptionLabels)
-                try? await prescriptionStore.create(patientId: draft.patientId, documentFileId: docId,   // try?-ok: 处方行写入失败不回滚 document_file（主记录已入库），鼓励用户到资料库重新确认后重试，不能因副表失败丢主文档
+                _ = try? await prescriptionStore.create(patientId: draft.patientId, documentFileId: docId,   // try?-ok: 处方行写入失败不回滚 document_file（主记录已入库），鼓励用户到资料库重新确认后重试，不能因副表失败丢主文档
                                                      hospital: hospital, doctor: doctor, adviceText: adviceText)
             }
             // FR6.1 识别留痕：已确认字段逐行落 ocr_result（原文块+置信度+引擎版本，

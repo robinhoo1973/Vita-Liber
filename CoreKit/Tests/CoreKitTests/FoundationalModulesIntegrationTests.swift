@@ -29,7 +29,7 @@ struct FoundationalModulesIntegrationTests {
 
         // 解析 7 个协议
         let ocr: any ImageTextRecognizing = r.resolve(OCRRecognizerFactory.self)
-        let tts: any SpeechSynthesizing = r.resolve(SpeechSynthesisFactory.self)
+        _ = r.resolve(SpeechSynthesisFactory.self)   // 保留解析调用（注册表契约），绑定无断言需求
         let tx: any TranscriptionEngine = r.resolve(TranscriptionEngineFactory.self)
         let preproc: any ImagePreprocessing = r.resolve(ImagePreprocessingFactory.self)
         let decode: any ImageDecoding = r.resolve(ImageDecodingFactory.self)

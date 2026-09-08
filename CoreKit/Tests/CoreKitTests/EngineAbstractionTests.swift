@@ -35,11 +35,13 @@ struct EngineAbstractionTests {
         let ocr = OCRRecognizerFactory.make(.current)
         let tts = SpeechSynthesisFactory.make(.current)
         let tx = TranscriptionEngineFactory.make(.current)
-        #expect(ocr is any ImageTextRecognizing)
-        #expect(tts is any SpeechSynthesizing)
-        #expect(tx is any TranscriptionEngine)
-
-        #if !os(iOS) && !os(macOS)
+        // 运行时动态断言（静态 `is any X` 恒真已清除，警告族清扫批）：
+        // Apple 平台返回生产实现，其余平台返回契约桩
+        #if os(iOS) || os(macOS)
+        #expect(ocr is VisionImageRecognizer)
+        #expect(tts is AVSpeechAdapter)
+        #expect(tx is SFSpeechTranscriber)
+        #else
         #expect(ocr is StubImageTextRecognizer)
         #expect(tts is RecordingSpeechSynthesizer)
         #expect(tx is StubTranscriptionEngine)
@@ -59,7 +61,7 @@ struct EngineAbstractionTests {
         r.register(StubImageTextRecognizer(scripted: .init(lines: [], confidence: 0)),
                    for: CloudOCRFactory.self)
         guard case .failure(let e) = r.assertOfflineOnly() else {
-            #expect(false, "联网引擎应被离线守卫拒绝"); return
+            #expect(Bool(false), "联网引擎应被离线守卫拒绝"); return
         }
         #expect(e == .offlineViolation)
 
@@ -68,7 +70,7 @@ struct EngineAbstractionTests {
         r2.register(StubImageTextRecognizer(scripted: .init(lines: [], confidence: 0)),
                     for: OCRRecognizerFactory.self)
         guard case .success = r2.assertOfflineOnly() else {
-            #expect(false, "纯端侧引擎应通过离线守卫"); return
+            #expect(Bool(false), "纯端侧引擎应通过离线守卫"); return
         }
     }
 
@@ -130,7 +132,7 @@ struct EngineAbstractionTests {
 
     // MARK: - 四新引擎工厂验收（M-PREPROC / M-DECODE / M-COMPRESS）
 
-    @Test("四新工厂 onDeviceOnly 均为 true", .tags(.linuxRunnable))
+    @Test("四新工厂 onDeviceOnly 均为 true")
     func 四新工厂离线守卫() {
         #expect(ImagePreprocessingFactory.onDeviceOnly)
         #expect(ImageDecodingFactory.onDeviceOnly)
@@ -138,7 +140,7 @@ struct EngineAbstractionTests {
         #expect(SensitiveMediaProtectionFactory.onDeviceOnly)
     }
 
-    @Test("四新工厂按平台分派并可解析", .tags(.linuxRunnable))
+    @Test("四新工厂按平台分派并可解析")
     func 四新工厂按平台分派() {
         let r = EngineRegistry()
         let ctx = EngineContext.current
@@ -148,10 +150,8 @@ struct EngineAbstractionTests {
         let compress = ImageCompressingFactory.make(ctx)
         let sensitive = SensitiveMediaProtectionFactory.make(ctx)
 
-        #expect(preproc is any ImagePreprocessing)
-        #expect(decode is any ImageDecoding)
-        #expect(compress is any ImageCompressing)
-        #expect(sensitive is any SensitiveMediaProtection)
+        // 类型合规由工厂返回签名编译期保证（`is any X` 恒真断言，清理于
+        // 警告族清扫批）；下方 register 调用的参数类型检查即为运行时前的防线。
 
         r.register(preproc, for: ImagePreprocessingFactory.self)
         r.register(decode, for: ImageDecodingFactory.self)
@@ -163,12 +163,14 @@ struct EngineAbstractionTests {
         let resolvedCompress: any ImageCompressing = r.resolve(ImageCompressingFactory.self)
         let resolvedSensitive: any SensitiveMediaProtection = r.resolve(SensitiveMediaProtectionFactory.self)
 
-        #expect(resolvedPreproc is ImagePreprocessing)
-        #expect(resolvedDecode is ImageDecoding)
-        #expect(resolvedCompress is ImageCompressing)
-        #expect(resolvedSensitive is SensitiveMediaProtection)
-
-        #if os(Linux)
+        // 运行时动态断言（静态 `is X` 恒真已清除，警告族清扫批）：
+        // Apple 平台返回生产实现，其余平台返回契约桩
+        #if os(iOS) || os(macOS)
+        #expect(resolvedPreproc is VisionImagePreprocessor)
+        #expect(resolvedDecode is PDFKitDecoder)
+        #expect(resolvedCompress is CoreImageCompressor)
+        #expect(resolvedSensitive is CoreImageCompressor)
+        #else
         #expect(resolvedPreproc is StubImagePreprocessor)
         #expect(resolvedDecode is StubPDFDecoder)
         #expect(resolvedCompress is StubImageCompressor)
@@ -176,7 +178,7 @@ struct EngineAbstractionTests {
         #endif
     }
 
-    @Test("registerDefaultEngines 注册全部 7 个工厂", .tags(.linuxRunnable))
+    @Test("registerDefaultEngines 注册全部 7 个工厂")
     func 全部七工厂注册() {
         let r = EngineRegistry()
         let ctx = EngineContext.current
@@ -198,7 +200,7 @@ struct EngineAbstractionTests {
         #expect(r.isRegistered(SensitiveMediaProtectionFactory.self))
 
         guard case .success = r.assertOfflineOnly() else {
-            #expect(false, "全部端侧引擎应通过离线守卫"); return
+            #expect(Bool(false), "全部端侧引擎应通过离线守卫"); return
         }
     }
 }

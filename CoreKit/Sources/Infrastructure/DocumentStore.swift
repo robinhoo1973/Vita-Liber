@@ -97,7 +97,7 @@ public actor DocumentStore {
             case (_, true): target = "archived"
             case ("archived_favorite", false): target = "favorite"
             case ("archived", false): target = "active"
-            case (let c, false): target = c ?? "active"
+            case (let c, false): target = c
             }
             try db.execute(sql: """
                 UPDATE document_file SET status = ?, updated_at = ? WHERE id = ?
@@ -116,7 +116,7 @@ public actor DocumentStore {
             case (_, true): target = "favorite"
             case ("archived_favorite", false): target = "archived"
             case ("favorite", false): target = "active"
-            case (let c, false): target = c ?? "active"
+            case (let c, false): target = c
             }
             try db.execute(sql: """
                 UPDATE document_file SET status = ?, updated_at = ? WHERE id = ?

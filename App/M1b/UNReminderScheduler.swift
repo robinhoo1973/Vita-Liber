@@ -49,7 +49,7 @@ actor UNReminderScheduler: ReminderScheduling {
             return
         }
         let content = Self.content(route: route)
-        var comps = Calendar.current.dateComponents([.hour, .minute], from: fireAt)
+        let comps = Calendar.current.dateComponents([.hour, .minute], from: fireAt)
         if weekdays.isEmpty {
             let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: true)
             try await center.add(UNNotificationRequest(identifier: notifyId, content: content,

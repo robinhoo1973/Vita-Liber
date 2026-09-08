@@ -30,10 +30,10 @@ struct TimelineServiceTests {
         #expect(p3.entries.count == 5)
         #expect(p3.nextCursor == nil)
         // 不重不漏
-        var all = p1.entries + p2.entries + p3.entries
+        let all = p1.entries + p2.entries + p3.entries
         #expect(Set(all.map(\.title)).count == 25)
         #expect(all == sorted)   // 顺序一致
-        _ = entries.removeAll()
+        entries.removeAll()
     }
 
     @Test func 成员隔离() {

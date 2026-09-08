@@ -123,8 +123,11 @@ final class M1bAcceptanceTests: XCTestCase {
     /// 计划→剂量物化→对账事实 数据链闭合 + 老计划窗口锚定（S0-3 修正）
     func test_老计划窗口锚定今天() async throws {
         let (store, meds, _, _, patient, med) = try await makeStore()
-        var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+        let cal: Calendar = {
+            var c = Calendar(identifier: .gregorian)
+            c.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+            return c
+        }()
         let planId = UUID()
         // 计划 30 天前开立——旧实现 fromDay 固定 1 会物化 0 行
         let start = cal.date(byAdding: .day, value: -30, to: cal.startOfDay(for: Date()))!

@@ -82,7 +82,7 @@ struct InAppBannerHost: View {
                 // currentBanner 读取的状态——5 秒后横幅纹丝不动，永久遮挡
                 // 内容。自动收起必须写入被 currentBanner 判读的开关；
                 // 「稍后」路径仍走 dismissedUntil（15 分钟后自然复现）
-                withAnimation { autoHiddenIds.insert(banner.id) }
+                _ = withAnimation { autoHiddenIds.insert(banner.id) }
             }
         }
     }

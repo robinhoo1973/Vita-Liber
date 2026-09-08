@@ -213,7 +213,7 @@ final class M2StockAcceptanceTests: XCTestCase {
 
     /// 「约剩 N 天·按计划估算」的诚实性：daily=1 时 N=剩余安全线，绝不超过
     func test_诚实性天数估算() async throws {
-        let (store, meds, patient, med) = try await makeStore()
+        let (_, meds, patient, med) = try await makeStore()
         let lot = DualTrackInventory(lotId: UUID(), totalUnits: 7, unitKind: "tablet")
         try await meds.createLot(lot: lot, patientId: patient, medicationId: med)
         let planId = UUID()

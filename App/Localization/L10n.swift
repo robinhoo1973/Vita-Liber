@@ -2495,7 +2495,7 @@ enum L10n {
     /// 缓存读写统一加锁，读路径成本可忽略（锁内仅字典/指针级操作）。
     nonisolated(unsafe) private static var languageCache: String = "zh-Hans"
     nonisolated(unsafe) private static var bundleCache: Bundle?
-    nonisolated(unsafe) private static let cacheLock = NSLock()
+    private static let cacheLock = NSLock()
 
     static var bundleLanguage: String {
         cacheLock.lock(); defer { cacheLock.unlock() }

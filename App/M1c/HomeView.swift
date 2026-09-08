@@ -101,7 +101,7 @@ struct HomeView: View {
     // 诚实性文案「约剩 N 天·按计划估算」。
     private var refillItems: [RefillItem] {
         hub.inventoryItems.compactMap { item in
-            guard let days = item.approxDaysLeft, item.refillTier != nil else { return nil }
+            guard item.approxDaysLeft != nil, item.refillTier != nil else { return nil }
             return RefillItem(medicationName: item.medicationName,
                               remainingPlanUnits: item.remainingPlanUnits,
                               memberId: app.currentPatientId,

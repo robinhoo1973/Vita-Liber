@@ -155,7 +155,7 @@ struct ReminderReliabilityTests {
         f.delivered = true
         await source.set([f])
         await reconciler.reconcile(now: now)
-        var all = await source.all
+        let all = await source.all
         #expect(all[0].delivered && all[0].action == nil)   // 标记待处理，不重发
         let pending = try await scheduler.pending()
         #expect(pending.isEmpty)

@@ -153,8 +153,8 @@ public actor HealthKitReader {
                          HKCategoryValueSleepAnalysis.asleepCore.rawValue:
                         deep += duration
                         asleep += duration
-                    case HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue,
-                         HKCategoryValueSleepAnalysis.asleep.rawValue:
+                    case HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue:
+                        // .asleep 为 .asleepUnspecified 的旧名（iOS 16 弃用），rawValue 同值已覆盖
                         asleep += duration
                     case HKCategoryValueSleepAnalysis.inBed.rawValue:
                         inBed += duration
