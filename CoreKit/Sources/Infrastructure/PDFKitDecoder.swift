@@ -6,6 +6,12 @@ import UniformTypeIdentifiers
 import Domain
 import Protocols
 
+/// Swift 6 收敛：@Sendable 逐页回调的串行累加器（decodePDFPages 逐页 await
+/// 回调、串行执行，无并发写——mutate 捕获 var 在 Swift 6 语言模式转硬错误）。
+final class PageAccumulator: @unchecked Sendable {
+    var pages: [DecodedPage] = []
+}
+
 /// M-DECODE Apple 生产轨：PDFKit 多页渲染 + ImageIO 降采样解码。
 ///
 /// - `pdfPages(scale: 2.0, maxPages: 50)` 逐页缩略图（§5.2 C2）。
@@ -29,11 +35,12 @@ public final class PDFKitDecoder: ImageDecoding, @unchecked Sendable {
 
     public func decodePDF(_ data: Data, scale: Double, maxPages: Int) async throws -> [DecodedPage] {
         // 兼容保留：全量路径（调用方一般用逐页流式 decodePDFPages）
-        var pages: [DecodedPage] = []
+        // Swift 6 收敛：@Sendable 回调内禁改捕获 var——经串行累加器收集
+        let box = PageAccumulator()
         try await decodePDFPages(data, scale: scale, maxPages: maxPages) { page in
-            pages.append(page)
+            box.pages.append(page)
         }
-        return pages
+        return box.pages
     }
 
     /// 逐页流式渲染（审查修复）：单页渲染→回调→释放，页位图不再全部驻留内存

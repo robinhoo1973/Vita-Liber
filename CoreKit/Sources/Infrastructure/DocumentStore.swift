@@ -70,8 +70,9 @@ public actor DocumentStore {
     public func listPending(patientIds: [UUID], limit: Int = 500) async throws -> [DocumentRow] {
         guard !patientIds.isEmpty else { return [] }
         let placeholders = Array(repeating: "?", count: patientIds.count).joined(separator: ",")
-        var args: [DatabaseValueConvertible] = patientIds.map { $0.uuidString as DatabaseValueConvertible }
-        args.append(limit)
+        // Swift 6 收敛：读闭包并发执行——args 一次性构造为不可变值再捕获
+        // （原 var + append 的变异捕获在 Swift 6 语言模式转硬错误）
+        let args: [DatabaseValueConvertible] = patientIds.map { $0.uuidString as DatabaseValueConvertible } + [limit]
         return try await writer.read { db in
             try Row.fetchAll(db, sql: """
                 SELECT * FROM document_file

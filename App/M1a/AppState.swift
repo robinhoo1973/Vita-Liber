@@ -235,7 +235,9 @@ final class AppState {
         o.selfPatientId = profile.id
         owner = o
         defaults.set(profile.id.uuidString, forKey: "selfPatientId")
-        persist { [persistor] in try await persistor.saveOwner(o, profile: profile) }
+        // Swift 6 收敛：持久化闭包并发执行——捕获不可变快照而非 var
+        let ownerSnapshot = o
+        persist { [persistor] in try await persistor.saveOwner(ownerSnapshot, profile: profile) }
         stage = .addFamily      // FR21.9：建档后进 ④ 添加家人（可跳过）
     }
 
@@ -255,7 +257,9 @@ final class AppState {
         o.selfPatientId = profile.id
         owner = o
         defaults.set(profile.id.uuidString, forKey: "selfPatientId")
-        persist { [persistor] in try await persistor.saveOwner(o, profile: profile) }
+        // Swift 6 收敛：持久化闭包并发执行——捕获不可变快照而非 var
+        let ownerSnapshot = o
+        persist { [persistor] in try await persistor.saveOwner(ownerSnapshot, profile: profile) }
         stage = .addFamily      // FR21.9 ④（可跳过）
     }
 

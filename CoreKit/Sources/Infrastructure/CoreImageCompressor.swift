@@ -72,9 +72,10 @@ public final class CoreImageCompressor: ImageCompressing, SensitiveMediaProtecti
     public func requestAccess(_ mediaID: String, reason: String) async throws -> Bool {
         let success = try await LAContext().evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)
         if success {
-            mediaLock.lock()
-            protectedMedia.insert(mediaID)
-            mediaLock.unlock()
+            // Swift 6 收敛：async 上下文禁裸 lock/unlock（noasync），改 withLock 作用域锁
+            mediaLock.withLock {
+                _ = protectedMedia.insert(mediaID)
+            }
         }
         return success
     }

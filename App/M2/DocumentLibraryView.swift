@@ -361,8 +361,13 @@ final class DocumentsState {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             let data = try Data(contentsOf: url)
-            var texts: [String] = []
-            var failedPages = 0
+            // Swift 6 收敛：@Sendable 逐页回调内禁改捕获 var——串行累加器收集
+            // （decodePDFPages 逐页 await 回调、串行执行，无并发写）
+            final class ImportAccumulator: @unchecked Sendable {
+                var texts: [String] = []
+                var failedPages = 0
+            }
+            let acc = ImportAccumulator()
             // FR14.1 authOcr：授权关闭 → 不逐页识别（只归档，meta 标 skipped）
             let ocrOn = ocrAuthorized()
             if ocrOn {
@@ -373,14 +378,16 @@ final class DocumentsState {
                     // ADR-026：PDF 逐页识别同样经统一编排层
                     let result = (try? await self.pipeline.run(imageData: page.bitmapData))   // try?-ok: 单页失败继续下一页（FR6.6 汇总时标注）
                     if let result, !result.failed, result.hasText {
-                        texts.append(result.lines.joined(separator: "\n"))
+                        acc.texts.append(result.lines.joined(separator: "\n"))
                     } else {
                         // 引擎失败与无文字分别标注（FR6.6：失败必须可见，不静默）
-                        failedPages += 1
-                        texts.append("")
+                        acc.failedPages += 1
+                        acc.texts.append("")
                     }
                 }
             }
+            let texts = acc.texts
+            let failedPages = acc.failedPages
             let joined = texts.filter { !$0.isEmpty }.joined(separator: "\n---\n")
             let metaPayload = ["engine": ocrOn ? "vision" : "skipped-auth",
                                "page_count": texts.count,
