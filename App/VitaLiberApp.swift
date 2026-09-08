@@ -172,6 +172,12 @@ struct VitaLiberApp: App {
             syncService: container.healthSync,
             trends: container.trends,
             dataChange: dataChange))
+        // 审查修复：BackupState 此前从未装配——SP-24 打开即
+        // "No Observable object of type BackupState found" 崩溃。
+        // 且必须在此处先行赋值：下方 backgroundSyncHandler 的捕获列表
+        // [appState] 创建时求值（触 self）——本 State 是最后一个未初始化
+        // 存储属性，Swift 明确初始化纪律要求其先行（L1 34193285034）。
+        _backupState = State(initialValue: BackupState(service: container.backup))
         // FR16.1 V3.86 后台自动化同步：BGTask 注册（App init 唯一注册点，
         // 标识符已登记 Info.plist BGTaskSchedulerPermittedIdentifiers）+
         // 后台唤起执行体（BG 启动无 UI——以当前成员+默认安静时段执行；
@@ -188,9 +194,6 @@ struct VitaLiberApp: App {
             return report != nil
         }
         Task { await container.healthSync.startBackgroundObservation() }
-        // 审查修复：BackupState 此前从未装配——SP-24 打开即
-        // "No Observable object of type BackupState found" 崩溃
-        _backupState = State(initialValue: BackupState(service: container.backup))
     }
 
     var body: some Scene {
