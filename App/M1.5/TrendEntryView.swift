@@ -19,7 +19,10 @@ final class TrendEntryState {
     let store: TrendQueryStore
     /// FR7.4 排除/恢复审计（§5.29「动作记审计」；查询层把义务推给调用方，
     /// 调用方此前只接线了刷新——审计落空。未注入时（预览/测试）跳过）
-    private let audit: (any AuditLogging)?
+    /// internal：与 store 同理，MetricEntryView 扩展（排除接线）跨文件访问；
+    /// private 时跨文件 extension 不可见，裸名解析到 Darwin audit(2) 系统
+    /// 调用函数指针（L1 34292282776 实证，Linux parse 无法暴露）
+    let audit: (any AuditLogging)?
     /// 最近一次请求的成员（BR-001 成员隔离：只允许最新请求写回状态）
     private var loadingPatientId: UUID?
     /// 最近一次详情请求的指标键（与 loadingPatientId 同款守卫：同一成员下
