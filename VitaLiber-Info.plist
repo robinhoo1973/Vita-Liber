@@ -41,6 +41,14 @@
     <string>在您授权后，只读读取健康 App 中的睡眠、心率、血氧、呼吸率与步数，用于本地观察提示。数据仅在本机处理。</string>
     <key>NSHealthUpdateUsageDescription</key>
     <string>青囊书不会写入或修改您的健康数据；此说明用于满足 HealthKit 权限配置校验，应用仅读取指标用于本地观察提示。</string>
+    <key>BGTaskSchedulerPermittedIdentifiers</key>
+    <array>
+        <string>com.vitaliber.healthkit-sync</string>
+    </array>
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>processing</string>
+    </array>
     <key>UISupportedInterfaceOrientations</key>
     <array>
         <string>UIInterfaceOrientationPortrait</string>
