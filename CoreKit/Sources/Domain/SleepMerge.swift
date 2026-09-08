@@ -49,9 +49,13 @@ public struct SleepNightSummary: Sendable, Equatable {
     public var segmentCount: Int
     /// 命中的最高优先来源名（诊断呈现；无来源信息为 nil）
     public var prioritySource: String?
+    /// 归窗左边界（noon 锚窗口 [前日12:00, 当日12:00) 的左端；技术 §5.29
+    /// 睡眠聚合键 measured_at=窗口左边界语义——跨同步稳定，供幂等键锚定）
+    public var windowStart: Date?
     public init(totalAsleep: TimeInterval, perStage: [SleepStage: TimeInterval],
                 inBedTotal: TimeInterval, sleepStart: Date? = nil, sleepEnd: Date? = nil,
-                segmentCount: Int = 0, prioritySource: String? = nil) {
+                segmentCount: Int = 0, prioritySource: String? = nil,
+                windowStart: Date? = nil) {
         self.totalAsleep = totalAsleep
         self.perStage = perStage
         self.inBedTotal = inBedTotal
@@ -59,6 +63,7 @@ public struct SleepNightSummary: Sendable, Equatable {
         self.sleepEnd = sleepEnd
         self.segmentCount = segmentCount
         self.prioritySource = prioritySource
+        self.windowStart = windowStart
     }
 }
 
@@ -94,37 +99,47 @@ public enum SleepMerge {
         let priorityName = clipped.max { lhs, rhs in
             sourceRank(lhs) < sourceRank(rhs)
         }?.sourceName
-        // ③ 分期/未分期分流；分期并集
+        // ③ 分期/未分期分流；分期并集；清醒并集（awake 单独成桶）
         let staged = clipped.filter { [.core, .deep, .rem].contains($0.stage) }
         let unspecified = clipped.filter { $0.stage == .unspecified }
         let stagedUnion = union(staged.map { ($0.start, $0.end) })
-        // ④ 阶段优先：unspecified 逐段减去 staged 并集 → 浅睡未分期余段
+        let awakeUnion = union(clipped.filter { $0.stage == .awake }.map { ($0.start, $0.end) })
+        // ④ 阶段优先：unspecified 逐段减去 staged 并集与清醒并集 → 浅睡未分期
+        //    余段（入睡时长不含醒着的时间；awake 单独计入 perStage 供
+        //    sleep_awake 落库——此前 awake 样本静默丢弃，sleep_awake 行恒不产出）
         var unspecifiedRemainder: [(Date, Date)] = []
         for (s, e) in unspecified.map({ ($0.start, $0.end) }) {
-            unspecifiedRemainder.append(contentsOf: subtract(s, e, stagedUnion))
+            unspecifiedRemainder.append(contentsOf: subtract(s, e, stagedUnion + awakeUnion))
         }
-        // ⑤ 汇总
+        // ⑤ 汇总：各阶段按区间**并集**计时——双来源同夜分期样本（Watch +
+        //    第三方睡眠 App 同夜各写 core/deep/rem）按并集去重，杜绝按来源
+        //    求和双计（此前 spans.reduce 直接求和，重叠区间按来源重复累加）
         var perStage: [SleepStage: TimeInterval] = [:]
         for (stage, spans) in [(SleepStage.deep, staged.filter { $0.stage == .deep }),
                                (SleepStage.rem, staged.filter { $0.stage == .rem }),
                                (SleepStage.core, staged.filter { $0.stage == .core })] {
-            perStage[stage] = spans.reduce(0) { $0 + $1.end.timeIntervalSince($1.start) }
+            perStage[stage] = union(spans.map { ($0.start, $0.end) })
+                .reduce(0) { $0 + $1.1.timeIntervalSince($1.0) }
         }
+        perStage[.awake] = awakeUnion.reduce(0) { $0 + $1.1.timeIntervalSince($1.0) }
         let unspecifiedTotal = unspecifiedRemainder.reduce(0) { $0 + $1.1.timeIntervalSince($1.0) }
         perStage[.unspecified] = unspecifiedTotal
         let inBedUnion = union(clipped.filter { $0.stage == .inBed }.map { ($0.start, $0.end) })
         let asleepSpans = union((stagedUnion + unspecifiedRemainder).sorted { $0.0 < $1.0 })
         let totalAsleep = asleepSpans.reduce(0) { $0 + $1.1.timeIntervalSince($1.0) }
-        // ⑥ 分段计数：相邻入睡段 gap>30min 各成段
+        // ⑥ 分段计数：相邻入睡段 gap>30min 各成段——gap 按「前段结束→后段
+        //    开始」计（此前 lastEnd 记录的是前段**起点**，段长 >30min 时
+        //    下一段恒被判为新段：23:00-03:00 + 03:10-07:00 的 10min 醒来
+        //    被误计为 2 段）
         var segmentCount = 0
         var lastEnd: Date?
-        for (s, _) in asleepSpans.sorted(by: { $0.0 < $1.0 }) {
+        for (s, e) in asleepSpans.sorted(by: { $0.0 < $1.0 }) {
             if let lastEnd, s.timeIntervalSince(lastEnd) > segmentGap {
                 segmentCount += 1
             } else if lastEnd == nil {
                 segmentCount = 1
             }
-            lastEnd = max(lastEnd ?? s, s)
+            lastEnd = e
         }
         return SleepNightSummary(
             totalAsleep: totalAsleep,
@@ -133,7 +148,8 @@ public enum SleepMerge {
             sleepStart: asleepSpans.map(\.0).min(),
             sleepEnd: asleepSpans.map(\.1).max(),
             segmentCount: segmentCount,
-            prioritySource: priorityName)
+            prioritySource: priorityName,
+            windowStart: windowStart)
     }
 
     /// 区间并集（gap≤mergeGap 相接即合并）

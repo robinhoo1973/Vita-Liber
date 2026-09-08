@@ -106,7 +106,10 @@ extension TrendEntryState {
         loadingPatientId = patientId
         if let rows = try? await store.latestPerMetric(patientId: patientId) {   // try?-ok: 读取失败按空态渲染，不阻断总览页
             guard loadingPatientId == patientId else { return }
-            latestMetrics = rows
+            // 只保留有趋势详情页的指标（MetricType 注册表覆盖）——设备入库
+            // 的 steps/sleep_total 等无详情页键不产瓷片（否则 raw 键瓷片 +
+            // 点入详情被 MetricType(rawValue:) 守卫拒载，L10n 单出口被破坏）
+            latestMetrics = rows.filter { MetricType(rawValue: $0.metricKey) != nil }
         } else {
             // 审查修复：当前请求失败时清空——否则上一成员的宫格数据
             // 在新成员名下持续渲染（BR-001）；过期请求的失败不触碰新数据
@@ -122,7 +125,7 @@ extension TrendEntryState {
         guard loadingPatientId == patientId else { return }
         if let rows = try? await store.latestPerMetric(patientId: patientId) {   // try?-ok: 读取失败按空态渲染，不阻断总览页
             guard loadingPatientId == patientId else { return }
-            latestMetrics = rows
+            latestMetrics = rows.filter { MetricType(rawValue: $0.metricKey) != nil }   // 与 loadLatest 同款过滤
         }
     }
 

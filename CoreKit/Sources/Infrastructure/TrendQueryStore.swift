@@ -94,6 +94,9 @@ public actor TrendQueryStore {
     /// 同一窗口重拉 upsert（INSERT ... ON CONFLICT 需要唯一索引才能生效，
     /// 此处以「先查后插」实现幂等：同键已有行则 UPDATE 值域——同步重放
     /// 不产生重复行也不丢更完整的后到数据）。单事务（UnitOfWork 语义）。
+    /// 键归一化：设备侧 snake_case 键（heart_rate 等）经 MetricType(grammarKey:)
+    /// 映射为趋势层 camelCase rawValue（heartRate）——与手输同键同系列，
+    /// 否则宫格出现并列第二块未本地化 raw 键瓷片、详情页拒载（K1 修复）。
     public func addDeviceSamples(patientId: UUID,
                                  rows: [DeviceMetricRow]) async throws -> Int {
         // Swift 6 收敛：写闭包并发执行——计数为闭包局部量、随返回值传出
@@ -101,12 +104,15 @@ public actor TrendQueryStore {
         return try await writer.write { db -> Int in
             var inserted = 0
             for row in rows {
+                // 键归一化：趋势层单一事实源 MetricType 覆盖的键统一到 rawValue；
+                // 未覆盖键（steps/sleep_total 等无趋势页指标）保持原键
+                let metricKey = MetricType(grammarKey: row.metricKey)?.rawValue ?? row.metricKey
                 let existing = try Row.fetchOne(db, sql: """
                     SELECT id, value FROM metric_sample
                     WHERE patient_id = ? AND metric_key = ? AND measured_at = ?
                       AND (source_name = ? OR (source_name IS NULL AND ? IS NULL))
                     LIMIT 1
-                    """, arguments: [patientId.uuidString, row.metricKey,
+                    """, arguments: [patientId.uuidString, metricKey,
                                      row.measuredAt.timeIntervalSince1970,
                                      row.sourceName, row.sourceName])
                 if let existing {
@@ -118,20 +124,31 @@ public actor TrendQueryStore {
                         WHERE id = ?
                         """, arguments: [row.value, row.valueMin, row.valueMax, row.sampleCount,
                                          row.sourceVersion, row.sourceProduct, existing["id"]])
-                    continue
+                } else {
+                    try db.execute(sql: """
+                        INSERT INTO metric_sample
+                          (id, patient_id, metric_key, value, secondary_value, unit, origin,
+                           self_measured, excluded, value_min, value_max, sample_count,
+                           source_name, source_version, source_product, measured_at, created_at)
+                        VALUES (?, ?, ?, ?, NULL, ?, 'device', 1, 0, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, arguments: [UUID().uuidString, patientId.uuidString, metricKey,
+                                         row.value, row.unit, row.valueMin, row.valueMax,
+                                         row.sampleCount, row.sourceName, row.sourceVersion,
+                                         row.sourceProduct, row.measuredAt.timeIntervalSince1970,
+                                         Date().timeIntervalSince1970])
+                    inserted += 1
                 }
+                // 同窗旧来源行清理：同一 (metric_key, measured_at) 只保留最新
+                // 聚合行（来源占多翻转/重放时旧 partial 行删除，手输行 origin
+                // 非 device 不受影响）
                 try db.execute(sql: """
-                    INSERT INTO metric_sample
-                      (id, patient_id, metric_key, value, secondary_value, unit, origin,
-                       self_measured, excluded, value_min, value_max, sample_count,
-                       source_name, source_version, source_product, measured_at, created_at)
-                    VALUES (?, ?, ?, ?, NULL, ?, 'device', 1, 0, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, arguments: [UUID().uuidString, patientId.uuidString, row.metricKey,
-                                     row.value, row.unit, row.valueMin, row.valueMax,
-                                     row.sampleCount, row.sourceName, row.sourceVersion,
-                                     row.sourceProduct, row.measuredAt.timeIntervalSince1970,
-                                     Date().timeIntervalSince1970])
-                inserted += 1
+                    DELETE FROM metric_sample
+                    WHERE patient_id = ? AND metric_key = ? AND measured_at = ?
+                      AND origin = 'device'
+                      AND NOT (source_name IS ? OR (source_name IS NULL AND ? IS NULL))
+                    """, arguments: [patientId.uuidString, metricKey,
+                                     row.measuredAt.timeIntervalSince1970,
+                                     row.sourceName, row.sourceName])
             }
             return inserted
         }

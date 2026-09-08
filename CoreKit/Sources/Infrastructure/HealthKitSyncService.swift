@@ -111,15 +111,21 @@ public actor HealthKitSyncService {
         await reader.authorizationStatus() == .sharingAuthorized
     }
 
-    /// 前台锚点增量判断：任一类型自上次锚点以来有新样本即返回 true。
-    /// 首跑（无锚）恒 true（全量初始化，防洪流：首跑只聚合近 24h 窗口）。
+    /// 前台锚点增量判断：任一类型自上次锚点以来有新样本**或删除事件**
+    /// 即返回 true（删除需重跑全窗聚合——被删读数参与的窗口行必须重算，
+    /// 只查 added 会把删除事件短回路掉）。首跑（无锚）恒 true（全量初始化，
+    /// 防洪流：首跑只聚合近 24h 窗口）。探测失败也按「有新数据」返回
+    /// true——绝不因探测失败跳过同步（此前 try? 失败落到 return false，
+    /// 与注释承诺相反）。
     public func hasNewData() async -> Bool {
         for type in HealthKitReader.readTypes {
             guard let sampleType = type as? HKSampleType else { continue }
             guard let anchor = await loadAnchor(key: anchorKey(type)) else { return true }
-            if let changes = try? await reader.anchoredChanges(type: sampleType, anchor: anchor),   // try?-ok: 单类型锚点探测失败按「有新数据」继续，绝不因探测失败跳过同步
-               !changes.added.isEmpty {
-                return true
+            do {
+                let changes = try await reader.anchoredChanges(type: sampleType, anchor: anchor)
+                if !changes.added.isEmpty || !changes.deleted.isEmpty { return true }
+            } catch {
+                return true   // 探测失败按「有新数据」继续，绝不因探测失败跳过同步
             }
         }
         return false
@@ -144,7 +150,7 @@ public actor HealthKitSyncService {
                    now < DayArithmetic.offset(days: 1, from: last) { continue }
                 let alertId = "alert-\(event.id.uuidString)"
                 guard !delivered.contains(alertId) else { continue }
-                if event.severity == .L1 && Self.isQuietHours(start: quietStart, end: quietEnd, now: now) {
+                if event.severity == .L1 && QuietHoursRules.isActive(start: quietStart, end: quietEnd, now: now) {
                     continue
                 }
                 try await scheduler.schedule(dose: alertId, at: now.addingTimeInterval(5),
@@ -176,16 +182,22 @@ public actor HealthKitSyncService {
 
     // MARK: - 后台调度与锚点持久化
 
-    private func scheduleBackgroundRefresh() {
+    /// 提交一次后台刷新请求。BGAppRefreshTask 是一次性任务：执行完成后必须
+    /// 重新提交（后台执行体经 backgroundSyncHandler 完成后补投），否则
+    /// 后台链只跑一次即死；观察回调新数据到达时也会投递。
+    public func scheduleBackgroundRefresh() {
         let request = BGAppRefreshTaskRequest(identifier: Self.bgTaskIdentifier)
         request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
         try? BGTaskScheduler.shared.submit(request)   // try?-ok: 调度失败（系统忙）不阻断观察回调，前台兜底路径仍可用
     }
 
     private func enableBackgroundDelivery() async {
-        guard let hrType = HKQuantityType.quantityType(forIdentifier: .heartRate) else { return }
-        _ = try? await healthStore.enableBackgroundDelivery(for: hrType,   // try?-ok: 投递注册失败回落手动/前台路径，不阻断
-                                                            frequency: .hourly)
+        // 全部六类开启 hourly 后台投递（此前仅心率——睡眠/血氧/步数变更
+        // 永远不触发观察回调，后台链对非心率指标恒空转）
+        for type in HealthKitReader.readTypes {
+            _ = try? await healthStore.enableBackgroundDelivery(for: type,   // try?-ok: 投递注册失败回落手动/前台路径，不阻断
+                                                                frequency: .hourly)
+        }
     }
 
     /// 锚点 key：`hk.{typeIdentifier}`（patient 维度不参与——HealthKit 为设备级）
@@ -214,20 +226,6 @@ public actor HealthKitSyncService {
                                                        updated_at = excluded.updated_at
                 """, arguments: [key, encoded, Date().timeIntervalSince1970])
         }
-    }
-
-    /// 安静时段判定（跨午夜区间；start==end 非法窗口按失败开放——绝不静默吞预警）
-    static func isQuietHours(start: String, end: String, now: Date = Date()) -> Bool {
-        guard let s = hourOf(start), let e = hourOf(end), s != e else { return false }
-        let hour = Calendar.current.component(.hour, from: now)
-        return s < e ? (hour >= s && hour < e) : (hour >= s || hour < e)
-    }
-
-    private static func hourOf(_ hhmm: String) -> Int? {
-        let parts = hhmm.split(separator: ":")
-        guard parts.count == 2, let h = Int(parts[0]), let m = Int(parts[1]),
-              (0...23).contains(h), (0...59).contains(m) else { return nil }
-        return h
     }
 }
 #endif

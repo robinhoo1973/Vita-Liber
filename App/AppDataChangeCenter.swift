@@ -12,24 +12,16 @@ import SwiftUI
 @MainActor
 @Observable
 final class AppDataChangeCenter {
-    /// 文档保存信号（FR11.4 懒创建触发携带）：病历类文档保存成功后由
-    /// 确认卡消费（派生候选健康问题名 → 用户确认落库）。
-    struct SavedDocumentSignal: Sendable, Equatable {
-        var documentId: UUID
-        /// 稳定类型键（DocumentTypeClassifierFallback 键族）
-        var docTypeKey: String
-        /// 病历类判定（HealthProblemDerivation 触发条件）
-        var isClinical: Bool
-    }
-
     private(set) var documentsVersion: UInt64 = 0
     private(set) var metricsVersion: UInt64 = 0
-    private(set) var lastSavedDocument: SavedDocumentSignal?
 
-    /// OCR/文档确认保存成功后 +1（携带 FR11.4 懒创建信号）。
-    func documentSaved(_ signal: SavedDocumentSignal?) {
+    /// OCR/文档确认保存成功后 +1（触发健康资料/时间轴/健康问题页重载）。
+    /// FR11.4 懒创建触发判定由确认卡按**保存时** docType 判定
+    /// （DocumentsState.isClinicalDocType）——不再经本中心全局槽位透传
+    /// （共享可变槽永不清理 = 后来者误读「最近一次保存」；docTypeKey
+    /// 写入后无任何读者，属死载荷）。
+    func documentSaved() {
         documentsVersion &+= 1
-        lastSavedDocument = signal
     }
 
     /// 设备读数落库后 +1（趋势/指标宫格失效标记）。

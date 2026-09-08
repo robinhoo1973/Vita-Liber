@@ -1263,13 +1263,6 @@
 "voicePanel.title" = "Voice Notes";
 "voicePanel.hint" = "Pick a target: record a metric, observation, reminder or profile in one sentence (all on-device)";
 "voicePanel.start" = "Enter";
-"voiceTarget.metric" = "Metric";
-"voiceTarget.observation" = "Observation";
-"voiceTarget.question" = "Doctor question";
-"voiceTarget.ai" = "Ask AI";
-"voiceTarget.reminder" = "Reminder";
-"voiceTarget.profile" = "Profile";
-"voiceTarget.anyText" = "Free text";
 "observation.followUp.set" = "Set follow-up reminder (compare/recheck in N days)";
 "observation.detail.capturedAt" = "Captured at";
 "observation.detail.member" = "Member";
@@ -1491,6 +1484,7 @@
 "oc.field.dept" = "Department";
 "oc.field.reportDate" = "Date";
 "oc.field.labItem" = "Lab Item";
+"oc.field.referenceRange" = "Reference Range";
 "oc.field.chiefComplaint" = "Chief Complaint";
 "oc.field.diagnosis" = "Diagnosis";
 "oc.field.treatment" = "Treatment";

@@ -81,9 +81,12 @@ public actor HealthKitReader {
             }
         }
         if let hrType = HKQuantityType.quantityType(forIdentifier: .heartRate) {
+            // newestFirst：HKSampleQuery 升序 + limit 返回窗口内**最旧** N 条——
+            // 高采样日（运动 5s 一条）最新读数反而被截掉，评估/入库全看旧值
             let samples = try await querySamples(type: hrType,
                                                  unit: HKUnit.count().unitDivided(by: .minute()),
-                                                 from: start, to: now, limit: 1500)
+                                                 from: start, to: now, limit: 1500,
+                                                 newestFirst: true)
             for (value, at, source) in samples {
                 readings.append(MetricReading(metricKey: "heart_rate",
                                               value: value, unit: "bpm",
@@ -154,9 +157,11 @@ public actor HealthKitReader {
         var rows: [DeviceMetricRow] = []
         // 心率：原始分钟级样本 → Domain 小时窗口聚合（value=avg + min/max + count）
         if let hrType = HKQuantityType.quantityType(forIdentifier: .heartRate) {
+            // newestFirst：升序 + limit 截掉的是**最新**样本（见 recentReadings 同款说明）
             let samples = try await querySamples(type: hrType,
                                                  unit: HKUnit.count().unitDivided(by: .minute()),
-                                                 from: start, to: now, limit: 1500)
+                                                 from: start, to: now, limit: 1500,
+                                                 newestFirst: true)
             // 按小时+来源分组：同窗口多来源取样本数最多的来源为主键（幂等键含来源）
             var bucketSources: [Date: [String: Int]] = [:]
             var windowSamples: [Date: [HourWindowSample]] = [:]
@@ -260,34 +265,45 @@ public actor HealthKitReader {
             }
             store.execute(query)
         }
-        // noon 锚归晚：按样本结束日的自然日分组（merge 内部取前一日 12:00 窗）
+        // noon 锚归晚：锚日 = 样本结束日 ∪ 结束日+1。午后小睡（13:00-14:00）
+        // 落在锚日窗口 [前日12:00, 当日12:00) 之外，只按结束日分组会被裁空
+        // 静默丢弃（同步先于次日夜间样本、无次日样本、窗口过期均触发）——
+        // 并入「结束日+1」后由次日窗口承接；夜间样本在次日窗口自然裁空跳过。
+        var anchorDays = Set(samples.map { calendar.startOfDay(for: $0.end) })
+        for day in Array(anchorDays) {
+            if let next = calendar.date(byAdding: .day, value: 1, to: day) {
+                anchorDays.insert(next)
+            }
+        }
         var rows: [DeviceMetricRow] = []
-        for day in Set(samples.map { calendar.startOfDay(for: $0.end) }) {
+        for day in anchorDays {
             let summary = SleepMerge.merge(samples, anchorDate: day, calendar: calendar)
             guard summary.totalAsleep > 0 || summary.inBedTotal > 0 else { continue }
-            let anchor = summary.sleepStart ?? day
+            // 幂等锚定：measuredAt = 归窗左边界（tech §5.29 窗口左边界语义，
+            // 跨同步稳定——午后小睡归入次日窗口时左边界仍在其当日 12:00，
+            // 不会漂移到次日零点）。锚 sleepStart 会随后到来源回填（Watch
+            // 分期晚于 iPhone 整夜样本）而漂移，幂等键失配 → 同夜重复行、
+            // 趋势双计。sourceName 置 nil：睡眠行是跨来源**并集**摘要，
+            // 非单一来源行（来源优先链仅诊断用）。
+            let anchor = summary.windowStart ?? calendar.startOfDay(for: day)
             if summary.totalAsleep > 0 {
                 rows.append(DeviceMetricRow(metricKey: "sleep_total",
                                             value: summary.totalAsleep / 3600, unit: "h",
-                                            sourceName: summary.prioritySource,
                                             measuredAt: anchor))
             }
             if let deep = summary.perStage[.deep], deep > 0 {
                 rows.append(DeviceMetricRow(metricKey: "sleep_deep",
                                             value: deep / 3600, unit: "h",
-                                            sourceName: summary.prioritySource,
                                             measuredAt: anchor))
             }
             if let rem = summary.perStage[.rem], rem > 0 {
                 rows.append(DeviceMetricRow(metricKey: "sleep_rem",
                                             value: rem / 3600, unit: "h",
-                                            sourceName: summary.prioritySource,
                                             measuredAt: anchor))
             }
             if let awake = summary.perStage[.awake], awake > 0 {
                 rows.append(DeviceMetricRow(metricKey: "sleep_awake",
                                             value: awake / 3600, unit: "h",
-                                            sourceName: summary.prioritySource,
                                             measuredAt: anchor))
             }
         }
@@ -324,12 +340,15 @@ public actor HealthKitReader {
     }
 
     /// 单类型样本查询（时间升序；单位由调用方按指标语义给定）。
+    /// newestFirst=true 时按时间**降序**取前 limit 条（窗口内最新样本，
+    /// 高采样指标用——升序 + limit 会截掉最新读数而非最旧）。
     /// 返回 (值, 时刻, 来源修订)——来源三键供幂等键与展示徽章。
     private func querySamples(type: HKQuantityType, unit: HKUnit,
                               from: Date, to: Date,
-                              limit: Int = 100) async throws -> [(Double, Date, HKSourceRevision?)] {
+                              limit: Int = 100,
+                              newestFirst: Bool = false) async throws -> [(Double, Date, HKSourceRevision?)] {
         let predicate = HKQuery.predicateForSamples(withStart: from, end: to, options: [])
-        let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: true)
+        let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: !newestFirst)
         return try await withCheckedThrowingContinuation { continuation in
             let query = HKSampleQuery(sampleType: type, predicate: predicate,
                                       limit: limit, sortDescriptors: [sort]) { _, samples, error in

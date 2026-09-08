@@ -1263,13 +1263,6 @@
 "voicePanel.title" = "语音速记";
 "voicePanel.hint" = "选择目标：一句话完成指标、观察、提醒或档案录入（全部在本机识别）";
 "voicePanel.start" = "进入";
-"voiceTarget.metric" = "指标";
-"voiceTarget.observation" = "观察";
-"voiceTarget.question" = "问诊问题";
-"voiceTarget.ai" = "AI 提问";
-"voiceTarget.reminder" = "提醒设定";
-"voiceTarget.profile" = "档案设定";
-"voiceTarget.anyText" = "任意文本";
 "observation.followUp.set" = "设置随访提醒（N 天后对比/复查）";
 "observation.detail.capturedAt" = "拍摄时间";
 "observation.detail.member" = "归属人";
@@ -1491,6 +1484,7 @@
 "oc.field.dept" = "科室";
 "oc.field.reportDate" = "日期";
 "oc.field.labItem" = "检查项";
+"oc.field.referenceRange" = "参考范围";
 "oc.field.chiefComplaint" = "主诉";
 "oc.field.diagnosis" = "诊断";
 "oc.field.treatment" = "处理";

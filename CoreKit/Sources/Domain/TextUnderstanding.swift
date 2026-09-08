@@ -12,8 +12,10 @@ public struct TextUnderstandingInput: Sendable, Equatable {
         /// F6：可选类型提示（仅用户显式指定时）；默认 nil——文档类型由本层
         /// 判定输出（D 级草稿），不前置指定（V1.3 去向前置）
         case ocr(documentTypeHint: String?)
-        /// F17：可选意图预选
-        case voice(intentHint: String?)
+        /// F17：可选意图预选 + 转写置信度（SFSpeechRecognizer 实测值 0..1；
+        /// 缺省 0.9 向后兼容既有构造点。此前置信度被丢弃、引擎恒按 0.9 分类，
+        /// 低置信转写永远过不了 <0.5 复核闸——BR-003 复核纪律被架空）
+        case voice(intentHint: String? = nil, confidence: Double = 0.9)
     }
     /// OCR=整份拼接文本；语音=整句转写
     public var text: String
@@ -29,6 +31,14 @@ public struct TextUnderstandingInput: Sendable, Equatable {
         self.lines = lines
         self.source = source
         self.locale = locale
+    }
+
+    /// 语音来源携带的转写置信度（0..1；OCR 侧为 nil）
+    public var transcriptionConfidence: Double? {
+        switch source {
+        case .voice(_, let confidence): return confidence
+        case .ocr: return nil
+        }
     }
 }
 
@@ -68,13 +78,19 @@ public struct UnderstandingResult: Sendable, Equatable {
     public var secondaryTargets: [TargetCandidate]
     /// 确认卡唯一消费形（全 D 级）
     public var fields: [FieldDraft]
+    /// OCR 专用：已命中语义字段的**行下标**（供调用方对未命中行做 line_N
+    /// 兜底而不必重跑启发式抽取——此前引擎算完即弃 `_ = claimed`，App 层
+    /// 被迫复制同一套 guessFields 循环，两处独立演化即字段漂移）
+    public var claimedLineIndices: Set<Int>
 
     public init(suggestedTarget: String?, targetConfidence: Double,
-                secondaryTargets: [TargetCandidate] = [], fields: [FieldDraft]) {
+                secondaryTargets: [TargetCandidate] = [], fields: [FieldDraft],
+                claimedLineIndices: Set<Int> = []) {
         self.suggestedTarget = suggestedTarget
         self.targetConfidence = targetConfidence
         self.secondaryTargets = secondaryTargets
         self.fields = fields
+        self.claimedLineIndices = claimedLineIndices
     }
 }
 
@@ -102,13 +118,17 @@ public enum UnderstandingCodeResolution {
             }
             var resolved = field
             do {
-                if let code = try await CodeResolver.resolve(field.value, locale: locale, index: index) {
+                // lab_item 载荷为「名称 数值」合体（确认卡编辑形态）——先拆
+                // 名称/数值：合体串别名不命中且 Double(合体) 恒 nil，此前
+                // 接线恒空转（名称别名与读数联合解析双双落空）
+                let (name, number) = splitReading(field.value)
+                if let code = try await CodeResolver.resolve(name, locale: locale, index: index) {
                     resolved.codeResolution = code
                     if resolved.source == nil { resolved.source = .f25CodeResolver }
-                } else if let unit = field.unit, !unit.isEmpty {
+                } else if let unit = field.unit, !unit.isEmpty, let number {
                     // FR25.2 读数联合解析：名称+数值+单位（单位参与定码）
                     let reading = try await CodeResolver.resolveReading(
-                        raw: field.value, value: field.value, unit: unit,
+                        raw: name, value: number, unit: unit,
                         locale: locale, index: index, units: units)
                     resolved.codeResolution = reading.resolution
                 }
@@ -118,5 +138,15 @@ public enum UnderstandingCodeResolution {
             out.append(resolved)
         }
         return out
+    }
+
+    /// 「名称 数值」合体载荷 → (名称, 数值串)。尾段空白分隔组件可 Double
+    /// 解析即视为数值；纯数值/纯名称返回 (原串, nil/原串)。
+    static func splitReading(_ value: String) -> (name: String, number: String?) {
+        let parts = value.split(whereSeparator: { $0.isWhitespace })
+        guard parts.count > 1, let last = parts.last, Double(last) != nil else {
+            return (value, nil)
+        }
+        return (parts.dropLast().joined(separator: " "), String(last))
     }
 }

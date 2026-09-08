@@ -1263,13 +1263,6 @@
 "voicePanel.title" = "語音速記";
 "voicePanel.hint" = "選擇目標：一句話完成指標、觀察、提醒或檔案錄入（全部在本機辨識）";
 "voicePanel.start" = "進入";
-"voiceTarget.metric" = "指標";
-"voiceTarget.observation" = "觀察";
-"voiceTarget.question" = "問診問題";
-"voiceTarget.ai" = "AI 提問";
-"voiceTarget.reminder" = "提醒設定";
-"voiceTarget.profile" = "檔案設定";
-"voiceTarget.anyText" = "任意文字";
 "observation.followUp.set" = "設定隨訪提醒（N 天後對比/複查）";
 "observation.detail.capturedAt" = "拍攝時間";
 "observation.detail.member" = "歸屬人";
@@ -1491,6 +1484,7 @@
 "oc.field.dept" = "科室";
 "oc.field.reportDate" = "日期";
 "oc.field.labItem" = "檢查項";
+"oc.field.referenceRange" = "參考範圍";
 "oc.field.chiefComplaint" = "主訴";
 "oc.field.diagnosis" = "診斷";
 "oc.field.treatment" = "處理";

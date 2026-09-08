@@ -190,7 +190,8 @@ struct VoiceConfirmSheet: View {
                             Text(L10n.voiceIntentName(target))
                             Image(systemName: "chevron.down").font(.caption2)
                         }
-                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .padding(.horizontal, 8)
+                        .frame(minHeight: 44)   // 触控目标 ≥44pt（ui-ux §3.3）
                         .background(Capsule().fill(Color("grade-d", bundle: .main).opacity(0.15)))
                     }
                     GradeBadge(grade: "D")
@@ -213,7 +214,8 @@ struct VoiceConfirmSheet: View {
                                 onJudgedTargetChange?(key)
                             }
                             .font(.caption)
-                            .padding(.horizontal, 10).padding(.vertical, 4)
+                            .padding(.horizontal, 10)
+                            .frame(minHeight: 44)   // 触控目标 ≥44pt（ui-ux §3.3）
                             .background(Capsule().fill(Color("bg-grouped", bundle: .main)))
                             .overlay(Capsule().strokeBorder(
                                 Color("grade-d", bundle: .main),
@@ -465,12 +467,10 @@ enum VoiceIntentDispatch {
         VoiceIntentKey.unknown.rawValue,
     ]
 
-    /// 低置信/无法判定时的候选去向行（兜底轨可自动分类子集 ∩ 可分发）
-    static let candidateKeys: [String] = [
-        VoiceIntentKey.recordMetric.rawValue,
-        VoiceIntentKey.createReminder.rawValue,
-        VoiceIntentKey.appendProfile.rawValue,
-        VoiceIntentKey.appendNote.rawValue,
-        VoiceIntentKey.unknown.rawValue,
-    ]
+    /// 低置信/无法判定时的候选去向行 = 可分发 ∩ 兜底轨可自动分类——
+    /// 由意图目录 classifiableFallback 派生（Domain 单一事实源，不再手维护
+    /// 第二份键表；目录增意图自动进候选行）
+    static let candidateKeys: [String] = VoiceIntentCatalog.entries
+        .filter { dispatchableKeys.contains($0.key.rawValue) && $0.classifiableFallback }
+        .map(\.key.rawValue)
 }

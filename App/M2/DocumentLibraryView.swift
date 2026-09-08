@@ -50,11 +50,6 @@ final class DocumentsState {
     private let problemStore: HealthProblemStore?
     /// 类型化数据变更信号（保存成功后 documentsVersion+1 触发跨页刷新）
     private let dataChange: AppDataChangeCenter?
-    /// FR11.4 懒创建触发信号透传（AppDataChangeCenter 持有）——确认卡消费
-    /// （V3.49：病历类保存成功 → 「创建健康问题」入口，候选名 Domain 派生）
-    var lastSavedDocument: AppDataChangeCenter.SavedDocumentSignal? {
-        dataChange?.lastSavedDocument
-    }
     private var loadingPatientId: UUID?
 
     init(store: DocumentStore, pipeline: OCRPipeline,
@@ -114,12 +109,6 @@ final class DocumentsState {
         var qualityTags: [String]
         var confirmationSet: OcrConfirmationSet
         var isPrescription: Bool
-        /// FR17.18 判定稳定类型键（V3.49）：nil=无法判定（确认卡引导选择；
-        /// 低置信不落 doc_type，§8.6 断言④）
-        var stableTypeKey: String? = nil
-        /// FR11.4 懒创建触发判定：病历类文档保存成功后向用户提供
-        /// 「创建健康问题」入口（Domain 纯函数派生候选名）
-        var isClinicalType: Bool = false
         /// 「替换」裁决的旧文档（第四轮全仓审查修复：旧版归档延后到新版本
         /// 确认入库**之后**——此前 resolveDuplicate 先归档旧版再弹确认卡，
         /// 用户取消 = 旧版已从活跃列表消失 + 新版未入库，资料凭空少一份）
@@ -253,8 +242,6 @@ final class DocumentsState {
         var fields: [CandidateField] = []
         var tags: [String] = []
         var effectiveDocType = docType
-        var stableTypeKey: String?
-        var isClinicalType = false
         var isPrescription = PrescriptionFieldMapper.isPrescriptionDocType(
             docType, prescriptionLabel: prescriptionDocTypeLabel)
         if ocrAuthorized() {
@@ -267,14 +254,17 @@ final class DocumentsState {
                     return nil
                 }
                 // FR17.18：类型判定（D 级建议，可改；低置信/零命中由确认卡
-                // 引导选择，入口 hint 仅作提示输入）
+                // 引导选择，入口 hint 仅作提示输入）。判定应用门槛（§8.6
+                // 断言④）：单命中 0.6 中档需复核——不得推翻用户显式选择的
+                // 入口类型（处方被 0.6 误判为检验报告 = 处方行静默跳过；
+                // 检验报告被误判为处方 = 药名字段解析错位）。≥0.75（≥2 行
+                // 证据）才采纳判定覆盖 docType。
                 let understanding = await understandingEngine.understand(
                     TextUnderstandingInput(text: result.lines.joined(separator: "\n"),
                                            lines: result.lines,
                                            source: .ocr(documentTypeHint: docType)))
-                if let judged = understanding.suggestedTarget {
-                    stableTypeKey = judged
-                    isClinicalType = DocumentTypeClassifierFallback.isClinicalType(judged)
+                if let judged = understanding.suggestedTarget,
+                   understanding.targetConfidence >= 0.75 {
                     let judgedLabel = Self.docTypeLabel(forStableKey: judged)
                     if let judgedLabel {
                         effectiveDocType = judgedLabel
@@ -285,13 +275,18 @@ final class DocumentsState {
                 if isPrescription {
                     fields = PrescriptionFieldMapper.draftFields(from: result.lines, labels: Self.prescriptionLabels)
                 } else {
-                    // 启发式语义字段（Domain 纯函数）；未命中行 line_N 兜底
-                    var claimed = Set<Int>()
-                    var draftFields: [FieldDraft] = []
-                    for (idx, line) in result.lines.enumerated() {
-                        for draft in DocumentTypeClassifierFallback.guessFields(line: line) {
-                            claimed.insert(idx)
-                            draftFields.append(draft)
+                    // 理解层字段直接消费（引擎侧已含启发式抽取/零命中 line_N
+                    // 草稿与已认领行下标——不再 App 侧重跑同一套 guessFields，
+                    // 两处独立演化即字段漂移）；契约桩（测试/非 Apple）产出
+                    // 为空时回落本地同源 Domain 纯函数抽取，语义一致
+                    var draftFields = understanding.fields
+                    var claimed = understanding.claimedLineIndices
+                    if draftFields.isEmpty && claimed.isEmpty {
+                        for (idx, line) in result.lines.enumerated() {
+                            for draft in DocumentTypeClassifierFallback.guessFields(line: line) {
+                                claimed.insert(idx)
+                                draftFields.append(draft)
+                            }
                         }
                     }
                     // F25 惰性接线（医疗槽位过 CodeResolver；FR17.18 首个
@@ -324,8 +319,14 @@ final class DocumentsState {
                            origin: origin, sha256: sha256, originalData: originalData, processedData: processedData,
                            mimeType: mimeType, qualityTags: tags,
                            confirmationSet: OcrConfirmationSet(fields: fields),   // confirm-ok: F6/F9 图片入库 OCR 确认集是合法产出方（非语音路径），FR17.13 只约束语音草稿确认
-                           isPrescription: isPrescription, stableTypeKey: stableTypeKey,
-                           isClinicalType: isClinicalType, replaceDocumentId: replaceDocumentId)
+                           isPrescription: isPrescription, replaceDocumentId: replaceDocumentId)
+    }
+
+    /// FR11.4 懒创建触发判定（病历类 = 检验报告/门诊病历标签；按**保存时**
+    /// docType 判定——确认卡 Picker 改类后判定随之更新，不冻结 buildDraft
+    /// 时刻的分类快照：改离病历类不再弹「创建健康问题」，改入则补上）
+    func isClinicalDocType(_ label: String) -> Bool {
+        label == L10n.docTypeReport || label == L10n.docTypeRecord
     }
 
     /// 稳定类型键 → 文档类型标签（App 层映射；键族单一事实源在
@@ -344,6 +345,7 @@ final class DocumentsState {
         switch key {
         case "dept": return L10n.ocFieldDept
         case "report_date": return L10n.ocFieldReportDate
+        case "reference_range": return L10n.ocFieldReferenceRange
         case "lab_item": return L10n.ocFieldLabItem
         case "chief_complaint": return L10n.ocFieldChiefComplaint
         case "diagnosis": return L10n.ocFieldDiagnosis
@@ -382,7 +384,13 @@ final class DocumentsState {
                                              sha256: draft.sha256, mimeType: draft.mimeType, origin: draft.origin,
                                              isSensitive: draft.isSensitive, metaJSON: metaJSON, title: draft.title,
                                              ocrText: ocrText.isEmpty ? nil : ocrText, grade: "C")
-            if draft.isPrescription, let prescriptionStore {
+            // 处方行写入判定按**保存时**的 docType 重算（Domain 纯函数）：
+            // 确认卡类型 Picker 改类必须生效——buildDraft 的 isPrescription
+            // 只是草稿建议，用户改回处方但旧值仍 false 时处方行被静默跳过；
+            // 反之改离处方则不再写处方行。此前 Picker 修正对处方行无效。
+            let isPrescription = PrescriptionFieldMapper.isPrescriptionDocType(
+                draft.docType, prescriptionLabel: prescriptionDocTypeLabel)
+            if isPrescription, let prescriptionStore {
                 let (hospital, doctor, adviceText) = PrescriptionFieldMapper.buildAdviceText(confirmed: draft.confirmationSet.confirmedFields,
                                                                                              labels: Self.prescriptionLabels)
                 do {
@@ -412,11 +420,9 @@ final class DocumentsState {
             }
             await load(patientId: draft.patientId)
             // FR17.18 保存后跨页刷新（V3.49）：类型化变更信号 +1——健康资料/
-            // 时间轴/健康问题页据 documentsVersion 失效重载；lastSavedDocument
-            // 携带 FR11.4 懒创建触发信息（病历类 + 稳定类型键）
-            dataChange?.documentSaved(AppDataChangeCenter.SavedDocumentSignal(
-                documentId: docId, docTypeKey: draft.stableTypeKey ?? "",
-                isClinical: draft.isClinicalType))
+            // 时间轴/健康问题页据 documentsVersion 失效重载。FR11.4 懒创建
+            // 触发判定由确认卡按保存时 docType 判定（isClinicalDocType）
+            dataChange?.documentSaved()
         } catch {
             lastImportError = L10n.docImportFailed
         }

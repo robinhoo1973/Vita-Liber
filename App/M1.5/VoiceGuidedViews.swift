@@ -62,9 +62,17 @@ struct VoiceReminderDraftView: View {
             // 确认字段回填转写输入，本页二次核对后走本页自己的确认
             if let draft = router.pendingVoiceIntent {
                 router.pendingVoiceIntent = nil
-                if transcript.isEmpty,
-                   let content = draft.keyedValues["content"], !content.isEmpty {
-                    transcript = content
+                if transcript.isEmpty {
+                    if let content = draft.keyedValues["content"], !content.isEmpty {
+                        transcript = content
+                    } else {
+                        // 提醒文法槽位无 content 键（hour/date/time/repeat）——
+                        // 此前恒查 content 落空、已确认时间槽位静默丢弃；重组
+                        // 「日期 + N点」进正文区（Domain 纯函数，视图零字面量），
+                        // 用户二次核对后按本页流程重抽
+                        let joined = VoiceInputTemplate.reminderTranscript(from: draft.fields)
+                        if !joined.isEmpty { transcript = joined }
+                    }
                 }
             }
         }

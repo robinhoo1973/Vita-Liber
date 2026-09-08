@@ -110,11 +110,13 @@ struct VoiceQuickLaunchView: View {
     }
 
     /// 共享文本理解层自动判定（FR17.18 期一：兜底轨文法/启发式）——
-    /// 单次调用产出意图 + 槽位草稿，替代此前三套正则并行抽取的内联实现
+    /// 单次调用产出意图 + 槽位草稿，替代此前三套正则并行抽取的内联实现。
+    /// 转写置信度随输入传递（此前在此处被丢弃、引擎恒按 0.9 分类）
     private func understand(text: String, confidence: Double) async {
         let understanding = EngineRegistry.shared.resolve(TextUnderstandingFactory.self)
         let result = await understanding.understand(
-            TextUnderstandingInput(text: text, source: .voice(intentHint: nil)))
+            TextUnderstandingInput(text: text,
+                                   source: .voice(intentHint: nil, confidence: confidence)))
         judgedIntent = result.suggestedTarget
         judgedConfidence = result.targetConfidence
         confirmSet = VoiceInputTemplate.confirmationSet(drafts: result.fields)

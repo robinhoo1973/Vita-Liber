@@ -815,6 +815,7 @@ enum L10n {
     "oc.field.dept",
     "oc.field.reportDate",
     "oc.field.labItem",
+    "oc.field.referenceRange",
     "oc.field.chiefComplaint",
     "oc.field.diagnosis",
     "oc.field.treatment",
@@ -1360,8 +1361,6 @@ enum L10n {
         "metric.unit", "metric.measuredAt", "metric.saved", "metric.viewTrend",
         "voicePanel.title", "voicePanel.hint", "voicePanel.start",
         "voicenote.saved", "voicenote.view",
-        "voiceTarget.metric", "voiceTarget.observation", "voiceTarget.question",
-        "voiceTarget.ai", "voiceTarget.reminder", "voiceTarget.profile", "voiceTarget.anyText",
         "observation.followUp.set",
         "f16.title", "f16.authSection", "f16.authHint", "f16.requestAuth", "f16.authGranted",
         "f16.authDisabled", "f16.authFailed", "f16.syncSection", "f16.syncHint",
@@ -2029,6 +2028,7 @@ enum L10n {
     static var ocFieldDept: String { t("oc.field.dept") }
     static var ocFieldReportDate: String { t("oc.field.reportDate") }
     static var ocFieldLabItem: String { t("oc.field.labItem") }
+    static var ocFieldReferenceRange: String { t("oc.field.referenceRange") }
     static var ocFieldChiefComplaint: String { t("oc.field.chiefComplaint") }
     static var ocFieldDiagnosis: String { t("oc.field.diagnosis") }
     static var ocFieldTreatment: String { t("oc.field.treatment") }
@@ -2403,7 +2403,6 @@ enum L10n {
     static var voicePanelStart: String { t("voicePanel.start") }
     static var voicePanelSaved: String { t("voicenote.saved") }
     static var voicenoteView: String { t("voicenote.view") }
-    static func voiceTargetName(_ tag: TargetTag) -> String { t("voiceTarget.\(tag.rawValue)") }
     static var observationFollowUpSet: String { t("observation.followUp.set") }
     // FR8.11 观察详情页（SP-14 §5.7.1）
     static var obsDetailCapturedAt: String { t("observation.detail.capturedAt") }

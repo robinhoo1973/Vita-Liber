@@ -99,6 +99,13 @@ final class F16DeviceState {
         // 版本计数触发趋势/指标宫格失效刷新（数据经 Store 观察 DB）
         if let syncService {
             do {
+                // 锚点增量探测：无新数据即短回路（AppRootView 前台激活高频
+                // 触发此路径——承诺「无新数据时开销为单次锚点探测」，此前
+                // hasNewData 零调用点，每次激活全量双流重查）
+                guard await syncService.hasNewData() else {
+                    phase = .done(count: 0)
+                    return
+                }
                 let report = try await syncService.performSync(
                     patientId: patientId, quietStart: quietStart, quietEnd: quietEnd)
                 noRangeCount = report.noRangeCount
@@ -135,7 +142,7 @@ final class F16DeviceState {
                     // 夜间静默仅对 L0/L1 生效（L2/L3 不静默）。去重键必须在本
                     // 门之后写——此前先写键再静默丢弃：夜间被静默的 L1 在
                     // 24h 窗口内白天重同步时被键永久抑制，预警永远不送达。
-                    if event.severity == .L1 && isQuietHours(start: quietStart, end: quietEnd) { continue }
+                    if event.severity == .L1 && QuietHoursRules.isActive(start: quietStart, end: quietEnd) { continue }
                     // FR16.7 预警通知：正文只含类别，不含数值与病名
                     try await scheduler.schedule(
                         dose: alertId, at: Date().addingTimeInterval(5),
@@ -159,23 +166,9 @@ final class F16DeviceState {
         }
     }
 
-    /// 安静时段判定（支持跨午夜区间：start > end 时按「晚 22 → 早 7」跨日）。
-    /// start == end 是非法窗口（s >= e 分支恒真 → 全天静默，所有 L1 预警
-    /// 无声丢失）——按失败开放处理（不静默），绝不静默吞掉全部预警。
-    private func isQuietHours(start: String, end: String) -> Bool {
-        guard let s = Self.hourOf(start), let e = Self.hourOf(end), s != e else { return false }
-        let hour = Calendar.current.component(.hour, from: Date())
-        return s < e ? (hour >= s && hour < e) : (hour >= s || hour < e)
-    }
-
-    /// "HH:mm" → 小时（仅小时粒度；AppSettings 缺省即整点）。
-    /// 时/分双段校验：非法值（"22:99"/"garbage"）返回 nil → 判定失败开放
-    private static func hourOf(_ hhmm: String) -> Int? {
-        let parts = hhmm.split(separator: ":")
-        guard parts.count == 2, let h = Int(parts[0]), let m = Int(parts[1]),
-              (0...23).contains(h), (0...59).contains(m) else { return nil }
-        return h
-    }
+    // 安静时段判定收敛至 Domain QuietHoursRules（BR 业务规则 Domain 纯函数；
+    // 此前与 HealthKitSyncService 各持一份逐字节副本——静默窗口漂移即
+    // 两条路径预警行为分叉，且无法在 Domain 层单测）。
 }
 
 /// SP-29 设备连接与数据权限：授权状态 + 手动同步 + 降级说明。
@@ -288,10 +281,15 @@ struct DeviceConnectionView: View {
         }
     }
 
-    /// "HH:mm" 时刻呈现（上次同步时间）
-    private static func timeString(_ date: Date) -> String {
+    /// "HH:mm" 时刻呈现（上次同步时间）——formatter 缓存（DateFormatter 构造
+    /// 昂贵，视图每次重估都新建是浪费）
+    private static let lastSyncTimeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm"
-        return formatter.string(from: date)
+        return formatter
+    }()
+
+    private static func timeString(_ date: Date) -> String {
+        lastSyncTimeFormatter.string(from: date)
     }
 }

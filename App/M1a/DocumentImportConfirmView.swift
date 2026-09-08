@@ -197,13 +197,19 @@ struct DocumentImportConfirmView: View {
     }
 
     /// FR11.4 懒创建：候选名由 Domain 纯函数派生（诊断字段优先），
-    /// 用户确认后经 DocumentsState 落 health_problem，成功/失败均收卡
+    /// 用户确认后经 DocumentsState 落 health_problem。成功才收卡；
+    /// 失败必须可见（§7 不静默吞——此前 Bool 结果被丢弃、无条件 dismiss，
+    /// 用户以为已创建，时间轴里却没有条目）
     private func createHealthProblem() {
         let name = HealthProblemDerivation.candidateName(
             fields: draft.confirmationSet.confirmedFields, docTypeLabel: draft.docType)
         Task {
-            _ = await docs.createHealthProblem(patientId: draft.patientId, name: name)
-            dismiss()
+            let created = await docs.createHealthProblem(patientId: draft.patientId, name: name)
+            if created {
+                dismiss()
+            } else {
+                activeAlert = .saveFailed
+            }
         }
     }
 
@@ -259,9 +265,12 @@ struct DocumentImportConfirmView: View {
                 // 主文档已保存（成功语义），处方副表失败单独提示——
                 // 不阻断 dismiss（主记录在库），但用户必须知道处方未同步
                 activeAlert = .prescriptionWarning
-            } else if docs.lastSavedDocument?.isClinical == true {
+            } else if docs.isClinicalDocType(draft.docType) {
                 // FR11.4 懒创建触发（V3.49）：病历类文档保存成功 →
-                // 「创建健康问题」入口（候选名 Domain 派生、用户确认落库）
+                // 「创建健康问题」入口（候选名 Domain 派生、用户确认落库）。
+                // 按**保存时** docType 判定——确认卡 Picker 改类后判定随之
+                // 更新（此前读 buildDraft 冻结的 isClinicalType 快照：
+                // 改离病历类仍弹入口 / 改入病历类反而不弹）
                 activeAlert = .healthProblemOffer
             } else {
                 dismiss()

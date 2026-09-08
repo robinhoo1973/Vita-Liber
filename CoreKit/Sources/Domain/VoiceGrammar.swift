@@ -284,6 +284,18 @@ public enum VoiceStructuringEngine {
 /// 语音指导每步/速记/提醒草稿/观察速记四处确认必须走同一模板——禁止自建确认逻辑。
 /// 引擎只产出 FieldDraft（待确认态）；确认一律经 OcrConfirmationSet.confirm。
 public enum VoiceInputTemplate {
+    /// 提醒草稿正文重组（语音面板 → 提醒页预填）：确认槽位无 content 键
+    /// （文法产 hour/date/time/repeat），重组「日期 + N点」供页面按本页
+    /// 流程重抽。中文形态放在 Domain（视图层零硬编码字面量，L10n 单出口）。
+    public static func reminderTranscript(from fields: [FieldDraft]) -> String {
+        var parts: [String] = []
+        let values = Dictionary(fields.map { ($0.key, $0.value) },
+                                uniquingKeysWith: { first, _ in first })
+        if let date = values["date"], !date.isEmpty { parts.append(date) }
+        if let hour = values["hour"], !hour.isEmpty { parts.append("\(hour)点") }
+        if let time = values["time"], !time.isEmpty { parts.append(time) }
+        return parts.joined(separator: " ")
+    }
     /// 把语音草稿转成统一确认集（四处共用同一入口）。
     /// V3.86/契约 §8.6.2 唯一映射点扩展：suggestedLabel → displayLabel、
     /// rawText 保留原文、codeResolution 透传（D→C 生命周期合同——映射点

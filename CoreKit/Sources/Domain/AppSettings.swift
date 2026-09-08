@@ -100,6 +100,27 @@ public protocol SettingsStoring: Sendable {
     func restoreDefaults() async throws
 }
 
+/// 安静时段判定（F16 预警夜间静默，BR 业务规则 Domain 纯函数——服务与视图
+/// 两路径同源；此前 Infrastructure HealthKitSyncService 与 App F16DeviceState
+/// 各持一份逐字节副本，静默窗口漂移即预警误达/误吞，且无法在 Domain 层单测）。
+public enum QuietHoursRules {
+    /// 跨午夜区间（start>end 按「晚 start → 早 end」跨日）；start==end 非法
+    /// 窗口按失败开放（不静默）——绝不静默吞掉全部预警。
+    public static func isActive(start: String, end: String, now: Date = Date()) -> Bool {
+        guard let s = hourOf(start), let e = hourOf(end), s != e else { return false }
+        let hour = Calendar.current.component(.hour, from: now)
+        return s < e ? (hour >= s && hour < e) : (hour >= s || hour < e)
+    }
+
+    /// "HH:mm" → 小时（时/分双段校验；非法值 nil → 判定失败开放）
+    public static func hourOf(_ hhmm: String) -> Int? {
+        let parts = hhmm.split(separator: ":")
+        guard parts.count == 2, let h = Int(parts[0]), let m = Int(parts[1]),
+              (0...23).contains(h), (0...59).contains(m) else { return nil }
+        return h
+    }
+}
+
 /// 设置语义规则（Domain 纯函数）
 public enum SettingsRules {
     /// FR7.8 每种指标上次录入单位的记忆键（UserDefaults 直存；键构造单一

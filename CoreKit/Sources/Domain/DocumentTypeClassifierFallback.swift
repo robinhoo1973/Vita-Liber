@@ -24,7 +24,9 @@ public enum DocumentTypeClassifierFallback {
     public static let evidenceTable: [DocumentTypeEvidence] = [
         .init(key: "prescription", keywords: [
             "处方", "處方", "Rx", "用法", "用量", "剂量", "劑量",
-            "每次", "每日", "口服", "外用", "片", "粒", "毫升", "胶囊", "膠囊", "mg",
+            "每次", "每日", "口服", "外用", "粒", "毫升", "胶囊", "膠囊", "mg",
+            // 注：「片」已剔除——单字无界子串命中「照片/图片/片状阴影」，
+            // 影像报告被误判处方（0.75 置信）后整份走 PrescriptionFieldMapper
         ]),
         .init(key: "lab_report", keywords: [
             "检验", "檢驗", "化验", "化驗", "参考范围", "參考範圍",
@@ -74,6 +76,30 @@ public enum DocumentTypeClassifierFallback {
         return (primary.key, confidence, secondary)
     }
 
+    /// 角色正则（编译期静态字面量，一次性编译复用——此前每行每调用重编译
+    /// 6 条，OCR 30 行报告即 ~360 次 NSRegularExpression 构造）
+    private static let fieldPatterns: [(key: String, regex: NSRegularExpression)] = {
+        let patterns: [(key: String, pattern: String)] = [
+            // 科室（检验单/病历共用）
+            ("dept", #"科\s*室[:：]?\s*(.+)"#),
+            // 报告/就诊日期（yyyy-MM-dd 或 yyyy年M月d日）
+            ("report_date", #"(?:日期|检查时间|就诊时间)[:：]?\s*(\d{4}[-年/]\d{1,2}[-月/]\d{1,2})"#),
+            // 参考范围（体检报告字段目录：项目/结果/参考范围/单位——
+            // coreml §4.2 字段目录此前缺此角色，检验报告参考区间落 line_N）
+            ("reference_range", #"(?:参考范围|參考範圍|参考值|參考值|正常范围|正常範圍|参考区间|參考區間)[:：]?\s*(.+)"#),
+            // 主诉/诊断/处理（病历）
+            ("chief_complaint", #"(?:主诉|主訴)[:：]?\s*(.+)"#),
+            ("diagnosis", #"(?:诊断|診斷)[:：]?\s*(.+)"#),
+            ("treatment", #"(?:处理|處理|医嘱|醫囑)[:：]?\s*(.+)"#),
+            // 检验项目行：「血红蛋白 150 g/L」「HbA1c: 5.6%」
+            ("lab_item", #"^([一-龥A-Za-z\*]{1,20})[:：]?\s+([0-9]+\.?[0-9]*)\s*([a-zA-Z/%μ·]+)?$"#),
+        ]
+        return patterns.compactMap { key, pattern in
+            let compiled = try? NSRegularExpression(pattern: pattern)   // try?-ok: 模式为编译期静态字面量，构造不会失败
+            return compiled.map { (key, $0) }
+        }
+    }()
+
     /// 按判定类型收敛的启发式语义字段（期一；处方路径由既有
     /// PrescriptionFieldMapper 承担，本函数只覆盖检验/病历/通用）。
     /// 每行产出至多一个角色草稿（key=角色、value=抽取载荷、rawText=原文、
@@ -83,21 +109,8 @@ public enum DocumentTypeClassifierFallback {
         let text = line.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return [] }
         var drafts: [FieldDraft] = []
-        let patterns: [(key: String, regex: String)] = [
-            // 科室（检验单/病历共用）
-            ("dept", #"科\s*室[:：]?\s*(.+)"#),
-            // 报告/就诊日期（yyyy-MM-dd 或 yyyy年M月d日）
-            ("report_date", #"(?:日期|检查时间|就诊时间)[:：]?\s*(\d{4}[-年/]\d{1,2}[-月/]\d{1,2})"#),
-            // 主诉/诊断/处理（病历）
-            ("chief_complaint", #"(?:主诉|主訴)[:：]?\s*(.+)"#),
-            ("diagnosis", #"(?:诊断|診斷)[:：]?\s*(.+)"#),
-            ("treatment", #"(?:处理|處理|医嘱|醫囑)[:：]?\s*(.+)"#),
-            // 检验项目行：「血红蛋白 150 g/L」「HbA1c: 5.6%」
-            ("lab_item", #"^([一-龥A-Za-z\*]{1,20})[:：]?\s+([0-9]+\.?[0-9]*)\s*([a-zA-Z/%μ·]+)?$"#),
-        ]
-        for (key, pattern) in patterns {
-            guard drafts.isEmpty,   // 一行一角色：首命中即定（行语义单一）
-                  let regex = try? NSRegularExpression(pattern: pattern) else { continue }   // try?-ok: 模式为编译期静态字面量，构造不会失败
+        for (key, regex) in fieldPatterns {
+            guard drafts.isEmpty else { break }   // 一行一角色：首命中即定（行语义单一）
             let range = NSRange(text.startIndex..<text.endIndex, in: text)
             guard let match = regex.firstMatch(in: text, range: range),
                   match.numberOfRanges > 1,
@@ -139,7 +152,8 @@ public enum DocumentTypeClassifierFallback {
 public enum FieldGroupRules {
     public static func category(ofKey key: String) -> String {
         if key.hasPrefix("rx_") { return "rx" }
-        if key.hasPrefix("lab_") || key == "dept" || key == "report_date" { return "lab" }
+        if key.hasPrefix("lab_") || key == "dept" || key == "report_date"
+            || key == "reference_range" { return "lab" }
         if ["chief_complaint", "diagnosis", "treatment"].contains(key) { return "visit" }
         return "generic"
     }
@@ -153,13 +167,19 @@ public enum FieldGroupRules {
 /// Domain 纯函数零业务决策：候选仅作建议，用户确认后才落 health_problem
 /// （D 级建议→C 级事实）。
 public enum HealthProblemDerivation {
+    /// 候选名回落格式 "yyyy-MM-dd"（静态缓存——DateFormatter 构造昂贵，
+    /// 每份病历保存触发一次懒创建即一次构造不必要）
+    private static let dayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
+
     public static func candidateName(fields: [CandidateField], docTypeLabel: String,
                                      now: Date = Date()) -> String {
         if let diagnosis = fields.first(where: { $0.key == "diagnosis" && !$0.value.isEmpty }) {
             return String(diagnosis.value.prefix(40))
         }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        return "\(docTypeLabel)·\(formatter.string(from: now))"
+        return "\(docTypeLabel)·\(dayFormatter.string(from: now))"
     }
 }

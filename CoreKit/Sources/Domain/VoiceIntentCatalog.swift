@@ -78,9 +78,12 @@ public enum VoiceIntentCatalog {
                 if d.source == nil { d.source = .regex }
                 return d
             }
-            // 文法命中置信度与转写置信度联乘，仍落在高置信档（≥0.7 预填一档）
+            // 文法命中置信度与转写置信度联乘——不再设 ≥0.7 保底：实测转写
+            // 置信度接入后低置信必须可落在 <0.5 档触发确认卡复核闸
+            // （此前恒 0.9 输入 + 0.7 保底 = <0.5 低置信警示永远不可达，
+            // BR-003 复核纪律被架空）
             return UnderstandingResult(suggestedTarget: best.0.rawValue,
-                                       targetConfidence: max(0.7, 0.85 * max(confidence, 0.3)),
+                                       targetConfidence: 0.85 * max(confidence, 0.3),
                                        fields: fields)
         }
         // unknown：整句原文进速记草稿（调用方经 FR17.13 确认卡可编辑补全）

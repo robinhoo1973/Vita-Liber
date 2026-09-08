@@ -180,17 +180,31 @@ struct VitaLiberApp: App {
         _backupState = State(initialValue: BackupState(service: container.backup))
         // FR16.1 V3.86 后台自动化同步：BGTask 注册（App init 唯一注册点，
         // 标识符已登记 Info.plist BGTaskSchedulerPermittedIdentifiers）+
-        // 后台唤起执行体（BG 启动无 UI——以当前成员+默认安静时段执行；
-        // 未建档/未授权即跳过，前台锚点兜底路径不受影响）
+        // 后台唤起执行体（BG 启动无 UI——未建档/未授权即跳过，前台锚点
+        // 兜底路径不受影响）
         HealthKitSyncService.registerBackgroundTask()
         let bgSync = container.healthSync
-        HealthKitSyncService.backgroundSyncHandler = { [appState] in
+        HealthKitSyncService.backgroundSyncHandler = { [appState, appSettings] in
             let ready = await MainActor.run { appState.onboardingFinished && appState.owner != nil }
             guard ready else { return false }   // 未建档：无成员归属，绝不落匿名读数（BR-001）
+            // 冷后台唤起（进程被 BGTask 直接拉起）：视图从未跑过 load()，
+            // values 为空——先载入再读开关，否则开关/安静时段静默回落默认值
+            await appSettings.load()
+            // FR14.1 双门控与前台路径同纪律：应用内 authHealthRead 开关 +
+            // 用户配置安静时段（此前后台只查系统授权且硬编码 22:00/07:00——
+            // 用户关闭健康读取后后台仍在读库入库；自定义静默窗口在后台失效）
+            let (healthAuthOn, quietStart, quietEnd, patient) = await MainActor.run {
+                (appSettings.values[.authHealthRead] != "false",
+                 SettingsRules.resolved(appSettings.values[.quietHoursStart], key: .quietHoursStart),
+                 SettingsRules.resolved(appSettings.values[.quietHoursEnd], key: .quietHoursEnd),
+                 appState.currentPatientId)
+            }
+            guard healthAuthOn else { return false }
             guard await bgSync.isAuthorized() else { return false }
-            let patient = await MainActor.run { appState.currentPatientId }
             let report = try? await bgSync.performSync(   // try?-ok: 后台同步失败静默回落——前台/手动路径兜底重查，不阻断任务完成上报
-                patientId: patient, quietStart: "22:00", quietEnd: "07:00")
+                patientId: patient, quietStart: quietStart, quietEnd: quietEnd)
+            // BGAppRefreshTask 一次性：完成后必须补投，否则后台链只跑一次
+            await bgSync.scheduleBackgroundRefresh()
             return report != nil
         }
         Task { await container.healthSync.startBackgroundObservation() }
