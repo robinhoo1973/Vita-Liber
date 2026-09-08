@@ -2,6 +2,7 @@
 import Foundation
 import BackgroundTasks
 import HealthKit
+import GRDB   // DatabaseWriter（锚点持久化写门——本文件 #if os(iOS) 守卫，Linux 不编译内容，缺 import 仅 L1 可见）
 import Domain
 import Protocols
 
