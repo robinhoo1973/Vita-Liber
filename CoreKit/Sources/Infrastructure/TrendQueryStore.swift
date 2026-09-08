@@ -96,8 +96,10 @@ public actor TrendQueryStore {
     /// 不产生重复行也不丢更完整的后到数据）。单事务（UnitOfWork 语义）。
     public func addDeviceSamples(patientId: UUID,
                                  rows: [DeviceMetricRow]) async throws -> Int {
-        var inserted = 0
-        try await writer.write { db in
+        // Swift 6 收敛：写闭包并发执行——计数为闭包局部量、随返回值传出
+        // （变异捕获 var 在 Swift 6 语言模式转硬错误，34194157030 唯一警告族）
+        return try await writer.write { db -> Int in
+            var inserted = 0
             for row in rows {
                 let existing = try Row.fetchOne(db, sql: """
                     SELECT id, value FROM metric_sample
@@ -131,8 +133,8 @@ public actor TrendQueryStore {
                                      Date().timeIntervalSince1970])
                 inserted += 1
             }
+            return inserted
         }
-        return inserted
     }
 }
 
