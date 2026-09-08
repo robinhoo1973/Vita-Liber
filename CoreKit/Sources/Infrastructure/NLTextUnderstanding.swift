@@ -110,7 +110,7 @@ public actor NLTextUnderstanding: TextUnderstanding {
         // 回落整行/行尾匹配口径——测试桩行为一致）
         #if canImport(NaturalLanguage)
         let tokenizer = NLTokenizer(unit: .word)
-        tokenizer.setLanguage(.chinese)
+        tokenizer.setLanguage(.simplifiedChinese)
         tokenizer.string = text
         var tokens: [String] = []
         tokenizer.enumerateTokens(in: text.startIndex..<text.endIndex) { range, _ in
