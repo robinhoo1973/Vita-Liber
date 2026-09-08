@@ -293,6 +293,27 @@ public enum SchemaMigrations {
              CREATE INDEX IF NOT EXISTS idx_dose_log_plan_time ON medication_dose_log(plan_id, scheduled_for);
              CREATE INDEX IF NOT EXISTS idx_alert_event_patient_rule ON alert_event(patient_id, rule_id);
              """),
+        // v17 保持预约（text-understanding-fts-indexes-and-slots，tech 账本 V3.83）：
+        // 期一理解层元数据入 ocr_result.raw_blocks JSON 与既有 document_fts，
+        // 无 schema 变更；本号留给字段级 FTS/槽位列需求。
+        // v18：设备来源元数据与同步锚点（V3.86 health-device-source-and-anchor）——
+        // ① metric_sample 增小时聚合三列 + HKSource 三键 + 来源索引（FR16.1/FR7.9）；
+        // ② hk_sync_anchor 锚点表（随 .vlbu 备份往返，UserDefaults 不入备份已否决）。
+        // 老库增量：老行六列 NULL（手输/医院语义不变）；新库 baseline 已含。
+        Step(version: 18, name: "health-device-source-and-anchor",
+             sql: """
+             ALTER TABLE metric_sample ADD COLUMN value_min REAL;
+             ALTER TABLE metric_sample ADD COLUMN value_max REAL;
+             ALTER TABLE metric_sample ADD COLUMN sample_count INTEGER;
+             ALTER TABLE metric_sample ADD COLUMN source_name TEXT;
+             ALTER TABLE metric_sample ADD COLUMN source_version TEXT;
+             ALTER TABLE metric_sample ADD COLUMN source_product TEXT;
+             CREATE INDEX IF NOT EXISTS idx_metric_source ON metric_sample(patient_id, metric_key, measured_at, source_name);
+             CREATE TABLE IF NOT EXISTS hk_sync_anchor (
+               anchor_key TEXT PRIMARY KEY,
+               anchor_value TEXT NOT NULL,
+               updated_at REAL NOT NULL);
+             """),
     ]
 
     /// 全新库建库后应落到的版本号

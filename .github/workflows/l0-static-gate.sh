@@ -788,6 +788,30 @@ else
   fi
 fi
 
+# ---------- [16] 文本理解层结构断言（ADR-029 期一，V3.86） ----------
+section "16/16" "文本理解目录结构断言 —— 三文件存在/第 8 工厂注册/金样套件存在（ADR-029 承诺的编译期静态形态，coreml-minilm-spec §5.13）"
+# 背景：期一=端口+契约+兜底轨+F25 接线——「三文件 + 工厂注册 + 金样套件」
+# 是理解层最低静态形态（文件漂移/工厂漏注册 = 上层 resolve 崩溃或静默回落
+# 契约桩，Linux 门禁必须在 macOS 编译前拦截）；ERR#27 空扫不得判 PASS。
+tu_missing=0
+for _f in "$APP/CoreKit/Sources/Domain/TextUnderstanding.swift" \
+          "$APP/CoreKit/Sources/Protocols/TextUnderstanding.swift" \
+          "$APP/CoreKit/Sources/Infrastructure/NLTextUnderstanding.swift"; do
+  if [ ! -f "$_f" ]; then fail "缺失：$_f"; tu_missing=1; fi
+done
+if ! grep -q "TextUnderstandingFactory" "$APP/CoreKit/Sources/Infrastructure/EngineFactories.swift"; then
+  fail "第 8 工厂 TextUnderstandingFactory 未定义（EngineFactories.swift）"; tu_missing=1
+fi
+if ! grep -q "registerIfAbsent(TextUnderstandingFactory.make" "$APP/CoreKit/Sources/Infrastructure/EngineFactories.swift"; then
+  fail "组合根未注册 TextUnderstandingFactory（registerDefaultEngines）"; tu_missing=1
+fi
+if ! grep -q "SU-M2-UNDERSTANDING" "$APP/CoreKit/Tests/CoreKitTests/TextUnderstandingTests.swift"; then
+  fail "理解层金样套件缺失（SU-M2-UNDERSTANDING，gate-suites.tsv required=yes）"; tu_missing=1
+fi
+if [ "$tu_missing" -eq 0 ]; then
+  pass "理解层三文件存在、第 8 工厂已注册、金样套件在位（期一静态形态）"
+fi
+
 # ---------- 汇总 ----------
 printf '\n========================================\n'
 if [ "$FAILURES" -eq 0 ]; then

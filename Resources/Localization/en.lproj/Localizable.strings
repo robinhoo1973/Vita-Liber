@@ -1508,3 +1508,7 @@
 "voiceIntent.createQuestion" = "Doctor Question";
 "voiceIntent.unknown" = "Free Text";
 "voicePanel.autoHint" = "Say what you want to record — the destination will be decided automatically.";
+"voiceConfirm.judgedTarget" = "Judged As";
+"voiceConfirm.candidates" = "Maybe:";
+"f16.syncedRowsFmt" = "%d device readings imported (shown with manual entries in trends)";
+"f16.lastSyncFmt" = "Last sync: %@";

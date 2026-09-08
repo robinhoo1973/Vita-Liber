@@ -1508,3 +1508,7 @@
 "voiceIntent.createQuestion" = "問診問題";
 "voiceIntent.unknown" = "任意文字";
 "voicePanel.autoHint" = "說出要記錄的內容，將自動判斷去向並產生草稿";
+"voiceConfirm.judgedTarget" = "判定結果";
+"voiceConfirm.candidates" = "可能屬於：";
+"f16.syncedRowsFmt" = "已匯入 %d 筆設備讀數（與手輸同趨勢展示）";
+"f16.lastSyncFmt" = "上次同步：%@";

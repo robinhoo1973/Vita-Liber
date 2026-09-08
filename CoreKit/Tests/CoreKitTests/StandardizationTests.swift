@@ -302,7 +302,13 @@ struct StandardizationTests {
             #expect(ddl.contains("CREATE TABLE \(table)"), "baseline 缺表 \(table)")
         }
         #expect(ddl.contains("raw_label TEXT, code_concept_id TEXT REFERENCES code_concept(id)"))
-        #expect(SchemaMigrations.latestVersion == 16)
+        // V3.86：账本推进至 v18（health-device-source-and-anchor）——
+        // v17 保持预约（text-understanding-fts-indexes-and-slots，期一无 schema 变更）
+        #expect(SchemaMigrations.latestVersion == 18)
+        let v18 = SchemaMigrations.steps.first { $0.version == 18 }
+        #expect(v18?.name == "health-device-source-and-anchor")
+        #expect(v18?.sql.contains("ALTER TABLE metric_sample ADD COLUMN source_name") == true)
+        #expect(v18?.sql.contains("CREATE TABLE IF NOT EXISTS hk_sync_anchor") == true)
         let v14 = SchemaMigrations.steps.first { $0.version == 14 }
         #expect(v14?.name == "terminology-tables")
         for table in ["code_concept", "code_alias", "code_map",

@@ -12,6 +12,7 @@ struct MetricOverviewView: View {
     @Environment(AppState.self) private var app
     @Environment(TrendEntryState.self) private var state
     @Environment(AppRouter.self) private var router
+    @Environment(AppDataChangeCenter.self) private var dataChange
     @State private var confirmSet: OcrConfirmationSet?
     @State private var routeMonitor = AudioRouteMonitor()
 
@@ -80,6 +81,11 @@ struct MetricOverviewView: View {
         // BR-001 成员切换：与 TrendEntryView/VoiceNotePanel 同款 task(id:)——
         // onAppear 只在首次挂载触发，切换成员后宫格仍显示上一成员的指标
         .task(id: app.currentPatientId) { await state.loadLatest(patientId: app.currentPatientId) }
+        // FR7.9（V3.86）：设备读数入库后按类型化版本计数失效刷新——
+        // 宫格最新点即时反映 Apple 健康自动汇入（数据经 Store 观察 DB）
+        .onChange(of: dataChange.metricsVersion) { _, _ in
+            Task { await state.loadLatest(patientId: app.currentPatientId) }
+        }
         .onDisappear { routeMonitor.stop() }
         // FR17.13-entry: 指标总览语音入口 —— 统一确认模板，不自建确认逻辑
         .voiceConfirmSheet($confirmSet, route: routeMonitor.route) { confirmed in

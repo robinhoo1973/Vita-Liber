@@ -73,6 +73,12 @@ final class AudioRouteMonitor {
 struct VoiceConfirmSheet: View {
     let set: OcrConfirmationSet
     let decision: ReadbackDecision
+    /// V3.49 判定结果行（4.27 可选元素，FR17.9 去 chips 后去向的唯一呈现）：
+    /// 意图 key（nil=无法判定，改渲染候选去向行）；置信度 <0.5 视为低置信。
+    var judgedTarget: String?
+    var judgedConfidence: Double
+    /// Menu/候选行改类回调（面板重抽槽位后替换确认集）
+    var onJudgedTargetChange: ((String) -> Void)?
     /// 点 [🔊 朗读] 或自动回读时调用（TTS 由调用方注入，便于测试替身）
     var onSpeak: ((String) -> Void)?
     var onConfirm: (OcrConfirmationSet) -> Void
@@ -164,6 +170,58 @@ struct VoiceConfirmSheet: View {
                 VLIcon.waveform.resizable().frame(width: 22, height: 22)
                 Text(L10n.voiceConfirmTitle).font(.headline)
                 Spacer()
+            }
+
+            // V3.49 判定结果行（4.27 可选元素）：去向由理解层自动判定，D 级
+            // 胶囊呈现、Menu 可改类；无法判定/低置信时改渲染候选去向行内联
+            // 引导（仅此状态渲染，不常驻）
+            if let target = judgedTarget {
+                HStack(spacing: 6) {
+                    Text(L10n.voiceConfirmJudgedTarget)
+                        .font(.caption).foregroundStyle(.secondary)
+                    Menu {
+                        ForEach(VoiceIntentDispatch.dispatchableKeys, id: \.self) { key in
+                            Button(L10n.voiceIntentName(key)) {
+                                onJudgedTargetChange?(key)
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(L10n.voiceIntentName(target))
+                            Image(systemName: "chevron.down").font(.caption2)
+                        }
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(Capsule().fill(Color("grade-d", bundle: .main).opacity(0.15)))
+                    }
+                    GradeBadge(grade: "D")
+                    if judgedConfidence < 0.5 {
+                        Label(L10n.voiceConfirmLowConfidence, systemImage: "exclamationmark.triangle")
+                            .font(.caption2)
+                            .foregroundStyle(Color("grade-d", bundle: .main))
+                            .labelStyle(.titleAndIcon)
+                    }
+                    Spacer()
+                }
+                .accessibilityIdentifier("FR17.13.judgedTarget")
+            } else if onJudgedTargetChange != nil {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(L10n.voiceConfirmCandidates)
+                        .font(.caption).foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        ForEach(VoiceIntentDispatch.candidateKeys, id: \.self) { key in
+                            Button(L10n.voiceIntentName(key)) {
+                                onJudgedTargetChange?(key)
+                            }
+                            .font(.caption)
+                            .padding(.horizontal, 10).padding(.vertical, 4)
+                            .background(Capsule().fill(Color("bg-grouped", bundle: .main)))
+                            .overlay(Capsule().strokeBorder(
+                                Color("grade-d", bundle: .main),
+                                style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+                        }
+                    }
+                }
+                .accessibilityIdentifier("FR17.13.targetCandidates")
             }
 
             // 字段列表：一律「待确认」态呈现（BR-003 未确认不入正式区）；
@@ -350,6 +408,10 @@ struct VoiceConfirmSheetPresenter: ViewModifier {
     @Environment(AppState.self) private var app
     @Binding var confirmSet: OcrConfirmationSet?
     let route: AudioRoute
+    /// V3.49 判定结果行数据（默认 nil 向后兼容——其余六处入口不渲染该行）
+    let judgedTarget: String?
+    let judgedConfidence: Double
+    let onJudgedTargetChange: ((String) -> Void)?
     let onConfirm: (OcrConfirmationSet) -> Void
 
     func body(content: Content) -> some View {
@@ -359,6 +421,9 @@ struct VoiceConfirmSheetPresenter: ViewModifier {
                 decision: ReadbackPolicy.decide(route: route,
                                                 preference: app.readbackPreference,
                                                 careMode: app.careMode),
+                judgedTarget: judgedTarget,
+                judgedConfidence: judgedConfidence,
+                onJudgedTargetChange: onJudgedTargetChange,
                 onSpeak: { app.speak($0) },
                 onConfirm: onConfirm,
                 onRetry: { confirmSet = nil },
@@ -371,9 +436,41 @@ struct VoiceConfirmSheetPresenter: ViewModifier {
 extension View {
     func voiceConfirmSheet(_ confirmSet: Binding<OcrConfirmationSet?>,
                            route: AudioRoute,
+                           judgedTarget: String? = nil,
+                           judgedConfidence: Double = 0,
+                           onJudgedTargetChange: ((String) -> Void)? = nil,
                            onConfirm: @escaping (OcrConfirmationSet) -> Void) -> some View {
         modifier(VoiceConfirmSheetPresenter(confirmSet: confirmSet,
                                             route: route,
+                                            judgedTarget: judgedTarget,
+                                            judgedConfidence: judgedConfidence,
+                                            onJudgedTargetChange: onJudgedTargetChange,
                                             onConfirm: onConfirm))
     }
+}
+
+// MARK: - FR17.19 期一可分发意图（4.27 判定结果行 Menu/候选行共用）
+
+/// 期一诚实标注（FR17.19/FR14.7）：Menu 只列**有目标页消费者**的意图——
+/// 预约/用药草稿期二接线后加入（能力级别标注纪律：不宣称超出当前能力）。
+enum VoiceIntentDispatch {
+    static let dispatchableKeys: [String] = [
+        VoiceIntentKey.recordMetric.rawValue,
+        VoiceIntentKey.recordObservation.rawValue,
+        VoiceIntentKey.createReminder.rawValue,
+        VoiceIntentKey.appendProfile.rawValue,
+        VoiceIntentKey.appendNote.rawValue,
+        VoiceIntentKey.askAssistant.rawValue,
+        VoiceIntentKey.createQuestion.rawValue,
+        VoiceIntentKey.unknown.rawValue,
+    ]
+
+    /// 低置信/无法判定时的候选去向行（兜底轨可自动分类子集 ∩ 可分发）
+    static let candidateKeys: [String] = [
+        VoiceIntentKey.recordMetric.rawValue,
+        VoiceIntentKey.createReminder.rawValue,
+        VoiceIntentKey.appendProfile.rawValue,
+        VoiceIntentKey.appendNote.rawValue,
+        VoiceIntentKey.unknown.rawValue,
+    ]
 }

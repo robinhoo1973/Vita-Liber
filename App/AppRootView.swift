@@ -13,6 +13,7 @@ struct AppRootView: View {
     @Environment(AppSettingsStore.self) private var settingsStore
     @Environment(ObservationStoreState.self) private var observationState
     @Environment(AppRouter.self) private var router
+    @Environment(F16DeviceState.self) private var deviceState
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var systemDynamicType
 
@@ -198,6 +199,19 @@ struct AppRootView: View {
                 if appState.onboardingFinished {
                     Task {
                         await reminderStore.refreshTriggered(patientId: appState.currentPatientId)
+                        // FR16.1 V3.46 前台 HKAnchoredObjectQuery 增量兜底
+                        // （V3.86 接线）：授权 + FR14.1 开关双门控后轻量同步——
+                        // 杜绝仅靠手动点击；同步服务幂等（锚点/幂等键），
+                        // 无新数据时开销为单次锚点探测
+                        let healthAuthOn = settingsStore.values[.authHealthRead] != "false"
+                        if healthAuthOn, await deviceState.currentAuthorization() {
+                            await deviceState.sync(
+                                patientId: appState.currentPatientId, authEnabled: true,
+                                quietStart: SettingsRules.resolved(
+                                    settingsStore.values[.quietHoursStart], key: .quietHoursStart),
+                                quietEnd: SettingsRules.resolved(
+                                    settingsStore.values[.quietHoursEnd], key: .quietHoursEnd))
+                        }
                     }
                 }
             default:

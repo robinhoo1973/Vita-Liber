@@ -86,6 +86,54 @@ public actor TrendQueryStore {
         }
         return id
     }
+
+    // MARK: - FR7.9 设备自动汇入（V3.86：与手输同一写门，origin='device'）
+
+    /// 设备读数落库（小时窗口聚合后，Domain `DeviceMetricRow`）。
+    /// 幂等键含来源（patient, metric_key, measured_at, source_name）——
+    /// 同一窗口重拉 upsert（INSERT ... ON CONFLICT 需要唯一索引才能生效，
+    /// 此处以「先查后插」实现幂等：同键已有行则 UPDATE 值域——同步重放
+    /// 不产生重复行也不丢更完整的后到数据）。单事务（UnitOfWork 语义）。
+    public func addDeviceSamples(patientId: UUID,
+                                 rows: [DeviceMetricRow]) async throws -> Int {
+        var inserted = 0
+        try await writer.write { db in
+            for row in rows {
+                let existing = try Row.fetchOne(db, sql: """
+                    SELECT id, value FROM metric_sample
+                    WHERE patient_id = ? AND metric_key = ? AND measured_at = ?
+                      AND (source_name = ? OR (source_name IS NULL AND ? IS NULL))
+                    LIMIT 1
+                    """, arguments: [patientId.uuidString, row.metricKey,
+                                     row.measuredAt.timeIntervalSince1970,
+                                     row.sourceName, row.sourceName])
+                if let existing {
+                    // 重放更新值域（metric_sample 无 updated_at 列——V3.86 DDL）
+                    try db.execute(sql: """
+                        UPDATE metric_sample
+                        SET value = ?, value_min = ?, value_max = ?, sample_count = ?,
+                            source_version = ?, source_product = ?
+                        WHERE id = ?
+                        """, arguments: [row.value, row.valueMin, row.valueMax, row.sampleCount,
+                                         row.sourceVersion, row.sourceProduct, existing["id"]])
+                    continue
+                }
+                try db.execute(sql: """
+                    INSERT INTO metric_sample
+                      (id, patient_id, metric_key, value, secondary_value, unit, origin,
+                       self_measured, excluded, value_min, value_max, sample_count,
+                       source_name, source_version, source_product, measured_at, created_at)
+                    VALUES (?, ?, ?, ?, NULL, ?, 'device', 1, 0, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, arguments: [UUID().uuidString, patientId.uuidString, row.metricKey,
+                                     row.value, row.unit, row.valueMin, row.valueMax,
+                                     row.sampleCount, row.sourceName, row.sourceVersion,
+                                     row.sourceProduct, row.measuredAt.timeIntervalSince1970,
+                                     Date().timeIntervalSince1970])
+                inserted += 1
+            }
+        }
+        return inserted
+    }
 }
 
 

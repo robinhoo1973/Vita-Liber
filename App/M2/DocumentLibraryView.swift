@@ -45,11 +45,16 @@ final class DocumentsState {
     private let understandingEngine: any TextUnderstanding
     /// F25 码表索引（医疗槽位惰性 codeResolution——FR17.18 首个生产消费点；
     /// 未注入时（预览/测试）跳过标准化，不影响确认主流程）
-    private let codeIndex: (any CodeIndex)?
+    private let codeIndex: (any CodeIndex & UnitIndex)?
     /// 健康问题懒创建（FR11.4 V3.49 触发点；未注入时静默跳过）。
     private let problemStore: HealthProblemStore?
     /// 类型化数据变更信号（保存成功后 documentsVersion+1 触发跨页刷新）
     private let dataChange: AppDataChangeCenter?
+    /// FR11.4 懒创建触发信号透传（AppDataChangeCenter 持有）——确认卡消费
+    /// （V3.49：病历类保存成功 → 「创建健康问题」入口，候选名 Domain 派生）
+    var lastSavedDocument: AppDataChangeCenter.SavedDocumentSignal? {
+        dataChange?.lastSavedDocument
+    }
     private var loadingPatientId: UUID?
 
     init(store: DocumentStore, pipeline: OCRPipeline,
@@ -58,7 +63,7 @@ final class DocumentsState {
          originalsDir: URL? = nil, prescriptionStore: PrescriptionStore? = nil,
          prescriptionDocTypeLabel: String = L10n.docTypePrescription,
          understandingEngine: (any TextUnderstanding)? = nil,
-         codeIndex: (any CodeIndex)? = nil,
+         codeIndex: (any CodeIndex & UnitIndex)? = nil,
          problemStore: HealthProblemStore? = nil,
          dataChange: AppDataChangeCenter? = nil) {
         self.store = store
@@ -270,7 +275,8 @@ final class DocumentsState {
                 if let judged = understanding.suggestedTarget {
                     stableTypeKey = judged
                     isClinicalType = DocumentTypeClassifierFallback.isClinicalType(judged)
-                    if let judgedLabel = Self.docTypeLabel(forStableKey: judged) {
+                    let judgedLabel = Self.docTypeLabel(forStableKey: judged)
+                    if let judgedLabel {
                         effectiveDocType = judgedLabel
                     }
                     isPrescription = judged == "prescription"

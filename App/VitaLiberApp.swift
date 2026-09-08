@@ -161,7 +161,28 @@ struct VitaLiberApp: App {
             // 统一调度实例。注：门对 alert- 族目前**照常放行**（无应用内
             // 承接，§5.58 降级链不静默）——统一实例是 W4 预警横幅接线后
             // 「预警=静音仅横幅」生效的必经前置。
-            scheduler: container.reminderScheduler))
+            scheduler: container.reminderScheduler,
+            // FR7.9 V3.86：评估+入库双流主路径（同步服务）+ 趋势写门 +
+            // 类型化变更信号（入库后趋势/宫格失效刷新）
+            syncService: container.healthSync,
+            trends: container.trends,
+            dataChange: dataChangeCenter))
+        // FR16.1 V3.86 后台自动化同步：BGTask 注册（App init 唯一注册点，
+        // 标识符已登记 Info.plist BGTaskSchedulerPermittedIdentifiers）+
+        // 后台唤起执行体（BG 启动无 UI——以当前成员+默认安静时段执行；
+        // 未建档/未授权即跳过，前台锚点兜底路径不受影响）
+        HealthKitSyncService.registerBackgroundTask()
+        let bgSync = container.healthSync
+        HealthKitSyncService.backgroundSyncHandler = { [appState] in
+            let ready = await MainActor.run { appState.onboardingFinished && appState.owner != nil }
+            guard ready else { return false }   // 未建档：无成员归属，绝不落匿名读数（BR-001）
+            guard await bgSync.isAuthorized() else { return false }
+            let patient = await MainActor.run { appState.currentPatientId }
+            let report = try? await bgSync.performSync(   // try?-ok: 后台同步失败静默回落——前台/手动路径兜底重查，不阻断任务完成上报
+                patientId: patient, quietStart: "22:00", quietEnd: "07:00")
+            return report != nil
+        }
+        Task { await container.healthSync.startBackgroundObservation() }
         // 审查修复：BackupState 此前从未装配——SP-24 打开即
         // "No Observable object of type BackupState found" 崩溃
         _backupState = State(initialValue: BackupState(service: container.backup))

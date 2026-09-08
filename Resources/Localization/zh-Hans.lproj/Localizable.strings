@@ -1508,3 +1508,7 @@
 "voiceIntent.createQuestion" = "问诊问题";
 "voiceIntent.unknown" = "任意文本";
 "voicePanel.autoHint" = "说出要记录的内容，将自动判断去向并生成草稿";
+"voiceConfirm.judgedTarget" = "判定结果";
+"voiceConfirm.candidates" = "可能属于：";
+"f16.syncedRowsFmt" = "已汇入 %d 条设备读数（与手输同趋势展示）";
+"f16.lastSyncFmt" = "上次同步：%@";

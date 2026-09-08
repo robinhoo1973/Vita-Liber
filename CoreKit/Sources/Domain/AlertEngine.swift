@@ -48,10 +48,53 @@ public struct MetricReading: Sendable, Equatable {
     public var origin: MetricOrigin
     public var measuredAt: Date
     public var reportRange: ReferenceRange?    // A 级（报告自带）优先
+    // V3.86/迁移 v18：设备来源元数据（HKSource 三键，幂等键含来源；
+    // 手输/医院行为 nil）
+    public var sourceName: String?
+    public var sourceVersion: String?
+    public var sourceProduct: String?
     public init(metricKey: String, value: Double, unit: String, origin: MetricOrigin,
-                measuredAt: Date, reportRange: ReferenceRange? = nil) {
+                measuredAt: Date, reportRange: ReferenceRange? = nil,
+                sourceName: String? = nil, sourceVersion: String? = nil,
+                sourceProduct: String? = nil) {
         self.metricKey = metricKey; self.value = value; self.unit = unit
         self.origin = origin; self.measuredAt = measuredAt; self.reportRange = reportRange
+        self.sourceName = sourceName
+        self.sourceVersion = sourceVersion
+        self.sourceProduct = sourceProduct
+    }
+}
+
+/// FR7.9 设备读数落库行（小时窗口聚合后；metric_sample 六列的 Domain 形态）。
+/// 评估与入库双流（V3.86）：分钟级原始读数内存态评估 → alert_event；
+/// 聚合行 → metric_sample（origin='device' + 来源三键 + value_min/max/sample_count）。
+public struct DeviceMetricRow: Sendable, Equatable {
+    public var metricKey: String
+    /// 窗口均值（睡眠=合并后总时长等汇总值）
+    public var value: Double
+    public var unit: String
+    public var valueMin: Double?
+    public var valueMax: Double?
+    public var sampleCount: Int?
+    public var sourceName: String?
+    public var sourceVersion: String?
+    public var sourceProduct: String?
+    /// 窗口左边界（epoch；睡眠=夜锚日期）
+    public var measuredAt: Date
+    public init(metricKey: String, value: Double, unit: String,
+                valueMin: Double? = nil, valueMax: Double? = nil, sampleCount: Int? = nil,
+                sourceName: String? = nil, sourceVersion: String? = nil,
+                sourceProduct: String? = nil, measuredAt: Date) {
+        self.metricKey = metricKey
+        self.value = value
+        self.unit = unit
+        self.valueMin = valueMin
+        self.valueMax = valueMax
+        self.sampleCount = sampleCount
+        self.sourceName = sourceName
+        self.sourceVersion = sourceVersion
+        self.sourceProduct = sourceProduct
+        self.measuredAt = measuredAt
     }
 }
 

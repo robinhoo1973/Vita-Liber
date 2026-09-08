@@ -24,16 +24,31 @@ final class F16DeviceState {
     /// FR16.4：无信源阈值的读数计数——「范围不可用」是独立呈现态，
     /// 不静默跳过（审查修复：原 catch continue 让用户以为同步正常）
     private(set) var noRangeCount = 0
+    /// FR7.9（V3.86）：设备读数落库行数（入库流；与手输同表同趋势）
+    private(set) var persistedRows = 0
+    /// 上次成功同步时刻（FR16.1 V3.49 同步时间沟通契约：最近同步时间可见）
+    private(set) var lastSyncAt: Date?
     private let reader: HealthKitReader
     private let guidelines: GuidelineStore
     private let scheduler: any ReminderScheduling
+    /// V3.86 自动化同步服务（评估+入库双流主路径；未注入时（测试/预览）
+    /// 回落下方既有评估回路——口径保持，双路径同语义）
+    private let syncService: HealthKitSyncService?
+    private let trends: TrendQueryStore?
+    private let dataChange: AppDataChangeCenter?
     private var lastAlertKey: [String: Date] = [:]
 
     init(reader: HealthKitReader, guidelines: GuidelineStore,
-         scheduler: any ReminderScheduling) {
+         scheduler: any ReminderScheduling,
+         syncService: HealthKitSyncService? = nil,
+         trends: TrendQueryStore? = nil,
+         dataChange: AppDataChangeCenter? = nil) {
         self.reader = reader
         self.guidelines = guidelines
         self.scheduler = scheduler
+        self.syncService = syncService
+        self.trends = trends
+        self.dataChange = dataChange
     }
 
     /// FR16.1 只读授权请求（一次性；F14.1 authHealthRead 开关关闭时直接拒绝执行）
@@ -77,7 +92,26 @@ final class F16DeviceState {
         guard !isSyncing else { return }
         phase = .syncing
         noRangeCount = 0
+        persistedRows = 0
         defer { if case .syncing = phase { phase = .done(count: 0) } }
+        // FR7.9（V3.86）主路径：评估+入库双流经同步服务（观察者/后台/前台
+        // 三路径共用同一实现——防止两处独立演化）；入库成功后按类型化
+        // 版本计数触发趋势/指标宫格失效刷新（数据经 Store 观察 DB）
+        if let syncService {
+            do {
+                let report = try await syncService.performSync(
+                    patientId: patientId, quietStart: quietStart, quietEnd: quietEnd)
+                noRangeCount = report.noRangeCount
+                persistedRows = report.persistedRows
+                lastSyncAt = report.lastSyncAt
+                if report.persistedRows > 0 { dataChange?.metricsChanged() }
+                phase = .done(count: report.elevated)
+            } catch {
+                phase = .degraded(L10n.f16SyncFailed)
+            }
+            return
+        }
+        // 兜底回路（未注入服务：测试/预览）——既有评估逻辑原样保留
         do {
             let readings = try await reader.recentReadings(within: 24)
             // 评审修正第二轮：跨重启 24h 去重需要送达清单——session 级 lastAlertKey
@@ -192,6 +226,19 @@ struct DeviceConnectionView: View {
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
+                    // FR7.9（V3.86）入库流呈现：设备读数与手输同趋势
+                    if deviceState.persistedRows > 0 {
+                        Text(L10n.f16SyncedRows(deviceState.persistedRows))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier("SP-29.health.syncedRows")
+                    }
+                    // FR16.1 V3.49 同步时间沟通契约：最近同步时间可见
+                    if let last = deviceState.lastSyncAt {
+                        Text(L10n.f16LastSync(Self.timeString(last)))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 case .degraded(let message):
                     Label(message, systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.orange)
@@ -239,5 +286,12 @@ struct DeviceConnectionView: View {
             // 审查修复：进入即按系统真实授权状态回显（FR16.1 不得重复索权/误导状态）
             authorized = await deviceState.currentAuthorization()
         }
+    }
+
+    /// "HH:mm" 时刻呈现（上次同步时间）
+    private static func timeString(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: date)
     }
 }

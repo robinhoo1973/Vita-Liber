@@ -194,8 +194,21 @@ public enum SchemaV2 {
       -- F25（V3.69 / 迁移 v14）：raw_label=原始指标名（FR7.1 原始名保真，FR25.4）；
       -- code_concept_id=规范编码（BR-003 确认前为空，确认后回填——编码只补不覆 FR25.11）
       raw_label TEXT, code_concept_id TEXT REFERENCES code_concept(id),
+      -- V3.86 / 迁移 v18：设备来源元数据与小时窗口聚合（FR16.1/FR7.9）——
+      -- value=窗口均值、value_min/max=窗口极值、sample_count=窗口有效样本数（<3 不落行）；
+      -- source 三键=HKSource 元数据（幂等键含来源，手输/医院行为 NULL）
+      value_min REAL, value_max REAL, sample_count INTEGER,
+      source_name TEXT, source_version TEXT, source_product TEXT,
       measured_at REAL NOT NULL, created_at REAL NOT NULL);
     CREATE INDEX idx_metric_patient_time ON metric_sample(patient_id, metric_key, measured_at);
+    CREATE INDEX idx_metric_source ON metric_sample(patient_id, metric_key, measured_at, source_name);
+
+    -- F16 同步锚点（V3.86 / 迁移 v18）：HKAnchoredObjectQuery 增量兜底的持久化
+    -- 落点——DB 随 .vlbu 备份往返（UserDefaults 不入备份、恢复后锚点丢失=漏读/重放）
+    CREATE TABLE hk_sync_anchor (
+      anchor_key TEXT PRIMARY KEY,
+      anchor_value TEXT NOT NULL,
+      updated_at REAL NOT NULL);
 
     -- B 级信源库（F16.4）
     CREATE TABLE guideline_source (

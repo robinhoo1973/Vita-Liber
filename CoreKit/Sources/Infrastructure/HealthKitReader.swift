@@ -8,6 +8,11 @@ import Protocols
 /// 只展示、不入诊断逻辑——读数经 AlertRuleEngine 与信源库比对后落 alert_event
 /// （F16 四级提示的事实来源），任何「解释」都由证据卡引用式呈现。
 ///
+/// V3.86 评估与入库双流（FR7.9）：`recentReadings` 供分钟级内存态评估
+/// （心率返回窗口内全部原始样本，保 FR16.2「连续3次/持续10分钟」语义）；
+/// `deviceRows` 供小时窗口聚合落库（心率 min/max/avg、睡眠区间合并——
+/// 杜绝双来源同夜双计，health-import V1.3）。
+///
 /// 授权被拒 → 整体降级为手动自测模式（FR7.5），不反复弹索权（FR16.1 边界）。
 public actor HealthKitReader {
     private let store: HKHealthStore
@@ -52,158 +57,287 @@ public actor HealthKitReader {
         return store.authorizationStatus(for: hr)
     }
 
+    // MARK: - 评估流（分钟级内存态，FR16.2 语义）
+
     /// 近窗读数（默认 24 小时）：六指标 → [MetricReading]（引擎评估的事实源）。
-    /// 第八轮全仓审查修复（3/6 覆盖缺口）：readTypes 授权了六类，但此处只
-    /// 查静息心率/血氧/步数——即时心率、呼吸率、睡眠从未进 evaluateAndRecord，
-    /// 心率（信源库已种 heart_rate l1High=100）的 L1 预警链整条空转，同步
-    /// UI 仍报成功。补齐三类；呼吸率/睡眠信源库暂无种子 → 按 FR16.4 诚实
-    /// 呈现「范围不可用」，绝不臆造阈值。
-    public func recentReadings(within hours: Int = 24, now: Date = Date()) async throws -> [MetricReading] {
+    /// V3.86：即时心率返回窗口内**全部**原始样本（保「连续3次/持续10分钟」
+    /// 评估语义）；睡眠改为合并摘要（sleep_total 族键，杜绝双来源双计）。
+    public func recentReadings(within hours: Int = 24, now: Date = Date(),
+                               calendar: Calendar = .current) async throws -> [MetricReading] {
         guard HKHealthStore.isHealthDataAvailable() else { throw ReaderError.unavailable }
         let start = now.addingTimeInterval(TimeInterval(-hours * 3600))
         var readings: [MetricReading] = []
-        // 静息心率（越限判断主指标之一）。
-        // 审查修复：metricKey 必须与信源库种子键 snake_case 一致——
-        // 驼峰 "heartRate" 查库恒空 → noApplicableRange → L1-L3 预警链整体失效。
         if let rhrType = HKQuantityType.quantityType(forIdentifier: .restingHeartRate) {
             let samples = try await querySamples(type: rhrType,
                                                  unit: HKUnit.count().unitDivided(by: .minute()),
                                                  from: start, to: now)
-            for (value, at) in samples {
+            for (value, at, source) in samples {
                 readings.append(MetricReading(metricKey: "heart_rate",
                                               value: value, unit: "bpm",
-                                              origin: .device, measuredAt: at))
+                                              origin: .device, measuredAt: at,
+                                              sourceName: source?.source.name,
+                                              sourceVersion: source?.version,
+                                              sourceProduct: source?.productType))
             }
         }
-        // 即时心率（键对齐信源库 "heart_rate"；取最新样本）
         if let hrType = HKQuantityType.quantityType(forIdentifier: .heartRate) {
             let samples = try await querySamples(type: hrType,
                                                  unit: HKUnit.count().unitDivided(by: .minute()),
-                                                 from: start, to: now)
-            if let (lastValue, lastAt) = samples.last {
+                                                 from: start, to: now, limit: 1500)
+            for (value, at, source) in samples {
                 readings.append(MetricReading(metricKey: "heart_rate",
-                                              value: lastValue, unit: "bpm",
-                                              origin: .device, measuredAt: lastAt))
+                                              value: value, unit: "bpm",
+                                              origin: .device, measuredAt: at,
+                                              sourceName: source?.source.name,
+                                              sourceVersion: source?.version,
+                                              sourceProduct: source?.productType))
             }
         }
-        // 呼吸率（FR16.1 清单）
         if let rrType = HKQuantityType.quantityType(forIdentifier: .respiratoryRate) {
             let samples = try await querySamples(type: rrType,
                                                  unit: HKUnit.count().unitDivided(by: .minute()),
                                                  from: start, to: now)
-            if let (lastValue, lastAt) = samples.last {
+            if let (lastValue, lastAt, source) = samples.last {
                 readings.append(MetricReading(metricKey: "respiratory_rate",
                                               value: lastValue, unit: "br/min",
-                                              origin: .device, measuredAt: lastAt))
+                                              origin: .device, measuredAt: lastAt,
+                                              sourceName: source?.source.name,
+                                              sourceVersion: source?.version,
+                                              sourceProduct: source?.productType))
             }
         }
-        // 血氧（键对齐信源库 "blood_oxygen"；HK 值 0–1 分数 → %）
         if let spo2Type = HKQuantityType.quantityType(forIdentifier: .oxygenSaturation) {
             let samples = try await querySamples(type: spo2Type,
                                                  unit: HKUnit.percent(),
                                                  from: start, to: now)
-            for (value, at) in samples {
+            for (value, at, source) in samples {
                 readings.append(MetricReading(metricKey: "blood_oxygen",
                                               value: value * 100, unit: "%",
-                                              origin: .device, measuredAt: at))
+                                              origin: .device, measuredAt: at,
+                                              sourceName: source?.source.name,
+                                              sourceVersion: source?.version,
+                                              sourceProduct: source?.productType))
             }
         }
-        // 步数（当日总量；单位=步数）
         if let stepsType = HKQuantityType.quantityType(forIdentifier: .stepCount) {
             let samples = try await querySamples(type: stepsType, unit: HKUnit.count(),
                                                  from: start, to: now)
-            if let (lastValue, lastAt) = samples.last {
+            if let (lastValue, lastAt, source) = samples.last {
                 readings.append(MetricReading(metricKey: "steps",
                                               value: lastValue, unit: "count",
-                                              origin: .device, measuredAt: lastAt))
+                                              origin: .device, measuredAt: lastAt,
+                                              sourceName: source?.source.name,
+                                              sourceVersion: source?.version,
+                                              sourceProduct: source?.productType))
             }
         }
-        // 睡眠（分类样本聚合：入睡/卧床时长与深睡占比；HKCategorySample
-        // 不是数量样本，需独立查询助手）
         if let sleepType = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) {
-            readings.append(contentsOf: try await querySleepSamples(type: sleepType,
-                                                                    from: start, to: now))
+            let rows = try await sleepRows(type: sleepType, from: start, to: now, calendar: calendar)
+            for row in rows {
+                readings.append(MetricReading(metricKey: row.metricKey,
+                                              value: row.value, unit: row.unit,
+                                              origin: .device, measuredAt: row.measuredAt,
+                                              sourceName: row.sourceName))
+            }
         }
         return readings
     }
 
-    /// 睡眠分类样本聚合（FR16.1「睡眠时长与分期」）：asleep/inBed 总时长
-    /// + 深睡（asleepDeep/REM/Core）时长，单位小时；无样本返回空数组。
-    private func querySleepSamples(type: HKCategoryType, from: Date,
-                                   to: Date) async throws -> [MetricReading] {
+    // MARK: - 入库流（小时窗口聚合，FR7.9）
+
+    /// 设备读数落库行：心率小时窗口聚合（min/max/avg + 来源主键）+
+    /// 睡眠区间合并（sleep_total/deep/rem/awake）+ 血氧/呼吸率/步数单值行。
+    public func deviceRows(within hours: Int = 24, now: Date = Date(),
+                           calendar: Calendar = .current) async throws -> [DeviceMetricRow] {
+        guard HKHealthStore.isHealthDataAvailable() else { throw ReaderError.unavailable }
+        let start = now.addingTimeInterval(TimeInterval(-hours * 3600))
+        var rows: [DeviceMetricRow] = []
+        // 心率：原始分钟级样本 → Domain 小时窗口聚合（value=avg + min/max + count）
+        if let hrType = HKQuantityType.quantityType(forIdentifier: .heartRate) {
+            let samples = try await querySamples(type: hrType,
+                                                 unit: HKUnit.count().unitDivided(by: .minute()),
+                                                 from: start, to: now, limit: 1500)
+            // 按小时+来源分组：同窗口多来源取样本数最多的来源为主键（幂等键含来源）
+            var bucketSources: [Date: [String: Int]] = [:]
+            var windowSamples: [Date: [HourWindowSample]] = [:]
+            for (value, at, source) in samples {
+                let bucket = calendar.dateInterval(of: .hour, for: at)?.start
+                    ?? calendar.startOfDay(for: at)
+                windowSamples[bucket, default: []].append(HourWindowSample(value: value, at: at))
+                bucketSources[bucket, default: [:]][source?.source.name ?? "", default: 0] += 1
+            }
+            let (windows, _) = HourWindowAggregator.aggregate(
+                windowSamples.values.flatMap { $0 }, calendar: calendar)
+            for window in windows {
+                let sourceName = bucketSources[window.windowStart]?.max(by: { $0.value < $1.value })?.key
+                rows.append(DeviceMetricRow(
+                    metricKey: "heart_rate", value: window.avg, unit: "bpm",
+                    valueMin: window.min, valueMax: window.max,
+                    sampleCount: window.sampleCount, sourceName: sourceName,
+                    measuredAt: window.windowStart))
+            }
+        }
+        // 睡眠：分类样本 → 区间合并（Domain SleepMerge，阶段优先+noon 锚归晚）
+        if let sleepType = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) {
+            rows.append(contentsOf: try await sleepRows(type: sleepType, from: start, to: now,
+                                                        calendar: calendar))
+        }
+        // 血氧/呼吸率：窗口内最新单值（来源元数据随行）
+        if let spo2Type = HKQuantityType.quantityType(forIdentifier: .oxygenSaturation) {
+            let samples = try await querySamples(type: spo2Type, unit: HKUnit.percent(),
+                                                 from: start, to: now)
+            if let (lastValue, lastAt, source) = samples.last {
+                rows.append(DeviceMetricRow(metricKey: "blood_oxygen",
+                                            value: lastValue * 100, unit: "%",
+                                            sourceName: source?.source.name,
+                                            sourceVersion: source?.version,
+                                            sourceProduct: source?.productType,
+                                            measuredAt: lastAt))
+            }
+        }
+        if let rrType = HKQuantityType.quantityType(forIdentifier: .respiratoryRate) {
+            let samples = try await querySamples(type: rrType,
+                                                 unit: HKUnit.count().unitDivided(by: .minute()),
+                                                 from: start, to: now)
+            if let (lastValue, lastAt, source) = samples.last {
+                rows.append(DeviceMetricRow(metricKey: "respiratory_rate",
+                                            value: lastValue, unit: "br/min",
+                                            sourceName: source?.source.name,
+                                            sourceVersion: source?.version,
+                                            sourceProduct: source?.productType,
+                                            measuredAt: lastAt))
+            }
+        }
+        if let stepsType = HKQuantityType.quantityType(forIdentifier: .stepCount) {
+            let samples = try await querySamples(type: stepsType, unit: HKUnit.count(),
+                                                 from: start, to: now)
+            if let (lastValue, lastAt, source) = samples.last {
+                rows.append(DeviceMetricRow(metricKey: "steps",
+                                            value: lastValue, unit: "count",
+                                            sourceName: source?.source.name,
+                                            sourceVersion: source?.version,
+                                            sourceProduct: source?.productType,
+                                            measuredAt: lastAt))
+            }
+        }
+        return rows
+    }
+
+    /// 睡眠合并行（V3.86）：HKCategorySample → Domain SleepSample →
+    /// SleepMerge.merge（区间并集/阶段优先/noon 锚归晚）→ sleep_total 族键。
+    /// deep 桶只计 deep（V1.3 修正：REM/Core 不再误计入 deep）。
+    private func sleepRows(type: HKCategoryType, from: Date, to: Date,
+                           calendar: Calendar) async throws -> [DeviceMetricRow] {
         let predicate = HKQuery.predicateForSamples(withStart: from, end: to, options: [])
         let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: true)
-        return try await withCheckedThrowingContinuation { continuation in
+        let samples: [SleepSample] = try await withCheckedThrowingContinuation { continuation in
             let query = HKSampleQuery(sampleType: type, predicate: predicate,
                                       limit: 500, sortDescriptors: [sort]) { _, samples, error in
                 if let error {
                     continuation.resume(throwing: error)
                     return
                 }
-                var asleep: TimeInterval = 0
-                var inBed: TimeInterval = 0
-                var deep: TimeInterval = 0
-                var lastEnd: Date?
-                for sample in (samples ?? []) {
-                    guard let s = sample as? HKCategorySample else { continue }
-                    let duration = s.endDate.timeIntervalSince(s.startDate)
+                var out: [SleepSample] = []
+                for case let s as HKCategorySample in (samples ?? []) {
+                    let stage: SleepStage
                     switch s.value {
-                    case HKCategoryValueSleepAnalysis.asleepDeep.rawValue,
-                         HKCategoryValueSleepAnalysis.asleepREM.rawValue,
-                         HKCategoryValueSleepAnalysis.asleepCore.rawValue:
-                        deep += duration
-                        asleep += duration
-                    case HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue:
-                        // .asleep 为 .asleepUnspecified 的旧名（iOS 16 弃用），rawValue 同值已覆盖
-                        asleep += duration
-                    case HKCategoryValueSleepAnalysis.inBed.rawValue:
-                        inBed += duration
-                    default:
-                        break
+                    case HKCategoryValueSleepAnalysis.asleepDeep.rawValue: stage = .deep
+                    case HKCategoryValueSleepAnalysis.asleepREM.rawValue: stage = .rem
+                    case HKCategoryValueSleepAnalysis.asleepCore.rawValue: stage = .core
+                    // .asleep 为 .asleepUnspecified 的旧名（iOS 16 弃用），rawValue 同值
+                    case HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue: stage = .unspecified
+                    case HKCategoryValueSleepAnalysis.awake.rawValue: stage = .awake
+                    case HKCategoryValueSleepAnalysis.inBed.rawValue: stage = .inBed
+                    default: continue
                     }
-                    lastEnd = s.endDate
-                }
-                var out: [MetricReading] = []
-                guard let lastEnd else {
-                    continuation.resume(returning: out)
-                    return
-                }
-                if asleep > 0 {
-                    out.append(MetricReading(metricKey: "sleep_duration",
-                                             value: asleep / 3600, unit: "h",
-                                             origin: .device, measuredAt: lastEnd))
-                }
-                if inBed > 0 {
-                    out.append(MetricReading(metricKey: "sleep_in_bed",
-                                             value: inBed / 3600, unit: "h",
-                                             origin: .device, measuredAt: lastEnd))
-                }
-                if deep > 0 {
-                    out.append(MetricReading(metricKey: "sleep_deep",
-                                             value: deep / 3600, unit: "h",
-                                             origin: .device, measuredAt: lastEnd))
+                    out.append(SleepSample(
+                        start: s.startDate, end: s.endDate, stage: stage,
+                        sourceName: s.sourceRevision.source.name,
+                        sourceVersion: s.sourceRevision.version,
+                        sourceProduct: s.sourceRevision.productType))
                 }
                 continuation.resume(returning: out)
             }
             store.execute(query)
         }
+        // noon 锚归晚：按样本结束日的自然日分组（merge 内部取前一日 12:00 窗）
+        var rows: [DeviceMetricRow] = []
+        for day in Set(samples.map { calendar.startOfDay(for: $0.end) }) {
+            let summary = SleepMerge.merge(samples, anchorDate: day, calendar: calendar)
+            guard summary.totalAsleep > 0 || summary.inBedTotal > 0 else { continue }
+            let anchor = summary.sleepStart ?? day
+            if summary.totalAsleep > 0 {
+                rows.append(DeviceMetricRow(metricKey: "sleep_total",
+                                            value: summary.totalAsleep / 3600, unit: "h",
+                                            sourceName: summary.prioritySource,
+                                            measuredAt: anchor))
+            }
+            if let deep = summary.perStage[.deep], deep > 0 {
+                rows.append(DeviceMetricRow(metricKey: "sleep_deep",
+                                            value: deep / 3600, unit: "h",
+                                            sourceName: summary.prioritySource,
+                                            measuredAt: anchor))
+            }
+            if let rem = summary.perStage[.rem], rem > 0 {
+                rows.append(DeviceMetricRow(metricKey: "sleep_rem",
+                                            value: rem / 3600, unit: "h",
+                                            sourceName: summary.prioritySource,
+                                            measuredAt: anchor))
+            }
+            if let awake = summary.perStage[.awake], awake > 0 {
+                rows.append(DeviceMetricRow(metricKey: "sleep_awake",
+                                            value: awake / 3600, unit: "h",
+                                            sourceName: summary.prioritySource,
+                                            measuredAt: anchor))
+            }
+        }
+        return rows
     }
 
-    /// 单类型样本查询（时间升序；单位由调用方按指标语义给定）
+    // MARK: - 前台锚点增量（FR16.1 V3.46：HKAnchoredObjectQuery 兜底）
+
+    /// 锚点增量查询（单类型）：返回自 anchor 以来的样本事件与删除事件。
+    /// 无锚首跑传 nil（全量）。
+    public func anchoredChanges(type: HKObjectType, anchor: HKQueryAnchor?,
+                                limit: Int = 500) async throws -> (anchor: HKQueryAnchor?,
+                                                                   added: [HKObject],
+                                                                   deletedCount: Int) {
+        try await withCheckedThrowingContinuation { continuation in
+            // 单次 resume 纪律：resultsHandler 可在后续更新时再次回调——
+            // settled 守卫（与 SFSpeechTranscriber isFinal 守卫同款），
+            // 双 resume 是 continuation 陷阱
+            var settled = false
+            let query = HKAnchoredObjectQuery(type: type, predicate: nil, anchor: anchor,
+                                              limit: limit) { _, samples, deleted, newAnchor, error in
+                guard !settled else { return }
+                settled = true
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: (newAnchor, samples ?? [], deleted))
+                }
+            }
+            store.execute(query)
+        }
+    }
+
+    /// 单类型样本查询（时间升序；单位由调用方按指标语义给定）。
+    /// 返回 (值, 时刻, 来源修订)——来源三键供幂等键与展示徽章。
     private func querySamples(type: HKQuantityType, unit: HKUnit,
-                              from: Date, to: Date) async throws -> [(Double, Date)] {
+                              from: Date, to: Date,
+                              limit: Int = 100) async throws -> [(Double, Date, HKSourceRevision?)] {
         let predicate = HKQuery.predicateForSamples(withStart: from, end: to, options: [])
         let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: true)
         return try await withCheckedThrowingContinuation { continuation in
             let query = HKSampleQuery(sampleType: type, predicate: predicate,
-                                      limit: 100, sortDescriptors: [sort]) { _, samples, error in
+                                      limit: limit, sortDescriptors: [sort]) { _, samples, error in
                 if let error {
                     continuation.resume(throwing: error)
                     return
                 }
-                let out = (samples ?? []).compactMap { sample -> (Double, Date)? in
+                let out = (samples ?? []).compactMap { sample -> (Double, Date, HKSourceRevision?)? in
                     guard let q = sample as? HKQuantitySample else { return nil }
-                    return (q.quantity.doubleValue(for: unit), q.endDate)
+                    return (q.quantity.doubleValue(for: unit), q.endDate, q.sourceRevision)
                 }
                 continuation.resume(returning: out)
             }

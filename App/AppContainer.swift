@@ -1,5 +1,6 @@
 import Foundation
 import os
+import HealthKit
 import Domain
 import Infrastructure
 import Protocols
@@ -77,6 +78,8 @@ struct AppContainer {
     let pdfExport: PDFExportService
     /// F16 只读 Apple 健康接入（FR16.1）
     let healthReader: HealthKitReader
+    /// FR16.1 V3.86 自动化同步服务（观察者+BGTask+锚点+评估入库双流）
+    let healthSync: HealthKitSyncService
 
     /// 生产装配：文件库 + WAL（§4.4）+ UNUserNotificationCenter 适配。
     /// @MainActor：mediaSession（MediaUnlockSession）为 UI 会话令牌，装配根即主线程。
@@ -164,10 +167,16 @@ struct AppContainer {
         let backup = BackupService(writer: store.writer)
         let aiHistory = AIHistoryStore(writer: store.writer)
         let pdfExport = PDFExportService(writer: store.writer)
-        let healthReader = HealthKitReader()
+        // FR16.1 V3.86：HKHealthStore 单实例共享（Apple 文档纪律：一进程一实例，
+        // reader 与 sync service 同源注入）
+        let healthKitStore = HKHealthStore()
+        let healthReader = HealthKitReader(store: healthKitStore)
         let entitlements = EntitlementStore(writer: store.writer,
                                             storefront: EntitlementStore.InMemoryStorefront())
         let trends = TrendQueryStore(writer: store.writer)
+        let healthSync = HealthKitSyncService(reader: healthReader, healthStore: healthKitStore,
+                                              trends: trends, guidelines: guidelines,
+                                              scheduler: scheduler, writer: store.writer)
         let codeIndex = GRDBCodeIndex(writer: store.writer)
         let notificationState = NotificationStateStore(writer: store.writer)
         let notificationCenterState = NotificationCenterState(store: notificationState)
@@ -226,7 +235,8 @@ struct AppContainer {
                             backup: backup,
                             aiHistory: aiHistory,
                             pdfExport: pdfExport,
-                            healthReader: healthReader)
+                            healthReader: healthReader,
+                            healthSync: healthSync)
     }
 
     /// Application Support 下的数据库路径（生产库位置）

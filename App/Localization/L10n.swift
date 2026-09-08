@@ -822,6 +822,11 @@ enum L10n {
     "healthProblem.offer.body",
     "healthProblem.create",
     "voicePanel.autoHint",
+    "voiceConfirm.judgedTarget",
+    "voiceConfirm.candidates",
+    // V3.86 FR7.9 设备读数入库呈现 / FR16.1 同步时间沟通契约
+    "f16.syncedRowsFmt",
+    "f16.lastSyncFmt",
     "doc.duplicateExisting",
     "doc.duplicateKeep",
     "doc.duplicateNeverAutoDelete",
@@ -2035,6 +2040,9 @@ enum L10n {
     static func voiceIntentName(_ key: String) -> String { t("voiceIntent.\(key)") }
     /// 语音速记面板去 chips 后的提示语（判定由本地理解层自动完成）
     static var voicePanelAutoHint: String { t("voicePanel.autoHint") }
+    // V3.49 确认卡判定结果行（4.27 可选元素）
+    static var voiceConfirmJudgedTarget: String { t("voiceConfirm.judgedTarget") }
+    static var voiceConfirmCandidates: String { t("voiceConfirm.candidates") }
     /// 无文字降级提示（Domain ImageInputRules.noTextKey 的 App 层渲染——
     /// Domain 只出类型化键，零硬编码文案）
     static var imageInputNoText: String { t("image_input.noText") }
@@ -2443,6 +2451,10 @@ enum L10n {
     static var f16SyncNow: String { t("f16.syncNow") }
     static var f16Syncing: String { t("f16.syncing") }
     static func f16SyncDone(_ n: Int) -> String { String(format: t("f16.syncDoneFmt"), n) }
+    /// V3.86 FR7.9 入库流呈现（设备读数与手输同趋势）
+    static func f16SyncedRows(_ n: Int) -> String { String(format: t("f16.syncedRowsFmt"), n) }
+    /// V3.86 FR16.1 V3.49 同步时间沟通契约
+    static func f16LastSync(_ time: String) -> String { String(format: t("f16.lastSyncFmt"), time) }
     // FR16.4「范围不可用」独立呈现态（无信源阈值的读数计数）
     static func f16NoRange(_ n: Int) -> String { String(format: t("f16.noRangeFmt"), n) }
     static var f16SyncFailed: String { t("f16.syncFailed") }
