@@ -140,7 +140,7 @@ jobs:
             echo "::error::缺 project.yml 且无 xcodeproj"; exit 1
           fi
 
-      # ── L0 静态门禁（评审修正 C3：失败即停——dev-pm §9.4「L0 不过不进 L1」；
+      # ── L0 静态门禁（评审修正 C3：失败即停——test-plan-spec §0 铁律 3「L0 不过不进 L1」；
       # 此前被 || warning 吞成非阻塞，红线违规仍能归档上传，属
       # 「缺证据被当成有证据」同族）──────────
       - name: L0 静态门禁

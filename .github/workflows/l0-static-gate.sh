@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 # ============================================================================
 # Vita Liber · 青囊书 — L0 静态门禁
-# 位置：.github/workflows/l0-static-gate.sh —— 被 vita-liber-ios.yml 的
-#       l0-static-gate job 引用，与工作流同目录托管；本地同样可直接执行。
-# 依据：dev-pm-spec §9.2（五项固定检查，任一失败即红）/ §9.4（L0 不过不进 L1）
+# 位置：.github/workflows/l0-static-gate.sh —— 被 build-testflight.yml 的
+#       build job「L0 静态门禁」步骤引用，与工作流同目录托管；本地同样可直接执行。
+# 依据：test-plan-spec §1.1（L0 十五节，任一失败即红）/ §0 铁律 3（L0 不过不进 L1，分层不可跳越）
 #
 #   [1] try? grep 门禁 —— 全仓清零；豁免仅限同行注释 `// try?-ok: <理由>`（tech-spec §7）
 #   [2] ADR-021 无平行视图 —— 禁止 *_iPad/*_iPhone 视图文件；
 #       禁止 `userInterfaceIdiom == .pad` 分支换页（豁免同行注释 `// adr021-ok: <理由>`）（tech-spec §5.26）
 #   [3] DDL 引用完整性 —— 每个 REFERENCES 目标表必须有对应 CREATE TABLE；
-#       必须显式开启外键（foreign_keys / foreignKeysEnabled）（tech-spec §4.3，dev-pm §3.1 M0）
+#       必须显式开启外键（foreign_keys / foreignKeysEnabled）（tech-spec §4.3）
 #   [4] 红线模块禁读 EntitlementStore（tech-spec §5.14，comercial-spec §1 永久免费红线）
 #   [5] Domain 零框架依赖 —— Sources/Domain 不 import SwiftUI/UIKit/Vision/GRDB（tech-spec §1.1）
-#   [6] Fixtures/**/*.json 可解析校验（目录缺失仅告警——金样随阶段入库 §9.1）
+#   [6] Fixtures/**/*.json 可解析校验（目录缺失仅告警——金样随阶段入库）
 #   [7]–[10] Swift 解析 / 套件清单 / FR17.13 / L10n（见正文各段注释）
 #   [11] 资产目录完整性 —— Assets.xcassets 每个 imageset 槽位 scale 必须 1x/2x/3x
 #        （actool 对非法 scale 静默丢弃 imageset → 运行时图标全空，回归防护）
@@ -215,7 +215,7 @@ else
   [ "$ddl_missing" -gt 0 ] && fail "外键引用悬空 ${ddl_missing} 个目标表"
   [ "$fk_on" -eq 0 ] && fail "未找到外键开启语句（PRAGMA foreign_keys=ON / Configuration.foreignKeysEnabled）"
 fi
-# M0 必建表完整性（评审 S1-1）：dev-pm §3.1⑤ 指定的批次/药品表是 schema 基础设施，
+# M0 必建表完整性（评审 S1-1）：tech-spec §4.3 指定的批次/药品表是 schema 基础设施，
 # 缺表时引用完整性检查不报错但 M0 退出准则不达标——必须显式断言清单。
 m0_tables="prescription medication medication_plan medication_dose_log stock_lot dose_lot_allocation"
 m0_missing=0
@@ -223,7 +223,7 @@ for t in $m0_tables; do
   # 同样落文件 grep（ERR#34 同族：printf 管道遇 grep -q 早退会 SIGPIPE 假红）
   grep -qE "CREATE TABLE $t([[:space:]]|\\()" "$_ddl_file" || { m0_missing=$((m0_missing + 1)); printf '    M0 必建表缺失: %s\n' "$t"; }
 done
-[ "$m0_missing" -eq 0 ] && pass "M0 必建表清单齐备（prescription/medication/plan/dose_log/stock_lot/allocation）" || fail "M0 必建表缺失 ${m0_missing} 个（dev-pm §3.1⑤）"
+[ "$m0_missing" -eq 0 ] && pass "M0 必建表清单齐备（prescription/medication/plan/dose_log/stock_lot/allocation）" || fail "M0 必建表缺失 ${m0_missing} 个（tech-spec §4.3）"
 rm -f "$_ddl_file"
 
 # ---------- [4] 红线模块禁读 EntitlementStore ----------
@@ -273,7 +273,7 @@ else
 fi
 
 # ---------- [6] Fixtures JSON 校验 ----------
-section "6/15" "金样 Fixtures —— JSON 可解析（dev-pm-spec §9.2④）"
+section "6/15" "金样 Fixtures —— JSON 可解析（test-plan-spec Fixtures 约定）"
 validate_json() {
   if command -v python3 >/dev/null 2>&1; then
     python3 -c 'import json,sys; json.load(open(sys.argv[1], encoding="utf-8"))' "$1" 2>/dev/null
@@ -286,7 +286,7 @@ validate_json() {
   fi
 }
 if [ ! -d "$FIXTURES" ]; then
-  warn "Fixtures 目录缺失（金样随阶段入库，dev-pm-spec §9.1）——跳过"
+  warn "Fixtures 目录缺失（金样随阶段入库，test-plan-spec §5 约定）——跳过"
 else
   j_total=0; j_bad=0; j_no_tool=0
   while IFS= read -r f; do
@@ -563,10 +563,17 @@ fi
 # com.apple.developer.healthkit ⟹ Info.plist 必须有 NSHealthShareUsageDescription
 # 与 NSHealthUpdateUsageDescription 双键——缺任一键，上传阶段被 App Store 拒绝，
 # 且 L0 静态检查无法在编译期发现（编译链接全过、上传才炸）。
+# 双源检查（CI 审查 2026-09-07 修正）：CI 上 entitlements 文件由 xcodegen 从
+# project.yml properties 生成；本地未跑 xcodegen 或文件缺失时，旧判定回落
+# 「未启用 HealthKit」假绿（Info.plist 双键缺一照常 PASS）。project.yml
+# properties 是 CI 事实源，entitlements 文件与 project.yml 任一启用即按启用判定。
 hk_entitlements=""
-if ls "$APP"/*.entitlements >/dev/null 2>&1; then
-  hk_entitlements=$(grep -l 'com.apple.developer.healthkit' "$APP"/*.entitlements 2>/dev/null || true)
-fi
+for _hk_src in "$APP"/*.entitlements "$APP/project.yml"; do
+  if [ -f "$_hk_src" ] && grep -q 'com.apple.developer.healthkit' "$_hk_src" 2>/dev/null; then
+    hk_entitlements="$_hk_src"
+    break
+  fi
+done
 if [ -n "$hk_entitlements" ]; then
   if grep -q 'NSHealthShareUsageDescription' "$INFO_PLIST" \
      && grep -q 'NSHealthUpdateUsageDescription' "$INFO_PLIST"; then
