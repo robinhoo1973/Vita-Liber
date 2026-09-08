@@ -137,7 +137,12 @@ struct VitaLiberApp: App {
             store: container.timelineQuery, problemStore: container.healthProblems))
         _questionsState = State(initialValue: QuestionsState(store: container.questions))
         // 类型化数据变更信号（先于 DocumentsState 装配——后者携带本实例注入）
-        _dataChangeCenter = State(initialValue: AppDataChangeCenter())
+        // 局部常量中转（审查修复）：init 内引用 State 包装值（dataChangeCenter）
+        // 即触 self 属性访问——Swift 明确初始化纪律禁止全部存储属性就绪前
+        // 触 self（L1 34192387824：编译器指名未初始化的 documentsState）。
+        // 后续 State 的 initialValue 一律引用本局部常量，闭包惰性捕获不受限。
+        let dataChange = AppDataChangeCenter()
+        _dataChangeCenter = State(initialValue: dataChange)
         _documentsState = State(initialValue: DocumentsState(
             store: container.documents,
             pipeline: OCRPipeline(
@@ -152,7 +157,7 @@ struct VitaLiberApp: App {
             understandingEngine: EngineRegistry.shared.resolve(TextUnderstandingFactory.self),
             codeIndex: container.codeIndex,
             problemStore: container.healthProblems,
-            dataChange: dataChangeCenter))
+            dataChange: dataChange))
         _aiHistoryState = State(initialValue: AIHistoryState(store: container.aiHistory))
         _exportWizardState = State(initialValue: ExportWizardState(service: container.pdfExport))
         _f16DeviceState = State(initialValue: F16DeviceState(
@@ -166,7 +171,7 @@ struct VitaLiberApp: App {
             // 类型化变更信号（入库后趋势/宫格失效刷新）
             syncService: container.healthSync,
             trends: container.trends,
-            dataChange: dataChangeCenter))
+            dataChange: dataChange))
         // FR16.1 V3.86 后台自动化同步：BGTask 注册（App init 唯一注册点，
         // 标识符已登记 Info.plist BGTaskSchedulerPermittedIdentifiers）+
         // 后台唤起执行体（BG 启动无 UI——以当前成员+默认安静时段执行；
