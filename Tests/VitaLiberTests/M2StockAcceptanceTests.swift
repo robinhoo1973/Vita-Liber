@@ -9,7 +9,7 @@ import Protocols
 // binds: SU-M2-STOCK — TC-M2-01 零确认存活（落库链）+ FR9.8.5 月报 + 盘点归真
 /// M2 双轨库存的 GRDB 落库半场（test-plan §4.5 TC-M2-01/02）。
 ///
-/// Domain 半场（refillTiersFired / advancePlanTrack）在 CoreKitTests；这里验证
+/// Domain 半场（refillTiersFired / 安全线扣减（deductPlan，经 materializeMissed 生产路径同口径））在 CoreKitTests；这里验证
 /// **生产链**：排程物化 → 零用户动作 → `materializeMissed` 补账 → 安全线按计划
 /// 推进、确认线不动 → 续药档位随安全线触达 → 月报纯事实。
 @MainActor
@@ -31,6 +31,19 @@ final class M2StockAcceptanceTests: XCTestCase {
                 """, arguments: [med.uuidString, patient.uuidString])
         }
         return (store, meds, patient, med)
+    }
+
+
+    /// ADR-009 锚点（V3.94 修复）：日当量必须含单剂剂量——每次 2 片的计划
+    /// 此前按 1 片/剂估算，daysLeft 虚高一倍、续药分级晚发（误差偏晚红线）
+    func test_日当量估算含单剂剂量() {
+        let fixed2 = MedicationSchedule.fixed(times: ["08:00", "20:00"])
+        let daily2 = MedicationStore.estimatedDailyUnits(fixed2, unitsPerDose: 2)
+        XCTAssertEqual(daily2, 4, "2 次/日 × 2 片/次 = 4 片/日")
+        let daily1 = MedicationStore.estimatedDailyUnits(fixed2, unitsPerDose: 1)
+        XCTAssertEqual(daily1, 2)
+        // 钳制：越界输入不放大估算
+        XCTAssertEqual(MedicationStore.estimatedDailyUnits(fixed2, unitsPerDose: 999), 200)
     }
 
     /// 时区固定 Asia/Shanghai 的日历（对账/物化的时区语义依赖）

@@ -16,8 +16,13 @@ import Protocols
 struct VoiceDictationButton: View {
     @Environment(AppState.self) private var app
     @Environment(AppSettingsStore.self) private var settings
+    @Environment(AppRouter.self) private var router
     /// 完成回调：文本 + 引擎置信度（落 C 级草稿、低置信强制复核由 FR17.13 模板承担）
     let onTranscript: (String, Double) -> Void
+    /// BR-012 横切动作注入（默认仅跳急救卡配置页；承载于 sheet/
+    /// fullScreenCover 的调用方必须注入「先收起再跳转」——否则急救卡
+    /// 被未关闭的面板盖住，用户在面板内看不到任何变化）
+    var onEmergencyAction: ((String) -> Void)? = nil
 
     @State private var model: VoiceDictationModel?
     /// 长按手势按下起点（用于判定「真长按」vs 快速点按）
@@ -93,7 +98,10 @@ struct VoiceDictationButton: View {
                 .onDisappear { model.stopForDisappear() }   // 视图销毁即终止在途听写投递（引擎无内部取消）
             }
         }
-        .task { ensureModel() }   // 引擎在环境就绪后装配一次（@Environment 不可用于 @State 初始值）
+        // 引擎在环境就绪后装配一次（@Environment 不可用于 @State 初始值）；
+        // task(id:) 挂语音语言存储值——面板内改语言返回后 .task 不重跑、
+        // preferredLocale 停留旧值（FR17.15 即时生效落空），值一变即重建
+        .task(id: settings.values[.voiceInputLanguages]) { ensureModel() }
     }
 
     /// 引擎在环境就绪后装配（@Environment 不可用于 @State 初始值）。
@@ -109,12 +117,20 @@ struct VoiceDictationButton: View {
         let preferred = SettingsRules.preferredVoiceLocale(settings.values[.voiceInputLanguages])
         if let m = model {
             m.onTranscript = onTranscript
+            m.onEmergency = onEmergency
             m.preferredLocale = preferred
         } else {
             let m = VoiceDictationModel(engine: app.transcriptionEngine, preferredLocale: preferred)
             m.onTranscript = onTranscript
+            m.onEmergency = onEmergency
             model = m
         }
+    }
+
+    /// BR-012 紧急关键词命中时的横切动作（组件内统一前置——此前仅快速面板
+    /// 与 F19 键盘路径实现，其余入口「我胸闷」被存成观察/速记而非急救卡）
+    private var onEmergency: ((String) -> Void)? {
+        onEmergencyAction ?? { _ in router.navigate(to: .emergencyCardConfig) }
     }
 }
 
@@ -126,6 +142,8 @@ final class VoiceDictationModel {
     private(set) var phase: Phase = .idle
     private(set) var partial = ""
     var onTranscript: ((String, Double) -> Void)?
+    /// BR-012 紧急关键词横切动作（命中即调用并跳过 onTranscript 草稿投递）
+    var onEmergency: ((String) -> Void)?
 
     private let engine: any TranscriptionEngine
     // 视图在每次渲染时按最新设置更新（FR14.7 即时生效），故 setter 为 internal——
@@ -165,6 +183,9 @@ final class VoiceDictationModel {
     func stop() {
         guard phase == .recording else { return }
         phase = .idle
+        // 软停提示：旧引擎尽快 endAudio 收尾（不取消——在途转写保留投递，
+        // 由会话代次守卫界定归属）；避免旧会话与新录音竞争共享音频会话
+        Task { await self.engine.endAudio() }
     }
 
     /// 视图销毁硬停：取消在途会话、不再投递（引擎仍由 isFinal 自然收尾，
@@ -200,6 +221,14 @@ final class VoiceDictationModel {
             guard !stopped, self.session == session else { return }   // 硬停/换代：不投递、不改状态
             if !result.text.trimmingCharacters(in: .whitespaces).isEmpty {
                 phase = .idle
+                // BR-012 紧急关键词前置（V3.40 横切义务）：判定在本组件内统一
+                // 执行——此前仅快速面板与 F19 键盘路径实现，其余 6 处入口
+                // 听写文本直入确认草稿，「我胸闷」被存成观察/速记而非急救卡
+                // （红线一票否决）。命中即跳急救卡配置页并跳过草稿投递。
+                if EmergencyKeywordRules.match(result.text), let onEmergency {
+                    onEmergency(result.text)
+                    return
+                }
                 onTranscript?(result.text, result.confidence)
             } else {
                 phase = .failed   // FR8.9：识别失败静默降级为手输并给输入框轻提示

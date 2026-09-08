@@ -232,9 +232,11 @@ struct SUM2StockTests {
     }
 
     /// 安全线由排程推进，与用户动作无关
+    /// （规则①清死代码：原经零生产调用方的 advancePlanTrack 批量口径——已删；
+    ///   同口径改经扣减矩阵 deductPlan，与 materializeMissed 生产路径一致）
     @Test func 安全线按排程自行推进不依赖用户动作() {
         var inv = DualTrackInventory(lotId: UUID(), totalUnits: 30, unitKind: "片")
-        inv = InventoryRules.advancePlanTrack(inv, elapsedScheduledDoses: 24, unitsPerDose: 1)
+        inv = InventoryRules.deductPlan(inv, units: 24)
         #expect(inv.remainingPlanUnits == 6, "安全线必须按应服剂次推进")
         #expect(inv.remainingConfirmedUnits == 30, "确认线不得因排程推进而变动（BR-004）")
         #expect(InventoryRules.refillAlertNeeded(inv, dailyPlanUnits: 1, at: epoch),
@@ -245,7 +247,7 @@ struct SUM2StockTests {
     @Test func 告警偏早_以安全线定级() {
         var inv = DualTrackInventory(lotId: UUID(), totalUnits: 30, unitKind: "片")
         // 排程推进 25 次，但用户只确认了 5 次
-        inv = InventoryRules.advancePlanTrack(inv, elapsedScheduledDoses: 25, unitsPerDose: 1)
+        inv = InventoryRules.deductPlan(inv, units: 25)
         inv = InventoryRules.deductConfirmed(inv, units: 5)
         #expect(inv.remainingPlanUnits == 5)
         #expect(inv.remainingConfirmedUnits == 25)

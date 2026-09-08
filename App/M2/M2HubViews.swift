@@ -221,7 +221,14 @@ struct SentStatusListView: View {
     }
 
     private func kindLabel(_ kind: String) -> String {
-        kind == "helpCard" ? L10n.fr24_kindHelpCard : L10n.fr24_kindSos
+        // 三态映射 + 未知 kind 通用兜底：sos 分支当前无生产写入方（SOS 消息
+        // 发送为 P1 未实装，发送状态页暂只呈现 helpCard 行——已登记 §11），
+        // 此前未知 kind 一律显示 SOS（假事实）
+        switch kind {
+        case "helpCard": return L10n.fr24_kindHelpCard
+        case "sos": return L10n.fr24_kindSos
+        default: return kind
+        }
     }
 }
 

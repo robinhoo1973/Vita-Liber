@@ -78,6 +78,12 @@ public actor HealthProblemStore {
                                    arguments: [secondary.uuidString]) != nil else {
                 throw StoreError.notFound(secondary)
             }
+            // ③ 主问题（幸存侧）存在性校验（对称守卫）：主问题缺失时并库
+            //    仍会把被合并侧归档、无幸存者——用户问题从默认筛选静默消失
+            guard try Row.fetchOne(db, sql: "SELECT id FROM health_problem WHERE id = ? AND archived = 0",
+                                   arguments: [primary.uuidString]) != nil else {
+                throw StoreError.notFound(primary)
+            }
             try db.execute(sql: "UPDATE health_problem SET archived = 1, updated_at = ? WHERE id = ?",
                            arguments: [now.timeIntervalSince1970, secondary.uuidString])
             guard db.changesCount > 0 else { throw StoreError.notFound(secondary) }

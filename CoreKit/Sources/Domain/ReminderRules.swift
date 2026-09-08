@@ -22,14 +22,17 @@ public struct BatchExpiryRules {
 
     /// 效期分类：expireAt 对照 now 落入 FR9.11 三档之一。
     /// 日历日加法（DST 纪律），与 fireDates 同一注入 calendar 模式。
+    /// 日历失败（罕见损坏输入）按固定秒回推兜底计算真实档位——绝不静默
+    /// 返回 .later 压制续药告警（ADR-009「误差必须偏向更早告警」不可协商；
+    /// 与 ObservationFollowUpRules 固定秒兜底同口径）。
     public static func status(expireAt: Date, now: Date,
                               calendar: Calendar = .current) -> ExpiryStatus {
         if expireAt < now { return .expired }
-        guard let d7 = calendar.date(byAdding: .day, value: daysBefore[.t7] ?? 7, to: now)
-        else { return .later }
+        let d7 = calendar.date(byAdding: .day, value: daysBefore[.t7] ?? 7, to: now)
+            ?? now.addingTimeInterval(7 * 86400)
         if expireAt <= d7 { return .within7 }
-        guard let d30 = calendar.date(byAdding: .day, value: daysBefore[.t30] ?? 30, to: now)
-        else { return .later }
+        let d30 = calendar.date(byAdding: .day, value: daysBefore[.t30] ?? 30, to: now)
+            ?? now.addingTimeInterval(30 * 86400)
         return expireAt <= d30 ? .within30 : .later
     }
 

@@ -153,7 +153,7 @@ struct TimelineFullView: View {
                         .font(.caption)
                         .padding(.horizontal, 10)
                         .frame(minHeight: 44)   // 审查修复：触点 ≥44pt
-                        .background(Capsule().fill(Color(.systemGray5)))
+                        .background(Capsule().fill(Color("bg-grouped", bundle: .main)))   // 语义令牌（token-only 纪律，不用系统调色板）
                 }
                 // §5.35 时间轴成员切换（V3.72）：此前时间轴无成员切换入口
                 Menu {
@@ -165,7 +165,7 @@ struct TimelineFullView: View {
                         .font(.caption)
                         .padding(.horizontal, 10)
                         .frame(minHeight: 44)
-                        .background(Capsule().fill(Color(.systemGray5)))
+                        .background(Capsule().fill(Color("bg-grouped", bundle: .main)))   // 语义令牌（token-only 纪律，不用系统调色板）
                 }
             }
             .padding(.horizontal, 12).padding(.vertical, 6)
@@ -225,6 +225,24 @@ struct TimelineFullView: View {
 private struct TimelineRowView: View {
     let entry: TimelineEntry
 
+    /// 行标题组装（L10n 单出口）：类别前缀经 timelineKindName 渲染——
+    /// 此前前缀硬编码在 TimelineQueryStore SQL 内，zh-Hant/en 用户看到
+    /// 简体残留；指标键经 MetricType(grammarKey:) 映射本地化指标名
+    private var entryTitle: String {
+        switch entry.kind {
+        case .voiceNote:
+            return L10n.timelineKindName(.voiceNote)
+        case .document:
+            return entry.title.isEmpty ? L10n.timelineKindName(.document) : entry.title
+        case .lab, .selfMeasured:
+            let name = entry.metricKey.flatMap { MetricType(grammarKey: $0) }
+                .map { L10n.metricName($0) } ?? entry.title
+            return "\(L10n.timelineKindName(entry.kind)) · \(name)"
+        default:
+            return "\(L10n.timelineKindName(entry.kind)) · \(entry.title)"
+        }
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Circle()
@@ -233,7 +251,7 @@ private struct TimelineRowView: View {
                 .padding(.top, 5)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Text(L10n.docTitle(entry.title))
+                    Text(entryTitle)
                         .font(.subheadline)
                         .foregroundStyle(entry.kind == .allergy
                                          ? Color("semantic-danger", bundle: .main)

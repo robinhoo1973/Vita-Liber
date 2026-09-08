@@ -49,6 +49,43 @@ struct HealthSyncDomainTests {
         #expect(summary.segmentCount == 1)
     }
 
+    @Test("双来源分期同夜按并集计（不按来源求和双计）")
+    func 分期并集去重() {
+        // Watch + 第三方睡眠 App 同夜各写重叠 core/deep——并集 1h deep 而非 2h
+        let samples = [
+            SleepSample(start: date(8, 23), end: date(9, 4), stage: .deep,
+                        sourceName: "Apple Watch", sourceProduct: "watch"),
+            SleepSample(start: date(8, 23, 30), end: date(9, 4, 30), stage: .deep,
+                        sourceName: "Pillow", sourceProduct: "other"),
+        ]
+        let summary = SleepMerge.merge(samples, anchorDate: date(9, 12), calendar: calendar)
+        // 并集 = [23:00, 04:30] = 5.5h；按来源求和 = 10h（双计）
+        #expect(abs((summary.perStage[.deep] ?? 0) - 5.5 * 3600) < 60, "并集 5.5h，求和 10h 即双计")
+    }
+
+    @Test("awake 独立入桶并从未分期余段扣除（sleep_awake 行不再死分支）")
+    func awake桶() {
+        let samples = [
+            SleepSample(start: date(8, 23), end: date(9, 7), stage: .unspecified),
+            SleepSample(start: date(9, 3), end: date(9, 3, 30), stage: .awake),
+        ]
+        let summary = SleepMerge.merge(samples, anchorDate: date(9, 12), calendar: calendar)
+        #expect(abs((summary.perStage[.awake] ?? 0) - 1800) < 1, "awake 30min 必须入桶")
+        #expect(abs(summary.totalAsleep - 7.5 * 3600) < 1, "入睡时长不含醒着的时间")
+    }
+
+    @Test("分段 gap 按前段结束计（长段后短间隔不分段）")
+    func 段间距按段末() {
+        let samples = [
+            SleepSample(start: date(8, 23), end: date(9, 1), stage: .unspecified),
+            SleepSample(start: date(9, 1, 40), end: date(9, 3), stage: .unspecified),
+            SleepSample(start: date(9, 3, 20), end: date(9, 7), stage: .unspecified),
+        ]
+        let summary = SleepMerge.merge(samples, anchorDate: date(9, 12), calendar: calendar)
+        // gap：01:00→01:40 = 40min（>30 分段）；03:00→03:20 = 20min（同段）
+        #expect(summary.segmentCount == 2, "起点计 gap 会误判为 3 段")
+    }
+
     @Test("deep 桶只计 deep（REM/Core 不再误计入 deep，V1.3 修正）")
     func deep桶修正() {
         let samples = [

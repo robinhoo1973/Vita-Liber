@@ -41,6 +41,7 @@ struct InAppBannerHost: View {
                         }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
+                        .frame(minHeight: 44)   // 触点 ≥44pt（此前加在容器上、按钮实际命中区 ~32pt）
                         Button(L10n.bannerLater) {
                             let until = Date().addingTimeInterval(15 * 60)
                             dismissedUntil = until
@@ -57,6 +58,7 @@ struct InAppBannerHost: View {
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
+                        .frame(minHeight: 44)   // 触点 ≥44pt（同确认按钮）
                     }
                     .frame(minHeight: 44)   // 触点 ≥44pt
                 }

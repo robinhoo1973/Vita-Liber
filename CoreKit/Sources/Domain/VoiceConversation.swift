@@ -117,7 +117,7 @@ public enum VoiceCommandGrammar {
         // 动态正则见 parse(_:emergencyNumber:)
     ]
 
-    public static func parse(_ transcript: String, emergencyNumber: String = "120") -> VoiceIntent {
+    public static func parse(_ transcript: String, emergencyNumber: String) -> VoiceIntent {
         let text = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return .unrecognized }
         // 急救号码按语言区域匹配（仅数字，天然无正则元字符）：必须先于通用
@@ -223,7 +223,7 @@ public enum VoiceConversationEngine {
     public static let maxOptions = 3               // FR19.4
 
     public static func step(state: ConversationState, transcript: String,
-                           emergencyNumber: String = "120") -> (state: ConversationState, events: [ConversationEvent]) {
+                           emergencyNumber: String) -> (state: ConversationState, events: [ConversationEvent]) {
         var s = state
         var events: [ConversationEvent] = []
         let text = transcript.trimmingCharacters(in: .whitespacesAndNewlines)

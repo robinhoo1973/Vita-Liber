@@ -1,6 +1,7 @@
 import SwiftUI
 import Domain
 import Infrastructure
+import Protocols
 
 /// F7 趋势状态（records 模块）：按指标加载指定序列 + 指标总览宫格最新点。
 ///
@@ -16,6 +17,9 @@ final class TrendEntryState {
     private(set) var latestMetrics: [TrendQueryStore.LatestMetric] = []
     /// internal：MetricEntryView 扩展（录入/单位记忆/排除接线）跨文件访问
     let store: TrendQueryStore
+    /// FR7.4 排除/恢复审计（§5.29「动作记审计」；查询层把义务推给调用方，
+    /// 调用方此前只接线了刷新——审计落空。未注入时（预览/测试）跳过）
+    private let audit: (any AuditLogging)?
     /// 最近一次请求的成员（BR-001 成员隔离：只允许最新请求写回状态）
     private var loadingPatientId: UUID?
     /// 最近一次详情请求的指标键（与 loadingPatientId 同款守卫：同一成员下
@@ -23,7 +27,10 @@ final class TrendEntryState {
     /// 路由页的 metricType 校验会把被覆写后的序列显示成「不可用」，
     /// 真数据存在却渲染空态）
     private var loadingMetricKey: String?
-    init(store: TrendQueryStore) { self.store = store }
+    init(store: TrendQueryStore, audit: (any AuditLogging)? = nil) {
+        self.store = store
+        self.audit = audit
+    }
 
     /// §5.45 深链：按指标加载指定序列（SP-13 趋势详情路由）。
     /// 独立状态槽避免覆盖入口页的血糖默认序列。

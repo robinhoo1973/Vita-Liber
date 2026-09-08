@@ -29,6 +29,9 @@ public actor TimelineQueryStore {
             // 行抓取）再合并截断。改为单条 UNION ALL 全局 ORDER BY + LIMIT——
             // 精确取页、一次往返，且每分支带统一列别名（id/d/title/summary/grade/kind）。
             // 同时补 document 分支并携带来源徽章 grade（BR-003 D 级在时间轴可见）。
+            // L10n 单出口（V3.94 修复）：title 只回原列值，类别前缀（「就诊 · 」等）
+            // 由视图层经 L10n.timelineKindName 组装——此前 SQL 内硬编码简体前缀，
+            // zh-Hant 用户看到简体残留。
             var branches: [String] = []
             var args: [DatabaseValueConvertible] = []
             // 每分支占位符序：patient_id + 游标三元组（date/date/id）——逐分支重复
@@ -38,7 +41,7 @@ public actor TimelineQueryStore {
             }
             if kinds.contains(.encounter) {
                 branch(sql: """
-                    SELECT id AS id, date AS d, '就诊 · ' || kind AS title, diagnosis_text AS summary, 'C' AS grade, 'encounter' AS kind, NULL AS metric_key
+                    SELECT id AS id, date AS d, kind AS title, diagnosis_text AS summary, 'C' AS grade, 'encounter' AS kind, NULL AS metric_key
                     FROM encounter
                     WHERE patient_id = ? AND deleted_at IS NULL
                       AND (date < ? OR (date = ? AND id < ?))
@@ -46,7 +49,7 @@ public actor TimelineQueryStore {
             }
             if kinds.contains(.medication) {
                 branch(sql: """
-                    SELECT p.id AS id, p.start_date AS d, '用药计划 · ' || m.generic_name AS title, m.spec AS summary, 'C' AS grade, 'medication' AS kind, NULL AS metric_key
+                    SELECT p.id AS id, p.start_date AS d, m.generic_name AS title, m.spec AS summary, 'C' AS grade, 'medication' AS kind, NULL AS metric_key
                     FROM medication_plan p JOIN medication m ON m.id = p.medication_id
                     WHERE p.patient_id = ?
                       AND (p.start_date < ? OR (p.start_date = ? AND p.id < ?))
@@ -54,7 +57,7 @@ public actor TimelineQueryStore {
             }
             if kinds.contains(.observation) {
                 branch(sql: """
-                    SELECT id AS id, occurred_at AS d, '观察 · ' || kind AS title, description AS summary, 'C' AS grade, 'observation' AS kind, NULL AS metric_key
+                    SELECT id AS id, occurred_at AS d, kind AS title, description AS summary, 'C' AS grade, 'observation' AS kind, NULL AS metric_key
                     FROM observation
                     WHERE patient_id = ?
                       AND (occurred_at < ? OR (occurred_at = ? AND id < ?))
@@ -62,7 +65,7 @@ public actor TimelineQueryStore {
             }
             if kinds.contains(.selfMeasured) || kinds.contains(.lab) {
                 branch(sql: """
-                    SELECT id AS id, measured_at AS d, '指标 · ' || metric_key AS title,
+                    SELECT id AS id, measured_at AS d, metric_key AS title,
                            CAST(value AS TEXT) || ' ' || unit AS summary, 'C' AS grade,
                            CASE WHEN origin = 'hospital' THEN 'lab' ELSE 'selfMeasured' END AS kind,
                            metric_key AS metric_key
@@ -73,7 +76,7 @@ public actor TimelineQueryStore {
             }
             if kinds.contains(.allergy) {
                 branch(sql: """
-                    SELECT id AS id, occurred_at AS d, '过敏 · ' || substance AS title, '严重度 ' || severity AS summary, 'C' AS grade, 'allergy' AS kind, NULL AS metric_key
+                    SELECT id AS id, occurred_at AS d, substance AS title, severity AS summary, 'C' AS grade, 'allergy' AS kind, NULL AS metric_key
                     FROM allergy_event
                     WHERE patient_id = ?
                       AND (occurred_at < ? OR (occurred_at = ? AND id < ?))
@@ -81,7 +84,7 @@ public actor TimelineQueryStore {
             }
             if kinds.contains(.vaccination) {
                 branch(sql: """
-                    SELECT id AS id, administered_at AS d, '疫苗 · ' || vaccine_name AS title, NULL AS summary, 'C' AS grade, 'vaccination' AS kind, NULL AS metric_key
+                    SELECT id AS id, administered_at AS d, vaccine_name AS title, NULL AS summary, 'C' AS grade, 'vaccination' AS kind, NULL AS metric_key
                     FROM immunization
                     WHERE patient_id = ?
                       AND (administered_at < ? OR (administered_at = ? AND id < ?))
@@ -89,7 +92,7 @@ public actor TimelineQueryStore {
             }
             if kinds.contains(.voiceNote) {
                 branch(sql: """
-                    SELECT id AS id, occurred_at AS d, '语音速记' AS title, body AS summary, 'C' AS grade, 'voiceNote' AS kind, NULL AS metric_key
+                    SELECT id AS id, occurred_at AS d, '' AS title, body AS summary, 'C' AS grade, 'voiceNote' AS kind, NULL AS metric_key
                     FROM voice_note
                     WHERE patient_id = ? AND in_timeline = 1
                       AND (occurred_at < ? OR (occurred_at = ? AND id < ?))
@@ -97,7 +100,7 @@ public actor TimelineQueryStore {
             }
             if kinds.contains(.healthProblem) {
                 branch(sql: """
-                    SELECT id AS id, created_at AS d, '健康问题 · ' || name AS title, NULL AS summary, 'C' AS grade, 'healthProblem' AS kind, NULL AS metric_key
+                    SELECT id AS id, created_at AS d, name AS title, NULL AS summary, 'C' AS grade, 'healthProblem' AS kind, NULL AS metric_key
                     FROM health_problem
                     WHERE patient_id = ? AND archived = 0
                       AND (created_at < ? OR (created_at = ? AND id < ?))
@@ -106,7 +109,7 @@ public actor TimelineQueryStore {
             // 资料（F5 文档）：唯一携带真实来源徽章的分支——机器识别未确认 = 'D'
             if kinds.contains(.document) {
                 branch(sql: """
-                    SELECT id AS id, created_at AS d, COALESCE(title, '资料') AS title, NULL AS summary, grade AS grade, 'document' AS kind, NULL AS metric_key
+                    SELECT id AS id, created_at AS d, COALESCE(title, '') AS title, NULL AS summary, grade AS grade, 'document' AS kind, NULL AS metric_key
                     FROM document_file
                     WHERE patient_id = ? AND status IN ('active','favorite')
                       AND (created_at < ? OR (created_at = ? AND id < ?))

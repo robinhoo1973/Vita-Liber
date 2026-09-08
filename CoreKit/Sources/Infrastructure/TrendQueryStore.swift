@@ -20,15 +20,22 @@ public actor TrendQueryStore {
         try await writer.read { db in
             // 一次取全量（含 excluded），在内存里分流为可见集/排除集——
             // 两次查询会在并发写入下取到不一致的两个快照。
+            // 舒张压无独立行：值存于收缩压行的 secondary_value（FR7.11 血压
+            // 双序列——此前舒张压系列恒空、双线缺失）。列标识为白名单字面量
+            // 插值（非用户输入，无注入面）。
+            let (keyToQuery, valueColumn, refProjection) = metric == .bloodPressureDia
+                ? (MetricType.bloodPressureSys.rawValue, "secondary_value",
+                   "NULL AS ref_low, NULL AS ref_high, NULL AS ref_source_label")
+                : (metric.rawValue, "value", "ref_low, ref_high, ref_source_label")
             let rows = try Row.fetchAll(db, sql: """
-                SELECT id, metric_key, value, secondary_value, unit, origin, self_measured,
-                       measured_at, excluded, source_ref, ref_low, ref_high, ref_source_label,
+                SELECT id, metric_key, \(valueColumn) AS value, secondary_value, unit, origin, self_measured,
+                       measured_at, excluded, source_ref, \(refProjection),
                        raw_label, code_concept_id
                 FROM metric_sample
-                WHERE patient_id = ? AND metric_key = ?
+                WHERE patient_id = ? AND metric_key = ? AND \(valueColumn) IS NOT NULL
                   AND measured_at >= ? AND measured_at <= ?
                 ORDER BY measured_at ASC
-                """, arguments: [member.uuidString, metric.rawValue,
+                """, arguments: [member.uuidString, keyToQuery,
                                  range.start.timeIntervalSince1970, range.end.timeIntervalSince1970])
             let all = rows.map { row in
                 TrendPoint(
@@ -79,10 +86,11 @@ public actor TrendQueryStore {
             try db.execute(sql: """
                 INSERT INTO metric_sample
                   (id, patient_id, metric_key, value, secondary_value, unit, origin,
-                   self_measured, measured_at, excluded, source_ref)
-                VALUES (?, ?, ?, ?, ?, ?, 'manual', 1, ?, 0, ?)
+                   self_measured, measured_at, excluded, source_ref, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, 'manual', 1, ?, 0, ?, ?)
                 """, arguments: [id.uuidString, patientId.uuidString, metric.rawValue, value,
-                                 secondaryValue, unit, measuredAt.timeIntervalSince1970, sourceRef])
+                                 secondaryValue, unit, measuredAt.timeIntervalSince1970, sourceRef,
+                                 Date().timeIntervalSince1970])
         }
         return id
     }
@@ -163,13 +171,18 @@ extension TrendQueryStore {
     public struct LatestMetric: Sendable, Equatable, Identifiable {
         public let metricKey: String
         public let value: Double
+        /// 血压第二值（收缩压行的舒张压；其余指标 nil）——宫格双值变体
+        /// （ui-ux 4.10）数据源
+        public let secondaryValue: Double?
         public let unit: String?
         public let origin: String
         public let measuredAt: Date
         public var id: String { metricKey }
-        public init(metricKey: String, value: Double, unit: String?, origin: String, measuredAt: Date) {
+        public init(metricKey: String, value: Double, secondaryValue: Double? = nil,
+                    unit: String?, origin: String, measuredAt: Date) {
             self.metricKey = metricKey
             self.value = value
+            self.secondaryValue = secondaryValue
             self.unit = unit
             self.origin = origin
             self.measuredAt = measuredAt
@@ -183,7 +196,7 @@ extension TrendQueryStore {
             // id 让指标宫格 ForEach 崩溃/重砖。改「每个 key 单行 id 子查询」，
             // 同刻并列取 rowid 最新的一条。
             let rows = try Row.fetchAll(db, sql: """
-                SELECT m.metric_key, m.value, m.unit, m.origin, m.measured_at
+                SELECT m.metric_key, m.value, m.secondary_value, m.unit, m.origin, m.measured_at
                 FROM metric_sample m
                 WHERE m.patient_id = ? AND m.excluded = 0
                   AND m.id = (SELECT m2.id FROM metric_sample m2
@@ -196,6 +209,7 @@ extension TrendQueryStore {
             return rows.map { row in
                 LatestMetric(metricKey: row["metric_key"] as String,
                              value: row["value"] as Double,
+                             secondaryValue: row["secondary_value"] as Double?,
                              unit: row["unit"] as String?,
                              origin: row["origin"] as String,
                              measuredAt: Date(timeIntervalSince1970: row["measured_at"] as Double))

@@ -1,6 +1,7 @@
 import SwiftUI
 import Domain
 import Infrastructure
+import Protocols
 
 // MARK: - FR12.10 AI 会话历史（SP-51 · ui-ux §5.27）
 
@@ -14,9 +15,15 @@ final class AIHistoryState {
     /// 改为保留旧列表 + loadFailed 独立状态，视图渲染可见错误与重试。
     private(set) var loadFailed = false
     private let store: AIHistoryStore
+    /// FR12.10 删除审计（「删除仅移除会话本身、审计仍记录删除事实」）——
+    /// 此前 delete/clearAll 无任何审计写入、删除事实不可追溯
+    private let audit: (any AuditLogging)?
     private var loadingPatientId: UUID?
 
-    init(store: AIHistoryStore) { self.store = store }
+    init(store: AIHistoryStore, audit: (any AuditLogging)? = nil) {
+        self.store = store
+        self.audit = audit
+    }
 
     func load(patientId: UUID) async {
         loadingPatientId = patientId
@@ -39,6 +46,8 @@ final class AIHistoryState {
     func delete(conversationId: UUID) async {
         do {
             try await store.deleteConversation(id: conversationId)
+            try? await audit?.record(action: "delete", entityType: "ai_conversation",   // try?-ok: 审计失败不阻断删除本身（与既有审计纪律一致）
+                                     entityId: conversationId.uuidString, actorLocal: "owner", meta: nil)
             if let patientId = loadingPatientId { await load(patientId: patientId) }
         } catch {
             // 同上
@@ -48,6 +57,8 @@ final class AIHistoryState {
     func clearAll(patientId: UUID) async {
         do {
             try await store.clearAll(patientId: patientId)
+            try? await audit?.record(action: "delete", entityType: "ai_conversation",   // try?-ok: 同上
+                                     entityId: "all", actorLocal: "owner", meta: nil)
             conversations = []
         } catch {
             // 同上

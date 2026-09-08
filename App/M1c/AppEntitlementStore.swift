@@ -34,10 +34,10 @@ final class AppEntitlementStore {
         }
     }
 
-    /// 免费档 AI 额度是否用尽（comercial §2.3：免费 20 次/月）
-    var aiQuotaExhausted: Bool {
-        !owned.contains(.proBase) && aiMonthlyUsed >= FreeQuota().aiMonthlyUses
-    }
+    // （规则①死代码清除：aiQuotaExhausted 零消费者且与红线纪律冲突——基础
+    // 问答永久免费、不在回答上设任何门限；额度只做诚实呈现，由 aiMonthlyUsed
+    // 供设置/诊断页读取。Domain Paywall.quotaExceeded 保留（D3 商业化规则，
+    // 金样测试覆盖）。）
 
     // MARK: - 24h 频控持久化（comercial §3：跨启动频控不得失效）
 

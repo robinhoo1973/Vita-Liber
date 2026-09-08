@@ -171,7 +171,14 @@ struct RouteDestinationView: View {
         // ---- SP-11 快速拍摄（TestFlight 实测修复：原先列入「尚未落地」降级，
         //      三入口点击静默回档案根——现接真实相机流 + 资料库入库管线） ----
         case .scanCapture(let kind):
-            QuickCaptureView(kind: kind)
+            if kind == .symptom {
+                // .symptom 只可能来自旧持久化路由/旧通知（保留 Codable 兼容）：
+                // 症状必须走观察创建——kind→docType 映射兜底会把症状拍成
+                // 「病历」文档静默错分类（spec：症状=观察）
+                ObservationCreateRouteView()
+            } else {
+                QuickCaptureView(kind: kind)
+            }
 
         // ---- 审查修复：已落地视图补登记（原落入降级分支，用户点观察项/成员
         //      通知深链落到重复的模块根套娃） ----

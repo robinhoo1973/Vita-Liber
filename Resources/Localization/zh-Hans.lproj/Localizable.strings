@@ -128,6 +128,8 @@
 "inventory.reportBlocked" = "月报生成异常，已拦截显示";
 "inventory.reportFact" = "本报告只呈现计划与确认次数的事实，不构成任何医疗评价。";
 "emergency.title" = "紧急信息卡";
+"emergency.reactionFmt" = "反应：%@";
+"emergency.severityFmt" = "严重度：%@";
 "emergency.bloodType" = "血型";
 "emergency.allergy" = "过敏";
 "emergency.meds" = "长期用药";
@@ -206,6 +208,7 @@
 "f19.goTouch" = "在屏幕上操作";
 "f19.stopped" = "已停止聆听（退出前台）";
 "f19.paused" = "聆听已暂停，点击继续";
+"f19.contactNotFound" = "未找到联系人「%@」，已拒绝拨号";
 "f19.repeatObject" = "将拨打 %@。请确认。";
 "f19.executed" = "已执行：%@";
 "fr24.title" = "发送状态";
@@ -626,6 +629,8 @@
 "search.noResultFmt" = "没有找到关于「%@」的结果";
 "search.loosenHint" = "试试更短的关键词，或去掉日期与类型筛选";
 "search.clear" = "清空搜索";
+"search.failed" = "检索失败，请重试";
+"search.retry" = "重试";
 "search.group.docs" = "资料";
 "search.group.observations" = "观察";
 "search.group.meds" = "用药";
@@ -909,6 +914,7 @@
 "doc.importFailed" = "资料导入失败，请重试";
 "doc.pdfImportFailed" = "PDF 渲染或识别失败：文件可能损坏或为纯扫描低质量图，请重试或改用拍照";
 "doc.prescriptionSyncFailed" = "文档已保存，但处方信息未能同步到用药记录，请稍后在资料库中重新确认";
+"doc.pdfPartialFailed" = "文档已保存，但有 %d 页识别失败，可在资料详情中查看";
 "doc.type.report" = "检验报告";
 "doc.type.record" = "门诊病历";
 "doc.manual.createTitle" = "手工新建资料";
@@ -1502,6 +1508,12 @@
 "voiceIntent.createQuestion" = "问诊问题";
 "voiceIntent.unknown" = "任意文本";
 "voicePanel.autoHint" = "说出要记录的内容，将自动判断去向并生成草稿";
+"voicePanel.editHint" = "转写文本显示于此，可直接点击编辑；再次按住麦克风可续录追加";
+"voicePanel.confirm" = "确认";
+"voicePanel.clearTitle" = "清除录音";
+"voicePanel.clear" = "清除";
+"voicePanel.clearLast" = "清除最近一次录音";
+"voicePanel.clearAll" = "清除全部录音";
 "voiceConfirm.judgedTarget" = "判定结果";
 "voiceConfirm.candidates" = "可能属于：";
 "f16.syncedRowsFmt" = "已汇入 %d 条设备读数（与手输同趋势展示）";

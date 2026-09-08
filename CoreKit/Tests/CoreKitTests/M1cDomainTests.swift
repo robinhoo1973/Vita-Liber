@@ -215,19 +215,22 @@ struct AILocalTests {
 }
 
 // binds: SU-M1c-AI — TC-M1c-02/03（红线纵深防御：装饰器对任何 Provider 生效）
+/// 故意「坏」的 Provider：模拟误分类的 P1 云端实现。
+/// 文件作用域（审查修复）：SafeAI/Audited 两套件共用——嵌套定义跨套件
+/// 不可见（L0 仅语法解析，Linux 测试编译暴露）。
+struct MisbehavingProvider: AIProvider {
+    var stub: AIAnswer?
+    var error: Error?
+    func answer(_ q: AIQuery, scope: DataAccessScope) async throws -> AIAnswer {
+        if let error { throw error }
+        return stub ?? .insufficientData
+    }
+}
+
+struct Boom: Error {}
+
 @Suite("SU-M1c-AI · SafeAIProvider 纵深防御（BR-006/BR-012）")
 struct SafeAIProviderTests {
-    /// 故意「坏」的 Provider：模拟误分类的 P1 云端实现
-    struct MisbehavingProvider: AIProvider {
-        var stub: AIAnswer?
-        var error: Error?
-        func answer(_ q: AIQuery, scope: DataAccessScope) async throws -> AIAnswer {
-            if let error { throw error }
-            return stub ?? .insufficientData
-        }
-    }
-
-    struct Boom: Error {}
 
     /// BR-012：内层把紧急提问当普通问答返回，装饰器必须改写为急救卡
     @Test func 内层误分类紧急提问时强制急救卡() async throws {
@@ -333,8 +336,31 @@ struct AuditedAIProviderTests {
             scope: DataAccessScope(patientIds: [b, a]))     // 乱序注入
         #expect(answer == .insufficientData)
         #expect(sink.calls.count == 1, "每次提问必须产生一条审计记录")
-        let expected = [a, b].map(\.uuidString).sorted().joined(separator: ",")
-        #expect(sink.calls[0] == expected, "成员 ID 必须排序后上报（哈希前形态）")
+        // FR12.9（V3.94）：审计载荷 = 成员 ID（排序）+ 实际读取的资料 ID 范围
+        // （refs）——资料不足路径零命中，refs 为空
+        let expected = "patients=" + [a, b].map(\.uuidString).sorted().joined(separator: ",") + ";refs="
+        #expect(sink.calls[0] == expected, "成员 ID 必须排序后上报，refs 缺省为空（哈希前形态）")
+    }
+
+    /// FR12.9 审计事实准确：composed 回答必须携带实际读取的资料 ID 范围（refs）
+    @Test func 审计记录实际读取的资料ID范围() async throws {
+        let sink = AuditSink()
+        let refA = UUID(), refB = UUID()
+        let stub = AIAnswer(body: .composed(.init(
+            citationCount: 2, terminologyPairs: [],
+            citations: [
+                EntityReference(kind: "document", refID: refA, title: "报告A", snippet: "s"),
+                EntityReference(kind: "document", refID: refB, title: "报告B", snippet: "s"),
+            ],
+            excerpts: [], sources: [], gradeBadge: "E")))
+        let decorated = AuditedAIProvider(inner: MisbehavingProvider(stub: stub)) { ids in
+            sink.record(ids)
+        }
+        _ = try await decorated.answer(AIQuery(text: "查我的报告"),
+                                       scope: DataAccessScope(patientIds: []))
+        #expect(sink.calls.count == 1)
+        let expected = "patients=;refs=" + [refA, refB].map(\.uuidString).sorted().joined(separator: ",")
+        #expect(sink.calls[0] == expected, "审计必须记录实际读取的资料 ID（去重排序）")
     }
 
     /// 内层抛错时审计仍必须已落（审计先于应答执行——失败请求同样留痕）
@@ -353,6 +379,24 @@ struct AuditedAIProviderTests {
         #expect(sink.calls.count == 1, "失败请求同样必须留痕（审计先于应答）")
     }
 }
+
+
+    // MARK: - BR-006 高风险句式（V3.94 修复锚点：换药/改剂自然句式此前漏判）
+
+    @Test func 换药改剂句式必须拦截() {
+        #expect(HighRiskTopicRules.match("帮我改成每天3片"))
+        #expect(HighRiskTopicRules.match("能不能换成布洛芬"))
+        #expect(HighRiskTopicRules.match("一天两次可以吗"))
+        #expect(HighRiskTopicRules.match("把阿莫西林改为晚上吃两粒"))
+    }
+
+    @Test func 非剂量语境不误拦() {
+        // 「一天两次」等频次短语本身即剂量语境，属应拦范围——真阴性只取
+        // 与剂量无关的改期/查问句式
+        #expect(!HighRiskTopicRules.match("改成明天再去医院"))
+        #expect(!HighRiskTopicRules.match("药吃完了吗"))
+        #expect(!HighRiskTopicRules.match("记录一下今天血压"))
+    }
 
 /// 供审计装饰器测试的轻量 Provider 桩（避免与 SafeAIProviderTests 的桩互相依赖）
 private struct MisbehavingProviderStub: AIProvider {

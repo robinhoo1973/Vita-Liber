@@ -136,6 +136,11 @@ final class AppState {
         do {
             owner = try await persistor.loadOwner()
             consentRecords = try await persistor.loadConsents()
+            // 成员列表是 BR-001 锚点基础数据（memberDetail 深链/恢复路由在
+            // 外壳挂载帧即查 members）——此前只在成员管理页/首页 .task 加载，
+            // records Tab 根不触发，冷启动恢复 .memberDetail 时 app.members
+            // 为空 → 真实成员被误报「该资料已不存在」并弹回根
+            await loadMembers()
         } catch {
             logger.error("持久化加载失败: \(error)")
         }

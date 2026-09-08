@@ -20,7 +20,9 @@ public struct LegacyRecord: Sendable, Equatable, Codable {
 }
 public enum GoldenClass: String, Sendable { case prescription, lab, ocrBlock, generic }
 public enum GoldenRules {
-    public static func confidenceTier(_ c: Double) -> String { c >= 0.8 ? "high" : (c >= 0.5 ? "mid" : "low") }
+    /// 置信三档委托 ConfidenceTier.tier 单一事实源（此前 0.8/0.5 字面量复制，
+    /// 阈值调整两处漂移即档位判定分叉）
+    public static func confidenceTier(_ c: Double) -> String { ConfidenceTier.tier(c).rawValue }
     /// §5.2 路由序：doc_type 优先（DocumentTemplateRegistry 按 type 选模板）；
     /// 仅当类型缺失或 other 时，才以「含非空 OCR 块」特征兜底为 ocrBlock。
     public static func classify(recordType: String?, assets: [LegacyAsset]?) -> GoldenClass {

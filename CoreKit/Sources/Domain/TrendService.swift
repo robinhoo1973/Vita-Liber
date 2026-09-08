@@ -26,6 +26,14 @@ public enum MetricOrigin: String, Sendable, Equatable, Codable {
     case hospital, manual, device
 }
 
+/// F7.5 血压双值录入 UI 规则（Domain 纯函数——业务边界不在视图内联）：
+/// 两位/三位数输完自动跳格的合理性边界（≥60 mmHg 视为真实收缩压值，
+/// 90-99 常见于低血压/老年用户；此前视图硬编码 60 且不可单测）
+public enum BloodPressureEntryRules {
+    /// 构成真实收缩压值的最小界限（mmHg）
+    public static let minPlausibleSys: Double = 60
+}
+
 public struct TrendPoint: Sendable, Equatable, Identifiable {
     public var id: UUID
     public var measuredAt: Date

@@ -87,7 +87,9 @@ public actor EmergencyCardStore {
             EmergencyCardItem(
                 id: UUID(uuidString: row["id"] as String) ?? UUID(),
                 kind: "allergy", title: row["substance"] as String,
-                detail: "反应：\(row["reaction_tags"] as String) · 严重度 \(row["severity"] as String)",
+                detail: "",   // 展示串由视图层经 L10n 组装（reaction/severity 结构化字段）
+                reaction: row["reaction_tags"] as String,
+                severity: row["severity"] as String,
                 // 过敏事件是用户主动记录的一等事件（ADR-018），记录即确认
                 confirmed: true)
         }
@@ -130,8 +132,9 @@ public actor EmergencyCardStore {
         return rows.map { row in
             EmergencyCardItem(id: UUID(uuidString: row["id"] as String) ?? UUID(),
                               kind: "contact", title: row["name"] as String,
-                              detail: "\(row["relation"] as String) · \(row["phone"] as String)",
+                              detail: "",   // 展示串由视图层经 L10n 组装（relation 结构化字段）
                               phone: row["phone"] as String,
+                              relation: row["relation"] as String,
                               confirmed: true)
         }
     }

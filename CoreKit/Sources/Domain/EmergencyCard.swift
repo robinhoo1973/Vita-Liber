@@ -9,11 +9,20 @@ public struct EmergencyCardItem: Sendable, Equatable, Identifiable {
     public var title: String
     public var detail: String
     public var phone: String?          // contact 结构化号码（存储层直取 phone 列）
+    /// 结构化展示字段（V3.94 L10n 单出口：Infrastructure 不再拼中文展示串，
+    /// 展示文案由视图层经 L10n 组装；「反应：… · 严重度 …」「关系 · 电话」
+    /// 此前硬编码在存储层，zh-Hant/en 用户看到简体残留）
+    public var reaction: String?
+    public var severity: String?
+    public var relation: String?
     public var confirmed: Bool         // 仅 confirmed=true 入卡
     public init(id: UUID, kind: String, title: String, detail: String,
-                phone: String? = nil, confirmed: Bool) {
+                phone: String? = nil, reaction: String? = nil,
+                severity: String? = nil, relation: String? = nil,
+                confirmed: Bool) {
         self.id = id; self.kind = kind; self.title = title; self.detail = detail
         self.phone = phone; self.confirmed = confirmed
+        self.reaction = reaction; self.severity = severity; self.relation = relation
     }
 
     /// 紧急联系人拨号号码：优先结构化 phone 字段；无则回退解析 detail

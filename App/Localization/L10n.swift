@@ -166,6 +166,8 @@ enum L10n {
     static var inventory_reportBlocked: String { t("inventory.reportBlocked") }
     static var inventory_reportFact: String { t("inventory.reportFact") }
     static var emergency_title: String { t("emergency.title") }
+    static func emergencyReaction(_ tags: String) -> String { String(format: t("emergency.reactionFmt"), tags) }
+    static func emergencySeverity(_ s: String) -> String { String(format: t("emergency.severityFmt"), s) }
     static var emergency_bloodType: String { t("emergency.bloodType") }
     static var emergency_allergy: String { t("emergency.allergy") }
     static var emergency_meds: String { t("emergency.meds") }
@@ -252,6 +254,7 @@ enum L10n {
     static var f19_goTouch: String { t("f19.goTouch") }
     static var f19_stopped: String { t("f19.stopped") }
     static var f19_paused: String { t("f19.paused") }
+    static func f19_contactNotFound(_ object: String) -> String { String(format: t("f19.contactNotFound"), object) }
 
         static var fr24_title: String { t("fr24.title") }
     static var fr24_empty: String { t("fr24.empty") }
@@ -822,7 +825,7 @@ enum L10n {
     "healthProblem.offer.title",
     "healthProblem.offer.body",
     "healthProblem.create",
-    "voicePanel.autoHint",
+    "voicePanel.autoHint", "voicePanel.editHint", "voicePanel.confirm", "voicePanel.clearTitle", "voicePanel.clear", "voicePanel.clearLast", "voicePanel.clearAll",
     "voiceConfirm.judgedTarget",
     "voiceConfirm.candidates",
     // V3.86 FR7.9 设备读数入库呈现 / FR16.1 同步时间沟通契约
@@ -981,9 +984,10 @@ enum L10n {
         "emergency.section.allergy", "emergency.section.contacts", "emergency.section.health", "emergency.section.meds",
         "emergency.select.title", "emergency.selected", "emergency.sos.cancel", "emergency.sos.confirm",
         "emergency.sos.confirmPrompt", "emergency.sos.hold", "emergency.title", "emergency.unselected",
+        "emergency.reactionFmt", "emergency.severityFmt",
         "emergency.viewGuide", "emergency.write.subtitle", "emergency.write.title", "f19.cancel",
         "f19.confirm", "f19.end", "f19.executed", "f19.goTouch",
-        "f19.launch", "f19.listeningHint", "f19.paused", "f19.rejectedTitle",
+        "f19.launch", "f19.listeningHint", "f19.paused", "f19.contactNotFound", "f19.rejectedTitle",
         "f19.repeatObject", "f19.sayAgainHint",
         "voice.prompt.repeatHint",
         "voice.prompt.pickOption",
@@ -1214,7 +1218,7 @@ enum L10n {
         "nc.section.alert", "nc.section.ocr", "nc.nextAction.dose", "nc.confirmDose",
         "nc.expireDateFmt", "nc.ocrCountFmt", "nc.empty", "nc.emptyHint",
         "search.title", "search.placeholder", "search.placeholderHint", "search.noResultFmt",
-        "search.loosenHint", "search.clear", "search.group.docs", "search.group.observations",
+        "search.loosenHint", "search.clear", "search.failed", "search.retry", "search.group.docs", "search.group.observations",
         "search.group.meds", "search.obsLocked",
         "language.title", "language.footer", "voiceLang.title", "voiceLang.inputSection",
         "voiceLang.inputHint", "voiceLang.outputSection", "voiceLang.outputHint",
@@ -1295,7 +1299,7 @@ enum L10n {
         "doc.importSource.photos", "doc.importSource.manual",
         "doc.duplicate.title", "doc.duplicate.keepBoth", "doc.duplicate.discard",
         "doc.duplicate.hintFmt", "doc.importFailed.title", "doc.importFailed",
-        "doc.pdfImportFailed", "doc.prescriptionSyncFailed", "doc.type.report", "doc.type.record",
+        "doc.pdfImportFailed", "doc.prescriptionSyncFailed", "doc.pdfPartialFailed", "doc.type.report", "doc.type.record",
         "doc.manual.createTitle", "doc.manual.title", "doc.manual.type", "doc.manual.note",
         "onboard.revise",
         "ocrQueue.title", "ocrQueue.empty", "ocrQueue.emptyHint", "ocrQueue.countFmt",
@@ -1664,6 +1668,8 @@ enum L10n {
     static func searchNoResult(_ q: String) -> String { String(format: t("search.noResultFmt"), q) }
     static var searchLoosenHint: String { t("search.loosenHint") }
     static var searchClear: String { t("search.clear") }
+    static var searchLoadFailed: String { t("search.failed") }
+    static var searchRetry: String { t("search.retry") }
     static var searchGroupDocs: String { t("search.group.docs") }
     static var searchGroupObservations: String { t("search.group.observations") }
     static var searchGroupMeds: String { t("search.group.meds") }
@@ -1989,6 +1995,7 @@ enum L10n {
     static var docPDFImportFailed: String { t("doc.pdfImportFailed") }
     /// 处方副表同步失败的非阻断告警（主文档已保存不回滚，但必须可见）
     static var docPrescriptionSyncFailed: String { t("doc.prescriptionSyncFailed") }
+    static func docPDFPartialFailed(_ n: Int) -> String { String(format: t("doc.pdfPartialFailed"), n) }
     static var docTypeReport: String { t("doc.type.report") }
 
     // MARK: - 扫描选区 + 文档确认卡（图片入库四角矫正/字段确认）
@@ -2040,6 +2047,12 @@ enum L10n {
     static func voiceIntentName(_ key: String) -> String { t("voiceIntent.\(key)") }
     /// 语音速记面板去 chips 后的提示语（判定由本地理解层自动完成）
     static var voicePanelAutoHint: String { t("voicePanel.autoHint") }
+    static var voicePanelEditHint: String { t("voicePanel.editHint") }
+    static var voicePanelConfirm: String { t("voicePanel.confirm") }
+    static var voicePanelClearTitle: String { t("voicePanel.clearTitle") }
+    static var voicePanelClear: String { t("voicePanel.clear") }
+    static var voicePanelClearLast: String { t("voicePanel.clearLast") }
+    static var voicePanelClearAll: String { t("voicePanel.clearAll") }
     // V3.49 确认卡判定结果行（4.27 可选元素）
     static var voiceConfirmJudgedTarget: String { t("voiceConfirm.judgedTarget") }
     static var voiceConfirmCandidates: String { t("voiceConfirm.candidates") }

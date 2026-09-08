@@ -128,6 +128,8 @@
 "inventory.reportBlocked" = "月報產生異常，已攔截顯示";
 "inventory.reportFact" = "本報告只呈現計畫與確認次數的事實，不構成任何醫療評價。";
 "emergency.title" = "緊急資訊卡";
+"emergency.reactionFmt" = "反應：%@";
+"emergency.severityFmt" = "嚴重度：%@";
 "emergency.bloodType" = "血型";
 "emergency.allergy" = "過敏";
 "emergency.meds" = "長期用藥";
@@ -206,6 +208,7 @@
 "f19.goTouch" = "在螢幕上操作";
 "f19.stopped" = "已停止聆聽（退出前景）";
 "f19.paused" = "聆聽已暫停，點擊繼續";
+"f19.contactNotFound" = "未找到聯絡人「%@」，已拒絕撥號";
 "f19.repeatObject" = "將撥打 %@。請確認。";
 "f19.executed" = "已執行：%@";
 "fr24.title" = "發送狀態";
@@ -626,6 +629,8 @@
 "search.noResultFmt" = "沒有找到關於「%@」的結果";
 "search.loosenHint" = "試試更短的關鍵字，或去掉日期與類型篩選";
 "search.clear" = "清空搜尋";
+"search.failed" = "檢索失敗，請重試";
+"search.retry" = "重試";
 "search.group.docs" = "資料";
 "search.group.observations" = "觀察";
 "search.group.meds" = "用藥";
@@ -909,6 +914,7 @@
 "doc.importFailed" = "資料匯入失敗，請重試";
 "doc.pdfImportFailed" = "PDF 渲染或辨識失敗：檔案可能損壞或為純掃描低品質圖，請重試或改用拍照";
 "doc.prescriptionSyncFailed" = "文件已保存，但處方資訊未能同步至用藥記錄，請稍後在資料庫中重新確認";
+"doc.pdfPartialFailed" = "文件已保存，但有 %d 頁辨識失敗，可在資料詳情中查看";
 "doc.type.report" = "檢驗報告";
 "doc.type.record" = "門診病歷";
 "doc.manual.createTitle" = "手動新增資料";
@@ -1502,6 +1508,12 @@
 "voiceIntent.createQuestion" = "問診問題";
 "voiceIntent.unknown" = "任意文字";
 "voicePanel.autoHint" = "說出要記錄的內容，將自動判斷去向並產生草稿";
+"voicePanel.editHint" = "轉寫文字顯示於此，可直接點擊編輯；再次按住麥克風可續錄追加";
+"voicePanel.confirm" = "確認";
+"voicePanel.clearTitle" = "清除錄音";
+"voicePanel.clear" = "清除";
+"voicePanel.clearLast" = "清除最近一次錄音";
+"voicePanel.clearAll" = "清除全部錄音";
 "voiceConfirm.judgedTarget" = "判定結果";
 "voiceConfirm.candidates" = "可能屬於：";
 "f16.syncedRowsFmt" = "已匯入 %d 筆設備讀數（與手輸同趨勢展示）";

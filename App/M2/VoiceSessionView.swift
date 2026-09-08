@@ -394,11 +394,15 @@ struct VoiceSessionView: View {
             if let object { performCall(object) }
             session.clearPendingObject()
         case .openTimeline, .goHome, .exitSession:
-            // 会话以 fullScreenCover 呈现，无法直接驱动 Tab 切换——
-            // 回落入口页并如实提示（FR19.3：不假装导航成功）
+            // F19 附表「打开页面」= 执行导航并播报落点——同文件
+            // .startCamera/.openSearch 已证明 dismiss+router 可行，此前只
+            // dismiss 并让用户自己去点（导航类指令未实装）。时间轴 = records
+            // Tab 根（TimelineFullView），首页 = home Tab（统一经 select 出口）
+            let targetTab: MainModuleID = command == .openTimeline ? .records : .home
             session.systemFeedback(command == .openTimeline ? L10n.f19GoTimeline : L10n.f19GoHome,
                                    speak: { app.speak($0) })
             dismiss()
+            router.select(targetTab)
         case .todayMeds:
             // 附表①查询今日用药：时段清单播报（>3 条自动分页）
             let names = reminderStore.todaySlots
@@ -639,8 +643,14 @@ struct VoiceSessionView: View {
             return
         }
         let contact = hub.emergencySelected.contacts.first { $0.title.contains(object) }
+        // 联系人未命中即拒绝拨号并播报——此前 `?? object` 把语音原话当号码
+        // 直接拨出（联系人未加载/残词失配即拨错号，FR19.5 确认对象形同虚设）
+        guard let contact else {
+            app.speak(L10n.f19_contactNotFound(object))
+            return
+        }
         // detail 为「关系 · 电话」复合展示串——拨号取纯号码（BR-012 语义）
-        let number = contact?.contactPhone ?? object
+        let number = contact.contactPhone
         guard let url = URL(string: "tel://\(number)") else { return }
         openURL(url)
     }

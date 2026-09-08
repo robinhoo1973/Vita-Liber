@@ -52,6 +52,8 @@ struct QuickCaptureView: View {
     enum CaptureAlert: String, Identifiable {
         case saved
         case importFailed
+        /// PDF 已存档但部分页识别失败（FR6.6 非阻断可见）
+        case pdfPartial
         var id: String { rawValue }
     }
     /// 重复裁决「已作出选择」标记（第五轮全仓审查修复）：sheet 保存按钮的
@@ -307,12 +309,12 @@ struct QuickCaptureView: View {
             }
         }
         .alert(
-            activeAlert == .saved ? L10n.homeCaptureSaved : L10n.docImportFailed,
+            activeAlert == .importFailed ? L10n.docImportFailed : L10n.homeCaptureSaved,
             isPresented: Binding(
                 get: { activeAlert != nil },
                 set: { if !$0 { activeAlert = nil } })
         ) {
-            if activeAlert == .saved {
+            if activeAlert == .saved || activeAlert == .pdfPartial {
                 Button(L10n.docLibraryTitle) {
                     // 审查修复：跳转前必须先收起本 sheet——router.navigate 只切
                     // Tab/推路径，不收起已呈现的 sheet，「资料库」按钮此前在
@@ -323,6 +325,12 @@ struct QuickCaptureView: View {
                 Button(L10n.commonCancel, role: .cancel) { }
             } else {
                 Button(L10n.commonCancel, role: .cancel) { }
+            }
+        } message: {
+            // FR6.6 逐页失败可见：文档已存档但 N 页识别失败——此前只写
+            // meta_json 无消费点，用户看到「已保存」却不知内容缺失
+            if activeAlert == .pdfPartial {
+                Text(L10n.docPDFPartialFailed(docs.pdfPartialFailure))
             }
         }
         // 第四轮全仓审查修复：确认卡内 commitDraft 失败（磁盘满/约束错误）
@@ -422,8 +430,13 @@ struct QuickCaptureView: View {
         if docs.lastImportError != nil {
             activeAlert = .importFailed
         } else if docs.pendingDuplicate == nil {
-            // 命中重复时交给重复裁决 sheet 处理，不在此提前报「已保存」
-            activeAlert = .saved
+            // 命中重复时交给重复裁决 sheet 处理，不在此提前报「已保存」；
+            // PDF 部分页失败以非阻断告警呈现（文档已存档）
+            if docs.pdfPartialFailure > 0 {
+                activeAlert = .pdfPartial
+            } else {
+                activeAlert = .saved
+            }
         }
     }
 }

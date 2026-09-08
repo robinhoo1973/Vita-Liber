@@ -29,8 +29,35 @@ import Protocols
 public actor SFSpeechTranscriber: TranscriptionEngine {
     public nonisolated let capability: TranscriptionCapability
 
+    /// 活跃会话计数：软停（VoiceDictationModel.stop）不取消引擎——旧会话
+    /// 仍等静音端点、其 defer 才复位音频会话。快速重录时新旧两个 transcribe
+    /// 并发，旧会话先结束若无条件 setActive(false) 会把新会话已激活的共享
+    /// 会话一并关掉，新录音静默收不到缓冲。计数归零才复位。
+    private var activeSessions = 0
+    /// 当前活跃识别请求（软停 endAudio 尽快终结旧会话；仅最新会话）
+    private var activeRecognition: SFSpeechAudioBufferRecognitionRequest?
+
     public init() {
-        self.capability = .baseline()   // 基线轨：不支持长音频、单段 ≤60s
+        // FR17.15 六语种能力**运行时探测**（tech §5.13「不硬编码」）：
+        // supportedLocales ∩ 端侧识别——此前 .baseline() 恒 {zh-Hans-CN}，
+        // 选择粤语/英语后全部回落普通话识别（注释声称「用户选择的输入语言
+        // 必须生效」与实现矛盾，假能力呈现）
+        self.capability = Self.probeCapability()
+    }
+
+    /// 探测实际可用的端侧识别 locale 集；探测失败回落 zh-Hans-CN（绝不
+    /// 声称支持未探测的语种）
+    private static func probeCapability() -> TranscriptionCapability {
+        let probed = SFSpeechRecognizer.supportedLocales().filter { locale in
+            SFSpeechRecognizer(locale: locale)?.supportsOnDeviceRecognition == true
+        }.map(\.identifier)
+        let locales = probed.isEmpty ? ["zh-Hans-CN"] : probed
+        return .baseline(locales: Set(locales))
+    }
+
+    /// 软停提示：endAudio 让旧会话尽快出 isFinal 收尾（协议默认无操作）
+    public func endAudio() {
+        activeRecognition?.endAudio()
     }
 
     public func transcribe(_ request: TranscriptionRequest,
@@ -48,6 +75,11 @@ public actor SFSpeechTranscriber: TranscriptionEngine {
         }
         guard auth == .authorized else { throw TranscriptionError.unauthorized }
 
+        let recog = SFSpeechAudioBufferRecognitionRequest()
+        recog.requiresOnDeviceRecognition = true
+        recog.shouldReportPartialResults = true
+        recog.taskHint = .dictation
+
         let audio = AVAudioEngine()
         // 审查修复：AVAudioSession 必须显式配置为录音类别并激活——
         // 默认 soloAmbient 无录音输入，inputNode.installTap 后 audio.start()
@@ -63,13 +95,19 @@ public actor SFSpeechTranscriber: TranscriptionEngine {
         } catch {
             throw TranscriptionError.engineUnavailable
         }
-        defer { try? session.setActive(false, options: [.notifyOthersOnDeactivation]) }   // try?-ok: 会话复位失败不掩盖主结果
+        activeSessions += 1
+        activeRecognition = recog
+        defer {
+            activeSessions -= 1
+            // 仅当无其他活跃转写会话时复位共享音频会话——软停后的旧会话
+            // 不得关掉新会话已激活的录音输入
+            if activeSessions == 0 {
+                try? session.setActive(false, options: [.notifyOthersOnDeactivation])   // try?-ok: 会话复位失败不掩盖主结果
+            }
+            // 仅清空自己的识别请求引用（新会话可能已覆盖）
+            if activeRecognition === recog { activeRecognition = nil }
+        }
         #endif
-
-        let recog = SFSpeechAudioBufferRecognitionRequest()
-        recog.requiresOnDeviceRecognition = true
-        recog.shouldReportPartialResults = true
-        recog.taskHint = .dictation
         // 注：基线轨 request 无 contextualStrings（药名词表注入受限），见 ADR-023。
 
         let inputNode = audio.inputNode

@@ -34,7 +34,7 @@ public actor GRDBSearchService: FullTextSearch {
                 // 从源表取实时内容——敏感行必须先 CASE 短路，否则标题命中也会把
                 // 敏感正文整段载入结果行（与 bigram 分支同一纪律：绝不取回 ocr_text）
                 let rows = try Row.fetchAll(db, sql: """
-                    SELECT d.id, d.patient_id, d.doc_type, d.created_at, d.is_sensitive,
+                    SELECT d.id, d.patient_id, d.doc_type, d.created_at, d.is_sensitive, d.title,
                            CASE WHEN d.is_sensitive = 1 THEN NULL
                                 ELSE snippet(document_fts, 1, '<b>', '</b>', '…', 12) END AS snip
                     FROM document_fts f
@@ -77,7 +77,7 @@ public actor GRDBSearchService: FullTextSearch {
                 let since = DayArithmetic.since(days: 90)
                 let pattern = "%\(query)%"
                 let rows = try Row.fetchAll(db, sql: """
-                    SELECT d.id, d.patient_id, d.doc_type, d.created_at, d.is_sensitive,
+                    SELECT d.id, d.patient_id, d.doc_type, d.created_at, d.is_sensitive, d.title,
                            CASE WHEN d.is_sensitive = 1 THEN d.title
                                 ELSE COALESCE(d.title, d.ocr_text, d.meta_json) END AS snip
                     FROM document_file d
@@ -98,13 +98,17 @@ public actor GRDBSearchService: FullTextSearch {
     private static func hit(_ row: Row) -> EntityReference? {
         guard let id = UUID(uuidString: row["id"] as String) else { return nil }
         let sensitive = (row["is_sensitive"] as Int?) == 1
-        // BR-007/008：敏感行只命中元数据（标题）——正文不随检索呈现
-        let snippet = (row["snip"] as String?) ?? ""
+        // BR-007/008：敏感行只命中元数据（标题）——正文不随检索呈现；
+        // 文案零硬编码：敏感行 snippet 置空 + isSensitive 标记，锁定态文案
+        // 由视图层经 L10n 渲染（此前 Infrastructure 硬编码「资料」/「敏感
+        // 资料（解锁后可见内容）」，zh-Hant/en 用户看到简体残留；标题通用
+        // 串也把真实文档标题覆盖掉）
+        let snippet = sensitive ? "" : ((row["snip"] as String?) ?? "")
         return EntityReference(
             kind: row["doc_type"] as String,
             refID: id,
-            title: "资料",
-            snippet: sensitive ? "敏感资料（解锁后可见内容）" : snippet,
+            title: (row["title"] as String?) ?? (row["doc_type"] as String),
+            snippet: snippet,
             isSensitive: sensitive)
     }
 }

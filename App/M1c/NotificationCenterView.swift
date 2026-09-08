@@ -137,11 +137,12 @@ struct NotificationCenterView: View {
         }
     }
 
-    // 待处理剂量（未决 + 未过期）
+    // 待处理剂量（未决 + 未过期）——窗口容差走 Domain 单一事实源
+    // DoseSlotGrouping.tolerance（±30min），视图不再裸写 30*60
     private var pendingDoses: [DoseRecord] {
         reminderStore.todaySlots
             .flatMap(\.records)
-            .filter { $0.action == nil && $0.dose.dueAt <= Date().addingTimeInterval(30 * 60) }
+            .filter { $0.action == nil && $0.dose.dueAt <= Date().addingTimeInterval(DoseSlotGrouping.tolerance) }
     }
 
     private var appointments: [AppointmentRow] { reminderStore.upcomingAppointments }

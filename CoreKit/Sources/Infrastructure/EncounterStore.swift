@@ -108,7 +108,10 @@ public actor EncounterStore {
     }
 
     /// FR4.2 智能推荐（推荐必须标「待确认」，不得自动生效）：
-    /// 同医院 ±7 天的孤立资料（无 encounter 归属）。
+    /// 当前实现口径 = 同成员 ±7 天孤立资料（无 encounter 归属）——「同医院」
+    /// 限定未实现：document_file 无 hospital 列（医院只存在于 encounter 行），
+    /// 跨院资料当前会进推荐清单（已登记 §11 清偿表；推荐只标「待确认」，
+    /// 不自动挂接，风险面受控）。此前注释宣称「同医院」与实现不符。
     public func recommendDocuments(encounter: EncounterRow, now: Date = Date()) async throws -> [UUID] {
         let windowStart = DayArithmetic.offset(days: -7, from: encounter.date)
         let windowEnd = DayArithmetic.offset(days: 7, from: encounter.date)

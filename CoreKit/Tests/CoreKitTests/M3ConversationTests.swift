@@ -12,12 +12,12 @@ struct VoiceConversationTests {
     // MARK: FR19.2 文法白名单
 
     @Test func 白名单指令解析() {
-        #expect(VoiceCommandGrammar.parse("今天吃什么药") == .command(.todayMeds))
-        #expect(VoiceCommandGrammar.parse("下次预约") == .command(.nextAppointment))
-        #expect(VoiceCommandGrammar.parse("阿司匹林还剩多少") == .command(.stockRemaining))
-        #expect(VoiceCommandGrammar.parse("打开时间轴") == .command(.openTimeline))
-        #expect(VoiceCommandGrammar.parse("再说一遍") == .command(.repeatLast))
-        #expect(VoiceCommandGrammar.parse("血压 148 92 心率 76") == .record(metricText: "血压 148 92 心率 76"))
+        #expect(VoiceCommandGrammar.parse("今天吃什么药", emergencyNumber: "120") == .command(.todayMeds))
+        #expect(VoiceCommandGrammar.parse("下次预约", emergencyNumber: "120") == .command(.nextAppointment))
+        #expect(VoiceCommandGrammar.parse("阿司匹林还剩多少", emergencyNumber: "120") == .command(.stockRemaining))
+        #expect(VoiceCommandGrammar.parse("打开时间轴", emergencyNumber: "120") == .command(.openTimeline))
+        #expect(VoiceCommandGrammar.parse("再说一遍", emergencyNumber: "120") == .command(.repeatLast))
+        #expect(VoiceCommandGrammar.parse("血压 148 92 心率 76", emergencyNumber: "120") == .record(metricText: "血压 148 92 心率 76"))
     }
 
     /// 评审修正第二轮：急救号码文法回归防护——
@@ -26,36 +26,36 @@ struct VoiceConversationTests {
     /// ③ 急救语义词（急救/救命/叫救护车）经语音可达（BR-012 出口）；
     /// ④ 「记录119条」不误命中（句尾锚定 + 动词要求）。
     @Test func 急救号码文法() {
-        #expect(VoiceCommandGrammar.parse("帮我打120") == .command(.callEmergency120))
-        #expect(VoiceCommandGrammar.parse("打120") == .command(.callEmergency120))
-        #expect(VoiceCommandGrammar.parse("拨打120。") == .command(.callEmergency120))
-        #expect(VoiceCommandGrammar.parse("打给120！") == .command(.callEmergency120))
+        #expect(VoiceCommandGrammar.parse("帮我打120", emergencyNumber: "120") == .command(.callEmergency120))
+        #expect(VoiceCommandGrammar.parse("打120", emergencyNumber: "120") == .command(.callEmergency120))
+        #expect(VoiceCommandGrammar.parse("拨打120。", emergencyNumber: "120") == .command(.callEmergency120))
+        #expect(VoiceCommandGrammar.parse("打给120！", emergencyNumber: "120") == .command(.callEmergency120))
         #expect(VoiceCommandGrammar.parse("帮我打119", emergencyNumber: "119") == .command(.callEmergency120))
-        #expect(VoiceCommandGrammar.parse("急救") == .command(.callEmergency120))
-        #expect(VoiceCommandGrammar.parse("救命") == .command(.callEmergency120))
-        #expect(VoiceCommandGrammar.parse("叫救护车") == .command(.callEmergency120))
-        #expect(VoiceCommandGrammar.parse("打救护车") == .command(.callEmergency120))
-        #expect(VoiceCommandGrammar.parse("帮我叫救护车") == .command(.callEmergency120))
-        #expect(VoiceCommandGrammar.parse("记录119条") != .command(.callEmergency120))
-        #expect(VoiceCommandGrammar.parse("血压120") != .command(.callEmergency120))
+        #expect(VoiceCommandGrammar.parse("急救", emergencyNumber: "120") == .command(.callEmergency120))
+        #expect(VoiceCommandGrammar.parse("救命", emergencyNumber: "120") == .command(.callEmergency120))
+        #expect(VoiceCommandGrammar.parse("叫救护车", emergencyNumber: "120") == .command(.callEmergency120))
+        #expect(VoiceCommandGrammar.parse("打救护车", emergencyNumber: "120") == .command(.callEmergency120))
+        #expect(VoiceCommandGrammar.parse("帮我叫救护车", emergencyNumber: "120") == .command(.callEmergency120))
+        #expect(VoiceCommandGrammar.parse("记录119条", emergencyNumber: "120") != .command(.callEmergency120))
+        #expect(VoiceCommandGrammar.parse("血压120", emergencyNumber: "120") != .command(.callEmergency120))
     }
 
     @Test func 开放域不解析() {
         // FR19.9：不做自由对话与医疗问答
-        #expect(VoiceCommandGrammar.parse("我最近心情不好怎么办") == .unrecognized)
-        #expect(VoiceCommandGrammar.parse("帮我查一下医保政策") == .unrecognized)
+        #expect(VoiceCommandGrammar.parse("我最近心情不好怎么办", emergencyNumber: "120") == .unrecognized)
+        #expect(VoiceCommandGrammar.parse("帮我查一下医保政策", emergencyNumber: "120") == .unrecognized)
     }
 
     // MARK: FR19.5 危险分级确认
 
     @Test func 拨号必须复述对象再确认() {
         var state = ConversationState()
-        let (s1, e1) = VoiceConversationEngine.step(state: state, transcript: "帮我打给女儿")
+        let (s1, e1) = VoiceConversationEngine.step(state: state, transcript: "帮我打给女儿", emergencyNumber: "120")
         #expect(s1.phase == .repeatingObject, "拨号前必须进入复述对象相位")
         #expect(e1.contains(.requireRepeatObject("女儿")))
         state = s1
         // 只说「是」不够——必须先复述对象
-        let (s2, e2) = VoiceConversationEngine.step(state: state, transcript: "确认")
+        let (s2, e2) = VoiceConversationEngine.step(state: state, transcript: "确认", emergencyNumber: "120")
         #expect(e2.contains(where: { if case .execute(.callContact, let payload) = $0 { return payload == "女儿" }
                               return false }),
                 "复述对象后说确认才执行拨号")
@@ -66,7 +66,8 @@ struct VoiceConversationTests {
         let banned = ["删除阿司匹林的记录", "把剂量改成一天三次", "停用这个药", "删掉时间轴"]
         for phrase in banned {
             let (_, events) = VoiceConversationEngine.step(state: ConversationState(),
-                                                          transcript: phrase)
+                                                          transcript: phrase,
+                                                          emergencyNumber: "120")
             #expect(events.contains(.rejectForbidden), "「\(phrase)」必须被语音通道拒绝（FR19.5/BR-006）")
             #expect(!events.contains(where: { if case .execute = $0 { return true }; return false }),
                     "拒绝后不得有任何执行事件")
@@ -79,7 +80,8 @@ struct VoiceConversationTests {
         let attacks = ["确认删除阿司匹林", "是的，把剂量改成一天三次", "对，停用"]
         for phrase in attacks {
             let (_, events) = VoiceConversationEngine.step(state: ConversationState(),
-                                                          transcript: phrase)
+                                                          transcript: phrase,
+                                                          emergencyNumber: "120")
             #expect(!events.contains(where: { if case .execute = $0 { return true }; return false }),
                     "「\(phrase)」不得产生任何执行（FR19.5 一票否决）")
         }
@@ -96,7 +98,7 @@ struct VoiceConversationTests {
             pendingCommand: .stockRemaining)
         #expect(state.options.count == 3, "FR19.4：选项必须 ≤3")
         #expect(events.contains(.askOptions(["阿司匹林 100mg", "阿司匹林 81mg", "拜阿司匹林"])))
-        let (s2, e2) = VoiceConversationEngine.step(state: state, transcript: "第二个")
+        let (s2, e2) = VoiceConversationEngine.step(state: state, transcript: "第二个", emergencyNumber: "120")
         #expect(e2.contains(where: { if case .execute(let cmd, let payload) = $0 { return cmd == .stockRemaining && payload == "阿司匹林 81mg" }
                               return false }),
             "列选必须执行传入的 pendingCommand（漏传回落 .todayMeds 即错误命令）")
@@ -107,7 +109,8 @@ struct VoiceConversationTests {
     /// openSearch 为低风险查询类，直接执行（无确认轮）
     @Test func 搜索指令载荷保留() {
         let (_, events) = VoiceConversationEngine.step(state: ConversationState(),
-                                                       transcript: "搜索阿司匹林")
+                                                       transcript: "搜索阿司匹林",
+                                                       emergencyNumber: "120")
         #expect(events.contains(where: { if case .execute(.openSearch, let payload) = $0 { return payload == "阿司匹林" }
                               return false }),
                 "搜索词必须随 .openSearch 载荷带出（搜索页打开即带词）")
@@ -116,9 +119,9 @@ struct VoiceConversationTests {
     /// 第七轮修复锚点：recordQuestion 载荷（记一个问题：…）零测试
     @Test func 记录问题载荷抽取() {
         var state = ConversationState()
-        let (s1, _) = VoiceConversationEngine.step(state: state, transcript: "记一个问题：头晕三天")
+        let (s1, _) = VoiceConversationEngine.step(state: state, transcript: "记一个问题：头晕三天", emergencyNumber: "120")
         state = s1
-        let (_, e2) = VoiceConversationEngine.step(state: state, transcript: "确认")
+        let (_, e2) = VoiceConversationEngine.step(state: state, transcript: "确认", emergencyNumber: "120")
         #expect(e2.contains(where: { if case .execute(.recordQuestion, let payload) = $0 { return payload == "头晕三天" }
                               return false }),
                 "问题正文必须随 .recordQuestion 载荷带出（FR10.5 落库）")
@@ -135,7 +138,8 @@ struct VoiceConversationTests {
         ]
         for (utterance, command, payload) in cases {
             let (_, events) = VoiceConversationEngine.step(state: ConversationState(),
-                                                           transcript: utterance)
+                                                           transcript: utterance,
+                                                           emergencyNumber: "120")
             #expect(events.contains(where: { if case .execute(let c, let p) = $0 {
                 return c == command && p == payload
             }
@@ -149,7 +153,8 @@ struct VoiceConversationTests {
     @Test func 泛化药词载荷为空() {
         for utterance in ["药还剩多少", "药放在哪", "我的药什么时候过期", "这个药还剩多少"] {
             let (_, events) = VoiceConversationEngine.step(state: ConversationState(),
-                                                           transcript: utterance)
+                                                           transcript: utterance,
+                                                           emergencyNumber: "120")
             #expect(events.contains(where: { if case .execute(_, let p) = $0 { return p == nil }
                               return false }),
                     "「\(utterance)」为泛化问句，载荷必须为 nil（回落全清单）")
@@ -158,7 +163,7 @@ struct VoiceConversationTests {
 
     @Test func 再说一遍重播当前问题与选项() {
         let (state, _) = VoiceConversationEngine.optionsPrompt(["甲", "乙"])
-        let (_, events) = VoiceConversationEngine.step(state: state, transcript: "再说一遍")
+        let (_, events) = VoiceConversationEngine.step(state: state, transcript: "再说一遍", emergencyNumber: "120")
         // V3.68：提示语类型化（SpeechPrompt）——空提示在类型上不存在，断言播报事件存在即可
         #expect(events.contains(where: { if case .speak = $0 { return true }; return false }))
         #expect(events.contains(.askOptions(["甲", "乙"])), "重播必须包含当前选项（FR19.4）")
@@ -170,14 +175,14 @@ struct VoiceConversationTests {
     /// 输入的词汇源——必须与文法解析同义。此前常量与正则各自硬编码、无任何
     /// 测试绑定：文法一旦扩展别名（如「确定」），触屏确认按钮即静默失效。
     @Test func 词汇表常量与文法一致() {
-        #expect(VoiceCommandGrammar.parse(VoiceCommandGrammar.confirmWord) == .command(.yes))
-        #expect(VoiceCommandGrammar.parse(VoiceCommandGrammar.cancelWord) == .command(.no))
+        #expect(VoiceCommandGrammar.parse(VoiceCommandGrammar.confirmWord, emergencyNumber: "120") == .command(.yes))
+        #expect(VoiceCommandGrammar.parse(VoiceCommandGrammar.cancelWord, emergencyNumber: "120") == .command(.no))
         for n in 1...3 {
             guard let word = VoiceCommandGrammar.ordinalWord(n) else {
                 Issue.record("ordinalWord(\(n)) 必须产出词")
                 continue
             }
-            #expect(VoiceCommandGrammar.parse(word) == .command(.selectNumber),
+            #expect(VoiceCommandGrammar.parse(word, emergencyNumber: "120") == .command(.selectNumber),
                     "「\(word)」必须被文法解析为列选")
         }
     }
@@ -186,9 +191,9 @@ struct VoiceConversationTests {
 
     @Test func 两轮无效应答礼貌退出() {
         var state = ConversationState()
-        _ = VoiceConversationEngine.step(state: state, transcript: "今天天气不错")     // 第 1 轮无效
+        _ = VoiceConversationEngine.step(state: state, transcript: "今天天气不错", emergencyNumber: "120")     // 第 1 轮无效
         state.silentRounds = 1
-        let (s2, e2) = VoiceConversationEngine.step(state: state, transcript: "不知道")   // 第 2 轮无效
+        let (s2, e2) = VoiceConversationEngine.step(state: state, transcript: "不知道", emergencyNumber: "120")   // 第 2 轮无效
         #expect(e2.contains(.exitGracefully), "连续两轮无有效应答必须礼貌退出（FR19.6）")
         #expect(s2.phase == .ended)
     }
@@ -197,12 +202,12 @@ struct VoiceConversationTests {
     /// silentRounds 永不退出——无法说「是/否」的用户被困死在确认循环。
     @Test func 确认相位两轮无效应答同样退出() {
         var state = ConversationState()
-        let (s1, _) = VoiceConversationEngine.step(state: state, transcript: "血压 148")
+        let (s1, _) = VoiceConversationEngine.step(state: state, transcript: "血压 148", emergencyNumber: "120")
         #expect(s1.phase == .confirming)
-        _ = VoiceConversationEngine.step(state: s1, transcript: "今天天气不错")   // 第 1 轮无效
+        _ = VoiceConversationEngine.step(state: s1, transcript: "今天天气不错", emergencyNumber: "120")   // 第 1 轮无效
         state = s1
         state.silentRounds = 1
-        let (s2, e2) = VoiceConversationEngine.step(state: state, transcript: "不知道")   // 第 2 轮无效
+        let (s2, e2) = VoiceConversationEngine.step(state: state, transcript: "不知道", emergencyNumber: "120")   // 第 2 轮无效
         #expect(e2.contains(.exitGracefully), "确认相位连续两轮无效应答必须礼貌退出（FR19.6）")
         #expect(s2.phase == .ended)
     }
@@ -211,12 +216,12 @@ struct VoiceConversationTests {
     /// 退出即取消待确认拨号，绝不误执行。
     @Test func 复述相位两轮无效应答退出且不拨号() {
         var state = ConversationState()
-        let (s1, _) = VoiceConversationEngine.step(state: state, transcript: "帮我打给女儿")
+        let (s1, _) = VoiceConversationEngine.step(state: state, transcript: "帮我打给女儿", emergencyNumber: "120")
         #expect(s1.phase == .repeatingObject)
-        _ = VoiceConversationEngine.step(state: s1, transcript: "今天天气不错")
+        _ = VoiceConversationEngine.step(state: s1, transcript: "今天天气不错", emergencyNumber: "120")
         state = s1
         state.silentRounds = 1
-        let (s2, e2) = VoiceConversationEngine.step(state: state, transcript: "不知道")
+        let (s2, e2) = VoiceConversationEngine.step(state: state, transcript: "不知道", emergencyNumber: "120")
         #expect(e2.contains(.exitGracefully), "复述相位连续两轮无效应答必须礼貌退出（FR19.6）")
         #expect(s2.phase == .ended)
         #expect(!e2.contains(where: { if case .execute(.callContact, _) = $0 { return true }; return false }),
@@ -226,7 +231,7 @@ struct VoiceConversationTests {
     /// 审查修复锚点（是/否在非确认相位）：listening 下说「是」原为零事件死滞——
     /// 现按无效应答计数并提示（与 unrecognized 分支同构）。
     @Test func 非确认相位是否按无效应答处理() {
-        let (s, e) = VoiceConversationEngine.step(state: ConversationState(), transcript: "是")
+        let (s, e) = VoiceConversationEngine.step(state: ConversationState(), transcript: "是", emergencyNumber: "120")
         #expect(s.silentRounds == 1, "listening 相位「是」必须计入静默轮数")
         #expect(e.contains(where: { if case .speak = $0 { return true }; return false }),
                 "必须给出回应提示，不得零事件死滞")
@@ -236,7 +241,7 @@ struct VoiceConversationTests {
     @Test func 有效应答清零静默计数() {
         var state = ConversationState()
         state.silentRounds = 1
-        let (s2, _) = VoiceConversationEngine.step(state: state, transcript: "今天吃什么药")
+        let (s2, _) = VoiceConversationEngine.step(state: state, transcript: "今天吃什么药", emergencyNumber: "120")
         #expect(s2.silentRounds == 0)
         #expect(s2.phase == .listening)
     }
@@ -252,16 +257,16 @@ struct VoiceConversationTests {
             // 三种「查今日用药」变体轮换 + 各一步完成三连
             let state = ConversationState()
             let query = i % 3 == 0 ? "今天吃什么药" : (i % 3 == 1 ? "现在吃哪些药" : "今天有什么药")
-            let (s1, e1) = VoiceConversationEngine.step(state: state, transcript: query)
+            let (s1, e1) = VoiceConversationEngine.step(state: state, transcript: query, emergencyNumber: "120")
             guard e1.contains(where: { if case .execute(.todayMeds, _) = $0 { return true }; return false }) else { continue }
             // 标记已服用：单次口头确认（elevated）
-            let (s2, e2) = VoiceConversationEngine.step(state: s1, transcript: "我吃过阿司匹林了")
+            let (s2, e2) = VoiceConversationEngine.step(state: s1, transcript: "我吃过阿司匹林了", emergencyNumber: "120")
             let confirm1 = s2.phase == .confirming && e2.contains(where: { if case .speak = $0 { return true }; return false })
             guard confirm1 else { continue }
-            let (s3, e3) = VoiceConversationEngine.step(state: s2, transcript: "确认")
+            let (s3, e3) = VoiceConversationEngine.step(state: s2, transcript: "确认", emergencyNumber: "120")
             guard e3.contains(where: { if case .execute(.markTaken, let payload) = $0 { return payload == "阿司匹林" }; return false }) else { continue }
             // 查询余量
-            let (_, e4) = VoiceConversationEngine.step(state: s3, transcript: "阿司匹林还剩多少")
+            let (_, e4) = VoiceConversationEngine.step(state: s3, transcript: "阿司匹林还剩多少", emergencyNumber: "120")
             guard e4.contains(where: { if case .execute(.stockRemaining, _) = $0 { return true }; return false }) else { continue }
             success += 1
         }
@@ -278,7 +283,7 @@ struct VoiceConversationTests {
         var state = ConversationState()
         var collected: [SpeechPrompt] = []
         for phrase in ["今天吃什么药", "帮我打给女儿", "删除阿司匹林", "没听清", "不知道"] {
-            let (s, events) = VoiceConversationEngine.step(state: state, transcript: phrase)
+            let (s, events) = VoiceConversationEngine.step(state: state, transcript: phrase, emergencyNumber: "120")
             state = s
             for event in events {
                 if case .speak(let prompt) = event { collected.append(prompt) }

@@ -16,7 +16,7 @@ struct OnboardingFlowView: View {
                     Capsule()
                         .fill(idx <= stepIndex
                               ? Color("brand-primary", bundle: .main)
-                              : Color(.systemGray5))
+                              : Color("bg-grouped", bundle: .main))   // 语义令牌（token-only 纪律，不用系统调色板）
                         .frame(height: 4)
                 }
             }
@@ -57,6 +57,7 @@ struct OnboardingFlowView: View {
 /// BR-012：SOS/急救信息豁免——急救卡在锁屏上直接可达，不需要、也不允许先解锁。
 struct LockOverlayView: View {
     @Environment(AppState.self) private var app
+    @Environment(\.scenePhase) private var scenePhase
     var onUnlocked: () -> Void
 
     @State private var showEmergency = false
@@ -108,11 +109,20 @@ struct LockOverlayView: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("SP-01.lockOverlay")
         .task {
-            // 冷启动/回前台呈现遮罩即自动弹系统认证一次。
-            // 遮罩只在 needsLockScreen || backgroundLocked 时挂载，无需再问「是否需要解锁」；
+            // 冷启动呈现遮罩即自动弹系统认证一次——必须等前台激活：遮罩在
+            // 退后台（.inactive）也挂载，其 .task 随挂载立即执行，LAContext
+            // 在非前台场景求值必失败（appNotForeground）且 .task 不因回前台
+            // 重跑——回前台自动重试由下方 onChange(scenePhase) 驱动。
             // UI 测试用 -uitest-gate-no-auto 关断自动尝试（Face ID 无法自动化）
-            guard app.gateAutoAttempts else { return }
+            guard app.gateAutoAttempts, scenePhase == .active else { return }
             await attempt()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            // FR1.4「回前台必须重新认证、自动弹系统浮层」：inactive 挂载期
+            // 从未真正尝试过（或已失败），回前台清假失败态并自动重试
+            guard app.gateAutoAttempts, phase == .active else { return }
+            failedOnce = false
+            Task { await attempt() }
         }
         .onChange(of: app.lastUnlockedAt) { _, value in
             if value != nil { onUnlocked() }

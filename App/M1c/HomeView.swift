@@ -179,7 +179,9 @@ struct HomeView: View {
                 .presentationDetents([.medium])
         }
         .sheet(isPresented: $showSOS) { SOSHelpView() }
-        .sheet(isPresented: $showVoicePanel) { VoiceQuickLaunchView() }
+        // SP-55 全屏工作台（improving-requirements 1.2 / tech V3.93 口径修正：
+        // 「底部 Sheet」→ 独立全屏页面——上方转写编辑区 + 下方录音/清除/确认）
+        .fullScreenCover(isPresented: $showVoicePanel) { VoiceQuickLaunchView() }
         .sheet(isPresented: $showVoiceNote) { VoiceNotePanelView() }
         .sheet(item: $quickCaptureKind) { kind in
             NavigationStack { QuickCaptureView(kind: kind) }
@@ -504,13 +506,18 @@ struct HomeView: View {
             VStack(spacing: 20) {
                 // FR18.5 极简导航：四大卡（今日服药/续药/拍摄记录/呼救）
                 BigCareCard(icon: "pills.fill", title: L10n.homeCareMeds, tint: .blue) {
-                    router.navigate(to: .appointmentList)   // Phase 3 换时段确认路由
+                    // 「今日服药」卡进用药时段聚合落点（此前挂 .appointmentList
+                    // 占位——答非所问，Phase 3 占位路由随 M2 上线未替换）
+                    router.navigate(to: .reminderToday)
                 }
                 BigCareCard(icon: "pills.circle.fill", title: L10n.homeCareRefill, tint: .orange) {
                     router.navigate(to: .medicationCabinet)
                 }
                 BigCareCard(icon: "camera.fill", title: L10n.homeCareCapture, tint: .green) {
-                    router.navigate(to: .observationCreate)
+                    // 「拍摄记录」= 文档/证件扫描（improving-requirements 1.1 关怀
+                    // 模式口径：此前去症状拍摄 observationCreate，关怀模式用户
+                    // 无法扫描病历/证件）
+                    router.navigate(to: .scanCapture(.record))
                 }
                 // 评审修正 U7：§7.1 防误触——SOS 大卡此前单击即开求助页
                 // （里面全是拨号按钮，震颤误触后果严重）；改为按住 600ms

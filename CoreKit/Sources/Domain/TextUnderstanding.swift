@@ -120,17 +120,23 @@ public enum UnderstandingCodeResolution {
             do {
                 // lab_item 载荷为「名称 数值」合体（确认卡编辑形态）——先拆
                 // 名称/数值：合体串别名不命中且 Double(合体) 恒 nil，此前
-                // 接线恒空转（名称别名与读数联合解析双双落空）
+                // 接线恒空转（名称别名与读数联合解析双双落空）。
                 let (name, number) = splitReading(field.value)
-                if let code = try await CodeResolver.resolve(name, locale: locale, index: index) {
-                    resolved.codeResolution = code
-                    if resolved.source == nil { resolved.source = .f25CodeResolver }
-                } else if let unit = field.unit, !unit.isEmpty, let number {
-                    // FR25.2 读数联合解析：名称+数值+单位（单位参与定码）
+                if let unit = field.unit, !unit.isEmpty, let number {
+                    // FR25.2 读数联合解析**优先**：单位参与定码（mmol/L 读数
+                    // 必须建议 c-glu-molar 而非名称直配命中的质量码——此前
+                    // resolve(name) 先命中即短路，unitSpecificConcept 永不
+                    // 执行、单位特异种子成死数据）
                     let reading = try await CodeResolver.resolveReading(
                         raw: name, value: number, unit: unit,
                         locale: locale, index: index, units: units)
                     resolved.codeResolution = reading.resolution
+                    if resolved.codeResolution != nil, resolved.source == nil {
+                        resolved.source = .f25CodeResolver
+                    }
+                } else if let code = try await CodeResolver.resolve(name, locale: locale, index: index) {
+                    resolved.codeResolution = code
+                    if resolved.source == nil { resolved.source = .f25CodeResolver }
                 }
             } catch {
                 // F25 失败不阻断理解主流程：编码是惰性建议，无编码仍可确认

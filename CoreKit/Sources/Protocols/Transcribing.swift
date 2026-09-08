@@ -17,6 +17,14 @@ public protocol TranscriptionEngine: Sendable {
     /// 开始一次转写。实现内部自行采集音频；`onPartial` 回传实时文本用于边说边显示。
     func transcribe(_ request: TranscriptionRequest,
                     onPartial: (@Sendable (String) -> Void)?) async throws -> TranscriptionResult
+    /// 软停提示：请求引擎尽快收尾（endAudio）。调用方软停不取消引擎——在途
+    /// 转写必须投递；本端口让旧会话尽快出 isFinal，避免与新会话的音频竞争。
+    func endAudio()
+}
+
+extension TranscriptionEngine {
+    /// 默认无操作：契约桩/不支持实现忽略软停提示
+    public func endAudio() {}
 }
 
 /// 测试与 Preview 用桩：两轨可用性各构造一份，验证「同一协议下行为一致」

@@ -289,20 +289,10 @@ public enum InventoryRules {
     /// 永不减少、续药告警永不触发。用户什么都不做时反而收不到「该买药了」，
     /// 正是这条红线要防的失效。计划轨的推进权因此不能挂在用户动作上。
     ///
-    /// - Parameter elapsedScheduledDoses: 区间内**应服**剂次数（由排程引擎给出，
-    ///   与用户是否确认无关）。
-    ///
-    /// ⚠️ 当前**无生产调用方**（仅 M2DomainTests 覆盖）。线上走的是
-    /// `MedicationStore.materializeMissed`：把过宽限的无动作剂量物化成 `missed`，
-    /// 再经扣减矩阵推进计划轨。二者语义等价但路径不同——本函数是「按区间批量推进」，
-    /// materializeMissed 是「按剂量逐条补账」。保留是因为它是 FR9.8.8 的可单测纯规则；
-    /// 若后续确认不再需要批量口径，应连同测试一并删除，不要让它悄悄留成第二套真相。
-    public static func advancePlanTrack(_ inv: DualTrackInventory,
-                                        elapsedScheduledDoses: Int,
-                                        unitsPerDose: Double) -> DualTrackInventory {
-        guard elapsedScheduledDoses > 0, unitsPerDose > 0 else { return inv }
-        return deductPlan(inv, units: Double(elapsedScheduledDoses) * unitsPerDose)
-    }
+    /// 计划轨推进的唯一生产路径 = `MedicationStore.materializeMissed`（把过
+    /// 宽限的无动作剂量物化为 `missed`，经扣减矩阵逐条补账）。此前另保留
+    /// 「按区间批量推进」的 advancePlanTrack（无生产调用方，仅测试引用）——
+    /// 第二套安全线推进真相已按规则①删除，测试改经 deductPlan 同口径覆盖。
 
     /// 零确认场景下，从建计划到 `now` 期间应触达的**全部**续药档位（升序）。
     /// 逐日推进安全线并记录首次跨越各档的时刻——用于验证「三级触达全发生」，

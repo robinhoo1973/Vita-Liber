@@ -62,16 +62,24 @@ public actor AppointmentStore {
             try db.execute(
                 sql: "UPDATE appointment SET status = 'cancelled', cancel_reason = 'rescheduled', updated_at = ? WHERE id = ?",
                 arguments: [now.timeIntervalSince1970, id.uuidString])
+            // 全字段复制（v8 迁移补全列集）：此前只复制 hospital/department/
+            // starts_at——doctor/address/items_to_bring/notes 在新草稿中静默
+            // 丢失，旧行已置 cancelled，活跃视图再取不到医生地址与需带资料
+            // （FR10.6/10.7 支撑列全丢）
             try db.execute(
                 sql: """
                 INSERT INTO appointment (id, patient_id, hospital, department, starts_at, status,
+                                         doctor, address, items_to_bring, notes, source, booking_no,
                                          rescheduled_from, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, 'scheduled', ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, 'scheduled', ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 arguments: [newId.uuidString, old["patient_id"] as String,
                             (old["hospital"] as String?) ?? "", (old["department"] as String?) ?? "",
-                            startsAt.timeIntervalSince1970, id.uuidString,
-                            now.timeIntervalSince1970, now.timeIntervalSince1970])
+                            startsAt.timeIntervalSince1970,
+                            (old["doctor"] as String?) ?? "", (old["address"] as String?) ?? "",
+                            (old["items_to_bring"] as String?) ?? "", (old["notes"] as String?) ?? "",
+                            (old["source"] as String?) ?? "", (old["booking_no"] as String?) ?? "",
+                            id.uuidString, now.timeIntervalSince1970, now.timeIntervalSince1970])
         }
         // 审查修复：取消旧提醒移到写事务成功之后——原顺序先取消后校验，
         // 写失败（notFound）时预约仍在 scheduled 态但提醒已被移除且对账
@@ -101,6 +109,19 @@ public actor AppointmentStore {
     /// 标记「错过」（FR10.7）：missed + 触发跟进提醒（FR10.3 错过跟进）
     public func markMissed(id: UUID, now: Date = Date()) async throws {
         try await writer.write { db in
+            // 纵深防御：时间门槛在视图层之外再查一次（Domain 单一事实源
+            // AppointmentRules.canMarkMissed）——任何新入口绕过视图即可误标
+            // 未来预约，取消全部分级提醒并武装 2h 跟进（Domain 规则自述的
+            // 失效形态）。复用 notFound 语义拒绝，不泄露状态。
+            guard let startsAt = try Double.fetchOne(db, sql: """
+                SELECT starts_at FROM appointment WHERE id = ?
+                """, arguments: [id.uuidString]) else {
+                throw StoreError.notFound
+            }
+            guard AppointmentRules.canMarkMissed(startsAt: Date(timeIntervalSince1970: startsAt),
+                                                 now: now) else {
+                throw StoreError.notFound
+            }
             try db.execute(
                 sql: "UPDATE appointment SET status = 'missed', updated_at = ? WHERE id = ?",
                 arguments: [now.timeIntervalSince1970, id.uuidString])

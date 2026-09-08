@@ -18,6 +18,9 @@ final class SearchViewState {
     private(set) var query = ""
     private(set) var docHits: [EntityReference] = []
     private(set) var loading = false
+    /// 检索失败可见标记（四态纪律：失败 ≠ 无结果——此前 catch 清空 docHits
+    /// 渲染「未找到」，DB/FTS 故障被谎报成空档案）
+    private(set) var loadFailed = false
 
     private let search: any FullTextSearch
     init(search: any FullTextSearch) { self.search = search }
@@ -59,6 +62,7 @@ final class SearchViewState {
         defer { loading = false }
         guard !trimmed.isEmpty else {
             docHits = []
+            loadFailed = false
             return
         }
         do {
@@ -68,9 +72,13 @@ final class SearchViewState {
             // 旧代际结果丢弃（查询文本已变）
             guard generation == searchGeneration else { return }
             docHits = hits
+            loadFailed = false
         } catch {
             guard generation == searchGeneration else { return }
-            docHits = []   // 检索失败 = 空结果 + 降级建议（F22 边界：不阻塞）
+            // 检索失败 = 空结果 + 独立失败态（四态纪律：不把 DB/FTS 故障
+            // 谎报成「没有找到」）
+            docHits = []
+            loadFailed = true
         }
     }
 }
@@ -119,6 +127,18 @@ struct GlobalSearchView: View {
                 ContentUnavailableView(L10n.searchTitle, systemImage: "magnifyingglass",
                                        description: Text(L10n.searchPlaceholderHint))
                     .accessibilityIdentifier("SP-20.search.idle")
+            } else if state.loadFailed {
+                // 四态纪律：检索失败独立呈现（不冒充「未找到」）
+                ContentUnavailableView {
+                    Label(L10n.searchLoadFailed, systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(L10n.searchLoosenHint)
+                } actions: {
+                    Button(L10n.searchRetry) {
+                        Task { await state.search(patientId: app.currentPatientId) }
+                    }
+                }
+                .accessibilityIdentifier("SP-20.search.failed")
             } else if state.docHits.isEmpty && obsHits.isEmpty && medHits.isEmpty {
                 ContentUnavailableView {
                     Label(L10n.searchNoResult(query), systemImage: "magnifyingglass")
@@ -135,7 +155,8 @@ struct GlobalSearchView: View {
                             Button {
                                 router.navigate(to: .documentDetail(hit.refID))
                             } label: {
-                                SearchResultRow(title: hit.title, snippet: hit.snippet,
+                                SearchResultRow(title: hit.title,
+                                                snippet: hit.isSensitive ? L10n.searchObsLocked : hit.snippet,
                                                 badge: hit.isSensitive ? L10n.searchSensitive : nil,
                                                 date: nil)
                             }
@@ -149,11 +170,20 @@ struct GlobalSearchView: View {
                             Button {
                                 router.navigate(to: .observationDetail(obs.id))
                             } label: {
-                                // BR-007/008：敏感观察命中仍以锁定媒体态呈现
-                                SearchResultRow(title: obs.description ?? L10n.observationKindName(obs.kind),
-                                                snippet: L10n.searchObsLocked,
-                                                badge: L10n.searchSensitive,
-                                                date: obs.occurredAt)
+                                // BR-007/008：敏感观察命中仍以锁定媒体态呈现；
+                                // 无媒体附件的普通观察不加敏感徽章、显示描述片段
+                                // （此前无条件标敏感——GradeBadge 纪律要求徽章
+                                // 如实反映属性，普通「头痛」条目被系统性误标）
+                                if obs.mediaAssetIds.isEmpty {
+                                    SearchResultRow(title: obs.description ?? L10n.observationKindName(obs.kind),
+                                                    snippet: nil, badge: nil,
+                                                    date: obs.occurredAt)
+                                } else {
+                                    SearchResultRow(title: obs.description ?? L10n.observationKindName(obs.kind),
+                                                    snippet: L10n.searchObsLocked,
+                                                    badge: L10n.searchSensitive,
+                                                    date: obs.occurredAt)
+                                }
                             }
                             .accessibilityIdentifier("SP-20.search.obs.\(obs.id.uuidString)")
                         }

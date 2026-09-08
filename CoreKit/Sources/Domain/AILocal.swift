@@ -170,6 +170,7 @@ public enum HighRiskTopicRules {
         "加量", "减量", "换药", "加倍", "调整剂量", "自行停用",
         "增加剂量", "减少剂量", "多吃", "少吃",
         "减半", "半片", "半粒", "半颗", "吃半", "服半",
+        "换成", "换种药",
     ]
     /// 剂量更改句式正则：动词(吃/服/加到/减到/改为) + 数字/「半」 + 单位
     static let doseChangePatterns = [
@@ -177,6 +178,11 @@ public enum HighRiskTopicRules {
         #"服\s*[0-9一二三四五六七八九十两半]+\s*(mg|片|粒|颗|次|倍)"#,
         #"(加到|减到|改为|降到|改成)\s*[0-9一二三四五六七八九十两半]+\s*(mg|片|粒|颗)"#,
         #"[0-9]+\s*(mg|片|粒)\s*(每次|每日)"#,
+        // 换药/改剂量自然句式：「改成每天3片」「换成布洛芬」「一天两次」——
+        // 动词与单位间隔虚词时，逐字紧邻正则全部漏判（BR-006 一票否决被
+        // 绕过、返回普通回答）。上界 12 字防长句误伤（保守拦截方向安全）。
+        #"(改|换)(成|为)[^，。；\n]{0,12}?(片|粒|颗|次|倍|mg)"#,
+        #"一天\s*[一二两三四五六七八九十]+\s*(次|片|粒)"#,
     ]
     public static func match(_ text: String) -> Bool {
         if keywords.contains(where: { text.contains($0) }) { return true }
@@ -273,7 +279,7 @@ public struct AuditedAIProvider: AIProvider {
         do {
             answer = try await inner.answer(q, scope: scope)
         } catch {
-            await audit(ids)   // 调用方负责哈希；此处只传事实
+            await audit("patients=\(ids);refs=")   // 调用方负责哈希；此处只传事实
             throw error
         }
         switch answer.body {
@@ -282,7 +288,16 @@ public struct AuditedAIProvider: AIProvider {
         case .refused(let refusal) where refusal.reason == .highRiskTopic:
             break   // BR-006 高危拒识：零访问
         default:
-            await audit(ids)   // 调用方负责哈希；此处只传事实
+            // FR12.9 审计记录实际读取的资料 ID 范围（去重排序；此前只记
+            // 成员 ID——审计无法回答「读了哪些记录」，最小必要访问审计口径
+            // 失真）。entityId 由调用方哈希后落库。
+            let refsCSV: String
+            if case .composed(let parts) = answer.body {
+                refsCSV = Set(parts.citations.map { $0.refID.uuidString }).sorted().joined(separator: ",")
+            } else {
+                refsCSV = ""
+            }
+            await audit("patients=\(ids);refs=\(refsCSV)")
         }
         return answer
     }

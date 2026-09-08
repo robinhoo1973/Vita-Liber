@@ -72,8 +72,8 @@ struct EmergencyCardView: View {
                 ForEach(items) { item in
                     HStack {
                         Text(item.title).font(.subheadline)
-                        if !item.detail.isEmpty {
-                            Text(item.detail).font(.caption).foregroundStyle(.secondary)
+                        if !item.displayDetail.isEmpty {
+                            Text(item.displayDetail).font(.caption).foregroundStyle(.secondary)
                         }
                     }
                     .accessibilityElement(children: .combine)
@@ -204,8 +204,8 @@ struct EmergencyCardSelectorView: View {
                                 .opacity(selectedIds.contains(item.id) ? 1 : 0.2)
                             VStack(alignment: .leading) {
                                 Text(item.title)
-                                if !item.detail.isEmpty {
-                                    Text(item.detail).font(.caption).foregroundStyle(.secondary)
+                                if !item.displayDetail.isEmpty {
+                                    Text(item.displayDetail).font(.caption).foregroundStyle(.secondary)
                                 }
                             }
                             Spacer()
@@ -483,5 +483,30 @@ struct CareModeSettingsView: View {
         }
         .navigationTitle(L10n.care_title)
         .onAppear { careMode = app.careMode }
+    }
+}
+
+
+// MARK: - 急救卡条目展示组装（L10n 单出口）
+
+private extension EmergencyCardItem {
+    /// 展示 detail：结构化字段经 L10n 组装——存储层不再拼中文展示串
+    /// （「反应：… · 严重度 …」「关系 · 电话」此前硬编码在
+    /// EmergencyCardStore，zh-Hant/en 用户看到简体残留）
+    var displayDetail: String {
+        switch kind {
+        case "allergy":
+            var parts: [String] = []
+            if let reaction, !reaction.isEmpty { parts.append(L10n.emergencyReaction(reaction)) }
+            if let severity, !severity.isEmpty { parts.append(L10n.emergencySeverity(severity)) }
+            return parts.joined(separator: " · ")
+        case "contact":
+            if let relation, !relation.isEmpty, let phone, !phone.isEmpty {
+                return "\(relation) · \(phone)"
+            }
+            return detail
+        default:
+            return detail
+        }
     }
 }

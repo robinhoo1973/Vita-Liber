@@ -245,7 +245,7 @@ private struct PreviewRoot: View {
                                                allergyStore: container.allergies,
                                                mediaAssets: container.mediaAssets))
             .environment(AppEntitlementStore(store: container.entitlements))
-            .environment(TrendEntryState(store: container.trends))
+            .environment(TrendEntryState(store: container.trends, audit: container.audit))
             .environment(VoiceNoteState(store: container.voiceNotes))
             .environment(M2HubStore(meds: container.meds,
                                     emergency: container.emergencyCards,
@@ -275,7 +275,7 @@ private struct PreviewRoot: View {
                 ocrAuthorized: { true },
                 originalsDir: FileManager.default.temporaryDirectory,
                 prescriptionStore: container.prescriptions))
-            .environment(AIHistoryState(store: container.aiHistory))
+            .environment(AIHistoryState(store: container.aiHistory, audit: container.audit))
             .environment(ExportWizardState(service: container.pdfExport))
             .environment(F16DeviceState(reader: container.healthReader,
                                         guidelines: container.guidelines,

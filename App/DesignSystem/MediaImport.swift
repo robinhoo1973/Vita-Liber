@@ -57,8 +57,13 @@ enum MediaImport {
                 // 届时丢弃剩余收尾（与分批版本同语义）
                 guard let (i, data, thumb) = await group.next() else { break }
                 inFlight -= 1
-                if let data { out.append((i, data)) }
-                if let thumb { thumbs.append((i, thumb)) }
+                // 双流对齐：data 与 thumb 同生共死——单边失败丢弃整条（此前
+                // 各自收集再按序排序，缩略图编码失败时两数组长度/索引错位，
+                // 调用方按位置配对即整体串位显示错图）
+                if let data, let thumb {
+                    out.append((i, data))
+                    thumbs.append((i, thumb))
+                }
             }
             return (out.sorted { $0.0 < $1.0 }, thumbs.sorted { $0.0 < $1.0 })
         }

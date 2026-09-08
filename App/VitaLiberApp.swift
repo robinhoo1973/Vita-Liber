@@ -124,7 +124,7 @@ struct VitaLiberApp: App {
             store: container.observations, allergyStore: container.allergies,
             mediaAssets: container.mediaAssets))
         _entitlementStore = State(initialValue: AppEntitlementStore(store: container.entitlements))
-        _trendState = State(initialValue: TrendEntryState(store: container.trends))
+        _trendState = State(initialValue: TrendEntryState(store: container.trends, audit: container.audit))
         _voiceNoteState = State(initialValue: VoiceNoteState(store: container.voiceNotes))
         _m2Hub = State(initialValue: M2HubStore(
             meds: container.meds, emergency: container.emergencyCards,
@@ -158,7 +158,7 @@ struct VitaLiberApp: App {
             codeIndex: container.codeIndex,
             problemStore: container.healthProblems,
             dataChange: dataChange))
-        _aiHistoryState = State(initialValue: AIHistoryState(store: container.aiHistory))
+        _aiHistoryState = State(initialValue: AIHistoryState(store: container.aiHistory, audit: container.audit))
         _exportWizardState = State(initialValue: ExportWizardState(service: container.pdfExport))
         _f16DeviceState = State(initialValue: F16DeviceState(
             reader: container.healthReader, guidelines: container.guidelines,
@@ -177,14 +177,19 @@ struct VitaLiberApp: App {
         // 且必须在此处先行赋值：下方 backgroundSyncHandler 的捕获列表
         // [appState] 创建时求值（触 self）——本 State 是最后一个未初始化
         // 存储属性，Swift 明确初始化纪律要求其先行（L1 34193285034）。
-        _backupState = State(initialValue: BackupState(service: container.backup))
+        _backupState = State(initialValue: BackupState(service: container.backup,
+            onRestored: { [appState, reminderStore] in
+                // data-flow §9.2 恢复末步：重建提醒投影——此前恢复后零排程，
+                // 恢复的计划要到下次回前台/重启才补排，恢复后首剂提醒静默漏发
+                await reminderStore.refreshTriggered(patientId: appState.currentPatientId, force: true)
+            }))
         // FR16.1 V3.86 后台自动化同步：BGTask 注册（App init 唯一注册点，
         // 标识符已登记 Info.plist BGTaskSchedulerPermittedIdentifiers）+
         // 后台唤起执行体（BG 启动无 UI——未建档/未授权即跳过，前台锚点
         // 兜底路径不受影响）
         HealthKitSyncService.registerBackgroundTask()
         let bgSync = container.healthSync
-        HealthKitSyncService.backgroundSyncHandler = { [appState, appSettings] in
+        HealthKitSyncService.backgroundSyncHandler = { [appState, appSettings, dataChange] in
             let ready = await MainActor.run { appState.onboardingFinished && appState.owner != nil }
             guard ready else { return false }   // 未建档：无成员归属，绝不落匿名读数（BR-001）
             // 冷后台唤起（进程被 BGTask 直接拉起）：视图从未跑过 load()，
@@ -203,6 +208,11 @@ struct VitaLiberApp: App {
             guard await bgSync.isAuthorized() else { return false }
             let report = try? await bgSync.performSync(   // try?-ok: 后台同步失败静默回落——前台/手动路径兜底重查，不阻断任务完成上报
                 patientId: patient, quietStart: quietStart, quietEnd: quietEnd)
+            // 设备读数入库 → 类型化变更信号（此前仅手动同步路径触发，后台/
+            // 观察回调入库后宫格不刷新——数据流 V1.9 信号断链修复）
+            if (report?.persistedRows ?? 0) > 0 {
+                await MainActor.run { dataChange.metricsChanged() }
+            }
             // BGAppRefreshTask 一次性：完成后必须补投，否则后台链只跑一次
             await bgSync.scheduleBackgroundRefresh()
             return report != nil

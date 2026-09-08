@@ -16,6 +16,10 @@ import Infrastructure
 @MainActor
 @Observable
 final class BackupState {
+    /// 恢复末步回调（data-flow §9.2「事务导入 → 重建 FTS/提醒/时间轴投影」）：
+    /// 此前恢复后不重建提醒投影——恢复的计划在下次回前台/重启前零排程，
+    /// 恢复后首剂提醒静默漏发
+    private let onRestored: (() async -> Void)?
     enum Phase: Equatable {
         case idle
         case working
@@ -43,8 +47,9 @@ final class BackupState {
     private(set) var iCloudSignedIn: Bool
     private var ubiquityObserver: NSObjectProtocol?
 
-    init(service: BackupService) {
+    init(service: BackupService, onRestored: (() async -> Void)? = nil) {
         self.service = service
+        self.onRestored = onRestored
         self.iCloudSignedIn = FileManager.default.ubiquityIdentityToken != nil
         ubiquityObserver = NotificationCenter.default.addObserver(
             forName: .NSUbiquityIdentityDidChange, object: nil, queue: .main) { [weak self] _ in
@@ -88,6 +93,7 @@ final class BackupState {
             guard !analysis.conflicts.isEmpty else {
                 let records = try await service.restore(envelope: analysis.envelope)
                 phase = .restored(records: records)
+                await onRestored?()   // 恢复末步重建提醒投影（恢复的计划立即进入排程）
                 return
             }
             pendingAnalysis = analysis
@@ -119,6 +125,7 @@ final class BackupState {
             pendingAnalysis = nil
             resolutions = [:]
             phase = .restored(records: records)
+            await onRestored?()   // 同 restore(from:) 无冲突路径
         } catch BackupService.BackupError.conflictDetected {
             logger.error("冲突裁决不完整")
             phase = .degraded(L10n.backupConflictDetected)

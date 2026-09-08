@@ -153,7 +153,8 @@ public actor GRDBCodeIndex: CodeIndex, UnitIndex {
         try await writer.read { db in
             let row = try Row.fetchOne(db, sql: """
                 SELECT concept_id FROM resolver_override
-                WHERE query_pattern = ? AND retired_at IS NULL LIMIT 1
+                WHERE query_pattern = ? AND retired_at IS NULL
+                ORDER BY created_at DESC LIMIT 1
                 """, arguments: [raw])
             guard let conceptId: String = row?["concept_id"] else { return nil }
             return AliasHit(conceptId: conceptId, route: .override, priority: 0)

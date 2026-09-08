@@ -155,6 +155,10 @@ public actor GRDBM1aPersistor: M1aPersisting {
                 "sent_message", "emergency_card_selection", "contact",
                 "metric_sample", "alert_event", "guideline_source", "ai_conversation", "reminder",
                 "medication", "encounter", "health_problem", "appointment",
+                // v18 新增：同步锚点与通知中心状态——此前不在清空清单，
+                // UI 测试继承旧锚点（HealthKit 增量从旧锚续跑）与上轮已读/
+                // 归档标记，清态断言在脏状态上失效（「等价首次安装」落空）
+                "hk_sync_anchor", "notification_state",
                 // local_owner 子表
                 "consent_record", "device_identity", "onboarding_progress",
                 // 父表

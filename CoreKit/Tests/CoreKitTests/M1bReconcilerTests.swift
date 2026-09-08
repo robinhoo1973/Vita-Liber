@@ -136,13 +136,14 @@ struct ReminderReliabilityTests {
         await source.set(facts)
         await reconciler.reconcile(now: now)
         let pending = try await scheduler.pending()
-        // 第八轮修复锚点：预算裁撤只裁对账自有命名空间（dose-/slot-/snooze-），
-        // 他仓预约不受裁撤——66 条（65 时段 + 1 预约）→ 60 时段 + 1 预约
-        #expect(pending.count == ReminderReconciler.pendingBudget + 1,
-                "自有命名空间裁到预算内，他仓预约不受对账裁撤（65+1→60+1）")
+        // V3.94 修复锚点：预算阀全局触发、只裁自有命名空间——自有额度 =
+        // 总预算 − 他仓占用（60−1=59），守住全局 64 上限同时他仓预约不受裁撤
+        // （此前 owned≤60 即不裁：66 条超 64 由 iOS 任意丢弃、可能含剂量）
+        #expect(pending.count == ReminderReconciler.pendingBudget,
+                "总量收进预算内（59 时段 + 1 预约 = 60）")
         #expect(pending["apt-protected"] != nil, "apt- 预约提醒必须存活（评审 S0-1 修正）")
-        #expect(pending.keys.filter { $0.hasPrefix("slot-") }.count == ReminderReconciler.pendingBudget,
-                "时段通知裁到预算内")
+        #expect(pending.keys.filter { $0.hasPrefix("slot-") }.count == ReminderReconciler.pendingBudget - 1,
+                "时段通知裁到自有额度（60 − 他仓 1）")
     }
 
     /// 稍后提醒：取消原通知 + 新 trigger；「跳过/忘记」不产生任何调度动作

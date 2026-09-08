@@ -191,7 +191,9 @@ final class M1bAcceptanceTests: XCTestCase {
     /// 预约（幽灵提醒 + 深链失效数据）。
     func test_标记错过取消分级提醒仅留跟进() async throws {
         let (_, _, scheduler, apts, patient, _) = try await makeStore()
-        let startsAt = Date().addingTimeInterval(10 * 86400)
+        // 已开始的预约才可标错过（商店级纵深防御：未来预约标错过被拒——
+        // 否则取消全部分级提醒并武装 2h 跟进，误标即提醒失声）
+        let startsAt = Date().addingTimeInterval(-86400)
         let aptId = UUID()
         try await apts.create(id: aptId, patientId: patient, hospital: "市一医院",
                               department: "心内科", startsAt: startsAt, now: Date())
@@ -201,5 +203,20 @@ final class M1bAcceptanceTests: XCTestCase {
                       "错过跟进提醒必须已排")
         XCTAssertFalse(pending.keys.contains { $0.hasPrefix("apt-\(aptId.uuidString)-") },
                        "标记错过后分级提醒必须全部取消（幽灵提醒回归）")
+    }
+
+    /// 纵深防御锚点：未来预约标错过必须被商店层拒绝（视图门之外的第二道）
+    func test_未来预约标错过被拒() async throws {
+        let (_, _, _, apts, patient, _) = try await makeStore()
+        let future = UUID()
+        try await apts.create(id: future, patientId: patient, hospital: "市一医院",
+                              department: "心内科", startsAt: Date().addingTimeInterval(10 * 86400),
+                              now: Date())
+        do {
+            try await apts.markMissed(id: future)
+            XCTFail("未来预约不得标错过")
+        } catch AppointmentStore.StoreError.notFound {
+            // 预期：复用 notFound 语义拒绝，不泄露状态
+        }
     }
 }

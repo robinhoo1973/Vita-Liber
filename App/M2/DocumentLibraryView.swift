@@ -26,6 +26,8 @@ final class DocumentsState {
     /// 用户永远不知道处方未进入用药记录，且注释承诺的「到资料库重试」路径
     /// 并不存在）。置位时确认卡以非阻断告警呈现，主文档保存语义不变。
     private(set) var prescriptionSyncFailed = false
+    /// PDF 逐页识别失败页数（FR6.6 非阻断可见；0=全部成功/非 PDF 路径）
+    private(set) var pdfPartialFailure = 0
     private let store: DocumentStore
     private let pipeline: OCRPipeline
     /// PDF 解码（ADR-027：经 EAL 注入，调用方不直接实例化具体引擎——
@@ -449,6 +451,7 @@ final class DocumentsState {
     func importDocument(patientId: UUID, url: URL, docType: String,
                         isSensitive: Bool = false) async -> ImportDraft? {
         lastImportError = nil
+        pdfPartialFailure = 0
         // 文件导入 URL 为安全作用域（fileImporter）——图片/其他分支此前
         // 未启动作用域即 Data(contentsOf:)（importPDF 有），真机上
         // iCloud/第三方提供方拒绝读取 → 全部图片导入报「导入失败」
@@ -496,6 +499,7 @@ final class DocumentsState {
     /// 机器识别未确认 = grade 'D'（BR-003），确认后升 C 才进入检索/AI 事实链。
     func importPDF(patientId: UUID, url: URL, docType: String, isSensitive: Bool = false) async {
         lastImportError = nil
+        pdfPartialFailure = 0
         do {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
@@ -556,6 +560,9 @@ final class DocumentsState {
                                      origin: "import", isSensitive: isSensitive,
                                      metaJSON: metaJSON, title: url.lastPathComponent,
                                      ocrText: joined.isEmpty ? nil : joined, grade: "D")
+            // FR6.6 逐页失败可见（非阻断）：文档已存档但 N 页识别失败——
+            // 此前只写 meta_json（无任何 UI 消费点），全部页失败仍弹「已保存」
+            pdfPartialFailure = failedPages
             await load(patientId: patientId)
         } catch {
             // FR6.6：失败必须给出可见错误反馈，绝不静默

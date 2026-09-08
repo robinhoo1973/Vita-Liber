@@ -98,7 +98,12 @@ final class AssistantStore {
             // 新成员名下）；无成员上下文（patientId == nil）时照常呈现
             guard patientId == nil || conversationPatientId == patientId else { return }
             messages.append(Message(role: "assistant", text: Self.render(answer), answer: answer))
-            recordQuotaUse()   // comercial §2.3：AI 用量真实计数（免费档 20 次/月）
+            // comercial §2.3：仅检索型回答计额度——急救卡/高风险拒答/资料不足
+            // 零检索（AuditedAIProvider 零访问合同），此前恒计使额度虚高、
+            // 「真实计数」口径失真
+            if case .composed = answer.body {
+                recordQuotaUse()
+            }
             if let history, let conv = currentConversationId {
                 var citationIds: String?
                 if case .composed(let parts) = answer.body {

@@ -127,6 +127,14 @@ struct MetricTile: View {
                 Text(MedicalNumberFormat.quantity(item.value))
                     .font(VLFont.metricTileValue)
                     .monospacedDigit()
+                // 血压双值变体（ui-ux 4.10：收缩压/舒张压同瓦片）
+                if let secondary = item.secondaryValue,
+                   MetricType(rawValue: item.metricKey) == .bloodPressureSys {
+                    Text("/ \(MedicalNumberFormat.quantity(secondary))")
+                        .font(VLFont.metricTileValue)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
                 if let unit = item.unit, !unit.isEmpty {
                     Text(unit).font(.caption).foregroundStyle(.secondary)
                 }
@@ -150,6 +158,9 @@ struct MetricTile: View {
 
     private var metricName: String {
         if let m = MetricType(rawValue: item.metricKey) { return L10n.metricName(m) }
-        return item.metricKey
+        // 规则①死代码清除：裸 metricKey 回落标签不可达（两条加载路径均按
+        // MetricType 注册表过滤）且会把 snake_case raw 键泄漏进中文界面——
+        // 未知键不渲染任何文案（比泄漏更诚实）
+        return ""
     }
 }

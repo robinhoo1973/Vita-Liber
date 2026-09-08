@@ -14,6 +14,12 @@ import Protocols
 /// → FR17.13 统一确认模板（判定结果行+逐字段确认）→ 按判定意图分发
 /// （未知/速记 = 面板内直接落 VoiceNote；其余 = pendingVoiceIntent 暂存后
 /// 跳转目标页预填）。
+///
+/// **V3.94 全屏工作台（improving-requirements 1.2 / tech V3.93 口径修正）**：
+/// 上方 = 转写文本编辑区（点击直接编辑，续录追加）；下方 = 操作区
+/// （长按录音/松手停止，再次长按续录；清除最近一次/全部——最近为默认）。
+/// 「LLM 修正版」切换随主轨（期三 Foundation Models）落地后接入本页面
+/// （能力诚实标注：期一只呈现原生转译版，已登记 §11）。
 struct VoiceQuickLaunchView: View {
     @Environment(AppState.self) private var app
     @Environment(AppRouter.self) private var router
@@ -28,36 +34,72 @@ struct VoiceQuickLaunchView: View {
     @State private var judgedConfidence: Double = 0
     /// 最近一次转写（Menu 改类后按新意图重抽槽位用）
     @State private var lastTranscript: (text: String, confidence: Double)?
+    /// 转写代次（tech V3.92「过期异步结果丢弃」契约）：每次新转写/Menu 改类
+    /// +1；understand 写回前与当前代次比较、不匹配即丢弃——快速连录时旧
+    /// 会话的慢理解结果不得覆盖新会话的判定/草稿（用户确认的可能是旧文本）
+    @State private var transcriptGeneration = 0
+    /// 全屏工作台（1.2）：转写段历史（续录追加；清除最近一次 = pop 末段）
+    @State private var segments: [String] = []
+    /// 编辑区当前文本（= segments 按行连接，可点击直接编辑）
+    @State private var accumulatedText = ""
+    /// 清除选择框呈现
+    @State private var showClearDialog = false
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 16) {
-                Text(L10n.voicePanelTitle)
-                    .font(.title2.bold())
-                // V3.49 去 chips 后的能力诚实标注：去向由本地理解层自动判定
-                Text(L10n.voicePanelAutoHint)
-                    .font(.footnote).foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 20)
-                // §5.54 中部录音环节：按住说话 + 实时转写（组件自带部分文本/失败态/
-                // 授权关闭回落提示）；完成回调经理解层自动判定意图与槽位
-                // FR17.13-entry: 语音速记面板 —— 统一确认模板，不自建确认逻辑
-                VoiceDictationButton { text, confidence in
-                    // BR-012 紧急关键词前置（V3.40 语音指令入口，复用 F12 词表
-                    // 单一事实源）：命中即急救卡、终止解析——「我胸闷」绝不
-                    // 落速记或指标草稿
-                    if EmergencyKeywordRules.match(text) {
-                        dismiss()
-                        router.navigate(to: .emergencyCardConfig)
-                        return
+            VStack(spacing: 12) {
+                // 上方 = 转写文本显示区（1.2）：实时追加、点击直接编辑
+                TextEditor(text: $accumulatedText)
+                    .font(.body)
+                    .scrollContentBackground(.hidden)
+                    .padding(8)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(RoundedRectangle(cornerRadius: 12)
+                        .fill(Color("bg-grouped", bundle: .main)))
+                    .overlay {
+                        if accumulatedText.isEmpty {
+                            Text(L10n.voicePanelEditHint)
+                                .font(.footnote).foregroundStyle(.secondary)
+                                .allowsHitTesting(false)
+                                .padding(12)
+                        }
                     }
-                    lastTranscript = (text, confidence)
-                    Task { await understand(text: text, confidence: confidence) }
+                    .accessibilityIdentifier("SP-55.panel.transcript")
+                // 下方 = 操作按钮区（1.2）：长按录音/松手停止；再次长按续录
+                // BR-012 前置已下沉组件内（onEmergencyAction 注入「先收起全屏
+                // 再跳急救卡」——默认动作不收起，急救卡会被本面板盖住）；
+                // 组件未拦截的文本走续录追加
+                VoiceDictationButton(onEmergencyAction: { _ in
+                    dismiss()
+                    router.navigate(to: .emergencyCardConfig)
+                }) { text, confidence in
+                    appendSegment(text, confidence: confidence)
                 }
                 .padding(.horizontal, 24)
-                Spacer()
+                HStack(spacing: 12) {
+                    Button {
+                        showClearDialog = true
+                    } label: {
+                        Label(L10n.voicePanelClear, systemImage: "trash")
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(segments.isEmpty)
+                    .accessibilityIdentifier("SP-55.panel.clear")
+                    Button {
+                        Task { await confirmFromTranscript() }
+                    } label: {
+                        Label(L10n.voicePanelConfirm, systemImage: "checkmark.circle.fill")
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(accumulatedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .accessibilityIdentifier("SP-55.panel.confirm")
+                }
+                .padding(.horizontal, 24)
+                .padding(.bottom, 8)
             }
-            .padding(.top, 24)
+            .padding(.top, 8)
             .navigationTitle(L10n.voicePanelTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -76,24 +118,44 @@ struct VoiceQuickLaunchView: View {
             }
             .onAppear { routeMonitor.start() }
             .onDisappear { routeMonitor.stop() }
+            // 清除选择框（1.2）：清除最近一次为默认选项
+            .confirmationDialog(L10n.voicePanelClearTitle, isPresented: $showClearDialog,
+                                titleVisibility: .visible) {
+                Button(L10n.voicePanelClearLast, role: .destructive) {
+                    clearLastSegment()
+                }
+                Button(L10n.voicePanelClearAll, role: .destructive) {
+                    clearAllSegments()
+                }
+                Button(L10n.commonCancel, role: .cancel) {}
+            }
             .voiceConfirmSheet($confirmSet, route: routeMonitor.route,
                                judgedTarget: judgedIntent,
                                judgedConfidence: judgedConfidence,
                                onJudgedTargetChange: { newKey in
                 // 确认卡 Menu/候选行改类：按新意图重抽槽位（期一无独立文法
-                // 的意图回落纯文本草稿——FR17.19 消歧兜底语义，不静默丢内容）
-                guard let transcript = lastTranscript else { return }
+                // 的意图回落纯文本草稿——FR17.19 消歧兜底语义，不静默丢内容）。
+                // 重抽输入 = 编辑区当前文本（用户可能已编辑，转写原件不再权威）；
+                // 编辑区被清空时不重抽——空文本会产出零字段确认集，把用户
+                // 正在确认的草稿整个抹掉
+                let source = accumulatedText.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !source.isEmpty else { return }
+                transcriptGeneration += 1   // 改类使在途理解结果全部失效
                 judgedIntent = newKey
                 judgedConfidence = 0.9
                 let key = VoiceIntentKey(rawValue: newKey) ?? .unknown
-                let drafts = VoiceIntentCatalog.extract(for: key, text: transcript.text,
-                                                        confidence: transcript.confidence)
+                let drafts = VoiceIntentCatalog.extract(for: key, text: source,
+                                                        confidence: lastTranscript?.confidence ?? 0.9)
                 let newSet = VoiceInputTemplate.confirmationSet(
                     drafts: drafts, documentId: confirmSet?.documentId ?? UUID())
                 confirmSet = newSet
             }) { confirmed in
                 confirmSet = nil
+                // 先分发后归零：dispatch 按 judgedIntent 定目标、pendingVoiceIntent
+                // 携带确认值——clearAllSegments 会重置 judgedIntent，先清即
+                // 全部落入 anyText 兜底（指标/提醒/档案预填失效）
                 dispatch(confirmed)
+                clearAllSegments()
             }
             .alert(L10n.voicePanelSaved, isPresented: $savedNote) {
                 Button(L10n.voicenoteView) {
@@ -106,17 +168,64 @@ struct VoiceQuickLaunchView: View {
                 Button(L10n.onboard_gotIt, role: .cancel) {}
             }
         }
-        .presentationDetents([.medium])
+    }
+
+    // MARK: - 全屏工作台段管理（1.2）
+
+    /// 续录追加：编辑区是唯一事实源——此前 segments 重连会覆盖用户的全部
+    /// 手编辑内容（改错字后续录即丢）；segments 由编辑区按行派生，仅用于
+    /// 「清除最近一次」的粒度
+    private func appendSegment(_ text: String, confidence: Double) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        transcriptGeneration += 1
+        lastTranscript = (text, confidence)
+        accumulatedText = accumulatedText.isEmpty
+            ? trimmed
+            : accumulatedText + "\n" + trimmed
+        segments = accumulatedText.components(separatedBy: "\n")
+    }
+
+    /// 清除最近一次录音（1.2 默认选项）
+    private func clearLastSegment() {
+        guard !segments.isEmpty else { return }
+        transcriptGeneration += 1
+        segments.removeLast()
+        accumulatedText = segments.joined(separator: "\n")
+        confirmSet = nil
+    }
+
+    /// 清除全部录音（1.2）：工作台归零
+    private func clearAllSegments() {
+        transcriptGeneration += 1
+        segments = []
+        accumulatedText = ""
+        confirmSet = nil
+        judgedIntent = nil
+        judgedConfidence = 0
+    }
+
+    /// 确认：以编辑区当前文本过理解层（编辑后文本即判定输入——转写只是草料）
+    private func confirmFromTranscript() async {
+        let text = accumulatedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        transcriptGeneration += 1
+        let generation = transcriptGeneration
+        await understand(text: text, confidence: lastTranscript?.confidence ?? 0.9,
+                         generation: generation)
     }
 
     /// 共享文本理解层自动判定（FR17.18 期一：兜底轨文法/启发式）——
     /// 单次调用产出意图 + 槽位草稿，替代此前三套正则并行抽取的内联实现。
     /// 转写置信度随输入传递（此前在此处被丢弃、引擎恒按 0.9 分类）
-    private func understand(text: String, confidence: Double) async {
+    private func understand(text: String, confidence: Double, generation: Int) async {
         let understanding = EngineRegistry.shared.resolve(TextUnderstandingFactory.self)
         let result = await understanding.understand(
             TextUnderstandingInput(text: text,
                                    source: .voice(intentHint: nil, confidence: confidence)))
+        // 过期异步结果丢弃（V3.92）：写回前校验代次——乱序完成的理解结果
+        // 不得覆盖新会话判定（含用户 Menu 改类后的意图）
+        guard generation == transcriptGeneration else { return }
         judgedIntent = result.suggestedTarget
         judgedConfidence = result.targetConfidence
         confirmSet = VoiceInputTemplate.confirmationSet(drafts: result.fields)

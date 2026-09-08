@@ -27,12 +27,15 @@ public actor SensitiveAssetStore: SensitiveAssetStoring {
     /// 经 CacheBox 供 @Sendable 观察者闭包捕获（NSCache 无 Sendable 标注）。
     private let blurCache: CacheBox
     private var memoryWarningObserver: NSObjectProtocol?
+    /// 清理路径日志端口（App 层注入 os.Logger 适配；失败必须可见不静默）
+    private let logger: ((String) -> Void)?
 
     public init(writer: any DatabaseWriter, compressor: any ImageCompressing,
-                baseDir: URL? = nil) {
+                baseDir: URL? = nil, logger: ((String) -> Void)? = nil) {
         self.writer = writer
         self.compressor = compressor
         self.blurCache = CacheBox()
+        self.logger = logger
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         self.baseDir = (baseDir ?? docs)
             .appendingPathComponent("MedicalNotes/sensitive", isDirectory: true)
@@ -98,16 +101,26 @@ public actor SensitiveAssetStore: SensitiveAssetStoring {
     }
 
     public func removePhoto(_ assetId: UUID, memberId: UUID) async {
-        let dir = memberDir(memberId)
-        do { try FileManager.default.removeItem(at: dir.appendingPathComponent("\(assetId.uuidString).jpg")) } catch { /* 不存在即无事 */ }
-        do { try FileManager.default.removeItem(at: dir.appendingPathComponent("\(assetId.uuidString).blur.jpg")) } catch { /* 同上 */ }
+        // 先删 DB 行（事务失败则文件保留、可重试）；成功后再删文件——
+        // 此前先删文件后删行：DB 删除失败被吞后 asset 行悬空指向已不存在
+        // 的文件、无补偿路径。文件删除失败记日志而非静默（引用行已删，
+        // 孤儿文件由对账按 relative_path 幂等清理）。
         do {
             try await writer.write { db in
                 try db.execute(sql: """
                     DELETE FROM asset WHERE id IN (?, ?)
                     """, arguments: [assetId.uuidString, "\(assetId.uuidString).blur"])
             }
-        } catch { /* 回滚路径：DB 清理失败不阻断主错误 */ }
+        } catch {
+            logger?("removePhoto DB 删除失败: \(error)")
+            return
+        }
+        let dir = memberDir(memberId)
+        for ext in ["jpg", "blur.jpg"] {
+            let url = dir.appendingPathComponent("\(assetId.uuidString).\(ext)")
+            do { try FileManager.default.removeItem(at: url) }
+            catch { logger?("removePhoto 文件删除失败: \(error)") }
+        }
         blurCache.cache.removeObject(forKey: assetId.uuidString as NSString)
     }
 

@@ -88,6 +88,14 @@ public actor ExportService {
             public var status: PlanStatus
             public var startDate: Date
             public var endDate: Date?
+            /// V3.94 往返完整性：单位类型/单剂剂量/停用原因/暂停时刻——
+            /// 此前恢复恒写 unit_kind='tablet'（贴剂/注射剂单位被改写、剂量
+            /// 展示失真），渐减计划剂量基线（dose_plan_units）丢失。
+            /// 可选默认 nil 兼容旧包读取。
+            public var unitKind: String?
+            public var dosePlanUnits: Double?
+            public var endedReason: String?
+            public var pausedAt: Date?
         }
         public struct AppointmentExport: Sendable, Codable, Equatable {
             public var id: UUID
@@ -127,6 +135,16 @@ public actor ExportService {
             public var substance: String
             public var severity: String
             public var occurredAt: Date
+            /// V3.94 往返完整性：反应标签/就医医生/处理说明/备注/关联就诊与用药
+            /// ——此前随备份丢失（恢复硬编码 reaction_tags='[]'，急救卡反应展示
+            /// 恢复后为空，FR13.5 一票否决）。可选默认 nil 兼容旧包读取。
+            public var reactionTags: String?
+            public var consultedDoctor: Bool?
+            public var durationMin: Int?
+            public var treatmentNote: String?
+            public var note: String?
+            public var encounterId: UUID?
+            public var medicationId: UUID?
         }
         public struct EncounterExport: Sendable, Codable, Equatable {
             public var id: UUID
@@ -154,6 +172,15 @@ public actor ExportService {
             public var patientId: UUID?
             public var vaccineName: String
             public var administeredAt: Date
+            /// V3.94 往返完整性：剂次/批号（疫苗追溯核心）/提供方/来源/确认态/
+            /// 关联就诊与不良反应——此前随备份丢失。可选默认 nil 兼容旧包。
+            public var doseNumber: Int?
+            public var provider: String?
+            public var lotNumber: String?
+            public var source: String?
+            public var confirmed: Bool?
+            public var encounterId: UUID?
+            public var adverseReactionId: UUID?
         }
         public struct VoiceNoteExport: Sendable, Codable, Equatable {
             public var id: UUID
@@ -258,7 +285,8 @@ public actor ExportService {
                     updatedAt: Date(timeIntervalSince1970: row["updated_at"] as Double))
             }
             let plans = try Row.fetchAll(db, sql: """
-                SELECT p.id, p.patient_id, p.status, p.start_date, p.end_date, p.schedule_json, m.generic_name, m.spec
+                SELECT p.id, p.patient_id, p.status, p.start_date, p.end_date, p.schedule_json,
+                       p.dose_plan_units, p.ended_reason, p.paused_at, m.generic_name, m.spec, m.unit_kind
                 FROM medication_plan p JOIN medication m ON m.id = p.medication_id
                 """).compactMap { row -> Envelope.PlanExport? in
                 guard let json = (row["schedule_json"] as String?)?.data(using: .utf8) else { return nil }
@@ -273,7 +301,11 @@ public actor ExportService {
                     schedule: schedule,
                     status: PlanStatus(rawValue: row["status"] as String) ?? .active,
                     startDate: Date(timeIntervalSince1970: row["start_date"] as Double),
-                    endDate: (row["end_date"] as Double?).map { Date(timeIntervalSince1970: $0) })
+                    endDate: (row["end_date"] as Double?).map { Date(timeIntervalSince1970: $0) },
+                    unitKind: row["unit_kind"] as String?,
+                    dosePlanUnits: row["dose_plan_units"] as Double?,
+                    endedReason: row["ended_reason"] as String?,
+                    pausedAt: (row["paused_at"] as Double?).map { Date(timeIntervalSince1970: $0) })
             }
             let appointments = try Row.fetchAll(db, sql: "SELECT * FROM appointment").map { row in
                 Envelope.AppointmentExport(
@@ -313,7 +345,14 @@ public actor ExportService {
                     patientId: (row["patient_id"] as String?).flatMap(UUID.init(uuidString:)),
                     substance: row["substance"] as String,
                     severity: row["severity"] as String,
-                    occurredAt: Date(timeIntervalSince1970: (row["occurred_at"] as Double?) ?? 0))
+                    occurredAt: Date(timeIntervalSince1970: (row["occurred_at"] as Double?) ?? 0),
+                    reactionTags: row["reaction_tags"] as String?,
+                    consultedDoctor: (row["consulted_doctor"] as Int?) == 1,
+                    durationMin: row["duration_min"] as Int?,
+                    treatmentNote: row["treatment_note"] as String?,
+                    note: row["note"] as String?,
+                    encounterId: (row["encounter_id"] as String?).flatMap(UUID.init(uuidString:)),
+                    medicationId: (row["medication_id"] as String?).flatMap(UUID.init(uuidString:)))
             }
             let encounters = try Row.fetchAll(db, sql: "SELECT * FROM encounter").map { row in
                 Envelope.EncounterExport(
@@ -341,7 +380,14 @@ public actor ExportService {
                     id: UUID(uuidString: row["id"] as String) ?? UUID(),
                     patientId: (row["patient_id"] as String?).flatMap(UUID.init(uuidString:)),
                     vaccineName: row["vaccine_name"] as String,
-                    administeredAt: Date(timeIntervalSince1970: (row["administered_at"] as Double?) ?? 0))
+                    administeredAt: Date(timeIntervalSince1970: (row["administered_at"] as Double?) ?? 0),
+                    doseNumber: row["dose_number"] as Int?,
+                    provider: row["provider"] as String?,
+                    lotNumber: row["lot_number"] as String?,
+                    source: row["source"] as String?,
+                    confirmed: (row["confirmed"] as Int?) == 1,
+                    encounterId: (row["encounter_id"] as String?).flatMap(UUID.init(uuidString:)),
+                    adverseReactionId: (row["adverse_reaction_id"] as String?).flatMap(UUID.init(uuidString:)))
             }
             let voiceNotes = try Row.fetchAll(db, sql: "SELECT * FROM voice_note").map { row in
                 let tags: [String] = (row["tags"] as String?).flatMap { json in
@@ -777,17 +823,19 @@ public actor ExportService {
                 let medId = UUID()
                 try db.execute(sql: """
                     INSERT INTO medication (id, patient_id, generic_name, spec, unit_kind, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, 'tablet', ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     """, arguments: [medId.uuidString, planPatient?.uuidString ?? "",
-                                       p.medicationName, p.spec,
+                                       p.medicationName, p.spec, p.unitKind ?? "tablet",
                                        p.startDate.timeIntervalSince1970, p.startDate.timeIntervalSince1970])
                 let scheduleJSON = String(data: try JSONEncoder().encode(p.schedule), encoding: .utf8) ?? "{}"
                 try db.execute(sql: """
                     INSERT INTO medication_plan
-                      (id, patient_id, medication_id, status, schedule_json, start_date, end_date, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                      (id, patient_id, medication_id, status, schedule_json, start_date, end_date,
+                       dose_plan_units, ended_reason, paused_at, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, arguments: [(remap(p.id) ?? p.id).uuidString, planPatient?.uuidString ?? "", medId.uuidString, p.status.rawValue, scheduleJSON,
                                      p.startDate.timeIntervalSince1970, p.endDate?.timeIntervalSince1970,
+                                     p.dosePlanUnits, p.endedReason, p.pausedAt?.timeIntervalSince1970,
                                      p.startDate.timeIntervalSince1970, p.startDate.timeIntervalSince1970])
             }
             for a in envelope.appointments {
@@ -843,16 +891,25 @@ public actor ExportService {
             for a in envelope.allergies {
                 if try adoptOrSkip(allergyConflicts, a.id, adopt: {
                     try db.execute(sql: """
-                        UPDATE allergy_event SET patient_id = ?, substance = ?, severity = ?, occurred_at = ?
+                        UPDATE allergy_event SET patient_id = ?, substance = ?, reaction_tags = ?,
+                          severity = ?, occurred_at = ?, consulted_doctor = ?, duration_min = ?,
+                          treatment_note = ?, note = ?, encounter_id = ?, medication_id = ?
                         WHERE id = ?
                         """, arguments: [(remap(a.patientId) ?? a.patientId)?.uuidString ?? "", a.substance,
-                                         a.severity, a.occurredAt.timeIntervalSince1970, a.id.uuidString])
+                                         a.reactionTags ?? "[]", a.severity, a.occurredAt.timeIntervalSince1970,
+                                         (a.consultedDoctor ?? false) ? 1 : 0, a.durationMin, a.treatmentNote,
+                                         a.note, a.encounterId?.uuidString, a.medicationId?.uuidString,
+                                         a.id.uuidString])
                 }) { continue }
                 try db.execute(sql: """
-                    INSERT INTO allergy_event (id, patient_id, substance, reaction_tags, severity, occurred_at, created_at, updated_at)
-                    VALUES (?, ?, ?, '[]', ?, ?, ?, ?)
-                    """, arguments: [(remap(a.id) ?? a.id).uuidString, patientID(a.patientId), a.substance, a.severity,
-                                     a.occurredAt.timeIntervalSince1970,
+                    INSERT INTO allergy_event (id, patient_id, substance, reaction_tags, severity, occurred_at,
+                                              consulted_doctor, duration_min, treatment_note, note,
+                                              encounter_id, medication_id, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, arguments: [(remap(a.id) ?? a.id).uuidString, patientID(a.patientId), a.substance,
+                                     a.reactionTags ?? "[]", a.severity, a.occurredAt.timeIntervalSince1970,
+                                     (a.consultedDoctor ?? false) ? 1 : 0, a.durationMin, a.treatmentNote,
+                                     a.note, a.encounterId?.uuidString, a.medicationId?.uuidString,
                                      a.occurredAt.timeIntervalSince1970, a.occurredAt.timeIntervalSince1970])
             }
             for e in envelope.encounters {
@@ -901,10 +958,15 @@ public actor ExportService {
                                          i.administeredAt.timeIntervalSince1970, i.id.uuidString])
                 }) { continue }
                 try db.execute(sql: """
-                    INSERT INTO immunization (id, patient_id, vaccine_name, administered_at, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    INSERT INTO immunization (id, patient_id, vaccine_name, dose_number, administered_at,
+                                              provider, lot_number, encounter_id, source, confirmed,
+                                              adverse_reaction_id, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, arguments: [(remap(i.id) ?? i.id).uuidString, patientID(i.patientId), i.vaccineName,
-                                     i.administeredAt.timeIntervalSince1970,
+                                     i.doseNumber, i.administeredAt.timeIntervalSince1970,
+                                     i.provider, i.lotNumber, i.encounterId?.uuidString,
+                                     i.source ?? "manual", (i.confirmed ?? false) ? 1 : 0,
+                                     i.adverseReactionId?.uuidString,
                                      i.administeredAt.timeIntervalSince1970, i.administeredAt.timeIntervalSince1970])
             }
             for v in envelope.voiceNotes {

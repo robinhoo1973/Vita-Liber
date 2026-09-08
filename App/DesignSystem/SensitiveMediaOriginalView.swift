@@ -130,7 +130,7 @@ struct SensitiveMediaOriginalView: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemGroupedBackground))
+        .background(Color("bg-grouped", bundle: .main))   // 语义令牌（token-only 纪律）
         .onTapGesture {
             guard !unlocking else { return }   // 解锁在途守卫（连点只认证一次）
             unlocking = true

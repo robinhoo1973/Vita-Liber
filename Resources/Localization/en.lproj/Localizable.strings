@@ -128,6 +128,8 @@
 "inventory.reportBlocked" = "Report generation error — display blocked";
 "inventory.reportFact" = "This report states planned vs. confirmed counts only, and is not medical advice.";
 "emergency.title" = "Emergency card";
+"emergency.reactionFmt" = "Reaction: %@";
+"emergency.severityFmt" = "Severity: %@";
 "emergency.bloodType" = "Blood type";
 "emergency.allergy" = "Allergies";
 "emergency.meds" = "Long-term medications";
@@ -206,6 +208,7 @@
 "f19.goTouch" = "Do it on screen";
 "f19.stopped" = "Listening stopped (left foreground)";
 "f19.paused" = "Listening paused — tap to resume";
+"f19.contactNotFound" = "Contact %@ not found — refusing to dial";
 "f19.repeatObject" = "Will call %@. Please confirm.";
 "f19.executed" = "Done: %@";
 "fr24.title" = "Sent status";
@@ -626,6 +629,8 @@
 "search.noResultFmt" = "No results for \"%@\"";
 "search.loosenHint" = "Try a shorter keyword, or remove date and type filters";
 "search.clear" = "Clear search";
+"search.failed" = "Search failed, please retry";
+"search.retry" = "Retry";
 "search.group.docs" = "Documents";
 "search.group.observations" = "Observations";
 "search.group.meds" = "Medications";
@@ -909,6 +914,7 @@
 "doc.importFailed" = "Import failed, please retry";
 "doc.pdfImportFailed" = "PDF rendering or recognition failed: the file may be corrupted or a low-quality scan. Retry or use the camera instead.";
 "doc.prescriptionSyncFailed" = "The document was saved, but the prescription details could not be synced to the medication record. Please reconfirm them in the document library later.";
+"doc.pdfPartialFailed" = "The document was saved, but %d pages failed to recognize; see details in the document library";
 "doc.type.report" = "Lab report";
 "doc.type.record" = "Clinic record";
 "doc.manual.createTitle" = "New Manual Document";
@@ -1502,6 +1508,12 @@
 "voiceIntent.createQuestion" = "Doctor Question";
 "voiceIntent.unknown" = "Free Text";
 "voicePanel.autoHint" = "Say what you want to record — the destination will be decided automatically.";
+"voicePanel.editHint" = "Transcript appears here — tap to edit directly; keep holding the mic to append more recordings";
+"voicePanel.confirm" = "Confirm";
+"voicePanel.clearTitle" = "Clear Recording";
+"voicePanel.clear" = "Clear";
+"voicePanel.clearLast" = "Clear Last Recording";
+"voicePanel.clearAll" = "Clear All Recordings";
 "voiceConfirm.judgedTarget" = "Judged As";
 "voiceConfirm.candidates" = "Maybe:";
 "f16.syncedRowsFmt" = "%d device readings imported (shown with manual entries in trends)";

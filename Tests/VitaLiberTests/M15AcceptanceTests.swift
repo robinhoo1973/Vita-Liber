@@ -62,6 +62,70 @@ final class M15AcceptanceTests: XCTestCase {
 
     // MARK: - F7 一票否决：三医院同图，参考范围各自显示
 
+    /// P0 回归锚点：手输指标经 addSample 落库往返——此前 INSERT 漏 created_at
+    /// （NOT NULL 无 DEFAULT），每次保存必抛约束错误、用户恒见「保存失败」，
+    /// 且既有测试全走直插 SQL 绕过该写门，错误只能上真机暴露
+    func test_手输指标addSample落库往返() async throws {
+        let (store, member) = try await makeStore()
+        let trends = TrendQueryStore(writer: store.writer)
+        let now = Date()
+        _ = try await trends.addSample(patientId: member, metric: .heartRate, value: 72,
+                                       secondaryValue: nil, unit: "bpm", measuredAt: now)
+        let range = DateInterval(start: now.addingTimeInterval(-60), end: now.addingTimeInterval(60))
+        let series = try await trends.series(for: member, metric: .heartRate, range: range)
+        XCTAssertEqual(series.points.count, 1, "手输指标必须落库可读回")
+        XCTAssertEqual(series.points[0].value, 72)
+    }
+
+    /// FR7.9 设备入库键归一化：heart_rate → heartRate（与手输同键同系列）
+    /// + 同窗重放幂等（UPDATE 不产重复行）
+    func test_设备入库键归一化与重放幂等() async throws {
+        let (store, member) = try await makeStore()
+        let trends = TrendQueryStore(writer: store.writer)
+        let now = Date()
+        _ = try await trends.addDeviceSamples(patientId: member, rows: [
+            DeviceMetricRow(metricKey: "heart_rate", value: 80, unit: "bpm",
+                            valueMin: 70, valueMax: 90, sampleCount: 3,
+                            sourceName: "Apple Watch", measuredAt: now),
+        ])
+        let range = DateInterval(start: now.addingTimeInterval(-60), end: now.addingTimeInterval(60))
+        let series = try await trends.series(for: member, metric: .heartRate, range: range)
+        XCTAssertEqual(series.points.count, 1, "设备行必须经归一化进入 heartRate 系列")
+        _ = try await trends.addDeviceSamples(patientId: member, rows: [
+            DeviceMetricRow(metricKey: "heart_rate", value: 82, unit: "bpm",
+                            valueMin: 70, valueMax: 95, sampleCount: 4,
+                            sourceName: "Apple Watch", measuredAt: now),
+        ])
+        let replay = try await trends.series(for: member, metric: .heartRate, range: range)
+        XCTAssertEqual(replay.points.count, 1, "同窗重放不得产生重复行")
+        XCTAssertEqual(replay.points[0].value, 82, "重放必须更新值域")
+    }
+
+    // MARK: - F7 一票否决：三医院同图，参考范围各自显示
+
+    /// FR7.11 血压双序列：舒张压无独立行、存于收缩压行 secondary_value——
+    /// 此前舒张压系列恒空（双线缺失）。投影必须在 series 层成立
+    func test_舒张压系列从收缩压行投影() async throws {
+        let (store, member) = try await makeStore()
+        let trends = TrendQueryStore(writer: store.writer)
+        let now = Date()
+        try await store.writer.write { db in
+            try db.execute(sql: """
+                INSERT INTO metric_sample
+                  (id, patient_id, metric_key, value, secondary_value, unit, origin,
+                   self_measured, excluded, measured_at, created_at)
+                VALUES (?, ?, 'bloodPressureSys', 120, 80, 'mmHg', 'manual', 1, 0, ?, ?)
+                """, arguments: [UUID().uuidString, member.uuidString,
+                                 now.timeIntervalSince1970, now.timeIntervalSince1970])
+        }
+        let range = DateInterval(start: now.addingTimeInterval(-60), end: now.addingTimeInterval(60))
+        let dia = try await trends.series(for: member, metric: .bloodPressureDia, range: range)
+        XCTAssertEqual(dia.points.count, 1, "舒张压序列必须从收缩压行 secondary_value 投影")
+        XCTAssertEqual(dia.points[0].value, 80)
+        let sys = try await trends.series(for: member, metric: .bloodPressureSys, range: range)
+        XCTAssertEqual(sys.points[0].value, 120)
+    }
+
     func test_三家医院血糖同图且参考范围各自成带() async throws {
         let (store, member) = try await makeStore()
         _ = try await insertMetric(store, member: member, value: 6.1, origin: "hospital",

@@ -77,9 +77,11 @@ struct MetricQuickEntryView: View {
                                         // 输完自动跳格：三位数恒跳；两位数在构成真实
                                         // 收缩压值（≥60 mmHg，90-99 常见于低血压/老年
                                         // 用户）时也跳——此前 count>=3 规则对两位数
-                                        // 永不跳格，须手动点舒张压框
+                                        // 永不跳格，须手动点舒张压框。
+                                        // 阈值走 Domain BloodPressureEntryRules（BR 规则
+                                        // 单一事实源，视图零内联业务边界）
                                         if v.count >= 3
-                                            || (v.count >= 2 && (NumberNormalizer.parseDecimal(v) ?? 0) >= 60) {
+                                            || (v.count >= 2 && (NumberNormalizer.parseDecimal(v) ?? 0) >= BloodPressureEntryRules.minPlausibleSys) {
                                             focusField = true
                                         }
                                     }
@@ -167,8 +169,11 @@ struct MetricQuickEntryView: View {
         // 审查修复（错误轴落库）：此前只取数值、不改 metric——上一次用体温
         // 时语音说「血糖 5.6」会把 5.6 存成体温读数。草稿的 grammar 键
         // 必须同时选中对应指标类型（单位记忆随 onChange(of: metric) 刷新）。
-        if let key = map.keys.first(where: { MetricType(grammarKey: $0) != nil }),
-           let m = MetricType(grammarKey: key) {
+        // 双键草稿（血压）按显式优先级：sys 恒优先——Dictionary 迭代序
+        // 随机，此前 first(where:) 可能先取 dia 键，收缩压被存进舒张压系列
+        let key = ["blood_pressure_sys", "blood_pressure_dia"].first(where: { map[$0] != nil })
+            ?? map.keys.first(where: { MetricType(grammarKey: $0) != nil })
+        if let key, let m = MetricType(grammarKey: key) {
             metric = m
         }
         if let sys = map.first(where: { MetricType(grammarKey: $0.key) == .bloodPressureSys })?.value {
@@ -259,9 +264,17 @@ extension TrendEntryState {
     /// 排除后按 metricKey 重载**详情**序列——此前调用 load() 刷新的是 90 天
     /// 血糖默认序列，趋势详情页上排除动作后曲线纹丝不动。
     /// 经 refreshDetailIfCurrent（不重盖成员/指标标记，同 addSample 纪律）。
+    /// §5.29 动作记审计：排除/恢复写入 audit_event（action=update，
+    /// meta 携带方向——此前审计义务被查询层推给调用方、调用方却未持有
+    /// 审计写门，动作落库后零追溯）。
     func toggleExcluded(_ point: TrendPoint, patientId: UUID, metricKey: String) async {
         do {
-            try await store.setExcluded(point.id, patientId: patientId, excluded: !point.excluded)
+            let nowExcluded = !point.excluded
+            try await store.setExcluded(point.id, patientId: patientId, excluded: nowExcluded)
+            try? await audit?.record(   // try?-ok: 审计失败不阻断排除动作本身（与既有审计纪律一致）
+                action: "update", entityType: "metric_sample",
+                entityId: point.id.uuidString, actorLocal: "owner",
+                meta: nowExcluded ? "exclude" : "restore")
             await refreshDetailIfCurrent(patientId: patientId, metricKey: metricKey)
         } catch {
             // 失败保留原状可重试；软删失败无数据损失

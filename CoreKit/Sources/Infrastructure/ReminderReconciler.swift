@@ -157,12 +157,17 @@ public actor ReminderReconciler {
                 let owned = pending.filter { id, _ in
                     id.hasPrefix("dose-") || id.hasPrefix("slot-") || id.hasPrefix("snooze-")
                 }
+                // 预算阀按全局总量触发、但只裁自有命名空间——自有额度 =
+                // 总预算 − 他仓占用：owned≤60 且总量>60 时旧逻辑什么都不裁，
+                // 超 64 后由 iOS 按时间任意丢弃（可能含 dose-/slot-，用药
+                // 优先保证失效）；owned 按自有额度裁撤才守住全局上限。
+                let ownedBudget = max(0, Self.pendingBudget - (pending.count - owned.count))
                 let entries = owned.map { (id: $0.key, fireAt: $0.value) }
                     .sorted {
                         if Self.priorityOf($0.id) != Self.priorityOf($1.id) { return Self.priorityOf($0.id) < Self.priorityOf($1.id) }
                         return $0.fireAt < $1.fireAt
                     }
-                let drop = entries.dropFirst(Self.pendingBudget).map(\.id)
+                let drop = entries.dropFirst(ownedBudget).map(\.id)
                 try await scheduler.cancel(drop)
             }
         } catch {
