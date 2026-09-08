@@ -69,12 +69,12 @@ struct VoiceQuickLaunchView: View {
                 // BR-012 前置已下沉组件内（onEmergencyAction 注入「先收起全屏
                 // 再跳急救卡」——默认动作不收起，急救卡会被本面板盖住）；
                 // 组件未拦截的文本走续录追加
-                VoiceDictationButton(onEmergencyAction: { _ in
+                VoiceDictationButton(onTranscript: { text, confidence in
+                    appendSegment(text, confidence: confidence)
+                }, onEmergencyAction: { _ in
                     dismiss()
                     router.navigate(to: .emergencyCardConfig)
-                }) { text, confidence in
-                    appendSegment(text, confidence: confidence)
-                }
+                })
                 .padding(.horizontal, 24)
                 HStack(spacing: 12) {
                     Button {
