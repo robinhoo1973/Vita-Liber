@@ -135,7 +135,7 @@ final class AppRouter {
             // ——未就绪则退回暂存队列，放行后按序投递（不直写已卸载外壳
             // 的 path，杜绝解锁后非空 path 首帧 push 的 crash 2 同族）。
             guard self.navigationReady else {
-                self.enqueue(route)
+                self.enqueue(route: route)
                 return
             }
             // 评审修正（套娃防护）：.reminderToday 的落点视图就是提醒 Tab 根视图
