@@ -19,12 +19,14 @@ public protocol TranscriptionEngine: Sendable {
                     onPartial: (@Sendable (String) -> Void)?) async throws -> TranscriptionResult
     /// 软停提示：请求引擎尽快收尾（endAudio）。调用方软停不取消引擎——在途
     /// 转写必须投递；本端口让旧会话尽快出 isFinal，避免与新会话的音频竞争。
-    func endAudio()
+    /// async 要求：actor 实现以隔离方法满足，同步要求会触发
+    /// #ConformanceIsolation（一致性跨隔离域，L1 34287522872 实证）
+    func endAudio() async
 }
 
 extension TranscriptionEngine {
     /// 默认无操作：契约桩/不支持实现忽略软停提示
-    public func endAudio() {}
+    public func endAudio() async {}
 }
 
 /// 测试与 Preview 用桩：两轨可用性各构造一份，验证「同一协议下行为一致」

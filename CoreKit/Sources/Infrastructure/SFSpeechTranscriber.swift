@@ -56,7 +56,7 @@ public actor SFSpeechTranscriber: TranscriptionEngine {
     }
 
     /// 软停提示：endAudio 让旧会话尽快出 isFinal 收尾（协议默认无操作）
-    public func endAudio() {
+    public func endAudio() async {
         activeRecognition?.endAudio()
     }
 
