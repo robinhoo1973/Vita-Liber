@@ -422,8 +422,9 @@ public actor MedicationStore: DoseSource {
     /// unitsPerDose = dose_plan_units（单剂剂量；每日剂次 × 单剂剂量才是
     /// 真实日消耗——此前固定 ×1，每次 2 片的计划 daysLeft 虚高一倍、
     /// 续药分级晚发，违反 ADR-009 误差必须偏早的不可协商红线）。
-    static func estimatedDailyUnits(_ schedule: MedicationSchedule,
-                                    unitsPerDose: Double = 1) -> Double {
+    /// public：iOS 目标验收测试（M2StockAcceptanceTests）断言该口径
+    public static func estimatedDailyUnits(_ schedule: MedicationSchedule,
+                                           unitsPerDose: Double = 1) -> Double {
         let perDose = min(max(unitsPerDose, 0), 100)   // 与 materializeWindow 同款钳制
         switch schedule {
         case .fixed(let times): return Double(max(1, times.count)) * perDose
