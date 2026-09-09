@@ -24,6 +24,7 @@ struct VoiceQuickLaunchView: View {
     @Environment(AppState.self) private var app
     @Environment(AppRouter.self) private var router
     @Environment(VoiceNoteState.self) private var voiceNoteState
+    @Environment(AppSettingsStore.self) private var settings
     @Environment(\.dismiss) private var dismiss
 
     @State private var confirmSet: OcrConfirmationSet?
@@ -44,11 +45,27 @@ struct VoiceQuickLaunchView: View {
     @State private var accumulatedText = ""
     /// 清除选择框呈现
     @State private var showClearDialog = false
+    /// 转写模型（§4.23 中部大号按住说话按钮持有——本页唯一实例，
+    /// 同一引擎单会话；环境就绪后装配，同 VoiceDictationButton 纪律）
+    @State private var model: VoiceDictationModel?
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 12) {
-                // 上方 = 转写文本显示区（1.2）：实时追加、点击直接编辑
+                // §4.23 纵向稳定分区：中部 = 大号按住说话按钮 + 声波/聆听状态
+                // （业主反馈：此前仅底部普通按钮，无图形录入入口）
+                if settings.values[.authVoiceDictation] == "false" {
+                    Label(L10n.privacyAuthVoiceDisabled, systemImage: "mic.slash")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .accessibilityIdentifier("voice.dictation.authDisabled")
+                } else if let model {
+                    // BR-012 前置在模型内统一执行（onEmergency 装配见
+                    // ensureModel：命中即收起全屏跳急救卡，不被本面板盖住）
+                    PressToTalkMicButton(model: model)
+                }
+                // 转写文本显示区（1.2）：实时追加、点击直接编辑
                 TextEditor(text: $accumulatedText)
                     .font(.body)
                     .scrollContentBackground(.hidden)
@@ -65,17 +82,9 @@ struct VoiceQuickLaunchView: View {
                         }
                     }
                     .accessibilityIdentifier("SP-55.panel.transcript")
-                // 下方 = 操作按钮区（1.2）：长按录音/松手停止；再次长按续录
-                // BR-012 前置已下沉组件内（onEmergencyAction 注入「先收起全屏
-                // 再跳急救卡」——默认动作不收起，急救卡会被本面板盖住）；
-                // 组件未拦截的文本走续录追加
-                VoiceDictationButton(onTranscript: { text, confidence in
-                    appendSegment(text, confidence: confidence)
-                }, onEmergencyAction: { _ in
-                    dismiss()
-                    router.navigate(to: .emergencyCardConfig)
-                })
-                .padding(.horizontal, 24)
+                // 下方 = 操作按钮区（1.2）：清除/确认；录音入口已上移至中部
+                // 大号按住说话按钮（PressToTalkMicButton，§4.23）——再次
+                // 长按即续录（V3.94 口径）
                 HStack(spacing: 12) {
                     Button {
                         showClearDialog = true
@@ -117,7 +126,13 @@ struct VoiceQuickLaunchView: View {
                 }
             }
             .onAppear { routeMonitor.start() }
-            .onDisappear { routeMonitor.stop() }
+            .onDisappear {
+                routeMonitor.stop()
+                model?.stopForDisappear()   // 视图销毁即终止在途听写投递
+            }
+            // 引擎在环境就绪后装配（同 VoiceDictationButton 纪律：语言值变化
+            // 即重建，面板内改语言返回后 preferredLocale 即时生效）
+            .task(id: settings.values[.voiceInputLanguages]) { ensureModel() }
             // 分段版本一致性（FR17.9 V3.55）：手工编辑必须递增代次、失效
             // 在途理解结果——此前编辑不递增，慢理解结果按旧文本覆盖用户
             // 刚改过的判定/草稿（gen 守卫只防重录/改类，不防编辑）
@@ -177,6 +192,34 @@ struct VoiceQuickLaunchView: View {
     }
 
     // MARK: - 全屏工作台段管理（1.2）
+
+    /// 转写模型装配（@Environment 不可用于 @State 初始值，同
+    /// VoiceDictationButton 纪律）：每次渲染刷新闭包——父视图重渲染传入
+    /// 捕获最新 @State 的新闭包，模型持有的旧闭包会使确认/分发按旧状态
+    /// 执行；BR-012 前置在模型内统一执行（命中即收起全屏跳急救卡）
+    private func ensureModel() {
+        let preferred = SettingsRules.preferredVoiceLocale(settings.values[.voiceInputLanguages])
+        if let m = model {
+            m.onTranscript = { [weak self] text, confidence in
+                self?.appendSegment(text, confidence: confidence)
+            }
+            m.onEmergency = { [weak self] _ in
+                self?.dismiss()
+                self?.router.navigate(to: .emergencyCardConfig)
+            }
+            m.preferredLocale = preferred
+        } else {
+            let m = VoiceDictationModel(engine: app.transcriptionEngine, preferredLocale: preferred)
+            m.onTranscript = { [weak self] text, confidence in
+                self?.appendSegment(text, confidence: confidence)
+            }
+            m.onEmergency = { [weak self] _ in
+                self?.dismiss()
+                self?.router.navigate(to: .emergencyCardConfig)
+            }
+            model = m
+        }
+    }
 
     /// 续录追加：编辑区是唯一事实源——此前 segments 重连会覆盖用户的全部
     /// 手编辑内容（改错字后续录即丢）；segments 由编辑区按行派生，仅用于
