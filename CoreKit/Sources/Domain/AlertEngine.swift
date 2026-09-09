@@ -226,6 +226,56 @@ public enum AlertRuleEngine {
         return .L0
     }
 
+    /// 评估序列中的定级读数（健康同步流用）。
+    public struct GradedReading: Sendable, Equatable {
+        public var reading: MetricReading
+        /// nil = 范围不可用（拒绝定级）；.L0 = 未越限
+        public var severity: AlertSeverity?
+        public init(reading: MetricReading, severity: AlertSeverity?) {
+            self.reading = reading
+            self.severity = severity
+        }
+    }
+
+    /// FR16.2 持续性门槛（health-import V1.3 裁决：「同步流内分钟级内存态
+    /// 评估，保连续 3 次读数/持续 10 分钟语义」）：定级序列（按时间升序）
+    /// 中的连续越限 run——run 内读数 ≥3 次或 run 持续 ≥10 分钟——才升级为
+    /// 提示。单次瞬时尖峰（运动心率抖动、传感器伪迹）不得触发 L1+ 通知；
+    /// 无范围（nil）与 L0 均断开 run（宁可少警）。返回每个合格 run 的
+    /// 锚定读数 = run 内定级最高者（同级取最晚）——证据卡呈现最差事实
+    /// 读数，measuredAt 即 alert_event 幂等键（跨同步稳定）。
+    public static func sustainedViolations(_ series: [GradedReading],
+                                           sustainedWindow: TimeInterval = 10 * 60) -> [GradedReading] {
+        let sorted = series.sorted { $0.reading.measuredAt < $1.reading.measuredAt }
+        var violations: [GradedReading] = []
+        var run: [GradedReading] = []
+        for graded in sorted {
+            if let severity = graded.severity, severity != .L0 {
+                run.append(graded)
+            } else {
+                violations.append(contentsOf: anchors(of: run, sustainedWindow: sustainedWindow))
+                run = []
+            }
+        }
+        violations.append(contentsOf: anchors(of: run, sustainedWindow: sustainedWindow))
+        return violations
+    }
+
+    /// 单个 run → 是否合格 → 锚定读数（run 内定级最高、同级取最晚）。
+    private static func anchors(of run: [GradedReading],
+                                sustainedWindow: TimeInterval) -> [GradedReading] {
+        guard let first = run.first, let last = run.last else { return [] }
+        let duration = last.reading.measuredAt.timeIntervalSince(first.reading.measuredAt)
+        guard run.count >= consecutiveThreshold || duration >= sustainedWindow else { return [] }
+        guard let anchor = run.max(by: { lhs, rhs in
+            let li = AlertSeverity.allCases.firstIndex(of: lhs.severity ?? .L0) ?? 0
+            let ri = AlertSeverity.allCases.firstIndex(of: rhs.severity ?? .L0) ?? 0
+            if li != ri { return li < ri }
+            return lhs.reading.measuredAt < rhs.reading.measuredAt
+        }) else { return [] }
+        return [anchor]
+    }
+
     /// 连续 3 次越限 → 至少 L1（FR16.2 验收句）
     public static func escalate(recent: [MetricReading], guideline: GuidelineEntry?) -> AlertSeverity? {
         // 第六轮全仓审查修复：计数与判定必须同一窗口——原实现 levels.count

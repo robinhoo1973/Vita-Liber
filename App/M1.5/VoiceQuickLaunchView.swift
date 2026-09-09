@@ -118,6 +118,12 @@ struct VoiceQuickLaunchView: View {
             }
             .onAppear { routeMonitor.start() }
             .onDisappear { routeMonitor.stop() }
+            // 分段版本一致性（FR17.9 V3.55）：手工编辑必须递增代次、失效
+            // 在途理解结果——此前编辑不递增，慢理解结果按旧文本覆盖用户
+            // 刚改过的判定/草稿（gen 守卫只防重录/改类，不防编辑）
+            .onChange(of: accumulatedText) { _, _ in
+                transcriptGeneration += 1
+            }
             // 清除选择框（1.2）：清除最近一次为默认选项
             .confirmationDialog(L10n.voicePanelClearTitle, isPresented: $showClearDialog,
                                 titleVisibility: .visible) {
@@ -209,6 +215,14 @@ struct VoiceQuickLaunchView: View {
     private func confirmFromTranscript() async {
         let text = accumulatedText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+        // BR-012 前置补全（命中即急救卡、终止解析、不落草稿）：听写路径已由
+        // VoiceDictationModel 前置，此处覆盖手输/粘贴/编辑后的文本——用户手打
+        // 「我胸痛」不得落观察/速记草稿（红线一票否决；此前仅听写结果受检）
+        if EmergencyKeywordRules.match(text) {
+            dismiss()
+            router.navigate(to: .emergencyCardConfig)
+            return
+        }
         transcriptGeneration += 1
         let generation = transcriptGeneration
         await understand(text: text, confidence: lastTranscript?.confidence ?? 0.9,
@@ -259,8 +273,15 @@ struct VoiceQuickLaunchView: View {
                 savedNote = await voiceNoteState.create(patientId: app.currentPatientId, body: body, tags: nil)
             }
         case .observation, .question, .ai:
-            // 无预填消费方的意图：直接打开目标页（无暂存草稿——写暂存只会
-            // 滞留并被下一次快速录入误消费）
+            // 期一无预填消费方的意图（FR17.19 能力边界）：用户已确认的文本
+            // 不得静默丢弃（§5.54「不静默丢内容」）——落语音速记兜底 + 打开
+            // 目标页补结构化录入。此前仅跳页丢弃，确认内容凭空消失
+            if let body = fields.first?.value, !body.isEmpty {
+                Task {
+                    savedNote = await voiceNoteState.create(
+                        patientId: app.currentPatientId, body: body, tags: nil)
+                }
+            }
             open(target)
             dismiss()
         case .metric, .reminder, .profile:

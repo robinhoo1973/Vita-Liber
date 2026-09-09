@@ -118,47 +118,56 @@ final class F16DeviceState {
             }
             return
         }
-        // 兜底回路（未注入服务：测试/预览）——既有评估逻辑原样保留
+        // 兜底回路（未注入服务：测试/预览）——与主路径同语义：
+        // 逐读数幂等落事实事件，再按 FR16.2 持续性门槛选出锚定读数通知
         do {
             let readings = try await reader.recentReadings(within: 24)
             // 评审修正第二轮：跨重启 24h 去重需要送达清单——session 级 lastAlertKey
             // 重启即失忆，同一读数（去重键命中既有行、event.id 稳定）会重新弹窗。
             // delivered 守卫与稳定 event.id 配合：重启后同读数不再通知。
             let delivered = try await scheduler.delivered()
-            var elevated = 0
+            var graded: [AlertRuleEngine.GradedReading] = []
+            var eventByKey: [String: GuidelineStore.AlertEvent] = [:]
             for reading in readings {
                 do {
                     let event = try await guidelines.evaluateAndRecord(
                         reading: reading, patientId: patientId, ruleId: "f16.healthkit")
-                    guard event.severity != .L0 else { continue }
-                    // FR16.2 同一事件 24 小时去重（按成员+指标+级别；落库侧另有
-                    // 同日级别去重）。此前键缺 patientId：成员 A 的 L1 命中会
-                    // 抑制 24h 内成员 B 的同读数预警（BR-001 成员隔离）。
-                    let key = "\(patientId.uuidString)-\(reading.metricKey)-\(event.severity.rawValue)"
-                    if let last = lastAlertKey[key],
-                       Date() < DayArithmetic.offset(days: 1, from: last) { continue }
-                    let alertId = "alert-\(event.id.uuidString)"
-                    guard !delivered.contains(alertId) else { continue }
-                    // 夜间静默仅对 L0/L1 生效（L2/L3 不静默）。去重键必须在本
-                    // 门之后写——此前先写键再静默丢弃：夜间被静默的 L1 在
-                    // 24h 窗口内白天重同步时被键永久抑制，预警永远不送达。
-                    if event.severity == .L1 && QuietHoursRules.isActive(start: quietStart, end: quietEnd) { continue }
-                    // FR16.7 预警通知：正文只含类别，不含数值与病名
-                    try await scheduler.schedule(
-                        dose: alertId, at: Date().addingTimeInterval(5),
-                        route: .alertHistory)
-                    // 审查修复：去重键与计数必须在 schedule 成功之后写入——
-                    // 此前先写键再调度，调度抛错被外层 catch 吞掉时，未送达的
-                    // 预警已被计为「已送达」（elevated 计数含它）且 24h 去重键
-                    // 抑制重试，用户收不到通知也看不到任何失败迹象。
-                    lastAlertKey[key] = Date()
-                    elevated += 1
+                    graded.append(.init(reading: reading, severity: event.severity))
+                    eventByKey["\(reading.metricKey)|\(reading.measuredAt.timeIntervalSinceReferenceDate)"] = event
                 } catch GuidelineStore.StoreError.noApplicableRange {
                     // FR16.4「范围不可用」独立呈现态：计数并如实展示，不静默
                     noRangeCount += 1
                 } catch {
                     continue
                 }
+            }
+            var elevated = 0
+            for anchored in AlertRuleEngine.sustainedViolations(graded) {
+                let reading = anchored.reading
+                guard let severity = anchored.severity,
+                      let event = eventByKey["\(reading.metricKey)|\(reading.measuredAt.timeIntervalSinceReferenceDate)"] else { continue }
+                // FR16.2 同一事件 24 小时去重（按成员+指标+级别；落库侧另有
+                // 同日级别去重）。此前键缺 patientId：成员 A 的 L1 命中会
+                // 抑制 24h 内成员 B 的同读数预警（BR-001 成员隔离）。
+                let key = "\(patientId.uuidString)-\(reading.metricKey)-\(severity.rawValue)"
+                if let last = lastAlertKey[key],
+                   Date() < DayArithmetic.offset(days: 1, from: last) { continue }
+                let alertId = "alert-\(event.id.uuidString)"
+                guard !delivered.contains(alertId) else { continue }
+                // 夜间静默仅对 L0/L1 生效（L2/L3 不静默）。去重键必须在本
+                // 门之后写——此前先写键再静默丢弃：夜间被静默的 L1 在
+                // 24h 窗口内白天重同步时被键永久抑制，预警永远不送达。
+                if severity == .L1 && QuietHoursRules.isActive(start: quietStart, end: quietEnd) { continue }
+                // FR16.7 预警通知：正文只含类别，不含数值与病名
+                try await scheduler.schedule(
+                    dose: alertId, at: Date().addingTimeInterval(5),
+                    route: .alertHistory)
+                // 审查修复：去重键与计数必须在 schedule 成功之后写入——
+                // 此前先写键再调度，调度抛错被外层 catch 吞掉时，未送达的
+                // 预警已被计为「已送达」（elevated 计数含它）且 24h 去重键
+                // 抑制重试，用户收不到通知也看不到任何失败迹象。
+                lastAlertKey[key] = Date()
+                elevated += 1
             }
             phase = .done(count: elevated)
         } catch {

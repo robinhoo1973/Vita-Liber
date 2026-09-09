@@ -173,6 +173,74 @@ struct HealthSyncDomainTests {
         #expect(windows[0].sampleCount == 3)   // 80 + 0 + 90
     }
 
+    // MARK: - FR16.2 持续性门槛（sustainedViolations，health-import V1.3）
+
+    private func graded(_ minutes: [Int], _ severities: [AlertSeverity?]) -> [AlertRuleEngine.GradedReading] {
+        zip(minutes, severities).map { minute, severity in
+            .init(reading: MetricReading(metricKey: "heart_rate", value: 105,
+                                         unit: "bpm", origin: .device,
+                                         measuredAt: date(9, 8, minute)),
+                  severity: severity)
+        }
+    }
+
+    @Test("连续 3 次越限 → 锚定末位读数（FR16.2 验收句）")
+    func 连续三次越限() {
+        let anchors = AlertRuleEngine.sustainedViolations(
+            graded([0, 1, 2], [.L1, .L1, .L1]))
+        #expect(anchors.count == 1)
+        #expect(anchors[0].reading.measuredAt == date(9, 8, 2))
+    }
+
+    @Test("单次/两次越限不触发——瞬时尖峰不得提示")
+    func 瞬时尖峰不触发() {
+        #expect(AlertRuleEngine.sustainedViolations(graded([0], [.L1])).isEmpty)
+        #expect(AlertRuleEngine.sustainedViolations(graded([0, 1], [.L1, .L1])).isEmpty)
+    }
+
+    @Test("持续 ≥10 分钟即触发（不足 3 次读数也成立）")
+    func 持续时间门槛() {
+        let anchors = AlertRuleEngine.sustainedViolations(
+            graded([0, 11], [.L1, .L1]))
+        #expect(anchors.count == 1, "2 次越限但持续 11 分钟必须触发")
+        #expect(AlertRuleEngine.sustainedViolations(graded([0, 9], [.L1, .L1])).isEmpty,
+                "9 分钟且 2 次读数为瞬态，不得触发")
+    }
+
+    @Test("L0 与范围不可用（nil）断开 run")
+    func 低值断开() {
+        // L1 L1 L0 L1 L1 —— run 被 L0 断开，两段各 2 次均不触发
+        #expect(AlertRuleEngine.sustainedViolations(
+            graded([0, 1, 2, 3, 4], [.L1, .L1, .L0, .L1, .L1])).isEmpty)
+        // nil（无范围）同样断开
+        #expect(AlertRuleEngine.sustainedViolations(
+            graded([0, 1, 2, 3, 4], [.L1, .L1, nil, .L1, .L1])).isEmpty)
+        // L1 L1 L1 L0 L2 L2 L2 —— 两段独立，第二段锚定其末位
+        let anchors = AlertRuleEngine.sustainedViolations(
+            graded([0, 1, 2, 3, 4, 5, 6], [.L1, .L1, .L1, .L0, .L2, .L2, .L2]))
+        #expect(anchors.count == 2)
+        #expect(anchors[1].reading.measuredAt == date(9, 8, 6))
+    }
+
+    @Test("run 内混合级别 → 锚定最高级读数（证据卡呈现最差事实）")
+    func 锚定最高级() {
+        let anchors = AlertRuleEngine.sustainedViolations(
+            graded([0, 1, 2], [.L2, .L1, .L1]))
+        #expect(anchors.count == 1)
+        #expect(anchors[0].severity == .L2)
+        #expect(anchors[0].reading.measuredAt == date(9, 8, 0))
+    }
+
+    @Test("空序列与乱序输入不崩溃")
+    func 空序列() {
+        #expect(AlertRuleEngine.sustainedViolations([]).isEmpty)
+        // 乱序输入按时间排序后判定
+        let anchors = AlertRuleEngine.sustainedViolations(
+            graded([2, 0, 1], [.L1, .L1, .L1]))
+        #expect(anchors.count == 1)
+        #expect(anchors[0].reading.measuredAt == date(9, 8, 2))
+    }
+
     // MARK: - 评估/入库双流值对象（FR7.9）
 
     @Test("DeviceMetricRow 幂等键含来源形态")

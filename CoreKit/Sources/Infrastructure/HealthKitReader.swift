@@ -9,7 +9,8 @@ import Protocols
 /// （F16 四级提示的事实来源），任何「解释」都由证据卡引用式呈现。
 ///
 /// V3.86 评估与入库双流（FR7.9）：`recentReadings` 供分钟级内存态评估
-/// （心率返回窗口内全部原始样本，保 FR16.2「连续3次/持续10分钟」语义）；
+/// （静息心率全部样本 + 血氧/呼吸率/步数/睡眠摘要，保 FR16.2「连续3次/
+/// 持续10分钟」语义；瞬时心率不参与评估——AHA 静息阈值语义，运动误警）；
 /// `deviceRows` 供小时窗口聚合落库（心率 min/max/avg、睡眠区间合并——
 /// 杜绝双来源同夜双计，health-import V1.3）。
 ///
@@ -60,8 +61,13 @@ public actor HealthKitReader {
     // MARK: - 评估流（分钟级内存态，FR16.2 语义）
 
     /// 近窗读数（默认 24 小时）：六指标 → [MetricReading]（引擎评估的事实源）。
-    /// V3.86：即时心率返回窗口内**全部**原始样本（保「连续3次/持续10分钟」
-    /// 评估语义）；睡眠改为合并摘要（sleep_total 族键，杜绝双来源双计）。
+    /// V3.86：睡眠改为合并摘要（sleep_total 族键，杜绝双来源双计）。
+    /// 心率评估只取**静息心率**样本（信源键 heart_rate 对应 AHA 静息
+    /// 心率 >100 bpm 语义——FR16.4 单一事实源）：瞬时心率（运动时 130+
+    /// 属正常）混入同一键会把运动误警成 L1/L2，评估序列不包含之，瞬时
+    /// 心率仅经 deviceRows 聚合入趋势展示（FR16.1 只读展示；异常事件
+    /// 由设备商检测转述，FR16.6）。静息样本取最新（newestFirst——升序
+    /// + limit 截掉的是最新样本，与瞬时心率同款陷阱）。
     public func recentReadings(within hours: Int = 24, now: Date = Date(),
                                calendar: Calendar = .current) async throws -> [MetricReading] {
         guard HKHealthStore.isHealthDataAvailable() else { throw ReaderError.unavailable }
@@ -70,22 +76,7 @@ public actor HealthKitReader {
         if let rhrType = HKQuantityType.quantityType(forIdentifier: .restingHeartRate) {
             let samples = try await querySamples(type: rhrType,
                                                  unit: HKUnit.count().unitDivided(by: .minute()),
-                                                 from: start, to: now)
-            for (value, at, source) in samples {
-                readings.append(MetricReading(metricKey: "heart_rate",
-                                              value: value, unit: "bpm",
-                                              origin: .device, measuredAt: at,
-                                              sourceName: source?.source.name,
-                                              sourceVersion: source?.version,
-                                              sourceProduct: source?.productType))
-            }
-        }
-        if let hrType = HKQuantityType.quantityType(forIdentifier: .heartRate) {
-            // newestFirst：HKSampleQuery 升序 + limit 返回窗口内**最旧** N 条——
-            // 高采样日（运动 5s 一条）最新读数反而被截掉，评估/入库全看旧值
-            let samples = try await querySamples(type: hrType,
-                                                 unit: HKUnit.count().unitDivided(by: .minute()),
-                                                 from: start, to: now, limit: 1500,
+                                                 from: start, to: now, limit: 200,
                                                  newestFirst: true)
             for (value, at, source) in samples {
                 readings.append(MetricReading(metricKey: "heart_rate",
@@ -150,11 +141,14 @@ public actor HealthKitReader {
 
     /// 设备读数落库行：心率小时窗口聚合（min/max/avg + 来源主键）+
     /// 睡眠区间合并（sleep_total/deep/rem/awake）+ 血氧/呼吸率/步数单值行。
+    /// 返回 rejected = 聚合器剔除非有限伪迹计数（不静默纪律：数据质量信号
+    /// 必须随同步报告外传，调用方不得 `_` 丢弃——code-round2 登记项裁决）。
     public func deviceRows(within hours: Int = 24, now: Date = Date(),
-                           calendar: Calendar = .current) async throws -> [DeviceMetricRow] {
+                           calendar: Calendar = .current) async throws -> (rows: [DeviceMetricRow], rejected: Int) {
         guard HKHealthStore.isHealthDataAvailable() else { throw ReaderError.unavailable }
         let start = now.addingTimeInterval(TimeInterval(-hours * 3600))
         var rows: [DeviceMetricRow] = []
+        var rejected = 0
         // 心率：原始分钟级样本 → Domain 小时窗口聚合（value=avg + min/max + count）
         if let hrType = HKQuantityType.quantityType(forIdentifier: .heartRate) {
             // newestFirst：升序 + limit 截掉的是**最新**样本（见 recentReadings 同款说明）
@@ -171,8 +165,9 @@ public actor HealthKitReader {
                 windowSamples[bucket, default: []].append(HourWindowSample(value: value, at: at))
                 bucketSources[bucket, default: [:]][source?.source.name ?? "", default: 0] += 1
             }
-            let (windows, _) = HourWindowAggregator.aggregate(
+            let (windows, hrRejected) = HourWindowAggregator.aggregate(
                 windowSamples.values.flatMap { $0 }, calendar: calendar)
+            rejected += hrRejected
             for window in windows {
                 let sourceName = bucketSources[window.windowStart]?.max(by: { $0.value < $1.value })?.key
                 rows.append(DeviceMetricRow(
@@ -225,7 +220,7 @@ public actor HealthKitReader {
                                             measuredAt: lastAt))
             }
         }
-        return rows
+        return (rows, rejected)
     }
 
     /// 睡眠合并行（V3.86）：HKCategorySample → Domain SleepSample →

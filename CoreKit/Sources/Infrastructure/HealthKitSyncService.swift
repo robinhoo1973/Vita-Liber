@@ -32,11 +32,16 @@ public actor HealthKitSyncService {
         public var noRangeCount: Int
         /// 落库行数（入库流）
         public var persistedRows: Int
+        /// 聚合器剔除非有限伪迹计数（不静默纪律：数据质量信号外传；
+        /// 当前仅心率小时窗口聚合产生，其他类型接入剔除时同样累计）
+        public var rejectedSamples: Int
         public var lastSyncAt: Date
-        public init(elevated: Int, noRangeCount: Int, persistedRows: Int, lastSyncAt: Date) {
+        public init(elevated: Int, noRangeCount: Int, persistedRows: Int,
+                    rejectedSamples: Int, lastSyncAt: Date) {
             self.elevated = elevated
             self.noRangeCount = noRangeCount
             self.persistedRows = persistedRows
+            self.rejectedSamples = rejectedSamples
             self.lastSyncAt = lastSyncAt
         }
     }
@@ -136,35 +141,47 @@ public actor HealthKitSyncService {
                             hours: Int = 24) async throws -> SyncReport {
         let now = Date()
         let readings = try await reader.recentReadings(within: hours, now: now)
-        // 评估流：分钟级原始读数 → evaluateAndRecord → L1+ 通知
+        // 评估流（health-import V1.3 裁决）：分钟级原始读数先逐条落事实事件
+        // （evaluateAndRecord 幂等留痕，L0 也落——F16 历史完整序列），再按
+        // FR16.2 持续性门槛（连续 ≥3 次越限 或 持续 ≥10 分钟）选出锚定
+        // 读数 → L1+ 通知。单次瞬时尖峰不得触发提示（此前逐读数即调度，
+        // 第一次越限就弹通知，「连续 3 次/持续 10 分钟」语义整体缺失）。
         let delivered = try await scheduler.delivered()
+        var graded: [AlertRuleEngine.GradedReading] = []
+        var eventByKey: [String: GuidelineStore.AlertEvent] = [:]
         var elevated = 0
         var noRange = 0
         for reading in readings {
             do {
                 let event = try await guidelines.evaluateAndRecord(
                     reading: reading, patientId: patientId, ruleId: "f16.healthkit")
-                guard event.severity != .L0 else { continue }
-                let key = "\(patientId.uuidString)-\(reading.metricKey)-\(event.severity.rawValue)"
-                if let last = lastAlertKey[key],
-                   now < DayArithmetic.offset(days: 1, from: last) { continue }
-                let alertId = "alert-\(event.id.uuidString)"
-                guard !delivered.contains(alertId) else { continue }
-                if event.severity == .L1 && QuietHoursRules.isActive(start: quietStart, end: quietEnd, now: now) {
-                    continue
-                }
-                try await scheduler.schedule(dose: alertId, at: now.addingTimeInterval(5),
-                                             route: .alertHistory)
-                lastAlertKey[key] = now
-                elevated += 1
+                graded.append(.init(reading: reading, severity: event.severity))
+                eventByKey[Self.readingKey(reading)] = event
             } catch GuidelineStore.StoreError.noApplicableRange {
                 noRange += 1
             } catch {
                 continue
             }
         }
+        for anchored in AlertRuleEngine.sustainedViolations(graded) {
+            let reading = anchored.reading
+            guard let severity = anchored.severity,
+                  let event = eventByKey[Self.readingKey(reading)] else { continue }
+            let key = "\(patientId.uuidString)-\(reading.metricKey)-\(severity.rawValue)"
+            if let last = lastAlertKey[key],
+               now < DayArithmetic.offset(days: 1, from: last) { continue }
+            let alertId = "alert-\(event.id.uuidString)"
+            guard !delivered.contains(alertId) else { continue }
+            if severity == .L1 && QuietHoursRules.isActive(start: quietStart, end: quietEnd, now: now) {
+                continue
+            }
+            try await scheduler.schedule(dose: alertId, at: now.addingTimeInterval(5),
+                                         route: .alertHistory)
+            lastAlertKey[key] = now
+            elevated += 1
+        }
         // 入库流：小时窗口聚合行 → metric_sample（幂等键含来源）
-        let rows = try await reader.deviceRows(within: hours, now: now)
+        let (rows, rejected) = try await reader.deviceRows(within: hours, now: now)
         let persisted = try await trends.addDeviceSamples(patientId: patientId, rows: rows)
         // 锚点推进（逐类型；失败不阻断主流程——下次同步重查增量）
         for type in HealthKitReader.readTypes {
@@ -177,7 +194,8 @@ public actor HealthKitSyncService {
             }
         }
         return SyncReport(elevated: elevated, noRangeCount: noRange,
-                          persistedRows: persisted, lastSyncAt: now)
+                          persistedRows: persisted, rejectedSamples: rejected,
+                          lastSyncAt: now)
     }
 
     // MARK: - 后台调度与锚点持久化
@@ -198,6 +216,12 @@ public actor HealthKitSyncService {
             _ = try? await healthStore.enableBackgroundDelivery(for: type,   // try?-ok: 投递注册失败回落手动/前台路径，不阻断
                                                                 frequency: .hourly)
         }
+    }
+
+    /// 评估流内读数 → 事件的定位键（同 metric+measuredAt 跨同步稳定；
+    /// 与 alert_event 幂等键同源，锚定读数回查事件 id 用）
+    private static func readingKey(_ reading: MetricReading) -> String {
+        "\(reading.metricKey)|\(reading.measuredAt.timeIntervalSinceReferenceDate)"
     }
 
     /// 锚点 key：`hk.{typeIdentifier}`（patient 维度不参与——HealthKit 为设备级）
