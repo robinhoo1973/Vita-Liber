@@ -162,7 +162,9 @@ jobs:
             echo "::error::runner Xcode 主版本为 $XCODE_MAJOR（期望 26）——请按 workflow 文件头升级指引评估后同步断言"
             exit 1
           fi
-          echo "Xcode 主版本断言通过（$XCODE_MAJOR）"
+          # 纯 ASCII 输出：日志服务对「数字紧跟全角括号」的 UTF-8 字节组合
+          # 会输出替换字符（U+FFFD），诊断时无法肉眼读取实际值。
+          echo "Xcode major assertion passed: actual=$XCODE_MAJOR expected=26"
 
       - name: 生成 Xcode 工程
         run: |
@@ -790,6 +792,11 @@ jobs:
             fi
             echo "解析到 APP=$APP"
           fi
+          # 审计 2026-09-10 修正：此前任一 build 命中即 break，把上一轮的
+          # 旧 build 当成「本次已登记」（实证：本轮 306.1 上传后，复核在第 1
+          # 次轮询命中旧 build 305.1 即报「已登记」）。改为精确匹配本次
+          # BUILD（= CFBundleVersion），登记结论与合规告警才指向本次 build。
+          EXPECTED="${{ needs.version.outputs.build }}"
           found=0
           for i in $(seq 1 8); do
             TOKEN=$(mk_token)
@@ -814,13 +821,13 @@ jobs:
                     print('BUILD %s state=%s compliance=%s uploaded=%s' % (a.get('version','?'), a.get('processingState','?'), comp, a.get('uploadedDate','?')))
             " 2>/dev/null || true)
             echo "  第 ${i} 次复核（$(date -u +%H:%M:%S)）：$(echo "$OUT" | head -1)"
-            if echo "$OUT" | grep -q '^BUILD '; then
-              echo "$OUT" | grep '^BUILD ' | head -5
-              echo "→ build 已登记（Apple 处理状态如上，TestFlight 就绪还需状态非 PROCESSING）"
+            if echo "$OUT" | grep -qF "BUILD ${EXPECTED} state="; then
+              echo "$OUT" | grep -F "BUILD ${EXPECTED} " | head -3
+              echo "→ 本次 build ${EXPECTED} 已登记（VALID 后 TestFlight 就绪；PROCESSING 属正常处理中）"
               # 审计 2026-09-10：出口合规缺失 = build 已上传但分发被阻塞，
-              # 且此前只混在字段里打印，无人注意——改为显式告警 + 处置指引。
-              if echo "$OUT" | grep -q 'compliance=YES'; then
-                echo "::warning::build 缺少出口合规声明（Missing Compliance）——TestFlight 分发被阻塞；请到 App Store Connect → TestFlight → 构建版本 → Export Compliance 作答（本应用无加密内容，选豁免）后恢复"
+              # 且此前只混在字段里打印，无人注意——改为对本次 build 显式告警 + 处置指引。
+              if echo "$OUT" | grep -F "BUILD ${EXPECTED} " | grep -q 'compliance=YES'; then
+                echo "::warning::本次 build ${EXPECTED} 缺少出口合规声明（Missing Compliance）——TestFlight 分发被阻塞；请到 App Store Connect → TestFlight → 构建版本 → Export Compliance 作答（本应用无加密内容，选豁免）后恢复"
               fi
               found=1
               break
@@ -828,8 +835,8 @@ jobs:
             sleep 30
           done
           if [ "$found" = "0" ]; then
-            echo "注意：约 4 分钟内 build 仍未出现在列表。请查 App Store Connect → 活动/电子邮件"
-            echo "确认 Apple 处理是否报错（如 Invalid Binary / Missing Compliance）。"
+            echo "注意：约 4 分钟内本次 build ${EXPECTED} 仍未出现在列表。请查 App Store Connect → 活动/电子邮件"
+            echo "确认 Apple 处理是否报错（如 Invalid Binary / Missing Compliance / ITMS-90189 重复构建号）。"
           fi
 
       - name: 清理上传凭据
