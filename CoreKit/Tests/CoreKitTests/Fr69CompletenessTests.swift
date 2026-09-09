@@ -252,7 +252,7 @@ struct PendingCardDedupTests {
         try dbQueue.write { db in
             try db.execute(sql: SchemaV2.ddl)
         }
-        let store = PendingCardStore(writer: dbQueue)
+        let store = await PendingCardStore(writer: dbQueue)   // Swift 6：actor 初始化须 await
         let patient = UUID()
         let draft = PendingCardDraft(patientId: patient, sourceType: "ocr", sourceDocId: nil,
                                      cardKind: "prescription",
