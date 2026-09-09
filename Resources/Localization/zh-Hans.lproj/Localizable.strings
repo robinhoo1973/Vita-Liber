@@ -1038,6 +1038,9 @@
 "docConfirm.skipSaved" = "已保存到待办，稍后可在首页待办卡继续补充";
 "docConfirm.docType" = "文档类型";
 "docConfirm.docTypeHint" = "类型为识别建议，可在此修改；确认后仍可在资料库中调整。";
+"docConfirm.docTypeUnresolved" = "请选择文档类型";
+"docConfirm.docTypeLowConfidence" = "识别置信度较低，请核对类型";
+"home.captureAny" = "拍摄或导入资料";
 "docConfirm.hint" = "请逐项核对识别内容，确认后才计入正式记录";
 "docConfirm.unconfirmedCountFmt" = "还有 %d 项待确认";
 "prescription.field.hospital" = "医院";

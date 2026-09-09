@@ -1038,6 +1038,9 @@
 "docConfirm.skipSaved" = "Saved to pending. Continue completing from the home pending cards.";
 "docConfirm.docType" = "Document type";
 "docConfirm.docTypeHint" = "The type is a suggestion and can be changed here; it can also be adjusted later in the document library.";
+"docConfirm.docTypeUnresolved" = "Choose a document type";
+"docConfirm.docTypeLowConfidence" = "Low recognition confidence — please verify the type";
+"home.captureAny" = "Capture or import a document";
 "docConfirm.hint" = "Review each recognized item; only confirmed items become part of the formal record";
 "docConfirm.unconfirmedCountFmt" = "%d item(s) still need confirmation";
 "prescription.field.hospital" = "Hospital";

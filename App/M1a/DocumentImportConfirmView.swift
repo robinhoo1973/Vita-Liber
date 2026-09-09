@@ -53,6 +53,12 @@ struct DocumentImportConfirmView: View {
         completeness.missingFields.map { DocumentsState.fieldLabel(forKey: $0.key) }
     }
 
+    /// 未决类型的候选 chips：理解层多类候选优先，其余内置标签补足（去重保序）
+    private var typeCandidates: [String] {
+        var seen = Set<String>()
+        return (draft.documentTypeCandidates + L10n.docTypeLabels).filter { seen.insert($0).inserted }
+    }
+
     var body: some View {
         NavigationStack {
             List {
@@ -78,6 +84,31 @@ struct DocumentImportConfirmView: View {
                         Spacer()
                         GradeBadge(grade: "D")
                     }
+                    // FR5.5/FR6.2 类型后置：零命中 → 未决态，候选 chips 引导选择（未选不可保存）；
+                    // 低置信预选 → 提示核对；任何 Picker 改动都视为用户已决
+                    if !draft.docTypeResolved {
+                        Label(L10n.docConfirmDocTypeUnresolved, systemImage: "questionmark.circle")
+                            .font(.caption)
+                            .foregroundStyle(Color("semantic-warning", bundle: .main))
+                            .accessibilityIdentifier("SP-11.docConfirm.docTypeUnresolved")
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(typeCandidates, id: \.self) { label in
+                                    Button(label) {
+                                        draft.docType = label
+                                        draft.docTypeResolved = true
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .frame(minHeight: 44)
+                                    .accessibilityIdentifier("SP-11.docConfirm.docTypeChip")
+                                }
+                            }
+                        }
+                    } else if draft.docTypeLowConfidence {
+                        Text(L10n.docConfirmDocTypeLowConfidence)
+                            .font(.caption).foregroundStyle(.secondary)
+                            .accessibilityIdentifier("SP-11.docConfirm.docTypeLowConfidence")
+                    }
                     Picker(L10n.docConfirmDocType, selection: $draft.docType) {
                         let options = L10n.docTypeLabels.contains(draft.docType)
                             ? L10n.docTypeLabels
@@ -87,6 +118,7 @@ struct DocumentImportConfirmView: View {
                         }
                     }
                     .pickerStyle(.menu)
+                    .onChange(of: draft.docType) { _, _ in draft.docTypeResolved = true }
                     .accessibilityIdentifier("SP-11.docConfirm.docType")
                 } footer: {
                     Text(L10n.docConfirmDocTypeHint)
@@ -165,7 +197,8 @@ struct DocumentImportConfirmView: View {
                     Button(L10n.docConfirmSaveAll) {
                         saveAll()
                     }
-                    .disabled(saving || !draft.confirmationSet.allConfirmAllowed)
+                    // 类型未决不得落库（doc_type NOT NULL 且占位值不是事实，FR6.2）
+                    .disabled(saving || !draft.confirmationSet.allConfirmAllowed || !draft.docTypeResolved)
                     .accessibilityIdentifier("SP-11.docConfirm.saveAll")
                 }
             }

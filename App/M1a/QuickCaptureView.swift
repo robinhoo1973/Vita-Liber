@@ -6,7 +6,8 @@ import AVFoundation
 import Domain
 import Infrastructure
 
-/// SP-11 快速拍摄（首页四入口中的病历/报告/处方；症状走 observationCreate）。
+/// SP-11 快速拍摄（📷 单入口；`kind == nil` = 不前置指定类型，识别后由理解层判定，
+/// FR5.5/FR6.2 V3.61；旧路由仍可携带类型作提示输入）。
 ///
 /// TestFlight 实测修复记录：
 /// 1. 三来源（拍照 / 相册 / 文件）——业界标准（备忘录「扫描文稿」、医疗文档
@@ -20,7 +21,7 @@ import Infrastructure
 /// 拍摄后经 DocumentsState 走与资料库完全相同的生产管线：
 /// SHA-256 去重 + OCR 文本随 meta 入库（FR5.6/FR6.1），同路径同语义。
 struct QuickCaptureView: View {
-    let kind: CaptureKind
+    let kind: CaptureKind?
 
     @Environment(AppState.self) private var app
     @Environment(DocumentsState.self) private var docs
@@ -351,15 +352,17 @@ struct QuickCaptureView: View {
         case .report: return L10n.homeCaptureReport
         case .prescription: return L10n.homeCapturePrescription
         case .symptom: return L10n.homeCaptureSymptom   // 症状入口走观察创建，防御分支
+        case nil: return L10n.homeCaptureAny            // 单入口：识别后判定类型
         }
     }
 
-    private var docTypeText: String {
+    /// 入口类型提示（documentTypeHint，仅提示不替代判定）；单入口为 nil
+    private var docTypeText: String? {
         switch kind {
         case .record: return L10n.docTypeRecord
         case .report: return L10n.docTypeReport
         case .prescription: return L10n.docTypePrescription
-        case .symptom: return L10n.docTypeRecord
+        case .symptom, nil: return nil
         }
     }
 

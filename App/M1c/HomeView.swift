@@ -42,8 +42,9 @@ struct HomeView: View {
     /// 「了解 AI」引导任务完成态（第四轮全仓审查修复：原为会话级 @State——
     /// 重启即复现；改持久化，与其余三项「数据驱动完成」同为准持久事实源）
     @AppStorage("homeGuide4Visited") private var aiGuideVisited = false
-    /// 快速拍摄以 sheet 呈现（TestFlight 实测修复：navigate 会改导航上下文）
-    @State private var quickCaptureKind: CaptureKind?
+    /// 快速拍摄以 sheet 呈现（TestFlight 实测修复：navigate 会改导航上下文）。
+    /// FR5.1/FR5.5 V3.61：📷 单击直接拍摄，不前置选类型——识别后由理解层判定
+    @State private var showQuickCapture = false
     /// FR6.9 待办卡详情 sheet 选择项
     @State private var selectedPendingCard: AggregatedReminderItem?
 
@@ -110,18 +111,16 @@ struct HomeView: View {
                     .accessibilityLabel(L10n.homeVoice)
                     .accessibilityIdentifier("SP-04.home.mic")
                 }
-                // FR2.1② 相机 OCR/资料识别入口（V3.57 摄像头入口）：
-                // 快速拍摄四入口归入工具栏快捷操作（原次级区设计已移除）
-                Menu {
-                    Button(L10n.homeCaptureRecord) { quickCaptureKind = .record }
-                    Button(L10n.homeCaptureReport) { quickCaptureKind = .report }
-                    Button(L10n.homeCapturePrescription) { quickCaptureKind = .prescription }
-                    Button(L10n.homeCaptureSymptom) { router.navigate(to: .observationCreate) }
+                // FR2.1② 相机 OCR/资料识别入口（V3.61 单入口）：单击直接进采集页，
+                // 文档类型在识别后由共享理解层判定（FR5.5/FR6.2/ADR-029 不前置指定）；
+                // 症状录入走语音面板意图与记录页观察创建，不再挂在相机图标下
+                Button {
+                    showQuickCapture = true
                 } label: {
                     Image(systemName: "camera.fill")
                 }
                 .accessibilityLabel(L10n.homeQuickCapture)
-                .accessibilityIdentifier("SP-04.home.captureMenu")
+                .accessibilityIdentifier("SP-04.home.capture")
                 // FR14.8 通知中心铃铛（未读角标不显示病名药名，§5 通知隐私）
                 NavigationLink(value: AppRoute.notificationCenter) {
                     Image(systemName: "bell")
@@ -139,8 +138,8 @@ struct HomeView: View {
         // SP-55 全屏工作台
         .fullScreenCover(isPresented: $showVoicePanel) { VoiceQuickLaunchView() }
         .sheet(isPresented: $showVoiceNote) { VoiceNotePanelView() }
-        .sheet(item: $quickCaptureKind) { kind in
-            NavigationStack { QuickCaptureView(kind: kind) }
+        .sheet(isPresented: $showQuickCapture) {
+            NavigationStack { QuickCaptureView(kind: nil) }
         }
         .sheet(item: $selectedPendingCard) { item in
             NavigationStack { PendingCardDetailSheet(item: item) }
@@ -380,7 +379,7 @@ struct HomeView: View {
                 router.navigate(to: .memberList)
             }
             GuideTaskCard(icon: "camera.fill", title: L10n.homeGuide2, done: !docs.documents.isEmpty) {
-                quickCaptureKind = .record
+                showQuickCapture = true
             }
             GuideTaskCard(icon: "bell.badge.fill", title: L10n.homeGuide3, done: !reminderStore.todaySlots.isEmpty) {
                 router.navigate(to: .medicationPlanForm(nil))
@@ -478,7 +477,7 @@ struct HomeView: View {
                     router.navigate(to: .medicationCabinet)
                 }
                 BigCareCard(icon: "camera.fill", title: L10n.homeCareCapture, tint: .green) {
-                    router.navigate(to: .scanCapture(.record))
+                    router.navigate(to: .scanCapture(nil))
                 }
                 // 评审修正 U7：§7.1 防误触——SOS 大卡按住 600ms 才进入
                 BigCareCard(icon: "sos", title: L10n.homeCareSOS, tint: .red) {

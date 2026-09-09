@@ -852,6 +852,8 @@ enum L10n {
     "docConfirm.confidenceMid",
     "docConfirm.docType",
     "docConfirm.docTypeHint",
+    "docConfirm.docTypeUnresolved",
+    "docConfirm.docTypeLowConfidence",
     "docConfirm.hint",
     "docConfirm.reenable",
     "docConfirm.reject",
@@ -1460,6 +1462,7 @@ enum L10n {
         "helpcard.photoPending",
         "home.capture.file",
         "home.capture.hint",
+        "home.captureAny",
         "home.capture.library",
         "home.capture.noCamera",
         "home.capture.saved",
@@ -1654,6 +1657,8 @@ enum L10n {
     static var homeCapturePrescription: String { t("home.capture.prescription") }
     static var homeCaptureSymptom: String { t("home.capture.symptom") }
     static var homeCaptureHint: String { t("home.capture.hint") }
+    /// 📷 单入口标题（FR5.1 V3.61：不前置选类型）
+    static var homeCaptureAny: String { t("home.captureAny") }
     static var homeCaptureShoot: String { t("home.capture.shoot") }
     static var homeCaptureLibrary: String { t("home.capture.library") }
     static var homeCaptureFile: String { t("home.capture.file") }
@@ -2079,6 +2084,11 @@ enum L10n {
     /// V3.41 文档类型后置判定：确认卡 D 级类型草稿行（可一键改）
     static var docConfirmDocType: String { t("docConfirm.docType") }
     static var docConfirmDocTypeHint: String { t("docConfirm.docTypeHint") }
+    /// FR5.5/FR6.2 类型后置：零命中 → 引导选择；低置信 → 提示核对
+    static var docConfirmDocTypeUnresolved: String { t("docConfirm.docTypeUnresolved") }
+    static var docConfirmDocTypeLowConfidence: String { t("docConfirm.docTypeLowConfidence") }
+    static var docTypeLabelVaccineRecord: String { t("docTypeLabel.vaccineRecord") }
+    static var docTypeLabelOther: String { t("docTypeLabel.other") }
     // 第四轮全仓审查修复：FR6.3 三级置信度/FR6.4 放弃/全部确认闸门/保存失败可见
     static var docConfirmConfidenceHigh: String { t("docConfirm.confidenceHigh") }
     static var docConfirmConfidenceMid: String { t("docConfirm.confidenceMid") }

@@ -93,7 +93,8 @@ final class DocumentsState {
         var originalData: Data
         var processedData: Data
         var mimeType: String
-        var docType: String
+        /// 入口类型提示（FR5.5/FR6.2：nil = 不前置指定，识别后由理解层判定）
+        var docType: String?
         var title: String?
         var sha256: String
         var isSensitive: Bool
@@ -105,7 +106,17 @@ final class DocumentsState {
     struct ImportDraft: Identifiable {
         let id = UUID()
         var patientId: UUID
+        /// 当前类型标签（D 级草稿，可改）。`docTypeResolved == false` 时为占位值，
+        /// 不得落库——确认卡以候选 chips 引导用户选择（FR6.2 低置信/无法判定）。
         var docType: String
+        /// 类型是否已决（入口提示、理解层判定或用户选择任一成立即 true）
+        var docTypeResolved: Bool = true
+        /// 判定置信度 <0.75 的预选（提示核对，不阻断）
+        var docTypeLowConfidence: Bool = false
+        /// 理解层稳定类型键（lab_report/outpatient_record/…；nil = 零命中）
+        var documentTypeKey: String?
+        /// 多类候选标签（确认卡引导 chips 用，不决定 doc_type，FR6.2 V3.49）
+        var documentTypeCandidates: [String] = []
         var title: String?
         var isSensitive: Bool
         var origin: String
@@ -218,7 +229,7 @@ final class DocumentsState {
     /// origin 必须落在 document_file.origin CHECK 枚举内（camera/photoLibrary/import/
     /// scanner/manual）——曾用 "file" 触发 SQLITE_CONSTRAINT_CHECK，全部导入失败。
     func prepareImageDraft(patientId: UUID, originalData: Data, processedData: Data, mimeType: String,
-                           docType: String, title: String?, isSensitive: Bool,
+                           docType: String?, title: String?, isSensitive: Bool,
                            origin: String = "import") async -> ImportDraft? {
         lastImportError = nil
         // 去重哈希注定到矫正/遮挡后的展示版——同一张原始照片选不同区域/不同遮挡视为不同文档
@@ -249,14 +260,21 @@ final class DocumentsState {
     /// FR6.1/ADR-026：OCR 经统一编排层（质量评估+识别）；
     /// FR14.1 authOcr：授权关闭 → 跳过识别，草稿无候选字段但仍可确认保存。
     private func buildDraft(patientId: UUID, originalData: Data, processedData: Data, mimeType: String,
-                            docType: String, title: String?, isSensitive: Bool, origin: String,
+                            docType: String?, title: String?, isSensitive: Bool, origin: String,
                             sha256: String, replaceDocumentId: UUID? = nil) async -> ImportDraft? {
         var fields: [CandidateField] = []
         var tags: [String] = []
         var linesText = ""     // FR6.9：识别原文（跳过稍后 pending_card.raw_text 源）
-        var effectiveDocType = docType
-        var isPrescription = PrescriptionFieldMapper.isPrescriptionDocType(
-            docType, prescriptionLabel: prescriptionDocTypeLabel)
+        // FR5.5/FR6.2 类型后置：无入口提示时类型由理解层判定；零命中 = 未决（占位「其他」，
+        // 确认卡引导选择、未选不可保存）
+        var effectiveDocType = docType ?? Self.unresolvedDocTypePlaceholder
+        var docTypeResolved = docType != nil
+        var docTypeLowConfidence = false
+        var documentTypeKey: String?
+        var documentTypeCandidates: [String] = []
+        var isPrescription = docType.map {
+            PrescriptionFieldMapper.isPrescriptionDocType($0, prescriptionLabel: prescriptionDocTypeLabel)
+        } ?? false
         if ocrAuthorized() {
             do {
                 let result = try await pipeline.run(imageData: processedData)
@@ -277,11 +295,19 @@ final class DocumentsState {
                     TextUnderstandingInput(text: result.lines.joined(separator: "\n"),
                                            lines: result.lines,
                                            source: .ocr(documentTypeHint: docType)))
+                documentTypeKey = understanding.suggestedTarget
+                documentTypeCandidates = ([understanding.suggestedTarget].compactMap { $0 }
+                    + understanding.secondaryTargets.map(\.key))
+                    .compactMap(Self.docTypeLabel(forStableKey:))
+                // 有入口提示：≥0.75 才覆盖用户显式选择；无提示：任何判定都作预选
+                //（<0.75 标低置信提示核对），零命中保持未决
                 if let judged = understanding.suggestedTarget,
-                   understanding.targetConfidence >= 0.75 {
+                   understanding.targetConfidence >= 0.75 || docType == nil {
                     let judgedLabel = Self.docTypeLabel(forStableKey: judged)
                     if let judgedLabel {
                         effectiveDocType = judgedLabel
+                        docTypeResolved = true
+                        docTypeLowConfidence = understanding.targetConfidence < 0.75
                     }
                     isPrescription = judged == "prescription"
                         || (isPrescription && judgedLabel == nil)
@@ -329,7 +355,10 @@ final class DocumentsState {
                 return nil
             }
         }
-        return ImportDraft(patientId: patientId, docType: effectiveDocType, title: title, isSensitive: isSensitive,
+        return ImportDraft(patientId: patientId, docType: effectiveDocType,
+                           docTypeResolved: docTypeResolved, docTypeLowConfidence: docTypeLowConfidence,
+                           documentTypeKey: documentTypeKey, documentTypeCandidates: documentTypeCandidates,
+                           title: title, isSensitive: isSensitive,
                            origin: origin, sha256: sha256, originalData: originalData, processedData: processedData,
                            mimeType: mimeType, qualityTags: tags,
                            confirmationSet: OcrConfirmationSet(fields: fields),   // confirm-ok: F6/F9 图片入库 OCR 确认集是合法产出方（非语音路径），FR17.13 只约束语音草稿确认
@@ -347,14 +376,18 @@ final class DocumentsState {
 
     /// 稳定类型键 → 文档类型标签（App 层映射；键族单一事实源在
     /// Domain DocumentTypeClassifierFallback）
-    private static func docTypeLabel(forStableKey key: String) -> String? {
+    static func docTypeLabel(forStableKey key: String) -> String? {
         switch key {
         case "prescription": return L10n.docTypePrescription
         case "lab_report": return L10n.docTypeReport
         case "outpatient_record", "diagnosis_certificate": return L10n.docTypeRecord
+        case "vaccine_record": return L10n.docTypeLabelVaccineRecord
         default: return nil
         }
     }
+
+    /// 未决类型占位（不得落库；`ImportDraft.docTypeResolved == false` 时确认卡阻断保存）
+    static var unresolvedDocTypePlaceholder: String { L10n.docTypeLabelOther }
 
     /// 理解层字段键 → 确认卡展示标签（L10n 单出口）
     static func fieldLabel(forKey key: String) -> String {
@@ -499,7 +532,7 @@ final class DocumentsState {
     /// 其余格式（Word 等）归档元数据记录——原文件 body 解析待升级，绝不静默吞文件。
     /// isSensitive：快速拍摄默认 true（BR-007 敏感默认锁定）；资料库导入
     /// 沿用原语义 false（用户可后续标记）。
-    func importDocument(patientId: UUID, url: URL, docType: String,
+    func importDocument(patientId: UUID, url: URL, docType: String?,
                         isSensitive: Bool = false) async -> ImportDraft? {
         lastImportError = nil
         pdfPartialFailure = 0
@@ -530,7 +563,8 @@ final class DocumentsState {
                 let data = try Data(contentsOf: url)
                 let ext = url.pathExtension.isEmpty ? "docx" : url.pathExtension
                 let path = persistOriginal(patientId: patientId, data: data, ext: ext)
-                _ = try await store.save(patientId: patientId, docType: docType,
+                // Word 等无文本解析：无判定依据，入口无提示时落「其他」（用户可在详情改）
+                _ = try await store.save(patientId: patientId, docType: docType ?? Self.unresolvedDocTypePlaceholder,
                                          sha256: "file:" + Self.hash(data),
                                          mimeType: url.pathExtension, origin: "import",
                                          isSensitive: isSensitive,
@@ -548,7 +582,7 @@ final class DocumentsState {
     /// 渲染失败上抛 → lastImportError 可见（绝不静默）。
     /// 识别文本写入 ocr_text 检索列（原 base64 塞 meta_json：FTS 无法索引）；
     /// 机器识别未确认 = grade 'D'（BR-003），确认后升 C 才进入检索/AI 事实链。
-    func importPDF(patientId: UUID, url: URL, docType: String, isSensitive: Bool = false) async {
+    func importPDF(patientId: UUID, url: URL, docType: String?, isSensitive: Bool = false) async {
         lastImportError = nil
         pdfPartialFailure = 0
         do {
@@ -583,6 +617,11 @@ final class DocumentsState {
             let texts = acc.texts
             let failedPages = acc.failedPages
             let joined = texts.filter { !$0.isEmpty }.joined(separator: "\n---\n")
+            // FR5.5 类型后置：无入口提示时按全文兜底分类器判定，零命中落「其他」
+            let judgedKey = DocumentTypeClassifierFallback.classify(
+                lines: texts.flatMap { $0.split(separator: "\n").map(String.init) }).target
+            let resolvedDocType = docType ?? judgedKey.flatMap(Self.docTypeLabel(forStableKey:))
+                ?? Self.unresolvedDocTypePlaceholder
             let metaPayload = ["engine": ocrOn ? "vision" : "skipped-auth",
                                "page_count": texts.count,
                                "failed_pages": failedPages] as [String: Any]
@@ -598,7 +637,7 @@ final class DocumentsState {
                     duplicateHits = hits
                     pendingDuplicate = PendingDocument(patientId: patientId, originalData: data,
                                                        processedData: data, mimeType: "application/pdf",
-                                                       docType: docType, title: url.lastPathComponent,
+                                                       docType: resolvedDocType, title: url.lastPathComponent,
                                                        sha256: pdfSHA, isSensitive: isSensitive,
                                                        origin: "import")
                     return
@@ -606,7 +645,7 @@ final class DocumentsState {
             } catch {
                 // 查重失败不阻断导入（宁可重复入库也不丢资料）
             }
-            _ = try await store.save(patientId: patientId, docType: docType,
+            _ = try await store.save(patientId: patientId, docType: resolvedDocType,
                                      sha256: pdfSHA, mimeType: "application/pdf",
                                      origin: "import", isSensitive: isSensitive,
                                      metaJSON: metaJSON, title: url.lastPathComponent,
@@ -722,7 +761,7 @@ struct DocumentLibraryView: View {
 
     /// FR5.1 五入口确认弹窗内容：相机拍摄 / 文件导入（PDF/图片）/ 相册导入 / 手工新建
     @ViewBuilder private var importSourceActions: some View {
-        Button(L10n.docImportCamera) { router.navigate(to: .scanCapture(.record)) }
+        Button(L10n.docImportCamera) { router.navigate(to: .scanCapture(nil)) }
         Button(L10n.docImportFile) { fileImporterActive = true }
         Button(L10n.docImportPhotos) { photosImporterActive = true }
         Button(L10n.docImportManual) { showManualCreate = true }
@@ -911,7 +950,7 @@ struct DocumentLibraryView: View {
                 let mime = ImageInputRules.sniffMimeType(of: data)
                 if let draft = await state.prepareImageDraft(
                     patientId: app.currentPatientId, originalData: data, processedData: data,
-                    mimeType: mime, docType: L10n.docTypeRecord, title: nil,
+                    mimeType: mime, docType: nil, title: nil,
                     isSensitive: false, origin: "photoLibrary") {
                     pendingDraft = draft
                 }
@@ -931,10 +970,10 @@ struct DocumentLibraryView: View {
         let url = fileQueue.removeFirst()
         Task {
             if url.pathExtension.lowercased() == "pdf" {
-                await state.importPDF(patientId: app.currentPatientId, url: url,
-                                      docType: L10n.docTypeReport)
+                // FR5.5 类型后置：文件导入不再预设「检验报告」，由识别文本判定
+                await state.importPDF(patientId: app.currentPatientId, url: url, docType: nil)
             } else if let draft = await state.importDocument(patientId: app.currentPatientId, url: url,
-                                                              docType: L10n.docTypeReport) {
+                                                              docType: nil) {
                 pendingDraft = draft
             }
             queueProcessing = false

@@ -46,16 +46,60 @@ final class M1aAcceptanceTests: XCTestCase {
     }
 
     /// 活管线状态仓（V3.39 BR-003 用例载体）：真实 DocumentStore + 桩识别器
-    private func makeDocs(container: AppContainer) -> DocumentsState {
+    private func makeDocs(container: AppContainer, lines: [String] = []) -> DocumentsState {
         // 第八轮修复：每用例独立原件目录（tearDown 清除，见 testOriginalsDirs）
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("vitaliber-originals-\(UUID().uuidString)", isDirectory: true)
         testOriginalsDirs.append(dir)
         return DocumentsState(
             store: container.documents,
-            pipeline: OCRPipeline(recognizer: StubImageTextRecognizer(scripted: .init(lines: [], confidence: 0)),
+            pipeline: OCRPipeline(recognizer: StubImageTextRecognizer(scripted: .init(lines: lines, confidence: lines.isEmpty ? 0 : 0.9)),
                                   grayscaleDecoder: GrayscaleImageDecoder()),
-            originalsDir: dir)
+            originalsDir: dir,
+            understandingEngine: NLTextUnderstanding())
+    }
+
+    /// 1×1 PNG（Vision 桩不解码像素，只需非空字节走完查重/草稿组装）
+    private let tinyPNG = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00])
+
+    /// FR5.5/FR6.2（V3.61 相机单入口）：无入口类型提示 + 零命中 → 类型未决，
+    /// 确认卡必须引导选择、不得以占位值落库。
+    func test_typeFreeCaptureLeavesDocTypeUnresolvedWhenNothingIsJudged() async throws {
+        let defaults = freshDefaults()
+        let container = try AppContainer.preview()
+        let app = AppState(persistor: container.persistor, defaults: defaults, launchArgs: [])
+        await app.bootstrap()
+        let patientId = try await ensureOwner(app: app, container: container)
+        let docs = makeDocs(container: container, lines: ["随手写的一行", "没有任何医疗关键词"])
+        let draft = await docs.prepareImageDraft(patientId: patientId, originalData: tinyPNG, processedData: tinyPNG,
+                                                 mimeType: "image/png", docType: nil, title: nil,
+                                                 isSensitive: true, origin: "camera")
+        XCTAssertEqual(draft?.docTypeResolved, false, "零命中且无入口提示 → 未决，引导选择")
+        XCTAssertEqual(draft?.docType, DocumentsState.unresolvedDocTypePlaceholder)
+    }
+
+    /// 无入口提示时理解层判定即预选（D 级可改）；入口提示存在时 <0.75 不覆盖用户选择。
+    func test_judgedTypeResolvesWithoutEntryHint() async throws {
+        let defaults = freshDefaults()
+        let container = try AppContainer.preview()
+        let app = AppState(persistor: container.persistor, defaults: defaults, launchArgs: [])
+        await app.bootstrap()
+        let patientId = try await ensureOwner(app: app, container: container)
+        let docs = makeDocs(container: container, lines: ["处方", "用法：每日三次", "口服"])
+        let judged = await docs.prepareImageDraft(patientId: patientId, originalData: tinyPNG, processedData: tinyPNG,
+                                                  mimeType: "image/png", docType: nil, title: nil,
+                                                  isSensitive: true, origin: "camera")
+        XCTAssertEqual(judged?.docTypeResolved, true)
+        XCTAssertEqual(judged?.docType, L10n.docTypePrescription)
+        XCTAssertEqual(judged?.isPrescription, true)
+        XCTAssertEqual(judged?.documentTypeKey, "prescription")
+
+        let hinted = makeDocs(container: container, lines: ["检验"])   // 单行命中 0.6 < 0.75
+        let kept = await hinted.prepareImageDraft(patientId: patientId, originalData: Data([0x01, 0x02]), processedData: Data([0x01, 0x02]),
+                                                  mimeType: "image/png", docType: L10n.docTypeRecord, title: nil,
+                                                  isSensitive: true, origin: "camera")
+        XCTAssertEqual(kept?.docType, L10n.docTypeRecord, "低置信判定不得推翻用户显式入口类型")
+        XCTAssertEqual(kept?.docTypeResolved, true)
     }
 
     /// 建所有者并等 patient_profile 落库（document_file 外键依赖）

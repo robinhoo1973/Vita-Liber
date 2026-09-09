@@ -172,7 +172,7 @@ struct RouteDestinationView: View {
 
         // ---- SP-11 快速拍摄（TestFlight 实测修复：原先列入「尚未落地」降级，
         //      三入口点击静默回档案根——现接真实相机流 + 资料库入库管线） ----
-        case .scanCapture(let kind):
+        case .scanCapture(let kind):   // nil = 单入口（识别后判定类型）
             if kind == .symptom {
                 // .symptom 只可能来自旧持久化路由/旧通知（保留 Codable 兼容）：
                 // 症状必须走观察创建——kind→docType 映射兜底会把症状拍成
