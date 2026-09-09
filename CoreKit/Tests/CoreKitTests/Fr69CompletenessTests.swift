@@ -1,6 +1,10 @@
 import Foundation
 import Testing
 @testable import Domain
+#if os(iOS) || os(macOS)
+import GRDB   // 平台边界（ERR#8）：GRDB 仅 iOS/macOS 链接，Linux 只跑 Domain 门禁
+@testable import Infrastructure
+#endif
 
 // binds: SU-M2-PENDINGCARD
 @Suite("SU-M2-PENDINGCARD · FR6.9 完整度评估与聚合中心（data-flow §17/§4.5.1）")
@@ -235,3 +239,31 @@ struct Fr69CompletenessTests {
         #expect(filtered.map(\.id.sourceId).sorted() == ["a1", "c1"])
     }
 }
+
+// binds: SU-M2-PENDINGCARD-DB
+// GRDB 平台边界（ERR#8，同 GoldenMigrationTests）：仅 iOS/macOS 执行，
+// Linux 只跑 Domain 门禁；SchemaV2 baseline 含 pending_card 全量 DDL。
+#if os(iOS) || os(macOS)
+@Suite("SU-M2-PENDINGCARD-DB · FR6.9 §21.1 同源去重（DB 层，source_doc_id 缺失分支）")
+struct PendingCardDedupTests {
+    @Test("无文档 ID 重复跳过复用同卡（同成员+卡种+原文）")
+    func 无文档ID重复跳过复用同卡() async throws {
+        let dbQueue = try DatabaseQueue(configuration: GRDBStore.configuration())
+        try dbQueue.write { db in
+            try db.execute(sql: SchemaV2.ddl)
+        }
+        let store = PendingCardStore(writer: dbQueue)
+        let patient = UUID()
+        let draft = PendingCardDraft(patientId: patient, sourceType: "ocr", sourceDocId: nil,
+                                     cardKind: "prescription",
+                                     incompleteFields: [IncompleteField(key: "dosage", confidence: 0.5)],
+                                     partialData: ["drug_name": "阿莫西林"],
+                                     rawText: "阿莫西林 每日三次")
+        let first = try await store.upsert(draft)
+        let second = try await store.upsert(draft)
+        #expect(first == second)
+        let cards = try await store.list(patientId: patient)
+        #expect(cards.count == 1)
+    }
+}
+#endif

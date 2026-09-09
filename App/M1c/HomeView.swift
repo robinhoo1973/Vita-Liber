@@ -764,7 +764,6 @@ struct MemberPickerSheet: View {
 private struct PendingCardDetailSheet: View {
     let item: AggregatedReminderItem
     @Environment(PendingCardCenterState.self) private var pendingCenter
-    @Environment(AppState.self) private var app
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -810,11 +809,14 @@ private struct PendingCardDetailSheet: View {
         }
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
+                // §21.2 完结纪律：resolved = 用户补填所有缺失字段 + 创建对应
+                // 实体（本卡无补填路径，期二接线）——「知道了」只关闭详情，
+                // 卡保持 pending 走 7d/30d 生命周期（§21.3）；伪完结会把
+                // D 级草稿静默沉入 resolved、用户「稍后补全」承诺落空。
                 Button(L10n.onboard_gotIt) {
-                    pendingCenter.resolve(patientId: app.currentPatientId, id: item.id.sourceId)
                     dismiss()
                 }
-                .accessibilityIdentifier("SP-04.home.pendingCard.resolve")
+                .accessibilityIdentifier("SP-04.home.pendingCard.close")
             }
         }
     }

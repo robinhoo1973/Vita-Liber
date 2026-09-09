@@ -141,7 +141,7 @@ struct DocumentImportConfirmView: View {
                 // FR6.9 跳过稍后出口：仅部分完整可暂存待办卡（§17.3 对照表）；
                 // 严重缺失不建卡、识别文本退回原始记录（无此按钮，用户取消即
                 // 放弃本卡——原文保留在 document 流程外，不产生任何实体）。
-                if completeness.level == .partiallyComplete {
+                if completeness.level == .partiallyComplete && docs.canSkipForLater {
                     Section {
                         Button {
                             showSkipDialog = true

@@ -31,6 +31,9 @@ final class DocumentsState {
     private let store: DocumentStore
     /// FR6.9 待办卡写门（未注入 = 预览/测试环境，跳过稍后不可用）
     private let pendingCards: PendingCardStore?
+    /// 写门可用性（确认卡据此隐藏跳过稍后入口——未注入时显示一个必失败的
+    /// 按钮是误导性 UX；生产恒注入）
+    var canSkipForLater: Bool { pendingCards != nil }
     private let pipeline: OCRPipeline
     /// PDF 解码（ADR-027：经 EAL 注入，调用方不直接实例化具体引擎——
     /// 第四轮全仓审查修复：importPDF 曾直接 new PDFKitDecoder() 绕过注册表）。

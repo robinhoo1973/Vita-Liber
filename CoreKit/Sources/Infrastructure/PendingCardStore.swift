@@ -102,7 +102,9 @@ public actor PendingCardStore {
     public init(writer: any DatabaseWriter) { self.writer = writer }
 
     /// 建卡（§21.1 同源去重：同 source_doc_id + card_kind 已有未完结卡 →
-    /// 更新快照复用，不重复创建）。返回生效卡 id。
+    /// 更新快照复用，不重复创建；source_doc_id 缺失时——确认卡阶段尚未
+    /// 建档/手工/语音源——按 同成员+卡种+原文 复用活跃卡，重复跳过不建
+    /// 重复卡（fr69-aggregation-round1 二轮复核 A 项）。返回生效卡 id。
     @discardableResult
     public func upsert(_ draft: PendingCardDraft) async throws -> String {
         let incompleteJSON = String(data: try JSONEncoder().encode(draft.incompleteFields),
@@ -110,6 +112,15 @@ public actor PendingCardStore {
         let partialJSON = String(data: try JSONEncoder().encode(draft.partialData),
                                  encoding: .utf8) ?? "{}"
         let now = Date().timeIntervalSince1970
+        let updateSnapshot = { (db: Database, id: String) throws -> Void in
+            try db.execute(sql: """
+                UPDATE pending_card
+                SET incomplete_fields = ?, partial_data = ?, raw_text = ?,
+                    updated_at = ?, note = ?
+                WHERE id = ?
+                """, arguments: [incompleteJSON, partialJSON, draft.rawText, now,
+                                 draft.note ?? NSNull(), id])
+        }
         return try await writer.write { db -> String in
             if let docId = draft.sourceDocId?.uuidString {
                 let existing: String? = try String.fetchOne(db, sql: """
@@ -119,13 +130,19 @@ public actor PendingCardStore {
                     LIMIT 1
                     """, arguments: [docId, draft.cardKind])
                 if let id = existing {
-                    try db.execute(sql: """
-                        UPDATE pending_card
-                        SET incomplete_fields = ?, partial_data = ?, raw_text = ?,
-                            updated_at = ?, note = ?
-                        WHERE id = ?
-                        """, arguments: [incompleteJSON, partialJSON, draft.rawText, now,
-                                         draft.note ?? NSNull(), id])
+                    try updateSnapshot(db, id)
+                    return id
+                }
+            } else {
+                let existing: String? = try String.fetchOne(db, sql: """
+                    SELECT id FROM pending_card
+                    WHERE patient_id = ? AND card_kind = ? AND raw_text = ?
+                      AND status IN ('pending','in_progress')
+                    LIMIT 1
+                    """, arguments: [draft.patientId.uuidString, draft.cardKind,
+                                     draft.rawText])
+                if let id = existing {
+                    try updateSnapshot(db, id)
                     return id
                 }
             }
@@ -277,6 +294,9 @@ public final class PendingCardCenterState {
     }
 
     public func loadDetail(id: String) async {
+        // 先清旧详情（fr69-aggregation-round1 二轮复核 B 项）：连开第二张卡
+        // 时旧卡详情短暂闪现——详情 sheet 与列表项不同步的错位观感
+        detail = nil
         detail = try? await store.card(id: id)   // try?-ok: 详情读取失败按空态渲染，不静默假数据
     }
 
