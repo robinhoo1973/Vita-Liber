@@ -126,6 +126,26 @@ final class M15AcceptanceTests: XCTestCase {
         XCTAssertEqual(sys.points[0].value, 120)
     }
 
+    func test_deviceReplayReportsUpdatesAndDoesNotOverwriteManualRows() async throws {
+        let (store, member) = try await makeStore()
+        let trends = TrendQueryStore(writer: store.writer)
+        let now = Date()
+        let manual = try await trends.addSample(patientId: member, metric: .heartRate,
+                                                value: 60, secondaryValue: nil,
+                                                unit: "bpm", measuredAt: now)
+        _ = try await trends.addDeviceSamples(patientId: member, rows: [
+            DeviceMetricRow(metricKey: "heart_rate", value: 80, unit: "bpm", measuredAt: now)
+        ])
+        let changed = try await trends.addDeviceSamples(patientId: member, rows: [
+            DeviceMetricRow(metricKey: "heart_rate", value: 82, unit: "bpm", measuredAt: now)
+        ])
+        XCTAssertGreaterThan(changed, 0, "Updates must invalidate the visible trend")
+        let series = try await trends.series(for: member, metric: .heartRate,
+            range: DateInterval(start: now.addingTimeInterval(-1), end: now.addingTimeInterval(1)))
+        XCTAssertEqual(series.points.count, 2)
+        XCTAssertEqual(series.points.first { $0.id == manual }?.value, 60)
+    }
+
     func test_三家医院血糖同图且参考范围各自成带() async throws {
         let (store, member) = try await makeStore()
         _ = try await insertMetric(store, member: member, value: 6.1, origin: "hospital",

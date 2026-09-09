@@ -81,7 +81,7 @@ enum ReminderHubLoader {
     static func alertItems(_ events: [GuidelineStore.AlertEvent],
                            memberId: UUID) -> [AggregatedReminderItem] {
         events.compactMap { event in
-            guard event.patientId == memberId else { return nil }
+            guard event.patientId == memberId, event.qualified, event.severity != .L0 else { return nil }
             let severity = event.severity
             let pinned = severity != .L0
             return AggregatedReminderItem(
@@ -92,7 +92,7 @@ enum ReminderHubLoader {
                 patientID: memberId,
                 priority: pinned ? 2 : 0,
                 status: severity.rawValue,
-                routeKey: "alertHistory")
+                routeKey: "alertEvidence")
         }
     }
 

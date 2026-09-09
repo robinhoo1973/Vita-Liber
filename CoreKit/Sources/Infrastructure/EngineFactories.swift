@@ -135,5 +135,7 @@ extension EngineRegistry {
         registerIfAbsent(ImageCompressingFactory.make(ctx), for: ImageCompressingFactory.self)
         registerIfAbsent(SensitiveMediaProtectionFactory.make(ctx), for: SensitiveMediaProtectionFactory.self)
         registerIfAbsent(TextUnderstandingFactory.make(ctx), for: TextUnderstandingFactory.self)
+        // 第 9 工厂（V3.61 / ADR-029 期三首个消费点）：端侧润色，iOS 26 Foundation Models 门控
+        registerIfAbsent(TextRefinerFactory.make(ctx), for: TextRefinerFactory.self)
     }
 }

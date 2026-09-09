@@ -8,6 +8,7 @@ import Protocols
 // MARK: - FR17.10 语音提醒设定
 
 /// 一句话说出提醒 → 文法抽取时间/重复 → 统一模板确认 → 入 Reminder 实体。
+@MainActor
 struct VoiceReminderDraftView: View {
     @Environment(AppState.self) private var app
     @Environment(AppRouter.self) private var router
@@ -20,16 +21,25 @@ struct VoiceReminderDraftView: View {
     @State private var routeMonitor = AudioRouteMonitor()
     @State private var unresolved: String?
     @State private var savedAlert = false
+    @State private var dictationBusy = false
+    @State private var dictationScope = UUID()
+    @State private var dictationConfidence: Double = 1
 
     var body: some View {
+        let scope = dictationScope
         VStack(alignment: .leading, spacing: 12) {
             Text(L10n.voiceguide_reminderTitle).font(.headline)
             Text(L10n.voiceguide_reminderExample)
                 .font(.caption).foregroundStyle(.secondary)
             // TestFlight 实测修复：录音听写按钮（与手输共填同一文本，on-device 识别）
-            VoiceDictationButton { text, _ in
-                if !text.isEmpty { transcript = text }
-            }
+            VoiceDictationButton(onTranscript: { text, confidence in
+                guard dictationScope == scope, !text.isEmpty else { return }
+                dictationConfidence = min(dictationConfidence, confidence)
+                transcript = transcript.isEmpty ? text : transcript + "\n" + text
+            }, isBusy: Binding(get: { dictationBusy }, set: { busy in
+                if dictationScope == scope { dictationBusy = busy }
+            }))
+            .id(scope)
             TextField(L10n.voiceguide_transcript, text: $transcript, axis: .vertical)
                 .textFieldStyle(.roundedBorder)
                 .lineLimit(1...3)
@@ -47,7 +57,7 @@ struct VoiceReminderDraftView: View {
             } label: {
                 Label(L10n.voiceguide_buildDraft, systemImage: "bell").frame(minHeight: 44)
             }
-            .disabled(transcript.trimmingCharacters(in: .whitespaces).isEmpty)
+            .disabled(dictationBusy || transcript.trimmingCharacters(in: .whitespaces).isEmpty)
             .accessibilityIdentifier("FR17.10.build")
             Spacer()
         }
@@ -83,11 +93,15 @@ struct VoiceReminderDraftView: View {
     }
 
     private func buildDraft() {
+        guard !dictationBusy else { return }
         unresolved = nil
         var drafts = VoiceStructuringEngine.extractReminder(transcript, rules: VoiceGrammarDefaults.reminderRules)
+        for index in drafts.indices {
+            drafts[index].confidence = min(drafts[index].confidence, dictationConfidence)
+        }
         // 提醒内容 = 原文（确认卡上可编辑，业界确认卡惯例：内容恒可改）——
         // content 恒被追加，drafts 不可能为空，时间可解析性由 resolveDate 统一判
-        drafts.append(FieldDraft(key: "content", value: transcript, confidence: 0.9))
+        drafts.append(FieldDraft(key: "content", value: transcript, confidence: min(0.9, dictationConfidence)))
         // 模糊时间必须落成具体日期后才允许确认（FR17.10：草稿逐字段可改）
         guard VoiceReminderRules.resolveDate(from: drafts, now: Date()) != nil else {
             unresolved = L10n.voiceReminderTimeUnclear
@@ -109,6 +123,9 @@ struct VoiceReminderDraftView: View {
         }
         let title = drafts.first { $0.key == "content" }?.value ?? transcript
         let rule = drafts.first { $0.key == "repeat" }?.value
+        dictationScope = UUID()
+        dictationBusy = false
+        dictationConfidence = 1
         transcript = ""
         // 审查修复：调度失败必须可见（此前后台吞错 + 无条件弹「已保存」，
         // 用户以为提醒已设置——通知权限被拒/调度抛错时提醒永不触发）
@@ -125,6 +142,7 @@ struct VoiceReminderDraftView: View {
 
 /// 「系统问一步、用户答一步」的档案访谈。每步答案 → 统一模板确认 → 写入档案字段。
 /// 对既有用药计划的剂量/频次/停用修改一律弹拒绝卡（BR-003/006）。
+@MainActor
 struct VoiceGuidedProfileView: View {
     @Environment(AppState.self) private var app
     @Environment(AppRouter.self) private var router
@@ -152,6 +170,10 @@ struct VoiceGuidedProfileView: View {
     @State private var rejection: VoiceModificationGuard.Rejection?
     @State private var routeMonitor = AudioRouteMonitor()
     @State private var saveFailed = false
+    @State private var dictationBusy = false
+    @State private var dictationScope = UUID()
+    @State private var committing = false
+    @State private var dictationConfidence: Double = 1
 
     var body: some View {
         Group {
@@ -220,6 +242,9 @@ struct VoiceGuidedProfileView: View {
     /// 确认后逐字段落库；任一失败即停下并可见报错（审查修复：此前
     /// updateMember 的 Bool 被 `_ =` 丢弃，写失败仍推进下一步）
     private func commitFields(_ set: OcrConfirmationSet) async {
+        guard !committing else { return }
+        committing = true
+        defer { committing = false }
         var allOK = true
         for field in set.confirmedFields {
             if !(await onCommitField(field.key, field.value)) { allOK = false; break }
@@ -228,12 +253,17 @@ struct VoiceGuidedProfileView: View {
             saveFailed = true
             return
         }
+        dictationScope = UUID()
+        dictationBusy = false
+        dictationConfidence = 1
         answer = ""
         if stepIndex + 1 < steps.count { stepIndex += 1 }
     }
 
     private var interview: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let key = steps[stepIndex].key
+        let scope = dictationScope
+        return VStack(alignment: .leading, spacing: 12) {
             Text(L10n.voiceguideStep(stepIndex + 1, steps.count))
                 .font(.caption).foregroundStyle(.secondary)
             Text(steps[stepIndex].prompt)
@@ -241,25 +271,36 @@ struct VoiceGuidedProfileView: View {
                 .accessibilityIdentifier("FR17.11.prompt")
             // TestFlight 实测修复：提问自动语音朗读（不看屏幕也能访谈），
             // 每次进入新步骤重读一遍；听写按钮接同一回答输入（可手输可语音）
-            VoiceDictationButton { text, _ in
-                if !text.isEmpty { answer = text }
-            }
+            VoiceDictationButton(onTranscript: { text, confidence in
+                guard dictationScope == scope, steps[stepIndex].key == key, !text.isEmpty else { return }
+                dictationConfidence = min(dictationConfidence, confidence)
+                answer = answer.isEmpty ? text : answer + "\n" + text
+            }, isBusy: Binding(get: { dictationBusy }, set: { busy in
+                if dictationScope == scope, steps[stepIndex].key == key { dictationBusy = busy }
+            }))
+            .id(scope)
+            .disabled(committing)
             TextField(L10n.voiceguide_answerHint, text: $answer, axis: .vertical)
                 .textFieldStyle(.roundedBorder)
                 .lineLimit(1...4)
+                .disabled(committing)
                 .accessibilityIdentifier("FR17.11.answer")
             HStack(spacing: 12) {
                 Button(L10n.voiceguide_skip) {
+                    dictationScope = UUID()
+                    dictationBusy = false
+                    dictationConfidence = 1
                     answer = ""
                     if stepIndex + 1 < steps.count { stepIndex += 1 }
                 }
                 .frame(minHeight: 44)
+                .disabled(committing)
                 .accessibilityIdentifier("FR17.11.skip")
                 Spacer()
                 Button(L10n.voiceguide_next) { buildDraft() }
                     .buttonStyle(.borderedProminent)
                     .frame(minHeight: 44)
-                    .disabled(answer.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .disabled(committing || dictationBusy || answer.trimmingCharacters(in: .whitespaces).isEmpty)
                     .accessibilityIdentifier("FR17.11.next")
             }
             Spacer()
@@ -273,6 +314,7 @@ struct VoiceGuidedProfileView: View {
     }
 
     private func buildDraft() {
+        guard !dictationBusy, !committing else { return }
         let text = answer.trimmingCharacters(in: .whitespaces)
         guard !text.isEmpty else { return }
         // BR-003/006：语音通道对既有计划的剂量/频次/停用修改一律拒绝。
@@ -284,7 +326,7 @@ struct VoiceGuidedProfileView: View {
         }
         // FR17.13-entry: 语音指导 —— 走统一模板，不自建确认逻辑
         confirmSet = VoiceInputTemplate.confirmationSet(drafts: [
-            FieldDraft(key: steps[stepIndex].key, value: text, confidence: 0.88)
+            FieldDraft(key: steps[stepIndex].key, value: text, confidence: min(0.88, dictationConfidence))
         ])
     }
 }

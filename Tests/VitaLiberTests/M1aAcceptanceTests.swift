@@ -4,6 +4,7 @@ import GRDB
 import Domain
 import Infrastructure
 import Protocols
+import UIKit
 @testable import VitaLiber
 
 /// TC-M1a-03/05 的 App 层半场（test-plan §4.2）：
@@ -46,16 +47,65 @@ final class M1aAcceptanceTests: XCTestCase {
     }
 
     /// 活管线状态仓（V3.39 BR-003 用例载体）：真实 DocumentStore + 桩识别器
-    private func makeDocs(container: AppContainer) -> DocumentsState {
+    private func makeDocs(container: AppContainer, lines: [String] = []) -> DocumentsState {
         // 第八轮修复：每用例独立原件目录（tearDown 清除，见 testOriginalsDirs）
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("vitaliber-originals-\(UUID().uuidString)", isDirectory: true)
         testOriginalsDirs.append(dir)
         return DocumentsState(
             store: container.documents,
-            pipeline: OCRPipeline(recognizer: StubImageTextRecognizer(scripted: .init(lines: [], confidence: 0)),
+            pipeline: OCRPipeline(recognizer: StubImageTextRecognizer(scripted: .init(lines: lines, confidence: lines.isEmpty ? 0 : 0.9)),
                                   grayscaleDecoder: GrayscaleImageDecoder()),
-            originalsDir: dir)
+            originalsDir: dir,
+            understandingEngine: NLTextUnderstanding())
+    }
+
+    private var tinyPNG: Data {
+        UIGraphicsImageRenderer(size: CGSize(width: 32, height: 32)).pngData { context in
+            UIColor.white.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 32, height: 32))
+        }
+    }
+
+    /// FR5.5/FR6.2（V3.61 相机单入口）：无入口类型提示 + 零命中 → 类型未决，
+    /// 确认卡必须引导选择、不得以占位值落库。
+    func test_typeFreeCaptureLeavesDocTypeUnresolvedWhenNothingIsJudged() async throws {
+        let defaults = freshDefaults()
+        let container = try AppContainer.preview()
+        let app = AppState(persistor: container.persistor, defaults: defaults, launchArgs: [])
+        await app.bootstrap()
+        let patientId = try await ensureOwner(app: app, container: container)
+        let docs = makeDocs(container: container, lines: ["随手写的一行", "没有任何医疗关键词"])
+        let draft = await docs.prepareImageDraft(patientId: patientId, originalData: tinyPNG, processedData: tinyPNG,
+                                                 mimeType: "image/png", docType: nil, title: nil,
+                                                 isSensitive: true, origin: "camera")
+        XCTAssertEqual(draft?.docTypeResolved, false, "零命中且无入口提示 → 未决，引导选择")
+        XCTAssertEqual(draft?.docType, DocumentsState.unresolvedDocTypePlaceholder)
+    }
+
+    /// 无入口提示时理解层判定即预选（D 级可改）；入口提示存在时 <0.75 不覆盖用户选择。
+    func test_judgedTypeResolvesWithoutEntryHint() async throws {
+        let defaults = freshDefaults()
+        let container = try AppContainer.preview()
+        let app = AppState(persistor: container.persistor, defaults: defaults, launchArgs: [])
+        await app.bootstrap()
+        let patientId = try await ensureOwner(app: app, container: container)
+        let docs = makeDocs(container: container, lines: ["处方", "用法：每日三次", "口服"])
+        let judged = await docs.prepareImageDraft(patientId: patientId, originalData: tinyPNG, processedData: tinyPNG,
+                                                  mimeType: "image/png", docType: nil, title: nil,
+                                                  isSensitive: true, origin: "camera")
+        XCTAssertEqual(judged?.docTypeResolved, true)
+        XCTAssertEqual(judged?.docType, L10n.docTypePrescription)
+        XCTAssertEqual(judged?.isPrescription, true)
+        XCTAssertEqual(judged?.documentTypeKey, "prescription")
+
+        let hinted = makeDocs(container: container, lines: ["检验"])   // 单行命中 0.6 < 0.75
+        let image = tinyPNG
+        let kept = await hinted.prepareImageDraft(patientId: patientId, originalData: image, processedData: image,
+                                                  mimeType: "image/png", docType: L10n.docTypeRecord, title: nil,
+                                                  isSensitive: true, origin: "camera")
+        XCTAssertEqual(kept?.docType, L10n.docTypeRecord, "低置信判定不得推翻用户显式入口类型")
+        XCTAssertEqual(kept?.docTypeResolved, true)
     }
 
     /// 建所有者并等 patient_profile 落库（document_file 外键依赖）
@@ -194,23 +244,22 @@ final class M1aAcceptanceTests: XCTestCase {
         let patientId = try await ensureOwner(app: app, container: container)
 
         let docs = makeDocs(container: container)
-        var set = OcrConfirmationSet(fields: [
-            CandidateField(key: "drug_name", displayLabel: "药名", rawText: "阿莫西林", confidence: 0.93),
-            CandidateField(key: "dosage", displayLabel: "剂量", rawText: "每日三次", confidence: 0.88),
-        ])
-        set.confirm(field: set.fields[0].id)   // 只确认药名
-
+        var fields = [FieldDraft(key: "drug_name", value: "阿莫西林", confidence: 0.93),
+                      FieldDraft(key: "dosage", value: "每日三次", confidence: 0.88)]
+        _ = fields[0].confirm()
+        let image = tinyPNG
         let draft = DocumentsState.ImportDraft(
             patientId: patientId, docType: "病历", title: "样张", isSensitive: true,
             origin: "import", sha256: "sha:test",
-            originalData: Data([0x01]), processedData: Data([0x02]), mimeType: "image/jpeg",
-            qualityTags: [], confirmationSet: set, isPrescription: false,
-            ocrText: "阿莫西林 每日三次")
-        await docs.commitDraft(draft)
+            originalData: image, processedData: image, mimeType: "image/png",
+            qualityTags: [], pages: [.init(index: 0, lines: ["阿莫西林", "每日三次"],
+                                           fields: fields)])
+        let saved = await docs.commitDraft(draft)
+        XCTAssertTrue(saved)
 
         let rows = try await container.documents.list(patientId: patientId)
         XCTAssertEqual(rows.count, 1, "确认保存后 document_file 必须有一条记录")
-        XCTAssertEqual(rows[0].grade, "C", "经确认卡入库的文档必须是 C 级（用户已确认）")
+        XCTAssertEqual(rows[0].grade, "D", "Saving metadata must not promote unreviewed machine fields")
 
         // ocrText 只含已确认字段（未确认的「每日三次」不得进入正式区）
         let ocrText = try await container.store.writer.read {
@@ -226,9 +275,8 @@ final class M1aAcceptanceTests: XCTestCase {
         XCTAssertEqual(traceCount, 1, "识别留痕必须仅含已确认字段")
     }
 
-    /// BR-003 D→C：机器识别未确认（grade 'D'）的文档，用户显式确认后才升 C
-    /// 进入检索与 AI 事实链（V3.39 后 SP-53 队列的「确认」动作即此闸门）。
-    func test_BR003_D级文档确认后升C() async throws {
+    /// A legacy document without retained media must not be blindly promoted.
+    func test_legacyReviewWithoutOriginalLeavesDocumentUnconfirmed() async throws {
         let defaults = freshDefaults()
         let container = try AppContainer.preview()
         let app = AppState(persistor: container.persistor, defaults: defaults, launchArgs: [])
@@ -243,9 +291,11 @@ final class M1aAcceptanceTests: XCTestCase {
         XCTAssertEqual(row?.grade, "D", "机器识别未确认的文档必须以 D 级入库")
 
         let docs = makeDocs(container: container)
-        await docs.confirmText(id: docId)
+        let draft = await docs.prepareStoredDocument(id: docId, patientId: patientId)
+        XCTAssertNil(draft)
+        XCTAssertNotNil(docs.lastImportError)
 
         row = try await container.documents.fetch(id: docId)
-        XCTAssertEqual(row?.grade, "C", "用户显式确认后文档必须升 C 级")
+        XCTAssertEqual(row?.grade, "D")
     }
 }

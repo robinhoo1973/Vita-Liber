@@ -702,7 +702,7 @@ enum L10n {
     static func alertOriginName(_ origin: String) -> String {
         switch origin {
         case "hospital": return trendOriginHospital
-        case "device": return trendOriginSelfDevice
+        case "device": return trendOriginDevice
         default: return trendSelfMeasured
         }
     }
@@ -712,7 +712,7 @@ enum L10n {
     static var alertSourceTitle: String { t("alert.sourceTitle") }
     // FR16.3/16.4 信源原文详情页
     static var gsDetailNotFound: String { t("gsDetail.notFound") }
-    static func gsDetailMetric(_ key: String) -> String { String(format: t("gsDetail.metric"), key) }
+    static func gsDetailMetric(_ key: String) -> String { String(format: t("gsDetail.metric"), healthMetricName(key)) }
     static var gsDetailThresholds: String { t("gsDetail.thresholds") }
     static var gsDetailNote: String { t("gsDetail.note") }
 
@@ -743,6 +743,7 @@ enum L10n {
     static var commonSave: String { t("common.save") }
     static var commonCancel: String { t("common.cancel") }
     static var commonConfirm: String { t("common.confirm") }
+    static var commonMember: String { t("common.member") }
 
     // MARK: - L10n 清偿批五 · 双轨库存（FR9.8）
     static var inventoryDualLineTitle: String { t("inventory.dualLineTitle") }
@@ -851,6 +852,69 @@ enum L10n {
     "docConfirm.confidenceMid",
     "docConfirm.docType",
     "docConfirm.docTypeHint",
+    "docConfirm.docTypeUnresolved",
+    "docConfirm.docTypeLowConfidence",
+    "entityCard.rowIndexFmt",
+    "entityCard.header.pageFmt",
+    "entityCard.header.indexFmt",
+    "entityCard.confirmSave",
+    "entityCard.later",
+    "entityCard.discard",
+    "entityCard.deferRemaining",
+    "entityCard.missingRequiredFmt",
+    "entityCard.rowSkipped",
+    "entityCard.sharedSection",
+    "entityCard.rowsSection",
+    "entityCard.laterHint",
+    "entityCard.kind.metric_sample",
+    "entityCard.kind.encounter",
+    "entityCard.kind.prescription",
+    "entityCard.kind.medication",
+    "entityCard.kind.immunization",
+    "entityCard.kind.appointment",
+    "entityCard.kind.claim_item",
+    "entityCard.saveFailed",
+    "pendingCard.resume",
+    "pendingCard.viewSource",
+    "pendingCard.discard",
+    "pendingCard.notFound",
+    "voice.primaryLanguage",
+    "voice.primaryLanguageHint",
+    "voice.recognizedAsFmt",
+    "voice.bestEffortActive",
+    "voice.version.native",
+    "voice.version.refined",
+    "voice.version.refinedHint",
+    "voice.version.unavailable",
+    "voice.version.rejected",
+    "voice.version.previewOnly",
+    "voice.inputUnavailable",
+    "voice.dictationIncomplete",
+    "ocr.review.documentHint",
+    "ocr.review.pageSkipped",
+    "ocr.review.invalidField",
+    "ocr.review.notificationFailed",
+    "ocr.review.legacySourceMissing",
+    "ocr.review.finishCurrent",
+    "ocr.review.partialSavedFmt",
+    "health.preservedAggregatesFmt",
+    "health.deferredWindowsFmt",
+    "field.measured_at",
+    "field.raw_label",
+    "field.value",
+    "field.unit",
+    "field.ref_low",
+    "field.ref_high",
+    "field.metric_key",
+    "field.date",
+    "field.kind",
+    "field.department",
+    "field.hospital",
+    "field.doctor",
+    "field.diagnosis_text",
+    "field.advice_text",
+    "field.drug_name",
+    "field.prescribed_at",
     "docConfirm.hint",
     "docConfirm.reenable",
     "docConfirm.reject",
@@ -1387,6 +1451,9 @@ enum L10n {
         "metric.name.bloodPressureSys", "metric.name.bloodPressureDia", "metric.name.glucose",
         "metric.name.weight", "metric.name.temperature", "metric.name.heartRate",
         "metric.name.bloodOxygen",
+        "metric.name.restingHeartRate", "metric.name.respiratory_rate", "metric.name.steps",
+        "metric.name.sleep_total", "metric.name.sleep_deep", "metric.name.sleep_rem",
+        "metric.name.sleep_awake", "metric.name.sleep_core", "metric.name.sleep_unspecified",
         "metric.selfMeasureNote", "metric.sys", "metric.dia", "metric.value",
         "metric.unit", "metric.measuredAt", "metric.saved", "metric.viewTrend",
         "voicePanel.title", "voicePanel.hint", "voicePanel.start",
@@ -1395,6 +1462,12 @@ enum L10n {
         "f16.title", "f16.authSection", "f16.authHint", "f16.requestAuth", "f16.authGranted",
         "f16.authDisabled", "f16.authFailed", "f16.syncSection", "f16.syncHint",
         "f16.syncNow", "f16.syncing", "f16.syncDoneFmt", "f16.syncFailed",
+        "health.importSubject", "health.noReadableData", "health.importPartial", "health.importMore",
+        "health.notificationRetry", "health.medicalReviewPending",
+        "health.aggregation.sample", "health.aggregation.hourlyAverage",
+        "health.aggregation.dailySum", "health.aggregation.sleepDuration",
+        "health.windowEnd", "health.windowStatistics", "health.showLegacy",
+        "health.historicalEvaluation", "health.loadMore", "health.metric.unknown", "health.openHelp",
         "alert.filter.all", "alert.showL0", "alert.historyEntry",
         "f19.noTodayMeds", "f19.nextAppointmentFmt", "f19.noAppointment", "f19.recentGlucoseFmt",
         "f19.goTimeline", "f19.goHome",
@@ -1450,6 +1523,7 @@ enum L10n {
         "helpcard.photoPending",
         "home.capture.file",
         "home.capture.hint",
+        "home.captureAny",
         "home.capture.library",
         "home.capture.noCamera",
         "home.capture.saved",
@@ -1518,7 +1592,7 @@ enum L10n {
         "voiceguide.note.meds",
         "voiceguide.saved",
         // 本地化清偿批（2026-09-06）：硬编码字符串替换
-        "common.confirm",
+        "common.confirm", "common.member",
         "pay.proYearly", "pay.proYearlyPrice", "pay.proYearlyDetail",
         "pay.proMonthly", "pay.proMonthlyPrice", "pay.proMonthlyDetail",
         "pay.addonPack", "pay.addonPrice", "pay.addonDetail",
@@ -1644,6 +1718,8 @@ enum L10n {
     static var homeCapturePrescription: String { t("home.capture.prescription") }
     static var homeCaptureSymptom: String { t("home.capture.symptom") }
     static var homeCaptureHint: String { t("home.capture.hint") }
+    /// 📷 单入口标题（FR5.1 V3.61：不前置选类型）
+    static var homeCaptureAny: String { t("home.captureAny") }
     static var homeCaptureShoot: String { t("home.capture.shoot") }
     static var homeCaptureLibrary: String { t("home.capture.library") }
     static var homeCaptureFile: String { t("home.capture.file") }
@@ -2069,6 +2145,64 @@ enum L10n {
     /// V3.41 文档类型后置判定：确认卡 D 级类型草稿行（可一键改）
     static var docConfirmDocType: String { t("docConfirm.docType") }
     static var docConfirmDocTypeHint: String { t("docConfirm.docTypeHint") }
+    /// FR5.5/FR6.2 类型后置：零命中 → 引导选择；低置信 → 提示核对
+    static var docConfirmDocTypeUnresolved: String { t("docConfirm.docTypeUnresolved") }
+    static var docConfirmDocTypeLowConfidence: String { t("docConfirm.docTypeLowConfidence") }
+    static var docTypeLabelVaccineRecord: String { t("docTypeLabel.vaccineRecord") }
+    static var docTypeLabelOther: String { t("docTypeLabel.other") }
+    // FR6.9 V3.61 页级实体卡（EntityCardConfirmView / 待办详情多行快照）
+    static func entityCardRowIndex(_ n: Int) -> String { String(format: t("entityCard.rowIndexFmt"), n) }
+    static func entityCardHeaderPage(_ page: Int, _ total: Int) -> String { String(format: t("entityCard.header.pageFmt"), page, total) }
+    static func entityCardHeaderIndex(_ index: Int, _ total: Int) -> String { String(format: t("entityCard.header.indexFmt"), index, total) }
+    static var entityCardConfirmSave: String { t("entityCard.confirmSave") }
+    static var entityCardLater: String { t("entityCard.later") }
+    static var entityCardDiscard: String { t("entityCard.discard") }
+    static var entityCardDeferRemaining: String { t("entityCard.deferRemaining") }
+    static func entityCardMissingRequired(_ label: String) -> String { String(format: t("entityCard.missingRequiredFmt"), label) }
+    static var entityCardRowSkipped: String { t("entityCard.rowSkipped") }
+    static var entityCardSharedSection: String { t("entityCard.sharedSection") }
+    static var entityCardRowsSection: String { t("entityCard.rowsSection") }
+    static var entityCardLaterHint: String { t("entityCard.laterHint") }
+    static var entityCardSaveFailed: String { t("entityCard.saveFailed") }
+    /// 卡类名（data-flow §17.2 card_kind → 展示名；未登记回落原键）
+    static func entityCardKindName(_ kind: String) -> String {
+        let key = "entityCard.kind.\(kind)"
+        let value = t(key)
+        return value == key ? kind : value
+    }
+    static var pendingCardResume: String { t("pendingCard.resume") }
+    static var pendingCardViewSource: String { t("pendingCard.viewSource") }
+    static var pendingCardDiscard: String { t("pendingCard.discard") }
+    static var pendingCardNotFound: String { t("pendingCard.notFound") }
+    // FR17.15 V3.61 主语言（有序多选首位）与尽力识别回显
+    static var voicePrimaryLanguage: String { t("voice.primaryLanguage") }
+    static var voicePrimaryLanguageHint: String { t("voice.primaryLanguageHint") }
+    static func voiceRecognizedAs(_ locale: String) -> String { String(format: t("voice.recognizedAsFmt"), locale) }
+    static var voiceBestEffortActive: String { t("voice.bestEffortActive") }
+    // FR17.9 V3.61 双版本（原生转译版 / LLM 修正版，D 级仅作文字清理）
+    static var voiceVersionNative: String { t("voice.version.native") }
+    static var voiceVersionRefined: String { t("voice.version.refined") }
+    static var voiceVersionRefinedHint: String { t("voice.version.refinedHint") }
+    static var voiceVersionUnavailable: String { t("voice.version.unavailable") }
+    static var voiceVersionRejected: String { t("voice.version.rejected") }
+    static var voiceVersionPreviewOnly: String { t("voice.version.previewOnly") }
+    static var voiceInputUnavailable: String { t("voice.inputUnavailable") }
+    static var voiceDictationIncomplete: String { t("voice.dictationIncomplete") }
+    static var ocrReviewDocumentHint: String { t("ocr.review.documentHint") }
+    static var ocrReviewPageSkipped: String { t("ocr.review.pageSkipped") }
+    static var ocrReviewInvalidField: String { t("ocr.review.invalidField") }
+    static var ocrReviewNotificationFailed: String { t("ocr.review.notificationFailed") }
+    static var ocrReviewLegacySourceMissing: String { t("ocr.review.legacySourceMissing") }
+    static var ocrReviewFinishCurrent: String { t("ocr.review.finishCurrent") }
+    static func ocrReviewPartialSaved(_ count: Int) -> String { String(format: t("ocr.review.partialSavedFmt"), count) }
+    static func healthPreservedAggregates(_ count: Int) -> String { String(format: t("health.preservedAggregatesFmt"), count) }
+    static func healthDeferredWindows(_ count: Int) -> String { String(format: t("health.deferredWindowsFmt"), count) }
+    /// 模板字段键 → 展示标签（data-flow §17.2 稳定键；未登记回落原键）
+    static func templateFieldLabel(_ key: String) -> String {
+        let l10nKey = "field.\(key)"
+        let value = t(l10nKey)
+        return value == l10nKey ? key : value
+    }
     // 第四轮全仓审查修复：FR6.3 三级置信度/FR6.4 放弃/全部确认闸门/保存失败可见
     static var docConfirmConfidenceHigh: String { t("docConfirm.confidenceHigh") }
     static var docConfirmConfidenceMid: String { t("docConfirm.confidenceMid") }
@@ -2511,6 +2645,7 @@ enum L10n {
     static var f16AuthSection: String { t("f16.authSection") }
     static var f16AuthHint: String { t("f16.authHint") }
     static var f16RequestAuth: String { t("f16.requestAuth") }
+    // 既有 API 名保留；连接完成与读取授权不可等同，HealthKit 不透露读取权限。
     static var f16AuthGranted: String { t("f16.authGranted") }
     static var f16AuthDisabled: String { t("f16.authDisabled") }
     static var f16AuthFailed: String { t("f16.authFailed") }
@@ -2519,14 +2654,37 @@ enum L10n {
     static var f16SyncHint: String { t("f16.syncHint") }
     static var f16SyncNow: String { t("f16.syncNow") }
     static var f16Syncing: String { t("f16.syncing") }
+    /// 本次成功安排的通知数，不是已送达数或预警事件数。
     static func f16SyncDone(_ n: Int) -> String { String(format: t("f16.syncDoneFmt"), n) }
-    /// V3.86 FR7.9 入库流呈现（设备读数与手输同趋势）
+    /// FR7.9 指标投影变更数，包含新增、更新与移除。
     static func f16SyncedRows(_ n: Int) -> String { String(format: t("f16.syncedRowsFmt"), n) }
     /// V3.86 FR16.1 V3.49 同步时间沟通契约
     static func f16LastSync(_ time: String) -> String { String(format: t("f16.lastSyncFmt"), time) }
     // FR16.4「范围不可用」独立呈现态（无信源阈值的读数计数）
     static func f16NoRange(_ n: Int) -> String { String(format: t("f16.noRangeFmt"), n) }
     static var f16SyncFailed: String { t("f16.syncFailed") }
+    static func healthImportSubject(_ name: String) -> String { String(format: t("health.importSubject"), name) }
+    static var healthNoReadableData: String { t("health.noReadableData") }
+    static func healthImportPartial(_ count: Int) -> String { String(format: t("health.importPartial"), count) }
+    static var healthImportMore: String { t("health.importMore") }
+    static var healthNotificationRetry: String { t("health.notificationRetry") }
+    static var healthMedicalReviewPending: String { t("health.medicalReviewPending") }
+    static func healthAggregation(_ aggregation: MetricAggregation) -> String {
+        t("health.aggregation.\(aggregation.rawValue)")
+    }
+    static func healthWindowEnd(_ time: String) -> String { String(format: t("health.windowEnd"), time) }
+    static func healthWindowStatistics(_ low: String, _ high: String, _ count: Int) -> String {
+        String(format: t("health.windowStatistics"), low, high, count)
+    }
+    static var healthShowLegacy: String { t("health.showLegacy") }
+    static var healthHistoricalEvaluation: String { t("health.historicalEvaluation") }
+    static var healthLoadMore: String { t("health.loadMore") }
+    /// 设备与信源沿用既有指标键映射；未知 raw key 不上屏。
+    static func healthMetricName(_ key: String) -> String {
+        guard let metric = MetricType(grammarKey: key) else { return t("health.metric.unknown") }
+        return metricName(metric)
+    }
+    static var healthOpenHelp: String { t("health.openHelp") }
     static var alertFilterAll: String { t("alert.filter.all") }
     static var alertShowL0: String { t("alert.showL0") }
     static var alert_historyEntry: String { t("alert.historyEntry") }

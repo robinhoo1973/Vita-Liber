@@ -13,19 +13,29 @@ import Domain
 /// （SFSpeechRecognizer）有 ~60s 截断限制，必须分段续接。两轨经同一协议暴露，
 /// 上层零感知——分段策略由 `TranscriptionSegmentation` 依 `capability` 决定。
 public protocol TranscriptionEngine: Sendable {
+    /// Capability snapshot; currentCapability() refreshes runtime availability when supported.
     var capability: TranscriptionCapability { get }
+    func currentCapability() async -> TranscriptionCapability
     /// 开始一次转写。实现内部自行采集音频；`onPartial` 回传实时文本用于边说边显示。
     func transcribe(_ request: TranscriptionRequest,
                     onPartial: (@Sendable (String) -> Void)?) async throws -> TranscriptionResult
-    /// 软停提示：请求引擎尽快收尾（endAudio）。调用方软停不取消引擎——在途
-    /// 转写必须投递；本端口让旧会话尽快出 isFinal，避免与新会话的音频竞争。
-    /// async 要求：actor 实现以隔离方法满足，同步要求会触发
-    /// #ConformanceIsolation（一致性跨隔离域，L1 34287522872 实证）
+    /// Stop this press's hardware before returning, then drain its recognition with a bounded timeout.
+    /// Must also work before authorization/setup completes. IDs are single-use.
+    func finish(sessionID: UUID) async
+    /// Stop hardware, cancel native work, and settle this press exactly once without delivering text.
+    func cancel(sessionID: UUID) async
+    /// Retire an abandoned request after cancellation, including one that never registered.
+    func discardSession(sessionID: UUID) async
+    /// Legacy unscoped stop. New callers must use finish(sessionID:).
     func endAudio() async
 }
 
 extension TranscriptionEngine {
-    /// 默认无操作：契约桩/不支持实现忽略软停提示
+    public func currentCapability() async -> TranscriptionCapability { capability }
+    /// Existing text-only stubs have no hardware; production engines must override both scoped methods.
+    public func finish(sessionID: UUID) async { await endAudio() }
+    public func cancel(sessionID: UUID) async { await finish(sessionID: sessionID) }
+    public func discardSession(sessionID: UUID) async {}
     public func endAudio() async {}
 }
 
@@ -43,16 +53,17 @@ public actor StubTranscriptionEngine: TranscriptionEngine {
 
     public func transcribe(_ request: TranscriptionRequest,
                            onPartial: (@Sendable (String) -> Void)?) async throws -> TranscriptionResult {
+        try Task.checkCancellation()
         guard !scripted.isEmpty else { throw TranscriptionError.noSpeechDetected }
+        guard let locale = capability.resolvedLocale(for: request.localeIdentifier) else {
+            throw TranscriptionError.engineUnavailable
+        }
         let text = scripted[min(cursor, scripted.count - 1)]
         cursor += 1
         onPartial?(text)
         let plan = TranscriptionSegmentation.plan(
             durationSeconds: request.expectedDurationSeconds ?? 0,
             capability: capability)
-        let locale = capability.availableLocales.contains(request.localeIdentifier)
-            ? request.localeIdentifier
-            : TranscriptionSegmentation.fallbackLocale
         return TranscriptionResult(text: text, confidence: 0.92,
                                    resolvedLocale: locale,
                                    segmented: plan.count > 1)

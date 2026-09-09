@@ -53,11 +53,14 @@ final class AppState {
     let imageRecognizer: any ImageTextRecognizing
     /// F17 语音输入引擎端口（ADR-023，经 EAL 接入）。默认经注册表取；测试可注入。
     let transcriptionEngine: any TranscriptionEngine
+    /// FR17.9/FR17.18 端侧润色端口（V3.61，第 9 工厂；iOS 26 门控，不可用即替身）
+    let textRefiner: any TextRefining
 
     init(persistor: any M1aPersisting,
          speech: (any SpeechSynthesizing)? = nil,
          imageRecognizer: (any ImageTextRecognizing)? = nil,
          transcription: (any TranscriptionEngine)? = nil,
+         textRefiner: (any TextRefining)? = nil,
          gateUnlocker: (any GateUnlocking)? = nil,
          audit: AuditLogWriter? = nil,
          memberDeletion: MemberDeletionService? = nil,
@@ -73,6 +76,7 @@ final class AppState {
         self.speechSynthesizer = speech ?? EngineRegistry.shared.resolve(SpeechSynthesisFactory.self)
         self.imageRecognizer = imageRecognizer ?? EngineRegistry.shared.resolve(OCRRecognizerFactory.self)
         self.transcriptionEngine = transcription ?? EngineRegistry.shared.resolve(TranscriptionEngineFactory.self)
+        self.textRefiner = textRefiner ?? EngineRegistry.shared.resolve(TextRefinerFactory.self)
         self.persistor = persistor
         self.gateUnlocker = gateUnlocker ?? LocalAuthGateUnlocker()
         self.audit = audit

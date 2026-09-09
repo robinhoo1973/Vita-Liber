@@ -73,21 +73,21 @@ public actor GRDBSearchService: FullTextSearch {
                 }
             case .like:
                 // 1 字兜底：低频高噪音，限定最近 90 天窗口 + 成员过滤缩小扫描集；
-                // 检索列 = title/ocr_text/notes/meta_json（V3.43 起标题等独立列）
+                // Only reviewed content is searchable; recovery metadata may contain rejected drafts.
                 let since = DayArithmetic.since(days: 90)
                 let pattern = "%\(query)%"
                 let rows = try Row.fetchAll(db, sql: """
                     SELECT d.id, d.patient_id, d.doc_type, d.created_at, d.is_sensitive, d.title,
                            CASE WHEN d.is_sensitive = 1 THEN d.title
-                                ELSE COALESCE(d.title, d.ocr_text, d.meta_json) END AS snip
+                                 ELSE COALESCE(d.title, d.ocr_text, d.notes, '') END AS snip
                     FROM document_file d
                     WHERE \(Self.searchableDocPredicate) AND d.created_at >= ?
                       AND d.patient_id IN (\(patientIds.map { _ in "?" }.joined(separator: ",")))
                       AND (d.title LIKE ?
                            OR (d.is_sensitive = 0
-                               AND (d.meta_json LIKE ? OR d.ocr_text LIKE ? OR d.notes LIKE ?)))
+                                AND (d.ocr_text LIKE ? OR d.notes LIKE ?)))
                     ORDER BY d.created_at DESC LIMIT ?
-                    """, arguments: StatementArguments([since] + patientIds + [pattern, pattern, pattern, pattern, limit]))
+                    """, arguments: StatementArguments([since] + patientIds + [pattern, pattern, pattern, limit]))
                 return rows.compactMap { Self.hit($0) }
             case .invalid:
                 return []

@@ -11,6 +11,28 @@ public actor DocumentStore {
 
     public init(writer: any DatabaseWriter) { self.writer = writer }
 
+    public enum StoreError: Error, Sendable {
+        case invalidMember, invalidSource, invalidPage, unreviewedField, reviewConflict
+    }
+
+    static func validateSource(_ db: Database, patientId: UUID, documentId: UUID, pageIndex: Int,
+                               requireRecognizedPage: Bool = true) throws {
+        guard pageIndex >= 0 else { throw StoreError.invalidPage }
+        guard let row = try Row.fetchOne(db, sql: """
+            SELECT p.status AS page_status FROM document_file d
+            JOIN patient_profile m ON m.id = d.patient_id
+            JOIN document_page p ON p.document_file_id = d.id AND p.page_index = ?
+            WHERE d.id = ? AND d.patient_id = ? AND m.deleted_at IS NULL
+              AND d.status IN ('active','favorite')
+            """, arguments: [pageIndex, documentId.uuidString, patientId.uuidString]) else {
+            throw StoreError.invalidSource
+        }
+        let status: String = row["page_status"]
+        guard ["ok", "failed", "skipped"].contains(status), !requireRecognizedPage || status == "ok" else {
+            throw StoreError.invalidPage
+        }
+    }
+
     public struct DocumentRow: Sendable, Equatable, Identifiable {
         public var id: UUID
         public var patientId: UUID
@@ -39,6 +61,16 @@ public actor DocumentStore {
             self.docType = docType; self.sha256 = sha256; self.mimeType = mimeType
             self.origin = origin; self.status = status; self.isSensitive = isSensitive
             self.title = title; self.grade = grade; self.metaJSON = metaJSON; self.createdAt = createdAt
+        }
+    }
+
+    /// FR6.1 页语义（V3.99 / 迁移 v21）：一条 OCR 记录的一页——失败/跳过页占位保页号。
+    public struct Page: Sendable, Equatable {
+        public let index: Int
+        public let text: String?
+        public let status: String   // ok / failed / skipped
+        public init(index: Int, text: String?, status: String = "ok") {
+            self.index = index; self.text = text; self.status = status
         }
     }
 
@@ -141,10 +173,18 @@ public actor DocumentStore {
     public func save(patientId: UUID, docType: String, sha256: String?,
                      mimeType: String?, origin: String, isSensitive: Bool,
                      metaJSON: String?, title: String?,
-                     ocrText: String? = nil, grade: String = "C",
-                     now: Date = Date()) async throws -> UUID {
+                      ocrText: String? = nil, grade: String = "C",
+                      pages: [Page] = [],
+                      cards: [MatchedCard] = [], reviewedFields: [Int: [CandidateField]] = [:],
+                      now: Date = Date()) async throws -> UUID {
         let id = UUID()
         try await writer.write { db in
+            guard try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM patient_profile WHERE id = ? AND deleted_at IS NULL",
+                                   arguments: [patientId.uuidString]) == 1 else { throw StoreError.invalidMember }
+            guard Set(pages.map(\.index)).count == pages.count,
+                  pages.allSatisfy({ $0.index >= 0 && ["ok", "failed", "skipped"].contains($0.status) }) else {
+                throw StoreError.invalidPage
+            }
             try db.execute(sql: """
                 INSERT INTO document_file
                   (id, patient_id, doc_type, sha256, mime_type, origin, status,
@@ -155,16 +195,136 @@ public actor DocumentStore {
                                  metaJSON, title, ocrText, grade,
                                  now.timeIntervalSince1970,
                                  now.timeIntervalSince1970])
+            // 页文本同事务落库（FR6.1 页语义）：单图 = 第 0 页；PDF 每页一行
+            for page in pages {
+                try db.execute(sql: """
+                    INSERT INTO document_page (id, document_file_id, page_index, ocr_text, status, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """, arguments: [UUID().uuidString, id.uuidString, page.index, page.text,
+                                     page.status, now.timeIntervalSince1970])
+            }
+            try Self.stageReview(db, documentId: id, patientId: patientId, cards: cards, reviewedFields: reviewedFields, now: now)
         }
         return id
     }
 
-    /// BR-003 D→C 闸门：用户显式确认机器识别文本后，文档才进入检索与 AI 事实链。
-    public func confirmText(id: UUID, now: Date = Date()) async throws {
+    /// 文档的全部页（页序升序；无页记录的旧文档返回空——调用方回落 ocr_text）。
+    public func pages(documentId: UUID) async throws -> [Page] {
+        try await writer.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT page_index, ocr_text, status FROM document_page
+                WHERE document_file_id = ? ORDER BY page_index
+                """, arguments: [documentId.uuidString]).map {
+                Page(index: $0["page_index"], text: $0["ocr_text"], status: $0["status"])
+            }
+        }
+    }
+
+    /// Review edits update projections, never source media or pages already cited by committed facts.
+    public func updateReview(id: UUID, patientId: UUID, docType: String, isSensitive: Bool,
+                             metaJSON: String?, ocrText: String?, grade: String, pages: [Page],
+                             cards: [MatchedCard] = [], reviewedFields: [Int: [CandidateField]] = [:]) async throws {
         try await writer.write { db in
+            guard !docType.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  ["C", "D"].contains(grade), Set(pages.map(\.index)).count == pages.count,
+                  pages.allSatisfy({ $0.index >= 0 && ["ok", "failed", "skipped"].contains($0.status) }),
+                  let document = try Row.fetchOne(db, sql: """
+                    SELECT d.* FROM document_file d JOIN patient_profile p ON p.id = d.patient_id
+                    WHERE d.id = ? AND d.patient_id = ? AND p.deleted_at IS NULL
+                      AND d.status IN ('active','favorite')
+                    """, arguments: [id.uuidString, patientId.uuidString]) else { throw StoreError.invalidSource }
+            let previousPages = try Row.fetchAll(db, sql: "SELECT page_index, ocr_text, status FROM document_page WHERE document_file_id = ? ORDER BY page_index",
+                                                arguments: [id.uuidString]).map {
+                Page(index: $0["page_index"], text: $0["ocr_text"], status: $0["status"])
+            }
+            let orderedPages = pages.sorted { $0.index < $1.index }
+            let receiptCount = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM ocr_card_commit WHERE document_file_id = ?",
+                                               arguments: [id.uuidString]) ?? 0
+            guard receiptCount == 0 || previousPages == orderedPages else { throw StoreError.invalidPage }
+            var metadata: [String: Any] = [:]
+            if let metaJSON {
+                guard let decoded = try JSONSerialization.jsonObject(with: Data(metaJSON.utf8)) as? [String: Any] else {
+                    throw StoreError.invalidSource
+                }
+                metadata = decoded
+            }
+            if let oldJSON: String = document["meta_json"],
+               let old = try JSONSerialization.jsonObject(with: Data(oldJSON.utf8)) as? [String: Any] {
+                if metaJSON == nil { metadata = old }
+                for key in ["original_path", "processed_path"] {
+                    if let path = old[key] { metadata[key] = path }
+                }
+            }
+            let storedMeta = metadata.isEmpty ? nil : String(decoding: try JSONSerialization.data(withJSONObject: metadata), as: UTF8.self)
             try db.execute(sql: """
-                UPDATE document_file SET grade = 'C', updated_at = ? WHERE id = ? AND grade = 'D'
-                """, arguments: [now.timeIntervalSince1970, id.uuidString])
+                UPDATE document_file SET doc_type = ?, is_sensitive = ?, meta_json = ?, ocr_text = ?, grade = ?, updated_at = ?
+                WHERE id = ? AND patient_id = ?
+                """, arguments: [docType, isSensitive ? 1 : 0, storedMeta, ocrText, grade,
+                                 Date().timeIntervalSince1970, id.uuidString, patientId.uuidString])
+            if receiptCount == 0, previousPages != orderedPages {
+                // Existing page identities survive; omitted/changed historical pages are not silently erased.
+                guard previousPages.allSatisfy({ old in orderedPages.contains { $0.index == old.index && $0.text == old.text } }) else {
+                    throw StoreError.invalidPage
+                }
+                for page in orderedPages where !previousPages.contains(where: { $0.index == page.index }) {
+                    try db.execute(sql: """
+                        INSERT INTO document_page (id, document_file_id, page_index, ocr_text, status, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        """, arguments: [UUID().uuidString, id.uuidString, page.index, page.text, page.status, Date().timeIntervalSince1970])
+                }
+            }
+            try Self.stageReview(db, documentId: id, patientId: patientId, cards: cards, reviewedFields: reviewedFields, now: Date())
+        }
+    }
+
+    /// A document is not committed without its resumable cards. Re-review never replaces a newer draft.
+    private static func stageReview(_ db: Database, documentId: UUID, patientId: UUID, cards: [MatchedCard],
+                                    reviewedFields: [Int: [CandidateField]], now: Date) throws {
+        guard Set(cards.map(\.id)).count == cards.count,
+              Set(cards.map { "\($0.pageIndex):\($0.kind)" }).count == cards.count else { throw StoreError.invalidPage }
+        for card in cards {
+            try validateSource(db, patientId: patientId, documentId: documentId, pageIndex: card.pageIndex)
+            let existing = try Row.fetchAll(db, sql: """
+                SELECT * FROM pending_card WHERE source_doc_id = ? AND source_page = ? AND card_kind = ? AND source_type = 'ocr'
+                """, arguments: [documentId.uuidString, card.pageIndex, card.kind])
+            guard existing.count <= 1 else { throw StoreError.reviewConflict }
+            if let row = existing.first {
+                let pending = try PendingCardStore.decode(row)
+                guard pending.patientId == patientId, try pending.matchedCard() == card else { throw StoreError.reviewConflict }
+                continue
+            }
+            let committed = Set(try String.fetchAll(db, sql: "SELECT row_id FROM ocr_card_commit WHERE card_id = ?",
+                                                    arguments: [card.id.uuidString]))
+            if !card.rows.isEmpty, card.rows.allSatisfy({ committed.contains($0.id.uuidString) || EntityCardProjection.isDiscarded($0, in: card) }) { continue }
+            let raw = try String.fetchOne(db, sql: "SELECT ocr_text FROM document_page WHERE document_file_id = ? AND page_index = ?",
+                                          arguments: [documentId.uuidString, card.pageIndex]) ?? ""
+            _ = try PendingCardStore.upsert(.init(patientId: patientId, sourceType: "ocr", sourceDocId: documentId,
+                sourcePage: card.pageIndex, cardKind: card.kind, incompleteFields: [], partialData: .init(card: card), rawText: raw),
+                db: db, now: now)
+        }
+        for (page, fields) in reviewedFields where !fields.isEmpty {
+            try validateSource(db, patientId: patientId, documentId: documentId, pageIndex: page)
+            guard fields.allSatisfy(\.isConfirmed) else { throw StoreError.unreviewedField }
+            for field in fields {
+                let raw = String(decoding: try JSONEncoder().encode(FieldAudit(documentId: documentId, pageIndex: page, field: field)), as: UTF8.self)
+                try db.execute(sql: """
+                    INSERT INTO ocr_result (id, document_file_id, page_index, raw_blocks, engine_version, created_at)
+                    VALUES (?, ?, ?, ?, 'ocr-document-review', ?)
+                    """, arguments: [UUID().uuidString, documentId.uuidString, page, raw, now.timeIntervalSince1970])
+            }
+        }
+    }
+
+    /// BR-003 D→C 闸门：用户显式确认机器识别文本后，文档才进入检索与 AI 事实链。
+    public func confirmText(id: UUID, patientId: UUID, now: Date = Date()) async throws {
+        try await writer.write { db in
+            guard try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM document_file d JOIN patient_profile p ON p.id = d.patient_id
+                WHERE d.id = ? AND d.patient_id = ? AND p.deleted_at IS NULL AND d.status IN ('active','favorite')
+                """, arguments: [id.uuidString, patientId.uuidString]) == 1 else { throw StoreError.invalidSource }
+            try db.execute(sql: """
+                UPDATE document_file SET grade = 'C', updated_at = ? WHERE id = ? AND patient_id = ? AND grade = 'D'
+                """, arguments: [now.timeIntervalSince1970, id.uuidString, patientId.uuidString])
         }
     }
 
@@ -174,24 +334,31 @@ public actor DocumentStore {
     /// 第四轮全仓审查修复（FR6.4）：修订历史随留痕行持久化——用户改值后
     /// 「旧值 → 新值 · 修改人 · 时间」入 raw_blocks 尾部，修订链路可追溯
     /// （此前 revisionHistory 只在内存中、入不了库也无任何渲染）。
-    public func saveOCRResult(documentId: UUID, fields: [CandidateField],
+    public func saveOCRResult(documentId: UUID, patientId: UUID, pageIndex: Int = 0, fields: [CandidateField],
                               engineVersion: String) async throws {
         let now = Date()
         try await writer.write { db in
+            try Self.validateSource(db, patientId: patientId, documentId: documentId, pageIndex: pageIndex)
+            guard fields.allSatisfy(\.isConfirmed) else { throw StoreError.unreviewedField }
             for field in fields {
-                var raw = "\(field.key): \(field.rawText) [confidence=\(field.confidence)]"
-                if !field.revisionHistory.isEmpty {
-                    raw += " | revised: " + field.revisionHistory.joined(separator: "; ")
-                }
+                let audit = FieldAudit(documentId: documentId, pageIndex: pageIndex, field: field)
+                let raw = String(decoding: try JSONEncoder().encode(audit), as: UTF8.self)
+                // V3.99：留痕写真实页号（此前恒 0——多页文档字段无法回到页）
                 try db.execute(sql: """
                     INSERT INTO ocr_result
                       (id, document_file_id, page_index, raw_blocks, engine_version, created_at)
-                    VALUES (?, ?, 0, ?, ?, ?)
-                    """, arguments: [UUID().uuidString, documentId.uuidString,
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """, arguments: [UUID().uuidString, documentId.uuidString, pageIndex,
                                      raw,
                                      engineVersion, now.timeIntervalSince1970])
             }
         }
+    }
+
+    private struct FieldAudit: Codable {
+        let documentId: UUID
+        let pageIndex: Int
+        let field: CandidateField
     }
 
     private static func row(_ row: GRDB.Row) -> DocumentStore.DocumentRow {

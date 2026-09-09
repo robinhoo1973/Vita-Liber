@@ -134,6 +134,12 @@ struct AppRootView: View {
             guard newValue != nil, newValue != oldValue else { return }
             Task { await reminderStore.clearBackupReminderDelivered() }
         }
+        // FR16.1/FR14.1 撤销即时生效（二轮复审 P2）：应用内「读取 Apple 健康」关闭时
+        // 立即取消在途同步——此前只在批次开始与提交事务复核许可，撤销后该类型
+        // 剩余窗口仍会继续读取历史数据。单一落点：任一设置页写入本键都经此处。
+        .onChange(of: settingsStore.values[.authHealthRead]) { _, newValue in
+            if newValue == "false" { deviceState.permissionRevoked() }
+        }
         // 四层补偿第 3 层：时区/时间显著变化 → 立即对账（View 级修饰符）
         .onReceive(NotificationCenter.default.publisher(
             for: UIApplication.significantTimeChangeNotification)) { _ in
@@ -206,7 +212,7 @@ struct AppRootView: View {
                         let healthAuthOn = settingsStore.values[.authHealthRead] != "false"
                         if healthAuthOn, await deviceState.currentAuthorization() {
                             await deviceState.sync(
-                                patientId: appState.currentPatientId, authEnabled: true,
+                                authEnabled: true,
                                 quietStart: SettingsRules.resolved(
                                     settingsStore.values[.quietHoursStart], key: .quietHoursStart),
                                 quietEnd: SettingsRules.resolved(

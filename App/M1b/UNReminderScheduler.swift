@@ -15,7 +15,7 @@ actor UNReminderScheduler: ReminderScheduling {
 
     func schedule(dose notifyId: String, at fireAt: Date, route: AppRoute?) async throws {
         let content = Self.content(route: route)
-        let comps = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: fireAt)
+        let comps = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute, .second], from: fireAt)
         let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
         try await center.add(UNNotificationRequest(identifier: notifyId, content: content, trigger: trigger))
     }
@@ -25,6 +25,10 @@ actor UNReminderScheduler: ReminderScheduling {
         let content = UNMutableNotificationContent()
         content.title = L10n.reminderNotificationTitle
         content.body = L10n.reminderNotificationBody
+        if case .alertEvidence(_, _, let severity) = route {
+            content.sound = .default
+            if severity == .L2 || severity == .L3 { content.interruptionLevel = .timeSensitive }
+        }
         // §5.45 通知点击→路由映射契约：route 以 Codable 数据写入 userInfo
         if let route {
             // try?-ok: AppRoute 为 Foundation 标量枚举编码，无抛错路径；编码失败

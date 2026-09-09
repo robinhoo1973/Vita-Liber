@@ -17,8 +17,7 @@ struct PendingOcrQueueView: View {
     /// §5.30 筛选（V3.72）：成员 + 时间窗（全部/3 天/72h+）
     @State private var memberFilter: UUID?
     @State private var windowFilter: Int = 0   // 0=全部 1=3 天 2=72h+
-    /// 确认写库失败提示（confirmText 返回 Bool——失败绝不静默留 D 级行）
-    @State private var confirmFailed = false
+    @State private var loading = true
 
     /// 72h 置顶钉住（FR2.3/FR6.8 排序规则）+ 新到旧。
     /// 数据源 = DocumentsState.pendingDocuments（跨成员聚合）——第四轮全仓
@@ -44,13 +43,23 @@ struct PendingOcrQueueView: View {
         // （每遍重做 filter + isOverdue 日历运算 + 排序）
         let rows = pendingRows
         Group {
-            if rows.isEmpty {
+            if loading && rows.isEmpty {
+                ProgressView()
+            } else if rows.isEmpty && docs.pendingLoadError != nil {
+                ContentUnavailableView {
+                    Label(L10n.docImportFailed, systemImage: "exclamationmark.triangle")
+                } actions: { Button(L10n.retry) { Task { await load() } } }
+            } else if rows.isEmpty {
                 ContentUnavailableView(L10n.ocrQueueEmpty, systemImage: "checkmark.seal",
-                                       description: Text(L10n.ocrQueueEmptyHint))
+                                       description: Text(docs.pendingDocuments.isEmpty ? L10n.ocrQueueEmptyHint : L10n.homeEmptyFilter))
                     .accessibilityIdentifier("SP-53.queue.empty")
             } else {
                 List {
                     Section {
+                        if docs.pendingLoadError != nil {
+                            Label(L10n.docImportFailed, systemImage: "exclamationmark.triangle")
+                            Button(L10n.retry) { Task { await load() } }
+                        }
                         Text(L10n.ocrQueueCount(rows.count))
                             .font(.subheadline)
                         // BR-003 诚实性说明：D 级文档未确认前不进检索与 AI 事实链
@@ -90,18 +99,9 @@ struct PendingOcrQueueView: View {
                             Text(doc.createdAt.formatted(date: .abbreviated, time: .shortened))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                            // BR-003 D→C：用户显式确认机器识别文本后才进入检索与 AI 事实链
-                            Button(L10n.onboard_confirm) {
-                                Task {
-                                    // 写库结果决定后续（confirmText 已把成功行
-                                    // 移出待确认投影）；失败必须可见，不得
-                                    // 静默留 D 级行（BR-003/BR-004 真实性）
-                                    if await docs.confirmText(id: doc.id) {
-                                        await docs.loadPending(patientIds: app.members.map(\.id))
-                                    } else {
-                                        confirmFailed = true
-                                    }
-                                }
+                            OCRReviewOwnerRow(patientId: doc.patientId)
+                            NavigationLink(L10n.docConfirmText) {
+                                DocumentReviewRouteView(documentId: doc.id, patientId: doc.patientId)
                             }
                             .buttonStyle(.borderedProminent)
                             .controlSize(.small)
@@ -137,13 +137,13 @@ struct PendingOcrQueueView: View {
             .background(.thinMaterial)
         }
         .navigationTitle(L10n.ocrQueueTitle)
-        .saveFailedAlert(title: L10n.encounterSaveFailed,
-                         hint: L10n.f19RecordFailed,
-                         isPresented: $confirmFailed)
-        .task(id: app.members.map(\.id)) {
-            // 跨成员聚合加载（第四轮全仓审查修复：成员筛选对其他成员恒空态）
-            await docs.loadPending(patientIds: app.members.map(\.id))
-        }
+        .task(id: "\(app.members.map(\.id))-\(docs.pendingVersion)") { await load() }
+    }
+
+    private func load() async {
+        loading = true
+        await docs.loadPending(patientIds: app.members.map(\.id))
+        loading = false
     }
 
     private func windowMatch(_ doc: DocumentStore.DocumentRow) -> Bool {

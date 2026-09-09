@@ -342,6 +342,72 @@ public enum SchemaMigrations {
              CREATE INDEX IF NOT EXISTS idx_pending_card_patient_status ON pending_card(patient_id, status, created_at);
              CREATE INDEX IF NOT EXISTS idx_pending_card_source_doc ON pending_card(source_doc_id);
              """),
+        Step(version: 20, name: "health-import-checkpoints",
+             sql: """
+             ALTER TABLE metric_sample ADD COLUMN source_identifier TEXT;
+             ALTER TABLE metric_sample ADD COLUMN aggregation_kind TEXT;
+             ALTER TABLE metric_sample ADD COLUMN window_end REAL;
+             CREATE INDEX IF NOT EXISTS idx_metric_device_identity ON metric_sample(patient_id, source_ref) WHERE origin = 'device';
+             CREATE TABLE IF NOT EXISTS hk_import_binding (
+               singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+               id TEXT NOT NULL UNIQUE,
+               patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+               time_zone TEXT NOT NULL,
+               connected_at REAL NOT NULL);
+             CREATE TABLE IF NOT EXISTS hk_sample_index (
+               sample_id TEXT NOT NULL,
+               type_key TEXT NOT NULL,
+               patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+               source_id TEXT NOT NULL,
+               start_at REAL NOT NULL, end_at REAL NOT NULL,
+               PRIMARY KEY(sample_id, type_key, patient_id));
+             CREATE INDEX IF NOT EXISTS idx_hk_sample_window ON hk_sample_index(patient_id, type_key, start_at, end_at);
+             ALTER TABLE alert_event ADD COLUMN qualified INTEGER NOT NULL DEFAULT 0;
+             ALTER TABLE alert_event ADD COLUMN scheduled_at REAL;
+             CREATE INDEX IF NOT EXISTS idx_alert_qualified ON alert_event(patient_id, qualified, created_at);
+             """),
+        // V3.99 / FR6.9 页级多卡（2026-09-09 业主裁决）：信息卡对应到某次 OCR 记录的某一页。
+        // document_page 每页一行（失败页占位保页号）；pending_card 补页号列。
+        // pending_card 不进 FTS/AI/导出（红线不变）；document_page 随 .vlbu documents.pages 往返。
+        Step(version: 21, name: "ocr-page-cards",
+             sql: """
+             CREATE TABLE IF NOT EXISTS document_page (
+               id TEXT PRIMARY KEY,
+               document_file_id TEXT NOT NULL REFERENCES document_file(id),
+               page_index INTEGER NOT NULL,
+               ocr_text TEXT,
+               status TEXT NOT NULL DEFAULT 'ok' CHECK(status IN ('ok','failed','skipped')),
+               created_at REAL NOT NULL,
+               UNIQUE(document_file_id, page_index));
+             CREATE INDEX IF NOT EXISTS idx_document_page_doc ON document_page(document_file_id, page_index);
+             ALTER TABLE pending_card ADD COLUMN source_page INTEGER;
+             """),
+        Step(version: 22, name: "review-integrity-checkpoints",
+             sql: """
+             CREATE TABLE IF NOT EXISTS hk_pending_batch (
+               binding_id TEXT NOT NULL REFERENCES hk_import_binding(id) ON DELETE CASCADE,
+               type_key TEXT NOT NULL,
+               payload_json TEXT NOT NULL,
+               PRIMARY KEY(binding_id, type_key));
+             CREATE TABLE IF NOT EXISTS hk_projection_state (
+               binding_id TEXT NOT NULL REFERENCES hk_import_binding(id) ON DELETE CASCADE,
+               metric_id TEXT NOT NULL REFERENCES metric_sample(id) ON DELETE CASCADE,
+               PRIMARY KEY(binding_id, metric_id));
+             CREATE INDEX IF NOT EXISTS idx_hk_projection_metric ON hk_projection_state(metric_id);
+             CREATE TABLE IF NOT EXISTS ocr_card_commit (
+               card_id TEXT NOT NULL,
+               row_id TEXT NOT NULL,
+               patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+               document_file_id TEXT NOT NULL REFERENCES document_file(id),
+               page_index INTEGER NOT NULL CHECK(page_index >= 0),
+               card_kind TEXT NOT NULL CHECK(card_kind IN ('metric_sample','encounter','prescription')),
+               entity_id TEXT NOT NULL,
+               created_at REAL NOT NULL,
+               PRIMARY KEY(card_id, row_id),
+               FOREIGN KEY(document_file_id, page_index) REFERENCES document_page(document_file_id, page_index));
+             CREATE INDEX IF NOT EXISTS idx_ocr_card_commit_source ON ocr_card_commit(document_file_id, page_index, card_kind);
+             CREATE INDEX IF NOT EXISTS idx_ocr_card_commit_entity ON ocr_card_commit(card_kind, entity_id, patient_id);
+             """),
     ]
 
     /// 全新库建库后应落到的版本号

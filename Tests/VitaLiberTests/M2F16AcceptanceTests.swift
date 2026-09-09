@@ -106,6 +106,30 @@ final class M2F16AcceptanceTests: XCTestCase {
         XCTAssertEqual(history.count, 3, "每次读数都应留痕（L1+ 摘要卡从历史提取）")
     }
 
+    func test_sameTimeDifferentMetricsDoNotShareEvidenceIdentity() async throws {
+        let (_, guidelines, patient) = try await makeStore()
+        _ = try await guidelines.seedBundled()
+        let at = Date(timeIntervalSince1970: 1_700_000_000)
+        let heart = try await guidelines.evaluateAndRecord(reading:
+            MetricReading(metricKey: "heart_rate", value: 105, unit: "bpm", origin: .device, measuredAt: at),
+            patientId: patient, ruleId: "f16.healthkit")
+        let oxygen = try await guidelines.evaluateAndRecord(reading:
+            MetricReading(metricKey: "blood_oxygen", value: 93, unit: "%", origin: .device, measuredAt: at),
+            patientId: patient, ruleId: "f16.healthkit")
+        XCTAssertNotEqual(heart.id, oxygen.id)
+        let history = try await guidelines.history(patientId: patient)
+        XCTAssertEqual(history.count, 2)
+    }
+
+    func test_rawEvaluationDoesNotBecomeAQualifiedReminder() async throws {
+        let (_, guidelines, patient) = try await makeStore()
+        _ = try await guidelines.evaluateAndRecord(reading:
+            MetricReading(metricKey: "heart_rate", value: 105, unit: "bpm", origin: .device, measuredAt: Date()),
+            patientId: patient, ruleId: "f16.healthkit")
+        let eligible = try await guidelines.history(patientId: patient, qualifiedOnly: true)
+        XCTAssertTrue(eligible.isEmpty)
+    }
+
     /// 迁移 v3：v2 库升级后 guideline_source 具备阈值列
     func test_迁移v3补齐信源阈值列() async throws {
         let queue = try DatabaseQueue(configuration: GRDBStore.configuration())

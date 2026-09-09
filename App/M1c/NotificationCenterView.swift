@@ -14,6 +14,7 @@ struct NotificationCenterView: View {
     @Environment(AppRouter.self) private var router
     @Environment(NotificationCenterState.self) private var notificationState
     @Environment(DocumentsState.self) private var docs
+    @Environment(AppDataChangeCenter.self) private var dataChange
 
     /// 第四轮全仓审查修复（5WHY）：视图曾维护本地 @State itemStates 影子副本，
     /// 而 NotificationCenterState.load(keys:) 灌入的持久化状态（重启后已读/
@@ -87,7 +88,7 @@ struct NotificationCenterView: View {
                     ForEach(visibleL1Alerts) { event in
                         Button {
                             markRead("alert-\(event.id)")
-                            router.navigate(to: .alertHistory)
+                            router.navigate(to: .alertEvidence(patientId: event.patientId, eventId: event.id, severity: event.severity))
                         } label: {
                             HStack {
                                 Image(systemName: "waveform.path.ecg").foregroundStyle(Color("semantic-danger", bundle: .main))
@@ -129,7 +130,7 @@ struct NotificationCenterView: View {
             }
         }
         .navigationTitle(L10n.ncTitle)
-        .task(id: app.currentPatientId) {
+        .task(id: "\(app.currentPatientId)-\(dataChange.alertsVersion)") {
             await reminderStore.refreshTriggered(patientId: app.currentPatientId)
             await hub.load(patientId: app.currentPatientId)
             await docs.load(patientId: app.currentPatientId)
@@ -168,7 +169,7 @@ struct NotificationCenterView: View {
     }
 
     private var l1Alerts: [GuidelineStore.AlertEvent] {
-        hub.alertEvents.filter { $0.severity != .L0 && $0.patientId == app.currentPatientId }
+        hub.qualifiedAlertEvents.filter { $0.qualified && $0.severity != .L0 && $0.patientId == app.currentPatientId }
     }
 
     private var visibleL1Alerts: [GuidelineStore.AlertEvent] {

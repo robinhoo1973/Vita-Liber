@@ -44,6 +44,9 @@ struct RouteDestinationView: View {
         // ---- F6 OCR ----
         case .pendingOcrQueue:
             PendingOcrQueueView()
+        case .pendingCard(let id):
+            // FR6.9 稍后处理 1h 通知深链：待办卡续确认（页级实体卡，V3.61）
+            PendingCardResumeRouteView(cardId: id)
 
         // ---- F7 指标 ----
         case .trendChart(let patientId, let metric):
@@ -114,6 +117,8 @@ struct RouteDestinationView: View {
         // ---- F16 ----
         case .alertHistory:
             AlertHistoryView()
+        case .alertEvidence(let patient, let event, _):
+            AlertEvidenceRouteView(patientId: patient, eventId: event)
         case .deviceConnection:
             DeviceConnectionView()
 
@@ -170,7 +175,7 @@ struct RouteDestinationView: View {
 
         // ---- SP-11 快速拍摄（TestFlight 实测修复：原先列入「尚未落地」降级，
         //      三入口点击静默回档案根——现接真实相机流 + 资料库入库管线） ----
-        case .scanCapture(let kind):
+        case .scanCapture(let kind):   // nil = 单入口（识别后判定类型）
             if kind == .symptom {
                 // .symptom 只可能来自旧持久化路由/旧通知（保留 Codable 兼容）：
                 // 症状必须走观察创建——kind→docType 映射兜底会把症状拍成
@@ -300,11 +305,16 @@ struct DocumentDetailRouteView: View {
     @Environment(DocumentsState.self) private var documentsState
     @State private var storeRow: DocumentStore.DocumentRow?
     @State private var lookupDone = false
+    @State private var lookupFailed = false
 
     var body: some View {
         Group {
             if let storeRow {
                 DocumentStoreDetailView(doc: storeRow)
+            } else if lookupFailed {
+                ContentUnavailableView {
+                    Label(L10n.sensitiveMedia_loadFailed, systemImage: "exclamationmark.triangle")
+                } actions: { Button(L10n.retry) { Task { await loadDocument() } } }
             } else if lookupDone {
                 // 审查修复：原错用趋势页文案「趋势范围不可用」——补专用文案
                 // 第七轮修复：§5.48 契约——查无实体（已删除）自弹回根
@@ -314,11 +324,18 @@ struct DocumentDetailRouteView: View {
                     .autoPop(route: .documentDetail(documentId))
             } else {
                 ProgressView()
-                    .task {
-                        storeRow = await documentsState.fetch(id: documentId)
-                        lookupDone = true
-                    }
             }
         }
+        .task(id: "\(documentId)-\(documentsState.pendingVersion)") { await loadDocument() }
+    }
+
+    private func loadDocument() async {
+        lookupFailed = false
+        do {
+            let row = try await documentsState.documentStore.fetch(id: documentId)
+            guard !Task.isCancelled else { return }
+            storeRow = row
+        } catch { lookupFailed = true }
+        lookupDone = true
     }
 }

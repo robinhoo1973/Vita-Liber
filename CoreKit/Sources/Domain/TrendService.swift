@@ -4,6 +4,11 @@ import Foundation
 /// 渲染选型 = Swift Charts（ADR-022）；本层只负责查询语义，UI 层做图表。
 public enum MetricType: String, Sendable, Equatable, Codable, CaseIterable {
     case bloodPressureSys, bloodPressureDia, glucose, weight, temperature, heartRate, bloodOxygen
+    case restingHeartRate
+    case respiratoryRate = "respiratory_rate"
+    case steps
+    case sleepTotal = "sleep_total", sleepDeep = "sleep_deep", sleepREM = "sleep_rem"
+    case sleepAwake = "sleep_awake", sleepCore = "sleep_core", sleepUnspecified = "sleep_unspecified"
 
     /// 语音文法键（snake_case，VoiceGrammarDefaults.metricRules 单一事实源）→ 指标类型。
     /// 语音确认卡与语音会话共用同一映射——键词汇只存在这一处
@@ -17,7 +22,9 @@ public enum MetricType: String, Sendable, Equatable, Codable, CaseIterable {
         case "weight": self = .weight
         case "blood_oxygen": self = .bloodOxygen
         case "temperature": self = .temperature
-        default: return nil
+        default:
+            guard let known = Self(rawValue: grammarKey) else { return nil }
+            self = known
         }
     }
 }
@@ -51,14 +58,27 @@ public struct TrendPoint: Sendable, Equatable, Identifiable {
     /// 未确认行 code_concept_id 为空（BR-003，确认前不落编码）。
     public var rawLabel: String?
     public var codeConceptId: String?
+    public var sourceName: String?
+    public var sourceIdentifier: String?
+    public var aggregation: MetricAggregation?
+    public var windowEnd: Date?
+    public var valueMin: Double?
+    public var valueMax: Double?
+    public var sampleCount: Int?
     public init(id: UUID, measuredAt: Date, value: Double, unit: String? = nil,
                 origin: MetricOrigin, excluded: Bool = false, sourceRef: String? = nil,
                 refLow: Double? = nil, refHigh: Double? = nil, refSourceLabel: String? = nil,
-                rawLabel: String? = nil, codeConceptId: String? = nil) {
+                rawLabel: String? = nil, codeConceptId: String? = nil,
+                sourceName: String? = nil, sourceIdentifier: String? = nil,
+                aggregation: MetricAggregation? = nil, windowEnd: Date? = nil,
+                valueMin: Double? = nil, valueMax: Double? = nil, sampleCount: Int? = nil) {
         self.id = id; self.measuredAt = measuredAt; self.value = value
         self.unit = unit; self.origin = origin; self.excluded = excluded; self.sourceRef = sourceRef
         self.refLow = refLow; self.refHigh = refHigh; self.refSourceLabel = refSourceLabel
         self.rawLabel = rawLabel; self.codeConceptId = codeConceptId
+        self.sourceName = sourceName; self.sourceIdentifier = sourceIdentifier
+        self.aggregation = aggregation; self.windowEnd = windowEnd
+        self.valueMin = valueMin; self.valueMax = valueMax; self.sampleCount = sampleCount
     }
     /// 空心=自测/设备；实心=医院报告（ui-ux 4.7 一眼可辨）
     public var isHollow: Bool { origin != .hospital }
@@ -179,6 +199,8 @@ public enum TrendRules {
             q.unit = conversion.toUnit
             if let lo = p.refLow { q.refLow = conversion.convert(lo) }
             if let hi = p.refHigh { q.refHigh = conversion.convert(hi) }
+            if let lo = p.valueMin { q.valueMin = conversion.convert(lo) }
+            if let hi = p.valueMax { q.valueMax = conversion.convert(hi) }
             return q
         }
         var s = series

@@ -4,361 +4,264 @@ import HealthKit
 import Domain
 import Protocols
 
-/// FR16.1 只读接入 Apple 健康：睡眠时长与分期、心率、静息心率、血氧、呼吸率、步数。
-/// 只展示、不入诊断逻辑——读数经 AlertRuleEngine 与信源库比对后落 alert_event
-/// （F16 四级提示的事实来源），任何「解释」都由证据卡引用式呈现。
-///
-/// V3.86 评估与入库双流（FR7.9）：`recentReadings` 供分钟级内存态评估
-/// （静息心率全部样本 + 血氧/呼吸率/步数/睡眠摘要，保 FR16.2「连续3次/
-/// 持续10分钟」语义；瞬时心率不参与评估——AHA 静息阈值语义，运动误警）；
-/// `deviceRows` 供小时窗口聚合落库（心率 min/max/avg、睡眠区间合并——
-/// 杜绝双来源同夜双计，health-import V1.3）。
-///
-/// 授权被拒 → 整体降级为手动自测模式（FR7.5），不反复弹索权（FR16.1 边界）。
-public actor HealthKitReader {
+/// Read-only HealthKit adapter. Read authorization is deliberately not observable by apps.
+public actor HealthKitReader: HealthReadingProvider {
     private let store: HKHealthStore
-
+    private var observers: [HKObserverQuery] = []
     public init(store: HKHealthStore = HKHealthStore()) { self.store = store }
 
-    public enum ReaderError: Error, LocalizedError {
-        case unavailable
-        case denied
-        public var errorDescription: String? {
-            switch self {
-            case .unavailable: return "HealthKit 在此设备不可用"
-            case .denied: return "健康数据读取未获授权"
-            }
+    public enum ReaderError: Error { case unavailable, invalidAnchor, incompleteSnapshot }
+
+    public static var readTypes: Set<HKObjectType> {
+        Set(HealthDataKind.allCases.map { sampleType($0) as HKObjectType })
+    }
+
+    private static func sampleType(_ kind: HealthDataKind) -> HKSampleType {
+        switch kind {
+        case .heartRate: return HKQuantityType(.heartRate)
+        case .restingHeartRate: return HKQuantityType(.restingHeartRate)
+        case .bloodOxygen: return HKQuantityType(.oxygenSaturation)
+        case .respiratoryRate: return HKQuantityType(.respiratoryRate)
+        case .steps: return HKQuantityType(.stepCount)
+        case .sleep: return HKCategoryType(.sleepAnalysis)
         }
     }
 
-    /// 六指标读取类型（FR16.1 清单）
-    public static let readTypes: Set<HKObjectType> = {
-        var types: Set<HKObjectType> = []
-        if let sleep = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) { types.insert(sleep) }
-        if let hr = HKQuantityType.quantityType(forIdentifier: .heartRate) { types.insert(hr) }
-        if let rhr = HKQuantityType.quantityType(forIdentifier: .restingHeartRate) { types.insert(rhr) }
-        if let spo2 = HKQuantityType.quantityType(forIdentifier: .oxygenSaturation) { types.insert(spo2) }
-        if let rr = HKQuantityType.quantityType(forIdentifier: .respiratoryRate) { types.insert(rr) }
-        if let steps = HKQuantityType.quantityType(forIdentifier: .stepCount) { types.insert(steps) }
-        return types
-    }()
+    public func isAvailable() -> Bool { HKHealthStore.isHealthDataAvailable() }
 
-    /// 请求只读授权（一次性；拒绝后降级手测模式，不反复弹）
     public func requestAuthorization() async throws {
-        guard HKHealthStore.isHealthDataAvailable() else { throw ReaderError.unavailable }
+        guard isAvailable() else { throw ReaderError.unavailable }
         try await store.requestAuthorization(toShare: [], read: Self.readTypes)
     }
 
-    /// 授权状态查询（FR16.1 审查修复：requestAuthorization 对用户拒绝
-    /// **不抛错**、completion 也是 success——必须显式查 authorizationStatus，
-    /// 否则拒绝被误报为「已授权」、同步按钮空转、降级手测路径永不呈现）
-    public func authorizationStatus() -> HKAuthorizationStatus? {
-        guard HKHealthStore.isHealthDataAvailable(),
-              let hr = HKQuantityType.quantityType(forIdentifier: .heartRate) else { return nil }
-        return store.authorizationStatus(for: hr)
-    }
-
-    // MARK: - 评估流（分钟级内存态，FR16.2 语义）
-
-    /// 近窗读数（默认 24 小时）：六指标 → [MetricReading]（引擎评估的事实源）。
-    /// V3.86：睡眠改为合并摘要（sleep_total 族键，杜绝双来源双计）。
-    /// 心率评估只取**静息心率**样本（信源键 heart_rate 对应 AHA 静息
-    /// 心率 >100 bpm 语义——FR16.4 单一事实源）：瞬时心率（运动时 130+
-    /// 属正常）混入同一键会把运动误警成 L1/L2，评估序列不包含之，瞬时
-    /// 心率仅经 deviceRows 聚合入趋势展示（FR16.1 只读展示；异常事件
-    /// 由设备商检测转述，FR16.6）。静息样本取最新（newestFirst——升序
-    /// + limit 截掉的是最新样本，与瞬时心率同款陷阱）。
-    public func recentReadings(within hours: Int = 24, now: Date = Date(),
-                               calendar: Calendar = .current) async throws -> [MetricReading] {
-        guard HKHealthStore.isHealthDataAvailable() else { throw ReaderError.unavailable }
-        let start = now.addingTimeInterval(TimeInterval(-hours * 3600))
-        var readings: [MetricReading] = []
-        if let rhrType = HKQuantityType.quantityType(forIdentifier: .restingHeartRate) {
-            let samples = try await querySamples(type: rhrType,
-                                                 unit: HKUnit.count().unitDivided(by: .minute()),
-                                                 from: start, to: now, limit: 200,
-                                                 newestFirst: true)
-            for (value, at, source) in samples {
-                readings.append(MetricReading(metricKey: "heart_rate",
-                                              value: value, unit: "bpm",
-                                              origin: .device, measuredAt: at,
-                                              sourceName: source?.source.name,
-                                              sourceVersion: source?.version,
-                                              sourceProduct: source?.productType))
-            }
-        }
-        if let rrType = HKQuantityType.quantityType(forIdentifier: .respiratoryRate) {
-            let samples = try await querySamples(type: rrType,
-                                                 unit: HKUnit.count().unitDivided(by: .minute()),
-                                                 from: start, to: now)
-            if let (lastValue, lastAt, source) = samples.last {
-                readings.append(MetricReading(metricKey: "respiratory_rate",
-                                              value: lastValue, unit: "br/min",
-                                              origin: .device, measuredAt: lastAt,
-                                              sourceName: source?.source.name,
-                                              sourceVersion: source?.version,
-                                              sourceProduct: source?.productType))
-            }
-        }
-        if let spo2Type = HKQuantityType.quantityType(forIdentifier: .oxygenSaturation) {
-            let samples = try await querySamples(type: spo2Type,
-                                                 unit: HKUnit.percent(),
-                                                 from: start, to: now)
-            for (value, at, source) in samples {
-                readings.append(MetricReading(metricKey: "blood_oxygen",
-                                              value: value * 100, unit: "%",
-                                              origin: .device, measuredAt: at,
-                                              sourceName: source?.source.name,
-                                              sourceVersion: source?.version,
-                                              sourceProduct: source?.productType))
-            }
-        }
-        if let stepsType = HKQuantityType.quantityType(forIdentifier: .stepCount) {
-            let samples = try await querySamples(type: stepsType, unit: HKUnit.count(),
-                                                 from: start, to: now)
-            if let (lastValue, lastAt, source) = samples.last {
-                readings.append(MetricReading(metricKey: "steps",
-                                              value: lastValue, unit: "count",
-                                              origin: .device, measuredAt: lastAt,
-                                              sourceName: source?.source.name,
-                                              sourceVersion: source?.version,
-                                              sourceProduct: source?.productType))
-            }
-        }
-        if let sleepType = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) {
-            let rows = try await sleepRows(type: sleepType, from: start, to: now, calendar: calendar)
-            for row in rows {
-                readings.append(MetricReading(metricKey: row.metricKey,
-                                              value: row.value, unit: row.unit,
-                                              origin: .device, measuredAt: row.measuredAt,
-                                              sourceName: row.sourceName))
-            }
-        }
-        return readings
-    }
-
-    // MARK: - 入库流（小时窗口聚合，FR7.9）
-
-    /// 设备读数落库行：心率小时窗口聚合（min/max/avg + 来源主键）+
-    /// 睡眠区间合并（sleep_total/deep/rem/awake）+ 血氧/呼吸率/步数单值行。
-    /// 返回 rejected = 聚合器剔除非有限伪迹计数（不静默纪律：数据质量信号
-    /// 必须随同步报告外传，调用方不得 `_` 丢弃——code-round2 登记项裁决）。
-    public func deviceRows(within hours: Int = 24, now: Date = Date(),
-                           calendar: Calendar = .current) async throws -> (rows: [DeviceMetricRow], rejected: Int) {
-        guard HKHealthStore.isHealthDataAvailable() else { throw ReaderError.unavailable }
-        let start = now.addingTimeInterval(TimeInterval(-hours * 3600))
-        var rows: [DeviceMetricRow] = []
-        var rejected = 0
-        // 心率：原始分钟级样本 → Domain 小时窗口聚合（value=avg + min/max + count）
-        if let hrType = HKQuantityType.quantityType(forIdentifier: .heartRate) {
-            // newestFirst：升序 + limit 截掉的是**最新**样本（见 recentReadings 同款说明）
-            let samples = try await querySamples(type: hrType,
-                                                 unit: HKUnit.count().unitDivided(by: .minute()),
-                                                 from: start, to: now, limit: 1500,
-                                                 newestFirst: true)
-            // 按小时+来源分组：同窗口多来源取样本数最多的来源为主键（幂等键含来源）
-            var bucketSources: [Date: [String: Int]] = [:]
-            var windowSamples: [Date: [HourWindowSample]] = [:]
-            for (value, at, source) in samples {
-                let bucket = calendar.dateInterval(of: .hour, for: at)?.start
-                    ?? calendar.startOfDay(for: at)
-                windowSamples[bucket, default: []].append(HourWindowSample(value: value, at: at))
-                bucketSources[bucket, default: [:]][source?.source.name ?? "", default: 0] += 1
-            }
-            let (windows, hrRejected) = HourWindowAggregator.aggregate(
-                windowSamples.values.flatMap { $0 }, calendar: calendar)
-            rejected += hrRejected
-            for window in windows {
-                let sourceName = bucketSources[window.windowStart]?.max(by: { $0.value < $1.value })?.key
-                rows.append(DeviceMetricRow(
-                    metricKey: "heart_rate", value: window.avg, unit: "bpm",
-                    valueMin: window.min, valueMax: window.max,
-                    sampleCount: window.sampleCount, sourceName: sourceName,
-                    measuredAt: window.windowStart))
-            }
-        }
-        // 睡眠：分类样本 → 区间合并（Domain SleepMerge，阶段优先+noon 锚归晚）
-        if let sleepType = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) {
-            rows.append(contentsOf: try await sleepRows(type: sleepType, from: start, to: now,
-                                                        calendar: calendar))
-        }
-        // 血氧/呼吸率：窗口内最新单值（来源元数据随行）
-        if let spo2Type = HKQuantityType.quantityType(forIdentifier: .oxygenSaturation) {
-            let samples = try await querySamples(type: spo2Type, unit: HKUnit.percent(),
-                                                 from: start, to: now)
-            if let (lastValue, lastAt, source) = samples.last {
-                rows.append(DeviceMetricRow(metricKey: "blood_oxygen",
-                                            value: lastValue * 100, unit: "%",
-                                            sourceName: source?.source.name,
-                                            sourceVersion: source?.version,
-                                            sourceProduct: source?.productType,
-                                            measuredAt: lastAt))
-            }
-        }
-        if let rrType = HKQuantityType.quantityType(forIdentifier: .respiratoryRate) {
-            let samples = try await querySamples(type: rrType,
-                                                 unit: HKUnit.count().unitDivided(by: .minute()),
-                                                 from: start, to: now)
-            if let (lastValue, lastAt, source) = samples.last {
-                rows.append(DeviceMetricRow(metricKey: "respiratory_rate",
-                                            value: lastValue, unit: "br/min",
-                                            sourceName: source?.source.name,
-                                            sourceVersion: source?.version,
-                                            sourceProduct: source?.productType,
-                                            measuredAt: lastAt))
-            }
-        }
-        if let stepsType = HKQuantityType.quantityType(forIdentifier: .stepCount) {
-            let samples = try await querySamples(type: stepsType, unit: HKUnit.count(),
-                                                 from: start, to: now)
-            if let (lastValue, lastAt, source) = samples.last {
-                rows.append(DeviceMetricRow(metricKey: "steps",
-                                            value: lastValue, unit: "count",
-                                            sourceName: source?.source.name,
-                                            sourceVersion: source?.version,
-                                            sourceProduct: source?.productType,
-                                            measuredAt: lastAt))
-            }
-        }
-        return (rows, rejected)
-    }
-
-    /// 睡眠合并行（V3.86）：HKCategorySample → Domain SleepSample →
-    /// SleepMerge.merge（区间并集/阶段优先/noon 锚归晚）→ sleep_total 族键。
-    /// deep 桶只计 deep（V1.3 修正：REM/Core 不再误计入 deep）。
-    private func sleepRows(type: HKCategoryType, from: Date, to: Date,
-                           calendar: Calendar) async throws -> [DeviceMetricRow] {
-        let predicate = HKQuery.predicateForSamples(withStart: from, end: to, options: [])
-        let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: true)
-        let samples: [SleepSample] = try await withCheckedThrowingContinuation { continuation in
-            let query = HKSampleQuery(sampleType: type, predicate: predicate,
-                                      limit: 500, sortDescriptors: [sort]) { _, samples, error in
-                if let error {
-                    continuation.resume(throwing: error)
-                    return
-                }
-                var out: [SleepSample] = []
-                for case let s as HKCategorySample in (samples ?? []) {
-                    let stage: SleepStage
-                    switch s.value {
-                    case HKCategoryValueSleepAnalysis.asleepDeep.rawValue: stage = .deep
-                    case HKCategoryValueSleepAnalysis.asleepREM.rawValue: stage = .rem
-                    case HKCategoryValueSleepAnalysis.asleepCore.rawValue: stage = .core
-                    // .asleep 为 .asleepUnspecified 的旧名（iOS 16 弃用），rawValue 同值
-                    case HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue: stage = .unspecified
-                    case HKCategoryValueSleepAnalysis.awake.rawValue: stage = .awake
-                    case HKCategoryValueSleepAnalysis.inBed.rawValue: stage = .inBed
-                    default: continue
+    public func observeChanges(handler: @escaping @Sendable () async -> Bool,
+                               enableDelivery: Bool) async -> Bool {
+        if observers.isEmpty {
+            for type in Self.readTypes {
+                guard let sampleType = type as? HKSampleType else { continue }
+                let query = HKObserverQuery(sampleType: sampleType, predicate: nil) { _, completion, error in
+                    Task {
+                        if error == nil { _ = await handler() }
+                        completion()
                     }
-                    out.append(SleepSample(
-                        start: s.startDate, end: s.endDate, stage: stage,
-                        sourceName: s.sourceRevision.source.name,
-                        sourceVersion: s.sourceRevision.version,
-                        sourceProduct: s.sourceRevision.productType))
                 }
-                continuation.resume(returning: out)
-            }
-            store.execute(query)
-        }
-        // noon 锚归晚：锚日 = 样本结束日 ∪ 结束日+1。午后小睡（13:00-14:00）
-        // 落在锚日窗口 [前日12:00, 当日12:00) 之外，只按结束日分组会被裁空
-        // 静默丢弃（同步先于次日夜间样本、无次日样本、窗口过期均触发）——
-        // 并入「结束日+1」后由次日窗口承接；夜间样本在次日窗口自然裁空跳过。
-        var anchorDays = Set(samples.map { calendar.startOfDay(for: $0.end) })
-        for day in Array(anchorDays) {
-            if let next = calendar.date(byAdding: .day, value: 1, to: day) {
-                anchorDays.insert(next)
+                observers.append(query)
+                store.execute(query)
             }
         }
+        guard enableDelivery else { return true }
+        var success = true
+        for type in Self.readTypes {
+            do { try await store.enableBackgroundDelivery(for: type, frequency: .hourly) }
+            catch { success = false }
+        }
+        return success
+    }
+
+    public func changes(for kind: HealthDataKind, anchor: Data?, limit: Int) async throws -> HealthChangeBatch {
+        try Task.checkCancellation()
+        guard isAvailable() else { throw ReaderError.unavailable }
+        guard limit > 0, limit <= 500 else { throw ReaderError.incompleteSnapshot }
+        let cursor: HKQueryAnchor?
+        if let anchor {
+            guard let decoded = try NSKeyedUnarchiver.unarchivedObject(ofClass: HKQueryAnchor.self, from: anchor) else {
+                throw ReaderError.invalidAnchor
+            }
+            cursor = decoded
+        } else { cursor = nil }
+        let query = HKAnchoredObjectQueryDescriptor(
+            predicates: [HKSamplePredicate.sample(type: Self.sampleType(kind))], anchor: cursor, limit: limit)
+        let result = try await query.result(for: store)
+        try Task.checkCancellation()
+        guard result.addedSamples.count + result.deletedObjects.count <= limit else { throw ReaderError.incompleteSnapshot }
+        return HealthChangeBatch(added: try result.addedSamples.map { try Self.reference($0, kind: kind) },
+            deleted: result.deletedObjects.map(\.uuid),
+            anchor: try NSKeyedArchiver.archivedData(withRootObject: result.newAnchor, requiringSecureCoding: true),
+            hasMore: result.addedSamples.count + result.deletedObjects.count >= limit)
+    }
+
+    public func snapshot(for window: HealthImportWindow, calendar: Calendar) async throws -> HealthWindowSnapshot {
+        try Task.checkCancellation()
+        guard isAvailable() else { throw ReaderError.unavailable }
+        guard window.isValid else { throw ReaderError.incompleteSnapshot }
+        let predicate = HKQuery.predicateForSamples(withStart: window.start, end: window.end, options: [])
+        let samples = try await querySamples(for: window.kind, predicate: predicate)
+        let references = try samples.map { try Self.reference($0, kind: window.kind) }
         var rows: [DeviceMetricRow] = []
-        for day in anchorDays {
-            let summary = SleepMerge.merge(samples, anchorDate: day, calendar: calendar)
-            guard summary.totalAsleep > 0 || summary.inBedTotal > 0 else { continue }
-            // 幂等锚定：measuredAt = 归窗左边界（tech §5.29 窗口左边界语义，
-            // 跨同步稳定——午后小睡归入次日窗口时左边界仍在其当日 12:00，
-            // 不会漂移到次日零点）。锚 sleepStart 会随后到来源回填（Watch
-            // 分期晚于 iPhone 整夜样本）而漂移，幂等键失配 → 同夜重复行、
-            // 趋势双计。sourceName 置 nil：睡眠行是跨来源**并集**摘要，
-            // 非单一来源行（来源优先链仅诊断用）。
-            let anchor = summary.windowStart ?? calendar.startOfDay(for: day)
-            if summary.totalAsleep > 0 {
-                rows.append(DeviceMetricRow(metricKey: "sleep_total",
-                                            value: summary.totalAsleep / 3600, unit: "h",
-                                            measuredAt: anchor))
+        var readings: [MetricReading] = []
+        var rejected = 0
+
+        if window.kind == .sleep {
+            let sleep = samples.compactMap { sample -> SleepSample? in
+                guard let sample = sample as? HKCategorySample else { return nil }
+                let stage: SleepStage
+                switch sample.value {
+                case HKCategoryValueSleepAnalysis.asleepDeep.rawValue: stage = .deep
+                case HKCategoryValueSleepAnalysis.asleepREM.rawValue: stage = .rem
+                case HKCategoryValueSleepAnalysis.asleepCore.rawValue: stage = .core
+                case HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue: stage = .unspecified
+                case HKCategoryValueSleepAnalysis.awake.rawValue: stage = .awake
+                case HKCategoryValueSleepAnalysis.inBed.rawValue: stage = .inBed
+                default: return nil
+                }
+                return SleepSample(start: sample.startDate, end: sample.endDate, stage: stage,
+                    sourceName: sample.sourceRevision.source.name, sourceVersion: sample.sourceRevision.version,
+                    sourceProduct: sample.sourceRevision.productType)
             }
-            if let deep = summary.perStage[.deep], deep > 0 {
-                rows.append(DeviceMetricRow(metricKey: "sleep_deep",
-                                            value: deep / 3600, unit: "h",
-                                            measuredAt: anchor))
+            let summary = SleepMerge.merge(sleep, anchorDate: window.end, calendar: calendar)
+            let values: [(String, Double)] = [
+                ("sleep_total", summary.totalAsleep), ("sleep_deep", summary.perStage[.deep] ?? 0),
+                ("sleep_rem", summary.perStage[.rem] ?? 0), ("sleep_awake", summary.perStage[.awake] ?? 0),
+                ("sleep_core", summary.perStage[.core] ?? 0), ("sleep_unspecified", summary.perStage[.unspecified] ?? 0)
+            ]
+            for (key, seconds) in values where seconds > 0 {
+                rows.append(DeviceMetricRow(metricKey: key, value: seconds / 3600, unit: "h",
+                    measuredAt: window.start, sourceRef: window.prefix + key,
+                    aggregation: .sleepDuration, windowEnd: window.end))
             }
-            if let rem = summary.perStage[.rem], rem > 0 {
-                rows.append(DeviceMetricRow(metricKey: "sleep_rem",
-                                            value: rem / 3600, unit: "h",
-                                            measuredAt: anchor))
+        } else if window.kind == .steps {
+            if !samples.isEmpty {
+                let ids = Set(samples.map(\.uuid))
+                let statisticsPredicate = Self.stepStatisticsPredicate(for: window, sampleIDs: ids)
+                try Task.checkCancellation()
+                // Keep HealthKit's source arbitration, but never include a contributor absent from the index snapshot.
+                let statistics = try await HKStatisticsQueryDescriptor(
+                    predicate: .quantitySample(type: HKQuantityType(.stepCount), predicate: statisticsPredicate),
+                    options: .cumulativeSum).result(for: store)
+                try Task.checkCancellation()
+                guard let value = statistics?.sumQuantity()?.doubleValue(for: .count()), value.isFinite else {
+                    throw ReaderError.incompleteSnapshot
+                }
+                let verified = try await querySamples(for: .steps, predicate: statisticsPredicate)
+                guard Set(verified.map(\.uuid)) == ids else { throw ReaderError.incompleteSnapshot }
+                rows.append(DeviceMetricRow(metricKey: "steps", value: value, unit: "count",
+                    measuredAt: window.start, sourceRef: window.prefix + "sum",
+                    aggregation: .dailySum, windowEnd: min(Date(), window.end)))
             }
-            if let awake = summary.perStage[.awake], awake > 0 {
-                rows.append(DeviceMetricRow(metricKey: "sleep_awake",
-                                            value: awake / 3600, unit: "h",
-                                            measuredAt: anchor))
+        } else if window.kind == .heartRate {
+            let unit = HKUnit.count().unitDivided(by: .minute())
+            let quantities = samples.compactMap { $0 as? HKQuantitySample }
+            let bySource = Dictionary(grouping: quantities) { $0.sourceRevision.source.bundleIdentifier }
+            for sourceID in bySource.keys.sorted() {
+                guard let contributing = bySource[sourceID] else { continue }
+                var points: [HourWindowSample] = []
+                for sample in contributing {
+                    for point in try await quantityPoints(sample, unit: unit, useEndDate: false) {
+                        guard point.at >= window.start, point.at < window.end else { continue }
+                        points.append(HourWindowSample(value: point.value, at: point.at))
+                    }
+                }
+                let (summaries, invalid) = HourWindowAggregator.aggregate(points, calendar: calendar)
+                rejected += invalid
+                guard let summary = summaries.first else { continue }
+                let revision = contributing.max { $0.endDate < $1.endDate }?.sourceRevision
+                let products = Set(contributing.compactMap { $0.sourceRevision.productType })
+                rows.append(DeviceMetricRow(metricKey: "heart_rate", value: summary.avg, unit: "bpm",
+                    valueMin: summary.min, valueMax: summary.max, sampleCount: summary.sampleCount, sourceName: revision?.source.name,
+                    sourceVersion: revision?.version, sourceProduct: products.count == 1 ? products.first : nil,
+                    measuredAt: window.start, sourceRef: window.prefix + sourceID,
+                    sourceIdentifier: sourceID, aggregation: .hourlyAverage,
+                    windowEnd: min(Date(), window.end)))
+            }
+        } else {
+            let key: String
+            let unit: HKUnit
+            let label: String
+            let factor: Double
+            switch window.kind {
+            case .restingHeartRate: key = "restingHeartRate"; unit = .count().unitDivided(by: .minute()); label = "bpm"; factor = 1
+            case .bloodOxygen: key = "blood_oxygen"; unit = .percent(); label = "%"; factor = 100
+            default: key = "respiratory_rate"; unit = .count().unitDivided(by: .minute()); label = "br/min"; factor = 1
+            }
+            for case let sample as HKQuantitySample in samples {
+                let source = sample.sourceRevision
+                for point in try await quantityPoints(sample, unit: unit, useEndDate: true) {
+                    guard point.at >= window.start, point.at < window.end else { continue }
+                    let value = point.value * factor
+                    guard value.isFinite else { rejected += 1; continue }
+                    // Window-independent identity: a later time-zone/binding change replays onto the same row.
+                    let identity = HealthImportWindow.sampleIdentity(kind: window.kind, sampleID: sample.uuid,
+                                                                     ordinal: point.ordinal)
+                    rows.append(DeviceMetricRow(metricKey: key, value: value, unit: label,
+                        sampleCount: 1, sourceName: source.source.name, sourceVersion: source.version,
+                        sourceProduct: source.productType, measuredAt: point.at,
+                        sourceRef: identity, sourceIdentifier: source.source.bundleIdentifier,
+                        aggregation: .sample, windowEnd: point.at))
+                    readings.append(MetricReading(metricKey: key, value: value, unit: label, origin: .device,
+                        measuredAt: point.at, sourceName: source.source.name, sourceVersion: source.version,
+                        sourceProduct: source.productType, sourceIdentifier: source.source.bundleIdentifier,
+                        sampleID: identity))
+                }
             }
         }
-        return rows
+        try Task.checkCancellation()
+        return HealthWindowSnapshot(window: window, samples: references, rows: rows, readings: readings, rejected: rejected)
     }
 
-    // MARK: - 前台锚点增量（FR16.1 V3.46：HKAnchoredObjectQuery 兜底）
-
-    /// 锚点增量查询（单类型）：返回自 anchor 以来的样本事件与删除事件。
-    /// 无锚首跑传 nil（全量）。类型参数 HKSampleType（锚点查询仅样本——
-    /// HKObjectType 直传 L1 类型错误，34187657668 暴露；六类指标均为
-    /// quantity/category，调用方 `as? HKSampleType` 恒可下转）。
-    public func anchoredChanges(type: HKSampleType, anchor: HKQueryAnchor?,
-                                limit: Int = 500) async throws -> (anchor: HKQueryAnchor?,
-                                                                   added: [HKSample],
-                                                                   deleted: [HKDeletedObject]) {
-        try await withCheckedThrowingContinuation { continuation in
-            // 单次 resume 纪律：handler 可在后续更新时再次回调——
-            // settled 守卫（与 SFSpeechTranscriber isFinal 守卫同款），
-            // 双 resume 是 continuation 陷阱
-            var settled = false
-            let query = HKAnchoredObjectQuery(type: type, predicate: nil, anchor: anchor,
-                                              limit: limit) { _, samples, deleted, newAnchor, error in
-                guard !settled else { return }
-                settled = true
-                if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume(returning: (newAnchor, samples ?? [], deleted ?? []))
-                }
+    /// A condensed quantity sample is a container, not one independent reading. `ordinal` is nil for a
+    /// single-quantity sample and the series entry index otherwise (identity = sample UUID + ordinal).
+    private func quantityPoints(_ sample: HKQuantitySample, unit: HKUnit,
+                                 useEndDate: Bool) async throws -> [(ordinal: Int?, value: Double, at: Date)] {
+        try Task.checkCancellation()
+        guard sample.count > 0 else { throw ReaderError.incompleteSnapshot }
+        if sample.count == 1 {
+            return [(nil, sample.quantity.doubleValue(for: unit),
+                     useEndDate ? sample.endDate : sample.startDate)]
+        }
+        let query = HKQuantitySeriesSampleQueryDescriptor(
+            predicate: .quantitySample(type: sample.quantityType, predicate: HKQuery.predicateForObject(with: sample.uuid)),
+            options: .orderByQuantitySampleStartDate)
+        var points: [(ordinal: Int?, value: Double, at: Date)] = []
+        for try await entry in query.results(for: store) {
+            try Task.checkCancellation()
+            guard entry.dateInterval.start.timeIntervalSince1970.isFinite,
+                  entry.dateInterval.end.timeIntervalSince1970.isFinite,
+                  entry.dateInterval.start >= sample.startDate, entry.dateInterval.end <= sample.endDate else {
+                throw ReaderError.incompleteSnapshot
             }
-            store.execute(query)
+            points.append((points.count, entry.quantity.doubleValue(for: unit),
+                           useEndDate ? entry.dateInterval.end : entry.dateInterval.start))
+        }
+        guard points.count == sample.count else { throw ReaderError.incompleteSnapshot }
+        return points
+    }
+
+    /// Every reference query is bounded, without truncating a window or slicing an opaque anchor.
+    private func querySamples(for kind: HealthDataKind, predicate: NSPredicate) async throws -> [HKSample] {
+        var samples: [UUID: HKSample] = [:]
+        var anchor: HKQueryAnchor?
+        while true {
+            try Task.checkCancellation()
+            let query = HKAnchoredObjectQueryDescriptor(
+                predicates: [.sample(type: Self.sampleType(kind), predicate: predicate)], anchor: anchor, limit: 500)
+            let result = try await query.result(for: store)
+            try Task.checkCancellation()
+            let count = result.addedSamples.count + result.deletedObjects.count
+            guard count <= 500 else { throw ReaderError.incompleteSnapshot }
+            for sample in result.addedSamples { samples[sample.uuid] = sample }
+            for deleted in result.deletedObjects { samples.removeValue(forKey: deleted.uuid) }
+            if count < 500 { break }
+            if let anchor, result.newAnchor.isEqual(anchor) { throw ReaderError.invalidAnchor }
+            anchor = result.newAnchor
+        }
+        return samples.values.sorted {
+            if $0.startDate != $1.startDate { return $0.startDate < $1.startDate }
+            return $0.uuid.uuidString < $1.uuid.uuidString
         }
     }
 
-    /// 单类型样本查询（时间升序；单位由调用方按指标语义给定）。
-    /// newestFirst=true 时按时间**降序**取前 limit 条（窗口内最新样本，
-    /// 高采样指标用——升序 + limit 会截掉最新读数而非最旧）。
-    /// 返回 (值, 时刻, 来源修订)——来源三键供幂等键与展示徽章。
-    private func querySamples(type: HKQuantityType, unit: HKUnit,
-                              from: Date, to: Date,
-                              limit: Int = 100,
-                              newestFirst: Bool = false) async throws -> [(Double, Date, HKSourceRevision?)] {
-        let predicate = HKQuery.predicateForSamples(withStart: from, end: to, options: [])
-        let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: !newestFirst)
-        return try await withCheckedThrowingContinuation { continuation in
-            let query = HKSampleQuery(sampleType: type, predicate: predicate,
-                                      limit: limit, sortDescriptors: [sort]) { _, samples, error in
-                if let error {
-                    continuation.resume(throwing: error)
-                    return
-                }
-                let out = (samples ?? []).compactMap { sample -> (Double, Date, HKSourceRevision?)? in
-                    guard let q = sample as? HKQuantitySample else { return nil }
-                    return (q.quantity.doubleValue(for: unit), q.endDate, q.sourceRevision)
-                }
-                continuation.resume(returning: out)
-            }
-            store.execute(query)
-        }
+    static func stepStatisticsPredicate(for window: HealthImportWindow, sampleIDs: Set<UUID>) -> NSPredicate {
+        NSCompoundPredicate(andPredicateWithSubpredicates: [
+            HKQuery.predicateForSamples(withStart: window.start, end: window.end, options: []),
+            HKQuery.predicateForObjects(with: sampleIDs)
+        ])
+    }
+
+    private static func reference(_ sample: HKSample, kind: HealthDataKind) throws -> HealthSampleReference {
+        let ref = HealthSampleReference(id: sample.uuid, kind: kind, sourceID: sample.sourceRevision.source.bundleIdentifier,
+                                       start: sample.startDate, end: sample.endDate)
+        guard ref.isValid else { throw ReaderError.incompleteSnapshot }
+        return ref
     }
 }
 #endif

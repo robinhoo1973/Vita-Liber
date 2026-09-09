@@ -147,9 +147,12 @@ public actor GRDBM1aPersistor: M1aPersisting {
             // plan_lifecycle_event——剂量日志存在时 DELETE medication_plan 外键
             // 违约、整事务回滚，UI 测试清态在脏数据上静默失效。
             let ordered = [
+                "ocr_card_commit", "hk_pending_batch", "hk_projection_state",
                 // 最末级子表（不被他表引用，或被更末级引用）
                 "ai_message", "dose_lot_allocation", "notification_delivery",
                 "medication_dose_log", "plan_lifecycle_event", "stock_lot",
+                // v19/v21：待办卡与页文本引用 document_file，须先于其删除
+                "pending_card", "document_page",
                 "ocr_result", "claim_item", "prescription", "encounter_question", "voice_note",
                 "immunization", "allergy_event", "observation", "document_file", "medication_plan",
                 "sent_message", "emergency_card_selection", "contact",
@@ -158,7 +161,7 @@ public actor GRDBM1aPersistor: M1aPersisting {
                 // v18 新增：同步锚点与通知中心状态——此前不在清空清单，
                 // UI 测试继承旧锚点（HealthKit 增量从旧锚续跑）与上轮已读/
                 // 归档标记，清态断言在脏状态上失效（「等价首次安装」落空）
-                "hk_sync_anchor", "notification_state",
+                "hk_sample_index", "hk_import_binding", "hk_sync_anchor", "notification_state",
                 // local_owner 子表
                 "consent_record", "device_identity", "onboarding_progress",
                 // 父表

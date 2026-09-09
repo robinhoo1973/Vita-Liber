@@ -91,8 +91,9 @@ public enum DocumentTypeClassifierFallback {
             ("chief_complaint", #"(?:主诉|主訴)[:：]?\s*(.+)"#),
             ("diagnosis", #"(?:诊断|診斷)[:：]?\s*(.+)"#),
             ("treatment", #"(?:处理|處理|医嘱|醫囑)[:：]?\s*(.+)"#),
-            // 检验项目行：「血红蛋白 150 g/L」「HbA1c: 5.6%」
-            ("lab_item", #"^([一-龥A-Za-z\*]{1,20})[:：]?\s+([0-9]+\.?[0-9]*)\s*([a-zA-Z/%μ·]+)?$"#),
+            // 检验项目行：「血红蛋白 150 g/L」「HbA1c: 5.6%」「白细胞 6.5 10^9/L 3.5-9.5」
+            // （V3.61：可选尾随参考范围 → 伴随 reference_range 草稿，同 rawText 归入该检验行）
+            ("lab_item", #"^([一-龥A-Za-z\*]{1,20})[:：]?\s+([0-9]+\.?[0-9]*)\s*((?:10\^[0-9]+/)?[a-zA-Z/%μ·]+)?(?:\s+([0-9]+\.?[0-9]*)\s*[-–~～]\s*([0-9]+\.?[0-9]*))?$"#),
         ]
         return patterns.compactMap { key, pattern in
             let compiled = try? NSRegularExpression(pattern: pattern)   // try?-ok: 模式为编译期静态字面量，构造不会失败
@@ -118,6 +119,7 @@ public enum DocumentTypeClassifierFallback {
             var payload = String(text[vRange]).trimmingCharacters(in: .whitespaces)
             guard !payload.isEmpty else { continue }
             var unit: String?
+            var referenceRange: String?
             if key == "lab_item" {
                 // 检验项目行：载荷 = 「项目 数值 单位」（确认卡逐字段编辑
                 // 以原文对照）；单位独立成槽位供 F25 读数联合解析
@@ -129,11 +131,23 @@ public enum DocumentTypeClassifierFallback {
                     let u = String(text[uRange]).trimmingCharacters(in: .whitespaces)
                     if !u.isEmpty { unit = u }
                 }
+                // 尾随参考范围（FR7.2 A 级范围随行）：低-高 两组捕获都在才成立
+                if match.numberOfRanges > 5,
+                   let lowRange = Range(match.range(at: 4), in: text),
+                   let highRange = Range(match.range(at: 5), in: text) {
+                    referenceRange = "\(text[lowRange])-\(text[highRange])"
+                }
             }
             var draft = FieldDraft(key: key, value: payload, unit: unit,
                                    confidence: 0.6, rawText: text)
             draft.source = .heuristic
             drafts.append(draft)
+            if let referenceRange {
+                var companion = FieldDraft(key: "reference_range", value: referenceRange,
+                                           confidence: 0.6, rawText: text)
+                companion.source = .heuristic
+                drafts.append(companion)
+            }
         }
         return drafts
     }
@@ -160,6 +174,61 @@ public enum FieldGroupRules {
 
     /// 信息卡呈现顺序（卡序按类别固定；卡内字段按确认集原序）
     public static let categoryOrder: [String] = ["rx", "lab", "visit", "generic"]
+}
+
+public extension DocumentTypeClassifierFallback {
+    /// Page-local extraction does not discard another card kind because the primary label differs.
+    static func pageFields(lines: [String], understood: [FieldDraft], confidence: Double) -> [FieldDraft] {
+        let measuredConfidence = confidence.isFinite ? min(1, max(0, confidence)) : 0
+        let prescriptionPage = lines.contains { line in
+            ["处方", "處方", "用法", "用量", "药品名称", "藥品名稱"].contains(where: line.contains)
+        }
+        var output: [FieldDraft] = []
+        for (index, line) in lines.enumerated() {
+            let text = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { continue }
+            var fields = understood.filter {
+                !$0.key.hasPrefix("line_") && ($0.rawText?.trimmingCharacters(in: .whitespacesAndNewlines) == text
+                    || ($0.rawText == nil && $0.value.trimmingCharacters(in: .whitespacesAndNewlines) == text))
+            }
+            for field in guessFields(line: line) {
+                if !fields.contains(where: { $0.key == field.key && $0.value == field.value }) { fields.append(field) }
+            }
+            func append(_ key: String, _ value: String) {
+                guard !fields.contains(where: { $0.key == key }) else { return }
+                fields.append(FieldDraft(key: key, value: value, confidence: min(0.6, measuredConfidence), rawText: line, source: .heuristic))
+            }
+            let suffix = text.split(maxSplits: 1, whereSeparator: { $0 == ":" || $0 == "：" }).last.map(String.init) ?? text
+            if text.contains("医院") || text.contains("醫院") { append("hospital", suffix) }
+            if ["医生", "醫生", "医师", "醫師"].contains(where: text.contains) { append("doctor", suffix) }
+            if EntityCardProjection.parseDate(text, calendar: Calendar(identifier: .gregorian)) != nil {
+                append("report_date", text)
+            }
+            let explicitDrug = ["药品名称", "藥品名稱", "药名", "藥名", "药品：", "藥品："].contains(where: text.hasPrefix)
+            let directions = ["用法", "用量", "每次", "每日", "口服", "外用"].contains(where: text.hasPrefix)
+            let namedForm = ["胶囊", "膠囊", "颗粒", "顆粒", "注射液", "缓释片", "緩釋片"].contains(where: text.contains)
+            let strengthLine = prescriptionPage && text.range(
+                of: #"^[一-龥A-Za-z][一-龥A-Za-z0-9（）() -]*?\s+[0-9]+(?:\.[0-9]+)?\s*(?:mg|g|mcg|μg|mL|ml|片|粒|支|袋)(?:\s.*)?$"#,
+                options: .regularExpression) != nil
+            if explicitDrug || ((namedForm || strengthLine) && !directions) { append("drug_name", explicitDrug ? suffix : text) }
+            if directions { append("advice_text", suffix) }
+            if fields.isEmpty {
+                fields = [FieldDraft(key: "line_\(index)", value: line, confidence: measuredConfidence, rawText: line)]
+            }
+            for var field in fields {
+                field.confidence = min(measuredConfidence, field.confidence.isFinite ? max(0, field.confidence) : 0)
+                output.append(field)
+            }
+        }
+        return output
+    }
+
+    static func hasVisitEvidence(in fields: [FieldDraft]) -> Bool {
+        fields.contains { ["chief_complaint", "diagnosis", "treatment"].contains($0.key) }
+            || fields.contains { field in
+                ["门诊", "門診", "病历", "病歷", "诊断证明", "診斷證明"].contains(where: field.value.contains)
+            }
+    }
 }
 
 /// FR11.4 懒创建触发点（V3.49）：病历类文档确认保存后，从已确认字段派生

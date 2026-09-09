@@ -23,12 +23,13 @@ public enum AppRoute: Hashable, Sendable, Codable {
     case documentList                    // SP-09
     case documentDetail(UUID)            // SP-09 详情
     case importSource                    // SP-10
-    case scanCapture(CaptureKind)        // SP-11 相机流（病历/报告/处方；症状走 observationCreate）
+    case scanCapture(CaptureKind?)       // SP-11 相机流；nil = 不前置指定类型（FR5.5/FR6.2 识别后判定），症状走 observationCreate
 
     // ---- F6 OCR ----
     // SP-12 单文档确认（V3.39 起）：由 SP-11 确认卡 DocumentImportConfirmView 内嵌承载，
     // 不入路由注册表——原 .ocrConfirm(documentId:) 路由的消费视图已随向导简化删除。
     case pendingOcrQueue                 // SP-53 待确认聚合队列
+    case pendingCard(String)             // FR6.9 待办卡续确认（稍后处理 1h 通知深链；pending_card.id）
 
     // ---- F7 指标 ----
     case trendChart(patientId: UUID, metric: String)   // SP-13
@@ -79,6 +80,7 @@ public enum AppRoute: Hashable, Sendable, Codable {
     // ---- F16 设备预警 ----
     case deviceConnection                // SP-29
     case alertHistory                    // SP-30
+    case alertEvidence(patientId: UUID, eventId: UUID, severity: AlertSeverity)
     case guidelineSourceDetail(UUID)     // 信源原文
 
     // ---- F18 关怀 ----
@@ -122,7 +124,7 @@ public enum MainModuleID: String, Sendable, Hashable, Codable {
         switch route {
         case .sosHelp, .memberList, .memberDetail, .encounterList, .encounterDetail,
              .encounterForm, .documentList, .documentDetail, .importSource, .scanCapture,
-             .pendingOcrQueue, .trendChart, .metricOverview, .metricQuickEntry,
+             .pendingOcrQueue, .pendingCard, .trendChart, .metricOverview, .metricQuickEntry,
              .observationCreate, .observationDetail, .doctorShowcase,
              .allergyList, .allergyCreate,
              .caregiverTasks, .voiceNotePanel,
@@ -138,7 +140,7 @@ public enum MainModuleID: String, Sendable, Hashable, Codable {
         case .settingsRoot, .preferences, .notificationCenter, .auditLog,
              .privacyAuthorization, .themeSettings, .languageSettings,
              .voiceLanguageSettings, .emergencyCardConfig, .deviceConnection,
-             .alertHistory, .guidelineSourceDetail, .careModeConfig,
+              .alertHistory, .alertEvidence, .guidelineSourceDetail, .careModeConfig,
              .voiceGuideProfile, .voiceReminderDraft, .helpCenter, .feedbackReport,
              .exportWizard, .backupRestore, .paywall,
              .helpPermissionDiagnostics, .helpReminderDiagnostics, .termsAndPrivacy:

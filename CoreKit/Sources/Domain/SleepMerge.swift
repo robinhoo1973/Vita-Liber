@@ -78,10 +78,8 @@ public enum SleepMerge {
     public static func merge(_ samples: [SleepSample], anchorDate: Date,
                              calendar: Calendar = .current) -> SleepNightSummary {
         // noon 锚：入睡前一日 12:00 起 24h 为「一晚」（睡眠日记惯例）
-        let dayStart = calendar.startOfDay(for: anchorDate)
-        let windowStart = calendar.date(byAdding: .day, value: -1, to: dayStart)
-            .flatMap { calendar.date(byAdding: .hour, value: 12, to: $0) } ?? anchorDate
-        let windowEnd = calendar.date(byAdding: .hour, value: 24, to: windowStart) ?? anchorDate
+        let windowEnd = calendar.date(bySettingHour: 12, minute: 0, second: 0, of: anchorDate) ?? anchorDate
+        let windowStart = calendar.date(byAdding: .day, value: -1, to: windowEnd) ?? anchorDate
 
         // ① 窗口裁剪（跨午夜样本按交集裁剪；跨窗样本只计窗内部分）
         var clipped: [SleepSample] = []
@@ -94,38 +92,36 @@ public enum SleepMerge {
             s.end = end
             clipped.append(s)
         }
-        // ② 来源优先链（兜底手写链：product watch>phone>other → version 高者；
-        //    HKStatisticsQuery 内置 sourceRevision 优先链为首选，成熟实现优先）
+        // Each interval is assigned once; episode grouping must never fill unobserved time.
         let priorityName = clipped.max { lhs, rhs in
-            sourceRank(lhs) < sourceRank(rhs)
+            if sourceRank(lhs) != sourceRank(rhs) { return sourceRank(lhs) < sourceRank(rhs) }
+            return (lhs.sourceName ?? "") > (rhs.sourceName ?? "")
         }?.sourceName
-        // ③ 分期/未分期分流；分期并集；清醒并集（awake 单独成桶）
-        let staged = clipped.filter { [.core, .deep, .rem].contains($0.stage) }
-        let unspecified = clipped.filter { $0.stage == .unspecified }
-        let stagedUnion = union(staged.map { ($0.start, $0.end) })
-        let awakeUnion = union(clipped.filter { $0.stage == .awake }.map { ($0.start, $0.end) })
-        // ④ 阶段优先：unspecified 逐段减去 staged 并集与清醒并集 → 浅睡未分期
-        //    余段（入睡时长不含醒着的时间；awake 单独计入 perStage 供
-        //    sleep_awake 落库——此前 awake 样本静默丢弃，sleep_awake 行恒不产出）
-        var unspecifiedRemainder: [(Date, Date)] = []
-        for (s, e) in unspecified.map({ ($0.start, $0.end) }) {
-            unspecifiedRemainder.append(contentsOf: subtract(s, e, stagedUnion + awakeUnion))
-        }
-        // ⑤ 汇总：各阶段按区间**并集**计时——双来源同夜分期样本（Watch +
-        //    第三方睡眠 App 同夜各写 core/deep/rem）按并集去重，杜绝按来源
-        //    求和双计（此前 spans.reduce 直接求和，重叠区间按来源重复累加）
         var perStage: [SleepStage: TimeInterval] = [:]
-        for (stage, spans) in [(SleepStage.deep, staged.filter { $0.stage == .deep }),
-                               (SleepStage.rem, staged.filter { $0.stage == .rem }),
-                               (SleepStage.core, staged.filter { $0.stage == .core })] {
-            perStage[stage] = union(spans.map { ($0.start, $0.end) })
-                .reduce(0) { $0 + $1.1.timeIntervalSince($1.0) }
+        var asleepIntervals: [(Date, Date)] = []
+        let boundaries = Set(clipped.flatMap { [$0.start, $0.end] }).sorted()
+        for (start, end) in zip(boundaries, boundaries.dropFirst()) {
+            let active = clipped.filter { $0.start < end && $0.end > start && $0.stage != .inBed }
+            let stage: SleepStage
+            if active.contains(where: { $0.stage == .awake }) {
+                stage = .awake
+            } else {
+                let staged = active.filter { $0.stage != .unspecified }
+                let candidates = (staged.isEmpty ? active : staged).sorted {
+                    if sourceRank($0) != sourceRank($1) { return sourceRank($0) > sourceRank($1) }
+                    return ($0.sourceName ?? "") < ($1.sourceName ?? "")
+                }
+                guard let preferred = candidates.first else { continue }
+                let sameSource = candidates.filter {
+                    $0.sourceName == preferred.sourceName && sourceRank($0) == sourceRank(preferred)
+                }
+                stage = Set(sameSource.map(\.stage)).count > 1 ? .unspecified : preferred.stage
+            }
+            perStage[stage, default: 0] += end.timeIntervalSince(start)
+            if stage != .awake { asleepIntervals.append((start, end)) }
         }
-        perStage[.awake] = awakeUnion.reduce(0) { $0 + $1.1.timeIntervalSince($1.0) }
-        let unspecifiedTotal = unspecifiedRemainder.reduce(0) { $0 + $1.1.timeIntervalSince($1.0) }
-        perStage[.unspecified] = unspecifiedTotal
         let inBedUnion = union(clipped.filter { $0.stage == .inBed }.map { ($0.start, $0.end) })
-        let asleepSpans = union((stagedUnion + unspecifiedRemainder).sorted { $0.0 < $1.0 })
+        let asleepSpans = union(asleepIntervals)
         let totalAsleep = asleepSpans.reduce(0) { $0 + $1.1.timeIntervalSince($1.0) }
         // ⑥ 分段计数：相邻入睡段 gap>30min 各成段——gap 按「前段结束→后段
         //    开始」计（此前 lastEnd 记录的是前段**起点**，段长 >30min 时
@@ -152,12 +148,12 @@ public enum SleepMerge {
             windowStart: windowStart)
     }
 
-    /// 区间并集（gap≤mergeGap 相接即合并）
+    /// Actual coverage union: gaps never contribute measured duration.
     static func union(_ intervals: [(Date, Date)]) -> [(Date, Date)] {
         let sorted = intervals.sorted { $0.0 < $1.0 }
         var out: [(Date, Date)] = []
         for interval in sorted {
-            if let last = out.last, interval.0.timeIntervalSince(last.1) <= mergeGap {
+            if let last = out.last, interval.0 <= last.1 {
                 out[out.count - 1] = (last.0, max(last.1, interval.1))
             } else {
                 out.append(interval)
@@ -188,11 +184,10 @@ public enum SleepMerge {
     /// 来源优先：product（watch>phone>other）→ version（高者优先）
     static func sourceRank(_ sample: SleepSample) -> (Int, Int) {
         let productRank: Int
-        switch sample.sourceProduct?.lowercased() {
-        case "watch": productRank = 3
-        case "phone", "iphone": productRank = 2
-        default: productRank = 1
-        }
+        let product = sample.sourceProduct?.lowercased() ?? ""
+        if product.hasPrefix("watch") { productRank = 3 }
+        else if product.hasPrefix("iphone") || product == "phone" { productRank = 2 }
+        else { productRank = 1 }
         return (productRank, sample.sourceVersion.flatMap(Int.init) ?? 0)
     }
 }

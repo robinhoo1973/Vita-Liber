@@ -63,14 +63,7 @@ public actor MemberDeletionService {
     /// 归属标记由软删的成员行承载（「未归属」筛选语义）。
     public func deleteMember(patientId: UUID, choice: DeleteChoice,
                              now: Date = Date()) async throws {
-        // FR3.4：预约分级提醒（apt-）须随删除/取消一并移除——先取预约 id 清单
-        //（写事务后行已删/已取消，查不到），写事务成功后再取消系统侧 pending。
-        let aptIds = try await writer.read { db in
-            try String.fetchAll(db, sql: """
-                SELECT id FROM appointment WHERE patient_id = ? AND status = 'scheduled'
-                """, arguments: [patientId.uuidString])
-        }
-        try await writer.write { db in
+        let notificationIds = try await writer.write { db -> ([String], [String]) in
             guard try Row.fetchOne(db, sql: "SELECT id FROM patient_profile WHERE id = ? AND deleted_at IS NULL",
                                    arguments: [patientId.uuidString]) != nil else {
                 throw StoreError.memberNotFound(patientId)
@@ -80,6 +73,14 @@ public actor MemberDeletionService {
                selfId == patientId.uuidString {
                 throw StoreError.cannotDeleteSelf
             }
+            let aptIds = try String.fetchAll(db, sql: "SELECT id FROM appointment WHERE patient_id = ? AND status = 'scheduled'",
+                                             arguments: [patientId.uuidString])
+            let pendingIds = try String.fetchAll(db, sql: "SELECT id FROM pending_card WHERE patient_id = ?",
+                                                 arguments: [patientId.uuidString])
+            try db.execute(sql: """
+                UPDATE pending_card SET status = 'archived', updated_at = ?, note = 'member_deleted'
+                WHERE patient_id = ? AND status IN ('pending','in_progress','expired')
+                """, arguments: [now.timeIntervalSince1970, patientId.uuidString])
             switch choice {
             case .deletePlans:
                 // 拓扑序清理（FK 开启，REFERENCES 目标必须先行）：
@@ -126,15 +127,31 @@ public actor MemberDeletionService {
             // 软删成员行（资料保留，归属标记清除语义）
             try db.execute(sql: "UPDATE patient_profile SET deleted_at = ? WHERE id = ?",
                            arguments: [now.timeIntervalSince1970, patientId.uuidString])
+            return (aptIds, pendingIds)
         }
         // 写事务成功后才取消系统侧通知：删除/取消的预约不再按时弹出提醒
-        if let scheduler, !aptIds.isEmpty {
+        if let scheduler {
+            // Cancel OCR requests first, even when there were no appointments.
+            if !notificationIds.1.isEmpty {
+                do { try await scheduler.cancel(notificationIds.1.map { "pending-\($0)" }) }
+                catch { throw StoreError.pendingNotificationCancellationFailed }
+            }
             let pending = try await scheduler.pending()
-            let stale = ReminderIDNames.staleAppointments(in: pending, ids: aptIds)
+            let stale = ReminderIDNames.staleAppointments(in: pending, ids: notificationIds.0)
             if !stale.isEmpty {
                 try await scheduler.cancel(Array(stale))
             }
         }
+    }
+
+    /// Retry OS cancellation after an already committed soft deletion.
+    public func retryPendingNotificationCancellation(patientId: UUID) async throws {
+        guard let scheduler else { throw StoreError.schedulerUnavailable }
+        let ids = try await writer.read { db in
+            try String.fetchAll(db, sql: "SELECT p.id FROM pending_card p JOIN patient_profile m ON m.id = p.patient_id WHERE p.patient_id = ? AND m.deleted_at IS NOT NULL",
+                                arguments: [patientId.uuidString])
+        }
+        if !ids.isEmpty { try await scheduler.cancel(ids.map { "pending-\($0)" }) }
     }
 
     /// FR3.5 重新归属：把资料移给另一成员（留审计由调用方记）
@@ -145,6 +162,9 @@ public actor MemberDeletionService {
                                    arguments: [to.uuidString]) != nil else {
                 throw StoreError.memberNotFound(to)
             }
+            if from != to, try Self.hasRetainedOCRLinks(documentId: documentId, db: db) {
+                throw StoreError.incompatibleOCRSource
+            }
             try db.execute(sql: """
                 UPDATE document_file SET patient_id = ?, updated_at = ? WHERE id = ? AND patient_id = ?
                 """, arguments: [to.uuidString, now.timeIntervalSince1970,
@@ -153,9 +173,21 @@ public actor MemberDeletionService {
         }
     }
 
+    static func hasRetainedOCRLinks(documentId: UUID, db: Database) throws -> Bool {
+        let document = documentId.uuidString
+        return try Int.fetchOne(db, sql: """
+            SELECT EXISTS(SELECT 1 FROM pending_card WHERE source_doc_id = ?)
+              OR EXISTS(SELECT 1 FROM ocr_card_commit WHERE document_file_id = ?)
+              OR EXISTS(SELECT 1 FROM metric_sample WHERE source_ref = ? OR source_ref LIKE ?)
+              OR EXISTS(SELECT 1 FROM prescription WHERE document_file_id = ?)
+              OR EXISTS(SELECT 1 FROM document_file WHERE id = ? AND encounter_id IS NOT NULL)
+            """, arguments: [document, document, "doc:\(document)", "doc:\(document)#p%", document, document]) == 1
+    }
+
     public enum StoreError: Error, LocalizedError {
         case memberNotFound(UUID)
         case documentNotFound(UUID)
+        case incompatibleOCRSource, schedulerUnavailable, pendingNotificationCancellationFailed
         /// 审查修复（本人删除纵深防御）：视图层 owner 未装载时闸门失效——
         /// 本服务在事务内二次校验，拒绝删除 local_owner.self_patient_id 指向的
         /// 本人档案（BR-001 锚点：本人档案是当前成员回落目标，删除即锚点
@@ -163,6 +195,9 @@ public actor MemberDeletionService {
         case cannotDeleteSelf
         public var errorDescription: String? {
             switch self {
+            case .incompatibleOCRSource: return "Document has retained OCR facts or drafts; reassignment refused."
+            case .schedulerUnavailable: return "Reminder scheduler is required to cancel pending OCR notifications."
+            case .pendingNotificationCancellationFailed: return "Member deletion committed; retry pending OCR notification cancellation."
             case .cannotDeleteSelf: return "本人档案不可删除（BR-001 锚点保护）"
             default: return "删除/归属操作目标不存在: \(self)"
             }

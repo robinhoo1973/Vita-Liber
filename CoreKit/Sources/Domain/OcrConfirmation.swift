@@ -13,7 +13,9 @@ public struct CandidateField: Sendable, Equatable, Codable, Identifiable {
     public var key: String          // 如 drug_name / dosage / frequency
     public var displayLabel: String // UI 展示键（L10n 键语义，M1a 中文直填）
     public var rawText: String      // OCR 原文（A 级素材，不可被编辑覆盖）
-    public var value: String        // 确认后的取值
+    public var value: String {      // 确认后的取值
+        didSet { if value != oldValue { codeResolution = nil } }
+    }
     public var confidence: Double   // 0..1
     public var grade: SourceGrade
     public var revisionHistory: [String]  // 旧值列表（新→旧）
@@ -24,7 +26,7 @@ public struct CandidateField: Sendable, Equatable, Codable, Identifiable {
 
     public init(id: UUID = UUID(), key: String, displayLabel: String, rawText: String,
                 confidence: Double, value: String? = nil, grade: SourceGrade = .ocrUnconfirmed,
-                codeResolution: CodeResolution? = nil) {
+                codeResolution: CodeResolution? = nil, revisionHistory: [String] = []) {
         self.id = id
         self.key = key
         self.displayLabel = displayLabel
@@ -32,7 +34,7 @@ public struct CandidateField: Sendable, Equatable, Codable, Identifiable {
         self.value = value ?? rawText
         self.confidence = confidence
         self.grade = grade
-        self.revisionHistory = []
+        self.revisionHistory = revisionHistory
         self.codeResolution = codeResolution
     }
 

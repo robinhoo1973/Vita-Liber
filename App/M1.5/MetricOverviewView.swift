@@ -34,7 +34,7 @@ struct MetricOverviewView: View {
                                        // 作 id 时，A→B 切换成员后 tile 身份不变、
                                        // @State spark 不重载——A 的 30 天迷你线
                                        // 挂在 B 名下（BR-001 同族）
-                                       taskId: "\(app.currentPatientId.uuidString)-\(item.metricKey)",
+                                        taskId: "\(app.currentPatientId.uuidString)-\(item.metricKey)-\(dataChange.metricsVersion)",
                                        sparkLoader: { key in
                                 guard let m = MetricType(rawValue: key) else { return nil }
                                 let end = Date()
@@ -80,11 +80,8 @@ struct MetricOverviewView: View {
         .onAppear { routeMonitor.start() }
         // BR-001 成员切换：与 TrendEntryView/VoiceNotePanel 同款 task(id:)——
         // onAppear 只在首次挂载触发，切换成员后宫格仍显示上一成员的指标
-        .task(id: app.currentPatientId) { await state.loadLatest(patientId: app.currentPatientId) }
-        // FR7.9（V3.86）：设备读数入库后按类型化版本计数失效刷新——
-        // 宫格最新点即时反映 Apple 健康自动汇入（数据经 Store 观察 DB）
-        .onChange(of: dataChange.metricsVersion) { _, _ in
-            Task { await state.loadLatest(patientId: app.currentPatientId) }
+        .task(id: "\(app.currentPatientId)-\(dataChange.metricsVersion)") {
+            await state.loadLatest(patientId: app.currentPatientId)
         }
         .onDisappear { routeMonitor.stop() }
         // FR17.13-entry: 指标总览语音入口 —— 统一确认模板，不自建确认逻辑
@@ -144,10 +141,15 @@ struct MetricTile: View {
                     Text(unit).font(.caption).foregroundStyle(.secondary)
                 }
             }
+            if let aggregation = item.aggregation {
+                Text(L10n.healthAggregation(aggregation)).font(.caption2).foregroundStyle(.secondary)
+            }
+            if let source = item.sourceName { Text(source).font(.caption2).foregroundStyle(.secondary) }
+            Text(item.measuredAt.formatted(date: .abbreviated, time: .shortened))
+                .font(.caption2).foregroundStyle(.secondary)
             if let spark, !spark.points.isEmpty {
                 Chart(spark.points) { p in
-                    LineMark(x: .value("t", p.measuredAt), y: .value("v", p.value))
-                        .interpolationMethod(.monotone)
+                    PointMark(x: .value("t", p.measuredAt), y: .value("v", p.value))
                 }
                 .chartXAxis(.hidden)
                 .chartYAxis(.hidden)
@@ -157,7 +159,9 @@ struct MetricTile: View {
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 14).fill(Color("bg-grouped", bundle: .main)))
         .task(id: taskId) {
-            spark = await sparkLoader(item.metricKey)
+            let loaded = await sparkLoader(item.metricKey)
+            guard !Task.isCancelled else { return }
+            spark = loaded
         }
     }
 
