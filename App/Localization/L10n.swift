@@ -882,6 +882,11 @@ enum L10n {
     "voice.primaryLanguageHint",
     "voice.recognizedAsFmt",
     "voice.bestEffortActive",
+    "voice.version.native",
+    "voice.version.refined",
+    "voice.version.refinedHint",
+    "voice.version.unavailable",
+    "voice.version.rejected",
     "field.measured_at",
     "field.raw_label",
     "field.value",
@@ -2162,6 +2167,12 @@ enum L10n {
     static var voicePrimaryLanguageHint: String { t("voice.primaryLanguageHint") }
     static func voiceRecognizedAs(_ locale: String) -> String { String(format: t("voice.recognizedAsFmt"), locale) }
     static var voiceBestEffortActive: String { t("voice.bestEffortActive") }
+    // FR17.9 V3.61 双版本（原生转译版 / LLM 修正版，D 级仅作文字清理）
+    static var voiceVersionNative: String { t("voice.version.native") }
+    static var voiceVersionRefined: String { t("voice.version.refined") }
+    static var voiceVersionRefinedHint: String { t("voice.version.refinedHint") }
+    static var voiceVersionUnavailable: String { t("voice.version.unavailable") }
+    static var voiceVersionRejected: String { t("voice.version.rejected") }
     /// 模板字段键 → 展示标签（data-flow §17.2 稳定键；未登记回落原键）
     static func templateFieldLabel(_ key: String) -> String {
         let l10nKey = "field.\(key)"

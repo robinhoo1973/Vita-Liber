@@ -1068,6 +1068,11 @@
 "voice.primaryLanguageHint" = "The first language is the primary recognition language; tap a selected language to make it primary.";
 "voice.recognizedAsFmt" = "Recognized as: %@";
 "voice.bestEffortActive" = "Best effort: this dialect has no on-device model; recognizing with the primary language plus a dialect vocabulary";
+"voice.version.native" = "Native transcript";
+"voice.version.refined" = "LLM-refined";
+"voice.version.refinedHint" = "Text cleanup only (punctuation/typos); numbers, units, dates, drug names and negations are never changed";
+"voice.version.unavailable" = "Refinement unavailable on this device or timed out — showing the original";
+"voice.version.rejected" = "The suggestion changed protected content and was reverted to the original";
 "field.measured_at" = "Date";
 "field.raw_label" = "Item";
 "field.value" = "Result";

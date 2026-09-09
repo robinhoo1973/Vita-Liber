@@ -1068,6 +1068,11 @@
 "voice.primaryLanguageHint" = "首位为主语言（识别所用语言）；点击已选语言可设为主语言。";
 "voice.recognizedAsFmt" = "识别语言：%@";
 "voice.bestEffortActive" = "尽力识别：所选方言无端侧模型，按主语言识别并注入方言词表";
+"voice.version.native" = "原生转译版";
+"voice.version.refined" = "LLM 修正版";
+"voice.version.refinedHint" = "仅作文字清理（断句/标点/同音错字），不改数值、单位、日期、药名、否定词";
+"voice.version.unavailable" = "本机暂不支持修正版或已超时，显示原文";
+"voice.version.rejected" = "修正结果改动了受保护内容，已回退原文";
 "field.measured_at" = "日期";
 "field.raw_label" = "项目";
 "field.value" = "结果";

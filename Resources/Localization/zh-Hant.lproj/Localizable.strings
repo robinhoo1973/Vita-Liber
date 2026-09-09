@@ -1068,6 +1068,11 @@
 "voice.primaryLanguageHint" = "首位為主語言（辨識所用語言）；點選已選語言可設為主語言。";
 "voice.recognizedAsFmt" = "辨識語言：%@";
 "voice.bestEffortActive" = "盡力辨識：所選方言無裝置端模型，依主語言辨識並注入方言詞表";
+"voice.version.native" = "原生轉譯版";
+"voice.version.refined" = "LLM 修正版";
+"voice.version.refinedHint" = "僅作文字清理（斷句/標點/同音錯字），不改數值、單位、日期、藥名、否定詞";
+"voice.version.unavailable" = "本機暫不支援修正版或已逾時，顯示原文";
+"voice.version.rejected" = "修正結果改動了受保護內容，已回退原文";
 "field.measured_at" = "日期";
 "field.raw_label" = "項目";
 "field.value" = "結果";

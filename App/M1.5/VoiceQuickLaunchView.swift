@@ -50,6 +50,23 @@ struct VoiceQuickLaunchView: View {
     /// 同一引擎单会话；环境就绪后装配，同 VoiceDictationButton 纪律）
     @State private var model: VoiceDictationModel?
 
+    // FR17.9/FR17.18 V3.61 双版本：原生转译版 / LLM 修正版（仅 authAI 开且端侧模型可用时呈现）
+    enum TranscriptVersion: Hashable { case native, refined }
+    @State private var transcriptVersion: TranscriptVersion = .native
+    @State private var refinerAvailable = false
+    /// 最近一次润色结果（与 accumulatedText 对应；编辑/续录即失效重算）
+    @State private var revision: TranscriptRevision?
+    @State private var refining = false
+    @State private var refineGeneration = 0
+
+    private var refinerEnabled: Bool { settings.values[.authAI] != "false" && refinerAvailable }
+    /// 进入理解层/确认的文本：修正版仅在用户选用且校验通过时生效，否则恒原文
+    private var effectiveText: String {
+        guard transcriptVersion == .refined, let revision, revision.safety == .accepted,
+              revision.original == accumulatedText else { return accumulatedText }
+        return revision.effective
+    }
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 12) {
@@ -96,6 +113,44 @@ struct VoiceQuickLaunchView: View {
                         }
                     }
                     .accessibilityIdentifier("SP-55.panel.transcript")
+                // FR17.9 V3.61 双版本分段控件：默认原生；修正版 D 级「仅作文字清理」；
+                // 不可用/超时/校验失败只显示原文 + 轻提示（不阻断保存）
+                if refinerEnabled && !accumulatedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Picker(L10n.voiceVersionNative, selection: $transcriptVersion) {
+                            Text(L10n.voiceVersionNative).tag(TranscriptVersion.native)
+                            Text(L10n.voiceVersionRefined).tag(TranscriptVersion.refined)
+                        }
+                        .pickerStyle(.segmented)
+                        .accessibilityIdentifier("SP-55.panel.version")
+                        if transcriptVersion == .refined {
+                            HStack(spacing: 6) {
+                                GradeBadge(grade: "D")
+                                if refining {
+                                    ProgressView().controlSize(.small)
+                                } else if let revision, revision.original == accumulatedText {
+                                    switch revision.safety {
+                                    case .accepted: Text(L10n.voiceVersionRefinedHint)
+                                    case .rejected: Text(L10n.voiceVersionRejected)
+                                    case .unavailable, .timedOut: Text(L10n.voiceVersionUnavailable)
+                                    }
+                                }
+                            }
+                            .font(.caption2).foregroundStyle(.secondary)
+                            .accessibilityIdentifier("SP-55.panel.versionHint")
+                            if let revision, revision.original == accumulatedText, revision.safety == .accepted {
+                                Text(revision.suggested)
+                                    .font(.body)
+                                    .padding(8)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(RoundedRectangle(cornerRadius: 12)
+                                        .fill(Color("bg-grouped", bundle: .main)))
+                                    .accessibilityIdentifier("SP-55.panel.refinedText")
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 24)
+                }
                 // 下方 = 操作按钮区（1.2）：清除/确认；录音入口已上移至中部
                 // 大号按住说话按钮（PressToTalkMicButton，§4.23）——再次
                 // 长按即续录（V3.94 口径）
@@ -152,6 +207,16 @@ struct VoiceQuickLaunchView: View {
             // 刚改过的判定/草稿（gen 守卫只防重录/改类，不防编辑）
             .onChange(of: accumulatedText) { _, _ in
                 transcriptGeneration += 1
+                // 分段版本一致性（FR17.9 V3.55）：文本变化即旧润色失效；已选修正版则重算
+                revision = nil
+                if transcriptVersion == .refined { Task { await refineCurrentText() } }
+            }
+            .onChange(of: transcriptVersion) { _, version in
+                if version == .refined, revision?.original != accumulatedText { Task { await refineCurrentText() } }
+            }
+            .task {
+                // 能力探测（编译期 canImport + 运行期 availability；不含授权——授权由 authAI 门控）
+                refinerAvailable = await app.textRefiner.isAvailable
             }
             // 清除选择框（1.2）：清除最近一次为默认选项
             .confirmationDialog(L10n.voicePanelClearTitle, isPresented: $showClearDialog,
@@ -264,7 +329,8 @@ struct VoiceQuickLaunchView: View {
 
     /// 确认：以编辑区当前文本过理解层（编辑后文本即判定输入——转写只是草料）
     private func confirmFromTranscript() async {
-        let text = accumulatedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 双版本：用户选用且校验通过的修正版才作为理解输入；原文永远保留于 lastTranscript/编辑区
+        let text = effectiveText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         // BR-012 前置补全（命中即急救卡、终止解析、不落草稿）：听写路径已由
         // VoiceDictationModel 前置，此处覆盖手输/粘贴/编辑后的文本——用户手打
@@ -278,6 +344,22 @@ struct VoiceQuickLaunchView: View {
         let generation = transcriptGeneration
         await understand(text: text, confidence: lastTranscript?.confidence ?? 0.9,
                          generation: generation)
+    }
+
+    /// FR17.18 润色（V3.61）：紧急关键词在润色前判定（BR-012，命中不润色）；结果携带
+    /// 代次守卫（编辑/续录后过期结果丢弃）；任何非 accepted 都只显示原文
+    private func refineCurrentText() async {
+        let text = accumulatedText
+        guard refinerEnabled, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !EmergencyKeywordRules.match(text) else { return }
+        refineGeneration += 1
+        let generation = refineGeneration
+        refining = true
+        let result = await app.textRefiner.refine(text, localeIdentifier: model?.resolvedLocale ?? model?.preferredLocale ?? TranscriptionSegmentation.fallbackLocale,
+                                                   drugNames: hub.inventoryItems.map(\.medicationName))
+        guard generation == refineGeneration, text == accumulatedText else { return }
+        revision = result
+        refining = false
     }
 
     /// 共享文本理解层自动判定（FR17.18 期一：兜底轨文法/启发式）——
