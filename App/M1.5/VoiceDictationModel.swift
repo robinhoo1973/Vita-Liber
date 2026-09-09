@@ -151,3 +151,131 @@ private final class PartialGate: @unchecked Sendable {
         lock.unlock()
     }
 }
+///
+/// 识别失败静默降级（FR8.9）：轻提示「可继续手动输入」，绝不阻断手输路径；
+/// 音频零落盘由 TranscriptionEngine 类型级保证（FR17.7），本视图只接触文本。
+///
+/// 并发纪律（评审修正，CI 编译红自查）：引擎的 `onPartial` 是 **@Sendable 非隔离**回调，
+/// 若在其中捕获视图 `@State`（非 Sendable 的 State wrapper）会在 Swift 6 严格并发下
+/// 编译失败——录音/部分文本/失败态下沉到 `VoiceDictationModel`（@MainActor @Observable，
+/// 即 Sendable），回调只捕获 model 并按 MainActor 投递。
+struct VoiceDictationButton: View {
+    @Environment(AppState.self) private var app
+    @Environment(AppSettingsStore.self) private var settings
+    @Environment(AppRouter.self) private var router
+    /// 完成回调：文本 + 引擎置信度（落 C 级草稿、低置信强制复核由 FR17.13 模板承担）
+    let onTranscript: (String, Double) -> Void
+    /// BR-012 横切动作注入（默认仅跳急救卡配置页；承载于 sheet/
+    /// fullScreenCover 的调用方必须注入「先收起再跳转」——否则急救卡
+    /// 被未关闭的面板盖住，用户在面板内看不到任何变化）
+    var onEmergencyAction: ((String) -> Void)? = nil
+
+    @State private var model: VoiceDictationModel?
+    /// 长按手势按下起点（用于判定「真长按」vs 快速点按）
+    @State private var pressBeganAt: Date?
+
+    var body: some View {
+        Group {
+            // FR14.1 authVoiceDictation 消费点：关闭 → 禁用态回落手输
+            // （FR8.9 降级语义：识别失败/未授权均静默降级为手输 + 轻提示）
+            if settings.values[.authVoiceDictation] == "false" {
+                Label(L10n.privacyAuthVoiceDisabled, systemImage: "mic.slash")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .accessibilityIdentifier("voice.dictation.authDisabled")
+            } else if let model {
+                VStack(alignment: .leading, spacing: 6) {
+                    Button {
+                        // §5.54「按住说话」的触屏等价（点按切换）：录音中再按
+                        // 即停止——此前录音态按钮被 disabled，引擎未自动收尾时
+                        // 麦克风只能等视图销毁才停（隐私/UX 死胡同，无障碍不可达）。
+                        // 长按即录/松手即停由下方 onLongPressGesture 承担（FR17.1）；
+                        // 两种停录都走 stop() 软收尾，在途转写保留投递。
+                        if model.phase == .recording {
+                            model.stop()
+                        } else {
+                            model.start()
+                        }
+                    } label: {
+                        Label(model.phase == .recording ? L10n.voicenoteStop : L10n.voicenoteDictation,
+                              systemImage: model.phase == .recording ? "stop.circle" : "mic")
+                            .frame(maxWidth: .infinity, minHeight: 44)   // 触控目标 ≥44pt（ui-ux §4.2）
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("voice.dictation.start")
+                    // FR17.1「按住说话」实装（审查修复）：此前全 App 零长按
+                    // 录音入口（grep 仅 SOS 按住确认在用 LongPress）。长按
+                    // ≥0.2s 即开始录音（perform 内开录）、松手即停；长按被
+                    // 手势识别后 Button 点按动作不再触发（手势优先），快速
+                    // 点按完全走上方切换逻辑。
+                    // 状态纪律（二轮审查修复）：开录不得放 pressing(true)——
+                    // 该回调在手指落下的瞬间触发，早于 0.2s 判定，会把快速
+                    // 点按也拖进「开录→松手停录」；随后 Button 动作看到的是
+                    // 已被按停的 idle 态，点按切换被反转（录音中点按停不了、
+                    // 空闲点按触发 start→stop→start 三次引擎翻动）。pressBeganAt
+                    // 只在松手侧按持有时长判定是否真长按，点按路径零干预。
+                    .onLongPressGesture(minimumDuration: 0.2, pressing: { pressing in
+                        if pressing {
+                            pressBeganAt = Date()
+                        } else {
+                            let heldLong = pressBeganAt.map { Date().timeIntervalSince($0) >= 0.2 } ?? false
+                            pressBeganAt = nil
+                            if heldLong && model.phase == .recording {
+                                model.stop()
+                            }
+                        }
+                    }, perform: {
+                        model.start()   // 长按成立（≥0.2s）才开录——快速点按不经过此路径
+                    })
+                    if model.phase == .recording && !model.partial.isEmpty {
+                        Text(model.partial)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .accessibilityIdentifier("voice.dictation.partial")
+                    }
+                    if model.phase == .failed {
+                        Text(L10n.voicenoteDictationFailed)
+                            .font(.caption)
+                            .foregroundStyle(Color("semantic-warning", bundle: .main))
+                    }
+                }
+                .onDisappear { model.stopForDisappear() }   // 视图销毁即终止在途听写投递（引擎无内部取消）
+            }
+        }
+        // 引擎在环境就绪后装配一次（@Environment 不可用于 @State 初始值）；
+        // task(id:) 挂语音语言存储值——面板内改语言返回后 .task 不重跑、
+        // preferredLocale 停留旧值（FR17.15 即时生效落空），值一变即重建
+        .task(id: settings.values[.voiceInputLanguages]) { ensureModel() }
+    }
+
+    /// 引擎在环境就绪后装配（@Environment 不可用于 @State 初始值）。
+    /// 审查修复：每次调用都刷新 `onTranscript`——SwiftUI 父视图每次重渲染
+    /// 都会传入捕获最新 @State 的新闭包；此前只装配一次，模型持有首帧的
+    /// 旧闭包，用户在面板出现后点的目标 chip（userPickedTarget）对听写
+    /// 回调不可见，确认/分发按旧状态执行（FR17.9 显式覆盖失效）。
+    private func ensureModel() {
+        // FR17.15 审查修复：用户选择的输入语言必须生效——此前识别 locale 只由
+        // 引擎能力探测决定，设置页多选「可调但无效果」（FR14.7 V3.26 违例）。
+        // 单一选择 = 该语言；多选 = 取第一个（引擎内再按能力回落）。
+        // 解析规则收敛 Domain SettingsRules（与设置页存储格式同源）。
+        let preferred = SettingsRules.preferredVoiceLocale(settings.values[.voiceInputLanguages])
+        if let m = model {
+            m.onTranscript = onTranscript
+            m.onEmergency = onEmergency
+            m.preferredLocale = preferred
+        } else {
+            let m = VoiceDictationModel(engine: app.transcriptionEngine, preferredLocale: preferred)
+            m.onTranscript = onTranscript
+            m.onEmergency = onEmergency
+            model = m
+        }
+    }
+
+    /// BR-012 紧急关键词命中时的横切动作（组件内统一前置——此前仅快速面板
+    /// 与 F19 键盘路径实现，其余入口「我胸闷」被存成观察/速记而非急救卡）
+    private var onEmergency: ((String) -> Void)? {
+        onEmergencyAction ?? { _ in router.navigate(to: .emergencyCardConfig) }
+    }
+}

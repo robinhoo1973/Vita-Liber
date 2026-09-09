@@ -200,22 +200,24 @@ struct VoiceQuickLaunchView: View {
     private func ensureModel() {
         let preferred = SettingsRules.preferredVoiceLocale(settings.values[.voiceInputLanguages])
         if let m = model {
-            m.onTranscript = { [weak self] text, confidence in
-                self?.appendSegment(text, confidence: confidence)
+            // VoiceQuickLaunchView 为 struct：值语义捕获 self 即可（@State 经
+            // 属性包装器存储引用共享），weak 仅适用于 class——L1 34300325273 族
+            m.onTranscript = { text, confidence in
+                self.appendSegment(text, confidence: confidence)
             }
-            m.onEmergency = { [weak self] _ in
-                self?.dismiss()
-                self?.router.navigate(to: .emergencyCardConfig)
+            m.onEmergency = { _ in
+                self.dismiss()
+                self.router.navigate(to: .emergencyCardConfig)
             }
             m.preferredLocale = preferred
         } else {
             let m = VoiceDictationModel(engine: app.transcriptionEngine, preferredLocale: preferred)
-            m.onTranscript = { [weak self] text, confidence in
-                self?.appendSegment(text, confidence: confidence)
+            m.onTranscript = { text, confidence in
+                self.appendSegment(text, confidence: confidence)
             }
-            m.onEmergency = { [weak self] _ in
-                self?.dismiss()
-                self?.router.navigate(to: .emergencyCardConfig)
+            m.onEmergency = { _ in
+                self.dismiss()
+                self.router.navigate(to: .emergencyCardConfig)
             }
             model = m
         }
