@@ -119,6 +119,11 @@ struct MetricTile: View {
                                               ? Color("brand-primary", bundle: .main)
                                               : .clear))
                     .frame(width: 10, height: 10)
+                // V3.53 §5.45 设备来源行：宫格最新点为设备自动汇入时标注
+                if item.origin == "device" {
+                    Text(L10n.trendOriginDevice)
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
             }
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 // 医学数值显示单一出口（审查修复：此前内联 .formatted，

@@ -679,8 +679,10 @@ if bad:
     sys.exit(1)
 print(f"PASS: {len(files)} 个 .strings 结构合法、无重复键、键集一致")
 PYEOF
-)" || STRINGS_SCAN=""    # 评审修正第二轮：python 判 FAIL 时 exit 1——set -e 下赋值即中止脚本
-                          # （红但零诊断输出）；|| 兜底捕获后统一在父 shell 判定计数
+)" || true    # python 判 FAIL 时 exit 1；|| true 保留已捕获的输出（__SCANNED__ 已
+              # 先于 FAIL 行打印）——此前 `|| STRINGS_SCAN=""` 把输出整体清空，
+              # 父 shell 只见「判定器失效」伪红，真实 FAIL 行（如未登记静态键）
+              # 被掩盖（2026-09-09 SP-13 批实证）
   scanned="$(printf '%s\n' "$STRINGS_SCAN" | grep '^__SCANNED__' || true)"
   if [ -z "$scanned" ]; then
     fail ".strings 扫描无 __SCANNED__ 计数 —— 判定器失效，不得判 PASS（ERR#27）"

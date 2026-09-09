@@ -395,6 +395,11 @@
 "trend.band.legend" = "%1$@ %2$@–%3$@";
 "trend.band.unlabeled" = "未标注来源";
 "trend.origin.selfDevice" = "自测 / 设备读数";
+"trend.origin.legend" = "来源";
+"trend.origin.device" = "设备自动";
+"trend.notConnected.health" = "未连接 Apple 健康";
+"trend.notConnected.hint" = "连接后可自动汇入睡眠、心率、血氧等设备读数（只读展示，不参与诊断）";
+"trend.goConnect" = "去连接";
 "trend.origin.hospital" = "医院报告";
 "trend.refRange" = "参考范围 %1$@–%2$@";
 "trend.row.accessibility" = "%1$@ %2$@ · %3$@ · %4$@";

@@ -189,6 +189,20 @@ extension TrendQueryStore {
         }
     }
 
+    /// SP-13 未连接空态判定（FR16.1 / ui-ux §5.45 V3.53）：成员名下是否
+    /// 存在任何 origin='device' 读数。无设备读数 = 从未连接/未同步过
+    /// Apple 健康——趋势详情空态分流为「未连接」+ 去连接深链，而非通用
+    /// 无数据（有设备数据但该指标空 → 仍走通用空态）。
+    public func hasDeviceSamples(patientId: UUID) async throws -> Bool {
+        try await writer.read { db in
+            let exists = try Int.fetchOne(db, sql: """
+                SELECT EXISTS(SELECT 1 FROM metric_sample
+                              WHERE patient_id = ? AND origin = 'device' AND excluded = 0)
+                """, arguments: [patientId.uuidString]) ?? 0
+            return exists == 1
+        }
+    }
+
     public func latestPerMetric(patientId: UUID) async throws -> [LatestMetric] {
         try await writer.read { db in
             // 第六轮全仓审查修复：MAX(measured_at) 等值 JOIN 在同一时刻存在

@@ -38,6 +38,9 @@ final class TrendEntryState {
     /// §5.45 深链：按指标加载指定序列（SP-13 趋势详情路由）。
     /// 独立状态槽避免覆盖入口页的血糖默认序列。
     private(set) var detailSeries: TrendSeries?
+    /// SP-13 未连接空态判定（ui-ux §5.45 V3.53）：成员名下是否存在任何
+    /// origin='device' 读数——空态分流「未连接 Apple 健康」vs 通用无数据
+    private(set) var hasDeviceSamples = false
 
     func loadDetail(patientId: UUID, metricKey: String) async {
         loadingPatientId = patientId
@@ -60,6 +63,8 @@ final class TrendEntryState {
             let loaded = try await store.series(for: patientId, metric: metric, range: range)
             guard loadingPatientId == patientId, loadingMetricKey == metricKey else { return }
             detailSeries = loaded
+            // 空态分流的设备存在性判定（与序列同请求同守卫）
+            hasDeviceSamples = (try? await store.hasDeviceSamples(patientId: patientId)) ?? true   // try?-ok: 判定失败按「已连接」保守处理——通用空态优于误报未连接
         } catch {
             // 过期请求（已切成员/切指标）的失败不触碰当前数据；当前请求
             // 失败才清槽（空态渲染，不残留旧曲线）
@@ -76,6 +81,7 @@ struct TrendChartRouteView: View {
     let patientId: UUID
     let metricKey: String
     @Environment(TrendEntryState.self) private var state
+    @Environment(AppRouter.self) private var router
 
     var body: some View {
         Group {
@@ -90,6 +96,23 @@ struct TrendChartRouteView: View {
                     onToggleExcluded: { point in
                         Task { await state.toggleExcluded(point, patientId: patientId, metricKey: metricKey) }
                     })
+            } else if !state.hasDeviceSamples {
+                // SP-13 未连接空态（ui-ux §5.45 V3.53）：成员从未连接/同步
+                // 过 Apple 健康（无任何 origin='device' 读数）——分流为
+                // 「未连接」+ [去连接] 深链（SP-29），不渲染设备来源占位；
+                // 有设备数据但该指标空 → 下方通用空态
+                ContentUnavailableView {
+                    Label(L10n.trendNotConnectedHealth, systemImage: "heart.slash")
+                } description: {
+                    Text(L10n.trendNotConnectedHint)
+                } actions: {
+                    Button(L10n.trendGoConnect) {
+                        router.navigate(to: .deviceConnection)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("SP-13.trend.connectHealth")
+                }
+                .accessibilityIdentifier("SP-13.trend.detail.notConnected")
             } else {
                 ContentUnavailableView(L10n.trendTitle, systemImage: "chart.xyaxis.line",
                                        description: Text(L10n.trendRangeUnavailable))

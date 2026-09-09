@@ -581,6 +581,13 @@ enum L10n {
     /// 拍摄质量标签（Domain QualityTag 键 → 本地化文案；未知键原样回落）
     static func qualityTag(_ raw: String) -> String { t(raw) }
     static var trendOriginSelfDevice: String { t("trend.origin.selfDevice") }
+    /// FR7.9 设备自动汇入来源标注（V3.53 §5.45 设备来源行；与自测区分）
+    static var trendOriginDevice: String { t("trend.origin.device") }
+    static var trendOriginLegend: String { t("trend.origin.legend") }
+    /// SP-13 未连接 Apple 健康空态（§5.45：不渲染设备占位 + 去连接深链）
+    static var trendNotConnectedHealth: String { t("trend.notConnected.health") }
+    static var trendNotConnectedHint: String { t("trend.notConnected.hint") }
+    static var trendGoConnect: String { t("trend.goConnect") }
     static var trendOriginHospital: String { t("trend.origin.hospital") }
     static func trendRefRange(_ lo: String, _ hi: String) -> String {
         String(format: t("trend.refRange"), lo, hi)   // %1$@ %2$@
@@ -1166,6 +1173,8 @@ enum L10n {
         "trend.convertedFrom", "trend.empty.hint", "trend.empty.title", "trend.excluded.accessibility",
         "trend.excluded.header", "trend.excluded.toggle", "trend.openSource", "trend.origin.hospital",
         "trend.origin.hospitalShort", "trend.origin.self", "trend.origin.selfDevice", "trend.origin.selfShort",
+        "trend.origin.device", "trend.origin.legend", "trend.notConnected.health",
+        "trend.notConnected.hint", "trend.goConnect",
         "trend.point.exclude", "trend.point.restore", "trend.range.unavailable", "trend.refRange",
         "trend.row.accessibility", "trend.row.excludedSuffix", "trend.showExcluded.accessibility", "trend.title",
         "voice.ask.screen", "voice.ask.speak", "voice.confirm.cancel", "voice.confirm.lowConfidence",

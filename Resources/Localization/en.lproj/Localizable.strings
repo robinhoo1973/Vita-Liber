@@ -395,6 +395,11 @@
 "trend.band.legend" = "%1$@ %2$@–%3$@";
 "trend.band.unlabeled" = "Unlabeled source";
 "trend.origin.selfDevice" = "Self-measured / device reading";
+"trend.origin.legend" = "Source";
+"trend.origin.device" = "Auto (device)";
+"trend.notConnected.health" = "Apple Health not connected";
+"trend.notConnected.hint" = "Connect to automatically import sleep, heart rate, blood oxygen and other device readings (display only, not used for diagnosis)";
+"trend.goConnect" = "Connect";
 "trend.origin.hospital" = "Hospital report";
 "trend.refRange" = "Reference range %1$@–%2$@";
 "trend.row.accessibility" = "%1$@ %2$@ · %3$@ · %4$@";

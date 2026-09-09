@@ -32,6 +32,18 @@ struct TrendChartView: View {
         return steps[min(index, steps.count - 1)]
     }
 
+    /// 来源图例行：医院实心 / 自测·设备空心（ui-ux 4.7 同款符号语义）
+    private func originLegendRow(solid: Bool, label: String) -> some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(solid ? Color("brand-primary", bundle: .main) : Color.clear)
+                .overlay(Circle().strokeBorder(Color("brand-primary", bundle: .main), lineWidth: 1.5))
+                .frame(width: 12, height: 12)
+            Text(label).font(.caption2).foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
     private var selectedPoint: TrendPoint? {
         guard let selectedDate else { return nil }
         return series.points.min {
@@ -120,6 +132,24 @@ struct TrendChartView: View {
                 }
             }
 
+            // 来源图例（ui-ux §5.45 V3.53 设备来源行）：医院实心 / 自测空心 /
+            // 设备自动空心+标注——只渲染序列中存在的来源（未连接设备时
+            // 不渲染设备占位）；色觉障碍可经文字辨识（无障碍不依赖颜色）
+            let origins = Set(series.points.map(\.origin))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(L10n.trendOriginLegend).font(.caption2).foregroundStyle(.secondary)
+                if origins.contains(.hospital) {
+                    originLegendRow(solid: true, label: L10n.trendOriginHospital)
+                }
+                if origins.contains(.manual) {
+                    originLegendRow(solid: false, label: L10n.trendSelfMeasured)
+                }
+                if origins.contains(.device) {
+                    originLegendRow(solid: false, label: L10n.trendOriginDevice)
+                }
+            }
+            .accessibilityIdentifier("SP-13.trend.origin.legend")
+
             // 选点气泡：值/单位/医院/参考范围/日期（ui-ux §5.37 五要素）
             if let p = selectedPoint {
                 TrendPointBubble(point: p, onOpenSource: onOpenSource)
@@ -156,7 +186,9 @@ private struct TrendPointBubble: View {
                 .font(.title3).monospacedDigit()
             Text(point.measuredAt.formatted(date: .abbreviated, time: .shortened))
                 .font(.caption2).foregroundStyle(.secondary)
-            Text(point.isHollow ? L10n.trendOriginSelfDevice : (point.refSourceLabel ?? L10n.trendOriginHospital))
+            Text(point.origin == .device ? L10n.trendOriginDevice
+                 : (point.isHollow ? L10n.trendSelfMeasured
+                    : (point.refSourceLabel ?? L10n.trendOriginHospital)))
                 .font(.caption2).foregroundStyle(.secondary)
             if let lo = point.refLow, let hi = point.refHigh {
                 Text(L10n.trendRefRange(MedicalNumberFormat.oneDecimal(lo), MedicalNumberFormat.oneDecimal(hi)))
@@ -203,7 +235,9 @@ private struct TrendPointRow: View {
                 .font(.footnote).monospacedDigit()
                 .strikethrough(isExcluded)
             if point.isHollow {
-                Text(L10n.trendSelfMeasured).font(.caption2).foregroundStyle(.secondary)
+                // V3.53 §5.45 设备来源行：设备自动与自测同空心但标注区分
+                Text(point.origin == .device ? L10n.trendOriginDevice : L10n.trendSelfMeasured)
+                    .font(.caption2).foregroundStyle(.secondary)
             }
             // 显式动作按钮，不用 .swipeActions——本行不在 List 内，swipeActions
             // 会静默失效（ERR#32 同族：API 在错误容器里不报错也不生效）；
