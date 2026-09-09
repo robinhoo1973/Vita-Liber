@@ -19,6 +19,30 @@
 #   APPLE_API_KEY_ID / APPLE_API_KEY_ISSUER_ID / APPLE_API_KEY_P8（base64）
 #   APPLE_TEAM_ID / APPLE_DEV_CERT_P12 / APPLE_DIS_CERT_P12
 #   APPLE_CERT_PASSWORD / APPLE_DIS_PROVISION_PROFILE
+#
+# 变更记录（CI/CD 审计 2026-09-10，5 WHY 根因见
+# refactor/discussions/2026-09-10-ci-cd-audit-round1.md）：
+#   1) actions 三件套升级 node24 运行时：checkout v4.2.2→v7.0.1、
+#      upload-artifact v4.6.0→v7.0.1、download-artifact v4.3.0→v8.0.1
+#      （均固定完整 SHA）——GitHub 2026-09-16 起从 runner 移除 Node 20，
+#      node20 action 将停止执行，整条发布流水线会因此瘫痪。
+#   2) runs-on 由 macos-latest 钉为 macos-26，并新增 Xcode 主版本断言——
+#      发布流水线拒绝隐式工具链漂移；升级按下方指引显式执行。
+#   3) 新增「签名材料到期预警」：证书/PP 剩余 ≤30 天 ::warning::、
+#      ≤7 天 ::error:: 阻断——签名材料到期是静默悬崖（平时全绿、
+#      到期日归档突然失败），左移为门禁。
+#   4) 密钥面收窄：job 级 env 只保留存在性布尔（HAS_P8/HAS_CERTS/HAS_PP），
+#      实际密钥值按 step 级 env 注入——不消费密钥的步骤不再可见密钥。
+#   5) 失败路径上传 Build/*.log 诊断 artifact（7 天）——hosted runner
+#      销毁后失败证据即灭失，此前只能靠 workflow 日志猜。
+#   6) xcodegen 安装失败不再吞 stderr（pipefail + tee 落盘）。
+#   7) 复核步骤在 build 缺出口合规声明（Missing Compliance）时输出
+#      ::warning:: 与处置指引——防 build 已上传但分发被阻塞无人知晓。
+#
+# Xcode 主版本升级指引（macos-26 镜像的 Xcode 主版本变化时执行）：
+#   1) 确认当前全绿基线；2) 同步本 workflow 的 XCODE_MAJOR 断言；
+#   3) L0→L1→归档→上传全链路回归；4) 新工具链若令编译/测试变红，
+#      按错误族修复并沉淀进 l0-typecheck-heuristics.py 后再放行。
 # ============================================================================
 name: Build + TestFlight
 
@@ -69,8 +93,9 @@ jobs:
       build: ${{ steps.ver.outputs.build }}
       hash: ${{ steps.ver.outputs.hash }}
     steps:
-      # v4.2.2；固定完整 SHA，防可变 tag 被上游供应链替换。
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      # v7.0.1；固定完整 SHA，防可变 tag 被上游供应链替换（node24 运行时——
+      # node20 于 2026-09-16 从 runner 移除，旧 v4.2.2 将停止执行）。
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: 解析版本（GitHub 最高 Release → 版本主体；无则自动建 v0.0.1）
         id: ver
@@ -111,31 +136,43 @@ jobs:
   build:
     name: '编译 + 导出 IPA'
     needs: version
-    runs-on: macos-latest
+    # 钉版 macos-26（审计 2026-09-10）：发布流水线拒绝隐式工具链漂移；
+    # 镜像内 Xcode 主版本变化由下方断言显式拦截，升级按文件头指引执行。
+    runs-on: macos-26
     timeout-minutes: 120
+    # 密钥面收窄：job 级 env 只保留存在性布尔，实际密钥值由各消费步骤
+    # 以 step 级 env 注入——不消费密钥的步骤（L0/测试/上传 artifact 等）
+    # 不再可见密钥内容。
     env:
-      APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
-      APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-      APPLE_API_KEY_ISSUER_ID: ${{ secrets.APPLE_API_KEY_ISSUER_ID }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      APPLE_DEV_CERT_P12: ${{ secrets.APPLE_DEV_CERT_P12 }}
-      APPLE_DIS_CERT_P12: ${{ secrets.APPLE_DIS_CERT_P12 }}
-      APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
-      APPLE_DIS_PROVISION_PROFILE: ${{ secrets.APPLE_DIS_PROVISION_PROFILE }}
+      HAS_P8: ${{ secrets.APPLE_API_KEY_P8 != '' }}
+      HAS_CERTS: ${{ secrets.APPLE_DEV_CERT_P12 != '' && secrets.APPLE_DIS_CERT_P12 != '' }}
+      HAS_PP: ${{ secrets.APPLE_DIS_PROVISION_PROFILE != '' }}
     steps:
-      # v4.2.2；固定完整 SHA，防可变 tag 被上游供应链替换。
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      # v7.0.1；固定完整 SHA，防可变 tag 被上游供应链替换（node24 运行时）。
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: 环境与工具链
         run: |
           xcodebuild -version
+          # 发布流水线 Xcode 主版本断言（审计 2026-09-10）：macos-26 镜像
+          # 的 Xcode 主版本变化时按文件头「Xcode 主版本升级指引」显式放行，
+          # 防止 Swift 语言模式/编译器默认值随镜像静默漂移造成「昨天绿今天红」。
+          XCODE_MAJOR="$(xcodebuild -version | awk '/Xcode/{print $2}' | cut -d. -f1)"
+          if [ "$XCODE_MAJOR" != "26" ]; then
+            echo "::error::runner Xcode 主版本为 $XCODE_MAJOR（期望 26）——请按 workflow 文件头升级指引评估后同步断言"
+            exit 1
+          fi
+          echo "Xcode 主版本断言通过（$XCODE_MAJOR）"
 
       - name: 生成 Xcode 工程
         run: |
+          set -o pipefail
+          mkdir -p Build
           if [ -d "$XCODEPROJ" ]; then
             echo "已有 $XCODEPROJ"
           elif [ -f project.yml ]; then
-            brew install xcodegen >/dev/null 2>&1 && xcodegen generate
+            # 审计 2026-09-10：不再吞 stderr——brew 失败即步骤失败且原因落盘。
+            brew install xcodegen 2>&1 | tee Build/brew-xcodegen.log && xcodegen generate
           else
             echo "::error::缺 project.yml 且无 xcodeproj"; exit 1
           fi
@@ -147,9 +184,80 @@ jobs:
         run: |
           bash .github/workflows/l0-static-gate.sh
 
+      # ── 签名材料到期预警（审计 2026-09-10 新增）──────────────
+      # 证书/PP 到期是「静默悬崖」：平时一切绿色，到期日归档/导出突然失败，
+      # 且失败信息晦涩（errSecInternalComponent / 无可用 signing identity）。
+      # 左移为门禁：≤30 天 ::warning::（进入轮换窗口），≤7 天 ::error::
+      # 阻断（已过 Apple 提醒期仍未轮换，立即处理并更新仓库 Secrets）。
+      - name: 签名材料到期预警
+        if: ${{ env.HAS_CERTS == 'true' && env.HAS_PP == 'true' }}
+        env:
+          APPLE_DEV_CERT_P12: ${{ secrets.APPLE_DEV_CERT_P12 }}
+          APPLE_DIS_CERT_P12: ${{ secrets.APPLE_DIS_CERT_P12 }}
+          APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+          APPLE_DIS_PROVISION_PROFILE: ${{ secrets.APPLE_DIS_PROVISION_PROFILE }}
+        run: |
+          set -euo pipefail
+          umask 077
+          echo "$APPLE_DEV_CERT_P12" | tr -d ' \n\r' | base64 -d > "$RUNNER_TEMP/exp_dev.p12"
+          echo "$APPLE_DIS_CERT_P12" | tr -d ' \n\r' | base64 -d > "$RUNNER_TEMP/exp_dis.p12"
+          echo "$APPLE_DIS_PROVISION_PROFILE" | base64 -d > "$RUNNER_TEMP/exp_profile.mobileprovision"
+          fail=0
+          check_days() {
+            local label="$1" enddate="$2" days
+            days=$(python3 - "$enddate" <<'PY'
+          import sys
+          from datetime import datetime, timezone
+          s = sys.argv[1]
+          end = None
+          for fmt in ('%b %d %H:%M:%S %Y %Z', '%Y-%m-%dT%H:%M:%SZ', '%Y-%m-%dT%H:%M:%S.%fZ'):
+              try:
+                  end = datetime.strptime(s, fmt)
+                  break
+              except ValueError:
+                  continue
+          if end is None:
+              print(-1); raise SystemExit
+          if end.tzinfo is None:
+              end = end.replace(tzinfo=timezone.utc)
+          print((end - datetime.now(timezone.utc)).days)
+          PY
+          )
+            if [ "$days" -lt 0 ]; then
+              echo "::warning::$label 到期日解析失败：$enddate"
+              return 0
+            fi
+            if [ "$days" -le 7 ]; then
+              echo "::error::$label 将在 $days 天内到期（$enddate）——请立即轮换并更新仓库 Secrets"
+              return 1
+            elif [ "$days" -le 30 ]; then
+              echo "::warning::$label 将在 $days 天内到期（$enddate）——请安排轮换并更新仓库 Secrets"
+            else
+              echo "$label 剩余 $days 天 ✓"
+            fi
+            return 0
+          }
+          for f in dev dis; do
+            cert_pem="$RUNNER_TEMP/exp_$f.cert.pem"
+            # 解析失败不触发 set -e（走 check_days 的告警路径），故显式 || true。
+            (P12_PASS="$APPLE_CERT_PASSWORD" openssl pkcs12 -in "$RUNNER_TEMP/exp_$f.p12" -passin env:P12_PASS -clcerts -nokeys -out "$cert_pem" 2>/dev/null \
+             || openssl pkcs12 -in "$RUNNER_TEMP/exp_$f.p12" -passin pass: -clcerts -nokeys -out "$cert_pem" 2>/dev/null) || true
+            end=$(openssl x509 -in "$cert_pem" -noout -enddate 2>/dev/null | sed 's/^notAfter=//' || true)
+            check_days "$f 证书" "$end" || fail=1
+            rm -f "$cert_pem"
+          done
+          pp_end=$(security cms -D -i "$RUNNER_TEMP/exp_profile.mobileprovision" 2>/dev/null | plutil -extract ExpirationDate raw - 2>/dev/null || true)
+          check_days "Provisioning Profile" "$pp_end" || fail=1
+          rm -f "$RUNNER_TEMP"/exp_*
+          if [ "$fail" = "1" ]; then exit 1; fi
+          echo "签名材料到期预警通过 ✓"
+
       # ── 解码 ASC API Key ─────────────────────────────
       - name: 解码 App Store Connect API Key
-        if: ${{ env.APPLE_API_KEY_P8 != '' }}
+        if: ${{ env.HAS_P8 == 'true' }}
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
         run: |
           umask 077
           mkdir -p "$GITHUB_WORKSPACE/private_keys"
@@ -159,7 +267,11 @@ jobs:
 
       # ── 导入签名证书（p12 via openssl PEM split）────
       - name: 导入签名证书（p12）
-        if: ${{ env.APPLE_DEV_CERT_P12 != '' && env.APPLE_DIS_CERT_P12 != '' }}
+        if: ${{ env.HAS_CERTS == 'true' }}
+        env:
+          APPLE_DEV_CERT_P12: ${{ secrets.APPLE_DEV_CERT_P12 }}
+          APPLE_DIS_CERT_P12: ${{ secrets.APPLE_DIS_CERT_P12 }}
+          APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
         run: |
           set -euo pipefail
           umask 077
@@ -228,7 +340,9 @@ jobs:
 
       # ── 导入 Provisioning Profile ─────────────────────
       - name: 导入 Provisioning Profile
-        if: ${{ env.APPLE_DIS_PROVISION_PROFILE != '' }}
+        if: ${{ env.HAS_PP == 'true' }}
+        env:
+          APPLE_DIS_PROVISION_PROFILE: ${{ secrets.APPLE_DIS_PROVISION_PROFILE }}
         run: |
           set -euo pipefail
           umask 077
@@ -316,7 +430,11 @@ jobs:
 
       # ── 签名归档 + 导出 IPA ──────────────────────────
       - name: 签名归档 + 导出 IPA
-        if: ${{ env.APPLE_DEV_CERT_P12 != '' }}
+        if: ${{ env.HAS_CERTS == 'true' }}
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_KEY_ISSUER_ID: ${{ secrets.APPLE_API_KEY_ISSUER_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -o pipefail
           VERSION="${{ needs.version.outputs.version }}"
@@ -377,9 +495,9 @@ jobs:
 
       # ── 上传 IPA 到 Artifact（供 upload job 下载）────
       - name: 上传 IPA artifact
-        if: ${{ env.APPLE_DEV_CERT_P12 != '' }}
-        # v4.6.0；固定完整 SHA，artifact action 运行在含签名材料的 job 中。
-        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
+        if: ${{ env.HAS_CERTS == 'true' }}
+        # v7.0.1；固定完整 SHA（node24 运行时），artifact action 运行在含签名材料的 job 中。
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: vitaliber-ipa
           path: Build/export/VitaLiber.ipa
@@ -395,29 +513,45 @@ jobs:
             "$HOME/Library/MobileDevice/Provisioning Profiles/dev.mobileprovision" \
             build.keychain-db build.keychain exportOptions.plist
 
+      # ── 失败诊断 artifact（审计 2026-09-10 新增）────────
+      # hosted runner 销毁后失败证据即灭失；此前只能靠 workflow 日志猜。
+      - name: 上传构建诊断日志（失败/取消时）
+        if: ${{ failure() || cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: build-diagnostics
+          path: |
+            Build/*.log
+            Build/corekit-swift-test.log
+            Build/xcodebuild-*.log
+            Build/brew-xcodegen.log
+          retention-days: 7
+          if-no-files-found: ignore
+
   # ═══════════════════════════════════════════════════════════════
   # Job 3: 上传 TestFlight —— 直接 xcrun altool（NetDiagnostics 已验证方式）
   # ═══════════════════════════════════════════════════════════════
   upload:
     name: '上传 TestFlight'
     needs: [version, build]
-    runs-on: macos-latest
+    # 与 build job 同钉 macos-26（审计 2026-09-10），防工具链漂移。
+    runs-on: macos-26
     timeout-minutes: 20
     if: ${{ !cancelled() && needs.build.result == 'success' }}
-    env:
-      APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
-      APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-      APPLE_API_KEY_ISSUER_ID: ${{ secrets.APPLE_API_KEY_ISSUER_ID }}
     steps:
       - name: 下载 IPA artifact
-        # v4.3.0；固定完整 SHA，避免可变 tag 供应链风险。
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        # v8.0.1；固定完整 SHA（node24 运行时），避免可变 tag 供应链风险。
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           name: vitaliber-ipa
           path: Build/export/
 
       # ── 凭据与产物检查：缺失即失败（不再“绿色成功 + 跳过”）────
       - name: 检查 TestFlight 上传凭据
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_KEY_ISSUER_ID: ${{ secrets.APPLE_API_KEY_ISSUER_ID }}
         run: |
           set -euo pipefail
           missing=()
@@ -434,6 +568,9 @@ jobs:
       # ── 写入 ASC API Key 到 altool 约定路径 ──────────────────
       # altool --apiKey <ID> 会读取 ~/.appstoreconnect/private_keys/AuthKey_<ID>.p8
       - name: 准备 App Store Connect API Key
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
         run: |
           set -euo pipefail
           umask 077
@@ -451,6 +588,8 @@ jobs:
         env:
           REBUILD: ${{ inputs.rebuild_app }}
           APP_NAME: ${{ inputs.app_name }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_KEY_ISSUER_ID: ${{ secrets.APPLE_API_KEY_ISSUER_ID }}
         run: |
           set -euo pipefail
           # 固定版本并禁用缓存/交互；依赖安装失败立即停，绝不在含 p8 的 job 中继续执行未知代码。
@@ -552,6 +691,9 @@ jobs:
       # 参考 NetDiagnostics action.yml：--upload-app + --apiKey/--apiIssuer。
       # altool 会同步完成 Apple 初步校验，失败返回非零退出码并在日志给出 ITMS 错误。
       - name: 上传 TestFlight（xcrun altool）
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_KEY_ISSUER_ID: ${{ secrets.APPLE_API_KEY_ISSUER_ID }}
         run: |
           set -euo pipefail
           xcrun altool --upload-app -f Build/export/VitaLiber.ipa -t ios \
@@ -572,6 +714,9 @@ jobs:
       # JWT 用 PyJWT + cryptography 签发（含 aud=appstoreconnect-v1，缺它 401）。
       # ① 查 preflight 确定的 App（$APP_ID）最近 builds；② 查本次 Delivery 处理状态。
       - name: 复核 Build 登记状态
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_KEY_ISSUER_ID: ${{ secrets.APPLE_API_KEY_ISSUER_ID }}
         run: |
           set -euo pipefail
           # PEP 668 同族（ERR#54）：复用前一步骤 venv；若前序未建（job 重跑
@@ -664,12 +809,19 @@ jobs:
             else:
                 for b in bs:
                     a = b['attributes']
-                    print('BUILD %s state=%s compliance=%s uploaded=%s' % (a.get('version','?'), a.get('processingState','?'), a.get('missingExportCompliance','?'), a.get('uploadedDate','?')))
+                    mc = a.get('missingExportCompliance')
+                    comp = 'YES' if mc is True else ('NO' if mc is False else '?')
+                    print('BUILD %s state=%s compliance=%s uploaded=%s' % (a.get('version','?'), a.get('processingState','?'), comp, a.get('uploadedDate','?')))
             " 2>/dev/null || true)
             echo "  第 ${i} 次复核（$(date -u +%H:%M:%S)）：$(echo "$OUT" | head -1)"
             if echo "$OUT" | grep -q '^BUILD '; then
               echo "$OUT" | grep '^BUILD ' | head -5
               echo "→ build 已登记（Apple 处理状态如上，TestFlight 就绪还需状态非 PROCESSING）"
+              # 审计 2026-09-10：出口合规缺失 = build 已上传但分发被阻塞，
+              # 且此前只混在字段里打印，无人注意——改为显式告警 + 处置指引。
+              if echo "$OUT" | grep -q 'compliance=YES'; then
+                echo "::warning::build 缺少出口合规声明（Missing Compliance）——TestFlight 分发被阻塞；请到 App Store Connect → TestFlight → 构建版本 → Export Compliance 作答（本应用无加密内容，选豁免）后恢复"
+              fi
               found=1
               break
             fi

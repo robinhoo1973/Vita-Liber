@@ -1,7 +1,8 @@
 # ============================================================================
 # Workflow 执行记录清理
 #
-# 定时清理：只保留每个 workflow 最近一次成功的执行记录，其余全部删除。
+# 定时清理：每个 workflow 保留最近一次成功的执行记录 + 近 7 天内失败的
+# 记录（失败证据是诊断/审计材料，发布流水线尤其需要），其余删除。
 # 包括已删除的 workflow 的历史记录也会被清理。
 # 调度：中国时间每天凌晨 0:00（UTC 16:00）
 # ============================================================================
@@ -63,7 +64,7 @@ jobs:
 
           # 用 process substitution 避免子 shell 问题
           MY_NAME="Cleanup Workflow Runs"
-          while IFS=$'\t' read -r WF_NAME CONCLUSION RUN_ID; do
+          while IFS=$'\t' read -r WF_NAME CONCLUSION RUN_ID CREATED_AT; do
             read DELETED KEPT < "$COUNTS_FILE"
 
             # 规则0：cleanup 自身 → 全部删除（当前运行的 run 是 in_progress，不在列表中）
@@ -86,11 +87,24 @@ jobs:
               continue
             fi
 
-            # 规则2：未成功 → 直接删除
+            # 规则2：未成功 → 保留 7 天宽限期后删除
+            # （审计 2026-09-10：失败记录此前当日即删，间歇性失败无证据可查、
+            # 发布流水线无审计轨迹；近 7 天失败保留供诊断，过期失败照旧清理）
             if [ "$CONCLUSION" != "success" ]; then
-              if gh run delete "$RUN_ID" --repo "$REPO" 2>/dev/null; then
-                echo "  删除: #$RUN_ID ($WF_NAME - 未成功)"
-                DELETED=$((DELETED + 1))
+              AGE_DAYS=$(python3 -c "
+          import sys
+          from datetime import datetime, timezone
+          t = datetime.fromisoformat('$CREATED_AT'.replace('Z','+00:00'))
+          print((datetime.now(timezone.utc)-t).days)
+          " 2>/dev/null || echo 99)
+              if [ "$AGE_DAYS" -le 7 ]; then
+                echo "  保留: #$RUN_ID ($WF_NAME - 未成功但 ≤7 天，留诊断审计)"
+                KEPT=$((KEPT + 1))
+              else
+                if gh run delete "$RUN_ID" --repo "$REPO" 2>/dev/null; then
+                  echo "  删除: #$RUN_ID ($WF_NAME - 未成功且超过 7 天)"
+                  DELETED=$((DELETED + 1))
+                fi
               fi
               echo "$DELETED $KEPT" > "$COUNTS_FILE"
               continue
@@ -111,7 +125,7 @@ jobs:
             echo "  保留: #$RUN_ID ($WF_NAME - 首次成功)"
             KEPT=$((KEPT + 1))
             echo "$DELETED $KEPT" > "$COUNTS_FILE"
-          done < <(jq -r '.[] | "\(.name)\t\(.conclusion)\t\(.databaseId)"' "$ALL_RUNS_FILE")
+          done < <(jq -r '.[] | "\(.name)\t\(.conclusion)\t\(.databaseId)\t\(.createdAt)"' "$ALL_RUNS_FILE")
 
           read TOTAL_DELETED TOTAL_KEPT < "$COUNTS_FILE"
           rm -f "$ALL_RUNS_FILE" "$FOUND_FIRST_SUCCESS" "$COUNTS_FILE"
