@@ -49,7 +49,9 @@ struct LanguageSettingsView: View {
 struct VoiceLanguageSettingsView: View {
     @Environment(AppSettingsStore.self) private var settings
     @Environment(AppState.self) private var app
-    @State private var inputLangs: Set<String> = []
+    /// FR17.15 V3.61：**有序**列表——首位 = 主语言（识别 locale）；此前 Set + sorted()
+    /// 字母序写回，多选 {普通话, 英语} 实际主语言变成 en-US
+    @State private var inputLangs: [String] = []
 
     private var outputLang: String {
         app.voiceOutputLocale
@@ -73,6 +75,14 @@ struct VoiceLanguageSettingsView: View {
                     } label: {
                         HStack {
                             Text(lang.nativeName)
+                            if inputLangs.first == lang.locale {
+                                Text(L10n.voicePrimaryLanguage)
+                                    .font(.caption2)
+                                    .padding(.horizontal, 6).padding(.vertical, 2)
+                                    .background(Capsule().fill(Color("brand-primary", bundle: .main).opacity(0.15)))
+                                    .foregroundStyle(Color("brand-primary", bundle: .main))
+                                    .accessibilityIdentifier("SP-25.voiceInputLang.primary")
+                            }
                             if lang.tier == .bestEffort {
                                 // §5.12.3 T2 说明卡（V3.72）：徽标可点弹出三要点说明
                                 Button {
@@ -97,7 +107,7 @@ struct VoiceLanguageSettingsView: View {
             } header: {
                 Text(L10n.voiceLangInputSection)
             } footer: {
-                Text(L10n.voiceLangInputHint)
+                Text(L10n.voiceLangInputHint + "\n" + L10n.voicePrimaryLanguageHint)
             }
 
             // FR17.15 混说开关（V3.72 接线恢复）：持久化 AppSettingKey.voiceMixedInput；
@@ -154,19 +164,25 @@ struct VoiceLanguageSettingsView: View {
         // 原实现直接读 values（可能为空）回落默认单语言，用户首次切换
         // 即把已存的多语言集合重写为 {默认, 新选}，其余语种静默丢失
         await settings.load()
-        let stored = settings.values[.voiceInputLanguages] ?? AppSettingKey.voiceInputLanguages.defaultValue
-        inputLangs = Set(stored.split(separator: ",").map(String.init))
+        inputLangs = SettingsRules.voiceLocales(settings.values[.voiceInputLanguages])
     }
 
+    /// 点未选 = 追加到末尾；点已选且非主语言 = 提升为主语言；点主语言 = 取消（至少保留一项）。
+    /// 存储保序（首位即主语言，Domain SettingsRules.voiceLocales 同源解析）。
     private func toggleInput(_ locale: String) {
-        if inputLangs.contains(locale) {
-            // 至少启用一项（FR17.15：全部关闭时入口置灰并引导恢复默认）
-            guard inputLangs.count > 1 else { return }
-            inputLangs.remove(locale)
+        if let index = inputLangs.firstIndex(of: locale) {
+            if index == 0 {
+                // 至少启用一项（FR17.15：全部关闭时入口置灰并引导恢复默认）
+                guard inputLangs.count > 1 else { return }
+                inputLangs.removeFirst()
+            } else {
+                inputLangs.remove(at: index)
+                inputLangs.insert(locale, at: 0)
+            }
         } else {
-            inputLangs.insert(locale)
+            inputLangs.append(locale)
         }
-        let joined = inputLangs.sorted().joined(separator: ",")
+        let joined = inputLangs.joined(separator: ",")
         Task { await settings.set(joined, for: .voiceInputLanguages) }
     }
 }

@@ -22,7 +22,10 @@ import Protocols
 final class VoiceDictationModel {
     enum Phase: Equatable { case idle, recording, failed }
     private(set) var phase: Phase = .idle
+    /// 连续会话显示文本 = 已提交段 + 当前部分（引擎 onPartial 已合并，V3.61）
     private(set) var partial = ""
+    /// 最近一次实际识别 locale（FR17.15 能力诚实：方言回落主语言时面板回显）
+    private(set) var resolvedLocale: String?
     var onTranscript: ((String, Double) -> Void)?
     /// BR-012 紧急关键词横切动作（命中即调用并跳过 onTranscript 草稿投递）
     var onEmergency: ((String) -> Void)?
@@ -31,6 +34,8 @@ final class VoiceDictationModel {
     // 视图在每次渲染时按最新设置更新（FR14.7 即时生效），故 setter 为 internal——
     // 与 phase/partial 的 private(set) 不同（第九轮 M1.5 审查：stale 闭包修复）
     var preferredLocale: String?
+    /// FR17.15 混说词表（主语言 + 混说开关 + 已确认药名 → contextualStrings；空 = 不注入）
+    var contextualStrings: [String] = []
     private var task: Task<Void, Never>?
     private var stopped = false
     /// 会话代次：start 递增。收尾期（stop 后引擎仍在等静音端点）旧会话的
@@ -44,6 +49,24 @@ final class VoiceDictationModel {
     init(engine: any TranscriptionEngine, preferredLocale: String? = nil) {
         self.engine = engine
         self.preferredLocale = preferredLocale
+    }
+
+    /// FR17.15 V3.61：按设置装配主语言与混说词表（设置页保序：首位 = 主语言；
+    /// 混说开关关 = 不注入词表；已确认药名来自药箱库存摘要）
+    func applyLanguageSettings(storedLocales: String?, mixedInput: Bool, recentDrugNames: [String]) {
+        let locales = SettingsRules.voiceLocales(storedLocales)
+        preferredLocale = locales.first
+        contextualStrings = mixedInput
+            ? MixedSpeechVocabulary.terms(primaryLocale: locales.first ?? TranscriptionSegmentation.fallbackLocale,
+                                          otherLocales: Array(locales.dropFirst()),
+                                          recentDrugNames: recentDrugNames)
+            : []
+    }
+
+    /// FR17.15 能力诚实：实际识别 locale 与主语言不同 = 方言回落（尽力识别）
+    var isBestEffortFallback: Bool {
+        guard let resolvedLocale, let preferredLocale else { return false }
+        return resolvedLocale != preferredLocale
     }
 
     func start() {
@@ -90,7 +113,7 @@ final class VoiceDictationModel {
         let gate = partialGate
         do {
             let result = try await engine.transcribe(
-                TranscriptionRequest(localeIdentifier: locale),
+                TranscriptionRequest(localeIdentifier: locale, contextualStrings: contextualStrings),
                 onPartial: { [weak self] text in
                     // @Sendable 非隔离回调：只捕获 model（MainActor 类 = Sendable）
                     // 与会话门（局部拷贝，非隔离可安全捕获），去重后按 MainActor 投递。
@@ -98,11 +121,14 @@ final class VoiceDictationModel {
                         Task { @MainActor in self?.applyPartial(latest, session: session) }
                     }
                 })
-            // 收尾期旧会话结果按代次丢弃：快速重录时（stop 后 ~1s 内再
-            // start）前会话引擎的最终文本不得投递为新会话内容
-            guard !stopped, self.session == session else { return }   // 硬停/换代：不投递、不改状态
+            // V3.61：连续会话下 isFinal 只在松手后到达一次——旧会话的最终文本是用户
+            // 说过的话，**不再因快速重按换代而丢弃**（此前整段丢失）；只有视图级硬停
+            //（stopped）才不投递。换代时不改新会话的 phase/partial。
+            guard !stopped else { return }
+            let isCurrent = self.session == session
+            resolvedLocale = result.resolvedLocale
             if !result.text.trimmingCharacters(in: .whitespaces).isEmpty {
-                phase = .idle
+                if isCurrent { phase = .idle }
                 // BR-012 紧急关键词前置（V3.40 横切义务）：判定在本组件内统一
                 // 执行——此前仅快速面板与 F19 键盘路径实现，其余 6 处入口
                 // 听写文本直入确认草稿，「我胸闷」被存成观察/速记而非急救卡
@@ -112,7 +138,7 @@ final class VoiceDictationModel {
                     return
                 }
                 onTranscript?(result.text, result.confidence)
-            } else {
+            } else if isCurrent {
                 phase = .failed   // FR8.9：识别失败静默降级为手输并给输入框轻提示
             }
         } catch is CancellationError {
@@ -163,6 +189,7 @@ struct VoiceDictationButton: View {
     @Environment(AppState.self) private var app
     @Environment(AppSettingsStore.self) private var settings
     @Environment(AppRouter.self) private var router
+    @Environment(M2HubStore.self) private var hub
     /// 完成回调：文本 + 引擎置信度（落 C 级草稿、低置信强制复核由 FR17.13 模板承担）
     let onTranscript: (String, Double) -> Void
     /// BR-012 横切动作注入（默认仅跳急救卡配置页；承载于 sheet/
@@ -247,7 +274,7 @@ struct VoiceDictationButton: View {
         // 引擎在环境就绪后装配一次（@Environment 不可用于 @State 初始值）；
         // task(id:) 挂语音语言存储值——面板内改语言返回后 .task 不重跑、
         // preferredLocale 停留旧值（FR17.15 即时生效落空），值一变即重建
-        .task(id: settings.values[.voiceInputLanguages]) { ensureModel() }
+        .task(id: "\(settings.values[.voiceInputLanguages] ?? "")|\(settings.values[.voiceMixedInput] ?? "")") { ensureModel() }
     }
 
     /// 引擎在环境就绪后装配（@Environment 不可用于 @State 初始值）。
@@ -260,17 +287,14 @@ struct VoiceDictationButton: View {
         // 引擎能力探测决定，设置页多选「可调但无效果」（FR14.7 V3.26 违例）。
         // 单一选择 = 该语言；多选 = 取第一个（引擎内再按能力回落）。
         // 解析规则收敛 Domain SettingsRules（与设置页存储格式同源）。
-        let preferred = SettingsRules.preferredVoiceLocale(settings.values[.voiceInputLanguages])
-        if let m = model {
-            m.onTranscript = onTranscript
-            m.onEmergency = onEmergency
-            m.preferredLocale = preferred
-        } else {
-            let m = VoiceDictationModel(engine: app.transcriptionEngine, preferredLocale: preferred)
-            m.onTranscript = onTranscript
-            m.onEmergency = onEmergency
-            model = m
-        }
+        let m = model ?? VoiceDictationModel(engine: app.transcriptionEngine)
+        m.onTranscript = onTranscript
+        m.onEmergency = onEmergency
+        // FR17.15 V3.61：主语言 = 保序首位；混说开关真消费（词表注入 contextualStrings）
+        m.applyLanguageSettings(storedLocales: settings.values[.voiceInputLanguages],
+                                mixedInput: settings.values[.voiceMixedInput] != "false",
+                                recentDrugNames: hub.inventoryItems.map(\.medicationName))
+        if model == nil { model = m }
     }
 
     /// BR-012 紧急关键词命中时的横切动作（组件内统一前置——此前仅快速面板

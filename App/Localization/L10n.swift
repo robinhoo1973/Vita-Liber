@@ -878,6 +878,10 @@ enum L10n {
     "pendingCard.viewSource",
     "pendingCard.discard",
     "pendingCard.notFound",
+    "voice.primaryLanguage",
+    "voice.primaryLanguageHint",
+    "voice.recognizedAsFmt",
+    "voice.bestEffortActive",
     "field.measured_at",
     "field.raw_label",
     "field.value",
@@ -2153,6 +2157,11 @@ enum L10n {
     static var pendingCardViewSource: String { t("pendingCard.viewSource") }
     static var pendingCardDiscard: String { t("pendingCard.discard") }
     static var pendingCardNotFound: String { t("pendingCard.notFound") }
+    // FR17.15 V3.61 主语言（有序多选首位）与尽力识别回显
+    static var voicePrimaryLanguage: String { t("voice.primaryLanguage") }
+    static var voicePrimaryLanguageHint: String { t("voice.primaryLanguageHint") }
+    static func voiceRecognizedAs(_ locale: String) -> String { String(format: t("voice.recognizedAsFmt"), locale) }
+    static var voiceBestEffortActive: String { t("voice.bestEffortActive") }
     /// 模板字段键 → 展示标签（data-flow §17.2 稳定键；未登记回落原键）
     static func templateFieldLabel(_ key: String) -> String {
         let l10nKey = "field.\(key)"

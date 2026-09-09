@@ -1064,6 +1064,10 @@
 "pendingCard.viewSource" = "View source";
 "pendingCard.discard" = "Discard this pending card";
 "pendingCard.notFound" = "This pending card was already handled or no longer exists";
+"voice.primaryLanguage" = "Primary";
+"voice.primaryLanguageHint" = "The first language is the primary recognition language; tap a selected language to make it primary.";
+"voice.recognizedAsFmt" = "Recognized as: %@";
+"voice.bestEffortActive" = "Best effort: this dialect has no on-device model; recognizing with the primary language plus a dialect vocabulary";
 "field.measured_at" = "Date";
 "field.raw_label" = "Item";
 "field.value" = "Result";

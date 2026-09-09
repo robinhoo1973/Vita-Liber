@@ -1064,6 +1064,10 @@
 "pendingCard.viewSource" = "查看原文";
 "pendingCard.discard" = "放弃此待办";
 "pendingCard.notFound" = "该待办卡已处理或不存在";
+"voice.primaryLanguage" = "主语言";
+"voice.primaryLanguageHint" = "首位为主语言（识别所用语言）；点击已选语言可设为主语言。";
+"voice.recognizedAsFmt" = "识别语言：%@";
+"voice.bestEffortActive" = "尽力识别：所选方言无端侧模型，按主语言识别并注入方言词表";
 "field.measured_at" = "日期";
 "field.raw_label" = "项目";
 "field.value" = "结果";

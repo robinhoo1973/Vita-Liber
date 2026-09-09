@@ -56,9 +56,13 @@ public struct TranscriptionResult: Sendable, Equatable {
     public var resolvedLocale: String
     /// 是否走了分段续接（基线轨长录音）
     public var segmented: Bool
-    public init(text: String, confidence: Double, resolvedLocale: String, segmented: Bool) {
+    /// V3.61：会话内各识别段（停顿/60s 换段产生；单段时为空或单元素，向后兼容）
+    public var segments: [String]
+    public init(text: String, confidence: Double, resolvedLocale: String, segmented: Bool,
+                segments: [String] = []) {
         self.text = text; self.confidence = confidence
         self.resolvedLocale = resolvedLocale; self.segmented = segmented
+        self.segments = segments
     }
 }
 

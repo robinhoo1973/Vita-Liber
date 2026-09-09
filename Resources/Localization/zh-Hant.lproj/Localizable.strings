@@ -1064,6 +1064,10 @@
 "pendingCard.viewSource" = "檢視原文";
 "pendingCard.discard" = "放棄此待辦";
 "pendingCard.notFound" = "該待辦卡已處理或不存在";
+"voice.primaryLanguage" = "主語言";
+"voice.primaryLanguageHint" = "首位為主語言（辨識所用語言）；點選已選語言可設為主語言。";
+"voice.recognizedAsFmt" = "辨識語言：%@";
+"voice.bestEffortActive" = "盡力辨識：所選方言無裝置端模型，依主語言辨識並注入方言詞表";
 "field.measured_at" = "日期";
 "field.raw_label" = "項目";
 "field.value" = "結果";

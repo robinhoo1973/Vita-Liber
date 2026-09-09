@@ -136,11 +136,19 @@ public enum SettingsRules {
     /// 诊断/恢复通道看不到该键）。
     public static var lastSelectedMetricKey: String { "metric.lastSelected" }
 
-    /// FR14.7/FR17.15 语音输入首选 locale：单一选择 = 该语言；多选 = 取第一个
-    /// （引擎内再按能力回落）。解析规则与设置页存储格式同源（逗号分隔）。
+    /// FR17.15（V3.61）：语音输入语言列表——**存储顺序即优先级**（首位 = 主语言，
+    /// 设置页保序写入，不再字母序），去重、去空；空存储回落默认。
+    public static func voiceLocales(_ stored: String?) -> [String] {
+        var seen = Set<String>()
+        let parsed = (stored ?? "").split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
+        return parsed.isEmpty ? [AppSettingKey.voiceInputLanguages.defaultValue] : parsed
+    }
+
+    /// FR14.7/FR17.15 语音输入主语言 = 列表首位（引擎内再按能力回落）。
     public static func preferredVoiceLocale(_ stored: String?) -> String? {
-        (stored ?? AppSettingKey.voiceInputLanguages.defaultValue)
-            .split(separator: ",").first.map(String.init)
+        voiceLocales(stored).first
     }
     /// 未设置 → 默认值（读路径语义；存储层只存非默认覆盖）
     public static func resolved(_ stored: String?, key: AppSettingKey) -> String {

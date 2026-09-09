@@ -25,6 +25,7 @@ struct VoiceQuickLaunchView: View {
     @Environment(AppRouter.self) private var router
     @Environment(VoiceNoteState.self) private var voiceNoteState
     @Environment(AppSettingsStore.self) private var settings
+    @Environment(M2HubStore.self) private var hub
     @Environment(\.dismiss) private var dismiss
 
     @State private var confirmSet: OcrConfirmationSet?
@@ -64,6 +65,19 @@ struct VoiceQuickLaunchView: View {
                     // BR-012 前置在模型内统一执行（onEmergency 装配见
                     // ensureModel：命中即收起全屏跳急救卡，不被本面板盖住）
                     PressToTalkMicButton(model: model)
+                    // FR17.15 能力诚实（V3.61）：回显实际识别语言；方言回落主语言时标「尽力识别」
+                    if let resolved = model.resolvedLocale {
+                        HStack(spacing: 6) {
+                            Text(L10n.voiceRecognizedAs(resolved))
+                            if model.isBestEffortFallback {
+                                Text(L10n.voiceLangBestEffort)
+                                    .padding(.horizontal, 6).padding(.vertical, 2)
+                                    .background(Capsule().fill(Color(.systemGray5)))
+                            }
+                        }
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("SP-55.panel.resolvedLocale")
+                    }
                 }
                 // 转写文本显示区（1.2）：实时追加、点击直接编辑
                 TextEditor(text: $accumulatedText)
@@ -132,7 +146,7 @@ struct VoiceQuickLaunchView: View {
             }
             // 引擎在环境就绪后装配（同 VoiceDictationButton 纪律：语言值变化
             // 即重建，面板内改语言返回后 preferredLocale 即时生效）
-            .task(id: settings.values[.voiceInputLanguages]) { ensureModel() }
+            .task(id: "\(settings.values[.voiceInputLanguages] ?? "")|\(settings.values[.voiceMixedInput] ?? "")") { ensureModel() }
             // 分段版本一致性（FR17.9 V3.55）：手工编辑必须递增代次、失效
             // 在途理解结果——此前编辑不递增，慢理解结果按旧文本覆盖用户
             // 刚改过的判定/草稿（gen 守卫只防重录/改类，不防编辑）
@@ -198,29 +212,21 @@ struct VoiceQuickLaunchView: View {
     /// 捕获最新 @State 的新闭包，模型持有的旧闭包会使确认/分发按旧状态
     /// 执行；BR-012 前置在模型内统一执行（命中即收起全屏跳急救卡）
     private func ensureModel() {
-        let preferred = SettingsRules.preferredVoiceLocale(settings.values[.voiceInputLanguages])
-        if let m = model {
-            // VoiceQuickLaunchView 为 struct：值语义捕获 self 即可（@State 经
-            // 属性包装器存储引用共享），weak 仅适用于 class——L1 34300325273 族
-            m.onTranscript = { text, confidence in
-                self.appendSegment(text, confidence: confidence)
-            }
-            m.onEmergency = { _ in
-                self.dismiss()
-                self.router.navigate(to: .emergencyCardConfig)
-            }
-            m.preferredLocale = preferred
-        } else {
-            let m = VoiceDictationModel(engine: app.transcriptionEngine, preferredLocale: preferred)
-            m.onTranscript = { text, confidence in
-                self.appendSegment(text, confidence: confidence)
-            }
-            m.onEmergency = { _ in
-                self.dismiss()
-                self.router.navigate(to: .emergencyCardConfig)
-            }
-            model = m
+        // VoiceQuickLaunchView 为 struct：值语义捕获 self 即可（@State 经
+        // 属性包装器存储引用共享），weak 仅适用于 class——L1 34300325273 族
+        let m = model ?? VoiceDictationModel(engine: app.transcriptionEngine)
+        m.onTranscript = { text, confidence in
+            self.appendSegment(text, confidence: confidence)
         }
+        m.onEmergency = { _ in
+            self.dismiss()
+            self.router.navigate(to: .emergencyCardConfig)
+        }
+        // FR17.15 V3.61：主语言 = 保序首位；混说开关真消费（词表注入 contextualStrings）
+        m.applyLanguageSettings(storedLocales: settings.values[.voiceInputLanguages],
+                                mixedInput: settings.values[.voiceMixedInput] != "false",
+                                recentDrugNames: hub.inventoryItems.map(\.medicationName))
+        if model == nil { model = m }
     }
 
     /// 续录追加：编辑区是唯一事实源——此前 segments 重连会覆盖用户的全部
