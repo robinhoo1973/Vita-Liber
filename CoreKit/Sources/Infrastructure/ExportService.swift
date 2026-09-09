@@ -33,6 +33,8 @@ public actor ExportService {
         public var allergies: [AllergyExport]
         public var encounters: [EncounterExport]
         public var metrics: [MetricExport]
+        /// FR13.5/F16: frozen event history; absent in older envelopes.
+        public var alertEvents: [AlertEventExport]?
         public var immunizations: [ImmunizationExport]
         public var voiceNotes: [VoiceNoteExport]
         public var healthProblems: [HealthProblemExport]
@@ -43,7 +45,7 @@ public actor ExportService {
             (owner != nil ? 1 : 0) + (selfProfile != nil ? 1 : 0) + (members?.count ?? 0)
             + consentRecords.count + (documents?.count ?? timeline.count) + plans.count + appointments.count
             + observations.count + allergies.count + encounters.count + metrics.count
-            + immunizations.count + voiceNotes.count + healthProblems.count
+            + (alertEvents?.count ?? 0) + immunizations.count + voiceNotes.count + healthProblems.count
         }
 
         /// document_file 直列导出（第四轮全仓审查修复：FR13.2 备份/恢复
@@ -166,6 +168,37 @@ public actor ExportService {
             public var measuredAt: Date
             public var excluded: Bool
             public var sourceRef: String?
+            /// FR13.5/FR7.9: preserve stored meaning without making old envelopes unreadable.
+            public var secondaryValue: Double?
+            public var selfMeasured: Bool?
+            public var refLow: Double?
+            public var refHigh: Double?
+            public var refSourceLabel: String?
+            public var rawLabel: String?
+            /// The referenced terminology catalog is not included in Envelope.
+            /// Missing target concepts reject restoration atomically, never erase the code.
+            public var codeConceptId: String?
+            public var valueMin: Double?
+            public var valueMax: Double?
+            public var sampleCount: Int?
+            public var sourceName: String?
+            public var sourceVersion: String?
+            public var sourceProduct: String?
+            public var sourceIdentifier: String?
+            public var aggregationKind: String?
+            public var windowEnd: Date?
+            public var createdAt: Date?
+        }
+        public struct AlertEventExport: Sendable, Codable, Equatable {
+            public var id: UUID
+            public var patientId: UUID?
+            public var ruleId: String
+            public var severity: String
+            public var evidenceJson: String
+            public var deliveredState: String
+            public var createdAt: Date
+            public var qualified: Bool?
+            public var scheduledAt: Date?
         }
         public struct ImmunizationExport: Sendable, Codable, Equatable {
             public var id: UUID
@@ -216,6 +249,7 @@ public actor ExportService {
             self.allergies = []
             self.encounters = []
             self.metrics = []
+            self.alertEvents = nil
             self.immunizations = []
             self.voiceNotes = []
             self.healthProblems = []
@@ -373,7 +407,36 @@ public actor ExportService {
                     origin: row["origin"] as String,
                     measuredAt: Date(timeIntervalSince1970: row["measured_at"] as Double),
                     excluded: (row["excluded"] as Int?) == 1,
-                    sourceRef: row["source_ref"] as String?)
+                    sourceRef: row["source_ref"] as String?,
+                    secondaryValue: row["secondary_value"] as Double?,
+                    selfMeasured: (row["self_measured"] as Int) == 1,
+                    refLow: row["ref_low"] as Double?,
+                    refHigh: row["ref_high"] as Double?,
+                    refSourceLabel: row["ref_source_label"] as String?,
+                    rawLabel: row["raw_label"] as String?,
+                    codeConceptId: row["code_concept_id"] as String?,
+                    valueMin: row["value_min"] as Double?,
+                    valueMax: row["value_max"] as Double?,
+                    sampleCount: row["sample_count"] as Int?,
+                    sourceName: row["source_name"] as String?,
+                    sourceVersion: row["source_version"] as String?,
+                    sourceProduct: row["source_product"] as String?,
+                    sourceIdentifier: row["source_identifier"] as String?,
+                    aggregationKind: row["aggregation_kind"] as String?,
+                    windowEnd: (row["window_end"] as Double?).map(Date.init(timeIntervalSince1970:)),
+                    createdAt: Date(timeIntervalSince1970: row["created_at"] as Double))
+            }
+            let alertEvents = try Row.fetchAll(db, sql: "SELECT * FROM alert_event ORDER BY created_at, id").map { row in
+                Envelope.AlertEventExport(
+                    id: UUID(uuidString: row["id"] as String) ?? UUID(),
+                    patientId: (row["patient_id"] as String?).flatMap(UUID.init(uuidString:)),
+                    ruleId: row["rule_id"] as String,
+                    severity: row["severity"] as String,
+                    evidenceJson: row["evidence_json"] as String,
+                    deliveredState: row["delivered_state"] as String,
+                    createdAt: Date(timeIntervalSince1970: row["created_at"] as Double),
+                    qualified: (row["qualified"] as Int) == 1,
+                    scheduledAt: (row["scheduled_at"] as Double?).map(Date.init(timeIntervalSince1970:)))
             }
             let immunizations = try Row.fetchAll(db, sql: "SELECT * FROM immunization").map { row in
                 Envelope.ImmunizationExport(
@@ -422,6 +485,7 @@ public actor ExportService {
             envelope.allergies = allergies
             envelope.encounters = encounters
             envelope.metrics = metrics
+            envelope.alertEvents = alertEvents
             envelope.immunizations = immunizations
             envelope.voiceNotes = voiceNotes
             envelope.healthProblems = healthProblems
@@ -491,6 +555,7 @@ public actor ExportService {
             let allergyTitle = Dictionary(uniqueKeysWithValues: envelope.allergies.map { ($0.id.uuidString, $0.substance) })
             let encTitle = Dictionary(uniqueKeysWithValues: envelope.encounters.map { ($0.id.uuidString, $0.kind) })
             let metricTitle = Dictionary(uniqueKeysWithValues: envelope.metrics.map { ($0.id.uuidString, $0.key) })
+            let alertTitle = Dictionary(uniqueKeysWithValues: (envelope.alertEvents ?? []).map { ($0.id.uuidString, $0.ruleId) })
             let immTitle = Dictionary(uniqueKeysWithValues: envelope.immunizations.map { ($0.id.uuidString, $0.vaccineName) })
             let noteTitle = Dictionary(uniqueKeysWithValues: envelope.voiceNotes.map { ($0.id.uuidString, $0.body) })
             let problemTitle = Dictionary(uniqueKeysWithValues: envelope.healthProblems.map { ($0.id.uuidString, $0.name) })
@@ -527,6 +592,9 @@ public actor ExportService {
             try add("metric_sample", ids: envelope.metrics.map { $0.id.uuidString },
                     backupTitle: { metricTitle[$0] },
                     existingTitle: { existingTitle("metric_sample", $0, "metric_key") })
+            try add("alert_event", ids: (envelope.alertEvents ?? []).map { $0.id.uuidString },
+                    backupTitle: { alertTitle[$0] },
+                    existingTitle: { existingTitle("alert_event", $0, "rule_id") })
             try add("immunization", ids: envelope.immunizations.map { $0.id.uuidString },
                     backupTitle: { immTitle[$0] },
                     existingTitle: { existingTitle("immunization", $0, "vaccine_name") })
@@ -569,7 +637,7 @@ public actor ExportService {
             let documentIds = (envelope.documents ?? []).map { $0.id.uuidString }
                 + envelope.timeline.map { $0.id.uuidString }
 
-            // 冲突检测 + 未裁决拒绝（ADR-019）：13 张表同构——(表名, id 清单)
+            // 冲突检测 + 未裁决拒绝（ADR-019）：14 张表同构——(表名, id 清单)
             // 一行描述，单循环完成检测与裁决缺失检查（缺裁决抛 .conflict——
             // UI 必须先呈现 preview，否则「未裁决即恢复」退化为静默丢弃）。
             let conflictPairs: [(table: String, ids: [String])] = [
@@ -583,6 +651,7 @@ public actor ExportService {
                 ("allergy_event", envelope.allergies.map { $0.id.uuidString }),
                 ("encounter", envelope.encounters.map { $0.id.uuidString }),
                 ("metric_sample", envelope.metrics.map { $0.id.uuidString }),
+                ("alert_event", (envelope.alertEvents ?? []).map { $0.id.uuidString }),
                 ("immunization", envelope.immunizations.map { $0.id.uuidString }),
                 ("voice_note", envelope.voiceNotes.map { $0.id.uuidString }),
                 ("health_problem", envelope.healthProblems.map { $0.id.uuidString }),
@@ -607,13 +676,14 @@ public actor ExportService {
             let allergyConflicts = conflictSets["allergy_event"] ?? []
             let encConflicts = conflictSets["encounter"] ?? []
             let metricConflicts = conflictSets["metric_sample"] ?? []
+            let alertConflicts = conflictSets["alert_event"] ?? []
             let immConflicts = conflictSets["immunization"] ?? []
             let noteConflicts = conflictSets["voice_note"] ?? []
             let problemConflicts = conflictSets["health_problem"] ?? []
 
             /// ADR-019 三路裁决的唯一形态：冲突表任一行的 keep→跳过 / adopt→执行
             /// 覆盖并跳过 / coexist→落 INSERT（新 id 已由 idMap 重写）。
-            /// 全部 11 张实体表共用（错误曾以 3 种手写姿态出现，审计要读 4 个版本）。
+            /// 全部 12 张实体表共用（错误曾以 3 种手写姿态出现，审计要读 4 个版本）。
             func adoptOrSkip(_ conflicts: Set<String>, _ id: UUID,
                              adopt: () throws -> Void) throws -> Bool {
                 guard conflicts.contains(id.uuidString) else { return false }
@@ -725,7 +795,10 @@ public actor ExportService {
                                                (remap(profile.id) ?? profile.id).uuidString])
                 }
             }
-            profileId = remap(envelope.owner?.selfPatientId) ?? profileId
+            // 二轮复审 P2：无 owner 的旧包以 selfProfile 为本人回落——coexist 时本人档案
+            // 已按新 id 落库，回落链必须同样经 remap，否则 patient_id 为空的旧指标行
+            // 被挂到本机既有（另一个人的）档案上。
+            profileId = remap(envelope.owner?.selfPatientId ?? envelope.selfProfile?.id) ?? profileId
             for c in envelope.consentRecords {
                 if try adoptOrSkip(consentConflicts, c.id, adopt: {
                     try db.execute(sql: """
@@ -935,19 +1008,72 @@ public actor ExportService {
                                arguments: [encId?.uuidString, docId])
             }
             for m in envelope.metrics {
+                let selfMeasured = (m.selfMeasured ?? (m.origin != "hospital")) ? 1 : 0
+                let createdAt = (m.createdAt ?? m.measuredAt).timeIntervalSince1970
                 if try adoptOrSkip(metricConflicts, m.id, adopt: {
                     try db.execute(sql: """
-                        UPDATE metric_sample SET patient_id = ?, metric_key = ?, value = ?, unit = ?, origin = ?, measured_at = ?, excluded = ?, source_ref = ?
+                        UPDATE metric_sample SET patient_id = ?, metric_key = ?, value = ?, secondary_value = ?,
+                          unit = ?, origin = ?, self_measured = ?, excluded = ?, source_ref = ?,
+                          ref_low = ?, ref_high = ?, ref_source_label = ?, raw_label = ?, code_concept_id = ?,
+                          value_min = ?, value_max = ?, sample_count = ?, source_name = ?, source_version = ?,
+                          source_product = ?, source_identifier = ?, aggregation_kind = ?, window_end = ?,
+                          measured_at = ?, created_at = ?
                         WHERE id = ?
-                        """, arguments: [(remap(m.patientId) ?? m.patientId)?.uuidString ?? "", m.key, m.value, m.unit, m.origin,
-                                         m.measuredAt.timeIntervalSince1970, m.excluded ? 1 : 0, m.sourceRef, m.id.uuidString])
+                        """, arguments: [patientID(m.patientId), m.key, m.value, m.secondaryValue,
+                                         m.unit, m.origin, selfMeasured, m.excluded ? 1 : 0, m.sourceRef,
+                                         m.refLow, m.refHigh, m.refSourceLabel, m.rawLabel, m.codeConceptId,
+                                         m.valueMin, m.valueMax, m.sampleCount, m.sourceName, m.sourceVersion,
+                                         m.sourceProduct, m.sourceIdentifier, m.aggregationKind,
+                                         m.windowEnd?.timeIntervalSince1970, m.measuredAt.timeIntervalSince1970,
+                                         createdAt, m.id.uuidString])
                 }) { continue }
                 try db.execute(sql: """
-                    INSERT INTO metric_sample (id, patient_id, metric_key, value, unit, origin, self_measured, excluded, source_ref, measured_at, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, arguments: [(remap(m.id) ?? m.id).uuidString, patientID(m.patientId), m.key, m.value, m.unit, m.origin,
-                                     m.origin == "hospital" ? 0 : 1, m.excluded ? 1 : 0, m.sourceRef,
-                                     m.measuredAt.timeIntervalSince1970, m.measuredAt.timeIntervalSince1970])
+                    INSERT INTO metric_sample
+                      (id, patient_id, metric_key, value, secondary_value, unit, origin, self_measured,
+                       excluded, source_ref, ref_low, ref_high, ref_source_label, raw_label, code_concept_id,
+                       value_min, value_max, sample_count, source_name, source_version, source_product,
+                       source_identifier, aggregation_kind, window_end, measured_at, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, arguments: [(remap(m.id) ?? m.id).uuidString, patientID(m.patientId), m.key, m.value,
+                                     m.secondaryValue, m.unit, m.origin, selfMeasured, m.excluded ? 1 : 0,
+                                     m.sourceRef, m.refLow, m.refHigh, m.refSourceLabel, m.rawLabel, m.codeConceptId,
+                                     m.valueMin, m.valueMax, m.sampleCount, m.sourceName, m.sourceVersion,
+                                     m.sourceProduct, m.sourceIdentifier, m.aggregationKind,
+                                     m.windowEnd?.timeIntervalSince1970, m.measuredAt.timeIntervalSince1970, createdAt])
+            }
+            func archiveRestoredAlert(_ id: UUID) throws {
+                try db.execute(sql: """
+                    INSERT INTO notification_state (item_key, kind, archived_at) VALUES (?, 'notification', ?)
+                    ON CONFLICT(item_key) DO UPDATE SET archived_at = excluded.archived_at
+                    """, arguments: ["alert-\(id.uuidString)", Date().timeIntervalSince1970])
+            }
+            for a in envelope.alertEvents ?? [] {
+                // History must not re-enter HealthKitSyncService's pending/deferred retry query.
+                // "restored" claims neither delivery nor a new scheduled_at timestamp.
+                let deliveredState = a.deliveredState == "pending" || a.deliveredState == "deferred"
+                    ? "restored" : a.deliveredState
+                if try adoptOrSkip(alertConflicts, a.id, adopt: {
+                    try db.execute(sql: """
+                        UPDATE alert_event SET patient_id = ?, rule_id = ?, severity = ?, evidence_json = ?,
+                          qualified = ?, scheduled_at = ?, delivered_state = ?, created_at = ?
+                        WHERE id = ?
+                        """, arguments: [patientID(a.patientId), a.ruleId, a.severity, a.evidenceJson,
+                                         (a.qualified ?? false) ? 1 : 0, a.scheduledAt?.timeIntervalSince1970,
+                                         deliveredState, a.createdAt.timeIntervalSince1970, a.id.uuidString])
+                    try archiveRestoredAlert(a.id)
+                }) { continue }
+                try db.execute(sql: """
+                    INSERT INTO alert_event
+                      (id, patient_id, rule_id, severity, evidence_json, qualified, scheduled_at, delivered_state, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, arguments: [(remap(a.id) ?? a.id).uuidString, patientID(a.patientId), a.ruleId,
+                                     a.severity, a.evidenceJson, (a.qualified ?? false) ? 1 : 0,
+                                     a.scheduledAt?.timeIntervalSince1970, deliveredState, a.createdAt.timeIntervalSince1970])
+                try archiveRestoredAlert(remap(a.id) ?? a.id)
+            }
+            if envelope.owner != nil || envelope.metrics.contains(where: { $0.origin == "device" }) {
+                // Restoring facts invalidates local checkpoints and in-flight binding tokens, not read permissions.
+                try db.execute(sql: "DELETE FROM hk_sample_index; DELETE FROM hk_sync_anchor; DELETE FROM hk_import_binding;")
             }
             for i in envelope.immunizations {
                 if try adoptOrSkip(immConflicts, i.id, adopt: {

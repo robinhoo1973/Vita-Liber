@@ -79,6 +79,7 @@ public enum AppRoute: Hashable, Sendable, Codable {
     // ---- F16 设备预警 ----
     case deviceConnection                // SP-29
     case alertHistory                    // SP-30
+    case alertEvidence(patientId: UUID, eventId: UUID, severity: AlertSeverity)
     case guidelineSourceDetail(UUID)     // 信源原文
 
     // ---- F18 关怀 ----
@@ -138,7 +139,7 @@ public enum MainModuleID: String, Sendable, Hashable, Codable {
         case .settingsRoot, .preferences, .notificationCenter, .auditLog,
              .privacyAuthorization, .themeSettings, .languageSettings,
              .voiceLanguageSettings, .emergencyCardConfig, .deviceConnection,
-             .alertHistory, .guidelineSourceDetail, .careModeConfig,
+              .alertHistory, .alertEvidence, .guidelineSourceDetail, .careModeConfig,
              .voiceGuideProfile, .voiceReminderDraft, .helpCenter, .feedbackReport,
              .exportWizard, .backupRestore, .paywall,
              .helpPermissionDiagnostics, .helpReminderDiagnostics, .termsAndPrivacy:

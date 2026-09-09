@@ -52,6 +52,13 @@ struct TrendChartView: View {
         }
     }
 
+    /// 同一时刻可有多条来源行（设备按来源分小时聚合，measured_at 同为窗口左边界）：
+    /// 选点按时刻命中全部并列点，每条统计都可查看（二轮复审 P2）。
+    private var selectedPoints: [TrendPoint] {
+        guard let nearest = selectedPoint else { return [] }
+        return TrendRules.sorted(series.points.filter { $0.measuredAt == nearest.measuredAt })
+    }
+
     private var xDomainStart: Date { series.points.first?.measuredAt ?? Date() }
     private var xDomainEnd: Date { series.points.last?.measuredAt ?? Date() }
 
@@ -108,7 +115,7 @@ struct TrendChartView: View {
             .chartXSelection(value: $selectedDate)
             .frame(height: 200)
             .accessibilityIdentifier("SP-13.trend.chart")
-            .accessibilityLabel(L10n.trendChartAccessibility(series.metricType.rawValue, series.points.count, series.referenceBands.count))
+            .accessibilityLabel(L10n.trendChartAccessibility(L10n.metricName(series.metricType), series.points.count, series.referenceBands.count))
 
             // 参考带图例：来源名必须可读——「各自显示」的可验证出口
             if series.referenceBands.isEmpty {
@@ -150,8 +157,9 @@ struct TrendChartView: View {
             }
             .accessibilityIdentifier("SP-13.trend.origin.legend")
 
-            // 选点气泡：值/单位/医院/参考范围/日期（ui-ux §5.37 五要素）
-            if let p = selectedPoint {
+            // 选点气泡：值/单位/医院/参考范围/日期（ui-ux §5.37 五要素）；
+            // 同时刻多来源行各出一张气泡，不只取首个并列点
+            ForEach(selectedPoints) { p in
                 TrendPointBubble(point: p, onOpenSource: onOpenSource)
             }
 
@@ -186,6 +194,17 @@ private struct TrendPointBubble: View {
                 .font(.title3).monospacedDigit()
             Text(point.measuredAt.formatted(date: .abbreviated, time: .shortened))
                 .font(.caption2).foregroundStyle(.secondary)
+            if let aggregation = point.aggregation {
+                Text(L10n.healthAggregation(aggregation)).font(.caption)
+            }
+            if let end = point.windowEnd, point.aggregation != .sample {
+                Text(L10n.healthWindowEnd(end.formatted(date: .abbreviated, time: .shortened))).font(.caption2)
+            }
+            if let source = point.sourceName { Text(source).font(.caption2) }
+            if let low = point.valueMin, let high = point.valueMax, let count = point.sampleCount {
+                Text(L10n.healthWindowStatistics(MedicalNumberFormat.quantity(low), MedicalNumberFormat.quantity(high), count))
+                    .font(.caption2)
+            }
             Text(point.origin == .device ? L10n.trendOriginDevice
                  : (point.isHollow ? L10n.trendSelfMeasured
                     : (point.refSourceLabel ?? L10n.trendOriginHospital)))
@@ -194,7 +213,7 @@ private struct TrendPointBubble: View {
                 Text(L10n.trendRefRange(MedicalNumberFormat.oneDecimal(lo), MedicalNumberFormat.oneDecimal(hi)))
                     .font(.caption2).foregroundStyle(.secondary)
             }
-            if point.sourceRef != nil, let onOpenSource {
+            if point.origin == .hospital, point.sourceRef != nil, let onOpenSource {
                 Button {
                     onOpenSource(point)
                 } label: {
@@ -221,6 +240,21 @@ private struct TrendPointRow: View {
     var onOpenSource: ((TrendPoint) -> Void)?
     var onToggleExcluded: ((TrendPoint) -> Void)?
 
+    /// 设备统计行的来源/统计类型/极值与样本数（二轮复审 P2：同小时多来源行
+    /// 只有首个并列点可经气泡查看——列表行必须自带这些事实，每条汇总都可核对）
+    private var statisticsLine: String? {
+        var parts: [String] = []
+        if let aggregation = point.aggregation, aggregation != .sample {
+            parts.append(L10n.healthAggregation(aggregation))
+        }
+        if let source = point.sourceName, point.origin == .device { parts.append(source) }
+        if let low = point.valueMin, let high = point.valueMax, let count = point.sampleCount {
+            parts.append(L10n.healthWindowStatistics(MedicalNumberFormat.quantity(low),
+                                                     MedicalNumberFormat.quantity(high), count))
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
     var body: some View {
         HStack {
             Circle()
@@ -228,8 +262,15 @@ private struct TrendPointRow: View {
                 .overlay(Circle().strokeBorder(Color("brand-primary", bundle: .main), lineWidth: 1.5))
                 .frame(width: 12, height: 12)
                 .opacity(isExcluded ? 0.4 : 1)
-            Text(point.measuredAt.formatted(date: .abbreviated, time: .shortened))
-                .font(.footnote)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(point.measuredAt.formatted(date: .abbreviated, time: .shortened))
+                    .font(.footnote)
+                if let statisticsLine {
+                    Text(statisticsLine)
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("SP-13.trend.point.statistics")
+                }
+            }
             Spacer()
             Text("\(MedicalNumberFormat.oneDecimal(point.value)) \(point.unit ?? "")")
                 .font(.footnote).monospacedDigit()
@@ -258,7 +299,7 @@ private struct TrendPointRow: View {
         .contentShape(Rectangle())
         .onTapGesture { if !isExcluded { onOpenSource?(point) } }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(L10n.trendRowAccessibility(MedicalNumberFormat.oneDecimal(point.value), point.unit ?? "", point.isHollow ? L10n.trendOriginSelfShort : (point.refSourceLabel ?? L10n.trendOriginHospitalShort), point.measuredAt.formatted(date: .abbreviated, time: .shortened)) + (isExcluded ? L10n.trendRowExcludedSuffix : ""))
+        .accessibilityLabel(L10n.trendRowAccessibility(MedicalNumberFormat.oneDecimal(point.value), point.unit ?? "", point.origin == .device ? L10n.trendOriginDevice : (point.isHollow ? L10n.trendOriginSelfShort : (point.refSourceLabel ?? L10n.trendOriginHospitalShort)), point.measuredAt.formatted(date: .abbreviated, time: .shortened)) + (isExcluded ? L10n.trendRowExcludedSuffix : ""))
         .accessibilityIdentifier(isExcluded ? "SP-13.trend.point.excluded" : "SP-13.trend.point")
     }
 }
@@ -282,6 +323,7 @@ struct TrendDetailView: View {
                            onToggleExcluded: onToggleExcluded)
         }
         .navigationTitle(L10n.trendTitle)
+        .onAppear { if series.points.isEmpty { showExcluded = true } }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {

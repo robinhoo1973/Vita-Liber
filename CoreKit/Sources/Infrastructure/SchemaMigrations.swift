@@ -342,6 +342,30 @@ public enum SchemaMigrations {
              CREATE INDEX IF NOT EXISTS idx_pending_card_patient_status ON pending_card(patient_id, status, created_at);
              CREATE INDEX IF NOT EXISTS idx_pending_card_source_doc ON pending_card(source_doc_id);
              """),
+        Step(version: 20, name: "health-import-checkpoints",
+             sql: """
+             ALTER TABLE metric_sample ADD COLUMN source_identifier TEXT;
+             ALTER TABLE metric_sample ADD COLUMN aggregation_kind TEXT;
+             ALTER TABLE metric_sample ADD COLUMN window_end REAL;
+             CREATE INDEX IF NOT EXISTS idx_metric_device_identity ON metric_sample(patient_id, source_ref) WHERE origin = 'device';
+             CREATE TABLE IF NOT EXISTS hk_import_binding (
+               singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+               id TEXT NOT NULL UNIQUE,
+               patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+               time_zone TEXT NOT NULL,
+               connected_at REAL NOT NULL);
+             CREATE TABLE IF NOT EXISTS hk_sample_index (
+               sample_id TEXT NOT NULL,
+               type_key TEXT NOT NULL,
+               patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+               source_id TEXT NOT NULL,
+               start_at REAL NOT NULL, end_at REAL NOT NULL,
+               PRIMARY KEY(sample_id, type_key, patient_id));
+             CREATE INDEX IF NOT EXISTS idx_hk_sample_window ON hk_sample_index(patient_id, type_key, start_at, end_at);
+             ALTER TABLE alert_event ADD COLUMN qualified INTEGER NOT NULL DEFAULT 0;
+             ALTER TABLE alert_event ADD COLUMN scheduled_at REAL;
+             CREATE INDEX IF NOT EXISTS idx_alert_qualified ON alert_event(patient_id, qualified, created_at);
+             """),
     ]
 
     /// 全新库建库后应落到的版本号

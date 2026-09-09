@@ -30,6 +30,10 @@ final class TrendEntryState {
     /// 路由页的 metricType 校验会把被覆写后的序列显示成「不可用」，
     /// 真数据存在却渲染空态）
     private var loadingMetricKey: String?
+    private var detailRequest = UUID()
+    private var latestRequest = UUID()
+    private(set) var detailLoading = false
+    private(set) var detailFailed = false
     init(store: TrendQueryStore, audit: (any AuditLogging)? = nil) {
         self.store = store
         self.audit = audit
@@ -43,8 +47,13 @@ final class TrendEntryState {
     private(set) var hasDeviceSamples = false
 
     func loadDetail(patientId: UUID, metricKey: String) async {
+        let request = UUID()
+        detailRequest = request
         loadingPatientId = patientId
         loadingMetricKey = metricKey
+        detailLoading = true
+        detailFailed = false
+        defer { if detailRequest == request { detailLoading = false } }
         do {
             // DST 纪律（同日 load 修复）：日历日窗口，切换日不漂移
             let range = DateInterval(start: DayArithmetic.offset(days: -365, from: Date()), end: Date())
@@ -61,15 +70,14 @@ final class TrendEntryState {
             // 不得在新指标名下继续渲染（路由页另有 metricKey 一致校验兜底）
             detailSeries = nil
             let loaded = try await store.series(for: patientId, metric: metric, range: range)
-            guard loadingPatientId == patientId, loadingMetricKey == metricKey else { return }
+            guard detailRequest == request, !Task.isCancelled else { return }
             detailSeries = loaded
-            // 空态分流的设备存在性判定（与序列同请求同守卫）
-            hasDeviceSamples = (try? await store.hasDeviceSamples(patientId: patientId)) ?? true   // try?-ok: 判定失败按「已连接」保守处理——通用空态优于误报未连接
         } catch {
             // 过期请求（已切成员/切指标）的失败不触碰当前数据；当前请求
             // 失败才清槽（空态渲染，不残留旧曲线）
-            guard loadingPatientId == patientId, loadingMetricKey == metricKey else { return }
+            guard detailRequest == request, !Task.isCancelled else { return }
             detailSeries = nil
+            detailFailed = true
         }
     }
 }
@@ -82,13 +90,17 @@ struct TrendChartRouteView: View {
     let metricKey: String
     @Environment(TrendEntryState.self) private var state
     @Environment(AppRouter.self) private var router
+    @Environment(AppDataChangeCenter.self) private var dataChange
 
     var body: some View {
         Group {
             // 审查修复：detailSeries 必须与当前 metricKey 同指标——加载
             // 在途/失败期间旧指标曲线不得顶替渲染（张冠李戴同族）
-            if let series = state.detailSeries,
-               series.metricType.rawValue == metricKey, !series.points.isEmpty {
+            if state.detailLoading {
+                ProgressView()
+            } else if let series = state.detailSeries,
+               series.metricType.rawValue == metricKey,
+               !series.points.isEmpty || !series.excludedPoints.isEmpty {
                 // FR7.4 排除/恢复软删（此前唯一接线点在已删除的死视图
                 // TrendEntryView 上，App 内不可达）
                 TrendDetailView(
@@ -96,15 +108,15 @@ struct TrendChartRouteView: View {
                     onToggleExcluded: { point in
                         Task { await state.toggleExcluded(point, patientId: patientId, metricKey: metricKey) }
                     })
-            } else if !state.hasDeviceSamples {
+            } else {
                 // SP-13 未连接空态（ui-ux §5.45 V3.53）：成员从未连接/同步
                 // 过 Apple 健康（无任何 origin='device' 读数）——分流为
                 // 「未连接」+ [去连接] 深链（SP-29），不渲染设备来源占位；
                 // 有设备数据但该指标空 → 下方通用空态
                 ContentUnavailableView {
-                    Label(L10n.trendNotConnectedHealth, systemImage: "heart.slash")
+                    Label(L10n.trendTitle, systemImage: "chart.xyaxis.line")
                 } description: {
-                    Text(L10n.trendNotConnectedHint)
+                    Text(state.detailFailed ? L10n.f16SyncFailed : L10n.healthNoReadableData)
                 } actions: {
                     Button(L10n.trendGoConnect) {
                         router.navigate(to: .deviceConnection)
@@ -112,14 +124,10 @@ struct TrendChartRouteView: View {
                     .buttonStyle(.borderedProminent)
                     .accessibilityIdentifier("SP-13.trend.connectHealth")
                 }
-                .accessibilityIdentifier("SP-13.trend.detail.notConnected")
-            } else {
-                ContentUnavailableView(L10n.trendTitle, systemImage: "chart.xyaxis.line",
-                                       description: Text(L10n.trendRangeUnavailable))
-                    .accessibilityIdentifier("SP-13.trend.detail.empty")
+                .accessibilityIdentifier("SP-13.trend.detail.empty")
             }
         }
-        .task(id: "\(patientId.uuidString)-\(metricKey)") {
+        .task(id: "\(patientId.uuidString)-\(metricKey)-\(dataChange.metricsVersion)") {
             await state.loadDetail(patientId: patientId, metricKey: metricKey)
         }
         // FR20.3 L2 场景首用须知（趋势图表页，一次性确认——此前挂在
@@ -133,12 +141,14 @@ struct TrendChartRouteView: View {
 extension TrendEntryState {
     /// 宫格最新点加载（try?-ok: 读取失败按空态渲染，不阻断总览页）
     func loadLatest(patientId: UUID) async {
+        let request = UUID()
+        latestRequest = request
         // 第六轮全仓审查修复（BR-001 残留）：与 loadDetail 同款
         // loadingPatientId 守卫——原实现无守卫，A 成员的慢查询在切换到
         // B 成员后返回并覆写 latestMetrics，A 的最新值挂在 B 名下展示
         loadingPatientId = patientId
         if let rows = try? await store.latestPerMetric(patientId: patientId) {   // try?-ok: 读取失败按空态渲染，不阻断总览页
-            guard loadingPatientId == patientId else { return }
+            guard loadingPatientId == patientId, latestRequest == request, !Task.isCancelled else { return }
             // 只保留有趋势详情页的指标（MetricType 注册表覆盖）——设备入库
             // 的 steps/sleep_total 等无详情页键不产瓷片（否则 raw 键瓷片 +
             // 点入详情被 MetricType(rawValue:) 守卫拒载，L10n 单出口被破坏）
@@ -146,7 +156,7 @@ extension TrendEntryState {
         } else {
             // 审查修复：当前请求失败时清空——否则上一成员的宫格数据
             // 在新成员名下持续渲染（BR-001）；过期请求的失败不触碰新数据
-            guard loadingPatientId == patientId else { return }
+            guard loadingPatientId == patientId, latestRequest == request, !Task.isCancelled else { return }
             latestMetrics = []
         }
     }

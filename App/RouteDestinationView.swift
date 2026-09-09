@@ -114,6 +114,8 @@ struct RouteDestinationView: View {
         // ---- F16 ----
         case .alertHistory:
             AlertHistoryView()
+        case .alertEvidence(let patient, let event, _):
+            AlertEvidenceRouteView(patientId: patient, eventId: event)
         case .deviceConnection:
             DeviceConnectionView()
 

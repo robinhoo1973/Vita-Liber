@@ -243,6 +243,64 @@ struct HealthSyncDomainTests {
 
     // MARK: - 评估/入库双流值对象（FR7.9）
 
+    @Test("Different metrics cannot jointly satisfy a sustained violation")
+    func separateMetricStreams() {
+        var samples = graded([0, 1, 2], [.L1, .L1, .L1])
+        samples[1].reading.metricKey = "blood_oxygen"
+        samples[1].reading.unit = "%"
+        #expect(AlertRuleEngine.sustainedViolations(samples).isEmpty)
+    }
+
+    @Test("An unrelated normal reading does not break a heart-rate run")
+    func unrelatedNormalReading() {
+        var normal = graded([1], [.L0])[0]
+        normal.reading.metricKey = "blood_oxygen"
+        normal.reading.unit = "%"
+        let result = AlertRuleEngine.sustainedViolations(
+            graded([0, 2, 3], [.L1, .L1, .L1]) + [normal])
+        #expect(result.count == 1)
+        #expect(result.first?.reading.metricKey == "heart_rate")
+    }
+
+    @Test("Replayed samples do not manufacture three independent readings")
+    func duplicateReadingDoesNotQualify() {
+        let sample = graded([0], [.L1])[0]
+        #expect(AlertRuleEngine.sustainedViolations([sample, sample, sample]).isEmpty)
+    }
+
+    @Test("A four-minute awake interval is not filled back into sleep")
+    func shortAwakeningIsNotSleep() {
+        let result = SleepMerge.merge([
+            SleepSample(start: date(8, 23), end: date(9, 7), stage: .unspecified),
+            SleepSample(start: date(9, 3), end: date(9, 3, 4), stage: .awake)
+        ], anchorDate: date(9, 12), calendar: calendar)
+        #expect(result.totalAsleep == 8 * 3600 - 240)
+        #expect(result.perStage[.awake] == 240)
+    }
+
+    @Test("Conflicting sleep stages have exclusive duration")
+    func conflictingStagesDoNotDoubleCount() {
+        let result = SleepMerge.merge([
+            SleepSample(start: date(8, 23), end: date(9, 0), stage: .deep,
+                        sourceName: "Watch", sourceProduct: "Watch7,1"),
+            SleepSample(start: date(8, 23), end: date(9, 0), stage: .rem,
+                        sourceName: "Phone", sourceProduct: "iPhone16,1")
+        ], anchorDate: date(9, 12), calendar: calendar)
+        #expect(result.totalAsleep == 3600)
+        #expect(result.perStage[.deep] == 3600)
+        #expect((result.perStage[.rem] ?? 0) == 0)
+    }
+
+    @Test("Historical evidence retains its original facts and advice")
+    func legacyEvidenceKeys() throws {
+        let json = Data(#"{"severity":"L3","levelTag":"L3","facts":"original fact","sourceRef":"original source","suggestedPath":"original urgent path","disclaimer":"original disclaimer"}"#.utf8)
+        let card = try JSONDecoder().decode(AlertEvidenceCard.self, from: json)
+        #expect(card.legacyFacts == "original fact")
+        #expect(card.legacySourceRef == "original source")
+        #expect(card.legacyPath == "original urgent path")
+        #expect(card.legacyDisclaimer == "original disclaimer")
+    }
+
     @Test("DeviceMetricRow 幂等键含来源形态")
     func deviceMetricRow形态() {
         let row = DeviceMetricRow(metricKey: "heart_rate", value: 80, unit: "bpm",
@@ -260,5 +318,52 @@ struct HealthSyncDomainTests {
                                    origin: .device, measuredAt: date(9, 8))
         #expect(legacy.sourceName == nil)
         #expect(legacy.sourceProduct == nil)
+    }
+
+    // MARK: - 导入窗口与样本身份（二轮复审 P2：端点小时 / 时区无关身份）
+
+    @Test("心率 series 恰在整点结束：覆盖窗口含端点小时（否则该小时聚合永不重算）")
+    func 心率端点小时进覆盖窗口() {
+        let series = HealthSampleReference(id: UUID(), kind: .heartRate, sourceID: "com.apple.health",
+                                           start: date(9, 8, 55), end: date(9, 9))
+        let windows = HealthImportWindow.covering(series, calendar: calendar)
+        #expect(windows.map(\.start) == [date(9, 8), date(9, 9)])
+    }
+
+    @Test("步数/睡眠区间恰在边界结束不进下一窗口（累计与夜窗口语义不变）")
+    func 区间样本边界不越窗() {
+        let steps = HealthSampleReference(id: UUID(), kind: .steps, sourceID: "s",
+                                          start: date(9, 23), end: date(10, 0))
+        #expect(HealthImportWindow.covering(steps, calendar: calendar).map(\.start) == [date(9, 0)])
+        let sleep = HealthSampleReference(id: UUID(), kind: .sleep, sourceID: "s",
+                                          start: date(8, 23), end: date(9, 12))
+        #expect(HealthImportWindow.covering(sleep, calendar: calendar).map(\.start) == [date(8, 12)])
+    }
+
+    @Test("离散样本身份不含日历日：时区/绑定变化后同一 UUID 仍命中同一行")
+    func 离散样本身份时区无关() {
+        let id = UUID()
+        let identity = HealthImportWindow.sampleIdentity(kind: .bloodOxygen, sampleID: id, ordinal: nil)
+        #expect(identity == "hk:bloodOxygen:\(id.uuidString)")
+        #expect(HealthImportWindow.sampleIdentity(kind: .respiratoryRate, sampleID: id, ordinal: 3)
+                == "hk:respiratoryRate:\(id.uuidString):3")
+        #expect(HealthImportWindow.sampleID(fromIdentity: identity, kind: .bloodOxygen) == id)
+        #expect(HealthImportWindow.sampleID(fromIdentity: "hk:respiratoryRate:\(id.uuidString):3",
+                                            kind: .respiratoryRate) == id)
+        #expect(HealthImportWindow.sampleID(fromIdentity: "hk:heartRate:1700000000:com.apple", kind: .heartRate) == nil)
+    }
+
+    @Test("窗口归属：离散行按 measured_at 落窗，聚合行按窗口前缀落窗")
+    func 窗口归属判定() {
+        let day = HealthImportWindow(kind: .bloodOxygen, start: date(9, 0), end: date(10, 0))
+        let inside = HealthImportWindow.sampleIdentity(kind: .bloodOxygen, sampleID: UUID(), ordinal: nil)
+        #expect(day.contains(sourceRef: inside, measuredAt: date(9, 13)))
+        #expect(!day.contains(sourceRef: inside, measuredAt: date(10, 0)))          // 半开区间
+        #expect(!day.contains(sourceRef: "hk:heartRate:x", measuredAt: date(9, 13)))  // 类型不符
+        let hour = HealthImportWindow(kind: .heartRate, start: date(9, 8), end: date(9, 9))
+        #expect(hour.contains(sourceRef: hour.prefix + "com.apple.health", measuredAt: date(9, 8)))
+        #expect(!hour.contains(sourceRef: "hk:heartRate:0:com.apple.health", measuredAt: date(9, 8)))
+        #expect(hour.identityPrefix == hour.prefix)
+        #expect(day.identityPrefix == "hk:bloodOxygen:")
     }
 }

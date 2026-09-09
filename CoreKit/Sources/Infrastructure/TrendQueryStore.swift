@@ -30,7 +30,8 @@ public actor TrendQueryStore {
             let rows = try Row.fetchAll(db, sql: """
                 SELECT id, metric_key, \(valueColumn) AS value, secondary_value, unit, origin, self_measured,
                        measured_at, excluded, source_ref, \(refProjection),
-                       raw_label, code_concept_id
+                       raw_label, code_concept_id, source_name, source_identifier,
+                       aggregation_kind, window_end, value_min, value_max, sample_count
                 FROM metric_sample
                 WHERE patient_id = ? AND metric_key = ? AND \(valueColumn) IS NOT NULL
                   AND measured_at >= ? AND measured_at <= ?
@@ -50,7 +51,12 @@ public actor TrendQueryStore {
                     refHigh: row["ref_high"] as Double?,
                     refSourceLabel: row["ref_source_label"] as String?,
                     rawLabel: row["raw_label"] as String?,
-                    codeConceptId: row["code_concept_id"] as String?)
+                    codeConceptId: row["code_concept_id"] as String?,
+                    sourceName: row["source_name"] as String?, sourceIdentifier: row["source_identifier"] as String?,
+                    aggregation: (row["aggregation_kind"] as String?).flatMap(MetricAggregation.init(rawValue:)),
+                    windowEnd: (row["window_end"] as Double?).map(Date.init(timeIntervalSince1970:)),
+                    valueMin: row["value_min"] as Double?, valueMax: row["value_max"] as Double?,
+                    sampleCount: row["sample_count"] as Int?)
             }
             let visible = TrendRules.visible(all)
             return TrendSeries(
@@ -107,59 +113,63 @@ public actor TrendQueryStore {
     /// 否则宫格出现并列第二块未本地化 raw 键瓷片、详情页拒载（K1 修复）。
     public func addDeviceSamples(patientId: UUID,
                                  rows: [DeviceMetricRow]) async throws -> Int {
-        // Swift 6 收敛：写闭包并发执行——计数为闭包局部量、随返回值传出
-        // （变异捕获 var 在 Swift 6 语言模式转硬错误，34194157030 唯一警告族）
-        return try await writer.write { db -> Int in
-            var inserted = 0
-            for row in rows {
-                // 键归一化：趋势层单一事实源 MetricType 覆盖的键统一到 rawValue；
-                // 未覆盖键（steps/sleep_total 等无趋势页指标）保持原键
-                let metricKey = MetricType(grammarKey: row.metricKey)?.rawValue ?? row.metricKey
-                let existing = try Row.fetchOne(db, sql: """
-                    SELECT id, value FROM metric_sample
-                    WHERE patient_id = ? AND metric_key = ? AND measured_at = ?
-                      AND (source_name = ? OR (source_name IS NULL AND ? IS NULL))
-                    LIMIT 1
-                    """, arguments: [patientId.uuidString, metricKey,
-                                     row.measuredAt.timeIntervalSince1970,
-                                     row.sourceName, row.sourceName])
-                if let existing {
-                    // 重放更新值域（metric_sample 无 updated_at 列——V3.86 DDL）
-                    try db.execute(sql: """
-                        UPDATE metric_sample
-                        SET value = ?, value_min = ?, value_max = ?, sample_count = ?,
-                            source_version = ?, source_product = ?
-                        WHERE id = ?
-                        """, arguments: [row.value, row.valueMin, row.valueMax, row.sampleCount,
-                                         row.sourceVersion, row.sourceProduct, existing["id"]])
-                } else {
-                    try db.execute(sql: """
-                        INSERT INTO metric_sample
-                          (id, patient_id, metric_key, value, secondary_value, unit, origin,
-                           self_measured, excluded, value_min, value_max, sample_count,
-                           source_name, source_version, source_product, measured_at, created_at)
-                        VALUES (?, ?, ?, ?, NULL, ?, 'device', 1, 0, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, arguments: [UUID().uuidString, patientId.uuidString, metricKey,
-                                         row.value, row.unit, row.valueMin, row.valueMax,
-                                         row.sampleCount, row.sourceName, row.sourceVersion,
-                                         row.sourceProduct, row.measuredAt.timeIntervalSince1970,
-                                         Date().timeIntervalSince1970])
-                    inserted += 1
-                }
-                // 同窗旧来源行清理：同一 (metric_key, measured_at) 只保留最新
-                // 聚合行（来源占多翻转/重放时旧 partial 行删除，手输行 origin
-                // 非 device 不受影响）
-                try db.execute(sql: """
-                    DELETE FROM metric_sample
-                    WHERE patient_id = ? AND metric_key = ? AND measured_at = ?
-                      AND origin = 'device'
-                      AND NOT (source_name IS ? OR (source_name IS NULL AND ? IS NULL))
-                    """, arguments: [patientId.uuidString, metricKey,
-                                     row.measuredAt.timeIntervalSince1970,
-                                     row.sourceName, row.sourceName])
-            }
-            return inserted
+        try await writer.write { db in
+            try Self.upsertDeviceRows(rows, patientId: patientId, db: db)
         }
+    }
+
+    /// Shared by manual refresh and the atomic HealthKit checkpoint transaction.
+    static func upsertDeviceRows(_ rows: [DeviceMetricRow], patientId: UUID, db: Database) throws -> Int {
+        var changed = 0
+        for row in rows {
+            guard row.value.isFinite else { throw HealthImportStore.ImportError.invalidValue }
+            let key = MetricType(grammarKey: row.metricKey)?.rawValue ?? row.metricKey
+            var existingID: String?
+            if let identity = row.sourceRef {
+                existingID = try String.fetchOne(db, sql: """
+                    SELECT id FROM metric_sample WHERE patient_id = ? AND origin = 'device'
+                      AND source_ref = ? LIMIT 1
+                    """, arguments: [patientId.uuidString, identity])
+            }
+            if existingID == nil {
+                existingID = try String.fetchOne(db, sql: """
+                    SELECT id FROM metric_sample WHERE patient_id = ? AND origin = 'device'
+                      AND metric_key = ? AND measured_at = ? AND unit = ?
+                      AND source_name IS ? AND source_ref IS NULL LIMIT 1
+                    """, arguments: [patientId.uuidString, key, row.measuredAt.timeIntervalSince1970,
+                                     row.unit, row.sourceName])
+            }
+            if let existingID {
+                try db.execute(sql: """
+                    UPDATE metric_sample SET value = ?, unit = ?, value_min = ?, value_max = ?, sample_count = ?,
+                      source_name = ?, source_version = ?, source_product = ?, source_ref = ?,
+                      source_identifier = ?, aggregation_kind = ?, window_end = ?
+                    WHERE id = ? AND (value IS NOT ? OR unit IS NOT ? OR value_min IS NOT ? OR value_max IS NOT ?
+                      OR sample_count IS NOT ? OR source_name IS NOT ? OR source_version IS NOT ?
+                      OR source_product IS NOT ? OR source_ref IS NOT ? OR source_identifier IS NOT ?
+                      OR aggregation_kind IS NOT ? OR window_end IS NOT ?)
+                    """, arguments: [row.value, row.unit, row.valueMin, row.valueMax, row.sampleCount,
+                        row.sourceName, row.sourceVersion, row.sourceProduct, row.sourceRef,
+                        row.sourceIdentifier, row.aggregation?.rawValue, row.windowEnd?.timeIntervalSince1970,
+                        existingID, row.value, row.unit, row.valueMin, row.valueMax, row.sampleCount,
+                        row.sourceName, row.sourceVersion, row.sourceProduct, row.sourceRef,
+                        row.sourceIdentifier, row.aggregation?.rawValue, row.windowEnd?.timeIntervalSince1970])
+            } else {
+                try db.execute(sql: """
+                    INSERT INTO metric_sample (id, patient_id, metric_key, value, unit, origin,
+                      self_measured, excluded, value_min, value_max, sample_count,
+                      source_name, source_version, source_product, source_ref, source_identifier,
+                      aggregation_kind, window_end, measured_at, created_at)
+                    VALUES (?, ?, ?, ?, ?, 'device', 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, arguments: [UUID().uuidString, patientId.uuidString, key, row.value, row.unit,
+                        row.valueMin, row.valueMax, row.sampleCount, row.sourceName, row.sourceVersion,
+                        row.sourceProduct, row.sourceRef, row.sourceIdentifier, row.aggregation?.rawValue,
+                        row.windowEnd?.timeIntervalSince1970, row.measuredAt.timeIntervalSince1970,
+                        Date().timeIntervalSince1970])
+            }
+            changed += db.changesCount
+        }
+        return changed
     }
 }
 
@@ -177,15 +187,20 @@ extension TrendQueryStore {
         public let unit: String?
         public let origin: String
         public let measuredAt: Date
+        public var sourceName: String?
+        public var aggregation: MetricAggregation?
+        public var windowEnd: Date?
         public var id: String { metricKey }
         public init(metricKey: String, value: Double, secondaryValue: Double? = nil,
-                    unit: String?, origin: String, measuredAt: Date) {
+                    unit: String?, origin: String, measuredAt: Date,
+                    sourceName: String? = nil, aggregation: MetricAggregation? = nil, windowEnd: Date? = nil) {
             self.metricKey = metricKey
             self.value = value
             self.secondaryValue = secondaryValue
             self.unit = unit
             self.origin = origin
             self.measuredAt = measuredAt
+            self.sourceName = sourceName; self.aggregation = aggregation; self.windowEnd = windowEnd
         }
     }
 
@@ -210,7 +225,8 @@ extension TrendQueryStore {
             // id 让指标宫格 ForEach 崩溃/重砖。改「每个 key 单行 id 子查询」，
             // 同刻并列取 rowid 最新的一条。
             let rows = try Row.fetchAll(db, sql: """
-                SELECT m.metric_key, m.value, m.secondary_value, m.unit, m.origin, m.measured_at
+                SELECT m.metric_key, m.value, m.secondary_value, m.unit, m.origin, m.measured_at,
+                       m.source_name, m.aggregation_kind, m.window_end
                 FROM metric_sample m
                 WHERE m.patient_id = ? AND m.excluded = 0
                   AND m.id = (SELECT m2.id FROM metric_sample m2
@@ -226,7 +242,10 @@ extension TrendQueryStore {
                              secondaryValue: row["secondary_value"] as Double?,
                              unit: row["unit"] as String?,
                              origin: row["origin"] as String,
-                             measuredAt: Date(timeIntervalSince1970: row["measured_at"] as Double))
+                             measuredAt: Date(timeIntervalSince1970: row["measured_at"] as Double),
+                             sourceName: row["source_name"] as String?,
+                             aggregation: (row["aggregation_kind"] as String?).flatMap(MetricAggregation.init(rawValue:)),
+                             windowEnd: (row["window_end"] as Double?).map(Date.init(timeIntervalSince1970:)))
             }
         }
     }

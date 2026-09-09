@@ -31,6 +31,7 @@ final class M2HubStore {
     private(set) var guidelineEntries: [GuidelineEntry] = []
     // F16 预警事件（FR2.1⑥ 首页观察提示摘要卡 + FR16.10 预警历史页共用）
     private(set) var alertEvents: [GuidelineStore.AlertEvent] = []
+    private(set) var qualifiedAlertEvents: [GuidelineStore.AlertEvent] = []
 
     private let meds: MedicationStore
     private let emergency: EmergencyCardStore
@@ -122,16 +123,26 @@ final class M2HubStore {
             fetch: {
                 async let e = guidelines.all()
                 async let h = guidelines.history(patientId: patientId)
-                return try await (e, h)
+                async let q = guidelines.history(patientId: patientId, limit: -1, qualifiedOnly: true, activeOnly: true)
+                return try await (e, h, q)
             },
             commit: { values in
                 guidelineEntries = values.0
                 alertEvents = values.1
+                qualifiedAlertEvents = values.2
             })
         _ = await (s1, s2, s3, s4, s5, s6)
     }
 
     // MARK: - 药箱
+
+    func healthHistory(patientId: UUID, includeLegacy: Bool, limit: Int) async throws -> [GuidelineStore.AlertEvent] {
+        try await guidelines.history(patientId: patientId, limit: limit, qualifiedOnly: !includeLegacy)
+    }
+
+    func healthEvent(id: UUID, patientId: UUID) async throws -> GuidelineStore.AlertEvent? {
+        try await guidelines.event(id: id, patientId: patientId)
+    }
 
     // MARK: - SP-17 批次详情/编辑
 

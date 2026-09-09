@@ -302,9 +302,14 @@ struct StandardizationTests {
             #expect(ddl.contains("CREATE TABLE \(table)"), "baseline 缺表 \(table)")
         }
         #expect(ddl.contains("raw_label TEXT, code_concept_id TEXT REFERENCES code_concept(id)"))
-        // V3.96：账本推进至 v19（pending-card，FR6.9 待办卡）——
-        // v18 health-device-source-and-anchor；v17 保持预约
-        #expect(SchemaMigrations.latestVersion == 19)
+        // V3.98：账本推进至 v20（health-import-checkpoints，FR16.1 健康导入
+        // 检查点）——v19 pending-card；v18 health-device-source-and-anchor；v17 保持预约
+        #expect(SchemaMigrations.latestVersion == 20)
+        let v20 = SchemaMigrations.steps.first { $0.version == 20 }
+        #expect(v20?.name == "health-import-checkpoints")
+        #expect(v20?.sql.contains("CREATE TABLE IF NOT EXISTS hk_import_binding") == true)
+        #expect(v20?.sql.contains("CREATE TABLE IF NOT EXISTS hk_sample_index") == true)
+        #expect(v20?.sql.contains("ALTER TABLE alert_event ADD COLUMN qualified INTEGER NOT NULL DEFAULT 0") == true)
         let v18 = SchemaMigrations.steps.first { $0.version == 18 }
         #expect(v18?.name == "health-device-source-and-anchor")
         #expect(v18?.sql.contains("ALTER TABLE metric_sample ADD COLUMN source_name") == true)

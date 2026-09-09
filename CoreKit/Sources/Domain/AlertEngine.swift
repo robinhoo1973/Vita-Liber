@@ -53,15 +53,20 @@ public struct MetricReading: Sendable, Equatable {
     public var sourceName: String?
     public var sourceVersion: String?
     public var sourceProduct: String?
+    public var sourceIdentifier: String?
+    public var sampleID: String?
     public init(metricKey: String, value: Double, unit: String, origin: MetricOrigin,
                 measuredAt: Date, reportRange: ReferenceRange? = nil,
                 sourceName: String? = nil, sourceVersion: String? = nil,
-                sourceProduct: String? = nil) {
+                 sourceProduct: String? = nil, sourceIdentifier: String? = nil,
+                 sampleID: String? = nil) {
         self.metricKey = metricKey; self.value = value; self.unit = unit
         self.origin = origin; self.measuredAt = measuredAt; self.reportRange = reportRange
         self.sourceName = sourceName
         self.sourceVersion = sourceVersion
         self.sourceProduct = sourceProduct
+        self.sourceIdentifier = sourceIdentifier
+        self.sampleID = sampleID
     }
 }
 
@@ -81,10 +86,16 @@ public struct DeviceMetricRow: Sendable, Equatable {
     public var sourceProduct: String?
     /// 窗口左边界（epoch；睡眠=夜锚日期）
     public var measuredAt: Date
+    public var sourceRef: String?
+    public var sourceIdentifier: String?
+    public var aggregation: MetricAggregation?
+    public var windowEnd: Date?
     public init(metricKey: String, value: Double, unit: String,
                 valueMin: Double? = nil, valueMax: Double? = nil, sampleCount: Int? = nil,
                 sourceName: String? = nil, sourceVersion: String? = nil,
-                sourceProduct: String? = nil, measuredAt: Date) {
+                 sourceProduct: String? = nil, measuredAt: Date,
+                 sourceRef: String? = nil, sourceIdentifier: String? = nil,
+                 aggregation: MetricAggregation? = nil, windowEnd: Date? = nil) {
         self.metricKey = metricKey
         self.value = value
         self.unit = unit
@@ -95,6 +106,8 @@ public struct DeviceMetricRow: Sendable, Equatable {
         self.sourceVersion = sourceVersion
         self.sourceProduct = sourceProduct
         self.measuredAt = measuredAt
+        self.sourceRef = sourceRef; self.sourceIdentifier = sourceIdentifier
+        self.aggregation = aggregation; self.windowEnd = windowEnd
     }
 }
 
@@ -122,6 +135,12 @@ public struct AlertEvidenceCard: Sendable, Equatable, Codable {
     public var sourceYear: Int?
     public var sourceClause: String?
     public var path: EvidencePath?
+    public var guidelineID: UUID?
+    public var guidelineVersion: String?
+    public var citationURL: String?
+    public var sourceIdentifier: String?
+    public var sampleID: String?
+    public var episodeStart: Date?
     /// 旧行兼容：历史 evidence JSON 按旧字段直出展示（decodeIfPresent，
     /// 不重排不丢数据）。
     public var legacyFacts: String?
@@ -145,6 +164,66 @@ public struct AlertEvidenceCard: Sendable, Equatable, Codable {
         self.path = path
         self.legacyFacts = legacyFacts; self.legacySourceRef = legacySourceRef
         self.legacyPath = legacyPath; self.legacyDisclaimer = legacyDisclaimer
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case severity, levelTag, metricKey, value, unit, origin, measuredAt
+        case sourceTitle, sourceOrg, sourceYear, sourceClause, path
+        case guidelineID, guidelineVersion, citationURL, sourceIdentifier, sampleID, episodeStart
+        case legacyFacts, legacySourceRef, legacyPath, legacyDisclaimer
+        case facts, sourceRef, suggestedPath, disclaimer
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(severity: try c.decode(AlertSeverity.self, forKey: .severity),
+            levelTag: try c.decodeIfPresent(String.self, forKey: .levelTag),
+            metricKey: try c.decodeIfPresent(String.self, forKey: .metricKey),
+            value: try c.decodeIfPresent(Double.self, forKey: .value),
+            unit: try c.decodeIfPresent(String.self, forKey: .unit),
+            origin: try c.decodeIfPresent(String.self, forKey: .origin),
+            measuredAt: try c.decodeIfPresent(Date.self, forKey: .measuredAt),
+            sourceTitle: try c.decodeIfPresent(String.self, forKey: .sourceTitle),
+            sourceOrg: try c.decodeIfPresent(String.self, forKey: .sourceOrg),
+            sourceYear: try c.decodeIfPresent(Int.self, forKey: .sourceYear),
+            sourceClause: try c.decodeIfPresent(String.self, forKey: .sourceClause),
+            path: try c.decodeIfPresent(EvidencePath.self, forKey: .path),
+            legacyFacts: try c.decodeIfPresent(String.self, forKey: .legacyFacts) ?? c.decodeIfPresent(String.self, forKey: .facts),
+            legacySourceRef: try c.decodeIfPresent(String.self, forKey: .legacySourceRef) ?? c.decodeIfPresent(String.self, forKey: .sourceRef),
+            legacyPath: try c.decodeIfPresent(String.self, forKey: .legacyPath) ?? c.decodeIfPresent(String.self, forKey: .suggestedPath),
+            legacyDisclaimer: try c.decodeIfPresent(String.self, forKey: .legacyDisclaimer) ?? c.decodeIfPresent(String.self, forKey: .disclaimer))
+        guidelineID = try c.decodeIfPresent(UUID.self, forKey: .guidelineID)
+        guidelineVersion = try c.decodeIfPresent(String.self, forKey: .guidelineVersion)
+        citationURL = try c.decodeIfPresent(String.self, forKey: .citationURL)
+        sourceIdentifier = try c.decodeIfPresent(String.self, forKey: .sourceIdentifier)
+        sampleID = try c.decodeIfPresent(String.self, forKey: .sampleID)
+        episodeStart = try c.decodeIfPresent(Date.self, forKey: .episodeStart)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(severity, forKey: .severity)
+        try c.encode(levelTag, forKey: .levelTag)
+        try c.encodeIfPresent(metricKey, forKey: .metricKey)
+        try c.encodeIfPresent(value, forKey: .value)
+        try c.encodeIfPresent(unit, forKey: .unit)
+        try c.encodeIfPresent(origin, forKey: .origin)
+        try c.encodeIfPresent(measuredAt, forKey: .measuredAt)
+        try c.encodeIfPresent(sourceTitle, forKey: .sourceTitle)
+        try c.encodeIfPresent(sourceOrg, forKey: .sourceOrg)
+        try c.encodeIfPresent(sourceYear, forKey: .sourceYear)
+        try c.encodeIfPresent(sourceClause, forKey: .sourceClause)
+        try c.encodeIfPresent(path, forKey: .path)
+        try c.encodeIfPresent(guidelineID, forKey: .guidelineID)
+        try c.encodeIfPresent(guidelineVersion, forKey: .guidelineVersion)
+        try c.encodeIfPresent(citationURL, forKey: .citationURL)
+        try c.encodeIfPresent(sourceIdentifier, forKey: .sourceIdentifier)
+        try c.encodeIfPresent(sampleID, forKey: .sampleID)
+        try c.encodeIfPresent(episodeStart, forKey: .episodeStart)
+        try c.encodeIfPresent(legacyFacts, forKey: .legacyFacts)
+        try c.encodeIfPresent(legacySourceRef, forKey: .legacySourceRef)
+        try c.encodeIfPresent(legacyPath, forKey: .legacyPath)
+        try c.encodeIfPresent(legacyDisclaimer, forKey: .legacyDisclaimer)
     }
 }
 
@@ -231,6 +310,7 @@ public enum AlertRuleEngine {
         public var reading: MetricReading
         /// nil = 范围不可用（拒绝定级）；.L0 = 未越限
         public var severity: AlertSeverity?
+        public var episodeStart: Date?
         public init(reading: MetricReading, severity: AlertSeverity?) {
             self.reading = reading
             self.severity = severity
@@ -246,19 +326,30 @@ public enum AlertRuleEngine {
     /// 读数，measuredAt 即 alert_event 幂等键（跨同步稳定）。
     public static func sustainedViolations(_ series: [GradedReading],
                                            sustainedWindow: TimeInterval = 10 * 60) -> [GradedReading] {
-        let sorted = series.sorted { $0.reading.measuredAt < $1.reading.measuredAt }
-        var violations: [GradedReading] = []
-        var run: [GradedReading] = []
-        for graded in sorted {
-            if let severity = graded.severity, severity != .L0 {
-                run.append(graded)
-            } else {
-                violations.append(contentsOf: anchors(of: run, sustainedWindow: sustainedWindow))
-                run = []
-            }
+        let streams = Dictionary(grouping: series) { item in
+            let r = item.reading
+            return [r.metricKey, unitAlias(r.unit.lowercased()), r.origin.rawValue,
+                    r.sourceIdentifier ?? r.sourceName ?? ""].joined(separator: "|")
         }
-        violations.append(contentsOf: anchors(of: run, sustainedWindow: sustainedWindow))
-        return violations
+        var violations: [GradedReading] = []
+        for stream in streams.values {
+            let sorted = stream.sorted { $0.reading.measuredAt < $1.reading.measuredAt }
+            var seen = Set<String>()
+            var run: [GradedReading] = []
+            for graded in sorted {
+                let identity = graded.reading.sampleID
+                    ?? "\(graded.reading.measuredAt.timeIntervalSince1970)|\(graded.reading.value)"
+                guard seen.insert(identity).inserted else { continue }
+                if let severity = graded.severity, severity != .L0 {
+                    run.append(graded)
+                } else {
+                    violations.append(contentsOf: anchors(of: run, sustainedWindow: sustainedWindow))
+                    run = []
+                }
+            }
+            violations.append(contentsOf: anchors(of: run, sustainedWindow: sustainedWindow))
+        }
+        return violations.sorted { $0.reading.measuredAt < $1.reading.measuredAt }
     }
 
     /// 单个 run → 是否合格 → 锚定读数（run 内定级最高、同级取最晚）。
@@ -267,12 +358,13 @@ public enum AlertRuleEngine {
         guard let first = run.first, let last = run.last else { return [] }
         let duration = last.reading.measuredAt.timeIntervalSince(first.reading.measuredAt)
         guard run.count >= consecutiveThreshold || duration >= sustainedWindow else { return [] }
-        guard let anchor = run.max(by: { lhs, rhs in
+        guard var anchor = run.max(by: { lhs, rhs in
             let li = AlertSeverity.allCases.firstIndex(of: lhs.severity ?? .L0) ?? 0
             let ri = AlertSeverity.allCases.firstIndex(of: rhs.severity ?? .L0) ?? 0
             if li != ri { return li < ri }
             return lhs.reading.measuredAt < rhs.reading.measuredAt
         }) else { return [] }
+        anchor.episodeStart = first.reading.measuredAt
         return [anchor]
     }
 
@@ -304,7 +396,7 @@ public enum AlertRuleEngine {
         // V3.68：结构化输出——事实/信源/建议路径均为类型化数据，
         // 中文句式由视图层经 L10n 组装（§11 Domain 文案硬编码清偿）。
         // 免责为固定语义（无文案）：视图层渲染 L10n 固定免责键。
-        return AlertEvidenceCard(
+        var card = AlertEvidenceCard(
             severity: severity,
             metricKey: reading.metricKey,
             value: reading.value,
@@ -316,5 +408,11 @@ public enum AlertRuleEngine {
             sourceYear: guideline?.year,
             sourceClause: guideline?.clauseRef,
             path: path)
+        card.guidelineID = guideline?.id
+        card.guidelineVersion = guideline?.version
+        card.citationURL = guideline?.citationUrl
+        card.sourceIdentifier = reading.sourceIdentifier ?? reading.sourceName
+        card.sampleID = reading.sampleID
+        return card
     }
 }

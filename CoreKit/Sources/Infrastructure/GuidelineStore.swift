@@ -1,201 +1,178 @@
-// 平台守卫镜像 Package.swift（ERR#8 纪律）：GRDB 仅 iOS/macOS 链接。
 #if os(iOS) || os(macOS)
 import Foundation
 import GRDB
 import Domain
 
-/// F16 信源库 + 预警事件仓储（actor）。
-///
-/// - 信源：内置信源种子（`GuidelineSource.bundledSeeds`）幂等入库，随后以库为准；
-///   报告自带参考范围是 A 级、不经过本库（数据层在 metric_sample 的
-///   ref_low/ref_high 列）——A>B 优先级由 `AlertRuleEngine`/`TrendRules` 执行。
-/// - 预警：`alert_event` 只存**已发生的事实**（读数 + 定级 + 证据卡 JSON），
-///   文案在呈现时由 Domain 的 evidenceCard 组装——**零生成式解读**（ADR-010）。
+/// Historical evaluations and qualified reminders have distinct read contracts.
 public actor GuidelineStore {
     private let writer: any DatabaseWriter
-
     public init(writer: any DatabaseWriter) { self.writer = writer }
 
-    // MARK: - 信源
-
-    /// 幂等种子：存在即不重复插入（按 id 冲突忽略）。
-    /// 全新库经此调用获得离线信源；已入库条目不被覆盖——覆盖意味着静默改写
-    /// 已评审的阈值，FR16.4 禁止。
     @discardableResult
     public func seedBundled() async throws -> Int {
         try await writer.write { db in
             var inserted = 0
             for entry in GuidelineSource.bundledSeeds {
-                let thresholds = GuidelineSource.Thresholds.from(entry)
-                let jsonData: Data
-                do { jsonData = try JSONEncoder().encode(thresholds) }
-                catch { continue }   // 编码失败跳过该条（§7：错误不静默吞，逐条跳过是显式语义）
-                guard let json = String(data: jsonData, encoding: .utf8) else { continue }
+                let json = String(decoding: try JSONEncoder().encode(GuidelineSource.Thresholds.from(entry)), as: UTF8.self)
                 try db.execute(sql: """
                     INSERT INTO guideline_source
-                      (id, title, org, year, clause_ref, citation_url, version,
-                       checked_at, thresholds_json, metric_key, unit)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                      (id, title, org, year, clause_ref, citation_url, version, checked_at, thresholds_json, metric_key, unit)
+                    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (
+                      SELECT 1 FROM guideline_source WHERE metric_key = ? AND version = ?
+                        AND org = ? AND clause_ref = ?)
                     ON CONFLICT(id) DO NOTHING
-                    """, arguments: [entry.id.uuidString, entry.title, entry.org,
-                                     entry.year, entry.clauseRef, entry.citationUrl,
-                                     entry.version, entry.checkedAt.timeIntervalSince1970,
-                                     json, entry.metricKey, entry.unit])
+                    """, arguments: [entry.id.uuidString, entry.title, entry.org, entry.year, entry.clauseRef,
+                        entry.citationUrl, entry.version, entry.checkedAt.timeIntervalSince1970, json, entry.metricKey,
+                        entry.unit, entry.metricKey, entry.version, entry.org, entry.clauseRef])
                 inserted += db.changesCount
             }
             return inserted
         }
     }
 
-    /// 某指标的信源条目；库无该指标时回退内置种子（离线首次启动即有效，
-    /// 不必等一次种子写库成功）
     public func entry(for metricKey: String) async throws -> GuidelineEntry? {
-        if let stored = try await storedEntry(for: metricKey) { return stored }
-        return GuidelineSource.bundledSeeds.first { $0.metricKey == metricKey }
+        try await writer.read { db in try Self.entry(for: metricKey, db: db) }
     }
 
-    private func storedEntry(for metricKey: String) async throws -> GuidelineEntry? {
-        try await writer.read { db in
-            guard let row = try Row.fetchOne(db, sql: """
-                SELECT * FROM guideline_source
-                WHERE metric_key = ? AND retired_at IS NULL
-                LIMIT 1
-                """, arguments: [metricKey]) else { return nil }
-            return try Self.decode(row)
-        }
+    private static func entry(for key: String, db: Database) throws -> GuidelineEntry? {
+        if let row = try Row.fetchOne(db, sql: """
+            SELECT * FROM guideline_source WHERE metric_key = ? AND retired_at IS NULL
+            ORDER BY checked_at DESC, rowid ASC LIMIT 1
+            """, arguments: [key]) { return try decode(row) }
+        return GuidelineSource.bundledSeeds.first { $0.metricKey == key }
     }
 
-    /// 信源库全量（设置页「参考范围来源」展示用）
     public func all() async throws -> [GuidelineEntry] {
         try await writer.read { db in
-            let rows = try Row.fetchAll(db, sql: """
-                SELECT * FROM guideline_source WHERE retired_at IS NULL
-                ORDER BY org, year
-                """)
-            return try rows.map { try Self.decode($0) }
+            let rows = try Row.fetchAll(db, sql: "SELECT * FROM guideline_source WHERE retired_at IS NULL ORDER BY org, year, rowid")
+            var seen = Set<String>()
+            return try rows.map(Self.decode).filter {
+                seen.insert([$0.metricKey, $0.version, $0.org, $0.clauseRef].joined(separator: "|")).inserted
+            }
         }
     }
 
     private static func decode(_ row: Row) throws -> GuidelineEntry {
         let thresholds: GuidelineSource.Thresholds
         if let json = (row["thresholds_json"] as String?)?.data(using: .utf8) {
-            do { thresholds = try JSONDecoder().decode(GuidelineSource.Thresholds.self, from: json) }
-            catch { thresholds = GuidelineSource.Thresholds() }
-        } else {
-            thresholds = GuidelineSource.Thresholds()
-        }
-        return thresholds.applying(to: GuidelineEntry(
-            id: UUID(uuidString: row["id"] as String) ?? UUID(),
-            title: row["title"] as String,
-            org: row["org"] as String,
-            year: row["year"] as Int,
-            clauseRef: row["clause_ref"] as String,
-            citationUrl: row["citation_url"] as String,
-            version: row["version"] as String,
-            checkedAt: Date(timeIntervalSince1970: row["checked_at"] as Double),
-            metricKey: row["metric_key"] as String? ?? "",
-            unit: row["unit"] as String? ?? "1"))
+            thresholds = try JSONDecoder().decode(GuidelineSource.Thresholds.self, from: json)
+        } else { thresholds = GuidelineSource.Thresholds() }
+        guard let id = UUID(uuidString: row["id"] as String) else { throw StoreError.encodeFailed }
+        return thresholds.applying(to: GuidelineEntry(id: id, title: row["title"], org: row["org"], year: row["year"],
+            clauseRef: row["clause_ref"], citationUrl: row["citation_url"], version: row["version"],
+            checkedAt: Date(timeIntervalSince1970: row["checked_at"]),
+            metricKey: row["metric_key"] as String? ?? "", unit: row["unit"] as String? ?? "1"))
     }
 
-    // MARK: - 预警事件（只存事实，零生成式解读）
-
-    /// 评估一次读数并落一条预警事件（L0 也落——「观察提示摘要卡仅 L1+ 展示」
-    /// 不等于 L0 不存在，F16 历史需要完整序列）。返回定级与证据卡。
-    /// `ruleId` = 触发规则标识（调用方装配层给，审计用）。
+    /// Kept for local evaluation/history consumers. A single reading never proves sustained eligibility.
     @discardableResult
     public func evaluateAndRecord(reading: MetricReading, patientId: UUID,
                                   ruleId: String = "f16.local") async throws -> AlertEvent {
-        let guideline = try await entry(for: reading.metricKey)
-        guard let severity = AlertRuleEngine.severity(for: reading, guideline: guideline) else {
-            throw StoreError.noApplicableRange(reading.metricKey)
-        }
-        let card = AlertRuleEngine.evidenceCard(for: reading, severity: severity,
-                                                guideline: guideline)
-        let event = AlertEvent(
-            id: UUID(), patientId: patientId, ruleId: ruleId, severity: severity,
-            card: card, deliveredState: "pending", createdAt: Date())
-        let evidence: Data
-        do { evidence = try JSONEncoder().encode(card) }
-        catch { throw StoreError.encodeFailed }
-        guard let json = String(data: evidence, encoding: .utf8) else {
-            throw StoreError.encodeFailed
-        }
-        let resolved: AlertEvent = try await writer.write { db in
-            // FR16.2 同一事件去重：去重键 = 事件身份（成员+规则+读数时刻+级别），
-            // 反复同步同一读数不堆积重复行。旧实现按「成员+规则+级别+24h 窗口」
-            // 去重，把同一窗口内**不同读数**（同级别）也折叠成一条——L1 持续性
-            // 门槛的逐读数证据链被抹平（CI 34020363188 实证）。
-            // 评审修正第二轮（双补丁）：① 级别并入去重键——阈值变更后同一读数
-            // 重新评估出更高定级时，必须落新行（升级证据链，FR16.10 全部提示
-            // 可回溯），同级别重同步才去重；② 命中时返回**既有行**的 id/createdAt
-            // ——通知 id 稳定（alert-{event.id}），配合 DeviceConnectionView 的
-            // delivered 守卫实现跨重启 24h 通知去重（旧实现返回全新 id，重启后
-            // 同一读数重新弹窗）。
-            // measuredAt 在 evidence_json 内（JSONEncoder Date 编码为
-            // reference-date Double），json_extract 与入参同编码可直接比较。
-            if let existingId = try String.fetchOne(db, sql: """
-                SELECT id FROM alert_event
-                WHERE patient_id = ? AND rule_id = ? AND severity = ?
-                  AND json_extract(evidence_json, '$.measuredAt') = ?
-                LIMIT 1
-                """, arguments: [patientId.uuidString, ruleId, severity.rawValue,
-                                 reading.measuredAt.timeIntervalSinceReferenceDate]) {
-                let createdAt = (try Double.fetchOne(db, sql: """
-                    SELECT created_at FROM alert_event WHERE id = ?
-                    """, arguments: [existingId])) ?? event.createdAt.timeIntervalSince1970
-                return AlertEvent(
-                    id: UUID(uuidString: existingId) ?? event.id,
-                    patientId: patientId, ruleId: ruleId, severity: severity,
-                    card: card, deliveredState: "pending",
-                    createdAt: Date(timeIntervalSince1970: createdAt))
+        try await writer.write { db in
+            let guideline = try Self.entry(for: reading.metricKey, db: db)
+            guard let severity = AlertRuleEngine.severity(for: reading, guideline: guideline) else {
+                throw StoreError.noApplicableRange(reading.metricKey)
             }
-            try db.execute(sql: """
-                INSERT INTO alert_event
-                  (id, patient_id, rule_id, severity, evidence_json, delivered_state, created_at)
-                VALUES (?, ?, ?, ?, ?, 'pending', ?)
-                """, arguments: [event.id.uuidString, patientId.uuidString, ruleId,
-                                 severity.rawValue, json,
-                                 event.createdAt.timeIntervalSince1970])
-            return event
+            let card = AlertRuleEngine.evidenceCard(for: reading, severity: severity, guideline: guideline)
+            return try Self.save(card: card, patientId: patientId, ruleId: ruleId, qualified: false, db: db)
         }
-        return resolved
     }
 
-    /// 预警历史（L0 起全量；L1+ 单独过滤是 UI 的事）
-    public func history(patientId: UUID, since: Date? = nil, limit: Int = 200) async throws -> [AlertEvent] {
+    /// Called inside the metric/checkpoint transaction, never after its cursor has advanced.
+    static func recordQualifiedHealthReadings(_ readings: [MetricReading], patientId: UUID, db: Database) throws -> Int {
+        guard !GuidelineSource.thresholdsAwaitMedicalReview else { return 0 }
+        var entries: [String: GuidelineEntry] = [:]
+        for key in Set(readings.map(\.metricKey)) {
+            entries[key] = try entry(for: key, db: db)
+        }
+        let graded = readings.map {
+            AlertRuleEngine.GradedReading(reading: $0, severity: AlertRuleEngine.severity(for: $0, guideline: entries[$0.metricKey]))
+        }
+        var count = 0
+        for candidate in AlertRuleEngine.sustainedViolations(graded) {
+            guard let severity = candidate.severity else { continue }
+            var card = AlertRuleEngine.evidenceCard(for: candidate.reading, severity: severity,
+                                                    guideline: entries[candidate.reading.metricKey])
+            card.episodeStart = candidate.episodeStart
+            _ = try save(card: card, patientId: patientId, ruleId: "f16.healthkit", qualified: true, db: db)
+            count += db.changesCount
+        }
+        return count
+    }
+
+    private static func save(card: AlertEvidenceCard, patientId: UUID, ruleId: String,
+                             qualified: Bool, db: Database) throws -> AlertEvent {
+        let clockKey = card.episodeStart ?? card.measuredAt
+        if let row = try Row.fetchOne(db, sql: """
+            SELECT * FROM alert_event WHERE patient_id = ? AND rule_id = ? AND severity = ?
+              AND json_extract(evidence_json, '$.metricKey') IS ?
+              AND json_extract(evidence_json, '$.origin') IS ?
+              AND json_extract(evidence_json, '$.sourceIdentifier') IS ?
+              AND json_extract(evidence_json, '$.guidelineVersion') IS ?
+              AND COALESCE(json_extract(evidence_json, '$.episodeStart'), json_extract(evidence_json, '$.measuredAt')) IS ?
+            LIMIT 1
+            """, arguments: [patientId.uuidString, ruleId, card.severity.rawValue, card.metricKey,
+                card.origin, card.sourceIdentifier, card.guidelineVersion, clockKey?.timeIntervalSinceReferenceDate]) {
+            // Return the persisted evidence, not a different card carrying its UUID.
+            return try decodeEvent(row)
+        }
+        let id = UUID()
+        let now = Date()
+        let json = String(decoding: try JSONEncoder().encode(card), as: UTF8.self)
+        try db.execute(sql: """
+            INSERT INTO alert_event (id, patient_id, rule_id, severity, evidence_json, qualified, delivered_state, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
+            """, arguments: [id.uuidString, patientId.uuidString, ruleId, card.severity.rawValue, json,
+                             qualified ? 1 : 0, now.timeIntervalSince1970])
+        return AlertEvent(id: id, patientId: patientId, ruleId: ruleId, severity: card.severity,
+                          card: card, deliveredState: "pending", createdAt: now, qualified: qualified)
+    }
+
+    public func history(patientId: UUID, since: Date? = nil, limit: Int = 200,
+                        qualifiedOnly: Bool = false, pendingOnly: Bool = false,
+                        activeOnly: Bool = false) async throws -> [AlertEvent] {
         try await writer.read { db in
             let sql = """
-                SELECT * FROM alert_event
-                WHERE patient_id = ?
-                  \(since.map { _ in "AND created_at >= ?" } ?? "")
-                ORDER BY created_at DESC
-                LIMIT ?
+                SELECT * FROM alert_event WHERE patient_id = ?
+                  \(since == nil ? "" : "AND created_at >= ?")
+                  \(qualifiedOnly ? "AND qualified = 1 AND severity != 'L0'" : "")
+                  \(pendingOnly ? "AND delivered_state IN ('pending','deferred')" : "")
+                  \(activeOnly ? "AND NOT EXISTS (SELECT 1 FROM notification_state n WHERE n.item_key = 'alert-' || alert_event.id AND n.archived_at IS NOT NULL)" : "")
+                ORDER BY created_at DESC, id LIMIT ?
                 """
-            var arguments: [DatabaseValueConvertible] = [patientId.uuidString]
-            if let since { arguments.append(since.timeIntervalSince1970) }
-            arguments.append(limit)
-            let rows = try Row.fetchAll(db, sql: sql, arguments: StatementArguments(arguments))
-            var events: [AlertEvent] = []
-            for row in rows {
-                guard let json = (row["evidence_json"] as String?)?.data(using: .utf8) else { continue }
-                // 损坏的 evidence_json 跳过该行而非整体失败（历史行可容忍逐条降级；
-                // 不用 try? —— tech-spec §7 红线，逐条 do-catch 是显式语义）
-                let card: AlertEvidenceCard
-                do { card = try JSONDecoder().decode(AlertEvidenceCard.self, from: json) }
-                catch { continue }
-                events.append(AlertEvent(
-                    id: UUID(uuidString: row["id"] as String) ?? UUID(),
-                    patientId: UUID(uuidString: row["patient_id"] as String) ?? UUID(),
-                    ruleId: row["rule_id"] as String,
-                    severity: AlertSeverity(rawValue: row["severity"] as String) ?? .L0,
-                    card: card, deliveredState: row["delivered_state"] as String,
-                    createdAt: Date(timeIntervalSince1970: row["created_at"] as Double)))
-            }
-            return events
+            var args: [DatabaseValueConvertible] = [patientId.uuidString]
+            if let since { args.append(since.timeIntervalSince1970) }
+            args.append(limit)
+            return try Row.fetchAll(db, sql: sql, arguments: StatementArguments(args)).map(Self.decodeEvent)
         }
     }
 
-    /// 预警事件的查询投影
+    public func event(id: UUID, patientId: UUID) async throws -> AlertEvent? {
+        try await writer.read { db in
+            guard let row = try Row.fetchOne(db, sql: "SELECT * FROM alert_event WHERE id = ? AND patient_id = ?",
+                                            arguments: [id.uuidString, patientId.uuidString]) else { return nil }
+            return try Self.decodeEvent(row)
+        }
+    }
+
+    public func markScheduled(id: UUID, patientId: UUID, at: Date) async throws {
+        try await writer.write { db in
+            try db.execute(sql: """
+                UPDATE alert_event SET delivered_state = 'scheduled', scheduled_at = ?
+                WHERE id = ? AND patient_id = ? AND qualified = 1
+                """, arguments: [at.timeIntervalSince1970, id.uuidString, patientId.uuidString])
+        }
+    }
+
+    private static func decodeEvent(_ row: Row) throws -> AlertEvent {
+        guard let id = UUID(uuidString: row["id"]), let patient = UUID(uuidString: row["patient_id"]),
+              let severity = AlertSeverity(rawValue: row["severity"]) else { throw StoreError.encodeFailed }
+        let card = try JSONDecoder().decode(AlertEvidenceCard.self, from: Data((row["evidence_json"] as String).utf8))
+        return AlertEvent(id: id, patientId: patient, ruleId: row["rule_id"], severity: severity, card: card,
+            deliveredState: row["delivered_state"], createdAt: Date(timeIntervalSince1970: row["created_at"]),
+            qualified: (row["qualified"] as Int?) == 1)
+    }
+
     public struct AlertEvent: Sendable, Equatable, Identifiable {
         public var id: UUID
         public var patientId: UUID
@@ -204,18 +181,17 @@ public actor GuidelineStore {
         public var card: AlertEvidenceCard
         public var deliveredState: String
         public var createdAt: Date
+        public var qualified: Bool
         public init(id: UUID, patientId: UUID, ruleId: String, severity: AlertSeverity,
-                    card: AlertEvidenceCard, deliveredState: String, createdAt: Date) {
-            self.id = id; self.patientId = patientId; self.ruleId = ruleId
-            self.severity = severity; self.card = card
-            self.deliveredState = deliveredState; self.createdAt = createdAt
+                    card: AlertEvidenceCard, deliveredState: String, createdAt: Date, qualified: Bool = false) {
+            self.id = id; self.patientId = patientId; self.ruleId = ruleId; self.severity = severity
+            self.card = card; self.deliveredState = deliveredState; self.createdAt = createdAt; self.qualified = qualified
         }
     }
 
     public enum StoreError: Error, LocalizedError {
-        case noApplicableRange(String)
-        case encodeFailed
-        public var errorDescription: String? { "信源库/预警操作失败: \(self)" }
+        case noApplicableRange(String), encodeFailed
+        public var errorDescription: String? { "Guideline data could not be processed: \(self)" }
     }
 }
 #endif

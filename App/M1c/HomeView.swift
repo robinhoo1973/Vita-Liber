@@ -26,6 +26,8 @@ struct HomeView: View {
     @Environment(AppRouter.self) private var router
     @Environment(AppSettingsStore.self) private var settingsStore
     @Environment(DocumentsState.self) private var docs
+    @Environment(AppDataChangeCenter.self) private var dataChange
+    @Environment(NotificationCenterState.self) private var notificationState
     @State private var showMemberPicker = false
     @State private var showSOS = false
     @State private var showVoiceNote = false
@@ -57,7 +59,9 @@ struct HomeView: View {
                                                     memberId: app.currentPatientId)
         items += ReminderHubLoader.inventoryItems(hub.inventoryItems,
                                                   memberId: app.currentPatientId)
-        items += ReminderHubLoader.alertItems(hub.alertEvents,
+        items += ReminderHubLoader.alertItems(hub.qualifiedAlertEvents.filter {
+            notificationState.itemStates["alert-\($0.id)"] != .archived
+        },
                                               memberId: app.currentPatientId)
         items += ReminderHubLoader.ocrItems(docs.documents,
                                             memberId: app.currentPatientId)
@@ -143,7 +147,7 @@ struct HomeView: View {
                 .environment(pendingCenter)
                 .environment(app)
         }
-        .task(id: app.currentPatientId) { await load() }
+        .task(id: "\(app.currentPatientId)-\(dataChange.alertsVersion)") { await load() }
     }
 
     // MARK: - 标准布局：统一提醒聚合中心
@@ -155,7 +159,7 @@ struct HomeView: View {
         let items = ReminderAggregationCenter.filtered(snap, kind: filterKind)
         return ScrollView {
             VStack(spacing: 16) {
-                if isNewUser {
+                if isNewUser && snap.isEmpty {
                     newUserGuide
                 } else {
                     if notifDenied && !dismissNotifBanner {
@@ -334,6 +338,10 @@ struct HomeView: View {
         case "medicationCabinet": return .medicationCabinet
         case "pendingOcrQueue": return .pendingOcrQueue
         case "alertHistory": return .alertHistory
+        case "alertEvidence":
+            guard let id = UUID(uuidString: item.id.sourceId), let patient = item.patientID,
+                  let severity = item.status.flatMap(AlertSeverity.init(rawValue:)) else { return nil }
+            return .alertEvidence(patientId: patient, eventId: id, severity: severity)
         case "voiceGuideProfile": return .voiceGuideProfile
         default: return nil
         }

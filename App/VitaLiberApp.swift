@@ -162,16 +162,7 @@ struct VitaLiberApp: App {
         _aiHistoryState = State(initialValue: AIHistoryState(store: container.aiHistory, audit: container.audit))
         _exportWizardState = State(initialValue: ExportWizardState(service: container.pdfExport))
         _f16DeviceState = State(initialValue: F16DeviceState(
-            reader: container.healthReader, guidelines: container.guidelines,
-            // 第八轮全仓审查修复：L1–L3 设备预警（alert- 族）此前绕过组装根
-            // 统一调度实例。注：门对 alert- 族目前**照常放行**（无应用内
-            // 承接，§5.58 降级链不静默）——统一实例是 W4 预警横幅接线后
-            // 「预警=静音仅横幅」生效的必经前置。
-            scheduler: container.reminderScheduler,
-            // FR7.9 V3.86：评估+入库双流主路径（同步服务）+ 趋势写门 +
-            // 类型化变更信号（入库后趋势/宫格失效刷新）
             syncService: container.healthSync,
-            trends: container.trends,
             dataChange: dataChange))
         // 审查修复：BackupState 此前从未装配——SP-24 打开即
         // "No Observable object of type BackupState found" 崩溃。
@@ -192,33 +183,28 @@ struct VitaLiberApp: App {
         // 兜底路径不受影响）
         HealthKitSyncService.registerBackgroundTask()
         let bgSync = container.healthSync
-        HealthKitSyncService.backgroundSyncHandler = { [appState, appSettings, dataChange] in
-            let ready = await MainActor.run { appState.onboardingFinished && appState.owner != nil }
-            guard ready else { return false }   // 未建档：无成员归属，绝不落匿名读数（BR-001）
-            // 冷后台唤起（进程被 BGTask 直接拉起）：视图从未跑过 load()，
-            // values 为空——先载入再读开关，否则开关/安静时段静默回落默认值
-            await appSettings.load()
-            // FR14.1 双门控与前台路径同纪律：应用内 authHealthRead 开关 +
-            // 用户配置安静时段（此前后台只查系统授权且硬编码 22:00/07:00——
-            // 用户关闭健康读取后后台仍在读库入库；自定义静默窗口在后台失效）
-            let (healthAuthOn, quietStart, quietEnd, patient) = await MainActor.run {
-                (appSettings.values[.authHealthRead] != "false",
-                 SettingsRules.resolved(appSettings.values[.quietHoursStart], key: .quietHoursStart),
-                 SettingsRules.resolved(appSettings.values[.quietHoursEnd], key: .quietHoursEnd),
-                 appState.currentPatientId)
+        let healthSettings = container.settings
+        HealthKitSyncService.backgroundCancelHandler = { await bgSync.cancelSync() }
+        HealthKitSyncService.backgroundSyncHandler = { [dataChange] in
+            do {
+                guard try await bgSync.canSync() else { return false }
+                let start = try await healthSettings.value(for: .quietHoursStart)
+                let end = try await healthSettings.value(for: .quietHoursEnd)
+                let report = try await bgSync.performSync(quietStart: start, quietEnd: end)
+                await MainActor.run {
+                    if report.persistedRows > 0 { dataChange.metricsChanged() }
+                    dataChange.alertsChanged()
+                }
+                await bgSync.scheduleBackgroundRefresh()
+                return report.failedTypes.isEmpty
+            } catch {
+                await MainActor.run {
+                    dataChange.metricsChanged()
+                    dataChange.alertsChanged()
+                }
+                await bgSync.scheduleBackgroundRefresh()
+                return false
             }
-            guard healthAuthOn else { return false }
-            guard await bgSync.isAuthorized() else { return false }
-            let report = try? await bgSync.performSync(   // try?-ok: 后台同步失败静默回落——前台/手动路径兜底重查，不阻断任务完成上报
-                patientId: patient, quietStart: quietStart, quietEnd: quietEnd)
-            // 设备读数入库 → 类型化变更信号（此前仅手动同步路径触发，后台/
-            // 观察回调入库后宫格不刷新——数据流 V1.9 信号断链修复）
-            if (report?.persistedRows ?? 0) > 0 {
-                await MainActor.run { dataChange.metricsChanged() }
-            }
-            // BGAppRefreshTask 一次性：完成后必须补投，否则后台链只跑一次
-            await bgSync.scheduleBackgroundRefresh()
-            return report != nil
         }
         Task { await container.healthSync.startBackgroundObservation() }
     }

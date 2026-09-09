@@ -199,9 +199,11 @@ public enum SchemaV2 {
       -- source 三键=HKSource 元数据（幂等键含来源，手输/医院行为 NULL）
       value_min REAL, value_max REAL, sample_count INTEGER,
       source_name TEXT, source_version TEXT, source_product TEXT,
+      source_identifier TEXT, aggregation_kind TEXT, window_end REAL,
       measured_at REAL NOT NULL, created_at REAL NOT NULL);
     CREATE INDEX idx_metric_patient_time ON metric_sample(patient_id, metric_key, measured_at);
     CREATE INDEX idx_metric_source ON metric_sample(patient_id, metric_key, measured_at, source_name);
+    CREATE INDEX idx_metric_device_identity ON metric_sample(patient_id, source_ref) WHERE origin = 'device';
 
     -- F16 同步锚点（V3.86 / 迁移 v18）：HKAnchoredObjectQuery 增量兜底的持久化
     -- 落点——DB 随 .vlbu 备份往返（UserDefaults 不入备份、恢复后锚点丢失=漏读/重放）
@@ -209,6 +211,21 @@ public enum SchemaV2 {
       anchor_key TEXT PRIMARY KEY,
       anchor_value TEXT NOT NULL,
       updated_at REAL NOT NULL);
+
+    CREATE TABLE hk_import_binding (
+      singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+      id TEXT NOT NULL UNIQUE,
+      patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+      time_zone TEXT NOT NULL,
+      connected_at REAL NOT NULL);
+    CREATE TABLE hk_sample_index (
+      sample_id TEXT NOT NULL,
+      type_key TEXT NOT NULL,
+      patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+      source_id TEXT NOT NULL,
+      start_at REAL NOT NULL, end_at REAL NOT NULL,
+      PRIMARY KEY(sample_id, type_key, patient_id));
+    CREATE INDEX idx_hk_sample_window ON hk_sample_index(patient_id, type_key, start_at, end_at);
 
     -- FR6.9 待办卡（V3.96 / 迁移 v19，data-flow §3.5 单一事实源）：
     -- 「跳过稍后」暂存的 D 级草稿卡——partial_data/raw_text 恒 D 级，
@@ -254,7 +271,9 @@ public enum SchemaV2 {
       id TEXT PRIMARY KEY, patient_id TEXT NOT NULL,
       rule_id TEXT NOT NULL, severity TEXT NOT NULL CHECK(severity IN ('L0','L1','L2','L3')),
       evidence_json TEXT NOT NULL,
+      qualified INTEGER NOT NULL DEFAULT 0, scheduled_at REAL,
       delivered_state TEXT NOT NULL, created_at REAL NOT NULL);
+    CREATE INDEX idx_alert_qualified ON alert_event(patient_id, qualified, created_at);
     -- FR16.2 去重键（patient_id + rule_id）前缀扫描——无索引时每次预警评估
     -- 全表扫并逐行 json_extract，随事件累积线性劣化。
     CREATE INDEX idx_alert_event_patient_rule ON alert_event(patient_id, rule_id);

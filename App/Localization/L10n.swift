@@ -702,7 +702,7 @@ enum L10n {
     static func alertOriginName(_ origin: String) -> String {
         switch origin {
         case "hospital": return trendOriginHospital
-        case "device": return trendOriginSelfDevice
+        case "device": return trendOriginDevice
         default: return trendSelfMeasured
         }
     }
@@ -712,7 +712,7 @@ enum L10n {
     static var alertSourceTitle: String { t("alert.sourceTitle") }
     // FR16.3/16.4 信源原文详情页
     static var gsDetailNotFound: String { t("gsDetail.notFound") }
-    static func gsDetailMetric(_ key: String) -> String { String(format: t("gsDetail.metric"), key) }
+    static func gsDetailMetric(_ key: String) -> String { String(format: t("gsDetail.metric"), healthMetricName(key)) }
     static var gsDetailThresholds: String { t("gsDetail.thresholds") }
     static var gsDetailNote: String { t("gsDetail.note") }
 
@@ -743,6 +743,7 @@ enum L10n {
     static var commonSave: String { t("common.save") }
     static var commonCancel: String { t("common.cancel") }
     static var commonConfirm: String { t("common.confirm") }
+    static var commonMember: String { t("common.member") }
 
     // MARK: - L10n 清偿批五 · 双轨库存（FR9.8）
     static var inventoryDualLineTitle: String { t("inventory.dualLineTitle") }
@@ -1387,6 +1388,9 @@ enum L10n {
         "metric.name.bloodPressureSys", "metric.name.bloodPressureDia", "metric.name.glucose",
         "metric.name.weight", "metric.name.temperature", "metric.name.heartRate",
         "metric.name.bloodOxygen",
+        "metric.name.restingHeartRate", "metric.name.respiratory_rate", "metric.name.steps",
+        "metric.name.sleep_total", "metric.name.sleep_deep", "metric.name.sleep_rem",
+        "metric.name.sleep_awake", "metric.name.sleep_core", "metric.name.sleep_unspecified",
         "metric.selfMeasureNote", "metric.sys", "metric.dia", "metric.value",
         "metric.unit", "metric.measuredAt", "metric.saved", "metric.viewTrend",
         "voicePanel.title", "voicePanel.hint", "voicePanel.start",
@@ -1395,6 +1399,12 @@ enum L10n {
         "f16.title", "f16.authSection", "f16.authHint", "f16.requestAuth", "f16.authGranted",
         "f16.authDisabled", "f16.authFailed", "f16.syncSection", "f16.syncHint",
         "f16.syncNow", "f16.syncing", "f16.syncDoneFmt", "f16.syncFailed",
+        "health.importSubject", "health.noReadableData", "health.importPartial", "health.importMore",
+        "health.notificationRetry", "health.medicalReviewPending",
+        "health.aggregation.sample", "health.aggregation.hourlyAverage",
+        "health.aggregation.dailySum", "health.aggregation.sleepDuration",
+        "health.windowEnd", "health.windowStatistics", "health.showLegacy",
+        "health.historicalEvaluation", "health.loadMore", "health.metric.unknown", "health.openHelp",
         "alert.filter.all", "alert.showL0", "alert.historyEntry",
         "f19.noTodayMeds", "f19.nextAppointmentFmt", "f19.noAppointment", "f19.recentGlucoseFmt",
         "f19.goTimeline", "f19.goHome",
@@ -1518,7 +1528,7 @@ enum L10n {
         "voiceguide.note.meds",
         "voiceguide.saved",
         // 本地化清偿批（2026-09-06）：硬编码字符串替换
-        "common.confirm",
+        "common.confirm", "common.member",
         "pay.proYearly", "pay.proYearlyPrice", "pay.proYearlyDetail",
         "pay.proMonthly", "pay.proMonthlyPrice", "pay.proMonthlyDetail",
         "pay.addonPack", "pay.addonPrice", "pay.addonDetail",
@@ -2511,6 +2521,7 @@ enum L10n {
     static var f16AuthSection: String { t("f16.authSection") }
     static var f16AuthHint: String { t("f16.authHint") }
     static var f16RequestAuth: String { t("f16.requestAuth") }
+    // 既有 API 名保留；连接完成与读取授权不可等同，HealthKit 不透露读取权限。
     static var f16AuthGranted: String { t("f16.authGranted") }
     static var f16AuthDisabled: String { t("f16.authDisabled") }
     static var f16AuthFailed: String { t("f16.authFailed") }
@@ -2519,14 +2530,37 @@ enum L10n {
     static var f16SyncHint: String { t("f16.syncHint") }
     static var f16SyncNow: String { t("f16.syncNow") }
     static var f16Syncing: String { t("f16.syncing") }
+    /// 本次成功安排的通知数，不是已送达数或预警事件数。
     static func f16SyncDone(_ n: Int) -> String { String(format: t("f16.syncDoneFmt"), n) }
-    /// V3.86 FR7.9 入库流呈现（设备读数与手输同趋势）
+    /// FR7.9 指标投影变更数，包含新增、更新与移除。
     static func f16SyncedRows(_ n: Int) -> String { String(format: t("f16.syncedRowsFmt"), n) }
     /// V3.86 FR16.1 V3.49 同步时间沟通契约
     static func f16LastSync(_ time: String) -> String { String(format: t("f16.lastSyncFmt"), time) }
     // FR16.4「范围不可用」独立呈现态（无信源阈值的读数计数）
     static func f16NoRange(_ n: Int) -> String { String(format: t("f16.noRangeFmt"), n) }
     static var f16SyncFailed: String { t("f16.syncFailed") }
+    static func healthImportSubject(_ name: String) -> String { String(format: t("health.importSubject"), name) }
+    static var healthNoReadableData: String { t("health.noReadableData") }
+    static func healthImportPartial(_ count: Int) -> String { String(format: t("health.importPartial"), count) }
+    static var healthImportMore: String { t("health.importMore") }
+    static var healthNotificationRetry: String { t("health.notificationRetry") }
+    static var healthMedicalReviewPending: String { t("health.medicalReviewPending") }
+    static func healthAggregation(_ aggregation: MetricAggregation) -> String {
+        t("health.aggregation.\(aggregation.rawValue)")
+    }
+    static func healthWindowEnd(_ time: String) -> String { String(format: t("health.windowEnd"), time) }
+    static func healthWindowStatistics(_ low: String, _ high: String, _ count: Int) -> String {
+        String(format: t("health.windowStatistics"), low, high, count)
+    }
+    static var healthShowLegacy: String { t("health.showLegacy") }
+    static var healthHistoricalEvaluation: String { t("health.historicalEvaluation") }
+    static var healthLoadMore: String { t("health.loadMore") }
+    /// 设备与信源沿用既有指标键映射；未知 raw key 不上屏。
+    static func healthMetricName(_ key: String) -> String {
+        guard let metric = MetricType(grammarKey: key) else { return t("health.metric.unknown") }
+        return metricName(metric)
+    }
+    static var healthOpenHelp: String { t("health.openHelp") }
     static var alertFilterAll: String { t("alert.filter.all") }
     static var alertShowL0: String { t("alert.showL0") }
     static var alert_historyEntry: String { t("alert.historyEntry") }
