@@ -162,7 +162,8 @@ struct VitaLiberApp: App {
             // FR6.9 V3.61 页级实体卡：就诊/检验落库与稍后处理 1h 通知
             encounterStore: container.encounters,
             trendStore: container.trends,
-            scheduler: container.reminderScheduler))
+            scheduler: container.reminderScheduler,
+            cardStore: OCRCardStore(writer: container.store.writer)))
         _aiHistoryState = State(initialValue: AIHistoryState(store: container.aiHistory, audit: container.audit))
         _exportWizardState = State(initialValue: ExportWizardState(service: container.pdfExport))
         _f16DeviceState = State(initialValue: F16DeviceState(

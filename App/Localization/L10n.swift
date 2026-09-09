@@ -887,6 +887,18 @@ enum L10n {
     "voice.version.refinedHint",
     "voice.version.unavailable",
     "voice.version.rejected",
+    "voice.version.previewOnly",
+    "voice.inputUnavailable",
+    "voice.dictationIncomplete",
+    "ocr.review.documentHint",
+    "ocr.review.pageSkipped",
+    "ocr.review.invalidField",
+    "ocr.review.notificationFailed",
+    "ocr.review.legacySourceMissing",
+    "ocr.review.finishCurrent",
+    "ocr.review.partialSavedFmt",
+    "health.preservedAggregatesFmt",
+    "health.deferredWindowsFmt",
     "field.measured_at",
     "field.raw_label",
     "field.value",
@@ -2173,6 +2185,18 @@ enum L10n {
     static var voiceVersionRefinedHint: String { t("voice.version.refinedHint") }
     static var voiceVersionUnavailable: String { t("voice.version.unavailable") }
     static var voiceVersionRejected: String { t("voice.version.rejected") }
+    static var voiceVersionPreviewOnly: String { t("voice.version.previewOnly") }
+    static var voiceInputUnavailable: String { t("voice.inputUnavailable") }
+    static var voiceDictationIncomplete: String { t("voice.dictationIncomplete") }
+    static var ocrReviewDocumentHint: String { t("ocr.review.documentHint") }
+    static var ocrReviewPageSkipped: String { t("ocr.review.pageSkipped") }
+    static var ocrReviewInvalidField: String { t("ocr.review.invalidField") }
+    static var ocrReviewNotificationFailed: String { t("ocr.review.notificationFailed") }
+    static var ocrReviewLegacySourceMissing: String { t("ocr.review.legacySourceMissing") }
+    static var ocrReviewFinishCurrent: String { t("ocr.review.finishCurrent") }
+    static func ocrReviewPartialSaved(_ count: Int) -> String { String(format: t("ocr.review.partialSavedFmt"), count) }
+    static func healthPreservedAggregates(_ count: Int) -> String { String(format: t("health.preservedAggregatesFmt"), count) }
+    static func healthDeferredWindows(_ count: Int) -> String { String(format: t("health.deferredWindowsFmt"), count) }
     /// 模板字段键 → 展示标签（data-flow §17.2 稳定键；未登记回落原键）
     static func templateFieldLabel(_ key: String) -> String {
         let l10nKey = "field.\(key)"

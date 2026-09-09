@@ -27,15 +27,17 @@ public struct OCRPipeline: Sendable {
     public struct Result: Sendable, Equatable {
         public var lines: [String]
         public var hasText: Bool
+        public var confidence: Double
         /// FR5.3 质量提示标签（模糊/过暗/疑似遮挡——提示重拍但不阻止保存）
         public var qualityTags: [String]
         /// FR6.6：识别引擎失败标记——「引擎崩溃」与「页面无文字」必须可区分，
         /// 失败必须走可见错误反馈，绝不静默按「无文字」入库。
         public var failed: Bool
         public init(lines: [String], hasText: Bool, qualityTags: [String] = [],
-                    failed: Bool = false) {
+                    failed: Bool = false, confidence: Double = 0) {
             self.lines = lines; self.hasText = hasText
             self.qualityTags = qualityTags; self.failed = failed
+            self.confidence = confidence.isFinite ? min(1, max(0, confidence)) : 0
         }
     }
 
@@ -53,7 +55,7 @@ public struct OCRPipeline: Sendable {
         do {
             let recognition = try await recognizer.recognize(imageData)
             return Result(lines: recognition.lines, hasText: !recognition.lines.isEmpty,
-                          qualityTags: tags)
+                          qualityTags: tags, confidence: recognition.confidence)
         } catch {
             return Result(lines: [], hasText: false, qualityTags: tags, failed: true)
         }

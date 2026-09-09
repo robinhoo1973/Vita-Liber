@@ -305,7 +305,13 @@ struct StandardizationTests {
         // V3.99：账本推进至 v21（ocr-page-cards，FR6.9 页级多卡：document_page +
         // pending_card.source_page）——v20 health-import-checkpoints；v19 pending-card；
         // v18 health-device-source-and-anchor；v17 保持预约
-        #expect(SchemaMigrations.latestVersion == 21)
+        #expect(SchemaMigrations.latestVersion == 22)
+        let v22 = SchemaMigrations.steps.first { $0.version == 22 }
+        #expect(v22?.name == "review-integrity-checkpoints")
+        for table in ["hk_pending_batch", "hk_projection_state", "ocr_card_commit"] {
+            #expect(v22?.sql.contains("CREATE TABLE IF NOT EXISTS \(table)") == true)
+            #expect(ddl.contains("CREATE TABLE \(table)"))
+        }
         let v21 = SchemaMigrations.steps.first { $0.version == 21 }
         #expect(v21?.name == "ocr-page-cards")
         #expect(v21?.sql.contains("CREATE TABLE IF NOT EXISTS document_page") == true)

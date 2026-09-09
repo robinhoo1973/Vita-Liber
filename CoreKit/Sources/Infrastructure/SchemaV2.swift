@@ -110,6 +110,21 @@ public enum SchemaV2 {
       UNIQUE(document_file_id, page_index));
     CREATE INDEX idx_document_page_doc ON document_page(document_file_id, page_index);
 
+    -- v22: committed card rows retain page provenance and make confirmation replay-safe.
+    CREATE TABLE ocr_card_commit (
+      card_id TEXT NOT NULL,
+      row_id TEXT NOT NULL,
+      patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+      document_file_id TEXT NOT NULL REFERENCES document_file(id),
+      page_index INTEGER NOT NULL CHECK(page_index >= 0),
+      card_kind TEXT NOT NULL CHECK(card_kind IN ('metric_sample','encounter','prescription')),
+      entity_id TEXT NOT NULL,
+      created_at REAL NOT NULL,
+      PRIMARY KEY(card_id, row_id),
+      FOREIGN KEY(document_file_id, page_index) REFERENCES document_page(document_file_id, page_index));
+    CREATE INDEX idx_ocr_card_commit_source ON ocr_card_commit(document_file_id, page_index, card_kind);
+    CREATE INDEX idx_ocr_card_commit_entity ON ocr_card_commit(card_kind, entity_id, patient_id);
+
     -- F9 处方（BR-003 关键字段全确认才 confirmed=1）
     CREATE TABLE prescription (
       id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patient_profile(id),
@@ -239,6 +254,18 @@ public enum SchemaV2 {
       start_at REAL NOT NULL, end_at REAL NOT NULL,
       PRIMARY KEY(sample_id, type_key, patient_id));
     CREATE INDEX idx_hk_sample_window ON hk_sample_index(patient_id, type_key, start_at, end_at);
+
+    -- v22: local-only recovery state; never infer ownership from a restored aggregate's bucket key.
+    CREATE TABLE hk_pending_batch (
+      binding_id TEXT NOT NULL REFERENCES hk_import_binding(id) ON DELETE CASCADE,
+      type_key TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      PRIMARY KEY(binding_id, type_key));
+    CREATE TABLE hk_projection_state (
+      binding_id TEXT NOT NULL REFERENCES hk_import_binding(id) ON DELETE CASCADE,
+      metric_id TEXT NOT NULL REFERENCES metric_sample(id) ON DELETE CASCADE,
+      PRIMARY KEY(binding_id, metric_id));
+    CREATE INDEX idx_hk_projection_metric ON hk_projection_state(metric_id);
 
     -- FR6.9 待办卡（V3.96 / 迁移 v19，data-flow §3.5 单一事实源）：
     -- 「跳过稍后」暂存的 D 级草稿卡——partial_data/raw_text 恒 D 级，

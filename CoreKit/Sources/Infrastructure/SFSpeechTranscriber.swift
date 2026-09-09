@@ -1,298 +1,761 @@
-#if os(iOS) || os(macOS)
 import Foundation
-import AVFoundation
-import Speech
+import Dispatch
 import Domain
 import Protocols
 
-/// ADR-023 基线轨：端侧 SFSpeechRecognizer（`requiresOnDeviceRecognition=true`，隐私红线 BR-002 延伸）。
-///
-/// 升级轨（iOS 26+）的 `SpeechAnalyzer`/`SpeechTranscriber`（长音频免分段）在同 `TranscriptionEngine`
-/// 协议下替换本类——上层零感知降级。
-///
-/// **V3.61 连续会话（FR17.1 停顿丢字修正）**：一次 `transcribe` = 一次按住说话；单音频 tap
-/// 持续到 `endAudio()`（松手），识别请求多轮（`ContinuousRecognition`）——静音端点/~60s 上限的
-/// isFinal 只提交一段并立即换新请求，`maxSegmentSeconds - 5` 秒主动换段；返回各段拼接。
-/// **FR17.15 混说词表**：`request.contextualStrings` 注入 `SFSpeechRecognitionRequest.contextualStrings`
-/// （≤100，Apple 建议上限）。
-///
-/// 评审修正（Apple SDK 首次真实编译暴露，5WHY 同 CaptureQuality——Apple 轨代码此前
-/// 无任何编译门禁）：
-/// - `SFSpeechRecognizer(locale:)` 是 failable init，locale 在这里注入（request 无 locale
-///   属性）；`supportsOnDeviceRecognition` 是**实例**属性而非类属性；
-/// - 识别器必须被**强持有**到识别结束（Apple 文档要求）。本实现中 recognizer/recog/audio
-///   均为 transcribe 局部量，被识别任务回调闭包捕获——task 存活期间识别器必存活，
-///   函数返回（isFinal/error）后随闭包释放，天然满足强持有语义；
-/// - 置信度位于 `bestTranscription.segments[].confidence`（SFTranscription 无 confidence）；
-/// - 清理（audio.stop/removeTap）在错误与成功路径统一执行（do/catch + 路径内清理），
-///   修复原实现抛错后 AVAudioEngine 持续采音泄漏。
-///
-/// 注：识别回调不捕获 actor self——多轮请求编排下沉到 `ContinuousRecognition`（NSLock 保护的
-/// final class），actor 只持有会话引用供 `endAudio()` 收尾；识别器由该对象强持有到会话结束。
-public actor SFSpeechTranscriber: TranscriptionEngine {
-    public nonisolated let capability: TranscriptionCapability
+// The portable coordinator is exercised with a driver replacing only the native SDK boundaries.
+struct SpeechSessionLimits: Sendable {
+    var rotationInterval: TimeInterval = 55
+    var finalizationTimeout: TimeInterval = 2
+    var restartDelay: TimeInterval = 0.25
+    var maximumBufferedSeconds: TimeInterval = 5
+    var maximumBufferedBytes = 4 * 1024 * 1024
+    var maximumBufferedChunks = 1024
+    var maximumRecoveryAttempts = 2
+}
 
-    /// 活跃会话计数：软停（VoiceDictationModel.stop）不取消引擎——旧会话
-    /// 仍等静音端点、其 defer 才复位音频会话。快速重录时新旧两个 transcribe
-    /// 并发，旧会话先结束若无条件 setActive(false) 会把新会话已激活的共享
-    /// 会话一并关掉，新录音静默收不到缓冲。计数归零才复位。
-    private var activeSessions = 0
-    /// 当前活跃连续识别会话（软停 endAudio 收尾；仅最新会话）
-    private var activeSession: ContinuousRecognition?
+struct SpeechAudioChunk<Audio: Sendable>: Sendable {
+    let buffer: Audio
+    let duration: TimeInterval
+    let byteCount: Int
+}
 
-    public init() {
-        // FR17.15 六语种能力**运行时探测**（tech §5.13「不硬编码」）：
-        // supportedLocales ∩ 端侧识别——此前 .baseline() 恒 {zh-Hans-CN}，
-        // 选择粤语/英语后全部回落普通话识别（注释声称「用户选择的输入语言
-        // 必须生效」与实现矛盾，假能力呈现）
-        self.capability = Self.probeCapability()
+enum SpeechRecognitionFailure: Sendable, Equatable { case noSpeech, unauthorized, unavailable }
+
+struct SpeechRecognitionEvent: Sendable {
+    var text: String? = nil
+    var isFinal = false
+    var confidence: Double = 0
+    var failure: SpeechRecognitionFailure? = nil
+}
+
+/// All methods except asynchronous authorization/capture callbacks run on the speech control queue.
+protocol SpeechSessionDriver: AnyObject, Sendable {
+    associatedtype Audio: Sendable
+    var resolvedLocale: String { get }
+    func authorize(_ completion: @escaping @Sendable (Bool) -> Void,
+                   isStopped: @escaping @Sendable () -> Bool)
+    func startCapture(onAudio: @escaping @Sendable (SpeechAudioChunk<Audio>) -> Void,
+                      onFailure: @escaping @Sendable () -> Void,
+                      isStopped: @escaping @Sendable () -> Bool) throws
+    func stopCapture()
+    func startRecognition(id: UUID, onEvent: @escaping @Sendable (SpeechRecognitionEvent) -> Void) throws
+    func append(_ audio: Audio, to id: UUID)
+    func endAudio(id: UUID)
+    func cancelRecognition(id: UUID)
+}
+
+private final class SpeechStopSignal: @unchecked Sendable {
+    enum Intent: Sendable, Equatable { case running, finish, cancel }
+    private let lock = NSLock()
+    private var value: Intent = .running
+    var intent: Intent { lock.lock(); defer { lock.unlock() }; return value }
+    func finish() { lock.lock(); if value == .running { value = .finish }; lock.unlock() }
+    func cancel() { lock.lock(); value = .cancel; lock.unlock() }
+}
+
+/// Bounded tap mailbox: the real-time callback never waits on the control queue or audio shutdown.
+private final class SpeechAudioMailbox<Audio: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private let limits: SpeechSessionLimits
+    private var chunks: [SpeechAudioChunk<Audio>] = []
+    private var seconds: TimeInterval = 0
+    private var bytes = 0
+    private var scheduled = false
+    private var overflow = false
+    private var closed = false
+
+    init(limits: SpeechSessionLimits) { self.limits = limits }
+
+    func offer(_ chunk: SpeechAudioChunk<Audio>) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !closed else { return false }
+        if chunk.duration <= 0 || !chunk.duration.isFinite || chunk.byteCount < 0
+            || seconds + chunk.duration > limits.maximumBufferedSeconds
+            || chunk.byteCount > limits.maximumBufferedBytes - bytes
+            || chunks.count >= limits.maximumBufferedChunks {
+            overflow = true
+        } else if !overflow {
+            chunks.append(chunk)
+            seconds += chunk.duration
+            bytes += chunk.byteCount
+        }
+        guard !scheduled else { return false }
+        scheduled = true
+        return true
     }
 
-    /// 探测实际可用的端侧识别 locale 集；探测失败回落 zh-Hans-CN（绝不
-    /// 声称支持未探测的语种）
-    private static func probeCapability() -> TranscriptionCapability {
-        let probed = SFSpeechRecognizer.supportedLocales().filter { locale in
-            SFSpeechRecognizer(locale: locale)?.supportsOnDeviceRecognition == true
-        }.map(\.identifier)
-        let locales = probed.isEmpty ? ["zh-Hans-CN"] : probed
-        return .baseline(locales: Set(locales))
-    }
-
-    /// 软停提示（用户松手）：置收尾标记并结束当前请求——下一段 isFinal 到达后会话返回。
-    /// 不再换段；已提交段全部保留（V3.61 停顿丢字修正）。
-    public func endAudio() async {
-        activeSession?.finish()
-    }
-
-    /// 连续识别会话（FR17.1 V3.61）：**单音频引擎 tap 持续到松手，识别请求多轮**——
-    /// 静音端点/基线轨 ~60s 上限产生的 isFinal 只是「提交一段」，随即创建新请求继续
-    /// 消费同一 tap 的缓冲；`maxSegmentSeconds - 5` 秒时主动换段（`TranscriptionSegmentation`
-    /// 同口径）；松手（endAudio）→ 当前请求收尾 → 返回各段拼接。子段 noSpeech 类错误在
-    /// 已有文本时不抛（继续或收尾），只有整段会话零文本才按错误/空结果返回。
-    public func transcribe(_ request: TranscriptionRequest,
-                          onPartial: (@Sendable (String) -> Void)?) async throws -> TranscriptionResult {
-        let resolvedLocale = capability.availableLocales.contains(request.localeIdentifier)
-            ? request.localeIdentifier : TranscriptionSegmentation.fallbackLocale
-        guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: resolvedLocale)) else {
-            throw TranscriptionError.engineUnavailable
-        }
-        guard recognizer.supportsOnDeviceRecognition else {
-            throw TranscriptionError.engineUnavailable
-        }
-        let auth = await withCheckedContinuation { (c: CheckedContinuation<SFSpeechRecognizerAuthorizationStatus, Never>) in
-            SFSpeechRecognizer.requestAuthorization { c.resume(returning: $0) }
-        }
-        guard auth == .authorized else { throw TranscriptionError.unauthorized }
-
-        let audio = AVAudioEngine()
-        #if os(iOS)
-        let session = AVAudioSession.sharedInstance()
-        do {
-            try session.setCategory(.record, mode: .measurement, options: [.duckOthers])
-            try session.setActive(true, options: [])
-        } catch {
-            throw TranscriptionError.engineUnavailable
-        }
-        activeSessions += 1
-        defer {
-            activeSessions -= 1
-            // 仅当无其他活跃转写会话时复位共享音频会话——软停后的旧会话
-            // 不得关掉新会话已激活的录音输入
-            if activeSessions == 0 {
-                try? session.setActive(false, options: [.notifyOthersOnDeactivation])   // try?-ok: 会话复位失败不掩盖主结果
-            }
-        }
-        #endif
-
-        // FR17.15 混说词表注入（V3.61）：SFSpeechRecognitionRequest.contextualStrings 自 iOS 10
-        // 可用（此前注释误称 request 无此属性）；主语言识别 + 高频混说词/已确认药名偏置
-        let continuous = ContinuousRecognition(recognizer: recognizer, capability: capability,
-                                               contextualStrings: Array(request.contextualStrings.prefix(100)),
-                                               onPartial: onPartial)
-        activeSession = continuous
-        defer { if activeSession === continuous { activeSession = nil } }
-
-        let inputNode = audio.inputNode
-        let fmt = inputNode.outputFormat(forBus: 0)
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: fmt) { [continuous] buffer, _ in
-            continuous.append(buffer)
-        }
-        audio.prepare()
-        do {
-            try audio.start()
-        } catch {
-            inputNode.removeTap(onBus: 0)
-            throw error
-        }
-
-        let segments: [String]
-        let confidence: Double
-        do {
-            (segments, confidence) = try await continuous.run()
-        } catch {
-            audio.stop()
-            inputNode.removeTap(onBus: 0)
-            throw error
-        }
-        audio.stop()
-        inputNode.removeTap(onBus: 0)
-        return TranscriptionResult(text: segments.joined(separator: " "), confidence: confidence,
-                                   resolvedLocale: resolvedLocale, segmented: segments.count > 1,
-                                   segments: segments)
+    func take(closing: Bool = false) -> (chunks: [SpeechAudioChunk<Audio>], overflow: Bool) {
+        lock.lock()
+        defer { lock.unlock() }
+        if closing { closed = true }
+        let result = (chunks, overflow)
+        chunks.removeAll(keepingCapacity: !closing)
+        seconds = 0
+        bytes = 0
+        overflow = false
+        scheduled = false
+        return result
     }
 }
 
-/// 一次按住说话的多轮识别请求编排（`SFSpeechTranscriber` 内部）。
-/// 线程模型：tap 回调线程 `append`；识别回调线程 `handle`；NSLock 保护请求/累加器/状态。
-/// 强持有 recognizer（Apple 要求识别期间存活）。
-final class ContinuousRecognition: @unchecked Sendable {
-    private let lock = NSLock()
-    private let recognizer: SFSpeechRecognizer
-    private let capability: TranscriptionCapability
-    private let contextualStrings: [String]
+/// Queue confinement protects session ownership, SDK calls, timer transitions and output order.
+final class SpeechSessionCoordinator<Driver: SpeechSessionDriver>: @unchecked Sendable {
+    private let queue: DispatchQueue
+    private let queueKey = DispatchSpecificKey<UUID>()
+    private let queueID = UUID()
+    private let limits: SpeechSessionLimits
+    private let makeDriver: @Sendable (TranscriptionRequest) -> Driver
+    /// Only stop intents cross the queue boundary; no SDK calls or continuations run under this lock.
+    private let signalLock = NSLock()
+    private var signals: [UUID: SpeechStopSignal] = [:]
+    private var sessions: [UUID: ContinuousRecognition<Driver>] = [:]
+    private var captureOwner: UUID?
+    private var retired: [UUID] = []
+
+    init(queue: DispatchQueue = DispatchQueue(label: "com.vitaliber.speech", qos: .userInitiated),
+         limits: SpeechSessionLimits = SpeechSessionLimits(),
+         makeDriver: @escaping @Sendable (TranscriptionRequest) -> Driver) {
+        self.queue = queue
+        self.limits = limits
+        self.makeDriver = makeDriver
+        queue.setSpecific(key: queueKey, value: queueID)
+    }
+
+    func transcribe(_ request: TranscriptionRequest,
+                    onPartial: (@Sendable (String) -> Void)?) async throws -> TranscriptionResult {
+        let signal = signal(for: request.sessionID)
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                queue.async {
+                    let id = request.sessionID
+                    guard self.sessions[id] == nil, !self.retired.contains(id) else {
+                        if self.retired.contains(id) { self.removeSignal(id) }
+                        continuation.resume(throwing: TranscriptionError.engineUnavailable)
+                        return
+                    }
+                    if signal.intent != .running {
+                        self.retire(id)
+                        if signal.intent == .cancel {
+                            continuation.resume(throwing: CancellationError())
+                        } else {
+                            continuation.resume(returning: TranscriptionResult(text: "", confidence: 0,
+                                                                               resolvedLocale: "", segmented: false))
+                        }
+                        return
+                    }
+                    // Supersession closes capture synchronously; its recognizer may keep draining.
+                    if let owner = self.captureOwner { self.sessions[owner]?.finish() }
+                    let session = ContinuousRecognition(
+                        driver: self.makeDriver(request), queue: self.queue,
+                        queueKey: self.queueKey, queueID: self.queueID, limits: self.limits,
+                        signal: signal, onPartial: onPartial, continuation: continuation,
+                        onCaptureStopped: { [weak self] in
+                            if self?.captureOwner == id { self?.captureOwner = nil }
+                        }, onSettled: { [weak self] in
+                            self?.sessions[id] = nil
+                            self?.retire(id)
+                        })
+                    self.sessions[id] = session
+                    self.captureOwner = id
+                    session.start()
+                }
+            }
+        } onCancel: {
+            // The latch also prevents setup from starting hardware before this queued cancellation runs.
+            signal.cancel()
+            self.queue.async { self.stop(request.sessionID, intent: .cancel) }
+        }
+    }
+
+    func finish(sessionID: UUID) async {
+        signal(for: sessionID).finish()
+        await withCheckedContinuation { continuation in
+            queue.async {
+                self.stop(sessionID, intent: .finish)
+                continuation.resume()
+            }
+        }
+    }
+
+    func cancel(sessionID: UUID) async {
+        signal(for: sessionID).cancel()
+        await withCheckedContinuation { continuation in
+            queue.async {
+                self.stop(sessionID, intent: .cancel)
+                continuation.resume()
+            }
+        }
+    }
+
+    func discardSession(sessionID: UUID) async {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                if let session = self.sessions[sessionID] { session.cancel() }
+                else { self.retire(sessionID) }
+                continuation.resume()
+            }
+        }
+    }
+
+    func finishCapture() async {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                if let owner = self.captureOwner { self.sessions[owner]?.finish() }
+                continuation.resume()
+            }
+        }
+    }
+
+    private func stop(_ id: UUID, intent: SpeechStopSignal.Intent) {
+        if let session = sessions[id] {
+            if intent == .cancel { session.cancel() } else { session.finish() }
+        } else if retired.contains(id) {
+            removeSignal(id)
+        }
+    }
+
+    private func signal(for id: UUID) -> SpeechStopSignal {
+        signalLock.lock()
+        defer { signalLock.unlock() }
+        if let existing = signals[id] { return existing }
+        let signal = SpeechStopSignal()
+        signals[id] = signal
+        return signal
+    }
+
+    private func removeSignal(_ id: UUID) {
+        signalLock.lock()
+        signals[id] = nil
+        signalLock.unlock()
+    }
+
+    private func retire(_ id: UUID) {
+        removeSignal(id)
+        retired.append(id)
+        if retired.count > 256 { retired.removeFirst(retired.count - 256) }
+    }
+}
+
+private final class ContinuousRecognition<Driver: SpeechSessionDriver>: @unchecked Sendable {
+    private let driver: Driver
+    private let queue: DispatchQueue
+    private let queueKey: DispatchSpecificKey<UUID>
+    private let queueID: UUID
+    private let limits: SpeechSessionLimits
+    private let signal: SpeechStopSignal
+    private let mailbox: SpeechAudioMailbox<Driver.Audio>
     private let onPartial: (@Sendable (String) -> Void)?
-    private var current: SFSpeechAudioBufferRecognitionRequest
-    private var task: SFSpeechRecognitionTask?
+    private let onCaptureStopped: () -> Void
+    private let onSettled: () -> Void
+    private var continuation: CheckedContinuation<TranscriptionResult, Error>?
     private var accumulator = TranscriptSessionAccumulator()
-    private var confidences: [Double] = []
+    private var current: UUID?
+    private var authorizationPending = true
+    private var waitingForFinal = false
     private var finishing = false
     private var settled = false
-    private var continuation: CheckedContinuation<([String], Double), Error>?
-    private var segmentStart = Date()
-    private var rotationTimer: Task<Void, Never>?
+    private var handoff: [SpeechAudioChunk<Driver.Audio>] = []
+    private var handoffSeconds: TimeInterval = 0
+    private var handoffBytes = 0
+    private var rotationTimer: DispatchWorkItem?
+    private var drainTimer: DispatchWorkItem?
+    private var restartTimer: DispatchWorkItem?
+    private var recoveryAttempts = 0
+    private var completion: TranscriptionCompletion = .final
+    private var confidences: [Double] = []
+    private var lastPublished = ""
 
-    init(recognizer: SFSpeechRecognizer, capability: TranscriptionCapability,
-         contextualStrings: [String], onPartial: (@Sendable (String) -> Void)?) {
-        self.recognizer = recognizer
-        self.capability = capability
-        self.contextualStrings = contextualStrings
+    init(driver: Driver, queue: DispatchQueue, queueKey: DispatchSpecificKey<UUID>, queueID: UUID,
+         limits: SpeechSessionLimits, signal: SpeechStopSignal,
+         onPartial: (@Sendable (String) -> Void)?,
+         continuation: CheckedContinuation<TranscriptionResult, Error>,
+         onCaptureStopped: @escaping () -> Void, onSettled: @escaping () -> Void) {
+        self.driver = driver
+        self.queue = queue
+        self.queueKey = queueKey
+        self.queueID = queueID
+        self.limits = limits
+        self.signal = signal
+        self.mailbox = SpeechAudioMailbox(limits: limits)
         self.onPartial = onPartial
-        self.current = Self.makeRequest(contextualStrings)
+        self.continuation = continuation
+        self.onCaptureStopped = onCaptureStopped
+        self.onSettled = onSettled
     }
 
-    private static func makeRequest(_ contextualStrings: [String]) -> SFSpeechAudioBufferRecognitionRequest {
-        let recog = SFSpeechAudioBufferRecognitionRequest()
-        recog.requiresOnDeviceRecognition = true
-        recog.shouldReportPartialResults = true
-        recog.taskHint = .dictation
-        if !contextualStrings.isEmpty { recog.contextualStrings = contextualStrings }
-        return recog
+    private func perform(_ action: @escaping @Sendable (ContinuousRecognition) -> Void) {
+        if DispatchQueue.getSpecific(key: queueKey) == queueID {
+            action(self)
+        } else {
+            queue.async { action(self) }
+        }
     }
 
-    /// tap 回调：喂当前请求（换段瞬间的缓冲归新请求——边界词裁剪是固有代价）
-    func append(_ buffer: AVAudioPCMBuffer) {
-        lock.lock(); let recog = current; lock.unlock()
-        recog.append(buffer)
+    func start() {
+        guard !settled else { return }
+        let signal = signal
+        driver.authorize({ [weak self] authorized in
+            self?.perform { session in
+                guard !session.settled, session.authorizationPending else { return }
+                session.authorizationPending = false
+                if signal.intent == .cancel { session.cancel(); return }
+                if signal.intent == .finish { session.finish(); return }
+                guard authorized else { session.settle(error: TranscriptionError.unauthorized); return }
+                session.startSegment()
+                guard !session.settled, !session.finishing, signal.intent == .running else { return }
+                do {
+                    try session.driver.startCapture(onAudio: { [weak session] chunk in
+                        guard let session, session.mailbox.offer(chunk) else { return }
+                        session.queue.async { session.consumeMailbox() }
+                    }, onFailure: { [weak session] in
+                        guard let session else { return }
+                        // A configuration notification may be synchronous inside AVAudioEngine.start().
+                        session.queue.async {
+                            guard !session.settled else { return }
+                            session.completion = .interrupted
+                            session.settle(error: TranscriptionError.engineUnavailable)
+                        }
+                    }, isStopped: { signal.intent != .running })
+                    if signal.intent == .cancel { session.cancel() }
+                    else if signal.intent == .finish { session.finish() }
+                } catch is CancellationError {
+                    if signal.intent == .finish { session.finish() } else { session.cancel() }
+                } catch {
+                    session.completion = .interrupted
+                    session.settle(error: error)
+                }
+            }
+        }, isStopped: { signal.intent != .running })
     }
 
-    /// 松手：不再换段；当前请求 endAudio，等其 isFinal 收尾
     func finish() {
-        lock.lock()
+        guard !settled, !finishing else { return }
+        signal.finish()
         finishing = true
-        let recog = current
-        lock.unlock()
-        recog.endAudio()
+        rotationTimer?.cancel()
+        rotationTimer = nil
+        restartTimer?.cancel()
+        restartTimer = nil
+        driver.stopCapture()
+        onCaptureStopped()
+        consumeMailbox(closing: true)
+        guard !settled else { return }
+        if current != nil {
+            endCurrentSegment()
+        } else if !handoff.isEmpty {
+            startSegment()
+        } else {
+            settle()
+        }
     }
 
-    /// 运行至松手后最后一段 isFinal；返回各段与平均置信度
-    func run() async throws -> ([String], Double) {
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<([String], Double), Error>) in
-            lock.lock()
-            continuation = cont
-            lock.unlock()
-            startSegment()
+    func cancel() {
+        signal.cancel()
+        settle(error: CancellationError())
+    }
+
+    private func consumeMailbox(closing: Bool = false) {
+        let batch = mailbox.take(closing: closing)
+        guard !settled else { return }
+        if signal.intent == .cancel { cancel(); return }
+        if batch.overflow {
+            completion = .bufferOverflow
+            settle(error: TranscriptionError.audioBufferOverflow)
+            return
+        }
+        for chunk in batch.chunks {
+            guard !settled else { return }
+            if signal.intent == .cancel { cancel(); return }
+            if signal.intent == .finish, !finishing { driver.stopCapture() }
+            if let current, !waitingForFinal {
+                driver.append(chunk.buffer, to: current)
+            } else {
+                guard handoffSeconds + chunk.duration <= limits.maximumBufferedSeconds,
+                      chunk.byteCount <= limits.maximumBufferedBytes - handoffBytes,
+                      handoff.count < limits.maximumBufferedChunks else {
+                    completion = .bufferOverflow
+                    settle(error: TranscriptionError.audioBufferOverflow)
+                    return
+                }
+                handoff.append(chunk)
+                handoffSeconds += chunk.duration
+                handoffBytes += chunk.byteCount
+            }
         }
     }
 
     private func startSegment() {
-        lock.lock()
-        segmentStart = Date()
-        let recog = current
+        guard !settled, current == nil else { return }
+        if signal.intent == .cancel { cancel(); return }
+        let id = UUID()
+        current = id
+        waitingForFinal = false
+        do {
+            try driver.startRecognition(id: id) { [weak self] event in
+                self?.perform { $0.handle(event, segment: id) }
+            }
+        } catch {
+            completion = .interrupted
+            settle(error: error)
+            return
+        }
+        guard !settled, current == id else { return }
+        let replay = handoff
+        handoff.removeAll(keepingCapacity: true)
+        handoffSeconds = 0
+        handoffBytes = 0
+        for chunk in replay {
+            if signal.intent == .cancel { cancel(); return }
+            if signal.intent == .finish, !finishing { driver.stopCapture() }
+            driver.append(chunk.buffer, to: id)
+        }
+        if finishing {
+            endCurrentSegment()
+        } else {
+            let timer = DispatchWorkItem { [weak self] in
+                guard let self, !self.settled, !self.finishing, self.current == id else { return }
+                self.endCurrentSegment()
+            }
+            rotationTimer = timer
+            queue.asyncAfter(deadline: .now() + limits.rotationInterval, execute: timer)
+        }
+    }
+
+    private func endCurrentSegment() {
+        guard !settled, let id = current, !waitingForFinal else { return }
+        // From this transition onward, all captured buffers go into the bounded handoff queue.
+        waitingForFinal = true
         rotationTimer?.cancel()
-        // 主动换段：基线轨在上限前 5s 换请求（升级轨 shouldRotate 恒 false）
-        let rotateAfter = Double(max(5, capability.maxSegmentSeconds - 5))
-        if !capability.supportsLongForm {
-            rotationTimer = Task { [weak self] in
-                try? await Task.sleep(nanoseconds: UInt64(rotateAfter * 1_000_000_000))   // try?-ok: 计时取消即停
-                guard !Task.isCancelled else { return }
-                self?.rotateIfRunning(expected: recog)
+        rotationTimer = nil
+        driver.endAudio(id: id)
+        guard !settled, current == id, waitingForFinal else { return }
+        let timer = DispatchWorkItem { [weak self] in
+            guard let self, !self.settled, self.current == id, self.waitingForFinal else { return }
+            self.completion = .timedOut
+            self.recoveryAttempts += 1
+            if !self.finishing, self.recoveryAttempts > self.limits.maximumRecoveryAttempts {
+                self.settle(error: TranscriptionError.timedOut)
+            } else {
+                self.completeSegment(text: nil, confidence: nil, restartDelay: self.limits.restartDelay)
             }
         }
-        lock.unlock()
-        let started = recognizer.recognitionTask(with: recog) { [weak self] result, error in
-            self?.handle(result: result, error: error, for: recog)
-        }
-        lock.lock(); task = started; lock.unlock()
+        drainTimer = timer
+        queue.asyncAfter(deadline: .now() + limits.finalizationTimeout, execute: timer)
     }
 
-    /// 计时换段：只对仍是当前请求的段生效（避免 isFinal 已换段后重复换）
-    private func rotateIfRunning(expected: SFSpeechAudioBufferRecognitionRequest) {
-        lock.lock()
-        guard !finishing, current === expected else { lock.unlock(); return }
-        lock.unlock()
-        expected.endAudio()   // 触发该段 isFinal → handle 中提交并换段
+    private func handle(_ event: SpeechRecognitionEvent, segment id: UUID) {
+        guard !settled, current == id else { return }
+        if signal.intent == .cancel { cancel(); return }
+        if let text = event.text { accumulator.updatePartial(text) }
+        if let failure = event.failure {
+            switch failure {
+            case .noSpeech:
+                // Silence is an endpoint, not a fatal retry. Rate-limit new requests while keeping capture alive.
+                completeSegment(text: event.isFinal ? event.text : nil, confidence: nil,
+                                restartDelay: limits.restartDelay)
+            case .unauthorized, .unavailable:
+                completion = .interrupted
+                settle(error: failure == .unauthorized ? TranscriptionError.unauthorized : .engineUnavailable)
+            }
+        } else if event.isFinal {
+            let emptyFinal = event.text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
+            completeSegment(text: event.text, confidence: event.confidence,
+                            restartDelay: emptyFinal ? limits.restartDelay : 0)
+        } else {
+            if let text = event.text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                recoveryAttempts = 0
+            }
+            publish()
+        }
     }
 
-    private func handle(result: SFSpeechRecognitionResult?, error: Error?,
-                        for recog: SFSpeechAudioBufferRecognitionRequest) {
-        lock.lock()
-        guard !settled, current === recog else { lock.unlock(); return }
-        if let error {
-            // 子段错误（如静音段 noSpeech）：已有文本则继续/收尾，不整体失败
-            if finishing {
-                settleLocked(error: accumulator.committed.isEmpty && accumulator.partial.isEmpty ? error : nil)
-            } else if accumulator.committed.isEmpty && accumulator.partial.isEmpty {
-                settleLocked(error: error)
-            } else {
-                rotateLocked()
-            }
-            lock.unlock()
-            return
+    private func completeSegment(text: String?, confidence: Double?, restartDelay: TimeInterval) {
+        guard let id = current else { return }
+        let final = text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if final.isEmpty || confidence == nil {
+            if !accumulator.partial.isEmpty, completion == .final { completion = .partial }
+        } else if let confidence {
+            confidences.append(confidence)
+            recoveryAttempts = 0
         }
-        guard let result else { lock.unlock(); return }
-        let text = result.bestTranscription.formattedString
-        if result.isFinal {
-            let segs = result.bestTranscription.segments
-            if !segs.isEmpty {
-                confidences.append(Double(segs.map(\.confidence).reduce(0, +) / Float(segs.count)))
+        accumulator.commit(final)
+        rotationTimer?.cancel()
+        drainTimer?.cancel()
+        rotationTimer = nil
+        drainTimer = nil
+        current = nil
+        waitingForFinal = false
+        driver.cancelRecognition(id: id)
+        publish() // Publish the committed boundary before starting a request that can publish newer text.
+        consumeMailbox()
+        guard !settled else { return }
+        if finishing {
+            if handoff.isEmpty { settle() } else { startSegment() }
+        } else if restartDelay > 0 {
+            let timer = DispatchWorkItem { [weak self] in
+                guard let self, !self.settled, !self.finishing, self.current == nil else { return }
+                self.restartTimer = nil
+                self.startSegment()
             }
-            accumulator.commit(text)
-            if finishing {
-                settleLocked(error: nil)
-            } else {
-                rotateLocked()
-            }
-            lock.unlock()
-            return
+            restartTimer = timer
+            queue.asyncAfter(deadline: .now() + restartDelay, execute: timer)
+        } else {
+            startSegment()
         }
-        accumulator.updatePartial(text)
+    }
+
+    private func publish() {
         let display = accumulator.displayText
-        lock.unlock()
+        guard display != lastPublished else { return }
+        lastPublished = display
         onPartial?(display)
     }
 
-    /// 换段（持锁）：新请求接管 tap；在锁外启动识别任务
-    private func rotateLocked() {
-        current = Self.makeRequest(contextualStrings)
-        let display = accumulator.displayText
-        DispatchQueue.global().async { [weak self] in
-            self?.startSegment()
-            self?.onPartial?(display)
+    private func settle(error: Error? = nil) {
+        guard !settled else { return }
+        settled = true
+        signal.finish()
+        driver.stopCapture()
+        onCaptureStopped()
+        _ = mailbox.take(closing: true)
+        rotationTimer?.cancel()
+        drainTimer?.cancel()
+        restartTimer?.cancel()
+        rotationTimer = nil
+        drainTimer = nil
+        restartTimer = nil
+        if let current { driver.cancelRecognition(id: current) }
+        current = nil
+        handoff.removeAll()
+        let segments = accumulator.finish()
+        let continuation = continuation
+        self.continuation = nil
+        onSettled()
+        // No mutex is held across SDK cancellation, consumer callbacks or continuation resumption.
+        if error is CancellationError || signal.intent == .cancel {
+            continuation?.resume(throwing: CancellationError())
+        } else if let error, segments.isEmpty {
+            continuation?.resume(throwing: error)
+        } else {
+            publish()
+            let confidence = completion == .final && !confidences.isEmpty
+                ? confidences.reduce(0, +) / Double(confidences.count) : 0
+            continuation?.resume(returning: TranscriptionResult(
+                text: segments.joined(separator: " "), confidence: confidence,
+                resolvedLocale: driver.resolvedLocale, segmented: segments.count > 1,
+                segments: segments, completion: completion))
+        }
+    }
+}
+
+#if os(iOS) || os(macOS)
+import AVFoundation
+import Speech
+
+/// ADR-023 baseline: on-device recognition, one capture owner, no permanent audio files.
+public actor SFSpeechTranscriber: TranscriptionEngine {
+    public nonisolated let capability: TranscriptionCapability
+    private nonisolated let coordinator: SpeechSessionCoordinator<NativeSpeechSessionDriver>
+
+    public init() {
+        capability = Self.probeCapability()
+        let queue = DispatchQueue(label: "com.vitaliber.speech.native", qos: .userInitiated)
+        coordinator = SpeechSessionCoordinator(queue: queue) { request in
+            NativeSpeechSessionDriver(request: request, queue: queue)
         }
     }
 
-    private func settleLocked(error: Error?) {
-        settled = true
-        rotationTimer?.cancel()
-        let segments = accumulator.finish()
-        let confidence = confidences.isEmpty ? 0 : confidences.reduce(0, +) / Double(confidences.count)
-        let cont = continuation
-        continuation = nil
-        if let error, segments.isEmpty {
-            cont?.resume(throwing: error)
-        } else {
-            cont?.resume(returning: (segments, confidence))
+    fileprivate static func probeCapability() -> TranscriptionCapability {
+        var locales = Set<String>()
+        for locale in SFSpeechRecognizer.supportedLocales() {
+            guard let recognizer = SFSpeechRecognizer(locale: locale),
+                  recognizer.supportsOnDeviceRecognition, recognizer.isAvailable,
+                  TranscriptionLocale.normalizedIdentifier(recognizer.locale.identifier)
+                    == TranscriptionLocale.normalizedIdentifier(locale.identifier) else { continue }
+            locales.insert(recognizer.locale.identifier)
         }
+        return .baseline(locales: locales)
+    }
+
+    public nonisolated func currentCapability() async -> TranscriptionCapability { Self.probeCapability() }
+
+    public nonisolated func transcribe(_ request: TranscriptionRequest,
+                                       onPartial: (@Sendable (String) -> Void)?) async throws -> TranscriptionResult {
+        try await coordinator.transcribe(request, onPartial: onPartial)
+    }
+
+    public nonisolated func finish(sessionID: UUID) async { await coordinator.finish(sessionID: sessionID) }
+    public nonisolated func cancel(sessionID: UUID) async { await coordinator.cancel(sessionID: sessionID) }
+    public nonisolated func discardSession(sessionID: UUID) async { await coordinator.discardSession(sessionID: sessionID) }
+    public nonisolated func endAudio() async { await coordinator.finishCapture() }
+}
+
+/// The buffer is copied in the tap and then has a single reader on the control queue.
+private struct NativeSpeechAudio: @unchecked Sendable { let buffer: AVAudioPCMBuffer }
+
+private final class NativeSpeechSessionDriver: SpeechSessionDriver, @unchecked Sendable {
+    private let request: TranscriptionRequest
+    private let queue: DispatchQueue
+    private var recognizer: SFSpeechRecognizer?
+    private var audio: AVAudioEngine?
+    private var tapInstalled = false
+    private var sessionActive = false
+    private var observers: [NSObjectProtocol] = []
+    private var requests: [UUID: SFSpeechAudioBufferRecognitionRequest] = [:]
+    private var tasks: [UUID: SFSpeechRecognitionTask] = [:]
+    private var ended: Set<UUID> = []
+    private(set) var resolvedLocale = ""
+
+    init(request: TranscriptionRequest, queue: DispatchQueue) {
+        self.request = request
+        self.queue = queue
+    }
+
+    func authorize(_ completion: @escaping @Sendable (Bool) -> Void,
+                   isStopped: @escaping @Sendable () -> Bool) {
+        guard !isStopped() else { completion(false); return }
+        SFSpeechRecognizer.requestAuthorization { status in
+            guard status == .authorized, !isStopped() else { completion(false); return }
+            AVAudioApplication.requestRecordPermission { granted in completion(granted && !isStopped()) }
+        }
+    }
+
+    func startRecognition(id: UUID, onEvent: @escaping @Sendable (SpeechRecognitionEvent) -> Void) throws {
+        guard SFSpeechRecognizer.authorizationStatus() == .authorized,
+              AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
+            throw TranscriptionError.unauthorized
+        }
+        if recognizer == nil {
+            let capability = SFSpeechTranscriber.probeCapability()
+            guard let locale = capability.resolvedLocale(for: request.localeIdentifier),
+                  let candidate = SFSpeechRecognizer(locale: Locale(identifier: locale)),
+                  TranscriptionLocale.normalizedIdentifier(candidate.locale.identifier)
+                    == TranscriptionLocale.normalizedIdentifier(locale) else {
+                throw TranscriptionError.engineUnavailable
+            }
+            let callbacks = OperationQueue()
+            callbacks.maxConcurrentOperationCount = 1
+            callbacks.underlyingQueue = queue
+            candidate.queue = callbacks
+            resolvedLocale = candidate.locale.identifier
+            recognizer = candidate
+        }
+        guard let recognizer, recognizer.supportsOnDeviceRecognition, recognizer.isAvailable else {
+            throw TranscriptionError.engineUnavailable
+        }
+        let native = SFSpeechAudioBufferRecognitionRequest()
+        native.requiresOnDeviceRecognition = true
+        native.shouldReportPartialResults = true
+        native.taskHint = .dictation
+        native.contextualStrings = Array(request.contextualStrings.prefix(MixedSpeechVocabulary.limit))
+        requests[id] = native
+        let started = recognizer.recognitionTask(with: native) { result, error in
+            let segments = result?.bestTranscription.segments ?? []
+            let confidence = segments.isEmpty ? 0 : Double(segments.map(\.confidence).reduce(0, +) / Float(segments.count))
+            let failure: SpeechRecognitionFailure?
+            if let error {
+                let nativeError = error as NSError
+                // Only the no-speech endpoint is recoverable. Do not retry arbitrary assistant errors (e.g. 1101).
+                failure = nativeError.domain == "kAFAssistantErrorDomain" && nativeError.code == 1110
+                    ? .noSpeech : .unavailable
+            } else {
+                failure = nil
+            }
+            onEvent(SpeechRecognitionEvent(text: result?.bestTranscription.formattedString,
+                                           isFinal: result?.isFinal ?? false,
+                                           confidence: confidence, failure: failure))
+        }
+        if requests[id] != nil { tasks[id] = started } else { started.cancel() }
+    }
+
+    func startCapture(onAudio: @escaping @Sendable (SpeechAudioChunk<NativeSpeechAudio>) -> Void,
+                      onFailure: @escaping @Sendable () -> Void,
+                      isStopped: @escaping @Sendable () -> Bool) throws {
+        guard !isStopped() else { throw CancellationError() }
+        #if os(iOS)
+        let session = AVAudioSession.sharedInstance()
+        try session.setCategory(.record, mode: .measurement, options: [.duckOthers])
+        try session.setActive(true)
+        sessionActive = true
+        #endif
+        let engine = AVAudioEngine()
+        audio = engine
+        let input = engine.inputNode
+        let format = input.outputFormat(forBus: 0)
+        guard format.sampleRate > 0, format.channelCount > 0 else {
+            throw TranscriptionError.engineUnavailable
+        }
+        guard !isStopped() else { throw CancellationError() }
+        input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
+            guard buffer.frameLength > 0 else { return }
+            let source = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: buffer.audioBufferList))
+            let byteCount = source.reduce(0) { $0 + Int($1.mDataByteSize) }
+            guard byteCount <= SpeechSessionLimits().maximumBufferedBytes,
+                  let copy = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: buffer.frameLength) else {
+                onFailure()
+                return
+            }
+            copy.frameLength = buffer.frameLength
+            let destination = UnsafeMutableAudioBufferListPointer(copy.mutableAudioBufferList)
+            var bytes = 0
+            for index in source.indices {
+                guard destination.indices.contains(index),
+                      source[index].mDataByteSize == destination[index].mDataByteSize,
+                      let from = source[index].mData, let to = destination[index].mData else { onFailure(); return }
+                let count = Int(source[index].mDataByteSize)
+                memcpy(to, from, count)
+                bytes += count
+            }
+            onAudio(SpeechAudioChunk(buffer: NativeSpeechAudio(buffer: copy),
+                                    duration: Double(copy.frameLength) / copy.format.sampleRate, byteCount: bytes))
+        }
+        tapInstalled = true
+        observers.append(NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange,
+                                                                 object: engine, queue: nil) { _ in onFailure() })
+        #if os(iOS)
+        observers.append(NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification,
+                                                                 object: nil, queue: nil) { _ in onFailure() })
+        #endif
+        guard !isStopped() else { throw CancellationError() }
+        engine.prepare()
+        try engine.start()
+        if isStopped() { throw CancellationError() }
+    }
+
+    func stopCapture() {
+        observers.forEach { NotificationCenter.default.removeObserver($0) }
+        observers.removeAll()
+        if let audio {
+            audio.stop()
+            if tapInstalled { audio.inputNode.removeTap(onBus: 0) }
+        }
+        tapInstalled = false
+        audio = nil
+        #if os(iOS)
+        if sessionActive {
+            try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation]) // try?-ok: best-effort deactivation must not mask the transcript or cancellation
+            sessionActive = false
+        }
+        #endif
+    }
+
+    func append(_ audio: NativeSpeechAudio, to id: UUID) {
+        guard !ended.contains(id) else { return }
+        requests[id]?.append(audio.buffer)
+    }
+
+    func endAudio(id: UUID) {
+        guard ended.insert(id).inserted else { return }
+        requests[id]?.endAudio()
+    }
+
+    func cancelRecognition(id: UUID) {
+        let task = tasks.removeValue(forKey: id)
+        requests[id] = nil
+        ended.remove(id)
+        task?.cancel()
     }
 }
 #endif

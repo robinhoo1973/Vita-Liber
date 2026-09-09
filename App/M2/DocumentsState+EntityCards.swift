@@ -3,174 +3,331 @@ import Domain
 import Infrastructure
 import Protocols
 
-/// FR6.9 V3.61 页级多卡：文档卡确认后，各页匹配出的实体卡逐张进入队列——
-/// 确认保存（写各自事实表 + 页级留痕）/ 稍后处理（pending_card + 1h 通知）/ 放弃本卡；
-/// 待办卡续确认复用同一落库路径。BR-003：卡内字段在用户确认前不写任何事实表。
-///
-/// 页与卡的映射：`MatchedCard.pageIndex` ↔ `document_page.page_index`；写入侧
-/// `metric_sample.source_ref = doc:<id>#p<n>`、`ocr_result.page_index = n`、`pending_card.source_page = n`。
 extension DocumentsState {
-    /// 单页识别分析结果（草稿态，随 ImportDraft 携带；不落库）
-    struct PageAnalysis: Equatable {
+    struct PageAnalysis: Codable, Equatable, Sendable {
         let index: Int
         let lines: [String]
-        let failed: Bool
-        /// 理解层字段（稳定键，供卡模板匹配）
-        let fields: [FieldDraft]
-        let documentTypeKey: String?
+        var status: String = "ok"
+        var fields: [FieldDraft]
+        var documentTypeKey: String?
+        var confidence: Double = 0
+        var qualityTags: [String] = []
+        var typeConfidence: Double?
         var text: String { lines.joined(separator: "\n") }
     }
 
-    /// 当前队首卡（视图以 `.sheet(item:)` 承载）
     var currentEntityCard: MatchedCard? { entityQueue.first }
+    var entityQueuePosition: (Int, Int) { (entityQueueTotal - entityQueue.count + 1, entityQueueTotal) }
 
-    /// 「第 k/m 张」：k = 已处理 + 1，m = 本次文档卡确认后的总卡数
-    var entityQueuePosition: (Int, Int) {
-        (entityQueueTotal - entityQueue.count + 1, entityQueueTotal)
+    /// Extraction is page-local and not restricted to the primary document label.
+    static func extractPageFields(lines: [String], understood: [FieldDraft], confidence: Double) -> [FieldDraft] {
+        DocumentTypeClassifierFallback.pageFields(lines: lines, understood: understood, confidence: confidence)
     }
 
-    /// 确认保存：按卡类写事实表 + 页级留痕，成功出队。失败置 lastImportError、不出队。
-    /// 返回 false 时卡仍在队首，视图可重试或改稍后处理。
-    func confirmEntityCard(_ card: MatchedCard, confirmed: MatchedCard) async -> Bool {
-        guard let documentId = entityQueueDocumentId, let patientId = entityQueuePatientId else { return false }
-        let ok = await persist(confirmed, documentId: documentId, patientId: patientId)
-        if ok { dequeueEntityCard(card) }
-        return ok
+    static func matchPages(_ pages: [PageAnalysis], manualTypeKey: String?) -> [MatchedCard] {
+        pages.flatMap { page -> [MatchedCard] in
+            guard page.status == "ok" else { return [] }
+            let fields = page.fields.filter { $0.grade != .rejected && !$0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            let visitEvidence = manualTypeKey == "outpatient_record" || manualTypeKey == "diagnosis_certificate"
+                || DocumentTypeClassifierFallback.hasVisitEvidence(in: fields)
+            return CardTemplateMatcher.ocrTemplates.filter { OCRCardStore.supportedKinds.contains($0.kind) }.flatMap { template in
+                var input = fields
+                if template.kind == "prescription", !input.contains(where: { $0.key == "prescribed_at" }) {
+                    for field in fields where field.key == "report_date" {
+                        var date = field; date.key = "prescribed_at"
+                        input.append(date)
+                    }
+                }
+                let evidence = template.kind == "encounter" ? (visitEvidence ? "outpatient_record" : nil) : page.documentTypeKey
+                var matches = CardTemplateMatcher.match(fields: input, pageIndex: page.index,
+                                                       documentTypeKey: evidence, templates: [template])
+                // Derived fields must not upgrade a low-confidence OCR page.
+                for index in matches.indices {
+                    for field in matches[index].shared.indices {
+                        matches[index].shared[field].confidence = min(matches[index].shared[field].confidence, page.confidence)
+                    }
+                    for row in matches[index].rows.indices {
+                        for field in matches[index].rows[row].fields.indices {
+                            matches[index].rows[row].fields[field].confidence = min(matches[index].rows[row].fields[field].confidence, page.confidence)
+                        }
+                    }
+                }
+                return matches
+            }
+        }
     }
 
-    /// 稍后处理：D 级快照进待办（精确到页）+ 1 小时后一次提醒（FR6.9 待办队列纪律），成功出队。
-    func deferEntityCard(_ card: MatchedCard) async -> Bool {
-        guard let pendingCards = pendingCardStore, let documentId = entityQueueDocumentId,
-              let patientId = entityQueuePatientId else {
-            setImportError(L10n.docImportFailed)
-            return false
+    /// Rebase changed document values onto the original card fields, preserving provenance and IDs.
+    static func reconcileCards(_ cards: [MatchedCard], previous: [MatchedCard]) -> [MatchedCard] {
+        func reconcileFields(_ current: [FieldDraft], _ original: [FieldDraft]) -> [FieldDraft] {
+            var used = Set<Int>()
+            return current.map { value in
+                guard let index = original.indices.first(where: {
+                    !used.contains($0) && original[$0].key == value.key && original[$0].rawText == value.rawText
+                }) else { return value }
+                used.insert(index)
+                var field = original[index]
+                field.revise(to: value.value)
+                field.unit = value.unit
+                field.confidence = value.confidence
+                if value.grade == .rejected { field.reject() }
+                else if value.isConfirmed { _ = field.confirm() }
+                else { field.reenable() }
+                return field
+            }
         }
-        let incomplete = card.missingRequired.map {
-            IncompleteField(key: $0.key, confidence: 0, reason: L10n.pendingCardReasonOcrMissing)
-        } + card.rows.flatMap { row in
-            row.missingRequired.map { IncompleteField(key: $0, confidence: 0, reason: L10n.entityCardRowSkipped) }
+        return cards.map { current in
+            guard let old = previous.first(where: { $0.kind == current.kind && $0.pageIndex == current.pageIndex }) else { return current }
+            var used = Set<UUID>()
+            let rows = current.rows.map { row -> MatchedCardRow in
+                let previousRow = old.rows.first { !used.contains($0.id) && $0.fields.first?.rawText == row.fields.first?.rawText }
+                guard let previousRow else { return row }
+                used.insert(previousRow.id)
+                return MatchedCardRow(id: previousRow.id, fields: reconcileFields(row.fields, previousRow.fields), missingRequired: row.missingRequired)
+            }
+            return MatchedCard(id: old.id, kind: current.kind, pageIndex: current.pageIndex,
+                shared: reconcileFields(current.shared, old.shared), rows: rows,
+                allFieldCoverage: current.allFieldCoverage, requiredCoverage: current.requiredCoverage,
+                missingRequired: current.missingRequired, level: current.level)
         }
-        let draft = PendingCardDraft(patientId: patientId, sourceType: "ocr", sourceDocId: documentId,
-                                     sourcePage: card.pageIndex, cardKind: card.kind,
-                                     incompleteFields: incomplete, partialData: PendingCardPayload(card: card),
-                                     rawText: entityQueuePageTexts[card.pageIndex] ?? "")
+    }
+
+    func pendingDraft(_ card: MatchedCard, source: ImportSource) -> PendingCardDraft {
+        let incomplete = card.rows.flatMap { row in
+            EntityCardProjection.invalidFields(in: card, row: row, calendar: Calendar(identifier: .gregorian)).map {
+                IncompleteField(key: $0, label: Self.fieldLabel(forKey: $0), reason: "requires_review", rowId: row.id)
+            }
+        }
+        return PendingCardDraft(patientId: source.patientId, sourceType: "ocr", sourceDocId: source.documentId,
+            sourcePage: card.pageIndex, cardKind: card.kind, incompleteFields: incomplete,
+            partialData: PendingCardPayload(card: card), rawText: source.pages.first { $0.index == card.pageIndex }?.text ?? "")
+    }
+
+    func confirmEntityCard(_ card: MatchedCard, confirmed: MatchedCard) async -> OCRCardStore.SaveResult? {
+        guard let session = activeImport, let source = session.source, let cardStore,
+              !session.isSaving, session.cards.first?.id == card.id, confirmed.id == card.id,
+              confirmed.kind == card.kind, confirmed.pageIndex == card.pageIndex else { return nil }
+        session.isSaving = true; session.errorMessage = nil; session.notificationError = nil
+        defer { session.isSaving = false }
         do {
-            let id = try await pendingCards.upsert(draft)
-            // 通知失败不阻断建卡（待办已在首页聚合中心可见，FR6.9）
-            try? await scheduler?.schedule(dose: "pending-\(id)", at: Date().addingTimeInterval(3600),   // try?-ok: 通知排程失败不回滚待办卡，聚合中心仍可达
-                                           route: .pendingCard(id))
+            let result = try await cardStore.save(card: confirmed, patientId: source.patientId, documentId: source.documentId)
+            if result.writtenCount > 0 { session.committedCards.insert(card.id) }
+            pendingDidChange()
+            if result.writtenCount > 0, card.kind == "metric_sample" { dataChange?.metricsChanged() }
+            if let remaining = result.remainingCard { session.cards[0] = remaining }
+            else { dequeueEntityCard(card) }
+            do { try await notifyAfterSave(result) }
+            catch { session.notificationError = L10n.ocrReviewNotificationFailed }
+            return result
+        } catch {
+            session.errorMessage = L10n.entityCardSaveFailed
+            setImportError(session.errorMessage)
+            return nil
+        }
+    }
+
+    private func notifyAfterSave(_ result: OCRCardStore.SaveResult) async throws {
+        guard let scheduler else { throw ImportError.storeUnavailable }
+        if result.resolved {
+            try await scheduler.cancel(["pending-\(result.pendingCardId)"])
+            try await scheduler.removeDelivered(["pending-\(result.pendingCardId)"])
+        }
+        else {
+            try await scheduler.schedule(dose: "pending-\(result.pendingCardId)", at: Date().addingTimeInterval(3600),
+                                         route: .pendingCard(result.pendingCardId))
+        }
+    }
+
+    func deferEntityCard(_ card: MatchedCard) async -> Bool {
+        guard let session = activeImport, let source = session.source, let pendingCardStore,
+              !session.isSaving, session.cards.first?.id == card.id else { return false }
+        session.isSaving = true; session.errorMessage = nil; session.notificationError = nil
+        defer { session.isSaving = false }
+        do {
+            let id = try await pendingCardStore.upsert(pendingDraft(card, source: source))
+            pendingDidChange()
+            do {
+                guard let scheduler else { throw ImportError.storeUnavailable }
+                try await scheduler.schedule(dose: "pending-\(id)", at: Date().addingTimeInterval(3600), route: .pendingCard(id))
+            } catch {
+                session.notificationError = L10n.ocrReviewNotificationFailed
+                return false
+            }
+            session.hadDeferrals = true
             dequeueEntityCard(card)
-            dataChange?.documentSaved()
             return true
         } catch {
-            setImportError(L10n.docImportFailed)
+            session.errorMessage = L10n.entityCardSaveFailed; setImportError(session.errorMessage)
             return false
         }
     }
 
-    /// 放弃本卡：不产生任何实体（识别文本已随文档页保留，BR-002）
-    func discardEntityCard(_ card: MatchedCard) {
-        dequeueEntityCard(card)
-    }
-
-    /// 队列级兜底（长 PDF）：剩余全部进待办，逐卡失败不阻断其余
-    func deferRemainingEntityCards() async {
+    func deferRemainingEntityCards() async -> Bool {
+        guard let session = activeImport, !session.isBulkDeferring else { return false }
+        session.isBulkDeferring = true
+        defer { session.isBulkDeferring = false }
         for card in entityQueue {
-            _ = await deferEntityCard(card)
+            guard await deferEntityCard(card) else { return false }
         }
-        if !entityQueue.isEmpty {
-            // 写入失败的卡留在队列由用户处理；不静默清空
-            return
-        }
-    }
-
-    /// 待办卡续确认：从页文本 + 载荷还原实体卡（页文本缺失回落 raw_text）
-    func resumePendingCard(_ card: PendingCard) async -> MatchedCard? {
-        guard let documentId = card.sourceDocId else { return nil }
-        let pageIndex = card.sourcePage ?? 0
-        let shared = card.partialData.shared.sorted { $0.key < $1.key }.map { FieldDraft(key: $0.key, value: $0.value, confidence: 0.6) }
-        let rows = card.partialData.rows.map { row in
-            MatchedCardRow(fields: row.sorted { $0.key < $1.key }.map { FieldDraft(key: $0.key, value: $0.value, confidence: 0.6) })
-        }
-        let rules = CompletenessEvaluator.rules(for: card.kind)
-        let covered = Set(shared.map(\.key) + rows.flatMap { $0.fields.map(\.key) })
-        let required = rules.filter(\.isRequired)
-        let missing = required.filter { !covered.contains($0.key) }
-        let level = CompletenessEvaluator.assess(fields: shared + (rows.first?.fields ?? []), cardKind: card.kind).level
-        let text = (try? await documentStore.pages(documentId: documentId))?.first { $0.index == pageIndex }?.text   // try?-ok: 页文本读取失败回落 raw_text
-        prepareResume(patientId: card.patientId, pageIndex: pageIndex, text: text ?? card.rawText)
-        return MatchedCard(kind: card.kind, pageIndex: pageIndex, shared: shared, rows: rows,
-                           allFieldCoverage: rules.isEmpty ? 1 : Double(covered.intersection(rules.map(\.key)).count) / Double(rules.count),
-                           requiredCoverage: required.isEmpty ? 1 : Double(required.count - missing.count) / Double(required.count),
-                           missingRequired: missing, level: level)
-    }
-
-    /// 文档页数（卡头「第 p/N 页」；无页记录的旧文档回落 1）
-    func pageCount(documentId: UUID) async -> Int {
-        max(1, (try? await documentStore.pages(documentId: documentId))?.count ?? 1)   // try?-ok: 读取失败回落单页
-    }
-
-    /// 待办卡续确认落库 → resolved + 取消提醒
-    func completePendingCard(_ card: PendingCard, confirmed: MatchedCard) async -> Bool {
-        guard let documentId = card.sourceDocId else { return false }
-        guard await persist(confirmed, documentId: documentId, patientId: card.patientId) else { return false }
-        try? await pendingCardStore?.markResolved(id: card.id, by: "user")   // try?-ok: 完结标记失败卡仍在队列可重试，事实已落库
-        try? await scheduler?.cancel(["pending-\(card.id)"])   // try?-ok: 通知取消失败不影响事实
-        dataChange?.documentSaved()
         return true
     }
 
-    /// 放弃待办卡：完结（note=discarded）+ 取消提醒；不产生实体
-    func discardPendingCard(_ card: PendingCard) async {
-        try? await pendingCardStore?.markResolved(id: card.id, by: "user", note: "discarded")   // try?-ok: 同上
-        try? await scheduler?.cancel(["pending-\(card.id)"])   // try?-ok: 同上
-        dataChange?.documentSaved()
+    static func discarded(_ input: MatchedCard) -> MatchedCard {
+        var card = input
+        if card.kind == "encounter" {
+            for index in card.shared.indices { card.shared[index].reject() }
+        } else {
+            for row in card.rows.indices {
+                for field in card.rows[row].fields.indices where card.rows[row].fields[field].key != "metric_key" {
+                    card.rows[row].fields[field].reject()
+                }
+            }
+        }
+        return card
     }
 
-    // MARK: - 落库（单一路径：确认卡与待办续确认共用）
+    func discardEntityCard(_ card: MatchedCard) async -> Bool {
+        let result = await confirmEntityCard(card, confirmed: Self.discarded(card))
+        return result?.resolved == true
+    }
 
-    private func persist(_ card: MatchedCard, documentId: UUID, patientId: UUID) async -> Bool {
-        setImportError(nil)
-        let calendar = Calendar.current
+    func residualCard(_ pending: PendingCard) async throws -> MatchedCard {
+        guard let cardStore else { throw ImportError.storeUnavailable }
+        return try await cardStore.remainingCard(for: pending)
+    }
+
+    func resumePendingCard(_ pending: PendingCard) async -> MatchedCard? {
+        if let session = retainedImport(for: pending), let card = session.cards.first(where: { $0.kind == pending.cardKind && $0.pageIndex == pending.sourcePage }) {
+            return card
+        }
+        if let retained = pendingReviews[pending.id], !retained.completed { return retained.card }
         do {
-            switch card.kind {
-            case "metric_sample":
-                guard let trendStore else { throw EntityCardError.storeUnavailable }
-                let projection = EntityCardProjection.hospitalSamples(from: card, calendar: calendar)
-                guard !projection.samples.isEmpty else { throw EntityCardError.nothingToSave }
-                _ = try await trendStore.addHospitalSamples(patientId: patientId, documentId: documentId,
-                                                             pageIndex: card.pageIndex, samples: projection.samples)
-                dataChange?.metricsChanged()
-            case "encounter":
-                guard let encounterStore else { throw EntityCardError.storeUnavailable }
-                guard let draft = EntityCardProjection.encounterDraft(from: card, patientId: patientId, calendar: calendar) else {
-                    throw EntityCardError.nothingToSave
-                }
-                let encounterId = try await encounterStore.upsert(encounter: draft)
-                try await encounterStore.linkDocument(documentId: documentId, encounterId: encounterId)
-            case "prescription":
-                guard let prescriptionStore = prescriptionWriter else { throw EntityCardError.storeUnavailable }
-                guard let intent = EntityCardProjection.prescriptionIntent(from: card) else { throw EntityCardError.nothingToSave }
-                _ = try await prescriptionStore.create(patientId: patientId, documentFileId: documentId,
-                                                       hospital: intent.hospital, doctor: intent.doctor,
-                                                       adviceText: intent.adviceText)
-            default:
-                throw EntityCardError.unsupportedKind(card.kind)
+            let card = try await residualCard(pending)
+            guard let documentID = pending.sourceDocId,
+                  let document = try await documentStore.fetch(id: documentID), document.patientId == pending.patientId,
+                  ["active", "favorite"].contains(document.status) else { throw ImportError.unreadableMedia }
+            let pages = try await documentStore.pages(documentId: documentID)
+            guard pages.contains(where: { $0.index == card.pageIndex }) else { throw ImportError.unreadableMedia }
+            let full = try pending.matchedCard()
+            pendingReviews[pending.id] = PendingReview(pending: pending, card: card,
+                pageCount: (pages.map(\.index).max() ?? 0) + 1,
+                sharedCommitted: card.rows.count < full.rows.filter { !EntityCardProjection.isDiscarded($0, in: full) }.count)
+            return card
+        } catch {
+            setImportError(L10n.ocrReviewLegacySourceMissing)
+            return nil
+        }
+    }
+
+    func retainedImport(for pending: PendingCard) -> ImportSession? {
+        guard let cardID = pending.partialData.card?.id ?? UUID(uuidString: pending.id),
+              let session = activeImport, let source = session.source,
+              source.patientId == pending.patientId, source.documentId == pending.sourceDocId,
+              session.cards.contains(where: { $0.id == cardID && $0.kind == pending.cardKind && $0.pageIndex == pending.sourcePage }) else { return nil }
+        return session
+    }
+
+    func loadPendingCard(id: String) async throws -> PendingCard? {
+        guard let pendingCardStore else { throw ImportError.storeUnavailable }
+        return try await pendingCardStore.card(id: id)
+    }
+
+    func pageCount(documentId: UUID) async -> Int {
+        do { return max(1, (try await documentStore.pages(documentId: documentId)).map(\.index).max().map { $0 + 1 } ?? 1) }
+        catch { setImportError(L10n.sensitiveMedia_loadFailed); return 1 }
+    }
+
+    func completePendingCard(_ pending: PendingCard, confirmed: MatchedCard) async -> OCRCardStore.SaveResult? {
+        if let retained = retainedImport(for: pending) {
+            guard let current = retained.cards.first, current.id == confirmed.id else {
+                setImportError(L10n.ocrReviewFinishCurrent)
+                return nil
             }
-            // 页级留痕（FR6.1）：本卡确认的字段落 ocr_result(page_index)
-            let fields = EntityCardProjection.candidateFields(from: card, labelFor: Self.fieldLabel(forKey:))
-                .map { var f = $0; _ = f.confirm(); return f }
-            try? await documentStore.saveOCRResult(documentId: documentId, pageIndex: card.pageIndex,   // try?-ok: 留痕失败不阻断主入库
-                                                   fields: fields, engineVersion: "ocr-pipeline")
-            dataChange?.documentSaved()
+            return await confirmEntityCard(current, confirmed: confirmed)
+        }
+        guard let documentID = pending.sourceDocId, let cardStore,
+              confirmed.kind == pending.cardKind, confirmed.pageIndex == pending.sourcePage else { return nil }
+        if pendingReviews[pending.id] == nil { _ = await resumePendingCard(pending) }
+        guard let review = pendingReviews[pending.id], !review.isSaving else { return nil }
+        review.isSaving = true; review.errorMessage = nil; review.notificationError = nil
+        defer { review.isSaving = false }
+        do {
+            let result = try await cardStore.save(card: confirmed, patientId: pending.patientId,
+                                                 documentId: documentID, pendingCardId: pending.id)
+            if let remaining = result.remainingCard { review.card = remaining }
+            review.writtenCount += result.writtenCount
+            review.sharedCommitted = review.sharedCommitted || (result.writtenCount > 0 && !result.resolved)
+            review.completed = result.resolved
+            pendingDidChange()
+            if result.writtenCount > 0, confirmed.kind == "metric_sample" { dataChange?.metricsChanged() }
+            do { try await notifyAfterSave(result) }
+            catch { review.notificationError = L10n.ocrReviewNotificationFailed }
+            return result
+        } catch {
+            review.errorMessage = L10n.entityCardSaveFailed; setImportError(review.errorMessage)
+            return nil
+        }
+    }
+
+    func deferPendingCard(_ pending: PendingCard, edited: MatchedCard) async -> Bool {
+        guard let documentID = pending.sourceDocId, let pendingCardStore,
+              edited.kind == pending.cardKind, edited.pageIndex == pending.sourcePage else { return false }
+        do {
+            let source = ImportSource(documentId: documentID, patientId: pending.patientId,
+                pages: [.init(index: edited.pageIndex, lines: pending.rawText.components(separatedBy: "\n"), fields: [])])
+            let id = try await pendingCardStore.upsert(pendingDraft(edited, source: source))
+            guard id == pending.id else { throw ImportError.unreadableMedia }
+            pendingReviews[pending.id]?.card = edited
+            pendingDidChange()
+            do {
+                guard let scheduler else { throw ImportError.storeUnavailable }
+                try await scheduler.schedule(dose: "pending-\(id)", at: Date().addingTimeInterval(3600), route: .pendingCard(id))
+            } catch {
+                pendingReviews[pending.id]?.notificationError = L10n.ocrReviewNotificationFailed
+                return false
+            }
             return true
         } catch {
-            setImportError(L10n.docImportFailed)
+            pendingReviews[pending.id]?.errorMessage = L10n.entityCardSaveFailed
+            setImportError(L10n.entityCardSaveFailed)
             return false
         }
     }
 
-    enum EntityCardError: Error {
-        case storeUnavailable, nothingToSave, unsupportedKind(String)
+    func discardPendingCard(_ pending: PendingCard) async -> Bool {
+        if let retained = retainedImport(for: pending) {
+            guard let current = retained.cards.first, current.kind == pending.cardKind,
+                  current.pageIndex == pending.sourcePage else { setImportError(L10n.ocrReviewFinishCurrent); return false }
+            let discarded = await discardEntityCard(current)
+            return discarded && retained.notificationError == nil
+        }
+        if let review = pendingReviews[pending.id], review.completed, review.notificationError != nil {
+            do {
+                guard let scheduler else { throw ImportError.storeUnavailable }
+                try await scheduler.cancel(["pending-\(pending.id)"])
+                try await scheduler.removeDelivered(["pending-\(pending.id)"])
+                review.notificationError = nil
+                return true
+            } catch { return false }
+        }
+        if pending.sourceDocId != nil, pending.sourcePage != nil,
+           let card = await resumePendingCard(pending) {
+            let result = await completePendingCard(pending, confirmed: Self.discarded(card))
+            return result?.resolved == true && pendingReviews[pending.id]?.notificationError == nil
+        }
+        // Old source-less rows cannot produce facts; explicit discard is still recoverable.
+        guard let pendingCardStore else { return false }
+        do {
+            let current = try await pendingCardStore.card(id: pending.id)
+            guard current?.patientId == pending.patientId else { throw ImportError.unreadableMedia }
+            if current?.status != "resolved" || current?.note != "discarded" {
+                try await pendingCardStore.markResolved(id: pending.id, by: "user", note: "discarded")
+            }
+            pendingDidChange()
+            guard let scheduler else { throw ImportError.storeUnavailable }
+            try await scheduler.cancel(["pending-\(pending.id)"])
+            try await scheduler.removeDelivered(["pending-\(pending.id)"])
+            return true
+        } catch { setImportError(L10n.entityCardSaveFailed); return false }
     }
 }

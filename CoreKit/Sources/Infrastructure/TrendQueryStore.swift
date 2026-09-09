@@ -109,23 +109,49 @@ public actor TrendQueryStore {
                                    samples: [HospitalSample]) async throws -> Int {
         let sourceRef = HospitalSample.sourceRef(documentId: documentId, pageIndex: pageIndex)
         return try await writer.write { db in
+            try DocumentStore.validateSource(db, patientId: patientId, documentId: documentId, pageIndex: pageIndex)
             var written = 0
             for sample in samples {
-                guard sample.value.isFinite else { throw HealthImportStore.ImportError.invalidValue }
-                try db.execute(sql: """
-                    INSERT INTO metric_sample
-                      (id, patient_id, metric_key, value, unit, origin, self_measured, excluded,
-                       source_ref, ref_low, ref_high, ref_source_label, raw_label, code_concept_id,
-                       measured_at, created_at)
-                    VALUES (?, ?, ?, ?, ?, 'hospital', 0, 0, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, arguments: [UUID().uuidString, patientId.uuidString, sample.metricKey, sample.value,
-                                     sample.unit, sourceRef, sample.refLow, sample.refHigh, sample.refSourceLabel,
-                                     sample.rawLabel, sample.codeConceptId,
-                                     sample.measuredAt.timeIntervalSince1970, Date().timeIntervalSince1970])
+                try Self.insertHospitalSample(sample, id: UUID(), patientId: patientId, sourceRef: sourceRef, db: db, now: Date())
                 written += db.changesCount
             }
             return written
         }
+    }
+
+    static func insertHospitalSample(_ sample: HospitalSample, id: UUID, patientId: UUID,
+                                     sourceRef: String, db: Database, now: Date,
+                                     approvedCodingSystem: CodingSystem? = nil) throws {
+        try validateHospitalSample(sample)
+        if let concept = sample.codeConceptId {
+            guard let row = try Row.fetchOne(db, sql: "SELECT canonical_code, coding_system, kind FROM code_concept WHERE id = ?", arguments: [concept]),
+                  (row["kind"] as String) == "metric", sample.metricKey == "code.\(row["canonical_code"] as String)",
+                  approvedCodingSystem == nil || (row["coding_system"] as String) == approvedCodingSystem?.rawValue else {
+                throw HealthImportStore.ImportError.invalidValue
+            }
+        } else if sample.metricKey.hasPrefix("code.") {
+            throw HealthImportStore.ImportError.invalidValue
+        }
+        try db.execute(sql: """
+            INSERT INTO metric_sample
+              (id, patient_id, metric_key, value, unit, origin, self_measured, excluded,
+               source_ref, ref_low, ref_high, ref_source_label, raw_label, code_concept_id, measured_at, created_at)
+            VALUES (?, ?, ?, ?, ?, 'hospital', 0, 0, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, arguments: [id.uuidString, patientId.uuidString, sample.metricKey, sample.value,
+                              sample.unit, sourceRef, sample.refLow, sample.refHigh, sample.refSourceLabel,
+                              sample.rawLabel, sample.codeConceptId, sample.measuredAt.timeIntervalSince1970,
+                              now.timeIntervalSince1970])
+    }
+
+    static func validateHospitalSample(_ sample: HospitalSample) throws {
+        guard sample.value.isFinite, sample.measuredAt.timeIntervalSince1970.isFinite,
+              !sample.metricKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !sample.rawLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !sample.unit.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              sample.refLow?.isFinite != false, sample.refHigh?.isFinite != false else {
+            throw HealthImportStore.ImportError.invalidValue
+        }
+        if let low = sample.refLow, let high = sample.refHigh, low > high { throw HealthImportStore.ImportError.invalidValue }
     }
 
     // MARK: - FR7.9 设备自动汇入（V3.86：与手输同一写门，origin='device'）

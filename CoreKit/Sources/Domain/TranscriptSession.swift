@@ -11,15 +11,18 @@ public struct TranscriptSessionAccumulator: Sendable, Equatable {
 
     public init() {}
 
-    /// 一段识别结束（isFinal）：去首尾空白、空段忽略；清空当前部分结果
+    /// Empty finals/errors preserve the most recent partial without finishing the session.
     public mutating func commit(_ text: String) {
+        guard !finished else { return }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let retained = trimmed.isEmpty ? partial.trimmingCharacters(in: .whitespacesAndNewlines) : trimmed
         partial = ""
-        guard !trimmed.isEmpty else { return }
-        committed.append(trimmed)
+        guard !retained.isEmpty else { return }
+        committed.append(retained)
     }
 
     public mutating func updatePartial(_ text: String) {
+        guard !finished, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         partial = text
     }
 
@@ -33,8 +36,8 @@ public struct TranscriptSessionAccumulator: Sendable, Equatable {
     /// 松手收尾：未提交的部分结果作为最后一段提交；幂等
     public mutating func finish() -> [String] {
         if !finished {
+            commit("")
             finished = true
-            if !partial.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { commit(partial) }
         }
         return committed
     }
@@ -63,7 +66,8 @@ public enum MixedSpeechVocabulary {
     ]
 
     public static func terms(primaryLocale: String, otherLocales: [String],
-                             recentDrugNames: [String], limit: Int = limit) -> [String] {
+                              recentDrugNames: [String], limit: Int = limit) -> [String] {
+        let limit = min(Self.limit, max(0, limit))
         var seen = Set<String>()
         var out: [String] = []
         func add(_ term: String) {

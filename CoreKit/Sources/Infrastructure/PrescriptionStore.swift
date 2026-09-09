@@ -19,20 +19,32 @@ public actor PrescriptionStore {
     /// 故 `confirmed` 恒为 true——未确认草稿不建议持久化本表，留在确认卡内存态即可。
     @discardableResult
     public func create(patientId: UUID, documentFileId: UUID?, hospital: String?, doctor: String?,
-                       adviceText: String, source: PrescriptionSource = .ocr,
+                       adviceText: String, prescribedAt: Date, source: PrescriptionSource = .ocr,
                        now: Date = Date()) async throws -> UUID {
+        guard prescribedAt.timeIntervalSince1970.isFinite else { throw StoreError.invalidDate }
+        if source == .ocr, documentFileId == nil { throw DocumentStore.StoreError.invalidSource }
         let id = UUID()
         try await writer.write { db in
+            guard try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM patient_profile WHERE id = ? AND deleted_at IS NULL",
+                                   arguments: [patientId.uuidString]) == 1 else { throw DocumentStore.StoreError.invalidMember }
+            if let documentFileId {
+                guard try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM document_file WHERE id = ? AND patient_id = ?",
+                                       arguments: [documentFileId.uuidString, patientId.uuidString]) == 1 else {
+                    throw DocumentStore.StoreError.invalidSource
+                }
+            }
             try db.execute(sql: """
                 INSERT INTO prescription
                   (id, patient_id, document_file_id, source, hospital, doctor,
                    prescribed_at, advice_text, confirmed, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
                 """, arguments: [id.uuidString, patientId.uuidString, documentFileId?.uuidString,
-                                 source.rawValue, hospital, doctor, now.timeIntervalSince1970,
+                                 source.rawValue, hospital, doctor, prescribedAt.timeIntervalSince1970,
                                  adviceText, now.timeIntervalSince1970, now.timeIntervalSince1970])
         }
         return id
     }
+
+    public enum StoreError: Error, Sendable { case invalidDate }
 }
 #endif

@@ -244,7 +244,7 @@ struct Fr69CompletenessTests {
 // GRDB 平台边界（ERR#8，同 GoldenMigrationTests）：仅 iOS/macOS 执行，
 // Linux 只跑 Domain 门禁；SchemaV2 baseline 含 pending_card 全量 DDL。
 #if os(iOS) || os(macOS)
-@Suite("SU-M2-PENDINGCARD-DB · FR6.9 §21.1 同源去重（DB 层，source_doc_id 缺失分支）")
+@Suite("SU-M2-PENDINGCARD-DB · FR6.9 §21.1 手工草稿同源去重")
 struct PendingCardDedupTests {
     @Test("无文档 ID 重复跳过复用同卡（同成员+卡种+原文）")
     func 无文档ID重复跳过复用同卡() async throws {
@@ -264,7 +264,7 @@ struct PendingCardDedupTests {
                                  Date().timeIntervalSince1970])
         }
         let store = PendingCardStore(writer: dbQueue)   // actor init 非隔离，同步可调
-        let draft = PendingCardDraft(patientId: patient, sourceType: "ocr", sourceDocId: nil,
+        let draft = PendingCardDraft(patientId: patient, sourceType: "manual", sourceDocId: nil,
                                      cardKind: "prescription",
                                      incompleteFields: [IncompleteField(key: "dosage", confidence: 0.5)],
                                      partialData: ["drug_name": "阿莫西林"],

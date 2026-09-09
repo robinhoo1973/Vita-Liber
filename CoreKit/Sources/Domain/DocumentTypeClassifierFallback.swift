@@ -176,6 +176,61 @@ public enum FieldGroupRules {
     public static let categoryOrder: [String] = ["rx", "lab", "visit", "generic"]
 }
 
+public extension DocumentTypeClassifierFallback {
+    /// Page-local extraction does not discard another card kind because the primary label differs.
+    static func pageFields(lines: [String], understood: [FieldDraft], confidence: Double) -> [FieldDraft] {
+        let measuredConfidence = confidence.isFinite ? min(1, max(0, confidence)) : 0
+        let prescriptionPage = lines.contains { line in
+            ["处方", "處方", "用法", "用量", "药品名称", "藥品名稱"].contains(where: line.contains)
+        }
+        var output: [FieldDraft] = []
+        for (index, line) in lines.enumerated() {
+            let text = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { continue }
+            var fields = understood.filter {
+                !$0.key.hasPrefix("line_") && ($0.rawText?.trimmingCharacters(in: .whitespacesAndNewlines) == text
+                    || ($0.rawText == nil && $0.value.trimmingCharacters(in: .whitespacesAndNewlines) == text))
+            }
+            for field in guessFields(line: line) {
+                if !fields.contains(where: { $0.key == field.key && $0.value == field.value }) { fields.append(field) }
+            }
+            func append(_ key: String, _ value: String) {
+                guard !fields.contains(where: { $0.key == key }) else { return }
+                fields.append(FieldDraft(key: key, value: value, confidence: min(0.6, measuredConfidence), rawText: line, source: .heuristic))
+            }
+            let suffix = text.split(maxSplits: 1, whereSeparator: { $0 == ":" || $0 == "：" }).last.map(String.init) ?? text
+            if text.contains("医院") || text.contains("醫院") { append("hospital", suffix) }
+            if ["医生", "醫生", "医师", "醫師"].contains(where: text.contains) { append("doctor", suffix) }
+            if EntityCardProjection.parseDate(text, calendar: Calendar(identifier: .gregorian)) != nil {
+                append("report_date", text)
+            }
+            let explicitDrug = ["药品名称", "藥品名稱", "药名", "藥名", "药品：", "藥品："].contains(where: text.hasPrefix)
+            let directions = ["用法", "用量", "每次", "每日", "口服", "外用"].contains(where: text.hasPrefix)
+            let namedForm = ["胶囊", "膠囊", "颗粒", "顆粒", "注射液", "缓释片", "緩釋片"].contains(where: text.contains)
+            let strengthLine = prescriptionPage && text.range(
+                of: #"^[一-龥A-Za-z][一-龥A-Za-z0-9（）() -]*?\s+[0-9]+(?:\.[0-9]+)?\s*(?:mg|g|mcg|μg|mL|ml|片|粒|支|袋)(?:\s.*)?$"#,
+                options: .regularExpression) != nil
+            if explicitDrug || ((namedForm || strengthLine) && !directions) { append("drug_name", explicitDrug ? suffix : text) }
+            if directions { append("advice_text", suffix) }
+            if fields.isEmpty {
+                fields = [FieldDraft(key: "line_\(index)", value: line, confidence: measuredConfidence, rawText: line)]
+            }
+            for var field in fields {
+                field.confidence = min(measuredConfidence, field.confidence.isFinite ? max(0, field.confidence) : 0)
+                output.append(field)
+            }
+        }
+        return output
+    }
+
+    static func hasVisitEvidence(in fields: [FieldDraft]) -> Bool {
+        fields.contains { ["chief_complaint", "diagnosis", "treatment"].contains($0.key) }
+            || fields.contains { field in
+                ["门诊", "門診", "病历", "病歷", "诊断证明", "診斷證明"].contains(where: field.value.contains)
+            }
+    }
+}
+
 /// FR11.4 懒创建触发点（V3.49）：病历类文档确认保存后，从已确认字段派生
 /// 候选健康问题名——诊断字段优先（截断 40 字），无诊断回落「文档类型+日期」。
 /// Domain 纯函数零业务决策：候选仅作建议，用户确认后才落 health_problem

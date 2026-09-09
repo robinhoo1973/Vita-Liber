@@ -10,6 +10,11 @@ import Protocols
 @Observable
 final class AppSettingsStore {
     private(set) var values: [AppSettingKey: String] = [:]
+    private(set) var authAIRevision: UInt64 = 0
+    private var mutationRevision: UInt64 = 0
+    private var authorizationWrites = 0
+    private var authorizationWriteTask: Task<Void, Error>?
+    private var deniedAIUntilGrant = false
     private(set) var auditEntries: [AuditEntry] = []
     private let store: SettingsStore
     /// FR14.2 授权变更审计（可选注入；关闭即停后续处理，审计可见）
@@ -32,9 +37,17 @@ final class AppSettingsStore {
     }
 
     func load() async {
+        guard authorizationWrites == 0 else { return }
+        let revision = mutationRevision
         do {
             // 审查修复：一次批量查询替代逐键 SELECT（~35 次串行 actor 往返）
-            values = try await store.allValues()
+            var loaded = try await store.allValues()
+            guard revision == mutationRevision, authorizationWrites == 0 else { return }
+            if deniedAIUntilGrant { loaded[.authAI] = "false" }
+            if SettingsRules.resolved(values[.authAI], key: .authAI) != SettingsRules.resolved(loaded[.authAI], key: .authAI) {
+                authAIRevision &+= 1
+            }
+            values = loaded
             seedMirrorsIfNeeded()
         } catch {
             logger.error("设置加载失败: \(error)")
@@ -89,8 +102,33 @@ final class AppSettingsStore {
                 return
             }
         }
+        mutationRevision &+= 1
+        if key == .authAI {
+            // Revoke before suspension; grants become visible only after persistence succeeds.
+            authAIRevision &+= 1
+            authorizationWrites += 1
+            if value == "false" {
+                deniedAIUntilGrant = true
+                values[key] = "false"
+            }
+        }
+        defer { if key == .authAI { authorizationWrites -= 1 } }
+        let authorizationRevision = authAIRevision
         do {
-            try await store.set(value, for: key)
+            if key == .authAI {
+                let preceding = authorizationWriteTask
+                let store = self.store
+                let work = Task {
+                    if let preceding { do { try await preceding.value } catch { /* A later intent may retry. */ } }
+                    try await store.set(value, for: key)
+                }
+                authorizationWriteTask = work
+                try await work.value
+            } else {
+                try await store.set(value, for: key)
+            }
+            if key == .authAI, authorizationRevision != authAIRevision { return }
+            if key == .authAI, value == "true" { deniedAIUntilGrant = false }
             // 第七轮全仓审查修复（TOCTOU）：await 期间 MainActor 可重入，
             // 关怀模式可能在写入间隙被切走——写入后按运行时真源复核，
             // 非法则回滚为默认值（默认 ask 恒可设），保证「非法组合不落盘」
@@ -139,8 +177,24 @@ final class AppSettingsStore {
     }
 
     func restoreDefaults() async {
-        do {
+        mutationRevision &+= 1
+        authAIRevision &+= 1
+        deniedAIUntilGrant = true
+        values[.authAI] = "false"
+        authorizationWrites += 1
+        let authorizationRevision = authAIRevision
+        let preceding = authorizationWriteTask
+        let store = self.store
+        let work = Task {
+            if let preceding { do { try await preceding.value } catch { /* Restore explicitly replaces previous settings. */ } }
             try await store.restoreDefaults()
+        }
+        authorizationWriteTask = work
+        do {
+            try await work.value
+            authorizationWrites -= 1
+            guard authorizationRevision == authAIRevision else { return }
+            deniedAIUntilGrant = false
             // 审查修复：运行时镜像同步重置——原只清 DB，careMode 仍为 true
             // 而开关显示关闭（首页仍是关怀版式，设置页却关着）
             UserDefaults.standard.removeObject(forKey: AppSettingKey.readBackOptIn.rawValue)
@@ -155,6 +209,7 @@ final class AppSettingsStore {
             L10n.setLanguage(AppSettingKey.language.defaultValue)
             await load()
         } catch {
+            authorizationWrites -= 1
             logger.error("恢复默认失败: \(error)")
         }
     }

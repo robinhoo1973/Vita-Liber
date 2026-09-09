@@ -305,11 +305,16 @@ struct DocumentDetailRouteView: View {
     @Environment(DocumentsState.self) private var documentsState
     @State private var storeRow: DocumentStore.DocumentRow?
     @State private var lookupDone = false
+    @State private var lookupFailed = false
 
     var body: some View {
         Group {
             if let storeRow {
                 DocumentStoreDetailView(doc: storeRow)
+            } else if lookupFailed {
+                ContentUnavailableView {
+                    Label(L10n.sensitiveMedia_loadFailed, systemImage: "exclamationmark.triangle")
+                } actions: { Button(L10n.retry) { Task { await loadDocument() } } }
             } else if lookupDone {
                 // 审查修复：原错用趋势页文案「趋势范围不可用」——补专用文案
                 // 第七轮修复：§5.48 契约——查无实体（已删除）自弹回根
@@ -319,11 +324,18 @@ struct DocumentDetailRouteView: View {
                     .autoPop(route: .documentDetail(documentId))
             } else {
                 ProgressView()
-                    .task {
-                        storeRow = await documentsState.fetch(id: documentId)
-                        lookupDone = true
-                    }
             }
         }
+        .task(id: "\(documentId)-\(documentsState.pendingVersion)") { await loadDocument() }
+    }
+
+    private func loadDocument() async {
+        lookupFailed = false
+        do {
+            let row = try await documentsState.documentStore.fetch(id: documentId)
+            guard !Task.isCancelled else { return }
+            storeRow = row
+        } catch { lookupFailed = true }
+        lookupDone = true
     }
 }

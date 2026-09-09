@@ -147,6 +147,7 @@ public actor GRDBM1aPersistor: M1aPersisting {
             // plan_lifecycle_event——剂量日志存在时 DELETE medication_plan 外键
             // 违约、整事务回滚，UI 测试清态在脏数据上静默失效。
             let ordered = [
+                "ocr_card_commit", "hk_pending_batch", "hk_projection_state",
                 // 最末级子表（不被他表引用，或被更末级引用）
                 "ai_message", "dose_lot_allocation", "notification_delivery",
                 "medication_dose_log", "plan_lifecycle_event", "stock_lot",

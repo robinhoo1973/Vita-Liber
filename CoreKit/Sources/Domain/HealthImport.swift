@@ -19,9 +19,13 @@ public struct HealthSampleReference: Sendable, Equatable, Codable {
         self.id = id; self.kind = kind; self.sourceID = sourceID
         self.start = start; self.end = end
     }
+
+    public var isValid: Bool {
+        !sourceID.isEmpty && HealthImportWindow.validDates(start: start, end: end)
+    }
 }
 
-public struct HealthChangeBatch: Sendable {
+public struct HealthChangeBatch: Sendable, Equatable, Codable {
     public let added: [HealthSampleReference]
     public let deleted: [UUID]
     public let anchor: Data
@@ -36,7 +40,7 @@ public extension HealthDataKind {
     var isAggregated: Bool { [.heartRate, .steps, .sleep].contains(self) }
 }
 
-public struct HealthImportWindow: Sendable, Hashable {
+public struct HealthImportWindow: Sendable, Hashable, Codable {
     public let kind: HealthDataKind
     public let start: Date
     public let end: Date
@@ -47,6 +51,20 @@ public struct HealthImportWindow: Sendable, Hashable {
     public var identityPrefix: String { kind.isAggregated ? prefix : "hk:\(kind.rawValue):" }
     public init(kind: HealthDataKind, start: Date, end: Date) {
         self.kind = kind; self.start = start; self.end = end
+    }
+
+    public var isValid: Bool { Self.validDates(start: start, end: end) && end > start }
+
+    fileprivate static func validDates(start: Date, end: Date) -> Bool {
+        let lower = start.timeIntervalSince1970
+        let upper = end.timeIntervalSince1970
+        return lower.isFinite && upper.isFinite && end >= start
+            && lower >= Double(Int64.min) && upper < Double(Int64.max)
+    }
+
+    /// Matches HealthKit's default sample predicate, including a sample ending at the lower boundary.
+    public func overlaps(_ sample: HealthSampleReference) -> Bool {
+        sample.kind == kind && sample.end >= start && sample.start < end
     }
 
     /// Stable identity of one discrete reading (`ordinal` distinguishes entries of a quantity series).
@@ -61,21 +79,27 @@ public struct HealthImportWindow: Sendable, Hashable {
         let head = "hk:\(kind.rawValue):"
         guard identity.hasPrefix(head) else { return nil }
         let rest = identity.dropFirst(head.count)
-        let uuidPart = rest.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false).first ?? ""
-        return UUID(uuidString: String(uuidPart))
+        let parts = rest.split(separator: ":", omittingEmptySubsequences: false)
+        guard parts.count == 1 || parts.count == 2,
+              let id = UUID(uuidString: String(parts[0])) else { return nil }
+        if parts.count == 2 {
+            guard let ordinal = Int(parts[1]), ordinal >= 0 else { return nil }
+        }
+        return id
     }
 
     /// Whether a projected row belongs to this window: aggregate rows by prefix, discrete rows by
     /// identity prefix plus half-open `measuredAt` membership.
     public func contains(sourceRef: String, measuredAt: Date) -> Bool {
-        guard sourceRef.hasPrefix(identityPrefix) else { return false }
-        if kind.isAggregated { return true }
-        return measuredAt >= start && measuredAt < end
+        guard isValid, measuredAt.timeIntervalSince1970.isFinite,
+              sourceRef.hasPrefix(identityPrefix) else { return false }
+        if kind.isAggregated { return measuredAt == start }
+        return Self.sampleID(fromIdentity: sourceRef, kind: kind) != nil
+            && measuredAt >= start && measuredAt < end
     }
 
     public static func covering(_ sample: HealthSampleReference, calendar: Calendar) -> [Self] {
-        guard sample.start.timeIntervalSince1970.isFinite, sample.end.timeIntervalSince1970.isFinite,
-              sample.end >= sample.start else { return [] }
+        guard sample.isValid else { return [] }
         var result: [Self] = []
         // Steps/sleep intervals end exclusively on a boundary; a heart-rate series may carry its last
         // instantaneous entry exactly at `end`, so that hour must be covered too (closed end).
@@ -85,21 +109,22 @@ public struct HealthImportWindow: Sendable, Hashable {
             let start: Date
             let end: Date
             if sample.kind == .heartRate {
-                guard let interval = calendar.dateInterval(of: .hour, for: cursor) else { break }
+                guard let interval = calendar.dateInterval(of: .hour, for: cursor) else { return [] }
                 start = interval.start; end = interval.end
             } else if sample.kind == .sleep {
                 guard let noon = calendar.date(bySettingHour: 12, minute: 0, second: 0, of: cursor),
-                      let previous = calendar.date(byAdding: .day, value: -1, to: noon) else { break }
+                      let previous = calendar.date(byAdding: .day, value: -1, to: noon) else { return [] }
                 start = cursor < noon ? previous : noon
-                guard let next = calendar.date(byAdding: .day, value: 1, to: start) else { break }
+                guard let next = calendar.date(byAdding: .day, value: 1, to: start) else { return [] }
                 end = next
             } else {
                 start = calendar.startOfDay(for: cursor)
-                guard let next = calendar.date(byAdding: .day, value: 1, to: start) else { break }
+                guard let next = calendar.date(byAdding: .day, value: 1, to: start) else { return [] }
                 end = next
             }
-            guard end > cursor else { break }
-            result.append(Self(kind: sample.kind, start: start, end: end))
+            let window = Self(kind: sample.kind, start: start, end: end)
+            guard window.isValid, end > cursor else { return [] }
+            result.append(window)
             cursor = end
         } while cursor < sample.end || (!isInterval && cursor == sample.end)
         return result

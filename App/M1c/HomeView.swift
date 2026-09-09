@@ -148,7 +148,7 @@ struct HomeView: View {
                 .environment(docs)
                 .environment(router)
         }
-        .task(id: "\(app.currentPatientId)-\(dataChange.alertsVersion)") { await load() }
+        .task(id: "\(app.currentPatientId)-\(dataChange.alertsVersion)-\(docs.pendingVersion)") { await load() }
     }
 
     // MARK: - 标准布局：统一提醒聚合中心
@@ -160,6 +160,8 @@ struct HomeView: View {
         let items = ReminderAggregationCenter.filtered(snap, kind: filterKind)
         return ScrollView {
             VStack(spacing: 16) {
+                pendingImportRecovery
+                pendingLoadFailure
                 if isNewUser && snap.isEmpty {
                     newUserGuide
                 } else {
@@ -472,6 +474,8 @@ struct HomeView: View {
     private var careModeHome: some View {
         ScrollView {
             VStack(spacing: 20) {
+                pendingImportRecovery
+                pendingLoadFailure
                 // FR18.5 极简导航：四大卡（今日服药/续药/拍摄记录/呼救）
                 BigCareCard(icon: "pills.fill", title: L10n.homeCareMeds, tint: .blue) {
                     router.navigate(to: .reminderToday)
@@ -501,6 +505,36 @@ struct HomeView: View {
     }
 
     // MARK: - 数据加载
+
+    @ViewBuilder private var pendingImportRecovery: some View {
+        if let session = docs.activeImport {
+            Button { showQuickCapture = true } label: {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label(L10n.pendingCardResume, systemImage: "doc.text.viewfinder")
+                    Text(app.members.first { $0.id == session.patientId }?.displayName ?? session.patientId.uuidString)
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            }
+            .buttonStyle(.bordered)
+            .accessibilityIdentifier("OCR.home.resumeImport")
+        } else if !docs.queuedImports.isEmpty {
+            Button(L10n.pendingCardResume) { router.navigate(to: .documentList) }
+                .buttonStyle(.bordered)
+        }
+    }
+
+    @ViewBuilder private var pendingLoadFailure: some View {
+        if pendingCenter.loadError != nil {
+            HStack {
+                Label(L10n.docImportFailed, systemImage: "exclamationmark.triangle")
+                Spacer()
+                Button(L10n.retry) { Task { await pendingCenter.load(patientId: app.currentPatientId) } }
+                    .frame(minHeight: 44)
+            }
+            .font(.footnote)
+        }
+    }
 
     private var headerTitle: String {
         let name = app.members.first(where: { $0.id == app.currentPatientId })?.displayName
@@ -625,57 +659,63 @@ struct MemberPickerSheet: View {
     }
 }
 
-/// FR6.9 待办卡详情（期一）：缺失字段清单 + 已识别字段快照 + 识别原文
-/// （用户本人的 D 级草稿，仅详情可见；BR-003——不参与事实链/搜索/AI/导出）。
-/// 期一无 LLM 补全：「已补全」= 用户已另行重新识别/手动补录后手动完结，
-/// resolve 后卡从待办队列移除（raw_text 随行保留，BR-002 不丢内容）。
+/// Pending detail owns its lookup; another route cannot replace its action target.
 private struct PendingCardDetailSheet: View {
     let item: AggregatedReminderItem
     @Environment(PendingCardCenterState.self) private var pendingCenter
     @Environment(DocumentsState.self) private var docs
     @Environment(AppState.self) private var app
-    @Environment(AppRouter.self) private var router
     @Environment(\.dismiss) private var dismiss
-    /// FR6.9 V3.61 续确认：同一实体卡视图（.resume 模式）预填后逐字段确认 → 落库 → resolved
     @State private var resuming = false
     @State private var showDiscard = false
+    @State private var showSource = false
+    @State private var detail: PendingCard?
+    @State private var loaded = false
+    @State private var loadFailed = false
+    @State private var discardFailed = false
+    @State private var discarding = false
 
     var body: some View {
         List {
-            if let detail = pendingCenter.detail {
+            if let detail {
+                Section {
+                    OCRReviewOwnerRow(patientId: detail.patientId)
+                    GradeBadge(grade: "D")
+                }
                 if !detail.incompleteFields.isEmpty {
                     Section(L10n.docConfirmSkipTitle) {
-                        ForEach(detail.incompleteFields, id: \.key) { field in
+                        ForEach(Array(detail.incompleteFields.enumerated()), id: \.offset) { _, field in
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(field.label ?? DocumentsState.fieldLabel(forKey: field.key))
                                     .font(.subheadline)
-                                if let reason = field.reason {
-                                    Text(reason).font(.caption).foregroundStyle(.secondary)
-                                }
+                                Text(L10n.docConfirmHint).font(.caption).foregroundStyle(.secondary)
                             }
                         }
                     }
                 }
                 if !detail.partialData.shared.isEmpty || !detail.partialData.rows.isEmpty {
                     Section(L10n.docConfirmSkipSaved) {
-                        ForEach(detail.partialData.shared.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(DocumentsState.fieldLabel(forKey: key))
-                                    .font(.caption).foregroundStyle(.secondary)
-                                Text(value).font(.subheadline)
+                        if let snapshot = detail.partialData.card {
+                            ForEach(snapshot.shared.indices.filter { snapshot.shared[$0].key != "metric_key" }, id: \.self) { index in
+                                pendingField(snapshot.shared[index])
                             }
-                        }
-                        // V3.99 每类一卡多行：逐行快照（只显示已识别字段）
-                        ForEach(Array(detail.partialData.rows.enumerated()), id: \.offset) { index, row in
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(L10n.entityCardRowIndex(index + 1))
-                                    .font(.caption2).foregroundStyle(.tertiary)
-                                ForEach(row.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
-                                    HStack {
-                                        Text(DocumentsState.fieldLabel(forKey: key))
-                                            .font(.caption).foregroundStyle(.secondary)
-                                        Spacer()
-                                        Text(value).font(.subheadline)
+                            ForEach(Array(snapshot.rows.enumerated()), id: \.element.id) { index, row in
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(L10n.entityCardRowIndex(index + 1)).font(.caption)
+                                    ForEach(row.fields.indices.filter { row.fields[$0].key != "metric_key" }, id: \.self) { field in
+                                        pendingField(row.fields[field])
+                                    }
+                                }
+                            }
+                        } else {
+                            ForEach(detail.partialData.shared.filter { $0.key != "metric_key" }.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
+                                LabeledContent(DocumentsState.fieldLabel(forKey: key), value: value)
+                            }
+                            ForEach(Array(detail.partialData.rows.enumerated()), id: \.offset) { index, row in
+                                VStack(alignment: .leading) {
+                                    Text(L10n.entityCardRowIndex(index + 1)).font(.caption)
+                                    ForEach(row.filter { $0.key != "metric_key" }.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
+                                        LabeledContent(DocumentsState.fieldLabel(forKey: key), value: value)
                                     }
                                 }
                             }
@@ -689,16 +729,20 @@ private struct PendingCardDetailSheet: View {
                         Text(L10n.pendingCardRawText)
                     }
                 }
-            }
+            } else if loadFailed {
+                Label(L10n.docImportFailed, systemImage: "exclamationmark.triangle")
+                Button(L10n.retry) { Task { await loadDetail() } }
+            } else if loaded {
+                Text(L10n.pendingCardNotFound)
+            } else { ProgressView() }
         }
         .navigationTitle(item.title)
         .navigationBarTitleDisplayMode(.inline)
         .task(id: item.id.sourceId) {
-            await pendingCenter.loadDetail(id: item.id.sourceId)
+            await loadDetail()
         }
         .safeAreaInset(edge: .bottom) {
-            // V3.61 续确认三动作（§21.2 完结纪律：resolved = 用户确认并创建对应实体）
-            if let detail = pendingCenter.detail, detail.sourceDocId != nil {
+            if let detail {
                 VStack(spacing: 8) {
                     Button {
                         resuming = true
@@ -710,13 +754,13 @@ private struct PendingCardDetailSheet: View {
                     .accessibilityIdentifier("SP-04.home.pendingCard.resume")
                     HStack(spacing: 12) {
                         Button {
-                            dismiss()
-                            if let docId = detail.sourceDocId { router.navigate(to: .documentDetail(docId)) }
+                            showSource = true
                         } label: {
                             Label(L10n.pendingCardViewSource, systemImage: "doc.text.magnifyingglass")
                                 .frame(maxWidth: .infinity, minHeight: 44)
                         }
                         .buttonStyle(.bordered)
+                        .disabled(detail.sourceDocId == nil || detail.sourcePage == nil)
                         .accessibilityIdentifier("SP-04.home.pendingCard.viewSource")
                         Button(role: .destructive) {
                             showDiscard = true
@@ -725,42 +769,71 @@ private struct PendingCardDetailSheet: View {
                                 .frame(maxWidth: .infinity, minHeight: 44)
                         }
                         .buttonStyle(.bordered)
+                        .disabled(docs.retainedImport(for: detail) != nil)
                         .accessibilityIdentifier("SP-04.home.pendingCard.discard")
                     }
                 }
                 .padding(16)
                 .background(.bar)
+                .disabled(discarding)
             }
         }
         .sheet(isPresented: $resuming, onDismiss: {
             pendingCenter.refresh(patientId: app.currentPatientId)
-            // 已完结即关闭详情（卡不再在队列）
             Task {
-                await pendingCenter.loadDetail(id: item.id.sourceId)
-                if pendingCenter.detail?.status == "resolved" { dismiss() }
+                await loadDetail()
+                if detail?.status == "resolved" { dismiss() }
             }
         }) {
-            PendingCardResumeRouteView(cardId: item.id.sourceId)
-                .environment(docs).environment(pendingCenter).environment(app)
+            NavigationStack { PendingCardResumeRouteView(cardId: item.id.sourceId) }
+        }
+        .sheet(isPresented: $showSource) {
+            if let detail, let documentID = detail.sourceDocId, let page = detail.sourcePage {
+                DocumentSourcePageView(documentId: documentID, patientId: detail.patientId, pageIndex: page)
+            }
         }
         .confirmationDialog(L10n.pendingCardDiscard, isPresented: $showDiscard, titleVisibility: .visible) {
             Button(L10n.pendingCardDiscard, role: .destructive) {
-                guard let detail = pendingCenter.detail else { return }
+                guard let detail else { return }
+                discarding = true
                 Task {
-                    await docs.discardPendingCard(detail)
+                    let discarded = await docs.discardPendingCard(detail)
+                    discarding = false
                     pendingCenter.refresh(patientId: app.currentPatientId)
-                    dismiss()
+                    if discarded { dismiss() } else { discardFailed = true }
                 }
             }
             Button(L10n.commonCancel, role: .cancel) {}
         }
+        .alert(L10n.docConfirmSaveFailedTitle, isPresented: $discardFailed) {
+            Button(L10n.onboard_gotIt, role: .cancel) {}
+        } message: { Text(detail.flatMap { docs.pendingReviews[$0.id]?.notificationError } ?? L10n.entityCardSaveFailed) }
+        .interactiveDismissDisabled(discarding)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button(L10n.onboard_gotIt) {
                     dismiss()
                 }
+                .disabled(discarding)
                 .accessibilityIdentifier("SP-04.home.pendingCard.close")
             }
+        }
+    }
+
+    private func loadDetail() async {
+        loaded = false; loadFailed = false
+        do {
+            let fetched = try await docs.loadPendingCard(id: item.id.sourceId)
+            guard !Task.isCancelled else { return }
+            detail = fetched
+        } catch { loadFailed = true; detail = nil }
+        loaded = true
+    }
+
+    private func pendingField(_ field: FieldDraft) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(DocumentsState.fieldLabel(forKey: field.key)).font(.caption).foregroundStyle(.secondary)
+            Text(field.value).strikethrough(field.grade == .rejected)
         }
     }
 }

@@ -366,4 +366,38 @@ struct HealthSyncDomainTests {
         #expect(hour.identityPrefix == hour.prefix)
         #expect(day.identityPrefix == "hk:bloodOxygen:")
     }
+
+    @Test("Invalid health intervals never reach integer window identities")
+    func invalidHealthIntervals() {
+        for value in [Double.nan, .infinity, -.infinity, 1e30] {
+            let ref = HealthSampleReference(id: UUID(), kind: .heartRate, sourceID: "watch",
+                start: date(9, 8), end: Date(timeIntervalSince1970: value))
+            #expect(!ref.isValid)
+            #expect(HealthImportWindow.covering(ref, calendar: calendar).isEmpty)
+        }
+    }
+
+    @Test("Discrete series ending at midnight includes the endpoint day")
+    func discreteSeriesMidnightBoundary() {
+        let ref = HealthSampleReference(id: UUID(), kind: .bloodOxygen, sourceID: "watch",
+            start: date(9, 23, 59), end: date(10, 0))
+        #expect(HealthImportWindow.covering(ref, calendar: calendar).map(\.start) == [date(9, 0), date(10, 0)])
+    }
+
+    @Test("Malformed series ordinals do not masquerade as a sample identity")
+    func malformedSeriesIdentity() {
+        let id = UUID()
+        for suffix in [":-1", ":abc", ":1:2", ":"] {
+            #expect(HealthImportWindow.sampleID(fromIdentity: "hk:bloodOxygen:\(id.uuidString)\(suffix)", kind: .bloodOxygen) == nil)
+        }
+    }
+
+    @Test("Subsecond reversed intervals are invalid even if their persisted epoch values round together")
+    func subsecondReversedInterval() {
+        let end = Date(timeIntervalSinceReferenceDate: 721_699_200)
+        let start = Date(timeIntervalSinceReferenceDate: 721_699_200 + 0.0000001)
+        let ref = HealthSampleReference(id: UUID(), kind: .heartRate, sourceID: "watch", start: start, end: end)
+        #expect(!ref.isValid)
+        #expect(HealthImportWindow.covering(ref, calendar: calendar).isEmpty)
+    }
 }

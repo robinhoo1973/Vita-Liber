@@ -11,6 +11,74 @@ struct EntityCardProjectionTests {
         var c = Calendar(identifier: .gregorian); c.timeZone = TimeZone(identifier: "UTC")!; return c
     }
 
+    private func reviewed(_ card: MatchedCard) -> MatchedCard {
+        var result = card
+        for i in result.shared.indices { _ = result.shared[i].confirm() }
+        for r in result.rows.indices {
+            for f in result.rows[r].fields.indices { _ = result.rows[r].fields[f].confirm() }
+        }
+        return result
+    }
+
+    private func laboratoryCard() -> MatchedCard {
+        MatchedCard(kind: "metric_sample", pageIndex: 0,
+                    shared: [FieldDraft(key: "measured_at", value: "2026-09-01")],
+                    rows: [MatchedCardRow(fields: [FieldDraft(key: "raw_label", value: "A"),
+                        FieldDraft(key: "value", value: "12"), FieldDraft(key: "unit", value: "g/L")])],
+                    allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete)
+    }
+
+    @Test func unreviewedFieldsNeverProjectAsFacts() {
+        #expect(EntityCardProjection.hospitalSamples(from: laboratoryCard(), calendar: utc).samples.isEmpty)
+    }
+
+    @Test func currentValuesOverrideStaleMissingFlags() {
+        var card = reviewed(laboratoryCard())
+        card.rows[0].missingRequired = ["unit"]
+        #expect(EntityCardProjection.hospitalSamples(from: card, calendar: utc).samples.count == 1)
+    }
+
+    @Test func codingRequiresExplicitCurrentApproval() {
+        var card = reviewed(laboratoryCard())
+        let code = CodeResolution(conceptId: "c-a", canonicalCode: "123-4", codingSystem: .loinc,
+                                  displayZhHans: "A", displayEn: "A", kind: .metric,
+                                  canonicalUnit: "g/L", matchedVia: .curated, confidence: 1)
+        card.rows[0].fields[0].codeResolution = code
+        card.rows[0].fields.append(FieldDraft(key: "metric_key", value: "code.stale"))
+        #expect(EntityCardProjection.hospitalSamples(from: card, calendar: utc).samples.first?.metricKey == "lab.A")
+        let approved = card.rows[0].fields[0].approveCode(unit: "g/L")
+        #expect(approved)
+        #expect(EntityCardProjection.hospitalSamples(from: card, calendar: utc).samples.first?.codeConceptId == "c-a")
+        card.rows[0].fields[2].value = "mg/L"
+        _ = card.rows[0].fields[2].confirm()
+        #expect(EntityCardProjection.hospitalSamples(from: card, calendar: utc).samples.first?.metricKey == "lab.A")
+        card.rows[0].fields[0].value = "B"
+        _ = card.rows[0].fields[0].confirm()
+        #expect(card.rows[0].fields[0].codeResolution == nil)
+        #expect(EntityCardProjection.hospitalSamples(from: card, calendar: utc).samples.first?.metricKey == "lab.B")
+    }
+
+    @Test(arguments: [("inf", "20"), ("20", "10"), ("abc", "20")])
+    func invalidReferenceBoundsRemainDrafts(low: String, high: String) {
+        var card = laboratoryCard()
+        card.rows[0].fields += [FieldDraft(key: "ref_low", value: low), FieldDraft(key: "ref_high", value: high)]
+        #expect(EntityCardProjection.hospitalSamples(from: reviewed(card), calendar: utc).samples.isEmpty)
+    }
+
+    @Test func prescriptionDateAndAdviceArePreservedAndInvalidDateRejected() {
+        var card = MatchedCard(kind: "prescription", pageIndex: 0,
+            shared: [FieldDraft(key: "prescribed_at", value: "2020-01-02"),
+                     FieldDraft(key: "advice_text", value: "Original reviewed advice")],
+            rows: [MatchedCardRow(fields: [FieldDraft(key: "drug_name", value: "Drug A")])],
+            allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete)
+        let intent = EntityCardProjection.prescriptionIntent(from: reviewed(card))
+        #expect(intent?.adviceText.contains("Original reviewed advice") == true)
+        #expect(intent?.adviceText.contains("Drug A") == true)
+        #expect(intent?.prescribedAt != nil)
+        card.shared[0].value = "not a date"
+        #expect(EntityCardProjection.prescriptionIntent(from: reviewed(card)) == nil)
+    }
+
     @Test func OCR日期三种写法解析到当日零点() {
         let expected = utc.date(from: DateComponents(year: 2026, month: 9, day: 1))!
         for text in ["2026-09-01", "2026/9/1", "2026年9月1日", "日期：2026-09-01"] {
@@ -31,7 +99,7 @@ struct EntityCardProjectionTests {
                    MatchedCardRow(fields: [FieldDraft(key: "raw_label", value: "坏值"), FieldDraft(key: "metric_key", value: "lab.坏值"),
                                            FieldDraft(key: "value", value: "abc"), FieldDraft(key: "unit", value: "x")])],
             allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete)
-        let projection = EntityCardProjection.hospitalSamples(from: card, calendar: utc)
+        let projection = EntityCardProjection.hospitalSamples(from: reviewed(card), calendar: utc)
         #expect(projection.samples.count == 1)
         #expect(projection.skippedRows == 2, "缺单位行与非数值行都跳过，不阻断其他行")
         let sample = projection.samples[0]
@@ -60,7 +128,7 @@ struct EntityCardProjectionTests {
                      FieldDraft(key: "department", value: "心内科"), FieldDraft(key: "diagnosis_text", value: "高血压 2 级"),
                      FieldDraft(key: "advice_text", value: "低盐饮食")],
             rows: [MatchedCardRow(fields: [])], allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete)
-        let draft = EntityCardProjection.encounterDraft(from: card, patientId: patient, calendar: utc)
+        let draft = EntityCardProjection.encounterDraft(from: reviewed(card), patientId: patient, calendar: utc)
         #expect(draft?.patientId == patient)
         #expect(draft?.kind == EncounterKind.outpatient.rawValue)
         #expect(draft?.department == "心内科")
@@ -79,7 +147,7 @@ struct EntityCardProjectionTests {
             rows: [MatchedCardRow(fields: [FieldDraft(key: "drug_name", value: "阿莫西林胶囊")]),
                    MatchedCardRow(fields: [FieldDraft(key: "drug_name", value: "布洛芬")])],
             allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete)
-        let intent = EntityCardProjection.prescriptionIntent(from: card)
+        let intent = EntityCardProjection.prescriptionIntent(from: reviewed(card))
         #expect(intent?.hospital == "市一医院")
         #expect(intent?.doctor == "张医生")
         #expect(intent?.adviceText == "阿莫西林胶囊\n布洛芬")

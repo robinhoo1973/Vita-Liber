@@ -8,6 +8,29 @@ import Testing
 /// 纯 Domain，Linux 可跑。
 @Suite("SU-M2-PENDINGCARD · 卡模板双阈值匹配（FR6.9 V3.61）")
 struct CardTemplateMatcherTests {
+    @Test(arguments: ["", "  \n "])
+    func emptyFieldsDoNotSatisfyRequiredCoverage(_ value: String) {
+        let fields = [FieldDraft(key: "report_date", value: value),
+                      FieldDraft(key: "lab_item", value: "Hb 150", unit: "g/L")]
+        #expect(CardTemplateMatcher.match(fields: fields, pageIndex: 0,
+                                          documentTypeKey: "lab_report").isEmpty)
+    }
+
+    @Test func ambiguousSameTextRangesAreNotAssignedToEveryRow() {
+        let raw = "A 1 g/L 0-2 B 3 g/L 2-4"
+        let fields = [FieldDraft(key: "report_date", value: "2026-09-01"),
+                      FieldDraft(key: "lab_item", value: "A 1", unit: "g/L", rawText: raw),
+                      FieldDraft(key: "lab_item", value: "B 3", unit: "g/L", rawText: raw),
+                      FieldDraft(key: "reference_range", value: "0-2", rawText: raw),
+                      FieldDraft(key: "reference_range", value: "2-4", rawText: raw)]
+        let card = CardTemplateMatcher.match(fields: fields, pageIndex: 0,
+                                             documentTypeKey: "lab_report").first
+        #expect(card?.rows.count == 2)
+        #expect(card?.rows.allSatisfy { row in
+            !row.fields.contains { $0.key == "ref_low" || $0.key == "ref_high" }
+        } == true)
+    }
+
 
     private func labItem(_ name: String, _ value: String, unit: String? = "g/L", raw: String? = nil) -> FieldDraft {
         FieldDraft(key: "lab_item", value: "\(name) \(value)", unit: unit, confidence: 0.6,
@@ -141,5 +164,21 @@ struct CardTemplateMatcherTests {
     func 阈值常量() {
         #expect(CardMatchThresholds.allFields == 0.5)
         #expect(CardMatchThresholds.requiredFields == 0.8)
+    }
+
+    @Test func hospitalAndSameTextDateSurviveCompanionMatching() {
+        let raw = "Report 2026-09-01 A 12 g/L"
+        let fields = [FieldDraft(key: "report_date", value: "2026-09-01", rawText: raw),
+                      FieldDraft(key: "hospital", value: "Hospital", rawText: raw),
+                      FieldDraft(key: "lab_item", value: "A 12", unit: "g/L", rawText: raw)]
+        let card = CardTemplateMatcher.match(fields: fields, pageIndex: 0, documentTypeKey: "lab_report").first
+        #expect(card?.shared.contains { $0.key == "hospital" && $0.value == "Hospital" } == true)
+        #expect(card?.allFieldCoverage == 5.0 / 8.0)
+    }
+
+    @Test func signedRangesAreParsedAndReversedOrInfiniteRangesAreRejected() {
+        #expect(CardTemplateMatcher.referenceBounds("-2 - 2")?.0 == "-2")
+        #expect(CardTemplateMatcher.referenceBounds("2-1") == nil)
+        #expect(CardTemplateMatcher.referenceBounds("1-1e999") == nil)
     }
 }

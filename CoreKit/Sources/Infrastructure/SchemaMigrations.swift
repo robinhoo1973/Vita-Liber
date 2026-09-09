@@ -382,6 +382,32 @@ public enum SchemaMigrations {
              CREATE INDEX IF NOT EXISTS idx_document_page_doc ON document_page(document_file_id, page_index);
              ALTER TABLE pending_card ADD COLUMN source_page INTEGER;
              """),
+        Step(version: 22, name: "review-integrity-checkpoints",
+             sql: """
+             CREATE TABLE IF NOT EXISTS hk_pending_batch (
+               binding_id TEXT NOT NULL REFERENCES hk_import_binding(id) ON DELETE CASCADE,
+               type_key TEXT NOT NULL,
+               payload_json TEXT NOT NULL,
+               PRIMARY KEY(binding_id, type_key));
+             CREATE TABLE IF NOT EXISTS hk_projection_state (
+               binding_id TEXT NOT NULL REFERENCES hk_import_binding(id) ON DELETE CASCADE,
+               metric_id TEXT NOT NULL REFERENCES metric_sample(id) ON DELETE CASCADE,
+               PRIMARY KEY(binding_id, metric_id));
+             CREATE INDEX IF NOT EXISTS idx_hk_projection_metric ON hk_projection_state(metric_id);
+             CREATE TABLE IF NOT EXISTS ocr_card_commit (
+               card_id TEXT NOT NULL,
+               row_id TEXT NOT NULL,
+               patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+               document_file_id TEXT NOT NULL REFERENCES document_file(id),
+               page_index INTEGER NOT NULL CHECK(page_index >= 0),
+               card_kind TEXT NOT NULL CHECK(card_kind IN ('metric_sample','encounter','prescription')),
+               entity_id TEXT NOT NULL,
+               created_at REAL NOT NULL,
+               PRIMARY KEY(card_id, row_id),
+               FOREIGN KEY(document_file_id, page_index) REFERENCES document_page(document_file_id, page_index));
+             CREATE INDEX IF NOT EXISTS idx_ocr_card_commit_source ON ocr_card_commit(document_file_id, page_index, card_kind);
+             CREATE INDEX IF NOT EXISTS idx_ocr_card_commit_entity ON ocr_card_commit(card_kind, entity_id, patient_id);
+             """),
     ]
 
     /// 全新库建库后应落到的版本号

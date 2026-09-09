@@ -6,371 +6,318 @@ import AVFoundation
 import Domain
 import Infrastructure
 
-/// SP-11 快速拍摄（📷 单入口；`kind == nil` = 不前置指定类型，识别后由理解层判定，
-/// FR5.5/FR6.2 V3.61；旧路由仍可携带类型作提示输入）。
-///
-/// TestFlight 实测修复记录：
-/// 1. 三来源（拍照 / 相册 / 文件）——业界标准（备忘录「扫描文稿」、医疗文档
-///    采集类 app）：单一入口内给全来源，文件支持 PDF/图片/Word（Word 走
-///    元数据归档，文本解析待 FilesStore 接齐）。
-/// 2. 无相机设备（模拟器等）时隐藏拍照按钮并给出可见说明——此前 CameraPicker
-///    直接设 sourceType = .camera 在无相机设备上崩溃（「黄三角出错」实测来源）。
-/// 3. 首页发起时以 sheet 呈现（HomeView 处理）——拍摄完回首页，不进 Tab 栈，
-///    修复「返回落到健康档案页 + path 残留套娃」。
-///
-/// 拍摄后经 DocumentsState 走与资料库完全相同的生产管线：
-/// SHA-256 去重 + OCR 文本随 meta 入库（FR5.6/FR6.1），同路径同语义。
+/// Camera, photos and files all finish in the same retained import review session.
 struct QuickCaptureView: View {
     let kind: CaptureKind?
-
+    var patientId: UUID? = nil
     @Environment(AppState.self) private var app
     @Environment(DocumentsState.self) private var docs
-    @Environment(AppRouter.self) private var router
     @Environment(\.dismiss) private var dismiss
-
-    @State private var showCamera = false
-    /// FR5.2 四角选区+透视矫正（拍摄/相册/文件图片共用）：待选区的原始图片。
-    @State private var pendingRegionImage: UIImage?
-    /// 原始字节（BR-002 原件保真——第四轮全仓审查修复：原相册/文件来源读到的
-    /// 原始 Data 被丢弃，落盘的「原件」是 0.9 质量 JPEG 重编码，校验值/内容
-    /// 均与源文件不符；相机无源字节时用 1.0 质量编码兜底）
-    @State private var pendingRegionOriginalData: Data?
-    @State private var regionOrigin = "import"
-    /// 相机来源需要选区后再走遮挡步骤（FR5.4）；相册/文件图片没有遮挡步骤。
-    @State private var regionNeedsOcclusion = false
-    @State private var showRegionEditor = false
-    /// FR5.4 遮挡编辑原图（入库前步骤；UIImage 非 Identifiable，sheet 用布尔呈现）
-    @State private var pendingOcclusionImage: UIImage?
-    /// 遮挡前的原始帧（未矫正/未遮挡，BR-002）——与遮挡后的展示版一同落盘。
-    @State private var pendingOcclusionOriginal: UIImage?
-    @State private var pendingOcclusionOriginalData: Data?
-    @State private var showOcclusion = false
-    @State private var pickedItem: PhotosPickerItem?
-    @State private var fileImporterActive = false
-    /// 单一告警入口（审查修复：双 .alert 同节点时 SwiftUI 只呈现最后一个，
-    /// 「导入失败」会被「已保存」吞掉——统一为枚举单 alert）
-    @State private var activeAlert: CaptureAlert?
-    enum CaptureAlert: String, Identifiable {
-        case saved
-        case importFailed
-        /// PDF 已存档但部分页识别失败（FR6.6 非阻断可见）
-        case pdfPartial
-        var id: String { rawValue }
-    }
-    /// 重复裁决「已作出选择」标记（第五轮全仓审查修复）：sheet 保存按钮的
-    /// onResolve 与 dismiss() 同一事务先后触发——dismiss 令 duplicateAlertBinding
-    /// 的 setter 发出 .keep 任务，与选择任务竞速消费 pendingDuplicate：keep 先
-    /// 到即清槽并弹「已保存」，而用户选的并存/替换草稿仍在 OCR 中——误报
-    /// 已保存且裁决被静默降级为放弃。选择已作出时 setter 不得再发 keep。
-    @State private var duplicateChoiceMade = false
-    /// BR-007 敏感默认锁定：病历/报告/处方类照片默认按敏感资料入库
+    @Environment(\.scenePhase) private var scenePhase
     @State private var markSensitive = true
-    /// FR6.1 确认卡（此前 OCR 完成即以 D 级静默入库，无用户确认环节）：OCR 后
-    /// 展示，用户逐条确认/改正才写入数据库；处方类文档带处方语义字段标签。
-    @State private var pendingDraft: DocumentsState.ImportDraft?
-    /// 实体卡 sheet 放行标记（文档卡 onDismiss 置位；队列清空复位）
-    @State private var entityQueueArmed = false
-    /// 相册加载代际号（第六轮全仓审查修复：连续选片竞速裁决）
-    @State private var photoPickGeneration = 0
-    /// 相机 cover 收起后再呈现选区 sheet 的延后标记（第六轮全仓审查修复）
-    @State private var deferRegionEditorAfterCamera = false
+    @State private var selectionSessionID: UUID?
+    @State private var showCamera = false
+    @State private var showPhotos = false
+    @State private var fileImporterActive = false
+    @State private var pickedItem: PhotosPickerItem?
+    @State private var showRegionEditor = false
+    @State private var regionImage: UIImage?
+    @State private var showOcclusion = false
+    @State private var occlusionImage: UIImage?
+    @State private var regionAfterCamera = false
+    @State private var reviewEnabled = true
+    @State private var importFailed = false
+    @State private var permissionDenied = false
+    @State private var processedInput: Data?
+    @State private var captureSheetTransition = false
 
-    /// 无相机设备时隐藏拍照来源（防崩溃 + 不误导用户）
-    private var cameraAvailable: Bool {
-        UIImagePickerController.isSourceTypeAvailable(.camera)
+    private var selection: DocumentsState.ImportSession? {
+        guard let session = docs.activeImport, session.id == selectionSessionID else { return nil }
+        return session
+    }
+    private var cameraAvailable: Bool { UIImagePickerController.isSourceTypeAvailable(.camera) }
+    private var reviewCanPresent: Bool {
+        let step = docs.activeImport?.captureStep
+        return reviewEnabled && (step == nil || step == .review)
+            && !showCamera && !showPhotos && !fileImporterActive && !showRegionEditor && !showOcclusion
     }
 
     var body: some View {
-        VStack(spacing: 20) {
-            Spacer()
-            // 扫描引导图（虚线取景框——视觉规范出处：§5.13 拍摄引导占位框，
-            // 四角选区编辑器 ScanRegionEditorView 与之同源）
-            RoundedRectangle(cornerRadius: 16)
-                .strokeBorder(style: StrokeStyle(lineWidth: 2, dash: [6]))
-                .foregroundStyle(Color("brand-primary", bundle: .main))
-                .overlay(VLIcon.scanDocument.resizable().frame(width: 56, height: 56))
-                .frame(maxWidth: 320, minHeight: 180)
-            Text(title).font(.title2.bold())
-            Text(L10n.homeCaptureHint)
-                .font(.footnote).foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
-
-            // 三来源：拍照（有相机才显示）/ 相册 / 文件
-            VStack(spacing: 12) {
-                if cameraAvailable {
-                    Button {
-                        Task {
-                            // 首次进入白屏修复（审查修复）：此前无权限预检直接
-                            // present UIImagePickerController——首次进入时 TCC
-                            // 相机授权弹窗与 picker 预览首帧竞速，预览层挂不上
-                            // 呈现白屏/空 picker，退出重进（权限已授予、弹窗不再
-                            // 出现）才正常。先显式请求权限、待系统弹窗了结后再
-                            // 呈现 cover；已授予/已拒绝路径跳过请求直接呈现
-                            // （.denied 由 picker 自身隐私提示兜底，不改变既有行为）。
-                            let status = AVCaptureDevice.authorizationStatus(for: .video)
-                            if status == .notDetermined {
-                                _ = await AVCaptureDevice.requestAccess(for: .video)
-                            }
-                            showCamera = true
-                        }
-                    } label: {
-                        Label(L10n.homeCaptureShoot, systemImage: "camera.fill")
-                            .frame(maxWidth: 320, minHeight: 50)
+        ScrollView {
+            VStack(spacing: 20) {
+                RoundedRectangle(cornerRadius: 16)
+                    .strokeBorder(style: StrokeStyle(lineWidth: 2, dash: [6]))
+                    .foregroundStyle(Color("brand-primary", bundle: .main))
+                    .overlay(VLIcon.scanDocument.resizable().frame(width: 56, height: 56))
+                    .frame(maxWidth: 320, minHeight: 180)
+                Text(title).font(.title2.bold())
+                OCRReviewOwnerRow(patientId: docs.activeImport?.patientId ?? patientId ?? app.currentPatientId)
+                Text(L10n.ocrReviewDocumentHint).font(.footnote).foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                VStack(spacing: 12) {
+                    if cameraAvailable {
+                        Button { startCamera() } label: {
+                            Label(L10n.homeCaptureShoot, systemImage: "camera.fill").frame(maxWidth: .infinity, minHeight: 50)
+                        }.buttonStyle(.borderedProminent)
+                        .accessibilityIdentifier("SP-11.capture.shoot")
+                    } else {
+                        Label(L10n.homeCaptureNoCamera, systemImage: "camera.fill").font(.caption).foregroundStyle(.secondary)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .accessibilityIdentifier("SP-11.capture.shoot")
-                } else {
-                    Label(L10n.homeCaptureNoCamera, systemImage: "camera.fill")
-                        .font(.caption).foregroundStyle(.secondary)
+                    Button {
+                        if beginSelection(step: .photos) { showPhotos = true }
+                    } label: {
+                        Label(L10n.homeCaptureLibrary, systemImage: "photo.on.rectangle").frame(maxWidth: .infinity, minHeight: 50)
+                    }.buttonStyle(.bordered)
+                    .accessibilityIdentifier("SP-11.capture.library")
+                    Button {
+                        if beginSelection(step: .file) { fileImporterActive = true }
+                    } label: {
+                        Label(L10n.homeCaptureFile, systemImage: "folder").frame(maxWidth: .infinity, minHeight: 50)
+                    }.buttonStyle(.bordered)
+                    .accessibilityIdentifier("SP-11.capture.file")
+                    Toggle(L10n.captureSensitiveToggle, isOn: $markSensitive)
+                        .accessibilityIdentifier("SP-11.capture.sensitive")
                 }
-                PhotosPicker(selection: $pickedItem, matching: .images) {
-                    Label(L10n.homeCaptureLibrary, systemImage: "photo.on.rectangle")
-                        .frame(maxWidth: 320, minHeight: 50)
+                .disabled(!docs.importSlotFree)
+                if docs.activeImport != nil {
+                    if docs.activeImport?.isPreparing == true { ProgressView() }
+                    Button(L10n.pendingCardResume) { recoverSelection() }.buttonStyle(.borderedProminent)
                 }
-                .buttonStyle(.bordered)
-                .accessibilityIdentifier("SP-11.capture.library")
-                Button {
-                    fileImporterActive = true
-                } label: {
-                    Label(L10n.homeCaptureFile, systemImage: "folder")
-                        .frame(maxWidth: 320, minHeight: 50)
-                }
-                .buttonStyle(.bordered)
-                .accessibilityIdentifier("SP-11.capture.file")
             }
-
-            // BR-007 敏感默认锁定（审查修复：原所有来源 isSensitive=false，
-            // 敏感标记只能事后补救）
-            Toggle(isOn: $markSensitive) {
-                Text(L10n.captureSensitiveToggle).font(.subheadline)
-            }
-            .padding(.horizontal, 24)
-            .accessibilityIdentifier("SP-11.capture.sensitive")
-            Spacer()
+            .frame(maxWidth: 480)
+            .padding(24)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color("bg-grouped", bundle: .main))
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button(L10n.commonCancel) { dismiss() }
-                    .accessibilityIdentifier("SP-11.capture.cancel")
+                Button(L10n.commonCancel) {
+                    if let session = selection { docs.cancelImport(sessionID: session.id); _ = docs.finishImportPresentation(sessionID: session.id) }
+                    dismiss()
+                }
+                .disabled(docs.activeImport?.isSaving == true || docs.activeImport?.isPreparing == true || docs.activeImport?.source != nil)
+                .accessibilityIdentifier("SP-11.capture.cancel")
             }
         }
         .fullScreenCover(isPresented: $showCamera, onDismiss: {
-            // 第七轮全仓审查修复：选区 sheet 必须在 cover **完全收起后**呈现——
-            // 原 onChange(showCamera) 只在 showCamera=false 的下一渲染帧触发，
-            // 彼时 cover 仍在退场动画中，同事务 present 仍可撞转场冲突
-            // （选区 sheet 不呈现、流程卡死——第六轮修复只延后了一个渲染帧，
-            // 未跨过整个退场动画）。onDismiss 是系统给出的退场完成锚点。
-            if deferRegionEditorAfterCamera {
-                deferRegionEditorAfterCamera = false
+            captureSheetTransition = false
+            guard scenePhase == .active else { return }
+            if regionAfterCamera {
+                regionAfterCamera = false
+                captureSheetTransition = true
                 showRegionEditor = true
-            }
+            } else { cancelSelection() }
         }) {
             CameraPicker { image in
-                handleImage(image)
+                guard let session = selection, let data = image.jpegData(compressionQuality: 1) else { failSelection(); return }
+                session.captureOriginalData = data; session.captureOrigin = "camera"
+                session.captureStep = .region
+                regionImage = image
+                regionAfterCamera = true
+                showCamera = false
             }
         }
-        // FR5.2 四角选区+透视矫正：自动预测四角，用户可拖拽微调，确认后矫正为正视图。
-        .sheet(isPresented: $showRegionEditor, onDismiss: {
-            // 第八轮全仓审查修复：选区→遮挡的过渡沿用 cover 退场完成锚点
-            // 纪律——原 onChange(showRegionEditor) 只在关掉的下一渲染帧触发，
-            // 彼时选区 sheet 仍在退场动画中（第七轮对 cover→选区过渡的同一
-            // 结论：onChange「只跨一个渲染帧，未跨过整个退场动画」），遮挡
-            // sheet 可能不呈现、矫正图滞留在 pendingOcclusionImage、流程卡死。
-            // onDismiss 是系统给出的退场完成锚点。
-            if pendingOcclusionImage != nil {
-                showOcclusion = true
-            }
-        }) {
-            if let img = pendingRegionImage {
-                ScanRegionEditorView(image: img) { original, rectified in
-                    let originalData = pendingRegionOriginalData
-                    pendingRegionImage = nil
-                    if regionNeedsOcclusion {
-                        pendingOcclusionOriginal = original
-                        pendingOcclusionOriginalData = originalData
-                        pendingOcclusionImage = rectified
-                    } else {
-                        Task { await commitRectified(originalData: originalData, processed: rectified) }
-                    }
-                } onSkip: {
-                    pendingRegionImage = nil
-                    pendingRegionOriginalData = nil
-                }
-            } else {
-                // 白屏兜底（审查修复）：选区 sheet 呈现时若无待选区图片
-                // （权限弹窗打断 cover、状态竞态），给可见错误态而非空白
-                // sheet——此前裸 `if let` 无 else，nil 时纯白屏且无退路。
-                VStack(spacing: 16) {
-                    Text(L10n.docImportFailed).font(.body)
-                    Button(L10n.commonCancel) { showRegionEditor = false }
-                        .buttonStyle(.bordered)
-                        .frame(minHeight: 44)
-                }
-                .padding(24)
-            }
-        }
-        // 相机拍摄完成 → 选区 sheet 的延后呈现已移至 fullScreenCover 的
-        // onDismiss（退场完成锚点，第七轮修复——见 cover 声明处注释）
-        .onChange(of: showOcclusion) { _, showing in
-            if !showing {
-                // 取消遮挡编辑器时清残留（第四轮全仓审查修复：原状态滞留，
-                // 下次拍摄可能复用上一张的遮挡原图）
-                pendingOcclusionImage = nil
-                pendingOcclusionOriginal = nil
-                pendingOcclusionOriginalData = nil
-            }
-        }
-        .sheet(isPresented: $showOcclusion) {
-            if let img = pendingOcclusionImage {
-                OcclusionEditorView(originalImage: img) { processed in
-                    let originalData = pendingOcclusionOriginalData
-                        ?? pendingOcclusionOriginal?.jpegData(compressionQuality: 1.0)
-                    pendingOcclusionImage = nil
-                    pendingOcclusionOriginal = nil
-                    pendingOcclusionOriginalData = nil
-                    showOcclusion = false
-                    Task { await commitRectified(originalData: originalData, processed: processed) }
-                }
-            }
-        }
-        // FR6.1 确认卡：拍摄/相册/文件三来源共用同一个「确认后才入库」环节
-        .sheet(item: $pendingDraft, onDismiss: {
-            // 文档卡收起**完成**后再放行实体卡 sheet（同一事务内 present 第二个 sheet
-            // 会撞退场动画——本仓 cover→选区→遮挡链的同族教训，见 QuickCaptureView）
-            if docs.currentEntityCard != nil { entityQueueArmed = true }
-        }) { draft in
-            DocumentImportConfirmView(draft: draft)
-        }
-        // FR6.9 V3.61 页级实体卡队列（同资料库槽位链：文档卡收起后逐张呈现）
-        .sheet(item: entityCardBinding) { card in
-            EntityCardConfirmView(card: card, mode: .queue,
-                                  pageCount: docs.entityQueuePageTexts.count,
-                                  position: docs.entityQueuePosition)
-                .interactiveDismissDisabled()
-        }
-        // FR5.6/§5.52 重复检测：此前本视图无重复裁决 sheet，命中重复时
-        // pendingDuplicate 被置位但无 UI 展示，finishImport() 却仍误报「已保存」
-        // ——现与 DocumentLibraryView 共用同一裁决 sheet。
-        .sheet(isPresented: duplicateAlertBinding) {
-            DuplicateCompareSheet(
-                existing: docs.duplicateHits.first,
-                newTitle: docs.pendingDuplicate?.title ?? L10n.docDuplicateNewFile) { resolution in
-                // 先挂草稿再释放裁决槽（clearPendingDuplicate 在 pendingDraft
-                // 赋值之后）——否则槽空即触发 finishImport/「已保存」误报，
-                // 且并存/替换草稿与 keep 任务竞速被静默丢弃
-                duplicateChoiceMade = true
-                Task {
-                    let draft = await docs.resolveDuplicate(resolution)
-                    pendingDraft = draft
-                    docs.clearPendingDuplicate()
-                    duplicateChoiceMade = false
-                    if draft == nil {
-                        finishImport()
-                    }
-                }
-            }
-            .presentationDetents([.medium])
-        }
+        .photosPicker(isPresented: $showPhotos, selection: $pickedItem, matching: .images)
         .onChange(of: pickedItem) { _, item in
-            guard let item else { return }
+            guard let item, let session = selection else { return }
+            session.isPreparing = true
             pickedItem = nil
-            // 第六轮全仓审查修复（竞速）：快速连续选片会并发两个
-            // loadTransferable Task——慢的旧片后返回并覆写选区状态，展示图
-            // 与「原件」字节分属两张照片（BR-002 原件保真断裂）。代际号
-            // 使过期结果作废：只有最新一次选择的加载结果能进入选区。
-            photoPickGeneration += 1
-            let generation = photoPickGeneration
             Task {
-                if let data = try? await item.loadTransferable(type: Data.self),   // try?-ok: 单项加载失败走错误路径可见，不阻塞后续
-                   let image = UIImage(data: data) {
-                    guard generation == photoPickGeneration else { return }
-                    // 原始字节贯穿选区/矫正链（BR-002 原件保真）
-                    beginRegionSelect(image: image, originalData: data,
-                                      needsOcclusion: false, origin: "photoLibrary")
-                } else if generation == photoPickGeneration {
-                    activeAlert = .importFailed
+                do {
+                    guard let data = try await item.loadTransferable(type: Data.self), let image = UIImage(data: data) else {
+                        throw DocumentsState.ImportError.unreadableMedia
+                    }
+                    session.isPreparing = false
+                    session.captureOriginalData = data; session.captureOrigin = "photoLibrary"
+                    session.captureStep = .region
+                    regionImage = image; captureSheetTransition = true; showRegionEditor = true
+                } catch {
+                    session.isPreparing = false
+                    failSelection()
                 }
             }
         }
-        .fileImporter(isPresented: $fileImporterActive,
-                      allowedContentTypes: allowedTypes, allowsMultipleSelection: false) { result in
+        .onChange(of: showPhotos) { _, showing in
+            if scenePhase == .active, !showing, pickedItem == nil, selection?.isPreparing == false,
+               selection?.captureOriginalData == nil { cancelSelection() }
+        }
+        .fileImporter(isPresented: $fileImporterActive, allowedContentTypes: allowedTypes, allowsMultipleSelection: false) { result in
+            guard let session = selection else { return }
             switch result {
             case .success(let urls):
-                guard let url = urls.first else { return }
+                guard let url = urls.first else { cancelSelection(); return }
                 let scoped = url.startAccessingSecurityScopedResource()
-                // 扩展名白名单单一出处（第四轮全仓审查修复：原与
-                // DocumentLibraryView 各持一份手写副本）
-                if ImageInputRules.supportedImageExtensions.contains(url.pathExtension.lowercased()),
-                   let data = try? Data(contentsOf: url), let image = UIImage(data: data) {   // try?-ok: 读取失败走错误路径可见
-                    if scoped { url.stopAccessingSecurityScopedResource() }
-                    beginRegionSelect(image: image, originalData: data,
-                                      needsOcclusion: false, origin: "import")
+                if ImageInputRules.supportedImageExtensions.contains(url.pathExtension.lowercased()) {
+                    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                    do {
+                        let data = try Data(contentsOf: url)
+                        guard let image = UIImage(data: data) else { throw DocumentsState.ImportError.unreadableMedia }
+                        session.captureOriginalData = data; session.captureOrigin = "import"
+                        session.captureStep = .region
+                        regionImage = image; captureSheetTransition = true; showRegionEditor = true
+                    } catch { failSelection() }
                 } else {
+                    reviewEnabled = true
+                    session.captureStep = .review
                     Task {
-                        _ = await docs.importDocument(patientId: app.currentPatientId, url: url,
-                                                      docType: docTypeText, isSensitive: markSensitive)
+                        // PDF result is consumed, not discarded or reported as an already-saved file.
+                        session.draft = await docs.importDocument(patientId: session.patientId, url: url,
+                            docType: docTypeHint, isSensitive: session.captureSensitive)
                         if scoped { url.stopAccessingSecurityScopedResource() }
-                        finishImport()
                     }
                 }
-            case .failure:
-                activeAlert = .importFailed
+            case .failure(let error):
+                if (error as NSError).code == NSUserCancelledError { cancelSelection() }
+                else { failSelection() }
             }
         }
-        .alert(
-            activeAlert == .importFailed ? L10n.docImportFailed : L10n.homeCaptureSaved,
-            isPresented: Binding(
-                get: { activeAlert != nil },
-                set: { if !$0 { activeAlert = nil } })
-        ) {
-            if activeAlert == .saved || activeAlert == .pdfPartial {
-                Button(L10n.docLibraryTitle) {
-                    // 审查修复：跳转前必须先收起本 sheet——router.navigate 只切
-                    // Tab/推路径，不收起已呈现的 sheet，「资料库」按钮此前在
-                    // sheet 之下切页、视觉无任何变化，用户只能手动关闭。
-                    dismiss()
-                    router.navigate(to: .documentList)
+        .sheet(isPresented: $showRegionEditor, onDismiss: {
+            captureSheetTransition = false
+            guard scenePhase == .active else { return }
+            if occlusionImage != nil { captureSheetTransition = true; showOcclusion = true }
+            else if processedInput != nil { startOCR() }
+            else { cancelSelection() }
+        }) {
+            if let regionImage {
+                ScanRegionEditorView(image: regionImage) { _, corrected in
+                    selection?.captureProcessedData = corrected.jpegData(compressionQuality: 0.85)
+                    if selection?.captureOrigin == "camera" {
+                        occlusionImage = corrected; selection?.captureStep = .occlusion
+                    } else {
+                        processedInput = selection?.captureProcessedData; selection?.captureStep = .review
+                    }
+                } onSkip: {
+                    processedInput = nil; occlusionImage = nil
+                    selection?.captureProcessedData = nil
                 }
-                Button(L10n.commonCancel, role: .cancel) { }
+                .interactiveDismissDisabled()
             } else {
-                Button(L10n.commonCancel, role: .cancel) { }
-            }
-        } message: {
-            // FR6.6 逐页失败可见：文档已存档但 N 页识别失败——此前只写
-            // meta_json 无消费点，用户看到「已保存」却不知内容缺失
-            if activeAlert == .pdfPartial {
-                Text(L10n.docPDFPartialFailed(docs.pdfPartialFailure))
+                ContentUnavailableView(L10n.docImportFailed, systemImage: "exclamationmark.triangle")
             }
         }
-        // 第四轮全仓审查修复：确认卡内 commitDraft 失败（磁盘满/约束错误）
-        // 只置 lastImportError 不抛出——本视图无 finishImport 兜底时失败
-        // 静默（用户以为已保存）。监听错误态并弹可见告警（FR6.6）。
-        // pendingDraft == nil 守卫（Phase 3 补漏）：确认卡打开时由其自带
-        // 「保存失败」告警呈现，父级不再叠加「导入失败」——同一失败双弹窗。
-        .onChange(of: docs.lastImportError) { _, err in
-            if err != nil && pendingDraft == nil {
-                activeAlert = .importFailed
+        .sheet(isPresented: $showOcclusion, onDismiss: {
+            captureSheetTransition = false
+            guard scenePhase == .active else { return }
+            occlusionImage = nil
+            if processedInput != nil { startOCR() }
+            else { cancelSelection() }
+        }) {
+            if let occlusionImage {
+                OcclusionEditorView(originalImage: occlusionImage) { processed in
+                    processedInput = processed.jpegData(compressionQuality: 0.85)
+                    selection?.captureProcessedData = processedInput
+                    selection?.captureStep = .review
+                }
+                .interactiveDismissDisabled()
             }
+        }
+        .ocrImportReviewHost(enabled: reviewCanPresent, advanceQueuedImports: false) { outcome in
+            selectionSessionID = nil
+            regionImage = nil; processedInput = nil
+            if outcome != .cancelled { dismiss() }
+        }
+        .alert(L10n.docImportFailedTitle, isPresented: $importFailed) {
+            if permissionDenied {
+                Button(L10n.homeNotifOpen) {
+                    if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                }
+            }
+            Button(L10n.commonCancel, role: .cancel) {}
+        } message: { Text(L10n.docImportFailed) }
+        .onAppear { recoverSelection() }
+        .onChange(of: docs.activeImport?.captureStep) { _, _ in
+            if !captureSheetTransition && !showCamera && !showRegionEditor && !showOcclusion && !showPhotos && !fileImporterActive { recoverSelection() }
         }
     }
+
+    private func beginSelection(step: DocumentsState.CaptureStep) -> Bool {
+        guard let session = docs.beginImport(patientId: patientId ?? app.currentPatientId) else { return false }
+        session.captureSensitive = markSensitive
+        session.captureStep = step
+        selectionSessionID = session.id
+        reviewEnabled = false; permissionDenied = false
+        processedInput = nil; regionImage = nil; occlusionImage = nil
+        return true
+    }
+
+    private func startCamera() {
+        guard beginSelection(step: .camera), let session = selection else { return }
+        session.isPreparing = true
+        Task {
+            let status = AVCaptureDevice.authorizationStatus(for: .video)
+            var allowed = status == .authorized
+            if status == .notDetermined { allowed = await AVCaptureDevice.requestAccess(for: .video) }
+            session.isPreparing = false
+            if allowed { captureSheetTransition = true; showCamera = true }
+            else { permissionDenied = true; failSelection() }
+        }
+    }
+
+    private func startOCR() {
+        guard let session = selection, !session.isPreparing, let original = session.captureOriginalData,
+              let processed = processedInput ?? session.captureProcessedData else { failSelection(); return }
+        processedInput = nil
+        session.captureStep = .review
+        reviewEnabled = true
+        Task {
+            session.draft = await docs.prepareImageDraft(patientId: session.patientId, originalData: original,
+                processedData: processed, mimeType: ImageInputRules.sniffMimeType(of: original),
+                docType: docTypeHint, title: nil, isSensitive: session.captureSensitive, origin: session.captureOrigin)
+        }
+    }
+
+    private func recoverSelection() {
+        guard let session = docs.activeImport else { return }
+        selectionSessionID = session.id
+        guard !captureSheetTransition else { return }
+        guard session.draft == nil, session.duplicate == nil, !session.isPreparing else {
+            reviewEnabled = true
+            return
+        }
+        guard !showRegionEditor && !showOcclusion && !showCamera && !showPhotos && !fileImporterActive else { return }
+        switch session.captureStep {
+        case .camera:
+            reviewEnabled = false
+            if AVCaptureDevice.authorizationStatus(for: .video) == .authorized { captureSheetTransition = true; showCamera = true }
+        case .photos: reviewEnabled = false; showPhotos = true
+        case .file: reviewEnabled = false; fileImporterActive = true
+        case .region:
+            if let data = session.captureOriginalData, let image = UIImage(data: data) {
+                reviewEnabled = false; regionImage = image; captureSheetTransition = true; showRegionEditor = true
+            }
+        case .occlusion:
+            if let data = session.captureProcessedData, let image = UIImage(data: data) {
+                reviewEnabled = false; occlusionImage = image; captureSheetTransition = true; showOcclusion = true
+            }
+        case .review:
+            reviewEnabled = true
+            if session.captureProcessedData != nil { startOCR() }
+        case nil: reviewEnabled = true
+        }
+    }
+
+    private func cancelSelection() {
+        guard let session = selection else { return }
+        docs.cancelImport(sessionID: session.id)
+        _ = docs.finishImportPresentation(sessionID: session.id)
+        selectionSessionID = nil; regionImage = nil; processedInput = nil
+        reviewEnabled = true
+    }
+
+    private func failSelection() { cancelSelection(); importFailed = true }
 
     private var title: String {
         switch kind {
         case .record: return L10n.homeCaptureRecord
         case .report: return L10n.homeCaptureReport
         case .prescription: return L10n.homeCapturePrescription
-        case .symptom: return L10n.homeCaptureSymptom   // 症状入口走观察创建，防御分支
-        case nil: return L10n.homeCaptureAny            // 单入口：识别后判定类型
+        case .symptom: return L10n.homeCaptureSymptom
+        case nil: return L10n.homeCaptureAny
         }
     }
 
-    /// 入口类型提示（documentTypeHint，仅提示不替代判定）；单入口为 nil
-    private var docTypeText: String? {
+    private var docTypeHint: String? {
         switch kind {
         case .record: return L10n.docTypeRecord
         case .report: return L10n.docTypeReport
@@ -379,85 +326,10 @@ struct QuickCaptureView: View {
         }
     }
 
-    /// 文件来源允许类型：PDF + 全部图片 + Word（docx）
     private var allowedTypes: [UTType] {
         var types: [UTType] = [.pdf, .image]
         if let docx = UTType(filenameExtension: "docx") { types.append(docx) }
         if let doc = UTType(filenameExtension: "doc") { types.append(doc) }
         return types
-    }
-
-    private var entityCardBinding: Binding<MatchedCard?> {
-        Binding(get: { entityQueueArmed ? docs.currentEntityCard : nil },
-                set: { if $0 == nil && docs.currentEntityCard == nil { entityQueueArmed = false } })
-    }
-
-    private var duplicateAlertBinding: Binding<Bool> {
-        Binding(get: { docs.pendingDuplicate != nil },
-                set: { if !$0 && !duplicateChoiceMade {
-                    Task {
-                        _ = await docs.resolveDuplicate(.keep)
-                        finishImport()
-                    }
-                } })
-    }
-
-    private func handleImage(_ image: UIImage) {
-        // 第六轮全仓审查修复：cover 关闭中不得同事务再 present sheet——
-        // 与「选区→遮挡」跳转同族冲突（iOS 17 实测 sheet 可能不呈现、
-        // 流程静默卡死）。第七轮升级为 cover onDismiss 锚点（退场完成）：
-        // onChange(showCamera) 只跨一个渲染帧，仍在退场动画窗口内
-        showCamera = false
-        // 相机无源字节：1.0 质量编码兜底（BR-002 尽量保真；相机帧本身是
-        // 传感器 JPEG，不再叠加 0.9 二次损失）
-        regionOrigin = "camera"
-        regionNeedsOcclusion = true
-        pendingRegionImage = image
-        pendingRegionOriginalData = image.jpegData(compressionQuality: 1.0)
-        deferRegionEditorAfterCamera = true
-    }
-
-    /// FR5.2 拍摄/选取后先进入四角选区，成功后按来源决定是否还要过 FR5.4 遮挡步骤。
-    private func beginRegionSelect(image: UIImage, originalData: Data?, needsOcclusion: Bool, origin: String) {
-        regionOrigin = origin
-        regionNeedsOcclusion = needsOcclusion
-        pendingRegionImage = image
-        pendingRegionOriginalData = originalData
-        showRegionEditor = true
-    }
-
-    /// 区域矫正（+ 可能的遮挡）完成后：跑 OCR 组装确认草稿，交给确认卡，
-    /// 用户确认后才真正写库（BR-003）。
-    /// 原件 = 来源原始字节（BR-002 原件保真，第四轮全仓审查修复）；处理版
-    /// 才是有损 JPEG 重编码。MIME 按字节嗅探（不再硬编码 image/jpeg）。
-    private func commitRectified(originalData: Data?, processed: UIImage) async {
-        guard let originalData = originalData ?? processed.jpegData(compressionQuality: 1.0),
-              let processedData = processed.jpegData(compressionQuality: 0.85) else {
-            activeAlert = .importFailed
-            return
-        }
-        let mime = ImageInputRules.sniffMimeType(of: originalData)
-        if let draft = await docs.prepareImageDraft(
-            patientId: app.currentPatientId, originalData: originalData, processedData: processedData,
-            mimeType: mime, docType: docTypeText, title: nil,
-            isSensitive: markSensitive, origin: regionOrigin) {
-            pendingDraft = draft
-        } else {
-            finishImport()
-        }
-    }
-
-    private func finishImport() {
-        if docs.lastImportError != nil {
-            activeAlert = .importFailed
-        } else if docs.pendingDuplicate == nil {
-            // 命中重复时交给重复裁决 sheet 处理，不在此提前报「已保存」；
-            // PDF 部分页失败以非阻断告警呈现（文档已存档）
-            if docs.pdfPartialFailure > 0 {
-                activeAlert = .pdfPartial
-            } else {
-                activeAlert = .saved
-            }
-        }
     }
 }

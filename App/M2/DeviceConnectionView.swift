@@ -100,7 +100,7 @@ struct DeviceConnectionView: View {
                         .accessibilityIdentifier("SP-29.health.syncedRows")
                     // 「无可读变化」只在 HealthKit 未报告任何增删且无类型失败时成立；
                     // 变化已收到但落库 0 行（重放/仅索引更新）不是「无数据」。
-                    if report.receivedChanges == 0 && report.failedTypes.isEmpty {
+                    if report.receivedChanges == 0 && report.failedTypes.isEmpty && !report.hasMore {
                         Text(L10n.healthNoReadableData).font(.caption)
                     }
                     if !report.failedTypes.isEmpty {
@@ -108,6 +108,12 @@ struct DeviceConnectionView: View {
                             .foregroundStyle(.orange)
                     }
                     if report.hasMore { Text(L10n.healthImportMore).font(.caption) }
+                    if report.preservedRows > 0 {
+                        Text(L10n.healthPreservedAggregates(report.preservedRows)).font(.caption)
+                    }
+                    if report.deferredWindows > 0 {
+                        Text(L10n.healthDeferredWindows(report.deferredWindows)).font(.caption)
+                    }
                     if report.notificationFailures > 0 { Text(L10n.healthNotificationRetry).font(.caption) }
                     Text(L10n.f16LastSync(report.lastSyncAt.formatted(date: .numeric, time: .shortened)))
                         .font(.caption).foregroundStyle(.secondary)

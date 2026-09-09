@@ -2,327 +2,329 @@ import SwiftUI
 import Domain
 import Infrastructure
 
-/// FR6.9 V3.61 页级实体卡确认（SP-12 逐卡确认）：文档卡确认后，每页按卡模板匹配出的
-/// 信息卡逐张呈现——卡头「第 p/N 页 · 第 k/m 张 · 卡类名」，共享字段 + 逐行字段，
-/// 三动作：确认保存 / 稍后处理（待办 + 1h 提醒）/ 放弃本卡；队列级「剩余全部稍后处理」。
-///
-/// 呈现纪律：**只渲染已识别字段**（缺失推荐字段不渲染空行）；卡级缺失必填渲染单行
-/// 「缺少 X，点此填写」并阻断保存；行级缺必填的行标「保存时跳过」不阻断其他行。
-/// 低置信闸门沿用 `OcrConfirmationSet.allConfirmAllowed`（BR-003）。
-///
-/// 同一视图承载两种模式：队列（`.queue`）与待办续确认（`.resume(PendingCard)`），
-/// 落库走 `DocumentsState` 同一路径。
 struct EntityCardConfirmView: View {
-    enum Mode { case queue, resume(PendingCard) }
+    enum Mode {
+        case queue(DocumentsState.ImportSession)
+        case resume(DocumentsState.PendingReview)
+    }
 
-    @Environment(DocumentsState.self) private var docs
-    @Environment(PendingCardCenterState.self) private var pendingCenter
-    @Environment(AppState.self) private var app
-    @Environment(\.dismiss) private var dismiss
-
-    let card: MatchedCard
+    @Binding var card: MatchedCard
     let mode: Mode
-    /// 页总数（文档卡传入；续确认从页表读取失败时回落 pageIndex+1）
-    var pageCount: Int
-    /// 队列位置「第 k/m 张」（续确认为 nil）
+    let patientId: UUID
+    let documentId: UUID
+    let pageCount: Int
     var position: (Int, Int)?
+    @Environment(DocumentsState.self) private var docs
+    @Environment(\.dismiss) private var dismiss
+    @State private var showSource = false
+    @State private var showLater = false
+    @State private var showDiscard = false
+    @State private var partialCount: Int?
 
-    /// 共享字段确认集（索引与 card.shared 对齐）
-    @State private var shared: [CandidateField] = []
-    /// 各行字段确认集（外层与 card.rows 对齐）
-    @State private var rows: [[CandidateField]] = []
-    /// 卡级缺失必填的补填值（键 → 值）
-    @State private var filledRequired: [String: String] = [:]
-    @State private var editingRequired: String?
-    @State private var saving = false
-    @State private var showLaterDialog = false
-    @State private var showDiscardDialog = false
-    @State private var saveFailed = false
-
-    private var allFields: [CandidateField] { shared + rows.flatMap { $0 } }
-    private var allConfirmAllowed: Bool {
-        !allFields.contains { $0.grade == .ocrUnconfirmed && ConfidenceTier.tier($0.confidence) == .low }
+    private var saving: Bool {
+        switch mode {
+        case .queue(let session): return session.isSaving || session.isBulkDeferring
+        case .resume(let review): return review.isSaving
+        }
     }
-    private var missingRequiredUnfilled: [CompletenessFieldRule] {
-        card.missingRequired.filter { (filledRequired[$0.key] ?? "").trimmingCharacters(in: .whitespaces).isEmpty }
+    private var sharedCommitted: Bool {
+        switch mode {
+        case .queue:
+            // A partial receipt fixes shared data for already-written rows.
+            return docs.activeImport?.committedCards.contains(card.id) == true
+        case .resume(let review): return review.sharedCommitted
+        }
     }
-    private var canSave: Bool { !saving && allConfirmAllowed && missingRequiredUnfilled.isEmpty }
+    private var rowKeys: Set<String> {
+        CardTemplateMatcher.ocrTemplates.first { $0.kind == card.kind }?.rowLevelKeys ?? []
+    }
+    private var missingShared: [String] {
+        Set(card.rows.flatMap { invalid($0) }).filter { key in
+            !rowKeys.contains(key) && key != "card_kind" && !card.shared.contains { $0.key == key }
+        }.sorted()
+    }
+    private var canSave: Bool {
+        !saving && card.rows.contains { invalid($0).isEmpty || EntityCardProjection.isDiscarded($0, in: card) }
+    }
+    private var resumeError: String? {
+        if case .resume(let review) = mode { return review.notificationError ?? review.errorMessage }
+        return nil
+    }
+    private var completionKey: String {
+        if case .resume(let review) = mode { return "\(review.completed)-\(saving)-\(resumeError != nil)" }
+        return "queue"
+    }
 
     var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    HStack(spacing: 8) {
-                        Text(L10n.entityCardHeaderPage(card.pageIndex + 1, max(pageCount, card.pageIndex + 1)))
-                        if let position {
-                            Text("·").foregroundStyle(.tertiary)
-                            Text(L10n.entityCardHeaderIndex(position.0, position.1))
-                        }
-                        Spacer()
-                        GradeBadge(grade: "D")
-                    }
-                    .font(.caption).foregroundStyle(.secondary)
-                    .accessibilityIdentifier("SP-12.entity.header")
-                    Text(L10n.entityCardKindName(card.kind)).font(.headline)
-                } footer: {
-                    Text(L10n.docConfirmHint)
-                }
+        let validation = Dictionary(uniqueKeysWithValues: card.rows.map { ($0.id, invalid($0)) })
+        List {
+            Section {
+                OCRReviewOwnerRow(patientId: patientId)
+                HStack {
+                    Text(L10n.entityCardHeaderPage(card.pageIndex + 1, max(pageCount, card.pageIndex + 1)))
+                    if let position { Text(L10n.entityCardHeaderIndex(position.0, position.1)) }
+                    Spacer()
+                    GradeBadge(grade: "D")
+                }.font(.caption)
+                Button { showSource = true } label: {
+                    Label(L10n.pendingCardViewSource, systemImage: "doc.text.magnifyingglass").frame(minHeight: 44)
+                }.buttonStyle(.borderless)
+            } footer: { Text(L10n.docConfirmHint) }
 
-                // 卡级缺失必填：单行补填，未填阻断保存（≤20% 必填缺口由用户补齐）
-                if !card.missingRequired.isEmpty {
+            Section(L10n.entityCardSharedSection) {
+                if sharedCommitted { Text(L10n.homeCaptureSaved).font(.caption).foregroundStyle(.secondary) }
+                ForEach(card.shared.indices, id: \.self) { index in
+                    FieldConfirmRow(field: fieldBinding(index: index, rowID: nil),
+                        label: DocumentsState.fieldLabel(forKey: card.shared[index].key),
+                        showUnit: false, readOnly: sharedCommitted,
+                        onRevise: { revise(index: index, rowID: nil, value: $0) })
+                    if card.shared[index].isConfirmed, validation.values.contains(where: { $0.contains(card.shared[index].key) }) {
+                        Text(L10n.ocrReviewInvalidField).font(.caption).foregroundStyle(.red)
+                    }
+                }
+                ForEach(missingShared, id: \.self) { key in missingButton(key: key, rowID: nil) }
+            }
+
+            ForEach(Array(card.rows.enumerated()), id: \.element.id) { offset, row in
+                if !row.fields.isEmpty || !rowKeys.isEmpty {
                     Section {
-                        ForEach(card.missingRequired, id: \.key) { rule in
-                            let label = L10n.templateFieldLabel(rule.key)
-                            if editingRequired == rule.key {
-                                TextField(label, text: Binding(
-                                    get: { filledRequired[rule.key] ?? "" },
-                                    set: { filledRequired[rule.key] = $0 }))
-                                    .textFieldStyle(.roundedBorder)
-                                    .onSubmit { editingRequired = nil }
-                            } else {
-                                Button {
-                                    editingRequired = rule.key
-                                } label: {
-                                    Label((filledRequired[rule.key]?.isEmpty == false) ? "\(label): \(filledRequired[rule.key] ?? "")"
-                                          : L10n.entityCardMissingRequired(label),
-                                          systemImage: (filledRequired[rule.key]?.isEmpty == false) ? "checkmark.circle" : "exclamationmark.circle")
-                                        .foregroundStyle((filledRequired[rule.key]?.isEmpty == false)
-                                                         ? Color("semantic-success", bundle: .main)
-                                                         : Color("semantic-warning", bundle: .main))
-                                }
-                                .frame(minHeight: 44)
-                                .accessibilityIdentifier("SP-12.entity.missing.\(rule.key)")
+                        ForEach(row.fields.indices.filter { row.fields[$0].key != "metric_key" }, id: \.self) { index in
+                            FieldConfirmRow(field: fieldBinding(index: index, rowID: row.id),
+                                label: DocumentsState.fieldLabel(forKey: row.fields[index].key), showUnit: false,
+                                onRevise: { revise(index: index, rowID: row.id, value: $0) })
+                            if row.fields[index].isConfirmed && validation[row.id]?.contains(row.fields[index].key) == true {
+                                Text(L10n.ocrReviewInvalidField).font(.caption).foregroundStyle(.red)
                             }
                         }
-                    }
-                }
-
-                if !shared.isEmpty {
-                    Section(L10n.entityCardSharedSection) {
-                        ForEach(shared.indices, id: \.self) { idx in
-                            FieldConfirmRow(field: $shared[idx])
+                        ForEach((validation[row.id] ?? []).filter { key in rowKeys.contains(key) && !row.fields.contains(where: { $0.key == key }) }, id: \.self) { key in
+                            missingButton(key: key, rowID: row.id)
                         }
-                    }
+                    } header: { Text(L10n.entityCardRowIndex(offset + 1)) }
                 }
-
-                if !rows.isEmpty, !(rows.count == 1 && rows[0].isEmpty) {
-                    Section(L10n.entityCardRowsSection) {
-                        ForEach(rows.indices, id: \.self) { rowIndex in
-                            VStack(alignment: .leading, spacing: 6) {
-                                HStack {
-                                    Text(L10n.entityCardRowIndex(rowIndex + 1))
-                                        .font(.caption2).foregroundStyle(.tertiary)
-                                    if !card.rows[rowIndex].missingRequired.isEmpty {
-                                        Text(L10n.entityCardRowSkipped)
-                                            .font(.caption2)
-                                            .foregroundStyle(Color("semantic-warning", bundle: .main))
-                                            .accessibilityIdentifier("SP-12.entity.rowSkipped")
-                                    }
-                                }
-                                ForEach(rows[rowIndex].indices, id: \.self) { idx in
-                                    FieldConfirmRow(field: $rows[rowIndex][idx])
-                                }
-                            }
-                            .padding(.vertical, 4)
-                        }
-                    }
+            }
+            if !missingShared.isEmpty || validation.values.contains(where: { !$0.isEmpty }) {
+                Section { Text(L10n.docConfirmHint).font(.caption).foregroundStyle(.secondary) }
+            }
+            Section {
+                Button { showLater = true } label: {
+                    Label(L10n.entityCardLater, systemImage: "clock.badge.checkmark").frame(minHeight: 44)
                 }
-
-                if !allConfirmAllowed {
-                    Section {
-                        Text(L10n.docConfirmAllConfirmBlocked)
-                            .font(.caption)
-                            .foregroundStyle(Color("semantic-danger", bundle: .main))
-                    }
+                Button(role: .destructive) { showDiscard = true } label: {
+                    Label(L10n.entityCardDiscard, systemImage: "xmark.circle").frame(minHeight: 44)
                 }
-
-                Section {
+                if case .queue = mode, docs.entityQueue.count > 1 {
                     Button {
-                        showLaterDialog = true
+                        Task { _ = await docs.deferRemainingEntityCards() }
                     } label: {
-                        Label(L10n.entityCardLater, systemImage: "clock.badge.checkmark")
-                            .frame(maxWidth: .infinity, minHeight: 44)
+                        Label(L10n.entityCardDeferRemaining, systemImage: "tray.full").frame(minHeight: 44)
                     }
-                    .disabled(saving)
-                    .accessibilityIdentifier("SP-12.entity.later")
-                    Button(role: .destructive) {
-                        showDiscardDialog = true
-                    } label: {
-                        Label(L10n.entityCardDiscard, systemImage: "xmark.circle")
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                    }
-                    .disabled(saving)
-                    .accessibilityIdentifier("SP-12.entity.discard")
-                    if case .queue = mode, docs.entityQueue.count > 1 {
-                        Button {
-                            Task {
-                                saving = true
-                                await docs.deferRemainingEntityCards()
-                                saving = false
-                            }
-                        } label: {
-                            Label(L10n.entityCardDeferRemaining, systemImage: "tray.full")
-                                .frame(maxWidth: .infinity, minHeight: 44)
-                        }
-                        .disabled(saving)
-                        .accessibilityIdentifier("SP-12.entity.deferRemaining")
-                    }
-                } footer: {
-                    Text(L10n.entityCardLaterHint)
                 }
+            } footer: { Text(L10n.entityCardLaterHint) }
+            .buttonStyle(.borderless)
+        }
+        .disabled(saving)
+        .scrollDismissesKeyboard(.interactively)
+        .navigationTitle(L10n.entityCardKindName(card.kind))
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button(L10n.entityCardConfirmSave) { save() }.disabled(!canSave)
+                    .accessibilityIdentifier("SP-12.entity.confirm")
             }
-            .navigationTitle(L10n.entityCardKindName(card.kind))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(L10n.entityCardConfirmSave) { save() }
-                        .disabled(!canSave)
-                        .accessibilityIdentifier("SP-12.entity.confirm")
-                }
-            }
-            .confirmationDialog(L10n.entityCardLater, isPresented: $showLaterDialog, titleVisibility: .visible) {
-                Button(L10n.docConfirmSkipConfirm) { defer_() }
-                Button(L10n.commonCancel, role: .cancel) {}
-            } message: {
-                Text(L10n.entityCardLaterHint)
-            }
-            .confirmationDialog(L10n.entityCardDiscard, isPresented: $showDiscardDialog, titleVisibility: .visible) {
-                Button(L10n.entityCardDiscard, role: .destructive) { discard() }
-                Button(L10n.commonCancel, role: .cancel) {}
-            }
-            .alert(L10n.docConfirmSaveFailedTitle, isPresented: $saveFailed) {
-                Button(L10n.onboard_gotIt, role: .cancel) {}
-            } message: {
-                Text(L10n.entityCardSaveFailed)
-            }
-            .onAppear(perform: seed)
+            ToolbarItemGroup(placement: .keyboard) { OCRKeyboardDismissButton() }
+        }
+        .interactiveDismissDisabled()
+        .sheet(isPresented: $showSource) {
+            DocumentSourcePageView(documentId: documentId, patientId: patientId, pageIndex: card.pageIndex)
+        }
+        .confirmationDialog(L10n.entityCardLater, isPresented: $showLater, titleVisibility: .visible) {
+            Button(L10n.docConfirmSkipConfirm) { deferCard() }
+            Button(L10n.commonCancel, role: .cancel) {}
+        }
+        .confirmationDialog(L10n.entityCardDiscard, isPresented: $showDiscard, titleVisibility: .visible) {
+            Button(L10n.entityCardDiscard, role: .destructive) { discard() }
+            Button(L10n.commonCancel, role: .cancel) {}
+        }
+        .alert(resumeError != nil ? L10n.docConfirmSaveFailedTitle : L10n.homeCaptureSaved,
+               isPresented: Binding(get: { resumeError != nil || partialCount != nil }, set: { showing in
+                   if !showing {
+                       partialCount = nil
+                       if case .resume(let review) = mode { review.errorMessage = nil; review.notificationError = nil }
+                   }
+               })) {
+            Button(L10n.onboard_gotIt, role: .cancel) {}
+        } message: { Text(resumeError ?? L10n.ocrReviewPartialSaved(partialCount ?? 0)) }
+        .task(id: completionKey) {
+            if case .resume(let review) = mode, review.completed, !saving, resumeError == nil { dismiss() }
         }
     }
 
-    // MARK: - 状态装配
-
-    /// 卡字段 → 确认集（共享/逐行分开寻址；显示标签走 L10n 单出口）
-    private func seed() {
-        guard shared.isEmpty && rows.isEmpty else { return }
-        shared = card.shared.map(Self.candidate)
-        rows = card.rows.map { $0.fields.map(Self.candidate) }
+    private func invalid(_ row: MatchedCardRow) -> [String] {
+        EntityCardProjection.invalidFields(in: card, row: row, calendar: Calendar(identifier: .gregorian))
     }
 
-    private static func candidate(_ draft: FieldDraft) -> CandidateField {
-        CandidateField(key: draft.key, displayLabel: L10n.templateFieldLabel(draft.key),
-                       rawText: draft.rawText ?? draft.value, confidence: draft.confidence,
-                       value: draft.value, codeResolution: draft.codeResolution)
+    private func missingButton(key: String, rowID: UUID?) -> some View {
+        Button(L10n.entityCardMissingRequired(DocumentsState.fieldLabel(forKey: key))) {
+            var current = card
+            let field = FieldDraft(key: key, value: "", confidence: 1)
+            if let rowID, let row = current.rows.firstIndex(where: { $0.id == rowID }) {
+                if !current.rows[row].fields.contains(where: { $0.key == key }) { current.rows[row].fields.append(field) }
+            } else if rowID == nil, !current.shared.contains(where: { $0.key == key }) { current.shared.append(field) }
+            card = current
+        }
+        .buttonStyle(.borderless)
+        .frame(minHeight: 44)
+        .disabled(rowID == nil && sharedCommitted)
     }
 
-    /// 确认集 → 已确认卡（拒绝字段剔除；补填的必填并入共享；未确认字段批量确认）
-    private func confirmedCard() -> MatchedCard {
-        func drafts(_ fields: [CandidateField]) -> [FieldDraft] {
-            fields.filter { $0.grade != .rejected }.map {
-                FieldDraft(key: $0.key, value: $0.value, confidence: $0.confidence,
-                           rawText: $0.rawText, codeResolution: $0.codeResolution)
+    private func fieldBinding(index: Int, rowID: UUID?) -> Binding<FieldDraft> {
+        let existing: FieldDraft?
+        if let rowID { existing = card.rows.first { $0.id == rowID }?.fields[safe: index] }
+        else { existing = card.shared[safe: index] }
+        let fallback = existing ?? FieldDraft(key: "", value: "", confidence: 0)
+        return Binding(get: {
+            if let rowID { return card.rows.first { $0.id == rowID }?.fields[safe: index] ?? fallback }
+            return card.shared[safe: index] ?? fallback
+        }, set: { field in
+            guard !saving else { return }
+            var current = card
+            if let rowID, let row = current.rows.firstIndex(where: { $0.id == rowID }), current.rows[row].fields.indices.contains(index) {
+                current.rows[row].fields[index] = field
+            } else if rowID == nil, !sharedCommitted, current.shared.indices.contains(index) {
+                current.shared[index] = field
             }
-        }
-        var confirmed = card
-        confirmed.shared = drafts(shared) + filledRequired.compactMap { key, value in
-            let trimmed = value.trimmingCharacters(in: .whitespaces)
-            return trimmed.isEmpty ? nil : FieldDraft(key: key, value: trimmed, confidence: 1.0)
-        }
-        confirmed.rows = zip(card.rows, rows).map { original, fields in
-            MatchedCardRow(id: original.id, fields: drafts(fields), missingRequired: original.missingRequired)
-        }
-        return confirmed
+            card = current
+        })
     }
 
-    // MARK: - 三动作
+    private func revise(index: Int, rowID: UUID?, value: String) {
+        guard !saving, rowID != nil || !sharedCommitted else { return }
+        var current = card
+        current.reviseField(at: index, rowId: rowID, to: value)
+        card = current
+    }
 
     private func save() {
         guard canSave else { return }
-        saving = true
-        for idx in shared.indices { _ = shared[idx].confirm() }
-        for r in rows.indices { for idx in rows[r].indices { _ = rows[r][idx].confirm() } }
-        let confirmed = confirmedCard()
+        let snapshot = card
         Task {
-            let ok: Bool
+            let result: OCRCardStore.SaveResult?
             switch mode {
-            case .queue:
-                ok = await docs.confirmEntityCard(card, confirmed: confirmed)
-            case .resume(let pending):
-                ok = await docs.completePendingCard(pending, confirmed: confirmed)
-                if ok { pendingCenter.refresh(patientId: app.currentPatientId) }
+            case .queue: result = await docs.confirmEntityCard(snapshot, confirmed: snapshot)
+            case .resume(let review): result = await docs.completePendingCard(review.pending, confirmed: snapshot)
             }
-            saving = false
-            if ok {
-                if case .resume = mode { dismiss() }
-                // 队列模式：出队后父级 sheet(item:) 按 currentEntityCard 自动切换/收起
-            } else {
-                saveFailed = true
-            }
+            if let result, !result.resolved { partialCount = result.writtenCount }
         }
     }
 
-    private func defer_() {
-        saving = true
+    private func deferCard() {
+        let snapshot = card
         Task {
             switch mode {
-            case .queue:
-                let ok = await docs.deferEntityCard(card)
-                saving = false
-                if !ok { saveFailed = true }
-            case .resume:
-                // 待办卡本就在队列，「稍后」= 关闭即可
-                saving = false
-                dismiss()
+            case .queue: _ = await docs.deferEntityCard(snapshot)
+            case .resume(let review):
+                review.isSaving = true
+                let saved = await docs.deferPendingCard(review.pending, edited: snapshot)
+                review.isSaving = false
+                if saved { dismiss() }
             }
         }
     }
 
     private func discard() {
-        switch mode {
-        case .queue:
-            docs.discardEntityCard(card)
-        case .resume(let pending):
-            Task {
-                await docs.discardPendingCard(pending)
-                pendingCenter.refresh(patientId: app.currentPatientId)
-                dismiss()
+        let snapshot = card
+        Task {
+            switch mode {
+            case .queue: _ = await docs.discardEntityCard(snapshot)
+            case .resume(let review): _ = await docs.discardPendingCard(review.pending)
             }
         }
     }
 }
 
-/// FR6.9 待办卡续确认路由落点（1h 通知深链 `.pendingCard(id)`）：读卡 → 还原实体卡 →
-/// `EntityCardConfirmView(mode: .resume)`；已处理/不存在 → 可见空态。
+private extension Array {
+    subscript(safe index: Int) -> Element? { indices.contains(index) ? self[index] : nil }
+}
+
 struct PendingCardResumeRouteView: View {
     let cardId: String
     @Environment(DocumentsState.self) private var docs
-    @Environment(PendingCardCenterState.self) private var pendingCenter
     @State private var pending: PendingCard?
-    @State private var card: MatchedCard?
-    @State private var pageCount = 1
     @State private var loaded = false
+    @State private var loadFailed = false
+    @State private var reimport = false
+    @State private var retainedImportID: UUID?
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         Group {
-            if let pending, let card {
-                EntityCardConfirmView(card: card, mode: .resume(pending), pageCount: pageCount, position: nil)
+            if let retainedImportID, docs.activeImport?.id == retainedImportID {
+                ProgressView()
+            } else if pending != nil, let review = docs.pendingReviews[cardId], let documentId = review.pending.sourceDocId, !loadFailed {
+                EntityCardConfirmView(card: Binding(get: { review.card }, set: { review.card = $0 }),
+                    mode: .resume(review), patientId: review.pending.patientId, documentId: documentId,
+                    pageCount: review.pageCount, position: nil)
+            } else if let pending, loaded {
+                List {
+                    Section {
+                        OCRReviewOwnerRow(patientId: pending.patientId)
+                        GradeBadge(grade: "D")
+                        Text(L10n.ocrReviewLegacySourceMissing)
+                        Button(L10n.homeCaptureFile) { reimport = true }.frame(minHeight: 44)
+                    }
+                    Section(L10n.entityCardSharedSection) {
+                        ForEach(pending.partialData.shared.filter { $0.key != "metric_key" }.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
+                            LabeledContent(DocumentsState.fieldLabel(forKey: key), value: value)
+                        }
+                        ForEach(Array(pending.partialData.rows.enumerated()), id: \.offset) { index, row in
+                            VStack(alignment: .leading) {
+                                Text(L10n.entityCardRowIndex(index + 1)).font(.caption)
+                                ForEach(row.filter { $0.key != "metric_key" }.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
+                                    LabeledContent(DocumentsState.fieldLabel(forKey: key), value: value)
+                                }
+                            }
+                        }
+                    }
+                    Section(L10n.pendingCardRawText) { Text(pending.rawText).textSelection(.enabled) }
+                }
+            } else if loadFailed {
+                ContentUnavailableView {
+                    Label(L10n.docImportFailed, systemImage: "exclamationmark.triangle")
+                } actions: { Button(L10n.retry) { Task { await load() } } }
             } else if loaded {
                 ContentUnavailableView(L10n.pendingCardNotFound, systemImage: "tray")
-                    .accessibilityIdentifier("SP-12.pendingCard.notFound")
-            } else {
-                ProgressView()
+            } else { ProgressView() }
+        }
+        .task(id: cardId) { await load() }
+        .ocrImportReviewHost(enabled: retainedImportID != nil && docs.activeImport?.id == retainedImportID,
+                             advanceQueuedImports: false) { _ in dismiss() }
+        .onDisappear {
+            if docs.pendingReviews[cardId]?.completed == true { docs.pendingReviews.removeValue(forKey: cardId) }
+        }
+        .sheet(isPresented: $reimport) {
+            if let pending { NavigationStack { QuickCaptureView(kind: nil, patientId: pending.patientId) } }
+        }
+        .toolbar {
+            if loaded && docs.pendingReviews[cardId] == nil && retainedImportID == nil {
+                ToolbarItem(placement: .cancellationAction) { Button(L10n.commonCancel) { dismiss() } }
             }
         }
-        .task(id: cardId) {
-            await pendingCenter.loadDetail(id: cardId)
-            if let detail = pendingCenter.detail, detail.status == "pending" || detail.status == "in_progress" {
-                pending = detail
-                card = await docs.resumePendingCard(detail)
-                if let docId = detail.sourceDocId {
-                    let pages = await docs.pageCount(documentId: docId)
-                    pageCount = max(pages, (detail.sourcePage ?? 0) + 1)
-                }
+    }
+
+    private func load() async {
+        loaded = false; loadFailed = false; pending = nil; retainedImportID = nil
+        do {
+            let fetched = try await docs.loadPendingCard(id: cardId)
+            guard !Task.isCancelled else { return }
+            guard let fetched, ["pending", "in_progress"].contains(fetched.status) else { loaded = true; return }
+            pending = fetched
+            if let retained = docs.retainedImport(for: fetched) {
+                retainedImportID = retained.id
+                loaded = true
+                return
             }
-            loaded = true
-        }
+            _ = await docs.resumePendingCard(fetched)
+        } catch { loadFailed = true }
+        loaded = true
     }
 }

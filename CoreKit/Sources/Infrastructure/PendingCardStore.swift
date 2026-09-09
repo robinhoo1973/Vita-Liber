@@ -56,19 +56,28 @@ public struct PendingCard: Sendable, Equatable, Identifiable {
         self.resolvedBy = resolvedBy
         self.note = note
     }
+
+    public func matchedCard() throws -> MatchedCard {
+        guard sourceDocId != nil, let sourcePage, let id = UUID(uuidString: id) else {
+            throw PendingCardPayload.PayloadError.identityMismatch
+        }
+        return try partialData.matchedCard(kind: cardKind, pageIndex: sourcePage, id: id)
+    }
 }
 
 /// incomplete_fields JSON 行形态（data-flow §18.1.2）。
 public struct IncompleteField: Codable, Sendable, Equatable {
     public var key: String
+    public var rowId: UUID?
     public var label: String?
     public var rawText: String?
     public var confidence: Double
     public var reason: String?
 
     public init(key: String, label: String? = nil, rawText: String? = nil,
-                confidence: Double = 0, reason: String? = nil) {
+                confidence: Double = 0, reason: String? = nil, rowId: UUID? = nil) {
         self.key = key
+        self.rowId = rowId
         self.label = label
         self.rawText = rawText
         self.confidence = confidence
@@ -123,59 +132,90 @@ public actor PendingCardStore {
     /// 重复卡（fr69-aggregation-round1 二轮复核 A 项）。返回生效卡 id。
     @discardableResult
     public func upsert(_ draft: PendingCardDraft) async throws -> String {
+        try await writer.write { db in try Self.upsert(draft, db: db, now: Date()) }
+    }
+
+    static func upsert(_ draft: PendingCardDraft, db: Database, now date: Date) throws -> String {
+        guard try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM patient_profile WHERE id = ? AND deleted_at IS NULL",
+                               arguments: [draft.patientId.uuidString]) == 1 else { throw DocumentStore.StoreError.invalidMember }
+        if draft.sourceType == "ocr" {
+            guard let document = draft.sourceDocId, let page = draft.sourcePage,
+                  OCRCardStore.supportedKinds.contains(draft.cardKind) else { throw DocumentStore.StoreError.invalidSource }
+            try DocumentStore.validateSource(db, patientId: draft.patientId, documentId: document,
+                                             pageIndex: page, requireRecognizedPage: false)
+            if let card = draft.partialData.card, card.kind != draft.cardKind || card.pageIndex != page {
+                throw PendingCardPayload.PayloadError.identityMismatch
+            }
+            let sourceCards = try String.fetchAll(db, sql: "SELECT DISTINCT card_id FROM ocr_card_commit WHERE document_file_id = ? AND page_index = ? AND card_kind = ?",
+                                                 arguments: [document.uuidString, page, draft.cardKind])
+            if !sourceCards.isEmpty, !sourceCards.contains(draft.partialData.card?.id.uuidString ?? "") {
+                throw PendingCardPayload.PayloadError.identityMismatch
+            }
+        }
         let incompleteJSON = String(data: try JSONEncoder().encode(draft.incompleteFields),
                                     encoding: .utf8) ?? "[]"
-        let partialJSON = draft.partialData.json
-        let now = Date().timeIntervalSince1970
+        let partialJSON = try draft.partialData.json
+        let now = date.timeIntervalSince1970
         let updateSnapshot = { (db: Database, id: String) throws -> Void in
+            guard let existing = try Row.fetchOne(db, sql: "SELECT * FROM pending_card WHERE id = ?", arguments: [id]) else {
+                throw StoreError.inactive
+            }
+            let old = try Self.decode(existing)
+            if let previous = old.partialData.card, let next = draft.partialData.card, previous.id != next.id {
+                throw PendingCardPayload.PayloadError.identityMismatch
+            }
+            var snapshotJSON = partialJSON
+            if draft.sourceType == "ocr" {
+                let committed = Set(try String.fetchAll(db, sql: "SELECT row_id FROM ocr_card_commit WHERE card_id = ?",
+                                                       arguments: [old.partialData.card?.id.uuidString ?? id]))
+                if !committed.isEmpty {
+                    guard let previous = old.partialData.card, let next = draft.partialData.card else { throw StoreError.useOCRCardStore }
+                    snapshotJSON = try PendingCardPayload(card: OCRCardStore.mergeDraft(next, previous: previous, committed: committed)).json
+                }
+            }
             try db.execute(sql: """
                 UPDATE pending_card
                 SET incomplete_fields = ?, partial_data = ?, raw_text = ?,
                     updated_at = ?, note = ?
                 WHERE id = ?
-                """, arguments: [incompleteJSON, partialJSON, draft.rawText, now,
+                """, arguments: [incompleteJSON, snapshotJSON, draft.rawText, now,
                                  draft.note ?? NSNull(), id])
         }
-        return try await writer.write { db -> String in
-            if let docId = draft.sourceDocId?.uuidString {
-                // 同源去重键升级为 (文档, 页, 卡类)——同一卡类跨页各成一卡（V3.99）
-                let existing: String? = try String.fetchOne(db, sql: """
-                    SELECT id FROM pending_card
-                    WHERE source_doc_id = ? AND card_kind = ? AND source_page IS ?
-                      AND status IN ('pending','in_progress')
-                    LIMIT 1
-                    """, arguments: [docId, draft.cardKind, draft.sourcePage])
-                if let id = existing {
-                    try updateSnapshot(db, id)
-                    return id
-                }
-            } else {
-                let existing: String? = try String.fetchOne(db, sql: """
-                    SELECT id FROM pending_card
-                    WHERE patient_id = ? AND card_kind = ? AND raw_text = ?
-                      AND status IN ('pending','in_progress')
-                    LIMIT 1
-                    """, arguments: [draft.patientId.uuidString, draft.cardKind,
-                                     draft.rawText])
-                if let id = existing {
-                    try updateSnapshot(db, id)
-                    return id
-                }
+        if let docId = draft.sourceDocId?.uuidString {
+            let existing = try Row.fetchAll(db, sql: """
+                SELECT id, status FROM pending_card
+                WHERE source_doc_id = ? AND card_kind = ? AND source_page IS ? AND patient_id = ? AND source_type = ?
+                  AND (status IN ('pending','in_progress') OR source_type = 'ocr')
+                """, arguments: [docId, draft.cardKind, draft.sourcePage, draft.patientId.uuidString, draft.sourceType])
+            guard existing.count <= 1 else { throw PendingCardPayload.PayloadError.identityMismatch }
+            if let row = existing.first {
+                guard ["pending", "in_progress"].contains(row["status"] as String) else { throw StoreError.inactive }
+                let id: String = row["id"]
+                try updateSnapshot(db, id)
+                return id
             }
-            let id = UUID().uuidString
-            try db.execute(sql: """
-                INSERT INTO pending_card
-                  (id, patient_id, source_type, source_doc_id, source_page, card_kind,
-                   incomplete_fields, partial_data, raw_text, attempt_count,
-                   status, created_at, updated_at, resolved_at, resolved_by, note)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'pending', ?, ?, NULL, NULL, ?)
-                """, arguments: [id, draft.patientId.uuidString, draft.sourceType,
-                                 draft.sourceDocId?.uuidString ?? NSNull(), draft.sourcePage ?? NSNull(),
-                                 draft.cardKind,
-                                 incompleteJSON, partialJSON, draft.rawText, now, now,
-                                 draft.note ?? NSNull()])
-            return id
+        } else {
+            let existing: String? = try String.fetchOne(db, sql: """
+                SELECT id FROM pending_card
+                WHERE patient_id = ? AND card_kind = ? AND raw_text = ? AND source_doc_id IS NULL AND source_type = ?
+                  AND status IN ('pending','in_progress') LIMIT 1
+                """, arguments: [draft.patientId.uuidString, draft.cardKind, draft.rawText, draft.sourceType])
+            if let id = existing {
+                try updateSnapshot(db, id)
+                return id
+            }
         }
+        let id = draft.partialData.card?.id.uuidString ?? UUID().uuidString
+        try db.execute(sql: """
+            INSERT INTO pending_card
+              (id, patient_id, source_type, source_doc_id, source_page, card_kind,
+               incomplete_fields, partial_data, raw_text, attempt_count,
+               status, created_at, updated_at, resolved_at, resolved_by, note)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'pending', ?, ?, NULL, NULL, ?)
+            """, arguments: [id, draft.patientId.uuidString, draft.sourceType,
+                             draft.sourceDocId?.uuidString ?? NSNull(), draft.sourcePage ?? NSNull(),
+                             draft.cardKind, incompleteJSON, partialJSON, draft.rawText, now, now, draft.note ?? NSNull()])
+        return id
     }
 
     /// 列出成员待办卡（默认活跃态 pending/in_progress；`statuses` 显式指定）。
@@ -187,7 +227,7 @@ public actor PendingCardStore {
                 WHERE patient_id = ? AND status IN (\(statuses.map { _ in "?" }.joined(separator: ",")))
                 ORDER BY created_at DESC
                 """, arguments: StatementArguments([patientId.uuidString] + statuses))
-            return rows.map(Self.decode)
+            return try rows.map(Self.decode)
         }
     }
 
@@ -195,10 +235,13 @@ public actor PendingCardStore {
     public func markResolved(id: String, by: String, note: String? = nil) async throws {
         let now = Date().timeIntervalSince1970
         try await writer.write { db in
+            guard let row = try Row.fetchOne(db, sql: "SELECT source_type, status FROM pending_card WHERE id = ?", arguments: [id]),
+                  ["pending", "in_progress"].contains(row["status"] as String) else { throw StoreError.inactive }
+            if (row["source_type"] as String) == "ocr", note != "discarded" { throw StoreError.useOCRCardStore }
             try db.execute(sql: """
                 UPDATE pending_card
                 SET status = 'resolved', resolved_at = ?, resolved_by = ?, updated_at = ?, note = ?
-                WHERE id = ?
+                WHERE id = ? AND status IN ('pending','in_progress')
                 """, arguments: [now, by, now, note ?? NSNull(), id])
         }
     }
@@ -231,7 +274,7 @@ public actor PendingCardStore {
         try await writer.read { db in
             guard let row = try Row.fetchOne(db, sql: "SELECT * FROM pending_card WHERE id = ?",
                                              arguments: [id]) else { return nil }
-            return Self.decode(row)
+            return try Self.decode(row)
         }
     }
 
@@ -254,13 +297,19 @@ public actor PendingCardStore {
         }
     }
 
-    static func decode(_ row: Row) -> PendingCard {
-        let incomplete: [IncompleteField] = (try? JSONDecoder().decode(   // try?-ok: 本仓自写 JSON，反序列化失败回落空集合
-            [IncompleteField].self, from: (row["incomplete_fields"] as String).data(using: .utf8) ?? Data())) ?? []
-        let partial = PendingCardPayload.decode(row["partial_data"] as String)
+    public enum StoreError: Error, Sendable { case inactive, useOCRCardStore }
+
+    static func decode(_ row: Row) throws -> PendingCard {
+        let incomplete: [IncompleteField]
+        do { incomplete = try JSONDecoder().decode([IncompleteField].self, from: Data((row["incomplete_fields"] as String).utf8)) }
+        catch { throw PendingCardPayload.PayloadError.corrupt }
+        let partial = try PendingCardPayload.decode(row["partial_data"] as String, cardKind: row["card_kind"])
+        guard let patientId = UUID(uuidString: row["patient_id"]) else { throw PendingCardPayload.PayloadError.corrupt }
+        let source: String? = row["source_doc_id"]
+        if let source, UUID(uuidString: source) == nil { throw PendingCardPayload.PayloadError.corrupt }
         return PendingCard(
             id: row["id"],
-            patientId: UUID(uuidString: row["patient_id"]) ?? UUID(),
+            patientId: patientId,
             sourceType: row["source_type"],
             sourceDocId: (row["source_doc_id"] as String?).flatMap(UUID.init(uuidString:)),
             sourcePage: row["source_page"] as Int?,
@@ -290,6 +339,7 @@ public final class PendingCardCenterState {
     public private(set) var items: [AggregatedReminderItem] = []
     /// 详情 sheet 用（D 级草稿详情仅用户本人可见；不进入任何事实链投影）
     public private(set) var detail: PendingCard?
+    public private(set) var loadError: String?
     private let store: PendingCardStore
     private var loadedPatientId: UUID?
 
@@ -297,11 +347,14 @@ public final class PendingCardCenterState {
 
     public func load(patientId: UUID) async {
         loadedPatientId = patientId
+        loadError = nil
         do {
             let projected = try await store.aggregationItems(patientId: patientId)
             guard loadedPatientId == patientId else { return }   // BR-001 竞态守卫
             items = projected
         } catch {
+            guard loadedPatientId == patientId else { return }
+            loadError = String(describing: error)
             items = []   // try?-ok 同族：读取失败按空态渲染，不静默假数据
         }
     }
@@ -314,14 +367,18 @@ public final class PendingCardCenterState {
         // 先清旧详情（fr69-aggregation-round1 二轮复核 B 项）：连开第二张卡
         // 时旧卡详情短暂闪现——详情 sheet 与列表项不同步的错位观感
         detail = nil
-        detail = try? await store.card(id: id)   // try?-ok: 详情读取失败按空态渲染，不静默假数据
+        loadError = nil
+        do { detail = try await store.card(id: id) }
+        catch { loadError = String(describing: error) }
     }
 
     /// 用户补全完结（期一无 LLM 补全；resolved_by=user）后刷新投影。
     public func resolve(patientId: UUID, id: String) {
         Task {
-            try? await store.markResolved(id: id, by: "user")   // try?-ok: 完结失败卡仍在队列，下次可重试
-            await load(patientId: patientId)
+            do {
+                try await store.markResolved(id: id, by: "user")
+                await load(patientId: patientId)
+            } catch { loadError = String(describing: error) }
         }
     }
 }

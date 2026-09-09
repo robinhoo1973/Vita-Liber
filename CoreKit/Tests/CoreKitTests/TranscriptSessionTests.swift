@@ -8,6 +8,58 @@ import Testing
 /// FR17.15：主语言 = 用户选择顺序首位（不再字母序）；混说词表注入 contextualStrings。
 @Suite("SU-M15-VOICE · 连续转写会话累加与主语言/混说词表（FR17.1/FR17.15 V3.61）")
 struct TranscriptSessionTests {
+    @Test func emptyFinalPreservesAlreadyRecognizedPartial() {
+        var accumulator = TranscriptSessionAccumulator()
+        accumulator.updatePartial("已经识别的内容")
+        accumulator.commit("")
+        #expect(accumulator.finish() == ["已经识别的内容"])
+    }
+
+    @Test func recoveredPartialDoesNotFinishTheWholeSession() {
+        var accumulator = TranscriptSessionAccumulator()
+        accumulator.updatePartial("first segment")
+        accumulator.commit("")
+        accumulator.updatePartial("second segment")
+        #expect(accumulator.finish() == ["first segment", "second segment"])
+    }
+
+    @Test func emptyPartialAndLateCallbacksCannotEraseFinishedText() {
+        var accumulator = TranscriptSessionAccumulator()
+        accumulator.updatePartial("retained")
+        accumulator.updatePartial("  ")
+        #expect(accumulator.finish() == ["retained"])
+        accumulator.updatePartial("late partial")
+        accumulator.commit("late final")
+        #expect(accumulator.finish() == ["retained"])
+    }
+
+    @Test func localeAliasesResolveOnlyToAnActuallyAvailableIdentifier() {
+        let capability = TranscriptionCapability.baseline(locales: ["zh_CN", "zh_HK", "en_US"])
+        #expect(capability.locale(matching: "zh-Hans-CN") == "zh_CN")
+        #expect(capability.locale(matching: "yue-Hant-HK") == "zh_HK")
+        #expect(capability.resolvedLocale(for: "en-US") == "en_US")
+        #expect(capability.resolvedLocale(for: "wuu-CN") == "zh_CN")
+        #expect(capability.resolvedLocale(for: "de-DE") == nil)
+    }
+
+    @Test func unavailableMandarinIsNeverInventedAsFallback() {
+        let empty = TranscriptionCapability.baseline(locales: [])
+        #expect(empty.resolvedLocale(for: "zh-Hans-CN") == nil)
+        #expect(empty.resolvedLocale(for: "wuu-CN") == nil)
+        let englishOnly = TranscriptionCapability.baseline(locales: ["en-US"])
+        #expect(englishOnly.resolvedLocale(for: "yue-Hant-HK") == nil)
+        #expect(englishOnly.resolvedLocale(for: "zh-Hans-CN") == nil)
+    }
+
+    @Test func vocabularyCannotExceedSDKLimitEvenWithAnOversizedCallerLimit() {
+        let terms = MixedSpeechVocabulary.terms(primaryLocale: "en-US", otherLocales: [],
+                                                recentDrugNames: (0..<150).map { "drug \($0)" },
+                                                limit: 200)
+        #expect(terms.count == 100)
+        #expect(MixedSpeechVocabulary.terms(primaryLocale: "en-US", otherLocales: [],
+                                           recentDrugNames: ["drug"], limit: -1).isEmpty)
+    }
+
     @Test func 提交段与部分结果合并显示() {
         var acc = TranscriptSessionAccumulator()
         acc.updatePartial("我今天")

@@ -59,7 +59,9 @@ public actor HealthKitReader: HealthReadingProvider {
     }
 
     public func changes(for kind: HealthDataKind, anchor: Data?, limit: Int) async throws -> HealthChangeBatch {
+        try Task.checkCancellation()
         guard isAvailable() else { throw ReaderError.unavailable }
+        guard limit > 0, limit <= 500 else { throw ReaderError.incompleteSnapshot }
         let cursor: HKQueryAnchor?
         if let anchor {
             guard let decoded = try NSKeyedUnarchiver.unarchivedObject(ofClass: HKQueryAnchor.self, from: anchor) else {
@@ -71,20 +73,20 @@ public actor HealthKitReader: HealthReadingProvider {
             predicates: [HKSamplePredicate.sample(type: Self.sampleType(kind))], anchor: cursor, limit: limit)
         let result = try await query.result(for: store)
         try Task.checkCancellation()
-        return HealthChangeBatch(added: result.addedSamples.map { Self.reference($0, kind: kind) },
+        guard result.addedSamples.count + result.deletedObjects.count <= limit else { throw ReaderError.incompleteSnapshot }
+        return HealthChangeBatch(added: try result.addedSamples.map { try Self.reference($0, kind: kind) },
             deleted: result.deletedObjects.map(\.uuid),
             anchor: try NSKeyedArchiver.archivedData(withRootObject: result.newAnchor, requiringSecureCoding: true),
             hasMore: result.addedSamples.count + result.deletedObjects.count >= limit)
     }
 
     public func snapshot(for window: HealthImportWindow, calendar: Calendar) async throws -> HealthWindowSnapshot {
-        let type = Self.sampleType(window.kind)
-        let predicate = HKQuery.predicateForSamples(withStart: window.start, end: window.end, options: [])
-        let query = HKSampleQueryDescriptor(predicates: [HKSamplePredicate.sample(type: type, predicate: predicate)],
-                                            sortDescriptors: [SortDescriptor(\HKSample.startDate)])
-        let samples = try await query.result(for: store)
         try Task.checkCancellation()
-        let references = samples.map { Self.reference($0, kind: window.kind) }
+        guard isAvailable() else { throw ReaderError.unavailable }
+        guard window.isValid else { throw ReaderError.incompleteSnapshot }
+        let predicate = HKQuery.predicateForSamples(withStart: window.start, end: window.end, options: [])
+        let samples = try await querySamples(for: window.kind, predicate: predicate)
+        let references = try samples.map { try Self.reference($0, kind: window.kind) }
         var rows: [DeviceMetricRow] = []
         var readings: [MetricReading] = []
         var rejected = 0
@@ -118,12 +120,20 @@ public actor HealthKitReader: HealthReadingProvider {
                     aggregation: .sleepDuration, windowEnd: window.end))
             }
         } else if window.kind == .steps {
-            // Cumulative quantities are interval contributions, not running day-to-date counters.
-            let statistics = try await HKStatisticsQueryDescriptor(
-                predicate: .quantitySample(type: HKQuantityType(.stepCount), predicate: predicate),
-                options: .cumulativeSum).result(for: store)
-            if statistics == nil && !samples.isEmpty { throw ReaderError.incompleteSnapshot }
-            if let value = statistics?.sumQuantity()?.doubleValue(for: .count()), value.isFinite {
+            if !samples.isEmpty {
+                let ids = Set(samples.map(\.uuid))
+                let statisticsPredicate = Self.stepStatisticsPredicate(for: window, sampleIDs: ids)
+                try Task.checkCancellation()
+                // Keep HealthKit's source arbitration, but never include a contributor absent from the index snapshot.
+                let statistics = try await HKStatisticsQueryDescriptor(
+                    predicate: .quantitySample(type: HKQuantityType(.stepCount), predicate: statisticsPredicate),
+                    options: .cumulativeSum).result(for: store)
+                try Task.checkCancellation()
+                guard let value = statistics?.sumQuantity()?.doubleValue(for: .count()), value.isFinite else {
+                    throw ReaderError.incompleteSnapshot
+                }
+                let verified = try await querySamples(for: .steps, predicate: statisticsPredicate)
+                guard Set(verified.map(\.uuid)) == ids else { throw ReaderError.incompleteSnapshot }
                 rows.append(DeviceMetricRow(metricKey: "steps", value: value, unit: "count",
                     measuredAt: window.start, sourceRef: window.prefix + "sum",
                     aggregation: .dailySum, windowEnd: min(Date(), window.end)))
@@ -191,7 +201,9 @@ public actor HealthKitReader: HealthReadingProvider {
     /// A condensed quantity sample is a container, not one independent reading. `ordinal` is nil for a
     /// single-quantity sample and the series entry index otherwise (identity = sample UUID + ordinal).
     private func quantityPoints(_ sample: HKQuantitySample, unit: HKUnit,
-                                useEndDate: Bool) async throws -> [(ordinal: Int?, value: Double, at: Date)] {
+                                 useEndDate: Bool) async throws -> [(ordinal: Int?, value: Double, at: Date)] {
+        try Task.checkCancellation()
+        guard sample.count > 0 else { throw ReaderError.incompleteSnapshot }
         if sample.count == 1 {
             return [(nil, sample.quantity.doubleValue(for: unit),
                      useEndDate ? sample.endDate : sample.startDate)]
@@ -202,6 +214,11 @@ public actor HealthKitReader: HealthReadingProvider {
         var points: [(ordinal: Int?, value: Double, at: Date)] = []
         for try await entry in query.results(for: store) {
             try Task.checkCancellation()
+            guard entry.dateInterval.start.timeIntervalSince1970.isFinite,
+                  entry.dateInterval.end.timeIntervalSince1970.isFinite,
+                  entry.dateInterval.start >= sample.startDate, entry.dateInterval.end <= sample.endDate else {
+                throw ReaderError.incompleteSnapshot
+            }
             points.append((points.count, entry.quantity.doubleValue(for: unit),
                            useEndDate ? entry.dateInterval.end : entry.dateInterval.start))
         }
@@ -209,9 +226,42 @@ public actor HealthKitReader: HealthReadingProvider {
         return points
     }
 
-    private static func reference(_ sample: HKSample, kind: HealthDataKind) -> HealthSampleReference {
-        HealthSampleReference(id: sample.uuid, kind: kind, sourceID: sample.sourceRevision.source.bundleIdentifier,
-                              start: sample.startDate, end: sample.endDate)
+    /// Every reference query is bounded, without truncating a window or slicing an opaque anchor.
+    private func querySamples(for kind: HealthDataKind, predicate: NSPredicate) async throws -> [HKSample] {
+        var samples: [UUID: HKSample] = [:]
+        var anchor: HKQueryAnchor?
+        while true {
+            try Task.checkCancellation()
+            let query = HKAnchoredObjectQueryDescriptor(
+                predicates: [.sample(type: Self.sampleType(kind), predicate: predicate)], anchor: anchor, limit: 500)
+            let result = try await query.result(for: store)
+            try Task.checkCancellation()
+            let count = result.addedSamples.count + result.deletedObjects.count
+            guard count <= 500 else { throw ReaderError.incompleteSnapshot }
+            for sample in result.addedSamples { samples[sample.uuid] = sample }
+            for deleted in result.deletedObjects { samples.removeValue(forKey: deleted.uuid) }
+            if count < 500 { break }
+            if let anchor, result.newAnchor.isEqual(anchor) { throw ReaderError.invalidAnchor }
+            anchor = result.newAnchor
+        }
+        return samples.values.sorted {
+            if $0.startDate != $1.startDate { return $0.startDate < $1.startDate }
+            return $0.uuid.uuidString < $1.uuid.uuidString
+        }
+    }
+
+    static func stepStatisticsPredicate(for window: HealthImportWindow, sampleIDs: Set<UUID>) -> NSPredicate {
+        NSCompoundPredicate(andPredicateWithSubpredicates: [
+            HKQuery.predicateForSamples(withStart: window.start, end: window.end, options: []),
+            HKQuery.predicateForObjects(with: sampleIDs)
+        ])
+    }
+
+    private static func reference(_ sample: HKSample, kind: HealthDataKind) throws -> HealthSampleReference {
+        let ref = HealthSampleReference(id: sample.uuid, kind: kind, sourceID: sample.sourceRevision.source.bundleIdentifier,
+                                       start: sample.startDate, end: sample.endDate)
+        guard ref.isValid else { throw ReaderError.incompleteSnapshot }
+        return ref
     }
 }
 #endif

@@ -18,8 +18,9 @@ import Protocols
 /// **V3.94 全屏工作台（improving-requirements 1.2 / tech V3.93 口径修正）**：
 /// 上方 = 转写文本编辑区（点击直接编辑，续录追加）；下方 = 操作区
 /// （长按录音/松手停止，再次长按续录；清除最近一次/全部——最近为默认）。
-/// 「LLM 修正版」切换随主轨（期三 Foundation Models）落地后接入本页面
-/// （能力诚实标注：期一只呈现原生转译版，已登记 §11）。
+/// Optional Foundation Models formatting is separate from the NL/regex understanding track.
+/// Changed suggestions remain preview-only until storage can retain their native provenance.
+@MainActor
 struct VoiceQuickLaunchView: View {
     @Environment(AppState.self) private var app
     @Environment(AppRouter.self) private var router
@@ -34,16 +35,17 @@ struct VoiceQuickLaunchView: View {
     /// 理解层判定意图（FR17.19 目录 key；D 级，确认卡判定结果行呈现/可改）
     @State private var judgedIntent: String?
     @State private var judgedConfidence: Double = 0
-    /// 最近一次转写（Menu 改类后按新意图重抽槽位用）
+    /// Latest recognition confidence; full native text belongs to transcript, not this tuple.
     @State private var lastTranscript: (text: String, confidence: Double)?
-    /// 转写代次（tech V3.92「过期异步结果丢弃」契约）：每次新转写/Menu 改类
-    /// +1；understand 写回前与当前代次比较、不匹配即丢弃——快速连录时旧
-    /// 会话的慢理解结果不得覆盖新会话的判定/草稿（用户确认的可能是旧文本）
-    @State private var transcriptGeneration = 0
-    /// 全屏工作台（1.2）：转写段历史（续录追加；清除最近一次 = pop 末段）
-    @State private var segments: [String] = []
-    /// 编辑区当前文本（= segments 按行连接，可点击直接编辑）
-    @State private var accumulatedText = ""
+    @State private var transcript = TranscriptRefinementState()
+    @State private var confirmationSource: TranscriptSourceSnapshot?
+    @State private var confirmationPatientID: UUID?
+    @State private var refinementTask: Task<Void, Never>?
+    @State private var understandingTask: Task<Void, Never>?
+    @State private var isUnderstanding = false
+    @State private var isSaving = false
+    @State private var failedDispatch: OcrConfirmationSet?
+    @State private var showSaveFailure = false
     /// 清除选择框呈现
     @State private var showClearDialog = false
     /// 转写模型（§4.23 中部大号按住说话按钮持有——本页唯一实例，
@@ -51,21 +53,19 @@ struct VoiceQuickLaunchView: View {
     @State private var model: VoiceDictationModel?
 
     // FR17.9/FR17.18 V3.61 双版本：原生转译版 / LLM 修正版（仅 authAI 开且端侧模型可用时呈现）
-    enum TranscriptVersion: Hashable { case native, refined }
-    @State private var transcriptVersion: TranscriptVersion = .native
     @State private var refinerAvailable = false
-    /// 最近一次润色结果（与 accumulatedText 对应；编辑/续录即失效重算）
-    @State private var revision: TranscriptRevision?
-    @State private var refining = false
-    @State private var refineGeneration = 0
 
     private var refinerEnabled: Bool { settings.values[.authAI] != "false" && refinerAvailable }
-    /// 进入理解层/确认的文本：修正版仅在用户选用且校验通过时生效，否则恒原文
-    private var effectiveText: String {
-        guard transcriptVersion == .refined, let revision, revision.safety == .accepted,
-              revision.original == accumulatedText else { return accumulatedText }
-        return revision.effective
+    private var accumulatedText: String { transcript.nativeText }
+    private var transcriptVersion: TranscriptVersion { transcript.version }
+    private var revision: TranscriptRevision? { transcript.revision }
+    private var refining: Bool { transcript.isRefining }
+    private var sourceSnapshot: TranscriptSourceSnapshot {
+        // The settings owner increments this epoch synchronously, including coalesced revoke/regrant.
+        transcript.snapshot(authorized: refinerEnabled, authorizationGeneration: settings.authAIRevision)
     }
+    private var effectiveText: String { sourceSnapshot.selectedText }
+    private var previewOnly: Bool { sourceSnapshot.requiresOriginalPersistence }
 
     var body: some View {
         NavigationStack {
@@ -82,6 +82,7 @@ struct VoiceQuickLaunchView: View {
                     // BR-012 前置在模型内统一执行（onEmergency 装配见
                     // ensureModel：命中即收起全屏跳急救卡，不被本面板盖住）
                     PressToTalkMicButton(model: model)
+                        .disabled(isSaving || isUnderstanding || confirmSet != nil)
                     // FR17.15 能力诚实（V3.61）：回显实际识别语言；方言回落主语言时标「尽力识别」
                     if let resolved = model.resolvedLocale {
                         HStack(spacing: 6) {
@@ -97,7 +98,8 @@ struct VoiceQuickLaunchView: View {
                     }
                 }
                 // 转写文本显示区（1.2）：实时追加、点击直接编辑
-                TextEditor(text: $accumulatedText)
+                TextEditor(text: Binding(get: { accumulatedText }, set: { editTranscript($0) }))
+                    .disabled(isSaving)
                     .font(.body)
                     .scrollContentBackground(.hidden)
                     .padding(8)
@@ -117,11 +119,13 @@ struct VoiceQuickLaunchView: View {
                 // 不可用/超时/校验失败只显示原文 + 轻提示（不阻断保存）
                 if refinerEnabled && !accumulatedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     VStack(alignment: .leading, spacing: 6) {
-                        Picker(L10n.voiceVersionNative, selection: $transcriptVersion) {
+                        Picker(L10n.voiceVersionNative,
+                               selection: Binding(get: { transcriptVersion }, set: { selectVersion($0) })) {
                             Text(L10n.voiceVersionNative).tag(TranscriptVersion.native)
                             Text(L10n.voiceVersionRefined).tag(TranscriptVersion.refined)
                         }
                         .pickerStyle(.segmented)
+                        .disabled(isSaving)
                         .accessibilityIdentifier("SP-55.panel.version")
                         if transcriptVersion == .refined {
                             HStack(spacing: 6) {
@@ -138,8 +142,9 @@ struct VoiceQuickLaunchView: View {
                             }
                             .font(.caption2).foregroundStyle(.secondary)
                             .accessibilityIdentifier("SP-55.panel.versionHint")
-                            if let revision, revision.original == accumulatedText, revision.safety == .accepted {
-                                Text(revision.suggested)
+                            if let revision, sourceSnapshot.version == .refined,
+                               WordingBlacklist.violation(in: revision.suggested) == nil {
+                                Text(effectiveText)
                                     .font(.body)
                                     .padding(8)
                                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -147,9 +152,29 @@ struct VoiceQuickLaunchView: View {
                                         .fill(Color("bg-grouped", bundle: .main)))
                                     .accessibilityIdentifier("SP-55.panel.refinedText")
                             }
+                            if previewOnly {
+                                Text(L10n.voiceVersionPreviewOnly)
+                                    .font(.caption).foregroundStyle(.secondary)
+                                    .accessibilityIdentifier("SP-55.panel.refinedPreviewOnly")
+                                Button(L10n.voiceVersionNative) { selectVersion(.native) }
+                                    .disabled(isSaving)
+                            } else if !refining, revision?.safety != .accepted {
+                                Button(L10n.retry) { refineCurrentText() }
+                                    .disabled(isSaving || isUnderstanding)
+                            }
                         }
                     }
                     .padding(.horizontal, 24)
+                }
+                if showSaveFailure {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(L10n.voicenoteSaveFailed).font(.caption)
+                        Button(L10n.retry) { retryDispatch() }
+                            .disabled(isSaving)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 24)
+                    .accessibilityIdentifier("SP-55.panel.saveFailure")
                 }
                 // 下方 = 操作按钮区（1.2）：清除/确认；录音入口已上移至中部
                 // 大号按住说话按钮（PressToTalkMicButton，§4.23）——再次
@@ -162,16 +187,17 @@ struct VoiceQuickLaunchView: View {
                             .frame(maxWidth: .infinity, minHeight: 44)
                     }
                     .buttonStyle(.bordered)
-                    .disabled(segments.isEmpty)
+                    .disabled(accumulatedText.isEmpty || isSaving)
                     .accessibilityIdentifier("SP-55.panel.clear")
                     Button {
-                        Task { await confirmFromTranscript() }
+                        confirmFromTranscript()
                     } label: {
                         Label(L10n.voicePanelConfirm, systemImage: "checkmark.circle.fill")
                             .frame(maxWidth: .infinity, minHeight: 44)
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(accumulatedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(accumulatedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                              || isSaving || isUnderstanding || previewOnly || model?.hasPendingTranscriptions == true)
                     .accessibilityIdentifier("SP-55.panel.confirm")
                 }
                 .padding(.horizontal, 24)
@@ -183,6 +209,7 @@ struct VoiceQuickLaunchView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(L10n.commonCancel) { dismiss() }
+                        .disabled(isSaving)
                 }
                 // FR17.15 面板内语言入口（5.54 C）——跳语音语言选择器
                 ToolbarItem(placement: .topBarTrailing) {
@@ -191,6 +218,7 @@ struct VoiceQuickLaunchView: View {
                     } label: {
                         Image(systemName: "globe")
                     }
+                    .disabled(isSaving)
                     .accessibilityIdentifier("SP-55.panel.language")
                 }
             }
@@ -198,25 +226,30 @@ struct VoiceQuickLaunchView: View {
             .onDisappear {
                 routeMonitor.stop()
                 model?.stopForDisappear()   // 视图销毁即终止在途听写投递
+                stopRefinement()
+                transcript.revokeAI()
+                invalidateConfirmation()
             }
             // 引擎在环境就绪后装配（同 VoiceDictationButton 纪律：语言值变化
             // 即重建，面板内改语言返回后 preferredLocale 即时生效）
             .task(id: "\(settings.values[.voiceInputLanguages] ?? "")|\(settings.values[.voiceMixedInput] ?? "")") { ensureModel() }
-            // 分段版本一致性（FR17.9 V3.55）：手工编辑必须递增代次、失效
-            // 在途理解结果——此前编辑不递增，慢理解结果按旧文本覆盖用户
-            // 刚改过的判定/草稿（gen 守卫只防重录/改类，不防编辑）
-            .onChange(of: accumulatedText) { _, _ in
-                transcriptGeneration += 1
-                // 分段版本一致性（FR17.9 V3.55）：文本变化即旧润色失效；已选修正版则重算
-                revision = nil
-                if transcriptVersion == .refined { Task { await refineCurrentText() } }
+            .onChange(of: settings.values[.authAI]) { _, value in
+                if value == "false" { revokeRefinement() }
             }
-            .onChange(of: transcriptVersion) { _, version in
-                if version == .refined, revision?.original != accumulatedText { Task { await refineCurrentText() } }
+            .onChange(of: settings.authAIRevision) { _, _ in revokeRefinement() }
+            .onChange(of: refinerAvailable) { _, available in
+                if !available { revokeRefinement() }
+            }
+            .onChange(of: app.currentPatientId) { _, _ in
+                stopRefinement()
+                transcript.revokeAI()
+                invalidateConfirmation()
             }
             .task {
                 // 能力探测（编译期 canImport + 运行期 availability；不含授权——授权由 authAI 门控）
-                refinerAvailable = await app.textRefiner.isAvailable
+                let available = await app.textRefiner.isAvailable
+                guard !Task.isCancelled else { return }
+                refinerAvailable = available
             }
             // 清除选择框（1.2）：清除最近一次为默认选项
             .confirmationDialog(L10n.voicePanelClearTitle, isPresented: $showClearDialog,
@@ -224,6 +257,7 @@ struct VoiceQuickLaunchView: View {
                 Button(L10n.voicePanelClearLast, role: .destructive) {
                     clearLastSegment()
                 }
+                .disabled(!transcript.canClearLast || model?.hasPendingTranscriptions == true)
                 Button(L10n.voicePanelClearAll, role: .destructive) {
                     clearAllSegments()
                 }
@@ -233,30 +267,22 @@ struct VoiceQuickLaunchView: View {
                                judgedTarget: judgedIntent,
                                judgedConfidence: judgedConfidence,
                                onJudgedTargetChange: { newKey in
-                // 确认卡 Menu/候选行改类：按新意图重抽槽位（期一无独立文法
-                // 的意图回落纯文本草稿——FR17.19 消歧兜底语义，不静默丢内容）。
-                // 重抽输入 = 编辑区当前文本（用户可能已编辑，转写原件不再权威）；
-                // 编辑区被清空时不重抽——空文本会产出零字段确认集，把用户
-                // 正在确认的草稿整个抹掉
-                let source = accumulatedText.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !source.isEmpty else { return }
-                transcriptGeneration += 1   // 改类使在途理解结果全部失效
+                guard !isSaving, let source = confirmationSource,
+                      confirmationPatientID == app.currentPatientId,
+                      transcript.matches(source, authorized: refinerEnabled,
+                                         authorizationGeneration: settings.authAIRevision) else { return }
+                understandingTask?.cancel()
                 judgedIntent = newKey
                 judgedConfidence = 0.9
                 let key = VoiceIntentKey(rawValue: newKey) ?? .unknown
-                let drafts = VoiceIntentCatalog.extract(for: key, text: source,
+                let drafts = VoiceIntentCatalog.extract(for: key, text: source.selectedText,
                                                         confidence: lastTranscript?.confidence ?? 0.9)
-                let newSet = VoiceInputTemplate.confirmationSet(
-                    drafts: drafts, documentId: confirmSet?.documentId ?? UUID())
-                confirmSet = newSet
+                // A new confirmation identity rejects callbacks from the previous target's sheet.
+                confirmSet = VoiceInputTemplate.confirmationSet(drafts: drafts)
             }) { confirmed in
-                confirmSet = nil
-                // 先分发后归零：dispatch 按 judgedIntent 定目标、pendingVoiceIntent
-                // 携带确认值——clearAllSegments 会重置 judgedIntent，先清即
-                // 全部落入 anyText 兜底（指标/提醒/档案预填失效）
-                dispatch(confirmed)
-                clearAllSegments()
+                startDispatch(confirmed)
             }
+            .interactiveDismissDisabled(isSaving)
             .alert(L10n.voicePanelSaved, isPresented: $savedNote) {
                 Button(L10n.voicenoteView) {
                     // 审查修复：跳转前必须先收起本面板 sheet——router.navigate
@@ -294,85 +320,150 @@ struct VoiceQuickLaunchView: View {
         if model == nil { model = m }
     }
 
-    /// 续录追加：编辑区是唯一事实源——此前 segments 重连会覆盖用户的全部
-    /// 手编辑内容（改错字后续录即丢）；segments 由编辑区按行派生，仅用于
-    /// 「清除最近一次」的粒度
+    private func invalidateConfirmation() {
+        understandingTask?.cancel()
+        understandingTask = nil
+        isUnderstanding = false
+        confirmSet = nil
+        confirmationSource = nil
+        confirmationPatientID = nil
+        judgedIntent = nil
+        judgedConfidence = 0
+        failedDispatch = nil
+        showSaveFailure = false
+    }
+
+    private func stopRefinement() {
+        refinementTask?.cancel()
+        refinementTask = nil
+        transcript.cancelRefinement()
+    }
+
+    private func revokeRefinement() {
+        stopRefinement()
+        transcript.revokeAI()
+        if let source = confirmationSource,
+           !transcript.matches(source, authorized: refinerEnabled, authorizationGeneration: settings.authAIRevision) {
+            invalidateConfirmation()
+        }
+    }
+
+    private func selectVersion(_ version: TranscriptVersion) {
+        guard !isSaving, version != transcriptVersion else { return }
+        stopRefinement()
+        invalidateConfirmation()
+        transcript.select(version, authorized: refinerEnabled)
+        if transcriptVersion == .refined { refineCurrentText() }
+    }
+
+    private func editTranscript(_ text: String) {
+        guard !accumulatedText.utf8.elementsEqual(text.utf8) else { return }
+        stopRefinement()
+        invalidateConfirmation()
+        transcript.edit(text)
+        lastTranscript = nil
+        if transcriptVersion == .refined { refineCurrentText() }
+    }
+
+    /// Append history marks exact source byte boundaries, never newline-derived stale copies.
     private func appendSegment(_ text: String, confidence: Double) {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        transcriptGeneration += 1
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        stopRefinement()
+        invalidateConfirmation()
         lastTranscript = (text, confidence)
-        accumulatedText = accumulatedText.isEmpty
-            ? trimmed
-            : accumulatedText + "\n" + trimmed
-        segments = accumulatedText.components(separatedBy: "\n")
+        transcript.append(text)
+        if transcriptVersion == .refined { refineCurrentText() }
     }
 
     /// 清除最近一次录音（1.2 默认选项）
     private func clearLastSegment() {
-        guard !segments.isEmpty else { return }
-        transcriptGeneration += 1
-        segments.removeLast()
-        accumulatedText = segments.joined(separator: "\n")
-        confirmSet = nil
+        guard !isSaving, transcript.canClearLast, model?.hasPendingTranscriptions != true else { return }
+        stopRefinement()
+        invalidateConfirmation()
+        transcript.clearLast()
+        if transcriptVersion == .refined { refineCurrentText() }
     }
 
     /// 清除全部录音（1.2）：工作台归零
     private func clearAllSegments() {
-        transcriptGeneration += 1
-        segments = []
-        accumulatedText = ""
-        confirmSet = nil
-        judgedIntent = nil
-        judgedConfidence = 0
+        guard !isSaving else { return }
+        model?.stopForDisappear()
+        stopRefinement()
+        invalidateConfirmation()
+        transcript.clearAll()
+        lastTranscript = nil
     }
 
-    /// 确认：以编辑区当前文本过理解层（编辑后文本即判定输入——转写只是草料）
-    private func confirmFromTranscript() async {
-        // 双版本：用户选用且校验通过的修正版才作为理解输入；原文永远保留于 lastTranscript/编辑区
-        let text = effectiveText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        // BR-012 前置补全（命中即急救卡、终止解析、不落草稿）：听写路径已由
-        // VoiceDictationModel 前置，此处覆盖手输/粘贴/编辑后的文本——用户手打
-        // 「我胸痛」不得落观察/速记草稿（红线一票否决；此前仅听写结果受检）
-        if EmergencyKeywordRules.match(text) {
+    /// Freeze one selected source; confirming native text never awaits inference.
+    private func confirmFromTranscript() {
+        guard !isSaving, !isUnderstanding, model?.hasPendingTranscriptions != true else { return }
+        stopRefinement()
+        if sourceSnapshot.version == .native {
+            transcript.select(.native, authorized: refinerEnabled)
+        }
+        let source = sourceSnapshot
+        guard !source.selectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              transcript.canCommit(source, authorized: refinerEnabled, authorizationGeneration: settings.authAIRevision,
+                                   preservesOriginal: false) else { return }
+        if EmergencyKeywordRules.match(source.nativeText) || EmergencyKeywordRules.match(source.selectedText) {
             dismiss()
             router.navigate(to: .emergencyCardConfig)
             return
         }
-        transcriptGeneration += 1
-        let generation = transcriptGeneration
-        await understand(text: text, confidence: lastTranscript?.confidence ?? 0.9,
-                         generation: generation)
+        invalidateConfirmation()
+        let patientID = app.currentPatientId
+        confirmationSource = source
+        confirmationPatientID = patientID
+        isUnderstanding = true
+        let confidence = lastTranscript?.confidence ?? 0.9
+        understandingTask = Task {
+            await understand(source: source, confidence: confidence, patientID: patientID)
+            guard !Task.isCancelled, confirmationSource == source else { return }
+            isUnderstanding = false
+            understandingTask = nil
+        }
     }
 
-    /// FR17.18 润色（V3.61）：紧急关键词在润色前判定（BR-012，命中不润色）；结果携带
-    /// 代次守卫（编辑/续录后过期结果丢弃）；任何非 accepted 都只显示原文
-    private func refineCurrentText() async {
-        let text = accumulatedText
-        guard refinerEnabled, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !EmergencyKeywordRules.match(text) else { return }
-        refineGeneration += 1
-        let generation = refineGeneration
-        refining = true
-        let result = await app.textRefiner.refine(text, localeIdentifier: model?.resolvedLocale ?? model?.preferredLocale ?? TranscriptionSegmentation.fallbackLocale,
-                                                   drugNames: hub.inventoryItems.map(\.medicationName))
-        guard generation == refineGeneration, text == accumulatedText else { return }
-        revision = result
-        refining = false
+    private func refineCurrentText() {
+        guard !isSaving, !isUnderstanding else { return }
+        stopRefinement()
+        guard let request = transcript.beginRefinement(authorized: refinerEnabled,
+                                                       authorizationGeneration: settings.authAIRevision) else { return }
+        invalidateConfirmation()
+        let locale = model?.resolvedLocale ?? model?.preferredLocale ?? TranscriptionSegmentation.fallbackLocale
+        let drugNames = hub.inventoryItems.map(\.medicationName)
+        refinementTask = Task {
+            guard !Task.isCancelled, refinerEnabled,
+                  request.generation == transcript.generation,
+                  request.authorizationGeneration == settings.authAIRevision else {
+                if request.generation == transcript.generation {
+                    transcript.revokeAI()
+                    refinementTask = nil
+                }
+                return
+            }
+            let result = await app.textRefiner.refine(request.nativeText, localeIdentifier: locale, drugNames: drugNames)
+            guard !Task.isCancelled, request.generation == transcript.generation else { return }
+            transcript.publish(result, for: request, authorized: refinerEnabled,
+                               authorizationGeneration: settings.authAIRevision)
+            refinementTask = nil
+        }
     }
 
     /// 共享文本理解层自动判定（FR17.18 期一：兜底轨文法/启发式）——
     /// 单次调用产出意图 + 槽位草稿，替代此前三套正则并行抽取的内联实现。
     /// 转写置信度随输入传递（此前在此处被丢弃、引擎恒按 0.9 分类）
-    private func understand(text: String, confidence: Double, generation: Int) async {
+    private func understand(source: TranscriptSourceSnapshot, confidence: Double, patientID: UUID) async {
+        guard !Task.isCancelled, patientID == app.currentPatientId, confirmationSource == source,
+              transcript.matches(source, authorized: refinerEnabled,
+                                 authorizationGeneration: settings.authAIRevision) else { return }
         let understanding = EngineRegistry.shared.resolve(TextUnderstandingFactory.self)
         let result = await understanding.understand(
-            TextUnderstandingInput(text: text,
+            TextUnderstandingInput(text: source.selectedText,
                                    source: .voice(intentHint: nil, confidence: confidence)))
-        // 过期异步结果丢弃（V3.92）：写回前校验代次——乱序完成的理解结果
-        // 不得覆盖新会话判定（含用户 Menu 改类后的意图）
-        guard generation == transcriptGeneration else { return }
+        guard !Task.isCancelled, patientID == app.currentPatientId, confirmationSource == source,
+              transcript.matches(source, authorized: refinerEnabled,
+                                 authorizationGeneration: settings.authAIRevision) else { return }
         judgedIntent = result.suggestedTarget
         judgedConfidence = result.targetConfidence
         confirmSet = VoiceInputTemplate.confirmationSet(drafts: result.fields)
@@ -391,35 +482,67 @@ struct VoiceQuickLaunchView: View {
         }
     }
 
-    /// 确认后分发（§5.54）：任意文本 = 面板内落 VoiceNote + 已存提示（[查看]
-    /// 直达 SP-59）；其余目标 = 类型化 pendingVoiceIntent 暂存后跳目标页预填。
-    /// 分发目标 = 确认卡定夺的判定意图（FR17.9「不预选数据去向」）。
-    private func dispatch(_ set: OcrConfirmationSet) {
+    private func startDispatch(_ set: OcrConfirmationSet) {
+        guard !isSaving, let source = confirmationSource, let patientID = confirmationPatientID,
+              patientID == app.currentPatientId,
+              set.documentId == confirmSet?.documentId || set.documentId == failedDispatch?.documentId,
+              transcript.canCommit(source, authorized: refinerEnabled, authorizationGeneration: settings.authAIRevision,
+                                   preservesOriginal: false) else { return }
+        let intent = judgedIntent
+        isSaving = true
+        showSaveFailure = false
+        confirmSet = nil
+        Task { await dispatch(set, source: source, patientID: patientID, intent: intent) }
+    }
+
+    private func retryDispatch() {
+        if let failedDispatch, let source = confirmationSource, confirmationPatientID == app.currentPatientId,
+           transcript.canCommit(source, authorized: refinerEnabled, authorizationGeneration: settings.authAIRevision,
+                                preservesOriginal: false) {
+            startDispatch(failedDispatch)
+        } else {
+            confirmFromTranscript()
+        }
+    }
+
+    /// Persist before clearing. A vacant router slot acknowledges handoff, not target-page persistence.
+    private func dispatch(_ set: OcrConfirmationSet, source: TranscriptSourceSnapshot,
+                          patientID: UUID, intent: String?) async {
+        defer { isSaving = false }
+        guard patientID == app.currentPatientId,
+              transcript.canCommit(source, authorized: refinerEnabled, authorizationGeneration: settings.authAIRevision,
+                                   preservesOriginal: false) else { return }
         let fields = set.confirmedFields
-        let target = target(for: judgedIntent)
+        let target = target(for: intent)
         switch target {
-        case .anyText:
-            guard let body = fields.first?.value, !body.isEmpty else { return }
-            Task {
-                // 审查修复：写失败不得弹「已保存」——create 返回成败，
-                // [查看] 直达的列表里没有这条速记会当场露馅（假事实）
-                savedNote = await voiceNoteState.create(patientId: app.currentPatientId, body: body, tags: nil)
+        case .anyText, .observation, .question, .ai:
+            guard let body = fields.first?.value, !body.isEmpty else {
+                failedDispatch = set
+                showSaveFailure = true
+                return
             }
-        case .observation, .question, .ai:
-            // 期一无预填消费方的意图（FR17.19 能力边界）：用户已确认的文本
-            // 不得静默丢弃（§5.54「不静默丢内容」）——落语音速记兜底 + 打开
-            // 目标页补结构化录入。此前仅跳页丢弃，确认内容凭空消失
-            if let body = fields.first?.value, !body.isEmpty {
-                Task {
-                    savedNote = await voiceNoteState.create(
-                        patientId: app.currentPatientId, body: body, tags: nil)
-                }
+            let succeeded = await voiceNoteState.create(patientId: patientID, body: body, tags: nil)
+            guard succeeded else {
+                failedDispatch = set
+                showSaveFailure = true
+                return
             }
-            open(target)
-            dismiss()
         case .metric, .reminder, .profile:
-            // 类型化一次性投递（coreml §8.2：pendingVoiceIntent）
-            router.pendingVoiceIntent = set.pendingIntent(judgedIntent ?? VoiceIntentKey.unknown.rawValue)
+            guard !fields.isEmpty, router.pendingVoiceIntent == nil else {
+                failedDispatch = set
+                showSaveFailure = true
+                return
+            }
+            router.pendingVoiceIntent = set.pendingIntent(intent ?? VoiceIntentKey.unknown.rawValue)
+        }
+        guard patientID == app.currentPatientId,
+              transcript.finishCommit(source, authorized: refinerEnabled, authorizationGeneration: settings.authAIRevision,
+                                      succeeded: true) else { return }
+        invalidateConfirmation()
+        lastTranscript = nil
+        if target == .anyText {
+            savedNote = true
+        } else {
             open(target)
             dismiss()
         }

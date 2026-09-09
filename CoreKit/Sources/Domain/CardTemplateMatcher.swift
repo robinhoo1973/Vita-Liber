@@ -37,7 +37,7 @@ public struct CardTemplate: Sendable, Equatable {
     }
 }
 
-public struct MatchedCardRow: Sendable, Equatable, Identifiable {
+public struct MatchedCardRow: Codable, Sendable, Equatable, Identifiable {
     public let id: UUID
     public var fields: [FieldDraft]
     /// 该行缺失的行级必填键（保存时跳过本行、不阻断其他行）
@@ -47,7 +47,7 @@ public struct MatchedCardRow: Sendable, Equatable, Identifiable {
     }
 }
 
-public struct MatchedCard: Sendable, Equatable, Identifiable {
+public struct MatchedCard: Codable, Sendable, Equatable, Identifiable {
     public let id: UUID
     public let kind: String
     /// 所属 OCR 记录的页号（0 起；单图恒 0）
@@ -74,6 +74,55 @@ public struct MatchedCard: Sendable, Equatable, Identifiable {
 
     /// 卡内全部字段（共享 + 各行）——完整度徽章与持久化的统一读面
     public var allFields: [FieldDraft] { shared + rows.flatMap(\.fields) }
+
+    /// Row identity survives editing; a label/unit edit invalidates the whole coding suggestion.
+    public mutating func reviseField(at index: Int, rowId: UUID? = nil, to value: String) {
+        guard let rowId else {
+            guard shared.indices.contains(index) else { return }
+            shared[index].revise(to: value)
+            return
+        }
+        guard let r = rows.firstIndex(where: { $0.id == rowId }), rows[r].fields.indices.contains(index),
+              rows[r].fields[index].value != value else { return }
+        let key = rows[r].fields[index].key
+        rows[r].fields[index].revise(to: value)
+        if kind == "metric_sample", key == "raw_label" || key == "unit" {
+            if let label = rows[r].fields.firstIndex(where: { $0.key == "raw_label" }) {
+                rows[r].fields[label].clearCodeResolution()
+                let name = rows[r].fields[label].value.trimmingCharacters(in: .whitespacesAndNewlines)
+                for k in rows[r].fields.indices where rows[r].fields[k].key == "metric_key" {
+                    rows[r].fields[k].value = name.isEmpty ? "" : "lab.\(name)"
+                }
+            }
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, kind, pageIndex, shared, rows, allFieldCoverage, requiredCoverage, missingRequired, level
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        kind = try c.decode(String.self, forKey: .kind)
+        pageIndex = try c.decode(Int.self, forKey: .pageIndex)
+        shared = try c.decode([FieldDraft].self, forKey: .shared)
+        rows = try c.decode([MatchedCardRow].self, forKey: .rows)
+        allFieldCoverage = try c.decode(Double.self, forKey: .allFieldCoverage)
+        requiredCoverage = try c.decode(Double.self, forKey: .requiredCoverage)
+        let missing = try c.decode([String].self, forKey: .missingRequired)
+        missingRequired = missing.map { CompletenessFieldRule(key: $0, isRequired: true) }
+        level = try c.decode(CompletenessLevel.self, forKey: .level)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id); try c.encode(kind, forKey: .kind)
+        try c.encode(pageIndex, forKey: .pageIndex); try c.encode(shared, forKey: .shared)
+        try c.encode(rows, forKey: .rows); try c.encode(allFieldCoverage, forKey: .allFieldCoverage)
+        try c.encode(requiredCoverage, forKey: .requiredCoverage)
+        try c.encode(missingRequired.map(\.key), forKey: .missingRequired); try c.encode(level, forKey: .level)
+    }
 }
 
 public enum CardTemplateMatcher {
@@ -81,7 +130,7 @@ public enum CardTemplateMatcher {
     public static let ocrTemplates: [CardTemplate] = [
         CardTemplate(kind: "metric_sample", rowKey: "lab_item",
                      mapping: ["lab_item": "lab_item", "report_date": "measured_at",
-                               "reference_range": "reference_range"],
+                               "reference_range": "reference_range", "hospital": "hospital"],
                      rowLevelKeys: ["raw_label", "value", "unit", "metric_key", "ref_low", "ref_high"],
                      derived: ["metric_key"]),
         CardTemplate(kind: "encounter", rowKey: nil,
@@ -128,14 +177,18 @@ public enum CardTemplateMatcher {
             for (index, draft) in fields.enumerated() where draft.key == rowKey {
                 consumed.insert(index)
                 var rowFields = rowFields(for: template, draft: draft)
-                if let raw = draft.rawText {
-                    for (companionIndex, companion) in fields.enumerated()
-                    where companionIndex != index && companion.rawText == raw && companion.key != rowKey {
-                        consumed.insert(companionIndex)
-                        rowFields += companionFields(for: template, draft: companion)
+                if let raw = draft.rawText,
+                   fields.filter({ $0.key == rowKey && $0.rawText == raw }).count == 1 {
+                    let companions = fields.enumerated().filter { $0.element.rawText == raw && $0.element.key == "reference_range" }
+                    if companions.count == 1, let companion = companions.first {
+                        let attached = companionFields(for: template, draft: companion.element)
+                        if !attached.isEmpty {
+                            consumed.insert(companion.offset)
+                            rowFields += attached
+                        }
                     }
                 }
-                let present = Set(rowFields.map(\.key))
+                let present = Set(rowFields.filter { !$0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.map(\.key))
                 let missing = requiredRules.map(\.key).filter { template.rowLevelKeys.contains($0) && !present.contains($0) }
                 rows.append(MatchedCardRow(fields: rowFields, missingRequired: missing))
             }
@@ -149,8 +202,9 @@ public enum CardTemplateMatcher {
         var shared: [FieldDraft] = []
         var sharedKeys = Set<String>()
         for (index, draft) in fields.enumerated() where !consumed.contains(index) {
-            guard let mapped = template.mapping[draft.key],
-                  !template.rowLevelKeys.contains(mapped), sharedKeys.insert(mapped).inserted else { continue }
+            guard let mapped = template.mapping[draft.key], !template.rowLevelKeys.contains(mapped) else { continue }
+            // Ambiguous/unparsed ranges remain distinct drafts, never guessed row data.
+            if mapped != "reference_range", !sharedKeys.insert(mapped).inserted { continue }
             var copy = draft
             copy.key = mapped
             shared.append(copy)
@@ -162,8 +216,9 @@ public enum CardTemplateMatcher {
         }
 
         // 3. 覆盖率（去重键；派生键已作为字段写入共享/行，自然计入）
-        var covered = Set(shared.map(\.key))
-        for row in rows { covered.formUnion(row.fields.map(\.key)) }
+        var covered = Set((shared + rows.flatMap(\.fields)).filter {
+            $0.grade != .rejected && !$0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }.map(\.key))
         covered = covered.intersection(ruleKeys)
         let allCoverage = Double(covered.count) / Double(rules.count)
         let requiredCovered = requiredRules.filter { covered.contains($0.key) }.count
@@ -186,19 +241,21 @@ public enum CardTemplateMatcher {
         case "metric_sample":
             let (name, number) = UnderstandingCodeResolution.splitReading(draft.value)
             var out: [FieldDraft] = []
-            let label = name.trimmingCharacters(in: .whitespaces)
+            let label = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            out.append(FieldDraft(key: "raw_label", value: label, unit: draft.unit, confidence: draft.confidence,
+                                  rawText: draft.rawText ?? draft.originalValue, source: draft.source, codeResolution: draft.codeResolution))
             if !label.isEmpty {
-                out.append(FieldDraft(key: "raw_label", value: label, confidence: draft.confidence,
-                                      rawText: draft.rawText, source: draft.source, codeResolution: draft.codeResolution))
-                // metric_key 派生：编码建议存在用编码，否则以原始名占位（F25 惰性，BR-003 确认后回填）
-                let key = draft.codeResolution.map { "code.\($0.canonicalCode)" } ?? "lab.\(label)"
+                // Suggestions are not approvals. Persistence derives the final key again.
+                let key = "lab.\(label)"
                 out.append(FieldDraft(key: "metric_key", value: key, confidence: draft.confidence, source: .heuristic))
             }
             if let number, !number.isEmpty {
-                out.append(FieldDraft(key: "value", value: number, confidence: draft.confidence, rawText: draft.rawText))
+                out.append(FieldDraft(key: "value", value: number, confidence: draft.confidence,
+                                      rawText: draft.rawText ?? draft.originalValue, source: draft.source))
             }
             if let unit = draft.unit, !unit.isEmpty {
-                out.append(FieldDraft(key: "unit", value: unit, confidence: draft.confidence, rawText: draft.rawText))
+                out.append(FieldDraft(key: "unit", value: unit, confidence: draft.confidence,
+                                      rawText: draft.rawText ?? draft.originalValue, source: draft.source))
             }
             return out
         default:
@@ -212,16 +269,19 @@ public enum CardTemplateMatcher {
     private static func companionFields(for template: CardTemplate, draft: FieldDraft) -> [FieldDraft] {
         guard template.kind == "metric_sample", draft.key == "reference_range",
               let (low, high) = referenceBounds(draft.value) else { return [] }
-        return [FieldDraft(key: "ref_low", value: low, confidence: draft.confidence, rawText: draft.rawText),
-                FieldDraft(key: "ref_high", value: high, confidence: draft.confidence, rawText: draft.rawText)]
+        return [FieldDraft(key: "ref_low", value: low, confidence: draft.confidence, rawText: draft.rawText ?? draft.originalValue, source: draft.source),
+                FieldDraft(key: "ref_high", value: high, confidence: draft.confidence, rawText: draft.rawText ?? draft.originalValue, source: draft.source)]
     }
 
     /// 「3.5-9.5」「3.5～9.5」「3.5 ~ 9.5」→ (低, 高)；解析失败 nil（不猜范围）
     static func referenceBounds(_ text: String) -> (String, String)? {
-        let separators = CharacterSet(charactersIn: "-–~～")
-        let parts = text.components(separatedBy: separators).map { $0.trimmingCharacters(in: .whitespaces) }
-        guard parts.count == 2, Double(parts[0]) != nil, Double(parts[1]) != nil else { return nil }
-        return (parts[0], parts[1])
+        let number = #"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"#
+        guard let regex = try? NSRegularExpression(pattern: "^\\s*(\(number))\\s*[-–~～]\\s*(\(number))\\s*$"), // try?-ok: static numeric grammar
+              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              let lowRange = Range(match.range(at: 1), in: text), let highRange = Range(match.range(at: 2), in: text) else { return nil }
+        let low = String(text[lowRange]), high = String(text[highRange])
+        guard let l = Double(low), let h = Double(high), l.isFinite, h.isFinite, l <= h else { return nil }
+        return (low, high)
     }
 
     /// 文档类型判定 → 就诊类型（诊断证明/门诊病历均按门诊；其余类型不出就诊卡）
