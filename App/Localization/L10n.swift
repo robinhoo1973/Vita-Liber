@@ -854,6 +854,7 @@ enum L10n {
     "docConfirm.docTypeHint",
     "docConfirm.docTypeUnresolved",
     "docConfirm.docTypeLowConfidence",
+    "entityCard.rowIndexFmt",
     "docConfirm.hint",
     "docConfirm.reenable",
     "docConfirm.reject",
@@ -2089,6 +2090,8 @@ enum L10n {
     static var docConfirmDocTypeLowConfidence: String { t("docConfirm.docTypeLowConfidence") }
     static var docTypeLabelVaccineRecord: String { t("docTypeLabel.vaccineRecord") }
     static var docTypeLabelOther: String { t("docTypeLabel.other") }
+    // FR6.9 V3.61 页级实体卡（EntityCardConfirmView / 待办详情多行快照）
+    static func entityCardRowIndex(_ n: Int) -> String { String(format: t("entityCard.rowIndexFmt"), n) }
     // 第四轮全仓审查修复：FR6.3 三级置信度/FR6.4 放弃/全部确认闸门/保存失败可见
     static var docConfirmConfidenceHigh: String { t("docConfirm.confidenceHigh") }
     static var docConfirmConfidenceMid: String { t("docConfirm.confidenceMid") }

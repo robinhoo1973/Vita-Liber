@@ -647,13 +647,28 @@ private struct PendingCardDetailSheet: View {
                         }
                     }
                 }
-                if !detail.partialData.isEmpty {
+                if !detail.partialData.shared.isEmpty || !detail.partialData.rows.isEmpty {
                     Section(L10n.docConfirmSkipSaved) {
-                        ForEach(detail.partialData.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
+                        ForEach(detail.partialData.shared.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(DocumentsState.fieldLabel(forKey: key))
                                     .font(.caption).foregroundStyle(.secondary)
                                 Text(value).font(.subheadline)
+                            }
+                        }
+                        // V3.99 每类一卡多行：逐行快照（只显示已识别字段）
+                        ForEach(Array(detail.partialData.rows.enumerated()), id: \.offset) { index, row in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(L10n.entityCardRowIndex(index + 1))
+                                    .font(.caption2).foregroundStyle(.tertiary)
+                                ForEach(row.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
+                                    HStack {
+                                        Text(DocumentsState.fieldLabel(forKey: key))
+                                            .font(.caption).foregroundStyle(.secondary)
+                                        Spacer()
+                                        Text(value).font(.subheadline)
+                                    }
+                                }
                             }
                         }
                     }

@@ -42,6 +42,16 @@ public actor DocumentStore {
         }
     }
 
+    /// FR6.1 页语义（V3.99 / 迁移 v21）：一条 OCR 记录的一页——失败/跳过页占位保页号。
+    public struct Page: Sendable, Equatable {
+        public let index: Int
+        public let text: String?
+        public let status: String   // ok / failed / skipped
+        public init(index: Int, text: String?, status: String = "ok") {
+            self.index = index; self.text = text; self.status = status
+        }
+    }
+
     public func list(patientId: UUID, includeArchived: Bool = false,
                      limit: Int = 200) async throws -> [DocumentRow] {
         try await writer.read { db in
@@ -142,6 +152,7 @@ public actor DocumentStore {
                      mimeType: String?, origin: String, isSensitive: Bool,
                      metaJSON: String?, title: String?,
                      ocrText: String? = nil, grade: String = "C",
+                     pages: [Page] = [],
                      now: Date = Date()) async throws -> UUID {
         let id = UUID()
         try await writer.write { db in
@@ -155,8 +166,28 @@ public actor DocumentStore {
                                  metaJSON, title, ocrText, grade,
                                  now.timeIntervalSince1970,
                                  now.timeIntervalSince1970])
+            // 页文本同事务落库（FR6.1 页语义）：单图 = 第 0 页；PDF 每页一行
+            for page in pages {
+                try db.execute(sql: """
+                    INSERT INTO document_page (id, document_file_id, page_index, ocr_text, status, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """, arguments: [UUID().uuidString, id.uuidString, page.index, page.text,
+                                     page.status, now.timeIntervalSince1970])
+            }
         }
         return id
+    }
+
+    /// 文档的全部页（页序升序；无页记录的旧文档返回空——调用方回落 ocr_text）。
+    public func pages(documentId: UUID) async throws -> [Page] {
+        try await writer.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT page_index, ocr_text, status FROM document_page
+                WHERE document_file_id = ? ORDER BY page_index
+                """, arguments: [documentId.uuidString]).map {
+                Page(index: $0["page_index"], text: $0["ocr_text"], status: $0["status"])
+            }
+        }
     }
 
     /// BR-003 D→C 闸门：用户显式确认机器识别文本后，文档才进入检索与 AI 事实链。
@@ -174,7 +205,7 @@ public actor DocumentStore {
     /// 第四轮全仓审查修复（FR6.4）：修订历史随留痕行持久化——用户改值后
     /// 「旧值 → 新值 · 修改人 · 时间」入 raw_blocks 尾部，修订链路可追溯
     /// （此前 revisionHistory 只在内存中、入不了库也无任何渲染）。
-    public func saveOCRResult(documentId: UUID, fields: [CandidateField],
+    public func saveOCRResult(documentId: UUID, pageIndex: Int = 0, fields: [CandidateField],
                               engineVersion: String) async throws {
         let now = Date()
         try await writer.write { db in
@@ -183,11 +214,12 @@ public actor DocumentStore {
                 if !field.revisionHistory.isEmpty {
                     raw += " | revised: " + field.revisionHistory.joined(separator: "; ")
                 }
+                // V3.99：留痕写真实页号（此前恒 0——多页文档字段无法回到页）
                 try db.execute(sql: """
                     INSERT INTO ocr_result
                       (id, document_file_id, page_index, raw_blocks, engine_version, created_at)
-                    VALUES (?, ?, 0, ?, ?, ?)
-                    """, arguments: [UUID().uuidString, documentId.uuidString,
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """, arguments: [UUID().uuidString, documentId.uuidString, pageIndex,
                                      raw,
                                      engineVersion, now.timeIntervalSince1970])
             }

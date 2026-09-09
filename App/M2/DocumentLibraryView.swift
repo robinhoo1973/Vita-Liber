@@ -437,7 +437,7 @@ final class DocumentsState {
             sourceDocId: nil,   // 文档尚未入库（确认卡阶段无 doc id）
             cardKind: cardKind,
             incompleteFields: incomplete,
-            partialData: partial,
+            partialData: PendingCardPayload(shared: partial),
             rawText: draft.ocrText)
         do {
             try await pendingCards.upsert(draft2)

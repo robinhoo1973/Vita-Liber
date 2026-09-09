@@ -1040,6 +1040,7 @@
 "docConfirm.docTypeHint" = "類型為識別建議，可在此修改；確認後仍可在資料庫中調整。";
 "docConfirm.docTypeUnresolved" = "請選擇文件類型";
 "docConfirm.docTypeLowConfidence" = "識別信心度較低，請核對類型";
+"entityCard.rowIndexFmt" = "第 %d 行";
 "home.captureAny" = "拍攝或匯入資料";
 "docConfirm.hint" = "請逐項核對識別內容，確認後才計入正式記錄";
 "docConfirm.unconfirmedCountFmt" = "還有 %d 項待確認";

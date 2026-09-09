@@ -101,6 +101,33 @@ public actor TrendQueryStore {
         return id
     }
 
+    // MARK: - FR6.9 V3.61 检验卡确认 → 医院来源行（origin='hospital', self_measured=0）
+
+    /// 确认后的检验项目落库：A 级参考范围随行（ref_source_label = 医院），`source_ref`
+    /// 回到文档页；编码仅在用户确认建议后回填（BR-003/FR25.11）。单事务，返回写入行数。
+    public func addHospitalSamples(patientId: UUID, documentId: UUID, pageIndex: Int,
+                                   samples: [HospitalSample]) async throws -> Int {
+        let sourceRef = HospitalSample.sourceRef(documentId: documentId, pageIndex: pageIndex)
+        return try await writer.write { db in
+            var written = 0
+            for sample in samples {
+                guard sample.value.isFinite else { throw HealthImportStore.ImportError.invalidValue }
+                try db.execute(sql: """
+                    INSERT INTO metric_sample
+                      (id, patient_id, metric_key, value, unit, origin, self_measured, excluded,
+                       source_ref, ref_low, ref_high, ref_source_label, raw_label, code_concept_id,
+                       measured_at, created_at)
+                    VALUES (?, ?, ?, ?, ?, 'hospital', 0, 0, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, arguments: [UUID().uuidString, patientId.uuidString, sample.metricKey, sample.value,
+                                     sample.unit, sourceRef, sample.refLow, sample.refHigh, sample.refSourceLabel,
+                                     sample.rawLabel, sample.codeConceptId,
+                                     sample.measuredAt.timeIntervalSince1970, Date().timeIntervalSince1970])
+                written += db.changesCount
+            }
+            return written
+        }
+    }
+
     // MARK: - FR7.9 设备自动汇入（V3.86：与手输同一写门，origin='device'）
 
     /// 设备读数落库（小时窗口聚合后，Domain `DeviceMetricRow`）。

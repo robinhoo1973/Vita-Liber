@@ -150,6 +150,8 @@ public actor GRDBM1aPersistor: M1aPersisting {
                 // 最末级子表（不被他表引用，或被更末级引用）
                 "ai_message", "dose_lot_allocation", "notification_delivery",
                 "medication_dose_log", "plan_lifecycle_event", "stock_lot",
+                // v19/v21：待办卡与页文本引用 document_file，须先于其删除
+                "pending_card", "document_page",
                 "ocr_result", "claim_item", "prescription", "encounter_question", "voice_note",
                 "immunization", "allergy_event", "observation", "document_file", "medication_plan",
                 "sent_message", "emergency_card_selection", "contact",

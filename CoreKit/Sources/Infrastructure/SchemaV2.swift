@@ -90,12 +90,25 @@ public enum SchemaV2 {
       deleted_at REAL, created_at REAL NOT NULL, updated_at REAL NOT NULL);
     CREATE INDEX idx_encounter_patient_date ON encounter(patient_id, date DESC);
 
-    -- F6 OCR 结果
+    -- F6 OCR 结果（字段级留痕；page_index = 所属页，V3.99 起写真实页号）
     CREATE TABLE ocr_result (
       id TEXT PRIMARY KEY, document_file_id TEXT NOT NULL REFERENCES document_file(id),
       page_index INTEGER NOT NULL DEFAULT 0,
       raw_blocks TEXT NOT NULL,
       engine_version TEXT NOT NULL, created_at REAL NOT NULL);
+
+    -- F6 页级识别文本（V3.99 / 迁移 v21，FR6.9 页级多卡）：一条 OCR 记录（单图或 PDF）
+    -- 每页一行，失败/跳过页占位保页号；信息卡经 (document_file_id, page_index) 回到页。
+    -- document_file.ocr_text 继续存拼接文本供 FTS，本表不进 FTS/AI 检索。
+    CREATE TABLE document_page (
+      id TEXT PRIMARY KEY,
+      document_file_id TEXT NOT NULL REFERENCES document_file(id),
+      page_index INTEGER NOT NULL,
+      ocr_text TEXT,
+      status TEXT NOT NULL DEFAULT 'ok' CHECK(status IN ('ok','failed','skipped')),
+      created_at REAL NOT NULL,
+      UNIQUE(document_file_id, page_index));
+    CREATE INDEX idx_document_page_doc ON document_page(document_file_id, page_index);
 
     -- F9 处方（BR-003 关键字段全确认才 confirmed=1）
     CREATE TABLE prescription (
@@ -237,6 +250,7 @@ public enum SchemaV2 {
       patient_id TEXT NOT NULL REFERENCES patient_profile(id),
       source_type TEXT NOT NULL CHECK(source_type IN ('ocr','voice','manual')),
       source_doc_id TEXT REFERENCES document_file(id),
+      source_page INTEGER,                   -- V3.99：所属页号（与 source_doc_id 配对；单图 0）
       card_kind TEXT NOT NULL,
       incomplete_fields TEXT NOT NULL,
       partial_data TEXT NOT NULL,

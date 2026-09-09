@@ -302,9 +302,18 @@ struct StandardizationTests {
             #expect(ddl.contains("CREATE TABLE \(table)"), "baseline 缺表 \(table)")
         }
         #expect(ddl.contains("raw_label TEXT, code_concept_id TEXT REFERENCES code_concept(id)"))
-        // V3.98：账本推进至 v20（health-import-checkpoints，FR16.1 健康导入
-        // 检查点）——v19 pending-card；v18 health-device-source-and-anchor；v17 保持预约
-        #expect(SchemaMigrations.latestVersion == 20)
+        // V3.99：账本推进至 v21（ocr-page-cards，FR6.9 页级多卡：document_page +
+        // pending_card.source_page）——v20 health-import-checkpoints；v19 pending-card；
+        // v18 health-device-source-and-anchor；v17 保持预约
+        #expect(SchemaMigrations.latestVersion == 21)
+        let v21 = SchemaMigrations.steps.first { $0.version == 21 }
+        #expect(v21?.name == "ocr-page-cards")
+        #expect(v21?.sql.contains("CREATE TABLE IF NOT EXISTS document_page") == true)
+        #expect(v21?.sql.contains("UNIQUE(document_file_id, page_index)") == true)
+        #expect(v21?.sql.contains("ALTER TABLE pending_card ADD COLUMN source_page INTEGER") == true)
+        #expect(ddl.contains("CREATE TABLE document_page"))
+        #expect(ddl.contains("source_page INTEGER"))
+        #expect(ddl.contains("status TEXT NOT NULL DEFAULT 'ok' CHECK(status IN ('ok','failed','skipped'))"))
         let v20 = SchemaMigrations.steps.first { $0.version == 20 }
         #expect(v20?.name == "health-import-checkpoints")
         #expect(v20?.sql.contains("CREATE TABLE IF NOT EXISTS hk_import_binding") == true)

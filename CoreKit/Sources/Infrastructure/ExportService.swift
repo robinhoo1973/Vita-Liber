@@ -68,16 +68,28 @@ public actor ExportService {
             public var grade: String
             public var createdAt: Date
             public var updatedAt: Date
+            /// FR6.1 页语义（V3.99）：页文本随包往返；旧包 nil（不造页）
+            public var pages: [PageExport]?
             public init(id: UUID, patientId: UUID?, encounterId: UUID?, docType: String,
                         status: String, sha256: String?, mimeType: String?, isSensitive: Bool,
                         origin: String, metaJson: String?, title: String?, ocrText: String?,
-                        notes: String?, grade: String, createdAt: Date, updatedAt: Date) {
+                        notes: String?, grade: String, createdAt: Date, updatedAt: Date,
+                        pages: [PageExport]? = nil) {
                 self.id = id; self.patientId = patientId; self.encounterId = encounterId
                 self.docType = docType; self.status = status; self.sha256 = sha256
                 self.mimeType = mimeType; self.isSensitive = isSensitive; self.origin = origin
                 self.metaJson = metaJson; self.title = title; self.ocrText = ocrText
                 self.notes = notes; self.grade = grade; self.createdAt = createdAt
-                self.updatedAt = updatedAt
+                self.updatedAt = updatedAt; self.pages = pages
+            }
+        }
+
+        public struct PageExport: Sendable, Codable, Equatable {
+            public var index: Int
+            public var text: String?
+            public var status: String
+            public init(index: Int, text: String?, status: String) {
+                self.index = index; self.text = text; self.status = status
             }
         }
 
@@ -299,6 +311,12 @@ public actor ExportService {
             // （FR13.2 数据丢失）。timeline 字段保留为空数组（历史兼容：旧包恢复
             // 仍走该维度，新包不再生产）。
             let timeline: [TimelineDocumentEntry] = []
+            let pagesByDocument: [String: [Envelope.PageExport]] = try Row.fetchAll(db, sql: """
+                SELECT document_file_id, page_index, ocr_text, status FROM document_page ORDER BY page_index
+                """).reduce(into: [:]) { acc, row in
+                acc[row["document_file_id"] as String, default: []].append(
+                    Envelope.PageExport(index: row["page_index"], text: row["ocr_text"], status: row["status"]))
+            }
             let documents = try Row.fetchAll(db, sql: "SELECT * FROM document_file ORDER BY created_at").map { row in
                 Envelope.DocumentExport(
                     id: UUID(uuidString: row["id"] as String) ?? UUID(),
@@ -316,7 +334,8 @@ public actor ExportService {
                     notes: row["notes"] as String?,
                     grade: (row["grade"] as String?) ?? "C",
                     createdAt: Date(timeIntervalSince1970: row["created_at"] as Double),
-                    updatedAt: Date(timeIntervalSince1970: row["updated_at"] as Double))
+                    updatedAt: Date(timeIntervalSince1970: row["updated_at"] as Double),
+                    pages: pagesByDocument[row["id"] as String])
             }
             let plans = try Row.fetchAll(db, sql: """
                 SELECT p.id, p.patient_id, p.status, p.start_date, p.end_date, p.schedule_json,
@@ -860,6 +879,15 @@ public actor ExportService {
                                      d.ocrText, d.notes, d.grade,
                                      d.createdAt.timeIntervalSince1970,
                                      d.updatedAt.timeIntervalSince1970])
+                // FR6.1 页文本随文档恢复（新插入行才写页；adopt 行沿用本机页记录，
+                // 页文本属识别产物而非医疗事实，不覆盖本机版本；旧包 nil 不造页）
+                for page in d.pages ?? [] {
+                    try db.execute(sql: """
+                        INSERT OR IGNORE INTO document_page (id, document_file_id, page_index, ocr_text, status, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        """, arguments: [UUID().uuidString, targetId.uuidString, page.index, page.text,
+                                         page.status, d.createdAt.timeIntervalSince1970])
+                }
             }
             // 旧备份包（无 documents 维度）的投影行恢复——历史兼容路径
             for e in envelope.timeline {

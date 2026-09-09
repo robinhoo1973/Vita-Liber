@@ -91,8 +91,9 @@ public enum DocumentTypeClassifierFallback {
             ("chief_complaint", #"(?:主诉|主訴)[:：]?\s*(.+)"#),
             ("diagnosis", #"(?:诊断|診斷)[:：]?\s*(.+)"#),
             ("treatment", #"(?:处理|處理|医嘱|醫囑)[:：]?\s*(.+)"#),
-            // 检验项目行：「血红蛋白 150 g/L」「HbA1c: 5.6%」
-            ("lab_item", #"^([一-龥A-Za-z\*]{1,20})[:：]?\s+([0-9]+\.?[0-9]*)\s*([a-zA-Z/%μ·]+)?$"#),
+            // 检验项目行：「血红蛋白 150 g/L」「HbA1c: 5.6%」「白细胞 6.5 10^9/L 3.5-9.5」
+            // （V3.61：可选尾随参考范围 → 伴随 reference_range 草稿，同 rawText 归入该检验行）
+            ("lab_item", #"^([一-龥A-Za-z\*]{1,20})[:：]?\s+([0-9]+\.?[0-9]*)\s*((?:10\^[0-9]+/)?[a-zA-Z/%μ·]+)?(?:\s+([0-9]+\.?[0-9]*)\s*[-–~～]\s*([0-9]+\.?[0-9]*))?$"#),
         ]
         return patterns.compactMap { key, pattern in
             let compiled = try? NSRegularExpression(pattern: pattern)   // try?-ok: 模式为编译期静态字面量，构造不会失败
@@ -118,6 +119,7 @@ public enum DocumentTypeClassifierFallback {
             var payload = String(text[vRange]).trimmingCharacters(in: .whitespaces)
             guard !payload.isEmpty else { continue }
             var unit: String?
+            var referenceRange: String?
             if key == "lab_item" {
                 // 检验项目行：载荷 = 「项目 数值 单位」（确认卡逐字段编辑
                 // 以原文对照）；单位独立成槽位供 F25 读数联合解析
@@ -129,11 +131,23 @@ public enum DocumentTypeClassifierFallback {
                     let u = String(text[uRange]).trimmingCharacters(in: .whitespaces)
                     if !u.isEmpty { unit = u }
                 }
+                // 尾随参考范围（FR7.2 A 级范围随行）：低-高 两组捕获都在才成立
+                if match.numberOfRanges > 5,
+                   let lowRange = Range(match.range(at: 4), in: text),
+                   let highRange = Range(match.range(at: 5), in: text) {
+                    referenceRange = "\(text[lowRange])-\(text[highRange])"
+                }
             }
             var draft = FieldDraft(key: key, value: payload, unit: unit,
                                    confidence: 0.6, rawText: text)
             draft.source = .heuristic
             drafts.append(draft)
+            if let referenceRange {
+                var companion = FieldDraft(key: "reference_range", value: referenceRange,
+                                           confidence: 0.6, rawText: text)
+                companion.source = .heuristic
+                drafts.append(companion)
+            }
         }
         return drafts
     }

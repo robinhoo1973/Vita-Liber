@@ -366,6 +366,22 @@ public enum SchemaMigrations {
              ALTER TABLE alert_event ADD COLUMN scheduled_at REAL;
              CREATE INDEX IF NOT EXISTS idx_alert_qualified ON alert_event(patient_id, qualified, created_at);
              """),
+        // V3.99 / FR6.9 页级多卡（2026-09-09 业主裁决）：信息卡对应到某次 OCR 记录的某一页。
+        // document_page 每页一行（失败页占位保页号）；pending_card 补页号列。
+        // pending_card 不进 FTS/AI/导出（红线不变）；document_page 随 .vlbu documents.pages 往返。
+        Step(version: 21, name: "ocr-page-cards",
+             sql: """
+             CREATE TABLE IF NOT EXISTS document_page (
+               id TEXT PRIMARY KEY,
+               document_file_id TEXT NOT NULL REFERENCES document_file(id),
+               page_index INTEGER NOT NULL,
+               ocr_text TEXT,
+               status TEXT NOT NULL DEFAULT 'ok' CHECK(status IN ('ok','failed','skipped')),
+               created_at REAL NOT NULL,
+               UNIQUE(document_file_id, page_index));
+             CREATE INDEX IF NOT EXISTS idx_document_page_doc ON document_page(document_file_id, page_index);
+             ALTER TABLE pending_card ADD COLUMN source_page INTEGER;
+             """),
     ]
 
     /// 全新库建库后应落到的版本号

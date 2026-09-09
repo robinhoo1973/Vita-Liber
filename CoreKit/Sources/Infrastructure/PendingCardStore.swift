@@ -18,9 +18,12 @@ public struct PendingCard: Sendable, Equatable, Identifiable {
     public var patientId: UUID
     public var sourceType: String          // ocr/voice/manual
     public var sourceDocId: UUID?
+    /// 所属页号（V3.99 页级多卡；与 sourceDocId 配对，单图 0；旧行 nil）
+    public var sourcePage: Int?
     public var cardKind: String
     public var incompleteFields: [IncompleteField]
-    public var partialData: [String: String]
+    /// 共享字段 + 多行（旧行纯字典 → shared）
+    public var partialData: PendingCardPayload
     public var rawText: String
     public var attemptCount: Int
     public var status: String              // pending/in_progress/resolved/expired/archived
@@ -31,14 +34,16 @@ public struct PendingCard: Sendable, Equatable, Identifiable {
     public var note: String?
 
     public init(id: String, patientId: UUID, sourceType: String, sourceDocId: UUID?,
+                sourcePage: Int? = nil,
                 cardKind: String, incompleteFields: [IncompleteField],
-                partialData: [String: String], rawText: String, attemptCount: Int,
+                partialData: PendingCardPayload, rawText: String, attemptCount: Int,
                 status: String, createdAt: Date, updatedAt: Date,
                 resolvedAt: Date?, resolvedBy: String?, note: String?) {
         self.id = id
         self.patientId = patientId
         self.sourceType = sourceType
         self.sourceDocId = sourceDocId
+        self.sourcePage = sourcePage
         self.cardKind = cardKind
         self.incompleteFields = incompleteFields
         self.partialData = partialData
@@ -76,23 +81,34 @@ public struct PendingCardDraft: Sendable, Equatable {
     public var patientId: UUID
     public var sourceType: String
     public var sourceDocId: UUID?
+    public var sourcePage: Int?
     public var cardKind: String
     public var incompleteFields: [IncompleteField]
-    public var partialData: [String: String]
+    public var partialData: PendingCardPayload
     public var rawText: String
     public var note: String?
 
-    public init(patientId: UUID, sourceType: String, sourceDocId: UUID?,
+    public init(patientId: UUID, sourceType: String, sourceDocId: UUID?, sourcePage: Int? = nil,
                 cardKind: String, incompleteFields: [IncompleteField],
-                partialData: [String: String], rawText: String, note: String? = nil) {
+                partialData: PendingCardPayload, rawText: String, note: String? = nil) {
         self.patientId = patientId
         self.sourceType = sourceType
         self.sourceDocId = sourceDocId
+        self.sourcePage = sourcePage
         self.cardKind = cardKind
         self.incompleteFields = incompleteFields
         self.partialData = partialData
         self.rawText = rawText
         self.note = note
+    }
+
+    /// 旧调用点兼容：键→值字典视为共享字段
+    public init(patientId: UUID, sourceType: String, sourceDocId: UUID?,
+                cardKind: String, incompleteFields: [IncompleteField],
+                partialData: [String: String], rawText: String, note: String? = nil) {
+        self.init(patientId: patientId, sourceType: sourceType, sourceDocId: sourceDocId, sourcePage: nil,
+                  cardKind: cardKind, incompleteFields: incompleteFields,
+                  partialData: PendingCardPayload(shared: partialData), rawText: rawText, note: note)
     }
 }
 
@@ -109,8 +125,7 @@ public actor PendingCardStore {
     public func upsert(_ draft: PendingCardDraft) async throws -> String {
         let incompleteJSON = String(data: try JSONEncoder().encode(draft.incompleteFields),
                                     encoding: .utf8) ?? "[]"
-        let partialJSON = String(data: try JSONEncoder().encode(draft.partialData),
-                                 encoding: .utf8) ?? "{}"
+        let partialJSON = draft.partialData.json
         let now = Date().timeIntervalSince1970
         let updateSnapshot = { (db: Database, id: String) throws -> Void in
             try db.execute(sql: """
@@ -123,12 +138,13 @@ public actor PendingCardStore {
         }
         return try await writer.write { db -> String in
             if let docId = draft.sourceDocId?.uuidString {
+                // 同源去重键升级为 (文档, 页, 卡类)——同一卡类跨页各成一卡（V3.99）
                 let existing: String? = try String.fetchOne(db, sql: """
                     SELECT id FROM pending_card
-                    WHERE source_doc_id = ? AND card_kind = ?
+                    WHERE source_doc_id = ? AND card_kind = ? AND source_page IS ?
                       AND status IN ('pending','in_progress')
                     LIMIT 1
-                    """, arguments: [docId, draft.cardKind])
+                    """, arguments: [docId, draft.cardKind, draft.sourcePage])
                 if let id = existing {
                     try updateSnapshot(db, id)
                     return id
@@ -149,12 +165,13 @@ public actor PendingCardStore {
             let id = UUID().uuidString
             try db.execute(sql: """
                 INSERT INTO pending_card
-                  (id, patient_id, source_type, source_doc_id, card_kind,
+                  (id, patient_id, source_type, source_doc_id, source_page, card_kind,
                    incomplete_fields, partial_data, raw_text, attempt_count,
                    status, created_at, updated_at, resolved_at, resolved_by, note)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 'pending', ?, ?, NULL, NULL, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'pending', ?, ?, NULL, NULL, ?)
                 """, arguments: [id, draft.patientId.uuidString, draft.sourceType,
-                                 draft.sourceDocId?.uuidString ?? NSNull(), draft.cardKind,
+                                 draft.sourceDocId?.uuidString ?? NSNull(), draft.sourcePage ?? NSNull(),
+                                 draft.cardKind,
                                  incompleteJSON, partialJSON, draft.rawText, now, now,
                                  draft.note ?? NSNull()])
             return id
@@ -240,13 +257,13 @@ public actor PendingCardStore {
     static func decode(_ row: Row) -> PendingCard {
         let incomplete: [IncompleteField] = (try? JSONDecoder().decode(   // try?-ok: 本仓自写 JSON，反序列化失败回落空集合
             [IncompleteField].self, from: (row["incomplete_fields"] as String).data(using: .utf8) ?? Data())) ?? []
-        let partial: [String: String] = (try? JSONDecoder().decode(   // try?-ok: 同上
-            [String: String].self, from: (row["partial_data"] as String).data(using: .utf8) ?? Data())) ?? [:]
+        let partial = PendingCardPayload.decode(row["partial_data"] as String)
         return PendingCard(
             id: row["id"],
             patientId: UUID(uuidString: row["patient_id"]) ?? UUID(),
             sourceType: row["source_type"],
             sourceDocId: (row["source_doc_id"] as String?).flatMap(UUID.init(uuidString:)),
+            sourcePage: row["source_page"] as Int?,
             cardKind: row["card_kind"],
             incompleteFields: incomplete,
             partialData: partial,
