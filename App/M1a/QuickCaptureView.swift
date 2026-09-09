@@ -68,6 +68,8 @@ struct QuickCaptureView: View {
     /// FR6.1 确认卡（此前 OCR 完成即以 D 级静默入库，无用户确认环节）：OCR 后
     /// 展示，用户逐条确认/改正才写入数据库；处方类文档带处方语义字段标签。
     @State private var pendingDraft: DocumentsState.ImportDraft?
+    /// 实体卡 sheet 放行标记（文档卡 onDismiss 置位；队列清空复位）
+    @State private var entityQueueArmed = false
     /// 相册加载代际号（第六轮全仓审查修复：连续选片竞速裁决）
     @State private var photoPickGeneration = 0
     /// 相机 cover 收起后再呈现选区 sheet 的延后标记（第六轮全仓审查修复）
@@ -237,8 +239,19 @@ struct QuickCaptureView: View {
             }
         }
         // FR6.1 确认卡：拍摄/相册/文件三来源共用同一个「确认后才入库」环节
-        .sheet(item: $pendingDraft) { draft in
+        .sheet(item: $pendingDraft, onDismiss: {
+            // 文档卡收起**完成**后再放行实体卡 sheet（同一事务内 present 第二个 sheet
+            // 会撞退场动画——本仓 cover→选区→遮挡链的同族教训，见 QuickCaptureView）
+            if docs.currentEntityCard != nil { entityQueueArmed = true }
+        }) { draft in
             DocumentImportConfirmView(draft: draft)
+        }
+        // FR6.9 V3.61 页级实体卡队列（同资料库槽位链：文档卡收起后逐张呈现）
+        .sheet(item: entityCardBinding) { card in
+            EntityCardConfirmView(card: card, mode: .queue,
+                                  pageCount: docs.entityQueuePageTexts.count,
+                                  position: docs.entityQueuePosition)
+                .interactiveDismissDisabled()
         }
         // FR5.6/§5.52 重复检测：此前本视图无重复裁决 sheet，命中重复时
         // pendingDuplicate 被置位但无 UI 展示，finishImport() 却仍误报「已保存」
@@ -372,6 +385,11 @@ struct QuickCaptureView: View {
         if let docx = UTType(filenameExtension: "docx") { types.append(docx) }
         if let doc = UTType(filenameExtension: "doc") { types.append(doc) }
         return types
+    }
+
+    private var entityCardBinding: Binding<MatchedCard?> {
+        Binding(get: { entityQueueArmed ? docs.currentEntityCard : nil },
+                set: { if $0 == nil && docs.currentEntityCard == nil { entityQueueArmed = false } })
     }
 
     private var duplicateAlertBinding: Binding<Bool> {

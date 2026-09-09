@@ -20,6 +20,13 @@ struct CaptureEntryTests {
         #expect(decoded == .scanCapture(.record))
     }
 
+    @Test func 待办卡续确认路由可编解码() throws {
+        // FR6.9 稍后处理 → 1h 通知深链回到该卡（AppRoute.pendingCard）
+        let route = AppRoute.pendingCard("card-1")
+        let data = try JSONEncoder().encode(route)
+        #expect(try JSONDecoder().decode(AppRoute.self, from: data) == route)
+    }
+
     @Test func 症状入口不再属于相机流() {
         // 症状走 observationCreate（SP-14），相机流 nil = 由理解层判定类型
         #expect(AppRoute.scanCapture(nil) != AppRoute.scanCapture(.symptom))

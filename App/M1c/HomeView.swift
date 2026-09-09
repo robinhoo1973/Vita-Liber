@@ -145,6 +145,8 @@ struct HomeView: View {
             NavigationStack { PendingCardDetailSheet(item: item) }
                 .environment(pendingCenter)
                 .environment(app)
+                .environment(docs)
+                .environment(router)
         }
         .task(id: "\(app.currentPatientId)-\(dataChange.alertsVersion)") { await load() }
     }
@@ -336,6 +338,7 @@ struct HomeView: View {
         case "appointmentList": return .appointmentList
         case "medicationCabinet": return .medicationCabinet
         case "pendingOcrQueue": return .pendingOcrQueue
+        case "pendingCardDetail": return .pendingCard(item.id.sourceId)
         case "alertHistory": return .alertHistory
         case "alertEvidence":
             guard let id = UUID(uuidString: item.id.sourceId), let patient = item.patientID,
@@ -629,7 +632,13 @@ struct MemberPickerSheet: View {
 private struct PendingCardDetailSheet: View {
     let item: AggregatedReminderItem
     @Environment(PendingCardCenterState.self) private var pendingCenter
+    @Environment(DocumentsState.self) private var docs
+    @Environment(AppState.self) private var app
+    @Environment(AppRouter.self) private var router
     @Environment(\.dismiss) private var dismiss
+    /// FR6.9 V3.61 续确认：同一实体卡视图（.resume 模式）预填后逐字段确认 → 落库 → resolved
+    @State private var resuming = false
+    @State private var showDiscard = false
 
     var body: some View {
         List {
@@ -687,10 +696,66 @@ private struct PendingCardDetailSheet: View {
         .task(id: item.id.sourceId) {
             await pendingCenter.loadDetail(id: item.id.sourceId)
         }
+        .safeAreaInset(edge: .bottom) {
+            // V3.61 续确认三动作（§21.2 完结纪律：resolved = 用户确认并创建对应实体）
+            if let detail = pendingCenter.detail, detail.sourceDocId != nil {
+                VStack(spacing: 8) {
+                    Button {
+                        resuming = true
+                    } label: {
+                        Label(L10n.pendingCardResume, systemImage: "checkmark.circle")
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("SP-04.home.pendingCard.resume")
+                    HStack(spacing: 12) {
+                        Button {
+                            dismiss()
+                            if let docId = detail.sourceDocId { router.navigate(to: .documentDetail(docId)) }
+                        } label: {
+                            Label(L10n.pendingCardViewSource, systemImage: "doc.text.magnifyingglass")
+                                .frame(maxWidth: .infinity, minHeight: 44)
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityIdentifier("SP-04.home.pendingCard.viewSource")
+                        Button(role: .destructive) {
+                            showDiscard = true
+                        } label: {
+                            Label(L10n.pendingCardDiscard, systemImage: "xmark.circle")
+                                .frame(maxWidth: .infinity, minHeight: 44)
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityIdentifier("SP-04.home.pendingCard.discard")
+                    }
+                }
+                .padding(16)
+                .background(.bar)
+            }
+        }
+        .sheet(isPresented: $resuming, onDismiss: {
+            pendingCenter.refresh(patientId: app.currentPatientId)
+            // 已完结即关闭详情（卡不再在队列）
+            Task {
+                await pendingCenter.loadDetail(id: item.id.sourceId)
+                if pendingCenter.detail?.status == "resolved" { dismiss() }
+            }
+        }) {
+            PendingCardResumeRouteView(cardId: item.id.sourceId)
+                .environment(docs).environment(pendingCenter).environment(app)
+        }
+        .confirmationDialog(L10n.pendingCardDiscard, isPresented: $showDiscard, titleVisibility: .visible) {
+            Button(L10n.pendingCardDiscard, role: .destructive) {
+                guard let detail = pendingCenter.detail else { return }
+                Task {
+                    await docs.discardPendingCard(detail)
+                    pendingCenter.refresh(patientId: app.currentPatientId)
+                    dismiss()
+                }
+            }
+            Button(L10n.commonCancel, role: .cancel) {}
+        }
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
-                // §21.2 完结纪律：resolved = 用户补填所有缺失字段 + 创建对应
-                // 实体（本卡无补填路径，期二接线）——「知道了」只关闭详情
                 Button(L10n.onboard_gotIt) {
                     dismiss()
                 }

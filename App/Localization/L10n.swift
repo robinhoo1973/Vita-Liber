@@ -855,6 +855,45 @@ enum L10n {
     "docConfirm.docTypeUnresolved",
     "docConfirm.docTypeLowConfidence",
     "entityCard.rowIndexFmt",
+    "entityCard.header.pageFmt",
+    "entityCard.header.indexFmt",
+    "entityCard.confirmSave",
+    "entityCard.later",
+    "entityCard.discard",
+    "entityCard.deferRemaining",
+    "entityCard.missingRequiredFmt",
+    "entityCard.rowSkipped",
+    "entityCard.sharedSection",
+    "entityCard.rowsSection",
+    "entityCard.laterHint",
+    "entityCard.kind.metric_sample",
+    "entityCard.kind.encounter",
+    "entityCard.kind.prescription",
+    "entityCard.kind.medication",
+    "entityCard.kind.immunization",
+    "entityCard.kind.appointment",
+    "entityCard.kind.claim_item",
+    "entityCard.saveFailed",
+    "pendingCard.resume",
+    "pendingCard.viewSource",
+    "pendingCard.discard",
+    "pendingCard.notFound",
+    "field.measured_at",
+    "field.raw_label",
+    "field.value",
+    "field.unit",
+    "field.ref_low",
+    "field.ref_high",
+    "field.metric_key",
+    "field.date",
+    "field.kind",
+    "field.department",
+    "field.hospital",
+    "field.doctor",
+    "field.diagnosis_text",
+    "field.advice_text",
+    "field.drug_name",
+    "field.prescribed_at",
     "docConfirm.hint",
     "docConfirm.reenable",
     "docConfirm.reject",
@@ -2092,6 +2131,34 @@ enum L10n {
     static var docTypeLabelOther: String { t("docTypeLabel.other") }
     // FR6.9 V3.61 页级实体卡（EntityCardConfirmView / 待办详情多行快照）
     static func entityCardRowIndex(_ n: Int) -> String { String(format: t("entityCard.rowIndexFmt"), n) }
+    static func entityCardHeaderPage(_ page: Int, _ total: Int) -> String { String(format: t("entityCard.header.pageFmt"), page, total) }
+    static func entityCardHeaderIndex(_ index: Int, _ total: Int) -> String { String(format: t("entityCard.header.indexFmt"), index, total) }
+    static var entityCardConfirmSave: String { t("entityCard.confirmSave") }
+    static var entityCardLater: String { t("entityCard.later") }
+    static var entityCardDiscard: String { t("entityCard.discard") }
+    static var entityCardDeferRemaining: String { t("entityCard.deferRemaining") }
+    static func entityCardMissingRequired(_ label: String) -> String { String(format: t("entityCard.missingRequiredFmt"), label) }
+    static var entityCardRowSkipped: String { t("entityCard.rowSkipped") }
+    static var entityCardSharedSection: String { t("entityCard.sharedSection") }
+    static var entityCardRowsSection: String { t("entityCard.rowsSection") }
+    static var entityCardLaterHint: String { t("entityCard.laterHint") }
+    static var entityCardSaveFailed: String { t("entityCard.saveFailed") }
+    /// 卡类名（data-flow §17.2 card_kind → 展示名；未登记回落原键）
+    static func entityCardKindName(_ kind: String) -> String {
+        let key = "entityCard.kind.\(kind)"
+        let value = t(key)
+        return value == key ? kind : value
+    }
+    static var pendingCardResume: String { t("pendingCard.resume") }
+    static var pendingCardViewSource: String { t("pendingCard.viewSource") }
+    static var pendingCardDiscard: String { t("pendingCard.discard") }
+    static var pendingCardNotFound: String { t("pendingCard.notFound") }
+    /// 模板字段键 → 展示标签（data-flow §17.2 稳定键；未登记回落原键）
+    static func templateFieldLabel(_ key: String) -> String {
+        let l10nKey = "field.\(key)"
+        let value = t(l10nKey)
+        return value == l10nKey ? key : value
+    }
     // 第四轮全仓审查修复：FR6.3 三级置信度/FR6.4 放弃/全部确认闸门/保存失败可见
     static var docConfirmConfidenceHigh: String { t("docConfirm.confidenceHigh") }
     static var docConfirmConfidenceMid: String { t("docConfirm.confidenceMid") }

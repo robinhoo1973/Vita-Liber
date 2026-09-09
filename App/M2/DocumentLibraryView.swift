@@ -56,8 +56,49 @@ final class DocumentsState {
     /// 健康问题懒创建（FR11.4 V3.49 触发点；未注入时静默跳过）。
     private let problemStore: HealthProblemStore?
     /// 类型化数据变更信号（保存成功后 documentsVersion+1 触发跨页刷新）
-    private let dataChange: AppDataChangeCenter?
+    let dataChange: AppDataChangeCenter?
     private var loadingPatientId: UUID?
+
+    // FR6.9 V3.61 页级实体卡队列（DocumentsState+EntityCards.swift）
+    /// 待逐张确认的实体卡（队首 = 当前卡）
+    private(set) var entityQueue: [MatchedCard] = []
+    private(set) var entityQueueTotal = 0
+    private(set) var entityQueueDocumentId: UUID?
+    private(set) var entityQueuePatientId: UUID?
+    /// 页号 → 页文本（待办 raw_text 源；续确认时按需补读）
+    private(set) var entityQueuePageTexts: [Int: String] = [:]
+    /// 就诊/趋势写门与通知调度（未注入 = 预览/测试：对应卡类确认失败可见，不静默）
+    let encounterStore: EncounterStore?
+    let trendStore: TrendQueryStore?
+    let scheduler: (any ReminderScheduling)?
+    /// 待办卡写门（扩展文件读取；setter 仍私有）
+    var pendingCardStore: PendingCardStore? { pendingCards }
+    var prescriptionWriter: PrescriptionStore? { prescriptionStore }
+    var documentStore: DocumentStore { store }
+
+    /// 队列变更单一入口（setter 私有；扩展文件经本组方法驱动）
+    func startEntityQueue(cards: [MatchedCard], documentId: UUID, patientId: UUID, pages: [PageAnalysis]) {
+        entityQueue = cards
+        entityQueueTotal = cards.count
+        entityQueueDocumentId = documentId
+        entityQueuePatientId = patientId
+        entityQueuePageTexts = Dictionary(uniqueKeysWithValues: pages.map { ($0.index, $0.text) })
+    }
+
+    func dequeueEntityCard(_ card: MatchedCard) {
+        entityQueue.removeAll { $0.id == card.id }
+        if entityQueue.isEmpty {
+            entityQueueDocumentId = nil
+            entityQueueTotal = 0
+        }
+    }
+
+    func prepareResume(patientId: UUID, pageIndex: Int, text: String?) {
+        entityQueuePatientId = patientId
+        if let text, entityQueuePageTexts[pageIndex] == nil { entityQueuePageTexts[pageIndex] = text }
+    }
+
+    func setImportError(_ message: String?) { lastImportError = message }
 
     init(store: DocumentStore, pipeline: OCRPipeline,
          decoder: (any ImageDecoding)? = nil,
@@ -68,7 +109,10 @@ final class DocumentsState {
          codeIndex: (any CodeIndex & UnitIndex)? = nil,
          problemStore: HealthProblemStore? = nil,
          dataChange: AppDataChangeCenter? = nil,
-         pendingCards: PendingCardStore? = nil) {
+         pendingCards: PendingCardStore? = nil,
+         encounterStore: EncounterStore? = nil,
+         trendStore: TrendQueryStore? = nil,
+         scheduler: (any ReminderScheduling)? = nil) {
         self.store = store
         self.pipeline = pipeline
         self.decoder = decoder ?? EngineRegistry.shared.resolve(ImageDecodingFactory.self)
@@ -82,6 +126,9 @@ final class DocumentsState {
         self.problemStore = problemStore
         self.dataChange = dataChange
         self.pendingCards = pendingCards
+        self.encounterStore = encounterStore
+        self.trendStore = trendStore
+        self.scheduler = scheduler
     }
 
     struct PendingDocument: Identifiable, Equatable {
@@ -136,6 +183,10 @@ final class DocumentsState {
         /// 确认入库**之后**——此前 resolveDuplicate 先归档旧版再弹确认卡，
         /// 用户取消 = 旧版已从活跃列表消失 + 新版未入库，资料凭空少一份）
         var replaceDocumentId: UUID?
+        /// FR6.1 页语义：逐页识别分析（单图 = 1 页；随文档卡确认写 document_page）
+        var pages: [PageAnalysis] = []
+        /// FR6.9 V3.61：各页按卡模板匹配出的实体卡（D 级；文档卡确认后逐张进入队列）
+        var entityCards: [MatchedCard] = []
     }
 
     /// 最近一次 load 的归档视图开关（setArchived/setFavorite 重载沿用——
@@ -265,6 +316,8 @@ final class DocumentsState {
         var fields: [CandidateField] = []
         var tags: [String] = []
         var linesText = ""     // FR6.9：识别原文（跳过稍后 pending_card.raw_text 源）
+        /// 稳定键字段草稿（卡模板匹配输入；处方路径经标签身份归一）
+        var pageFieldDrafts: [FieldDraft] = []
         // FR5.5/FR6.2 类型后置：无入口提示时类型由理解层判定；零命中 = 未决（占位「其他」，
         // 确认卡引导选择、未选不可保存）
         var effectiveDocType = docType ?? Self.unresolvedDocTypePlaceholder
@@ -314,6 +367,7 @@ final class DocumentsState {
                 }
                 if isPrescription {
                     fields = PrescriptionFieldMapper.draftFields(from: result.lines, labels: Self.prescriptionLabels)
+                    pageFieldDrafts = CompletenessEvaluator.prescriptionFieldDrafts(fields: fields, labels: Self.prescriptionLabels)
                 } else {
                     // 理解层字段直接消费（引擎侧已含启发式抽取/零命中 line_N
                     // 草稿与已认领行下标——不再 App 侧重跑同一套 guessFields，
@@ -336,6 +390,11 @@ final class DocumentsState {
                             draftFields, locale: Locale(identifier: "zh_Hans"),
                             index: codeIndex, units: codeIndex)
                     }
+                    // 卡模板匹配输入：零命中时理解层只回 line_N（类型待用户选择），
+                    // 但匹配不依赖类型关键词——按行启发式抽取供匹配器使用
+                    pageFieldDrafts = documentTypeKey == nil
+                        ? result.lines.flatMap { DocumentTypeClassifierFallback.guessFields(line: $0) }
+                        : draftFields
                     fields = draftFields.map { draft in
                         CandidateField(key: draft.key,
                                        displayLabel: Self.fieldLabel(forKey: draft.key),
@@ -355,6 +414,13 @@ final class DocumentsState {
                 return nil
             }
         }
+        // FR6.9 V3.61 页级卡模板匹配：单图 = 第 0 页；处方文档的文档卡本身即处方卡
+        //（既有处方写入路径），不再生成第二张处方实体卡（避免同一批药名双重确认）
+        let pageLines = linesText.isEmpty ? [] : linesText.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        let page = PageAnalysis(index: 0, lines: pageLines, failed: false,
+                                fields: pageFieldDrafts, documentTypeKey: documentTypeKey)
+        let cards = CardTemplateMatcher.match(fields: pageFieldDrafts, pageIndex: 0, documentTypeKey: documentTypeKey)
+            .filter { !(isPrescription && $0.kind == "prescription") }
         return ImportDraft(patientId: patientId, docType: effectiveDocType,
                            docTypeResolved: docTypeResolved, docTypeLowConfidence: docTypeLowConfidence,
                            documentTypeKey: documentTypeKey, documentTypeCandidates: documentTypeCandidates,
@@ -364,7 +430,9 @@ final class DocumentsState {
                            confirmationSet: OcrConfirmationSet(fields: fields),   // confirm-ok: F6/F9 图片入库 OCR 确认集是合法产出方（非语音路径），FR17.13 只约束语音草稿确认
                            isPrescription: isPrescription,
                            ocrText: linesText,
-                           replaceDocumentId: replaceDocumentId)
+                           replaceDocumentId: replaceDocumentId,
+                           pages: pageLines.isEmpty ? [] : [page],
+                           entityCards: cards)
     }
 
     /// FR11.4 懒创建触发判定（病历类 = 检验报告/门诊病历标签；按**保存时**
@@ -465,11 +533,15 @@ final class DocumentsState {
         let metaJSON = meta.isEmpty ? nil : (try? JSONSerialization.data(withJSONObject: meta))   // try?-ok: 序列化本方法内部构造的纯 String 字典，理论不会失败；失败时静默回退 nil，不阻断确认保存主流程
             .flatMap { String(data: $0, encoding: .utf8) }
         let ocrText = draft.confirmationSet.confirmedFields.map(\.value).joined(separator: "\n")
+        // FR6.1 页语义（V3.99）：页文本随文档同事务落 document_page（失败页占位）
+        let pages = draft.pages.map {
+            DocumentStore.Page(index: $0.index, text: $0.failed ? nil : $0.text, status: $0.failed ? "failed" : "ok")
+        }
         do {
             let docId = try await store.save(patientId: draft.patientId, docType: draft.docType,
                                              sha256: draft.sha256, mimeType: draft.mimeType, origin: draft.origin,
                                              isSensitive: draft.isSensitive, metaJSON: metaJSON, title: draft.title,
-                                             ocrText: ocrText.isEmpty ? nil : ocrText, grade: "C")
+                                             ocrText: ocrText.isEmpty ? nil : ocrText, grade: "C", pages: pages)
             // 处方行写入判定按**保存时**的 docType 重算（Domain 纯函数）：
             // 确认卡类型 Picker 改类必须生效——buildDraft 的 isPrescription
             // 只是草稿建议，用户改回处方但旧值仍 false 时处方行被静默跳过；
@@ -494,9 +566,13 @@ final class DocumentsState {
             // 可追溯可重放）。V3.39 起此处是唯一写入口——旧 AppState 引擎已删除；
             // 留痕副表失败不回滚主记录（与处方副表同策略）。
             if !draft.confirmationSet.confirmedFields.isEmpty {
-                try? await store.saveOCRResult(documentId: docId,   // try?-ok: 留痕失败不阻断主入库，主记录已落盘
+                try? await store.saveOCRResult(documentId: docId, pageIndex: draft.pages.first?.index ?? 0,   // try?-ok: 留痕失败不阻断主入库，主记录已落盘
                                                fields: draft.confirmationSet.confirmedFields,
                                                engineVersion: "ocr-pipeline")
+            }
+            // FR6.9 V3.61：文档卡确认 → 各页实体卡逐张进入队列（视图以 sheet 槽位承载）
+            if !draft.entityCards.isEmpty {
+                startEntityQueue(cards: draft.entityCards, documentId: docId, patientId: draft.patientId, pages: draft.pages)
             }
             // 「替换」语义：新版本已确认入库，此时才归档旧版（第四轮全仓审查
             // 修复——此前先归档后确认，取消确认卡 = 旧版已归档+新版未入库，
@@ -796,6 +872,8 @@ struct DocumentLibraryView: View {
     /// FR6.1 确认卡（此前导入即以 D 级静默入库，无用户确认环节）：OCR 后展示，
     /// 用户逐条确认/改正才写入数据库。
     @State private var pendingDraft: DocumentsState.ImportDraft?
+    /// 实体卡 sheet 放行标记（文档卡 onDismiss 置位；队列清空复位）
+    @State private var entityQueueArmed = false
 
     @ToolbarContentBuilder private var libraryToolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .topBarTrailing) {
@@ -844,8 +922,19 @@ struct DocumentLibraryView: View {
             .presentationDetents([.medium])
         }
         // FR6.1 确认卡：并存/替换与直接导入共用同一个确认环节
-        .sheet(item: $pendingDraft) { draft in
+        .sheet(item: $pendingDraft, onDismiss: {
+            // 文档卡收起**完成**后再放行实体卡 sheet（同一事务内 present 第二个 sheet
+            // 会撞退场动画——本仓 cover→选区→遮挡链的同族教训，见 QuickCaptureView）
+            if state.currentEntityCard != nil { entityQueueArmed = true }
+        }) { draft in
             DocumentImportConfirmView(draft: draft)
+        }
+        // FR6.9 V3.61 页级实体卡队列：文档卡确认后逐张呈现（队首出队即自动切换/收起）
+        .sheet(item: entityCardBinding) { card in
+            EntityCardConfirmView(card: card, mode: .queue,
+                                  pageCount: state.entityQueuePageTexts.count,
+                                  position: state.entityQueuePosition)
+                .interactiveDismissDisabled()
         }
         // FR6.6 导入失败可见错误
         .alert(L10n.docImportFailedTitle, isPresented: $showImportError) {
@@ -881,6 +970,13 @@ struct DocumentLibraryView: View {
         .task(id: app.currentPatientId) {
             await state.load(patientId: app.currentPatientId, includeArchived: showArchived)
         }
+    }
+
+    /// 队首实体卡（只读投影：出队由 DocumentsState 完成，sheet 收起不触发放弃——
+    /// 用户必须显式选择确认/稍后/放弃，interactiveDismissDisabled 兜底）
+    private var entityCardBinding: Binding<MatchedCard?> {
+        Binding(get: { entityQueueArmed ? state.currentEntityCard : nil },
+                set: { if $0 == nil && state.currentEntityCard == nil { entityQueueArmed = false } })
     }
 
     private var duplicateAlertBinding: Binding<Bool> {

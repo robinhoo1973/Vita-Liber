@@ -44,6 +44,9 @@ struct RouteDestinationView: View {
         // ---- F6 OCR ----
         case .pendingOcrQueue:
             PendingOcrQueueView()
+        case .pendingCard(let id):
+            // FR6.9 稍后处理 1h 通知深链：待办卡续确认（页级实体卡，V3.61）
+            PendingCardResumeRouteView(cardId: id)
 
         // ---- F7 指标 ----
         case .trendChart(let patientId, let metric):

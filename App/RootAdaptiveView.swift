@@ -281,7 +281,10 @@ private struct PreviewRoot: View {
                 originalsDir: FileManager.default.temporaryDirectory,
                 prescriptionStore: container.prescriptions,
                 dataChange: dataChange,
-                pendingCards: container.pendingCards))
+                pendingCards: container.pendingCards,
+                encounterStore: container.encounters,
+                trendStore: container.trends,
+                scheduler: container.reminderScheduler))
             .environment(AIHistoryState(store: container.aiHistory, audit: container.audit))
             .environment(ExportWizardState(service: container.pdfExport))
             // 健康导入二轮（V3.98）：F16DeviceState 只依赖同步协调器 + 数据变更信号，

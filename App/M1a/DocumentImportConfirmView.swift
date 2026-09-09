@@ -376,7 +376,7 @@ struct DocumentImportConfirmView: View {
     }
 }
 
-private struct FieldConfirmRow: View {
+struct FieldConfirmRow: View {
     @Binding var field: CandidateField
     @State private var editing = false
     @State private var draftValue = ""

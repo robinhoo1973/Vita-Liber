@@ -146,3 +146,179 @@ final class OcrCardQueueAcceptanceTests: XCTestCase {
         XCTAssertEqual(count, 0)
     }
 }
+
+// MARK: - App 层队列（DocumentsState 扩展；VitaLiber 目标）
+
+import SwiftUI
+@testable import VitaLiber
+
+@MainActor
+final class EntityCardQueueAcceptanceTests: XCTestCase {
+    private var originalsDirs: [URL] = []
+    override func tearDownWithError() throws {
+        for dir in originalsDirs { try? FileManager.default.removeItem(at: dir) }   // try?-ok: 清理尽力而为
+        originalsDirs = []
+        try super.tearDownWithError()
+    }
+
+    private struct Fixture {
+        let store: GRDBStore
+        let patient: UUID
+        let docs: DocumentsState
+        let scheduler: InMemoryReminderScheduler
+        let pendingCards: PendingCardStore
+        let trends: TrendQueryStore
+    }
+
+    private func makeFixture(lines: [String]) async throws -> Fixture {
+        let store = try GRDBStore.inMemory()
+        let patient = UUID()
+        try await store.writer.write { db in
+            try db.execute(sql: "INSERT INTO patient_profile (id, display_name, relation, created_at, updated_at) VALUES (?, 'Owner', 'self', 0, 0)", arguments: [patient.uuidString])
+            try db.execute(sql: "INSERT INTO local_owner (id, display_name, self_patient_id, created_at) VALUES (?, 'Owner', ?, 0)", arguments: [UUID().uuidString, patient.uuidString])
+        }
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("vl-cards-\(UUID().uuidString)", isDirectory: true)
+        originalsDirs.append(dir)
+        let scheduler = InMemoryReminderScheduler()
+        let pendingCards = PendingCardStore(writer: store.writer)
+        let trends = TrendQueryStore(writer: store.writer)
+        let docs = DocumentsState(
+            store: DocumentStore(writer: store.writer),
+            pipeline: OCRPipeline(recognizer: StubImageTextRecognizer(scripted: .init(lines: lines, confidence: 0.9)),
+                                  grayscaleDecoder: GrayscaleImageDecoder()),
+            originalsDir: dir,
+            prescriptionStore: PrescriptionStore(writer: store.writer),
+            understandingEngine: NLTextUnderstanding(),
+            pendingCards: pendingCards,
+            encounterStore: EncounterStore(writer: store.writer),
+            trendStore: trends,
+            scheduler: scheduler)
+        return Fixture(store: store, patient: patient, docs: docs, scheduler: scheduler, pendingCards: pendingCards, trends: trends)
+    }
+
+    private let labPage = ["检验报告", "日期：2026-09-01", "血红蛋白 150 g/L 130-175", "白细胞 6.5 10^9/L", "红细胞 4.5"]
+
+    /// 单页检验报告：文档卡确认后 → document_page 1 行 + 页级留痕 + 实体队列含 1 张检验卡
+    func test_documentCardCommitStartsEntityQueueWithPage() async throws {
+        let f = try await makeFixture(lines: labPage)
+        let draft = await f.docs.prepareImageDraft(patientId: f.patient, originalData: Data([1]), processedData: Data([1, 2]),
+                                                   mimeType: "image/png", docType: nil, title: nil, isSensitive: true, origin: "camera")
+        let unwrapped = try XCTUnwrap(draft)
+        XCTAssertEqual(unwrapped.pages.count, 1)
+        XCTAssertEqual(unwrapped.entityCards.map(\.kind), ["metric_sample"])
+        XCTAssertEqual(unwrapped.entityCards.first?.rows.count, 3)
+        var confirmed = unwrapped
+        confirmed.confirmationSet.confirmAllRemaining()
+        await f.docs.commitDraft(confirmed)
+        XCTAssertNil(f.docs.lastImportError)
+        let pages = try await f.store.writer.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM document_page") }
+        XCTAssertEqual(pages, 1)
+        XCTAssertEqual(f.docs.entityQueue.count, 1)
+        XCTAssertNotNil(f.docs.entityQueueDocumentId)
+        XCTAssertEqual(f.docs.entityQueuePosition.0, 1)
+        XCTAssertEqual(f.docs.entityQueuePosition.1, 1)
+    }
+
+    /// 确认检验卡 → metric_sample 医院行（缺单位行跳过）+ 页级留痕 + 出队
+    func test_confirmEntityCardWritesHospitalSamplesAndDequeues() async throws {
+        let f = try await makeFixture(lines: labPage)
+        var draft = try XCTUnwrap(await f.docs.prepareImageDraft(patientId: f.patient, originalData: Data([1]), processedData: Data([1, 2]),
+                                                                  mimeType: "image/png", docType: nil, title: nil, isSensitive: true, origin: "camera"))
+        draft.confirmationSet.confirmAllRemaining()
+        await f.docs.commitDraft(draft)
+        let card = try XCTUnwrap(f.docs.currentEntityCard)
+        let saved = await f.docs.confirmEntityCard(card, confirmed: card)
+        XCTAssertTrue(saved)
+        let rows = try await f.store.writer.read { db in
+            try Row.fetchAll(db, sql: "SELECT raw_label, origin, self_measured, ref_low, ref_high, source_ref FROM metric_sample ORDER BY raw_label")
+        }
+        XCTAssertEqual(rows.count, 2, "血红蛋白 + 白细胞落库；红细胞缺单位跳过")
+        XCTAssertEqual(rows.map { $0["origin"] as String }, ["hospital", "hospital"])
+        XCTAssertEqual(rows.map { $0["self_measured"] as Int }, [0, 0])
+        XCTAssertTrue((rows[0]["source_ref"] as String).hasSuffix("#p0"))
+        let hgb = rows.first { ($0["raw_label"] as String) == "血红蛋白" }
+        XCTAssertEqual(hgb?["ref_low"] as Double?, 130)
+        let traces = try await f.store.writer.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM ocr_result WHERE page_index = 0") }
+        XCTAssertGreaterThan(traces ?? 0, 0)
+        XCTAssertTrue(f.docs.entityQueue.isEmpty)
+    }
+
+    /// 稍后处理 → pending_card(source_page) + 1h 通知（route .pendingCard）；续确认 → 落库 + resolved + 通知取消
+    func test_deferThenResumeCompletesPendingCard() async throws {
+        let f = try await makeFixture(lines: labPage)
+        var draft = try XCTUnwrap(await f.docs.prepareImageDraft(patientId: f.patient, originalData: Data([1]), processedData: Data([1, 2]),
+                                                                  mimeType: "image/png", docType: nil, title: nil, isSensitive: true, origin: "camera"))
+        draft.confirmationSet.confirmAllRemaining()
+        await f.docs.commitDraft(draft)
+        let card = try XCTUnwrap(f.docs.currentEntityCard)
+        let deferred = await f.docs.deferEntityCard(card)
+        XCTAssertTrue(deferred)
+        XCTAssertTrue(f.docs.entityQueue.isEmpty)
+        let pending = try await f.pendingCards.list(patientId: f.patient)
+        XCTAssertEqual(pending.count, 1)
+        XCTAssertEqual(pending[0].sourcePage, 0)
+        XCTAssertEqual(pending[0].cardKind, "metric_sample")
+        XCTAssertEqual(pending[0].partialData.rows.count, 3)
+        let notifyId = "pending-\(pending[0].id)"
+        let fireAt = try await f.scheduler.pending()[notifyId]
+        XCTAssertNotNil(fireAt)
+        XCTAssertGreaterThan(fireAt!.timeIntervalSinceNow, 3500)
+        XCTAssertLessThan(fireAt!.timeIntervalSinceNow, 3700)
+        // 续确认：从页文本 + 载荷还原卡
+        let resumed = try XCTUnwrap(await f.docs.resumePendingCard(pending[0]))
+        XCTAssertEqual(resumed.kind, "metric_sample")
+        XCTAssertEqual(resumed.pageIndex, 0)
+        XCTAssertEqual(resumed.rows.count, 3)
+        let completed = await f.docs.completePendingCard(pending[0], confirmed: resumed)
+        XCTAssertTrue(completed)
+        let metricCount = try await f.store.writer.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM metric_sample") }
+        XCTAssertEqual(metricCount, 2)
+        let status = try await f.pendingCards.card(id: pending[0].id)?.status
+        XCTAssertEqual(status, "resolved")
+        XCTAssertNil(try await f.scheduler.pending()[notifyId])
+    }
+
+    /// 病历页 → 就诊卡确认写 encounter 并挂接文档
+    func test_encounterCardLinksDocument() async throws {
+        let f = try await makeFixture(lines: ["门诊病历", "日期：2026-09-01", "科室：心内科", "诊断：高血压 2 级", "处理：低盐饮食"])
+        var draft = try XCTUnwrap(await f.docs.prepareImageDraft(patientId: f.patient, originalData: Data([1]), processedData: Data([1, 2]),
+                                                                  mimeType: "image/png", docType: nil, title: nil, isSensitive: true, origin: "camera"))
+        XCTAssertEqual(draft.documentTypeKey, "outpatient_record")
+        XCTAssertEqual(draft.entityCards.map(\.kind), ["encounter"])
+        draft.confirmationSet.confirmAllRemaining()
+        await f.docs.commitDraft(draft)
+        let card = try XCTUnwrap(f.docs.currentEntityCard)
+        XCTAssertTrue(await f.docs.confirmEntityCard(card, confirmed: card))
+        let linked = try await f.store.writer.read { db in
+            try Row.fetchOne(db, sql: """
+                SELECT e.department, e.diagnosis_text, d.encounter_id FROM encounter e
+                JOIN document_file d ON d.encounter_id = e.id LIMIT 1
+                """)
+        }
+        XCTAssertEqual(linked?["department"] as String?, "心内科")
+        XCTAssertEqual(linked?["diagnosis_text"] as String?, "高血压 2 级")
+    }
+
+    /// 处方文档：文档卡即处方卡（既有处方写入路径），不再生成第二张处方实体卡
+    func test_prescriptionDocumentDoesNotDuplicatePrescriptionCard() async throws {
+        let f = try await makeFixture(lines: ["处方", "阿莫西林胶囊 0.25g", "用法：每日三次 口服", "2026-09-01"])
+        let draft = try XCTUnwrap(await f.docs.prepareImageDraft(patientId: f.patient, originalData: Data([1]), processedData: Data([1, 2]),
+                                                                  mimeType: "image/png", docType: nil, title: nil, isSensitive: true, origin: "camera"))
+        XCTAssertTrue(draft.isPrescription)
+        XCTAssertFalse(draft.entityCards.contains { $0.kind == "prescription" })
+    }
+
+    /// 队列级「剩余全部稍后处理」：每张卡各入待办
+    func test_deferRemainingQueuesAllCards() async throws {
+        let f = try await makeFixture(lines: ["门诊病历", "日期：2026-09-01", "科室：心内科", "诊断：高血压", "血压 140 mmHg"])
+        var draft = try XCTUnwrap(await f.docs.prepareImageDraft(patientId: f.patient, originalData: Data([1]), processedData: Data([1, 2]),
+                                                                  mimeType: "image/png", docType: nil, title: nil, isSensitive: true, origin: "camera"))
+        draft.confirmationSet.confirmAllRemaining()
+        await f.docs.commitDraft(draft)
+        let count = f.docs.entityQueue.count
+        XCTAssertGreaterThanOrEqual(count, 1)
+        await f.docs.deferRemainingEntityCards()
+        XCTAssertTrue(f.docs.entityQueue.isEmpty)
+        XCTAssertEqual(try await f.pendingCards.list(patientId: f.patient).count, count)
+    }
+}
