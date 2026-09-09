@@ -204,7 +204,8 @@ final class M1aAcceptanceTests: XCTestCase {
             patientId: patientId, docType: "病历", title: "样张", isSensitive: true,
             origin: "import", sha256: "sha:test",
             originalData: Data([0x01]), processedData: Data([0x02]), mimeType: "image/jpeg",
-            qualityTags: [], confirmationSet: set, isPrescription: false)
+            qualityTags: [], confirmationSet: set, isPrescription: false,
+            ocrText: "阿莫西林 每日三次")
         await docs.commitDraft(draft)
 
         let rows = try await container.documents.list(patientId: patientId)
