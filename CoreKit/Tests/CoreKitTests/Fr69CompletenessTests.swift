@@ -249,10 +249,12 @@ struct PendingCardDedupTests {
     @Test("无文档 ID 重复跳过复用同卡（同成员+卡种+原文）")
     func 无文档ID重复跳过复用同卡() async throws {
         let dbQueue = try DatabaseQueue(configuration: GRDBStore.configuration())
-        try dbQueue.write { db in
+        // GRDB 重载纪律：async 测试函数内 write 解析到 async 重载须 await
+        // （GoldenMigrationTests 同步函数用同步重载无此问题——L1 34299153156 族）
+        try await dbQueue.write { db in
             try db.execute(sql: SchemaV2.ddl)
         }
-        let store = await PendingCardStore(writer: dbQueue)   // Swift 6：actor 初始化须 await
+        let store = PendingCardStore(writer: dbQueue)   // actor init 非隔离，同步可调
         let patient = UUID()
         let draft = PendingCardDraft(patientId: patient, sourceType: "ocr", sourceDocId: nil,
                                      cardKind: "prescription",
