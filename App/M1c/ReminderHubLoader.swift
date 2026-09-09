@@ -30,7 +30,7 @@ enum ReminderHubLoader {
                 patientID: memberId,
                 priority: slot.allTaken ? 0 : 1,
                 routeKey: "reminderToday",
-                planID: slot.records.first.map { planId(fromNotifyId: $0.dose.notifyId) })
+                planID: slot.records.first.flatMap { planId(fromNotifyId: $0.dose.notifyId ?? "") })
         }
     }
 
