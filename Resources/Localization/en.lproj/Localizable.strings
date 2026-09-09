@@ -743,6 +743,24 @@
 "knowledge.caution" = "Caution";
 "knowledge.cautionText" = "For contraindications, drug interactions, or special populations (pregnancy/children/elderly), consult your doctor or pharmacist. This card gives no medication conclusions.";
 "home.stockBacklogFmt" = "Fill in batch info for \"%@\" (expiry / location)";
+"home.aggregationTitle" = "Reminders";
+"home.filter.all" = "All";
+"home.filter.medication" = "Medications";
+"home.filter.appointment" = "Appointments";
+"home.filter.document" = "Documents";
+"home.filter.ocr" = "OCR";
+"home.filter.alert" = "Device Alerts";
+"home.filter.family" = "Family";
+"home.filter.sos" = "SOS";
+"home.filter.system" = "System";
+"home.filter.pending" = "To Review";
+"home.window.default" = "Past 7 · Next 14 days";
+"home.window.short" = "Past 1 · Next 7 days";
+"home.window.long" = "Past 30 · Next 30 days";
+"home.emptyFilter" = "No reminders in this window and category";
+"home.emptyReset" = "Show all";
+"home.l0Note" = "Observation";
+"home.remainingFmt" = "%d more";
 
 "encounter.kind.outpatient" = "Outpatient";
 "encounter.kind.emergency" = "Emergency";

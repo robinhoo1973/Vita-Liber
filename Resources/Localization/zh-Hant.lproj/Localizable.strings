@@ -743,6 +743,24 @@
 "knowledge.caution" = "注意事項";
 "knowledge.cautionText" = "涉及禁忌、藥物交互作用、特殊族群（孕婦/兒童/老人）用藥時，請諮詢醫生或藥師，本卡不提供任何用藥結論。";
 "home.stockBacklogFmt" = "補錄「%@」批次資訊（效期/存放位置）";
+"home.aggregationTitle" = "提醒";
+"home.filter.all" = "全部";
+"home.filter.medication" = "用藥";
+"home.filter.appointment" = "預約";
+"home.filter.document" = "資料";
+"home.filter.ocr" = "OCR";
+"home.filter.alert" = "裝置提示";
+"home.filter.family" = "家庭";
+"home.filter.sos" = "SOS";
+"home.filter.system" = "系統";
+"home.filter.pending" = "待辦";
+"home.window.default" = "過去 7 日 · 未來 14 日";
+"home.window.short" = "過去 1 日 · 未來 7 日";
+"home.window.long" = "過去 30 日 · 未來 30 日";
+"home.emptyFilter" = "目前視窗與類別下沒有提醒";
+"home.emptyReset" = "回到全部";
+"home.l0Note" = "觀察記錄";
+"home.remainingFmt" = "還剩 %d 次";
 
 "encounter.kind.outpatient" = "門診";
 "encounter.kind.emergency" = "急診";

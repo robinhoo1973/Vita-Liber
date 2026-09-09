@@ -743,6 +743,24 @@
 "knowledge.caution" = "注意事项";
 "knowledge.cautionText" = "涉及禁忌、药物相互作用、特殊人群（孕妇/儿童/老人）用药时，请咨询医生或药师，本卡不提供任何用药结论。";
 "home.stockBacklogFmt" = "补录「%@」批次信息（效期/存放位置）";
+"home.aggregationTitle" = "提醒";
+"home.filter.all" = "全部";
+"home.filter.medication" = "用药";
+"home.filter.appointment" = "预约";
+"home.filter.document" = "资料";
+"home.filter.ocr" = "OCR";
+"home.filter.alert" = "设备提示";
+"home.filter.family" = "家庭";
+"home.filter.sos" = "SOS";
+"home.filter.system" = "系统";
+"home.filter.pending" = "待办";
+"home.window.default" = "过去 7 日 · 未来 14 日";
+"home.window.short" = "过去 1 日 · 未来 7 日";
+"home.window.long" = "过去 30 日 · 未来 30 日";
+"home.emptyFilter" = "当前窗口与类别下没有提醒";
+"home.emptyReset" = "回到全部";
+"home.l0Note" = "观察记录";
+"home.remainingFmt" = "还剩 %d 次";
 
 "encounter.kind.outpatient" = "门诊";
 "encounter.kind.emergency" = "急诊";

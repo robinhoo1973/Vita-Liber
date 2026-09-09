@@ -2,16 +2,21 @@ import SwiftUI
 import Domain
 import Infrastructure
 
-/// F2 首页 TodayView（SP-04 · ui-ux §5.2）。
+/// F2 首页（SP-04 · ui-ux §5.2）：统一提醒聚合中心（FR2.1，V3.57 术语）。
 ///
-/// 八卡固定顺序（FR2.1）：①成员切换条 ②今日待办（时段聚合 FR9.17 + 预约，
-/// 合并按时间排序）③待确认 OCR ④即将到期（7 天窗口）⑤续药卡（余量≤7 天）
-/// ⑥观察提示摘要（仅 L1+）⑦最近异常观察 ⑧快速拍摄四入口。
-/// 右上：🎤 语音速记入口（FR17.9）+ 🔔 通知中心铃铛（FR14.8，未读角标）。
-/// 关怀模式开启后本页被 FR18.5 四大卡版式**覆写**（同 ADR-021 单视图双态）。
+/// 布局（FR2.1）：①成员切换条（大标题点击）②顶部快捷工具组（🎤/相机/🔔）
+/// ③聚合列表（全部类型提醒时间倒序，统一不再分"行动/观察"子区）
+/// ④类别图标过滤 chips ⑤时间窗 Menu（默认过去 7 日/未来 14 日，
+/// FR2.1a；@AppStorage 键 actionFeedWindow——tech §5.33 冻结键名）。
 ///
-/// 数据全部来自环境仓的**当前成员**投影（BR-001：各仓已在加载侧隔离成员），
-/// 本视图只做快照组装与呈现，不做业务判定。
+/// 分级纪律（FR16.2/data-flow §4.4 双流裁决）：alert_event 源按 severity
+/// 分流渲染——L0 = 应用内软提示（弱化行+「观察记录」注记，绝不弹通知）；
+/// L1+ = 证据卡入口（级别徽章+置顶，点击 SP-30 五段证据卡）。每笔导入
+/// 读数不是卡片：小时聚合只进趋势。聚合中心不做生成式解释（ADR-010）。
+///
+/// 置顶纪律（FR2.1a）：L1+/高风险 OCR（逾期 D 级）不受窗口与筛选约束，
+/// priority≥2 恒置顶。数据全部来自环境仓当前成员投影（BR-001）。
+/// 关怀模式开启后本页被 FR18.5 四大卡版式覆写（同 ADR-021 单视图双态）。
 struct HomeView: View {
     @Environment(AppState.self) private var app
     @Environment(ReminderStore.self) private var reminderStore
@@ -27,111 +32,47 @@ struct HomeView: View {
     @State private var showVoicePanel = false
     @State private var notifDenied = false
     @State private var dismissNotifBanner = false
+    /// FR2.1a 时间窗（AppSettingsStore 持久化键 actionFeedWindow 冻结不改，
+    /// tech §5.33 存储契约）："过去日,未来日"；默认 7,14。
+    @AppStorage("actionFeedWindow") private var windowRaw = "7,14"
+    /// FR2.1④ 类别图标过滤（纯 View 参数，V3.87 契约：不调用写接口）。
+    @State private var filterKind: AggregationKind?
     /// 「了解 AI」引导任务完成态（第四轮全仓审查修复：原为会话级 @State——
-    /// 重启即复现，「完成打勾消失」的卡片承诺落空；改持久化，
-    /// 与其余三项「数据驱动完成」同为准持久事实源）
+    /// 重启即复现；改持久化，与其余三项「数据驱动完成」同为准持久事实源）
     @AppStorage("homeGuide4Visited") private var aiGuideVisited = false
-    /// 快速拍摄以 sheet 呈现（TestFlight 实测修复：此前 navigate 进 records Tab
-    /// 栈——返回落到健康档案页、path 残留套娃、重复进入出错；模态呈现则
-    /// 拍完即回首页，不改变导航上下文）
+    /// 快速拍摄以 sheet 呈现（TestFlight 实测修复：navigate 会改导航上下文）
     @State private var quickCaptureKind: CaptureKind?
+    /// FR6.9 待办卡详情 sheet 选择项
+    @State private var selectedPendingCard: AggregatedReminderItem?
 
-    private var snapshot: TodaySnapshot {
-        TodayAggregator.snapshot(
-            member: app.currentPatientId,
-            todos: todoItems,
-            pendingOCRCount: pendingOCRCount,
-            expiring: expiringItems,
-            refills: refillItems,
-            alerts: alertRefs,
-            observations: obsRefs)
+    // MARK: - 聚合装配（每帧只算一次，body 内 let 承接）
+
+    /// 各源仓投影 → 唯一聚合出口（Domain 纯函数）：
+    /// 去重/成员隔离/窗口/置顶/周期压缩/排序全部在 Domain。
+    private var aggregatedItems: [AggregatedReminderItem] {
+        var items: [AggregatedReminderItem] = []
+        items += ReminderHubLoader.doseItems(reminderStore.todaySlots,
+                                             memberId: app.currentPatientId)
+        items += ReminderHubLoader.appointmentItems(reminderStore.upcomingAppointments,
+                                                    memberId: app.currentPatientId)
+        items += ReminderHubLoader.inventoryItems(hub.inventoryItems,
+                                                  memberId: app.currentPatientId)
+        items += ReminderHubLoader.alertItems(hub.alertEvents,
+                                              memberId: app.currentPatientId)
+        items += ReminderHubLoader.ocrItems(docs.documents,
+                                            memberId: app.currentPatientId)
+        items += pendingCenter.items
+        return ReminderAggregationCenter.aggregate(items, window: currentWindow,
+                                                   memberId: app.currentPatientId)
     }
 
-    // ② 今日待办：时段卡（FR9.17）+ 预约 + 批次补录待办（FR9.10），合并按时间排序
-    private var todoItems: [TodoItem] {
-        var items: [TodoItem] = []
-        for slot in reminderStore.todaySlots {
-            let meds = slot.records.map(\.displayLabel).joined(separator: "、")
-            items.append(TodoItem(kind: .doseSlot, at: slot.anchorTime,
-                                  title: meds.isEmpty ? L10n.homeDoseSlot : meds,
-                                  memberId: app.currentPatientId))
-        }
-        for apt in reminderStore.upcomingAppointments {
-            items.append(TodoItem(kind: .appointment, at: apt.startsAt,
-                                  title: "\(apt.hospital)·\(apt.department)",
-                                  memberId: app.currentPatientId))
-        }
-        // FR9.10：效期或存放位置缺失的批次 → 批次补录待办（补齐后消除）
-        for item in hub.inventoryItems where item.expireAt == nil || (item.storageNote ?? "").isEmpty {
-            items.append(TodoItem(kind: .stockBacklog, at: Date(),
-                                  title: L10n.homeStockBacklog(item.medicationName),
-                                  memberId: app.currentPatientId))
-        }
-        return items.sorted { $0.at < $1.at }
+    private var currentWindow: AggregationWindow {
+        let parts = windowRaw.split(separator: ",").compactMap { Int($0) }
+        guard parts.count == 2 else { return .init() }
+        return .init(pastDays: parts[0], futureDays: parts[1])
     }
 
-    // ③ 待确认 OCR 数：D 级文档数（BR-003 机器识别未确认；V3.39 起
-    // 数据源 = DocumentStore 活管线——旧 app.timeline 投影镜像已随向导简化删除，
-    // 首页必须持续催办直至处理，72h 置顶规则由 FR2.3 承接）。
-    // 判定走 DocumentRow.isPendingConfirmation（第四轮全仓审查修复：
-    // grade=="D" 裸字符串 8 处内联收敛为单一谓词）
-    private var pendingOCRCount: Int {
-        docs.documents.filter(\.isPendingConfirmation).count
-    }
-
-    // ④ 即将到期（7 天窗口）：预约 + 药品临期（V3.72 回填：批次效期 ≤7 天并入）
-    // DST 纪律：窗口用 DayArithmetic 日历出口，禁止固定 86400 秒（切换日 ±1 小时漂移）
-    private var expiringItems: [ExpiryItem] {
-        let now = Date()
-        let window = DayArithmetic.offset(days: 7, from: now)
-        var items = reminderStore.upcomingAppointments
-            .filter { $0.startsAt <= window }
-            .map { ExpiryItem(title: "\($0.hospital)·\($0.department)", date: $0.startsAt,
-                              memberId: app.currentPatientId) }
-        items += hub.inventoryItems.compactMap { item in
-            guard let expireAt = item.expireAt, expireAt <= window, expireAt >= now else { return nil }
-            return ExpiryItem(title: L10n.homeExpiryMed(item.medicationName), date: expireAt,
-                              memberId: app.currentPatientId)
-        }
-        return items.sorted { $0.date < $1.date }
-    }
-
-    // ⑤ 续药卡（FR9.8.3）：出现判定走 Domain 单一事实源 InventoryRules.refillTier
-    // （t14/t7/t3，ADR-009 安全线偏早）——视图不得自设 ≤7 天阈值
-    //（审查修复：原视图硬编码 ≤7 天，t14 档 8–14 天的提前告警被吞掉）。
-    // 诚实性文案「约剩 N 天·按计划估算」。
-    private var refillItems: [RefillItem] {
-        hub.inventoryItems.compactMap { item in
-            guard item.approxDaysLeft != nil, item.refillTier != nil else { return nil }
-            return RefillItem(medicationName: item.medicationName,
-                              remainingPlanUnits: item.remainingPlanUnits,
-                              memberId: app.currentPatientId,
-                              lotId: item.lotId.uuidString)
-        }
-    }
-
-    // ⑥ 观察提示摘要（仅 L1+）
-    private var alertRefs: [AlertRef] {
-        hub.alertEvents
-            .filter { $0.severity != .L0 && $0.patientId == app.currentPatientId }
-            .map { AlertRef(severity: $0.severity.rawValue,
-                            title: $0.card.summaryTitle ?? $0.severity.rawValue,
-                            memberId: app.currentPatientId) }
-    }
-
-    // ⑦ 最近异常观察（横向缩略图列，锁定态联动 F8 保护链）
-    private var obsRefs: [ObsRef] {
-        // 评审修复：BR-001 门控——shared 状态已装载成员与当前成员不一致时
-        // 不渲染（成员切换装载中/装载失败时，防止上一成员的观察串显到
-        // 本成员首页，且 memberId 不得虚构为当前成员）
-        guard observationState.loadedPatientId == app.currentPatientId else { return [] }
-        return observationState.groups
-            .flatMap { $0.occurrences }
-            .sorted { $0.occurredAt > $1.occurredAt }
-            .prefix(3)
-            .map { ObsRef(id: $0.id, kind: $0.kind.rawValue,
-                          occurredAt: $0.occurredAt, memberId: app.currentPatientId) }
-    }
+    // MARK: - Body
 
     var body: some View {
         Group {
@@ -142,8 +83,7 @@ struct HomeView: View {
             }
         }
         .toolbar {
-            // §5.2 首页成员切换入口（V3.72）：大标题可点击 → 成员抽屉。
-            // 此前抽屉组件已建但全仓无首页触发点，多成员家庭无法从首页换人。
+            // §5.2 首页成员切换入口（V3.72）：大标题可点击 → 成员抽屉
             ToolbarItem(placement: .principal) {
                 Button {
                     showMemberPicker = true
@@ -166,6 +106,18 @@ struct HomeView: View {
                     .accessibilityLabel(L10n.homeVoice)
                     .accessibilityIdentifier("SP-04.home.mic")
                 }
+                // FR2.1② 相机 OCR/资料识别入口（V3.57 摄像头入口）：
+                // 快速拍摄四入口归入工具栏快捷操作（原次级区设计已移除）
+                Menu {
+                    Button(L10n.homeCaptureRecord) { quickCaptureKind = .record }
+                    Button(L10n.homeCaptureReport) { quickCaptureKind = .report }
+                    Button(L10n.homeCapturePrescription) { quickCaptureKind = .prescription }
+                    Button(L10n.homeCaptureSymptom) { router.navigate(to: .observationCreate) }
+                } label: {
+                    Image(systemName: "camera.fill")
+                }
+                .accessibilityLabel(L10n.homeQuickCapture)
+                .accessibilityIdentifier("SP-04.home.captureMenu")
                 // FR14.8 通知中心铃铛（未读角标不显示病名药名，§5 通知隐私）
                 NavigationLink(value: AppRoute.notificationCenter) {
                     Image(systemName: "bell")
@@ -180,8 +132,7 @@ struct HomeView: View {
                 .presentationDetents([.medium])
         }
         .sheet(isPresented: $showSOS) { SOSHelpView() }
-        // SP-55 全屏工作台（improving-requirements 1.2 / tech V3.93 口径修正：
-        // 「底部 Sheet」→ 独立全屏页面——上方转写编辑区 + 下方录音/清除/确认）
+        // SP-55 全屏工作台
         .fullScreenCover(isPresented: $showVoicePanel) { VoiceQuickLaunchView() }
         .sheet(isPresented: $showVoiceNote) { VoiceNotePanelView() }
         .sheet(item: $quickCaptureKind) { kind in
@@ -195,51 +146,38 @@ struct HomeView: View {
         .task(id: app.currentPatientId) { await load() }
     }
 
-    // MARK: - 标准八卡
+    // MARK: - 标准布局：统一提醒聚合中心
 
     private var standardHome: some View {
-        // 第八轮全仓审查修复（每帧重复聚合）：snapshot 每次访问全量重算
-        // 六组子数组（过滤/排序/flatMap）——body 一次求值原需 13 次。此处
-        // 每帧只算一次，经参数传入各卡（卡片签名随之为其接收）。
-        let snap = snapshot
+        // 第八轮全仓审查修复的每帧纪律延续：聚合与筛选各只求值一次，
+        // 经 let 承接传入子视图（此前 snapshot 每帧重算 13 次的教训）
+        let snap = aggregatedItems
+        let items = ReminderAggregationCenter.filtered(snap, kind: filterKind)
         return ScrollView {
             VStack(spacing: 16) {
-                if isEmptyNewUser(snap) {
+                if isNewUser {
                     newUserGuide
                 } else {
                     if notifDenied && !dismissNotifBanner {
                         notifDeniedBanner
                     }
-                    if hasOverdueOcr {
-                        pendingOcrCard(snap)   // 72h+ 未处理钉住置顶（§5.2）
+                    filterHeader
+                    if items.isEmpty {
+                        emptyAggregation
+                    } else {
+                        LazyVStack(spacing: 0) {
+                            ForEach(items) { item in
+                                aggregationRow(item)
+                                if item.id != items.last?.id {
+                                    Divider().padding(.leading, 46)
+                                }
+                            }
+                        }
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(RoundedRectangle(cornerRadius: 14)
+                            .fill(Color(.secondarySystemGroupedBackground)))
                     }
-                    if !snap.todoItems.isEmpty {
-                        todoCard(snap)
-                    }
-                    if app.profileCompletion.done < app.profileCompletion.total {
-                        profileProgressCard   // mock 对齐项：档案完善进度卡（成熟用户续填入口）
-                    }
-                    if snap.pendingOCRCount > 0 && !hasOverdueOcr {
-                        pendingOcrCard(snap)
-                    }
-                    if !snap.expiringSoon.isEmpty {
-                        expiringSoonCard(snap)
-                    }
-                    if !snap.refill.isEmpty {
-                        refillCard(snap)
-                    }
-                    if !snap.alertSummary.isEmpty {
-                        alertSummaryCard(snap)
-                    }
-                    if !snap.recentObservations.isEmpty {
-                        recentObservationsCard(snap)
-                    }
-                    // FR6.9 待办卡（跳过稍后队列）；72h 未处理置顶可达由
-                    // 聚合中心按 dueDate 排序承担，此处紧随告警卡之后常显
-                    if !pendingCenter.items.isEmpty {
-                        pendingCardSection
-                    }
-                    quickCaptureCard
                 }
                 // §5.2 免责声明恒显示（V3.72：新用户空态此前不渲染信任文案）
                 Text(L10n.homeDisclaimer)
@@ -253,17 +191,179 @@ struct HomeView: View {
             .padding(.vertical, 12)
             .frame(maxWidth: 672)   // §9.1 正文行宽 ≤672pt（iPad 常宽列可读性）
         }
-        .accessibilityIdentifier("SP-04.home.standard")
+        .accessibilityIdentifier("SP-04.home.aggregation")
     }
 
-    // 空态：新用户四引导任务（建档/拍第一份资料/设第一个提醒/了解AI），完成打勾消失
-    //（V3.39：首日引导三张行动卡由本卡承载，其中「了解 AI」为原 ⑥ 步卡片的替代落点）
-    // 审查修复（每帧重复聚合残余）：改接收上方已算好的 snap——原计算属性
-    // 在 body 内被二次求值，snapshot 全量聚合（过滤/排序/flatMap）每帧重复
-    // 跑一遍，与「每帧只算一次」修复的意图自相矛盾。
-    private func isEmptyNewUser(_ snap: TodaySnapshot) -> Bool {
-        snap.todoItems.isEmpty && docs.documents.isEmpty
-            && observationState.groups.isEmpty
+    /// 筛选区：标题 + 时间窗 Menu + 类别图标 chips（FR2.1④/⑤）。
+    private var filterHeader: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(L10n.homeAggregationTitle).font(.headline)
+                Spacer()
+                windowMenu
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    filterChip(nil, L10n.homeFilterAll, icon: "square.grid.2x2")
+                    ForEach(AggregationKind.allCases, id: \.self) { kind in
+                        filterChip(kind, kindLabel(kind), icon: kindIcon(kind))
+                    }
+                }
+            }
+        }
+        .accessibilityIdentifier("SP-04.home.filterHeader")
+    }
+
+    private func filterChip(_ kind: AggregationKind?, _ label: String, icon: String) -> some View {
+        let selected = filterKind == kind
+        return Button {
+            filterKind = kind
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: icon).font(.caption)
+                Text(label).font(.caption)
+            }
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .background(Capsule().fill(selected
+                                       ? Color("brand-primary", bundle: .main)
+                                       : Color(.systemGray6)))
+            .foregroundStyle(selected ? Color.white : Color.primary)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("SP-04.home.chip.\(kind?.rawValue ?? "all")")
+    }
+
+    /// FR2.1a 时间窗 Menu（FR14.7 完整档位在设置页期二；首页三档常用预设）。
+    private var windowMenu: some View {
+        Menu {
+            Button(L10n.homeWindowDefault) { windowRaw = "7,14" }
+            Button(L10n.homeWindowShort) { windowRaw = "1,7" }
+            Button(L10n.homeWindowLong) { windowRaw = "30,30" }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "calendar")
+                Text(windowLabel).font(.caption)
+            }
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .background(Capsule().fill(Color(.systemGray6)))
+            .foregroundStyle(Color.primary)
+        }
+        .accessibilityIdentifier("SP-04.home.windowMenu")
+    }
+
+    private var windowLabel: String {
+        switch windowRaw {
+        case "1,7": return L10n.homeWindowShort
+        case "30,30": return L10n.homeWindowLong
+        default: return L10n.homeWindowDefault
+        }
+    }
+
+    // MARK: - 聚合行
+
+    private func aggregationRow(_ item: AggregatedReminderItem) -> some View {
+        Button {
+            open(item)
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: kindIcon(item.aggregationKind))
+                    .font(.title3)
+                    .foregroundStyle(kindTint(item.aggregationKind))
+                    .frame(width: 36, height: 36)
+                    .background(RoundedRectangle(cornerRadius: 10)
+                        .fill(kindTint(item.aggregationKind).opacity(0.12)))
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text(item.title)
+                            .font(.subheadline).foregroundStyle(.primary)
+                            .lineLimit(1)
+                        if let status = item.status, status != "L0" {
+                            // FR16.2 证据卡入口：级别徽章（L1+ 才渲染）
+                            Text(status)
+                                .font(.caption2.bold()).foregroundStyle(.white)
+                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .background(Capsule().fill(Color("semantic-danger", bundle: .main)))
+                        }
+                    }
+                    HStack(spacing: 6) {
+                        Text(item.occurredAt.formatted(date: .abbreviated, time: .shortened))
+                            .font(.caption).foregroundStyle(.secondary)
+                        if item.status == "L0" {
+                            // FR16.2 软提示注记：L0 是观察记录，不是警报
+                            Text(L10n.homeL0Note)
+                                .font(.caption2).foregroundStyle(.tertiary)
+                        }
+                        if let remaining = item.remainingCount, remaining > 0 {
+                            Text(L10n.homeRemainingFmt(remaining))
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                Spacer()
+                if item.isPinned {
+                    Image(systemName: "pin.fill")
+                        .font(.caption)
+                        .foregroundStyle(Color("semantic-danger", bundle: .main))
+                }
+                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+            }
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("SP-04.home.row.\(item.id.sourceId)")
+    }
+
+    /// FR2.2 点击直达：待办卡开详情 sheet；其余按稳定 routeKey 跳转。
+    private func open(_ item: AggregatedReminderItem) {
+        switch item.aggregationKind {
+        case .pendingCard:
+            selectedPendingCard = item
+        default:
+            if let route = route(for: item) {
+                router.navigate(to: route)
+            }
+        }
+    }
+
+    /// routeKey（Domain 稳定键，V3.97 契约）→ AppRoute。
+    private func route(for item: AggregatedReminderItem) -> AppRoute? {
+        switch item.routeKey {
+        case "reminderToday": return .reminderToday
+        case "appointmentList": return .appointmentList
+        case "medicationCabinet": return .medicationCabinet
+        case "pendingOcrQueue": return .pendingOcrQueue
+        case "alertHistory": return .alertHistory
+        case "voiceGuideProfile": return .voiceGuideProfile
+        default: return nil
+        }
+    }
+
+    // MARK: - 空态
+
+    /// 新用户空态：三条引导任务（V3.39 首日引导由本卡承载）
+    private var isNewUser: Bool {
+        reminderStore.todaySlots.isEmpty && docs.documents.isEmpty
+            && observationState.groups.isEmpty && pendingCenter.items.isEmpty
+    }
+
+    /// FR2.1c 筛选空态：当前窗口/类别无结果 ≠ 全局无数据（不得误报
+    /// 「没有提醒」）；筛选激活时给「一键回到全部」。
+    private var emptyAggregation: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "tray")
+                .font(.largeTitle).foregroundStyle(.tertiary)
+            Text(L10n.homeEmptyFilter)
+                .font(.subheadline).foregroundStyle(.secondary)
+            if filterKind != nil {
+                Button(L10n.homeEmptyReset) { filterKind = nil }
+                    .font(.subheadline)
+                    .foregroundStyle(Color("brand-primary", bundle: .main))
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 32)
+        .accessibilityIdentifier("SP-04.home.emptyAggregation")
     }
 
     private var newUserGuide: some View {
@@ -313,239 +413,49 @@ struct HomeView: View {
         .accessibilityIdentifier("SP-04.home.notifDenied")
     }
 
-    private func todoCard(_ snap: TodaySnapshot) -> some View {
-        CardSection(title: L10n.homeTodayTodos) {
-            ForEach(snap.todoItems) { item in
-                Button {
-                    switch item.kind {
-                    case .doseSlot:
-                        // 直达服药确认（FR2.2）：切到提醒 Tab 的时段确认面板
-                        router.navigate(to: .appointmentList)   // Phase 3 换时段确认路由
-                    case .appointment:
-                        router.navigate(to: .appointmentList)
-                    case .stockBacklog:
-                        router.navigate(to: .medicationCabinet)
-                    default:
-                        break
-                    }
-                } label: {
-                    HStack {
-                        Image(systemName: item.kind == .doseSlot ? "pills.fill" : "stethoscope")
-                            .foregroundStyle(Color("brand-primary", bundle: .main))
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(item.title).font(.subheadline)
-                            Text(item.at.formatted(date: .omitted, time: .shortened))
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.caption).foregroundStyle(.tertiary)
-                    }
-                    .padding(.vertical, 4)
-                }
-                .accessibilityIdentifier("SP-04.home.todo.\(item.kind.rawValue)")
-            }
+    // MARK: - 类别视觉映射（纯呈现）
+
+    private func kindIcon(_ kind: AggregationKind) -> String {
+        switch kind {
+        case .medication: return "pills.fill"
+        case .appointment: return "stethoscope"
+        case .document: return "doc.text.fill"
+        case .ocr: return "exclamationmark.triangle.fill"
+        case .alert: return "waveform.path.ecg"
+        case .pendingCard: return "clock.badge.checkmark"
+        case .family: return "person.2.fill"
+        case .sos: return "sos"
+        case .system: return "gearshape.fill"
         }
     }
 
-    /// 档案完善进度卡（mock 对齐项）：显示已完善 X/Y 项 + 一键续填语音访谈
-    private var profileProgressCard: some View {
-        let c = app.profileCompletion
-        return Button {
-            router.navigate(to: .voiceGuideProfile)   // 续填走语音访谈（可手输，FR17.11）
-        } label: {
-            HStack(spacing: 10) {
-                Image(systemName: "person.text.rectangle")
-                    .foregroundStyle(Color("brand-primary", bundle: .main))
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(L10n.homeProfileProgressTitle).font(.subheadline).bold()
-                    Text(L10n.homeProfileProgressFmt(c.done, c.total))
-                        .font(.caption).foregroundStyle(.secondary)
-                    ProgressView(value: Double(c.done), total: Double(c.total))
-                        .tint(Color("brand-primary", bundle: .main))
-                }
-                Spacer()
-                Text(L10n.homeProfileContinue)
-                    .font(.caption).fontWeight(.semibold)
-                    .foregroundStyle(Color("brand-primary", bundle: .main))
-            }
-            .padding(14)
-            .background(RoundedRectangle(cornerRadius: 12).fill(Color(.systemBackground)))
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("SP-04.home.profileProgress")
-    }
-
-    /// §5.2 72h 未处理置顶钉住（V3.72）：任一 D 级文档超 72 小时未确认 →
-    /// 红胶囊 + 该卡移至全部卡片之前。单一 Domain 出口 PendingOcrRules
-    /// （第四轮全仓审查修复：此前首页/队列/通知中心三种表述各写一遍，
-    /// 日历日与固定秒数在 DST 切换日口径分歧——注释自称「同一条 Domain
-    /// 判定语义」而实际并无共享函数，现已收敛）
-    private var hasOverdueOcr: Bool {
-        docs.documents.contains { PendingOcrRules.isOverdue(createdAt: $0.createdAt) }
-    }
-
-    private func pendingOcrCard(_ snap: TodaySnapshot) -> some View {
-        Button {
-            router.navigate(to: .pendingOcrQueue)
-        } label: {
-            HStack {
-                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.yellow)
-                Text(L10n.homePendingOcrCount(snap.pendingOCRCount))
-                    .font(.subheadline).foregroundStyle(.primary)
-                if hasOverdueOcr {
-                    Text(L10n.homeOcrOverdue)
-                        .font(.caption2.bold())
-                        .padding(.horizontal, 8).padding(.vertical, 3)
-                        .background(Capsule().fill(Color("semantic-danger", bundle: .main)))
-                        .foregroundStyle(.white)
-                }
-                Spacer()
-                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
-            }
-            .padding(14)
-            .background(RoundedRectangle(cornerRadius: 12).fill(Color.yellow.opacity(0.15)))
-        }
-        .accessibilityIdentifier("SP-04.home.pendingOcr")
-    }
-
-    private func expiringSoonCard(_ snap: TodaySnapshot) -> some View {
-        CardSection(title: L10n.homeExpiringSoon) {
-            ForEach(snap.expiringSoon) { item in
-                HStack {
-                    Image(systemName: "calendar.badge.clock").foregroundStyle(.blue)
-                    Text(item.title).font(.subheadline)
-                    Spacer()
-                    Text(item.date.formatted(date: .abbreviated, time: .omitted))
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                .padding(.vertical, 4)
-            }
+    private func kindTint(_ kind: AggregationKind) -> Color {
+        switch kind {
+        case .medication: return .blue
+        case .appointment: return .teal
+        case .document: return .indigo
+        case .ocr: return .yellow
+        case .alert: return .red
+        case .pendingCard: return .orange
+        case .family: return .green
+        case .sos: return .red
+        case .system: return .gray
         }
     }
 
-    private func refillCard(_ snap: TodaySnapshot) -> some View {
-        CardSection(title: L10n.homeRefill) {
-            ForEach(snap.refill) { item in
-                Button {
-                    router.navigate(to: .medicationCabinet)
-                } label: {
-                    HStack {
-                        Image(systemName: "pills.circle.fill").foregroundStyle(.orange)
-                        Text(item.medicationName).font(.subheadline).foregroundStyle(.primary)
-                        Spacer()
-                        Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
-                    }
-                    .padding(.vertical, 4)
-                }
-            }
-        }
-        .accessibilityIdentifier("SP-04.home.refill")
-    }
-
-    private func alertSummaryCard(_ snap: TodaySnapshot) -> some View {
-        CardSection(title: L10n.homeAlertSummary) {
-            ForEach(snap.alertSummary) { ref in
-                Button {
-                    router.navigate(to: .alertHistory)
-                } label: {
-                    HStack {
-                        Image(systemName: "waveform.path.ecg").foregroundStyle(.red)
-                        Text(ref.title).font(.subheadline).foregroundStyle(.primary)
-                        Spacer()
-                        Text(ref.severity).font(.caption).foregroundStyle(.red)
-                    }
-                    .padding(.vertical, 4)
-                }
-            }
+    private func kindLabel(_ kind: AggregationKind) -> String {
+        switch kind {
+        case .medication: return L10n.homeFilterMedication
+        case .appointment: return L10n.homeFilterAppointment
+        case .document: return L10n.homeFilterDocument
+        case .ocr: return L10n.homeFilterOcr
+        case .alert: return L10n.homeFilterAlert
+        case .pendingCard: return L10n.homeFilterPending
+        case .family: return L10n.homeFilterFamily
+        case .sos: return L10n.homeFilterSOS
+        case .system: return L10n.homeFilterSystem
         }
     }
-
-    private func recentObservationsCard(_ snap: TodaySnapshot) -> some View {
-        CardSection(title: L10n.homeRecentObs) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
-                    ForEach(snap.recentObservations) { obs in
-                        Button {
-                            router.navigate(to: .observationDetail(obs.id))
-                        } label: {
-                            VStack(spacing: 4) {
-                                // 锁定态缩略图联动（FR11.3）：敏感媒体以锁图标占位
-                                Image(systemName: "lock.rectangle.fill")
-                                    .font(.title2)
-                                    .foregroundStyle(Color("brand-primary", bundle: .main))
-                                    .frame(width: 64, height: 48)
-                                    .background(RoundedRectangle(cornerRadius: 8)
-                                        .fill(Color(.systemGray5)))
-                                Text(L10n.observationKindName(forKey: obs.kind))
-                                    .font(.caption2)
-                                Text(obs.occurredAt.formatted(date: .abbreviated, time: .omitted))
-                                    .font(.caption2).foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // ⑧ 快速拍摄四入口（病历/报告/处方/症状 → 对应类型的资料采集）
-    private var quickCaptureCard: some View {
-        CardSection(title: L10n.homeQuickCapture) {
-            HStack(spacing: 12) {
-                QuickCaptureButton(icon: "doc.text.fill", label: L10n.homeCaptureRecord) {
-                    quickCaptureKind = .record
-                }
-                QuickCaptureButton(icon: "chart.bar.doc.horizontal.fill", label: L10n.homeCaptureReport) {
-                    quickCaptureKind = .report
-                }
-                QuickCaptureButton(icon: "pills.fill", label: L10n.homeCapturePrescription) {
-                    quickCaptureKind = .prescription
-                }
-                QuickCaptureButton(icon: "waveform.path.ecg", label: L10n.homeCaptureSymptom) {
-                    router.navigate(to: .observationCreate)
-                }
-            }
-        }
-        .accessibilityIdentifier("SP-04.home.quickCapture")
-    }
-
-    // ⑨ FR6.9 待办卡（统一提醒聚合中心 pendingCard 类别，data-flow §20.1）：
-    // 仅非敏感摘要投影（「待补充：处方」）——raw_text/partial_data 绝不外泄
-    // 到首页列表（BR-003）；72h 未处理置顶可达（dueDate 排序，FR6.9）。
-    private var pendingCardSection: some View {
-        let items = ReminderAggregationCenter.aggregate(
-            pendingCenter.items, memberId: app.currentPatientId)
-        return CardSection(title: L10n.homePendingCards) {
-            ForEach(items) { item in
-                Button {
-                    selectedPendingCard = item
-                } label: {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(item.title).font(.subheadline)
-                            if let due = item.dueDate {
-                                Text(due.formatted(date: .abbreviated, time: .omitted))
-                                    .font(.caption2).foregroundStyle(.secondary)
-                            }
-                        }
-                        Spacer()
-                        Text(L10n.homePendingCardResume)
-                            .font(.caption)
-                            .padding(.horizontal, 10).padding(.vertical, 5)
-                            .background(Capsule().fill(Color("semantic-warning", bundle: .main).opacity(0.15)))
-                    }
-                }
-                .accessibilityIdentifier("SP-04.home.pendingCard.\(item.id.sourceId)")
-            }
-        }
-        .accessibilityIdentifier("SP-04.home.pendingCards")
-    }
-
-    /// FR6.9 待办卡详情（sheet）：缺失字段清单 + 原文草稿（用户自己的
-    /// D 级草稿可见；期一无 LLM 补全——「已补全」按用户重新识别/手动补录
-    /// 后手动完结，resolve 后从待办队列移除）。
-    @State private var selectedPendingCard: AggregatedReminderItem?
 
     // MARK: - FR18.5 关怀模式四大卡覆写
 
@@ -554,23 +464,15 @@ struct HomeView: View {
             VStack(spacing: 20) {
                 // FR18.5 极简导航：四大卡（今日服药/续药/拍摄记录/呼救）
                 BigCareCard(icon: "pills.fill", title: L10n.homeCareMeds, tint: .blue) {
-                    // 「今日服药」卡进用药时段聚合落点（此前挂 .appointmentList
-                    // 占位——答非所问，Phase 3 占位路由随 M2 上线未替换）
                     router.navigate(to: .reminderToday)
                 }
                 BigCareCard(icon: "pills.circle.fill", title: L10n.homeCareRefill, tint: .orange) {
                     router.navigate(to: .medicationCabinet)
                 }
                 BigCareCard(icon: "camera.fill", title: L10n.homeCareCapture, tint: .green) {
-                    // 「拍摄记录」= 文档/证件扫描（improving-requirements 1.1 关怀
-                    // 模式口径：此前去症状拍摄 observationCreate，关怀模式用户
-                    // 无法扫描病历/证件）
                     router.navigate(to: .scanCapture(.record))
                 }
-                // 评审修正 U7：§7.1 防误触——SOS 大卡此前单击即开求助页
-                // （里面全是拨号按钮，震颤误触后果严重）；改为按住 600ms
-                // 才进入（与 SOSOrb/EmergencyCareViews 同一门槛），
-                // VoiceOver 经 accessibilityAction 显式触发（BR-012 无障碍路径）。
+                // 评审修正 U7：§7.1 防误触——SOS 大卡按住 600ms 才进入
                 BigCareCard(icon: "sos", title: L10n.homeCareSOS, tint: .red) {
                     // 常规点击被下面手势接管后 Button action 不再触发；
                     // 保留 action 仅为 accessibilityAction 兜底
@@ -580,7 +482,7 @@ struct HomeView: View {
                         .onEnded { _ in showSOS = true }
                 )
                 .accessibilityAction { showSOS = true }
-                // FR19.1：关怀模式首页大卡 [开始语音]（与四大卡并列、互不干扰）
+                // FR19.1：关怀模式首页大卡 [开始语音]
                 VoiceSessionLaunchCard()
             }
             .padding(20)
@@ -602,9 +504,7 @@ struct HomeView: View {
     }
 
     private func load() async {
-        // 六个相互独立的仓并发加载（第四轮全仓审查效率修复：原五连串行
-        // await——每次切回首页串行支付 5 轮 actor 往返 + 查询延迟；共享
-        // DatabasePool 支持并发读，同仓 M2HubStore.load 已确立 async let 模式）
+        // 六个相互独立的仓并发加载（第四轮全仓审查效率修复）
         async let r: Void = reminderStore.refreshTriggered(patientId: app.currentPatientId)
         async let h: Void = hub.load(patientId: app.currentPatientId)
         async let o: Void = observationState.load(patientId: app.currentPatientId)
@@ -612,55 +512,13 @@ struct HomeView: View {
         async let p: Void = pendingCenter.load(patientId: app.currentPatientId)
         async let m: Void = app.loadMembers()
         _ = await (r, h, o, d, p, m)
-        // FR9.6：通知权限关闭时首页常驻提示（可关、次日重现——以 dismiss 态重置实现）
+        // FR9.6：通知权限关闭时首页常驻提示（可关、次日重现）
         notifDenied = await reminderStore.notificationDenied
         dismissNotifBanner = false
     }
 }
 
 // MARK: - 组件
-
-private struct CardSection<Content: View>: View {
-    let title: String
-    @ViewBuilder let content: Content
-
-    init(title: String, @ViewBuilder content: () -> Content) {
-        self.title = title
-        self.content = content()
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(.headline)
-            VStack(spacing: 0) { content }
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: 14).fill(Color(.secondarySystemGroupedBackground)))
-        }
-    }
-}
-
-private struct QuickCaptureButton: View {
-    let icon: String
-    let label: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 8) {
-                Image(systemName: icon)
-                    .font(.system(size: 28))
-                    .frame(width: 56, height: 56)   // 56pt 图标区（ui-ux §5.2）
-                    .background(RoundedRectangle(cornerRadius: 14)
-                        .fill(Color("brand-primary", bundle: .main).opacity(0.12)))
-                    .foregroundStyle(Color("brand-primary", bundle: .main))
-                Text(label).font(.caption)
-            }
-            .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.plain)
-    }
-}
 
 private struct GuideTaskCard: View {
     let icon: String
@@ -810,9 +668,7 @@ private struct PendingCardDetailSheet: View {
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 // §21.2 完结纪律：resolved = 用户补填所有缺失字段 + 创建对应
-                // 实体（本卡无补填路径，期二接线）——「知道了」只关闭详情，
-                // 卡保持 pending 走 7d/30d 生命周期（§21.3）；伪完结会把
-                // D 级草稿静默沉入 resolved、用户「稍后补全」承诺落空。
+                // 实体（本卡无补填路径，期二接线）——「知道了」只关闭详情
                 Button(L10n.onboard_gotIt) {
                     dismiss()
                 }

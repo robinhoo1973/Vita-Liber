@@ -857,6 +857,14 @@ enum L10n {
     "docConfirm.skipSaved",
     "home.pendingCards",
     "home.pendingCardResume",
+    "home.aggregationTitle",
+    "home.filter.all", "home.filter.medication", "home.filter.appointment",
+    "home.filter.document", "home.filter.ocr", "home.filter.alert",
+    "home.filter.family", "home.filter.sos", "home.filter.system",
+    "home.filter.pending",
+    "home.window.default", "home.window.short", "home.window.long",
+    "home.emptyFilter", "home.emptyReset",
+    "home.l0Note", "home.remainingFmt",
     "pendingCard.reasonOcrMissing",
     "pendingCard.rawText",
     "docConfirm.unconfirmedCountFmt",
@@ -1655,6 +1663,26 @@ enum L10n {
     static var homeCareSOS: String { t("home.care.sos") }
     static var homeDoseSlot: String { t("home.doseSlot") }
     static func homeStockBacklog(_ name: String) -> String { String(format: t("home.stockBacklogFmt"), name) }
+
+    // MARK: - FR2.1 统一提醒聚合中心（SP-04 · V3.96/V3.97）
+    static var homeAggregationTitle: String { t("home.aggregationTitle") }
+    static var homeFilterAll: String { t("home.filter.all") }
+    static var homeFilterMedication: String { t("home.filter.medication") }
+    static var homeFilterAppointment: String { t("home.filter.appointment") }
+    static var homeFilterDocument: String { t("home.filter.document") }
+    static var homeFilterOcr: String { t("home.filter.ocr") }
+    static var homeFilterAlert: String { t("home.filter.alert") }
+    static var homeFilterFamily: String { t("home.filter.family") }
+    static var homeFilterSOS: String { t("home.filter.sos") }
+    static var homeFilterSystem: String { t("home.filter.system") }
+    static var homeFilterPending: String { t("home.filter.pending") }
+    static var homeWindowDefault: String { t("home.window.default") }
+    static var homeWindowShort: String { t("home.window.short") }
+    static var homeWindowLong: String { t("home.window.long") }
+    static var homeEmptyFilter: String { t("home.emptyFilter") }
+    static var homeEmptyReset: String { t("home.emptyReset") }
+    static var homeL0Note: String { t("home.l0Note") }
+    static func homeRemainingFmt(_ n: Int) -> String { String(format: t("home.remainingFmt"), n) }
 
     // MARK: - FR14.8 通知中心（SP-27）
     static var ncTitle: String { t("nc.title") }
