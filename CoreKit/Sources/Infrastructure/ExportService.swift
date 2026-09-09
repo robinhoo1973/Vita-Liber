@@ -272,7 +272,21 @@ public actor ExportService {
             public var id: UUID
             public var patientId: UUID?
             public var name: String
+            // 审查修复（FR13.5 往返保真）：旧导出缺 kind/archived、导入硬编码
+            // archived=0——已归档问题恢复后「复活」为活跃问题（问题列表/
+            // 时间轴/AI 事实组装全链误呈现）。默认值保证旧备份 JSON 可解。
+            public var kind: String?
+            public var archived: Bool = false
             public var createdAt: Date
+            public init(id: UUID, patientId: UUID?, name: String, kind: String? = nil,
+                        archived: Bool = false, createdAt: Date) {
+                self.id = id
+                self.patientId = patientId
+                self.name = name
+                self.kind = kind
+                self.archived = archived
+                self.createdAt = createdAt
+            }
         }
         public init(schemaVersion: Int = 1, exportedAt: TimeInterval = 0,
                     owner: LocalOwner? = nil, selfProfile: PatientProfile? = nil,
@@ -397,7 +411,7 @@ public actor ExportService {
                 Envelope.AppointmentExport(
                     id: UUID(uuidString: row["id"] as String) ?? UUID(),
                     patientId: (row["patient_id"] as String?).flatMap(UUID.init(uuidString:)),
-                    hospital: row["hospital"] as String,
+                    hospital: (row["hospital"] as String?) ?? "",
                     department: (row["department"] as String?) ?? "",
                     startsAt: Date(timeIntervalSince1970: row["starts_at"] as Double),
                     status: row["status"] as String)
@@ -523,6 +537,8 @@ public actor ExportService {
                     id: UUID(uuidString: row["id"] as String) ?? UUID(),
                     patientId: (row["patient_id"] as String?).flatMap(UUID.init(uuidString:)),
                     name: row["name"] as String,
+                    kind: row["kind"] as String?,
+                    archived: (row["archived"] as Int?) == 1,
                     createdAt: Date(timeIntervalSince1970: row["created_at"] as Double))
             }
             let sensitiveIds = try String.fetchAll(db, sql: "SELECT id FROM document_file WHERE is_sensitive = 1")
@@ -991,12 +1007,19 @@ public actor ExportService {
             for p in envelope.plans {
                 if try adoptOrSkip(planConflicts, p.id, adopt: {
                     let scheduleJSON = String(data: try JSONEncoder().encode(p.schedule), encoding: .utf8) ?? "{}"
+                    // 审查修复（ADR-019 采纳语义）：采纳 = 以备份版本为准——
+                    // 旧 UPDATE 只改 4 列，备份的 dose_plan_units（安全线单剂
+                    // 基线）与 ended_reason/paused_at 被静默丢弃，恢复后库存
+                    // 扣减与暂停/结束语义跑在错误基线上（V3.94 往返契约）
                     try db.execute(sql: """
-                        UPDATE medication_plan SET status = ?, schedule_json = ?, start_date = ?, end_date = ?
+                        UPDATE medication_plan SET status = ?, schedule_json = ?, start_date = ?, end_date = ?,
+                          dose_plan_units = ?, ended_reason = ?, paused_at = ?
                         WHERE id = ?
                         """, arguments: [p.status.rawValue, scheduleJSON,
                                          p.startDate.timeIntervalSince1970,
-                                         p.endDate?.timeIntervalSince1970, p.id.uuidString])
+                                         p.endDate?.timeIntervalSince1970,
+                                         p.dosePlanUnits, p.endedReason,
+                                         p.pausedAt?.timeIntervalSince1970, p.id.uuidString])
                 }) { continue }
                 // 药品行先落（medication_plan.medication_id 外键，ERR#35）
                 let planPatient = remap(p.patientId) ?? p.patientId ?? profileId
@@ -1251,11 +1274,19 @@ public actor ExportService {
             }
             for i in envelope.immunizations {
                 if try adoptOrSkip(immConflicts, i.id, adopt: {
+                    // 审查修复（ADR-019 采纳语义）：旧 UPDATE 只改 3 列，备份的
+                    // 批号/剂次（追溯核心）与提供者等被静默丢弃，恢复后记录是
+                    // 本地+备份的混合态——与其余各表全列采纳口径不一致
                     try db.execute(sql: """
-                        UPDATE immunization SET patient_id = ?, vaccine_name = ?, administered_at = ?
+                        UPDATE immunization SET patient_id = ?, vaccine_name = ?, dose_number = ?,
+                          administered_at = ?, provider = ?, lot_number = ?, encounter_id = ?,
+                          source = ?, confirmed = ?, adverse_reaction_id = ?
                         WHERE id = ?
                         """, arguments: [(remap(i.patientId) ?? i.patientId)?.uuidString ?? "", i.vaccineName,
-                                         i.administeredAt.timeIntervalSince1970, i.id.uuidString])
+                                         i.doseNumber, i.administeredAt.timeIntervalSince1970,
+                                         i.provider, i.lotNumber, i.encounterId?.uuidString,
+                                         i.source, (i.confirmed ?? false) ? 1 : 0, i.adverseReactionId?.uuidString,
+                                         i.id.uuidString])
                 }) { continue }
                 try db.execute(sql: """
                     INSERT INTO immunization (id, patient_id, vaccine_name, dose_number, administered_at,
@@ -1300,15 +1331,17 @@ public actor ExportService {
             for h in envelope.healthProblems {
                 if try adoptOrSkip(problemConflicts, h.id, adopt: {
                     try db.execute(sql: """
-                        UPDATE health_problem SET patient_id = ?, name = ?, created_at = ?
+                        UPDATE health_problem SET patient_id = ?, name = ?, kind = ?, archived = ?, created_at = ?
                         WHERE id = ?
                         """, arguments: [(remap(h.patientId) ?? h.patientId)?.uuidString ?? "", h.name,
+                                         h.kind, h.archived ? 1 : 0,
                                          h.createdAt.timeIntervalSince1970, h.id.uuidString])
                 }) { continue }
                 try db.execute(sql: """
-                    INSERT INTO health_problem (id, patient_id, name, archived, created_at, updated_at)
-                    VALUES (?, ?, ?, 0, ?, ?)
+                    INSERT INTO health_problem (id, patient_id, name, kind, archived, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     """, arguments: [(remap(h.id) ?? h.id).uuidString, patientID(h.patientId), h.name,
+                                      h.kind, h.archived ? 1 : 0,
                                       h.createdAt.timeIntervalSince1970, h.createdAt.timeIntervalSince1970])
             }
             try Self.validateOCRGraph(db)

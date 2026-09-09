@@ -137,7 +137,9 @@ public struct TerminologyStore: Sendable {
     public init(entries: [String: String]) { self.entries = entries }
     public func explain(_ term: String) -> String? { entries[term] }
     public func terms(in text: String) -> [String] {
-        entries.keys.filter { text.contains($0) }
+        // 审查修复：Dictionary.keys 迭代序随机——同一问题在不同启动间的
+        // 术语列表顺序不同（金样/读屏输出不稳定）。按词条字符序排序，输出确定。
+        entries.keys.filter { text.contains($0) }.sorted()
     }
 }
 

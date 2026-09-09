@@ -25,6 +25,7 @@ public final class CoreImageCompressor: ImageCompressing, SensitiveMediaProtecti
         guard let src = CGImageSourceCreateWithData(data as CFData, nil),
               let cg = CGImageSourceCreateImageAtIndex(src, 0,
                 [kCGImageSourceThumbnailMaxPixelSize: spec.maxDimension,
+                 kCGImageSourceCreateThumbnailFromImageAlways: true,
                  kCGImageSourceCreateThumbnailWithTransform: true,
                  kCGImageSourceShouldCacheImmediately: true] as CFDictionary) else {
             throw CompressError.decodeFailed
@@ -51,11 +52,14 @@ public final class CoreImageCompressor: ImageCompressing, SensitiveMediaProtecti
         return data as Data
     }
 
-    public func authorizeOriginalAccess(_ data: Data, policy: SensitiveMediaPolicy) async throws -> Data {
+    public func authorizeOriginalAccess(_ data: Data, policy: SensitiveMediaPolicy,
+                                        reason: String) async throws -> Data {
         guard policy.isSensitive else { return data }
         guard policy.requireAuthForOriginal else { return data }
 
-        let reason = "访问敏感医疗影像原图"
+        // 审查修复：认证浮层提示此前硬编码简体中文——系统弹窗由 OS 渲染、
+        // 不受应用内语言切换影响，zh-Hant/en 用户看到的是简中（L10n 单一
+        // 出口纪律违反）。提示文案由调用方经 L10n 传入。
         let success = try await LAContext().evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)
         guard success else { throw CompressError.authRequiredForOriginal }
         return data

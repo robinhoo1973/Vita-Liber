@@ -27,7 +27,7 @@ public actor TrendQueryStore {
                 ? (MetricType.bloodPressureSys.rawValue, "secondary_value",
                    "NULL AS ref_low, NULL AS ref_high, NULL AS ref_source_label")
                 : (metric.rawValue, "value", "ref_low, ref_high, ref_source_label")
-            let rows = try Row.fetchAll(db, sql: """
+            var rows = try Row.fetchAll(db, sql: """
                 SELECT id, metric_key, \(valueColumn) AS value, secondary_value, unit, origin, self_measured,
                        measured_at, excluded, source_ref, \(refProjection),
                        raw_label, code_concept_id, source_name, source_identifier,
@@ -38,6 +38,26 @@ public actor TrendQueryStore {
                 ORDER BY measured_at ASC
                 """, arguments: [member.uuidString, keyToQuery,
                                  range.start.timeIntervalSince1970, range.end.timeIntervalSince1970])
+            if metric == .bloodPressureDia {
+                // 审查修复：单值舒张压（语音「低压 90」/自测单值）落库为
+                // metric_key='bloodPressureDia' 独立行——而主查询只读收缩压行
+                // 的 secondary_value，独立行在趋势图上永远缺席（读数存在、
+                // 图表空态）。并查独立行后按时间归并。
+                let direct = try Row.fetchAll(db, sql: """
+                    SELECT id, metric_key, value AS value, secondary_value, unit, origin, self_measured,
+                           measured_at, excluded, source_ref,
+                           NULL AS ref_low, NULL AS ref_high, NULL AS ref_source_label,
+                           raw_label, code_concept_id, source_name, source_identifier,
+                           aggregation_kind, window_end, value_min, value_max, sample_count
+                    FROM metric_sample
+                    WHERE patient_id = ? AND metric_key = 'bloodPressureDia' AND value IS NOT NULL
+                      AND measured_at >= ? AND measured_at <= ?
+                    ORDER BY measured_at ASC
+                    """, arguments: [member.uuidString,
+                                     range.start.timeIntervalSince1970, range.end.timeIntervalSince1970])
+                rows.append(contentsOf: direct)
+                rows.sort { ($0["measured_at"] as Double) < ($1["measured_at"] as Double) }
+            }
             let all = rows.map { row in
                 TrendPoint(
                     id: UUID(uuidString: row["id"] as String) ?? UUID(),

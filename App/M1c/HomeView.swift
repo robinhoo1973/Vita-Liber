@@ -33,7 +33,16 @@ struct HomeView: View {
     @State private var showVoiceNote = false
     @State private var showVoicePanel = false
     @State private var notifDenied = false
-    @State private var dismissNotifBanner = false
+    /// FR9.6「可关、次日重现」：持久化当日驳回标记——旧实现为会话级 @State
+    /// 且 load() 每次无条件重置，成员切换/数据版本变化即横幅复活，
+    /// 「关到次日」落空。按自然日判定，重启同日亦不复现。
+    @AppStorage("notifDeniedBannerDismissedDay") private var dismissedDay = ""
+
+    private var todayDayKey: String {
+        let comps = Calendar.current.dateComponents([.year, .month, .day], from: Date())
+        guard let y = comps.year, let m = comps.month, let d = comps.day else { return "" }
+        return "\(y)-\(m)-\(d)"
+    }
     /// FR2.1a 时间窗（AppSettingsStore 持久化键 actionFeedWindow 冻结不改，
     /// tech §5.33 存储契约）："过去日,未来日"；默认 7,14。
     @AppStorage("actionFeedWindow") private var windowRaw = "7,14"
@@ -58,8 +67,13 @@ struct HomeView: View {
                                              memberId: app.currentPatientId)
         items += ReminderHubLoader.appointmentItems(reminderStore.upcomingAppointments,
                                                     memberId: app.currentPatientId)
-        items += ReminderHubLoader.inventoryItems(hub.inventoryItems,
-                                                  memberId: app.currentPatientId)
+        items += ReminderHubLoader.inventoryItems(
+            // 审查修复（BR-001 切换窗口）：hub 各节异步提交完成前
+            // inventoryItems 仍是旧成员数据——此前直接以新成员身份投影，
+            // A 的续药/补录待办在切换瞬间渲染为 B 的提醒。loadedPatientId
+            // 与当前成员一致（全部节已提交）才允许取用缓存。
+            hub.loadedPatientId == app.currentPatientId ? hub.inventoryItems : [],
+            memberId: app.currentPatientId)
         items += ReminderHubLoader.alertItems(hub.qualifiedAlertEvents.filter {
             notificationState.itemStates["alert-\($0.id)"] != .archived
         },
@@ -165,7 +179,7 @@ struct HomeView: View {
                 if isNewUser && snap.isEmpty {
                     newUserGuide
                 } else {
-                    if notifDenied && !dismissNotifBanner {
+                    if notifDenied && dismissedDay != todayDayKey {
                         notifDeniedBanner
                     }
                     filterHeader
@@ -410,7 +424,7 @@ struct HomeView: View {
             }
             .font(.footnote)
             Button {
-                dismissNotifBanner = true
+                dismissedDay = todayDayKey
             } label: {
                 // 审查修复：触控目标 ≥44pt（原 ~16pt 图标，关怀模式要求 64pt）
                 Image(systemName: "xmark").font(.footnote).foregroundStyle(.secondary)
@@ -556,9 +570,13 @@ struct HomeView: View {
         async let p: Void = pendingCenter.load(patientId: app.currentPatientId)
         async let m: Void = app.loadMembers()
         _ = await (r, h, o, d, p, m)
-        // FR9.6：通知权限关闭时首页常驻提示（可关、次日重现）
+        // FR9.6：通知权限关闭时首页常驻提示（可关、次日重现——
+        // 驳回状态为持久化自然日标记，见 dismissedDay/todayDayKey）
         notifDenied = await reminderStore.notificationDenied
-        dismissNotifBanner = false
+        // FR14.8 归档状态消费：首页证据卡过滤依赖 itemStates，此前只在通知
+        // 中心加载——重启后用户已归档的 L1+ 预警证据卡被重新置顶（归档
+        // 持久化形同虚设）。首页每次装载先按当前预警集拉取归档状态。
+        await notificationState.load(keys: hub.qualifiedAlertEvents.map { "alert-\($0.id)" })
     }
 }
 

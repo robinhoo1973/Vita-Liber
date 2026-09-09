@@ -46,7 +46,10 @@ public protocol ImageCompressing: Sendable {
     /// 生成缩略图（可选模糊，用于敏感媒体）。
     func generateThumbnail(_ data: Data, spec: ThumbnailSpec) async throws -> Data
     /// 敏感媒体保护链：查看原图需鉴权（BR-007/008）。
-    func authorizeOriginalAccess(_ data: Data, policy: SensitiveMediaPolicy) async throws -> Data
+    /// reason 为系统认证浮层的本地化提示文案，由调用方（App 层 L10n）提供——
+    /// 生产实现不得内置面向用户的文案（L10n 单一出口纪律）。
+    func authorizeOriginalAccess(_ data: Data, policy: SensitiveMediaPolicy,
+                                 reason: String) async throws -> Data
 }
 
 /// 敏感媒体保护链（BR-007/008 独立抽象，供上层调用）。

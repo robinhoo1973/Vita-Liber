@@ -202,6 +202,11 @@ struct SensitiveMediaOriginalView: View {
         // 名存实亡
         image = nil
         displayData = nil
+        // 审查修复：缩放/平移态跨解锁周期泄漏——30 秒空闲重锁后再次解锁，
+        // 原图按上一次的 3x 缩放与角落位移渲染（下一位认证用户看到上一人
+        // 的取景位置）。重锁必须回到初始适配视图。
+        scale = 1
+        offset = .zero
     }
 
     private func loadDownsampled() {

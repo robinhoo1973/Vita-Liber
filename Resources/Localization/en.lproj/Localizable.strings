@@ -338,6 +338,8 @@
 "member.current" = "Current";
 "member.switch" = "Switch";
 "member.namePlaceholder" = "Name";
+"member.updateFailed" = "Failed to save member info. Please try again.";
+"member.updateFailedHint" = "Your changes were not saved.";
 "member.relation" = "Relationship";
 "member.birthDatePlaceholder" = "Birth date (e.g. 1962-03)";
 "member.save" = "Save";
@@ -867,6 +869,7 @@
 "appt.followUpHint" = "Follow up again (creates a follow-up reminder)";
 "appt.markMissed" = "Mark Missed";
 "appt.markMissedHint" = "Marking as missed cancels all tiered reminders and schedules a follow-up in 2 hours.";
+"appt.completeHint" = "Marking as completed cancels all tiered reminders and adds an encounter record.";
 "appt.newDate" = "New visit time";
 "appt.cancelReason.none" = "Cancel";
 "appt.cancelReason.doctor" = "Doctor adjusted";
@@ -1509,6 +1512,7 @@
 "voice.field.content" = "Content";
 "voice.confirm.fillHint" = "Not recognized — tap to fill in";
 "voiceguide.saved" = "Reminder set";
+"voiceguide.profileDoneHint" = "The four profile items have been saved. You can edit them anytime in Me.";
 "home.capture.library" = "Choose from Photos";
 "home.capture.file" = "Import File (PDF / Image / Word)";
 "home.capture.noCamera" = "No camera on this device — use Photos or Files";

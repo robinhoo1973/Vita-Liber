@@ -426,7 +426,10 @@ struct VoiceSessionView: View {
                 // 趋势页 oneDecimal 口径漂移）——统一走 MedicalNumberFormat
                 let points = trendState.detailSeries?.points.suffix(3)
                     .map { MedicalNumberFormat.oneDecimal($0.value) }.joined(separator: "、")
-                session.systemFeedback(points.map { L10n.f19RecentGlucose($0) } ?? L10n.f19NoGlucose,
+                // 审查修复：序列存在但空点时 joined 为 ""（非 nil）——Optional.map
+                // 落入非 nil 分支，播报「最近血糖：」空模板而非「暂无血糖记录」
+                let summary = points.flatMap { $0.isEmpty ? nil : $0 }
+                session.systemFeedback(summary.map { L10n.f19RecentGlucose($0) } ?? L10n.f19NoGlucose,
                                       speak: { app.speak($0) })
             }
         case .stockRemaining:
@@ -642,7 +645,14 @@ struct VoiceSessionView: View {
             if let url = URL(string: "tel://\(emergency)") { openURL(url) }
             return
         }
-        let contact = hub.emergencySelected.contacts.first { $0.title.contains(object) }
+        // 审查修复（FR19.5 确认对象语义）：子串匹配按列表顺序取首个——
+        // 联系人「妈妈的姐姐」先于「妈妈」时，「打给妈妈」会拨给姨妈
+        // （BR-012 急救路径拨错人）。精确名优先；仅当子串命中唯一才放行，
+        // 多义一律拒绝拨号（播报未命中，绝不猜）。
+        let contacts = hub.emergencySelected.contacts
+        let exact = contacts.first { $0.title == object }
+        let candidates = contacts.filter { $0.title.contains(object) }
+        let contact = exact ?? (candidates.count == 1 ? candidates[0] : nil)
         // 联系人未命中即拒绝拨号并播报——此前 `?? object` 把语音原话当号码
         // 直接拨出（联系人未加载/残词失配即拨错号，FR19.5 确认对象形同虚设）
         guard let contact else {

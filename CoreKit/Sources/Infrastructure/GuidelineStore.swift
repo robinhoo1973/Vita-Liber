@@ -83,7 +83,11 @@ public actor GuidelineStore {
         guard !GuidelineSource.thresholdsAwaitMedicalReview else { return 0 }
         var entries: [String: GuidelineEntry] = [:]
         for key in Set(readings.map(\.metricKey)) {
-            entries[key] = try entry(for: key, db: db)
+            // 审查修复：静息心率行 metricKey 为 restingHeartRate，与 AHA
+            // 种子键 heart_rate 不匹配——entry 恒 nil、severity 恒 nil、
+            // L1+ 静息心率预警轨永远静默。判定键归一化到种子键（读数行
+            // 保持独立键，不并入心率趋势序列）。
+            entries[key] = try entry(for: key == "restingHeartRate" ? "heart_rate" : key, db: db)
         }
         let graded = readings.map {
             AlertRuleEngine.GradedReading(reading: $0, severity: AlertRuleEngine.severity(for: $0, guideline: entries[$0.metricKey]))

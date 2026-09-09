@@ -338,6 +338,8 @@
 "member.current" = "目前成員";
 "member.switch" = "切換";
 "member.namePlaceholder" = "姓名";
+"member.updateFailed" = "成員資訊儲存失敗，請重試";
+"member.updateFailedHint" = "剛才的修改未生效。";
 "member.relation" = "關係";
 "member.birthDatePlaceholder" = "生日（如 1962-03）";
 "member.save" = "儲存";
@@ -867,6 +869,7 @@
 "appt.followUpHint" = "重新跟進（生成跟進提醒）";
 "appt.markMissed" = "標記錯過";
 "appt.markMissedHint" = "標記錯過將取消該預約的全部分級提醒，並在 2 小時後提醒跟進";
+"appt.completeHint" = "標記完成將取消該預約的全部分級提醒，並補錄一條就診記錄";
 "appt.newDate" = "新的就診時間";
 "appt.cancelReason.none" = "直接取消";
 "appt.cancelReason.doctor" = "醫生調整";
@@ -1509,6 +1512,7 @@
 "voice.field.content" = "內容";
 "voice.confirm.fillHint" = "未辨識，點擊填寫";
 "voiceguide.saved" = "提醒已設定";
+"voiceguide.profileDoneHint" = "四項檔案資訊已寫入成員檔案，可隨時在「我的」中修改";
 "home.capture.library" = "從相簿選擇";
 "home.capture.file" = "從檔案匯入（PDF / 圖片 / Word）";
 "home.capture.noCamera" = "此裝置無相機，請使用相簿或檔案匯入";

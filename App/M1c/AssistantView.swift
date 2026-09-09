@@ -115,6 +115,11 @@ struct AssistantView: View {
             }
         }
         .sceneDisclosure(scene: "ai_assistant")
+        .onChange(of: app.currentPatientId) { _, newValue in
+            // 审查修复（BR-001）：成员切换即时清屏——此前清屏只发生在下一问
+            // ask() 入口，A 的健康问答在 B 身份下持续渲染
+            assistant.noteMemberSwitch(newValue)
+        }
         .onChange(of: pickerItem) { _, newItem in
             guard let newItem else { return }
             Task { await handlePickedImage(newItem) }
@@ -134,6 +139,10 @@ struct AssistantView: View {
     }
 
     private func handlePickedImage(_ item: PhotosPickerItem) async {
+        // 审查修复：处理结束即复位选择——PhotosPickerItem 相等性按
+        // itemIdentifier，不复位则「取消后重选同一张图」onChange 不再触发，
+        // 交互静默失效
+        defer { pickerItem = nil }
         imageNotice = nil
         do {
             guard let data = try await item.loadTransferable(type: Data.self) else {

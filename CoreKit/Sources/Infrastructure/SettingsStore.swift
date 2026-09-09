@@ -49,7 +49,14 @@ public actor SettingsStore: SettingsStoring {
 
     public func restoreDefaults() async throws {
         try await writer.write { db in
-            try db.execute(sql: "DELETE FROM app_settings")
+            // 审查修复：app_settings 表与 EntitlementStore（aiMonthlyUsed 月配额）
+            // 及 GRDBCodeIndex（code_set_bundle_version 词表锚）共享——整表
+            // DELETE 把 AI 配额清零、词表版本锚抹掉（「恢复默认设置」越界
+            // 破坏非设置状态）。恢复默认只删除设置键域。
+            let keys = AppSettingKey.allCases.map(\.rawValue)
+            try db.execute(sql: """
+                DELETE FROM app_settings WHERE key IN (\(keys.map { _ in "?" }.joined(separator: ",")))
+                """, arguments: StatementArguments(keys))
         }
     }
 

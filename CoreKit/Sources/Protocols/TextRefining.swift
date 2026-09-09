@@ -113,6 +113,12 @@ public final class RefinementDeadline: @unchecked Sendable {
             var cancelWork: Task<Void, Never>?
             var cancelTimer: Task<Void, Never>?
             lock.lock()
+            // 审查修复：deadline/调用方取消定案路径（enforcingDeadline == false）
+            // 此前把释放挂在「工作线程真正退出」之后（didDeliverCancellation）——
+            // operation 忽略取消、永不返回时 reservation 永久占用，会话剩余
+            // refine 全部 unavailable。结果一旦定案即释放槽位（挂起任务仍尽力
+            // 取消，但释放不以其退出为前提）。
+            let deadlineExpired = !enforcingDeadline
             if enforcingDeadline { workFinished = true }
             if outcome == nil {
                 let result: TranscriptRevision
@@ -123,14 +129,18 @@ public final class RefinementDeadline: @unchecked Sendable {
                 }
                 outcome = result
                 if let continuation { delivery = (continuation, result) }
-                if !workFinished, let work {
-                    cancellationFinished = false
+                if let work {
+                    if !workFinished { cancellationFinished = false }
                     cancelWork = work
                 }
                 cancelTimer = timer
                 continuation = nil
                 work = nil
                 timer = nil
+            }
+            if deadlineExpired {
+                workFinished = true
+                cancellationFinished = true
             }
             let release = takeReleaseIfFinished()
             lock.unlock()

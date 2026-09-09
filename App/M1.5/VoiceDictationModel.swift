@@ -168,7 +168,12 @@ final class VoiceDictationModel {
         guard lifetime == epoch, contexts[id] != nil else { return }
         tasks[id] = nil
         completed[id] = outcome
-        if currentID == id {
+        // 审查修复：stop() 已把 phase 置 idle 而 currentID 不变——迟到的
+        // 完成回调仍进本分支，失败态在用户主动停止数秒后覆盖 idle
+        // （按钮闪现「识别失败」）。recordingID 是「本会话仍是当前在录
+        // 会话」的唯一真源：停止后 recordingID == nil，跳过 UI 状态覆写；
+        // 结果仍经下方 deliveryOrder 正常投递（stop 的 finish 语义不变）。
+        if currentID == id, recordingID == id {
             recordingID = nil
             switch outcome {
             case .success(let result):

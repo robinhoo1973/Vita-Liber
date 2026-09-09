@@ -70,7 +70,10 @@ public enum TimelineProjectionRules {
 
     /// 页切取 + 下一页游标（满页时以末条为游标）
     public static func page(_ entries: [TimelineEntry], limit: Int) -> TimelinePage {
-        guard entries.count > limit else {
+        // 审查修复：limit <= 0 时旧守卫 entries.count > limit 恒真、继续走
+        // entries[limit - 1] —— 负索引 fatalError（配置/备份注入 0 页大小即崩）。
+        // 非法页大小按「不分页」降级，绝不 trap。
+        guard limit > 0, entries.count > limit else {
             return TimelinePage(entries: entries, nextCursor: nil)
         }
         let pageEntries = Array(entries.prefix(limit))

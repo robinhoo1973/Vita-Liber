@@ -240,7 +240,15 @@ public actor DocumentStore {
             let orderedPages = pages.sorted { $0.index < $1.index }
             let receiptCount = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM ocr_card_commit WHERE document_file_id = ?",
                                                arguments: [id.uuidString]) ?? 0
-            guard receiptCount == 0 || previousPages == orderedPages else { throw StoreError.invalidPage }
+            // 审查修复：提交凭据冻结的是「页文本事实」——失败页重扫只改
+            // status（复核过程态），原守卫把任何页面差异一律拒死（重扫成功
+            // 也无法落库、该页永久卡失败）。凭据存在时仅拒文本变更/新增页。
+            let textChanged = orderedPages.filter { new in
+                previousPages.contains { $0.index == new.index && $0.text != new.text }
+            }
+            guard receiptCount == 0
+                    || (textChanged.isEmpty && orderedPages.allSatisfy { p in previousPages.contains { $0.index == p.index } })
+            else { throw StoreError.invalidPage }
             var metadata: [String: Any] = [:]
             if let metaJSON {
                 guard let decoded = try JSONSerialization.jsonObject(with: Data(metaJSON.utf8)) as? [String: Any] else {
@@ -261,16 +269,29 @@ public actor DocumentStore {
                 WHERE id = ? AND patient_id = ?
                 """, arguments: [docType, isSensitive ? 1 : 0, storedMeta, ocrText, grade,
                                  Date().timeIntervalSince1970, id.uuidString, patientId.uuidString])
-            if receiptCount == 0, previousPages != orderedPages {
-                // Existing page identities survive; omitted/changed historical pages are not silently erased.
-                guard previousPages.allSatisfy({ old in orderedPages.contains { $0.index == old.index && $0.text == old.text } }) else {
-                    throw StoreError.invalidPage
+            if previousPages != orderedPages {
+                if receiptCount == 0 {
+                    // Existing page identities survive; omitted/changed historical pages are not silently erased.
+                    guard previousPages.allSatisfy({ old in orderedPages.contains { $0.index == old.index && $0.text == old.text } }) else {
+                        throw StoreError.invalidPage
+                    }
                 }
                 for page in orderedPages where !previousPages.contains(where: { $0.index == page.index }) {
                     try db.execute(sql: """
                         INSERT INTO document_page (id, document_file_id, page_index, ocr_text, status, created_at)
                         VALUES (?, ?, ?, ?, ?, ?)
                         """, arguments: [UUID().uuidString, id.uuidString, page.index, page.text, page.status, Date().timeIntervalSince1970])
+                }
+            }
+            // 审查修复：状态变更（failed→ok 重扫成功等复核过程态）此前被
+            // 静默丢弃——补 UPDATE 让复核结论可持久化（文本不变是前提，
+            // 已由上方 textChanged 守卫保证）
+            for page in orderedPages {
+                if let old = previousPages.first(where: { $0.index == page.index }),
+                   old.status != page.status {
+                    try db.execute(sql: """
+                        UPDATE document_page SET status = ? WHERE document_file_id = ? AND page_index = ?
+                        """, arguments: [page.status, id.uuidString, page.index])
                 }
             }
             try Self.stageReview(db, documentId: id, patientId: patientId, cards: cards, reviewedFields: reviewedFields, now: Date())

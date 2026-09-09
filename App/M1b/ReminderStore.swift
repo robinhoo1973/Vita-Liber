@@ -35,6 +35,9 @@ final class ReminderStore {
 
     /// 最近一次请求的成员（BR-001 成员隔离：只允许最新请求写回状态）
     private var loadingPatientId: UUID?
+    /// 当前已渲染时段卡的成员（BR-001 切换窗口：换成员加载期间旧成员的
+    /// 时段卡/预约仍渲染在新成员身份下——切成员即清屏，加载完成再回填）
+    private var displayedPatientId: UUID?
 
     /// 触发型刷新的去抖锚点（评审修正）：启动/回前台/时区变化/各 Tab 的
     /// .task 在启动窗口内会叠加 2-4 次完整 refresh（每次含物化+对账+两次
@@ -93,6 +96,12 @@ final class ReminderStore {
         defer { loading = false }
         guard let patientId else { return }
         loadingPatientId = patientId
+        // 审查修复（BR-001 切换窗口）：最终提交有代际守卫，但窗口内旧成员
+        // 的时段卡/预约仍以新成员身份渲染——切成员先清屏
+        if displayedPatientId != patientId {
+            todaySlots = []
+            upcomingAppointments = []
+        }
         do {
             _ = try await meds.materializeWindow(now: now, calendar: .current)
             // FR9.8.8 零确认存活：先补账过期无动作剂量（安全线按计划推进），
@@ -110,13 +119,20 @@ final class ReminderStore {
             // BR-001 成员隔离：facts 为全量事实（对账引擎消费），UI 时段卡
             // 必须过滤到当前成员——否则 A 成员剂量会混进 B 成员今日待办
             let mine = facts.filter { $0.patientId == nil || $0.patientId == patientId }
-            let records = mine.map { DoseRecord(dose: $0.dose, action: $0.action) }
+            // 审查修复：JOIN 带回的药品投影此前被丢弃——时段卡 displayLabel
+            // 恒为「未命名药品 · n 单位」，多药时段不可区分（该投影专为
+            // 「UI 时段卡必须可区分多药」而建，映射却未使用）
+            let records = mine.map {
+                DoseRecord(dose: $0.dose, action: $0.action,
+                           medicationName: $0.medicationName, spec: $0.spec, unitKind: $0.unitKind)
+            }
             let slots = DoseSlotGrouping.group(records)
             let appointments = try await apts.upcoming(patientId: patientId, now: now)
             // 成员切换后晚到的旧结果必须丢弃，不得覆盖当前成员（BR-001）
             guard loadingPatientId == patientId else { return }
             todaySlots = slots
             upcomingAppointments = appointments
+            displayedPatientId = patientId
             // 系统通知清单一次拉取、两个调度器共用——此前二者各自 pending()+
             // delivered()，每次 refresh 共 4 次全量系统 IPC + trigger 解析
             let pending = try await scheduler.pending()
@@ -141,15 +157,20 @@ final class ReminderStore {
     @discardableResult
     func scheduleVoiceReminder(title: String, fireAt: Date, repeatRule: String?,
                                patientId: UUID) async -> Bool {
+        let notifyId = "voice-rem-\(UUID().uuidString)"
         do {
-            let notifyId = "voice-rem-\(UUID().uuidString)"
+            // 审查修复（顺序）：先落簿记行再调度——旧序调度成功后
+            // recordDelivery 失败会返回 false（界面「保存失败」）但通知已
+            // 武装，用户重试得到第二条重复提醒；反序后调度失败只留一条
+            // outcome=NULL 簿记行（对账不消费 voice-rem，无副作用），
+            // 「保存失败」名副其实、通知从未武装。
+            try await meds.recordDelivery(notifyId: notifyId, doseLogId: nil,
+                                          channel: .local, outcome: nil, at: Date())
             // 审查修复：route 此前硬编码 .questionList——点按送达的语音提醒
             // 会跳转无关的问诊问题列表页；语音提醒无自然目的地，
             // §5.45 契约应为无路由 → 降级回首页。
             try await scheduler.scheduleRepeating(dose: notifyId, at: fireAt,
                                                   route: nil, repeatRule: repeatRule)
-            try await meds.recordDelivery(notifyId: notifyId, doseLogId: nil,
-                                          channel: .local, outcome: nil, at: Date())
             return true
         } catch {
             logger.error("语音提醒调度失败: \(error)")
@@ -206,8 +227,15 @@ final class ReminderStore {
     /// 永久一次性（30 天周期提醒在第 60/90 天静默消失）。AppRootView 在
     /// lastBackupAt 变化时调用，下一周期 needsReminder 重新放行。
     func clearBackupReminderDelivered() async {
-        do { try await scheduler.removeDelivered(["backup-reminder"]) }
-        catch { logger.error("备份提醒送达记录清理失败: \(error)") }
+        // 审查修复：备份完成只清「已送达」记录——启动时已武装的 1 小时后
+        // pending 提醒仍会照常触发（用户刚备份完又被提示备份，FR13.10
+        // 误触达）。pending 一并取消，清理失败只记日志（下一周期幂等重排）。
+        do {
+            try await scheduler.cancel(["backup-reminder"])
+            try await scheduler.removeDelivered(["backup-reminder"])
+        } catch {
+            logger.error("备份提醒清理失败: \(error)")
+        }
     }
 
     // MARK: - FR9.8.3 分级续药通知（≤3 天通知 / 当日置顶；≤7 天由首页卡承担）
@@ -402,16 +430,22 @@ final class ReminderStore {
 
     func snoozeDose(dose: ScheduledDose, minutes: Int = 15, patientId: UUID?, careMode: Bool = false) async {
         guard tremorAccepted(careMode: careMode) else { return }
+        // 审查修复（顺序）：先调度、成功后记动作——原实现先落 .snoozed 再调度，
+        // 调度失败（权限拒绝/UN 错误）时剂量已从待办消失且无任何后续触达，
+        // 提醒静默丢失。调度失败保持原状：原时段通知仍在（或对账补排），
+        // 动作未记，用户仍会收到原提醒。
+        // S1-2 修正：稍后=取消时段通知 + 按新时刻单排（FR9.5）
+        // 第七轮修复：时段 id 经聚合结果反查（slotNotifyId），
+        // 合并时段内非锚剂量不再取消到不存在的 id
+        let scheduled = await reconciler.snooze(doseNotifyId: dose.notifyId,
+                                                slotNotifyId: await slotNotifyId(for: dose),
+                                                until: Date().addingTimeInterval(TimeInterval(minutes * 60)))
+        guard scheduled else { return }
         do {
             try await meds.recordAction(notifyId: dose.notifyId, action: .snoozed)
-            // S1-2 修正：稍后=取消时段通知 + 按新时刻单排（FR9.5）
-            // 第七轮修复：时段 id 经聚合结果反查（slotNotifyId），
-            // 合并时段内非锚剂量不再取消到不存在的 id
-            await reconciler.snooze(doseNotifyId: dose.notifyId, slotNotifyId: await slotNotifyId(for: dose),
-                                    until: Date().addingTimeInterval(TimeInterval(minutes * 60)))
             if let patientId { await refresh(patientId: patientId) }
         } catch {
-            logger.error("稍后提醒失败: \(error)")
+            logger.error("稍后提醒动作记录失败: \(error)")
         }
     }
 

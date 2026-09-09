@@ -122,8 +122,10 @@ public enum ReminderAggregationCenter {
         let filtered = deduped.filter { item in
             if item.isPinned { return true }              // 置顶绕过窗口/成员
             guard item.patientID == nil || item.patientID == memberId else { return false }
-            let past = now.addingTimeInterval(-Double(window.pastDays) * 86400)
-            let future = now.addingTimeInterval(Double(window.futureDays) * 86400)
+            // 审查修复：固定 86400 秒偏移在 DST 切换日（23/25 小时）窗口
+            // 边界漂移 ±1 小时——与全仓日历日纪律（DayArithmetic）统一
+            let past = DayArithmetic.offset(days: -window.pastDays, from: now)
+            let future = DayArithmetic.offset(days: window.futureDays, from: now)
             guard item.occurredAt >= past, item.occurredAt <= future else { return false }
             return true
         }

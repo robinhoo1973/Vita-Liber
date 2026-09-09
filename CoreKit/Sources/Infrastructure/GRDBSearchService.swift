@@ -75,7 +75,15 @@ public actor GRDBSearchService: FullTextSearch {
                 // 1 字兜底：低频高噪音，限定最近 90 天窗口 + 成员过滤缩小扫描集；
                 // Only reviewed content is searchable; recovery metadata may contain rejected drafts.
                 let since = DayArithmetic.since(days: 90)
-                let pattern = "%\(query)%"
+                // 审查修复：用户输入含 LIKE 通配符（%/_）时原样拼入模式——
+                // 单字符查询「%」命中全库文档、全量列表当作命中返回
+                // （BR-001 范围内一次性倾泻）。通配符必须按字面量转义，
+                // SQLite LIKE 以 ESCAPE '\' 声明转义符。
+                let escaped = query
+                    .replacingOccurrences(of: "\\", with: "\\\\")
+                    .replacingOccurrences(of: "%", with: "\\%")
+                    .replacingOccurrences(of: "_", with: "\\_")
+                let pattern = "%\(escaped)%"
                 let rows = try Row.fetchAll(db, sql: """
                     SELECT d.id, d.patient_id, d.doc_type, d.created_at, d.is_sensitive, d.title,
                            CASE WHEN d.is_sensitive = 1 THEN d.title
@@ -83,9 +91,9 @@ public actor GRDBSearchService: FullTextSearch {
                     FROM document_file d
                     WHERE \(Self.searchableDocPredicate) AND d.created_at >= ?
                       AND d.patient_id IN (\(patientIds.map { _ in "?" }.joined(separator: ",")))
-                      AND (d.title LIKE ?
+                      AND (d.title LIKE ? ESCAPE '\\'
                            OR (d.is_sensitive = 0
-                                AND (d.ocr_text LIKE ? OR d.notes LIKE ?)))
+                                AND (d.ocr_text LIKE ? ESCAPE '\\' OR d.notes LIKE ? ESCAPE '\\')))
                     ORDER BY d.created_at DESC LIMIT ?
                     """, arguments: StatementArguments([since] + patientIds + [pattern, pattern, pattern, limit]))
                 return rows.compactMap { Self.hit($0) }

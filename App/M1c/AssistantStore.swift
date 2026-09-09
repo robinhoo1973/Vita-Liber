@@ -36,6 +36,16 @@ final class AssistantStore {
         self.quotaUseHook = quotaUseHook
     }
 
+    /// 成员切换即时清屏（审查修复：此前只在下一问 ask() 入口清屏——切换后
+    /// A 成员的全部问答在 B 身份下继续渲染，直到 B 发出第一问；busy 在途时
+    /// 亦被 ask 守卫吞掉。视图在 currentPatientId 变化时调用本方法。）
+    func noteMemberSwitch(_ patientId: UUID?) {
+        guard patientId != conversationPatientId else { return }
+        messages = []
+        conversationPatientId = patientId
+        currentConversationId = nil
+    }
+
     func ask(_ question: String, scopePatientIds: Set<UUID>) async {
         let q = question.trimmingCharacters(in: .whitespaces)
         // 第六轮全仓审查修复（BR-001 残留）：成员切换时历史层开新会话，

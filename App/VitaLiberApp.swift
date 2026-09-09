@@ -159,9 +159,10 @@ struct VitaLiberApp: App {
             problemStore: container.healthProblems,
             dataChange: dataChange,
             pendingCards: container.pendingCards,
-            // FR6.9 V3.61 页级实体卡：就诊/检验落库与稍后处理 1h 通知
-            encounterStore: container.encounters,
-            trendStore: container.trends,
+            // 审查修复：encounterStore/trendStore 参数在 DocumentsState 中
+            // 从未存储/引用（静默丢弃的装饰性接线）——删除参数与传参，
+            // 避免未来「走注入仓持久化」的路径误以为已接线而静默不落库
+            // （FR6.9 页级实体卡落库现走 OCRCardStore 原始 SQL 路径）
             scheduler: container.reminderScheduler,
             cardStore: OCRCardStore(writer: container.store.writer)))
         _aiHistoryState = State(initialValue: AIHistoryState(store: container.aiHistory, audit: container.audit))

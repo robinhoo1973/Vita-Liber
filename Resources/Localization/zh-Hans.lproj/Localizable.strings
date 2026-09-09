@@ -338,6 +338,8 @@
 "member.current" = "当前成员";
 "member.switch" = "切换";
 "member.namePlaceholder" = "姓名";
+"member.updateFailed" = "成员信息保存失败，请重试";
+"member.updateFailedHint" = "刚才的修改未生效。";
 "member.relation" = "关系";
 "member.birthDatePlaceholder" = "生日（如 1962-03）";
 "member.save" = "保存";
@@ -867,6 +869,7 @@
 "appt.followUpHint" = "重新跟进（生成跟进提醒）";
 "appt.markMissed" = "标记错过";
 "appt.markMissedHint" = "标记错过将取消该预约的全部分级提醒，并在 2 小时后提醒跟进";
+"appt.completeHint" = "标记完成将取消该预约的全部分级提醒，并补录一条就诊记录";
 "appt.newDate" = "新的就诊时间";
 "appt.cancelReason.none" = "直接取消";
 "appt.cancelReason.doctor" = "医生调整";
@@ -1509,6 +1512,7 @@
 "voice.field.content" = "内容";
 "voice.confirm.fillHint" = "未识别，点击填写";
 "voiceguide.saved" = "提醒已设置";
+"voiceguide.profileDoneHint" = "四项档案信息已写入成员档案，可随时在「我的」中修改";
 "home.capture.library" = "从相册选择";
 "home.capture.file" = "从文件导入（PDF / 图片 / Word）";
 "home.capture.noCamera" = "此设备无相机，请使用相册或文件导入";

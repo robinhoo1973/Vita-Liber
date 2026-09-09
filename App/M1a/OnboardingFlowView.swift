@@ -63,6 +63,9 @@ struct LockOverlayView: View {
     @State private var showEmergency = false
     /// 认证失败提示（自动尝试失败或手动按钮失败后显示；下次尝试前清空）
     @State private var failedOnce = false
+    /// 是否经历过真退后台（.background）——Face ID 系统浮层只到 .inactive，
+    /// 以此区分「用户离开应用」与「认证浮层自身的场景波动」
+    @State private var sawBackground = false
 
     var body: some View {
         ZStack {
@@ -118,11 +121,23 @@ struct LockOverlayView: View {
             await attempt()
         }
         .onChange(of: scenePhase) { _, phase in
-            // FR1.4「回前台必须重新认证、自动弹系统浮层」：inactive 挂载期
-            // 从未真正尝试过（或已失败），回前台清假失败态并自动重试
-            guard app.gateAutoAttempts, phase == .active else { return }
-            failedOnce = false
-            Task { await attempt() }
+            // FR1.4「回前台必须重新认证、自动弹系统浮层」：仅从真后台返回时
+            // 自动重试。审查修复：原实现每次 .active 都重试——自身 Face ID
+            // 浮层取消/消失也令场景 inactive→active，形成「取消 → 立即再弹」
+            // 死循环，锁屏 SOS（BR-012 免门禁路径）永不可达
+            switch phase {
+            case .background:
+                sawBackground = true
+            case .active:
+                guard app.gateAutoAttempts, sawBackground else { return }
+                sawBackground = false
+                failedOnce = false
+                Task { await attempt() }
+            case .inactive:
+                break
+            @unknown default:
+                break
+            }
         }
         .onChange(of: app.lastUnlockedAt) { _, value in
             if value != nil { onUnlocked() }

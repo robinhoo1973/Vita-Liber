@@ -24,7 +24,11 @@ public actor ReminderReconciler {
     /// 调用方已写 user_action=.snoozed；本方法只做调度侧。
     /// 审查修复：再次稍后前先取消同剂量的旧 snooze——旧实现每次新排一个
     /// epoch 后缀 id，重复稍后叠加幽灵通知。
-    public func snooze(doseNotifyId: String, slotNotifyId: String?, until: Date) async {
+    /// 审查修复（返回成败）：旧实现吞错——调用侧先落 .snoozed 动作再调本
+    /// 方法，调度失败时剂量已从待办消失且无任何后续触达（提醒静默丢失）。
+    /// 返回 Bool 让调用侧「调度成功才记动作」。
+    @discardableResult
+    public func snooze(doseNotifyId: String, slotNotifyId: String?, until: Date) async -> Bool {
         do {
             if let slotId = slotNotifyId {
                 try await scheduler.cancel([slotId])
@@ -36,8 +40,10 @@ public actor ReminderReconciler {
             }
             let snoozeId = "snooze-\(doseNotifyId)-\(Int(until.timeIntervalSince1970))"
             try await scheduler.schedule(dose: snoozeId, at: until, route: .reminderToday)
+            return true
         } catch {
             logger?.log("snooze 调度失败: \(error)")
+            return false
         }
     }
 

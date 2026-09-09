@@ -395,7 +395,9 @@ struct AlertEvidenceRouteView: View {
             guard permitted else { loading = false; return }
             do {
                 let loaded = try await hub.healthEvent(id: eventId, patientId: patientId)
-                guard !Task.isCancelled, permitted else { return }
+                // 审查修复：permitted 在加载途中翻转（成员被删/退出）时
+                // 旧实现直接 return 且不复位 loading——页面永远转圈无出口
+                guard !Task.isCancelled, permitted else { loading = false; return }
                 event = loaded
             } catch { event = nil }
             loading = false

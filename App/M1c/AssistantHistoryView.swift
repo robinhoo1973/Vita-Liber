@@ -19,6 +19,9 @@ final class AIHistoryState {
     /// 此前 delete/clearAll 无任何审计写入、删除事实不可追溯
     private let audit: (any AuditLogging)?
     private var loadingPatientId: UUID?
+    /// 当前列表所属成员（BR-001：切换成员立即清屏——失败时「保留旧列表」
+    /// 只允许发生在同一成员内，不得跨成员渲染）
+    private var conversationsPatientId: UUID?
 
     init(store: AIHistoryStore, audit: (any AuditLogging)? = nil) {
         self.store = store
@@ -27,14 +30,21 @@ final class AIHistoryState {
 
     func load(patientId: UUID) async {
         loadingPatientId = patientId
+        // 审查修复（BR-001）：切成员立即清屏——此前仅在成功路径写入新列表，
+        // 加载失败时旧成员的会话标题在 B 身份下继续渲染
+        if conversationsPatientId != patientId {
+            conversations = []
+            conversationsPatientId = patientId
+        }
         loadFailed = false
         do {
             let rows = try await store.conversations(patientId: patientId)
             guard loadingPatientId == patientId else { return }
             conversations = rows
+            conversationsPatientId = patientId
         } catch {
             loadFailed = true
-            // 保留旧列表（读取失败不抹已呈现内容——与 EncountersState
+            // 保留旧列表仅限同成员（读取失败不抹已呈现内容——与 EncountersState
             // 同纪律：把存在记录渲染成假空态比错误态更糟）
         }
     }

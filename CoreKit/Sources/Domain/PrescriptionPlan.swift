@@ -152,9 +152,12 @@ public enum PrescriptionFieldMapper {
         if line.contains("医院") || line.contains("醫院") { return labels.hospital }
         if line.contains("医生") || line.contains("醫生") || line.contains("医师") || line.contains("醫師") { return labels.doctor }
         if line.contains("每") && (line.contains("日") || line.contains("天")) && line.contains("次") { return labels.frequency }
+        // 审查修复（BR-003 确认链）：首行是药名行（含「片」字样的药名如
+        // 阿司匹林肠溶片）此前先命中剂量分支——药名行被标为「剂量」，
+        // drugName 标签永远缺席，关键药名确认环节被跳过
+        if isFirst { return labels.drugName }
         if line.contains("片") || line.contains("粒") || line.contains("毫升") || line.contains("mg")
             || line.contains("ml") || line.contains("mL") { return labels.dosage }
-        if isFirst { return labels.drugName }
         return labels.other
     }
 }

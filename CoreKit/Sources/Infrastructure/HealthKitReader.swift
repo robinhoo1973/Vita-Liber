@@ -73,11 +73,16 @@ public actor HealthKitReader: HealthReadingProvider {
             predicates: [HKSamplePredicate.sample(type: Self.sampleType(kind))], anchor: cursor, limit: limit)
         let result = try await query.result(for: store)
         try Task.checkCancellation()
-        guard result.addedSamples.count + result.deletedObjects.count <= limit else { throw ReaderError.incompleteSnapshot }
+        // 审查修复：added+deleted 合计超限即抛错——limit 只约束新增样本页，
+        // 删除对象随锚点窗口整体返回。新增满页（500）且用户删过 1 条样本
+        // 时恒抛 incompleteSnapshot、锚点永不前进、同批删除每轮重报——
+        // 该类型从此永久卡死（无恢复路径）。分页只看 added，deleted 不
+        // 参与限流判定。
+        guard result.addedSamples.count <= limit else { throw ReaderError.incompleteSnapshot }
         return HealthChangeBatch(added: try result.addedSamples.map { try Self.reference($0, kind: kind) },
             deleted: result.deletedObjects.map(\.uuid),
             anchor: try NSKeyedArchiver.archivedData(withRootObject: result.newAnchor, requiringSecureCoding: true),
-            hasMore: result.addedSamples.count + result.deletedObjects.count >= limit)
+            hasMore: result.addedSamples.count >= limit)
     }
 
     public func snapshot(for window: HealthImportWindow, calendar: Calendar) async throws -> HealthWindowSnapshot {

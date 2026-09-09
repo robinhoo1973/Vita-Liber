@@ -123,14 +123,17 @@ struct VoiceReminderDraftView: View {
         }
         let title = drafts.first { $0.key == "content" }?.value ?? transcript
         let rule = drafts.first { $0.key == "repeat" }?.value
-        dictationScope = UUID()
         dictationBusy = false
         dictationConfidence = 1
-        transcript = ""
+        // 审查修复：清稿必须等落库结果——此前先清 transcript 再 await 调度，
+        // 失败时用户口述的完整提醒文本已被抹掉、必须重录（可见失败 + 文本
+        // 丢失双重打击）。成功才清稿。
         // 审查修复：调度失败必须可见（此前后台吞错 + 无条件弹「已保存」，
         // 用户以为提醒已设置——通知权限被拒/调度抛错时提醒永不触发）
         let ok = await onCommit(title, fireAt, rule)
         if ok {
+            dictationScope = UUID()
+            transcript = ""
             savedAlert = true   // TestFlight 实测修复：保存后必须有可见反馈（引导用户知道提醒已设置）
         } else {
             unresolved = L10n.voiceReminderSaveFailed
@@ -146,6 +149,7 @@ struct VoiceReminderDraftView: View {
 struct VoiceGuidedProfileView: View {
     @Environment(AppState.self) private var app
     @Environment(AppRouter.self) private var router
+    @Environment(\.dismiss) private var dismiss
     /// 写入成败必须回传（审查修复：此前 Void + 调用方丢弃——落库失败时
     /// 答案静默丢失而访谈照常前进，用户以为已保存）
     let onCommitField: (_ key: String, _ value: String) async -> Bool
@@ -174,6 +178,9 @@ struct VoiceGuidedProfileView: View {
     @State private var dictationScope = UUID()
     @State private var committing = false
     @State private var dictationConfidence: Double = 1
+    /// 访谈完成态（审查修复：此前无终结态，末步提交后原地追问、重复作答
+    /// 重复追加档案备注）
+    @State private var interviewDone = false
 
     var body: some View {
         Group {
@@ -191,6 +198,8 @@ struct VoiceGuidedProfileView: View {
                 VoiceLevelCheck(
                     onPass: { phase = .interview },
                     onSkip: { phase = .interview })
+            } else if interviewDone {
+                interviewDoneView
             } else {
                 interview
             }
@@ -205,8 +214,13 @@ struct VoiceGuidedProfileView: View {
             VoiceModificationRejectionCard(
                 rejection: box.value,
                 onGoToPlan: {
+                    // 审查修复：__goToPlan 哨兵键落进适配器 default 分支——
+                    // markVoiceInterviewStep 白名单拒绝 + noteSectionTitle 返回
+                    // nil，updateMember 只刷 updatedAt 空写，计划页永不打开，
+                    // BR-003/006「转触屏路径」形同虚设。直接导航到药箱
+                    // （计划列表所在），不走字段提交通道。
                     rejection = nil
-                    Task { _ = await onCommitField("__goToPlan", "1") }
+                    router.navigate(to: .medicationCabinet)
                 },
                 onDismiss: { rejection = nil; answer = "" })
             .presentationDetents([.height(260)])
@@ -257,7 +271,10 @@ struct VoiceGuidedProfileView: View {
         dictationBusy = false
         dictationConfidence = 1
         answer = ""
-        if stepIndex + 1 < steps.count { stepIndex += 1 }
+        // 审查修复（访谈终结态）：末步提交后 stepIndex 恒停 3、同一问题
+        // 重新追问——再次回答会向 profile.note 追加第二段同节答案（档案
+        // 出现重复条目）。末步完成进入完成态，杜绝重复作答。
+        if stepIndex + 1 < steps.count { stepIndex += 1 } else { interviewDone = true }
     }
 
     private var interview: some View {
@@ -291,7 +308,7 @@ struct VoiceGuidedProfileView: View {
                     dictationBusy = false
                     dictationConfidence = 1
                     answer = ""
-                    if stepIndex + 1 < steps.count { stepIndex += 1 }
+                    if stepIndex + 1 < steps.count { stepIndex += 1 } else { interviewDone = true }
                 }
                 .frame(minHeight: 44)
                 .disabled(committing)
@@ -311,6 +328,27 @@ struct VoiceGuidedProfileView: View {
         .onChange(of: stepIndex) { _, newStep in
             app.speak(steps[newStep].prompt)
         }
+    }
+
+    /// 访谈完成态：末步提交后的唯一呈现——杜绝原地重复追问/重复作答
+    /// （重复回答会向档案备注追加同节第二条记录）
+    private var interviewDoneView: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.largeTitle)
+                .foregroundStyle(Color("brand-primary", bundle: .main))
+            Text(L10n.voiceguide_saved)
+                .font(.headline)
+            Text(L10n.voiceguide_profileDoneHint)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            Button(L10n.onboard_finishEnterApp) { dismiss() }
+                .buttonStyle(.borderedProminent)
+                .frame(minHeight: 44)
+                .accessibilityIdentifier("FR17.11.done")
+        }
+        .padding(16)
     }
 
     private func buildDraft() {

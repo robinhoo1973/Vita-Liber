@@ -189,8 +189,17 @@ public actor PendingCardStore {
                 """, arguments: [docId, draft.cardKind, draft.sourcePage, draft.patientId.uuidString, draft.sourceType])
             guard existing.count <= 1 else { throw PendingCardPayload.PayloadError.identityMismatch }
             if let row = existing.first {
-                guard ["pending", "in_progress"].contains(row["status"] as String) else { throw StoreError.inactive }
+                let status = row["status"] as String
+                // 审查修复：7 天过期卡是唯一「无路可走」的死态——到期通知
+                // 深链点进后既不能完结也不能重存（FR6.9 催办指向不可操作
+                // 的卡）。过期是提醒语义不是终态：恢复继续处理。
+                guard ["pending", "in_progress", "expired"].contains(status) else { throw StoreError.inactive }
                 let id: String = row["id"]
+                if status == "expired" {
+                    try db.execute(sql: """
+                        UPDATE pending_card SET status = 'in_progress', updated_at = ? WHERE id = ?
+                        """, arguments: [Date().timeIntervalSince1970, id])
+                }
                 try updateSnapshot(db, id)
                 return id
             }
@@ -232,16 +241,17 @@ public actor PendingCardStore {
     }
 
     /// 用户/LLM 补全后完结（§21.2：status=resolved + resolved_by）。
+    /// 审查修复：过期卡（expired）同样可完结——到期催办深链必须可操作
     public func markResolved(id: String, by: String, note: String? = nil) async throws {
         let now = Date().timeIntervalSince1970
         try await writer.write { db in
             guard let row = try Row.fetchOne(db, sql: "SELECT source_type, status FROM pending_card WHERE id = ?", arguments: [id]),
-                  ["pending", "in_progress"].contains(row["status"] as String) else { throw StoreError.inactive }
+                  ["pending", "in_progress", "expired"].contains(row["status"] as String) else { throw StoreError.inactive }
             if (row["source_type"] as String) == "ocr", note != "discarded" { throw StoreError.useOCRCardStore }
             try db.execute(sql: """
                 UPDATE pending_card
                 SET status = 'resolved', resolved_at = ?, resolved_by = ?, updated_at = ?, note = ?
-                WHERE id = ? AND status IN ('pending','in_progress')
+                WHERE id = ? AND status IN ('pending','in_progress','expired')
                 """, arguments: [now, by, now, note ?? NSNull(), id])
         }
     }

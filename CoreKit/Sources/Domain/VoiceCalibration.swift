@@ -126,7 +126,9 @@ public enum FeatureFlags {
 
     /// 由定标结果驱动，**不是**可以手工打开的开关——
     /// 若允许手工置 true，这个不变量立刻退化成一句注释。
-    public private(set) static var voiceCalibrationPassed = false
+    /// 审查修复：可变静态跨线程读写（定标回写 vs 语音会话读取）必须显式
+    /// 声明并发语义——与全仓其余可变静态（L10n.languageCache 等）同纪律。
+    public private(set) nonisolated(unsafe) static var voiceCalibrationPassed = false
 
     /// 仅供定标流程回写（CI 跑完金样后置位）。
     public static func applyCalibration(_ report: VoiceCalibration.Report) {

@@ -234,14 +234,34 @@ final class ObservationStoreState {
             // 局部 Sendable 快照：TaskGroup 闭包非隔离，直接引用 self.mediaAssets
             // 会触发 Swift 6 显式捕获/隔离检查（CI 编译错），快照捕获合法且语义不变。
             let media = mediaAssets
-            let assetIds = try await withThrowingTaskGroup(of: UUID.self) { group in
-                for data in photoData {
-                    group.addTask { try await media.savePhoto(data, memberId: patientId) }
+            // 审查修复：withThrowingTaskGroup 在任一子任务抛错时 rethrow、
+            // 迭代中止——已成功落盘但结果尚未被收集的并发任务被整体丢弃，
+            // 补偿回滚漏掉其资产 → 孤儿敏感原图留盘（BR-007/008 簿记破坏）。
+            // 改用 Result 逐任务收集：任何失败都按全部成功结果回滚，不依赖
+            // 迭代是否走到队尾；按输入序归位，结果顺序确定。
+            let results = await withTaskGroup(of: (Int, Result<UUID, Error>).self) { group in
+                for (index, data) in photoData.enumerated() {
+                    group.addTask {
+                        do { return (index, .success(try await media.savePhoto(data, memberId: patientId))) }
+                        catch { return (index, .failure(error)) }
+                    }
                 }
-                var ids: [UUID] = []
-                for try await id in group { ids.append(id); saved.append(id) }
-                return ids
+                var all: [(Int, Result<UUID, Error>)] = []
+                for await r in group { all.append(r) }
+                return all
             }
+            var assetIds: [UUID] = []
+            var firstError: Error?
+            for (_, result) in results.sorted(by: { $0.0 < $1.0 }) {
+                switch result {
+                case .success(let id):
+                    assetIds.append(id)
+                    saved.append(id)
+                case .failure(let error):
+                    if firstError == nil { firstError = error }
+                }
+            }
+            if let firstError { throw firstError }
             try await store.create(patientId: patientId,
                                    kind: ObservationKind(rawValue: kind) ?? .custom,
                                    description: description, selfMark: selfMark,

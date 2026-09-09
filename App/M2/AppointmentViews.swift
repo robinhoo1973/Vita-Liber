@@ -26,6 +26,8 @@ struct AppointmentListView: View {
     /// FR10.7 标记错过需确认（此前零门槛直写：未来预约可被误标错过、
     /// 四档分级提醒被取消、2h 跟进提前武装）
     @State private var missTarget: AppointmentRow?
+    /// FR10.7 标记完成需确认（与错过同级明示后果，杜绝未来预约一触即完成）
+    @State private var completeTarget: AppointmentRow?
 
     private let statuses = ["scheduled", "completed", "cancelled", "missed"]
 
@@ -53,11 +55,11 @@ struct AppointmentListView: View {
                 }
                 .apptRowButton()
             }
+            // 审查修复（FR10.7 对称性）：标记完成此前无确认、无时间门槛——
+            // 未来预约一触即完成（提醒全取消 + 未来日期的复诊就诊落库）。
+            // 标记错过已有 canMarkMissed 门槛 + 确认，完成必须同级确认。
             Button(L10n.apptComplete) {
-                Task {
-                    await reminders.completeAppointment(patientId: app.currentPatientId, id: apt.id)
-                    await load()
-                }
+                completeTarget = apt
             }
             .apptRowButton(prominent: true)
         }
@@ -158,6 +160,20 @@ struct AppointmentListView: View {
             Button(L10n.commonCancel, role: .cancel) { }
         } message: { _ in
             Text(L10n.apptMarkMissedHint)
+        }
+        // 标记完成确认（与标记错过同级明示：取消全部分级提醒 + 补录就诊记录）
+        .confirmationDialog(L10n.apptComplete, isPresented:
+            Binding(get: { completeTarget != nil }, set: { if !$0 { completeTarget = nil } }),
+                            titleVisibility: .visible, presenting: completeTarget) { apt in
+            Button(L10n.apptComplete) {
+                Task {
+                    await reminders.completeAppointment(patientId: app.currentPatientId, id: apt.id)
+                    await load()
+                }
+            }
+            Button(L10n.commonCancel, role: .cancel) { }
+        } message: { _ in
+            Text(L10n.apptCompleteHint)
         }
         // FR10.7 改期（原预约保留历史 + 新草稿）
         .sheet(item: $rescheduleTarget) { apt in
@@ -271,9 +287,20 @@ struct AppointmentFormView: View {
                             // 整除截断——选中的日期最多提前一天且随渲染漂移。
                             // 以日历日差反推天数（DST 安全），日期为唯一事实源。
                             let cal = Calendar.current
-                            let days = cal.dateComponents([.day], from: cal.startOfDay(for: startsAt),
-                                                          to: cal.startOfDay(for: date)).day ?? followUpDays
-                            followUpDays = max(1, days)
+                            let startDay = cal.startOfDay(for: startsAt)
+                            let days = cal.dateComponents([.day], from: startDay,
+                                                          to: cal.startOfDay(for: date)).day ?? 0
+                            if days < 1 {
+                                // 审查修复：选到就诊当天/之前时旧实现 max(1, days)
+                                // 让 followUpDays 恒为 1、onChange 不再触发——
+                                // 界面显示的过去日期与保存值（startsAt+1 天）
+                                // 分叉，提醒在用户没看到的日期响起。回弹到
+                                // 最早合法日（就诊次日起）并同步天数。
+                                followUpDays = 1
+                                followUpDate = DayArithmetic.offset(days: 1, from: startDay)
+                            } else {
+                                followUpDays = days
+                            }
                         }
                         .onChange(of: followUpDays) { _, days in
                             let cal = Calendar.current

@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine    // Timer.publish（跨午夜日期判定墙钟推进）
 import Domain
 import Infrastructure   // FamilyPendingDose（FR24.5 跨成员投影）
 
@@ -17,6 +18,10 @@ struct CaregiverViews: View {
     @State private var pendingDoses: [FamilyPendingDose] = []
     @State private var showConfirmAlert = false
     @State private var selectedDose: FamilyPendingDose?
+    /// 跨午夜日期判定（审查修复）：isToday 此前直接调 Date()——视图跨零点
+    /// 挂起时无任何状态变化触发重渲染，昨日剂量仍以「今日」格式展示、
+    /// 代确认日期错认。分钟级墙钟推进保证日界判定在跨零点后即时刷新。
+    @State private var now = Date()
 
     var body: some View {
         // FR14.1 authFamilyAccess 消费点：关闭 → 照护者视图呈禁用说明态
@@ -56,7 +61,7 @@ struct CaregiverViews: View {
                                 // 窗口含前一日（昨日漏确认剂量在 sweep 前仍可代确认）：
                                 // 非今日剂量必须带日期，否则昨日 10:00 与今日 10:00
                                 // 无法区分，代确认可能错认日期
-                                let isToday = Calendar.current.isDate(item.dose.dueAt, inSameDayAs: Date())
+                                let isToday = Calendar.current.isDate(item.dose.dueAt, inSameDayAs: now)
                                 Text(L10n.caregiverPending(
                                     item.dose.dueAt.formatted(date: isToday ? .omitted : .abbreviated,
                                                               time: .shortened)))
@@ -73,6 +78,9 @@ struct CaregiverViews: View {
             }
         }
         .navigationTitle(L10n.caregiverTitle)
+        .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { _ in
+            now = Date()
+        }
         .alert(L10n.caregiverAlertTitle, isPresented: $showConfirmAlert) {
             Button(L10n.commonCancel, role: .cancel) { }
             Button(L10n.caregiverAlertConfirm) {

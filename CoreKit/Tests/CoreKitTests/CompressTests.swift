@@ -24,7 +24,7 @@ struct CompressTests {
 
         let data = Self.testPNG()
         let policy = SensitiveMediaPolicy(isSensitive: false)
-        let result = try await compressor.authorizeOriginalAccess(data, policy: policy)
+        let result = try await compressor.authorizeOriginalAccess(data, policy: policy, reason: "test")
         #expect(result == data)
     }
 
@@ -35,7 +35,7 @@ struct CompressTests {
         let data = Self.testPNG()
         let policy = SensitiveMediaPolicy(isSensitive: true, requireAuthForOriginal: true)
         await #expect(throws: CompressError.authRequiredForOriginal) {
-            try await compressor.authorizeOriginalAccess(data, policy: policy)
+            try await compressor.authorizeOriginalAccess(data, policy: policy, reason: "test")
         }
     }
 

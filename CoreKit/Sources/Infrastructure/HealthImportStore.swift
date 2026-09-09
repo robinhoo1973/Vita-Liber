@@ -268,9 +268,18 @@ public actor HealthImportStore {
                             """, arguments: [binding.patientId.uuidString, MetricType(grammarKey: row.metricKey)?.rawValue ?? row.metricKey,
                                              row.measuredAt.timeIntervalSince1970, row.unit, row.sourceName])
                         let unowned = matches.filter { ($0["owned"] as Int) == 0 }.map { $0["id"] as String } + legacy
-                        if !unowned.isEmpty { preserved.formUnion(unowned); continue }
+                        if !unowned.isEmpty {
+                            preserved.formUnion(unowned)
+                            // 审查修复：同身份同时存在「备份恢复的非自有行」与
+                            // 「投影态自有行」时，旧实现 preserve 后 continue——
+                            // 自有行永不再刷新（窗口已判完成、锚点推进，后续
+                            // 轮次仍走同一跳过分支），恢复前的陈旧值永久留存。
+                            // 恢复行保留（防回退）的同时刷新自有行。
+                            guard matches.contains(where: { ($0["owned"] as Int) == 1 }) else { continue }
+                        }
                     }
-                    let id = matches.first.map { $0["id"] as String } ?? UUID().uuidString
+                    let id = (matches.first { ($0["owned"] as Int) == 1 }.map { $0["id"] as String })
+                        ?? (matches.first.map { $0["id"] as String }) ?? UUID().uuidString
                     guard UUID(uuidString: id) != nil else { throw ImportError.invalidValue }
                     report.persistedRows += try Self.writeProjection(row, id: id, patientId: binding.patientId, db: db)
                     try db.execute(sql: """

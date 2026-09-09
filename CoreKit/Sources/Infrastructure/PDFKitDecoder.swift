@@ -24,6 +24,7 @@ public final class PDFKitDecoder: ImageDecoding, @unchecked Sendable {
         guard let src = CGImageSourceCreateWithData(data as CFData, nil),
               let cg = CGImageSourceCreateImageAtIndex(src, 0,
                 [kCGImageSourceThumbnailMaxPixelSize: maxDimension,
+                 kCGImageSourceCreateThumbnailFromImageAlways: true,
                  kCGImageSourceCreateThumbnailWithTransform: true,
                  kCGImageSourceShouldCacheImmediately: true] as CFDictionary) else {
             throw DecodeError.corruptData
@@ -61,26 +62,34 @@ public final class PDFKitDecoder: ImageDecoding, @unchecked Sendable {
             // 审查修复：MediaBox 不可信（海报/超大版面或损坏 PDF）——无上限的
             // Data(count:) 分配直接 OOM。单页最长边封顶 5000pt@scale，
             // 超限视为不可渲染（FR6.6 可见失败而非崩溃）
-            guard pageRect.width * scale <= 5000, pageRect.height * scale <= 5000 else {
+            guard max(pageRect.width, pageRect.height) * scale <= 5000 else {
                 throw DecodeError.renderFailed
             }
-            let targetWidth = pageRect.width * scale
-            let targetHeight = pageRect.height * scale
+            // 审查修复：/Rotate 未应用——横放扫描页（rotation 90/270）此前
+            // 渲染为侧躺/裁切，OCR 读旋转文本、逐卡确认全页作废。按旋转角
+            // 换轴，经 getDrawingTransform 把页面空间正投影到位图。
+            let rotation = page.rotationAngle
+            let landscape = rotation == 90 || rotation == 270
+            let targetWidth = Int((landscape ? pageRect.height : pageRect.width) * scale)
+            let targetHeight = Int((landscape ? pageRect.width : pageRect.height) * scale)
 
             let colorSpace = CGColorSpaceCreateDeviceRGB()
-            let bytesPerRow = Int(targetWidth) * 4
-            var bitmapData = Data(count: Int(targetHeight) * bytesPerRow)
+            let bytesPerRow = targetWidth * 4
+            var bitmapData = Data(count: targetHeight * bytesPerRow)
             bitmapData.withUnsafeMutableBytes { ptr in
-                guard let ctx = CGContext(data: ptr.baseAddress, width: Int(targetWidth), height: Int(targetHeight),
+                guard let ctx = CGContext(data: ptr.baseAddress, width: targetWidth, height: targetHeight,
                                           bitsPerComponent: 8, bytesPerRow: bytesPerRow,
                                           space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return }
                 ctx.interpolationQuality = .high
-                ctx.scaleBy(x: scale, y: scale)
-                ctx.translateBy(x: -pageRect.origin.x, y: -pageRect.origin.y)
+                let transform = page.getDrawingTransform(
+                    .mediaBox,
+                    rect: CGRect(x: 0, y: 0, width: CGFloat(targetWidth), height: CGFloat(targetHeight)),
+                    rotate: rotation, preserveAspectRatio: true)
+                ctx.concatenate(transform)
                 ctx.drawPDFPage(page)
             }
 
-            let pngData = try encodeToPNGFromData(bitmapData, width: Int(targetWidth), height: Int(targetHeight))
+            let pngData = try encodeToPNGFromData(bitmapData, width: targetWidth, height: targetHeight)
             let originalSize = Size(width: Double(pageRect.width), height: Double(pageRect.height))
             try await consume(DecodedPage(pageIndex: i-1, bitmapData: pngData,
                                           originalSize: originalSize, scale: scale))

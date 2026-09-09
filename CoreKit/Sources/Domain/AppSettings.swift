@@ -107,17 +107,22 @@ public enum QuietHoursRules {
     /// 跨午夜区间（start>end 按「晚 start → 早 end」跨日）；start==end 非法
     /// 窗口按失败开放（不静默）——绝不静默吞掉全部预警。
     public static func isActive(start: String, end: String, now: Date = Date()) -> Bool {
-        guard let s = hourOf(start), let e = hourOf(end), s != e else { return false }
-        let hour = Calendar.current.component(.hour, from: now)
-        return s < e ? (hour >= s && hour < e) : (hour >= s || hour < e)
+        guard let s = minuteOf(start), let e = minuteOf(end), s != e else { return false }
+        // 审查修复：旧实现 hourOf 只回小时——校验接受「22:30」却按 22:00
+        // 生效，分钟精度被静默丢弃（备份/JSON 注入带分钟值时提前半小时
+        // 静默预警，正是安静时段想控制的边界）。按分钟比较，与校验域一致。
+        let cal = Calendar.current
+        let comps = cal.dateComponents([.hour, .minute], from: now)
+        let nowMinutes = (comps.hour ?? 0) * 60 + (comps.minute ?? 0)
+        return s < e ? (nowMinutes >= s && nowMinutes < e) : (nowMinutes >= s || nowMinutes < e)
     }
 
-    /// "HH:mm" → 小时（时/分双段校验；非法值 nil → 判定失败开放）
-    public static func hourOf(_ hhmm: String) -> Int? {
+    /// "HH:mm" → 分钟（时/分双段校验；非法值 nil → 判定失败开放）
+    public static func minuteOf(_ hhmm: String) -> Int? {
         let parts = hhmm.split(separator: ":")
         guard parts.count == 2, let h = Int(parts[0]), let m = Int(parts[1]),
               (0...23).contains(h), (0...59).contains(m) else { return nil }
-        return h
+        return h * 60 + m
     }
 }
 

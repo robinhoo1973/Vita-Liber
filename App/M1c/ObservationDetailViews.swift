@@ -44,8 +44,14 @@ struct ObservationDetailView: View {
                 ContentUnavailableView(L10n.obsDetailLoadFailed, systemImage: "exclamationmark.triangle",
                                        description: Text(L10n.obsDetailRetry))
             case .loaded:
-                if let event = state.detail {
+                // 审查修复：detail 是共享状态——从 B 详情 pop 回 A 时，A 的
+                // .task 重载完成前 state.detail 仍指向 B，A 页短暂渲染 B 的
+                // 全部内容（含敏感媒体），此刻点「保存」会以 B 的 id 写错
+                // 记录。渲染必须校验 detail 与当前页 id 一致。
+                if let event = state.detail, event.id == observationId {
                     content(event)
+                } else if state.detail != nil {
+                    ProgressView()
                 } else {
                     // 目标已删除/不存在：可见降级，不渲染假页面
                     ContentUnavailableView(L10n.obsDetailLoadFailed, systemImage: "doc.text.magnifyingglass")

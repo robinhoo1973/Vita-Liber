@@ -290,9 +290,25 @@ struct StockLotEditView: View {
                     // 效期可清空=未知（FR9.10 稍后补填 → 待办）
                     Toggle(L10n.lotExpireAt, isOn: $hasExpireDate)
                     if hasExpireDate {
-                        DatePicker(L10n.lotExpireAt, selection: Binding(get: { expireAt ?? Date() }, set: { expireAt = $0 }), displayedComponents: .date)
-                            .onAppear { if expireAt == nil { expireAt = Date() } }
-                            .onChange(of: hasExpireDate) { _, on in if on && expireAt == nil { expireAt = Date() } }
+                        // 审查修复（日期粒度契约）：界面按「日」展示/判定（已过期
+                        // 徽章、FEFO 排除），但绑定保留旧值的时分——8 点录入的
+                        // 效期 9/10 与 22 点录入的同日效期在 9/10 当天行为不同
+                        // （一个上午即排除、一个深夜仍可消耗）。选中日期一律
+                        // 归一为当日 23:59:59——当日全天可用，次日过期。
+                        DatePicker(L10n.lotExpireAt, selection: Binding(
+                            get: { expireAt ?? Date() },
+                            set: { expireAt = Calendar.current.date(bySettingHour: 23, minute: 59, second: 59, of: $0) }),
+                                   displayedComponents: .date)
+                            .onAppear {
+                                if expireAt == nil {
+                                    expireAt = Calendar.current.date(bySettingHour: 23, minute: 59, second: 59, of: Date())
+                                }
+                            }
+                            .onChange(of: hasExpireDate) { _, on in
+                                if on && expireAt == nil {
+                                    expireAt = Calendar.current.date(bySettingHour: 23, minute: 59, second: 59, of: Date())
+                                }
+                            }
                     }
                 }
                 Section(L10n.lotStorage) {

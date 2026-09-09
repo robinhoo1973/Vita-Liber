@@ -139,7 +139,11 @@ final class DocumentsState {
         var isPrescription: Bool { docType == L10n.docTypePrescription }
         var allFields: [FieldDraft] { pages.flatMap(\.fields) }
         var allReviewed: Bool {
-            pages.allSatisfy { $0.status == "ok" }
+            // 审查修复：allSatisfy 对空集合恒真——0 页（损坏 PDF/非 OCR 路径）
+            // 或 0 字段的导入被记「全部已确认」、以 C 级（用户确认事实）
+            // 落库——来源造假（BR-003 来源语义）。零内容 ≠ 已审阅。
+            !pages.isEmpty
+                && pages.allSatisfy { $0.status == "ok" }
                 && allFields.allSatisfy { $0.isConfirmed || $0.grade == .rejected }
         }
         var entityCards: [MatchedCard] {
@@ -182,7 +186,6 @@ final class DocumentsState {
          problemStore: HealthProblemStore? = nil,
          dataChange: AppDataChangeCenter? = nil,
          pendingCards: PendingCardStore? = nil,
-         encounterStore: EncounterStore? = nil, trendStore: TrendQueryStore? = nil,
          scheduler: (any ReminderScheduling)? = nil, cardStore: OCRCardStore? = nil) {
         self.store = store; self.pipeline = pipeline
         self.decoder = decoder ?? EngineRegistry.shared.resolve(ImageDecodingFactory.self)

@@ -21,16 +21,23 @@ final class ExportWizardState {
     private(set) var exportURL: URL?
     private let service: PDFExportService
     private var exportTask: Task<Void, Never>?
+    /// 代际守卫（审查修复）：取消后立即重试时，旧任务的迟到进度回调与
+    /// CancellationError catch 会覆盖新运行的 .working/.finished 状态——
+    /// 界面报「导出失败」而新导出仍在进行。所有状态写入必须同代。
+    private var runGeneration = 0
 
     init(service: PDFExportService) { self.service = service }
 
     func run(_ request: PDFExportService.ExportRequest) {
         exportTask?.cancel()
+        runGeneration += 1
+        let generation = runGeneration
         phase = .working(processed: 0, total: 1)
         exportTask = Task {
             do {
                 let pkg = try await service.exportPDF(request) { processed, total in
                     Task { @MainActor in
+                        guard generation == self.runGeneration else { return }
                         if case .working = self.phase { self.phase = .working(processed: processed, total: total) }
                     }
                 }
@@ -39,11 +46,14 @@ final class ExportWizardState {
                 let url = FileManager.default.temporaryDirectory
                     .appendingPathComponent("vitaliber-export-\(Int(Date().timeIntervalSince1970)).pdf")
                 try pkg.data.write(to: url, options: .atomic)
+                guard generation == self.runGeneration else { return }
                 phase = .finished(pkg)
                 exportURL = url
             } catch is CancellationError {
+                guard generation == self.runGeneration else { return }
                 phase = .degraded(L10n.exportCancelled)
             } catch {
+                guard generation == self.runGeneration else { return }
                 phase = .degraded(L10n.exportFailed)
             }
         }

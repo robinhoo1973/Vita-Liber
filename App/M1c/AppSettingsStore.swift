@@ -127,6 +127,15 @@ final class AppSettingsStore {
             } else {
                 try await store.set(value, for: key)
             }
+            // 审查修复（审计先行）：授权变更在被更新的写入超越时仍已
+            // 持久化——审计必须记录已发生的变更事实，不得随代际守卫一并
+            // 跳过（撤回→立即重授两连点：撤回落库但无审计行，FR14.2
+            // 授权证据链断裂）
+            if key.rawValue.hasPrefix("auth") {
+                try await audit?.record(action: "grant_change", entityType: "setting",
+                                        entityId: key.rawValue, actorLocal: "owner",
+                                        meta: "value=\(value)")
+            }
             if key == .authAI, authorizationRevision != authAIRevision { return }
             if key == .authAI, value == "true" { deniedAIUntilGrant = false }
             // 第七轮全仓审查修复（TOCTOU）：await 期间 MainActor 可重入，
@@ -165,12 +174,6 @@ final class AppSettingsStore {
             if key.rawValue.hasPrefix("remindChannel") || key == .inAppBannerEnabled {
                 UserDefaults.standard.set(value, forKey: key.rawValue)
             }
-            // FR14.1/FR14.2 授权变更写审计（grant_change——撤回即时生效且审计可见）
-            if key.rawValue.hasPrefix("auth") {
-                try await audit?.record(action: "grant_change", entityType: "setting",
-                                        entityId: key.rawValue, actorLocal: "owner",
-                                        meta: "value=\(value)")
-            }
         } catch {
             logger.error("设置写入失败: \(error)")
         }
@@ -193,8 +196,13 @@ final class AppSettingsStore {
         do {
             try await work.value
             authorizationWrites -= 1
-            guard authorizationRevision == authAIRevision else { return }
-            deniedAIUntilGrant = false
+            // 审查修复：被更新的 authAI 写入超越时不得跳过镜像清理——DB
+            // 重置已在串行链中提交，镜像/语言/缓存不清理则 careMode 等
+            // 运行时真源与「已恢复默认」的 DB 分裂（第八轮修复的反面）。
+            // 仅授权撤销态位（deniedAIUntilGrant）让位给最新写入。
+            if authorizationRevision == authAIRevision {
+                deniedAIUntilGrant = false
+            }
             // 审查修复：运行时镜像同步重置——原只清 DB，careMode 仍为 true
             // 而开关显示关闭（首页仍是关怀版式，设置页却关着）
             UserDefaults.standard.removeObject(forKey: AppSettingKey.readBackOptIn.rawValue)

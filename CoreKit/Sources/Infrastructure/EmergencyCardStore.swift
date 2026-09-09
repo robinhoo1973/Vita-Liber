@@ -59,21 +59,28 @@ public actor EmergencyCardStore {
 
     /// 已选集合（急救卡展示内容）
     public func selected(patientId: UUID) async throws -> EmergencyCard {
-        let all = try await candidates(patientId: patientId)
-        let chosen = try await writer.read { db in
-            try String.fetchAll(db, sql: """
+        // 审查修复：候选与选择集此前分两次读事务——中间提交的选中/取消
+        // 被静默忽略或应用于陈旧候选（急救卡展示用户刚移除的条目）。
+        // 同一读事务内取齐，快照一致。
+        try await writer.read { db in
+            var all = EmergencyCard(patientId: patientId)
+            all.allergies = try Self.allergyCandidates(db, patientId: patientId)
+            all.medications = try Self.medicationCandidates(db, patientId: patientId)
+            all.healthProblems = try Self.healthProblemCandidates(db, patientId: patientId)
+            all.contacts = try Self.contactCandidates(db, patientId: patientId)
+            let chosen = try String.fetchAll(db, sql: """
                 SELECT item_id FROM emergency_card_selection WHERE patient_id = ?
                 """, arguments: [patientId.uuidString])
+            let ids = Set(chosen.compactMap { UUID(uuidString: $0) })
+            let filter: ([EmergencyCardItem]) -> [EmergencyCardItem] = { items in
+                items.filter { ids.contains($0.id) && $0.confirmed }
+            }
+            return EmergencyCard(patientId: patientId,
+                                 allergies: filter(all.allergies),
+                                 medications: filter(all.medications),
+                                 healthProblems: filter(all.healthProblems),
+                                 contacts: filter(all.contacts))
         }
-        let ids = Set(chosen.compactMap { UUID(uuidString: $0) })
-        let filter: ([EmergencyCardItem]) -> [EmergencyCardItem] = { items in
-            items.filter { ids.contains($0.id) && $0.confirmed }
-        }
-        return EmergencyCard(patientId: patientId,
-                             allergies: filter(all.allergies),
-                             medications: filter(all.medications),
-                             healthProblems: filter(all.healthProblems),
-                             contacts: filter(all.contacts))
     }
 
     // MARK: - 候选查询（confirmed 语义逐源定义）

@@ -325,12 +325,20 @@ struct SOSOrb: View {
                 .multilineTextAlignment(.center)
         }
         .opacity(0.9)   // 可半透明（FR18.6）
+        // 审查修复：LongPressGesture 两处硬伤——onChanged 在 minimumDuration
+        // 达成后才触发（holdStart 即阈值时刻，进度环恒满程，按住反馈
+        // 名存实亡）；提前松手（未达阈值）手势失败、onEnded 不触发，
+        // holdStart 永不复位、进度环 100% 永久挂载。改零位移拖拽手势：
+        // 落下即记起点（环真实推进），松手恒复位，按足阈值才触发求助。
         .simultaneousGesture(
-            LongPressGesture(minimumDuration: requiredHold)
-                .onChanged { _ in holdStart = Date() }
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in
+                    if holdStart == nil { holdStart = Date() }
+                }
                 .onEnded { _ in
+                    let held = holdStart.map { Date().timeIntervalSince($0) >= requiredHold } ?? false
                     holdStart = nil
-                    showHelp = true
+                    if held { showHelp = true }
                 }
         )
         // 审查修复（BR-012 辅助功能通路）：VoiceOver 双击等效激活求助页

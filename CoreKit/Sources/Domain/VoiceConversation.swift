@@ -436,8 +436,13 @@ public enum VoiceConversationEngine {
     }
 
     private static func numberIndex(_ text: String) -> Int? {
-        let map: [Character: Int] = ["一": 1, "二": 2, "三": 3, "1": 1, "2": 2, "3": 3]
-        for (ch, v) in map where text.contains(ch) { return v - 1 }
+        // 审查修复：旧实现遍历无序 Dictionary——「第一个还是第二个」含多个
+        // 数字字符时结果随进程哈希随机（选错选项且无确认）。按文本出现顺序
+        // 取**首现**数字（用户首述即所选），结果确定。
+        let map: [Character: Int] = ["1": 1, "2": 2, "3": 3, "一": 1, "二": 2, "三": 3]
+        for ch in text {
+            if let v = map[ch] { return v - 1 }
+        }
         return nil
     }
 
@@ -453,9 +458,12 @@ public enum VoiceConversationEngine {
     }
 
     /// 「我吃过阿司匹林了」→ 提取药名（剥掉动作词与句尾语气词）
+    /// 审查修复：前缀表缺「吃过/服用过」——「我已经吃过阿司匹林了」剥掉
+    /// 「我已经」后残留「吃过阿司匹林」，精确名匹配失败、确认轨（BR-004）
+    /// 扣减找不到药
     private static func extractMarkTakenObject(_ text: String) -> String {
         var object = text
-        for word in ["我已经", "已经", "我吃过", "我吃了", "我服用过", "我服用了", "我吃", "我服用"] {
+        for word in ["我已经", "已经", "我吃过", "我吃了", "我服用过", "我服用了", "我吃", "我服用", "吃过", "服用过"] {
             if object.hasPrefix(word) { object = String(object.dropFirst(word.count)) }
         }
         object = object.replacingOccurrences(of: "了。", with: "")

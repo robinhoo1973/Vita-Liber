@@ -434,6 +434,8 @@ enum L10n {
     static var member_current: String { t("member.current") }
     static var member_switch: String { t("member.switch") }
     static var member_namePlaceholder: String { t("member.namePlaceholder") }
+    static var memberUpdateFailed: String { t("member.updateFailed") }
+    static var memberUpdateFailedHint: String { t("member.updateFailedHint") }
     static var member_relation: String { t("member.relation") }
     static var member_birthDatePlaceholder: String { t("member.birthDatePlaceholder") }
     static var member_save: String { t("member.save") }
@@ -487,6 +489,7 @@ enum L10n {
     /// Domain 不再拼接句式——V3.68 §11 清偿残根修复）
     static var voiceReadbackFmt: String { t("voice.readbackFmt") }
     static var voiceguide_saved: String { t("voiceguide.saved") }
+    static var voiceguide_profileDoneHint: String { t("voiceguide.profileDoneHint") }
     static var reminderNotificationTitle: String { t("reminder.notification.title") }
     /// 计划保存失败告警（响亮失败：创建失败保留表单，不静默关 sheet）
     static var reminder_planSaveFailed: String { t("reminder.planSaveFailed") }
@@ -1591,6 +1594,7 @@ enum L10n {
         "voiceguide.note.history",
         "voiceguide.note.meds",
         "voiceguide.saved",
+        "voiceguide.profileDoneHint",
         // 本地化清偿批（2026-09-06）：硬编码字符串替换
         "common.confirm", "common.member",
         "pay.proYearly", "pay.proYearlyPrice", "pay.proYearlyDetail",
@@ -1622,7 +1626,9 @@ enum L10n {
         "observation.saveFailed", "observation.saveFailedHint",
         "allergy.deleteConfirmTitle", "allergy.deleteConfirmHint",
         "plan.backfill.noBaseline", "plan.form.saveFailed", "plan.form.saveFailedHint",
-        "plan.loadFailed", "appt.markMissedHint", "problem.saveFailedHint",
+        "plan.loadFailed", "appt.markMissedHint", "appt.completeHint",
+        "member.updateFailed", "member.updateFailedHint",
+        "problem.saveFailedHint",
         "common.retry"
     ]
 
@@ -2013,6 +2019,7 @@ enum L10n {
     /// 「错过」过滤段与错过跟进提醒永远空转）
     static var apptMarkMissed: String { t("appt.markMissed") }
     static var apptMarkMissedHint: String { t("appt.markMissedHint") }
+    static var apptCompleteHint: String { t("appt.completeHint") }
     static var apptNewDate: String { t("appt.newDate") }
     static var apptCancelReasonNone: String { t("appt.cancelReason.none") }
     static var apptCancelReasonDoctor: String { t("appt.cancelReason.doctor") }

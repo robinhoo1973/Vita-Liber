@@ -105,6 +105,11 @@ struct GlobalSearchView: View {
 
     private var medicationHits: [MedicationStore.InventorySummaryItem] {
         guard !query.isEmpty else { return [] }
+        // 审查修复（BR-001 切换窗口）：inventoryItems 在成员切换加载窗口内
+        // 仍是旧成员数据，且 InventorySummaryItem 无成员字段——此前直接
+        // 过滤渲染，A 的药品名在 B 身份下命中展示。与 HomeView 同口径：
+        // hub 全部节提交完成（loadedPatientId 一致）才取用缓存。
+        guard hub.loadedPatientId == app.currentPatientId else { return [] }
         return hub.inventoryItems.filter {
             $0.medicationName.localizedCaseInsensitiveContains(query)
                 || ($0.spec ?? "").localizedCaseInsensitiveContains(query)
@@ -231,6 +236,10 @@ struct GlobalSearchView: View {
         .task(id: app.currentPatientId) {
             await hub.load(patientId: app.currentPatientId)
             await observationState.load(patientId: app.currentPatientId)
+            // 审查修复（BR-001 切换窗口）：docHits 是上次检索结果，成员切换
+            // 不触发防抖 onChange——旧成员的文档命中（标题/OCR 片段）在 B
+            // 身份下继续渲染。切成员即按当前词以新成员重查（空词同样清空）。
+            await state.search(patientId: app.currentPatientId)
         }
         .onChange(of: filterText) { _, newValue in
             state.setQuery(newValue)

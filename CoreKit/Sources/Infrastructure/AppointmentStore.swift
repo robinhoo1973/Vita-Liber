@@ -7,7 +7,7 @@ import Protocols
 /// F10 预约数据仓（actor）：创建/改期/取消 + 分级提醒（FR10.3）+ 状态机（FR10.7）
 public actor AppointmentStore {
     /// 审查修复新增：目标不存在时抛错（§7 不得静默 return）
-    public enum StoreError: Error, Equatable { case notFound }
+    public enum StoreError: Error, Equatable { case notFound, invalidState }
 
     private let writer: any DatabaseWriter
     private let scheduler: any ReminderScheduling
@@ -145,6 +145,11 @@ public actor AppointmentStore {
             guard let apt = try Row.fetchOne(db, sql: "SELECT * FROM appointment WHERE id = ?",
                                              arguments: [id.uuidString]) else {
                 throw StoreError.notFound
+            }
+            // 审查修复（FR10.7 状态机）：完成无状态守卫——重复调用重复建就诊、
+            // 「已完成」覆盖「已错过」抹掉历史状态。仅 scheduled 可完成。
+            guard (apt["status"] as String?) == "scheduled" else {
+                throw StoreError.invalidState
             }
             try db.execute(
                 sql: "UPDATE appointment SET status = 'completed', updated_at = ? WHERE id = ?",

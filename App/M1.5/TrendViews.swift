@@ -56,7 +56,14 @@ struct TrendChartView: View {
     /// 选点按时刻命中全部并列点，每条统计都可查看（二轮复审 P2）。
     private var selectedPoints: [TrendPoint] {
         guard let nearest = selectedPoint else { return [] }
-        return TrendRules.sorted(series.points.filter { $0.measuredAt == nearest.measuredAt })
+        // 审查修复：并列点按 exact Date == 过滤——同刻不同源的行时间戳
+        // 常有秒级差异（设备整点窗口 vs 页面捕获时刻），注释承诺的
+        // 「全部并列点」落空、该来源行在选点详情中不可见。60 秒容差
+        // 收敛同刻行；跨读数（小时/日粒度）不受影响。
+        let tolerance: TimeInterval = 60
+        return TrendRules.sorted(series.points.filter {
+            abs($0.measuredAt.timeIntervalSince(nearest.measuredAt)) <= tolerance
+        })
     }
 
     private var xDomainStart: Date { series.points.first?.measuredAt ?? Date() }

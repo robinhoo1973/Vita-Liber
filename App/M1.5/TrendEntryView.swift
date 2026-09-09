@@ -70,8 +70,16 @@ final class TrendEntryState {
             // 不得在新指标名下继续渲染（路由页另有 metricKey 一致校验兜底）
             detailSeries = nil
             let loaded = try await store.series(for: patientId, metric: metric, range: range)
+            // 审查修复：hasDeviceSamples 从未被写入（声明即弃用）——空态分流
+            // 恒走「未连接 Apple 健康」+ [去连接] 引导，有设备数据但该指标
+            // 无读数的用户被假引导（V3.53 契约空态分流失效）。探测失败不
+            // 阻断曲线加载（按无设备数据渲染连接引导，与旧行为一致）。
+            let hasDevice: Bool
+            do { hasDevice = try await store.hasDeviceSamples(patientId: patientId) }
+            catch { hasDevice = false }
             guard detailRequest == request, !Task.isCancelled else { return }
             detailSeries = loaded
+            hasDeviceSamples = hasDevice
         } catch {
             // 过期请求（已切成员/切指标）的失败不触碰当前数据；当前请求
             // 失败才清槽（空态渲染，不残留旧曲线）
@@ -118,11 +126,16 @@ struct TrendChartRouteView: View {
                 } description: {
                     Text(state.detailFailed ? L10n.f16SyncFailed : L10n.healthNoReadableData)
                 } actions: {
-                    Button(L10n.trendGoConnect) {
-                        router.navigate(to: .deviceConnection)
+                    // 审查修复（V3.53 空态分流）：仅在成员名下无任何设备读数时
+                    // 给 [去连接] 引导；已有设备数据但该指标空 = 通用无数据，
+                    // 不给假连接引导
+                    if !state.hasDeviceSamples {
+                        Button(L10n.trendGoConnect) {
+                            router.navigate(to: .deviceConnection)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .accessibilityIdentifier("SP-13.trend.connectHealth")
                     }
-                    .buttonStyle(.borderedProminent)
-                    .accessibilityIdentifier("SP-13.trend.connectHealth")
                 }
                 .accessibilityIdentifier("SP-13.trend.detail.empty")
             }

@@ -165,9 +165,14 @@ public actor GRDBM1aPersistor: M1aPersisting {
                 // local_owner 子表
                 "consent_record", "device_identity", "onboarding_progress",
                 // 父表
-                "audit_event", "patient_profile", "local_owner", "asset",
+                "audit_event",
             ]
-            for table in ordered {
+            // 环引用破环（审查修复）：local_owner.self_patient_id 与
+            // patient_profile.owner_local_id 互为外键——先删任一侧都违约、
+            // 整事务回滚（清空全部/uitest-reset 在已建档库上静默失效）。
+            // 必须先 NULL 掉 local_owner 的指向，再按序删除两侧。
+            try db.execute(sql: "UPDATE local_owner SET self_patient_id = NULL")
+            for table in ordered + ["patient_profile", "local_owner", "asset"] {
                 try db.execute(sql: "DELETE FROM \(table)")
             }
         }

@@ -39,11 +39,13 @@ public actor MedicationPlanComposer {
         case prescriptionNotConfirmed
         case planNotFound(UUID)
         case planNotActive(UUID)
+        case invalidTransition(UUID, from: String, to: String)
         public var errorDescription: String? {
             switch self {
             case .prescriptionNotConfirmed: return "处方未确认——不得生成正式用药计划（BR-003）"
             case .planNotFound(let id): return "计划不存在: \(id.uuidString)"
             case .planNotActive(let id): return "计划非 active 状态: \(id.uuidString)"
+            case .invalidTransition(let id, let from, let to): return "计划状态迁移非法: \(id.uuidString) \(from)→\(to)"
             }
         }
     }
@@ -85,12 +87,16 @@ public actor MedicationPlanComposer {
                                      now.timeIntervalSince1970, now.timeIntervalSince1970])
             }
             // ② 处方记录（BR-003 全确认才 confirmed=1）
+            // 审查修复：OCR 确认卡落库（OCRCardStore.save）已写入同 id 处方行，
+            // 直接 INSERT 主键冲突 → 五表创建整事务回滚（OCR 处方永远无法
+            // 生成计划）。已存在（确认过）的处方保留原行，幂等继续建计划。
             let rxId = prescription.id
             try db.execute(sql: """
                 INSERT INTO prescription
                   (id, patient_id, encounter_id, document_file_id, source, hospital, doctor,
                    prescribed_at, advice_text, confirmed, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+                ON CONFLICT(id) DO NOTHING
                 """, arguments: [rxId.uuidString, prescription.patientId.uuidString,
                                  prescription.encounterId?.uuidString,
                                  prescription.documentFileId?.uuidString,
@@ -195,9 +201,20 @@ public actor MedicationPlanComposer {
     private func setPlanStatus(planId: UUID, to status: String, note: String?,
                                kind: String, now: Date) async throws {
         try await writer.write { db in
-            guard try Row.fetchOne(db, sql: "SELECT id FROM medication_plan WHERE id = ?",
-                                   arguments: [planId.uuidString]) != nil else {
+            guard let row = try Row.fetchOne(db, sql: "SELECT status FROM medication_plan WHERE id = ?",
+                                             arguments: [planId.uuidString]) else {
                 throw ComposerError.planNotFound(planId)
+            }
+            // 审查修复（FR9.15 终态语义）：只查存在不查当前态——已 ended 的
+            // 计划可被 resume 复活回 active（物化窗口/安全线对已终止处方
+            // 重新推进，时间轴 ended→resumed 自相矛盾）。恢复仅允许
+            // paused→active，暂停仅允许 active→paused。
+            let current = (row["status"] as String?) ?? ""
+            switch (current, status) {
+            case ("active", "paused"), ("paused", "active"):
+                break
+            default:
+                throw ComposerError.invalidTransition(planId, from: current, to: status)
             }
             try db.execute(sql: """
                 UPDATE medication_plan SET status = ?, updated_at = ? WHERE id = ?

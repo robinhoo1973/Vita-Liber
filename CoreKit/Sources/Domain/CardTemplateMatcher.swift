@@ -199,12 +199,27 @@ public enum CardTemplateMatcher {
 
         // 2. 共享：其余已映射字段（同键取首个，保持原序）。规则表外的映射键
         //（如 encounter.diagnosis_text/advice_text）随卡携带供持久化，但不计覆盖。
+        // 审查修复：同键首个为空值的草稿会把后续非空草稿挡在去重之外——
+        // 覆盖键永远缺席、覆盖率 <0.5、整卡被拒（数据明明在场）。同键保留
+        // 首个非空值，后续非空值替换先前的空值。
         var shared: [FieldDraft] = []
-        var sharedKeys = Set<String>()
+        var sharedKeys: [String: Int] = [:]
         for (index, draft) in fields.enumerated() where !consumed.contains(index) {
             guard let mapped = template.mapping[draft.key], !template.rowLevelKeys.contains(mapped) else { continue }
             // Ambiguous/unparsed ranges remain distinct drafts, never guessed row data.
-            if mapped != "reference_range", !sharedKeys.insert(mapped).inserted { continue }
+            if mapped != "reference_range" {
+                let isEmpty = draft.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                if let existingIndex = sharedKeys[mapped] {
+                    if isEmpty { continue }
+                    if shared[existingIndex].value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        var copy = draft
+                        copy.key = mapped
+                        shared[existingIndex] = copy
+                    }
+                    continue
+                }
+                sharedKeys[mapped] = shared.count
+            }
             var copy = draft
             copy.key = mapped
             shared.append(copy)

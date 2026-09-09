@@ -14,7 +14,9 @@ struct GradeBadge: View {
         case "C": return Color("grade-c", bundle: .main)
         case "D": return Color("grade-d", bundle: .main)
         case "E": return Color("grade-e", bundle: .main)
-        default: return Color("grade-c", bundle: .main)
+        // 审查修复（BR-003 来源语义）：未知/空来源此前按 C（用户确认）着色——
+        // 无来源数据被冒充为用户确认事实。未知一律按「未确认」视觉呈现。
+        default: return Color("grade-d", bundle: .main)
         }
     }
 
@@ -29,7 +31,9 @@ struct GradeBadge: View {
         }
     }
 
-    private var isUnconfirmed: Bool { grade == "D" || grade == "E" }
+    private var isUnconfirmed: Bool {
+        grade == "D" || grade == "E" || !["A", "B", "C", "D", "E"].contains(grade)
+    }
 
     var body: some View {
         HStack(spacing: 3) {

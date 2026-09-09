@@ -45,6 +45,10 @@ final class M2HubStore {
 
     /// 最近一次请求的成员（BR-001 成员隔离：只允许最新请求写回状态）
     private var loadingPatientId: UUID?
+    /// 各节全部提交完成时的成员（BR-001 消费侧守卫：加载窗口内缓存仍是
+    /// 旧成员数据，HomeView/搜索等跨成员投影必须等 loadedPatientId 与当前
+    /// 成员一致才允许取用——否则 A 的药箱在切换瞬间以 B 身份渲染）
+    private(set) var loadedPatientId: UUID?
 
     init(meds: MedicationStore, emergency: EmergencyCardStore,
          immunizations: ImmunizationStore, claims: ClaimStore,
@@ -132,6 +136,10 @@ final class M2HubStore {
                 qualifiedAlertEvents = values.2
             })
         _ = await (s1, s2, s3, s4, s5, s6)
+        // 全部节提交完毕才盖章成员代际——加载窗口内 loadedPatientId 仍指向
+        // 旧成员，消费侧（首页聚合/全局搜索）据此拒取陈旧缓存
+        guard loadingPatientId == patientId else { return }
+        loadedPatientId = patientId
     }
 
     // MARK: - 药箱

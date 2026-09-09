@@ -109,6 +109,9 @@ struct MemberDetailView: View {
     @State private var impact: MemberDeletionService.Impact?
     @State private var confirmName = ""
     @State private var deleteChoice: MemberDeletionService.DeleteChoice = .archivePlans
+    /// 保存失败可见性（审查修复：updateMember 返回 false 被丢弃——写库
+    /// 失败只留日志，用户以为已保存、重启后字段静默回退）
+    @State private var saveFailed = false
 
     init(member: PatientProfile) {
         self.member = member
@@ -139,7 +142,13 @@ struct MemberDetailView: View {
                     updated.note = note.isEmpty ? nil : note
                     updated.updatedAt = Date().timeIntervalSince1970
                     Task {
-                        _ = await app.updateMember(updated)
+                        // 审查修复：写库结果必须可见——失败只记日志时用户
+                        // 相信已保存、数据下次启动静默回退
+                        if await app.updateMember(updated) {
+                            current = updated
+                        } else {
+                            saveFailed = true
+                        }
                     }
                 }
                 .accessibilityIdentifier("FR3.1.member.update")
@@ -187,6 +196,11 @@ struct MemberDetailView: View {
                     }
                 }
             }
+        }
+        .alert(L10n.memberUpdateFailed, isPresented: $saveFailed) {
+            Button(L10n.onboard_gotIt, role: .cancel) { }
+        } message: {
+            Text(L10n.memberUpdateFailedHint)
         }
     }
 }

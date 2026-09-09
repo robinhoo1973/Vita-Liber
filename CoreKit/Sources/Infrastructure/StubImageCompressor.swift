@@ -18,7 +18,8 @@ public final class StubImageCompressor: ImageCompressing, SensitiveMediaProtecti
         return png
     }
 
-    public func authorizeOriginalAccess(_ data: Data, policy: SensitiveMediaPolicy) async throws -> Data {
+    public func authorizeOriginalAccess(_ data: Data, policy: SensitiveMediaPolicy,
+                                        reason: String) async throws -> Data {
         // Linux 无 LAContext，直接返回或抛错
         if policy.isSensitive && policy.requireAuthForOriginal {
             throw CompressError.authRequiredForOriginal
