@@ -119,7 +119,7 @@ public enum ReminderAggregationCenter {
             deduped.append(item)
         }
 
-        var filtered = deduped.filter { item in
+        let filtered = deduped.filter { item in
             if item.isPinned { return true }              // 置顶绕过窗口/成员
             guard item.patientID == nil || item.patientID == memberId else { return false }
             let past = now.addingTimeInterval(-Double(window.pastDays) * 86400)
