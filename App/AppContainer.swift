@@ -50,6 +50,8 @@ struct AppContainer {
     let codeIndex: GRDBCodeIndex
     /// FR14.8 通知处理状态持久化（notification_state 表，V3.72 死 DDL 接线）
     let notificationState: NotificationStateStore
+    /// FR6.9 待办卡仓（pending_card，BR-003 表级排除——D 级草稿绝不进事实链）
+    let pendingCards: PendingCardStore
     /// 通知中心可观察门面（@Environment 注入要求 @Observable）
     let notificationCenterState: NotificationCenterState
     let voiceNotes: VoiceNoteStore
@@ -180,6 +182,7 @@ struct AppContainer {
         let codeIndex = GRDBCodeIndex(writer: store.writer)
         let notificationState = NotificationStateStore(writer: store.writer)
         let notificationCenterState = NotificationCenterState(store: notificationState)
+        let pendingCards = PendingCardStore(writer: store.writer)
         let voiceNotes = VoiceNoteStore(writer: store.writer)
         return AppContainer(degradedReason: degradedReason,
                             store: store,
@@ -219,6 +222,7 @@ struct AppContainer {
                             codeIndex: codeIndex,
                             notificationState: notificationState,
                             notificationCenterState: notificationCenterState,
+                            pendingCards: pendingCards,
                             voiceNotes: voiceNotes,
                             guidelines: guidelines,
                             emergencyCards: emergencyCards,

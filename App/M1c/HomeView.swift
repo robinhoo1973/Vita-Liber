@@ -17,6 +17,7 @@ struct HomeView: View {
     @Environment(ReminderStore.self) private var reminderStore
     @Environment(M2HubStore.self) private var hub
     @Environment(ObservationStoreState.self) private var observationState
+    @Environment(PendingCardCenterState.self) private var pendingCenter
     @Environment(AppRouter.self) private var router
     @Environment(AppSettingsStore.self) private var settingsStore
     @Environment(DocumentsState.self) private var docs
@@ -186,6 +187,11 @@ struct HomeView: View {
         .sheet(item: $quickCaptureKind) { kind in
             NavigationStack { QuickCaptureView(kind: kind) }
         }
+        .sheet(item: $selectedPendingCard) { item in
+            NavigationStack { PendingCardDetailSheet(item: item) }
+                .environment(pendingCenter)
+                .environment(app)
+        }
         .task(id: app.currentPatientId) { await load() }
     }
 
@@ -227,6 +233,11 @@ struct HomeView: View {
                     }
                     if !snap.recentObservations.isEmpty {
                         recentObservationsCard(snap)
+                    }
+                    // FR6.9 待办卡（跳过稍后队列）；72h 未处理置顶可达由
+                    // 聚合中心按 dueDate 排序承担，此处紧随告警卡之后常显
+                    if !pendingCenter.items.isEmpty {
+                        pendingCardSection
                     }
                     quickCaptureCard
                 }
@@ -499,6 +510,43 @@ struct HomeView: View {
         .accessibilityIdentifier("SP-04.home.quickCapture")
     }
 
+    // ⑨ FR6.9 待办卡（统一提醒聚合中心 pendingCard 类别，data-flow §20.1）：
+    // 仅非敏感摘要投影（「待补充：处方」）——raw_text/partial_data 绝不外泄
+    // 到首页列表（BR-003）；72h 未处理置顶可达（dueDate 排序，FR6.9）。
+    private var pendingCardSection: some View {
+        let items = ReminderAggregationCenter.aggregate(
+            pendingCenter.items, memberId: app.currentPatientId)
+        return CardSection(title: L10n.homePendingCards) {
+            ForEach(items) { item in
+                Button {
+                    selectedPendingCard = item
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(item.title).font(.subheadline)
+                            if let due = item.dueDate {
+                                Text(due.formatted(date: .abbreviated, time: .omitted))
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer()
+                        Text(L10n.homePendingCardResume)
+                            .font(.caption)
+                            .padding(.horizontal, 10).padding(.vertical, 5)
+                            .background(Capsule().fill(Color("semantic-warning", bundle: .main).opacity(0.15)))
+                    }
+                }
+                .accessibilityIdentifier("SP-04.home.pendingCard.\(item.id.sourceId)")
+            }
+        }
+        .accessibilityIdentifier("SP-04.home.pendingCards")
+    }
+
+    /// FR6.9 待办卡详情（sheet）：缺失字段清单 + 原文草稿（用户自己的
+    /// D 级草稿可见；期一无 LLM 补全——「已补全」按用户重新识别/手动补录
+    /// 后手动完结，resolve 后从待办队列移除）。
+    @State private var selectedPendingCard: AggregatedReminderItem?
+
     // MARK: - FR18.5 关怀模式四大卡覆写
 
     private var careModeHome: some View {
@@ -554,15 +602,16 @@ struct HomeView: View {
     }
 
     private func load() async {
-        // 五个相互独立的仓并发加载（第四轮全仓审查效率修复：原五连串行
+        // 六个相互独立的仓并发加载（第四轮全仓审查效率修复：原五连串行
         // await——每次切回首页串行支付 5 轮 actor 往返 + 查询延迟；共享
         // DatabasePool 支持并发读，同仓 M2HubStore.load 已确立 async let 模式）
         async let r: Void = reminderStore.refreshTriggered(patientId: app.currentPatientId)
         async let h: Void = hub.load(patientId: app.currentPatientId)
         async let o: Void = observationState.load(patientId: app.currentPatientId)
         async let d: Void = docs.load(patientId: app.currentPatientId)
+        async let p: Void = pendingCenter.load(patientId: app.currentPatientId)
         async let m: Void = app.loadMembers()
-        _ = await (r, h, o, d, m)
+        _ = await (r, h, o, d, p, m)
         // FR9.6：通知权限关闭时首页常驻提示（可关、次日重现——以 dismiss 态重置实现）
         notifDenied = await reminderStore.notificationDenied
         dismissNotifBanner = false
@@ -703,6 +752,69 @@ struct MemberPickerSheet: View {
                         router.navigate(to: .memberList)
                     }
                 }
+            }
+        }
+    }
+}
+
+/// FR6.9 待办卡详情（期一）：缺失字段清单 + 已识别字段快照 + 识别原文
+/// （用户本人的 D 级草稿，仅详情可见；BR-003——不参与事实链/搜索/AI/导出）。
+/// 期一无 LLM 补全：「已补全」= 用户已另行重新识别/手动补录后手动完结，
+/// resolve 后卡从待办队列移除（raw_text 随行保留，BR-002 不丢内容）。
+private struct PendingCardDetailSheet: View {
+    let item: AggregatedReminderItem
+    @Environment(PendingCardCenterState.self) private var pendingCenter
+    @Environment(AppState.self) private var app
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        List {
+            if let detail = pendingCenter.detail {
+                if !detail.incompleteFields.isEmpty {
+                    Section(L10n.docConfirmSkipTitle) {
+                        ForEach(detail.incompleteFields, id: \.key) { field in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(field.label ?? DocumentsState.fieldLabel(forKey: field.key))
+                                    .font(.subheadline)
+                                if let reason = field.reason {
+                                    Text(reason).font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+                }
+                if !detail.partialData.isEmpty {
+                    Section(L10n.docConfirmSkipSaved) {
+                        ForEach(detail.partialData.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(DocumentsState.fieldLabel(forKey: key))
+                                    .font(.caption).foregroundStyle(.secondary)
+                                Text(value).font(.subheadline)
+                            }
+                        }
+                    }
+                }
+                if !detail.rawText.isEmpty {
+                    Section {
+                        Text(detail.rawText).font(.footnote)
+                    } header: {
+                        Text(L10n.pendingCardRawText)
+                    }
+                }
+            }
+        }
+        .navigationTitle(item.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .task(id: item.id.sourceId) {
+            await pendingCenter.loadDetail(id: item.id.sourceId)
+        }
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button(L10n.onboard_gotIt) {
+                    pendingCenter.resolve(patientId: app.currentPatientId, id: item.id.sourceId)
+                    dismiss()
+                }
+                .accessibilityIdentifier("SP-04.home.pendingCard.resolve")
             }
         }
     }

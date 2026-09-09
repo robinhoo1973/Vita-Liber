@@ -850,6 +850,15 @@ enum L10n {
     "docConfirm.saveAll",
     "docConfirm.saveFailedTitle",
     "docConfirm.title",
+    "docConfirm.skipLater",
+    "docConfirm.skipTitle",
+    "docConfirm.skipConfirm",
+    "docConfirm.skipCancel",
+    "docConfirm.skipSaved",
+    "home.pendingCards",
+    "home.pendingCardResume",
+    "pendingCard.reasonOcrMissing",
+    "pendingCard.rawText",
     "docConfirm.unconfirmedCountFmt",
     "docConfirm.viewRegion",
     "gradebadge.a",
@@ -2009,6 +2018,17 @@ enum L10n {
     static var docConfirmViewRegion: String { t("docConfirm.viewRegion") }
     static var docConfirmSaveAll: String { t("docConfirm.saveAll") }
     static var docConfirmHint: String { t("docConfirm.hint") }
+    // FR6.9 跳过稍后（部分完整卡片 → pending_card 待办，D 级草稿不进事实链）
+    static var docConfirmSkipLater: String { t("docConfirm.skipLater") }
+    static var docConfirmSkipTitle: String { t("docConfirm.skipTitle") }
+    static var docConfirmSkipConfirm: String { t("docConfirm.skipConfirm") }
+    static var docConfirmSkipCancel: String { t("docConfirm.skipCancel") }
+    static var docConfirmSkipSaved: String { t("docConfirm.skipSaved") }
+    // FR6.9 首页聚合中心待办卡
+    static var homePendingCards: String { t("home.pendingCards") }
+    static var homePendingCardResume: String { t("home.pendingCardResume") }
+    static var pendingCardReasonOcrMissing: String { t("pendingCard.reasonOcrMissing") }
+    static var pendingCardRawText: String { t("pendingCard.rawText") }
     /// V3.41 文档类型后置判定：确认卡 D 级类型草稿行（可一键改）
     static var docConfirmDocType: String { t("docConfirm.docType") }
     static var docConfirmDocTypeHint: String { t("docConfirm.docTypeHint") }

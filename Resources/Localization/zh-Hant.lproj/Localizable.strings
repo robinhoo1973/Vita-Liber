@@ -589,6 +589,10 @@
 "sos.sendLocationP1" = "傳送位置（即將推出）";
 "home.greeting" = "你好，%@";
 "home.todayTodos" = "今日待辦";
+"home.pendingCards" = "待補充";
+"home.pendingCardResume" = "去補全";
+"pendingCard.reasonOcrMissing" = "OCR 未識別";
+"pendingCard.rawText" = "識別原文";
 "home.pendingOcrCountFmt" = "%d 項辨識結果待確認";
 "home.expiringSoon" = "即將到來（7 天）";
 "home.refill" = "續藥提醒";
@@ -1003,6 +1007,11 @@
 "docConfirm.title" = "確認識別結果";
 "docConfirm.viewRegion" = "查看掃描區域";
 "docConfirm.saveAll" = "確認並儲存";
+"docConfirm.skipLater" = "跳過稍後";
+"docConfirm.skipTitle" = "以下欄位將稍後補充";
+"docConfirm.skipConfirm" = "儲存到待辦";
+"docConfirm.skipCancel" = "取消";
+"docConfirm.skipSaved" = "已儲存到待辦，稍後可在首頁待辦卡繼續補充";
 "docConfirm.docType" = "文件類型";
 "docConfirm.docTypeHint" = "類型為識別建議，可在此修改；確認後仍可在資料庫中調整。";
 "docConfirm.hint" = "請逐項核對識別內容，確認後才計入正式記錄";

@@ -314,6 +314,34 @@ public enum SchemaMigrations {
                anchor_value TEXT NOT NULL,
                updated_at REAL NOT NULL);
              """),
+        // v19：FR6.9 待办卡（V3.96 pending-card，data-flow §3.5 单一事实源）。
+        // 全新库 baseline 已含本表，老库由本步建——与 v2/v10/v18 同纪律：
+        // CREATE TABLE IF NOT EXISTS 幂等（user_version 记账保证只跑一次）。
+        // BR-003 表级排除：不参与搜索索引/FTS/AI 检索/导出。
+        // status CHECK 含 archived（§21.3 三十天归档；tech v19 登记枚举未含，
+        // 按 function-spec FR6.9 产品行为补列——枚举扩展向后兼容）。
+        Step(version: 19, name: "pending-card",
+             sql: """
+             CREATE TABLE IF NOT EXISTS pending_card (
+               id TEXT PRIMARY KEY,
+               patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+               source_type TEXT NOT NULL CHECK(source_type IN ('ocr','voice','manual')),
+               source_doc_id TEXT REFERENCES document_file(id),
+               card_kind TEXT NOT NULL,
+               incomplete_fields TEXT NOT NULL,
+               partial_data TEXT NOT NULL,
+               raw_text TEXT NOT NULL,
+               attempt_count INTEGER NOT NULL DEFAULT 0,
+               status TEXT NOT NULL DEFAULT 'pending'
+                 CHECK(status IN ('pending','in_progress','resolved','expired','archived')),
+               created_at REAL NOT NULL,
+               updated_at REAL NOT NULL,
+               resolved_at REAL,
+               resolved_by TEXT CHECK(resolved_by IN ('user','llm','expired')),
+               note TEXT);
+             CREATE INDEX IF NOT EXISTS idx_pending_card_patient_status ON pending_card(patient_id, status, created_at);
+             CREATE INDEX IF NOT EXISTS idx_pending_card_source_doc ON pending_card(source_doc_id);
+             """),
     ]
 
     /// 全新库建库后应落到的版本号

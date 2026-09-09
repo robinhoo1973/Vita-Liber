@@ -210,6 +210,31 @@ public enum SchemaV2 {
       anchor_value TEXT NOT NULL,
       updated_at REAL NOT NULL);
 
+    -- FR6.9 待办卡（V3.96 / 迁移 v19，data-flow §3.5 单一事实源）：
+    -- 「跳过稍后」暂存的 D 级草稿卡——partial_data/raw_text 恒 D 级，
+    -- BR-003 绝对禁止：不参与搜索索引/FTS 投影/AI 检索/导出（表级排除）。
+    -- 生命周期：pending → (in_progress) → resolved / expired(7d) /
+    -- archived(30d，§21.3；tech v19 登记枚举未含，按产品行为补列)。
+    CREATE TABLE pending_card (
+      id TEXT PRIMARY KEY,
+      patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+      source_type TEXT NOT NULL CHECK(source_type IN ('ocr','voice','manual')),
+      source_doc_id TEXT REFERENCES document_file(id),
+      card_kind TEXT NOT NULL,
+      incomplete_fields TEXT NOT NULL,
+      partial_data TEXT NOT NULL,
+      raw_text TEXT NOT NULL,
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'pending'
+        CHECK(status IN ('pending','in_progress','resolved','expired','archived')),
+      created_at REAL NOT NULL,
+      updated_at REAL NOT NULL,
+      resolved_at REAL,
+      resolved_by TEXT CHECK(resolved_by IN ('user','llm','expired')),
+      note TEXT);
+    CREATE INDEX idx_pending_card_patient_status ON pending_card(patient_id, status, created_at);
+    CREATE INDEX idx_pending_card_source_doc ON pending_card(source_doc_id);
+
     -- B 级信源库（F16.4）
     CREATE TABLE guideline_source (
       id TEXT PRIMARY KEY, title TEXT NOT NULL, org TEXT NOT NULL,

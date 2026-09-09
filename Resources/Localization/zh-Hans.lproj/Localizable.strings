@@ -589,6 +589,10 @@
 "sos.sendLocationP1" = "发送位置（即将推出）";
 "home.greeting" = "你好，%@";
 "home.todayTodos" = "今日待办";
+"home.pendingCards" = "待补充";
+"home.pendingCardResume" = "去补全";
+"pendingCard.reasonOcrMissing" = "OCR 未识别";
+"pendingCard.rawText" = "识别原文";
 "home.pendingOcrCountFmt" = "%d 项识别结果待确认";
 "home.expiringSoon" = "即将到来（7 天）";
 "home.refill" = "续药提醒";
@@ -1003,6 +1007,11 @@
 "docConfirm.title" = "确认识别结果";
 "docConfirm.viewRegion" = "查看扫描区域";
 "docConfirm.saveAll" = "确认并保存";
+"docConfirm.skipLater" = "跳过稍后";
+"docConfirm.skipTitle" = "以下字段将稍后补充";
+"docConfirm.skipConfirm" = "保存到待办";
+"docConfirm.skipCancel" = "取消";
+"docConfirm.skipSaved" = "已保存到待办，稍后可在首页待办卡继续补充";
 "docConfirm.docType" = "文档类型";
 "docConfirm.docTypeHint" = "类型为识别建议，可在此修改；确认后仍可在资料库中调整。";
 "docConfirm.hint" = "请逐项核对识别内容，确认后才计入正式记录";

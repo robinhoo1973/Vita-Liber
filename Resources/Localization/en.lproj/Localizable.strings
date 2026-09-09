@@ -589,6 +589,10 @@
 "sos.sendLocationP1" = "Send Location (coming soon)";
 "home.greeting" = "Hi, %@";
 "home.todayTodos" = "Today";
+"home.pendingCards" = "To Complete";
+"home.pendingCardResume" = "Complete Now";
+"pendingCard.reasonOcrMissing" = "Not recognized by OCR";
+"pendingCard.rawText" = "Recognized Text";
 "home.pendingOcrCountFmt" = "%d recognition results pending confirmation";
 "home.expiringSoon" = "Coming Up (7 days)";
 "home.refill" = "Refill";
@@ -1003,6 +1007,11 @@
 "docConfirm.title" = "Confirm Recognized Result";
 "docConfirm.viewRegion" = "View Scan Region";
 "docConfirm.saveAll" = "Confirm & Save";
+"docConfirm.skipLater" = "Skip for Later";
+"docConfirm.skipTitle" = "The following fields will be completed later";
+"docConfirm.skipConfirm" = "Save to Pending";
+"docConfirm.skipCancel" = "Cancel";
+"docConfirm.skipSaved" = "Saved to pending. Continue completing from the home pending cards.";
 "docConfirm.docType" = "Document type";
 "docConfirm.docTypeHint" = "The type is a suggestion and can be changed here; it can also be adjusted later in the document library.";
 "docConfirm.hint" = "Review each recognized item; only confirmed items become part of the formal record";

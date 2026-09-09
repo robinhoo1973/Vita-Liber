@@ -29,6 +29,8 @@ final class DocumentsState {
     /// PDF 逐页识别失败页数（FR6.6 非阻断可见；0=全部成功/非 PDF 路径）
     private(set) var pdfPartialFailure = 0
     private let store: DocumentStore
+    /// FR6.9 待办卡写门（未注入 = 预览/测试环境，跳过稍后不可用）
+    private let pendingCards: PendingCardStore?
     private let pipeline: OCRPipeline
     /// PDF 解码（ADR-027：经 EAL 注入，调用方不直接实例化具体引擎——
     /// 第四轮全仓审查修复：importPDF 曾直接 new PDFKitDecoder() 绕过注册表）。
@@ -62,7 +64,8 @@ final class DocumentsState {
          understandingEngine: (any TextUnderstanding)? = nil,
          codeIndex: (any CodeIndex & UnitIndex)? = nil,
          problemStore: HealthProblemStore? = nil,
-         dataChange: AppDataChangeCenter? = nil) {
+         dataChange: AppDataChangeCenter? = nil,
+         pendingCards: PendingCardStore? = nil) {
         self.store = store
         self.pipeline = pipeline
         self.decoder = decoder ?? EngineRegistry.shared.resolve(ImageDecodingFactory.self)
@@ -75,6 +78,7 @@ final class DocumentsState {
         self.codeIndex = codeIndex
         self.problemStore = problemStore
         self.dataChange = dataChange
+        self.pendingCards = pendingCards
     }
 
     struct PendingDocument: Identifiable, Equatable {
@@ -111,6 +115,9 @@ final class DocumentsState {
         var qualityTags: [String]
         var confirmationSet: OcrConfirmationSet
         var isPrescription: Bool
+        /// FR6.9 待办卡 raw_text 源（识别原文行拼接；BR-002 不丢内容）。
+        /// 跳过稍后暂存时必须随卡落库（pending_card.raw_text NOT NULL）
+        var ocrText: String
         /// 「替换」裁决的旧文档（第四轮全仓审查修复：旧版归档延后到新版本
         /// 确认入库**之后**——此前 resolveDuplicate 先归档旧版再弹确认卡，
         /// 用户取消 = 旧版已从活跃列表消失 + 新版未入库，资料凭空少一份）
@@ -243,6 +250,7 @@ final class DocumentsState {
                             sha256: String, replaceDocumentId: UUID? = nil) async -> ImportDraft? {
         var fields: [CandidateField] = []
         var tags: [String] = []
+        var linesText = ""     // FR6.9：识别原文（跳过稍后 pending_card.raw_text 源）
         var effectiveDocType = docType
         var isPrescription = PrescriptionFieldMapper.isPrescriptionDocType(
             docType, prescriptionLabel: prescriptionDocTypeLabel)
@@ -250,6 +258,7 @@ final class DocumentsState {
             do {
                 let result = try await pipeline.run(imageData: processedData)
                 tags = result.qualityTags
+                linesText = result.lines.joined(separator: "\n")
                 if result.failed {
                     // FR6.6：识别引擎失败必须可见，绝不静默按「无文字」入库
                     lastImportError = L10n.docImportFailed
@@ -321,7 +330,9 @@ final class DocumentsState {
                            origin: origin, sha256: sha256, originalData: originalData, processedData: processedData,
                            mimeType: mimeType, qualityTags: tags,
                            confirmationSet: OcrConfirmationSet(fields: fields),   // confirm-ok: F6/F9 图片入库 OCR 确认集是合法产出方（非语音路径），FR17.13 只约束语音草稿确认
-                           isPrescription: isPrescription, replaceDocumentId: replaceDocumentId)
+                           isPrescription: isPrescription,
+                           ocrText: linesText,
+                           replaceDocumentId: replaceDocumentId)
     }
 
     /// FR11.4 懒创建触发判定（病历类 = 检验报告/门诊病历标签；按**保存时**
@@ -343,7 +354,7 @@ final class DocumentsState {
     }
 
     /// 理解层字段键 → 确认卡展示标签（L10n 单出口）
-    private static func fieldLabel(forKey key: String) -> String {
+    static func fieldLabel(forKey key: String) -> String {
         switch key {
         case "dept": return L10n.ocFieldDept
         case "report_date": return L10n.ocFieldReportDate
@@ -352,11 +363,15 @@ final class DocumentsState {
         case "chief_complaint": return L10n.ocFieldChiefComplaint
         case "diagnosis": return L10n.ocFieldDiagnosis
         case "treatment": return L10n.ocFieldTreatment
+        case "drug_name": return L10n.prescriptionFieldDrugName
+        case "prescribed_at": return L10n.ocFieldReportDate
+        case "hospital": return L10n.prescriptionFieldHospital
+        case "doctor": return L10n.prescriptionFieldDoctor
         default: return key
         }
     }
 
-    private static let prescriptionLabels = PrescriptionFieldMapper.Labels(
+    static let prescriptionLabels = PrescriptionFieldMapper.Labels(
         hospital: L10n.prescriptionFieldHospital, doctor: L10n.prescriptionFieldDoctor,
         frequency: L10n.prescriptionFieldFrequency, dosage: L10n.prescriptionFieldDosage,
         drugName: L10n.prescriptionFieldDrugName, other: L10n.prescriptionFieldOther)
@@ -364,6 +379,39 @@ final class DocumentsState {
     /// 用户在 `DocumentImportConfirmView` 确认全部字段后调用：原件+处理版双落盘，
     /// document_file 直接以 grade='C' 写入（确认已完成，不再经 D），处方文档额外落
     /// 一条 prescription 行（复用现有 hospital/doctor/advice_text 列，不新增迁移）。
+    /// FR6.9 跳过稍后：部分完整草稿暂存待办卡（D 级草稿，BR-003 表级排除
+    /// ——pending_card 不进搜索索引/FTS/AI 检索/导出/时间轴）。缺失字段与
+    /// 已识别字段快照随卡落库；同源文档重复跳过复用既有卡（§21.1）。
+    /// 返回 nil = 未注入仓（预览/测试）或写入失败（错误经 lastImportError
+    /// 可见，绝不静默假装已存）。
+    func skipForLater(draft: ImportDraft, assessment: CompletenessAssessment) async -> Bool {
+        guard let pendingCards else { return false }
+        guard assessment.level == .partiallyComplete else { return false }
+        let cardKind = draft.isPrescription ? "prescription" : "document_file"
+        let incomplete = assessment.missingFields.map {
+            IncompleteField(key: $0.key, confidence: 0, reason: L10n.pendingCardReasonOcrMissing)
+        }
+        var partial: [String: String] = [:]
+        for field in draft.confirmationSet.fields where !field.value.isEmpty {
+            partial[field.key] = field.value
+        }
+        let draft2 = PendingCardDraft(
+            patientId: draft.patientId,
+            sourceType: "ocr",
+            sourceDocId: nil,   // 文档尚未入库（确认卡阶段无 doc id）
+            cardKind: cardKind,
+            incompleteFields: incomplete,
+            partialData: partial,
+            rawText: draft.ocrText)
+        do {
+            try await pendingCards.upsert(draft2)
+            return true
+        } catch {
+            lastImportError = L10n.docImportFailed
+            return false
+        }
+    }
+
     func commitDraft(_ draft: ImportDraft) async {
         // 错误态归零：保存失败必须可见、成功必须清除残留（第四轮全仓审查
         // 修复——确认卡以 lastImportError 判成功/失败并决定是否 dismiss）

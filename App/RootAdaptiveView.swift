@@ -267,6 +267,7 @@ private struct PreviewRoot: View {
             // 且 Preview 无法充当该崩溃族的回归探针）。预览禁触生产目录：
             // originalsDir 用临时目录，调度器用内存桩。
             .environment(container.notificationCenterState)
+            .environment(PendingCardCenterState(store: container.pendingCards))
             .environment(DocumentsState(
                 store: container.documents,
                 pipeline: OCRPipeline(
@@ -274,7 +275,8 @@ private struct PreviewRoot: View {
                     grayscaleDecoder: GrayscaleImageDecoder()),
                 ocrAuthorized: { true },
                 originalsDir: FileManager.default.temporaryDirectory,
-                prescriptionStore: container.prescriptions))
+                prescriptionStore: container.prescriptions,
+                pendingCards: container.pendingCards))
             .environment(AIHistoryState(store: container.aiHistory, audit: container.audit))
             .environment(ExportWizardState(service: container.pdfExport))
             .environment(F16DeviceState(reader: container.healthReader,

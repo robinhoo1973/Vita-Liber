@@ -157,7 +157,8 @@ struct VitaLiberApp: App {
             understandingEngine: EngineRegistry.shared.resolve(TextUnderstandingFactory.self),
             codeIndex: container.codeIndex,
             problemStore: container.healthProblems,
-            dataChange: dataChange))
+            dataChange: dataChange,
+            pendingCards: container.pendingCards))
         _aiHistoryState = State(initialValue: AIHistoryState(store: container.aiHistory, audit: container.audit))
         _exportWizardState = State(initialValue: ExportWizardState(service: container.pdfExport))
         _f16DeviceState = State(initialValue: F16DeviceState(
@@ -255,6 +256,7 @@ struct VitaLiberApp: App {
             .environment(observationState)
             .environment(dataChangeCenter)
             .environment(container.notificationCenterState)
+            .environment(PendingCardCenterState(store: container.pendingCards))
             .environment(entitlementStore)
             .environment(trendState)
             .environment(voiceNoteState)

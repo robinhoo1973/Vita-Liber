@@ -15,6 +15,8 @@ struct DocumentImportConfirmView: View {
     @State var draft: DocumentsState.ImportDraft
     @State private var showRegionImage = false
     @State private var saving = false
+    /// FR6.9 跳过稍后确认对话框（部分完整才可入口；严重缺失不建卡退回原文）
+    @State private var showSkipDialog = false
     /// 保存结果单一告警入口（审查修复：多 alert 挂同层视图节点时 SwiftUI
     /// 只呈现最后一个——保存失败/处方未同步/健康问题入口统一为枚举单 alert）
     @State private var activeAlert: ConfirmAlert?
@@ -26,6 +28,29 @@ struct DocumentImportConfirmView: View {
         /// FR11.4：病历类文档保存成功后提供「创建健康问题」入口
         case healthProblemOffer
         var id: String { rawValue }
+    }
+
+    /// FR6.9 完整度评估（Domain 纯函数，data-flow §17 单一事实源）：
+    /// 处方路径经标签身份归一稳定键；其余文档按 document_file 口径
+    /// （仅 doc_type 必填——期一无类型化卡片字段，恒完整，不提供跳过）。
+    private var completeness: CompletenessAssessment {
+        if draft.isPrescription {
+            return CompletenessEvaluator.assess(
+                fields: CompletenessEvaluator.prescriptionFieldDrafts(
+                    fields: draft.confirmationSet.fields,
+                    labels: DocumentsState.prescriptionLabels),
+                cardKind: "prescription")
+        }
+        return CompletenessEvaluator.assess(
+            fields: draft.confirmationSet.fields.map {
+                FieldDraft(key: $0.key, value: $0.value, confidence: $0.confidence)
+            },
+            cardKind: "document_file")
+    }
+
+    /// 缺失字段的展示标签（跳过确认对话框列出）。
+    private var missingFieldLabels: [String] {
+        completeness.missingFields.map { DocumentsState.fieldLabel(forKey: $0.key) }
     }
 
     var body: some View {
@@ -113,6 +138,21 @@ struct DocumentImportConfirmView: View {
                         }
                     }
                 }
+                // FR6.9 跳过稍后出口：仅部分完整可暂存待办卡（§17.3 对照表）；
+                // 严重缺失不建卡、识别文本退回原始记录（无此按钮，用户取消即
+                // 放弃本卡——原文保留在 document 流程外，不产生任何实体）。
+                if completeness.level == .partiallyComplete {
+                    Section {
+                        Button {
+                            showSkipDialog = true
+                        } label: {
+                            Label(L10n.docConfirmSkipLater, systemImage: "clock.badge.checkmark")
+                        }
+                        .accessibilityIdentifier("SP-12.skip-later")
+                    } footer: {
+                        Text(L10n.docConfirmSkipTitle)
+                    }
+                }
             }
             .navigationTitle(L10n.docConfirmTitle)
             .navigationBarTitleDisplayMode(.inline)
@@ -165,6 +205,30 @@ struct DocumentImportConfirmView: View {
                 Text(L10n.healthProblemOfferBody)
             case nil:
                 EmptyView()
+            }
+        }
+        // FR6.9 §18.4 交互契约：确认卡「跳过稍后」→ 列出缺失字段 → 用户确认
+        // 才建卡；取消 = 丢弃本次识别（不创建任何实体）
+        .confirmationDialog(L10n.docConfirmSkipTitle, isPresented: $showSkipDialog,
+                            titleVisibility: .visible) {
+            Button(L10n.docConfirmSkipConfirm) {
+                skipForLater()
+            }
+            Button(L10n.docConfirmSkipCancel, role: .cancel) { }
+        } message: {
+            Text(missingFieldLabels.joined(separator: "、"))
+        }
+    }
+
+    /// FR6.9 跳过稍后执行：写 pending_card（D 级草稿）后 dismiss。
+    /// 写入失败必须可见（§7 不静默吞），不得按「已保存」关闭。
+    private func skipForLater() {
+        Task {
+            let saved = await docs.skipForLater(draft: draft, assessment: completeness)
+            if saved {
+                dismiss()
+            } else {
+                activeAlert = .saveFailed
             }
         }
     }
