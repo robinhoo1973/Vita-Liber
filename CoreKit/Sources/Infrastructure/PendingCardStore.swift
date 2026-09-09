@@ -1,6 +1,7 @@
 #if os(iOS) || os(macOS)
 import Foundation
 import GRDB
+import Domain
 
 /// FR6.9 待办卡（pending_card 表，data-flow §3.5/§18 单一事实源）：
 /// 「跳过稍后」暂存的 D 级草稿卡。本仓承载建卡/查询/生命周期推进/级联移除；

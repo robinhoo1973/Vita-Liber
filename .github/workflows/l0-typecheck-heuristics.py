@@ -211,6 +211,40 @@ def main():
                         )
                         break
 
+    # ---- 家族 A（CoreKit 内部变体）：Infrastructure 引用 Domain/Protocols
+    # 符号缺 import —— CI 34295670215 实证：PendingCardStore 整体被
+    # #if os(iOS)||os(macOS) 守卫、Linux 上文件空编译，缺 import Domain
+    # 本地 swift build/test 与 swiftc -parse 均不可见，仅 macOS swift test
+    # 暴露（'cannot find type in scope'）。文本扫描与平台守卫无关，可左移。
+    infra_dir = root / "CoreKit/Sources/Infrastructure"
+    infra_files = sorted(infra_dir.rglob("*.swift")) if infra_dir.exists() else []
+    scanned["A2"] = len(infra_files)
+    for f in infra_files:
+        try:
+            txt = f.read_text(encoding="utf-8")
+        except Exception:
+            continue
+        imports = set()
+        raw_lines = txt.splitlines()
+        for raw in raw_lines:
+            m = IMPORT_RE.match(raw.strip())
+            if m:
+                imports.add(m.group(1))
+        for mod in ("Domain", "Protocols"):
+            if mod in imports:
+                continue
+            for lineno, code in code_lines(txt):
+                if exempted(raw_lines, lineno):
+                    continue
+                for s in sorted(mod_syms[mod]):
+                    if re.search(r"\b" + re.escape(s) + r"\b", code):
+                        fails.append(
+                            f"{f.relative_to(root)}:{lineno}: 引用 {s}（CoreKit.{mod}）"
+                            f"但未 import {mod}——平台守卫文件在 Linux 空编译，"
+                            f"仅 macOS 编译暴露（CI 34295670215 同族）"
+                        )
+                        break
+
     # ---- 家族 B：Date 与 Double/TimeInterval 混比较（App/Tests/UITests）
     b_files = list(a_files)
     scanned["B"] = len(b_files)
@@ -402,9 +436,9 @@ def main():
                     f"或加 // tius-ok: 豁免"
                 )
 
-    print(f"__SCANNED__ A={scanned.get('A',0)} B={scanned.get('B',0)} "
-          f"C={scanned.get('C',0)} D={scanned.get('D',0)} E={scanned.get('E',0)} "
-          f"F={scanned.get('F',0)}")
+    print(f"__SCANNED__ A={scanned.get('A',0)} A2={scanned.get('A2',0)} "
+          f"B={scanned.get('B',0)} C={scanned.get('C',0)} D={scanned.get('D',0)} "
+          f"E={scanned.get('E',0)} F={scanned.get('F',0)}")
     seen = set()
     for msg in fails:
         if msg in seen:
