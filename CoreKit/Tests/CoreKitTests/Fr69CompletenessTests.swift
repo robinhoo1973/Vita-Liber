@@ -251,11 +251,19 @@ struct PendingCardDedupTests {
         let dbQueue = try DatabaseQueue(configuration: GRDBStore.configuration())
         // GRDB 重载纪律：async 测试函数内 write 解析到 async 重载须 await
         // （GoldenMigrationTests 同步函数用同步重载无此问题——L1 34299153156 族）
+        let patient = UUID()
         try await dbQueue.write { db in
             try db.execute(sql: SchemaV2.ddl)
+            // 外键纪律（L0 [3] 恒开）：pending_card.patient_id REFERENCES
+            // patient_profile(id)——先落成员行再建卡（L1 34299816294 族）
+            try db.execute(sql: """
+                INSERT INTO patient_profile
+                  (id, display_name, relation, created_at, updated_at)
+                VALUES (?, '王女士', 'self', ?, ?)
+                """, arguments: [patient.uuidString, Date().timeIntervalSince1970,
+                                 Date().timeIntervalSince1970])
         }
         let store = PendingCardStore(writer: dbQueue)   // actor init 非隔离，同步可调
-        let patient = UUID()
         let draft = PendingCardDraft(patientId: patient, sourceType: "ocr", sourceDocId: nil,
                                      cardKind: "prescription",
                                      incompleteFields: [IncompleteField(key: "dosage", confidence: 0.5)],
