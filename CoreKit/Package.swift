@@ -14,7 +14,11 @@ let package = Package(
         // 漂移——sherpa-onnx master 的 binaryTarget 版本/校验和随上游推进变化，
         // 未钉版会让绿色流水线因上游变更无故转红
         .package(url: "https://github.com/k2-fsa/sherpa-onnx.git",
-                 revision: "6f5327bad87a18ee7dec59b9d3a2b10435189cf3")
+                 revision: "3e409338959097c6518998c9b72757db257f5f6f")
+        // 钉版依据（CI 3444xxxxxx 实证）：master 与 6f5327b 均含 2026-09-08
+        // 提交 f2b550d 引入的 compute_confidence 包装器调用，而二进制仍为
+        // v1.13.7（头文件无该字段）——「extra argument」编译红。钉到
+        // f2b550d 前一提交 3e40933：包装器与二进制一致。
     ],
     targets: [
         .target(name: "Domain"),

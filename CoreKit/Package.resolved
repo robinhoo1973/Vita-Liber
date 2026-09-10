@@ -1,22 +1,22 @@
 {
-  "pins" : [
+  "pins": [
     {
-      "identity" : "grdb.swift",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/groue/GRDB.swift.git",
-      "state" : {
-        "revision" : "2cf6c756e1e5ef6901ebae16576a7e4e4b834622",
-        "version" : "6.29.3"
+      "identity": "grdb.swift",
+      "kind": "remoteSourceControl",
+      "location": "https://github.com/groue/GRDB.swift.git",
+      "state": {
+        "revision": "2cf6c756e1e5ef6901ebae16576a7e4e4b834622",
+        "version": "6.29.3"
       }
     },
     {
-      "identity" : "sherpa-onnx",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/k2-fsa/sherpa-onnx.git",
-      "state" : {
-        "revision" : "6f5327bad87a18ee7dec59b9d3a2b10435189cf3"
+      "identity": "sherpa-onnx",
+      "kind": "remoteSourceControl",
+      "location": "https://github.com/k2-fsa/sherpa-onnx.git",
+      "state": {
+        "revision": "3e409338959097c6518998c9b72757db257f5f6f"
       }
     }
   ],
-  "version" : 2
+  "version": 2
 }
