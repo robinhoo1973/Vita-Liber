@@ -158,17 +158,20 @@ final class M1bAcceptanceTests: XCTestCase {
         XCTAssertEqual(pending.count, 4, "四级触发点必须全部预排")
         XCTAssertTrue(pending.keys.allSatisfy { $0.hasPrefix("apt-\(aptId.uuidString)") })
 
-        // 改期 → 旧 tiers 全取消 + 新 tiers 重排（幂等）
+        // 改期 → 旧 tiers 全取消 + 新 tiers 重排（幂等）；
+        // 改期契约：旧行置 cancelled（cancel_reason=rescheduled）、返回新行 id
+        //（FR10.7 状态机）——后续完成/状态断言必须作用于新行。
         let newStarts = startsAt.addingTimeInterval(86400)
-        try await apts.reschedule(id: aptId, startsAt: newStarts, now: Date())
+        let newAptId = try await apts.reschedule(id: aptId, startsAt: newStarts, now: Date())
         pending = try await scheduler.pending()
         XCTAssertEqual(pending.count, 4)
 
-        // 标记完成 → completed + 补录就诊（评审修正 P0：闭环含 F4 encounter）
-        try await apts.complete(id: aptId)
+        // 标记完成 → completed + 补录就诊（评审修正 P0：闭环含 F4 encounter；
+        // 仅 scheduled 可完成——旧行已 cancelled，用新行 id）
+        try await apts.complete(id: newAptId)
         let status = try await store.writer.read { db in
             try String.fetchOne(db, sql: "SELECT status FROM appointment WHERE id = ?",
-                                arguments: [aptId.uuidString])
+                                arguments: [newAptId.uuidString])
         }
         XCTAssertEqual(status, "completed")
         let encounterCount = try await store.writer.read { db in
