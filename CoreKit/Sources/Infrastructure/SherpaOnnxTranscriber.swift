@@ -1,40 +1,94 @@
 import Foundation
-import AVFoundation
 import Domain
 import Protocols
-import sherpaOnnx
+#if os(iOS)
+import AVFoundation
+import SherpaOnnx
 
-/// ADR-023 单轨制（V3.101）：FunASR-Nano GGUF + FSMN-VAD GGUF 端侧离线语音识别。
+/// ADR-023 主轨（V3.102）：sherpa-onnx FunASR-Nano 端侧离线语音识别。
 ///
-/// **音频零落盘是类型级保证**（FR17.7）：本实现内部的 PCM 缓冲仅存在于内存，
-/// 调用方经 `TranscriptionEngine` 协议拿不到任何 URL/Data/文件句柄。
+/// 资产缺失/加载失败时由组合根回落基线轨 `SFSpeechTranscriber`（功能完备、零资产），
+/// 生产装配绝不回落契约桩（FR17.6 降级语义：先试全部真实引擎，不可用才降级手输）。
 ///
-/// 音频管线：`AVAudioEngine` 采集 → 重采样至 16kHz 单声道 Float →
-/// `SherpaOnnxOfflineRecognizer` 批量解码 → `TranscriptionResult`。
+/// 会话模型（FR17.1 / tech-spec §5.13）：
+/// - `transcribe` = 一次按住说话：启动采集后挂起，直到 `finish(sessionID:)`（松手）
+///   或 `cancel(sessionID:)`/`endAudio()` 恢复；
+/// - 采集期间部分结果泵每 ~0.8s 对新到样本增量解码，`onPartial` 回传
+///   「已提交段 + 当前部分」——FR17.1 部分结果流实时上屏，不得只在松手后出全文；
+/// - `maxSegmentSeconds - 5` 计时主动换段（TranscriptSessionAccumulator 同口径）：
+///   解码提交该段、出清缓冲——长录音不丢字且内存有界；
+/// - 松手收尾解码剩余缓冲，返回各段拼接（segments 逐段可回溯）。
+///
+/// 音频零落盘（FR17.7）：PCM 缓冲仅存在于内存 `SampleBuffer`，协议签名无
+/// URL/Data 通道，调用方拿不到也交不出音频字节。
 public actor SherpaOnnxTranscriber: TranscriptionEngine {
     public nonisolated let capability: TranscriptionCapability
 
     private let recognizer: SherpaOnnxOfflineRecognizer
-    private let modelSampleRate: Int = 16_000
+    private let modelSampleRate = 16_000
 
-    // Audio capture state
+    // 采集状态（引擎单会话；VoiceDictationModel 已按 press 串行，引擎侧再守卫）
     private var audioEngine: AVAudioEngine?
-    private var isCapturing = false
     private var sessionActive = false
+    private var pendingSession: (id: UUID, continuation: CheckedContinuation<Void, Error>)?
 
-    // Thread-safe buffer for real-time audio tap callback
-    private let bufferLock = NSLock()
-    private var sampleBuffer: [Float] = []
+    // 会话内累计状态（Domain 纯值累加器：引擎与视图模型共用，见 Domain/TranscriptSession.swift）
+    private var accumulator = TranscriptSessionAccumulator()
+    /// 已提交段之后、尚未解码的样本起点（旋转换段时清零）
+    private var lastDecodedSampleCount = 0
+    /// 上次部分结果解码窗口的起点（避免每次对全窗重复解码）
+    private var lastPartialSampleCount = 0
+
+    // MARK: - 实时线程安全的样本缓冲
+
+    /// tap 回调运行在 AVAudioEngine 实时线程，不能触碰 actor 状态——
+    /// 缓冲下沉为锁保护类（Swift 5/6 并发模式均可编译；锁只护样本数组）。
+    private final class SampleBuffer: @unchecked Sendable {
+        private let lock = NSLock()
+        private var samples: [Float] = []
+        var count: Int { lock.withLock { samples.count } }
+        func append(_ new: [Float]) { lock.withLock { samples.append(contentsOf: new) } }
+        /// 取走全部样本（旋转换段出清用）
+        @discardableResult
+        func drain() -> [Float] {
+            lock.withLock {
+                defer { samples.removeAll(keepingCapacity: true) }
+                return samples
+            }
+        }
+        /// 从 index 起的尾部（index 越界视为空）
+        func tail(from index: Int) -> [Float] {
+            lock.withLock { index < samples.count ? Array(samples[index...]) : [] }
+        }
+        func clear() { lock.withLock { samples.removeAll(keepingCapacity: true) } }
+    }
+    private let buffer = SampleBuffer()
+
+    /// 采集闭包捕获盒：AVAudioFormat/AVAudioConverter 非 Sendable，
+    /// 装箱后 @Sendable tap 闭包在 Swift 6 严格并发下亦可编译。
+    private final class TapContext: @unchecked Sendable {
+        let targetFormat: AVAudioFormat
+        let converter: AVAudioConverter
+        let hwSampleRate: Double
+        let modelSampleRate: Int
+        init(targetFormat: AVAudioFormat, converter: AVAudioConverter,
+             hwSampleRate: Double, modelSampleRate: Int) {
+            self.targetFormat = targetFormat
+            self.converter = converter
+            self.hwSampleRate = hwSampleRate
+            self.modelSampleRate = modelSampleRate
+        }
+    }
 
     // MARK: - Init
 
     public init?() {
-        guard let config = Self.buildConfig() else { return nil }
+        guard let config = Self.buildConfig(hotwords: "") else { return nil }
         var cfg = config
-        let r = SherpaOnnxOfflineRecognizer(config: &cfg)
-        // nil check: SherpaOnnxOfflineRecognizer may return nil if models are missing
-        guard r != nil else { return nil }
-        recognizer = r!
+        // 注意：sherpa-onnx 包装器 init 不可失败，模型加载失败会 fatalError——
+        // buildConfig 已预检文件存在与非零体积；文件损坏的残余风险由
+        // FR17.17 资产供应契约（§2.2 sha256 清单校验）兜底，校验失败回落基线轨。
+        recognizer = SherpaOnnxOfflineRecognizer(config: &cfg)
         capability = Self.probeCapability()
     }
 
@@ -50,205 +104,357 @@ public actor SherpaOnnxTranscriber: TranscriptionEngine {
     }
 
     public nonisolated func finish(sessionID: UUID) async {
-        await _finish()
+        await _resumeSession(id: sessionID)
     }
 
     public nonisolated func cancel(sessionID: UUID) async {
-        await _cancel()
+        await _cancelSession(id: sessionID)
     }
 
     public nonisolated func discardSession(sessionID: UUID) async {
-        await _cancel()
+        await _cancelSession(id: sessionID)
     }
 
     public nonisolated func endAudio() async {
-        await _finish()
+        await _resumeAnySession()
     }
 
-    // MARK: - Private implementations (avoid nonisolated warnings)
+    // MARK: - 会话实现
 
     private func _transcribe(
         _ request: TranscriptionRequest,
         onPartial: (@Sendable (String) -> Void)?
     ) async throws -> TranscriptionResult {
-        try await startCapture()
-        defer { Task { await stopCapture() } }
+        // 会话超驰（异常路径防悬挂）：上一会话未结先按取消结清
+        if let previous = pendingSession {
+            pendingSession = nil
+            previous.continuation.resume(throwing: CancellationError())
+        }
+        stopCaptureSync(clearBuffer: true)
+        buffer.clear()
+        accumulator = TranscriptSessionAccumulator()
+        lastDecodedSampleCount = 0
+        lastPartialSampleCount = 0
 
-        // Wait for finish/cancel signal (cooperative cancellation)
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            // The continuation is immediately resumed — the real work happens
-            // in startCapture/stopCapture. Callers use finish(sessionID:) or
-            // cancel(sessionID:) to end the session.
-            continuation.resume()
+        // 词表注入（FR17.15 混说词表 ≤100）：主语言 + 混说开关开时注入
+        // 已确认药名/医疗单位/英文医学词；空词表 = 不注入（混说开关关）。
+        if !request.contextualStrings.isEmpty {
+            let hotwords = request.contextualStrings
+                .prefix(MixedSpeechVocabulary.limit)
+                .joined(separator: "\n")
+            if var cfg = Self.buildConfig(hotwords: hotwords) {
+                recognizer.setConfig(config: &cfg)
+            }
         }
 
-        // Decode accumulated audio
-        let samples: [Float] = bufferLock.lock()
-        defer { bufferLock.unlock() }
-        let result = recognizer.decode(samples: sampleBuffer, sampleRate: Int32(modelSampleRate))
-        sampleBuffer.removeAll(keepingCapacity: true)
+        try await startCapture()
 
-        let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let resolvedLocale = capability.resolvedLocale(for: request.localeIdentifier) ?? "zh-Hans-CN"
+        // 部分结果泵：采集期间定时增量解码（子任务非结构化，defer 显式收）
+        let pump = Task { [weak self] in
+            while !Task.isCancelled {
+                // 睡眠取消 = 泵停（CancellationError 是预期控制流，不是错误）
+                do { try await Task.sleep(nanoseconds: 800_000_000) }
+                catch { break }
+                if Task.isCancelled { break }
+                await self?.pumpPartial(onPartial: onPartial)
+            }
+        }
 
-        onPartial?(text)
+        do {
+            try await withTaskCancellationHandler {
+                // 显式标注 CheckedContinuation<Void, Error>：泛型 T 无法从 body 推断
+                // （body 返回 Void，T 不由 body 锚定）
+                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                    // 取消可能在挂起注册前到达（startCapture 期间）——先查后挂，
+                    // 否则被取消的任务会永远悬挂、采集不停
+                    if Task.isCancelled {
+                        continuation.resume(throwing: CancellationError())
+                        return
+                    }
+                    pendingSession = (request.sessionID, continuation)
+                }
+            } onCancel: {
+                Task { await self._cancelSession(id: request.sessionID) }
+            }
+        } catch {
+            pump.cancel()
+            stopCaptureSync(clearBuffer: true)
+            throw error
+        }
+        pump.cancel()
 
+        // 松手收尾：解码剩余未解码样本（从旋转边界起整窗解码，保证收尾质量）
+        stopCaptureSync(clearBuffer: false)
+        let undecoded = buffer.tail(from: lastDecodedSampleCount)
+        buffer.clear()
+        if !undecoded.isEmpty {
+            accumulator.updatePartial(decode(undecoded))
+        }
+        let segments = accumulator.finish()
+        let text = segments.filter { !$0.isEmpty }.joined(separator: " ")
         guard !text.isEmpty else {
             throw TranscriptionError.noSpeechDetected
         }
-
+        onPartial?(text)
+        let locale = request.localeIdentifier
         return TranscriptionResult(
             text: text,
-            confidence: 0.9,
-            resolvedLocale: resolvedLocale,
-            segmented: false
+            confidence: Self.confidence(for: locale),
+            resolvedLocale: Self.resolvedLocale(for: locale),
+            segmented: segments.count > 1,
+            segments: segments,
+            completion: .final
         )
     }
 
-    private func _finish() {
-        stopCaptureSync()
+    private func pumpPartial(onPartial: (@Sendable (String) -> Void)?) {
+        guard pendingSession != nil else { return }
+        let count = buffer.count
+        let newSamples = count - lastPartialSampleCount
+        // 至少 0.5s 新音频才做一次部分解码（控制 CPU；短片段解码质量差但仅作显示）
+        guard newSamples >= modelSampleRate / 2 else { return }
+
+        // 主动换段（FR17.1：上限前 5s 换段；长录音不丢字 + 内存有界）。
+        // 提交窗口必须从旋转边界（lastDecodedSampleCount）起整窗解码——
+        // 只提交最新增量窗会把此前 ~55s 音频随 drain 永久丢弃（丢字）
+        let rotationLimit = Double(max(5, capability.maxSegmentSeconds - 5))
+        if Double(count) / Double(modelSampleRate) >= rotationLimit {
+            accumulator.commit(decode(buffer.tail(from: lastDecodedSampleCount)))
+            buffer.drain()
+            lastDecodedSampleCount = 0
+            lastPartialSampleCount = 0
+            onPartial?(accumulator.displayText)
+            return
+        }
+        let window = buffer.tail(from: lastPartialSampleCount)
+        lastPartialSampleCount = count
+        accumulator.updatePartial(decode(window))
+        onPartial?(accumulator.displayText)
     }
 
-    private func _cancel() {
-        stopCaptureSync()
-        bufferLock.lock()
-        sampleBuffer.removeAll()
-        bufferLock.unlock()
+    private func decode(_ samples: [Float]) -> String {
+        guard !samples.isEmpty else { return "" }
+        let result = recognizer.decode(samples: samples, sampleRate: modelSampleRate)
+        return result.text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    // MARK: - Audio Capture
+    // MARK: - 会话收尾（按 sessionID 单次生效）
+
+    private func _resumeSession(id: UUID) {
+        guard let session = pendingSession, session.id == id else { return }
+        pendingSession = nil
+        session.continuation.resume()
+    }
+
+    private func _cancelSession(id: UUID) {
+        // 未登记的废弃请求：不得清场他人会话（协议契约「IDs are single-use」）
+        guard let session = pendingSession, session.id == id else { return }
+        pendingSession = nil
+        session.continuation.resume(throwing: CancellationError())
+    }
+
+    private func _resumeAnySession() {
+        guard let session = pendingSession else { return }
+        pendingSession = nil
+        session.continuation.resume()
+    }
+
+    // MARK: - 音频采集
 
     private func startCapture() async throws {
-        guard !isCapturing else { return }
+        guard audioEngine == nil else { return }
 
         #if os(iOS)
         let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.record, mode: .measurement, options: [.duckOthers])
-        try session.setActive(true)
+        switch session.recordPermission {
+        case .denied:
+            throw TranscriptionError.unauthorized
+        default:
+            break
+        }
+        do { try session.setCategory(.record, mode: .measurement, options: [.duckOthers]) }
+        catch { throw TranscriptionError.engineUnavailable }
+        do { try session.setActive(true) }
+        catch { throw TranscriptionError.engineUnavailable }
         sessionActive = true
         #endif
 
         let engine = AVAudioEngine()
-        audioEngine = engine
-        let input = engine.inputNode
-        let hwFormat = input.outputFormat(forBus: 0)
-        guard hwFormat.sampleRate > 0, hwFormat.channelCount > 0 else {
-            throw TranscriptionError.engineUnavailable
-        }
-
-        // Target format: 16kHz mono float32 (sherpa-onnx requirement)
-        let targetFormat = AVAudioFormat(
-            commonFormat: .pcmFormatFloat32,
-            sampleRate: Double(modelSampleRate),
-            channels: 1,
-            interleaved: false
-        )!
-
-        // Converter for sample rate + channel count
-        guard let converter = AVAudioConverter(from: hwFormat, to: targetFormat) else {
-            throw TranscriptionError.engineUnavailable
-        }
-
-        let lock = bufferLock
-        input.installTap(onBus: 0, bufferSize: 4096, format: hwFormat) { [weak self] buffer, _ in
-            guard let self, self.isCapturing, buffer.frameLength > 0 else { return }
-
-            // Convert to 16kHz mono
-            var status = AVAudioConverterInputStatus.haveData
-            let outputFrameCapacity = AVAudioFrameCount(
-                Double(buffer.frameLength) * Double(self.modelSampleRate) / hwFormat.sampleRate
-            ) + 16
-            guard let outputBuffer = AVAudioPCMBuffer(
-                pcmFormat: targetFormat,
-                frameCapacity: outputFrameCapacity
-            ) else { return }
-
-            converter.convert(to: outputBuffer, status: &status) { _, outStatus in
-                outStatus.pointee = .haveData
-                return buffer
+        var tapInstalled = false
+        do {
+            let input = engine.inputNode
+            let hwFormat = input.outputFormat(forBus: 0)
+            guard hwFormat.sampleRate > 0, hwFormat.channelCount > 0 else {
+                throw TranscriptionError.engineUnavailable
+            }
+            guard let targetFormat = AVAudioFormat(
+                commonFormat: .pcmFormatFloat32,
+                sampleRate: Double(modelSampleRate),
+                channels: 1,
+                interleaved: false
+            ), let converter = AVAudioConverter(from: hwFormat, to: targetFormat) else {
+                throw TranscriptionError.engineUnavailable
             }
 
-            guard outputBuffer.frameLength > 0 else { return }
+            let tap = TapContext(
+                targetFormat: targetFormat, converter: converter,
+                hwSampleRate: hwFormat.sampleRate, modelSampleRate: modelSampleRate
+            )
+            let buffer = buffer
+            input.installTap(onBus: 0, bufferSize: 4096, format: hwFormat) { pcm, _ in
+                guard pcm.frameLength > 0 else { return }
+                var status = AVAudioConverterInputStatus.haveData
+                let outputFrameCapacity = AVAudioFrameCount(
+                    Double(pcm.frameLength) * Double(tap.modelSampleRate) / tap.hwSampleRate
+                ) + 16
+                guard let outputBuffer = AVAudioPCMBuffer(
+                    pcmFormat: tap.targetFormat, frameCapacity: outputFrameCapacity
+                ) else { return }
+                // 输入块纪律（审查修复）：同一 chunk 只供给一次——converter 会反复
+                // 调用输入块填满输出缓冲，若每次都返回同一 buffer，会把 chunk 头部
+                // 重复转换（每 4096 帧 ≈16 帧复制），识别器输入出现周期性回声
+                var supplied = false
+                _ = tap.converter.convert(to: outputBuffer, status: &status) { _, outStatus in
+                    if supplied {
+                        outStatus.pointee = .noDataNow
+                        return nil
+                    }
+                    supplied = true
+                    outStatus.pointee = .haveData
+                    return pcm
+                }
+                guard outputBuffer.frameLength > 0,
+                      let ptr = outputBuffer.floatChannelData?[0] else { return }
+                buffer.append(Array(UnsafeBufferPointer(start: ptr, count: Int(outputBuffer.frameLength))))
+            }
+            tapInstalled = true
 
-            // Copy float samples to lock-protected buffer
-            let ptr = outputBuffer.floatChannelData![0]
-            let count = Int(outputBuffer.frameLength)
-            let samples = Array(UnsafeBufferPointer(start: ptr, count: count))
-
-            lock.lock()
-            self.sampleBuffer.append(contentsOf: samples)
-            lock.unlock()
+            audioEngine = engine
+            engine.prepare()
+            try engine.start()
+        } catch {
+            // 起不来的引擎必须彻底拆除（审查修复）：无论失败发生在 tap 前还是后，
+            // 已装的 tap 必须摘除（残留 tap 会让下一次 installTap 在共享输入总线 0
+            // 上抛 NSException），会话类别必须还原（.record 常驻会让其后
+            // FR17.13 回读/FR19.3 播报路由到听筒、麦克风隐私指示常亮）。
+            if tapInstalled {
+                engine.inputNode.removeTap(onBus: 0)
+            }
+            audioEngine = nil
+            deactivateAudioSession()
+            throw (error as? TranscriptionError) ?? TranscriptionError.engineUnavailable
         }
-
-        engine.prepare()
-        try engine.start()
-        isCapturing = true
     }
 
-    private func stopCaptureSync() {
-        guard isCapturing else { return }
-        isCapturing = false
-        audioEngine?.stop()
-        audioEngine?.inputNode.removeTap(onBus: 0)
-        audioEngine = nil
+    /// 会话类别是共享单例状态：停在 `.record` 会把其后 FR17.13 回读 / FR19.3
+    /// 播报路由到听筒——停采后还原到 `.playback` 再停用。
+    private func deactivateAudioSession() {
         #if os(iOS)
-        if sessionActive {
-            try? AVAudioSession.sharedInstance().setActive(
-                false, options: [.notifyOthersOnDeactivation]
-            )
-            sessionActive = false
-        }
+        guard sessionActive else { return }
+        do { try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.duckOthers]) }
+        catch { /* 类别还原失败不阻断主流程 */ }
+        do { try AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation]) }
+        catch { /* 还原失败不阻断主流程 */ }
+        sessionActive = false
         #endif
     }
 
-    // MARK: - Model Configuration
+    private func stopCaptureSync(clearBuffer: Bool) {
+        if clearBuffer { buffer.clear() }
+        guard let engine = audioEngine else { return }
+        audioEngine = nil
+        // 拆除顺序：先摘 tap 断流，再停引擎（松手收尾不丢字）
+        engine.inputNode.removeTap(onBus: 0)
+        engine.stop()
+        deactivateAudioSession()
+    }
 
-    private static func buildConfig() -> sherpaOnnxOfflineRecognizerConfig? {
+    // MARK: - 模型配置
+
+    /// FunASR-Nano = encoder_adaptor.onnx + llm.gguf + embedding.onnx + tokenizer.txt
+    /// 四件套（sherpa-onnx `sherpaOnnxOfflineFunASRNanoModelConfig` 专用槽位，
+    /// 不是 paraformer 单文件）。`hotwords` 为会话级词表注入（FR17.15，≤100 词）。
+    private static func buildConfig(hotwords: String) -> SherpaOnnxOfflineRecognizerConfig? {
         guard let bundle = Bundle.main.path(forResource: "SherpaOnnxModels", ofType: nil) else {
             return nil
         }
+        let dir = (bundle as NSString).appendingPathComponent("funasr-nano")
+        let paths = [
+            "encoder_adaptor.onnx", "llm.gguf", "embedding.onnx", "tokenizer.txt",
+        ].map { (dir as NSString).appendingPathComponent($0) }
 
-        let tokens = (bundle as NSString).appendingPathComponent("funasr_tokens.txt")
-        let model = (bundle as NSString).appendingPathComponent("funasr-nano.onnx")
-        let vadModel = (bundle as NSString).appendingPathComponent("fsmn-vad.onnx")
-
-        guard FileManager.default.fileExists(atPath: tokens),
-              FileManager.default.fileExists(atPath: model) else {
-            return nil
+        // 资产预检（FR17.17 资产供应契约）：缺件/空文件一律回落基线轨，
+        // 不得进入 sherpa-onnx 包装器的 fatalError 路径
+        for path in paths {
+            let attrs: [FileAttributeKey: Any]
+            do { attrs = try FileManager.default.attributesOfItem(atPath: path) }
+            catch { return nil }
+            if (attrs[.size] as? NSNumber)?.intValue ?? 0 <= 0 { return nil }
         }
 
+        let funasrNano = sherpaOnnxOfflineFunASRNanoModelConfig(
+            encoderAdaptor: paths[0],
+            llm: paths[1],
+            embedding: paths[2],
+            tokenizer: paths[3],
+            hotwords: hotwords
+        )
         let modelConfig = sherpaOnnxOfflineModelConfig(
-            tokens: tokens,
-            paraformer: sherpaOnnxOfflineParaformerModelConfig(model: model),
+            tokens: "",
+            funasrNano: funasrNano,
             numThreads: 2,
             provider: "cpu",
             debug: 0
         )
-
-        var config = sherpaOnnxOfflineRecognizerConfig(
-            featConfig: sherpaOnnxFeatureConfig(sampleRate: Int32(modelSampleRate), featureDim: 80),
+        return sherpaOnnxOfflineRecognizerConfig(
+            featConfig: sherpaOnnxFeatureConfig(sampleRate: 16_000, featureDim: 80),
             modelConfig: modelConfig,
             lmConfig: sherpaOnnxOfflineLMConfig(),
             decodingMethod: "greedy_search",
             maxActivePaths: 4
         )
-
-        // Attach VAD config if the model file exists
-        if FileManager.default.fileExists(atPath: vadModel) {
-            // VAD is configured separately; the offline recognizer handles it internally
-        }
-
-        return config
     }
 
+    // MARK: - 能力与置信度（能力诚实，FR17.15/V3.94）
+
     private static func probeCapability() -> TranscriptionCapability {
-        // sherpa-onnx FunASR-Nano supports Mandarin (+ dialects via contextualStrings).
-        // English support depends on the model; report conservatively.
-        let locales: Set<String> = ["zh-Hans-CN", "zh-Hant-TW", "en-US"]
+        // 六语种选择面 = Domain 方言矩阵单一事实源（FR17.15 能力矩阵不硬编码第二份）；
+        // FunASR-Nano 为普通话基线模型：yue/en/nan/wuu/川 = T2 尽力识别
+        // （热词注入 + 低置信强制复核），resolvedLocale 如实回显普通话。
+        let locales = Set(EngineCapabilityProfile.dialectMatrix()
+            .flatMap { $0.supportedLocales.map(\.identifier) })
         return TranscriptionCapability(
-            supportsLongForm: true,    // No 60s limit like SFSpeechRecognizer
-            maxSegmentSeconds: .max,   // Unlimited segments
+            supportsLongForm: true,  // 引擎内部自换段，无 60s 截断
+            maxSegmentSeconds: 60,   // 主动换段间隔（FR17.1：上限前 5s 换段）
             availableLocales: locales
         )
     }
+
+    /// T2 尽力识别：实际解码语言恒为普通话基线模型——resolvedLocale 如实回显，
+    /// `isBestEffortFallback` 由 VoiceDictationModel 对比请求语言得出。
+    private static func resolvedLocale(for requested: String) -> String {
+        TranscriptionLocale.normalizedIdentifier(requested) == "zh-hans-cn"
+            ? "zh-Hans-CN"
+            : TranscriptionSegmentation.fallbackLocale
+    }
+
+    /// V3.94 置信度纪律：不得恒 0.9。T1（普通话）0.85；T2 尽力识别 0.4——
+    /// 落 <0.5，FR17.4 低置信强制复核闸可达（FR17.15「低置信强制复核」）。
+    private static func confidence(for requested: String) -> Double {
+        TranscriptionLocale.normalizedIdentifier(requested) == "zh-hans-cn" ? 0.85 : 0.4
+    }
 }
+#else
+/// 非 iOS 编译占位（macOS/Linux 测试宿主）：sherpa-onnx 二进制仅在 iOS
+/// 链接（Package.swift 产品条件 .iOS）——主轨在非 iOS 平台恒不可用，
+/// 工厂回落基线轨 SFSpeechTranscriber（功能完备、零资产）。
+/// 生产（iOS）路径不受本占位影响。
+public actor SherpaOnnxTranscriber: TranscriptionEngine {
+    public nonisolated let capability: TranscriptionCapability
+    public init?() { self.capability = .baseline(); return nil }
+    public func transcribe(_ request: TranscriptionRequest,
+                           onPartial: (@Sendable (String) -> Void)?) async throws -> TranscriptionResult {
+        throw TranscriptionError.engineUnavailable
+    }
+}
+#endif

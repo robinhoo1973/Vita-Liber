@@ -805,7 +805,7 @@ done
 if ! grep -q "TextUnderstandingFactory" "$APP/CoreKit/Sources/Infrastructure/EngineFactories.swift"; then
   fail "第 8 工厂 TextUnderstandingFactory 未定义（EngineFactories.swift）"; tu_missing=1
 fi
-if ! grep -q "registerIfAbsent(TextUnderstandingFactory.make" "$APP/CoreKit/Sources/Infrastructure/EngineFactories.swift"; then
+if ! grep -Eq "registerIfAbsent\(TextUnderstandingFactory\.make|install\(TextUnderstandingFactory\.self\)" "$APP/CoreKit/Sources/Infrastructure/EngineFactories.swift"; then
   fail "组合根未注册 TextUnderstandingFactory（registerDefaultEngines）"; tu_missing=1
 fi
 if ! grep -q "SU-M2-UNDERSTANDING" "$APP/CoreKit/Tests/CoreKitTests/TextUnderstandingTests.swift"; then

@@ -161,20 +161,13 @@ struct EngineAbstractionTests {
         #expect(!(resolvedSensitive is StubImageCompressor))
     }
 
-    @Test("registerDefaultEngines 注册全部 9 个工厂")
+    @Test("registerDefaultEngines 注册全部 9 个工厂且幂等零构造")
     func 全部九工厂注册() {
         let r = EngineRegistry()
-        let ctx = EngineContext.current
-
-        r.register(OCRRecognizerFactory.make(ctx), for: OCRRecognizerFactory.self)
-        r.register(SpeechSynthesisFactory.make(ctx), for: SpeechSynthesisFactory.self)
-        r.register(TranscriptionEngineFactory.make(ctx), for: TranscriptionEngineFactory.self)
-        r.register(ImagePreprocessingFactory.make(ctx), for: ImagePreprocessingFactory.self)
-        r.register(ImageDecodingFactory.make(ctx), for: ImageDecodingFactory.self)
-        r.register(ImageCompressingFactory.make(ctx), for: ImageCompressingFactory.self)
-        r.register(SensitiveMediaProtectionFactory.make(ctx), for: SensitiveMediaProtectionFactory.self)
-        r.register(TextUnderstandingFactory.make(ctx), for: TextUnderstandingFactory.self)
-        r.register(TextRefinerFactory.make(ctx), for: TextRefinerFactory.self)
+        // 审查修正：直接调用被验函数（此前手抄 9 行 register 只验证测试自身的清单，
+        // 生产函数漏注册/改序也恒绿）；二次调用验证「先查后造」零构造语义
+        r.registerDefaultEngines()
+        r.registerDefaultEngines()
 
         #expect(r.isRegistered(OCRRecognizerFactory.self))
         #expect(r.isRegistered(SpeechSynthesisFactory.self))
