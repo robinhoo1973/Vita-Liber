@@ -1,0 +1,86 @@
+# ============================================================================
+# ASC Build 状态查询（诊断资产，2026-09-10 新增）
+#
+# 场景：主流水线的复核窗口只覆盖上传后 6 分钟——Apple 处理偶发 >40 分钟
+# （build 320.1/321.1 实证：受理无错误但长时间未入 builds 列表），
+# 处理中/失败的最终状态此前无从查询。本 workflow 手动派发（ubuntu，
+# 约 1 分钟）查询 App Store Connect 最近 10 个 build 的处理状态，
+# 是发布前的独立核对通道。
+# ============================================================================
+name: ASC Build Status
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: '查询 ASC builds 状态'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 查询 App Store Connect 最近 builds
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_KEY_ISSUER_ID: ${{ secrets.APPLE_API_KEY_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "$APPLE_API_KEY_P8" ]; then
+            echo "::error::APPLE_API_KEY_P8 未配置"
+            exit 1
+          fi
+          python3 -m venv /tmp/asc-status-venv
+          export PATH="/tmp/asc-status-venv/bin:$PATH"
+          python3 -m pip install --disable-pip-version-check --no-cache-dir \
+            "PyJWT==2.10.1" "cryptography==44.0.0" >/tmp/asc-status-pip.log 2>&1
+          umask 077
+          mkdir -p "$RUNNER_TEMP/keys"
+          echo "$APPLE_API_KEY_P8" | base64 -d > "$RUNNER_TEMP/keys/AuthKey.p8"
+          KEYFILE="$RUNNER_TEMP/keys/AuthKey.p8" \
+            KEYID="$APPLE_API_KEY_ID" ISS="$APPLE_API_KEY_ISSUER_ID" \
+          python3 - <<'PYEOF'
+          import json, os, time, urllib.request, urllib.error
+          import jwt
+          key = open(os.environ['KEYFILE']).read()
+          now = int(time.time())
+          tok = jwt.encode({'iss': os.environ['ISS'], 'iat': now, 'exp': now + 1200,
+                            'aud': 'appstoreconnect-v1'},
+                           key, algorithm='ES256',
+                           headers={'alg': 'ES256', 'kid': os.environ['KEYID']})
+          BASE = 'https://api.appstoreconnect.apple.com/v1'
+          def call(url):
+              req = urllib.request.Request(url)
+              req.add_header('Authorization', 'Bearer ' + tok)
+              req.add_header('Accept', 'application/json')
+              try:
+                  with urllib.request.urlopen(req) as r:
+                      return json.loads(r.read() or b'{}')
+              except urllib.error.HTTPError as e:
+                  return {'errors': json.loads(e.read() or b'{}')}
+          d = call(f'{BASE}/apps?filter[bundleId]=com.vitaliber.app')
+          if 'errors' in d or not d.get('data'):
+              print('App 解析失败:', json.dumps(d.get('errors', d), ensure_ascii=False)[:300])
+              raise SystemExit(1)
+          app = d['data'][0]['id']
+          builds = call(f'{BASE}/builds?sort=-uploadedDate&limit=10&filter[app]={app}')
+          if 'errors' in builds:
+              print('builds 查询失败:', json.dumps(builds['errors'], ensure_ascii=False)[:300])
+              raise SystemExit(1)
+          bs = builds.get('data', [])
+          if not bs:
+              print('无任何 build 记录')
+          for b in bs:
+              a = b['attributes']
+              mc = a.get('missingExportCompliance')
+              comp = 'YES' if mc is True else ('NO' if mc is False else '?')
+              print('BUILD %s state=%s compliance=%s uploaded=%s' % (
+                  a.get('version', '?'), a.get('processingState', '?'), comp,
+                  a.get('uploadedDate', '?')))
+          # 阻塞判定：近 2 个 build 若仍不在列表 = 处理中 >10 分钟，输出提示
+          latest = bs[0]['attributes'] if bs else {}
+          print('状态判定依据：最新入列 build =', latest.get('version', '无'))
+          PYEOF
+          rm -rf "$RUNNER_TEMP/keys"
