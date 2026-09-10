@@ -35,18 +35,9 @@ struct EngineAbstractionTests {
         let ocr = OCRRecognizerFactory.make(.current)
         let tts = SpeechSynthesisFactory.make(.current)
         let tx = TranscriptionEngineFactory.make(.current)
-        // 运行时动态断言：只钉「Apple 平台不得回落契约桩」（TC-MT-ENGINEBUS-01
-        // 调用方零感知具体引擎——具体实现类不烘焙进抽象层验收；实现类更换
-        // 不得让本套件误红），其余平台返回契约桩
-        #if os(iOS) || os(macOS)
         #expect(!(ocr is StubImageTextRecognizer))
         #expect(!(tts is RecordingSpeechSynthesizer))
         #expect(!(tx is StubTranscriptionEngine))
-        #else
-        #expect(ocr is StubImageTextRecognizer)
-        #expect(tts is RecordingSpeechSynthesizer)
-        #expect(tx is StubTranscriptionEngine)
-        #endif
     }
 
     // TC-MT-ENGINEBUS-03：离线守卫一票否决
@@ -164,24 +155,14 @@ struct EngineAbstractionTests {
         let resolvedCompress: any ImageCompressing = r.resolve(ImageCompressingFactory.self)
         let resolvedSensitive: any SensitiveMediaProtection = r.resolve(SensitiveMediaProtectionFactory.self)
 
-        // 运行时动态断言：只钉「Apple 平台不得回落契约桩」（TC-MT-ENGINEBUS-01
-        // 调用方零感知具体引擎——具体实现类不烘焙进抽象层验收；实现类更换
-        // 不得让本套件误红），其余平台返回契约桩
-        #if os(iOS) || os(macOS)
         #expect(!(resolvedPreproc is StubImagePreprocessor))
         #expect(!(resolvedDecode is StubPDFDecoder))
         #expect(!(resolvedCompress is StubImageCompressor))
         #expect(!(resolvedSensitive is StubImageCompressor))
-        #else
-        #expect(resolvedPreproc is StubImagePreprocessor)
-        #expect(resolvedDecode is StubPDFDecoder)
-        #expect(resolvedCompress is StubImageCompressor)
-        #expect(resolvedSensitive is StubImageCompressor)
-        #endif
     }
 
-    @Test("registerDefaultEngines 注册全部 7 个工厂")
-    func 全部七工厂注册() {
+    @Test("registerDefaultEngines 注册全部 9 个工厂")
+    func 全部九工厂注册() {
         let r = EngineRegistry()
         let ctx = EngineContext.current
 
@@ -192,6 +173,8 @@ struct EngineAbstractionTests {
         r.register(ImageDecodingFactory.make(ctx), for: ImageDecodingFactory.self)
         r.register(ImageCompressingFactory.make(ctx), for: ImageCompressingFactory.self)
         r.register(SensitiveMediaProtectionFactory.make(ctx), for: SensitiveMediaProtectionFactory.self)
+        r.register(TextUnderstandingFactory.make(ctx), for: TextUnderstandingFactory.self)
+        r.register(TextRefinerFactory.make(ctx), for: TextRefinerFactory.self)
 
         #expect(r.isRegistered(OCRRecognizerFactory.self))
         #expect(r.isRegistered(SpeechSynthesisFactory.self))
@@ -200,6 +183,8 @@ struct EngineAbstractionTests {
         #expect(r.isRegistered(ImageDecodingFactory.self))
         #expect(r.isRegistered(ImageCompressingFactory.self))
         #expect(r.isRegistered(SensitiveMediaProtectionFactory.self))
+        #expect(r.isRegistered(TextUnderstandingFactory.self))
+        #expect(r.isRegistered(TextRefinerFactory.self))
 
         guard case .success = r.assertOfflineOnly() else {
             #expect(Bool(false), "全部端侧引擎应通过离线守卫"); return
