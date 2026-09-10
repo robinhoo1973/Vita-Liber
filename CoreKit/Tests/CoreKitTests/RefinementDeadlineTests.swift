@@ -5,7 +5,9 @@ import Testing
 @testable import Infrastructure
 
 // binds: SU-M15-VOICE (FR17.18 bounded, single-flight, offline refinement)
-@Suite("Refinement deadline and prompt boundary")
+// .serialized：本套件为时序敏感（截止/取消/单飞断言），并行执行时其他
+// 74 套件的 CPU 争抢会扭曲调度时序造成误红（CI 3444xxxxxx 实证）。
+@Suite("Refinement deadline and prompt boundary", .serialized)
 struct RefinementDeadlineTests {
     @Test(.timeLimit(.minutes(1)))
     func deadlineReturnsBeforeNoncooperativeWorkAndDoesNotAdmitMoreWorkers() async {
@@ -139,15 +141,20 @@ struct RefinementDeadlineTests {
 
     @Test func completionAndErrorsReleaseTheSingleFlightSlot() async {
         let runner = RefinementDeadline()
-        let first = await runner.run(original: "native", timeout: .seconds(1)) {
+        // 5s 松弛（CI 3444xxxxxx 实证）：本用例操作瞬时完成，1s 超时在
+        // hosted runner 高负载（74 套件并行 + 冷缓存全量构建）下会被调度
+        // 饿死超过 1s——计时器按设计定案 .timedOut，测试误红。断言语义
+        // 不变（accepted/unavailable 区分），只放宽瞬时用例的截止余量；
+        // 刻意测截止行为的用例保持 1s 紧约束。
+        let first = await runner.run(original: "native", timeout: .seconds(5)) {
             TranscriptRevision(original: "native", suggested: "native.", safety: .accepted)
         }
         #expect(first.safety == .accepted)
-        let failed = await runner.run(original: "other", timeout: .seconds(1)) {
+        let failed = await runner.run(original: "other", timeout: .seconds(5)) {
             throw GenerationFailure.failed
         }
         #expect(failed.safety == .unavailable)
-        let next = await runner.run(original: "next", timeout: .seconds(1)) {
+        let next = await runner.run(original: "next", timeout: .seconds(5)) {
             TranscriptRevision(original: "next", suggested: "next.", safety: .accepted)
         }
         #expect(next.safety == .accepted)
@@ -166,7 +173,8 @@ struct RefinementDeadlineTests {
 
     @Test func foreignSourceResultCannotReplaceTheRequestedOriginal() async {
         let runner = RefinementDeadline()
-        let result = await runner.run(original: "native", timeout: .seconds(1)) {
+        // 5s 松弛：同 completionAndErrors 的负载实证（瞬时操作不测截止精度）。
+        let result = await runner.run(original: "native", timeout: .seconds(5)) {
             TranscriptRevision(original: "other", suggested: "other.", safety: .accepted)
         }
         #expect(result.safety == .unavailable)
