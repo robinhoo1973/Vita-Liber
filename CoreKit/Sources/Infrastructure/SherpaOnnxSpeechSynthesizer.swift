@@ -29,10 +29,33 @@ public final class SherpaOnnxSpeechSynthesizer: SpeechSynthesizing, @unchecked S
     private let synthQueue = DispatchQueue(label: "com.vitaliber.tts.sherpa")
 
     public init?() {
-        guard let config = Self.buildConfig() else { return nil }
-        var cfg = config
-        // 包装器 init 不可失败、创建失败时持空指针——buildConfig 已预检
-        // 四件套文件存在且非零体积（FR17.17 资产供应契约同 ASR 侧纪律）
+        // 配置类型来自 SherpaOnnxC 模块（上游 xcframework modulemap 定义，
+        // 不是 SPM 公开产品）——客户端代码不得命名其类型，配置构造与消费
+        // 必须同处一个函数内、全程类型推断（CI 实证「cannot find type ...
+        // in scope」）。包装器 init 不可失败、创建失败时持空指针——
+        // assetPaths 已预检七件套存在且非零体积（FR17.17 同 ASR 侧纪律）。
+        guard let paths = Self.assetPaths() else { return nil }
+        let supertonic = sherpaOnnxOfflineTtsSupertonicModelConfig(
+            durationPredictor: paths[0],
+            textEncoder: paths[1],
+            vectorEstimator: paths[2],
+            vocoder: paths[3],
+            ttsJson: paths[4],
+            unicodeIndexer: paths[5],
+            voiceStyle: paths[6]
+        )
+        var cfg = sherpaOnnxOfflineTtsConfig(
+            model: sherpaOnnxOfflineTtsModelConfig(
+                supertonic: supertonic,
+                numThreads: 2,
+                debug: 0,
+                provider: "cpu"),
+            ruleFsts: "",
+            ruleFars: "",
+            // maxNumSentences: -1 = 全部句子单批处理（长文回读不分批截断）
+            maxNumSentences: -1,
+            silenceScale: 0.2
+        )
         tts = SherpaOnnxOfflineTtsWrapper(config: &cfg)
         voiceMap = Self.loadVoiceMap()
     }
@@ -148,47 +171,24 @@ public final class SherpaOnnxSpeechSynthesizer: SpeechSynthesizing, @unchecked S
 
     // MARK: - Model Configuration
 
-    private static func buildConfig() -> SherpaOnnxOfflineTtsConfig? {
+    /// 资产预检（FR17.17 资产供应契约）：缺件/空文件一律回落，不进
+    /// fatalError/空指针路径。纯 Swift 返回——不含 SherpaOnnxC 模块类型。
+    private static func assetPaths() -> [String]? {
         guard let bundle = Bundle.main.path(forResource: "SherpaOnnxModels", ofType: nil) else {
             return nil
         }
         let dir = (bundle as NSString).appendingPathComponent("supertonic-3")
-        let required = [
+        let paths = [
             "duration_predictor.onnx", "text_encoder.onnx", "vector_estimator.onnx",
             "vocoder.onnx", "tts.json", "unicode_indexer.bin", "voice.bin",
         ].map { (dir as NSString).appendingPathComponent($0) }
-
-        // 资产预检（FR17.17 资产供应契约）：缺件/空文件一律回落，不进 fatalError/空指针路径
-        for path in required {
+        for path in paths {
             let attrs: [FileAttributeKey: Any]
             do { attrs = try FileManager.default.attributesOfItem(atPath: path) }
             catch { return nil }
             if (attrs[.size] as? NSNumber)?.intValue ?? 0 <= 0 { return nil }
         }
-
-        let supertonic = sherpaOnnxOfflineTtsSupertonicModelConfig(
-            durationPredictor: required[0],
-            textEncoder: required[1],
-            vectorEstimator: required[2],
-            vocoder: required[3],
-            ttsJson: required[4],
-            unicodeIndexer: required[5],
-            voiceStyle: required[6]
-        )
-        let modelConfig = sherpaOnnxOfflineTtsModelConfig(
-            supertonic: supertonic,
-            numThreads: 2,
-            debug: 0,
-            provider: "cpu"
-        )
-        // maxNumSentences: -1 = 全部句子单批处理（长文回读不分批截断）
-        return sherpaOnnxOfflineTtsConfig(
-            model: modelConfig,
-            ruleFsts: "",
-            ruleFars: "",
-            maxNumSentences: -1,
-            silenceScale: 0.2
-        )
+        return paths
     }
 }
 #else

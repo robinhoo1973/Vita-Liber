@@ -83,12 +83,11 @@ public actor SherpaOnnxTranscriber: TranscriptionEngine {
     // MARK: - Init
 
     public init?() {
-        guard let config = Self.buildConfig(hotwords: "") else { return nil }
-        var cfg = config
         // 注意：sherpa-onnx 包装器 init 不可失败，模型加载失败会 fatalError——
-        // buildConfig 已预检文件存在与非零体积；文件损坏的残余风险由
+        // makeRecognizer 已预检文件存在与非零体积；文件损坏的残余风险由
         // FR17.17 资产供应契约（§2.2 sha256 清单校验）兜底，校验失败回落基线轨。
-        recognizer = SherpaOnnxOfflineRecognizer(config: &cfg)
+        guard let recognizer = Self.makeRecognizer(hotwords: "") else { return nil }
+        self.recognizer = recognizer
         capability = Self.probeCapability()
     }
 
@@ -142,9 +141,7 @@ public actor SherpaOnnxTranscriber: TranscriptionEngine {
             let hotwords = request.contextualStrings
                 .prefix(MixedSpeechVocabulary.limit)
                 .joined(separator: "\n")
-            if var cfg = Self.buildConfig(hotwords: hotwords) {
-                recognizer.setConfig(config: &cfg)
-            }
+            applyHotwords(hotwords)
         }
 
         try await startCapture()
@@ -371,10 +368,10 @@ public actor SherpaOnnxTranscriber: TranscriptionEngine {
 
     // MARK: - 模型配置
 
-    /// FunASR-Nano = encoder_adaptor.onnx + llm.gguf + embedding.onnx + tokenizer.txt
-    /// 四件套（sherpa-onnx `sherpaOnnxOfflineFunASRNanoModelConfig` 专用槽位，
-    /// 不是 paraformer 单文件）。`hotwords` 为会话级词表注入（FR17.15，≤100 词）。
-    private static func buildConfig(hotwords: String) -> SherpaOnnxOfflineRecognizerConfig? {
+    /// 资产预检（FR17.17 资产供应契约）：缺件/空文件一律回落基线轨，
+    /// 不得进入 sherpa-onnx 包装器的 fatalError 路径。纯 Swift 返回——
+    /// 不含 SherpaOnnxC 模块类型。
+    private static func assetPaths() -> [String]? {
         guard let bundle = Bundle.main.path(forResource: "SherpaOnnxModels", ofType: nil) else {
             return nil
         }
@@ -382,37 +379,64 @@ public actor SherpaOnnxTranscriber: TranscriptionEngine {
         let paths = [
             "encoder_adaptor.onnx", "llm.gguf", "embedding.onnx", "tokenizer.txt",
         ].map { (dir as NSString).appendingPathComponent($0) }
-
-        // 资产预检（FR17.17 资产供应契约）：缺件/空文件一律回落基线轨，
-        // 不得进入 sherpa-onnx 包装器的 fatalError 路径
         for path in paths {
             let attrs: [FileAttributeKey: Any]
             do { attrs = try FileManager.default.attributesOfItem(atPath: path) }
             catch { return nil }
             if (attrs[.size] as? NSNumber)?.intValue ?? 0 <= 0 { return nil }
         }
+        return paths
+    }
 
-        let funasrNano = sherpaOnnxOfflineFunASRNanoModelConfig(
-            encoderAdaptor: paths[0],
-            llm: paths[1],
-            embedding: paths[2],
-            tokenizer: paths[3],
-            hotwords: hotwords
-        )
-        let modelConfig = sherpaOnnxOfflineModelConfig(
-            tokens: "",
-            funasrNano: funasrNano,
-            numThreads: 2,
-            provider: "cpu",
-            debug: 0
-        )
-        return sherpaOnnxOfflineRecognizerConfig(
+    /// 构造识别器（含资产预检 + FunASR-Nano 四件套专用槽位 + 热词）。
+    /// 注意：配置类型来自 SherpaOnnxC 模块（上游 xcframework modulemap
+    /// 定义，不是 SPM 公开产品）——客户端代码**不得命名其类型**，配置
+    /// 构造与消费必须同处一个函数内、全程类型推断（CI 实证：
+    /// 「cannot find type ... in scope」）。`hotwords` 为会话级词表注入
+    /// （FR17.15，≤100 词）。
+    private static func makeRecognizer(hotwords: String) -> SherpaOnnxOfflineRecognizer? {
+        guard let paths = assetPaths() else { return nil }
+        var cfg = sherpaOnnxOfflineRecognizerConfig(
             featConfig: sherpaOnnxFeatureConfig(sampleRate: 16_000, featureDim: 80),
-            modelConfig: modelConfig,
+            modelConfig: sherpaOnnxOfflineModelConfig(
+                tokens: "",
+                funasrNano: sherpaOnnxOfflineFunASRNanoModelConfig(
+                    encoderAdaptor: paths[0],
+                    llm: paths[1],
+                    embedding: paths[2],
+                    tokenizer: paths[3],
+                    hotwords: hotwords),
+                numThreads: 2,
+                provider: "cpu",
+                debug: 0),
             lmConfig: sherpaOnnxOfflineLMConfig(),
             decodingMethod: "greedy_search",
-            maxActivePaths: 4
-        )
+            maxActivePaths: 4)
+        return SherpaOnnxOfflineRecognizer(config: &cfg)
+    }
+
+    /// 会话级热词注入（FR17.15）：重建同构配置并 setConfig。与
+    /// makeRecognizer 的构造重复是刻意的——配置类型不可命名（见上），
+    /// 无法提取返回该类型的共享构造函数。
+    private func applyHotwords(_ hotwords: String) {
+        guard let paths = Self.assetPaths() else { return }
+        var cfg = sherpaOnnxOfflineRecognizerConfig(
+            featConfig: sherpaOnnxFeatureConfig(sampleRate: 16_000, featureDim: 80),
+            modelConfig: sherpaOnnxOfflineModelConfig(
+                tokens: "",
+                funasrNano: sherpaOnnxOfflineFunASRNanoModelConfig(
+                    encoderAdaptor: paths[0],
+                    llm: paths[1],
+                    embedding: paths[2],
+                    tokenizer: paths[3],
+                    hotwords: hotwords),
+                numThreads: 2,
+                provider: "cpu",
+                debug: 0),
+            lmConfig: sherpaOnnxOfflineLMConfig(),
+            decodingMethod: "greedy_search",
+            maxActivePaths: 4)
+        recognizer.setConfig(config: &cfg)
     }
 
     // MARK: - 能力与置信度（能力诚实，FR17.15/V3.94）
