@@ -798,7 +798,10 @@ jobs:
           # BUILD（= CFBundleVersion），登记结论与合规告警才指向本次 build。
           EXPECTED="${{ needs.version.outputs.build }}"
           found=0
-          for i in $(seq 1 8); do
+          # 12×30s = 6 分钟窗口（2026-09-10 审计：4 分钟窗口在 Apple 处理
+          # 慢日会假阴性——build 320.1 实测 >4 分钟仍未入列，受理本身
+          # 无错误；窗口延长降噪，不改变「精确匹配才报已登记」的语义）
+          for i in $(seq 1 12); do
             TOKEN=$(mk_token)
             if [ -z "$TOKEN" ]; then echo "::warning::JWT 生成失败，跳过复核"; exit 0; fi
             if [ -z "$APP" ]; then echo "::warning::仍无 App 记录（上传未自动创建），请手动在 ASC 创建后重跑"; break; fi
@@ -835,7 +838,7 @@ jobs:
             sleep 30
           done
           if [ "$found" = "0" ]; then
-            echo "注意：约 4 分钟内本次 build ${EXPECTED} 仍未出现在列表。请查 App Store Connect → 活动/电子邮件"
+            echo "注意：约 6 分钟内本次 build ${EXPECTED} 仍未出现在列表。请查 App Store Connect → 活动/电子邮件"
             echo "确认 Apple 处理是否报错（如 Invalid Binary / Missing Compliance / ITMS-90189 重复构建号）。"
           fi
 
