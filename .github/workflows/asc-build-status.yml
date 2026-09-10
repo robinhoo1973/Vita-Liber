@@ -82,5 +82,21 @@ jobs:
           # 阻塞判定：近 2 个 build 若仍不在列表 = 处理中 >10 分钟，输出提示
           latest = bs[0]['attributes'] if bs else {}
           print('状态判定依据：最新入列 build =', latest.get('version', '无'))
+          # buildUpload 后续状态（2026-09-10 增补：受理后处理中/失败的定论
+          # 只存在于 buildUpload 资源——builds 列表对处理中的 build 不可见）
+          ups = call(f'{BASE}/apps/{app}/buildUploads?limit=6')
+          if 'errors' in ups:
+              print('buildUploads 查询失败:', json.dumps(ups['errors'], ensure_ascii=False)[:300])
+              raise SystemExit(1)
+          for u in ups.get('data', [])[:6]:
+              a = u.get('attributes', {})
+              st = a.get('state', {})
+              print('UPLOAD %s.%s state=%s' % (
+                  a.get('cfBundleShortVersionString', '?'),
+                  a.get('cfBundleVersion', '?'), st.get('state', '?')))
+              if st.get('errors'):
+                  print('  !! errors:', json.dumps(st['errors'], ensure_ascii=False)[:800])
+              if st.get('warnings'):
+                  print('  !! warnings:', json.dumps(st['warnings'], ensure_ascii=False)[:800])
           PYEOF
           rm -rf "$RUNNER_TEMP/keys"
