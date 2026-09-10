@@ -10,18 +10,21 @@ let package = Package(
     products: [.library(name: "CoreKit", targets: ["Domain", "Protocols", "Infrastructure"])],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "6.29.0"),
-        // 供应链纪律（tech-spec §2.2 准入清单④）：锁定 revision，禁止 branch: master
-        // 漂移——sherpa-onnx master 的 binaryTarget 版本/校验和随上游推进变化，
-        // 未钉版会让绿色流水线因上游变更无故转红
-        .package(url: "https://github.com/k2-fsa/sherpa-onnx.git",
-                 revision: "5e4232db78d0150801ae3244c9e2ddc41e5e02d8")
-        // 钉版依据（CI 3444xxxxxx 三轮连续实证）：上游 2026-08 起把包装器
-        // 连续推前于二进制三次——f2b550d compute_confidence、3e40933
-        // window_shift_ratio、42a2b68 attenuation_limit_db（均「extra
-        // argument」编译红，其 Package.swift 仍引用旧版二进制）。
-        // 5e4232d（2026-07-30，#3828「Add missing files for SPM」）：三字段
-        // 均无、配 v1.13.4 二进制；本仓引擎使用的全部 sherpa API 符号已
-        // 逐一核对在位。上游重发一致二进制前保持此钉版，升级须重跑符号核对。
+        // ══ sherpa-onnx 主轨：临时退出构建（2026-09-10）══
+        // 退出原因：App Store 拒绝三个 build（320.1/321.1/322.1）——
+        // ITMS-90208「Invalid Bundle：VitaLiber.app/Frameworks/onnxruntime.framework
+        // does not support the minimum OS Version specified in the Info.plist」。
+        // 根因（IPA 拆解实证）：Xcode 26 将 onnxruntime-libs 的静态
+        // xcframework 转成内嵌 dylib（LC_BUILD_VERSION minos=17.0，SDK 26.5），
+        // 而框架 Info.plist 仍为上游的 MinimumOSVersion=15.1——二进制与
+        // plist 内部矛盾被 Apple 90208 校验拒绝。非本仓代码可修
+        // （静态 framework 形态二进制依赖 + Xcode 26 SPM 处理缺陷）。
+        // 复归条件（满足其一）：①上游 onnxruntime-libs 发布无该缺陷的
+        // 二进制；②Xcode 修复静态 framework 嵌入处理；③改用非 framework
+        // 形态（纯 .a）的 onnxruntime 分发。复归步骤：恢复下方依赖/产品/
+        // exclude 三项 + EngineFactories 的 sherpa 主轨 + 钉版三问+一复验。
+        // .package(url: "https://github.com/k2-fsa/sherpa-onnx.git",
+        //          revision: "5e4232db78d0150801ae3244c9e2ddc41e5e02d8")
     ],
     targets: [
         .target(name: "Domain"),
@@ -33,15 +36,15 @@ let package = Package(
                 "Protocols",
                 // GRDB：iOS 与 macOS 都链接（macOS = CoreKit 测试宿主）。
                 .product(name: "GRDB", package: "GRDB.swift",
-                         condition: .when(platforms: [.iOS, .macOS])),
-                // sherpa-onnx：仅 iOS 链接——引擎文件在非 iOS 平台是编译占位
-                // （#if os(iOS) 守卫），macOS 测试宿主不下载数百 MB 二进制。
-                .product(name: "sherpa-onnx", package: "sherpa-onnx",
-                         condition: .when(platforms: [.iOS]))
-            ]),
+                         condition: .when(platforms: [.iOS, .macOS]))
+            ],
+            // sherpa 主轨临时退出构建（见上方注释）：引擎文件保留在仓、
+            // 移出目标编译，工厂回落基线轨 SFSpeech（功能完备零资产）。
+            exclude: ["SherpaOnnxTranscriber.swift", "SherpaOnnxSpeechSynthesizer.swift"]),
         .testTarget(
             name: "CoreKitTests",
             dependencies: ["Domain", "Protocols", "Infrastructure"],
+            exclude: ["SherpaOnnxEngineTests.swift"],
             resources: [.copy("Fixtures")])
     ],
     cxxLanguageStandard: .cxx17

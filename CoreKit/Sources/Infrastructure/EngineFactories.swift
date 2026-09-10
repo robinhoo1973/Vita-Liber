@@ -32,11 +32,14 @@ public enum TranscriptionEngineFactory: EngineFactory {
     public typealias Capability = any TranscriptionEngine
     public static var onDeviceOnly: Bool { true }
     public static func make(_ context: EngineContext) -> any TranscriptionEngine {
-        // ADR-023（V3.102 审查修正）：主轨 sherpa-onnx（资产就绪时）；资产缺失
-        // → 基线轨 SFSpeechTranscriber（功能完备、零资产）。生产装配绝不回落
-        // 契约桩（FR17.6：先试全部真实引擎，不可用才降级手输）；桩仅供
-        // Preview/测试经 registerIfAbsent 显式注入。
-        SherpaOnnxTranscriber() ?? SFSpeechTranscriber()
+        // ADR-023 双轨设计保留，但 sherpa 主轨**临时退出构建**（2026-09-10）：
+        // 其 onnxruntime 依赖在 Xcode 26 下被转成内嵌 dylib、与框架 Info.plist
+        // 矛盾，三个 build 被 App Store 以 ITMS-90208 拒绝（详见
+        // CoreKit/Package.swift 顶部注释与 findings 发现 22）。当前装配 =
+        // 基线轨 SFSpeechTranscriber（功能完备、零资产、可发布）。复归条件
+        // 满足后恢复 `SherpaOnnxTranscriber() ?? SFSpeechTranscriber()`。
+        // 生产装配绝不回落契约桩（FR17.6 降级语义）。
+        SFSpeechTranscriber()
     }
 }
 
