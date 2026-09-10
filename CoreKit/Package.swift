@@ -14,13 +14,14 @@ let package = Package(
         // 漂移——sherpa-onnx master 的 binaryTarget 版本/校验和随上游推进变化，
         // 未钉版会让绿色流水线因上游变更无故转红
         .package(url: "https://github.com/k2-fsa/sherpa-onnx.git",
-                 revision: "42a2b681baab87169770b3f829b592e05d5bd2c8")
-        // 钉版依据（CI 3444xxxxxx 连续实证）：master/6f5327b 含 2026-09-08
-        // f2b550d 的 compute_confidence、3e40933 含 window_shift_ratio——
-        // 两个提交都把包装器推前而其二进制仍是旧版（「extra argument」编译红）。
-        // 42a2b68（2026-08-10）：两字段均无、配 v1.13.4 二进制；本仓引擎
-        // 使用的全部 sherpa API 符号已逐一核对在位。上游重发一致二进制前
-        // 保持此钉版，升级时须重跑符号核对。
+                 revision: "5e4232db78d0150801ae3244c9e2ddc41e5e02d8")
+        // 钉版依据（CI 3444xxxxxx 三轮连续实证）：上游 2026-08 起把包装器
+        // 连续推前于二进制三次——f2b550d compute_confidence、3e40933
+        // window_shift_ratio、42a2b68 attenuation_limit_db（均「extra
+        // argument」编译红，其 Package.swift 仍引用旧版二进制）。
+        // 5e4232d（2026-07-30，#3828「Add missing files for SPM」）：三字段
+        // 均无、配 v1.13.4 二进制；本仓引擎使用的全部 sherpa API 符号已
+        // 逐一核对在位。上游重发一致二进制前保持此钉版，升级须重跑符号核对。
     ],
     targets: [
         .target(name: "Domain"),
