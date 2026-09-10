@@ -282,8 +282,6 @@ private struct PreviewRoot: View {
                 prescriptionStore: container.prescriptions,
                 dataChange: dataChange,
                 pendingCards: container.pendingCards,
-                encounterStore: container.encounters,
-                trendStore: container.trends,
                 scheduler: container.reminderScheduler,
                 cardStore: OCRCardStore(writer: container.store.writer)))
             .environment(AIHistoryState(store: container.aiHistory, audit: container.audit))
