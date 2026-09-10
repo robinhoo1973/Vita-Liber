@@ -609,10 +609,12 @@ struct ObservationCreateSheet: View {
                     decision: ReadbackPolicy.decide(route: routeMonitor.route,
                                                     preference: app.readbackPreference,
                                                     careMode: app.careMode),
+                    route: routeMonitor.route,
                     judgedTarget: nil,          // 观察确认无判定目标行（4.27 六入口默认语义）
                     judgedConfidence: 0,
                     onJudgedTargetChange: nil,
                     onSpeak: { app.speak($0) },
+                    onStopSpeak: { app.stopSpeaking() },
                     onConfirm: { confirmed in
                         description = confirmed.confirmedFields.first?.value ?? description
                         confirmSet = nil

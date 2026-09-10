@@ -109,8 +109,11 @@ public enum VoiceCommandGrammar {
         // 评审修正第二轮（BR-012 急救语义词）：号码文法要求「打/拨打+号码」形态，
         // 单说「急救/救命/叫救护车/打救护车」此前无任何命中 → unrecognized（或被
         // callContact 抢先），急救出口经语音不可达。语义词直连 callEmergency120
-        // （会话层仍走高危确认）——必须排在 callContact **之前**，否则「打救护车」
-        // 被泛化联系人文法抢先。
+        // （FR19.5 附表：免复述直接拨号，安全网 = 系统拨号 5 秒倒计时可取消）——
+        // 必须排在 callContact **之前**，否则「打救护车」被泛化联系人文法抢先。
+        // 注记：会话视图层（VoiceSessionView）先经 BR-012 紧急词表前置——急救
+        // 语义词与 120 形态命中即入急救卡、不到达本文法；本路径实际承接
+        // 注入号码的非词表形态（如 119/911）显式拨号。
         Pattern(command: .callEmergency120, regex: #"^(?:急救|救命)|(?:帮我)?(?:叫|打|拨打)救护车"#),
         Pattern(command: .callContact, regex: #"(?:帮我)?(?:打|打给|拨打)(.+)"#),
         // 审查修复：急救号码不再写死 120——按语言区域注入（120/119/911），
@@ -298,13 +301,19 @@ public enum VoiceConversationEngine {
                     events.append(.requireRepeatObject(object))
                     events.append(.speak(.callConfirm(target: target)))
                 case .callEmergency120:
-                    // 审查修复：号码按语言区域注入（120/119/911），不再写死 120
-                    s.phase = .repeatingObject
-                    s.pendingCommand = .callEmergency120
-                    s.pendingObject = emergencyNumber
-                    s.lastPrompt = .callConfirm(target: emergencyNumber)
-                    events.append(.requireRepeatObject(emergencyNumber))
-                    events.append(.speak(.callConfirm(target: emergencyNumber)))
+                    // FR19.5 附表契约（免复述 → 直接拨号）：急救号码按语言区域注入
+                    // （120/119/911），不复述对象——错误代价不对称下，SOS 路径的
+                    // 时效优先；误触安全网由系统拨号确认（5 秒响铃倒计时可取消）
+                    // 承担。复述确认相位（.repeatingObject）只服务于联系人类
+                    // （callContact，FR19.5「必须先复述对象再执行」）。
+                    // 2026-09-10 审查修正：原实现仍走 .repeatingObject 要求口头
+                    // 「确认」——与 FR19.5 附表「免复述」矛盾（评论自称免复述、
+                    // 状态机要求复述，两处漂移）。
+                    s.phase = .listening
+                    s.silentRounds = 0
+                    s.pendingCommand = nil
+                    s.pendingObject = nil
+                    events.append(.execute(.callEmergency120, payload: emergencyNumber))
                 case .markTaken:
                     // FR19.5：标记服药 = 写操作，单次口头确认（BR-004 同语义）
                     let object = extractMarkTakenObject(text)

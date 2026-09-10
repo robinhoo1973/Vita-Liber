@@ -28,6 +28,13 @@ public enum ReadbackDecision: Sendable, Equatable {
     case screenConfirm(offerSpeakButton: Bool)
     /// 先问一次「是否朗读」，再按用户当次选择走上面两条
     case askFirst
+
+    /// FR17.13 耳机状态即时切换判定用（拔耳机 = 回读→屏幕核对须中断播报；
+    /// 插耳机 = 屏幕核对→回读须触发一次回读）
+    public var isReadAloud: Bool {
+        if case .readAloud = self { return true }
+        return false
+    }
 }
 
 public enum ReadbackPolicy {

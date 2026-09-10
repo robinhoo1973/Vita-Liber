@@ -1,6 +1,7 @@
 import SwiftUI
 import AVFoundation
 import Domain
+import Infrastructure
 
 /// 语音访谈前置音量自检（TestFlight 实测修复：语音完善个人信息无音量检测、
 /// 无语音输出指导）。
@@ -133,6 +134,9 @@ final class VoiceLevelMeter {
         started = false
         engine.stop()
         engine.inputNode.removeTap(onBus: 0)
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)   // try?-ok: 归还会话失败仅影响他 App 恢复，本页生命周期已结束
+        // 采集拆除单一出口：还原 .playback——只停用不还原会让共享会话停在
+        // .record，其后访谈提问的 TTS 朗读（app.speak）路由到听筒（5WHY 根因：
+        // 三个采集点各自维护会话拆除、唯 Sherpa 一侧补了还原）。
+        AudioSessionTeardown.restorePlaybackAfterCapture()
     }
 }

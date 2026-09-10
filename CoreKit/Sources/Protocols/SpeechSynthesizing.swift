@@ -32,6 +32,10 @@ public enum SpeechFallback {
     /// 校验其存在（语音包被清理时 utterance.voice = nil，系统默认音朗读中文
     /// 成乱码，而 outcome 仍虚报「普通话已回退」）。回退语音也不可用时
     /// 如实报告实际使用的语音。
+    /// 审查修复（确定性）：Set 迭代顺序随进程哈希种子随机——`availableVoices.first`
+    /// 会把「任选一个中文语音」变成每次启动随机一种腔（zh-CN/zh-TW/zh-HK
+    /// 轮换），同一句话今天普通话、明天台湾腔（outcome 虽如实但发声语言
+    /// 漂移）。按字典序取首个（zh-* 中 zh-CN/zh-Hans 天然靠前），逐次确定。
     public static func resolve(requested: String,
                                availableVoices: Set<String>) -> SpeechOutcome {
         if availableVoices.contains(requested) {
@@ -41,8 +45,9 @@ public enum SpeechFallback {
         if availableVoices.contains(fallback) {
             return SpeechOutcome(spokenLocale: fallback, didFallback: true)
         }
-        let anyChinese = availableVoices.first { $0.hasPrefix("zh") }
-        let actual = anyChinese ?? availableVoices.first ?? fallback
+        let sorted = availableVoices.sorted()
+        let anyChinese = sorted.first { $0.hasPrefix("zh") }
+        let actual = anyChinese ?? sorted.first ?? fallback
         return SpeechOutcome(spokenLocale: actual, didFallback: true)
     }
 }

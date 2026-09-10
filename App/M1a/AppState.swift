@@ -570,6 +570,12 @@ final class AppState {
         let outcome = speechSynthesizer.speak(text, localeIdentifier: voiceOutputLocale)
         voiceFallbackActive = outcome.didFallback
     }
+    /// FR17.13 拔耳机中断回读：路由从耳机切走时立即停止在途播报
+    /// （「已回读一半则中断并按当前路由重判定」——决策半场在
+    /// ReadbackPolicy，本方法只执行停止动作）。
+    func stopSpeaking() {
+        speechSynthesizer.stop()
+    }
     private var voiceFallbackActive = false
 
     /// FR17.16 语音输出语言（六选一）；无对应发声时由合成器回退普通话并轻提示。

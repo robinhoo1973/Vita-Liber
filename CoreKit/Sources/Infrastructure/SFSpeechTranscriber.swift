@@ -735,7 +735,11 @@ private final class NativeSpeechSessionDriver: SpeechSessionDriver, @unchecked S
         audio = nil
         #if os(iOS)
         if sessionActive {
-            try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation]) // try?-ok: best-effort deactivation must not mask the transcript or cancellation
+            // 采集拆除单一出口（AudioSessionTeardown）：只停用不还原类别会让
+            // 共享会话停留在 .record——其后的 FR17.13 回读 / FR17.11 提问朗读 /
+            // FR19.3 播报全部路由到听筒（Sherpa 主轨同款缺陷的降级轨复现，
+            // 主轨已修、降级轨漏修）。还原 .playback 后停用（与 Sherpa 同序）。
+            AudioSessionTeardown.restorePlaybackAfterCapture()
             sessionActive = false
         }
         #endif

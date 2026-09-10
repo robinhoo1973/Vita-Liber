@@ -303,6 +303,9 @@ struct VoiceDictationButton: View {
         .onChange(of: settings.values[.authVoiceDictation]) { _, value in
             model?.setAuthorization(value != "false")
         }
+        // 生命周期注记：本按钮经 `.modifier(DictationInteraction(model:))` 挂接
+        // 统一按压交互——其 onDisappear 已做 endPress + stopForDisappear 清理，
+        // 视图销毁（导航返回/步骤换代 .id 切换）时在途听写必被终止，本处不重复。
     }
 
     /// Each press snapshots these inputs. Guided field changes create a new button identity.

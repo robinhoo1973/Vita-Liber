@@ -24,6 +24,10 @@ public final class SherpaOnnxSpeechSynthesizer: SpeechSynthesizing, @unchecked S
     private let voiceMap: [String: Int]
     private var audioPlayer: AVAudioPlayer?
     private let lock = NSLock()
+    /// stop() 作废代次：speak() 每次递增取号，排队任务在合成前与播放前双重
+    /// 校验——此前 stop() 只停当前播放，已在队列里的合成任务完成后照样播出
+    /// （用户点「停止回读」后声音又响起来）
+    private var generation: UInt64 = 0
     /// 合成串行队列：sherpa-onnx 对象无线程安全保证，且合成是 CPU 密集——
     /// 全部 generate 串行执行、播放前合成在后台完成（不得阻塞调用方主线程）
     private let synthQueue = DispatchQueue(label: "com.vitaliber.tts.sherpa")
@@ -71,8 +75,16 @@ public final class SherpaOnnxSpeechSynthesizer: SpeechSynthesizing, @unchecked S
         )
         let sid = voiceMap[outcome.spokenLocale] ?? 0
         let tts = tts
+        lock.lock()
+        generation &+= 1
+        let gen = generation
+        lock.unlock()
         synthQueue.async { [weak self] in
             guard let self else { return }
+            self.lock.lock()
+            let validBefore = self.generation == gen
+            self.lock.unlock()
+            guard validBefore else { return }   // 排队期间已被 stop() 作废：不合成不播放
             let audio = tts.generate(text: text, sid: sid, speed: 1.0)
             guard audio.n > 0, audio.sampleRate > 0,
                   let wavData = Self.createWavData(
@@ -82,6 +94,8 @@ public final class SherpaOnnxSpeechSynthesizer: SpeechSynthesizing, @unchecked S
                 return
             }
             self.lock.lock()
+            defer { self.lock.unlock() }
+            guard self.generation == gen else { return }   // 合成期间 stop()：丢弃不播放
             self.audioPlayer?.stop()
             do {
                 self.audioPlayer = try AVAudioPlayer(data: wavData)
@@ -89,13 +103,13 @@ public final class SherpaOnnxSpeechSynthesizer: SpeechSynthesizing, @unchecked S
             } catch {
                 self.audioPlayer = nil
             }
-            self.lock.unlock()
         }
         return outcome
     }
 
     public func stop() {
         lock.lock()
+        generation &+= 1   // 作废在途/排队合成（此前 stop 后排队生成仍会播出）
         audioPlayer?.stop()
         audioPlayer = nil
         lock.unlock()

@@ -62,6 +62,20 @@ struct VoiceConversationTests {
         #expect(s2.phase == .listening)
     }
 
+    @Test func 急救拨号免复述直接执行() {
+        // FR19.5 附表：拨打 120（及 急救/救命/叫救护车 语义词）免复述——
+        // 直接执行拨号，安全网 = 系统拨号确认（5 秒响铃倒计时可取消）。
+        // 2026-09-10 审查修正锚点：原实现走 .repeatingObject 要求口头「确认」，
+        // 与附表「免复述 → 直接拨号」矛盾。
+        let (s, e) = VoiceConversationEngine.step(state: ConversationState(),
+                                                 transcript: "帮我打120", emergencyNumber: "120")
+        #expect(s.phase == .listening, "急救拨号不进入复述相位")
+        #expect(e.contains(where: { if case .execute(.callEmergency120, let p) = $0 { return p == "120" }; return false }),
+                "免复述直接执行拨号，载荷 = 按语言区域注入的急救号码")
+        #expect(!e.contains(where: { if case .requireRepeatObject = $0 { return true }; return false }),
+                "急救路径不得要求复述对象")
+    }
+
     @Test func 删除剂量变更一律拒绝() {
         let banned = ["删除阿司匹林的记录", "把剂量改成一天三次", "停用这个药", "删掉时间轴"]
         for phrase in banned {

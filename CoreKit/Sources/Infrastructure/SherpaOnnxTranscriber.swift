@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Domain
 import Protocols
 #if os(iOS)
@@ -34,10 +35,12 @@ public actor SherpaOnnxTranscriber: TranscriptionEngine {
 
     // 会话内累计状态（Domain 纯值累加器：引擎与视图模型共用，见 Domain/TranscriptSession.swift）
     private var accumulator = TranscriptSessionAccumulator()
-    /// 已提交段之后、尚未解码的样本起点（旋转换段时清零）
-    private var lastDecodedSampleCount = 0
     /// 上次部分结果解码窗口的起点（避免每次对全窗重复解码）
     private var lastPartialSampleCount = 0
+
+    /// FR17.17 资产供应契约：缺失/损坏即记可诊断事件（回落由工厂承担，
+    /// 引擎侧只负责把「为什么没有主轨」留下可查痕迹）
+    private static let assetLogger = Logger(subsystem: "com.vitaliber", category: "sherpa.assets")
 
     // MARK: - 实时线程安全的样本缓冲
 
@@ -86,7 +89,12 @@ public actor SherpaOnnxTranscriber: TranscriptionEngine {
         // 注意：sherpa-onnx 包装器 init 不可失败，模型加载失败会 fatalError——
         // makeRecognizer 已预检文件存在与非零体积；文件损坏的残余风险由
         // FR17.17 资产供应契约（§2.2 sha256 清单校验）兜底，校验失败回落基线轨。
-        guard let recognizer = Self.makeRecognizer(hotwords: "") else { return nil }
+        guard let recognizer = Self.makeRecognizer(hotwords: "") else {
+            // FR17.17：缺失即记可诊断事件（此前静默回落，事后无从区分
+            // 「资产未打包」与「文件损坏」）
+            Self.assetLogger.error("sherpa FunASR-Nano 资产预检失败（缺件/零体积）——回落 SFSpeech 降级轨")
+            return nil
+        }
         self.recognizer = recognizer
         capability = Self.probeCapability()
     }
@@ -132,7 +140,6 @@ public actor SherpaOnnxTranscriber: TranscriptionEngine {
         stopCaptureSync(clearBuffer: true)
         buffer.clear()
         accumulator = TranscriptSessionAccumulator()
-        lastDecodedSampleCount = 0
         lastPartialSampleCount = 0
 
         // 词表注入（FR17.15 混说词表 ≤100）：主语言 + 混说开关开时注入
@@ -180,10 +187,11 @@ public actor SherpaOnnxTranscriber: TranscriptionEngine {
         }
         pump.cancel()
 
-        // 松手收尾：解码剩余未解码样本（从旋转边界起整窗解码，保证收尾质量）
+        // 松手收尾：解码剩余未解码样本（整窗解码，保证收尾质量）。
+        // 原子 drain()：取走与清空同一把锁内完成——tap 已摘除、无并发追加，
+        // 与旋转提交共用同一语义（缓冲只含未解码样本）。
         stopCaptureSync(clearBuffer: false)
-        let undecoded = buffer.tail(from: lastDecodedSampleCount)
-        buffer.clear()
+        let undecoded = buffer.drain()
         if !undecoded.isEmpty {
             accumulator.updatePartial(decode(undecoded))
         }
@@ -212,13 +220,13 @@ public actor SherpaOnnxTranscriber: TranscriptionEngine {
         guard newSamples >= modelSampleRate / 2 else { return }
 
         // 主动换段（FR17.1：上限前 5s 换段；长录音不丢字 + 内存有界）。
-        // 提交窗口必须从旋转边界（lastDecodedSampleCount）起整窗解码——
-        // 只提交最新增量窗会把此前 ~55s 音频随 drain 永久丢弃（丢字）
+        // 提交整窗解码：只提交最新增量窗会把此前 ~55s 音频永久丢弃（丢字）。
+        // 原子 drain()（取走即清空，单次加锁）：旧实现 tail()+drain() 两步之间
+        // tap 实时线程可追加新样本——追加样本被 drain 清掉却未解码，旋转边界
+        // 丢词（概率小但每次旋转都开奖；缓冲只含未解码样本，drain 即整窗）。
         let rotationLimit = Double(max(5, capability.maxSegmentSeconds - 5))
         if Double(count) / Double(modelSampleRate) >= rotationLimit {
-            accumulator.commit(decode(buffer.tail(from: lastDecodedSampleCount)))
-            buffer.drain()
-            lastDecodedSampleCount = 0
+            accumulator.commit(decode(buffer.drain()))
             lastPartialSampleCount = 0
             onPartial?(accumulator.displayText)
             return
@@ -344,14 +352,12 @@ public actor SherpaOnnxTranscriber: TranscriptionEngine {
     }
 
     /// 会话类别是共享单例状态：停在 `.record` 会把其后 FR17.13 回读 / FR19.3
-    /// 播报路由到听筒——停采后还原到 `.playback` 再停用。
+    /// 播报路由到听筒——停采后经采集拆除单一出口（AudioSessionTeardown）
+    /// 还原到 `.playback` 再停用。
     private func deactivateAudioSession() {
         #if os(iOS)
         guard sessionActive else { return }
-        do { try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.duckOthers]) }
-        catch { /* 类别还原失败不阻断主流程 */ }
-        do { try AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation]) }
-        catch { /* 还原失败不阻断主流程 */ }
+        AudioSessionTeardown.restorePlaybackAfterCapture()
         sessionActive = false
         #endif
     }

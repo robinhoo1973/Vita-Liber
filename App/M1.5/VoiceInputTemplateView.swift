@@ -1,6 +1,5 @@
 import SwiftUI
 import AVFoundation
-import os
 import Domain
 import Protocols
 
@@ -18,14 +17,14 @@ import Protocols
 // MARK: - 音频路由监听（耳机感知）
 
 /// FR17.13：探测输出路由，并在录入过程中拔/插耳机时**即时**切换回读策略。
+/// 路由切换的轻提示（Toast）由 VoiceConfirmSheet 自行呈现（其观察自身
+/// decision/route 变化——此前本监视器的 routeChangeToast 只写不读、Toast
+/// 从未上屏，属死状态，已随审查清理）。
 @MainActor
 @Observable
 final class AudioRouteMonitor {
     private(set) var route: AudioRoute = .speaker
-    /// 路由变化时的轻提示文案（Toast），消费后置 nil
-    var routeChangeToast: String?
 
-    private let logger = Logger(subsystem: "com.vitaliber", category: "audioroute")
     private var observer: NSObjectProtocol?
 
     init() { refresh() }
@@ -41,14 +40,7 @@ final class AudioRouteMonitor {
             forName: AVAudioSession.routeChangeNotification,
             object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
-                    guard let self else { return }
-                    let old = self.route
-                    self.refresh()
-                    if old != self.route {
-                        self.routeChangeToast = self.route == .headphones
-                            ? L10n.voiceRouteHeadphonesOn
-                            : L10n.voiceRouteHeadphonesOff
-                    }
+                    self?.refresh()
                 }
             }
     }
@@ -73,6 +65,9 @@ final class AudioRouteMonitor {
 struct VoiceConfirmSheet: View {
     let set: OcrConfirmationSet
     let decision: ReadbackDecision
+    /// 输出路由（耳机感知）：随宿主视图重渲染更新——onChange(of:) 驱动
+    /// FR17.13「输入过程中拔/插耳机即时切换回读策略」。
+    let route: AudioRoute
     /// V3.49 判定结果行（4.27 可选元素，FR17.9 去 chips 后去向的唯一呈现）：
     /// 意图 key（nil=无法判定，改渲染候选去向行）；置信度 <0.5 视为低置信。
     var judgedTarget: String?
@@ -81,12 +76,18 @@ struct VoiceConfirmSheet: View {
     var onJudgedTargetChange: ((String) -> Void)?
     /// 点 [🔊 朗读] 或自动回读时调用（TTS 由调用方注入，便于测试替身）
     var onSpeak: ((String) -> Void)?
+    /// FR17.13 拔耳机中断回读：路由从耳机切走时调用（TTS 由调用方停止）
+    var onStopSpeak: (() -> Void)?
     var onConfirm: (OcrConfirmationSet) -> Void
     var onRetry: () -> Void
     var onCancel: () -> Void
 
     @State private var askAnswered = false
     @State private var didAutoSpeak = false
+    /// 路由切换轻提示（FR17.13「切换时给轻提示（Toast）」——此前
+    /// AudioRouteMonitor.routeChangeToast 只写不读，Toast 从未上屏）
+    @State private var routeToast: String?
+    @State private var routeToastTask: Task<Void, Never>?
     /// TestFlight 实测修复：字段可编辑——未识别/识别错的字段由用户在卡上直接补全
     @State private var edits: [UUID: String] = [:]
 
@@ -320,11 +321,43 @@ struct VoiceConfirmSheet: View {
         }
         .padding(20)
         .accessibilityIdentifier("FR17.13.sheet")
+        .overlay(alignment: .bottom) {
+            if let routeToast {
+                Text(routeToast)
+                    .font(.caption)
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    .background(Capsule().fill(.ultraThinMaterial))
+                    .accessibilityIdentifier("FR17.13.routeToast")
+            }
+        }
         .onAppear {
             // 有耳机（或关怀模式 always）→ 自动完整回读一次
             guard !didAutoSpeak, case .readAloud = decision, let script else { return }
             didAutoSpeak = true
             onSpeak?(script)
+        }
+        .onChange(of: route) { _, _ in
+            showRouteToast()
+        }
+        .onChange(of: decision) { old, new in
+            guard old != new else { return }
+            // FR17.13 即时切换回读策略（此前缺失，Domain rerouted 决策零消费）：
+            // ① 回读中拔耳机 → 中断播报，按新路由走屏幕核对；
+            // ② 插入耳机 → 确认走回读：自动完整回读一次（onAppear 已不会重跑）。
+            if old.isReadAloud, !new.isReadAloud { onStopSpeak?() }
+            if !old.isReadAloud, new.isReadAloud { if let script { onSpeak?(script) } }
+        }
+    }
+
+    /// 路由切换轻提示：2 秒自动消退（重叠切换时以最新为准）
+    private func showRouteToast() {
+        routeToast = route == .headphones ? L10n.voiceRouteHeadphonesOn : L10n.voiceRouteHeadphonesOff
+        routeToastTask?.cancel()
+        routeToastTask = Task { @MainActor in
+            // 睡眠取消 = 换代（新的切换事件重设 Toast），预期控制流而非错误
+            do { try await Task.sleep(nanoseconds: 2_000_000_000) }
+            catch { return }
+            if !Task.isCancelled { routeToast = nil }
         }
     }
 }
@@ -423,10 +456,12 @@ struct VoiceConfirmSheetPresenter: ViewModifier {
                 decision: ReadbackPolicy.decide(route: route,
                                                 preference: app.readbackPreference,
                                                 careMode: app.careMode),
+                route: route,
                 judgedTarget: judgedTarget,
                 judgedConfidence: judgedConfidence,
                 onJudgedTargetChange: onJudgedTargetChange,
                 onSpeak: { app.speak($0) },
+                onStopSpeak: { app.stopSpeaking() },
                 onConfirm: onConfirm,
                 onRetry: { confirmSet = nil },
                 onCancel: { confirmSet = nil })
