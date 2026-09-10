@@ -46,10 +46,10 @@ public final class SherpaOnnxSpeechSynthesizer: SpeechSynthesizing, @unchecked S
         )
         var cfg = sherpaOnnxOfflineTtsConfig(
             model: sherpaOnnxOfflineTtsModelConfig(
-                supertonic: supertonic,
                 numThreads: 2,
                 debug: 0,
-                provider: "cpu"),
+                provider: "cpu",
+                supertonic: supertonic),
             ruleFsts: "",
             ruleFars: "",
             // maxNumSentences: -1 = 全部句子单批处理（长文回读不分批截断）

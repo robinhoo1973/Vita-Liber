@@ -300,7 +300,6 @@ public actor SherpaOnnxTranscriber: TranscriptionEngine {
             let buffer = buffer
             input.installTap(onBus: 0, bufferSize: 4096, format: hwFormat) { pcm, _ in
                 guard pcm.frameLength > 0 else { return }
-                var status = AVAudioConverterInputStatus.haveData
                 let outputFrameCapacity = AVAudioFrameCount(
                     Double(pcm.frameLength) * Double(tap.modelSampleRate) / tap.hwSampleRate
                 ) + 16
@@ -311,7 +310,8 @@ public actor SherpaOnnxTranscriber: TranscriptionEngine {
                 // 调用输入块填满输出缓冲，若每次都返回同一 buffer，会把 chunk 头部
                 // 重复转换（每 4096 帧 ≈16 帧复制），识别器输入出现周期性回声
                 var supplied = false
-                _ = tap.converter.convert(to: outputBuffer, status: &status) { _, outStatus in
+                var conversionError: NSError?
+                _ = tap.converter.convert(to: outputBuffer, error: &conversionError) { _, outStatus in
                     if supplied {
                         outStatus.pointee = .noDataNow
                         return nil
@@ -400,15 +400,15 @@ public actor SherpaOnnxTranscriber: TranscriptionEngine {
             featConfig: sherpaOnnxFeatureConfig(sampleRate: 16_000, featureDim: 80),
             modelConfig: sherpaOnnxOfflineModelConfig(
                 tokens: "",
+                numThreads: 2,
+                provider: "cpu",
+                debug: 0,
                 funasrNano: sherpaOnnxOfflineFunASRNanoModelConfig(
                     encoderAdaptor: paths[0],
                     llm: paths[1],
                     embedding: paths[2],
                     tokenizer: paths[3],
-                    hotwords: hotwords),
-                numThreads: 2,
-                provider: "cpu",
-                debug: 0),
+                    hotwords: hotwords)),
             lmConfig: sherpaOnnxOfflineLMConfig(),
             decodingMethod: "greedy_search",
             maxActivePaths: 4)
@@ -424,15 +424,15 @@ public actor SherpaOnnxTranscriber: TranscriptionEngine {
             featConfig: sherpaOnnxFeatureConfig(sampleRate: 16_000, featureDim: 80),
             modelConfig: sherpaOnnxOfflineModelConfig(
                 tokens: "",
+                numThreads: 2,
+                provider: "cpu",
+                debug: 0,
                 funasrNano: sherpaOnnxOfflineFunASRNanoModelConfig(
                     encoderAdaptor: paths[0],
                     llm: paths[1],
                     embedding: paths[2],
                     tokenizer: paths[3],
-                    hotwords: hotwords),
-                numThreads: 2,
-                provider: "cpu",
-                debug: 0),
+                    hotwords: hotwords)),
             lmConfig: sherpaOnnxOfflineLMConfig(),
             decodingMethod: "greedy_search",
             maxActivePaths: 4)
