@@ -113,12 +113,13 @@ public final class RefinementDeadline: @unchecked Sendable {
             var cancelWork: Task<Void, Never>?
             var cancelTimer: Task<Void, Never>?
             lock.lock()
-            // 审查修复：deadline/调用方取消定案路径（enforcingDeadline == false）
-            // 此前把释放挂在「工作线程真正退出」之后（didDeliverCancellation）——
-            // operation 忽略取消、永不返回时 reservation 永久占用，会话剩余
-            // refine 全部 unavailable。结果一旦定案即释放槽位（挂起任务仍尽力
-            // 取消，但释放不以其退出为前提）。
-            let deadlineExpired = !enforcingDeadline
+            // 槽位释放纪律（tech-spec V3.87）：「非合作原生工作保留单飞槽而
+            // 不无限创建」——FR17.18 单飞保证以槽位保留为前提，deadline/调用方
+            // 取消只定案「给调用者的结果」，槽位必须等到工作线程与取消投递
+            // 双双退出才释放（takeReleaseIfFinished 双标志）。若在定案瞬间
+            // 释放，忽略取消的原生调用未退出时即会接纳第二个并发代次，单飞
+            // 失效。2026-09-10 曾误改（定案即释放），门禁 SU-M15-VOICE 红，
+            // 按规格回退。
             if enforcingDeadline { workFinished = true }
             if outcome == nil {
                 let result: TranscriptRevision
@@ -129,18 +130,14 @@ public final class RefinementDeadline: @unchecked Sendable {
                 }
                 outcome = result
                 if let continuation { delivery = (continuation, result) }
-                if let work {
-                    if !workFinished { cancellationFinished = false }
+                if !workFinished, let work {
+                    cancellationFinished = false
                     cancelWork = work
                 }
                 cancelTimer = timer
                 continuation = nil
                 work = nil
                 timer = nil
-            }
-            if deadlineExpired {
-                workFinished = true
-                cancellationFinished = true
             }
             let release = takeReleaseIfFinished()
             lock.unlock()
