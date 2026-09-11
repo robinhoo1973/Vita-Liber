@@ -439,6 +439,24 @@ struct AppSettingsTests {
         #expect(AppSettingKey.allCases.contains(.appearance))
         #expect(AppSettingKey.allCases.contains(.highContrastEnabled))
     }
+
+    // FR14.7 默认语速（2026-09-11 接线）：键默认值 + 三档映射单一事实源
+    @Test func 默认语速键与三档映射() {
+        #expect(AppSettingKey.speechRate.defaultValue == "normal")
+        #expect(AppSettingKey.allCases.contains(.speechRate))
+        // AVSpeechUtterance.rate 映射：正常 = 系统默认 0.5，慢/快单调包夹
+        #expect(SpeechRateTier.normal.utteranceRate == 0.5)
+        #expect(SpeechRateTier.slow.utteranceRate < SpeechRateTier.normal.utteranceRate)
+        #expect(SpeechRateTier.normal.utteranceRate < SpeechRateTier.fast.utteranceRate)
+        // 有效域纪律：三档均在 AVSpeechUtterance.rate 合法域 0.0–1.0 内
+        for tier in SpeechRateTier.allCases {
+            #expect((0.0...1.0).contains(tier.utteranceRate))
+        }
+        // rawValue 往返：设置页存取的字符串形态稳定
+        for tier in SpeechRateTier.allCases {
+            #expect(SpeechRateTier(rawValue: tier.rawValue) == tier)
+        }
+    }
 }
 
 // binds: SU-M1c-SEC — TC-M1c-01（敏感越权=0 一票否决）

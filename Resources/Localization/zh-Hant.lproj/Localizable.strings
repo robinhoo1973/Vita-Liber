@@ -1131,6 +1131,11 @@
 "helpcard.previewTitle" = "發送前預覽";
 "helpcard.previewContinue" = "繼續發送";
 "helpcard.previewHint" = "純文字，不含敏感圖片；含行動指引、有效期與回執提示";
+"pref.speechRate" = "預設語速";
+"pref.speechRate.slow" = "慢";
+"pref.speechRate.normal" = "正常";
+"pref.speechRate.fast" = "快";
+"pref.speechRate.hint" = "朗讀與語音播報的預設語速，設定後立即生效";
 "pref.dateFormat" = "日期格式";
 "pref.dateFormatPending" = "該格式將在後續版本接入時間軸與搜尋結果後生效";
 "pref.dateFormatYMD" = "2026年9月5日";

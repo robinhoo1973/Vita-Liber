@@ -1131,6 +1131,11 @@
 "helpcard.previewTitle" = "Preview";
 "helpcard.previewContinue" = "Continue";
 "helpcard.previewHint" = "Plain text, no sensitive images; includes action guidance, validity and receipt notice";
+"pref.speechRate" = "Speech rate";
+"pref.speechRate.slow" = "Slow";
+"pref.speechRate.normal" = "Normal";
+"pref.speechRate.fast" = "Fast";
+"pref.speechRate.hint" = "Default speech rate for readback and announcements; takes effect immediately.";
 "pref.dateFormat" = "Date format";
 "pref.dateFormatPending" = "This format takes effect after timeline and search results are wired in a later version";
 "pref.dateFormatYMD" = "Sep 5, 2026";

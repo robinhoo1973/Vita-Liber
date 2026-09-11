@@ -809,6 +809,11 @@ enum L10n {
     // 第四轮全仓审查修复（L0 登记表双向判定）：以下键此前未登记——
     // registeredKeys 单向 ⊆ .strings 检查覆盖不到，键被删出 .strings 时
     // L0/L1 全绿、运行时裸 key 上屏
+    "pref.speechRate",
+    "pref.speechRate.slow",
+    "pref.speechRate.normal",
+    "pref.speechRate.fast",
+    "pref.speechRate.hint",
     "ai.quickGlucose",
     "ai.quickMeds",
     "ai.quickNext",
@@ -2371,6 +2376,12 @@ enum L10n {
     static var prefDateFormatYMD: String { t("pref.dateFormatYMD") }
     static var prefDateFormatMD: String { t("pref.dateFormatMD") }
     static var prefDateFormatISO: String { t("pref.dateFormatISO") }
+    /// FR14.7 默认语速（2026-09-11 接线：AVSpeechAdapter rateProvider 消费）
+    static var prefSpeechRate: String { t("pref.speechRate") }
+    static var prefSpeechRateSlow: String { t("pref.speechRate.slow") }
+    static var prefSpeechRateNormal: String { t("pref.speechRate.normal") }
+    static var prefSpeechRateFast: String { t("pref.speechRate.fast") }
+    static var prefSpeechRateHint: String { t("pref.speechRate.hint") }
     static func immunizationDoseCount(_ n: Int) -> String { t("immunization.doseCount").replacingOccurrences(of: "%d", with: String(n)) }
     static var immunization_childPlanComing: String { t("immunization.childPlanComing") }
     static var helpTutorialTitle: String { t("help.tutorialTitle") }

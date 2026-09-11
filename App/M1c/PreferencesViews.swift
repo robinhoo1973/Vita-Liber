@@ -62,6 +62,30 @@ struct PreferencesView: View {
                 // 与 remch.sectionFooter 同款预告纪律，避免用户改完发现无效。
                 Text(L10n.prefDateFormatPending)
             }
+            // FR14.7 默认语速（2026-09-11 接线：AVSpeechAdapter rateProvider
+            // 实时消费冻结键——FR19.3 语速可调；三档取值域 = Domain
+            // SpeechRateTier 单一事实源，不得内联数值）
+            Section {
+                Picker(selection: Binding(
+                    get: {
+                        SpeechRateTier(rawValue: settings.values[.speechRate]
+                                       ?? AppSettingKey.speechRate.defaultValue) ?? .normal
+                    },
+                    set: { tier in
+                        Task { await settings.set(tier.rawValue, for: .speechRate) }
+                    }
+                )) {
+                    Text(L10n.prefSpeechRateSlow).tag(SpeechRateTier.slow)
+                    Text(L10n.prefSpeechRateNormal).tag(SpeechRateTier.normal)
+                    Text(L10n.prefSpeechRateFast).tag(SpeechRateTier.fast)
+                } label: {
+                    LabeledContent(L10n.prefSpeechRate) {
+                        Text(L10n.prefTagGlobal)
+                    }
+                }
+            } footer: {
+                Text(L10n.prefSpeechRateHint)
+            }
             // 恢复默认（逐项）
             Section {
                 Button(L10n.prefRestoreAll) {

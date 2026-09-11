@@ -58,10 +58,14 @@ struct AppointmentListView: View {
             // 审查修复（FR10.7 对称性）：标记完成此前无确认、无时间门槛——
             // 未来预约一触即完成（提醒全取消 + 未来日期的复诊就诊落库）。
             // 标记错过已有 canMarkMissed 门槛 + 确认，完成必须同级确认。
-            Button(L10n.apptComplete) {
-                completeTarget = apt
+            // 时间门槛（审查轮4 跟进项 2026-09-11）：未到开始时间不呈现——
+            // 与 canMarkMissed 同源规则（AppointmentRules.canMarkCompleted）。
+            if AppointmentRules.canMarkCompleted(startsAt: apt.startsAt) {
+                Button(L10n.apptComplete) {
+                    completeTarget = apt
+                }
+                .apptRowButton(prominent: true)
             }
-            .apptRowButton(prominent: true)
         }
     }
 

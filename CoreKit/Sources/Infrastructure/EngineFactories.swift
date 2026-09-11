@@ -22,7 +22,20 @@ public enum SpeechSynthesisFactory: EngineFactory {
         // 经核实的 31 语种不含中文，无法承担 FR17.16 普通话回退链与 FR17.13
         // 中文回读；系统语音零资产、离线、含 zh-Hans/zh-Hant/en（ADR-025）。
         // SherpaOnnxSpeechSynthesizer 保留为 P1 非中文多语种扩展候选，不接生产链。
-        AVSpeechAdapter()
+        // FR14.7 默认语速接线（审查轮 3/4 登记缺口，2026-09-11 落地）：
+        // rateProvider 读取冻结键 speechRate（UserDefaults——沿 HomeView
+        // @AppStorage("actionFeedWindow") 冻结键先例；AppSettingsStore 为
+        // 单一写入方）。组装根（AppContainer.assemble）先于 AppSettingsStore
+        // 构造，无法注入实例，故走冻结键只读消费；缺键/非法值回落 .normal，
+        // 与 AppSettingKey.speechRate.defaultValue 同源（SpeechRateTier）。
+        AVSpeechAdapter(rateProvider: { Self.currentSpeechRate() })
+    }
+
+    /// FR14.7 只读消费：读取冻结键并按 SpeechRateTier（Domain 单一事实源）
+    /// 映射 utteranceRate——不得在此内联数值。
+    private static func currentSpeechRate() -> Float? {
+        let raw = UserDefaults.standard.string(forKey: AppSettingKey.speechRate.rawValue)
+        return (raw.flatMap(SpeechRateTier.init(rawValue:)) ?? .normal).utteranceRate
     }
 }
 

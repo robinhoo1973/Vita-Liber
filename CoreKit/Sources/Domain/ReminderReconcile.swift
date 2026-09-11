@@ -117,6 +117,14 @@ public enum AppointmentRules {
     public static func canMarkMissed(startsAt: Date, now: Date = Date()) -> Bool {
         startsAt <= now
     }
+
+    /// 标记完成的时间门槛（FR10.7 对称性，审查轮4 跟进项 2026-09-11 落地）：
+    /// 未到开始时间的预约不可标完成——未来预约一触即完成会取消全部分级提醒
+    /// 并在未来日期落「复诊」就诊行（历史造假，BR-004 真话纪律）。
+    /// 与 canMarkMissed 同源同规则、视图/商店共享，不得内联。
+    public static func canMarkCompleted(startsAt: Date, now: Date = Date()) -> Bool {
+        startsAt <= now
+    }
 }
 
 /// 通道分层（FR9.18）降级矩阵：目标通道不可用 → InApp → Local → Persistent 顺序回退

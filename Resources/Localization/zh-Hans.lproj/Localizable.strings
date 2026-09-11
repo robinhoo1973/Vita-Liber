@@ -1131,6 +1131,11 @@
 "helpcard.previewTitle" = "发送前预览";
 "helpcard.previewContinue" = "继续发送";
 "helpcard.previewHint" = "纯文本，不含敏感图片；含行动指引、有效期与回执提示";
+"pref.speechRate" = "默认语速";
+"pref.speechRate.slow" = "慢";
+"pref.speechRate.normal" = "正常";
+"pref.speechRate.fast" = "快";
+"pref.speechRate.hint" = "朗读与语音播报（FR19.3）的默认语速，设置后立即生效";
 "pref.dateFormat" = "日期格式";
 "pref.dateFormatPending" = "该格式将在后续版本接入时间轴与搜索结果后生效";
 "pref.dateFormatYMD" = "2026年9月5日";

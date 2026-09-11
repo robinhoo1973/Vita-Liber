@@ -49,6 +49,7 @@ public enum AppSettingKey: String, Sendable, CaseIterable, Codable {
     case inAppBannerEnabled        // 应用内横幅总开关（默认开）
     case voiceMixedInput           // FR17.15 混说开关（默认开）
     case gateGraceSeconds          // FR1.4 退后台自动锁定宽限（秒：0/15/60）
+    case speechRate                // FR14.7 默认语速：slow/normal/fast（TTS 三档，FR19.3 语速可调）
 
     /// 键默认值（单一事实源：新增键必须补 default，禁止 UserDefaults 直读兜底）
     public var defaultValue: String {
@@ -88,6 +89,24 @@ public enum AppSettingKey: String, Sendable, CaseIterable, Codable {
         case .inAppBannerEnabled: return "true"
         case .voiceMixedInput: return "true"
         case .gateGraceSeconds: return "0"
+        case .speechRate: return "normal"
+        }
+    }
+}
+
+/// FR14.7 默认语速三档（FR19.3 语速可调的取值域）——AVSpeechUtterance.rate
+/// 映射的单一事实源：设置视图、TTS 消费点（AVSpeechAdapter rateProvider）
+/// 不得各自内联数值（默认语速纪律同 FR14.6 语音引导三档口径）。
+public enum SpeechRateTier: String, Sendable, CaseIterable, Codable {
+    case slow, normal, fast
+
+    /// AVSpeechUtterance.rate 映射（AVSpeechUtteranceDefaultSpeechRate = 0.5，
+    /// 有效域 0.0–1.0；中文语音自然区间 0.42–0.58）
+    public var utteranceRate: Float {
+        switch self {
+        case .slow: return 0.42
+        case .normal: return 0.5
+        case .fast: return 0.58
         }
     }
 }

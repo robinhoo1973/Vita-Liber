@@ -664,6 +664,26 @@ struct AppointmentRulesTests {
         #expect(AppointmentRules.canMarkMissed(startsAt: now),
                 "startsAt == now 时（已开始）可标错过")
     }
+
+    // FR10.7 对称性（审查轮4 跟进项）：标记完成同款时间门槛——
+    // 未来预约完成 = 提醒全取消 + 未来日期落「复诊」就诊行（历史造假）
+    @Test func 未到开始时间不可标完成() {
+        let future = Date().addingTimeInterval(3600)
+        #expect(!AppointmentRules.canMarkCompleted(startsAt: future),
+                "未来预约不得标记完成")
+    }
+
+    @Test func 已过开始时间可标完成() {
+        let past = Date().addingTimeInterval(-3600)
+        #expect(AppointmentRules.canMarkCompleted(startsAt: past),
+                "已开始/已过预约可标记完成")
+    }
+
+    @Test func 边界恰为当前时刻可标完成() {
+        let now = Date()
+        #expect(AppointmentRules.canMarkCompleted(startsAt: now),
+                "startsAt == now 时（已开始）可标完成")
+    }
 }
 
 /// FR9.11 效期状态分类（BatchExpiryRules.status 单一出口）——视图三级
