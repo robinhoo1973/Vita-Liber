@@ -602,8 +602,12 @@ private final class NativeSpeechSessionDriver: SpeechSessionDriver, @unchecked S
     private var audio: AVAudioEngine?
     private var tapInstalled = false
     /// 采集前的会话状态快照：非 nil 即「类别已改、拆除时必还原」——
-    /// 判定挂快照而非「激活成功」（setActive 抛错时类别已改也必须还原）
+    /// 判定挂快照而非「激活成功」（setActive 抛错时类别已改也必须还原）。
+    /// iOS-only：AVAudioSession 在 macOS 不可用（CI 34018308312 同族），
+    /// macOS 测试宿主走无会话路径（AVAudioEngine 直连，无路由概念）。
+    #if os(iOS)
     private var sessionState: AudioSessionCapture.State?
+    #endif
     private var observers: [NSObjectProtocol] = []
     private var requests: [UUID: SFSpeechAudioBufferRecognitionRequest] = [:]
     private var tasks: [UUID: SFSpeechRecognitionTask] = [:]

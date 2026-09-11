@@ -1,4 +1,7 @@
-// 平台守卫镜像 Package.swift 的平台条件（ERR#8 纪律）：AVFoundation 仅 Apple 平台可用。
+// 平台守卫（L0 六族启发式 + CI 34018308312 同族实证）：AVAudioSession 是
+// iOS-only API（macOS 'unavailable in macOS'）——本文件仅 iOS 编译；
+// macOS 侧引用方（SFSpeechTranscriber 的音频会话逻辑）以 #if os(iOS) 自行
+// 守卫，macOS 测试宿主走无会话路径（AVAudioEngine 直连不涉会话路由）。
 #if os(iOS)
 import AVFoundation
 
