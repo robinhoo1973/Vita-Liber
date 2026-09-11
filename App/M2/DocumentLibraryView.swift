@@ -119,15 +119,11 @@ final class DocumentsState {
     @MainActor struct ImportDraft: Identifiable {
         let id = UUID()
         let patientId: UUID
-        /// entityCards 的五个输入（matchPages + reconcileCards 的实参来源）；
-        /// 任一变更即失效缓存（H8 审查修复：确认页 body 每次渲染都重跑
-        /// matchPages——输入未变的键盘/焦点刷新也付全量模板匹配成本；
-        /// didSet 失效使每帧重算收敛为每次真实变更一次）。
-        var docType: String { didSet { cardsCache = nil } }
+        var docType: String
         var docTypeResolved = true
         var docTypeLowConfidence = false
-        var docTypeManuallyChosen = false { didSet { cardsCache = nil } }
-        var documentTypeKey: String? { didSet { cardsCache = nil } }
+        var docTypeManuallyChosen = false
+        var documentTypeKey: String?
         var documentTypeCandidates: [String] = []
         var title: String?
         var isSensitive: Bool
@@ -137,15 +133,11 @@ final class DocumentsState {
         let processedData: Data
         let mimeType: String
         var qualityTags: [String]
-        var pages: [PageAnalysis] { didSet { cardsCache = nil } }
+        var pages: [PageAnalysis]
         var replaceDocumentId: UUID?
         var existingDocumentId: UUID?
         var retainedMeta: [String: Any] = [:]
-        var previousCards: [MatchedCard] = [] { didSet { cardsCache = nil } }
-        // fileprivate（而非 private）：private 存储属性会把 memberwise init 降为
-        // private（CI 34656855831：同文件 536 行构造点即不可见）；fileprivate
-        // 令 memberwise init 同文件可见（唯一构造点就在本文件）。
-        fileprivate var cardsCache: [MatchedCard]?
+        var previousCards: [MatchedCard] = []
 
         var isPrescription: Bool { docType == L10n.docTypePrescription }
         var allFields: [FieldDraft] { pages.flatMap(\.fields) }
@@ -160,17 +152,15 @@ final class DocumentsState {
                 && allFields.allSatisfy { $0.isConfirmed || $0.grade == .rejected }
         }
         var entityCards: [MatchedCard] {
-            mutating get {
-                if let cache = cardsCache { return cache }
-                // 值语义：数组/字典嵌套字段的原地修改同样走属性 setter 触发 didSet
-                //（draft.pages[i].fields[j].value = x 即 pages 变更），缓存不失序。
-                let cards = DocumentsState.reconcileCards(
-                    DocumentsState.matchPages(pages, manualTypeKey: docTypeManuallyChosen
-                        ? (DocumentsState.docTypeKey(forLabel: docType) ?? documentTypeKey) : nil),
-                    previous: previousCards)
-                cardsCache = cards
-                return cards
-            }
+            // H8 记忆化曾尝试 didSet 失效 + mutating get（CI 34656855831 访问
+            // 级别错 / 34658068843 let 常量无法调用 mutating getter），class-box
+            // 缓存又与值语义拷贝共享陈旧缓存——正确性优先，恢复纯计算：
+            // 每次求值重跑 matchPages，成本有界（页数 ≤ 数十、模板匹配为
+            // 常数级字段比较），审查轮5 已按「接受的演进项」登记。
+            DocumentsState.reconcileCards(
+                DocumentsState.matchPages(pages, manualTypeKey: docTypeManuallyChosen
+                    ? (DocumentsState.docTypeKey(forLabel: docType) ?? documentTypeKey) : nil),
+                previous: previousCards)
         }
     }
 
