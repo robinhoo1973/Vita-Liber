@@ -26,8 +26,18 @@ public enum SchemaMigrations {
         public let name: String
         /// 幂等 SQL（可多语句）
         public let sql: String
-        public init(version: Int, name: String, sql: String) {
+        /// 单事务执行：DDL/数据搬运 + 版本推进同一事务，任何失败/崩溃整体
+        /// 回滚、保留旧版本唯一副本（表重建类迁移必需；I5 审查修复——
+        /// 该语义此前硬编码在 runner 的 `case 23` 特例里，runner 不该认识
+        /// 具体版本号）。默认 false（走语句级幂等路径）。
+        public let transactional: Bool
+        /// transactional 步提交前必须通过 `PRAGMA foreign_key_check` 的表
+        /// （nil = 不校验）。当前唯一使用者是 v23（ocr_card_commit 重建后
+        /// 校验搬运无损）；校验失败抛 `OCRCardStore.StoreError.corruptReceipt`。
+        public let fkCheckTable: String?
+        public init(version: Int, name: String, sql: String, transactional: Bool = false, fkCheckTable: String? = nil) {
             self.version = version; self.name = name; self.sql = sql
+            self.transactional = transactional; self.fkCheckTable = fkCheckTable
         }
     }
 
@@ -408,8 +418,10 @@ public enum SchemaMigrations {
              CREATE INDEX IF NOT EXISTS idx_ocr_card_commit_source ON ocr_card_commit(document_file_id, page_index, card_kind);
              CREATE INDEX IF NOT EXISTS idx_ocr_card_commit_entity ON ocr_card_commit(card_kind, entity_id, patient_id);
              """),
-        // v23：扩大页卡事实种类并保留显式就诊关系。GRDBStore以单事务执行本步。
-        Step(version: 23, name: "ocr-card-associations",
+        // v23：扩大页卡事实种类并保留显式就诊关系。表重建（RENAME→建新→搬运→
+        // DROP 旧表）+ 版本推进同一事务，搬运后校验 ocr_card_commit 外键无损
+        // ——声明在步级（transactional/fkCheckTable），runner 不再认识版本号。
+        Step(version: 23, name: "ocr-card-associations", transactional: true, fkCheckTable: "ocr_card_commit",
              sql: """
              ALTER TABLE ocr_card_commit RENAME TO ocr_card_commit_v22;
              CREATE TABLE ocr_card_commit (

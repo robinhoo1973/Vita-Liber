@@ -72,12 +72,10 @@ struct VoiceLanguageSettingsView: View {
     }
 
     private var inputLanguageOptions: [(locale: String, nativeName: String, tier: EngineCapabilityProfile.Tier)] {
-        let choice = VoiceEngineChoice.resolve(settings.values[.voiceEngine])
-        let models = choice == .auto ? ASRModelCatalog.models : ASRModelCatalog.models.filter { $0.choice == choice }
-        let extras = Set(models.flatMap(\.languageCodes)).subtracting(["zh", "en"])
-        return EngineCapabilityProfile.sixLanguages + extras.sorted().map { code in
-            (code, Locale(identifier: code).localizedString(forLanguageCode: code) ?? code, .bestEffort)
-        }
+        // I6 审查修复：选项派生收敛 Domain 单出口（EngineCapabilityProfile
+        // .inputLanguageOptions，sixLanguages 亦随之下沉）——视图不再内联
+        // 模型目录→语种表派生。
+        EngineCapabilityProfile.inputLanguageOptions(choice: VoiceEngineChoice.resolve(settings.values[.voiceEngine]))
     }
 
     var body: some View {
@@ -240,19 +238,6 @@ struct VoiceLanguageSettingsView: View {
         }
         let joined = inputLangs.joined(separator: ",")
         Task { await settings.set(joined, for: .voiceInputLanguages) }
-    }
-}
-
-extension EngineCapabilityProfile {
-    /// FR17.15 六语种清单：**派生自 dialectMatrix()**（单一事实源，ADR-027——
-    /// 禁止在本视图另建一套语种表，能力画像与选择器必须同源）。
-    /// nativeName 为该语言原文（T2 后缀「·尽力识别」与徽标叠加展示）。
-    static var sixLanguages: [(locale: String, nativeName: String, tier: Tier)] {
-        dialectMatrix().map { profile in
-            (profile.supportedLocales.first?.identifier ?? profile.capabilityID,
-             profile.notes ?? profile.capabilityID,
-             profile.tier)
-        }
     }
 }
 

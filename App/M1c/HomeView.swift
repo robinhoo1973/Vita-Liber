@@ -179,9 +179,11 @@ struct HomeView: View {
         let progress = app.profileCompletion
         let snap = aggregatedItems(profileCompletion: progress)
         let items = ReminderAggregationCenter.filtered(snap, kind: filterKind)
-        // 资料完善是首日引导的一部分；单独存在时不能吞掉首日任务。
-        // 任何其他真实提醒（尤其置顶项）仍优先进入聚合列表。
-        let showsGuide = isNewUser && snap.allSatisfy { $0.id.kind == ReminderHubLoader.profileProgressKind }
+        // I7 审查修复：引导优先级是业务规则，下沉 Domain 纯函数
+        //（规则 4）；资料完善是首日引导的一部分，单独存在时不能吞掉首日
+        // 任务，任何其他真实提醒（尤其置顶项）仍优先进入聚合列表。
+        let showsGuide = ReminderAggregationCenter.showsFirstDayGuide(
+            items: snap, isNewUser: isNewUser, progressKind: ReminderHubLoader.profileProgressKind)
         return ScrollView {
             VStack(spacing: 16) {
                 pendingImportRecovery

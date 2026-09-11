@@ -114,66 +114,75 @@ public actor EncounterStore {
         }
     }
 
-    /// 关联卡片清单（处方 + 收费票据合并、日期倒序）；日期缺失的行按最早排序。
+    /// 关联卡片清单（处方 + 收费票据 + 页卡投影合并、日期倒序）；日期缺失的行按最早排序。
+    ///
+    /// G4 审查修复：原三处取行块（处方/收费直查 + 四类投影循环）各自重复
+    /// row→LinkedCardRow 映射——统一为「按源规格」单循环，映射/去重/排序
+    /// 各只有一份。口径保持既有语义：处方/收费是确认事实（confirmed=1），
+    /// 不随源文档软删/收藏状态过滤（事实持久，BR-002 原件不可变同源）；
+    /// 投影类经 document_file 状态、页卡软删（metric_sample.excluded=0，
+    /// V3.45 用户刻意移除的读数不得复活）过滤，并排除本就诊自身的来源
+    /// 就诊卡（entity_id 即本就诊 id——空态文案恒不成立的元凶，且点击
+    /// 构成自引用导航环）。
     public func linkedCards(encounterId: UUID, patientId: UUID, limit: Int = 30) async throws -> [LinkedCardRow] {
         try await writer.read { db in
             var rows: [LinkedCardRow] = []
-            let prescriptions = try Row.fetchAll(db, sql: """
-                SELECT id, prescribed_at AS date, advice_text AS summary, document_file_id
-                FROM prescription WHERE patient_id = ? AND encounter_id = ? AND confirmed = 1
-                ORDER BY prescribed_at DESC LIMIT ?
-                """, arguments: [patientId.uuidString, encounterId.uuidString, limit])
-            for row in prescriptions {
-                guard let id = UUID(uuidString: row["id"] as String) else { continue }
-                rows.append(LinkedCardRow(id: id, kind: .prescription,
-                                          date: (row["date"] as Double?).map { Date(timeIntervalSince1970: $0) },
-                                          summary: Self.firstLine(row["summary"] as String?),
-                                          documentId: (row["document_file_id"] as String?).flatMap { UUID(uuidString: $0) }))
-            }
-            let claims = try Row.fetchAll(db, sql: """
-                SELECT id, date, COALESCE(summary, item_type) AS summary, document_file_id
-                FROM claim_item WHERE patient_id = ? AND encounter_id = ? AND confirmed = 1
-                ORDER BY date DESC LIMIT ?
-                """, arguments: [patientId.uuidString, encounterId.uuidString, limit])
-            for row in claims {
-                guard let id = UUID(uuidString: row["id"] as String) else { continue }
-                rows.append(LinkedCardRow(id: id, kind: .claim,
-                                          date: (row["date"] as Double?).map { Date(timeIntervalSince1970: $0) },
-                                          summary: Self.firstLine(row["summary"] as String?),
-                                          documentId: (row["document_file_id"] as String?).flatMap { UUID(uuidString: $0) }))
-            }
-            let projections: [(LinkedCardRow.Kind, String, String)] = [
-                (.medication, "created_at", "generic_name"), (.metricSample, "measured_at", "raw_label"),
-                (.immunization, "administered_at", "vaccine_name"), (.encounter, "date", "hospital"),
-            ]
-            var seen = Set(rows.map(\.identity))
-            for (kind, dateColumn, summaryColumn) in projections {
-                let confirmation = kind == .immunization ? "AND f.confirmed = 1" : ""
-                let deletion = kind == .encounter ? "AND f.deleted_at IS NULL" : ""
-                // 审查修复①：排除点（metric_sample.excluded=1，V3.45 软删）不得
-                // 复活进关联卡清单——用户刻意移除的读数与趋势页一致地消失。
-                let exclusion = kind == .metricSample ? "AND f.excluded = 0" : ""
-                // 审查修复②：排除本就诊自身的来源就诊卡——就诊卡的 entity_id 即
-                // 本就诊 id，旧查询把「就诊自己」列进自己的关联卡（空态文案
-                // 「暂无关联的处方或收费卡片」永不成立，且点击构成自引用导航环）。
-                let related = try Row.fetchAll(db, sql: """
-                    SELECT f.id, f.\(dateColumn) AS date, f.\(summaryColumn) AS summary, c.document_file_id
-                    FROM \(kind.cardKind) f JOIN ocr_card_commit c ON c.entity_id = f.id AND c.card_kind = ? AND c.patient_id = f.patient_id
-                    JOIN document_file d ON d.id = c.document_file_id AND d.patient_id = c.patient_id
-                    WHERE f.patient_id = ? AND (c.encounter_id = ? OR (c.card_kind = 'encounter' AND c.entity_id = ?))
-                      AND NOT (c.card_kind = 'encounter' AND c.entity_id = ?)
-                      AND d.status IN ('active','favorite') \(confirmation) \(deletion) \(exclusion)
-                    ORDER BY f.\(dateColumn) DESC LIMIT ?
-                    """, arguments: [kind.cardKind, patientId.uuidString, encounterId.uuidString, encounterId.uuidString, encounterId.uuidString, limit])
-                for row in related {
+            var seen = Set<String>()
+            for source in Self.linkedCardSources(encounterId: encounterId, patientId: patientId, limit: limit) {
+                for row in try Row.fetchAll(db, sql: source.sql, arguments: source.arguments) {
                     guard let id = UUID(uuidString: row["id"] as String) else { continue }
-                    let item = LinkedCardRow(id: id, kind: kind, date: (row["date"] as Double?).map(Date.init(timeIntervalSince1970:)),
-                        summary: Self.firstLine(row["summary"]), documentId: (row["document_file_id"] as String?).flatMap(UUID.init(uuidString:)))
+                    let item = LinkedCardRow(id: id, kind: source.kind,
+                        date: (row["date"] as Double?).map { Date(timeIntervalSince1970: $0) },
+                        summary: Self.firstLine(row["summary"] as String?),
+                        documentId: (row["document_file_id"] as String?).flatMap { UUID(uuidString: $0) })
                     if seen.insert(item.identity).inserted { rows.append(item) }
                 }
             }
             return rows.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
         }
+    }
+
+    /// 关联卡数据源：每条查询产出同一列形态（id / date / summary /
+    /// document_file_id），供单一映射循环消费。
+    private struct LinkedCardSource {
+        let kind: LinkedCardRow.Kind
+        let sql: String
+        let arguments: StatementArguments
+    }
+
+    private static func linkedCardSources(encounterId: UUID, patientId: UUID, limit: Int) -> [LinkedCardSource] {
+        let direct: [LinkedCardSource] = [
+            .init(kind: .prescription, sql: """
+                SELECT id, prescribed_at AS date, advice_text AS summary, document_file_id
+                FROM prescription WHERE patient_id = ? AND encounter_id = ? AND confirmed = 1
+                ORDER BY prescribed_at DESC LIMIT ?
+                """, arguments: [patientId.uuidString, encounterId.uuidString, limit]),
+            .init(kind: .claim, sql: """
+                SELECT id, date, COALESCE(summary, item_type) AS summary, document_file_id
+                FROM claim_item WHERE patient_id = ? AND encounter_id = ? AND confirmed = 1
+                ORDER BY date DESC LIMIT ?
+                """, arguments: [patientId.uuidString, encounterId.uuidString, limit]),
+        ]
+        // (kind, dateColumn, summaryColumn, 附加过滤片段)：确认/软删/排除
+        // 条件按 kind 挂接，与修复①/②注释口径一致。
+        let projections: [(LinkedCardRow.Kind, String, String, String)] = [
+            (.medication, "created_at", "generic_name", ""),
+            (.metricSample, "measured_at", "raw_label", "AND f.excluded = 0"),
+            (.immunization, "administered_at", "vaccine_name", "AND f.confirmed = 1"),
+            (.encounter, "date", "hospital", "AND f.deleted_at IS NULL"),
+        ]
+        let projected = projections.map { kind, dateColumn, summaryColumn, extra in
+            LinkedCardSource(kind: kind, sql: """
+                SELECT f.id, f.\(dateColumn) AS date, f.\(summaryColumn) AS summary, c.document_file_id
+                FROM \(kind.cardKind) f JOIN ocr_card_commit c ON c.entity_id = f.id AND c.card_kind = ? AND c.patient_id = f.patient_id
+                JOIN document_file d ON d.id = c.document_file_id AND d.patient_id = c.patient_id
+                WHERE f.patient_id = ? AND (c.encounter_id = ? OR (c.card_kind = 'encounter' AND c.entity_id = ?))
+                  AND NOT (c.card_kind = 'encounter' AND c.entity_id = ?)
+                  AND d.status IN ('active','favorite') \(extra)
+                ORDER BY f.\(dateColumn) DESC LIMIT ?
+                """, arguments: [kind.cardKind, patientId.uuidString, encounterId.uuidString, encounterId.uuidString, encounterId.uuidString, limit])
+        }
+        return direct + projected
     }
 
     private static func firstLine(_ text: String?) -> String {

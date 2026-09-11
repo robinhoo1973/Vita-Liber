@@ -73,6 +73,44 @@ public actor HealthKitSyncService {
 
     public func cancelSync() { inFlight?.cancel() }
 
+    /// FR16.3 排空轮询（服务层聚合）：循环 `performSync` 直至排空（hasMore=false）
+    /// 或时间预算耗尽，多轮报告聚合成单份终态。
+    ///
+    /// I2 审查修复：该循环与聚合此前内联在 App 层 F16DeviceState.sync
+    /// （视图状态对象承载服务语义，违反分层纪律）——下移后状态对象只消费
+    /// 一次报告。取消经 Task.checkCancellation 逐轮复核（performSync 内部
+    /// 亦逐窗口复核）；performSync 的 inFlight 合并语义不变。
+    public func performSyncAll(quietStart: String, quietEnd: String,
+                               maxRounds: Int = 20,
+                               timeBudget: Duration = .seconds(30)) async throws -> SyncReport {
+        let start = ContinuousClock.now
+        var total: SyncReport?
+        for _ in 0..<max(1, maxRounds) {
+            try Task.checkCancellation()
+            let result = try await performSync(quietStart: quietStart, quietEnd: quietEnd)
+            if var aggregate = total, aggregate.bindingId == result.bindingId, aggregate.patientId == result.patientId {
+                aggregate.persistedRows += result.persistedRows
+                aggregate.receivedChanges += result.receivedChanges
+                aggregate.elevated += result.elevated
+                aggregate.preservedRows += result.preservedRows
+                aggregate.rejectedSamples += result.rejectedSamples
+                aggregate.notificationFailures += result.notificationFailures
+                aggregate.failedTypes = Array(Set(aggregate.failedTypes + result.failedTypes))
+                aggregate.hasMore = result.hasMore
+                aggregate.deferredWindows = result.deferredWindows
+                aggregate.lastSyncAt = result.lastSyncAt
+                total = aggregate
+            } else {
+                total = result
+            }
+            if !result.hasMore || start.duration(to: .now) >= timeBudget { break }
+        }
+        // maxRounds ≥ 1 时首轮必产出；守卫兜底无绑定（missingOwner 与
+        // performSync 内部缺失绑定的失败语义一致）。
+        guard let total else { throw HealthImportStore.ImportError.missingOwner }
+        return total
+    }
+
     public func performSync(quietStart: String, quietEnd: String) async throws -> SyncReport {
         try Task.checkCancellation()
         if let inFlight {

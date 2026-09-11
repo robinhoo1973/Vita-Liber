@@ -376,7 +376,11 @@ public actor OCRCardStore {
     static func refreshDocumentProjection(documentId: UUID, patientId: UUID, db: Database, now: Date) throws {
         let jsons = try String.fetchAll(db, sql: "SELECT raw_blocks FROM ocr_result WHERE document_file_id = ? AND engine_version = ? ORDER BY page_index, created_at",
                                        arguments: [documentId.uuidString, auditEngine])
-        let audits = try jsons.map { try JSONDecoder().decode(AuditRecord.self, from: Data($0.utf8)) }
+        // H4 审查修复：JSONDecoder 每行新建（P×C 个实例、每次全量重建类型元数据）——
+        // 提升为单实例复用。逐行解码本身是投影任务的固有成本（完整投影必须
+        // 覆盖全部页面的已确认字段），页数×卡数有界（文档 ≤ 数十页），不再重排。
+        let decoder = JSONDecoder()
+        let audits = try jsons.map { try decoder.decode(AuditRecord.self, from: Data($0.utf8)) }
         guard !audits.isEmpty else { return }
         let text = audits.flatMap { $0.shared + $0.fields }.filter(\.isConfirmed).filter { $0.key != "metric_key" }
             .map { [$0.value, $0.unit].compactMap { $0 }.joined(separator: " ") }.joined(separator: "\n")

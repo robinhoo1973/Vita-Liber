@@ -187,6 +187,20 @@ struct Fr69CompletenessTests {
         #expect(out[0].id.sourceId == "r-mine")
     }
 
+    @Test("首日引导优先级（I7）：仅资料完善 → 引导；任一真实提醒 → 聚合列表")
+    func 首日引导优先级() {
+        let now = Date()
+        let progress = item("profile_progress", "p1", kind: .system, at: now)
+        // 只有资料完善任务：新用户 → 展示引导；老用户 → 不展示
+        #expect(ReminderAggregationCenter.showsFirstDayGuide(items: [progress], isNewUser: true, progressKind: "profile_progress"))
+        #expect(!ReminderAggregationCenter.showsFirstDayGuide(items: [progress], isNewUser: false, progressKind: "profile_progress"))
+        // 出现任一真实提醒（哪怕普通服药提醒）→ 引导让位聚合列表
+        let real = item("reminder", "r1", kind: .medication, at: now)
+        #expect(!ReminderAggregationCenter.showsFirstDayGuide(items: [progress, real], isNewUser: true, progressKind: "profile_progress"))
+        // 空聚合 + 新用户 → 引导（allSatisfy 空集恒真，与 V3.39 空态语义一致）
+        #expect(ReminderAggregationCenter.showsFirstDayGuide(items: [], isNewUser: true, progressKind: "profile_progress"))
+    }
+
     @Test("周期计划压缩：同 plan 保留最近逾期+下一未来项并附剩余数")
     func 周期计划压缩() {
         let now = Date()

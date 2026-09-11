@@ -171,6 +171,16 @@ public enum ReminderAggregationCenter {
         return items.filter { $0.aggregationKind == kind || $0.isPinned }
     }
 
+    /// 首日引导优先级（I7 审查修复，规则 4——业务规则必须是 Domain 纯函数）：
+    /// 新用户仅在聚合中除「资料完善」任务外**无任何真实提醒**时整页展示
+    /// 首日引导；任何其他真实提醒（尤其置顶项）优先进入聚合列表——资料
+    /// 完善是首日引导的一部分，单独存在时不能吞掉首日任务。
+    /// `progressKind` 为资料完善投影的去重键 kind（App 层传入，Domain 不
+    /// 反向依赖 ReminderHubLoader）。
+    public static func showsFirstDayGuide(items: [AggregatedReminderItem], isNewUser: Bool, progressKind: String) -> Bool {
+        isNewUser && items.allSatisfy { $0.id.kind == progressKind }
+    }
+
     /// 待办卡投影（data-flow §20.1）：title=「待补充：{card_kind}」非敏感摘要、
     /// dueDate=created_at+24h、status=pending_card.status 透传。
     public static func pendingCardItem(cardId: String, cardKind: String,

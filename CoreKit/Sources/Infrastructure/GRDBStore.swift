@@ -104,18 +104,24 @@ public struct GRDBStore {
                     try Self.rebuildDoseLogWithFK(db)
                 case 15:
                     try Self.recomputeLogicalDoseIds(db)
-                case 23:
-                    // 重建及版本推进同一事务，任何失败/崩溃都保留v22唯一副本。
-                    try db.inTransaction {
-                        for statement in SchemaMigrations.statements(step.sql) { try db.execute(sql: statement) }
-                        guard try Row.fetchAll(db, sql: "PRAGMA foreign_key_check(ocr_card_commit)").isEmpty else {
-                            throw OCRCardStore.StoreError.corruptReceipt
-                        }
-                        try db.execute(sql: "PRAGMA user_version = \(step.version)")
-                        return .commit
-                    }
-                    continue
                 default:
+                    // 表重建类迁移（步级声明 transactional）：DDL/搬运 + FK
+                    // 校验 + 版本推进同一事务，任何失败/崩溃都保留旧版本唯一
+                    // 副本。I5 审查修复：该语义此前硬编码为 `case 23` 特例，
+                    // runner 不该认识具体版本号——语义随 Step 声明携带。
+                    if step.transactional {
+                        try db.inTransaction {
+                            for statement in SchemaMigrations.statements(step.sql) { try db.execute(sql: statement) }
+                            // 表名来自 steps 声明的编译期常量（同版本号信任级），非外部输入。
+                            if let table = step.fkCheckTable,
+                               !(try Row.fetchAll(db, sql: "PRAGMA foreign_key_check(\(table))")).isEmpty {
+                                throw OCRCardStore.StoreError.corruptReceipt
+                            }
+                            try db.execute(sql: "PRAGMA user_version = \(step.version)")
+                            return .commit
+                        }
+                        continue
+                    }
                     for statement in SchemaMigrations.statements(step.sql) {
                         // 幂等：baseline 已含该列的库上重放 ADD COLUMN 会报 duplicate column
                         if let parts = SchemaMigrations.addColumnParts(statement) {

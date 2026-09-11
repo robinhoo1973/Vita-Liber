@@ -55,33 +55,17 @@ final class F16DeviceState {
         guard authEnabled else { phase = .degraded(L10n.f16AuthDisabled); return }
         guard !isSyncing else { return }
         phase = .syncing
-        let start = ContinuousClock.now
-        var total: HealthKitSyncService.SyncReport?
         do {
-            for _ in 0..<max(1, maxRounds) {
-                try Task.checkCancellation()
-                let result = try await syncService.performSync(quietStart: quietStart, quietEnd: quietEnd)
-                if var aggregate = total, aggregate.bindingId == result.bindingId, aggregate.patientId == result.patientId {
-                    aggregate.persistedRows += result.persistedRows
-                    aggregate.receivedChanges += result.receivedChanges
-                    aggregate.elevated += result.elevated
-                    aggregate.preservedRows += result.preservedRows
-                    aggregate.rejectedSamples += result.rejectedSamples
-                    aggregate.notificationFailures += result.notificationFailures
-                    aggregate.failedTypes = Array(Set(aggregate.failedTypes + result.failedTypes))
-                    aggregate.hasMore = result.hasMore; aggregate.deferredWindows = result.deferredWindows
-                    aggregate.lastSyncAt = result.lastSyncAt
-                    total = aggregate
-                } else { total = result }
-                report = total
-                if result.persistedRows > 0 { dataChange.metricsChanged() }
-                dataChange.alertsChanged()
-                if !result.hasMore || start.duration(to: .now) >= .seconds(30) { break }
-            }
+            // I2 审查修复：轮询与聚合下沉 HealthKitSyncService.performSyncAll
+            // （服务语义不进视图状态对象），本层只消费一次终态报告。
+            let total = try await syncService.performSyncAll(quietStart: quietStart, quietEnd: quietEnd, maxRounds: maxRounds)
+            report = total
+            if total.persistedRows > 0 { dataChange.metricsChanged() }
+            dataChange.alertsChanged()
             // 审查修复（效率）：仪表盘六查询聚合只在轮次结束后算一次——
             // 旧实现每轮都全量重算（历史排空最长 20 轮 × 6 查询，纯浪费）。
             await refreshDashboard()
-            if let total, total.bindingId == dashboard?.bindingId, total.patientId == dashboard?.patientId {
+            if total.bindingId == dashboard?.bindingId, total.patientId == dashboard?.patientId {
                 phase = .done(count: total.persistedRows)
             } else { report = dashboard?.lastReport; phase = .idle }
         } catch {

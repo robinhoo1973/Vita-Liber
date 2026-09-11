@@ -119,11 +119,15 @@ final class DocumentsState {
     @MainActor struct ImportDraft: Identifiable {
         let id = UUID()
         let patientId: UUID
-        var docType: String
+        /// entityCards 的五个输入（matchPages + reconcileCards 的实参来源）；
+        /// 任一变更即失效缓存（H8 审查修复：确认页 body 每次渲染都重跑
+        /// matchPages——输入未变的键盘/焦点刷新也付全量模板匹配成本；
+        /// didSet 失效使每帧重算收敛为每次真实变更一次）。
+        var docType: String { didSet { cardsCache = nil } }
         var docTypeResolved = true
         var docTypeLowConfidence = false
-        var docTypeManuallyChosen = false
-        var documentTypeKey: String?
+        var docTypeManuallyChosen = false { didSet { cardsCache = nil } }
+        var documentTypeKey: String? { didSet { cardsCache = nil } }
         var documentTypeCandidates: [String] = []
         var title: String?
         var isSensitive: Bool
@@ -133,11 +137,12 @@ final class DocumentsState {
         let processedData: Data
         let mimeType: String
         var qualityTags: [String]
-        var pages: [PageAnalysis]
+        var pages: [PageAnalysis] { didSet { cardsCache = nil } }
         var replaceDocumentId: UUID?
         var existingDocumentId: UUID?
         var retainedMeta: [String: Any] = [:]
-        var previousCards: [MatchedCard] = []
+        var previousCards: [MatchedCard] = [] { didSet { cardsCache = nil } }
+        private var cardsCache: [MatchedCard]?
 
         var isPrescription: Bool { docType == L10n.docTypePrescription }
         var allFields: [FieldDraft] { pages.flatMap(\.fields) }
@@ -152,10 +157,15 @@ final class DocumentsState {
                 && allFields.allSatisfy { $0.isConfirmed || $0.grade == .rejected }
         }
         var entityCards: [MatchedCard] {
-            DocumentsState.reconcileCards(
+            if let cache = cardsCache { return cache }
+            // 值语义：数组/字典嵌套字段的原地修改同样走属性 setter 触发 didSet
+            //（draft.pages[i].fields[j].value = x 即 pages 变更），缓存不失序。
+            let cards = DocumentsState.reconcileCards(
                 DocumentsState.matchPages(pages, manualTypeKey: docTypeManuallyChosen
                     ? (DocumentsState.docTypeKey(forLabel: docType) ?? documentTypeKey) : nil),
                 previous: previousCards)
+            cardsCache = cards
+            return cards
         }
     }
 

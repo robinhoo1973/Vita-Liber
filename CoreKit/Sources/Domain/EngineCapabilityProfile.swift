@@ -62,4 +62,27 @@ public struct EngineCapabilityProfile: Sendable, Equatable {
         }
         return t1s + t2s
     }
+
+    /// FR17.15 六语种清单：派生自 dialectMatrix()（单一事实源，ADR-027——
+    /// 禁止在视图层另建语种表，能力画像与选择器必须同源）。
+    /// nativeName 为该语言原文（T2 后缀「·尽力识别」与徽标叠加展示）。
+    public static var sixLanguages: [(locale: String, nativeName: String, tier: Tier)] {
+        dialectMatrix().map { profile in
+            (profile.supportedLocales.first?.identifier ?? profile.capabilityID,
+             profile.notes ?? profile.capabilityID,
+             profile.tier)
+        }
+    }
+
+    /// FR17.15 输入语言选项 = 六语种 + 所选档位随包模型的额外语种
+    /// （T2 尽力识别徽标）。I6 审查修复：该派生此前驻留 App 视图
+    /// （LanguageSettingsView）——选项生成收敛为 Domain 单出口，
+    /// 与 sixLanguages 同源放置，其它消费方（实验室/后续入口）不再重派生。
+    public static func inputLanguageOptions(choice: VoiceEngineChoice) -> [(locale: String, nativeName: String, tier: Tier)] {
+        let models = choice == .auto ? ASRModelCatalog.models : ASRModelCatalog.models.filter { $0.choice == choice }
+        let extras = Set(models.flatMap(\.languageCodes)).subtracting(["zh", "en"])
+        return sixLanguages + extras.sorted().map { code in
+            (code, Locale(identifier: code).localizedString(forLanguageCode: code) ?? code, .bestEffort)
+        }
+    }
 }
