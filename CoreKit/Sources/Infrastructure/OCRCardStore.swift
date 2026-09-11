@@ -226,7 +226,7 @@ public actor OCRCardStore {
                     // 卡片互联（FR6.9 期二）：就诊卡落库后回填同文档、同日
                     // 窗口内尚未归属的 OCR 处方卡——「先确认处方、后确认就诊」
                     // 的确认顺序也要闭合互联链（encounter_id 单向引用就诊）。
-                    let tolerance = EncounterLinker.sameDayTolerance
+                    let tolerance = EntityCardProjection.EncounterLinker.sameDayTolerance
                     try db.execute(sql: """
                         UPDATE prescription SET encounter_id = ?, updated_at = ?
                         WHERE patient_id = ? AND document_file_id = ? AND encounter_id IS NULL
@@ -242,7 +242,7 @@ public actor OCRCardStore {
                     let existingIds = Set(receipts.map { $0["entity_id"] as String })
                     guard existingIds.count <= 1 else { throw StoreError.corruptReceipt }
                     // 卡片互联（FR6.9 期二）：处方归属就诊卡——同日窗口内按
-                    // EncounterLinker 纯规则匹配（医院/医生信号收紧；无信号
+                    // EntityCardProjection.EncounterLinker 纯规则匹配（医院/医生信号收紧；无信号
                     // 不猜、encounter_id 保持 NULL，绝不张冠李戴）
                     let encounterId = try Self.linkedEncounterId(db: db, patientId: patientId,
                                                                  prescribedAt: intent.prescribedAt,
@@ -310,11 +310,11 @@ public actor OCRCardStore {
     }
 
     /// 卡片互联（FR6.9 期二）：处方 → 就诊卡的归属匹配——查询同日窗口内
-    /// 患者就诊记录（创建时间最新优先），交给 Domain 纯规则 EncounterLinker
+    /// 患者就诊记录（创建时间最新优先），交给 Domain 纯规则 EntityCardProjection.EncounterLinker
     /// 决策；无信号（医院/医生均缺失）时返回 nil 保持 encounter_id NULL。
     private static func linkedEncounterId(db: Database, patientId: UUID, prescribedAt: Date,
                                           hospital: String?, doctor: String?) throws -> UUID? {
-        let tolerance = EncounterLinker.sameDayTolerance
+        let tolerance = EntityCardProjection.EncounterLinker.sameDayTolerance
         let rows = try Row.fetchAll(db, sql: """
             SELECT id, date, hospital, doctor, created_at FROM encounter
             WHERE patient_id = ? AND deleted_at IS NULL AND date >= ? AND date <= ?
@@ -322,16 +322,16 @@ public actor OCRCardStore {
             """, arguments: [patientId.uuidString,
                              prescribedAt.timeIntervalSince1970 - tolerance,
                              prescribedAt.timeIntervalSince1970 + tolerance])
-        let candidates = rows.compactMap { row -> EncounterLinker.Candidate? in
+        let candidates = rows.compactMap { row -> EntityCardProjection.EncounterLinker.Candidate? in
             guard let id = UUID(uuidString: row["id"] as String) else { return nil }
-            return EncounterLinker.Candidate(
+            return EntityCardProjection.EncounterLinker.Candidate(
                 id: id,
                 date: Date(timeIntervalSince1970: row["date"] as Double),
                 hospital: row["hospital"] as String?,
                 doctor: row["doctor"] as String?,
                 createdAt: Date(timeIntervalSince1970: row["created_at"] as Double))
         }
-        return EncounterLinker.match(prescribedAt: prescribedAt, hospital: hospital,
+        return EntityCardProjection.EncounterLinker.match(prescribedAt: prescribedAt, hospital: hospital,
                                      doctor: doctor, candidates: candidates)
     }
 
