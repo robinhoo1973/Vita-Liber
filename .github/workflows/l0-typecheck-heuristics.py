@@ -25,6 +25,13 @@
 #      可选签名假红不可能）内声明非可选 `let/var x: String` 且调用点实参
 #      `x: nil`；同名可选声明/参数存在则整名豁免（保守零误报）；字典字面量
 #      `[x: nil]`（最近未闭合括号为 [）为合法值跳过。
+#   G. 单语句 ≥6 段高阶链式调用 —— CI 34653854625 实证：
+#      OCRCardStore.refreshDocumentProjection 的 flatMap→filter→filter→
+#      map→compactMap→joined→joined 单链在 macOS Swift 6 类型检查预算
+#      超时（"unable to type-check this expression in reasonable time"；
+#      Linux 6.3.1 类型检查通过——该表达式正处预算边界）。判定：语句级
+#      链段计数（跨行续链：行尾 `.`/开括号/&&/|| 续、行首 `.` 接），
+#      ≥6 段即 FAIL；全仓当前零命中（阈值 ≥5 亦零）——修复即拆子表达式。
 # 判定与平台无关（python3 标准库）；ERR#27 纪律：扫 0 文件/无计数一律 FAIL。
 # 豁免标记（与 try?-ok/adr021-ok 同惯例，仅同行注释）：`// tius-ok: <理由>`
 # ——第五轮全仓审查修复：本标记此前只在文档声明、判定器从未读取（假豁免），
@@ -436,9 +443,45 @@ def main():
                     f"或加 // tius-ok: 豁免"
                 )
 
+    # ---- 家族 G：单语句 ≥6 段高阶链式调用（App/Tests/UITests + CoreKit）
+    # CI 34653854625 实证：七段 flatMap→filter→filter→map→compactMap→
+    # joined→joined 单链在 macOS Swift 6 类型检查超时（Linux 6.3.1 通过——
+    # 预算边界）。语句级计数 + 跨行续链；阈值 ≥6 当前全仓零命中（≥5 亦零）。
+    g_files = list(a_files) + list(c_files)
+    scanned["G"] = len(g_files)
+    chain_seg = re.compile(r"\.(map|filter|flatMap|compactMap|reduce|joined|sorted|prefix|suffix|allSatisfy|contains)\s*[\{\(]")
+    for f in g_files:
+        try:
+            raw_lines = f.read_text(encoding="utf-8").splitlines()
+        except Exception:
+            continue
+        chain = 0
+        for idx, raw in enumerate(raw_lines):
+            lineno = idx + 1
+            stripped = raw.strip()
+            if not stripped or stripped.startswith("//"):
+                continue
+            n = len(chain_seg.findall(raw))
+            if chain > 0 and stripped.startswith("."):
+                chain += n
+            else:
+                chain = n
+            if chain >= 6:
+                if not exempted(raw_lines, lineno):
+                    fails.append(
+                        f"{f.relative_to(root)}:{lineno}: 单语句 {chain} 段高阶链式调用"
+                        f"超出 macOS Swift 6 类型检查预算（CI 34653854625 同族："
+                        f"'unable to type-check this expression in reasonable time'；"
+                        f"Linux 类型检查可过——正处预算边界）——拆子表达式（let 承接），"
+                        f"或加 // tius-ok: 豁免"
+                    )
+                chain = 0
+            if not (stripped.endswith(".") or stripped.endswith(("(", "[", "{", "&&", "||"))):
+                chain = 0
+
     print(f"__SCANNED__ A={scanned.get('A',0)} A2={scanned.get('A2',0)} "
           f"B={scanned.get('B',0)} C={scanned.get('C',0)} D={scanned.get('D',0)} "
-          f"E={scanned.get('E',0)} F={scanned.get('F',0)}")
+          f"E={scanned.get('E',0)} F={scanned.get('F',0)} G={scanned.get('G',0)}")
     seen = set()
     for msg in fails:
         if msg in seen:

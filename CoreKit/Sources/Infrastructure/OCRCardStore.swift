@@ -382,8 +382,15 @@ public actor OCRCardStore {
         let decoder = JSONDecoder()
         let audits = try jsons.map { try decoder.decode(AuditRecord.self, from: Data($0.utf8)) }
         guard !audits.isEmpty else { return }
-        let text = audits.flatMap { $0.shared + $0.fields }.filter(\.isConfirmed).filter { $0.key != "metric_key" }
-            .map { [$0.value, $0.unit].compactMap { $0 }.joined(separator: " ") }.joined(separator: "\n")
+        // CI 34653854625 修复：单链长表达式超出 macOS Swift 6 类型检查预算
+        // （Linux 6.3.1 类型检查通过、macOS 超时——该表达式正处在预算边界）。
+        // 拆子表达式：确认字段集合 → 值/单位行文本 → 全文。
+        let confirmedFields = audits.flatMap { $0.shared + $0.fields }
+            .filter(\.isConfirmed)
+            .filter { $0.key != "metric_key" }
+        let text = confirmedFields
+            .map { field in [field.value, field.unit].compactMap { $0 }.joined(separator: " ") }
+            .joined(separator: "\n")
         let pending = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM pending_card WHERE source_doc_id = ? AND status IN ('pending','in_progress')",
                                       arguments: [documentId.uuidString]) ?? 0
         // FTS触发器只看到已确认投影；原始OCR页文本/拒绝字段不加入搜索。
