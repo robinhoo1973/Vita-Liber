@@ -32,29 +32,33 @@ public enum SpeechAnalyzerSupport {
     }
 
     /// 系统支持（含可下载）的 locale 标识集。
-    public static func supportedLocales(of flavor: SpeechAnalyzerFlavor) -> [String] {
+    /// CI 34654471949 修复：真实 iOS 26 API 中 SpeechTranscriber/Dictation-
+    /// Transcriber 的 supportedLocales/installedLocales 均为 **async 属性**，
+    /// 同步读取编译报 'async' property access in a function that does not
+    /// support concurrency——本族函数随之升 async。
+    public static func supportedLocales(of flavor: SpeechAnalyzerFlavor) async -> [String] {
         guard #available(iOS 26.0, macOS 26.0, *) else { return [] }
         switch flavor {
-        case .standard: return SpeechTranscriber.supportedLocales.map(\.identifier).sorted()
-        case .dictation: return DictationTranscriber.supportedLocales.map(\.identifier).sorted()
+        case .standard: return await SpeechTranscriber.supportedLocales.map(\.identifier).sorted()
+        case .dictation: return await DictationTranscriber.supportedLocales.map(\.identifier).sorted()
         }
     }
 
     /// 已安装（离线可直接识别）的 locale 标识集。
-    public static func installedLocales(of flavor: SpeechAnalyzerFlavor) -> [String] {
+    public static func installedLocales(of flavor: SpeechAnalyzerFlavor) async -> [String] {
         guard #available(iOS 26.0, macOS 26.0, *) else { return [] }
         switch flavor {
-        case .standard: return SpeechTranscriber.installedLocales.map(\.identifier).sorted()
-        case .dictation: return DictationTranscriber.installedLocales.map(\.identifier).sorted()
+        case .standard: return await SpeechTranscriber.installedLocales.map(\.identifier).sorted()
+        case .dictation: return await DictationTranscriber.installedLocales.map(\.identifier).sorted()
         }
     }
 
     /// 某 locale 的资源状态（已安装 / 可下载 / 不支持）。
-    public static func assetStatus(of flavor: SpeechAnalyzerFlavor, locale identifier: String) -> VoiceLocaleAssetStatus {
+    public static func assetStatus(of flavor: SpeechAnalyzerFlavor, locale identifier: String) async -> VoiceLocaleAssetStatus {
         guard #available(iOS 26.0, macOS 26.0, *) else { return .unavailable }
-        let supported = supportedLocales(of: flavor)
+        let supported = await supportedLocales(of: flavor)
         guard supported.contains(identifier) else { return .unavailable }
-        return installedLocales(of: flavor).contains(identifier) ? .installed : .downloadable
+        return await installedLocales(of: flavor).contains(identifier) ? .installed : .downloadable
     }
 
     /// 触发语言资源下载安装（唯一显式入口；返回安装后是否已就绪）。
@@ -119,14 +123,16 @@ public actor SpeechAnalyzerTranscriber: TranscriptionCaptureReporting {
 
     public init(flavor: SpeechAnalyzerFlavor = .standard) {
         self.flavor = flavor
-        let installed = Set(SpeechAnalyzerSupport.installedLocales(of: flavor))
-        capability = .longForm(locales: installed)
+        // 初始快照为空集：installedLocales 为 async 属性（CI 34654471949），
+        // init 不可 await——真实已安装集由 currentCapability() 的实时探测
+        // 返回（唯一运行时读取口；协议能力快照语义不变）。
+        capability = .longForm(locales: [])
     }
 
-    public nonisolated func currentCapability() async -> TranscriptionCapability { Self.probe(flavor: flavor) }
+    public nonisolated func currentCapability() async -> TranscriptionCapability { await Self.probe(flavor: flavor) }
 
-    private nonisolated static func probe(flavor: SpeechAnalyzerFlavor) -> TranscriptionCapability {
-        let installed = Set(SpeechAnalyzerSupport.installedLocales(of: flavor))
+    private nonisolated static func probe(flavor: SpeechAnalyzerFlavor) async -> TranscriptionCapability {
+        let installed = Set(await SpeechAnalyzerSupport.installedLocales(of: flavor))
         return .longForm(locales: installed)
     }
 
@@ -187,12 +193,12 @@ public actor SpeechAnalyzerTranscriber: TranscriptionCaptureReporting {
     // MARK: - FR17.15 语言资源（实验室入口）
 
     public func localeAssetStatus(_ localeIdentifier: String) async -> VoiceLocaleAssetStatus {
-        SpeechAnalyzerSupport.assetStatus(of: flavor, locale: localeIdentifier)
+        await SpeechAnalyzerSupport.assetStatus(of: flavor, locale: localeIdentifier)
     }
 
     public func prepareLocale(_ localeIdentifier: String) async -> Bool {
         guard await SpeechAnalyzerSupport.install(locale: localeIdentifier, flavor: flavor) else { return false }
-        return SpeechAnalyzerSupport.assetStatus(of: flavor, locale: localeIdentifier) == .installed
+        return await SpeechAnalyzerSupport.assetStatus(of: flavor, locale: localeIdentifier) == .installed
     }
 
     // MARK: - 会话执行
@@ -217,7 +223,7 @@ public actor SpeechAnalyzerTranscriber: TranscriptionCaptureReporting {
         }
         // 资产未安装：生产路径不自动下载（离线优先）——整会话回落基线轨，
         // 用户可在「识别引擎实验室」显式安装后升级到平台轨。
-        guard SpeechAnalyzerSupport.installedLocales(of: flavor).contains(locale.identifier) else {
+        guard await SpeechAnalyzerSupport.installedLocales(of: flavor).contains(locale.identifier) else {
             return .delegate
         }
         return .analyzer(locale)
