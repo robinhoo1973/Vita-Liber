@@ -209,6 +209,7 @@
 "f19.stopped" = "已停止聆听（退出前台）";
 "f19.paused" = "聆听已暂停，点击继续";
 "f19.contactNotFound" = "未找到联系人「%@」，已拒绝拨号";
+"f19.contactAmbiguous" = "未找到「%1$@」的精确匹配；相近联系人「%2$@」。为避免拨错（急救安全），请说出其完整姓名后重试";
 "f19.repeatObject" = "将拨打 %@。请确认。";
 "f19.executed" = "已执行：%@";
 "fr24.title" = "发送状态";
@@ -1513,6 +1514,8 @@
 "voice.confirm.fillHint" = "未识别，点击填写";
 "voiceguide.saved" = "提醒已设置";
 "voiceguide.profileDoneHint" = "四项档案信息已写入成员档案，可随时在「我的」中修改";
+"voiceguide.profileDoneTitle" = "档案访谈已完成";
+"voiceguide.profileDonePartial" = "已写入 %1$d 项档案信息，跳过 %2$d 项——跳过的项目可稍后在成员档案中补充";
 "home.capture.library" = "从相册选择";
 "home.capture.file" = "从文件导入（PDF / 图片 / Word）";
 "home.capture.noCamera" = "此设备无相机，请使用相册或文件导入";

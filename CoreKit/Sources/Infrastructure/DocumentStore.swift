@@ -243,11 +243,20 @@ public actor DocumentStore {
             // 审查修复：提交凭据冻结的是「页文本事实」——失败页重扫只改
             // status（复核过程态），原守卫把任何页面差异一律拒死（重扫成功
             // 也无法落库、该页永久卡失败）。凭据存在时仅拒文本变更/新增页。
+            // 审查修复（单向守卫缺口）：仅查「新增页/文本变更」漏掉「缺页」——
+            // 提交页被提交集遗漏时 document_file.ocr_text 重建缺该页文本而
+            // document_page 行与 ocr_card_commit 凭据仍在，已确认事实静默蒸发。
+            // 补反向检查：凭据存在时每个既有页必须在提交集中（同 index 同
+            // text），status 变更（failed→ok）不触发（text 不变即放行）。
             let textChanged = orderedPages.filter { new in
                 previousPages.contains { $0.index == new.index && $0.text != new.text }
             }
+            let omittedPage = previousPages.contains { old in
+                !orderedPages.contains { $0.index == old.index && $0.text == old.text }
+            }
             guard receiptCount == 0
-                    || (textChanged.isEmpty && orderedPages.allSatisfy { p in previousPages.contains { $0.index == p.index } })
+                    || (textChanged.isEmpty && !omittedPage
+                        && orderedPages.allSatisfy { p in previousPages.contains { $0.index == p.index } })
             else { throw StoreError.invalidPage }
             var metadata: [String: Any] = [:]
             if let metaJSON {

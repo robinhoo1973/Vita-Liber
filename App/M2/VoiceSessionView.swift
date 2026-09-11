@@ -649,14 +649,18 @@ struct VoiceSessionView: View {
         // 联系人「妈妈的姐姐」先于「妈妈」时，「打给妈妈」会拨给姨妈
         // （BR-012 急救路径拨错人）。精确名优先；仅当子串命中唯一才放行，
         // 多义一律拒绝拨号（播报未命中，绝不猜）。
+        // 审查修复（唯一子串命中仍是猜测）：FR19.5 复述确认环节复述的是
+        // 语音原话而非解析出的联系人名——唯一子串命中（「妈妈的姐姐」
+        // 含「妈妈」）仍会拨错人。急救路径拨错人代价不对称：非精确名
+        // 一律不拨号，播报相近联系人的完整姓名引导用户复述精确名。
         let contacts = hub.emergencySelected.contacts
-        let exact = contacts.first { $0.title == object }
-        let candidates = contacts.filter { $0.title.contains(object) }
-        let contact = exact ?? (candidates.count == 1 ? candidates[0] : nil)
-        // 联系人未命中即拒绝拨号并播报——此前 `?? object` 把语音原话当号码
-        // 直接拨出（联系人未加载/残词失配即拨错号，FR19.5 确认对象形同虚设）
-        guard let contact else {
-            app.speak(L10n.f19_contactNotFound(object))
+        guard let contact = contacts.first(where: { $0.title == object }) else {
+            let candidates = contacts.filter { $0.title.contains(object) }
+            if let sole = candidates.count == 1 ? candidates[0] : nil {
+                app.speak(L10n.f19_contactAmbiguous(object, sole.title))
+            } else {
+                app.speak(L10n.f19_contactNotFound(object))
+            }
             return
         }
         // detail 为「关系 · 电话」复合展示串——拨号取纯号码（BR-012 语义）

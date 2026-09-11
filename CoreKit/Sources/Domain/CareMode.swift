@@ -8,15 +8,18 @@ public struct CareModeMetrics: Sendable, Equatable {
     public var primaryButtonHeight: CGFloat  // 关怀 72 / 常规 50
     public var tremorGuardSeconds: TimeInterval   // 关怀 0.3s 防抖
     public var holdConfirmSeconds: TimeInterval   // 关怀 ≥0.6s
+    public var sosOrbMaxTravelPoints: CGFloat  // SOS 悬浮球按住位移上限（超限=滚动/误划，取消求助触发）
     public init(touchTarget: CGFloat = 44, spacing: CGFloat = 8,
                 primaryButtonHeight: CGFloat = 50,
                 tremorGuardSeconds: TimeInterval = 0,
-                holdConfirmSeconds: TimeInterval = 0) {
+                holdConfirmSeconds: TimeInterval = 0,
+                sosOrbMaxTravelPoints: CGFloat = 24) {
         self.touchTarget = touchTarget
         self.spacing = spacing
         self.primaryButtonHeight = primaryButtonHeight
         self.tremorGuardSeconds = tremorGuardSeconds
         self.holdConfirmSeconds = holdConfirmSeconds
+        self.sosOrbMaxTravelPoints = sosOrbMaxTravelPoints
     }
     /// 审查修复：常规模式同样 0.6s 长按（SOSRules 契约「SOS 大按钮需 0.6s
     /// 长按（常规模式）触发，误触率 <1%」）——原 standard.holdConfirmSeconds=0，

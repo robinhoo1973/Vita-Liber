@@ -181,6 +181,9 @@ struct VoiceGuidedProfileView: View {
     /// 访谈完成态（审查修复：此前无终结态，末步提交后原地追问、重复作答
     /// 重复追加档案备注）
     @State private var interviewDone = false
+    /// 访谈中跳过的步数（BR-004 真实性：跳过末步即进完成态时
+    /// 「四项已写入」是假陈述——完成页须按实际写入/跳过数如实报告）
+    @State private var skippedSteps = 0
 
     var body: some View {
         Group {
@@ -308,6 +311,7 @@ struct VoiceGuidedProfileView: View {
                     dictationBusy = false
                     dictationConfidence = 1
                     answer = ""
+                    skippedSteps += 1
                     if stepIndex + 1 < steps.count { stepIndex += 1 } else { interviewDone = true }
                 }
                 .frame(minHeight: 44)
@@ -337,9 +341,15 @@ struct VoiceGuidedProfileView: View {
             Image(systemName: "checkmark.circle.fill")
                 .font(.largeTitle)
                 .foregroundStyle(Color("brand-primary", bundle: .main))
-            Text(L10n.voiceguide_saved)
+            // 审查修复（BR-004 真实性）：标题复用 voiceguide_saved 呈
+            // 「提醒已设置」——访谈完成页误报提醒语义；跳过任一步后
+            // 「四项已写入」亦为假陈述。标题改为访谈语义，提示按实际
+            // 写入/跳过数如实报告。
+            Text(L10n.voiceguide_profileDoneTitle)
                 .font(.headline)
-            Text(L10n.voiceguide_profileDoneHint)
+            Text(skippedSteps > 0
+                 ? L10n.voiceguide_profileDonePartial(steps.count - skippedSteps, skippedSteps)
+                 : L10n.voiceguide_profileDoneHint)
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

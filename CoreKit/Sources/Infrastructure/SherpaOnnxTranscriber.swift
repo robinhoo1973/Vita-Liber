@@ -27,10 +27,18 @@ public actor SherpaOnnxTranscriber: TranscriptionEngine {
 
     private let recognizer: SherpaOnnxOfflineRecognizer
     private let modelSampleRate = 16_000
+    /// 已注入的会话词表（init 构造词表恒为 ""）：与请求词表相同时跳过
+    /// setConfig——每次按住说话重建模型配置会重载四件套模型文件
+    private var lastHotwords = ""
 
     // 采集状态（引擎单会话；VoiceDictationModel 已按 press 串行，引擎侧再守卫）
     private var audioEngine: AVAudioEngine?
-    private var sessionActive = false
+    /// 当前采集归属的会话 id：迟到旧会话的 catch 收尾不得拆除新会话的采集
+    /// （超驰后旧调用在 actor 上的收尾晚于新会话 startCapture 即会误拆）
+    private var activeCaptureSession: UUID?
+    /// 采集前的会话状态快照：非 nil 即「类别已改、拆除时必还原」（判定挂
+    /// 快照而非激活成功布尔——setActive 抛错时类别已改也必须还原）
+    private var sessionState: AudioSessionCapture.State?
     private var pendingSession: (id: UUID, continuation: CheckedContinuation<Void, Error>)?
 
     // 会话内累计状态（Domain 纯值累加器：引擎与视图模型共用，见 Domain/TranscriptSession.swift）
@@ -137,21 +145,23 @@ public actor SherpaOnnxTranscriber: TranscriptionEngine {
             pendingSession = nil
             previous.continuation.resume(throwing: CancellationError())
         }
+        // 超驰后无条件拆除上一会话的采集（不指定归属 = 清场语义）
         stopCaptureSync(clearBuffer: true)
         buffer.clear()
         accumulator = TranscriptSessionAccumulator()
         lastPartialSampleCount = 0
 
         // 词表注入（FR17.15 混说词表 ≤100）：主语言 + 混说开关开时注入
-        // 已确认药名/医疗单位/英文医学词；空词表 = 不注入（混说开关关）。
-        if !request.contextualStrings.isEmpty {
-            let hotwords = request.contextualStrings
-                .prefix(MixedSpeechVocabulary.limit)
-                .joined(separator: "\n")
-            applyHotwords(hotwords)
-        }
+        // 已确认药名/医疗单位/英文医学词；空词表 = 不注入（混说开关关）——
+        // 但必须**清除**上一会话的词表偏置：recognizer 是会话间共享的长寿
+        // 对象、setConfig 粘滞，空词表不重置会让上次药名词表持续偏置本次
+        // 识别（「空 = 不注入」契约落空，普通语音被掰向旧药名）。
+        let hotwords = request.contextualStrings
+            .prefix(MixedSpeechVocabulary.limit)
+            .joined(separator: "\n")
+        applyHotwords(hotwords)
 
-        try await startCapture()
+        try await startCapture(sessionID: request.sessionID)
 
         // 部分结果泵：采集期间定时增量解码（子任务非结构化，defer 显式收）
         let pump = Task { [weak self] in
@@ -182,7 +192,10 @@ public actor SherpaOnnxTranscriber: TranscriptionEngine {
             }
         } catch {
             pump.cancel()
-            stopCaptureSync(clearBuffer: true)
+            // 归属校验：被超驰的旧会话其收尾晚于新会话 startCapture 时，
+            // 不得拆除新会话的引擎/缓冲（旧实现在此误拆新采集，导致新
+            // 按住说话恒空缓冲 → noSpeechDetected）
+            stopCaptureSync(clearBuffer: true, sessionID: request.sessionID)
             throw error
         }
         pump.cancel()
@@ -190,13 +203,15 @@ public actor SherpaOnnxTranscriber: TranscriptionEngine {
         // 松手收尾：解码剩余未解码样本（整窗解码，保证收尾质量）。
         // 原子 drain()：取走与清空同一把锁内完成——tap 已摘除、无并发追加，
         // 与旋转提交共用同一语义（缓冲只含未解码样本）。
-        stopCaptureSync(clearBuffer: false)
+        stopCaptureSync(clearBuffer: false, sessionID: request.sessionID)
         let undecoded = buffer.drain()
         if !undecoded.isEmpty {
             accumulator.updatePartial(decode(undecoded))
         }
         let segments = accumulator.finish()
-        let text = segments.filter { !$0.isEmpty }.joined(separator: " ")
+        // 收尾文本经 Domain 累加器单一出口 displayText（与部分结果同口径）——
+        // 旧实现重写 join，段间连接策略（空格/句读）变更时会与实时上屏分道扬镳
+        let text = accumulator.displayText
         guard !text.isEmpty else {
             throw TranscriptionError.noSpeechDetected
         }
@@ -231,7 +246,14 @@ public actor SherpaOnnxTranscriber: TranscriptionEngine {
             onPartial?(accumulator.displayText)
             return
         }
-        let window = buffer.tail(from: lastPartialSampleCount)
+        // 部分结果 = 本段**全部**未提交样本的整窗解码（缓冲经旋转出清后
+        // 只含未提交样本）。审查修复：旧实现只解码「上次泵后新增」的尾部
+        // 增量窗并整体替换 partial——每个部分结果都是失去上下文的冷片段，
+        // 长句的实时上屏显示互不衔接的碎片。整窗解码保上下文；窗口超 10s
+        // 后按 ≥5s 新样本节流，约束 CPU（FunASR 全窗解码成本随窗长增长）。
+        let windowSeconds = Double(count) / Double(modelSampleRate)
+        if windowSeconds > 10, newSamples < modelSampleRate * 5 { return }
+        let window = buffer.tail(from: 0)
         lastPartialSampleCount = count
         accumulator.updatePartial(decode(window))
         onPartial?(accumulator.displayText)
@@ -266,7 +288,7 @@ public actor SherpaOnnxTranscriber: TranscriptionEngine {
 
     // MARK: - 音频采集
 
-    private func startCapture() async throws {
+    private func startCapture(sessionID: UUID) async throws {
         guard audioEngine == nil else { return }
 
         #if os(iOS)
@@ -277,11 +299,15 @@ public actor SherpaOnnxTranscriber: TranscriptionEngine {
         default:
             break
         }
-        do { try session.setCategory(.record, mode: .measurement, options: [.duckOthers]) }
-        catch { throw TranscriptionError.engineUnavailable }
-        do { try session.setActive(true) }
-        catch { throw TranscriptionError.engineUnavailable }
-        sessionActive = true
+        // 采集激活单一出口 + 先记状态后激活：激活失败（类别已改、激活未成）
+        // 也必须还原——快照在场即保证 deactivateAudioSession 必还原
+        let prior = AudioSessionCapture.remember()
+        do { try AudioSessionCapture.activateRecordSession() }
+        catch {
+            AudioSessionCapture.restore(prior)
+            throw TranscriptionError.engineUnavailable
+        }
+        sessionState = prior
         #endif
 
         let engine = AVAudioEngine()
@@ -335,6 +361,7 @@ public actor SherpaOnnxTranscriber: TranscriptionEngine {
             tapInstalled = true
 
             audioEngine = engine
+            activeCaptureSession = sessionID
             engine.prepare()
             try engine.start()
         } catch {
@@ -346,26 +373,32 @@ public actor SherpaOnnxTranscriber: TranscriptionEngine {
                 engine.inputNode.removeTap(onBus: 0)
             }
             audioEngine = nil
+            activeCaptureSession = nil
             deactivateAudioSession()
             throw (error as? TranscriptionError) ?? TranscriptionError.engineUnavailable
         }
     }
 
     /// 会话类别是共享单例状态：停在 `.record` 会把其后 FR17.13 回读 / FR19.3
-    /// 播报路由到听筒——停采后经采集拆除单一出口（AudioSessionTeardown）
-    /// 还原到 `.playback` 再停用。
+    /// 播报路由到听筒——停采后经采集拆除单一出口对称还原**采集前**状态
+    /// （快照对 remember/restore），不再硬编码 .playback。
     private func deactivateAudioSession() {
         #if os(iOS)
-        guard sessionActive else { return }
-        AudioSessionTeardown.restorePlaybackAfterCapture()
-        sessionActive = false
+        guard let prior = sessionState else { return }
+        AudioSessionCapture.restore(prior)
+        sessionState = nil
         #endif
     }
 
-    private func stopCaptureSync(clearBuffer: Bool) {
+    private func stopCaptureSync(clearBuffer: Bool, sessionID: UUID? = nil) {
+        // 归属校验：指定会话的收尾不得误拆已换主的采集——超驰/取消后旧
+        // 调用的迟到 catch 与新会话 startCapture 之间的交错即触发（旧实现
+        // 会拆掉新会话的引擎与缓冲，新按住说话恒 noSpeechDetected）
+        if let sessionID, let active = activeCaptureSession, active != sessionID { return }
         if clearBuffer { buffer.clear() }
         guard let engine = audioEngine else { return }
         audioEngine = nil
+        activeCaptureSession = nil
         // 拆除顺序：先摘 tap 断流，再停引擎（松手收尾不丢字）
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
@@ -424,8 +457,15 @@ public actor SherpaOnnxTranscriber: TranscriptionEngine {
     /// 会话级热词注入（FR17.15）：重建同构配置并 setConfig。与
     /// makeRecognizer 的构造重复是刻意的——配置类型不可命名（见上），
     /// 无法提取返回该类型的共享构造函数。
+    /// 审查修复：词表未变化时跳过 setConfig（每次按住说话重建模型配置 =
+    /// 重载四件套模型文件的多秒成本）；资产读取失败必须留可诊断痕迹
+    /// （此前静默沿用旧词表，误识别无法与模型质量区分）。
     private func applyHotwords(_ hotwords: String) {
-        guard let paths = Self.assetPaths() else { return }
+        guard hotwords != lastHotwords else { return }
+        guard let paths = Self.assetPaths() else {
+            Self.assetLogger.error("sherpa 热词注入资产预检失败（缺件/零体积）——沿用旧词表")
+            return
+        }
         var cfg = sherpaOnnxOfflineRecognizerConfig(
             featConfig: sherpaOnnxFeatureConfig(sampleRate: 16_000, featureDim: 80),
             modelConfig: sherpaOnnxOfflineModelConfig(
@@ -443,6 +483,7 @@ public actor SherpaOnnxTranscriber: TranscriptionEngine {
             decodingMethod: "greedy_search",
             maxActivePaths: 4)
         recognizer.setConfig(config: &cfg)
+        lastHotwords = hotwords
     }
 
     // MARK: - 能力与置信度（能力诚实，FR17.15/V3.94）

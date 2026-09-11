@@ -29,17 +29,24 @@ public actor ReminderReconciler {
     /// 返回 Bool 让调用侧「调度成功才记动作」。
     @discardableResult
     public func snooze(doseNotifyId: String, slotNotifyId: String?, until: Date) async -> Bool {
+        // 审查修复（失败保持原状契约）：旧顺序先取消时段通知/旧 snooze 再排
+        // 新通知——新排失败时旧通知已被取消、返回 false 却什么也没武装，
+        // 与调用方「调度失败保持原状：原时段通知仍在」的注释矛盾。改先排
+        // 新通知（失败即原样返回），成功后再撤销旧通知；撤销失败只记日志
+        // 不翻盘（新提醒已武装，用户不会静默丢失提醒）。
         do {
-            if let slotId = slotNotifyId {
-                try await scheduler.cancel([slotId])
-            }
-            let pending = try await scheduler.pending()
-            let previous = pending.keys.filter { $0.hasPrefix("snooze-\(doseNotifyId)-") }
-            if !previous.isEmpty {
-                try await scheduler.cancel(Array(previous))
-            }
             let snoozeId = "snooze-\(doseNotifyId)-\(Int(until.timeIntervalSince1970))"
             try await scheduler.schedule(dose: snoozeId, at: until, route: .reminderToday)
+            if let slotId = slotNotifyId {
+                do { try await scheduler.cancel([slotId]) }
+                catch { logger?.log("snooze 时段通知取消失败: \(error)") }
+            }
+            let pending = try await scheduler.pending()
+            let previous = pending.keys.filter { $0.hasPrefix("snooze-\(doseNotifyId)-") && $0 != snoozeId }
+            if !previous.isEmpty {
+                do { try await scheduler.cancel(Array(previous)) }
+                catch { logger?.log("snooze 旧提醒取消失败: \(error)") }
+            }
             return true
         } catch {
             logger?.log("snooze 调度失败: \(error)")

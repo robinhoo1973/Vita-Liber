@@ -209,6 +209,7 @@
 "f19.stopped" = "Listening stopped (left foreground)";
 "f19.paused" = "Listening paused — tap to resume";
 "f19.contactNotFound" = "Contact %@ not found — refusing to dial";
+"f19.contactAmbiguous" = "No exact match for \"%1$@\"; closest contact \"%2$@\". To avoid dialing the wrong person, say the full name and try again";
 "f19.repeatObject" = "Will call %@. Please confirm.";
 "f19.executed" = "Done: %@";
 "fr24.title" = "Sent status";
@@ -1513,6 +1514,8 @@
 "voice.confirm.fillHint" = "Not recognized — tap to fill in";
 "voiceguide.saved" = "Reminder set";
 "voiceguide.profileDoneHint" = "The four profile items have been saved. You can edit them anytime in Me.";
+"voiceguide.profileDoneTitle" = "Profile interview complete";
+"voiceguide.profileDonePartial" = "%1$d profile items saved, %2$d skipped. Skipped items can be added later in the member profile.";
 "home.capture.library" = "Choose from Photos";
 "home.capture.file" = "Import File (PDF / Image / Word)";
 "home.capture.noCamera" = "No camera on this device — use Photos or Files";

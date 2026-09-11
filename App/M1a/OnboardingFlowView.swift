@@ -66,6 +66,9 @@ struct LockOverlayView: View {
     /// 是否经历过真退后台（.background）——Face ID 系统浮层只到 .inactive，
     /// 以此区分「用户离开应用」与「认证浮层自身的场景波动」
     @State private var sawBackground = false
+    /// 本次遮罩生命周期内已自动尝试过认证（防「取消 → .inactive→.active → 再弹」
+    /// 死循环）；冷启动首个 .active 的首次尝试除外
+    @State private var didAutoAttempt = false
 
     var body: some View {
         ZStack {
@@ -118,6 +121,7 @@ struct LockOverlayView: View {
             // 重跑——回前台自动重试由下方 onChange(scenePhase) 驱动。
             // UI 测试用 -uitest-gate-no-auto 关断自动尝试（Face ID 无法自动化）
             guard app.gateAutoAttempts, scenePhase == .active else { return }
+            didAutoAttempt = true
             await attempt()
         }
         .onChange(of: scenePhase) { _, phase in
@@ -125,14 +129,24 @@ struct LockOverlayView: View {
             // 自动重试。审查修复：原实现每次 .active 都重试——自身 Face ID
             // 浮层取消/消失也令场景 inactive→active，形成「取消 → 立即再弹」
             // 死循环，锁屏 SOS（BR-012 免门禁路径）永不可达
+            // 审查修复（冷启动回归）：sawBackground 恒 false 的冷启动首个
+            // .active 必须补一次自动尝试（遮罩挂载于 .inactive、.task 守卫
+            // 已跳过且不重跑）；didAutoAttempt 防止浮层取消引发的
+            // inactive→active 再次触发——每次遮罩生命周期最多自动一次。
             switch phase {
             case .background:
                 sawBackground = true
             case .active:
-                guard app.gateAutoAttempts, sawBackground else { return }
-                sawBackground = false
-                failedOnce = false
-                Task { await attempt() }
+                guard app.gateAutoAttempts else { return }
+                if sawBackground {
+                    sawBackground = false
+                    failedOnce = false
+                    didAutoAttempt = true
+                    Task { await attempt() }
+                } else if !didAutoAttempt {
+                    didAutoAttempt = true
+                    Task { await attempt() }
+                }
             case .inactive:
                 break
             @unknown default:

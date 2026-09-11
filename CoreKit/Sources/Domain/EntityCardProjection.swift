@@ -96,6 +96,49 @@ public enum EntityCardProjection {
                                   prescribedAt: date)
     }
 
+    /// 卡片互联（FR6.9 期二）：处方/收费/用药等 OCR 信息卡与就诊卡的
+    /// 归属规则——纯函数、零 IO，存储层只做查询与落库。
+    /// 匹配口径（确定性、宁缺毋滥，BR-003 未确认信息不参与事实组装）：
+    /// 1. 同日窗口（±`sameDayTolerance`）内；
+    /// 2. 医院相同（双方非空时）计 2 分、医生相同（双方非空时）计 1 分；
+    /// 3. 无任何信号（医院/医生均缺失）不猜——返回 nil 保持 encounter_id NULL；
+    /// 4. 平手取传入顺序首位（调用方按创建时间最新优先传入）。
+    public enum EncounterLinker {
+        /// 处方日期与就诊日期视为同次就诊的最大偏差（1 天）
+        public static let sameDayTolerance: TimeInterval = 86_400
+
+        public struct Candidate: Sendable, Equatable {
+            public var id: UUID
+            public var date: Date
+            public var hospital: String?
+            public var doctor: String?
+            public var createdAt: Date
+            public init(id: UUID, date: Date, hospital: String? = nil,
+                        doctor: String? = nil, createdAt: Date = Date()) {
+                self.id = id; self.date = date; self.hospital = hospital
+                self.doctor = doctor; self.createdAt = createdAt
+            }
+        }
+
+        public static func match(prescribedAt: Date, hospital: String?, doctor: String?,
+                                 candidates: [Candidate]) -> UUID? {
+            let window = candidates.filter {
+                abs($0.date.timeIntervalSince(prescribedAt)) <= sameDayTolerance
+            }
+            guard !window.isEmpty else { return nil }
+            func score(_ c: Candidate) -> Int {
+                var s = 0
+                if let h = hospital, let ch = c.hospital, !h.isEmpty, h == ch { s += 2 }
+                if let d = doctor, let cd = c.doctor, !d.isEmpty, d == cd { s += 1 }
+                return s
+            }
+            let scored = window.map { ($0, score($0)) }
+            let best = scored.map(\.1).max() ?? 0
+            guard best > 0 else { return nil }   // 无信号不猜
+            return scored.first { $0.1 == best }?.0.id
+        }
+    }
+
     /// 卡内全部字段 → 确认卡字段（共享先、逐行后；显示标签由 App 层 L10n 注入）。
     public static func candidateFields(from card: MatchedCard, labelFor: (String) -> String) -> [CandidateField] {
         card.allFields.map { draft in

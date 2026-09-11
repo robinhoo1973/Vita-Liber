@@ -223,12 +223,30 @@ public actor OCRCardStore {
                             encounter.kind, encounter.hospital, encounter.department, encounter.doctor, encounter.chiefComplaint,
                             encounter.diagnosisText, encounter.adviceText, now.timeIntervalSince1970, now.timeIntervalSince1970])
                     entities[row.id] = encounter.id
+                    // 卡片互联（FR6.9 期二）：就诊卡落库后回填同文档、同日
+                    // 窗口内尚未归属的 OCR 处方卡——「先确认处方、后确认就诊」
+                    // 的确认顺序也要闭合互联链（encounter_id 单向引用就诊）。
+                    let tolerance = EncounterLinker.sameDayTolerance
+                    try db.execute(sql: """
+                        UPDATE prescription SET encounter_id = ?, updated_at = ?
+                        WHERE patient_id = ? AND document_file_id = ? AND encounter_id IS NULL
+                          AND prescribed_at >= ? AND prescribed_at <= ?
+                        """, arguments: [encounter.id.uuidString, now.timeIntervalSince1970,
+                                         patientId.uuidString, documentId.uuidString,
+                                         encounter.date.timeIntervalSince1970 - tolerance,
+                                         encounter.date.timeIntervalSince1970 + tolerance])
                 }
             case "prescription":
                 if !accepted.isEmpty {
                     guard let intent = EntityCardProjection.prescriptionIntent(from: projectionCard) else { throw StoreError.invalidCard }
                     let existingIds = Set(receipts.map { $0["entity_id"] as String })
                     guard existingIds.count <= 1 else { throw StoreError.corruptReceipt }
+                    // 卡片互联（FR6.9 期二）：处方归属就诊卡——同日窗口内按
+                    // EncounterLinker 纯规则匹配（医院/医生信号收紧；无信号
+                    // 不猜、encounter_id 保持 NULL，绝不张冠李戴）
+                    let encounterId = try Self.linkedEncounterId(db: db, patientId: patientId,
+                                                                 prescribedAt: intent.prescribedAt,
+                                                                 hospital: intent.hospital, doctor: intent.doctor)
                     let entity: UUID
                     if let existing = existingIds.first, let uuid = UUID(uuidString: existing) {
                         entity = uuid
@@ -244,16 +262,20 @@ public actor OCRCardStore {
                         let addedIds = Set(accepted.map(\.id))
                         committedCard.rows = snapshot.rows.filter { committed.contains($0.id.uuidString) || addedIds.contains($0.id) }
                         guard let complete = EntityCardProjection.prescriptionIntent(from: committedCard) else { throw StoreError.invalidCard }
-                        try db.execute(sql: "UPDATE prescription SET advice_text = ?, updated_at = ? WHERE id = ? AND patient_id = ?",
-                                       arguments: [complete.adviceText, now.timeIntervalSince1970, existing, patientId.uuidString])
+                        try db.execute(sql: """
+                            UPDATE prescription SET advice_text = ?, encounter_id = COALESCE(encounter_id, ?),
+                              updated_at = ? WHERE id = ? AND patient_id = ?
+                            """, arguments: [complete.adviceText, encounterId?.uuidString,
+                                             now.timeIntervalSince1970, existing, patientId.uuidString])
                         guard db.changesCount == 1 else { throw StoreError.committedDataChanged }
                     } else {
                         entity = UUID()
                         try db.execute(sql: """
-                            INSERT INTO prescription (id, patient_id, document_file_id, source, hospital, doctor,
-                              prescribed_at, advice_text, confirmed, created_at, updated_at)
-                            VALUES (?, ?, ?, 'ocr', ?, ?, ?, ?, 1, ?, ?)
-                            """, arguments: [entity.uuidString, patientId.uuidString, documentId.uuidString, intent.hospital,
+                            INSERT INTO prescription (id, patient_id, encounter_id, document_file_id, source,
+                              hospital, doctor, prescribed_at, advice_text, confirmed, created_at, updated_at)
+                            VALUES (?, ?, ?, ?, 'ocr', ?, ?, ?, ?, 1, ?, ?)
+                            """, arguments: [entity.uuidString, patientId.uuidString, encounterId?.uuidString,
+                                documentId.uuidString, intent.hospital,
                                 intent.doctor, intent.prescribedAt.timeIntervalSince1970, intent.adviceText,
                                 now.timeIntervalSince1970, now.timeIntervalSince1970])
                     }
@@ -285,6 +307,32 @@ public actor OCRCardStore {
             var remaining = snapshot; remaining.rows = residual
             return SaveResult(remainingCard: resolved ? nil : remaining, writtenCount: accepted.count, resolved: resolved, pendingCardId: id)
         }
+    }
+
+    /// 卡片互联（FR6.9 期二）：处方 → 就诊卡的归属匹配——查询同日窗口内
+    /// 患者就诊记录（创建时间最新优先），交给 Domain 纯规则 EncounterLinker
+    /// 决策；无信号（医院/医生均缺失）时返回 nil 保持 encounter_id NULL。
+    private static func linkedEncounterId(db: Database, patientId: UUID, prescribedAt: Date,
+                                          hospital: String?, doctor: String?) throws -> UUID? {
+        let tolerance = EncounterLinker.sameDayTolerance
+        let rows = try Row.fetchAll(db, sql: """
+            SELECT id, date, hospital, doctor, created_at FROM encounter
+            WHERE patient_id = ? AND deleted_at IS NULL AND date >= ? AND date <= ?
+            ORDER BY created_at DESC
+            """, arguments: [patientId.uuidString,
+                             prescribedAt.timeIntervalSince1970 - tolerance,
+                             prescribedAt.timeIntervalSince1970 + tolerance])
+        let candidates = rows.compactMap { row -> EncounterLinker.Candidate? in
+            guard let id = UUID(uuidString: row["id"] as String) else { return nil }
+            return EncounterLinker.Candidate(
+                id: id,
+                date: Date(timeIntervalSince1970: row["date"] as Double),
+                hospital: row["hospital"] as String?,
+                doctor: row["doctor"] as String?,
+                createdAt: Date(timeIntervalSince1970: row["created_at"] as Double))
+        }
+        return EncounterLinker.match(prescribedAt: prescribedAt, hospital: hospital,
+                                     doctor: doctor, candidates: candidates)
     }
 
     static func mergeDraft(_ incoming: MatchedCard, previous: MatchedCard, committed: Set<String>) throws -> MatchedCard {

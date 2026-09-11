@@ -275,6 +275,10 @@ public actor ExportService {
             // 审查修复（FR13.5 往返保真）：旧导出缺 kind/archived、导入硬编码
             // archived=0——已归档问题恢复后「复活」为活跃问题（问题列表/
             // 时间轴/AI 事实组装全链误呈现）。默认值保证旧备份 JSON 可解。
+            // 审查修复（合成 Codable 不读默认值）：属性默认值**不参与**合成的
+            // init(from:)——旧备份缺 "archived"/"kind" 键时 keyNotFound 抛错、
+            // 整个恢复失败。自定义解码按缺失键回落默认（archived=0、kind=nil），
+            // 才兑现「默认值保证旧备份可解」的注释契约。
             public var kind: String?
             public var archived: Bool = false
             public var createdAt: Date
@@ -286,6 +290,18 @@ public actor ExportService {
                 self.kind = kind
                 self.archived = archived
                 self.createdAt = createdAt
+            }
+            private enum CodingKeys: String, CodingKey {
+                case id, patientId, name, kind, archived, createdAt
+            }
+            public init(from decoder: Decoder) throws {
+                let c = try decoder.container(keyedBy: CodingKeys.self)
+                id = try c.decode(UUID.self, forKey: .id)
+                patientId = try c.decodeIfPresent(UUID.self, forKey: .patientId)
+                name = try c.decode(String.self, forKey: .name)
+                kind = try c.decodeIfPresent(String.self, forKey: .kind)
+                archived = try c.decodeIfPresent(Bool.self, forKey: .archived) ?? false
+                createdAt = try c.decode(Date.self, forKey: .createdAt)
             }
         }
         public init(schemaVersion: Int = 1, exportedAt: TimeInterval = 0,
@@ -1277,15 +1293,22 @@ public actor ExportService {
                     // 审查修复（ADR-019 采纳语义）：旧 UPDATE 只改 3 列，备份的
                     // 批号/剂次（追溯核心）与提供者等被静默丢弃，恢复后记录是
                     // 本地+备份的混合态——与其余各表全列采纳口径不一致
+                    // 审查修复（全列 UPDATE 的 NULL 与降级陷阱）：旧备份缺
+                    // source/confirmed 键时——source 直绑 NULL 违反 NOT NULL
+                    // 令整个恢复事务回滚；confirmed 落 0 把本地已确认记录
+                    // 静默降级。source 与 INSERT 同口径回落 'manual'；
+                    // confirmed 缺失时 COALESCE 保留本地现值（不降级）。
                     try db.execute(sql: """
                         UPDATE immunization SET patient_id = ?, vaccine_name = ?, dose_number = ?,
                           administered_at = ?, provider = ?, lot_number = ?, encounter_id = ?,
-                          source = ?, confirmed = ?, adverse_reaction_id = ?
+                          source = COALESCE(?, 'manual'), confirmed = COALESCE(?, confirmed),
+                          adverse_reaction_id = ?
                         WHERE id = ?
-                        """, arguments: [(remap(i.patientId) ?? i.patientId)?.uuidString ?? "", i.vaccineName,
+                        """, arguments: [patientID(i.patientId), i.vaccineName,
                                          i.doseNumber, i.administeredAt.timeIntervalSince1970,
                                          i.provider, i.lotNumber, i.encounterId?.uuidString,
-                                         i.source, (i.confirmed ?? false) ? 1 : 0, i.adverseReactionId?.uuidString,
+                                         i.source, (i.confirmed).map { $0 ? 1 : 0 },
+                                         i.adverseReactionId?.uuidString,
                                          i.id.uuidString])
                 }) { continue }
                 try db.execute(sql: """

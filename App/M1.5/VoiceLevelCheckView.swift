@@ -99,13 +99,19 @@ final class VoiceLevelMeter {
 
     private let engine = AVAudioEngine()
     private var started = false
+    /// 采集前的会话状态快照（拆除时对称还原；采集激活单一出口 AudioSessionCapture）
+    private var sessionState: AudioSessionCapture.State?
 
     func start() {
         guard !started else { return }
         started = true
-        let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.record, mode: .measurement, options: [.duckOthers])   // try?-ok: 会话配置失败即无电平，不阻断跳过/手输路径（§7 降级语义）
-        try? session.setActive(true)   // try?-ok: 激活失败同上——音量条静默无数据，访谈仍可继续
+        // 会话配置失败即无电平，不阻断跳过/手输路径（§7 降级语义）——
+        // 激活单一出口（与 SFSpeech/Sherpa 两轨同源），失败也记快照：
+        // setCategory 成功后 setActive 失败时类别已改，stop 必还原
+        let prior = AudioSessionCapture.remember()
+        do { try AudioSessionCapture.activateRecordSession() }
+        catch { AudioSessionCapture.restore(prior) }
+        sessionState = prior
         let input = engine.inputNode
         let format = input.inputFormat(forBus: 0)
         // 投递节流（审查修复）：48kHz/1024 ≈ 47 buffer/秒，此前每个 buffer
@@ -134,9 +140,12 @@ final class VoiceLevelMeter {
         started = false
         engine.stop()
         engine.inputNode.removeTap(onBus: 0)
-        // 采集拆除单一出口：还原 .playback——只停用不还原会让共享会话停在
-        // .record，其后访谈提问的 TTS 朗读（app.speak）路由到听筒（5WHY 根因：
-        // 三个采集点各自维护会话拆除、唯 Sherpa 一侧补了还原）。
-        AudioSessionTeardown.restorePlaybackAfterCapture()
+        // 采集拆除单一出口：对称还原采集前状态——只停用不还原会让共享会话
+        // 停在 .record，其后访谈提问的 TTS 朗读（app.speak）路由到听筒
+        // （5WHY 根因：三个采集点各自维护会话拆除、唯 Sherpa 一侧补了还原）。
+        if let prior = sessionState {
+            AudioSessionCapture.restore(prior)
+            sessionState = nil
+        }
     }
 }

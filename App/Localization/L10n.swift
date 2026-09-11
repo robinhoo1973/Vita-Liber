@@ -255,6 +255,7 @@ enum L10n {
     static var f19_stopped: String { t("f19.stopped") }
     static var f19_paused: String { t("f19.paused") }
     static func f19_contactNotFound(_ object: String) -> String { String(format: t("f19.contactNotFound"), object) }
+    static func f19_contactAmbiguous(_ object: String, _ resolved: String) -> String { String(format: t("f19.contactAmbiguous"), object, resolved) }
 
         static var fr24_title: String { t("fr24.title") }
     static var fr24_empty: String { t("fr24.empty") }
@@ -490,6 +491,8 @@ enum L10n {
     static var voiceReadbackFmt: String { t("voice.readbackFmt") }
     static var voiceguide_saved: String { t("voiceguide.saved") }
     static var voiceguide_profileDoneHint: String { t("voiceguide.profileDoneHint") }
+    static var voiceguide_profileDoneTitle: String { t("voiceguide.profileDoneTitle") }
+    static func voiceguide_profileDonePartial(_ written: Int, _ skipped: Int) -> String { String(format: t("voiceguide.profileDonePartial"), written, skipped) }
     static var reminderNotificationTitle: String { t("reminder.notification.title") }
     /// 计划保存失败告警（响亮失败：创建失败保留表单，不静默关 sheet）
     static var reminder_planSaveFailed: String { t("reminder.planSaveFailed") }
@@ -1078,7 +1081,7 @@ enum L10n {
         "emergency.reactionFmt", "emergency.severityFmt",
         "emergency.viewGuide", "emergency.write.subtitle", "emergency.write.title", "f19.cancel",
         "f19.confirm", "f19.end", "f19.executed", "f19.goTouch",
-        "f19.launch", "f19.listeningHint", "f19.paused", "f19.contactNotFound", "f19.rejectedTitle",
+        "f19.launch", "f19.listeningHint", "f19.paused", "f19.contactNotFound", "f19.contactAmbiguous", "f19.rejectedTitle",
         "f19.repeatObject", "f19.sayAgainHint",
         "voice.prompt.repeatHint",
         "voice.prompt.pickOption",
@@ -1595,6 +1598,8 @@ enum L10n {
         "voiceguide.note.meds",
         "voiceguide.saved",
         "voiceguide.profileDoneHint",
+        "voiceguide.profileDoneTitle",
+        "voiceguide.profileDonePartial",
         // 本地化清偿批（2026-09-06）：硬编码字符串替换
         "common.confirm", "common.member",
         "pay.proYearly", "pay.proYearlyPrice", "pay.proYearlyDetail",

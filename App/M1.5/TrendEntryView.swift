@@ -69,13 +69,17 @@ final class TrendEntryState {
             // 加载期间即清槽（审查修复）：切指标/切成员时旧指标的曲线
             // 不得在新指标名下继续渲染（路由页另有 metricKey 一致校验兜底）
             detailSeries = nil
-            let loaded = try await store.series(for: patientId, metric: metric, range: range)
+            // 曲线与设备样本探测互不依赖——并行读取（此前串行两轮 store
+            // 往返，探测只门控空态按钮却挡在曲线渲染之前）
+            async let seriesTask = store.series(for: patientId, metric: metric, range: range)
+            async let probeTask = store.hasDeviceSamples(patientId: patientId)
+            let loaded = try await seriesTask
             // 审查修复：hasDeviceSamples 从未被写入（声明即弃用）——空态分流
             // 恒走「未连接 Apple 健康」+ [去连接] 引导，有设备数据但该指标
             // 无读数的用户被假引导（V3.53 契约空态分流失效）。探测失败不
             // 阻断曲线加载（按无设备数据渲染连接引导，与旧行为一致）。
             let hasDevice: Bool
-            do { hasDevice = try await store.hasDeviceSamples(patientId: patientId) }
+            do { hasDevice = try await probeTask }
             catch { hasDevice = false }
             guard detailRequest == request, !Task.isCancelled else { return }
             detailSeries = loaded

@@ -141,8 +141,10 @@ final class DocumentsState {
         var allReviewed: Bool {
             // 审查修复：allSatisfy 对空集合恒真——0 页（损坏 PDF/非 OCR 路径）
             // 或 0 字段的导入被记「全部已确认」、以 C 级（用户确认事实）
-            // 落库——来源造假（BR-003 来源语义）。零内容 ≠ 已审阅。
+            // 落库——来源造假（BR-003 来源语义）。零内容 ≠ 已审阅：
+            // 页与字段都非空才算「有内容可审」，其余一律 D 级草稿。
             !pages.isEmpty
+                && !allFields.isEmpty
                 && pages.allSatisfy { $0.status == "ok" }
                 && allFields.allSatisfy { $0.isConfirmed || $0.grade == .rejected }
         }

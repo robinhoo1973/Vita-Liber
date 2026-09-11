@@ -293,6 +293,8 @@ struct SOSButton: View {
 struct SOSOrb: View {
     @State private var holdStart: Date?
     @State private var showHelp = false
+    /// 本次按压是否已因位移超限取消（直到松手复位前不再计时）
+    @State private var gestureCancelled = false
 
     // FR18.3 按住确认 ≥600ms——阈值来自 Domain 单一事实源（CareModeMetrics
     // 关怀档，SOSButton 同源），此前 0.6 硬编码：关怀门槛调参时两处漂移
@@ -330,14 +332,27 @@ struct SOSOrb: View {
         // 名存实亡）；提前松手（未达阈值）手势失败、onEnded 不触发，
         // holdStart 永不复位、进度环 100% 永久挂载。改零位移拖拽手势：
         // 落下即记起点（环真实推进），松手恒复位，按足阈值才触发求助。
+        // 审查修复（位移取消）：零位移拖拽对手指移动不设限——起于悬浮球的
+        // 滚动/误划只要按住 ≥0.6s 松手即打开求助页（LongPress 原以位移
+        // 自取消）。位移超 Domain 单一事实源阈值（sosOrbMaxTravelPoints）
+        // 即取消本次按住：滚动起手不再误触急救路径。
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)
-                .onChanged { _ in
+                .onChanged { value in
+                    guard !gestureCancelled else { return }
+                    let travel = max(abs(value.translation.width), abs(value.translation.height))
+                    if travel > CareModeMetrics.care.sosOrbMaxTravelPoints {
+                        gestureCancelled = true
+                        holdStart = nil
+                        return
+                    }
                     if holdStart == nil { holdStart = Date() }
                 }
                 .onEnded { _ in
-                    let held = holdStart.map { Date().timeIntervalSince($0) >= requiredHold } ?? false
+                    let held = !gestureCancelled
+                        && holdStart.map { Date().timeIntervalSince($0) >= requiredHold } ?? false
                     holdStart = nil
+                    gestureCancelled = false
                     if held { showHelp = true }
                 }
         )

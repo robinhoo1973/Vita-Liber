@@ -601,7 +601,9 @@ private final class NativeSpeechSessionDriver: SpeechSessionDriver, @unchecked S
     private var recognizer: SFSpeechRecognizer?
     private var audio: AVAudioEngine?
     private var tapInstalled = false
-    private var sessionActive = false
+    /// 采集前的会话状态快照：非 nil 即「类别已改、拆除时必还原」——
+    /// 判定挂快照而非「激活成功」（setActive 抛错时类别已改也必须还原）
+    private var sessionState: AudioSessionCapture.State?
     private var observers: [NSObjectProtocol] = []
     private var requests: [UUID: SFSpeechAudioBufferRecognitionRequest] = [:]
     private var tasks: [UUID: SFSpeechRecognitionTask] = [:]
@@ -675,10 +677,15 @@ private final class NativeSpeechSessionDriver: SpeechSessionDriver, @unchecked S
                       isStopped: @escaping @Sendable () -> Bool) throws {
         guard !isStopped() else { throw CancellationError() }
         #if os(iOS)
-        let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.record, mode: .measurement, options: [.duckOthers])
-        try session.setActive(true)
-        sessionActive = true
+        // 采集激活单一出口 + 先记状态后激活：setActive 失败时类别已被修改，
+        // 快照在场即保证拆除路径必还原（共享会话不再有停留在 .record 的窗口）
+        let prior = AudioSessionCapture.remember()
+        do { try AudioSessionCapture.activateRecordSession() }
+        catch {
+            AudioSessionCapture.restore(prior)
+            throw error
+        }
+        sessionState = prior
         #endif
         let engine = AVAudioEngine()
         audio = engine
@@ -734,13 +741,13 @@ private final class NativeSpeechSessionDriver: SpeechSessionDriver, @unchecked S
         tapInstalled = false
         audio = nil
         #if os(iOS)
-        if sessionActive {
-            // 采集拆除单一出口（AudioSessionTeardown）：只停用不还原类别会让
+        if let prior = sessionState {
+            // 采集拆除单一出口（对称还原采集前状态）：只停用不还原类别会让
             // 共享会话停留在 .record——其后的 FR17.13 回读 / FR17.11 提问朗读 /
             // FR19.3 播报全部路由到听筒（Sherpa 主轨同款缺陷的降级轨复现，
-            // 主轨已修、降级轨漏修）。还原 .playback 后停用（与 Sherpa 同序）。
-            AudioSessionTeardown.restorePlaybackAfterCapture()
-            sessionActive = false
+            // 主轨已修、降级轨漏修）。快照还原，不再硬编码 .playback。
+            AudioSessionCapture.restore(prior)
+            sessionState = nil
         }
         #endif
     }

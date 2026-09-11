@@ -209,6 +209,7 @@
 "f19.stopped" = "已停止聆聽（退出前景）";
 "f19.paused" = "聆聽已暫停，點擊繼續";
 "f19.contactNotFound" = "未找到聯絡人「%@」，已拒絕撥號";
+"f19.contactAmbiguous" = "未找到「%1$@」的精確匹配；相近聯絡人「%2$@」。為避免撥錯（急救安全），請說出其完整姓名後重試";
 "f19.repeatObject" = "將撥打 %@。請確認。";
 "f19.executed" = "已執行：%@";
 "fr24.title" = "發送狀態";
@@ -1513,6 +1514,8 @@
 "voice.confirm.fillHint" = "未辨識，點擊填寫";
 "voiceguide.saved" = "提醒已設定";
 "voiceguide.profileDoneHint" = "四項檔案資訊已寫入成員檔案，可隨時在「我的」中修改";
+"voiceguide.profileDoneTitle" = "檔案訪談已完成";
+"voiceguide.profileDonePartial" = "已寫入 %1$d 項檔案資訊，跳過 %2$d 項——跳過的項目可稍後在成員檔案中補充";
 "home.capture.library" = "從相簿選擇";
 "home.capture.file" = "從檔案匯入（PDF / 圖片 / Word）";
 "home.capture.noCamera" = "此裝置無相機，請使用相簿或檔案匯入";

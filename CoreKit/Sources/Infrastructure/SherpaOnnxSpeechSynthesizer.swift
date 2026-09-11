@@ -22,6 +22,9 @@ public final class SherpaOnnxSpeechSynthesizer: SpeechSynthesizing, @unchecked S
     /// voices.json 为可选 sidecar（Supertonic 官方包不含该文件）：
     /// 每条 `{locale, sid}`；缺失时可用语音集为空，回退链如实报告。
     private let voiceMap: [String: Int]
+    /// sid 0 的真实音色 locale（Supertonic 官方包默认英语音色）——
+    /// voices.json 缺失时按此如实报告，不得虚报中文
+    private static let defaultVoiceLocale = "en-US"
     private var audioPlayer: AVAudioPlayer?
     private let lock = NSLock()
     /// stop() 作废代次：speak() 每次递增取号，排队任务在合成前与播放前双重
@@ -73,7 +76,19 @@ public final class SherpaOnnxSpeechSynthesizer: SpeechSynthesizing, @unchecked S
             requested: localeIdentifier,
             availableVoices: Set(voiceMap.keys)
         )
-        let sid = voiceMap[outcome.spokenLocale] ?? 0
+        // 审查修复（回退如实报告）：voices.json 缺失（官方包默认形态）时
+        // voiceMap 为空——resolve 虚报「普通话已回退」而 sid 经 ?? 0 落到
+        // 默认英文音色，实际播报英语（FR17.16「回退目标必须真实可用」的
+        // 反向违例）。目录为空时按 sid 0 的真实音色报告，不得虚报中文。
+        let sid: Int
+        let reported: SpeechOutcome
+        if let mapped = voiceMap[outcome.spokenLocale] {
+            sid = mapped
+            reported = outcome
+        } else {
+            sid = 0
+            reported = SpeechOutcome(spokenLocale: Self.defaultVoiceLocale, didFallback: true)
+        }
         let tts = tts
         lock.lock()
         generation &+= 1
@@ -104,7 +119,7 @@ public final class SherpaOnnxSpeechSynthesizer: SpeechSynthesizing, @unchecked S
                 self.audioPlayer = nil
             }
         }
-        return outcome
+        return reported
     }
 
     public func stop() {

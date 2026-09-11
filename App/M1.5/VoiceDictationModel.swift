@@ -42,6 +42,8 @@ final class VoiceDictationModel {
     private var tasks: [UUID: Task<Void, Never>] = [:]
     private var deliveryOrder: [UUID] = []
     private var completed: [UUID: Result<TranscriptionResult, Error>] = [:]
+    /// 已废弃会话（视图销毁/切页）：其迟到结果不得再触碰 UI 状态
+    private var abandoned: Set<UUID> = []
     /// A new press waits only for preceding capture shutdown, never for its final transcript.
     private var controlTask: Task<Void, Never>?
 
@@ -114,6 +116,7 @@ final class VoiceDictationModel {
         tasks.removeAll()
         completed.removeAll()
         deliveryOrder.removeAll()
+        abandoned.formUnion(ids)
         currentID = nil
         recordingID = nil
         phase = .idle
@@ -133,6 +136,8 @@ final class VoiceDictationModel {
                 await engine.cancel(sessionID: id)
                 await engine.discardSession(sessionID: id)
             }
+            // 废弃集随会话全部结清后清空（新按键的 UUID 不可能与废弃集重叠）
+            abandoned.removeAll()
         }
         onActivityChange?(false)
     }
@@ -168,12 +173,13 @@ final class VoiceDictationModel {
         guard lifetime == epoch, contexts[id] != nil else { return }
         tasks[id] = nil
         completed[id] = outcome
-        // 审查修复：stop() 已把 phase 置 idle 而 currentID 不变——迟到的
-        // 完成回调仍进本分支，失败态在用户主动停止数秒后覆盖 idle
-        // （按钮闪现「识别失败」）。recordingID 是「本会话仍是当前在录
-        // 会话」的唯一真源：停止后 recordingID == nil，跳过 UI 状态覆写；
-        // 结果仍经下方 deliveryOrder 正常投递（stop 的 finish 语义不变）。
-        if currentID == id, recordingID == id {
+        // 审查修复：迟到的完成回调只在「本会话未被废弃」时覆写 UI 状态——
+        // 废弃（stopForDisappear 切页/销毁）后的失败态不得覆盖到用户已
+        // 离开的界面；但**正常松手路径**（stop() 只是按次松手，其先行
+        // 置 recordingID = nil）必须保留 FR8.9 失败轻提示与 FR17.1 未完成
+        // 告警——旧守卫 `recordingID == id` 把正常松手路径一并排除，
+        // 松手后的识别失败/未完成永不提示（口述内容静默丢失无告警）。
+        if currentID == id, !abandoned.contains(id) {
             recordingID = nil
             switch outcome {
             case .success(let result):
@@ -199,7 +205,10 @@ final class VoiceDictationModel {
             // A consumer may synchronously dismiss/revoke while processing a result.
             if lifetime != epoch { break }
         }
-        if lifetime == epoch, contexts.isEmpty { onActivityChange?(false) }
+        if lifetime == epoch, contexts.isEmpty {
+            abandoned.removeAll()
+            onActivityChange?(false)
+        }
     }
 
     private func applyPartial(_ text: String, revision: UInt64, sessionID: UUID, epoch: UInt64) {
