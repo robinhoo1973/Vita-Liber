@@ -145,7 +145,13 @@ public actor HealthImportStore {
             guard try Self.anchor(db, key: key) == pending.previousAnchor,
                   try Self.pending(binding: binding, kind: kind, db: db) == pending else { throw ImportError.staleAnchor }
             let batch = pending.batch
-            // Paging may continue while complete live windows are materialized. The committed cursor still waits.
+            // 删除页未排空前不得按完整窗口解释（CI 34658990146 回归恢复）：
+            // 501 条删除分两页到达时，第一页（500 条）commit 若被放行，
+            // 空快照会删除 500 行并推进锚点，而第 501 条删除页尚未暂存——
+            // 窗口被「完整」解释，剩余删除依赖重启恢复才能补排（验收测试
+            // test_staged501DeletionsDrainWithoutAdvancingCommittedAnchor 钉死
+            // 此语义：commit 必须抛 incompleteSnapshot，光标原地等待）。
+            guard !batch.hasMore else { throw ImportError.incompleteSnapshot }
             _ = try Self.validatedReferences(batch.added, kind: kind, calendar: binding.calendar)
             let tombstones = Set(batch.deleted)
             let deleted = try Self.deletedReferences(batch.deleted, binding: binding, kind: kind, db: db)
@@ -300,7 +306,9 @@ public actor HealthImportStore {
             }
             _ = try GuidelineStore.recordQualifiedHealthReadings(readings, patientId: binding.patientId, db: db)
             report.preservedRows = preserved.count
-            report.hasMore = batch.hasMore || completed != requiredWindows
+            // 守卫恢复后 batch.hasMore 在此处恒为 false（hasMore 批次在
+            // commit 入口即抛 incompleteSnapshot）——语义回到原式。
+            report.hasMore = completed != requiredWindows
             if report.hasMore {
                 try Self.savePending(PendingBatch(previousAnchor: pending.previousAnchor, batch: batch,
                     completedWindows: completed, reconcileAfter: attempted.last?.start ?? pending.reconcileAfter,
