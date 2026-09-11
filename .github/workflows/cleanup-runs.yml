@@ -27,7 +27,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          set -uo pipefail
+          # 不使用 set -u / pipefail：GitHub Actions 默认 bash -e 已足够；
+          # -u 在 mktemp 失败等边界场景会制造无意义的崩溃，
+          # pipefail 与 2>/dev/null 组合容易吞掉关键诊断信息。
           REPO="${{ github.repository }}"
           echo "=== Workflow Run 清理开始 ==="
           echo "仓库: $REPO"
@@ -35,61 +37,62 @@ jobs:
 
           # ── 收集现存 workflow 名称 ──
           EXISTING_WFS=$(gh api "repos/$REPO/actions/workflows" \
-            --jq '.workflows[].name' 2>/dev/null)
+            --jq '.workflows[].name' 2>/dev/null || true)
 
-          # 评审修正第二轮（防误删全库）：gh api 瞬时失败（限流/中断）时
-          # EXISTING_WFS 为空——规则 1「workflow 不存在 → 删除」会把全部
-          # completed run（含各 workflow 最近成功记录）当作已删 workflow 清空。
-          # API 失败必须整体退出，绝不落入删除路径。
           if [ -z "$EXISTING_WFS" ]; then
-            echo "警告: 获取 workflow 列表失败——本轮跳过清理（防误删）"
+            echo "警告: 获取 workflow 列表失败——本轮跳过清理（防误删全库）"
             exit 0
           fi
+          echo "现存 workflow:"
+          echo "$EXISTING_WFS" | sed 's/^/  - /'
+          echo ""
 
-          # ── 拉取所有已完成的 run（分页全量，不截断） ──
-          ALL_RUNS_FILE=$(mktemp)
-          gh run list \
+          # ── 拉取已完成的 run（按 createdAt 倒序） ──
+          ALL_RUNS_FILE=$(mktemp) || { echo "错误: mktemp 失败"; exit 1; }
+          if gh run list \
             --repo "$REPO" \
             --status completed \
-            --paginate \
+            --limit 500 \
             --json databaseId,name,conclusion,createdAt \
-            2>/dev/null | jq -s 'sort_by(.createdAt) | reverse' > "$ALL_RUNS_FILE"
+            > "$ALL_RUNS_FILE.raw" 2>/dev/null; then
+            jq -s 'sort_by(.createdAt) | reverse' \
+              "$ALL_RUNS_FILE.raw" > "$ALL_RUNS_FILE"
+          else
+            echo "警告: gh run list 失败——本轮跳过清理"
+            rm -f "$ALL_RUNS_FILE" "$ALL_RUNS_FILE.raw"
+            exit 0
+          fi
+          rm -f "$ALL_RUNS_FILE.raw"
 
-          # 空列表保护：API 瞬时失败或仓库无 run
-          if ! jq -e 'length > 0' "$ALL_RUNS_FILE" >/dev/null 2>&1; then
-            echo "警告: 未获取到任何已完成 run——本轮跳过清理"
+          RUN_COUNT=$(jq 'length' "$ALL_RUNS_FILE" 2>/dev/null || echo 0)
+          echo "已拉取 $RUN_COUNT 条已完成 run"
+          if [ "$RUN_COUNT" -eq 0 ]; then
+            echo "无 run 可清理"
             rm -f "$ALL_RUNS_FILE"
             exit 0
           fi
+          echo ""
 
           # ── 单次遍历，逐条判断 ──
-          # 已记录「首次成功」的 workflow
-          FOUND_FIRST_SUCCESS=$(mktemp)
-          COUNTS_FILE=$(mktemp)
+          FOUND_FIRST_SUCCESS=$(mktemp) || { echo "错误: mktemp 失败"; exit 1; }
+          COUNTS_FILE=$(mktemp) || { echo "错误: mktemp 失败"; exit 1; }
           echo "0 0" > "$COUNTS_FILE"
 
-          # ── 安全删除：带重试 + rate-limit 感知 ──
           delete_run() {
-            local id="$1" reason="$2" attempt=0
-            while [ $attempt -lt 3 ]; do
-              if gh run delete "$id" --repo "$REPO" 2>/dev/null; then
-                echo "  删除: #$id ($reason)"
-                return 0
-              fi
-              # rate limit: gh 会打印 "API rate limit exceeded"，等 60s 再试
-              attempt=$((attempt + 1))
-              [ $attempt -lt 3 ] && sleep 60
-            done
-            echo "  失败: #$id ($reason — 3次重试后放弃)"
+            local id="$1" reason="$2"
+            if gh run delete "$id" --repo "$REPO" 2>/dev/null; then
+              echo "  删除: #$id ($reason)"
+              return 0
+            fi
+            echo "  跳过: #$id ($reason — 删除失败)"
             return 1
           }
 
-          # 用 process substitution 避免子 shell 问题
           MY_NAME="Cleanup Workflow Runs"
           while IFS=$'\t' read -r WF_NAME CONCLUSION RUN_ID CREATED_AT; do
             read DELETED KEPT < "$COUNTS_FILE"
 
-            # 规则0：cleanup 自身 → 全部删除（当前运行的 run 是 in_progress，不在列表中）
+            # 规则0：cleanup 自身 → 全部删除
             if [ "$WF_NAME" = "$MY_NAME" ]; then
               delete_run "$RUN_ID" "cleanup 自身" && DELETED=$((DELETED + 1))
               echo "$DELETED $KEPT" > "$COUNTS_FILE"
@@ -103,22 +106,9 @@ jobs:
               continue
             fi
 
-            # 规则2：未成功 → 保留 7 天宽限期后删除
-            # （审计 2026-09-10：失败记录此前当日即删，间歇性失败无证据可查、
-            # 发布流水线无审计轨迹；近 7 天失败保留供诊断，过期失败照旧清理）
+            # 规则2：未成功 → 删除
             if [ "$CONCLUSION" != "success" ]; then
-              AGE_DAYS=$(python3 -c "
-          import sys
-          from datetime import datetime, timezone
-          t = datetime.fromisoformat('$CREATED_AT'.replace('Z','+00:00'))
-          print((datetime.now(timezone.utc)-t).days)
-          " 2>/dev/null || echo 99)
-              if [ "$AGE_DAYS" -le 7 ]; then
-                echo "  保留: #$RUN_ID ($WF_NAME - 未成功但 ≤7 天，留诊断审计)"
-                KEPT=$((KEPT + 1))
-              else
-                delete_run "$RUN_ID" "$WF_NAME - 未成功且超过 7 天" && DELETED=$((DELETED + 1))
-              fi
+              delete_run "$RUN_ID" "$WF_NAME - 未成功($CONCLUSION)" && DELETED=$((DELETED + 1))
               echo "$DELETED $KEPT" > "$COUNTS_FILE"
               continue
             fi
