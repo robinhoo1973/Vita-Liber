@@ -104,6 +104,17 @@ public struct GRDBStore {
                     try Self.rebuildDoseLogWithFK(db)
                 case 15:
                     try Self.recomputeLogicalDoseIds(db)
+                case 23:
+                    // 重建及版本推进同一事务，任何失败/崩溃都保留v22唯一副本。
+                    try db.inTransaction {
+                        for statement in SchemaMigrations.statements(step.sql) { try db.execute(sql: statement) }
+                        guard try Row.fetchAll(db, sql: "PRAGMA foreign_key_check(ocr_card_commit)").isEmpty else {
+                            throw OCRCardStore.StoreError.corruptReceipt
+                        }
+                        try db.execute(sql: "PRAGMA user_version = \(step.version)")
+                        return .commit
+                    }
+                    continue
                 default:
                     for statement in SchemaMigrations.statements(step.sql) {
                         // 幂等：baseline 已含该列的库上重放 ADD COLUMN 会报 duplicate column

@@ -31,6 +31,8 @@ public actor ExportService {
         public var ocrCardCommits: [OCRCardStore.AuditRecord]?
         public var ocrPrescriptions: [OCRPrescriptionExport]?
         public var ocrEncounterDetails: [OCREncounterDetails]?
+        public var ocrMedications: [OCRMedicationExport]?
+        public var claims: [ClaimExport]?
         public var plans: [PlanExport]
         public var appointments: [AppointmentExport]
         public var observations: [ObservationExport]
@@ -51,6 +53,7 @@ public actor ExportService {
             + observations.count + allergies.count + encounters.count + metrics.count
             + (alertEvents?.count ?? 0) + immunizations.count + voiceNotes.count + healthProblems.count
             + (ocrPrescriptions?.count ?? 0)
+            + (ocrMedications?.count ?? 0) + (claims?.count ?? 0)
         }
 
         /// document_file 直列导出（第四轮全仓审查修复：FR13.2 备份/恢复
@@ -122,6 +125,32 @@ public actor ExportService {
             public var followUpRequirement: String?
             public var feeAmount: Double?
             public var rescheduledFromId: UUID?
+            public var createdAt: Date
+            public var updatedAt: Date
+        }
+
+        public struct OCRMedicationExport: Sendable, Codable, Equatable {
+            public var id: UUID
+            public var patientId: UUID
+            public var genericName: String
+            public var brandName: String?
+            public var spec: String?
+            public var unitKind: String
+            public var drugKey: String?
+            public var createdAt: Date
+            public var updatedAt: Date
+        }
+        public struct ClaimExport: Sendable, Codable, Equatable {
+            public var id: UUID
+            public var patientId: UUID
+            public var encounterId: UUID?
+            public var documentId: UUID?
+            public var itemType: String
+            public var amount: Double?
+            public var currency: String?
+            public var date: Date?
+            public var merchant: String?
+            public var summary: String?
             public var createdAt: Date
             public var updatedAt: Date
         }
@@ -565,6 +594,22 @@ public actor ExportService {
                                     timeline: timeline, plans: plans, appointments: appointments)
             envelope.documents = documents
             envelope.ocrCardCommits = try OCRCardStore.exportCommits(db)
+            envelope.ocrMedications = try Row.fetchAll(db, sql: """
+                SELECT m.* FROM medication m WHERE EXISTS
+                  (SELECT 1 FROM ocr_card_commit c WHERE c.card_kind = 'medication' AND c.entity_id = m.id) ORDER BY m.id
+                """).map { row in
+                guard let id = UUID(uuidString: row["id"]), let patient = UUID(uuidString: row["patient_id"]) else { throw ExportError.invalidOCRBackup }
+                return Envelope.OCRMedicationExport(id: id, patientId: patient, genericName: row["generic_name"], brandName: row["brand_name"],
+                    spec: row["spec"], unitKind: row["unit_kind"], drugKey: row["drug_key"],
+                    createdAt: Date(timeIntervalSince1970: row["created_at"]), updatedAt: Date(timeIntervalSince1970: row["updated_at"]))
+            }
+            envelope.claims = try Row.fetchAll(db, sql: "SELECT * FROM claim_item WHERE confirmed = 1 ORDER BY id").map { row in
+                guard let id = UUID(uuidString: row["id"]), let patient = UUID(uuidString: row["patient_id"]) else { throw ExportError.invalidOCRBackup }
+                return Envelope.ClaimExport(id: id, patientId: patient,
+                    encounterId: (row["encounter_id"] as String?).flatMap(UUID.init(uuidString:)), documentId: (row["document_file_id"] as String?).flatMap(UUID.init(uuidString:)),
+                    itemType: row["item_type"], amount: row["amount"], currency: row["currency"], date: (row["date"] as Double?).map(Date.init(timeIntervalSince1970:)),
+                    merchant: row["merchant"], summary: row["summary"], createdAt: Date(timeIntervalSince1970: row["created_at"]), updatedAt: Date(timeIntervalSince1970: row["updated_at"]))
+            }
             envelope.ocrPrescriptions = try Row.fetchAll(db, sql: """
                 SELECT p.* FROM prescription p WHERE p.source = 'ocr' AND p.confirmed = 1
                 ORDER BY p.id
@@ -692,6 +737,18 @@ public actor ExportService {
             try add("prescription", ids: (envelope.ocrPrescriptions ?? []).map { $0.id.uuidString },
                     backupTitle: { _ in "OCR prescription" },
                     existingTitle: { existingTitle("prescription", $0, "hospital") })
+            // 审查修复（O(n²) 回退）：medication/claim 的 backupTitle 闭包此前
+            // 逐 id 线性扫全数组——整库冲突（同库重导备份）时每个冲突 id 一次
+            // 全扫，UUID 字符串比较放大为 O(N²)（同文件内 consentTitle/planTitle
+            // 已用字典规避，此二处为同类回退）。与邻接字典同法预建。
+            let medicationTitle = Dictionary(uniqueKeysWithValues: (envelope.ocrMedications ?? []).map { ($0.id.uuidString, $0.genericName) })
+            let claimTitle = Dictionary(uniqueKeysWithValues: (envelope.claims ?? []).map { ($0.id.uuidString, $0.summary) })
+            try add("medication", ids: (envelope.ocrMedications ?? []).map { $0.id.uuidString },
+                    backupTitle: { medicationTitle[$0] },
+                    existingTitle: { existingTitle("medication", $0, "generic_name") })
+            try add("claim_item", ids: (envelope.claims ?? []).map { $0.id.uuidString },
+                    backupTitle: { claimTitle[$0] },
+                    existingTitle: { existingTitle("claim_item", $0, "summary") })
             try add("medication_plan", ids: envelope.plans.map { $0.id.uuidString },
                     backupTitle: { planTitle[$0] },
                     existingTitle: { _ in nil })
@@ -765,6 +822,8 @@ public actor ExportService {
                 ("consent_record", envelope.consentRecords.map { $0.id.uuidString }),
                 ("document_file", documentIds),
                 ("prescription", (envelope.ocrPrescriptions ?? []).map { $0.id.uuidString }),
+                ("medication", (envelope.ocrMedications ?? []).map { $0.id.uuidString }),
+                ("claim_item", (envelope.claims ?? []).map { $0.id.uuidString }),
                 ("medication_plan", envelope.plans.map { $0.id.uuidString }),
                 ("appointment", envelope.appointments.map { $0.id.uuidString }),
                 ("observation", envelope.observations.map { $0.id.uuidString }),
@@ -958,7 +1017,7 @@ public actor ExportService {
                 let targetId = remap(d.id) ?? d.id
                 let targetPatientId = (remap(d.patientId) ?? d.patientId)?.uuidString
                 let targetEncounterId = (remap(d.encounterId) ?? d.encounterId)
-                let reviewMetadata = try Self.remapReviewMetadata(d.metaJson, cardMap: cardMap)
+                let reviewMetadata = try Self.remapReviewMetadata(d.metaJson, cardMap: cardMap, entityMap: idMap)
                 // 第五轮全仓审查修复（5WHY）：keep 裁决的行必须原样保留、绝不
                 // 记入回填清单——此前回填循环对所有 envelope 行统一
                 // UPDATE encounter_id，keep 行（既有行被跳过、未被 INSERT/UPDATE）
@@ -1240,6 +1299,33 @@ public actor ExportService {
                 }
             }
             let existingAudits = try OCRCardStore.exportCommits(db)
+            for medication in envelope.ocrMedications ?? [] {
+                let target = remap(medication.id) ?? medication.id
+                if conflictSets["medication", default: []].contains(medication.id.uuidString), resolution(medication.id) == .keep { continue }
+                try db.execute(sql: """
+                    INSERT INTO medication (id, patient_id, generic_name, brand_name, spec, unit_kind, drug_key, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET patient_id=excluded.patient_id, generic_name=excluded.generic_name,
+                      brand_name=excluded.brand_name, spec=excluded.spec, unit_kind=excluded.unit_kind, drug_key=excluded.drug_key,
+                      created_at=excluded.created_at, updated_at=excluded.updated_at
+                    """, arguments: [target.uuidString, patientID(medication.patientId), medication.genericName,
+                        medication.brandName, medication.spec, medication.unitKind, medication.drugKey,
+                        medication.createdAt.timeIntervalSince1970, medication.updatedAt.timeIntervalSince1970])
+            }
+            for claim in envelope.claims ?? [] {
+                let target = remap(claim.id) ?? claim.id
+                if conflictSets["claim_item", default: []].contains(claim.id.uuidString), resolution(claim.id) == .keep { continue }
+                try db.execute(sql: """
+                    INSERT INTO claim_item (id, patient_id, encounter_id, document_file_id, item_type, amount, currency, date, merchant, summary, confirmed, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET patient_id=excluded.patient_id, encounter_id=excluded.encounter_id,
+                      document_file_id=excluded.document_file_id, item_type=excluded.item_type, amount=excluded.amount,
+                      currency=excluded.currency, date=excluded.date, merchant=excluded.merchant, summary=excluded.summary,
+                      confirmed=1, created_at=excluded.created_at, updated_at=excluded.updated_at
+                    """, arguments: [target.uuidString, patientID(claim.patientId), remap(claim.encounterId)?.uuidString,
+                        remap(claim.documentId)?.uuidString, claim.itemType, claim.amount, claim.currency, claim.date?.timeIntervalSince1970,
+                        claim.merchant, claim.summary, claim.createdAt.timeIntervalSince1970, claim.updatedAt.timeIntervalSince1970])
+            }
             let auditMap = Dictionary(uniqueKeysWithValues: existingAudits.map { ("\($0.cardId.uuidString)/\($0.rowId.uuidString)", $0) })
             for original in envelope.ocrCardCommits ?? [] {
                 if conflictSets[original.cardKind, default: []].contains(original.entityId.uuidString), resolution(original.entityId) == .keep { continue }
@@ -1248,8 +1334,17 @@ public actor ExportService {
                 audit.patientId = remap(original.patientId) ?? original.patientId
                 audit.documentId = remap(original.documentId) ?? original.documentId
                 audit.entityId = remap(original.entityId) ?? original.entityId
+                audit.encounterId = remap(original.encounterId)
                 if let existing = auditMap["\(audit.cardId.uuidString)/\(audit.rowId.uuidString)"] {
-                    guard existing == audit else { throw ExportError.invalidOCRBackup }
+                    var immutable = existing
+                    immutable.encounterId = audit.encounterId
+                    guard immutable == audit else { throw ExportError.invalidOCRBackup }
+                    if existing.encounterId != audit.encounterId {
+                        guard conflictSets[original.cardKind, default: []].contains(original.entityId.uuidString),
+                              resolution(original.entityId) == .adopt else { throw ExportError.invalidOCRBackup }
+                        try db.execute(sql: "UPDATE ocr_card_commit SET encounter_id = ? WHERE card_id = ? AND row_id = ? AND patient_id = ?",
+                            arguments: [audit.encounterId?.uuidString, audit.cardId.uuidString, audit.rowId.uuidString, audit.patientId.uuidString])
+                    }
                     continue
                 }
                 try OCRCardStore.insertReceipt(audit, db: db)
@@ -1306,9 +1401,9 @@ public actor ExportService {
                         WHERE id = ?
                         """, arguments: [patientID(i.patientId), i.vaccineName,
                                          i.doseNumber, i.administeredAt.timeIntervalSince1970,
-                                         i.provider, i.lotNumber, i.encounterId?.uuidString,
+                                          i.provider, i.lotNumber, remap(i.encounterId)?.uuidString,
                                          i.source, (i.confirmed).map { $0 ? 1 : 0 },
-                                         i.adverseReactionId?.uuidString,
+                                          remap(i.adverseReactionId)?.uuidString,
                                          i.id.uuidString])
                 }) { continue }
                 try db.execute(sql: """
@@ -1318,9 +1413,9 @@ public actor ExportService {
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, arguments: [(remap(i.id) ?? i.id).uuidString, patientID(i.patientId), i.vaccineName,
                                      i.doseNumber, i.administeredAt.timeIntervalSince1970,
-                                     i.provider, i.lotNumber, i.encounterId?.uuidString,
+                                      i.provider, i.lotNumber, remap(i.encounterId)?.uuidString,
                                      i.source ?? "manual", (i.confirmed ?? false) ? 1 : 0,
-                                     i.adverseReactionId?.uuidString,
+                                      remap(i.adverseReactionId)?.uuidString,
                                      i.administeredAt.timeIntervalSince1970, i.administeredAt.timeIntervalSince1970])
             }
             for v in envelope.voiceNotes {
@@ -1395,16 +1490,20 @@ public actor ExportService {
         return ids
     }
 
-    private static func remapReviewMetadata(_ metadata: String?, cardMap: [UUID: UUID]) throws -> String? {
-        guard let metadata, !cardMap.isEmpty else { return metadata }
+    private static func remapReviewMetadata(_ metadata: String?, cardMap: [UUID: UUID], entityMap: [UUID: UUID]) throws -> String? {
+        guard let metadata, !cardMap.isEmpty || !entityMap.isEmpty else { return metadata }
         let ids = try reviewCardIDs(metadata)
-        guard ids.contains(where: { cardMap[$0] != nil }) else { return metadata }
+        guard !ids.isEmpty else { return metadata }
         guard var object = try JSONSerialization.jsonObject(with: Data(metadata.utf8)) as? [String: Any],
               let json = object["ocr_review"] as? String,
               var review = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
               var cards = review["cards"] as? [[String: Any]] else { throw ExportError.invalidOCRBackup }
         for index in cards.indices {
             if let remapped = cardMap[ids[index]] { cards[index]["id"] = remapped.uuidString }
+            // 草稿关系不是已确认事实：恢复时重新提建议，不保留指向旧成员/旧就诊的选择。
+            if cards[index]["encounterAssociation"] != nil {
+                cards[index]["encounterAssociation"] = ["unselected": [String: String]()]
+            }
         }
         review["cards"] = cards
         object["ocr_review"] = String(decoding: try JSONSerialization.data(withJSONObject: review, options: [.sortedKeys]), as: UTF8.self)
@@ -1441,6 +1540,20 @@ public actor ExportService {
         let encounters = Dictionary(uniqueKeysWithValues: envelope.encounters.map { ($0.id, $0) })
         let rx = Dictionary(uniqueKeysWithValues: prescriptions.map { ($0.id, $0) })
         let detailIds = Set(details.map(\.id))
+        let medications = envelope.ocrMedications ?? [], claims = envelope.claims ?? []
+        guard Set(medications.map(\.id)).count == medications.count, Set(claims.map(\.id)).count == claims.count else { throw ExportError.invalidOCRBackup }
+        let medicationMap = Dictionary(uniqueKeysWithValues: medications.map { ($0.id, $0) })
+        let claimMap = Dictionary(uniqueKeysWithValues: claims.map { ($0.id, $0) })
+        for medication in medications {
+            guard !medication.genericName.isEmpty, ["tablet", "capsule", "patch", "vial"].contains(medication.unitKind),
+                  medication.createdAt.timeIntervalSince1970.isFinite, medication.updatedAt.timeIntervalSince1970.isFinite else { throw ExportError.invalidOCRBackup }
+        }
+        for claim in claims {
+            guard claim.amount?.isFinite != false, claim.date?.timeIntervalSince1970.isFinite != false,
+                  ["invoice", "fee", "receipt"].contains(claim.itemType),
+                  claim.encounterId == nil || encounters[claim.encounterId!]?.patientId == claim.patientId,
+                  claim.documentId == nil || docs[claim.documentId!]?.patientId == claim.patientId else { throw ExportError.invalidOCRBackup }
+        }
         var keys = Set<String>()
         var cards: [UUID: OCRCardStore.AuditRecord] = [:]
         for audit in envelope.ocrCardCommits ?? [] {
@@ -1458,6 +1571,7 @@ public actor ExportService {
                       audit.cardKind != "prescription" || other.entityId == audit.entityId else { throw ExportError.invalidOCRBackup }
             }
             cards[audit.cardId] = audit
+            if let encounterId = audit.encounterId, encounters[encounterId]?.patientId != audit.patientId { throw ExportError.invalidOCRBackup }
             switch audit.cardKind {
             case "metric_sample":
                 guard let sample = metrics[audit.entityId], sample.patientId == audit.patientId,
@@ -1468,7 +1582,13 @@ public actor ExportService {
                 guard encounters[audit.entityId]?.patientId == audit.patientId, detailIds.contains(audit.entityId) else { throw ExportError.invalidOCRBackup }
             case "prescription":
                 guard let prescription = rx[audit.entityId], prescription.patientId == audit.patientId,
-                      prescription.documentId == audit.documentId, prescription.prescribedAt != nil else { throw ExportError.invalidOCRBackup }
+                       prescription.documentId == audit.documentId, prescription.prescribedAt != nil else { throw ExportError.invalidOCRBackup }
+            case "medication":
+                guard medicationMap[audit.entityId]?.patientId == audit.patientId else { throw ExportError.invalidOCRBackup }
+            case "claim_item":
+                guard let claim = claimMap[audit.entityId], claim.patientId == audit.patientId, claim.documentId == audit.documentId else { throw ExportError.invalidOCRBackup }
+            case "immunization":
+                guard envelope.immunizations.contains(where: { $0.id == audit.entityId && $0.patientId == audit.patientId && $0.confirmed == true }) else { throw ExportError.invalidOCRBackup }
             default: throw ExportError.invalidOCRBackup
             }
         }
@@ -1535,6 +1655,10 @@ public actor ExportService {
                 (SELECT 1 FROM document_page page WHERE page.document_file_id = d.id AND page.page_index = p.source_page)))
               OR EXISTS(SELECT 1 FROM prescription p JOIN document_file d ON d.id = p.document_file_id WHERE p.patient_id != d.patient_id)
               OR EXISTS(SELECT 1 FROM document_file d JOIN encounter e ON e.id = d.encounter_id WHERE d.patient_id != e.patient_id)
+              OR EXISTS(SELECT 1 FROM prescription p JOIN encounter e ON e.id = p.encounter_id WHERE p.patient_id != e.patient_id)
+              OR EXISTS(SELECT 1 FROM claim_item c JOIN encounter e ON e.id = c.encounter_id WHERE c.patient_id != e.patient_id)
+              OR EXISTS(SELECT 1 FROM claim_item c JOIN document_file d ON d.id = c.document_file_id WHERE c.patient_id != d.patient_id)
+              OR EXISTS(SELECT 1 FROM immunization i JOIN encounter e ON e.id = i.encounter_id WHERE i.patient_id != e.patient_id)
               OR EXISTS(SELECT card_id FROM ocr_card_commit GROUP BY card_id
                 HAVING COUNT(DISTINCT patient_id) != 1 OR COUNT(DISTINCT document_file_id) != 1
                   OR COUNT(DISTINCT page_index) != 1 OR COUNT(DISTINCT card_kind) != 1)

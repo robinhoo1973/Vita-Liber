@@ -98,6 +98,10 @@ struct SettingsView: View {
                 .accessibilityIdentifier("SP-23.backup.entry")
             }
             Section(L10n.hub_healthRecords) {
+                NavigationLink(value: AppRoute.deviceConnection) {
+                    Label(L10n.healthImportSettingsTitle, systemImage: "heart.text.square")
+                }
+                .accessibilityIdentifier("SP-25.settings.appleHealth")
                 // mock 对齐项：语音指导模式入口（FR17.11 档案完善/修改，可语音可手输）
                 NavigationLink(value: AppRoute.voiceGuideProfile) {
                     Label(L10n.voiceguide_profileTitle, systemImage: "waveform.and.mic")
@@ -201,6 +205,7 @@ struct SettingsView: View {
                 // 运行时真源 = AppState.careMode（驱动 CareModeMetrics/触点放大等）；
                 // DB 键为镜像。读回实际状态，避免开关显示与行为脱节（split-brain 修复）
                 case .careModeEnable: return toggles[key] ?? app.careMode
+                case .authHealthRead: return SettingsRules.resolved(settings.values[key], key: key) == "true"
                 // 审查修复（口径统一）：布尔读一律与键默认值比较——
                 // `!= "false"` 与 `== "true"` 在 values 未装载（nil）时对
                 // 同一键显示相反状态（本页开/外观页关）；统一

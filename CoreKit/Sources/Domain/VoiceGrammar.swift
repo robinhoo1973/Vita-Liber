@@ -20,6 +20,7 @@ public struct FieldDraft: Codable, Sendable, Equatable, Identifiable {
     public var rawText: String?            // 原文（BR-002 不丢内容；nil 时 = value）
     public var suggestedLabel: String?     // 建议显示标签（L10n 键语义，nil 时 = key）
     public var source: UnderstandingSource?// 产出轨（跨轨置信度不直接比较，仅呈现标注）
+    public var sourceLineIndex: Int?
     public var codeResolution: CodeResolution? { // F25 惰性建议（医疗槽位，BR-003）
         didSet { if codeResolution != oldValue { codeApproval = nil } }
     }
@@ -39,12 +40,13 @@ public struct FieldDraft: Codable, Sendable, Equatable, Identifiable {
     public init(key: String, value: String, unit: String? = nil, confidence: Double = 0.9,
                  rawText: String? = nil, suggestedLabel: String? = nil,
                  source: UnderstandingSource? = nil, codeResolution: CodeResolution? = nil,
-                 grade: SourceGrade = .ocrUnconfirmed) {
+                  grade: SourceGrade = .ocrUnconfirmed, sourceLineIndex: Int? = nil) {
         self.originalValue = value
         self.originalUnit = unit
         self.key = key; self.value = value; self.unit = unit; self.confidence = confidence
         self.rawText = rawText; self.suggestedLabel = suggestedLabel
         self.source = source; self.codeResolution = codeResolution
+        self.sourceLineIndex = sourceLineIndex
         self.grade = grade; self.revisionHistory = []
         self.reviewedValue = grade == .userConfirmed ? value : nil
         self.reviewedUnit = grade == .userConfirmed ? unit : nil
@@ -91,6 +93,7 @@ public struct FieldDraft: Codable, Sendable, Equatable, Identifiable {
     private enum CodingKeys: String, CodingKey {
         case key, originalValue, originalUnit, value, unit, confidence, rawText, suggestedLabel, source
         case codeResolution, grade, revisionHistory, reviewedValue, reviewedUnit, codeApproval
+        case sourceLineIndex
     }
 
     public init(from decoder: Decoder) throws {
@@ -106,6 +109,7 @@ public struct FieldDraft: Codable, Sendable, Equatable, Identifiable {
         rawText = try c.decodeIfPresent(String.self, forKey: .rawText)
         suggestedLabel = try c.decodeIfPresent(String.self, forKey: .suggestedLabel)
         source = try c.decodeIfPresent(UnderstandingSource.self, forKey: .source)
+        sourceLineIndex = try c.decodeIfPresent(Int.self, forKey: .sourceLineIndex)
         codeResolution = try c.decodeIfPresent(CodeResolution.self, forKey: .codeResolution)
         grade = try c.decodeIfPresent(SourceGrade.self, forKey: .grade) ?? .ocrUnconfirmed
         revisionHistory = try c.decodeIfPresent([String].self, forKey: .revisionHistory) ?? []
@@ -125,6 +129,7 @@ public struct FieldDraft: Codable, Sendable, Equatable, Identifiable {
         try c.encode(revisionHistory, forKey: .revisionHistory)
         try c.encodeIfPresent(reviewedValue, forKey: .reviewedValue); try c.encodeIfPresent(reviewedUnit, forKey: .reviewedUnit)
         try c.encodeIfPresent(codeApproval, forKey: .codeApproval)
+        try c.encodeIfPresent(sourceLineIndex, forKey: .sourceLineIndex)
     }
 }
 

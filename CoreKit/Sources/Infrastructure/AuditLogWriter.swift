@@ -22,16 +22,23 @@ public struct AuditLogWriter: AuditLogging, Sendable {
         guard Self.allowedActions.contains(action) else {
             throw AuditError.actionNotAllowed(action)
         }
-        let hash = CryptoKitContentHasher().sha256Hex(Data(entityId.utf8))   // ADR-025：审计脱敏收敛到 ContentHashing 单实现
         try await writer.write { db in
-            try db.execute(
+            try Self.insert(action: action, entityType: entityType, entityId: entityId, actorLocal: actorLocal, meta: meta, db: db)
+        }
+    }
+
+    /// 同事务写入口，供关系更新与事实写门复用；不引入第二个数据库事务。
+    static func insert(action: String, entityType: String, entityId: String, actorLocal: String,
+                       meta: String?, db: Database) throws {
+        guard allowedActions.contains(action) else { throw AuditError.actionNotAllowed(action) }
+        let hash = CryptoKitContentHasher().sha256Hex(Data(entityId.utf8))
+        try db.execute(
                 sql: """
                 INSERT INTO audit_event (id, actor_local, action, entity_type, entity_id_hash, at, meta_json)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 arguments: [UUID().uuidString, actorLocal, action, entityType, hash,
                             Date().timeIntervalSince1970, meta])
-        }
     }
 
     public enum AuditError: Error, LocalizedError, Sendable {

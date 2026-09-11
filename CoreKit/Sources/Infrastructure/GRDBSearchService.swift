@@ -27,6 +27,7 @@ public actor GRDBSearchService: FullTextSearch {
         let query = text.trimmingCharacters(in: .whitespaces)
         let patientIds = scope.patientIds.map(\.uuidString)
         return try await writer.read { db in
+            let docRefs: [EntityReference]
             switch route {
             case .trigram:
                 let match = "\"\(query.replacingOccurrences(of: "\"", with: "\"\""))\""
@@ -43,7 +44,7 @@ public actor GRDBSearchService: FullTextSearch {
                       AND d.patient_id IN (\(patientIds.map { _ in "?" }.joined(separator: ",")))
                     ORDER BY rank LIMIT ?
                     """, arguments: StatementArguments([match] + patientIds + [limit]))
-                return rows.compactMap { Self.hit($0) }
+                docRefs = rows.compactMap { Self.hit($0) }
             case .bigram:
                 // 每个 2-gram 必须**加引号转义**后再拼 OR：裸拼会把用户输入当 FTS5 语法。
                 // 2 字查询「OR」/「\"a」/「-(」会抛 fts5 syntax error（一路冒到 AI 助手显示
@@ -61,7 +62,7 @@ public actor GRDBSearchService: FullTextSearch {
                     ORDER BY rank LIMIT ?
                     """, arguments: StatementArguments([grams] + patientIds + [limit]))
                 // contentless 表无 snippet 函数——取回源列手动高亮（V3.44）
-                return rows.compactMap { row in
+                docRefs = rows.compactMap { row in
                     guard let ref = Self.hit(row) else { return nil }
                     // BR-007/008：敏感行绝不取回 ocr_text——沿用 hit() 的脱敏片段，
                     // 否则会覆盖掉脱敏逻辑、把敏感正文泄漏进搜索结果。
@@ -96,11 +97,52 @@ public actor GRDBSearchService: FullTextSearch {
                                 AND (d.ocr_text LIKE ? ESCAPE '\\' OR d.notes LIKE ? ESCAPE '\\')))
                     ORDER BY d.created_at DESC LIMIT ?
                     """, arguments: StatementArguments([since] + patientIds + [pattern, pattern, pattern, limit]))
-                return rows.compactMap { Self.hit($0) }
+                docRefs = rows.compactMap { Self.hit($0) }
             case .invalid:
-                return []
+                docRefs = []
             }
+            // FR17.14 审计修正（round3）：语音速记正文入全局搜索——需求「正文可被
+            // 全局搜索命中（FR12.1）」此前悬空（仅有 document_fts 三路由）。voice_note
+            // 不建 FTS 表（小体量，不为此加迁移）：沿用单字档的 LIKE 字面量转义纪律，
+            // 单字查询沿用 90 天窗口约束扫描集（与文档档行为一致）；纯文本 C 级内容、
+            // 无敏感媒体语义，故无 BR-007/008 正文遮蔽分支。
+            let notes = try Self.voiceNoteHits(db, query: query, patientIds: patientIds,
+                                               limit: limit, windowed: route == .like)
+            return Array((docRefs + notes).prefix(limit))
         }
+    }
+
+    /// FR17.14：语音速记命中（kind = "voice_note"）——标题取正文首行（截断 60 字），
+    /// snippet 走高亮；成员过滤与文档路由同一纪律（BR-001）。
+    private static func voiceNoteHits(_ db: Database, query: String, patientIds: [String],
+                                      limit: Int, windowed: Bool) throws -> [EntityReference] {
+        let escaped = query
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "%", with: "\\%")
+            .replacingOccurrences(of: "_", with: "\\_")
+        // windowed=false 时下界取 0（epoch）——避免两种参数列表拼装，occurred_at 为
+        // unix 秒 REAL 且恒 >= 0，语义上是“无窗口”。
+        let since: Double = windowed ? DayArithmetic.since(days: 90) : 0
+        let rows = try Row.fetchAll(db, sql: """
+            SELECT id, body FROM voice_note
+            WHERE occurred_at >= ?
+              AND patient_id IN (\(patientIds.map { _ in "?" }.joined(separator: ",")))
+              AND body LIKE ? ESCAPE '\\'
+            ORDER BY occurred_at DESC LIMIT ?
+            """, arguments: StatementArguments([since] + patientIds + ["%\(escaped)%", limit]))
+        return rows.compactMap { row in
+            guard let id = UUID(uuidString: row["id"] as String) else { return nil }
+            let body = (row["body"] as String?) ?? ""
+            return EntityReference(kind: "voice_note", refID: id,
+                                   title: Self.noteTitle(body),
+                                   snippet: SearchRules.highlight(body, query: query))
+        }
+    }
+
+    private static func noteTitle(_ body: String) -> String {
+        let line = body.split(separator: "\n").first.map(String.init) ?? body
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.count > 60 ? String(trimmed.prefix(60)) + "…" : trimmed
     }
 
     private static func hit(_ row: Row) -> EntityReference? {

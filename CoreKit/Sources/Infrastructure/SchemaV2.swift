@@ -117,13 +117,15 @@ public enum SchemaV2 {
       patient_id TEXT NOT NULL REFERENCES patient_profile(id),
       document_file_id TEXT NOT NULL REFERENCES document_file(id),
       page_index INTEGER NOT NULL CHECK(page_index >= 0),
-      card_kind TEXT NOT NULL CHECK(card_kind IN ('metric_sample','encounter','prescription')),
+      card_kind TEXT NOT NULL CHECK(card_kind IN ('metric_sample','encounter','prescription','claim_item','medication','immunization')),
       entity_id TEXT NOT NULL,
+      encounter_id TEXT REFERENCES encounter(id),
       created_at REAL NOT NULL,
       PRIMARY KEY(card_id, row_id),
       FOREIGN KEY(document_file_id, page_index) REFERENCES document_page(document_file_id, page_index));
     CREATE INDEX idx_ocr_card_commit_source ON ocr_card_commit(document_file_id, page_index, card_kind);
     CREATE INDEX idx_ocr_card_commit_entity ON ocr_card_commit(card_kind, entity_id, patient_id);
+    CREATE INDEX idx_ocr_card_commit_encounter ON ocr_card_commit(encounter_id, patient_id);
 
     -- F9 处方（BR-003 关键字段全确认才 confirmed=1）
     CREATE TABLE prescription (
@@ -261,6 +263,10 @@ public enum SchemaV2 {
       type_key TEXT NOT NULL,
       payload_json TEXT NOT NULL,
       PRIMARY KEY(binding_id, type_key));
+    CREATE TABLE hk_import_status (
+      binding_id TEXT PRIMARY KEY REFERENCES hk_import_binding(id) ON DELETE CASCADE,
+      report_json TEXT NOT NULL,
+      updated_at REAL NOT NULL);
     CREATE TABLE hk_projection_state (
       binding_id TEXT NOT NULL REFERENCES hk_import_binding(id) ON DELETE CASCADE,
       metric_id TEXT NOT NULL REFERENCES metric_sample(id) ON DELETE CASCADE,

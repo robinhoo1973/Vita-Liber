@@ -174,6 +174,15 @@ final class AppSettingsStore {
             if key.rawValue.hasPrefix("remindChannel") || key == .inAppBannerEnabled {
                 UserDefaults.standard.set(value, forKey: key.rawValue)
             }
+            // 审查修复（冻结键镜像缺失）：TTS rateProvider 与识别引擎工厂
+            // （EngineFactories.choiceProvider）以 UserDefaults 冻结键为运行时真源，
+            // 而 set() 此前只镜像 readBackOptIn/careModeEnable/remindChannel*——
+            // voiceEngine/speechRate 只落 DB 与内存 values，镜像恒 nil，工厂
+            // 永远读到默认档/默认语速（用户选择从未生效，语音实验室 A/B 对照
+            // 失真）。此处补镜像写；restoreDefaults 经 mirroredKeys 幂等清镜像。
+            if key == .voiceEngine || key == .speechRate {
+                UserDefaults.standard.set(value, forKey: key.rawValue)
+            }
         } catch {
             logger.error("设置写入失败: \(error)")
         }
@@ -243,6 +252,10 @@ final class AppSettingsStore {
         .remindChannelMeds, .remindChannelApts, .remindChannelExam,
         .remindChannelExpiry, .remindChannelAlert, .remindChannelBackup,
         .inAppBannerEnabled,
+        // 冻结键消费者（EngineFactories 的 TTS rateProvider 与识别引擎
+        // choiceProvider）以 UserDefaults 为运行时真源：升级回填
+        // （seedMirrorsIfNeeded）与恢复默认清镜像（restoreDefaults）都必须覆盖。
+        .voiceEngine, .speechRate,
     ]
 
     func loadAudit() async {

@@ -60,11 +60,13 @@ final class EncountersState {
         }
     }
 
-    func linkDocument(documentId: UUID, encounterId: UUID) async {
+    @discardableResult
+    func linkDocument(documentId: UUID, encounterId: UUID) async -> Bool {
         do {
             try await store.linkDocument(documentId: documentId, encounterId: encounterId)
+            return true
         } catch {
-            // 挂接失败：列表重新加载即反映真实状态
+            return false
         }
     }
 
@@ -82,6 +84,14 @@ final class EncountersState {
 
     func unconfirmedFields(patientId: UUID) async -> [(documentId: UUID, fieldCount: Int)] {
         (try? await store.unconfirmedFields(patientId: patientId)) ?? []   // try?-ok: 统计失败=空清单
+    }
+
+    /// FR6.9 期二：就诊关联卡片（处方/收费）——读取失败=空关联区，不阻断详情。
+    func linkedCards(id: UUID, patientId: UUID) async throws -> [EncounterStore.LinkedCardRow] {
+        try await store.linkedCards(encounterId: id, patientId: patientId)
+    }
+    func linkedDocuments(id: UUID, patientId: UUID) async throws -> [EncounterStore.LinkedDocument] {
+        try await store.linkedDocuments(encounterId: id, patientId: patientId)
     }
 }
 
@@ -177,6 +187,10 @@ struct EncounterDetailView: View {
     @Environment(EncountersState.self) private var state
     @State private var current: EncounterStore.EncounterRow?
     @State private var recommendations: [UUID] = []
+    @State private var linkedCards: [EncounterStore.LinkedCardRow] = []
+    @State private var sourceDocuments: [EncounterStore.LinkedDocument] = []
+    @State private var linkLoadFailed = false
+    @State private var cardKind: String?
     @State private var showSummary = false
 
     var body: some View {
@@ -235,23 +249,50 @@ struct EncounterDetailView: View {
 
             // 关联资料（FR4.2：挂接/解除均留操作历史）
             Section(L10n.encounterLinkedDocs) {
-                let docs = current?.linkedDocumentIds ?? encounter.linkedDocumentIds
-                if docs.isEmpty {
+                if sourceDocuments.isEmpty {
                     Text(L10n.encounterNoDocs).font(.caption).foregroundStyle(.secondary)
                 } else {
-                    ForEach(docs, id: \.self) { docId in
+                    ForEach(sourceDocuments) { document in
                         NavigationLink {
-                            DocumentDetailRouteView(documentId: docId)
+                            DocumentDetailRouteView(documentId: document.id)
                         } label: {
                             HStack {
                                 Image(systemName: "doc.text")
-                                Text(L10n.encounterDocTitle(docId.uuidString.prefix(8)))
+                                Text(document.title ?? document.type)
                                     .font(.subheadline)
                             }
                         }
                     }
                 }
             }
+
+            // FR6.9 期二：卡片互联读面——本就诊关联的处方/收费卡片（写入侧 =
+            // OCR 确认卡 EncounterAssociation 显式归属；此处只呈现与跳转，不新增关联语义）
+            Section(L10n.encounterLinkedCards) {
+                if linkLoadFailed {
+                    Text(L10n.docImportFailed).foregroundStyle(.orange)
+                    Button(L10n.retry) { Task { await refresh() } }
+                }
+                if !linkedCards.isEmpty {
+                    Picker(L10n.encounterLinkedCards, selection: $cardKind) {
+                        Text(L10n.filterAll).tag(Optional<String>.none)
+                        ForEach(Array(Set(linkedCards.map { $0.kind.cardKind })).sorted(), id: \.self) { kind in
+                            Text(L10n.entityCardKindName(kind)).tag(Optional(kind))
+                        }
+                    }
+                }
+                if linkedCards.isEmpty {
+                    Text(L10n.encounterLinkedCardsEmpty)
+                        .font(.caption).foregroundStyle(.secondary)
+                } else {
+                    ForEach(linkedCards.filter { cardKind == nil || $0.kind.cardKind == cardKind }, id: \.identity) { card in
+                        NavigationLink(value: AppRoute.medicalCard(kind: card.kind.cardKind, id: card.id, patientId: encounter.patientId)) {
+                            linkedCardRow(card)
+                        }
+                    }
+                }
+            }
+            .accessibilityIdentifier("SP-08.encounter.linkedCards")
 
             // FR4.2 智能推荐（同医院±7 天；推荐必须标「待确认」，不得自动生效）
             if !recommendations.isEmpty {
@@ -264,9 +305,8 @@ struct EncounterDetailView: View {
                             Spacer()
                             Button(L10n.encounterLink) {
                                 Task {
-                                    await state.linkDocument(documentId: docId,
-                                                             encounterId: encounter.id)
-                                    await refresh()
+                                    if await state.linkDocument(documentId: docId, encounterId: encounter.id) { await refresh() }
+                                    else { linkLoadFailed = true }
                                 }
                             }
                             .buttonStyle(.bordered)
@@ -293,9 +333,42 @@ struct EncounterDetailView: View {
         .task { await refresh() }
     }
 
+    @ViewBuilder
+    private func linkedCardRow(_ card: EncounterStore.LinkedCardRow) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: card.kind == .prescription ? "pills" : "creditcard")
+                .foregroundStyle(Color("brand-primary", bundle: .main))
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    // 审查修复：与同页头部「就诊类型胶囊」同一形态（8/4 内距、
+                    // brand-primary 12% 底 + brand-primary 前景）——旧实现为
+                    // bg-grouped 底 6/2 内距的第二种胶囊，同屏两种徽章形态漂移。
+                    Text(L10n.entityCardKindName(card.kind.cardKind))
+                        .font(.caption)
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(Capsule().fill(Color("brand-primary", bundle: .main).opacity(0.12)))
+                        .foregroundStyle(Color("brand-primary", bundle: .main))
+                    if let date = card.date {
+                        Text(date.formatted(date: .abbreviated, time: .omitted))
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+                if !card.summary.isEmpty {
+                    Text(card.summary).font(.subheadline).lineLimit(2)
+                }
+            }
+        }
+        .frame(minHeight: 44)
+    }
+
     private func refresh() async {
         current = await state.get(id: encounter.id)
         recommendations = await state.recommendations(for: current ?? encounter)
+        do {
+            linkedCards = try await state.linkedCards(id: encounter.id, patientId: encounter.patientId)
+            sourceDocuments = try await state.linkedDocuments(id: encounter.id, patientId: encounter.patientId)
+            linkLoadFailed = false
+        } catch { linkLoadFailed = true }
     }
 }
 

@@ -12,6 +12,8 @@ final class VoiceDictationModel {
     private(set) var partial = ""
     /// 最近一次实际识别 locale（FR17.15 能力诚实：方言回落主语言时面板回显）
     private(set) var resolvedLocale: String?
+    private(set) var resolvedEngineID: String?
+    private(set) var isPreparing = false
     private(set) var hasIncompleteTranscript = false
     var hasPendingTranscriptions: Bool { !contexts.isEmpty }
     var onTranscript: ((String, Double) -> Void)?
@@ -81,9 +83,11 @@ final class VoiceDictationModel {
         recordingID = request.sessionID
         displayRequestedLocale = request.localeIdentifier
         phase = .recording
+        isPreparing = engine is any TranscriptionCaptureReporting
         partial = ""
         partialRevision = 0
         resolvedLocale = nil
+        resolvedEngineID = nil
         hasIncompleteTranscript = false
         contexts[request.sessionID] = context
         deliveryOrder.append(request.sessionID)
@@ -159,12 +163,21 @@ final class VoiceDictationModel {
             try Task.checkCancellation()
             guard lifetime == epoch, contexts[id] != nil else { return }
             if currentID == id { resolvedLocale = capability.resolvedLocale(for: context.request.localeIdentifier) }
-            let result = try await engine.transcribe(context.request, onPartial: { [weak self] text in
+            let partial: @Sendable (String) -> Void = { [weak self] text in
                 guard let revision = gate.accept(text) else { return }
                 Task { @MainActor [weak self] in
                     self?.applyPartial(text, revision: revision, sessionID: id, epoch: lifetime)
                 }
-            })
+            }
+            let result: TranscriptionResult
+            if let reporting = engine as? any TranscriptionCaptureReporting {
+                result = try await reporting.transcribe(context.request, onPartial: partial, onCaptureStarted: { [weak self] in
+                    Task { @MainActor [weak self] in
+                        guard let self, self.epoch == lifetime, self.recordingID == id else { return }
+                        self.isPreparing = false
+                    }
+                })
+            } else { result = try await engine.transcribe(context.request, onPartial: partial) }
             try Task.checkCancellation()
             outcome = .success(result)
         } catch {
@@ -180,10 +193,12 @@ final class VoiceDictationModel {
         // 告警——旧守卫 `recordingID == id` 把正常松手路径一并排除，
         // 松手后的识别失败/未完成永不提示（口述内容静默丢失无告警）。
         if currentID == id, !abandoned.contains(id) {
+            isPreparing = false
             recordingID = nil
             switch outcome {
             case .success(let result):
                 resolvedLocale = result.resolvedLocale.isEmpty ? nil : result.resolvedLocale
+                resolvedEngineID = result.engineID
                 hasIncompleteTranscript = result.completion != .final
                 phase = result.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .failed : .idle
             case .failure(let error):

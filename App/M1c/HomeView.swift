@@ -4,7 +4,7 @@ import Infrastructure
 
 /// F2 首页（SP-04 · ui-ux §5.2）：统一提醒聚合中心（FR2.1，V3.57 术语）。
 ///
-/// 布局（FR2.1）：①成员切换条（大标题点击）②顶部快捷工具组（🎤/相机/🔔）
+/// 布局（FR2.1）：①紧凑成员切换条②顶部快捷工具组（🎤/相机/🔔）
 /// ③聚合列表（全部类型提醒时间倒序，统一不再分"行动/观察"子区）
 /// ④类别图标过滤 chips ⑤时间窗 Menu（默认过去 7 日/未来 14 日，
 /// FR2.1a；@AppStorage 键 actionFeedWindow——tech §5.33 冻结键名）。
@@ -30,7 +30,6 @@ struct HomeView: View {
     @Environment(NotificationCenterState.self) private var notificationState
     @State private var showMemberPicker = false
     @State private var showSOS = false
-    @State private var showVoiceNote = false
     @State private var showVoicePanel = false
     @State private var notifDenied = false
     /// FR9.6「可关、次日重现」：持久化当日驳回标记——旧实现为会话级 @State
@@ -61,7 +60,7 @@ struct HomeView: View {
 
     /// 各源仓投影 → 唯一聚合出口（Domain 纯函数）：
     /// 去重/成员隔离/窗口/置顶/周期压缩/排序全部在 Domain。
-    private var aggregatedItems: [AggregatedReminderItem] {
+    private func aggregatedItems(profileCompletion: (done: Int, total: Int)?) -> [AggregatedReminderItem] {
         var items: [AggregatedReminderItem] = []
         items += ReminderHubLoader.doseItems(reminderStore.todaySlots,
                                              memberId: app.currentPatientId)
@@ -81,6 +80,10 @@ struct HomeView: View {
         items += ReminderHubLoader.ocrItems(docs.documents,
                                             memberId: app.currentPatientId)
         items += pendingCenter.items
+        if let progress = profileCompletion {
+            items += ReminderHubLoader.systemItems(done: progress.done, total: progress.total,
+                                                    memberId: app.currentPatientId)
+        }
         return ReminderAggregationCenter.aggregate(items, window: currentWindow,
                                                    memberId: app.currentPatientId)
     }
@@ -101,8 +104,12 @@ struct HomeView: View {
                 standardHome
             }
         }
+        .navigationTitle(headerTitle)
+        // principal 只替换标题内容，不约束自动继承的大标题高度（SP-04）。
+        // 明确使用紧凑导航栏，内容为空时也不预留第二层标题区。
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            // §5.2 首页成员切换入口（V3.72）：大标题可点击 → 成员抽屉
+            // §5.2 首页成员切换入口：紧凑标题可点击 → 成员抽屉
             ToolbarItem(placement: .principal) {
                 Button {
                     showMemberPicker = true
@@ -151,7 +158,6 @@ struct HomeView: View {
         .sheet(isPresented: $showSOS) { SOSHelpView() }
         // SP-55 全屏工作台
         .fullScreenCover(isPresented: $showVoicePanel) { VoiceQuickLaunchView() }
-        .sheet(isPresented: $showVoiceNote) { VoiceNotePanelView() }
         .sheet(isPresented: $showQuickCapture) {
             NavigationStack { QuickCaptureView(kind: nil) }
         }
@@ -170,13 +176,22 @@ struct HomeView: View {
     private var standardHome: some View {
         // 第八轮全仓审查修复的每帧纪律延续：聚合与筛选各只求值一次，
         // 经 let 承接传入子视图（此前 snapshot 每帧重算 13 次的教训）
-        let snap = aggregatedItems
+        let progress = app.profileCompletion
+        let snap = aggregatedItems(profileCompletion: progress)
         let items = ReminderAggregationCenter.filtered(snap, kind: filterKind)
+        // 资料完善是首日引导的一部分；单独存在时不能吞掉首日任务。
+        // 任何其他真实提醒（尤其置顶项）仍优先进入聚合列表。
+        let showsGuide = isNewUser && snap.allSatisfy { $0.id.kind == ReminderHubLoader.profileProgressKind }
         return ScrollView {
             VStack(spacing: 16) {
                 pendingImportRecovery
                 pendingLoadFailure
-                if isNewUser && snap.isEmpty {
+                if showsGuide {
+                    if filterKind != nil {
+                        filterHeader
+                        if items.isEmpty { emptyAggregation }
+                    }
+                    aggregationList(items, profileCompletion: progress)
                     newUserGuide
                 } else {
                     if notifDenied && dismissedDay != todayDayKey {
@@ -186,18 +201,7 @@ struct HomeView: View {
                     if items.isEmpty {
                         emptyAggregation
                     } else {
-                        LazyVStack(spacing: 0) {
-                            ForEach(items) { item in
-                                aggregationRow(item)
-                                if item.id != items.last?.id {
-                                    Divider().padding(.leading, 46)
-                                }
-                            }
-                        }
-                        .padding(12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(RoundedRectangle(cornerRadius: 14)
-                            .fill(Color(.secondarySystemGroupedBackground)))
+                        aggregationList(items, profileCompletion: progress)
                     }
                 }
                 // §5.2 免责声明恒显示（V3.72：新用户空态此前不渲染信任文案）
@@ -281,6 +285,67 @@ struct HomeView: View {
     }
 
     // MARK: - 聚合行
+
+    /// 空数据时整个容器不存在，padding/背景均不能留下空卡（SP-04）。
+    @ViewBuilder
+    private func aggregationList(_ items: [AggregatedReminderItem],
+                                 profileCompletion: (done: Int, total: Int)?) -> some View {
+        if !items.isEmpty {
+            LazyVStack(spacing: 0) {
+                ForEach(items) { item in
+                    if item.id.kind == ReminderHubLoader.profileProgressKind, let progress = profileCompletion {
+                        profileProgressCard(progress)
+                    } else {
+                        aggregationRow(item)
+                    }
+                    if item.id != items.last?.id {
+                        Divider().padding(.leading, 46)
+                    }
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 14)
+                .fill(Color(.secondarySystemGroupedBackground)))
+        }
+    }
+
+    /// FR2.1b/FR17.11：实时资料状态，不伪装成「刚发生」的通知时间。
+    private func profileProgressCard(_ progress: (done: Int, total: Int)) -> some View {
+        Button {
+            router.navigate(to: .voiceGuideProfile)
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "person.text.rectangle")
+                    .font(.title3)
+                    .foregroundStyle(Color("brand-primary", bundle: .main))
+                    .frame(width: 36)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(L10n.homeProfileProgressTitle)
+                            .font(.subheadline.bold()).foregroundStyle(.primary)
+                        Spacer(minLength: 8)
+                        Text(L10n.homeProfileContinue)
+                            .font(.caption).foregroundStyle(Color("brand-primary", bundle: .main))
+                    }
+                    Text(L10n.homeProfileProgressFmt(progress.done, progress.total))
+                        .font(.caption).foregroundStyle(.secondary)
+                    ProgressView(value: Double(progress.done), total: Double(progress.total))
+                        .tint(Color("brand-primary", bundle: .main))
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+            }
+            .padding(.vertical, 8)
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(L10n.homeProfileProgressTitle)
+        .accessibilityValue(L10n.homeProfileProgressFmt(progress.done, progress.total))
+        .accessibilityHint(L10n.homeProfileContinue)
+        .accessibilityIdentifier("SP-04.home.profileProgress")
+    }
 
     private func aggregationRow(_ item: AggregatedReminderItem) -> some View {
         Button {

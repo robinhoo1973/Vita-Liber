@@ -35,7 +35,7 @@ public actor HealthImportStore {
         public var hasMore = false
     }
 
-    private let writer: any DatabaseWriter
+    let writer: any DatabaseWriter
     public init(writer: any DatabaseWriter) { self.writer = writer }
 
     public func connect(timeZoneID: String = TimeZone.current.identifier) async throws -> Binding {
@@ -90,8 +90,7 @@ public actor HealthImportStore {
             try Task.checkCancellation()
             try Self.requireEnabled(db)
             try Self.requireBinding(binding, db: db)
-            guard page.added.count <= 500, page.deleted.count <= 500,
-                  page.added.count + page.deleted.count <= 500, !page.anchor.isEmpty,
+            guard page.added.count <= 500, !page.anchor.isEmpty,
                   !page.hasMore || !page.added.isEmpty || !page.deleted.isEmpty else { throw ImportError.invalidValue }
             let committed = try Self.anchor(db, key: Self.anchorKey(binding, kind))
             let prior = try Self.pending(binding: binding, kind: kind, db: db)
@@ -146,7 +145,7 @@ public actor HealthImportStore {
             guard try Self.anchor(db, key: key) == pending.previousAnchor,
                   try Self.pending(binding: binding, kind: kind, db: db) == pending else { throw ImportError.staleAnchor }
             let batch = pending.batch
-            guard !batch.hasMore else { throw ImportError.incompleteSnapshot }
+            // Paging may continue while complete live windows are materialized. The committed cursor still waits.
             _ = try Self.validatedReferences(batch.added, kind: kind, calendar: binding.calendar)
             let tombstones = Set(batch.deleted)
             let deleted = try Self.deletedReferences(batch.deleted, binding: binding, kind: kind, db: db)
@@ -301,7 +300,7 @@ public actor HealthImportStore {
             }
             _ = try GuidelineStore.recordQualifiedHealthReadings(readings, patientId: binding.patientId, db: db)
             report.preservedRows = preserved.count
-            report.hasMore = completed != requiredWindows
+            report.hasMore = batch.hasMore || completed != requiredWindows
             if report.hasMore {
                 try Self.savePending(PendingBatch(previousAnchor: pending.previousAnchor, batch: batch,
                     completedWindows: completed, reconcileAfter: attempted.last?.start ?? pending.reconcileAfter,
@@ -448,7 +447,7 @@ public actor HealthImportStore {
         return data
     }
 
-    private static func binding(_ db: Database) throws -> Binding? {
+    static func binding(_ db: Database) throws -> Binding? {
         guard let row = try Row.fetchOne(db, sql: "SELECT * FROM hk_import_binding WHERE singleton = 1") else { return nil }
         guard let id = UUID(uuidString: row["id"]), let patient = UUID(uuidString: row["patient_id"]),
               TimeZone(identifier: row["time_zone"] as String) != nil else {
@@ -457,7 +456,7 @@ public actor HealthImportStore {
         return Binding(id: id, patientId: patient, timeZoneID: row["time_zone"])
     }
 
-    private static func ownerPatient(_ db: Database) throws -> UUID? {
+    static func ownerPatient(_ db: Database) throws -> UUID? {
         let id = try String.fetchOne(db, sql: """
             SELECT p.id FROM local_owner o JOIN patient_profile p ON p.id = o.self_patient_id
             WHERE p.deleted_at IS NULL LIMIT 1

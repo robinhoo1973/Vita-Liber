@@ -38,13 +38,13 @@ struct EntityCardConfirmView: View {
     private var rowKeys: Set<String> {
         CardTemplateMatcher.ocrTemplates.first { $0.kind == card.kind }?.rowLevelKeys ?? []
     }
-    private var missingShared: [String] {
-        Set(card.rows.flatMap { invalid($0) }).filter { key in
+    private func missingShared(reviewed: MatchedCard) -> [String] {
+        Set(card.rows.flatMap { invalid($0, reviewed: reviewed) }).filter { key in
             !rowKeys.contains(key) && key != "card_kind" && !card.shared.contains { $0.key == key }
         }.sorted()
     }
-    private var canSave: Bool {
-        !saving && card.rows.contains { invalid($0).isEmpty || EntityCardProjection.isDiscarded($0, in: card) }
+    private func canSave(reviewed: MatchedCard) -> Bool {
+        !saving && card.rows.contains { invalid($0, reviewed: reviewed).isEmpty || EntityCardProjection.isDiscarded($0, in: card) }
     }
     private var resumeError: String? {
         if case .resume(let review) = mode { return review.notificationError ?? review.errorMessage }
@@ -56,7 +56,11 @@ struct EntityCardConfirmView: View {
     }
 
     var body: some View {
-        let validation = Dictionary(uniqueKeysWithValues: card.rows.map { ($0.id, invalid($0)) })
+        // 审查修复（每帧纪律）：confirmation 投影每帧只求值一次——旧实现
+        // invalid(_:) 内部各自重建全卡投影，validation/missingShared/canSave
+        // 三处合计 ~3N 次全卡拷贝（每次击键触发），N 行卡明显可感知。
+        let reviewed = card.confirmingAllFields()
+        let validation = Dictionary(uniqueKeysWithValues: card.rows.map { ($0.id, invalid($0, reviewed: reviewed)) })
         List {
             Section {
                 OCRReviewOwnerRow(patientId: patientId)
@@ -71,18 +75,21 @@ struct EntityCardConfirmView: View {
                 }.buttonStyle(.borderless)
             } footer: { Text(L10n.docConfirmHint) }
 
+            EncounterAssociationSection(card: $card, patientId: patientId, readOnly: saving || sharedCommitted)
+
             Section(L10n.entityCardSharedSection) {
                 if sharedCommitted { Text(L10n.homeCaptureSaved).font(.caption).foregroundStyle(.secondary) }
                 ForEach(card.shared.indices, id: \.self) { index in
                     FieldConfirmRow(field: fieldBinding(index: index, rowID: nil),
                         label: DocumentsState.fieldLabel(forKey: card.shared[index].key),
-                        showUnit: false, readOnly: sharedCommitted,
+                         showUnit: false, readOnly: sharedCommitted,
+                         cardLevelConfirmation: true,
                         onRevise: { revise(index: index, rowID: nil, value: $0) })
                     if card.shared[index].isConfirmed, validation.values.contains(where: { $0.contains(card.shared[index].key) }) {
                         Text(L10n.ocrReviewInvalidField).font(.caption).foregroundStyle(.red)
                     }
                 }
-                ForEach(missingShared, id: \.self) { key in missingButton(key: key, rowID: nil) }
+                ForEach(missingShared(reviewed: reviewed), id: \.self) { key in missingButton(key: key, rowID: nil) }
             }
 
             ForEach(Array(card.rows.enumerated()), id: \.element.id) { offset, row in
@@ -90,7 +97,8 @@ struct EntityCardConfirmView: View {
                     Section {
                         ForEach(row.fields.indices.filter { row.fields[$0].key != "metric_key" }, id: \.self) { index in
                             FieldConfirmRow(field: fieldBinding(index: index, rowID: row.id),
-                                label: DocumentsState.fieldLabel(forKey: row.fields[index].key), showUnit: false,
+                                 label: DocumentsState.fieldLabel(forKey: row.fields[index].key), showUnit: false,
+                                 cardLevelConfirmation: true,
                                 onRevise: { revise(index: index, rowID: row.id, value: $0) })
                             if row.fields[index].isConfirmed && validation[row.id]?.contains(row.fields[index].key) == true {
                                 Text(L10n.ocrReviewInvalidField).font(.caption).foregroundStyle(.red)
@@ -102,7 +110,7 @@ struct EntityCardConfirmView: View {
                     } header: { Text(L10n.entityCardRowIndex(offset + 1)) }
                 }
             }
-            if !missingShared.isEmpty || validation.values.contains(where: { !$0.isEmpty }) {
+            if !missingShared(reviewed: reviewed).isEmpty || validation.values.contains(where: { !$0.isEmpty }) {
                 Section { Text(L10n.docConfirmHint).font(.caption).foregroundStyle(.secondary) }
             }
             Section {
@@ -119,7 +127,12 @@ struct EntityCardConfirmView: View {
                         Label(L10n.entityCardDeferRemaining, systemImage: "tray.full").frame(minHeight: 44)
                     }
                 }
-            } footer: { Text(L10n.entityCardLaterHint) }
+            } footer: {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(L10n.entityCardConfirmAllHint)
+                    Text(L10n.entityCardLaterHint)
+                }
+            }
             .buttonStyle(.borderless)
         }
         .disabled(saving)
@@ -128,7 +141,7 @@ struct EntityCardConfirmView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
-                Button(L10n.entityCardConfirmSave) { save() }.disabled(!canSave)
+                Button(L10n.entityCardConfirmSave) { save(reviewed: reviewed) }.disabled(!canSave(reviewed: reviewed))
                     .accessibilityIdentifier("SP-12.entity.confirm")
             }
             ToolbarItemGroup(placement: .keyboard) { OCRKeyboardDismissButton() }
@@ -159,8 +172,9 @@ struct EntityCardConfirmView: View {
         }
     }
 
-    private func invalid(_ row: MatchedCardRow) -> [String] {
-        EntityCardProjection.invalidFields(in: card, row: row, calendar: Calendar(identifier: .gregorian))
+    private func invalid(_ row: MatchedCardRow, reviewed: MatchedCard) -> [String] {
+        EntityCardProjection.invalidFields(in: reviewed,
+            row: reviewed.rows.first { $0.id == row.id } ?? row, calendar: Calendar(identifier: .gregorian))
     }
 
     private func missingButton(key: String, rowID: UUID?) -> some View {
@@ -204,9 +218,11 @@ struct EntityCardConfirmView: View {
         card = current
     }
 
-    private func save() {
-        guard canSave else { return }
-        let snapshot = card
+    private func save(reviewed: MatchedCard) {
+        guard canSave(reviewed: reviewed) else { return }
+        // FR6.9 V3.66 一键确认本卡：保存即确认卡内其余非低置信字段（用户卡级显式动作），
+        // 低置信字段仍须逐项确认（FR17.4），缺必填行原样进待办/剩余卡。
+        let snapshot = card.confirmingAllFields()
         Task {
             let result: OCRCardStore.SaveResult?
             switch mode {

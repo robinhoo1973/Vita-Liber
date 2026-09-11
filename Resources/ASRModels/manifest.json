@@ -1,0 +1,57 @@
+{
+  "formatVersion": 1,
+  "models": [
+    {
+      "id":"qwen3", "license":"Apache-2.0", "revision":"0.6B-int8-2026-03-25",
+      "source":"https://github.com/QwenLM/Qwen3-ASR", "files":[],
+      "archive": {
+        "url":"https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2",
+        "bytes":878702423,
+        "sha256":"393f8a14e2f5fb96746aaab342997a40641001fbd5bf9592a080a8329178ee96",
+        "root":"sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25",
+        "parts":[
+          {"role":"frontend","member":"conv_frontend.onnx","path":"qwen3/conv_frontend.onnx"},
+          {"role":"encoder","member":"encoder.int8.onnx","path":"qwen3/encoder.int8.onnx"},
+          {"role":"decoder","member":"decoder.int8.onnx","path":"qwen3/decoder.int8.onnx"},
+          {"role":"vocab","member":"tokenizer/vocab.json","path":"qwen3/tokenizer/vocab.json"},
+          {"role":"merges","member":"tokenizer/merges.txt","path":"qwen3/tokenizer/merges.txt"},
+          {"role":"tokenizerConfig","member":"tokenizer/tokenizer_config.json","path":"qwen3/tokenizer/tokenizer_config.json"},
+          {"role":"notice","member":"README.md","path":"qwen3/README.md"}
+        ]
+      }
+    },
+    {
+      "id": "zipformer", "license": "Apache-2.0", "revision": "98590b7ed6443e77b714204da2757d75e1a642f4",
+      "source": "https://huggingface.co/pfluo/k2fsa-zipformer-chinese-english-mixed",
+      "files": [
+        {"role":"encoder","path":"zipformer/encoder-epoch-99-avg-1.int8.onnx","bytes":181895032,"sha256":"8fa764187a261844f859d7143ebaa563af5d10adfece4c18a8f414c88cba2a9b","url":"https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20/resolve/98590b7ed6443e77b714204da2757d75e1a642f4/encoder-epoch-99-avg-1.int8.onnx"},
+        {"role":"decoder","path":"zipformer/decoder-epoch-99-avg-1.onnx","bytes":13876452,"sha256":"2e3b5ec371f8899ee6acd829fd753ba45772df57a91bdf37cde3136354e7db7d","url":"https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20/resolve/98590b7ed6443e77b714204da2757d75e1a642f4/decoder-epoch-99-avg-1.onnx"},
+        {"role":"joiner","path":"zipformer/joiner-epoch-99-avg-1.int8.onnx","bytes":3228404,"sha256":"1ed689c5ed19dbaa725d9d191bb4822b5f4855a39e1ffd28cbc1f340d25b2ee0","url":"https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20/resolve/98590b7ed6443e77b714204da2757d75e1a642f4/joiner-epoch-99-avg-1.int8.onnx"},
+        {"role":"tokens","path":"zipformer/tokens.txt","bytes":56317,"sha256":"a8e0e4ec53810e433789b54a5c0134a7eaa2ffca595a6334d54c00da858841d3","url":"https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20/resolve/98590b7ed6443e77b714204da2757d75e1a642f4/tokens.txt"},
+        {"role":"bpe","path":"zipformer/bpe.vocab","bytes":12564,"sha256":"d0b642f3a2eacd5fadefdeff9e0e1358cab729647cbb7fe58cf738e1f7407029","url":"https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20/resolve/98590b7ed6443e77b714204da2757d75e1a642f4/bpe.vocab"},
+        {"role":"notice","path":"zipformer/README.md","bytes":296,"sha256":"b6f9458f4208ae821beaaf11dc983486916a4089a2f3677b40f9ff06ec4e6440","url":"https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20/resolve/98590b7ed6443e77b714204da2757d75e1a642f4/README.md"}
+      ]
+    },
+    {
+      "id":"dolphin", "license":"Apache-2.0", "revision":"c8b6689509acfcd744c04e5e169164f9ac4cae32",
+      "source":"https://github.com/DataoceanAI/Dolphin",
+      "files":[
+        {"role":"model","path":"dolphin/model.int8.onnx","bytes":249658954,"sha256":"c1afcb9265de0ebd853eb8f570b371f399a6f9b2b9af9a3cb17c2e509171e697","url":"https://huggingface.co/csukuangfj/sherpa-onnx-dolphin-small-ctc-multi-lang-int8-2025-04-02/resolve/c8b6689509acfcd744c04e5e169164f9ac4cae32/model.int8.onnx"},
+        {"role":"tokens","path":"dolphin/tokens.txt","bytes":504662,"sha256":"c3788261a51df1899ea4b210b552cd42139204de72c0ad60f6cebb199078872e","url":"https://huggingface.co/csukuangfj/sherpa-onnx-dolphin-small-ctc-multi-lang-int8-2025-04-02/resolve/c8b6689509acfcd744c04e5e169164f9ac4cae32/tokens.txt"},
+        {"role":"notice","path":"dolphin/README.md","bytes":141,"sha256":"0ed3b1f1fb25f000be670f4b3dba24989f939609b89be84e91579eec397702a9","url":"https://huggingface.co/csukuangfj/sherpa-onnx-dolphin-small-ctc-multi-lang-int8-2025-04-02/resolve/c8b6689509acfcd744c04e5e169164f9ac4cae32/README.md"}
+      ]
+    },
+    {
+      "id":"whisper", "license":"MIT", "revision":"8f3c18b358db4d1f2fc1eae49d75cd20989e4309",
+      "source":"https://github.com/openai/whisper",
+      "files":[
+        {"role":"encoder","path":"whisper/small-encoder.int8.onnx","bytes":112442483,"sha256":"4cbe7b22fa9026b843b60a68640c747de05bafb1a11b57edc0e66c232d9f33a9","url":"https://huggingface.co/csukuangfj/sherpa-onnx-whisper-small/resolve/8f3c18b358db4d1f2fc1eae49d75cd20989e4309/small-encoder.int8.onnx"},
+        {"role":"decoder","path":"whisper/small-decoder.int8.onnx","bytes":262226114,"sha256":"acad50b5c782696e91b55914cc5ab4f756f1532f76e22aa6fc615f39fb69a8ee","url":"https://huggingface.co/csukuangfj/sherpa-onnx-whisper-small/resolve/8f3c18b358db4d1f2fc1eae49d75cd20989e4309/small-decoder.int8.onnx"},
+        {"role":"tokens","path":"whisper/small-tokens.txt","bytes":816730,"sha256":"b34b360dbb493e781e479794586d661700670d65564001f23024971d1f2fa126","url":"https://huggingface.co/csukuangfj/sherpa-onnx-whisper-small/resolve/8f3c18b358db4d1f2fc1eae49d75cd20989e4309/small-tokens.txt"}
+      ]
+    }
+  ],
+  "shared":[
+    {"role":"vad","path":"silero/silero_vad.onnx","bytes":2327524,"sha256":"2623a2953f6ff3d2c1e61740c6cdb7168133479b267dfef114a4a3cc5bdd788f","url":"https://raw.githubusercontent.com/snakers4/silero-vad/6478567951ae5c9979ad7b234185b5515f4be7a1/src/silero_vad/data/silero_vad.onnx"}
+  ]
+}

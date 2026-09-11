@@ -10,7 +10,7 @@ import HealthKit
 
 /// One coordinator for foreground, manual and background import. Actor reentrancy is explicitly coalesced.
 public actor HealthKitSyncService {
-    public struct SyncReport: Sendable, Equatable {
+    public struct SyncReport: Sendable, Equatable, Codable {
         public var elevated: Int = 0 // Scheduled, not delivered.
         public var noRangeCount: Int = 0
         public var persistedRows: Int = 0 // Includes updates and removals.
@@ -24,6 +24,8 @@ public actor HealthKitSyncService {
         public var hasMore = false
         public var notificationFailures = 0
         public var lastSyncAt: Date
+        public var bindingId: UUID? = nil
+        public var patientId: UUID? = nil
     }
 
     private let provider: any HealthReadingProvider
@@ -32,6 +34,7 @@ public actor HealthKitSyncService {
     private let scheduler: any ReminderScheduling
     private static let windowsPerRound = 32
     private var inFlight: Task<SyncReport, Error>?
+    private var inFlightID: UUID?
     public private(set) var latestReport: SyncReport?
 
     public init(provider: any HealthReadingProvider, imports: HealthImportStore,
@@ -53,6 +56,15 @@ public actor HealthKitSyncService {
     }
 
     public func connection() async throws -> HealthImportStore.Binding? { try await imports.connection() }
+    public func dashboard() async throws -> HealthImportStore.Dashboard { try await imports.dashboard() }
+    public func importedRows(kind: HealthDataKind, before: HealthImportStore.ImportedRow? = nil) async throws -> [HealthImportStore.ImportedRow] {
+        try await imports.importedRows(kind: kind, before: before)
+    }
+    public func isAvailable() async -> Bool { await provider.isAvailable() }
+    public func canAutomaticallySync() async throws -> Bool {
+        guard try await imports.automaticImportEnabled() else { return false }
+        return try await canSync()
+    }
 
     public func canSync() async throws -> Bool {
         guard await provider.isAvailable(), try await imports.isEnabled() else { return false }
@@ -68,9 +80,10 @@ public actor HealthKitSyncService {
             try Task.checkCancellation()
             return report
         }
-        let task = Task { try await self.run(quietStart: quietStart, quietEnd: quietEnd) }
+        let id = UUID()
+        inFlightID = id
+        let task = Task { try await self.runAndRecord(id: id, quietStart: quietStart, quietEnd: quietEnd) }
         inFlight = task
-        defer { inFlight = nil }
         // Only the creator owns cancellation of shared work. Registration also closes the startup race.
         let report = try await withTaskCancellationHandler {
             try Task.checkCancellation()
@@ -80,6 +93,15 @@ public actor HealthKitSyncService {
         } onCancel: {
             task.cancel()
         }
+        return report
+    }
+
+    /// 合并调用者共享整个轮次，含状态落盘；完成后才释放flight，避免反复加入已完成任务。
+    private func runAndRecord(id: UUID, quietStart: String, quietEnd: String) async throws -> SyncReport {
+        defer { if inFlightID == id { inFlight = nil; inFlightID = nil } }
+        let report = try await run(quietStart: quietStart, quietEnd: quietEnd)
+        try Task.checkCancellation()
+        try await imports.saveReport(report)
         latestReport = report
         return report
     }
@@ -89,7 +111,7 @@ public actor HealthKitSyncService {
         guard try await canSync(), let binding = try await imports.connection() else {
             throw HealthImportStore.ImportError.missingOwner
         }
-        var report = SyncReport(lastSyncAt: Date())
+        var report = SyncReport(lastSyncAt: Date(), bindingId: binding.id, patientId: binding.patientId)
         // Fetch one page per type/round. Drained work resumes by window without losing the old checkpoint.
         for kind in HealthDataKind.allCases {
             var hasPending = false
@@ -106,7 +128,7 @@ public actor HealthKitSyncService {
                 report.receivedChanges += page.added.count + page.deleted.count
                 let pending = try await imports.stage(binding: binding, kind: kind, previousAnchor: previous, page: page)
                 hasPending = true
-                if !pending.batch.hasMore {
+                do {
                     var remaining = try await imports.affectedWindows(binding: binding, kind: kind, batch: pending.batch)
                         .filter { !pending.completedWindows.contains($0) }
                     if let after = pending.reconcileAfter {
@@ -141,6 +163,14 @@ public actor HealthKitSyncService {
                 report.failedTypes.append(kind) // Its staged work and old checkpoint survive; other types can progress.
             }
             report.hasMore = report.hasMore || hasPending
+            // 审查修复（共享轮次取消不丢进度）：每类页处理完即落盘报告——
+            // 创建方被取消（视图拆除 / permissionRevoked → cancelSync）时共享
+            // 轮次随之中止，旧实现只在全部完成后经 runAndRecord 落盘，取消
+            // 路径跳过 saveReport，已提交行数/最后同步时间永不更新（仪表盘
+            // 滞后、失败提示却照常——两处状态分裂）。逐类落盘为有界小写
+            // （hk_import_status 单行 upsert），最终保存保持幂等。
+            do { try await imports.saveReport(report); latestReport = report }
+            catch { /* 落盘失败不阻断本轮其余类型；runAndRecord 终态仍会重试 */ }
         }
 
         // Retry pending qualified events even when there are no new HealthKit samples.
@@ -177,7 +207,7 @@ public actor HealthKitSyncService {
     public func startBackgroundObservation() async {
         guard let reader = provider as? HealthKitReader else { return }
         do {
-            let enabled = try await canSync()
+            let enabled = try await canAutomaticallySync()
             backgroundRegistrationFailed = !(await reader.observeChanges(handler: {
                 (await Self.backgroundSyncHandler?()) ?? false
             }, enableDelivery: enabled))

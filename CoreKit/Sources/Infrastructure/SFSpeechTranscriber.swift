@@ -20,7 +20,7 @@ struct SpeechAudioChunk<Audio: Sendable>: Sendable {
     let byteCount: Int
 }
 
-enum SpeechRecognitionFailure: Sendable, Equatable { case noSpeech, unauthorized, unavailable }
+enum SpeechRecognitionFailure: Sendable, Equatable { case noSpeech, unauthorized, unavailable, bufferOverflow }
 
 struct SpeechRecognitionEvent: Sendable {
     var text: String? = nil
@@ -43,7 +43,10 @@ protocol SpeechSessionDriver: AnyObject, Sendable {
     func append(_ audio: Audio, to id: UUID)
     func endAudio(id: UUID)
     func cancelRecognition(id: UUID)
+    func endSession()
 }
+
+extension SpeechSessionDriver { func endSession() {} }
 
 private final class SpeechStopSignal: @unchecked Sendable {
     enum Intent: Sendable, Equatable { case running, finish, cancel }
@@ -124,7 +127,8 @@ final class SpeechSessionCoordinator<Driver: SpeechSessionDriver>: @unchecked Se
     }
 
     func transcribe(_ request: TranscriptionRequest,
-                    onPartial: (@Sendable (String) -> Void)?) async throws -> TranscriptionResult {
+                    onPartial: (@Sendable (String) -> Void)?,
+                    onCaptureStarted: (@Sendable () -> Void)? = nil) async throws -> TranscriptionResult {
         let signal = signal(for: request.sessionID)
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -150,7 +154,7 @@ final class SpeechSessionCoordinator<Driver: SpeechSessionDriver>: @unchecked Se
                     let session = ContinuousRecognition(
                         driver: self.makeDriver(request), queue: self.queue,
                         queueKey: self.queueKey, queueID: self.queueID, limits: self.limits,
-                        signal: signal, onPartial: onPartial, continuation: continuation,
+                        signal: signal, onPartial: onPartial, onCaptureStarted: onCaptureStarted, continuation: continuation,
                         onCaptureStopped: { [weak self] in
                             if self?.captureOwner == id { self?.captureOwner = nil }
                         }, onSettled: { [weak self] in
@@ -247,6 +251,7 @@ private final class ContinuousRecognition<Driver: SpeechSessionDriver>: @uncheck
     private let signal: SpeechStopSignal
     private let mailbox: SpeechAudioMailbox<Driver.Audio>
     private let onPartial: (@Sendable (String) -> Void)?
+    private let onCaptureStarted: (@Sendable () -> Void)?
     private let onCaptureStopped: () -> Void
     private let onSettled: () -> Void
     private var continuation: CheckedContinuation<TranscriptionResult, Error>?
@@ -269,7 +274,8 @@ private final class ContinuousRecognition<Driver: SpeechSessionDriver>: @uncheck
 
     init(driver: Driver, queue: DispatchQueue, queueKey: DispatchSpecificKey<UUID>, queueID: UUID,
          limits: SpeechSessionLimits, signal: SpeechStopSignal,
-         onPartial: (@Sendable (String) -> Void)?,
+          onPartial: (@Sendable (String) -> Void)?,
+          onCaptureStarted: (@Sendable () -> Void)?,
          continuation: CheckedContinuation<TranscriptionResult, Error>,
          onCaptureStopped: @escaping () -> Void, onSettled: @escaping () -> Void) {
         self.driver = driver
@@ -280,6 +286,7 @@ private final class ContinuousRecognition<Driver: SpeechSessionDriver>: @uncheck
         self.signal = signal
         self.mailbox = SpeechAudioMailbox(limits: limits)
         self.onPartial = onPartial
+        self.onCaptureStarted = onCaptureStarted
         self.continuation = continuation
         self.onCaptureStopped = onCaptureStopped
         self.onSettled = onSettled
@@ -320,6 +327,7 @@ private final class ContinuousRecognition<Driver: SpeechSessionDriver>: @uncheck
                     }, isStopped: { signal.intent != .running })
                     if signal.intent == .cancel { session.cancel() }
                     else if signal.intent == .finish { session.finish() }
+                    else { session.onCaptureStarted?() }
                 } catch is CancellationError {
                     if signal.intent == .finish { session.finish() } else { session.cancel() }
                 } catch {
@@ -458,6 +466,9 @@ private final class ContinuousRecognition<Driver: SpeechSessionDriver>: @uncheck
             case .unauthorized, .unavailable:
                 completion = .interrupted
                 settle(error: failure == .unauthorized ? TranscriptionError.unauthorized : .engineUnavailable)
+            case .bufferOverflow:
+                completion = .bufferOverflow
+                settle(error: TranscriptionError.audioBufferOverflow)
             }
         } else if event.isFinal {
             let emptyFinal = event.text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
@@ -527,6 +538,7 @@ private final class ContinuousRecognition<Driver: SpeechSessionDriver>: @uncheck
         drainTimer = nil
         restartTimer = nil
         if let current { driver.cancelRecognition(id: current) }
+        driver.endSession()
         current = nil
         handoff.removeAll()
         let segments = accumulator.finish()
@@ -555,7 +567,7 @@ import AVFoundation
 import Speech
 
 /// ADR-023 baseline: on-device recognition, one capture owner, no permanent audio files.
-public actor SFSpeechTranscriber: TranscriptionEngine {
+public actor SFSpeechTranscriber: TranscriptionCaptureReporting {
     public nonisolated let capability: TranscriptionCapability
     private nonisolated let coordinator: SpeechSessionCoordinator<NativeSpeechSessionDriver>
 
@@ -582,8 +594,15 @@ public actor SFSpeechTranscriber: TranscriptionEngine {
     public nonisolated func currentCapability() async -> TranscriptionCapability { Self.probeCapability() }
 
     public nonisolated func transcribe(_ request: TranscriptionRequest,
-                                       onPartial: (@Sendable (String) -> Void)?) async throws -> TranscriptionResult {
+                                        onPartial: (@Sendable (String) -> Void)?) async throws -> TranscriptionResult {
         try await coordinator.transcribe(request, onPartial: onPartial)
+    }
+
+    public nonisolated func transcribe(_ request: TranscriptionRequest, onPartial: (@Sendable (String) -> Void)?,
+                                       onCaptureStarted: @escaping @Sendable () -> Void) async throws -> TranscriptionResult {
+        var result = try await coordinator.transcribe(request, onPartial: onPartial, onCaptureStarted: onCaptureStarted)
+        result.engineID = VoiceEngineChoice.classic.rawValue
+        return result
     }
 
     public nonisolated func finish(sessionID: UUID) async { await coordinator.finish(sessionID: sessionID) }

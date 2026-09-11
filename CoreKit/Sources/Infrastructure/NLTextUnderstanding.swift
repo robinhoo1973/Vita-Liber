@@ -146,9 +146,9 @@ public actor FallbackTextUnderstanding: TextUnderstanding {
 
     public func understand(_ input: TextUnderstandingInput) async -> UnderstandingResult {
         for track in tracks {
+            guard !Task.isCancelled, await track.isAvailable(for: input) else { continue }
             let result = await track.understand(input)
-            // 空产出（无判定且零字段）视为该轨不可用，继续降级
-            if result.suggestedTarget != nil || !result.fields.isEmpty {
+            if !result.engineUnavailable {
                 return result
             }
         }

@@ -28,6 +28,27 @@ public protocol TranscriptionEngine: Sendable {
     func discardSession(sessionID: UUID) async
     /// Legacy unscoped stop. New callers must use finish(sessionID:).
     func endAudio() async
+
+    /// FR17.15 V3.66：某 locale 的端侧资源状态（平台升级轨按需下载；零资产轨恒 `.installed`）。
+    /// 模型实验室据此呈现「可下载/已安装」，生产路径绝不自动联网下载（离线优先）。
+    func localeAssetStatus(_ localeIdentifier: String) async -> VoiceLocaleAssetStatus
+    /// 触发该 locale 的资源下载与安装；返回安装后是否已可用。
+    /// 默认实现 = false（零资产轨无需安装，保持既有引擎与契约桩零改动）。
+    func prepareLocale(_ localeIdentifier: String) async -> Bool
+}
+
+/// 可报告真实硬件启动时点的引擎。UI在加载/授权期间提示准备中，而非宣称正在采集。
+public protocol TranscriptionCaptureReporting: TranscriptionEngine {
+    func transcribe(_ request: TranscriptionRequest, onPartial: (@Sendable (String) -> Void)?,
+                    onCaptureStarted: @escaping @Sendable () -> Void) async throws -> TranscriptionResult
+}
+
+public struct UnavailableTranscriptionEngine: TranscriptionEngine {
+    public init() {}
+    public var capability: TranscriptionCapability { .baseline(locales: []) }
+    public func transcribe(_ request: TranscriptionRequest, onPartial: (@Sendable (String) -> Void)?) async throws -> TranscriptionResult {
+        throw TranscriptionError.engineUnavailable
+    }
 }
 
 extension TranscriptionEngine {
@@ -37,6 +58,11 @@ extension TranscriptionEngine {
     public func cancel(sessionID: UUID) async { await finish(sessionID: sessionID) }
     public func discardSession(sessionID: UUID) async {}
     public func endAudio() async {}
+    /// 默认按能力表派生：能力表含该 locale = 已就绪；否则不可用（零资产轨无「可下载」态）。
+    public func localeAssetStatus(_ localeIdentifier: String) async -> VoiceLocaleAssetStatus {
+        capability.locale(matching: localeIdentifier) == nil ? .unavailable : .installed
+    }
+    public func prepareLocale(_ localeIdentifier: String) async -> Bool { false }
 }
 
 /// 测试与 Preview 用桩：两轨可用性各构造一份，验证「同一协议下行为一致」

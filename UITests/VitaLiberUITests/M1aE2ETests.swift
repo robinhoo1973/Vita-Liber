@@ -18,7 +18,7 @@ final class M1aE2ETests: XCTestCase {
         return app
     }
 
-    func test_SU_M1a_E2E_端到端切片故事_三卡建档家人完成进首页() throws {
+    private func launchAtFamilyStep() -> XCUIApplication {
         let app = launchFresh()
 
         // L1 首启三卡
@@ -34,6 +34,12 @@ final class M1aE2ETests: XCTestCase {
         nameField.tap()
         nameField.typeText("王女士")
         app.buttons["SP-06.owner.create"].tap()
+        XCTAssertTrue(app.buttons["FR21.9.step4.skip"].waitForExistence(timeout: 5))
+        return app
+    }
+
+    func test_SU_M1a_E2E_端到端切片故事_三卡建档家人完成进首页() throws {
+        let app = launchAtFamilyStep()
 
         // FR21.9 ④ 添加家人（可跳过）：V3.39 起为向导最后一步——跳过即完成向导
         let skipFamily = app.buttons["FR21.9.step4.skip"]
@@ -45,12 +51,77 @@ final class M1aE2ETests: XCTestCase {
         XCTAssertTrue(guide.waitForExistence(timeout: 8),
                       "完成向导后必须呈现首页空态引导卡（首日引导改由首页承载）")
 
+        // FR2.1b/SP-04 回归：注册后的可选档案进度可见，不能吞掉首日引导。
+        let progress = app.buttons["SP-04.home.profileProgress"]
+        XCTAssertTrue(progress.waitForExistence(timeout: 5), "资料未完善时必须有可操作的进度入口")
+        let memberSwitch = app.buttons["SP-04.home.memberSwitch"]
+        XCTAssertTrue(memberSwitch.waitForExistence(timeout: 5))
+        // 以实际成员按钮为锚点，覆盖空 large-title 区；不硬编码状态栏/刘海高度。
+        XCTAssertLessThanOrEqual(progress.frame.minY - memberSwitch.frame.maxY, 48,
+                                 "工具栏与首个内容间不应保留空白大标题或空进度容器")
+
         // 回归护栏：向导内绝不再出现强制拍摄步（M1a 切片残留）——
         // 置于首页断言之后用零成本 exists 判定：若拍摄步被错误加回向导，
         // 流程将停在拍摄页、上面 guide 断言先红（本断言提供更直接的失败定位）
         let legacyScan = app.buttons["SP-07.scan.capture"]
         XCTAssertFalse(legacyScan.exists,
                        "V3.39：首启向导不再含拍摄/OCR 步骤")
+    }
+
+    // binds: SU-M1c-REGRESSION — TC-M1c-08 / SP-04
+    func test_无当前档案时不显示进度或保留顶部空块() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-uitest-reset", "-uitest-seed-finished", "-uitest-gate-bypass"]
+        app.launch()
+        let guide = app.descendants(matching: .any)["SP-04.home.emptyGuide"].firstMatch
+        XCTAssertTrue(guide.waitForExistence(timeout: 8))
+        XCTAssertFalse(app.buttons["SP-04.home.profileProgress"].exists,
+                       "当前档案不存在时不应显示伪造的 0/8 进度")
+        let memberSwitch = app.buttons["SP-04.home.memberSwitch"]
+        XCTAssertTrue(memberSwitch.waitForExistence(timeout: 5))
+        XCTAssertLessThanOrEqual(guide.frame.minY - memberSwitch.frame.maxY, 48,
+                                 "进度不显示时，首日引导必须向上收拢")
+    }
+
+    // binds: SU-M1c-REGRESSION — TC-M1c-08 / BR-001
+    func test_换成员后再次进入同一访谈路由会重置旧步骤() throws {
+        let app = launchAtFamilyStep()
+        app.buttons["FR21.9.step4.manual"].tap()
+        let name = app.textFields["FR3.7.create.name"]
+        XCTAssertTrue(name.waitForExistence(timeout: 5))
+        name.tap()
+        name.typeText("小王")
+        app.buttons["FR3.7.create.save"].tap()
+        let addedAlert = app.alerts.firstMatch
+        XCTAssertTrue(addedAlert.waitForExistence(timeout: 5))
+        addedAlert.buttons.element(boundBy: 0).tap()
+        app.buttons["FR21.9.step4.skip"].tap()
+
+        let progress = app.buttons["SP-04.home.profileProgress"]
+        XCTAssertTrue(progress.waitForExistence(timeout: 8))
+        progress.tap()
+        let touch = app.buttons["FR17.12.useTouch"]
+        XCTAssertTrue(touch.waitForExistence(timeout: 5))
+        touch.tap()
+        let skipStep = app.buttons["FR17.11.skip"]
+        XCTAssertTrue(skipStep.waitForExistence(timeout: 5))
+        skipStep.tap() // A 停在第二问；不启动录音、不依赖输入键盘的收起行为。
+
+        // 仅切 Tab，故意保留 Me 栈顶 .voiceGuideProfile，复现路由去重场景。
+        app.tabBars.buttons["首页"].tap()
+        let switchMember = app.buttons["SP-04.home.memberSwitch"]
+        XCTAssertTrue(switchMember.waitForExistence(timeout: 5))
+        switchMember.tap()
+        let child = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@",
+                                                     "SP-05.member.", "小王")).firstMatch
+        XCTAssertTrue(child.waitForExistence(timeout: 5))
+        child.tap()
+        XCTAssertTrue(progress.waitForExistence(timeout: 5))
+        progress.tap()
+
+        // 须知已经接受，B 应从自检/触屏入口重新开始，不能继续 A 的第二问。
+        XCTAssertTrue(app.buttons["voice.mic.pass"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.descendants(matching: .any)["FR17.11.answer"].firstMatch.exists)
     }
 
     /// FR1.4：冷启动/退后台回前台必见锁屏；系统认证成功（桩注入）后回到主界面。

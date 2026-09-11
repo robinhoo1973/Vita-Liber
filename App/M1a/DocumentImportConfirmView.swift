@@ -3,7 +3,7 @@ import UIKit
 import Domain
 import Infrastructure
 
-/// Document metadata and page fields remain drafts until the user explicitly checks them.
+/// 原件/类型审核与实体字段审核分离；字段只在对应信息卡中确认。
 struct DocumentImportConfirmView: View {
     @Environment(DocumentsState.self) private var docs
     @Binding var draft: DocumentsState.ImportDraft
@@ -46,6 +46,19 @@ struct DocumentImportConfirmView: View {
             }
             .disabled(!editable)
 
+            Section(L10n.ocrCardsOverview) {
+                let cards = draft.entityCards
+                if cards.isEmpty { Text(L10n.ocrNoMatchedCards).foregroundStyle(.secondary) }
+                ForEach(cards) { card in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(L10n.entityCardKindName(card.kind)).font(.headline)
+                        Text(L10n.entityCardHeaderPage(card.pageIndex + 1, draft.pages.count)).font(.caption)
+                        Text(L10n.ocrCardFieldCount(card.allFields.count)).font(.caption).foregroundStyle(.secondary)
+                    }.padding(.vertical, 6)
+                }
+                Text(L10n.ocrCardReviewHint).font(.caption).foregroundStyle(.secondary)
+            }
+
             ForEach(draft.pages.indices, id: \.self) { pageIndex in
                 Section {
                     Button { sourcePage = draft.pages[pageIndex].index } label: {
@@ -59,10 +72,13 @@ struct DocumentImportConfirmView: View {
                     } else if draft.pages[pageIndex].fields.isEmpty {
                         Text(L10n.imageInputNoText).foregroundStyle(.secondary)
                     }
-                    ForEach(draft.pages[pageIndex].fields.indices, id: \.self) { index in
-                        FieldConfirmRow(field: $draft.pages[pageIndex].fields[index],
-                                        label: DocumentsState.fieldLabel(forKey: draft.pages[pageIndex].fields[index].key))
-                            .disabled(!editable)
+                    if !draft.pages[pageIndex].lines.isEmpty {
+                        DisclosureGroup(L10n.pendingCardRawText) {
+                            Text(draft.pages[pageIndex].text).font(.callout).textSelection(.enabled)
+                        }
+                        Text(draft.pages[pageIndex].fields.contains { $0.source == .foundationModels }
+                             ? L10n.ocrExtractionModel : L10n.ocrExtractionRules)
+                            .font(.caption).foregroundStyle(.secondary)
                     }
                 } header: {
                     Text(L10n.entityCardHeaderPage(draft.pages[pageIndex].index + 1, draft.pages.count))
@@ -95,7 +111,7 @@ struct DocumentImportConfirmView: View {
                     .accessibilityIdentifier("SP-11.docConfirm.cancel")
             }
             ToolbarItem(placement: .confirmationAction) {
-                Button(L10n.commonSave) {
+                Button(L10n.ocrBeginCardReview) {
                     let snapshot = draft
                     Task { _ = await docs.commitDraft(snapshot) }
                 }
@@ -128,6 +144,7 @@ struct FieldConfirmRow: View {
     let label: String
     var showUnit = true
     var readOnly = false
+    var cardLevelConfirmation = false
     var onRevise: ((String) -> Void)?
     @FocusState private var focused: Bool
 
@@ -173,9 +190,13 @@ struct FieldConfirmRow: View {
                     if field.grade == .rejected {
                         Button(L10n.docConfirmReenable) { field.reenable() }
                     } else {
-                        Button(L10n.commonConfirm) { _ = field.confirm(); focused = false }
-                            .disabled(field.isConfirmed || field.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            .accessibilityIdentifier("OCR.field.confirm.\(field.key)")
+                        if !cardLevelConfirmation || tier == .low {
+                            Button(L10n.commonConfirm) { _ = field.confirm(); focused = false }
+                                .disabled(field.isConfirmed || field.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                                .accessibilityIdentifier("OCR.field.confirm.\(field.key)")
+                        }
+                        // 审查修复：单条目 Menu 只徒增一次点按——卡级模式下
+                        // 「拒绝」以纯按钮直出（行为与页面级完全一致）。
                         Button(L10n.docConfirmReject, role: .destructive) { field.reject() }
                     }
                 }
@@ -184,6 +205,17 @@ struct FieldConfirmRow: View {
             }
         }
         .padding(.vertical, 4)
+        .padding(.leading, cardLevelConfirmation ? 10 : 0)
+        .overlay(alignment: .leading) {
+            if cardLevelConfirmation {
+                // 审查修复：token-only 纪律——已确认走 C 级绿、低置信走语义红、
+                // 中置信走语义橙（旧实现内联系统调色板，深色/关怀模式无主题化）。
+                Rectangle().fill(field.isConfirmed ? Color("grade-c", bundle: .main)
+                    : tier == .low ? Color("semantic-danger", bundle: .main)
+                    : Color("semantic-warning", bundle: .main))
+                    .frame(width: 3)
+            }
+        }
     }
 }
 
@@ -233,14 +265,16 @@ private struct ImportReviewSessionView: View {
                     }
                 } else if !session.documentReviewFinished, let draft = session.draft {
                     DocumentImportConfirmView(draft: Binding(get: { session.draft ?? draft }, set: { session.draft = $0 }), session: session)
-                } else if let card = session.cards.first, let source = session.source {
-                    EntityCardConfirmView(card: Binding(get: { session.cards.first { $0.id == card.id } ?? card }, set: { edited in
-                        guard edited.id == card.id else { return }
-                        _ = docs.updateEntityCard(edited)
-                    }),
-                        mode: .queue(session), patientId: source.patientId, documentId: source.documentId,
-                        pageCount: source.pages.count, position: docs.entityQueuePosition)
-                        .id(card.id)
+                } else if let card = docs.currentEntityCard, let source = session.source {
+                    VStack(spacing: 0) {
+                        OCRCardBrowserNavigation(session: session)
+                        EntityCardConfirmView(card: Binding(get: { session.cards.first { $0.id == card.id } ?? card }, set: { edited in
+                            guard edited.id == card.id else { return }
+                            _ = docs.updateEntityCard(edited)
+                        }), mode: .queue(session), patientId: source.patientId, documentId: source.documentId,
+                            pageCount: source.pages.count, position: docs.entityQueuePosition)
+                            .id(card.id)
+                    }
                 } else if session.errorMessage != nil {
                     ContentUnavailableView(L10n.docImportFailed, systemImage: "exclamationmark.triangle")
                 } else { ProgressView() }
@@ -292,6 +326,50 @@ private struct ImportReviewSessionView: View {
             if !saved { session.errorMessage = L10n.docImportFailed }
             session.isSaving = false
         }
+    }
+}
+
+private struct OCRCardBrowserNavigation: View {
+    @Bindable var session: DocumentsState.ImportSession
+    @Environment(DocumentsState.self) private var docs
+    private var index: Int { session.cards.firstIndex { $0.id == docs.currentEntityCard?.id } ?? 0 }
+    var body: some View {
+        VStack(spacing: 6) {
+            ScrollView(.horizontal) {
+                HStack(spacing: 8) {
+                    ForEach(session.cards) { card in
+                        Button {
+                            docs.selectEntityCard(card.id)
+                        } label: {
+                            VStack(spacing: 2) {
+                                Text(L10n.entityCardKindName(card.kind))
+                                Text(L10n.entityCardHeaderPage(card.pageIndex + 1, session.source?.pages.count ?? 1)).font(.caption2)
+                            }
+                            .padding(8).frame(minHeight: 44)
+                            .background(RoundedRectangle(cornerRadius: 10).fill(card.id == docs.currentEntityCard?.id
+                                ? Color("brand-primary", bundle: .main).opacity(0.16) : Color(.secondarySystemGroupedBackground)))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("SP-12.card.select.\(card.id.uuidString)")
+                    }
+                }.padding(.horizontal)
+            }
+            HStack {
+                // 审查修复：上/下一张按钮自身无 44pt 命中区（父 HStack 的
+                // minHeight 不扩大子按钮热区）——逐按钮补 44pt + contentShape。
+                Button(L10n.ocrPreviousCard) { docs.selectEntityCard(session.cards[index - 1].id) }
+                    .disabled(index == 0)
+                    .frame(minHeight: 44).contentShape(Rectangle())
+                Spacer()
+                Text(L10n.ocrCardsRemaining(session.cards.count)).font(.caption)
+                Spacer()
+                Button(L10n.ocrNextCard) { docs.selectEntityCard(session.cards[index + 1].id) }
+                    .disabled(index + 1 >= session.cards.count)
+                    .frame(minHeight: 44).contentShape(Rectangle())
+            }.padding(.horizontal).frame(minHeight: 44)
+        }
+        .disabled(session.isSaving || session.isBulkDeferring)
+        .background(.thinMaterial)
     }
 }
 

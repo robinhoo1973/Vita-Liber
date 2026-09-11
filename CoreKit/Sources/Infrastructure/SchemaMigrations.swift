@@ -408,6 +408,33 @@ public enum SchemaMigrations {
              CREATE INDEX IF NOT EXISTS idx_ocr_card_commit_source ON ocr_card_commit(document_file_id, page_index, card_kind);
              CREATE INDEX IF NOT EXISTS idx_ocr_card_commit_entity ON ocr_card_commit(card_kind, entity_id, patient_id);
              """),
+        // v23：扩大页卡事实种类并保留显式就诊关系。GRDBStore以单事务执行本步。
+        Step(version: 23, name: "ocr-card-associations",
+             sql: """
+             ALTER TABLE ocr_card_commit RENAME TO ocr_card_commit_v22;
+             CREATE TABLE ocr_card_commit (
+               card_id TEXT NOT NULL, row_id TEXT NOT NULL,
+               patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+               document_file_id TEXT NOT NULL REFERENCES document_file(id),
+               page_index INTEGER NOT NULL CHECK(page_index >= 0),
+               card_kind TEXT NOT NULL CHECK(card_kind IN ('metric_sample','encounter','prescription','claim_item','medication','immunization')),
+               entity_id TEXT NOT NULL, encounter_id TEXT REFERENCES encounter(id),
+               created_at REAL NOT NULL,
+               PRIMARY KEY(card_id, row_id),
+               FOREIGN KEY(document_file_id, page_index) REFERENCES document_page(document_file_id, page_index));
+             INSERT INTO ocr_card_commit (card_id, row_id, patient_id, document_file_id, page_index, card_kind, entity_id, created_at)
+               SELECT card_id, row_id, patient_id, document_file_id, page_index, card_kind, entity_id, created_at FROM ocr_card_commit_v22;
+             DROP TABLE ocr_card_commit_v22;
+             CREATE INDEX idx_ocr_card_commit_source ON ocr_card_commit(document_file_id, page_index, card_kind);
+             CREATE INDEX idx_ocr_card_commit_entity ON ocr_card_commit(card_kind, entity_id, patient_id);
+             CREATE INDEX idx_ocr_card_commit_encounter ON ocr_card_commit(encounter_id, patient_id);
+             """),
+        Step(version: 24, name: "health-import-status",
+             sql: """
+             CREATE TABLE IF NOT EXISTS hk_import_status (
+               binding_id TEXT PRIMARY KEY REFERENCES hk_import_binding(id) ON DELETE CASCADE,
+               report_json TEXT NOT NULL, updated_at REAL NOT NULL);
+             """),
     ]
 
     /// 全新库建库后应落到的版本号

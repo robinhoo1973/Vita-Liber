@@ -305,7 +305,8 @@ struct StandardizationTests {
         // V3.99：账本推进至 v21（ocr-page-cards，FR6.9 页级多卡：document_page +
         // pending_card.source_page）——v20 health-import-checkpoints；v19 pending-card；
         // v18 health-device-source-and-anchor；v17 保持预约
-        #expect(SchemaMigrations.latestVersion == 22)
+        #expect(Array(SchemaMigrations.pending(from: 22).prefix(2).map(\.version)) == [23, 24])
+        #expect(SchemaMigrations.pending(from: SchemaMigrations.latestVersion).isEmpty)
         let v22 = SchemaMigrations.steps.first { $0.version == 22 }
         #expect(v22?.name == "review-integrity-checkpoints")
         for table in ["hk_pending_batch", "hk_projection_state", "ocr_card_commit"] {

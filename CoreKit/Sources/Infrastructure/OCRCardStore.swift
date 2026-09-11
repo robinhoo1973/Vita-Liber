@@ -5,9 +5,9 @@ import Domain
 
 /// FR6.9 / BR-001 / BR-003: the only atomic OCR card confirmation boundary.
 public actor OCRCardStore {
-    public static let supportedKinds: Set<String> = ["metric_sample", "encounter", "prescription"]
+    public static let supportedKinds: Set<String> = ["metric_sample", "encounter", "prescription", "claim_item", "medication", "immunization"]
     static let auditEngine = "ocr-card-v22"
-    private let writer: any DatabaseWriter
+    let writer: any DatabaseWriter
 
     public init(writer: any DatabaseWriter) { self.writer = writer }
 
@@ -22,6 +22,7 @@ public actor OCRCardStore {
     public enum StoreError: Error, Sendable {
         case invalidCard, pendingNotFound, pendingIdentityMismatch, pendingNotActive
         case committedDataChanged, corruptReceipt
+        case invalidAssociation
     }
 
     public struct ReviewState: Sendable {
@@ -86,6 +87,8 @@ public actor OCRCardStore {
         public var shared: [FieldDraft]
         public var fields: [FieldDraft]
         public var recordedAt: Date
+        /// 当前关系投影随备份携带；机器识别原文仍在shared/fields，不因改挂而改变。
+        public var encounterId: UUID? = nil
     }
 
     public func sourceRefs(entityId: UUID, patientId: UUID, cardKind: String) async throws -> [String] {
@@ -199,6 +202,7 @@ public actor OCRCardStore {
             var projectionCard = snapshot
             projectionCard.rows = accepted
             var entities: [UUID: UUID] = [:]
+            var associatedEncounter = accepted.isEmpty ? nil : try Self.validateAssociation(snapshot, patientId: patientId, db: db)
             switch card.kind {
             case "metric_sample":
                 let projection = EntityCardProjection.hospitalSamples(from: projectionCard, calendar: Calendar(identifier: .gregorian))
@@ -215,38 +219,41 @@ public actor OCRCardStore {
                 if let row = accepted.first {
                     guard let encounter = EntityCardProjection.encounterDraft(from: projectionCard, patientId: patientId,
                                                                               calendar: Calendar(identifier: .gregorian)) else { throw StoreError.invalidCard }
-                    try db.execute(sql: """
+                    if let existing = associatedEncounter {
+                        // 多份原件为同一次就诊补空字段；冲突值保留在独立来源卡中，不覆盖已有诊断。
+                        try db.execute(sql: """
+                            UPDATE encounter SET hospital = COALESCE(NULLIF(hospital, ''), ?),
+                              department = COALESCE(NULLIF(department, ''), ?), doctor = COALESCE(NULLIF(doctor, ''), ?),
+                              chief_complaint = COALESCE(NULLIF(chief_complaint, ''), ?),
+                              diagnosis_text = COALESCE(NULLIF(diagnosis_text, ''), ?), advice_text = COALESCE(NULLIF(advice_text, ''), ?), updated_at = ?
+                            WHERE id = ? AND patient_id = ? AND deleted_at IS NULL
+                            """, arguments: [encounter.hospital, encounter.department, encounter.doctor,
+                                encounter.chiefComplaint, encounter.diagnosisText, encounter.adviceText,
+                                now.timeIntervalSince1970, existing.uuidString, patientId.uuidString])
+                        guard db.changesCount == 1 else { throw StoreError.invalidAssociation }
+                        entities[row.id] = existing
+                    } else {
+                        try db.execute(sql: """
                         INSERT INTO encounter (id, patient_id, date, kind, hospital, department, doctor,
                           chief_complaint, diagnosis_text, advice_text, created_at, updated_at)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """, arguments: [encounter.id.uuidString, patientId.uuidString, encounter.date.timeIntervalSince1970,
                             encounter.kind, encounter.hospital, encounter.department, encounter.doctor, encounter.chiefComplaint,
                             encounter.diagnosisText, encounter.adviceText, now.timeIntervalSince1970, now.timeIntervalSince1970])
-                    entities[row.id] = encounter.id
-                    // 卡片互联（FR6.9 期二）：就诊卡落库后回填同文档、同日
-                    // 窗口内尚未归属的 OCR 处方卡——「先确认处方、后确认就诊」
-                    // 的确认顺序也要闭合互联链（encounter_id 单向引用就诊）。
-                    let tolerance = EntityCardProjection.EncounterLinker.sameDayTolerance
-                    try db.execute(sql: """
-                        UPDATE prescription SET encounter_id = ?, updated_at = ?
-                        WHERE patient_id = ? AND document_file_id = ? AND encounter_id IS NULL
-                          AND prescribed_at >= ? AND prescribed_at <= ?
-                        """, arguments: [encounter.id.uuidString, now.timeIntervalSince1970,
-                                         patientId.uuidString, documentId.uuidString,
-                                         encounter.date.timeIntervalSince1970 - tolerance,
-                                         encounter.date.timeIntervalSince1970 + tolerance])
+                        entities[row.id] = encounter.id
+                        associatedEncounter = encounter.id
+                    }
                 }
             case "prescription":
                 if !accepted.isEmpty {
                     guard let intent = EntityCardProjection.prescriptionIntent(from: projectionCard) else { throw StoreError.invalidCard }
                     let existingIds = Set(receipts.map { $0["entity_id"] as String })
                     guard existingIds.count <= 1 else { throw StoreError.corruptReceipt }
-                    // 卡片互联（FR6.9 期二）：处方归属就诊卡——同日窗口内按
-                    // EntityCardProjection.EncounterLinker 纯规则匹配（医院/医生信号收紧；无信号
-                    // 不猜、encounter_id 保持 NULL，绝不张冠李戴）
-                    let encounterId = try Self.linkedEncounterId(db: db, patientId: patientId,
-                                                                 prescribedAt: intent.prescribedAt,
-                                                                 hospital: intent.hospital, doctor: intent.doctor)
+                    // 卡片互联（FR6.9 期二）：处方归属就诊卡——按确认卡
+                    // EncounterAssociation 显式选择归属（证据化建议由
+                    // EncounterResolver 生成；无信号不猜、encounter_id 保持
+                    // NULL，绝不张冠李戴）
+                    let encounterId = associatedEncounter
                     let entity: UUID
                     if let existing = existingIds.first, let uuid = UUID(uuidString: existing) {
                         entity = uuid
@@ -281,6 +288,43 @@ public actor OCRCardStore {
                     }
                     for row in accepted { entities[row.id] = entity }
                 }
+            case "claim_item":
+                if let row = accepted.first {
+                    let values = EntityCardProjection.confirmedValues(snapshot.shared)
+                    guard let amount = values["amount"].flatMap(Double.init), let currency = values["currency"],
+                          let type = values["item_type"], let date = values["date"].flatMap({ EntityCardProjection.parseDate($0, calendar: .current) }) else { throw StoreError.invalidCard }
+                    let entity = UUID()
+                    try db.execute(sql: """
+                        INSERT INTO claim_item (id, patient_id, encounter_id, document_file_id, item_type, amount, currency, date, merchant, summary, confirmed, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+                        """, arguments: [entity.uuidString, patientId.uuidString, associatedEncounter?.uuidString, documentId.uuidString,
+                            type, amount, currency, date.timeIntervalSince1970, values["merchant"], values["summary"], now.timeIntervalSince1970, now.timeIntervalSince1970])
+                    entities[row.id] = entity
+                }
+            case "medication":
+                for row in accepted {
+                    let values = EntityCardProjection.confirmedValues(row.fields)
+                    guard let name = values["generic_name"], let unit = values["unit_kind"] else { throw StoreError.invalidCard }
+                    let entity = UUID()
+                    try db.execute(sql: """
+                        INSERT INTO medication (id, patient_id, generic_name, brand_name, spec, unit_kind, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """, arguments: [entity.uuidString, patientId.uuidString, name, values["brand_name"], values["spec"], unit, now.timeIntervalSince1970, now.timeIntervalSince1970])
+                    entities[row.id] = entity
+                }
+            case "immunization":
+                if let row = accepted.first {
+                    let values = EntityCardProjection.confirmedValues(snapshot.shared)
+                    guard let name = values["vaccine_name"], let dose = values["dose_number"].flatMap(Int.init),
+                          let date = values["administered_at"].flatMap({ EntityCardProjection.parseDate($0, calendar: .current) }) else { throw StoreError.invalidCard }
+                    let entity = UUID()
+                    try db.execute(sql: """
+                        INSERT INTO immunization (id, patient_id, vaccine_name, dose_number, administered_at, provider, lot_number, encounter_id, source, confirmed, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ocr', 1, ?, ?)
+                        """, arguments: [entity.uuidString, patientId.uuidString, name, dose, date.timeIntervalSince1970,
+                            values["provider"], values["lot_number"], associatedEncounter?.uuidString, now.timeIntervalSince1970, now.timeIntervalSince1970])
+                    entities[row.id] = entity
+                }
             default: throw StoreError.invalidCard
             }
             for row in accepted {
@@ -288,7 +332,7 @@ public actor OCRCardStore {
                 let audit = AuditRecord(cardId: card.id, rowId: row.id, patientId: patientId, documentId: documentId,
                     pageIndex: card.pageIndex, cardKind: card.kind, entityId: entity,
                     shared: snapshot.shared.filter(\.isConfirmed),
-                    fields: row.fields.filter { $0.isConfirmed && $0.key != "metric_key" }, recordedAt: now)
+                    fields: row.fields.filter { $0.isConfirmed && $0.key != "metric_key" }, recordedAt: now, encounterId: associatedEncounter)
                 try Self.insertReceipt(audit, db: db)
             }
             let residualById = Dictionary(uniqueKeysWithValues: residual.map { ($0.id, $0) })
@@ -304,41 +348,50 @@ public actor OCRCardStore {
                 """, arguments: [json, incompleteJSON, resolved ? "resolved" : "in_progress", now.timeIntervalSince1970,
                     resolved ? now.timeIntervalSince1970 : nil, resolved ? "user" : nil, id])
             guard db.changesCount == 1 else { throw StoreError.pendingNotActive }
+            try Self.refreshDocumentProjection(documentId: documentId, patientId: patientId, db: db, now: now)
             var remaining = snapshot; remaining.rows = residual
             return SaveResult(remainingCard: resolved ? nil : remaining, writtenCount: accepted.count, resolved: resolved, pendingCardId: id)
         }
     }
 
-    /// 卡片互联（FR6.9 期二）：处方 → 就诊卡的归属匹配——查询同日窗口内
-    /// 患者就诊记录（创建时间最新优先），交给 Domain 纯规则 EntityCardProjection.EncounterLinker
-    /// 决策；无信号（医院/医生均缺失）时返回 nil 保持 encounter_id NULL。
-    private static func linkedEncounterId(db: Database, patientId: UUID, prescribedAt: Date,
-                                          hospital: String?, doctor: String?) throws -> UUID? {
-        let tolerance = EntityCardProjection.EncounterLinker.sameDayTolerance
-        let rows = try Row.fetchAll(db, sql: """
-            SELECT id, date, hospital, doctor, created_at FROM encounter
-            WHERE patient_id = ? AND deleted_at IS NULL AND date >= ? AND date <= ?
-            ORDER BY created_at DESC
-            """, arguments: [patientId.uuidString,
-                             prescribedAt.timeIntervalSince1970 - tolerance,
-                             prescribedAt.timeIntervalSince1970 + tolerance])
-        let candidates = rows.compactMap { row -> EntityCardProjection.EncounterLinker.Candidate? in
-            guard let id = UUID(uuidString: row["id"] as String) else { return nil }
-            return EntityCardProjection.EncounterLinker.Candidate(
-                id: id,
-                date: Date(timeIntervalSince1970: row["date"] as Double),
-                hospital: row["hospital"] as String?,
-                doctor: row["doctor"] as String?,
-                createdAt: Date(timeIntervalSince1970: row["created_at"] as Double))
+    public func encounterCandidates(patientId: UUID) async throws -> [EncounterResolver.Candidate] {
+        try await writer.read { db in
+            try Row.fetchAll(db, sql: "SELECT id, date, hospital, doctor FROM encounter WHERE patient_id = ? AND deleted_at IS NULL ORDER BY date DESC LIMIT 500",
+                             arguments: [patientId.uuidString]).compactMap { row in
+                guard let id = UUID(uuidString: row["id"] as String) else { return nil }
+                return .init(id: id, patientId: patientId, date: Date(timeIntervalSince1970: row["date"]), hospital: row["hospital"], doctor: row["doctor"])
+            }
         }
-        return EntityCardProjection.EncounterLinker.match(prescribedAt: prescribedAt, hospital: hospital,
-                                     doctor: doctor, candidates: candidates)
+    }
+
+    private static func validateAssociation(_ card: MatchedCard, patientId: UUID, db: Database) throws -> UUID? {
+        if case .suggested(_, let evidence) = card.encounterAssociation,
+           evidence != EncounterResolver.evidenceKey(for: card) { throw StoreError.invalidAssociation }
+        guard let id = card.encounterAssociation.encounterID else { return nil }
+        guard try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM encounter WHERE id = ? AND patient_id = ? AND deleted_at IS NULL",
+                               arguments: [id.uuidString, patientId.uuidString]) == 1 else { throw StoreError.invalidAssociation }
+        return id
+    }
+
+    static func refreshDocumentProjection(documentId: UUID, patientId: UUID, db: Database, now: Date) throws {
+        let jsons = try String.fetchAll(db, sql: "SELECT raw_blocks FROM ocr_result WHERE document_file_id = ? AND engine_version = ? ORDER BY page_index, created_at",
+                                       arguments: [documentId.uuidString, auditEngine])
+        let audits = try jsons.map { try JSONDecoder().decode(AuditRecord.self, from: Data($0.utf8)) }
+        guard !audits.isEmpty else { return }
+        let text = audits.flatMap { $0.shared + $0.fields }.filter(\.isConfirmed).filter { $0.key != "metric_key" }
+            .map { [$0.value, $0.unit].compactMap { $0 }.joined(separator: " ") }.joined(separator: "\n")
+        let pending = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM pending_card WHERE source_doc_id = ? AND status IN ('pending','in_progress')",
+                                      arguments: [documentId.uuidString]) ?? 0
+        // FTS触发器只看到已确认投影；原始OCR页文本/拒绝字段不加入搜索。
+        try db.execute(sql: "UPDATE document_file SET ocr_text = ?, grade = ?, updated_at = ? WHERE id = ? AND patient_id = ?",
+                       arguments: [text, pending == 0 ? "C" : "D", now.timeIntervalSince1970, documentId.uuidString, patientId.uuidString])
     }
 
     static func mergeDraft(_ incoming: MatchedCard, previous: MatchedCard, committed: Set<String>) throws -> MatchedCard {
         guard incoming.id == previous.id, incoming.kind == previous.kind, incoming.pageIndex == previous.pageIndex,
               Set(incoming.rows.map(\.id)).count == incoming.rows.count else { throw StoreError.pendingIdentityMismatch }
         guard committed.isEmpty || previous.shared == incoming.shared else { throw StoreError.committedDataChanged }
+        guard committed.isEmpty || previous.encounterAssociation == incoming.encounterAssociation else { throw StoreError.committedDataChanged }
         for row in incoming.rows where committed.contains(row.id.uuidString) {
             guard previous.rows.first(where: { $0.id == row.id })?.fields == row.fields else { throw StoreError.committedDataChanged }
         }
@@ -352,10 +405,10 @@ public actor OCRCardStore {
 
     static func insertReceipt(_ audit: AuditRecord, db: Database) throws {
         try db.execute(sql: """
-            INSERT INTO ocr_card_commit (card_id, row_id, patient_id, document_file_id, page_index, card_kind, entity_id, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO ocr_card_commit (card_id, row_id, patient_id, document_file_id, page_index, card_kind, entity_id, encounter_id, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, arguments: [audit.cardId.uuidString, audit.rowId.uuidString, audit.patientId.uuidString,
-                audit.documentId.uuidString, audit.pageIndex, audit.cardKind, audit.entityId.uuidString, audit.recordedAt.timeIntervalSince1970])
+                audit.documentId.uuidString, audit.pageIndex, audit.cardKind, audit.entityId.uuidString, audit.encounterId?.uuidString, audit.recordedAt.timeIntervalSince1970])
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         let json = String(decoding: try encoder.encode(audit), as: UTF8.self)
         try db.execute(sql: """
@@ -377,8 +430,12 @@ public actor OCRCardStore {
         }
         if kind == "metric_sample" {
             guard (fact["source_ref"] as String?) == "doc:\(document)#p\(page)", (fact["origin"] as String) == "hospital" else { throw StoreError.corruptReceipt }
-        } else if kind == "prescription" {
+        } else if kind == "prescription" || kind == "claim_item" {
             guard (fact["document_file_id"] as String?) == document, (fact["confirmed"] as Int) == 1 else { throw StoreError.corruptReceipt }
+        }
+        if kind == "immunization", (fact["confirmed"] as Int) != 1 { throw StoreError.corruptReceipt }
+        if let encounter: String = row["encounter_id"] {
+            guard try String.fetchOne(db, sql: "SELECT patient_id FROM encounter WHERE id = ?", arguments: [encounter]) == patient else { throw StoreError.corruptReceipt }
         }
     }
 
@@ -393,10 +450,11 @@ public actor OCRCardStore {
         return try Row.fetchAll(db, sql: "SELECT * FROM ocr_card_commit ORDER BY created_at, card_id, row_id").map { row in
             try validateReceipt(row, db: db)
             let key = "\(row["card_id"] as String)/\(row["row_id"] as String)"
-            guard let audit = byKey[key], audit.entityId.uuidString == (row["entity_id"] as String),
+            guard var audit = byKey[key], audit.entityId.uuidString == (row["entity_id"] as String),
                   audit.patientId.uuidString == (row["patient_id"] as String), audit.documentId.uuidString == (row["document_file_id"] as String),
                   audit.pageIndex == (row["page_index"] as Int), audit.cardKind == (row["card_kind"] as String),
-                  audit.recordedAt.timeIntervalSince1970 == (row["created_at"] as Double) else { throw StoreError.corruptReceipt }
+                   audit.recordedAt.timeIntervalSince1970 == (row["created_at"] as Double) else { throw StoreError.corruptReceipt }
+            audit.encounterId = (row["encounter_id"] as String?).flatMap(UUID.init(uuidString:))
             return audit
         }
     }

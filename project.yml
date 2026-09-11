@@ -16,7 +16,17 @@ targets:
   VitaLiber:
     type: application
     platform: iOS
-    sources: [App, Resources]
+    sources:
+      - path: App
+      - path: Resources
+        excludes: ["ASRModels", "ASRModels/**"]
+      - path: Resources/ASRModels
+        type: folder
+        buildPhase: resources
+    postBuildScripts:
+      - name: Reconcile embedded framework minimum OS
+        script: python3 "$SRCROOT/.github/workflows/reconcile-frameworks.py" --app "$TARGET_BUILD_DIR/$WRAPPER_NAME" --repair
+        basedOnDependencyAnalysis: false
     # F16 只读接入 Apple 健康（FR16.1）：HealthKit capability + 只读授权
     # （不申请写入——数据方向是单向读取，符合最小必要访问）
     entitlements:
@@ -39,6 +49,8 @@ targets:
         MARKETING_VERSION: "0.0.1"
         CURRENT_PROJECT_VERSION: "1"
         VITA_LIBER_CODE_HASH: "dev"
+        # framework列表由SPM生成；脚本必须读写嵌入产物并重签，最终IPA另有只读验证。
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
     # GRDB 直连（ERR#31 同族，第 18 轮 CI 实证）：AppContainer 经 GRDBStore.writer
     # 把 GRDB.DatabaseWriter 暴露进 App 层签名，AppContainer.o 引用 GRDB 协议
     # 描述符——仅靠 CoreKit 传递链接，ld 报 "protocol descriptor for

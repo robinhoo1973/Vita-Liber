@@ -185,6 +185,9 @@ jobs:
       - name: L0 静态门禁
         run: |
           bash .github/workflows/l0-static-gate.sh
+          python3 .github/workflows/test-schema-integrity.py
+          python3 .github/workflows/test-asr-assets.py
+          python3 .github/workflows/fetch-asr-models.py --manifest-only
 
       # ── 签名材料到期预警（审计 2026-09-10 新增）──────────────
       # 证书/PP 到期是「静默悬崖」：平时一切绿色，到期日归档/导出突然失败，
@@ -367,6 +370,9 @@ jobs:
           swift test 2>&1 | tee ../Build/corekit-swift-test.log
           echo "CoreKit 域层测试通过 ✓"
 
+      - name: 准备随包 ASR 模型（固定版本与 SHA-256）
+        run: python3 .github/workflows/fetch-asr-models.py
+
       # ── 编译门禁（build-for-testing）：失败即停 ───────
       - name: 编译门禁（build-for-testing）
         run: |
@@ -494,6 +500,10 @@ jobs:
             -exportPath Build/export \
             2>&1 | tee Build/xcodebuild-export.log
           test -f Build/export/VitaLiber.ipa && echo "ipa 导出成功 ✓"
+
+      - name: 校验 IPA 框架 minOS 与 ASR 随包完整性
+        if: ${{ env.HAS_CERTS == 'true' }}
+        run: python3 .github/workflows/reconcile-frameworks.py --ipa Build/export/VitaLiber.ipa
 
       # ── 上传 IPA 到 Artifact（供 upload job 下载）────
       - name: 上传 IPA artifact
@@ -847,4 +857,3 @@ jobs:
         run: |
           rm -rf "$HOME/.appstoreconnect"
           rm -f "$RUNNER_TEMP"/asc-curl-*.conf
-

@@ -148,8 +148,13 @@ struct VitaLiberApp: App {
             pipeline: OCRPipeline(
                 recognizer: EngineRegistry.shared.resolve(OCRRecognizerFactory.self),
                 grayscaleDecoder: GrayscaleImageDecoder()),
-            // FR14.1 authOcr 消费点：每次导入实时读授权（撤回即时生效）
-            ocrAuthorized: { appSettings.values[.authOcr] != "false" },
+            // FR14.1 authOcr/authAI 消费点：每次导入实时读授权（撤回即时生效）。
+            // 审查修复：布尔读一律 SettingsRules.resolved（stored ?? defaultValue）
+            // ——values 只存非默认覆盖（默认均为 "true"），裸 `== "true"` 把
+            // 未落库的默认授权读成拒绝（装载前/装载失败时 OCR 恒 skipped、
+            // AI 恒关闭，与设置页开关状态相反——SettingsViews 同批修复口径）。
+            ocrAuthorized: { SettingsRules.resolved(appSettings.values[.authOcr], key: .authOcr) == "true" },
+            aiAuthorization: { (SettingsRules.resolved(appSettings.values[.authAI], key: .authAI) == "true", appSettings.authAIRevision) },
             originalsDir: AppContainer.defaultOriginalsDir(),
             prescriptionStore: container.prescriptions,
             // FR17.18 期一（V3.49）：共享文本理解引擎 + F25 惰性接线 +
@@ -193,7 +198,7 @@ struct VitaLiberApp: App {
         HealthKitSyncService.backgroundCancelHandler = { await bgSync.cancelSync() }
         HealthKitSyncService.backgroundSyncHandler = { [dataChange] in
             do {
-                guard try await bgSync.canSync() else { return false }
+                guard try await bgSync.canAutomaticallySync() else { return false }
                 let start = try await healthSettings.value(for: .quietHoursStart)
                 let end = try await healthSettings.value(for: .quietHoursEnd)
                 let report = try await bgSync.performSync(quietStart: start, quietEnd: end)

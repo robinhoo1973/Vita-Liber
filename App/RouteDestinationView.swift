@@ -47,6 +47,8 @@ struct RouteDestinationView: View {
         case .pendingCard(let id):
             // FR6.9 稍后处理 1h 通知深链：待办卡续确认（页级实体卡，V3.61）
             PendingCardResumeRouteView(cardId: id)
+        case .medicalCard(let kind, let id, let patient):
+            MedicalCardDetailView(kind: kind, entityId: id, patientId: patient)
 
         // ---- F7 指标 ----
         case .trendChart(let patientId, let metric):
@@ -109,6 +111,8 @@ struct RouteDestinationView: View {
             ThemeSettingsView()
         case .voiceLanguageSettings:
             VoiceLanguageSettingsView()
+        case .voiceEngineLab:
+            VoiceEngineLabView()
 
         // ---- F15 ----
         case .emergencyCardConfig:

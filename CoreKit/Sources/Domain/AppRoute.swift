@@ -30,6 +30,7 @@ public enum AppRoute: Hashable, Sendable, Codable {
     // 不入路由注册表——原 .ocrConfirm(documentId:) 路由的消费视图已随向导简化删除。
     case pendingOcrQueue                 // SP-53 待确认聚合队列
     case pendingCard(String)             // FR6.9 待办卡续确认（稍后处理 1h 通知深链；pending_card.id）
+    case medicalCard(kind: String, id: UUID, patientId: UUID) // 已确认卡详情；存储出口验证kind白名单及成员
 
     // ---- F7 指标 ----
     case trendChart(patientId: UUID, metric: String)   // SP-13
@@ -73,6 +74,7 @@ public enum AppRoute: Hashable, Sendable, Codable {
     case themeSettings                   // FR14.4 外观与主题
     case languageSettings                // FR14.5 语言选择
     case voiceLanguageSettings           // FR17.15/17.16 语音语言选择
+    case voiceEngineLab                  // SP-62 识别引擎实验室（FR17.15 V3.66）
 
     // ---- F15 紧急卡 ----
     case emergencyCardConfig             // SP-28
@@ -124,7 +126,7 @@ public enum MainModuleID: String, Sendable, Hashable, Codable {
         switch route {
         case .sosHelp, .memberList, .memberDetail, .encounterList, .encounterDetail,
              .encounterForm, .documentList, .documentDetail, .importSource, .scanCapture,
-             .pendingOcrQueue, .pendingCard, .trendChart, .metricOverview, .metricQuickEntry,
+              .pendingOcrQueue, .pendingCard, .medicalCard, .trendChart, .metricOverview, .metricQuickEntry,
              .observationCreate, .observationDetail, .doctorShowcase,
              .allergyList, .allergyCreate,
              .caregiverTasks, .voiceNotePanel,
@@ -139,7 +141,7 @@ public enum MainModuleID: String, Sendable, Hashable, Codable {
             return .ai
         case .settingsRoot, .preferences, .notificationCenter, .auditLog,
              .privacyAuthorization, .themeSettings, .languageSettings,
-             .voiceLanguageSettings, .emergencyCardConfig, .deviceConnection,
+             .voiceLanguageSettings, .voiceEngineLab, .emergencyCardConfig, .deviceConnection,
               .alertHistory, .alertEvidence, .guidelineSourceDetail, .careModeConfig,
              .voiceGuideProfile, .voiceReminderDraft, .helpCenter, .feedbackReport,
              .exportWizard, .backupRestore, .paywall,

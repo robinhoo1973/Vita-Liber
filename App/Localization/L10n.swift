@@ -1639,7 +1639,38 @@ enum L10n {
         "plan.loadFailed", "appt.markMissedHint", "appt.completeHint",
         "member.updateFailed", "member.updateFailedHint",
         "problem.saveFailedHint",
-        "common.retry"
+        "common.retry",
+        // FR17.15 V3.66 识别引擎实验室（SP-62）
+        "voiceLab.title", "voiceLab.engine.section", "voiceLab.engine.footer",
+        "voiceLab.engine.auto", "voiceLab.engine.auto.hint",
+        "voiceLab.engine.advanced", "voiceLab.engine.advanced.hint",
+        "voiceLab.engine.dictation", "voiceLab.engine.dictation.hint",
+        "voiceLab.engine.classic", "voiceLab.engine.classic.hint",
+        "voiceLab.requiresNewerOS", "voiceLab.unsupported",
+        "voiceLab.asset.section", "voiceLab.asset.locale", "voiceLab.asset.label",
+        "voiceLab.asset.installed", "voiceLab.asset.downloadable", "voiceLab.asset.unavailable",
+        "voiceLab.asset.install", "voiceLab.asset.installing",
+        "voiceLab.asset.installDone", "voiceLab.asset.installFailed", "voiceLab.asset.footer",
+        "voiceLab.test.section", "voiceLab.test.footer",
+        "voiceLab.fallback.asset", "voiceLab.fallback.unavailable", "voiceLab.fallback.missing",
+        "voiceLab.result.section", "voiceLab.result.empty", "voiceLab.result.meta",
+        "voiceLab.result.footer", "voiceLab.entry.hint",
+        "asr.zipformer", "asr.zipformer.hint", "asr.dolphin", "asr.dolphin.hint",
+        "asr.whisper", "asr.whisper.hint", "asr.bundledOffline", "asr.selectionHint", "asr.missingAssets",
+        "asr.qwen3", "asr.qwen3.hint",
+        "asr.preparing",
+        "ocr.cards.overview", "ocr.cards.none", "ocr.cards.hint", "ocr.cards.begin", "ocr.fieldActions",
+        "ocr.cards.previous", "ocr.cards.next", "ocr.cards.remaining", "ocr.cards.fieldCount",
+        "ocr.extraction.model", "ocr.extraction.rules", "ocr.association.title", "ocr.association.none",
+        "ocr.association.unavailable", "ocr.association.suggestion", "ocr.association.hint",
+        "field.amount", "field.currency", "field.item_type", "field.merchant", "field.summary",
+        "field.generic_name", "field.unit_kind", "field.brand_name", "field.spec", "field.vaccine_name",
+        "field.dose_number", "field.administered_at", "field.provider", "field.lot_number",
+        "health.settingsTitle", "health.autoImport", "health.readPermissionHint", "health.importedData",
+        "health.importedPointCount", "health.importedDataHint", "health.appleSource",
+        // FR6.9 V3.66 一键确认与卡片互联
+        "entityCard.confirmAllHint",
+        "encounter.linkedCards", "encounter.linkedCards.empty"
     ]
 
     // MARK: - FR14.8 Tab badge
@@ -2206,6 +2237,29 @@ enum L10n {
     static var voiceInputUnavailable: String { t("voice.inputUnavailable") }
     static var voiceDictationIncomplete: String { t("voice.dictationIncomplete") }
     static var ocrReviewDocumentHint: String { t("ocr.review.documentHint") }
+    static var ocrCardsOverview: String { t("ocr.cards.overview") }
+    static var ocrNoMatchedCards: String { t("ocr.cards.none") }
+    static var ocrCardReviewHint: String { t("ocr.cards.hint") }
+    static var ocrBeginCardReview: String { t("ocr.cards.begin") }
+    static var ocrFieldActions: String { t("ocr.fieldActions") }
+    static var ocrPreviousCard: String { t("ocr.cards.previous") }
+    static var ocrNextCard: String { t("ocr.cards.next") }
+    static func ocrCardsRemaining(_ n: Int) -> String { String(format: t("ocr.cards.remaining"), n) }
+    static func ocrCardFieldCount(_ n: Int) -> String { String(format: t("ocr.cards.fieldCount"), n) }
+    static var ocrExtractionModel: String { t("ocr.extraction.model") }
+    static var ocrExtractionRules: String { t("ocr.extraction.rules") }
+    static var ocrAssociatedEncounter: String { t("ocr.association.title") }
+    static var ocrUnlinked: String { t("ocr.association.none") }
+    static var ocrAssociationUnavailable: String { t("ocr.association.unavailable") }
+    static var ocrAssociationSuggestion: String { t("ocr.association.suggestion") }
+    static var ocrAssociationHint: String { t("ocr.association.hint") }
+    static var healthImportSettingsTitle: String { t("health.settingsTitle") }
+    static var healthAutoImport: String { t("health.autoImport") }
+    static var healthReadPermissionHint: String { t("health.readPermissionHint") }
+    static var healthImportedData: String { t("health.importedData") }
+    static func healthImportedPointCount(_ n: Int) -> String { String(format: t("health.importedPointCount"), n) }
+    static var healthImportedDataHint: String { t("health.importedDataHint") }
+    static var healthAppleSource: String { t("health.appleSource") }
     static var ocrReviewPageSkipped: String { t("ocr.review.pageSkipped") }
     static var ocrReviewInvalidField: String { t("ocr.review.invalidField") }
     static var ocrReviewNotificationFailed: String { t("ocr.review.notificationFailed") }
@@ -2789,6 +2843,84 @@ enum L10n {
     static var medicalIDStep3Hint: String { t("medicalID.step3Hint") }
     static var medicalIDOpenHealth: String { t("medicalID.openHealth") }
     static var medicalIDNote: String { t("medicalID.note") }
+
+    // MARK: - FR17.15 V3.66 识别引擎实验室（SP-62）
+    static var voiceLabTitle: String { t("voiceLab.title") }
+    static var voiceLabEngineSection: String { t("voiceLab.engine.section") }
+    static var voiceLabEngineFooter: String { t("voiceLab.engine.footer") }
+    static var voiceEngineAuto: String { t("voiceLab.engine.auto") }
+    static var voiceEngineAutoHint: String { t("voiceLab.engine.auto.hint") }
+    static var voiceEngineAdvanced: String { t("voiceLab.engine.advanced") }
+    static var voiceEngineAdvancedHint: String { t("voiceLab.engine.advanced.hint") }
+    static var voiceEngineDictation: String { t("voiceLab.engine.dictation") }
+    static var voiceEngineDictationHint: String { t("voiceLab.engine.dictation.hint") }
+    static var voiceEngineClassic: String { t("voiceLab.engine.classic") }
+    static var voiceEngineClassicHint: String { t("voiceLab.engine.classic.hint") }
+    static var voiceLabRequiresNewerOS: String { t("voiceLab.requiresNewerOS") }
+    static var voiceLabUnsupported: String { t("voiceLab.unsupported") }
+    static var voiceLabAssetSection: String { t("voiceLab.asset.section") }
+    static var voiceLabLocaleLabel: String { t("voiceLab.asset.locale") }
+    static var voiceLabAssetLabel: String { t("voiceLab.asset.label") }
+    static var voiceLabAssetInstalled: String { t("voiceLab.asset.installed") }
+    static var voiceLabAssetDownloadable: String { t("voiceLab.asset.downloadable") }
+    static var voiceLabAssetUnavailable: String { t("voiceLab.asset.unavailable") }
+    static var voiceLabInstall: String { t("voiceLab.asset.install") }
+    static var voiceLabInstalling: String { t("voiceLab.asset.installing") }
+    static var voiceLabInstallDone: String { t("voiceLab.asset.installDone") }
+    static var voiceLabInstallFailed: String { t("voiceLab.asset.installFailed") }
+    static var voiceLabAssetFooter: String { t("voiceLab.asset.footer") }
+    static var voiceLabTestSection: String { t("voiceLab.test.section") }
+    static var voiceLabTestFooter: String { t("voiceLab.test.footer") }
+    /// 复审修正 FIX-B：对照测试的回落诚实标注（资源未装 / 系统不支持）。
+    static var voiceLabFallbackAsset: String { t("voiceLab.fallback.asset") }
+    static var voiceLabFallbackUnavailable: String { t("voiceLab.fallback.unavailable") }
+    /// 审计修正（round3）：缺件随包模型的回落标注。
+    static var voiceLabFallbackMissing: String { t("voiceLab.fallback.missing") }
+    static var voiceLabResultSection: String { t("voiceLab.result.section") }
+    static var voiceLabNoResult: String { t("voiceLab.result.empty") }
+    static var voiceLabResultMeta: String { t("voiceLab.result.meta") }
+    static var voiceLabResultFooter: String { t("voiceLab.result.footer") }
+    static var voiceLabEntryHint: String { t("voiceLab.entry.hint") }
+    static var asrBundledOffline: String { t("asr.bundledOffline") }
+    static var asrPreparing: String { t("asr.preparing") }
+    static var asrSelectionHint: String { t("asr.selectionHint") }
+    static func voiceEngineName(_ choice: VoiceEngineChoice) -> String {
+        switch choice {
+        case .auto: return voiceEngineAuto
+        case .classic: return voiceEngineClassic
+        case .advanced: return voiceEngineAdvanced
+        case .dictation: return voiceEngineDictation
+        case .zipformer: return t("asr.zipformer")
+        case .qwen3: return t("asr.qwen3")
+        case .dolphin: return t("asr.dolphin")
+        case .whisper: return t("asr.whisper")
+        }
+    }
+    static func voiceEngineHint(_ choice: VoiceEngineChoice) -> String {
+        switch choice {
+        case .auto: return voiceEngineAutoHint
+        case .classic: return voiceEngineClassicHint
+        case .advanced: return voiceEngineAdvancedHint
+        case .dictation: return voiceEngineDictationHint
+        case .zipformer: return t("asr.zipformer.hint")
+        case .qwen3: return t("asr.qwen3.hint")
+        case .dolphin: return t("asr.dolphin.hint")
+        case .whisper: return t("asr.whisper.hint")
+        }
+    }
+    static func asrAvailability(_ availability: VoiceEngineAvailability) -> String? {
+        switch availability {
+        case .available: return nil
+        case .requiresNewerOS: return voiceLabRequiresNewerOS
+        case .unsupportedDevice: return voiceLabUnsupported
+        case .missingModelAssets: return t("asr.missingAssets")
+        }
+    }
+
+    // MARK: - FR6.9 V3.66 一键确认与卡片互联
+    static var entityCardConfirmAllHint: String { t("entityCard.confirmAllHint") }
+    static var encounterLinkedCards: String { t("encounter.linkedCards") }
+    static var encounterLinkedCardsEmpty: String { t("encounter.linkedCards.empty") }
 
     enum TargetTag: String, CaseIterable {
         case metric, observation, question, ai, reminder, profile, anyText

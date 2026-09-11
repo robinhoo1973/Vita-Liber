@@ -49,7 +49,14 @@ public actor HealthKitReader: HealthReadingProvider {
                 store.execute(query)
             }
         }
-        guard enableDelivery else { return true }
+        if !enableDelivery {
+            var success = true
+            for type in Self.readTypes {
+                do { try await store.disableBackgroundDelivery(for: type) }
+                catch { success = false }
+            }
+            return success
+        }
         var success = true
         for type in Self.readTypes {
             do { try await store.enableBackgroundDelivery(for: type, frequency: .hourly) }
@@ -82,7 +89,8 @@ public actor HealthKitReader: HealthReadingProvider {
         return HealthChangeBatch(added: try result.addedSamples.map { try Self.reference($0, kind: kind) },
             deleted: result.deletedObjects.map(\.uuid),
             anchor: try NSKeyedArchiver.archivedData(withRootObject: result.newAnchor, requiringSecureCoding: true),
-            hasMore: result.addedSamples.count >= limit)
+            // One additional empty query establishes exhaustion even when a page is mostly deletions.
+            hasMore: !result.addedSamples.isEmpty || !result.deletedObjects.isEmpty)
     }
 
     public func snapshot(for window: HealthImportWindow, calendar: Calendar) async throws -> HealthWindowSnapshot {
@@ -241,11 +249,10 @@ public actor HealthKitReader: HealthReadingProvider {
                 predicates: [.sample(type: Self.sampleType(kind), predicate: predicate)], anchor: anchor, limit: 500)
             let result = try await query.result(for: store)
             try Task.checkCancellation()
-            let count = result.addedSamples.count + result.deletedObjects.count
-            guard count <= 500 else { throw ReaderError.incompleteSnapshot }
+            guard result.addedSamples.count <= 500 else { throw ReaderError.incompleteSnapshot }
             for sample in result.addedSamples { samples[sample.uuid] = sample }
             for deleted in result.deletedObjects { samples.removeValue(forKey: deleted.uuid) }
-            if count < 500 { break }
+            if result.addedSamples.isEmpty && result.deletedObjects.isEmpty { break }
             if let anchor, result.newAnchor.isEqual(anchor) { throw ReaderError.invalidAnchor }
             anchor = result.newAnchor
         }

@@ -18,9 +18,11 @@ struct SherpaOnnxEngineTests {
         assertConforms(SherpaOnnxTranscriber.self)
     }
 
-    @Test("SherpaOnnxSpeechSynthesizer 编译期遵循 SpeechSynthesizing")
-    func synthesisProtocolConformance() {
-        assertConforms(SherpaOnnxSpeechSynthesizer.self)
+    @Test("缺失资产不能宣称模型语言可用")
+    func missingAssetsStayUnavailable() async {
+        let engine = SherpaOnnxTranscriber(choice: .dolphin, assets: ASRModelAssets(root: nil))
+        #expect(engine.capability.availableLocales.isEmpty)
+        #expect(await engine.localeAssetStatus("wuu-CN") == .unavailable)
     }
 
     // MARK: - Factory Dispatch
@@ -31,8 +33,22 @@ struct SherpaOnnxEngineTests {
         let engine = TranscriptionEngineFactory.make(ctx)
         // 测试宿主不打包模型资产 → 期望基线轨 SFSpeech；资产就绪 → 主轨 sherpa。
         // 两者都是真实引擎；契约桩仅限显式注入（FR17.6 降级语义）。
-        #expect(engine is SherpaOnnxTranscriber || engine is SFSpeechTranscriber)
+        #expect(engine is SwitchableTranscriptionEngine)
         #expect(!(engine is StubTranscriptionEngine))
+    }
+
+    @Test("档位构建出口绝不交付契约桩：缺件随包模型/老系统平台轨均回落真实引擎")
+    func builderNeverReturnsContractStub() {
+        // 审查修复（断言弱化回填）：此前只断言包装器类型，缺件随包模型
+        // 或 iOS<26 的 advanced/dictation 是否回落真实引擎完全没有门禁
+        // （UnavailableTranscriptionEngine 恒抛也能通过旧断言）。FR17.6：
+        // 生产装配绝不回落契约桩——构建出口的每一个档位都必须交付真实引擎。
+        for choice in VoiceEngineChoice.allCases {
+            let built = TranscriptionEngineBuilder.make(choice: choice)
+            #expect(!(built is UnavailableTranscriptionEngine),
+                    "\(choice.rawValue) 不得交付恒抛契约桩")
+            #expect(!(built is StubTranscriptionEngine), "\(choice.rawValue) 不得交付测试桩")
+        }
     }
 
     @Test("SpeechSynthesisFactory 返回系统 TTS 引擎（AVSpeechAdapter），绝不回落录制替身")

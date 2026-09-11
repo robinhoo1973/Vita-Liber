@@ -88,13 +88,112 @@ public actor EncounterStore {
         }
     }
 
+    /// FR6.9 期二：就诊的关联卡片（处方 / 收费票据）——卡片互联的**读面**。
+    /// 事实源与写入侧同一：`prescription.encounter_id` / `claim_item.encounter_id`
+    /// 单向引用就诊（写入由 `OCRCardStore` 经 `EncounterAssociation` 显式归属，
+    /// 无信号不猜、NULL 不呈现）；本查询只读、按日期倒序、
+    /// 不臆造关联，也不因媒体敏感改变口径（只出文字摘要，BR-007/008 不涉）。
+    public struct LinkedCardRow: Sendable, Equatable, Identifiable {
+        public enum Kind: String, Sendable, Equatable {
+            case prescription
+            case claim
+            case medication, metricSample, immunization, encounter
+            public var cardKind: String {
+                switch self { case .claim: return "claim_item"; case .metricSample: return "metric_sample"; default: return rawValue }
+            }
+        }
+        public let id: UUID
+        public let kind: Kind
+        public let date: Date?
+        public let summary: String
+        public let documentId: UUID?
+        public var identity: String { kind.rawValue + ":" + id.uuidString }
+        public init(id: UUID, kind: Kind, date: Date?, summary: String, documentId: UUID?) {
+            self.id = id; self.kind = kind; self.date = date
+            self.summary = summary; self.documentId = documentId
+        }
+    }
+
+    /// 关联卡片清单（处方 + 收费票据合并、日期倒序）；日期缺失的行按最早排序。
+    public func linkedCards(encounterId: UUID, patientId: UUID, limit: Int = 30) async throws -> [LinkedCardRow] {
+        try await writer.read { db in
+            var rows: [LinkedCardRow] = []
+            let prescriptions = try Row.fetchAll(db, sql: """
+                SELECT id, prescribed_at AS date, advice_text AS summary, document_file_id
+                FROM prescription WHERE patient_id = ? AND encounter_id = ? AND confirmed = 1
+                ORDER BY prescribed_at DESC LIMIT ?
+                """, arguments: [patientId.uuidString, encounterId.uuidString, limit])
+            for row in prescriptions {
+                guard let id = UUID(uuidString: row["id"] as String) else { continue }
+                rows.append(LinkedCardRow(id: id, kind: .prescription,
+                                          date: (row["date"] as Double?).map { Date(timeIntervalSince1970: $0) },
+                                          summary: Self.firstLine(row["summary"] as String?),
+                                          documentId: (row["document_file_id"] as String?).flatMap { UUID(uuidString: $0) }))
+            }
+            let claims = try Row.fetchAll(db, sql: """
+                SELECT id, date, COALESCE(summary, item_type) AS summary, document_file_id
+                FROM claim_item WHERE patient_id = ? AND encounter_id = ? AND confirmed = 1
+                ORDER BY date DESC LIMIT ?
+                """, arguments: [patientId.uuidString, encounterId.uuidString, limit])
+            for row in claims {
+                guard let id = UUID(uuidString: row["id"] as String) else { continue }
+                rows.append(LinkedCardRow(id: id, kind: .claim,
+                                          date: (row["date"] as Double?).map { Date(timeIntervalSince1970: $0) },
+                                          summary: Self.firstLine(row["summary"] as String?),
+                                          documentId: (row["document_file_id"] as String?).flatMap { UUID(uuidString: $0) }))
+            }
+            let projections: [(LinkedCardRow.Kind, String, String)] = [
+                (.medication, "created_at", "generic_name"), (.metricSample, "measured_at", "raw_label"),
+                (.immunization, "administered_at", "vaccine_name"), (.encounter, "date", "hospital"),
+            ]
+            var seen = Set(rows.map(\.identity))
+            for (kind, dateColumn, summaryColumn) in projections {
+                let confirmation = kind == .immunization ? "AND f.confirmed = 1" : ""
+                let deletion = kind == .encounter ? "AND f.deleted_at IS NULL" : ""
+                // 审查修复①：排除点（metric_sample.excluded=1，V3.45 软删）不得
+                // 复活进关联卡清单——用户刻意移除的读数与趋势页一致地消失。
+                let exclusion = kind == .metricSample ? "AND f.excluded = 0" : ""
+                // 审查修复②：排除本就诊自身的来源就诊卡——就诊卡的 entity_id 即
+                // 本就诊 id，旧查询把「就诊自己」列进自己的关联卡（空态文案
+                // 「暂无关联的处方或收费卡片」永不成立，且点击构成自引用导航环）。
+                let related = try Row.fetchAll(db, sql: """
+                    SELECT f.id, f.\(dateColumn) AS date, f.\(summaryColumn) AS summary, c.document_file_id
+                    FROM \(kind.cardKind) f JOIN ocr_card_commit c ON c.entity_id = f.id AND c.card_kind = ? AND c.patient_id = f.patient_id
+                    JOIN document_file d ON d.id = c.document_file_id AND d.patient_id = c.patient_id
+                    WHERE f.patient_id = ? AND (c.encounter_id = ? OR (c.card_kind = 'encounter' AND c.entity_id = ?))
+                      AND NOT (c.card_kind = 'encounter' AND c.entity_id = ?)
+                      AND d.status IN ('active','favorite') \(confirmation) \(deletion) \(exclusion)
+                    ORDER BY f.\(dateColumn) DESC LIMIT ?
+                    """, arguments: [kind.cardKind, patientId.uuidString, encounterId.uuidString, encounterId.uuidString, encounterId.uuidString, limit])
+                for row in related {
+                    guard let id = UUID(uuidString: row["id"] as String) else { continue }
+                    let item = LinkedCardRow(id: id, kind: kind, date: (row["date"] as Double?).map(Date.init(timeIntervalSince1970:)),
+                        summary: Self.firstLine(row["summary"]), documentId: (row["document_file_id"] as String?).flatMap(UUID.init(uuidString:)))
+                    if seen.insert(item.identity).inserted { rows.append(item) }
+                }
+            }
+            return rows.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
+        }
+    }
+
+    private static func firstLine(_ text: String?) -> String {
+        guard let line = text?.split(separator: "\n").first else { return "" }
+        return line.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// FR4.2 资料挂接到就诊（写入 document_file.encounter_id）。
-    /// 挂接/解除均留操作历史：document_file.meta_json 追加 revision 条目。
+    /// 挂接/解除与audit_event同事务，源与就诊必须属于同一成员。
     public func linkDocument(documentId: UUID, encounterId: UUID, now: Date = Date()) async throws {
         try await writer.write { db in
+            guard let patient = try String.fetchOne(db, sql: "SELECT patient_id FROM document_file WHERE id = ?", arguments: [documentId.uuidString]),
+                  try String.fetchOne(db, sql: "SELECT patient_id FROM encounter WHERE id = ? AND deleted_at IS NULL", arguments: [encounterId.uuidString]) == patient else {
+                throw OCRCardStore.StoreError.invalidAssociation
+            }
             try db.execute(sql: "UPDATE document_file SET encounter_id = ?, updated_at = ? WHERE id = ?",
                            arguments: [encounterId.uuidString, now.timeIntervalSince1970, documentId.uuidString])
             guard db.changesCount > 0 else { throw StoreError.documentNotFound(documentId) }
+            try AuditLogWriter.insert(action: "update", entityType: "document_file", entityId: documentId.uuidString,
+                actorLocal: "owner", meta: #"{"relationship":"encounter","linked":true}"#, db: db)
         }
     }
 
@@ -104,6 +203,31 @@ public actor EncounterStore {
             try db.execute(sql: "UPDATE document_file SET encounter_id = NULL WHERE id = ?",
                            arguments: [documentId.uuidString])
             guard db.changesCount > 0 else { throw StoreError.documentNotFound(documentId) }
+            try AuditLogWriter.insert(action: "update", entityType: "document_file", entityId: documentId.uuidString,
+                actorLocal: "owner", meta: #"{"relationship":"encounter","linked":false}"#, db: db)
+        }
+    }
+
+    public struct LinkedDocument: Sendable, Identifiable {
+        public let id: UUID
+        public let title: String?
+        public let type: String
+    }
+    public func linkedDocuments(encounterId: UUID, patientId: UUID) async throws -> [LinkedDocument] {
+        try await writer.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT DISTINCT d.id, d.title, d.doc_type FROM document_file d
+                WHERE d.patient_id = ? AND d.status IN ('active','favorite') AND
+                  (d.encounter_id = ? OR EXISTS (SELECT 1 FROM ocr_card_commit c WHERE c.document_file_id = d.id AND c.patient_id = d.patient_id
+                     AND (c.encounter_id = ? OR (c.card_kind = 'encounter' AND c.entity_id = ?)))
+                   OR EXISTS (SELECT 1 FROM prescription p WHERE p.document_file_id = d.id AND p.patient_id = d.patient_id AND p.confirmed = 1 AND p.encounter_id = ?)
+                   OR EXISTS (SELECT 1 FROM claim_item c WHERE c.document_file_id = d.id AND c.patient_id = d.patient_id AND c.confirmed = 1 AND c.encounter_id = ?))
+                ORDER BY d.created_at DESC
+                """, arguments: [patientId.uuidString, encounterId.uuidString, encounterId.uuidString, encounterId.uuidString, encounterId.uuidString, encounterId.uuidString])
+                .compactMap { row -> LinkedDocument? in
+                    guard let id = UUID(uuidString: row["id"] as String) else { return nil }
+                    return .init(id: id, title: row["title"], type: row["doc_type"])
+                }
         }
     }
 

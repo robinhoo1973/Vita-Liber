@@ -16,8 +16,17 @@ extension DocumentsState {
         var text: String { lines.joined(separator: "\n") }
     }
 
-    var currentEntityCard: MatchedCard? { entityQueue.first }
-    var entityQueuePosition: (Int, Int) { (entityQueueTotal - entityQueue.count + 1, entityQueueTotal) }
+    var currentEntityCard: MatchedCard? {
+        entityQueue.first { $0.id == activeImport?.selectedCardID } ?? entityQueue.first
+    }
+    var entityQueuePosition: (Int, Int) {
+        // 审查修复：cardOrder 缺席时回落「剩余队列序位」而非 0（0 会把
+        // 显示静默塌成「第 1 / M 张」）——cardOrder 是提交时快照，恢复/重建
+        // 路径可能不携带它，位置显示不得依赖该快照的恒存性。
+        let index = activeImport?.cardOrder.firstIndex { $0 == currentEntityCard?.id }
+            ?? (entityQueueTotal - entityQueue.count)
+        return (index + 1, entityQueueTotal)
+    }
 
     /// Extraction is page-local and not restricted to the primary document label.
     static func extractPageFields(lines: [String], understood: [FieldDraft], confidence: Double) -> [FieldDraft] {
@@ -85,10 +94,24 @@ extension DocumentsState {
                 used.insert(previousRow.id)
                 return MatchedCardRow(id: previousRow.id, fields: reconcileFields(row.fields, previousRow.fields), missingRequired: row.missingRequired)
             }
+            // 审查修复（过期建议陷阱）：建议随证据（医院/日期等）生成——
+            // 证据字段经本合并路径更新时，旧 .suggested 携带的 evidence 与
+            // 新卡不再一致，保存会被 validateAssociation 以 invalidAssociation
+            // 拒绝（用户只看到泛化保存失败、无任何指引）。证据变化即回落
+            // 未选择；关联区经 .task(id: evidenceKey) 用新证据重新建议
+            // （无信号不猜）。.existing（用户显式选择）不受字段编辑影响。
+            let association: EncounterAssociation
+            if case .suggested(_, let evidence) = old.encounterAssociation,
+               evidence != EncounterResolver.evidenceKey(for: current) {
+                association = .unselected
+            } else {
+                association = old.encounterAssociation
+            }
             return MatchedCard(id: old.id, kind: current.kind, pageIndex: current.pageIndex,
                 shared: reconcileFields(current.shared, old.shared), rows: rows,
                 allFieldCoverage: current.allFieldCoverage, requiredCoverage: current.requiredCoverage,
-                missingRequired: current.missingRequired, level: current.level)
+                missingRequired: current.missingRequired, level: current.level,
+                encounterAssociation: association)
         }
     }
 
@@ -103,9 +126,14 @@ extension DocumentsState {
             partialData: PendingCardPayload(card: card), rawText: source.pages.first { $0.index == card.pageIndex }?.text ?? "")
     }
 
+    func encounterCandidates(patientId: UUID) async throws -> [EncounterResolver.Candidate] {
+        guard let cardStore else { throw ImportError.storeUnavailable }
+        return try await cardStore.encounterCandidates(patientId: patientId)
+    }
+
     func confirmEntityCard(_ card: MatchedCard, confirmed: MatchedCard) async -> OCRCardStore.SaveResult? {
         guard let session = activeImport, let source = session.source, let cardStore,
-              !session.isSaving, session.cards.first?.id == card.id, confirmed.id == card.id,
+               !session.isSaving, session.cards.contains(where: { $0.id == card.id }), confirmed.id == card.id,
               confirmed.kind == card.kind, confirmed.pageIndex == card.pageIndex else { return nil }
         session.isSaving = true; session.errorMessage = nil; session.notificationError = nil
         defer { session.isSaving = false }
@@ -114,7 +142,7 @@ extension DocumentsState {
             if result.writtenCount > 0 { session.committedCards.insert(card.id) }
             pendingDidChange()
             if result.writtenCount > 0, card.kind == "metric_sample" { dataChange?.metricsChanged() }
-            if let remaining = result.remainingCard { session.cards[0] = remaining }
+            if let remaining = result.remainingCard, let index = session.cards.firstIndex(where: { $0.id == card.id }) { session.cards[index] = remaining }
             else { dequeueEntityCard(card) }
             do { try await notifyAfterSave(result) }
             catch { session.notificationError = L10n.ocrReviewNotificationFailed }
@@ -140,7 +168,7 @@ extension DocumentsState {
 
     func deferEntityCard(_ card: MatchedCard) async -> Bool {
         guard let session = activeImport, let source = session.source, let pendingCardStore,
-              !session.isSaving, session.cards.first?.id == card.id else { return false }
+               !session.isSaving, session.cards.contains(where: { $0.id == card.id }) else { return false }
         session.isSaving = true; session.errorMessage = nil; session.notificationError = nil
         defer { session.isSaving = false }
         do {
@@ -174,7 +202,7 @@ extension DocumentsState {
 
     static func discarded(_ input: MatchedCard) -> MatchedCard {
         var card = input
-        if card.kind == "encounter" {
+        if card.rows.allSatisfy({ $0.fields.isEmpty }) {
             for index in card.shared.indices { card.shared[index].reject() }
         } else {
             for row in card.rows.indices {
@@ -239,7 +267,7 @@ extension DocumentsState {
 
     func completePendingCard(_ pending: PendingCard, confirmed: MatchedCard) async -> OCRCardStore.SaveResult? {
         if let retained = retainedImport(for: pending) {
-            guard let current = retained.cards.first, current.id == confirmed.id else {
+            guard let current = retained.cards.first(where: { $0.id == confirmed.id }) else {
                 setImportError(L10n.ocrReviewFinishCurrent)
                 return nil
             }
@@ -296,8 +324,7 @@ extension DocumentsState {
 
     func discardPendingCard(_ pending: PendingCard) async -> Bool {
         if let retained = retainedImport(for: pending) {
-            guard let current = retained.cards.first, current.kind == pending.cardKind,
-                  current.pageIndex == pending.sourcePage else { setImportError(L10n.ocrReviewFinishCurrent); return false }
+            guard let current = retained.cards.first(where: { $0.kind == pending.cardKind && $0.pageIndex == pending.sourcePage }) else { setImportError(L10n.ocrReviewFinishCurrent); return false }
             let discarded = await discardEntityCard(current)
             return discarded && retained.notificationError == nil
         }

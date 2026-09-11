@@ -80,7 +80,7 @@ final class HealthKitSyncServiceTests: XCTestCase {
         XCTAssertTrue(requests.allSatisfy { $0.limit == 500 })
     }
 
-    func test_changePagesAreDurableBeforeAnyWindowReconciliation() async throws {
+    func test_historyPagesPublishCompleteWindowsBeforeTheFinalCheckpoint() async throws {
         let (db, imports, binding) = try await makeStore()
         let start = Date(timeIntervalSince1970: 1_700_006_400)
         let window = HealthImportWindow(kind: .bloodOxygen, start: start, end: start.addingTimeInterval(86400))
@@ -102,10 +102,12 @@ final class HealthKitSyncServiceTests: XCTestCase {
         let staged = try await imports.pendingBatch(binding: binding, kind: .bloodOxygen)
         let interimRows = try await db.writer.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM metric_sample") }
         XCTAssertEqual(first.receivedChanges, 500)
-        XCTAssertEqual(interimRows, 0)
+        XCTAssertEqual(interimRows, 501, "A complete current window is visible while historical paging continues")
         XCTAssertNil(interimAnchor)
         XCTAssertEqual(staged?.batch.added.count, 500)
         XCTAssertTrue(first.hasMore)
+        let dashboard = try await imports.dashboard()
+        XCTAssertEqual(dashboard.types.first { $0.kind == .bloodOxygen }?.rowCount, 501)
 
         let second = try await sync.performSync(quietStart: "22:00", quietEnd: "07:00")
         let finalRows = try await db.writer.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM metric_sample") }
@@ -114,6 +116,29 @@ final class HealthKitSyncServiceTests: XCTestCase {
         XCTAssertEqual(finalRows, 501)
         XCTAssertEqual(finalAnchor, Data([2]))
         XCTAssertFalse(second.hasMore)
+    }
+
+    func test_fullAddedPageWithDeletionDoesNotGetStuckAtStaging() async throws {
+        let (_, imports, binding) = try await makeStore()
+        let samples = discreteFixture(days: 500).samples
+        let pending = try await imports.stage(binding: binding, kind: .bloodOxygen, previousAnchor: nil,
+            page: .init(added: samples, deleted: [UUID()], anchor: Data([9]), hasMore: true))
+        XCTAssertEqual(pending.batch.added.count, 500)
+        XCTAssertEqual(pending.batch.deleted.count, 1)
+    }
+
+    func test_dashboardReportIsDurableAndBoundToTheConnection() async throws {
+        let (db, imports, binding) = try await makeStore()
+        let provider = HealthSyncFixtureProvider(kind: .heartRate, pages: [], snapshots: [])
+        let sync = service(db, imports: imports, provider: provider)
+        _ = try await sync.performSync(quietStart: "22:00", quietEnd: "07:00")
+        let reloaded = try await HealthImportStore(writer: db.writer).dashboard()
+        XCTAssertEqual(reloaded.lastReport?.bindingId, binding.id)
+        try await db.writer.write { try $0.execute(sql: "DELETE FROM hk_import_binding") }
+        let next = try await imports.connect()
+        let dashboard = try await imports.dashboard()
+        XCTAssertNotEqual(next.id, binding.id)
+        XCTAssertNil(dashboard.lastReport, "A reconnect must not display the preceding binding's report")
     }
 
     func test_windowBudgetKeepsCheckpointUntilRemainingWindowsResume() async throws {

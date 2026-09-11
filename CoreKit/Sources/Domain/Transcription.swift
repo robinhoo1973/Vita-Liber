@@ -19,10 +19,15 @@ public struct TranscriptionCapability: Sendable, Equatable {
     public var maxSegmentSeconds: Int
     /// 该引擎实际可用的 locale 标识集（FR17.15 六语种矩阵的探测结果）
     public var availableLocales: Set<String>
-    public init(supportsLongForm: Bool, maxSegmentSeconds: Int, availableLocales: Set<String>) {
+    public var allowsDialectFallback: Bool
+    public var matchesLanguageCode: Bool
+    public init(supportsLongForm: Bool, maxSegmentSeconds: Int, availableLocales: Set<String>,
+                allowsDialectFallback: Bool = true, matchesLanguageCode: Bool = false) {
         self.supportsLongForm = supportsLongForm
         self.maxSegmentSeconds = maxSegmentSeconds
         self.availableLocales = availableLocales
+        self.allowsDialectFallback = allowsDialectFallback
+        self.matchesLanguageCode = matchesLanguageCode
     }
 
     /// 基线轨（SFSpeechRecognizer）默认能力
@@ -38,13 +43,17 @@ public struct TranscriptionCapability: Sendable, Equatable {
     public func locale(matching identifier: String) -> String? {
         if availableLocales.contains(identifier) { return identifier }
         let normalized = TranscriptionLocale.normalizedIdentifier(identifier)
-        return availableLocales.sorted().first {
+        if let matched = availableLocales.sorted().first(where: {
             TranscriptionLocale.normalizedIdentifier($0) == normalized
-        }
+        }) { return matched }
+        if matchesLanguageCode, !ASRModelCatalog.dialectLocales.contains(normalized),
+           let code = normalized.split(separator: "-").first.map(String.init), availableLocales.contains(code) { return identifier }
+        return nil
     }
 
     public func resolvedLocale(for identifier: String) -> String? {
         if let exact = locale(matching: identifier) { return exact }
+        guard allowsDialectFallback else { return nil }
         switch TranscriptionLocale.normalizedIdentifier(identifier) {
         case "yue-hant-hk", "yue-hans-cn", "nan-tw", "wuu-cn", "zh-hans-cn-sichuan":
             return locale(matching: "zh-Hans-CN")
@@ -101,12 +110,19 @@ public struct TranscriptionResult: Sendable, Equatable {
     /// V3.61：会话内各识别段（停顿/60s 换段产生；单段时为空或单元素，向后兼容）
     public var segments: [String]
     public var completion: TranscriptionCompletion
+    /// 实际服务该按压的引擎；不由UI当前偏好倒推（偏好可能在收尾期间已变）。
+    public var engineID: String?
+    /// nil表明引擎没有给出可用置信度；confidence保留为0以兼容低置信复核。
+    public var confidenceIsAvailable: Bool
     public init(text: String, confidence: Double, resolvedLocale: String, segmented: Bool,
-                segments: [String] = [], completion: TranscriptionCompletion = .final) {
+                segments: [String] = [], completion: TranscriptionCompletion = .final,
+                engineID: String? = nil, confidenceIsAvailable: Bool = true) {
         self.text = text; self.confidence = confidence
         self.resolvedLocale = resolvedLocale; self.segmented = segmented
         self.segments = segments
         self.completion = completion
+        self.engineID = engineID
+        self.confidenceIsAvailable = confidenceIsAvailable
     }
 }
 

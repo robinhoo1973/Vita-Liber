@@ -24,13 +24,15 @@ public struct TextUnderstandingInput: Sendable, Equatable {
     public var source: Source
     /// zh-Hans / zh-Hant / en …（显式传入，不靠自动检测——<20 字符不可靠，§8.7）
     public var locale: Locale.LanguageCode
+    public var allowsGenerativeProcessing: Bool
 
     public init(text: String, lines: [String]? = nil, source: Source,
-                locale: Locale.LanguageCode = .chinese) {
+                 locale: Locale.LanguageCode = .chinese, allowsGenerativeProcessing: Bool = false) {
         self.text = text
         self.lines = lines
         self.source = source
         self.locale = locale
+        self.allowsGenerativeProcessing = allowsGenerativeProcessing
     }
 
     /// 语音来源携带的转写置信度（0..1；OCR 侧为 nil）
@@ -82,15 +84,18 @@ public struct UnderstandingResult: Sendable, Equatable {
     /// 兜底而不必重跑启发式抽取——此前引擎算完即弃 `_ = claimed`，App 层
     /// 被迫复制同一套 guessFields 循环，两处独立演化即字段漂移）
     public var claimedLineIndices: Set<Int>
+    /// 无结果与引擎失败不同：组合器只在后者切轨，不把“首个非空”当正确性。
+    public var engineUnavailable: Bool
 
     public init(suggestedTarget: String?, targetConfidence: Double,
                 secondaryTargets: [TargetCandidate] = [], fields: [FieldDraft],
-                claimedLineIndices: Set<Int> = []) {
+                 claimedLineIndices: Set<Int> = [], engineUnavailable: Bool = false) {
         self.suggestedTarget = suggestedTarget
         self.targetConfidence = targetConfidence
         self.secondaryTargets = secondaryTargets
         self.fields = fields
         self.claimedLineIndices = claimedLineIndices
+        self.engineUnavailable = engineUnavailable
     }
 }
 

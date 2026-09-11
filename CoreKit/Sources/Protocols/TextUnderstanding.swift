@@ -10,6 +10,11 @@ public protocol TextUnderstanding: Sendable {
     /// 识别后文本 → 统一 `UnderstandingResult`（去向判定 + D 级字段草稿）。
     /// 紧急关键词前置（BR-012）在**进入本层之前**由调用方执行（语音侧）。
     func understand(_ input: TextUnderstandingInput) async -> UnderstandingResult
+    func isAvailable(for input: TextUnderstandingInput) async -> Bool
+}
+
+extension TextUnderstanding {
+    public func isAvailable(for input: TextUnderstandingInput) async -> Bool { true }
 }
 
 /// 契约桩（非 Apple 平台与测试装配）：零产出——Linux 门禁/单测
@@ -17,6 +22,6 @@ public protocol TextUnderstanding: Sendable {
 public actor StubTextUnderstanding: TextUnderstanding {
     public init() {}
     public func understand(_ input: TextUnderstandingInput) async -> UnderstandingResult {
-        UnderstandingResult(suggestedTarget: nil, targetConfidence: 0, fields: [])
+        UnderstandingResult(suggestedTarget: nil, targetConfidence: 0, fields: [], engineUnavailable: true)
     }
 }

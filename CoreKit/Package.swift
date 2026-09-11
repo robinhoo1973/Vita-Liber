@@ -10,21 +10,12 @@ let package = Package(
     products: [.library(name: "CoreKit", targets: ["Domain", "Protocols", "Infrastructure"])],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "6.29.0"),
-        // ══ sherpa-onnx 主轨：临时退出构建（2026-09-10）══
-        // 退出原因：App Store 拒绝三个 build（320.1/321.1/322.1）——
-        // ITMS-90208「Invalid Bundle：VitaLiber.app/Frameworks/onnxruntime.framework
-        // does not support the minimum OS Version specified in the Info.plist」。
-        // 根因（IPA 拆解实证）：Xcode 26 将 onnxruntime-libs 的静态
-        // xcframework 转成内嵌 dylib（LC_BUILD_VERSION minos=17.0，SDK 26.5），
-        // 而框架 Info.plist 仍为上游的 MinimumOSVersion=15.1——二进制与
-        // plist 内部矛盾被 Apple 90208 校验拒绝。非本仓代码可修
-        // （静态 framework 形态二进制依赖 + Xcode 26 SPM 处理缺陷）。
-        // 复归条件（满足其一）：①上游 onnxruntime-libs 发布无该缺陷的
-        // 二进制；②Xcode 修复静态 framework 嵌入处理；③改用非 framework
-        // 形态（纯 .a）的 onnxruntime 分发。复归步骤：恢复下方依赖/产品/
-        // exclude 三项 + EngineFactories 的 sherpa 主轨 + 钉版三问+一复验。
-        // .package(url: "https://github.com/k2-fsa/sherpa-onnx.git",
-        //          revision: "5e4232db78d0150801ae3244c9e2ddc41e5e02d8")
+        // 包装器/二进制匹配的钉版；ITMS-90208在归档的framework元数据校正及IPA校验处处理。
+        .package(url: "https://github.com/k2-fsa/sherpa-onnx.git",
+                 revision: "5e4232db78d0150801ae3244c9e2ddc41e5e02d8"),
+        // 上游为branch依赖，根包显式钉住ORT资产版本，防传递依赖静默漂移。
+        .package(url: "https://github.com/csukuangfj/onnxruntime-libs",
+                 revision: "2ece6a6d72b6667d69f33f05b417ebed079f226a")
     ],
     targets: [
         .target(name: "Domain"),
@@ -36,15 +27,15 @@ let package = Package(
                 "Protocols",
                 // GRDB：iOS 与 macOS 都链接（macOS = CoreKit 测试宿主）。
                 .product(name: "GRDB", package: "GRDB.swift",
+                         condition: .when(platforms: [.iOS, .macOS])),
+                .product(name: "sherpa-onnx", package: "sherpa-onnx",
                          condition: .when(platforms: [.iOS, .macOS]))
             ],
-            // sherpa 主轨临时退出构建（见上方注释）：引擎文件保留在仓、
-            // 移出目标编译，工厂回落基线轨 SFSpeech（功能完备零资产）。
-            exclude: ["SherpaOnnxTranscriber.swift", "SherpaOnnxSpeechSynthesizer.swift"]),
+            // Supertonic不支持中文，当前中文TTS仍使用已接线的系统实现。
+            exclude: ["SherpaOnnxSpeechSynthesizer.swift"]),
         .testTarget(
             name: "CoreKitTests",
             dependencies: ["Domain", "Protocols", "Infrastructure"],
-            exclude: ["SherpaOnnxEngineTests.swift"],
             resources: [.copy("Fixtures")])
     ],
     cxxLanguageStandard: .cxx17

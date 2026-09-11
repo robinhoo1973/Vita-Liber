@@ -56,6 +56,7 @@ public struct MatchedCard: Codable, Sendable, Equatable, Identifiable {
     public var shared: [FieldDraft]
     /// 同类多实例（检验项目/药品行）
     public var rows: [MatchedCardRow]
+    public var encounterAssociation: EncounterAssociation
     public let allFieldCoverage: Double
     public let requiredCoverage: Double
     /// 卡级缺失必填（去重键口径；≤20%，卡内单行补填）
@@ -65,11 +66,13 @@ public struct MatchedCard: Codable, Sendable, Equatable, Identifiable {
 
     public init(id: UUID = UUID(), kind: String, pageIndex: Int, shared: [FieldDraft], rows: [MatchedCardRow],
                 allFieldCoverage: Double, requiredCoverage: Double,
-                missingRequired: [CompletenessFieldRule], level: CompletenessLevel) {
+                 missingRequired: [CompletenessFieldRule], level: CompletenessLevel,
+                 encounterAssociation: EncounterAssociation = .unselected) {
         self.id = id; self.kind = kind; self.pageIndex = pageIndex
         self.shared = shared; self.rows = rows
         self.allFieldCoverage = allFieldCoverage; self.requiredCoverage = requiredCoverage
         self.missingRequired = missingRequired; self.level = level
+        self.encounterAssociation = encounterAssociation
     }
 
     /// 卡内全部字段（共享 + 各行）——完整度徽章与持久化的统一读面
@@ -79,6 +82,7 @@ public struct MatchedCard: Codable, Sendable, Equatable, Identifiable {
     public mutating func reviseField(at index: Int, rowId: UUID? = nil, to value: String) {
         guard let rowId else {
             guard shared.indices.contains(index) else { return }
+            if case .suggested = encounterAssociation { encounterAssociation = .unselected }
             shared[index].revise(to: value)
             return
         }
@@ -97,8 +101,34 @@ public struct MatchedCard: Codable, Sendable, Equatable, Identifiable {
         }
     }
 
+    /// FR6.9 V3.66（业主裁决「一键确认本卡」）：保存前把本卡全部「非拒绝、有值、
+    /// 非低置信」字段升级为已确认——用户以**卡级显式确认动作**（[确认保存]）完成
+    /// D→C，不再逐字段点击；低置信字段（`ConfidenceTier.low`）仍须逐项复核
+    /// （FR17.4 强制复核不降级），空字段保持缺失（走补填/待办），拒绝字段保持拒绝。
+    /// 纯值变换，零 IO——写入纪律（BR-003/行级跳过）不变，仅确认粒度从字段升为卡。
+    public func confirmingAllFields() -> MatchedCard {
+        func confirmed(_ fields: [FieldDraft]) -> [FieldDraft] {
+            fields.map { field in
+                guard field.grade != .rejected,
+                      !field.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                      ConfidenceTier.tier(field.confidence) != .low else { return field }
+                var copy = field
+                _ = copy.confirm()
+                return copy
+            }
+        }
+        var result = self
+        result.shared = confirmed(shared)
+        result.rows = rows.map { row in
+            var updated = row
+            updated.fields = confirmed(row.fields)
+            return updated
+        }
+        return result
+    }
+
     private enum CodingKeys: String, CodingKey {
-        case id, kind, pageIndex, shared, rows, allFieldCoverage, requiredCoverage, missingRequired, level
+        case id, kind, pageIndex, shared, rows, allFieldCoverage, requiredCoverage, missingRequired, level, encounterAssociation
     }
 
     public init(from decoder: Decoder) throws {
@@ -113,6 +143,7 @@ public struct MatchedCard: Codable, Sendable, Equatable, Identifiable {
         let missing = try c.decode([String].self, forKey: .missingRequired)
         missingRequired = missing.map { CompletenessFieldRule(key: $0, isRequired: true) }
         level = try c.decode(CompletenessLevel.self, forKey: .level)
+        encounterAssociation = try c.decodeIfPresent(EncounterAssociation.self, forKey: .encounterAssociation) ?? .unselected
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -122,6 +153,7 @@ public struct MatchedCard: Codable, Sendable, Equatable, Identifiable {
         try c.encode(rows, forKey: .rows); try c.encode(allFieldCoverage, forKey: .allFieldCoverage)
         try c.encode(requiredCoverage, forKey: .requiredCoverage)
         try c.encode(missingRequired.map(\.key), forKey: .missingRequired); try c.encode(level, forKey: .level)
+        try c.encode(encounterAssociation, forKey: .encounterAssociation)
     }
 }
 
@@ -143,11 +175,14 @@ public enum CardTemplateMatcher {
                      mapping: ["drug_name": "drug_name", "prescribed_at": "prescribed_at",
                                "hospital": "hospital", "doctor": "doctor", "advice_text": "advice_text"],
                      rowLevelKeys: ["drug_name"]),
-        // 目录登记、无提取器（本轮不匹配）——诚实标注，避免「支持」假象
-        CardTemplate(kind: "medication", rowKey: "generic_name", mapping: [:], rowLevelKeys: ["generic_name"]),
-        CardTemplate(kind: "immunization", rowKey: nil, mapping: [:]),
+        CardTemplate(kind: "medication", rowKey: "generic_name",
+                     mapping: ["generic_name":"generic_name", "brand_name":"brand_name", "spec":"spec", "unit_kind":"unit_kind"],
+                     rowLevelKeys: ["generic_name", "brand_name", "spec", "unit_kind"]),
+        CardTemplate(kind: "immunization", rowKey: nil,
+                     mapping: ["vaccine_name":"vaccine_name", "dose_number":"dose_number", "administered_at":"administered_at", "provider":"provider", "lot_number":"lot_number"]),
         CardTemplate(kind: "appointment", rowKey: nil, mapping: [:]),
-        CardTemplate(kind: "claim_item", rowKey: nil, mapping: [:]),
+        CardTemplate(kind: "claim_item", rowKey: nil,
+                     mapping: ["amount":"amount", "currency":"currency", "report_date":"date", "item_type":"item_type", "merchant":"merchant", "hospital":"merchant", "summary":"summary"]),
     ]
 
     /// 单页匹配：返回全部达线卡（每类至多一张，按模板目录顺序）。
@@ -186,6 +221,27 @@ public enum CardTemplateMatcher {
                             consumed.insert(companion.offset)
                             rowFields += attached
                         }
+                    }
+                }
+                if template.kind == "medication" {
+                    let triggers = fields.filter { $0.key == rowKey }
+                    let sameLineTriggers = triggers.filter { $0.sourceLineIndex == draft.sourceLineIndex }
+                    for (otherIndex, other) in fields.enumerated() where otherIndex != index {
+                        guard let key = template.mapping[other.key], template.rowLevelKeys.contains(key), key != rowKey,
+                              !consumed.contains(otherIndex),
+                              !rowFields.contains(where: { $0.key == key }) else { continue }
+                        // 审查修复（误归防线）：单一触发行跨行吸收其余行级字段时，
+                        // 该字段键必须页内唯一——双标签页 OCR 漏检一个「通用名称」
+                        // 时，另一标签的规格/计量单位行不得并入已识别药品行
+                        // （误归他药规格会被「一键确认」升为 C 级事实，BR-003 事实
+                        // 纯度受损）。同行伴随（与触发行同 sourceLineIndex）证据
+                        // 强，无需唯一性约束——分组显式括号，防 comma-AND 吞并。
+                        let uniqueOnPage = fields.filter { template.mapping[$0.key] == key }.count == 1
+                        let sameLineEvidence = draft.sourceLineIndex != nil
+                            && sameLineTriggers.count == 1 && draft.sourceLineIndex == other.sourceLineIndex
+                        guard (uniqueOnPage && triggers.count == 1) || sameLineEvidence else { continue }
+                        var copy = other; copy.key = key
+                        rowFields.append(copy); consumed.insert(otherIndex)
                     }
                 }
                 let present = Set(rowFields.filter { !$0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.map(\.key))

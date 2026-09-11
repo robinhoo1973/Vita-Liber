@@ -37,3 +37,11 @@ secrets*
 
 # Python 管线缓存
 __pycache__/
+
+# ASR权重由钉版清单在构建机取得；清单与许可证入库，运行时全部随包。
+/Resources/ASRModels/zipformer/
+/Resources/ASRModels/dolphin/
+/Resources/ASRModels/whisper/
+/Resources/ASRModels/silero/
+/Resources/ASRModels/qwen3/
+/Resources/ASRModels/resolved-manifest.json

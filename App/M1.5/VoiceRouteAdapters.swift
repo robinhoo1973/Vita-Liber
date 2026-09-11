@@ -40,41 +40,13 @@ struct VoiceNotePanelRouteView: View {
 struct VoiceGuidedProfileRouteView: View {
     @Environment(AppState.self) private var app
 
-    /// 访谈键 → 档案备注段落标题（追加写，多轮访谈不覆盖；标题走 L10n 单出口）
-    private static func noteSectionTitle(_ key: String) -> String? {
-        switch key {
-        case "allergy": return L10n.voiceguide_noteAllergy
-        case "pastHistory": return L10n.voiceguide_noteHistory
-        case "currentMeds": return L10n.voiceguide_noteMeds
-        case "emergencyContact": return L10n.voiceguide_noteContact
-        default: return nil
-        }
-    }
-
     var body: some View {
+        let patientId = app.currentPatientId
         VoiceGuidedProfileView { key, value in
-            guard var profile = app.members.first(where: { $0.id == app.currentPatientId }) else { return false }
-            switch key {
-            case "bloodType": profile.bloodType = value
-            case "idNo": profile.idNo = value
-            case "insuranceNo": profile.insuranceNo = value
-            case "note": profile.note = value
-            case "birthDate": profile.birthDate = value
-            default:
-                // 访谈四步结构化落库待接（技术债），先追加进备注保证零丢失；
-                // 同时记录完成步骤（语言无关持久化，驱动首页完善度进度卡）
-                app.markVoiceInterviewStep(key)
-                if let section = Self.noteSectionTitle(key) {
-                    let line = "【\(section)】\(value)"
-                    profile.note = [profile.note, line]
-                        .compactMap { $0?.isEmpty == false ? $0 : nil }
-                        .joined(separator: "\n")
-                }
-            }
-            profile.updatedAt = Date().timeIntervalSince1970
-            // 审查修复：落库成败回传——写失败时访谈停在当前步并可见报错，
-            // 不再静默丢答案后读下一题
-            return await app.updateMember(profile)
+            await app.commitVoiceProfileField(key, value: value, patientId: patientId)
         }
+        // 同一无参路由可能留在 Me 栈顶：换人必须重建答案/步骤/确认态，
+        // 旧会话在途提交仍只持有上面捕获的原 patientId（BR-001）。
+        .id(patientId)
     }
 }

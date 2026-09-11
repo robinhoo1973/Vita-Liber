@@ -304,6 +304,7 @@ public actor DocumentStore {
                 }
             }
             try Self.stageReview(db, documentId: id, patientId: patientId, cards: cards, reviewedFields: reviewedFields, now: Date())
+            try OCRCardStore.refreshDocumentProjection(documentId: id, patientId: patientId, db: db, now: Date())
         }
     }
 

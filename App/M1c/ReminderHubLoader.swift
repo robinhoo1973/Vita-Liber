@@ -113,10 +113,12 @@ enum ReminderHubLoader {
 
     /// 系统类（期一单一来源）：档案完善提示（注册补全）。
     /// 通知中心铃铛/横幅走既有 ReminderStore 链路，不在此重复投影。
+    static let profileProgressKind = "profile_progress"
+
     static func systemItems(done: Int, total: Int, memberId: UUID) -> [AggregatedReminderItem] {
-        guard done < total else { return [] }
+        guard total > 0, done >= 0, done < total else { return [] }
         return [AggregatedReminderItem(
-            id: .init(kind: "profile_progress", sourceId: "profile"),
+            id: .init(kind: profileProgressKind, sourceId: memberId.uuidString),
             aggregationKind: .system,
             occurredAt: Date(),
             title: L10n.homeProfileProgressTitle,

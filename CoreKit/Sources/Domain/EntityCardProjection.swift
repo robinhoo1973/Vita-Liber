@@ -96,48 +96,12 @@ public enum EntityCardProjection {
                                   prescribedAt: date)
     }
 
-    /// 卡片互联（FR6.9 期二）：处方/收费/用药等 OCR 信息卡与就诊卡的
-    /// 归属规则——纯函数、零 IO，存储层只做查询与落库。
-    /// 匹配口径（确定性、宁缺毋滥，BR-003 未确认信息不参与事实组装）：
-    /// 1. 同日窗口（±`sameDayTolerance`）内；
-    /// 2. 医院相同（双方非空时）计 2 分、医生相同（双方非空时）计 1 分；
-    /// 3. 无任何信号（医院/医生均缺失）不猜——返回 nil 保持 encounter_id NULL；
-    /// 4. 平手取传入顺序首位（调用方按创建时间最新优先传入）。
-    public enum EncounterLinker {
-        /// 处方日期与就诊日期视为同次就诊的最大偏差（1 天）
-        public static let sameDayTolerance: TimeInterval = 86_400
+    /// 卡片互联（FR6.9 期二）的归属规则现已由 `EncounterResolver`（同模块
+    /// EncounterAssociation.swift）承担——显式用户选择 + 证据化建议，写入侧
+    /// 按 `EncounterAssociation` 单值裁决（无信号不猜、明确未关联不被回填
+    /// 推翻）。旧的 `EncounterLinker`（同日自动匹配 + 落库回填）随 V3.66 业主
+    /// 裁决整体退役并删除；不再存在任何自动归属路径。
 
-        public struct Candidate: Sendable, Equatable {
-            public var id: UUID
-            public var date: Date
-            public var hospital: String?
-            public var doctor: String?
-            public var createdAt: Date
-            public init(id: UUID, date: Date, hospital: String? = nil,
-                        doctor: String? = nil, createdAt: Date = Date()) {
-                self.id = id; self.date = date; self.hospital = hospital
-                self.doctor = doctor; self.createdAt = createdAt
-            }
-        }
-
-        public static func match(prescribedAt: Date, hospital: String?, doctor: String?,
-                                 candidates: [Candidate]) -> UUID? {
-            let window = candidates.filter {
-                abs($0.date.timeIntervalSince(prescribedAt)) <= sameDayTolerance
-            }
-            guard !window.isEmpty else { return nil }
-            func score(_ c: Candidate) -> Int {
-                var s = 0
-                if let h = hospital, let ch = c.hospital, !h.isEmpty, h == ch { s += 2 }
-                if let d = doctor, let cd = c.doctor, !d.isEmpty, d == cd { s += 1 }
-                return s
-            }
-            let scored = window.map { ($0, score($0)) }
-            let best = scored.map(\.1).max() ?? 0
-            guard best > 0 else { return nil }   // 无信号不猜
-            return scored.first { $0.1 == best }?.0.id
-        }
-    }
 
     /// 卡内全部字段 → 确认卡字段（共享先、逐行后；显示标签由 App 层 L10n 注入）。
     public static func candidateFields(from card: MatchedCard, labelFor: (String) -> String) -> [CandidateField] {
@@ -166,6 +130,15 @@ public enum EntityCardProjection {
             sharedRequired = ["prescribed_at"]; rowRequired = ["drug_name"]
             sharedAllowed = ["prescribed_at", "hospital", "doctor", "advice_text"]
             rowAllowed = ["drug_name"]
+        case "claim_item":
+            sharedRequired = ["amount", "currency", "date", "item_type"]; rowRequired = []
+            sharedAllowed = ["amount", "currency", "date", "item_type", "merchant", "summary"]; rowAllowed = []
+        case "medication":
+            sharedRequired = []; rowRequired = ["generic_name", "unit_kind"]
+            sharedAllowed = []; rowAllowed = ["generic_name", "unit_kind", "brand_name", "spec"]
+        case "immunization":
+            sharedRequired = ["vaccine_name", "dose_number", "administered_at", "provider"]; rowRequired = []
+            sharedAllowed = ["vaccine_name", "dose_number", "administered_at", "provider", "lot_number"]; rowAllowed = []
         default: return ["card_kind"]
         }
         var invalid = Set<String>()
@@ -179,8 +152,8 @@ public enum EntityCardProjection {
             }
         }
         let shared = dictionary(card.shared), values = dictionary(row.fields)
-        let dateKey = card.kind == "metric_sample" ? "measured_at" : (card.kind == "encounter" ? "date" : "prescribed_at")
-        if shared[dateKey].flatMap({ parseDate($0, calendar: calendar) }) == nil { invalid.insert(dateKey) }
+        let dateKeys = ["metric_sample":"measured_at", "encounter":"date", "prescription":"prescribed_at", "claim_item":"date", "immunization":"administered_at"]
+        if let dateKey = dateKeys[card.kind], shared[dateKey].flatMap({ parseDate($0, calendar: calendar) }) == nil { invalid.insert(dateKey) }
         if card.kind == "encounter", shared["kind"].flatMap(EncounterKind.init(rawValue:)) == nil { invalid.insert("kind") }
         if card.kind == "metric_sample" {
             for key in ["value", "ref_low", "ref_high"] {
@@ -190,13 +163,22 @@ public enum EntityCardProjection {
                 invalid.formUnion(["ref_low", "ref_high"])
             }
         }
+        if card.kind == "claim_item" {
+            if let amount = shared["amount"].flatMap(Double.init), amount.isFinite, amount >= 0 {} else { invalid.insert("amount") }
+            if shared["currency"]?.range(of: #"^[A-Z]{3}$"#, options: .regularExpression) == nil { invalid.insert("currency") }
+            if !["invoice", "fee", "receipt"].contains(shared["item_type"] ?? "") { invalid.insert("item_type") }
+        }
+        if card.kind == "medication", !["tablet", "capsule", "patch", "vial"].contains(values["unit_kind"] ?? "") { invalid.insert("unit_kind") }
+        if card.kind == "immunization", (shared["dose_number"].flatMap(Int.init) ?? 0) <= 0 { invalid.insert("dose_number") }
         return invalid.sorted()
     }
 
     public static func isDiscarded(_ row: MatchedCardRow, in card: MatchedCard) -> Bool {
-        let fields = card.kind == "encounter" ? card.shared : row.fields.filter { $0.key != "metric_key" }
+        let fields = row.fields.isEmpty ? card.shared : row.fields.filter { $0.key != "metric_key" }
         return !fields.isEmpty && fields.allSatisfy { $0.grade == .rejected }
     }
+
+    public static func confirmedValues(_ fields: [FieldDraft]) -> [String: String] { dictionary(fields) }
 
     private static func dictionary(_ fields: [FieldDraft]) -> [String: String] {
         var map: [String: String] = [:]

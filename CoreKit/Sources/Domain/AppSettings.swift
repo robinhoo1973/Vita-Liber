@@ -37,6 +37,7 @@ public enum AppSettingKey: String, Sendable, CaseIterable, Codable {
     case authCloudBackup          // 云备份
     case authAnonymizedImprovement // 匿名化改进
     case authHealthRead           // 读取 Apple 健康（F16）
+    case healthAutoImport         // 前台/后台自动增量导入；关闭后仍可手动导入
     case authVoiceDictation       // 语音速记识别
     // FR9.18 分通道偏好（§5.58，V3.72）：每类提醒三选一（local 仅通知/
     // persistentRing 通知+响铃直到确认/inApp 静音仅横幅）；remindChannel 为全局缺省
@@ -48,6 +49,7 @@ public enum AppSettingKey: String, Sendable, CaseIterable, Codable {
     case remindChannelBackup
     case inAppBannerEnabled        // 应用内横幅总开关（默认开）
     case voiceMixedInput           // FR17.15 混说开关（默认开）
+    case voiceEngine               // FR17.15 V3.66 识别引擎档位（VoiceEngineChoice：auto/advanced/dictation/classic）
     case gateGraceSeconds          // FR1.4 退后台自动锁定宽限（秒：0/15/60）
     case speechRate                // FR14.7 默认语速：slow/normal/fast（TTS 三档，FR19.3 语速可调）
 
@@ -88,8 +90,10 @@ public enum AppSettingKey: String, Sendable, CaseIterable, Codable {
             return "local"
         case .inAppBannerEnabled: return "true"
         case .voiceMixedInput: return "true"
+        case .voiceEngine: return VoiceEngineChoice.auto.rawValue
         case .gateGraceSeconds: return "0"
         case .speechRate: return "normal"
+        case .healthAutoImport: return "true"
         }
     }
 }

@@ -83,6 +83,10 @@ struct VoiceQuickLaunchView: View {
                     // ensureModel：命中即收起全屏跳急救卡，不被本面板盖住）
                     PressToTalkMicButton(model: model)
                         .disabled(isSaving || isUnderstanding || confirmSet != nil)
+                    Text(L10n.voiceEngineName(model.resolvedEngineID.flatMap(VoiceEngineChoice.init(rawValue:))
+                        ?? VoiceEngineChoice.resolve(settings.values[.voiceEngine])))
+                        .font(.caption).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("SP-55.panel.engine")
                     // FR17.15 能力诚实（V3.61）：回显实际识别语言；方言回落主语言时标「尽力识别」
                     if let resolved = model.resolvedLocale {
                         HStack(spacing: 6) {

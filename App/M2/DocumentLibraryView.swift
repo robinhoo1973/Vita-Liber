@@ -26,6 +26,7 @@ final class DocumentsState {
     private let pipeline: OCRPipeline
     private let decoder: any ImageDecoding
     private let ocrAuthorized: @MainActor () -> Bool
+    private let aiAuthorization: @MainActor () -> (allowed: Bool, revision: UInt64)
     private let originalsDir: URL
     private let understandingEngine: any TextUnderstanding
     private let codeIndex: (any CodeIndex & UnitIndex)?
@@ -51,6 +52,8 @@ final class DocumentsState {
         var duplicateHits: [DocumentStore.DocumentRow] = []
         fileprivate(set) var source: ImportSource?
         var cards: [MatchedCard] = []
+        var selectedCardID: UUID?
+        var cardOrder: [UUID] = []
         var totalCards = 0
         var preparedCards: [MatchedCard]?
         var committedCards: Set<UUID> = []
@@ -180,7 +183,8 @@ final class DocumentsState {
 
     init(store: DocumentStore, pipeline: OCRPipeline,
          decoder: (any ImageDecoding)? = nil,
-         ocrAuthorized: @escaping @MainActor () -> Bool = { true },
+          ocrAuthorized: @escaping @MainActor () -> Bool = { true },
+          aiAuthorization: @escaping @MainActor () -> (allowed: Bool, revision: UInt64) = { (false, 0) },
          originalsDir: URL? = nil, prescriptionStore: PrescriptionStore? = nil,
          prescriptionDocTypeLabel: String = L10n.docTypePrescription,
          understandingEngine: (any TextUnderstanding)? = nil,
@@ -192,6 +196,7 @@ final class DocumentsState {
         self.store = store; self.pipeline = pipeline
         self.decoder = decoder ?? EngineRegistry.shared.resolve(ImageDecodingFactory.self)
         self.ocrAuthorized = ocrAuthorized
+        self.aiAuthorization = aiAuthorization
         self.originalsDir = originalsDir ?? FileManager.default.temporaryDirectory
         self.understandingEngine = understandingEngine ?? EngineRegistry.shared.resolve(TextUnderstandingFactory.self)
         self.codeIndex = codeIndex; self.problemStore = problemStore
@@ -256,9 +261,18 @@ final class DocumentsState {
     }
 
     func dequeueEntityCard(_ card: MatchedCard) {
-        guard let session = activeImport, session.cards.first?.id == card.id else { return }
-        session.cards.removeFirst()
+        guard let session = activeImport, let index = session.cards.firstIndex(where: { $0.id == card.id }) else { return }
+        session.cards.remove(at: index)
+        if session.selectedCardID == card.id {
+            session.selectedCardID = session.cards.isEmpty ? nil : session.cards[min(index, session.cards.count - 1)].id
+        }
         finishEntityQueueIfNeeded()
+    }
+
+    func selectEntityCard(_ id: UUID) {
+        guard let session = activeImport, !session.isSaving, !session.isBulkDeferring,
+              session.cards.contains(where: { $0.id == id }) else { return }
+        session.selectedCardID = id
     }
 
     func setImportError(_ message: String?) { lastImportError = message }
@@ -473,15 +487,30 @@ final class DocumentsState {
         do {
             let result = try await pipeline.run(imageData: imageData)
             guard !result.failed else { return .init(index: index, lines: result.lines, status: "failed", fields: []) }
-            let understanding = await understandingEngine.understand(.init(text: result.lines.joined(separator: "\n"),
-                lines: result.lines, source: .ocr(documentTypeHint: hint)))
+            let authorization = aiAuthorization()
+            let input = TextUnderstandingInput(text: result.lines.joined(separator: "\n"), lines: result.lines,
+                source: .ocr(documentTypeHint: hint), allowsGenerativeProcessing: authorization.allowed)
+            var understanding = await understandingEngine.understand(input)
             let confidence = result.confidence.isFinite ? min(1, max(0, result.confidence)) : 0
             var fields = Self.extractPageFields(lines: result.lines, understood: understanding.fields,
                                                 confidence: confidence)
+            // 审查修复（撤销清洗 + 无重复 NL）：只在「理解期间授权被撤回/代际
+            // 变化且字段含生成轨产出」时重跑——以无生成授权重跑**注入引擎**
+            // （FallbackTextUnderstanding 的门控自然切到 NL 轨；不再直接构造
+            // 具体实现，测试可注入桩）。授权本就关闭时首跑即 NL，条件不成立、
+            // 零额外开销（旧实现每页无条件重跑 NL 一遍并丢弃结果，双倍成本）。
+            let authorizationChanged = authorization.revision != aiAuthorization().revision || !aiAuthorization().allowed
+            if authorizationChanged, fields.contains(where: { $0.source == .foundationModels }) {
+                var gated = input
+                gated.allowsGenerativeProcessing = false
+                understanding = await understandingEngine.understand(gated)
+                fields = Self.extractPageFields(lines: result.lines, understood: understanding.fields, confidence: confidence)
+            }
             if let codeIndex {
                 fields = await UnderstandingCodeResolution.resolve(fields, locale: Locale(identifier: "zh_Hans"),
                                                                      index: codeIndex, units: codeIndex)
             }
+            guard ocrAuthorized(), !Task.isCancelled else { return .init(index: index, lines: result.lines, status: "skipped", fields: []) }
             return .init(index: index, lines: result.lines, fields: fields,
                          documentTypeKey: understanding.suggestedTarget, confidence: confidence,
                          qualityTags: result.qualityTags, typeConfidence: understanding.targetConfidence)
@@ -593,6 +622,8 @@ final class DocumentsState {
                 try await store.setArchived(id: replace, archived: true)
             }
             session.cards = cards; session.totalCards = cards.count
+            session.cardOrder = cards.map(\.id)
+            session.selectedCardID = cards.first?.id
             session.documentReviewFinished = true
             pendingDidChange()
             if loadingPatientId == draft.patientId || loadingPatientId == nil {
@@ -709,6 +740,8 @@ final class DocumentsState {
         case "lab_report": return L10n.docTypeReport
         case "outpatient_record", "diagnosis_certificate": return L10n.docTypeRecord
         case "vaccine_record": return L10n.docTypeLabelVaccineRecord
+        case "invoice": return L10n.claim_type_invoice
+        case "medication_label": return L10n.entityCardKindName("medication")
         default: return nil
         }
     }
@@ -716,7 +749,7 @@ final class DocumentsState {
     static var unresolvedDocTypePlaceholder: String { L10n.docTypeLabelOther }
 
     static func docTypeKey(forLabel label: String) -> String? {
-        ["prescription", "lab_report", "outpatient_record", "vaccine_record"].first { docTypeLabel(forStableKey: $0) == label }
+        ["prescription", "lab_report", "outpatient_record", "vaccine_record", "invoice", "medication_label"].first { docTypeLabel(forStableKey: $0) == label }
     }
 
     static func fieldLabel(forKey key: String) -> String {
@@ -903,6 +936,7 @@ struct DocumentStoreDetailView: View {
                 LabeledContent(L10n.docDate, value: doc.createdAt.formatted(date: .abbreviated, time: .shortened))
                 HStack { Text(doc.docType); if doc.grade == "D" { GradeBadge(grade: "D") } }
             }
+            DocumentRelationsSection(documentId: doc.id, patientId: doc.patientId)
             Section {
                 Button { showOriginal = true } label: { Label(L10n.docViewOriginal, systemImage: "doc.text.magnifyingglass") }
                     .accessibilityIdentifier(doc.isSensitive ? "SP-09.document.detail.originalLocked" : "SP-09.document.detail.original")

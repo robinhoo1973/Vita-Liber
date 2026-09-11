@@ -85,7 +85,7 @@ final class AppState {
         // 它在 EAL resolve 之后把结果覆盖回具体实现，注册表解析成为死代码，
         // ADR-027「调用方永不直接 import 具体引擎类型」名存实亡（半重构残留）。
         self.defaults = defaults
-        self.voiceInterviewCompleted = Set(defaults.stringArray(forKey: "voiceInterviewSteps") ?? [])
+        self.voiceInterviewStepsByPatient = defaults.dictionary(forKey: "voiceInterviewStepsByPatient") as? [String: [String]] ?? [:]
         // 审查修复：-uitest-* 旁路（门禁直通/清态/种子完成）只在 DEBUG 生效——
         // 发布构建即使被注入启动参数也不执行任何测试旁路（FR1.1 门禁强度
         // 不得依赖「启动参数不可信」的假设）
@@ -104,6 +104,7 @@ final class AppState {
         if self.launchArgs.contains("-uitest-reset") {
             defaults.removePersistentDomain(forName: Bundle.main.bundleIdentifier ?? "com.vitaliber.VitaLiber")
             self.onboardingFinished = false
+            self.voiceInterviewStepsByPatient = [:]
         }
         // V3.22 门禁改造：应用内 PIN 整体退役。旧哈希不再有验证入口，直接清除
         // （不做任何迁移——系统设备所有者认证严格强于 6 位应用 PIN）
@@ -289,43 +290,52 @@ final class AppState {
     /// 会因 id 每次变化而无限取消重启（owner 未加载时的忙碌死循环），BR-001 锚点必须稳定。
     var currentPatientId: UUID {
         get {
+            // UserDefaults 不自动发布 @Observable 变化；进度/成员投影须即时失效。
+            access(keyPath: \.currentPatientId)
             if let stored = defaults.string(forKey: "currentPatientId"),
                let id = UUID(uuidString: stored) { return id }
             return owner?.selfPatientId ?? owner?.id ?? Self.sessionFallbackPatientId
         }
-        set { defaults.set(newValue.uuidString, forKey: "currentPatientId") }
+        set {
+            withMutation(keyPath: \.currentPatientId) {
+                defaults.set(newValue.uuidString, forKey: "currentPatientId")
+            }
+        }
     }
 
     private static let sessionFallbackPatientId = UUID()
 
-    /// 语音访谈已完成步骤（持久化到 defaults——审查修复：原按 note 段落文本
-    /// 扫描计分，切换显示语言后历史标记失配，完成度从 8 掉回 0；持久化键
-    /// 与显示语言无关）
-    private(set) var voiceInterviewCompleted: Set<String>
+    /// FR17.11/BR-001：语言无关的访谈完成步骤按成员持久化。
+    /// 旧 voiceInterviewSteps 无成员身份，保留原键但不猜测归属、不计入完成。
+    private var voiceInterviewStepsByPatient: [String: [String]]
+    private static let voiceInterviewKeys: Set<String> = ["allergy", "pastHistory", "currentMeds", "emergencyContact"]
+
+    var voiceInterviewCompleted: Set<String> {
+        Set(voiceInterviewStepsByPatient[currentPatientId.uuidString] ?? [])
+            .intersection(Self.voiceInterviewKeys)
+    }
 
     /// 档案完善进度（首页进度卡 · mock 对齐项）：血型/证件/医保/生日 4 个直接字段
     /// + 语音访谈四段（过敏/既往史/当前用药/紧急联系人）。
     /// 展示性计算（非 BR 业务规则），随档案更新实时反映。
-    var profileCompletion: (done: Int, total: Int) {
+    /// nil 表示当前档案尚未加载/已不存在，首页不生成虚假的 0/8 提示或占位。
+    var profileCompletion: (done: Int, total: Int)? {
         let total = 8
-        guard let p = members.first(where: { $0.id == currentPatientId }) else { return (0, total) }
-        var done = 0
-        if !(p.bloodType?.isEmpty ?? true) { done += 1 }
-        if !(p.idNo?.isEmpty ?? true) { done += 1 }
-        if !(p.insuranceNo?.isEmpty ?? true) { done += 1 }
-        if !(p.birthDate?.isEmpty ?? true) { done += 1 }
-        for step in ["allergy", "pastHistory", "currentMeds", "emergencyContact"]
-        where voiceInterviewCompleted.contains(step) {
-            done += 1
-        }
-        return (done, total)
+        guard let p = members.first(where: { $0.id == currentPatientId && $0.deletedAt == nil }) else { return nil }
+        let done = [p.bloodType, p.idNo, p.insuranceNo, p.birthDate].filter {
+            !($0?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        }.count
+        return (done + voiceInterviewCompleted.count, total)
     }
 
-    /// 访谈完成一步即记录（适配器 onCommitField 调用；语言无关持久化）
-    func markVoiceInterviewStep(_ key: String) {
-        guard ["allergy", "pastHistory", "currentMeds", "emergencyContact"].contains(key) else { return }
-        voiceInterviewCompleted.insert(key)
-        defaults.set(Array(voiceInterviewCompleted), forKey: "voiceInterviewSteps")
+    /// 只在档案写入成功后记录，使用该次写入的成员身份而非 await 后的当前成员。
+    private func markVoiceInterviewStep(_ key: String, patientId: UUID) {
+        guard Self.voiceInterviewKeys.contains(key) else { return }
+        var completed = Set(voiceInterviewStepsByPatient[patientId.uuidString] ?? [])
+            .intersection(Self.voiceInterviewKeys)
+        completed.insert(key)
+        voiceInterviewStepsByPatient[patientId.uuidString] = completed.sorted()
+        defaults.set(voiceInterviewStepsByPatient, forKey: "voiceInterviewStepsByPatient")
     }
 
     func setCurrentPatient(_ id: UUID) {
@@ -341,9 +351,12 @@ final class AppState {
     // MARK: - FR3.1 字段补全 / FR3.4 删除 / FR3.5 重新归属
 
     /// FR3.1 成员字段更新（血型/证件号/医保号等补全）
-    func updateMember(_ profile: PatientProfile) async -> Bool {
+    func updateMember(_ profile: PatientProfile, completingVoiceInterviewStep: String? = nil) async -> Bool {
         do {
             try await persistor.updateMember(profile)
+            if let completingVoiceInterviewStep {
+                markVoiceInterviewStep(completingVoiceInterviewStep, patientId: profile.id)
+            }
             await loadMembers()
             return true
         } catch {
@@ -476,6 +489,9 @@ final class AppState {
         try await persistor.reset()
         consentRecords = []
         members = []
+        voiceInterviewStepsByPatient = [:]
+        defaults.removeObject(forKey: "voiceInterviewStepsByPatient")
+        defaults.removeObject(forKey: "voiceInterviewSteps")
     }
 
     /// FR22.4/FR13.10 上次备份时间（F22.4 备份健康展示；随备份完成写入）。

@@ -93,6 +93,16 @@ struct GlobalSearchView: View {
 
     private var query: String { filterText }
 
+    /// FR17.14 审计修正（round3）：检索结果按 kind 分流——voice_note 命中必须单独
+    /// 成组（此前统一并入「资料」组且点击跳文档详情，跳过去必然“未找到”）。
+    private var documentHits: [EntityReference] {
+        state.docHits.filter { $0.kind != "voice_note" }
+    }
+
+    private var voiceNoteHits: [EntityReference] {
+        state.docHits.filter { $0.kind == "voice_note" }
+    }
+
     private var observationHits: [ObservationEvent] {
         guard !query.isEmpty else { return [] }
         return observationState.groups
@@ -154,9 +164,9 @@ struct GlobalSearchView: View {
                 }
                 .accessibilityIdentifier("SP-20.search.empty")
             } else {
-                if !state.docHits.isEmpty {
+                if !documentHits.isEmpty {
                     Section(L10n.searchGroupDocs) {
-                        ForEach(state.docHits, id: \.refID) { hit in
+                        ForEach(documentHits, id: \.refID) { hit in
                             Button {
                                 router.navigate(to: .documentDetail(hit.refID))
                             } label: {
@@ -166,6 +176,20 @@ struct GlobalSearchView: View {
                                                 date: nil)
                             }
                             .accessibilityIdentifier("SP-20.search.doc.\(hit.refID.uuidString)")
+                        }
+                    }
+                }
+                // FR17.14：语音速记正文命中（跳 SP-59 面板；列表内可选中所属条目）
+                if !voiceNoteHits.isEmpty {
+                    Section(L10n.voicenoteTitle) {
+                        ForEach(voiceNoteHits, id: \.refID) { hit in
+                            Button {
+                                router.navigate(to: .voiceNotePanel)
+                            } label: {
+                                SearchResultRow(title: hit.title, snippet: hit.snippet,
+                                                badge: nil, date: nil)
+                            }
+                            .accessibilityIdentifier("SP-20.search.note.\(hit.refID.uuidString)")
                         }
                     }
                 }

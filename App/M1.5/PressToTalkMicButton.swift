@@ -49,7 +49,7 @@ struct PressToTalkMicButton: View {
             // 聆听状态 / 部分文本 / 失败兜底 / 待机提示（§4.23 声波与聆听状态）
             switch model.phase {
             case .recording:
-                Text(L10n.voicenoteDictating)
+                Text(model.isPreparing ? L10n.asrPreparing : L10n.voicenoteDictating)
                     .font(.subheadline)
                     .foregroundStyle(Color("semantic-danger", bundle: .main))
                 if !model.partial.isEmpty {

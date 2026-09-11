@@ -235,13 +235,13 @@ struct AppRootView: View {
                         // 杜绝仅靠手动点击；同步服务幂等（锚点/幂等键），
                         // 无新数据时开销为单次锚点探测
                         let healthAuthOn = settingsStore.values[.authHealthRead] != "false"
-                        if healthAuthOn, await deviceState.currentAuthorization() {
+                        if healthAuthOn, settingsStore.values[.healthAutoImport] != "false", await deviceState.currentAuthorization() {
                             await deviceState.sync(
                                 authEnabled: true,
                                 quietStart: SettingsRules.resolved(
                                     settingsStore.values[.quietHoursStart], key: .quietHoursStart),
                                 quietEnd: SettingsRules.resolved(
-                                    settingsStore.values[.quietHoursEnd], key: .quietHoursEnd))
+                                    settingsStore.values[.quietHoursEnd], key: .quietHoursEnd), maxRounds: 1)
                         }
                     }
                 }

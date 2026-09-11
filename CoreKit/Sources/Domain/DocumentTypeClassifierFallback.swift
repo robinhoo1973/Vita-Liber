@@ -42,6 +42,8 @@ public enum DocumentTypeClassifierFallback {
         .init(key: "diagnosis_certificate", keywords: [
             "诊断证明", "診斷證明", "疾病证明", "疾病證明", "病休证明",
         ]),
+        .init(key: "invoice", keywords: ["发票", "發票", "收费单", "收費單", "收据", "收據", "金额", "金額", "Invoice", "Receipt"]),
+        .init(key: "medication_label", keywords: ["通用名称", "通用名稱", "商品名称", "商品名稱", "药品规格", "藥品規格"]),
     ]
 
     /// 分类：每类按命中行数计分（一行多词只计一次），主类=最高分；
@@ -190,7 +192,8 @@ public extension DocumentTypeClassifierFallback {
             let text = line.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { continue }
             var fields = understood.filter {
-                !$0.key.hasPrefix("line_") && ($0.rawText?.trimmingCharacters(in: .whitespacesAndNewlines) == text
+                !$0.key.hasPrefix("line_") && ($0.sourceLineIndex == nil || $0.sourceLineIndex == index)
+                    && ($0.rawText?.trimmingCharacters(in: .whitespacesAndNewlines) == text
                     || ($0.rawText == nil && $0.value.trimmingCharacters(in: .whitespacesAndNewlines) == text))
             }
             for field in guessFields(line: line) {
@@ -198,7 +201,7 @@ public extension DocumentTypeClassifierFallback {
             }
             func append(_ key: String, _ value: String) {
                 guard !fields.contains(where: { $0.key == key }) else { return }
-                fields.append(FieldDraft(key: key, value: value, confidence: min(0.6, measuredConfidence), rawText: line, source: .heuristic))
+                fields.append(FieldDraft(key: key, value: value, confidence: min(0.6, measuredConfidence), rawText: line, source: .heuristic, sourceLineIndex: index))
             }
             let suffix = text.split(maxSplits: 1, whereSeparator: { $0 == ":" || $0 == "：" }).last.map(String.init) ?? text
             if text.contains("医院") || text.contains("醫院") { append("hospital", suffix) }
@@ -214,10 +217,51 @@ public extension DocumentTypeClassifierFallback {
                 options: .regularExpression) != nil
             if explicitDrug || ((namedForm || strengthLine) && !directions) { append("drug_name", explicitDrug ? suffix : text) }
             if directions { append("advice_text", suffix) }
+            // 标签直配扩展：只取印刷值，不推导剂量、币种或下一针时间。
+            let labels: [(String, [String])] = [
+                ("generic_name", ["通用名称", "通用名稱", "通用名"]),
+                ("brand_name", ["商品名称", "商品名稱"]),
+                ("spec", ["药品规格", "藥品規格", "规格", "規格"]),
+                ("unit_kind", ["计量单位", "計量單位", "制剂单位", "製劑單位"]),
+                ("currency", ["币种", "幣種", "Currency"]),
+                ("merchant", ["收费单位", "收費單位", "收款单位", "收款單位"]),
+                ("summary", ["费用摘要", "費用摘要", "摘要"]),
+                ("vaccine_name", ["疫苗名称", "疫苗名稱"]),
+                ("dose_number", ["接种剂次", "接種劑次", "剂次", "劑次"]),
+                ("administered_at", ["接种日期", "接種日期"]),
+                ("provider", ["接种单位", "接種單位"]),
+                ("lot_number", ["批号", "批號"]),
+            ]
+            if text.contains(":") || text.contains("：") {
+                for (key, prefixes) in labels where prefixes.contains(where: text.hasPrefix) {
+                    append(key, OCRGrounding.normalized(suffix.trimmingCharacters(in: .whitespaces), key: key))
+                }
+            }
+            if let range = text.range(of: #"(?:合计|合計|总额|總額|金额|金額|(?i:total|amount))\s*[:：]?\s*([0-9]+(?:\.[0-9]{1,2})?)(?![0-9.])"#, options: .regularExpression) {
+                let portion = String(text[range])
+                if let number = portion.range(of: #"[0-9]+(?:\.[0-9]{1,2})?"#, options: .regularExpression) { append("amount", String(portion[number])) }
+            }
+            // 审查修复：币种/票据类型归一化经 OCRGrounding.normalized 单出口——
+            // 旧实现内联映射漏掉 费用/費用→fee，规则轨与模型轨对同一票据
+            // 文本归一化出不同 item_type（双事实源漂移）。
+            if ["人民币", "人民幣", "CNY", "RMB"].contains(where: text.contains) {
+                append("currency", OCRGrounding.normalized("人民币", key: "currency"))
+            }
+            if text.contains("发票") || text.contains("發票") {
+                append("item_type", OCRGrounding.normalized("发票", key: "item_type"))
+            } else if ["收费单", "收費單", "费用", "費用"].contains(where: text.contains) {
+                append("item_type", OCRGrounding.normalized("收费单", key: "item_type"))
+            } else if text.contains("收据") || text.contains("收據") {
+                append("item_type", OCRGrounding.normalized("收据", key: "item_type"))
+            }
+            if fields.contains(where: { $0.key == "amount" }) {
+                fields.removeAll { $0.key == "lab_item" || $0.key == "reference_range" }
+            }
             if fields.isEmpty {
                 fields = [FieldDraft(key: "line_\(index)", value: line, confidence: measuredConfidence, rawText: line)]
             }
             for var field in fields {
+                field.sourceLineIndex = index
                 field.confidence = min(measuredConfidence, field.confidence.isFinite ? max(0, field.confidence) : 0)
                 output.append(field)
             }

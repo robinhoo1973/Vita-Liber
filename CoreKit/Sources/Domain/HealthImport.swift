@@ -36,6 +36,16 @@ public struct HealthChangeBatch: Sendable, Equatable, Codable {
 }
 
 public extension HealthDataKind {
+    var primaryMetric: MetricType {
+        switch self {
+        case .heartRate: return .heartRate
+        case .restingHeartRate: return .restingHeartRate
+        case .bloodOxygen: return .bloodOxygen
+        case .respiratoryRate: return .respiratoryRate
+        case .steps: return .steps
+        case .sleep: return .sleepTotal
+        }
+    }
     /// Aggregate kinds project one row per window (hour / day / night); discrete kinds keep one row per reading.
     var isAggregated: Bool { [.heartRate, .steps, .sleep].contains(self) }
 }

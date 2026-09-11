@@ -1,5 +1,6 @@
 import SwiftUI
 import Domain
+import Infrastructure
 
 /// FR14.5 显示语言选择器（ui-ux §5.12.2）：zh-Hans / zh-Hant 二选，
 /// 每项以该语言原文显示（多语言选择器业界惯例）；切换即时生效
@@ -70,10 +71,20 @@ struct VoiceLanguageSettingsView: View {
         var id: String { locale }
     }
 
+    private var inputLanguageOptions: [(locale: String, nativeName: String, tier: EngineCapabilityProfile.Tier)] {
+        let choice = VoiceEngineChoice.resolve(settings.values[.voiceEngine])
+        let models = choice == .auto ? ASRModelCatalog.models : ASRModelCatalog.models.filter { $0.choice == choice }
+        let extras = Set(models.flatMap(\.languageCodes)).subtracting(["zh", "en"])
+        return EngineCapabilityProfile.sixLanguages + extras.sorted().map { code in
+            (code, Locale(identifier: code).localizedString(forLanguageCode: code) ?? code, .bestEffort)
+        }
+    }
+
     var body: some View {
         List {
+            ASREngineSettingsSection()
             Section {
-                ForEach(EngineCapabilityProfile.sixLanguages, id: \.locale) { lang in
+                ForEach(inputLanguageOptions, id: \.locale) { lang in
                     let resolved = inputCapability.resolvedLocale(for: lang.locale)
                     HStack {
                         Button {
@@ -173,12 +184,25 @@ struct VoiceLanguageSettingsView: View {
             } footer: {
                 Text(L10n.voiceLangOutputHint)
             }
+
+            // FR17.15 V3.66：识别引擎实验室入口（引擎档位 / 语言资源 / 对照测试）
+            Section {
+                NavigationLink(value: AppRoute.voiceEngineLab) {
+                    Label(L10n.voiceLabTitle, systemImage: "waveform")
+                }
+                .accessibilityIdentifier("SP-25.voiceEngineLab.entry")
+            } footer: {
+                Text(L10n.voiceLabEntryHint)
+            }
         }
         .sheet(item: $t2Explained) { lang in
             T2ExplanationSheet(locale: lang.locale, nativeName: lang.nativeName)
         }
         .navigationTitle(L10n.voiceLangTitle)
         .task { await load() }
+        .task(id: settings.values[.voiceEngine]) {
+            inputCapability = await app.transcriptionEngine.currentCapability()
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 Task { inputCapability = await app.transcriptionEngine.currentCapability() }

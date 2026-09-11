@@ -21,6 +21,61 @@ final class OcrCardStoreTests: XCTestCase {
         return (store, patient, document)
     }
 
+    private func receiptCard(encounter: UUID?) -> MatchedCard {
+        MatchedCard(kind: "claim_item", pageIndex: 0,
+            shared: [.init(key: "amount", value: "128.50"), .init(key: "currency", value: "CNY"),
+                     .init(key: "date", value: "2026-09-11"), .init(key: "item_type", value: "invoice"),
+                     .init(key: "merchant", value: "医院")], rows: [.init(fields: [])],
+            allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete,
+            encounterAssociation: encounter.map(EncounterAssociation.existing) ?? .none).confirmingAllFields()
+    }
+
+    func test_receiptAssociationSurvivesBackupAndAdoptRestoresChangedRelation() async throws {
+        let (db, patient, document) = try await fixture()
+        let encounters = EncounterStore(writer: db.writer)
+        let e1 = try await encounters.upsert(encounter: EncounterDraft(patientId: patient, date: Date(), kind: "outpatient"))
+        let e2 = try await encounters.upsert(encounter: EncounterDraft(patientId: patient, date: Date(), kind: "outpatient"))
+        let cards = OCRCardStore(writer: db.writer)
+        _ = try await cards.save(card: receiptCard(encounter: e1), patientId: patient, documentId: document)
+        let exporter = ExportService(writer: db.writer)
+        let backup = try await exporter.exportJSON()
+        let claim = try XCTUnwrap(backup.claims?.first)
+        try await cards.associate(kind: "claim_item", entityId: claim.id, patientId: patient, encounterId: e2)
+        let conflicts = try await exporter.conflictReport(backup)
+        try await exporter.importJSON(backup, resolutions: Dictionary(conflicts.map { ($0.id, ExportService.ConflictResolution.adopt) }, uniquingKeysWith: { first, _ in first }))
+        let detail = try await cards.detail(kind: "claim_item", entityId: claim.id, patientId: patient)
+        XCTAssertEqual(detail.encounterIDs, [e1])
+        XCTAssertEqual(detail.sources.first?.pageIndex, 0)
+        let fresh = try GRDBStore.inMemory()
+        try await ExportService(writer: fresh.writer).importJSON(backup)
+        let restored = try await OCRCardStore(writer: fresh.writer).detail(kind: "claim_item", entityId: claim.id, patientId: patient)
+        XCTAssertEqual(restored.encounterIDs, [e1])
+        XCTAssertEqual(restored.fields.first { $0.key == "amount" }?.value, "128.5")
+    }
+
+    func test_otherMembersEncounterCannotBeAttached() async throws {
+        let (db, patient, document) = try await fixture()
+        let other = UUID()
+        try await db.writer.write { db in
+            try db.execute(sql: "INSERT INTO patient_profile (id, display_name, relation, created_at, updated_at) VALUES (?, 'Other', 'other', 0, 0)", arguments: [other.uuidString])
+        }
+        let encounter = try await EncounterStore(writer: db.writer).upsert(encounter: .init(patientId: other, date: Date(), kind: "outpatient"))
+        do {
+            _ = try await OCRCardStore(writer: db.writer).save(card: receiptCard(encounter: encounter), patientId: patient, documentId: document)
+            XCTFail("Cross-member association must fail atomically")
+        } catch OCRCardStore.StoreError.invalidAssociation {}
+        let count = try await db.writer.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM claim_item") }
+        XCTAssertEqual(count, 0)
+    }
+
+    func test_explicitUnlinkedReceiptStaysUnlinkedWhenAnEncounterExists() async throws {
+        let (db, patient, document) = try await fixture()
+        _ = try await EncounterStore(writer: db.writer).upsert(encounter: .init(patientId: patient, date: Date(), kind: "outpatient", hospital: "医院"))
+        _ = try await OCRCardStore(writer: db.writer).save(card: receiptCard(encounter: nil), patientId: patient, documentId: document)
+        let linked = try await db.writer.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM claim_item WHERE encounter_id IS NOT NULL") }
+        XCTAssertEqual(linked, 0)
+    }
+
     private func card(partial: Bool = false, reviewed: Bool = true) -> MatchedCard {
         var result = MatchedCard(kind: "metric_sample", pageIndex: 0,
             shared: [.init(key: "measured_at", value: "2020-01-02"), .init(key: "hospital", value: "Hospital")],
