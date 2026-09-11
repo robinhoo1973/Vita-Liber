@@ -40,7 +40,8 @@ public struct ASRModelAssets: Sendable {
     }
 
     public func isPresent(_ choice: VoiceEngineChoice) -> Bool {
-        presenceCache.value(key: "\(root?.path ?? "nil")|\(choice.rawValue)") {
+        // CI 34652541174 修复：实例方法内不得无 Self. 限定引用静态成员。
+        Self.presenceCache.value(key: "\(root?.path ?? "nil")|\(choice.rawValue)") {
             do { _ = try files(choice, hash: false); return true }
             catch { return false }
         }
@@ -64,11 +65,13 @@ public struct ASRModelAssets: Sendable {
         guard let root else { return nil }
         // 审查修复：清单不可变，逐调用读盘解码（设置页 ForEach 每次渲染
         // 触发）浪费主线程 IO——与 isPresent 同法按 root 缓存解码结果。
-        let manifest = manifestCache.value(key: root.path) {
+        let manifest = Self.manifestCache.value(key: root.path) {
             try? readManifest(root)   // try?-ok: 清单解码失败=无体积信息（纯展示列），不阻断验证链
         }
         guard let manifest else { return nil }
-        return manifest.models.first { $0.id == choice.rawValue }?.files.reduce(Int64(0)) { $0 + $1.bytes }
+        // CI 34652541174 修复：单链长表达式超出类型检查预算——拆子表达式。
+        let files = manifest.models.first { $0.id == choice.rawValue }?.files ?? []
+        return files.reduce(Int64(0)) { $0 + $1.bytes }
     }
 
     /// 仅在后台推理队列加载前调用；流式hash，不能将几百MB的Data放在主线程。

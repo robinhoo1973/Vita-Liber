@@ -741,8 +741,13 @@ public actor ExportService {
             // 逐 id 线性扫全数组——整库冲突（同库重导备份）时每个冲突 id 一次
             // 全扫，UUID 字符串比较放大为 O(N²)（同文件内 consentTitle/planTitle
             // 已用字典规避，此二处为同类回退）。与邻接字典同法预建。
+            // CI 34652541174 修复：genericName/summary 为可选字段，
+            // 直接建表得 [String: String?] → 下标 String??，与
+            // backupTitle 的 (String) -> String? 签名不匹配——compactMapValues 归一。
             let medicationTitle = Dictionary(uniqueKeysWithValues: (envelope.ocrMedications ?? []).map { ($0.id.uuidString, $0.genericName) })
+                .compactMapValues { $0 }
             let claimTitle = Dictionary(uniqueKeysWithValues: (envelope.claims ?? []).map { ($0.id.uuidString, $0.summary) })
+                .compactMapValues { $0 }
             try add("medication", ids: (envelope.ocrMedications ?? []).map { $0.id.uuidString },
                     backupTitle: { medicationTitle[$0] },
                     existingTitle: { existingTitle("medication", $0, "generic_name") })

@@ -421,7 +421,7 @@ public enum SchemaMigrations {
         // v23：扩大页卡事实种类并保留显式就诊关系。表重建（RENAME→建新→搬运→
         // DROP 旧表）+ 版本推进同一事务，搬运后校验 ocr_card_commit 外键无损
         // ——声明在步级（transactional/fkCheckTable），runner 不再认识版本号。
-        Step(version: 23, name: "ocr-card-associations", transactional: true, fkCheckTable: "ocr_card_commit",
+        Step(version: 23, name: "ocr-card-associations",
              sql: """
              ALTER TABLE ocr_card_commit RENAME TO ocr_card_commit_v22;
              CREATE TABLE ocr_card_commit (
@@ -440,7 +440,7 @@ public enum SchemaMigrations {
              CREATE INDEX idx_ocr_card_commit_source ON ocr_card_commit(document_file_id, page_index, card_kind);
              CREATE INDEX idx_ocr_card_commit_entity ON ocr_card_commit(card_kind, entity_id, patient_id);
              CREATE INDEX idx_ocr_card_commit_encounter ON ocr_card_commit(encounter_id, patient_id);
-             """),
+             """, transactional: true, fkCheckTable: "ocr_card_commit"),
         Step(version: 24, name: "health-import-status",
              sql: """
              CREATE TABLE IF NOT EXISTS hk_import_status (
