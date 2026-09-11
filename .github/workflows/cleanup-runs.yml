@@ -46,21 +46,43 @@ jobs:
             exit 0
           fi
 
-          # ── 拉取所有已完成的 run（按时间倒序，最新在前） ──
+          # ── 拉取所有已完成的 run（分页全量，不截断） ──
           ALL_RUNS_FILE=$(mktemp)
           gh run list \
             --repo "$REPO" \
             --status completed \
-            --limit 500 \
+            --paginate \
             --json databaseId,name,conclusion,createdAt \
-            --jq 'sort_by(.createdAt) | reverse' \
-            2>/dev/null > "$ALL_RUNS_FILE"
+            2>/dev/null | jq -s 'sort_by(.createdAt) | reverse' > "$ALL_RUNS_FILE"
+
+          # 空列表保护：API 瞬时失败或仓库无 run
+          if ! jq -e 'length > 0' "$ALL_RUNS_FILE" >/dev/null 2>&1; then
+            echo "警告: 未获取到任何已完成 run——本轮跳过清理"
+            rm -f "$ALL_RUNS_FILE"
+            exit 0
+          fi
 
           # ── 单次遍历，逐条判断 ──
           # 已记录「首次成功」的 workflow
           FOUND_FIRST_SUCCESS=$(mktemp)
           COUNTS_FILE=$(mktemp)
           echo "0 0" > "$COUNTS_FILE"
+
+          # ── 安全删除：带重试 + rate-limit 感知 ──
+          delete_run() {
+            local id="$1" reason="$2" attempt=0
+            while [ $attempt -lt 3 ]; do
+              if gh run delete "$id" --repo "$REPO" 2>/dev/null; then
+                echo "  删除: #$id ($reason)"
+                return 0
+              fi
+              # rate limit: gh 会打印 "API rate limit exceeded"，等 60s 再试
+              attempt=$((attempt + 1))
+              [ $attempt -lt 3 ] && sleep 60
+            done
+            echo "  失败: #$id ($reason — 3次重试后放弃)"
+            return 1
+          }
 
           # 用 process substitution 避免子 shell 问题
           MY_NAME="Cleanup Workflow Runs"
@@ -69,20 +91,14 @@ jobs:
 
             # 规则0：cleanup 自身 → 全部删除（当前运行的 run 是 in_progress，不在列表中）
             if [ "$WF_NAME" = "$MY_NAME" ]; then
-              if gh run delete "$RUN_ID" --repo "$REPO" 2>/dev/null; then
-                echo "  删除: #$RUN_ID (cleanup 自身)"
-                DELETED=$((DELETED + 1))
-              fi
+              delete_run "$RUN_ID" "cleanup 自身" && DELETED=$((DELETED + 1))
               echo "$DELETED $KEPT" > "$COUNTS_FILE"
               continue
             fi
 
             # 规则1：workflow 不存在 → 直接删除
             if ! echo "$EXISTING_WFS" | grep -qxF "$WF_NAME"; then
-              if gh run delete "$RUN_ID" --repo "$REPO" 2>/dev/null; then
-                echo "  删除: #$RUN_ID ($WF_NAME - workflow 已删除)"
-                DELETED=$((DELETED + 1))
-              fi
+              delete_run "$RUN_ID" "$WF_NAME - workflow 已删除" && DELETED=$((DELETED + 1))
               echo "$DELETED $KEPT" > "$COUNTS_FILE"
               continue
             fi
@@ -101,10 +117,7 @@ jobs:
                 echo "  保留: #$RUN_ID ($WF_NAME - 未成功但 ≤7 天，留诊断审计)"
                 KEPT=$((KEPT + 1))
               else
-                if gh run delete "$RUN_ID" --repo "$REPO" 2>/dev/null; then
-                  echo "  删除: #$RUN_ID ($WF_NAME - 未成功且超过 7 天)"
-                  DELETED=$((DELETED + 1))
-                fi
+                delete_run "$RUN_ID" "$WF_NAME - 未成功且超过 7 天" && DELETED=$((DELETED + 1))
               fi
               echo "$DELETED $KEPT" > "$COUNTS_FILE"
               continue
@@ -112,10 +125,7 @@ jobs:
 
             # 规则3：成功但不是首次成功 → 删除
             if grep -qxF "$WF_NAME" "$FOUND_FIRST_SUCCESS"; then
-              if gh run delete "$RUN_ID" --repo "$REPO" 2>/dev/null; then
-                echo "  删除: #$RUN_ID ($WF_NAME - 非首次成功)"
-                DELETED=$((DELETED + 1))
-              fi
+              delete_run "$RUN_ID" "$WF_NAME - 非首次成功" && DELETED=$((DELETED + 1))
               echo "$DELETED $KEPT" > "$COUNTS_FILE"
               continue
             fi

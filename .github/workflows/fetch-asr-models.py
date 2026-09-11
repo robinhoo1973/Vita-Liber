@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 import tarfile
 import shutil
+import time
 
 
 def validate_entries(entries):
@@ -46,13 +47,27 @@ def ensure_file(root, item, check_only=False):
     with tempfile.NamedTemporaryFile(dir=destination.parent, suffix=".download", delete=False) as handle:
         temporary = Path(handle.name)
     try:
-        subprocess.run([
-            "curl", "--fail", "--silent", "--show-error", "--location", "--retry", "2",
-            "--proto", "=https", "--proto-redir", "=https", "--connect-timeout", "30",
-            "--speed-time", "60", "--speed-limit", "1024",
-            "--max-time", "600", "--max-filesize", str(item["bytes"]),
-            "--output", str(temporary), item["url"],
-        ], check=True)
+        # 5WHY（CI 34655743251）：HuggingFace 瞬态丢包（curl 退出 56）使整步
+        # 硬失败——--retry 2 无退避挡不住分钟级抖动。双层重试：curl 层
+        # 4 次带退避（transient 错误族）+ python 层 3 轮间隔重试（跨轮
+        # sleep，覆盖上游持续性抖动）。每轮 SHA-256 校验兜底，坏下载绝不落盘。
+        for attempt in range(3):
+            try:
+                subprocess.run([
+                    "curl", "--fail", "--silent", "--show-error", "--location",
+                    "--retry", "4", "--retry-delay", "8",
+                    "--proto", "=https", "--proto-redir", "=https", "--connect-timeout", "30",
+                    "--speed-time", "60", "--speed-limit", "1024",
+                    "--max-time", "600", "--max-filesize", str(item["bytes"]),
+                    "--output", str(temporary), item["url"],
+                ], check=True)
+                break
+            except subprocess.CalledProcessError as curl_error:
+                if attempt == 2:
+                    raise
+                time.sleep(15 * (attempt + 1))
+                if temporary.exists():
+                    temporary.unlink(missing_ok=True)
         if not valid_file(temporary, item):
             raise ValueError("SHA-256/size mismatch: " + item["path"])
         temporary.replace(destination)
