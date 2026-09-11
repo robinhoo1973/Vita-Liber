@@ -142,7 +142,10 @@ final class DocumentsState {
         var existingDocumentId: UUID?
         var retainedMeta: [String: Any] = [:]
         var previousCards: [MatchedCard] = [] { didSet { cardsCache = nil } }
-        private var cardsCache: [MatchedCard]?
+        // fileprivate（而非 private）：private 存储属性会把 memberwise init 降为
+        // private（CI 34656855831：同文件 536 行构造点即不可见）；fileprivate
+        // 令 memberwise init 同文件可见（唯一构造点就在本文件）。
+        fileprivate var cardsCache: [MatchedCard]?
 
         var isPrescription: Bool { docType == L10n.docTypePrescription }
         var allFields: [FieldDraft] { pages.flatMap(\.fields) }
@@ -157,15 +160,17 @@ final class DocumentsState {
                 && allFields.allSatisfy { $0.isConfirmed || $0.grade == .rejected }
         }
         var entityCards: [MatchedCard] {
-            if let cache = cardsCache { return cache }
-            // 值语义：数组/字典嵌套字段的原地修改同样走属性 setter 触发 didSet
-            //（draft.pages[i].fields[j].value = x 即 pages 变更），缓存不失序。
-            let cards = DocumentsState.reconcileCards(
-                DocumentsState.matchPages(pages, manualTypeKey: docTypeManuallyChosen
-                    ? (DocumentsState.docTypeKey(forLabel: docType) ?? documentTypeKey) : nil),
-                previous: previousCards)
-            cardsCache = cards
-            return cards
+            mutating get {
+                if let cache = cardsCache { return cache }
+                // 值语义：数组/字典嵌套字段的原地修改同样走属性 setter 触发 didSet
+                //（draft.pages[i].fields[j].value = x 即 pages 变更），缓存不失序。
+                let cards = DocumentsState.reconcileCards(
+                    DocumentsState.matchPages(pages, manualTypeKey: docTypeManuallyChosen
+                        ? (DocumentsState.docTypeKey(forLabel: docType) ?? documentTypeKey) : nil),
+                    previous: previousCards)
+                cardsCache = cards
+                return cards
+            }
         }
     }
 
