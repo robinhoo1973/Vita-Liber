@@ -117,7 +117,7 @@ public enum TranscriptionEngineBuilder {
         locales.formUnion(SFSpeechTranscriber().capability.availableLocales)
         #if os(iOS) || os(macOS)
         if #available(iOS 26.0, macOS 26.0, *) {
-            locales.formUnion(SpeechAnalyzerSupport.installedLocales(of: .standard))
+            locales.formUnion(await SpeechAnalyzerSupport.installedLocales(of: .standard))
         }
         #endif
         return .init(supportsLongForm: true, maxSegmentSeconds: 30, availableLocales: locales,
@@ -141,14 +141,15 @@ public enum TranscriptionEngineBuilder {
     }
 
     /// 平台升级轨的「可下载语言」清单（实验室安装引导用；基线轨为空）。
-    public static func installableLocales(of choice: VoiceEngineChoice) -> [String] {
+    /// CI 34655298030 修复：supportedLocales 为 async 属性——本函数随之升 async。
+    public static func installableLocales(of choice: VoiceEngineChoice) async -> [String] {
         let flavor: SpeechAnalyzerFlavor
         switch choice {
         case .dictation: flavor = .dictation
         case .advanced, .auto: flavor = .standard
         case .classic, .qwen3, .zipformer, .dolphin, .whisper: return []
         }
-        return SpeechAnalyzerSupport.supportedLocales(of: flavor)
+        return await SpeechAnalyzerSupport.supportedLocales(of: flavor)
     }
 }
 
