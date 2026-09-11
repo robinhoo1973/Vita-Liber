@@ -58,7 +58,13 @@ def ensure_file(root, item, check_only=False):
                     "--retry", "4", "--retry-delay", "8",
                     "--proto", "=https", "--proto-redir", "=https", "--connect-timeout", "30",
                     "--speed-time", "60", "--speed-limit", "1024",
-                    "--max-time", "600", "--max-filesize", str(item["bytes"]),
+                    "--max-time", "600",
+                    # 5WHY（CI 34656190593）：--max-filesize 取钉版字节数时，
+                    # 极小文件（notice README 296B）在 runner 侧 CDN 边缘被
+                    # 判定「超限」连续失败（curl 56；本机同 URL 200/296B 正常）。
+                    # 完整性本由 sha256+bytes 双校验兜底，下载期上限只需
+                    # 「有界防失控」——对 ≤1MB 文件统一放宽到 1MB 下限。
+                    "--max-filesize", str(max(item["bytes"], 1_000_000)),
                     "--output", str(temporary), item["url"],
                 ], check=True)
                 break
