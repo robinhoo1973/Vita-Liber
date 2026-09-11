@@ -10,16 +10,21 @@
       }
     },
     {
-      "identity": "sherpa-onnx",
-      "kind": "remoteSourceControl",
-      "location": "https://github.com/k2-fsa/sherpa-onnx.git",
-      "state": { "revision": "5e4232db78d0150801ae3244c9e2ddc41e5e02d8" }
+      "identity" : "onnxruntime-libs",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/csukuangfj/onnxruntime-libs",
+      "state" : {
+        "branch" : "master",
+        "revision" : "2ece6a6d72b6667d69f33f05b417ebed079f226a"
+      }
     },
     {
-      "identity": "onnxruntime-libs",
-      "kind": "remoteSourceControl",
-      "location": "https://github.com/csukuangfj/onnxruntime-libs",
-      "state": { "revision": "2ece6a6d72b6667d69f33f05b417ebed079f226a" }
+      "identity" : "sherpa-onnx",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/k2-fsa/sherpa-onnx.git",
+      "state" : {
+        "revision" : "5e4232db78d0150801ae3244c9e2ddc41e5e02d8"
+      }
     }
   ],
   "version" : 2

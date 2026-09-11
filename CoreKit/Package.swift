@@ -13,9 +13,13 @@ let package = Package(
         // 包装器/二进制匹配的钉版；ITMS-90208在归档的framework元数据校正及IPA校验处处理。
         .package(url: "https://github.com/k2-fsa/sherpa-onnx.git",
                  revision: "5e4232db78d0150801ae3244c9e2ddc41e5e02d8"),
-        // 上游为branch依赖，根包显式钉住ORT资产版本，防传递依赖静默漂移。
-        .package(url: "https://github.com/csukuangfj/onnxruntime-libs",
-                 revision: "2ece6a6d72b6667d69f33f05b417ebed079f226a")
+        // 注意：onnxruntime-libs 是 sherpa-onnx 的传递依赖，其 manifest 用
+        // `branch: "master"` 声明——根包不得再用 revision 直接声明同一包身份，
+        // 否则同图出现两种 requirement kind（revision vs branch），SwiftPM
+        // 解析直接拒绝（CI 34606761907 实证：error: onnxruntime-libs is
+        // required using two different revision-based requirements）。
+        // 防漂移由 Package.resolved 的 branch 状态钉版承担
+        // （{revision + branch: "master"} 对），而非根包声明。
     ],
     targets: [
         .target(name: "Domain"),
