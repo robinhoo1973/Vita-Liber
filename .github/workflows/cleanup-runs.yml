@@ -55,7 +55,7 @@ jobs:
             --limit 500 \
             --json databaseId,name,conclusion,createdAt \
             > "$ALL_RUNS_FILE.raw" 2>/dev/null; then
-            jq -s 'sort_by(.createdAt) | reverse' \
+            jq -s 'flatten | sort_by(.createdAt) | reverse' \
               "$ALL_RUNS_FILE.raw" > "$ALL_RUNS_FILE"
           else
             echo "警告: gh run list 失败——本轮跳过清理"
