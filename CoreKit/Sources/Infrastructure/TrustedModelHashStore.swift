@@ -3,8 +3,9 @@ import Domain
 
 /// FR17.15（业主 2026-09-12）：构建期信任锚的加载入口。
 ///
-/// 资源来源：`Resources/TrustedModelHashes.json`（随 App 包嵌入；每编译由
-/// `downloads/scripts/generate-trusted-hashes.sh` 从仓库索引重新生成）。
+/// 资源来源：`Resources/TrustedModelHashes.json`（随 App 包嵌入；由发布者本地工具
+/// `refactor/scripts/generate-trusted-hashes.sh`（不入库）从仓库索引固化并提交，
+/// 编译期 preBuildScripts 做漂移校验）。
 /// 加载失败/资源缺失/结构版本未知 → 空表（**fail closed**：一切运行时下载被拒绝，
 /// 已有随包资产与识别功能不受影响）。
 public struct TrustedModelHashStore: Sendable {

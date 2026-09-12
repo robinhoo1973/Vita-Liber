@@ -41,8 +41,10 @@ NOTICE.md              # 上游归属说明（可选但推荐）
 ## 发布步骤
 
 ```bash
-downloads/scripts/package-asr-model.sh ./qwen3-package qwen3 0.6b-int8-v2026.03.25 \
+# 打包脚本为发布者本地工具（refactor/scripts/，不入库）
+refactor/scripts/package-asr-model.sh ./qwen3-package qwen3 0.6b-int8-v2026.03.25 \
   --base-url https://github.com/<owner>/VitaLiber/releases/download/asr-models
 gh release upload asr-models downloads/vitaliber/asr/qwen3-*.zip --clobber
-git add downloads/vitaliber/asr/index.json
+refactor/scripts/generate-trusted-hashes.sh   # 固化信任锚
+git add downloads/vitaliber/asr/index.json Resources/TrustedModelHashes.json
 ```

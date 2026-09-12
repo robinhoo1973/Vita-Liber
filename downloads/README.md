@@ -12,16 +12,16 @@ downloads/
     <asset-kind>/           ← 资源类别（asr / ocr / lexicon / …）
       index.json            ← 该类别索引（App 只读这一个文件）
       README.md             ← 类别说明 + 命名规范 + 发布流程
-  scripts/                  ← 发布工具（打包/校验/索引更新）
-    package-asr-model.sh
 ```
+
+> 打包/固化脚本为**发布者本地工具**，位于 `refactor/scripts/`（不入库），用法见「发布流程」。
 
 ## 二进制承载策略（重要）
 
 | 事实 | 结论 |
 |---|---|
 | GitHub 仓库单文件硬上限 **100 MB**（超过直接拒收）；模型包 400 MB–1 GB 级 | **二进制不入 Git**，只入 GitHub **Releases 资产**（单资产上限 2 GB）或对象存储 |
-| 本仓库 `.gitignore` 为「默认全私有 + 白名单」 | `downloads/` 已加入白名单，**只跟踪索引与脚本**；`*.zip` / `*.onnx` 等二进制被忽略 |
+| 本仓库 `.gitignore` 为「默认全私有 + 白名单」 | `downloads/` 已加入白名单，**只跟踪索引**（打包/固化脚本为本地发布工具，不入库）；`*.zip` / `*.onnx` 等二进制被忽略 |
 | 索引里需要固定下载地址 | 索引中使用 **`baseUrl` + 相对文件名**（发布时替换 `baseUrl` 为 Release 资产前缀或自有域名） |
 
 > 如果要换自建对象存储（CDN/OSS/S3），只改 `index.json` 的 `baseUrl`，**App 侧无需发版**——这是把地址放在索引而非硬编码的原因。
@@ -70,28 +70,33 @@ downloads/
 ## 发布流程（发布者）
 
 ```bash
-# 1. 打包（生成 zip + sha256 + 更新索引）
-downloads/scripts/package-asr-model.sh <模型目录> <id> <version> [--base-url <前缀>]
+# 1. 打包（生成 zip + sha256 + 更新索引）——发布者本地工具，不入库
+refactor/scripts/package-asr-model.sh <模型目录> <id> <version> [--base-url <前缀>]
 
-# 2. 上传资产到 GitHub Release（示例：tag 固定为 asr-models）
-gh release upload asr-models downloads/asr/<生成的文件>.zip --clobber
+# 2. 固化信任锚（索引 → Resources/TrustedModelHashes.json）
+refactor/scripts/generate-trusted-hashes.sh
 
-# 3. 提交索引变更（只提交 index.json，二进制被 .gitignore 忽略）
-git add downloads/asr/index.json && git commit -m "chore(downloads): asr <id> <version>"
+# 3. 上传资产到 GitHub Release（示例：tag 固定为 asr-models）
+gh release upload asr-models downloads/vitaliber/asr/<生成的文件>.zip --clobber
+
+# 4. 提交索引 + 信任锚（二进制被 .gitignore 忽略）
+git add downloads/vitaliber/asr/index.json Resources/TrustedModelHashes.json \
+  && git commit -m "chore(downloads): asr <id> <version>"
 ```
 
 ## 安全与合规
 
 - **构建期信任锚（业主 2026-09-12，核心机制）**：App 侧校验**不只**看本索引自报的 `sha256`——
   索引来自网络、可被 CDN/中间人替换，仅凭它比对等于没有信任根。因此：
-  1. 打包时 `scripts/package-asr-model.sh` 把真实哈希写入本索引（已实现）；
-  2. **每次编译**由 `scripts/generate-trusted-hashes.sh` 把索引固化为 App 内置资源
-     `Resources/TrustedModelHashes.json`（`project.yml` preBuildScripts 自动执行）；
+  1. 打包时本地工具 `refactor/scripts/package-asr-model.sh`（不入库）把真实哈希写入本索引（已实现）；
+  2. 发布者用本地工具 `refactor/scripts/generate-trusted-hashes.sh` 把索引固化为 App 内置
+     资源 `Resources/TrustedModelHashes.json` 并提交；编译期 `project.yml` preBuildScripts
+     对两者做 fail-closed 漂移校验（不一致即构建失败）；
   3. App 安装下载包时以**内置表**为唯一信任锚：未登记版本 / 哈希不一致一律拒绝安装
      （fail closed；空表 = 禁止一切运行时下载）。
   4. 发布新模型版本 ⇒ 必须同步更新索引并重新发版（新增/变更哈希需随 App 过审与签名保护）。
-- CI 守卫（可选接入）：`scripts/generate-trusted-hashes.sh --check` 在条目漂移时退出码非 0，
-  用于拦「索引改了但忘记提交生成物」。
+- CI/编译守卫：`project.yml` preBuildScripts 内联漂移校验（原 `--check` 语义）在条目漂移时
+  退出码非 0，用于拦「索引改了但忘记提交生成物」。
 - 索引与整包 **双 SHA-256**（整包一个；包内 `manifest.json` 每文件一个）——前者由内置表锚定，
   后者由 `ASRModelAssets.validate` 逐文件核对。
 - 传输强制 HTTPS；不提供未签名的第三方镜像地址。

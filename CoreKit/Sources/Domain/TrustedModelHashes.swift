@@ -6,8 +6,9 @@ import Foundation
 /// - 运行时索引 `index.json` 来自网络（CDN/对象存储/Release），**可被替换**；
 ///   若只校验「远端自报的 sha256 == 下载内容的 sha256」，攻击者同时改索引与包即可绕过，
 ///   等于没有信任根；
-/// - 本表在**每次编译时**由仓库索引生成并随包嵌入（`Resources/TrustedModelHashes.json`，
-///   由 `downloads/scripts/generate-trusted-hashes.sh` 产出）——它随 App 二进制一起被
+/// - 本表由**发布者本地工具** `refactor/scripts/generate-trusted-hashes.sh`（不入库）
+///   从仓库索引固化并提交，随包嵌入（`Resources/TrustedModelHashes.json`）；编译期
+///   preBuildScripts 对两者做 fail-closed 漂移校验——它随 App 二进制一起被
 ///   App Store 签名保护，是可信的「已发布版本清单」；
 /// - App 安装下载包时以本表为**唯一信任锚**：未登记版本 / 哈希不一致 → 一律拒绝安装
 ///   （fail closed）。发布新模型版本必须更新索引并重新发版（或在受控流程中扩展本表）。
