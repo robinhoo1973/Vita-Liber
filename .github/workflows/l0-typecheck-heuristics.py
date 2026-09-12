@@ -3,7 +3,7 @@
 # ============================================================================
 # L0 [15] 类型层启发式门禁 —— l0-typecheck-heuristics.py
 # 背景：App/（SwiftUI）无法在 Linux 上编译，swiftc -parse 只查语法不查语义，
-# 以下六族类型错误只有 macOS L1 编译门禁才能暴露（每族均有 CI 实证），
+# 以下八族类型错误只有 macOS L1 编译门禁才能暴露（每族均有 CI 实证），
 # 本脚本用静态启发式在 L0 左移拦截：
 #   A. 跨层引用缺 import —— CI d0c1008：RootAdaptiveView 引用 Infrastructure
 #      符号但未 import Infrastructure（parse 不解析符号，本地一直绿）
@@ -32,6 +32,13 @@
 #      Linux 6.3.1 类型检查通过——该表达式正处预算边界）。判定：语句级
 #      链段计数（跨行续链：行尾 `.`/开括号/&&/|| 续、行首 `.` 接），
 #      ≥6 段即 FAIL；全仓当前零命中（阈值 ≥5 亦零）——修复即拆子表达式。
+#   H. 文件级非隔离自由函数调用 @MainActor 类型成员 —— CI 34673049166 实证：
+#      EncounterViews.swift 文件级 private func 调用 @MainActor DocumentsState
+#      的静态 fieldValueDisplay，macOS 编译报 'call to main actor-isolated
+#      static method in a synchronous nonisolated context'，parse 静默放行。
+#      判定：@MainActor 类型名单 × 文件级 func（自身无 @MainActor）× 体内
+#      `Name.member(` 调用；nonisolated 声明成员与 @MainActor in /
+#      MainActor.assumeIsolated 逃逸口豁免。
 # 判定与平台无关（python3 标准库）；ERR#27 纪律：扫 0 文件/无计数一律 FAIL。
 # 豁免标记（与 try?-ok/adr021-ok 同惯例，仅同行注释）：`// tius-ok: <理由>`
 # ——第五轮全仓审查修复：本标记此前只在文档声明、判定器从未读取（假豁免），
@@ -251,6 +258,90 @@ def main():
                             f"仅 macOS 编译暴露（CI 34295670215 同族）"
                         )
                         break
+
+    # ---- 家族 H：文件级非隔离自由函数调用 @MainActor 类型的成员 ----
+    # CI 34673049166 实证：EncounterViews.swift 文件级 private func
+    # encounterKindDisplayName（非隔离）调用 @MainActor DocumentsState 的
+    # 静态 fieldValueDisplay → macOS 编译错误 'call to main actor-isolated
+    # static method in a synchronous nonisolated context'；Linux parse 静默
+    # 放行。判定：@MainActor 类型名单（App/）× 文件级 func（列 0 起、自身
+    # 无 @MainActor）× 体内 `Name.member(` 调用；声明为 nonisolated 的成员
+    # （含 10a23fa 六助手）天然豁免；体内出现 @MainActor in /
+    # MainActor.assumeIsolated 的整函数豁免（MainActor 逃逸口）。
+    MA_TYPE_RE = re.compile(r"^\s*(?:final\s+)?(?:class|enum|actor|protocol)\s+([A-Za-z_]\w*)")
+    MA_SAMELINE_RE = re.compile(r"@MainActor\s+(?:final\s+)?(?:class|enum|actor|protocol)\s+([A-Za-z_]\w*)")
+    NONISO_MEMBER_RE = re.compile(r"nonisolated\s+(?:static\s+)?func\s+(\w+)")
+    FILEFUNC_RE = re.compile(r"^(?:private\s+)?func\s+([A-Za-z_]\w*)")
+    mainactor_names = set()
+    nonisolated_safe = set()   # (TypeName, member) —— 声明为 nonisolated 的成员
+    h_files = []
+    for d in ("App",):
+        p = root / d
+        if p.exists():
+            h_files.extend(sorted(p.rglob("*.swift")))
+    scanned["H"] = len(h_files)
+    for f in h_files:
+        try:
+            raw_lines = f.read_text(encoding="utf-8").splitlines()
+        except Exception:
+            continue
+        for i, line in enumerate(raw_lines):
+            m = MA_SAMELINE_RE.search(line) or MA_TYPE_RE.match(line)
+            if not m:
+                continue
+            window = "\n".join(raw_lines[max(0, i - 4):i + 1])
+            if "@MainActor" not in window:
+                continue
+            name = m.group(1)
+            mainactor_names.add(name)
+            # 类型体范围内收集 nonisolated 成员（跨文件调用点据此豁免）
+            depth = 0
+            for j in range(i, len(raw_lines)):
+                depth += raw_lines[j].count("{") - raw_lines[j].count("}")
+                nm = NONISO_MEMBER_RE.search(raw_lines[j])
+                if nm:
+                    nonisolated_safe.add((name, nm.group(1)))
+                if depth <= 0 and j > i:
+                    break
+    for f in a_files:
+        try:
+            raw_lines = f.read_text(encoding="utf-8").splitlines()
+        except Exception:
+            continue
+        for i, line in enumerate(raw_lines):
+            m = FILEFUNC_RE.match(line)
+            if not m:
+                continue
+            if "@MainActor" in "\n".join(raw_lines[max(0, i - 3):i]):
+                continue
+            depth = 0
+            body = []
+            for j in range(i, len(raw_lines)):
+                depth += raw_lines[j].count("{") - raw_lines[j].count("}")
+                body.append(raw_lines[j])
+                if depth <= 0 and j > i:
+                    break
+            if any("@MainActor in" in b or "MainActor.assumeIsolated" in b for b in body):
+                continue
+            for k, code in enumerate(body):
+                if exempted(raw_lines, i + k):
+                    continue
+                for tname in sorted(mainactor_names):
+                    for mm in re.finditer(r"\b" + re.escape(tname) + r"\.(\w+)\s*\(", code):
+                        if (tname, mm.group(1)) in nonisolated_safe:
+                            continue
+                        fails.append(
+                            f"{f.relative_to(root)}:{i + k + 1}: 文件级非隔离函数调用"
+                            f" @MainActor {tname}.{mm.group(1)}——macOS 编译报"
+                            f" 'call to main actor-isolated method in a synchronous"
+                            f" nonisolated context'（CI 34673049166 同族，Linux parse"
+                            f" 静默放行）——成员标 nonisolated（纯函数）或函数标"
+                            f" @MainActor，或加 // tius-ok: 豁免"
+                        )
+                        break
+                    else:
+                        continue
+                    break
 
     # ---- 家族 B：Date 与 Double/TimeInterval 混比较（App/Tests/UITests）
     b_files = list(a_files)
@@ -494,7 +585,8 @@ def main():
 
     print(f"__SCANNED__ A={scanned.get('A',0)} A2={scanned.get('A2',0)} "
           f"B={scanned.get('B',0)} C={scanned.get('C',0)} D={scanned.get('D',0)} "
-          f"E={scanned.get('E',0)} F={scanned.get('F',0)} G={scanned.get('G',0)}")
+          f"E={scanned.get('E',0)} F={scanned.get('F',0)} G={scanned.get('G',0)} "
+          f"H={scanned.get('H',0)}")
     seen = set()
     for msg in fails:
         if msg in seen:

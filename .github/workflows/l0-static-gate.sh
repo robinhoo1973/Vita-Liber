@@ -25,7 +25,7 @@
 #        禁止 {name, package} 包测试引用（XcodeGen Spec validation error，
 #        CI 34017824105 实证：包测试目标进 scheme 会在 macOS 首步即炸）
 #   [15] 类型层启发式门禁 —— Linux 无法编译 App/（SwiftUI 缺失），swiftc -parse
-#        只查语法；以下七族类型错误仅 macOS L1 编译门禁可暴露，静态启发式左移拦截：
+#        只查语法；以下八族类型错误仅 macOS L1 编译门禁可暴露，静态启发式左移拦截：
 #        跨层引用缺 import（CI d0c1008）/ Date 与 Double 混比较（CI 34032245120）
 #        / iOS 专用符号未套 #if os(iOS)（CI 34018308312）/ #if os(Linux) 桩
 #        类型在非守卫区使用（CI 34018552283）/ `any X?` 可选 any 拼写（CI ad1d767，
@@ -773,7 +773,7 @@ PYEOF
 fi
 
 # ---------- [15] 类型层启发式门禁 ----------
-section "15/17" "类型层启发式 —— 跨层 import 覆盖/Date·Double 混比/iOS 专用符号守卫/Linux 桩守卫外使用/any X? 拼写/nil→String 实参/长链高阶表达式（七族 CI 实证左移）"
+section "15/17" "类型层启发式 —— 跨层 import 覆盖/Date·Double 混比/iOS 专用符号守卫/Linux 桩守卫外使用/any X? 拼写/nil→String 实参/长链高阶表达式/MainActor 跨隔离调用（八族 CI 实证左移）"
 # 背景：App/（SwiftUI）在 Linux 无法编译，swiftc -parse 只查语法不查语义，
 # 以下七族类型错误只有 macOS L1 编译门禁才能暴露（每族均有 CI 实证）：
 #   跨层引用缺 import（d0c1008）/ Date 与 Double 混比较（34032245120）
@@ -793,7 +793,7 @@ else
   elif printf '%s\n' "$THEUR" | grep -q '^FAIL:'; then
     while IFS= read -r ln; do fail "$ln"; done < <(printf '%s\n' "$THEUR" | grep '^FAIL:')
   else
-    pass "$(printf '%s\n' "$THEUR" | sed -n 's/^__SCANNED__ //p') 个文件通过七族启发式"
+    pass "$(printf '%s\n' "$THEUR" | sed -n 's/^__SCANNED__ //p') 个文件通过八族启发式"
   fi
 fi
 
