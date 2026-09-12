@@ -1,6 +1,31 @@
 {
   "schemaVersion": 1,
   "generatedAt": "2026-09-12",
-  "sourceIndexSha256": "aa3e77cdeb0b63d0b048aa95b5cdddc27ca677270226edac7f362b530386acfe",
-  "entries": []
+  "sourceIndexSha256": "ed16510b83c4e055ddeb80110ff2e12b0b2552e6094b671c63f39e88b7e7342c",
+  "entries": [
+    {
+      "id": "zipformer",
+      "version": "2023-02-20",
+      "bytes": 176106266,
+      "sha256": "d55ea0d91914c6510e67eb4424ca1aaa1e9915c50f21e94e62fda8c80a9b1258"
+    },
+    {
+      "id": "qwen3",
+      "version": "0.6b-int8-v2026.03.25",
+      "bytes": 844122000,
+      "sha256": "b22839cbfcfaade3892b1adebc885844c3b38c72ace83afa8d263867663f1653"
+    },
+    {
+      "id": "dolphin",
+      "version": "small-ctc-int8-2025-04-02",
+      "bytes": 188325543,
+      "sha256": "e6c511eae66951324d6fc831f5aaf40cfa45b3bdd616cd02f61d97901412e8b3"
+    },
+    {
+      "id": "whisper",
+      "version": "small-int8-2024-07-13",
+      "bytes": 233007777,
+      "sha256": "ad2445183130a107b2f5eeb939a70052399c06dcf05d1cda836111049de202d7"
+    }
+  ]
 }
