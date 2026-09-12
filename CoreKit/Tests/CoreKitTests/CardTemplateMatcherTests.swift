@@ -196,13 +196,20 @@ struct CardTemplateMatcherTests {
 
     @Test("多行用法/用量并入同一 advice_text，不静默丢行（round10 修复）")
     func multiLineDirectionsMergeIntoAdvice() {
+        // 真实处方页字段集：覆盖率门禁（allFields 0.5 + 必填 drug_name/
+        // prescribed_at 全中）通过后卡才产出——只喂 advice×2 + 药名时
+        // coverage=2/5 拒卡，advice 恒空（CI 34672163937 实证：断言空串）。
         let fields = [
             FieldDraft(key: "advice_text", value: "用法：口服", confidence: 0.6),
             FieldDraft(key: "advice_text", value: "用量：每次1片", confidence: 0.6),
             FieldDraft(key: "drug_name", value: "阿莫西林", confidence: 0.6),
+            FieldDraft(key: "prescribed_at", value: "2026-09-10", confidence: 0.6),
+            FieldDraft(key: "hospital", value: "市一医院", confidence: 0.6),
+            FieldDraft(key: "doctor", value: "王医生", confidence: 0.6),
         ]
         let card = CardTemplateMatcher.match(fields: fields, pageIndex: 0, documentTypeKey: "prescription")
             .first { $0.kind == "prescription" }
+        #expect(card != nil, "处方卡必须过覆盖率门禁产出")
         let advice = card?.shared.first { $0.key == "advice_text" }?.value ?? ""
         #expect(advice.contains("口服"))
         #expect(advice.contains("每次1片"))
