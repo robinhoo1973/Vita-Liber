@@ -450,6 +450,12 @@ def main():
     g_files = list(a_files) + list(c_files)
     scanned["G"] = len(g_files)
     chain_seg = re.compile(r"\.(map|filter|flatMap|compactMap|reduce|joined|sorted|prefix|suffix|allSatisfy|contains)\s*[\{\(]")
+    # G-2：可选链直接接 typed-seed reduce——CI 34652541174 实证：
+    # ASRModelAssets.byteCount 的 `?.files.reduce(Int64(0)) { $0 + $1.bytes }`
+    # 仅 3 段即在 macOS 类型检查预算超时（可选链 + 泛型 reduce + 类型化
+    # 种子的组合超出推理预算），≥6 段链长判定罩不住此类——独立窄模式，
+    # 当前全仓零命中（修复即拆子表达式/let 承接）。
+    chain_reduce = re.compile(r"\?\.[a-zA-Z_]*\s*\.reduce\([A-Za-z0-9_.]+\)\s*\{")
     for f in g_files:
         try:
             raw_lines = f.read_text(encoding="utf-8").splitlines()
@@ -461,6 +467,13 @@ def main():
             stripped = raw.strip()
             if not stripped or stripped.startswith("//"):
                 continue
+            if chain_reduce.search(raw) and not exempted(raw_lines, lineno):
+                fails.append(
+                    f"{f.relative_to(root)}:{lineno}: 可选链直接接 typed-seed reduce"
+                    f"超出 macOS Swift 6 类型检查预算（CI 34652541174 同族："
+                    f"'unable to type-check this expression in reasonable time'）——"
+                    f"拆子表达式（let 承接），或加 // tius-ok: 豁免"
+                )
             n = len(chain_seg.findall(raw))
             if chain > 0 and stripped.startswith("."):
                 chain += n

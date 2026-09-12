@@ -145,13 +145,20 @@ public actor HealthImportStore {
             guard try Self.anchor(db, key: key) == pending.previousAnchor,
                   try Self.pending(binding: binding, kind: kind, db: db) == pending else { throw ImportError.staleAnchor }
             let batch = pending.batch
-            // 删除页未排空前不得按完整窗口解释（CI 34658990146 回归恢复）：
-            // 501 条删除分两页到达时，第一页（500 条）commit 若被放行，
-            // 空快照会删除 500 行并推进锚点，而第 501 条删除页尚未暂存——
-            // 窗口被「完整」解释，剩余删除依赖重启恢复才能补排（验收测试
-            // test_staged501DeletionsDrainWithoutAdvancingCommittedAnchor 钉死
-            // 此语义：commit 必须抛 incompleteSnapshot，光标原地等待）。
-            guard !batch.hasMore else { throw ImportError.incompleteSnapshot }
+            // 分页与排空的共同不变量（CI 34658990146 + 34659948629 两个验收
+            // 测试钉死，互为镜像）：
+            // ① hasMore 批次允许物化「内容完整」的窗口——历史分页期间完整
+            //    窗口先于最终检查点物化，光标不推进（服务测试：
+            //    historyPagesPublishCompleteWindowsBeforeTheFinalCheckpoint）；
+            // ② 全空快照按完整窗口解释必须拒绝——501 条删除分两页到达时，
+            //    第一页空快照提交会把窗口误判完整、删除 500 行（存储测试：
+            //    staged501DeletionsDrainWithoutAdvancingCommittedAnchor，
+            //    抛 incompleteSnapshot，光标原地等待）。
+            // 内容性判别：任一快照携带实际内容即有证据的完整窗口；全空即
+            // 「缺证据被当成有证据」（ERR#27 纪律），拒绝。
+            if batch.hasMore, !snapshots.contains(where: { !$0.samples.isEmpty || !$0.rows.isEmpty }) {
+                throw ImportError.incompleteSnapshot
+            }
             _ = try Self.validatedReferences(batch.added, kind: kind, calendar: binding.calendar)
             let tombstones = Set(batch.deleted)
             let deleted = try Self.deletedReferences(batch.deleted, binding: binding, kind: kind, db: db)
@@ -306,9 +313,10 @@ public actor HealthImportStore {
             }
             _ = try GuidelineStore.recordQualifiedHealthReadings(readings, patientId: binding.patientId, db: db)
             report.preservedRows = preserved.count
-            // 守卫恢复后 batch.hasMore 在此处恒为 false（hasMore 批次在
-            // commit 入口即抛 incompleteSnapshot）——语义回到原式。
-            report.hasMore = completed != requiredWindows
+            // hasMore 批次即使全部窗口物化完成也保持 hasMore=true——
+            // 光标（hk_sync_anchor）只在批次最终页排空后推进；分页期间的
+            // 完整窗口物化与光标推进解耦（CI 34659948629 服务测试钉死）。
+            report.hasMore = batch.hasMore || completed != requiredWindows
             if report.hasMore {
                 try Self.savePending(PendingBatch(previousAnchor: pending.previousAnchor, batch: batch,
                     completedWindows: completed, reconcileAfter: attempted.last?.start ?? pending.reconcileAfter,
