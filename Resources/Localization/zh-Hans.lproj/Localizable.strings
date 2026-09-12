@@ -160,6 +160,7 @@
 "claim.type.invoice" = "发票";
 "claim.type.fee" = "费用";
 "claim.type.receipt" = "收据";
+"currency.CNY" = "人民币";
 "immunization.title" = "疫苗接种记录";
 "immunization.empty" = "还没有疫苗记录";
 "immunization.emptyHint" = "手动录入或从疫苗记录类型文档懒创建";
@@ -599,6 +600,7 @@
 "home.greeting" = "你好，%@";
 "home.todayTodos" = "今日待办";
 "home.pendingCards" = "待补充";
+"pending.cardTitleFmt" = "待补充：%@";
 "home.pendingCardResume" = "去补全";
 "pendingCard.reasonOcrMissing" = "OCR 未识别";
 "pendingCard.rawText" = "识别原文";
@@ -1681,7 +1683,7 @@
 "voiceLab.test.footer" = "按住按钮说话、松手出结果；换引擎或换语言后重测即可对比识别率。";
 "voiceLab.fallback.asset" = "当前语言资源未就绪；请准备资源或自主选择其他引擎。";
 "voiceLab.fallback.unavailable" = "当前系统或设备不支持所选引擎，请自主选择其他引擎。";
-"voiceLab.fallback.missing" = "随包模型文件缺失：本次测试按回落引擎（平台轨或经典轨）执行，结果不代表所选模型。";
+"voiceLab.fallback.missing" = "随包模型文件缺失：所选模型不可用，对照测试无法运行（不会改用其他引擎冒充）。请在构建/分发流程补齐模型资产。";
 "voiceLab.result.section" = "最近结果";
 "voiceLab.result.empty" = "还没有测试结果";
 "voiceLab.result.meta" = "%@ · %@";

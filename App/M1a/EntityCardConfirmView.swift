@@ -290,13 +290,15 @@ struct PendingCardResumeRouteView: View {
                     }
                     Section(L10n.entityCardSharedSection) {
                         ForEach(pending.partialData.shared.filter { $0.key != "metric_key" }.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
-                            LabeledContent(DocumentsState.fieldLabel(forKey: key), value: value)
+                            LabeledContent(DocumentsState.fieldLabel(forKey: key),
+                                           value: DocumentsState.fieldValueDisplay(forKey: key, value: value))
                         }
                         ForEach(Array(pending.partialData.rows.enumerated()), id: \.offset) { index, row in
                             VStack(alignment: .leading) {
                                 Text(L10n.entityCardRowIndex(index + 1)).font(.caption)
                                 ForEach(row.filter { $0.key != "metric_key" }.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
-                                    LabeledContent(DocumentsState.fieldLabel(forKey: key), value: value)
+                                    LabeledContent(DocumentsState.fieldLabel(forKey: key),
+                                                   value: DocumentsState.fieldValueDisplay(forKey: key, value: value))
                                 }
                             }
                         }

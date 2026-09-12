@@ -721,7 +721,13 @@ final class DocumentsState {
         }
     }
 
-    func isClinicalDocType(_ label: String) -> Bool { label == L10n.docTypeReport || label == L10n.docTypeRecord }
+    /// 临床类文档判定：以 Domain 稳定键谓词为唯一事实源（FR6.9 健康问题推荐门控），
+    /// 旧数据无稳定键时回落到标签相等（与 Domain 判定集合一致的标签子集）。
+    func isClinicalDocType(key: String?, label: String) -> Bool {
+        if let key { return DocumentTypeClassifierFallback.isClinicalType(key) }
+        return label == L10n.docTypeReport || label == L10n.docTypeRecord
+            || label == L10n.docTypeLabelDiagnosisProof
+    }
 
     func createHealthProblem(patientId: UUID, name: String) async -> Bool {
         guard let problemStore else { return false }
@@ -743,7 +749,10 @@ final class DocumentsState {
         switch key {
         case "prescription": return L10n.docTypePrescription
         case "lab_report": return L10n.docTypeReport
-        case "outpatient_record", "diagnosis_certificate": return L10n.docTypeRecord
+        case "outpatient_record": return L10n.docTypeRecord
+        // 审查修复：诊断证明与门诊病历同归 docTypeRecord 会让两张文档类型
+        // 在展示层不可区分（且文案错误）——诊断证明须用其专属标签。
+        case "diagnosis_certificate": return L10n.docTypeLabelDiagnosisProof
         case "vaccine_record": return L10n.docTypeLabelVaccineRecord
         case "invoice": return L10n.claim_type_invoice
         case "medication_label": return L10n.entityCardKindName("medication")
@@ -754,7 +763,8 @@ final class DocumentsState {
     static var unresolvedDocTypePlaceholder: String { L10n.docTypeLabelOther }
 
     static func docTypeKey(forLabel label: String) -> String? {
-        ["prescription", "lab_report", "outpatient_record", "vaccine_record", "invoice", "medication_label"].first { docTypeLabel(forStableKey: $0) == label }
+        ["prescription", "lab_report", "outpatient_record", "diagnosis_certificate",
+         "vaccine_record", "invoice", "medication_label"].first { docTypeLabel(forStableKey: $0) == label }
     }
 
     static func fieldLabel(forKey key: String) -> String {
@@ -770,9 +780,38 @@ final class DocumentsState {
         case "hospital": return L10n.prescriptionFieldHospital
         case "doctor": return L10n.prescriptionFieldDoctor
         default:
-            if key.hasPrefix("line_"), let index = Int(key.dropFirst(5)) { return String(format: L10n.ocrFieldLine, index + 1) }
-            if key.hasPrefix("rx_line_"), let index = Int(key.dropFirst(8)) { return String(format: L10n.ocrFieldLine, index + 1) }
+            if key.hasPrefix("line_"), let index = Int(key.dropFirst(5)) { return L10n.entityCardRowIndex(index + 1) }
+            if key.hasPrefix("rx_line_"), let index = Int(key.dropFirst(8)) { return L10n.entityCardRowIndex(index + 1) }
             return L10n.templateFieldLabel(key)
+        }
+    }
+
+    /// FR6.9 字段值**展示层映射**（discussions/2026-09-12-owner-round10-issues.md §3a）：
+    /// 数据层保持 canonical raw（如 `EncounterKind.outpatient`、`unit_kind=tablet`），
+    /// 展示层按当前语言呈现；用户实测「信息卡出现 outpatient」的根因就是 raw 值直出。
+    /// 所有字段值渲染面（确认卡/待办续确认/已确认卡详情/首页待办卡/库存/图片确认卡）
+    /// 必须经此函数。编辑态 TextField 仍显示并回写 canonical raw（编辑框即数据
+    /// 真值、展示文案永不写回数据）——把展示文案映射进编辑框会让半程编辑
+    /// 把本地化片段写进 raw 槽位（round10 max 审查结论，保持原设计）。
+    static func fieldValueDisplay(forKey key: String, value: String) -> String {
+        switch key {
+        case "kind":
+            return EncounterKind(rawValue: value).map(L10n.encounterKindName) ?? value
+        case "doc_type", "document_type":
+            return docTypeLabel(forStableKey: value) ?? value
+        case "item_type":
+            switch value {
+            case "invoice": return L10n.claim_type_invoice
+            case "fee": return L10n.claim_type_fee
+            case "receipt": return L10n.claim_type_receipt
+            default: return value
+            }
+        case "unit_kind":
+            return ["tablet", "capsule", "patch", "vial"].contains(value) ? L10n.lotUnitName(value) : value
+        case "currency":
+            return value == "CNY" ? L10n.currencyCNY : value
+        default:
+            return value
         }
     }
 

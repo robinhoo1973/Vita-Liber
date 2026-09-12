@@ -204,8 +204,9 @@ struct VoiceEngineLabView: View {
         case .classic:
             return nil
         case .qwen3, .zipformer, .dolphin, .whisper:
-            // 审计修正（round3）：缺件随包模型由 builder 回落平台轨/基线轨执行——
-            // 必须明示，否则「模型质量」对照结果其实是回落引擎的。
+            // 审计修正（round3→round10）：显式选定随包模型缺件时如实报失败、
+            // 不再由 builder 回落其他引擎执行（function V3.68「不得换引擎冒充」）——
+            // 缺件明示文案如实告知「对照测试无法运行」，绝不声称结果来自回落引擎。
             return TranscriptionEngineBuilder.availability(of: choice) == .missingModelAssets
                 ? L10n.voiceLabFallbackMissing : nil
         case .auto:

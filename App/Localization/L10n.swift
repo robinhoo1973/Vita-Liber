@@ -205,6 +205,7 @@ enum L10n {
     static var claim_type_invoice: String { t("claim.type.invoice") }
     static var claim_type_fee: String { t("claim.type.fee") }
     static var claim_type_receipt: String { t("claim.type.receipt") }
+    static var currencyCNY: String { t("currency.CNY") }
     static var immunization_title: String { t("immunization.title") }
     static var immunization_empty: String { t("immunization.empty") }
     static var immunization_emptyHint: String { t("immunization.emptyHint") }
@@ -908,6 +909,7 @@ enum L10n {
     "ocr.review.legacySourceMissing",
     "ocr.review.finishCurrent",
     "ocr.review.partialSavedFmt",
+    "pending.cardTitleFmt",
     "health.preservedAggregatesFmt",
     "health.deferredWindowsFmt",
     "field.measured_at",
@@ -1075,7 +1077,7 @@ enum L10n {
         "care.parameters.valueAskEachTime", "care.parameters.valueDefaultOn", "care.parameters.valueSlow",
         "care.parameters.voiceInput",
         "care.title", "claim.add", "claim.empty", "claim.emptyHint",
-        "claim.title", "claim.type.fee", "claim.type.invoice", "claim.type.receipt",
+        "claim.title", "claim.type.fee", "claim.type.invoice", "claim.type.receipt", "currency.CNY",
         "common.cancel", "common.save", "deeplink.bookingNo", "deeplink.jump",
         "deeplink.notFound", "deeplink.open", "deeplink.saveNo", "deeplink.title",
         "dose.number", "emergency.allergy", "emergency.bloodType", "emergency.contacts",
@@ -2197,6 +2199,7 @@ enum L10n {
     static var docConfirmDocTypeUnresolved: String { t("docConfirm.docTypeUnresolved") }
     static var docConfirmDocTypeLowConfidence: String { t("docConfirm.docTypeLowConfidence") }
     static var docTypeLabelVaccineRecord: String { t("docTypeLabel.vaccineRecord") }
+    static var docTypeLabelDiagnosisProof: String { t("docTypeLabel.diagnosisProof") }
     static var docTypeLabelOther: String { t("docTypeLabel.other") }
     // FR6.9 V3.61 页级实体卡（EntityCardConfirmView / 待办详情多行快照）
     static func entityCardRowIndex(_ n: Int) -> String { String(format: t("entityCard.rowIndexFmt"), n) }
@@ -2220,6 +2223,15 @@ enum L10n {
     }
     static var pendingCardResume: String { t("pendingCard.resume") }
     static var pendingCardViewSource: String { t("pendingCard.viewSource") }
+    /// 首页聚合待办卡标题的展示层映射：Domain 投影契约（data-flow §20.1）
+    /// 固定为「待补充：{card_kind}」（Domain 零框架无法本地化），此处把
+    /// card_kind 映射为本地化卡类名并按当前语言重组前缀；无法解析时原样透传。
+    static func pendingCardAggregationTitle(_ title: String) -> String {
+        let prefix = "待补充："
+        guard title.hasPrefix(prefix) else { return title }
+        let kind = String(title.dropFirst(prefix.count))
+        return String(format: t("pending.cardTitleFmt"), entityCardKindName(kind))
+    }
     static var pendingCardDiscard: String { t("pendingCard.discard") }
     static var pendingCardNotFound: String { t("pendingCard.notFound") }
     // FR17.15 V3.61 主语言（有序多选首位）与尽力识别回显

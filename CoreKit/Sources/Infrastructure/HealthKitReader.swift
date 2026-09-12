@@ -10,7 +10,7 @@ public actor HealthKitReader: HealthReadingProvider {
     private var observers: [HKObserverQuery] = []
     public init(store: HKHealthStore = HKHealthStore()) { self.store = store }
 
-    public enum ReaderError: Error { case unavailable, invalidAnchor, incompleteSnapshot }
+    public enum ReaderError: Error { case unavailable, authorizationDenied, invalidAnchor, incompleteSnapshot }
 
     public static var readTypes: Set<HKObjectType> {
         Set(HealthDataKind.allCases.map { sampleType($0) as HKObjectType })
@@ -32,6 +32,16 @@ public actor HealthKitReader: HealthReadingProvider {
     public func requestAuthorization() async throws {
         guard isAvailable() else { throw ReaderError.unavailable }
         try await store.requestAuthorization(toShare: [], read: Self.readTypes)
+        // 拒绝核验（FR14.1 对偶纪律）：requestAuthorization 对「用户拒绝」静默
+        // 完成（不抛错），不二次确认会以「已连接」落库而每次查询都
+        // authorizationDenied——拒绝必须即时反映，绝不伪装成授权成功。
+        let status: HKAuthorizationRequestStatus
+        do {
+            status = try await store.statusForAuthorizationRequest(toShare: [], read: Self.readTypes)
+        } catch {
+            throw ReaderError.authorizationDenied
+        }
+        guard status == .unnecessary else { throw ReaderError.authorizationDenied }
     }
 
     public func observeChanges(handler: @escaping @Sendable () async -> Bool,

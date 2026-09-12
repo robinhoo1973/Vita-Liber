@@ -181,4 +181,41 @@ struct CardTemplateMatcherTests {
         #expect(CardTemplateMatcher.referenceBounds("2-1") == nil)
         #expect(CardTemplateMatcher.referenceBounds("1-1e999") == nil)
     }
+
+    @Test("检验行目录次序（值-范围-单位）与冒号无空格均成行（round10 修复）")
+    func catalogOrderLabLinesMatch() {
+        let drafts = DocumentTypeClassifierFallback.guessFields(line: "血红蛋白 150 115-150 g/L")
+        #expect(drafts.map(\.key).sorted() == ["lab_item", "reference_range"])
+        #expect(drafts.first { $0.key == "lab_item" }?.value == "血红蛋白 150")
+        #expect(drafts.first { $0.key == "lab_item" }?.unit == "g/L")
+        #expect(drafts.first { $0.key == "reference_range" }?.value == "115-150")
+        let colon = DocumentTypeClassifierFallback.guessFields(line: "血红蛋白：150")
+        #expect(colon.first?.key == "lab_item")
+        #expect(colon.first?.value == "血红蛋白 150")
+    }
+
+    @Test("多行用法/用量并入同一 advice_text，不静默丢行（round10 修复）")
+    func multiLineDirectionsMergeIntoAdvice() {
+        let fields = [
+            FieldDraft(key: "advice_text", value: "用法：口服", confidence: 0.6),
+            FieldDraft(key: "advice_text", value: "用量：每次1片", confidence: 0.6),
+            FieldDraft(key: "drug_name", value: "阿莫西林", confidence: 0.6),
+        ]
+        let card = CardTemplateMatcher.match(fields: fields, pageIndex: 0, documentTypeKey: "prescription")
+            .first { $0.kind == "prescription" }
+        let advice = card?.shared.first { $0.key == "advice_text" }?.value ?? ""
+        #expect(advice.contains("口服"))
+        #expect(advice.contains("每次1片"))
+    }
+
+    @Test("同一原文行模型轨与启发式轨双产出时保留含数值载荷（round10 O8）")
+    func dualTrackLabDraftsKeepNumericPayload() {
+        let lines = ["血红蛋白 150"]
+        let llm = FieldDraft(key: "lab_item", value: "血红蛋白", confidence: 0.9,
+                             rawText: "血红蛋白 150", source: .foundationModels)
+        let fields = DocumentTypeClassifierFallback.pageFields(lines: lines, understood: [llm], confidence: 0.9)
+        let labs = fields.filter { $0.key == "lab_item" }
+        #expect(labs.count == 1)
+        #expect(labs.first?.value == "血红蛋白 150")
+    }
 }

@@ -9,7 +9,7 @@ import SherpaOnnxC // 缺少真实C模块必须编译失败，不能被canImport
 public struct ASRModelAssets: Sendable {
     struct Manifest: Decodable { let formatVersion: Int; let models: [Model]; let shared: [File]; let sourceDigest: String? }
     struct Model: Decodable { let id: String; let license: String; let revision: String; let files: [File]; let archive: Archive? }
-    struct Archive: Decodable { let parts: [Part] }
+    struct Archive: Decodable { let parts: [Part]; let bytes: Int64? }
     struct Part: Decodable { let role: String; let path: String }
     struct File: Decodable { let role: String; let path: String; let bytes: Int64; let sha256: String }
     public struct Validated: Sendable {
@@ -70,8 +70,15 @@ public struct ASRModelAssets: Sendable {
         }
         guard let manifest else { return nil }
         // CI 34652541174 修复：单链长表达式超出类型检查预算——拆子表达式。
-        let files = manifest.models.first { $0.id == choice.rawValue }?.files ?? []
-        return files.reduce(Int64(0)) { $0 + $1.bytes }
+        let model = manifest.models.first { $0.id == choice.rawValue }
+        guard let model else { return nil }
+        let sum = model.files.reduce(Int64(0)) { $0 + $1.bytes }
+        if sum > 0 { return sum }
+        // 清单以 archive 分卷形态发布（如 qwen3 的 files:[] + archive）时
+        // 无逐文件字节——以 archive.bytes 呈现，避免设置页对随包模型
+        // 显示「0 字节」的矛盾信息（owner round10 实测「模型显示不完整」）。
+        guard let archiveBytes = model.archive?.bytes else { return nil }
+        return archiveBytes
     }
 
     /// 仅在后台推理队列加载前调用；流式hash，不能将几百MB的Data放在主线程。

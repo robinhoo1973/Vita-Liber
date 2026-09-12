@@ -97,7 +97,11 @@ public enum DocumentTypeClassifierFallback {
             // （V3.61：可选尾随参考范围 → 伴随 reference_range 草稿，同 rawText 归入该检验行）
             // 审查修复：项目名类此前不含数字/连字符——HbA1c/CA125/T3/25-OH-D
             // 等注释中明示支持的分析物全行不匹配，结构化卡创建被静默丢弃
-            ("lab_item", #"^([一-龥A-Za-z0-9\*\-\/]{1,20})[:：]?\s+([0-9]+\.?[0-9]*)\s*((?:10\^[0-9]+/)?[a-zA-Z/%μ·]+)?(?:\s+([0-9]+\.?[0-9]*)\s*[-–~～]\s*([0-9]+\.?[0-9]*))?$"#),
+            // round10 修复：单位与参考范围**顺序可互换**——字段目录注释为
+            // 「项目/结果/参考范围/单位」（"血红蛋白 150 115-150 g/L"），旧
+            // 正则只认「值 单位 范围」序，目录自身次序整卡静默不建；冒号后
+            // 空白改为可选（"血红蛋白：150" 此前不匹配）。
+            ("lab_item", #"^([一-龥A-Za-z0-9\*\-\/]{1,20})(?:[:：]\s*|\s+)([0-9]+\.?[0-9]*)\s*((?:10\^[0-9]+/)?[a-zA-Z/%μ·]+)?(?:\s+([0-9]+\.?[0-9]*)\s*[-–~～]\s*([0-9]+\.?[0-9]*))?\s*((?:10\^[0-9]+/)?[a-zA-Z/%μ·]+)?$"#),
         ]
         return patterns.compactMap { key, pattern in
             let compiled = try? NSRegularExpression(pattern: pattern)   // try?-ok: 模式为编译期静态字面量，构造不会失败
@@ -132,6 +136,10 @@ public enum DocumentTypeClassifierFallback {
                     payload = "\(payload) \(number)".trimmingCharacters(in: .whitespaces)
                 }
                 if match.numberOfRanges > 3, let uRange = Range(match.range(at: 3), in: text) {
+                    let u = String(text[uRange]).trimmingCharacters(in: .whitespaces)
+                    if !u.isEmpty { unit = u }
+                } else if match.numberOfRanges > 6, let uRange = Range(match.range(at: 6), in: text) {
+                    // 「值 范围 单位」目录次序（单位在范围之后）
                     let u = String(text[uRange]).trimmingCharacters(in: .whitespaces)
                     if !u.isEmpty { unit = u }
                 }
@@ -197,7 +205,23 @@ public extension DocumentTypeClassifierFallback {
                     || ($0.rawText == nil && $0.value.trimmingCharacters(in: .whitespacesAndNewlines) == text))
             }
             for field in guessFields(line: line) {
-                if !fields.contains(where: { $0.key == field.key && $0.value == field.value }) { fields.append(field) }
+                let sameLineAndKey = { (existing: FieldDraft) in
+                    existing.key == field.key
+                        && (existing.sourceLineIndex == index
+                            || existing.rawText?.trimmingCharacters(in: .whitespacesAndNewlines) == text)
+                }
+                let hasNumber = { (draft: FieldDraft) in
+                    draft.value.range(of: #"[0-9]"#, options: .regularExpression) != nil
+                }
+                if let existingIndex = fields.firstIndex(where: sameLineAndKey) {
+                    // 同一原文行的同名草稿（模型轨与启发式轨双产出）：启发式
+                    // 载荷含数值（"血红蛋白 150"）优于仅名称的模型载荷
+                    // （"血红蛋白"）——后者缺 value 必填键，落库时整行被判
+                    // 无效且同一分析物出现两行（round10 审查 O8）。
+                    if hasNumber(field), !hasNumber(fields[existingIndex]) { fields[existingIndex] = field }
+                } else if !fields.contains(where: { $0.key == field.key && $0.value == field.value }) {
+                    fields.append(field)
+                }
             }
             func append(_ key: String, _ value: String) {
                 guard !fields.contains(where: { $0.key == key }) else { return }

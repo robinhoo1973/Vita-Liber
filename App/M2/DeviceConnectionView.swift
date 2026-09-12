@@ -130,7 +130,11 @@ struct DeviceConnectionView: View {
                 case .idle: EmptyView()
                 case .syncing: ProgressView(L10n.f16Syncing)
                 case .done(let count):
-                    Text(L10n.f16SyncedRows(count)).accessibilityIdentifier("SP-29.health.syncDone")
+                    // report 存在时已同步行数由下方报告块渲染——这里只在
+                    // 无报告兜底显示，避免「已同步 N 行」重复两行（round10 实测）。
+                    if deviceState.report == nil {
+                        Text(L10n.f16SyncedRows(count)).accessibilityIdentifier("SP-29.health.syncDone")
+                    }
                 case .degraded(let message):
                     Label(message, systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
                 }

@@ -155,8 +155,14 @@ public actor HealthImportStore {
             //    staged501DeletionsDrainWithoutAdvancingCommittedAnchor，
             //    抛 incompleteSnapshot，光标原地等待）。
             // 内容性判别：任一快照携带实际内容即有证据的完整窗口；全空即
-            // 「缺证据被当成有证据」（ERR#27 纪律），拒绝。
-            if batch.hasMore, !snapshots.contains(where: { !$0.samples.isEmpty || !$0.rows.isEmpty }) {
+            // 「缺证据被当成有证据」（ERR#27 纪律），拒绝。唯一豁免：纯删除页
+            // 且无任何窗口受影响（被删除样本从未导入，affectedWindows 为空）
+            // ——否则未导入样本的删除页会被误报 incompleteSnapshot，
+            // 整轮浪费且该类型落进失败名单（owner round10 实测假警报）。
+            let deletionsOnlyEmptyPage = batch.added.isEmpty && snapshots.isEmpty
+                && (attemptedWindows?.isEmpty ?? true)
+            if batch.hasMore, !deletionsOnlyEmptyPage,
+               !snapshots.contains(where: { !$0.samples.isEmpty || !$0.rows.isEmpty }) {
                 throw ImportError.incompleteSnapshot
             }
             _ = try Self.validatedReferences(batch.added, kind: kind, calendar: binding.calendar)

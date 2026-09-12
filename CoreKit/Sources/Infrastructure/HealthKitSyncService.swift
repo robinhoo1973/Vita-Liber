@@ -95,7 +95,10 @@ public actor HealthKitSyncService {
                 aggregate.preservedRows += result.preservedRows
                 aggregate.rejectedSamples += result.rejectedSamples
                 aggregate.notificationFailures += result.notificationFailures
-                aggregate.failedTypes = Array(Set(aggregate.failedTypes + result.failedTypes))
+                // 终态失败以末轮为准：早期轮次的瞬时失败（查询抖动/待排空页）
+                // 后续轮次已恢复者不得永久挂在「部分类型导入失败」上
+                // （owner round10 实测：瞬态失败被并集语义钉死为永久假警报）。
+                aggregate.failedTypes = result.failedTypes
                 aggregate.hasMore = result.hasMore
                 aggregate.deferredWindows = result.deferredWindows
                 aggregate.lastSyncAt = result.lastSyncAt

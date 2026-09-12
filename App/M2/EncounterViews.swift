@@ -6,9 +6,10 @@ import Infrastructure
 
 /// 第七轮修复：就诊类型显示名统一经 L10n 词表——表单以 rawValue
 /// （"outpatient"…）落库，列表行/详情胶囊此前渲染英文枚举值；
-/// 历史/未知值（如旧版中文默认）原样降级显示，不 crash
+/// 历史/未知值（如旧版中文默认）原样降级显示，不 crash。
+/// 与 DocumentsState.fieldValueDisplay（FR6.9 展示层映射）单一事实源收敛。
 private func encounterKindDisplayName(_ raw: String) -> String {
-    EncounterKind(rawValue: raw).map { L10n.encounterKindName($0) } ?? raw
+    DocumentsState.fieldValueDisplay(forKey: "kind", value: raw)
 }
 
 /// 就诊模块状态仓：列表/详情/挂接/智能推荐（BR-001 成员隔离）

@@ -7,6 +7,10 @@ import SherpaOnnxC
 /// 所有方法只由SherpaSpeechSessionDriver.inferenceQueue调用。
 final class SherpaASRRuntime {
     private let choice: VoiceEngineChoice
+    /// 服务语言码（ASRModelCatalog.languageCode）：qwen3 须经 per-stream
+    /// "language" 选项注入解码提示，否则一律按默认普通话提示解码——
+    /// 粤语/闽南话等方言与外语独立/混合场景识别率坍缩（owner round10 实测）。
+    private let language: String
     private var online: OpaquePointer?
     private var offline: OpaquePointer?
     private var stream: OpaquePointer?
@@ -20,6 +24,7 @@ final class SherpaASRRuntime {
 
     init(choice: VoiceEngineChoice, language: String, assets: ASRModelAssets.Validated, hotwords: [String] = []) throws {
         self.choice = choice
+        self.language = language
         let strings = CStringStorage()
         if choice == .zipformer {
             var config = SherpaOnnxOnlineRecognizerConfig()
@@ -183,6 +188,16 @@ final class SherpaASRRuntime {
         guard !samples.isEmpty else { return "" }
         guard let offline, let stream = SherpaOnnxCreateOfflineStream(offline) else { throw TranscriptionError.engineUnavailable }
         defer { SherpaOnnxDestroyOfflineStream(stream) }
+        // qwen3 识别器按 per-stream "language" 选项向解码提示注入
+        // "language <code>" 标记（vendored offline-recognizer-qwen3-asr-impl.cc
+        // 715-723）；dolphin/whisper 不经此选项（whisper 已入 config）。
+        if choice == .qwen3, !language.isEmpty {
+            language.withCString { lang in
+                "language".withCString { key in
+                    SherpaOnnxOfflineStreamSetOption(stream, key, lang)
+                }
+            }
+        }
         SherpaOnnxAcceptWaveformOffline(stream, 16_000, samples, Int32(samples.count))
         SherpaOnnxDecodeOfflineStream(offline, stream)
         guard let result = SherpaOnnxGetOfflineStreamResult(stream) else { throw TranscriptionError.engineUnavailable }

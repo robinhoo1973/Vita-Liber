@@ -78,13 +78,14 @@ public enum TranscriptionEngineBuilder {
     }
 
     public static func make(choice: VoiceEngineChoice) -> any TranscriptionEngine {
-        // 缺件的随包模型绝不交给调用方（每次会话必抛 engineUnavailable）：显式选择
-        // 同样走缺件回落裁决——实验室在缺件行已标注「模型资源缺失」，测试按回落引擎
-        // 执行并由回落标注明示，不会把失败伪装成模型质量。
+        // 显式选定的随包模型缺件时**不得悄悄更换引擎**（function-spec FR17.15
+        // V3.68 合同「显式选定失败不得换引擎冒充」+ asr.selectionHint 文案）：
+        // 直接交付 sherpa 引擎，由资产校验在会话准备期如实报 engineUnavailable
+        // 失败——auto 档的缺件回落仍在 automaticChoice 内完成（FR17.17
+        // 「资产缺失即回落降级轨」只约束默认档）。owner round10 实测「模型页
+        // 勾选了 QWEN-ASR 却由别的引擎服务且无提示」即此处静默替换所致。
         if choice.isBundledModel {
-            return ASRModelAssets().isPresent(choice)
-                ? SherpaOnnxTranscriber(choice: choice)
-                : make(choice: fallbackForMissingBundledModel())
+            return SherpaOnnxTranscriber(choice: choice)
         }
         if choice == .auto { return SwitchableTranscriptionEngine(choiceProvider: { .auto }) }
         SherpaOnnxTranscriber.unloadWhenIdle()
@@ -107,6 +108,12 @@ public enum TranscriptionEngineBuilder {
         return SFSpeechTranscriber()
     }
 
+    /// 基线轨能力探测快照（SFSpeechTranscriber 初始化即全 supportedLocales 构造
+    /// recognizer 探测）：auto 轨 currentCapability 每按压都会走到此处——旧实现
+    /// 每次新建 SFSpeechTranscriber 重跑全量探测，按压首秒被探测吃掉
+    /// （round10 实测「说短句几乎识别不到」的延迟根因之一）。进程级快照复用。
+    private static let baselineCapabilitySnapshot: TranscriptionCapability = SFSpeechTranscriber().capability
+
     public static func automaticCapability() async -> TranscriptionCapability {
         var locales = Set<String>()
         for model in ASRModelCatalog.models where ASRModelAssets().isPresent(model.choice) {
@@ -114,7 +121,7 @@ public enum TranscriptionEngineBuilder {
         }
         // 回落目标的能力必须并在表内（缺资产时 auto 由平台轨/基线轨服务）：否则
         // 上层会把全部语言判为「不支持」并错误降级到手输（FR17.6 降级语义被误触发）。
-        locales.formUnion(SFSpeechTranscriber().capability.availableLocales)
+        locales.formUnion(Self.baselineCapabilitySnapshot.availableLocales)
         #if os(iOS) || os(macOS)
         if #available(iOS 26.0, macOS 26.0, *) {
             locales.formUnion(await SpeechAnalyzerSupport.installedLocales(of: .standard))

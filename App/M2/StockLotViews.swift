@@ -158,7 +158,9 @@ struct StockLotDetailView: View {
     private func dualTrackCard(_ lot: MedicationStore.LotRow) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(L10n.inventoryDualLineTitle).font(.headline)
-            Text(L10n.inventoryDualLine(MedicalNumberFormat.quantity(lot.remainingPlanUnits), lot.unitKind, MedicalNumberFormat.quantity(lot.remainingConfirmedUnits)))
+            Text(L10n.inventoryDualLine(MedicalNumberFormat.quantity(lot.remainingPlanUnits),
+                DocumentsState.fieldValueDisplay(forKey: "unit_kind", value: lot.unitKind),
+                MedicalNumberFormat.quantity(lot.remainingConfirmedUnits)))
                 .font(.subheadline)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -169,7 +171,8 @@ struct StockLotDetailView: View {
     private func archiveCard(_ lot: MedicationStore.LotRow) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(L10n.lotArchiveTitle).font(.headline)
-            archiveRow(L10n.lotTotalUnits, MedicalNumberFormat.quantity(lot.totalUnits) + " " + lot.unitKind)
+            archiveRow(L10n.lotTotalUnits, MedicalNumberFormat.quantity(lot.totalUnits) + " "
+                + DocumentsState.fieldValueDisplay(forKey: "unit_kind", value: lot.unitKind))
             archiveRow(L10n.lotOpenedAt, lot.openedAt?.formatted(date: .abbreviated, time: .omitted))
             // FR9.10：效期缺失 = 待补填（进批次补录待办）
             if let expireAt = lot.expireAt {

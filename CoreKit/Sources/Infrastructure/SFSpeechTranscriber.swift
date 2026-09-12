@@ -572,10 +572,11 @@ public actor SFSpeechTranscriber: TranscriptionCaptureReporting {
     private nonisolated let coordinator: SpeechSessionCoordinator<NativeSpeechSessionDriver>
 
     public init() {
-        capability = Self.probeCapability()
+        let probed = Self.probeCapability()
+        capability = probed
         let queue = DispatchQueue(label: "com.vitaliber.speech.native", qos: .userInitiated)
         coordinator = SpeechSessionCoordinator(queue: queue) { request in
-            NativeSpeechSessionDriver(request: request, queue: queue)
+            NativeSpeechSessionDriver(request: request, queue: queue, capability: probed)
         }
     }
 
@@ -591,7 +592,7 @@ public actor SFSpeechTranscriber: TranscriptionCaptureReporting {
         return .baseline(locales: locales)
     }
 
-    public nonisolated func currentCapability() async -> TranscriptionCapability { Self.probeCapability() }
+    public nonisolated func currentCapability() async -> TranscriptionCapability { capability }
 
     public nonisolated func transcribe(_ request: TranscriptionRequest,
                                         onPartial: (@Sendable (String) -> Void)?) async throws -> TranscriptionResult {
@@ -617,6 +618,10 @@ private struct NativeSpeechAudio: @unchecked Sendable { let buffer: AVAudioPCMBu
 private final class NativeSpeechSessionDriver: SpeechSessionDriver, @unchecked Sendable {
     private let request: TranscriptionRequest
     private let queue: DispatchQueue
+    /// 转写器初始化时探测的能力快照（每会话复用）：per-press 重探测
+    /// 会对每个受支持 locale 各构造一个 SFSpeechRecognizer，按压首秒
+    /// 被探测吃掉（round10 实测「说短句几乎识别不到」的延迟根因之一）。
+    private let capability: TranscriptionCapability
     private var recognizer: SFSpeechRecognizer?
     private var audio: AVAudioEngine?
     private var tapInstalled = false
@@ -633,9 +638,10 @@ private final class NativeSpeechSessionDriver: SpeechSessionDriver, @unchecked S
     private var ended: Set<UUID> = []
     private(set) var resolvedLocale = ""
 
-    init(request: TranscriptionRequest, queue: DispatchQueue) {
+    init(request: TranscriptionRequest, queue: DispatchQueue, capability: TranscriptionCapability) {
         self.request = request
         self.queue = queue
+        self.capability = capability
     }
 
     func authorize(_ completion: @escaping @Sendable (Bool) -> Void,
@@ -653,7 +659,6 @@ private final class NativeSpeechSessionDriver: SpeechSessionDriver, @unchecked S
             throw TranscriptionError.unauthorized
         }
         if recognizer == nil {
-            let capability = SFSpeechTranscriber.probeCapability()
             guard let locale = capability.resolvedLocale(for: request.localeIdentifier),
                   let candidate = SFSpeechRecognizer(locale: Locale(identifier: locale)),
                   TranscriptionLocale.normalizedIdentifier(candidate.locale.identifier)

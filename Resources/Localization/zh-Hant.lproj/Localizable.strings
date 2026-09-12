@@ -160,6 +160,7 @@
 "claim.type.invoice" = "發票";
 "claim.type.fee" = "費用";
 "claim.type.receipt" = "收據";
+"currency.CNY" = "人民幣";
 "immunization.title" = "疫苗接種記錄";
 "immunization.empty" = "還沒有疫苗記錄";
 "immunization.emptyHint" = "手動錄入或從疫苗記錄類型文件懶建立";
@@ -599,6 +600,7 @@
 "home.greeting" = "你好，%@";
 "home.todayTodos" = "今日待辦";
 "home.pendingCards" = "待補充";
+"pending.cardTitleFmt" = "待補充：%@";
 "home.pendingCardResume" = "去補全";
 "pendingCard.reasonOcrMissing" = "OCR 未識別";
 "pendingCard.rawText" = "識別原文";
@@ -1681,7 +1683,7 @@
 "voiceLab.test.footer" = "按住按鈕說話、放開後顯示結果；更換引擎或語言後重新測試即可比較辨識率。";
 "voiceLab.fallback.asset" = "目前語言資源尚未就緒；請準備資源或自主選擇其他引擎。";
 "voiceLab.fallback.unavailable" = "目前系統或裝置不支援所選引擎，請自主選擇其他引擎。";
-"voiceLab.fallback.missing" = "隨附模型檔案缺失：本次測試以回落引擎（平台軌或經典軌）執行，結果不代表所選模型。";
+"voiceLab.fallback.missing" = "隨附模型檔案缺失：所選模型不可用，對照測試無法執行（不會改用其他引擎冒充）。請在建置/分發流程補齊模型資產。";
 "voiceLab.result.section" = "最近結果";
 "voiceLab.result.empty" = "尚無測試結果";
 "voiceLab.result.meta" = "%@ · %@";

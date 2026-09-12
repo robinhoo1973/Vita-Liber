@@ -362,7 +362,7 @@ struct HomeView: View {
                         .fill(kindTint(item.aggregationKind).opacity(0.12)))
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
-                        Text(item.title)
+                        Text(L10n.pendingCardAggregationTitle(item.title))
                             .font(.subheadline).foregroundStyle(.primary)
                             .lineLimit(1)
                         if let status = item.status, status != "L0" {
@@ -795,13 +795,15 @@ private struct PendingCardDetailSheet: View {
                             }
                         } else {
                             ForEach(detail.partialData.shared.filter { $0.key != "metric_key" }.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
-                                LabeledContent(DocumentsState.fieldLabel(forKey: key), value: value)
+                                LabeledContent(DocumentsState.fieldLabel(forKey: key),
+                                               value: DocumentsState.fieldValueDisplay(forKey: key, value: value))
                             }
                             ForEach(Array(detail.partialData.rows.enumerated()), id: \.offset) { index, row in
                                 VStack(alignment: .leading) {
                                     Text(L10n.entityCardRowIndex(index + 1)).font(.caption)
                                     ForEach(row.filter { $0.key != "metric_key" }.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
-                                        LabeledContent(DocumentsState.fieldLabel(forKey: key), value: value)
+                                        LabeledContent(DocumentsState.fieldLabel(forKey: key),
+                                                       value: DocumentsState.fieldValueDisplay(forKey: key, value: value))
                                     }
                                 }
                             }
@@ -822,7 +824,7 @@ private struct PendingCardDetailSheet: View {
                 Text(L10n.pendingCardNotFound)
             } else { ProgressView() }
         }
-        .navigationTitle(item.title)
+        .navigationTitle(L10n.pendingCardAggregationTitle(item.title))
         .navigationBarTitleDisplayMode(.inline)
         .task(id: item.id.sourceId) {
             await loadDetail()
@@ -919,7 +921,8 @@ private struct PendingCardDetailSheet: View {
     private func pendingField(_ field: FieldDraft) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(DocumentsState.fieldLabel(forKey: field.key)).font(.caption).foregroundStyle(.secondary)
-            Text(field.value).strikethrough(field.grade == .rejected)
+            Text(DocumentsState.fieldValueDisplay(forKey: field.key, value: field.value))
+                .strikethrough(field.grade == .rejected)
         }
     }
 }

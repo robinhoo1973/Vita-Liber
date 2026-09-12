@@ -110,9 +110,11 @@ actor SwitchableTranscriptionEngine: TranscriptionCaptureReporting {
     func prepareLocale(_ localeIdentifier: String) async -> Bool {
         let choice = choiceProvider()
         // 审查修复：auto 档必须先按 locale 解析实际服务档位再判可安装性——
-        // 旧实现对 auto 恒返回 false（requiresLocaleAssets == false），
-        // 实验室在「auto + 平台轨回落」场景显示可下载按钮却必然安装失败。
-        let resolved = choice == .auto ? ASRModelCatalog.automaticChoice(locale: localeIdentifier) : choice
+        // 且必须与 localeAssetStatus 同用一个**门控**解析器（旧实现对 auto
+        // 用未门控目录：zh 恒解析 .qwen3、requiresLocaleAssets==false 恒
+        // return false，实验室在「auto + 平台轨回落」场景显示可下载按钮
+        // 却必然安装失败——owner round10 实测）。
+        let resolved = choice == .auto ? TranscriptionEngineBuilder.automaticChoice(locale: localeIdentifier) : choice
         guard resolved.requiresLocaleAssets else { return false }
         return await delegate(for: resolved).prepareLocale(localeIdentifier)
     }

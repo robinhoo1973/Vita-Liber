@@ -27,11 +27,20 @@ final class SherpaSpeechSessionDriver: SpeechSessionDriver, @unchecked Sendable 
     private var priorSession: AudioSessionCapture.State?
     #endif
 
-    /// 能力诚实：报告模型实际服务的语言码，而非请求语言——
+    /// 能力诚实：报告模型实际服务的语言，而非请求语言——
     /// 方言请求由普通话基线模型服务时（如 nan-TW → zh），结果 locale
     /// 必须如实回显，不得让面板宣称「已按方言识别」并污染下一次按压。
+    /// 语言码回译为标准 locale 标识（zh→zh-Hans-CN 等），避免「尽力识别」
+    /// 徽章把普通普通话误标为降级方言（round10 实测误报）。
     var resolvedLocale: String {
-        ASRModelCatalog.model(for: choice)?.languageCode(for: request.localeIdentifier) ?? request.localeIdentifier
+        guard let model = ASRModelCatalog.model(for: choice),
+              let code = model.languageCode(for: request.localeIdentifier) else { return request.localeIdentifier }
+        switch code {
+        case "zh": return "zh-Hans-CN"
+        case "yue": return "yue-Hant-HK"
+        case "en": return "en-US"
+        default: return request.localeIdentifier
+        }
     }
     init(request: TranscriptionRequest, choice: VoiceEngineChoice, assets: ASRModelAssets) {
         self.request = request; self.choice = choice; self.assets = assets
@@ -205,7 +214,10 @@ final class SherpaSpeechSessionDriver: SpeechSessionDriver, @unchecked Sendable 
         private var evictOnRelease = false
         func acquire(owner: UUID, choice: VoiceEngineChoice, language: String, assets: ASRModelAssets, hotwords: [String]) throws {
             guard self.owner == nil || self.owner == owner else { throw TranscriptionError.engineUnavailable }
-            let nextKey = choice.rawValue + ":" + (choice == .whisper ? language : "")
+            // 语言码是 qwen3/whisper 解码语义的一部分（per-stream 选项/配置），
+            // 必须计入池键——方言与普通话共用运行时会把上一会话的语言
+            // 选项沿用给下一会话（owner round10 方言识别错乱根因之一）。
+            let nextKey = choice.rawValue + ":" + (choice == .whisper || choice == .qwen3 ? language : "")
                 + (choice == .qwen3 ? ":" + hotwords.prefix(MixedSpeechVocabulary.limit).joined(separator: "\n") : "")
             if key != nextKey || runtime == nil {
                 runtime = nil; key = nil

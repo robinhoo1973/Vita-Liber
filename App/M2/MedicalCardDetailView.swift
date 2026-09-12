@@ -23,7 +23,8 @@ struct MedicalCardDetailView: View {
                     OCRReviewOwnerRow(patientId: patientId)
                     GradeBadge(grade: "C")
                     ForEach(Array(detail.fields.enumerated()), id: \.offset) { _, field in
-                        LabeledContent(DocumentsState.fieldLabel(forKey: field.key), value: field.value)
+                        LabeledContent(DocumentsState.fieldLabel(forKey: field.key),
+                                       value: DocumentsState.fieldValueDisplay(forKey: field.key, value: field.value))
                     }
                 }
                 Section(L10n.ocrAssociatedEncounter) {

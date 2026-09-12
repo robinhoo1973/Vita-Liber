@@ -55,7 +55,10 @@ public struct TranscriptionCapability: Sendable, Equatable {
         if let exact = locale(matching: identifier) { return exact }
         guard allowsDialectFallback else { return nil }
         switch TranscriptionLocale.normalizedIdentifier(identifier) {
-        case "yue-hant-hk", "yue-hans-cn", "nan-tw", "wuu-cn", "zh-hans-cn-sichuan":
+        case "yue-hant-hk", "yue-hans-cn", "nan-tw", "wuu-cn", "zh-hans-cn-sichuan",
+             // 繁体台语无端侧模型可服务，回落普通话基线（与其余方言同口径）；
+             // 缺此分支时 zh-TW 请求直接 engineUnavailable 整按失败（round10 审查）。
+             "zh-hant-tw":
             return locale(matching: "zh-Hans-CN")
         default:
             return nil
@@ -69,7 +72,7 @@ public enum TranscriptionLocale {
         let key = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "_", with: "-").lowercased()
         switch key {
-        case "zh-cn", "zh-hans-cn": return "zh-hans-cn"
+        case "zh-cn", "zh-hans-cn", "zh-hans": return "zh-hans-cn"
         case "zh-hk", "zh-hant-hk", "yue-hk", "yue-hant-hk": return "yue-hant-hk"
         case "yue-cn", "yue-hans-cn": return "yue-hans-cn"
         case "zh-tw", "zh-hant-tw": return "zh-hant-tw"

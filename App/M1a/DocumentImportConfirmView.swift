@@ -170,8 +170,13 @@ struct FieldConfirmRow: View {
                     .foregroundStyle(tier == .low ? Color("semantic-danger", bundle: .main) : Color.secondary)
             }
             if readOnly || field.grade == .rejected {
-                Text(field.value).strikethrough(field.grade == .rejected)
+                Text(DocumentsState.fieldValueDisplay(forKey: field.key, value: field.value))
+                    .strikethrough(field.grade == .rejected)
             } else {
+                // 编辑态显示并回写 canonical raw（编辑框即数据真值；展示文案
+                // 永不写回数据）——把展示文案映射进编辑框会令半程编辑
+                // （退格/追加一字符）把本地化片段写进 raw 槽位、污染审计
+                // 历史（round10 max 审查结论：与「编辑态仍回写 raw」设计一致）。
                 TextField(label, text: Binding(get: { field.value }, set: { value in
                     if let onRevise { onRevise(value) } else { field.revise(to: value) }
                 }), axis: .vertical)
@@ -306,7 +311,8 @@ private struct ImportReviewSessionView: View {
         .task(id: completionKey) {
             guard session.outcome != nil, !session.isSaving, !session.isBulkDeferring, !alertVisible else { return }
             if session.outcome == .saved, !session.healthProblemOfferHandled,
-               let draft = session.draft, draft.allReviewed, docs.isClinicalDocType(draft.docType) {
+               let draft = session.draft, draft.allReviewed,
+               docs.isClinicalDocType(key: draft.documentTypeKey, label: draft.docType) {
                 session.healthProblemOfferHandled = true
                 offerHealthProblem = true
             } else { dismiss() }

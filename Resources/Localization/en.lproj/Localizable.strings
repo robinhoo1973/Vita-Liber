@@ -160,6 +160,7 @@
 "claim.type.invoice" = "Invoice";
 "claim.type.fee" = "Fee";
 "claim.type.receipt" = "Receipt";
+"currency.CNY" = "Renminbi (CNY)";
 "immunization.title" = "Vaccination records";
 "immunization.empty" = "No vaccination records yet";
 "immunization.emptyHint" = "Add manually or create lazily from a vaccine-record document";
@@ -599,6 +600,7 @@
 "home.greeting" = "Hi, %@";
 "home.todayTodos" = "Today";
 "home.pendingCards" = "To Complete";
+"pending.cardTitleFmt" = "To complete: %@";
 "home.pendingCardResume" = "Complete Now";
 "pendingCard.reasonOcrMissing" = "Not recognized by OCR";
 "pendingCard.rawText" = "Recognized Text";
@@ -1681,7 +1683,7 @@
 "voiceLab.test.footer" = "Press and hold to speak, release to see the result. Switch engines or languages and retest to compare accuracy.";
 "voiceLab.fallback.asset" = "Language assets are not ready. Prepare them or select another engine.";
 "voiceLab.fallback.unavailable" = "This system or device does not support the selected engine. Select another engine.";
-"voiceLab.fallback.missing" = "Bundled model files are missing. This test runs on the fallback engine (platform or classic track), so the result does not reflect the selected model.";
+"voiceLab.fallback.missing" = "Bundled model files are missing. The selected model is unavailable, so this comparison test cannot run (it will not be silently replaced by another engine).";
 "voiceLab.result.section" = "Recent results";
 "voiceLab.result.empty" = "No test results yet";
 "voiceLab.result.meta" = "%@ · %@";

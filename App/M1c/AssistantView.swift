@@ -182,7 +182,7 @@ struct ImageConfirmSheet: View {
             Text(L10n.ai_confirmImageText).font(.headline)
             ForEach(set.fields) { field in
                 ScrollView {
-                    Text(field.value)
+                    Text(DocumentsState.fieldValueDisplay(forKey: field.key, value: field.value))
                         .font(.body)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }

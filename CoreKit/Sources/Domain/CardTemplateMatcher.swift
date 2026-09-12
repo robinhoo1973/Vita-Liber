@@ -267,10 +267,18 @@ public enum CardTemplateMatcher {
                 let isEmpty = draft.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 if let existingIndex = sharedKeys[mapped] {
                     if isEmpty { continue }
-                    if shared[existingIndex].value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    let existingValue = shared[existingIndex].value.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if existingValue.isEmpty {
                         var copy = draft
                         copy.key = mapped
                         shared[existingIndex] = copy
+                    } else if mapped == "advice_text", !existingValue.contains(draft.value) {
+                        // 多行用法/用量（多药品处方每药一行）并入同一共享键——
+                        // 旧实现 continue 丢弃后续行，处方只保留第一条医嘱
+                        // （round10 审查：多条医嘱静默丢行）。
+                        var merged = shared[existingIndex]
+                        merged.value = existingValue + "\n" + draft.value
+                        shared[existingIndex] = merged
                     }
                     continue
                 }
