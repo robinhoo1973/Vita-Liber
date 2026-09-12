@@ -229,6 +229,7 @@ public actor ASRModelDownloadService {
         let pointerData = try JSONEncoder().encode(pointer)
         try pointerData.write(to: modelRoot.appendingPathComponent("active.json"), options: .atomic)
         Self.invalidatePointerCache()
+        ASRModelAssets.invalidateCaches()
 
         pruneOldVersions(modelRoot: modelRoot, keeping: release.version)
         return versionDir

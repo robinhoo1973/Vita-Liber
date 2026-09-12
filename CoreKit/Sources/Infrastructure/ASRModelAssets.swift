@@ -50,6 +50,9 @@ public struct ASRModelAssets: Sendable {
             values[key] = computed
             return computed
         }
+        func removeAll() {
+            lock.lock(); values.removeAll(); lock.unlock()
+        }
     }
 
     public func isPresent(_ choice: VoiceEngineChoice) -> Bool {
@@ -72,6 +75,16 @@ public struct ASRModelAssets: Sendable {
             values[key] = computed
             return computed
         }
+        func removeAll() {
+            lock.lock(); values.removeAll(); lock.unlock()
+        }
+    }
+
+    /// 安装/指针切换后失效进程级缓存（presence/manifest）：同版本重装或指针切换后，
+    /// 旧判定（如曾因缺件缓存 false）不得继续遮蔽新目录（安全审查 2026-09-12 发现）。
+    public static func invalidateCaches() {
+        presenceCache.removeAll()
+        manifestCache.removeAll()
     }
 
     public func byteCount(_ choice: VoiceEngineChoice) -> Int64? {
