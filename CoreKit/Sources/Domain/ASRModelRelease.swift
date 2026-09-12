@@ -2,9 +2,9 @@ import Foundation
 
 /// FR17.15（业主 2026-09-12 决定）：ASR 模型的**运行时下载索引**（Domain 纯值对象）。
 ///
-/// 索引由 `downloads/<app>/<asset>/index.json` 提供（见仓库 `downloads/README.md`）：
+/// 索引由已验签的 Release 目录或 App 内嵌基线提供（见 `.github/ASR_RELEASE.md`）：
 /// - 一份索引覆盖一个资源类别（当前 = asr），条目与 `VoiceEngineChoice.rawValue` 对齐；
-/// - 地址采用 `baseUrl` + 相对文件名（换 CDN/对象存储不改 App）；
+/// - 地址采用已授权的 `baseUrl` + 相对文件名；
 /// - `sha256` 为空或 `bytes == 0` 视为**未发布**条目：客户端必须跳过，绝不下载未核验包。
 public struct ASRModelReleaseIndex: Codable, Sendable, Equatable {
     public var schemaVersion: Int
@@ -91,7 +91,8 @@ public struct ASRModelRelease: Codable, Sendable, Equatable, Identifiable {
 ///
 /// 规则：按非字母数字切段，逐段比较；两段均为纯数字时按整数比（`03` == `3`，
 /// `20260912` > `20260325`），否则先按段首连续数字前缀比较（`6b` < `10`、
-/// `9` < `10a`），前缀相同再按字典序（忽略大小写）；前缀相同时段数多者为新。
+/// `9` < `10a`），其余按忽略大小写的自然顺序比较（段内连续数字按数值，`v9` < `v10`）；
+/// 已比较的各段相同时段数多者为新。
 /// 这是「可解释、可测试」的最小实现——不引入 semver 库（Domain 零依赖纪律）。
 public enum ASRVersion {
     public static func isNewer(_ lhs: String, than rhs: String?) -> Bool {
@@ -109,7 +110,7 @@ public enum ASRVersion {
         return left.count > right.count
     }
 
-    /// 单段比较：纯数字按整数；混合段先比数字前缀，前缀相等再按字典序。
+    /// 单段比较：纯数字按整数；混合段先比数字前缀，其余按含数字的自然顺序。
     private static func compareSegment(_ a: String, _ b: String) -> ComparisonResult {
         if let ai = Int(a), let bi = Int(b) {
             if ai == bi { return .orderedSame }
@@ -119,7 +120,7 @@ public enum ASRVersion {
         if let an, let bn, an != bn {
             return an > bn ? .orderedDescending : .orderedAscending
         }
-        return a.lowercased().compare(b.lowercased())
+        return a.lowercased().compare(b.lowercased(), options: .numeric)
     }
 
     private static func leadingDigits(_ value: String) -> Int? {

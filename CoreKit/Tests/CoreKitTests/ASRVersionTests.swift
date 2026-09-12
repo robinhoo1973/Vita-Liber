@@ -13,6 +13,16 @@ struct ASRVersionTests {
         #expect(!ASRVersion.isNewer("v9", than: "v10"))
     }
 
+    @Test(arguments: [
+        ("V10", "v9"),
+        ("0.6b-int8-v10.03.25", "0.6b-int8-v9.03.25"),
+        ("v10.1", "v9.10")
+    ])
+    func 字母后的数字比较适用于完整模型版本(_ newer: String, _ older: String) {
+        #expect(ASRVersion.isNewer(newer, than: older))
+        #expect(!ASRVersion.isNewer(older, than: newer))
+    }
+
     @Test func 小数段不按字典序() {
         #expect(ASRVersion.isNewer("1.10", than: "1.9"))
         #expect(!ASRVersion.isNewer("1.9", than: "1.10"))
