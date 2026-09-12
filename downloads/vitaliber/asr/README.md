@@ -32,10 +32,10 @@ NOTICE.md              # 上游归属说明（可选但推荐）
 
 | id | version | builtAt | bytes | 状态 |
 |---|---|---|---|---|
-| zipformer | 2023-02-20 | 20260912 | 176,106,266 | 已打包（zip 已入索引，待上传 Release） |
-| qwen3 | 0.6b-int8-v2026.03.25 | 20260912 | 844,122,000 | 已打包（zip 已入索引，待上传 Release） |
-| dolphin | small-ctc-int8-2025-04-02 | 20260912 | 188,325,543 | 已打包（zip 已入索引，待上传 Release） |
-| whisper | small-int8-2024-07-13 | 20260912 | 233,007,777 | 已打包（zip 已入索引，待上传 Release） |
+| zipformer | 2023-02-20 | 20260912 | 176,106,266 | ✅ 已发布（asr-models Release） |
+| qwen3 | 0.6b-int8-v2026.03.25 | 20260912 | 844,122,000 | ✅ 已发布（asr-models Release） |
+| dolphin | small-ctc-int8-2025-04-02 | 20260912 | 188,325,543 | ✅ 已发布（asr-models Release） |
+| whisper | small-int8-2024-07-13 | 20260912 | 233,007,777 | ✅ 已发布（asr-models Release） |
 
 > `sha256` 为空串表示**未发布**；App 必须把空 sha256 视为「不可用条目」直接跳过（防下载未完成/被篡改的包）。
 
