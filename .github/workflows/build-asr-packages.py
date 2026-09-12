@@ -66,7 +66,7 @@ def write_zip(path, files, built_at):
                         shutil.copyfileobj(handle, destination, length=1024**2)
 
 
-def build_packages(root, template, output):
+def build_packages(root, template, output, reuse=None):
     validate_index(template, complete=False)
     original, resolved, source_digest = source_manifest(root)
     output.mkdir(parents=True, exist_ok=True)
@@ -106,6 +106,19 @@ def build_packages(root, template, output):
         release["expandedBytes"] = sum(len(v) if isinstance(v, bytes) else v.stat().st_size for v in files.values())
         prepared.append((release, files))
     for release, files in prepared:
+        # 复用已验证 Release ZIP（2026-09-13 审查加固）：重建的字节取决于
+        # runner zlib 版本——镜像升级的 deflate 差异会让重建包与已签名
+        # sha256 不符，阻塞 TestFlight。签名目录授权同内容时直接复用
+        # 发布物，确定性承诺不依赖 zlib 实现。候选（未签名模板无 sha256）
+        # 仍走重建。
+        if reuse is not None:
+            cached = Path(reuse) / release["url"]
+            if (cached.is_file() and not cached.is_symlink() and release.get("sha256")
+                    and digest_file(cached) == release["sha256"]):
+                shutil.copyfile(cached, output / release["url"])
+                release["bytes"] = cached.stat().st_size
+                print("Reusing verified Release ZIP " + release["url"], flush=True)
+                continue
         with tempfile.NamedTemporaryFile(dir=output, suffix=".zip", delete=False) as temporary:
             temporary_path = Path(temporary.name)
         try:
@@ -143,9 +156,11 @@ def main():
     parser.add_argument("--source-root", type=Path, required=True)
     parser.add_argument("--index", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--reuse-directory", type=Path)
     args = parser.parse_args()
     try:
-        result = build_packages(args.source_root, decode_json(args.index.read_bytes()), args.output)
+        result = build_packages(args.source_root, decode_json(args.index.read_bytes()), args.output,
+                                reuse=args.reuse_directory)
         print(f"Built and verified {len(result['models'])} complete ASR packages", flush=True)
         return 0
     except (OSError, ValueError, KeyError, TypeError, RuntimeError) as error:

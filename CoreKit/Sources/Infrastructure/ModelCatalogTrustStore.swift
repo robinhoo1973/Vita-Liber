@@ -151,6 +151,18 @@ public final class ModelCatalogTrustStore: @unchecked Sendable {
         return revokedHashes.contains(packageSHA256.lowercased())
     }
 
+    /// 已持久化的最新**未过期**目录索引（离线可用面）：设置页在拉取失败时
+    /// 依次回退 网络目录 → 本目录 → 随包基线，普通离线不缩小已知下载入口
+    /// （asr-release-spec §6；2026-09-13 审查补齐）。过期目录不在此列——
+    /// 过期只阻止新授权，不影响已安装目录与基线授权。
+    public var currentIndex: ASRModelReleaseIndex? {
+        lock.lock(); defer { lock.unlock() }
+        guard let catalog, let root,
+              let expiry = Self.date(catalog.expiresAt), expiry > Date(),
+              let rootExpiry = Self.date(root.expiresAt), rootExpiry > Date() else { return nil }
+        return catalog.index
+    }
+
     /// 调用者已持锁。地址与包描述来自同一授权，UI 不能另塞一个 baseURL。
     private func authorizedBaseURL(_ release: ASRModelRelease) -> URL? {
         guard release.isPublished else { return nil }

@@ -75,7 +75,8 @@ jobs:
           python3 .github/workflows/build-asr-packages.py \
             --source-root "$RUNNER_TEMP/asr-source" \
             --index Resources/ASRModelUpdates/index.json \
-            --output "$RUNNER_TEMP/asr-packages"
+            --output "$RUNNER_TEMP/asr-packages" \
+            --reuse-directory "$RUNNER_TEMP/asr-cache"
           python3 .github/workflows/fetch-asr-models.py \
             --root "$RUNNER_TEMP/asr-packages/bundle/ASRModels" --check
 

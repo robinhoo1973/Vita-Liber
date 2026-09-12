@@ -148,6 +148,23 @@ class PackageTests(unittest.TestCase):
                                  text=True, capture_output=True)
         self.assertNotEqual(missing.returncode, 0)
 
+    def test_signed_zip_reused_from_verified_release_instead_of_rebuild(self):
+        first = self.built_index()
+        signed = json.loads(self.index.read_text())
+        signed["models"] = first["models"]   # 发布模板带签名 sha256
+        (self.root / "signed-index.json").write_text(json.dumps(signed))
+        rebuilt = self.root / "rebuilt"
+        result = subprocess.run(["python3", str(TOOLS / "build-asr-packages.py"), "--source-root", str(self.source),
+                                 "--index", str(self.root / "signed-index.json"), "--output", str(rebuilt),
+                                 "--reuse-directory", str(self.output)], text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        second = json.loads((rebuilt / "index.json").read_text())
+        for first_model, second_model in zip(first["models"], second["models"]):
+            self.assertEqual((first_model["sha256"], first_model["bytes"]),
+                             (second_model["sha256"], second_model["bytes"]))
+            self.assertEqual((self.output / first_model["url"]).read_bytes(),
+                             (rebuilt / second_model["url"]).read_bytes())
+
     def test_verified_release_packages_restore_the_pinned_build_tree(self):
         self.built_index()
         restored = self.root / "restored"

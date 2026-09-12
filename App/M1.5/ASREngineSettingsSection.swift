@@ -87,7 +87,7 @@ struct ASREngineSettingsSection: View {
     @ViewBuilder
     private func downloadControls(_ choice: VoiceEngineChoice) -> some View {
         let installed = ASRModelDownloadService.installedVersion(for: choice)
-        let availableIndex = index ?? ModelCatalogTrustStore.shared.baselineIndex
+        let availableIndex = index ?? ModelCatalogTrustStore.shared.currentIndex ?? ModelCatalogTrustStore.shared.baselineIndex
         let latest = availableIndex.flatMap {
             ASRModelDownloadService.latest(for: choice, in: $0, appVersion: appVersion)
         }
@@ -107,6 +107,7 @@ struct ASREngineSettingsSection: View {
                     .accessibilityIdentifier("\(accessibilityPrefix).model.progress.\(choice.rawValue)")
                 Button(L10n.commonCancel) { downloadTask?.cancel() }
                     .frame(minHeight: 44)
+                    .accessibilityIdentifier("\(accessibilityPrefix).model.cancel.\(choice.rawValue)")
             } else {
                 if failed == choice {
                     // 失败提示与重试按钮并存：此前失败态被更新/下载按钮分支
