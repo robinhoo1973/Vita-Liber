@@ -262,6 +262,7 @@ struct AnswerBodyView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(12)
             .background(RoundedRectangle(cornerRadius: 16).fill(Color("semantic-danger", bundle: .main).opacity(0.1)))
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("SP-21.ai.emergency")
         case .refused(let r):
             VStack(alignment: .leading, spacing: 8) {
@@ -332,6 +333,7 @@ struct AnswerBodyView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(12)
             .background(RoundedRectangle(cornerRadius: 16).fill(Color("bg-grouped", bundle: .main)))
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("SP-21.ai.answer")
         }
         // FR12.8 反馈四键：有用/无用（16pt 图标）+ 长按菜单（引用错误/疑似危险）

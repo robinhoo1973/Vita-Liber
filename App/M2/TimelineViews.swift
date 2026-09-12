@@ -118,6 +118,7 @@ struct TimelineFullView: View {
                         .accessibilityIdentifier("SP-19.quick.metrics")
                     }
                 }
+                .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("SP-19.timeline.list")
             }
         }

@@ -55,6 +55,7 @@ struct ReminderChannelSettingsView: View {
             }
         }
         .navigationTitle(L10n.remchTitle)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("SP-26.remch.list")
     }
 }

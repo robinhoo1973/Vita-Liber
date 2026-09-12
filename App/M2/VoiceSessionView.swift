@@ -224,6 +224,7 @@ struct VoiceSessionView: View {
             .padding(.horizontal, 12)
         }
         .padding(16)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("F19.session.view")
         .onAppear {
             session.start()
@@ -342,6 +343,7 @@ struct VoiceSessionView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(RoundedRectangle(cornerRadius: 12)
                 .fill(Color("grade-d", bundle: .main).opacity(0.1)))
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("F19.session.rejectionCard")
         }
     }

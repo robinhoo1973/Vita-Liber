@@ -60,6 +60,7 @@ struct AppointmentDeepLinkCard: View {
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color("bg-grouped", bundle: .main)))
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("FR10.6.deepLink.card")
     }
 }

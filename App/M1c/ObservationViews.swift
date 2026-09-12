@@ -393,6 +393,7 @@ struct ObservationListView: View {
                             LockedMediaStrip(assetIds: ids, memberId: memberId)
                         }
                     }
+                    .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("SP-14.observation.group")
                     // FR8.10 观察随访提醒：一键设置「N 天后提醒对比/复查」
                     .contextMenu {

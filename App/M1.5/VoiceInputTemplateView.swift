@@ -320,6 +320,7 @@ struct VoiceConfirmSheet: View {
             }
         }
         .padding(20)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("FR17.13.sheet")
         .overlay(alignment: .bottom) {
             if let routeToast {
@@ -399,6 +400,7 @@ struct VoicePrivacyHeadphoneCard: View {
             }
         }
         .padding(20)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("FR17.12.card")
     }
 }
@@ -430,6 +432,7 @@ struct VoiceModificationRejectionCard: View {
             }
         }
         .padding(20)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("FR17.11.rejectionCard")
     }
 }

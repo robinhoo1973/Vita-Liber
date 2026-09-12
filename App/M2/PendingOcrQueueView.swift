@@ -109,6 +109,7 @@ struct PendingOcrQueueView: View {
                             .accessibilityIdentifier("SP-53.queue.confirm.doc.\(doc.id.uuidString)")
                         }
                         .padding(.vertical, 6)
+                        .accessibilityElement(children: .contain)
                         .accessibilityIdentifier("SP-53.queue.row")
                     }
                 }

@@ -503,6 +503,7 @@ struct HomeView: View {
         }
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.orange.opacity(0.12)))
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("SP-04.home.notifDenied")
     }
 

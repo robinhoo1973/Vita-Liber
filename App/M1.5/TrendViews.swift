@@ -236,6 +236,7 @@ private struct TrendPointBubble: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color("bg-grouped", bundle: .main)))
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("SP-13.trend.bubble")
     }
 }
