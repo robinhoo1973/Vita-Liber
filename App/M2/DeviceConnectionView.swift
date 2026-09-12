@@ -231,6 +231,7 @@ struct DeviceConnectionView: View {
 
 struct HealthImportedDataView: View {
     let kind: HealthDataKind
+    @Environment(AppState.self) private var app
     @Environment(F16DeviceState.self) private var state
     @State private var rows: [HealthImportStore.ImportedRow] = []
     @State private var loading = false
@@ -238,20 +239,41 @@ struct HealthImportedDataView: View {
     @State private var failed = false
     var body: some View {
         List {
-            if rows.isEmpty && !loading && !failed { Text(L10n.healthNoReadableData).foregroundStyle(.secondary) }
-            ForEach(rows) { row in
-                NavigationLink(value: AppRoute.trendChart(patientId: row.patientId, metric: row.metricKey)) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(MetricType(rawValue: row.metricKey).map { L10n.metricName($0) } ?? L10n.healthImportedData)
-                        Text(row.value.formatted() + " " + row.unit).font(.headline)
-                        Text(row.measuredAt.formatted(date: .abbreviated, time: .shortened)).font(.caption)
-                        Text(row.sourceName ?? L10n.healthAppleSource).font(.caption).foregroundStyle(.secondary)
-                    }.padding(.vertical, 4)
+            Section {
+                let targetPatient = rows.first?.patientId ?? app.currentPatientId
+                NavigationLink(value: AppRoute.trendChart(patientId: targetPatient, metric: kind.primaryMetric.rawValue)) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "chart.xyaxis.line")
+                            .font(.title3)
+                            .foregroundStyle(Color("brand-primary", bundle: .main))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(L10n.healthViewTrendChart)
+                                .font(.headline)
+                            Text(L10n.healthViewTrendChartHint)
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.vertical, 4)
                 }
+                .accessibilityIdentifier("SP-29.health.trendButton.\(kind.rawValue)")
             }
-            if loading { ProgressView() }
-            else if hasMore { Button(failed ? L10n.retry : L10n.healthLoadMore) { Task { await load() } } }
-            if failed { Text(L10n.f16SyncFailed).foregroundStyle(.orange) }
+
+            Section(L10n.healthImportedRecordsSection) {
+                if rows.isEmpty && !loading && !failed { Text(L10n.healthNoReadableData).foregroundStyle(.secondary) }
+                ForEach(rows) { row in
+                    NavigationLink(value: AppRoute.trendChart(patientId: row.patientId, metric: row.metricKey)) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(MetricType(rawValue: row.metricKey).map { L10n.metricName($0) } ?? L10n.healthImportedData)
+                            Text(row.value.formatted() + " " + row.unit).font(.headline)
+                            Text(row.measuredAt.formatted(date: .abbreviated, time: .shortened)).font(.caption)
+                            Text(row.sourceName ?? L10n.healthAppleSource).font(.caption).foregroundStyle(.secondary)
+                        }.padding(.vertical, 4)
+                    }
+                }
+                if loading { ProgressView() }
+                else if hasMore { Button(failed ? L10n.retry : L10n.healthLoadMore) { Task { await load() } } }
+                if failed { Text(L10n.f16SyncFailed).foregroundStyle(.orange) }
+            }
         }
         .navigationTitle(L10n.metricName(kind.primaryMetric))
         .task { if rows.isEmpty { await load() } }

@@ -87,12 +87,24 @@ public enum EntityCardProjection {
         let calendar = Calendar(identifier: .gregorian)
         guard card.kind == "prescription", !card.rows.isEmpty,
               card.rows.allSatisfy({ invalidFields(in: card, row: $0, calendar: calendar).isEmpty }) else { return nil }
-        let drugs = card.rows.compactMap { dictionary($0.fields)["drug_name"] }.filter { !$0.isEmpty }
-        guard !drugs.isEmpty else { return nil }
+        let drugLines = card.rows.compactMap { row -> String? in
+            let dict = dictionary(row.fields)
+            guard let name = dict["drug_name"], !name.isEmpty else { return nil }
+            var parts = [name]
+            if let spec = dict["spec"], !spec.isEmpty { parts.append("(\(spec))") }
+            if let dosage = dict["dosage"], !dosage.isEmpty { parts.append(dosage) }
+            if let freq = dict["frequency"], !freq.isEmpty { parts.append(freq) }
+            if let route = dict["route"], !route.isEmpty { parts.append(route) }
+            // 防御性去重：字段值已自带前缀/单位时不再叠加（"7天"→"7天天"、"×2"→"××2"）。
+            if let qty = dict["quantity"], !qty.isEmpty { parts.append(qty.hasPrefix("×") || qty.hasPrefix("x") ? qty : "×\(qty)") }
+            if let days = dict["days"], !days.isEmpty { parts.append(days.hasSuffix("天") ? days : "\(days)天") }
+            return parts.joined(separator: " ")
+        }
+        guard !drugLines.isEmpty else { return nil }
         let shared = dictionary(card.shared)
         guard let date = shared["prescribed_at"].flatMap({ parseDate($0, calendar: calendar) }) else { return nil }
         return PrescriptionIntent(hospital: shared["hospital"], doctor: shared["doctor"],
-                                  adviceText: ([shared["advice_text"]].compactMap { $0 } + drugs).joined(separator: "\n"),
+                                  adviceText: ([shared["advice_text"]].compactMap { $0 } + drugLines).joined(separator: "\n"),
                                   prescribedAt: date)
     }
 
@@ -124,18 +136,24 @@ public enum EntityCardProjection {
             rowAllowed = ["raw_label", "value", "unit", "ref_low", "ref_high", "metric_key"]
         case "encounter":
             sharedRequired = ["date", "kind"]; rowRequired = []
-            sharedAllowed = ["date", "kind", "hospital", "department", "doctor", "chief_complaint", "diagnosis_text", "advice_text"]
+            sharedAllowed = ["date", "kind", "hospital", "department", "doctor",
+                             "chief_complaint", "diagnosis_text", "advice_text",
+                             "present_illness", "illness_summary", "visit_summary"]
             rowAllowed = []
         case "prescription":
             sharedRequired = ["prescribed_at"]; rowRequired = ["drug_name"]
-            sharedAllowed = ["prescribed_at", "hospital", "doctor", "advice_text"]
-            rowAllowed = ["drug_name"]
+            // 行级字段在无法唯一归行时（多药品页级用法/频次行）由匹配器保留为
+            // 共享字段——共享面一并放行，防合法卡被 invalidFields 整体拒收。
+            sharedAllowed = ["prescribed_at", "hospital", "doctor", "advice_text",
+                             "spec", "dosage", "quantity", "frequency", "route", "days", "unit", "note"]
+            rowAllowed = ["drug_name", "spec", "dosage", "quantity", "frequency", "route", "days", "unit", "note"]
         case "claim_item":
             sharedRequired = ["amount", "currency", "date", "item_type"]; rowRequired = []
-            sharedAllowed = ["amount", "currency", "date", "item_type", "merchant", "summary"]; rowAllowed = []
+            sharedAllowed = ["amount", "currency", "date", "item_type", "merchant", "summary",
+                             "reimbursed_amount", "out_of_pocket"]; rowAllowed = []
         case "medication":
             sharedRequired = []; rowRequired = ["generic_name", "unit_kind"]
-            sharedAllowed = []; rowAllowed = ["generic_name", "unit_kind", "brand_name", "spec"]
+            sharedAllowed = []; rowAllowed = ["generic_name", "unit_kind", "brand_name", "spec", "dosage", "frequency", "route"]
         case "immunization":
             sharedRequired = ["vaccine_name", "dose_number", "administered_at", "provider"]; rowRequired = []
             sharedAllowed = ["vaccine_name", "dose_number", "administered_at", "provider", "lot_number"]; rowAllowed = []

@@ -61,7 +61,7 @@ public enum TranscriptionEngineBuilder {
     public static func automaticChoice(locale: String) -> VoiceEngineChoice {
         let preferred = ASRModelCatalog.automaticChoice(locale: locale)
         guard preferred.isBundledModel else { return preferred }
-        guard !ASRModelAssets().isPresent(preferred) else { return preferred }
+        guard !ASRModelAssets.resolve(for: preferred).isPresent(preferred) else { return preferred }
         return fallbackForMissingBundledModel()
     }
 
@@ -85,7 +85,9 @@ public enum TranscriptionEngineBuilder {
         // 「资产缺失即回落降级轨」只约束默认档）。owner round10 实测「模型页
         // 勾选了 QWEN-ASR 却由别的引擎服务且无提示」即此处静默替换所致。
         if choice.isBundledModel {
-            return SherpaOnnxTranscriber(choice: choice)
+            // 双路径资产：运行时下载版本优先（Application Support），否则随包 Bundle。
+            // 缺件时仍交付 sherpa 引擎并由资产校验如实报错（显式选定不得换引擎冒充）。
+            return SherpaOnnxTranscriber(choice: choice, assets: ASRModelAssets.resolve(for: choice))
         }
         if choice == .auto { return SwitchableTranscriptionEngine(choiceProvider: { .auto }) }
         SherpaOnnxTranscriber.unloadWhenIdle()
@@ -116,7 +118,7 @@ public enum TranscriptionEngineBuilder {
 
     public static func automaticCapability() async -> TranscriptionCapability {
         var locales = Set<String>()
-        for model in ASRModelCatalog.models where ASRModelAssets().isPresent(model.choice) {
+        for model in ASRModelCatalog.models where ASRModelAssets.resolve(for: model.choice).isPresent(model.choice) {
             locales.formUnion(model.availableLocales)
         }
         // 回落目标的能力必须并在表内（缺资产时 auto 由平台轨/基线轨服务）：否则
@@ -143,7 +145,7 @@ public enum TranscriptionEngineBuilder {
         case .advanced: return SpeechAnalyzerSupport.availability(of: .standard)
         case .dictation: return SpeechAnalyzerSupport.availability(of: .dictation)
         case .qwen3, .zipformer, .dolphin, .whisper:
-            return ASRModelAssets().isPresent(choice) ? .available : .missingModelAssets
+            return ASRModelAssets.resolve(for: choice).isPresent(choice) ? .available : .missingModelAssets
         }
     }
 

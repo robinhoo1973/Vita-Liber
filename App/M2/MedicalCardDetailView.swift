@@ -22,9 +22,47 @@ struct MedicalCardDetailView: View {
                 Section {
                     OCRReviewOwnerRow(patientId: patientId)
                     GradeBadge(grade: "C")
-                    ForEach(Array(detail.fields.enumerated()), id: \.offset) { _, field in
+                    ForEach(Array(headerFields(from: detail).enumerated()), id: \.offset) { _, field in
                         LabeledContent(DocumentsState.fieldLabel(forKey: field.key),
                                        value: DocumentsState.fieldValueDisplay(forKey: field.key, value: field.value))
+                    }
+                }
+                if kind == "prescription", let advice = detail.fields.first(where: { $0.key == "advice_text" })?.value {
+                    let parsed = prescriptionLines(from: advice)
+                    if !parsed.drugs.isEmpty {
+                        Section(L10n.prescriptionFieldDrugName) {
+                            ForEach(Array(parsed.drugs.enumerated()), id: \.offset) { index, line in
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack(spacing: 8) {
+                                        Image(systemName: "pills.fill")
+                                            .foregroundStyle(Color("brand-primary", bundle: .main))
+                                        Text(line.name)
+                                            .font(.body.bold())
+                                        Spacer()
+                                        Text(L10n.entityCardRowIndex(index + 1))
+                                            .font(.caption2).foregroundStyle(.secondary)
+                                    }
+                                    if !line.details.isEmpty {
+                                        Text(line.details)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                .padding(.vertical, 2)
+                                .accessibilityIdentifier("medicalCard.prescription.row.\(index)")
+                            }
+                        }
+                    }
+                    if !parsed.notes.isEmpty {
+                        // 自由文本医嘱不得冒充药品行——按医嘱字段标签单独呈现。
+                        Section(DocumentsState.fieldLabel(forKey: "advice_text")) {
+                            ForEach(Array(parsed.notes.enumerated()), id: \.offset) { _, note in
+                                Text(note)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .padding(.vertical, 2)
+                            }
+                        }
                     }
                 }
                 Section(L10n.ocrAssociatedEncounter) {
@@ -107,6 +145,49 @@ struct MedicalCardDetailView: View {
                 associationFailed = true
             }
         }
+    }
+
+    private func headerFields(from detail: OCRCardStore.CardDetail) -> [FieldDraft] {
+        if kind == "prescription" {
+            // 处方卡只将医院、医生等元信息放在头部，药品明细由专门的 Section 渲染
+            return detail.fields.filter { $0.key != "advice_text" }
+        }
+        return detail.fields
+    }
+
+    private struct ParsedDrugLine {
+        let name: String
+        let details: String
+    }
+
+    /// 拆分提交的 advice_text：≥2 空格分段的行视为结构化药物行（「药名 规格/剂量…」），
+    /// 其余（无空格的中文叙述，如「每日两次，饭后服用」）归为自由文本医嘱——
+    /// 前者进药品名称节，后者按医嘱标签单独呈现，绝不互相冒充。
+    private func prescriptionLines(from adviceText: String) -> (drugs: [ParsedDrugLine], notes: [String]) {
+        var drugs: [ParsedDrugLine] = []
+        var notes: [String] = []
+        for line in adviceText.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            let parts = trimmed.components(separatedBy: " ")
+            guard parts.count >= 2 else {
+                notes.append(trimmed)
+                continue
+            }
+            // 规格以括号包裹时药名可含空格（「阿莫西林 克拉维酸钾 (0.25g)…」）——
+            // 以首个 "(" 切分，防多词药名截断。
+            if let paren = trimmed.firstIndex(of: "(") {
+                let name = String(trimmed[..<paren]).trimmingCharacters(in: .whitespaces)
+                guard !name.isEmpty else {
+                    notes.append(trimmed)
+                    continue
+                }
+                drugs.append(ParsedDrugLine(name: name, details: String(trimmed[paren...])))
+            } else {
+                drugs.append(ParsedDrugLine(name: parts[0], details: parts.dropFirst().joined(separator: " ")))
+            }
+        }
+        return (drugs, notes)
     }
 }
 

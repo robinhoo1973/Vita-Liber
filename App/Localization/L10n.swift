@@ -618,6 +618,10 @@ enum L10n {
     static var voicenoteDraftAccessibility: String { t("voicenote.draft.accessibility") }
     static var voicenoteSaveAccessibility: String { t("voicenote.save.accessibility") }
     static var voicenoteTitle: String { t("voicenote.title") }
+    /// FR2.1 首页扫动处置（业主第10轮 §7）。
+    static var homeSwipeArchive: String { t("home.swipe.archive") }
+    static func homeSwipeArchived(_ title: String) -> String { String(format: t("home.swipe.archived"), title) }
+    static var homeSwipeUndo: String { t("home.swipe.undo") }
     static var voicenoteSaveFailed: String { t("voicenote.saveFailed") }
 
     // MARK: - L10n 清偿批五 · 观察（SP-14 / F8）
@@ -1292,6 +1296,7 @@ enum L10n {
         "voiceguide.reminderExample", "voiceguide.reminderTitle", "voiceguide.skip", "voiceguide.stepOf",
         "voiceguide.transcript", "voicenote.draft.accessibility", "voicenote.draft.placeholder", "voicenote.empty.hint",
         "voicenote.empty.title", "voicenote.inTimeline", "voicenote.save.accessibility", "voicenote.saveFailed", "voicenote.title",
+        "home.swipe.archive", "home.swipe.archived", "home.swipe.undo",
         "voicenote.dictation", "voicenote.dictating", "voicenote.dictationFailed", "voicenote.stop",
         "doc.date", "doc.detailTitle", "doc.export", "doc.fieldsSection", "doc.historySection", "doc.titleSection",
         "help.status.checking", "help.status.authorized", "help.status.denied", "help.status.notRequested",
@@ -1659,6 +1664,8 @@ enum L10n {
         "voiceLab.result.footer", "voiceLab.entry.hint",
         "asr.zipformer", "asr.zipformer.hint", "asr.dolphin", "asr.dolphin.hint",
         "asr.whisper", "asr.whisper.hint", "asr.bundledOffline", "asr.selectionHint", "asr.missingAssets",
+        "asr.model.download", "asr.model.update", "asr.model.installed",
+        "asr.model.downloading", "asr.model.downloadFailed",
         "asr.qwen3", "asr.qwen3.hint",
         "asr.preparing",
         "ocr.cards.overview", "ocr.cards.none", "ocr.cards.hint", "ocr.cards.begin", "ocr.fieldActions",
@@ -1666,10 +1673,14 @@ enum L10n {
         "ocr.extraction.model", "ocr.extraction.rules", "ocr.association.title", "ocr.association.none",
         "ocr.association.unavailable", "ocr.association.suggestion", "ocr.association.hint",
         "field.amount", "field.currency", "field.item_type", "field.merchant", "field.summary",
-        "field.generic_name", "field.unit_kind", "field.brand_name", "field.spec", "field.vaccine_name",
-        "field.dose_number", "field.administered_at", "field.provider", "field.lot_number",
+        "field.generic_name", "field.unit_kind", "field.brand_name", "field.spec",
+        "field.dosage", "field.quantity", "field.frequency", "field.route", "field.days", "field.note",
+        "field.present_illness", "field.illness_summary", "field.chief_complaint", "field.treatment",
+        "field.visit_summary", "field.reimbursed_amount", "field.out_of_pocket", "field.reference_range",
+        "field.vaccine_name", "field.dose_number", "field.administered_at", "field.provider", "field.lot_number",
         "health.settingsTitle", "health.autoImport", "health.readPermissionHint", "health.importedData",
         "health.importedPointCount", "health.importedDataHint", "health.appleSource",
+        "health.viewTrendChart", "health.viewTrendChartHint", "health.importedRecordsSection",
         // FR6.9 V3.66 一键确认与卡片互联
         "entityCard.confirmAllHint",
         "encounter.linkedCards", "encounter.linkedCards.empty"
@@ -2272,6 +2283,9 @@ enum L10n {
     static func healthImportedPointCount(_ n: Int) -> String { String(format: t("health.importedPointCount"), n) }
     static var healthImportedDataHint: String { t("health.importedDataHint") }
     static var healthAppleSource: String { t("health.appleSource") }
+    static var healthViewTrendChart: String { t("health.viewTrendChart") }
+    static var healthViewTrendChartHint: String { t("health.viewTrendChartHint") }
+    static var healthImportedRecordsSection: String { t("health.importedRecordsSection") }
     static var ocrReviewPageSkipped: String { t("ocr.review.pageSkipped") }
     static var ocrReviewInvalidField: String { t("ocr.review.invalidField") }
     static var ocrReviewNotificationFailed: String { t("ocr.review.notificationFailed") }
@@ -2894,6 +2908,12 @@ enum L10n {
     static var voiceLabResultFooter: String { t("voiceLab.result.footer") }
     static var voiceLabEntryHint: String { t("voiceLab.entry.hint") }
     static var asrBundledOffline: String { t("asr.bundledOffline") }
+    /// FR17.15（业主 2026-09-12）：运行时模型下载 UI。
+    static var asrModelDownload: String { t("asr.model.download") }
+    static func asrModelUpdate(_ version: String) -> String { String(format: t("asr.model.update"), version) }
+    static func asrModelInstalled(_ version: String) -> String { String(format: t("asr.model.installed"), version) }
+    static var asrModelDownloading: String { t("asr.model.downloading") }
+    static var asrModelDownloadFailed: String { t("asr.model.downloadFailed") }
     static var asrPreparing: String { t("asr.preparing") }
     static var asrSelectionHint: String { t("asr.selectionHint") }
     static func voiceEngineName(_ choice: VoiceEngineChoice) -> String {

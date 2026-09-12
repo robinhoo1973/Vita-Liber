@@ -13,15 +13,21 @@ public struct OCRExtractedSpan: Sendable, Equatable {
 
 public enum OCRGrounding {
     public static let allowedKeys: Set<String> = [
-        "hospital", "doctor", "dept", "report_date", "prescribed_at", "chief_complaint", "diagnosis", "treatment",
-        "lab_item", "reference_range", "drug_name", "advice_text", "generic_name", "brand_name", "spec", "unit_kind",
-        "amount", "currency", "item_type", "merchant", "summary", "vaccine_name", "dose_number", "administered_at", "provider", "lot_number",
+        "hospital", "doctor", "dept", "report_date", "prescribed_at", "chief_complaint",
+        "diagnosis", "treatment", "present_illness", "illness_summary", "visit_summary",
+        "lab_item", "reference_range", "drug_name", "advice_text", "generic_name", "brand_name",
+        "spec", "unit_kind", "dosage", "quantity", "frequency", "route", "days", "note",
+        "amount", "currency", "item_type", "merchant", "summary", "vaccine_name",
+        "dose_number", "administered_at", "provider", "lot_number", "reimbursed_amount", "out_of_pocket",
     ]
     public static let documentTypes: Set<String> = [
         "prescription", "lab_report", "outpatient_record", "diagnosis_certificate", "vaccine_record", "invoice", "medication_label",
     ]
-    private static let narrativeKeys: Set<String> = ["diagnosis", "chief_complaint", "treatment", "advice_text", "summary"]
-    private static let numericKeys: Set<String> = ["amount", "dose_number"]
+    private static let narrativeKeys: Set<String> = [
+        "diagnosis", "chief_complaint", "treatment", "advice_text", "summary",
+        "present_illness", "illness_summary", "visit_summary"
+    ]
+    private static let numericKeys: Set<String> = ["amount", "dose_number", "quantity", "days", "reimbursed_amount", "out_of_pocket"]
 
     /// 独立于提示词的输出校验：错行、凭空编造、数字子串、删除否定均不得进入确认卡。
     public static func fields(_ candidates: [OCRExtractedSpan], lines: [String]) -> [FieldDraft] {

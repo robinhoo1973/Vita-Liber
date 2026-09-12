@@ -22,6 +22,19 @@ public struct ASRModelAssets: Sendable {
     private let root: URL?
     public init(root: URL? = Bundle.main.url(forResource: "ASRModels", withExtension: nil)) { self.root = root }
 
+    /// FR17.15（业主 2026-09-12 决定）：**资产双路径解析**——优先使用运行时下载并校验过的版本
+    /// （`Application Support/ASRModels/<id>/<version>`，指针 `active.json`），否则回落随包
+    /// `Bundle/ASRModels`。两条路径共用同一 `manifest` 校验逻辑，调用方无感。
+    /// 下载目录必须通过存在性校验才选用：损坏/过期的下载树不得遮蔽完好的随包模型
+    /// （存在性判定按 root+choice 进程级缓存，热路径只付一次解码+stat）。
+    public static func resolve(for choice: VoiceEngineChoice) -> ASRModelAssets {
+        if let downloaded = ASRModelDownloadService.activeRoot(for: choice) {
+            let assets = ASRModelAssets(root: downloaded)
+            if assets.isPresent(choice) { return assets }
+        }
+        return ASRModelAssets()
+    }
+
     /// 进程级存在性缓存：应用包内容不可变，缺件判定结果恒定。旧实现每次
     /// 调用都读+解码 manifest（含 sourceDigest 校验）并逐文件 stat——
     /// capability 计算属性在每次按压/实验室刷新被多次读取（auto 档还

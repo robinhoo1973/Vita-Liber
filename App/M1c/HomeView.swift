@@ -32,6 +32,8 @@ struct HomeView: View {
     @State private var showSOS = false
     @State private var showVoicePanel = false
     @State private var notifDenied = false
+    /// FR2.1 首页扫动处置（业主第10轮 §7）：最近一条归档 + Undo 条。
+    @State private var lastArchived: ArchivedToast?
     /// FR9.6「可关、次日重现」：持久化当日驳回标记——旧实现为会话级 @State
     /// 且 load() 每次无条件重置，成员切换/数据版本变化即横幅复活，
     /// 「关到次日」落空。按自然日判定，重启同日亦不复现。
@@ -73,9 +75,7 @@ struct HomeView: View {
             // 与当前成员一致（全部节已提交）才允许取用缓存。
             hub.loadedPatientId == app.currentPatientId ? hub.inventoryItems : [],
             memberId: app.currentPatientId)
-        items += ReminderHubLoader.alertItems(hub.qualifiedAlertEvents.filter {
-            notificationState.itemStates["alert-\($0.id)"] != .archived
-        },
+        items += ReminderHubLoader.alertItems(hub.qualifiedAlertEvents,
                                               memberId: app.currentPatientId)
         items += ReminderHubLoader.ocrItems(docs.documents,
                                             memberId: app.currentPatientId)
@@ -86,6 +86,63 @@ struct HomeView: View {
         }
         return ReminderAggregationCenter.aggregate(items, window: currentWindow,
                                                    memberId: app.currentPatientId)
+    }
+
+    /// 聚合条目的持久化归档键（与通知中心同一命名空间，FR14.8 跨入口共享）：
+    /// alert_event→alert- · appointment→apt- · refill→lot- · dose_slot→dose- ·
+    /// ocr→ocr-（按文档）；stock_backlog 仅首页存在，独立前缀。
+    private func itemKey(_ item: AggregatedReminderItem) -> String {
+        let prefix: String
+        switch item.id.kind {
+        case "alert_event": prefix = "alert"
+        case "appointment": prefix = "apt"
+        case "refill": prefix = "lot"
+        case "dose_slot": prefix = "dose"
+        case "ocr": prefix = "ocr"
+        default: prefix = item.id.kind
+        }
+        return "\(prefix)-\(item.id.sourceId)"
+    }
+
+    private func archive(_ item: AggregatedReminderItem) {
+        let key = itemKey(item)
+        Task {
+            do {
+                try await notificationState.archive(key)
+            } catch {
+                // 归档失败不静默：条目继续可见（用户可重试），不弹错误打断。
+                return
+            }
+            lastArchived = ArchivedToast(key: key, title: item.title)
+        }
+    }
+
+    private func undoArchive() {
+        guard let toast = lastArchived else { return }
+        lastArchived = nil
+        Task { try? await notificationState.unarchive(toast.key) }   // try?-ok: 撤销失败时条目仍隐藏，重进首页状态即已持久化归档
+    }
+
+    /// 归档撤销条：最近一条归档 + [撤销]；5s 自动消失（新归档会重置计时）。
+    @ViewBuilder private var archiveUndoBanner: some View {
+        if let toast = lastArchived {
+            HStack(spacing: 12) {
+                Text(L10n.homeSwipeArchived(toast.title)).font(.subheadline).lineLimit(1)
+                Spacer(minLength: 8)
+                Button(L10n.homeSwipeUndo) { undoArchive() }
+                    .font(.subheadline.bold())
+                    .frame(minHeight: 44)   // 设计系统触控目标 ≥44pt
+            }
+            .padding(.horizontal, 14).padding(.vertical, 10)
+            .background(.thinMaterial, in: Capsule())
+            .padding(.horizontal, 16).padding(.bottom, 12)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .task(id: toast.id) {
+                try? await Task.sleep(nanoseconds: 5_000_000_000)   // try?-ok: 睡眠取消即结束（新归档/视图消失），无需处理错误
+                withAnimation(.snappy(duration: 0.2)) { lastArchived = nil }
+            }
+            .accessibilityIdentifier("SP-04.home.undo")
+        }
     }
 
     private var currentWindow: AggregationWindow {
@@ -108,6 +165,8 @@ struct HomeView: View {
         // principal 只替换标题内容，不约束自动继承的大标题高度（SP-04）。
         // 明确使用紧凑导航栏，内容为空时也不预留第二层标题区。
         .navigationBarTitleDisplayMode(.inline)
+        // FR2.1 首页扫动处置：归档后的 Undo 条（5s 自动隐去，可手动撤销）。
+        .overlay(alignment: .bottom) { archiveUndoBanner }
         .toolbar {
             // §5.2 首页成员切换入口：紧凑标题可点击 → 成员抽屉
             ToolbarItem(placement: .principal) {
@@ -177,7 +236,13 @@ struct HomeView: View {
         // 第八轮全仓审查修复的每帧纪律延续：聚合与筛选各只求值一次，
         // 经 let 承接传入子视图（此前 snapshot 每帧重算 13 次的教训）
         let progress = app.profileCompletion
+        // FR2.1 首页扫动处置（业主第10轮 §7）：统一归档过滤——所有聚合类目
+        // （预警/用药/预约/待办卡/OCR/系统）共用 notification_state 归档键，
+        // 左滑归档即持久隐藏，撤销条可恢复（语义真实，非会话级假删除）。
+        // 过滤只作用于展示快照：load() 的键集取未过滤聚合，已归档键的
+        // 持久状态才能在 reload 后保留（否则 itemStates 被整体替换后复活）。
         let snap = aggregatedItems(profileCompletion: progress)
+            .filter { notificationState.itemStates[itemKey($0)] != .archived }
         let items = ReminderAggregationCenter.filtered(snap, kind: filterKind)
         // I7 审查修复：引导优先级是业务规则，下沉 Domain 纯函数
         //（规则 4）；资料完善是首日引导的一部分，单独存在时不能吞掉首日
@@ -298,7 +363,9 @@ struct HomeView: View {
                     if item.id.kind == ReminderHubLoader.profileProgressKind, let progress = profileCompletion {
                         profileProgressCard(progress)
                     } else {
-                        aggregationRow(item)
+                        ArchiveSwipeRow(actionLabel: L10n.homeSwipeArchive) { archive(item) } content: {
+                            aggregationRow(item)
+                        }
                     }
                     if item.id != items.last?.id {
                         Divider().padding(.leading, 46)
@@ -643,12 +710,65 @@ struct HomeView: View {
         notifDenied = await reminderStore.notificationDenied
         // FR14.8 归档状态消费：首页证据卡过滤依赖 itemStates，此前只在通知
         // 中心加载——重启后用户已归档的 L1+ 预警证据卡被重新置顶（归档
-        // 持久化形同虚设）。首页每次装载先按当前预警集拉取归档状态。
-        await notificationState.load(keys: hub.qualifiedAlertEvents.map { "alert-\($0.id)" })
+        // 持久化形同虚设）。首页每次装载按未过滤聚合的键集拉取归档状态
+        // （键与通知中心同命名空间，itemKey 映射），已归档键保持隐藏。
+        await notificationState.load(keys: aggregatedItems(profileCompletion: nil).map(itemKey))
     }
 }
 
 // MARK: - 组件
+
+/// FR2.1 首页扫动处置（业主第10轮 §7）：左滑归档——
+/// `.simultaneousGesture` 让列表纵向滚动与行内横滑同时可识别（行内
+/// `.gesture` 会先于滚动容器抢走触摸，纵向拖拽起手即卡死列表）；
+/// 横向位移优先才更新偏移（`|dx| > |dy|`），触发阈值 64pt
+/// （预测位移 160pt 提前触发），VoiceOver 走 accessibilityAction。
+private struct ArchiveSwipeRow<Content: View>: View {
+    let actionLabel: String
+    let action: () -> Void
+    @ViewBuilder var content: Content
+    @State private var offset: CGFloat = 0
+
+    var body: some View {
+        ZStack(alignment: .trailing) {
+            HStack(spacing: 6) {
+                Image(systemName: "archivebox").font(.footnote)
+                Text(actionLabel).font(.caption.bold())
+            }
+            .foregroundStyle(.white)
+            .padding(.trailing, 18)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+            .background(Color("brand-primary", bundle: .main))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+
+            content
+                .offset(x: offset)
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 16)
+                        .onChanged { value in
+                            guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                            offset = min(0, max(-120, value.translation.width))
+                        }
+                        .onEnded { value in
+                            let triggered = value.translation.width < -64
+                                || value.predictedEndTranslation.width < -160
+                            withAnimation(.snappy(duration: 0.22)) { offset = triggered ? -420 : 0 }
+                            if triggered { action() }
+                        }
+                )
+                .accessibilityAction(named: Text(actionLabel)) { action() }
+        }
+        .clipped()
+    }
+}
+
+/// 归档撤销条的载荷（最近一条；5s 后自动消失由视图侧任务控制）。
+/// id 即归档键：同一时刻仅一条，新归档必然换键，.task(id:) 计时随键重置。
+private struct ArchivedToast: Identifiable {
+    let key: String
+    let title: String
+    var id: String { key }
+}
 
 private struct GuideTaskCard: View {
     let icon: String

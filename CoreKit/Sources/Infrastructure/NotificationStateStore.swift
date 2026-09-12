@@ -38,6 +38,14 @@ public actor NotificationStateStore {
         }
     }
 
+    /// FR2.1 首页扫动处置（业主第10轮 §7）：撤销归档（Undo 条）；无记录时静默无操作。
+    public func unarchive(_ key: String) async throws {
+        try await writer.write { db in
+            try db.execute(sql: "UPDATE notification_state SET archived_at = NULL WHERE item_key = ?",
+                           arguments: [key])
+        }
+    }
+
     /// 批量读取处理状态（键集合 → 状态；未登记键 = .unread）
     public func states(for keys: [String]) async throws -> [String: NotificationItemState] {
         guard !keys.isEmpty else { return [:] }
@@ -94,6 +102,19 @@ public final class NotificationCenterState {
         Task {
             try? await store.markArchived(key)   // try?-ok: 归档失败本地态兜底
         }
+    }
+
+    /// 持久化归档（首页扫动处置用）：先落库成功才更新可观察状态——
+    /// 失败时条目继续可见（不静默假归档），调用方可决定重试。
+    public func archive(_ key: String) async throws {
+        try await store.markArchived(key)
+        itemStates[key] = .archived
+    }
+
+    /// 撤销归档：落库成功后恢复为已读（归档前已有 read_at），条目重新可见。
+    public func unarchive(_ key: String) async throws {
+        try await store.unarchive(key)
+        itemStates[key] = .read
     }
 }
 #endif

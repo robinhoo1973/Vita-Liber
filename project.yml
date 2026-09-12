@@ -23,6 +23,12 @@ targets:
       - path: Resources/ASRModels
         type: folder
         buildPhase: resources
+    preBuildScripts:
+      # 构建期信任锚（业主 2026-09-12）：从仓库索引生成 Resources/TrustedModelHashes.json，
+      # 随包嵌入；App 安装下载包时以它为唯一信任根（远端索引被篡改也无效）。
+      - name: Generate trusted model hashes
+        script: bash "$SRCROOT/downloads/scripts/generate-trusted-hashes.sh"
+        basedOnDependencyAnalysis: false
     postBuildScripts:
       - name: Reconcile embedded framework minimum OS
         script: python3 "$SRCROOT/.github/workflows/reconcile-frameworks.py" --app "$TARGET_BUILD_DIR/$WRAPPER_NAME" --repair

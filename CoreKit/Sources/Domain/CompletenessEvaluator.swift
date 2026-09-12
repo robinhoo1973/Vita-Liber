@@ -69,6 +69,10 @@ public enum CompletenessEvaluator {
                 .init(key: "hospital", isRequired: false),
                 .init(key: "doctor", isRequired: false),
                 .init(key: "advice_text", isRequired: false),
+                // 注：行级新字段（spec/dosage/quantity/frequency/route）不进
+                // 本规则表——matchOne 的 0.5 门槛与 assess 得分以本表为分母，
+                // 登记推荐字段会把 4/5 覆盖率稀释成 4/10，此前能建卡的常规
+                // 处方被整体拒卡（识别字段越多反而不建卡，金样断言 L1 全红）。
             ]
         case "medication":
             return [
@@ -110,6 +114,8 @@ public enum CompletenessEvaluator {
                 .init(key: "department", isRequired: false),
                 .init(key: "doctor", isRequired: false),
                 .init(key: "chief_complaint", isRequired: false),
+                // 注：新增叙事字段（diagnosis_text/advice_text/present_illness/
+                // visit_summary）同处方口径不进规则表——防门槛分母稀释与金样漂移。
             ]
         case "metric_sample":
             return [

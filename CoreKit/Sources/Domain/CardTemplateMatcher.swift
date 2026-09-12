@@ -168,13 +168,17 @@ public enum CardTemplateMatcher {
         CardTemplate(kind: "encounter", rowKey: nil,
                      mapping: ["report_date": "date", "dept": "department",
                                "chief_complaint": "chief_complaint", "diagnosis": "diagnosis_text",
-                               "treatment": "advice_text", "hospital": "hospital", "doctor": "doctor"],
+                               "treatment": "advice_text", "hospital": "hospital", "doctor": "doctor",
+                               "present_illness": "present_illness", "illness_summary": "present_illness",
+                               "visit_summary": "visit_summary"],
                      derived: ["kind"],
                      requiresDocumentType: ["outpatient_record", "diagnosis_certificate"]),
         CardTemplate(kind: "prescription", rowKey: "drug_name",
                      mapping: ["drug_name": "drug_name", "prescribed_at": "prescribed_at",
-                               "hospital": "hospital", "doctor": "doctor", "advice_text": "advice_text"],
-                     rowLevelKeys: ["drug_name"]),
+                               "hospital": "hospital", "doctor": "doctor", "advice_text": "advice_text",
+                               "spec": "spec", "dosage": "dosage", "quantity": "quantity",
+                               "frequency": "frequency", "route": "route", "days": "days", "note": "note"],
+                     rowLevelKeys: ["drug_name", "spec", "dosage", "quantity", "frequency", "route", "days", "note"]),
         CardTemplate(kind: "medication", rowKey: "generic_name",
                      mapping: ["generic_name":"generic_name", "brand_name":"brand_name", "spec":"spec", "unit_kind":"unit_kind"],
                      rowLevelKeys: ["generic_name", "brand_name", "spec", "unit_kind"]),
@@ -182,7 +186,8 @@ public enum CardTemplateMatcher {
                      mapping: ["vaccine_name":"vaccine_name", "dose_number":"dose_number", "administered_at":"administered_at", "provider":"provider", "lot_number":"lot_number"]),
         CardTemplate(kind: "appointment", rowKey: nil, mapping: [:]),
         CardTemplate(kind: "claim_item", rowKey: nil,
-                     mapping: ["amount":"amount", "currency":"currency", "report_date":"date", "item_type":"item_type", "merchant":"merchant", "hospital":"merchant", "summary":"summary"]),
+                     mapping: ["amount":"amount", "currency":"currency", "report_date":"date", "item_type":"item_type", "merchant":"merchant", "hospital":"merchant", "summary":"summary",
+                               "reimbursed_amount": "reimbursed_amount", "out_of_pocket": "out_of_pocket"]),
     ]
 
     /// 单页匹配：返回全部达线卡（每类至多一张，按模板目录顺序）。
@@ -223,7 +228,7 @@ public enum CardTemplateMatcher {
                         }
                     }
                 }
-                if template.kind == "medication" {
+                if template.kind == "medication" || template.kind == "prescription" {
                     let triggers = fields.filter { $0.key == rowKey }
                     let sameLineTriggers = triggers.filter { $0.sourceLineIndex == draft.sourceLineIndex }
                     for (otherIndex, other) in fields.enumerated() where otherIndex != index {
@@ -261,7 +266,11 @@ public enum CardTemplateMatcher {
         var shared: [FieldDraft] = []
         var sharedKeys: [String: Int] = [:]
         for (index, draft) in fields.enumerated() where !consumed.contains(index) {
-            guard let mapped = template.mapping[draft.key], !template.rowLevelKeys.contains(mapped) else { continue }
+            // 处方行级字段（spec/dosage/quantity/frequency/route/days）在无法唯一归行时
+            // （多触发行且非同行的页级用法/频次行）保留为共享字段，绝不静默丢数据；
+            // medication 维持原语义（误归防线：行级字段只进唯一归属行）。
+            guard let mapped = template.mapping[draft.key],
+                  (!template.rowLevelKeys.contains(mapped) || template.kind == "prescription") else { continue }
             // Ambiguous/unparsed ranges remain distinct drafts, never guessed row data.
             if mapped != "reference_range" {
                 let isEmpty = draft.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -272,10 +281,10 @@ public enum CardTemplateMatcher {
                         var copy = draft
                         copy.key = mapped
                         shared[existingIndex] = copy
-                    } else if mapped == "advice_text", !existingValue.contains(draft.value) {
-                        // 多行用法/用量（多药品处方每药一行）并入同一共享键——
-                        // 旧实现 continue 丢弃后续行，处方只保留第一条医嘱
-                        // （round10 审查：多条医嘱静默丢行）。
+                    } else if (mapped == "advice_text" || mapped == "present_illness"), !existingValue.contains(draft.value) {
+                        // 多行用法/用量（多药品处方每药一行）与多段病史（现病史+病情说明
+                        // 归一同一键）并入同一共享键——旧实现 continue 丢弃后续行，
+                        // 处方只保留第一条医嘱（round10 审查：多条医嘱静默丢行）。
                         var merged = shared[existingIndex]
                         merged.value = existingValue + "\n" + draft.value
                         shared[existingIndex] = merged

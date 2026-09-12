@@ -14,8 +14,11 @@ public final class SherpaOnnxTranscriber: TranscriptionCaptureReporting, @unchec
     private let coordinator: SpeechSessionCoordinator<SherpaSpeechSessionDriver>
     #endif
 
-    public init(choice: VoiceEngineChoice = .zipformer, assets: ASRModelAssets = ASRModelAssets()) {
-        self.choice = choice; self.assets = assets
+    public init(choice: VoiceEngineChoice = .zipformer, assets: ASRModelAssets? = nil) {
+        self.choice = choice
+        // 缺省即走双路径解析（下载版优先、随包回落）——后续新增调用点不再可能
+        // 忘调 resolve 而静默忽略已装下载模型（EngineFactories 四处的显式 resolve 保留）。
+        self.assets = assets ?? ASRModelAssets.resolve(for: choice)
         #if canImport(SherpaOnnxC)
         let queue = DispatchQueue(label: "com.vitaliber.speech.\(choice.rawValue)", qos: .userInitiated)
         // 20s为有限解码收尾预算，不是ASR质量/RTF保证；硬件仍先停，再等待。

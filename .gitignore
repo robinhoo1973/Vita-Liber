@@ -17,6 +17,13 @@
 # 同等是构建必需配置，必须在库（CI 上由 xcodegen 从 project.yml properties 重生成，
 # 本地文件若不入库会成为与 project.yml 双真相源、静默漂移）。非密钥文件。
 !/VitaLiber.entitlements
+# 运行时资源下载目录（业主 2026-09-12 决定）：只跟踪索引与发布脚本；
+# 模型二进制（*.zip/*.onnx 等）不走 Git，经 GitHub Releases / 对象存储分发。
+!/downloads/
+/downloads/**/*.zip
+/downloads/**/*.onnx
+/downloads/**/*.tar
+/downloads/**/*.tar.gz
 
 # Swift/SPM 构建产物（编译非必需，绝不入库）
 .build/

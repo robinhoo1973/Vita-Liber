@@ -10,6 +10,11 @@ let package = Package(
     products: [.library(name: "CoreKit", targets: ["Domain", "Protocols", "Infrastructure"])],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "6.29.0"),
+        // ZIPFoundation：运行时 ASR 模型包解压（业主 2026-09-12 决定引入运行时下载）。
+        // 准入（tech-spec §2.2）：平台框架无公开 zip 解压 API（AppleArchive 不读 zip）；
+        // MIT 许可、SPM、无网络/遥测、纯 Swift+zlib；退出成本低（仅在
+        // ASRModelDownloadService 一处使用，替换为 AppleArchive 只改该文件）。
+        .package(url: "https://github.com/weichsel/ZIPFoundation.git", from: "0.9.19"),
         // 包装器/二进制匹配的钉版；ITMS-90208在归档的framework元数据校正及IPA校验处处理。
         .package(url: "https://github.com/k2-fsa/sherpa-onnx.git",
                  revision: "5e4232db78d0150801ae3244c9e2ddc41e5e02d8"),
@@ -31,6 +36,9 @@ let package = Package(
                 "Protocols",
                 // GRDB：iOS 与 macOS 都链接（macOS = CoreKit 测试宿主）。
                 .product(name: "GRDB", package: "GRDB.swift",
+                         condition: .when(platforms: [.iOS, .macOS])),
+                // ZIPFoundation：仅 iOS/macOS 链接（Linux 测试宿主不涉运行时下载）。
+                .product(name: "ZIPFoundation", package: "ZIPFoundation",
                          condition: .when(platforms: [.iOS, .macOS])),
                 .product(name: "sherpa-onnx", package: "sherpa-onnx",
                          condition: .when(platforms: [.iOS, .macOS]))

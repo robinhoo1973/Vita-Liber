@@ -393,9 +393,20 @@ public actor OCRCardStore {
             .joined(separator: "\n")
         let pending = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM pending_card WHERE source_doc_id = ? AND status IN ('pending','in_progress')",
                                       arguments: [documentId.uuidString]) ?? 0
+        // FR6.9 智能文档命名：若文档标题为空，依据已确认字段自动设置标准化标题
+        let currentTitle = try String.fetchOne(db, sql: "SELECT title FROM document_file WHERE id = ? AND patient_id = ?",
+                                               arguments: [documentId.uuidString, patientId.uuidString])
+        var titleUpdateSQL = ""
+        var arguments: [DatabaseValueConvertible] = [text, pending == 0 ? "C" : "D", now.timeIntervalSince1970]
+        if currentTitle == nil || currentTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true,
+           let suggested = DocumentNaming.suggestTitle(fields: confirmedFields, documentType: audits.first?.cardKind) {
+            titleUpdateSQL = ", title = ?"
+            arguments.append(suggested)
+        }
+        arguments.append(contentsOf: [documentId.uuidString, patientId.uuidString])
         // FTS触发器只看到已确认投影；原始OCR页文本/拒绝字段不加入搜索。
-        try db.execute(sql: "UPDATE document_file SET ocr_text = ?, grade = ?, updated_at = ? WHERE id = ? AND patient_id = ?",
-                       arguments: [text, pending == 0 ? "C" : "D", now.timeIntervalSince1970, documentId.uuidString, patientId.uuidString])
+        try db.execute(sql: "UPDATE document_file SET ocr_text = ?, grade = ?, updated_at = ?\(titleUpdateSQL) WHERE id = ? AND patient_id = ?",
+                       arguments: StatementArguments(arguments))
     }
 
     static func mergeDraft(_ incoming: MatchedCard, previous: MatchedCard, committed: Set<String>) throws -> MatchedCard {
