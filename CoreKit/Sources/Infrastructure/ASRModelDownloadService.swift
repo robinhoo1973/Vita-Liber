@@ -41,9 +41,13 @@ public actor ASRModelDownloadService {
         var choice: String
         var version: String
         var installedAt: Date
+        var directory: String? = nil
+        var artifactRevision: Int? = nil
+        var packageSHA256: String? = nil
     }
 
     private let session: URLSession
+    private let trust = ModelCatalogTrustStore.shared
     private let fileManager = FileManager.default
     /// 分段数：4 路在移动网/CDN 场景通常接近带宽上限，且不至于触发服务端限流。
     private let segmentCount = 4
@@ -53,7 +57,12 @@ public actor ASRModelDownloadService {
     /// 自建实例，守卫互不看见，互斥形同虚设）。
     private var installing = false
 
-    public init(session: URLSession = .shared) { self.session = session }
+    public init(session: URLSession? = nil) {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.httpShouldSetCookies = false
+        configuration.urlCredentialStorage = nil
+        self.session = session ?? URLSession(configuration: configuration)
+    }
 
     /// 全 App 共享实例：安装互斥守卫是实例级的，共享实例才能让互斥跨视图生效。
     public static let shared = ASRModelDownloadService()
@@ -62,10 +71,10 @@ public actor ASRModelDownloadService {
     /// `downloads/vitaliber/asr/index.json` 的 raw 地址（robinhoo1973/Vita-Liber，master）。
     public nonisolated static var indexURL: URL {
         if let raw = Bundle.main.object(forInfoDictionaryKey: "ASRModelIndexURL") as? String,
-           let url = URL(string: raw), url.scheme != nil {
+           let url = URL(string: raw), ModelResourcePolicy.allowedURL(url) {
             return url
         }
-        return URL(string: "https://raw.githubusercontent.com/robinhoo1973/Vita-Liber/master/downloads/vitaliber/asr/index.json")
+        return URL(string: "https://github.com/robinhoo1973/Vita-Liber/releases/download/asr-models/catalog.json")
             ?? URL(fileURLWithPath: "/dev/null")
     }
 
@@ -82,11 +91,18 @@ public actor ASRModelDownloadService {
     public nonisolated static func activeRoot(for choice: VoiceEngineChoice) -> URL? {
         guard let pointer = activePointer(for: choice) else { return nil }
         return applicationSupportRoot().appendingPathComponent(choice.rawValue, isDirectory: true)
-            .appendingPathComponent(pointer.version, isDirectory: true)
+            .appendingPathComponent(pointer.directory ?? pointer.version, isDirectory: true)
     }
 
     public nonisolated static func installedVersion(for choice: VoiceEngineChoice) -> String? {
         activePointer(for: choice)?.version
+    }
+
+    nonisolated static func activeAssets(for choice: VoiceEngineChoice) -> ASRModelAssets? {
+        guard let pointer = activePointer(for: choice), let hash = pointer.packageSHA256 else { return nil }
+        let root = applicationSupportRoot().appendingPathComponent(choice.rawValue, isDirectory: true)
+            .appendingPathComponent(pointer.directory ?? pointer.version, isDirectory: true)
+        return ASRModelAssets(root: root, packageSHA256: hash)
     }
 
     // MARK: - 指针缓存（进程级；install 完成时失效）
@@ -99,18 +115,20 @@ public actor ASRModelDownloadService {
     private nonisolated(unsafe) static var pointerCache: [String: PointerResult] = [:]
 
     private enum PointerResult: Sendable {
-        case none
+        case missing
         case pointer(ActivePointer)
     }
 
-    public nonisolated static func activePointer(for choice: VoiceEngineChoice) -> ActivePointer? {
+    private nonisolated static func activePointer(for choice: VoiceEngineChoice) -> ActivePointer? {
         pointerCacheLock.lock(); defer { pointerCacheLock.unlock() }
         switch pointerCache[choice.rawValue] {
-        case .none: return nil
-        case .pointer(let pointer): return pointer
+        case .some(.missing): return nil
+        case .some(.pointer(let pointer)):
+            guard let hash = pointer.packageSHA256, !ModelCatalogTrustStore.shared.isRevoked(hash) else { return nil }
+            return pointer
         case nil:
             let computed = computeActivePointer(for: choice)
-            pointerCache[choice.rawValue] = computed.map(PointerResult.pointer) ?? .none
+            pointerCache[choice.rawValue] = computed.map(PointerResult.pointer) ?? PointerResult.missing
             return computed
         }
     }
@@ -119,7 +137,11 @@ public actor ASRModelDownloadService {
         let root = applicationSupportRoot().appendingPathComponent(choice.rawValue, isDirectory: true)
         guard let data = try? Data(contentsOf: root.appendingPathComponent("active.json")),   // try?-ok: 指针缺失=未下载（布尔判定，非错误吞没）
               let pointer = try? JSONDecoder().decode(ActivePointer.self, from: data) else { return nil }   // try?-ok: 同上
-        let dir = root.appendingPathComponent(pointer.version, isDirectory: true)
+        guard let hash = pointer.packageSHA256, ModelResourcePolicy.isSHA256(hash),
+              !ModelCatalogTrustStore.shared.isRevoked(hash),
+              pointer.choice == choice.rawValue, ModelResourcePolicy.isSlug(pointer.version),
+              ModelResourcePolicy.isSlug(pointer.directory ?? pointer.version) else { return nil }
+        let dir = root.appendingPathComponent(pointer.directory ?? pointer.version, isDirectory: true)
         guard FileManager.default.fileExists(atPath: dir.appendingPathComponent("manifest.json").path) else {
             return nil
         }
@@ -136,16 +158,42 @@ public actor ASRModelDownloadService {
 
     /// 拉取并校验索引（结构版本不支持即拒绝；不做任何缓存写入——索引很小）。
     public func fetchIndex(from url: URL) async throws -> ASRModelReleaseIndex {
+        guard !installing else { throw Failure.installInProgress }
+        for _ in 0..<32 {
+            guard let next = trust.nextRootURL else { throw Failure.badIndex }
+            do {
+                let data = try await metadata(from: next)
+                try trust.acceptRoot(data)
+            }
+            catch Failure.badResponse(404) { break }
+        }
+        let data = try await metadata(from: url)
+        let index = try trust.acceptCatalog(data)
+        ASRModelAssets.invalidateCaches()
+        return index
+    }
+
+    private func metadata(from url: URL) async throws -> Data {
+        guard ModelResourcePolicy.allowedURL(url) else { throw Failure.badAddress }
         var request = URLRequest(url: url)
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.timeoutInterval = 30
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+        request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+        let guardDelegate = ModelResourceTransfer()
+        let (bytes, response) = try await session.bytes(for: request, delegate: guardDelegate)
+        if let failure = guardDelegate.failure { throw failure }
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw Failure.badResponse((response as? HTTPURLResponse)?.statusCode ?? -1)
         }
-        let index = try JSONDecoder().decode(ASRModelReleaseIndex.self, from: data)
-        guard index.isSupported else { throw Failure.badIndex }
-        return index
+        try guardDelegate.validate(response)
+        guard response.expectedContentLength <= Int64(ModelResourcePolicy.metadataBytes) else { throw Failure.badIndex }
+        var data = Data()
+        for try await byte in bytes {
+            try Task.checkCancellation()
+            guard data.count < ModelResourcePolicy.metadataBytes else { throw Failure.badIndex }
+            data.append(byte)
+        }
+        return data
     }
 
     /// 最新可发布条目（同 id 中取版本最高者；未发布/不兼容条目跳过）。
@@ -154,9 +202,12 @@ public actor ASRModelDownloadService {
                                           appVersion: String) -> ASRModelRelease? {
         index.models
             .filter { $0.id == choice.rawValue && $0.isPublished && $0.isCompatible(appVersion: appVersion) }
-            // 构建期信任锚：未登记于 App 内置哈希表的版本不可安装，UI 直接不展示（fail closed）。
-            .filter { TrustedModelHashStore.shared.isTrusted($0) }
-            .max { ASRVersion.isNewer($1.version, than: $0.version) }
+            // 方案 B：目录验签产生动态授权；App 内基线提供已知包的离线授权。
+            .filter { ModelCatalogTrustStore.shared.isAuthorized($0) && $0.runtime == ModelResourcePolicy.runtime }
+            .max {
+                if $0.version == $1.version { return ($0.artifactRevision ?? 0) < ($1.artifactRevision ?? 0) }
+                return ASRVersion.isNewer($1.version, than: $0.version)
+            }
     }
 
     /// 是否存在可更新版本（已装版本由 active.json 记录）。
@@ -167,7 +218,8 @@ public actor ASRModelDownloadService {
                                                    appVersion: String) -> ASRModelRelease? {
         guard let installed = installedVersion(for: choice) else { return nil }
         guard let latest = latest(for: choice, in: index, appVersion: appVersion) else { return nil }
-        return latest.isNewer(than: installed) ? latest : nil
+        let newerPackage = latest.version == installed && (latest.artifactRevision ?? 0) > (activePointer(for: choice)?.artifactRevision ?? 0)
+        return latest.isNewer(than: installed) || newerPackage ? latest : nil
     }
 
     // MARK: - 安装
@@ -181,43 +233,53 @@ public actor ASRModelDownloadService {
         installing = true
         defer { installing = false }
         guard release.isPublished else { throw Failure.notPublished }
-        // 构建期信任锚（随 App 签名保护的哈希表）是**唯一信任根**：远端索引可被替换，
-        // 若只比对远端自报 sha256 等于无信任根。未登记版本一律拒绝安装。
-        guard let trusted = TrustedModelHashStore.shared.trustedEntry(for: release) else {
+        // 公钥签名目录或 App 内嵌基线授权完整描述；网络自报 SHA 无法自行授权。
+        let appVersion = (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "0.0.1"
+        guard trust.isAuthorized(release), release.isCompatible(appVersion: appVersion),
+              release.runtime == ModelResourcePolicy.runtime else {
             throw Failure.untrustedPackage
         }
-        guard let url = release.resolvedURL(baseURL: baseURL) else { throw Failure.badAddress }
+        guard let authorizedBase = trust.baseURL(for: release),
+              baseURL == nil || baseURL?.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) == authorizedBase.absoluteString,
+              let url = release.resolvedURL(baseURL: authorizedBase) else { throw Failure.badAddress }
 
         let modelRoot = Self.applicationSupportRoot()
             .appendingPathComponent(release.id, isDirectory: true)
+        guard let choice = VoiceEngineChoice(rawValue: release.id), choice.isBundledModel,
+              let expanded = release.expandedBytes, expanded > 0, expanded <= ModelResourcePolicy.expandedBytes else { throw Failure.invalidPackage }
+        let previousRoot = Self.activeRoot(for: choice)
         let staging = modelRoot.appendingPathComponent(".staging-\(release.version)-\(UUID().uuidString)",
                                                        isDirectory: true)
         try fileManager.createDirectory(at: staging, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: staging) }   // try?-ok: 暂存清理失败无用户可见后果，不掩盖主错误
+        var excludedRoot = modelRoot
+        var values = URLResourceValues(); values.isExcludedFromBackup = true
+        try excludedRoot.setResourceValues(values)
+        let free = try staging.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]).volumeAvailableCapacityForImportantUsage
+        if let free, free < 2 * (release.bytes ?? 0) + expanded + 268_435_456 { throw Failure.installFailed }
 
         let zipURL = staging.appendingPathComponent("package.zip")
         try await download(url: url, expectedBytes: release.bytes ?? 0, to: zipURL, progress: progress)
 
         let digest = try Self.sha256(of: zipURL)
-        // 以信任锚哈希为准（上一步已确保 release.sha256 == trusted.sha256）。
-        guard digest.caseInsensitiveCompare(trusted.sha256) == .orderedSame else {
+        // release 的整份描述已匹配受信任授权。
+        guard digest.caseInsensitiveCompare(release.sha256) == .orderedSame else {
             throw Failure.checksumMismatch
         }
 
         let unpacked = staging.appendingPathComponent("unpacked", isDirectory: true)
-        try unzip(zipURL, to: unpacked)
-
-        guard let choice = VoiceEngineChoice(rawValue: release.id) else { throw Failure.invalidPackage }
+        try unzip(zipURL, to: unpacked, maximumBytes: expanded)
         do {
             _ = try ASRModelAssets(root: unpacked).validate(choice)
         } catch {
             throw Failure.invalidPackage
         }
 
-        let versionDir = modelRoot.appendingPathComponent(release.version, isDirectory: true)
-        if fileManager.fileExists(atPath: versionDir.path) {
-            try? fileManager.removeItem(at: versionDir)   // try?-ok: 同版本旧目录清理；失败由下方 moveItem 报错
-        }
+        try Task.checkCancellation()
+        guard trust.isAuthorized(release) else { throw Failure.untrustedPackage }
+        // 唯一安装目录：同版本修复也不会先删除当前激活目录。
+        let directoryName = String(release.version.prefix(60)) + "-" + String(release.sha256.prefix(12)) + "-" + UUID().uuidString
+        let versionDir = modelRoot.appendingPathComponent(directoryName, isDirectory: true)
         do {
             try fileManager.createDirectory(at: modelRoot, withIntermediateDirectories: true)
             try fileManager.moveItem(at: unpacked, to: versionDir)
@@ -225,13 +287,20 @@ public actor ASRModelDownloadService {
             throw Failure.installFailed
         }
 
-        let pointer = ActivePointer(choice: release.id, version: release.version, installedAt: Date())
-        let pointerData = try JSONEncoder().encode(pointer)
-        try pointerData.write(to: modelRoot.appendingPathComponent("active.json"), options: .atomic)
+        let pointer = ActivePointer(choice: release.id, version: release.version, installedAt: Date(),
+                                    directory: directoryName, artifactRevision: release.artifactRevision, packageSHA256: release.sha256)
+        do {
+            try Task.checkCancellation()
+            let pointerData = try JSONEncoder().encode(pointer)
+            try pointerData.write(to: modelRoot.appendingPathComponent("active.json"), options: .atomic)
+        } catch {
+            try? fileManager.removeItem(at: versionDir) // try?-ok: 未激活的本次唯一安装目录清理，不触碰旧版本
+            throw error
+        }
         Self.invalidatePointerCache()
         ASRModelAssets.invalidateCaches()
 
-        pruneOldVersions(modelRoot: modelRoot, keeping: release.version)
+        pruneOldVersions(modelRoot: modelRoot, keeping: [versionDir, previousRoot].compactMap { $0 })
         return versionDir
     }
 
@@ -244,24 +313,30 @@ public actor ASRModelDownloadService {
                           progress: (@Sendable (DownloadProgress) -> Void)?) async throws {
         // 纵深防御（安全审查 2026-09-12）：下载目标必须 https——Domain `resolvedURL`
         // 已限相对路径 + https baseUrl，此处兜底任何直构 URL 的调用点。
-        guard url.scheme?.lowercased() == "https" else { throw Failure.badAddress }
+        guard ModelResourcePolicy.allowedURL(url), expectedBytes > 0,
+              expectedBytes <= ModelResourcePolicy.packageBytes else { throw Failure.badAddress }
         var head = URLRequest(url: url)
         head.httpMethod = "HEAD"
         head.timeoutInterval = 30
-        let (_, headResponse) = try await session.data(for: head)
-        guard let headHTTP = headResponse as? HTTPURLResponse, (200..<300).contains(headHTTP.statusCode) else {
-            throw Failure.badResponse((headResponse as? HTTPURLResponse)?.statusCode ?? -1)
+        head.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+        let headGuard = ModelResourceTransfer()
+        let (_, headResponse) = try await session.data(for: head, delegate: headGuard)
+        if let failure = headGuard.failure { throw failure }
+        guard let headHTTP = headResponse as? HTTPURLResponse else { throw Failure.badResponse(-1) }
+        let headSupported = (200..<300).contains(headHTTP.statusCode)
+        guard headSupported || headHTTP.statusCode == 405 || headHTTP.statusCode == 501 else {
+            throw Failure.badResponse(headHTTP.statusCode)
         }
-        let total = headResponse.expectedContentLength > 0 ? headResponse.expectedContentLength : expectedBytes
-        guard total > 0 else { throw Failure.badResponse(-1) }
-        let supportsRanges = headHTTP.value(forHTTPHeaderField: "Accept-Ranges")?.lowercased().contains("bytes") ?? false
+        if headSupported, headResponse.expectedContentLength > 0, headResponse.expectedContentLength != expectedBytes { throw Failure.sizeMismatch }
+        let total = expectedBytes
+        let supportsRanges = headSupported && (headHTTP.value(forHTTPHeaderField: "Accept-Ranges")?.lowercased().contains("bytes") ?? false)
 
         fileManager.createFile(atPath: destination.path, contents: nil)
         let writer = try FileHandle(forWritingTo: destination)
         defer { try? writer.close() }   // try?-ok: 句柄关闭失败由系统回收，无静默降级风险
-        try writer.truncate(atOffset: UInt64(total))
+        try writer.truncate(atOffset: 0)
 
-        if supportsRanges, segmentCount > 1 {
+        if supportsRanges, total >= Int64(segmentCount) {
             let chunk = total / Int64(segmentCount)
             let counter = ProgressCounter(total: total, callback: progress)
             do {
@@ -271,27 +346,24 @@ public actor ASRModelDownloadService {
                         let end = index == segmentCount - 1 ? total - 1 : start + chunk - 1
                         group.addTask {
                             try await Self.downloadSegment(session: self.session, url: url,
-                                                           start: start, end: end,
+                                                           start: start, end: end, total: total,
                                                            destination: destination, counter: counter)
                         }
                     }
                     try await group.waitForAll()
                 }
-            } catch {
+            } catch Failure.badResponse(let status) where status == 200 || status == 416 {
+                try Task.checkCancellation()
                 // Range 被服务端忽略（对 bytes=start-end 返回 200 整包）：分段写坏了文件，
                 // 重建空文件后单流重下。进度计数器重建，避免分段字节虚增进度。
-                try? fileManager.removeItem(at: destination)   // try?-ok: 旧坏文件删除失败由重建覆盖
-                fileManager.createFile(atPath: destination.path, contents: nil)
-                let writer = try FileHandle(forWritingTo: destination)
-                defer { try? writer.close() }   // try?-ok: 句柄关闭失败由系统回收
-                try writer.truncate(atOffset: UInt64(total))
+                try writer.truncate(atOffset: 0)
                 let fallbackCounter = ProgressCounter(total: total, callback: progress)
-                try await Self.downloadSegment(session: session, url: url, start: 0, end: nil,
+                try await Self.downloadSegment(session: session, url: url, start: 0, end: nil, total: total,
                                                destination: destination, counter: fallbackCounter)
             }
         } else {
             let counter = ProgressCounter(total: total, callback: progress)
-            try await Self.downloadSegment(session: session, url: url, start: 0, end: nil,
+            try await Self.downloadSegment(session: session, url: url, start: 0, end: nil, total: total,
                                            destination: destination, counter: counter)
         }
 
@@ -304,64 +376,97 @@ public actor ASRModelDownloadService {
     /// 单个 Range 段：独立 FileHandle 从 start 处顺序写入（互不重叠，无需加锁）。
     private static func downloadSegment(session: URLSession,
                                         url: URL,
-                                        start: Int64,
-                                        end: Int64?,
+                                         start: Int64,
+                                         end: Int64?,
+                                         total: Int64,
                                         destination: URL,
                                         counter: ProgressCounter) async throws {
         var request = URLRequest(url: url)
         request.timeoutInterval = 60
+        request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
         if let end { request.setValue("bytes=\(start)-\(end)", forHTTPHeaderField: "Range") }
-        let (bytes, response) = try await session.bytes(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw Failure.badResponse(-1)
+        let expected = end.map { $0 - start + 1 } ?? total
+        let delegate = ModelResourceTransfer(expectedBytes: expected, range: end.map { (start, $0, total) }, onBytes: { counter.add($0) })
+        let temporary: URL
+        let response: URLResponse
+        do {
+            (temporary, response) = try await session.download(for: request, delegate: delegate)
+        } catch {
+            try Task.checkCancellation()
+            if let failure = delegate.failure { throw failure }
+            throw error
         }
-        // 带 Range 的请求只认 206：返回 200 = 服务端忽略 Range 发了整包，
-        // 在 start 偏移写整包会产出尺寸错乱的垃圾文件——必须抛错走单流回落。
-        if end != nil {
-            guard http.statusCode == 206 else { throw Failure.badResponse(http.statusCode) }
-        } else {
-            guard http.statusCode == 200 else { throw Failure.badResponse(http.statusCode) }
-        }
+        defer { try? FileManager.default.removeItem(at: temporary) } // try?-ok: URLSession 临时下载文件清理，不掩盖主错误
+        try Task.checkCancellation()
+        if let failure = delegate.failure { throw failure }
+        try delegate.validate(response)
+        let size = try FileManager.default.attributesOfItem(atPath: temporary.path)[.size] as? NSNumber
+        guard size?.int64Value == expected else { throw Failure.sizeMismatch }
         let handle = try FileHandle(forWritingTo: destination)
         defer { try? handle.close() }   // try?-ok: 分段写入句柄关闭失败由系统回收
         try handle.seek(toOffset: UInt64(start))
-
-        var buffer = Data()
-        buffer.reserveCapacity(64 * 1024)
-        for try await byte in bytes {
+        let input = try FileHandle(forReadingFrom: temporary)
+        defer { try? input.close() } // try?-ok: 只读临时文件句柄清理
+        var written: Int64 = 0
+        while let chunk = try input.read(upToCount: 1_048_576), !chunk.isEmpty {
             try Task.checkCancellation()
-            buffer.append(byte)
-            if buffer.count >= 64 * 1024 {
-                try handle.write(contentsOf: buffer)
-                counter.add(Int64(buffer.count))
-                buffer.removeAll(keepingCapacity: true)
-            }
+            written += Int64(chunk.count)
+            guard written <= expected else { throw Failure.sizeMismatch }
+            try handle.write(contentsOf: chunk)
         }
-        if !buffer.isEmpty {
-            try handle.write(contentsOf: buffer)
-            counter.add(Int64(buffer.count))
-        }
+        guard written == expected else { throw Failure.sizeMismatch }
     }
 
     // MARK: - 解压与校验
 
-    private func unzip(_ zipURL: URL, to root: URL) throws {
-        guard let archive = Archive(url: zipURL, accessMode: .read) else { throw Failure.unzipFailed }
+    private func unzip(_ zipURL: URL, to root: URL, maximumBytes: Int64) throws {
+        let archive = try Archive(url: zipURL, accessMode: .read, pathEncoding: nil)
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        var paths = Set<String>()
+        var count = 0
+        var total: UInt64 = 0
         for entry in archive {
+            try Task.checkCancellation()
+            count += 1
             // 路径穿越防护：拒绝绝对路径与 `..`（zip 内路径不可信）。
-            guard !entry.path.hasPrefix("/"), !entry.path.split(separator: "/").contains("..") else {
+            guard count <= ModelResourcePolicy.zipEntries, entry.type != .symlink,
+                  !entry.path.hasPrefix("/"), !entry.path.contains("\\"), !entry.path.contains(":"),
+                  !entry.path.split(separator: "/").contains(".."), entry.path.utf8.count <= 1024,
+                  !entry.path.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains),
+                  UInt64(entry.uncompressedSize) <= UInt64(maximumBytes) - total else {
                 throw Failure.unzipFailed
             }
-            let target = root.appendingPathComponent(entry.path)
+            total += UInt64(entry.uncompressedSize)
+            let target = root.appendingPathComponent(entry.path).standardizedFileURL
+            guard target.path.hasPrefix(root.standardizedFileURL.path + "/"),
+                  paths.insert(target.path.precomposedStringWithCanonicalMapping.lowercased()).inserted else { throw Failure.unzipFailed }
             try fileManager.createDirectory(at: target.deletingLastPathComponent(),
                                             withIntermediateDirectories: true)
             do {
-                _ = try archive.extract(entry, to: target)
+                if entry.type == .directory {
+                    try fileManager.createDirectory(at: target, withIntermediateDirectories: true)
+                    continue
+                }
+                let ext = target.pathExtension.lowercased()
+                guard ["onnx", "json", "txt", "md", "vocab"].contains(ext)
+                        || ["LICENSE", "README", "NOTICE"].contains(target.lastPathComponent) else { throw Failure.unzipFailed }
+                guard fileManager.createFile(atPath: target.path, contents: nil) else { throw Failure.unzipFailed }
+                let handle = try FileHandle(forWritingTo: target)
+                defer { try? handle.close() } // try?-ok: 解压临时文件句柄关闭
+                var received: UInt64 = 0
+                let crc = try archive.extract(entry) { data in
+                    try Task.checkCancellation()
+                    received += UInt64(data.count)
+                    guard received <= UInt64(entry.uncompressedSize) else { throw Failure.unzipFailed }
+                    try handle.write(contentsOf: data)
+                }
+                guard received == UInt64(entry.uncompressedSize), crc == entry.checksum else { throw Failure.unzipFailed }
             } catch {
+                if error is CancellationError { throw error }
                 throw Failure.unzipFailed
             }
         }
+        guard total == UInt64(maximumBytes) else { throw Failure.sizeMismatch }
     }
 
     /// 流式 SHA-256（不把整包读进内存）。
@@ -378,14 +483,18 @@ public actor ASRModelDownloadService {
     /// 保留当前版本 + 最近一个旧版本（回滚窗口），其余删除。
     /// 版本目录按 `ASRVersion.isNewer` 语义排序（字典序会把 `v2026.03.4` 排在
     /// `v2026.03.25` 之后、把 `1.9` 排在 `1.10` 之后——回滚窗口会保留最旧版本）。
-    private func pruneOldVersions(modelRoot: URL, keeping version: String) {
+    private func pruneOldVersions(modelRoot: URL, keeping roots: [URL]) {
         guard let entries = try? fileManager.contentsOfDirectory(at: modelRoot,   // try?-ok: 目录不可读=无可清理版本，清理非关键路径
-                                                                 includingPropertiesForKeys: [.isDirectoryKey],
+                                                                 includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
                                                                  options: [.skipsHiddenFiles]) else { return }
-        let versions = entries.filter { $0.hasDirectoryPath && $0.lastPathComponent != version }
-        guard versions.count > 1 else { return }
-        let sorted = versions.sorted { ASRVersion.isNewer($0.lastPathComponent, than: $1.lastPathComponent) }
-        for stale in sorted.dropFirst() { try? fileManager.removeItem(at: stale) }   // try?-ok: 旧版本清理失败仅占空间，不影响新版本使用
+        let kept = Set(roots.map { $0.standardizedFileURL.path })
+        for stale in entries where !kept.contains(stale.standardizedFileURL.path) {
+            do {
+                let values = try stale.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+                guard values.isDirectory == true, values.isSymbolicLink != true else { continue }
+                try ASRModelAssets.removeIfUnused(stale)
+            } catch { /* 清理失败只保留旧资源，不改变当前激活版本。 */ }
+        }
     }
 }
 

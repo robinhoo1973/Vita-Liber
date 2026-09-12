@@ -2908,6 +2908,7 @@ enum L10n {
     static var voiceLabResultMeta: String { t("voiceLab.result.meta") }
     static var voiceLabResultFooter: String { t("voiceLab.result.footer") }
     static var voiceLabEntryHint: String { t("voiceLab.entry.hint") }
+    /// 旧键保留：运行时下载模型与随包基线共用「安装后离线」文案。
     static var asrBundledOffline: String { t("asr.bundledOffline") }
     /// FR17.15（业主 2026-09-12）：运行时模型下载 UI。
     static var asrModelDownload: String { t("asr.model.download") }

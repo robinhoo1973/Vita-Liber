@@ -1698,7 +1698,7 @@
 "asr.dolphin.hint" = "Several Chinese dialects and Eastern languages; segment-based CTC recognition. English is not supported. Check your accent on this device.";
 "asr.whisper" = "Whisper-small · Multilingual";
 "asr.whisper.hint" = "Includes English, French, German and more. Segment previews, not native streaming or a dedicated Chinese-dialect model.";
-"asr.bundledOffline" = "Free · Bundled · On-device";
+"asr.bundledOffline" = "Free · On-device · Offline when installed";
 "asr.selectionHint" = "Choose the engine used by all voice entry points. Changes apply to the next press. Bundled models never download or upload audio. An unavailable explicitly selected model reports failure rather than silently changing engines.";
 "asr.missingAssets" = "Model resources in this build are missing or incomplete";
 "asr.model.download" = "Download model";

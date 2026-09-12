@@ -62,6 +62,10 @@ public enum TranscriptionEngineBuilder {
         let preferred = ASRModelCatalog.automaticChoice(locale: locale)
         guard preferred.isBundledModel else { return preferred }
         guard !ASRModelAssets.resolve(for: preferred).isPresent(preferred) else { return preferred }
+        // 能力表与候选选择同源：已有离线基线不能被缺件 Qwen 遮蔽。
+        for model in ASRModelCatalog.models where model.languageCode(for: locale) != nil {
+            if ASRModelAssets.resolve(for: model.choice).isPresent(model.choice) { return model.choice }
+        }
         return fallbackForMissingBundledModel()
     }
 

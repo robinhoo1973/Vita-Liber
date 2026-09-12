@@ -12,6 +12,7 @@ actor SwitchableTranscriptionEngine: TranscriptionCaptureReporting {
     private var retired: [UUID] = []
     private var captureOwner: UUID?
     private var cached: (VoiceEngineChoice, any TranscriptionEngine)?
+    private var cachedAssetIdentity: String?
 
     init(choiceProvider: @escaping @Sendable () -> VoiceEngineChoice,
          builder: @escaping @Sendable (VoiceEngineChoice) -> any TranscriptionEngine = { TranscriptionEngineBuilder.make(choice: $0) }) {
@@ -120,10 +121,12 @@ actor SwitchableTranscriptionEngine: TranscriptionCaptureReporting {
     }
 
     private func delegate(for choice: VoiceEngineChoice) -> any TranscriptionEngine {
-        if let cached, cached.0 == choice { return cached.1 }
+        let identity = choice.isBundledModel ? ASRModelAssets.resolve(for: choice).identity : nil
+        if let cached, cached.0 == choice, cachedAssetIdentity == identity { return cached.1 }
         cached = nil
         let engine = builder(choice)
         cached = (choice, engine)
+        cachedAssetIdentity = identity
         return engine
     }
 

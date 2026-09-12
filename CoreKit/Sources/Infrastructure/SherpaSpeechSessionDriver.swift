@@ -212,17 +212,22 @@ final class SherpaSpeechSessionDriver: SpeechSessionDriver, @unchecked Sendable 
         private var key: String?
         var generation: UInt64 = 0
         private var evictOnRelease = false
+        private var assetLease: ASRModelAssets.Lease?
         func acquire(owner: UUID, choice: VoiceEngineChoice, language: String, assets: ASRModelAssets, hotwords: [String]) throws {
+            try assets.checkPackageAuthorization()
             guard self.owner == nil || self.owner == owner else { throw TranscriptionError.engineUnavailable }
             // 语言码是 qwen3/whisper 解码语义的一部分（per-stream 选项/配置），
             // 必须计入池键——方言与普通话共用运行时会把上一会话的语言
             // 选项沿用给下一会话（owner round10 方言识别错乱根因之一）。
             let nextKey = choice.rawValue + ":" + (choice == .whisper || choice == .qwen3 ? language : "")
                 + (choice == .qwen3 ? ":" + hotwords.prefix(MixedSpeechVocabulary.limit).joined(separator: "\n") : "")
+                + ":" + assets.identity
             if key != nextKey || runtime == nil {
-                runtime = nil; key = nil
+                runtime = nil; key = nil; assetLease = nil
+                let lease = assets.acquireLease()
                 let validated = try assets.validate(choice)
                 runtime = try SherpaASRRuntime(choice: choice, language: language, assets: validated, hotwords: hotwords)
+                assetLease = lease
                 key = nextKey
             }
             self.owner = owner
@@ -232,12 +237,12 @@ final class SherpaSpeechSessionDriver: SpeechSessionDriver, @unchecked Sendable 
         func release(_ owner: UUID) {
             if self.owner == owner {
                 self.owner = nil; generation &+= 1
-                if evictOnRelease { runtime = nil; key = nil }
+                if evictOnRelease { runtime = nil; key = nil; assetLease = nil }
             }
         }
         func evictWhenIdle() {
             evictOnRelease = true
-            if owner == nil { runtime = nil; key = nil; generation &+= 1 }
+            if owner == nil { runtime = nil; key = nil; assetLease = nil; generation &+= 1 }
         }
     }
 

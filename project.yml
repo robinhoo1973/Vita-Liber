@@ -19,38 +19,29 @@ targets:
     sources:
       - path: App
       - path: Resources
-        excludes: ["ASRModels", "ASRModels/**"]
+        excludes: ["ASRModels", "ASRModels/**", "ASRModelUpdates", "ASRModelUpdates/**"]
       - path: Resources/ASRModels
         type: folder
         buildPhase: resources
     preBuildScripts:
-      # 构建期信任锚校验（业主 2026-09-12，同日改）：打包/固化脚本为本地发布工具
-      # （refactor/scripts/，不入库）；编译期只做 fail-closed 漂移校验——
-      # Resources/TrustedModelHashes.json 与仓库索引不一致即构建失败（发布者须先本地
-      # 重新固化并提交两者），保证嵌入 App 的信任锚与发布索引同步（远端索引被篡改也无效）。
-      - name: Verify trusted model hashes
+      # 每次编译从受审查提交中的已签名目录生成基线，生成物最后在 App 签名前嵌入。
+      # 签名私钥仅在发布者本地，CI/编译只验证公开 Root 与 catalog。
+      - name: Generate trusted model hashes
         script: |
-          python3 - "$SRCROOT" <<'PY'
-          import json, os, sys
-          root = sys.argv[1]
-          index_path = os.path.join(root, "downloads/vitaliber/asr/index.json")
-          out_path = os.path.join(root, "Resources/TrustedModelHashes.json")
-          idx = json.loads(open(index_path, encoding="utf-8").read())
-          entries = [
-              {"id": m["id"], "version": m["version"],
-               "bytes": int(m.get("bytes") or 0), "sha256": (m.get("sha256") or "").strip().lower()}
-              for m in idx.get("models", [])
-              if (m.get("sha256") or "").strip() and int(m.get("bytes") or 0) > 0
-          ]
-          existing = json.loads(open(out_path, encoding="utf-8").read() or "{}").get("entries") \
-              if os.path.exists(out_path) else None
-          if existing != entries:
-              print("TRUSTED-HASHES-DRIFT: Resources/TrustedModelHashes.json 与 downloads/vitaliber/asr/index.json 不一致——请用本地 refactor/scripts/generate-trusted-hashes.sh 重新固化并提交", file=sys.stderr)
-              sys.exit(1)
-          print("TRUSTED-HASHES-OK (%d entries)" % len(entries))
-          PY
+          set -eu
+          "${MODEL_PYTHON:-python3}" "$SRCROOT/.github/workflows/model-trust.py" build \
+            --root "$SRCROOT/Resources/ModelTrustRoot.json" \
+            --catalog "$SRCROOT/Resources/ASRModelUpdates/catalog.json" \
+            --index "$SRCROOT/Resources/ASRModelUpdates/index.json" \
+            --output "$DERIVED_FILE_DIR/TrustedModelHashes.json"
         basedOnDependencyAnalysis: false
     postBuildScripts:
+      - name: Embed generated model trust
+        script: |
+          set -eu
+          install -m 0644 "$DERIVED_FILE_DIR/TrustedModelHashes.json" \
+            "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/TrustedModelHashes.json"
+        basedOnDependencyAnalysis: false
       - name: Reconcile embedded framework minimum OS
         script: python3 "$SRCROOT/.github/workflows/reconcile-frameworks.py" --app "$TARGET_BUILD_DIR/$WRAPPER_NAME" --repair
         basedOnDependencyAnalysis: false

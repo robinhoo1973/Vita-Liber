@@ -1698,7 +1698,7 @@
 "asr.dolphin.hint" = "覆盖多种中文方言及东方语言；CTC 分段识别，不含英语。具体口音效果请在本机核对。";
 "asr.whisper" = "Whisper-small · 多语种";
 "asr.whisper.hint" = "多语外语识别，含英语、法语、德语等；分段预览，不是原生流式，也不是专用中文方言模型。";
-"asr.bundledOffline" = "免费 · 随包 · 本地推理";
+"asr.bundledOffline" = "免费 · 本机推理 · 安装后离线可用";
 "asr.selectionHint" = "自主选择用于所有语音入口的引擎，下一次按压生效。随包模型不下载、不上传录音。显式选定的模型不可用时会提示失败，不会悄悄更换模型。";
 "asr.missingAssets" = "此构建的模型资源缺失或不完整";
 "asr.model.download" = "下载模型";

@@ -1,10 +1,11 @@
 # ============================================================================
-# 构建 + TestFlight 发布 CI（三阶段独立 Job）
+# 构建 + TestFlight 发布 CI（version → ASR 资源 → build → upload）
 #
-# Job 1 — version：解析版本号（ubuntu，快速廉价）
-# Job 2 — build：L0 门禁 → 编译 → L1 单元/UI 测试（26 个门禁套件真实执行）→
+# version：从 version.txt 读取 App release 版本（与资源 Release/tag 独立）
+# asr-models：调用可独立运行的 ASR 构建/校验/发布工作流
+# build：L0 门禁 → 编译 → L1 单元/UI 测试（26 个门禁套件真实执行）→
 #         签名归档 → 导出 IPA → 上传 artifact
-# Job 3 — upload：下载 artifact → 直接 xcrun altool 推送 TestFlight
+# upload：下载 artifact → 直接 xcrun altool 推送 TestFlight
 #
 # 各 Job 独立：修改上传逻辑不影响编译，修改版本解析不影响签名。
 # Job 间通过 artifact + outputs 传递数据，无共享状态。
@@ -85,9 +86,6 @@ jobs:
     name: '解析版本'
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # 仅此 job 会在首次发布时创建 GitHub Release；构建/上传不继承写权限。
-    permissions:
-      contents: write
     outputs:
       version: ${{ steps.ver.outputs.version }}
       build: ${{ steps.ver.outputs.build }}
@@ -97,45 +95,35 @@ jobs:
       # node20 于 2026-09-16 从 runner 移除，旧 v4.2.2 将停止执行）。
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
-      - name: 解析版本（GitHub 最高 Release → 版本主体；无则自动建 v0.0.1）
+      - name: 读取 App release 版本（version.txt）
         id: ver
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          TAG="$(gh release list --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || true)"
-          if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
-            echo "当前无 GitHub Release → 自动创建 v0.0.1"
-            # 评审修正 C6：master push 与 tag push 属不同 concurrency 组，可能并发
-            # 抢建首个 release——失败方容忍（另一组已建成），版本统一取 v0.0.1
-            gh release create v0.0.1 --title "v0.0.1" --notes "初始基线版本（CI 自动创建）" >/dev/null 2>&1 || true
-            VERSION="0.0.1"
-          else
-            VERSION="${TAG#v}"
-          fi
-          # 评审修正 C2：短版本串直接进 MARKETING_VERSION——非 semver tag
-          # （v1.0.0-rc1/四段式）在编译期不报错、上传期被 ASC 以 ITMS-90060
-          # 拒收（浪费约 7 分钟 macOS 时长）。左移到版本解析 job 显式失败。
-          if ! printf '%s' "$VERSION" | grep -qE '^[0-9]{1,3}(\.[0-9]{1,3}){0,2}$'; then
-            echo "::error::最新 Release tag「$TAG」非 App Store 合法短版本（1–3 段非负整数），将触发 ITMS-90060"
-            exit 1
-          fi
-          # 评审修正 C1：BUILD 用 run_number 在「重跑失败 job」时复用同一号码 →
-          # 同版本同构建号重复上传被 ASC 以 ITMS-90189 拒收。附加 run_attempt
-          # 保证每次尝试唯一（CFBundleVersion 允许点分整数，如 040.2）。
-          BUILD="$(printf '%03d' ${{ github.run_number }}).${{ github.run_attempt }}"
-          HASH="$(git rev-parse --short=8 HEAD)"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "build=$BUILD" >> "$GITHUB_OUTPUT"
-          echo "hash=$HASH" >> "$GITHUB_OUTPUT"
-          echo "三部件版本 → Version $VERSION | Build $BUILD | Code Hash $HASH"
+          python3 .github/workflows/release-version.py \
+            --version-file version.txt \
+            --run-number "$GITHUB_RUN_NUMBER" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --code-hash "$(git rev-parse --short=8 HEAD)" \
+            --output "$GITHUB_OUTPUT"
 
   # ═══════════════════════════════════════════════════════════════
-  # Job 2: 编译 + 签名归档 + 导出 IPA
+  # ASR 下载文件的唯一构建面：workflow_call / workflow_dispatch 共用。
+  # App 版本已校验后再开始资源工作，避免无效 version.txt 浪费大模型构建。
+  # ═══════════════════════════════════════════════════════════════
+  asr-models:
+    needs: version
+    uses: ./.github/workflows/release-asr-models.yml
+    permissions:
+      contents: write
+    with:
+      publish: true
+
+  # ═══════════════════════════════════════════════════════════════
+  # 编译 + 签名归档 + 导出 IPA
   # ═══════════════════════════════════════════════════════════════
   build:
     name: '编译 + 导出 IPA'
-    needs: version
+    needs: [version, asr-models]
     # 钉版 macos-26（审计 2026-09-10）：发布流水线拒绝隐式工具链漂移；
     # 镜像内 Xcode 主版本变化由下方断言显式拦截，升级按文件头指引执行。
     runs-on: macos-26
@@ -150,6 +138,21 @@ jobs:
     steps:
       # v7.0.1；固定完整 SHA，防可变 tag 被上游供应链替换（node24 运行时）。
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.13.5'
+
+      - name: 准备构建期模型信任校验
+        run: |
+          python3 -m pip install --disable-pip-version-check "cryptography==49.0.0"
+          echo "MODEL_PYTHON=$(command -v python3)" >> "$GITHUB_ENV"
+
+      - name: 获取已验证的离线 ASR 基线资源
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ needs.asr-models.outputs.bundle_artifact }}
+          path: Resources
 
       - name: 环境与工具链
         run: |
@@ -370,8 +373,13 @@ jobs:
           swift test 2>&1 | tee ../Build/corekit-swift-test.log
           echo "CoreKit 域层测试通过 ✓"
 
-      - name: 准备随包 ASR 模型（固定版本与 SHA-256）
-        run: python3 .github/workflows/fetch-asr-models.py
+      - name: 校验随包 ASR 基线与签名目录
+        run: |
+          python3 .github/workflows/fetch-asr-models.py --check
+          python3 .github/workflows/model-trust.py verify \
+            --root Resources/ModelTrustRoot.json \
+            --catalog Resources/ASRModelUpdates/catalog.json \
+            --index Resources/ASRModelUpdates/index.json
 
       # ── 编译门禁（build-for-testing）：失败即停 ───────
       - name: 编译门禁（build-for-testing）
@@ -396,6 +404,9 @@ jobs:
             -project "$XCODEPROJ" -scheme "$SCHEME" \
             -destination "$DEST" \
             -derivedDataPath Build/DerivedData \
+            MARKETING_VERSION="${{ needs.version.outputs.version }}" \
+            CURRENT_PROJECT_VERSION="${{ needs.version.outputs.build }}" \
+            VITA_LIBER_CODE_HASH="${{ needs.version.outputs.hash }}" \
             COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO \
             2>&1 | tee Build/xcodebuild-build.log
           echo "编译门禁通过 ✓"

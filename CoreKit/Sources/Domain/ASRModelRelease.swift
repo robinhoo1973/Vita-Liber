@@ -32,17 +32,26 @@ public struct ASRModelRelease: Codable, Sendable, Equatable, Identifiable {
     public var url: String
     public var minAppVersion: String?
     public var license: String?
+    public var expandedBytes: Int64?
+    public var runtime: String?
+    public var packaging: String?
+    public var artifactRevision: Int?
 
     public init(id: String, version: String, bytes: Int64? = nil, sha256: String, url: String,
-                minAppVersion: String? = nil, license: String? = nil) {
+                minAppVersion: String? = nil, license: String? = nil,
+                expandedBytes: Int64? = nil, runtime: String? = nil, packaging: String? = nil, artifactRevision: Int? = nil) {
         self.id = id; self.version = version
         self.bytes = bytes; self.sha256 = sha256
         self.url = url; self.minAppVersion = minAppVersion; self.license = license
+        self.expandedBytes = expandedBytes; self.runtime = runtime
+        self.packaging = packaging; self.artifactRevision = artifactRevision
     }
 
     /// 已发布（可下载）：必须有非空 sha256 与正字节数——空 sha 条目只表示「占位」。
     public var isPublished: Bool {
-        !sha256.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (bytes ?? 0) > 0
+        ModelResourcePolicy.isSHA256(sha256) && (bytes ?? 0) > 0
+            && (bytes ?? 0) <= ModelResourcePolicy.packageBytes
+            && ModelResourcePolicy.isSlug(id) && ModelResourcePolicy.isSlug(version)
     }
 
     /// 是否兼容当前 App 版本（未声明 minAppVersion 视为兼容）。
@@ -60,6 +69,8 @@ public struct ASRModelRelease: Codable, Sendable, Equatable, Identifiable {
     public func resolvedURL(baseURL: URL?) -> URL? {
         let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty,
+              trimmed == url, !trimmed.contains("/"), !trimmed.contains("\\"),
+              trimmed.hasSuffix(".zip"), ModelResourcePolicy.isSlug(String(trimmed.dropLast(4))),
               URL(string: trimmed)?.scheme == nil,
               !trimmed.hasPrefix("//") else { return nil }
         guard let baseURL, let scheme = baseURL.scheme?.lowercased(), scheme == "https" else { return nil }

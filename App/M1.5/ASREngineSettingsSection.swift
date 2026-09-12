@@ -14,6 +14,8 @@ struct ASREngineSettingsSection: View {
     @State private var progress: Double = 0
     @State private var failed: VoiceEngineChoice?
     @State private var indexFailed = false
+    @State private var downloadTask: Task<Void, Never>?
+    @State private var downloadID: UUID?
 
     private let service = ASRModelDownloadService.shared
 
@@ -85,10 +87,11 @@ struct ASREngineSettingsSection: View {
     @ViewBuilder
     private func downloadControls(_ choice: VoiceEngineChoice) -> some View {
         let installed = ASRModelDownloadService.installedVersion(for: choice)
-        let latest = index.flatMap {
+        let availableIndex = index ?? ModelCatalogTrustStore.shared.baselineIndex
+        let latest = availableIndex.flatMap {
             ASRModelDownloadService.latest(for: choice, in: $0, appVersion: appVersion)
         }
-        let update = index.flatMap {
+        let update = availableIndex.flatMap {
             ASRModelDownloadService.updateAvailable(for: choice, index: $0, appVersion: appVersion)
         }
         VStack(alignment: .leading, spacing: 4) {
@@ -102,6 +105,8 @@ struct ASREngineSettingsSection: View {
                 Text(L10n.asrModelDownloading)
                     .font(.caption2).foregroundStyle(.secondary)
                     .accessibilityIdentifier("\(accessibilityPrefix).model.progress.\(choice.rawValue)")
+                Button(L10n.commonCancel) { downloadTask?.cancel() }
+                    .frame(minHeight: 44)
             } else {
                 if failed == choice {
                     // 失败提示与重试按钮并存：此前失败态被更新/下载按钮分支
@@ -111,11 +116,11 @@ struct ASREngineSettingsSection: View {
                         .accessibilityIdentifier("\(accessibilityPrefix).model.failed.\(choice.rawValue)")
                 }
                 if let update {
-                    Button(L10n.asrModelUpdate(update.version)) { Task { await install(update) } }
+                    Button(L10n.asrModelUpdate(update.version)) { startInstall(update) }
                         .buttonStyle(.bordered).frame(minHeight: 44)
                         .accessibilityIdentifier("\(accessibilityPrefix).model.update.\(choice.rawValue)")
                 } else if let latest, installed == nil {
-                    Button(L10n.asrModelDownload) { Task { await install(latest) } }
+                    Button(L10n.asrModelDownload) { startInstall(latest) }
                         .buttonStyle(.bordered).frame(minHeight: 44)
                         .accessibilityIdentifier("\(accessibilityPrefix).model.download.\(choice.rawValue)")
                 }
@@ -135,17 +140,29 @@ struct ASREngineSettingsSection: View {
         }
     }
 
+    private func startInstall(_ release: ASRModelRelease) {
+        guard busy == nil else { return }
+        downloadTask = Task { await install(release) }
+    }
+
     private func install(_ release: ASRModelRelease) async {
         guard busy == nil, let choice = VoiceEngineChoice(rawValue: release.id) else { return }
+        let id = UUID()
+        downloadID = id
         busy = choice
         failed = nil
         progress = 0
-        defer { busy = nil }
-        let base = index?.baseUrl.flatMap(URL.init(string:))
+        defer { if downloadID == id { busy = nil; downloadID = nil; downloadTask = nil } }
+        let base = (index ?? ModelCatalogTrustStore.shared.baselineIndex)?.baseUrl.flatMap(URL.init(string:))
         do {
             _ = try await service.install(release, baseURL: base) { update in
-                Task { @MainActor in progress = update.fraction }
+                Task { @MainActor in
+                    guard downloadID == id else { return }
+                    progress = update.fraction
+                }
             }
+        } catch is CancellationError {
+            failed = nil
         } catch {
             failed = choice
         }

@@ -1,7 +1,8 @@
 {
-  "catalogSHA256": "711aeb73d9a728001ac108d8fb430daf77a7db956d7b6fb8610fba01b3662d77",
-  "catalogVersion": 2,
-  "entries": [
+  "app": "vitaliber",
+  "assetKind": "asr",
+  "baseUrl": "https://github.com/robinhoo1973/Vita-Liber/releases/download/asr-models",
+  "models": [
     {
       "artifactRevision": 2,
       "builtAt": "20260912",
@@ -63,8 +64,8 @@
       "version": "small-int8-2024-07-13"
     }
   ],
-  "generatedAt": "2026-09-12",
-  "rootVersion": 1,
+  "packagingProfile": "zip-deflate9-v2",
   "schemaVersion": 1,
-  "sourceIndexSha256": "89234f2f09a8b5994b2d4a16c926b22af0bb5c890b55f0c7361bbe91414bd7b6"
+  "sourceManifestSHA256": "92e2ea94422bb9773a22202a358f3159002fea62c4a94a02e71d937845af6188",
+  "updatedAt": "2026-09-12"
 }

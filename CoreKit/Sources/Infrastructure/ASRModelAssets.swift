@@ -20,7 +20,51 @@ public struct ASRModelAssets: Sendable {
         }
     }
     private let root: URL?
-    public init(root: URL? = Bundle.main.url(forResource: "ASRModels", withExtension: nil)) { self.root = root }
+    private let packageSHA256: String?
+    private let trust: ModelCatalogTrustStore
+    public init(root: URL? = Bundle.main.url(forResource: "ASRModels", withExtension: nil),
+                packageSHA256: String? = nil, trust: ModelCatalogTrustStore = .shared) {
+        self.root = root; self.packageSHA256 = packageSHA256; self.trust = trust
+    }
+    /// 每次会话/池获取都执行；旧委托持有的资产不能绕过后来收到的撤销。
+    func checkPackageAuthorization() throws {
+        if let packageSHA256, trust.isRevoked(packageSHA256) { throw TranscriptionError.engineUnavailable }
+    }
+    /// 下载版使用不可变内容目录；根路径＋安装代次同时进入委托与 native runtime 缓存键。
+    public var identity: String { "\(root?.standardizedFileURL.path ?? "missing")|\(Self.generation.value)" }
+    private static let generation = Generation()
+    private static let leases = Leases()
+    final class Lease: @unchecked Sendable {
+        private let path: String?
+        init(root: URL?) {
+            path = root?.standardizedFileURL.path
+            if let path { ASRModelAssets.leases.retain(path) }
+        }
+        deinit { if let path { ASRModelAssets.leases.release(path) } }
+    }
+    private final class Leases: @unchecked Sendable {
+        private let lock = NSLock()
+        private var counts: [String: Int] = [:]
+        func retain(_ path: String) { lock.lock(); counts[path, default: 0] += 1; lock.unlock() }
+        func release(_ path: String) {
+            lock.lock(); defer { lock.unlock() }
+            let count = counts[path, default: 0] - 1
+            if count <= 0 { counts[path] = nil } else { counts[path] = count }
+        }
+        func removeIfUnused(_ url: URL) throws {
+            lock.lock(); defer { lock.unlock() }
+            guard counts[url.standardizedFileURL.path, default: 0] == 0 else { return }
+            try FileManager.default.removeItem(at: url)
+        }
+    }
+    func acquireLease() -> Lease { Lease(root: root) }
+    static func removeIfUnused(_ url: URL) throws { try leases.removeIfUnused(url) }
+    private final class Generation: @unchecked Sendable {
+        private let lock = NSLock()
+        private var counter: UInt64 = 0
+        var value: UInt64 { lock.lock(); defer { lock.unlock() }; return counter }
+        func advance() { lock.lock(); counter &+= 1; lock.unlock() }
+    }
 
     /// FR17.15（业主 2026-09-12 决定）：**资产双路径解析**——优先使用运行时下载并校验过的版本
     /// （`Application Support/ASRModels/<id>/<version>`，指针 `active.json`），否则回落随包
@@ -28,8 +72,7 @@ public struct ASRModelAssets: Sendable {
     /// 下载目录必须通过存在性校验才选用：损坏/过期的下载树不得遮蔽完好的随包模型
     /// （存在性判定按 root+choice 进程级缓存，热路径只付一次解码+stat）。
     public static func resolve(for choice: VoiceEngineChoice) -> ASRModelAssets {
-        if let downloaded = ASRModelDownloadService.activeRoot(for: choice) {
-            let assets = ASRModelAssets(root: downloaded)
+        if let assets = ASRModelDownloadService.activeAssets(for: choice) {
             if assets.isPresent(choice) { return assets }
         }
         return ASRModelAssets()
@@ -56,8 +99,9 @@ public struct ASRModelAssets: Sendable {
     }
 
     public func isPresent(_ choice: VoiceEngineChoice) -> Bool {
+        if let packageSHA256, trust.isRevoked(packageSHA256) { return false }
         // CI 34652541174 修复：实例方法内不得无 Self. 限定引用静态成员。
-        Self.presenceCache.value(key: "\(root?.path ?? "nil")|\(choice.rawValue)") {
+        return Self.presenceCache.value(key: "\(root?.path ?? "nil")|\(choice.rawValue)") {
             do { _ = try files(choice, hash: false); return true }
             catch { return false }
         }
@@ -85,6 +129,7 @@ public struct ASRModelAssets: Sendable {
     public static func invalidateCaches() {
         presenceCache.removeAll()
         manifestCache.removeAll()
+        generation.advance()
     }
 
     public func byteCount(_ choice: VoiceEngineChoice) -> Int64? {
@@ -111,6 +156,7 @@ public struct ASRModelAssets: Sendable {
     public func validate(_ choice: VoiceEngineChoice) throws -> Validated { try files(choice, hash: true) }
 
     private func files(_ choice: VoiceEngineChoice, hash: Bool) throws -> Validated {
+        try checkPackageAuthorization()
         guard let root, let descriptor = ASRModelCatalog.model(for: choice) else { throw TranscriptionError.engineUnavailable }
         let manifest = try readManifest(root)
         guard manifest.formatVersion == 1, let model = manifest.models.first(where: { $0.id == choice.rawValue }),
@@ -123,11 +169,14 @@ public struct ASRModelAssets: Sendable {
         }
         let selected = model.files + (choice == .zipformer ? [] : manifest.shared)
         var paths: [String: String] = [:]
+        var filePaths = Set<String>()
         for file in selected {
             let url = root.appendingPathComponent(file.path).standardizedFileURL
+            // Model/VAD LICENSE 都可叫 notice；它们必须验字节/SHA，但不是唯一推理角色。
+            let role = file.role == "notice" ? "metadata:\(file.path)" : file.role
             guard !file.path.hasPrefix("/"), !file.path.split(separator: "/").contains(".."),
                   url.resolvingSymlinksInPath().path.hasPrefix(root.resolvingSymlinksInPath().path + "/"),
-                  paths[file.role] == nil, file.bytes > 0,
+                  paths[role] == nil, filePaths.insert(url.path).inserted, file.bytes > 0,
                   file.sha256.count == 64, file.sha256.allSatisfy({ $0.isHexDigit }) else { throw TranscriptionError.engineUnavailable }
             let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
             guard attributes[.type] as? FileAttributeType == .typeRegular,
@@ -140,7 +189,7 @@ public struct ASRModelAssets: Sendable {
                 let actual = digest.finalize().map { String(format: "%02x", $0) }.joined()
                 guard actual == file.sha256 else { throw TranscriptionError.engineUnavailable }
             }
-            paths[file.role] = url.path
+            paths[role] = url.path
         }
         return Validated(paths: paths)
     }

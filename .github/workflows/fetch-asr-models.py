@@ -136,12 +136,21 @@ def main():
     source_digest = hashlib.sha256(raw_manifest).hexdigest()
     if manifest["formatVersion"] != 1 or {m["id"] for m in manifest["models"]} != {"qwen3", "zipformer", "dolphin", "whisper"}:
         raise ValueError("Unexpected ASR manifest/version")
-    entries = [entry for model in manifest["models"] for entry in model["files"]] + manifest["shared"]
+    # A signed App can explicitly ship the offline Zipformer baseline while larger models
+    # are installed from Releases. Check every declared bundled model; never silently skip it.
+    bundled = manifest.get("bundledModels") if args.check else None
+    if bundled is not None and (not isinstance(bundled, list) or "zipformer" not in bundled
+                                or len(set(bundled)) != len(bundled)
+                                or not set(bundled) <= {"qwen3", "zipformer", "dolphin", "whisper"}):
+        raise ValueError("Invalid bundled ASR profile")
+    selected = [model for model in manifest["models"] if bundled is None or model["id"] in bundled]
+    shared = manifest["shared"] if any(model["id"] != "zipformer" for model in selected) else []
+    entries = [entry for model in selected for entry in model["files"]] + shared
     validate_entries(entries)
     total = sum(entry["bytes"] for entry in entries)
     if total > 2_000_000_000:
         raise ValueError("ASR asset budget exceeds 2 GB; re-evaluate the pinned model set")
-    archives = [m for m in manifest["models"] if "archive" in m]
+    archives = [m for m in selected if "archive" in m]
     for model in archives:
         validate_entries([dict(model["archive"], path="model.tar.bz2", role="archive")])
     print(f"ASR manifest: {len(entries)} pinned files ({total:,} bytes) + {len(archives)} pinned archives", flush=True)
@@ -156,7 +165,7 @@ def main():
     for entry in entries:
         ensure_file(args.root, entry, check_only=args.check)
         print("Verified " + entry["path"], flush=True)
-    all_files = [file for model in manifest["models"] for file in model["files"]] + manifest["shared"]
+    all_files = [file for model in selected for file in model["files"]] + shared
     validate_entries(all_files)
     unpacked = sum(file["bytes"] for file in all_files)
     if unpacked > 2_000_000_000:

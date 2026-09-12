@@ -1698,7 +1698,7 @@
 "asr.dolphin.hint" = "涵蓋多種中文方言及東方語言；CTC 分段辨識，不含英語。具體口音效果請在本機核對。";
 "asr.whisper" = "Whisper-small · 多語種";
 "asr.whisper.hint" = "多語外語辨識，含英語、法語、德語等；分段預覽，不是原生串流，也不是專用中文方言模型。";
-"asr.bundledOffline" = "免費 · 隨附 · 本機推理";
+"asr.bundledOffline" = "免費 · 本機推理 · 安裝後離線可用";
 "asr.selectionHint" = "自主選擇用於所有語音入口的引擎，下一次按壓生效。隨附模型不下載、不上傳錄音。明確選定的模型無法使用時會提示失敗，不會悄悄更換模型。";
 "asr.missingAssets" = "此組建的模型資源缺失或不完整";
 "asr.model.download" = "下載模型";

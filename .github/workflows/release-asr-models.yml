@@ -1,0 +1,138 @@
+# ASR 下载文件构建与发布：可被 TestFlight 调用，也可独立手动运行。
+# 最新 = 当前提交中已批准的钉版模型清单；候选先构建，验签后方可发布。
+name: Build ASR Model Packages
+
+on:
+  workflow_call:
+    inputs:
+      publish:
+        description: 验证已签名目录后发布至 asr-models（false 仅产候选 artifact）
+        type: boolean
+        default: true
+    outputs:
+      bundle_artifact:
+        description: App 离线基线模型资源
+        value: ${{ jobs.models.outputs.bundle_artifact }}
+      packages_artifact:
+        description: 四个完整模型 ZIP、索引和校验回执
+        value: ${{ jobs.models.outputs.packages_artifact }}
+      metadata_artifact:
+        description: 供本地离线签名的轻量索引与校验回执
+        value: ${{ jobs.models.outputs.metadata_artifact }}
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 验证已签名目录后发布（首次更新模型可设 false 生成待签名候选）
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: asr-models-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  models:
+    name: 构建、校验与发布 ASR 下载文件
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    outputs:
+      bundle_artifact: ${{ steps.names.outputs.bundle_artifact }}
+      packages_artifact: ${{ steps.names.outputs.packages_artifact }}
+      metadata_artifact: ${{ steps.names.outputs.metadata_artifact }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.13.5'
+
+      - name: 安装公开校验工具依赖
+        run: python3 -m pip install --disable-pip-version-check "cryptography==49.0.0" "PyYAML==6.0.2"
+
+      - name: 校验构建、签名及版本规则
+        run: |
+          python3 .github/workflows/test-release-version.py
+          python3 .github/workflows/test-asr-assets.py
+          python3 .github/workflows/test-asr-package-integrity.py
+          python3 .github/workflows/test-model-trust.py
+          python3 .github/workflows/test-asr-release.py
+
+      - name: 准备完整钉版权重（优先复用已验证 Release）
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 .github/workflows/prepare-asr-source.py \
+            --index Resources/ASRModelUpdates/index.json \
+            --source Resources/ASRModels \
+            --root "$RUNNER_TEMP/asr-source" \
+            --cache "$RUNNER_TEMP/asr-cache" \
+            --repository "$GITHUB_REPOSITORY"
+
+      - name: 构建四个完整 ZIP 与离线基线 bundle
+        run: |
+          python3 .github/workflows/build-asr-packages.py \
+            --source-root "$RUNNER_TEMP/asr-source" \
+            --index Resources/ASRModelUpdates/index.json \
+            --output "$RUNNER_TEMP/asr-packages"
+          python3 .github/workflows/fetch-asr-models.py \
+            --root "$RUNNER_TEMP/asr-packages/bundle/ASRModels" --check
+
+      - name: 核对公开签名与实际生成的包索引
+        if: ${{ inputs.publish }}
+        run: |
+          python3 .github/workflows/model-trust.py verify \
+            --root Resources/ModelTrustRoot.json \
+            --catalog Resources/ASRModelUpdates/catalog.json \
+            --index "$RUNNER_TEMP/asr-packages/index.json"
+
+      - name: 生成 artifact 标识
+        id: names
+        run: |
+          echo "bundle_artifact=asr-bundle-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+          echo "packages_artifact=asr-packages-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+          echo "metadata_artifact=asr-metadata-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+
+      - name: 输出轻量签名输入（无需下载本地模型文件）
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.names.outputs.metadata_artifact }}
+          path: |
+            ${{ runner.temp }}/asr-packages/index.json
+            ${{ runner.temp }}/asr-packages/package-validation.json
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: 输出离线基线 bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.names.outputs.bundle_artifact }}
+          path: ${{ runner.temp }}/asr-packages/bundle/
+          compression-level: 0
+          retention-days: 2
+          if-no-files-found: error
+
+      - name: 输出完整候选包和校验回执
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.names.outputs.packages_artifact }}
+          path: |
+            ${{ runner.temp }}/asr-packages/*.zip
+            ${{ runner.temp }}/asr-packages/index.json
+            ${{ runner.temp }}/asr-packages/package-validation.json
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: 发布 ASR Release（不可变 ZIP；无需签名私钥）
+        if: ${{ inputs.publish }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 .github/workflows/publish-asr-release.py publish \
+            --index "$RUNNER_TEMP/asr-packages/index.json" \
+            --directory "$RUNNER_TEMP/asr-packages" \
+            --root Resources/ModelTrustRoot.json \
+            --catalog Resources/ASRModelUpdates/catalog.json \
+            --repository "$GITHUB_REPOSITORY" --target "$GITHUB_SHA"

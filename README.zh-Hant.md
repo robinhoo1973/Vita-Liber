@@ -17,7 +17,7 @@
 | 家庭成員 | 多成員檔案、依人員歸屬、長輩照護模式 |
 | 用藥管理 | 處方→計畫→提醒→用藥確認閉環；雙軌庫存與續藥提醒 |
 | 健康洞察 | 疾病時間軸、指標趨勢圖（Swift Charts）、本機 AI 摘要（附引用） |
-| 語音輸入 | 自主選擇隨附 ASR，優先中文方言；具體準確率須本機金樣驗證 |
+| 語音輸入 | 自主選擇離線 ASR，Zipformer 隨附基線 + GitHub Releases 簽章模型下載；方言準確率須實機金樣驗證 |
 | 健康匯入 | Apple 健康專頁、本人綁定增量匯入、資料數量與歷史檢視 |
 | 安全防護 | 系統裝置擁有者認證、敏感媒體遮蔽、急救資訊卡 |
 | 資料自主 | PDF/CSV/JSON 匯出、自包含 `.vlbu` 備份還原 |
@@ -31,5 +31,5 @@
 ## 儲存庫說明
 `App/` 為 SwiftUI 頁面，`CoreKit/` 為 Domain/Protocols/Infrastructure，`Tests/` 與 `UITests/` 為應用測試。
 
-## 隨附 ASR 資源
-`Resources/ASRModels/manifest.json` 固定模型版本和校驗值。CI 在應用編譯前執行 `python3 .github/workflows/fetch-asr-models.py`，權重不進 Git、全部隨應用封裝。下載僅發生在建置機；應用推理不依賴網路。授權條款與來源說明隨附保留。整套模型超過1GB，磁碟大小不代表實際推理記憶體或速度。
+## App 版本與 ASR 模型發佈
+App release 版本只讀取根目錄 `version.txt`，與 GitHub Release tag 獨立。TestFlight 呼叫 `release-asr-models.yml`；它也支援獨立 `workflow_dispatch`，在 runner 暫存目錄準備四個完整模型 ZIP、驗證模型包與簽章目錄並發佈 `asr-models` Release。Zipformer 為隨附離線基線，大模型經使用者明確下載及驗證後在本機執行。每次 App 編譯從已簽章中繼資料產生並嵌入雜湊基線。公開設定位於 `Resources/ASRModelUpdates/`，倉庫不保存 `downloads/` 目錄或模型二進位檔。操作見[工作流程與簽章說明](.github/ASR_RELEASE.md)。磁碟大小不代表推理記憶體、速度或準確率。
