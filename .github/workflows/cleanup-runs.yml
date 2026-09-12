@@ -106,9 +106,20 @@ jobs:
               continue
             fi
 
-            # 规则2：未成功 → 删除
+            # 规则2：未成功 → 保留 7 天宽限期后删除
+            # （审计 2026-09-10 决定：失败记录当日即删 = 间歇性失败无证据
+            # 可查、发布流水线无审计轨迹；近 7 天失败保留供诊断。
+            # 2026-09-12 恢复：3ae011c「简化失败路径」误删宽限期——审计
+            # 决定是产品行为，不是可丢弃的复杂度；日期解析失败保守保留）
             if [ "$CONCLUSION" != "success" ]; then
-              delete_run "$RUN_ID" "$WF_NAME - 未成功($CONCLUSION)" && DELETED=$((DELETED + 1))
+              CUTOFF=$(date -u -d '7 days ago' +%s)
+              CREATED_EPOCH=$(date -u -d "$CREATED_AT" +%s 2>/dev/null || echo 0)
+              if [ "$CREATED_EPOCH" -le 0 ] || [ "$CREATED_EPOCH" -gt "$CUTOFF" ]; then
+                echo "  保留: #$RUN_ID ($WF_NAME - 未成功但 ≤7 天，留诊断审计)"
+                KEPT=$((KEPT + 1))
+              else
+                delete_run "$RUN_ID" "$WF_NAME - 未成功且超过 7 天" && DELETED=$((DELETED + 1))
+              fi
               echo "$DELETED $KEPT" > "$COUNTS_FILE"
               continue
             fi

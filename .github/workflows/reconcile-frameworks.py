@@ -70,7 +70,10 @@ def main():
         if args.repair:
             raise ValueError("Exported IPA is verification-only")
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            # resolve() 必须对称：macOS /var → /private/var 符号链接，root 不 resolve
+            # 而子条目 resolve 会导致前缀恒不等、全部条目误判越界
+            # （CI 34663588504 实证：IPA 导出成功、校验步每个条目报 Invalid IPA path）
+            root = Path(temporary).resolve()
             with zipfile.ZipFile(args.ipa) as archive:
                 for name in archive.namelist():
                     if not (root / name).resolve().is_relative_to(root):

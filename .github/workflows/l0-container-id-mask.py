@@ -9,13 +9,26 @@ SwiftUI 会把容器标识下放覆盖到每个子元素自身的标识，XCUITe
 且其花括号范围内存在更深的 .accessibilityIdentifier（子树里有带标识的控件），
 且链中无 .accessibilityElement(children: .contain / .combine) → 掩蔽风险。
 
-用法：python3 refactor/scan-container-id-mask.py [--ci]  （--ci：有候选即退出码 1，供门禁复用）
+用法：python3 .github/workflows/l0-container-id-mask.py [--ci]
+      （--ci：有候选即退出码 1，供 L0 门禁第 17 节复用；0 文件扫描退出码 2）
+已知局限：判定子树为同一结构体花括号范围——容器内组合的跨结构体子视图
+（其内部标识在另一文件）不做树分析，由 XCUITest 运行时兜底。
 """
 import re
 import sys
 from pathlib import Path
 
-APP = Path(__file__).resolve().parent.parent / "App"
+# 仓库根探测：从脚本所在目录逐级向上找 CoreKit/Sources/Domain 锚点
+# （与 l0-static-gate.sh 同策略——脚本位置深度可变，禁止按固定层级假设；
+# 2026-09-12 实证：脚本从 refactor/ 移到 .github/workflows/ 后 parent.parent
+# 差一级，扫描了不存在的目录 0 文件假绿，ERR#27 空扫不得判 PASS）
+ROOT = Path(__file__).resolve().parent
+while ROOT != ROOT.parent and not (ROOT / "CoreKit" / "Sources" / "Domain").is_dir():
+    ROOT = ROOT.parent
+APP = ROOT / "App"
+if not APP.is_dir():
+    print(f"ERROR: 未找到 App 源码目录（探测到仓库根 {ROOT}）——本判定器属于代码仓库。")
+    sys.exit(2)
 
 CONTAINER_TYPES = (
     "VStack", "HStack", "ZStack", "Group", "ScrollView", "List", "Form",
@@ -98,10 +111,16 @@ for swift in sorted(APP.rglob("*.swift")):
             f"{', '.join(f'{name}(L{n})' for n, name in masked)}（缺 .accessibilityElement(children: .contain)）"
         )
 
+scanned = sorted(APP.rglob("*.swift"))
+if len(scanned) == 0:
+    # ERR#27：空扫不得判 PASS——0 文件与全绿不可区分，硬失败
+    print(f"ERROR: {APP} 下 0 个 Swift 文件——扫描范围异常，不得判 PASS。")
+    sys.exit(2)
+
 if findings:
     print(f"发现 {len(findings)} 处容器标识掩蔽风险：")
     for f in findings:
         print(" -", f)
     sys.exit(1 if ci_mode else 0)
-print("无容器标识掩蔽风险。")
+print(f"无容器标识掩蔽风险（扫描 {len(scanned)} 个 Swift 文件）。")
 sys.exit(0)
