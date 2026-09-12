@@ -723,7 +723,7 @@ final class DocumentsState {
 
     /// 临床类文档判定：以 Domain 稳定键谓词为唯一事实源（FR6.9 健康问题推荐门控），
     /// 旧数据无稳定键时回落到标签相等（与 Domain 判定集合一致的标签子集）。
-    func isClinicalDocType(key: String?, label: String) -> Bool {
+    nonisolated func isClinicalDocType(key: String?, label: String) -> Bool {
         if let key { return DocumentTypeClassifierFallback.isClinicalType(key) }
         return label == L10n.docTypeReport || label == L10n.docTypeRecord
             || label == L10n.docTypeLabelDiagnosisProof
@@ -745,7 +745,7 @@ final class DocumentsState {
         } catch { lastImportError = L10n.docImportFailed }
     }
 
-    static func docTypeLabel(forStableKey key: String) -> String? {
+    nonisolated static func docTypeLabel(forStableKey key: String) -> String? {
         switch key {
         case "prescription": return L10n.docTypePrescription
         case "lab_report": return L10n.docTypeReport
@@ -760,14 +760,14 @@ final class DocumentsState {
         }
     }
 
-    static var unresolvedDocTypePlaceholder: String { L10n.docTypeLabelOther }
+    nonisolated static var unresolvedDocTypePlaceholder: String { L10n.docTypeLabelOther }
 
-    static func docTypeKey(forLabel label: String) -> String? {
+    nonisolated static func docTypeKey(forLabel label: String) -> String? {
         ["prescription", "lab_report", "outpatient_record", "diagnosis_certificate",
          "vaccine_record", "invoice", "medication_label"].first { docTypeLabel(forStableKey: $0) == label }
     }
 
-    static func fieldLabel(forKey key: String) -> String {
+    nonisolated static func fieldLabel(forKey key: String) -> String {
         switch key {
         case "dept": return L10n.ocFieldDept
         case "report_date", "prescribed_at": return L10n.ocFieldReportDate
@@ -793,7 +793,7 @@ final class DocumentsState {
     /// 必须经此函数。编辑态 TextField 仍显示并回写 canonical raw（编辑框即数据
     /// 真值、展示文案永不写回数据）——把展示文案映射进编辑框会让半程编辑
     /// 把本地化片段写进 raw 槽位（round10 max 审查结论，保持原设计）。
-    static func fieldValueDisplay(forKey key: String, value: String) -> String {
+    nonisolated static func fieldValueDisplay(forKey key: String, value: String) -> String {
         switch key {
         case "kind":
             return EncounterKind(rawValue: value).map(L10n.encounterKindName) ?? value
