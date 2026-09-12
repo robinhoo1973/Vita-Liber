@@ -1706,6 +1706,8 @@
 "asr.model.installed" = "已安装 %@";
 "asr.model.downloading" = "下载中…（保持应用在前台）";
 "asr.model.downloadFailed" = "下载失败，请检查网络后重试";
+"asr.model.checkUpdate" = "检查更新";
+"asr.index.fetchFailed" = "检查更新失败，请重试";
 "home.swipe.archive" = "归档";
 "home.swipe.archived" = "已归档「%@」";
 "home.swipe.undo" = "撤销";

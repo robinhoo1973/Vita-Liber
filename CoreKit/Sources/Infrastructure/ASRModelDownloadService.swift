@@ -8,7 +8,8 @@
 // - 切换：先装到暂存目录，校验通过才原子移动到 `<id>/<version>/` 并改写 `active.json` 指针；
 //   任何失败保持旧版本可用（先装后切）；保留上一版本以支持回滚。
 // - 解压：ZIPFoundation（成熟 MIT 库，避免自研 zip 解析——业主「不重复造轮子」要求）。
-// - 离线优先红线：本服务**只由用户显式动作或用户开启的自动检查调用**；识别会话路径不调用。
+// - 离线优先红线：本服务**只由用户显式动作（[检查更新]/[下载模型]/[更新]按钮）调用**；
+//   视图出现不再自动拉取索引（安全审查 2026-09-12）；识别会话路径不调用。
 #if os(iOS) || os(macOS)
 import Foundation
 import CryptoKit
@@ -46,21 +47,25 @@ public actor ASRModelDownloadService {
     private let fileManager = FileManager.default
     /// 分段数：4 路在移动网/CDN 场景通常接近带宽上限，且不至于触发服务端限流。
     private let segmentCount = 4
-    /// 安装互斥（actor 级）：actor 串行化不覆盖 await 间隙，跨视图实例的并发
+    /// 安装互斥（actor 级）：actor 串行化不覆盖 await 间隙，跨实例的并发
     /// install 会在 moveItem/active.json 上竞态（静默降级）——入口同步检入检出的
-    /// 守卫才是真互斥。
+    /// 守卫才是真互斥。UI 一律经 `shared` 单例（安全审查 2026-09-12：此前每视图
+    /// 自建实例，守卫互不看见，互斥形同虚设）。
     private var installing = false
 
     public init(session: URLSession = .shared) { self.session = session }
 
+    /// 全 App 共享实例：安装互斥守卫是实例级的，共享实例才能让互斥跨视图生效。
+    public static let shared = ASRModelDownloadService()
+
     /// 索引地址：优先 Info.plist `ASRModelIndexURL`（发版/私有环境可覆盖），否则用仓库内默认
-    /// `downloads/vitaliber/asr/index.json` 的 raw 地址（owner 替换为实际仓库）。
+    /// `downloads/vitaliber/asr/index.json` 的 raw 地址（robinhoo1973/Vita-Liber，master）。
     public nonisolated static var indexURL: URL {
         if let raw = Bundle.main.object(forInfoDictionaryKey: "ASRModelIndexURL") as? String,
            let url = URL(string: raw), url.scheme != nil {
             return url
         }
-        return URL(string: "https://raw.githubusercontent.com/OWNER/VitaLiber/master/downloads/vitaliber/asr/index.json")
+        return URL(string: "https://raw.githubusercontent.com/robinhoo1973/Vita-Liber/master/downloads/vitaliber/asr/index.json")
             ?? URL(fileURLWithPath: "/dev/null")
     }
 
@@ -89,14 +94,25 @@ public actor ASRModelDownloadService {
     /// `active.json` 是低频变更文件，但被 resolve/installedVersion/updateAvailable
     /// 在设置页 body 与能力查询热路径反复同步读盘——进程级备忘，安装落盘后失效。
     private static let pointerCacheLock = NSLock()
-    private nonisolated(unsafe) static var pointerCache: [String: ActivePointer?] = [:]
+    /// 缓存值为装箱枚举而非 `ActivePointer?`——字典对可选值赋 nil 会删键，
+    /// 负缓存（未安装=无指针）随之失效，每次调用都重读 active.json（审查发现）。
+    private nonisolated(unsafe) static var pointerCache: [String: PointerResult] = [:]
+
+    private enum PointerResult: Sendable {
+        case none
+        case pointer(ActivePointer)
+    }
 
     public nonisolated static func activePointer(for choice: VoiceEngineChoice) -> ActivePointer? {
         pointerCacheLock.lock(); defer { pointerCacheLock.unlock() }
-        if let cached = pointerCache[choice.rawValue] { return cached }
-        let computed = computeActivePointer(for: choice)
-        pointerCache[choice.rawValue] = computed
-        return computed
+        switch pointerCache[choice.rawValue] {
+        case .none: return nil
+        case .pointer(let pointer): return pointer
+        case nil:
+            let computed = computeActivePointer(for: choice)
+            pointerCache[choice.rawValue] = computed.map(PointerResult.pointer) ?? .none
+            return computed
+        }
     }
 
     private nonisolated static func computeActivePointer(for choice: VoiceEngineChoice) -> ActivePointer? {
@@ -225,6 +241,9 @@ public actor ASRModelDownloadService {
                           expectedBytes: Int64,
                           to destination: URL,
                           progress: (@Sendable (DownloadProgress) -> Void)?) async throws {
+        // 纵深防御（安全审查 2026-09-12）：下载目标必须 https——Domain `resolvedURL`
+        // 已限相对路径 + https baseUrl，此处兜底任何直构 URL 的调用点。
+        guard url.scheme?.lowercased() == "https" else { throw Failure.badAddress }
         var head = URLRequest(url: url)
         head.httpMethod = "HEAD"
         head.timeoutInterval = 30

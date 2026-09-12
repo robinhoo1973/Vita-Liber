@@ -51,15 +51,23 @@ public struct ASRModelRelease: Codable, Sendable, Equatable, Identifiable {
         return !ASRVersion.isNewer(minimum, than: appVersion) || minimum == appVersion
     }
 
-    /// 解析下载地址：绝对 URL 原样；相对路径拼 `baseUrl`（无 baseUrl 则失败）。
+    /// 解析下载地址（安全审查 2026-09-12 加固）：索引 `url` **只允许纯相对路径**——
+    /// 绝对 URL 与协议相对形式（`//host/x`）一律拒绝，保证下载目标主机恒等于
+    /// `baseUrl` 主机（index 可被替换，多一个主机跳转即多一个可观测元数据的面）；
+    /// `baseUrl` 必须 https（ATS 默认之外的双保险）。违规返回 nil 走 badAddress fail-closed。
     /// baseUrl 无尾斜杠时按 RFC 3986 会吞掉末段路径——先补斜杠再拼接，
     /// 保证 `…/asr-models` + `x.zip` ⇒ `…/asr-models/x.zip` 而非 `…/x.zip`。
     public func resolvedURL(baseURL: URL?) -> URL? {
-        if let absolute = URL(string: url), absolute.scheme != nil { return absolute }
-        guard let baseURL else { return nil }
+        let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              URL(string: trimmed)?.scheme == nil,
+              !trimmed.hasPrefix("//") else { return nil }
+        guard let baseURL, let scheme = baseURL.scheme?.lowercased(), scheme == "https" else { return nil }
         var base = baseURL
         if !base.path.hasSuffix("/") { base = base.appendingPathComponent("") }
-        return URL(string: url, relativeTo: base)?.absoluteURL
+        let resolved = URL(string: trimmed, relativeTo: base)?.absoluteURL
+        guard resolved?.scheme?.lowercased() == "https", resolved?.host == base.host else { return nil }
+        return resolved
     }
 
     /// 该条目是否比 `installedVersion` 新（installed 为 nil 时恒 true）。

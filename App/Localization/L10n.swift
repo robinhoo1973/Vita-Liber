@@ -1666,6 +1666,7 @@ enum L10n {
         "asr.whisper", "asr.whisper.hint", "asr.bundledOffline", "asr.selectionHint", "asr.missingAssets",
         "asr.model.download", "asr.model.update", "asr.model.installed",
         "asr.model.downloading", "asr.model.downloadFailed",
+        "asr.model.checkUpdate", "asr.index.fetchFailed",
         "asr.qwen3", "asr.qwen3.hint",
         "asr.preparing",
         "ocr.cards.overview", "ocr.cards.none", "ocr.cards.hint", "ocr.cards.begin", "ocr.fieldActions",
@@ -2914,6 +2915,8 @@ enum L10n {
     static func asrModelInstalled(_ version: String) -> String { String(format: t("asr.model.installed"), version) }
     static var asrModelDownloading: String { t("asr.model.downloading") }
     static var asrModelDownloadFailed: String { t("asr.model.downloadFailed") }
+    static var asrModelCheckUpdate: String { t("asr.model.checkUpdate") }
+    static var asrIndexFetchFailed: String { t("asr.index.fetchFailed") }
     static var asrPreparing: String { t("asr.preparing") }
     static var asrSelectionHint: String { t("asr.selectionHint") }
     static func voiceEngineName(_ choice: VoiceEngineChoice) -> String {

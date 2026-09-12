@@ -13,8 +13,9 @@ struct ASREngineSettingsSection: View {
     @State private var busy: VoiceEngineChoice?
     @State private var progress: Double = 0
     @State private var failed: VoiceEngineChoice?
+    @State private var indexFailed = false
 
-    private let service = ASRModelDownloadService()
+    private let service = ASRModelDownloadService.shared
 
     private var appVersion: String {
         (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.0.0"
@@ -22,6 +23,25 @@ struct ASREngineSettingsSection: View {
 
     var body: some View {
         Section {
+            // 安全审查 2026-09-12：索引拉取改为「检查更新」显式按钮触发——
+            // 此前区块出现即自动 GET（reloadIgnoringLocalCacheData）属契约外
+            // 隐式联网面（零隐式联网红线的唯一例外必须显式发起）。
+            Button {
+                Task { await refreshIndex() }
+            } label: {
+                Label(L10n.asrModelCheckUpdate, systemImage: "arrow.triangle.2.circlepath")
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .buttonStyle(.bordered)
+            .disabled(busy != nil)
+            .accessibilityIdentifier("\(accessibilityPrefix).model.checkUpdate")
+
+            if indexFailed {
+                Text(L10n.asrIndexFetchFailed)
+                    .font(.caption).foregroundStyle(.orange)
+                    .accessibilityIdentifier("\(accessibilityPrefix).model.indexFailed")
+            }
+
             ForEach(VoiceEngineChoice.allCases, id: \.self) { choice in
                 let availability = TranscriptionEngineBuilder.availability(of: choice)
                 Button {
@@ -58,7 +78,6 @@ struct ASREngineSettingsSection: View {
             }
         } header: { Text(L10n.voiceLabEngineSection) }
           footer: { Text(L10n.asrSelectionHint) }
-          .task { await refreshIndex() }
     }
 
     // MARK: - 运行时下载（FR17.15 业主 2026-09-12 决定）
@@ -104,14 +123,15 @@ struct ASREngineSettingsSection: View {
         }
     }
 
-    /// 每次区块出现重试索引拉取（此前 indexFailed 一次失败终身禁用无重试路径，
-    /// 且该状态从不渲染——失败静默等于下载功能永久不可用）。成功即缓存于 @State。
+    /// 「检查更新」按钮显式触发（安全审查 2026-09-12）：每次点击都真实重拉；
+    /// 失败显示可见文案（indexFailed）并可重试，无终身禁用态。成功即缓存于 @State。
     private func refreshIndex() async {
-        guard index == nil else { return }
         do {
             index = try await service.fetchIndex(from: ASRModelDownloadService.indexURL)
+            indexFailed = false
         } catch {
-            // 拉取失败保持 nil：下次出现重试（单次小 GET，不缓存写盘）。
+            // 拉取失败保留旧索引（若有）：更新/下载按钮仍可用；失败标记驱动可见文案。
+            indexFailed = true
         }
     }
 

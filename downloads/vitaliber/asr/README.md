@@ -5,7 +5,8 @@
 ## 索引
 
 App 唯一读取的文件是 [`index.json`](index.json)。字段含义见上级 `downloads/README.md`。
-`url` 支持相对 `baseUrl` 与绝对地址两种写法。
+`url` 仅支持相对 `baseUrl` 的路径——绝对与协议相对（`//host/x`）形式一律拒绝
+（安全审查 2026-09-12：保证下载目标主机恒等于 baseUrl 主机；baseUrl 必须 https）。
 
 ## 包内容要求（zip 根）
 

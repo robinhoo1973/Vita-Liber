@@ -1706,6 +1706,8 @@
 "asr.model.installed" = "已安裝 %@";
 "asr.model.downloading" = "下載中…（保持應用於前景）";
 "asr.model.downloadFailed" = "下載失敗，請檢查網路後重試";
+"asr.model.checkUpdate" = "檢查更新";
+"asr.index.fetchFailed" = "檢查更新失敗，請重試";
 "home.swipe.archive" = "封存";
 "home.swipe.archived" = "已封存「%@」";
 "home.swipe.undo" = "復原";

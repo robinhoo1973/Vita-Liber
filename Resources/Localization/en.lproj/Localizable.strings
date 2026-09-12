@@ -1706,6 +1706,8 @@
 "asr.model.installed" = "Installed %@";
 "asr.model.downloading" = "Downloading… (keep the app in the foreground)";
 "asr.model.downloadFailed" = "Download failed. Check your network and retry.";
+"asr.model.checkUpdate" = "Check for Updates";
+"asr.index.fetchFailed" = "Update check failed. Try again.";
 "home.swipe.archive" = "Archive";
 "home.swipe.archived" = "Archived “%@”";
 "home.swipe.undo" = "Undo";
