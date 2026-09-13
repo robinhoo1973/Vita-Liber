@@ -163,10 +163,19 @@ public struct MatchedCard: Codable, Sendable, Equatable, Identifiable {
 public enum CardTemplateMatcher {
     /// OCR 侧模板目录（可扩展：新增卡类 = 加一行模板 + 对应提取器；无映射的卡类恒不匹配）
     public static let ocrTemplates: [CardTemplate] = [
+        // v26 检验「表头 + 行」（§C.5）：表头键与 lab_report 列一一对应（collect_time/report_time 为理解层别名）；
+        // 行级 abnormal_flag/reference_text/method 经同 rawText 伴随归行（打印原文，不计算不解释——BR-004/012）。
         CardTemplate(kind: "metric_sample", rowKey: "lab_item",
                      mapping: ["lab_item": "lab_item", "report_date": "measured_at",
-                               "reference_range": "reference_range", "hospital": "hospital"],
-                     rowLevelKeys: ["raw_label", "value", "unit", "metric_key", "ref_low", "ref_high"],
+                               "reference_range": "reference_range", "hospital": "hospital",
+                               "dept": "department", "lab_name": "lab_name", "report_no": "report_no",
+                               "specimen_type": "specimen_type", "specimen_no": "specimen_no", "test_class": "test_class",
+                               "clinical_diagnosis": "clinical_diagnosis",
+                               "collected_at": "collected_at", "collect_time": "collected_at", "received_at": "received_at",
+                               "reported_at": "reported_at", "report_time": "reported_at",
+                               "send_doctor": "send_doctor", "test_doctor": "test_doctor", "review_doctor": "review_doctor",
+                               "abnormal_flag": "abnormal_flag", "reference_text": "reference_text", "method": "method"],
+                     rowLevelKeys: ["raw_label", "value", "unit", "metric_key", "ref_low", "ref_high", "abnormal_flag", "reference_text", "method"],
                      derived: ["metric_key"]),
         CardTemplate(kind: "encounter", rowKey: nil,
                      mapping: ["report_date": "date", "dept": "department",
@@ -177,7 +186,39 @@ public enum CardTemplateMatcher {
                                // v25 叙事列（§C.1）：原文保存；allergy_history 兼作资料建议来源（D4）。
                                "past_history": "past_history", "physical_exam": "physical_exam", "allergy_history": "allergy_history"],
                      derived: ["kind"],
-                     requiresDocumentType: ["outpatient_record", "diagnosis_certificate"]),
+                     requiresDocumentType: ["outpatient_record", "diagnosis_certificate", "emergency_record"]),
+        // v26 住院期（§C.2）：单行卡；kind（inpatient|daySurgery）由文档类型键派生；叙事列原文保存；带药只存原文（BR-006）。
+        CardTemplate(kind: "hospitalization", rowKey: nil,
+                     mapping: ["hospital": "hospital", "admit_at": "admit_at", "discharge_at": "discharge_at",
+                               "medical_record_no": "medical_record_no", "inpatient_times": "inpatient_times", "actual_days": "actual_days",
+                               "admit_dept": "admit_dept", "discharge_dept": "discharge_dept", "ward": "ward", "bed_no": "bed_no",
+                               "admit_route": "admit_route", "payment_type": "payment_type", "discharge_way": "discharge_way",
+                               "attending_physician": "attending_physician",
+                               "admit_diagnosis": "admit_diagnosis", "discharge_diagnosis": "discharge_diagnosis",
+                               "admit_condition": "admit_condition", "treatment_course": "treatment_course",
+                               "discharge_condition": "discharge_condition", "discharge_orders": "discharge_orders",
+                               "take_home_drugs": "take_home_drugs", "total_cost": "total_cost",
+                               "summary_doctor": "summary_doctor", "summary_date": "summary_date"],
+                     derived: ["kind"],
+                     requiresDocumentType: ["inpatient_record", "discharge_summary", "day_surgery_record"]),
+        // v26 诊断（§C.3）：diagnosis_item 每实例一行；同行 diagnosis_code/diagnosis_type 归行；共享 diagnosis_type = 文档键派生默认。
+        CardTemplate(kind: "diagnosis", rowKey: "diagnosis_item",
+                     mapping: ["diagnosis_item": "name", "diagnosis_code": "code_text", "code_system": "code_system",
+                               "diagnosis_type": "diagnosis_type", "diagnosed_at": "diagnosed_at", "report_date": "diagnosed_at",
+                               "hospital": "hospital"],
+                     rowLevelKeys: ["name", "code_text", "code_system", "diagnosis_type"],
+                     derived: ["diagnosis_type"],
+                     requiresDocumentType: ["outpatient_record", "emergency_record", "diagnosis_certificate",
+                                            "inpatient_record", "discharge_summary", "day_surgery_record", "pathology_report"]),
+        // v26 检查报告（§C.4）：单行卡；report_type 由理解层/标题词表归一为 canonical raw，病理文档键派生 pathology。
+        CardTemplate(kind: "exam_report", rowKey: nil,
+                     mapping: ["report_type": "report_type", "hospital": "hospital", "dept": "department", "report_no": "report_no",
+                               "exam_part": "exam_part", "exam_method": "exam_method",
+                               "exam_at": "exam_at", "report_date": "exam_at", "reported_at": "reported_at",
+                               "findings": "findings", "impression": "impression",
+                               "apply_doctor": "apply_doctor", "report_doctor": "report_doctor", "review_doctor": "review_doctor"],
+                     derived: ["report_type"],
+                     requiresDocumentType: ["exam_report", "pathology_report", "checkup_report"]),
         // v25 处方「表头 + 行」（§C.6）：表头七键共享；行级键与 prescription_line 列一一对应（键集见 CardKindRegistry）。
         CardTemplate(kind: "prescription", rowKey: "drug_name",
                      mapping: ["drug_name": "drug_name", "prescribed_at": "prescribed_at",
@@ -216,7 +257,26 @@ public enum CardTemplateMatcher {
     /// 同键多段并入（换行拼接）的共享叙事键；其余共享键同键首个非空值胜出。
     private static let narrativeSharedKeys: Set<String> = [
         "advice_text", "present_illness", "visit_summary", "past_history", "physical_exam", "allergy_history",
+        // v26 住院/检查叙事列（§C.2/§C.4）
+        "admit_diagnosis", "discharge_diagnosis", "admit_condition", "treatment_course", "discharge_condition", "discharge_orders", "take_home_drugs",
+        "findings", "impression",
     ]
+
+    /// 检验行同 rawText 伴随键（参考范围拆 ref_low/ref_high；打印标记/参考原文/方法原样归行）。
+    private static let labCompanionKeys: [String] = ["reference_range", "abnormal_flag", "reference_text", "method"]
+
+    /// 行级伴随字段按同行/页内唯一证据归行的卡类（药品行/费用明细行/诊断行）。
+    private static let rowCompanionKinds: Set<String> = ["medication", "prescription", "claim_item", "diagnosis"]
+
+    /// 文档类型键派生的共享键值（D 级默认，Picker 可改）：就诊/住院 `kind`、诊断 `diagnosis_type`、病理文档 `report_type`。
+    static func derivedValue(for key: String, documentTypeKey: String) -> String? {
+        switch key {
+        case "kind": return encounterKind(for: documentTypeKey)
+        case "diagnosis_type": return EntityCardProjection.diagnosisType(forDocumentType: documentTypeKey)
+        case "report_type": return documentTypeKey == "pathology_report" ? "pathology" : nil
+        default: return nil
+        }
+    }
 
     /// 单页匹配：返回全部达线卡（每类至多一张，按模板目录顺序）。
     public static func match(fields: [FieldDraft], pageIndex: Int, documentTypeKey: String?,
@@ -247,17 +307,19 @@ public enum CardTemplateMatcher {
                 var rowFields = rowFields(for: template, draft: draft)
                 if let raw = draft.rawText,
                    fields.filter({ $0.key == rowKey && $0.rawText == raw }).count == 1 {
-                    let companions = fields.enumerated().filter { $0.element.rawText == raw && $0.element.key == "reference_range" }
-                    if companions.count == 1, let companion = companions.first {
-                        let attached = companionFields(for: template, draft: companion.element)
-                        if !attached.isEmpty {
-                            consumed.insert(companion.offset)
-                            rowFields += attached
+                    for companionKey in labCompanionKeys {
+                        let companions = fields.enumerated().filter { $0.element.rawText == raw && $0.element.key == companionKey }
+                        if companions.count == 1, let companion = companions.first {
+                            let attached = companionFields(for: template, draft: companion.element)
+                            if !attached.isEmpty {
+                                consumed.insert(companion.offset)
+                                rowFields += attached
+                            }
                         }
                     }
                 }
-                // 行级伴随字段归行（药品行/费用明细行；检验行走 companionFields 的同 rawText 参考范围路径）。
-                if ["medication", "prescription", "claim_item"].contains(template.kind) {
+                // 行级伴随字段归行（药品行/费用明细行/诊断行；检验行走 companionFields 的同 rawText 伴随路径）。
+                if rowCompanionKinds.contains(template.kind) {
                     let triggers = fields.filter { $0.key == rowKey }
                     let sameLineTriggers = triggers.filter { $0.sourceLineIndex == draft.sourceLineIndex }
                     for (otherIndex, other) in fields.enumerated() where otherIndex != index {
@@ -331,10 +393,13 @@ public enum CardTemplateMatcher {
             copy.key = mapped
             shared.append(copy)
         }
-        // 派生共享键（就诊类型由文档判定派生）
-        if template.derived.contains("kind"), ruleKeys.contains("kind"), let documentTypeKey {
-            shared.append(FieldDraft(key: "kind", value: encounterKind(for: documentTypeKey), confidence: 0.9,
-                                     source: .heuristic))
+        // 派生共享键（由文档判定派生：就诊/住院 kind、诊断类型默认、病理报告类型——D 级，Picker 可改）；
+        // 字段已携带同键（如理解层给出的 report_type）时不覆盖。
+        if let documentTypeKey {
+            for key in template.derived.sorted() where ruleKeys.contains(key) && !shared.contains(where: { $0.key == key }) {
+                guard let value = derivedValue(for: key, documentTypeKey: documentTypeKey) else { continue }
+                shared.append(FieldDraft(key: key, value: value, confidence: 0.9, source: .heuristic))
+            }
         }
 
         // 3. 覆盖率（去重键；派生键已作为字段写入共享/行，自然计入）
@@ -357,11 +422,16 @@ public enum CardTemplateMatcher {
                            missingRequired: missingRequired, level: level)
     }
 
-    /// 行触发字段 → 行级字段（检验项目「名称 数值」拆分 + 单位 + 派生 metric_key；药名恒等）
+    /// 行触发字段 → 行级字段（检验项目「名称 数值」拆分 + 单位 + 派生 metric_key；药名恒等）。
+    /// v26（§C.5）：尾段非数值但为定性词/比较符文法（阴性 / <0.5 / + / ≥1:160）时拆为「名称 + 结果原文」——`value` 承载
+    /// 打印结果原文，由 `EntityCardProjection.labProjection` 分流进 `lab_result`（不折成数值、不丢行）；其余不猜。
     private static func rowFields(for template: CardTemplate, draft: FieldDraft) -> [FieldDraft] {
         switch template.kind {
         case "metric_sample":
-            let (name, number) = UnderstandingCodeResolution.splitReading(draft.value)
+            var (name, number) = UnderstandingCodeResolution.splitReading(draft.value)
+            if number == nil, let split = ClinicalFieldLabels.splitQualitativeReading(draft.value) {
+                name = split.name; number = split.result
+            }
             var out: [FieldDraft] = []
             let label = name.trimmingCharacters(in: .whitespacesAndNewlines)
             out.append(FieldDraft(key: "raw_label", value: label, unit: draft.unit, confidence: draft.confidence,
@@ -387,12 +457,22 @@ public enum CardTemplateMatcher {
         }
     }
 
-    /// 同 rawText 伴随字段 → 行级字段（参考范围「低-高」拆 ref_low/ref_high）
+    /// 同 rawText 伴随字段 → 行级字段（参考范围「低-高」拆 ref_low/ref_high；打印标记 abnormal_flag / 参考原文 reference_text /
+    /// 方法 method 原样归行——A 级来源事实，不计算不解释）。
     private static func companionFields(for template: CardTemplate, draft: FieldDraft) -> [FieldDraft] {
-        guard template.kind == "metric_sample", draft.key == "reference_range",
-              let (low, high) = referenceBounds(draft.value) else { return [] }
-        return [FieldDraft(key: "ref_low", value: low, confidence: draft.confidence, rawText: draft.rawText ?? draft.originalValue, source: draft.source),
-                FieldDraft(key: "ref_high", value: high, confidence: draft.confidence, rawText: draft.rawText ?? draft.originalValue, source: draft.source)]
+        guard template.kind == "metric_sample" else { return [] }
+        switch draft.key {
+        case "reference_range":
+            guard let (low, high) = referenceBounds(draft.value) else { return [] }
+            return [FieldDraft(key: "ref_low", value: low, confidence: draft.confidence, rawText: draft.rawText ?? draft.originalValue, source: draft.source),
+                    FieldDraft(key: "ref_high", value: high, confidence: draft.confidence, rawText: draft.rawText ?? draft.originalValue, source: draft.source)]
+        case "abnormal_flag", "reference_text", "method":
+            guard let mapped = template.mapping[draft.key], !draft.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
+            var copy = draft; copy.key = mapped
+            return [copy]
+        default:
+            return []
+        }
     }
 
     /// 「3.5-9.5」「3.5～9.5」「3.5 ~ 9.5」→ (低, 高)；解析失败 nil（不猜范围）
@@ -406,10 +486,13 @@ public enum CardTemplateMatcher {
         return (low, high)
     }
 
-    /// 文档类型判定 → 就诊类型（诊断证明/门诊病历均按门诊；其余类型不出就诊卡）
+    /// 文档类型判定 → 就诊类型（v26 §C.1）：住院病案/出院小结 → inpatient；日间手术 → daySurgery；急诊病历 → emergency；
+    /// 诊断证明/门诊病历及其余 → outpatient（住院族经 hospitalization 卡建就诊，就诊卡本身不在住院族文档上产出）。
     static func encounterKind(for documentTypeKey: String) -> String {
         switch documentTypeKey {
-        case "outpatient_record", "diagnosis_certificate": return EncounterKind.outpatient.rawValue
+        case "inpatient_record", "discharge_summary": return EncounterKind.inpatient.rawValue
+        case "day_surgery_record": return EncounterKind.daySurgery.rawValue
+        case "emergency_record": return EncounterKind.emergency.rawValue
         default: return EncounterKind.outpatient.rawValue
         }
     }
@@ -427,12 +510,14 @@ public struct HospitalSample: Sendable, Equatable {
     public var refHigh: Double?
     public var refSourceLabel: String?
     public var codeConceptId: String?
+    /// v26（§C.5）：报告**打印**的 ↑↓/H/L 原文（A 级来源事实）——App 不计算、不解释、不据此提示（BR-004/012）。
+    public var abnormalFlag: String?
     public init(metricKey: String, rawLabel: String, value: Double, unit: String, measuredAt: Date,
                 refLow: Double? = nil, refHigh: Double? = nil, refSourceLabel: String? = nil,
-                codeConceptId: String? = nil) {
+                codeConceptId: String? = nil, abnormalFlag: String? = nil) {
         self.metricKey = metricKey; self.rawLabel = rawLabel; self.value = value; self.unit = unit
         self.measuredAt = measuredAt; self.refLow = refLow; self.refHigh = refHigh
-        self.refSourceLabel = refSourceLabel; self.codeConceptId = codeConceptId
+        self.refSourceLabel = refSourceLabel; self.codeConceptId = codeConceptId; self.abnormalFlag = abnormalFlag
     }
 
     /// 文档页回链（`metric_sample.source_ref`）：`doc:<uuid>#p<index>`

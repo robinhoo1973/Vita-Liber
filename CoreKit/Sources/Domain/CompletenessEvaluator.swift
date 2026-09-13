@@ -202,6 +202,32 @@ public enum CompletenessEvaluator {
                 .init(key: "merchant", isRequired: false),
                 .init(key: "summary", isRequired: false),
             ]
+        // v26（子项目 D §C.2–C.4 / D2-2）：三新卡只登记建卡最小集 + 少量推荐；全部可选列见 CardKindRegistry。
+        case "hospitalization":
+            return [
+                .init(key: "hospital", isRequired: true),
+                .init(key: "kind", isRequired: true),          // inpatient|daySurgery，由文档类型键派生
+                .init(key: "admit_at", isRequired: false),     // admit_at ?? discharge_at 二择一在 invalidFields 裁定
+                .init(key: "discharge_at", isRequired: false),
+                .init(key: "admit_dept", isRequired: false),
+                .init(key: "attending_physician", isRequired: false),
+            ]
+        case "diagnosis":
+            return [
+                .init(key: "name", isRequired: true),
+                .init(key: "diagnosis_type", isRequired: false),   // 文档类型键派生默认（D 级，Picker 可改）
+                .init(key: "diagnosed_at", isRequired: false),
+                .init(key: "hospital", isRequired: false),
+            ]
+        case "exam_report":
+            return [
+                .init(key: "report_type", isRequired: true),
+                .init(key: "exam_at", isRequired: true),
+                .init(key: "impression", isRequired: false),   // impression ?? findings 二择一在 invalidFields 裁定
+                .init(key: "findings", isRequired: false),
+                .init(key: "exam_part", isRequired: false),
+                .init(key: "hospital", isRequired: false),
+            ]
         default:
             return []
         }

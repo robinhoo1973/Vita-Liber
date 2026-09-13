@@ -28,19 +28,37 @@ public enum OCRGrounding {
         // v25 票据表头 + 费用明细行（§C.7）
         "personal_account_amount", "invoice_no", "insurance_type",
         "fee_item", "item_amount", "item_quantity", "item_spec", "fee_category", "executing_dept", "self_pay_ratio", "fee_at",
+        // v26 住院期（§C.2）
+        "admit_at", "discharge_at", "admit_dept", "discharge_dept", "ward", "bed_no", "medical_record_no", "inpatient_times", "actual_days",
+        "admit_route", "payment_type", "discharge_way", "attending_physician", "admit_diagnosis", "discharge_diagnosis",
+        "admit_condition", "treatment_course", "discharge_condition", "discharge_orders", "take_home_drugs", "total_cost", "summary_doctor", "summary_date",
+        // v26 诊断行（§C.3）：编码只存打印文本
+        "diagnosis_item", "diagnosis_code", "code_system", "diagnosis_type", "diagnosed_at",
+        // v26 检查报告（§C.4）：无 critical_value_flag（BR-004/012）
+        "report_type", "report_no", "exam_part", "exam_method", "exam_at", "reported_at", "findings", "impression",
+        "apply_doctor", "report_doctor", "review_doctor",
+        // v26 检验表头 + 定性行（§C.5）；collect_time/report_time 为 collected_at/reported_at 的理解层别名
+        "specimen_type", "specimen_no", "lab_name", "test_class", "collected_at", "collect_time", "received_at", "report_time",
+        "send_doctor", "test_doctor", "abnormal_flag", "reference_text", "method",
     ]
     public static let documentTypes: Set<String> = [
         "prescription", "lab_report", "outpatient_record", "diagnosis_certificate", "vaccine_record", "invoice", "medication_label",
+        // v26（§C.10 分类学中 D2 卡类所需的键；D3-2 定稿全部 25 类）
+        "inpatient_record", "discharge_summary", "day_surgery_record", "emergency_record", "exam_report", "pathology_report", "checkup_report",
     ]
     /// 叙事键：只接受整行或「已知标签：值」剥离，模型不得摘要/截断/改写（BR-002/003）。
     private static let narrativeKeys: Set<String> = [
         "diagnosis", "chief_complaint", "treatment", "advice_text", "summary",
         "present_illness", "illness_summary", "visit_summary",
         "past_history", "physical_exam", "allergy_history", "medication_notes", "clinical_diagnosis",
+        // v26 住院/检查叙事列（§C.2/§C.4）：原文保存，App 不摘要不改写；带药只存原文（BR-006）
+        "admit_diagnosis", "discharge_diagnosis", "admit_condition", "treatment_course", "discharge_condition", "discharge_orders", "take_home_drugs",
+        "findings", "impression", "exam_part", "exam_method",
     ]
     private static let numericKeys: Set<String> = [
         "amount", "dose_number", "quantity", "days", "reimbursed_amount", "out_of_pocket",
         "total_amount", "unit_price", "line_amount", "item_amount", "personal_account_amount",
+        "total_cost", "inpatient_times", "actual_days",
     ]
 
     /// 独立于提示词的输出校验：错行、凭空编造、数字子串、删除否定均不得进入确认卡。
@@ -98,6 +116,10 @@ public enum OCRGrounding {
             default: break
             }
         }
+        // v26：检查报告类型 / 诊断类型 → canonical raw（exam_report.report_type / diagnosis.diagnosis_type CHECK）。词表归一，非推断；
+        // 未命中原样透传，由 invalidFields 交用户复核（Picker 可改）。
+        if key == "report_type", let type = ClinicalFieldLabels.reportType(forValue: value) { return type }
+        if key == "diagnosis_type", let type = ClinicalFieldLabels.diagnosisType(forLabel: value) { return type }
         return value
     }
 
@@ -118,7 +140,8 @@ public enum OCRGrounding {
             "注意事项", "注意事項", "用药注意事项", "用藥注意事項", "Precautions", "Warnings",
             "临床诊断", "臨床診斷", "Clinical Diagnosis",
         ]
-        guard labels.contains(label) else { return line }
+        // v26 住院/检查/检验叙事标签（简/繁/英）与本地集合同为「已知标签」——单一事实源 ClinicalFieldLabels。
+        guard labels.contains(label) || ClinicalFieldLabels.narrativeLabels.contains(label) else { return line }
         return String(line[line.index(after: separator)...]).trimmingCharacters(in: .whitespaces)
     }
 }

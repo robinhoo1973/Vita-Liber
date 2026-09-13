@@ -48,10 +48,28 @@ public enum CardKindRegistry {
         "insurance_code", "item_code", "unit_price", "line_amount",
     ]
 
+    /// v26 检验表头共享键（§C.5 `lab_report` 列的模板键投影；卡类仍是 metric_sample，回执 entity_table 分流）。
+    private static let labHeaderOptional: Set<String> = [
+        "hospital", "department", "lab_name", "report_no", "specimen_type", "specimen_no", "test_class", "clinical_diagnosis",
+        "collected_at", "received_at", "reported_at", "send_doctor", "test_doctor", "review_doctor",
+    ]
+    /// v26 住院期可选键（§C.2 `hospitalization` 列；`*_text` 列的模板键去后缀；叙事列原文保存）。
+    private static let hospitalizationOptional: Set<String> = [
+        "admit_at", "discharge_at", "medical_record_no", "inpatient_times", "actual_days",
+        "admit_dept", "discharge_dept", "ward", "bed_no", "admit_route", "payment_type", "discharge_way",
+        "attending_physician", "admit_diagnosis", "discharge_diagnosis",
+        "admit_condition", "treatment_course", "discharge_condition", "discharge_orders", "take_home_drugs",
+        "total_cost", "summary_doctor", "summary_date",
+    ]
+
     public static let entries: [CardKindEntry] = [
-        CardKindEntry(kind: "metric_sample", entityTables: ["metric_sample"],
-                      sharedRequired: ["measured_at"], sharedOptional: ["hospital"],
-                      rowRequired: ["raw_label", "value", "unit"], rowOptional: ["ref_low", "ref_high", "metric_key"],
+        // 检验卡（§C.5）：行最小集 raw_label + value（value = 打印结果原文，数值或定性）；unit 可选——
+        // 「value 严格 Double 且有 unit → metric_sample，否则原文 → lab_result」由 EntityCardProjection.labProjection 分流。
+        // entityTables：表头表仍为 metric_sample（历史回执语义不变），lab_report/lab_result 为 v26 分流目标。
+        CardKindEntry(kind: "metric_sample", entityTables: ["metric_sample", "lab_report", "lab_result"],
+                      sharedRequired: ["measured_at"], sharedOptional: labHeaderOptional,
+                      rowRequired: ["raw_label", "value"],
+                      rowOptional: ["unit", "ref_low", "ref_high", "metric_key", "reference_text", "abnormal_flag", "method"],
                       dateKey: "measured_at"),
         CardKindEntry(kind: "encounter", entityTables: ["encounter"],
                       sharedRequired: ["date", "kind"],
@@ -59,7 +77,28 @@ public enum CardKindRegistry {
                                        "present_illness", "illness_summary", "visit_summary",
                                        "past_history", "physical_exam", "allergy_history"],
                       rowRequired: [], rowOptional: [],
-                      dateKey: "date", requiresDocumentType: ["outpatient_record", "diagnosis_certificate"]),
+                      dateKey: "date", requiresDocumentType: ["outpatient_record", "diagnosis_certificate", "emergency_record"]),
+        // v26 住院期（§C.2）：kind（inpatient|daySurgery）由文档类型键派生，store 据此新建/补空 encounter + hospitalization 一事务；
+        // admit_at ?? discharge_at 二择一由 invalidFields 裁定（dateKey nil）。入院证（admission_certificate）不预建。
+        CardKindEntry(kind: "hospitalization", entityTables: ["hospitalization", "encounter"],
+                      sharedRequired: ["hospital", "kind"], sharedOptional: hospitalizationOptional,
+                      rowRequired: [], rowOptional: [],
+                      dateKey: nil, requiresDocumentType: ["inpatient_record", "discharge_summary", "day_surgery_record"]),
+        // v26 诊断（§C.3）：每条一行；diagnosis_type 共享面 = 文档键派生默认（Picker 可改），行面可逐行覆盖（主/次诊断）；
+        // 日期可继承同页就诊卡（dateKey nil）；仅病历类文档（§C.10「结构化目标卡」含 diagnosis 的类型）。
+        CardKindEntry(kind: "diagnosis", entityTables: ["diagnosis"],
+                      sharedRequired: [], sharedOptional: ["diagnosed_at", "hospital", "diagnosis_type"],
+                      rowRequired: ["name"], rowOptional: ["code_text", "code_system", "diagnosis_type", "note"],
+                      dateKey: nil,
+                      requiresDocumentType: ["outpatient_record", "emergency_record", "diagnosis_certificate",
+                                             "inpatient_record", "discharge_summary", "day_surgery_record", "pathology_report"]),
+        // v26 检查报告（§C.4）：report_type canonical raw（CHECK 枚举）；exam_at ?? reported_at 与 impression ?? findings 由 invalidFields 裁定。
+        CardKindEntry(kind: "exam_report", entityTables: ["exam_report"],
+                      sharedRequired: ["report_type"],
+                      sharedOptional: ["hospital", "department", "report_no", "exam_part", "exam_method", "exam_at", "reported_at",
+                                       "findings", "impression", "apply_doctor", "report_doctor", "review_doctor"],
+                      rowRequired: [], rowOptional: [],
+                      dateKey: nil, requiresDocumentType: ["exam_report", "pathology_report", "checkup_report"]),
         // 行级键在无法唯一归行时（多药品页级用法/频次行）由匹配器保留为共享字段——共享面一并放行，
         // 防合法卡被 invalidFields 整体拒收；表头目录（optionalCatalog rowLevel=false）会剔除行级键。
         CardKindEntry(kind: "prescription", entityTables: ["prescription", "prescription_line"],

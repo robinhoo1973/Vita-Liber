@@ -101,16 +101,28 @@ public enum EntityCardProjection {
     public static let prescriptionTypes: Set<String> = ["general", "emergency", "pediatric", "narcotic", "psychotropic", "tcm", "other"]
 
     /// REAL 列对应的模板键：出现即须可严格解析为有限数，否则判无效交用户复核（不静默丢弃、不换算）。
+    /// v26：检验行 `value` 不再在此——非数值结果（阴性 / <0.5 / +）合法，由 `labProjection` 分流进 `lab_result`（§C.5）。
     private static let numericKeys: [String: Set<String>] = [
-        "metric_sample": ["value", "ref_low", "ref_high"],
+        "metric_sample": ["ref_low", "ref_high"],
         "prescription": ["total_amount", "unit_price", "line_amount"],
         "claim_item": ["reimbursed_amount", "out_of_pocket", "personal_account_amount", "unit_price", "item_amount"],
+        "hospitalization": ["total_cost"],
+    ]
+    /// INTEGER 列对应的模板键：出现即须可解析为整数（住院次数/实际住院天数为打印数字，不推算）。
+    private static let integerKeys: [String: Set<String>] = [
+        "hospitalization": ["inpatient_times", "actual_days"],
     ]
     /// 共享日期键之外的可选日期键：出现即须可解析（不猜日期）。
     private static let optionalDateKeys: [String: Set<String>] = [
         "prescription": ["start_date", "end_date"],
         "claim_item": ["fee_at"],
+        "metric_sample": ["collected_at", "received_at", "reported_at"],
+        "hospitalization": ["admit_at", "discharge_at", "summary_date"],
+        "diagnosis": ["diagnosed_at"],
+        "exam_report": ["exam_at", "reported_at"],
     ]
+    /// `hospitalization` 卡派生就诊类型的许可集（§C.2：kind ∈ inpatient/daySurgery）。
+    static let hospitalizationKinds: Set<String> = [EncounterKind.inpatient.rawValue, EncounterKind.daySurgery.rawValue]
 
     /// OCR 日期：yyyy-MM-dd / yyyy/M/d / yyyy年M月d日（含「日期：」前缀）→ 当日零点；解析失败 nil。
     public static func parseDate(_ text: String, calendar: Calendar) -> Date? {
@@ -131,36 +143,13 @@ public enum EntityCardProjection {
         return date
     }
 
-    /// 检验卡 → 医院来源样本。无有效日期 → 全部跳过（measured_at 必填，不猜）。
+    /// 检验卡 → 医院来源样本（趋势点读面）。v26 起为 `labProjection(from:calendar:).samples` 的薄封装：
+    /// 定性/比较符行（进 `lab_result`）与无效行对本读面一并计作跳过；无有效日期 → 全部跳过（不猜）。
     public static func hospitalSamples(from card: MatchedCard, calendar: Calendar) -> HospitalProjection {
-        let shared = dictionary(card.shared)
-        var samples: [HospitalSample] = []
-        var rowIds: [UUID] = []
-        var remaining: [MatchedCardRow] = []
-        for row in card.rows {
-            let invalid = invalidFields(in: card, row: row, calendar: calendar)
-            let fields = dictionary(row.fields)
-            guard invalid.isEmpty, let measuredAt = shared["measured_at"].flatMap({ parseDate($0, calendar: calendar) }),
-                  let label = fields["raw_label"], let value = fields["value"].flatMap(Double.init),
-                  let unit = fields["unit"] else {
-                var residual = row; residual.missingRequired = invalid
-                remaining.append(residual)
-                continue
-            }
-            let labelField = row.fields.first { $0.key == "raw_label" }
-            let approval = labelField?.codeApproval
-            let code = approval?.label == label && approval?.unit == unit && labelField?.isConfirmed == true
-                && approval?.resolution.kind == .metric
-                && approval?.resolution == labelField?.codeResolution ? approval?.resolution : nil
-            samples.append(HospitalSample(
-                metricKey: code.map { "code.\($0.canonicalCode)" } ?? "lab.\(label)", rawLabel: label, value: value, unit: unit,
-                measuredAt: measuredAt,
-                refLow: fields["ref_low"].flatMap(Double.init), refHigh: fields["ref_high"].flatMap(Double.init),
-                refSourceLabel: shared["hospital"],
-                codeConceptId: code?.conceptId))
-            rowIds.append(row.id)
-        }
-        return HospitalProjection(samples: samples, skippedRows: remaining.count, rowIds: rowIds, remainingRows: remaining)
+        let lab = labProjection(from: card, calendar: calendar)
+        let qualitativeIds = Set(lab.qualitative.map(\.rowId))
+        let remaining = lab.remainingRows + card.rows.filter { qualitativeIds.contains($0.id) }
+        return HospitalProjection(samples: lab.samples, skippedRows: remaining.count, rowIds: lab.rowIds, remainingRows: remaining)
     }
 
     /// 就诊卡 → 就诊草稿（日期必填；kind 缺省门诊）。
@@ -289,7 +278,27 @@ public enum EntityCardProjection {
                 if let text = face[key], Double(text)?.isFinite != true { invalid.insert(key) }
             }
         }
+        for key in integerKeys[card.kind] ?? [] {
+            for face in [shared, values] where face[key] != nil && face[key].flatMap(Int.init) == nil { invalid.insert(key) }
+        }
         if card.kind == "encounter", shared["kind"].flatMap(EncounterKind.init(rawValue:)) == nil { invalid.insert("kind") }
+        // v26（§C.2–C.4）二择一最小集与 CHECK 枚举：缺席留待办、不猜日期/类型。
+        if card.kind == "hospitalization" {
+            if let kind = shared["kind"], !hospitalizationKinds.contains(kind) { invalid.insert("kind") }
+            if shared["admit_at"].flatMap({ parseDate($0, calendar: calendar) }) == nil,
+               shared["discharge_at"].flatMap({ parseDate($0, calendar: calendar) }) == nil { invalid.insert("admit_at") }
+        }
+        if card.kind == "exam_report" {
+            if let type = shared["report_type"], !ExamReport.reportTypes.contains(type) { invalid.insert("report_type") }
+            if shared["exam_at"].flatMap({ parseDate($0, calendar: calendar) }) == nil,
+               shared["reported_at"].flatMap({ parseDate($0, calendar: calendar) }) == nil { invalid.insert("exam_at") }
+            if shared["impression"] == nil, shared["findings"] == nil { invalid.insert("impression") }
+        }
+        if card.kind == "diagnosis" {
+            for face in [shared, values] {
+                if let type = face["diagnosis_type"], !Diagnosis.diagnosisTypes.contains(type) { invalid.insert("diagnosis_type") }
+            }
+        }
         if card.kind == "metric_sample",
            let low = values["ref_low"].flatMap(Double.init), let high = values["ref_high"].flatMap(Double.init), low > high {
             invalid.formUnion(["ref_low", "ref_high"])
@@ -313,14 +322,14 @@ public enum EntityCardProjection {
     public static func confirmedValues(_ fields: [FieldDraft]) -> [String: String] { dictionary(fields) }
 
     /// 与 `dictionary` 同一取值字段（首个已确认、非空值）的单位——剂量/数量单位随原字段，不跨字段借用。
-    private static func confirmedUnit(_ fields: [FieldDraft], key: String) -> String? {
+    static func confirmedUnit(_ fields: [FieldDraft], key: String) -> String? {
         let unit = fields.first { $0.key == key && $0.isConfirmed && !$0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }?
             .unit?.trimmingCharacters(in: .whitespacesAndNewlines)
         return unit?.isEmpty == false ? unit : nil
     }
 
     /// 行原文：各字段 `rawText` 按序去重拼接（同一 OCR 行拆出的多个字段共享同一原文，只保留一次）。
-    private static func rawText(_ fields: [FieldDraft]) -> String? {
+    static func rawText(_ fields: [FieldDraft]) -> String? {
         var seen = Set<String>()
         let lines = fields.filter { $0.isConfirmed && $0.grade != .rejected }.compactMap(\.rawText)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -328,7 +337,8 @@ public enum EntityCardProjection {
         return lines.isEmpty ? nil : lines.joined(separator: "\n")
     }
 
-    private static func dictionary(_ fields: [FieldDraft]) -> [String: String] {
+    /// 首个已确认、非空值胜出（共享/行两面同一取值纪律）。
+    static func dictionary(_ fields: [FieldDraft]) -> [String: String] {
         var map: [String: String] = [:]
         for field in fields where field.isConfirmed && map[field.key] == nil {
             let value = field.value.trimmingCharacters(in: .whitespacesAndNewlines)

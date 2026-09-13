@@ -44,6 +44,25 @@ public enum DocumentTypeClassifierFallback {
         ]),
         .init(key: "invoice", keywords: ["发票", "發票", "收费单", "收費單", "收据", "收據", "金额", "金額", "Invoice", "Receipt"]),
         .init(key: "medication_label", keywords: ["通用名称", "通用名稱", "商品名称", "商品名稱", "药品规格", "藥品規格"]),
+        // v26（子项目 D §C.10 / D2-2）：住院族与检查族证据词（D3-2 定稿 25 类分类学）。不用「医院/报告」等泛词，避免夺既有主类。
+        .init(key: "inpatient_record", keywords: [
+            "病案首页", "病案首頁", "住院病历", "住院病歷", "入院记录", "入院記錄", "病程记录", "病程記錄",
+            "住院号", "住院號", "入院日期", "入院时间", "入院時間", "入院诊断", "入院診斷", "Inpatient", "Admission",
+        ]),
+        .init(key: "discharge_summary", keywords: [
+            "出院小结", "出院小結", "出院记录", "出院記錄", "出院诊断", "出院診斷", "出院医嘱", "出院醫囑", "出院带药", "出院帶藥",
+            "出院日期", "出院时间", "出院時間", "诊疗经过", "診療經過", "Discharge",
+        ]),
+        .init(key: "day_surgery_record", keywords: ["日间手术", "日間手術", "Day Surgery", "Ambulatory Surgery"]),
+        .init(key: "emergency_record", keywords: ["急诊病历", "急診病歷", "急诊科", "急診科", "急诊", "急診", "Emergency"]),
+        .init(key: "exam_report", keywords: [
+            "检查报告", "檢查報告", "检查所见", "檢查所見", "影像所见", "影像所見", "影像学表现", "影像學表現", "诊断意见", "診斷意見",
+            "印象", "检查部位", "檢查部位", "超声", "超聲", "CT", "MRI", "X线", "X線", "心电图", "心電圖", "内镜", "內鏡", "Impression", "Findings",
+        ]),
+        .init(key: "pathology_report", keywords: [
+            "病理", "镜下所见", "鏡下所見", "肉眼所见", "肉眼所見", "免疫组化", "免疫組化", "活检", "活檢", "Pathology", "Biopsy", "Microscopic",
+        ]),
+        .init(key: "checkup_report", keywords: ["体检报告", "體檢報告", "健康体检", "健康體檢", "体检", "體檢", "Health Checkup", "Physical Examination Report"]),
     ]
 
     /// 分类：每类按命中行数计分（一行多词只计一次），主类=最高分；
@@ -64,7 +83,15 @@ public enum DocumentTypeClassifierFallback {
             if hits > 0 { scores.append((evidence.key, hits)) }
         }
         guard !scores.isEmpty else { return (nil, 0, []) }
-        let sorted = scores.sorted { $0.hits > $1.hits }
+        var sorted = scores.sorted { $0.hits > $1.hits }
+        // v26 亚型覆盖：更具体的类型与其上位类型共享证据词（急诊病历 ⊂ 病历：主诉/诊断/处理；日间手术记录 ⊂ 住院/出院记录），
+        // 按命中数永远输给上位类型——上位类型为主类且亚型有证据时，亚型胜出，上位类型降为次级候选。置信度沿用主类命中行数。
+        if let specific = specializations[sorted[0].key]?.first(where: { key in sorted.contains { $0.key == key } }),
+           let index = sorted.firstIndex(where: { $0.key == specific }) {
+            let promoted = (key: specific, hits: max(sorted[0].hits, sorted[index].hits))
+            sorted.remove(at: index)
+            sorted.insert(promoted, at: 0)
+        }
         let primary = sorted[0]
         let confidence: Double
         switch primary.hits {
@@ -77,6 +104,13 @@ public enum DocumentTypeClassifierFallback {
         }
         return (primary.key, confidence, secondary)
     }
+
+    /// 上位类型 → 亚型（有证据即覆盖）；单一事实源，与 `evidenceTable` 同处维护。
+    private static let specializations: [String: [String]] = [
+        "outpatient_record": ["emergency_record"],
+        "inpatient_record": ["day_surgery_record"],
+        "discharge_summary": ["day_surgery_record"],
+    ]
 
     /// 角色正则（编译期静态字面量，一次性编译复用——此前每行每调用重编译
     /// 6 条，OCR 30 行报告即 ~360 次 NSRegularExpression 构造）
@@ -260,7 +294,21 @@ public extension DocumentTypeClassifierFallback {
                 for (key, prefixes) in labels where prefixes.contains(where: text.hasPrefix) {
                     append(key, OCRGrounding.normalized(suffix.trimmingCharacters(in: .whitespaces), key: key))
                 }
+                // v26 住院/检查/检验标签直配（简/繁/英，单一事实源 ClinicalFieldLabels）：只取印刷值，不推导日期/类型。
+                let printed = suffix.trimmingCharacters(in: .whitespaces)
+                if !printed.isEmpty {
+                    for (key, prefixes) in ClinicalFieldLabels.prefixAliases where prefixes.contains(where: text.hasPrefix) {
+                        append(key, OCRGrounding.normalized(printed, key: key))
+                    }
+                    // 诊断标签行 → 诊断行（diagnosis_item）+ 标签自带的类型（主/次/入院/出院…）；病理诊断留在 impression，不自动成行（§C.4）。
+                    if let diagnosis = ClinicalFieldLabels.diagnosisLabel(prefixOf: text), diagnosis.type != "pathology" {
+                        append("diagnosis_item", printed)
+                        if let type = diagnosis.type { append("diagnosis_type", type) }
+                    }
+                }
             }
+            // 报告标题词表（「CT检查报告单」「超声检查报告」）→ report_type canonical raw（D 级建议，Picker 可改）。
+            if let reportType = ClinicalFieldLabels.reportType(inTitle: text) { append("report_type", reportType) }
             if let range = text.range(of: #"(?:合计|合計|总额|總額|金额|金額|(?i:total|amount))\s*[:：]?\s*([0-9]+(?:\.[0-9]{1,2})?)(?![0-9.])"#, options: .regularExpression) {
                 let portion = String(text[range])
                 if let number = portion.range(of: #"[0-9]+(?:\.[0-9]{1,2})?"#, options: .regularExpression) { append("amount", String(portion[number])) }
@@ -320,5 +368,34 @@ public enum HealthProblemDerivation {
             return String(diagnosis.value.prefix(40))
         }
         return "\(docTypeLabel)·\(dayFormatter.string(from: now))"
+    }
+}
+
+/// FR11.4 · v26（子项目 D §C.3）：诊断行 → D 级健康问题候选（每行一候选，替代 40 字截断）。
+/// 纯函数、零写入：候选只供用户勾选；用户逐项采用后才由 store 写 `health_problem` 并回填
+/// `diagnosis.health_problem_id`（BR-003 D→C 只经显式确认）。名称/编码/日期均为诊断行原文，不猜码、不猜日期。
+public struct HealthProblemCandidate: Sendable, Equatable {
+    /// 医生原文（去首尾空白），不改写。
+    public var name: String
+    public var codeText: String?
+    public var codeSystemText: String?
+    public var diagnosedAt: Date?
+    /// 来源诊断行（采用后回填 `diagnosis.health_problem_id` 的落点）。
+    public var diagnosisId: UUID
+
+    public init(name: String, codeText: String? = nil, codeSystemText: String? = nil, diagnosedAt: Date? = nil, diagnosisId: UUID) {
+        self.name = name; self.codeText = codeText; self.codeSystemText = codeSystemText
+        self.diagnosedAt = diagnosedAt; self.diagnosisId = diagnosisId
+    }
+
+    /// 每行一候选；同名（去空白）只保留首见（入院诊断/出院诊断重复列同一病名不生成两条）；空名跳过。
+    public static func from(diagnoses: [Diagnosis]) -> [HealthProblemCandidate] {
+        var seen = Set<String>()
+        return diagnoses.compactMap { row in
+            let name = row.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty, seen.insert(name).inserted else { return nil }
+            return HealthProblemCandidate(name: name, codeText: row.codeText, codeSystemText: row.codeSystemText,
+                                          diagnosedAt: row.diagnosedAt, diagnosisId: row.id)
+        }
     }
 }

@@ -38,7 +38,9 @@ public struct EncounterDraft: Sendable, Equatable {
     }
 }
 
-/// FR4.1 就诊类型（门诊/急诊/住院/体检/互联网问诊/复诊）
+/// FR4.1 就诊类型（门诊/急诊/住院/日间手术/体检/互联网问诊/复诊）。
+/// v26（子项目 D §C.1）：`daySurgery` = 日间手术入出院（`hospitalization` 1:0..1 挂在 kind ∈ inpatient/daySurgery 的就诊上）；
+/// L10n 键随 rawValue：`encounter.kind.daySurgery`（App 层 `L10n.encounterKindName` 三语）。
 public enum EncounterKind: String, Sendable, CaseIterable, Codable {
-    case outpatient, emergency, inpatient, checkup, telemedicine, followup
+    case outpatient, emergency, inpatient, daySurgery, checkup, telemedicine, followup
 }
