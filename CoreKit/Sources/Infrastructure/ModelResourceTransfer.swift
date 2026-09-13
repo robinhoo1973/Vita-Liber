@@ -18,6 +18,13 @@ final class ModelResourceTransfer: NSObject, URLSessionDownloadDelegate, @unchec
     private func record(_ failure: ASRModelDownloadService.Failure) {
         lock.lock(); if storedFailure == nil { storedFailure = failure }; lock.unlock()
     }
+    /// 守卫在委托回调里拒绝重定向/超预算时会 `task.cancel()`，URLSession 随之抛
+    /// `URLError.cancelled`——调用方必须优先暴露守卫记录的真实原因（S-M4），
+    /// 否则「重定向到非白名单主机」在日志/界面里都只剩一个「已取消」。
+    func resolve(_ error: Error) -> Error { failure ?? error }
+    #if DEBUG
+    func recordForTesting(_ failure: ASRModelDownloadService.Failure) { record(failure) }
+    #endif
     func validate(_ response: URLResponse) throws {
         guard let url = response.url, ModelResourcePolicy.allowedURL(url) else { throw ASRModelDownloadService.Failure.badAddress }
         guard let http = response as? HTTPURLResponse else { throw ASRModelDownloadService.Failure.badResponse(-1) }

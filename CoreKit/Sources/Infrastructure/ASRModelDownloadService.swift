@@ -180,7 +180,14 @@ public actor ASRModelDownloadService {
         request.timeoutInterval = 30
         request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
         let guardDelegate = ModelResourceTransfer()
-        let (bytes, response) = try await session.bytes(for: request, delegate: guardDelegate)
+        let bytes: URLSession.AsyncBytes
+        let response: URLResponse
+        do {
+            (bytes, response) = try await session.bytes(for: request, delegate: guardDelegate)
+        } catch {
+            try Task.checkCancellation()
+            throw guardDelegate.resolve(error)
+        }
         if let failure = guardDelegate.failure { throw failure }
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw Failure.badResponse((response as? HTTPURLResponse)?.statusCode ?? -1)
@@ -247,6 +254,9 @@ public actor ASRModelDownloadService {
             .appendingPathComponent(release.id, isDirectory: true)
         guard let choice = VoiceEngineChoice(rawValue: release.id), choice.isBundledModel,
               let expanded = release.expandedBytes, expanded > 0, expanded <= ModelResourcePolicy.expandedBytes else { throw Failure.invalidPackage }
+        // 安全复审 S-I1：崩溃/jetsam 残留的暂存目录先于空间预算检查回收，
+        // 否则反复中断的大包会把空闲空间耗尽、后续安装恒失败。
+        Self.removeStaleStaging(in: modelRoot, fileManager: fileManager)
         let previousRoot = Self.activeRoot(for: choice)
         let staging = modelRoot.appendingPathComponent(".staging-\(release.version)-\(UUID().uuidString)",
                                                        isDirectory: true)
@@ -320,7 +330,13 @@ public actor ASRModelDownloadService {
         head.timeoutInterval = 30
         head.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
         let headGuard = ModelResourceTransfer()
-        let (_, headResponse) = try await session.data(for: head, delegate: headGuard)
+        let headResponse: URLResponse
+        do {
+            (_, headResponse) = try await session.data(for: head, delegate: headGuard)
+        } catch {
+            try Task.checkCancellation()
+            throw headGuard.resolve(error)
+        }
         if let failure = headGuard.failure { throw failure }
         guard let headHTTP = headResponse as? HTTPURLResponse else { throw Failure.badResponse(-1) }
         let headSupported = (200..<300).contains(headHTTP.statusCode)
@@ -393,8 +409,7 @@ public actor ASRModelDownloadService {
             (temporary, response) = try await session.download(for: request, delegate: delegate)
         } catch {
             try Task.checkCancellation()
-            if let failure = delegate.failure { throw failure }
-            throw error
+            throw delegate.resolve(error)
         }
         defer { try? FileManager.default.removeItem(at: temporary) } // try?-ok: URLSession 临时下载文件清理，不掩盖主错误
         try Task.checkCancellation()
@@ -481,6 +496,20 @@ public actor ASRModelDownloadService {
     }
 
     /// 保留当前版本 + 最近一个旧版本（回滚窗口），其余删除。
+    /// 回收无租约的 `.staging-*` 残留：`pruneOldVersions` 以 `.skipsHiddenFiles` 枚举，
+    /// 永不触及点前缀目录；`install` 的 `defer` 只覆盖正常返回/抛错路径，进程被杀时
+    /// 暂存目录（≤ 包字节 + 展开量）会一直留在磁盘。有租约目录（在用会话）保留。
+    nonisolated static func removeStaleStaging(in modelRoot: URL, fileManager: FileManager = .default) {
+        guard let entries = try? fileManager.contentsOfDirectory(at: modelRoot, // try?-ok: 目录不存在/不可读=无可回收残留，非关键路径
+                                                                 includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+                                                                 options: []) else { return }
+        for entry in entries where entry.lastPathComponent.hasPrefix(".staging-") {
+            guard let values = try? entry.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]), // try?-ok: 属性不可读则跳过该项
+                  values.isDirectory == true, values.isSymbolicLink != true else { continue }
+            try? ASRModelAssets.removeIfUnused(entry) // try?-ok: 残留回收失败只占空间，不影响本次安装主流程
+        }
+    }
+
     /// 版本目录按 `ASRVersion.isNewer` 语义排序（字典序会把 `v2026.03.4` 排在
     /// `v2026.03.25` 之后、把 `1.9` 排在 `1.10` 之后——回滚窗口会保留最旧版本）。
     private func pruneOldVersions(modelRoot: URL, keeping roots: [URL]) {
