@@ -1,6 +1,7 @@
 import SwiftUI
 import Domain
 import Infrastructure
+import Perception
 
 // MARK: - F10 预约与复诊（SP-18 · FR10.1-10.7）
 
@@ -70,137 +71,139 @@ struct AppointmentListView: View {
     }
 
     var body: some View {
-        Group {
-            let filtered = rows.filter { $0.status == statusFilter }
-            if filtered.isEmpty {
-                ContentUnavailableView(L10n.apptEmpty, systemImage: "calendar.badge.plus",
-                                       description: Text(L10n.apptEmptyHint))
-                    .accessibilityIdentifier("SP-18.appointment.empty")
-            } else {
-                List {
-                    ForEach(filtered, id: \.id) { apt in
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(apt.hospital).font(.headline)
-                                    Text("\(apt.department) · \(apt.startsAt.formatted(date: .abbreviated, time: .shortened))")
-                                        .font(.footnote).foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                Text(L10n.apptStatusName(apt.status))
-                                    .font(.caption2)
-                                    .padding(.horizontal, 8).padding(.vertical, 4)
-                                    .background(Capsule().fill(statusColor(apt.status).opacity(0.15)))
-                                    .foregroundStyle(statusColor(apt.status))
-                            }
-                            if apt.status == "scheduled" {
-                                scheduledActions(for: apt)
-                            } else if apt.status == "missed" {
-                                Button(L10n.apptFollowUpHint) {
-                                    Task {
-                                        await reminders.markAppointmentMissed(patientId: app.currentPatientId, id: apt.id)
-                                        await load()
+        WithPerceptionTracking {
+            Group {
+                let filtered = rows.filter { $0.status == statusFilter }
+                if filtered.isEmpty {
+                    VLUnavailableView(L10n.apptEmpty, systemImage: "calendar.badge.plus",
+                                           description: Text(L10n.apptEmptyHint))
+                        .accessibilityIdentifier("SP-18.appointment.empty")
+                } else {
+                    List {
+                        ForEach(filtered, id: \.id) { apt in
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(apt.hospital).font(.headline)
+                                        Text("\(apt.department) · \(apt.startsAt.formatted(date: .abbreviated, time: .shortened))")
+                                            .font(.footnote).foregroundStyle(.secondary)
                                     }
+                                    Spacer()
+                                    Text(L10n.apptStatusName(apt.status))
+                                        .font(.caption2)
+                                        .padding(.horizontal, 8).padding(.vertical, 4)
+                                        .background(Capsule().fill(statusColor(apt.status).opacity(0.15)))
+                                        .foregroundStyle(statusColor(apt.status))
                                 }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                                .frame(minHeight: 44)   // 触点≥44pt（审查修复）
+                                if apt.status == "scheduled" {
+                                    scheduledActions(for: apt)
+                                } else if apt.status == "missed" {
+                                    Button(L10n.apptFollowUpHint) {
+                                        Task {
+                                            await reminders.markAppointmentMissed(patientId: app.currentPatientId, id: apt.id)
+                                            await load()
+                                        }
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+                                    .frame(minHeight: 44)   // 触点≥44pt（审查修复）
+                                }
+                                // FR10.6 去挂号深链卡（本地映射表，无网可用）
+                                if apt.status == "scheduled" {
+                                    AppointmentDeepLinkCard(hospital: apt.hospital)
+                                }
                             }
-                            // FR10.6 去挂号深链卡（本地映射表，无网可用）
-                            if apt.status == "scheduled" {
-                                AppointmentDeepLinkCard(hospital: apt.hospital)
-                            }
-                        }
-                        .padding(.vertical, 4)
-                        .accessibilityIdentifier("SP-18.appointment.row.\(apt.id.uuidString)")
-                    }
-                }
-            }
-        }
-        .safeAreaInset(edge: .top) {
-            Picker("", selection: $statusFilter) {
-                ForEach(statuses, id: \.self) { s in
-                    Text(L10n.apptStatusName(s)).tag(s)
-                }
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 12).padding(.vertical, 6)
-        }
-        .navigationTitle(L10n.apptListTitle)
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    showForm = true
-                } label: {
-                    Image(systemName: "plus")
-                }
-                .accessibilityLabel(L10n.appointmentAdd)
-                .accessibilityIdentifier("SP-18.appointment.add")
-            }
-        }
-        .sheet(isPresented: $showForm) {
-            AppointmentFormView()
-        }
-        // FR10.7 取消选填原因
-        .confirmationDialog(L10n.apptCancel, isPresented: cancelBinding, titleVisibility: .visible) {
-            Button(L10n.apptCancelReasonNone) { submitCancel(nil) }
-            Button(L10n.apptCancelReasonDoctor) { submitCancel("doctor_rescheduled") }
-            Button(L10n.apptCancelReasonSelf) { submitCancel("self") }
-            Button(L10n.apptCancelReasonOther) { submitCancel("other") }
-            Button(L10n.commonCancel, role: .cancel) { cancelTarget = nil }
-        }
-        // 标记错过确认（取消分级提醒 + 2h 跟进，需明示后果）。
-        // presenting: 形式直接注入目标行——按钮动作不再依赖与对话框
-        // 关闭 setter 的共享可变状态竞态（动作/置 nil 顺序无关）
-        .confirmationDialog(L10n.apptMarkMissed, isPresented:
-            Binding(get: { missTarget != nil }, set: { if !$0 { missTarget = nil } }),
-                            titleVisibility: .visible, presenting: missTarget) { apt in
-            Button(L10n.apptMarkMissed, role: .destructive) {
-                Task {
-                    await reminders.markAppointmentMissed(patientId: app.currentPatientId, id: apt.id)
-                    await load()
-                }
-            }
-            Button(L10n.commonCancel, role: .cancel) { }
-        } message: { _ in
-            Text(L10n.apptMarkMissedHint)
-        }
-        // 标记完成确认（与标记错过同级明示：取消全部分级提醒 + 补录就诊记录）
-        .confirmationDialog(L10n.apptComplete, isPresented:
-            Binding(get: { completeTarget != nil }, set: { if !$0 { completeTarget = nil } }),
-                            titleVisibility: .visible, presenting: completeTarget) { apt in
-            Button(L10n.apptComplete) {
-                Task {
-                    await reminders.completeAppointment(patientId: app.currentPatientId, id: apt.id)
-                    await load()
-                }
-            }
-            Button(L10n.commonCancel, role: .cancel) { }
-        } message: { _ in
-            Text(L10n.apptCompleteHint)
-        }
-        // FR10.7 改期（原预约保留历史 + 新草稿）
-        .sheet(item: $rescheduleTarget) { apt in
-            NavigationStack {
-                Form {
-                    DatePicker(L10n.apptNewDate, selection: $newDate, in: Date()...)
-                }
-                .navigationTitle(L10n.apptReschedule)
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button(L10n.reminder_save) {
-                            Task {
-                                await reminders.rescheduleAppointment(patientId: app.currentPatientId,
-                                                                      id: apt.id, to: newDate)
-                                rescheduleTarget = nil
-                                await load()
-                            }
+                            .padding(.vertical, 4)
+                            .accessibilityIdentifier("SP-18.appointment.row.\(apt.id.uuidString)")
                         }
                     }
                 }
             }
+            .safeAreaInset(edge: .top) {
+                Picker("", selection: $statusFilter) {
+                    ForEach(statuses, id: \.self) { s in
+                        Text(L10n.apptStatusName(s)).tag(s)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 12).padding(.vertical, 6)
+            }
+            .navigationTitle(L10n.apptListTitle)
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showForm = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel(L10n.appointmentAdd)
+                    .accessibilityIdentifier("SP-18.appointment.add")
+                }
+            }
+            .sheet(isPresented: $showForm) {
+                AppointmentFormView()
+            }
+            // FR10.7 取消选填原因
+            .confirmationDialog(L10n.apptCancel, isPresented: cancelBinding, titleVisibility: .visible) {
+                Button(L10n.apptCancelReasonNone) { submitCancel(nil) }
+                Button(L10n.apptCancelReasonDoctor) { submitCancel("doctor_rescheduled") }
+                Button(L10n.apptCancelReasonSelf) { submitCancel("self") }
+                Button(L10n.apptCancelReasonOther) { submitCancel("other") }
+                Button(L10n.commonCancel, role: .cancel) { cancelTarget = nil }
+            }
+            // 标记错过确认（取消分级提醒 + 2h 跟进，需明示后果）。
+            // presenting: 形式直接注入目标行——按钮动作不再依赖与对话框
+            // 关闭 setter 的共享可变状态竞态（动作/置 nil 顺序无关）
+            .confirmationDialog(L10n.apptMarkMissed, isPresented:
+                Binding(get: { missTarget != nil }, set: { if !$0 { missTarget = nil } }),
+                                titleVisibility: .visible, presenting: missTarget) { apt in
+                Button(L10n.apptMarkMissed, role: .destructive) {
+                    Task {
+                        await reminders.markAppointmentMissed(patientId: app.currentPatientId, id: apt.id)
+                        await load()
+                    }
+                }
+                Button(L10n.commonCancel, role: .cancel) { }
+            } message: { _ in
+                Text(L10n.apptMarkMissedHint)
+            }
+            // 标记完成确认（与标记错过同级明示：取消全部分级提醒 + 补录就诊记录）
+            .confirmationDialog(L10n.apptComplete, isPresented:
+                Binding(get: { completeTarget != nil }, set: { if !$0 { completeTarget = nil } }),
+                                titleVisibility: .visible, presenting: completeTarget) { apt in
+                Button(L10n.apptComplete) {
+                    Task {
+                        await reminders.completeAppointment(patientId: app.currentPatientId, id: apt.id)
+                        await load()
+                    }
+                }
+                Button(L10n.commonCancel, role: .cancel) { }
+            } message: { _ in
+                Text(L10n.apptCompleteHint)
+            }
+            // FR10.7 改期（原预约保留历史 + 新草稿）
+            .sheet(item: $rescheduleTarget) { apt in
+                NavigationStack {
+                    Form {
+                        DatePicker(L10n.apptNewDate, selection: $newDate, in: Date()...)
+                    }
+                    .navigationTitle(L10n.apptReschedule)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button(L10n.reminder_save) {
+                                Task {
+                                    await reminders.rescheduleAppointment(patientId: app.currentPatientId,
+                                                                          id: apt.id, to: newDate)
+                                    rescheduleTarget = nil
+                                    await load()
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .task(id: app.currentPatientId) { await load() }
         }
-        .task(id: app.currentPatientId) { await load() }
     }
 
     private var cancelBinding: Binding<Bool> {
@@ -256,94 +259,96 @@ struct AppointmentFormView: View {
     private let rules = [0, 1, 2, 3, 4]
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section(L10n.apptFormBasic) {
-                    TextField(L10n.encounterFormHospital, text: $hospital)
-                    TextField(L10n.encounterFormDepartment, text: $department)
-                    TextField(L10n.encounterFormDoctor, text: $doctor)
-                    TextField(L10n.apptFormAddress, text: $address)
-                    DatePicker(L10n.apptFormDate, selection: $startsAt, in: Date()...)
-                }
-                Section(L10n.apptFormPrep) {
-                    TextField(L10n.apptFormItems, text: $itemsToBring, axis: .vertical)
-                    TextField(L10n.apptFormNotes, text: $notes, axis: .vertical)
-                }
-                // FR10.2 复诊规则（可选设置；模糊规则必须落具体日期）
-                Section(L10n.apptFormFollowUpRule) {
-                    Picker(L10n.apptFormFollowUpRule, selection: $followUpRule) {
-                        ForEach(rules, id: \.self) { r in Text(L10n.apptFollowUpRuleName(r)) }
+        WithPerceptionTracking {
+            NavigationStack {
+                Form {
+                    Section(L10n.apptFormBasic) {
+                        TextField(L10n.encounterFormHospital, text: $hospital)
+                        TextField(L10n.encounterFormDepartment, text: $department)
+                        TextField(L10n.encounterFormDoctor, text: $doctor)
+                        TextField(L10n.apptFormAddress, text: $address)
+                        DatePicker(L10n.apptFormDate, selection: $startsAt, in: Date()...)
                     }
-                    switch followUpRule {
-                    case 0:
-                        // 指定日期：本次预约本身即复诊
-                        EmptyView()
-                    case 1:
-                        // N 天/周/月后：必须确认到具体日期方可生效。
-                        // 双控件互为投影（日历日差，DST 安全）：此前只有
-                        // DatePicker→days 单向同步，Stepper 拨动后日期显示
-                        // 与保存值分叉（提醒提前/推迟于用户看到的日期响起）
-                        Stepper(L10n.apptFollowUpDays(followUpDays), value: $followUpDays, in: 1...730)
-                        DatePicker(L10n.apptFollowUpConcreteDate, selection: $followUpDate,
-                                   displayedComponents: .date)
-                        .onChange(of: followUpDate) { _, date in
-                            // 审查修复：原绑定 get 每次渲染从 Date() 重算、set 用 86400
-                            // 整除截断——选中的日期最多提前一天且随渲染漂移。
-                            // 以日历日差反推天数（DST 安全），日期为唯一事实源。
-                            let cal = Calendar.current
-                            let startDay = cal.startOfDay(for: startsAt)
-                            let days = cal.dateComponents([.day], from: startDay,
-                                                          to: cal.startOfDay(for: date)).day ?? 0
-                            if days < 1 {
-                                // 审查修复：选到就诊当天/之前时旧实现 max(1, days)
-                                // 让 followUpDays 恒为 1、onChange 不再触发——
-                                // 界面显示的过去日期与保存值（startsAt+1 天）
-                                // 分叉，提醒在用户没看到的日期响起。回弹到
-                                // 最早合法日（就诊次日起）并同步天数。
-                                followUpDays = 1
-                                followUpDate = DayArithmetic.offset(days: 1, from: startDay)
-                            } else {
-                                followUpDays = days
+                    Section(L10n.apptFormPrep) {
+                        TextField(L10n.apptFormItems, text: $itemsToBring, axis: .vertical)
+                        TextField(L10n.apptFormNotes, text: $notes, axis: .vertical)
+                    }
+                    // FR10.2 复诊规则（可选设置；模糊规则必须落具体日期）
+                    Section(L10n.apptFormFollowUpRule) {
+                        Picker(L10n.apptFormFollowUpRule, selection: $followUpRule) {
+                            ForEach(rules, id: \.self) { r in Text(L10n.apptFollowUpRuleName(r)) }
+                        }
+                        switch followUpRule {
+                        case 0:
+                            // 指定日期：本次预约本身即复诊
+                            EmptyView()
+                        case 1:
+                            // N 天/周/月后：必须确认到具体日期方可生效。
+                            // 双控件互为投影（日历日差，DST 安全）：此前只有
+                            // DatePicker→days 单向同步，Stepper 拨动后日期显示
+                            // 与保存值分叉（提醒提前/推迟于用户看到的日期响起）
+                            Stepper(L10n.apptFollowUpDays(followUpDays), value: $followUpDays, in: 1...730)
+                            DatePicker(L10n.apptFollowUpConcreteDate, selection: $followUpDate,
+                                       displayedComponents: .date)
+                            .onChangeCompat(of: followUpDate) { _, date in
+                                // 审查修复：原绑定 get 每次渲染从 Date() 重算、set 用 86400
+                                // 整除截断——选中的日期最多提前一天且随渲染漂移。
+                                // 以日历日差反推天数（DST 安全），日期为唯一事实源。
+                                let cal = Calendar.current
+                                let startDay = cal.startOfDay(for: startsAt)
+                                let days = cal.dateComponents([.day], from: startDay,
+                                                              to: cal.startOfDay(for: date)).day ?? 0
+                                if days < 1 {
+                                    // 审查修复：选到就诊当天/之前时旧实现 max(1, days)
+                                    // 让 followUpDays 恒为 1、onChange 不再触发——
+                                    // 界面显示的过去日期与保存值（startsAt+1 天）
+                                    // 分叉，提醒在用户没看到的日期响起。回弹到
+                                    // 最早合法日（就诊次日起）并同步天数。
+                                    followUpDays = 1
+                                    followUpDate = DayArithmetic.offset(days: 1, from: startDay)
+                                } else {
+                                    followUpDays = days
+                                }
                             }
+                            .onChangeCompat(of: followUpDays) { _, days in
+                                let cal = Calendar.current
+                                followUpDate = DayArithmetic.offset(days: days, from: cal.startOfDay(for: startsAt))
+                            }
+                            // 预约日期改动后投影重新锚定——此前具体日期仍按旧
+                            // startsAt 计算，提醒在用户看到的新就诊日上提前/推迟响起
+                            .onChangeCompat(of: startsAt) { _, newDate in
+                                followUpDate = DayArithmetic.offset(days: followUpDays,
+                                                                    from: Calendar.current.startOfDay(for: newDate))
+                            }
+                            // 首次进入/重新进入规则 1：默认值（now+90）锚定到
+                            // startsAt——否则初始 DatePicker 显示与保存值差一天
+                            // （startsAt 默认明天，store 按 startsAt+days 排期）
+                            .onAppear {
+                                followUpDate = DayArithmetic.offset(days: followUpDays,
+                                                                    from: Calendar.current.startOfDay(for: startsAt))
+                            }
+                        case 2, 3:
+                            // 检查完成后/疗程结束后：无具体日期 → 待确认草稿（不排提醒）
+                            Text(L10n.apptFollowUpDraftOnly)
+                                .font(.footnote).foregroundStyle(.orange)
+                        case 4:
+                            // 慢病定期随访：N 天后
+                            Stepper(L10n.apptFollowUpDays(followUpDays), value: $followUpDays, in: 1...730)
+                        default:
+                            EmptyView()
                         }
-                        .onChange(of: followUpDays) { _, days in
-                            let cal = Calendar.current
-                            followUpDate = DayArithmetic.offset(days: days, from: cal.startOfDay(for: startsAt))
-                        }
-                        // 预约日期改动后投影重新锚定——此前具体日期仍按旧
-                        // startsAt 计算，提醒在用户看到的新就诊日上提前/推迟响起
-                        .onChange(of: startsAt) { _, newDate in
-                            followUpDate = DayArithmetic.offset(days: followUpDays,
-                                                                from: Calendar.current.startOfDay(for: newDate))
-                        }
-                        // 首次进入/重新进入规则 1：默认值（now+90）锚定到
-                        // startsAt——否则初始 DatePicker 显示与保存值差一天
-                        // （startsAt 默认明天，store 按 startsAt+days 排期）
-                        .onAppear {
-                            followUpDate = DayArithmetic.offset(days: followUpDays,
-                                                                from: Calendar.current.startOfDay(for: startsAt))
-                        }
-                    case 2, 3:
-                        // 检查完成后/疗程结束后：无具体日期 → 待确认草稿（不排提醒）
-                        Text(L10n.apptFollowUpDraftOnly)
-                            .font(.footnote).foregroundStyle(.orange)
-                    case 4:
-                        // 慢病定期随访：N 天后
-                        Stepper(L10n.apptFollowUpDays(followUpDays), value: $followUpDays, in: 1...730)
-                    default:
-                        EmptyView()
                     }
                 }
-            }
-            .navigationTitle(L10n.apptFormTitle)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(L10n.commonCancel) { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(L10n.reminder_save) { save() }
-                        .disabled(hospital.trimmingCharacters(in: .whitespaces).isEmpty)
-                        .accessibilityIdentifier("SP-18.appointment.form.save")
+                .navigationTitle(L10n.apptFormTitle)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button(L10n.commonCancel) { dismiss() }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(L10n.reminder_save) { save() }
+                            .disabled(hospital.trimmingCharacters(in: .whitespaces).isEmpty)
+                            .accessibilityIdentifier("SP-18.appointment.form.save")
+                    }
                 }
             }
         }
@@ -381,58 +386,60 @@ struct AppointmentDetailRouteView: View {
     @State private var newDate = DayArithmetic.offset(days: 1)
 
     var body: some View {
-        Group {
-            if let apt {
-                List {
-                    Section {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(apt.hospital).font(.title3.bold())
-                            Text("\(apt.department)").font(.subheadline)
-                            Text(apt.startsAt.formatted(date: .long, time: .shortened))
-                                .font(.body).monospacedDigit()
-                            Text(L10n.apptStatusName(apt.status))
-                                .font(.caption2)
-                                .padding(.horizontal, 8).padding(.vertical, 4)
-                                .background(Capsule().fill(Color(.systemGray5)))
-                        }
-                        .padding(.vertical, 4)
-                    } header: {
-                        Text(L10n.apptListTitle)
-                    }
-                    if apt.status == "scheduled" {
+        WithPerceptionTracking {
+            Group {
+                if let apt {
+                    List {
                         Section {
-                            // 第六轮全仓审查修复：改期此前打开新建表单——
-                            // save 走 createAppointment 生成一张**新**预约，
-                            // 原预约仍在 scheduled 态继续响铃（重复预约 +
-                            // 从未发生的改期）。与列表页同用 reschedule
-                            // 语义（原预约保留历史 + 新草稿）
-                            Button(L10n.apptReschedule) {
-                                newDate = rescheduleSeed(from: apt.startsAt)
-                                showReschedule = true
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(apt.hospital).font(.title3.bold())
+                                Text("\(apt.department)").font(.subheadline)
+                                Text(apt.startsAt.formatted(date: .long, time: .shortened))
+                                    .font(.body).monospacedDigit()
+                                Text(L10n.apptStatusName(apt.status))
+                                    .font(.caption2)
+                                    .padding(.horizontal, 8).padding(.vertical, 4)
+                                    .background(Capsule().fill(Color(.systemGray5)))
+                            }
+                            .padding(.vertical, 4)
+                        } header: {
+                            Text(L10n.apptListTitle)
+                        }
+                        if apt.status == "scheduled" {
+                            Section {
+                                // 第六轮全仓审查修复：改期此前打开新建表单——
+                                // save 走 createAppointment 生成一张**新**预约，
+                                // 原预约仍在 scheduled 态继续响铃（重复预约 +
+                                // 从未发生的改期）。与列表页同用 reschedule
+                                // 语义（原预约保留历史 + 新草稿）
+                                Button(L10n.apptReschedule) {
+                                    newDate = rescheduleSeed(from: apt.startsAt)
+                                    showReschedule = true
+                                }
                             }
                         }
                     }
+                } else {
+                    RouteFallbackView(route: .appointmentDetail(appointmentId))
                 }
-            } else {
-                RouteFallbackView(route: .appointmentDetail(appointmentId))
             }
-        }
-        .navigationTitle(L10n.apptListTitle)
-        .task { await load() }
-        .sheet(isPresented: $showReschedule) {
-            NavigationStack {
-                Form {
-                    DatePicker(L10n.apptNewDate, selection: $newDate, in: Date()...)
-                }
-                .navigationTitle(L10n.apptReschedule)
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button(L10n.reminder_save) {
-                            Task {
-                                await reminders.rescheduleAppointment(patientId: app.currentPatientId,
-                                                                      id: appointmentId, to: newDate)
-                                showReschedule = false
-                                await load()
+            .navigationTitle(L10n.apptListTitle)
+            .task { await load() }
+            .sheet(isPresented: $showReschedule) {
+                NavigationStack {
+                    Form {
+                        DatePicker(L10n.apptNewDate, selection: $newDate, in: Date()...)
+                    }
+                    .navigationTitle(L10n.apptReschedule)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button(L10n.reminder_save) {
+                                Task {
+                                    await reminders.rescheduleAppointment(patientId: app.currentPatientId,
+                                                                          id: appointmentId, to: newDate)
+                                    showReschedule = false
+                                    await load()
+                                }
                             }
                         }
                     }

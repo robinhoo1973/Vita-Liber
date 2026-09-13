@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 import AVFoundation
 import Domain
 import Infrastructure
+import Perception
 
 /// Camera, photos and files all finish in the same retained import review session.
 struct QuickCaptureView: View {
@@ -43,191 +44,193 @@ struct QuickCaptureView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 20) {
-                RoundedRectangle(cornerRadius: 16)
-                    .strokeBorder(style: StrokeStyle(lineWidth: 2, dash: [6]))
-                    .foregroundStyle(Color("brand-primary", bundle: .main))
-                    .overlay(VLIcon.scanDocument.resizable().frame(width: 56, height: 56))
-                    .frame(maxWidth: 320, minHeight: 180)
-                Text(title).font(.title2.bold())
-                OCRReviewOwnerRow(patientId: docs.activeImport?.patientId ?? patientId ?? app.currentPatientId)
-                Text(L10n.ocrReviewDocumentHint).font(.footnote).foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                VStack(spacing: 12) {
-                    if cameraAvailable {
-                        Button { startCamera() } label: {
-                            Label(L10n.homeCaptureShoot, systemImage: "camera.fill").frame(maxWidth: .infinity, minHeight: 50)
-                        }.buttonStyle(.borderedProminent)
-                        .accessibilityIdentifier("SP-11.capture.shoot")
-                    } else {
-                        Label(L10n.homeCaptureNoCamera, systemImage: "camera.fill").font(.caption).foregroundStyle(.secondary)
+        WithPerceptionTracking {
+            ScrollView {
+                VStack(spacing: 20) {
+                    RoundedRectangle(cornerRadius: 16)
+                        .strokeBorder(style: StrokeStyle(lineWidth: 2, dash: [6]))
+                        .foregroundStyle(Color("brand-primary", bundle: .main))
+                        .overlay(VLIcon.scanDocument.resizable().frame(width: 56, height: 56))
+                        .frame(maxWidth: 320, minHeight: 180)
+                    Text(title).font(.title2.bold())
+                    OCRReviewOwnerRow(patientId: docs.activeImport?.patientId ?? patientId ?? app.currentPatientId)
+                    Text(L10n.ocrReviewDocumentHint).font(.footnote).foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                    VStack(spacing: 12) {
+                        if cameraAvailable {
+                            Button { startCamera() } label: {
+                                Label(L10n.homeCaptureShoot, systemImage: "camera.fill").frame(maxWidth: .infinity, minHeight: 50)
+                            }.buttonStyle(.borderedProminent)
+                            .accessibilityIdentifier("SP-11.capture.shoot")
+                        } else {
+                            Label(L10n.homeCaptureNoCamera, systemImage: "camera.fill").font(.caption).foregroundStyle(.secondary)
+                        }
+                        Button {
+                            if beginSelection(step: .photos) { showPhotos = true }
+                        } label: {
+                            Label(L10n.homeCaptureLibrary, systemImage: "photo.on.rectangle").frame(maxWidth: .infinity, minHeight: 50)
+                        }.buttonStyle(.bordered)
+                        .accessibilityIdentifier("SP-11.capture.library")
+                        Button {
+                            if beginSelection(step: .file) { fileImporterActive = true }
+                        } label: {
+                            Label(L10n.homeCaptureFile, systemImage: "folder").frame(maxWidth: .infinity, minHeight: 50)
+                        }.buttonStyle(.bordered)
+                        .accessibilityIdentifier("SP-11.capture.file")
+                        Toggle(L10n.captureSensitiveToggle, isOn: $markSensitive)
+                            .accessibilityIdentifier("SP-11.capture.sensitive")
                     }
-                    Button {
-                        if beginSelection(step: .photos) { showPhotos = true }
-                    } label: {
-                        Label(L10n.homeCaptureLibrary, systemImage: "photo.on.rectangle").frame(maxWidth: .infinity, minHeight: 50)
-                    }.buttonStyle(.bordered)
-                    .accessibilityIdentifier("SP-11.capture.library")
-                    Button {
-                        if beginSelection(step: .file) { fileImporterActive = true }
-                    } label: {
-                        Label(L10n.homeCaptureFile, systemImage: "folder").frame(maxWidth: .infinity, minHeight: 50)
-                    }.buttonStyle(.bordered)
-                    .accessibilityIdentifier("SP-11.capture.file")
-                    Toggle(L10n.captureSensitiveToggle, isOn: $markSensitive)
-                        .accessibilityIdentifier("SP-11.capture.sensitive")
-                }
-                .disabled(!docs.importSlotFree)
-                if docs.activeImport != nil {
-                    if docs.activeImport?.isPreparing == true { ProgressView() }
-                    Button(L10n.pendingCardResume) { recoverSelection() }.buttonStyle(.borderedProminent)
-                }
-            }
-            .frame(maxWidth: 480)
-            .padding(24)
-        }
-        .background(Color("bg-grouped", bundle: .main))
-        .navigationTitle(title)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button(L10n.commonCancel) {
-                    if let session = selection { docs.cancelImport(sessionID: session.id); _ = docs.finishImportPresentation(sessionID: session.id) }
-                    dismiss()
-                }
-                .disabled(docs.activeImport?.isSaving == true || docs.activeImport?.isPreparing == true || docs.activeImport?.source != nil)
-                .accessibilityIdentifier("SP-11.capture.cancel")
-            }
-        }
-        .fullScreenCover(isPresented: $showCamera, onDismiss: {
-            captureSheetTransition = false
-            guard scenePhase == .active else { return }
-            if regionAfterCamera {
-                regionAfterCamera = false
-                captureSheetTransition = true
-                showRegionEditor = true
-            } else { cancelSelection() }
-        }) {
-            CameraPicker { image in
-                guard let session = selection, let data = image.jpegData(compressionQuality: 1) else { failSelection(); return }
-                session.captureOriginalData = data; session.captureOrigin = "camera"
-                session.captureStep = .region
-                regionImage = image
-                regionAfterCamera = true
-                showCamera = false
-            }
-        }
-        .photosPicker(isPresented: $showPhotos, selection: $pickedItem, matching: .images)
-        .onChange(of: pickedItem) { _, item in
-            guard let item, let session = selection else { return }
-            session.isPreparing = true
-            pickedItem = nil
-            Task {
-                do {
-                    guard let data = try await item.loadTransferable(type: Data.self), let image = UIImage(data: data) else {
-                        throw DocumentsState.ImportError.unreadableMedia
+                    .disabled(!docs.importSlotFree)
+                    if docs.activeImport != nil {
+                        if docs.activeImport?.isPreparing == true { ProgressView() }
+                        Button(L10n.pendingCardResume) { recoverSelection() }.buttonStyle(.borderedProminent)
                     }
-                    session.isPreparing = false
-                    session.captureOriginalData = data; session.captureOrigin = "photoLibrary"
+                }
+                .frame(maxWidth: 480)
+                .padding(24)
+            }
+            .background(Color("bg-grouped", bundle: .main))
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(L10n.commonCancel) {
+                        if let session = selection { docs.cancelImport(sessionID: session.id); _ = docs.finishImportPresentation(sessionID: session.id) }
+                        dismiss()
+                    }
+                    .disabled(docs.activeImport?.isSaving == true || docs.activeImport?.isPreparing == true || docs.activeImport?.source != nil)
+                    .accessibilityIdentifier("SP-11.capture.cancel")
+                }
+            }
+            .fullScreenCover(isPresented: $showCamera, onDismiss: {
+                captureSheetTransition = false
+                guard scenePhase == .active else { return }
+                if regionAfterCamera {
+                    regionAfterCamera = false
+                    captureSheetTransition = true
+                    showRegionEditor = true
+                } else { cancelSelection() }
+            }) {
+                CameraPicker { image in
+                    guard let session = selection, let data = image.jpegData(compressionQuality: 1) else { failSelection(); return }
+                    session.captureOriginalData = data; session.captureOrigin = "camera"
                     session.captureStep = .region
-                    regionImage = image; captureSheetTransition = true; showRegionEditor = true
-                } catch {
-                    session.isPreparing = false
-                    failSelection()
+                    regionImage = image
+                    regionAfterCamera = true
+                    showCamera = false
                 }
             }
-        }
-        .onChange(of: showPhotos) { _, showing in
-            if scenePhase == .active, !showing, pickedItem == nil, selection?.isPreparing == false,
-               selection?.captureOriginalData == nil { cancelSelection() }
-        }
-        .fileImporter(isPresented: $fileImporterActive, allowedContentTypes: allowedTypes, allowsMultipleSelection: false) { result in
-            guard let session = selection else { return }
-            switch result {
-            case .success(let urls):
-                guard let url = urls.first else { cancelSelection(); return }
-                let scoped = url.startAccessingSecurityScopedResource()
-                if ImageInputRules.supportedImageExtensions.contains(url.pathExtension.lowercased()) {
-                    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            .photosPicker(isPresented: $showPhotos, selection: $pickedItem, matching: .images)
+            .onChangeCompat(of: pickedItem) { _, item in
+                guard let item, let session = selection else { return }
+                session.isPreparing = true
+                pickedItem = nil
+                Task {
                     do {
-                        let data = try Data(contentsOf: url)
-                        guard let image = UIImage(data: data) else { throw DocumentsState.ImportError.unreadableMedia }
-                        session.captureOriginalData = data; session.captureOrigin = "import"
+                        guard let data = try await item.loadTransferable(type: Data.self), let image = UIImage(data: data) else {
+                            throw DocumentsState.ImportError.unreadableMedia
+                        }
+                        session.isPreparing = false
+                        session.captureOriginalData = data; session.captureOrigin = "photoLibrary"
                         session.captureStep = .region
                         regionImage = image; captureSheetTransition = true; showRegionEditor = true
-                    } catch { failSelection() }
-                } else {
-                    reviewEnabled = true
-                    session.captureStep = .review
-                    Task {
-                        // PDF result is consumed, not discarded or reported as an already-saved file.
-                        session.draft = await docs.importDocument(patientId: session.patientId, url: url,
-                            docType: docTypeHint, isSensitive: session.captureSensitive)
-                        if scoped { url.stopAccessingSecurityScopedResource() }
+                    } catch {
+                        session.isPreparing = false
+                        failSelection()
                     }
                 }
-            case .failure(let error):
-                if (error as NSError).code == NSUserCancelledError { cancelSelection() }
-                else { failSelection() }
             }
-        }
-        .sheet(isPresented: $showRegionEditor, onDismiss: {
-            captureSheetTransition = false
-            guard scenePhase == .active else { return }
-            if occlusionImage != nil { captureSheetTransition = true; showOcclusion = true }
-            else if processedInput != nil { startOCR() }
-            else { cancelSelection() }
-        }) {
-            if let regionImage {
-                ScanRegionEditorView(image: regionImage) { _, corrected in
-                    selection?.captureProcessedData = corrected.jpegData(compressionQuality: 0.85)
-                    if selection?.captureOrigin == "camera" {
-                        occlusionImage = corrected; selection?.captureStep = .occlusion
+            .onChangeCompat(of: showPhotos) { _, showing in
+                if scenePhase == .active, !showing, pickedItem == nil, selection?.isPreparing == false,
+                   selection?.captureOriginalData == nil { cancelSelection() }
+            }
+            .fileImporter(isPresented: $fileImporterActive, allowedContentTypes: allowedTypes, allowsMultipleSelection: false) { result in
+                guard let session = selection else { return }
+                switch result {
+                case .success(let urls):
+                    guard let url = urls.first else { cancelSelection(); return }
+                    let scoped = url.startAccessingSecurityScopedResource()
+                    if ImageInputRules.supportedImageExtensions.contains(url.pathExtension.lowercased()) {
+                        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                        do {
+                            let data = try Data(contentsOf: url)
+                            guard let image = UIImage(data: data) else { throw DocumentsState.ImportError.unreadableMedia }
+                            session.captureOriginalData = data; session.captureOrigin = "import"
+                            session.captureStep = .region
+                            regionImage = image; captureSheetTransition = true; showRegionEditor = true
+                        } catch { failSelection() }
                     } else {
-                        processedInput = selection?.captureProcessedData; selection?.captureStep = .review
+                        reviewEnabled = true
+                        session.captureStep = .review
+                        Task {
+                            // PDF result is consumed, not discarded or reported as an already-saved file.
+                            session.draft = await docs.importDocument(patientId: session.patientId, url: url,
+                                docType: docTypeHint, isSensitive: session.captureSensitive)
+                            if scoped { url.stopAccessingSecurityScopedResource() }
+                        }
                     }
-                } onSkip: {
-                    processedInput = nil; occlusionImage = nil
-                    selection?.captureProcessedData = nil
-                }
-                .interactiveDismissDisabled()
-            } else {
-                ContentUnavailableView(L10n.docImportFailed, systemImage: "exclamationmark.triangle")
-            }
-        }
-        .sheet(isPresented: $showOcclusion, onDismiss: {
-            captureSheetTransition = false
-            guard scenePhase == .active else { return }
-            occlusionImage = nil
-            if processedInput != nil { startOCR() }
-            else { cancelSelection() }
-        }) {
-            if let occlusionImage {
-                OcclusionEditorView(originalImage: occlusionImage) { processed in
-                    processedInput = processed.jpegData(compressionQuality: 0.85)
-                    selection?.captureProcessedData = processedInput
-                    selection?.captureStep = .review
-                }
-                .interactiveDismissDisabled()
-            }
-        }
-        .ocrImportReviewHost(enabled: reviewCanPresent, advanceQueuedImports: false) { outcome in
-            selectionSessionID = nil
-            regionImage = nil; processedInput = nil
-            if outcome != .cancelled { dismiss() }
-        }
-        .alert(L10n.docImportFailedTitle, isPresented: $importFailed) {
-            if permissionDenied {
-                Button(L10n.homeNotifOpen) {
-                    if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                case .failure(let error):
+                    if (error as NSError).code == NSUserCancelledError { cancelSelection() }
+                    else { failSelection() }
                 }
             }
-            Button(L10n.commonCancel, role: .cancel) {}
-        } message: { Text(L10n.docImportFailed) }
-        .onAppear { recoverSelection() }
-        .onChange(of: docs.activeImport?.captureStep) { _, _ in
-            if !captureSheetTransition && !showCamera && !showRegionEditor && !showOcclusion && !showPhotos && !fileImporterActive { recoverSelection() }
+            .sheet(isPresented: $showRegionEditor, onDismiss: {
+                captureSheetTransition = false
+                guard scenePhase == .active else { return }
+                if occlusionImage != nil { captureSheetTransition = true; showOcclusion = true }
+                else if processedInput != nil { startOCR() }
+                else { cancelSelection() }
+            }) {
+                if let regionImage {
+                    ScanRegionEditorView(image: regionImage) { _, corrected in
+                        selection?.captureProcessedData = corrected.jpegData(compressionQuality: 0.85)
+                        if selection?.captureOrigin == "camera" {
+                            occlusionImage = corrected; selection?.captureStep = .occlusion
+                        } else {
+                            processedInput = selection?.captureProcessedData; selection?.captureStep = .review
+                        }
+                    } onSkip: {
+                        processedInput = nil; occlusionImage = nil
+                        selection?.captureProcessedData = nil
+                    }
+                    .interactiveDismissDisabled()
+                } else {
+                    VLUnavailableView(L10n.docImportFailed, systemImage: "exclamationmark.triangle")
+                }
+            }
+            .sheet(isPresented: $showOcclusion, onDismiss: {
+                captureSheetTransition = false
+                guard scenePhase == .active else { return }
+                occlusionImage = nil
+                if processedInput != nil { startOCR() }
+                else { cancelSelection() }
+            }) {
+                if let occlusionImage {
+                    OcclusionEditorView(originalImage: occlusionImage) { processed in
+                        processedInput = processed.jpegData(compressionQuality: 0.85)
+                        selection?.captureProcessedData = processedInput
+                        selection?.captureStep = .review
+                    }
+                    .interactiveDismissDisabled()
+                }
+            }
+            .ocrImportReviewHost(enabled: reviewCanPresent, advanceQueuedImports: false) { outcome in
+                selectionSessionID = nil
+                regionImage = nil; processedInput = nil
+                if outcome != .cancelled { dismiss() }
+            }
+            .alert(L10n.docImportFailedTitle, isPresented: $importFailed) {
+                if permissionDenied {
+                    Button(L10n.homeNotifOpen) {
+                        if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                    }
+                }
+                Button(L10n.commonCancel, role: .cancel) {}
+            } message: { Text(L10n.docImportFailed) }
+            .onAppear { recoverSelection() }
+            .onChangeCompat(of: docs.activeImport?.captureStep) { _, _ in
+                if !captureSheetTransition && !showCamera && !showRegionEditor && !showOcclusion && !showPhotos && !fileImporterActive { recoverSelection() }
+            }
         }
     }
 

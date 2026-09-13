@@ -3,6 +3,7 @@ import PhotosUI
 import os
 import Domain
 import Protocols
+import Perception
 
 /// F12 AI 助手（SP 系列 M1c 切片）：本地检索式问答——七段结构/拒识卡/急救卡。
 /// 引用完整性由类型保证（无引用的回答不存在）；E 级徽章标识 AI 解释。
@@ -19,122 +20,127 @@ struct AssistantView: View {
     @State private var imageNotice: String?
 
     var body: some View {
-        // FR14.1 authAI 消费点：关闭 → 解释性禁用态（入口灰显 + 影响说明 +
-        // 跳转授权面板），撤回即时生效（BR-010）
-        if settings.values[.authAI] == "false" {
-            ContentUnavailableView(L10n.privacyAuthAIDisabledTitle,
-                                   systemImage: "sparkles.slash",
-                                   description: Text(L10n.privacyAuthAIDisabledBody))
-            .safeAreaInset(edge: .bottom) {
-                Button {
-                    router.navigate(to: .privacyAuthorization)
-                } label: {
-                    Text(L10n.privacyAuthOpen).frame(maxWidth: .infinity, minHeight: 44)
+        WithPerceptionTracking {
+            // FR14.1 authAI 消费点：关闭 → 解释性禁用态（入口灰显 + 影响说明 +
+            // 跳转授权面板），撤回即时生效（BR-010）
+            if settings.values[.authAI] == "false" {
+                VLUnavailableView(L10n.privacyAuthAIDisabledTitle,
+                                       systemImage: "sparkles.slash",
+                                       description: Text(L10n.privacyAuthAIDisabledBody))
+                .safeAreaInset(edge: .bottom) {
+                    Button {
+                        router.navigate(to: .privacyAuthorization)
+                    } label: {
+                        Text(L10n.privacyAuthOpen).frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .padding(16)
                 }
-                .buttonStyle(.borderedProminent)
-                .padding(16)
-            }
-        } else {
-            VStack(spacing: 0) {
-            // FR20.3 L3 常驻微文案：AI 输入栏上方横幅
-            L3DisclosureBanner(disclosure: DisclosureRegistry.l3Disclosures[0])
-            ScrollView {
-                LazyVStack(spacing: 12) {
-                    if let imageNotice {
-                        Label(imageNotice, systemImage: "info.circle")
-                            .font(.caption).foregroundStyle(.secondary)
-                            .accessibilityIdentifier("FR12.11.noText")
-                    }
-                    ForEach(assistant.messages) { message in
-                        MessageBubble(message: message)
-                    }
-                    if assistant.busy {
-                        ProgressView(L10n.assistantSearching)
-                            .padding()
-                    }
-                }
-                .padding(16)
-            }
-            // §5.10 快捷提问 chips（V3.72）：新用户一问即用
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach([L10n.aiQuickGlucose, L10n.aiQuickMeds, L10n.aiQuickNext], id: \.self) { q in
-                        Button(q) {
-                            Task { await assistant.ask(q, scopePatientIds: [currentPatientId]) }
+            } else {
+                VStack(spacing: 0) {
+                // FR20.3 L3 常驻微文案：AI 输入栏上方横幅
+                L3DisclosureBanner(disclosure: DisclosureRegistry.l3Disclosures[0])
+                ScrollView {
+                    LazyVStack(spacing: 12) {
+                        if let imageNotice {
+                            Label(imageNotice, systemImage: "info.circle")
+                                .font(.caption).foregroundStyle(.secondary)
+                                .accessibilityIdentifier("FR12.11.noText")
                         }
-                        .font(.caption)
-                        .padding(.horizontal, 10)
-                        // 审查修复：触点 ≥44pt 规范（原 36pt，关怀模式要求 64pt）
-                        .frame(minHeight: app.careMode ? 64 : 44)
-                        .background(Capsule().fill(Color(.systemGray5)))
+                        ForEach(assistant.messages) { message in
+                            MessageBubble(message: message)
+                        }
+                        if assistant.busy {
+                            ProgressView(L10n.assistantSearching)
+                                .padding()
+                        }
                     }
+                    .padding(16)
                 }
-                .padding(.horizontal, 12)
-            }
-            HStack(spacing: 8) {
-                // FR12.11：拍照/相册发起「帮我看看这张报告」
-                PhotosPicker(selection: $pickerItem, matching: .images) {
-                    VLIcon.photo.resizable().frame(width: 22, height: 22)
-                        .frame(width: 44, height: 44)
-                }
-                .accessibilityLabel(L10n.assistantAddImageLabel)
-                .accessibilityIdentifier("FR12.11.pickImage")
-                TextField(L10n.assistantQuestionPlaceholder, text: $draft, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
-                    .lineLimit(1...3)
-                    .accessibilityIdentifier("SP-21.ai.input")
-                Button {
-                    let q = draft
-                    draft = ""
-                    Task {
-                        // 注意：基础问答永久免费（comercial §2.1/§2.4——免费档每月 20 次），
-                        // 本入口不得接入权益仓/付费墙（L0 [4/9] 红线模块断言）。
-                        // 「高级 AI 用量」是 D3 若采纳的增量能力，其弹墙时机接线
-                        // 归属 D3 决策后的 Pro 增强入口，不在基础问答上触发。
-                        await assistant.ask(q, scopePatientIds: [currentPatientId])
+                // §5.10 快捷提问 chips（V3.72）：新用户一问即用
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach([L10n.aiQuickGlucose, L10n.aiQuickMeds, L10n.aiQuickNext], id: \.self) { q in
+                            // ForEach 行闭包逃逸：行内同步读感知对象属性，须自行包裹（子项目 I）
+                            WithPerceptionTracking {
+                                Button(q) {
+                                    Task { await assistant.ask(q, scopePatientIds: [currentPatientId]) }
+                                }
+                                .font(.caption)
+                                .padding(.horizontal, 10)
+                                // 审查修复：触点 ≥44pt 规范（原 36pt，关怀模式要求 64pt）
+                                .frame(minHeight: app.careMode ? 64 : 44)
+                                .background(Capsule().fill(Color(.systemGray5)))
+                            }
+                        }
                     }
-                } label: {
-                    VLIcon.send.resizable().frame(width: 20, height: 20)
-                        .frame(width: 44, height: 44)
+                    .padding(.horizontal, 12)
                 }
-                .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty || assistant.busy)
-                .accessibilityLabel(L10n.assistantSendLabel)
-                .accessibilityIdentifier("SP-21.ai.send")
-            }
-            .padding(12)
-        }
-        .navigationTitle(L10n.navAI)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            // FR12.10 会话历史入口（SP-51）
-            ToolbarItem(placement: .topBarTrailing) {
-                NavigationLink(value: AppRoute.assistantHistory) {
-                    Image(systemName: "clock.arrow.circlepath")
+                HStack(spacing: 8) {
+                    // FR12.11：拍照/相册发起「帮我看看这张报告」
+                    PhotosPicker(selection: $pickerItem, matching: .images) {
+                        VLIcon.photo.resizable().frame(width: 22, height: 22)
+                            .frame(width: 44, height: 44)
+                    }
+                    .accessibilityLabel(L10n.assistantAddImageLabel)
+                    .accessibilityIdentifier("FR12.11.pickImage")
+                    TextField(L10n.assistantQuestionPlaceholder, text: $draft, axis: .vertical)
+                        .textFieldStyle(.roundedBorder)
+                        .lineLimit(1...3)
+                        .accessibilityIdentifier("SP-21.ai.input")
+                    Button {
+                        let q = draft
+                        draft = ""
+                        Task {
+                            // 注意：基础问答永久免费（comercial §2.1/§2.4——免费档每月 20 次），
+                            // 本入口不得接入权益仓/付费墙（L0 [4/9] 红线模块断言）。
+                            // 「高级 AI 用量」是 D3 若采纳的增量能力，其弹墙时机接线
+                            // 归属 D3 决策后的 Pro 增强入口，不在基础问答上触发。
+                            await assistant.ask(q, scopePatientIds: [currentPatientId])
+                        }
+                    } label: {
+                        VLIcon.send.resizable().frame(width: 20, height: 20)
+                            .frame(width: 44, height: 44)
+                    }
+                    .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty || assistant.busy)
+                    .accessibilityLabel(L10n.assistantSendLabel)
+                    .accessibilityIdentifier("SP-21.ai.send")
                 }
-                .accessibilityIdentifier("SP-51.history.entry")
+                .padding(12)
             }
-        }
-        .sceneDisclosure(scene: "ai_assistant")
-        .onChange(of: app.currentPatientId) { _, newValue in
-            // 审查修复（BR-001）：成员切换即时清屏——此前清屏只发生在下一问
-            // ask() 入口，A 的健康问答在 B 身份下持续渲染
-            assistant.noteMemberSwitch(newValue)
-        }
-        .onChange(of: pickerItem) { _, newItem in
-            guard let newItem else { return }
-            Task { await handlePickedImage(newItem) }
-        }
-        .sheet(item: $imageConfirmSet) { set in
-            ImageConfirmSheet(
-                set: set,
-                onConfirm: { confirmed in
-                    let text = confirmed.confirmedFields.first?.value ?? ""
-                    imageConfirmSet = nil
-                    draft = text
-                },
-                onCancel: { imageConfirmSet = nil })
-            .presentationDetents([.medium])
-        }
+            .navigationTitle(L10n.navAI)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                // FR12.10 会话历史入口（SP-51）
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink(value: AppRoute.assistantHistory) {
+                        Image(systemName: "clock.arrow.circlepath")
+                    }
+                    .accessibilityIdentifier("SP-51.history.entry")
+                }
+            }
+            .sceneDisclosure(scene: "ai_assistant")
+            .onChangeCompat(of: app.currentPatientId) { _, newValue in
+                // 审查修复（BR-001）：成员切换即时清屏——此前清屏只发生在下一问
+                // ask() 入口，A 的健康问答在 B 身份下持续渲染
+                assistant.noteMemberSwitch(newValue)
+            }
+            .onChangeCompat(of: pickerItem) { _, newItem in
+                guard let newItem else { return }
+                Task { await handlePickedImage(newItem) }
+            }
+            .sheet(item: $imageConfirmSet) { set in
+                ImageConfirmSheet(
+                    set: set,
+                    onConfirm: { confirmed in
+                        let text = confirmed.confirmedFields.first?.value ?? ""
+                        imageConfirmSet = nil
+                        draft = text
+                    },
+                    onCancel: { imageConfirmSet = nil })
+                .presentationDetents([.medium])
+            }
+            }
         }
     }
 
@@ -178,39 +184,41 @@ struct ImageConfirmSheet: View {
     var onCancel: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(L10n.ai_confirmImageText).font(.headline)
-            ForEach(set.fields) { field in
-                ScrollView {
-                    Text(DocumentsState.fieldValueDisplay(forKey: field.key, value: field.value))
-                        .font(.body)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+        WithPerceptionTracking {
+            VStack(alignment: .leading, spacing: 14) {
+                Text(L10n.ai_confirmImageText).font(.headline)
+                ForEach(set.fields) { field in
+                    ScrollView {
+                        Text(DocumentsState.fieldValueDisplay(forKey: field.key, value: field.value))
+                            .font(.body)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxHeight: 200)
+                    .padding(12)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(Color("bg-grouped", bundle: .main)))
+                    .overlay(RoundedRectangle(cornerRadius: 12)
+                        .strokeBorder(Color("grade-d", bundle: .main),
+                                      style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+                    .accessibilityIdentifier("FR12.11.confirm.text")
                 }
-                .frame(maxHeight: 200)
-                .padding(12)
-                .background(RoundedRectangle(cornerRadius: 12).fill(Color("bg-grouped", bundle: .main)))
-                .overlay(RoundedRectangle(cornerRadius: 12)
-                    .strokeBorder(Color("grade-d", bundle: .main),
-                                  style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
-                .accessibilityIdentifier("FR12.11.confirm.text")
-            }
-            Label(L10n.assistantImageConfirmNotice, systemImage: "exclamationmark.triangle")
-                .font(.caption).foregroundStyle(Color("grade-d", bundle: .main))
-                .accessibilityIdentifier("FR12.11.unconfirmed")
-            HStack(spacing: 12) {
-                Button(L10n.commonCancel, action: onCancel).frame(minHeight: 44)
-                Spacer()
-                Button(L10n.assistantConfirmFillIn) {
-                    var confirmed = set
-                    for i in confirmed.fields.indices { _ = confirmed.fields[i].confirm() }
-                    onConfirm(confirmed)
+                Label(L10n.assistantImageConfirmNotice, systemImage: "exclamationmark.triangle")
+                    .font(.caption).foregroundStyle(Color("grade-d", bundle: .main))
+                    .accessibilityIdentifier("FR12.11.unconfirmed")
+                HStack(spacing: 12) {
+                    Button(L10n.commonCancel, action: onCancel).frame(minHeight: 44)
+                    Spacer()
+                    Button(L10n.assistantConfirmFillIn) {
+                        var confirmed = set
+                        for i in confirmed.fields.indices { _ = confirmed.fields[i].confirm() }
+                        onConfirm(confirmed)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .frame(minHeight: 44)
+                    .accessibilityIdentifier("FR12.11.confirm")
                 }
-                .buttonStyle(.borderedProminent)
-                .frame(minHeight: 44)
-                .accessibilityIdentifier("FR12.11.confirm")
             }
+            .padding(20)
         }
-        .padding(20)
     }
 }
 
@@ -219,21 +227,23 @@ struct MessageBubble: View {
     let message: AssistantStore.Message
 
     var body: some View {
-        HStack {
-            if message.role == "user" { Spacer(minLength: 48) }
-            VStack(alignment: message.role == "user" ? .trailing : .leading, spacing: 8) {
-                if let answer = message.answer {
-                    AnswerBodyView(answer: answer)
-                } else {
-                    Text(message.text)
-                        .padding(12)
-                        .background(RoundedRectangle(cornerRadius: 16)
-                            .fill(message.role == "user" ? Color("brand-primary", bundle: .main).opacity(0.15) : Color("bg-grouped", bundle: .main)))
+        WithPerceptionTracking {
+            HStack {
+                if message.role == "user" { Spacer(minLength: 48) }
+                VStack(alignment: message.role == "user" ? .trailing : .leading, spacing: 8) {
+                    if let answer = message.answer {
+                        AnswerBodyView(answer: answer)
+                    } else {
+                        Text(message.text)
+                            .padding(12)
+                            .background(RoundedRectangle(cornerRadius: 16)
+                                .fill(message.role == "user" ? Color("brand-primary", bundle: .main).opacity(0.15) : Color("bg-grouped", bundle: .main)))
+                    }
                 }
+                if message.role == "assistant" { Spacer(minLength: 48) }
             }
-            if message.role == "assistant" { Spacer(minLength: 48) }
+            .accessibilityElement(children: .combine)
         }
-        .accessibilityElement(children: .combine)
     }
 }
 
@@ -241,103 +251,105 @@ struct AnswerBodyView: View {
     let answer: AIAnswer
 
     var body: some View {
-        switch answer.body {
-        case .emergencyCard:
-            VStack(alignment: .leading, spacing: 12) {
-                Label(L10n.ai_emergencyTitle, systemImage: "exclamationmark.octagon.fill")
-                    .font(.headline)
-                    .foregroundStyle(Color("semantic-danger", bundle: .main))
-                Text(L10n.ai_emergencyAction)
-                Button {
-                    // 审查修复：急救号码按语言区域（120/119/911），不硬编码 120
-                    if let url = URL(string: "tel://\(L10n.emergencyNumber)") { UIApplication.shared.open(url) }
-                } label: {
-                    Label(L10n.ai_emergencyCall, systemImage: "phone.fill")
-                        .frame(maxWidth: .infinity, minHeight: 50)
+        WithPerceptionTracking {
+            switch answer.body {
+            case .emergencyCard:
+                VStack(alignment: .leading, spacing: 12) {
+                    Label(L10n.ai_emergencyTitle, systemImage: "exclamationmark.octagon.fill")
+                        .font(.headline)
+                        .foregroundStyle(Color("semantic-danger", bundle: .main))
+                    Text(L10n.ai_emergencyAction)
+                    Button {
+                        // 审查修复：急救号码按语言区域（120/119/911），不硬编码 120
+                        if let url = URL(string: "tel://\(L10n.emergencyNumber)") { UIApplication.shared.open(url) }
+                    } label: {
+                        Label(L10n.ai_emergencyCall, systemImage: "phone.fill")
+                            .frame(maxWidth: .infinity, minHeight: 50)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Color("semantic-danger", bundle: .main))
+                    .accessibilityIdentifier("SP-21.ai.call120")
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(Color("semantic-danger", bundle: .main))
-                .accessibilityIdentifier("SP-21.ai.call120")
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
-            .background(RoundedRectangle(cornerRadius: 16).fill(Color("semantic-danger", bundle: .main).opacity(0.1)))
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("SP-21.ai.emergency")
-        case .refused(let r):
-            VStack(alignment: .leading, spacing: 8) {
-                Label(r.reason == .highRiskTopic ? L10n.assistantCannotAnswer : L10n.assistantInsufficient,
-                      systemImage: "info.circle")
-                    .font(.headline)
-                Text(AssistantStore.refusalDetail(r.reason)).font(.body)
-                HStack(spacing: 8) {
-                    ForEach(r.actions, id: \.rawValue) { action in
-                        // 审查修复：原空动作死按钮——接真实路由
-                        // （补充资料→成员管理；咨询医生或药师→帮助与诊断）
-                        NavigationLink(value: action == .addRecords
-                                       ? AppRoute.memberList : AppRoute.helpCenter) {
-                            Text(action == .addRecords
-                                 ? L10n.assistant_addRecords : L10n.assistant_consultDoctor)
-                                .frame(minHeight: 44)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .background(RoundedRectangle(cornerRadius: 16).fill(Color("semantic-danger", bundle: .main).opacity(0.1)))
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("SP-21.ai.emergency")
+            case .refused(let r):
+                VStack(alignment: .leading, spacing: 8) {
+                    Label(r.reason == .highRiskTopic ? L10n.assistantCannotAnswer : L10n.assistantInsufficient,
+                          systemImage: "info.circle")
+                        .font(.headline)
+                    Text(AssistantStore.refusalDetail(r.reason)).font(.body)
+                    HStack(spacing: 8) {
+                        ForEach(r.actions, id: \.rawValue) { action in
+                            // 审查修复：原空动作死按钮——接真实路由
+                            // （补充资料→成员管理；咨询医生或药师→帮助与诊断）
+                            NavigationLink(value: action == .addRecords
+                                           ? AppRoute.memberList : AppRoute.helpCenter) {
+                                Text(action == .addRecords
+                                     ? L10n.assistant_addRecords : L10n.assistant_consultDoctor)
+                                    .frame(minHeight: 44)
+                            }
+                            .buttonStyle(.bordered)
                         }
-                        .buttonStyle(.bordered)
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .background(RoundedRectangle(cornerRadius: 16).fill(Color("bg-grouped", bundle: .main)))
+                .accessibilityIdentifier("SP-21.ai.refused")
+            case .composed(let p):
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        // V3.72：E 徽章改走 GradeBadge 唯一出口（五态统一）
+                        GradeBadge(grade: "E")
+                        Text(L10n.ai_aiBadge).font(.caption).foregroundStyle(.secondary)
+                    }
+                    // V3.70（审查收敛）：七段卡单一结构化形态——模板句经 L10n 渲染，
+                    // 术语/来源为结构化对（无 legacy 双形态分支）
+                    Text(L10n.aiConclusion(p.citationCount)).font(.body)
+                    if !p.excerpts.isEmpty {
+                        Text(L10n.ai_citations).font(.caption.bold())
+                        ForEach(p.excerpts, id: \.self) { e in
+                            Text(e).font(.footnote).foregroundStyle(.secondary)
+                        }
+                    }
+                    if !p.terminologyPairs.isEmpty {
+                        // 卡片数据静态不变，索引 ID 无错位复用（term 可能重复，不可作 id）
+                        ForEach(p.terminologyPairs.indices, id: \.self) { i in
+                            Text(L10n.aiTerm(p.terminologyPairs[i].term, p.terminologyPairs[i].explanation)).font(.footnote)
+                        }
+                    }
+                    if !p.sources.isEmpty {
+                        Text(L10n.ai_source).font(.caption.bold())
+                        ForEach(p.sources.indices, id: \.self) { i in
+                            Text(L10n.aiSourceLine(p.sources[i].kind, p.sources[i].title)).font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
+                    Text(L10n.aiUncertaintiesFixed).font(.caption2).foregroundStyle(.secondary)
+                    Text(L10n.aiQuestionsFixed).font(.caption2)
+                        .foregroundStyle(Color("brand-primary", bundle: .main))
+                    Text(L10n.aiScopeNote(p.citationCount)).font(.caption2).foregroundStyle(.secondary)
+                    Text(L10n.aiDisclaimerFixed).font(.caption2).foregroundStyle(.secondary)
+                    ForEach(p.citations, id: \.refID) { c in
+                        HStack(spacing: 4) {
+                            Image(systemName: "doc.text")
+                            Text(c.snippet).font(.caption2).lineLimit(1)
+                        }
+                        .foregroundStyle(Color("brand-primary", bundle: .main))
+                        .accessibilityIdentifier("SP-21.ai.citation")
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .background(RoundedRectangle(cornerRadius: 16).fill(Color("bg-grouped", bundle: .main)))
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("SP-21.ai.answer")
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
-            .background(RoundedRectangle(cornerRadius: 16).fill(Color("bg-grouped", bundle: .main)))
-            .accessibilityIdentifier("SP-21.ai.refused")
-        case .composed(let p):
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    // V3.72：E 徽章改走 GradeBadge 唯一出口（五态统一）
-                    GradeBadge(grade: "E")
-                    Text(L10n.ai_aiBadge).font(.caption).foregroundStyle(.secondary)
-                }
-                // V3.70（审查收敛）：七段卡单一结构化形态——模板句经 L10n 渲染，
-                // 术语/来源为结构化对（无 legacy 双形态分支）
-                Text(L10n.aiConclusion(p.citationCount)).font(.body)
-                if !p.excerpts.isEmpty {
-                    Text(L10n.ai_citations).font(.caption.bold())
-                    ForEach(p.excerpts, id: \.self) { e in
-                        Text(e).font(.footnote).foregroundStyle(.secondary)
-                    }
-                }
-                if !p.terminologyPairs.isEmpty {
-                    // 卡片数据静态不变，索引 ID 无错位复用（term 可能重复，不可作 id）
-                    ForEach(p.terminologyPairs.indices, id: \.self) { i in
-                        Text(L10n.aiTerm(p.terminologyPairs[i].term, p.terminologyPairs[i].explanation)).font(.footnote)
-                    }
-                }
-                if !p.sources.isEmpty {
-                    Text(L10n.ai_source).font(.caption.bold())
-                    ForEach(p.sources.indices, id: \.self) { i in
-                        Text(L10n.aiSourceLine(p.sources[i].kind, p.sources[i].title)).font(.caption2).foregroundStyle(.secondary)
-                    }
-                }
-                Text(L10n.aiUncertaintiesFixed).font(.caption2).foregroundStyle(.secondary)
-                Text(L10n.aiQuestionsFixed).font(.caption2)
-                    .foregroundStyle(Color("brand-primary", bundle: .main))
-                Text(L10n.aiScopeNote(p.citationCount)).font(.caption2).foregroundStyle(.secondary)
-                Text(L10n.aiDisclaimerFixed).font(.caption2).foregroundStyle(.secondary)
-                ForEach(p.citations, id: \.refID) { c in
-                    HStack(spacing: 4) {
-                        Image(systemName: "doc.text")
-                        Text(c.snippet).font(.caption2).lineLimit(1)
-                    }
-                    .foregroundStyle(Color("brand-primary", bundle: .main))
-                    .accessibilityIdentifier("SP-21.ai.citation")
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
-            .background(RoundedRectangle(cornerRadius: 16).fill(Color("bg-grouped", bundle: .main)))
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("SP-21.ai.answer")
+            // FR12.8 反馈四键：有用/无用（16pt 图标）+ 长按菜单（引用错误/疑似危险）
+            AIFeedbackRow()
         }
-        // FR12.8 反馈四键：有用/无用（16pt 图标）+ 长按菜单（引用错误/疑似危险）
-        AIFeedbackRow()
     }
 }
 
@@ -346,49 +358,51 @@ private struct AIFeedbackRow: View {
     @Environment(AssistantStore.self) private var assistant
 
     var body: some View {
-        HStack(spacing: 16) {
-            Spacer()
-            Button {
-                assistant.recordFeedback(kind: "useful")
-            } label: {
-                Image(systemName: "hand.thumbsup")
-                    .font(.body)
-                    .foregroundStyle(.secondary)
-                    // 审查修复：裸 SF Symbol 命中区 ≈ 图标尺寸（~20pt），
-                    // 违反 ≥44pt 规范——放大命中区
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-            }
-            .accessibilityLabel(L10n.aiFeedbackUseful)
-            .accessibilityIdentifier("SP-21.ai.feedback.useful")
-            Button {
-                assistant.recordFeedback(kind: "useless")
-            } label: {
-                Image(systemName: "hand.thumbsdown")
-                    .font(.body)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-            }
-            .accessibilityLabel(L10n.aiFeedbackUseless)
-            .accessibilityIdentifier("SP-21.ai.feedback.useless")
-            Menu {
-                Button(L10n.aiFeedbackCitationError) {
-                    assistant.recordFeedback(kind: "citation_error")
+        WithPerceptionTracking {
+            HStack(spacing: 16) {
+                Spacer()
+                Button {
+                    assistant.recordFeedback(kind: "useful")
+                } label: {
+                    Image(systemName: "hand.thumbsup")
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                        // 审查修复：裸 SF Symbol 命中区 ≈ 图标尺寸（~20pt），
+                        // 违反 ≥44pt 规范——放大命中区
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
-                Button(L10n.aiFeedbackDanger) {
-                    assistant.recordFeedback(kind: "suspected_danger")
+                .accessibilityLabel(L10n.aiFeedbackUseful)
+                .accessibilityIdentifier("SP-21.ai.feedback.useful")
+                Button {
+                    assistant.recordFeedback(kind: "useless")
+                } label: {
+                    Image(systemName: "hand.thumbsdown")
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
-            } label: {
-                Image(systemName: "exclamationmark.bubble")
-                    .font(.body)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
+                .accessibilityLabel(L10n.aiFeedbackUseless)
+                .accessibilityIdentifier("SP-21.ai.feedback.useless")
+                Menu {
+                    Button(L10n.aiFeedbackCitationError) {
+                        assistant.recordFeedback(kind: "citation_error")
+                    }
+                    Button(L10n.aiFeedbackDanger) {
+                        assistant.recordFeedback(kind: "suspected_danger")
+                    }
+                } label: {
+                    Image(systemName: "exclamationmark.bubble")
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel(L10n.aiFeedbackMore)
+                .accessibilityIdentifier("SP-21.ai.feedback.more")
             }
-            .accessibilityLabel(L10n.aiFeedbackMore)
-            .accessibilityIdentifier("SP-21.ai.feedback.more")
+            .padding(.top, 4)
         }
-        .padding(.top, 4)
     }
 }

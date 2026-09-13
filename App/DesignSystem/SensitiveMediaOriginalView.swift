@@ -1,6 +1,7 @@
 import SwiftUI
 import ImageIO
 import Domain
+import Perception
 
 /// §5.10 敏感媒体原始视图：ImageIO 降采样渲染，避免大图 OOM。
 /// 通过 MediaUnlockSession 共享解锁状态——从缩略图进入时
@@ -43,39 +44,41 @@ struct SensitiveMediaOriginalView: View {
     @State private var unlockTask: Task<Void, Never>?
 
     var body: some View {
-        Group {
-            if unlocked {
-                unlockedContent
-            } else {
-                lockedPlaceholder
+        WithPerceptionTracking {
+            Group {
+                if unlocked {
+                    unlockedContent
+                } else {
+                    lockedPlaceholder
+                }
             }
-        }
-        .navigationTitle(L10n.sensitiveMedia_originalTitle)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button(L10n.commonCancel) { dismiss() }
+            .navigationTitle(L10n.sensitiveMedia_originalTitle)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(L10n.commonCancel) { dismiss() }
+                }
             }
-        }
-        .onAppear {
-            // 第七轮修复（BR-007 时序）：预传 imageData 的路径也把**解码**推迟到
-            // 认证通过之后——原实现在 onAppear 即降采样渲染，认证取消时解码图
-            // 仍驻留内存（文件头契约「认证通过后才落内存」对非 loader 路径失效）
-            displayData = imageData
-            if unlocked { loadDownsampled() }
-        }
-        // 评审修正（BR-007/008）：任务切换器快照防护——SensitiveMediaContainer
-        // 已在 inactive 时重锁，本视图此前缺失同款处理，退后台后快照可能
-        // 仍展示已解锁原图（AppRootView 遮罩提交与系统快照竞态）。
-        .onChange(of: scenePhase) { _, phase in
-            if phase != .active, unlocked {
-                relock()
+            .onAppear {
+                // 第七轮修复（BR-007 时序）：预传 imageData 的路径也把**解码**推迟到
+                // 认证通过之后——原实现在 onAppear 即降采样渲染，认证取消时解码图
+                // 仍驻留内存（文件头契约「认证通过后才落内存」对非 loader 路径失效）
+                displayData = imageData
+                if unlocked { loadDownsampled() }
             }
+            // 评审修正（BR-007/008）：任务切换器快照防护——SensitiveMediaContainer
+            // 已在 inactive 时重锁，本视图此前缺失同款处理，退后台后快照可能
+            // 仍展示已解锁原图（AppRootView 遮罩提交与系统快照竞态）。
+            .onChangeCompat(of: scenePhase) { _, phase in
+                if phase != .active, unlocked {
+                    relock()
+                }
+            }
+            // 与 SensitiveMediaContainer 同纪律：离开即重锁并取消空闲计时——
+            // 原视图弹出销毁后 relockTask 仍持有解码图至 30s TTL（BR-007
+            // 「重锁 = 回到认证前内存态」对离开场景失效）
+            .onDisappear { relock() }
         }
-        // 与 SensitiveMediaContainer 同纪律：离开即重锁并取消空闲计时——
-        // 原视图弹出销毁后 relockTask 仍持有解码图至 30s TTL（BR-007
-        // 「重锁 = 回到认证前内存态」对离开场景失效）
-        .onDisappear { relock() }
     }
 
     private var unlockedContent: some View {
@@ -111,7 +114,7 @@ struct SensitiveMediaOriginalView: View {
                     .frame(width: geo.size.width, height: geo.size.height)
                     .onTapGesture { scheduleRelock() }
             } else if loadFailed {
-                ContentUnavailableView(L10n.sensitiveMedia_loadFailed,
+                VLUnavailableView(L10n.sensitiveMedia_loadFailed,
                                        systemImage: "exclamationmark.triangle")
             } else {
                 ProgressView()
@@ -219,7 +222,7 @@ struct SensitiveMediaOriginalView: View {
             // 第八轮全仓审查修复：非空但不可解码的载荷（截断/损坏 JPEG、
             // 误标非图文件）——downsample 返回 nil 而 loadFailed 恒 false，
             // 解锁后永远转圈无出口（第七轮只修了 nil/空数据形态）。明示
-            // 失败态，与既有失败出口（ContentUnavailableView）同路径。
+            // 失败态，与既有失败出口（VLUnavailableView）同路径。
             loadFailed = true
         }
     }

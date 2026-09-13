@@ -2,6 +2,7 @@ import SwiftUI
 import Combine    // Timer.publish（跨午夜日期判定墙钟推进）
 import Domain
 import Infrastructure   // FamilyPendingDose（FR24.5 跨成员投影）
+import Perception
 
 /// FR24.5 同机照护者视图：本机家庭模式下，"帮家人处理"聚合入口。
 /// 列出可代确认的待办（FR9.5 家人代确认语义，等同 taken）；
@@ -24,79 +25,81 @@ struct CaregiverViews: View {
     @State private var now = Date()
 
     var body: some View {
-        // FR14.1 authFamilyAccess 消费点：关闭 → 照护者视图呈禁用说明态
-        if settings.values[.authFamilyAccess] == "false" {
-            ContentUnavailableView(L10n.privacyAuthFamilyDisabled,
-                                   systemImage: "person.2.slash",
-                                   description: Text(L10n.privacyAuthFamilyDisabledBody))
-            .safeAreaInset(edge: .bottom) {
-                Button {
-                    router.navigate(to: .privacyAuthorization)
-                } label: {
-                    Text(L10n.privacyAuthOpen).frame(maxWidth: .infinity, minHeight: 44)
-                }
-                .buttonStyle(.borderedProminent)
-                .padding(16)
-            }
-        } else {
-        List {
-            if pendingDoses.isEmpty {
-                ContentUnavailableView(L10n.caregiverEmpty,
-                                       systemImage: "checkmark.circle",
-                                       description: Text(L10n.caregiverEmptyHint))
-                    .accessibilityIdentifier("FR24.5.empty")
-            } else {
-                ForEach(pendingDoses) { item in
+        WithPerceptionTracking {
+            // FR14.1 authFamilyAccess 消费点：关闭 → 照护者视图呈禁用说明态
+            if settings.values[.authFamilyAccess] == "false" {
+                VLUnavailableView(L10n.privacyAuthFamilyDisabled,
+                                       systemImage: "person.2.slash",
+                                       description: Text(L10n.privacyAuthFamilyDisabledBody))
+                .safeAreaInset(edge: .bottom) {
                     Button {
-                        selectedDose = item
-                        showConfirmAlert = true
+                        router.navigate(to: .privacyAuthorization)
                     } label: {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(item.patientName)
-                                    .font(.subheadline)
+                        Text(L10n.privacyAuthOpen).frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .padding(16)
+                }
+            } else {
+            List {
+                if pendingDoses.isEmpty {
+                    VLUnavailableView(L10n.caregiverEmpty,
+                                           systemImage: "checkmark.circle",
+                                           description: Text(L10n.caregiverEmptyHint))
+                        .accessibilityIdentifier("FR24.5.empty")
+                } else {
+                    ForEach(pendingDoses) { item in
+                        Button {
+                            selectedDose = item
+                            showConfirmAlert = true
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(item.patientName)
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                    Text(item.medicationName)
+                                        .font(.headline)
+                                    // 窗口含前一日（昨日漏确认剂量在 sweep 前仍可代确认）：
+                                    // 非今日剂量必须带日期，否则昨日 10:00 与今日 10:00
+                                    // 无法区分，代确认可能错认日期
+                                    let isToday = Calendar.current.isDate(item.dose.dueAt, inSameDayAs: now)
+                                    Text(L10n.caregiverPending(
+                                        item.dose.dueAt.formatted(date: isToday ? .omitted : .abbreviated,
+                                                                  time: .shortened)))
+                                        .font(.caption)
+                                        .foregroundStyle(.orange)
+                                }
+                                Spacer()
+                                Image(systemName: "person.2.fill")
                                     .foregroundStyle(.secondary)
-                                Text(item.medicationName)
-                                    .font(.headline)
-                                // 窗口含前一日（昨日漏确认剂量在 sweep 前仍可代确认）：
-                                // 非今日剂量必须带日期，否则昨日 10:00 与今日 10:00
-                                // 无法区分，代确认可能错认日期
-                                let isToday = Calendar.current.isDate(item.dose.dueAt, inSameDayAs: now)
-                                Text(L10n.caregiverPending(
-                                    item.dose.dueAt.formatted(date: isToday ? .omitted : .abbreviated,
-                                                              time: .shortened)))
-                                    .font(.caption)
-                                    .foregroundStyle(.orange)
                             }
-                            Spacer()
-                            Image(systemName: "person.2.fill")
-                                .foregroundStyle(.secondary)
+                        }
+                        .accessibilityIdentifier("FR24.5.row")
+                    }
+                }
+            }
+            .navigationTitle(L10n.caregiverTitle)
+            .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { _ in
+                now = Date()
+            }
+            .alert(L10n.caregiverAlertTitle, isPresented: $showConfirmAlert) {
+                Button(L10n.commonCancel, role: .cancel) { }
+                Button(L10n.caregiverAlertConfirm) {
+                    if let dose = selectedDose {
+                        Task {
+                            await confirmOnBehalf(of: dose)
                         }
                     }
-                    .accessibilityIdentifier("FR24.5.row")
                 }
-            }
-        }
-        .navigationTitle(L10n.caregiverTitle)
-        .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { _ in
-            now = Date()
-        }
-        .alert(L10n.caregiverAlertTitle, isPresented: $showConfirmAlert) {
-            Button(L10n.commonCancel, role: .cancel) { }
-            Button(L10n.caregiverAlertConfirm) {
+            } message: {
                 if let dose = selectedDose {
-                    Task {
-                        await confirmOnBehalf(of: dose)
-                    }
+                    Text(L10n.caregiverAlertBody(patient: dose.patientName,
+                                                 medication: dose.medicationName))
                 }
             }
-        } message: {
-            if let dose = selectedDose {
-                Text(L10n.caregiverAlertBody(patient: dose.patientName,
-                                             medication: dose.medicationName))
+            .task { await loadPendingDoses() }
             }
-        }
-        .task { await loadPendingDoses() }
         }
     }
 

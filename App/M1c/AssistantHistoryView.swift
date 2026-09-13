@@ -2,12 +2,13 @@ import SwiftUI
 import Domain
 import Infrastructure
 import Protocols
+import Perception
 
 // MARK: - FR12.10 AI 会话历史（SP-51 · ui-ux §5.27）
 
 /// 会话历史状态仓（列表/查看/删除/清空——BR-001 成员隔离由查询强制）
 @MainActor
-@Observable
+@Perceptible
 final class AIHistoryState {
     private(set) var conversations: [AIHistoryStore.Conversation] = []
     /// 审查修复（四态契约 error 态）：加载失败此前把 conversations 置空——
@@ -85,74 +86,76 @@ struct AssistantHistoryView: View {
     @State private var showClearConfirm = false
 
     var body: some View {
-        List {
-            if state.loadFailed && state.conversations.isEmpty {
-                // 审查修复（四态 error 态）：加载失败与真空历史必须可区分——
-                // 此前失败清空列表渲染「历史为空」，用户无从知道是错误。
-                ContentUnavailableView {
-                    Label(L10n.aiHistoryLoadFailed, systemImage: "wifi.exclamationmark")
-                } description: {
-                    Text(L10n.aiHistoryLoadFailedHint)
-                } actions: {
-                    Button(L10n.ai_failedRetry) {
-                        Task { await state.load(patientId: app.currentPatientId) }
+        WithPerceptionTracking {
+            List {
+                if state.loadFailed && state.conversations.isEmpty {
+                    // 审查修复（四态 error 态）：加载失败与真空历史必须可区分——
+                    // 此前失败清空列表渲染「历史为空」，用户无从知道是错误。
+                    VLUnavailableView {
+                        Label(L10n.aiHistoryLoadFailed, systemImage: "wifi.exclamationmark")
+                    } description: {
+                        Text(L10n.aiHistoryLoadFailedHint)
+                    } actions: {
+                        Button(L10n.ai_failedRetry) {
+                            Task { await state.load(patientId: app.currentPatientId) }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .frame(minHeight: 44)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .frame(minHeight: 44)
-                }
-                .accessibilityIdentifier("SP-51.history.loadFailed")
-            } else if state.conversations.isEmpty {
-                ContentUnavailableView(L10n.aiHistoryEmpty, systemImage: "bubble.left.and.bubble.right")
-                    .accessibilityIdentifier("SP-51.history.empty")
-            } else {
-                ForEach(state.conversations) { conv in
-                    Button {
-                        selected = conv
-                    } label: {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(conv.title).font(.subheadline).lineLimit(1)
-                                Text(L10n.aiHistoryCount(conv.messageCount))
-                                    .font(.caption).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("SP-51.history.loadFailed")
+                } else if state.conversations.isEmpty {
+                    VLUnavailableView(L10n.aiHistoryEmpty, systemImage: "bubble.left.and.bubble.right")
+                        .accessibilityIdentifier("SP-51.history.empty")
+                } else {
+                    ForEach(state.conversations) { conv in
+                        Button {
+                            selected = conv
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(conv.title).font(.subheadline).lineLimit(1)
+                                    Text(L10n.aiHistoryCount(conv.messageCount))
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Text(conv.createdAt.formatted(date: .abbreviated, time: .omitted))
+                                    .font(.caption2).foregroundStyle(.tertiary)
                             }
-                            Spacer()
-                            Text(conv.createdAt.formatted(date: .abbreviated, time: .omitted))
-                                .font(.caption2).foregroundStyle(.tertiary)
                         }
-                    }
-                    .swipeActions {
-                        Button(L10n.aiHistoryDelete, role: .destructive) {
-                            Task { await state.delete(conversationId: conv.id) }
+                        .swipeActions {
+                            Button(L10n.aiHistoryDelete, role: .destructive) {
+                                Task { await state.delete(conversationId: conv.id) }
+                            }
                         }
+                        .accessibilityIdentifier("SP-51.history.row")
                     }
-                    .accessibilityIdentifier("SP-51.history.row")
                 }
             }
-        }
-        .navigationTitle(L10n.aiHistoryTitle)
-        .toolbar {
-            if !state.conversations.isEmpty {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(L10n.aiHistoryClearAll, role: .destructive) {
-                        showClearConfirm = true
+            .navigationTitle(L10n.aiHistoryTitle)
+            .toolbar {
+                if !state.conversations.isEmpty {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button(L10n.aiHistoryClearAll, role: .destructive) {
+                            showClearConfirm = true
+                        }
+                        .accessibilityIdentifier("SP-51.history.clearAll")
                     }
-                    .accessibilityIdentifier("SP-51.history.clearAll")
                 }
             }
-        }
-        .confirmationDialog(L10n.aiHistoryClearAll, isPresented: $showClearConfirm,
-                            titleVisibility: .visible) {
-            Button(L10n.aiHistoryClearAll, role: .destructive) {
-                Task { await state.clearAll(patientId: app.currentPatientId) }
+            .confirmationDialog(L10n.aiHistoryClearAll, isPresented: $showClearConfirm,
+                                titleVisibility: .visible) {
+                Button(L10n.aiHistoryClearAll, role: .destructive) {
+                    Task { await state.clearAll(patientId: app.currentPatientId) }
+                }
+                Button(L10n.commonCancel, role: .cancel) { }
+            } message: {
+                Text(L10n.aiHistoryClearNote)
             }
-            Button(L10n.commonCancel, role: .cancel) { }
-        } message: {
-            Text(L10n.aiHistoryClearNote)
+            .sheet(item: $selected) { conv in
+                ConversationDetailView(conversation: conv)
+            }
+            .task(id: app.currentPatientId) { await state.load(patientId: app.currentPatientId) }
         }
-        .sheet(item: $selected) { conv in
-            ConversationDetailView(conversation: conv)
-        }
-        .task(id: app.currentPatientId) { await state.load(patientId: app.currentPatientId) }
     }
 }
 
@@ -163,24 +166,26 @@ private struct ConversationDetailView: View {
     @State private var messages: [AIHistoryStore.Message] = []
 
     var body: some View {
-        NavigationStack {
-            List(messages) { msg in
-                VStack(alignment: msg.role == "user" ? .trailing : .leading, spacing: 4) {
-                    Text(msg.content)
-                        .font(.subheadline)
-                        .padding(10)
-                        .background(RoundedRectangle(cornerRadius: 12)
-                            .fill(msg.role == "user" ? Color("brand-primary", bundle: .main).opacity(0.12)
-                                  : Color(.systemGray6)))
-                    Text(msg.createdAt.formatted(date: .omitted, time: .shortened))
-                        .font(.caption2).foregroundStyle(.tertiary)
+        WithPerceptionTracking {
+            NavigationStack {
+                List(messages) { msg in
+                    VStack(alignment: msg.role == "user" ? .trailing : .leading, spacing: 4) {
+                        Text(msg.content)
+                            .font(.subheadline)
+                            .padding(10)
+                            .background(RoundedRectangle(cornerRadius: 12)
+                                .fill(msg.role == "user" ? Color("brand-primary", bundle: .main).opacity(0.12)
+                                      : Color(.systemGray6)))
+                        Text(msg.createdAt.formatted(date: .omitted, time: .shortened))
+                            .font(.caption2).foregroundStyle(.tertiary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: msg.role == "user" ? .trailing : .leading)
                 }
-                .frame(maxWidth: .infinity, alignment: msg.role == "user" ? .trailing : .leading)
-            }
-            .navigationTitle(conversation.title)
-            .navigationBarTitleDisplayMode(.inline)
-            .task {
-                messages = await state.messages(conversationId: conversation.id)
+                .navigationTitle(conversation.title)
+                .navigationBarTitleDisplayMode(.inline)
+                .task {
+                    messages = await state.messages(conversationId: conversation.id)
+                }
             }
         }
     }

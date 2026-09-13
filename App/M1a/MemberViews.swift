@@ -1,6 +1,7 @@
 import SwiftUI
 import Domain
 import Infrastructure   // MemberDeletionService
+import Perception
 
 /// F3 成员管理（SP-06 切片）：列表/切换/添加家人（FR3.7）。
 ///
@@ -14,80 +15,85 @@ struct MemberManagementView: View {
     @State private var quotaHint: String?
 
     var body: some View {
-        List {
-            Section {
-                ForEach(app.members) { member in
-                    HStack {
-                        memberIcon(member.relation).resizable().frame(width: 24, height: 24)
-                            .accessibilityLabel(memberIconLabel(member.relation))
-                        NavigationLink {
-                            MemberDetailView(member: member)
-                        } label: {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(member.displayName).font(.subheadline)
-                                Text(L10n.memberRelationDisplayName(member.relation))
-                                    .font(.caption).foregroundStyle(.secondary)
+        WithPerceptionTracking {
+            List {
+                Section {
+                    ForEach(app.members) { member in
+                        // ForEach 行闭包逃逸：行内同步读感知对象属性，须自行包裹（子项目 I）
+                        WithPerceptionTracking {
+                            HStack {
+                                memberIcon(member.relation).resizable().frame(width: 24, height: 24)
+                                    .accessibilityLabel(memberIconLabel(member.relation))
+                                NavigationLink {
+                                    MemberDetailView(member: member)
+                                } label: {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(member.displayName).font(.subheadline)
+                                        Text(L10n.memberRelationDisplayName(member.relation))
+                                            .font(.caption).foregroundStyle(.secondary)
+                                    }
+                                }
+                                Spacer()
+                                if member.id == app.currentPatientId {
+                                    Text(L10n.member_current).font(.caption).bold()
+                                        .padding(.horizontal, 8).padding(.vertical, 4)
+                                        .background(Capsule().fill(Color("brand-primary", bundle: .main).opacity(0.15)))
+                                        .foregroundStyle(Color("brand-primary", bundle: .main))
+                                } else {
+                                    Button(L10n.member_switch) {
+                                        app.setCurrentPatient(member.id)
+                                    }
+                                    .font(.caption)
+                                    .frame(minHeight: 44)
+                                    .accessibilityIdentifier("FR3.7.member.switch")
+                                }
                             }
-                        }
-                        Spacer()
-                        if member.id == app.currentPatientId {
-                            Text(L10n.member_current).font(.caption).bold()
-                                .padding(.horizontal, 8).padding(.vertical, 4)
-                                .background(Capsule().fill(Color("brand-primary", bundle: .main).opacity(0.15)))
-                                .foregroundStyle(Color("brand-primary", bundle: .main))
-                        } else {
-                            Button(L10n.member_switch) {
-                                app.setCurrentPatient(member.id)
-                            }
-                            .font(.caption)
-                            .frame(minHeight: 44)
-                            .accessibilityIdentifier("FR3.7.member.switch")
+                            .accessibilityElement(children: .contain)
+                            .accessibilityIdentifier("FR3.7.member.row")
                         }
                     }
-                    .accessibilityElement(children: .contain)
-                    .accessibilityIdentifier("FR3.7.member.row")
+                } footer: {
+                    Text(L10n.member_quotaHint)
                 }
-            } footer: {
-                Text(L10n.member_quotaHint)
-            }
-            Section {
-                Button {
-                    showAdd = true
-                } label: {
-                    Label(L10n.member_add, systemImage: "person.badge.plus").frame(minHeight: 44)
+                Section {
+                    Button {
+                        showAdd = true
+                    } label: {
+                        Label(L10n.member_add, systemImage: "person.badge.plus").frame(minHeight: 44)
+                    }
+                    .accessibilityIdentifier("FR3.7.member.add")
                 }
-                .accessibilityIdentifier("FR3.7.member.add")
             }
-        }
-        .navigationTitle(L10n.member_title)
-        .task { await app.loadMembers() }
-        .sheet(isPresented: $showAdd) {
-            MemberCreateSheet { name, relation, birthDate in
-                Task { @MainActor in
-                    // 五时机 memberQuotaReached（Domain 判定 + 弹墙调度 + 24h 频控）。
-                    // 评审修正：闸门与弹墙解耦——放行只看「额度未超 或 已持 Pro」，
-                    // evaluateTrigger 仅决定墙弹不弹（24h 频控不得成为放行通道）
-                    if PaywallRules.memberAdditionBlocked(
-                        currentCount: app.members.count,
-                        ownedProducts: entitlements.owned) {
-                        // 评审修正第二轮：弹墙被 24h 频控抑制时不得静默关单——
-                        // 回落为列表内常驻配额提示（用户至少知道为什么没加上）
-                        if !entitlements.evaluateTrigger(.memberQuotaReached) {
-                            quotaHint = L10n.member_quotaHint
+            .navigationTitle(L10n.member_title)
+            .task { await app.loadMembers() }
+            .sheet(isPresented: $showAdd) {
+                MemberCreateSheet { name, relation, birthDate in
+                    Task { @MainActor in
+                        // 五时机 memberQuotaReached（Domain 判定 + 弹墙调度 + 24h 频控）。
+                        // 评审修正：闸门与弹墙解耦——放行只看「额度未超 或 已持 Pro」，
+                        // evaluateTrigger 仅决定墙弹不弹（24h 频控不得成为放行通道）
+                        if PaywallRules.memberAdditionBlocked(
+                            currentCount: app.members.count,
+                            ownedProducts: entitlements.owned) {
+                            // 评审修正第二轮：弹墙被 24h 频控抑制时不得静默关单——
+                            // 回落为列表内常驻配额提示（用户至少知道为什么没加上）
+                            if !entitlements.evaluateTrigger(.memberQuotaReached) {
+                                quotaHint = L10n.member_quotaHint
+                            }
+                            showAdd = false
+                            return
                         }
+                        let ok = await app.addMember(name: name, relation: relation, birthDate: birthDate)
+                        quotaHint = ok ? L10n.member_addedHint : nil
                         showAdd = false
-                        return
                     }
-                    let ok = await app.addMember(name: name, relation: relation, birthDate: birthDate)
-                    quotaHint = ok ? L10n.member_addedHint : nil
-                    showAdd = false
                 }
             }
-        }
-        .alert(quotaHint ?? L10n.member_addedHint, isPresented: Binding(
-            get: { quotaHint != nil },
-            set: { if !$0 { quotaHint = nil } })) {
-            Button(L10n.onboard_gotIt, role: .cancel) {}
+            .alert(quotaHint ?? L10n.member_addedHint, isPresented: Binding(
+                get: { quotaHint != nil },
+                set: { if !$0 { quotaHint = nil } })) {
+                Button(L10n.onboard_gotIt, role: .cancel) {}
+            }
         }
     }
 }
@@ -119,88 +125,90 @@ struct MemberDetailView: View {
     }
 
     var body: some View {
-        Form {
-            Section(L10n.memberDetailBasic) {
-                LabeledContent(L10n.member_namePlaceholder, value: current.displayName)
-                LabeledContent(L10n.member_relation,
-                               value: L10n.memberRelationDisplayName(current.relation))
-                if let birth = current.birthDate {
-                    LabeledContent(L10n.member_birthDatePlaceholder, value: birth)
-                }
-            }
-            // FR3.1 字段补全（P0：血型/证件号/医保号）
-            Section(L10n.memberDetailMore) {
-                TextField(L10n.memberBloodType, text: $bloodType)
-                TextField(L10n.memberIdNo, text: $idNo)
-                TextField(L10n.memberInsuranceNo, text: $insuranceNo)
-                TextField(L10n.memberNote, text: $note, axis: .vertical)
-                Button(L10n.reminder_save) {
-                    var updated = current
-                    updated.bloodType = bloodType.isEmpty ? nil : bloodType
-                    updated.idNo = idNo.isEmpty ? nil : idNo
-                    updated.insuranceNo = insuranceNo.isEmpty ? nil : insuranceNo
-                    updated.note = note.isEmpty ? nil : note
-                    updated.updatedAt = Date().timeIntervalSince1970
-                    Task {
-                        // 审查修复：写库结果必须可见——失败只记日志时用户
-                        // 相信已保存、数据下次启动静默回退
-                        if await app.updateMember(updated) {
-                            current = updated
-                        } else {
-                            saveFailed = true
-                        }
+        WithPerceptionTracking {
+            Form {
+                Section(L10n.memberDetailBasic) {
+                    LabeledContent(L10n.member_namePlaceholder, value: current.displayName)
+                    LabeledContent(L10n.member_relation,
+                                   value: L10n.memberRelationDisplayName(current.relation))
+                    if let birth = current.birthDate {
+                        LabeledContent(L10n.member_birthDatePlaceholder, value: birth)
                     }
                 }
-                .accessibilityIdentifier("FR3.1.member.update")
-            }
-            // 删除流（FR3.4：影响清单 → 姓名确认 → 计划处置选择）
-            // 审查修复：删除保护闸门改按 ID 判定本人——原以显示串
-            // 「本人」比较，zh-Hant/未来多语言下闸门失效
-            // 审查修复第二轮：owner 未装载（启动加载失败/降级容器）时
-            // `member.id != app.owner?.selfPatientId` 对全部成员成立（含本人）——
-            // 本人档案可被删，BR-001 锚点随 `owner?.selfPatientId ?? patientId`
-            // 回落到已软删成员。无法确立「谁是本人」时一律隐藏删除入口
-            // （纵深防线在 MemberDeletionService 服务端二次拒绝）。
-            Section {
-                if let selfId = app.owner?.selfPatientId {
-                    if member.id != selfId {
-                        Button(L10n.memberDelete, role: .destructive) {
-                            Task {
-                                impact = await app.memberDeletionImpact(patientId: member.id)
-                                showDeleteFlow = true
+                // FR3.1 字段补全（P0：血型/证件号/医保号）
+                Section(L10n.memberDetailMore) {
+                    TextField(L10n.memberBloodType, text: $bloodType)
+                    TextField(L10n.memberIdNo, text: $idNo)
+                    TextField(L10n.memberInsuranceNo, text: $insuranceNo)
+                    TextField(L10n.memberNote, text: $note, axis: .vertical)
+                    Button(L10n.reminder_save) {
+                        var updated = current
+                        updated.bloodType = bloodType.isEmpty ? nil : bloodType
+                        updated.idNo = idNo.isEmpty ? nil : idNo
+                        updated.insuranceNo = insuranceNo.isEmpty ? nil : insuranceNo
+                        updated.note = note.isEmpty ? nil : note
+                        updated.updatedAt = Date().timeIntervalSince1970
+                        Task {
+                            // 审查修复：写库结果必须可见——失败只记日志时用户
+                            // 相信已保存、数据下次启动静默回退
+                            if await app.updateMember(updated) {
+                                current = updated
+                            } else {
+                                saveFailed = true
                             }
                         }
-                        .accessibilityIdentifier("FR3.4.member.delete")
-                    } else {
-                        Text(L10n.memberSelfNoDelete)
-                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    .accessibilityIdentifier("FR3.1.member.update")
+                }
+                // 删除流（FR3.4：影响清单 → 姓名确认 → 计划处置选择）
+                // 审查修复：删除保护闸门改按 ID 判定本人——原以显示串
+                // 「本人」比较，zh-Hant/未来多语言下闸门失效
+                // 审查修复第二轮：owner 未装载（启动加载失败/降级容器）时
+                // `member.id != app.owner?.selfPatientId` 对全部成员成立（含本人）——
+                // 本人档案可被删，BR-001 锚点随 `owner?.selfPatientId ?? patientId`
+                // 回落到已软删成员。无法确立「谁是本人」时一律隐藏删除入口
+                // （纵深防线在 MemberDeletionService 服务端二次拒绝）。
+                Section {
+                    if let selfId = app.owner?.selfPatientId {
+                        if member.id != selfId {
+                            Button(L10n.memberDelete, role: .destructive) {
+                                Task {
+                                    impact = await app.memberDeletionImpact(patientId: member.id)
+                                    showDeleteFlow = true
+                                }
+                            }
+                            .accessibilityIdentifier("FR3.4.member.delete")
+                        } else {
+                            Text(L10n.memberSelfNoDelete)
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
                     }
                 }
             }
-        }
-        .navigationTitle(current.displayName)
-        .onAppear {
-            bloodType = current.bloodType ?? ""
-            idNo = current.idNo ?? ""
-            insuranceNo = current.insuranceNo ?? ""
-            note = current.note ?? ""
-        }
-        .sheet(isPresented: $showDeleteFlow) {
-            DeleteMemberFlowSheet(member: member, impact: impact ?? MemberDeletionService.Impact(),
-                                  choice: $deleteChoice, confirmName: $confirmName) {
-                Task {
-                    let ok = await app.deleteMember(patientId: member.id, choice: deleteChoice)
-                    if ok {
-                        showDeleteFlow = false
-                        dismiss()
+            .navigationTitle(current.displayName)
+            .onAppear {
+                bloodType = current.bloodType ?? ""
+                idNo = current.idNo ?? ""
+                insuranceNo = current.insuranceNo ?? ""
+                note = current.note ?? ""
+            }
+            .sheet(isPresented: $showDeleteFlow) {
+                DeleteMemberFlowSheet(member: member, impact: impact ?? MemberDeletionService.Impact(),
+                                      choice: $deleteChoice, confirmName: $confirmName) {
+                    Task {
+                        let ok = await app.deleteMember(patientId: member.id, choice: deleteChoice)
+                        if ok {
+                            showDeleteFlow = false
+                            dismiss()
+                        }
                     }
                 }
             }
-        }
-        .alert(L10n.memberUpdateFailed, isPresented: $saveFailed) {
-            Button(L10n.onboard_gotIt, role: .cancel) { }
-        } message: {
-            Text(L10n.memberUpdateFailedHint)
+            .alert(L10n.memberUpdateFailed, isPresented: $saveFailed) {
+                Button(L10n.onboard_gotIt, role: .cancel) { }
+            } message: {
+                Text(L10n.memberUpdateFailedHint)
+            }
         }
     }
 }
@@ -215,38 +223,40 @@ private struct DeleteMemberFlowSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section(L10n.memberDeleteImpact) {
-                    LabeledContent(L10n.memberDeleteImpactDocs, value: "\(impact.documentCount)")
-                    LabeledContent(L10n.memberDeleteImpactObs, value: "\(impact.observationCount)")
-                    LabeledContent(L10n.memberDeleteImpactPlans, value: "\(impact.planCount)")
-                    LabeledContent(L10n.memberDeleteImpactAppts, value: "\(impact.appointmentCount)")
-                    Text(L10n.memberDeleteKeepDocs)
-                        .font(.footnote).foregroundStyle(.secondary)
-                }
-                Section(L10n.memberDeletePlanChoice) {
-                    Picker("", selection: $choice) {
-                        Text(L10n.memberDeletePlans).tag(MemberDeletionService.DeleteChoice.deletePlans)
-                        Text(L10n.memberArchivePlans).tag(MemberDeletionService.DeleteChoice.archivePlans)
+        WithPerceptionTracking {
+            NavigationStack {
+                Form {
+                    Section(L10n.memberDeleteImpact) {
+                        LabeledContent(L10n.memberDeleteImpactDocs, value: "\(impact.documentCount)")
+                        LabeledContent(L10n.memberDeleteImpactObs, value: "\(impact.observationCount)")
+                        LabeledContent(L10n.memberDeleteImpactPlans, value: "\(impact.planCount)")
+                        LabeledContent(L10n.memberDeleteImpactAppts, value: "\(impact.appointmentCount)")
+                        Text(L10n.memberDeleteKeepDocs)
+                            .font(.footnote).foregroundStyle(.secondary)
                     }
-                    .pickerStyle(.segmented)
-                }
-                Section(L10n.memberDeleteConfirm) {
-                    // FR3.4：需输入成员姓名二次确认
-                    TextField(L10n.memberDeleteConfirmPlaceholder(member.displayName), text: $confirmName)
-                        .textInputAutocapitalization(.never)
-                    Button(L10n.memberDeleteConfirmButton, role: .destructive) {
-                        onConfirm()
+                    Section(L10n.memberDeletePlanChoice) {
+                        Picker("", selection: $choice) {
+                            Text(L10n.memberDeletePlans).tag(MemberDeletionService.DeleteChoice.deletePlans)
+                            Text(L10n.memberArchivePlans).tag(MemberDeletionService.DeleteChoice.archivePlans)
+                        }
+                        .pickerStyle(.segmented)
                     }
-                    .disabled(confirmName != member.displayName)
-                    .accessibilityIdentifier("FR3.4.member.delete.confirm")
+                    Section(L10n.memberDeleteConfirm) {
+                        // FR3.4：需输入成员姓名二次确认
+                        TextField(L10n.memberDeleteConfirmPlaceholder(member.displayName), text: $confirmName)
+                            .textInputAutocapitalization(.never)
+                        Button(L10n.memberDeleteConfirmButton, role: .destructive) {
+                            onConfirm()
+                        }
+                        .disabled(confirmName != member.displayName)
+                        .accessibilityIdentifier("FR3.4.member.delete.confirm")
+                    }
                 }
-            }
-            .navigationTitle(L10n.memberDelete)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(L10n.commonCancel) { dismiss() }
+                .navigationTitle(L10n.memberDelete)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button(L10n.commonCancel) { dismiss() }
+                    }
                 }
             }
         }
@@ -263,29 +273,31 @@ struct MemberConfirmBar: View {
     let onSwitch: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
-            Circle()
-                .fill(Color("brand-primary", bundle: .main).opacity(0.15))
-                .frame(width: 44, height: 44)
-                .overlay(Text(String(patientName.prefix(1))).font(.headline)
-                    .foregroundStyle(Color("brand-primary", bundle: .main)))
-            VStack(alignment: .leading, spacing: 2) {
-                Text(L10n.memberConfirmBelongsTo)
-                    .font(.caption).foregroundStyle(.secondary)
-                Text(patientName)
-                    .font(.title3.bold())
-                Text(L10n.memberRelationDisplayName(relation))
-                    .font(.caption).foregroundStyle(.secondary)
+        WithPerceptionTracking {
+            HStack(spacing: 12) {
+                Circle()
+                    .fill(Color("brand-primary", bundle: .main).opacity(0.15))
+                    .frame(width: 44, height: 44)
+                    .overlay(Text(String(patientName.prefix(1))).font(.headline)
+                        .foregroundStyle(Color("brand-primary", bundle: .main)))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(L10n.memberConfirmBelongsTo)
+                        .font(.caption).foregroundStyle(.secondary)
+                    Text(patientName)
+                        .font(.title3.bold())
+                    Text(L10n.memberRelationDisplayName(relation))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button(L10n.memberConfirmSwitch) { onSwitch() }
+                    .font(.subheadline)
+                    .frame(minHeight: 44)
             }
-            Spacer()
-            Button(L10n.memberConfirmSwitch) { onSwitch() }
-                .font(.subheadline)
-                .frame(minHeight: 44)
+            .padding(12)
+            .background(RoundedRectangle(cornerRadius: 14)
+                .fill(Color("brand-primary", bundle: .main).opacity(0.06)))
+            .accessibilityIdentifier("FR3.3.memberConfirmBar")
         }
-        .padding(12)
-        .background(RoundedRectangle(cornerRadius: 14)
-            .fill(Color("brand-primary", bundle: .main).opacity(0.06)))
-        .accessibilityIdentifier("FR3.3.memberConfirmBar")
     }
 }
 
@@ -304,26 +316,28 @@ struct MemberCreateSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            Form {
-                TextField(L10n.member_namePlaceholder, text: $name)
-                    .accessibilityIdentifier("FR3.7.create.name")
-                Picker(L10n.member_relation, selection: $relation) {
-                    ForEach(relations, id: \.self) { rel in
-                        Text(localizedRelation(rel)).tag(rel)
+        WithPerceptionTracking {
+            NavigationStack {
+                Form {
+                    TextField(L10n.member_namePlaceholder, text: $name)
+                        .accessibilityIdentifier("FR3.7.create.name")
+                    Picker(L10n.member_relation, selection: $relation) {
+                        ForEach(relations, id: \.self) { rel in
+                            Text(localizedRelation(rel)).tag(rel)
+                        }
                     }
+                    TextField(L10n.member_birthDatePlaceholder, text: $birthDate)
+                        .accessibilityIdentifier("FR3.7.create.birthDate")
                 }
-                TextField(L10n.member_birthDatePlaceholder, text: $birthDate)
-                    .accessibilityIdentifier("FR3.7.create.birthDate")
-            }
-            .navigationTitle(L10n.member_add)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(L10n.member_save) {
-                        onCreate(name, relation, birthDate.isEmpty ? nil : birthDate)
+                .navigationTitle(L10n.member_add)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(L10n.member_save) {
+                            onCreate(name, relation, birthDate.isEmpty ? nil : birthDate)
+                        }
+                        .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+                        .accessibilityIdentifier("FR3.7.create.save")
                     }
-                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
-                    .accessibilityIdentifier("FR3.7.create.save")
                 }
             }
         }

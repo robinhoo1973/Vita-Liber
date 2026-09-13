@@ -1,6 +1,6 @@
 import XCTest
 import Foundation
-import Observation
+import Perception
 import Domain
 import Protocols
 @testable import VitaLiber
@@ -68,7 +68,7 @@ final class HomeProfileProgressTests: XCTestCase {
         let (app, _) = makeApp(profiles: [a, b])
         await app.bootstrap()
         let changed = expectation(description: "成员切换必须发布新进度")
-        withObservationTracking {
+        withPerceptionTracking {
             _ = app.profileCompletion
         } onChange: {
             changed.fulfill()

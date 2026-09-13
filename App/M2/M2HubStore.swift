@@ -4,6 +4,7 @@ import os
 import Domain
 import Infrastructure
 import Protocols
+import Perception
 
 /// M2 各页共用的装配状态仓（@Observable，@MainActor）。
 ///
@@ -12,7 +13,7 @@ import Protocols
 /// 本仓不做任何业务判定：判定全在 Domain（InventoryRules/EmergencyCardService/
 /// MessageStatusRules…），这里只做加载与透传。
 @MainActor
-@Observable
+@Perceptible
 final class M2HubStore {
     // 药箱
     private(set) var inventoryItems: [MedicationStore.InventorySummaryItem] = []

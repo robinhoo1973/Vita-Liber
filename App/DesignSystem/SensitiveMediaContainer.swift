@@ -1,5 +1,6 @@
 import SwiftUI
 import Domain
+import Perception
 
 /// 敏感媒体保护容器（BR-007/BR-008 · FR8.4 · tech-spec §5.10）。
 ///
@@ -37,33 +38,35 @@ struct SensitiveMediaContainer<Content: View, Placeholder: View>: View {
     }
 
     var body: some View {
-        ZStack {
-            placeholder(unlocked)
-            if unlocked { content(unlocked) }
-        }
-        .onTapGesture {
-            guard !unlocked, !unlocking else { return }
-            // BR-007/BR-009（V3.22 修订）：无应用 PIN 后按 FR1.9 直接用系统设备所有者
-            // 认证（Face ID/Touch ID + 设备密码兜底）。每次都是新弹系统浮层的独立认证。
-            unlocking = true   // 同步置位（防连点双认证，见属性注）
-            Task {
-                if await app.requestUnlock(reason: L10n.sensitive_unlockReason) {
-                    unlocked = true
-                    scheduleRelock()
-                }
-                unlocking = false
+        WithPerceptionTracking {
+            ZStack {
+                placeholder(unlocked)
+                if unlocked { content(unlocked) }
             }
+            .onTapGesture {
+                guard !unlocked, !unlocking else { return }
+                // BR-007/BR-009（V3.22 修订）：无应用 PIN 后按 FR1.9 直接用系统设备所有者
+                // 认证（Face ID/Touch ID + 设备密码兜底）。每次都是新弹系统浮层的独立认证。
+                unlocking = true   // 同步置位（防连点双认证，见属性注）
+                Task {
+                    if await app.requestUnlock(reason: L10n.sensitive_unlockReason) {
+                        unlocked = true
+                        scheduleRelock()
+                    }
+                    unlocking = false
+                }
+            }
+            // 读图/点击/拖动/滚动均视为活跃——活跃即重置空闲重锁窗口
+            .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in
+                guard unlocked else { return }
+                scheduleRelock()
+            })
+            .onChangeCompat(of: scenePhase) { _, phase in
+                guard phase != .active, unlocked else { return }
+                relock()
+            }
+            .onDisappear { relock() }
         }
-        // 读图/点击/拖动/滚动均视为活跃——活跃即重置空闲重锁窗口
-        .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in
-            guard unlocked else { return }
-            scheduleRelock()
-        })
-        .onChange(of: scenePhase) { _, phase in
-            guard phase != .active, unlocked else { return }
-            relock()
-        }
-        .onDisappear { relock() }
     }
 
     private func scheduleRelock() {

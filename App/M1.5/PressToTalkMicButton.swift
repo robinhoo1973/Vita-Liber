@@ -1,6 +1,7 @@
 import SwiftUI
 import Domain
 import Protocols
+import Perception
 
 /// FR17.1 / SP-55: hold to dictate; short tap and accessibility actions provide a toggle equivalent.
 @MainActor
@@ -8,76 +9,76 @@ struct PressToTalkMicButton: View {
     let model: VoiceDictationModel
 
     var body: some View {
-        VStack(spacing: 10) {
-            ZStack {
-                Circle()
-                    .stroke(ringColor, lineWidth: model.phase == .recording ? 5 : 2)
-                    .frame(width: model.phase == .recording ? 128 : 116,
-                           height: model.phase == .recording ? 128 : 116)
-                Circle()
-                    .fill(model.phase == .recording
-                          ? Color("semantic-danger", bundle: .main).opacity(0.15)
-                          : Color("bg-grouped", bundle: .main))
-                    .frame(width: 104, height: 104)
-                VStack(spacing: 5) {
-                    Image(systemName: model.phase == .recording ? "waveform" : "mic.fill")
-                        .font(.system(size: 40))
-                        .foregroundStyle(model.phase == .recording
-                                         ? Color("semantic-danger", bundle: .main)
-                                         : Color("brand-primary", bundle: .main))
-                        .symbolEffect(.variableColor.iterative,
-                                      options: .repeating,
-                                      isActive: model.phase == .recording)
-                    if model.phase == .recording {
-                        HStack(alignment: .center, spacing: 3) {
-                            ForEach(Array([6.0, 12, 18, 12, 6].enumerated()), id: \.offset) { _, h in
-                                Capsule()
-                                    .fill(Color("semantic-danger", bundle: .main))
-                                    .frame(width: 3, height: h)
+        WithPerceptionTracking {
+            VStack(spacing: 10) {
+                ZStack {
+                    Circle()
+                        .stroke(ringColor, lineWidth: model.phase == .recording ? 5 : 2)
+                        .frame(width: model.phase == .recording ? 128 : 116,
+                               height: model.phase == .recording ? 128 : 116)
+                    Circle()
+                        .fill(model.phase == .recording
+                              ? Color("semantic-danger", bundle: .main).opacity(0.15)
+                              : Color("bg-grouped", bundle: .main))
+                        .frame(width: 104, height: 104)
+                    VStack(spacing: 5) {
+                        Image(systemName: model.phase == .recording ? "waveform" : "mic.fill")
+                            .font(.system(size: 40))
+                            .foregroundStyle(model.phase == .recording
+                                             ? Color("semantic-danger", bundle: .main)
+                                             : Color("brand-primary", bundle: .main))
+                            .recordingPulseCompat(isActive: model.phase == .recording)
+                        if model.phase == .recording {
+                            HStack(alignment: .center, spacing: 3) {
+                                ForEach(Array([6.0, 12, 18, 12, 6].enumerated()), id: \.offset) { _, h in
+                                    Capsule()
+                                        .fill(Color("semantic-danger", bundle: .main))
+                                        .frame(width: 3, height: h)
+                                }
                             }
+                            .transition(.opacity)
                         }
-                        .transition(.opacity)
                     }
                 }
-            }
-            .animation(.easeInOut(duration: 0.25), value: model.phase)
-            .frame(minWidth: 128, minHeight: 128)   // 触控目标 ≥64pt（关怀模式纪律）
-            .accessibilityIdentifier("SP-55.panel.pressToTalk")
-            .accessibilityLabel(model.phase == .recording ? L10n.voicenoteStop : L10n.voicenoteDictation)
-            .modifier(DictationInteraction(model: model))
+                .animation(.easeInOut(duration: 0.25), value: model.phase)
+                .frame(minWidth: 128, minHeight: 128)   // 触控目标 ≥64pt（关怀模式纪律）
+                .accessibilityIdentifier("SP-55.panel.pressToTalk")
+                .accessibilityLabel(model.phase == .recording ? L10n.voicenoteStop : L10n.voicenoteDictation)
+                .modifier(DictationInteraction(model: model))
 
-            // 聆听状态 / 部分文本 / 失败兜底 / 待机提示（§4.23 声波与聆听状态）
-            switch model.phase {
-            case .recording:
-                Text(model.isPreparing ? L10n.asrPreparing : L10n.voicenoteDictating)
-                    .font(.subheadline)
-                    .foregroundStyle(Color("semantic-danger", bundle: .main))
-                if !model.partial.isEmpty {
-                    Text(model.partial)
-                        .font(.footnote)
+                // 聆听状态 / 部分文本 / 失败兜底 / 待机提示（§4.23 声波与聆听状态）
+                switch model.phase {
+                case .recording:
+                    Text(model.isPreparing ? L10n.asrPreparing : L10n.voicenoteDictating)
+                        .font(.subheadline)
+                        .foregroundStyle(Color("semantic-danger", bundle: .main))
+                    if !model.partial.isEmpty {
+                        Text(model.partial)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 24)
+                            .accessibilityIdentifier("SP-55.panel.partial")
+                    }
+                case .failed:
+                    Text(L10n.voicenoteDictationFailed)
+                        .font(.caption)
+                        .foregroundStyle(Color("semantic-warning", bundle: .main))
+                case .idle:
+                    Text(L10n.voicenoteDictation)
+                        .font(.subheadline)
                         .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 24)
-                        .accessibilityIdentifier("SP-55.panel.partial")
                 }
-            case .failed:
-                Text(L10n.voicenoteDictationFailed)
-                    .font(.caption)
-                    .foregroundStyle(Color("semantic-warning", bundle: .main))
-            case .idle:
-                Text(L10n.voicenoteDictation)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                if model.hasIncompleteTranscript {
+                    Label(L10n.voiceDictationIncomplete, systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(Color("semantic-warning", bundle: .main))
+                        .accessibilityIdentifier("SP-55.panel.incomplete")
+                }
             }
-            if model.hasIncompleteTranscript {
-                Label(L10n.voiceDictationIncomplete, systemImage: "exclamationmark.triangle")
-                    .font(.caption)
-                    .foregroundStyle(Color("semantic-warning", bundle: .main))
-                    .accessibilityIdentifier("SP-55.panel.incomplete")
-            }
+            .frame(maxWidth: .infinity)
         }
-        .frame(maxWidth: .infinity)
     }
 
     private var ringColor: Color {
@@ -130,68 +131,70 @@ struct DictationInteraction: ViewModifier {
     @State private var cancelledTouch = false
 
     func body(content: Content) -> some View {
-        content
-            .contentShape(Rectangle())
-            .gesture(DragGesture(minimumDistance: 0)
-                .updating($touching) { _, active, _ in active = true }
-                .onChanged { value in
-                    guard isEnabled, scenePhase == .active, !cancelledTouch else { return }
-                    // Preserve long-press movement cancellation instead of recording while the user scrolls.
-                    if max(abs(value.translation.width), abs(value.translation.height)) > 10 {
-                        cancelledTouch = true
+        WithPerceptionTracking {
+            content
+                .contentShape(Rectangle())
+                .gesture(DragGesture(minimumDistance: 0)
+                    .updating($touching) { _, active, _ in active = true }
+                    .onChanged { value in
+                        guard isEnabled, scenePhase == .active, !cancelledTouch else { return }
+                        // Preserve long-press movement cancellation instead of recording while the user scrolls.
+                        if max(abs(value.translation.width), abs(value.translation.height)) > 10 {
+                            cancelledTouch = true
+                            endPress(cancelled: true)
+                            return
+                        }
+                        guard press.id == nil else { return }
+                        let id = press.begin()
+                        holdTask = Task { @MainActor in
+                            do { try await Task.sleep(nanoseconds: 200_000_000) }
+                            catch { return }
+                            guard !Task.isCancelled, isEnabled, scenePhase == .active, press.recognize(id) else { return }
+                            prepareAuthorization()
+                            model.start()
+                        }
+                    }
+                    .onEnded { _ in
+                        endPress(cancelled: cancelledTouch)
+                        cancelledTouch = false
+                    })
+                .onChangeCompat(of: touching) { _, active in
+                    if !active {
                         endPress(cancelled: true)
-                        return
-                    }
-                    guard press.id == nil else { return }
-                    let id = press.begin()
-                    holdTask = Task { @MainActor in
-                        do { try await Task.sleep(nanoseconds: 200_000_000) }
-                        catch { return }
-                        guard !Task.isCancelled, isEnabled, scenePhase == .active, press.recognize(id) else { return }
-                        prepareAuthorization()
-                        model.start()
+                        cancelledTouch = false
                     }
                 }
-                .onEnded { _ in
-                    endPress(cancelled: cancelledTouch)
-                    cancelledTouch = false
-                })
-            .onChange(of: touching) { _, active in
-                if !active {
-                    endPress(cancelled: true)
-                    cancelledTouch = false
+                .onChangeCompat(of: isEnabled) { _, enabled in
+                    if !enabled { endPress(cancelled: true) }
                 }
-            }
-            .onChange(of: isEnabled) { _, enabled in
-                if !enabled { endPress(cancelled: true) }
-            }
-            .accessibilityAddTraits(.isButton)
-            .accessibilityAction { toggle() }
-            .accessibilityAction(named: Text(L10n.voicenoteDictation)) {
-                guard isEnabled, scenePhase == .active else { return }
-                prepareAuthorization()
-                model.start()
-            }
-            .accessibilityAction(named: Text(L10n.voicenoteStop)) { model.stop() }
-            .onAppear {
-                cancelledTouch = false
-                prepareAuthorization()
-            }
-            .onChange(of: settings.values[.authVoiceDictation]) { _, _ in
-                endPress(cancelled: true)
-                prepareAuthorization()
-            }
-            .onChange(of: scenePhase) { _, phase in
-                if phase != .active {
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction { toggle() }
+                .accessibilityAction(named: Text(L10n.voicenoteDictation)) {
+                    guard isEnabled, scenePhase == .active else { return }
+                    prepareAuthorization()
+                    model.start()
+                }
+                .accessibilityAction(named: Text(L10n.voicenoteStop)) { model.stop() }
+                .onAppear {
+                    cancelledTouch = false
+                    prepareAuthorization()
+                }
+                .onChangeCompat(of: settings.values[.authVoiceDictation]) { _, _ in
                     endPress(cancelled: true)
+                    prepareAuthorization()
+                }
+                .onChangeCompat(of: scenePhase) { _, phase in
+                    if phase != .active {
+                        endPress(cancelled: true)
+                        model.stopForDisappear()
+                    }
+                }
+                .onDisappear {
+                    endPress(cancelled: true)
+                    prepareAuthorization()
                     model.stopForDisappear()
                 }
-            }
-            .onDisappear {
-                endPress(cancelled: true)
-                prepareAuthorization()
-                model.stopForDisappear()
-            }
+        }
     }
 
     private func prepareAuthorization() {

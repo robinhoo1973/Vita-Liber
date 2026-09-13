@@ -4,12 +4,13 @@ import os
 import Domain
 import Infrastructure
 import Protocols
+import Perception
 
 /// SP-61 权益状态仓（@Observable）：桥接 Infrastructure 的 EntitlementStore actor。
 /// 生产 StoreKit 2 接线为 L2 部署项（App Store Connect 配置后注入 Transaction.updates），
 /// M1c 以 InMemoryStorefront 桩承载全部逻辑路径，可全量单测。
 @MainActor
-@Observable
+@Perceptible
 final class AppEntitlementStore {
     private(set) var owned: Set<ProductID> = []
     private(set) var aiMonthlyUsed = 0

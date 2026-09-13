@@ -2,6 +2,7 @@ import Foundation
 import Domain
 import Infrastructure
 import Protocols
+import Perception
 
 extension DocumentsState {
     struct PageAnalysis: Codable, Equatable, Sendable {

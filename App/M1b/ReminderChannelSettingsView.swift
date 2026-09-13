@@ -1,5 +1,6 @@
 import SwiftUI
 import Domain
+import Perception
 
 /// §5.58 提醒触达设置（FR9.18/FR14.7 · V3.72 点亮）：每类提醒三选一
 /// （仅通知 / 通知+响铃直到确认 / 静音仅横幅）+ 应用内横幅总开关。
@@ -25,37 +26,39 @@ struct ReminderChannelSettingsView: View {
     ]
 
     var body: some View {
-        List {
-            Section {
-                ForEach(categories, id: \.key) { cat in
-                    Picker(selection: Binding(
-                        get: { settings.values[cat.key] ?? cat.key.defaultValue },
-                        set: { v in Task { await settings.set(v, for: cat.key) } }
-                    )) {
-                        Text(L10n.remchLocal).tag("local")
-                        Text(L10n.remchRing).tag("persistentRing")
-                        Text(L10n.remchInApp).tag("inApp")
-                    } label: {
-                        Text(cat.nameKey)
+        WithPerceptionTracking {
+            List {
+                Section {
+                    ForEach(categories, id: \.key) { cat in
+                        Picker(selection: Binding(
+                            get: { settings.values[cat.key] ?? cat.key.defaultValue },
+                            set: { v in Task { await settings.set(v, for: cat.key) } }
+                        )) {
+                            Text(L10n.remchLocal).tag("local")
+                            Text(L10n.remchRing).tag("persistentRing")
+                            Text(L10n.remchInApp).tag("inApp")
+                        } label: {
+                            Text(cat.nameKey)
+                        }
                     }
+                } header: {
+                    Text(L10n.remchSectionHint)
+                } footer: {
+                    Text(L10n.remchSectionFooter)
                 }
-            } header: {
-                Text(L10n.remchSectionHint)
-            } footer: {
-                Text(L10n.remchSectionFooter)
+                Section {
+                    Toggle(L10n.remchBannerToggle, isOn: Binding(
+                        get: { settings.values[.inAppBannerEnabled] != "false" },
+                        set: { on in Task { await settings.set(on ? "true" : "false", for: .inAppBannerEnabled) } }
+                    ))
+                    .accessibilityIdentifier("SP-26.remch.bannerToggle")
+                } footer: {
+                    Text(L10n.remchBannerFooter)
+                }
             }
-            Section {
-                Toggle(L10n.remchBannerToggle, isOn: Binding(
-                    get: { settings.values[.inAppBannerEnabled] != "false" },
-                    set: { on in Task { await settings.set(on ? "true" : "false", for: .inAppBannerEnabled) } }
-                ))
-                .accessibilityIdentifier("SP-26.remch.bannerToggle")
-            } footer: {
-                Text(L10n.remchBannerFooter)
-            }
+            .navigationTitle(L10n.remchTitle)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("SP-26.remch.list")
         }
-        .navigationTitle(L10n.remchTitle)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("SP-26.remch.list")
     }
 }

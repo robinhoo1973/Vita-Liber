@@ -1,5 +1,6 @@
 import SwiftUI
 import Domain
+import Perception
 
 /// §4.22 InAppBanner（FR9.18/§5.58 · V3.72 点亮）：前台到期用药横幅——
 /// [确认] 直连确认服药（BR-004：只有用户显式动作才算）、[稍后] 15 分钟静默、
@@ -25,70 +26,72 @@ struct InAppBannerHost: View {
     @State private var autoHiddenIds: Set<String> = []
 
     var body: some View {
-        Group {
-            if let banner = currentBanner {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(L10n.bannerDoseDue).font(.subheadline.bold())
-                    Text(banner.displayLabel)
-                        .font(.caption).foregroundStyle(.secondary)
-                    HStack(spacing: 12) {
-                        Button(L10n.bannerConfirm) {
-                            Task {
-                                _ = await reminders.confirmTaken(patientId: app.currentPatientId,
-                                                                 dose: banner.dose)
+        WithPerceptionTracking {
+            Group {
+                if let banner = currentBanner {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(L10n.bannerDoseDue).font(.subheadline.bold())
+                        Text(banner.displayLabel)
+                            .font(.caption).foregroundStyle(.secondary)
+                        HStack(spacing: 12) {
+                            Button(L10n.bannerConfirm) {
+                                Task {
+                                    _ = await reminders.confirmTaken(patientId: app.currentPatientId,
+                                                                     dose: banner.dose)
+                                    hide()
+                                }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+                            .frame(minHeight: 44)   // 触点 ≥44pt（此前加在容器上、按钮实际命中区 ~32pt）
+                            Button(L10n.bannerLater) {
+                                let until = Date().addingTimeInterval(15 * 60)
+                                dismissedUntil = until
                                 hide()
+                                // 15 分钟到点唤醒重渲染（第七轮修复：无此唤醒则
+                                // 横幅在前台静置期间永不复发）
+                                reappearWake?.cancel()
+                                reappearWake = Task {
+                                    let wait = until.timeIntervalSinceNow + 0.1
+                                    try? await Task.sleep(nanoseconds: UInt64(max(wait, 0.1) * 1_000_000_000))   // try?-ok: 睡眠取消即停（新稍后/确认会取消本任务）
+                                    guard !Task.isCancelled else { return }
+                                    dismissedUntil = .distantPast
+                                }
                             }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .frame(minHeight: 44)   // 触点 ≥44pt（同确认按钮）
                         }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                        .frame(minHeight: 44)   // 触点 ≥44pt（此前加在容器上、按钮实际命中区 ~32pt）
-                        Button(L10n.bannerLater) {
-                            let until = Date().addingTimeInterval(15 * 60)
-                            dismissedUntil = until
-                            hide()
-                            // 15 分钟到点唤醒重渲染（第七轮修复：无此唤醒则
-                            // 横幅在前台静置期间永不复发）
-                            reappearWake?.cancel()
-                            reappearWake = Task {
-                                let wait = until.timeIntervalSinceNow + 0.1
-                                try? await Task.sleep(nanoseconds: UInt64(max(wait, 0.1) * 1_000_000_000))   // try?-ok: 睡眠取消即停（新稍后/确认会取消本任务）
-                                guard !Task.isCancelled else { return }
-                                dismissedUntil = .distantPast
-                            }
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .frame(minHeight: 44)   // 触点 ≥44pt（同确认按钮）
+                        .frame(minHeight: 44)   // 触点 ≥44pt
                     }
-                    .frame(minHeight: 44)   // 触点 ≥44pt
+                    .padding(12)
+                    .background(RoundedRectangle(cornerRadius: 14)
+                        .fill(.regularMaterial))
+                    .shadow(radius: 6)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 4)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .accessibilityIdentifier("SP-04.inAppBanner")
                 }
-                .padding(12)
-                .background(RoundedRectangle(cornerRadius: 14)
-                    .fill(.regularMaterial))
-                .shadow(radius: 6)
-                .padding(.horizontal, 16)
-                .padding(.top, 4)
-                .transition(.move(edge: .top).combined(with: .opacity))
-                .accessibilityIdentifier("SP-04.inAppBanner")
             }
-        }
-        .animation(.easeInOut(duration: 0.25), value: currentBanner?.id)
-        .task(id: currentBanner?.id) {
-            // 5 秒自动收起（§4.22）；新横幅（id 变化）出现时重置计时。
-            // 取消必须先于 guard（审查修复）：currentBanner 变 nil（开关关闭/
-            // 成员切换）时旧计时任务必须作废——原 guard 先行 return，取消分支
-            // 不可达；5 秒后旧任务把用户从未见过的剂量 id 写入 autoHiddenIds，
-            // currentBanner 过滤恒排除该剂量 → 本会话横幅永久不复发（FR9.18）。
-            autoDismiss?.cancel()
-            guard let banner = currentBanner else { return }
-            autoDismiss = Task {
-                try? await Task.sleep(nanoseconds: 5_000_000_000)   // try?-ok: 自动收起计时取消即停
-                guard !Task.isCancelled else { return }
-                // 第六轮全仓审查修复：原 hide() 只取消计时任务、不改任何
-                // currentBanner 读取的状态——5 秒后横幅纹丝不动，永久遮挡
-                // 内容。自动收起必须写入被 currentBanner 判读的开关；
-                // 「稍后」路径仍走 dismissedUntil（15 分钟后自然复现）
-                _ = withAnimation { autoHiddenIds.insert(banner.id) }
+            .animation(.easeInOut(duration: 0.25), value: currentBanner?.id)
+            .task(id: currentBanner?.id) {
+                // 5 秒自动收起（§4.22）；新横幅（id 变化）出现时重置计时。
+                // 取消必须先于 guard（审查修复）：currentBanner 变 nil（开关关闭/
+                // 成员切换）时旧计时任务必须作废——原 guard 先行 return，取消分支
+                // 不可达；5 秒后旧任务把用户从未见过的剂量 id 写入 autoHiddenIds，
+                // currentBanner 过滤恒排除该剂量 → 本会话横幅永久不复发（FR9.18）。
+                autoDismiss?.cancel()
+                guard let banner = currentBanner else { return }
+                autoDismiss = Task {
+                    try? await Task.sleep(nanoseconds: 5_000_000_000)   // try?-ok: 自动收起计时取消即停
+                    guard !Task.isCancelled else { return }
+                    // 第六轮全仓审查修复：原 hide() 只取消计时任务、不改任何
+                    // currentBanner 读取的状态——5 秒后横幅纹丝不动，永久遮挡
+                    // 内容。自动收起必须写入被 currentBanner 判读的开关；
+                    // 「稍后」路径仍走 dismissedUntil（15 分钟后自然复现）
+                    _ = withAnimation { autoHiddenIds.insert(banner.id) }
+                }
             }
         }
     }

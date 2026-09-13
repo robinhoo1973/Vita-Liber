@@ -660,7 +660,15 @@ private final class NativeSpeechSessionDriver: SpeechSessionDriver, @unchecked S
         guard !isStopped() else { completion(false); return }
         SFSpeechRecognizer.requestAuthorization { status in
             guard status == .authorized, !isStopped() else { completion(false); return }
-            AVAudioApplication.requestRecordPermission { granted in completion(granted && !isStopped()) }
+            if #available(iOS 17, macOS 14, *) {
+                AVAudioApplication.requestRecordPermission { granted in completion(granted && !isStopped()) }
+            } else {
+                #if os(iOS)
+                AVAudioSession.sharedInstance().requestRecordPermission { granted in completion(granted && !isStopped()) }   // iOS 7–16 路径
+                #else
+                completion(false)   // CoreKit macOS 下限 14，此分支不可达；仅为编译完整
+                #endif
+            }
         }
     }
 

@@ -2,6 +2,7 @@ import SwiftUI
 import Domain
 import Infrastructure
 import Protocols
+import Perception
 
 /// FR17.9 全局语音快速入口（SP-55 语音速记面板 · ui-ux §5.54）：
 /// **去 chips（V3.49 位置迁移）**——面板不再常驻渲染去向选择器，识别后文本
@@ -74,237 +75,239 @@ struct VoiceQuickLaunchView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 12) {
-                // §4.23 纵向稳定分区：中部 = 大号按住说话按钮 + 声波/聆听状态
-                // （业主反馈：此前仅底部普通按钮，无图形录入入口）
-                if settings.values[.authVoiceDictation] == "false" {
-                    Label(L10n.privacyAuthVoiceDisabled, systemImage: "mic.slash")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                        .accessibilityIdentifier("voice.dictation.authDisabled")
-                } else if let model {
-                    // BR-012 前置在模型内统一执行（onEmergency 装配见
-                    // ensureModel：命中即收起全屏跳急救卡，不被本面板盖住）
-                    PressToTalkMicButton(model: model)
-                        .disabled(isSaving || isUnderstanding || confirmSet != nil)
-                    Text(L10n.voiceEngineName(model.resolvedEngineID.flatMap(VoiceEngineChoice.init(rawValue:))
-                        ?? VoiceEngineChoice.resolve(settings.values[.voiceEngine])))
-                        .font(.caption).foregroundStyle(.secondary)
-                        .accessibilityIdentifier("SP-55.panel.engine")
-                    // FR17.15 能力诚实（V3.61）：回显实际识别语言；方言回落主语言时标「尽力识别」
-                    if let resolved = model.resolvedLocale {
-                        HStack(spacing: 6) {
-                            Text(L10n.voiceRecognizedAs(resolved))
-                            if model.isBestEffortFallback {
-                                Text(L10n.voiceLangBestEffort)
-                                    .padding(.horizontal, 6).padding(.vertical, 2)
-                                    .background(Capsule().fill(Color(.systemGray5)))
-                            }
-                        }
-                        .font(.caption2).foregroundStyle(.secondary)
-                        .accessibilityIdentifier("SP-55.panel.resolvedLocale")
-                    }
-                }
-                // 转写文本显示区（1.2）：实时追加、点击直接编辑
-                TextEditor(text: Binding(get: { accumulatedText }, set: { editTranscript($0) }))
-                    .disabled(isSaving)
-                    .font(.body)
-                    .scrollContentBackground(.hidden)
-                    .padding(8)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(RoundedRectangle(cornerRadius: 12)
-                        .fill(Color("bg-grouped", bundle: .main)))
-                    .overlay {
-                        if accumulatedText.isEmpty {
-                            Text(L10n.voicePanelEditHint)
-                                .font(.footnote).foregroundStyle(.secondary)
-                                .allowsHitTesting(false)
-                                .padding(12)
-                        }
-                    }
-                    .accessibilityIdentifier("SP-55.panel.transcript")
-                // FR17.9 V3.61 双版本分段控件：默认原生；修正版 D 级「仅作文字清理」；
-                // 不可用/超时/校验失败只显示原文 + 轻提示（不阻断保存）
-                if refinerEnabled && !accumulatedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Picker(L10n.voiceVersionNative,
-                               selection: Binding(get: { transcriptVersion }, set: { selectVersion($0) })) {
-                            Text(L10n.voiceVersionNative).tag(TranscriptVersion.native)
-                            Text(L10n.voiceVersionRefined).tag(TranscriptVersion.refined)
-                        }
-                        .pickerStyle(.segmented)
-                        .disabled(isSaving)
-                        .accessibilityIdentifier("SP-55.panel.version")
-                        if transcriptVersion == .refined {
+        WithPerceptionTracking {
+            NavigationStack {
+                VStack(spacing: 12) {
+                    // §4.23 纵向稳定分区：中部 = 大号按住说话按钮 + 声波/聆听状态
+                    // （业主反馈：此前仅底部普通按钮，无图形录入入口）
+                    if settings.values[.authVoiceDictation] == "false" {
+                        Label(L10n.privacyAuthVoiceDisabled, systemImage: "mic.slash")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .accessibilityIdentifier("voice.dictation.authDisabled")
+                    } else if let model {
+                        // BR-012 前置在模型内统一执行（onEmergency 装配见
+                        // ensureModel：命中即收起全屏跳急救卡，不被本面板盖住）
+                        PressToTalkMicButton(model: model)
+                            .disabled(isSaving || isUnderstanding || confirmSet != nil)
+                        Text(L10n.voiceEngineName(model.resolvedEngineID.flatMap(VoiceEngineChoice.init(rawValue:))
+                            ?? VoiceEngineChoice.resolve(settings.values[.voiceEngine])))
+                            .font(.caption).foregroundStyle(.secondary)
+                            .accessibilityIdentifier("SP-55.panel.engine")
+                        // FR17.15 能力诚实（V3.61）：回显实际识别语言；方言回落主语言时标「尽力识别」
+                        if let resolved = model.resolvedLocale {
                             HStack(spacing: 6) {
-                                GradeBadge(grade: "D")
-                                if refining {
-                                    ProgressView().controlSize(.small)
-                                } else if let revision, revision.original == accumulatedText {
-                                    switch revision.safety {
-                                    case .accepted: Text(L10n.voiceVersionRefinedHint)
-                                    case .rejected: Text(L10n.voiceVersionRejected)
-                                    case .unavailable, .timedOut: Text(L10n.voiceVersionUnavailable)
-                                    }
+                                Text(L10n.voiceRecognizedAs(resolved))
+                                if model.isBestEffortFallback {
+                                    Text(L10n.voiceLangBestEffort)
+                                        .padding(.horizontal, 6).padding(.vertical, 2)
+                                        .background(Capsule().fill(Color(.systemGray5)))
                                 }
                             }
                             .font(.caption2).foregroundStyle(.secondary)
-                            .accessibilityIdentifier("SP-55.panel.versionHint")
-                            if let revision, sourceSnapshot.version == .refined,
-                               WordingBlacklist.violation(in: revision.suggested) == nil {
-                                Text(effectiveText)
-                                    .font(.body)
-                                    .padding(8)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .background(RoundedRectangle(cornerRadius: 12)
-                                        .fill(Color("bg-grouped", bundle: .main)))
-                                    .accessibilityIdentifier("SP-55.panel.refinedText")
-                            }
-                            if previewOnly {
-                                Text(L10n.voiceVersionPreviewOnly)
-                                    .font(.caption).foregroundStyle(.secondary)
-                                    .accessibilityIdentifier("SP-55.panel.refinedPreviewOnly")
-                                Button(L10n.voiceVersionNative) { selectVersion(.native) }
-                                    .disabled(isSaving)
-                            } else if !refining, revision?.safety != .accepted {
-                                Button(L10n.retry) { refineCurrentText() }
-                                    .disabled(isSaving || isUnderstanding)
-                            }
+                            .accessibilityIdentifier("SP-55.panel.resolvedLocale")
                         }
                     }
+                    // 转写文本显示区（1.2）：实时追加、点击直接编辑
+                    TextEditor(text: Binding(get: { accumulatedText }, set: { editTranscript($0) }))
+                        .disabled(isSaving)
+                        .font(.body)
+                        .scrollContentBackground(.hidden)
+                        .padding(8)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(RoundedRectangle(cornerRadius: 12)
+                            .fill(Color("bg-grouped", bundle: .main)))
+                        .overlay {
+                            if accumulatedText.isEmpty {
+                                Text(L10n.voicePanelEditHint)
+                                    .font(.footnote).foregroundStyle(.secondary)
+                                    .allowsHitTesting(false)
+                                    .padding(12)
+                            }
+                        }
+                        .accessibilityIdentifier("SP-55.panel.transcript")
+                    // FR17.9 V3.61 双版本分段控件：默认原生；修正版 D 级「仅作文字清理」；
+                    // 不可用/超时/校验失败只显示原文 + 轻提示（不阻断保存）
+                    if refinerEnabled && !accumulatedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Picker(L10n.voiceVersionNative,
+                                   selection: Binding(get: { transcriptVersion }, set: { selectVersion($0) })) {
+                                Text(L10n.voiceVersionNative).tag(TranscriptVersion.native)
+                                Text(L10n.voiceVersionRefined).tag(TranscriptVersion.refined)
+                            }
+                            .pickerStyle(.segmented)
+                            .disabled(isSaving)
+                            .accessibilityIdentifier("SP-55.panel.version")
+                            if transcriptVersion == .refined {
+                                HStack(spacing: 6) {
+                                    GradeBadge(grade: "D")
+                                    if refining {
+                                        ProgressView().controlSize(.small)
+                                    } else if let revision, revision.original == accumulatedText {
+                                        switch revision.safety {
+                                        case .accepted: Text(L10n.voiceVersionRefinedHint)
+                                        case .rejected: Text(L10n.voiceVersionRejected)
+                                        case .unavailable, .timedOut: Text(L10n.voiceVersionUnavailable)
+                                        }
+                                    }
+                                }
+                                .font(.caption2).foregroundStyle(.secondary)
+                                .accessibilityIdentifier("SP-55.panel.versionHint")
+                                if let revision, sourceSnapshot.version == .refined,
+                                   WordingBlacklist.violation(in: revision.suggested) == nil {
+                                    Text(effectiveText)
+                                        .font(.body)
+                                        .padding(8)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .background(RoundedRectangle(cornerRadius: 12)
+                                            .fill(Color("bg-grouped", bundle: .main)))
+                                        .accessibilityIdentifier("SP-55.panel.refinedText")
+                                }
+                                if previewOnly {
+                                    Text(L10n.voiceVersionPreviewOnly)
+                                        .font(.caption).foregroundStyle(.secondary)
+                                        .accessibilityIdentifier("SP-55.panel.refinedPreviewOnly")
+                                    Button(L10n.voiceVersionNative) { selectVersion(.native) }
+                                        .disabled(isSaving)
+                                } else if !refining, revision?.safety != .accepted {
+                                    Button(L10n.retry) { refineCurrentText() }
+                                        .disabled(isSaving || isUnderstanding)
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 24)
+                    }
+                    if showSaveFailure {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(L10n.voicenoteSaveFailed).font(.caption)
+                            Button(L10n.retry) { retryDispatch() }
+                                .disabled(isSaving)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 24)
+                        .accessibilityIdentifier("SP-55.panel.saveFailure")
+                    }
+                    // 下方 = 操作按钮区（1.2）：清除/确认；录音入口已上移至中部
+                    // 大号按住说话按钮（PressToTalkMicButton，§4.23）——再次
+                    // 长按即续录（V3.94 口径）
+                    HStack(spacing: 12) {
+                        Button {
+                            showClearDialog = true
+                        } label: {
+                            Label(L10n.voicePanelClear, systemImage: "trash")
+                                .frame(maxWidth: .infinity, minHeight: 44)
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(accumulatedText.isEmpty || isSaving)
+                        .accessibilityIdentifier("SP-55.panel.clear")
+                        Button {
+                            confirmFromTranscript()
+                        } label: {
+                            Label(L10n.voicePanelConfirm, systemImage: "checkmark.circle.fill")
+                                .frame(maxWidth: .infinity, minHeight: 44)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(accumulatedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                  || isSaving || isUnderstanding || previewOnly || model?.hasPendingTranscriptions == true)
+                        .accessibilityIdentifier("SP-55.panel.confirm")
+                    }
                     .padding(.horizontal, 24)
+                    .padding(.bottom, 8)
                 }
-                if showSaveFailure {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(L10n.voicenoteSaveFailed).font(.caption)
-                        Button(L10n.retry) { retryDispatch() }
+                .padding(.top, 8)
+                .navigationTitle(L10n.voicePanelTitle)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button(L10n.commonCancel) { dismiss() }
                             .disabled(isSaving)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 24)
-                    .accessibilityIdentifier("SP-55.panel.saveFailure")
-                }
-                // 下方 = 操作按钮区（1.2）：清除/确认；录音入口已上移至中部
-                // 大号按住说话按钮（PressToTalkMicButton，§4.23）——再次
-                // 长按即续录（V3.94 口径）
-                HStack(spacing: 12) {
-                    Button {
-                        showClearDialog = true
-                    } label: {
-                        Label(L10n.voicePanelClear, systemImage: "trash")
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(accumulatedText.isEmpty || isSaving)
-                    .accessibilityIdentifier("SP-55.panel.clear")
-                    Button {
-                        confirmFromTranscript()
-                    } label: {
-                        Label(L10n.voicePanelConfirm, systemImage: "checkmark.circle.fill")
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(accumulatedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                              || isSaving || isUnderstanding || previewOnly || model?.hasPendingTranscriptions == true)
-                    .accessibilityIdentifier("SP-55.panel.confirm")
-                }
-                .padding(.horizontal, 24)
-                .padding(.bottom, 8)
-            }
-            .padding(.top, 8)
-            .navigationTitle(L10n.voicePanelTitle)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(L10n.commonCancel) { dismiss() }
+                    // FR17.15 面板内语言入口（5.54 C）——跳语音语言选择器
+                    ToolbarItem(placement: .topBarTrailing) {
+                        NavigationLink {
+                            VoiceLanguageSettingsView()
+                        } label: {
+                            Image(systemName: "globe")
+                        }
                         .disabled(isSaving)
-                }
-                // FR17.15 面板内语言入口（5.54 C）——跳语音语言选择器
-                ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink {
-                        VoiceLanguageSettingsView()
-                    } label: {
-                        Image(systemName: "globe")
+                        .accessibilityIdentifier("SP-55.panel.language")
                     }
-                    .disabled(isSaving)
-                    .accessibilityIdentifier("SP-55.panel.language")
                 }
-            }
-            .onAppear { routeMonitor.start() }
-            .onDisappear {
-                routeMonitor.stop()
-                model?.stopForDisappear()   // 视图销毁即终止在途听写投递
-                stopRefinement()
-                transcript.revokeAI()
-                invalidateConfirmation()
-            }
-            // 引擎在环境就绪后装配（同 VoiceDictationButton 纪律：语言值变化
-            // 即重建，面板内改语言返回后 preferredLocale 即时生效）
-            .task(id: "\(settings.values[.voiceInputLanguages] ?? "")|\(settings.values[.voiceMixedInput] ?? "")") { ensureModel() }
-            // round2 A-N2：面板出现即预热当前档位模型（不采音、不联网），按压直接进入采集；
-            // 模型装配后随主语言/引擎档位变化重新预热（nil = 模型尚未装配，不预热）。
-            .task(id: warmUpKey) { await model?.warmUp() }
-            .onChange(of: settings.values[.authAI]) { _, value in
-                if value == "false" { revokeRefinement() }
-            }
-            .onChange(of: settings.authAIRevision) { _, _ in revokeRefinement() }
-            .onChange(of: refinerAvailable) { _, available in
-                if !available { revokeRefinement() }
-            }
-            .onChange(of: app.currentPatientId) { _, _ in
-                stopRefinement()
-                transcript.revokeAI()
-                invalidateConfirmation()
-            }
-            .task {
-                // 能力探测（编译期 canImport + 运行期 availability；不含授权——授权由 authAI 门控）
-                let available = await app.textRefiner.isAvailable
-                guard !Task.isCancelled else { return }
-                refinerAvailable = available
-            }
-            // 清除选择框（1.2）：清除最近一次为默认选项
-            .confirmationDialog(L10n.voicePanelClearTitle, isPresented: $showClearDialog,
-                                titleVisibility: .visible) {
-                Button(L10n.voicePanelClearLast, role: .destructive) {
-                    clearLastSegment()
+                .onAppear { routeMonitor.start() }
+                .onDisappear {
+                    routeMonitor.stop()
+                    model?.stopForDisappear()   // 视图销毁即终止在途听写投递
+                    stopRefinement()
+                    transcript.revokeAI()
+                    invalidateConfirmation()
                 }
-                .disabled(!transcript.canClearLast || model?.hasPendingTranscriptions == true)
-                Button(L10n.voicePanelClearAll, role: .destructive) {
-                    clearAllSegments()
+                // 引擎在环境就绪后装配（同 VoiceDictationButton 纪律：语言值变化
+                // 即重建，面板内改语言返回后 preferredLocale 即时生效）
+                .task(id: "\(settings.values[.voiceInputLanguages] ?? "")|\(settings.values[.voiceMixedInput] ?? "")") { ensureModel() }
+                // round2 A-N2：面板出现即预热当前档位模型（不采音、不联网），按压直接进入采集；
+                // 模型装配后随主语言/引擎档位变化重新预热（nil = 模型尚未装配，不预热）。
+                .task(id: warmUpKey) { await model?.warmUp() }
+                .onChangeCompat(of: settings.values[.authAI]) { _, value in
+                    if value == "false" { revokeRefinement() }
                 }
-                Button(L10n.commonCancel, role: .cancel) {}
-            }
-            .voiceConfirmSheet($confirmSet, route: routeMonitor.route,
-                               judgedTarget: judgedIntent,
-                               judgedConfidence: judgedConfidence,
-                               onJudgedTargetChange: { newKey in
-                guard !isSaving, let source = confirmationSource,
-                      confirmationPatientID == app.currentPatientId,
-                      transcript.matches(source, authorized: refinerEnabled,
-                                         authorizationGeneration: settings.authAIRevision) else { return }
-                understandingTask?.cancel()
-                judgedIntent = newKey
-                judgedConfidence = 0.9
-                let key = VoiceIntentKey(rawValue: newKey) ?? .unknown
-                let drafts = VoiceIntentCatalog.extract(for: key, text: source.selectedText,
-                                                        confidence: lastTranscript?.confidence ?? 0.9)
-                // A new confirmation identity rejects callbacks from the previous target's sheet.
-                confirmSet = VoiceInputTemplate.confirmationSet(drafts: drafts)
-            }) { confirmed in
-                startDispatch(confirmed)
-            }
-            .interactiveDismissDisabled(isSaving)
-            .alert(L10n.voicePanelSaved, isPresented: $savedNote) {
-                Button(L10n.voicenoteView) {
-                    // 审查修复：跳转前必须先收起本面板 sheet——router.navigate
-                    // 只切 Tab/推路径，不收起已呈现的 sheet，「查看」按钮此前
-                    // 在面板之下切页、视觉无任何变化，用户只能手动关闭。
-                    dismiss()
-                    router.navigate(to: .voiceNotePanel)
+                .onChangeCompat(of: settings.authAIRevision) { _, _ in revokeRefinement() }
+                .onChangeCompat(of: refinerAvailable) { _, available in
+                    if !available { revokeRefinement() }
                 }
-                Button(L10n.onboard_gotIt, role: .cancel) {}
+                .onChangeCompat(of: app.currentPatientId) { _, _ in
+                    stopRefinement()
+                    transcript.revokeAI()
+                    invalidateConfirmation()
+                }
+                .task {
+                    // 能力探测（编译期 canImport + 运行期 availability；不含授权——授权由 authAI 门控）
+                    let available = await app.textRefiner.isAvailable
+                    guard !Task.isCancelled else { return }
+                    refinerAvailable = available
+                }
+                // 清除选择框（1.2）：清除最近一次为默认选项
+                .confirmationDialog(L10n.voicePanelClearTitle, isPresented: $showClearDialog,
+                                    titleVisibility: .visible) {
+                    Button(L10n.voicePanelClearLast, role: .destructive) {
+                        clearLastSegment()
+                    }
+                    .disabled(!transcript.canClearLast || model?.hasPendingTranscriptions == true)
+                    Button(L10n.voicePanelClearAll, role: .destructive) {
+                        clearAllSegments()
+                    }
+                    Button(L10n.commonCancel, role: .cancel) {}
+                }
+                .voiceConfirmSheet($confirmSet, route: routeMonitor.route,
+                                   judgedTarget: judgedIntent,
+                                   judgedConfidence: judgedConfidence,
+                                   onJudgedTargetChange: { newKey in
+                    guard !isSaving, let source = confirmationSource,
+                          confirmationPatientID == app.currentPatientId,
+                          transcript.matches(source, authorized: refinerEnabled,
+                                             authorizationGeneration: settings.authAIRevision) else { return }
+                    understandingTask?.cancel()
+                    judgedIntent = newKey
+                    judgedConfidence = 0.9
+                    let key = VoiceIntentKey(rawValue: newKey) ?? .unknown
+                    let drafts = VoiceIntentCatalog.extract(for: key, text: source.selectedText,
+                                                            confidence: lastTranscript?.confidence ?? 0.9)
+                    // A new confirmation identity rejects callbacks from the previous target's sheet.
+                    confirmSet = VoiceInputTemplate.confirmationSet(drafts: drafts)
+                }) { confirmed in
+                    startDispatch(confirmed)
+                }
+                .interactiveDismissDisabled(isSaving)
+                .alert(L10n.voicePanelSaved, isPresented: $savedNote) {
+                    Button(L10n.voicenoteView) {
+                        // 审查修复：跳转前必须先收起本面板 sheet——router.navigate
+                        // 只切 Tab/推路径，不收起已呈现的 sheet，「查看」按钮此前
+                        // 在面板之下切页、视觉无任何变化，用户只能手动关闭。
+                        dismiss()
+                        router.navigate(to: .voiceNotePanel)
+                    }
+                    Button(L10n.onboard_gotIt, role: .cancel) {}
+                }
             }
         }
     }

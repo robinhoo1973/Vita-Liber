@@ -1,6 +1,7 @@
 import SwiftUI
 import Domain
 import Infrastructure   // MedicationStore.InventorySummaryItem / GuidelineStore.AlertEvent
+import Perception
 
 /// FR14.8 通知中心（SP-27 · ui-ux §5.19）：集中展示未读/已处理的用药、预约、
 /// 临期、设备观察提示、待确认 OCR 和系统状态消息；每条含来源、处理状态和下一步。
@@ -28,127 +29,129 @@ struct NotificationCenterView: View {
     @State private var showArchiveFailed = false
 
     var body: some View {
-        List {
-            if !pendingDoses.isEmpty {
-                Section(L10n.ncSectionPending) {
-                    ForEach(Array(pendingDoses.enumerated()), id: \.offset) { _, dose in
-                        PendingDoseRow(dose: dose) {
-                            Task {
-                                await reminderStore.confirmTaken(patientId: app.currentPatientId,
-                                                                 dose: dose.dose)
-                            }
-                        }
-                    }
-                }
-            }
-            if !visibleAppointments.isEmpty {
-                Section(L10n.ncSectionAppointment) {
-                    ForEach(visibleAppointments) { apt in
-                        Button {
-                            markRead(aptKey(apt))
-                            router.navigate(to: .appointmentDetail(apt.id))
-                        } label: {
-                            HStack {
-                                Image(systemName: "stethoscope").foregroundStyle(Color("brand-primary", bundle: .main))
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("\(apt.hospital)·\(apt.department)").font(.subheadline)
-                                    Text(apt.startsAt.formatted(date: .abbreviated, time: .shortened))
-                                        .font(.caption).foregroundStyle(.secondary)
+        WithPerceptionTracking {
+            List {
+                if !pendingDoses.isEmpty {
+                    Section(L10n.ncSectionPending) {
+                        ForEach(Array(pendingDoses.enumerated()), id: \.offset) { _, dose in
+                            PendingDoseRow(dose: dose) {
+                                Task {
+                                    await reminderStore.confirmTaken(patientId: app.currentPatientId,
+                                                                     dose: dose.dose)
                                 }
-                                Spacer()
-                                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
                             }
                         }
-                        .accessibilityIdentifier("SP-27.notification.appointment")
-                        .swipeActions { archiveAction(aptKey(apt)) }
                     }
                 }
-            }
-            if !visibleExpiringLots.isEmpty {
-                Section(L10n.ncSectionExpiry) {
-                    ForEach(visibleExpiringLots) { item in
-                        Button {
-                            markRead(lotKey(item))
-                            router.navigate(to: .medicationCabinet)
-                        } label: {
-                            HStack {
-                                Image(systemName: "clock.badge.exclamationmark").foregroundStyle(Color("semantic-warning", bundle: .main))
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(item.medicationName).font(.subheadline)
-                                    if let expireAt = item.expireAt {
-                                        Text(L10n.ncExpireDate(
-                                            expireAt.formatted(date: .abbreviated, time: .omitted)))
-                                            .font(.caption).foregroundStyle(Color("semantic-warning", bundle: .main))
+                if !visibleAppointments.isEmpty {
+                    Section(L10n.ncSectionAppointment) {
+                        ForEach(visibleAppointments) { apt in
+                            Button {
+                                markRead(aptKey(apt))
+                                router.navigate(to: .appointmentDetail(apt.id))
+                            } label: {
+                                HStack {
+                                    Image(systemName: "stethoscope").foregroundStyle(Color("brand-primary", bundle: .main))
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("\(apt.hospital)·\(apt.department)").font(.subheadline)
+                                        Text(apt.startsAt.formatted(date: .abbreviated, time: .shortened))
+                                            .font(.caption).foregroundStyle(.secondary)
                                     }
+                                    Spacer()
+                                    Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
                                 }
-                                Spacer()
-                                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
                             }
+                            .accessibilityIdentifier("SP-27.notification.appointment")
+                            .swipeActions { archiveAction(aptKey(apt)) }
                         }
-                        .swipeActions { archiveAction(lotKey(item)) }
                     }
                 }
-            }
-            if !visibleL1Alerts.isEmpty {
-                Section(L10n.ncSectionAlert) {
-                    ForEach(visibleL1Alerts) { event in
+                if !visibleExpiringLots.isEmpty {
+                    Section(L10n.ncSectionExpiry) {
+                        ForEach(visibleExpiringLots) { item in
+                            Button {
+                                markRead(lotKey(item))
+                                router.navigate(to: .medicationCabinet)
+                            } label: {
+                                HStack {
+                                    Image(systemName: "clock.badge.exclamationmark").foregroundStyle(Color("semantic-warning", bundle: .main))
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(item.medicationName).font(.subheadline)
+                                        if let expireAt = item.expireAt {
+                                            Text(L10n.ncExpireDate(
+                                                expireAt.formatted(date: .abbreviated, time: .omitted)))
+                                                .font(.caption).foregroundStyle(Color("semantic-warning", bundle: .main))
+                                        }
+                                    }
+                                    Spacer()
+                                    Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+                                }
+                            }
+                            .swipeActions { archiveAction(lotKey(item)) }
+                        }
+                    }
+                }
+                if !visibleL1Alerts.isEmpty {
+                    Section(L10n.ncSectionAlert) {
+                        ForEach(visibleL1Alerts) { event in
+                            Button {
+                                markRead(alertKey(event))
+                                router.navigate(to: .alertEvidence(patientId: event.patientId, eventId: event.id, severity: event.severity))
+                            } label: {
+                                HStack {
+                                    Image(systemName: "waveform.path.ecg").foregroundStyle(Color("semantic-danger", bundle: .main))
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(event.card.summaryTitle ?? event.severity.rawValue).font(.subheadline)
+                                        Text("\(event.severity.rawValue) · \(event.createdAt.formatted(date: .abbreviated, time: .shortened))")
+                                            .font(.caption).foregroundStyle(Color("semantic-danger", bundle: .main))
+                                    }
+                                    Spacer()
+                                    Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+                                }
+                            }
+                            // round2 U-N3：L1+ 预警归档不开放全滑——须点按钮显式归档（BR-003 高风险不被整行拖走）
+                            .swipeActions(allowsFullSwipe: false) { archiveAction(alertKey(event)) }
+                        }
+                    }
+                }
+                // round2 U-N4：跨成员全局键 "ocr-queue" 废止——它与首页按文档的 ocr-<docId> 键
+                // 不同源，且归档一次会隐藏所有成员的待确认入口（BR-003 催办不可被整体藏起）。
+                // OCR 行只做导航，不再归档；待确认文档的处置（稍后/查看）在首页按文档进行。
+                if pendingOCRCount > 0 {
+                    Section(L10n.ncSectionOcr) {
                         Button {
-                            markRead(alertKey(event))
-                            router.navigate(to: .alertEvidence(patientId: event.patientId, eventId: event.id, severity: event.severity))
+                            router.navigate(to: .pendingOcrQueue)
                         } label: {
                             HStack {
-                                Image(systemName: "waveform.path.ecg").foregroundStyle(Color("semantic-danger", bundle: .main))
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(event.card.summaryTitle ?? event.severity.rawValue).font(.subheadline)
-                                    Text("\(event.severity.rawValue) · \(event.createdAt.formatted(date: .abbreviated, time: .shortened))")
-                                        .font(.caption).foregroundStyle(Color("semantic-danger", bundle: .main))
-                                }
+                                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Color("semantic-warning", bundle: .main))
+                                Text(L10n.ncOcrCount(pendingOCRCount)).font(.subheadline)
                                 Spacer()
                                 Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
                             }
                         }
-                        // round2 U-N3：L1+ 预警归档不开放全滑——须点按钮显式归档（BR-003 高风险不被整行拖走）
-                        .swipeActions(allowsFullSwipe: false) { archiveAction(alertKey(event)) }
+                        .accessibilityIdentifier("SP-27.notification.ocr")
                     }
                 }
-            }
-            // round2 U-N4：跨成员全局键 "ocr-queue" 废止——它与首页按文档的 ocr-<docId> 键
-            // 不同源，且归档一次会隐藏所有成员的待确认入口（BR-003 催办不可被整体藏起）。
-            // OCR 行只做导航，不再归档；待确认文档的处置（稍后/查看）在首页按文档进行。
-            if pendingOCRCount > 0 {
-                Section(L10n.ncSectionOcr) {
-                    Button {
-                        router.navigate(to: .pendingOcrQueue)
-                    } label: {
-                        HStack {
-                            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Color("semantic-warning", bundle: .main))
-                            Text(L10n.ncOcrCount(pendingOCRCount)).font(.subheadline)
-                            Spacer()
-                            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
-                        }
-                    }
-                    .accessibilityIdentifier("SP-27.notification.ocr")
+                if allEmpty {
+                    VLUnavailableView(L10n.ncEmpty, systemImage: "bell.slash",
+                                           description: Text(L10n.ncEmptyHint))
+                        .accessibilityIdentifier("SP-27.empty")
                 }
             }
-            if allEmpty {
-                ContentUnavailableView(L10n.ncEmpty, systemImage: "bell.slash",
-                                       description: Text(L10n.ncEmptyHint))
-                    .accessibilityIdentifier("SP-27.empty")
+            .navigationTitle(L10n.ncTitle)
+            // 悲观归档失败可见（U-N5）：行仍在，用户可重试或取消
+            .alert(L10n.homeSwipeFailed, isPresented: $showArchiveFailed, presenting: archiveFailedKey) { key in
+                Button(L10n.retry) { archive(key) }
+                Button(L10n.commonCancel, role: .cancel) {}
+            } message: { _ in
+                Text(L10n.ncArchive)
             }
-        }
-        .navigationTitle(L10n.ncTitle)
-        // 悲观归档失败可见（U-N5）：行仍在，用户可重试或取消
-        .alert(L10n.homeSwipeFailed, isPresented: $showArchiveFailed, presenting: archiveFailedKey) { key in
-            Button(L10n.retry) { archive(key) }
-            Button(L10n.commonCancel, role: .cancel) {}
-        } message: { _ in
-            Text(L10n.ncArchive)
-        }
-        .task(id: "\(app.currentPatientId)-\(dataChange.alertsVersion)") {
-            await reminderStore.refreshTriggered(patientId: app.currentPatientId)
-            await hub.load(patientId: app.currentPatientId)
-            await docs.load(patientId: app.currentPatientId)
-            await loadStates()
+            .task(id: "\(app.currentPatientId)-\(dataChange.alertsVersion)") {
+                await reminderStore.refreshTriggered(patientId: app.currentPatientId)
+                await hub.load(patientId: app.currentPatientId)
+                await docs.load(patientId: app.currentPatientId)
+                await loadStates()
+            }
         }
     }
 
@@ -257,19 +260,21 @@ private struct PendingDoseRow: View {
     let onConfirm: () -> Void
 
     var body: some View {
-        HStack {
-            Image(systemName: "pills.fill")
-                .foregroundStyle(Color("brand-primary", bundle: .main))
-            VStack(alignment: .leading, spacing: 2) {
-                Text(dose.displayLabel).font(.subheadline)
-                Text(L10n.ncNextActionDose).font(.caption).foregroundStyle(.secondary)
+        WithPerceptionTracking {
+            HStack {
+                Image(systemName: "pills.fill")
+                    .foregroundStyle(Color("brand-primary", bundle: .main))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(dose.displayLabel).font(.subheadline)
+                    Text(L10n.ncNextActionDose).font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button(L10n.ncConfirmDose, action: onConfirm)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                                    .frame(minHeight: 44)   // 触点≥44pt（审查修复）
             }
-            Spacer()
-            Button(L10n.ncConfirmDose, action: onConfirm)
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                                .frame(minHeight: 44)   // 触点≥44pt（审查修复）
+            .accessibilityIdentifier("SP-27.notification.dose.\(dose.id)")
         }
-        .accessibilityIdentifier("SP-27.notification.dose.\(dose.id)")
     }
 }

@@ -1,6 +1,7 @@
 import SwiftUI
 import Domain
 import Infrastructure
+import Perception
 
 /// F15 紧急信息卡（SP-15 / ui-ux §5.16）+ F18 关怀模式核心交互（§5.15）。
 ///
@@ -22,43 +23,45 @@ struct EmergencyCardView: View {
     @State private var showSOSHelp = false
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(spacing: 8) {
-                    VLIcon.emergencyCard.resizable().frame(width: 28, height: 28)
-                    Text(L10n.emergency_title).font(.title2).bold()
+        WithPerceptionTracking {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack(spacing: 8) {
+                        VLIcon.emergencyCard.resizable().frame(width: 28, height: 28)
+                        Text(L10n.emergency_title).font(.title2).bold()
+                        Spacer()
+                    }
+                    if let bloodType, !bloodType.isEmpty {
+                        CardRow(icon: VLIcon.bloodDrop, title: L10n.emergency_bloodType, value: bloodType)
+                            .accessibilityIdentifier("F15.card.bloodType")
+                    }
+                    section(L10n.emergency_allergy, items: card.allergies, empty: L10n.emergency_notSet)
+                    section(L10n.emergency_meds, items: card.medications, empty: L10n.emergency_notSet)
+                    section(L10n.emergency_health, items: card.healthProblems, empty: L10n.emergency_notSet)
+                    section(L10n.emergency_contacts, items: card.contacts, empty: L10n.emergency_notSet)
+
+                    if EmergencyCardService.medicalIDGuideNeeded(card: card) {
+                        GuideCard(onGuide: onGuideMedicalID)
+                    } else if let onOpenSelector {
+                        Button {
+                            onOpenSelector()
+                        } label: {
+                            Label(L10n.emergency_manageCard, systemImage: "pencil").frame(minHeight: 44)
+                        }
+                        .accessibilityIdentifier("F15.card.manage")
+                    }
+                    // 第六轮全仓审查修复：SOSButton 此前无 onTrigger 接线——
+                    // 按住确认后执行 nil 闭包，急救卡上的 SOS 是死控件
+                    // （BR-012 唯一可达路径只剩关怀悬浮球）
+                    SOSButton(careMode: careMode) { showSOSHelp = true }
                     Spacer()
                 }
-                if let bloodType, !bloodType.isEmpty {
-                    CardRow(icon: VLIcon.bloodDrop, title: L10n.emergency_bloodType, value: bloodType)
-                        .accessibilityIdentifier("F15.card.bloodType")
-                }
-                section(L10n.emergency_allergy, items: card.allergies, empty: L10n.emergency_notSet)
-                section(L10n.emergency_meds, items: card.medications, empty: L10n.emergency_notSet)
-                section(L10n.emergency_health, items: card.healthProblems, empty: L10n.emergency_notSet)
-                section(L10n.emergency_contacts, items: card.contacts, empty: L10n.emergency_notSet)
-
-                if EmergencyCardService.medicalIDGuideNeeded(card: card) {
-                    GuideCard(onGuide: onGuideMedicalID)
-                } else if let onOpenSelector {
-                    Button {
-                        onOpenSelector()
-                    } label: {
-                        Label(L10n.emergency_manageCard, systemImage: "pencil").frame(minHeight: 44)
-                    }
-                    .accessibilityIdentifier("F15.card.manage")
-                }
-                // 第六轮全仓审查修复：SOSButton 此前无 onTrigger 接线——
-                // 按住确认后执行 nil 闭包，急救卡上的 SOS 是死控件
-                // （BR-012 唯一可达路径只剩关怀悬浮球）
-                SOSButton(careMode: careMode) { showSOSHelp = true }
-                Spacer()
+                .padding(16)
             }
-            .padding(16)
-        }
-        .navigationTitle(L10n.emergency_title)
-        .fullScreenCover(isPresented: $showSOSHelp) {
-            SOSHelpView()
+            .navigationTitle(L10n.emergency_title)
+            .fullScreenCover(isPresented: $showSOSHelp) {
+                SOSHelpView()
+            }
         }
     }
 
@@ -91,12 +94,14 @@ private struct CardRow: View {
     let value: String
 
     var body: some View {
-        HStack(spacing: 8) {
-            icon.resizable().frame(width: 22, height: 22)
-            Text(title).font(.subheadline).foregroundStyle(.secondary)
-            Text(value).font(.title3).monospacedDigit()
+        WithPerceptionTracking {
+            HStack(spacing: 8) {
+                icon.resizable().frame(width: 22, height: 22)
+                Text(title).font(.subheadline).foregroundStyle(.secondary)
+                Text(value).font(.title3).monospacedDigit()
+            }
+            .frame(minHeight: 44, alignment: .leading)
         }
-        .frame(minHeight: 44, alignment: .leading)
     }
 }
 
@@ -107,23 +112,25 @@ struct GuideCard: View {
     @State private var showGuide = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(L10n.emergencyWriteTitle).font(.headline)
-            Text(L10n.emergencyWriteSubtitle)
-                .font(.caption).foregroundStyle(.secondary)
-            if onGuide != nil {
-                Button(L10n.emergencyViewGuide) {
-                    showGuide = true
+        WithPerceptionTracking {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(L10n.emergencyWriteTitle).font(.headline)
+                Text(L10n.emergencyWriteSubtitle)
+                    .font(.caption).foregroundStyle(.secondary)
+                if onGuide != nil {
+                    Button(L10n.emergencyViewGuide) {
+                        showGuide = true
+                    }
+                    .frame(minHeight: 44)
+                    .accessibilityIdentifier("F15.card.medicalIDGuide")
                 }
-                .frame(minHeight: 44)
-                .accessibilityIdentifier("F15.card.medicalIDGuide")
             }
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color("bg-grouped", bundle: .main)))
-        .sheet(isPresented: $showGuide) {
-            MedicalIDGuideSheet()
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 12).fill(Color("bg-grouped", bundle: .main)))
+            .sheet(isPresented: $showGuide) {
+                MedicalIDGuideSheet()
+            }
         }
     }
 }
@@ -133,38 +140,40 @@ private struct MedicalIDGuideSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
-            List {
-                Section(L10n.medicalIDStep1) {
-                    Text(L10n.medicalIDStep1Hint)
-                        .font(.footnote).foregroundStyle(.secondary)
-                }
-                Section(L10n.medicalIDStep2) {
-                    Text(L10n.medicalIDStep2Hint)
-                        .font(.footnote).foregroundStyle(.secondary)
-                }
-                Section(L10n.medicalIDStep3) {
-                    Text(L10n.medicalIDStep3Hint)
-                        .font(.footnote).foregroundStyle(.secondary)
-                }
-                Section {
-                    Button(L10n.medicalIDOpenHealth) {
-                        if let url = URL(string: "x-apple-health://") {
-                            UIApplication.shared.open(url)
-                        }
+        WithPerceptionTracking {
+            NavigationStack {
+                List {
+                    Section(L10n.medicalIDStep1) {
+                        Text(L10n.medicalIDStep1Hint)
+                            .font(.footnote).foregroundStyle(.secondary)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .frame(maxWidth: .infinity, minHeight: 50)
-                    .accessibilityIdentifier("F15.card.medicalIDOpenHealth")
-                } footer: {
-                    Text(L10n.medicalIDNote)
+                    Section(L10n.medicalIDStep2) {
+                        Text(L10n.medicalIDStep2Hint)
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                    Section(L10n.medicalIDStep3) {
+                        Text(L10n.medicalIDStep3Hint)
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                    Section {
+                        Button(L10n.medicalIDOpenHealth) {
+                            if let url = URL(string: "x-apple-health://") {
+                                UIApplication.shared.open(url)
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .frame(maxWidth: .infinity, minHeight: 50)
+                        .accessibilityIdentifier("F15.card.medicalIDOpenHealth")
+                    } footer: {
+                        Text(L10n.medicalIDNote)
+                    }
                 }
-            }
-            .navigationTitle(L10n.medicalIDTitle)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(L10n.onboard_gotIt) { dismiss() }
+                .navigationTitle(L10n.medicalIDTitle)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(L10n.onboard_gotIt) { dismiss() }
+                    }
                 }
             }
         }
@@ -181,13 +190,15 @@ struct EmergencyCardSelectorView: View {
     var onToggle: ((EmergencyCardItem, Bool) -> Void)?
 
     var body: some View {
-        List {
-            selectorSection(L10n.emergencySectionAllergy, items: candidates.allergies)
-            selectorSection(L10n.emergencySectionMeds, items: candidates.medications)
-            selectorSection(L10n.emergencySectionHealth, items: candidates.healthProblems)
-            selectorSection(L10n.emergencySectionContacts, items: candidates.contacts)
+        WithPerceptionTracking {
+            List {
+                selectorSection(L10n.emergencySectionAllergy, items: candidates.allergies)
+                selectorSection(L10n.emergencySectionMeds, items: candidates.medications)
+                selectorSection(L10n.emergencySectionHealth, items: candidates.healthProblems)
+                selectorSection(L10n.emergencySectionContacts, items: candidates.contacts)
+            }
+            .navigationTitle(L10n.emergencySelectTitle)
         }
-        .navigationTitle(L10n.emergencySelectTitle)
     }
 
     private func selectorSection(_ title: String, items: [EmergencyCardItem]) -> some View {
@@ -243,46 +254,48 @@ struct SOSButton: View {
     }
 
     var body: some View {
-        VStack(spacing: 8) {
-            if !holdConfirmed {
-                Button {
-                    // 触发由长按手势承担；点按给轻提示（Touch target ≥44pt，关怀 ≥64pt）
-                } label: {
-                    Text(L10n.emergency_sos_hold)
-                        .font(careMode ? .title3 : .body)
-                        .frame(minWidth: careMode ? 200 : 160,
-                               minHeight: careMode ? 64 : 44)
-                        .background(RoundedRectangle(cornerRadius: 14)
-                            .fill(Color("semantic-danger", bundle: .main)))
-                        .foregroundStyle(.white)
-                }
-                .simultaneousGesture(
-                    LongPressGesture(minimumDuration: requiredHold)
-                        .onEnded { _ in holdConfirmed = true }
-                )
-                // 审查修复（BR-012 辅助功能通路）：VoiceOver 用户无法执行长按，
-                // 双击默认动作等效激活 SOS——关怀模式恰是面向弱能力用户的场景
-                .accessibilityAction { holdConfirmed = true }
-                .accessibilityLabel(L10n.emergency_sos_holdA11y(requiredHold))
-                .accessibilityIdentifier("F15.card.sos.hold")
-            } else {
-                Text(L10n.emergency_sos_confirmPrompt)
-                    .font(.headline)
-                    .accessibilityIdentifier("F15.card.sos.confirmPrompt")
-                HStack(spacing: 16) {
-                    Button(L10n.emergency_sos_cancel) { holdConfirmed = false }
-                        .frame(minHeight: careMode ? 64 : 44)
-                        .accessibilityIdentifier("F15.card.sos.cancel")
-                    Button(L10n.emergency_sos_confirm) { onTrigger?() }
-                        .buttonStyle(.borderedProminent)
-                        .tint(Color("semantic-danger", bundle: .main))
-                        .frame(minHeight: careMode ? 64 : 44)
-                        .accessibilityIdentifier("F15.card.sos.confirm")
+        WithPerceptionTracking {
+            VStack(spacing: 8) {
+                if !holdConfirmed {
+                    Button {
+                        // 触发由长按手势承担；点按给轻提示（Touch target ≥44pt，关怀 ≥64pt）
+                    } label: {
+                        Text(L10n.emergency_sos_hold)
+                            .font(careMode ? .title3 : .body)
+                            .frame(minWidth: careMode ? 200 : 160,
+                                   minHeight: careMode ? 64 : 44)
+                            .background(RoundedRectangle(cornerRadius: 14)
+                                .fill(Color("semantic-danger", bundle: .main)))
+                            .foregroundStyle(.white)
+                    }
+                    .simultaneousGesture(
+                        LongPressGesture(minimumDuration: requiredHold)
+                            .onEnded { _ in holdConfirmed = true }
+                    )
+                    // 审查修复（BR-012 辅助功能通路）：VoiceOver 用户无法执行长按，
+                    // 双击默认动作等效激活 SOS——关怀模式恰是面向弱能力用户的场景
+                    .accessibilityAction { holdConfirmed = true }
+                    .accessibilityLabel(L10n.emergency_sos_holdA11y(requiredHold))
+                    .accessibilityIdentifier("F15.card.sos.hold")
+                } else {
+                    Text(L10n.emergency_sos_confirmPrompt)
+                        .font(.headline)
+                        .accessibilityIdentifier("F15.card.sos.confirmPrompt")
+                    HStack(spacing: 16) {
+                        Button(L10n.emergency_sos_cancel) { holdConfirmed = false }
+                            .frame(minHeight: careMode ? 64 : 44)
+                            .accessibilityIdentifier("F15.card.sos.cancel")
+                        Button(L10n.emergency_sos_confirm) { onTrigger?() }
+                            .buttonStyle(.borderedProminent)
+                            .tint(Color("semantic-danger", bundle: .main))
+                            .frame(minHeight: careMode ? 64 : 44)
+                            .accessibilityIdentifier("F15.card.sos.confirm")
+                    }
                 }
             }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 8)
     }
 }
 
@@ -301,71 +314,73 @@ struct SOSOrb: View {
     private let requiredHold: TimeInterval = HoldToConfirm.requiredSeconds(mode: CareModeMetrics.care)
 
     var body: some View {
-        ZStack {
-            Circle()
-                // 第八轮修复：语义危险色令牌替代硬编码 Color.red（§3.1
-                // 语义色表：semantic/danger = 紧急/SOS 专用，深色模式自动映射）
-                .fill(Color("semantic-danger", bundle: .main).opacity(0.85))
-                .frame(width: 64, height: 64)   // 关怀触点 ≥64pt（FR18.2）
-                .shadow(radius: 6)
-            // 环形进度反馈（FR18.3 按住确认的环形进度）——第六轮全仓审查
-            // 修复：progress(start) 只在 body 重渲染时求值，按住期间无任何
-            // 状态驱动重渲染，圆环恒为 0。改由 TimelineView 以动画帧率
-            // 驱动（仅按住期间挂载，松开即卸载）
-            if holdStart != nil {
-                TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
-                    Circle()
-                        .trim(from: 0, to: progress(timeline.date))
-                        .stroke(Color.white, lineWidth: 4)
-                        .frame(width: 64, height: 64)
-                        .rotationEffect(.degrees(-90))
-                }
-            }
-            Text(L10n.emergency_sos_hold)
-                .font(.caption2.bold())
-                .foregroundStyle(.white)
-                .multilineTextAlignment(.center)
-        }
-        .opacity(0.9)   // 可半透明（FR18.6）
-        // 审查修复：LongPressGesture 两处硬伤——onChanged 在 minimumDuration
-        // 达成后才触发（holdStart 即阈值时刻，进度环恒满程，按住反馈
-        // 名存实亡）；提前松手（未达阈值）手势失败、onEnded 不触发，
-        // holdStart 永不复位、进度环 100% 永久挂载。改零位移拖拽手势：
-        // 落下即记起点（环真实推进），松手恒复位，按足阈值才触发求助。
-        // 审查修复（位移取消）：零位移拖拽对手指移动不设限——起于悬浮球的
-        // 滚动/误划只要按住 ≥0.6s 松手即打开求助页（LongPress 原以位移
-        // 自取消）。位移超 Domain 单一事实源阈值（sosOrbMaxTravelPoints）
-        // 即取消本次按住：滚动起手不再误触急救路径。
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { value in
-                    guard !gestureCancelled else { return }
-                    let travel = max(abs(value.translation.width), abs(value.translation.height))
-                    if travel > CareModeMetrics.care.sosOrbMaxTravelPoints {
-                        gestureCancelled = true
-                        holdStart = nil
-                        return
+        WithPerceptionTracking {
+            ZStack {
+                Circle()
+                    // 第八轮修复：语义危险色令牌替代硬编码 Color.red（§3.1
+                    // 语义色表：semantic/danger = 紧急/SOS 专用，深色模式自动映射）
+                    .fill(Color("semantic-danger", bundle: .main).opacity(0.85))
+                    .frame(width: 64, height: 64)   // 关怀触点 ≥64pt（FR18.2）
+                    .shadow(radius: 6)
+                // 环形进度反馈（FR18.3 按住确认的环形进度）——第六轮全仓审查
+                // 修复：progress(start) 只在 body 重渲染时求值，按住期间无任何
+                // 状态驱动重渲染，圆环恒为 0。改由 TimelineView 以动画帧率
+                // 驱动（仅按住期间挂载，松开即卸载）
+                if holdStart != nil {
+                    TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
+                        Circle()
+                            .trim(from: 0, to: progress(timeline.date))
+                            .stroke(Color.white, lineWidth: 4)
+                            .frame(width: 64, height: 64)
+                            .rotationEffect(.degrees(-90))
                     }
-                    if holdStart == nil { holdStart = Date() }
                 }
-                .onEnded { _ in
-                    let held = !gestureCancelled
-                        && holdStart.map { Date().timeIntervalSince($0) >= requiredHold } ?? false
-                    holdStart = nil
-                    gestureCancelled = false
-                    if held { showHelp = true }
-                }
-        )
-        // 审查修复（BR-012 辅助功能通路）：VoiceOver 双击等效激活求助页
-        .accessibilityAddTraits(.isButton)
-        .accessibilityLabel(L10n.emergency_sos_holdA11y(requiredHold))
-        .accessibilityAction { showHelp = true }
-        .fullScreenCover(isPresented: $showHelp) {
-            SOSHelpView()
+                Text(L10n.emergency_sos_hold)
+                    .font(.caption2.bold())
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+            }
+            .opacity(0.9)   // 可半透明（FR18.6）
+            // 审查修复：LongPressGesture 两处硬伤——onChanged 在 minimumDuration
+            // 达成后才触发（holdStart 即阈值时刻，进度环恒满程，按住反馈
+            // 名存实亡）；提前松手（未达阈值）手势失败、onEnded 不触发，
+            // holdStart 永不复位、进度环 100% 永久挂载。改零位移拖拽手势：
+            // 落下即记起点（环真实推进），松手恒复位，按足阈值才触发求助。
+            // 审查修复（位移取消）：零位移拖拽对手指移动不设限——起于悬浮球的
+            // 滚动/误划只要按住 ≥0.6s 松手即打开求助页（LongPress 原以位移
+            // 自取消）。位移超 Domain 单一事实源阈值（sosOrbMaxTravelPoints）
+            // 即取消本次按住：滚动起手不再误触急救路径。
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        guard !gestureCancelled else { return }
+                        let travel = max(abs(value.translation.width), abs(value.translation.height))
+                        if travel > CareModeMetrics.care.sosOrbMaxTravelPoints {
+                            gestureCancelled = true
+                            holdStart = nil
+                            return
+                        }
+                        if holdStart == nil { holdStart = Date() }
+                    }
+                    .onEnded { _ in
+                        let held = !gestureCancelled
+                            && holdStart.map { Date().timeIntervalSince($0) >= requiredHold } ?? false
+                        holdStart = nil
+                        gestureCancelled = false
+                        if held { showHelp = true }
+                    }
+            )
+            // 审查修复（BR-012 辅助功能通路）：VoiceOver 双击等效激活求助页
+            .accessibilityAddTraits(.isButton)
+            .accessibilityLabel(L10n.emergency_sos_holdA11y(requiredHold))
+            .accessibilityAction { showHelp = true }
+            .fullScreenCover(isPresented: $showHelp) {
+                SOSHelpView()
+            }
+            // 审查修复：删除重复的 .accessibilityLabel(sosHelpTitle)——同一视图
+            // 连续两次 label，后者覆盖前者：VoiceOver 用户失去「按住 N 秒」
+            // 时长指导（BR-012 辅助功能通路的刻意产物被吞）。
         }
-        // 审查修复：删除重复的 .accessibilityLabel(sosHelpTitle)——同一视图
-        // 连续两次 label，后者覆盖前者：VoiceOver 用户失去「按住 N 秒」
-        // 时长指导（BR-012 辅助功能通路的刻意产物被吞）。
     }
 
     private func progress(_ now: Date) -> CGFloat {
@@ -392,71 +407,73 @@ struct SOSHelpView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 20) {
-                Text(L10n.sosHelpTitle)
-                    .font(.largeTitle.bold())
-                    .accessibilityIdentifier("F18.sos.title")
+        WithPerceptionTracking {
+            NavigationStack {
+                VStack(spacing: 20) {
+                    Text(L10n.sosHelpTitle)
+                        .font(.largeTitle.bold())
+                        .accessibilityIdentifier("F18.sos.title")
 
-                // 拨打 120：一步直达（免复述——紧急优先；FR19 附表语义一致）
-                Button {
-                    dial(L10n.emergencyNumber)   // 审查修复：号码按语言区域取 L10n
-                } label: {
-                    Label(L10n.sosCall120, systemImage: "phone.fill")
-                        .font(.title3.bold())
-                        .frame(maxWidth: .infinity, minHeight: 72)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.red)
-                .accessibilityIdentifier("F18.sos.call120")
+                    // 拨打 120：一步直达（免复述——紧急优先；FR19 附表语义一致）
+                    Button {
+                        dial(L10n.emergencyNumber)   // 审查修复：号码按语言区域取 L10n
+                    } label: {
+                        Label(L10n.sosCall120, systemImage: "phone.fill")
+                            .font(.title3.bold())
+                            .frame(maxWidth: .infinity, minHeight: 72)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.red)
+                    .accessibilityIdentifier("F18.sos.call120")
 
-                // 紧急联系人（已配置才显示；未配置引导去急救卡补录，FR15.1）
-                if contacts.isEmpty {
-                    Text(L10n.sosNoContacts)
+                    // 紧急联系人（已配置才显示；未配置引导去急救卡补录，FR15.1）
+                    if contacts.isEmpty {
+                        Text(L10n.sosNoContacts)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .accessibilityIdentifier("F18.sos.noContacts")
+                    } else {
+                        ForEach(contacts) { contact in
+                            Button {
+                                // detail 为「关系 · 电话」复合展示串——拨号取纯号码
+                                // （BR-012 SOS 路径不得因 CJK/分隔符使 tel: 失效）
+                                dial(contact.contactPhone ?? contact.detail)
+                            } label: {
+                                Label(contact.title, systemImage: "person.crop.circle.badge.exclamationmark")
+                                    .frame(maxWidth: .infinity, minHeight: 56)
+                            }
+                            .buttonStyle(.bordered)
+                            .accessibilityIdentifier("F18.sos.contact")
+                        }
+                    }
+
+                    // 查看急救卡（F15 配置与展示）
+                    Button {
+                        showEmergencyCard = true
+                    } label: {
+                        Label(L10n.sosViewCard, systemImage: "cross.case.fill")
+                            .frame(maxWidth: .infinity, minHeight: 56)
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityIdentifier("F18.sos.viewCard")
+
+                    // 发送位置（P1，置灰说明——不假装可用）
+                    Label(L10n.sosSendLocationP1, systemImage: "location.slash")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .accessibilityIdentifier("F18.sos.noContacts")
-                } else {
-                    ForEach(contacts) { contact in
-                        Button {
-                            // detail 为「关系 · 电话」复合展示串——拨号取纯号码
-                            // （BR-012 SOS 路径不得因 CJK/分隔符使 tel: 失效）
-                            dial(contact.contactPhone ?? contact.detail)
-                        } label: {
-                            Label(contact.title, systemImage: "person.crop.circle.badge.exclamationmark")
-                                .frame(maxWidth: .infinity, minHeight: 56)
-                        }
-                        .buttonStyle(.bordered)
-                        .accessibilityIdentifier("F18.sos.contact")
-                    }
+                        .accessibilityIdentifier("F18.sos.sendLocationP1")
+
+                    Spacer()
                 }
-
-                // 查看急救卡（F15 配置与展示）
-                Button {
-                    showEmergencyCard = true
-                } label: {
-                    Label(L10n.sosViewCard, systemImage: "cross.case.fill")
-                        .frame(maxWidth: .infinity, minHeight: 56)
+                .padding(24)
+                .navigationTitle(L10n.sosHelpTitle)
+                .navigationBarTitleDisplayMode(.inline)
+                .sheet(isPresented: $showEmergencyCard) {
+                    NavigationStack { EmergencyCardHubView() }
                 }
-                .buttonStyle(.bordered)
-                .accessibilityIdentifier("F18.sos.viewCard")
-
-                // 发送位置（P1，置灰说明——不假装可用）
-                Label(L10n.sosSendLocationP1, systemImage: "location.slash")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("F18.sos.sendLocationP1")
-
-                Spacer()
+                .task(id: app.currentPatientId) { await hub.load(patientId: app.currentPatientId) }
             }
-            .padding(24)
-            .navigationTitle(L10n.sosHelpTitle)
-            .navigationBarTitleDisplayMode(.inline)
-            .sheet(isPresented: $showEmergencyCard) {
-                NavigationStack { EmergencyCardHubView() }
-            }
-            .task(id: app.currentPatientId) { await hub.load(patientId: app.currentPatientId) }
         }
     }
 
@@ -478,34 +495,36 @@ struct CareModeSettingsView: View {
     @State private var careMode = false
 
     var body: some View {
-        Form {
-            Section {
-                Toggle(isOn: Binding(
-                    get: { careMode },
-                    set: { newValue in
-                        careMode = newValue
-                        app.careMode = newValue
-                    })) {
-                    Label(L10n.care_title, systemImage: "eye")
+        WithPerceptionTracking {
+            Form {
+                Section {
+                    Toggle(isOn: Binding(
+                        get: { careMode },
+                        set: { newValue in
+                            careMode = newValue
+                            app.careMode = newValue
+                        })) {
+                        Label(L10n.care_title, systemImage: "eye")
+                    }
+                    .accessibilityIdentifier("F18.care.toggle")
+                } footer: {
+                    Text(L10n.care_footer)
                 }
-                .accessibilityIdentifier("F18.care.toggle")
-            } footer: {
-                Text(L10n.care_footer)
-            }
-            if careMode {
-                Section(L10n.care_parameters_section) {
-                    LabeledContent(L10n.care_parameters_touchTarget, value: "≥64 pt")
-                    LabeledContent(L10n.care_parameters_speechRate, value: L10n.care_parameters_valueSlow)
-                    LabeledContent(L10n.care_parameters_readback, value: L10n.care_parameters_valueAskEachTime)
-                    LabeledContent(L10n.care_parameters_voiceInput, value: L10n.care_parameters_valueDefaultOn)
-                    LabeledContent(L10n.care_parameters_sos,
-                                   value: L10n.care_parameters_sosValue(seconds: Int(HoldToConfirm.requiredSeconds(mode: CareModeMetrics.care))))
+                if careMode {
+                    Section(L10n.care_parameters_section) {
+                        LabeledContent(L10n.care_parameters_touchTarget, value: "≥64 pt")
+                        LabeledContent(L10n.care_parameters_speechRate, value: L10n.care_parameters_valueSlow)
+                        LabeledContent(L10n.care_parameters_readback, value: L10n.care_parameters_valueAskEachTime)
+                        LabeledContent(L10n.care_parameters_voiceInput, value: L10n.care_parameters_valueDefaultOn)
+                        LabeledContent(L10n.care_parameters_sos,
+                                       value: L10n.care_parameters_sosValue(seconds: Int(HoldToConfirm.requiredSeconds(mode: CareModeMetrics.care))))
+                    }
+                    .accessibilityIdentifier("F18.care.parameters")
                 }
-                .accessibilityIdentifier("F18.care.parameters")
             }
+            .navigationTitle(L10n.care_title)
+            .onAppear { careMode = app.careMode }
         }
-        .navigationTitle(L10n.care_title)
-        .onAppear { careMode = app.careMode }
     }
 }
 

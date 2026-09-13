@@ -2,12 +2,13 @@ import SwiftUI
 import os
 import Domain
 import Infrastructure
+import Perception
 
 /// FR17.14 语音速记面板（SP-59）：文本输入速记 + 标签 + 入轴开关。
 /// M1.5 文法子集阶段的速记 = 手输文本（语音转写随基线轨装配后接入，
 /// 转写文本同样走 VoiceInputTemplate 统一确认——FR17.13 模板复用）。
 @MainActor
-@Observable
+@Perceptible
 final class VoiceNoteState {
     private(set) var notes: [VoiceNoteStore.VoiceNoteRow] = []
     private let store: VoiceNoteStore
@@ -91,108 +92,110 @@ struct VoiceNotePanelView: View {
     @State private var writeFailed = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            if state.notes.isEmpty {
-                ContentUnavailableView(L10n.voicenoteEmptyTitle, systemImage: "waveform",
-                                       description: Text(L10n.voicenoteEmptyHint))
-                    .accessibilityIdentifier("SP-59.voicenote.empty")
-            } else {
-                List(state.notes) { note in
-                    Button {
-                        editingNote = note
-                    } label: {
-                        VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text(note.body).font(.body)
-                            Spacer()
-                            if note.inTimeline {
-                                Text(L10n.voicenoteInTimeline).font(.caption2).foregroundStyle(.secondary)
+        WithPerceptionTracking {
+            VStack(spacing: 0) {
+                if state.notes.isEmpty {
+                    VLUnavailableView(L10n.voicenoteEmptyTitle, systemImage: "waveform",
+                                           description: Text(L10n.voicenoteEmptyHint))
+                        .accessibilityIdentifier("SP-59.voicenote.empty")
+                } else {
+                    List(state.notes) { note in
+                        Button {
+                            editingNote = note
+                        } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text(note.body).font(.body)
+                                Spacer()
+                                if note.inTimeline {
+                                    Text(L10n.voicenoteInTimeline).font(.caption2).foregroundStyle(.secondary)
+                                }
+                            }
+                            Text(note.occurredAt.formatted(date: .abbreviated, time: .shortened))
+                                .font(.caption2).foregroundStyle(.secondary)
+                            if !note.tags.isEmpty {
+                                Text(note.tags.joined(separator: " · ")).font(.caption2).foregroundStyle(.secondary)
                             }
                         }
-                        Text(note.occurredAt.formatted(date: .abbreviated, time: .shortened))
-                            .font(.caption2).foregroundStyle(.secondary)
-                        if !note.tags.isEmpty {
-                            Text(note.tags.joined(separator: " · ")).font(.caption2).foregroundStyle(.secondary)
+                            .accessibilityElement(children: .combine)
+                            .accessibilityIdentifier("SP-59.voicenote.row")
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        TextField(L10n.voicenoteDraftPlaceholder, text: $draft, axis: .vertical)
+                            .textFieldStyle(.roundedBorder)
+                            .lineLimit(1...4)
+                            .accessibilityLabel(L10n.voicenoteDraftAccessibility)
+                            .accessibilityIdentifier("SP-59.voicenote.input")
+                        Button {
+                            let body = draft.trimmingCharacters(in: .whitespaces)
+                            guard !body.isEmpty else { return }
+                            // FR17.13-entry: 语音速记 —— 走统一模板，不自建确认逻辑
+                            confirmSet = VoiceInputTemplate.confirmationSet(drafts: [
+                                FieldDraft(key: "body", value: body, confidence: 0.9)
+                            ])
+                        } label: {
+                            VLIcon.send.resizable().frame(width: 22, height: 22)
+                                .frame(width: 44, height: 44)
+                        }
+                        .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty)
+                        .accessibilityLabel(L10n.voicenoteSaveAccessibility)
+                        .accessibilityIdentifier("SP-59.voicenote.save")
+                    }
+                    // FR17.14 语音速记（纯转写层，评审修正）：此前速记 = 手输文本，
+                    // 语音转写未接线——接入端上听写，转写文本走同一 FR17.13 确认模板。
+                    // 确认前不预填 draft（评审修正）：取消/重试不留未确认转写文本。
+                    VoiceDictationButton { text, confidence in
+                        confirmSet = VoiceInputTemplate.confirmationSet(drafts: [
+                            FieldDraft(key: "body", value: text, confidence: confidence)
+                        ])
+                    }
+                    .accessibilityIdentifier("SP-59.voicenote.dictation")
+                }
+                .padding(12)
+            }
+            .navigationTitle(L10n.voicenoteTitle)
+            .task(id: currentPatientId) { await state.load(patientId: currentPatientId) }
+            .alert(L10n.voicenoteSaveFailed, isPresented: $writeFailed) {
+                Button(L10n.onboard_gotIt, role: .cancel) { }
+            }
+            // 唯一确认 UI：VoiceConfirmSheet（FR17.13）。本页不再自建确认界面。
+            .voiceConfirmSheet($confirmSet, route: routeMonitor.route) { confirmed in
+                let body = confirmed.confirmedFields.first?.value ?? ""
+                draft = ""
+                confirmSet = nil
+                guard !body.isEmpty else { return }
+                Task {
+                    if !(await state.create(patientId: currentPatientId, body: body, tags: nil)) {
+                        writeFailed = true
+                    }
+                }
+            }
+            .sheet(item: $editingNote) { note in
+                VoiceNoteDetailSheet(note: note) { body, tags, inTimeline in
+                    editingNote = nil
+                    Task {
+                        if !(await state.update(id: note.id, patientId: currentPatientId,
+                                                body: body, tags: tags, inTimeline: inTimeline)) {
+                            writeFailed = true
                         }
                     }
-                        .accessibilityElement(children: .combine)
-                        .accessibilityIdentifier("SP-59.voicenote.row")
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 8) {
-                    TextField(L10n.voicenoteDraftPlaceholder, text: $draft, axis: .vertical)
-                        .textFieldStyle(.roundedBorder)
-                        .lineLimit(1...4)
-                        .accessibilityLabel(L10n.voicenoteDraftAccessibility)
-                        .accessibilityIdentifier("SP-59.voicenote.input")
-                    Button {
-                        let body = draft.trimmingCharacters(in: .whitespaces)
-                        guard !body.isEmpty else { return }
-                        // FR17.13-entry: 语音速记 —— 走统一模板，不自建确认逻辑
-                        confirmSet = VoiceInputTemplate.confirmationSet(drafts: [
-                            FieldDraft(key: "body", value: body, confidence: 0.9)
-                        ])
-                    } label: {
-                        VLIcon.send.resizable().frame(width: 22, height: 22)
-                            .frame(width: 44, height: 44)
-                    }
-                    .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty)
-                    .accessibilityLabel(L10n.voicenoteSaveAccessibility)
-                    .accessibilityIdentifier("SP-59.voicenote.save")
-                }
-                // FR17.14 语音速记（纯转写层，评审修正）：此前速记 = 手输文本，
-                // 语音转写未接线——接入端上听写，转写文本走同一 FR17.13 确认模板。
-                // 确认前不预填 draft（评审修正）：取消/重试不留未确认转写文本。
-                VoiceDictationButton { text, confidence in
-                    confirmSet = VoiceInputTemplate.confirmationSet(drafts: [
-                        FieldDraft(key: "body", value: text, confidence: confidence)
-                    ])
-                }
-                .accessibilityIdentifier("SP-59.voicenote.dictation")
-            }
-            .padding(12)
-        }
-        .navigationTitle(L10n.voicenoteTitle)
-        .task(id: currentPatientId) { await state.load(patientId: currentPatientId) }
-        .alert(L10n.voicenoteSaveFailed, isPresented: $writeFailed) {
-            Button(L10n.onboard_gotIt, role: .cancel) { }
-        }
-        // 唯一确认 UI：VoiceConfirmSheet（FR17.13）。本页不再自建确认界面。
-        .voiceConfirmSheet($confirmSet, route: routeMonitor.route) { confirmed in
-            let body = confirmed.confirmedFields.first?.value ?? ""
-            draft = ""
-            confirmSet = nil
-            guard !body.isEmpty else { return }
-            Task {
-                if !(await state.create(patientId: currentPatientId, body: body, tags: nil)) {
-                    writeFailed = true
-                }
-            }
-        }
-        .sheet(item: $editingNote) { note in
-            VoiceNoteDetailSheet(note: note) { body, tags, inTimeline in
-                editingNote = nil
-                Task {
-                    if !(await state.update(id: note.id, patientId: currentPatientId,
-                                            body: body, tags: tags, inTimeline: inTimeline)) {
-                        writeFailed = true
+                } onDelete: {
+                    editingNote = nil
+                    Task {
+                        if !(await state.delete(id: note.id, patientId: currentPatientId)) {
+                            writeFailed = true
+                        }
                     }
                 }
-            } onDelete: {
-                editingNote = nil
-                Task {
-                    if !(await state.delete(id: note.id, patientId: currentPatientId)) {
-                        writeFailed = true
-                    }
-                }
+                .presentationDetents([.medium])
             }
-            .presentationDetents([.medium])
+            .onAppear { routeMonitor.start() }
+            .onDisappear { routeMonitor.stop() }
         }
-        .onAppear { routeMonitor.start() }
-        .onDisappear { routeMonitor.stop() }
     }
 
     private var currentPatientId: UUID { app.currentPatientId }
@@ -212,51 +215,53 @@ struct VoiceNoteDetailSheet: View {
     @State private var confirmDelete = false
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section(L10n.voicenoteDetailBody) {
-                    TextField(L10n.voicenoteDraftPlaceholder, text: $draftBody, axis: .vertical)
-                        .lineLimit(3...8)
-                }
-                Section(L10n.voicenoteDetailTags) {
-                    TextField(L10n.voicenoteDetailTagsHint, text: $tagsText)
-                }
-                Section {
-                    Toggle(L10n.voicenoteDetailTimeline, isOn: $inTimeline)
-                } footer: {
-                    Text(L10n.voicenoteDetailTimelineHint)
-                }
-                Section {
-                    Button(role: .destructive) { confirmDelete = true } label: {
-                        Text(L10n.voicenoteDetailDelete)
+        WithPerceptionTracking {
+            NavigationStack {
+                Form {
+                    Section(L10n.voicenoteDetailBody) {
+                        TextField(L10n.voicenoteDraftPlaceholder, text: $draftBody, axis: .vertical)
+                            .lineLimit(3...8)
+                    }
+                    Section(L10n.voicenoteDetailTags) {
+                        TextField(L10n.voicenoteDetailTagsHint, text: $tagsText)
+                    }
+                    Section {
+                        Toggle(L10n.voicenoteDetailTimeline, isOn: $inTimeline)
+                    } footer: {
+                        Text(L10n.voicenoteDetailTimelineHint)
+                    }
+                    Section {
+                        Button(role: .destructive) { confirmDelete = true } label: {
+                            Text(L10n.voicenoteDetailDelete)
+                        }
                     }
                 }
-            }
-            .navigationTitle(L10n.voicenoteTitle)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(L10n.commonCancel) { dismiss() }
+                .navigationTitle(L10n.voicenoteTitle)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button(L10n.commonCancel) { dismiss() }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(L10n.reminder_save) {
+                            let tags = tagsText.split(separator: ",").map { String($0.trimmingCharacters(in: .whitespaces)) }
+                            onSave(draftBody, tags.isEmpty ? nil : tags, inTimeline)
+                            dismiss()
+                        }
+                        .disabled(draftBody.trimmingCharacters(in: .whitespaces).isEmpty)
+                    }
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(L10n.reminder_save) {
-                        let tags = tagsText.split(separator: ",").map { String($0.trimmingCharacters(in: .whitespaces)) }
-                        onSave(draftBody, tags.isEmpty ? nil : tags, inTimeline)
+                .alert(L10n.voicenoteDetailDeleteConfirm, isPresented: $confirmDelete) {
+                    Button(L10n.voicenoteDetailDelete, role: .destructive) {
+                        onDelete()
                         dismiss()
                     }
-                    .disabled(draftBody.trimmingCharacters(in: .whitespaces).isEmpty)
+                    Button(L10n.onboard_cancel, role: .cancel) {}
                 }
-            }
-            .alert(L10n.voicenoteDetailDeleteConfirm, isPresented: $confirmDelete) {
-                Button(L10n.voicenoteDetailDelete, role: .destructive) {
-                    onDelete()
-                    dismiss()
+                .onAppear {
+                    draftBody = note.body
+                    tagsText = note.tags.joined(separator: ", ")
+                    inTimeline = note.inTimeline
                 }
-                Button(L10n.onboard_cancel, role: .cancel) {}
-            }
-            .onAppear {
-                draftBody = note.body
-                tagsText = note.tags.joined(separator: ", ")
-                inTimeline = note.inTimeline
             }
         }
     }

@@ -1,6 +1,7 @@
 import SwiftUI
 import Domain
 import Infrastructure
+import Perception
 
 /// 弹墙宿主：任何视图设置 `pendingPaywallTrigger` 后，本组件在根层级弹出
 /// SP-61 付费墙。集中一处宿主，避免各触发点各自 sheet 造成双弹/漏关。
@@ -8,13 +9,15 @@ struct PaywallHost: ViewModifier {
     @Environment(AppEntitlementStore.self) private var entitlements
 
     func body(content: Content) -> some View {
-        content
-            .sheet(item: Binding(
-                get: { entitlements.pendingPaywallTrigger.map(TriggerBox.init) },
-                set: { if $0 == nil { entitlements.clearPendingPaywall() } })) { _ in
-                PaywallView()
-                    .presentationDetents([.medium, .large])
-            }
+        WithPerceptionTracking {
+            content
+                .sheet(item: Binding(
+                    get: { entitlements.pendingPaywallTrigger.map(TriggerBox.init) },
+                    set: { if $0 == nil { entitlements.clearPendingPaywall() } })) { _ in
+                    PaywallView()
+                        .presentationDetents([.medium, .large])
+                }
+        }
     }
 }
 
@@ -37,49 +40,51 @@ struct PaywallView: View {
     @State private var errorText: String?
 
     var body: some View {
-        VStack(spacing: 16) {
-            VLIcon.proDiamond.resizable().frame(width: 56, height: 56)
-            Text("Vita Liber Pro").font(.title2.bold())
-            Text(L10n.pay_valueProp).font(.footnote).foregroundStyle(.secondary)
+        WithPerceptionTracking {
+            VStack(spacing: 16) {
+                VLIcon.proDiamond.resizable().frame(width: 56, height: 56)
+                Text("Vita Liber Pro").font(.title2.bold())
+                Text(L10n.pay_valueProp).font(.footnote).foregroundStyle(.secondary)
 
-            VStack(spacing: 12) {
-                productCard(L10n.payProYearly, L10n.payProYearlyPrice, detail: L10n.payProYearlyDetail)
-                productCard(L10n.payProMonthly, L10n.payProMonthlyPrice, detail: L10n.payProMonthlyDetail)
-                productCard(L10n.payAddonPack, L10n.payAddonPrice, detail: L10n.payAddonDetail)
+                VStack(spacing: 12) {
+                    productCard(L10n.payProYearly, L10n.payProYearlyPrice, detail: L10n.payProYearlyDetail)
+                    productCard(L10n.payProMonthly, L10n.payProMonthlyPrice, detail: L10n.payProMonthlyDetail)
+                    productCard(L10n.payAddonPack, L10n.payAddonPrice, detail: L10n.payAddonDetail)
+                }
+                .padding(.horizontal, 16)
+
+                Button {
+                    Task { await purchase(.proBase) }
+                } label: {
+                    Text(busy ? L10n.pay_busy : L10n.pay_buy)
+                        .frame(maxWidth: .infinity, minHeight: 50)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(busy)
+                .accessibilityIdentifier("SP-61.paywall.buy")
+
+                Button(L10n.pay_restore) {
+                    Task { await restore() }
+                }
+                .accessibilityIdentifier("SP-61.paywall.restore")
+
+                // 审查修复：购买/恢复失败的错误态（四态契约）
+                if let errorText {
+                    Label(errorText, systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+
+                Text(L10n.payTrustCopy)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+                    .accessibilityIdentifier("SP-61.paywall.trust")
             }
-            .padding(.horizontal, 16)
-
-            Button {
-                Task { await purchase(.proBase) }
-            } label: {
-                Text(busy ? L10n.pay_busy : L10n.pay_buy)
-                    .frame(maxWidth: .infinity, minHeight: 50)
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(busy)
-            .accessibilityIdentifier("SP-61.paywall.buy")
-
-            Button(L10n.pay_restore) {
-                Task { await restore() }
-            }
-            .accessibilityIdentifier("SP-61.paywall.restore")
-
-            // 审查修复：购买/恢复失败的错误态（四态契约）
-            if let errorText {
-                Label(errorText, systemImage: "exclamationmark.triangle")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-            }
-
-            Text(L10n.payTrustCopy)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
-                .accessibilityIdentifier("SP-61.paywall.trust")
+            .padding(.vertical, 24)
+            .task { await load() }
         }
-        .padding(.vertical, 24)
-        .task { await load() }
     }
 
     private func productCard(_ title: String, _ price: String, detail: String) -> some View {
@@ -121,15 +126,17 @@ struct EntitlementGate<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
-        if PaywallRules.isBlockable(capability) {
-            VStack(spacing: 8) {
-                content
-                Label(L10n.paywallPreviewTitle, systemImage: "sparkles")
-                    .font(.caption)
-                    .foregroundStyle(Color("grade-e", bundle: .main))
+        WithPerceptionTracking {
+            if PaywallRules.isBlockable(capability) {
+                VStack(spacing: 8) {
+                    content
+                    Label(L10n.paywallPreviewTitle, systemImage: "sparkles")
+                        .font(.caption)
+                        .foregroundStyle(Color("grade-e", bundle: .main))
+                }
+            } else {
+                content   // 免费红线能力：直接呈现，无任何门
             }
-        } else {
-            content   // 免费红线能力：直接呈现，无任何门
         }
     }
 }

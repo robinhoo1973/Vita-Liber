@@ -4,10 +4,11 @@ import os
 import Domain
 import Infrastructure
 import Protocols
+import Perception
 
 /// F14 设置状态仓（@Observable）：桥接 Infrastructure 的 SettingsStore actor。
 @MainActor
-@Observable
+@Perceptible
 final class AppSettingsStore {
     private(set) var values: [AppSettingKey: String] = [:]
     private(set) var authAIRevision: UInt64 = 0

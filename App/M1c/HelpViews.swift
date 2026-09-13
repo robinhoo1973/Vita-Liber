@@ -3,6 +3,7 @@ import Domain
 import UserNotifications
 import AVFoundation
 import LocalAuthentication
+import Perception
 
 // MARK: - FR22.1 帮助中心根视图
 
@@ -11,55 +12,57 @@ struct HelpRootView: View {
     @Environment(AppState.self) private var app
 
     var body: some View {
-        Form {
-            // §5.20 七类教程入口（V3.72 补：此前只有三项诊断 + 关于页）
-            Section(L10n.helpTutorialTitle) {
-                ForEach(helpTopics, id: \.title) { topic in
-                    NavigationLink {
-                        HelpTopicView(title: topic.title, bullets: topic.bullets)
-                    } label: {
-                        Label(topic.title, systemImage: topic.icon)
+        WithPerceptionTracking {
+            Form {
+                // §5.20 七类教程入口（V3.72 补：此前只有三项诊断 + 关于页）
+                Section(L10n.helpTutorialTitle) {
+                    ForEach(helpTopics, id: \.title) { topic in
+                        NavigationLink {
+                            HelpTopicView(title: topic.title, bullets: topic.bullets)
+                        } label: {
+                            Label(topic.title, systemImage: topic.icon)
+                        }
                     }
                 }
-            }
-            Section {
-                // 评审修正 H15：走类型安全路由（注册表覆盖 SP-45）
-                NavigationLink(value: AppRoute.helpPermissionDiagnostics) {
-                    Label(L10n.helpDiagPermission, systemImage: "lock.shield")
-                }
-                .accessibilityIdentifier("FR22.2.permissionDiagnostics")
+                Section {
+                    // 评审修正 H15：走类型安全路由（注册表覆盖 SP-45）
+                    NavigationLink(value: AppRoute.helpPermissionDiagnostics) {
+                        Label(L10n.helpDiagPermission, systemImage: "lock.shield")
+                    }
+                    .accessibilityIdentifier("FR22.2.permissionDiagnostics")
 
-                // 评审修正 H15：走类型安全路由（注册表覆盖 SP-45）
-                NavigationLink(value: AppRoute.helpReminderDiagnostics) {
-                    Label(L10n.helpDiagReminder, systemImage: "bell.badge.exclamationmark")
-                }
-                .accessibilityIdentifier("FR22.3.reminderDiagnostics")
+                    // 评审修正 H15：走类型安全路由（注册表覆盖 SP-45）
+                    NavigationLink(value: AppRoute.helpReminderDiagnostics) {
+                        Label(L10n.helpDiagReminder, systemImage: "bell.badge.exclamationmark")
+                    }
+                    .accessibilityIdentifier("FR22.3.reminderDiagnostics")
 
-                NavigationLink {
-                    HelpDataHealth()
-                } label: {
-                    Label(L10n.helpDiagDataHealth, systemImage: "externaldrive.badge.checkmark")
+                    NavigationLink {
+                        HelpDataHealth()
+                    } label: {
+                        Label(L10n.helpDiagDataHealth, systemImage: "externaldrive.badge.checkmark")
+                    }
+                    .accessibilityIdentifier("FR22.4.dataHealth")
+                } header: {
+                    Text(L10n.helpDiagSystem)
+                } footer: {
+                    Text(L10n.helpDiagSystemHint)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
-                .accessibilityIdentifier("FR22.4.dataHealth")
-            } header: {
-                Text(L10n.helpDiagSystem)
-            } footer: {
-                Text(L10n.helpDiagSystemHint)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
 
-            Section {
-                // 评审修正 H15：走类型安全路由（注册表覆盖 SP-47/48）
-                NavigationLink(value: AppRoute.termsAndPrivacy) {
-                    Label(L10n.helpAboutLegal, systemImage: "info.circle")
+                Section {
+                    // 评审修正 H15：走类型安全路由（注册表覆盖 SP-47/48）
+                    NavigationLink(value: AppRoute.termsAndPrivacy) {
+                        Label(L10n.helpAboutLegal, systemImage: "info.circle")
+                    }
+                    .accessibilityIdentifier("FR22.8.about")
                 }
-                .accessibilityIdentifier("FR22.8.about")
             }
+            // 审查修复（死控件清除）：.searchable(.constant("")) 渲染永久失效的
+            // 搜索条（绑定常量、零搜索逻辑）——删除。
+            .navigationTitle(L10n.helpCenterTitle)
         }
-        // 审查修复（死控件清除）：.searchable(.constant("")) 渲染永久失效的
-        // 搜索条（绑定常量、零搜索逻辑）——删除。
-        .navigationTitle(L10n.helpCenterTitle)
     }
 
     private var helpTopics: [(title: String, icon: String, bullets: [String])] {
@@ -82,18 +85,20 @@ struct HelpTopicView: View {
     @Environment(AppState.self) private var app
 
     var body: some View {
-        List(bullets, id: \.self) { b in
-            Text(b).font(.body)
-        }
-        .navigationTitle(title)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            if title == L10n.helpTopicVoice {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        app.speak(bullets.joined(separator: "。"))
-                    } label: {
-                        Label(L10n.helpVoiceSpeak, systemImage: "speaker.wave.2")
+        WithPerceptionTracking {
+            List(bullets, id: \.self) { b in
+                Text(b).font(.body)
+            }
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                if title == L10n.helpTopicVoice {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            app.speak(bullets.joined(separator: "。"))
+                        } label: {
+                            Label(L10n.helpVoiceSpeak, systemImage: "speaker.wave.2")
+                        }
                     }
                 }
             }
@@ -112,28 +117,30 @@ struct HelpPermissionDiagnostics: View {
     @State private var faceIDStatus: String = L10n.helpStatusChecking
 
     var body: some View {
-        Form {
-            Section(L10n.helpPermSection) {
-                PermissionRow(name: L10n.helpPermCamera, status: cameraStatus, icon: "camera")
-                PermissionRow(name: L10n.helpPermMic, status: micStatus, icon: "mic")
-                PermissionRow(name: L10n.helpPermNotification, status: notificationStatus, icon: "bell")
-                PermissionRow(name: "Face ID", status: faceIDStatus, icon: "faceid")
-            }
-            Section {
-                Button(L10n.helpPermOpenSettings) {
-                    if let url = URL(string: UIApplication.openSettingsURLString) {
-                        UIApplication.shared.open(url)
-                    }
+        WithPerceptionTracking {
+            Form {
+                Section(L10n.helpPermSection) {
+                    PermissionRow(name: L10n.helpPermCamera, status: cameraStatus, icon: "camera")
+                    PermissionRow(name: L10n.helpPermMic, status: micStatus, icon: "mic")
+                    PermissionRow(name: L10n.helpPermNotification, status: notificationStatus, icon: "bell")
+                    PermissionRow(name: "Face ID", status: faceIDStatus, icon: "faceid")
                 }
-                .frame(minHeight: 44)
-            } footer: {
-                Text(L10n.helpPermDeniedHint)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                Section {
+                    Button(L10n.helpPermOpenSettings) {
+                        if let url = URL(string: UIApplication.openSettingsURLString) {
+                            UIApplication.shared.open(url)
+                        }
+                    }
+                    .frame(minHeight: 44)
+                } footer: {
+                    Text(L10n.helpPermDeniedHint)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             }
+            .navigationTitle(L10n.helpDiagPermission)
+            .task { await checkPermissions() }
         }
-        .navigationTitle(L10n.helpDiagPermission)
-        .task { await checkPermissions() }
     }
 
     private func checkPermissions() async {
@@ -174,11 +181,13 @@ private struct PermissionRow: View {
     let icon: String
 
     var body: some View {
-        HStack {
-            Label(name, systemImage: icon)
-            Spacer()
-            Text(status)
-                .foregroundStyle(status.contains(L10n.helpStatusAuthorized) ? .green : .secondary)
+        WithPerceptionTracking {
+            HStack {
+                Label(name, systemImage: icon)
+                Spacer()
+                Text(status)
+                    .foregroundStyle(status.contains(L10n.helpStatusAuthorized) ? .green : .secondary)
+            }
         }
     }
 }
@@ -193,43 +202,45 @@ struct HelpReminderDiagnostics: View {
     @State private var hasSchedule: Bool = false
 
     var body: some View {
-        Form {
-            Section(L10n.helpReminderSection) {
-                HStack {
-                    Text(L10n.helpReminderPermission)
-                    Spacer()
-                    Text(notificationStatus)
-                        .foregroundStyle(notificationStatus.contains(L10n.helpStatusAuthorized) ? .green : .secondary)
-                }
-            }
-            Section(L10n.helpReminderTodaySection) {
-                HStack {
-                    Text(L10n.helpReminderPendingDoses)
-                    Spacer()
-                    Text("\(reminderStore.pendingCount)")
-                        .foregroundStyle(reminderStore.pendingCount > 0 ? .orange : .secondary)
-                }
-                HStack {
-                    Text(L10n.helpReminderTodaySlots)
-                    Spacer()
-                    Text("\(reminderStore.todaySlots.count)")
-                }
-            }
-            Section {
-                Button(L10n.helpPermOpenSettings) {
-                    if let url = URL(string: UIApplication.openSettingsURLString) {
-                        UIApplication.shared.open(url)
+        WithPerceptionTracking {
+            Form {
+                Section(L10n.helpReminderSection) {
+                    HStack {
+                        Text(L10n.helpReminderPermission)
+                        Spacer()
+                        Text(notificationStatus)
+                            .foregroundStyle(notificationStatus.contains(L10n.helpStatusAuthorized) ? .green : .secondary)
                     }
                 }
-                .frame(minHeight: 44)
-            } footer: {
-                Text(L10n.helpReminderDeniedHint)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                Section(L10n.helpReminderTodaySection) {
+                    HStack {
+                        Text(L10n.helpReminderPendingDoses)
+                        Spacer()
+                        Text("\(reminderStore.pendingCount)")
+                            .foregroundStyle(reminderStore.pendingCount > 0 ? .orange : .secondary)
+                    }
+                    HStack {
+                        Text(L10n.helpReminderTodaySlots)
+                        Spacer()
+                        Text("\(reminderStore.todaySlots.count)")
+                    }
+                }
+                Section {
+                    Button(L10n.helpPermOpenSettings) {
+                        if let url = URL(string: UIApplication.openSettingsURLString) {
+                            UIApplication.shared.open(url)
+                        }
+                    }
+                    .frame(minHeight: 44)
+                } footer: {
+                    Text(L10n.helpReminderDeniedHint)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             }
+            .navigationTitle(L10n.helpDiagReminder)
+            .task { await checkNotificationStatus() }
         }
-        .navigationTitle(L10n.helpDiagReminder)
-        .task { await checkNotificationStatus() }
     }
 
     private func checkNotificationStatus() async {
@@ -255,33 +266,35 @@ struct HelpDataHealth: View {
     @State private var lastBackup: String = L10n.helpDataNoBackup
 
     var body: some View {
-        Form {
-            Section(L10n.helpDataDbSection) {
-                HStack {
-                    Text(L10n.helpDataIntegrity)
-                    Spacer()
-                    Text(dbIntegrity)
-                        .foregroundStyle(dbIntegrity.contains(L10n.helpDataNormal) ? .green : .secondary)
+        WithPerceptionTracking {
+            Form {
+                Section(L10n.helpDataDbSection) {
+                    HStack {
+                        Text(L10n.helpDataIntegrity)
+                        Spacer()
+                        Text(dbIntegrity)
+                            .foregroundStyle(dbIntegrity.contains(L10n.helpDataNormal) ? .green : .secondary)
+                    }
+                }
+                Section(L10n.helpDataStorageSection) {
+                    HStack {
+                        Text(L10n.helpDataDbSize)
+                        Spacer()
+                        Text(storageSize)
+                    }
+                }
+                Section(L10n.helpDataBackupSection) {
+                    HStack {
+                        Text(L10n.helpDataLastBackup)
+                        Spacer()
+                        Text(lastBackup)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
-            Section(L10n.helpDataStorageSection) {
-                HStack {
-                    Text(L10n.helpDataDbSize)
-                    Spacer()
-                    Text(storageSize)
-                }
-            }
-            Section(L10n.helpDataBackupSection) {
-                HStack {
-                    Text(L10n.helpDataLastBackup)
-                    Spacer()
-                    Text(lastBackup)
-                        .foregroundStyle(.secondary)
-                }
-            }
+            .navigationTitle(L10n.helpDataTitle)
+            .task { await checkHealth() }
         }
-        .navigationTitle(L10n.helpDataTitle)
-        .task { await checkHealth() }
     }
 
     private func checkHealth() async {
@@ -323,34 +336,36 @@ struct HelpAboutView: View {
     }
 
     var body: some View {
-        Form {
-            Section(L10n.helpAboutSection) {
-                Text(L10n.help_appName)
-                Text(buildInfo)
-                    .accessibilityIdentifier("SP-48.about.version")
-                Text(L10n.help_tagline)
-            }
-            Section(L10n.helpLegalSection) {
-                Text(L10n.help_disclaimer)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                NavigationLink(L10n.helpTermsTitle) {
-                    Text(L10n.help_privacyPlaceholder)
-                        .padding()
-                        .accessibilityIdentifier("SP-47.terms.body")
+        WithPerceptionTracking {
+            Form {
+                Section(L10n.helpAboutSection) {
+                    Text(L10n.help_appName)
+                    Text(buildInfo)
+                        .accessibilityIdentifier("SP-48.about.version")
+                    Text(L10n.help_tagline)
                 }
-                .accessibilityIdentifier("SP-47.terms.entry")
+                Section(L10n.helpLegalSection) {
+                    Text(L10n.help_disclaimer)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    NavigationLink(L10n.helpTermsTitle) {
+                        Text(L10n.help_privacyPlaceholder)
+                            .padding()
+                            .accessibilityIdentifier("SP-47.terms.body")
+                    }
+                    .accessibilityIdentifier("SP-47.terms.entry")
+                }
+                Section(L10n.helpAboutLicenses) {
+                    Text("GRDB.swift — MIT License")
+                    Text("ZIPFoundation — MIT License")
+                }
+                Section(L10n.helpSection) {
+                    Text(L10n.help_faqPlaceholder)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             }
-            Section(L10n.helpAboutLicenses) {
-                Text("GRDB.swift — MIT License")
-                Text("ZIPFoundation — MIT License")
-            }
-            Section(L10n.helpSection) {
-                Text(L10n.help_faqPlaceholder)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
+            .navigationTitle(L10n.help_title)
         }
-        .navigationTitle(L10n.help_title)
     }
 }

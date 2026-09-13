@@ -1,6 +1,7 @@
 import SwiftUI
 import Domain
 import Infrastructure
+import Perception
 
 /// SP-17 批次详情/编辑（ui-ux §5.22.1 · FR9.10/9.11）：档案唯一完整呈现面。
 /// 双轨库存卡（FR9.8 安全线/确认线）、效期状态、事后补填（消除待办）、
@@ -23,67 +24,69 @@ struct StockLotDetailView: View {
     // StockLotEditView.saveFailed 标签）；父视图 alert 被 sheet 压住无法弹出
 
     var body: some View {
-        Group {
-            switch phase {
-            case .loading: ProgressView()
-            case .failed:
-                ContentUnavailableView(L10n.lotDetailLoadFailed, systemImage: "exclamationmark.triangle")
-            case .loaded:
-                if let lot { content(lot) }
-                else { ContentUnavailableView(L10n.lotDetailLoadFailed, systemImage: "pills") }
-            }
-        }
-        .navigationTitle(lot?.medicationName ?? "")
-        .navigationBarTitleDisplayMode(.inline)
-        .task(id: lotId) { await load() }
-        .sheet(isPresented: $showEdit) {
-            if let lot {
-                StockLotEditView(lot: lot) { draft in
-                    await save(draft)
+        WithPerceptionTracking {
+            Group {
+                switch phase {
+                case .loading: ProgressView()
+                case .failed:
+                    VLUnavailableView(L10n.lotDetailLoadFailed, systemImage: "exclamationmark.triangle")
+                case .loaded:
+                    if let lot { content(lot) }
+                    else { VLUnavailableView(L10n.lotDetailLoadFailed, systemImage: "pills") }
                 }
-                .presentationDetents([.medium, .large])
             }
-        }
-        .sheet(isPresented: $showReconcile) {
-            if let lot {
-                InventoryReconcileSheet(item: MedicationStore.InventorySummaryItem(
-                    lotId: lot.lotId, medicationName: lot.medicationName, spec: lot.spec,
-                    unitKind: lot.unitKind, remainingPlanUnits: lot.remainingPlanUnits,
-                    remainingConfirmedUnits: lot.remainingConfirmedUnits,
-                    expireAt: lot.expireAt, storageNote: lot.storageNote,
-                    approxDaysLeft: nil, refillTier: nil)) { count in
+            .navigationTitle(lot?.medicationName ?? "")
+            .navigationBarTitleDisplayMode(.inline)
+            .task(id: lotId) { await load() }
+            .sheet(isPresented: $showEdit) {
+                if let lot {
+                    StockLotEditView(lot: lot) { draft in
+                        await save(draft)
+                    }
+                    .presentationDetents([.medium, .large])
+                }
+            }
+            .sheet(isPresented: $showReconcile) {
+                if let lot {
+                    InventoryReconcileSheet(item: MedicationStore.InventorySummaryItem(
+                        lotId: lot.lotId, medicationName: lot.medicationName, spec: lot.spec,
+                        unitKind: lot.unitKind, remainingPlanUnits: lot.remainingPlanUnits,
+                        remainingConfirmedUnits: lot.remainingConfirmedUnits,
+                        expireAt: lot.expireAt, storageNote: lot.storageNote,
+                        approxDaysLeft: nil, refillTier: nil)) { count in
+                        Task {
+                            await hub.reconcileLot(item: MedicationStore.InventorySummaryItem(
+                                lotId: lot.lotId, medicationName: lot.medicationName, spec: lot.spec,
+                                unitKind: lot.unitKind, remainingPlanUnits: lot.remainingPlanUnits,
+                                remainingConfirmedUnits: lot.remainingConfirmedUnits,
+                                expireAt: lot.expireAt, storageNote: lot.storageNote,
+                                approxDaysLeft: nil, refillTier: nil), physicalCount: count)
+                            showReconcile = false
+                            await load()
+                        }
+                    }
+                    .presentationDetents([.medium])
+                }
+            }
+            .alert(L10n.lotDiscardTitle, isPresented: $showDiscard) {
+                Button(L10n.lotDiscard, role: .destructive) {
                     Task {
-                        await hub.reconcileLot(item: MedicationStore.InventorySummaryItem(
-                            lotId: lot.lotId, medicationName: lot.medicationName, spec: lot.spec,
-                            unitKind: lot.unitKind, remainingPlanUnits: lot.remainingPlanUnits,
-                            remainingConfirmedUnits: lot.remainingConfirmedUnits,
-                            expireAt: lot.expireAt, storageNote: lot.storageNote,
-                            approxDaysLeft: nil, refillTier: nil), physicalCount: count)
-                        showReconcile = false
-                        await load()
+                        do {
+                            try await hub.updateLot(id: lotId, totalUnits: lot?.totalUnits ?? 0,
+                                                    unitKind: lot?.unitKind ?? "tablet",
+                                                    openedAt: lot?.openedAt, expireAt: lot?.expireAt,
+                                                    storageNote: lot?.storageNote, status: "discarded")
+                            discardDoneToast = true
+                        } catch {
+                            phase = .failed
+                        }
                     }
                 }
-                .presentationDetents([.medium])
+                Button(L10n.commonCancel, role: .cancel) { }
             }
-        }
-        .alert(L10n.lotDiscardTitle, isPresented: $showDiscard) {
-            Button(L10n.lotDiscard, role: .destructive) {
-                Task {
-                    do {
-                        try await hub.updateLot(id: lotId, totalUnits: lot?.totalUnits ?? 0,
-                                                unitKind: lot?.unitKind ?? "tablet",
-                                                openedAt: lot?.openedAt, expireAt: lot?.expireAt,
-                                                storageNote: lot?.storageNote, status: "discarded")
-                        discardDoneToast = true
-                    } catch {
-                        phase = .failed
-                    }
-                }
+            .alert(L10n.lotDiscardDone, isPresented: $discardDoneToast) {
+                Button(L10n.onboard_gotIt, role: .cancel) { dismiss() }
             }
-            Button(L10n.commonCancel, role: .cancel) { }
-        }
-        .alert(L10n.lotDiscardDone, isPresented: $discardDoneToast) {
-            Button(L10n.onboard_gotIt, role: .cancel) { dismiss() }
         }
     }
 
@@ -266,89 +269,91 @@ struct StockLotEditView: View {
     @State private var saveFailed = false
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section(L10n.lotArchiveTitle) {
-                    TextField(L10n.lotTotalUnits, text: $totalText)
-                        .keyboardType(.decimalPad)
-                        .accessibilityIdentifier("SP-17.edit.total")
-                    Picker(L10n.lotUnitKind, selection: $unitKind) {
-                        ForEach(["tablet", "capsule", "patch", "vial"], id: \.self) { kind in
-                            Text(L10n.lotUnitName(kind)).tag(kind)
-                        }
-                    }
-                }
-                Section(L10n.lotOpenedAt) {
-                    Toggle(L10n.lotOpenedAt, isOn: $hasOpenedDate)
-                    if hasOpenedDate {
-                        // 开启时立即落值：get 恒返新 Date() 的绑定此前在
-                        // 每次渲染重置滚轮位置、且「未拨滚轮直接保存」时
-                        // openedAt 仍为 nil 被静默丢弃（所见非所存）
-                        DatePicker(L10n.lotOpenedAt, selection: Binding(get: { openedAt ?? Date() }, set: { openedAt = $0 }), displayedComponents: .date)
-                            .onAppear { if openedAt == nil { openedAt = Date() } }
-                            .onChange(of: hasOpenedDate) { _, on in if on && openedAt == nil { openedAt = Date() } }
-                    }
-                }
-                Section(L10n.lotExpireAt) {
-                    // 效期可清空=未知（FR9.10 稍后补填 → 待办）
-                    Toggle(L10n.lotExpireAt, isOn: $hasExpireDate)
-                    if hasExpireDate {
-                        // 审查修复（日期粒度契约）：界面按「日」展示/判定（已过期
-                        // 徽章、FEFO 排除），但绑定保留旧值的时分——8 点录入的
-                        // 效期 9/10 与 22 点录入的同日效期在 9/10 当天行为不同
-                        // （一个上午即排除、一个深夜仍可消耗）。选中日期一律
-                        // 归一为当日 23:59:59——当日全天可用，次日过期。
-                        DatePicker(L10n.lotExpireAt, selection: Binding(
-                            get: { expireAt ?? Date() },
-                            set: { expireAt = Calendar.current.date(bySettingHour: 23, minute: 59, second: 59, of: $0) }),
-                                   displayedComponents: .date)
-                            .onAppear {
-                                if expireAt == nil {
-                                    expireAt = Calendar.current.date(bySettingHour: 23, minute: 59, second: 59, of: Date())
-                                }
-                            }
-                            .onChange(of: hasExpireDate) { _, on in
-                                if on && expireAt == nil {
-                                    expireAt = Calendar.current.date(bySettingHour: 23, minute: 59, second: 59, of: Date())
-                                }
-                            }
-                    }
-                }
-                Section(L10n.lotStorage) {
-                    TextField(L10n.lotStorage, text: $storageNote)
-                    // 常用位置标签 chips（FR9.10）
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            ForEach([L10n.lotStorageFridge, L10n.lotStorageNightstand,
-                                     L10n.lotStorageCabinet, L10n.lotStorageOther], id: \.self) { label in
-                                Button(label) { storageNote = label }
-                                    .buttonStyle(.bordered)
-                                    .controlSize(.small)
-                                    // 触点≥44pt（ui-ux §4.2）；关怀模式 ≥64pt（FR18.2）
-                                    .frame(minHeight: app.careMode
-                                           ? CareModeMetrics.care.touchTarget
-                                           : CareModeMetrics.standard.touchTarget)
+        WithPerceptionTracking {
+            NavigationStack {
+                Form {
+                    Section(L10n.lotArchiveTitle) {
+                        TextField(L10n.lotTotalUnits, text: $totalText)
+                            .keyboardType(.decimalPad)
+                            .accessibilityIdentifier("SP-17.edit.total")
+                        Picker(L10n.lotUnitKind, selection: $unitKind) {
+                            ForEach(["tablet", "capsule", "patch", "vial"], id: \.self) { kind in
+                                Text(L10n.lotUnitName(kind)).tag(kind)
                             }
                         }
                     }
+                    Section(L10n.lotOpenedAt) {
+                        Toggle(L10n.lotOpenedAt, isOn: $hasOpenedDate)
+                        if hasOpenedDate {
+                            // 开启时立即落值：get 恒返新 Date() 的绑定此前在
+                            // 每次渲染重置滚轮位置、且「未拨滚轮直接保存」时
+                            // openedAt 仍为 nil 被静默丢弃（所见非所存）
+                            DatePicker(L10n.lotOpenedAt, selection: Binding(get: { openedAt ?? Date() }, set: { openedAt = $0 }), displayedComponents: .date)
+                                .onAppear { if openedAt == nil { openedAt = Date() } }
+                                .onChangeCompat(of: hasOpenedDate) { _, on in if on && openedAt == nil { openedAt = Date() } }
+                        }
+                    }
+                    Section(L10n.lotExpireAt) {
+                        // 效期可清空=未知（FR9.10 稍后补填 → 待办）
+                        Toggle(L10n.lotExpireAt, isOn: $hasExpireDate)
+                        if hasExpireDate {
+                            // 审查修复（日期粒度契约）：界面按「日」展示/判定（已过期
+                            // 徽章、FEFO 排除），但绑定保留旧值的时分——8 点录入的
+                            // 效期 9/10 与 22 点录入的同日效期在 9/10 当天行为不同
+                            // （一个上午即排除、一个深夜仍可消耗）。选中日期一律
+                            // 归一为当日 23:59:59——当日全天可用，次日过期。
+                            DatePicker(L10n.lotExpireAt, selection: Binding(
+                                get: { expireAt ?? Date() },
+                                set: { expireAt = Calendar.current.date(bySettingHour: 23, minute: 59, second: 59, of: $0) }),
+                                       displayedComponents: .date)
+                                .onAppear {
+                                    if expireAt == nil {
+                                        expireAt = Calendar.current.date(bySettingHour: 23, minute: 59, second: 59, of: Date())
+                                    }
+                                }
+                                .onChangeCompat(of: hasExpireDate) { _, on in
+                                    if on && expireAt == nil {
+                                        expireAt = Calendar.current.date(bySettingHour: 23, minute: 59, second: 59, of: Date())
+                                    }
+                                }
+                        }
+                    }
+                    Section(L10n.lotStorage) {
+                        TextField(L10n.lotStorage, text: $storageNote)
+                        // 常用位置标签 chips（FR9.10）
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach([L10n.lotStorageFridge, L10n.lotStorageNightstand,
+                                         L10n.lotStorageCabinet, L10n.lotStorageOther], id: \.self) { label in
+                                    Button(label) { storageNote = label }
+                                        .buttonStyle(.bordered)
+                                        .controlSize(.small)
+                                        // 触点≥44pt（ui-ux §4.2）；关怀模式 ≥64pt（FR18.2）
+                                        .frame(minHeight: app.careMode
+                                               ? CareModeMetrics.care.touchTarget
+                                               : CareModeMetrics.standard.touchTarget)
+                                }
+                            }
+                        }
+                    }
+                    if saveFailed {
+                        Label(L10n.lotEditFailed, systemImage: "exclamationmark.triangle")
+                            .font(.caption).foregroundStyle(.orange)
+                    }
                 }
-                if saveFailed {
-                    Label(L10n.lotEditFailed, systemImage: "exclamationmark.triangle")
-                        .font(.caption).foregroundStyle(.orange)
+                .navigationTitle(L10n.lotEditTitle)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button(L10n.commonCancel) { dismiss() }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(L10n.commonSave) { save() }
+                            .disabled(totalText.isEmpty)
+                            .accessibilityIdentifier("SP-17.edit.save")
+                    }
                 }
+                .onAppear { prefill() }
             }
-            .navigationTitle(L10n.lotEditTitle)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(L10n.commonCancel) { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(L10n.commonSave) { save() }
-                        .disabled(totalText.isEmpty)
-                        .accessibilityIdentifier("SP-17.edit.save")
-                }
-            }
-            .onAppear { prefill() }
         }
     }
 

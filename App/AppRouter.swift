@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import Domain
+import Perception
 
 /// §5.45 类型安全路由中枢：每个 Tab 独立 NavigationStack path；
 /// 通知/SOS/错误卡跳转经 `navigate(to:)` 按 route 所属 Tab 分发——
@@ -35,7 +36,7 @@ extension OcrConfirmationSet {
 }
 
 @MainActor
-@Observable
+@Perceptible
 final class AppRouter {
     var homePath: [AppRoute] = []
     var recordsPath: [AppRoute] = []

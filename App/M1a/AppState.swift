@@ -4,6 +4,7 @@ import os
 import Domain
 import Infrastructure
 import Protocols
+import Perception
 
 /// M1a 纵向切片的应用状态仓（@Observable，注入进环境）。
 /// 评审修正批（架构 A1-A3 / Swift S1-S2 / PM）：
@@ -15,7 +16,7 @@ import Protocols
 ///   资料采集走 SP-11/SP-10 生产管线（DocumentsState/DocumentStore，BR-003
 ///   D→C 同闸门），首日引导由首页空态卡承载）。
 @MainActor
-@Observable
+@Perceptible
 final class AppState {
     /// FR21.9（V3.39 简化）：向导状态机仅保留与初始化用户信息直接相关的步骤。
     /// 无 done 态——完成与否由 onboardingFinished 单源判定（AppRootView 据此切主界面）。

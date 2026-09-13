@@ -1,6 +1,7 @@
 import SwiftUI
 import Domain
 import Infrastructure
+import Perception
 
 /// 建议只写入当前卡草稿；保存卡时才在同一事务验证成员并建立关系。
 struct EncounterAssociationSection: View {
@@ -13,29 +14,31 @@ struct EncounterAssociationSection: View {
     @State private var loading = false
 
     var body: some View {
-        Section {
-            Picker(L10n.ocrAssociatedEncounter, selection: Binding<UUID?>(get: { card.encounterAssociation.encounterID }, set: {
-                card.encounterAssociation = $0.map(EncounterAssociation.existing) ?? .none
-            })) {
-                Text(card.kind == "encounter" ? L10n.encounterAdd : L10n.ocrUnlinked).tag(Optional<UUID>.none)
-                ForEach(candidates) { candidate in
-                    Text((candidate.hospital ?? L10n.encounterUntitled) + " · " + candidate.date.formatted(date: .abbreviated, time: .omitted))
-                        .tag(Optional(candidate.id))
+        WithPerceptionTracking {
+            Section {
+                Picker(L10n.ocrAssociatedEncounter, selection: Binding<UUID?>(get: { card.encounterAssociation.encounterID }, set: {
+                    card.encounterAssociation = $0.map(EncounterAssociation.existing) ?? .none
+                })) {
+                    Text(card.kind == "encounter" ? L10n.encounterAdd : L10n.ocrUnlinked).tag(Optional<UUID>.none)
+                    ForEach(candidates) { candidate in
+                        Text((candidate.hospital ?? L10n.encounterUntitled) + " · " + candidate.date.formatted(date: .abbreviated, time: .omitted))
+                            .tag(Optional(candidate.id))
+                    }
+                    if let id = card.encounterAssociation.encounterID, !candidates.contains(where: { $0.id == id }) {
+                        Text(L10n.ocrAssociationUnavailable).tag(Optional(id))
+                    }
                 }
-                if let id = card.encounterAssociation.encounterID, !candidates.contains(where: { $0.id == id }) {
-                    Text(L10n.ocrAssociationUnavailable).tag(Optional(id))
+                .accessibilityIdentifier("SP-12.entity.encounter")
+                if case .suggested = card.encounterAssociation { Text(L10n.ocrAssociationSuggestion).font(.caption).foregroundStyle(.orange) }
+                if loading { ProgressView() }
+                if failed {
+                    Text(L10n.ocrAssociationUnavailable).font(.caption).foregroundStyle(.secondary)
+                    Button(L10n.retry) { Task { await load() } }
                 }
-            }
-            .accessibilityIdentifier("SP-12.entity.encounter")
-            if case .suggested = card.encounterAssociation { Text(L10n.ocrAssociationSuggestion).font(.caption).foregroundStyle(.orange) }
-            if loading { ProgressView() }
-            if failed {
-                Text(L10n.ocrAssociationUnavailable).font(.caption).foregroundStyle(.secondary)
-                Button(L10n.retry) { Task { await load() } }
-            }
-        } header: { Text(L10n.ocrAssociatedEncounter) } footer: { Text(L10n.ocrAssociationHint) }
-        .disabled(readOnly)
-        .task(id: "\(readOnly)-" + EncounterResolver.evidenceKey(for: card)) { await load() }
+            } header: { Text(L10n.ocrAssociatedEncounter) } footer: { Text(L10n.ocrAssociationHint) }
+            .disabled(readOnly)
+            .task(id: "\(readOnly)-" + EncounterResolver.evidenceKey(for: card)) { await load() }
+        }
     }
 
     private func load() async {

@@ -1,5 +1,6 @@
 import SwiftUI
 import Domain
+import Perception
 
 /// Pro 产出包入口（comercial §2.2/§2.3）：未解锁=预览态（EntitlementGate 语义，
 /// 可用但提示升级，绝不报错阻断）；**首次点击任一产出 = proOutputFirstTap
@@ -26,40 +27,42 @@ struct ProOutputHubView: View {
     }
 
     var body: some View {
-        List(products, id: \.capability) { product in
-            EntitlementGate(capability: product.capability) {
-                Button {
-                    // 五时机 proOutputFirstTap：价值触发 + 24h 频控（Domain 调度）。
-                    // 审查修复：evaluateTrigger 返回 true = 已弹墙（PaywallHost
-                    // 观察 pendingPaywallTrigger 呈现），此时必须跳过预览 alert——
-                    // 原实现丢弃返回值继续设 previewProduct，弹墙 sheet 与本
-                    // alert 双模态同时呈现（文档化契约「true=已弹墙，调用方应
-                    // 跳过原动作」被违反）。
-                    if entitlements.evaluateTrigger(.proOutputFirstTap) { return }
-                    previewProduct = product.name
-                } label: {
-                    HStack {
-                        Image(systemName: "diamond")   // §11-13 设计系统规则：行内小尺寸用 SF Symbols
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(product.name).font(.subheadline)
-                            Text(product.detail).font(.caption).foregroundStyle(.secondary)
+        WithPerceptionTracking {
+            List(products, id: \.capability) { product in
+                EntitlementGate(capability: product.capability) {
+                    Button {
+                        // 五时机 proOutputFirstTap：价值触发 + 24h 频控（Domain 调度）。
+                        // 审查修复：evaluateTrigger 返回 true = 已弹墙（PaywallHost
+                        // 观察 pendingPaywallTrigger 呈现），此时必须跳过预览 alert——
+                        // 原实现丢弃返回值继续设 previewProduct，弹墙 sheet 与本
+                        // alert 双模态同时呈现（文档化契约「true=已弹墙，调用方应
+                        // 跳过原动作」被违反）。
+                        if entitlements.evaluateTrigger(.proOutputFirstTap) { return }
+                        previewProduct = product.name
+                    } label: {
+                        HStack {
+                            Image(systemName: "diamond")   // §11-13 设计系统规则：行内小尺寸用 SF Symbols
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(product.name).font(.subheadline)
+                                Text(product.detail).font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
                         }
-                        Spacer()
+                        .contentShape(Rectangle())
+                        .frame(minHeight: 44)
                     }
-                    .contentShape(Rectangle())
-                    .frame(minHeight: 44)
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("SP-61.output.\(product.capability)")
                 }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("SP-61.output.\(product.capability)")
             }
-        }
-        .navigationTitle(L10n.proOutputTitle)
-        .alert(L10n.proOutputPreview, isPresented: Binding(
-            get: { previewProduct != nil },
-            set: { if !$0 { previewProduct = nil } })) {
-            Button(L10n.onboard_gotIt, role: .cancel) {}
-        } message: {
-            Text(L10n.proPreviewNote(previewProduct ?? ""))
+            .navigationTitle(L10n.proOutputTitle)
+            .alert(L10n.proOutputPreview, isPresented: Binding(
+                get: { previewProduct != nil },
+                set: { if !$0 { previewProduct = nil } })) {
+                Button(L10n.onboard_gotIt, role: .cancel) {}
+            } message: {
+                Text(L10n.proPreviewNote(previewProduct ?? ""))
+            }
         }
     }
 }

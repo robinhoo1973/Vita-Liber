@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import Domain
+import Perception
 
 /// FR14.1 分目的授权面板（ui-ux §5.22.2）：七项可执行开关 + 两项说明行。
 /// 撤回即时生效（BR-010）——消费点在权限检查点实时读 AppSettingsStore.values，
@@ -16,44 +17,46 @@ struct PrivacyAuthorizationView: View {
     ]
 
     var body: some View {
-        Form {
-            Section {
-                ForEach(authKeys, id: \.self) { key in
-                    Toggle(isOn: binding(for: key)) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(Self.title(key))
-                            Text(Self.subtitle(key))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+        WithPerceptionTracking {
+            Form {
+                Section {
+                    ForEach(authKeys, id: \.self) { key in
+                        Toggle(isOn: binding(for: key)) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(Self.title(key))
+                                Text(Self.subtitle(key))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
+                        .accessibilityIdentifier("FR14.1.\(key.rawValue)")
+                        .accessibilityLabel("\(Self.title(key))：\(Self.subtitle(key))")
                     }
-                    .accessibilityIdentifier("FR14.1.\(key.rawValue)")
-                    .accessibilityLabel("\(Self.title(key))：\(Self.subtitle(key))")
+                } footer: {
+                    Text(L10n.privacyAuthFooter)
                 }
-            } footer: {
-                Text(L10n.privacyAuthFooter)
-            }
-            Section(L10n.privacyAuthExplainers) {
-                // 非开关说明行（FR14.7 诚实性）：本地存储=永久免费红线、
-                // 匿名化改进=离线优先红线（本应用无上传通道）
-                Label(L10n.privacyAuthStorageNote, systemImage: "internaldrive")
-                    .font(.footnote)
-                Label(L10n.privacyAuthAnonymizedNote, systemImage: "wifi.slash")
-                    .font(.footnote)
-                // 位置权限（SOS 发送位置）= 系统级权限 → 系统设置深链（FR20.2）
-                Button {
-                    if let url = URL(string: UIApplication.openSettingsURLString) {
-                        UIApplication.shared.open(url)
-                    }
-                } label: {
-                    Label(L10n.privacyAuthLocationNote, systemImage: "location.slash")
+                Section(L10n.privacyAuthExplainers) {
+                    // 非开关说明行（FR14.7 诚实性）：本地存储=永久免费红线、
+                    // 匿名化改进=离线优先红线（本应用无上传通道）
+                    Label(L10n.privacyAuthStorageNote, systemImage: "internaldrive")
                         .font(.footnote)
+                    Label(L10n.privacyAuthAnonymizedNote, systemImage: "wifi.slash")
+                        .font(.footnote)
+                    // 位置权限（SOS 发送位置）= 系统级权限 → 系统设置深链（FR20.2）
+                    Button {
+                        if let url = URL(string: UIApplication.openSettingsURLString) {
+                            UIApplication.shared.open(url)
+                        }
+                    } label: {
+                        Label(L10n.privacyAuthLocationNote, systemImage: "location.slash")
+                            .font(.footnote)
+                    }
+                    .accessibilityIdentifier("FR14.1.location.settings")
                 }
-                .accessibilityIdentifier("FR14.1.location.settings")
             }
+            .navigationTitle(L10n.privacyAuthTitle)
+            .task { await settings.load() }
         }
-        .navigationTitle(L10n.privacyAuthTitle)
-        .task { await settings.load() }
     }
 
     private func binding(for key: AppSettingKey) -> Binding<Bool> {

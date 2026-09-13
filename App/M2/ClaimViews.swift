@@ -24,7 +24,7 @@ struct ClaimListView: View {
                     .accessibilityIdentifier("FR13.7.claim.totals")
             }
             if rows.isEmpty {
-                ContentUnavailableView(L10n.claim_empty, systemImage: "doc.text",
+                VLUnavailableView(L10n.claim_empty, systemImage: "doc.text",
                                        description: Text(L10n.claim_emptyHint))
                     .accessibilityIdentifier("FR13.7.claim.empty")
             } else {

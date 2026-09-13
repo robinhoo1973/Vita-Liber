@@ -4,10 +4,11 @@ import os
 import Domain
 import Infrastructure
 import Protocols
+import Perception
 
 /// F12 AI 助手状态仓（@Observable）：本地检索式 Provider（§5.5）+ 会话历史。
 @MainActor
-@Observable
+@Perceptible
 final class AssistantStore {
     struct Message: Identifiable, Equatable {
         let id = UUID()

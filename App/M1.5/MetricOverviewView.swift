@@ -2,6 +2,7 @@ import SwiftUI
 import Charts
 import Domain
 import Infrastructure
+import Perception
 
 /// §5.45 指标总览（F7 · SP-13 · V3.72 点亮）：双列 MetricTile 宫格——
 /// 大数字当前值（mono-numeric）+ 单位 + 来源点（医院实心/自测·设备空心，
@@ -20,75 +21,80 @@ struct MetricOverviewView: View {
                            GridItem(.flexible(), spacing: 12)]
 
     var body: some View {
-        Group {
-            if state.latestMetrics.isEmpty {
-                ContentUnavailableView(L10n.metricOverviewEmpty, systemImage: "waveform.path.ecg",
-                                       description: Text(L10n.metricOverviewEmptyHint))
-                    .accessibilityIdentifier("SP-13.overview.empty")
-            } else {
-                ScrollView {
-                    LazyVGrid(columns: columns, spacing: 12) {
-                        ForEach(state.latestMetrics) { item in
-                            MetricTile(item: item,
-                                       // 成员纳入 task id（审查修复）：仅按 metricKey
-                                       // 作 id 时，A→B 切换成员后 tile 身份不变、
-                                       // @State spark 不重载——A 的 30 天迷你线
-                                       // 挂在 B 名下（BR-001 同族）
-                                        taskId: "\(app.currentPatientId.uuidString)-\(item.metricKey)-\(dataChange.metricsVersion)",
-                                       sparkLoader: { key in
-                                guard let m = MetricType(rawValue: key) else { return nil }
-                                let end = Date()
-                                let start = DayArithmetic.offset(days: -30, from: end)
-                                return try? await state.store.series(for: app.currentPatientId,   // try?-ok: tile 迷你趋势读取失败只不画线，不阻断宫格
-                                                                     metric: m,
-                                                                     range: DateInterval(start: start, end: end))
-                            })
-                                .onTapGesture {
-                                    router.navigate(to: .trendChart(patientId: app.currentPatientId,
-                                                                    metric: item.metricKey))
+        WithPerceptionTracking {
+            Group {
+                if state.latestMetrics.isEmpty {
+                    VLUnavailableView(L10n.metricOverviewEmpty, systemImage: "waveform.path.ecg",
+                                           description: Text(L10n.metricOverviewEmptyHint))
+                        .accessibilityIdentifier("SP-13.overview.empty")
+                } else {
+                    ScrollView {
+                        LazyVGrid(columns: columns, spacing: 12) {
+                            ForEach(state.latestMetrics) { item in
+                                // Lazy 容器行闭包逃逸：行内读 app.currentPatientId / dataChange.metricsVersion，须自行包裹（子项目 I）
+                                WithPerceptionTracking {
+                                    MetricTile(item: item,
+                                               // 成员纳入 task id（审查修复）：仅按 metricKey
+                                               // 作 id 时，A→B 切换成员后 tile 身份不变、
+                                               // @State spark 不重载——A 的 30 天迷你线
+                                               // 挂在 B 名下（BR-001 同族）
+                                                taskId: "\(app.currentPatientId.uuidString)-\(item.metricKey)-\(dataChange.metricsVersion)",
+                                               sparkLoader: { key in
+                                        guard let m = MetricType(rawValue: key) else { return nil }
+                                        let end = Date()
+                                        let start = DayArithmetic.offset(days: -30, from: end)
+                                        return try? await state.store.series(for: app.currentPatientId,   // try?-ok: tile 迷你趋势读取失败只不画线，不阻断宫格
+                                                                             metric: m,
+                                                                             range: DateInterval(start: start, end: end))
+                                    })
+                                        .onTapGesture {
+                                            router.navigate(to: .trendChart(patientId: app.currentPatientId,
+                                                                            metric: item.metricKey))
+                                        }
                                 }
+                            }
                         }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
                 }
             }
-        }
-        .navigationTitle(L10n.metricOverviewTitle)
-        .toolbar {
-            // §5.13 [按住说话] 顶部常驻（老年模式默认路径）——转写→确认→预填录入
-            ToolbarItem(placement: .topBarTrailing) {
-                VoiceDictationButton { text, confidence in
-                    let drafts = VoiceStructuringEngine.extractMetric(
-                        text, rules: VoiceGrammarDefaults.metricRules)
-                    confirmSet = VoiceInputTemplate.confirmationSet(
-                        drafts: drafts.isEmpty
-                            ? [VoiceInputTemplate.fallbackDraft(value: text, confidence: confidence)]
-                            : drafts)
+            .navigationTitle(L10n.metricOverviewTitle)
+            .toolbar {
+                // §5.13 [按住说话] 顶部常驻（老年模式默认路径）——转写→确认→预填录入
+                ToolbarItem(placement: .topBarTrailing) {
+                    VoiceDictationButton { text, confidence in
+                        let drafts = VoiceStructuringEngine.extractMetric(
+                            text, rules: VoiceGrammarDefaults.metricRules)
+                        confirmSet = VoiceInputTemplate.confirmationSet(
+                            drafts: drafts.isEmpty
+                                ? [VoiceInputTemplate.fallbackDraft(value: text, confidence: confidence)]
+                                : drafts)
+                    }
+                    .frame(width: 96)
                 }
-                .frame(width: 96)
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    router.navigate(to: .metricQuickEntry)
-                } label: {
-                    Image(systemName: "plus.circle")
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        router.navigate(to: .metricQuickEntry)
+                    } label: {
+                        Image(systemName: "plus.circle")
+                    }
+                    .accessibilityIdentifier("SP-13.overview.quickEntry")
                 }
-                .accessibilityIdentifier("SP-13.overview.quickEntry")
             }
-        }
-        .onAppear { routeMonitor.start() }
-        // BR-001 成员切换：与 TrendEntryView/VoiceNotePanel 同款 task(id:)——
-        // onAppear 只在首次挂载触发，切换成员后宫格仍显示上一成员的指标
-        .task(id: "\(app.currentPatientId)-\(dataChange.metricsVersion)") {
-            await state.loadLatest(patientId: app.currentPatientId)
-        }
-        .onDisappear { routeMonitor.stop() }
-        // FR17.13-entry: 指标总览语音入口 —— 统一确认模板，不自建确认逻辑
-        .voiceConfirmSheet($confirmSet, route: routeMonitor.route) { confirmed in
-            confirmSet = nil
-            router.pendingVoiceIntent = confirmed.pendingIntent(VoiceIntentKey.recordMetric.rawValue)
-            router.navigate(to: .metricQuickEntry)
+            .onAppear { routeMonitor.start() }
+            // BR-001 成员切换：与 TrendEntryView/VoiceNotePanel 同款 task(id:)——
+            // onAppear 只在首次挂载触发，切换成员后宫格仍显示上一成员的指标
+            .task(id: "\(app.currentPatientId)-\(dataChange.metricsVersion)") {
+                await state.loadLatest(patientId: app.currentPatientId)
+            }
+            .onDisappear { routeMonitor.stop() }
+            // FR17.13-entry: 指标总览语音入口 —— 统一确认模板，不自建确认逻辑
+            .voiceConfirmSheet($confirmSet, route: routeMonitor.route) { confirmed in
+                confirmSet = nil
+                router.pendingVoiceIntent = confirmed.pendingIntent(VoiceIntentKey.recordMetric.rawValue)
+                router.navigate(to: .metricQuickEntry)
+            }
         }
     }
 }
@@ -103,65 +109,67 @@ struct MetricTile: View {
     @State private var spark: TrendSeries?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text(metricName)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                // 来源点：医院实心 / 自测·设备空心（FR7.6）
-                Circle()
-                    .strokeBorder(Color("brand-primary", bundle: .main), lineWidth: 1.5)
-                    .background(Circle().fill(item.origin == "hospital"
-                                              ? Color("brand-primary", bundle: .main)
-                                              : .clear))
-                    .frame(width: 10, height: 10)
-                // V3.53 §5.45 设备来源行：宫格最新点为设备自动汇入时标注
-                if item.origin == "device" {
-                    Text(L10n.trendOriginDevice)
-                        .font(.caption2).foregroundStyle(.secondary)
+        WithPerceptionTracking {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text(metricName)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    // 来源点：医院实心 / 自测·设备空心（FR7.6）
+                    Circle()
+                        .strokeBorder(Color("brand-primary", bundle: .main), lineWidth: 1.5)
+                        .background(Circle().fill(item.origin == "hospital"
+                                                  ? Color("brand-primary", bundle: .main)
+                                                  : .clear))
+                        .frame(width: 10, height: 10)
+                    // V3.53 §5.45 设备来源行：宫格最新点为设备自动汇入时标注
+                    if item.origin == "device" {
+                        Text(L10n.trendOriginDevice)
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
                 }
-            }
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                // 医学数值显示单一出口（审查修复：此前内联 .formatted，
-                // 与趋势页 oneDecimal 双规则漂移——同一值宫格显示 62、
-                // 趋势页显示 62.0）；大数字字号收敛 VLFont 令牌
-                Text(MedicalNumberFormat.quantity(item.value))
-                    .font(VLFont.metricTileValue)
-                    .monospacedDigit()
-                // 血压双值变体（ui-ux 4.10：收缩压/舒张压同瓦片）
-                if let secondary = item.secondaryValue,
-                   MetricType(rawValue: item.metricKey) == .bloodPressureSys {
-                    Text("/ \(MedicalNumberFormat.quantity(secondary))")
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    // 医学数值显示单一出口（审查修复：此前内联 .formatted，
+                    // 与趋势页 oneDecimal 双规则漂移——同一值宫格显示 62、
+                    // 趋势页显示 62.0）；大数字字号收敛 VLFont 令牌
+                    Text(MedicalNumberFormat.quantity(item.value))
                         .font(VLFont.metricTileValue)
                         .monospacedDigit()
-                        .foregroundStyle(.secondary)
+                    // 血压双值变体（ui-ux 4.10：收缩压/舒张压同瓦片）
+                    if let secondary = item.secondaryValue,
+                       MetricType(rawValue: item.metricKey) == .bloodPressureSys {
+                        Text("/ \(MedicalNumberFormat.quantity(secondary))")
+                            .font(VLFont.metricTileValue)
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                    }
+                    if let unit = item.unit, !unit.isEmpty {
+                        Text(unit).font(.caption).foregroundStyle(.secondary)
+                    }
                 }
-                if let unit = item.unit, !unit.isEmpty {
-                    Text(unit).font(.caption).foregroundStyle(.secondary)
+                if let aggregation = item.aggregation {
+                    Text(L10n.healthAggregation(aggregation)).font(.caption2).foregroundStyle(.secondary)
+                }
+                if let source = item.sourceName { Text(source).font(.caption2).foregroundStyle(.secondary) }
+                Text(item.measuredAt.formatted(date: .abbreviated, time: .shortened))
+                    .font(.caption2).foregroundStyle(.secondary)
+                if let spark, !spark.points.isEmpty {
+                    Chart(spark.points) { p in
+                        PointMark(x: .value("t", p.measuredAt), y: .value("v", p.value))
+                    }
+                    .chartXAxis(.hidden)
+                    .chartYAxis(.hidden)
+                    .frame(height: 32)
                 }
             }
-            if let aggregation = item.aggregation {
-                Text(L10n.healthAggregation(aggregation)).font(.caption2).foregroundStyle(.secondary)
+            .padding(12)
+            .background(RoundedRectangle(cornerRadius: 14).fill(Color("bg-grouped", bundle: .main)))
+            .task(id: taskId) {
+                let loaded = await sparkLoader(item.metricKey)
+                guard !Task.isCancelled else { return }
+                spark = loaded
             }
-            if let source = item.sourceName { Text(source).font(.caption2).foregroundStyle(.secondary) }
-            Text(item.measuredAt.formatted(date: .abbreviated, time: .shortened))
-                .font(.caption2).foregroundStyle(.secondary)
-            if let spark, !spark.points.isEmpty {
-                Chart(spark.points) { p in
-                    PointMark(x: .value("t", p.measuredAt), y: .value("v", p.value))
-                }
-                .chartXAxis(.hidden)
-                .chartYAxis(.hidden)
-                .frame(height: 32)
-            }
-        }
-        .padding(12)
-        .background(RoundedRectangle(cornerRadius: 14).fill(Color("bg-grouped", bundle: .main)))
-        .task(id: taskId) {
-            let loaded = await sparkLoader(item.metricKey)
-            guard !Task.isCancelled else { return }
-            spark = loaded
         }
     }
 

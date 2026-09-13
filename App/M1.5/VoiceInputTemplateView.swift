@@ -2,6 +2,7 @@ import SwiftUI
 import AVFoundation
 import Domain
 import Protocols
+import Perception
 
 /// **FR17.13 标准语音输入模板（唯一实现）**
 ///
@@ -21,7 +22,7 @@ import Protocols
 /// decision/route 变化——此前本监视器的 routeChangeToast 只写不读、Toast
 /// 从未上屏，属死状态，已随审查清理）。
 @MainActor
-@Observable
+@Perceptible
 final class AudioRouteMonitor {
     private(set) var route: AudioRoute = .speaker
 
@@ -166,187 +167,189 @@ struct VoiceConfirmSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 8) {
-                VLIcon.waveform.resizable().frame(width: 22, height: 22)
-                Text(L10n.voiceConfirmTitle).font(.headline)
-                Spacer()
-            }
-
-            // V3.49 判定结果行（4.27 可选元素）：去向由理解层自动判定，D 级
-            // 胶囊呈现、Menu 可改类；无法判定/低置信时改渲染候选去向行内联
-            // 引导（仅此状态渲染，不常驻）
-            if let target = judgedTarget {
-                HStack(spacing: 6) {
-                    Text(L10n.voiceConfirmJudgedTarget)
-                        .font(.caption).foregroundStyle(.secondary)
-                    Menu {
-                        ForEach(VoiceIntentDispatch.dispatchableKeys, id: \.self) { key in
-                            Button(L10n.voiceIntentName(key)) {
-                                onJudgedTargetChange?(key)
-                            }
-                        }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Text(L10n.voiceIntentName(target))
-                            Image(systemName: "chevron.down").font(.caption2)
-                        }
-                        .padding(.horizontal, 8)
-                        .frame(minHeight: 44)   // 触控目标 ≥44pt（ui-ux §3.3）
-                        .background(Capsule().fill(Color("grade-d", bundle: .main).opacity(0.15)))
-                    }
-                    GradeBadge(grade: "D")
-                    if judgedConfidence < 0.5 {
-                        Label(L10n.voiceConfirmLowConfidence, systemImage: "exclamationmark.triangle")
-                            .font(.caption2)
-                            .foregroundStyle(Color("grade-d", bundle: .main))
-                            .labelStyle(.titleAndIcon)
-                    }
+        WithPerceptionTracking {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(spacing: 8) {
+                    VLIcon.waveform.resizable().frame(width: 22, height: 22)
+                    Text(L10n.voiceConfirmTitle).font(.headline)
                     Spacer()
                 }
-                .accessibilityIdentifier("FR17.13.judgedTarget")
-            } else if onJudgedTargetChange != nil {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(L10n.voiceConfirmCandidates)
-                        .font(.caption).foregroundStyle(.secondary)
-                    HStack(spacing: 8) {
-                        ForEach(VoiceIntentDispatch.candidateKeys, id: \.self) { key in
-                            Button(L10n.voiceIntentName(key)) {
-                                onJudgedTargetChange?(key)
-                            }
-                            .font(.caption)
-                            .padding(.horizontal, 10)
-                            .frame(minHeight: 44)   // 触控目标 ≥44pt（ui-ux §3.3）
-                            .background(Capsule().fill(Color("bg-grouped", bundle: .main)))
-                            .overlay(Capsule().strokeBorder(
-                                Color("grade-d", bundle: .main),
-                                style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
-                        }
-                    }
-                }
-                .accessibilityIdentifier("FR17.13.targetCandidates")
-            }
 
-            // 字段列表：一律「待确认」态呈现（BR-003 未确认不入正式区）；
-            // 值可编辑（未识别/识别错的字段在卡上直接补全，业界确认卡惯例）
-            ForEach(set.fields) { field in
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(label(for: field.key))
-                        .font(.caption).foregroundStyle(.secondary)
-                    TextField(field.value.isEmpty ? L10n.voiceConfirmFillHint : field.value,
-                              text: binding(for: field), axis: .vertical)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.body)
-                        .accessibilityIdentifier("FR17.13.confirm.field.edit")
+                // V3.49 判定结果行（4.27 可选元素）：去向由理解层自动判定，D 级
+                // 胶囊呈现、Menu 可改类；无法判定/低置信时改渲染候选去向行内联
+                // 引导（仅此状态渲染，不常驻）
+                if let target = judgedTarget {
                     HStack(spacing: 6) {
-                        // D 级「待确认」态经 GradeBadge 唯一渲染出口
-                        // （审查修复：此前此处内联 grade-d 文案，与设计系统
-                        // D/E 视觉契约双实现，徽章改版时本卡被落下）
+                        Text(L10n.voiceConfirmJudgedTarget)
+                            .font(.caption).foregroundStyle(.secondary)
+                        Menu {
+                            ForEach(VoiceIntentDispatch.dispatchableKeys, id: \.self) { key in
+                                Button(L10n.voiceIntentName(key)) {
+                                    onJudgedTargetChange?(key)
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text(L10n.voiceIntentName(target))
+                                Image(systemName: "chevron.down").font(.caption2)
+                            }
+                            .padding(.horizontal, 8)
+                            .frame(minHeight: 44)   // 触控目标 ≥44pt（ui-ux §3.3）
+                            .background(Capsule().fill(Color("grade-d", bundle: .main).opacity(0.15)))
+                        }
                         GradeBadge(grade: "D")
-                        if ConfidenceTier.tier(field.confidence) == .low {
+                        if judgedConfidence < 0.5 {
                             Label(L10n.voiceConfirmLowConfidence, systemImage: "exclamationmark.triangle")
                                 .font(.caption2)
                                 .foregroundStyle(Color("grade-d", bundle: .main))
                                 .labelStyle(.titleAndIcon)
                         }
+                        Spacer()
+                    }
+                    .accessibilityIdentifier("FR17.13.judgedTarget")
+                } else if onJudgedTargetChange != nil {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(L10n.voiceConfirmCandidates)
+                            .font(.caption).foregroundStyle(.secondary)
+                        HStack(spacing: 8) {
+                            ForEach(VoiceIntentDispatch.candidateKeys, id: \.self) { key in
+                                Button(L10n.voiceIntentName(key)) {
+                                    onJudgedTargetChange?(key)
+                                }
+                                .font(.caption)
+                                .padding(.horizontal, 10)
+                                .frame(minHeight: 44)   // 触控目标 ≥44pt（ui-ux §3.3）
+                                .background(Capsule().fill(Color("bg-grouped", bundle: .main)))
+                                .overlay(Capsule().strokeBorder(
+                                    Color("grade-d", bundle: .main),
+                                    style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+                            }
+                        }
+                    }
+                    .accessibilityIdentifier("FR17.13.targetCandidates")
+                }
+
+                // 字段列表：一律「待确认」态呈现（BR-003 未确认不入正式区）；
+                // 值可编辑（未识别/识别错的字段在卡上直接补全，业界确认卡惯例）
+                ForEach(set.fields) { field in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(label(for: field.key))
+                            .font(.caption).foregroundStyle(.secondary)
+                        TextField(field.value.isEmpty ? L10n.voiceConfirmFillHint : field.value,
+                                  text: binding(for: field), axis: .vertical)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.body)
+                            .accessibilityIdentifier("FR17.13.confirm.field.edit")
+                        HStack(spacing: 6) {
+                            // D 级「待确认」态经 GradeBadge 唯一渲染出口
+                            // （审查修复：此前此处内联 grade-d 文案，与设计系统
+                            // D/E 视觉契约双实现，徽章改版时本卡被落下）
+                            GradeBadge(grade: "D")
+                            if ConfidenceTier.tier(field.confidence) == .low {
+                                Label(L10n.voiceConfirmLowConfidence, systemImage: "exclamationmark.triangle")
+                                    .font(.caption2)
+                                    .foregroundStyle(Color("grade-d", bundle: .main))
+                                    .labelStyle(.titleAndIcon)
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+                    .background(RoundedRectangle(cornerRadius: 12)
+                        .fill(Color("bg-grouped", bundle: .main)))
+                    .overlay(RoundedRectangle(cornerRadius: 12)
+                        .strokeBorder(Color("grade-d", bundle: .main),
+                                      style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("FR17.13.confirm.field")
+                }
+
+                if bystanderWarning {
+                    Label(L10n.voiceBystanderWarning, systemImage: "exclamationmark.triangle")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("FR17.13.bystanderWarning")
+                }
+
+                if showsAsk {
+                    // 三态偏好 .ask：先问一次再决定回读与否
+                    HStack(spacing: 12) {
+                        Button {
+                            askAnswered = true
+                            if let script { onSpeak?(script) }
+                        } label: {
+                            Label(L10n.voiceAskSpeak, systemImage: "speaker.wave.2")
+                                .frame(minHeight: 44)
+                        }
+                        .accessibilityIdentifier("FR17.13.ask.speak")
+                        Button {
+                            askAnswered = true
+                        } label: {
+                            Label(L10n.voiceAskScreen, systemImage: "speaker.slash")
+                                .frame(minHeight: 44)
+                        }
+                        .accessibilityIdentifier("FR17.13.ask.screen")
+                    }
+                } else if case .screenConfirm(let offerSpeak) = decision, offerSpeak {
+                    // 无耳机回读出口（无障碍出口，不受偏好关闭——FR17.13/F18）
+                    VStack(alignment: .leading, spacing: 4) {
+                        Button {
+                            if let script { onSpeak?(script) }
+                        } label: {
+                            Label(L10n.voiceSpeakAloud, systemImage: "speaker.wave.2").frame(minHeight: 44)
+                        }
+                        .accessibilityLabel(L10n.voiceReadAloudA11y)
+                        .accessibilityIdentifier("FR17.13.speakButton")
+                        Text(L10n.voiceScreenCheckHint)
+                            .font(.caption2).foregroundStyle(.secondary)
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(12)
-                .background(RoundedRectangle(cornerRadius: 12)
-                    .fill(Color("bg-grouped", bundle: .main)))
-                .overlay(RoundedRectangle(cornerRadius: 12)
-                    .strokeBorder(Color("grade-d", bundle: .main),
-                                  style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
-                .accessibilityElement(children: .combine)
-                .accessibilityIdentifier("FR17.13.confirm.field")
-            }
 
-            if bystanderWarning {
-                Label(L10n.voiceBystanderWarning, systemImage: "exclamationmark.triangle")
-                    .font(.caption).foregroundStyle(.secondary)
-                    .accessibilityIdentifier("FR17.13.bystanderWarning")
-            }
-
-            if showsAsk {
-                // 三态偏好 .ask：先问一次再决定回读与否
                 HStack(spacing: 12) {
-                    Button {
-                        askAnswered = true
-                        if let script { onSpeak?(script) }
-                    } label: {
-                        Label(L10n.voiceAskSpeak, systemImage: "speaker.wave.2")
-                            .frame(minHeight: 44)
+                    Button(L10n.voiceConfirmCancel, action: onCancel)
+                        .frame(minHeight: 44)
+                        .accessibilityIdentifier("FR17.13.cancel")
+                    Button(L10n.voiceConfirmRetry, action: onRetry)
+                        .frame(minHeight: 44)
+                        .accessibilityIdentifier("FR17.13.retry")
+                    Spacer()
+                    Button(L10n.voiceConfirmSave) {
+                        // 编辑应用 + 确认走 applyingEdits 唯一变换（与回读脚本同源）
+                        onConfirm(applyingEdits())
                     }
-                    .accessibilityIdentifier("FR17.13.ask.speak")
-                    Button {
-                        askAnswered = true
-                    } label: {
-                        Label(L10n.voiceAskScreen, systemImage: "speaker.slash")
-                            .frame(minHeight: 44)
-                    }
-                    .accessibilityIdentifier("FR17.13.ask.screen")
-                }
-            } else if case .screenConfirm(let offerSpeak) = decision, offerSpeak {
-                // 无耳机回读出口（无障碍出口，不受偏好关闭——FR17.13/F18）
-                VStack(alignment: .leading, spacing: 4) {
-                    Button {
-                        if let script { onSpeak?(script) }
-                    } label: {
-                        Label(L10n.voiceSpeakAloud, systemImage: "speaker.wave.2").frame(minHeight: 44)
-                    }
-                    .accessibilityLabel(L10n.voiceReadAloudA11y)
-                    .accessibilityIdentifier("FR17.13.speakButton")
-                    Text(L10n.voiceScreenCheckHint)
-                        .font(.caption2).foregroundStyle(.secondary)
-                }
-            }
-
-            HStack(spacing: 12) {
-                Button(L10n.voiceConfirmCancel, action: onCancel)
+                    .buttonStyle(.borderedProminent)
                     .frame(minHeight: 44)
-                    .accessibilityIdentifier("FR17.13.cancel")
-                Button(L10n.voiceConfirmRetry, action: onRetry)
-                    .frame(minHeight: 44)
-                    .accessibilityIdentifier("FR17.13.retry")
-                Spacer()
-                Button(L10n.voiceConfirmSave) {
-                    // 编辑应用 + 确认走 applyingEdits 唯一变换（与回读脚本同源）
-                    onConfirm(applyingEdits())
+                    .accessibilityIdentifier("FR17.13.confirm")
                 }
-                .buttonStyle(.borderedProminent)
-                .frame(minHeight: 44)
-                .accessibilityIdentifier("FR17.13.confirm")
             }
-        }
-        .padding(20)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("FR17.13.sheet")
-        .overlay(alignment: .bottom) {
-            if let routeToast {
-                Text(routeToast)
-                    .font(.caption)
-                    .padding(.horizontal, 12).padding(.vertical, 6)
-                    .background(Capsule().fill(.ultraThinMaterial))
-                    .accessibilityIdentifier("FR17.13.routeToast")
+            .padding(20)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("FR17.13.sheet")
+            .overlay(alignment: .bottom) {
+                if let routeToast {
+                    Text(routeToast)
+                        .font(.caption)
+                        .padding(.horizontal, 12).padding(.vertical, 6)
+                        .background(Capsule().fill(.ultraThinMaterial))
+                        .accessibilityIdentifier("FR17.13.routeToast")
+                }
             }
-        }
-        .onAppear {
-            // 有耳机（或关怀模式 always）→ 自动完整回读一次
-            guard !didAutoSpeak, case .readAloud = decision, let script else { return }
-            didAutoSpeak = true
-            onSpeak?(script)
-        }
-        .onChange(of: route) { _, _ in
-            showRouteToast()
-        }
-        .onChange(of: decision) { old, new in
-            guard old != new else { return }
-            // FR17.13 即时切换回读策略（此前缺失，Domain rerouted 决策零消费）：
-            // ① 回读中拔耳机 → 中断播报，按新路由走屏幕核对；
-            // ② 插入耳机 → 确认走回读：自动完整回读一次（onAppear 已不会重跑）。
-            if old.isReadAloud, !new.isReadAloud { onStopSpeak?() }
-            if !old.isReadAloud, new.isReadAloud { if let script { onSpeak?(script) } }
+            .onAppear {
+                // 有耳机（或关怀模式 always）→ 自动完整回读一次
+                guard !didAutoSpeak, case .readAloud = decision, let script else { return }
+                didAutoSpeak = true
+                onSpeak?(script)
+            }
+            .onChangeCompat(of: route) { _, _ in
+                showRouteToast()
+            }
+            .onChangeCompat(of: decision) { old, new in
+                guard old != new else { return }
+                // FR17.13 即时切换回读策略（此前缺失，Domain rerouted 决策零消费）：
+                // ① 回读中拔耳机 → 中断播报，按新路由走屏幕核对；
+                // ② 插入耳机 → 确认走回读：自动完整回读一次（onAppear 已不会重跑）。
+                if old.isReadAloud, !new.isReadAloud { onStopSpeak?() }
+                if !old.isReadAloud, new.isReadAloud { if let script { onSpeak?(script) } }
+            }
         }
     }
 
@@ -376,32 +379,34 @@ struct VoicePrivacyHeadphoneCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 8) {
-                VLIcon.headphone.resizable().frame(width: 28, height: 28)
-                Text(L10n.voicePrivacyTitle).font(.headline)
-            }
-            ForEach(points, id: \.self) { p in
-                HStack(alignment: .top, spacing: 8) {
-                    VLIcon.checkCircle.resizable().frame(width: 16, height: 16)
-                    Text(p).font(.subheadline)
+        WithPerceptionTracking {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(spacing: 8) {
+                    VLIcon.headphone.resizable().frame(width: 28, height: 28)
+                    Text(L10n.voicePrivacyTitle).font(.headline)
                 }
-                .accessibilityElement(children: .combine)
+                ForEach(points, id: \.self) { p in
+                    HStack(alignment: .top, spacing: 8) {
+                        VLIcon.checkCircle.resizable().frame(width: 16, height: 16)
+                        Text(p).font(.subheadline)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+                HStack(spacing: 12) {
+                    Button(L10n.voicePrivacyUseTouch, action: onUseTouch)
+                        .frame(minHeight: 44)
+                        .accessibilityIdentifier("FR17.12.useTouch")
+                    Spacer()
+                    Button(L10n.voicePrivacyAccept, action: onAccept)
+                        .buttonStyle(.borderedProminent)
+                        .frame(minHeight: 44)
+                        .accessibilityIdentifier("FR17.12.accept")
+                }
             }
-            HStack(spacing: 12) {
-                Button(L10n.voicePrivacyUseTouch, action: onUseTouch)
-                    .frame(minHeight: 44)
-                    .accessibilityIdentifier("FR17.12.useTouch")
-                Spacer()
-                Button(L10n.voicePrivacyAccept, action: onAccept)
-                    .buttonStyle(.borderedProminent)
-                    .frame(minHeight: 44)
-                    .accessibilityIdentifier("FR17.12.accept")
-            }
+            .padding(20)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("FR17.12.card")
         }
-        .padding(20)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("FR17.12.card")
     }
 }
 
@@ -414,26 +419,28 @@ struct VoiceModificationRejectionCard: View {
     var onDismiss: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                VLIcon.ban.resizable().frame(width: 24, height: 24)
-                Text(L10n.voiceRejectTitle(L10n.voiceRejectWhat(rejection.category.rawValue))).font(.headline)
+        WithPerceptionTracking {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 8) {
+                    VLIcon.ban.resizable().frame(width: 24, height: 24)
+                    Text(L10n.voiceRejectTitle(L10n.voiceRejectWhat(rejection.category.rawValue))).font(.headline)
+                }
+                Text(L10n.voiceRejectBody(L10n.voiceRejectWhat(rejection.category.rawValue))).font(.subheadline).foregroundStyle(.secondary)
+                HStack(spacing: 12) {
+                    Button(L10n.onboard_gotIt, action: onDismiss)
+                        .frame(minHeight: 44)
+                        .accessibilityIdentifier("FR17.11.reject.dismiss")
+                    Spacer()
+                    Button(L10n.voiceRejectAction, action: onGoToPlan)
+                        .buttonStyle(.borderedProminent)
+                        .frame(minHeight: 44)
+                        .accessibilityIdentifier("FR17.11.reject.goToPlan")
+                }
             }
-            Text(L10n.voiceRejectBody(L10n.voiceRejectWhat(rejection.category.rawValue))).font(.subheadline).foregroundStyle(.secondary)
-            HStack(spacing: 12) {
-                Button(L10n.onboard_gotIt, action: onDismiss)
-                    .frame(minHeight: 44)
-                    .accessibilityIdentifier("FR17.11.reject.dismiss")
-                Spacer()
-                Button(L10n.voiceRejectAction, action: onGoToPlan)
-                    .buttonStyle(.borderedProminent)
-                    .frame(minHeight: 44)
-                    .accessibilityIdentifier("FR17.11.reject.goToPlan")
-            }
+            .padding(20)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("FR17.11.rejectionCard")
         }
-        .padding(20)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("FR17.11.rejectionCard")
     }
 }
 
@@ -453,22 +460,27 @@ struct VoiceConfirmSheetPresenter: ViewModifier {
     let onConfirm: (OcrConfirmationSet) -> Void
 
     func body(content: Content) -> some View {
-        content.sheet(item: $confirmSet) { set in
-            VoiceConfirmSheet(
-                set: set,
-                decision: ReadbackPolicy.decide(route: route,
-                                                preference: app.readbackPreference,
-                                                careMode: app.careMode),
-                route: route,
-                judgedTarget: judgedTarget,
-                judgedConfidence: judgedConfidence,
-                onJudgedTargetChange: onJudgedTargetChange,
-                onSpeak: { app.speak($0) },
-                onStopSpeak: { app.stopSpeaking() },
-                onConfirm: onConfirm,
-                onRetry: { confirmSet = nil },
-                onCancel: { confirmSet = nil })
-            .presentationDetents([.medium])
+        WithPerceptionTracking {
+            content.sheet(item: $confirmSet) { set in
+                // sheet 内容闭包逃逸：同步读 app.readbackPreference / app.careMode，须自行包裹（子项目 I）
+                WithPerceptionTracking {
+                    VoiceConfirmSheet(
+                        set: set,
+                        decision: ReadbackPolicy.decide(route: route,
+                                                        preference: app.readbackPreference,
+                                                        careMode: app.careMode),
+                        route: route,
+                        judgedTarget: judgedTarget,
+                        judgedConfidence: judgedConfidence,
+                        onJudgedTargetChange: onJudgedTargetChange,
+                        onSpeak: { app.speak($0) },
+                        onStopSpeak: { app.stopSpeaking() },
+                        onConfirm: onConfirm,
+                        onRetry: { confirmSet = nil },
+                        onCancel: { confirmSet = nil })
+                    .presentationDetents([.medium])
+                }
+            }
         }
     }
 }

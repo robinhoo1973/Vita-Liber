@@ -1,10 +1,11 @@
 import SwiftUI
 import Domain
 import Protocols
+import Perception
 
 /// FR17.1: press identity, capture lifetime, and ordered final delivery are separate concerns.
 @MainActor
-@Observable
+@Perceptible
 final class VoiceDictationModel {
     enum Phase: Equatable { case idle, recording, failed }
     private(set) var phase: Phase = .idle
@@ -285,62 +286,64 @@ struct VoiceDictationButton: View {
     @State private var model: VoiceDictationModel?
 
     var body: some View {
-        Group {
-            // FR14.1 authVoiceDictation 消费点：关闭 → 禁用态回落手输
-            // （FR8.9 降级语义：识别失败/未授权均静默降级为手输 + 轻提示）
-            if settings.values[.authVoiceDictation] == "false" {
-                Label(L10n.privacyAuthVoiceDisabled, systemImage: "mic.slash")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: 44)
-                    .accessibilityIdentifier("voice.dictation.authDisabled")
-            } else if let model {
-                VStack(alignment: .leading, spacing: 6) {
-                    Label(model.phase == .recording ? L10n.voicenoteStop : L10n.voicenoteDictation,
-                          systemImage: model.phase == .recording ? "stop.circle" : "mic")
+        WithPerceptionTracking {
+            Group {
+                // FR14.1 authVoiceDictation 消费点：关闭 → 禁用态回落手输
+                // （FR8.9 降级语义：识别失败/未授权均静默降级为手输 + 轻提示）
+                if settings.values[.authVoiceDictation] == "false" {
+                    Label(L10n.privacyAuthVoiceDisabled, systemImage: "mic.slash")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, minHeight: 44)
-                        .padding(.horizontal, 12)
-                        .foregroundStyle(.white)
-                        .background(Color("brand-primary", bundle: .main), in: RoundedRectangle(cornerRadius: 8))
-                        .accessibilityIdentifier("voice.dictation.start")
-                        .modifier(DictationInteraction(model: model))
-                    if model.phase == .recording && !model.partial.isEmpty {
-                        Text(model.partial)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                            .accessibilityIdentifier("voice.dictation.partial")
-                    }
-                    if model.phase == .failed {
-                        Text(L10n.voicenoteDictationFailed)
-                            .font(.caption)
-                            .foregroundStyle(Color("semantic-warning", bundle: .main))
-                    }
-                    if model.hasIncompleteTranscript {
-                        Label(L10n.voiceLangT2Point3, systemImage: "exclamationmark.triangle")
-                            .font(.caption)
-                            .foregroundStyle(Color("semantic-warning", bundle: .main))
-                    }
-                    if let locale = model.resolvedLocale {
-                        Text(L10n.voiceRecognizedAs(locale))
-                            .font(.caption2).foregroundStyle(.secondary)
-                        if model.isBestEffortFallback {
-                            Text(L10n.voiceLangBestEffort).font(.caption2).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("voice.dictation.authDisabled")
+                } else if let model {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label(model.phase == .recording ? L10n.voicenoteStop : L10n.voicenoteDictation,
+                              systemImage: model.phase == .recording ? "stop.circle" : "mic")
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .padding(.horizontal, 12)
+                            .foregroundStyle(.white)
+                            .background(Color("brand-primary", bundle: .main), in: RoundedRectangle(cornerRadius: 8))
+                            .accessibilityIdentifier("voice.dictation.start")
+                            .modifier(DictationInteraction(model: model))
+                        if model.phase == .recording && !model.partial.isEmpty {
+                            Text(model.partial)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                                .accessibilityIdentifier("voice.dictation.partial")
+                        }
+                        if model.phase == .failed {
+                            Text(L10n.voicenoteDictationFailed)
+                                .font(.caption)
+                                .foregroundStyle(Color("semantic-warning", bundle: .main))
+                        }
+                        if model.hasIncompleteTranscript {
+                            Label(L10n.voiceLangT2Point3, systemImage: "exclamationmark.triangle")
+                                .font(.caption)
+                                .foregroundStyle(Color("semantic-warning", bundle: .main))
+                        }
+                        if let locale = model.resolvedLocale {
+                            Text(L10n.voiceRecognizedAs(locale))
+                                .font(.caption2).foregroundStyle(.secondary)
+                            if model.isBestEffortFallback {
+                                Text(L10n.voiceLangBestEffort).font(.caption2).foregroundStyle(.secondary)
+                            }
                         }
                     }
                 }
             }
+            // 引擎在环境就绪后装配一次（@Environment 不可用于 @State 初始值）；
+            // task(id:) 挂语音语言存储值——面板内改语言返回后 .task 不重跑、
+            // preferredLocale 停留旧值（FR17.15 即时生效落空），值一变即重建
+            .task(id: "\(settings.values[.voiceInputLanguages] ?? "")|\(settings.values[.voiceMixedInput] ?? "")") { ensureModel() }
+            .onChangeCompat(of: settings.values[.authVoiceDictation]) { _, value in
+                model?.setAuthorization(value != "false")
+            }
+            // 生命周期注记：本按钮经 `.modifier(DictationInteraction(model:))` 挂接
+            // 统一按压交互——其 onDisappear 已做 endPress + stopForDisappear 清理，
+            // 视图销毁（导航返回/步骤换代 .id 切换）时在途听写必被终止，本处不重复。
         }
-        // 引擎在环境就绪后装配一次（@Environment 不可用于 @State 初始值）；
-        // task(id:) 挂语音语言存储值——面板内改语言返回后 .task 不重跑、
-        // preferredLocale 停留旧值（FR17.15 即时生效落空），值一变即重建
-        .task(id: "\(settings.values[.voiceInputLanguages] ?? "")|\(settings.values[.voiceMixedInput] ?? "")") { ensureModel() }
-        .onChange(of: settings.values[.authVoiceDictation]) { _, value in
-            model?.setAuthorization(value != "false")
-        }
-        // 生命周期注记：本按钮经 `.modifier(DictationInteraction(model:))` 挂接
-        // 统一按压交互——其 onDisappear 已做 endPress + stopForDisappear 清理，
-        // 视图销毁（导航返回/步骤换代 .id 切换）时在途听写必被终止，本处不重复。
     }
 
     /// Each press snapshots these inputs. Guided field changes create a new button identity.

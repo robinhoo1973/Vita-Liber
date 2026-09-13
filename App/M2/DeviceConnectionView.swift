@@ -1,9 +1,10 @@
 import SwiftUI
 import Domain
 import Infrastructure
+import Perception
 
 @MainActor
-@Observable
+@Perceptible
 final class F16DeviceState {
     enum Phase: Equatable { case idle, syncing, done(count: Int), degraded(String) }
     private(set) var phase: Phase = .idle
@@ -149,144 +150,149 @@ struct DeviceConnectionView: View {
     @Environment(AppDataChangeCenter.self) private var dataChange
 
     var body: some View {
-        List {
-            Section {
-                Toggle(L10n.authHealthLabel, isOn: preference(.authHealthRead))
-                Toggle(L10n.healthAutoImport, isOn: preference(.healthAutoImport))
-                    .disabled(!healthEnabled)
-            } header: { Text(L10n.healthImportSettingsTitle) } footer: { Text(L10n.healthReadPermissionHint) }
-            Section {
-                // round2 H1/H3/H-N3/H-N4：授权区按可见性三态分支（关闭 > 不可用 > 缺本人 > 未连接/已连接）
-                switch pageState {
-                case .disabled:
-                    Label(L10n.f16AuthDisabled, systemImage: "heart.slash")
-                case .unavailable:
-                    // H-N4：设备不提供 HealthKit（iPad/模拟器）——如实说明，不再渲染永久禁用的请求按钮
-                    Label(L10n.healthUnavailable, systemImage: "iphone.slash")
-                        .accessibilityIdentifier("SP-29.health.unavailable")
-                case .ownerMissing:
-                    // H-N3：Apple 健康只能导入到本人名下（BR-001）——引导建档，不是同步失败
-                    Label(L10n.healthOwnerMissing, systemImage: "person.crop.circle.badge.exclamationmark")
-                        .accessibilityIdentifier("SP-29.health.ownerMissing")
-                case .notConnected, .connectedEmpty, .visible:
-                    if pageState != .notConnected { Label(L10n.f16AuthGranted, systemImage: "link") }
-                    Button(L10n.f16RequestAuth) {
-                        Task {
-                            if await deviceState.requestAuthorization(authEnabled: healthEnabled) { await sync() }
-                        }
-                    }
-                    .disabled(deviceState.isSyncing)
-                    .accessibilityIdentifier("SP-29.health.requestAuth")
-                }
-                Text(L10n.healthImportSubject(deviceState.dashboard?.ownerName ?? app.owner?.displayName ?? L10n.commonMember))
-                    .font(.caption).foregroundStyle(.secondary)
-            } header: { Text(L10n.f16AuthSection) } footer: { Text(L10n.f16AuthHint) }
-
-            Section {
-                switch deviceState.phase {
-                case .idle: EmptyView()
-                case .syncing: ProgressView(L10n.f16Syncing)
-                case .done(let count):
-                    // report 存在时已同步行数由下方报告块渲染——这里只在
-                    // 无报告兜底显示，避免「已同步 N 行」重复两行（round10 实测）。
-                    if deviceState.report == nil {
-                        Text(L10n.f16SyncedRows(count)).accessibilityIdentifier("SP-29.health.syncDone")
-                    }
-                case .degraded(let message):
-                    Label(message, systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
-                }
-                if let report = deviceState.report {
-                    Text(L10n.f16SyncedRows(report.persistedRows))
-                        .accessibilityIdentifier("SP-29.health.syncedRows")
-                    // 「无可读变化」只在 HealthKit 未报告任何增删且无类型失败时成立；
-                    // 变化已收到但落库 0 行（重放/仅索引更新）不是「无数据」。
-                    if report.receivedChanges == 0 && report.failedTypes.isEmpty && !report.hasMore {
-                        Text(L10n.healthNoReadableData).font(.caption)
-                    }
-                    if !report.failedTypes.isEmpty {
-                        Label(L10n.healthImportPartial(report.failedTypes.count), systemImage: "exclamationmark.triangle")
-                            .foregroundStyle(.orange)
-                    }
-                    if report.hasMore { Text(L10n.healthImportMore).font(.caption) }
-                    // H-N1：排空进度——当前道（近一年 / 更早历史）与剩余统计窗口数（纯进度事实）
-                    if report.hasMore, let remaining = report.remainingWindows, let lane = report.backfillLane {
-                        Text(L10n.healthBackfillProgress(L10n.healthBackfillLane(lane), remaining)).font(.caption)
-                            .accessibilityIdentifier("SP-29.health.backfillProgress")
-                    }
-                    // H-N2：<3 样本的小时桶计数提示，不静默丢弃（统计事实，非阈值判定）
-                    if let sparse = report.sparseWindows, sparse > 0 {
-                        Text(L10n.healthSparseWindows(sparse)).font(.caption)
-                            .accessibilityIdentifier("SP-29.health.sparse")
-                    }
-                    if report.preservedRows > 0 {
-                        Text(L10n.healthPreservedAggregates(report.preservedRows)).font(.caption)
-                    }
-                    if report.deferredWindows > 0 {
-                        Text(L10n.healthDeferredWindows(report.deferredWindows)).font(.caption)
-                    }
-                    if report.notificationFailures > 0 { Text(L10n.healthNotificationRetry).font(.caption) }
-                    Text(L10n.f16LastSync(report.lastSyncAt.formatted(date: .numeric, time: .shortened)))
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                // 手动同步只在「开关开启 ∧ 已连接」（= 展示区存在）时提供
-                if HealthImportVisibility.showsImportedData(pageState) {
-                    Button(L10n.f16SyncNow) {
-                        Task {
-                            await deviceState.sync(authEnabled: healthEnabled,
-                                quietStart: SettingsRules.resolved(settings.values[.quietHoursStart], key: .quietHoursStart),
-                                quietEnd: SettingsRules.resolved(settings.values[.quietHoursEnd], key: .quietHoursEnd))
-                        }
-                    }
-                    .disabled(deviceState.isSyncing)
-                    .accessibilityIdentifier("SP-29.health.sync")
-                }
-            } header: { Text(L10n.f16SyncSection) } footer: { Text(L10n.f16SyncHint) }
-
-            // round2 H1/H2：展示区只在「开关开启 ∧ 已连接」时存在（关闭即整体不可见）；
-            // 详情页身份由 dashboard.patientId（= local_owner.self_patient_id）父级下传，
-            // 趋势链接需「有数据 ∧ 身份已知」——绝不回落 currentPatientId（BR-001）
-            if HealthImportVisibility.showsImportedData(pageState), let dashboard = deviceState.dashboard {
+        WithPerceptionTracking {
+            List {
                 Section {
-                    if pageState == .connectedEmpty {
-                        // H-N5：空态独立文案（不是同步报告的「无可读变化」语句）
-                        Text(L10n.healthImportedEmpty).foregroundStyle(.secondary)
-                            .accessibilityIdentifier("SP-29.health.importedEmpty")
-                    }
-                    ForEach(dashboard.types) { type in
-                        NavigationLink {
-                            HealthImportedDataView(
-                                kind: type.kind, patientId: dashboard.patientId,
-                                trendAllowed: HealthImportVisibility.allowsTrendLink(pageState, patientId: dashboard.patientId))
-                        } label: {
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack {
-                                    Text(L10n.metricName(type.kind.primaryMetric))
-                                    Spacer()
-                                    Text(L10n.healthImportedPointCount(type.rowCount)).foregroundStyle(.secondary)
-                                }
-                                if let latest = type.latestAt {
-                                    Text(latest.formatted(date: .abbreviated, time: .shortened)).font(.caption).foregroundStyle(.secondary)
-                                }
+                    Toggle(L10n.authHealthLabel, isOn: preference(.authHealthRead))
+                    Toggle(L10n.healthAutoImport, isOn: preference(.healthAutoImport))
+                        .disabled(!healthEnabled)
+                } header: { Text(L10n.healthImportSettingsTitle) } footer: { Text(L10n.healthReadPermissionHint) }
+                Section {
+                    // round2 H1/H3/H-N3/H-N4：授权区按可见性三态分支（关闭 > 不可用 > 缺本人 > 未连接/已连接）
+                    switch pageState {
+                    case .disabled:
+                        Label(L10n.f16AuthDisabled, systemImage: "heart.slash")
+                    case .unavailable:
+                        // H-N4：设备不提供 HealthKit（iPad/模拟器）——如实说明，不再渲染永久禁用的请求按钮
+                        Label(L10n.healthUnavailable, systemImage: "iphone.slash")
+                            .accessibilityIdentifier("SP-29.health.unavailable")
+                    case .ownerMissing:
+                        // H-N3：Apple 健康只能导入到本人名下（BR-001）——引导建档，不是同步失败
+                        Label(L10n.healthOwnerMissing, systemImage: "person.crop.circle.badge.exclamationmark")
+                            .accessibilityIdentifier("SP-29.health.ownerMissing")
+                    case .notConnected, .connectedEmpty, .visible:
+                        if pageState != .notConnected { Label(L10n.f16AuthGranted, systemImage: "link") }
+                        Button(L10n.f16RequestAuth) {
+                            Task {
+                                if await deviceState.requestAuthorization(authEnabled: healthEnabled) { await sync() }
                             }
                         }
-                        .accessibilityIdentifier("SP-29.health.data.\(type.kind.rawValue)")
+                        .disabled(deviceState.isSyncing)
+                        .accessibilityIdentifier("SP-29.health.requestAuth")
                     }
-                } header: { Text(L10n.healthImportedData) } footer: { Text(L10n.healthImportedDataHint) }
-            }
+                    Text(L10n.healthImportSubject(deviceState.dashboard?.ownerName ?? app.owner?.displayName ?? L10n.commonMember))
+                        .font(.caption).foregroundStyle(.secondary)
+                } header: { Text(L10n.f16AuthSection) } footer: { Text(L10n.f16AuthHint) }
 
-            if GuidelineSource.thresholdsAwaitMedicalReview {
-                Section { Text(L10n.healthMedicalReviewPending).font(.caption) }
+                Section {
+                    switch deviceState.phase {
+                    case .idle: EmptyView()
+                    case .syncing: ProgressView(L10n.f16Syncing)
+                    case .done(let count):
+                        // report 存在时已同步行数由下方报告块渲染——这里只在
+                        // 无报告兜底显示，避免「已同步 N 行」重复两行（round10 实测）。
+                        if deviceState.report == nil {
+                            Text(L10n.f16SyncedRows(count)).accessibilityIdentifier("SP-29.health.syncDone")
+                        }
+                    case .degraded(let message):
+                        Label(message, systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
+                    }
+                    if let report = deviceState.report {
+                        Text(L10n.f16SyncedRows(report.persistedRows))
+                            .accessibilityIdentifier("SP-29.health.syncedRows")
+                        // 「无可读变化」只在 HealthKit 未报告任何增删且无类型失败时成立；
+                        // 变化已收到但落库 0 行（重放/仅索引更新）不是「无数据」。
+                        if report.receivedChanges == 0 && report.failedTypes.isEmpty && !report.hasMore {
+                            Text(L10n.healthNoReadableData).font(.caption)
+                        }
+                        if !report.failedTypes.isEmpty {
+                            Label(L10n.healthImportPartial(report.failedTypes.count), systemImage: "exclamationmark.triangle")
+                                .foregroundStyle(.orange)
+                        }
+                        if report.hasMore { Text(L10n.healthImportMore).font(.caption) }
+                        // H-N1：排空进度——当前道（近一年 / 更早历史）与剩余统计窗口数（纯进度事实）
+                        if report.hasMore, let remaining = report.remainingWindows, let lane = report.backfillLane {
+                            Text(L10n.healthBackfillProgress(L10n.healthBackfillLane(lane), remaining)).font(.caption)
+                                .accessibilityIdentifier("SP-29.health.backfillProgress")
+                        }
+                        // H-N2：<3 样本的小时桶计数提示，不静默丢弃（统计事实，非阈值判定）
+                        if let sparse = report.sparseWindows, sparse > 0 {
+                            Text(L10n.healthSparseWindows(sparse)).font(.caption)
+                                .accessibilityIdentifier("SP-29.health.sparse")
+                        }
+                        if report.preservedRows > 0 {
+                            Text(L10n.healthPreservedAggregates(report.preservedRows)).font(.caption)
+                        }
+                        if report.deferredWindows > 0 {
+                            Text(L10n.healthDeferredWindows(report.deferredWindows)).font(.caption)
+                        }
+                        if report.notificationFailures > 0 { Text(L10n.healthNotificationRetry).font(.caption) }
+                        Text(L10n.f16LastSync(report.lastSyncAt.formatted(date: .numeric, time: .shortened)))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    // 手动同步只在「开关开启 ∧ 已连接」（= 展示区存在）时提供
+                    if HealthImportVisibility.showsImportedData(pageState) {
+                        Button(L10n.f16SyncNow) {
+                            Task {
+                                await deviceState.sync(authEnabled: healthEnabled,
+                                    quietStart: SettingsRules.resolved(settings.values[.quietHoursStart], key: .quietHoursStart),
+                                    quietEnd: SettingsRules.resolved(settings.values[.quietHoursEnd], key: .quietHoursEnd))
+                            }
+                        }
+                        .disabled(deviceState.isSyncing)
+                        .accessibilityIdentifier("SP-29.health.sync")
+                    }
+                } header: { Text(L10n.f16SyncSection) } footer: { Text(L10n.f16SyncHint) }
+
+                // round2 H1/H2：展示区只在「开关开启 ∧ 已连接」时存在（关闭即整体不可见）；
+                // 详情页身份由 dashboard.patientId（= local_owner.self_patient_id）父级下传，
+                // 趋势链接需「有数据 ∧ 身份已知」——绝不回落 currentPatientId（BR-001）
+                if HealthImportVisibility.showsImportedData(pageState), let dashboard = deviceState.dashboard {
+                    Section {
+                        if pageState == .connectedEmpty {
+                            // H-N5：空态独立文案（不是同步报告的「无可读变化」语句）
+                            Text(L10n.healthImportedEmpty).foregroundStyle(.secondary)
+                                .accessibilityIdentifier("SP-29.health.importedEmpty")
+                        }
+                        ForEach(dashboard.types) { type in
+                            // ForEach 行闭包逃逸：行内同步读感知对象属性，须自行包裹（子项目 I）
+                            WithPerceptionTracking {
+                                NavigationLink {
+                                    HealthImportedDataView(
+                                        kind: type.kind, patientId: dashboard.patientId,
+                                        trendAllowed: HealthImportVisibility.allowsTrendLink(pageState, patientId: dashboard.patientId))
+                                } label: {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        HStack {
+                                            Text(L10n.metricName(type.kind.primaryMetric))
+                                            Spacer()
+                                            Text(L10n.healthImportedPointCount(type.rowCount)).foregroundStyle(.secondary)
+                                        }
+                                        if let latest = type.latestAt {
+                                            Text(latest.formatted(date: .abbreviated, time: .shortened)).font(.caption).foregroundStyle(.secondary)
+                                        }
+                                    }
+                                }
+                                .accessibilityIdentifier("SP-29.health.data.\(type.kind.rawValue)")
+                            }
+                        }
+                    } header: { Text(L10n.healthImportedData) } footer: { Text(L10n.healthImportedDataHint) }
+                }
+
+                if GuidelineSource.thresholdsAwaitMedicalReview {
+                    Section { Text(L10n.healthMedicalReviewPending).font(.caption) }
+                }
+                Section {
+                    NavigationLink(L10n.metricOverviewTitle) { MetricOverviewView() }
+                    NavigationLink(L10n.alert_historyEntry) { AlertHistoryView() }
+                }
             }
-            Section {
-                NavigationLink(L10n.metricOverviewTitle) { MetricOverviewView() }
-                NavigationLink(L10n.alert_historyEntry) { AlertHistoryView() }
+            .navigationTitle(L10n.healthImportSettingsTitle)
+            // H3：观察 metricsVersion——后台/自动同步落库后仪表盘与三态同步刷新，不等用户重进页面
+            .task(id: dataChange.metricsVersion) {
+                await settings.load()
+                _ = await deviceState.currentAuthorization()
             }
-        }
-        .navigationTitle(L10n.healthImportSettingsTitle)
-        // H3：观察 metricsVersion——后台/自动同步落库后仪表盘与三态同步刷新，不等用户重进页面
-        .task(id: dataChange.metricsVersion) {
-            await settings.load()
-            _ = await deviceState.currentAuthorization()
         }
     }
 
@@ -339,61 +345,63 @@ struct HealthImportedDataView: View {
     private var gateOpen: Bool { HealthImportVisibility.showsImportedData(state.pageState(enabled: healthEnabled)) }
 
     var body: some View {
-        Group {
-            if !gateOpen {
-                ContentUnavailableView(L10n.f16AuthDisabled, systemImage: "heart.slash")
-                    .accessibilityElement(children: .contain)
-                    .accessibilityIdentifier("SP-29.health.data.disabled")
-            } else {
-                List {
-                    Section {
-                        NavigationLink(value: AppRoute.trendChart(patientId: patientId, metric: kind.primaryMetric.rawValue)) {
-                            HStack(spacing: 12) {
-                                Image(systemName: "chart.xyaxis.line")
-                                    .font(.title3)
-                                    .foregroundStyle(Color("brand-primary", bundle: .main))
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(L10n.healthViewTrendChart)
-                                        .font(.headline)
-                                    Text(L10n.healthViewTrendChartHint)
-                                        .font(.caption).foregroundStyle(.secondary)
+        WithPerceptionTracking {
+            Group {
+                if !gateOpen {
+                    VLUnavailableView(L10n.f16AuthDisabled, systemImage: "heart.slash")
+                        .accessibilityElement(children: .contain)
+                        .accessibilityIdentifier("SP-29.health.data.disabled")
+                } else {
+                    List {
+                        Section {
+                            NavigationLink(value: AppRoute.trendChart(patientId: patientId, metric: kind.primaryMetric.rawValue)) {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "chart.xyaxis.line")
+                                        .font(.title3)
+                                        .foregroundStyle(Color("brand-primary", bundle: .main))
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(L10n.healthViewTrendChart)
+                                            .font(.headline)
+                                        Text(L10n.healthViewTrendChartHint)
+                                            .font(.caption).foregroundStyle(.secondary)
+                                    }
+                                }
+                                .padding(.vertical, 4)
+                            }
+                            .disabled(!trendAllowed)
+                            .accessibilityIdentifier("SP-29.health.trendButton.\(kind.rawValue)")
+                        }
+
+                        Section(L10n.healthImportedRecordsSection) {
+                            if rows.isEmpty && !loading && !failed {
+                                // H-N5：空态独立文案；H-N2：心率空态附稀疏窗计数提示（统计事实）
+                                Text(L10n.healthImportedEmpty).foregroundStyle(.secondary)
+                                if kind == .heartRate, let sparse = state.report?.sparseWindows, sparse > 0 {
+                                    Text(L10n.healthSparseWindows(sparse)).font(.caption)
+                                        .accessibilityIdentifier("SP-29.health.sparse")
                                 }
                             }
-                            .padding(.vertical, 4)
-                        }
-                        .disabled(!trendAllowed)
-                        .accessibilityIdentifier("SP-29.health.trendButton.\(kind.rawValue)")
-                    }
-
-                    Section(L10n.healthImportedRecordsSection) {
-                        if rows.isEmpty && !loading && !failed {
-                            // H-N5：空态独立文案；H-N2：心率空态附稀疏窗计数提示（统计事实）
-                            Text(L10n.healthImportedEmpty).foregroundStyle(.secondary)
-                            if kind == .heartRate, let sparse = state.report?.sparseWindows, sparse > 0 {
-                                Text(L10n.healthSparseWindows(sparse)).font(.caption)
-                                    .accessibilityIdentifier("SP-29.health.sparse")
+                            ForEach(rows) { row in
+                                NavigationLink(value: AppRoute.trendChart(patientId: patientId, metric: row.metricKey)) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(MetricType(rawValue: row.metricKey).map { L10n.metricName($0) } ?? L10n.healthImportedData)
+                                        Text(row.value.formatted() + " " + row.unit).font(.headline)
+                                        Text(row.measuredAt.formatted(date: .abbreviated, time: .shortened)).font(.caption)
+                                        Text(row.sourceName ?? L10n.healthAppleSource).font(.caption).foregroundStyle(.secondary)
+                                    }.padding(.vertical, 4)
+                                }
                             }
+                            if loading { ProgressView() }
+                            else if hasMore { Button(failed ? L10n.retry : L10n.healthLoadMore) { Task { await load() } } }
+                            if failed { Text(L10n.f16SyncFailed).foregroundStyle(.orange) }
                         }
-                        ForEach(rows) { row in
-                            NavigationLink(value: AppRoute.trendChart(patientId: patientId, metric: row.metricKey)) {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(MetricType(rawValue: row.metricKey).map { L10n.metricName($0) } ?? L10n.healthImportedData)
-                                    Text(row.value.formatted() + " " + row.unit).font(.headline)
-                                    Text(row.measuredAt.formatted(date: .abbreviated, time: .shortened)).font(.caption)
-                                    Text(row.sourceName ?? L10n.healthAppleSource).font(.caption).foregroundStyle(.secondary)
-                                }.padding(.vertical, 4)
-                            }
-                        }
-                        if loading { ProgressView() }
-                        else if hasMore { Button(failed ? L10n.retry : L10n.healthLoadMore) { Task { await load() } } }
-                        if failed { Text(L10n.f16SyncFailed).foregroundStyle(.orange) }
                     }
                 }
             }
+            .navigationTitle(L10n.metricName(kind.primaryMetric))
+            // H3：观察 metricsVersion——同步落库后整页重载（旧行清空、游标复位）
+            .task(id: dataChange.metricsVersion) { await reload() }
         }
-        .navigationTitle(L10n.metricName(kind.primaryMetric))
-        // H3：观察 metricsVersion——同步落库后整页重载（旧行清空、游标复位）
-        .task(id: dataChange.metricsVersion) { await reload() }
     }
 
     private func reload() async {

@@ -1,6 +1,7 @@
 import SwiftUI
 import Domain
 import Infrastructure
+import Perception
 
 /// FR13.2 导出向导（SP-22 · ui-ux §5.11）：
 /// 步骤：范围（维度选择）→ 内容开关（备注/水印）→ 身份验证（FR13.4 门禁复用）
@@ -8,7 +9,7 @@ import Infrastructure
 /// 维度：全部档案 / 按日期范围 / 医生摘要（按成员导出=当前成员档案；
 /// 按健康问题/就诊维度随挂接数据，向导以「全部+日期」子集交付）。
 @MainActor
-@Observable
+@Perceptible
 final class ExportWizardState {
     enum Phase: Equatable {
         case idle
@@ -84,117 +85,119 @@ struct ExportWizardView: View {
     @State private var showShare = false
 
     var body: some View {
-        NavigationStack {
-            VStack {
-                switch state.phase {
-                case .working(let processed, let total):
-                    ProgressView(value: total > 0 ? Double(processed) / Double(total) : 0) {
-                        Text(L10n.exportProgress(processed, total))
-                    }
-                    .padding(24)
-                    Button(L10n.exportCancel, role: .destructive) { state.cancel() }
-                case .finished(let pkg):
-                    VStack(spacing: 16) {
-                        Image(systemName: "doc.richtext")
-                            .font(VLFont.exportIcon)
-                            .foregroundStyle(Color("brand-primary", bundle: .main))
-                        Text(L10n.exportFinished(pkg.recordCount, pkg.pageCount))
-                        ShareLink(item: state.exportURL ?? URL(fileURLWithPath: "/")) {
-                            Label(L10n.exportShare, systemImage: "square.and.arrow.up")
-                                .frame(maxWidth: .infinity, minHeight: 50)
+        WithPerceptionTracking {
+            NavigationStack {
+                VStack {
+                    switch state.phase {
+                    case .working(let processed, let total):
+                        ProgressView(value: total > 0 ? Double(processed) / Double(total) : 0) {
+                            Text(L10n.exportProgress(processed, total))
                         }
-                        .buttonStyle(.borderedProminent)
-                        Button(L10n.onboard_finishEnterApp) {
-                            state.reset()
-                            dismiss()
-                        }
-                    }
-                    .padding(24)
-                case .degraded(let message):
-                    Label(message, systemImage: "exclamationmark.triangle")
                         .padding(24)
-                    Button(L10n.exportRetry) {
-                        // 审查修复：重试同时重置步进——原只 reset() 状态机，
-                        // step 停留在 3，idle 表单无 step1/step2 分支可渲染
-                        // （空白表单，无法改导出设置）
-                        state.reset()
-                        step = 1
-                    }
-                case .idle:
-                    Form {
-                        if step == 1 {
-                            // FR13.2 维度选择
-                            Section(L10n.exportScope) {
-                                Picker(L10n.exportScope, selection: $scopeKind) {
-                                    Text(L10n.exportScopeAll).tag(PDFExportService.ExportRequest.ScopeKind.all)
-                                    Text(L10n.exportScopeDateRange).tag(PDFExportService.ExportRequest.ScopeKind.dateRange)
-                                    Text(L10n.exportScopeDoctorSummary).tag(PDFExportService.ExportRequest.ScopeKind.doctorSummary)
-                                }
-                                if scopeKind == .dateRange {
-                                    DatePicker(L10n.exportDateFrom, selection: $dateFrom, displayedComponents: .date)
-                                    DatePicker(L10n.exportDateTo, selection: $dateTo, in: dateFrom..., displayedComponents: .date)
-                                }
+                        Button(L10n.exportCancel, role: .destructive) { state.cancel() }
+                    case .finished(let pkg):
+                        VStack(spacing: 16) {
+                            Image(systemName: "doc.richtext")
+                                .font(VLFont.exportIcon)
+                                .foregroundStyle(Color("brand-primary", bundle: .main))
+                            Text(L10n.exportFinished(pkg.recordCount, pkg.pageCount))
+                            ShareLink(item: state.exportURL ?? URL(fileURLWithPath: "/")) {
+                                Label(L10n.exportShare, systemImage: "square.and.arrow.up")
+                                    .frame(maxWidth: .infinity, minHeight: 50)
                             }
-                        } else if step == 2 {
-                            Section(L10n.exportContent) {
-                                Toggle(L10n.exportIncludeNotes, isOn: $includeNotes)
-                                Toggle(L10n.exportWatermark, isOn: $watermark)
-                            }
-                            Section {
-                                Text(L10n.exportPrivacyHint)
-                                    .font(.footnote).foregroundStyle(.secondary)
+                            .buttonStyle(.borderedProminent)
+                            Button(L10n.onboard_finishEnterApp) {
+                                state.reset()
+                                dismiss()
                             }
                         }
-                    }
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button(L10n.commonCancel) { dismiss() }
+                        .padding(24)
+                    case .degraded(let message):
+                        Label(message, systemImage: "exclamationmark.triangle")
+                            .padding(24)
+                        Button(L10n.exportRetry) {
+                            // 审查修复：重试同时重置步进——原只 reset() 状态机，
+                            // step 停留在 3，idle 表单无 step1/step2 分支可渲染
+                            // （空白表单，无法改导出设置）
+                            state.reset()
+                            step = 1
                         }
-                        ToolbarItem(placement: .confirmationAction) {
-                            if step < 2 {
-                                Button(L10n.allergyNext) { step = 2 }
-                            } else {
-                                // FR14.1 authSharing 消费点：关闭 → 导出开始禁用 +
-                                // 影响说明（撤回即时生效；设置页跳转由工具条按钮承担）
-                                Button(L10n.exportStart) {
-                                    Task {
-                                        // FR13.4 导出前身份验证（门禁复用）+ 隐私提醒
-                                        guard await app.requestUnlock(reason: L10n.exportUnlockReason) else { return }
-                                        let request = PDFExportService.ExportRequest(
-                                            patientId: app.currentPatientId,
-                                            title: L10n.exportTitle(app.currentPatientId.uuidString.prefix(8).description),
-                                            // 日期边界归一化到整天：DatePicker 保留
-                                            // 时分，服务按原始时间戳比较——此前
-                                            // 「9/1–9/7」实际导出 9/1 14:30–9/7 14:30，
-                                            // 首尾整天的资料被静默截掉
-                                            dateFrom: scopeKind == .dateRange
-                                                ? Calendar.current.startOfDay(for: dateFrom) : nil,
-                                            dateTo: scopeKind == .dateRange
-                                                ? (Calendar.current.dateInterval(of: .day, for: dateTo)?.end
-                                                    .addingTimeInterval(-0.001)) : nil,
-                                            includeNotes: includeNotes,
-                                            watermark: watermark,
-                                            countLabel: { L10n.exportRecordCount($0) },
-                                            disclaimer: L10n.exportDisclaimer(L10n.emergencyNumber),
-                                            kindLabel: { L10n.exportKindName($0) },
-                                            titleLabel: { L10n.docTitle($0) },
-                                            scopeKind: scopeKind)
-                                        state.run(request)
-                                        step = 3
+                    case .idle:
+                        Form {
+                            if step == 1 {
+                                // FR13.2 维度选择
+                                Section(L10n.exportScope) {
+                                    Picker(L10n.exportScope, selection: $scopeKind) {
+                                        Text(L10n.exportScopeAll).tag(PDFExportService.ExportRequest.ScopeKind.all)
+                                        Text(L10n.exportScopeDateRange).tag(PDFExportService.ExportRequest.ScopeKind.dateRange)
+                                        Text(L10n.exportScopeDoctorSummary).tag(PDFExportService.ExportRequest.ScopeKind.doctorSummary)
+                                    }
+                                    if scopeKind == .dateRange {
+                                        DatePicker(L10n.exportDateFrom, selection: $dateFrom, displayedComponents: .date)
+                                        DatePicker(L10n.exportDateTo, selection: $dateTo, in: dateFrom..., displayedComponents: .date)
                                     }
                                 }
-                                .disabled(settings.values[.authSharing] == "false")
-                                .accessibilityIdentifier("SP-22.export.start")
-                                if settings.values[.authSharing] == "false" {
-                                    Label(L10n.privacyAuthSharingDisabled, systemImage: "square.and.arrow.up.trianglebadge.exclamationmark")
-                                        .font(.caption).foregroundStyle(.orange)
+                            } else if step == 2 {
+                                Section(L10n.exportContent) {
+                                    Toggle(L10n.exportIncludeNotes, isOn: $includeNotes)
+                                    Toggle(L10n.exportWatermark, isOn: $watermark)
+                                }
+                                Section {
+                                    Text(L10n.exportPrivacyHint)
+                                        .font(.footnote).foregroundStyle(.secondary)
                                 }
                             }
                         }
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button(L10n.commonCancel) { dismiss() }
+                            }
+                            ToolbarItem(placement: .confirmationAction) {
+                                if step < 2 {
+                                    Button(L10n.allergyNext) { step = 2 }
+                                } else {
+                                    // FR14.1 authSharing 消费点：关闭 → 导出开始禁用 +
+                                    // 影响说明（撤回即时生效；设置页跳转由工具条按钮承担）
+                                    Button(L10n.exportStart) {
+                                        Task {
+                                            // FR13.4 导出前身份验证（门禁复用）+ 隐私提醒
+                                            guard await app.requestUnlock(reason: L10n.exportUnlockReason) else { return }
+                                            let request = PDFExportService.ExportRequest(
+                                                patientId: app.currentPatientId,
+                                                title: L10n.exportTitle(app.currentPatientId.uuidString.prefix(8).description),
+                                                // 日期边界归一化到整天：DatePicker 保留
+                                                // 时分，服务按原始时间戳比较——此前
+                                                // 「9/1–9/7」实际导出 9/1 14:30–9/7 14:30，
+                                                // 首尾整天的资料被静默截掉
+                                                dateFrom: scopeKind == .dateRange
+                                                    ? Calendar.current.startOfDay(for: dateFrom) : nil,
+                                                dateTo: scopeKind == .dateRange
+                                                    ? (Calendar.current.dateInterval(of: .day, for: dateTo)?.end
+                                                        .addingTimeInterval(-0.001)) : nil,
+                                                includeNotes: includeNotes,
+                                                watermark: watermark,
+                                                countLabel: { L10n.exportRecordCount($0) },
+                                                disclaimer: L10n.exportDisclaimer(L10n.emergencyNumber),
+                                                kindLabel: { L10n.exportKindName($0) },
+                                                titleLabel: { L10n.docTitle($0) },
+                                                scopeKind: scopeKind)
+                                            state.run(request)
+                                            step = 3
+                                        }
+                                    }
+                                    .disabled(settings.values[.authSharing] == "false")
+                                    .accessibilityIdentifier("SP-22.export.start")
+                                    if settings.values[.authSharing] == "false" {
+                                        Label(L10n.privacyAuthSharingDisabled, systemImage: "square.and.arrow.up.trianglebadge.exclamationmark")
+                                            .font(.caption).foregroundStyle(.orange)
+                                    }
+                                }
+                            }
+                        }
+                        .navigationTitle(L10n.exportWizardTitle)
+                        // FR20.3 L4 操作前确认：导出隐私提醒（身份验证后再出）
+                        .sceneDisclosure(scene: "export", level: 4)
                     }
-                    .navigationTitle(L10n.exportWizardTitle)
-                    // FR20.3 L4 操作前确认：导出隐私提醒（身份验证后再出）
-                    .sceneDisclosure(scene: "export", level: 4)
                 }
             }
         }

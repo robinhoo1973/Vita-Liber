@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import Perception
 
 /// 类型化数据变更信号（tech V3.86 / data-flow V1.9）：数据变更的源是 DB
 /// 写入，本中心只提供**类型化版本计数**作为 UI 失效标记（数据库即事件总线
@@ -10,7 +11,7 @@ import SwiftUI
 /// 消费方：健康资料/时间轴/健康问题页经 `.onChange(of: documentsVersion)`
 /// 重载；指标总览经 `metricsVersion` 重载（设备读数入库后）。
 @MainActor
-@Observable
+@Perceptible
 final class AppDataChangeCenter {
     private(set) var documentsVersion: UInt64 = 0
     private(set) var metricsVersion: UInt64 = 0

@@ -3,6 +3,7 @@ import UniformTypeIdentifiers
 import os
 import Domain
 import Infrastructure
+import Perception
 
 /// FR13.11 iCloud Drive 备份（SP-24 备份与恢复）。
 ///
@@ -14,7 +15,7 @@ import Infrastructure
 ///
 /// 降级文案覆盖三态（dev-pm §3.3 退出准则）：未登录 iCloud / 空间不足 / 校验失败。
 @MainActor
-@Observable
+@Perceptible
 final class BackupState {
     /// 恢复末步回调（data-flow §9.2「事务导入 → 重建 FTS/提醒/时间轴投影」）：
     /// 此前恢复后不重建提醒投影——恢复的计划在下次回前台/重启前零排程，
@@ -174,160 +175,162 @@ struct BackupView: View {
     @State private var pendingRestoreURL: URL?
 
     var body: some View {
-        List {
-            Section {
-                // FR14.1 authCloudBackup 消费点：关闭 → iCloud 项呈降级说明
-                // （本地「保存到文件」导出不受影响），撤回即时生效
-                if settings.values[.authCloudBackup] == "false" {
-                    Label(L10n.privacyAuthBackupDisabled, systemImage: "icloud.slash")
-                        .font(.footnote)
-                        .foregroundStyle(.orange)
-                        .accessibilityIdentifier("SP-24.backup.authDisabled")
-                }
-                if !state.iCloudSignedIn {
-                    // 未登录 iCloud：不隐藏功能，只如实说明落点受限（仍可导出到本机）
-                    Label(L10n.backupNotSignedIn, systemImage: "icloud.slash")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .accessibilityIdentifier("SP-24.backup.notSignedIn")
-                }
-                Button {
-                    Task {
-                        // FR13.4：导出前身份验证（门禁复用）——验证通过才进入隐私确认
-                        guard await app.requestUnlock(reason: L10n.backupUnlockReason) else { return }
-                        showExportConfirm = true
+        WithPerceptionTracking {
+            List {
+                Section {
+                    // FR14.1 authCloudBackup 消费点：关闭 → iCloud 项呈降级说明
+                    // （本地「保存到文件」导出不受影响），撤回即时生效
+                    if settings.values[.authCloudBackup] == "false" {
+                        Label(L10n.privacyAuthBackupDisabled, systemImage: "icloud.slash")
+                            .font(.footnote)
+                            .foregroundStyle(.orange)
+                            .accessibilityIdentifier("SP-24.backup.authDisabled")
                     }
-                } label: {
-                    Label(L10n.backupCreate, systemImage: "icloud.and.arrow.up").frame(minHeight: 44)
-                }
-                .accessibilityIdentifier("SP-24.backup.create")
-
-                Button {
-                    showImporter = true
-                } label: {
-                    Label(L10n.backupRestore, systemImage: "icloud.and.arrow.down").frame(minHeight: 44)
-                }
-                .accessibilityIdentifier("SP-24.backup.restore")
-            } footer: {
-                Text(L10n.backupScopeNote)
-                    .font(.caption2)
-            }
-
-            switch state.phase {
-            case .conflicts(let items):
-                // ADR-019 冲突预览：逐项裁决（保留本机/采用备份/并存），
-                // 确认后整体应用——绝不静默覆盖或丢弃
-                Section(L10n.backupConflictTitle) {
-                    ForEach(items) { item in
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(conflictKindLabel(item.table))
-                                .font(.caption).foregroundStyle(.secondary)
-                            Text(L10n.docTitle(item.backupTitle))
-                                .font(.subheadline)
-                            Picker(L10n.backupConflictChoice, selection: conflictChoice(item.id)) {
-                                Text(L10n.backupConflictKeep).tag(ExportService.ConflictResolution.keep)
-                                Text(L10n.backupConflictAdopt).tag(ExportService.ConflictResolution.adopt)
-                                Text(L10n.backupConflictCoexist).tag(ExportService.ConflictResolution.coexist)
-                            }
-                            .pickerStyle(.segmented)
-                            .accessibilityIdentifier("SP-24.conflict.choice.\(item.id.uuidString)")
+                    if !state.iCloudSignedIn {
+                        // 未登录 iCloud：不隐藏功能，只如实说明落点受限（仍可导出到本机）
+                        Label(L10n.backupNotSignedIn, systemImage: "icloud.slash")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier("SP-24.backup.notSignedIn")
+                    }
+                    Button {
+                        Task {
+                            // FR13.4：导出前身份验证（门禁复用）——验证通过才进入隐私确认
+                            guard await app.requestUnlock(reason: L10n.backupUnlockReason) else { return }
+                            showExportConfirm = true
                         }
-                        .padding(.vertical, 4)
+                    } label: {
+                        Label(L10n.backupCreate, systemImage: "icloud.and.arrow.up").frame(minHeight: 44)
                     }
-                    Button(L10n.backupConflictApply) {
-                        Task { await state.applyConflicts() }
+                    .accessibilityIdentifier("SP-24.backup.create")
+
+                    Button {
+                        showImporter = true
+                    } label: {
+                        Label(L10n.backupRestore, systemImage: "icloud.and.arrow.down").frame(minHeight: 44)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .frame(minHeight: 44)
-                    .accessibilityIdentifier("SP-24.conflict.apply")
-                    Button(L10n.commonCancel, role: .cancel) {
-                        state.cancelConflicts()
-                    }
-                    .frame(minHeight: 44)
-                    // SwiftUI 无「字符串标题 + footer」的 Section 初始化器，
-                    // hint 落内容区脚注（与 footer 视觉等价）
-                    Text(L10n.backupConflictHint)
+                    .accessibilityIdentifier("SP-24.backup.restore")
+                } footer: {
+                    Text(L10n.backupScopeNote)
                         .font(.caption2)
-                        .foregroundStyle(.secondary)
                 }
-            case .exported(let name, let digest):
-                Section {
-                    Label(L10n.backupExportedName(name), systemImage: "checkmark.circle")
-                        .accessibilityIdentifier("SP-24.backup.exported")
-                    Text(L10n.backupChecksum(digest)).font(.caption2).monospaced()
-                        .foregroundStyle(.secondary)
+
+                switch state.phase {
+                case .conflicts(let items):
+                    // ADR-019 冲突预览：逐项裁决（保留本机/采用备份/并存），
+                    // 确认后整体应用——绝不静默覆盖或丢弃
+                    Section(L10n.backupConflictTitle) {
+                        ForEach(items) { item in
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(conflictKindLabel(item.table))
+                                    .font(.caption).foregroundStyle(.secondary)
+                                Text(L10n.docTitle(item.backupTitle))
+                                    .font(.subheadline)
+                                Picker(L10n.backupConflictChoice, selection: conflictChoice(item.id)) {
+                                    Text(L10n.backupConflictKeep).tag(ExportService.ConflictResolution.keep)
+                                    Text(L10n.backupConflictAdopt).tag(ExportService.ConflictResolution.adopt)
+                                    Text(L10n.backupConflictCoexist).tag(ExportService.ConflictResolution.coexist)
+                                }
+                                .pickerStyle(.segmented)
+                                .accessibilityIdentifier("SP-24.conflict.choice.\(item.id.uuidString)")
+                            }
+                            .padding(.vertical, 4)
+                        }
+                        Button(L10n.backupConflictApply) {
+                            Task { await state.applyConflicts() }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .frame(minHeight: 44)
+                        .accessibilityIdentifier("SP-24.conflict.apply")
+                        Button(L10n.commonCancel, role: .cancel) {
+                            state.cancelConflicts()
+                        }
+                        .frame(minHeight: 44)
+                        // SwiftUI 无「字符串标题 + footer」的 Section 初始化器，
+                        // hint 落内容区脚注（与 footer 视觉等价）
+                        Text(L10n.backupConflictHint)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                case .exported(let name, let digest):
+                    Section {
+                        Label(L10n.backupExportedName(name), systemImage: "checkmark.circle")
+                            .accessibilityIdentifier("SP-24.backup.exported")
+                        Text(L10n.backupChecksum(digest)).font(.caption2).monospaced()
+                            .foregroundStyle(.secondary)
+                    }
+                case .restored(let records):
+                    // FR13.5 恢复后数据校验报告：哈希比对通过 + 导入记录计数
+                    Section {
+                        Label(L10n.backupRestoredCount(records), systemImage: "checkmark.circle")
+                            .accessibilityIdentifier("SP-24.backup.restored")
+                    }
+                case .degraded(let message):
+                    Label(message, systemImage: "exclamationmark.triangle")
+                        .font(.footnote)
+                        .accessibilityIdentifier("SP-24.backup.degraded")
+                case .working:
+                    ProgressView().accessibilityIdentifier("SP-24.backup.working")
+                case .idle:
+                    EmptyView()
                 }
-            case .restored(let records):
-                // FR13.5 恢复后数据校验报告：哈希比对通过 + 导入记录计数
-                Section {
-                    Label(L10n.backupRestoredCount(records), systemImage: "checkmark.circle")
-                        .accessibilityIdentifier("SP-24.backup.restored")
-                }
-            case .degraded(let message):
-                Label(message, systemImage: "exclamationmark.triangle")
-                    .font(.footnote)
-                    .accessibilityIdentifier("SP-24.backup.degraded")
-            case .working:
-                ProgressView().accessibilityIdentifier("SP-24.backup.working")
-            case .idle:
-                EmptyView()
             }
-        }
-        .navigationTitle(L10n.backupTitle)
-        // FR13.4 L4 操作前确认：导出隐私提醒（明示导出内容敏感级别）
-        .alert(L10n.backupExportConfirmTitle, isPresented: $showExportConfirm) {
-            Button(L10n.commonCancel, role: .cancel) { }
-            Button(L10n.onboard_confirm) {
-                Task {
-                    await state.prepareBackup()
-                    if case .exported = state.phase {
-                        showExporter = true
-                        // 审查修复：recordBackup 移入 fileExporter 成功分支——
-                        // 原实现用户取消系统导出器也留下「最近备份」时间戳
-                        // （FR13.10/F22.4 展示假事实）
+            .navigationTitle(L10n.backupTitle)
+            // FR13.4 L4 操作前确认：导出隐私提醒（明示导出内容敏感级别）
+            .alert(L10n.backupExportConfirmTitle, isPresented: $showExportConfirm) {
+                Button(L10n.commonCancel, role: .cancel) { }
+                Button(L10n.onboard_confirm) {
+                    Task {
+                        await state.prepareBackup()
+                        if case .exported = state.phase {
+                            showExporter = true
+                            // 审查修复：recordBackup 移入 fileExporter 成功分支——
+                            // 原实现用户取消系统导出器也留下「最近备份」时间戳
+                            // （FR13.10/F22.4 展示假事实）
+                        }
                     }
                 }
+            } message: {
+                Text(L10n.backupExportConfirmBody)
             }
-        } message: {
-            Text(L10n.backupExportConfirmBody)
-        }
-        // FR13.5 恢复前确认：门禁验证 + 影响清单（覆盖现有数据）+ 校验承诺
-        .alert(L10n.backupRestoreConfirmTitle,
-               isPresented: Binding(get: { pendingRestoreURL != nil },
-                                    set: { if !$0 { pendingRestoreURL = nil } })) {
-            Button(L10n.commonCancel, role: .cancel) { pendingRestoreURL = nil }
-            Button(L10n.onboard_confirm) {
-                if let url = pendingRestoreURL {
-                    Task { await state.restore(from: url) }
+            // FR13.5 恢复前确认：门禁验证 + 影响清单（覆盖现有数据）+ 校验承诺
+            .alert(L10n.backupRestoreConfirmTitle,
+                   isPresented: Binding(get: { pendingRestoreURL != nil },
+                                        set: { if !$0 { pendingRestoreURL = nil } })) {
+                Button(L10n.commonCancel, role: .cancel) { pendingRestoreURL = nil }
+                Button(L10n.onboard_confirm) {
+                    if let url = pendingRestoreURL {
+                        Task { await state.restore(from: url) }
+                    }
+                    pendingRestoreURL = nil
                 }
-                pendingRestoreURL = nil
+            } message: {
+                Text(L10n.backupRestoreConfirmBody)
             }
-        } message: {
-            Text(L10n.backupRestoreConfirmBody)
-        }
-        .fileExporter(isPresented: $showExporter,
-                      document: state.pendingDocument,
-                      contentType: .data,
-                      defaultFilename: "vitaliber-backup") { result in
-            switch result {
-            case .success:
-                // FR13.10/F22.4：备份**实际落盘成功**才记时（审查修复：
-                // 取消导出不得留下假时间戳）
-                app.recordBackup()
-            case .failure(let error):
-                // 系统 picker 失败最常见的可归因原因就是空间不足
-                Logger(subsystem: "com.vitaliber", category: "backup")
-                    .error("导出落点失败: \(error)")
+            .fileExporter(isPresented: $showExporter,
+                          document: state.pendingDocument,
+                          contentType: .data,
+                          defaultFilename: "vitaliber-backup") { result in
+                switch result {
+                case .success:
+                    // FR13.10/F22.4：备份**实际落盘成功**才记时（审查修复：
+                    // 取消导出不得留下假时间戳）
+                    app.recordBackup()
+                case .failure(let error):
+                    // 系统 picker 失败最常见的可归因原因就是空间不足
+                    Logger(subsystem: "com.vitaliber", category: "backup")
+                        .error("导出落点失败: \(error)")
+                }
+                state.clearDocument()
             }
-            state.clearDocument()
-        }
-        .fileImporter(isPresented: $showImporter,
-                      allowedContentTypes: [.data, .json]) { result in
-            guard case .success(let url) = result else { return }
-            // FR13.5：选文件后不立即恢复——先门禁验证 + 影响清单确认
-            Task {
-                guard await app.requestUnlock(reason: L10n.backupUnlockReason) else { return }
-                pendingRestoreURL = url
+            .fileImporter(isPresented: $showImporter,
+                          allowedContentTypes: [.data, .json]) { result in
+                guard case .success(let url) = result else { return }
+                // FR13.5：选文件后不立即恢复——先门禁验证 + 影响清单确认
+                Task {
+                    guard await app.requestUnlock(reason: L10n.backupUnlockReason) else { return }
+                    pendingRestoreURL = url
+                }
             }
         }
     }

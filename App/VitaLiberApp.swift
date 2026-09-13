@@ -3,6 +3,7 @@ import os
 import Domain
 import Infrastructure
 import Protocols
+import Perception
 
 @main
 struct VitaLiberApp: App {
@@ -221,18 +222,20 @@ struct VitaLiberApp: App {
     }
 
     var body: some Scene {
-        // 门禁分支 / 生命周期补偿 / FR14.4 主题注入 均已下沉 AppRootView
-        //（@Environment 读值 + preferredColorScheme 修饰符需 View 上下文）
-        WindowGroup {
-            if let reason = container.degradedReason {
-                // 审查修复：生产库打开失败 → 可见降级页（不渲染主界面、
-                // 不写入内存库——数据零风险）
-                ContentUnavailableView(
-                    L10n.startupDegradedTitle, systemImage: "externaldrive.badge.exclamationmark",
-                    description: Text(L10n.startupDegradedBody(reason)))
-                    .accessibilityIdentifier("STARTUP.degraded")
-            } else {
-                mainRoot
+        WithPerceptionTracking {
+            // 门禁分支 / 生命周期补偿 / FR14.4 主题注入 均已下沉 AppRootView
+            //（@Environment 读值 + preferredColorScheme 修饰符需 View 上下文）
+            WindowGroup {
+                if let reason = container.degradedReason {
+                    // 审查修复：生产库打开失败 → 可见降级页（不渲染主界面、
+                    // 不写入内存库——数据零风险）
+                    VLUnavailableView(
+                        L10n.startupDegradedTitle, systemImage: "externaldrive.badge.exclamationmark",
+                        description: Text(L10n.startupDegradedBody(reason)))
+                        .accessibilityIdentifier("STARTUP.degraded")
+                } else {
+                    mainRoot
+                }
             }
         }
     }

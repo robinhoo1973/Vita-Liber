@@ -166,6 +166,8 @@ struct TrendChartView: View {
         // → ≤ 482 点（240 桶 × min/max + 首尾），列表仍全量。
         let range = series.identity?.range ?? DateInterval(start: xDomainStart, end: xDomainEnd)
         let visible = TrendDownsampler.thin(sortedPoints, in: range, maxBuckets: 240)
+        let windowStart = range.end.addingTimeInterval(-TimeInterval(window.rawValue) * 86400)
+        let shown = ChartsCompat.supportsScrollableAxes ? visible : visible.filter { $0.measuredAt >= windowStart }   // iOS 16 只画窗口内点
         let family = TrendMarkFamily.family(for: series.metricType)
         let tint = Color("brand-primary", bundle: .main)
         VStack(alignment: .leading, spacing: 12) {
@@ -193,7 +195,7 @@ struct TrendChartView: View {
                     }
                 }
                 // ③ 数据标记：按指标图型族（H4）——分支抽出为独立 @ChartContentBuilder 函数
-                dataMarks(family, points: visible, axisTime: axisTime, axisValue: axisValue, tint: tint)
+                dataMarks(family, points: shown, axisTime: axisTime, axisValue: axisValue, tint: tint)
                 // ④ 选中点竖线（chartXSelection 气泡锚点）
                 if let selectedPoint {
                     RuleMark(x: .value(L10n.trendAxisSelected, selectedPoint.measuredAt))
@@ -201,10 +203,8 @@ struct TrendChartView: View {
                         .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
                 }
             }
-            // H4：横向可滚动 + 可见域 = 所选时间窗（iOS 17+ API；部署目标 17.0）
-            .chartScrollableAxes(.horizontal)
-            .chartXVisibleDomain(length: TimeInterval(window.rawValue) * 86400)
-            .chartXSelection(value: $selectedDate)
+            // H4：横向可滚动 + 可见域 = 所选时间窗（iOS 17 原生；iOS 16 由 App/Compat 垫片钉窗口 + 拖动选点）
+            .chartWindowCompat(visibleLength: TimeInterval(window.rawValue) * 86400, domainEnd: range.end, selection: $selectedDate)
             .frame(height: 200)
             .accessibilityIdentifier("SP-13.trend.chart")
             .accessibilityLabel(L10n.trendChartAccessibility(L10n.metricName(series.metricType), series.points.count, series.referenceBands.count))

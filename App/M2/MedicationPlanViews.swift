@@ -1,6 +1,7 @@
 import SwiftUI
 import Domain
 import Infrastructure
+import Perception
 
 // MARK: - FR9.15/SP-15 用药计划列表
 
@@ -13,50 +14,52 @@ struct MedicationPlanListView: View {
     @State private var showForm = false
 
     var body: some View {
-        List {
-            ForEach(plans) { plan in
-                NavigationLink {
-                    MedicationPlanDetailView(planId: plan.id)
-                } label: {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(plan.medicationName).font(.subheadline)
-                            if let spec = plan.spec {
-                                Text(spec).font(.caption).foregroundStyle(.secondary)
+        WithPerceptionTracking {
+            List {
+                ForEach(plans) { plan in
+                    NavigationLink {
+                        MedicationPlanDetailView(planId: plan.id)
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(plan.medicationName).font(.subheadline)
+                                if let spec = plan.spec {
+                                    Text(spec).font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                            Spacer()
+                            if plan.isUnreadable {
+                                // 审查修复：schedule_json 损坏的可见降级态——
+                                // 原静默消失（计划不可管理但提醒继续）
+                                Label(L10n.planUnreadable, systemImage: "exclamationmark.triangle")
+                                    .font(.caption)
+                                    .foregroundStyle(Color("semantic-warning", bundle: .main))
+                            } else {
+                                PlanStatusBadge(status: plan.status)
                             }
                         }
-                        Spacer()
-                        if plan.isUnreadable {
-                            // 审查修复：schedule_json 损坏的可见降级态——
-                            // 原静默消失（计划不可管理但提醒继续）
-                            Label(L10n.planUnreadable, systemImage: "exclamationmark.triangle")
-                                .font(.caption)
-                                .foregroundStyle(Color("semantic-warning", bundle: .main))
-                        } else {
-                            PlanStatusBadge(status: plan.status)
-                        }
                     }
+                    .accessibilityIdentifier("SP-15.plan.row.\(plan.id.uuidString)")
                 }
-                .accessibilityIdentifier("SP-15.plan.row.\(plan.id.uuidString)")
             }
-        }
-        .frame(maxWidth: 672)   // §9.1 正文行宽 ≤672pt（iPad 常宽列可读性）
-        .navigationTitle(L10n.planListTitle)
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    showForm = true
-                } label: {
-                    Image(systemName: "plus")
+            .frame(maxWidth: 672)   // §9.1 正文行宽 ≤672pt（iPad 常宽列可读性）
+            .navigationTitle(L10n.planListTitle)
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showForm = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel(L10n.planAdd)
+                    .accessibilityIdentifier("SP-15.plan.add")
                 }
-                .accessibilityLabel(L10n.planAdd)
-                .accessibilityIdentifier("SP-15.plan.add")
             }
+            .sheet(isPresented: $showForm) {
+                MedicationPlanFormView()
+            }
+            .task(id: app.currentPatientId) { await load() }
         }
-        .sheet(isPresented: $showForm) {
-            MedicationPlanFormView()
-        }
-        .task(id: app.currentPatientId) { await load() }
     }
 
     private func load() async {
@@ -88,112 +91,114 @@ struct MedicationPlanDetailView: View {
     @State private var loadFailed = false
 
     var body: some View {
-        List {
-            if let plan {
-                Section {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(plan.medicationName).font(.headline)
-                            if let spec = plan.spec {
-                                Text(spec).font(.caption).foregroundStyle(.secondary)
-                            }
-                        }
-                        Spacer()
-                        PlanStatusBadge(status: plan.status)
-                    }
-                }
-                .accessibilityIdentifier("SP-15.detail.header")
-
-                // FR9.16 日程条：本周七日格，已服实心✓/漏服空心!/未来灰
-                Section(L10n.planWeekStrip) {
-                    WeekStrip(rows: weekLog) { row in
-                        guard row.action == nil || row.action == .missed else { return }
-                        backfillTarget = row.scheduledFor
-                        showBackfill = true
-                    }
-                    .accessibilityIdentifier("SP-15.detail.week")
-                }
-
-                // 今日剂量队列（当前时段项放大高亮）
-                Section(L10n.planTodayDoses) {
-                    ForEach(todayRows) { row in
+        WithPerceptionTracking {
+            List {
+                if let plan {
+                    Section {
                         HStack {
-                            Text(row.scheduledFor.formatted(date: .omitted, time: .shortened))
-                                .font(.subheadline).monospacedDigit()
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(plan.medicationName).font(.headline)
+                                if let spec = plan.spec {
+                                    Text(spec).font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
                             Spacer()
-                            Text(actionLabel(row.action)).font(.caption)
-                                .foregroundStyle(actionColor(row.action))
+                            PlanStatusBadge(status: plan.status)
                         }
                     }
-                    if todayRows.isEmpty {
-                        Text(L10n.planNoTodayDose).font(.caption).foregroundStyle(.secondary)
-                    }
-                }
+                    .accessibilityIdentifier("SP-15.detail.header")
 
-                // 医嘱原文引用块（A/C 来源徽章；不可编辑）
-                if let advice = planAdviceText, !advice.isEmpty {
-                    Section(L10n.planAdviceText) {
-                        Text(advice)
-                            .font(.body)
-                            .padding(.leading, 8)
-                            .overlay(alignment: .leading) {
-                                Rectangle().fill(Color("brand-primary", bundle: .main))
-                                    .frame(width: 3)
+                    // FR9.16 日程条：本周七日格，已服实心✓/漏服空心!/未来灰
+                    Section(L10n.planWeekStrip) {
+                        WeekStrip(rows: weekLog) { row in
+                            guard row.action == nil || row.action == .missed else { return }
+                            backfillTarget = row.scheduledFor
+                            showBackfill = true
+                        }
+                        .accessibilityIdentifier("SP-15.detail.week")
+                    }
+
+                    // 今日剂量队列（当前时段项放大高亮）
+                    Section(L10n.planTodayDoses) {
+                        ForEach(todayRows) { row in
+                            HStack {
+                                Text(row.scheduledFor.formatted(date: .omitted, time: .shortened))
+                                    .font(.subheadline).monospacedDigit()
+                                Spacer()
+                                Text(actionLabel(row.action)).font(.caption)
+                                    .foregroundStyle(actionColor(row.action))
                             }
-                        Text(L10n.planAdviceSource)
-                            .font(.caption2).foregroundStyle(.secondary)
+                        }
+                        if todayRows.isEmpty {
+                            Text(L10n.planNoTodayDose).font(.caption).foregroundStyle(.secondary)
+                        }
                     }
-                }
 
-                // §5.26 生命周期操作区（按钮随状态变化；拆子视图控制类型检查预算）
-                lifecycleSection(status: plan.status)
+                    // 医嘱原文引用块（A/C 来源徽章；不可编辑）
+                    if let advice = planAdviceText, !advice.isEmpty {
+                        Section(L10n.planAdviceText) {
+                            Text(advice)
+                                .font(.body)
+                                .padding(.leading, 8)
+                                .overlay(alignment: .leading) {
+                                    Rectangle().fill(Color("brand-primary", bundle: .main))
+                                        .frame(width: 3)
+                                }
+                            Text(L10n.planAdviceSource)
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
 
-                // FR9.15 计划历史时间轴（开始/调整/暂停/恢复/结束）
-                historySection()
-            } else {
-                emptyState()
-            }
-        }
-        .navigationTitle(L10n.planDetailTitle)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            if let plan {
-                ToolbarItem(placement: .topBarTrailing) {
-                    // FR9.9 药品知识卡入口
-                    NavigationLink {
-                        MedicationKnowledgeCardView(plan: plan)
-                    } label: {
-                        Image(systemName: "info.circle")
-                    }
-                    .accessibilityIdentifier("SP-15.detail.knowledge")
+                    // §5.26 生命周期操作区（按钮随状态变化；拆子视图控制类型检查预算）
+                    lifecycleSection(status: plan.status)
+
+                    // FR9.15 计划历史时间轴（开始/调整/暂停/恢复/结束）
+                    historySection()
+                } else {
+                    emptyState()
                 }
             }
-        }
-        .confirmationDialog(L10n.planEndConfirmTitle, isPresented: $showEndConfirm, titleVisibility: .visible) {
-            ForEach(PlanEndReason.allCases, id: \.rawValue) { reason in
-                Button(endReasonLabel(reason), role: .destructive) {
-                    Task {
-                        await reminders.endPlan(planId: planId, reason: reason,
-                                                patientId: app.currentPatientId)
-                        await load()
+            .navigationTitle(L10n.planDetailTitle)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                if let plan {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        // FR9.9 药品知识卡入口
+                        NavigationLink {
+                            MedicationKnowledgeCardView(plan: plan)
+                        } label: {
+                            Image(systemName: "info.circle")
+                        }
+                        .accessibilityIdentifier("SP-15.detail.knowledge")
                     }
                 }
             }
-            Button(L10n.commonCancel, role: .cancel) { }
-        } message: {
-            Text(L10n.planEndConfirmBody)
-        }
-        .sheet(isPresented: $showBackfill, onDismiss: {
-            // 审查修复：补记后重载——原 dismiss 无回调，漏服格继续显示「!」
-            Task { await load() }
-        }) {
-            if let target = backfillTarget, let plan {
-                BackfillSheet(plan: plan, targetTime: target)
+            .confirmationDialog(L10n.planEndConfirmTitle, isPresented: $showEndConfirm, titleVisibility: .visible) {
+                ForEach(PlanEndReason.allCases, id: \.rawValue) { reason in
+                    Button(endReasonLabel(reason), role: .destructive) {
+                        Task {
+                            await reminders.endPlan(planId: planId, reason: reason,
+                                                    patientId: app.currentPatientId)
+                            await load()
+                        }
+                    }
+                }
+                Button(L10n.commonCancel, role: .cancel) { }
+            } message: {
+                Text(L10n.planEndConfirmBody)
             }
-        }
-        .task(id: planId) { await load() }
-        .onChange(of: app.currentPatientId) { _, _ in
-            Task { await load() }
+            .sheet(isPresented: $showBackfill, onDismiss: {
+                // 审查修复：补记后重载——原 dismiss 无回调，漏服格继续显示「!」
+                Task { await load() }
+            }) {
+                if let target = backfillTarget, let plan {
+                    BackfillSheet(plan: plan, targetTime: target)
+                }
+            }
+            .task(id: planId) { await load() }
+            .onChangeCompat(of: app.currentPatientId) { _, _ in
+                Task { await load() }
+            }
         }
     }
 
@@ -259,7 +264,7 @@ struct MedicationPlanDetailView: View {
     private func emptyState() -> some View {
         if loadFailed {
             // title+systemImage 便捷构造器无 actions 重载——按钮须走 label/actions 闭包形式
-            ContentUnavailableView {
+            VLUnavailableView {
                 Label(L10n.planLoadFailed, systemImage: "arrow.clockwise.circle")
             } actions: {
                 Button(L10n.retry) {
@@ -269,7 +274,7 @@ struct MedicationPlanDetailView: View {
                 .frame(minHeight: 44)   // 触点≥44pt（设计系统）
             }
         } else {
-            ContentUnavailableView(L10n.planNotFound, systemImage: "pills")
+            VLUnavailableView(L10n.planNotFound, systemImage: "pills")
         }
     }
 
@@ -380,42 +385,44 @@ private struct WeekStrip: View {
     let onBackfill: (MedicationStore.DoseLogRow) -> Void
 
     var body: some View {
-        let cal = Calendar.current
-        let today = cal.startOfDay(for: Date())
-        let days = (0..<7).map { offset in
-            cal.date(byAdding: .day, value: offset - 6, to: today) ?? today
-        }
-        HStack(spacing: 6) {
-            ForEach(days, id: \.self) { day in
-                let dayRows = rows.filter {
-                    cal.isDate($0.scheduledFor, inSameDayAs: day)
-                }
-                // 日程条为「今日回溯 6 天」的尾随七日（days = today-6…today），
-                // 未来日从不渲染——FR9.16 未来灰门槛在此布局下不可达
-                // （此前加的 day > today 守卫与 future 参数为死代码）
-                Button {
-                    // 漏服格可点补记（FR9.16）；已服格不可点
-                    if let missed = dayRows.first(where: { $0.action == nil || $0.action == .missed }) {
-                        onBackfill(missed)
+        WithPerceptionTracking {
+            let cal = Calendar.current
+            let today = cal.startOfDay(for: Date())
+            let days = (0..<7).map { offset in
+                cal.date(byAdding: .day, value: offset - 6, to: today) ?? today
+            }
+            HStack(spacing: 6) {
+                ForEach(days, id: \.self) { day in
+                    let dayRows = rows.filter {
+                        cal.isDate($0.scheduledFor, inSameDayAs: day)
                     }
-                } label: {
-                    VStack(spacing: 4) {
-                        Text(day.formatted(.dateTime.weekday(.narrow)))
-                            .font(.caption2).foregroundStyle(.secondary)
-                        Image(systemName: daySymbol(dayRows))
-                            .font(.body)
-                            .foregroundStyle(daySymbolColor(dayRows))
-                        Text(day.formatted(.dateTime.day()))
-                            .font(.caption2).foregroundStyle(.secondary)
+                    // 日程条为「今日回溯 6 天」的尾随七日（days = today-6…today），
+                    // 未来日从不渲染——FR9.16 未来灰门槛在此布局下不可达
+                    // （此前加的 day > today 守卫与 future 参数为死代码）
+                    Button {
+                        // 漏服格可点补记（FR9.16）；已服格不可点
+                        if let missed = dayRows.first(where: { $0.action == nil || $0.action == .missed }) {
+                            onBackfill(missed)
+                        }
+                    } label: {
+                        VStack(spacing: 4) {
+                            Text(day.formatted(.dateTime.weekday(.narrow)))
+                                .font(.caption2).foregroundStyle(.secondary)
+                            Image(systemName: daySymbol(dayRows))
+                                .font(.body)
+                                .foregroundStyle(daySymbolColor(dayRows))
+                            Text(day.formatted(.dateTime.day()))
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                        .background(RoundedRectangle(cornerRadius: 8)
+                            .fill(cal.isDate(day, inSameDayAs: today)
+                                  ? Color("brand-primary", bundle: .main).opacity(0.08)
+                                  : Color.clear))
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 6)
-                    .background(RoundedRectangle(cornerRadius: 8)
-                        .fill(cal.isDate(day, inSameDayAs: today)
-                              ? Color("brand-primary", bundle: .main).opacity(0.08)
-                              : Color.clear))
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
         }
     }
@@ -457,39 +464,41 @@ private struct BackfillSheet: View {
     @State private var actualTime = Date()
 
     var body: some View {
-        NavigationStack {
-            Form {
-                DatePicker(L10n.planBackfillActualTime, selection: $actualTime, in: ...Date())
-                // 单剂基线缺失：响亮拒绝——此前 ?? 1 静默按 1.0/次扣账
-                // （「半片」医嘱被安全线按整片扣减，续药档位失准）
-                if plan.dosePlanUnits == nil {
-                    Section {
-                        Label(L10n.planBackfillNoBaseline, systemImage: "exclamationmark.triangle")
-                            .font(.footnote)
-                            .foregroundStyle(Color("semantic-warning", bundle: .main))
-                    }
-                }
-            }
-            .navigationTitle(L10n.planBackfillTitle)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(L10n.reminder_save) {
-                        Task {
-                            guard let units = plan.dosePlanUnits else { return }
-                            await reminders.backfillTaken(
-                                planId: plan.id, patientId: plan.patientId,
-                                medicationId: plan.medicationId,
-                                actualTime: actualTime,
-                                doseUnits: units)
-                            dismiss()
+        WithPerceptionTracking {
+            NavigationStack {
+                Form {
+                    DatePicker(L10n.planBackfillActualTime, selection: $actualTime, in: ...Date())
+                    // 单剂基线缺失：响亮拒绝——此前 ?? 1 静默按 1.0/次扣账
+                    // （「半片」医嘱被安全线按整片扣减，续药档位失准）
+                    if plan.dosePlanUnits == nil {
+                        Section {
+                            Label(L10n.planBackfillNoBaseline, systemImage: "exclamationmark.triangle")
+                                .font(.footnote)
+                                .foregroundStyle(Color("semantic-warning", bundle: .main))
                         }
                     }
-                    .disabled(plan.dosePlanUnits == nil)
-                    .accessibilityIdentifier("SP-15.detail.backfill.save")
+                }
+                .navigationTitle(L10n.planBackfillTitle)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(L10n.reminder_save) {
+                            Task {
+                                guard let units = plan.dosePlanUnits else { return }
+                                await reminders.backfillTaken(
+                                    planId: plan.id, patientId: plan.patientId,
+                                    medicationId: plan.medicationId,
+                                    actualTime: actualTime,
+                                    doseUnits: units)
+                                dismiss()
+                            }
+                        }
+                        .disabled(plan.dosePlanUnits == nil)
+                        .accessibilityIdentifier("SP-15.detail.backfill.save")
+                    }
                 }
             }
+            .presentationDetents([.height(220)])
         }
-        .presentationDetents([.height(220)])
     }
 }
 
@@ -537,75 +546,77 @@ struct MedicationPlanFormView: View {
     @State private var storageNote = ""
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section(L10n.planFormMedication) {
-                    TextField(L10n.planFormGenericName, text: $genericName)
-                    TextField(L10n.planFormBrandName, text: $brandName)
-                    TextField(L10n.planFormSpec, text: $spec)
-                    TextField(L10n.planFormDosePerTake, text: $dosePerTake)
-                    // 第八轮全仓审查修复（响亮拒绝）：非空但不可解析的剂量
-                    // 文本（"1/2"/"半"曾可解析，反例 "abc"）就地报错并禁用
-                    // 保存——绝不静默落 NULL 后被安全线按 1.0/次扣账
-                    if doseParseFailed {
-                        Text(L10n.planFormDoseParseError)
-                            .font(.caption)
-                            .foregroundStyle(Color("semantic-danger", bundle: .main))
+        WithPerceptionTracking {
+            NavigationStack {
+                Form {
+                    Section(L10n.planFormMedication) {
+                        TextField(L10n.planFormGenericName, text: $genericName)
+                        TextField(L10n.planFormBrandName, text: $brandName)
+                        TextField(L10n.planFormSpec, text: $spec)
+                        TextField(L10n.planFormDosePerTake, text: $dosePerTake)
+                        // 第八轮全仓审查修复（响亮拒绝）：非空但不可解析的剂量
+                        // 文本（"1/2"/"半"曾可解析，反例 "abc"）就地报错并禁用
+                        // 保存——绝不静默落 NULL 后被安全线按 1.0/次扣账
+                        if doseParseFailed {
+                            Text(L10n.planFormDoseParseError)
+                                .font(.caption)
+                                .foregroundStyle(Color("semantic-danger", bundle: .main))
+                        }
+                        TextField(L10n.planFormTimesPerDay, text: $timesPerDay)
+                            .keyboardType(.numberPad)
+                        TextField(L10n.planFormRoute, text: $route)
+                        TextField(L10n.planFormMeal, text: $mealRelation)
                     }
-                    TextField(L10n.planFormTimesPerDay, text: $timesPerDay)
-                        .keyboardType(.numberPad)
-                    TextField(L10n.planFormRoute, text: $route)
-                    TextField(L10n.planFormMeal, text: $mealRelation)
-                }
-                Section(L10n.planFormSchedule) {
-                    TextField(L10n.planFormFixedTimes, text: $fixedTimes)
-                        .keyboardType(.numbersAndPunctuation)
-                    Toggle(L10n.planFormAsNeeded, isOn: $isAsNeeded)
-                    DatePicker(L10n.planFormStartDate, selection: $startDate, displayedComponents: .date)
-                    Toggle(L10n.planFormHasEndDate, isOn: $hasEndDate)
-                    if hasEndDate {
-                        DatePicker(L10n.planFormEndDate, selection: $endDate, displayedComponents: .date)
+                    Section(L10n.planFormSchedule) {
+                        TextField(L10n.planFormFixedTimes, text: $fixedTimes)
+                            .keyboardType(.numbersAndPunctuation)
+                        Toggle(L10n.planFormAsNeeded, isOn: $isAsNeeded)
+                        DatePicker(L10n.planFormStartDate, selection: $startDate, displayedComponents: .date)
+                        Toggle(L10n.planFormHasEndDate, isOn: $hasEndDate)
+                        if hasEndDate {
+                            DatePicker(L10n.planFormEndDate, selection: $endDate, displayedComponents: .date)
+                        }
+                        Toggle(L10n.planFormLongTerm, isOn: $isLongTerm)
                     }
-                    Toggle(L10n.planFormLongTerm, isOn: $isLongTerm)
-                }
-                Section(L10n.planFormSource) {
-                    TextField(L10n.planFormHospital, text: $hospital)
-                    TextField(L10n.planFormDoctor, text: $doctor)
-                    TextField(L10n.planFormAdvice, text: $adviceText, axis: .vertical)
-                        .lineLimit(3...6)
-                }
-                // FR9.10：录入时必须询问失效日期与存储位置（未知进待办队列）
-                Section {
-                    Stepper(L10n.planFormLotUnits(Double(Int(lotUnits))), value: $lotUnits, in: 1...1000)
-                    Picker(L10n.planFormLotUnit, selection: $lotUnitKind) {
-                        Text(L10n.lotUnitTablet).tag("tablet")
-                        Text(L10n.lotUnitCapsule).tag("capsule")
-                        Text(L10n.lotUnitPatch).tag("patch")
-                        Text(L10n.lotUnitVial).tag("vial")
+                    Section(L10n.planFormSource) {
+                        TextField(L10n.planFormHospital, text: $hospital)
+                        TextField(L10n.planFormDoctor, text: $doctor)
+                        TextField(L10n.planFormAdvice, text: $adviceText, axis: .vertical)
+                            .lineLimit(3...6)
                     }
-                    Toggle(L10n.planFormExpireUnknown, isOn: $lotExpireUnknown)
-                    if !lotExpireUnknown {
-                        DatePicker(L10n.planFormExpireDate, selection: $lotExpireDate, displayedComponents: .date)
+                    // FR9.10：录入时必须询问失效日期与存储位置（未知进待办队列）
+                    Section {
+                        Stepper(L10n.planFormLotUnits(Double(Int(lotUnits))), value: $lotUnits, in: 1...1000)
+                        Picker(L10n.planFormLotUnit, selection: $lotUnitKind) {
+                            Text(L10n.lotUnitTablet).tag("tablet")
+                            Text(L10n.lotUnitCapsule).tag("capsule")
+                            Text(L10n.lotUnitPatch).tag("patch")
+                            Text(L10n.lotUnitVial).tag("vial")
+                        }
+                        Toggle(L10n.planFormExpireUnknown, isOn: $lotExpireUnknown)
+                        if !lotExpireUnknown {
+                            DatePicker(L10n.planFormExpireDate, selection: $lotExpireDate, displayedComponents: .date)
+                        }
+                        TextField(L10n.planFormStorageNote, text: $storageNote)
+                    } header: {
+                        Text(L10n.planFormLotSection)
+                    } footer: {
+                        Text(L10n.planFormLotHint)
                     }
-                    TextField(L10n.planFormStorageNote, text: $storageNote)
-                } header: {
-                    Text(L10n.planFormLotSection)
-                } footer: {
-                    Text(L10n.planFormLotHint)
                 }
-            }
-            .navigationTitle(L10n.planFormTitle)
-            .saveFailedAlert(title: L10n.planFormSaveFailed,
-                             hint: L10n.planFormSaveFailedHint,
-                             isPresented: $saveFailed)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(L10n.commonCancel) { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(L10n.reminder_save) { save() }
-                        .disabled(genericName.trimmingCharacters(in: .whitespaces).isEmpty || doseParseFailed)
-                        .accessibilityIdentifier("SP-15.form.save")
+                .navigationTitle(L10n.planFormTitle)
+                .saveFailedAlert(title: L10n.planFormSaveFailed,
+                                 hint: L10n.planFormSaveFailedHint,
+                                 isPresented: $saveFailed)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button(L10n.commonCancel) { dismiss() }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(L10n.reminder_save) { save() }
+                            .disabled(genericName.trimmingCharacters(in: .whitespaces).isEmpty || doseParseFailed)
+                            .accessibilityIdentifier("SP-15.form.save")
+                    }
                 }
             }
         }
@@ -670,41 +681,43 @@ struct MedicationKnowledgeCardView: View {
     @State private var advice: String?
 
     var body: some View {
-        List {
-            Section {
-                Text(plan.medicationName).font(.headline)
-                if let spec = plan.spec {
-                    Text(spec).font(.caption).foregroundStyle(.secondary)
+        WithPerceptionTracking {
+            List {
+                Section {
+                    Text(plan.medicationName).font(.headline)
+                    if let spec = plan.spec {
+                        Text(spec).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                Section(L10n.knowledgeAdvice) {
+                    if let advice, !advice.isEmpty {
+                        Text(advice)
+                            .padding(.leading, 8)
+                            .overlay(alignment: .leading) {
+                                Rectangle().fill(Color("brand-primary", bundle: .main)).frame(width: 3)
+                            }
+                        // 评审修正 U2：手写徽章变体 → GradeBadge 唯一出口。
+                        // 医嘱文本在 PlanRow 无医院原文溯源（A 需要来源链路），
+                        // 用户记录口径取 C（用户确认）。
+                        GradeBadge(grade: "C")
+                    } else {
+                        Text(L10n.knowledgeNoAdvice).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                Section(L10n.knowledgeStorage) {
+                    Text(L10n.knowledgeStorageHint)
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+                Section(L10n.knowledgeCaution) {
+                    // BR-006 固定话术：涉及禁忌/相互作用/特殊人群不给结论
+                    Text(L10n.knowledgeCautionText)
+                        .font(.footnote)
+                        .foregroundStyle(Color("semantic-warning", bundle: .main))
                 }
             }
-            Section(L10n.knowledgeAdvice) {
-                if let advice, !advice.isEmpty {
-                    Text(advice)
-                        .padding(.leading, 8)
-                        .overlay(alignment: .leading) {
-                            Rectangle().fill(Color("brand-primary", bundle: .main)).frame(width: 3)
-                        }
-                    // 评审修正 U2：手写徽章变体 → GradeBadge 唯一出口。
-                    // 医嘱文本在 PlanRow 无医院原文溯源（A 需要来源链路），
-                    // 用户记录口径取 C（用户确认）。
-                    GradeBadge(grade: "C")
-                } else {
-                    Text(L10n.knowledgeNoAdvice).font(.caption).foregroundStyle(.secondary)
-                }
-            }
-            Section(L10n.knowledgeStorage) {
-                Text(L10n.knowledgeStorageHint)
-                    .font(.footnote).foregroundStyle(.secondary)
-            }
-            Section(L10n.knowledgeCaution) {
-                // BR-006 固定话术：涉及禁忌/相互作用/特殊人群不给结论
-                Text(L10n.knowledgeCautionText)
-                    .font(.footnote)
-                    .foregroundStyle(Color("semantic-warning", bundle: .main))
-            }
+            .navigationTitle(L10n.knowledgeTitle)
+            .task { await loadAdvice() }
         }
-        .navigationTitle(L10n.knowledgeTitle)
-        .task { await loadAdvice() }
     }
 
     private func loadAdvice() async {
@@ -721,11 +734,13 @@ struct MedicationKnowledgeCardView: View {
 struct PlanStatusBadge: View {
     let status: String
     var body: some View {
-        Text(statusLabel)
-            .font(.caption2)
-            .padding(.horizontal, 8).padding(.vertical, 4)
-            .background(Capsule().fill(color.opacity(0.15)))
-            .foregroundStyle(color)
+        WithPerceptionTracking {
+            Text(statusLabel)
+                .font(.caption2)
+                .padding(.horizontal, 8).padding(.vertical, 4)
+                .background(Capsule().fill(color.opacity(0.15)))
+                .foregroundStyle(color)
+        }
     }
     private var statusLabel: String {
         switch status {

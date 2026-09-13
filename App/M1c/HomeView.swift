@@ -1,6 +1,7 @@
 import SwiftUI
 import Domain
 import Infrastructure
+import Perception
 
 /// F2 首页（SP-04 · ui-ux §5.2）：统一提醒聚合中心（FR2.1，V3.57 术语）。
 ///
@@ -219,88 +220,90 @@ struct HomeView: View {
     // MARK: - Body
 
     var body: some View {
-        Group {
-            if app.careMode {
-                careModeHome   // FR18.5 四大卡版式覆写
-            } else {
-                standardHome
-            }
-        }
-        .navigationTitle(headerTitle)
-        // principal 只替换标题内容，不约束自动继承的大标题高度（SP-04）。
-        // 明确使用紧凑导航栏，内容为空时也不预留第二层标题区。
-        .navigationBarTitleDisplayMode(.inline)
-        // FR2.1⑦ 首页滑动处置底部条：撤销（5s）/ 重试（8s）双态，自动隐去以代次判定。
-        .overlay(alignment: .bottom) { actionToastBanner }
-        .toolbar {
-            // §5.2 首页成员切换入口：紧凑标题可点击 → 成员抽屉
-            ToolbarItem(placement: .principal) {
-                Button {
-                    showMemberPicker = true
-                } label: {
-                    HStack(spacing: 4) {
-                        Text(headerTitle).font(.headline)
-                        Image(systemName: "chevron.down").font(.caption2)
-                    }
+        WithPerceptionTracking {
+            Group {
+                if app.careMode {
+                    careModeHome   // FR18.5 四大卡版式覆写
+                } else {
+                    standardHome
                 }
-                .accessibilityIdentifier("SP-04.home.memberSwitch")
             }
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                // FR17.9 全局语音入口（FR14.7 voiceEntryVisible 可隐藏）→ 语音速记面板 SP-55
-                if settingsVoiceEntryVisible {
+            .navigationTitle(headerTitle)
+            // principal 只替换标题内容，不约束自动继承的大标题高度（SP-04）。
+            // 明确使用紧凑导航栏，内容为空时也不预留第二层标题区。
+            .navigationBarTitleDisplayMode(.inline)
+            // FR2.1⑦ 首页滑动处置底部条：撤销（5s）/ 重试（8s）双态，自动隐去以代次判定。
+            .overlay(alignment: .bottom) { actionToastBanner }
+            .toolbar {
+                // §5.2 首页成员切换入口：紧凑标题可点击 → 成员抽屉
+                ToolbarItem(placement: .principal) {
                     Button {
-                        showVoicePanel = true
+                        showMemberPicker = true
                     } label: {
-                        Image(systemName: "mic.fill")
+                        HStack(spacing: 4) {
+                            Text(headerTitle).font(.headline)
+                            Image(systemName: "chevron.down").font(.caption2)
+                        }
                     }
-                    .accessibilityLabel(L10n.homeVoice)
-                    .accessibilityIdentifier("SP-04.home.mic")
+                    .accessibilityIdentifier("SP-04.home.memberSwitch")
                 }
-                // FR2.1② 相机 OCR/资料识别入口（V3.61 单入口）：单击直接进采集页，
-                // 文档类型在识别后由共享理解层判定（FR5.5/FR6.2/ADR-029 不前置指定）；
-                // 症状录入走语音面板意图与记录页观察创建，不再挂在相机图标下
-                Button {
-                    showQuickCapture = true
-                } label: {
-                    Image(systemName: "camera.fill")
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    // FR17.9 全局语音入口（FR14.7 voiceEntryVisible 可隐藏）→ 语音速记面板 SP-55
+                    if settingsVoiceEntryVisible {
+                        Button {
+                            showVoicePanel = true
+                        } label: {
+                            Image(systemName: "mic.fill")
+                        }
+                        .accessibilityLabel(L10n.homeVoice)
+                        .accessibilityIdentifier("SP-04.home.mic")
+                    }
+                    // FR2.1② 相机 OCR/资料识别入口（V3.61 单入口）：单击直接进采集页，
+                    // 文档类型在识别后由共享理解层判定（FR5.5/FR6.2/ADR-029 不前置指定）；
+                    // 症状录入走语音面板意图与记录页观察创建，不再挂在相机图标下
+                    Button {
+                        showQuickCapture = true
+                    } label: {
+                        Image(systemName: "camera.fill")
+                    }
+                    .accessibilityLabel(L10n.homeQuickCapture)
+                    .accessibilityIdentifier("SP-04.home.capture")
+                    // FR14.8 通知中心铃铛（未读角标不显示病名药名，§5 通知隐私）
+                    NavigationLink(value: AppRoute.notificationCenter) {
+                        Image(systemName: "bell")
+                    }
+                    .accessibilityLabel(L10n.notificationCenterTitle)
+                    .accessibilityIdentifier("SP-04.home.bell")
+                    .badge(reminderStore.pendingCount > 0 ? reminderStore.pendingCount : 0)
                 }
-                .accessibilityLabel(L10n.homeQuickCapture)
-                .accessibilityIdentifier("SP-04.home.capture")
-                // FR14.8 通知中心铃铛（未读角标不显示病名药名，§5 通知隐私）
-                NavigationLink(value: AppRoute.notificationCenter) {
-                    Image(systemName: "bell")
-                }
-                .accessibilityLabel(L10n.notificationCenterTitle)
-                .accessibilityIdentifier("SP-04.home.bell")
-                .badge(reminderStore.pendingCount > 0 ? reminderStore.pendingCount : 0)
             }
+            .sheet(isPresented: $showMemberPicker) {
+                MemberPickerSheet()
+                    .presentationDetents([.medium])
+            }
+            .sheet(isPresented: $showSOS) { SOSHelpView() }
+            // SP-55 全屏工作台
+            .fullScreenCover(isPresented: $showVoicePanel) { VoiceQuickLaunchView() }
+            .sheet(isPresented: $showQuickCapture) {
+                NavigationStack { QuickCaptureView(kind: nil) }
+            }
+            .sheet(item: $selectedPendingCard) { item in
+                NavigationStack { PendingCardDetailSheet(item: item) }
+                    .environment(pendingCenter)
+                    .environment(app)
+                    .environment(docs)
+                    .environment(router)
+            }
+            // FR2.1⑦ 待办卡 leading「继续补全」：直达续确认流；关闭后刷新待办投影
+            .sheet(item: $resumingCard, onDismiss: { pendingCenter.refresh(patientId: app.currentPatientId) }) { target in
+                NavigationStack { PendingCardResumeRouteView(cardId: target.id) }
+                    .environment(pendingCenter)
+                    .environment(app)
+                    .environment(docs)
+                    .environment(router)
+            }
+            .task(id: "\(app.currentPatientId)-\(dataChange.alertsVersion)-\(docs.pendingVersion)") { await load() }
         }
-        .sheet(isPresented: $showMemberPicker) {
-            MemberPickerSheet()
-                .presentationDetents([.medium])
-        }
-        .sheet(isPresented: $showSOS) { SOSHelpView() }
-        // SP-55 全屏工作台
-        .fullScreenCover(isPresented: $showVoicePanel) { VoiceQuickLaunchView() }
-        .sheet(isPresented: $showQuickCapture) {
-            NavigationStack { QuickCaptureView(kind: nil) }
-        }
-        .sheet(item: $selectedPendingCard) { item in
-            NavigationStack { PendingCardDetailSheet(item: item) }
-                .environment(pendingCenter)
-                .environment(app)
-                .environment(docs)
-                .environment(router)
-        }
-        // FR2.1⑦ 待办卡 leading「继续补全」：直达续确认流；关闭后刷新待办投影
-        .sheet(item: $resumingCard, onDismiss: { pendingCenter.refresh(patientId: app.currentPatientId) }) { target in
-            NavigationStack { PendingCardResumeRouteView(cardId: target.id) }
-                .environment(pendingCenter)
-                .environment(app)
-                .environment(docs)
-                .environment(router)
-        }
-        .task(id: "\(app.currentPatientId)-\(dataChange.alertsVersion)-\(docs.pendingVersion)") { await load() }
     }
 
     // MARK: - 标准布局：统一提醒聚合中心
@@ -360,8 +363,8 @@ struct HomeView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         // M1aE2E 约束：首内容 minY − 成员按钮 maxY ≤ 48pt（行 inset 8 + 行内 padding 8，无顶部留白）
-        .contentMargins(.top, 0, for: .scrollContent)
-        .listSectionSpacing(.compact)
+            .contentMarginsCompat(.top, 0, for: .scrollContent)
+            .listSectionSpacingCompat(.compact)
         .frame(maxWidth: 672)          // §9.1 正文行宽 ≤672pt——靠 frame，不做 idiom 分支（ADR-021）
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .contain)
@@ -833,22 +836,24 @@ private struct GuideTaskCard: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                Image(systemName: done ? "checkmark.circle.fill" : icon)
-                    .font(.title3)
-                    .foregroundStyle(done ? Color.green : Color("brand-primary", bundle: .main))
-                Text(title).font(.subheadline).foregroundStyle(.primary)
-                Spacer()
-                if done {
-                    Image(systemName: "checkmark").foregroundStyle(.green)
+        WithPerceptionTracking {
+            Button(action: action) {
+                HStack(spacing: 12) {
+                    Image(systemName: done ? "checkmark.circle.fill" : icon)
+                        .font(.title3)
+                        .foregroundStyle(done ? Color.green : Color("brand-primary", bundle: .main))
+                    Text(title).font(.subheadline).foregroundStyle(.primary)
+                    Spacer()
+                    if done {
+                        Image(systemName: "checkmark").foregroundStyle(.green)
+                    }
                 }
+                .padding(14)
+                .background(RoundedRectangle(cornerRadius: 14).fill(Color(.secondarySystemGroupedBackground)))
             }
-            .padding(14)
-            .background(RoundedRectangle(cornerRadius: 14).fill(Color(.secondarySystemGroupedBackground)))
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("SP-04.home.guide.\(title)")
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("SP-04.home.guide.\(title)")
     }
 }
 
@@ -860,23 +865,25 @@ private struct BigCareCard: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 20) {
-                Image(systemName: icon)
-                    .font(VLFont.homeActionIcon)
-                    .foregroundStyle(tint)
-                    .frame(width: 64, height: 64)
-                    .background(RoundedRectangle(cornerRadius: 16).fill(tint.opacity(0.12)))
-                Text(title)
-                    .font(.title3.bold())
-                    .foregroundStyle(.primary)
-                Spacer()
+        WithPerceptionTracking {
+            Button(action: action) {
+                HStack(spacing: 20) {
+                    Image(systemName: icon)
+                        .font(VLFont.homeActionIcon)
+                        .foregroundStyle(tint)
+                        .frame(width: 64, height: 64)
+                        .background(RoundedRectangle(cornerRadius: 16).fill(tint.opacity(0.12)))
+                    Text(title)
+                        .font(.title3.bold())
+                        .foregroundStyle(.primary)
+                    Spacer()
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, minHeight: 72)
+                .background(RoundedRectangle(cornerRadius: 18).fill(Color(.secondarySystemGroupedBackground)))
             }
-            .padding(20)
-            .frame(maxWidth: .infinity, minHeight: 72)
-            .background(RoundedRectangle(cornerRadius: 18).fill(Color(.secondarySystemGroupedBackground)))
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
     }
 }
 
@@ -887,33 +894,35 @@ struct MemberPickerSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
-            List(app.members) { member in
-                Button {
-                    app.setCurrentPatient(member.id)
-                    dismiss()
-                } label: {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(member.displayName).font(.body)
-                            Text(L10n.memberRelationDisplayName(member.relation))
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        if member.id == app.currentPatientId {
-                            Image(systemName: "checkmark").foregroundStyle(Color("brand-primary", bundle: .main))
+        WithPerceptionTracking {
+            NavigationStack {
+                List(app.members) { member in
+                    Button {
+                        app.setCurrentPatient(member.id)
+                        dismiss()
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(member.displayName).font(.body)
+                                Text(L10n.memberRelationDisplayName(member.relation))
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            if member.id == app.currentPatientId {
+                                Image(systemName: "checkmark").foregroundStyle(Color("brand-primary", bundle: .main))
+                            }
                         }
                     }
+                    .accessibilityIdentifier("SP-05.member.\(member.id.uuidString)")
                 }
-                .accessibilityIdentifier("SP-05.member.\(member.id.uuidString)")
-            }
-            .navigationTitle(L10n.homeMemberSwitch)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(L10n.member_add) {
-                        dismiss()
-                        // 添加家人（FR3.7 入口）：去成员管理页
-                        router.navigate(to: .memberList)
+                .navigationTitle(L10n.homeMemberSwitch)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(L10n.member_add) {
+                            dismiss()
+                            // 添加家人（FR3.7 入口）：去成员管理页
+                            router.navigate(to: .memberList)
+                        }
                     }
                 }
             }
@@ -938,148 +947,155 @@ private struct PendingCardDetailSheet: View {
     @State private var discarding = false
 
     var body: some View {
-        List {
-            if let detail {
-                Section {
-                    OCRReviewOwnerRow(patientId: detail.patientId)
-                    GradeBadge(grade: "D")
-                }
-                if !detail.incompleteFields.isEmpty {
-                    Section(L10n.docConfirmSkipTitle) {
-                        ForEach(Array(detail.incompleteFields.enumerated()), id: \.offset) { _, field in
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(field.label ?? DocumentsState.fieldLabel(forKey: field.key))
-                                    .font(.subheadline)
-                                Text(L10n.docConfirmHint).font(.caption).foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                }
-                if !detail.partialData.shared.isEmpty || !detail.partialData.rows.isEmpty {
-                    Section(L10n.docConfirmSkipSaved) {
-                        if let snapshot = detail.partialData.card {
-                            ForEach(snapshot.shared.indices.filter { snapshot.shared[$0].key != "metric_key" }, id: \.self) { index in
-                                pendingField(snapshot.shared[index])
-                            }
-                            ForEach(Array(snapshot.rows.enumerated()), id: \.element.id) { index, row in
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(L10n.entityCardRowIndex(index + 1)).font(.caption)
-                                    ForEach(row.fields.indices.filter { row.fields[$0].key != "metric_key" }, id: \.self) { field in
-                                        pendingField(row.fields[field])
-                                    }
-                                }
-                            }
-                        } else {
-                            ForEach(detail.partialData.shared.filter { $0.key != "metric_key" }.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
-                                LabeledContent(DocumentsState.fieldLabel(forKey: key),
-                                               value: DocumentsState.fieldValueDisplay(forKey: key, value: value))
-                            }
-                            ForEach(Array(detail.partialData.rows.enumerated()), id: \.offset) { index, row in
-                                VStack(alignment: .leading) {
-                                    Text(L10n.entityCardRowIndex(index + 1)).font(.caption)
-                                    ForEach(row.filter { $0.key != "metric_key" }.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
-                                        LabeledContent(DocumentsState.fieldLabel(forKey: key),
-                                                       value: DocumentsState.fieldValueDisplay(forKey: key, value: value))
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                if !detail.rawText.isEmpty {
+        WithPerceptionTracking {
+            List {
+                if let detail {
                     Section {
-                        Text(detail.rawText).font(.footnote)
-                    } header: {
-                        Text(L10n.pendingCardRawText)
+                        OCRReviewOwnerRow(patientId: detail.patientId)
+                        GradeBadge(grade: "D")
                     }
-                }
-            } else if loadFailed {
-                Label(L10n.docImportFailed, systemImage: "exclamationmark.triangle")
-                Button(L10n.retry) { Task { await loadDetail() } }
-            } else if loaded {
-                Text(L10n.pendingCardNotFound)
-            } else { ProgressView() }
-        }
-        .navigationTitle(L10n.pendingCardAggregationTitle(item.title))
-        .navigationBarTitleDisplayMode(.inline)
-        .task(id: item.id.sourceId) {
-            await loadDetail()
-        }
-        .safeAreaInset(edge: .bottom) {
-            if let detail {
-                VStack(spacing: 8) {
-                    Button {
-                        resuming = true
-                    } label: {
-                        Label(L10n.pendingCardResume, systemImage: "checkmark.circle")
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .accessibilityIdentifier("SP-04.home.pendingCard.resume")
-                    HStack(spacing: 12) {
-                        Button {
-                            showSource = true
-                        } label: {
-                            Label(L10n.pendingCardViewSource, systemImage: "doc.text.magnifyingglass")
-                                .frame(maxWidth: .infinity, minHeight: 44)
+                    if !detail.incompleteFields.isEmpty {
+                        Section(L10n.docConfirmSkipTitle) {
+                            ForEach(Array(detail.incompleteFields.enumerated()), id: \.offset) { _, field in
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(field.label ?? DocumentsState.fieldLabel(forKey: field.key))
+                                        .font(.subheadline)
+                                    Text(L10n.docConfirmHint).font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
                         }
-                        .buttonStyle(.bordered)
-                        .disabled(detail.sourceDocId == nil || detail.sourcePage == nil)
-                        .accessibilityIdentifier("SP-04.home.pendingCard.viewSource")
-                        Button(role: .destructive) {
-                            showDiscard = true
-                        } label: {
-                            Label(L10n.pendingCardDiscard, systemImage: "xmark.circle")
-                                .frame(maxWidth: .infinity, minHeight: 44)
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(docs.retainedImport(for: detail) != nil)
-                        .accessibilityIdentifier("SP-04.home.pendingCard.discard")
                     }
-                }
-                .padding(16)
-                .background(.bar)
-                .disabled(discarding)
+                    if !detail.partialData.shared.isEmpty || !detail.partialData.rows.isEmpty {
+                        Section(L10n.docConfirmSkipSaved) {
+                            if let snapshot = detail.partialData.card {
+                                ForEach(snapshot.shared.indices.filter { snapshot.shared[$0].key != "metric_key" }, id: \.self) { index in
+                                    pendingField(snapshot.shared[index])
+                                }
+                                ForEach(Array(snapshot.rows.enumerated()), id: \.element.id) { index, row in
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(L10n.entityCardRowIndex(index + 1)).font(.caption)
+                                        ForEach(row.fields.indices.filter { row.fields[$0].key != "metric_key" }, id: \.self) { field in
+                                            pendingField(row.fields[field])
+                                        }
+                                    }
+                                }
+                            } else {
+                                ForEach(detail.partialData.shared.filter { $0.key != "metric_key" }.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
+                                    LabeledContent(DocumentsState.fieldLabel(forKey: key),
+                                                   value: DocumentsState.fieldValueDisplay(forKey: key, value: value))
+                                }
+                                ForEach(Array(detail.partialData.rows.enumerated()), id: \.offset) { index, row in
+                                    VStack(alignment: .leading) {
+                                        Text(L10n.entityCardRowIndex(index + 1)).font(.caption)
+                                        ForEach(row.filter { $0.key != "metric_key" }.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
+                                            LabeledContent(DocumentsState.fieldLabel(forKey: key),
+                                                           value: DocumentsState.fieldValueDisplay(forKey: key, value: value))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if !detail.rawText.isEmpty {
+                        Section {
+                            Text(detail.rawText).font(.footnote)
+                        } header: {
+                            Text(L10n.pendingCardRawText)
+                        }
+                    }
+                } else if loadFailed {
+                    Label(L10n.docImportFailed, systemImage: "exclamationmark.triangle")
+                    Button(L10n.retry) { Task { await loadDetail() } }
+                } else if loaded {
+                    Text(L10n.pendingCardNotFound)
+                } else { ProgressView() }
             }
-        }
-        .sheet(isPresented: $resuming, onDismiss: {
-            pendingCenter.refresh(patientId: app.currentPatientId)
-            Task {
+            .navigationTitle(L10n.pendingCardAggregationTitle(item.title))
+            .navigationBarTitleDisplayMode(.inline)
+            .task(id: item.id.sourceId) {
                 await loadDetail()
-                if detail?.status == "resolved" { dismiss() }
             }
-        }) {
-            NavigationStack { PendingCardResumeRouteView(cardId: item.id.sourceId) }
-        }
-        .sheet(isPresented: $showSource) {
-            if let detail, let documentID = detail.sourceDocId, let page = detail.sourcePage {
-                DocumentSourcePageView(documentId: documentID, patientId: detail.patientId, pageIndex: page)
+            .safeAreaInset(edge: .bottom) {
+                if let detail {
+                    VStack(spacing: 8) {
+                        Button {
+                            resuming = true
+                        } label: {
+                            Label(L10n.pendingCardResume, systemImage: "checkmark.circle")
+                                .frame(maxWidth: .infinity, minHeight: 44)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .accessibilityIdentifier("SP-04.home.pendingCard.resume")
+                        HStack(spacing: 12) {
+                            Button {
+                                showSource = true
+                            } label: {
+                                Label(L10n.pendingCardViewSource, systemImage: "doc.text.magnifyingglass")
+                                    .frame(maxWidth: .infinity, minHeight: 44)
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(detail.sourceDocId == nil || detail.sourcePage == nil)
+                            .accessibilityIdentifier("SP-04.home.pendingCard.viewSource")
+                            Button(role: .destructive) {
+                                showDiscard = true
+                            } label: {
+                                Label(L10n.pendingCardDiscard, systemImage: "xmark.circle")
+                                    .frame(maxWidth: .infinity, minHeight: 44)
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(docs.retainedImport(for: detail) != nil)
+                            .accessibilityIdentifier("SP-04.home.pendingCard.discard")
+                        }
+                    }
+                    .padding(16)
+                    .background(.bar)
+                    .disabled(discarding)
+                }
             }
-        }
-        .confirmationDialog(L10n.pendingCardDiscard, isPresented: $showDiscard, titleVisibility: .visible) {
-            Button(L10n.pendingCardDiscard, role: .destructive) {
-                guard let detail else { return }
-                discarding = true
+            .sheet(isPresented: $resuming, onDismiss: {
+                pendingCenter.refresh(patientId: app.currentPatientId)
                 Task {
-                    let discarded = await docs.discardPendingCard(detail)
-                    discarding = false
-                    pendingCenter.refresh(patientId: app.currentPatientId)
-                    if discarded { dismiss() } else { discardFailed = true }
+                    await loadDetail()
+                    if detail?.status == "resolved" { dismiss() }
+                }
+            }) {
+                NavigationStack { PendingCardResumeRouteView(cardId: item.id.sourceId) }
+            }
+            .sheet(isPresented: $showSource) {
+                if let detail, let documentID = detail.sourceDocId, let page = detail.sourcePage {
+                    DocumentSourcePageView(documentId: documentID, patientId: detail.patientId, pageIndex: page)
                 }
             }
-            Button(L10n.commonCancel, role: .cancel) {}
-        }
-        .alert(L10n.docConfirmSaveFailedTitle, isPresented: $discardFailed) {
-            Button(L10n.onboard_gotIt, role: .cancel) {}
-        } message: { Text(detail.flatMap { docs.pendingReviews[$0.id]?.notificationError } ?? L10n.entityCardSaveFailed) }
-        .interactiveDismissDisabled(discarding)
-        .toolbar {
-            ToolbarItem(placement: .confirmationAction) {
-                Button(L10n.onboard_gotIt) {
-                    dismiss()
+            .confirmationDialog(L10n.pendingCardDiscard, isPresented: $showDiscard, titleVisibility: .visible) {
+                Button(L10n.pendingCardDiscard, role: .destructive) {
+                    guard let detail else { return }
+                    discarding = true
+                    Task {
+                        let discarded = await docs.discardPendingCard(detail)
+                        discarding = false
+                        pendingCenter.refresh(patientId: app.currentPatientId)
+                        if discarded { dismiss() } else { discardFailed = true }
+                    }
                 }
-                .disabled(discarding)
-                .accessibilityIdentifier("SP-04.home.pendingCard.close")
+                Button(L10n.commonCancel, role: .cancel) {}
+            }
+            .alert(L10n.docConfirmSaveFailedTitle, isPresented: $discardFailed) {
+                Button(L10n.onboard_gotIt, role: .cancel) {}
+            } message: {
+                // alert message 闭包逃逸：同步读 docs.pendingReviews，须自行包裹（子项目 I）
+                WithPerceptionTracking {
+                    Text(detail.flatMap { docs.pendingReviews[$0.id]?.notificationError } ?? L10n.entityCardSaveFailed)
+                }
+            }
+            .interactiveDismissDisabled(discarding)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(L10n.onboard_gotIt) {
+                        dismiss()
+                    }
+                    .disabled(discarding)
+                    .accessibilityIdentifier("SP-04.home.pendingCard.close")
+                }
             }
         }
     }

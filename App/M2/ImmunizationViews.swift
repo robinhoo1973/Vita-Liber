@@ -25,7 +25,7 @@ struct ImmunizationListView: View {
     var body: some View {
         List {
             if records.isEmpty {
-                ContentUnavailableView(L10n.immunization_empty, systemImage: "syringe",
+                VLUnavailableView(L10n.immunization_empty, systemImage: "syringe",
                                        description: Text(L10n.immunization_emptyHint))
                     .accessibilityIdentifier("FR4.5.immunization.empty")
             } else {

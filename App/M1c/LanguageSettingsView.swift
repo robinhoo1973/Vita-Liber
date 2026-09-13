@@ -1,6 +1,7 @@
 import SwiftUI
 import Domain
 import Infrastructure
+import Perception
 
 /// FR14.5 显示语言选择器（ui-ux §5.12.2）：zh-Hans / zh-Hant 二选，
 /// 每项以该语言原文显示（多语言选择器业界惯例）；切换即时生效
@@ -15,31 +16,36 @@ struct LanguageSettingsView: View {
     }
 
     var body: some View {
-        List {
-            Section {
-                ForEach(L10n.supportedDisplayLanguages, id: \.code) { lang in
-                    Button {
-                        Task {
-                            await settings.set(lang.code, for: .language)
-                            L10n.setLanguage(lang.code)   // 即时生效，无需重启
-                        }
-                    } label: {
-                        HStack {
-                            Text(lang.nativeName)   // 以该语言原文显示
-                            Spacer()
-                            if current == lang.code {
-                                Image(systemName: "checkmark")
-                                    .foregroundStyle(Color("brand-primary", bundle: .main))
+        WithPerceptionTracking {
+            List {
+                Section {
+                    ForEach(L10n.supportedDisplayLanguages, id: \.code) { lang in
+                        // ForEach 行闭包逃逸：行内同步读感知对象属性，须自行包裹（子项目 I）
+                        WithPerceptionTracking {
+                            Button {
+                                Task {
+                                    await settings.set(lang.code, for: .language)
+                                    L10n.setLanguage(lang.code)   // 即时生效，无需重启
+                                }
+                            } label: {
+                                HStack {
+                                    Text(lang.nativeName)   // 以该语言原文显示
+                                    Spacer()
+                                    if current == lang.code {
+                                        Image(systemName: "checkmark")
+                                            .foregroundStyle(Color("brand-primary", bundle: .main))
+                                    }
+                                }
                             }
+                            .accessibilityIdentifier("SP-25.language.\(lang.code)")
                         }
                     }
-                    .accessibilityIdentifier("SP-25.language.\(lang.code)")
+                } footer: {
+                    Text(L10n.languageFooter)
                 }
-            } footer: {
-                Text(L10n.languageFooter)
             }
+            .navigationTitle(L10n.languageTitle)
         }
-        .navigationTitle(L10n.languageTitle)
     }
 }
 
@@ -79,131 +85,136 @@ struct VoiceLanguageSettingsView: View {
     }
 
     var body: some View {
-        List {
-            ASREngineSettingsSection()
-            Section {
-                ForEach(inputLanguageOptions, id: \.locale) { lang in
-                    let resolved = inputCapability.resolvedLocale(for: lang.locale)
-                    HStack {
-                        Button {
-                            toggleInput(lang.locale)
-                        } label: {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(lang.nativeName)
-                                    if let resolved,
-                                       TranscriptionLocale.normalizedIdentifier(resolved)
-                                        != TranscriptionLocale.normalizedIdentifier(lang.locale) {
-                                        Text(L10n.voiceRecognizedAs(resolved))
-                                            .font(.caption2).foregroundStyle(.secondary)
+        WithPerceptionTracking {
+            List {
+                ASREngineSettingsSection()
+                Section {
+                    ForEach(inputLanguageOptions, id: \.locale) { lang in
+                        let resolved = inputCapability.resolvedLocale(for: lang.locale)
+                        HStack {
+                            Button {
+                                toggleInput(lang.locale)
+                            } label: {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(lang.nativeName)
+                                        if let resolved,
+                                           TranscriptionLocale.normalizedIdentifier(resolved)
+                                            != TranscriptionLocale.normalizedIdentifier(lang.locale) {
+                                            Text(L10n.voiceRecognizedAs(resolved))
+                                                .font(.caption2).foregroundStyle(.secondary)
+                                        }
+                                    }
+                                    if TranscriptionLocale.normalizedIdentifier(inputLangs.first ?? "")
+                                        == TranscriptionLocale.normalizedIdentifier(lang.locale) {
+                                        Text(L10n.voicePrimaryLanguage)
+                                            .font(.caption2)
+                                            .padding(.horizontal, 6).padding(.vertical, 2)
+                                            .background(Capsule().fill(Color("brand-primary", bundle: .main).opacity(0.15)))
+                                            .foregroundStyle(Color("brand-primary", bundle: .main))
+                                            .accessibilityIdentifier("SP-25.voiceInputLang.primary")
+                                    }
+                                    if lang.tier == .bestEffort || (resolved != nil && inputCapability.locale(matching: lang.locale) == nil) {
+                                        Text(L10n.voiceLangBestEffort)
+                                            .font(.caption2)
+                                            .padding(.horizontal, 6).padding(.vertical, 2)
+                                            .background(Capsule().fill(Color(.systemGray5)))
+                                    }
+                                    Spacer()
+                                    if inputLangs.contains(where: {
+                                        TranscriptionLocale.normalizedIdentifier($0) == TranscriptionLocale.normalizedIdentifier(lang.locale)
+                                    }) {
+                                        Image(systemName: "checkmark")
+                                            .foregroundStyle(Color("brand-primary", bundle: .main))
+                                    }
+                                    if loaded && resolved == nil { Image(systemName: "mic.slash") }
+                                }
+                            }
+                            .disabled(!loaded || resolved == nil)
+                            .accessibilityIdentifier("SP-25.voiceInputLang.\(lang.locale)")
+                            if lang.tier == .bestEffort {
+                                Button {
+                                    t2Explained = T2Info(locale: lang.locale, nativeName: lang.nativeName)
+                                } label: {
+                                    Image(systemName: "info.circle")
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel(L10n.voiceLangT2Title(lang.nativeName))
+                            }
+                        }
+                    }
+                } header: {
+                    Text(L10n.voiceLangInputSection)
+                } footer: {
+                    Text(L10n.voiceLangInputHint + "\n" + L10n.voicePrimaryLanguageHint)
+                    if loaded && inputCapability.availableLocales.isEmpty { Text(L10n.voiceInputUnavailable) }
+                }
+
+                // One selected primary recognizer plus phrase bias, not sequential multilingual recognition.
+                Section {
+                    Toggle(L10n.voiceLangMixedToggle, isOn: Binding(
+                        get: { settings.values[.voiceMixedInput] != "false" },
+                        set: { on in Task { await settings.set(on ? "true" : "false", for: .voiceMixedInput) } }
+                    ))
+                    .accessibilityIdentifier("SP-25.voiceMixedInput.toggle")
+                } footer: {
+                    Text(L10n.voiceLangMixedHint)
+                }
+
+                Section {
+                    ForEach(EngineCapabilityProfile.sixLanguages, id: \.locale) { lang in
+                        // ForEach 行闭包逃逸：行内同步读感知对象属性，须自行包裹（子项目 I）
+                        WithPerceptionTracking {
+                            Button {
+                                app.setVoiceOutputLocale(lang.locale)
+                            } label: {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(lang.nativeName)
+                                        if lang.tier == .bestEffort {
+                                            // FR17.16 发声回退链：方言无独立发声 → 普通话朗读
+                                            Text(L10n.voiceLangFallback)
+                                                .font(.caption2).foregroundStyle(.secondary)
+                                        }
+                                    }
+                                    Spacer()
+                                    if outputLang == lang.locale {
+                                        Image(systemName: "checkmark")
+                                            .foregroundStyle(Color("brand-primary", bundle: .main))
                                     }
                                 }
-                                if TranscriptionLocale.normalizedIdentifier(inputLangs.first ?? "")
-                                    == TranscriptionLocale.normalizedIdentifier(lang.locale) {
-                                    Text(L10n.voicePrimaryLanguage)
-                                        .font(.caption2)
-                                        .padding(.horizontal, 6).padding(.vertical, 2)
-                                        .background(Capsule().fill(Color("brand-primary", bundle: .main).opacity(0.15)))
-                                        .foregroundStyle(Color("brand-primary", bundle: .main))
-                                        .accessibilityIdentifier("SP-25.voiceInputLang.primary")
-                                }
-                                if lang.tier == .bestEffort || (resolved != nil && inputCapability.locale(matching: lang.locale) == nil) {
-                                    Text(L10n.voiceLangBestEffort)
-                                        .font(.caption2)
-                                        .padding(.horizontal, 6).padding(.vertical, 2)
-                                        .background(Capsule().fill(Color(.systemGray5)))
-                                }
-                                Spacer()
-                                if inputLangs.contains(where: {
-                                    TranscriptionLocale.normalizedIdentifier($0) == TranscriptionLocale.normalizedIdentifier(lang.locale)
-                                }) {
-                                    Image(systemName: "checkmark")
-                                        .foregroundStyle(Color("brand-primary", bundle: .main))
-                                }
-                                if loaded && resolved == nil { Image(systemName: "mic.slash") }
                             }
-                        }
-                        .disabled(!loaded || resolved == nil)
-                        .accessibilityIdentifier("SP-25.voiceInputLang.\(lang.locale)")
-                        if lang.tier == .bestEffort {
-                            Button {
-                                t2Explained = T2Info(locale: lang.locale, nativeName: lang.nativeName)
-                            } label: {
-                                Image(systemName: "info.circle")
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(L10n.voiceLangT2Title(lang.nativeName))
+                            .accessibilityIdentifier("SP-25.voiceOutputLang.\(lang.locale)")
                         }
                     }
+                } header: {
+                    Text(L10n.voiceLangOutputSection)
+                } footer: {
+                    Text(L10n.voiceLangOutputHint)
                 }
-            } header: {
-                Text(L10n.voiceLangInputSection)
-            } footer: {
-                Text(L10n.voiceLangInputHint + "\n" + L10n.voicePrimaryLanguageHint)
-                if loaded && inputCapability.availableLocales.isEmpty { Text(L10n.voiceInputUnavailable) }
-            }
 
-            // One selected primary recognizer plus phrase bias, not sequential multilingual recognition.
-            Section {
-                Toggle(L10n.voiceLangMixedToggle, isOn: Binding(
-                    get: { settings.values[.voiceMixedInput] != "false" },
-                    set: { on in Task { await settings.set(on ? "true" : "false", for: .voiceMixedInput) } }
-                ))
-                .accessibilityIdentifier("SP-25.voiceMixedInput.toggle")
-            } footer: {
-                Text(L10n.voiceLangMixedHint)
-            }
-
-            Section {
-                ForEach(EngineCapabilityProfile.sixLanguages, id: \.locale) { lang in
-                    Button {
-                        app.setVoiceOutputLocale(lang.locale)
-                    } label: {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(lang.nativeName)
-                                if lang.tier == .bestEffort {
-                                    // FR17.16 发声回退链：方言无独立发声 → 普通话朗读
-                                    Text(L10n.voiceLangFallback)
-                                        .font(.caption2).foregroundStyle(.secondary)
-                                }
-                            }
-                            Spacer()
-                            if outputLang == lang.locale {
-                                Image(systemName: "checkmark")
-                                    .foregroundStyle(Color("brand-primary", bundle: .main))
-                            }
-                        }
+                // FR17.15 V3.66：识别引擎实验室入口（引擎档位 / 语言资源 / 对照测试）
+                Section {
+                    NavigationLink(value: AppRoute.voiceEngineLab) {
+                        Label(L10n.voiceLabTitle, systemImage: "waveform")
                     }
-                    .accessibilityIdentifier("SP-25.voiceOutputLang.\(lang.locale)")
+                    .accessibilityIdentifier("SP-25.voiceEngineLab.entry")
+                } footer: {
+                    Text(L10n.voiceLabEntryHint)
                 }
-            } header: {
-                Text(L10n.voiceLangOutputSection)
-            } footer: {
-                Text(L10n.voiceLangOutputHint)
             }
-
-            // FR17.15 V3.66：识别引擎实验室入口（引擎档位 / 语言资源 / 对照测试）
-            Section {
-                NavigationLink(value: AppRoute.voiceEngineLab) {
-                    Label(L10n.voiceLabTitle, systemImage: "waveform")
+            .sheet(item: $t2Explained) { lang in
+                T2ExplanationSheet(locale: lang.locale, nativeName: lang.nativeName)
+            }
+            .navigationTitle(L10n.voiceLangTitle)
+            .task { await load() }
+            .task(id: settings.values[.voiceEngine]) {
+                inputCapability = await app.transcriptionEngine.currentCapability()
+            }
+            .onChangeCompat(of: scenePhase) { _, phase in
+                if phase == .active {
+                    Task { inputCapability = await app.transcriptionEngine.currentCapability() }
                 }
-                .accessibilityIdentifier("SP-25.voiceEngineLab.entry")
-            } footer: {
-                Text(L10n.voiceLabEntryHint)
-            }
-        }
-        .sheet(item: $t2Explained) { lang in
-            T2ExplanationSheet(locale: lang.locale, nativeName: lang.nativeName)
-        }
-        .navigationTitle(L10n.voiceLangTitle)
-        .task { await load() }
-        .task(id: settings.values[.voiceEngine]) {
-            inputCapability = await app.transcriptionEngine.currentCapability()
-        }
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .active {
-                Task { inputCapability = await app.transcriptionEngine.currentCapability() }
             }
         }
     }
@@ -249,19 +260,21 @@ struct T2ExplanationSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
-            List {
-                Text(L10n.voiceLangT2Title(nativeName)).font(.headline)
-                Label(L10n.voiceLangT2Point1, systemImage: "ear")
-                Label(L10n.voiceLangT2Point3, systemImage: "checkmark.seal")
-            }
-            .navigationTitle(L10n.voiceLangBestEffort)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(L10n.onboard_gotIt) { dismiss() }
+        WithPerceptionTracking {
+            NavigationStack {
+                List {
+                    Text(L10n.voiceLangT2Title(nativeName)).font(.headline)
+                    Label(L10n.voiceLangT2Point1, systemImage: "ear")
+                    Label(L10n.voiceLangT2Point3, systemImage: "checkmark.seal")
+                }
+                .navigationTitle(L10n.voiceLangBestEffort)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(L10n.onboard_gotIt) { dismiss() }
+                    }
                 }
             }
+            .presentationDetents([.medium])
         }
-        .presentationDetents([.medium])
     }
 }

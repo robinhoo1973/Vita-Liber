@@ -72,7 +72,7 @@ public actor NotificationStateStore {
 #endif
 
 #if os(iOS) || os(macOS)
-import Observation
+import Perception
 
 /// App 层环境注入外观（V3.72）：@Environment 要求 @Observable 类型，
 /// actor 不可直接注入——本门面把已读/归档语义暴露为可观察状态并委托 actor。
@@ -86,7 +86,7 @@ import Observation
 ///    乐观 `markArchived(_:)`（先改态、后台 `try?` 落库）已删除：同一门面
 ///    两种归档语义，是首页与通知中心归档状态互相打架的根因（U-N5）。
 @MainActor
-@Observable
+@Perceptible
 public final class NotificationCenterState {
     public private(set) var itemStates: [String: NotificationItemState] = [:]
     private let store: NotificationStateStore

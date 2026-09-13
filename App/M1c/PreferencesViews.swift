@@ -1,5 +1,6 @@
 import SwiftUI
 import Domain
+import Perception
 
 // MARK: - FR14.7 常用习惯设置（SP-26 · ui-ux §5.19）
 
@@ -16,90 +17,92 @@ struct PreferencesView: View {
     @State private var loaded = false
 
     var body: some View {
-        Form {
-            // 审查修复（诚实性）：remindAdvance/snooze/quietHours/notifPreviewMed/
-            // 通道/日期格式/单位/动效/排序等十余项偏好此前只写不读
-            // （全仓零消费点）——「可调但无效果」的开关违反 FR14.7
-            // 「偏好必须真实生效」，已从 UI 移除并登记技术债；接线后恢复。
-            // 现仅保留真实生效项：无耳机回读偏好（FR17.13 运行时真源已接线）。
-            Section {
-                Picker(L10n.prefReadback, selection: $readback) {
-                    Text(L10n.prefReadbackNever).tag("never")
-                    Text(L10n.prefReadbackAsk).tag("ask")
-                    Text(L10n.prefReadbackAlways).tag("alwaysInCareMode")
-                }
-                // 审查修复：禁用态不得由「当前选中值」推导——关怀模式关闭后
-                // readback=alwaysInCareMode 时 isSelectable=false，整个 Picker
-                // 被禁用，用户再也改不回 never/ask（恢复默认又被 onDisappear
-                // 的 save() 用陈旧 @State 覆盖）。始终可选；非法组合由
-                // AppState.readbackPreference 写入口按 ReadbackPolicy 拒绝。
-            } header: {
-                LabeledContent(L10n.prefGroupVoice) {
-                    Text(L10n.prefTagGlobal)
-                }
-            } footer: {
-                Text(L10n.prefReadbackHint)
-            }
-            // §5.19 显示与单位组（V3.72 恢复接线项）：日期格式——消费点 =
-            // 时间轴/全局搜索格式化出口（dateFormat 读取点随 W4 批逐一接线，
-            // 本项先行恢复 UI 与存储语义）
-            Section {
-                Picker(selection: Binding(
-                    get: { SettingsRules.dateFormatTag(of: settings.values[.dateFormat] ?? AppSettingKey.dateFormat.defaultValue) },
-                    set: { v in Task { await settings.set(SettingsRules.dateFormatValue(of: v), for: .dateFormat) } }
-                )) {
-                    Text(L10n.prefDateFormatYMD).tag("ymd")
-                    Text(L10n.prefDateFormatMD).tag("md")
-                    Text(L10n.prefDateFormatISO).tag("iso")
-                } label: {
-                    LabeledContent(L10n.prefDateFormat) {
+        WithPerceptionTracking {
+            Form {
+                // 审查修复（诚实性）：remindAdvance/snooze/quietHours/notifPreviewMed/
+                // 通道/日期格式/单位/动效/排序等十余项偏好此前只写不读
+                // （全仓零消费点）——「可调但无效果」的开关违反 FR14.7
+                // 「偏好必须真实生效」，已从 UI 移除并登记技术债；接线后恢复。
+                // 现仅保留真实生效项：无耳机回读偏好（FR17.13 运行时真源已接线）。
+                Section {
+                    Picker(L10n.prefReadback, selection: $readback) {
+                        Text(L10n.prefReadbackNever).tag("never")
+                        Text(L10n.prefReadbackAsk).tag("ask")
+                        Text(L10n.prefReadbackAlways).tag("alwaysInCareMode")
+                    }
+                    // 审查修复：禁用态不得由「当前选中值」推导——关怀模式关闭后
+                    // readback=alwaysInCareMode 时 isSelectable=false，整个 Picker
+                    // 被禁用，用户再也改不回 never/ask（恢复默认又被 onDisappear
+                    // 的 save() 用陈旧 @State 覆盖）。始终可选；非法组合由
+                    // AppState.readbackPreference 写入口按 ReadbackPolicy 拒绝。
+                } header: {
+                    LabeledContent(L10n.prefGroupVoice) {
                         Text(L10n.prefTagGlobal)
                     }
+                } footer: {
+                    Text(L10n.prefReadbackHint)
                 }
-            } footer: {
-                // 第八轮全仓审查修复（诚实性）：读取点接线（时间轴/搜索/今日
-                // 卡等格式化出口）属 W4 批——接线前本项选择不改变任何显示，
-                // 与 remch.sectionFooter 同款预告纪律，避免用户改完发现无效。
-                Text(L10n.prefDateFormatPending)
-            }
-            // FR14.7 默认语速（2026-09-11 接线：AVSpeechAdapter rateProvider
-            // 实时消费冻结键——FR19.3 语速可调；三档取值域 = Domain
-            // SpeechRateTier 单一事实源，不得内联数值）
-            Section {
-                Picker(selection: Binding(
-                    get: {
-                        SpeechRateTier(rawValue: settings.values[.speechRate]
-                                       ?? AppSettingKey.speechRate.defaultValue) ?? .normal
-                    },
-                    set: { tier in
-                        Task { await settings.set(tier.rawValue, for: .speechRate) }
+                // §5.19 显示与单位组（V3.72 恢复接线项）：日期格式——消费点 =
+                // 时间轴/全局搜索格式化出口（dateFormat 读取点随 W4 批逐一接线，
+                // 本项先行恢复 UI 与存储语义）
+                Section {
+                    Picker(selection: Binding(
+                        get: { SettingsRules.dateFormatTag(of: settings.values[.dateFormat] ?? AppSettingKey.dateFormat.defaultValue) },
+                        set: { v in Task { await settings.set(SettingsRules.dateFormatValue(of: v), for: .dateFormat) } }
+                    )) {
+                        Text(L10n.prefDateFormatYMD).tag("ymd")
+                        Text(L10n.prefDateFormatMD).tag("md")
+                        Text(L10n.prefDateFormatISO).tag("iso")
+                    } label: {
+                        LabeledContent(L10n.prefDateFormat) {
+                            Text(L10n.prefTagGlobal)
+                        }
                     }
-                )) {
-                    Text(L10n.prefSpeechRateSlow).tag(SpeechRateTier.slow)
-                    Text(L10n.prefSpeechRateNormal).tag(SpeechRateTier.normal)
-                    Text(L10n.prefSpeechRateFast).tag(SpeechRateTier.fast)
-                } label: {
-                    LabeledContent(L10n.prefSpeechRate) {
-                        Text(L10n.prefTagGlobal)
+                } footer: {
+                    // 第八轮全仓审查修复（诚实性）：读取点接线（时间轴/搜索/今日
+                    // 卡等格式化出口）属 W4 批——接线前本项选择不改变任何显示，
+                    // 与 remch.sectionFooter 同款预告纪律，避免用户改完发现无效。
+                    Text(L10n.prefDateFormatPending)
+                }
+                // FR14.7 默认语速（2026-09-11 接线：AVSpeechAdapter rateProvider
+                // 实时消费冻结键——FR19.3 语速可调；三档取值域 = Domain
+                // SpeechRateTier 单一事实源，不得内联数值）
+                Section {
+                    Picker(selection: Binding(
+                        get: {
+                            SpeechRateTier(rawValue: settings.values[.speechRate]
+                                           ?? AppSettingKey.speechRate.defaultValue) ?? .normal
+                        },
+                        set: { tier in
+                            Task { await settings.set(tier.rawValue, for: .speechRate) }
+                        }
+                    )) {
+                        Text(L10n.prefSpeechRateSlow).tag(SpeechRateTier.slow)
+                        Text(L10n.prefSpeechRateNormal).tag(SpeechRateTier.normal)
+                        Text(L10n.prefSpeechRateFast).tag(SpeechRateTier.fast)
+                    } label: {
+                        LabeledContent(L10n.prefSpeechRate) {
+                            Text(L10n.prefTagGlobal)
+                        }
+                    }
+                } footer: {
+                    Text(L10n.prefSpeechRateHint)
+                }
+                // 恢复默认（逐项）
+                Section {
+                    Button(L10n.prefRestoreAll) {
+                        Task { await settings.restoreDefaults() }
                     }
                 }
-            } footer: {
-                Text(L10n.prefSpeechRateHint)
             }
-            // 恢复默认（逐项）
-            Section {
-                Button(L10n.prefRestoreAll) {
-                    Task { await settings.restoreDefaults() }
-                }
+            .navigationTitle(L10n.settings_habits)
+            .task {
+                await settings.load()
+                loadValues()
+                loaded = true
             }
+            .onDisappear { save() }
         }
-        .navigationTitle(L10n.settings_habits)
-        .task {
-            await settings.load()
-            loadValues()
-            loaded = true
-        }
-        .onDisappear { save() }
     }
 
     private func loadValues() {
@@ -128,49 +131,51 @@ struct DataLifecycleView: View {
     @State private var clearing = false
 
     var body: some View {
-        List {
-            Section(L10n.lifecycleSingle) {
-                Text(L10n.lifecycleSingleHint)
-                    .font(.footnote).foregroundStyle(.secondary)
-            }
-            Section(L10n.lifecycleMember) {
-                Text(L10n.lifecycleMemberHint)
-                    .font(.footnote).foregroundStyle(.secondary)
-                NavigationLink(L10n.member_title) {
-                    MemberManagementView()
+        WithPerceptionTracking {
+            List {
+                Section(L10n.lifecycleSingle) {
+                    Text(L10n.lifecycleSingleHint)
+                        .font(.footnote).foregroundStyle(.secondary)
                 }
-            }
-            Section(L10n.lifecycleClearAll) {
-                Text(L10n.lifecycleClearHint)
-                    .font(.footnote).foregroundStyle(.secondary)
-                Button(L10n.lifecycleClearButton, role: .destructive) {
-                    showClearConfirm = true
-                }
-                .accessibilityIdentifier("FR14.3.clearAll")
-            }
-            Section(L10n.lifecycleLogout) {
-                Text(L10n.lifecycleLogoutHint)
-                    .font(.footnote).foregroundStyle(.secondary)
-            }
-        }
-        .navigationTitle(L10n.settings_dataLifecycle)
-        // FR14.3 执行前影响清单确认
-        .confirmationDialog(L10n.lifecycleClearButton, isPresented: $showClearConfirm,
-                            titleVisibility: .visible) {
-            Button(L10n.lifecycleClearButton, role: .destructive) {
-                Task {
-                    clearing = true
-                    do {
-                        try await app.persistorReset()
-                        clearing = false
-                    } catch {
-                        clearing = false
+                Section(L10n.lifecycleMember) {
+                    Text(L10n.lifecycleMemberHint)
+                        .font(.footnote).foregroundStyle(.secondary)
+                    NavigationLink(L10n.member_title) {
+                        MemberManagementView()
                     }
                 }
+                Section(L10n.lifecycleClearAll) {
+                    Text(L10n.lifecycleClearHint)
+                        .font(.footnote).foregroundStyle(.secondary)
+                    Button(L10n.lifecycleClearButton, role: .destructive) {
+                        showClearConfirm = true
+                    }
+                    .accessibilityIdentifier("FR14.3.clearAll")
+                }
+                Section(L10n.lifecycleLogout) {
+                    Text(L10n.lifecycleLogoutHint)
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
             }
-            Button(L10n.commonCancel, role: .cancel) { }
-        } message: {
-            Text(L10n.lifecycleClearImpact)
+            .navigationTitle(L10n.settings_dataLifecycle)
+            // FR14.3 执行前影响清单确认
+            .confirmationDialog(L10n.lifecycleClearButton, isPresented: $showClearConfirm,
+                                titleVisibility: .visible) {
+                Button(L10n.lifecycleClearButton, role: .destructive) {
+                    Task {
+                        clearing = true
+                        do {
+                            try await app.persistorReset()
+                            clearing = false
+                        } catch {
+                            clearing = false
+                        }
+                    }
+                }
+                Button(L10n.commonCancel, role: .cancel) { }
+            } message: {
+                Text(L10n.lifecycleClearImpact)
+            }
         }
     }
 }

@@ -3,6 +3,7 @@ import UIKit
 import PDFKit
 import Domain
 import Infrastructure
+import Perception
 
 struct DocumentSourcePageReference: Equatable {
     let documentId: UUID
@@ -81,45 +82,47 @@ struct DocumentSourcePageView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 12) {
-                OCRReviewOwnerRow(patientId: patientId).padding(.horizontal)
-                if loading { ProgressView() }
-                else if failed {
-                    ContentUnavailableView {
-                        Label(L10n.sensitiveMedia_loadFailed, systemImage: "exclamationmark.triangle")
-                    } actions: { Button(L10n.retry) { startLoad() } }
-                } else if sensitive && !unlocked {
-                    Button { unlock() } label: {
-                        Label(L10n.sensitiveMedia_unlockToView, systemImage: "lock.fill")
-                            .frame(maxWidth: .infinity, minHeight: 64)
-                    }.disabled(unlocking)
-                } else if let image {
-                    GeometryReader { geometry in
-                        ScrollView([.horizontal, .vertical]) {
-                            Image(uiImage: image).resizable().scaledToFit()
-                                .frame(width: geometry.size.width * scale)
-                                .accessibilityIdentifier("OCR.source.page.\(pageIndex)")
+        WithPerceptionTracking {
+            NavigationStack {
+                VStack(spacing: 12) {
+                    OCRReviewOwnerRow(patientId: patientId).padding(.horizontal)
+                    if loading { ProgressView() }
+                    else if failed {
+                        VLUnavailableView {
+                            Label(L10n.sensitiveMedia_loadFailed, systemImage: "exclamationmark.triangle")
+                        } actions: { Button(L10n.retry) { startLoad() } }
+                    } else if sensitive && !unlocked {
+                        Button { unlock() } label: {
+                            Label(L10n.sensitiveMedia_unlockToView, systemImage: "lock.fill")
+                                .frame(maxWidth: .infinity, minHeight: 64)
+                        }.disabled(unlocking)
+                    } else if let image {
+                        GeometryReader { geometry in
+                            ScrollView([.horizontal, .vertical]) {
+                                Image(uiImage: image).resizable().scaledToFit()
+                                    .frame(width: geometry.size.width * scale)
+                                    .accessibilityIdentifier("OCR.source.page.\(pageIndex)")
+                            }
+                            .gesture(MagnificationGesture().onChanged { scale = min(5, max(1, $0)); scheduleRelock() })
+                            .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in scheduleRelock() })
                         }
-                        .gesture(MagnificationGesture().onChanged { scale = min(5, max(1, $0)); scheduleRelock() })
-                        .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in scheduleRelock() })
+                        Stepper(L10n.entityCardHeaderPage(pageIndex + 1, pageCount), value: $pageIndex, in: 0...max(0, pageCount - 1))
+                            .padding(.horizontal)
                     }
-                    Stepper(L10n.entityCardHeaderPage(pageIndex + 1, pageCount), value: $pageIndex, in: 0...max(0, pageCount - 1))
-                        .padding(.horizontal)
+                    Spacer(minLength: 0)
                 }
-                Spacer(minLength: 0)
+                .navigationTitle(L10n.docViewOriginal)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) { Button(L10n.onboard_gotIt) { dismiss() } }
+                }
             }
-            .navigationTitle(L10n.docViewOriginal)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button(L10n.onboard_gotIt) { dismiss() } }
-            }
+            .privacySensitive(scenePhase != .active)
+            .task { await prepareMetadata() }
+            .onChangeCompat(of: pageIndex) { _, _ in renderPage(); scheduleRelock() }
+            .onChangeCompat(of: scenePhase) { _, phase in if phase != .active && unlocked { relock() } }
+            .onDisappear { operation?.cancel(); relock() }
         }
-        .privacySensitive(scenePhase != .active)
-        .task { await prepareMetadata() }
-        .onChange(of: pageIndex) { _, _ in renderPage(); scheduleRelock() }
-        .onChange(of: scenePhase) { _, phase in if phase != .active && unlocked { relock() } }
-        .onDisappear { operation?.cancel(); relock() }
     }
 
     private func prepareMetadata() async {

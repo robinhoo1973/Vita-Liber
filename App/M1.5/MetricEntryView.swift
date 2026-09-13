@@ -1,6 +1,7 @@
 import SwiftUI
 import Domain
 import Infrastructure
+import Perception
 
 // MARK: - FR7.5 自测指标两步录入（SP-13 快速录入 · ui-ux §5.13）
 
@@ -30,130 +31,132 @@ struct MetricQuickEntryView: View {
                                          .temperature, .heartRate, .bloodOxygen]
 
     var body: some View {
-        NavigationStack {
-            Form {
-                if step == 1 {
-                    Section {
-                        // 类型宫格（FR7.5 预设 + 记忆上次选择——本入口默认高亮当前 metric）
-                        ForEach(metrics, id: \.rawValue) { m in
-                            Button {
-                                metric = m
-                            } label: {
-                                HStack {
-                                    Text(L10n.metricName(m))
-                                    Spacer()
-                                    if metric == m {
-                                        Image(systemName: "checkmark")
-                                            .foregroundStyle(Color("brand-primary", bundle: .main))
+        WithPerceptionTracking {
+            NavigationStack {
+                Form {
+                    if step == 1 {
+                        Section {
+                            // 类型宫格（FR7.5 预设 + 记忆上次选择——本入口默认高亮当前 metric）
+                            ForEach(metrics, id: \.rawValue) { m in
+                                Button {
+                                    metric = m
+                                } label: {
+                                    HStack {
+                                        Text(L10n.metricName(m))
+                                        Spacer()
+                                        if metric == m {
+                                            Image(systemName: "checkmark")
+                                                .foregroundStyle(Color("brand-primary", bundle: .main))
+                                        }
                                     }
                                 }
                             }
+                        } header: {
+                            Text(L10n.metricStep1)
+                        } footer: {
+                            Text(L10n.metricSelfMeasureNote)
                         }
-                    } header: {
-                        Text(L10n.metricStep1)
-                    } footer: {
-                        Text(L10n.metricSelfMeasureNote)
-                    }
-                } else {
-                    Section(L10n.metricStep2) {
-                        // 语音录入（举一反三修复：指标速记面板「指标」chip 进入后
-                        // 原本只能手输——接入听写 + 统一确认模板，与观察/提醒同路径）
-                        VoiceDictationButton { text, confidence in
-                            let drafts = VoiceStructuringEngine.extractMetric(
-                                text, rules: VoiceGrammarDefaults.metricRules)
-                            // 与指标总览同款兜底：抽取零命中回落原文草稿（确认卡
-                            // 可编辑）——绝不让用户看到零字段空确认卡
-                            confirmSet = VoiceInputTemplate.confirmationSet(
-                                drafts: drafts.isEmpty
-                                    ? [VoiceInputTemplate.fallbackDraft(value: text, confidence: confidence)]
-                                    : drafts)
-                        }
-                        if metric == .bloodPressureSys {
-                            // 血压双值联排：收缩压输完自动跳格舒张压（FR7.5 §5.13）
-                            HStack {
-                                TextField(L10n.metricSys, text: $primaryText)
-                                    .keyboardType(.decimalPad)
-                                    .onChange(of: primaryText) { _, v in
-                                        // 输完自动跳格：三位数恒跳；两位数在构成真实
-                                        // 收缩压值（≥60 mmHg，90-99 常见于低血压/老年
-                                        // 用户）时也跳——此前 count>=3 规则对两位数
-                                        // 永不跳格，须手动点舒张压框。
-                                        // 阈值走 Domain BloodPressureEntryRules（BR 规则
-                                        // 单一事实源，视图零内联业务边界）
-                                        if v.count >= 3
-                                            || (v.count >= 2 && (NumberNormalizer.parseDecimal(v) ?? 0) >= BloodPressureEntryRules.minPlausibleSys) {
-                                            focusField = true
-                                        }
-                                    }
-                                Text("/")
-                                TextField(L10n.metricDia, text: $secondaryText)
-                                    .keyboardType(.decimalPad)
-                                    .focused($focusField)
-                            }
-                        } else {
-                            TextField(L10n.metricValue, text: $primaryText)
-                                .keyboardType(.decimalPad)
-                        }
-                        TextField(L10n.metricUnit, text: $unitText)
-                        DatePicker(L10n.metricMeasuredAt, selection: $measuredAt, in: ...Date())
-                    }
-                }
-            }
-            .navigationTitle(L10n.metricEntryTitle)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(L10n.commonCancel) { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    if step == 1 {
-                        Button(L10n.allergyNext) { step = 2 }
                     } else {
-                        Button(L10n.reminder_save) { save() }
-                            .disabled(primaryText.isEmpty)
-                            .accessibilityIdentifier("SP-13.metric.save")
+                        Section(L10n.metricStep2) {
+                            // 语音录入（举一反三修复：指标速记面板「指标」chip 进入后
+                            // 原本只能手输——接入听写 + 统一确认模板，与观察/提醒同路径）
+                            VoiceDictationButton { text, confidence in
+                                let drafts = VoiceStructuringEngine.extractMetric(
+                                    text, rules: VoiceGrammarDefaults.metricRules)
+                                // 与指标总览同款兜底：抽取零命中回落原文草稿（确认卡
+                                // 可编辑）——绝不让用户看到零字段空确认卡
+                                confirmSet = VoiceInputTemplate.confirmationSet(
+                                    drafts: drafts.isEmpty
+                                        ? [VoiceInputTemplate.fallbackDraft(value: text, confidence: confidence)]
+                                        : drafts)
+                            }
+                            if metric == .bloodPressureSys {
+                                // 血压双值联排：收缩压输完自动跳格舒张压（FR7.5 §5.13）
+                                HStack {
+                                    TextField(L10n.metricSys, text: $primaryText)
+                                        .keyboardType(.decimalPad)
+                                        .onChangeCompat(of: primaryText) { _, v in
+                                            // 输完自动跳格：三位数恒跳；两位数在构成真实
+                                            // 收缩压值（≥60 mmHg，90-99 常见于低血压/老年
+                                            // 用户）时也跳——此前 count>=3 规则对两位数
+                                            // 永不跳格，须手动点舒张压框。
+                                            // 阈值走 Domain BloodPressureEntryRules（BR 规则
+                                            // 单一事实源，视图零内联业务边界）
+                                            if v.count >= 3
+                                                || (v.count >= 2 && (NumberNormalizer.parseDecimal(v) ?? 0) >= BloodPressureEntryRules.minPlausibleSys) {
+                                                focusField = true
+                                            }
+                                        }
+                                    Text("/")
+                                    TextField(L10n.metricDia, text: $secondaryText)
+                                        .keyboardType(.decimalPad)
+                                        .focused($focusField)
+                                }
+                            } else {
+                                TextField(L10n.metricValue, text: $primaryText)
+                                    .keyboardType(.decimalPad)
+                            }
+                            TextField(L10n.metricUnit, text: $unitText)
+                            DatePicker(L10n.metricMeasuredAt, selection: $measuredAt, in: ...Date())
+                        }
                     }
                 }
-            }
-            .alert(L10n.metricSaved, isPresented: $saved) {
-                Button(L10n.metricViewTrend) {
-                    router.navigate(to: .trendChart(patientId: app.currentPatientId,
-                                                    metric: metric.rawValue))
-                    dismiss()
+                .navigationTitle(L10n.metricEntryTitle)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button(L10n.commonCancel) { dismiss() }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        if step == 1 {
+                            Button(L10n.allergyNext) { step = 2 }
+                        } else {
+                            Button(L10n.reminder_save) { save() }
+                                .disabled(primaryText.isEmpty)
+                                .accessibilityIdentifier("SP-13.metric.save")
+                        }
+                    }
                 }
-                Button(L10n.onboard_gotIt, role: .cancel) { dismiss() }
-            }
-            // 解析失败/写失败可见反馈（FR7.5：绝不静默丢弃读数）
-            // 统一失败弹窗（设计系统 SaveFailedAlert——此前为视图内复制的
-            // alert 三元组，全仓第七个表单入口已收敛至该修饰器）
-            .saveFailedAlert(title: L10n.metricEntryErrorTitle,
-                             hint: entryError ?? "",
-                             isPresented: Binding(get: { entryError != nil },
-                                                  set: { if !$0 { entryError = nil } }))
-            .onAppear {
-                // §5.13 记忆上次选择（V3.72）：此前恒为血糖，六类指标每次都要重选。
-                // 键构造收敛 Domain SettingsRules（与单位记忆键同族单一事实源）
-                if let last = UserDefaults.standard.string(forKey: SettingsRules.lastSelectedMetricKey),
-                   let m = MetricType(rawValue: last) {
-                    metric = m
+                .alert(L10n.metricSaved, isPresented: $saved) {
+                    Button(L10n.metricViewTrend) {
+                        router.navigate(to: .trendChart(patientId: app.currentPatientId,
+                                                        metric: metric.rawValue))
+                        dismiss()
+                    }
+                    Button(L10n.onboard_gotIt, role: .cancel) { dismiss() }
                 }
-                // 单位记忆（FR7.8：每种指标记忆上次单位）
-                unitText = state.rememberedUnit(for: metric)
-                // FR17.9 面板确认草稿预填（类型化 pendingVoiceIntent 一次性投递）
-                if let draft = router.pendingVoiceIntent {
-                    router.pendingVoiceIntent = nil
-                    applyDraft(draft.keyedValues)
+                // 解析失败/写失败可见反馈（FR7.5：绝不静默丢弃读数）
+                // 统一失败弹窗（设计系统 SaveFailedAlert——此前为视图内复制的
+                // alert 三元组，全仓第七个表单入口已收敛至该修饰器）
+                .saveFailedAlert(title: L10n.metricEntryErrorTitle,
+                                 hint: entryError ?? "",
+                                 isPresented: Binding(get: { entryError != nil },
+                                                      set: { if !$0 { entryError = nil } }))
+                .onAppear {
+                    // §5.13 记忆上次选择（V3.72）：此前恒为血糖，六类指标每次都要重选。
+                    // 键构造收敛 Domain SettingsRules（与单位记忆键同族单一事实源）
+                    if let last = UserDefaults.standard.string(forKey: SettingsRules.lastSelectedMetricKey),
+                       let m = MetricType(rawValue: last) {
+                        metric = m
+                    }
+                    // 单位记忆（FR7.8：每种指标记忆上次单位）
+                    unitText = state.rememberedUnit(for: metric)
+                    // FR17.9 面板确认草稿预填（类型化 pendingVoiceIntent 一次性投递）
+                    if let draft = router.pendingVoiceIntent {
+                        router.pendingVoiceIntent = nil
+                        applyDraft(draft.keyedValues)
+                    }
+                    routeMonitor.start()
                 }
-                routeMonitor.start()
-            }
-            .onChange(of: metric) { _, newMetric in
-                unitText = state.rememberedUnit(for: newMetric)
-                UserDefaults.standard.set(newMetric.rawValue, forKey: SettingsRules.lastSelectedMetricKey)
-            }
-            .onDisappear { routeMonitor.stop() }
-            // FR17.13-entry：指标语音草稿 —— 统一确认模板，不自建确认逻辑
-            .voiceConfirmSheet($confirmSet, route: routeMonitor.route) { confirmed in
-                applyConfirmed(confirmed)
-                confirmSet = nil
+                .onChangeCompat(of: metric) { _, newMetric in
+                    unitText = state.rememberedUnit(for: newMetric)
+                    UserDefaults.standard.set(newMetric.rawValue, forKey: SettingsRules.lastSelectedMetricKey)
+                }
+                .onDisappear { routeMonitor.stop() }
+                // FR17.13-entry：指标语音草稿 —— 统一确认模板，不自建确认逻辑
+                .voiceConfirmSheet($confirmSet, route: routeMonitor.route) { confirmed in
+                    applyConfirmed(confirmed)
+                    confirmSet = nil
+                }
             }
         }
     }

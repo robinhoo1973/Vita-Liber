@@ -1,6 +1,7 @@
 import SwiftUI
 import Domain
 import Infrastructure
+import Perception
 
 struct EntityCardConfirmView: View {
     enum Mode {
@@ -56,119 +57,124 @@ struct EntityCardConfirmView: View {
     }
 
     var body: some View {
-        // 审查修复（每帧纪律）：confirmation 投影每帧只求值一次——旧实现
-        // invalid(_:) 内部各自重建全卡投影，validation/missingShared/canSave
-        // 三处合计 ~3N 次全卡拷贝（每次击键触发），N 行卡明显可感知。
-        let reviewed = card.confirmingAllFields()
-        let validation = Dictionary(uniqueKeysWithValues: card.rows.map { ($0.id, invalid($0, reviewed: reviewed)) })
-        List {
-            Section {
-                OCRReviewOwnerRow(patientId: patientId)
-                HStack {
-                    Text(L10n.entityCardHeaderPage(card.pageIndex + 1, max(pageCount, card.pageIndex + 1)))
-                    if let position { Text(L10n.entityCardHeaderIndex(position.0, position.1)) }
-                    Spacer()
-                    GradeBadge(grade: "D")
-                }.font(.caption)
-                Button { showSource = true } label: {
-                    Label(L10n.pendingCardViewSource, systemImage: "doc.text.magnifyingglass").frame(minHeight: 44)
-                }.buttonStyle(.borderless)
-            } footer: { Text(L10n.docConfirmHint) }
+        WithPerceptionTracking {
+            // 审查修复（每帧纪律）：confirmation 投影每帧只求值一次——旧实现
+            // invalid(_:) 内部各自重建全卡投影，validation/missingShared/canSave
+            // 三处合计 ~3N 次全卡拷贝（每次击键触发），N 行卡明显可感知。
+            let reviewed = card.confirmingAllFields()
+            let validation = Dictionary(uniqueKeysWithValues: card.rows.map { ($0.id, invalid($0, reviewed: reviewed)) })
+            List {
+                Section {
+                    OCRReviewOwnerRow(patientId: patientId)
+                    HStack {
+                        Text(L10n.entityCardHeaderPage(card.pageIndex + 1, max(pageCount, card.pageIndex + 1)))
+                        if let position { Text(L10n.entityCardHeaderIndex(position.0, position.1)) }
+                        Spacer()
+                        GradeBadge(grade: "D")
+                    }.font(.caption)
+                    Button { showSource = true } label: {
+                        Label(L10n.pendingCardViewSource, systemImage: "doc.text.magnifyingglass").frame(minHeight: 44)
+                    }.buttonStyle(.borderless)
+                } footer: { Text(L10n.docConfirmHint) }
 
-            EncounterAssociationSection(card: $card, patientId: patientId, readOnly: saving || sharedCommitted)
+                EncounterAssociationSection(card: $card, patientId: patientId, readOnly: saving || sharedCommitted)
 
-            Section(L10n.entityCardSharedSection) {
-                if sharedCommitted { Text(L10n.homeCaptureSaved).font(.caption).foregroundStyle(.secondary) }
-                ForEach(card.shared.indices, id: \.self) { index in
-                    FieldConfirmRow(field: fieldBinding(index: index, rowID: nil),
-                        label: DocumentsState.fieldLabel(forKey: card.shared[index].key),
-                         showUnit: false, readOnly: sharedCommitted,
-                         cardLevelConfirmation: true,
-                        onRevise: { revise(index: index, rowID: nil, value: $0) })
-                    if card.shared[index].isConfirmed, validation.values.contains(where: { $0.contains(card.shared[index].key) }) {
-                        Text(L10n.ocrReviewInvalidField).font(.caption).foregroundStyle(.red)
-                    }
-                }
-                ForEach(missingShared(reviewed: reviewed), id: \.self) { key in missingButton(key: key, rowID: nil) }
-            }
-
-            ForEach(Array(card.rows.enumerated()), id: \.element.id) { offset, row in
-                if !row.fields.isEmpty || !rowKeys.isEmpty {
-                    Section {
-                        ForEach(row.fields.indices.filter { row.fields[$0].key != "metric_key" }, id: \.self) { index in
-                            FieldConfirmRow(field: fieldBinding(index: index, rowID: row.id),
-                                 label: DocumentsState.fieldLabel(forKey: row.fields[index].key), showUnit: false,
+                Section(L10n.entityCardSharedSection) {
+                    if sharedCommitted { Text(L10n.homeCaptureSaved).font(.caption).foregroundStyle(.secondary) }
+                    ForEach(card.shared.indices, id: \.self) { index in
+                        // ForEach 行闭包逃逸：行内同步读感知对象属性，须自行包裹（子项目 I）
+                        WithPerceptionTracking {
+                            FieldConfirmRow(field: fieldBinding(index: index, rowID: nil),
+                                label: DocumentsState.fieldLabel(forKey: card.shared[index].key),
+                                 showUnit: false, readOnly: sharedCommitted,
                                  cardLevelConfirmation: true,
-                                onRevise: { revise(index: index, rowID: row.id, value: $0) })
-                            if row.fields[index].isConfirmed && validation[row.id]?.contains(row.fields[index].key) == true {
+                                onRevise: { revise(index: index, rowID: nil, value: $0) })
+                            if card.shared[index].isConfirmed, validation.values.contains(where: { $0.contains(card.shared[index].key) }) {
                                 Text(L10n.ocrReviewInvalidField).font(.caption).foregroundStyle(.red)
                             }
                         }
-                        ForEach((validation[row.id] ?? []).filter { key in rowKeys.contains(key) && !row.fields.contains(where: { $0.key == key }) }, id: \.self) { key in
-                            missingButton(key: key, rowID: row.id)
-                        }
-                    } header: { Text(L10n.entityCardRowIndex(offset + 1)) }
+                    }
+                    ForEach(missingShared(reviewed: reviewed), id: \.self) { key in missingButton(key: key, rowID: nil) }
                 }
-            }
-            if !missingShared(reviewed: reviewed).isEmpty || validation.values.contains(where: { !$0.isEmpty }) {
-                Section { Text(L10n.docConfirmHint).font(.caption).foregroundStyle(.secondary) }
-            }
-            Section {
-                Button { showLater = true } label: {
-                    Label(L10n.entityCardLater, systemImage: "clock.badge.checkmark").frame(minHeight: 44)
-                }
-                Button(role: .destructive) { showDiscard = true } label: {
-                    Label(L10n.entityCardDiscard, systemImage: "xmark.circle").frame(minHeight: 44)
-                }
-                if case .queue = mode, docs.entityQueue.count > 1 {
-                    Button {
-                        Task { _ = await docs.deferRemainingEntityCards() }
-                    } label: {
-                        Label(L10n.entityCardDeferRemaining, systemImage: "tray.full").frame(minHeight: 44)
+
+                ForEach(Array(card.rows.enumerated()), id: \.element.id) { offset, row in
+                    if !row.fields.isEmpty || !rowKeys.isEmpty {
+                        Section {
+                            ForEach(row.fields.indices.filter { row.fields[$0].key != "metric_key" }, id: \.self) { index in
+                                FieldConfirmRow(field: fieldBinding(index: index, rowID: row.id),
+                                     label: DocumentsState.fieldLabel(forKey: row.fields[index].key), showUnit: false,
+                                     cardLevelConfirmation: true,
+                                    onRevise: { revise(index: index, rowID: row.id, value: $0) })
+                                if row.fields[index].isConfirmed && validation[row.id]?.contains(row.fields[index].key) == true {
+                                    Text(L10n.ocrReviewInvalidField).font(.caption).foregroundStyle(.red)
+                                }
+                            }
+                            ForEach((validation[row.id] ?? []).filter { key in rowKeys.contains(key) && !row.fields.contains(where: { $0.key == key }) }, id: \.self) { key in
+                                missingButton(key: key, rowID: row.id)
+                            }
+                        } header: { Text(L10n.entityCardRowIndex(offset + 1)) }
                     }
                 }
-            } footer: {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(L10n.entityCardConfirmAllHint)
-                    Text(L10n.entityCardLaterHint)
+                if !missingShared(reviewed: reviewed).isEmpty || validation.values.contains(where: { !$0.isEmpty }) {
+                    Section { Text(L10n.docConfirmHint).font(.caption).foregroundStyle(.secondary) }
                 }
+                Section {
+                    Button { showLater = true } label: {
+                        Label(L10n.entityCardLater, systemImage: "clock.badge.checkmark").frame(minHeight: 44)
+                    }
+                    Button(role: .destructive) { showDiscard = true } label: {
+                        Label(L10n.entityCardDiscard, systemImage: "xmark.circle").frame(minHeight: 44)
+                    }
+                    if case .queue = mode, docs.entityQueue.count > 1 {
+                        Button {
+                            Task { _ = await docs.deferRemainingEntityCards() }
+                        } label: {
+                            Label(L10n.entityCardDeferRemaining, systemImage: "tray.full").frame(minHeight: 44)
+                        }
+                    }
+                } footer: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(L10n.entityCardConfirmAllHint)
+                        Text(L10n.entityCardLaterHint)
+                    }
+                }
+                .buttonStyle(.borderless)
             }
-            .buttonStyle(.borderless)
-        }
-        .disabled(saving)
-        .scrollDismissesKeyboard(.interactively)
-        .navigationTitle(L10n.entityCardKindName(card.kind))
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .confirmationAction) {
-                Button(L10n.entityCardConfirmSave) { save(reviewed: reviewed) }.disabled(!canSave(reviewed: reviewed))
-                    .accessibilityIdentifier("SP-12.entity.confirm")
+            .disabled(saving)
+            .scrollDismissesKeyboard(.interactively)
+            .navigationTitle(L10n.entityCardKindName(card.kind))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(L10n.entityCardConfirmSave) { save(reviewed: reviewed) }.disabled(!canSave(reviewed: reviewed))
+                        .accessibilityIdentifier("SP-12.entity.confirm")
+                }
+                ToolbarItemGroup(placement: .keyboard) { OCRKeyboardDismissButton() }
             }
-            ToolbarItemGroup(placement: .keyboard) { OCRKeyboardDismissButton() }
-        }
-        .interactiveDismissDisabled()
-        .sheet(isPresented: $showSource) {
-            DocumentSourcePageView(documentId: documentId, patientId: patientId, pageIndex: card.pageIndex)
-        }
-        .confirmationDialog(L10n.entityCardLater, isPresented: $showLater, titleVisibility: .visible) {
-            Button(L10n.docConfirmSkipConfirm) { deferCard() }
-            Button(L10n.commonCancel, role: .cancel) {}
-        }
-        .confirmationDialog(L10n.entityCardDiscard, isPresented: $showDiscard, titleVisibility: .visible) {
-            Button(L10n.entityCardDiscard, role: .destructive) { discard() }
-            Button(L10n.commonCancel, role: .cancel) {}
-        }
-        .alert(resumeError != nil ? L10n.docConfirmSaveFailedTitle : L10n.homeCaptureSaved,
-               isPresented: Binding(get: { resumeError != nil || partialCount != nil }, set: { showing in
-                   if !showing {
-                       partialCount = nil
-                       if case .resume(let review) = mode { review.errorMessage = nil; review.notificationError = nil }
-                   }
-               })) {
-            Button(L10n.onboard_gotIt, role: .cancel) {}
-        } message: { Text(resumeError ?? L10n.ocrReviewPartialSaved(partialCount ?? 0)) }
-        .task(id: completionKey) {
-            if case .resume(let review) = mode, review.completed, !saving, resumeError == nil { dismiss() }
+            .interactiveDismissDisabled()
+            .sheet(isPresented: $showSource) {
+                DocumentSourcePageView(documentId: documentId, patientId: patientId, pageIndex: card.pageIndex)
+            }
+            .confirmationDialog(L10n.entityCardLater, isPresented: $showLater, titleVisibility: .visible) {
+                Button(L10n.docConfirmSkipConfirm) { deferCard() }
+                Button(L10n.commonCancel, role: .cancel) {}
+            }
+            .confirmationDialog(L10n.entityCardDiscard, isPresented: $showDiscard, titleVisibility: .visible) {
+                Button(L10n.entityCardDiscard, role: .destructive) { discard() }
+                Button(L10n.commonCancel, role: .cancel) {}
+            }
+            .alert(resumeError != nil ? L10n.docConfirmSaveFailedTitle : L10n.homeCaptureSaved,
+                   isPresented: Binding(get: { resumeError != nil || partialCount != nil }, set: { showing in
+                       if !showing {
+                           partialCount = nil
+                           if case .resume(let review) = mode { review.errorMessage = nil; review.notificationError = nil }
+                       }
+                   })) {
+                Button(L10n.onboard_gotIt, role: .cancel) {}
+            } message: { Text(resumeError ?? L10n.ocrReviewPartialSaved(partialCount ?? 0)) }
+            .task(id: completionKey) {
+                if case .resume(let review) = mode, review.completed, !saving, resumeError == nil { dismiss() }
+            }
         }
     }
 
@@ -273,58 +279,60 @@ struct PendingCardResumeRouteView: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        Group {
-            if let retainedImportID, docs.activeImport?.id == retainedImportID {
-                ProgressView()
-            } else if pending != nil, let review = docs.pendingReviews[cardId], let documentId = review.pending.sourceDocId, !loadFailed {
-                EntityCardConfirmView(card: Binding(get: { review.card }, set: { review.card = $0 }),
-                    mode: .resume(review), patientId: review.pending.patientId, documentId: documentId,
-                    pageCount: review.pageCount, position: nil)
-            } else if let pending, loaded {
-                List {
-                    Section {
-                        OCRReviewOwnerRow(patientId: pending.patientId)
-                        GradeBadge(grade: "D")
-                        Text(L10n.ocrReviewLegacySourceMissing)
-                        Button(L10n.homeCaptureFile) { reimport = true }.frame(minHeight: 44)
-                    }
-                    Section(L10n.entityCardSharedSection) {
-                        ForEach(pending.partialData.shared.filter { $0.key != "metric_key" }.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
-                            LabeledContent(DocumentsState.fieldLabel(forKey: key),
-                                           value: DocumentsState.fieldValueDisplay(forKey: key, value: value))
+        WithPerceptionTracking {
+            Group {
+                if let retainedImportID, docs.activeImport?.id == retainedImportID {
+                    ProgressView()
+                } else if pending != nil, let review = docs.pendingReviews[cardId], let documentId = review.pending.sourceDocId, !loadFailed {
+                    EntityCardConfirmView(card: Binding(get: { review.card }, set: { review.card = $0 }),
+                        mode: .resume(review), patientId: review.pending.patientId, documentId: documentId,
+                        pageCount: review.pageCount, position: nil)
+                } else if let pending, loaded {
+                    List {
+                        Section {
+                            OCRReviewOwnerRow(patientId: pending.patientId)
+                            GradeBadge(grade: "D")
+                            Text(L10n.ocrReviewLegacySourceMissing)
+                            Button(L10n.homeCaptureFile) { reimport = true }.frame(minHeight: 44)
                         }
-                        ForEach(Array(pending.partialData.rows.enumerated()), id: \.offset) { index, row in
-                            VStack(alignment: .leading) {
-                                Text(L10n.entityCardRowIndex(index + 1)).font(.caption)
-                                ForEach(row.filter { $0.key != "metric_key" }.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
-                                    LabeledContent(DocumentsState.fieldLabel(forKey: key),
-                                                   value: DocumentsState.fieldValueDisplay(forKey: key, value: value))
+                        Section(L10n.entityCardSharedSection) {
+                            ForEach(pending.partialData.shared.filter { $0.key != "metric_key" }.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
+                                LabeledContent(DocumentsState.fieldLabel(forKey: key),
+                                               value: DocumentsState.fieldValueDisplay(forKey: key, value: value))
+                            }
+                            ForEach(Array(pending.partialData.rows.enumerated()), id: \.offset) { index, row in
+                                VStack(alignment: .leading) {
+                                    Text(L10n.entityCardRowIndex(index + 1)).font(.caption)
+                                    ForEach(row.filter { $0.key != "metric_key" }.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
+                                        LabeledContent(DocumentsState.fieldLabel(forKey: key),
+                                                       value: DocumentsState.fieldValueDisplay(forKey: key, value: value))
+                                    }
                                 }
                             }
                         }
+                        Section(L10n.pendingCardRawText) { Text(pending.rawText).textSelection(.enabled) }
                     }
-                    Section(L10n.pendingCardRawText) { Text(pending.rawText).textSelection(.enabled) }
+                } else if loadFailed {
+                    VLUnavailableView {
+                        Label(L10n.docImportFailed, systemImage: "exclamationmark.triangle")
+                    } actions: { Button(L10n.retry) { Task { await load() } } }
+                } else if loaded {
+                    VLUnavailableView(L10n.pendingCardNotFound, systemImage: "tray")
+                } else { ProgressView() }
+            }
+            .task(id: cardId) { await load() }
+            .ocrImportReviewHost(enabled: retainedImportID != nil && docs.activeImport?.id == retainedImportID,
+                                 advanceQueuedImports: false) { _ in dismiss() }
+            .onDisappear {
+                if docs.pendingReviews[cardId]?.completed == true { docs.pendingReviews.removeValue(forKey: cardId) }
+            }
+            .sheet(isPresented: $reimport) {
+                if let pending { NavigationStack { QuickCaptureView(kind: nil, patientId: pending.patientId) } }
+            }
+            .toolbar {
+                if loaded && docs.pendingReviews[cardId] == nil && retainedImportID == nil {
+                    ToolbarItem(placement: .cancellationAction) { Button(L10n.commonCancel) { dismiss() } }
                 }
-            } else if loadFailed {
-                ContentUnavailableView {
-                    Label(L10n.docImportFailed, systemImage: "exclamationmark.triangle")
-                } actions: { Button(L10n.retry) { Task { await load() } } }
-            } else if loaded {
-                ContentUnavailableView(L10n.pendingCardNotFound, systemImage: "tray")
-            } else { ProgressView() }
-        }
-        .task(id: cardId) { await load() }
-        .ocrImportReviewHost(enabled: retainedImportID != nil && docs.activeImport?.id == retainedImportID,
-                             advanceQueuedImports: false) { _ in dismiss() }
-        .onDisappear {
-            if docs.pendingReviews[cardId]?.completed == true { docs.pendingReviews.removeValue(forKey: cardId) }
-        }
-        .sheet(isPresented: $reimport) {
-            if let pending { NavigationStack { QuickCaptureView(kind: nil, patientId: pending.patientId) } }
-        }
-        .toolbar {
-            if loaded && docs.pendingReviews[cardId] == nil && retainedImportID == nil {
-                ToolbarItem(placement: .cancellationAction) { Button(L10n.commonCancel) { dismiss() } }
             }
         }
     }

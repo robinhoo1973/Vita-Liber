@@ -4,6 +4,7 @@ import HealthKit
 import Domain
 import Infrastructure
 import Protocols
+import Perception
 
 /// tech-spec §3 组装根：唯一共享 DatabasePool(WAL) + StoresBundle。
 /// 评审修正（架构 A2）：M1a 起组装根被真实消费——VitaLiberApp 在此装配

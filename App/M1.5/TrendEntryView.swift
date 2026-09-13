@@ -2,6 +2,7 @@ import SwiftUI
 import Domain
 import Infrastructure
 import Protocols
+import Perception
 
 /// F7 趋势状态（records 模块）：按指标加载指定序列 + 指标总览宫格最新点。
 ///
@@ -11,7 +12,7 @@ import Protocols
 /// 趋势页真实挂载点是 TrendChartRouteView（.trendChart 路由），FR7.4 排除/
 /// 恢复与 FR20.3 L2 须知已接线到该视图。
 @MainActor
-@Observable
+@Perceptible
 final class TrendEntryState {
     /// §5.45 指标总览宫格最新点（V3.72）
     private(set) var latestMetrics: [TrendQueryStore.LatestMetric] = []
@@ -122,79 +123,81 @@ struct TrendChartRouteView: View {
     }
 
     var body: some View {
-        Group {
-            if state.detailLoading {
-                ProgressView()
-            } else if identityMatches, let series = state.detailSeries,
-                      !series.points.isEmpty || !series.excludedPoints.isEmpty {
-                // FR7.4 排除/恢复软删（此前唯一接线点在已删除的死视图
-                // TrendEntryView 上，App 内不可达）
-                TrendDetailView(
-                    series: series,
-                    window: window,
-                    onToggleExcluded: { point in
-                        Task { await state.toggleExcluded(point, patientId: patientId, metricKey: metricKey) }
-                    })
-            } else {
-                // SP-13 未连接空态（ui-ux §5.45 V3.53）：成员从未连接/同步
-                // 过 Apple 健康（无任何 origin='device' 读数）——分流为
-                // 「未连接」+ [去连接] 深链（SP-29），不渲染设备来源占位；
-                // 有设备数据但该指标空 → 下方通用空态
-                ContentUnavailableView {
-                    Label(L10n.trendTitle, systemImage: "chart.xyaxis.line")
-                } description: {
-                    Text(state.detailFailed ? L10n.f16SyncFailed : L10n.healthNoReadableData)
-                } actions: {
-                    // 审查修复（V3.53 空态分流）：仅在成员名下无任何设备读数时
-                    // 给 [去连接] 引导；已有设备数据但该指标空 = 通用无数据，
-                    // 不给假连接引导
-                    if !state.hasDeviceSamples {
-                        Button(L10n.trendGoConnect) {
-                            router.navigate(to: .deviceConnection)
+        WithPerceptionTracking {
+            Group {
+                if state.detailLoading {
+                    ProgressView()
+                } else if identityMatches, let series = state.detailSeries,
+                          !series.points.isEmpty || !series.excludedPoints.isEmpty {
+                    // FR7.4 排除/恢复软删（此前唯一接线点在已删除的死视图
+                    // TrendEntryView 上，App 内不可达）
+                    TrendDetailView(
+                        series: series,
+                        window: window,
+                        onToggleExcluded: { point in
+                            Task { await state.toggleExcluded(point, patientId: patientId, metricKey: metricKey) }
+                        })
+                } else {
+                    // SP-13 未连接空态（ui-ux §5.45 V3.53）：成员从未连接/同步
+                    // 过 Apple 健康（无任何 origin='device' 读数）——分流为
+                    // 「未连接」+ [去连接] 深链（SP-29），不渲染设备来源占位；
+                    // 有设备数据但该指标空 → 下方通用空态
+                    VLUnavailableView {
+                        Label(L10n.trendTitle, systemImage: "chart.xyaxis.line")
+                    } description: {
+                        Text(state.detailFailed ? L10n.f16SyncFailed : L10n.healthNoReadableData)
+                    } actions: {
+                        // 审查修复（V3.53 空态分流）：仅在成员名下无任何设备读数时
+                        // 给 [去连接] 引导；已有设备数据但该指标空 = 通用无数据，
+                        // 不给假连接引导
+                        if !state.hasDeviceSamples {
+                            Button(L10n.trendGoConnect) {
+                                router.navigate(to: .deviceConnection)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .accessibilityIdentifier("SP-13.trend.connectHealth")
                         }
-                        .buttonStyle(.borderedProminent)
-                        .accessibilityIdentifier("SP-13.trend.connectHealth")
                     }
+                    .accessibilityIdentifier("SP-13.trend.detail.empty")
                 }
-                .accessibilityIdentifier("SP-13.trend.detail.empty")
             }
-        }
-        // SP-13 时间窗 / 来源过滤控件：固定于顶部安全区（图表与列表在其下滚动）
-        .safeAreaInset(edge: .top) {
-            VStack(spacing: 8) {
-                Picker(L10n.trendWindowLabel, selection: $window) {
-                    ForEach(TrendTimeWindow.allCases) { item in
-                        Text(L10n.trendWindow(item)).tag(item)
+            // SP-13 时间窗 / 来源过滤控件：固定于顶部安全区（图表与列表在其下滚动）
+            .safeAreaInset(edge: .top) {
+                VStack(spacing: 8) {
+                    Picker(L10n.trendWindowLabel, selection: $window) {
+                        ForEach(TrendTimeWindow.allCases) { item in
+                            Text(L10n.trendWindow(item)).tag(item)
+                        }
                     }
-                }
-                .pickerStyle(.segmented)
-                .accessibilityIdentifier("SP-13.trend.window")
-                Picker(L10n.trendFilterOrigin, selection: $origin) {
-                    Text(L10n.trendOriginAll).tag(MetricOrigin?.none)
-                    Text(L10n.trendOriginHospital).tag(MetricOrigin?.some(.hospital))
-                    Text(L10n.trendSelfMeasured).tag(MetricOrigin?.some(.manual))
-                    // BR-001：设备来源只可能归属本人绑定——非本人成员不提供设备过滤项
-                    // （查询层对非本人显式设备过滤抛 deviceRequiresSelfBinding，此处不给入口）
-                    if app.owner?.selfPatientId == patientId {
-                        Text(L10n.trendOriginDevice).tag(MetricOrigin?.some(.device))
+                    .pickerStyle(.segmented)
+                    .accessibilityIdentifier("SP-13.trend.window")
+                    Picker(L10n.trendFilterOrigin, selection: $origin) {
+                        Text(L10n.trendOriginAll).tag(MetricOrigin?.none)
+                        Text(L10n.trendOriginHospital).tag(MetricOrigin?.some(.hospital))
+                        Text(L10n.trendSelfMeasured).tag(MetricOrigin?.some(.manual))
+                        // BR-001：设备来源只可能归属本人绑定——非本人成员不提供设备过滤项
+                        // （查询层对非本人显式设备过滤抛 deviceRequiresSelfBinding，此处不给入口）
+                        if app.owner?.selfPatientId == patientId {
+                            Text(L10n.trendOriginDevice).tag(MetricOrigin?.some(.device))
+                        }
                     }
+                    .pickerStyle(.menu)
+                    .accessibilityIdentifier("SP-13.trend.originFilter")
                 }
-                .pickerStyle(.menu)
-                .accessibilityIdentifier("SP-13.trend.originFilter")
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(.bar)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("SP-13.trend.controls")
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .background(.bar)
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("SP-13.trend.controls")
+            // 身份四元任一变化（成员/指标/时间窗/来源）或指标投影版本变化即重载
+            .task(id: "\(patientId.uuidString)-\(metricKey)-\(window.rawValue)-\(origin?.rawValue ?? "all")-\(dataChange.metricsVersion)") {
+                await state.loadDetail(patientId: patientId, metricKey: metricKey, window: window, origin: origin)
+            }
+            // FR20.3 L2 场景首用须知（趋势图表页，一次性确认——此前挂在
+            // 零实例化死视图上，须知从未展示）
+            .sceneDisclosure(scene: "trends")
         }
-        // 身份四元任一变化（成员/指标/时间窗/来源）或指标投影版本变化即重载
-        .task(id: "\(patientId.uuidString)-\(metricKey)-\(window.rawValue)-\(origin?.rawValue ?? "all")-\(dataChange.metricsVersion)") {
-            await state.loadDetail(patientId: patientId, metricKey: metricKey, window: window, origin: origin)
-        }
-        // FR20.3 L2 场景首用须知（趋势图表页，一次性确认——此前挂在
-        // 零实例化死视图上，须知从未展示）
-        .sceneDisclosure(scene: "trends")
     }
 }
 

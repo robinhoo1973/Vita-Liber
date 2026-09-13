@@ -1,5 +1,6 @@
 import SwiftUI
 import Domain
+import Perception
 
 /// FR22.5 反馈与错误报告（SP-46）：分类为功能问题/OCR错误/引用错误/
 /// 疑似危险回答/无障碍问题/其他；默认只附版本、系统、错误码和脱敏日志，
@@ -18,42 +19,44 @@ struct FeedbackView: View {
     private var categories: [String] { (0..<6).map { L10n.feedbackCategoryName($0) } }
 
     var body: some View {
-        Form {
-            Section(L10n.feedbackCategory) {
-                Picker(L10n.feedbackCategory, selection: $category) {
-                    ForEach(categories.indices, id: \.self) { i in
-                        Text(L10n.feedbackCategoryName(i)).tag(i)
+        WithPerceptionTracking {
+            Form {
+                Section(L10n.feedbackCategory) {
+                    Picker(L10n.feedbackCategory, selection: $category) {
+                        ForEach(categories.indices, id: \.self) { i in
+                            Text(L10n.feedbackCategoryName(i)).tag(i)
+                        }
                     }
                 }
-            }
-            Section(L10n.feedbackDetail) {
-                TextField(L10n.feedbackDetailPlaceholder, text: $detail, axis: .vertical)
-                    .lineLimit(4...10)
-            }
-            // 默认只附版本/系统/错误码/脱敏日志；截图/原文/媒体逐项勾选（默认关）
-            Section {
-                Toggle(L10n.feedbackAttachScreenshot, isOn: $attachScreenshot)
-                Toggle(L10n.feedbackAttachOriginal, isOn: $attachOriginalText)
-                Toggle(L10n.feedbackAttachMedia, isOn: $attachMedia)
-            } header: {
-                Text(L10n.feedbackAttachments)
-            } footer: {
-                Text(L10n.feedbackAttachmentHint)
-            }
-            Section {
-                Button(L10n.feedbackSubmit) {
-                    app.reportFeedback(category: categories[category],
-                                       detail: detail,
-                                       attachments: [attachScreenshot, attachOriginalText, attachMedia])
-                    submitted = true
+                Section(L10n.feedbackDetail) {
+                    TextField(L10n.feedbackDetailPlaceholder, text: $detail, axis: .vertical)
+                        .lineLimit(4...10)
                 }
-                .disabled(detail.trimmingCharacters(in: .whitespaces).isEmpty)
-                .accessibilityIdentifier("SP-46.feedback.submit")
+                // 默认只附版本/系统/错误码/脱敏日志；截图/原文/媒体逐项勾选（默认关）
+                Section {
+                    Toggle(L10n.feedbackAttachScreenshot, isOn: $attachScreenshot)
+                    Toggle(L10n.feedbackAttachOriginal, isOn: $attachOriginalText)
+                    Toggle(L10n.feedbackAttachMedia, isOn: $attachMedia)
+                } header: {
+                    Text(L10n.feedbackAttachments)
+                } footer: {
+                    Text(L10n.feedbackAttachmentHint)
+                }
+                Section {
+                    Button(L10n.feedbackSubmit) {
+                        app.reportFeedback(category: categories[category],
+                                           detail: detail,
+                                           attachments: [attachScreenshot, attachOriginalText, attachMedia])
+                        submitted = true
+                    }
+                    .disabled(detail.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .accessibilityIdentifier("SP-46.feedback.submit")
+                }
             }
-        }
-        .navigationTitle(L10n.feedbackTitle)
-        .alert(L10n.feedbackSubmitted, isPresented: $submitted) {
-            Button(L10n.onboard_gotIt, role: .cancel) { }
+            .navigationTitle(L10n.feedbackTitle)
+            .alert(L10n.feedbackSubmitted, isPresented: $submitted) {
+                Button(L10n.onboard_gotIt, role: .cancel) { }
+            }
         }
     }
 }

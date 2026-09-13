@@ -1,6 +1,7 @@
 import SwiftUI
 import Domain
 import Infrastructure
+import Perception
 
 // MARK: - F23 过敏与不良反应记录（SP-50 · FR23.1-23.6）
 
@@ -14,70 +15,72 @@ struct AllergyListView: View {
     @State private var pendingDelete: AllergyStore.AllergyRow?
 
     var body: some View {
-        Group {
-            if state.allergies.isEmpty {
-                ContentUnavailableView(L10n.allergyEmpty, systemImage: "allergens",
-                                       description: Text(L10n.allergyEmptyHint))
-                    .accessibilityIdentifier("SP-50.allergy.empty")
-            } else {
-                List {
-                    ForEach(state.allergies) { allergy in
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                // FR23.2 严重度色条：轻=灰 / 中=琥珀 / 重=红
-                                RoundedRectangle(cornerRadius: 2)
-                                    .fill(severityColor(allergy.severity))
-                                    .frame(width: 4)
-                                    .padding(.vertical, 2)
-                                Text(allergy.substance).font(.subheadline)
-                                Spacer()
-                                // 评审修正 U2：手写徽章变体 → GradeBadge 唯一出口
-                                GradeBadge(grade: "C")
+        WithPerceptionTracking {
+            Group {
+                if state.allergies.isEmpty {
+                    VLUnavailableView(L10n.allergyEmpty, systemImage: "allergens",
+                                           description: Text(L10n.allergyEmptyHint))
+                        .accessibilityIdentifier("SP-50.allergy.empty")
+                } else {
+                    List {
+                        ForEach(state.allergies) { allergy in
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack {
+                                    // FR23.2 严重度色条：轻=灰 / 中=琥珀 / 重=红
+                                    RoundedRectangle(cornerRadius: 2)
+                                        .fill(severityColor(allergy.severity))
+                                        .frame(width: 4)
+                                        .padding(.vertical, 2)
+                                    Text(allergy.substance).font(.subheadline)
+                                    Spacer()
+                                    // 评审修正 U2：手写徽章变体 → GradeBadge 唯一出口
+                                    GradeBadge(grade: "C")
+                                }
+                                Text("\(L10n.allergySeverity(allergy.severity)) · \(allergy.occurredAt.formatted(date: .abbreviated, time: .omitted))")
+                                    .font(.caption).foregroundStyle(.secondary)
                             }
-                            Text("\(L10n.allergySeverity(allergy.severity)) · \(allergy.occurredAt.formatted(date: .abbreviated, time: .omitted))")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                        .swipeActions {
-                            Button(L10n.allergyDelete, role: .destructive) {
-                                pendingDelete = allergy
+                            .swipeActions {
+                                Button(L10n.allergyDelete, role: .destructive) {
+                                    pendingDelete = allergy
+                                }
                             }
+                            .accessibilityIdentifier("SP-50.allergy.row.\(allergy.id.uuidString)")
                         }
-                        .accessibilityIdentifier("SP-50.allergy.row.\(allergy.id.uuidString)")
                     }
                 }
             }
-        }
-        .navigationTitle(L10n.allergyTitle)
-        // presenting: 形式直接注入目标行——按钮动作不再依赖与对话框关闭
-        // setter 的共享可变状态竞态（动作/置 nil 顺序无关）
-        .confirmationDialog(L10n.allergyDeleteConfirmTitle, isPresented:
-            Binding(get: { pendingDelete != nil },
-                    set: { if !$0 { pendingDelete = nil } }),
-                            titleVisibility: .visible, presenting: pendingDelete) { target in
-            Button(L10n.allergyDelete, role: .destructive) {
-                // 评审修复：显式传入被删行所属成员（当前展示成员）——此前
-                // state 内部经 loadingPatientId 推断，可能与展示成员不一致
-                Task { await state.deleteAllergy(id: target.id, patientId: app.currentPatientId) }
-            }
-            Button(L10n.commonCancel, role: .cancel) { }
-        } message: { _ in
-            Text(L10n.allergyDeleteConfirmHint)
-        }
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    showCreate = true
-                } label: {
-                    Image(systemName: "plus")
+            .navigationTitle(L10n.allergyTitle)
+            // presenting: 形式直接注入目标行——按钮动作不再依赖与对话框关闭
+            // setter 的共享可变状态竞态（动作/置 nil 顺序无关）
+            .confirmationDialog(L10n.allergyDeleteConfirmTitle, isPresented:
+                Binding(get: { pendingDelete != nil },
+                        set: { if !$0 { pendingDelete = nil } }),
+                                titleVisibility: .visible, presenting: pendingDelete) { target in
+                Button(L10n.allergyDelete, role: .destructive) {
+                    // 评审修复：显式传入被删行所属成员（当前展示成员）——此前
+                    // state 内部经 loadingPatientId 推断，可能与展示成员不一致
+                    Task { await state.deleteAllergy(id: target.id, patientId: app.currentPatientId) }
                 }
-                .accessibilityLabel(L10n.allergyAdd)
-                .accessibilityIdentifier("SP-50.allergy.add")
+                Button(L10n.commonCancel, role: .cancel) { }
+            } message: { _ in
+                Text(L10n.allergyDeleteConfirmHint)
             }
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showCreate = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel(L10n.allergyAdd)
+                    .accessibilityIdentifier("SP-50.allergy.add")
+                }
+            }
+            .sheet(isPresented: $showCreate) {
+                AllergyCreateView()
+            }
+            .task(id: app.currentPatientId) { await state.load(patientId: app.currentPatientId) }
         }
-        .sheet(isPresented: $showCreate) {
-            AllergyCreateView()
-        }
-        .task(id: app.currentPatientId) { await state.load(patientId: app.currentPatientId) }
     }
 
     private func severityColor(_ s: String) -> Color {
@@ -120,89 +123,91 @@ struct AllergyCreateView: View {
     private var reactionTags: [String] { SevereReactionRules.reactionTagOptions }
 
     var body: some View {
-        NavigationStack {
-            Form {
-                if step == 1 {
-                    Section(L10n.allergyStep1) {
-                        Picker(L10n.allergyKind, selection: $allergenKind) {
-                            // 第七轮修复：显示名经 L10n 词表（存储值仍是 Domain 词表原文）
-                            ForEach(kinds, id: \.self) { Text(L10n.allergyKindName($0)) }
+        WithPerceptionTracking {
+            NavigationStack {
+                Form {
+                    if step == 1 {
+                        Section(L10n.allergyStep1) {
+                            Picker(L10n.allergyKind, selection: $allergenKind) {
+                                // 第七轮修复：显示名经 L10n 词表（存储值仍是 Domain 词表原文）
+                                ForEach(kinds, id: \.self) { Text(L10n.allergyKindName($0)) }
+                            }
                         }
-                    }
-                } else if step == 2 {
-                    Section(L10n.allergyStep2) {
-                        TextField(L10n.allergySubstancePlaceholder, text: $substance)
-                        // 反应标签 chips 多选 + 自由输入（显示名经 L10n 词表）
-                        ForEach(reactionTags, id: \.self) { tag in
-                            Button {
-                                toggleTag(tag)
-                            } label: {
-                                HStack {
-                                    Text(L10n.allergyTagName(tag))
-                                    Spacer()
-                                    if selectedTags.contains(tag) {
-                                        Image(systemName: "checkmark")
+                    } else if step == 2 {
+                        Section(L10n.allergyStep2) {
+                            TextField(L10n.allergySubstancePlaceholder, text: $substance)
+                            // 反应标签 chips 多选 + 自由输入（显示名经 L10n 词表）
+                            ForEach(reactionTags, id: \.self) { tag in
+                                Button {
+                                    toggleTag(tag)
+                                } label: {
+                                    HStack {
+                                        Text(L10n.allergyTagName(tag))
+                                        Spacer()
+                                        if selectedTags.contains(tag) {
+                                            Image(systemName: "checkmark")
+                                        }
                                     }
                                 }
                             }
+                            TextField(L10n.allergyCustomTag, text: $customTag)
                         }
-                        TextField(L10n.allergyCustomTag, text: $customTag)
-                    }
-                } else {
-                    Section(L10n.allergyStep3) {
-                        Picker(L10n.allergySeverityLabel, selection: $severity) {
-                            ForEach(SevereReactionRules.severityValues, id: \.self) { s in
-                                Text(L10n.allergySeverity(s)).tag(s)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        DatePicker(L10n.allergyOccurredAt, selection: $occurredAt, in: ...Date())
-                        TextField(L10n.allergyNote, text: $note, axis: .vertical)
-                    }
-                }
-                // FR3.3 归属确认（保存前；FR23 边界：不得静默归入当前成员）
-                Section {
-                    MemberConfirmBar(
-                        patientName: app.members.first(where: { $0.id == app.currentPatientId })?.displayName
-                            ?? app.owner?.displayName ?? L10n.help_appName,
-                        relation: L10n.member_relationSelf) {
-                            showMemberPicker = true
-                        }
-                }
-            }
-            .sheet(isPresented: $showMemberPicker) { MemberPickerSheet() }
-            .navigationTitle(L10n.allergyCreateTitle)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(L10n.commonCancel) { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    if step < 3 {
-                        Button(L10n.allergyNext) { step += 1 }
-                            .disabled(step == 2 && substance.trimmingCharacters(in: .whitespaces).isEmpty)
                     } else {
-                        Button(L10n.reminder_save) { save() }
-                            .disabled(substance.trimmingCharacters(in: .whitespaces).isEmpty)
-                            .accessibilityIdentifier("SP-50.allergy.save")
+                        Section(L10n.allergyStep3) {
+                            Picker(L10n.allergySeverityLabel, selection: $severity) {
+                                ForEach(SevereReactionRules.severityValues, id: \.self) { s in
+                                    Text(L10n.allergySeverity(s)).tag(s)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                            DatePicker(L10n.allergyOccurredAt, selection: $occurredAt, in: ...Date())
+                            TextField(L10n.allergyNote, text: $note, axis: .vertical)
+                        }
+                    }
+                    // FR3.3 归属确认（保存前；FR23 边界：不得静默归入当前成员）
+                    Section {
+                        MemberConfirmBar(
+                            patientName: app.members.first(where: { $0.id == app.currentPatientId })?.displayName
+                                ?? app.owner?.displayName ?? L10n.help_appName,
+                            relation: L10n.member_relationSelf) {
+                                showMemberPicker = true
+                            }
                     }
                 }
-            }
-            // 保存失败错误态（四态纪律：失败绝不静默呈现为已保存；
-            // SaveFailedAlert 统一出口）
-            .saveFailedAlert(title: L10n.allergySaveFailed,
-                             hint: L10n.allergySaveFailedHint,
-                             isPresented: $saveFailed)
-            // FR23.3 重度/关键词命中：急救引导卡（BR-012），不阻塞保存、可关闭
-            .alert(L10n.allergyEmergencyTitle, isPresented: $showEmergencyCard) {
-                Button(L10n.ai_emergencyCall) {
-                    // 审查修复：急救号码按语言区域（120/119/911），不硬编码 120
-                    if let url = URL(string: "tel://\(L10n.emergencyNumber)") { UIApplication.shared.open(url) }
+                .sheet(isPresented: $showMemberPicker) { MemberPickerSheet() }
+                .navigationTitle(L10n.allergyCreateTitle)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button(L10n.commonCancel) { dismiss() }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        if step < 3 {
+                            Button(L10n.allergyNext) { step += 1 }
+                                .disabled(step == 2 && substance.trimmingCharacters(in: .whitespaces).isEmpty)
+                        } else {
+                            Button(L10n.reminder_save) { save() }
+                                .disabled(substance.trimmingCharacters(in: .whitespaces).isEmpty)
+                                .accessibilityIdentifier("SP-50.allergy.save")
+                        }
+                    }
                 }
-                Button(L10n.allergyEmergencyGoHospital, role: .cancel) {
-                    dismiss()
+                // 保存失败错误态（四态纪律：失败绝不静默呈现为已保存；
+                // SaveFailedAlert 统一出口）
+                .saveFailedAlert(title: L10n.allergySaveFailed,
+                                 hint: L10n.allergySaveFailedHint,
+                                 isPresented: $saveFailed)
+                // FR23.3 重度/关键词命中：急救引导卡（BR-012），不阻塞保存、可关闭
+                .alert(L10n.allergyEmergencyTitle, isPresented: $showEmergencyCard) {
+                    Button(L10n.ai_emergencyCall) {
+                        // 审查修复：急救号码按语言区域（120/119/911），不硬编码 120
+                        if let url = URL(string: "tel://\(L10n.emergencyNumber)") { UIApplication.shared.open(url) }
+                    }
+                    Button(L10n.allergyEmergencyGoHospital, role: .cancel) {
+                        dismiss()
+                    }
+                } message: {
+                    Text(L10n.allergyEmergencyBody)
                 }
-            } message: {
-                Text(L10n.allergyEmergencyBody)
             }
         }
     }

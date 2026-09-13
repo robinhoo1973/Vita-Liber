@@ -1,5 +1,6 @@
 import SwiftUI
 import Domain
+import Perception
 
 /// FR20.3 L2 场景首用须知：半屏底部 Sheet + [我知道了] 单钮。
 /// 首次进入场景时展示，确认后写入 ConsentRecord。
@@ -9,43 +10,45 @@ struct L2DisclosureSheet: View {
     @Environment(AppState.self) private var app
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 20) {
-                Image(systemName: "info.circle.fill")
-                    .font(VLFont.disclosureIcon)
-                    .foregroundStyle(Color("brand-primary", bundle: .main))
+        WithPerceptionTracking {
+            NavigationStack {
+                VStack(spacing: 20) {
+                    Image(systemName: "info.circle.fill")
+                        .font(VLFont.disclosureIcon)
+                        .foregroundStyle(Color("brand-primary", bundle: .main))
 
-                Text(disclosure.title)
-                    .font(.headline)
-                    .multilineTextAlignment(.center)
+                    Text(disclosure.title)
+                        .font(.headline)
+                        .multilineTextAlignment(.center)
 
-                Text(disclosure.body)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
+                    Text(disclosure.body)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
 
-                Spacer()
-            }
-            .padding()
-            .navigationTitle(L10n.disclosureTitle)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(L10n.disclosureAcknowledge) {
-                        Task {
-                            await app.recordConsent(
-                                key: disclosure.key,
-                                level: disclosure.level,
-                                version: disclosure.version
-                            )
-                            dismiss()
+                    Spacer()
+                }
+                .padding()
+                .navigationTitle(L10n.disclosureTitle)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(L10n.disclosureAcknowledge) {
+                            Task {
+                                await app.recordConsent(
+                                    key: disclosure.key,
+                                    level: disclosure.level,
+                                    version: disclosure.version
+                                )
+                                dismiss()
+                            }
                         }
                     }
                 }
             }
+            .presentationDetents([.medium])
         }
-        .presentationDetents([.medium])
     }
 }
 
@@ -55,31 +58,33 @@ struct L3DisclosureBanner: View {
     @State private var isExpanded = true
 
     var body: some View {
-        if isExpanded {
-            HStack(spacing: 8) {
-                Image(systemName: "info.circle")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(disclosure.body)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Button {
-                    isExpanded = false
-                } label: {
-                    // 审查修复：触点 ≥44pt（原 ~16pt 图标，关怀模式要求 64pt）
-                    Image(systemName: "xmark.circle.fill")
+        WithPerceptionTracking {
+            if isExpanded {
+                HStack(spacing: 8) {
+                    Image(systemName: "info.circle")
                         .font(.caption)
-                        .foregroundStyle(.tertiary)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
+                        .foregroundStyle(.secondary)
+                    Text(disclosure.body)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button {
+                        isExpanded = false
+                    } label: {
+                        // 审查修复：触点 ≥44pt（原 ~16pt 图标，关怀模式要求 64pt）
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .accessibilityLabel(L10n.commonCancel)
                 }
-                .accessibilityLabel(L10n.commonCancel)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Color(.systemGray6))
+                .transition(.move(edge: .top).combined(with: .opacity))
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(Color(.systemGray6))
-            .transition(.move(edge: .top).combined(with: .opacity))
         }
     }
 }
@@ -100,32 +105,34 @@ struct SceneDisclosureModifier: ViewModifier {
     @State private var alertDisclosure: SceneDisclosure?
 
     func body(content: Content) -> some View {
-        content
-            .onAppear {
-                if level == 2 || level == 4 {
-                    checkAndShowDisclosure()
-                }
-            }
-            .sheet(isPresented: $showSheet) {
-                if let disclosure = findDisclosure() {
-                    L2DisclosureSheet(disclosure: disclosure)
-                }
-            }
-            .alert(isPresented: $showAlert) {
-                guard let d = alertDisclosure else {
-                    return Alert(title: Text(L10n.disclosureTitle))
-                }
-                return Alert(
-                    title: Text(d.title),
-                    message: Text(d.body),
-                    primaryButton: .cancel(Text(L10n.commonCancel)),
-                    secondaryButton: .default(Text(L10n.commonConfirm)) {
-                        Task {
-                            await app.recordConsent(key: d.key, level: d.level, version: d.version)
-                        }
+        WithPerceptionTracking {
+            content
+                .onAppear {
+                    if level == 2 || level == 4 {
+                        checkAndShowDisclosure()
                     }
-                )
-            }
+                }
+                .sheet(isPresented: $showSheet) {
+                    if let disclosure = findDisclosure() {
+                        L2DisclosureSheet(disclosure: disclosure)
+                    }
+                }
+                .alert(isPresented: $showAlert) {
+                    guard let d = alertDisclosure else {
+                        return Alert(title: Text(L10n.disclosureTitle))
+                    }
+                    return Alert(
+                        title: Text(d.title),
+                        message: Text(d.body),
+                        primaryButton: .cancel(Text(L10n.commonCancel)),
+                        secondaryButton: .default(Text(L10n.commonConfirm)) {
+                            Task {
+                                await app.recordConsent(key: d.key, level: d.level, version: d.version)
+                            }
+                        }
+                    )
+                }
+        }
     }
 
     private func checkAndShowDisclosure() {

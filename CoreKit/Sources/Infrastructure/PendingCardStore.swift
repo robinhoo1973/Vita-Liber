@@ -337,14 +337,14 @@ public actor PendingCardStore {
     }
 }
 
-import Observation
+import Perception
 
 /// App 层环境注入门面（同 NotificationCenterState 纪律）：@Environment 要求
 /// @Observable 类型，actor 不可直接注入——本门面把 FR6.9 待办队列暴露为
 /// 可观察投影（ReminderAggregationCenter.pendingCardItem 非敏感摘要，
 /// BR-003：raw_text/partial_data 绝不外泄到视图），供首页聚合中心消费。
 @MainActor
-@Observable
+@Perceptible
 public final class PendingCardCenterState {
     public private(set) var items: [AggregatedReminderItem] = []
     /// 详情 sheet 用（D 级草稿详情仅用户本人可见；不进入任何事实链投影）

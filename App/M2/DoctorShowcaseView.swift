@@ -1,6 +1,7 @@
 import SwiftUI
 import Combine   // AnyCancellable（TTL 倒计时订阅，第八轮会话令牌判读）
 import Domain
+import Perception
 
 /// ui-ux §5.8 就诊展示模式（FR8.6 · V3.72 点亮）：全屏临时解锁的时间线轮播——
 /// 时间顺序的照片+描述+自述标记+用药背景，给医生看的「一眼版」。
@@ -27,95 +28,97 @@ struct DoctorShowcaseView: View {
     @State private var countdown: AnyCancellable?
 
     var body: some View {
-        Group {
-            // 第七轮全仓审查修复：会话令牌此前是死状态——isUnlocked 无任何
-            // 读取方，300s TTL 空闲重锁/退后台重锁翻牌后展示内容照常渲染
-            // （BR-007/008 会话级解锁形同虚设）。渲染门必须同时判读
-            // authenticated 与会话令牌；令牌被 TTL 重锁 → 内容下线并给出
-            // 重新认证入口（不得无出口转圈）。
-            if authenticated && session.isUnlocked {
-                // 渲染门必须同时判读装载成员：.task(id: patientId) 的加载是
-                // 异步的，且 state.groups 为跨视图共享状态——首帧与加载竞态
-                // 下会渲染上一成员/其他视图装载的观察组（BR-001/BR-007
-                // 跨成员敏感媒体泄漏）。装载成功前只呈现加载态。
-                if state.loadedPatientId == patientId {
-                    showcaseContent
-                } else if state.isLoading {
-                    // 评审修复：装载中优先呈现加载态——loadFailed 是全局标志，
-                    // 其他视图此前的旧失败会在本视图装载完成前误闪错误卡
-                    ProgressView()
-                        .accessibilityIdentifier("SP-28.showcase.loading")
+        WithPerceptionTracking {
+            Group {
+                // 第七轮全仓审查修复：会话令牌此前是死状态——isUnlocked 无任何
+                // 读取方，300s TTL 空闲重锁/退后台重锁翻牌后展示内容照常渲染
+                // （BR-007/008 会话级解锁形同虚设）。渲染门必须同时判读
+                // authenticated 与会话令牌；令牌被 TTL 重锁 → 内容下线并给出
+                // 重新认证入口（不得无出口转圈）。
+                if authenticated && session.isUnlocked {
+                    // 渲染门必须同时判读装载成员：.task(id: patientId) 的加载是
+                    // 异步的，且 state.groups 为跨视图共享状态——首帧与加载竞态
+                    // 下会渲染上一成员/其他视图装载的观察组（BR-001/BR-007
+                    // 跨成员敏感媒体泄漏）。装载成功前只呈现加载态。
+                    if state.loadedPatientId == patientId {
+                        showcaseContent
+                    } else if state.isLoading {
+                        // 评审修复：装载中优先呈现加载态——loadFailed 是全局标志，
+                        // 其他视图此前的旧失败会在本视图装载完成前误闪错误卡
+                        ProgressView()
+                            .accessibilityIdentifier("SP-28.showcase.loading")
+                    } else {
+                        // 评审修复：错误卡补 [重试] 出口——此前无任何动作，
+                        // .task(id:) 的 id 为常量不重跑，瞬时失败即成死胡同
+                        VLUnavailableView {
+                            Label(L10n.observationListError, systemImage: "exclamationmark.triangle")
+                        } actions: {
+                            Button(L10n.observationListRetry) {
+                                Task { await state.load(patientId: patientId) }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .accessibilityIdentifier("SP-28.showcase.retry")
+                        }
+                    }
                 } else {
-                    // 评审修复：错误卡补 [重试] 出口——此前无任何动作，
-                    // .task(id:) 的 id 为常量不重跑，瞬时失败即成死胡同
-                    ContentUnavailableView {
-                        Label(L10n.observationListError, systemImage: "exclamationmark.triangle")
-                    } actions: {
-                        Button(L10n.observationListRetry) {
-                            Task { await state.load(patientId: patientId) }
+                    // 认证前 / TTL 重锁后：锁占位 + 重新认证入口（无出口转圈）
+                    VStack(spacing: 16) {
+                        Image(systemName: "lock.fill")
+                            .font(.largeTitle)
+                            .foregroundStyle(.secondary)
+                        Button(L10n.sensitiveMedia_unlockToView) {
+                            Task { await authenticate() }
                         }
                         .buttonStyle(.borderedProminent)
-                        .accessibilityIdentifier("SP-28.showcase.retry")
+                        .frame(minHeight: 64)   // 关怀模式 ≥64pt
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-            } else {
-                // 认证前 / TTL 重锁后：锁占位 + 重新认证入口（无出口转圈）
-                VStack(spacing: 16) {
-                    Image(systemName: "lock.fill")
-                        .font(.largeTitle)
-                        .foregroundStyle(.secondary)
-                    Button(L10n.sensitiveMedia_unlockToView) {
-                        Task { await authenticate() }
+            }
+            .navigationTitle(L10n.showcaseTitle)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                // 剩余时间环（300s 会话倒计时；≤60s 转警告色）
+                ToolbarItem(placement: .topBarLeading) {
+                    ZStack {
+                        Circle()
+                            .stroke(Color(.systemGray5), lineWidth: 3)
+                        Circle()
+                            .trim(from: 0, to: CGFloat(remaining / MediaUnlockPolicy.showcaseTTL))
+                            .stroke(remaining <= 60 ? Color("semantic-danger", bundle: .main)
+                                                    : Color("brand-primary", bundle: .main),
+                                    style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                            .rotationEffect(.degrees(-90))
+                        Text("\(Int(ceil(remaining / 60)))")
+                            .font(.caption2).monospacedDigit()
                     }
-                    .buttonStyle(.borderedProminent)
-                    .frame(minHeight: 64)   // 关怀模式 ≥64pt
+                    .frame(width: 28, height: 28)
+                    .accessibilityIdentifier("SP-28.showcase.timer")
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
-        .navigationTitle(L10n.showcaseTitle)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            // 剩余时间环（300s 会话倒计时；≤60s 转警告色）
-            ToolbarItem(placement: .topBarLeading) {
-                ZStack {
-                    Circle()
-                        .stroke(Color(.systemGray5), lineWidth: 3)
-                    Circle()
-                        .trim(from: 0, to: CGFloat(remaining / MediaUnlockPolicy.showcaseTTL))
-                        .stroke(remaining <= 60 ? Color("semantic-danger", bundle: .main)
-                                                : Color("brand-primary", bundle: .main),
-                                style: StrokeStyle(lineWidth: 3, lineCap: .round))
-                        .rotationEffect(.degrees(-90))
-                    Text("\(Int(ceil(remaining / 60)))")
-                        .font(.caption2).monospacedDigit()
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(L10n.showcaseExit) { exit() }
+                        .accessibilityIdentifier("SP-28.showcase.exit")
                 }
-                .frame(width: 28, height: 28)
-                .accessibilityIdentifier("SP-28.showcase.timer")
             }
-            ToolbarItem(placement: .confirmationAction) {
-                Button(L10n.showcaseExit) { exit() }
-                    .accessibilityIdentifier("SP-28.showcase.exit")
+            .onAppear {
+                guard !authenticated else { return }
+                Task { await authenticate() }
             }
+            // 审查修复：展示模式必须按路由 patientId 加载该成员的观察组——此前
+            // 直接渲染 ObservationStoreState.groups（上一成员浏览残留），跨成员
+            // 敏感媒体泄漏（BR-001/BR-007），或冷启动恒空态。
+            .task(id: patientId) {
+                await state.load(patientId: patientId)
+            }
+            .onChangeCompat(of: session.isUnlocked) { _, unlocked in
+                // 令牌被 TTL/退后台重锁 → 内容立即下线，重新认证（第七轮修复）
+                if !unlocked { authenticated = false }
+            }
+            .onChangeCompat(of: authenticated) { _, on in
+                if on { startCountdown() } else { stopCountdown() }
+            }
+            .onDisappear { stopCountdown(); exit() }
         }
-        .onAppear {
-            guard !authenticated else { return }
-            Task { await authenticate() }
-        }
-        // 审查修复：展示模式必须按路由 patientId 加载该成员的观察组——此前
-        // 直接渲染 ObservationStoreState.groups（上一成员浏览残留），跨成员
-        // 敏感媒体泄漏（BR-001/BR-007），或冷启动恒空态。
-        .task(id: patientId) {
-            await state.load(patientId: patientId)
-        }
-        .onChange(of: session.isUnlocked) { _, unlocked in
-            // 令牌被 TTL/退后台重锁 → 内容立即下线，重新认证（第七轮修复）
-            if !unlocked { authenticated = false }
-        }
-        .onChange(of: authenticated) { _, on in
-            if on { startCountdown() } else { stopCountdown() }
-        }
-        .onDisappear { stopCountdown(); exit() }
     }
 
     private func startCountdown() {
@@ -153,7 +156,7 @@ struct DoctorShowcaseView: View {
     private var showcaseContent: some View {
         Group {
             if state.groups.isEmpty {
-                ContentUnavailableView(L10n.showcaseEmpty, systemImage: "photo.on.rectangle.angled")
+                VLUnavailableView(L10n.showcaseEmpty, systemImage: "photo.on.rectangle.angled")
                     .accessibilityIdentifier("SP-28.showcase.empty")
             } else {
                 TabView {
@@ -177,28 +180,30 @@ private struct ShowcasePage: View {
     let group: ObservationGroup
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if let latest = group.latest {
-                Text(latest.occurredAt.formatted(date: .long, time: .shortened))
-                    .font(.headline)
-                Text(L10n.observationKindName(group.kind))
-                    .font(.subheadline).foregroundStyle(.secondary)
-                if let description = latest.description, !description.isEmpty {
-                    Text(description).font(.body)
+        WithPerceptionTracking {
+            VStack(alignment: .leading, spacing: 12) {
+                if let latest = group.latest {
+                    Text(latest.occurredAt.formatted(date: .long, time: .shortened))
+                        .font(.headline)
+                    Text(L10n.observationKindName(group.kind))
+                        .font(.subheadline).foregroundStyle(.secondary)
+                    if let description = latest.description, !description.isEmpty {
+                        Text(description).font(.body)
+                    }
+                    if let mark = latest.selfMark {
+                        // 展示名经 markName 映射（BR-006：只译值本身）——此前直接
+                        // 渲染英文机器值 improved/unchanged/worsened
+                        Text("\(ObservationDetailView.markName(mark))（\(L10n.observationSelfMark)）")
+                            .font(.caption)
+                            .foregroundStyle(Color("semantic-warning", bundle: .main))
+                    }
+                    if !latest.mediaAssetIds.isEmpty {
+                        LockedMediaStrip(assetIds: latest.mediaAssetIds, memberId: latest.memberId)
+                    }
                 }
-                if let mark = latest.selfMark {
-                    // 展示名经 markName 映射（BR-006：只译值本身）——此前直接
-                    // 渲染英文机器值 improved/unchanged/worsened
-                    Text("\(ObservationDetailView.markName(mark))（\(L10n.observationSelfMark)）")
-                        .font(.caption)
-                        .foregroundStyle(Color("semantic-warning", bundle: .main))
-                }
-                if !latest.mediaAssetIds.isEmpty {
-                    LockedMediaStrip(assetIds: latest.mediaAssetIds, memberId: latest.memberId)
-                }
+                Spacer()
             }
-            Spacer()
+            .padding(24)
         }
-        .padding(24)
     }
 }

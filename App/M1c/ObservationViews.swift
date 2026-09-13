@@ -5,6 +5,7 @@ import os
 import Domain
 import Infrastructure
 import Protocols
+import Perception
 
 /// F8 观察模块（M1c 切片）：观察创建 + 列表 + 敏感保护链（BR-007/008）。
 /// 类型名称走 L10n.observationKindName，图标走 DesignSystem 的 ObservationKind.icon 扩展。
@@ -20,21 +21,23 @@ private struct MediaThumbRow: View {
     var onTapImage: ((Int) -> Void)? = nil
 
     var body: some View {
-        HStack(spacing: 6) {
-            ForEach(images.indices, id: \.self) { i in
-                Image(uiImage: images[i])
-                    .resizable().scaledToFill()
-                    .frame(width: size, height: size)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .contentShape(Rectangle())
-                    .onTapGesture { onTapImage?(i) }
+        WithPerceptionTracking {
+            HStack(spacing: 6) {
+                ForEach(images.indices, id: \.self) { i in
+                    Image(uiImage: images[i])
+                        .resizable().scaledToFill()
+                        .frame(width: size, height: size)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .contentShape(Rectangle())
+                        .onTapGesture { onTapImage?(i) }
+                }
             }
         }
     }
 }
 
 @MainActor
-@Observable
+@Perceptible
 final class ObservationStoreState {
     private(set) var groups: [ObservationGroup] = []
     private(set) var allergies: [AllergyStore.AllergyRow] = []
@@ -291,36 +294,38 @@ struct ObservationListView: View {
     @State private var showCreate = false
 
     var body: some View {
-        Group {
-            if state.loadedPatientId == currentPatientId {
-                // 已装载本成员——四态分支（§6 加载/错误/空/默认）
-                if state.isLoading && state.groups.isEmpty && state.allergies.isEmpty {
-                    skeletonState
-                } else if state.loadFailed && state.groups.isEmpty && state.allergies.isEmpty {
+        WithPerceptionTracking {
+            Group {
+                if state.loadedPatientId == currentPatientId {
+                    // 已装载本成员——四态分支（§6 加载/错误/空/默认）
+                    if state.isLoading && state.groups.isEmpty && state.allergies.isEmpty {
+                        skeletonState
+                    } else if state.loadFailed && state.groups.isEmpty && state.allergies.isEmpty {
+                        errorState
+                    } else if state.groups.isEmpty && state.allergies.isEmpty {
+                        emptyState
+                    } else {
+                        contentList
+                    }
+                } else if state.loadFailed {
+                    // 评审修复：本成员装载失败——即使残留上一成员的旧 groups/
+                    // allergies 也绝不渲染（BR-001/BR-007 跨成员敏感媒体泄漏），
+                    // 此前错误分支要求列表为空，残留数据使该分支永不可达
                     errorState
-                } else if state.groups.isEmpty && state.allergies.isEmpty {
-                    emptyState
                 } else {
-                    contentList
+                    // 本成员尚未装载（首载或切换成员装载中）——骨架屏，而非
+                    // 上一成员的残留内容
+                    skeletonState
                 }
-            } else if state.loadFailed {
-                // 评审修复：本成员装载失败——即使残留上一成员的旧 groups/
-                // allergies 也绝不渲染（BR-001/BR-007 跨成员敏感媒体泄漏），
-                // 此前错误分支要求列表为空，残留数据使该分支永不可达
-                errorState
-            } else {
-                // 本成员尚未装载（首载或切换成员装载中）——骨架屏，而非
-                // 上一成员的残留内容
-                skeletonState
             }
-        }
-        .navigationTitle(L10n.observationTitle)
-        .task(id: currentPatientId) { await state.load(patientId: currentPatientId) }
-        .sheet(isPresented: $showCreate) {
-            ObservationCreateSheet { kind, desc, mark, photos in
-                await state.create(patientId: currentPatientId, kind: kind,
-                                   description: desc, selfMark: mark,
-                                   photoData: photos)
+            .navigationTitle(L10n.observationTitle)
+            .task(id: currentPatientId) { await state.load(patientId: currentPatientId) }
+            .sheet(isPresented: $showCreate) {
+                ObservationCreateSheet { kind, desc, mark, photos in
+                    await state.create(patientId: currentPatientId, kind: kind,
+                                       description: desc, selfMark: mark,
+                                       photoData: photos)
+                }
             }
         }
     }
@@ -355,7 +360,7 @@ struct ObservationListView: View {
 
     /// §6 空态 = 插画 + 一句话 + 唯一主行动按钮
     private var emptyState: some View {
-        ContentUnavailableView {
+        VLUnavailableView {
             Label(L10n.observationListEmpty, systemImage: "clipboard")
         } description: {
             Text(L10n.observationListEmptyHint)
@@ -459,44 +464,46 @@ struct LockedMediaStrip: View {
     }
 
     var body: some View {
-        MediaThumbRow(images: blurImages, size: 56) { index in
-            // 逐张打开原图（审查修复：原条级点击只开第一张，其余资产不可达）
-            guard assetIds.indices.contains(index),
-                  let assetId = UUID(uuidString: assetIds[index]) else { return }
-            openOriginal(assetId: assetId)
+        WithPerceptionTracking {
+            MediaThumbRow(images: blurImages, size: 56) { index in
+                // 逐张打开原图（审查修复：原条级点击只开第一张，其余资产不可达）
+                guard assetIds.indices.contains(index),
+                      let assetId = UUID(uuidString: assetIds[index]) else { return }
+                openOriginal(assetId: assetId)
+            }
+                .frame(height: 64)
+                .fullScreenCover(item: $viewer) { payload in
+                    NavigationStack {
+                        SensitiveMediaOriginalView(imageData: nil,
+                                                   caption: payload.caption,
+                                                   assetId: payload.assetId,
+                                                   originalLoader: payload.originalLoader)
+                    }
+                }
+                .accessibilityLabel(L10n.observationMediaUnlockHint)
+                .accessibilityIdentifier("SP-14.observation.mediaStrip")
+                .task(id: assetIds) {
+                    // 并发加载 + 保持 assetIds 顺序；任务被取消（滚动/换组）时丢弃结果。
+                    // 快照在 MainActor 上下文读取（此层级隐式 self 与仓库既有 .task 模式一致），
+                    // 非隔离 @Sendable 的 TaskGroup/addTask 闭包只捕获这些 Sendable 局部量——
+                    // 直接引用 self 属性会触发 Swift 6 显式捕获检查（CI 编译错）。
+                    let state = state
+                    let member = memberId
+                    let ids = assetIds
+                    let results = await withTaskGroup(of: (Int, UIImage?).self) { group in
+                        for (index, id) in ids.enumerated() {
+                            group.addTask { (index, await Self.thumb(id: id, memberId: member, state: state)) }
+                        }
+                        var out: [(Int, UIImage)] = []
+                        for await (index, img) in group {
+                            if let img { out.append((index, img)) }
+                        }
+                        return out.sorted { $0.0 < $1.0 }.map(\.1)
+                    }
+                    guard !Task.isCancelled else { return }
+                    blurImages = results
+                }
         }
-            .frame(height: 64)
-            .fullScreenCover(item: $viewer) { payload in
-                NavigationStack {
-                    SensitiveMediaOriginalView(imageData: nil,
-                                               caption: payload.caption,
-                                               assetId: payload.assetId,
-                                               originalLoader: payload.originalLoader)
-                }
-            }
-            .accessibilityLabel(L10n.observationMediaUnlockHint)
-            .accessibilityIdentifier("SP-14.observation.mediaStrip")
-            .task(id: assetIds) {
-                // 并发加载 + 保持 assetIds 顺序；任务被取消（滚动/换组）时丢弃结果。
-                // 快照在 MainActor 上下文读取（此层级隐式 self 与仓库既有 .task 模式一致），
-                // 非隔离 @Sendable 的 TaskGroup/addTask 闭包只捕获这些 Sendable 局部量——
-                // 直接引用 self 属性会触发 Swift 6 显式捕获检查（CI 编译错）。
-                let state = state
-                let member = memberId
-                let ids = assetIds
-                let results = await withTaskGroup(of: (Int, UIImage?).self) { group in
-                    for (index, id) in ids.enumerated() {
-                        group.addTask { (index, await Self.thumb(id: id, memberId: member, state: state)) }
-                    }
-                    var out: [(Int, UIImage)] = []
-                    for await (index, img) in group {
-                        if let img { out.append((index, img)) }
-                    }
-                    return out.sorted { $0.0 < $1.0 }.map(\.1)
-                }
-                guard !Task.isCancelled else { return }
-                blurImages = results
-            }
     }
 
     @MainActor
@@ -564,98 +571,103 @@ struct ObservationCreateSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            Form {
-                // FR3.3 归属确认条置顶（SP-14 步骤3：MemberConfirmBar 置顶）
-                memberSection
-                kindSection
-                mediaSection
-                detailSection
-            }
-            .navigationTitle(L10n.observationCreateTitle)
-            // FR20.3 L2 场景首用须知（观察拍摄页，一次性确认）
-            .sceneDisclosure(scene: "observation")
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    // FR8.7 三步完成承诺：其余字段全部可选、可事后补——
-                    // 保存不得要求描述非空（类型+媒体+归属即完整保存路径）
-                    Button(L10n.commonSave) {
-                        // 评审修复：保存失败保留表单并告警（SaveFailedAlert 统一
-                        // 出口）——此前无条件 dismiss，失败呈现为「已保存」而
-                        // 照片已补偿删除、记录丢失（与 AllergyViews 同族）
-                        saving = true
-                        Task {
-                            if await onCreate(kind, description, selfMark, photoData) {
-                                dismiss()
-                            } else {
-                                saveFailed = true
+        WithPerceptionTracking {
+            NavigationStack {
+                Form {
+                    // FR3.3 归属确认条置顶（SP-14 步骤3：MemberConfirmBar 置顶）
+                    memberSection
+                    kindSection
+                    mediaSection
+                    detailSection
+                }
+                .navigationTitle(L10n.observationCreateTitle)
+                // FR20.3 L2 场景首用须知（观察拍摄页，一次性确认）
+                .sceneDisclosure(scene: "observation")
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        // FR8.7 三步完成承诺：其余字段全部可选、可事后补——
+                        // 保存不得要求描述非空（类型+媒体+归属即完整保存路径）
+                        Button(L10n.commonSave) {
+                            // 评审修复：保存失败保留表单并告警（SaveFailedAlert 统一
+                            // 出口）——此前无条件 dismiss，失败呈现为「已保存」而
+                            // 照片已补偿删除、记录丢失（与 AllergyViews 同族）
+                            saving = true
+                            Task {
+                                if await onCreate(kind, description, selfMark, photoData) {
+                                    dismiss()
+                                } else {
+                                    saveFailed = true
+                                }
+                                saving = false
                             }
-                            saving = false
                         }
+                        .disabled(loadingPicker || saving)
+                        .accessibilityIdentifier("SP-14.observation.save")
                     }
-                    .disabled(loadingPicker || saving)
-                    .accessibilityIdentifier("SP-14.observation.save")
                 }
-            }
-            // 保存失败错误态（四态纪律：失败绝不静默呈现为已保存）
-            .saveFailedAlert(title: L10n.observationSaveFailed,
-                             hint: L10n.observationSaveFailedHint,
-                             isPresented: $saveFailed)
-            .sheet(isPresented: $showMemberPicker) {
-                MemberPickerSheet()
-            }
-            .sheet(item: $confirmSet) { set in
-                VoiceConfirmSheet(
-                    set: set,
-                    decision: ReadbackPolicy.decide(route: routeMonitor.route,
-                                                    preference: app.readbackPreference,
-                                                    careMode: app.careMode),
-                    route: routeMonitor.route,
-                    judgedTarget: nil,          // 观察确认无判定目标行（4.27 六入口默认语义）
-                    judgedConfidence: 0,
-                    onJudgedTargetChange: nil,
-                    onSpeak: { app.speak($0) },
-                    onStopSpeak: { app.stopSpeaking() },
-                    onConfirm: { confirmed in
-                        description = confirmed.confirmedFields.first?.value ?? description
-                        confirmSet = nil
-                    },
-                    onRetry: { confirmSet = nil },
-                    onCancel: { confirmSet = nil })
-                .presentationDetents([.medium])
-            }
-            .fullScreenCover(isPresented: $showCamera) {
-                CameraPicker { image in
-                    appendCamera(image)
-                    showCamera = false
+                // 保存失败错误态（四态纪律：失败绝不静默呈现为已保存）
+                .saveFailedAlert(title: L10n.observationSaveFailed,
+                                 hint: L10n.observationSaveFailedHint,
+                                 isPresented: $saveFailed)
+                .sheet(isPresented: $showMemberPicker) {
+                    MemberPickerSheet()
                 }
-                .ignoresSafeArea()
-            }
-            .onChange(of: pickerItems) { _, items in
-                loadGeneration += 1
-                let gen = loadGeneration
-                loadingPicker = true
-                // MainActor Task（评审修正）：不用 Task.detached——@Sendable 闭包捕获
-                // 视图 @State 在 Swift 6 严格并发下有隔离风险；加载与下采样在
-                // MediaImport.loadWithThumbnails 的非隔离上下文中执行，只回传 Sendable Data。
-                Task {
-                    let (loaded, thumbsData) = await MediaImport.loadWithThumbnails(items)
-                    guard gen == loadGeneration else { return }   // 旧代结果作废（评审修正：曾发生竞态覆盖）
-                    // 跨源上限钳制（评审修正）：相册选择本身不受相机已拍数约束，
-                    // 超限截断，总量恒 ≤ maxPhotos。cameraCount 必须取完成时点
-                    // 的实值——此前在选择时点捕获，加载期间相机可再拍满 6 张，
-                    // 完成时 allowed 仍按 0 算，总量可达 12 张
-                    let allowed = max(0, maxPhotos - cameraData.count)
-                    pickerData = Array(loaded.prefix(allowed))
-                    pickerThumbs = thumbsData.prefix(allowed).compactMap(UIImage.init(data:))
-                    loadingPicker = false
+                .sheet(item: $confirmSet) { set in
+                    // sheet 内容闭包逃逸：同步读 routeMonitor.route / app.readbackPreference / app.careMode，须自行包裹（子项目 I）
+                    WithPerceptionTracking {
+                        VoiceConfirmSheet(
+                            set: set,
+                            decision: ReadbackPolicy.decide(route: routeMonitor.route,
+                                                            preference: app.readbackPreference,
+                                                            careMode: app.careMode),
+                            route: routeMonitor.route,
+                            judgedTarget: nil,          // 观察确认无判定目标行（4.27 六入口默认语义）
+                            judgedConfidence: 0,
+                            onJudgedTargetChange: nil,
+                            onSpeak: { app.speak($0) },
+                            onStopSpeak: { app.stopSpeaking() },
+                            onConfirm: { confirmed in
+                                description = confirmed.confirmedFields.first?.value ?? description
+                                confirmSet = nil
+                            },
+                            onRetry: { confirmSet = nil },
+                            onCancel: { confirmSet = nil })
+                        .presentationDetents([.medium])
+                    }
                 }
+                .fullScreenCover(isPresented: $showCamera) {
+                    CameraPicker { image in
+                        appendCamera(image)
+                        showCamera = false
+                    }
+                    .ignoresSafeArea()
+                }
+                .onChangeCompat(of: pickerItems) { _, items in
+                    loadGeneration += 1
+                    let gen = loadGeneration
+                    loadingPicker = true
+                    // MainActor Task（评审修正）：不用 Task.detached——@Sendable 闭包捕获
+                    // 视图 @State 在 Swift 6 严格并发下有隔离风险；加载与下采样在
+                    // MediaImport.loadWithThumbnails 的非隔离上下文中执行，只回传 Sendable Data。
+                    Task {
+                        let (loaded, thumbsData) = await MediaImport.loadWithThumbnails(items)
+                        guard gen == loadGeneration else { return }   // 旧代结果作废（评审修正：曾发生竞态覆盖）
+                        // 跨源上限钳制（评审修正）：相册选择本身不受相机已拍数约束，
+                        // 超限截断，总量恒 ≤ maxPhotos。cameraCount 必须取完成时点
+                        // 的实值——此前在选择时点捕获，加载期间相机可再拍满 6 张，
+                        // 完成时 allowed 仍按 0 算，总量可达 12 张
+                        let allowed = max(0, maxPhotos - cameraData.count)
+                        pickerData = Array(loaded.prefix(allowed))
+                        pickerThumbs = thumbsData.prefix(allowed).compactMap(UIImage.init(data:))
+                        loadingPicker = false
+                    }
+                }
+                .onAppear {
+                    kind = app.observationLastKind
+                    routeMonitor.start()
+                }
+                .onDisappear { routeMonitor.stop() }
             }
-            .onAppear {
-                kind = app.observationLastKind
-                routeMonitor.start()
-            }
-            .onDisappear { routeMonitor.stop() }
         }
     }
 

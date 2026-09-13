@@ -1,6 +1,7 @@
 import SwiftUI
 import Domain
 import Infrastructure
+import Perception
 
 /// FR4.2/FR6.9：从就诊和原件进入同一个已确认卡详情；原图仍走原有敏感媒体认证。
 struct MedicalCardDetailView: View {
@@ -17,94 +18,96 @@ struct MedicalCardDetailView: View {
     @State private var saving = false
 
     var body: some View {
-        List {
-            if let detail {
-                Section {
-                    OCRReviewOwnerRow(patientId: patientId)
-                    GradeBadge(grade: "C")
-                    ForEach(Array(headerFields(from: detail).enumerated()), id: \.offset) { _, field in
-                        LabeledContent(DocumentsState.fieldLabel(forKey: field.key),
-                                       value: DocumentsState.fieldValueDisplay(forKey: field.key, value: field.value))
-                    }
-                }
-                if kind == "prescription", let advice = detail.fields.first(where: { $0.key == "advice_text" })?.value {
-                    let parsed = prescriptionLines(from: advice)
-                    if !parsed.drugs.isEmpty {
-                        Section(L10n.prescriptionFieldDrugName) {
-                            ForEach(Array(parsed.drugs.enumerated()), id: \.offset) { index, line in
-                                VStack(alignment: .leading, spacing: 4) {
-                                    HStack(spacing: 8) {
-                                        Image(systemName: "pills.fill")
-                                            .foregroundStyle(Color("brand-primary", bundle: .main))
-                                        Text(line.name)
-                                            .font(.body.bold())
-                                        Spacer()
-                                        Text(L10n.entityCardRowIndex(index + 1))
-                                            .font(.caption2).foregroundStyle(.secondary)
-                                    }
-                                    if !line.details.isEmpty {
-                                        Text(line.details)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
-                                .padding(.vertical, 2)
-                                .accessibilityIdentifier("medicalCard.prescription.row.\(index)")
-                            }
+        WithPerceptionTracking {
+            List {
+                if let detail {
+                    Section {
+                        OCRReviewOwnerRow(patientId: patientId)
+                        GradeBadge(grade: "C")
+                        ForEach(Array(headerFields(from: detail).enumerated()), id: \.offset) { _, field in
+                            LabeledContent(DocumentsState.fieldLabel(forKey: field.key),
+                                           value: DocumentsState.fieldValueDisplay(forKey: field.key, value: field.value))
                         }
                     }
-                    if !parsed.notes.isEmpty {
-                        // 自由文本医嘱不得冒充药品行——按医嘱字段标签单独呈现。
-                        Section(DocumentsState.fieldLabel(forKey: "advice_text")) {
-                            ForEach(Array(parsed.notes.enumerated()), id: \.offset) { _, note in
-                                Text(note)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                    if kind == "prescription", let advice = detail.fields.first(where: { $0.key == "advice_text" })?.value {
+                        let parsed = prescriptionLines(from: advice)
+                        if !parsed.drugs.isEmpty {
+                            Section(L10n.prescriptionFieldDrugName) {
+                                ForEach(Array(parsed.drugs.enumerated()), id: \.offset) { index, line in
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        HStack(spacing: 8) {
+                                            Image(systemName: "pills.fill")
+                                                .foregroundStyle(Color("brand-primary", bundle: .main))
+                                            Text(line.name)
+                                                .font(.body.bold())
+                                            Spacer()
+                                            Text(L10n.entityCardRowIndex(index + 1))
+                                                .font(.caption2).foregroundStyle(.secondary)
+                                        }
+                                        if !line.details.isEmpty {
+                                            Text(line.details)
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
                                     .padding(.vertical, 2)
+                                    .accessibilityIdentifier("medicalCard.prescription.row.\(index)")
+                                }
+                            }
+                        }
+                        if !parsed.notes.isEmpty {
+                            // 自由文本医嘱不得冒充药品行——按医嘱字段标签单独呈现。
+                            Section(DocumentsState.fieldLabel(forKey: "advice_text")) {
+                                ForEach(Array(parsed.notes.enumerated()), id: \.offset) { _, note in
+                                    Text(note)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .padding(.vertical, 2)
+                                }
                             }
                         }
                     }
-                }
-                Section(L10n.ocrAssociatedEncounter) {
-                    if detail.encounterIDs.isEmpty { Text(L10n.ocrUnlinked).foregroundStyle(.secondary) }
-                    ForEach(detail.encounterIDs, id: \.self) { id in
-                        NavigationLink(value: AppRoute.encounterDetail(id)) {
-                            Text(encounterTitle(id))
-                        }
-                    }
-                    if detail.relationshipEditable {
-                        Picker(L10n.ocrAssociatedEncounter, selection: $selectedEncounter) {
-                            Text(L10n.ocrUnlinked).tag(Optional<UUID>.none)
-                            ForEach(candidates) { candidate in
-                                Text(encounterTitle(candidate.id)).tag(Optional(candidate.id))
+                    Section(L10n.ocrAssociatedEncounter) {
+                        if detail.encounterIDs.isEmpty { Text(L10n.ocrUnlinked).foregroundStyle(.secondary) }
+                        ForEach(detail.encounterIDs, id: \.self) { id in
+                            NavigationLink(value: AppRoute.encounterDetail(id)) {
+                                Text(encounterTitle(id))
                             }
                         }
-                        Button(L10n.commonSave) { saveAssociation() }.disabled(saving)
-                            .accessibilityIdentifier("medicalCard.association.save")
-                        if associationFailed {
-                            Text(L10n.ocrAssociationUnavailable).font(.caption).foregroundStyle(.orange)
+                        if detail.relationshipEditable {
+                            Picker(L10n.ocrAssociatedEncounter, selection: $selectedEncounter) {
+                                Text(L10n.ocrUnlinked).tag(Optional<UUID>.none)
+                                ForEach(candidates) { candidate in
+                                    Text(encounterTitle(candidate.id)).tag(Optional(candidate.id))
+                                }
+                            }
+                            Button(L10n.commonSave) { saveAssociation() }.disabled(saving)
+                                .accessibilityIdentifier("medicalCard.association.save")
+                            if associationFailed {
+                                Text(L10n.ocrAssociationUnavailable).font(.caption).foregroundStyle(.orange)
+                            }
                         }
                     }
-                }
-                Section(L10n.pendingCardViewSource) {
-                    ForEach(detail.sources) { page in
-                        Button {
-                            source = page
-                        } label: {
-                            Label((page.title ?? L10n.docUntitled) + " · " + L10n.entityCardRowIndex(page.pageIndex + 1), systemImage: "doc.text.magnifyingglass")
-                        }.frame(minHeight: 44)
+                    Section(L10n.pendingCardViewSource) {
+                        ForEach(detail.sources) { page in
+                            Button {
+                                source = page
+                            } label: {
+                                Label((page.title ?? L10n.docUntitled) + " · " + L10n.entityCardRowIndex(page.pageIndex + 1), systemImage: "doc.text.magnifyingglass")
+                            }.frame(minHeight: 44)
+                        }
                     }
+                } else if !failed { ProgressView() }
+                if failed {
+                    Text(L10n.docImportFailed).foregroundStyle(.orange)
+                    Button(L10n.retry) { Task { await load() } }
                 }
-            } else if !failed { ProgressView() }
-            if failed {
-                Text(L10n.docImportFailed).foregroundStyle(.orange)
-                Button(L10n.retry) { Task { await load() } }
             }
-        }
-        .navigationTitle(L10n.entityCardKindName(kind))
-        .task(id: entityId) { await load() }
-        .sheet(item: $source) { page in
-            DocumentSourcePageView(documentId: page.documentId, patientId: patientId, pageIndex: page.pageIndex)
+            .navigationTitle(L10n.entityCardKindName(kind))
+            .task(id: entityId) { await load() }
+            .sheet(item: $source) { page in
+                DocumentSourcePageView(documentId: page.documentId, patientId: patientId, pageIndex: page.pageIndex)
+            }
         }
     }
 
@@ -205,22 +208,24 @@ struct DocumentRelationsSection: View {
         var id: String { kind + ":" + entityId.uuidString }
     }
     var body: some View {
-        Section(L10n.encounterLinkedCards) {
-            ForEach(encounters, id: \.self) { id in
-                NavigationLink(L10n.encounterDetailTitle, value: AppRoute.encounterDetail(id))
-            }
-            ForEach(Array(Set(cards.map(\.kind))).sorted(), id: \.self) { kind in
-                let group = cards.filter { $0.kind == kind }
-                DisclosureGroup(L10n.entityCardKindName(kind) + " (\(group.count))") {
-                    ForEach(Array(group.enumerated()), id: \.element.id) { index, card in
-                        NavigationLink(L10n.entityCardRowIndex(index + 1),
-                            value: AppRoute.medicalCard(kind: card.kind, id: card.entityId, patientId: patientId))
+        WithPerceptionTracking {
+            Section(L10n.encounterLinkedCards) {
+                ForEach(encounters, id: \.self) { id in
+                    NavigationLink(L10n.encounterDetailTitle, value: AppRoute.encounterDetail(id))
+                }
+                ForEach(Array(Set(cards.map(\.kind))).sorted(), id: \.self) { kind in
+                    let group = cards.filter { $0.kind == kind }
+                    DisclosureGroup(L10n.entityCardKindName(kind) + " (\(group.count))") {
+                        ForEach(Array(group.enumerated()), id: \.element.id) { index, card in
+                            NavigationLink(L10n.entityCardRowIndex(index + 1),
+                                value: AppRoute.medicalCard(kind: card.kind, id: card.entityId, patientId: patientId))
+                        }
                     }
                 }
+                if failed { Text(L10n.docImportFailed).foregroundStyle(.orange); Button(L10n.retry) { Task { await load() } } }
             }
-            if failed { Text(L10n.docImportFailed).foregroundStyle(.orange); Button(L10n.retry) { Task { await load() } } }
+            .task(id: documentId) { await load() }
         }
-        .task(id: documentId) { await load() }
     }
     private func load() async {
         guard let store = docs.cardStore else { return }

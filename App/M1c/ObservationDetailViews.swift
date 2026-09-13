@@ -1,6 +1,7 @@
 import SwiftUI
 import Domain
 import Infrastructure
+import Perception
 
 /// FR8.11 观察详情页（SP-14 契约 §5.7.1）：四入口直达（首页待办/全局搜索/
 /// 时间轴/随访通知深链）。FR8.2 已存字段全量呈现；媒体条走 FR8.4 敏感链
@@ -36,62 +37,67 @@ struct ObservationDetailView: View {
     @State private var followUpDoneToast = false
 
     var body: some View {
-        Group {
-            switch state.detailPhase {
-            case .loading:
-                ProgressView()
-            case .failed:
-                ContentUnavailableView(L10n.obsDetailLoadFailed, systemImage: "exclamationmark.triangle",
-                                       description: Text(L10n.obsDetailRetry))
-            case .loaded:
-                // 审查修复：detail 是共享状态——从 B 详情 pop 回 A 时，A 的
-                // .task 重载完成前 state.detail 仍指向 B，A 页短暂渲染 B 的
-                // 全部内容（含敏感媒体），此刻点「保存」会以 B 的 id 写错
-                // 记录。渲染必须校验 detail 与当前页 id 一致。
-                if let event = state.detail, event.id == observationId {
-                    content(event)
-                } else if state.detail != nil {
+        WithPerceptionTracking {
+            Group {
+                switch state.detailPhase {
+                case .loading:
                     ProgressView()
-                } else {
-                    // 目标已删除/不存在：可见降级，不渲染假页面
-                    ContentUnavailableView(L10n.obsDetailLoadFailed, systemImage: "doc.text.magnifyingglass")
-                }
-            }
-        }
-        .sheet(isPresented: $showGroupSheet) {
-            SameGroupSheet(events: (state.detail?.groupId).map { gid in
-                state.groups.flatMap(\.occurrences).filter { $0.groupId == gid }
-                    .sorted { $0.occurredAt < $1.occurredAt }
-            } ?? [])
-            .presentationDetents([.medium])
-        }
-        .navigationTitle(navTitle)
-        .navigationBarTitleDisplayMode(.inline)
-        .task(id: observationId) { await state.loadDetail(id: observationId) }
-        .alert(L10n.obsDetailDeleteTitle, isPresented: $showDeleteConfirm) {
-            Button(L10n.obsDetailDelete, role: .destructive) {
-                Task {
-                    if await state.deleteObservation(id: observationId) {
-                        deletedToast = true
+                case .failed:
+                    VLUnavailableView(L10n.obsDetailLoadFailed, systemImage: "exclamationmark.triangle",
+                                           description: Text(L10n.obsDetailRetry))
+                case .loaded:
+                    // 审查修复：detail 是共享状态——从 B 详情 pop 回 A 时，A 的
+                    // .task 重载完成前 state.detail 仍指向 B，A 页短暂渲染 B 的
+                    // 全部内容（含敏感媒体），此刻点「保存」会以 B 的 id 写错
+                    // 记录。渲染必须校验 detail 与当前页 id 一致。
+                    if let event = state.detail, event.id == observationId {
+                        content(event)
+                    } else if state.detail != nil {
+                        ProgressView()
+                    } else {
+                        // 目标已删除/不存在：可见降级，不渲染假页面
+                        VLUnavailableView(L10n.obsDetailLoadFailed, systemImage: "doc.text.magnifyingglass")
                     }
                 }
             }
-            Button(L10n.commonCancel, role: .cancel) { }
-        } message: {
-            Text(L10n.obsDetailDeleteBody)
-        }
-        .alert(L10n.obsDetailEditSaved, isPresented: $editSavedToast) {
-            Button(L10n.onboard_gotIt, role: .cancel) { }
-        }
-        .alert(L10n.obsDetailDeleteDone, isPresented: $deletedToast) {
-            Button(L10n.onboard_gotIt, role: .cancel) { dismiss() }
-        }
-        .alert(L10n.obsDetailFollowUpDone, isPresented: $followUpDoneToast) {
-            Button(L10n.onboard_gotIt, role: .cancel) { }
-        }
-        .sheet(isPresented: $showFollowUp) {
-            followUpSheet
-                .presentationDetents([.medium])
+            .sheet(isPresented: $showGroupSheet) {
+                // sheet 内容闭包逃逸：同步读 state.detail / state.groups，须自行包裹（子项目 I）
+                WithPerceptionTracking {
+                    SameGroupSheet(events: (state.detail?.groupId).map { gid in
+                        state.groups.flatMap(\.occurrences).filter { $0.groupId == gid }
+                            .sorted { $0.occurredAt < $1.occurredAt }
+                    } ?? [])
+                    .presentationDetents([.medium])
+                }
+            }
+            .navigationTitle(navTitle)
+            .navigationBarTitleDisplayMode(.inline)
+            .task(id: observationId) { await state.loadDetail(id: observationId) }
+            .alert(L10n.obsDetailDeleteTitle, isPresented: $showDeleteConfirm) {
+                Button(L10n.obsDetailDelete, role: .destructive) {
+                    Task {
+                        if await state.deleteObservation(id: observationId) {
+                            deletedToast = true
+                        }
+                    }
+                }
+                Button(L10n.commonCancel, role: .cancel) { }
+            } message: {
+                Text(L10n.obsDetailDeleteBody)
+            }
+            .alert(L10n.obsDetailEditSaved, isPresented: $editSavedToast) {
+                Button(L10n.onboard_gotIt, role: .cancel) { }
+            }
+            .alert(L10n.obsDetailDeleteDone, isPresented: $deletedToast) {
+                Button(L10n.onboard_gotIt, role: .cancel) { dismiss() }
+            }
+            .alert(L10n.obsDetailFollowUpDone, isPresented: $followUpDoneToast) {
+                Button(L10n.onboard_gotIt, role: .cancel) { }
+            }
+            .sheet(isPresented: $showFollowUp) {
+                followUpSheet
+                    .presentationDetents([.medium])
+            }
         }
     }
 
@@ -331,20 +337,22 @@ struct SameGroupSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
-            List(events) { e in
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(e.occurredAt.formatted(date: .abbreviated, time: .shortened))
-                        .font(.subheadline)
-                    if let d = e.description, !d.isEmpty {
-                        Text(d).font(.caption).foregroundStyle(.secondary)
+        WithPerceptionTracking {
+            NavigationStack {
+                List(events) { e in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(e.occurredAt.formatted(date: .abbreviated, time: .shortened))
+                            .font(.subheadline)
+                        if let d = e.description, !d.isEmpty {
+                            Text(d).font(.caption).foregroundStyle(.secondary)
+                        }
                     }
                 }
-            }
-            .navigationTitle(L10n.obsDetailViewGroup)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(L10n.onboard_gotIt) { dismiss() }
+                .navigationTitle(L10n.obsDetailViewGroup)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(L10n.onboard_gotIt) { dismiss() }
+                    }
                 }
             }
         }

@@ -1,7 +1,7 @@
 name: VitaLiber
 options:
   bundleIdPrefix: com.vitaliber
-  deploymentTarget: { iOS: "17.0" }
+  deploymentTarget: { iOS: "16.0" }   # 子项目 I：iOS/iPadOS 16+（Perception 回移植）
   # 三文件本地化纪律（tech-spec §3）：zh-Hans 为开发区域，zh-Hant/en 平价交付。
   # 未登记 knownRegions 时 xcodegen 只会打包 Base + 已存在的 .lproj，
   # zh-Hant 新增后必须同步登记，否则 SU-M15-L10N 的键集断言在设备上取不到该本地化。
@@ -12,6 +12,9 @@ packages:
   GRDB.swift:
     url: https://github.com/groue/GRDB.swift.git
     majorVersion: 6.29.0
+  swift-perception:
+    url: https://github.com/pointfreeco/swift-perception
+    exactVersion: 2.0.12   # 与 CoreKit from: "2.0.12" 同解；App 侧 xcodeproj 不入库，钉精确版保证 CI 可重现
 targets:
   VitaLiber:
     type: application
@@ -74,7 +77,9 @@ targets:
     # 描述符——仅靠 CoreKit 传递链接，ld 报 "protocol descriptor for
     # GRDB.DatabaseWriter symbol(s) not found"。App 只链接不 import GRDB，
     # 分层不变（后续可登记技术债：Infrastructure 公开 API 消除 GRDB 类型泄漏）。
-    dependencies: [{ package: CoreKit }, { package: GRDB.swift, product: GRDB }]
+    # swift-perception 直连：App 源码直接 import Perception（宏 + WithPerceptionTracking），
+    # 须直连产品（同 GRDB ERR#31 理由）。
+    dependencies: [{ package: CoreKit }, { package: GRDB.swift, product: GRDB }, { package: swift-perception, product: Perception }]
   VitaLiberTests:
     type: bundle.unit-test
     platform: iOS
@@ -89,7 +94,8 @@ targets:
     # witness table 必须能解析到 GRDB 库——仅靠 CoreKit 的传递链接，ld 报
     # "protocol witness table for Swift.Int : GRDB.StatementColumnConvertible ...
     # symbol(s) not found for architecture arm64"（ERR#31）。
-    dependencies: [{ target: VitaLiber }, { package: CoreKit }, { package: GRDB.swift, product: GRDB }]
+    # swift-perception 直连：HomeProfileProgressTests 用 withPerceptionTracking。
+    dependencies: [{ target: VitaLiber }, { package: CoreKit }, { package: GRDB.swift, product: GRDB }, { package: swift-perception, product: Perception }]
   VitaLiberUITests:
     type: bundle.ui-testing
     platform: iOS

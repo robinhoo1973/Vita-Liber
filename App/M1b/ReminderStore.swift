@@ -5,11 +5,12 @@ import UserNotifications
 import Domain
 import Infrastructure
 import Protocols
+import Perception
 
 /// M1b 提醒模块状态仓（@Observable）：
 /// 今日时段聚合（FR9.17）+ 服药确认动作集 + 预约闭环 + 对账触发。
 @MainActor
-@Observable
+@Perceptible
 final class ReminderStore {
     private(set) var todaySlots: [DoseSlot] = []
     private(set) var upcomingAppointments: [AppointmentRow] = []

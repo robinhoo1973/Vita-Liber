@@ -2,6 +2,7 @@ import SwiftUI
 import AVFoundation
 import Domain
 import Infrastructure
+import Perception
 
 /// 语音访谈前置音量自检（TestFlight 实测修复：语音完善个人信息无音量检测、
 /// 无语音输出指导）。
@@ -25,61 +26,63 @@ struct VoiceLevelCheck: View {
     private var tooLow: Bool { level < VoiceLevelMeter.lowThreshold }
 
     var body: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "waveform.and.mic")
-                .font(VLFont.levelDisplay)
-                .foregroundStyle(tooLow ? Color("semantic-warning", bundle: .main)
-                                       : Color("brand-primary", bundle: .main))
-            Text(L10n.voiceguide_micTitle).font(.title3.bold())
-            Text(L10n.voiceguide_micPrompt)
-                .font(.footnote).foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
+        WithPerceptionTracking {
+            VStack(spacing: 20) {
+                Image(systemName: "waveform.and.mic")
+                    .font(VLFont.levelDisplay)
+                    .foregroundStyle(tooLow ? Color("semantic-warning", bundle: .main)
+                                           : Color("brand-primary", bundle: .main))
+                Text(L10n.voiceguide_micTitle).font(.title3.bold())
+                Text(L10n.voiceguide_micPrompt)
+                    .font(.footnote).foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
 
-            // 测试句卡片（自动朗读一次）
-            Text(meter.testPhrase)
-                .font(.headline)
-                .padding(.horizontal, 20).padding(.vertical, 14)
-                .background(RoundedRectangle(cornerRadius: 12).fill(Color("bg-grouped", bundle: .main)))
-                .onAppear { app.speak(meter.testPhrase) }
+                // 测试句卡片（自动朗读一次）
+                Text(meter.testPhrase)
+                    .font(.headline)
+                    .padding(.horizontal, 20).padding(.vertical, 14)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(Color("bg-grouped", bundle: .main)))
+                    .onAppear { app.speak(meter.testPhrase) }
 
-            // 实时音量条（RMS 归一化；达标段绿、不足段警示色）
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Color("bg-grouped", bundle: .main))
-                    Capsule()
-                        .fill(tooLow ? Color("semantic-warning", bundle: .main)
-                                     : Color("semantic-success", bundle: .main))
-                        .frame(width: max(8, geo.size.width * CGFloat(min(level * 4, 1.0))))
+                // 实时音量条（RMS 归一化；达标段绿、不足段警示色）
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Color("bg-grouped", bundle: .main))
+                        Capsule()
+                            .fill(tooLow ? Color("semantic-warning", bundle: .main)
+                                         : Color("semantic-success", bundle: .main))
+                            .frame(width: max(8, geo.size.width * CGFloat(min(level * 4, 1.0))))
+                    }
+                    .frame(height: 10)
                 }
-                .frame(height: 10)
-            }
-            .frame(maxWidth: 280, minHeight: 10)
+                .frame(maxWidth: 280, minHeight: 10)
 
-            if tooLow {
-                Label(L10n.voiceguide_micTooLow, systemImage: "exclamationmark.triangle")
-                    .font(.caption)
-                    .foregroundStyle(Color("semantic-warning", bundle: .main))
-                    .accessibilityIdentifier("voice.mic.tooLow")
-            }
+                if tooLow {
+                    Label(L10n.voiceguide_micTooLow, systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(Color("semantic-warning", bundle: .main))
+                        .accessibilityIdentifier("voice.mic.tooLow")
+                }
 
-            HStack(spacing: 16) {
-                Button(L10n.voiceguide_micSkip) { stopAndSkip() }
-                    .frame(minHeight: 44)
-                Button(L10n.voiceguide_micPass) { stopAndPass() }
-                    .buttonStyle(.borderedProminent)
-                    .frame(minHeight: 44)
-                    .accessibilityIdentifier("voice.mic.pass")
+                HStack(spacing: 16) {
+                    Button(L10n.voiceguide_micSkip) { stopAndSkip() }
+                        .frame(minHeight: 44)
+                    Button(L10n.voiceguide_micPass) { stopAndPass() }
+                        .buttonStyle(.borderedProminent)
+                        .frame(minHeight: 44)
+                        .accessibilityIdentifier("voice.mic.pass")
+                }
+                .padding(.horizontal, 24)
+                Spacer()
             }
-            .padding(.horizontal, 24)
-            Spacer()
+            .padding(.top, 32)
+            .onAppear {
+                meter.onLevel = { rms in level = rms }
+                meter.start()
+            }
+            .onDisappear { meter.stop() }
         }
-        .padding(.top, 32)
-        .onAppear {
-            meter.onLevel = { rms in level = rms }
-            meter.start()
-        }
-        .onDisappear { meter.stop() }
     }
 
     private func stopAndPass() { meter.stop(); onPass() }
@@ -89,7 +92,7 @@ struct VoiceLevelCheck: View {
 /// 麦克风实时电平（AVAudioEngine tap，RMS 归一化 0..1）。
 /// 阈值取经验值：正常说话 RMS 通常 >0.03；低于该值判定「音量过低」。
 @MainActor
-@Observable
+@Perceptible
 final class VoiceLevelMeter {
     /// 判定「音量过低」的 RMS 阈值（实测经验值：耳语 ~0.01，正常 ~0.05-0.3）
     static let lowThreshold: Float = 0.03

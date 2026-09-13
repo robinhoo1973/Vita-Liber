@@ -1,5 +1,6 @@
 import Foundation
 import Domain
+import Perception
 
 /// §5.10 敏感媒体跨视图会话令牌：一次认证换取会话级解锁，连看多个敏感文件
 /// 不必逐个验证。300s 无操作自动重锁（spec V3.71/V3.72 DoctorShowcase 锚定值）；
@@ -8,7 +9,7 @@ import Domain
 /// BR-007/BR-008: 敏感内容不跨生命周期存活——任务切换器快照、锁屏预览
 /// 都不得出现敏感内容。会话令牌仅在 active scene 内有效。
 @MainActor
-@Observable
+@Perceptible
 final class MediaUnlockSession {
     /// 会话是否处于解锁态
     private(set) var isUnlocked = false

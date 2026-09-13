@@ -1,4 +1,5 @@
 import SwiftUI
+import Perception
 
 /// M1a 首启流程编排（FR21.9 V3.39 简化切片：三卡 → 建档 → 添加家人 → 完成，
 /// 无 PIN 步骤——门禁自首启完成后以系统设备所有者认证生效）。
@@ -9,31 +10,36 @@ struct OnboardingFlowView: View {
     @Environment(AppState.self) private var app
 
     var body: some View {
-        // §5.62 三步进度条（V3.39：三卡/建档/家人——仅初始化用户信息相关步骤）
-        VStack(spacing: 0) {
-            HStack(spacing: 6) {
-                ForEach(0..<3, id: \.self) { idx in
-                    Capsule()
-                        .fill(idx <= stepIndex
-                              ? Color("brand-primary", bundle: .main)
-                              : Color("bg-grouped", bundle: .main))   // 语义令牌（token-only 纪律，不用系统调色板）
-                        .frame(height: 4)
+        WithPerceptionTracking {
+            // §5.62 三步进度条（V3.39：三卡/建档/家人——仅初始化用户信息相关步骤）
+            VStack(spacing: 0) {
+                HStack(spacing: 6) {
+                    ForEach(0..<3, id: \.self) { idx in
+                        // ForEach 行闭包逃逸：行内同步读感知对象属性，须自行包裹（子项目 I）
+                        WithPerceptionTracking {
+                            Capsule()
+                                .fill(idx <= stepIndex
+                                      ? Color("brand-primary", bundle: .main)
+                                      : Color("bg-grouped", bundle: .main))   // 语义令牌（token-only 纪律，不用系统调色板）
+                                .frame(height: 4)
+                        }
+                    }
                 }
-            }
-            .padding(.horizontal, 20).padding(.vertical, 8)
-            switch app.stage {
-            case .disclosure(let i):
-                // else 分支为防御性兜底（disclosureCards 为空时索引越界→空白而非崩溃）
-                if i < app.disclosureCards.count {
-                    DisclosureCardsView(card: app.disclosureCards[i])
-                } else {
-                    EmptyView()
+                .padding(.horizontal, 20).padding(.vertical, 8)
+                switch app.stage {
+                case .disclosure(let i):
+                    // else 分支为防御性兜底（disclosureCards 为空时索引越界→空白而非崩溃）
+                    if i < app.disclosureCards.count {
+                        DisclosureCardsView(card: app.disclosureCards[i])
+                    } else {
+                        EmptyView()
+                    }
+                case .ownerName:
+                    OwnerSetupView()
+                case .addFamily:
+                    // FR21.9 ④ 添加家人（可跳过）——向导最后一步
+                    AddFamilyStepView()
                 }
-            case .ownerName:
-                OwnerSetupView()
-            case .addFamily:
-                // FR21.9 ④ 添加家人（可跳过）——向导最后一步
-                AddFamilyStepView()
             }
         }
     }
@@ -71,93 +77,95 @@ struct LockOverlayView: View {
     @State private var didAutoAttempt = false
 
     var body: some View {
-        ZStack {
-            Color("bg-grouped", bundle: .main).ignoresSafeArea()
-            VStack(spacing: 20) {
-                VLIcon.faceid
-                    .resizable().frame(width: 56, height: 56)
-                    .foregroundStyle(Color("brand-primary", bundle: .main))
-                Text(L10n.security_unlockTitle)
-                    .font(.title2.bold())
-                Text(L10n.security_unlockSubtitle)
-                    .font(.footnote)
-                    .foregroundStyle(Color("text-secondary", bundle: .main))
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 32)
+        WithPerceptionTracking {
+            ZStack {
+                Color("bg-grouped", bundle: .main).ignoresSafeArea()
+                VStack(spacing: 20) {
+                    VLIcon.faceid
+                        .resizable().frame(width: 56, height: 56)
+                        .foregroundStyle(Color("brand-primary", bundle: .main))
+                    Text(L10n.security_unlockTitle)
+                        .font(.title2.bold())
+                    Text(L10n.security_unlockSubtitle)
+                        .font(.footnote)
+                        .foregroundStyle(Color("text-secondary", bundle: .main))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 32)
 
-                Button {
-                    failedOnce = false
-                    Task { await attempt() }
-                } label: {
-                    Label(L10n.security_unlockButton, systemImage: "faceid")
-                        .frame(maxWidth: 320, minHeight: 50)
+                    Button {
+                        failedOnce = false
+                        Task { await attempt() }
+                    } label: {
+                        Label(L10n.security_unlockButton, systemImage: "faceid")
+                            .frame(maxWidth: 320, minHeight: 50)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("SP-01.lockOverlay.unlock")
+
+                    if failedOnce {
+                        Text(L10n.security_unlockFailed)
+                            .font(.caption)
+                            .foregroundStyle(Color("semantic-danger", bundle: .main))
+                            .accessibilityIdentifier("SP-01.lockOverlay.failed")
+                    }
+
+                    // 两步可达（长按 + 二次确认）由 SOSButton 承担防误触，规则在 Domain SOSRules。
+                    // FR18.6：锁屏 SOS 直达全屏求助页（唯一免门禁路径，安全优先于隐私）
+                    SOSButton { showEmergency = true }
+                        .accessibilityIdentifier("SP-01.lockOverlay.sos")
                 }
-                .buttonStyle(.borderedProminent)
-                .accessibilityIdentifier("SP-01.lockOverlay.unlock")
-
-                if failedOnce {
-                    Text(L10n.security_unlockFailed)
-                        .font(.caption)
-                        .foregroundStyle(Color("semantic-danger", bundle: .main))
-                        .accessibilityIdentifier("SP-01.lockOverlay.failed")
-                }
-
-                // 两步可达（长按 + 二次确认）由 SOSButton 承担防误触，规则在 Domain SOSRules。
-                // FR18.6：锁屏 SOS 直达全屏求助页（唯一免门禁路径，安全优先于隐私）
-                SOSButton { showEmergency = true }
-                    .accessibilityIdentifier("SP-01.lockOverlay.sos")
             }
-        }
-        // 容器 identifier 必须配 accessibilityElement(children: .contain)——
-        // 否则 SwiftUI 把容器标识下放覆盖到每个子元素自身标识（解锁按钮的
-        // SP-01.lockOverlay.unlock 被顶成 SP-01.lockOverlay，XCUITest 找不到，
-        // CI 34021989599 实证层级 dump：两按钮同挂容器标识）。
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("SP-01.lockOverlay")
-        .task {
-            // 冷启动呈现遮罩即自动弹系统认证一次——必须等前台激活：遮罩在
-            // 退后台（.inactive）也挂载，其 .task 随挂载立即执行，LAContext
-            // 在非前台场景求值必失败（appNotForeground）且 .task 不因回前台
-            // 重跑——回前台自动重试由下方 onChange(scenePhase) 驱动。
-            // UI 测试用 -uitest-gate-no-auto 关断自动尝试（Face ID 无法自动化）
-            guard app.gateAutoAttempts, scenePhase == .active else { return }
-            didAutoAttempt = true
-            await attempt()
-        }
-        .onChange(of: scenePhase) { _, phase in
-            // FR1.4「回前台必须重新认证、自动弹系统浮层」：仅从真后台返回时
-            // 自动重试。审查修复：原实现每次 .active 都重试——自身 Face ID
-            // 浮层取消/消失也令场景 inactive→active，形成「取消 → 立即再弹」
-            // 死循环，锁屏 SOS（BR-012 免门禁路径）永不可达
-            // 审查修复（冷启动回归）：sawBackground 恒 false 的冷启动首个
-            // .active 必须补一次自动尝试（遮罩挂载于 .inactive、.task 守卫
-            // 已跳过且不重跑）；didAutoAttempt 防止浮层取消引发的
-            // inactive→active 再次触发——每次遮罩生命周期最多自动一次。
-            switch phase {
-            case .background:
-                sawBackground = true
-            case .active:
-                guard app.gateAutoAttempts else { return }
-                if sawBackground {
-                    sawBackground = false
-                    failedOnce = false
-                    didAutoAttempt = true
-                    Task { await attempt() }
-                } else if !didAutoAttempt {
-                    didAutoAttempt = true
-                    Task { await attempt() }
-                }
-            case .inactive:
-                break
-            @unknown default:
-                break
+            // 容器 identifier 必须配 accessibilityElement(children: .contain)——
+            // 否则 SwiftUI 把容器标识下放覆盖到每个子元素自身标识（解锁按钮的
+            // SP-01.lockOverlay.unlock 被顶成 SP-01.lockOverlay，XCUITest 找不到，
+            // CI 34021989599 实证层级 dump：两按钮同挂容器标识）。
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("SP-01.lockOverlay")
+            .task {
+                // 冷启动呈现遮罩即自动弹系统认证一次——必须等前台激活：遮罩在
+                // 退后台（.inactive）也挂载，其 .task 随挂载立即执行，LAContext
+                // 在非前台场景求值必失败（appNotForeground）且 .task 不因回前台
+                // 重跑——回前台自动重试由下方 onChange(scenePhase) 驱动。
+                // UI 测试用 -uitest-gate-no-auto 关断自动尝试（Face ID 无法自动化）
+                guard app.gateAutoAttempts, scenePhase == .active else { return }
+                didAutoAttempt = true
+                await attempt()
             }
-        }
-        .onChange(of: app.lastUnlockedAt) { _, value in
-            if value != nil { onUnlocked() }
-        }
-        .sheet(isPresented: $showEmergency) {
-            SOSHelpView()
+            .onChangeCompat(of: scenePhase) { _, phase in
+                // FR1.4「回前台必须重新认证、自动弹系统浮层」：仅从真后台返回时
+                // 自动重试。审查修复：原实现每次 .active 都重试——自身 Face ID
+                // 浮层取消/消失也令场景 inactive→active，形成「取消 → 立即再弹」
+                // 死循环，锁屏 SOS（BR-012 免门禁路径）永不可达
+                // 审查修复（冷启动回归）：sawBackground 恒 false 的冷启动首个
+                // .active 必须补一次自动尝试（遮罩挂载于 .inactive、.task 守卫
+                // 已跳过且不重跑）；didAutoAttempt 防止浮层取消引发的
+                // inactive→active 再次触发——每次遮罩生命周期最多自动一次。
+                switch phase {
+                case .background:
+                    sawBackground = true
+                case .active:
+                    guard app.gateAutoAttempts else { return }
+                    if sawBackground {
+                        sawBackground = false
+                        failedOnce = false
+                        didAutoAttempt = true
+                        Task { await attempt() }
+                    } else if !didAutoAttempt {
+                        didAutoAttempt = true
+                        Task { await attempt() }
+                    }
+                case .inactive:
+                    break
+                @unknown default:
+                    break
+                }
+            }
+            .onChangeCompat(of: app.lastUnlockedAt) { _, value in
+                if value != nil { onUnlocked() }
+            }
+            .sheet(isPresented: $showEmergency) {
+                SOSHelpView()
+            }
         }
     }
 

@@ -1,6 +1,7 @@
 import SwiftUI
 import Domain
 import Protocols
+import Perception
 
 /// FR17.10 语音提醒设定 + FR17.11 语音引导式档案注册/完善（SP-58）。
 /// 两者的确认一律走 `VoiceConfirmSheet`（FR17.13），本文件不含任何自建确认 UI。
@@ -26,69 +27,71 @@ struct VoiceReminderDraftView: View {
     @State private var dictationConfidence: Double = 1
 
     var body: some View {
-        let scope = dictationScope
-        VStack(alignment: .leading, spacing: 12) {
-            Text(L10n.voiceguide_reminderTitle).font(.headline)
-            Text(L10n.voiceguide_reminderExample)
-                .font(.caption).foregroundStyle(.secondary)
-            // TestFlight 实测修复：录音听写按钮（与手输共填同一文本，on-device 识别）
-            VoiceDictationButton(onTranscript: { text, confidence in
-                guard dictationScope == scope, !text.isEmpty else { return }
-                dictationConfidence = min(dictationConfidence, confidence)
-                transcript = transcript.isEmpty ? text : transcript + "\n" + text
-            }, isBusy: Binding(get: { dictationBusy }, set: { busy in
-                if dictationScope == scope { dictationBusy = busy }
-            }))
-            .id(scope)
-            TextField(L10n.voiceguide_transcript, text: $transcript, axis: .vertical)
-                .textFieldStyle(.roundedBorder)
-                .lineLimit(1...3)
-                .accessibilityIdentifier("FR17.10.transcript")
+        WithPerceptionTracking {
+            let scope = dictationScope
+            VStack(alignment: .leading, spacing: 12) {
+                Text(L10n.voiceguide_reminderTitle).font(.headline)
+                Text(L10n.voiceguide_reminderExample)
+                    .font(.caption).foregroundStyle(.secondary)
+                // TestFlight 实测修复：录音听写按钮（与手输共填同一文本，on-device 识别）
+                VoiceDictationButton(onTranscript: { text, confidence in
+                    guard dictationScope == scope, !text.isEmpty else { return }
+                    dictationConfidence = min(dictationConfidence, confidence)
+                    transcript = transcript.isEmpty ? text : transcript + "\n" + text
+                }, isBusy: Binding(get: { dictationBusy }, set: { busy in
+                    if dictationScope == scope { dictationBusy = busy }
+                }))
+                .id(scope)
+                TextField(L10n.voiceguide_transcript, text: $transcript, axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .lineLimit(1...3)
+                    .accessibilityIdentifier("FR17.10.transcript")
 
-            if let unresolved {
-                Label(unresolved, systemImage: "exclamationmark.triangle")
-                    .font(.caption)
-                    .foregroundStyle(Color("grade-d", bundle: .main))
-                    .accessibilityIdentifier("FR17.10.unresolved")
-            }
+                if let unresolved {
+                    Label(unresolved, systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(Color("grade-d", bundle: .main))
+                        .accessibilityIdentifier("FR17.10.unresolved")
+                }
 
-            Button {
-                buildDraft()
-            } label: {
-                Label(L10n.voiceguide_buildDraft, systemImage: "bell").frame(minHeight: 44)
+                Button {
+                    buildDraft()
+                } label: {
+                    Label(L10n.voiceguide_buildDraft, systemImage: "bell").frame(minHeight: 44)
+                }
+                .disabled(dictationBusy || transcript.trimmingCharacters(in: .whitespaces).isEmpty)
+                .accessibilityIdentifier("FR17.10.build")
+                Spacer()
             }
-            .disabled(dictationBusy || transcript.trimmingCharacters(in: .whitespaces).isEmpty)
-            .accessibilityIdentifier("FR17.10.build")
-            Spacer()
-        }
-        .padding(16)
-        .voiceConfirmSheet($confirmSet, route: routeMonitor.route) { confirmed in
-            confirmSet = nil
-            Task { await commit(confirmed) }
-        }
-        .onAppear {
-            routeMonitor.start()
-            // FR17.9 §5.54：语音面板确认后的提醒草稿一次性预填——
-            // 确认字段回填转写输入，本页二次核对后走本页自己的确认
-            if let draft = router.pendingVoiceIntent {
-                router.pendingVoiceIntent = nil
-                if transcript.isEmpty {
-                    if let content = draft.keyedValues["content"], !content.isEmpty {
-                        transcript = content
-                    } else {
-                        // 提醒文法槽位无 content 键（hour/date/time/repeat）——
-                        // 此前恒查 content 落空、已确认时间槽位静默丢弃；重组
-                        // 「日期 + N点」进正文区（Domain 纯函数，视图零字面量），
-                        // 用户二次核对后按本页流程重抽
-                        let joined = VoiceInputTemplate.reminderTranscript(from: draft.fields)
-                        if !joined.isEmpty { transcript = joined }
+            .padding(16)
+            .voiceConfirmSheet($confirmSet, route: routeMonitor.route) { confirmed in
+                confirmSet = nil
+                Task { await commit(confirmed) }
+            }
+            .onAppear {
+                routeMonitor.start()
+                // FR17.9 §5.54：语音面板确认后的提醒草稿一次性预填——
+                // 确认字段回填转写输入，本页二次核对后走本页自己的确认
+                if let draft = router.pendingVoiceIntent {
+                    router.pendingVoiceIntent = nil
+                    if transcript.isEmpty {
+                        if let content = draft.keyedValues["content"], !content.isEmpty {
+                            transcript = content
+                        } else {
+                            // 提醒文法槽位无 content 键（hour/date/time/repeat）——
+                            // 此前恒查 content 落空、已确认时间槽位静默丢弃；重组
+                            // 「日期 + N点」进正文区（Domain 纯函数，视图零字面量），
+                            // 用户二次核对后按本页流程重抽
+                            let joined = VoiceInputTemplate.reminderTranscript(from: draft.fields)
+                            if !joined.isEmpty { transcript = joined }
+                        }
                     }
                 }
             }
-        }
-        .onDisappear { routeMonitor.stop() }
-        .alert(L10n.voiceguide_saved, isPresented: $savedAlert) {
-            Button(L10n.onboard_gotIt, role: .cancel) { }
+            .onDisappear { routeMonitor.stop() }
+            .alert(L10n.voiceguide_saved, isPresented: $savedAlert) {
+                Button(L10n.onboard_gotIt, role: .cancel) { }
+            }
         }
     }
 
@@ -186,63 +189,65 @@ struct VoiceGuidedProfileView: View {
     @State private var skippedSteps = 0
 
     var body: some View {
-        Group {
-            if phase == .consent && !voiceConsentRecorded {
-                // FR17.12：进入访谈前的一次性隐私与耳机须知
-                VoicePrivacyHeadphoneCard(
-                    onAccept: { recordVoiceConsent(); phase = .micCheck },
-                    // 审查修复：触屏入口此前是死路（__useTouch 提交被
-                    // markVoiceInterviewStep 白名单拒绝，卡面原地不动）——
-                    // 实际语义 = 跳过语音自检、直接以键盘输入继续访谈
-                    onUseTouch: { recordVoiceConsent(); phase = .interview })
-            } else if phase != .interview {
-                // TestFlight 实测修复：语音访谈前先做音量自检（实时音量条 +
-                // 测试句朗读指导），低音量可重试、无障碍用户可跳过保留手输
-                VoiceLevelCheck(
-                    onPass: { phase = .interview },
-                    onSkip: { phase = .interview })
-            } else if interviewDone {
-                interviewDoneView
-            } else {
-                interview
-            }
-        }
-        .navigationTitle(L10n.voiceguide_profileTitle)
-        .voiceConfirmSheet($confirmSet, route: routeMonitor.route) { confirmed in
-            confirmSet = nil
-            Task { await commitFields(confirmed) }
-        }
-        .sheet(item: Binding(get: { rejection.map(RejectionBox.init) },
-                             set: { if $0 == nil { rejection = nil } })) { box in
-            VoiceModificationRejectionCard(
-                rejection: box.value,
-                onGoToPlan: {
-                    // 审查修复：__goToPlan 哨兵键落进适配器 default 分支——
-                    // markVoiceInterviewStep 白名单拒绝 + noteSectionTitle 返回
-                    // nil，updateMember 只刷 updatedAt 空写，计划页永不打开，
-                    // BR-003/006「转触屏路径」形同虚设。直接导航到药箱
-                    // （计划列表所在），不走字段提交通道。
-                    rejection = nil
-                    router.navigate(to: .medicationCabinet)
-                },
-                onDismiss: { rejection = nil; answer = "" })
-            .presentationDetents([.height(260)])
-        }
-        .alert(L10n.voicenoteSaveFailed, isPresented: $saveFailed) {
-            Button(L10n.onboard_gotIt, role: .cancel) { }
-        }
-        .onAppear {
-            routeMonitor.start()
-            // FR17.9 §5.54：语音面板确认后的档案草稿一次性预填（与提醒入口同款）
-            if let draft = router.pendingVoiceIntent {
-                router.pendingVoiceIntent = nil
-                if answer.isEmpty,
-                   let v = draft.keyedValues.values.first(where: { !$0.isEmpty }) {
-                    answer = v
+        WithPerceptionTracking {
+            Group {
+                if phase == .consent && !voiceConsentRecorded {
+                    // FR17.12：进入访谈前的一次性隐私与耳机须知
+                    VoicePrivacyHeadphoneCard(
+                        onAccept: { recordVoiceConsent(); phase = .micCheck },
+                        // 审查修复：触屏入口此前是死路（__useTouch 提交被
+                        // markVoiceInterviewStep 白名单拒绝，卡面原地不动）——
+                        // 实际语义 = 跳过语音自检、直接以键盘输入继续访谈
+                        onUseTouch: { recordVoiceConsent(); phase = .interview })
+                } else if phase != .interview {
+                    // TestFlight 实测修复：语音访谈前先做音量自检（实时音量条 +
+                    // 测试句朗读指导），低音量可重试、无障碍用户可跳过保留手输
+                    VoiceLevelCheck(
+                        onPass: { phase = .interview },
+                        onSkip: { phase = .interview })
+                } else if interviewDone {
+                    interviewDoneView
+                } else {
+                    interview
                 }
             }
+            .navigationTitle(L10n.voiceguide_profileTitle)
+            .voiceConfirmSheet($confirmSet, route: routeMonitor.route) { confirmed in
+                confirmSet = nil
+                Task { await commitFields(confirmed) }
+            }
+            .sheet(item: Binding(get: { rejection.map(RejectionBox.init) },
+                                 set: { if $0 == nil { rejection = nil } })) { box in
+                VoiceModificationRejectionCard(
+                    rejection: box.value,
+                    onGoToPlan: {
+                        // 审查修复：__goToPlan 哨兵键落进适配器 default 分支——
+                        // markVoiceInterviewStep 白名单拒绝 + noteSectionTitle 返回
+                        // nil，updateMember 只刷 updatedAt 空写，计划页永不打开，
+                        // BR-003/006「转触屏路径」形同虚设。直接导航到药箱
+                        // （计划列表所在），不走字段提交通道。
+                        rejection = nil
+                        router.navigate(to: .medicationCabinet)
+                    },
+                    onDismiss: { rejection = nil; answer = "" })
+                .presentationDetents([.height(260)])
+            }
+            .alert(L10n.voicenoteSaveFailed, isPresented: $saveFailed) {
+                Button(L10n.onboard_gotIt, role: .cancel) { }
+            }
+            .onAppear {
+                routeMonitor.start()
+                // FR17.9 §5.54：语音面板确认后的档案草稿一次性预填（与提醒入口同款）
+                if let draft = router.pendingVoiceIntent {
+                    router.pendingVoiceIntent = nil
+                    if answer.isEmpty,
+                       let v = draft.keyedValues.values.first(where: { !$0.isEmpty }) {
+                        answer = v
+                    }
+                }
+            }
+            .onDisappear { routeMonitor.stop() }
         }
-        .onDisappear { routeMonitor.stop() }
     }
 
     /// FR17.12 一次性语义：确认即写 ConsentRecord（F20.5 判定重展）——
@@ -329,7 +334,7 @@ struct VoiceGuidedProfileView: View {
         .padding(16)
         // TestFlight 实测修复：提问自动朗读——进入访谈与每次换步都读一遍
         .onAppear { app.speak(steps[stepIndex].prompt) }
-        .onChange(of: stepIndex) { _, newStep in
+        .onChangeCompat(of: stepIndex) { _, newStep in
             app.speak(steps[newStep].prompt)
         }
     }

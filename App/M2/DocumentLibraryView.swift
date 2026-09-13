@@ -4,10 +4,11 @@ import UniformTypeIdentifiers
 import Domain
 import Infrastructure
 import Protocols
+import Perception
 
 /// F5/F6: one retained import owns preparation, document review and every page card.
 @MainActor
-@Observable
+@Perceptible
 final class DocumentsState {
     private(set) var documents: [DocumentStore.DocumentRow] = []
     private(set) var pendingDocuments: [DocumentStore.DocumentRow] = []
@@ -43,7 +44,7 @@ final class DocumentsState {
         let pages: [PageAnalysis]
     }
 
-    @MainActor @Observable
+    @MainActor @Perceptible
     final class ImportSession: Identifiable {
         let id = UUID()
         let patientId: UUID
@@ -76,7 +77,7 @@ final class DocumentsState {
         init(patientId: UUID) { self.patientId = patientId }
     }
 
-    @MainActor @Observable
+    @MainActor @Perceptible
     final class PendingReview: Identifiable {
         let pending: PendingCard
         var id: String { pending.id }
@@ -835,68 +836,70 @@ struct DocumentLibraryView: View {
     init(autoPresentImport: Bool = false) { _showImportSource = State(initialValue: autoPresentImport) }
 
     var body: some View {
-        Group {
-            if state.documents.isEmpty {
-                ContentUnavailableView(L10n.docLibraryEmpty, systemImage: "folder", description: Text(L10n.docLibraryEmptyHint))
-            } else {
-                List(state.documents) { doc in
-                    DocumentLibraryRow(doc: doc)
-                }
-                .frame(maxWidth: 672)
-            }
-        }
-        .navigationTitle(L10n.docLibraryTitle)
-        .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                Button {
-                    showArchived.toggle()
-                    Task { await state.load(patientId: app.currentPatientId, includeArchived: showArchived) }
-                } label: { Image(systemName: showArchived ? "archivebox.fill" : "archivebox") }
-                .accessibilityLabel(L10n.docArchive)
-                Button { showImportSource = true } label: { Image(systemName: "plus") }
-                    .disabled(!state.importSlotFree)
-                    .accessibilityLabel(L10n.docAdd)
-                    .accessibilityIdentifier("SP-09.document.add")
-            }
-        }
-        .confirmationDialog(L10n.docImportSourceTitle, isPresented: $showImportSource, titleVisibility: .visible) {
-            Button(L10n.docImportCamera) { router.navigate(to: .scanCapture(nil)) }
-            Button(L10n.docImportFile) { selectionPatient = app.currentPatientId; fileImporterActive = true }
-            Button(L10n.docImportPhotos) { selectionPatient = app.currentPatientId; photosImporterActive = true }
-            Button(L10n.docImportManual) { showManualCreate = true }
-            Button(L10n.commonCancel, role: .cancel) {}
-        }
-        .fileImporter(isPresented: $fileImporterActive, allowedContentTypes: [.pdf, .image], allowsMultipleSelection: true) { result in
-            switch result {
-            case .success(let urls):
-                guard let patient = selectionPatient else { return }
-                state.enqueueFiles(urls, patientId: patient)
-            case .failure(let error):
-                if (error as NSError).code != NSUserCancelledError { showImportError = true }
-            }
-        }
-        .photosPicker(isPresented: $photosImporterActive, selection: $pickedPhotos, maxSelectionCount: 5, matching: .images)
-        .onChange(of: pickedPhotos) { _, items in
-            guard !items.isEmpty, let patient = selectionPatient else { return }
-            pickedPhotos = []
-            state.enqueuePhotos(items, patientId: patient)
-        }
-        .ocrImportReviewHost(enabled: !fileImporterActive && !photosImporterActive)
-        .alert(L10n.docImportFailedTitle, isPresented: $showImportError) {
-            Button(L10n.onboard_gotIt, role: .cancel) {}
-        } message: { Text(L10n.docImportFailed) }
-        .sheet(isPresented: $showManualCreate) {
-            ManualDocumentSheet { title, type, note in
-                let patient = app.currentPatientId
-                Task {
-                    await state.createManual(patientId: patient, title: title, docType: type, note: note)
-                    showManualCreate = false
+        WithPerceptionTracking {
+            Group {
+                if state.documents.isEmpty {
+                    VLUnavailableView(L10n.docLibraryEmpty, systemImage: "folder", description: Text(L10n.docLibraryEmptyHint))
+                } else {
+                    List(state.documents) { doc in
+                        DocumentLibraryRow(doc: doc)
+                    }
+                    .frame(maxWidth: 672)
                 }
             }
-        }
-        .task(id: app.currentPatientId) {
-            await state.load(patientId: app.currentPatientId, includeArchived: showArchived)
-            state.processNextImport()
+            .navigationTitle(L10n.docLibraryTitle)
+            .toolbar {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button {
+                        showArchived.toggle()
+                        Task { await state.load(patientId: app.currentPatientId, includeArchived: showArchived) }
+                    } label: { Image(systemName: showArchived ? "archivebox.fill" : "archivebox") }
+                    .accessibilityLabel(L10n.docArchive)
+                    Button { showImportSource = true } label: { Image(systemName: "plus") }
+                        .disabled(!state.importSlotFree)
+                        .accessibilityLabel(L10n.docAdd)
+                        .accessibilityIdentifier("SP-09.document.add")
+                }
+            }
+            .confirmationDialog(L10n.docImportSourceTitle, isPresented: $showImportSource, titleVisibility: .visible) {
+                Button(L10n.docImportCamera) { router.navigate(to: .scanCapture(nil)) }
+                Button(L10n.docImportFile) { selectionPatient = app.currentPatientId; fileImporterActive = true }
+                Button(L10n.docImportPhotos) { selectionPatient = app.currentPatientId; photosImporterActive = true }
+                Button(L10n.docImportManual) { showManualCreate = true }
+                Button(L10n.commonCancel, role: .cancel) {}
+            }
+            .fileImporter(isPresented: $fileImporterActive, allowedContentTypes: [.pdf, .image], allowsMultipleSelection: true) { result in
+                switch result {
+                case .success(let urls):
+                    guard let patient = selectionPatient else { return }
+                    state.enqueueFiles(urls, patientId: patient)
+                case .failure(let error):
+                    if (error as NSError).code != NSUserCancelledError { showImportError = true }
+                }
+            }
+            .photosPicker(isPresented: $photosImporterActive, selection: $pickedPhotos, maxSelectionCount: 5, matching: .images)
+            .onChangeCompat(of: pickedPhotos) { _, items in
+                guard !items.isEmpty, let patient = selectionPatient else { return }
+                pickedPhotos = []
+                state.enqueuePhotos(items, patientId: patient)
+            }
+            .ocrImportReviewHost(enabled: !fileImporterActive && !photosImporterActive)
+            .alert(L10n.docImportFailedTitle, isPresented: $showImportError) {
+                Button(L10n.onboard_gotIt, role: .cancel) {}
+            } message: { Text(L10n.docImportFailed) }
+            .sheet(isPresented: $showManualCreate) {
+                ManualDocumentSheet { title, type, note in
+                    let patient = app.currentPatientId
+                    Task {
+                        await state.createManual(patientId: patient, title: title, docType: type, note: note)
+                        showManualCreate = false
+                    }
+                }
+            }
+            .task(id: app.currentPatientId) {
+                await state.load(patientId: app.currentPatientId, includeArchived: showArchived)
+                state.processNextImport()
+            }
         }
     }
 }
@@ -906,37 +909,39 @@ private struct DocumentLibraryRow: View {
     @Environment(DocumentsState.self) private var state
 
     var body: some View {
-        NavigationLink { DocumentDetailRouteView(documentId: doc.id) } label: {
-            HStack {
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
-                        Text(doc.docType).font(.caption2)
-                            .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(Capsule().fill(Color(.systemGray5)))
-                        if doc.grade == "D" { GradeBadge(grade: "D") }
-                        if doc.isSensitive { Image(systemName: "lock.fill").font(.caption2).foregroundStyle(.orange) }
+        WithPerceptionTracking {
+            NavigationLink { DocumentDetailRouteView(documentId: doc.id) } label: {
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 6) {
+                            Text(doc.docType).font(.caption2)
+                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .background(Capsule().fill(Color(.systemGray5)))
+                            if doc.grade == "D" { GradeBadge(grade: "D") }
+                            if doc.isSensitive { Image(systemName: "lock.fill").font(.caption2).foregroundStyle(.orange) }
+                        }
+                        Text(L10n.docTitle(doc.title)).font(.subheadline)
+                        Text(doc.createdAt.formatted(date: .abbreviated, time: .shortened)).font(.caption2).foregroundStyle(.secondary)
                     }
-                    Text(L10n.docTitle(doc.title)).font(.subheadline)
-                    Text(doc.createdAt.formatted(date: .abbreviated, time: .shortened)).font(.caption2).foregroundStyle(.secondary)
+                    Spacer()
+                    if doc.status == "favorite" { Image(systemName: "star.fill").font(.caption).foregroundStyle(.yellow) }
                 }
-                Spacer()
-                if doc.status == "favorite" { Image(systemName: "star.fill").font(.caption).foregroundStyle(.yellow) }
             }
-        }
-        .swipeActions {
-            Button(doc.status == "archived" ? L10n.docUnarchive : L10n.docArchive) {
-                Task { await state.setArchived(id: doc.id, archived: doc.status != "archived") }
-            }.tint(.orange)
-            Button(doc.status == "favorite" ? L10n.docUnfavorite : L10n.docFavorite) {
-                Task { await state.setFavorite(id: doc.id, favorite: doc.status != "favorite") }
-            }.tint(.yellow)
-        }
-        .contextMenu {
-            if doc.origin != "manual" {
-                NavigationLink(L10n.docConfirmText) { DocumentReviewRouteView(documentId: doc.id, patientId: doc.patientId) }
+            .swipeActions {
+                Button(doc.status == "archived" ? L10n.docUnarchive : L10n.docArchive) {
+                    Task { await state.setArchived(id: doc.id, archived: doc.status != "archived") }
+                }.tint(.orange)
+                Button(doc.status == "favorite" ? L10n.docUnfavorite : L10n.docFavorite) {
+                    Task { await state.setFavorite(id: doc.id, favorite: doc.status != "favorite") }
+                }.tint(.yellow)
             }
+            .contextMenu {
+                if doc.origin != "manual" {
+                    NavigationLink(L10n.docConfirmText) { DocumentReviewRouteView(documentId: doc.id, patientId: doc.patientId) }
+                }
+            }
+            .accessibilityIdentifier("SP-09.document.row.\(doc.id.uuidString)")
         }
-        .accessibilityIdentifier("SP-09.document.row.\(doc.id.uuidString)")
     }
 }
 
@@ -947,19 +952,21 @@ private struct ManualDocumentSheet: View {
     @State private var note = ""
 
     var body: some View {
-        NavigationStack {
-            Form {
-                TextField(L10n.docManualTitle, text: $title)
-                Picker(L10n.docManualType, selection: $type) {
-                    ForEach(L10n.docTypeLabels, id: \.self) { Text($0) }
+        WithPerceptionTracking {
+            NavigationStack {
+                Form {
+                    TextField(L10n.docManualTitle, text: $title)
+                    Picker(L10n.docManualType, selection: $type) {
+                        ForEach(L10n.docTypeLabels, id: \.self) { Text($0) }
+                    }
+                    TextField(L10n.docManualNote, text: $note, axis: .vertical).lineLimit(3...8)
                 }
-                TextField(L10n.docManualNote, text: $note, axis: .vertical).lineLimit(3...8)
-            }
-            .navigationTitle(L10n.docManualCreateTitle)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(L10n.reminder_save) { onCreate(title, type, note) }
-                        .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty)
+                .navigationTitle(L10n.docManualCreateTitle)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(L10n.reminder_save) { onCreate(title, type, note) }
+                            .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty)
+                    }
                 }
             }
         }
@@ -973,39 +980,41 @@ struct DocumentStoreDetailView: View {
     @Environment(AppState.self) private var app
 
     var body: some View {
-        List {
-            Section(L10n.docTitleSection) {
-                Text(L10n.docTitle(doc.title)).font(.headline)
-                OCRReviewOwnerRow(patientId: doc.patientId)
-                LabeledContent(L10n.docDate, value: doc.createdAt.formatted(date: .abbreviated, time: .shortened))
-                HStack { Text(doc.docType); if doc.grade == "D" { GradeBadge(grade: "D") } }
-            }
-            DocumentRelationsSection(documentId: doc.id, patientId: doc.patientId)
-            Section {
-                Button { showOriginal = true } label: { Label(L10n.docViewOriginal, systemImage: "doc.text.magnifyingglass") }
-                    .accessibilityIdentifier(doc.isSensitive ? "SP-09.document.detail.originalLocked" : "SP-09.document.detail.original")
-                if doc.origin != "manual" {
-                    NavigationLink(L10n.docConfirmText) {
-                        DocumentReviewRouteView(documentId: doc.id, patientId: doc.patientId)
+        WithPerceptionTracking {
+            List {
+                Section(L10n.docTitleSection) {
+                    Text(L10n.docTitle(doc.title)).font(.headline)
+                    OCRReviewOwnerRow(patientId: doc.patientId)
+                    LabeledContent(L10n.docDate, value: doc.createdAt.formatted(date: .abbreviated, time: .shortened))
+                    HStack { Text(doc.docType); if doc.grade == "D" { GradeBadge(grade: "D") } }
+                }
+                DocumentRelationsSection(documentId: doc.id, patientId: doc.patientId)
+                Section {
+                    Button { showOriginal = true } label: { Label(L10n.docViewOriginal, systemImage: "doc.text.magnifyingglass") }
+                        .accessibilityIdentifier(doc.isSensitive ? "SP-09.document.detail.originalLocked" : "SP-09.document.detail.original")
+                    if doc.origin != "manual" {
+                        NavigationLink(L10n.docConfirmText) {
+                            DocumentReviewRouteView(documentId: doc.id, patientId: doc.patientId)
+                        }
                     }
                 }
             }
-        }
-        .navigationTitle(L10n.docDetailTitle)
-        .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $showOriginal) {
-            DocumentSourcePageView(documentId: doc.id, patientId: doc.patientId, pageIndex: 0)
-        }
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button { showIssueSheet = true } label: { Image(systemName: "exclamationmark.bubble") }
-                    .accessibilityLabel(L10n.docReportIssue)
-                    .accessibilityIdentifier("SP-09.document.detail.reportIssue")
+            .navigationTitle(L10n.docDetailTitle)
+            .navigationBarTitleDisplayMode(.inline)
+            .sheet(isPresented: $showOriginal) {
+                DocumentSourcePageView(documentId: doc.id, patientId: doc.patientId, pageIndex: 0)
             }
-        }
-        .sheet(isPresented: $showIssueSheet) {
-            ReportIssueSheet(documentId: doc.id, fields: []) { kind, fieldKey, note in
-                app.reportRecognitionIssue(documentId: doc.id, meta: "kind=\(kind);field=\(fieldKey);note=\(note)")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { showIssueSheet = true } label: { Image(systemName: "exclamationmark.bubble") }
+                        .accessibilityLabel(L10n.docReportIssue)
+                        .accessibilityIdentifier("SP-09.document.detail.reportIssue")
+                }
+            }
+            .sheet(isPresented: $showIssueSheet) {
+                ReportIssueSheet(documentId: doc.id, fields: []) { kind, fieldKey, note in
+                    app.reportRecognitionIssue(documentId: doc.id, meta: "kind=\(kind);field=\(fieldKey);note=\(note)")
+                }
             }
         }
     }
@@ -1019,27 +1028,29 @@ struct DuplicateCompareSheet: View {
     @State private var choice: DocumentsState.DuplicateResolution = .keep
 
     var body: some View {
-        VStack(spacing: 16) {
-            Text(L10n.docDuplicateTitle).font(.headline)
-            HStack(alignment: .top, spacing: 8) {
-                compareColumn(title: L10n.docDuplicateExisting, name: existing?.title ?? L10n.docUntitled, grade: existing?.grade ?? "D")
-                compareColumn(title: L10n.docDuplicateNewFile, name: newTitle, grade: "D")
+        WithPerceptionTracking {
+            VStack(spacing: 16) {
+                Text(L10n.docDuplicateTitle).font(.headline)
+                HStack(alignment: .top, spacing: 8) {
+                    compareColumn(title: L10n.docDuplicateExisting, name: existing?.title ?? L10n.docUntitled, grade: existing?.grade ?? "D")
+                    compareColumn(title: L10n.docDuplicateNewFile, name: newTitle, grade: "D")
+                }
+                if let existing { Text(existing.createdAt.formatted(date: .abbreviated, time: .omitted)).font(.caption).foregroundStyle(.secondary) }
+                Picker("", selection: $choice) {
+                    Text(L10n.docDuplicateKeep).tag(DocumentsState.DuplicateResolution.keep)
+                    Text(L10n.docDuplicateReplace).tag(DocumentsState.DuplicateResolution.replace)
+                    Text(L10n.docDuplicateKeepBoth).tag(DocumentsState.DuplicateResolution.coexist)
+                }.pickerStyle(.segmented)
+                HStack {
+                    Button(L10n.commonCancel) { onResolve(.keep) }.buttonStyle(.bordered)
+                    Button(L10n.commonConfirm) { onResolve(choice) }.buttonStyle(.borderedProminent)
+                }
+                Text(L10n.docDuplicateNeverAutoDelete).font(.caption2).foregroundStyle(.secondary)
+                if isResolving { ProgressView() }
             }
-            if let existing { Text(existing.createdAt.formatted(date: .abbreviated, time: .omitted)).font(.caption).foregroundStyle(.secondary) }
-            Picker("", selection: $choice) {
-                Text(L10n.docDuplicateKeep).tag(DocumentsState.DuplicateResolution.keep)
-                Text(L10n.docDuplicateReplace).tag(DocumentsState.DuplicateResolution.replace)
-                Text(L10n.docDuplicateKeepBoth).tag(DocumentsState.DuplicateResolution.coexist)
-            }.pickerStyle(.segmented)
-            HStack {
-                Button(L10n.commonCancel) { onResolve(.keep) }.buttonStyle(.bordered)
-                Button(L10n.commonConfirm) { onResolve(choice) }.buttonStyle(.borderedProminent)
-            }
-            Text(L10n.docDuplicateNeverAutoDelete).font(.caption2).foregroundStyle(.secondary)
-            if isResolving { ProgressView() }
+            .padding(20)
+            .disabled(isResolving)
         }
-        .padding(20)
-        .disabled(isResolving)
     }
 
     private func compareColumn(title: String, name: String, grade: String) -> some View {
@@ -1067,33 +1078,35 @@ struct ReportIssueSheet: View {
                          ("layout", L10n.reportIssueLayout), ("engine", L10n.reportIssueEngine)]
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section(L10n.reportIssueKind) {
-                    Picker("", selection: $kind) { ForEach(kinds, id: \.0) { Text($0.1).tag($0.0) } }.pickerStyle(.inline)
-                }
-                if !fields.isEmpty {
-                    Section(L10n.reportIssueField) {
-                        Picker("", selection: $fieldKey) {
-                            Text(L10n.reportIssueFieldAll).tag(String?.none)
-                            ForEach(fields) { Text($0.displayLabel).tag(String?.some($0.key)) }
+        WithPerceptionTracking {
+            NavigationStack {
+                Form {
+                    Section(L10n.reportIssueKind) {
+                        Picker("", selection: $kind) { ForEach(kinds, id: \.0) { Text($0.1).tag($0.0) } }.pickerStyle(.inline)
+                    }
+                    if !fields.isEmpty {
+                        Section(L10n.reportIssueField) {
+                            Picker("", selection: $fieldKey) {
+                                Text(L10n.reportIssueFieldAll).tag(String?.none)
+                                ForEach(fields) { Text($0.displayLabel).tag(String?.some($0.key)) }
+                            }
                         }
                     }
+                    Section(L10n.reportIssueNote) {
+                        TextField(L10n.reportIssueNoteHint, text: $note, axis: .vertical).lineLimit(2...5)
+                    }
+                    Section { Text(L10n.reportIssueMinimal).font(.caption2).foregroundStyle(.secondary) }
                 }
-                Section(L10n.reportIssueNote) {
-                    TextField(L10n.reportIssueNoteHint, text: $note, axis: .vertical).lineLimit(2...5)
+                .navigationTitle(L10n.docReportIssue)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) { Button(L10n.commonCancel) { dismiss() } }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(L10n.reportIssueSubmit) { onSubmit(kind, fieldKey ?? "", note); submitted = true }
+                    }
                 }
-                Section { Text(L10n.reportIssueMinimal).font(.caption2).foregroundStyle(.secondary) }
-            }
-            .navigationTitle(L10n.docReportIssue)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button(L10n.commonCancel) { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(L10n.reportIssueSubmit) { onSubmit(kind, fieldKey ?? "", note); submitted = true }
+                .alert(L10n.reportIssueSubmitted, isPresented: $submitted) {
+                    Button(L10n.onboard_gotIt, role: .cancel) { dismiss() }
                 }
-            }
-            .alert(L10n.reportIssueSubmitted, isPresented: $submitted) {
-                Button(L10n.onboard_gotIt, role: .cancel) { dismiss() }
             }
         }
     }

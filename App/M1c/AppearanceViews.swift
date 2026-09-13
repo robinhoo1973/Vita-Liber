@@ -1,5 +1,6 @@
 import SwiftUI
 import Domain   // AppSettingKey / AppSettings 值类型
+import Perception
 
 /// FR14.4 外观主题三态（tech-spec §5.28.1 定义；ui-ux §5.12.1 交互）。
 /// ColorScheme 映射必须在 App 层——Domain 纯净规则禁止 import SwiftUI（L0 [5/11] 白名单）。
@@ -33,24 +34,26 @@ struct ThemeSettingsView: View {
     @Environment(AppState.self) private var app
 
     var body: some View {
-        Form {
-            Section {
-                ThemeSegmentedPicker(selection: themeBinding)
-            } footer: {
-                Text(L10n.settings_themeHint)
+        WithPerceptionTracking {
+            Form {
+                Section {
+                    ThemeSegmentedPicker(selection: themeBinding)
+                } footer: {
+                    Text(L10n.settings_themeHint)
+                }
+                Section {
+                    Toggle(L10n.settings_highContrast, isOn: highContrastBinding)
+                } footer: {
+                    // 审查修复（FR18.16 叠加规则明示条款）：关怀模式强制叠加高对比度时，
+                    // 必须明示当前生效的是哪一层——否则开关显示「关」但界面实际高对比，
+                    // 用户拨动开关看不到变化、无法判断状态
+                    Text(app.careMode ? L10n.settings_highContrastForced
+                                      : L10n.settings_highContrastFooter)
+                }
             }
-            Section {
-                Toggle(L10n.settings_highContrast, isOn: highContrastBinding)
-            } footer: {
-                // 审查修复（FR18.16 叠加规则明示条款）：关怀模式强制叠加高对比度时，
-                // 必须明示当前生效的是哪一层——否则开关显示「关」但界面实际高对比，
-                // 用户拨动开关看不到变化、无法判断状态
-                Text(app.careMode ? L10n.settings_highContrastForced
-                                  : L10n.settings_highContrastFooter)
-            }
+            .navigationTitle(L10n.settings_appearance)
+            .task { await settings.load() }
         }
-        .navigationTitle(L10n.settings_appearance)
-        .task { await settings.load() }
     }
 
     private var themeBinding: Binding<AppTheme> {
@@ -78,14 +81,16 @@ struct ThemeSegmentedPicker: View {
     @Binding var selection: AppTheme
 
     var body: some View {
-        HStack(spacing: 6) {
-            ForEach(AppTheme.allCases, id: \.self) { theme in
-                segment(for: theme)
+        WithPerceptionTracking {
+            HStack(spacing: 6) {
+                ForEach(AppTheme.allCases, id: \.self) { theme in
+                    segment(for: theme)
+                }
             }
+            .padding(4)
+            .background(Color("bg-grouped", bundle: .main),
+                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
-        .padding(4)
-        .background(Color("bg-grouped", bundle: .main),
-                    in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private func segment(for theme: AppTheme) -> some View {
@@ -129,19 +134,21 @@ struct ThemePreviewSwatch: View {
     let theme: AppTheme
 
     var body: some View {
-        switch theme {
-        case .light:
-            swatch(background: Color.white, bar: Color.black)
-        case .dark:
-            swatch(background: Color.black, bar: Color.white)
-        case .system:
-            HStack(spacing: 0) {
-                Rectangle().fill(Color.white)
-                Rectangle().fill(Color.black)
+        WithPerceptionTracking {
+            switch theme {
+            case .light:
+                swatch(background: Color.white, bar: Color.black)
+            case .dark:
+                swatch(background: Color.black, bar: Color.white)
+            case .system:
+                HStack(spacing: 0) {
+                    Rectangle().fill(Color.white)
+                    Rectangle().fill(Color.black)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .stroke(Color.primary.opacity(0.25), lineWidth: 0.5))
             }
-            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous)
-                .stroke(Color.primary.opacity(0.25), lineWidth: 0.5))
         }
     }
 

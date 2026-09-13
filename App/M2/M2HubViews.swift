@@ -2,6 +2,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 import Domain
 import Infrastructure
+import Perception
 
 /// M2 各页的**挂载壳**：从 M2HubStore 加载数据 → 透传给纯渲染视图。
 /// 纯渲染视图（InventoryListView/EmergencyCardView/…）保持无装配依赖，
@@ -20,54 +21,62 @@ struct InventoryHubView: View {
     @State private var showShareHost = false
 
     var body: some View {
-        InventoryListView(
-            items: hub.inventoryItems,
-            onReconcile: { reconcileItem = $0 },
-            onExportDispenseList: { showDispenseExport = true })
-        .navigationTitle(L10n.inventory_title)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    showHelpCard = true
-                } label: {
-                    Label(L10n.helpcard_title, systemImage: "square.and.arrow.up").frame(minHeight: 44)
+        WithPerceptionTracking {
+            InventoryListView(
+                items: hub.inventoryItems,
+                onReconcile: { reconcileItem = $0 },
+                onExportDispenseList: { showDispenseExport = true })
+            .navigationTitle(L10n.inventory_title)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showHelpCard = true
+                    } label: {
+                        Label(L10n.helpcard_title, systemImage: "square.and.arrow.up").frame(minHeight: 44)
+                    }
+                    .accessibilityIdentifier("FR9.13a.card.open")
                 }
-                .accessibilityIdentifier("FR9.13a.card.open")
             }
-        }
-        .task(id: currentPatientId) { await hub.load(patientId: currentPatientId) }
-        .sheet(item: $reconcileItem) { item in
-            InventoryReconcileSheet(item: item) { count in
-                Task { await hub.reconcileLot(item: item, physicalCount: count) }
+            .task(id: currentPatientId) { await hub.load(patientId: currentPatientId) }
+            .sheet(item: $reconcileItem) { item in
+                InventoryReconcileSheet(item: item) { count in
+                    Task { await hub.reconcileLot(item: item, physicalCount: count) }
+                }
             }
-        }
-        .sheet(isPresented: $showHelpCard) {
-            MedicationHelpCardSheet(items: hub.inventoryItems) { inputs in
-                // 第七轮修复：卡文本标签经 L10n 三语词表注入（Domain 不再
-                // 硬编码中文——en 用户分享出的是英文卡）。
-                // 第八轮修复：空选择返回 nil（FR9.13a 前提「选择一个或多个」）
-                // ——按钮本已禁用，此处防御性守卫避免空卡进入分享
-                guard let text = MedicationHelpCardRules.cardText(inputs, labels: .init(
-                    title: L10n.helpcard_title,
-                    remainingPrefix: L10n.helpcardCardRemainingPrefix,
-                    storagePrefix: L10n.helpcardCardStoragePrefix,
-                    expiryPrefix: L10n.helpcardCardExpiryPrefix)) else { return }
-                shareText = text
-                showShareHost = true
+            .sheet(isPresented: $showHelpCard) {
+                // sheet 内容闭包逃逸：同步读 hub.inventoryItems，须自行包裹（子项目 I）
+                WithPerceptionTracking {
+                    MedicationHelpCardSheet(items: hub.inventoryItems) { inputs in
+                        // 第七轮修复：卡文本标签经 L10n 三语词表注入（Domain 不再
+                        // 硬编码中文——en 用户分享出的是英文卡）。
+                        // 第八轮修复：空选择返回 nil（FR9.13a 前提「选择一个或多个」）
+                        // ——按钮本已禁用，此处防御性守卫避免空卡进入分享
+                        guard let text = MedicationHelpCardRules.cardText(inputs, labels: .init(
+                            title: L10n.helpcard_title,
+                            remainingPrefix: L10n.helpcardCardRemainingPrefix,
+                            storagePrefix: L10n.helpcardCardStoragePrefix,
+                            expiryPrefix: L10n.helpcardCardExpiryPrefix)) else { return }
+                        shareText = text
+                        showShareHost = true
+                    }
+                }
             }
-        }
-        .fileExporter(isPresented: $showDispenseExport,
-                      document: CSVTextDocument(text: hub.dispenseCSV()),
-                      contentType: .commaSeparatedText,
-                      defaultFilename: L10n.helpcard_defaultFilename) { _ in }
-        .sheet(isPresented: $showShareHost) {
-            // FR24.1 发送前模板预览（V3.72）：所见即所得，确认后再选收件人
-            HelpCardSendHost(text: shareText,
-                             contacts: hub.emergencySelected.contacts.map(\.title)) { recipient in
-                Task {
-                    await hub.recordSent(patientId: currentPatientId,
-                                         kind: "helpCard", recipient: recipient)
-                    hub.auditHelpCardSent(recipient: recipient)
+            .fileExporter(isPresented: $showDispenseExport,
+                          document: CSVTextDocument(text: hub.dispenseCSV()),
+                          contentType: .commaSeparatedText,
+                          defaultFilename: L10n.helpcard_defaultFilename) { _ in }
+            .sheet(isPresented: $showShareHost) {
+                // FR24.1 发送前模板预览（V3.72）：所见即所得，确认后再选收件人
+                // sheet 内容闭包逃逸：同步读 hub.emergencySelected，须自行包裹（子项目 I）
+                WithPerceptionTracking {
+                    HelpCardSendHost(text: shareText,
+                                     contacts: hub.emergencySelected.contacts.map(\.title)) { recipient in
+                        Task {
+                            await hub.recordSent(patientId: currentPatientId,
+                                                 kind: "helpCard", recipient: recipient)
+                            hub.auditHelpCardSent(recipient: recipient)
+                        }
+                    }
                 }
             }
         }
@@ -97,21 +106,26 @@ struct EmergencyCardHubView: View {
     @State private var showSelector = false
 
     var body: some View {
-        EmergencyCardView(
-            card: hub.emergencySelected,
-            bloodType: hub.bloodType,
-            onGuideMedicalID: { UIApplication.shared.open(URL(string: "x-apple-health://") ?? URL(string: "https://support.apple.com/medical-id")!) },
-            onOpenSelector: { showSelector = true },
-            careMode: app.careMode)
-        .task(id: currentPatientId) { await hub.load(patientId: currentPatientId) }
-        .sheet(isPresented: $showSelector) {
-            NavigationStack {
-                EmergencyCardSelectorView(
-                    candidates: hub.emergencyCandidates,
-                    selectedIds: hub.emergencySelectedIds) { item, selected in
-                        Task { await hub.toggleEmergency(item: item, selected: selected,
-                                                         patientId: currentPatientId) }
+        WithPerceptionTracking {
+            EmergencyCardView(
+                card: hub.emergencySelected,
+                bloodType: hub.bloodType,
+                onGuideMedicalID: { UIApplication.shared.open(URL(string: "x-apple-health://") ?? URL(string: "https://support.apple.com/medical-id")!) },
+                onOpenSelector: { showSelector = true },
+                careMode: app.careMode)
+            .task(id: currentPatientId) { await hub.load(patientId: currentPatientId) }
+            .sheet(isPresented: $showSelector) {
+                // sheet 内容闭包逃逸：同步读 hub.emergencyCandidates / emergencySelectedIds，须自行包裹（子项目 I）
+                WithPerceptionTracking {
+                    NavigationStack {
+                        EmergencyCardSelectorView(
+                            candidates: hub.emergencyCandidates,
+                            selectedIds: hub.emergencySelectedIds) { item, selected in
+                                Task { await hub.toggleEmergency(item: item, selected: selected,
+                                                                 patientId: currentPatientId) }
+                            }
                     }
+                }
             }
         }
     }
@@ -126,13 +140,15 @@ struct ImmunizationHubView: View {
     @Environment(M2HubStore.self) private var hub
 
     var body: some View {
-        ImmunizationListView(records: hub.immunizationRecords,
-                             patientId: currentPatientId) { name, dose, date, provider, lot in
-            Task { await hub.createImmunization(patientId: currentPatientId, name: name,
-                                                dose: dose, date: date,
-                                                provider: provider, lot: lot) }
+        WithPerceptionTracking {
+            ImmunizationListView(records: hub.immunizationRecords,
+                                 patientId: currentPatientId) { name, dose, date, provider, lot in
+                Task { await hub.createImmunization(patientId: currentPatientId, name: name,
+                                                    dose: dose, date: date,
+                                                    provider: provider, lot: lot) }
+            }
+            .task(id: currentPatientId) { await hub.load(patientId: currentPatientId) }
         }
-        .task(id: currentPatientId) { await hub.load(patientId: currentPatientId) }
     }
 
     private var currentPatientId: UUID { app.currentPatientId }
@@ -145,12 +161,14 @@ struct ClaimHubView: View {
     @Environment(M2HubStore.self) private var hub
 
     var body: some View {
-        ClaimListView(rows: hub.claimRows, totals: hub.claimTotals) { type, amount, date, merchant, summary in
-            Task { await hub.createClaim(patientId: currentPatientId, type: type,
-                                         amount: amount, date: date,
-                                         merchant: merchant, summary: summary) }
+        WithPerceptionTracking {
+            ClaimListView(rows: hub.claimRows, totals: hub.claimTotals) { type, amount, date, merchant, summary in
+                Task { await hub.createClaim(patientId: currentPatientId, type: type,
+                                             amount: amount, date: date,
+                                             merchant: merchant, summary: summary) }
+            }
+            .task(id: currentPatientId) { await hub.load(patientId: currentPatientId) }
         }
-        .task(id: currentPatientId) { await hub.load(patientId: currentPatientId) }
     }
 
     private var currentPatientId: UUID { app.currentPatientId }
@@ -163,8 +181,10 @@ struct SentStatusHubView: View {
     @Environment(M2HubStore.self) private var hub
 
     var body: some View {
-        SentStatusListView(messages: hub.sentMessages)
-            .task(id: currentPatientId) { await hub.load(patientId: currentPatientId) }
+        WithPerceptionTracking {
+            SentStatusListView(messages: hub.sentMessages)
+                .task(id: currentPatientId) { await hub.load(patientId: currentPatientId) }
+        }
     }
 
     private var currentPatientId: UUID { app.currentPatientId }
@@ -177,47 +197,49 @@ struct SentStatusListView: View {
     @Environment(M2HubStore.self) private var hub
 
     var body: some View {
-        List {
-            if messages.isEmpty {
-                ContentUnavailableView(L10n.fr24_empty, systemImage: "paperplane",
-                                       description: Text(L10n.fr24_emptyHint))
-                    .accessibilityIdentifier("FR24.2.empty")
-            } else {
-                ForEach(messages) { message in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(kindLabel(message.kind)).font(.subheadline)
-                            Text("\(L10n.fr24_recipient) \(message.recipient)")
-                                .font(.caption).foregroundStyle(.secondary)
-                            Text(message.sentAt.formatted(date: .abbreviated, time: .shortened))
-                                .font(.caption2).foregroundStyle(.tertiary)
-                        }
-                        Spacer()
-                        // FR24.2 P0 手动「标记已送达」占位（不伪造回执——
-                        // 推进 sent → ackPending，等待回执；离线环境明示不可确认）
-                        if message.status == .sent {
-                            Button(L10n.fr24_markDelivered) {
-                                Task {
-                                    await hub.markDelivered(messageId: message.id,
-                                                           patientId: app.currentPatientId)
-                                }
+        WithPerceptionTracking {
+            List {
+                if messages.isEmpty {
+                    VLUnavailableView(L10n.fr24_empty, systemImage: "paperplane",
+                                           description: Text(L10n.fr24_emptyHint))
+                        .accessibilityIdentifier("FR24.2.empty")
+                } else {
+                    ForEach(messages) { message in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(kindLabel(message.kind)).font(.subheadline)
+                                Text("\(L10n.fr24_recipient) \(message.recipient)")
+                                    .font(.caption).foregroundStyle(.secondary)
+                                Text(message.sentAt.formatted(date: .abbreviated, time: .shortened))
+                                    .font(.caption2).foregroundStyle(.tertiary)
                             }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                                .frame(minHeight: 44)   // 触点≥44pt（审查修复）
-                            .accessibilityIdentifier("FR24.2.markDelivered")
-                        } else {
-                            StatusBadge(status: message.status)
+                            Spacer()
+                            // FR24.2 P0 手动「标记已送达」占位（不伪造回执——
+                            // 推进 sent → ackPending，等待回执；离线环境明示不可确认）
+                            if message.status == .sent {
+                                Button(L10n.fr24_markDelivered) {
+                                    Task {
+                                        await hub.markDelivered(messageId: message.id,
+                                                               patientId: app.currentPatientId)
+                                    }
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                    .frame(minHeight: 44)   // 触点≥44pt（审查修复）
+                                .accessibilityIdentifier("FR24.2.markDelivered")
+                            } else {
+                                StatusBadge(status: message.status)
+                            }
                         }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityIdentifier("FR24.2.row")
                     }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityIdentifier("FR24.2.row")
+                    Text(L10n.fr24_offlineNote)
+                        .font(.caption2).foregroundStyle(.secondary)
                 }
-                Text(L10n.fr24_offlineNote)
-                    .font(.caption2).foregroundStyle(.secondary)
             }
+            .navigationTitle(L10n.fr24_title)
         }
-        .navigationTitle(L10n.fr24_title)
     }
 
     private func kindLabel(_ kind: String) -> String {
@@ -236,11 +258,13 @@ struct StatusBadge: View {
     let status: MessageStatus
 
     var body: some View {
-        Text(label)
-            .font(.caption2)
-            .padding(.horizontal, 8).padding(.vertical, 4)
-            .background(Capsule().fill(color.opacity(0.15)))
-            .foregroundStyle(color)
+        WithPerceptionTracking {
+            Text(label)
+                .font(.caption2)
+                .padding(.horizontal, 8).padding(.vertical, 4)
+                .background(Capsule().fill(color.opacity(0.15)))
+                .foregroundStyle(color)
+        }
     }
 
     private var label: String {
@@ -270,8 +294,10 @@ struct GuidelineHubView: View {
     @Environment(M2HubStore.self) private var hub
 
     var body: some View {
-        GuidelineSourceListView(entries: hub.guidelineEntries)
-            .task(id: currentPatientId) { await hub.load(patientId: currentPatientId) }
+        WithPerceptionTracking {
+            GuidelineSourceListView(entries: hub.guidelineEntries)
+                .task(id: currentPatientId) { await hub.load(patientId: currentPatientId) }
+        }
     }
 
     private var currentPatientId: UUID { app.currentPatientId }
@@ -287,30 +313,32 @@ struct HelpCardSendHost: View {
     @State private var confirmed = false
 
     var body: some View {
-        Group {
-            if confirmed {
-                HelpCardRecipientSheet(text: text, contacts: contacts, onSent: onSend)
-            } else {
-                NavigationStack {
-                    ScrollView {
-                        Text(text)
-                            .font(.body)
-                            .padding(16)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .navigationTitle(L10n.helpcardPreviewTitle)
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button(L10n.commonCancel) { dismiss() }
+        WithPerceptionTracking {
+            Group {
+                if confirmed {
+                    HelpCardRecipientSheet(text: text, contacts: contacts, onSent: onSend)
+                } else {
+                    NavigationStack {
+                        ScrollView {
+                            Text(text)
+                                .font(.body)
+                                .padding(16)
+                                .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button(L10n.helpcardPreviewContinue) { confirmed = true }
+                        .navigationTitle(L10n.helpcardPreviewTitle)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button(L10n.commonCancel) { dismiss() }
+                            }
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button(L10n.helpcardPreviewContinue) { confirmed = true }
+                            }
                         }
-                    }
-                    .safeAreaInset(edge: .bottom) {
-                        Text(L10n.helpcardPreviewHint)
-                            .font(.caption2).foregroundStyle(.secondary)
-                            .padding(8)
+                        .safeAreaInset(edge: .bottom) {
+                            Text(L10n.helpcardPreviewHint)
+                                .font(.caption2).foregroundStyle(.secondary)
+                                .padding(8)
+                        }
                     }
                 }
             }

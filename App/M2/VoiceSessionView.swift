@@ -3,6 +3,7 @@ import os
 import Domain
 import Infrastructure
 import Protocols
+import Perception
 
 /// F19 关怀语音助手会话 UI（M3 零阻塞项的后半场）。
 ///
@@ -22,7 +23,7 @@ import Protocols
 // MARK: - 会话状态仓
 
 @MainActor
-@Observable
+@Perceptible
 final class VoiceSessionState {
     private(set) var engineState = ConversationState()
     private(set) var caption = ""              // 与播报一致的屏幕字幕（FR19.3）
@@ -129,29 +130,31 @@ struct VoiceSessionLaunchCard: View {
     @State private var showSession = false
 
     var body: some View {
-        if app.careMode {
-            Button {
-                showSession = true
-            } label: {
-                HStack(spacing: 12) {
-                    VLIcon.mic.resizable().frame(width: 28, height: 28)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(L10n.f19_launch).font(.title3).bold()
-                        Text(L10n.f19_listeningHint).font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
+        WithPerceptionTracking {
+            if app.careMode {
+                Button {
+                    showSession = true
+                } label: {
+                    HStack(spacing: 12) {
+                        VLIcon.mic.resizable().frame(width: 28, height: 28)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(L10n.f19_launch).font(.title3).bold()
+                            Text(L10n.f19_listeningHint).font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                        }
+                        Spacer()
                     }
-                    Spacer()
+                    .padding(16)
+                    .frame(maxWidth: .infinity, minHeight: 72)   // 关怀模式 72pt 大卡
+                    .background(RoundedRectangle(cornerRadius: 16)
+                        .fill(Color("bg-grouped", bundle: .main)))
                 }
-                .padding(16)
-                .frame(maxWidth: .infinity, minHeight: 72)   // 关怀模式 72pt 大卡
-                .background(RoundedRectangle(cornerRadius: 16)
-                    .fill(Color("bg-grouped", bundle: .main)))
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("F19.session.launchCard")
-            .fullScreenCover(isPresented: $showSession) {
-                VoiceSessionView()
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("F19.session.launchCard")
+                .fullScreenCover(isPresented: $showSession) {
+                    VoiceSessionView()
+                }
             }
         }
     }
@@ -176,82 +179,84 @@ struct VoiceSessionView: View {
     @State private var typed = ""
 
     var body: some View {
-        VStack(spacing: 16) {
-            HStack {
-                VLIcon.waveform.resizable().frame(width: 28, height: 28)
-                Text(L10n.f19_sessionTitle).font(.title2).bold()
+        WithPerceptionTracking {
+            VStack(spacing: 16) {
+                HStack {
+                    VLIcon.waveform.resizable().frame(width: 28, height: 28)
+                    Text(L10n.f19_sessionTitle).font(.title2).bold()
+                    Spacer()
+                    Button {
+                        endSession()
+                    } label: {
+                        VLIcon.stopOctagon.resizable().frame(width: 24, height: 24)
+                            .frame(width: 64, height: 64)
+                    }
+                    .accessibilityLabel(L10n.f19_end)
+                    .accessibilityIdentifier("F19.session.end")
+                }
+
+                // 聆听状态（FR19.1：必须显示聆听状态与结束按钮）
+                listeningIndicator
+
+                captionBlock
+                optionsBlock
+                repeatConfirmBlock
+                rejectionBlock
+
                 Spacer()
-                Button {
-                    endSession()
-                } label: {
-                    VLIcon.stopOctagon.resizable().frame(width: 24, height: 24)
-                        .frame(width: 64, height: 64)
+
+                // 键盘降级输入（转写接入前驱动会话；接入后保留为兜底，FR19.6）
+                HStack(spacing: 8) {
+                    TextField(L10n.f19_typeHint, text: $typed, axis: .vertical)
+                        .textFieldStyle(.roundedBorder)
+                        .lineLimit(1...3)
+                        .accessibilityIdentifier("F19.session.input")
+                    Button {
+                        let text = typed
+                        typed = ""
+                        if routeEmergencyIfNeeded(text) { return }
+                        let executed = session.submit(text, speak: { app.speak($0) })
+                        if let executed { handleExecution(executed, object: session.pendingObject) }
+                    } label: {
+                        VLIcon.send.resizable().frame(width: 22, height: 22)
+                            .frame(width: 64, height: 64)
+                    }
+                    .disabled(typed.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .accessibilityLabel(L10n.f19_sendA11y)
+                    .accessibilityIdentifier("F19.session.send")
                 }
-                .accessibilityLabel(L10n.f19_end)
-                .accessibilityIdentifier("F19.session.end")
+                .padding(.horizontal, 12)
             }
-
-            // 聆听状态（FR19.1：必须显示聆听状态与结束按钮）
-            listeningIndicator
-
-            captionBlock
-            optionsBlock
-            repeatConfirmBlock
-            rejectionBlock
-
-            Spacer()
-
-            // 键盘降级输入（转写接入前驱动会话；接入后保留为兜底，FR19.6）
-            HStack(spacing: 8) {
-                TextField(L10n.f19_typeHint, text: $typed, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
-                    .lineLimit(1...3)
-                    .accessibilityIdentifier("F19.session.input")
-                Button {
-                    let text = typed
-                    typed = ""
-                    if routeEmergencyIfNeeded(text) { return }
-                    let executed = session.submit(text, speak: { app.speak($0) })
-                    if let executed { handleExecution(executed, object: session.pendingObject) }
-                } label: {
-                    VLIcon.send.resizable().frame(width: 22, height: 22)
-                        .frame(width: 64, height: 64)
+            .padding(16)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("F19.session.view")
+            .onAppear {
+                session.start()
+                // 审查修复：进入会话即加载 hub 数据——原缺此加载，未先访问
+                // 药箱/急救卡页时「药还剩多少/联系人」全部报空（关怀模式
+                // 核心场景空答）。今日时段/预约同源加载：首页物化在途时
+                // 直接进会话，「今天吃什么药/药都吃了吗」不得空答。
+                Task {
+                    // 两路加载相互独立（药箱六节 vs 今日时段/预约）——并发发起，
+                    // 就绪时延取最慢一路而非两者之和（关怀模式首问不得空答）
+                    async let a: Void = hub.load(patientId: app.currentPatientId)
+                    async let b: Void = reminderStore.refreshTriggered(patientId: app.currentPatientId,
+                                                                       force: true)
+                    _ = await (a, b)
                 }
-                .disabled(typed.trimmingCharacters(in: .whitespaces).isEmpty)
-                .accessibilityLabel(L10n.f19_sendA11y)
-                .accessibilityIdentifier("F19.session.send")
             }
-            .padding(.horizontal, 12)
-        }
-        .padding(16)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("F19.session.view")
-        .onAppear {
-            session.start()
-            // 审查修复：进入会话即加载 hub 数据——原缺此加载，未先访问
-            // 药箱/急救卡页时「药还剩多少/联系人」全部报空（关怀模式
-            // 核心场景空答）。今日时段/预约同源加载：首页物化在途时
-            // 直接进会话，「今天吃什么药/药都吃了吗」不得空答。
-            Task {
-                // 两路加载相互独立（药箱六节 vs 今日时段/预约）——并发发起，
-                // 就绪时延取最慢一路而非两者之和（关怀模式首问不得空答）
-                async let a: Void = hub.load(patientId: app.currentPatientId)
-                async let b: Void = reminderStore.refreshTriggered(patientId: app.currentPatientId,
-                                                                   force: true)
-                _ = await (a, b)
+            .onChangeCompat(of: scenePhase) { _, phase in
+                // FR19.1：离开前台立即停止监听（不结束会话，回前台可继续）——
+                // .inactive（App 切换器/控制中心覆盖）同样停，防快照期间继续收音
+                if phase == .background || phase == .inactive {
+                    session.pause()
+                } else if phase == .active {
+                    session.resume()
+                }
             }
-        }
-        .onChange(of: scenePhase) { _, phase in
-            // FR19.1：离开前台立即停止监听（不结束会话，回前台可继续）——
-            // .inactive（App 切换器/控制中心覆盖）同样停，防快照期间继续收音
-            if phase == .background || phase == .inactive {
-                session.pause()
-            } else if phase == .active {
-                session.resume()
+            .onChangeCompat(of: session.ended) { _, ended in
+                if ended { dismiss() }
             }
-        }
-        .onChange(of: session.ended) { _, ended in
-            if ended { dismiss() }
         }
     }
 

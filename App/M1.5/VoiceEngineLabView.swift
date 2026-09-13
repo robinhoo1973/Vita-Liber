@@ -2,6 +2,7 @@ import SwiftUI
 import Domain
 import Infrastructure
 import Protocols
+import Perception
 
 /// FR17.15 V3.66 识别引擎实验室（SP-62）：引擎档位选择 + 语言资源安装 + 听写对照测试。
 ///
@@ -43,120 +44,122 @@ struct VoiceEngineLabView: View {
     }
 
     var body: some View {
-        List {
-            Section {
-                ForEach(VoiceEngineChoice.allCases, id: \.self) { option in
-                    Button { select(option) } label: {
-                        HStack(alignment: .top, spacing: 10) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(label(for: option))
-                                Text(hint(for: option)).font(.caption).foregroundStyle(.secondary)
-                                if let note = availabilityNote(for: option) {
-                                    Text(note).font(.caption2)
-                                        .foregroundStyle(Color("semantic-warning", bundle: .main))
+        WithPerceptionTracking {
+            List {
+                Section {
+                    ForEach(VoiceEngineChoice.allCases, id: \.self) { option in
+                        Button { select(option) } label: {
+                            HStack(alignment: .top, spacing: 10) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(label(for: option))
+                                    Text(hint(for: option)).font(.caption).foregroundStyle(.secondary)
+                                    if let note = availabilityNote(for: option) {
+                                        Text(note).font(.caption2)
+                                            .foregroundStyle(Color("semantic-warning", bundle: .main))
+                                    }
+                                }
+                                Spacer()
+                                if option == choice {
+                                    Image(systemName: "checkmark")
+                                        .foregroundStyle(Color("brand-primary", bundle: .main))
                                 }
                             }
-                            Spacer()
-                            if option == choice {
-                                Image(systemName: "checkmark")
-                                    .foregroundStyle(Color("brand-primary", bundle: .main))
-                            }
-                        }
-                        .frame(minHeight: 44)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(model?.hasPendingTranscriptions == true)
-                    .accessibilityIdentifier("SP-62.engine.\(option.rawValue)")
-                }
-            } header: {
-                Text(L10n.voiceLabEngineSection)
-            } footer: {
-                Text(L10n.voiceLabEngineFooter)
-            }
-
-            Section {
-                LabeledContent(L10n.voiceLabLocaleLabel, value: testLocale)
-                LabeledContent(L10n.voiceLabAssetLabel, value: assetLabel)
-                if assetStatus == .downloadable {
-                    Button { install() } label: {
-                        Label(installing ? L10n.voiceLabInstalling : L10n.voiceLabInstall,
-                              systemImage: "arrow.down.circle")
                             .frame(minHeight: 44)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(model?.hasPendingTranscriptions == true)
+                        .accessibilityIdentifier("SP-62.engine.\(option.rawValue)")
                     }
-                    .disabled(installing)
-                    .accessibilityIdentifier("SP-62.asset.install")
+                } header: {
+                    Text(L10n.voiceLabEngineSection)
+                } footer: {
+                    Text(L10n.voiceLabEngineFooter)
                 }
-                if let installNote {
-                    Text(installNote).font(.caption).foregroundStyle(.secondary)
-                        .accessibilityIdentifier("SP-62.asset.note")
-                }
-            } header: {
-                Text(L10n.voiceLabAssetSection)
-            } footer: {
-                Text(L10n.voiceLabAssetFooter)
-            }
 
-            Section {
-                if let model {
-                    PressToTalkMicButton(model: model)
+                Section {
+                    LabeledContent(L10n.voiceLabLocaleLabel, value: testLocale)
+                    LabeledContent(L10n.voiceLabAssetLabel, value: assetLabel)
+                    if assetStatus == .downloadable {
+                        Button { install() } label: {
+                            Label(installing ? L10n.voiceLabInstalling : L10n.voiceLabInstall,
+                                  systemImage: "arrow.down.circle")
+                                .frame(minHeight: 44)
+                        }
                         .disabled(installing)
-                    if let resolved = model.resolvedLocale {
-                        Text(L10n.voiceRecognizedAs(resolved))
-                            .font(.caption2).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("SP-62.asset.install")
                     }
-                    // 复审修正 FIX-B（2026-09-11）：诚实标注「所选档位是否真在服务」——
-                    // 资源未装/系统不足时平台轨会整会话回落基线轨，若不提示，
-                    // 用户会把基线结果当成所选引擎的识别率（对照实验失去意义）。
-                    if let note = testFallbackNote {
-                        Text(note)
-                            .font(.caption2)
-                            .foregroundStyle(Color("semantic-warning", bundle: .main))
-                            .accessibilityIdentifier("SP-62.test.fallbackNote")
+                    if let installNote {
+                        Text(installNote).font(.caption).foregroundStyle(.secondary)
+                            .accessibilityIdentifier("SP-62.asset.note")
                     }
+                } header: {
+                    Text(L10n.voiceLabAssetSection)
+                } footer: {
+                    Text(L10n.voiceLabAssetFooter)
                 }
-            } header: {
-                Text(L10n.voiceLabTestSection)
-            } footer: {
-                Text(L10n.voiceLabTestFooter)
-            }
 
-            Section {
-                if results.isEmpty {
-                    Text(L10n.voiceLabNoResult).foregroundStyle(.secondary)
-                } else {
-                    ForEach(results) { result in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(result.text)
-                            Text(metaLine(result))
+                Section {
+                    if let model {
+                        PressToTalkMicButton(model: model)
+                            .disabled(installing)
+                        if let resolved = model.resolvedLocale {
+                            Text(L10n.voiceRecognizedAs(resolved))
                                 .font(.caption2).foregroundStyle(.secondary)
                         }
-                        .accessibilityElement(children: .combine)
+                        // 复审修正 FIX-B（2026-09-11）：诚实标注「所选档位是否真在服务」——
+                        // 资源未装/系统不足时平台轨会整会话回落基线轨，若不提示，
+                        // 用户会把基线结果当成所选引擎的识别率（对照实验失去意义）。
+                        if let note = testFallbackNote {
+                            Text(note)
+                                .font(.caption2)
+                                .foregroundStyle(Color("semantic-warning", bundle: .main))
+                                .accessibilityIdentifier("SP-62.test.fallbackNote")
+                        }
                     }
-                    .onDelete { results.remove(atOffsets: $0) }
+                } header: {
+                    Text(L10n.voiceLabTestSection)
+                } footer: {
+                    Text(L10n.voiceLabTestFooter)
                 }
-            } header: {
-                Text(L10n.voiceLabResultSection)
-            } footer: {
-                Text(L10n.voiceLabResultFooter)
+
+                Section {
+                    if results.isEmpty {
+                        Text(L10n.voiceLabNoResult).foregroundStyle(.secondary)
+                    } else {
+                        ForEach(results) { result in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(result.text)
+                                Text(metaLine(result))
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                            .accessibilityElement(children: .combine)
+                        }
+                        .onDelete { results.remove(atOffsets: $0) }
+                    }
+                } header: {
+                    Text(L10n.voiceLabResultSection)
+                } footer: {
+                    Text(L10n.voiceLabResultFooter)
+                }
             }
-        }
-        .navigationTitle(L10n.voiceLabTitle)
-        .navigationBarTitleDisplayMode(.inline)
-        .task {
-            await settings.load()
-            // 审查修复：仅当用户尚未手动选档时才用持久化值初始化——旧实现
-            // 无条件覆盖，装载在途期间的点击被静默丢弃且 rebuild 重建测试模型。
-            if !hasSelected {
-                choice = VoiceEngineChoice.resolve(settings.values[.voiceEngine])
+            .navigationTitle(L10n.voiceLabTitle)
+            .navigationBarTitleDisplayMode(.inline)
+            .task {
+                await settings.load()
+                // 审查修复：仅当用户尚未手动选档时才用持久化值初始化——旧实现
+                // 无条件覆盖，装载在途期间的点击被静默丢弃且 rebuild 重建测试模型。
+                if !hasSelected {
+                    choice = VoiceEngineChoice.resolve(settings.values[.voiceEngine])
+                    rebuild()
+                    await refreshAssetStatus()
+                }
+            }
+            .onChangeCompat(of: settings.values[.voiceInputLanguages]) { _, _ in
                 rebuild()
-                await refreshAssetStatus()
+                Task { await refreshAssetStatus() }
             }
+            .onDisappear { model?.stopForDisappear() }
         }
-        .onChange(of: settings.values[.voiceInputLanguages]) { _, _ in
-            rebuild()
-            Task { await refreshAssetStatus() }
-        }
-        .onDisappear { model?.stopForDisappear() }
     }
 
     private func select(_ option: VoiceEngineChoice) {

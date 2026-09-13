@@ -6,10 +6,15 @@ let package = Package(
     // macOS 14 必须保留：CoreKit swift test（484 测）在 macOS runner 真实执行
     // （业主 2026-09-06 决定）；去掉后 SPM 按 tools-version 默认 10.13 解析，
     // 与 sherpa-onnx 的 macos 10.15 平台下限冲突（CI 344410xxxx 实证）。
-    platforms: [.iOS(.v17), .macOS(.v14)],
+    platforms: [.iOS(.v16), .macOS(.v14)],
     products: [.library(name: "CoreKit", targets: ["Domain", "Protocols", "Infrastructure"])],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "6.29.0"),
+        // swift-perception：Observation 回移植（业主 2026-09-13 §0.3 需求 2：iOS/iPadOS 16+）。准入（§2.2/ADR-025）：
+        // @Observable/@Environment(T.self)/@Bindable 皆 iOS 17，自研回移植=重造宏+注册表（禁自研）；MIT、纯源码、零网络零遥测；
+        // swift-syntax 仅编译期。退出成本：基线回升 17 时 s/@Perceptible/@Observable/、s/@Perception.Bindable/@Bindable/
+        //（目标 ≥17 时该类型 obsoleted，编译器列出全部位置）、删 WithPerceptionTracking 包裹与 import——脚本可逆。
+        .package(url: "https://github.com/pointfreeco/swift-perception", from: "2.0.12"),
         // ZIPFoundation：运行时 ASR 模型包解压（业主 2026-09-12 决定引入运行时下载）。
         // 准入（tech-spec §2.2）：平台框架无公开 zip 解压 API（AppleArchive 不读 zip）；
         // MIT 许可、SPM、无网络/遥测、纯 Swift+zlib；退出成本低（仅在
@@ -36,6 +41,10 @@ let package = Package(
                 "Protocols",
                 // GRDB：iOS 与 macOS 都链接（macOS = CoreKit 测试宿主）。
                 .product(name: "GRDB", package: "GRDB.swift",
+                         condition: .when(platforms: [.iOS, .macOS])),
+                // Perception：@Perceptible 门面（NotificationCenterState/PendingCardCenterState）
+                // 与 GRDB 同条件——Linux 测试宿主不链接（源码侧同在 #if os(iOS) || os(macOS) 内）。
+                .product(name: "Perception", package: "swift-perception",
                          condition: .when(platforms: [.iOS, .macOS])),
                 // ZIPFoundation：仅 iOS/macOS 链接（Linux 测试宿主不涉运行时下载）。
                 .product(name: "ZIPFoundation", package: "ZIPFoundation",

@@ -1,5 +1,6 @@
 import SwiftUI
 import Domain
+import Perception
 
 // MARK: - FR17.10/FR17.11 语音挂载适配器（SP-55 目标 → 既有流程）
 
@@ -10,13 +11,15 @@ struct VoiceReminderDraftRouteView: View {
     @Environment(ReminderStore.self) private var reminders
 
     var body: some View {
-        VoiceReminderDraftView { title, fireAt, repeatRule in
-            // 通用 Reminder 语义（FR8.10 同实体）：经调度通道落「voice-rem-」通知；
-            // 模糊时间必须落具体日期（FR10.2）——视图层 resolveDate 已强制。
-            // 调度成败回传（审查修复）：失败时调用方可见报错、绝不弹「已保存」
-            await reminders.scheduleVoiceReminder(title: title, fireAt: fireAt,
-                                                  repeatRule: repeatRule,
-                                                  patientId: app.currentPatientId)
+        WithPerceptionTracking {
+            VoiceReminderDraftView { title, fireAt, repeatRule in
+                // 通用 Reminder 语义（FR8.10 同实体）：经调度通道落「voice-rem-」通知；
+                // 模糊时间必须落具体日期（FR10.2）——视图层 resolveDate 已强制。
+                // 调度成败回传（审查修复）：失败时调用方可见报错、绝不弹「已保存」
+                await reminders.scheduleVoiceReminder(title: title, fireAt: fireAt,
+                                                      repeatRule: repeatRule,
+                                                      patientId: app.currentPatientId)
+            }
         }
     }
 }
@@ -24,7 +27,9 @@ struct VoiceReminderDraftRouteView: View {
 /// FR17.14 语音速记条目（挂载适配：面板作为导航目的地呈现）
 struct VoiceNotePanelRouteView: View {
     var body: some View {
-        VoiceNotePanelView()
+        WithPerceptionTracking {
+            VoiceNotePanelView()
+        }
     }
 }
 
@@ -41,12 +46,14 @@ struct VoiceGuidedProfileRouteView: View {
     @Environment(AppState.self) private var app
 
     var body: some View {
-        let patientId = app.currentPatientId
-        VoiceGuidedProfileView { key, value in
-            await app.commitVoiceProfileField(key, value: value, patientId: patientId)
+        WithPerceptionTracking {
+            let patientId = app.currentPatientId
+            VoiceGuidedProfileView { key, value in
+                await app.commitVoiceProfileField(key, value: value, patientId: patientId)
+            }
+            // 同一无参路由可能留在 Me 栈顶：换人必须重建答案/步骤/确认态，
+            // 旧会话在途提交仍只持有上面捕获的原 patientId（BR-001）。
+            .id(patientId)
         }
-        // 同一无参路由可能留在 Me 栈顶：换人必须重建答案/步骤/确认态，
-        // 旧会话在途提交仍只持有上面捕获的原 patientId（BR-001）。
-        .id(patientId)
     }
 }
