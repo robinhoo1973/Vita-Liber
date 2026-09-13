@@ -40,21 +40,27 @@ public actor MedicationPlanComposer {
         case planNotFound(UUID)
         case planNotActive(UUID)
         case invalidTransition(UUID, from: String, to: String)
+        /// v25：显式传入的处方行不存在 / 不属于该成员 / 不属于该处方（成员隔离，整事务回滚）。
+        case lineNotFound(UUID)
         public var errorDescription: String? {
             switch self {
             case .prescriptionNotConfirmed: return "处方未确认——不得生成正式用药计划（BR-003）"
             case .planNotFound(let id): return "计划不存在: \(id.uuidString)"
             case .planNotActive(let id): return "计划非 active 状态: \(id.uuidString)"
             case .invalidTransition(let id, let from, let to): return "计划状态迁移非法: \(id.uuidString) \(from)→\(to)"
+            case .lineNotFound(let id): return "处方行不存在或不属于该成员/处方: \(id.uuidString)"
             }
         }
     }
 
     /// 五表原子创建（§4.2 参考模板）。返回 (medicationId, prescriptionId, planId, lotId)。
+    /// `prescriptionLineId`（v25 §C.6）：只由用户在处方行详情「加入药箱」显式传入，落 `stock_lot.prescription_line_id`；
+    /// 不推断、不按药名自动匹配；行必须属于同成员且属于本处方，否则 `lineNotFound` 整事务回滚。
     @discardableResult
     public func createMedicationPlan(prescription: Prescription,
                                      plan: MedicationPlanDraft,
                                      initialLot: StockLotDraft,
+                                     prescriptionLineId: UUID? = nil,
                                      now: Date = Date()) async throws -> (UUID, UUID, UUID, UUID) {
         // BR-003 闸门在 Domain（PlanGate 语义），本层拒绝未确认处方
         guard PrescriptionConfirmation.isFullyConfirmed(prescription) else {
@@ -63,6 +69,13 @@ public actor MedicationPlanComposer {
         let planId = UUID()
         let scheduleJSON = String(data: try JSONEncoder().encode(plan.schedule), encoding: .utf8) ?? "{}"
         return try await writer.write { db -> (UUID, UUID, UUID, UUID) in
+            if let prescriptionLineId {
+                guard try Int.fetchOne(db, sql: """
+                    SELECT COUNT(*) FROM prescription_line WHERE id = ? AND patient_id = ? AND prescription_id = ?
+                    """, arguments: [prescriptionLineId.uuidString, prescription.patientId.uuidString, prescription.id.uuidString]) == 1 else {
+                    throw ComposerError.lineNotFound(prescriptionLineId)
+                }
+            }
             // ① 药品定义（§4.2 upsertReturningId：同成员 generic_name+spec 复用既有行）。
             // 审查修复：原实现注释声称去重但恒 INSERT 新 UUID——同一药品多计划
             // 生成重复药品行，药柜按 medication_id 分栏显示同一药品两栏、
@@ -126,8 +139,8 @@ public actor MedicationPlanComposer {
                 INSERT INTO stock_lot
                   (id, patient_id, medication_id, prescription_id, total_units, unit_kind,
                    remaining_plan_units, remaining_confirmed_units, opened_at, expire_at,
-                   storage_note, status, last_reconciled_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)
+                   storage_note, status, last_reconciled_at, prescription_line_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
                 """, arguments: [lotId.uuidString, prescription.patientId.uuidString,
                                  medId.uuidString, rxId.uuidString,
                                  initialLot.totalUnits, initialLot.unitKind,
@@ -135,7 +148,8 @@ public actor MedicationPlanComposer {
                                  initialLot.openedAt?.timeIntervalSince1970,
                                  initialLot.expireAt?.timeIntervalSince1970,
                                  initialLot.storageNote,
-                                 now.timeIntervalSince1970])
+                                 now.timeIntervalSince1970,
+                                 prescriptionLineId?.uuidString])
             // ⑤ 初始分配：安全线基线 = stock_lot.remaining_plan_units = total_units
             // （已在 ④ 写入）。dose_lot_allocation 的 dose_log_id 是 medication_dose_log
             // 外键——基线没有可引用的真实剂量行，逐剂分配由确认时的

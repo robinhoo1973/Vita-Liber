@@ -26,20 +26,30 @@ public actor EncounterStore {
         public var feeAmount: Double?
         public var linkedDocumentCount: Int
         public var linkedDocumentIds: [UUID]
+        // v25（子项目 D §C.1）门诊病历叙事列：原文保存，不摘要不改写。
+        public var presentIllness: String?
+        public var visitSummary: String?
+        public var pastHistory: String?
+        public var physicalExam: String?
+        public var allergyHistory: String?
         public init(id: UUID, patientId: UUID, hospital: String?, department: String?,
                     doctor: String?, date: Date, kind: String, chiefComplaint: String?,
                     diagnosisText: String?, adviceText: String?, followUpRequirement: String?,
-                    feeAmount: Double?, linkedDocumentCount: Int, linkedDocumentIds: [UUID]) {
+                    feeAmount: Double?, linkedDocumentCount: Int, linkedDocumentIds: [UUID],
+                    presentIllness: String? = nil, visitSummary: String? = nil, pastHistory: String? = nil,
+                    physicalExam: String? = nil, allergyHistory: String? = nil) {
             self.id = id; self.patientId = patientId; self.hospital = hospital
             self.department = department; self.doctor = doctor; self.date = date
             self.kind = kind; self.chiefComplaint = chiefComplaint
             self.diagnosisText = diagnosisText; self.adviceText = adviceText
             self.followUpRequirement = followUpRequirement; self.feeAmount = feeAmount
             self.linkedDocumentCount = linkedDocumentCount; self.linkedDocumentIds = linkedDocumentIds
+            self.presentIllness = presentIllness; self.visitSummary = visitSummary; self.pastHistory = pastHistory
+            self.physicalExam = physicalExam; self.allergyHistory = allergyHistory
         }
     }
 
-    /// 新建/更新就诊（FR4.1 字段全集落库）
+    /// 新建/更新就诊（FR4.1 字段全集落库；v25 五叙事列同批，手工 upsert = 全量覆盖语义）
     public func upsert(encounter: EncounterDraft, now: Date = Date()) async throws -> UUID {
         try await writer.write { db in
             let id = encounter.id
@@ -47,8 +57,9 @@ public actor EncounterStore {
                 INSERT INTO encounter
                   (id, patient_id, date, kind, hospital, department, doctor,
                    chief_complaint, diagnosis_text, advice_text, follow_up_requirement,
-                   fee_amount, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   fee_amount, created_at, updated_at,
+                   present_illness, visit_summary, past_history, physical_exam, allergy_history)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                   date = excluded.date, kind = excluded.kind, hospital = excluded.hospital,
                   department = excluded.department, doctor = excluded.doctor,
@@ -56,14 +67,19 @@ public actor EncounterStore {
                   diagnosis_text = excluded.diagnosis_text,
                   advice_text = excluded.advice_text,
                   follow_up_requirement = excluded.follow_up_requirement,
-                  fee_amount = excluded.fee_amount, updated_at = excluded.updated_at
+                  fee_amount = excluded.fee_amount, updated_at = excluded.updated_at,
+                  present_illness = excluded.present_illness, visit_summary = excluded.visit_summary,
+                  past_history = excluded.past_history, physical_exam = excluded.physical_exam,
+                  allergy_history = excluded.allergy_history
                 """, arguments: [id.uuidString, encounter.patientId.uuidString,
                                  encounter.date.timeIntervalSince1970, encounter.kind,
                                  encounter.hospital, encounter.department, encounter.doctor,
                                  encounter.chiefComplaint, encounter.diagnosisText,
                                  encounter.adviceText, encounter.followUpRequirement,
                                  encounter.feeAmount, now.timeIntervalSince1970,
-                                 now.timeIntervalSince1970])
+                                 now.timeIntervalSince1970,
+                                 encounter.presentIllness, encounter.visitSummary, encounter.pastHistory,
+                                 encounter.physicalExam, encounter.allergyHistory])
             return id
         }
     }
@@ -320,7 +336,12 @@ public actor EncounterStore {
                 followUpRequirement: row["follow_up_requirement"] as String?,
                 feeAmount: row["fee_amount"] as Double?,
                 linkedDocumentCount: linked.count,
-                linkedDocumentIds: linked))
+                linkedDocumentIds: linked,
+                presentIllness: row["present_illness"] as String?,
+                visitSummary: row["visit_summary"] as String?,
+                pastHistory: row["past_history"] as String?,
+                physicalExam: row["physical_exam"] as String?,
+                allergyHistory: row["allergy_history"] as String?))
         }
         return out
     }
