@@ -1,9 +1,10 @@
+// 平台守卫镜像 Package.swift（ERR#8 纪律）：CryptoKit/SherpaOnnxC 仅 Apple 平台链接；
+// Linux 为 CoreKit 本机测试宿主，本文件整体排除，勿用 canImport 静默隐藏缺失的真实 C 模块。
+#if os(iOS) || os(macOS)
 import Foundation
 import CryptoKit
 import Domain
-#if os(iOS) || os(macOS)
 import SherpaOnnxC // 缺少真实C模块必须编译失败，不能被canImport分支静默隐藏。
-#endif
 
 /// 构建机供应模型，App只验证Bundle内文件。绝不通过运行时联网修复缺件。
 public struct ASRModelAssets: Sendable {
@@ -206,3 +207,4 @@ public struct ASRModelAssets: Sendable {
         return result
     }
 }
+#endif
