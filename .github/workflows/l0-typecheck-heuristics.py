@@ -39,6 +39,11 @@
 #      判定：@MainActor 类型名单 × 文件级 func（自身无 @MainActor）× 体内
 #      `Name.member(` 调用；nonisolated 声明成员与 @MainActor in /
 #      MainActor.assumeIsolated 逃逸口豁免。
+#   I. Swift Charts 不存在符号 —— CI 34747651162 / 34748416488 实证：
+#      RangeMark 不是 Charts API（区间带=AreaMark(x:yStart:yEnd:)），
+#      swiftc -parse 放行、仅 macOS L1 编译报 'cannot find RangeMark in scope'
+#      （业主健康批与其后审查修正连续两轮 L1 失败即本族）。
+#      判定：App/Tests/UITests 源码中出现 \bRangeMark\b 即 FAIL。
 # 判定与平台无关（python3 标准库）；ERR#27 纪律：扫 0 文件/无计数一律 FAIL。
 # 豁免标记（与 try?-ok/adr021-ok 同惯例，仅同行注释）：`// tius-ok: <理由>`
 # ——第五轮全仓审查修复：本标记此前只在文档声明、判定器从未读取（假豁免），
@@ -583,10 +588,33 @@ def main():
             if not (stripped.endswith(".") or stripped.endswith(("(", "[", "{", "&&", "||"))):
                 chain = 0
 
+    # 家族 I：Swift Charts 不存在符号（App/Tests/UITests 限定）——CI 34747651162 /
+    # 34748416488 实证：RangeMark 非 Charts API（区间带=AreaMark(x:yStart:yEnd:)），
+    # swiftc -parse 放行、仅 macOS L1 报 'cannot find RangeMark in scope'。
+    scanned["I"] = len(a_files)
+    banned_charts = re.compile(r"\bRangeMark\b")
+    for f in a_files:
+        try:
+            raw_lines = f.read_text(encoding="utf-8").splitlines()
+        except Exception:
+            continue
+        for idx, raw in enumerate(raw_lines):
+            lineno = idx + 1
+            stripped = raw.strip()
+            if not stripped or stripped.startswith("//"):
+                continue
+            if banned_charts.search(raw) and not exempted(raw_lines, lineno):
+                fails.append(
+                    f"{f.relative_to(root)}:{lineno}: RangeMark 不是 Swift Charts API"
+                    f"（CI 34747651162/34748416488 同族：macOS L1 编译"
+                    f"'cannot find RangeMark in scope'、Linux parse 放行）——"
+                    f"区间带改用 AreaMark(x:yStart:yEnd:)，或加 // tius-ok: 豁免"
+                )
+
     print(f"__SCANNED__ A={scanned.get('A',0)} A2={scanned.get('A2',0)} "
           f"B={scanned.get('B',0)} C={scanned.get('C',0)} D={scanned.get('D',0)} "
           f"E={scanned.get('E',0)} F={scanned.get('F',0)} G={scanned.get('G',0)} "
-          f"H={scanned.get('H',0)}")
+          f"H={scanned.get('H',0)} I={scanned.get('I',0)}")
     seen = set()
     for msg in fails:
         if msg in seen:

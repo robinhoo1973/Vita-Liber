@@ -25,11 +25,14 @@
 #        禁止 {name, package} 包测试引用（XcodeGen Spec validation error，
 #        CI 34017824105 实证：包测试目标进 scheme 会在 macOS 首步即炸）
 #   [15] 类型层启发式门禁 —— Linux 无法编译 App/（SwiftUI 缺失），swiftc -parse
-#        只查语法；以下八族类型错误仅 macOS L1 编译门禁可暴露，静态启发式左移拦截：
+#        只查语法；以下九族类型错误仅 macOS L1 编译门禁可暴露，静态启发式左移拦截：
 #        跨层引用缺 import（CI d0c1008）/ Date 与 Double 混比较（CI 34032245120）
 #        / iOS 专用符号未套 #if os(iOS)（CI 34018308312）/ #if os(Linux) 桩
 #        类型在非守卫区使用（CI 34018552283）/ `any X?` 可选 any 拼写（CI ad1d767，
-#        swiftc -parse 静默放行）。豁免标记 `// tius-ok: <理由>`（判定器实际读取）。
+#        swiftc -parse 静默放行）/ nil→String 实参（CI 34289498685）/ 长链高阶
+#        （CI 34653854625、34652541174）/ MainActor 跨隔离（CI 34673049166）/
+#        Swift Charts 不存在符号 RangeMark（CI 34747651162、34748416488）。
+#        豁免标记 `// tius-ok: <理由>`（判定器实际读取）。
 #   [16] 文本理解目录结构断言 —— 三文件/第 8 工厂注册/金样套件（ADR-029 静态形态）
 #   [17] 容器标识掩蔽门禁 —— 容器 .accessibilityIdentifier 必须配
 #        .accessibilityElement(children: .contain)，否则 SwiftUI 把容器标识下放
@@ -773,7 +776,7 @@ PYEOF
 fi
 
 # ---------- [15] 类型层启发式门禁 ----------
-section "15/17" "类型层启发式 —— 跨层 import 覆盖/Date·Double 混比/iOS 专用符号守卫/Linux 桩守卫外使用/any X? 拼写/nil→String 实参/长链高阶表达式/MainActor 跨隔离调用（八族 CI 实证左移）"
+section "15/17" "类型层启发式 —— 跨层 import 覆盖/Date·Double 混比/iOS 专用符号守卫/Linux 桩守卫外使用/any X? 拼写/nil→String 实参/长链高阶表达式/MainActor 跨隔离调用/Swift Charts 不存在符号（九族 CI 实证左移）"
 # 背景：App/（SwiftUI）在 Linux 无法编译，swiftc -parse 只查语法不查语义，
 # 以下七族类型错误只有 macOS L1 编译门禁才能暴露（每族均有 CI 实证）：
 #   跨层引用缺 import（d0c1008）/ Date 与 Double 混比较（34032245120）

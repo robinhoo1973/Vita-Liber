@@ -96,9 +96,12 @@ struct TrendChartView: View {
             ForEach(Array(contiguousSegments(points).enumerated()), id: \.offset) { _, segment in
                 ForEach(segment) { point in
                     if let low = point.valueMin, let high = point.valueMax {
-                        RangeMark(x: .value(axisTime, point.measuredAt),
-                                  yStart: .value(axisValue, low),
-                                  yEnd: .value(axisValue, high))
+                        // Swift Charts 无 RangeMark（CI 34748416488 实证编译错误族）：
+                        // min/max 区间带用 AreaMark(yStart:yEnd:) 呈现，线性插值即可
+                        // （带内只是窗口统计范围，非参考范围）。
+                        AreaMark(x: .value(axisTime, point.measuredAt),
+                                 yStart: .value(axisValue, low),
+                                 yEnd: .value(axisValue, high))
                             .foregroundStyle(tint.opacity(0.25))
                     }
                     LineMark(x: .value(axisTime, point.measuredAt), y: .value(axisValue, point.value))
