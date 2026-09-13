@@ -12,6 +12,37 @@ spec.loader.exec_module(assets)
 
 
 class ASRAssetsTests(unittest.TestCase):
+    def test_bundle_manifest_must_match_git_source_except_bundled_profile(self):
+        # S-M7：build job 的 --check 读的是 artifact 覆盖后的清单；必须证明它与本提交的
+        # 钉版清单同源——只允许多出 bundledModels 档位，其他任何差异都拒绝。
+        source = {"formatVersion": 1, "models": [{"id": "zipformer", "files": []}], "shared": []}
+        bundle = dict(source, bundledModels=["zipformer"])
+        assets.require_same_source_manifest(bundle, source)
+        with self.assertRaises(ValueError):
+            assets.require_same_source_manifest(dict(source, bundledModels=["zipformer"], models=[]), source)
+        with self.assertRaises(ValueError):
+            assets.require_same_source_manifest(dict(source), source)  # 缺 bundledModels 不是随包档位清单
+
+    def test_ipa_inspection_requires_embedded_model_baseline(self):
+        # S-M8：设计 §2.4 要求最终 IPA 内嵌可解析且非空的 TrustedModelHashes 基线。
+        spec = importlib.util.spec_from_file_location("reconcile", Path(__file__).with_name("reconcile-frameworks.py"))
+        reconcile = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(reconcile)
+        with tempfile.TemporaryDirectory() as directory:
+            app = Path(directory) / "Payload" / "VitaLiber.app"
+            app.mkdir(parents=True)
+            with self.assertRaises(ValueError):
+                reconcile.require_embedded_baseline(app)
+            baseline = app / "TrustedModelHashes.json"
+            baseline.write_text(json.dumps({"schemaVersion": 1, "entries": [], "revokedHashes": []}))
+            with self.assertRaises(ValueError):
+                reconcile.require_embedded_baseline(app)
+            baseline.write_text(json.dumps({"schemaVersion": 1, "entries": [{"id": "zipformer", "sha256": "a" * 64}]}))
+            with self.assertRaises(ValueError):
+                reconcile.require_embedded_baseline(app)
+            baseline.write_text(json.dumps({"schemaVersion": 1, "entries": [{"id": "zipformer", "sha256": "a" * 64}], "revokedHashes": []}))
+            reconcile.require_embedded_baseline(app)
+
     def test_corrupt_cached_file_is_not_accepted(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "model.onnx"

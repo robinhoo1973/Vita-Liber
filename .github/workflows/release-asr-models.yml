@@ -48,8 +48,8 @@ jobs:
         with:
           python-version: '3.13.5'
 
-      - name: 安装公开校验工具依赖
-        run: python3 -m pip install --disable-pip-version-check "cryptography==49.0.0" "PyYAML==6.0.2"
+      - name: 安装公开校验工具依赖（哈希钉版，S-M6）
+        run: python3 -m pip install --disable-pip-version-check --require-hashes -r .github/workflows/requirements-model-tools.txt
 
       - name: 校验构建、签名及版本规则
         run: |

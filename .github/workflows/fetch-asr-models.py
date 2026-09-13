@@ -125,14 +125,32 @@ def ensure_archive(root, model, previous, check_only):
         return extract_parts(root, Path(directory) / item["path"], model["archive"])
 
 
+def require_same_source_manifest(bundle_manifest, source_manifest):
+    """The bundled-profile manifest may only add `bundledModels` to the committed pinned manifest.
+
+    Security review S-M7: the App build job checks a manifest delivered by the same-run
+    artifact; without this comparison the check would validate whatever the artifact
+    carried instead of the commit's pinned upstream sources.
+    """
+    if not isinstance(bundle_manifest.get("bundledModels"), list):
+        raise ValueError("Bundled manifest must declare bundledModels")
+    stripped = {key: value for key, value in bundle_manifest.items() if key != "bundledModels"}
+    if stripped != source_manifest:
+        raise ValueError("Bundled manifest differs from the committed pinned manifest")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2] / "Resources" / "ASRModels")
     parser.add_argument("--check", action="store_true", help="Verify packaged files without downloading")
     parser.add_argument("--manifest-only", action="store_true")
+    parser.add_argument("--source-manifest", type=Path,
+                        help="Committed manifest the bundled profile must match apart from bundledModels")
     args = parser.parse_args()
     raw_manifest = (args.root / "manifest.json").read_bytes()
     manifest = json.loads(raw_manifest)
+    if args.source_manifest:
+        require_same_source_manifest(manifest, json.loads(args.source_manifest.read_bytes()))
     source_digest = hashlib.sha256(raw_manifest).hexdigest()
     if manifest["formatVersion"] != 1 or {m["id"] for m in manifest["models"]} != {"qwen3", "zipformer", "dolphin", "whisper"}:
         raise ValueError("Unexpected ASR manifest/version")

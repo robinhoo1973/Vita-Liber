@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """ITMS-90208: reconcile metadata with actual Mach-O minos before signing; verify final IPA."""
 import argparse
+import json
 import os
 from pathlib import Path
 import plistlib
@@ -59,6 +60,23 @@ def inspect_app(app, repair=False):
             print(f"Verified {framework.name}: plist={declared}, Mach-O={required}")
 
 
+def require_embedded_baseline(app):
+    """The exported .app must carry a parseable, non-empty model trust baseline (design §2.4).
+
+    The baseline is generated per build from the verified signed catalog and embedded before
+    signing; a missing/empty file would silently leave the App with no offline package
+    authorization and no compiled-in revocation list.
+    """
+    path = app / "TrustedModelHashes.json"
+    if not path.is_file():
+        raise ValueError("Embedded TrustedModelHashes.json is missing from the App")
+    value = json.loads(path.read_bytes())
+    if value.get("schemaVersion") != 1 or not isinstance(value.get("entries"), list) or not value["entries"]:
+        raise ValueError("Embedded model baseline is empty or has an unknown schema")
+    if not isinstance(value.get("revokedHashes"), list):
+        raise ValueError("Embedded model baseline lacks its revocation list")
+
+
 def main():
     parser = argparse.ArgumentParser()
     source = parser.add_mutually_exclusive_group(required=True)
@@ -83,6 +101,7 @@ def main():
             if len(apps) != 1:
                 raise ValueError("Expected one app in IPA")
             inspect_app(apps[0])
+            require_embedded_baseline(apps[0])
             subprocess.run(["python3", str(Path(__file__).with_name("fetch-asr-models.py")),
                 "--root", str(apps[0] / "ASRModels"), "--check"], check=True)
     else:
