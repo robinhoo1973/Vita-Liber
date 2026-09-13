@@ -315,11 +315,54 @@ final class M15AcceptanceTests: XCTestCase {
                   metric_key TEXT NOT NULL, value REAL NOT NULL, secondary_value REAL,
                   unit TEXT NOT NULL, origin TEXT NOT NULL, self_measured INTEGER NOT NULL,
                   excluded INTEGER NOT NULL DEFAULT 0, source_ref TEXT,
-                  measured_at REAL NOT NULL, created_at REAL NOT NULL);
+                  measured_at REAL NOT NULL, created_at REAL NOT NULL,
+                  ref_low REAL, ref_high REAL, ref_source_label TEXT);   -- v2 增列，v26 检验表头回填读取
                 CREATE TABLE alert_event (
                   id TEXT PRIMARY KEY, patient_id TEXT NOT NULL, rule_id TEXT NOT NULL,
                   severity TEXT NOT NULL, evidence_json TEXT NOT NULL,
                   delivered_state TEXT NOT NULL, created_at REAL NOT NULL);
+                -- v25 recognition-fact-lines 对 encounter/prescription/stock_lot/claim_item/document_file
+                -- 增列、v25 回填读 ocr_result、v26 对 metric_sample 增列——合成老库须含这些表的
+                -- v12 期形态（列集取自 Fixtures/schema_v24_baseline.sql 去掉后续增列），否则
+                -- ADD COLUMN 在缺表上抛 no such table，整链失败（D1-1/D2-1 落地时补齐）。
+                CREATE TABLE document_file (
+                  id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+                  doc_type TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', sha256 TEXT NOT NULL,
+                  mime_type TEXT NOT NULL, is_sensitive INTEGER NOT NULL DEFAULT 0,
+                  encounter_id TEXT, origin TEXT NOT NULL, meta_json TEXT, title TEXT, ocr_text TEXT,
+                  notes TEXT, grade TEXT NOT NULL DEFAULT 'C', created_at REAL NOT NULL, updated_at REAL NOT NULL);
+                CREATE TABLE encounter (
+                  id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+                  date REAL NOT NULL, kind TEXT NOT NULL, hospital TEXT, department TEXT, doctor TEXT,
+                  chief_complaint TEXT, diagnosis_text TEXT, advice_text TEXT, follow_up_requirement TEXT,
+                  fee_amount REAL, rescheduled_from_id TEXT REFERENCES encounter(id),
+                  deleted_at REAL, created_at REAL NOT NULL, updated_at REAL NOT NULL);
+                CREATE TABLE ocr_result (
+                  id TEXT PRIMARY KEY, document_file_id TEXT NOT NULL REFERENCES document_file(id),
+                  page_index INTEGER NOT NULL DEFAULT 0, raw_blocks TEXT NOT NULL,
+                  engine_version TEXT NOT NULL, created_at REAL NOT NULL);
+                CREATE TABLE prescription (
+                  id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+                  encounter_id TEXT REFERENCES encounter(id), document_file_id TEXT REFERENCES document_file(id),
+                  source TEXT NOT NULL, hospital TEXT, doctor TEXT, prescribed_at REAL, advice_text TEXT,
+                  confirmed INTEGER NOT NULL DEFAULT 0, created_at REAL NOT NULL, updated_at REAL NOT NULL);
+                CREATE TABLE medication (
+                  id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+                  generic_name TEXT NOT NULL, brand_name TEXT, spec TEXT, unit_kind TEXT NOT NULL,
+                  created_at REAL NOT NULL, updated_at REAL NOT NULL);
+                CREATE TABLE stock_lot (
+                  id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+                  medication_id TEXT NOT NULL REFERENCES medication(id),
+                  prescription_id TEXT REFERENCES prescription(id),
+                  total_units REAL NOT NULL, unit_kind TEXT NOT NULL,
+                  remaining_plan_units REAL NOT NULL, remaining_confirmed_units REAL NOT NULL,
+                  opened_at REAL, expire_at REAL, storage_note TEXT, storage_photo_id TEXT, box_photo_id TEXT,
+                  status TEXT NOT NULL, last_reconciled_at REAL NOT NULL);
+                CREATE TABLE claim_item (
+                  id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+                  encounter_id TEXT REFERENCES encounter(id), document_file_id TEXT REFERENCES document_file(id),
+                  item_type TEXT NOT NULL, amount REAL, currency TEXT DEFAULT 'CNY', date REAL, merchant TEXT,
+                  summary TEXT, confirmed INTEGER NOT NULL DEFAULT 0, created_at REAL NOT NULL, updated_at REAL NOT NULL);
                 INSERT INTO medication_dose_log (id, plan_id, scheduled_for, delivery_state,
                                                 user_action, delivered_at, acted_at)
                   VALUES ('legacy-dose-1', 'orphan-plan', 1, 'delivered', 'taken', 1, 1);
