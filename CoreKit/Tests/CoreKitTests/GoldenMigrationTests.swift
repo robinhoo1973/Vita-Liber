@@ -411,4 +411,183 @@ struct FtsSensitiveMigrationTests {
         }
     }
 }
+
+// binds: SU-M0-GOLDEN — 子项目 D · D1-1：v24→v25 `recognition-fact-lines` 老库逐步升级金样
+// （discussions/2026-09-13-hospital-card-schema-round1 §D.0/§D.4）。
+// GRDB 平台边界：仅 iOS/macOS（CI `cd CoreKit && swift test`）执行；Linux 侧由
+// .github/workflows/test-schema-integrity.py 以 sqlite3 复核同一 v25 SQL 步。
+// 夹具 schema_v24_baseline.sql = 改基线**之前**从 HEAD 冻结的 SchemaV2.ddl 全文。
+@Suite("SU-M0-GOLDEN · v24→v25 老库逐步升级 = 全新库基线 / 回填幂等")
+struct SchemaV25GoldenTests {
+    static let fixture = Bundle.module.bundlePath + "/Fixtures/schema_v24_baseline.sql"
+    static let tables = ["encounter", "prescription", "prescription_line", "claim_item", "claim_line",
+                         "document_file", "stock_lot", "ocr_card_commit"]
+
+    struct Legacy {
+        let queue: DatabaseQueue
+        let patient: UUID
+        let document: UUID
+    }
+
+    /// v24 老库：冻结基线 + `PRAGMA user_version = 24` + 一位成员 / 一份文档 / 第 0 页。
+    /// 必须用 GRDBStore.configuration()：基线触发器调用 bigrams()，且外键开启才与生产库同形。
+    static func legacyDatabase() throws -> Legacy {
+        let queue = try DatabaseQueue(configuration: GRDBStore.configuration())
+        let patient = UUID(), document = UUID()
+        let ddl = String(decoding: try Data(contentsOf: URL(fileURLWithPath: Self.fixture)), as: UTF8.self)
+        try queue.write { db in
+            try db.execute(sql: ddl)
+            try db.execute(sql: "PRAGMA user_version = 24")
+            try db.execute(sql: "INSERT INTO patient_profile (id, display_name, relation, created_at, updated_at) VALUES (?, 'A', 'self', 0, 0)",
+                           arguments: [patient.uuidString])
+            try db.execute(sql: """
+                INSERT INTO document_file (id, patient_id, doc_type, sha256, mime_type, origin, created_at, updated_at)
+                VALUES (?, ?, '处方单', 'h', 'image/png', 'import', 0, 0)
+                """, arguments: [document.uuidString, patient.uuidString])
+            try db.execute(sql: "INSERT INTO document_page (id, document_file_id, page_index, created_at) VALUES (?, ?, 0, 0)",
+                           arguments: [UUID().uuidString, document.uuidString])
+        }
+        return Legacy(queue: queue, patient: patient, document: document)
+    }
+
+    /// v24 形态回执（无 entity_table 列）+ ocr-card-v22 审计 JSON（ocr_result 只增不改）。
+    static func insertLegacyReceipt(_ db: Database, _ audit: OCRCardStore.AuditRecord) throws {
+        try db.execute(sql: """
+            INSERT INTO ocr_card_commit (card_id, row_id, patient_id, document_file_id, page_index, card_kind, entity_id, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, arguments: [audit.cardId.uuidString, audit.rowId.uuidString, audit.patientId.uuidString, audit.documentId.uuidString,
+                             audit.pageIndex, audit.cardKind, audit.entityId.uuidString, audit.recordedAt.timeIntervalSince1970])
+        try db.execute(sql: """
+            INSERT INTO ocr_result (id, document_file_id, page_index, raw_blocks, engine_version, created_at)
+            VALUES (?, ?, ?, ?, 'ocr-card-v22', ?)
+            """, arguments: [UUID().uuidString, audit.documentId.uuidString, audit.pageIndex,
+                             String(decoding: try JSONEncoder().encode(audit), as: UTF8.self), audit.recordedAt.timeIntervalSince1970])
+    }
+
+    /// pragma_table_info 逐列签名（名/类型/notnull/默认/pk），按列名排序——基线表尾追加与迁移 ADD COLUMN 顺序无关。
+    static func columns(_ db: Database, _ table: String) throws -> [String] {
+        try Row.fetchAll(db, sql: "SELECT name, type, \"notnull\", dflt_value, pk FROM pragma_table_info(?)", arguments: [table]).map { row in
+            "\(row["name"] as String)|\(row["type"] as String)|\(row["notnull"] as Int)|\((row["dflt_value"] as String?) ?? "NULL")|\(row["pk"] as Int)"
+        }.sorted()
+    }
+
+    @Test func 逐表列集一致且回填幂等() throws {
+        let legacy = try Self.legacyDatabase()
+        let card = UUID(), header = UUID()
+        try legacy.queue.write { db in
+            try db.execute(sql: """
+                INSERT INTO prescription (id, patient_id, document_file_id, source, prescribed_at, advice_text, confirmed, created_at, updated_at)
+                VALUES (?, ?, ?, 'ocr', 0, 'Drug A 0.5g\nDrug B', 1, 0, 0)
+                """, arguments: [header.uuidString, legacy.patient.uuidString, legacy.document.uuidString])
+            for (index, name) in ["Drug A", "Drug B"].enumerated() {
+                let audit = OCRCardStore.AuditRecord(
+                    cardId: card, rowId: UUID(), patientId: legacy.patient, documentId: legacy.document, pageIndex: 0,
+                    cardKind: "prescription", entityId: header,
+                    shared: [.init(key: "prescribed_at", value: "2020-01-02", grade: .userConfirmed)],
+                    fields: [.init(key: "drug_name", value: name, rawText: "\(name) 0.5g", grade: .userConfirmed),
+                             .init(key: "dosage", value: "0.5", unit: "g", grade: .userConfirmed)],
+                    recordedAt: Date(timeIntervalSince1970: Double(1 + index)))
+                try Self.insertLegacyReceipt(db, audit)
+            }
+        }
+        _ = try GRDBStore(writer: legacy.queue)          // 老库 v24 → v25
+        let fresh = try GRDBStore.inMemory()             // 全新库直达基线
+        for table in Self.tables {
+            let upgraded = try legacy.queue.read { try Self.columns($0, table) }
+            let baseline = try fresh.writer.read { try Self.columns($0, table) }
+            #expect(upgraded == baseline, "\(table) 列集：老库逐步升级 ≠ 全新库基线")
+        }
+        try legacy.queue.read { db in
+            #expect(try Int.fetchOne(db, sql: "PRAGMA user_version") == SchemaMigrations.latestVersion)
+            #expect(try Int.fetchOne(db, sql: "PRAGMA foreign_keys") == 1, "迁移后外键必须复位开启")
+            #expect(try Row.fetchAll(db, sql: "PRAGMA foreign_key_check(ocr_card_commit)").isEmpty)
+            #expect(try String.fetchAll(db, sql: "SELECT DISTINCT entity_table FROM ocr_card_commit") == ["prescription"],
+                    "历史回执搬运 entity_table = card_kind")
+            #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM ocr_card_commit") == 2, "重建不得丢行")
+            #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM prescription_line WHERE prescription_id = ? AND patient_id = ? AND confirmed = 1",
+                                     arguments: [header.uuidString, legacy.patient.uuidString]) == 2)
+            #expect(try String.fetchAll(db, sql: "SELECT printed_name FROM prescription_line ORDER BY ordinal") == ["Drug A", "Drug B"],
+                    "ordinal 按回执 created_at 次序")
+            #expect(try String.fetchOne(db, sql: "SELECT dose_text || '/' || dose_unit FROM prescription_line WHERE ordinal = 0") == "0.5/g",
+                    "剂量只存原文 + 单位，不解析（BR-006/007）")
+            #expect(try String.fetchOne(db, sql: "SELECT raw_text FROM prescription_line WHERE ordinal = 0") == "Drug A 0.5g")
+            #expect(try String.fetchOne(db, sql: "SELECT id FROM prescription_line WHERE ordinal = 0")
+                    == (try String.fetchOne(db, sql: "SELECT source_row_id FROM prescription_line WHERE ordinal = 0")),
+                    "行 id = 回执 row_id（确定性，两台设备回填同 id）")
+            #expect(try String.fetchOne(db, sql: "SELECT advice_text FROM prescription WHERE id = ?", arguments: [header.uuidString])
+                    == "Drug A 0.5g\nDrug B", "advice_text 原样保留，绝不从自由文本猜回")
+        }
+        try legacy.queue.write { try GRDBStore.backfillRecognitionFactLines($0) }   // 重跑
+        #expect(try legacy.queue.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM prescription_line") } == 2, "回填重跑不重复")
+    }
+
+    @Test func 就诊叙事与报销列只补空且重跑不覆盖() throws {
+        let legacy = try Self.legacyDatabase()
+        let encounter = UUID(), claim = UUID()
+        try legacy.queue.write { db in
+            try db.execute(sql: "INSERT INTO encounter (id, patient_id, date, kind, created_at, updated_at) VALUES (?, ?, 0, 'outpatient', 0, 0)",
+                           arguments: [encounter.uuidString, legacy.patient.uuidString])
+            try Self.insertLegacyReceipt(db, OCRCardStore.AuditRecord(
+                cardId: UUID(), rowId: UUID(), patientId: legacy.patient, documentId: legacy.document, pageIndex: 0,
+                cardKind: "encounter", entityId: encounter,
+                shared: [.init(key: "date", value: "2020-01-02", grade: .userConfirmed), .init(key: "kind", value: "outpatient", grade: .userConfirmed),
+                         .init(key: "present_illness", value: "回执现病史", grade: .userConfirmed),
+                         .init(key: "visit_summary", value: "回执小结", grade: .userConfirmed)],
+                fields: [], recordedAt: Date(timeIntervalSince1970: 1)))
+            try db.execute(sql: """
+                INSERT INTO claim_item (id, patient_id, document_file_id, item_type, amount, currency, date, confirmed, created_at, updated_at)
+                VALUES (?, ?, ?, 'invoice', 128.5, 'CNY', 0, 1, 0, 0)
+                """, arguments: [claim.uuidString, legacy.patient.uuidString, legacy.document.uuidString])
+            try Self.insertLegacyReceipt(db, OCRCardStore.AuditRecord(
+                cardId: UUID(), rowId: UUID(), patientId: legacy.patient, documentId: legacy.document, pageIndex: 0,
+                cardKind: "claim_item", entityId: claim,
+                shared: [.init(key: "amount", value: "128.5", grade: .userConfirmed), .init(key: "reimbursed_amount", value: "100", grade: .userConfirmed),
+                         .init(key: "out_of_pocket", value: "不是数字", grade: .userConfirmed)],
+                fields: [], recordedAt: Date(timeIntervalSince1970: 1)))
+        }
+        _ = try GRDBStore(writer: legacy.queue)
+        try legacy.queue.read { db in
+            #expect(try String.fetchOne(db, sql: "SELECT present_illness FROM encounter WHERE id = ?", arguments: [encounter.uuidString]) == "回执现病史")
+            #expect(try String.fetchOne(db, sql: "SELECT visit_summary FROM encounter WHERE id = ?", arguments: [encounter.uuidString]) == "回执小结")
+            #expect(try Double.fetchOne(db, sql: "SELECT reimbursed_amount FROM claim_item WHERE id = ?", arguments: [claim.uuidString]) == 100)
+            #expect(try Double.fetchOne(db, sql: "SELECT out_of_pocket FROM claim_item WHERE id = ?", arguments: [claim.uuidString]) == nil,
+                    "不可解析的金额保持 NULL，不猜")
+            #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM prescription_line") == 0)
+            #expect(try Set(String.fetchAll(db, sql: "SELECT DISTINCT entity_table FROM ocr_card_commit")) == ["encounter", "claim_item"])
+        }
+        // 用户事后改写叙事 → 回填重跑（COALESCE 只补空）不得覆盖
+        try legacy.queue.write { db in
+            try db.execute(sql: "UPDATE encounter SET present_illness = '用户改写' WHERE id = ?", arguments: [encounter.uuidString])
+            try GRDBStore.backfillRecognitionFactLines(db)
+        }
+        #expect(try legacy.queue.read { try String.fetchOne($0, sql: "SELECT present_illness FROM encounter WHERE id = ?", arguments: [encounter.uuidString]) }
+                == "用户改写", "回填只补空——既有叙事不被回执覆盖")
+    }
+
+    @Test func 损坏回执跳过不中止迁移() throws {
+        let legacy = try Self.legacyDatabase()
+        let header = UUID()
+        try legacy.queue.write { db in
+            try db.execute(sql: """
+                INSERT INTO prescription (id, patient_id, document_file_id, source, prescribed_at, confirmed, created_at, updated_at)
+                VALUES (?, ?, ?, 'ocr', 0, 1, 0, 0)
+                """, arguments: [header.uuidString, legacy.patient.uuidString, legacy.document.uuidString])
+            // 回执行在、审计 JSON 损坏（非 AuditRecord 形态）
+            try db.execute(sql: """
+                INSERT INTO ocr_card_commit (card_id, row_id, patient_id, document_file_id, page_index, card_kind, entity_id, created_at)
+                VALUES (?, ?, ?, ?, 0, 'prescription', ?, 1)
+                """, arguments: [UUID().uuidString, UUID().uuidString, legacy.patient.uuidString, legacy.document.uuidString, header.uuidString])
+            try db.execute(sql: """
+                INSERT INTO ocr_result (id, document_file_id, page_index, raw_blocks, engine_version, created_at)
+                VALUES (?, ?, 0, '{"broken', 'ocr-card-v22', 1)
+                """, arguments: [UUID().uuidString, legacy.document.uuidString])
+        }
+        _ = try GRDBStore(writer: legacy.queue)          // 不抛：坏回执跳过、版本仍推进
+        try legacy.queue.read { db in
+            #expect(try Int.fetchOne(db, sql: "PRAGMA user_version") == SchemaMigrations.latestVersion)
+            #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM prescription_line") == 0, "无可解回执 → 不生成行")
+            #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM ocr_card_commit WHERE entity_table = 'prescription'") == 1)
+        }
+    }
+}
 #endif

@@ -1,23 +1,3 @@
-import Foundation
-
-/// v2 全量建表（tech-spec §4.3 DDL 摘录 V3.40，dev-pm §3.1 M0 范围第 5 条）
-///
-/// M0 必须建齐的表（dev-pm §3.1）：
-/// - 基础：local_owner / device_identity / patient_profile / document_file / asset / encounter
-/// - M0 强制（FR9.10-9.14 依赖）：prescription / medication / medication_plan /
-///   medication_dose_log / stock_lot / dose_lot_allocation
-/// - 迁移与审计：audit_event（append-only）
-/// - 其余 §4.3 表（metric_sample / guideline_source / alert_event / health_problem /
-///   allergy_event / immunization / appointment / ai_conversation / ai_message /
-///   observation / reminder / notification_delivery / voice_note / onboarding_progress /
-///   encounter_question / claim_item / contact / consent_record / notification_state /
-///   document_fts / document_fts_2gram）随本常量一并建库，保证 REFERENCES 自洽
-///   （外键开启时任何悬空引用都会在 GRDBStore.init 建库阶段直接抛错，可测试可回滚）。
-///
-/// 注意：DDL 只写一次、建库只执行一次（GRDBStore.init）；历史迁移文件只读不改
-/// （dev-pm §8.5）。
-public enum SchemaV2 {
-    public static let ddl = """
     -- 身份与设备（ADR-015）
     CREATE TABLE local_owner (
       id TEXT PRIMARY KEY,
@@ -61,11 +41,7 @@ public enum SchemaV2 {
       -- 审查修复：来源徽章 A–E 的 D 级闸门（BR-003）。机器识别入库默认 'D'（未确认），
       -- 检索/AI 事实链排除 D 级；用户显式确认后升 'C'。手工录入默认 'C'。
       grade TEXT NOT NULL DEFAULT 'C' CHECK(grade IN ('A','B','C','D','E')),
-      created_at REAL NOT NULL, updated_at REAL NOT NULL,
-      -- v25（子项目 D §C.10）：稳定类型键（分类学 D3 定稿；旧行 NULL 直至 App 层回填）
-      -- 与标题来源；doc_type 标签列保留为过渡显示列。表尾追加 = 迁移 ADD COLUMN 同序。
-      doc_type_key TEXT,
-      title_source TEXT CHECK(title_source IN ('user','suggested','filename','none') OR title_source IS NULL));
+      created_at REAL NOT NULL, updated_at REAL NOT NULL);
     -- 审查修复（P0）：UNIQUE → 普通索引。唯一索引与 FR5.6「重复只提示」
     -- 及 ADR-019 keep/adopt/coexist 语义直接冲突：同一文件二次入库必抛约束
     -- 错误（且跨成员全表唯一，家人扫同一份报告也炸）；去重由流程层
@@ -91,10 +67,7 @@ public enum SchemaV2 {
       hospital TEXT, department TEXT, doctor TEXT,
       chief_complaint TEXT, diagnosis_text TEXT, advice_text TEXT,
       follow_up_requirement TEXT, fee_amount REAL, rescheduled_from_id TEXT REFERENCES encounter(id),
-      deleted_at REAL, created_at REAL NOT NULL, updated_at REAL NOT NULL,
-      -- v25（子项目 D §C.1）：门诊病历叙事列，原文保存、App 不摘要不改写；
-      -- allergy_history 为资料建议（D4）来源列（+1 列偏离，见实施计划 D1-1）。
-      present_illness TEXT, visit_summary TEXT, past_history TEXT, physical_exam TEXT, allergy_history TEXT);
+      deleted_at REAL, created_at REAL NOT NULL, updated_at REAL NOT NULL);
     CREATE INDEX idx_encounter_patient_date ON encounter(patient_id, date DESC);
 
     -- F6 OCR 结果（字段级留痕；page_index = 所属页，V3.99 起写真实页号）
@@ -118,17 +91,13 @@ public enum SchemaV2 {
     CREATE INDEX idx_document_page_doc ON document_page(document_file_id, page_index);
 
     -- v22: committed card rows retain page provenance and make confirmation replay-safe.
-    -- v25（子项目 D §C.0-6 / §D.0）：card_kind = 卡类（reviewState/save 按此找卡），
-    -- entity_table = 回执所指真实实体表（validateReceipt/detail/exportCommits 按此找实体）——
-    -- 「一卡多表」（处方表头 + 处方行）留痕解耦；两枚举一次列全 D1–D3，v26/v27 不再重建。
     CREATE TABLE ocr_card_commit (
       card_id TEXT NOT NULL,
       row_id TEXT NOT NULL,
       patient_id TEXT NOT NULL REFERENCES patient_profile(id),
       document_file_id TEXT NOT NULL REFERENCES document_file(id),
       page_index INTEGER NOT NULL CHECK(page_index >= 0),
-      card_kind TEXT NOT NULL CHECK(card_kind IN ('metric_sample','encounter','prescription','claim_item','medication','immunization','hospitalization','diagnosis','exam_report','surgery','treatment_record')),
-      entity_table TEXT NOT NULL CHECK(entity_table IN ('metric_sample','encounter','prescription','claim_item','medication','immunization','hospitalization','diagnosis','exam_report','surgery','treatment_record','prescription_line','claim_line','lab_report','lab_result')),
+      card_kind TEXT NOT NULL CHECK(card_kind IN ('metric_sample','encounter','prescription','claim_item','medication','immunization')),
       entity_id TEXT NOT NULL,
       encounter_id TEXT REFERENCES encounter(id),
       created_at REAL NOT NULL,
@@ -137,7 +106,6 @@ public enum SchemaV2 {
     CREATE INDEX idx_ocr_card_commit_source ON ocr_card_commit(document_file_id, page_index, card_kind);
     CREATE INDEX idx_ocr_card_commit_entity ON ocr_card_commit(card_kind, entity_id, patient_id);
     CREATE INDEX idx_ocr_card_commit_encounter ON ocr_card_commit(encounter_id, patient_id);
-    CREATE INDEX idx_ocr_card_commit_entity_table ON ocr_card_commit(entity_table, entity_id, patient_id);
 
     -- F9 处方（BR-003 关键字段全确认才 confirmed=1）
     CREATE TABLE prescription (
@@ -148,39 +116,7 @@ public enum SchemaV2 {
       hospital TEXT, doctor TEXT, prescribed_at REAL,
       advice_text TEXT,
       confirmed INTEGER NOT NULL DEFAULT 0,
-      created_at REAL NOT NULL, updated_at REAL NOT NULL,
-      -- v25（子项目 D §C.6）：处方表头打印字段；advice_text 只承担「医嘱原文/整段用法」，
-      -- 不再折叠药品行（行见 prescription_line）。prescription_type 存 canonical raw，展示经 fieldValueDisplay。
-      department TEXT, prescription_no TEXT,
-      prescription_type TEXT CHECK(prescription_type IN ('general','emergency','pediatric','narcotic','psychotropic','tcm','other')),
-      fee_type_text TEXT, clinical_diagnosis TEXT, pharmacist_names TEXT, total_amount REAL);
-
-    -- v25（子项目 D §C.6）：处方行实体（「卡类 = 事实表」三重绑定拆开）。
-    -- BR-006/007：剂量/数量/频次/疗程一律原文 *_text + *_unit，不解析 REAL、不换算、不推算给药方案；
-    -- 单价/金额为费用可 REAL。source_page + source_row_id（= 回执 row_id）留痕，文档经表头到达；
-    -- medication_id 只由用户显式「采用为药品目录项」写入（不自动匹配）。
-    -- 排在 stock_lot 之前：stock_lot.prescription_line_id 外键指向本表。
-    CREATE TABLE prescription_line (
-      id TEXT PRIMARY KEY,
-      prescription_id TEXT NOT NULL REFERENCES prescription(id),
-      patient_id TEXT NOT NULL REFERENCES patient_profile(id),
-      ordinal INTEGER NOT NULL,
-      printed_name TEXT NOT NULL, generic_name TEXT, brand_name TEXT,
-      drug_form TEXT, spec TEXT,
-      dose_text TEXT, dose_unit TEXT,
-      quantity_text TEXT, quantity_unit TEXT,
-      frequency_text TEXT, route_text TEXT, duration_text TEXT,
-      start_date REAL, end_date REAL, as_needed_text TEXT,
-      medication_notes TEXT,
-      note TEXT, raw_text TEXT,
-      insurance_code TEXT, item_code_text TEXT,
-      unit_price REAL, amount REAL,
-      medication_id TEXT REFERENCES medication(id),
-      source_page INTEGER, source_row_id TEXT,
-      confirmed INTEGER NOT NULL DEFAULT 0,
-      created_at REAL NOT NULL, updated_at REAL NOT NULL,
-      UNIQUE(prescription_id, ordinal));
-    CREATE INDEX idx_prescription_line_patient ON prescription_line(patient_id, prescription_id, ordinal);
+      created_at REAL NOT NULL, updated_at REAL NOT NULL);
 
     -- 药品定义（与 StockLot/Plan 分离，ADR-016）
     CREATE TABLE medication (
@@ -240,9 +176,7 @@ public enum SchemaV2 {
       storage_photo_id TEXT REFERENCES asset(id),
       box_photo_id TEXT REFERENCES asset(id),
       status TEXT NOT NULL CHECK(status IN ('active','depleted','expired','discarded')),
-      last_reconciled_at REAL NOT NULL,
-      -- v25（子项目 D §C.6）：批次挂处方行——只由用户在行详情「加入药箱」显式传入，不推断。
-      prescription_line_id TEXT REFERENCES prescription_line(id));
+      last_reconciled_at REAL NOT NULL);
     CREATE INDEX idx_stock_lot_med_expire ON stock_lot(patient_id, medication_id, expire_at);
 
     CREATE TABLE dose_lot_allocation (
@@ -497,27 +431,8 @@ public enum SchemaV2 {
       amount REAL, currency TEXT DEFAULT 'CNY', date REAL, merchant TEXT,
       summary TEXT,
       confirmed INTEGER NOT NULL DEFAULT 0,
-      created_at REAL NOT NULL, updated_at REAL NOT NULL,
-      -- v25（子项目 D §C.7）：票面支付三分（统筹/个人现金/个人账户，打印数）、票据号（FR5.6 重复检测）、
-      -- 医保类型打印文本。ClaimStore.totals 仍只对 amount 求和（FR13.7 纯事实，不用行反推）。
-      reimbursed_amount REAL, out_of_pocket REAL, personal_account_amount REAL, invoice_no TEXT, insurance_type_text TEXT);
+      created_at REAL NOT NULL, updated_at REAL NOT NULL);
     CREATE INDEX idx_claim_patient_encounter ON claim_item(patient_id, encounter_id, date);
-
-    -- v25（子项目 D §C.7）：费用明细行（费用清单页 item_type='fee'）。行全部可选；退费行按票面负数原样，
-    -- 不设 status；fee_category_text 为打印文本不编码；数量为原文 + 单位（BR-006 同纪律）。
-    CREATE TABLE claim_line (
-      id TEXT PRIMARY KEY,
-      claim_item_id TEXT NOT NULL REFERENCES claim_item(id),
-      patient_id TEXT NOT NULL REFERENCES patient_profile(id),
-      ordinal INTEGER NOT NULL,
-      item_name TEXT NOT NULL, item_code_text TEXT, insurance_code TEXT,
-      spec TEXT, unit_price REAL, quantity_text TEXT, quantity_unit TEXT,
-      amount REAL, fee_category_text TEXT,
-      fee_at REAL, executing_dept TEXT, self_pay_ratio_text TEXT,
-      raw_text TEXT, source_page INTEGER, source_row_id TEXT,
-      created_at REAL NOT NULL,
-      UNIQUE(claim_item_id, ordinal));
-    CREATE INDEX idx_claim_line_patient ON claim_line(patient_id, claim_item_id, ordinal);
 
     -- 紧急联系人（F15 数据源）
     CREATE TABLE contact (
@@ -691,5 +606,3 @@ public enum SchemaV2 {
       factor REAL NOT NULL,                   -- 换算系数(含摩尔质量)
       note TEXT NOT NULL,                     -- 来源留痕(摩尔质量出处)
       PRIMARY KEY(concept_id, from_unit, to_unit));
-    """
-}

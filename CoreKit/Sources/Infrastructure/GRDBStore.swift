@@ -83,7 +83,9 @@ public struct GRDBStore {
     ///   重建（任一崩溃点重放安全，绝不 DROP 唯一数据副本）；v15 原地重算
     ///   逻辑剂量 id（已决议行保留、事实不丢，避免 DELETE 全清造成的送达
     ///   证据灭失与重建后重复行/双扣）。
-    /// - 纯 SQL 步沿用 addColumnParts 幂等守卫。
+    /// - v25 为「SQL 步 + 代码回填」（GRDBStore+V25Backfill）：表重建、回填与版本
+    ///   推进同一事务（applyTransactional(then:)），回填只从 ocr-card-v22 回执生成。
+    /// - 纯 SQL 步沿用 addColumnParts 幂等守卫（executeIdempotent，两条路径共用）。
     /// - user_version 只随成功步骤推进；崩溃重放从最近成功版本续跑。
     private func migrateIncremental(writer: any DatabaseWriter) throws {
         try writer.writeWithoutTransaction { db in
@@ -104,34 +106,22 @@ public struct GRDBStore {
                     try Self.rebuildDoseLogWithFK(db)
                 case 15:
                     try Self.recomputeLogicalDoseIds(db)
+                case 25:
+                    // v25 recognition-fact-lines：DDL/ocr_card_commit 重建 + FK 校验 +
+                    // 回执确定性回填（GRDBStore+V25Backfill）+ 版本推进同一事务——
+                    // 回填半途失败整体回滚，绝不留下「表已升级、行只回填一半」的库。
+                    try Self.applyTransactional(db, step, then: Self.backfillRecognitionFactLines)
+                    continue
                 default:
                     // 表重建类迁移（步级声明 transactional）：DDL/搬运 + FK
                     // 校验 + 版本推进同一事务，任何失败/崩溃都保留旧版本唯一
                     // 副本。I5 审查修复：该语义此前硬编码为 `case 23` 特例，
                     // runner 不该认识具体版本号——语义随 Step 声明携带。
                     if step.transactional {
-                        try db.inTransaction {
-                            for statement in SchemaMigrations.statements(step.sql) { try db.execute(sql: statement) }
-                            // 表名来自 steps 声明的编译期常量（同版本号信任级），非外部输入。
-                            if let table = step.fkCheckTable,
-                               !(try Row.fetchAll(db, sql: "PRAGMA foreign_key_check(\(table))")).isEmpty {
-                                throw OCRCardStore.StoreError.corruptReceipt
-                            }
-                            try db.execute(sql: "PRAGMA user_version = \(step.version)")
-                            return .commit
-                        }
+                        try Self.applyTransactional(db, step)
                         continue
                     }
-                    for statement in SchemaMigrations.statements(step.sql) {
-                        // 幂等：baseline 已含该列的库上重放 ADD COLUMN 会报 duplicate column
-                        if let parts = SchemaMigrations.addColumnParts(statement) {
-                            let exists = try Int.fetchOne(db, sql: """
-                                SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?
-                                """, arguments: [parts.table, parts.column]) ?? 0
-                            if exists > 0 { continue }
-                        }
-                        try db.execute(sql: statement)
-                    }
+                    try Self.executeIdempotent(db, step.sql)
                 }
                 try db.execute(sql: "PRAGMA user_version = \(step.version)")
             }
@@ -141,6 +131,40 @@ public struct GRDBStore {
             guard (try Int.fetchOne(db, sql: "PRAGMA foreign_keys")) == 1 else {
                 throw MigrationError.foreignKeysNotReenabled
             }
+        }
+    }
+
+    /// 逐语句执行并对 `ALTER TABLE … ADD COLUMN` 做列存在守卫（两条路径共用）。
+    /// 幂等：baseline 已含该列的库上重放 ADD COLUMN 会报 duplicate column；
+    /// SQLite 无 ADD COLUMN IF NOT EXISTS，故查 pragma_table_info。此前 transactional
+    /// 分支直接 `db.execute` 每条语句、**没有**守卫（v23 无增列所以未暴露）；
+    /// v25 起表重建步同时含增列，两条路径必须同纪律。
+    private static func executeIdempotent(_ db: Database, _ sql: String) throws {
+        for statement in SchemaMigrations.statements(sql) {
+            if let parts = SchemaMigrations.addColumnParts(statement) {
+                let exists = try Int.fetchOne(db, sql: """
+                    SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?
+                    """, arguments: [parts.table, parts.column]) ?? 0
+                if exists > 0 { continue }
+            }
+            try db.execute(sql: statement)
+        }
+    }
+
+    /// 表重建类步（步级声明 transactional）：DDL/搬运 + FK 校验 + 可选代码回填 +
+    /// 版本推进同一事务，任何失败/崩溃整体回滚、保留旧版本唯一副本。
+    private static func applyTransactional(_ db: Database, _ step: SchemaMigrations.Step,
+                                           then extra: ((Database) throws -> Void)? = nil) throws {
+        try db.inTransaction {
+            try executeIdempotent(db, step.sql)
+            // 表名来自 steps 声明的编译期常量（同版本号信任级），非外部输入。
+            if let table = step.fkCheckTable,
+               !(try Row.fetchAll(db, sql: "PRAGMA foreign_key_check(\(table))")).isEmpty {
+                throw OCRCardStore.StoreError.corruptReceipt
+            }
+            try extra?(db)
+            try db.execute(sql: "PRAGMA user_version = \(step.version)")
+            return .commit
         }
     }
 

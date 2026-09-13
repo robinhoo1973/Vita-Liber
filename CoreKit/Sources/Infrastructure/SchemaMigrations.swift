@@ -32,8 +32,8 @@ public enum SchemaMigrations {
         /// 具体版本号）。默认 false（走语句级幂等路径）。
         public let transactional: Bool
         /// transactional 步提交前必须通过 `PRAGMA foreign_key_check` 的表
-        /// （nil = 不校验）。当前唯一使用者是 v23（ocr_card_commit 重建后
-        /// 校验搬运无损）；校验失败抛 `OCRCardStore.StoreError.corruptReceipt`。
+        /// （nil = 不校验）。使用者：v23 与 v25（ocr_card_commit 重建后校验
+        /// 搬运无损）；校验失败抛 `OCRCardStore.StoreError.corruptReceipt`。
         public let fkCheckTable: String?
         public init(version: Int, name: String, sql: String, transactional: Bool = false, fkCheckTable: String? = nil) {
             self.version = version; self.name = name; self.sql = sql
@@ -447,6 +447,91 @@ public enum SchemaMigrations {
                binding_id TEXT PRIMARY KEY REFERENCES hk_import_binding(id) ON DELETE CASCADE,
                report_json TEXT NOT NULL, updated_at REAL NOT NULL);
              """),
+        // v25：recognition-fact-lines（discussions/2026-09-13-hospital-card-schema-round1 §D.1）——
+        // 处方行 / 费用行实体、就诊叙事列、处方与票据表头增列、文档稳定键列、回执 entity_table。
+        // 幂等：新表 CREATE TABLE IF NOT EXISTS；增列经 addColumnParts 的 pragma_table_info
+        // 守卫（SQLite 无 ADD COLUMN IF NOT EXISTS，与 v14 同纪律；transactional 路径自本步起
+        // 同样过守卫——GRDBStore.executeIdempotent）；ocr_card_commit 表重建沿 v23 形态
+        // （RENAME→CREATE→INSERT SELECT→DROP→索引），搬运时 entity_table = card_kind，
+        // CHECK 枚举一次列全 D1–D3，v26/v27 不再重建。回填为代码步（GRDBStore case 25，
+        // 只从 ocr-card-v22 回执确定性生成，绝不从 advice_text 自由文本猜回；BR-003）。
+        // 增列一律追加表尾，与 SchemaV2.ddl 基线同序（新老库 SELECT * 列序一致）。
+        Step(version: 25, name: "recognition-fact-lines",
+             sql: """
+             ALTER TABLE encounter ADD COLUMN present_illness TEXT;
+             ALTER TABLE encounter ADD COLUMN visit_summary TEXT;
+             ALTER TABLE encounter ADD COLUMN past_history TEXT;
+             ALTER TABLE encounter ADD COLUMN physical_exam TEXT;
+             ALTER TABLE encounter ADD COLUMN allergy_history TEXT;
+             ALTER TABLE prescription ADD COLUMN department TEXT;
+             ALTER TABLE prescription ADD COLUMN prescription_no TEXT;
+             ALTER TABLE prescription ADD COLUMN prescription_type TEXT CHECK(prescription_type IN ('general','emergency','pediatric','narcotic','psychotropic','tcm','other'));
+             ALTER TABLE prescription ADD COLUMN fee_type_text TEXT;
+             ALTER TABLE prescription ADD COLUMN clinical_diagnosis TEXT;
+             ALTER TABLE prescription ADD COLUMN pharmacist_names TEXT;
+             ALTER TABLE prescription ADD COLUMN total_amount REAL;
+             CREATE TABLE IF NOT EXISTS prescription_line (
+               id TEXT PRIMARY KEY,
+               prescription_id TEXT NOT NULL REFERENCES prescription(id),
+               patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+               ordinal INTEGER NOT NULL,
+               printed_name TEXT NOT NULL, generic_name TEXT, brand_name TEXT,
+               drug_form TEXT, spec TEXT,
+               dose_text TEXT, dose_unit TEXT,
+               quantity_text TEXT, quantity_unit TEXT,
+               frequency_text TEXT, route_text TEXT, duration_text TEXT,
+               start_date REAL, end_date REAL, as_needed_text TEXT,
+               medication_notes TEXT,
+               note TEXT, raw_text TEXT,
+               insurance_code TEXT, item_code_text TEXT,
+               unit_price REAL, amount REAL,
+               medication_id TEXT REFERENCES medication(id),
+               source_page INTEGER, source_row_id TEXT,
+               confirmed INTEGER NOT NULL DEFAULT 0,
+               created_at REAL NOT NULL, updated_at REAL NOT NULL,
+               UNIQUE(prescription_id, ordinal));
+             CREATE INDEX IF NOT EXISTS idx_prescription_line_patient ON prescription_line(patient_id, prescription_id, ordinal);
+             ALTER TABLE stock_lot ADD COLUMN prescription_line_id TEXT REFERENCES prescription_line(id);
+             ALTER TABLE claim_item ADD COLUMN reimbursed_amount REAL;
+             ALTER TABLE claim_item ADD COLUMN out_of_pocket REAL;
+             ALTER TABLE claim_item ADD COLUMN personal_account_amount REAL;
+             ALTER TABLE claim_item ADD COLUMN invoice_no TEXT;
+             ALTER TABLE claim_item ADD COLUMN insurance_type_text TEXT;
+             CREATE TABLE IF NOT EXISTS claim_line (
+               id TEXT PRIMARY KEY,
+               claim_item_id TEXT NOT NULL REFERENCES claim_item(id),
+               patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+               ordinal INTEGER NOT NULL,
+               item_name TEXT NOT NULL, item_code_text TEXT, insurance_code TEXT,
+               spec TEXT, unit_price REAL, quantity_text TEXT, quantity_unit TEXT,
+               amount REAL, fee_category_text TEXT,
+               fee_at REAL, executing_dept TEXT, self_pay_ratio_text TEXT,
+               raw_text TEXT, source_page INTEGER, source_row_id TEXT,
+               created_at REAL NOT NULL,
+               UNIQUE(claim_item_id, ordinal));
+             CREATE INDEX IF NOT EXISTS idx_claim_line_patient ON claim_line(patient_id, claim_item_id, ordinal);
+             ALTER TABLE document_file ADD COLUMN doc_type_key TEXT;
+             ALTER TABLE document_file ADD COLUMN title_source TEXT CHECK(title_source IN ('user','suggested','filename','none') OR title_source IS NULL);
+             ALTER TABLE ocr_card_commit RENAME TO ocr_card_commit_v24;
+             CREATE TABLE ocr_card_commit (
+               card_id TEXT NOT NULL, row_id TEXT NOT NULL,
+               patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+               document_file_id TEXT NOT NULL REFERENCES document_file(id),
+               page_index INTEGER NOT NULL CHECK(page_index >= 0),
+               card_kind TEXT NOT NULL CHECK(card_kind IN ('metric_sample','encounter','prescription','claim_item','medication','immunization','hospitalization','diagnosis','exam_report','surgery','treatment_record')),
+               entity_table TEXT NOT NULL CHECK(entity_table IN ('metric_sample','encounter','prescription','claim_item','medication','immunization','hospitalization','diagnosis','exam_report','surgery','treatment_record','prescription_line','claim_line','lab_report','lab_result')),
+               entity_id TEXT NOT NULL, encounter_id TEXT REFERENCES encounter(id),
+               created_at REAL NOT NULL,
+               PRIMARY KEY(card_id, row_id),
+               FOREIGN KEY(document_file_id, page_index) REFERENCES document_page(document_file_id, page_index));
+             INSERT INTO ocr_card_commit (card_id, row_id, patient_id, document_file_id, page_index, card_kind, entity_table, entity_id, encounter_id, created_at)
+               SELECT card_id, row_id, patient_id, document_file_id, page_index, card_kind, card_kind, entity_id, encounter_id, created_at FROM ocr_card_commit_v24;
+             DROP TABLE ocr_card_commit_v24;
+             CREATE INDEX idx_ocr_card_commit_source ON ocr_card_commit(document_file_id, page_index, card_kind);
+             CREATE INDEX idx_ocr_card_commit_entity ON ocr_card_commit(card_kind, entity_id, patient_id);
+             CREATE INDEX idx_ocr_card_commit_encounter ON ocr_card_commit(encounter_id, patient_id);
+             CREATE INDEX idx_ocr_card_commit_entity_table ON ocr_card_commit(entity_table, entity_id, patient_id);
+             """, transactional: true, fkCheckTable: "ocr_card_commit"),
     ]
 
     /// 全新库建库后应落到的版本号
