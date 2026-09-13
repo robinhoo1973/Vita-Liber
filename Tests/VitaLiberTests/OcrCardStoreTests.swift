@@ -399,16 +399,27 @@ final class OcrCardStoreTests: XCTestCase {
         let result = try await OCRCardStore(writer: db.writer).save(card: prescription, patientId: patient, documentId: document)
         XCTAssertEqual(result.writtenCount, 2)
         let envelope = try await ExportService(writer: db.writer).exportJSON()
+        // v25（D1-4）：行实体随包（prescriptionLines），回执按 entity_table 指行。
+        XCTAssertEqual(envelope.prescriptionLines?.map(\.printedName), ["Drug A", "Drug B"])
+        XCTAssertEqual(Set((envelope.ocrCardCommits ?? []).map { $0.entityTable ?? $0.cardKind }), ["prescription_line"])
         let target = try GRDBStore.inMemory()
         try await ExportService(writer: target.writer).importJSON(envelope)
         let row = try await target.writer.read { try Row.fetchOne($0, sql: "SELECT * FROM prescription") }
         let restored = try XCTUnwrap(row)
-        XCTAssertEqual(restored["advice_text"] as String, "Reviewed advice\nDrug A\nDrug B")
+        XCTAssertEqual(restored["advice_text"] as String, "Reviewed advice")   // 药品行不再折叠进 advice_text
         let calendar = Calendar(identifier: .gregorian)
         let expected = try XCTUnwrap(EntityCardProjection.parseDate("2020-01-02", calendar: calendar))
         XCTAssertEqual(restored["prescribed_at"] as Double, expected.timeIntervalSince1970)
+        let lines = try await target.writer.read { try Row.fetchAll($0, sql: "SELECT ordinal, printed_name, confirmed FROM prescription_line ORDER BY ordinal") }
+        XCTAssertEqual(lines.map { $0["ordinal"] as Int }, [0, 1])
+        XCTAssertEqual(lines.map { $0["printed_name"] as String }, ["Drug A", "Drug B"])
+        XCTAssertEqual(Set(lines.map { $0["confirmed"] as Int }), [1])
         let count = try await target.writer.read { try Int.fetchOne($0, sql: "SELECT COUNT(DISTINCT entity_id) FROM ocr_card_commit") }
-        XCTAssertEqual(count, 1)
+        XCTAssertEqual(count, 2)   // 两行回执各指一行
+        let headers = try await target.writer.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(DISTINCT l.prescription_id) FROM ocr_card_commit c JOIN prescription_line l ON l.id = c.entity_id WHERE c.entity_table = 'prescription_line'")
+        }
+        XCTAssertEqual(headers, 1)   // 同一张卡的行回执回到同一表头
     }
 
     func test_partialPrescriptionCompletionPreservesOriginalRowOrder() async throws {
@@ -801,5 +812,218 @@ final class OcrCardStoreTests: XCTestCase {
         } catch MedicationPlanComposer.ComposerError.lineNotFound {}
         let lots = try await tableCounts(db, ["stock_lot"])
         XCTAssertEqual(lots, [1])
+    }
+
+    // MARK: - v25 备份/恢复（子项目 D · D1-4）：EncounterExport 全列、行数组、entityTable 回执、拓扑序、旧包兼容
+
+    func test_manualEncounterRoundTripsAllColumns() async throws {
+        let (db, patient, _) = try await fixture()
+        let encounters = EncounterStore(writer: db.writer)
+        let id = try await encounters.upsert(encounter: EncounterDraft(patientId: patient, date: Date(timeIntervalSince1970: 1_700_000_000), kind: "outpatient",
+            hospital: "H", department: "内科", doctor: "Dr", chiefComplaint: "咳", diagnosisText: "上感", adviceText: "多饮水",
+            followUpRequirement: "一周后复诊", feeAmount: 35.5, presentIllness: "咳嗽 3 天", visitSummary: "对症处理", pastHistory: "高血压",
+            physicalExam: "BP 120/80", allergyHistory: "青霉素"))
+        let envelope = try await ExportService(writer: db.writer).exportJSON()
+        let exported = try XCTUnwrap(envelope.encounters.first { $0.id == id })
+        XCTAssertEqual(exported.hospital, "H")
+        XCTAssertEqual(exported.pastHistory, "高血压")
+        XCTAssertEqual(exported.feeAmount, 35.5)
+        let target = try GRDBStore.inMemory()
+        try await ExportService(writer: target.writer).importJSON(envelope)
+        let sourceRow = try await db.writer.read { try Row.fetchOne($0, sql: "SELECT * FROM encounter WHERE id = ?", arguments: [id.uuidString]) }
+        let restoredRow = try await target.writer.read { try Row.fetchOne($0, sql: "SELECT * FROM encounter WHERE id = ?", arguments: [id.uuidString]) }
+        let restored = try XCTUnwrap(restoredRow)
+        XCTAssertEqual(restored, try XCTUnwrap(sourceRow))   // 全列逐字相等（含 created_at/updated_at）——此前手工就诊只剩 diagnosis_text
+        let columns = ["hospital", "department", "doctor", "chief_complaint", "diagnosis_text", "advice_text", "follow_up_requirement",
+                       "present_illness", "visit_summary", "past_history", "physical_exam", "allergy_history"]
+        XCTAssertEqual(columns.map { restored[$0] as String? },
+                       ["H", "内科", "Dr", "咳", "上感", "多饮水", "一周后复诊", "咳嗽 3 天", "对症处理", "高血压", "BP 120/80", "青霉素"])
+        XCTAssertEqual(restored["fee_amount"] as Double?, 35.5)
+    }
+
+    func test_documentTypeKeyAndTitleSourceRoundTrip() async throws {
+        let (db, _, document) = try await fixture()
+        try await db.writer.write { db in
+            try db.execute(sql: "UPDATE document_file SET doc_type_key = 'lab_report', title_source = 'user' WHERE id = ?", arguments: [document.uuidString])
+        }
+        let envelope = try await ExportService(writer: db.writer).exportJSON()
+        XCTAssertEqual(envelope.documents?.first?.docTypeKey, "lab_report")
+        XCTAssertEqual(envelope.documents?.first?.titleSource, "user")
+        let target = try GRDBStore.inMemory()
+        try await ExportService(writer: target.writer).importJSON(envelope)
+        let row = try await target.writer.read { try Row.fetchOne($0, sql: "SELECT doc_type_key, title_source FROM document_file WHERE id = ?", arguments: [document.uuidString]) }
+        let restored = try XCTUnwrap(row)
+        XCTAssertEqual(restored["doc_type_key"] as String?, "lab_report")
+        XCTAssertEqual(restored["title_source"] as String?, "user")
+    }
+
+    func test_restoredPrescriptionReconfirmIsIdempotentAndReimportKeepsLineCount() async throws {
+        let (db, patient, document) = try await fixture()
+        let card = prescriptionCard(shared: [.init(key: "prescribed_at", value: "2020-01-02"), .init(key: "advice_text", value: "饭后服"),
+                                             .init(key: "prescription_type", value: "tcm")],
+                                    rows: [[.init(key: "drug_name", value: "Drug A"), .init(key: "dosage", value: "0.5", unit: "g")],
+                                           [.init(key: "drug_name", value: "Drug B")]])
+        _ = try await OCRCardStore(writer: db.writer).save(card: card, patientId: patient, documentId: document)
+        let envelope = try await ExportService(writer: db.writer).exportJSON()
+        XCTAssertEqual(envelope.ocrPrescriptions?.first?.prescriptionType, "tcm")
+        let target = try GRDBStore.inMemory()
+        try await ExportService(writer: target.writer).importJSON(envelope)
+        let before = try await db.writer.read { try Row.fetchAll($0, sql: "SELECT * FROM prescription_line ORDER BY ordinal") }
+        let after = try await target.writer.read { try Row.fetchAll($0, sql: "SELECT * FROM prescription_line ORDER BY ordinal") }
+        XCTAssertEqual(after, before)   // 全列（含 dose_text/dose_unit/source_row_id/confirmed）逐字相等
+        // 恢复库上再确认同一张卡：回执经行到达同一表头、行事实列一致 → 零写入、resolved（幂等）
+        let replay = try await OCRCardStore(writer: target.writer).save(card: card, patientId: patient, documentId: document)
+        XCTAssertEqual(replay.writtenCount, 0)
+        XCTAssertTrue(replay.resolved)
+        let afterReplay = try await tableCounts(target, ["prescription", "prescription_line", "ocr_card_commit"])
+        XCTAssertEqual(afterReplay, [1, 2, 2])
+        // 同库再导入同一备份（冲突全部 adopt）：行随表头裁决，UNIQUE(prescription_id, ordinal) 不撞车、行数不翻倍
+        let exporter = ExportService(writer: target.writer)
+        let conflicts = try await exporter.conflictReport(envelope)
+        try await exporter.importJSON(envelope, resolutions: Dictionary(conflicts.map { ($0.id, ExportService.ConflictResolution.adopt) }, uniquingKeysWith: { a, _ in a }))
+        let afterReimport = try await tableCounts(target, ["prescription", "prescription_line", "ocr_card_commit"])
+        XCTAssertEqual(afterReimport, [1, 2, 2])
+    }
+
+    func test_coexistRemapsPrescriptionLinesWithTheirHeader() async throws {
+        let (db, patient, document) = try await fixture()
+        let card = prescriptionCard(shared: [.init(key: "prescribed_at", value: "2020-01-02")],
+                                    rows: [[.init(key: "drug_name", value: "Drug A")], [.init(key: "drug_name", value: "Drug B")]])
+        _ = try await OCRCardStore(writer: db.writer).save(card: card, patientId: patient, documentId: document)
+        let exporter = ExportService(writer: db.writer)
+        let envelope = try await exporter.exportJSON()
+        let conflicts = try await exporter.conflictReport(envelope)
+        try await exporter.importJSON(envelope, resolutions: Dictionary(conflicts.map { ($0.id, ExportService.ConflictResolution.coexist) }, uniquingKeysWith: { a, _ in a }))
+        let counts = try await tableCounts(db, ["prescription", "prescription_line", "ocr_card_commit"])
+        XCTAssertEqual(counts, [2, 4, 4])
+        let rows = try await db.writer.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT l.prescription_id, l.patient_id, p.patient_id AS header_patient, c.patient_id AS receipt_patient
+                FROM prescription_line l JOIN prescription p ON p.id = l.prescription_id
+                JOIN ocr_card_commit c ON c.entity_id = l.id AND c.entity_table = 'prescription_line'
+                """)
+        }
+        XCTAssertEqual(rows.count, 4)   // 每行恰有一条回执：并存副本的行 id 与表头 id 一同重写，主键/UNIQUE 不撞车
+        for row in rows {
+            XCTAssertEqual(row["patient_id"] as String, row["header_patient"] as String)
+            XCTAssertEqual(row["patient_id"] as String, row["receipt_patient"] as String)
+        }
+        let perHeader = try await db.writer.read { try Int.fetchAll($0, sql: "SELECT COUNT(*) FROM prescription_line GROUP BY prescription_id") }
+        XCTAssertEqual(perHeader, [2, 2])
+    }
+
+    func test_claimLinesRoundTripWithLineReceipts() async throws {
+        let (db, patient, document) = try await fixture()
+        let card = MatchedCard(kind: "claim_item", pageIndex: 0,
+            shared: [.init(key: "amount", value: "30.5"), .init(key: "currency", value: "CNY"), .init(key: "date", value: "2026-09-11"),
+                     .init(key: "item_type", value: "fee"), .init(key: "invoice_no", value: "No.001"), .init(key: "reimbursed_amount", value: "20")],
+            rows: [MatchedCardRow(fields: [.init(key: "item_name", value: "血常规"), .init(key: "item_amount", value: "20.5"), .init(key: "item_quantity", value: "1", unit: "次")]),
+                   MatchedCardRow(fields: [.init(key: "item_name", value: "挂号费"), .init(key: "item_amount", value: "10")])],
+            allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).confirmingAllFields()
+        _ = try await OCRCardStore(writer: db.writer).save(card: card, patientId: patient, documentId: document)
+        let envelope = try await ExportService(writer: db.writer).exportJSON()
+        XCTAssertEqual(envelope.claimLines?.map(\.itemName), ["血常规", "挂号费"])
+        XCTAssertEqual(envelope.claims?.first?.invoiceNo, "No.001")
+        XCTAssertEqual(envelope.claims?.first?.reimbursedAmount, 20)
+        let target = try GRDBStore.inMemory()
+        try await ExportService(writer: target.writer).importJSON(envelope)
+        let before = try await db.writer.read { try Row.fetchAll($0, sql: "SELECT * FROM claim_line ORDER BY ordinal") }
+        let after = try await target.writer.read { try Row.fetchAll($0, sql: "SELECT * FROM claim_line ORDER BY ordinal") }
+        XCTAssertEqual(after, before)
+        let headerRow = try await target.writer.read { try Row.fetchOne($0, sql: "SELECT invoice_no, reimbursed_amount FROM claim_item") }
+        let header = try XCTUnwrap(headerRow)
+        XCTAssertEqual(header["invoice_no"] as String?, "No.001")
+        XCTAssertEqual(header["reimbursed_amount"] as Double?, 20)
+        let tables = try await target.writer.read { try String.fetchAll($0, sql: "SELECT entity_table FROM ocr_card_commit") }
+        XCTAssertEqual(tables, ["claim_line", "claim_line"])
+        let claimId = try XCTUnwrap(envelope.claims?.first?.id)
+        let detail = try await OCRCardStore(writer: target.writer).detail(kind: "claim_item", entityId: claimId, patientId: patient)
+        XCTAssertEqual(detail.sources.count, 1)
+    }
+
+    func test_backupRejectsCrossMemberOrDanglingPrescriptionLines() async throws {
+        let (db, patient, document) = try await fixture()
+        let other = UUID()
+        try await db.writer.write { db in
+            try db.execute(sql: "INSERT INTO patient_profile (id, display_name, relation, created_at, updated_at) VALUES (?, 'B', 'other', 0, 0)", arguments: [other.uuidString])
+        }
+        let card = prescriptionCard(shared: [.init(key: "prescribed_at", value: "2020-01-02")], rows: [[.init(key: "drug_name", value: "Drug A")]])
+        _ = try await OCRCardStore(writer: db.writer).save(card: card, patientId: patient, documentId: document)
+        let envelope = try await ExportService(writer: db.writer).exportJSON()
+        var crossMember = envelope
+        crossMember.prescriptionLines?[0].patientId = other
+        let target = try GRDBStore.inMemory()
+        do {
+            try await ExportService(writer: target.writer).importJSON(crossMember)
+            XCTFail("A line owned by another member must not be restored under this prescription")
+        } catch ExportService.ExportError.invalidOCRBackup {}
+        var dangling = envelope
+        dangling.prescriptionLines = []
+        do {
+            try await ExportService(writer: target.writer).importJSON(dangling)
+            XCTFail("A line receipt whose line is missing from the envelope must be rejected")
+        } catch ExportService.ExportError.invalidOCRBackup {}
+        let counts = try await tableCounts(target, ["prescription", "prescription_line", "ocr_card_commit"])
+        XCTAssertEqual(counts, [0, 0, 0])
+    }
+
+    func test_legacyEnvelopeWithoutV25KeysStillRestores() async throws {
+        let (db, patient, document) = try await fixture()
+        let encounterId = try await EncounterStore(writer: db.writer).upsert(encounter: EncounterDraft(patientId: patient,
+            date: Date(timeIntervalSince1970: 1_700_000_000), kind: "outpatient", diagnosisText: "上感"))
+        _ = try await OCRCardStore(writer: db.writer).save(card: card(), patientId: patient, documentId: document)
+        let rx = prescriptionCard(pageIndex: 1, shared: [.init(key: "prescribed_at", value: "2020-01-02"), .init(key: "advice_text", value: "Reviewed advice")],
+                                  rows: [[.init(key: "drug_name", value: "Drug A")]])
+        _ = try await OCRCardStore(writer: db.writer).save(card: rx, patientId: patient, documentId: document)
+        // 回放 v24 库形态：表头回执（entity_table = card_kind、审计 JSON 无 entityTable）+ 折叠 advice_text、无 prescription_line。
+        let stored = try await db.writer.read { try String.fetchOne($0, sql: "SELECT id FROM prescription") }
+        let headerId = try XCTUnwrap(stored)
+        let headerUUID = try XCTUnwrap(UUID(uuidString: headerId))
+        try await db.writer.write { db in
+            try db.execute(sql: "DELETE FROM prescription_line")
+            try db.execute(sql: "UPDATE ocr_card_commit SET entity_table = 'prescription', entity_id = ? WHERE card_kind = 'prescription'", arguments: [headerId])
+            try db.execute(sql: "UPDATE prescription SET advice_text = ? WHERE id = ?", arguments: ["Reviewed advice\nDrug A", headerId])
+            for row in try Row.fetchAll(db, sql: "SELECT id, raw_blocks FROM ocr_result WHERE engine_version = 'ocr-card-v22'") {
+                var audit = try JSONDecoder().decode(OCRCardStore.AuditRecord.self, from: Data((row["raw_blocks"] as String).utf8))
+                guard audit.cardKind == "prescription" else { continue }
+                audit.entityTable = nil; audit.entityId = headerUUID
+                try db.execute(sql: "UPDATE ocr_result SET raw_blocks = ? WHERE id = ?",
+                               arguments: [String(decoding: try JSONEncoder().encode(audit), as: UTF8.self), row["id"] as String])
+            }
+        }
+        let exporter = ExportService(writer: db.writer)
+        let current = try await exporter.exportJSON()
+        XCTAssertEqual(current.schemaVersion, ExportService.Envelope.currentSchemaVersion)
+        let data = try await exporter.encode(current)
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        // 剥掉全部 v25 键 → 旧包形态（schemaVersion 1）
+        json["schemaVersion"] = 1
+        json["prescriptionLines"] = nil
+        json["claimLines"] = nil
+        func strip(_ array: String, _ keys: [String]) {
+            guard var rows = json[array] as? [[String: Any]] else { return }
+            for index in rows.indices { for key in keys { rows[index][key] = nil } }
+            json[array] = rows
+        }
+        strip("encounters", ["hospital", "department", "doctor", "chiefComplaint", "adviceText", "followUpRequirement", "feeAmount", "rescheduledFromId",
+                             "presentIllness", "visitSummary", "pastHistory", "physicalExam", "allergyHistory", "createdAt", "updatedAt"])
+        strip("ocrCardCommits", ["entityTable"])
+        strip("documents", ["docTypeKey", "titleSource"])
+        strip("ocrPrescriptions", ["department", "prescriptionNo", "prescriptionType", "feeTypeText", "clinicalDiagnosis", "pharmacistNames", "totalAmount"])
+        strip("claims", ["reimbursedAmount", "outOfPocket", "personalAccountAmount", "invoiceNo", "insuranceTypeText"])
+        let legacy = try await exporter.decode(try JSONSerialization.data(withJSONObject: json))
+        XCTAssertNil(legacy.prescriptionLines)
+        XCTAssertNil(legacy.encounters.first?.hospital)
+        XCTAssertTrue((legacy.ocrCardCommits ?? []).allSatisfy { $0.entityTable == nil })
+        let target = try GRDBStore.inMemory()
+        try await ExportService(writer: target.writer).importJSON(legacy)
+        let diagnosis = try await target.writer.read { try String.fetchOne($0, sql: "SELECT diagnosis_text FROM encounter WHERE id = ?", arguments: [encounterId.uuidString]) }
+        XCTAssertEqual(diagnosis, "上感")
+        let advice = try await target.writer.read { try String.fetchOne($0, sql: "SELECT advice_text FROM prescription") }
+        XCTAssertEqual(advice, "Reviewed advice\nDrug A")   // 旧折叠串原样恢复
+        let counts = try await tableCounts(target, ["prescription", "prescription_line", "metric_sample"])
+        XCTAssertEqual(counts, [1, 0, 2])   // 绝不从 advice_text 猜回行（BR-003）
+        let tables = try await target.writer.read { try String.fetchAll($0, sql: "SELECT entity_table FROM ocr_card_commit ORDER BY entity_table") }
+        XCTAssertEqual(tables, ["metric_sample", "metric_sample", "prescription"])   // 旧回执缺省 entity_table = card_kind
     }
 }
