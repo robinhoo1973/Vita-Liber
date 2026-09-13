@@ -215,6 +215,55 @@ struct CardTemplateMatcherTests {
         #expect(advice.contains("每次1片"))
     }
 
+    @Test("费用清单页每 fee_item 一行（同行字段归行）；票据页无 fee_item 仍产一空行，行为不变（D1-2）")
+    func 费用清单页每项一行且票据页空行() {
+        let header = [FieldDraft(key: "amount", value: "50", confidence: 0.9), FieldDraft(key: "currency", value: "CNY", confidence: 0.9),
+                      FieldDraft(key: "report_date", value: "2026-09-01", confidence: 0.9), FieldDraft(key: "item_type", value: "fee", confidence: 0.9)]
+        let items = [FieldDraft(key: "fee_item", value: "血常规", confidence: 0.9, sourceLineIndex: 3),
+                     FieldDraft(key: "item_amount", value: "25", confidence: 0.9, sourceLineIndex: 3),
+                     FieldDraft(key: "fee_item", value: "尿常规", confidence: 0.9, sourceLineIndex: 4),
+                     FieldDraft(key: "item_amount", value: "25", confidence: 0.9, sourceLineIndex: 4)]
+        let list = CardTemplateMatcher.match(fields: header + items, pageIndex: 0, documentTypeKey: "invoice").first { $0.kind == "claim_item" }
+        #expect(list?.rows.count == 2)
+        #expect(list?.rows.first?.fields.contains { $0.key == "item_name" && $0.value == "血常规" } == true)
+        #expect(list?.rows.first?.fields.contains { $0.key == "item_amount" && $0.value == "25" } == true)
+        #expect(list?.shared.map(\.key).sorted() == ["amount", "currency", "date", "item_type"], "行级键不上浮为共享")
+        #expect(list?.allFieldCoverage == 4.0 / 8.0, "行键不进规则表：双阈值分母不变")
+        let invoice = CardTemplateMatcher.match(fields: header, pageIndex: 0, documentTypeKey: "invoice").first { $0.kind == "claim_item" }
+        #expect(invoice?.rows.count == 1 && invoice?.rows.first?.fields.isEmpty == true)
+    }
+
+    @Test("处方新键：表头 dept/prescription_type 入共享，单药页 drug_form/medication_notes 归行（D1-2）")
+    func 处方新键归行与表头() {
+        let fields = [FieldDraft(key: "drug_name", value: "阿莫西林胶囊", confidence: 0.9),
+                      FieldDraft(key: "prescribed_at", value: "2026-09-01", confidence: 0.9),
+                      FieldDraft(key: "hospital", value: "市一医院", confidence: 0.9),
+                      FieldDraft(key: "dept", value: "内科", confidence: 0.9),
+                      FieldDraft(key: "prescription_type", value: "general", confidence: 0.9),
+                      FieldDraft(key: "drug_form", value: "胶囊", confidence: 0.9),
+                      FieldDraft(key: "medication_notes", value: "避光保存", confidence: 0.9)]
+        let rx = CardTemplateMatcher.match(fields: fields, pageIndex: 0, documentTypeKey: "prescription").first { $0.kind == "prescription" }
+        #expect(rx?.rows.count == 1)
+        #expect(rx?.rows.first?.fields.contains { $0.key == "drug_form" && $0.value == "胶囊" } == true)
+        #expect(rx?.rows.first?.fields.contains { $0.key == "medication_notes" && $0.value == "避光保存" } == true)
+        #expect(rx?.shared.contains { $0.key == "department" && $0.value == "内科" } == true)
+        #expect(rx?.shared.contains { $0.key == "prescription_type" } == true)
+        #expect(rx?.allFieldCoverage == 3.0 / 5.0, "新键不稀释分母：覆盖仍按 5 条规则计")
+    }
+
+    @Test("就诊叙事多段（既往史两行）并入同一共享键，不静默丢行（D1-2）")
+    func 就诊叙事多段并入同键() {
+        let fields = [FieldDraft(key: "report_date", value: "2026-09-01", confidence: 0.6),
+                      FieldDraft(key: "dept", value: "心内科", confidence: 0.6),
+                      FieldDraft(key: "past_history", value: "高血压 10 年", confidence: 0.6),
+                      FieldDraft(key: "past_history", value: "2 型糖尿病 5 年", confidence: 0.6),
+                      FieldDraft(key: "allergy_history", value: "青霉素", confidence: 0.6)]
+        let card = CardTemplateMatcher.match(fields: fields, pageIndex: 0, documentTypeKey: "outpatient_record").first { $0.kind == "encounter" }
+        #expect(card?.shared.first { $0.key == "past_history" }?.value == "高血压 10 年\n2 型糖尿病 5 年")
+        #expect(card?.shared.filter { $0.key == "past_history" }.count == 1)
+        #expect(card?.shared.contains { $0.key == "allergy_history" && $0.value == "青霉素" } == true)
+    }
+
     @Test("同一原文行模型轨与启发式轨双产出时保留含数值载荷（round10 O8）")
     func dualTrackLabDraftsKeepNumericPayload() {
         let lines = ["血红蛋白 150"]

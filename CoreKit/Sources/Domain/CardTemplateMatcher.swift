@@ -27,13 +27,16 @@ public struct CardTemplate: Sendable, Equatable {
     public let derived: Set<String>
     /// 仅这些文档类型判定下参与匹配（nil = 不限）
     public let requiresDocumentType: Set<String>?
+    /// 行触发键无实例时仍产一空行（表头即实体；票据页无费用明细行时行为不变）。与 `CardKindEntry.allowsEmptyRows` 同源。
+    public let allowsEmptyRows: Bool
 
     public init(kind: String, rowKey: String?, mapping: [String: String],
                 rowLevelKeys: Set<String> = [], derived: Set<String> = [],
-                requiresDocumentType: Set<String>? = nil) {
+                requiresDocumentType: Set<String>? = nil, allowsEmptyRows: Bool = false) {
         self.kind = kind; self.rowKey = rowKey; self.mapping = mapping
         self.rowLevelKeys = rowLevelKeys; self.derived = derived
         self.requiresDocumentType = requiresDocumentType
+        self.allowsEmptyRows = allowsEmptyRows
     }
 }
 
@@ -170,24 +173,49 @@ public enum CardTemplateMatcher {
                                "chief_complaint": "chief_complaint", "diagnosis": "diagnosis_text",
                                "treatment": "advice_text", "hospital": "hospital", "doctor": "doctor",
                                "present_illness": "present_illness", "illness_summary": "present_illness",
-                               "visit_summary": "visit_summary"],
+                               "visit_summary": "visit_summary",
+                               // v25 叙事列（§C.1）：原文保存；allergy_history 兼作资料建议来源（D4）。
+                               "past_history": "past_history", "physical_exam": "physical_exam", "allergy_history": "allergy_history"],
                      derived: ["kind"],
                      requiresDocumentType: ["outpatient_record", "diagnosis_certificate"]),
+        // v25 处方「表头 + 行」（§C.6）：表头七键共享；行级键与 prescription_line 列一一对应（键集见 CardKindRegistry）。
         CardTemplate(kind: "prescription", rowKey: "drug_name",
                      mapping: ["drug_name": "drug_name", "prescribed_at": "prescribed_at",
                                "hospital": "hospital", "doctor": "doctor", "advice_text": "advice_text",
+                               "dept": "department", "prescription_no": "prescription_no", "prescription_type": "prescription_type",
+                               "fee_type": "fee_type", "clinical_diagnosis": "clinical_diagnosis",
+                               "pharmacist_names": "pharmacist_names", "total_amount": "total_amount",
                                "spec": "spec", "dosage": "dosage", "quantity": "quantity",
-                               "frequency": "frequency", "route": "route", "days": "days", "note": "note"],
-                     rowLevelKeys: ["drug_name", "spec", "dosage", "quantity", "frequency", "route", "days", "note"]),
+                               "frequency": "frequency", "route": "route", "days": "days", "note": "note",
+                               "drug_form": "drug_form", "generic_name": "generic_name", "brand_name": "brand_name",
+                               "start_date": "start_date", "end_date": "end_date", "as_needed": "as_needed",
+                               "medication_notes": "medication_notes", "insurance_code": "insurance_code",
+                               "item_code": "item_code", "unit_price": "unit_price", "line_amount": "line_amount"],
+                     rowLevelKeys: ["drug_name", "spec", "dosage", "quantity", "frequency", "route", "days", "note",
+                                    "drug_form", "generic_name", "brand_name", "start_date", "end_date", "as_needed",
+                                    "medication_notes", "insurance_code", "item_code", "unit_price", "line_amount"]),
         CardTemplate(kind: "medication", rowKey: "generic_name",
                      mapping: ["generic_name":"generic_name", "brand_name":"brand_name", "spec":"spec", "unit_kind":"unit_kind"],
                      rowLevelKeys: ["generic_name", "brand_name", "spec", "unit_kind"]),
         CardTemplate(kind: "immunization", rowKey: nil,
                      mapping: ["vaccine_name":"vaccine_name", "dose_number":"dose_number", "administered_at":"administered_at", "provider":"provider", "lot_number":"lot_number"]),
         CardTemplate(kind: "appointment", rowKey: nil, mapping: [:]),
-        CardTemplate(kind: "claim_item", rowKey: nil,
+        // v25 票据「表头 + 费用明细行」（§C.7）：fee_item 每实例一行（清单页）；票据页无 fee_item 仍产一空行（行为不变）。
+        CardTemplate(kind: "claim_item", rowKey: "fee_item",
                      mapping: ["amount":"amount", "currency":"currency", "report_date":"date", "item_type":"item_type", "merchant":"merchant", "hospital":"merchant", "summary":"summary",
-                               "reimbursed_amount": "reimbursed_amount", "out_of_pocket": "out_of_pocket"]),
+                               "reimbursed_amount": "reimbursed_amount", "out_of_pocket": "out_of_pocket",
+                               "personal_account_amount": "personal_account_amount", "invoice_no": "invoice_no", "insurance_type": "insurance_type",
+                               "fee_item": "item_name", "item_amount": "item_amount", "unit_price": "unit_price", "item_quantity": "item_quantity",
+                               "item_spec": "item_spec", "fee_category": "fee_category", "item_code": "item_code", "insurance_code": "insurance_code",
+                               "executing_dept": "executing_dept", "self_pay_ratio": "self_pay_ratio", "fee_at": "fee_at"],
+                     rowLevelKeys: ["item_name", "item_amount", "unit_price", "item_quantity", "item_spec", "fee_category", "item_code",
+                                    "insurance_code", "executing_dept", "self_pay_ratio", "fee_at"],
+                     allowsEmptyRows: true),
+    ]
+
+    /// 同键多段并入（换行拼接）的共享叙事键；其余共享键同键首个非空值胜出。
+    private static let narrativeSharedKeys: Set<String> = [
+        "advice_text", "present_illness", "visit_summary", "past_history", "physical_exam", "allergy_history",
     ]
 
     /// 单页匹配：返回全部达线卡（每类至多一张，按模板目录顺序）。
@@ -228,11 +256,13 @@ public enum CardTemplateMatcher {
                         }
                     }
                 }
-                if template.kind == "medication" || template.kind == "prescription" {
+                // 行级伴随字段归行（药品行/费用明细行；检验行走 companionFields 的同 rawText 参考范围路径）。
+                if ["medication", "prescription", "claim_item"].contains(template.kind) {
                     let triggers = fields.filter { $0.key == rowKey }
                     let sameLineTriggers = triggers.filter { $0.sourceLineIndex == draft.sourceLineIndex }
                     for (otherIndex, other) in fields.enumerated() where otherIndex != index {
-                        guard let key = template.mapping[other.key], template.rowLevelKeys.contains(key), key != rowKey,
+                        guard let key = template.mapping[other.key], template.rowLevelKeys.contains(key),
+                              key != rowKey, other.key != rowKey,
                               !consumed.contains(otherIndex),
                               !rowFields.contains(where: { $0.key == key }) else { continue }
                         // 审查修复（误归防线）：单一触发行跨行吸收其余行级字段时，
@@ -253,7 +283,11 @@ public enum CardTemplateMatcher {
                 let missing = requiredRules.map(\.key).filter { template.rowLevelKeys.contains($0) && !present.contains($0) }
                 rows.append(MatchedCardRow(fields: rowFields, missingRequired: missing))
             }
-            guard !rows.isEmpty else { return nil }
+            if rows.isEmpty {
+                // 票据页无费用明细行：表头即实体，仍以一空行承载（v25 前 claim_item 单行卡语义不变）。
+                guard template.allowsEmptyRows else { return nil }
+                rows = [MatchedCardRow(fields: [])]
+            }
         } else {
             rows = [MatchedCardRow(fields: [])]
         }
@@ -281,10 +315,10 @@ public enum CardTemplateMatcher {
                         var copy = draft
                         copy.key = mapped
                         shared[existingIndex] = copy
-                    } else if (mapped == "advice_text" || mapped == "present_illness"), !existingValue.contains(draft.value) {
+                    } else if narrativeSharedKeys.contains(mapped), !existingValue.contains(draft.value) {
                         // 多行用法/用量（多药品处方每药一行）与多段病史（现病史+病情说明
-                        // 归一同一键）并入同一共享键——旧实现 continue 丢弃后续行，
-                        // 处方只保留第一条医嘱（round10 审查：多条医嘱静默丢行）。
+                        // 归一同一键；既往史/体格检查/过敏史/就诊总结多行）并入同一共享键——
+                        // 旧实现 continue 丢弃后续行，处方只保留第一条医嘱（round10 审查：多条医嘱静默丢行）。
                         var merged = shared[existingIndex]
                         merged.value = existingValue + "\n" + draft.value
                         shared[existingIndex] = merged

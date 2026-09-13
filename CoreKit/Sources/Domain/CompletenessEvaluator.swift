@@ -60,6 +60,11 @@ public enum CompletenessEvaluator {
     /// 未登记的 card_kind 按保守口径：无 required 规则 → 恒完整
     /// （自动生成实体 alert_event/sent_message/emergency_card_selection
     /// 极少缺失，§21.1 跳过待办机制）。
+    ///
+    /// 目录与门槛分离（子项目 D §C.13 / D1-2）：本表只登记**建卡最小集**（required）与少量推荐
+    /// 字段，是 `CardTemplateMatcher` 双阈值与 `assess` 得分的分母；卡类的**全部**可选字段目录
+    ///（确认页「添加字段」、详情列名、allowed 放行面）由 `CardKindRegistry` 派生。新增可选字段
+    /// 一律进注册表、不进本表——FR6.9 双阈值与既有金样不因字段目录扩展而漂移。
     public static func rules(for cardKind: String) -> [CompletenessFieldRule] {
         switch cardKind {
         case "prescription":

@@ -72,8 +72,8 @@ struct EntityCardProjectionTests {
             rows: [MatchedCardRow(fields: [FieldDraft(key: "drug_name", value: "Drug A")])],
             allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete)
         let intent = EntityCardProjection.prescriptionIntent(from: reviewed(card))
-        #expect(intent?.adviceText.contains("Original reviewed advice") == true)
-        #expect(intent?.adviceText.contains("Drug A") == true)
+        #expect(intent?.adviceText == "Original reviewed advice", "医嘱原文只取共享 advice_text（D1-2：药品行不再折叠）")
+        #expect(intent?.lines.map(\.line.printedName) == ["Drug A"])
         #expect(intent?.prescribedAt != nil)
         card.shared[0].value = "not a date"
         #expect(EntityCardProjection.prescriptionIntent(from: reviewed(card)) == nil)
@@ -140,7 +140,7 @@ struct EntityCardProjectionTests {
         #expect(EntityCardProjection.encounterDraft(from: noDate, patientId: patient, calendar: utc) == nil)
     }
 
-    @Test func 处方卡投影为医嘱文本与医院医生() {
+    @Test func 处方卡投影为表头与药品行() {
         let card = MatchedCard(kind: "prescription", pageIndex: 0,
             shared: [FieldDraft(key: "hospital", value: "市一医院"), FieldDraft(key: "doctor", value: "张医生"),
                      FieldDraft(key: "prescribed_at", value: "2026-09-01")],
@@ -150,7 +150,9 @@ struct EntityCardProjectionTests {
         let intent = EntityCardProjection.prescriptionIntent(from: reviewed(card))
         #expect(intent?.hospital == "市一医院")
         #expect(intent?.doctor == "张医生")
-        #expect(intent?.adviceText == "阿莫西林胶囊\n布洛芬")
+        #expect(intent?.adviceText == "", "无共享医嘱时不再用药品行拼串（行见 lines）")
+        #expect(intent?.lines.map(\.line.printedName) == ["阿莫西林胶囊", "布洛芬"])
+        #expect(intent?.lines.map(\.line.ordinal) == [0, 1])
     }
 
     @Test func 卡转确认字段保留行序与页号无关() {
