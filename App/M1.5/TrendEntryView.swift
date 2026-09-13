@@ -25,11 +25,6 @@ final class TrendEntryState {
     let audit: (any AuditLogging)?
     /// 最近一次请求的成员（BR-001 成员隔离：只允许最新请求写回状态）
     private var loadingPatientId: UUID?
-    /// 最近一次详情请求的指标键（与 loadingPatientId 同款守卫：同一成员下
-    /// 快速切指标时，晚到的旧指标结果不得覆写新指标的 detailSeries——
-    /// 路由页的 metricType 校验会把被覆写后的序列显示成「不可用」，
-    /// 真数据存在却渲染空态）
-    private var loadingMetricKey: String?
     private var detailRequest = UUID()
     private var latestRequest = UUID()
     private(set) var detailLoading = false
@@ -42,36 +37,43 @@ final class TrendEntryState {
     /// §5.45 深链：按指标加载指定序列（SP-13 趋势详情路由）。
     /// 独立状态槽避免覆盖入口页的血糖默认序列。
     private(set) var detailSeries: TrendSeries?
+    /// round2 H2：最近一次详情请求的查询身份（patientId, metric, origin, range）。
+    /// 取代旧 loadingMetricKey 单键守卫——渲染层以 `series.identity == detailIdentity`
+    /// 双校验，切成员/切指标/切窗口/切来源时晚到的旧身份结果不得落槽（张冠李戴同族）。
+    private(set) var detailIdentity: TrendQueryIdentity?
     /// SP-13 未连接空态判定（ui-ux §5.45 V3.53）：成员名下是否存在任何
     /// origin='device' 读数——空态分流「未连接 Apple 健康」vs 通用无数据
     private(set) var hasDeviceSamples = false
 
-    func loadDetail(patientId: UUID, metricKey: String) async {
+    /// - Parameters:
+    ///   - window: 时间窗（日历日，DayArithmetic 出口——切换日不漂移）
+    ///   - origin: 来源过滤（nil = 全部；`.device` 由查询层强制本人绑定，BR-001）
+    func loadDetail(patientId: UUID, metricKey: String, window: TrendTimeWindow = .year, origin: MetricOrigin? = nil) async {
         let request = UUID()
         detailRequest = request
         loadingPatientId = patientId
-        loadingMetricKey = metricKey
         detailLoading = true
         detailFailed = false
         defer { if detailRequest == request { detailLoading = false } }
-        do {
-            // DST 纪律（同日 load 修复）：日历日窗口，切换日不漂移
-            let range = DateInterval(start: DayArithmetic.offset(days: -365, from: Date()), end: Date())
-            // 第八轮全仓审查修复（错误指标静默替代）：未知/拼错的 metricKey
-            // 此前 ?? .glucose——深链打开错误的血糖图表冒充目标指标（张冠
-            // 李戴，与 TimelineViews 已修同族）。注册表必须覆盖全部 metricKey，
-            // 未知即拒绝：detailSeries 置 nil → 路由页呈现不可用空态，绝不
-            // 用真实指标顶替。
-            guard let metric = MetricType(rawValue: metricKey) else {
-                detailSeries = nil
-                return
-            }
-            // 加载期间即清槽（审查修复）：切指标/切成员时旧指标的曲线
-            // 不得在新指标名下继续渲染（路由页另有 metricKey 一致校验兜底）
+        // 第八轮全仓审查修复（错误指标静默替代）：未知/拼错的 metricKey
+        // 此前 ?? .glucose——深链打开错误的血糖图表冒充目标指标（张冠
+        // 李戴，与 TimelineViews 已修同族）。注册表必须覆盖全部 metricKey，
+        // 未知即拒绝：detailSeries/detailIdentity 置 nil → 路由页呈现不可用空态，
+        // 绝不用真实指标顶替。
+        guard let metric = MetricType(rawValue: metricKey) else {
             detailSeries = nil
+            detailIdentity = nil
+            return
+        }
+        let query = TrendQueryIdentity(patientId: patientId, metric: metric, origin: origin, range: window.interval())
+        // 加载期间即写身份、清槽（审查修复）：切指标/切成员时旧指标的曲线
+        // 不得在新指标名下继续渲染（路由页另有身份一致校验兜底）
+        detailIdentity = query
+        detailSeries = nil
+        do {
             // 曲线与设备样本探测互不依赖——并行读取（此前串行两轮 store
             // 往返，探测只门控空态按钮却挡在曲线渲染之前）
-            async let seriesTask = store.series(for: patientId, metric: metric, range: range)
+            async let seriesTask = store.series(query)
             async let probeTask = store.hasDeviceSamples(patientId: patientId)
             let loaded = try await seriesTask
             // 审查修复：hasDeviceSamples 从未被写入（声明即弃用）——空态分流
@@ -81,12 +83,14 @@ final class TrendEntryState {
             let hasDevice: Bool
             do { hasDevice = try await probeTask }
             catch { hasDevice = false }
-            guard detailRequest == request, !Task.isCancelled else { return }
+            // H4 过期守卫：请求代次 + 查询身份双校验，晚到的旧身份结果丢弃
+            guard detailRequest == request, !Task.isCancelled, loaded.identity == query else { return }
             detailSeries = loaded
             hasDeviceSamples = hasDevice
         } catch {
             // 过期请求（已切成员/切指标）的失败不触碰当前数据；当前请求
-            // 失败才清槽（空态渲染，不残留旧曲线）
+            // 失败才清槽（空态渲染，不残留旧曲线）。含 QueryError.deviceRequiresSelfBinding
+            // （视图对非本人不提供设备过滤项，此处仅兜底）。
             guard detailRequest == request, !Task.isCancelled else { return }
             detailSeries = nil
             detailFailed = true
@@ -100,23 +104,34 @@ final class TrendEntryState {
 struct TrendChartRouteView: View {
     let patientId: UUID
     let metricKey: String
+    @Environment(AppState.self) private var app
     @Environment(TrendEntryState.self) private var state
     @Environment(AppRouter.self) private var router
     @Environment(AppDataChangeCenter.self) private var dataChange
+    /// round2 H4：时间窗四档（默认 1 年）与来源过滤（默认全部）——两者进入查询身份
+    @State private var window: TrendTimeWindow = .year
+    @State private var origin: MetricOrigin? = nil
+
+    /// round2 H2 渲染前身份守卫：槽内序列必须携带与「当前请求身份」完全一致的身份，
+    /// 且该身份指向本路由的成员/指标/来源——旧 metricType 单键校验挡不住同指标跨成员
+    /// 或同指标不同来源过滤的串图。
+    private var identityMatches: Bool {
+        guard let expected = state.detailIdentity, let series = state.detailSeries else { return false }
+        return series.identity == expected && expected.patientId == patientId
+            && expected.metric.rawValue == metricKey && expected.origin == origin
+    }
 
     var body: some View {
         Group {
-            // 审查修复：detailSeries 必须与当前 metricKey 同指标——加载
-            // 在途/失败期间旧指标曲线不得顶替渲染（张冠李戴同族）
             if state.detailLoading {
                 ProgressView()
-            } else if let series = state.detailSeries,
-               series.metricType.rawValue == metricKey,
-               !series.points.isEmpty || !series.excludedPoints.isEmpty {
+            } else if identityMatches, let series = state.detailSeries,
+                      !series.points.isEmpty || !series.excludedPoints.isEmpty {
                 // FR7.4 排除/恢复软删（此前唯一接线点在已删除的死视图
                 // TrendEntryView 上，App 内不可达）
                 TrendDetailView(
                     series: series,
+                    window: window,
                     onToggleExcluded: { point in
                         Task { await state.toggleExcluded(point, patientId: patientId, metricKey: metricKey) }
                     })
@@ -144,8 +159,38 @@ struct TrendChartRouteView: View {
                 .accessibilityIdentifier("SP-13.trend.detail.empty")
             }
         }
-        .task(id: "\(patientId.uuidString)-\(metricKey)-\(dataChange.metricsVersion)") {
-            await state.loadDetail(patientId: patientId, metricKey: metricKey)
+        // SP-13 时间窗 / 来源过滤控件：固定于顶部安全区（图表与列表在其下滚动）
+        .safeAreaInset(edge: .top) {
+            VStack(spacing: 8) {
+                Picker(L10n.trendWindowLabel, selection: $window) {
+                    ForEach(TrendTimeWindow.allCases) { item in
+                        Text(L10n.trendWindow(item)).tag(item)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .accessibilityIdentifier("SP-13.trend.window")
+                Picker(L10n.trendFilterOrigin, selection: $origin) {
+                    Text(L10n.trendOriginAll).tag(MetricOrigin?.none)
+                    Text(L10n.trendOriginHospital).tag(MetricOrigin?.some(.hospital))
+                    Text(L10n.trendSelfMeasured).tag(MetricOrigin?.some(.manual))
+                    // BR-001：设备来源只可能归属本人绑定——非本人成员不提供设备过滤项
+                    // （查询层对非本人显式设备过滤抛 deviceRequiresSelfBinding，此处不给入口）
+                    if app.owner?.selfPatientId == patientId {
+                        Text(L10n.trendOriginDevice).tag(MetricOrigin?.some(.device))
+                    }
+                }
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("SP-13.trend.originFilter")
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(.bar)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("SP-13.trend.controls")
+        }
+        // 身份四元任一变化（成员/指标/时间窗/来源）或指标投影版本变化即重载
+        .task(id: "\(patientId.uuidString)-\(metricKey)-\(window.rawValue)-\(origin?.rawValue ?? "all")-\(dataChange.metricsVersion)") {
+            await state.loadDetail(patientId: patientId, metricKey: metricKey, window: window, origin: origin)
         }
         // FR20.3 L2 场景首用须知（趋势图表页，一次性确认——此前挂在
         // 零实例化死视图上，须知从未展示）
@@ -189,14 +234,14 @@ extension TrendEntryState {
         }
     }
 
-    /// 写后详情刷新（排除/恢复动作；不重盖标记，同 refreshLatestIfCurrent 纪律）
+    /// 写后详情刷新（排除/恢复动作；不重盖身份，同 refreshLatestIfCurrent 纪律）。
+    /// 沿用当前 detailIdentity 整体（含原时间范围与来源过滤）重查，只在身份仍是当前时落槽。
     func refreshDetailIfCurrent(patientId: UUID, metricKey: String) async {
-        guard loadingPatientId == patientId, loadingMetricKey == metricKey,
-              let metric = MetricType(rawValue: metricKey) else { return }
+        guard let query = detailIdentity, query.patientId == patientId,
+              query.metric.rawValue == metricKey else { return }
         do {
-            let range = DateInterval(start: DayArithmetic.offset(days: -365, from: Date()), end: Date())
-            let loaded = try await store.series(for: patientId, metric: metric, range: range)
-            guard loadingPatientId == patientId, loadingMetricKey == metricKey else { return }
+            let loaded = try await store.series(query)
+            guard detailIdentity == query, loaded.identity == query else { return }
             detailSeries = loaded
         } catch {
             // 刷新失败保留原状（软删失败无数据损失；错误经日志）

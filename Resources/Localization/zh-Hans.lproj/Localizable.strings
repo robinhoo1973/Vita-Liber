@@ -404,6 +404,13 @@
 "trend.notConnected.health" = "未连接 Apple 健康";
 "trend.notConnected.hint" = "连接后可汇入可读取的设备数据；本应用无法获知各类型的读取授权状态。数据仅在本机记录，不构成诊断。";
 "trend.goConnect" = "去连接";
+"trend.window.week" = "7 天";
+"trend.window.month" = "30 天";
+"trend.window.quarter" = "90 天";
+"trend.window.year" = "1 年";
+"trend.window.label" = "时间范围";
+"trend.origin.all" = "全部来源";
+"trend.filter.origin" = "来源";
 "trend.origin.hospital" = "医院报告";
 "trend.refRange" = "参考范围 %1$@–%2$@";
 "trend.row.accessibility" = "%1$@ %2$@ · %3$@ · %4$@";
@@ -1774,4 +1781,12 @@
 "health.viewTrendChart" = "查看趋势图表";
 "health.viewTrendChartHint" = "按时间轴查看该项指标的历史变化与连续趋势曲线";
 "health.importedRecordsSection" = "导入记录列表";
+"health.unavailable" = "此设备不提供 Apple 健康数据，无法连接。";
+"health.ownerMissing" = "尚未设置本人档案。Apple 健康只能导入到本人名下，请先在成员页创建或恢复本人档案。";
+"health.requestIncomplete" = "系统授权流程未完成，请重试连接。";
+"health.importedEmpty" = "尚无已导入的数据。首次同步会优先导入最近一年。";
+"health.sparseWindowsFmt" = "%d 个小时样本稀疏，未形成小时统计。";
+"health.backfillProgressFmt" = "正在导入%@，剩余 %d 个统计窗口。";
+"health.backfillLane.recent" = "最近一年";
+"health.backfillLane.history" = "更早历史";
 "asr.preparing" = "正在准备本地识别，麦克风尚未开启，请稍候再说话…";

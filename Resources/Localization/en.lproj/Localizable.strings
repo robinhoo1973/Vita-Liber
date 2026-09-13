@@ -404,6 +404,13 @@
 "trend.notConnected.health" = "Apple Health not connected";
 "trend.notConnected.hint" = "Connect to import readable device data. This app cannot observe read authorization for individual data types. Data is kept locally and is not a diagnosis.";
 "trend.goConnect" = "Connect";
+"trend.window.week" = "7 days";
+"trend.window.month" = "30 days";
+"trend.window.quarter" = "90 days";
+"trend.window.year" = "1 year";
+"trend.window.label" = "Time range";
+"trend.origin.all" = "All sources";
+"trend.filter.origin" = "Source";
 "trend.origin.hospital" = "Hospital report";
 "trend.refRange" = "Reference range %1$@–%2$@";
 "trend.row.accessibility" = "%1$@ %2$@ · %3$@ · %4$@";
@@ -1774,4 +1781,12 @@
 "health.viewTrendChart" = "View Trend Chart";
 "health.viewTrendChartHint" = "View timeline changes and continuous trend curve for this metric";
 "health.importedRecordsSection" = "Imported records list";
+"health.unavailable" = "Apple Health data is not available on this device, so it cannot be connected.";
+"health.ownerMissing" = "No self profile yet. Apple Health can only import into your own profile; create or restore it on the Members page first.";
+"health.requestIncomplete" = "The system authorization flow did not complete. Try connecting again.";
+"health.importedEmpty" = "No imported data yet. The first sync imports the most recent year first.";
+"health.sparseWindowsFmt" = "%d hours had too few samples to form hourly statistics.";
+"health.backfillProgressFmt" = "Importing %@; %d statistical windows remaining.";
+"health.backfillLane.recent" = "the most recent year";
+"health.backfillLane.history" = "earlier history";
 "asr.preparing" = "Preparing local recognition. The microphone is not active yet; please wait before speaking…";

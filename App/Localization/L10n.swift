@@ -596,6 +596,19 @@ enum L10n {
     static var trendNotConnectedHint: String { t("trend.notConnected.hint") }
     static var trendGoConnect: String { t("trend.goConnect") }
     static var trendOriginHospital: String { t("trend.origin.hospital") }
+    // round2 H4（子项目 C7）：SP-13 时间窗分段控件 + 来源过滤（设备项仅本人可见，BR-001）
+    static var trendWindowLabel: String { t("trend.window.label") }
+    /// 四档时间窗标签——switch 静态映射（不拼动态键，静态 t() 键可被 L0 §13 登记判定覆盖）
+    static func trendWindow(_ window: TrendTimeWindow) -> String {
+        switch window {
+        case .week: return t("trend.window.week")
+        case .month: return t("trend.window.month")
+        case .quarter: return t("trend.window.quarter")
+        case .year: return t("trend.window.year")
+        }
+    }
+    static var trendOriginAll: String { t("trend.origin.all") }
+    static var trendFilterOrigin: String { t("trend.filter.origin") }
     static func trendRefRange(_ lo: String, _ hi: String) -> String {
         String(format: t("trend.refRange"), lo, hi)   // %1$@ %2$@
     }
@@ -923,6 +936,22 @@ enum L10n {
     "pending.cardTitleFmt",
     "health.preservedAggregatesFmt",
     "health.deferredWindowsFmt",
+    // round2 子项目 C6/C7：SP-29 三态/空态/稀疏/回填进度；SP-13 时间窗/来源过滤
+    "health.unavailable",
+    "health.ownerMissing",
+    "health.requestIncomplete",
+    "health.importedEmpty",
+    "health.sparseWindowsFmt",
+    "health.backfillProgressFmt",
+    "health.backfillLane.recent",
+    "health.backfillLane.history",
+    "trend.window.week",
+    "trend.window.month",
+    "trend.window.quarter",
+    "trend.window.year",
+    "trend.window.label",
+    "trend.origin.all",
+    "trend.filter.origin",
     "field.measured_at",
     "field.raw_label",
     "field.value",
@@ -2296,6 +2325,29 @@ enum L10n {
     static var healthViewTrendChart: String { t("health.viewTrendChart") }
     static var healthViewTrendChartHint: String { t("health.viewTrendChartHint") }
     static var healthImportedRecordsSection: String { t("health.importedRecordsSection") }
+    // round2 H1/H3/H-N1–N5（子项目 C6）：SP-29 三态文案 / 空态 / 稀疏窗计数 / 回填进度——
+    // 全部为统计事实或状态说明，不含任何诊断或阈值判定（BR-003/004）
+    /// H-N4：设备不提供 HealthKit（iPad/模拟器）
+    static var healthUnavailable: String { t("health.unavailable") }
+    /// H-N3：缺本人档案（Apple 健康只能导入到本人名下，BR-001）
+    static var healthOwnerMissing: String { t("health.ownerMissing") }
+    /// H3：系统授权流程未完成（完成≠获准，未完成≠拒绝——读取权限对 App 不可观察）
+    static var healthRequestIncomplete: String { t("health.requestIncomplete") }
+    /// H-N5：已连接但尚无已导入行的独立空态（不是同步报告语句）
+    static var healthImportedEmpty: String { t("health.importedEmpty") }
+    /// H-N2：<3 样本未形成小时统计的小时桶数
+    static func healthSparseWindows(_ count: Int) -> String { String(format: t("health.sparseWindowsFmt"), count) }
+    /// H-N1：回填进度「正在导入 <道>，剩余 N 个统计窗口」（%1 道名 %2 剩余数）
+    static func healthBackfillProgress(_ lane: String, _ remaining: Int) -> String {
+        String(format: t("health.backfillProgressFmt"), lane, remaining)
+    }
+    /// H-N1：回填道名——switch 静态映射（静态 t() 键可被 L0 §13 登记判定覆盖）
+    static func healthBackfillLane(_ lane: HealthFetchLane) -> String {
+        switch lane {
+        case .recent: return t("health.backfillLane.recent")
+        case .history: return t("health.backfillLane.history")
+        }
+    }
     static var ocrReviewPageSkipped: String { t("ocr.review.pageSkipped") }
     static var ocrReviewInvalidField: String { t("ocr.review.invalidField") }
     static var ocrReviewNotificationFailed: String { t("ocr.review.notificationFailed") }

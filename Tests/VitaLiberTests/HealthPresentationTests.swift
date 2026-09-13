@@ -127,7 +127,9 @@ final class HealthPresentationTests: XCTestCase {
             "health.importSubject": ["%@"], "health.importPartial": ["%ld"],
             "health.windowEnd": ["%@"], "health.windowStatistics": ["%1$@", "%2$@", "%3$ld"],
             "f16.syncDoneFmt": ["%ld"], "f16.syncedRowsFmt": ["%ld"],
-            "f16.noRangeFmt": ["%ld"], "f16.lastSyncFmt": ["%@"]
+            "f16.noRangeFmt": ["%ld"], "f16.lastSyncFmt": ["%@"],
+            // round2 H-N1/H-N2（子项目 C6）：稀疏窗计数 / 回填进度（道名在前、剩余数在后，三语同序）
+            "health.sparseWindowsFmt": ["%d"], "health.backfillProgressFmt": ["%@", "%d"]
         ]
         let placeholder = try NSRegularExpression(pattern: #"%(?:[0-9]+\$)?(?:ld|d|@)"#)
         var baselineKeys: Set<String>?

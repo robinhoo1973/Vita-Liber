@@ -404,6 +404,13 @@
 "trend.notConnected.health" = "未連接 Apple 健康";
 "trend.notConnected.hint" = "連線後可匯入可讀取的裝置資料；本應用無法得知各類型的讀取授權狀態。資料僅在本機記錄，不構成診斷。";
 "trend.goConnect" = "去連接";
+"trend.window.week" = "7 天";
+"trend.window.month" = "30 天";
+"trend.window.quarter" = "90 天";
+"trend.window.year" = "1 年";
+"trend.window.label" = "時間範圍";
+"trend.origin.all" = "全部來源";
+"trend.filter.origin" = "來源";
 "trend.origin.hospital" = "醫院報告";
 "trend.refRange" = "參考範圍 %1$@–%2$@";
 "trend.row.accessibility" = "%1$@ %2$@ · %3$@ · %4$@";
@@ -1774,4 +1781,12 @@
 "health.viewTrendChart" = "查看趨勢圖表";
 "health.viewTrendChartHint" = "按時間軸查看該項指標的歷史變化與連續趨勢曲線";
 "health.importedRecordsSection" = "匯入紀錄列表";
+"health.unavailable" = "此裝置不提供 Apple 健康資料，無法連線。";
+"health.ownerMissing" = "尚未設定本人檔案。Apple 健康只能匯入到本人名下，請先在成員頁建立或還原本人檔案。";
+"health.requestIncomplete" = "系統授權流程未完成，請重試連線。";
+"health.importedEmpty" = "尚無已匯入的資料。首次同步會優先匯入最近一年。";
+"health.sparseWindowsFmt" = "%d 個小時樣本稀疏，未形成小時統計。";
+"health.backfillProgressFmt" = "正在匯入%@，剩餘 %d 個統計視窗。";
+"health.backfillLane.recent" = "最近一年";
+"health.backfillLane.history" = "更早歷史";
 "asr.preparing" = "正在準備本機辨識，麥克風尚未開啟，請稍候再說話…";

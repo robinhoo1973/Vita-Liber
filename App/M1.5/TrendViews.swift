@@ -9,8 +9,14 @@ import Domain
 /// 2. **ui-ux 4.7**：医院实心点 / 自测·设备空心点（描边可见，非透明填充）。
 /// 3. **BR-006**：参考带一律中性色——不得用红/绿等语义色暗示「超标/正常」判断。
 /// 4. 图表旁的数据列表是 VoiceOver 主通道，不依赖图形可读性。
+///
+/// round2 H4（子项目 C7）：按指标选图型（TrendMarkFamily：步数日柱 / 心率均值折线+min·max 区间 /
+/// 睡眠时长柱 / 血压成对点 / 其余点）；保极值降采样只作用于图形（列表仍全量、惰性）；
+/// 可见时间窗经 chartXVisibleDomain；空心点带描边。全部为统计呈现，不含阈值判定（BR-003/004）。
 struct TrendChartView: View {
     let series: TrendSeries
+    /// 可见时间窗（chartXVisibleDomain 长度；数据范围优先取 series.identity.range）
+    var window: TrendTimeWindow = .year
     /// 显示已排除点对照视图（FR7.4 软删可恢复）
     var showExcluded: Bool = false
     /// 选点回原报告（sourceRef → 深链）；nil 时点不可跳转
@@ -69,6 +75,58 @@ struct TrendChartView: View {
     private var xDomainStart: Date { series.points.first?.measuredAt ?? Date() }
     private var xDomainEnd: Date { series.points.last?.measuredAt ?? Date() }
 
+    /// H4 按图型族生成数据标记。独立 @ChartContentBuilder 函数而非 Chart 闭包内联 switch——
+    /// TN3211：Chart 闭包内多分支 buildEither 候选集超线性增长，可能超出类型检查预算
+    /// （本仓 CI 已有「unable to type-check in reasonable time」实证族），抽出隔离。
+    @ChartContentBuilder
+    private func dataMarks(_ family: TrendMarkFamily, points: [TrendPoint],
+                           axisTime: String, axisValue: String, tint: Color) -> some ChartContent {
+        switch family {
+        case .dailyBars, .durationBars:
+            // 步数日总量 / 睡眠时长：按日柱；设备/自测行沿用「空心」语义以降低不透明度区分
+            ForEach(points) { point in
+                BarMark(x: .value(axisTime, point.measuredAt, unit: .day),
+                        y: .value(axisValue, point.value))
+                    .foregroundStyle(tint.opacity(point.isHollow ? 0.55 : 1))
+            }
+        case .hourlyRange:
+            // 心率小时窗：均值折线 + min/max 区间带（区间只呈现窗口内统计范围，非参考范围）
+            ForEach(points) { point in
+                if let low = point.valueMin, let high = point.valueMax {
+                    RangeMark(x: .value(axisTime, point.measuredAt),
+                              yStart: .value(axisValue, low),
+                              yEnd: .value(axisValue, high))
+                        .foregroundStyle(tint.opacity(0.25))
+                }
+                LineMark(x: .value(axisTime, point.measuredAt), y: .value(axisValue, point.value))
+                    .interpolationMethod(.monotone)
+                    .foregroundStyle(tint)
+            }
+        case .points, .pairedPoints:
+            // 离散读数 / 血压（sys·dia 双序列由路由按 metric 成对加载）
+            ForEach(points) { point in
+                pointMark(point, axisTime: axisTime, axisValue: axisValue, tint: tint)
+            }
+        }
+    }
+
+    /// 实心=医院；空心=自测/设备——描边圆环（ui-ux 4.7「描边可见，非透明填充」；
+    /// 旧实现用背景色实心圆冒充空心，无描边、浅色背景上不可辨）
+    @ChartContentBuilder
+    private func pointMark(_ point: TrendPoint, axisTime: String, axisValue: String, tint: Color) -> some ChartContent {
+        if point.isHollow {
+            PointMark(x: .value(axisTime, point.measuredAt), y: .value(axisValue, point.value))
+                .symbolSize(120)
+                .symbol(.circle.strokeBorder(lineWidth: 1.5))
+                .foregroundStyle(tint)
+        } else {
+            PointMark(x: .value(axisTime, point.measuredAt), y: .value(axisValue, point.value))
+                .symbolSize(120)
+                .symbol(.circle)
+                .foregroundStyle(tint)
+        }
+    }
+
     var body: some View {
         // 轴标签在 ForEach 内逐点求值 = 每个数据点走一次 NSLocalizedString
         // （一年日测约 730 点，且拖动 chartXSelection 时每帧重算 body）。
@@ -79,13 +137,20 @@ struct TrendChartView: View {
         // 各排一遍 O(n log n)，拖动选点时每帧两趟——曲线与列表永远同序，
         // 同一份排序即可）
         let sortedPoints = TrendRules.sorted(series.points)
+        // H4：数据范围优先取查询身份（时间窗整段可见，不因数据只覆盖一段而收缩）；
+        // 无身份的旧路径回落首末点。保极值降采样只作用于图形——心率一年小时窗 8760 点
+        // → ≤ 482 点（240 桶 × min/max + 首尾），列表仍全量。
+        let range = series.identity?.range ?? DateInterval(start: xDomainStart, end: xDomainEnd)
+        let visible = TrendDownsampler.thin(sortedPoints, in: range, maxBuckets: 240)
+        let family = TrendMarkFamily.family(for: series.metricType)
+        let tint = Color("brand-primary", bundle: .main)
         VStack(alignment: .leading, spacing: 12) {
             Chart {
                 // ① 多来源参考带：逐条独立绘制（FR7.2）
                 ForEach(Array(series.referenceBands.enumerated()), id: \.element.id) { index, band in
                     RectangleMark(
-                        xStart: .value(L10n.trendAxisStart, xDomainStart),
-                        xEnd: .value(L10n.trendAxisEnd, xDomainEnd),
+                        xStart: .value(L10n.trendAxisStart, range.start),
+                        xEnd: .value(L10n.trendAxisEnd, range.end),
                         yStart: .value(L10n.trendAxisLower, band.lower),
                         yEnd: .value(L10n.trendAxisUpper, band.upper)
                     )
@@ -103,15 +168,8 @@ struct TrendChartView: View {
                             .accessibilityLabel(L10n.trendExcludedAccessibility(MedicalNumberFormat.oneDecimal(point.value)))
                     }
                 }
-                // ③ 数据点：实心=医院、空心=自测/设备
-                ForEach(sortedPoints) { point in
-                    PointMark(x: .value(axisTime, point.measuredAt), y: .value(axisValue, point.value))
-                        .symbolSize(120)
-                        .foregroundStyle(point.isHollow
-                            ? Color("bg-grouped", bundle: .main)
-                            : Color("brand-primary", bundle: .main))
-                        .symbol(.circle)
-                }
+                // ③ 数据标记：按指标图型族（H4）——分支抽出为独立 @ChartContentBuilder 函数
+                dataMarks(family, points: visible, axisTime: axisTime, axisValue: axisValue, tint: tint)
                 // ④ 选中点竖线（chartXSelection 气泡锚点）
                 if let selectedPoint {
                     RuleMark(x: .value(L10n.trendAxisSelected, selectedPoint.measuredAt))
@@ -119,6 +177,9 @@ struct TrendChartView: View {
                         .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
                 }
             }
+            // H4：横向可滚动 + 可见域 = 所选时间窗（iOS 17+ API；部署目标 17.0）
+            .chartScrollableAxes(.horizontal)
+            .chartXVisibleDomain(length: TimeInterval(window.rawValue) * 86400)
             .chartXSelection(value: $selectedDate)
             .frame(height: 200)
             .accessibilityIdentifier("SP-13.trend.chart")
@@ -170,19 +231,24 @@ struct TrendChartView: View {
                 TrendPointBubble(point: p, onOpenSource: onOpenSource)
             }
 
-            // 数据列表并存（VoiceOver 主通道）
-            ForEach(sortedPoints) { point in
-                TrendPointRow(point: point, isExcluded: false,
-                              onOpenSource: onOpenSource, onToggleExcluded: onToggleExcluded)
+            // 数据列表并存（VoiceOver 主通道）——全量、惰性构建（H4：一年小时窗数千行
+            // 在外层 ScrollView 内按需实例化，不随图表降采样）
+            LazyVStack(alignment: .leading, spacing: 8) {
+                ForEach(sortedPoints) { point in
+                    TrendPointRow(point: point, isExcluded: false,
+                                  onOpenSource: onOpenSource, onToggleExcluded: onToggleExcluded)
+                }
             }
             if showExcluded && !series.excludedPoints.isEmpty {
                 Divider()
                 Text(L10n.trendExcludedHeader)
                     .font(.caption).foregroundStyle(.secondary)
                     .accessibilityIdentifier("SP-13.trend.excluded.header")
-                ForEach(TrendRules.sorted(series.excludedPoints)) { point in
-                    TrendPointRow(point: point, isExcluded: true,
-                                  onOpenSource: onOpenSource, onToggleExcluded: onToggleExcluded)
+                LazyVStack(alignment: .leading, spacing: 8) {
+                    ForEach(TrendRules.sorted(series.excludedPoints)) { point in
+                        TrendPointRow(point: point, isExcluded: true,
+                                      onOpenSource: onOpenSource, onToggleExcluded: onToggleExcluded)
+                    }
                 }
             }
         }
@@ -318,6 +384,8 @@ private struct TrendPointRow: View {
 /// 换算注记真正产出时再挂回，接点即此壳）。
 struct TrendDetailView: View {
     let series: TrendSeries
+    /// round2 H4：所选时间窗（路由页分段控件下传，图表可见域随之）
+    var window: TrendTimeWindow = .year
     var onOpenSource: ((TrendPoint) -> Void)?
     var onToggleExcluded: ((TrendPoint) -> Void)?
 
@@ -326,6 +394,7 @@ struct TrendDetailView: View {
     var body: some View {
         ScrollView {
             TrendChartView(series: series,
+                           window: window,
                            showExcluded: showExcluded,
                            onOpenSource: onOpenSource,
                            onToggleExcluded: onToggleExcluded)
