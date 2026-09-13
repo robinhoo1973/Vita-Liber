@@ -1,6 +1,6 @@
 # Vita Liber
 
-> Your family's health codex — a privacy-first, fully offline family medical records app for iPhone/iPad (iOS 17+, SwiftUI)
+> Your family's health codex — a privacy-first, fully offline family medical records app for iPhone/iPad (iOS 16+, SwiftUI)
 
 [简体中文](README.zh-CN.md) · [繁體中文](README.zh-Hant.md)
 

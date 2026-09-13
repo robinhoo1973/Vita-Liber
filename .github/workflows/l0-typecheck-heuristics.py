@@ -3,7 +3,7 @@
 # ============================================================================
 # L0 [15] 类型层启发式门禁 —— l0-typecheck-heuristics.py
 # 背景：App/（SwiftUI）无法在 Linux 上编译，swiftc -parse 只查语法不查语义，
-# 以下八族类型错误只有 macOS L1 编译门禁才能暴露（每族均有 CI 实证），
+# 以下十族类型错误只有 macOS L1 编译门禁才能暴露（每族均有 CI 实证或部署目标实证），
 # 本脚本用静态启发式在 L0 左移拦截：
 #   A. 跨层引用缺 import —— CI d0c1008：RootAdaptiveView 引用 Infrastructure
 #      符号但未 import Infrastructure（parse 不解析符号，本地一直绿）
@@ -44,6 +44,23 @@
 #      swiftc -parse 放行、仅 macOS L1 编译报 'cannot find RangeMark in scope'
 #      （业主健康批与其后审查修正连续两轮 L1 失败即本族）。
 #      判定：App/Tests/UITests 源码中出现 \bRangeMark\b 即 FAIL。
+#   J. iOS 17 专用符号越过 iOS 16.0 部署目标（子项目 I，2026-09-13）——部署目标
+#      降至 16.0（Perception 回移植）后，ContentUnavailableView / .contentMargins /
+#      .listSectionSpacing / .symbolEffect / chartScrollableAxes·chartXVisibleDomain·
+#      chartXSelection / AVAudioApplication / @Observable·@Bindable·withObservationTracking·
+#      import Observation / .onChange 双参闭包·initial: 只有 macOS L1 才报
+#      "is only available in iOS 17.0 or newer"，swiftc -parse 放行。三条子规则：
+#      J-1 上述符号出现在 App/Compat/ 之外且不在 `if #available(iOS 17` 花括号块内
+#          （同行 `// ios17-ok: <理由>` 豁免）；
+#      J-2 文件使用 @Environment(T.self)/@Perception.Bindable/WithPerceptionTracking/
+#          withPerceptionTracking/@Perceptible 却未 `import Perception`（仅 macOS L1 报
+#          cannot find in scope / ambiguous use of 'environment'）；
+#      J-3 App/（Compat 除外）出现 `@available(iOS 17`——被整体标注的视图内
+#          @Environment(T.self) 选回 SwiftUI 原生重载、读另一键槽（Perception 键槽
+#          陷阱，运行时 fatalError "No perceptible object…"），必须改 #available 分支。
+#      不列入（Apple 文档核实为回部署/更低版本）：.topBarLeading/.topBarTrailing
+#      （iOS 14，@backDeployed）、Animation.snappy/.spring(duration:bounce:)（iOS 13）、
+#      #Preview（iOS 13）。
 # 判定与平台无关（python3 标准库）；ERR#27 纪律：扫 0 文件/无计数一律 FAIL。
 # 豁免标记（与 try?-ok/adr021-ok 同惯例，仅同行注释）：`// tius-ok: <理由>`
 # ——第五轮全仓审查修复：本标记此前只在文档声明、判定器从未读取（假豁免），
@@ -611,10 +628,87 @@ def main():
                     f"区间带改用 AreaMark(x:yStart:yEnd:)，或加 // tius-ok: 豁免"
                 )
 
+    # ---- 家族 J：iOS 17 专用符号越过 iOS 16.0 部署目标（子项目 I，2026-09-13）
+    # 部署目标降至 16.0 后，这些符号只有 macOS L1 才报 "is only available in iOS 17.0 or newer"，
+    # swiftc -parse 放行。不列入（Apple 文档核实为回部署/更低版本）：.topBarLeading/.topBarTrailing
+    # （iOS 14，@backDeployed）、Animation.snappy / .spring(duration:bounce:)（iOS 13）、#Preview（iOS 13）。
+    # 放行：App/Compat/ 内（垫片本体）、同一 `if #available(iOS 17` 花括号块内（含其 else 分支——
+    # 保守放行）、同行 `// ios17-ok: <理由>`（或 tius-ok）。
+    IOS17_ONLY = {
+        "ContentUnavailableView（用 VLUnavailableView）": r"\bContentUnavailableView\b",
+        ".contentMargins(（用 contentMarginsCompat）": r"\.contentMargins\(",
+        ".listSectionSpacing(（用 listSectionSpacingCompat）": r"\.listSectionSpacing\(",
+        ".symbolEffect(（用 recordingPulseCompat）": r"\.symbolEffect\(",
+        ".chartScrollableAxes（用 chartWindowCompat）": r"\.chartScrollableAxes\b",
+        ".chartXVisibleDomain（用 chartWindowCompat）": r"\.chartXVisibleDomain\b",
+        ".chartXSelection（用 chartWindowCompat）": r"\.chartXSelection\b",
+        "AVAudioApplication（iOS 16 走 AVAudioSession.requestRecordPermission）": r"\bAVAudioApplication\b",
+        "@Observable（用 @Perceptible）": r"(?<![\w.])@Observable\b",
+        "@Bindable（用 @Perception.Bindable）": r"(?<!Perception\.)@Bindable\b",
+        "withObservationTracking（用 withPerceptionTracking）": r"\bwithObservationTracking\b",
+        "import Observation（用 import Perception）": r"^\s*import Observation\b",
+        ".onChange 双参闭包（用 onChangeCompat）": r"\.onChange\(of:[^)]*\)\s*\{\s*\w+\s*,\s*\w+\s+in",
+        ".onChange(initial:)（用 onChangeCompat）": r"\.onChange\(of:[^)]*initial:",
+    }
+    NEEDS_PERCEPTION = re.compile(
+        r"@Environment\(\s*[A-Z]\w*(?:\.\w+)*\.self\s*\)|@Perception\.Bindable|\bWithPerceptionTracking\b"
+        r"|\bwithPerceptionTracking\b|^\s*(?:@MainActor\s+)?@Perceptible\b", re.M)
+    AVAIL_IF_RE = re.compile(r"#available\(\s*iOS 17")
+    AVAIL_ATTR_RE = re.compile(r"@available\(\s*iOS 17")
+    IMPORT_PERCEPTION_RE = re.compile(r"^\s*import Perception\s*$", re.M)
+    # 路径判定用相对根路径（root 为 "." 时 as_posix() 无前导斜杠，`"/App/Compat/" in …` 会失配）
+    j_files = [f for f in list(a_files) + list(c_files)
+               if not f.relative_to(root).as_posix().startswith("App/Compat/")]
+    scanned["J"] = len(j_files)
+    for f in j_files:
+        try:
+            text = f.read_text(encoding="utf-8")
+        except Exception:
+            continue
+        rel = f.relative_to(root).as_posix()
+        in_app = rel.startswith("App/")
+        raw_lines = text.splitlines()
+        codes = code_lines(text)
+        depth, opened, inside = 0, [], {}
+        for lineno, code in codes:                      # `if #available(iOS 17` 花括号块（含其 else 分支——保守放行）
+            if AVAIL_IF_RE.search(code) and "{" in code:
+                opened.append(depth)
+            depth += code.count("{") - code.count("}")
+            inside[lineno] = bool(opened)
+            while opened and depth <= opened[-1]:
+                opened.pop()
+        for lineno, code in codes:
+            if not code.strip():
+                continue
+            if inside.get(lineno) or exempted(raw_lines, lineno) or "ios17-ok" in raw_lines[lineno - 1]:
+                continue
+            for label, pat in IOS17_ONLY.items():
+                if re.search(pat, code):
+                    fails.append(
+                        f"{rel}:{lineno}: iOS 17 专用 `{label}` 越过 iOS 16.0 部署目标"
+                        f"（仅 macOS L1 报 'is only available in iOS 17.0 or newer'，parse 放行）——"
+                        f"改用 App/Compat 垫片或置于 `if #available(iOS 17, *)` 块内，"
+                        f"或加 // ios17-ok: 豁免"
+                    )
+            if in_app and AVAIL_ATTR_RE.search(code):
+                fails.append(
+                    f"{rel}:{lineno}: App 视图不得整体标注 @available(iOS 17——其内 "
+                    f"@Environment(T.self) 会选回 SwiftUI 原生重载、读另一键槽"
+                    f"（Perception 键槽陷阱，运行时 fatalError），改 `if #available(iOS 17, *)` 分支"
+                )
+        # J-2：使用感知 API 却未 import Perception（按剥注释代码判定，注释提及不计）
+        code_text = "\n".join(code for _, code in codes)
+        if NEEDS_PERCEPTION.search(code_text) and not IMPORT_PERCEPTION_RE.search(code_text):
+            fails.append(
+                f"{rel}: 使用 @Environment(T.self)/@Perception.Bindable/WithPerceptionTracking/"
+                f"@Perceptible 但未 import Perception（仅 macOS L1 报 cannot find in scope / "
+                f"ambiguous use of 'environment'）——在 import 块末尾补 `import Perception`"
+            )
+
     print(f"__SCANNED__ A={scanned.get('A',0)} A2={scanned.get('A2',0)} "
           f"B={scanned.get('B',0)} C={scanned.get('C',0)} D={scanned.get('D',0)} "
           f"E={scanned.get('E',0)} F={scanned.get('F',0)} G={scanned.get('G',0)} "
-          f"H={scanned.get('H',0)} I={scanned.get('I',0)}")
+          f"H={scanned.get('H',0)} I={scanned.get('I',0)} J={scanned.get('J',0)}")
     seen = set()
     for msg in fails:
         if msg in seen:

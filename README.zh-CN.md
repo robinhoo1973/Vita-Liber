@@ -1,6 +1,6 @@
 # Vita Liber · 青囊书
 
-> 你的家庭健康手抄本 —— 隐私优先、完全离线的家庭医疗档案 App（iOS 17+，iPhone/iPad，SwiftUI）
+> 你的家庭健康手抄本 —— 隐私优先、完全离线的家庭医疗档案 App（iOS 16+，iPhone/iPad，SwiftUI）
 
 [English](README.md)
 [繁體中文說明](README.zh-Hant.md)

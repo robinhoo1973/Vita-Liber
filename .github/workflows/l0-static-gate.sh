@@ -25,14 +25,17 @@
 #        禁止 {name, package} 包测试引用（XcodeGen Spec validation error，
 #        CI 34017824105 实证：包测试目标进 scheme 会在 macOS 首步即炸）
 #   [15] 类型层启发式门禁 —— Linux 无法编译 App/（SwiftUI 缺失），swiftc -parse
-#        只查语法；以下九族类型错误仅 macOS L1 编译门禁可暴露，静态启发式左移拦截：
+#        只查语法；以下十族类型错误仅 macOS L1 编译门禁可暴露，静态启发式左移拦截：
 #        跨层引用缺 import（CI d0c1008）/ Date 与 Double 混比较（CI 34032245120）
 #        / iOS 专用符号未套 #if os(iOS)（CI 34018308312）/ #if os(Linux) 桩
 #        类型在非守卫区使用（CI 34018552283）/ `any X?` 可选 any 拼写（CI ad1d767，
 #        swiftc -parse 静默放行）/ nil→String 实参（CI 34289498685）/ 长链高阶
 #        （CI 34653854625、34652541174）/ MainActor 跨隔离（CI 34673049166）/
-#        Swift Charts 不存在符号 RangeMark（CI 34747651162、34748416488）。
-#        豁免标记 `// tius-ok: <理由>`（判定器实际读取）。
+#        Swift Charts 不存在符号 RangeMark（CI 34747651162、34748416488）/
+#        iOS 17 专用符号越过 iOS 16.0 部署目标（子项目 I：ContentUnavailableView、
+#        @Observable、.onChange 双参等须走 App/Compat 垫片或 #available；缺 import
+#        Perception；App 视图整体 @available(iOS 17 键槽陷阱）。
+#        豁免标记 `// tius-ok: <理由>`（判定器实际读取；家族 J 另认 `// ios17-ok:`）。
 #   [16] 文本理解目录结构断言 —— 三文件/第 8 工厂注册/金样套件（ADR-029 静态形态）
 #   [17] 容器标识掩蔽门禁 —— 容器 .accessibilityIdentifier 必须配
 #        .accessibilityElement(children: .contain)，否则 SwiftUI 把容器标识下放
@@ -776,14 +779,18 @@ PYEOF
 fi
 
 # ---------- [15] 类型层启发式门禁 ----------
-section "15/17" "类型层启发式 —— 跨层 import 覆盖/Date·Double 混比/iOS 专用符号守卫/Linux 桩守卫外使用/any X? 拼写/nil→String 实参/长链高阶表达式/MainActor 跨隔离调用/Swift Charts 不存在符号（九族 CI 实证左移）"
+section "15/17" "类型层启发式 —— 跨层 import 覆盖/Date·Double 混比/iOS 专用符号守卫/Linux 桩守卫外使用/any X? 拼写/nil→String 实参/长链高阶表达式/MainActor 跨隔离调用/Swift Charts 不存在符号/iOS 17 专用符号越界（十族 CI 实证左移）"
 # 背景：App/（SwiftUI）在 Linux 无法编译，swiftc -parse 只查语法不查语义，
-# 以下七族类型错误只有 macOS L1 编译门禁才能暴露（每族均有 CI 实证）：
+# 以下十族类型错误只有 macOS L1 编译门禁才能暴露（每族均有 CI 实证）：
 #   跨层引用缺 import（d0c1008）/ Date 与 Double 混比较（34032245120）
 #   / iOS 专用符号未套 #if os(iOS)（34018308312）/ Linux 桩类型守卫外使用（34018552283）
 #   / `any X?` 可选 any 拼写（ad1d767，parse 静默放行、仅类型检查可查）
 #   / nil 字面量传非可选 String 成员（34289498685）
-#   / 单语句 ≥6 段高阶链式调用超 macOS 类型检查预算（34653854625）。
+#   / 单语句 ≥6 段高阶链式调用超 macOS 类型检查预算（34653854625）
+#   / MainActor 跨隔离调用（34673049166）/ Swift Charts 不存在符号（34747651162）
+#   / 家族 J：iOS 17 专用符号越过 iOS 16.0 部署目标（子项目 I，2026-09-13：
+#     J-1 符号越界 · J-2 缺 import Perception · J-3 App 视图整体 @available(iOS 17
+#     键槽陷阱；"is only available in iOS 17.0 or newer" 仅 macOS L1 可见）。
 # 判定器独立成文件（l0-typecheck-heuristics.py），与 [10]/[13] 同纪律：
 # python3 平台无关判定 + ERR#27 空扫/失效一律不得判 PASS。
 if ! command -v python3 >/dev/null 2>&1; then
@@ -796,7 +803,7 @@ else
   elif printf '%s\n' "$THEUR" | grep -q '^FAIL:'; then
     while IFS= read -r ln; do fail "$ln"; done < <(printf '%s\n' "$THEUR" | grep '^FAIL:')
   else
-    pass "$(printf '%s\n' "$THEUR" | sed -n 's/^__SCANNED__ //p') 个文件通过八族启发式"
+    pass "$(printf '%s\n' "$THEUR" | sed -n 's/^__SCANNED__ //p') 个文件通过十族启发式"
   fi
 fi
 
