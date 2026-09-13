@@ -343,6 +343,38 @@ final class ReminderStore {
         return confirmed
     }
 
+    /// FR2.1⑦ 首页时段级「跳过」（round2 U-N2）：一次滑动 = 一个用户动作 = 一次震颤判定
+    /// （与 confirmSlotAllTaken 同纪律）；BR-004 逐剂写 dose_log 显式 skipped、不推断病因；
+    /// 返回实际写入条数（调用方以 `== doses.count` 判成功，部分成功可幂等重试仍未决剂量）。
+    func skipSlotPending(patientId: UUID, doses: [ScheduledDose], careMode: Bool = false) async -> Int {
+        guard !doses.isEmpty, tremorAccepted(careMode: careMode) else { return 0 }
+        var skipped = 0
+        for dose in doses {
+            do {
+                try await meds.recordAction(notifyId: dose.notifyId, action: .skipped, reason: nil)
+                await removeDeliveredReminders(for: dose)
+                skipped += 1
+            } catch { logger.error("时段跳过记录失败: \(error)") }
+        }
+        if skipped > 0 { await refresh(patientId: patientId) }
+        return skipped
+    }
+
+    /// FR2.1⑦ 首页时段级「稍后 15 分」（round2 U-N2）：先调度成功再记 .snoozed
+    /// （与 snoozeDose 同顺序纪律——调度失败保持原状：原时段通知仍在、动作未记）。
+    func snoozeSlotPending(patientId: UUID, doses: [ScheduledDose], minutes: Int = 15, careMode: Bool = false) async -> Int {
+        guard !doses.isEmpty, tremorAccepted(careMode: careMode) else { return 0 }
+        let until = Date().addingTimeInterval(TimeInterval(minutes * 60))
+        var snoozed = 0
+        for dose in doses {
+            guard await reconciler.snooze(doseNotifyId: dose.notifyId, slotNotifyId: await slotNotifyId(for: dose), until: until) else { continue }
+            do { try await meds.recordAction(notifyId: dose.notifyId, action: .snoozed); snoozed += 1 }
+            catch { logger.error("时段稍后记录失败: \(error)") }
+        }
+        if snoozed > 0 { await refresh(patientId: patientId) }
+        return snoozed
+    }
+
     func skipDose(dose: ScheduledDose, reason: String? = nil, careMode: Bool = false,
                   patientId: UUID? = nil) async {
         guard tremorAccepted(careMode: careMode) else { return }

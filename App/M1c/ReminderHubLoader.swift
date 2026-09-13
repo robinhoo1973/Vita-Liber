@@ -19,6 +19,8 @@ enum ReminderHubLoader {
     /// 用药时段（今日待办）→ 周期计划压缩源。planID 从剂量通知 ID
     /// （dose-{planId}-{epochSlot}，DoseSlot 身份契约）提取，供
     /// ReminderAggregationCenter 按 (planID, window) 压缩。
+    /// status 透传时段状态 "pending"/"taken"/"resolved"（FR2.1⑦，round2 U-N2）：
+    /// Domain 动作表据此只对 pending 时段给出用药三动作（BR-004）。
     static func doseItems(_ slots: [DoseSlot], memberId: UUID) -> [AggregatedReminderItem] {
         slots.map { slot in
             let meds = slot.records.map { $0.medicationName ?? $0.dose.notifyId }.joined(separator: "、")
@@ -29,6 +31,7 @@ enum ReminderHubLoader {
                 title: meds.isEmpty ? L10n.homeDoseSlot : meds,
                 patientID: memberId,
                 priority: slot.allTaken ? 0 : 1,
+                status: slot.allTaken ? "taken" : (slot.anyPending ? "pending" : "resolved"),
                 routeKey: "reminderToday",
                 planID: slot.records.first.flatMap { planId(fromNotifyId: $0.dose.notifyId ?? "") })
         }
