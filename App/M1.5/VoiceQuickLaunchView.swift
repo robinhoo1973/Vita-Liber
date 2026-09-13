@@ -66,6 +66,12 @@ struct VoiceQuickLaunchView: View {
     }
     private var effectiveText: String { sourceSnapshot.selectedText }
     private var previewOnly: Bool { sourceSnapshot.requiresOriginalPersistence }
+    /// 预热键（round2 A-N2）：模型就绪后随主语言 / 引擎档位变化重新预热；nil = 模型尚未装配。
+    private var warmUpKey: String? {
+        guard let model else { return nil }
+        return (model.preferredLocale ?? TranscriptionSegmentation.fallbackLocale) + "|"
+            + (settings.values[.voiceEngine] ?? "")
+    }
 
     var body: some View {
         NavigationStack {
@@ -237,6 +243,9 @@ struct VoiceQuickLaunchView: View {
             // 引擎在环境就绪后装配（同 VoiceDictationButton 纪律：语言值变化
             // 即重建，面板内改语言返回后 preferredLocale 即时生效）
             .task(id: "\(settings.values[.voiceInputLanguages] ?? "")|\(settings.values[.voiceMixedInput] ?? "")") { ensureModel() }
+            // round2 A-N2：面板出现即预热当前档位模型（不采音、不联网），按压直接进入采集；
+            // 模型装配后随主语言/引擎档位变化重新预热（nil = 模型尚未装配，不预热）。
+            .task(id: warmUpKey) { await model?.warmUp() }
             .onChange(of: settings.values[.authAI]) { _, value in
                 if value == "false" { revokeRefinement() }
             }

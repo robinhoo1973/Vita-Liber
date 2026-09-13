@@ -73,6 +73,32 @@ public final class SherpaOnnxTranscriber: TranscriptionCaptureReporting, @unchec
         throw TranscriptionError.engineUnavailable
         #endif
     }
+    /// 模型不支持该 locale，或随包/下载资产缺件（含撤销）= `.unavailable`；资产在位 = `.installed`。
+    /// 不返回 `.downloadable`：实验室的「下载」按钮走 `prepareLocale`，而本引擎的 `prepareLocale`
+    /// 只预热、绝不联网（离线优先）；随包模型的「可下载」态由 `VoiceEngineAvailability` 层承担。
+    public func localeAssetStatus(_ localeIdentifier: String) async -> VoiceLocaleAssetStatus {
+        #if canImport(SherpaOnnxC)
+        guard ASRModelCatalog.model(for: choice)?.languageCode(for: localeIdentifier) != nil,
+              assets.isPresent(choice) else { return .unavailable }
+        return .installed
+        #else
+        return .unavailable
+        #endif
+    }
+
+    /// 预热（round2 A-N2 首句丢失的直接对策）：把模型提前装入推理池，按压时直接进入采集。
+    /// 不采音、不联网；资产缺件/撤销即视为不可预热（`isPresent` 已含撤销判定，池内再校验授权）。
+    public func prepareLocale(_ localeIdentifier: String) async -> Bool {
+        #if canImport(SherpaOnnxC)
+        guard assets.isPresent(choice) else { return false }
+        return await SherpaSpeechSessionDriver.preload(choice: choice,
+                                                       request: TranscriptionRequest(localeIdentifier: localeIdentifier),
+                                                       assets: assets)
+        #else
+        return false
+        #endif
+    }
+
     public func finish(sessionID: UUID) async {
         #if canImport(SherpaOnnxC)
         await coordinator.finish(sessionID: sessionID)

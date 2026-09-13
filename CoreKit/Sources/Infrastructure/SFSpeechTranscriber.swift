@@ -44,9 +44,15 @@ protocol SpeechSessionDriver: AnyObject, Sendable {
     func endAudio(id: UUID)
     func cancelRecognition(id: UUID)
     func endSession()
+    /// 准备阶段（授权/资源/模型加载）失败的真实原因；nil = 未失败或为系统授权拒绝
+    /// （协调器回落 `unauthorized`）。round2 A-N5：缺件/不支持语言不得伪装成授权失败。
+    var preparationFailure: TranscriptionError? { get }
 }
 
-extension SpeechSessionDriver { func endSession() {} }
+extension SpeechSessionDriver {
+    func endSession() {}
+    var preparationFailure: TranscriptionError? { nil }
+}
 
 private final class SpeechStopSignal: @unchecked Sendable {
     enum Intent: Sendable, Equatable { case running, finish, cancel }
@@ -309,7 +315,12 @@ private final class ContinuousRecognition<Driver: SpeechSessionDriver>: @uncheck
                 session.authorizationPending = false
                 if signal.intent == .cancel { session.cancel(); return }
                 if signal.intent == .finish { session.finish(); return }
-                guard authorized else { session.settle(error: TranscriptionError.unauthorized); return }
+                guard authorized else {
+                    // 驱动记录了真实准备失败原因（缺件/不支持语言/加载失败）时如实上报，
+                    // 只有纯授权拒绝才是 unauthorized（round2 A-N5）。
+                    session.settle(error: session.driver.preparationFailure ?? TranscriptionError.unauthorized)
+                    return
+                }
                 session.startSegment()
                 guard !session.settled, !session.finishing, signal.intent == .running else { return }
                 do {

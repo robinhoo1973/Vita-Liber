@@ -7,10 +7,17 @@ import SherpaOnnxC
 /// 所有方法只由SherpaSpeechSessionDriver.inferenceQueue调用。
 final class SherpaASRRuntime {
     private let choice: VoiceEngineChoice
-    /// 服务语言码（ASRModelCatalog.languageCode）：qwen3 须经 per-stream
-    /// "language" 选项注入解码提示，否则一律按默认普通话提示解码——
-    /// 粤语/闽南话等方言与外语独立/混合场景识别率坍缩（owner round10 实测）。
-    private let language: String
+    /// 解码语言提示（`ASRModelDescriptor.decoderLanguage(for:mode:)`）：qwen3 只认官方名称
+    /// （Chinese/Cantonese/English…），空串 = 不注入、启用模型自带语种识别（混说模式）；
+    /// 此前传 ISO 码等于强制一个训练分布外的标签（round2 A-N1 根因）。qwen3 经 per-stream
+    /// "language" 选项按会话注入（`begin(language:hotwords:)`），运行时可跨语言/模式复用；
+    /// whisper 的语言在构造期写入 config，不在此字段。
+    private var sessionLanguage = ""
+    /// qwen3 per-stream 热词 CSV（`ASRModelCatalog.qwenHotwords`）；热词不再进 config/池键——
+    /// 药箱变动不再触发整模重载（round2 A-N7）。
+    private var sessionHotwords = ""
+    /// 上次预览解码耗时（秒）：预览间隔按其自适应，避免预览挤占最终解码（round2 A-N3）。
+    private var lastPreviewSeconds: Double = 0
     private var online: OpaquePointer?
     private var offline: OpaquePointer?
     private var stream: OpaquePointer?
@@ -22,9 +29,9 @@ final class SherpaASRRuntime {
     private var lastPreviewAt = 0
     private var preview = ""
 
-    init(choice: VoiceEngineChoice, language: String, assets: ASRModelAssets.Validated, hotwords: [String] = []) throws {
+    /// `language` 仅 whisper 消费（config.language 走 ISO 码）；qwen3/dolphin/zipformer 忽略。
+    init(choice: VoiceEngineChoice, language: String, assets: ASRModelAssets.Validated) throws {
         self.choice = choice
-        self.language = language
         let strings = CStringStorage()
         if choice == .zipformer {
             var config = SherpaOnnxOnlineRecognizerConfig()
@@ -75,7 +82,9 @@ final class SherpaASRRuntime {
                 config.model_config.qwen3_asr.temperature = 0.000001
                 config.model_config.qwen3_asr.top_p = 0.8
                 config.model_config.qwen3_asr.seed = 42
-                config.model_config.qwen3_asr.hotwords = strings.add(ASRModelCatalog.qwenHotwords(hotwords))
+                // 热词改 per-stream SetOption("hotwords")（decode 内）：config 级热词会把运行时
+                // 绑死在一份词表上，且占用 max_total_len 提示预算（round2 A-N4/A-N7）。
+                config.model_config.qwen3_asr.hotwords = strings.add("")
             } else { throw TranscriptionError.engineUnavailable }
             offline = SherpaOnnxCreateOfflineRecognizer(&config)
             guard offline != nil else { throw TranscriptionError.engineUnavailable }
@@ -107,22 +116,31 @@ final class SherpaASRRuntime {
         if let vad { SherpaOnnxDestroyVoiceActivityDetector(vad) }
     }
 
-    func begin(hotwords: [String]) throws {
+    /// 每段（Job）开始调用：按会话装配解码语言提示与热词，复位窗口状态。
+    func begin(language: String, hotwords: [String]) throws {
         if let stream { SherpaOnnxDestroyOnlineStream(stream); self.stream = nil }
         if let online {
             // Raw text hotwords are tokenized by the model's cjkchar+bpe vocabulary; never write a hotword file.
+            // zipformer 上游把 "/" 当作热词分隔符（online-recognizer-transducer-impl.h），
+            // "mmol/L" 会被拆散——先替换为空格（round2 A-N7）。
             let words = hotwords.prefix(MixedSpeechVocabulary.limit).map {
                 $0.replacingOccurrences(of: "\n", with: " ").replacingOccurrences(of: "\r", with: " ")
+                    .replacingOccurrences(of: "/", with: " ")
             }.joined(separator: "\n")
             stream = words.isEmpty ? SherpaOnnxCreateOnlineStream(online)
                 : words.withCString { SherpaOnnxCreateOnlineStreamWithHotwords(online, $0) }
             guard stream != nil else { throw TranscriptionError.engineUnavailable }
         }
+        sessionLanguage = choice == .qwen3 ? language : ""
+        sessionHotwords = choice == .qwen3 ? ASRModelCatalog.qwenHotwords(hotwords) : ""
         if let vad { SherpaOnnxVoiceActivityDetectorReset(vad) }
         committed = []; recent = []; recentStart = 0; samplesSeen = 0; lastPreviewAt = 0; preview = ""
+        lastPreviewSeconds = 0
     }
 
-    func accept(_ samples: [Float], final: Bool, cancelled: () -> Bool) throws -> String {
+    /// `allowPreview` 为假时跳过本轮预览解码（调用方在 final 待处理/积压过大时让位，round2 A-N3）。
+    func accept(_ samples: [Float], final: Bool, cancelled: () -> Bool,
+                allowPreview: () -> Bool = { true }) throws -> String {
         guard !cancelled() else { throw CancellationError() }
         if let online, let stream {
             if !samples.isEmpty { SherpaOnnxOnlineStreamAcceptWaveform(stream, 16_000, samples, Int32(samples.count)) }
@@ -169,10 +187,15 @@ final class SherpaASRRuntime {
             preview = ""; lastPreviewAt = samplesSeen
         }
         if !final, SherpaOnnxVoiceActivityDetectorDetected(vad) != 0 {
-            let interval = choice == .dolphin ? 16_000 : 3 * 16_000
-            if samplesSeen - lastPreviewAt >= interval, recent.count >= 8_000 {
+            // 预览让位（round2 A-N3）：预览与最终解码共用同一串行队列，间隔按上次预览耗时
+            // 自适应（至少留出等长空闲），且调用方有 final/积压待处理时整轮跳过。
+            let base = choice == .dolphin ? 16_000 : 3 * 16_000
+            let interval = max(base, Int(lastPreviewSeconds * 2 * 16_000))
+            if samplesSeen - lastPreviewAt >= interval, recent.count >= 8_000, allowPreview() {
                 guard !cancelled() else { throw CancellationError() }
+                let started = DispatchTime.now().uptimeNanoseconds
                 preview = try decode(recent)
+                lastPreviewSeconds = Double(DispatchTime.now().uptimeNanoseconds - started) / 1e9
                 lastPreviewAt = samplesSeen
             }
         } else if !final {
@@ -188,21 +211,22 @@ final class SherpaASRRuntime {
         guard !samples.isEmpty else { return "" }
         guard let offline, let stream = SherpaOnnxCreateOfflineStream(offline) else { throw TranscriptionError.engineUnavailable }
         defer { SherpaOnnxDestroyOfflineStream(stream) }
-        // qwen3 识别器按 per-stream "language" 选项向解码提示注入
-        // "language <code>" 标记（vendored offline-recognizer-qwen3-asr-impl.cc
-        // 715-723）；dolphin/whisper 不经此选项（whisper 已入 config）。
-        if choice == .qwen3, !language.isEmpty {
-            language.withCString { lang in
-                "language".withCString { key in
-                    SherpaOnnxOfflineStreamSetOption(stream, key, lang)
-                }
-            }
+        // qwen3 识别器按 per-stream 选项注入：`language` 原样编码为 "language <Name>" 提示
+        // （vendored offline-recognizer-qwen3-asr-impl.cc），故只能传官方名称、空则交给模型自带
+        // 语种识别；`hotwords` 为 ASCII 逗号 CSV。dolphin/whisper 不经此选项（whisper 已入 config）。
+        if choice == .qwen3 {
+            if !sessionLanguage.isEmpty { setOption(stream, "language", sessionLanguage) }
+            if !sessionHotwords.isEmpty { setOption(stream, "hotwords", sessionHotwords) }
         }
         SherpaOnnxAcceptWaveformOffline(stream, 16_000, samples, Int32(samples.count))
         SherpaOnnxDecodeOfflineStream(offline, stream)
         guard let result = SherpaOnnxGetOfflineStreamResult(stream) else { throw TranscriptionError.engineUnavailable }
         defer { SherpaOnnxDestroyOfflineRecognizerResult(result) }
         return result.pointee.text.map { String(cString: $0).trimmingCharacters(in: .whitespacesAndNewlines) } ?? ""
+    }
+
+    private func setOption(_ stream: OpaquePointer, _ key: String, _ value: String) {
+        key.withCString { k in value.withCString { v in SherpaOnnxOfflineStreamSetOption(stream, k, v) } }
     }
 }
 

@@ -26,6 +26,9 @@ final class VoiceDictationModel {
     var preferredLocale: String?
     /// FR17.15 混说词表（主语言 + 混说开关 + 已确认药名 → contextualStrings；空 = 不注入）
     var contextualStrings: [String] = []
+    /// FR17.15 语言模式：混说开关开 = `.mixed`（不强制解码语言，启用模型自带语种识别）；
+    /// 关 = `.single`（强制主语言）。round2 A-N1：此前开关只改词表、语言仍被强制。
+    private(set) var languageMode: TranscriptionLanguageMode = .single
     private struct PressContext {
         let request: TranscriptionRequest
         let epoch: UInt64
@@ -64,6 +67,13 @@ final class VoiceDictationModel {
                                           otherLocales: Array(locales.dropFirst()),
                                           recentDrugNames: recentDrugNames)
             : []
+        languageMode = mixedInput ? .mixed : .single
+    }
+
+    /// 语音界面出现即预热当前档位模型（不采音、不联网；round2 A-N2 首句丢失的直接对策）。
+    /// 结果不影响 UI：预热失败时按压仍按原路径加载。
+    func warmUp() async {
+        _ = await engine.prepareLocale(preferredLocale ?? TranscriptionSegmentation.fallbackLocale)
     }
 
     /// FR17.15 能力诚实：实际识别 locale 与主语言不同 = 方言回落（尽力识别）
@@ -76,7 +86,8 @@ final class VoiceDictationModel {
     func start() {
         guard authorized, phase != .recording else { return }
         let request = TranscriptionRequest(localeIdentifier: preferredLocale ?? TranscriptionSegmentation.fallbackLocale,
-                                           contextualStrings: contextualStrings)
+                                           contextualStrings: contextualStrings,
+                                           languageMode: languageMode)
         let context = PressContext(request: request, epoch: epoch,
                                    onTranscript: onTranscript, onEmergency: onEmergency)
         currentID = request.sessionID

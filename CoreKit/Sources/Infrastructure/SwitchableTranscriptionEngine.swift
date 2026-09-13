@@ -116,7 +116,9 @@ actor SwitchableTranscriptionEngine: TranscriptionCaptureReporting {
         // return false，实验室在「auto + 平台轨回落」场景显示可下载按钮
         // 却必然安装失败——owner round10 实测）。
         let resolved = choice == .auto ? TranscriptionEngineBuilder.automaticChoice(locale: localeIdentifier) : choice
-        guard resolved.requiresLocaleAssets else { return false }
+        // round2 A-N2：随包模型的 prepareLocale = 预热（把模型提前装入推理池，不联网、不采音），
+        // 否则语音界面出现时的 warmUp 对 sherpa 轨恒为空操作，按压首句仍在模型加载期丢失。
+        guard resolved.requiresLocaleAssets || resolved.isBundledModel else { return false }
         return await delegate(for: resolved).prepareLocale(localeIdentifier)
     }
 
