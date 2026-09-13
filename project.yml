@@ -15,6 +15,9 @@ packages:
   swift-perception:
     url: https://github.com/pointfreeco/swift-perception
     exactVersion: 2.0.12   # 与 CoreKit from: "2.0.12" 同解；App 侧 xcodeproj 不入库，钉精确版保证 CI 可重现
+  xctest-dynamic-overlay:
+    url: https://github.com/pointfreeco/xctest-dynamic-overlay
+    exactVersion: 1.13.1   # swift-perception 传递依赖；@Perceptible 宏展开直接调用 IssueReporting，App 须显式链接（CI 34759901369）
 targets:
   VitaLiber:
     type: application
@@ -79,7 +82,7 @@ targets:
     # 分层不变（后续可登记技术债：Infrastructure 公开 API 消除 GRDB 类型泄漏）。
     # swift-perception 直连：App 源码直接 import Perception（宏 + WithPerceptionTracking），
     # 须直连产品（同 GRDB ERR#31 理由）。
-    dependencies: [{ package: CoreKit }, { package: GRDB.swift, product: GRDB }, { package: swift-perception, product: Perception }]
+    dependencies: [{ package: CoreKit }, { package: GRDB.swift, product: GRDB }, { package: swift-perception, product: Perception }, { package: xctest-dynamic-overlay, product: IssueReporting }]
   VitaLiberTests:
     type: bundle.unit-test
     platform: iOS
@@ -95,7 +98,7 @@ targets:
     # "protocol witness table for Swift.Int : GRDB.StatementColumnConvertible ...
     # symbol(s) not found for architecture arm64"（ERR#31）。
     # swift-perception 直连：HomeProfileProgressTests 用 withPerceptionTracking。
-    dependencies: [{ target: VitaLiber }, { package: CoreKit }, { package: GRDB.swift, product: GRDB }, { package: swift-perception, product: Perception }]
+    dependencies: [{ target: VitaLiber }, { package: CoreKit }, { package: GRDB.swift, product: GRDB }, { package: swift-perception, product: Perception }, { package: xctest-dynamic-overlay, product: IssueReporting }]
   VitaLiberUITests:
     type: bundle.ui-testing
     platform: iOS
