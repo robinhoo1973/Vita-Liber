@@ -420,8 +420,11 @@ struct FtsSensitiveMigrationTests {
 @Suite("SU-M0-GOLDEN · v24→v25 老库逐步升级 = 全新库基线 / 回填幂等")
 struct SchemaV25GoldenTests {
     static let fixture = Bundle.module.bundlePath + "/Fixtures/schema_v24_baseline.sql"
+    /// v24 老库经 GRDBStore 走完整链（v25 → v26 …），故列集比对也覆盖 v26 五表与 metric_sample 增列
+    /// （D2-1：v24→v25→v26 逐步升级 = 全新库基线，§D.4 验证合同）。
     static let tables = ["encounter", "prescription", "prescription_line", "claim_item", "claim_line",
-                         "document_file", "stock_lot", "ocr_card_commit"]
+                         "document_file", "stock_lot", "ocr_card_commit",
+                         "hospitalization", "diagnosis", "exam_report", "lab_report", "lab_result", "metric_sample"]
 
     struct Legacy {
         let queue: DatabaseQueue
@@ -587,6 +590,187 @@ struct SchemaV25GoldenTests {
             #expect(try Int.fetchOne(db, sql: "PRAGMA user_version") == SchemaMigrations.latestVersion)
             #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM prescription_line") == 0, "无可解回执 → 不生成行")
             #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM ocr_card_commit WHERE entity_table = 'prescription'") == 1)
+        }
+    }
+}
+
+// binds: SU-M0-GOLDEN — 子项目 D · D2-1：v25→v26 `clinical-episodes` 老库逐步升级金样
+// （discussions/2026-09-13-hospital-card-schema-round1 §C.2–C.5 / §D.2 / §D.4）。
+// GRDB 平台边界：仅 iOS/macOS 执行；Linux 侧由 .github/workflows/test-schema-integrity.py
+// 以 sqlite3 复核同一 v26 SQL 步（含回填与红线 DDL 断言）。
+// 夹具 schema_v25_baseline.sql = 改基线**之前**从 HEAD（v25）冻结的 SchemaV2.ddl 全文。
+// v26 为纯 SQL 步（无表重建、无代码回填）：runner default 路径 executeIdempotent 逐语句 + 版本推进。
+@Suite("SU-M0-GOLDEN · v25→v26 老库逐步升级 = 全新库基线 / lab_report 回填幂等 / 红线 DDL")
+struct SchemaV26GoldenTests {
+    static let fixture = Bundle.module.bundlePath + "/Fixtures/schema_v25_baseline.sql"
+    static let tables = ["hospitalization", "diagnosis", "exam_report", "lab_report", "lab_result", "metric_sample", "ocr_card_commit"]
+
+    struct Legacy {
+        let queue: DatabaseQueue
+        let patient: UUID
+        let document: UUID
+    }
+
+    /// v25 老库：冻结基线 + `PRAGMA user_version = 25` + 一位成员 / 一份检验报告文档 / 第 0、1 页。
+    static func legacyDatabase() throws -> Legacy {
+        let queue = try DatabaseQueue(configuration: GRDBStore.configuration())
+        let patient = UUID(), document = UUID()
+        let ddl = String(decoding: try Data(contentsOf: URL(fileURLWithPath: Self.fixture)), as: UTF8.self)
+        try queue.write { db in
+            try db.execute(sql: ddl)
+            try db.execute(sql: "PRAGMA user_version = 25")
+            try db.execute(sql: "INSERT INTO patient_profile (id, display_name, relation, created_at, updated_at) VALUES (?, 'A', 'self', 0, 0)",
+                           arguments: [patient.uuidString])
+            try db.execute(sql: """
+                INSERT INTO document_file (id, patient_id, doc_type, sha256, mime_type, origin, created_at, updated_at)
+                VALUES (?, ?, '检验报告', 'h', 'image/png', 'import', 0, 0)
+                """, arguments: [document.uuidString, patient.uuidString])
+            for page in 0...1 {
+                try db.execute(sql: "INSERT INTO document_page (id, document_file_id, page_index, created_at) VALUES (?, ?, ?, 0)",
+                               arguments: [UUID().uuidString, document.uuidString, page])
+            }
+        }
+        return Legacy(queue: queue, patient: patient, document: document)
+    }
+
+    /// 历史检验卡的一行：medical hospital 行（origin='hospital'，医院名塞 ref_source_label）+ v25 形态回执
+    /// （entity_table = card_kind = 'metric_sample'）。v26 回填只读回执与旧行，不读 ocr_result JSON。
+    static func insertLabRow(_ db: Database, legacy: Legacy, id: UUID, card: UUID, page: Int, metric: String, value: Double, unit: String,
+                             hospital: String, measuredAt: Double, receiptAt: Double) throws {
+        try db.execute(sql: """
+            INSERT INTO metric_sample (id, patient_id, metric_key, value, unit, origin, self_measured, excluded, source_ref,
+                                       ref_source_label, raw_label, measured_at, created_at)
+            VALUES (?, ?, ?, ?, ?, 'hospital', 0, 0, ?, ?, ?, ?, ?)
+            """, arguments: [id.uuidString, legacy.patient.uuidString, metric, value, unit,
+                             HospitalSample.sourceRef(documentId: legacy.document, pageIndex: page), hospital, metric, measuredAt, receiptAt])
+        try db.execute(sql: """
+            INSERT INTO ocr_card_commit (card_id, row_id, patient_id, document_file_id, page_index, card_kind, entity_table, entity_id, created_at)
+            VALUES (?, ?, ?, ?, ?, 'metric_sample', 'metric_sample', ?, ?)
+            """, arguments: [card.uuidString, UUID().uuidString, legacy.patient.uuidString, legacy.document.uuidString, page, id.uuidString, receiptAt])
+    }
+
+    /// 镜像 GRDBStore.executeIdempotent（private）：重放 v26 SQL，ADD COLUMN 已存在则跳过。
+    static func replayV26(_ db: Database) throws {
+        guard let step = SchemaMigrations.steps.first(where: { $0.version == 26 }) else {
+            Issue.record("v26 步骤必须存在"); return
+        }
+        for statement in SchemaMigrations.statements(step.sql) {
+            if let parts = SchemaMigrations.addColumnParts(statement),
+               (try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?",
+                                 arguments: [parts.table, parts.column]) ?? 0) > 0 { continue }
+            try db.execute(sql: statement)
+        }
+    }
+
+    @Test func 逐表列集一致且检验表头回填幂等() throws {
+        let legacy = try Self.legacyDatabase()
+        let card = UUID(), card2 = UUID()
+        let glucose = UUID(), hemoglobin = UUID(), second = UUID(), manual = UUID()
+        try legacy.queue.write { db in
+            try Self.insertLabRow(db, legacy: legacy, id: glucose, card: card, page: 0, metric: "glucose", value: 5.6, unit: "mmol/L",
+                                  hospital: "仁济医院", measuredAt: 1_700_000_000, receiptAt: 10)
+            try Self.insertLabRow(db, legacy: legacy, id: hemoglobin, card: card, page: 0, metric: "hemoglobin", value: 135, unit: "g/L",
+                                  hospital: "仁济医院", measuredAt: 1_700_000_000, receiptAt: 11)
+            try Self.insertLabRow(db, legacy: legacy, id: second, card: card2, page: 1, metric: "glucose", value: 5.1, unit: "mmol/L",
+                                  hospital: "仁济医院", measuredAt: 1_700_086_400, receiptAt: 13)
+            // 手输行：无回执，不得挂表头
+            try db.execute(sql: """
+                INSERT INTO metric_sample (id, patient_id, metric_key, value, unit, origin, self_measured, measured_at, created_at)
+                VALUES (?, ?, 'glucose', 6.0, 'mmol/L', 'manual', 1, 1700000100, 12)
+                """, arguments: [manual.uuidString, legacy.patient.uuidString])
+        }
+        _ = try GRDBStore(writer: legacy.queue)          // 老库 v25 → v26
+        let fresh = try GRDBStore.inMemory()             // 全新库直达基线
+        for table in Self.tables {
+            let upgraded = try legacy.queue.read { try SchemaV25GoldenTests.columns($0, table) }
+            let baseline = try fresh.writer.read { try SchemaV25GoldenTests.columns($0, table) }
+            #expect(upgraded == baseline, "\(table) 列集：老库逐步升级 ≠ 全新库基线")
+        }
+        try legacy.queue.read { db in
+            #expect(try Int.fetchOne(db, sql: "PRAGMA user_version") == SchemaMigrations.latestVersion)
+            #expect(try Int.fetchOne(db, sql: "PRAGMA foreign_keys") == 1, "迁移后外键必须复位开启")
+            #expect(try Row.fetchAll(db, sql: "PRAGMA foreign_key_check").isEmpty, "回填后 lab_report_id 不得悬空")
+            #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM lab_report") == 2, "每张历史检验卡一条表头（card_id 同页同卡类唯一）")
+            let header = try #require(try Row.fetchOne(db, sql: "SELECT * FROM lab_report WHERE source_card_id = ?", arguments: [card.uuidString]))
+            #expect(header["id"] as String == card.uuidString, "表头 id = card_id（确定性、UUID 同型，两台设备回填同 id）")
+            #expect(header["patient_id"] as String == legacy.patient.uuidString)
+            #expect(header["document_file_id"] as String? == legacy.document.uuidString)
+            #expect(header["hospital"] as String? == "仁济医院", "hospital 取旧行 ref_source_label")
+            #expect(header["reported_at"] as Double? == 1_700_000_000, "reported_at = 卡内 measured_at")
+            #expect(header["source"] as String == "ocr")
+            #expect(header["confirmed"] as Int == 1, "只从已确认回执生成（BR-003）")
+            #expect(header["created_at"] as Double == 10, "created_at = 回执 MIN(created_at)")
+            #expect(header["encounter_id"] as String? == nil, "无信号不猜归属")
+            for id in [glucose, hemoglobin] {
+                #expect(try String.fetchOne(db, sql: "SELECT lab_report_id FROM metric_sample WHERE id = ?", arguments: [id.uuidString]) == card.uuidString)
+            }
+            #expect(try String.fetchOne(db, sql: "SELECT lab_report_id FROM metric_sample WHERE id = ?", arguments: [second.uuidString]) == card2.uuidString)
+            #expect(try String.fetchOne(db, sql: "SELECT lab_report_id FROM metric_sample WHERE id = ?", arguments: [manual.uuidString]) == nil,
+                    "手输行无回执，不挂表头（fetchOne 对 NULL 值返回 nil）")
+            #expect(try Double.fetchOne(db, sql: "SELECT measured_at FROM metric_sample WHERE id = ?", arguments: [glucose.uuidString]) == 1_700_000_000,
+                    "旧行 measured_at 不改（§C.5）")
+            #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM metric_sample WHERE abnormal_flag IS NOT NULL") == 0, "回填不臆造异常标志")
+        }
+        // 幂等：用户事后改写表头 → 重放 v26 不增行、不覆盖
+        try legacy.queue.write { db in
+            try db.execute(sql: "UPDATE lab_report SET hospital = '用户改写' WHERE id = ?", arguments: [card.uuidString])
+            try Self.replayV26(db)
+        }
+        try legacy.queue.read { db in
+            #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM lab_report") == 2, "回填重跑不重复")
+            #expect(try String.fetchOne(db, sql: "SELECT hospital FROM lab_report WHERE id = ?", arguments: [card.uuidString]) == "用户改写")
+            #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM metric_sample WHERE lab_report_id IS NOT NULL") == 3)
+        }
+    }
+
+    @Test func 无历史检验卡零回填且新表约束生效() throws {
+        let legacy = try Self.legacyDatabase()
+        _ = try GRDBStore(writer: legacy.queue)
+        let encounter = UUID()
+        try legacy.queue.write { db in
+            #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM lab_report") == 0, "诊断/检查/住院/检验此前无卡 → 零回填")
+            try db.execute(sql: "INSERT INTO encounter (id, patient_id, date, kind, created_at, updated_at) VALUES (?, ?, 0, 'inpatient', 0, 0)",
+                           arguments: [encounter.uuidString, legacy.patient.uuidString])
+            // 成员隔离：每张新表 patient_id 悬空被拒
+            let ghosts = [
+                "INSERT INTO hospitalization (id, patient_id, encounter_id, source, created_at, updated_at) VALUES ('h9', 'ghost', ?, 'ocr', 0, 0)",
+                "INSERT INTO diagnosis (id, patient_id, encounter_id, name, created_at, updated_at) VALUES ('dx9', 'ghost', ?, 'X', 0, 0)",
+                "INSERT INTO exam_report (id, patient_id, encounter_id, report_type, source, created_at, updated_at) VALUES ('x9', 'ghost', ?, 'ct', 'ocr', 0, 0)",
+                "INSERT INTO lab_report (id, patient_id, encounter_id, source, created_at, updated_at) VALUES ('lr9', 'ghost', ?, 'manual', 0, 0)",
+            ]
+            for sql in ghosts {
+                #expect(throws: DatabaseError.self, "\(sql)") { try db.execute(sql: sql, arguments: [encounter.uuidString]) }
+            }
+            // CHECK 枚举 canonical raw（展示经 fieldValueDisplay 单出口）
+            #expect(throws: DatabaseError.self) {
+                try db.execute(sql: "INSERT INTO exam_report (id, patient_id, report_type, source, created_at, updated_at) VALUES ('x1', ?, 'bogus', 'ocr', 0, 0)",
+                               arguments: [legacy.patient.uuidString])
+            }
+            #expect(throws: DatabaseError.self) {
+                try db.execute(sql: "INSERT INTO diagnosis (id, patient_id, diagnosis_type, name, created_at, updated_at) VALUES ('dx1', ?, 'bogus', 'X', 0, 0)",
+                               arguments: [legacy.patient.uuidString])
+            }
+            // hospitalization 1:0..1 encounter（UNIQUE encounter_id）
+            try db.execute(sql: "INSERT INTO hospitalization (id, patient_id, encounter_id, source, confirmed, created_at, updated_at) VALUES ('h1', ?, ?, 'ocr', 1, 0, 0)",
+                           arguments: [legacy.patient.uuidString, encounter.uuidString])
+            #expect(throws: DatabaseError.self) {
+                try db.execute(sql: "INSERT INTO hospitalization (id, patient_id, encounter_id, source, created_at, updated_at) VALUES ('h2', ?, ?, 'manual', 0, 0)",
+                               arguments: [legacy.patient.uuidString, encounter.uuidString])
+            }
+            // lab_result：定性原文行挂表头，UNIQUE(lab_report_id, ordinal)
+            try db.execute(sql: "INSERT INTO lab_report (id, patient_id, source, confirmed, created_at, updated_at) VALUES ('lr1', ?, 'manual', 1, 0, 0)",
+                           arguments: [legacy.patient.uuidString])
+            try db.execute(sql: "INSERT INTO lab_result (id, patient_id, lab_report_id, ordinal, item_name, result_text, created_at) VALUES ('r1', ?, 'lr1', 0, 'HBsAg', '阴性', 0)",
+                           arguments: [legacy.patient.uuidString])
+            #expect(throws: DatabaseError.self) {
+                try db.execute(sql: "INSERT INTO lab_result (id, patient_id, lab_report_id, ordinal, item_name, result_text, created_at) VALUES ('r2', ?, 'lr1', 0, 'HBeAg', '阴性', 0)",
+                               arguments: [legacy.patient.uuidString])
+            }
+            // 红线：检查报告无危急值/分级列（BR-004/012）；诊断编码只存打印文本、不 FK 码表（BR-003）
+            let examColumns = try String.fetchAll(db, sql: "SELECT name FROM pragma_table_info('exam_report')")
+            #expect(!examColumns.contains { $0.contains("critical") || $0.contains("triage") }, "\(examColumns)")
+            let diagnosisTargets = Set(try Row.fetchAll(db, sql: "PRAGMA foreign_key_list(diagnosis)").map { $0["table"] as String })
+            #expect(diagnosisTargets == ["patient_profile", "encounter", "health_problem", "document_file"], "diagnosis 不得 FK 到 code_concept/ICD 字典")
         }
     }
 }

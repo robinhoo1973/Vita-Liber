@@ -532,6 +532,119 @@ public enum SchemaMigrations {
              CREATE INDEX idx_ocr_card_commit_encounter ON ocr_card_commit(encounter_id, patient_id);
              CREATE INDEX idx_ocr_card_commit_entity_table ON ocr_card_commit(entity_table, entity_id, patient_id);
              """, transactional: true, fkCheckTable: "ocr_card_commit"),
+        // v26：clinical-episodes（discussions/2026-09-13-hospital-card-schema-round1 §C.2–C.5 / §D.2）——
+        // 住院期 / 诊断 / 检查报告 / 检验表头 + 定性行五表，metric_sample 增 lab_report_id/abnormal_flag。
+        // 纯 SQL 步、非 transactional（无表重建，runner default 路径）：新表/索引 IF NOT EXISTS，增列经
+        // executeIdempotent 的 pragma_table_info 守卫；表尾追加与 SchemaV2.ddl 基线同序。
+        // ocr_card_commit 的 card_kind/entity_table CHECK 枚举已在 v25 一次列全，本步不重建。
+        // 回填（纯 SQL、确定性、幂等）：对 card_kind='metric_sample' 的历史回执按 card_id 分组
+        // （同页同卡类 card_id 唯一，OCRCardStore.save 守卫）→ 每张已确认检验卡一条 lab_report
+        // （幂等键 source_card_id UNIQUE；id = card_id，UUID 同型、两台设备回填同 id）；hospital 取
+        // 回填前塞在 ref_source_label 的医院名，reported_at = 该卡 measured_at；旧行 measured_at 不改，
+        // 只补 lab_report_id（且只在表头确实存在时，杜绝悬空 FK）。只从已确认回执生成（BR-003）；
+        // 诊断/检查/住院此前无卡 → 零回填。abnormal_flag 不臆造（报告打印才有）。
+        Step(version: 26, name: "clinical-episodes",
+             sql: """
+             CREATE TABLE IF NOT EXISTS hospitalization (
+               id TEXT PRIMARY KEY,
+               patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+               encounter_id TEXT NOT NULL UNIQUE REFERENCES encounter(id),
+               document_file_id TEXT REFERENCES document_file(id),
+               hospital TEXT, medical_record_no TEXT, inpatient_times INTEGER,
+               admit_at REAL, discharge_at REAL, actual_days INTEGER,
+               admit_dept TEXT, discharge_dept TEXT, ward TEXT, bed_no TEXT,
+               admit_route_text TEXT,
+               payment_type_text TEXT,
+               discharge_way_text TEXT,
+               attending_physician TEXT,
+               admit_diagnosis_text TEXT, discharge_diagnosis_text TEXT,
+               admit_condition TEXT, treatment_course TEXT, discharge_condition TEXT,
+               discharge_orders TEXT, take_home_drugs_text TEXT,
+               total_cost REAL,
+               summary_doctor TEXT, summary_date REAL,
+               source TEXT NOT NULL CHECK(source IN ('ocr','manual')),
+               confirmed INTEGER NOT NULL DEFAULT 0,
+               created_at REAL NOT NULL, updated_at REAL NOT NULL);
+             CREATE INDEX IF NOT EXISTS idx_hospitalization_patient ON hospitalization(patient_id, admit_at DESC);
+             CREATE TABLE IF NOT EXISTS diagnosis (
+               id TEXT PRIMARY KEY,
+               patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+               encounter_id TEXT REFERENCES encounter(id),
+               ordinal INTEGER NOT NULL DEFAULT 0,
+               diagnosis_type TEXT NOT NULL DEFAULT 'unspecified'
+                 CHECK(diagnosis_type IN ('primary','secondary','admission','discharge','preop','postop','pathology','certificate','unspecified')),
+               name TEXT NOT NULL,
+               code_text TEXT, code_system_text TEXT,
+               diagnosed_at REAL,
+               health_problem_id TEXT REFERENCES health_problem(id),
+               note TEXT,
+               source_page INTEGER, source_row_id TEXT,
+               document_file_id TEXT REFERENCES document_file(id),
+               confirmed INTEGER NOT NULL DEFAULT 0,
+               created_at REAL NOT NULL, updated_at REAL NOT NULL);
+             CREATE INDEX IF NOT EXISTS idx_diagnosis_patient_time ON diagnosis(patient_id, diagnosed_at DESC);
+             CREATE INDEX IF NOT EXISTS idx_diagnosis_encounter ON diagnosis(encounter_id, ordinal);
+             CREATE TABLE IF NOT EXISTS exam_report (
+               id TEXT PRIMARY KEY,
+               patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+               encounter_id TEXT REFERENCES encounter(id),
+               document_file_id TEXT REFERENCES document_file(id),
+               report_type TEXT NOT NULL
+                 CHECK(report_type IN ('ct','mri','xray','ultrasound','ecg','endoscopy','pathology','nuclear','other')),
+               hospital TEXT, department TEXT, report_no TEXT,
+               exam_part TEXT, exam_method TEXT,
+               exam_at REAL, reported_at REAL,
+               findings TEXT, impression TEXT,
+               apply_doctor TEXT, report_doctor TEXT, review_doctor TEXT,
+               source TEXT NOT NULL CHECK(source IN ('ocr','manual')),
+               confirmed INTEGER NOT NULL DEFAULT 0,
+               created_at REAL NOT NULL, updated_at REAL NOT NULL);
+             CREATE INDEX IF NOT EXISTS idx_exam_report_patient_time ON exam_report(patient_id, exam_at DESC);
+             CREATE TABLE IF NOT EXISTS lab_report (
+               id TEXT PRIMARY KEY,
+               patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+               encounter_id TEXT REFERENCES encounter(id),
+               document_file_id TEXT REFERENCES document_file(id),
+               hospital TEXT, department TEXT, lab_name TEXT, report_no TEXT,
+               specimen_type TEXT, specimen_no TEXT, test_class_text TEXT,
+               clinical_diagnosis TEXT,
+               collected_at REAL, received_at REAL, reported_at REAL,
+               send_doctor TEXT, test_doctor TEXT, review_doctor TEXT,
+               source_card_id TEXT UNIQUE,
+               source TEXT NOT NULL CHECK(source IN ('ocr','manual')),
+               confirmed INTEGER NOT NULL DEFAULT 0,
+               created_at REAL NOT NULL, updated_at REAL NOT NULL);
+             CREATE INDEX IF NOT EXISTS idx_lab_report_patient_time ON lab_report(patient_id, reported_at DESC);
+             CREATE TABLE IF NOT EXISTS lab_result (
+               id TEXT PRIMARY KEY,
+               patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+               lab_report_id TEXT NOT NULL REFERENCES lab_report(id),
+               ordinal INTEGER NOT NULL DEFAULT 0,
+               item_name TEXT NOT NULL, item_code_text TEXT,
+               result_text TEXT NOT NULL,
+               comparator TEXT, unit TEXT, reference_text TEXT, abnormal_flag TEXT, method TEXT,
+               code_concept_id TEXT REFERENCES code_concept(id),
+               source_page INTEGER, source_row_id TEXT,
+               created_at REAL NOT NULL,
+               UNIQUE(lab_report_id, ordinal));
+             ALTER TABLE metric_sample ADD COLUMN lab_report_id TEXT REFERENCES lab_report(id);
+             ALTER TABLE metric_sample ADD COLUMN abnormal_flag TEXT;
+             -- 回填：每张历史检验卡一条表头（幂等键 source_card_id）；hospital 取回填前塞在 ref_source_label 的医院名，
+             -- reported_at = 该卡 measured_at（旧行 measured_at 不改，§C.5）；created_at = 回执 MIN(created_at)。
+             INSERT INTO lab_report (id, patient_id, document_file_id, hospital, reported_at, source_card_id, source, confirmed, created_at, updated_at)
+               SELECT c.card_id, c.patient_id, c.document_file_id, MAX(m.ref_source_label), MAX(m.measured_at), c.card_id, 'ocr', 1, MIN(c.created_at), MIN(c.created_at)
+               FROM ocr_card_commit c JOIN metric_sample m ON m.id = c.entity_id AND m.patient_id = c.patient_id
+               WHERE c.card_kind = 'metric_sample' AND c.entity_table = 'metric_sample'
+                 AND NOT EXISTS (SELECT 1 FROM lab_report l WHERE l.source_card_id = c.card_id)
+               GROUP BY c.card_id;
+             -- 只补空、只在表头确实存在时回指（JOIN lab_report 杜绝悬空 FK；迁移期 foreign_keys=OFF 不会即时拦截）。
+             UPDATE metric_sample SET lab_report_id = (
+                 SELECT l.id FROM ocr_card_commit c JOIN lab_report l ON l.source_card_id = c.card_id
+                 WHERE c.entity_id = metric_sample.id AND c.entity_table = 'metric_sample' AND c.patient_id = metric_sample.patient_id)
+               WHERE lab_report_id IS NULL AND EXISTS (
+                 SELECT 1 FROM ocr_card_commit c JOIN lab_report l ON l.source_card_id = c.card_id
+                 WHERE c.entity_id = metric_sample.id AND c.entity_table = 'metric_sample' AND c.patient_id = metric_sample.patient_id);
+             """),
     ]
 
     /// 全新库建库后应落到的版本号

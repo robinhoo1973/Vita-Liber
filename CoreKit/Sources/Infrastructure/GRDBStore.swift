@@ -85,6 +85,10 @@ public struct GRDBStore {
     ///   证据灭失与重建后重复行/双扣）。
     /// - v25 为「SQL 步 + 代码回填」（GRDBStore+V25Backfill）：表重建、回填与版本
     ///   推进同一事务（applyTransactional(then:)），回填只从 ocr-card-v22 回执生成。
+    /// - v26 clinical-episodes 为**纯 SQL 步**（五新表 IF NOT EXISTS + metric_sample 增列 +
+    ///   lab_report 表头 SQL 回填 `INSERT … WHERE NOT EXISTS` / `UPDATE … WHERE … IS NULL`）：
+    ///   无表重建、无代码回填，走下方 default 路径（executeIdempotent → user_version 推进），
+    ///   runner 不认识版本号；崩溃重放由语句级幂等保证。
     /// - 纯 SQL 步沿用 addColumnParts 幂等守卫（executeIdempotent，两条路径共用）。
     /// - user_version 只随成功步骤推进；崩溃重放从最近成功版本续跑。
     private func migrateIncremental(writer: any DatabaseWriter) throws {

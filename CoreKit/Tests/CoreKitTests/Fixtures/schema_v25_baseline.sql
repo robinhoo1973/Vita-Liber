@@ -1,25 +1,3 @@
-import Foundation
-
-/// v2 全量建表（tech-spec §4.3 DDL 摘录 V3.40，dev-pm §3.1 M0 范围第 5 条）
-///
-/// M0 必须建齐的表（dev-pm §3.1）：
-/// - 基础：local_owner / device_identity / patient_profile / document_file / asset / encounter
-/// - M0 强制（FR9.10-9.14 依赖）：prescription / medication / medication_plan /
-///   medication_dose_log / stock_lot / dose_lot_allocation
-/// - 迁移与审计：audit_event（append-only）
-/// - 其余 §4.3 表（metric_sample / guideline_source / alert_event / health_problem /
-///   allergy_event / immunization / appointment / ai_conversation / ai_message /
-///   observation / reminder / notification_delivery / voice_note / onboarding_progress /
-///   encounter_question / claim_item / contact / consent_record / notification_state /
-///   document_fts / document_fts_2gram）随本常量一并建库，保证 REFERENCES 自洽
-/// - 子项目 D（v25/v26）：prescription_line / claim_line（v25）、hospitalization / diagnosis /
-///   exam_report / lab_report / lab_result（v26）——新表 DDL 同批进基线与迁移步（L0 §3）
-///   （外键开启时任何悬空引用都会在 GRDBStore.init 建库阶段直接抛错，可测试可回滚）。
-///
-/// 注意：DDL 只写一次、建库只执行一次（GRDBStore.init）；历史迁移文件只读不改
-/// （dev-pm §8.5）。
-public enum SchemaV2 {
-    public static let ddl = """
     -- 身份与设备（ADR-015）
     CREATE TABLE local_owner (
       id TEXT PRIMARY KEY,
@@ -98,55 +76,6 @@ public enum SchemaV2 {
       -- allergy_history 为资料建议（D4）来源列（+1 列偏离，见实施计划 D1-1）。
       present_illness TEXT, visit_summary TEXT, past_history TEXT, physical_exam TEXT, allergy_history TEXT);
     CREATE INDEX idx_encounter_patient_date ON encounter(patient_id, date DESC);
-
-    -- v26（子项目 D §C.2）：住院期（1:0..1 encounter，kind ∈ inpatient/daySurgery；UNIQUE(encounter_id) = 一次住院一行，
-    -- 多份原件 COALESCE(NULLIF) 补空）。encounter 仍是枢纽，不另设 setting 列。入院途径/付费方式/离院方式只存
-    -- 打印文本 *_text（不编码）；诊断原文块留此、逐条见 diagnosis；出院带药只存原文（BR-006）。
-    -- 排除：org_code、护理级别、切口愈合等级、手术级别、ABO/Rh（已在 patient_profile）。
-    CREATE TABLE hospitalization (
-      id TEXT PRIMARY KEY,
-      patient_id TEXT NOT NULL REFERENCES patient_profile(id),
-      encounter_id TEXT NOT NULL UNIQUE REFERENCES encounter(id),   -- kind ∈ inpatient/daySurgery
-      document_file_id TEXT REFERENCES document_file(id),
-      hospital TEXT, medical_record_no TEXT, inpatient_times INTEGER,
-      admit_at REAL, discharge_at REAL, actual_days INTEGER,
-      admit_dept TEXT, discharge_dept TEXT, ward TEXT, bed_no TEXT,
-      admit_route_text TEXT,         -- 急诊/门诊/转院（打印文本，不编码）
-      payment_type_text TEXT,        -- 医保/自费/公费…（打印文本）
-      discharge_way_text TEXT,       -- 医嘱离院/转院/非医嘱离院…（打印文本）
-      attending_physician TEXT,
-      admit_diagnosis_text TEXT, discharge_diagnosis_text TEXT,     -- 原文块；逐条见 diagnosis
-      admit_condition TEXT, treatment_course TEXT, discharge_condition TEXT,
-      discharge_orders TEXT, take_home_drugs_text TEXT,             -- 出院小结叙事（BR-006：带药只存原文）
-      total_cost REAL,
-      summary_doctor TEXT, summary_date REAL,
-      source TEXT NOT NULL CHECK(source IN ('ocr','manual')),
-      confirmed INTEGER NOT NULL DEFAULT 0,
-      created_at REAL NOT NULL, updated_at REAL NOT NULL);
-    CREATE INDEX idx_hospitalization_patient ON hospitalization(patient_id, admit_at DESC);
-
-    -- v26（子项目 D §C.3）：诊断逐条投影（encounter.diagnosis_text 原文块保留，两者不互相派生）。
-    -- diagnosis_type 存 canonical raw + CHECK，展示经 fieldValueDisplay；编码只存打印文本 code_text/
-    -- code_system_text——不 FK、不推断、不接 F25 码表（BR-003）。health_problem_id 只由用户显式
-    -- 「采用为健康问题」后回填（FR11.4）。encounter_id 可空：诊断证明可无就诊卡。
-    CREATE TABLE diagnosis (
-      id TEXT PRIMARY KEY,
-      patient_id TEXT NOT NULL REFERENCES patient_profile(id),
-      encounter_id TEXT REFERENCES encounter(id),
-      ordinal INTEGER NOT NULL DEFAULT 0,
-      diagnosis_type TEXT NOT NULL DEFAULT 'unspecified'
-        CHECK(diagnosis_type IN ('primary','secondary','admission','discharge','preop','postop','pathology','certificate','unspecified')),
-      name TEXT NOT NULL,                         -- 医生原文，不改写
-      code_text TEXT, code_system_text TEXT,      -- 仅打印码（如 ICD-10 J20.9），不推断、不 FK
-      diagnosed_at REAL,
-      health_problem_id TEXT REFERENCES health_problem(id),   -- 用户显式「采用为健康问题」后回填（FR11.4）
-      note TEXT,
-      source_page INTEGER, source_row_id TEXT,
-      document_file_id TEXT REFERENCES document_file(id),
-      confirmed INTEGER NOT NULL DEFAULT 0,
-      created_at REAL NOT NULL, updated_at REAL NOT NULL);
-    CREATE INDEX idx_diagnosis_patient_time ON diagnosis(patient_id, diagnosed_at DESC);
-    CREATE INDEX idx_diagnosis_encounter ON diagnosis(encounter_id, ordinal);
 
     -- F6 OCR 结果（字段级留痕；page_index = 所属页，V3.99 起写真实页号）
     CREATE TABLE ocr_result (
@@ -303,26 +232,6 @@ public enum SchemaV2 {
       confirmed_units REAL NOT NULL DEFAULT 0,
       PRIMARY KEY(dose_log_id, stock_lot_id));
 
-    -- v26（子项目 D §C.5）：检验报告表头——采集/报告时间分离（趋势 x 轴应为采集时间）、标本类型、跨页共享
-    -- 上下文、审核者/实验室/报告号（FR5.6 重复检测）。卡类仍是 metric_sample（不改历史回执语义）：
-    -- 同一 card_id 的行提交复用同一表头，幂等键 source_card_id UNIQUE（手工录入 NULL）。
-    -- 排在 metric_sample 之前：metric_sample.lab_report_id 外键指向本表。
-    CREATE TABLE lab_report (
-      id TEXT PRIMARY KEY,
-      patient_id TEXT NOT NULL REFERENCES patient_profile(id),
-      encounter_id TEXT REFERENCES encounter(id),
-      document_file_id TEXT REFERENCES document_file(id),
-      hospital TEXT, department TEXT, lab_name TEXT, report_no TEXT,
-      specimen_type TEXT, specimen_no TEXT, test_class_text TEXT,
-      clinical_diagnosis TEXT,
-      collected_at REAL, received_at REAL, reported_at REAL,
-      send_doctor TEXT, test_doctor TEXT, review_doctor TEXT,
-      source_card_id TEXT UNIQUE,                 -- 生成本表头的确认卡 id（幂等键 + 反查；手工录入 NULL）
-      source TEXT NOT NULL CHECK(source IN ('ocr','manual')),
-      confirmed INTEGER NOT NULL DEFAULT 0,
-      created_at REAL NOT NULL, updated_at REAL NOT NULL);
-    CREATE INDEX idx_lab_report_patient_time ON lab_report(patient_id, reported_at DESC);
-
     -- 自测/设备指标样本（F7/F16；V3.23 派生 CHECK）
     CREATE TABLE metric_sample (
       id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patient_profile(id),
@@ -347,50 +256,10 @@ public enum SchemaV2 {
       value_min REAL, value_max REAL, sample_count INTEGER,
       source_name TEXT, source_version TEXT, source_product TEXT,
       source_identifier TEXT, aggregation_kind TEXT, window_end REAL,
-      measured_at REAL NOT NULL, created_at REAL NOT NULL,
-      -- v26（子项目 D §C.5）：趋势点回指检验表头；abnormal_flag = 报告打印的 ↑↓/H/L（A 级来源事实，
-      -- 不由 App 计算、不触发提示）。表尾追加 = 迁移 ADD COLUMN 同序。
-      lab_report_id TEXT REFERENCES lab_report(id), abnormal_flag TEXT);
+      measured_at REAL NOT NULL, created_at REAL NOT NULL);
     CREATE INDEX idx_metric_patient_time ON metric_sample(patient_id, metric_key, measured_at);
     CREATE INDEX idx_metric_source ON metric_sample(patient_id, metric_key, measured_at, source_name);
     CREATE INDEX idx_metric_device_identity ON metric_sample(patient_id, source_ref) WHERE origin = 'device';
-
-    -- v26（子项目 D §C.5）：非数值/半定量检验项目（阴性 / 阳性(+) / <0.5 / 未检出）——原文保存、不猜数值、
-    -- 不进趋势（分流规则：value 严格可解析且有单位 → metric_sample，否则 → 本表，不双写）。
-    -- code_concept_id 仅用户批准的 F25 建议。报告详情 = 两表 UNION 按 ordinal。
-    CREATE TABLE lab_result (                       -- 非数值/半定量项目：不进趋势
-      id TEXT PRIMARY KEY,
-      patient_id TEXT NOT NULL REFERENCES patient_profile(id),
-      lab_report_id TEXT NOT NULL REFERENCES lab_report(id),
-      ordinal INTEGER NOT NULL DEFAULT 0,
-      item_name TEXT NOT NULL, item_code_text TEXT,
-      result_text TEXT NOT NULL,                    -- 阴性 / 阳性(+) / 弱阳性 / <0.5 / 未检出（原文）
-      comparator TEXT, unit TEXT, reference_text TEXT, abnormal_flag TEXT, method TEXT,
-      code_concept_id TEXT REFERENCES code_concept(id),   -- 仅用户批准的 F25 建议
-      source_page INTEGER, source_row_id TEXT,
-      created_at REAL NOT NULL,
-      UNIQUE(lab_report_id, ordinal));
-
-    -- v26（子项目 D §C.4）：检查/影像/病理报告。report_type 存 canonical raw + CHECK（展示经 fieldValueDisplay）；
-    -- findings/impression 原文叙事，App 不摘要不改写。**明确排除 critical_value_flag**：危急值是院内闭环
-    -- 通知语义，一个布尔列会诱导预警/提示逻辑（BR-004/BR-012 越线面）——报告印有「危急值」留在 impression 原文。
-    -- 排除 report_file_path（原件即 document_file）、DICOM。
-    CREATE TABLE exam_report (
-      id TEXT PRIMARY KEY,
-      patient_id TEXT NOT NULL REFERENCES patient_profile(id),
-      encounter_id TEXT REFERENCES encounter(id),
-      document_file_id TEXT REFERENCES document_file(id),
-      report_type TEXT NOT NULL
-        CHECK(report_type IN ('ct','mri','xray','ultrasound','ecg','endoscopy','pathology','nuclear','other')),
-      hospital TEXT, department TEXT, report_no TEXT,
-      exam_part TEXT, exam_method TEXT,           -- 检查部位 / 检查方法（打印文本）
-      exam_at REAL, reported_at REAL,
-      findings TEXT, impression TEXT,             -- 检查所见 / 诊断意见（原文叙事）
-      apply_doctor TEXT, report_doctor TEXT, review_doctor TEXT,
-      source TEXT NOT NULL CHECK(source IN ('ocr','manual')),
-      confirmed INTEGER NOT NULL DEFAULT 0,
-      created_at REAL NOT NULL, updated_at REAL NOT NULL);
-    CREATE INDEX idx_exam_report_patient_time ON exam_report(patient_id, exam_at DESC);
 
     -- F16 同步锚点（V3.86 / 迁移 v18）：HKAnchoredObjectQuery 增量兜底的持久化
     -- 落点——DB 随 .vlbu 备份往返（UserDefaults 不入备份、恢复后锚点丢失=漏读/重放）
@@ -802,5 +671,3 @@ public enum SchemaV2 {
       factor REAL NOT NULL,                   -- 换算系数(含摩尔质量)
       note TEXT NOT NULL,                     -- 来源留痕(摩尔质量出处)
       PRIMARY KEY(concept_id, from_unit, to_unit));
-    """
-}
