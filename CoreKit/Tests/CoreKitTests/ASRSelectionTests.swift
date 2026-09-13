@@ -17,8 +17,10 @@ struct ASRSelectionTests {
     @Test func 自动选择依据请求语言而不修改显式选择() {
         #expect(ASRModelCatalog.automaticChoice(locale: "nan-TW") == .qwen3)
         #expect(ASRModelCatalog.automaticChoice(locale: "zh-Hans-CN") == .qwen3)
-        #expect(ASRModelCatalog.automaticChoice(locale: "en-US") == .zipformer)
-        #expect(ASRModelCatalog.automaticChoice(locale: "de-DE") == .whisper)
+        // round2 A-N5：完整解码模型优先——英语/外语由 Qwen3 承担，缺件回落在 builder 门控。
+        #expect(ASRModelCatalog.automaticChoice(locale: "en-US") == .qwen3)
+        #expect(ASRModelCatalog.automaticChoice(locale: "de-DE") == .qwen3)
+        #expect(ASRModelCatalog.automaticChoice(locale: "ur-PK") == .dolphin)
         #expect(VoiceEngineChoice.resolve("dolphin") == .dolphin)
         #expect(VoiceEngineChoice.resolve("classic") == .classic)
     }

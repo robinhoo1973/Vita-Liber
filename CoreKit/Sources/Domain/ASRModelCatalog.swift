@@ -20,6 +20,18 @@ public struct ASRModelDescriptor: Sendable, Equatable {
         return code
     }
 
+    /// 解码语言提示：`nil` = 该模型不支持此 locale；`""` = 不注入语言（启用模型自带 LID，或该引擎无此协议）。
+    /// qwen3 只认官方名称（Chinese/Cantonese/English…，模型卡）；上游 sherpa 把 `"language " + 值` 原样编码进
+    /// 解码提示，传 ISO 码等于强制一个训练分布外的标签（round2 A-N1 根因）。whisper 的 config.language 走 ISO 码。
+    public func decoderLanguage(for locale: String, mode: TranscriptionLanguageMode) -> String? {
+        guard let code = languageCode(for: locale) else { return nil }
+        switch choice {
+        case .qwen3: return mode == .mixed ? "" : ASRModelCatalog.qwenLanguageName(forCode: code)
+        case .whisper: return code
+        case .zipformer, .dolphin, .auto, .advanced, .dictation, .classic: return ""
+        }
+    }
+
     public var availableLocales: Set<String> {
         var locales = Set(languageCodes)
         if languageCodes.contains("zh") { locales.formUnion(["zh-Hans-CN", "zh-Hant-TW"]) }
@@ -67,12 +79,26 @@ public enum ASRModelCatalog {
         return result.joined(separator: ",")
     }
 
+    /// Qwen3-ASR 官方语言名称表（模型卡 30 语种；中文各方言归 Chinese，粤语独立为 Cantonese）。
+    /// 解码提示只能用这些名称：模型输出/提示格式为 `language <Name><asr_text>`。
+    public static func qwenLanguageName(forCode code: String) -> String? {
+        let names: [String: String] = [
+            "zh": "Chinese", "en": "English", "yue": "Cantonese", "ar": "Arabic", "de": "German", "fr": "French",
+            "es": "Spanish", "pt": "Portuguese", "id": "Indonesian", "it": "Italian", "ko": "Korean", "ru": "Russian",
+            "th": "Thai", "vi": "Vietnamese", "ja": "Japanese", "tr": "Turkish", "hi": "Hindi", "ms": "Malay",
+            "nl": "Dutch", "sv": "Swedish", "da": "Danish", "fi": "Finnish", "pl": "Polish", "cs": "Czech",
+            "fil": "Filipino", "fa": "Persian", "el": "Greek", "hu": "Hungarian", "mk": "Macedonian", "ro": "Romanian"]
+        return names[code]
+    }
+
+    /// 完整解码模型优先：英语/外语同样由 Qwen3 承担（zipformer 为中文主导的双语流式模型，英语 WER 显著更高；
+    /// round2 A-N5）。Qwen3 不覆盖的语种依次交给 zipformer / dolphin（亚洲语种 CTC，小而快）/ whisper。
+    /// 随包资产缺件时的回落由 `TranscriptionEngineBuilder.automaticChoice` 门控（Domain 不读 Bundle）。
     public static func automaticChoice(locale: String) -> VoiceEngineChoice {
-        let normalized = TranscriptionLocale.normalizedIdentifier(locale)
-        if dialectLocales.contains(normalized) || normalized == "zh" || normalized.hasPrefix("zh-") || normalized == "yue" { return .qwen3 }
+        if model(for: .qwen3)?.languageCode(for: locale) != nil { return .qwen3 }
         if model(for: .zipformer)?.languageCode(for: locale) != nil { return .zipformer }
-        if model(for: .whisper)?.languageCode(for: locale) != nil { return .whisper }
         if model(for: .dolphin)?.languageCode(for: locale) != nil { return .dolphin }
+        if model(for: .whisper)?.languageCode(for: locale) != nil { return .whisper }
         return .classic
     }
 }

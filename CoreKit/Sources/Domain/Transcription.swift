@@ -81,6 +81,11 @@ public enum TranscriptionLocale {
     }
 }
 
+/// FR17.15：语言模式。单语 = 用户选定主语言并强制解码语言；混说 = 不强制语言，
+/// 交给模型自带语种识别（Qwen3-ASR 官方评测即在不指定语言下进行）。
+/// 2026-09-13 round2 A-N1：此前「混说」只改热词、语言仍被强制，粤语/英语在混说场景一律坍缩。
+public enum TranscriptionLanguageMode: String, Sendable, Equatable, Codable { case single, mixed }
+
 public struct TranscriptionRequest: Sendable, Equatable {
     /// Single-use press identity. Allocate before scheduling transcription so early stop is addressable.
     public let sessionID: UUID
@@ -89,12 +94,16 @@ public struct TranscriptionRequest: Sendable, Equatable {
     public var contextualStrings: [String]
     /// 预计时长（秒）——用于分段规划；未知传 nil
     public var expectedDurationSeconds: Int?
+    /// 单语强制 / 混说自动（见 `TranscriptionLanguageMode`）。
+    public var languageMode: TranscriptionLanguageMode
     public init(localeIdentifier: String, contextualStrings: [String] = [],
-                expectedDurationSeconds: Int? = nil, sessionID: UUID = UUID()) {
+                expectedDurationSeconds: Int? = nil, sessionID: UUID = UUID(),
+                languageMode: TranscriptionLanguageMode = .single) {
         self.sessionID = sessionID
         self.localeIdentifier = localeIdentifier
         self.contextualStrings = contextualStrings
         self.expectedDurationSeconds = expectedDurationSeconds
+        self.languageMode = languageMode
     }
 }
 
