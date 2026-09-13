@@ -192,7 +192,7 @@ public actor HealthKitSyncService {
                 for scope in order {
                     let outcome = try await drain(kind: kind, scope: scope, binding: binding,
                                                   existing: existing?.lane == scope.lane ? existing : nil,
-                                                  report: &report, hasPending: &hasPending)
+                                                  report: &report)
                     hasPending = outcome.hasMore
                     if outcome.hadWork { break }
                 }
@@ -243,9 +243,10 @@ public actor HealthKitSyncService {
 
     /// 单道单页排空（round2 H-N1）：取页 → 暂存 → 受影响窗口重算（每轮 ≤ windowsPerRound）→ 提交。
     /// 检查点/删除证明/完整窗口重算语义与单道时代完全一致，只是游标与 pending 按道分列。
+    /// 在途信号由提交结果承担：提交成功 hasMore 即续排；提交抛错由外层 catch 保留
+    /// existing != nil 的 hasPending=true（暂存工作存活，下一轮续排）——入口处无需预置。
     private func drain(kind: HealthDataKind, scope: HealthFetchScope, binding: HealthImportStore.Binding,
-                       existing: HealthImportStore.PendingBatch?, report: inout SyncReport,
-                       hasPending: inout Bool) async throws -> DrainOutcome {
+                       existing: HealthImportStore.PendingBatch?, report: inout SyncReport) async throws -> DrainOutcome {
         let previous: Data?
         if let existing { previous = existing.batch.anchor }
         else { previous = try await imports.anchor(binding: binding, kind: kind, lane: scope.lane) }
@@ -253,7 +254,6 @@ public actor HealthKitSyncService {
         let page = try await provider.changes(for: kind, scope: scope, anchor: previous, limit: 500)
         report.receivedChanges += page.added.count + page.deleted.count
         let pending = try await imports.stage(binding: binding, kind: kind, scope: scope, previousAnchor: previous, page: page)
-        hasPending = true   // 已暂存即有在途工作：提交失败也须让 hasMore 为真，下一轮续排
         var remaining = try await imports.affectedWindows(binding: binding, kind: kind, batch: pending.batch)
             .filter { !pending.completedWindows.contains($0) }
         if let after = pending.reconcileAfter {

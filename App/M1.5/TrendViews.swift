@@ -90,17 +90,21 @@ struct TrendChartView: View {
                     .foregroundStyle(tint.opacity(point.isHollow ? 0.55 : 1))
             }
         case .hourlyRange:
-            // 心率小时窗：均值折线 + min/max 区间带（区间只呈现窗口内统计范围，非参考范围）
-            ForEach(points) { point in
-                if let low = point.valueMin, let high = point.valueMax {
-                    RangeMark(x: .value(axisTime, point.measuredAt),
-                              yStart: .value(axisValue, low),
-                              yEnd: .value(axisValue, high))
-                        .foregroundStyle(tint.opacity(0.25))
+            // 心率小时窗：均值折线 + min/max 区间带（区间只呈现窗口内统计范围，非参考范围）。
+            // 数据诚实四铁律（gap 断线不插值）：小时窗天然稀疏（本批 sparseWindows 即首类公民），
+            // 缺测小时之间必须断线——按相邻点时间差 > 1.5h 切段，逐段绘制；段内才允许插值。
+            ForEach(Array(contiguousSegments(points).enumerated()), id: \.offset) { _, segment in
+                ForEach(segment) { point in
+                    if let low = point.valueMin, let high = point.valueMax {
+                        RangeMark(x: .value(axisTime, point.measuredAt),
+                                  yStart: .value(axisValue, low),
+                                  yEnd: .value(axisValue, high))
+                            .foregroundStyle(tint.opacity(0.25))
+                    }
+                    LineMark(x: .value(axisTime, point.measuredAt), y: .value(axisValue, point.value))
+                        .interpolationMethod(.monotone)
+                        .foregroundStyle(tint)
                 }
-                LineMark(x: .value(axisTime, point.measuredAt), y: .value(axisValue, point.value))
-                    .interpolationMethod(.monotone)
-                    .foregroundStyle(tint)
             }
         case .points, .pairedPoints:
             // 离散读数 / 血压（sys·dia 双序列由路由按 metric 成对加载）
@@ -108,6 +112,23 @@ struct TrendChartView: View {
                 pointMark(point, axisTime: axisTime, axisValue: axisValue, tint: tint)
             }
         }
+    }
+
+    /// 连续段切分（数据诚实 gap 断线）：相邻点时间差 > maxGap 即断段。
+    /// 小时窗正常步长 3600s；容差 5400s 覆盖 DST 边界（春令跳小时本身无数据，断线正确）。
+    private func contiguousSegments(_ points: [TrendPoint], maxGap: TimeInterval = 5400) -> [[TrendPoint]] {
+        var segments: [[TrendPoint]] = []
+        var current: [TrendPoint] = []
+        for point in points {
+            if let last = current.last, point.measuredAt.timeIntervalSince(last.measuredAt) > maxGap {
+                segments.append(current)
+                current = [point]
+            } else {
+                current.append(point)
+            }
+        }
+        if !current.isEmpty { segments.append(current) }
+        return segments
     }
 
     /// 实心=医院；空心=自测/设备——描边圆环（ui-ux 4.7「描边可见，非透明填充」；
