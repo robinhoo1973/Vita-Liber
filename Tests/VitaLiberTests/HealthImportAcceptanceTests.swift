@@ -660,4 +660,80 @@ final class HealthImportAcceptanceTests: XCTestCase {
         XCTAssertEqual(count, 2)
         XCTAssertFalse(result.hasMore, "A Unix/reference-epoch round trip must not look like a changed sample UUID")
     }
+
+    // MARK: - round2 H-N1：分道游标 / pending 携 lane / 旧载荷作废
+
+    /// 旧 `payload_json` 缺 lane（v2 单道时代）→ 作废该行而非卡死该类型：取数进度不是物化检查点，重取安全。
+    func test_legacyPendingBatchWithoutLaneIsDiscardedInsteadOfWedgingTheType() async throws {
+        let (db, store, _) = try await makeStore()
+        let binding = try await store.connect(timeZoneID: "UTC")
+        try await db.writer.write { db in
+            try db.execute(sql: "INSERT INTO hk_pending_batch (binding_id, type_key, payload_json) VALUES (?, 'steps', ?)",
+                arguments: [binding.id.uuidString, #"{"previousAnchor":null,"batch":{"added":[],"deleted":[],"anchor":"AA==","hasMore":false},"completedWindows":[],"reconcileAfter":null,"revision":"\#(UUID().uuidString)"}"#])
+        }
+        let pending = try await store.pendingBatch(binding: binding, kind: .steps)
+        XCTAssertNil(pending)
+        let left = try await db.writer.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM hk_pending_batch") }
+        XCTAssertEqual(left, 0)
+        // 作废后该类型可正常重新分页
+        let staged = try await store.stage(binding: binding, kind: .steps, previousAnchor: nil,
+            page: HealthChangeBatch(added: [], deleted: [], anchor: Data([1]), hasMore: false))
+        XCTAssertEqual(staged.lane, .history)
+    }
+
+    /// 两道游标独立：一道的检查点不充当另一道的 previousAnchor；另一道在途时本道不得开新批次。
+    func test_lanesKeepIndependentCursorsAndOnlyOneLaneMayBeInFlight() async throws {
+        let (db, store, _) = try await makeStore()
+        let binding = try await store.connect(timeZoneID: "UTC")
+        let scopes = store.scopes(for: binding)
+        XCTAssertEqual(scopes.map(\.lane), [.recent, .history])
+        XCTAssertEqual(scopes[0].cutoff, HealthFetchScope.cutoff(connectedAt: binding.connectedAt, calendar: binding.calendar))
+        let recent = try await store.stage(binding: binding, kind: .heartRate, scope: scopes[0], previousAnchor: nil,
+            page: HealthChangeBatch(added: [], deleted: [], anchor: Data([1]), hasMore: false))
+        XCTAssertEqual(recent.lane, .recent)
+        do {
+            _ = try await store.stage(binding: binding, kind: .heartRate, scope: scopes[1], previousAnchor: nil,
+                page: HealthChangeBatch(added: [], deleted: [], anchor: Data([2]), hasMore: false))
+            XCTFail("The history lane must wait until the recent lane's pending batch is drained")
+        } catch HealthImportStore.ImportError.staleAnchor { }
+        _ = try await store.commit(binding: binding, kind: .heartRate, pending: recent, snapshots: [])
+        let recentAnchor = try await store.anchor(binding: binding, kind: .heartRate, lane: .recent)
+        let historyBefore = try await store.anchor(binding: binding, kind: .heartRate, lane: .history)
+        XCTAssertEqual(recentAnchor, Data([1]))
+        XCTAssertNil(historyBefore)
+        let history = try await store.stage(binding: binding, kind: .heartRate, scope: scopes[1], previousAnchor: nil,
+            page: HealthChangeBatch(added: [], deleted: [], anchor: Data([2]), hasMore: false))
+        _ = try await store.commit(binding: binding, kind: .heartRate, pending: history, snapshots: [])
+        let keys = try await db.writer.read { try String.fetchAll($0, sql: "SELECT anchor_key FROM hk_sync_anchor ORDER BY anchor_key") }
+        XCTAssertEqual(keys, ["hk.v3.\(binding.id.uuidString).heartRate.history", "hk.v3.\(binding.id.uuidString).heartRate.recent"])
+        let historyAfter = try await store.anchor(binding: binding, kind: .heartRate, lane: .history)
+        XCTAssertEqual(historyAfter, Data([2]))
+    }
+
+    /// Binding 携 connected_at（cutoff 派生源）；重连读回同一时刻，Equatable 不因 Double 往返漂移。
+    func test_bindingCarriesConnectedAtAndRoundTripsEqual() async throws {
+        let (db, store, _) = try await makeStore()
+        let before = Date()
+        let first = try await store.connect(timeZoneID: "UTC")
+        let reloaded = try await HealthImportStore(writer: db.writer).connect(timeZoneID: "UTC")
+        XCTAssertEqual(first, reloaded)
+        XCTAssertEqual(first.connectedAt, reloaded.connectedAt)
+        XCTAssertGreaterThanOrEqual(first.connectedAt.timeIntervalSince1970, before.timeIntervalSince1970 - 1)
+        let stored = try await db.writer.read { try Double.fetchOne($0, sql: "SELECT connected_at FROM hk_import_binding WHERE singleton = 1") }
+        XCTAssertEqual(try XCTUnwrap(stored), first.connectedAt.timeIntervalSince1970, accuracy: 0.001)
+    }
+}
+
+/// 测试便捷（round2 H-N1）：本文件既有用例以 2023 年样本验证检查点/删除证明语义，全部落 history 道；
+/// 生产 API 保持 lane 显式，不提供默认道。
+private extension HealthImportStore {
+    func anchor(binding: Binding, kind: HealthDataKind) async throws -> Data? {
+        try await anchor(binding: binding, kind: kind, lane: .history)
+    }
+
+    func stage(binding: Binding, kind: HealthDataKind, previousAnchor: Data?, page: HealthChangeBatch) async throws -> PendingBatch {
+        let history = HealthFetchScope(lane: .history,
+                                       cutoff: HealthFetchScope.cutoff(connectedAt: binding.connectedAt, calendar: binding.calendar))
+        return try await stage(binding: binding, kind: kind, scope: history, previousAnchor: previousAnchor, page: page)
+    }
 }

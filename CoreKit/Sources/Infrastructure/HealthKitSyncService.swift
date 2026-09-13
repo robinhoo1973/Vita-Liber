@@ -26,6 +26,14 @@ public actor HealthKitSyncService {
         public var lastSyncAt: Date
         public var bindingId: UUID? = nil
         public var patientId: UUID? = nil
+        // round2 H-N1/H-N2 进度字段——全部 Optional：`hk_import_status.report_json` 旧 JSON 无键必须可解码
+        // （合成 Decodable 对非 Optional 缺键即抛）。
+        /// H-N2：本轮 <3 样本未成行的小时桶数（统计事实，非阈值判定）
+        public var sparseWindows: Int? = nil
+        /// H-N1：本轮后仍待物化的窗口数（排空进度）
+        public var remainingWindows: Int? = nil
+        /// H-N1：本轮推进的道；nil = 无在途工作
+        public var backfillLane: HealthFetchLane? = nil
     }
 
     private let provider: any HealthReadingProvider
@@ -102,6 +110,12 @@ public actor HealthKitSyncService {
                 aggregate.hasMore = result.hasMore
                 aggregate.deferredWindows = result.deferredWindows
                 aggregate.lastSyncAt = result.lastSyncAt
+                // round2 H-N1/H-N2：稀疏窗累计；剩余窗口/当前道以末轮为准（与 failedTypes 同律）
+                if aggregate.sparseWindows != nil || result.sparseWindows != nil {
+                    aggregate.sparseWindows = (aggregate.sparseWindows ?? 0) + (result.sparseWindows ?? 0)
+                }
+                aggregate.remainingWindows = result.remainingWindows
+                aggregate.backfillLane = result.backfillLane
                 total = aggregate
             } else {
                 total = result
@@ -147,12 +161,18 @@ public actor HealthKitSyncService {
         return report
     }
 
+    private struct DrainOutcome {
+        var hadWork: Bool
+        var hasMore: Bool
+    }
+
     private func run(quietStart: String, quietEnd: String) async throws -> SyncReport {
         try Task.checkCancellation()
-        guard try await canSync(), let binding = try await imports.connection() else {
-            throw HealthImportStore.ImportError.missingOwner
-        }
+        // round2 H3/H-N4：开关关闭是独立失败态，不再与缺本人档案混为 missingOwner（视图三态文案依赖分型）
+        guard try await imports.isEnabled() else { throw HealthImportStore.ImportError.disabled }
+        guard let binding = try await imports.connection() else { throw HealthImportStore.ImportError.missingOwner }
         var report = SyncReport(lastSyncAt: Date(), bindingId: binding.id, patientId: binding.patientId)
+        let scopes = imports.scopes(for: binding)
         // Fetch one page per type/round. Drained work resumes by window without losing the old checkpoint.
         for kind in HealthDataKind.allCases {
             var hasPending = false
@@ -161,38 +181,20 @@ public actor HealthKitSyncService {
                 guard try await imports.isEnabled() else { throw HealthImportStore.ImportError.disabled }
                 let existing = try await imports.pendingBatch(binding: binding, kind: kind)
                 hasPending = existing != nil
-                let previous: Data?
-                if let existing { previous = existing.batch.anchor }
-                else { previous = try await imports.anchor(binding: binding, kind: kind) }
-                // Even a previously drained but incomplete batch can discover later tombstones on this page.
-                let page = try await provider.changes(for: kind, anchor: previous, limit: 500)
-                report.receivedChanges += page.added.count + page.deleted.count
-                let pending = try await imports.stage(binding: binding, kind: kind, previousAnchor: previous, page: page)
-                hasPending = true
-                do {
-                    var remaining = try await imports.affectedWindows(binding: binding, kind: kind, batch: pending.batch)
-                        .filter { !pending.completedWindows.contains($0) }
-                    if let after = pending.reconcileAfter {
-                        remaining = remaining.filter { $0.start > after } + remaining.filter { $0.start <= after }
-                    }
-                    let attempted = Array(remaining.prefix(Self.windowsPerRound))
-                    var snapshots: [HealthWindowSnapshot] = []
-                    var queryFailed = false
-                    for window in attempted {
-                        try Task.checkCancellation()
-                        guard try await imports.isEnabled() else { throw HealthImportStore.ImportError.disabled }
-                        do { snapshots.append(try await provider.snapshot(for: window, calendar: binding.calendar)) }
-                        catch is CancellationError { throw CancellationError() }
-                        catch { queryFailed = true }
-                    }
-                    let committed = try await imports.commit(binding: binding, kind: kind, pending: pending,
-                        snapshots: snapshots, attemptedWindows: attempted)
-                    report.persistedRows += committed.persistedRows
-                    report.preservedRows += committed.preservedRows
-                    report.deferredWindows += committed.deferredWindows
-                    report.rejectedSamples += snapshots.reduce(0) { $0 + $1.rejected }
-                    hasPending = committed.hasMore
-                    if queryFailed || committed.deferredWindows > 0 { report.failedTypes.append(kind) }
+                // round2 H-N1：在途批次只续其所在道；否则先探 recent（近一年最新优先），空页再探 history。
+                // 每类每轮最多两次探测；任一道有工作即停止。
+                let order: [HealthFetchScope]
+                if let inFlight = existing?.lane, let scope = scopes.first(where: { $0.lane == inFlight }) {
+                    order = [scope]
+                } else {
+                    order = scopes
+                }
+                for scope in order {
+                    let outcome = try await drain(kind: kind, scope: scope, binding: binding,
+                                                  existing: existing?.lane == scope.lane ? existing : nil,
+                                                  report: &report, hasPending: &hasPending)
+                    hasPending = outcome.hasMore
+                    if outcome.hadWork { break }
                 }
             } catch is CancellationError {
                 throw CancellationError()
@@ -237,6 +239,49 @@ public actor HealthKitSyncService {
         }
         report.lastSyncAt = Date()
         return report
+    }
+
+    /// 单道单页排空（round2 H-N1）：取页 → 暂存 → 受影响窗口重算（每轮 ≤ windowsPerRound）→ 提交。
+    /// 检查点/删除证明/完整窗口重算语义与单道时代完全一致，只是游标与 pending 按道分列。
+    private func drain(kind: HealthDataKind, scope: HealthFetchScope, binding: HealthImportStore.Binding,
+                       existing: HealthImportStore.PendingBatch?, report: inout SyncReport,
+                       hasPending: inout Bool) async throws -> DrainOutcome {
+        let previous: Data?
+        if let existing { previous = existing.batch.anchor }
+        else { previous = try await imports.anchor(binding: binding, kind: kind, lane: scope.lane) }
+        // Even a previously drained but incomplete batch can discover later tombstones on this page.
+        let page = try await provider.changes(for: kind, scope: scope, anchor: previous, limit: 500)
+        report.receivedChanges += page.added.count + page.deleted.count
+        let pending = try await imports.stage(binding: binding, kind: kind, scope: scope, previousAnchor: previous, page: page)
+        hasPending = true   // 已暂存即有在途工作：提交失败也须让 hasMore 为真，下一轮续排
+        var remaining = try await imports.affectedWindows(binding: binding, kind: kind, batch: pending.batch)
+            .filter { !pending.completedWindows.contains($0) }
+        if let after = pending.reconcileAfter {
+            remaining = remaining.filter { $0.start > after } + remaining.filter { $0.start <= after }
+        }
+        let attempted = Array(remaining.prefix(Self.windowsPerRound))
+        var snapshots: [HealthWindowSnapshot] = []
+        var queryFailed = false
+        for window in attempted {
+            try Task.checkCancellation()
+            guard try await imports.isEnabled() else { throw HealthImportStore.ImportError.disabled }
+            do { snapshots.append(try await provider.snapshot(for: window, calendar: binding.calendar)) }
+            catch is CancellationError { throw CancellationError() }
+            catch { queryFailed = true }
+        }
+        let committed = try await imports.commit(binding: binding, kind: kind, pending: pending,
+                                                 snapshots: snapshots, attemptedWindows: attempted)
+        report.persistedRows += committed.persistedRows
+        report.preservedRows += committed.preservedRows
+        report.deferredWindows += committed.deferredWindows
+        report.rejectedSamples += snapshots.reduce(0) { $0 + $1.rejected }
+        // round2 H-N2：稀疏窗计数上送（统计事实）；H-N1：排空进度 = 未尝试窗口 + 本轮推迟窗口
+        report.sparseWindows = (report.sparseWindows ?? 0) + snapshots.reduce(0) { $0 + $1.sparseWindows }
+        report.remainingWindows = (report.remainingWindows ?? 0) + (remaining.count - attempted.count) + committed.deferredWindows
+        if queryFailed || committed.deferredWindows > 0 { report.failedTypes.append(kind) }
+        let hadWork = existing != nil || !page.added.isEmpty || !page.deleted.isEmpty || page.hasMore
+        if hadWork { report.backfillLane = scope.lane }
+        return DrainOutcome(hadWork: hadWork, hasMore: committed.hasMore)
     }
 
     #if os(iOS)

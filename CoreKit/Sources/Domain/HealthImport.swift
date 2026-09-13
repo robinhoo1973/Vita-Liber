@@ -147,9 +147,12 @@ public struct HealthWindowSnapshot: Sendable {
     public let rows: [DeviceMetricRow]
     public let readings: [MetricReading]
     public let rejected: Int
+    /// round2 H-N2：本窗口内 <minSamples 未成统计行的小时桶数（心率）；其余类型恒 0
+    public let sparseWindows: Int
     public init(window: HealthImportWindow, samples: [HealthSampleReference],
-                rows: [DeviceMetricRow], readings: [MetricReading] = [], rejected: Int = 0) {
+                rows: [DeviceMetricRow], readings: [MetricReading] = [], rejected: Int = 0,
+                sparseWindows: Int = 0) {
         self.window = window; self.samples = samples; self.rows = rows
-        self.readings = readings; self.rejected = rejected
+        self.readings = readings; self.rejected = rejected; self.sparseWindows = sparseWindows
     }
 }

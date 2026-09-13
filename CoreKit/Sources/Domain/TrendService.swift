@@ -120,10 +120,15 @@ public struct TrendSeries: Sendable, Equatable {
     /// 与 `points` 分离而不是塞进同一数组加标志位——避免任何聚合/统计路径
     /// 忘记过滤 excluded 而把排除点算进去。
     public var excludedPoints: [TrendPoint]
+    /// round2 H2：查询身份回传——渲染层用 `series.identity == 请求身份` 丢弃过期/错位结果；
+    /// nil = 未携身份的旧路径（兼容包装 / Domain 内部构造）。
+    public var identity: TrendQueryIdentity?
     public init(metricType: MetricType, points: [TrendPoint],
-                referenceBands: [ReferenceBand] = [], excludedPoints: [TrendPoint] = []) {
+                referenceBands: [ReferenceBand] = [], excludedPoints: [TrendPoint] = [],
+                identity: TrendQueryIdentity? = nil) {
         self.metricType = metricType; self.points = points
         self.referenceBands = referenceBands; self.excludedPoints = excludedPoints
+        self.identity = identity
     }
 }
 

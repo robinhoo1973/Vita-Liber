@@ -141,10 +141,11 @@ struct HealthSyncDomainTests {
             HourWindowSample(value: 90, at: date(9, 8, 50)),
             HourWindowSample(value: 70, at: date(9, 9, 10)),   // 次窗口
         ]
-        let (windows, rejected) = HourWindowAggregator.aggregate(samples, calendar: calendar)
-        #expect(rejected == 0)
-        #expect(windows.count == 1)   // 09:00 窗口仅 1 个有效样本（<3 不落行）
-        let w = windows[0]
+        let result = HourWindowAggregator.aggregate(samples, calendar: calendar)
+        #expect(result.rejected == 0)
+        #expect(result.windows.count == 1)   // 09:00 窗口仅 1 个有效样本（<3 不落行）
+        #expect(result.sparseWindows == 1)   // round2 H-N2：该桶计入稀疏，不静默
+        let w = result.windows[0]
         #expect(w.windowStart == date(9, 8))
         #expect(abs(w.avg - 90) < 0.001)
         #expect(w.min == 80)
@@ -156,8 +157,8 @@ struct HealthSyncDomainTests {
     func 最小样本门槛() {
         let samples = [HourWindowSample(value: 80, at: date(9, 8, 5)),
                        HourWindowSample(value: 90, at: date(9, 8, 20))]
-        let (windows, _) = HourWindowAggregator.aggregate(samples, calendar: calendar)
-        #expect(windows.isEmpty)
+        let result = HourWindowAggregator.aggregate(samples, calendar: calendar)
+        #expect(result.windows.isEmpty)
     }
 
     @Test("非有限值剔除计数（不静默；0/负值保留交评估）")
@@ -167,10 +168,38 @@ struct HealthSyncDomainTests {
                        HourWindowSample(value: 80, at: date(9, 8, 20)),
                        HourWindowSample(value: 0, at: date(9, 8, 30)),   // 保留（可能是真读数）
                        HourWindowSample(value: 90, at: date(9, 8, 40))]
-        let (windows, rejected) = HourWindowAggregator.aggregate(samples, calendar: calendar)
-        #expect(rejected == 2)
-        #expect(windows.count == 1)
-        #expect(windows[0].sampleCount == 3)   // 80 + 0 + 90
+        let result = HourWindowAggregator.aggregate(samples, calendar: calendar)
+        #expect(result.rejected == 2)
+        #expect(result.windows.count == 1)
+        #expect(result.windows[0].sampleCount == 3)   // 80 + 0 + 90
+    }
+
+    @Test("H-N2 稀疏窗计数：<3 样本的小时桶计入 sparseWindows，不静默")
+    func 稀疏窗计数() {
+        // round2 H-N2：无手表用户心率样本稀疏——每个小时桶 <3 样本时旧实现静默跳过，
+        // 用户看到「已连接却无数据」却无解释；改为逐桶计数上送（仅统计事实，无阈值判定）
+        let samples = [HourWindowSample(value: 80, at: date(9, 8, 5)),
+                       HourWindowSample(value: 90, at: date(9, 8, 20)),
+                       HourWindowSample(value: 70, at: date(9, 9, 10))]
+        let result = HourWindowAggregator.aggregate(samples, calendar: calendar)
+        #expect(result.windows.isEmpty)
+        #expect(result.sparseWindows == 2)
+        #expect(result.rejected == 0)
+    }
+
+    @Test("H-N2 稀疏窗与非有限剔除分列：剔除后仍 ≥3 的桶不计稀疏")
+    func 稀疏窗与剔除分列() {
+        let samples = [HourWindowSample(value: .nan, at: date(9, 8, 5)),
+                       HourWindowSample(value: 80, at: date(9, 8, 10)),
+                       HourWindowSample(value: 85, at: date(9, 8, 20)),
+                       HourWindowSample(value: 90, at: date(9, 8, 30)),
+                       HourWindowSample(value: 70, at: date(9, 9, 10))]
+        let result = HourWindowAggregator.aggregate(samples, calendar: calendar)
+        #expect(result.rejected == 1)
+        #expect(result.windows.count == 1)
+        #expect(result.sparseWindows == 1)
+        #expect(HealthWindowSnapshot(window: HealthImportWindow(kind: .heartRate, start: date(9, 8), end: date(9, 9)),
+                                     samples: [], rows: []).sparseWindows == 0)   // 默认 0，既有调用方不变
     }
 
     // MARK: - FR16.2 持续性门槛（sustainedViolations，health-import V1.3）

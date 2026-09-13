@@ -10,7 +10,9 @@ public actor HealthKitReader: HealthReadingProvider {
     private var observers: [HKObserverQuery] = []
     public init(store: HKHealthStore = HKHealthStore()) { self.store = store }
 
-    public enum ReaderError: Error { case unavailable, authorizationDenied, invalidAnchor, incompleteSnapshot }
+    /// round2 H3：删 `authorizationDenied`——读取权限对 App 不可观察，「未拒绝」不是证据；
+    /// `requestIncomplete` 只表达「系统授权流程尚未完成」这一可观察事实。
+    public enum ReaderError: Error { case unavailable, requestIncomplete, invalidAnchor, incompleteSnapshot }
 
     public static var readTypes: Set<HKObjectType> {
         Set(HealthDataKind.allCases.map { sampleType($0) as HKObjectType })
@@ -32,16 +34,12 @@ public actor HealthKitReader: HealthReadingProvider {
     public func requestAuthorization() async throws {
         guard isAvailable() else { throw ReaderError.unavailable }
         try await store.requestAuthorization(toShare: [], read: Self.readTypes)
-        // 拒绝核验（FR14.1 对偶纪律）：requestAuthorization 对「用户拒绝」静默
-        // 完成（不抛错），不二次确认会以「已连接」落库而每次查询都
-        // authorizationDenied——拒绝必须即时反映，绝不伪装成授权成功。
-        let status: HKAuthorizationRequestStatus
-        do {
-            status = try await store.statusForAuthorizationRequest(toShare: [], read: Self.readTypes)
-        } catch {
-            throw ReaderError.authorizationDenied
-        }
-        guard status == .unnecessary else { throw ReaderError.authorizationDenied }
+        // round2 H3：statusForAuthorizationRequest 只回答「系统流程是否已完成」
+        // （.unnecessary = 已完成、.shouldRequest = 未完成）。读取权限对 App 不可观察：
+        // 完成 ≠ 获准，未完成 ≠ 拒绝——旧实现把 .unnecessary 当「未拒绝」证据并把其余
+        // 映射成 authorizationDenied，两者皆为臆断。这里只如实上报「流程未完成」。
+        let status = try await store.statusForAuthorizationRequest(toShare: [], read: Self.readTypes)
+        guard status == .unnecessary else { throw ReaderError.requestIncomplete }
     }
 
     public func observeChanges(handler: @escaping @Sendable () async -> Bool,
@@ -75,7 +73,9 @@ public actor HealthKitReader: HealthReadingProvider {
         return success
     }
 
-    public func changes(for kind: HealthDataKind, anchor: Data?, limit: Int) async throws -> HealthChangeBatch {
+    /// round2 H-N1：按分道谓词分页——HKAnchoredObjectQuery 行序最旧优先且不可倒序，
+    /// 近一年先到的唯一手段是把谓词限定在近一年；每道各持独立锚点（调用方按 lane 存取）。
+    public func changes(for kind: HealthDataKind, scope: HealthFetchScope, anchor: Data?, limit: Int) async throws -> HealthChangeBatch {
         try Task.checkCancellation()
         guard isAvailable() else { throw ReaderError.unavailable }
         guard limit > 0, limit <= 500 else { throw ReaderError.incompleteSnapshot }
@@ -87,7 +87,8 @@ public actor HealthKitReader: HealthReadingProvider {
             cursor = decoded
         } else { cursor = nil }
         let query = HKAnchoredObjectQueryDescriptor(
-            predicates: [HKSamplePredicate.sample(type: Self.sampleType(kind))], anchor: cursor, limit: limit)
+            predicates: [HKSamplePredicate.sample(type: Self.sampleType(kind), predicate: Self.changePredicate(for: scope))],
+            anchor: cursor, limit: limit)
         let result = try await query.result(for: store)
         try Task.checkCancellation()
         // 审查修复：added+deleted 合计超限即抛错——limit 只约束新增样本页，
@@ -113,6 +114,7 @@ public actor HealthKitReader: HealthReadingProvider {
         var rows: [DeviceMetricRow] = []
         var readings: [MetricReading] = []
         var rejected = 0
+        var sparse = 0   // round2 H-N2：心率 <3 样本未成行的小时桶计数（按来源逐桶）
 
         if window.kind == .sleep {
             let sleep = samples.compactMap { sample -> SleepSample? in
@@ -174,9 +176,10 @@ public actor HealthKitReader: HealthReadingProvider {
                         points.append(HourWindowSample(value: point.value, at: point.at))
                     }
                 }
-                let (summaries, invalid) = HourWindowAggregator.aggregate(points, calendar: calendar)
-                rejected += invalid
-                guard let summary = summaries.first else { continue }
+                let aggregate = HourWindowAggregator.aggregate(points, calendar: calendar)
+                rejected += aggregate.rejected
+                sparse += aggregate.sparseWindows
+                guard let summary = aggregate.windows.first else { continue }
                 let revision = contributing.max { $0.endDate < $1.endDate }?.sourceRevision
                 let products = Set(contributing.compactMap { $0.sourceRevision.productType })
                 rows.append(DeviceMetricRow(metricKey: "heart_rate", value: summary.avg, unit: "bpm",
@@ -218,7 +221,8 @@ public actor HealthKitReader: HealthReadingProvider {
             }
         }
         try Task.checkCancellation()
-        return HealthWindowSnapshot(window: window, samples: references, rows: rows, readings: readings, rejected: rejected)
+        return HealthWindowSnapshot(window: window, samples: references, rows: rows, readings: readings,
+                                    rejected: rejected, sparseWindows: sparse)
     }
 
     /// A condensed quantity sample is a container, not one independent reading. `ordinal` is nil for a
@@ -269,6 +273,20 @@ public actor HealthKitReader: HealthReadingProvider {
         return samples.values.sorted {
             if $0.startDate != $1.startDate { return $0.startDate < $1.startDate }
             return $0.uuid.uuidString < $1.uuid.uuidString
+        }
+    }
+
+    /// round2 H-N1 分道谓词：recent = end >= cutoff（默认选项左闭）；history = end < cutoff
+    /// （.strictEndDate 右开）。两道互补覆盖全部样本，边界样本恰出现一次。墓碑不携日期，
+    /// HealthKit 可能在两道都回报同一 UUID——commit 幂等（首道删索引后第二道成为
+    /// 「纯删除且无窗口受影响」空页，安全排空）。边界语义与 Domain `HealthFetchScope.matches`
+    /// 一致，由 HealthKitReaderPredicateTests 在 CI 实证。
+    static func changePredicate(for scope: HealthFetchScope) -> NSPredicate {
+        switch scope.lane {
+        case .recent:
+            return HKQuery.predicateForSamples(withStart: scope.cutoff, end: nil, options: [])
+        case .history:
+            return HKQuery.predicateForSamples(withStart: nil, end: scope.cutoff, options: [.strictEndDate])
         }
     }
 

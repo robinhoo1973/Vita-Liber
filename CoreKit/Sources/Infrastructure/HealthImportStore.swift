@@ -8,6 +8,9 @@ public actor HealthImportStore {
         public let id: UUID
         public let patientId: UUID
         public let timeZoneID: String
+        /// round2 H-N1：绑定时刻（`hk_import_binding.connected_at`）——两道回填的 cutoff 派生源，
+        /// 固定于绑定时刻不随 now 漂移。
+        public let connectedAt: Date
         public var calendar: Calendar {
             var result = Calendar(identifier: .gregorian)
             result.timeZone = TimeZone(identifier: timeZoneID) ?? TimeZone(secondsFromGMT: 0)!
@@ -26,6 +29,9 @@ public actor HealthImportStore {
         public let completedWindows: Set<HealthImportWindow>
         public let reconcileAfter: Date?
         public let revision: UUID
+        /// round2 H-N1 所属道；旧载荷（v2 单道）缺键解码为 nil → `pending()` 作废该行
+        /// （取数进度不是物化检查点，重取安全），而非让该类型永久卡死。
+        public let lane: HealthFetchLane?
     }
 
     public struct CommitReport: Sendable, Equatable {
@@ -47,11 +53,15 @@ public actor HealthImportStore {
                 guard binding.patientId == patient else { throw ImportError.bindingChanged }
                 return binding
             }
-            let binding = Binding(id: UUID(), patientId: patient, timeZoneID: timeZoneID)
+            // 落库与返回值用同一 Double：Binding.connectedAt 经 Date(timeIntervalSince1970:) 构造，
+            // 重连读回的值逐位相同（Equatable 不因 Double 往返漂移）。
+            let connectedAt = Date().timeIntervalSince1970
+            let binding = Binding(id: UUID(), patientId: patient, timeZoneID: timeZoneID,
+                                  connectedAt: Date(timeIntervalSince1970: connectedAt))
             try db.execute(sql: """
                 INSERT INTO hk_import_binding (singleton, id, patient_id, time_zone, connected_at)
                 VALUES (1, ?, ?, ?, ?)
-                """, arguments: [binding.id.uuidString, patient.uuidString, timeZoneID, Date().timeIntervalSince1970])
+                """, arguments: [binding.id.uuidString, patient.uuidString, timeZoneID, connectedAt])
             return binding
         }
     }
@@ -71,19 +81,27 @@ public actor HealthImportStore {
         }
     }
 
-    public func anchor(binding: Binding, kind: HealthDataKind) async throws -> Data? {
-        try await writer.read { db in try Self.anchor(db, key: Self.anchorKey(binding, kind)) }
+    /// round2 H-N1：两道回填范围（[recent, history]，排空顺序即数组顺序），cutoff 派生自绑定时刻。
+    public nonisolated func scopes(for binding: Binding) -> [HealthFetchScope] {
+        HealthFetchScope.scopes(connectedAt: binding.connectedAt, calendar: binding.calendar)
     }
 
+    /// 每道独立游标（`hk.v3.<binding>.<kind>.<lane>`）；v2 单道键弃用——谓词变了，旧锚点不跨谓词复用，
+    /// 首次升级触发一次性幂等重回填（commit 按身份 upsert，不产重复行）。
+    public func anchor(binding: Binding, kind: HealthDataKind, lane: HealthFetchLane) async throws -> Data? {
+        try await writer.read { db in try Self.anchor(db, key: Self.anchorKey(binding, kind, lane)) }
+    }
+
+    /// 经 write：旧载荷（缺 lane）在读取时作废需要删除权限。
     public func pendingBatch(binding: Binding, kind: HealthDataKind) async throws -> PendingBatch? {
-        try await writer.read { db in
+        try await writer.write { db in
             try Self.requireBinding(binding, db: db)
             return try Self.pending(binding: binding, kind: kind, db: db)
         }
     }
 
     /// Append one bounded page. Missing identities never prevent fetching its successor.
-    public func stage(binding: Binding, kind: HealthDataKind, previousAnchor: Data?,
+    public func stage(binding: Binding, kind: HealthDataKind, scope: HealthFetchScope, previousAnchor: Data?,
                       page: HealthChangeBatch) async throws -> PendingBatch {
         try Task.checkCancellation()
         return try await writer.write { db in
@@ -92,8 +110,10 @@ public actor HealthImportStore {
             try Self.requireBinding(binding, db: db)
             guard page.added.count <= 500, !page.anchor.isEmpty,
                   !page.hasMore || !page.added.isEmpty || !page.deleted.isEmpty else { throw ImportError.invalidValue }
-            let committed = try Self.anchor(db, key: Self.anchorKey(binding, kind))
+            let committed = try Self.anchor(db, key: Self.anchorKey(binding, kind, scope.lane))
             let prior = try Self.pending(binding: binding, kind: kind, db: db)
+            // round2 H-N1：另一道在途时本道不得开新批次——先排空在途道（pending 每类单行）
+            guard prior == nil || prior?.lane == scope.lane else { throw ImportError.staleAnchor }
             guard (prior?.batch.anchor ?? committed) == previousAnchor,
                   prior == nil || prior?.previousAnchor == committed else { throw ImportError.staleAnchor }
             if page.hasMore || !page.added.isEmpty || !page.deleted.isEmpty {
@@ -114,7 +134,7 @@ public actor HealthImportStore {
                 batch: HealthChangeBatch(added: added.values.sorted { $0.id.uuidString < $1.id.uuidString },
                     deleted: deleted.sorted { $0.uuidString < $1.uuidString }, anchor: page.anchor, hasMore: page.hasMore),
                 completedWindows: (prior?.completedWindows ?? []).subtracting(touched),
-                reconcileAfter: prior?.reconcileAfter, revision: UUID())
+                reconcileAfter: prior?.reconcileAfter, revision: UUID(), lane: scope.lane)
             try Self.savePending(pending, binding: binding, kind: kind, db: db)
             return pending
         }
@@ -141,7 +161,9 @@ public actor HealthImportStore {
             try Task.checkCancellation()
             try Self.requireEnabled(db)
             try Self.requireBinding(binding, db: db)
-            let key = Self.anchorKey(binding, kind)
+            // round2 H-N1：无道的批次不可提交（旧载荷已在 pending() 作废，此处只防御直接构造）
+            guard let lane = pending.lane else { throw ImportError.invalidValue }
+            let key = Self.anchorKey(binding, kind, lane)
             guard try Self.anchor(db, key: key) == pending.previousAnchor,
                   try Self.pending(binding: binding, kind: kind, db: db) == pending else { throw ImportError.staleAnchor }
             let batch = pending.batch
@@ -326,7 +348,7 @@ public actor HealthImportStore {
             if report.hasMore {
                 try Self.savePending(PendingBatch(previousAnchor: pending.previousAnchor, batch: batch,
                     completedWindows: completed, reconcileAfter: attempted.last?.start ?? pending.reconcileAfter,
-                    revision: UUID()), binding: binding, kind: kind, db: db)
+                    revision: UUID(), lane: lane), binding: binding, kind: kind, db: db)
                 return report
             }
             // Retire tombstoned references only when every dependent window has been reconciled.
@@ -384,6 +406,13 @@ public actor HealthImportStore {
         guard let json = try String.fetchOne(db, sql: "SELECT payload_json FROM hk_pending_batch WHERE binding_id = ? AND type_key = ?",
                                             arguments: [binding.id.uuidString, kind.rawValue]) else { return nil }
         let pending = try JSONDecoder().decode(PendingBatch.self, from: Data(json.utf8))
+        // round2 H-N1：v2 单道时代的载荷缺 lane——其锚点属于已弃用的无谓词查询，不能续接任何一道；
+        // 作废该行（取数进度不是物化检查点，重取安全），否则该类型永久卡死。
+        guard pending.lane != nil else {
+            try db.execute(sql: "DELETE FROM hk_pending_batch WHERE binding_id = ? AND type_key = ?",
+                           arguments: [binding.id.uuidString, kind.rawValue])
+            return nil
+        }
         guard !pending.batch.anchor.isEmpty, pending.reconcileAfter?.timeIntervalSince1970.isFinite != false,
               pending.completedWindows.allSatisfy({ $0.kind == kind && $0.isValid }) else { throw ImportError.invalidValue }
         _ = try validatedReferences(pending.batch.added, kind: kind, calendar: binding.calendar)
@@ -458,8 +487,9 @@ public actor HealthImportStore {
         guard try Self.binding(db) == binding, try ownerPatient(db) == binding.patientId else { throw ImportError.bindingChanged }
     }
 
-    private static func anchorKey(_ binding: Binding, _ kind: HealthDataKind) -> String {
-        "hk.v2.\(binding.id.uuidString).\(kind.rawValue)"
+    /// round2 H-N1：v3 键空间按道分列；v2 键弃用——谓词变了，旧锚点不跨谓词复用（零 DDL：同表新键）。
+    private static func anchorKey(_ binding: Binding, _ kind: HealthDataKind, _ lane: HealthFetchLane) -> String {
+        "hk.v3.\(binding.id.uuidString).\(kind.rawValue).\(lane.rawValue)"
     }
 
     private static func anchor(_ db: Database, key: String) throws -> Data? {
@@ -472,10 +502,12 @@ public actor HealthImportStore {
     static func binding(_ db: Database) throws -> Binding? {
         guard let row = try Row.fetchOne(db, sql: "SELECT * FROM hk_import_binding WHERE singleton = 1") else { return nil }
         guard let id = UUID(uuidString: row["id"]), let patient = UUID(uuidString: row["patient_id"]),
-              TimeZone(identifier: row["time_zone"] as String) != nil else {
+              TimeZone(identifier: row["time_zone"] as String) != nil,
+              let connectedAt = row["connected_at"] as Double?, connectedAt.isFinite else {
             throw ImportError.bindingChanged
         }
-        return Binding(id: id, patientId: patient, timeZoneID: row["time_zone"])
+        return Binding(id: id, patientId: patient, timeZoneID: row["time_zone"],
+                       connectedAt: Date(timeIntervalSince1970: connectedAt))
     }
 
     static func ownerPatient(_ db: Database) throws -> UUID? {

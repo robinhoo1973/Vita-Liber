@@ -11,22 +11,34 @@ public actor TrendQueryStore {
 
     public init(writer: any DatabaseWriter) { self.writer = writer }
 
-    /// F7 趋势查询。返回可见点 + **各自独立**的 A 级参考带（FR7.2）+ 排除点对照集。
+    /// round2 H2 / BR-001：显式设备过滤而成员非本人绑定 → 拒绝（不静默空态，视图据此不提供设备筛选项）
+    public enum QueryError: Error { case deviceRequiresSelfBinding }
+
+    /// F7 趋势查询（round2 H2：携查询身份）。返回可见点 + **各自独立**的 A 级参考带（FR7.2）
+    /// + 排除点对照集；`result.identity == query` 供渲染层丢弃过期/错位结果。
     /// - Parameter libraryFallback: 无任何 A 级带时的 B 级信源库缺省带（P1 上线前传 nil；
     ///   P0.5 阶段自测/设备读数不显示通用参考范围——function-spec F7「参考范围时序」）。
-    public func series(for member: UUID, metric: MetricType,
-                       range: DateInterval,
-                       libraryFallback: ReferenceBand? = nil) async throws -> TrendSeries {
+    public func series(_ query: TrendQueryIdentity, libraryFallback: ReferenceBand? = nil) async throws -> TrendSeries {
         try await writer.read { db in
+            // BR-001：设备读数只可能归属本人绑定。显式设备过滤而成员非本人 → 拒绝（不静默空态）；
+            // 全来源查询对非本人成员过滤掉任何 device 行（旧备份/重映射残留不得跨成员呈现）。
+            let isSelf = try HealthImportStore.ownerPatient(db) == query.patientId
+            if query.origin == .device, !isSelf { throw QueryError.deviceRequiresSelfBinding }
+            let metric = query.metric
+            let range = query.range
             // 一次取全量（含 excluded），在内存里分流为可见集/排除集——
             // 两次查询会在并发写入下取到不一致的两个快照。
             // 舒张压无独立行：值存于收缩压行的 secondary_value（FR7.11 血压
             // 双序列——此前舒张压系列恒空、双线缺失）。列标识为白名单字面量
-            // 插值（非用户输入，无注入面）。
+            // 插值（非用户输入，无注入面）；来源过滤子句为常量字面量，值经参数绑定。
             let (keyToQuery, valueColumn, refProjection) = metric == .bloodPressureDia
                 ? (MetricType.bloodPressureSys.rawValue, "secondary_value",
                    "NULL AS ref_low, NULL AS ref_high, NULL AS ref_source_label")
                 : (metric.rawValue, "value", "ref_low, ref_high, ref_source_label")
+            let originClause = query.origin == nil ? "" : " AND origin = ?"
+            var arguments: [DatabaseValueConvertible] = [query.patientId.uuidString, keyToQuery,
+                                                         range.start.timeIntervalSince1970, range.end.timeIntervalSince1970]
+            if let origin = query.origin { arguments.append(origin.rawValue) }
             var rows = try Row.fetchAll(db, sql: """
                 SELECT id, metric_key, \(valueColumn) AS value, secondary_value, unit, origin, self_measured,
                        measured_at, excluded, source_ref, \(refProjection),
@@ -34,15 +46,17 @@ public actor TrendQueryStore {
                        aggregation_kind, window_end, value_min, value_max, sample_count
                 FROM metric_sample
                 WHERE patient_id = ? AND metric_key = ? AND \(valueColumn) IS NOT NULL
-                  AND measured_at >= ? AND measured_at <= ?
+                  AND measured_at >= ? AND measured_at <= ?\(originClause)
                 ORDER BY measured_at ASC
-                """, arguments: [member.uuidString, keyToQuery,
-                                 range.start.timeIntervalSince1970, range.end.timeIntervalSince1970])
+                """, arguments: StatementArguments(arguments))
             if metric == .bloodPressureDia {
                 // 审查修复：单值舒张压（语音「低压 90」/自测单值）落库为
                 // metric_key='bloodPressureDia' 独立行——而主查询只读收缩压行
                 // 的 secondary_value，独立行在趋势图上永远缺席（读数存在、
-                // 图表空态）。并查独立行后按时间归并。
+                // 图表空态）。并查独立行后按时间归并；来源过滤同样套用。
+                var directArguments: [DatabaseValueConvertible] = [query.patientId.uuidString,
+                                                                   range.start.timeIntervalSince1970, range.end.timeIntervalSince1970]
+                if let origin = query.origin { directArguments.append(origin.rawValue) }
                 let direct = try Row.fetchAll(db, sql: """
                     SELECT id, metric_key, value AS value, secondary_value, unit, origin, self_measured,
                            measured_at, excluded, source_ref,
@@ -51,14 +65,13 @@ public actor TrendQueryStore {
                            aggregation_kind, window_end, value_min, value_max, sample_count
                     FROM metric_sample
                     WHERE patient_id = ? AND metric_key = 'bloodPressureDia' AND value IS NOT NULL
-                      AND measured_at >= ? AND measured_at <= ?
+                      AND measured_at >= ? AND measured_at <= ?\(originClause)
                     ORDER BY measured_at ASC
-                    """, arguments: [member.uuidString,
-                                     range.start.timeIntervalSince1970, range.end.timeIntervalSince1970])
+                    """, arguments: StatementArguments(directArguments))
                 rows.append(contentsOf: direct)
                 rows.sort { ($0["measured_at"] as Double) < ($1["measured_at"] as Double) }
             }
-            let all = rows.map { row in
+            let mapped = rows.map { row in
                 TrendPoint(
                     id: UUID(uuidString: row["id"] as String) ?? UUID(),
                     measuredAt: Date(timeIntervalSince1970: row["measured_at"] as Double),
@@ -78,6 +91,8 @@ public actor TrendQueryStore {
                     valueMin: row["value_min"] as Double?, valueMax: row["value_max"] as Double?,
                     sampleCount: row["sample_count"] as Int?)
             }
+            // BR-001：非本人成员名下的 device 行（可见与排除点集皆然）不得呈现
+            let all = mapped.filter { $0.origin != .device || isSelf }
             let visible = TrendRules.visible(all)
             return TrendSeries(
                 metricType: metric,
@@ -86,8 +101,17 @@ public actor TrendQueryStore {
                 // 参考范围同样不可信，不应继续画在图上。
                 referenceBands: TrendRules.resolveBands(points: visible,
                                                         libraryFallback: libraryFallback),
-                excludedPoints: all.filter(\.excluded))
+                excludedPoints: all.filter(\.excluded),
+                identity: query)
         }
+    }
+
+    /// 兼容包装（全来源）：既有调用方（宫格迷你图 / 趋势入口）不改；身份同样回传。
+    public func series(for member: UUID, metric: MetricType,
+                       range: DateInterval,
+                       libraryFallback: ReferenceBand? = nil) async throws -> TrendSeries {
+        try await series(TrendQueryIdentity(patientId: member, metric: metric, origin: nil, range: range),
+                         libraryFallback: libraryFallback)
     }
 
     /// 排除/恢复（软删语义：保留原值，动作记审计由调用方写 audit_event）
