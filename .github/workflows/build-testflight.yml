@@ -404,7 +404,12 @@ jobs:
           # 评审修正第二轮（三份拷贝合并）：L1 单元/UI 两步复用同一目的地——
           # 模拟器解析逻辑单一来源，命名漂移只改一处
           echo "DEST=$DEST" >> "$GITHUB_ENV"
+          # 子项目 I（CI 34758298829 实证）：swift-perception 带 SwiftPM 宏目标（PerceptionMacros），
+          # Xcode 15+ 对第三方宏做指纹信任校验，无人值守构建报「Macro … must be enabled before it
+          # can be used」。-skipMacroValidation 等价 IDESkipMacroFingerprintValidation；供应链约束由
+          # project.yml exactVersion + Package.resolved 钉版承担，不在此处放松。四处 xcodebuild 同旗标。
           xcodebuild build-for-testing \
+            -skipMacroValidation \
             -project "$XCODEPROJ" -scheme "$SCHEME" \
             -destination "$DEST" \
             -derivedDataPath Build/DerivedData \
@@ -429,6 +434,7 @@ jobs:
           set -o pipefail
           echo "destination: ${DEST}"
           xcodebuild test-without-building \
+            -skipMacroValidation \
             -project "$XCODEPROJ" -scheme "$SCHEME" \
             -destination "$DEST" \
             -derivedDataPath Build/DerivedData \
@@ -443,6 +449,7 @@ jobs:
           set -o pipefail
           echo "destination: ${DEST}"
           xcodebuild test-without-building \
+            -skipMacroValidation \
             -project "$XCODEPROJ" -scheme "$SCHEME" \
             -destination "${DEST}" \
             -derivedDataPath Build/DerivedData \
@@ -466,6 +473,7 @@ jobs:
           ARCH="Build/VitaLiber.xcarchive"
           rm -rf "$ARCH" Build/export
           xcodebuild archive \
+            -skipMacroValidation \
             -project "$XCODEPROJ" -scheme "$SCHEME" \
             -configuration Release \
             -archivePath "$ARCH" \
