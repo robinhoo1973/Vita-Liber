@@ -153,4 +153,7 @@ def build_baseline(root_envelope, catalog_envelope):
             "rootVersion": catalog["rootVersion"], "catalogVersion": catalog["catalogVersion"],
             "catalogSHA256": hashlib.sha256(payload_bytes(catalog_envelope)).hexdigest(),
             "sourceIndexSha256": hashlib.sha256(json_bytes(catalog["index"])).hexdigest(),
+            # S-M2：基线随 App 签名嵌入，须携带签名目录已知的撤销摘要，
+            # 使擦除本机信任状态后已安装的被撤销包仍被拒绝。
+            "revokedHashes": sorted(catalog.get("revokedHashes", [])),
             "entries": catalog["index"]["models"]}

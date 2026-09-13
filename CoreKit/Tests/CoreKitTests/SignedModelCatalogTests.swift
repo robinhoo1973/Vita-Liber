@@ -75,6 +75,37 @@ struct SignedModelCatalogTests {
         #expect(throws: (any Error).self) { try retained.checkPackageAuthorization() }
     }
 
+    @Test func 内嵌基线撤销与大写撤销摘要均生效() throws {
+        // S-M1/S-M2：擦除本机信任状态后基线撤销仍拒绝已装包；目录/状态中的大写摘要
+        // 不得因查询侧小写化而失效。
+        let fixture = try Fixture()
+        let baselineRevoked = String(repeating: "B", count: 64)
+        let baseline: [String: Any] = ["schemaVersion": 1, "entries": [], "revokedHashes": [baselineRevoked]]
+        let store = ModelCatalogTrustStore(bootstrapData: fixture.root,
+            baselineData: try JSONSerialization.data(withJSONObject: baseline), stateURL: nil)
+        #expect(store.isRevoked(baselineRevoked.lowercased()))
+        #expect(store.isRevoked(baselineRevoked))
+        let catalogRevoked = String(repeating: "D", count: 64)
+        _ = try store.acceptCatalog(fixture.catalog(version: 2, checksum: String(repeating: "c", count: 64),
+                                                     revoked: [catalogRevoked]))
+        #expect(store.isRevoked(catalogRevoked.lowercased()))
+        #expect(!store.isAuthorized(ASRModelRelease(id: "qwen3", version: "9.0.0", bytes: 123,
+                                                       sha256: catalogRevoked.lowercased(), url: "qwen3.zip")))
+    }
+
+    @Test func 重启后状态文件中的大写撤销摘要仍命中() throws {
+        let fixture = try Fixture()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) } // try?-ok: 隔离测试目录清理
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent("trust.json")
+        let revoked = String(repeating: "E", count: 64)
+        let state: [String: Any] = ["roots": [], "catalog": NSNull(), "revokedHashes": [revoked]]
+        try JSONSerialization.data(withJSONObject: state).write(to: url)
+        let restored = ModelCatalogTrustStore(bootstrapData: fixture.root, baselineData: nil, stateURL: url)
+        #expect(restored.isRevoked(revoked.lowercased()))
+    }
+
     private struct Fixture {
         let root: Data
         let keys: [Curve25519.Signing.PrivateKey]

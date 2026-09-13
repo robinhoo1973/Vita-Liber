@@ -63,7 +63,8 @@
       "version": "small-int8-2024-07-13"
     }
   ],
-  "generatedAt": "2026-09-12",
+  "generatedAt": "2026-09-13",
+  "revokedHashes": [],
   "rootVersion": 1,
   "schemaVersion": 1,
   "sourceIndexSha256": "89234f2f09a8b5994b2d4a16c926b22af0bb5c890b55f0c7361bbe91414bd7b6"

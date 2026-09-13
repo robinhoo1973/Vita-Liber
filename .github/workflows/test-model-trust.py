@@ -112,6 +112,23 @@ class TrustTests(unittest.TestCase):
         self.assertEqual(baseline["entries"][0]["sha256"], "a" * 64)
         self.assertEqual(baseline["entries"][0]["minAppVersion"], "0.0.1")
         self.assertEqual(baseline["catalogVersion"], 3)
+        self.assertEqual(baseline["revokedHashes"], [])
+
+    def test_build_baseline_carries_sorted_lowercase_revocations(self):
+        # S-M2：擦除本机信任状态后，App 签名保护的基线仍须携带已知撤销，
+        # 否则已安装的被撤销包在下次成功拉取目录前继续可用。
+        self.catalog_payload["revokedHashes"] = ["f" * 64, "c" * 64]
+        catalog = self.write("catalog.json", envelope(self.catalog_payload, self.keys[3:5]))
+        output = self.root / "generated.json"
+        result = subprocess.run(["python3", str(TOOLS / "model-trust.py"), "build", "--root", str(self.root / "root.json"),
+                                 "--catalog", str(catalog), "--output", str(output)], text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(json.loads(output.read_text())["revokedHashes"], ["c" * 64, "f" * 64])
+
+    def test_uppercase_revocation_hash_is_rejected_by_public_verifier(self):
+        # 与 Swift 端小写归一对应：公开验证器只接受小写 hex，签名工具链不得产生大小写歧义。
+        self.catalog_payload["revokedHashes"] = ["C" * 64]
+        self.assertNotEqual(self.verify(envelope(self.catalog_payload, self.keys[3:5])).returncode, 0)
 
     def test_project_build_generates_and_embeds_the_baseline(self):
         resources = self.root / "Resources"

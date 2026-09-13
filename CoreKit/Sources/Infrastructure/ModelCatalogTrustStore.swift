@@ -22,8 +22,14 @@ public final class ModelCatalogTrustStore: @unchecked Sendable {
         let rootVersion: Int?
         let catalogVersion: Int?
         let catalogSHA256: String?
+        let revokedHashes: [String]?
     }
     private var baselineFloor: (root: Int, catalog: Int, digest: String)?
+    /// 撤销摘要统一小写存放：目录/状态/基线可能出现大写 hex（`isSHA256` 接受大小写），
+    /// 查询侧按小写比对，不归一会让大写撤销项静默失效（S-M1）。
+    private static func normalizedRevocations<S: Sequence>(_ values: S) -> Set<String> where S.Element == String {
+        Set(values.filter(ModelResourcePolicy.isSHA256).map { $0.lowercased() })
+    }
     private struct State: Codable { let roots: [SignedModelEnvelope]; let catalog: SignedModelEnvelope?; let revokedHashes: [String]? }
 
     public convenience init(bundle: Bundle = .main) {
@@ -54,12 +60,14 @@ public final class ModelCatalogTrustStore: @unchecked Sendable {
                let digest = baseline.catalogSHA256, root > 0, catalog > 0, ModelResourcePolicy.isSHA256(digest) {
                 baselineFloor = (root, catalog, digest)
             }
+            // S-M2：App 签名保护的基线携带编译时已知撤销——擦除本机状态不能复活被撤销包。
+            revokedHashes.formUnion(Self.normalizedRevocations(baseline.revokedHashes ?? []))
         } else { baselineIndex = nil }
         guard var current = initial, let stateURL, let data = Self.read(stateURL) else { return }
         do {
             let saved = try JSONDecoder().decode(State.self, from: data)
             guard saved.roots.count <= 256 else { throw Failure.invalidMetadata }
-            revokedHashes = Set((saved.revokedHashes ?? []).filter(ModelResourcePolicy.isSHA256))
+            revokedHashes.formUnion(Self.normalizedRevocations(saved.revokedHashes ?? []))
             var accepted: [SignedModelEnvelope] = []
             for envelope in saved.roots {
                 let next = try JSONDecoder().decode(ModelTrustRoot.self, from: envelope.payload)
@@ -75,7 +83,7 @@ public final class ModelCatalogTrustStore: @unchecked Sendable {
                 let value = try Self.catalog(envelope, root: current, checkTime: false)
                 try checkBaselineFloor(value, envelope: envelope)
                 catalog = value; catalogEnvelope = envelope
-                revokedHashes.formUnion(value.revokedHashes)
+                revokedHashes.formUnion(Self.normalizedRevocations(value.revokedHashes))
             }
         } catch {
             // 损坏缓存不能授权任何新增包；App 内根/哈希基线仍有效。
@@ -117,7 +125,7 @@ public final class ModelCatalogTrustStore: @unchecked Sendable {
                 throw Failure.rollback
             }
         }
-        let revoked = revokedHashes.union(next.revokedHashes)
+        let revoked = revokedHashes.union(Self.normalizedRevocations(next.revokedHashes))
         try persist(State(roots: roots, catalog: envelope, revokedHashes: revoked.sorted()))
         catalog = next; catalogEnvelope = envelope
         revokedHashes = revoked
@@ -261,7 +269,7 @@ public final class ModelCatalogTrustStore: @unchecked Sendable {
                   let expanded = model.expandedBytes, expanded > 0, expanded <= ModelResourcePolicy.expandedBytes,
                   let minimum = model.minAppVersion, minimum.range(of: #"^[0-9]+\.[0-9]+\.[0-9]+$"#, options: .regularExpression) != nil,
                   model.resolvedURL(baseURL: URL(string: root.assetBaseURL)) != nil,
-                  !value.revokedHashes.contains(model.sha256.lowercased()),
+                  !Self.normalizedRevocations(value.revokedHashes).contains(model.sha256.lowercased()),
                   identities.insert("\(model.id)/\(model.version)/\(model.artifactRevision ?? 0)").inserted else { throw Failure.invalidMetadata }
         }
         return value
