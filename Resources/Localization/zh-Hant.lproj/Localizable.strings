@@ -1712,6 +1712,12 @@
 "home.swipe.archive" = "封存";
 "home.swipe.archived" = "已封存「%@」";
 "home.swipe.undo" = "復原";
+"home.swipe.openCabinet" = "去藥箱";
+"home.swipe.snoozeTomorrow" = "稍後";
+"home.swipe.snoozedTomorrow" = "已延後到明天「%@」";
+"home.swipe.viewEvidence" = "查看證據";
+"home.swipe.view" = "查看";
+"home.swipe.failed" = "操作失敗";
 "asr.qwen3" = "Qwen3-ASR · 方言優先";
 "asr.qwen3.hint" = "0.6B 隨附模型：涵蓋中文方言及30種語言，支援熱詞；本機分段辨識。公開評測不等於本機醫療語句準確率，仍須核對原話與數值。";
 "ocr.cards.overview" = "已預填的資訊卡";

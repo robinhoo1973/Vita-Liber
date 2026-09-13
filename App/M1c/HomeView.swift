@@ -32,8 +32,15 @@ struct HomeView: View {
     @State private var showSOS = false
     @State private var showVoicePanel = false
     @State private var notifDenied = false
-    /// FR2.1 首页扫动处置（业主第10轮 §7）：最近一条归档 + Undo 条。
-    @State private var lastArchived: ArchivedToast?
+    /// FR2.1⑦ 首页滑动处置底部条（round2 U2/U3）：撤销（写成功）/ 重试（写失败）双态，
+    /// 载荷 id 为动作代次——计时与撤销均以代次判「仍是同一条」。
+    @State private var actionToast: HomeActionToast?
+    /// 待办卡「继续补全」（leading 动作）：直接打开续确认流，不经详情 sheet。
+    @State private var resumingCard: ResumeTarget?
+    /// round2 U-N6：Reduce Motion 开启时行移除/底部条不做动画。
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private struct ResumeTarget: Identifiable { let id: String }
+    private var rowAnimation: Animation? { reduceMotion ? nil : .snappy(duration: 0.22) }
     /// FR9.6「可关、次日重现」：持久化当日驳回标记——旧实现为会话级 @State
     /// 且 load() 每次无条件重置，成员切换/数据版本变化即横幅复活，
     /// 「关到次日」落空。按自然日判定，重启同日亦不复现。
@@ -88,59 +95,117 @@ struct HomeView: View {
                                                    memberId: app.currentPatientId)
     }
 
-    /// 聚合条目的持久化归档键（与通知中心同一命名空间，FR14.8 跨入口共享）：
-    /// alert_event→alert- · appointment→apt- · refill→lot- · dose_slot→dose- ·
-    /// ocr→ocr-（按文档）；stock_backlog 仅首页存在，独立前缀。
-    private func itemKey(_ item: AggregatedReminderItem) -> String {
-        let prefix: String
-        switch item.id.kind {
-        case "alert_event": prefix = "alert"
-        case "appointment": prefix = "apt"
-        case "refill": prefix = "lot"
-        case "dose_slot": prefix = "dose"
-        case "ocr": prefix = "ocr"
-        default: prefix = item.id.kind
-        }
-        return "\(prefix)-\(item.id.sourceId)"
+    // MARK: - FR2.1⑦ 按源滑动处置（round2 U-N1…N6 / U1–U3）
+
+    /// 读侧隐藏判定：键集由 Domain 给出（`NotificationItemKey.hideKeys`），
+    /// 用药时段 / 逾期高风险 OCR / 资料完善为空集——任何持久键都不能把它们藏起来
+    /// （BR-004 / BR-003）。稍后 = 次日键，日期一变自然重现。
+    private func isHidden(_ item: AggregatedReminderItem, now: Date) -> Bool {
+        NotificationItemKey.hideKeys(for: item, now: now).contains { notificationState.itemStates[$0] == .archived }
     }
 
-    private func archive(_ item: AggregatedReminderItem) {
-        let key = itemKey(item)
+    /// 动作分派：导航类立即执行；写类（用药三动作 / 归档 / 稍后）先落库、成功才动画，
+    /// 失败行不动、底部条「操作失败 [重试]」（round2 U2：原实现先动画后写、回调无返回值）。
+    private func perform(_ d: ReminderDisposition, on item: AggregatedReminderItem) {
+        switch d {
+        case .openCabinet:
+            router.navigate(to: .medicationCabinet)
+        case .viewEvidence, .view:
+            open(item)
+        case .resumePendingCard:
+            resumingCard = ResumeTarget(id: item.id.sourceId)
+        case .markTaken, .snoozeDose, .skipDose, .archive, .snoozeUntilTomorrow:
+            Task {
+                if await write(d, item: item) { return }            // 成功：行/底部条已在 write 内 withAnimation 更新
+                withAnimation(rowAnimation) {
+                    actionToast = HomeActionToast(title: L10n.homeSwipeFailed,
+                                                  kind: .failed(retry: { perform(d, on: item) }))
+                }
+            }
+        }
+    }
+
+    /// 写成功才动画。归档/稍后：`persistArchive` 落库 → `applyArchived` 改可观察态（两阶段，
+    /// FR14.8）；用药三动作：时段级逐剂写 dose_log（BR-004），`== doses.count` 才算成功，
+    /// 部分成功时重试只处理仍未决的剂量（幂等）。
+    private func write(_ d: ReminderDisposition, item: AggregatedReminderItem) async -> Bool {
+        switch d {
+        case .archive, .snoozeUntilTomorrow:
+            guard let key = NotificationItemKey.writeKey(for: item, disposition: d, now: Date()) else { return false }
+            do { try await notificationState.persistArchive(key) } catch { return false }
+            let title = d == .archive ? L10n.homeSwipeArchived(item.title) : L10n.homeSwipeSnoozedTomorrow(item.title)
+            withAnimation(rowAnimation) {
+                notificationState.applyArchived(key)
+                actionToast = HomeActionToast(title: title, kind: .undo(key: key))
+            }
+            return true
+        case .markTaken, .snoozeDose, .skipDose:
+            guard let slot = reminderStore.todaySlots.first(where: { $0.id == item.id.sourceId }) else { return false }
+            let doses = slot.records.filter { $0.action == nil }.map(\.dose)
+            guard !doses.isEmpty else { return false }
+            let done: Int
+            switch d {
+            case .markTaken:
+                done = await reminderStore.confirmSlotAllTaken(patientId: app.currentPatientId, doses: doses, careMode: app.careMode)
+            case .snoozeDose:
+                done = await reminderStore.snoozeSlotPending(patientId: app.currentPatientId, doses: doses, careMode: app.careMode)
+            default:
+                done = await reminderStore.skipSlotPending(patientId: app.currentPatientId, doses: doses, careMode: app.careMode)
+            }
+            return done == doses.count
+        default:
+            return false
+        }
+    }
+
+    /// 撤销（归档/稍后）：先落库再恢复可观察态；失败换成重试条。代次守卫：
+    /// 只有底部条仍是本次动作那一条时才顺带清条，否则只恢复行、不动新条。
+    private func undo(_ toast: HomeActionToast, key: String) {
         Task {
-            do {
-                try await notificationState.archive(key)
-            } catch {
-                // 归档失败不静默：条目继续可见（用户可重试），不弹错误打断。
+            do { try await notificationState.persistUnarchive(key) } catch {
+                actionToast = HomeActionToast(title: L10n.homeSwipeFailed,
+                                              kind: .failed(retry: { undo(toast, key: key) }))
                 return
             }
-            lastArchived = ArchivedToast(key: key, title: item.title)
+            guard actionToast?.id == toast.id else {
+                withAnimation(rowAnimation) { notificationState.applyUnarchived(key) }
+                return
+            }
+            withAnimation(rowAnimation) {
+                notificationState.applyUnarchived(key)
+                actionToast = nil
+            }
         }
     }
 
-    private func undoArchive() {
-        guard let toast = lastArchived else { return }
-        lastArchived = nil
-        Task { try? await notificationState.unarchive(toast.key) }   // try?-ok: 撤销失败时条目仍隐藏，重进首页状态即已持久化归档
-    }
-
-    /// 归档撤销条：最近一条归档 + [撤销]；5s 自动消失（新归档会重置计时）。
-    @ViewBuilder private var archiveUndoBanner: some View {
-        if let toast = lastArchived {
+    /// 底部条：撤销 / 重试双态；`.task(id:)` 以代次计时，取消（换条/消失）即返回不清理，
+    /// 到点后仍须核对代次——旧计时器不得清掉新条（round2 U3）。
+    @ViewBuilder private var actionToastBanner: some View {
+        if let toast = actionToast {
             HStack(spacing: 12) {
-                Text(L10n.homeSwipeArchived(toast.title)).font(.subheadline).lineLimit(1)
+                Text(toast.title).font(.subheadline).lineLimit(1)
                 Spacer(minLength: 8)
-                Button(L10n.homeSwipeUndo) { undoArchive() }
-                    .font(.subheadline.bold())
-                    .frame(minHeight: 44)   // 设计系统触控目标 ≥44pt
+                switch toast.kind {
+                case .undo(let key):
+                    Button(L10n.homeSwipeUndo) { undo(toast, key: key) }
+                        .font(.subheadline.bold())
+                        .frame(minHeight: 44)   // 设计系统触控目标 ≥44pt
+                case .failed(let retry):
+                    Button(L10n.retry) { actionToast = nil; retry() }
+                        .font(.subheadline.bold())
+                        .frame(minHeight: 44)
+                }
             }
             .padding(.horizontal, 14).padding(.vertical, 10)
             .background(.thinMaterial, in: Capsule())
             .padding(.horizontal, 16).padding(.bottom, 12)
             .transition(.move(edge: .bottom).combined(with: .opacity))
             .task(id: toast.id) {
-                try? await Task.sleep(nanoseconds: 5_000_000_000)   // try?-ok: 睡眠取消即结束（新归档/视图消失），无需处理错误
-                withAnimation(.snappy(duration: 0.2)) { lastArchived = nil }
+                do { try await Task.sleep(for: .seconds(toast.autoDismissSeconds)) } catch { return }
+                guard actionToast?.id == toast.id else { return }
+                withAnimation(rowAnimation) { actionToast = nil }
             }
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("SP-04.home.undo")
         }
     }
@@ -165,8 +230,8 @@ struct HomeView: View {
         // principal 只替换标题内容，不约束自动继承的大标题高度（SP-04）。
         // 明确使用紧凑导航栏，内容为空时也不预留第二层标题区。
         .navigationBarTitleDisplayMode(.inline)
-        // FR2.1 首页扫动处置：归档后的 Undo 条（5s 自动隐去，可手动撤销）。
-        .overlay(alignment: .bottom) { archiveUndoBanner }
+        // FR2.1⑦ 首页滑动处置底部条：撤销（5s）/ 重试（8s）双态，自动隐去以代次判定。
+        .overlay(alignment: .bottom) { actionToastBanner }
         .toolbar {
             // §5.2 首页成员切换入口：紧凑标题可点击 → 成员抽屉
             ToolbarItem(placement: .principal) {
@@ -227,50 +292,59 @@ struct HomeView: View {
                 .environment(docs)
                 .environment(router)
         }
+        // FR2.1⑦ 待办卡 leading「继续补全」：直达续确认流；关闭后刷新待办投影
+        .sheet(item: $resumingCard, onDismiss: { pendingCenter.refresh(patientId: app.currentPatientId) }) { target in
+            NavigationStack { PendingCardResumeRouteView(cardId: target.id) }
+                .environment(pendingCenter)
+                .environment(app)
+                .environment(docs)
+                .environment(router)
+        }
         .task(id: "\(app.currentPatientId)-\(dataChange.alertsVersion)-\(docs.pendingVersion)") { await load() }
     }
 
     // MARK: - 标准布局：统一提醒聚合中心
 
+    /// 非行类内容（横幅/筛选头/空态/引导/免责声明）的行内边距；聚合行用 cardRowInsets。
+    private let plainRowInsets = EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16)
+    private let cardRowInsets = EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16)
+
+    /// FR2.1⑦ 原生 `List`（round2 U1/U-N6：自绘 DragGesture 归档行删除——纵滑与横滑
+    /// 由系统手势仲裁，滑动按钮自动成为 VoiceOver 自定义动作）。ADR-021 单一自适应视图：
+    /// iPad 行宽由 `.frame(maxWidth: 672)` 承担，不做 idiom 分支。
     private var standardHome: some View {
         // 第八轮全仓审查修复的每帧纪律延续：聚合与筛选各只求值一次，
         // 经 let 承接传入子视图（此前 snapshot 每帧重算 13 次的教训）
         let progress = app.profileCompletion
-        // FR2.1 首页扫动处置（业主第10轮 §7）：统一归档过滤——所有聚合类目
-        // （预警/用药/预约/待办卡/OCR/系统）共用 notification_state 归档键，
-        // 左滑归档即持久隐藏，撤销条可恢复（语义真实，非会话级假删除）。
-        // 过滤只作用于展示快照：load() 的键集取未过滤聚合，已归档键的
-        // 持久状态才能在 reload 后保留（否则 itemStates 被整体替换后复活）。
-        let snap = aggregatedItems(profileCompletion: progress)
-            .filter { notificationState.itemStates[itemKey($0)] != .archived }
+        // 读侧隐藏：键集由 Domain 按源给出（归档基键 + 稍后次日键；用药/逾期 OCR/
+        // 资料完善为空集）。过滤只作用于展示快照：load() 的键集取未过滤聚合。
+        let now = Date()
+        let snap = aggregatedItems(profileCompletion: progress).filter { !isHidden($0, now: now) }
         let items = ReminderAggregationCenter.filtered(snap, kind: filterKind)
         // I7 审查修复：引导优先级是业务规则，下沉 Domain 纯函数
         //（规则 4）；资料完善是首日引导的一部分，单独存在时不能吞掉首日
         // 任务，任何其他真实提醒（尤其置顶项）仍优先进入聚合列表。
         let showsGuide = ReminderAggregationCenter.showsFirstDayGuide(
             items: snap, isNewUser: isNewUser, progressKind: ReminderHubLoader.profileProgressKind)
-        return ScrollView {
-            VStack(spacing: 16) {
+        return List {
+            Group {
                 pendingImportRecovery
                 pendingLoadFailure
                 if showsGuide {
-                    if filterKind != nil {
-                        filterHeader
-                        if items.isEmpty { emptyAggregation }
-                    }
-                    aggregationList(items, profileCompletion: progress)
-                    newUserGuide
+                    if filterKind != nil { filterHeader }
+                    if filterKind != nil && items.isEmpty { emptyAggregation }
                 } else {
-                    if notifDenied && dismissedDay != todayDayKey {
-                        notifDeniedBanner
-                    }
+                    if notifDenied && dismissedDay != todayDayKey { notifDeniedBanner }
                     filterHeader
-                    if items.isEmpty {
-                        emptyAggregation
-                    } else {
-                        aggregationList(items, profileCompletion: progress)
-                    }
+                    if items.isEmpty { emptyAggregation }
                 }
+            }
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+            .listRowInsets(plainRowInsets)
+            aggregationRows(items, profileCompletion: progress)
+            Group {
+                if showsGuide { newUserGuide }
                 // §5.2 免责声明恒显示（V3.72：新用户空态此前不渲染信任文案）
                 Text(L10n.homeDisclaimer)
                     .font(.caption2)
@@ -279,10 +353,18 @@ struct HomeView: View {
                     .padding(.top, 4)
                     .accessibilityIdentifier("SP-04.home.disclaimer")
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .frame(maxWidth: 672)   // §9.1 正文行宽 ≤672pt（iPad 常宽列可读性）
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+            .listRowInsets(plainRowInsets)
         }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        // M1aE2E 约束：首内容 minY − 成员按钮 maxY ≤ 48pt（行 inset 8 + 行内 padding 8，无顶部留白）
+        .contentMargins(.top, 0, for: .scrollContent)
+        .listSectionSpacing(.compact)
+        .frame(maxWidth: 672)          // §9.1 正文行宽 ≤672pt——靠 frame，不做 idiom 分支（ADR-021）
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("SP-04.home.aggregation")
     }
 
@@ -353,29 +435,47 @@ struct HomeView: View {
 
     // MARK: - 聚合行
 
-    /// 空数据时整个容器不存在，padding/背景均不能留下空卡（SP-04）。
+    /// 聚合行：按源动作表挂 leading/trailing swipeActions + 长按 contextMenu。
+    /// 全滑判定在 Domain（仅纯信息行的 稍后/归档；用药三动作与置顶行禁全滑，BR-004/BR-003）。
+    /// 动作表为空的行（资料完善 / 已服或已处置的用药时段）不挂任何滑动或长按菜单。
     @ViewBuilder
-    private func aggregationList(_ items: [AggregatedReminderItem],
+    private func aggregationRows(_ items: [AggregatedReminderItem],
                                  profileCompletion: (done: Int, total: Int)?) -> some View {
-        if !items.isEmpty {
-            LazyVStack(spacing: 0) {
-                ForEach(items) { item in
-                    if item.id.kind == ReminderHubLoader.profileProgressKind, let progress = profileCompletion {
-                        profileProgressCard(progress)
-                    } else {
-                        ArchiveSwipeRow(actionLabel: L10n.homeSwipeArchive) { archive(item) } content: {
-                            aggregationRow(item)
-                        }
+        ForEach(items) { item in
+            if item.id.kind == ReminderHubLoader.profileProgressKind, let progress = profileCompletion {
+                profileProgressCard(progress)     // 保持 Button + SP-04.home.profileProgress；动作表为空 → 无滑动
+                    .listRowBackground(Color(.secondarySystemGroupedBackground))
+                    .listRowInsets(cardRowInsets)
+            } else if ReminderAggregationCenter.dispositions(for: item).isEmpty {
+                aggregationRow(item)
+                    .listRowBackground(Color(.secondarySystemGroupedBackground))
+                    .listRowInsets(cardRowInsets)
+                    .alignmentGuide(.listRowSeparatorLeading) { $0[.leading] + 46 }
+            } else {
+                aggregationRow(item)
+                    .listRowBackground(Color(.secondarySystemGroupedBackground))
+                    .listRowInsets(cardRowInsets)
+                    .alignmentGuide(.listRowSeparatorLeading) { $0[.leading] + 46 }
+                    .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                        dispositionButtons(item, side: .leading)
                     }
-                    if item.id != items.last?.id {
-                        Divider().padding(.leading, 46)
+                    .swipeActions(edge: .trailing,
+                                  allowsFullSwipe: ReminderAggregationCenter.allowsFullSwipe(for: item, side: .trailing)) {
+                        dispositionButtons(item, side: .trailing)
                     }
-                }
+                    .contextMenu { dispositionButtons(item, side: nil) }
             }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 14)
-                .fill(Color(.secondarySystemGroupedBackground)))
+        }
+    }
+
+    /// side == nil → 全部动作（长按菜单）；List 自动把 swipeActions 暴露为 VoiceOver 自定义动作。
+    /// 顺序即 Domain 动作表顺序（trailing 首项 = 全滑候选）。
+    @ViewBuilder
+    private func dispositionButtons(_ item: AggregatedReminderItem, side: SwipeSide?) -> some View {
+        ForEach(ReminderAggregationCenter.dispositions(for: item).filter { side == nil || $0.side == side }, id: \.self) { d in
+            Button { perform(d, on: item) } label: { Label(d.title, systemImage: d.systemImage) }
+                .tint(d.tint)
+                .accessibilityIdentifier("SP-04.home.action.\(d.rawValue)")
         }
     }
 
@@ -432,8 +532,9 @@ struct HomeView: View {
                         Text(L10n.pendingCardAggregationTitle(item.title))
                             .font(.subheadline).foregroundStyle(.primary)
                             .lineLimit(1)
-                        if let status = item.status, status != "L0" {
-                            // FR16.2 证据卡入口：级别徽章（L1+ 才渲染）
+                        if item.id.kind == "alert_event", let status = item.status, status != "L0" {
+                            // FR16.2 证据卡入口：级别徽章（仅 alert_event 的 L1+ 才渲染；
+                            // dose_slot/pending_card 的 status 是处置状态透传，不是级别）
                             Text(status)
                                 .font(.caption2.bold()).foregroundStyle(.white)
                                 .padding(.horizontal, 6).padding(.vertical, 2)
@@ -447,6 +548,11 @@ struct HomeView: View {
                             // FR16.2 软提示注记：L0 是观察记录，不是警报
                             Text(L10n.homeL0Note)
                                 .font(.caption2).foregroundStyle(.tertiary)
+                        }
+                        if item.id.kind == "dose_slot", item.status == "taken" {
+                            // FR2.1⑦：已服时段仍可见（BR-004 不隐藏用药事实），只作注记、无滑动动作
+                            Text(L10n.reminder_taken)
+                                .font(.caption2).foregroundStyle(.secondary)
                         }
                         if let remaining = item.remainingCount, remaining > 0 {
                             Text(L10n.homeRemainingFmt(remaining))
@@ -570,6 +676,8 @@ struct HomeView: View {
         }
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.orange.opacity(0.12)))
+        // List 行内多按钮：borderless 让「去设置」与「关闭」各自命中，行空白区不触发任一
+        .buttonStyle(.borderless)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("SP-04.home.notifDenied")
     }
@@ -708,67 +816,15 @@ struct HomeView: View {
         // FR9.6：通知权限关闭时首页常驻提示（可关、次日重现——
         // 驳回状态为持久化自然日标记，见 dismissedDay/todayDayKey）
         notifDenied = await reminderStore.notificationDenied
-        // FR14.8 归档状态消费：首页证据卡过滤依赖 itemStates，此前只在通知
-        // 中心加载——重启后用户已归档的 L1+ 预警证据卡被重新置顶（归档
-        // 持久化形同虚设）。首页每次装载按未过滤聚合的键集拉取归档状态
-        // （键与通知中心同命名空间，itemKey 映射），已归档键保持隐藏。
-        await notificationState.load(keys: aggregatedItems(profileCompletion: nil).map(itemKey))
+        // FR14.8 归档状态消费：首页每次装载按未过滤聚合的**读侧隐藏键集**拉取
+        // （归档基键 + 稍后次日键，Domain `NotificationItemKey.hideKeys`；键与通知中心
+        // 同命名空间）。门面只合并所请求键并带写代次守卫——加载期间的本地写不被陈旧读回滚。
+        let now = Date()
+        await notificationState.load(keys: aggregatedItems(profileCompletion: nil).flatMap { NotificationItemKey.hideKeys(for: $0, now: now) })
     }
 }
 
 // MARK: - 组件
-
-/// FR2.1 首页扫动处置（业主第10轮 §7）：左滑归档——
-/// `.simultaneousGesture` 让列表纵向滚动与行内横滑同时可识别（行内
-/// `.gesture` 会先于滚动容器抢走触摸，纵向拖拽起手即卡死列表）；
-/// 横向位移优先才更新偏移（`|dx| > |dy|`），触发阈值 64pt
-/// （预测位移 160pt 提前触发），VoiceOver 走 accessibilityAction。
-private struct ArchiveSwipeRow<Content: View>: View {
-    let actionLabel: String
-    let action: () -> Void
-    @ViewBuilder var content: Content
-    @State private var offset: CGFloat = 0
-
-    var body: some View {
-        ZStack(alignment: .trailing) {
-            HStack(spacing: 6) {
-                Image(systemName: "archivebox").font(.footnote)
-                Text(actionLabel).font(.caption.bold())
-            }
-            .foregroundStyle(.white)
-            .padding(.trailing, 18)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-            .background(Color("brand-primary", bundle: .main))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-
-            content
-                .offset(x: offset)
-                .simultaneousGesture(
-                    DragGesture(minimumDistance: 16)
-                        .onChanged { value in
-                            guard abs(value.translation.width) > abs(value.translation.height) else { return }
-                            offset = min(0, max(-120, value.translation.width))
-                        }
-                        .onEnded { value in
-                            let triggered = value.translation.width < -64
-                                || value.predictedEndTranslation.width < -160
-                            withAnimation(.snappy(duration: 0.22)) { offset = triggered ? -420 : 0 }
-                            if triggered { action() }
-                        }
-                )
-                .accessibilityAction(named: Text(actionLabel)) { action() }
-        }
-        .clipped()
-    }
-}
-
-/// 归档撤销条的载荷（最近一条；5s 后自动消失由视图侧任务控制）。
-/// id 即归档键：同一时刻仅一条，新归档必然换键，.task(id:) 计时随键重置。
-private struct ArchivedToast: Identifiable {
-    let key: String
-    let title: String
-    var id: String { key }
-}
 
 private struct GuideTaskCard: View {
     let icon: String

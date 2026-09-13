@@ -622,6 +622,13 @@ enum L10n {
     static var homeSwipeArchive: String { t("home.swipe.archive") }
     static func homeSwipeArchived(_ title: String) -> String { String(format: t("home.swipe.archived"), title) }
     static var homeSwipeUndo: String { t("home.swipe.undo") }
+    /// FR2.1⑦ 首页按源滑动处置（round2 U-N1/N2/N3）：去药箱 / 稍后（次日重现）/ 查看证据 / 查看 / 操作失败。
+    static var homeSwipeOpenCabinet: String { t("home.swipe.openCabinet") }
+    static var homeSwipeSnoozeTomorrow: String { t("home.swipe.snoozeTomorrow") }
+    static func homeSwipeSnoozedTomorrow(_ title: String) -> String { String(format: t("home.swipe.snoozedTomorrow"), title) }
+    static var homeSwipeViewEvidence: String { t("home.swipe.viewEvidence") }
+    static var homeSwipeView: String { t("home.swipe.view") }
+    static var homeSwipeFailed: String { t("home.swipe.failed") }
     static var voicenoteSaveFailed: String { t("voicenote.saveFailed") }
 
     // MARK: - L10n 清偿批五 · 观察（SP-14 / F8）
@@ -1297,6 +1304,7 @@ enum L10n {
         "voiceguide.transcript", "voicenote.draft.accessibility", "voicenote.draft.placeholder", "voicenote.empty.hint",
         "voicenote.empty.title", "voicenote.inTimeline", "voicenote.save.accessibility", "voicenote.saveFailed", "voicenote.title",
         "home.swipe.archive", "home.swipe.archived", "home.swipe.undo",
+        "home.swipe.openCabinet", "home.swipe.snoozeTomorrow", "home.swipe.snoozedTomorrow", "home.swipe.viewEvidence", "home.swipe.view", "home.swipe.failed",
         "voicenote.dictation", "voicenote.dictating", "voicenote.dictationFailed", "voicenote.stop",
         "doc.date", "doc.detailTitle", "doc.export", "doc.fieldsSection", "doc.historySection", "doc.titleSection",
         "help.status.checking", "help.status.authorized", "help.status.denied", "help.status.notRequested",

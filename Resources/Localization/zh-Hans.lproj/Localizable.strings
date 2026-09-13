@@ -1712,6 +1712,12 @@
 "home.swipe.archive" = "归档";
 "home.swipe.archived" = "已归档「%@」";
 "home.swipe.undo" = "撤销";
+"home.swipe.openCabinet" = "去药箱";
+"home.swipe.snoozeTomorrow" = "稍后";
+"home.swipe.snoozedTomorrow" = "已推迟到明天「%@」";
+"home.swipe.viewEvidence" = "查看证据";
+"home.swipe.view" = "查看";
+"home.swipe.failed" = "操作失败";
 "asr.qwen3" = "Qwen3-ASR · 方言优先";
 "asr.qwen3.hint" = "0.6B 随包模型：覆盖中文方言及30种语言，支持热词；本地分段识别。公开评测不等于本机医疗语句准确率，仍须核对原话与数值。";
 "ocr.cards.overview" = "已填好的信息卡";

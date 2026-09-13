@@ -1712,6 +1712,12 @@
 "home.swipe.archive" = "Archive";
 "home.swipe.archived" = "Archived “%@”";
 "home.swipe.undo" = "Undo";
+"home.swipe.openCabinet" = "Open cabinet";
+"home.swipe.snoozeTomorrow" = "Later";
+"home.swipe.snoozedTomorrow" = "Postponed to tomorrow “%@”";
+"home.swipe.viewEvidence" = "View evidence";
+"home.swipe.view" = "View";
+"home.swipe.failed" = "Action failed";
 "asr.qwen3" = "Qwen3-ASR · Dialect-first";
 "asr.qwen3.hint" = "Bundled 0.6B model for Chinese dialects and 30 languages, with hotwords and local segment-based recognition. Public benchmarks do not establish accuracy for medical dictation on this device; check wording and numbers.";
 "ocr.cards.overview" = "Prefilled information cards";

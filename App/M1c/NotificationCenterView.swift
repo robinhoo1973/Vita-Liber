@@ -20,6 +20,12 @@ struct NotificationCenterView: View {
     /// 而 NotificationCenterState.load(keys:) 灌入的持久化状态（重启后已读/
     /// 归档）从不被消费——持久化形同虚设、重启即全部回到未读（FR14.8
     /// 回归）。渲染与写入一律走门面 itemStates，删除影子副本。
+    ///
+    /// round2 U-N4/U-N5（FR14.8 / FR2.1⑦）：归档键经 Domain `NotificationItemKey` 单一编码，
+    /// 与首页同命名空间；归档只走门面悲观路径 `archive(_:)`（先落库、成功才改可观察态），
+    /// 失败行仍可见并可重试——乐观 `markArchived` 已删除。
+    @State private var archiveFailedKey: String?
+    @State private var showArchiveFailed = false
 
     var body: some View {
         List {
@@ -39,7 +45,7 @@ struct NotificationCenterView: View {
                 Section(L10n.ncSectionAppointment) {
                     ForEach(visibleAppointments) { apt in
                         Button {
-                            markRead("apt-\(apt.id)")
+                            markRead(aptKey(apt))
                             router.navigate(to: .appointmentDetail(apt.id))
                         } label: {
                             HStack {
@@ -54,7 +60,7 @@ struct NotificationCenterView: View {
                             }
                         }
                         .accessibilityIdentifier("SP-27.notification.appointment")
-                        .swipeActions { archiveAction("apt-\(apt.id)") }
+                        .swipeActions { archiveAction(aptKey(apt)) }
                     }
                 }
             }
@@ -62,7 +68,7 @@ struct NotificationCenterView: View {
                 Section(L10n.ncSectionExpiry) {
                     ForEach(visibleExpiringLots) { item in
                         Button {
-                            markRead("lot-\(item.lotId)")
+                            markRead(lotKey(item))
                             router.navigate(to: .medicationCabinet)
                         } label: {
                             HStack {
@@ -79,7 +85,7 @@ struct NotificationCenterView: View {
                                 Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
                             }
                         }
-                        .swipeActions { archiveAction("lot-\(item.lotId)") }
+                        .swipeActions { archiveAction(lotKey(item)) }
                     }
                 }
             }
@@ -87,7 +93,7 @@ struct NotificationCenterView: View {
                 Section(L10n.ncSectionAlert) {
                     ForEach(visibleL1Alerts) { event in
                         Button {
-                            markRead("alert-\(event.id)")
+                            markRead(alertKey(event))
                             router.navigate(to: .alertEvidence(patientId: event.patientId, eventId: event.id, severity: event.severity))
                         } label: {
                             HStack {
@@ -101,13 +107,15 @@ struct NotificationCenterView: View {
                                 Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
                             }
                         }
-                        .swipeActions { archiveAction("alert-\(event.id)") }
+                        // round2 U-N3：L1+ 预警归档不开放全滑——须点按钮显式归档（BR-003 高风险不被整行拖走）
+                        .swipeActions(allowsFullSwipe: false) { archiveAction(alertKey(event)) }
                     }
                 }
             }
-            // 第六轮全仓审查修复：归档动作此前是死控件——行可见性从不读取
-            // "ocr-queue" 归档态，滑掉的行原地不动、归档态只增不消
-            if pendingOCRCount > 0 && state(for: "ocr-queue") != .archived {
+            // round2 U-N4：跨成员全局键 "ocr-queue" 废止——它与首页按文档的 ocr-<docId> 键
+            // 不同源，且归档一次会隐藏所有成员的待确认入口（BR-003 催办不可被整体藏起）。
+            // OCR 行只做导航，不再归档；待确认文档的处置（稍后/查看）在首页按文档进行。
+            if pendingOCRCount > 0 {
                 Section(L10n.ncSectionOcr) {
                     Button {
                         router.navigate(to: .pendingOcrQueue)
@@ -120,7 +128,6 @@ struct NotificationCenterView: View {
                         }
                     }
                     .accessibilityIdentifier("SP-27.notification.ocr")
-                    .swipeActions { archiveAction("ocr-queue") }
                 }
             }
             if allEmpty {
@@ -130,6 +137,13 @@ struct NotificationCenterView: View {
             }
         }
         .navigationTitle(L10n.ncTitle)
+        // 悲观归档失败可见（U-N5）：行仍在，用户可重试或取消
+        .alert(L10n.homeSwipeFailed, isPresented: $showArchiveFailed, presenting: archiveFailedKey) { key in
+            Button(L10n.retry) { archive(key) }
+            Button(L10n.commonCancel, role: .cancel) {}
+        } message: { _ in
+            Text(L10n.ncArchive)
+        }
         .task(id: "\(app.currentPatientId)-\(dataChange.alertsVersion)") {
             await reminderStore.refreshTriggered(patientId: app.currentPatientId)
             await hub.load(patientId: app.currentPatientId)
@@ -152,7 +166,20 @@ struct NotificationCenterView: View {
     // 用未过滤数组——全部归档后节头空挂（有标题零行）、空态永不出现
     // （整页空白）。可见性谓词收敛为单一计算属性，节头/行/空态三处同源。
     private var visibleAppointments: [AppointmentRow] {
-        appointments.filter { state(for: "apt-\($0.id)") != .archived }
+        appointments.filter { state(for: aptKey($0)) != .archived }
+    }
+
+    // MARK: - 归档键（Domain 单一编码，与首页 NotificationItemKey.hideKeys 同命名空间）
+
+    private func aptKey(_ apt: AppointmentRow) -> String {
+        NotificationItemKey.key(kind: "appointment", sourceId: apt.id.uuidString)
+    }
+    /// lot- = 该批次库存类通知（续药/临期共用）：任一入口归档，首页同批次续药行与本页临期行同隐。
+    private func lotKey(_ item: MedicationStore.InventorySummaryItem) -> String {
+        NotificationItemKey.key(kind: "refill", sourceId: item.lotId.uuidString)
+    }
+    private func alertKey(_ event: GuidelineStore.AlertEvent) -> String {
+        NotificationItemKey.key(kind: "alert_event", sourceId: event.id.uuidString)
     }
 
     /// 临期批次（30 天内到期，FR9.11 窗口对齐）
@@ -165,7 +192,7 @@ struct NotificationCenterView: View {
     }
 
     private var visibleExpiringLots: [MedicationStore.InventorySummaryItem] {
-        expiringLots.filter { state(for: "lot-\($0.lotId)") != .archived }
+        expiringLots.filter { state(for: lotKey($0)) != .archived }
     }
 
     private var l1Alerts: [GuidelineStore.AlertEvent] {
@@ -173,7 +200,7 @@ struct NotificationCenterView: View {
     }
 
     private var visibleL1Alerts: [GuidelineStore.AlertEvent] {
-        l1Alerts.filter { state(for: "alert-\($0.id)") != .archived }
+        l1Alerts.filter { state(for: alertKey($0)) != .archived }
     }
 
     /// 待确认 OCR 数：D 级文档数（V3.39 起数据源 = DocumentStore 活管线；
@@ -187,12 +214,12 @@ struct NotificationCenterView: View {
     }
 
     private func loadStates() async {
+        // dose- 键本页从未读写（U-N4 死键，用药行只有确认按钮）；ocr-queue 跨成员全局键已废——
+        // OCR 行只做导航。门面 load(keys:) 只合并所请求键，不再整体替换。
         var keys: [String] = []
-        keys += pendingDoses.map { "dose-\($0.id)" }
-        keys += appointments.map { "apt-\($0.id)" }
-        keys += expiringLots.map { "lot-\($0.lotId)" }
-        keys += l1Alerts.map { "alert-\($0.id)" }
-        if pendingOCRCount > 0 { keys.append("ocr-queue") }
+        keys += appointments.map(aptKey)
+        keys += expiringLots.map(lotKey)
+        keys += l1Alerts.map(alertKey)
         await notificationState.load(keys: keys)
     }
 
@@ -200,13 +227,19 @@ struct NotificationCenterView: View {
         notificationState.markRead(key)
     }
 
+    /// 悲观归档（与首页同一门面路径）：先落库、成功才改可观察态；失败行仍可见，弹重试。
+    private func archive(_ key: String) {
+        Task {
+            do { try await notificationState.archive(key) }
+            catch { archiveFailedKey = key; showArchiveFailed = true }
+        }
+    }
+
+    /// 归档不是删除医疗事实（只写 notification_state），故不用 destructive 角色。
     @ViewBuilder
     private func archiveAction(_ key: String) -> some View {
-        Button(role: .destructive) {
-            notificationState.markArchived(key)
-        } label: {
-            Label(L10n.ncArchive, systemImage: "archivebox")
-        }
+        Button { archive(key) } label: { Label(L10n.ncArchive, systemImage: "archivebox") }
+            .tint(.orange)
     }
 
     private var allEmpty: Bool {
