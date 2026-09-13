@@ -1664,6 +1664,7 @@ enum L10n {
         "voiceLab.result.footer", "voiceLab.entry.hint",
         "asr.zipformer", "asr.zipformer.hint", "asr.dolphin", "asr.dolphin.hint",
         "asr.whisper", "asr.whisper.hint", "asr.bundledOffline", "asr.selectionHint", "asr.missingAssets",
+        "asr.downloadable",
         "asr.model.download", "asr.model.update", "asr.model.installed",
         "asr.model.downloading", "asr.model.downloadFailed",
         "asr.model.checkUpdate", "asr.index.fetchFailed",
@@ -2950,6 +2951,8 @@ enum L10n {
         case .requiresNewerOS: return voiceLabRequiresNewerOS
         case .unsupportedDevice: return voiceLabUnsupported
         case .missingModelAssets: return t("asr.missingAssets")
+        // round2 A-N6：「可下载」与「缺件」文案分离，不再共用「缺失或不完整」。
+        case .downloadable: return t("asr.downloadable")
         }
     }
 

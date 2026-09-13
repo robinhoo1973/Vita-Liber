@@ -1701,6 +1701,7 @@
 "asr.bundledOffline" = "免費 · 本機推理 · 安裝後離線可用";
 "asr.selectionHint" = "自主選擇用於所有語音入口的引擎，下一次按壓生效。隨附模型不下載、不上傳錄音。明確選定的模型無法使用時會提示失敗，不會悄悄更換模型。";
 "asr.missingAssets" = "此組建的模型資源缺失或不完整";
+"asr.downloadable" = "尚未下載：可在下方下載後離線使用";
 "asr.model.download" = "下載模型";
 "asr.model.update" = "更新到 %@";
 "asr.model.installed" = "已安裝 %@";

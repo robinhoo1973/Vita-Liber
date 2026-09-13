@@ -1701,6 +1701,7 @@
 "asr.bundledOffline" = "Free · On-device · Offline when installed";
 "asr.selectionHint" = "Choose the engine used by all voice entry points. Changes apply to the next press. Bundled models never download or upload audio. An unavailable explicitly selected model reports failure rather than silently changing engines.";
 "asr.missingAssets" = "Model resources in this build are missing or incomplete";
+"asr.downloadable" = "Not downloaded yet — download below to use offline";
 "asr.model.download" = "Download model";
 "asr.model.update" = "Update to %@";
 "asr.model.installed" = "Installed %@";

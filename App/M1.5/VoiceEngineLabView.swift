@@ -207,8 +207,12 @@ struct VoiceEngineLabView: View {
             // 审计修正（round3→round10）：显式选定随包模型缺件时如实报失败、
             // 不再由 builder 回落其他引擎执行（function V3.68「不得换引擎冒充」）——
             // 缺件明示文案如实告知「对照测试无法运行」，绝不声称结果来自回落引擎。
-            return TranscriptionEngineBuilder.availability(of: choice) == .missingModelAssets
-                ? L10n.voiceLabFallbackMissing : nil
+            // round2 A-N6：可用性拆出「可下载」态——模型尚未下载时同样无法在所选引擎上
+            // 运行对照测试，与「缺件」一并提示；仅「可用」不提示。
+            switch TranscriptionEngineBuilder.availability(of: choice) {
+            case .missingModelAssets, .downloadable: return L10n.voiceLabFallbackMissing
+            case .available, .requiresNewerOS, .unsupportedDevice: return nil
+            }
         case .auto:
             return TranscriptionEngineBuilder.availability(of: choice) != .available
                 ? nil

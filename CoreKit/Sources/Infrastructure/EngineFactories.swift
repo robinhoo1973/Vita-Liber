@@ -142,14 +142,27 @@ public enum TranscriptionEngineBuilder {
         make(choice: VoiceEngineChoice.resolve(rawChoice))
     }
 
-    /// 档位可用性（模型实验室呈现：可用 / 需要 iOS 26 / 设备不支持）。
+    /// 档位可用性（模型实验室呈现：可用 / 需要 iOS 26 / 设备不支持 / 可下载 / 缺件）。
     public static func availability(of choice: VoiceEngineChoice) -> VoiceEngineAvailability {
         switch choice {
         case .classic, .auto: return .available
         case .advanced: return SpeechAnalyzerSupport.availability(of: .standard)
         case .dictation: return SpeechAnalyzerSupport.availability(of: .dictation)
         case .qwen3, .zipformer, .dolphin, .whisper:
-            return ASRModelAssets.resolve(for: choice).isPresent(choice) ? .available : .missingModelAssets
+            // round2 A-N6：旧实现仅 `isPresent` 布尔——随包只含 zipformer，Qwen3/Dolphin
+            // 未下载即显示「缺失或不完整」（一态两义）。此处拆为三态：
+            // ① 资产齐备 → 可用；② 未装但信任目录（已持久化的未过期签名目录，缺则回退
+            //   随包基线）含该档位的已授权、与本 App 版本兼容的发布条目 → 可下载
+            //   （`latest` 已过 `ModelCatalogTrustStore.isAuthorized` 授权闸门，与设置页
+            //   下载按钮同源，绝不把未授权条目呈现为可下载）；③ 否则 → 缺件。
+            // 纯本地判定：只读已持久化目录/随包基线，不触发任何网络拉取（离线优先红线）。
+            if ASRModelAssets.resolve(for: choice).isPresent(choice) { return .available }
+            let appVersion = (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "0.0.1"
+            if let index = ModelCatalogTrustStore.shared.currentIndex ?? ModelCatalogTrustStore.shared.baselineIndex,
+               ASRModelDownloadService.latest(for: choice, in: index, appVersion: appVersion) != nil {
+                return .downloadable
+            }
+            return .missingModelAssets
         }
     }
 

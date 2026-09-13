@@ -48,6 +48,11 @@ public enum VoiceEngineAvailability: Sendable, Equatable {
     case unsupportedDevice
     /// 随包模型缺失或清单不匹配，不能将占位桩显示为可用引擎。
     case missingModelAssets
+    /// 模型未安装但已有经签名/基线授权的下载条目——设置页显示「可下载」而非「缺件或不完整」。
+    /// round2 A-N6：随包只含 zipformer，Qwen3/Dolphin 未下载即被判 `missingModelAssets`，
+    /// 「可下载」「缺件」「校验失败」三态共用一个文案是用户所见「不完整」的来源；本 case 把
+    /// 「可下载」从「缺件」中分离（判定由 Infrastructure 依信任目录完成，Domain 不读 Bundle）。
+    case downloadable
 }
 
 /// FR17.15 V3.66：某 locale 的端侧识别资源状态（平台升级轨按需下载；基线轨零资产恒 `.installed`）。
