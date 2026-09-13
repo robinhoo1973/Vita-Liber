@@ -811,8 +811,26 @@ final class DocumentsState {
             return ["tablet", "capsule", "patch", "vial"].contains(value) ? L10n.lotUnitName(value) : value
         case "currency":
             return value == "CNY" ? L10n.currencyCNY : value
+        case "prescription_type":
+            return L10n.prescriptionTypeName(value)
         default:
             return value
+        }
+    }
+
+    /// 枚举槽位的 canonical 值目录（SP-12 确认卡 Picker 选项；标签经 `fieldValueDisplay`）。
+    /// 与 `EntityCardProjection.invalidFields` 的枚举校验同拼写；nil = 自由文本字段（走 TextField）。
+    /// 处方类型按 Domain `prescriptionTypes` 过滤保序（Domain 增删枚举不会让 Picker 出现非法项）。
+    nonisolated static func enumOptions(forKey key: String) -> [String]? {
+        switch key {
+        case "kind": return EncounterKind.allCases.map(\.rawValue)
+        case "item_type": return ["invoice", "fee", "receipt"]
+        case "unit_kind": return ["tablet", "capsule", "patch", "vial"]
+        case "currency": return ["CNY", "HKD", "MOP", "TWD", "USD", "EUR", "JPY", "GBP"]
+        case "prescription_type":
+            return ["general", "emergency", "pediatric", "narcotic", "psychotropic", "tcm", "other"]
+                .filter { EntityCardProjection.prescriptionTypes.contains($0) }
+        default: return nil
         }
     }
 

@@ -1722,7 +1722,23 @@ enum L10n {
         "health.viewTrendChart", "health.viewTrendChartHint", "health.importedRecordsSection",
         // FR6.9 V3.66 一键确认与卡片互联
         "entityCard.confirmAllHint",
-        "encounter.linkedCards", "encounter.linkedCards.empty"
+        "encounter.linkedCards", "encounter.linkedCards.empty",
+        // 子项目 D · D1-5（v25）：处方行详情 / 就诊叙事分段 / 确认卡「添加字段」/ 处方类型枚举
+        "prescriptionLine.title", "prescriptionLine.section", "prescriptionLine.none",
+        "prescriptionLine.unavailable", "prescriptionLine.header", "prescriptionLine.noSource",
+        "entityCard.addField", "entityCard.pickValue", "encounter.narrative",
+        // 动态键 prescriptionTypeName(_:)：prescription_type CHECK 枚举七值
+        "prescription.type.general", "prescription.type.emergency", "prescription.type.pediatric",
+        "prescription.type.narcotic", "prescription.type.psychotropic", "prescription.type.tcm", "prescription.type.other",
+        // 动态键 templateFieldLabel(_:)：CardKindRegistry 可选目录 / prescription_line 列 / 叙事列 / 费用行
+        "field.prescription_no", "field.prescription_type", "field.fee_type", "field.clinical_diagnosis",
+        "field.pharmacist_names", "field.total_amount",
+        "field.drug_form", "field.start_date", "field.end_date", "field.as_needed", "field.medication_notes",
+        "field.insurance_code", "field.item_code", "field.unit_price", "field.line_amount",
+        "field.past_history", "field.physical_exam", "field.allergy_history", "field.fee_amount",
+        "field.personal_account_amount", "field.invoice_no", "field.insurance_type",
+        "field.item_name", "field.item_amount", "field.item_quantity", "field.item_spec",
+        "field.fee_category", "field.executing_dept", "field.self_pay_ratio", "field.fee_at"
     ]
 
     // MARK: - FR14.8 Tab badge
@@ -2416,6 +2432,23 @@ enum L10n {
     static var prescriptionFieldDosage: String { t("prescription.field.dosage") }
     static var prescriptionFieldDrugName: String { t("prescription.field.drugName") }
     static var prescriptionFieldOther: String { t("prescription.field.other") }
+
+    // MARK: - 子项目 D · D1-5（v25）：处方行详情 / 就诊叙事分段 / 确认卡「添加字段」/ 处方类型枚举
+    static var prescriptionLineTitle: String { t("prescriptionLine.title") }
+    static var prescriptionLineSection: String { t("prescriptionLine.section") }
+    static var prescriptionLineNone: String { t("prescriptionLine.none") }
+    static var prescriptionLineUnavailable: String { t("prescriptionLine.unavailable") }
+    static var prescriptionLineHeader: String { t("prescriptionLine.header") }
+    static var prescriptionLineNoSource: String { t("prescriptionLine.noSource") }
+    /// `prescription_type` canonical raw → 展示名（Domain `EntityCardProjection.prescriptionTypes` 同拼写；未登记回落原值）
+    static func prescriptionTypeName(_ raw: String) -> String {
+        let key = "prescription.type.\(raw)"
+        let value = t(key)
+        return value == key ? raw : value
+    }
+    static var entityCardAddField: String { t("entityCard.addField") }
+    static var entityCardPickValue: String { t("entityCard.pickValue") }
+    static var encounterNarrative: String { t("encounter.narrative") }
     static var docTypeRecord: String { t("doc.type.record") }
     static var docManualCreateTitle: String { t("doc.manual.createTitle") }
     static var docManualTitle: String { t("doc.manual.title") }

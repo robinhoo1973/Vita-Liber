@@ -51,6 +51,9 @@ struct RouteDestinationView: View {
                 PendingCardResumeRouteView(cardId: id)
             case .medicalCard(let kind, let id, let patient):
                 MedicalCardDetailView(kind: kind, entityId: id, patientId: patient)
+            case .prescriptionLine(let patient, let line):
+                // v25 处方行详情（§C.6）：行事实 + 来源页 + 表头卡入口；成员隔离由 OCRCardStore.lineDetail 出口把关
+                PrescriptionLineDetailView(lineId: line, patientId: patient)
 
             // ---- F7 指标 ----
             case .trendChart(let patientId, let metric):

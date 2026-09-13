@@ -29,41 +29,24 @@ struct MedicalCardDetailView: View {
                                            value: DocumentsState.fieldValueDisplay(forKey: field.key, value: field.value))
                         }
                     }
-                    if kind == "prescription", let advice = detail.fields.first(where: { $0.key == "advice_text" })?.value {
-                        let parsed = prescriptionLines(from: advice)
-                        if !parsed.drugs.isEmpty {
-                            Section(L10n.prescriptionFieldDrugName) {
-                                ForEach(Array(parsed.drugs.enumerated()), id: \.offset) { index, line in
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        HStack(spacing: 8) {
-                                            Image(systemName: "pills.fill")
-                                                .foregroundStyle(Color("brand-primary", bundle: .main))
-                                            Text(line.name)
-                                                .font(.body.bold())
-                                            Spacer()
-                                            Text(L10n.entityCardRowIndex(index + 1))
-                                                .font(.caption2).foregroundStyle(.secondary)
-                                        }
-                                        if !line.details.isEmpty {
-                                            Text(line.details)
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
-                                        }
-                                    }
-                                    .padding(.vertical, 2)
-                                    .accessibilityIdentifier("medicalCard.prescription.row.\(index)")
+                    if kind == "prescription" {
+                        // v25（§C.6）：药品行是 prescription_line 事实行（用户逐行确认过的 C 级数据），
+                        // 不再从 advice_text 自由文本猜拆（BR-003：回填/展示只认回执与事实表）。
+                        Section(L10n.prescriptionLineSection) {
+                            if detail.lines.isEmpty {
+                                Text(L10n.prescriptionLineNone).font(.caption).foregroundStyle(.secondary)
+                            }
+                            ForEach(Array(detail.lines.enumerated()), id: \.element.id) { index, line in
+                                NavigationLink(value: AppRoute.prescriptionLine(patientId: patientId, lineId: line.id)) {
+                                    PrescriptionLineRow(line: line, index: index)
                                 }
+                                .accessibilityIdentifier("SP-08.prescription.line.\(index)")
                             }
                         }
-                        if !parsed.notes.isEmpty {
-                            // 自由文本医嘱不得冒充药品行——按医嘱字段标签单独呈现。
+                        if let advice = detail.fields.first(where: { $0.key == "advice_text" })?.value {
+                            // 共享医嘱原文整段呈现（原文保真），不得冒充药品行。
                             Section(DocumentsState.fieldLabel(forKey: "advice_text")) {
-                                ForEach(Array(parsed.notes.enumerated()), id: \.offset) { _, note in
-                                    Text(note)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                        .padding(.vertical, 2)
-                                }
+                                Text(advice).font(.callout).textSelection(.enabled)
                             }
                         }
                     }
@@ -152,45 +135,45 @@ struct MedicalCardDetailView: View {
 
     private func headerFields(from detail: OCRCardStore.CardDetail) -> [FieldDraft] {
         if kind == "prescription" {
-            // 处方卡只将医院、医生等元信息放在头部，药品明细由专门的 Section 渲染
+            // 处方卡只将医院、医生等元信息放在头部，药品明细（prescription_line）与医嘱原文各有专门 Section
             return detail.fields.filter { $0.key != "advice_text" }
         }
         return detail.fields
     }
+}
 
-    private struct ParsedDrugLine {
-        let name: String
-        let details: String
-    }
+/// 处方行列表摘要（SP-08 处方卡内）：药名 + 原文摘要（规格/剂量/数量/频次/途径/疗程按原文 + 单位拼接，
+/// 零解析零换算，BR-006/007）；备注另起一行。字段目录与 `PrescriptionLinePresentation` 同源。
+private struct PrescriptionLineRow: View {
+    let line: PrescriptionLine
+    let index: Int
 
-    /// 拆分提交的 advice_text：≥2 空格分段的行视为结构化药物行（「药名 规格/剂量…」），
-    /// 其余（无空格的中文叙述，如「每日两次，饭后服用」）归为自由文本医嘱——
-    /// 前者进药品名称节，后者按医嘱标签单独呈现，绝不互相冒充。
-    private func prescriptionLines(from adviceText: String) -> (drugs: [ParsedDrugLine], notes: [String]) {
-        var drugs: [ParsedDrugLine] = []
-        var notes: [String] = []
-        for line in adviceText.components(separatedBy: "\n") {
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-            let parts = trimmed.components(separatedBy: " ")
-            guard parts.count >= 2 else {
-                notes.append(trimmed)
-                continue
-            }
-            // 规格以括号包裹时药名可含空格（「阿莫西林 克拉维酸钾 (0.25g)…」）——
-            // 以首个 "(" 切分，防多词药名截断。
-            if let paren = trimmed.firstIndex(of: "(") {
-                let name = String(trimmed[..<paren]).trimmingCharacters(in: .whitespaces)
-                guard !name.isEmpty else {
-                    notes.append(trimmed)
-                    continue
+    var body: some View {
+        WithPerceptionTracking {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Image(systemName: "pills.fill")
+                        .foregroundStyle(Color("brand-primary", bundle: .main))
+                    Text(line.printedName)
+                        .font(.body.bold())
+                    Spacer()
+                    Text(L10n.entityCardRowIndex(index + 1))
+                        .font(.caption2).foregroundStyle(.secondary)
                 }
-                drugs.append(ParsedDrugLine(name: name, details: String(trimmed[paren...])))
-            } else {
-                drugs.append(ParsedDrugLine(name: parts[0], details: parts.dropFirst().joined(separator: " ")))
+                let summary = PrescriptionLinePresentation.summary(line)
+                if !summary.isEmpty {
+                    Text(summary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if let notes = PrescriptionLinePresentation.notes(line) {
+                    Text(notes)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
+            .padding(.vertical, 2)
         }
-        return (drugs, notes)
     }
 }
 

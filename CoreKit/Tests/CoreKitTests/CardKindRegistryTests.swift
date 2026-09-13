@@ -197,6 +197,18 @@ struct CardKindRegistryTests {
         #expect(manual.presentIllness == nil && manual.pastHistory == nil, "既有 init 调用点零改：五列默认 nil")
     }
 
+    // MARK: - D1-5 处方行详情路由
+
+    @Test func 处方行详情路由可编解码且归档案Tab() throws {
+        // §5.45 路由注册表：行详情深链（患者 + 行 id）Codable 往返（AppRouter 持久化 path / 通知 userInfo）；
+        // 所属 Tab 与 .medicalCard 同为档案（records）。
+        let route = AppRoute.prescriptionLine(patientId: UUID(), lineId: UUID())
+        let data = try JSONEncoder().encode(route)
+        #expect(try JSONDecoder().decode(AppRoute.self, from: data) == route)
+        #expect(MainModuleID.tab(of: route) == .records)
+        #expect(route != AppRoute.prescriptionLine(patientId: UUID(), lineId: UUID()), "不同行 id 为不同路由")
+    }
+
     // MARK: - 目录与门槛分离
 
     @Test func 可选目录不改变建卡门槛() {

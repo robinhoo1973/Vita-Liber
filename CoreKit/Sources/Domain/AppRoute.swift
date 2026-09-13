@@ -31,6 +31,7 @@ public enum AppRoute: Hashable, Sendable, Codable {
     case pendingOcrQueue                 // SP-53 待确认聚合队列
     case pendingCard(String)             // FR6.9 待办卡续确认（稍后处理 1h 通知深链；pending_card.id）
     case medicalCard(kind: String, id: UUID, patientId: UUID) // 已确认卡详情；存储出口验证kind白名单及成员
+    case prescriptionLine(patientId: UUID, lineId: UUID)     // v25 处方行详情（§C.6）；存储出口按成员隔离，跨成员一律 invalidCard
 
     // ---- F7 指标 ----
     case trendChart(patientId: UUID, metric: String)   // SP-13
@@ -126,7 +127,7 @@ public enum MainModuleID: String, Sendable, Hashable, Codable {
         switch route {
         case .sosHelp, .memberList, .memberDetail, .encounterList, .encounterDetail,
              .encounterForm, .documentList, .documentDetail, .importSource, .scanCapture,
-              .pendingOcrQueue, .pendingCard, .medicalCard, .trendChart, .metricOverview, .metricQuickEntry,
+              .pendingOcrQueue, .pendingCard, .medicalCard, .prescriptionLine, .trendChart, .metricOverview, .metricQuickEntry,
              .observationCreate, .observationDetail, .doctorShowcase,
              .allergyList, .allergyCreate,
              .caregiverTasks, .voiceNotePanel,

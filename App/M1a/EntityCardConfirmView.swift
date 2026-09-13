@@ -95,6 +95,7 @@ struct EntityCardConfirmView: View {
                         }
                     }
                     ForEach(missingShared(reviewed: reviewed), id: \.self) { key in missingButton(key: key, rowID: nil) }
+                    addFieldMenu(rowID: nil, present: Set(card.shared.map(\.key)))
                 }
 
                 ForEach(Array(card.rows.enumerated()), id: \.element.id) { offset, row in
@@ -112,6 +113,7 @@ struct EntityCardConfirmView: View {
                             ForEach((validation[row.id] ?? []).filter { key in rowKeys.contains(key) && !row.fields.contains(where: { $0.key == key }) }, id: \.self) { key in
                                 missingButton(key: key, rowID: row.id)
                             }
+                            addFieldMenu(rowID: row.id, present: Set(row.fields.map(\.key)))
                         } header: { Text(L10n.entityCardRowIndex(offset + 1)) }
                     }
                 }
@@ -184,17 +186,40 @@ struct EntityCardConfirmView: View {
     }
 
     private func missingButton(key: String, rowID: UUID?) -> some View {
-        Button(L10n.entityCardMissingRequired(DocumentsState.fieldLabel(forKey: key))) {
-            var current = card
-            let field = FieldDraft(key: key, value: "", confidence: 1)
-            if let rowID, let row = current.rows.firstIndex(where: { $0.id == rowID }) {
-                if !current.rows[row].fields.contains(where: { $0.key == key }) { current.rows[row].fields.append(field) }
-            } else if rowID == nil, !current.shared.contains(where: { $0.key == key }) { current.shared.append(field) }
-            card = current
+        Button(L10n.entityCardMissingRequired(DocumentsState.fieldLabel(forKey: key))) { appendField(key, rowID: rowID) }
+            .buttonStyle(.borderless)
+            .frame(minHeight: 44)
+            .disabled(rowID == nil && sharedCommitted)
+    }
+
+    /// 「添加字段」目录（FR6.9 · 子项目 D，解 O5）：`CardKindRegistry.optionalCatalog` − 卡内已有键；
+    /// 共享面只列表头键（rowLevel=false），行内列行级键。目录与建卡门槛分离（可选键不进规则表分母）。
+    /// 追加的是**空的 D 级可编辑字段**：用户填值并经卡级确认后才升 C（BR-003），空值保存时按缺失处理。
+    @ViewBuilder
+    private func addFieldMenu(rowID: UUID?, present: Set<String>) -> some View {
+        let catalog = CardKindRegistry.optionalCatalog(kind: card.kind, present: present, rowLevel: rowID != nil)
+        if !catalog.isEmpty {
+            Menu {
+                ForEach(catalog, id: \.self) { key in
+                    Button(DocumentsState.fieldLabel(forKey: key)) { appendField(key, rowID: rowID) }
+                }
+            } label: {
+                Label(L10n.entityCardAddField, systemImage: "plus.circle").frame(minHeight: 44)
+            }
+            .disabled(rowID == nil && sharedCommitted)
+            .accessibilityIdentifier(rowID == nil ? "SP-12.addField" : "SP-12.addField.row")
         }
-        .buttonStyle(.borderless)
-        .frame(minHeight: 44)
-        .disabled(rowID == nil && sharedCommitted)
+    }
+
+    /// 追加一条空字段（缺必填补填与「添加字段」共用）：同键已存在则不重复追加。
+    private func appendField(_ key: String, rowID: UUID?) {
+        guard !saving, rowID != nil || !sharedCommitted else { return }
+        var current = card
+        let field = FieldDraft(key: key, value: "", confidence: 1)
+        if let rowID, let row = current.rows.firstIndex(where: { $0.id == rowID }) {
+            if !current.rows[row].fields.contains(where: { $0.key == key }) { current.rows[row].fields.append(field) }
+        } else if rowID == nil, !current.shared.contains(where: { $0.key == key }) { current.shared.append(field) }
+        card = current
     }
 
     private func fieldBinding(index: Int, rowID: UUID?) -> Binding<FieldDraft> {

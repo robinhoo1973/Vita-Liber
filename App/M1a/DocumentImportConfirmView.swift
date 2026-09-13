@@ -176,6 +176,22 @@ struct FieldConfirmRow: View {
                 if readOnly || field.grade == .rejected {
                     Text(DocumentsState.fieldValueDisplay(forKey: field.key, value: field.value))
                         .strikethrough(field.grade == .rejected)
+                } else if let options = DocumentsState.enumOptions(forKey: field.key) {
+                    // 枚举槽位（kind/item_type/unit_kind/currency/prescription_type）：Picker 绑 canonical raw、
+                    // 标签走展示层映射——编辑框直出 raw（实测「outpatient」上屏）在此收口；数据真值仍是 raw。
+                    // 非 canonical 现值（OCR 原文/空值）保留为首项，用户改选即回写 canonical（再经校验升 C）。
+                    Picker(label, selection: Binding(get: { field.value }, set: { value in
+                        if let onRevise { onRevise(value) } else { field.revise(to: value) }
+                    })) {
+                        if !options.contains(field.value) {
+                            Text(field.value.isEmpty ? L10n.entityCardPickValue : field.value).tag(field.value)
+                        }
+                        ForEach(options, id: \.self) { option in
+                            Text(DocumentsState.fieldValueDisplay(forKey: field.key, value: option)).tag(option)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .accessibilityIdentifier("OCR.field.picker.\(field.key)")
                 } else {
                     // 编辑态显示并回写 canonical raw（编辑框即数据真值；展示文案
                     // 永不写回数据）——把展示文案映射进编辑框会令半程编辑

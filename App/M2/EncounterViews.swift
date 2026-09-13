@@ -221,6 +221,12 @@ struct EncounterDetailView: View {
                         }
                         Text((current?.date ?? encounter.date).formatted(date: .long, time: .shortened))
                             .font(.caption).foregroundStyle(.secondary)
+                        // round2 §3.3：费用此前落库不展示——按票面金额呈现（表单以元录入，FR4.1）
+                        if let fee = current?.feeAmount ?? encounter.feeAmount {
+                            LabeledContent(DocumentsState.fieldLabel(forKey: "fee_amount"),
+                                           value: fee.formatted(.currency(code: "CNY").precision(.fractionLength(2))))
+                                .font(.caption)
+                        }
                     }
                 }
                 .accessibilityIdentifier("SP-08.encounter.detail.header")
@@ -249,6 +255,17 @@ struct EncounterDetailView: View {
                     }
                     if let followUp = current?.followUpRequirement ?? encounter.followUpRequirement {
                         LabeledContent(L10n.encounterFollowUp, value: followUp)
+                    }
+                }
+
+                // v25 叙事列（§C.1 / round2 §3.3）：主诉·现病史·既往史·体格检查·过敏史·就诊总结
+                // 逐字段独立分段、多行原文呈现（不摘要不改写；过敏史只是病历原文，
+                // 写入个人资料须经 D4 资料建议逐项确认——此处不推导、不联动）。
+                ForEach(narrativeFields(current ?? encounter), id: \.key) { field in
+                    Section(DocumentsState.fieldLabel(forKey: field.key)) {
+                        Text(field.value)
+                            .textSelection(.enabled)
+                            .accessibilityIdentifier("SP-08.encounter.narrative.\(field.key)")
                     }
                 }
 
@@ -367,6 +384,19 @@ struct EncounterDetailView: View {
         .frame(minHeight: 44)
     }
 
+    /// 非空叙事列（模板键 → 原文），键序 = 病历阅读序；标签经 `DocumentsState.fieldLabel`（与确认卡同词表）。
+    private func narrativeFields(_ row: EncounterStore.EncounterRow) -> [(key: String, value: String)] {
+        let pairs: [(String, String?)] = [
+            ("chief_complaint", row.chiefComplaint), ("present_illness", row.presentIllness),
+            ("past_history", row.pastHistory), ("physical_exam", row.physicalExam),
+            ("allergy_history", row.allergyHistory), ("visit_summary", row.visitSummary),
+        ]
+        return pairs.compactMap { pair -> (key: String, value: String)? in
+            guard let value = pair.1?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
+            return (key: pair.0, value: value)
+        }
+    }
+
     private func refresh() async {
         current = await state.get(id: encounter.id)
         recommendations = await state.recommendations(for: current ?? encounter)
@@ -452,6 +482,12 @@ struct EncounterFormView: View {
     @State private var adviceText = ""
     @State private var followUpRequirement = ""
     @State private var feeText = ""
+    // v25 叙事列（§C.1）：原文录入，不摘要不改写；过敏史仅为病历原文（资料建议 D4 另走确认流）
+    @State private var presentIllness = ""
+    @State private var pastHistory = ""
+    @State private var physicalExam = ""
+    @State private var allergyHistory = ""
+    @State private var visitSummary = ""
     @State private var saveFailed = false
 
     private let kinds = EncounterKind.allCases
@@ -477,6 +513,18 @@ struct EncounterFormView: View {
                         TextField(L10n.encounterFormFee, text: $feeText)
                             .keyboardType(.decimalPad)
                     }
+                    Section(L10n.encounterNarrative) {
+                        TextField(DocumentsState.fieldLabel(forKey: "present_illness"), text: $presentIllness, axis: .vertical)
+                            .accessibilityIdentifier("SP-08.encounter.form.present_illness")
+                        TextField(DocumentsState.fieldLabel(forKey: "past_history"), text: $pastHistory, axis: .vertical)
+                            .accessibilityIdentifier("SP-08.encounter.form.past_history")
+                        TextField(DocumentsState.fieldLabel(forKey: "physical_exam"), text: $physicalExam, axis: .vertical)
+                            .accessibilityIdentifier("SP-08.encounter.form.physical_exam")
+                        TextField(DocumentsState.fieldLabel(forKey: "allergy_history"), text: $allergyHistory, axis: .vertical)
+                            .accessibilityIdentifier("SP-08.encounter.form.allergy_history")
+                        TextField(DocumentsState.fieldLabel(forKey: "visit_summary"), text: $visitSummary, axis: .vertical)
+                            .accessibilityIdentifier("SP-08.encounter.form.visit_summary")
+                    }
                 }
                 .navigationTitle(L10n.encounterFormTitle)
                 .saveFailedAlert(title: L10n.encounterSaveFailed,
@@ -497,7 +545,12 @@ struct EncounterFormView: View {
                                 diagnosisText: diagnosisText.isEmpty ? nil : diagnosisText,
                                 adviceText: adviceText.isEmpty ? nil : adviceText,
                                 followUpRequirement: followUpRequirement.isEmpty ? nil : followUpRequirement,
-                                feeAmount: Double(feeText))
+                                feeAmount: Double(feeText),
+                                presentIllness: presentIllness.isEmpty ? nil : presentIllness,
+                                visitSummary: visitSummary.isEmpty ? nil : visitSummary,
+                                pastHistory: pastHistory.isEmpty ? nil : pastHistory,
+                                physicalExam: physicalExam.isEmpty ? nil : physicalExam,
+                                allergyHistory: allergyHistory.isEmpty ? nil : allergyHistory)
                             Task {
                                 // 保存失败保留表单并提示可重试——此前 upsert 吞错后
                                 // 无条件 dismiss，失败呈现为「已保存」而数据丢失
