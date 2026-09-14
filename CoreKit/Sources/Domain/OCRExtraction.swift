@@ -56,8 +56,8 @@ public enum OCRGrounding {
     /// 文档类型稳定键 = `DocumentTypeKey` 全部 27 case（v27 定稿；单一事实源在枚举）。
     public static let documentTypes: Set<String> = Set(DocumentTypeKey.allCases.map(\.rawValue))
     /// 叙事键：只接受整行或「已知标签：值」剥离，模型不得摘要/截断/改写（BR-002/003）。
-    private static let narrativeKeys: Set<String> = [
-        "diagnosis", "chief_complaint", "treatment", "advice_text", "summary",
+    public static let narrativeKeys: Set<String> = [
+        "diagnosis", "diagnosis_text", "chief_complaint", "treatment", "advice_text", "summary",
         "present_illness", "illness_summary", "visit_summary",
         "past_history", "physical_exam", "allergy_history", "medication_notes", "clinical_diagnosis",
         // v26 住院/检查叙事列（§C.2/§C.4）：原文保存，App 不摘要不改写；带药只存原文（BR-006）
@@ -67,21 +67,32 @@ public enum OCRGrounding {
         "overall_conclusion", "health_guidance", "conclusion_item", "content",
         "procedure_course", "intraop_findings", "postop_orders", "complications", "drugs_text", "adverse_reaction",
     ]
-    private static let numericKeys: Set<String> = [
+    public static let numericKeys: Set<String> = [
         "amount", "dose_number", "quantity", "days", "reimbursed_amount", "out_of_pocket",
         "total_amount", "unit_price", "line_amount", "item_amount", "personal_account_amount",
         "total_cost", "inpatient_times", "actual_days",
     ]
+    /// 否定/停用守卫（简/繁/英）：行内出现即不得从该行抽药名（BR-006 否定不可删）；`ExtractionSpec.negativeGuards` 同源于此。
+    public static let negationGuards: [String] = [
+        "禁用", "停用", "不要", "不服用", "未服", "勿服", "过敏", "過敏",
+        "allergic", "allergy", "avoid", "do not", "not take", "never", "discontinue", "stop taking",
+    ]
 
     /// 独立于提示词的输出校验：错行、凭空编造、数字子串、删除否定均不得进入确认卡。
-    public static func fields(_ candidates: [OCRExtractedSpan], lines: [String]) -> [FieldDraft] {
+    /// 键集参数化（子项目 E2）：默认值 = 理解层静态集（既有调用点零改）；`ExtractionGrounding` 传入 spec 键集 /
+    /// 叙事 / 数值键与叙事字段别名（`extraLabels`，如「Chief Complaint」「病情说明」）——同一防线两轨共用。
+    public static func fields(_ candidates: [OCRExtractedSpan], lines: [String],
+                              allowedKeys: Set<String> = OCRGrounding.allowedKeys,
+                              narrativeKeys: Set<String> = OCRGrounding.narrativeKeys,
+                              numericKeys: Set<String> = OCRGrounding.numericKeys,
+                              extraLabels: Set<String> = []) -> [FieldDraft] {
         var seen = Set<String>()
         return candidates.prefix(128).compactMap { item in
             guard allowedKeys.contains(item.key), lines.indices.contains(item.lineIndex) else { return nil }
             let line = lines[item.lineIndex].trimmingCharacters(in: .whitespacesAndNewlines)
             let value = item.value.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !value.isEmpty, value.utf8.count <= 2048, let range = line.range(of: value) else { return nil }
-            if narrativeKeys.contains(item.key), value != line, value != labeledValue(line) { return nil }
+            if narrativeKeys.contains(item.key), value != line, value != labeledValue(line, extraLabels: extraLabels) { return nil }
             if numericKeys.contains(item.key) || value.first?.isNumber == true || value.last?.isNumber == true {
                 let boundaries = CharacterSet(charactersIn: "0123456789.,+-−<>≤≥")
                 if (numericKeys.contains(item.key) || value.first?.isNumber == true), range.lowerBound > line.startIndex,
@@ -90,7 +101,7 @@ public enum OCRGrounding {
                    line[range.upperBound].unicodeScalars.contains(where: boundaries.contains) { return nil }
             }
             if ["drug_name", "generic_name"].contains(item.key),
-               ["禁用", "停用", "不要", "不服用", "未服", "勿服", "过敏", "過敏", "allergic", "allergy", "avoid", "do not", "not take", "never", "discontinue", "stop taking"].contains(where: { line.localizedCaseInsensitiveContains($0) }) { return nil }
+               negationGuards.contains(where: { line.localizedCaseInsensitiveContains($0) }) { return nil }
             let unit = item.unit?.trimmingCharacters(in: .whitespacesAndNewlines)
             guard unit == nil || unit?.isEmpty == true || line.contains(unit ?? "") else { return nil }
             if let unit, !unit.isEmpty, let unitRange = line.range(of: unit) {
@@ -139,7 +150,8 @@ public enum OCRGrounding {
         return value
     }
 
-    private static func labeledValue(_ line: String) -> String {
+    /// 「已知标签：值」→ 值；标签不在已知集（内置 ∪ `ClinicalFieldLabels.narrativeLabels` ∪ `extraLabels`）则原行返回。
+    static func labeledValue(_ line: String, extraLabels: Set<String> = []) -> String {
         guard let separator = line.firstIndex(where: { $0 == ":" || $0 == "：" }) else { return line }
         let label = String(line[..<separator]).trimmingCharacters(in: .whitespaces)
         // Only an explicit field label can be removed; arbitrary colon-delimited instructions cannot.
@@ -157,7 +169,7 @@ public enum OCRGrounding {
             "临床诊断", "臨床診斷", "Clinical Diagnosis",
         ]
         // v26 住院/检查/检验叙事标签（简/繁/英）与本地集合同为「已知标签」——单一事实源 ClinicalFieldLabels。
-        guard labels.contains(label) || ClinicalFieldLabels.narrativeLabels.contains(label) else { return line }
+        guard labels.contains(label) || ClinicalFieldLabels.narrativeLabels.contains(label) || extraLabels.contains(label) else { return line }
         return String(line[line.index(after: separator)...]).trimmingCharacters(in: .whitespaces)
     }
 }

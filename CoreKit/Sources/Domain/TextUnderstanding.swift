@@ -47,6 +47,7 @@ public struct TextUnderstandingInput: Sendable, Equatable {
 /// 字段草稿产出轨（§3.2）：跨轨置信度不直接比较，仅作呈现标注（V1.8）。
 public enum UnderstandingSource: String, Sendable, Equatable, Codable {
     case foundationModels   // 主轨：Foundation Models（iOS 26+ 门控，期三）
+    case localLLM           // T2 本机文本 LLM（llama.cpp GBNF，子项目 F；E2 预留——徽章文案 E4）
     case nlTagger           // 兜底轨：NaturalLanguage NER
     case nlModel            // 兜底轨：Create ML 自定义分类器（可选）
     case gazetteer          // 兜底轨：NLGazetteer 词表直配
