@@ -114,11 +114,16 @@ extension DocumentsState {
             // 拒绝（用户只看到泛化保存失败、无任何指引）。证据变化即回落
             // 未选择；关联区经 .task(id: evidenceKey) 用新证据重新建议
             // （无信号不猜）。.existing（用户显式选择）不受字段编辑影响。
+            // v27：主卡草稿 `.newHub` 与 `.suggested` 同纪律——证据（医院/日期等）变化即回落未选择，由关联区按新证据重派生
+            //（store 侧 evidence 不符抛 invalidAssociation，在此提前收口）。
             let association: EncounterAssociation
-            if case .suggested(_, let evidence) = old.encounterAssociation,
-               evidence != EncounterResolver.evidenceKey(for: current) {
+            let currentEvidence = EncounterResolver.evidenceKey(for: current)
+            switch old.encounterAssociation {
+            case .suggested(_, let evidence) where evidence != currentEvidence:
                 association = .unselected
-            } else {
+            case .newHub(let draft) where draft.evidence != currentEvidence:
+                association = .unselected
+            default:
                 association = old.encounterAssociation
             }
             return MatchedCard(id: old.id, kind: current.kind, pageIndex: current.pageIndex,

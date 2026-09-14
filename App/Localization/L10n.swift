@@ -1765,7 +1765,52 @@ enum L10n {
         "profileSuggestion.title", "profileSuggestion.hint", "profileSuggestion.accept", "profileSuggestion.skip",
         "profileSuggestion.skipAll", "profileSuggestion.done", "profileSuggestion.applied", "profileSuggestion.existing",
         "profileSuggestion.skipped", "profileSuggestion.failed", "profileSuggestion.severityUnset", "profileSuggestion.sourceFmt",
-        "profileSuggestion.kind.bloodType", "profileSuggestion.kind.chronicCondition", "profileSuggestion.kind.allergy", "profileSuggestion.kind.pastHistory"
+        "profileSuggestion.kind.bloodType", "profileSuggestion.kind.chronicCondition", "profileSuggestion.kind.allergy", "profileSuggestion.kind.pastHistory",
+        // 子项目 J · J4（v27 card-hierarchy）：时间轴主卡/子卡十二类（动态键 timelineKindName(_:) 展开）
+        "timeline.kind.hospitalization", "timeline.kind.healthExam", "timeline.kind.diagnosis", "timeline.kind.prescription",
+        "timeline.kind.labReport", "timeline.kind.examReport", "timeline.kind.claim", "timeline.kind.surgery",
+        "timeline.kind.treatmentRecord", "timeline.kind.appointment", "timeline.kind.reminder", "timeline.kind.clinicalConclusion",
+        // SP-19 主卡折叠行：详情 / 展开 / 收起 / 计数徽章 / 子记录数 / 分页
+        "timeline.hub.open", "timeline.hub.expand", "timeline.hub.collapse", "timeline.hub.countFmt", "timeline.hub.childrenFmt",
+        "timeline.hub.noChildren", "timeline.hub.itemsFmt", "timeline.hub.conclusionsFmt", "timeline.loadingMore", "timeline.loadMoreFailed",
+        // 四新卡类名（动态键 entityCardKindName(_:)）
+        "entityCard.kind.health_exam", "entityCard.kind.clinical_conclusion", "entityCard.kind.surgery", "entityCard.kind.treatment_record",
+        // 动态键 conclusionTypeName(_:)：conclusion_type CHECK 枚举七值（只是类型名，severity_text 原文不映射不着色）
+        "conclusion.type.lab", "conclusion.type.exam", "conclusion.type.health_exam_summary", "conclusion.type.abnormal_finding",
+        "conclusion.type.health_advice", "conclusion.type.recheck_advice", "conclusion.type.visit_advice",
+        // 动态键 treatmentTypeName(_:)：treatment_type CHECK 枚举五值
+        "treatment.type.infusion", "treatment.type.injection", "treatment.type.physiotherapy", "treatment.type.dressing", "treatment.type.other",
+        // 动态键 appointmentPurposeName(_:)：appointment.purpose CHECK 枚举四值
+        "appointment.purpose.visit", "appointment.purpose.followUp", "appointment.purpose.exam", "appointment.purpose.healthExam",
+        // SP-12 主卡草稿区（§0.4 改判 / BR-003）
+        "parentDraft.title", "parentDraft.hint", "parentDraft.newEncounter", "parentDraft.newHealthExam", "parentDraft.useExisting",
+        "parentDraft.dateRequired", "parentDraft.unconfirmed",
+        // 体检详情（healthExamDetail 路由）
+        "healthExam.title", "healthExam.header", "healthExam.general", "healthExam.reports", "healthExam.conclusions", "healthExam.guidance",
+        "healthExam.overall", "healthExam.notFound", "healthExam.noReports", "healthExam.noConclusions", "healthExam.source", "healthExam.samples",
+        "healthExam.disclaimer",
+        // SP-08 四新分段 + 「关联预约」显式挂接
+        "encounter.section.surgeries", "encounter.section.treatments", "encounter.section.followUpAppointments", "encounter.section.followUpReminders",
+        "encounter.linkAppointment", "encounter.linkAppointment.hint", "encounter.linkAppointment.none", "encounter.linkAppointment.confirm",
+        "encounter.linkAppointment.failed", "encounter.linkAppointment.confirmFmt",
+        // FR5.5 文档类型稳定键 27 标签（动态键 docTypeName(_:)；旧 docTypeLabel.* 保留供回填反查）
+        "docType.outpatient_record", "docType.emergency_record", "docType.diagnosis_certificate", "docType.admission_certificate",
+        "docType.lab_report", "docType.exam_report", "docType.pathology_report", "docType.checkup_report",
+        "docType.prescription", "docType.medication_guide", "docType.medication_label", "docType.invoice", "docType.fee_detail",
+        "docType.inpatient_record", "docType.discharge_summary", "docType.surgery_record", "docType.day_surgery_record", "docType.treatment_record",
+        "docType.vaccine_record", "docType.allergy_record",
+        "docType.medical_order", "docType.nursing_record", "docType.anesthesia_record", "docType.surgery_checklist", "docType.consent_form",
+        "docType.other", "docType.custom",
+        // 动态键 templateFieldLabel(_:)：体检 / 结论 / 手术 / 治疗模板键
+        "field.exam_date", "field.org_name", "field.exam_no", "field.package_name", "field.total_doctor",
+        "field.height", "field.weight", "field.bmi", "field.systolic", "field.diastolic", "field.pulse", "field.waist",
+        "field.vision_left", "field.vision_right", "field.overall_conclusion", "field.health_guidance",
+        "field.content", "field.conclusion_type", "field.severity",
+        "field.surgery_at", "field.surgery_name", "field.surgery_code", "field.surgery_level", "field.surgeon", "field.assistants",
+        "field.anesthesiologist", "field.anesthesia_method", "field.preop_diagnosis", "field.postop_diagnosis", "field.procedure_course",
+        "field.intraop_findings", "field.implants", "field.specimen", "field.blood_loss", "field.transfusion", "field.drainage",
+        "field.postop_orders", "field.complications", "field.ended_at",
+        "field.treated_at", "field.treatment_type", "field.executor", "field.drugs_text", "field.session", "field.adverse_reaction", "field.result"
     ]
 
     // MARK: - FR14.8 Tab badge
@@ -3206,6 +3251,156 @@ enum L10n {
         languageCache = stored
         bundleCache = nil
         cacheLock.unlock()
+    }
+
+    // MARK: - 子项目 J · J4（v27 card-hierarchy）：时间轴主卡折叠 / 主卡草稿 / 体检详情 / 四卡类 / 文档稳定键
+
+    /// SP-19 主卡行「详情」按钮（DisclosureGroup 标签区内的独立触点，≥44pt）。
+    static var timelineHubOpen: String { t("timeline.hub.open") }
+    static var timelineHubExpand: String { t("timeline.hub.expand") }
+    static var timelineHubCollapse: String { t("timeline.hub.collapse") }
+    /// 计数徽章 VoiceOver 文案：「处方 1」（%1 类型名 %2 数量）。
+    static func timelineHubCount(_ kind: TimelineEntryKind, _ count: Int) -> String {
+        String(format: t("timeline.hub.countFmt"), timelineKindName(kind), count)
+    }
+    static func timelineHubChildren(_ count: Int) -> String { String(format: t("timeline.hub.childrenFmt"), count) }
+    static var timelineHubNoChildren: String { t("timeline.hub.noChildren") }
+    /// 处方子卡摘要（store 以行数文本承载 summary，App 侧格式化「N 项」）。
+    static func timelineHubItems(_ count: Int) -> String { String(format: t("timeline.hub.itemsFmt"), count) }
+    /// 结论聚合子卡标题（store 以条数文本承载 title）。
+    static func timelineHubConclusions(_ count: Int) -> String { String(format: t("timeline.hub.conclusionsFmt"), count) }
+    static var timelineLoadingMore: String { t("timeline.loadingMore") }
+    static var timelineLoadMoreFailed: String { t("timeline.loadMoreFailed") }
+
+    /// `conclusion_type` canonical raw → 类型名（Domain `ClinicalConclusion.conclusionTypes` 同拼写；未登记回落原值）。
+    /// 只映射类型名；`severity_text` 是打印原文，永不经此映射、不着色（BR-004/012）。
+    static func conclusionTypeName(_ raw: String) -> String {
+        let key = "conclusion.type.\(raw)"
+        let value = t(key)
+        return value == key ? raw : value
+    }
+    /// `treatment_type` canonical raw → 展示名（Domain `TreatmentRecord.treatmentTypes` 同拼写；未登记回落原值）。
+    static func treatmentTypeName(_ raw: String) -> String {
+        let key = "treatment.type.\(raw)"
+        let value = t(key)
+        return value == key ? raw : value
+    }
+    /// `appointment.purpose` canonical raw → 展示名（Domain `AppointmentPurpose` 同拼写；未登记回落原值）。
+    static func appointmentPurposeName(_ raw: String) -> String {
+        let key = "appointment.purpose.\(raw)"
+        let value = t(key)
+        return value == key ? raw : value
+    }
+    /// FR5.5 文档类型稳定键 → 三语标签（`DocumentTypeKey.rawValue` 同拼写；未登记回落原键）。
+    static func docTypeName(_ key: String) -> String {
+        let l10nKey = "docType.\(key)"
+        let value = t(l10nKey)
+        return value == l10nKey ? key : value
+    }
+    static func docTypeName(_ key: DocumentTypeKey) -> String { docTypeName(key.rawValue) }
+
+    /// 标签 → 稳定键 rawValue：当前语言 27 键精确 → 旧标签键三语反查 → `DocumentTypeKey(legacyLabelKey:)`；未命中 nil。
+    /// 结果按（语言, 标签）缓存（锁保护；语言切换后键前缀不同、自然失效）。
+    static func docTypeKey(forLabel label: String) -> String? {
+        let cacheKey = bundleLanguage + "|" + label
+        cacheLock.lock()
+        if let hit = docTypeKeyCache[cacheKey] { cacheLock.unlock(); return hit }
+        cacheLock.unlock()
+        let resolved: String?
+        if let exact = DocumentTypeKey.allCases.first(where: { docTypeName($0) == label }) {
+            resolved = exact.rawValue
+        } else if let legacy = legacyDocTypeLabelKey(forLabel: label) {
+            resolved = DocumentTypeKey(legacyLabelKey: legacy)?.rawValue
+        } else {
+            resolved = nil
+        }
+        cacheLock.lock()
+        docTypeKeyCache[cacheKey] = resolved
+        cacheLock.unlock()
+        return resolved
+    }
+    nonisolated(unsafe) private static var docTypeKeyCache: [String: String?] = [:]
+
+    /// 旧 `document_file.doc_type` 标签（任一支持语言的历史文案）→ 旧标签键（`docTypeLabel.*` 15 键 / `doc.type.*` /
+    /// `claim.type.invoice` 等曾作为文档类型标签写库的键）。首启回填经 `DocumentTypeKey(legacyLabelKey:)` 落稳定键；未命中 nil。
+    /// 跨三语反查：老库可能是在另一语言下写入的标签。
+    static func legacyDocTypeLabelKey(forLabel label: String) -> String? {
+        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        // (L10n 键, 旧标签键)——标签键 = DocumentTypeKey.legacyLabelKeys 的键，或直接是稳定键 rawValue
+        let sources: [(String, String)] = [
+            ("docTypeLabel.outpatient", "outpatient"), ("docTypeLabel.inpatient", "inpatient"), ("docTypeLabel.labReport", "labReport"),
+            ("docTypeLabel.imageReport", "imageReport"), ("docTypeLabel.prescription", "prescription"), ("docTypeLabel.payment", "payment"),
+            ("docTypeLabel.dischargeSummary", "dischargeSummary"), ("docTypeLabel.diagnosisProof", "diagnosisProof"),
+            ("docTypeLabel.vaccineRecord", "vaccineRecord"), ("docTypeLabel.checkupReport", "checkupReport"),
+            ("docTypeLabel.pathologyReport", "pathologyReport"), ("docTypeLabel.surgeryRecord", "surgeryRecord"),
+            ("docTypeLabel.allergyRecord", "allergyRecord"), ("docTypeLabel.other", "other"), ("docTypeLabel.custom", "custom"),
+            // DocumentsState.docTypeLabel(forStableKey:) 曾用的七个非 docTypeLabel.* 键
+            ("doc.type.prescription", "prescription"), ("doc.type.report", "lab_report"), ("doc.type.record", "outpatient_record"),
+            ("claim.type.invoice", "invoice"), ("entityCard.kind.medication", "medication_label"),
+        ]
+        for lang in supportedLocalizations {
+            guard let bundle = bundle(forLanguage: lang) else { continue }
+            for (l10nKey, labelKey) in sources where bundle.localizedString(forKey: l10nKey, value: l10nKey, table: nil) == trimmed {
+                return labelKey
+            }
+            for key in DocumentTypeKey.allCases {
+                let l10nKey = "docType.\(key.rawValue)"
+                let value = bundle.localizedString(forKey: l10nKey, value: l10nKey, table: nil)
+                if value != l10nKey, value == trimmed { return key.rawValue }
+            }
+        }
+        return nil
+    }
+
+    /// SP-12 主卡草稿区（§0.4 改判：识别出的子卡永远有父；草稿 D 级、逐字段确认，BR-003）。
+    static var parentDraftTitle: String { t("parentDraft.title") }
+    static var parentDraftHint: String { t("parentDraft.hint") }
+    static var parentDraftNewEncounter: String { t("parentDraft.newEncounter") }
+    static var parentDraftNewHealthExam: String { t("parentDraft.newHealthExam") }
+    static var parentDraftUseExisting: String { t("parentDraft.useExisting") }
+    static var parentDraftDateRequired: String { t("parentDraft.dateRequired") }
+    static var parentDraftUnconfirmed: String { t("parentDraft.unconfirmed") }
+
+    /// 体检详情（`AppRoute.healthExamDetail`）：表头 → 一般检查原文 → 子报告 → 结论（原文，不着色）→ 原件。
+    static var healthExamTitle: String { t("healthExam.title") }
+    static var healthExamHeader: String { t("healthExam.header") }
+    static var healthExamGeneral: String { t("healthExam.general") }
+    static var healthExamReports: String { t("healthExam.reports") }
+    static var healthExamConclusions: String { t("healthExam.conclusions") }
+    static var healthExamGuidance: String { t("healthExam.guidance") }
+    static var healthExamOverall: String { t("healthExam.overall") }
+    static var healthExamNotFound: String { t("healthExam.notFound") }
+    static var healthExamNoReports: String { t("healthExam.noReports") }
+    static var healthExamNoConclusions: String { t("healthExam.noConclusions") }
+    static var healthExamSource: String { t("healthExam.source") }
+    static var healthExamSamples: String { t("healthExam.samples") }
+    static var healthExamDisclaimer: String { t("healthExam.disclaimer") }
+
+    /// SP-08 四新分段 + 「关联预约」（FR10.7：候选只是清单，挂接须用户显式确认，不自动生效）。
+    static var encounterSectionSurgeries: String { t("encounter.section.surgeries") }
+    static var encounterSectionTreatments: String { t("encounter.section.treatments") }
+    static var encounterSectionFollowUpAppointments: String { t("encounter.section.followUpAppointments") }
+    static var encounterSectionFollowUpReminders: String { t("encounter.section.followUpReminders") }
+    static var encounterLinkAppointment: String { t("encounter.linkAppointment") }
+    static var encounterLinkAppointmentHint: String { t("encounter.linkAppointment.hint") }
+    static var encounterLinkAppointmentNone: String { t("encounter.linkAppointment.none") }
+    static var encounterLinkAppointmentConfirm: String { t("encounter.linkAppointment.confirm") }
+    static var encounterLinkAppointmentFailed: String { t("encounter.linkAppointment.failed") }
+    static func encounterLinkAppointmentConfirmTitle(_ name: String) -> String { String(format: t("encounter.linkAppointment.confirmFmt"), name) }
+
+    /// 指定语言的资源包（不写缓存；供跨语言反查）。查找链与 `currentBundle` 同构。
+    private static func bundle(forLanguage lang: String) -> Bundle? {
+        if let path = Bundle.main.path(forResource: lang, ofType: "lproj"), let bundle = Bundle(path: path) { return bundle }
+        if let url = Bundle.main.url(forResource: lang, withExtension: "lproj", subdirectory: "Resources/Localization"),
+           let bundle = Bundle(url: url) { return bundle }
+        if let stringsURL = Bundle.main.url(forResource: "Localizable", withExtension: "strings", subdirectory: "\(lang).lproj"),
+           let bundle = Bundle(url: stringsURL.deletingLastPathComponent()) { return bundle }
+        for p in Bundle.main.paths(forResourcesOfType: "lproj", inDirectory: nil) {
+            let name = URL(fileURLWithPath: p).lastPathComponent
+            if name == "\(lang).lproj" || name == lang, let bundle = Bundle(path: p) { return bundle }
+        }
+        return nil
     }
 
     private static func t(_ key: String) -> String {

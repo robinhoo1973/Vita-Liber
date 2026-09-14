@@ -5,29 +5,45 @@ import Perception
 
 // MARK: - F11 健康时间轴（SP-19 · FR11.1-11.4）
 
-/// 时间轴状态仓：八类事件联合查询 + 筛选 + 健康问题（BR-001 成员隔离）
+/// 时间轴状态仓：主卡/子卡分页查询（v27 `hubPage`）+ 旧平铺投影（供空态/复用）+ 筛选 + 展开记忆 + 健康问题（BR-001 成员隔离）
 @MainActor
 @Perceptible
 final class TimelineViewState {
+    /// 旧平铺投影（`entries(for:)` 语义不变；主卡列表不再消费它，保留供搜索/健康问题页复用）。
     private(set) var entries: [TimelineEntry] = []
+    /// v27（子项目 J · round1 §E.3）：主卡 + 无枢纽叶子的游标分页累积（`hubPage` 逐页追加、按 id 去重）。
+    private(set) var hubs: [TimelineHubEntry] = []
+    private(set) var nextCursor: TimelineCursor?
+    private(set) var isLoadingMore = false
+    private(set) var loadMoreFailed = false
     private(set) var filter: TimelineFilter = .all
     private(set) var problems: [HealthProblemStore.HealthProblemRow] = []
+    /// SP-19 展开记忆（UserDefaults，按主卡 id）；筛选态的展开/收起只落 `transientExpansion`（不写记忆）。
+    let expansion: TimelineExpansionStore
+    private var transientExpansion: [String: Bool] = [:]
     private let store: TimelineQueryStore
     private let problemStore: HealthProblemStore
     private var loadingPatientId: UUID?
+    static let pageSize = 30
 
-    init(store: TimelineQueryStore, problemStore: HealthProblemStore) {
+    init(store: TimelineQueryStore, problemStore: HealthProblemStore, expansion: TimelineExpansionStore = TimelineExpansionStore()) {
         self.store = store
         self.problemStore = problemStore
+        self.expansion = expansion
     }
 
     func load(patientId: UUID) async {
         loadingPatientId = patientId
         do {
+            async let hubPage = store.hubPage(patientId: patientId, filter: filter, limit: Self.pageSize)
             async let page = store.entries(for: patientId, filter: filter, limit: 100)
             async let probs = problemStore.list(patientId: patientId)
-            let (p, pr) = try await (page, probs)
+            let (h, p, pr) = try await (hubPage, page, probs)
             guard loadingPatientId == patientId else { return }
+            hubs = h.entries
+            nextCursor = h.nextCursor
+            loadMoreFailed = false
+            transientExpansion = [:]
             entries = p.entries
             problems = pr
         } catch {
@@ -36,8 +52,55 @@ final class TimelineViewState {
         }
     }
 
+    /// 游标翻页（末行 onAppear 触发；替代旧「取 100 条即止」）：同成员、有游标、未在加载中才取下一页；追加去重。
+    func loadMore(patientId: UUID) async {
+        guard loadingPatientId == patientId, let cursor = nextCursor, !isLoadingMore else { return }
+        isLoadingMore = true
+        defer { isLoadingMore = false }
+        do {
+            let page = try await store.hubPage(patientId: patientId, filter: filter, cursor: cursor, limit: Self.pageSize)
+            guard loadingPatientId == patientId, nextCursor == cursor else { return }
+            let known = Set(hubs.map(\.id))
+            hubs += page.entries.filter { !known.contains($0.id) }
+            nextCursor = page.nextCursor
+            loadMoreFailed = false
+        } catch {
+            loadMoreFailed = true
+        }
+    }
+
+    /// 筛选后的可见主卡/叶子（Domain `visible`：主卡类型命中整卡保留，否则只留命中子卡；叶子按自身类型）。
+    var visibleHubs: [TimelineHubEntry] {
+        TimelineHierarchyRules.visible(hubs, filter: filter)
+    }
+
+    /// 展开集：Domain 默认（无筛选 = 记忆 ?? 最新一张展开；筛选 = 命中主卡全展开）+ 筛选态的瞬态覆盖。
+    /// 读 `expansion.version` 参与感知：写记忆后本集合重算。
+    var expandedIds: Set<String> {
+        _ = expansion.version
+        var result = TimelineHierarchyRules.expanded(visibleHubs, filter: filter, remembered: expansion.remembered)
+        if case .kinds = filter {
+            for (id, open) in transientExpansion {
+                if open { result.insert(id) } else { result.remove(id) }
+            }
+        }
+        return result
+    }
+
+    func isExpanded(_ id: String) -> Bool { expandedIds.contains(id) }
+
+    /// 用户展开/收起：无筛选 → 写记忆（下次打开沿用）；筛选态 → 仅瞬态（不写记忆，round1 §E.3）。
+    func setExpanded(_ id: String, _ open: Bool) {
+        if case .kinds = filter {
+            transientExpansion[id] = open   // 感知属性：写入即令 expandedIds 重算
+            return
+        }
+        expansion.set(id, expanded: open)
+    }
+
     func setFilter(_ kinds: Set<TimelineEntryKind>?) {
         filter = kinds.map { TimelineFilter.kinds($0) } ?? .all
+        transientExpansion = [:]
     }
 
     /// 返回是否写入成功——调用侧据此决定 dismiss 或呈现错误
@@ -83,21 +146,62 @@ struct TimelineFullView: View {
 
     var body: some View {
         WithPerceptionTracking {
+            let visible = state.visibleHubs
             Group {
-                if state.entries.isEmpty {
+                if visible.isEmpty && state.entries.isEmpty {
                     VLUnavailableView(L10n.timelineEmptyTitle, systemImage: "calendar",
                                            description: Text(L10n.timelineEmptyHint))
                         .accessibilityIdentifier("SP-19.timeline.empty")
                 } else {
                     // §9.1 正文行宽 ≤672pt（iPad 常宽列可读性；共享内容视图自身约束，ADR-021）
+                    // v27（子项目 J · round1 §E.3）：主卡 + 折叠子卡（DisclosureGroup，iOS 14+ 原生）；叶子行形态不变。
                     List {
-                        ForEach(state.entries) { entry in
-                            Button {
-                                open(entry)
-                            } label: {
-                                TimelineRowView(entry: entry)
+                        ForEach(visible) { item in
+                            // ForEach 行闭包逃逸：同步读 state / expansion 感知对象，须自行包裹（子项目 I）
+                            WithPerceptionTracking {
+                                if let hub = item.hub {
+                                    DisclosureGroup(isExpanded: Binding(
+                                        get: { state.isExpanded(item.id) },
+                                        set: { expanded in state.setExpanded(item.id, expanded) })) {
+                                        ForEach(item.children) { child in
+                                            Button {
+                                                open(child)
+                                            } label: {
+                                                TimelineChildRowView(entry: child)
+                                            }
+                                            .accessibilityIdentifier("SP-19.child.\(child.kind.rawValue).\(child.refID.uuidString)")
+                                        }
+                                    } label: {
+                                        TimelineHubRowView(item: item, hub: hub) { openHub(item) }
+                                    }
+                                    .accessibilityElement(children: .contain)
+                                    .accessibilityIdentifier("SP-19.hub.\(item.entry.refID.uuidString)")
+                                } else {
+                                    Button {
+                                        open(item.entry)
+                                    } label: {
+                                        TimelineRowView(entry: item.entry)
+                                    }
+                                    .accessibilityIdentifier("SP-19.timeline.row.\(item.entry.kind.rawValue)")
+                                }
                             }
-                            .accessibilityIdentifier("SP-19.timeline.row.\(entry.kind.rawValue)")
+                            .onAppear {
+                                // 游标翻页：末行进入视口即取下一页（替代旧「取 100 条即止」）
+                                if item.id == visible.last?.id {
+                                    Task { await state.loadMore(patientId: app.currentPatientId) }
+                                }
+                            }
+                        }
+                        if state.isLoadingMore {
+                            HStack { Spacer(); ProgressView(); Spacer() }
+                                .accessibilityLabel(L10n.timelineLoadingMore)
+                                .accessibilityIdentifier("SP-19.timeline.loadingMore")
+                        } else if state.loadMoreFailed {
+                            Button(L10n.timelineLoadMoreFailed) {
+                                Task { await state.loadMore(patientId: app.currentPatientId) }
+                            }
+                            .frame(minHeight: 44)
+                            .accessibilityIdentifier("SP-19.timeline.loadMoreRetry")
                         }
                         // mock 对齐项：快捷入口区（只挂真实可用的落点，不放未落地入口）
                         Section(L10n.timelineQuickEntry) {
@@ -202,9 +306,29 @@ struct TimelineFullView: View {
         Task { await state.load(patientId: app.currentPatientId) }
     }
 
+    /// 主卡行「详情」：就诊/住院期 → 就诊详情（修 A.1「点就诊进列表」）；体检 → 体检详情。
+    private func openHub(_ item: TimelineHubEntry) {
+        guard let hub = item.hub else { open(item.entry); return }
+        switch hub {
+        case .encounter, .hospitalization: router.navigate(to: .encounterDetail(item.entry.refID))
+        case .healthExam: router.navigate(to: .healthExamDetail(patientId: item.entry.memberId, id: item.entry.refID))
+        }
+    }
+
     private func open(_ entry: TimelineEntry) {
         switch entry.kind {
-        case .encounter: router.navigate(to: .encounterList)
+        // 就诊恒为主卡（叶子形态不存在），保留以穷尽；落点同 openHub（不再进列表）
+        case .encounter: router.navigate(to: .encounterDetail(entry.refID))
+        // v27 主卡/子卡（round1 §D）：已确认卡详情 = medicalCard(kind = 事实表名)；体检/结论聚合 → 体检详情；
+        // 预约/提醒走各自已登记路由（RecordChildKind.cardKind == nil）
+        case .hospitalization, .diagnosis, .prescription, .labReport, .examReport, .claim, .surgery, .treatmentRecord:
+            if let kind = RecordChildKind(rawValue: entry.kind.rawValue)?.cardKind {
+                router.navigate(to: .medicalCard(kind: kind, id: entry.refID, patientId: entry.memberId))
+            }
+        case .healthExam, .clinicalConclusion:
+            router.navigate(to: .healthExamDetail(patientId: entry.memberId, id: entry.refID))
+        case .appointment: router.navigate(to: .appointmentDetail(entry.refID))
+        case .reminder: router.navigate(to: .reminderToday)
         case .medication: router.navigate(to: .medicationPlan(entry.refID))
         case .observation, .selfMeasured: router.navigate(to: .observationDetail(entry.refID))
         // 审查修复：用条目携带的真实指标键跳转——原硬编码 "glucose"，
@@ -285,21 +409,8 @@ private struct TimelineRowView: View {
         }
     }
 
-    private var color: Color {
-        // 审查修复：语义令牌替代 SwiftUI 调色板原色——深色/高对比度/关怀模式
-        // 下随主题重映射，不会出现与语义令牌体系不一致的固定色
-        switch entry.kind {
-        case .encounter: return Color("brand-primary", bundle: .main)
-        case .medication: return Color("grade-c", bundle: .main)
-        case .observation: return Color("semantic-warning", bundle: .main)
-        case .lab, .selfMeasured: return Color("brand-primary", bundle: .main)
-        case .vaccination: return Color("semantic-success", bundle: .main)
-        case .allergy: return Color("semantic-danger", bundle: .main)
-        case .voiceNote: return Color("text-secondary", bundle: .main)
-        case .healthProblem: return Color("brand-primary", bundle: .main)
-        case .document: return Color("text-secondary", bundle: .main)
-        }
-    }
+    /// 色令牌唯一出口 `CardKindIcon`（v27：原本地 switch 已删——新增卡类只在出口登记，语义令牌随主题重映射不变）。
+    private var color: Color { CardKindIcon.tint(for: entry.kind) }
 }
 
 private struct FilterChip: View {

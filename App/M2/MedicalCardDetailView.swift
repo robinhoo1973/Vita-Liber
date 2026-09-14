@@ -66,6 +66,26 @@ struct MedicalCardDetailView: View {
                             }
                         }
                     }
+                    // v27（子项目 J）：同父结论清单（kind = clinical_conclusion）——类型胶囊 + 原文 + severity_text 纯文本
+                    //（打印原文，不编码、不排序、不着色，BR-004/012）。
+                    if !detail.clinicalConclusions.isEmpty {
+                        Section(L10n.healthExamConclusions) {
+                            ForEach(Array(detail.clinicalConclusions.enumerated()), id: \.element.id) { index, conclusion in
+                                ClinicalConclusionRow(conclusion: conclusion, highlighted: conclusion.id == entityId)
+                                    .accessibilityIdentifier("SP-08.conclusion.row.\(index)")
+                            }
+                        }
+                    }
+                    // v27：体检表头卡 → 完整读面（表头 → 一般检查原文 → 子报告 → 结论 → 原件）走专用路由
+                    if kind == "health_exam" {
+                        Section {
+                            NavigationLink(value: AppRoute.healthExamDetail(patientId: patientId, id: entityId)) {
+                                Label(L10n.healthExamTitle, systemImage: CardKindIcon.symbol(cardKind: "health_exam"))
+                                    .frame(minHeight: 44)
+                            }
+                            .accessibilityIdentifier("SP-08.healthExam.open")
+                        }
+                    }
                     if let lab = detail.labReport {
                         LabReportSections(lab: lab, highlighted: kind == "metric_sample" ? entityId : nil)
                     }
@@ -153,10 +173,15 @@ struct MedicalCardDetailView: View {
     }
 
     /// v26 叙事列（原文整段分段呈现，不进头部 LabeledContent）：住院期 §C.2 七段 / 检查报告 §C.4 两段。
+    /// v27（子项目 J · 原 D3 §C.8/§C.9 / round1 §E.1）：手术八段 / 治疗六段 / 体检两段（总检结论、健康指导）——一律原文，不解读。
     private static let narrativeKeys: [String: [String]] = [
         "hospitalization": ["admit_diagnosis", "discharge_diagnosis", "admit_condition", "treatment_course",
                             "discharge_condition", "discharge_orders", "take_home_drugs"],
         "exam_report": ["findings", "impression"],
+        "surgery": ["preop_diagnosis", "postop_diagnosis", "procedure_course", "intraop_findings",
+                    "implants", "specimen", "postop_orders", "complications"],
+        "treatment_record": ["diagnosis_text", "content", "drugs_text", "adverse_reaction", "result", "note"],
+        "health_exam": ["overall_conclusion", "health_guidance"],
     ]
 
     private func headerFields(from detail: OCRCardStore.CardDetail) -> [FieldDraft] {
@@ -170,6 +195,10 @@ struct MedicalCardDetailView: View {
         if kind == "diagnosis" {
             // 诊断卡：清单分段承载逐条诊断（名称/类型/编码），头部只留日期等共享面
             return detail.fields.filter { !["name", "code_text", "code_system", "diagnosis_type", "note"].contains($0.key) }
+        }
+        if kind == "clinical_conclusion" {
+            // 结论卡：逐条结论（类型/原文/程度原文）由清单分段承载，头部只留机构/日期/编号共享面
+            return detail.fields.filter { !["content", "conclusion_type", "severity"].contains($0.key) }
         }
         return detail.fields
     }
@@ -224,6 +253,36 @@ private struct DiagnosisRow: View {
             parts.append(date.formatted(date: .abbreviated, time: .omitted))
         }
         return parts.joined(separator: " · ")
+    }
+}
+
+/// 结论行（v27 §E.1 / 融合方案 §六-6.3）：类型胶囊（canonical raw → 类型名）+ 内容原文 + `severity_text` 原文。
+/// 程度只作纯文本呈现——不编码、不排序、不着色（BR-004/012）；`highlighted` = 从该条实体进入时加粗。
+struct ClinicalConclusionRow: View {
+    let conclusion: ClinicalConclusion
+    var highlighted = false
+
+    var body: some View {
+        WithPerceptionTracking {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .top, spacing: 8) {
+                    Text(L10n.conclusionTypeName(conclusion.conclusionType))
+                        .font(.caption)
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(Capsule().fill(Color("brand-primary", bundle: .main).opacity(0.12)))
+                        .foregroundStyle(Color("brand-primary", bundle: .main))
+                    Spacer()
+                    if let severity = conclusion.severityText?.trimmingCharacters(in: .whitespacesAndNewlines), !severity.isEmpty {
+                        Text(DocumentsState.fieldLabel(forKey: "severity") + ": " + severity)
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                Text(conclusion.content)
+                    .font(highlighted ? .body.bold() : .body)
+                    .textSelection(.enabled)
+            }
+            .padding(.vertical, 2)
+        }
     }
 }
 
@@ -341,8 +400,8 @@ private struct PrescriptionLineRow: View {
         WithPerceptionTracking {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
-                    Image(systemName: "pills.fill")
-                        .foregroundStyle(Color("brand-primary", bundle: .main))
+                    Image(systemName: CardKindIcon.symbol(cardKind: "prescription"))
+                        .foregroundStyle(CardKindIcon.tint(cardKind: "prescription"))
                     Text(line.printedName)
                         .font(.body.bold())
                     Spacer()

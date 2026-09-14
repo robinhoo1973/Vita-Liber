@@ -189,6 +189,8 @@ struct EncounterDetailView: View {
     let encounter: EncounterStore.EncounterRow
     @Environment(AppState.self) private var app
     @Environment(EncountersState.self) private var state
+    @Environment(AppRouter.self) private var router
+    @Environment(ReminderStore.self) private var reminders
     @State private var current: EncounterStore.EncounterRow?
     @State private var recommendations: [UUID] = []
     @State private var linkedCards: [EncounterStore.LinkedCardRow] = []
@@ -196,6 +198,11 @@ struct EncounterDetailView: View {
     @State private var linkLoadFailed = false
     @State private var cardKind: String?
     @State private var showSummary = false
+    /// v27 FR10.7「关联预约」：候选清单（±3 天同医院未挂接）→ 用户点选 → 二次确认 → link。绝不自动挂接。
+    @State private var appointmentCandidates: [AppointmentRow] = []
+    @State private var showAppointmentPicker = false
+    @State private var pendingAppointmentLink: AppointmentRow?
+    @State private var appointmentLinkFailed = false
 
     var body: some View {
         WithPerceptionTracking {
@@ -290,18 +297,35 @@ struct EncounterDetailView: View {
 
                 // v26（§C.2–§C.5 / SP-08）：住院期 / 诊断 / 检查报告 / 检验报告四分段——事实表 encounter_id 只读投影
                 //（写入侧 = 住院卡建就诊 / 确认卡显式归属），点击进同一已确认卡详情；原文摘要，不推导不解释。
+                // v27（子项目 J · round1 §D）：+ 手术 / 治疗记录（medicalCard）/ 复诊预约（appointmentDetail）/ 随访提醒（reminderToday）。
                 ForEach(Self.episodeSections, id: \.kind) { section in
                     let cards = linkedCards.filter { $0.kind == section.kind }
                     if !cards.isEmpty {
                         Section(section.title) {
                             ForEach(cards, id: \.identity) { card in
-                                NavigationLink(value: AppRoute.medicalCard(kind: card.kind.cardKind, id: card.id, patientId: encounter.patientId)) {
-                                    linkedCardRow(card)
-                                }
+                                episodeRow(card)
                             }
                         }
                         .accessibilityIdentifier("SP-08.encounter.section.\(section.kind.rawValue)")
                     }
+                }
+
+                // v27 FR10.7「关联预约」：候选只是清单（AppointmentStore.candidates ±3 天同医院未挂接），
+                // 挂接必须经用户点选 + 二次确认（link），不自动生效、不猜。
+                Section {
+                    Button {
+                        Task { await loadAppointmentCandidates() }
+                    } label: {
+                        Label(L10n.encounterLinkAppointment, systemImage: CardKindIcon.symbol(for: TimelineEntryKind.appointment))
+                            .frame(minHeight: 44)
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityIdentifier("SP-08.encounter.linkAppointment")
+                    if appointmentLinkFailed {
+                        Text(L10n.encounterLinkAppointmentFailed).font(.caption).foregroundStyle(.orange)
+                    }
+                } footer: {
+                    Text(L10n.encounterLinkAppointmentHint)
                 }
 
                 // FR6.9 期二：卡片互联读面——本就诊关联的处方/收费卡片（写入侧 =
@@ -368,40 +392,95 @@ struct EncounterDetailView: View {
             .sheet(isPresented: $showSummary) {
                 EncounterSummaryView(encounter: current ?? encounter)
             }
+            // 第一步：候选清单（无候选时只有取消）——点选只记 pending，不挂接
+            .confirmationDialog(L10n.encounterLinkAppointment, isPresented: $showAppointmentPicker, titleVisibility: .visible) {
+                ForEach(appointmentCandidates) { candidate in
+                    Button(appointmentTitle(candidate)) { pendingAppointmentLink = candidate }
+                }
+                Button(L10n.commonCancel, role: .cancel) {}
+            } message: {
+                Text(appointmentCandidates.isEmpty ? L10n.encounterLinkAppointmentNone : L10n.encounterLinkAppointmentHint)
+            }
+            // 第二步：显式确认后才写 appointment.encounter_id（FR10.7；失败可见、不静默）
+            .alert(L10n.encounterLinkAppointmentConfirm,
+                   isPresented: Binding(get: { pendingAppointmentLink != nil }, set: { if !$0 { pendingAppointmentLink = nil } })) {
+                Button(L10n.encounterLinkAppointmentConfirm) {
+                    if let candidate = pendingAppointmentLink { Task { await linkAppointment(candidate) } }
+                }
+                .accessibilityIdentifier("SP-08.encounter.linkAppointment.confirm")
+                Button(L10n.commonCancel, role: .cancel) { pendingAppointmentLink = nil }
+            } message: {
+                Text(L10n.encounterLinkAppointmentConfirmTitle(pendingAppointmentLink.map(appointmentTitle) ?? ""))
+            }
             .task { await refresh() }
         }
     }
 
-    /// v26 四分段（kind → 标题）；其余卡类仍走「关联卡片」通用分段。
+    /// v26 四分段 + v27 四分段（kind → 标题）；其余卡类仍走「关联卡片」通用分段。
     private static let episodeSections: [(kind: EncounterStore.LinkedCardRow.Kind, title: String)] = [
         (.hospitalization, L10n.encounterSectionHospitalization), (.diagnosis, L10n.encounterSectionDiagnoses),
         (.examReport, L10n.encounterSectionExamReports), (.labReport, L10n.encounterSectionLabReports),
+        (.surgery, L10n.encounterSectionSurgeries), (.treatmentRecord, L10n.encounterSectionTreatments),
+        (.appointment, L10n.encounterSectionFollowUpAppointments), (.reminder, L10n.encounterSectionFollowUpReminders),
     ]
-    private static let episodeKinds: Set<EncounterStore.LinkedCardRow.Kind> = [.hospitalization, .diagnosis, .examReport, .labReport]
+    private static let episodeKinds: Set<EncounterStore.LinkedCardRow.Kind> = [
+        .hospitalization, .diagnosis, .examReport, .labReport, .surgery, .treatmentRecord, .appointment, .reminder,
+    ]
 
     private var generalLinkedCards: [EncounterStore.LinkedCardRow] {
         linkedCards.filter { !Self.episodeKinds.contains($0.kind) }
     }
 
-    private static func icon(for kind: EncounterStore.LinkedCardRow.Kind) -> String {
-        switch kind {
-        case .prescription: return "pills"
-        case .claim: return "creditcard"
-        case .hospitalization: return "bed.double"
-        case .diagnosis: return "stethoscope"
-        case .examReport: return "waveform.path.ecg"
-        case .labReport, .metricSample: return "testtube.2"
-        case .immunization: return "syringe"
-        case .medication: return "pills.circle"
-        case .encounter: return "doc.text"
+    /// 分段行落点：预约 → 预约详情；提醒 → 今日提醒聚合（reminder 无独立详情路由）；其余 → 已确认卡详情。
+    @ViewBuilder
+    private func episodeRow(_ card: EncounterStore.LinkedCardRow) -> some View {
+        switch card.kind {
+        case .appointment:
+            NavigationLink(value: AppRoute.appointmentDetail(card.id)) { linkedCardRow(card) }
+                .accessibilityIdentifier("SP-08.encounter.appointment.\(card.id.uuidString)")
+        case .reminder:
+            Button { router.navigate(to: .reminderToday) } label: { linkedCardRow(card) }
+                .accessibilityIdentifier("SP-08.encounter.reminder.\(card.id.uuidString)")
+        case .prescription, .claim, .medication, .metricSample, .immunization, .encounter,
+             .hospitalization, .diagnosis, .examReport, .labReport, .surgery, .treatmentRecord:
+            NavigationLink(value: AppRoute.medicalCard(kind: card.kind.cardKind, id: card.id, patientId: encounter.patientId)) {
+                linkedCardRow(card)
+            }
+        }
+    }
+
+    private func appointmentTitle(_ row: AppointmentRow) -> String {
+        [row.hospital, row.department].filter { !$0.isEmpty }.joined(separator: " · ")
+            + " · " + row.startsAt.formatted(date: .abbreviated, time: .shortened)
+    }
+
+    private func loadAppointmentCandidates() async {
+        appointmentLinkFailed = false
+        do {
+            appointmentCandidates = try await reminders.appointmentCandidates(forEncounter: encounter.id, patientId: encounter.patientId)
+            showAppointmentPicker = true
+        } catch {
+            appointmentLinkFailed = true
+        }
+    }
+
+    private func linkAppointment(_ candidate: AppointmentRow) async {
+        pendingAppointmentLink = nil
+        do {
+            try await reminders.linkAppointment(id: candidate.id, encounterId: encounter.id, patientId: encounter.patientId)
+            appointmentLinkFailed = false
+            await refresh()
+        } catch {
+            appointmentLinkFailed = true
         }
     }
 
     @ViewBuilder
     private func linkedCardRow(_ card: EncounterStore.LinkedCardRow) -> some View {
+        let spec = CardKindIcon.spec(linkedKind: card.kind)
         HStack(spacing: 10) {
-            Image(systemName: Self.icon(for: card.kind))
-                .foregroundStyle(Color("brand-primary", bundle: .main))
+            Image(systemName: spec.symbol)
+                .foregroundStyle(spec.tint)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     // 审查修复：与同页头部「就诊类型胶囊」同一形态（8/4 内距、

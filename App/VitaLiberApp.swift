@@ -267,6 +267,7 @@ struct VitaLiberApp: App {
             .environment(router)
             .environment(searchState)
             .environment(encountersState)
+            .environment(HealthExamViewState(store: container.healthExams))
             .environment(timelineState)
             .environment(questionsState)
             .environment(documentsState)

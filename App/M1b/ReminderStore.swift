@@ -655,6 +655,18 @@ final class ReminderStore {
         (try? await apts.history(patientId: patientId)) ?? []   // try?-ok: 读取失败=空列表降级
     }
 
+    /// v27 FR10.7（子项目 J）：就诊页「关联预约」候选——同成员、±3 天、同医院、尚未挂接。
+    /// 只是清单；挂接必须经 `linkAppointment` 由用户显式确认（不自动生效，FR4.2 同纪律）。读取失败抛错由调用侧呈现。
+    func appointmentCandidates(forEncounter encounterId: UUID, patientId: UUID) async throws -> [AppointmentRow] {
+        try await apts.candidates(forEncounter: encounterId, patientId: patientId)
+    }
+
+    /// v27 FR10.7：用户确认后把预约挂到就诊（`appointment.encounter_id`，purpose 缺省 visit）；失败抛错（不静默）。
+    func linkAppointment(id: UUID, encounterId: UUID, patientId: UUID) async throws {
+        try await apts.link(appointmentId: id, encounterId: encounterId, patientId: patientId)
+        await refresh(patientId: patientId)
+    }
+
     /// FR24.5 家庭待确认剂量（跨成员聚合；每行携带成员，代确认落回该成员）
     func familyPendingDoses(from: Date, to: Date) async throws -> [FamilyPendingDose] {
         try await meds.familyPendingDoses(from: from, to: to)

@@ -63,6 +63,8 @@ struct AppContainer {
     let messages: MessageDeliveryStore
     /// F4 就诊事件（SP-08）
     let encounters: EncounterStore
+    /// v27 体检主卡只读读面（子项目 J · healthExamDetail 路由）
+    let healthExams: HealthExamStore
     /// F11 时间轴联合查询 + FR11.4 健康问题 + FR10.5 问诊问题
     let timelineQuery: TimelineQueryStore
     let healthProblems: HealthProblemStore
@@ -161,6 +163,7 @@ struct AppContainer {
         let claims = ClaimStore(writer: store.writer)
         let messages = MessageDeliveryStore(writer: store.writer)
         let encounters = EncounterStore(writer: store.writer)
+        let healthExams = HealthExamStore(writer: store.writer)
         let timelineQuery = TimelineQueryStore(writer: store.writer)
         let healthProblems = HealthProblemStore(writer: store.writer)
         let questions = QuestionStore(writer: store.writer)
@@ -231,6 +234,7 @@ struct AppContainer {
                             claims: claims,
                             messages: messages,
                             encounters: encounters,
+                            healthExams: healthExams,
                             timelineQuery: timelineQuery,
                             healthProblems: healthProblems,
                             questions: questions,

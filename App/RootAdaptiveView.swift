@@ -273,6 +273,7 @@ private struct PreviewRoot: View {
                 .environment(AppRouter())
                 .environment(SearchViewState(search: container.search))
                 .environment(EncountersState(store: container.encounters))
+                .environment(HealthExamViewState(store: container.healthExams))
                 .environment(TimelineViewState(store: container.timelineQuery,
                                                problemStore: container.healthProblems))
                 .environment(QuestionsState(store: container.questions))

@@ -77,6 +77,9 @@ final class DocumentsState {
         var captureStep: CaptureStep?
         var captureOrigin = "import"
         var captureSensitive = true
+        /// v27（子项目 J）：文档稳定键随会话携带（`MatchedCard` 无该字段）——关联区据此裁决主卡草稿的枢纽与 kind
+        ///（体检报告上的检验/检查 → 体检枢纽；急诊病历 → emergency）。commitDraft 时写入。
+        var documentTypeKey: String?
 
         init(patientId: UUID) { self.patientId = patientId }
     }
@@ -588,6 +591,8 @@ final class DocumentsState {
               session.draft == nil || session.draft?.id == draft.id,
               !session.documentReviewFinished, draft.docTypeResolved else { return false }
         session.draft = draft
+        // 稳定键：用户手选优先（标签反查），否则页判定；供关联区裁决主卡草稿（hub(for:documentTypeKey:)）
+        session.documentTypeKey = (draft.docTypeManuallyChosen ? Self.docTypeKey(forLabel: draft.docType) : nil) ?? draft.documentTypeKey
         session.isSaving = true; session.errorMessage = nil; lastImportError = nil
         defer { session.isSaving = false }
         do {
@@ -763,26 +768,31 @@ final class DocumentsState {
         } catch { lastImportError = L10n.docImportFailed }
     }
 
+    /// FR5.5 文档类型稳定键 → 当前语言标签（v27 / 原 D3-2：`DocumentTypeKey` 全 27 键经 `L10n.docTypeName`；
+    /// 未知键 nil）。`document_file.doc_type` 仍写标签（既有列语义），稳定键另落 `doc_type_key`。
     nonisolated static func docTypeLabel(forStableKey key: String) -> String? {
-        switch key {
-        case "prescription": return L10n.docTypePrescription
-        case "lab_report": return L10n.docTypeReport
-        case "outpatient_record": return L10n.docTypeRecord
-        // 审查修复：诊断证明与门诊病历同归 docTypeRecord 会让两张文档类型
-        // 在展示层不可区分（且文案错误）——诊断证明须用其专属标签。
-        case "diagnosis_certificate": return L10n.docTypeLabelDiagnosisProof
-        case "vaccine_record": return L10n.docTypeLabelVaccineRecord
-        case "invoice": return L10n.claim_type_invoice
-        case "medication_label": return L10n.entityCardKindName("medication")
-        default: return nil
-        }
+        guard let type = DocumentTypeKey(rawValue: key) else { return nil }
+        return L10n.docTypeName(type)
     }
 
     nonisolated static var unresolvedDocTypePlaceholder: String { L10n.docTypeLabelOther }
 
+    /// 标签 → 稳定键：先按当前语言的 27 键标签精确反查，再回落旧 15 标签键 / 曾用键（`DocumentTypeKey(legacyLabelKey:)`）。
+    /// 解析与（语言, 标签）缓存在 L10n 单出口（列表行 / 卡投影每帧反查，旧标签的三语扫描不重复付费）。
     nonisolated static func docTypeKey(forLabel label: String) -> String? {
-        ["prescription", "lab_report", "outpatient_record", "diagnosis_certificate",
-         "vaccine_record", "invoice", "medication_label"].first { docTypeLabel(forStableKey: $0) == label }
+        L10n.docTypeKey(forLabel: label)
+    }
+
+    /// 导入确认页 / 手工建档 Picker 的类型目录（稳定键，标签经 `docTypeLabel(forStableKey:)`）：
+    /// 仅附件类排在最后，`custom` 收尾。
+    nonisolated static var docTypeKeyOptions: [String] {
+        let all = DocumentTypeKey.allCases
+        return (all.filter { !$0.attachmentOnly && $0 != .other && $0 != .custom }
+                + all.filter(\.attachmentOnly) + [.other, .custom]).map(\.rawValue)
+    }
+    /// 同上目录的当前语言标签（Picker 选项以标签呈现、选中即经 `docTypeKey(forLabel:)` 回稳定键）。
+    nonisolated static var docTypeLabelOptions: [String] {
+        docTypeKeyOptions.compactMap(docTypeLabel(forStableKey:))
     }
 
     nonisolated static func fieldLabel(forKey key: String) -> String {
@@ -835,6 +845,16 @@ final class DocumentsState {
             return L10n.diagnosisTypeName(value)
         case "report_type":
             return L10n.examReportTypeName(value)
+        // v27（子项目 J）：治疗类型 / 结论类型 / 预约目的 / 文档稳定键 canonical raw → 展示名（未登记原样透传）。
+        // `severity`（结论程度）**不在此列**：打印原文直出，不映射不着色（BR-004/012）。
+        case "treatment_type":
+            return L10n.treatmentTypeName(value)
+        case "conclusion_type":
+            return L10n.conclusionTypeName(value)
+        case "purpose":
+            return L10n.appointmentPurposeName(value)
+        case "doc_type_key":
+            return docTypeLabel(forStableKey: value) ?? value
         default:
             return value
         }
@@ -856,6 +876,9 @@ final class DocumentsState {
         // `kind` 目录随 EncounterKind.allCases 自动含 daySurgery（住院卡以外的 kind 由 invalidFields 裁定）。
         case "diagnosis_type": return Diagnosis.diagnosisTypes
         case "report_type": return ExamReport.reportTypes
+        // v27：治疗类型 / 结论类型（Domain CHECK 同拼写目录；Picker 绑 canonical raw）
+        case "treatment_type": return TreatmentRecord.treatmentTypes
+        case "conclusion_type": return ClinicalConclusion.conclusionTypes
         default: return nil
         }
     }
@@ -955,7 +978,14 @@ private struct DocumentLibraryRow: View {
     var body: some View {
         WithPerceptionTracking {
             NavigationLink { DocumentDetailRouteView(documentId: doc.id) } label: {
+                // v27（SP-09 行首图标）：文档类型 → 结构化目标首卡类图标（CardKindIcon 单一出口）；
+                // DocumentRow 不携带稳定键，经标签反查（旧行按旧标签映射，未知 → 文档图标）。
+                let spec = CardKindIcon.spec(documentTypeKey: DocumentsState.docTypeKey(forLabel: doc.docType))
                 HStack {
+                    Image(systemName: spec.symbol)
+                        .foregroundStyle(spec.tint)
+                        .frame(width: 24)
+                        .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 3) {
                         HStack(spacing: 6) {
                             Text(doc.docType).font(.caption2)
@@ -992,7 +1022,8 @@ private struct DocumentLibraryRow: View {
 private struct ManualDocumentSheet: View {
     let onCreate: (String, String, String) -> Void
     @State private var title = ""
-    @State private var type = L10n.docTypeLabels[0]
+    /// v27：类型目录 = `DocumentTypeKey` 27 稳定键（标签经 L10n），不再取旧 15 标签表
+    @State private var type = DocumentsState.docTypeLabelOptions.first ?? DocumentsState.unresolvedDocTypePlaceholder
     @State private var note = ""
 
     var body: some View {
@@ -1001,7 +1032,10 @@ private struct ManualDocumentSheet: View {
                 Form {
                     TextField(L10n.docManualTitle, text: $title)
                     Picker(L10n.docManualType, selection: $type) {
-                        ForEach(L10n.docTypeLabels, id: \.self) { Text($0) }
+                        ForEach(DocumentsState.docTypeKeyOptions, id: \.self) { key in
+                            let label = DocumentsState.docTypeLabel(forStableKey: key) ?? key
+                            Label(label, systemImage: CardKindIcon.spec(documentTypeKey: key).symbol).tag(label)
+                        }
                     }
                     TextField(L10n.docManualNote, text: $note, axis: .vertical).lineLimit(3...8)
                 }

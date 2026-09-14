@@ -135,9 +135,11 @@ struct DocumentImportConfirmView: View {
         }
     }
 
+    /// 类型目录（v27 / 原 D3-2）：页判定候选标签 + `DocumentTypeKey` 27 稳定键的当前语言标签 + 当前值（去重保序）。
+    /// Picker 选中值仍是标签（`ImportDraft.docType` 落 `document_file.doc_type`），稳定键经 `docTypeKey(forLabel:)` 同步。
     private var typeOptions: [String] {
         var seen = Set<String>()
-        return (draft.documentTypeCandidates + L10n.docTypeLabels + [draft.docType]).filter { seen.insert($0).inserted }
+        return (draft.documentTypeCandidates + DocumentsState.docTypeLabelOptions + [draft.docType]).filter { seen.insert($0).inserted }
     }
 }
 

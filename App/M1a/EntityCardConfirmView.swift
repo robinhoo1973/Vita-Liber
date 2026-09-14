@@ -45,7 +45,37 @@ struct EntityCardConfirmView: View {
         }.sorted()
     }
     private func canSave(reviewed: MatchedCard) -> Bool {
-        !saving && card.rows.contains { invalid($0, reviewed: reviewed).isEmpty || EntityCardProjection.isDiscarded($0, in: card) }
+        guard !saving, card.rows.contains(where: { invalid($0, reviewed: reviewed).isEmpty || EntityCardProjection.isDiscarded($0, in: card) }) else {
+            return false
+        }
+        // v27 §0.4：主卡草稿随卡同事务落库——草稿须字段全部已确认（卡级确认后仍缺的 = 低置信未逐项确认）且日期可解析，
+        // 与 store `HubDraft.isComplete` 同口径；否则保存按钮禁用（草稿区显示补填/未确认提示，用户不致只见灰按钮）。
+        if case .newHub(let draft) = reviewed.encounterAssociation {
+            return draft.isComplete(calendar: Calendar(identifier: .gregorian))
+        }
+        return true
+    }
+
+    /// 卡级确认延伸到主卡草稿：保存动作同时把草稿内「非拒绝、有值、非低置信」字段升 C（FR6.9 一键确认同纪律），
+    /// 低置信字段仍须逐项确认（FR17.4）。纯值变换；store 侧再按 BR-003 校验一次。
+    static func confirmingDraftFields(_ card: MatchedCard) -> MatchedCard {
+        guard case .newHub(var draft) = card.encounterAssociation else { return card }
+        // 用户「拒绝」的草稿字段 = 不把该值带进主卡（草稿只携带用户认可的原文）；拒绝日期字段后草稿区重新要求补填。
+        draft.fields.removeAll { $0.grade == .rejected }
+        for index in draft.fields.indices {
+            let field = draft.fields[index]
+            guard field.grade != .rejected, !field.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  ConfidenceTier.tier(field.confidence) != .low else { continue }
+            _ = draft.fields[index].confirm()
+        }
+        var result = card
+        result.encounterAssociation = .newHub(draft)
+        return result
+    }
+    /// 文档稳定键：队列模式随导入会话（commitDraft 写入）；续办模式的待办卡不携带 → nil（主卡草稿 kind 缺省门诊）。
+    private var sessionDocumentTypeKey: String? {
+        if case .queue(let session) = mode { return session.documentTypeKey }
+        return nil
     }
     private var resumeError: String? {
         if case .resume(let review) = mode { return review.notificationError ?? review.errorMessage }
@@ -69,7 +99,7 @@ struct EntityCardConfirmView: View {
             // 审查修复（每帧纪律）：confirmation 投影每帧只求值一次——旧实现
             // invalid(_:) 内部各自重建全卡投影，validation/missingShared/canSave
             // 三处合计 ~3N 次全卡拷贝（每次击键触发），N 行卡明显可感知。
-            let reviewed = card.confirmingAllFields()
+            let reviewed = Self.confirmingDraftFields(card.confirmingAllFields())
             let validation = Dictionary(uniqueKeysWithValues: card.rows.map { ($0.id, invalid($0, reviewed: reviewed)) })
             List {
                 Section {
@@ -85,7 +115,10 @@ struct EntityCardConfirmView: View {
                     }.buttonStyle(.borderless)
                 } footer: { Text(L10n.docConfirmHint) }
 
-                EncounterAssociationSection(card: $card, patientId: patientId, readOnly: saving || sharedCommitted)
+                // v27 §0.4 改判：主卡草稿区**先于**关联区呈现（无可挂接主卡时随本卡新建；D 级、逐字段确认、同事务落库）
+                ParentDraftSection(card: $card, patientId: patientId, readOnly: saving || sharedCommitted)
+                EncounterAssociationSection(card: $card, patientId: patientId, readOnly: saving || sharedCommitted,
+                                            documentTypeKey: sessionDocumentTypeKey)
 
                 Section(L10n.entityCardSharedSection) {
                     if sharedCommitted { Text(L10n.homeCaptureSaved).font(.caption).foregroundStyle(.secondary) }
@@ -263,7 +296,8 @@ struct EntityCardConfirmView: View {
         guard canSave(reviewed: reviewed) else { return }
         // FR6.9 V3.66 一键确认本卡：保存即确认卡内其余非低置信字段（用户卡级显式动作），
         // 低置信字段仍须逐项确认（FR17.4），缺必填行原样进待办/剩余卡。
-        let snapshot = card.confirmingAllFields()
+        // v27：主卡草稿字段同一动作升 C（store 同事务先建主卡再写子卡；任一失败整体回滚，BR-003）。
+        let snapshot = Self.confirmingDraftFields(card.confirmingAllFields())
         Task {
             let result: OCRCardStore.SaveResult?
             switch mode {
