@@ -6,6 +6,10 @@ public enum TimelineEntryKind: String, Sendable, Equatable, Codable, CaseIterabl
     case encounter, medication, observation, lab, selfMeasured, vaccination, allergy, voiceNote, healthProblem
     /// 资料文档（F5）——唯一携带真实来源徽章的投影分支（grade D = 机器识别未确认）
     case document
+    /// v27（子项目 J · round1 §D 主从关系表）：主卡（住院期 / 体检）与子卡类型。rawValue = J3 `hubs(for:)` SQL 的
+    /// `kind` 字面量 = J4 L10n 键 `timeline.kind.<rawValue>`。旧平铺查询 `entries(for:)` **无**这些分支——平铺语义不变。
+    case hospitalization, healthExam, diagnosis, prescription, labReport, examReport, claim
+    case surgery, treatmentRecord, appointment, reminder, clinicalConclusion
 }
 
 public struct TimelineEntry: Sendable, Equatable, Identifiable {

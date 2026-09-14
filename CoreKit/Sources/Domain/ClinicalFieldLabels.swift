@@ -59,7 +59,104 @@ public enum ClinicalFieldLabels {
         ("send_doctor", ["送检医师", "送检医生", "送檢醫師", "送檢醫生", "Sending Physician"]),
         ("test_doctor", ["检验者", "检验医师", "检验人", "检验师", "操作者", "檢驗者", "檢驗醫師", "檢驗人", "檢驗師", "操作者", "Tested by", "Technologist", "Analyst"]),
         ("clinical_diagnosis", ["临床诊断", "臨床診斷", "Clinical Diagnosis"]),
+        // v27 §E.1 体检首页（子项目 J）：机构 / 编号 / 套餐 / 日期 / 总检医师 + 一般检查（数值原文；「数值 单位」由 pageFields 拆值/单位槽位）
+        ("org_name", ["体检机构", "体检单位", "体检中心", "體檢機構", "體檢單位", "體檢中心", "Examination Center", "Checkup Center", "Institution"]),
+        ("exam_no", ["体检编号", "体检号", "体检流水号", "體檢編號", "體檢號", "體檢流水號", "Checkup No", "Physical Exam No"]),
+        ("package_name", ["体检套餐", "套餐名称", "套餐", "體檢套餐", "套餐名稱", "Package"]),
+        ("exam_date", ["体检日期", "体检时间", "體檢日期", "體檢時間", "Checkup Date", "Physical Exam Date"]),
+        ("total_doctor", ["总检医师", "总检医生", "主检医师", "總檢醫師", "總檢醫生", "主檢醫師", "Chief Examiner", "Summary Doctor"]),
+        ("height", ["身高", "Height"]),
+        ("weight", ["体重", "體重", "Weight"]),
+        ("bmi", ["BMI", "体重指数", "體重指數", "Body Mass Index"]),
+        ("blood_pressure", ["血压", "血壓", "Blood Pressure", "BP"]),
+        ("systolic", ["收缩压", "收縮壓", "Systolic"]),
+        ("diastolic", ["舒张压", "舒張壓", "Diastolic"]),
+        ("pulse", ["脉搏", "脉率", "脈搏", "脈率", "Pulse", "Pulse Rate"]),
+        ("waist", ["腰围", "腰圍", "Waist", "Waist Circumference"]),
+        ("vision_left", ["左眼视力", "视力（左）", "视力(左)", "左眼視力", "視力（左）", "視力(左)", "Left Vision", "Vision (L)", "Vision (Left)"]),
+        ("vision_right", ["右眼视力", "视力（右）", "视力(右)", "右眼視力", "視力（右）", "視力(右)", "Right Vision", "Vision (R)", "Vision (Right)"]),
+        ("overall_conclusion", ["总检结论", "总检意见", "体检结论", "综合结论", "总结论", "總檢結論", "總檢意見", "體檢結論", "綜合結論", "總結論",
+                                "Overall Conclusion", "Summary Conclusion", "General Conclusion"]),
+        ("health_guidance", ["健康指导", "健康建议", "保健建议", "健康指導", "健康建議", "保健建議", "Health Guidance", "Health Advice"]),
+        // v27 §C.8 手术记录：编码 / 级别 / 植入物 / 出血量等打印原文（术前/术后诊断同时是诊断类型标签——诊断行与手术列各取其一）
+        ("surgery_at", ["手术日期", "手术时间", "手术开始时间", "手術日期", "手術時間", "手術開始時間", "Surgery Date", "Operation Date", "Date of Surgery", "Date of Operation"]),
+        ("ended_at", ["手术结束时间", "结束时间", "手術結束時間", "結束時間", "Surgery End", "End Time"]),
+        ("surgery_name", ["手术名称", "手术方式", "术式", "手術名稱", "手術方式", "術式", "Surgery Name", "Procedure Name", "Operation Name"]),
+        ("surgery_code", ["手术编码", "手术代码", "手术操作编码", "手術編碼", "手術代碼", "手術操作編碼", "ICD-9-CM-3", "Procedure Code"]),
+        ("surgery_level", ["手术级别", "手术等级", "手術級別", "手術等級", "Surgery Level", "Procedure Level"]),
+        ("surgeon", ["手术医师", "手术医生", "手术者", "术者", "主刀医师", "主刀", "手術醫師", "手術醫生", "手術者", "術者", "主刀醫師", "Surgeon", "Operator"]),
+        ("assistants", ["助手", "手术助手", "一助", "手術助手", "Assistant", "Assistants"]),
+        ("anesthesiologist", ["麻醉医师", "麻醉医生", "麻醉师", "麻醉醫師", "麻醉醫生", "麻醉師", "Anesthesiologist", "Anesthetist"]),
+        ("anesthesia_method", ["麻醉方式", "麻醉方法", "Anesthesia Method", "Anesthesia Type"]),
+        ("preop_diagnosis", ["术前诊断", "術前診斷", "Preoperative Diagnosis", "Pre-op Diagnosis"]),
+        ("postop_diagnosis", ["术后诊断", "術後診斷", "Postoperative Diagnosis", "Post-op Diagnosis"]),
+        ("procedure_course", ["手术经过", "手术过程", "手术步骤", "手術經過", "手術過程", "手術步驟", "Operative Course", "Procedure Description", "Description of Procedure"]),
+        ("intraop_findings", ["术中所见", "术中发现", "术中探查", "術中所見", "術中發現", "術中探查", "Intraoperative Findings", "Operative Findings"]),
+        ("implants", ["植入物", "植入材料", "内置物", "內置物", "Implants", "Implant"]),
+        ("specimen", ["手术标本", "切除标本", "送检标本", "手術標本", "切除標本", "送檢標本", "Surgical Specimen", "Specimen Sent"]),
+        ("blood_loss", ["出血量", "术中出血", "失血量", "術中出血", "Blood Loss", "Estimated Blood Loss", "EBL"]),
+        ("transfusion", ["输血", "输血量", "輸血", "輸血量", "Transfusion"]),
+        ("drainage", ["引流", "引流管", "引流情况", "引流情況", "Drainage", "Drain"]),
+        ("postop_orders", ["术后医嘱", "术后注意事项", "术后处理", "術後醫囑", "術後注意事項", "術後處理", "Postoperative Orders", "Post-op Instructions"]),
+        ("complications", ["并发症", "术中并发症", "併發症", "術中併發症", "Complications"]),
+        // v27 §C.9 治疗记录：类型经 normalized 归一；药物原文不拆行
+        ("treatment_type", ["治疗类型", "治疗方式", "治疗项目", "治療類型", "治療方式", "治療項目", "Treatment Type"]),
+        ("treated_at", ["治疗日期", "治疗时间", "执行时间", "输液日期", "治療日期", "治療時間", "執行時間", "輸液日期", "Treatment Date", "Treatment Time"]),
+        ("executor", ["执行者", "执行护士", "操作护士", "執行者", "執行護士", "操作護士", "Executed by", "Performed by", "Nurse"]),
+        ("content", ["治疗内容", "处置", "治疗措施", "治療內容", "處置", "治療措施", "Treatment Content"]),
+        ("drugs_text", ["输液药物", "注射药物", "用药内容", "药物及剂量", "輸液藥物", "注射藥物", "用藥內容", "藥物及劑量", "Infusion Drugs", "Drugs Given", "Medications Given"]),
+        ("session", ["治疗次数", "疗程", "治療次數", "療程", "Session", "Sessions"]),
+        ("adverse_reaction", ["不良反应", "输液反应", "不良反應", "輸液反應", "Adverse Reaction", "Adverse Reactions"]),
+        ("result", ["治疗结果", "治疗效果", "治療結果", "治療效果", "Treatment Result", "Outcome"]),
     ]
+
+    /// v27 结论类型标签（值归一 + 行首标签成行）。标签本身即类型；值为结论原文。
+    public static let conclusionTypeLabels: [(type: String, labels: [String])] = [
+        ("lab", ["检验结论", "检验小结", "檢驗結論", "檢驗小結", "Lab Conclusion", "Laboratory Conclusion"]),
+        ("exam", ["检查结论", "检查小结", "檢查結論", "檢查小結", "Exam Conclusion", "Examination Conclusion"]),
+        ("health_exam_summary", ["总检", "总检结论", "总检意见", "综合结论", "體檢總結", "總檢", "總檢結論", "總檢意見", "綜合結論", "Overall Conclusion", "Summary"]),
+        ("abnormal_finding", ["异常发现", "异常结果", "阳性发现", "阳性结果", "異常發現", "異常結果", "陽性發現", "陽性結果", "Abnormal Finding", "Abnormal Findings"]),
+        ("health_advice", ["健康建议", "健康指导", "保健建议", "健康建議", "健康指導", "保健建議", "Health Advice", "Health Guidance"]),
+        ("recheck_advice", ["复查建议", "随访建议", "復查建議", "隨訪建議", "Recheck", "Recheck Advice", "Follow-up Advice"]),
+        ("visit_advice", ["就医建议", "就诊建议", "专科建议", "转诊建议", "就醫建議", "就診建議", "專科建議", "轉診建議", "Visit Advice", "Referral", "Referral Advice"]),
+    ]
+
+    /// 行首结论标签成行时排除的类型：总检结论 / 健康建议是体检首页叙事块（`overall_conclusion` / `health_guidance`），不重复成结论行。
+    private static let headerNarrativeConclusionTypes: Set<String> = ["health_exam_summary", "health_advice"]
+
+    /// v27 治疗类型词表（首命中即定；值归一为 treatment_record.treatment_type CHECK 枚举）。
+    public static let treatmentTypeVocabulary: [(type: String, tokens: [String])] = [
+        ("infusion", ["输液", "輸液", "静脉输液", "靜脈輸液", "静滴", "靜滴", "点滴", "點滴", "Infusion", "IV Drip"]),
+        ("injection", ["注射", "肌注", "皮下注射", "静推", "靜推", "Injection", "Shot"]),
+        ("physiotherapy", ["理疗", "理療", "物理治疗", "物理治療", "康复治疗", "康復治療", "针灸", "針灸", "Physiotherapy", "Physical Therapy", "Rehabilitation"]),
+        ("dressing", ["换药", "換藥", "伤口换药", "傷口換藥", "清创", "清創", "Dressing", "Wound Care"]),
+        ("other", ["其他", "其它", "Other"]),
+    ]
+
+    /// 体检一般检查数值键（标签直配时按「数值 单位」拆值/单位槽位；拆不开则整段原文保留）。
+    public static let generalExamKeys: Set<String> = ["height", "weight", "bmi", "blood_pressure", "systolic", "diastolic", "pulse", "waist"]
+
+    /// 「128/82」「128／82 mmHg」→ (收缩, 舒张)；无分隔 / 非数值 → nil（不猜）。
+    public static func splitBloodPressure(_ text: String) -> (String, String)? {
+        guard let regex = bloodPressurePattern,
+              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              let systolic = Range(match.range(at: 1), in: text), let diastolic = Range(match.range(at: 2), in: text) else { return nil }
+        return (String(text[systolic]), String(text[diastolic]))
+    }
+
+    /// 「65.5 kg」「128/82 mmHg」「72 次/分」→ (值, 单位)；「22.7」→ (值, nil)；非数值开头（「约72」）→ nil（整段原文保留）。
+    public static func splitNumberUnit(_ text: String) -> (value: String, unit: String?)? {
+        guard let regex = numberUnitPattern,
+              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              let valueRange = Range(match.range(at: 1), in: text) else { return nil }
+        let unit = Range(match.range(at: 2), in: text).map { String(text[$0]) }
+        return (String(text[valueRange]), unit?.isEmpty == false ? unit : nil)
+    }
+
+    private static let bloodPressurePattern: NSRegularExpression? = try? NSRegularExpression(   // try?-ok: 静态字面量，构造不会失败
+        pattern: #"^\s*(\d{2,3}(?:\.\d+)?)\s*[/／]\s*(\d{2,3}(?:\.\d+)?)(?!\d)"#)
+    private static let numberUnitPattern: NSRegularExpression? = try? NSRegularExpression(   // try?-ok: 静态字面量，构造不会失败
+        pattern: #"^\s*(\d+(?:\.\d+)?(?:\s*[/／]\s*\d+(?:\.\d+)?)?)\s*([^\d\s][^\s]*)?\s*$"#)
 
     /// 诊断标签 → `diagnosis_type` canonical raw（标签本身即类型；值为诊断名称原文）。
     public static let diagnosisTypeLabels: [(type: String, labels: [String])] = [
@@ -98,8 +195,33 @@ public enum ClinicalFieldLabels {
         pattern: #"^(?:(?:阴性|陰性|阳性|陽性|弱阳性|弱陽性|可疑|未检出|未檢出|未见|未見|正常|异常|異常|Negative|Positive|Neg|Pos|Reactive|Non-?reactive|Nonreactive|Detected|Not\s?detected|Normal|Abnormal|Trace)\S*|[<>≤≥]=?\s*\d\S*|[+\-±]{1,4})$"#,
         options: [.caseInsensitive])
 
-    /// 叙事键剥标签用的全部标签（`prefixAliases` ∪ 诊断标签），供 `OCRGrounding.labeledValue`。
-    public static let narrativeLabels: Set<String> = Set(prefixAliases.flatMap(\.labels) + diagnosisTypeLabels.flatMap(\.labels) + plainDiagnosisLabels)
+    /// 叙事键剥标签用的全部标签（`prefixAliases` ∪ 诊断标签 ∪ 结论标签），供 `OCRGrounding.labeledValue`。
+    public static let narrativeLabels: Set<String> = Set(prefixAliases.flatMap(\.labels) + diagnosisTypeLabels.flatMap(\.labels) + plainDiagnosisLabels
+                                                         + conclusionTypeLabels.flatMap(\.labels))
+
+    /// 行首结论标签 → (类型 canonical raw, 标签)；总检结论 / 健康建议归首页叙事键，不成行（nil）；非结论标签 nil。
+    public static func conclusionLabel(prefixOf text: String) -> (type: String, label: String)? {
+        for (type, labels) in conclusionTypeLabels where !headerNarrativeConclusionTypes.contains(type) {
+            if let label = labels.first(where: { text.hasPrefix($0) }) { return (type, label) }
+        }
+        return nil
+    }
+
+    /// 打印标签 → `conclusion_type` canonical raw（已是 canonical 原样；未命中 nil）。
+    public static func conclusionType(forLabel value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if ClinicalConclusion.conclusionTypes.contains(trimmed) { return trimmed }
+        for (type, labels) in conclusionTypeLabels where labels.contains(where: { $0.caseInsensitiveCompare(trimmed) == .orderedSame }) { return type }
+        return nil
+    }
+
+    /// 印刷治疗类型词 → `treatment_type` canonical raw（已是 canonical 原样；未命中 nil）。
+    public static func treatmentType(forValue value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if TreatmentRecord.treatmentTypes.contains(trimmed) { return trimmed }
+        for (type, tokens) in treatmentTypeVocabulary where tokens.contains(where: { contains(trimmed, token: $0) }) { return type }
+        return nil
+    }
 
     /// 行首诊断标签 → (类型 canonical raw 或 nil=无类型语义) ；非诊断标签返回 nil。
     public static func diagnosisLabel(prefixOf text: String) -> (type: String?, label: String)? {

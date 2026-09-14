@@ -123,6 +123,38 @@ public enum CardKindRegistry {
                       sharedRequired: ["vaccine_name", "dose_number", "administered_at", "provider"], sharedOptional: ["lot_number"],
                       rowRequired: [], rowOptional: [],
                       dateKey: "administered_at"),
+        // v27 体检首页（子项目 J · round1 §E.1）：第三枢纽。一般检查键 = `*_text` 列去后缀（原文保留，BR-006）；
+        // weight/systolic/diastolic/pulse 可严格解析且单位在白名单者另投影 metric_sample（entityTables 第二元素 = 投影目标，无回执）。
+        CardKindEntry(kind: "health_exam", entityTables: ["health_exam", "metric_sample"],
+                      sharedRequired: ["org_name", "exam_date"],
+                      sharedOptional: ["exam_no", "package_name", "total_doctor", "report_date",
+                                       "height", "weight", "bmi", "systolic", "diastolic", "pulse", "waist", "vision_left", "vision_right",
+                                       "overall_conclusion", "health_guidance"],
+                      rowRequired: [], rowOptional: [],
+                      dateKey: "exam_date", requiresDocumentType: ["checkup_report"]),
+        // v27 结论行（§E.1 / 融合方案 §六-6.3）：rows-only；conclusion_type canonical raw（CHECK 枚举，行级；缺省由关键词派生 D 级默认）；
+        // severity = 打印原文（severity_text，BR-004/012）；共享面只带主卡草稿派生所需的机构 / 日期 / 编号。
+        CardKindEntry(kind: "clinical_conclusion", entityTables: ["clinical_conclusion"],
+                      sharedRequired: [], sharedOptional: ["org_name", "exam_date", "exam_no"],
+                      rowRequired: ["content"], rowOptional: ["conclusion_type", "severity"],
+                      dateKey: nil, requiresDocumentType: ["checkup_report"]),
+        // v27 手术记录（原 D3 §C.8）：最小集 surgery_at + surgery_name；编码 / 级别 / 植入物 / 出血量等键 = `*_text` 列去后缀（原文）。
+        CardKindEntry(kind: "surgery", entityTables: ["surgery"],
+                      sharedRequired: ["surgery_at", "surgery_name"],
+                      sharedOptional: ["hospital", "department", "ended_at", "surgery_code", "surgery_level",
+                                       "surgeon", "assistants", "anesthesiologist", "anesthesia_method",
+                                       "preop_diagnosis", "postop_diagnosis", "procedure_course", "intraop_findings",
+                                       "implants", "specimen", "blood_loss", "transfusion", "drainage", "postop_orders", "complications"],
+                      rowRequired: [], rowOptional: [],
+                      dateKey: "surgery_at", requiresDocumentType: ["surgery_record", "day_surgery_record", "discharge_summary"]),
+        // v27 治疗记录（原 D3 §C.9，P1）：最小集 treated_at + treatment_type（CHECK 枚举）且 content | drugs_text 之一（invalidFields 裁定）；
+        // drugs_text 原文不拆行、不进 prescription_line / medication。
+        CardKindEntry(kind: "treatment_record", entityTables: ["treatment_record"],
+                      sharedRequired: ["treated_at", "treatment_type"],
+                      sharedOptional: ["hospital", "department", "doctor", "executor", "diagnosis_text", "content", "drugs_text",
+                                       "session", "adverse_reaction", "result", "note"],
+                      rowRequired: [], rowOptional: [],
+                      dateKey: "treated_at", requiresDocumentType: ["treatment_record"]),
     ]
 
     public static func entry(for kind: String) -> CardKindEntry? {

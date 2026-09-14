@@ -145,18 +145,23 @@ public struct ExamReport: Sendable, Equatable, Codable, Identifiable {
     public var confirmed: Bool
     public var createdAt: Date
     public var updatedAt: Date
+    /// v27：报告来源（`ReportSource` raw；nil = v27 前未标注，读侧按外键推断呈现、不回填）与体检枢纽回指。
+    public var reportSource: String?
+    public var healthExamId: UUID?
 
     public init(id: UUID = UUID(), patientId: UUID, encounterId: UUID? = nil, documentFileId: UUID? = nil, reportType: String,
                 hospital: String? = nil, department: String? = nil, reportNo: String? = nil, examPart: String? = nil, examMethod: String? = nil,
                 examAt: Date? = nil, reportedAt: Date? = nil, findings: String? = nil, impression: String? = nil,
                 applyDoctor: String? = nil, reportDoctor: String? = nil, reviewDoctor: String? = nil,
-                source: FactSource, confirmed: Bool = false, createdAt: Date, updatedAt: Date) {
+                source: FactSource, confirmed: Bool = false, createdAt: Date, updatedAt: Date,
+                reportSource: String? = nil, healthExamId: UUID? = nil) {
         self.id = id; self.patientId = patientId; self.encounterId = encounterId; self.documentFileId = documentFileId
         self.reportType = reportType; self.hospital = hospital; self.department = department; self.reportNo = reportNo
         self.examPart = examPart; self.examMethod = examMethod; self.examAt = examAt; self.reportedAt = reportedAt
         self.findings = findings; self.impression = impression
         self.applyDoctor = applyDoctor; self.reportDoctor = reportDoctor; self.reviewDoctor = reviewDoctor
         self.source = source; self.confirmed = confirmed; self.createdAt = createdAt; self.updatedAt = updatedAt
+        self.reportSource = reportSource; self.healthExamId = healthExamId
     }
 }
 
@@ -185,19 +190,24 @@ public struct LabReport: Sendable, Equatable, Codable, Identifiable {
     public var confirmed: Bool
     public var createdAt: Date
     public var updatedAt: Date
+    /// v27：报告来源（`ReportSource` raw；nil = v27 前未标注，读侧按外键推断呈现、不回填）与体检枢纽回指。
+    public var reportSource: String?
+    public var healthExamId: UUID?
 
     public init(id: UUID = UUID(), patientId: UUID, encounterId: UUID? = nil, documentFileId: UUID? = nil,
                 hospital: String? = nil, department: String? = nil, labName: String? = nil, reportNo: String? = nil,
                 specimenType: String? = nil, specimenNo: String? = nil, testClassText: String? = nil, clinicalDiagnosis: String? = nil,
                 collectedAt: Date? = nil, receivedAt: Date? = nil, reportedAt: Date? = nil,
                 sendDoctor: String? = nil, testDoctor: String? = nil, reviewDoctor: String? = nil, sourceCardId: UUID? = nil,
-                source: FactSource, confirmed: Bool = false, createdAt: Date, updatedAt: Date) {
+                source: FactSource, confirmed: Bool = false, createdAt: Date, updatedAt: Date,
+                reportSource: String? = nil, healthExamId: UUID? = nil) {
         self.id = id; self.patientId = patientId; self.encounterId = encounterId; self.documentFileId = documentFileId
         self.hospital = hospital; self.department = department; self.labName = labName; self.reportNo = reportNo
         self.specimenType = specimenType; self.specimenNo = specimenNo; self.testClassText = testClassText
         self.clinicalDiagnosis = clinicalDiagnosis; self.collectedAt = collectedAt; self.receivedAt = receivedAt; self.reportedAt = reportedAt
         self.sendDoctor = sendDoctor; self.testDoctor = testDoctor; self.reviewDoctor = reviewDoctor; self.sourceCardId = sourceCardId
         self.source = source; self.confirmed = confirmed; self.createdAt = createdAt; self.updatedAt = updatedAt
+        self.reportSource = reportSource; self.healthExamId = healthExamId
     }
 }
 

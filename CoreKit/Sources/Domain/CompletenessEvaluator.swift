@@ -228,6 +228,39 @@ public enum CompletenessEvaluator {
                 .init(key: "exam_part", isRequired: false),
                 .init(key: "hospital", isRequired: false),
             ]
+        // v27（子项目 J）：四新卡只登记建卡最小集 + 少量推荐；一般检查 / 手术叙事等全部可选列见 CardKindRegistry（分母不稀释）。
+        case "health_exam":
+            return [
+                .init(key: "org_name", isRequired: true),
+                .init(key: "exam_date", isRequired: true),
+                .init(key: "exam_no", isRequired: false),
+                .init(key: "package_name", isRequired: false),
+                .init(key: "overall_conclusion", isRequired: false),
+                .init(key: "total_doctor", isRequired: false),
+            ]
+        case "clinical_conclusion":
+            return [
+                .init(key: "content", isRequired: true),           // 行级：每条结论原文
+                .init(key: "severity", isRequired: false),         // 打印原文（关注/异常/需复查…），不编码
+            ]
+        case "surgery":
+            return [
+                .init(key: "surgery_at", isRequired: true),
+                .init(key: "surgery_name", isRequired: true),
+                .init(key: "hospital", isRequired: false),
+                .init(key: "surgeon", isRequired: false),
+                .init(key: "anesthesia_method", isRequired: false),
+                .init(key: "postop_diagnosis", isRequired: false),
+            ]
+        case "treatment_record":
+            return [
+                .init(key: "treated_at", isRequired: true),
+                .init(key: "treatment_type", isRequired: true),    // infusion|injection|physiotherapy|dressing|other（理解层归一）
+                .init(key: "content", isRequired: false),          // content ?? drugs_text 二择一在 invalidFields 裁定
+                .init(key: "drugs_text", isRequired: false),
+                .init(key: "hospital", isRequired: false),
+                .init(key: "doctor", isRequired: false),
+            ]
         default:
             return []
         }

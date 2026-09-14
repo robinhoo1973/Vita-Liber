@@ -86,6 +86,9 @@ public struct MatchedCard: Codable, Sendable, Equatable, Identifiable {
         guard let rowId else {
             guard shared.indices.contains(index) else { return }
             if case .suggested = encounterAssociation { encounterAssociation = .unselected }
+            // v27：主卡草稿的证据字段（机构 / 医生 / 日期）被编辑即失效——回未选择，由关联区按新证据重派生（与 .suggested 同纪律）。
+            if case .newHub = encounterAssociation, EncounterResolver.evidenceKeys.contains(shared[index].key),
+               shared[index].value != value { encounterAssociation = .unselected }
             shared[index].revise(to: value)
             return
         }
@@ -235,6 +238,41 @@ public enum CardTemplateMatcher {
                      rowLevelKeys: ["drug_name", "spec", "dosage", "quantity", "frequency", "route", "days", "note",
                                     "drug_form", "generic_name", "brand_name", "start_date", "end_date", "as_needed",
                                     "medication_notes", "insurance_code", "item_code", "unit_price", "line_amount"]),
+        // v27 体检首页（子项目 J · round1 §E.1）：单行卡；机构（体检机构常印为「医院」）/ 编号 / 套餐 / 体检日期 / 总检医师 / 报告日期 +
+        // 一般检查原文（blood_pressure「128/82」在匹配前拆 systolic/diastolic）+ 总检结论 / 健康指导（多段并入）。仅体检报告文档。
+        CardTemplate(kind: "health_exam", rowKey: nil,
+                     mapping: ["org_name": "org_name", "hospital": "org_name", "exam_no": "exam_no", "package_name": "package_name",
+                               "exam_date": "exam_date", "report_date": "exam_date", "reported_at": "report_date", "total_doctor": "total_doctor",
+                               "height": "height", "weight": "weight", "bmi": "bmi", "systolic": "systolic", "diastolic": "diastolic",
+                               "pulse": "pulse", "waist": "waist", "vision_left": "vision_left", "vision_right": "vision_right",
+                               "overall_conclusion": "overall_conclusion", "health_guidance": "health_guidance"],
+                     requiresDocumentType: ["checkup_report"]),
+        // v27 结论页（§E.1 / 融合方案 §六-6.3）：conclusion_item 每实例一行；同行 conclusion_type / severity 归行（严重度为打印原文，
+        // 不编码不着色——BR-004/012）；共享机构 / 日期 / 编号随卡携带供主卡草稿派生。本轮只从体检文档产出（父 = 体检）。
+        CardTemplate(kind: "clinical_conclusion", rowKey: "conclusion_item",
+                     mapping: ["conclusion_item": "content", "conclusion_type": "conclusion_type", "severity": "severity",
+                               "org_name": "org_name", "hospital": "org_name", "exam_date": "exam_date", "report_date": "exam_date", "exam_no": "exam_no"],
+                     rowLevelKeys: ["content", "conclusion_type", "severity"],
+                     requiresDocumentType: ["checkup_report"]),
+        // v27 手术记录（原 D3 §C.8）：单行卡；编码 / 级别 / 植入物 / 出血量等一律打印原文。泛日期（report_date）**不**冒充手术日期——
+        // 出院小结多日期并存，只认「手术日期」显式标签（不猜日期）。
+        CardTemplate(kind: "surgery", rowKey: nil,
+                     mapping: ["hospital": "hospital", "dept": "department", "surgery_at": "surgery_at", "ended_at": "ended_at",
+                               "surgery_name": "surgery_name", "surgery_code": "surgery_code", "surgery_level": "surgery_level",
+                               "surgeon": "surgeon", "assistants": "assistants", "anesthesiologist": "anesthesiologist", "anesthesia_method": "anesthesia_method",
+                               "preop_diagnosis": "preop_diagnosis", "postop_diagnosis": "postop_diagnosis",
+                               "procedure_course": "procedure_course", "intraop_findings": "intraop_findings",
+                               "implants": "implants", "specimen": "specimen", "blood_loss": "blood_loss", "transfusion": "transfusion", "drainage": "drainage",
+                               "postop_orders": "postop_orders", "complications": "complications"],
+                     requiresDocumentType: ["surgery_record", "day_surgery_record", "discharge_summary"]),
+        // v27 门诊治疗 / 输液 / 注射 / 理疗（原 D3 §C.9）：单行卡；单日期文书——泛日期即治疗日期（同处方 / 票据纪律）；
+        // 药物原文 drugs_text 不拆行、不进 prescription_line / medication（BR-006/007，避免双计）。
+        CardTemplate(kind: "treatment_record", rowKey: nil,
+                     mapping: ["treatment_type": "treatment_type", "treated_at": "treated_at", "report_date": "treated_at",
+                               "hospital": "hospital", "dept": "department", "doctor": "doctor", "executor": "executor",
+                               "diagnosis": "diagnosis_text", "clinical_diagnosis": "diagnosis_text", "content": "content", "drugs_text": "drugs_text",
+                               "session": "session", "adverse_reaction": "adverse_reaction", "result": "result", "note": "note"],
+                     requiresDocumentType: ["treatment_record"]),
         CardTemplate(kind: "medication", rowKey: "generic_name",
                      mapping: ["generic_name":"generic_name", "brand_name":"brand_name", "spec":"spec", "unit_kind":"unit_kind"],
                      rowLevelKeys: ["generic_name", "brand_name", "spec", "unit_kind"]),
@@ -260,13 +298,29 @@ public enum CardTemplateMatcher {
         // v26 住院/检查叙事列（§C.2/§C.4）
         "admit_diagnosis", "discharge_diagnosis", "admit_condition", "treatment_course", "discharge_condition", "discharge_orders", "take_home_drugs",
         "findings", "impression",
+        // v27 体检 / 手术 / 治疗叙事列（子项目 J）：总检结论与健康指导多段；手术经过 / 术中所见 / 术后医嘱；治疗内容 / 药物原文
+        "overall_conclusion", "health_guidance", "procedure_course", "intraop_findings", "postop_orders", "complications",
+        "content", "drugs_text", "adverse_reaction",
     ]
 
     /// 检验行同 rawText 伴随键（参考范围拆 ref_low/ref_high；打印标记/参考原文/方法原样归行）。
     private static let labCompanionKeys: [String] = ["reference_range", "abnormal_flag", "reference_text", "method"]
 
-    /// 行级伴随字段按同行/页内唯一证据归行的卡类（药品行/费用明细行/诊断行）。
-    private static let rowCompanionKinds: Set<String> = ["medication", "prescription", "claim_item", "diagnosis"]
+    /// 行级伴随字段按同行/页内唯一证据归行的卡类（药品行/费用明细行/诊断行/结论行）。
+    private static let rowCompanionKinds: Set<String> = ["medication", "prescription", "claim_item", "diagnosis", "clinical_conclusion"]
+
+    /// v27 体检首页：理解层 `blood_pressure`「128/82」（打印的收缩/舒张合体）在匹配前按分隔符拆为 systolic / diastolic 两草稿
+    /// （同 reference_range 拆 ref_low/ref_high 的纪律：只拆打印分隔，不猜、不换算；拆不开原样保留由用户处理）。
+    private static func expandedFields(for template: CardTemplate, fields: [FieldDraft]) -> [FieldDraft] {
+        guard template.kind == "health_exam", fields.contains(where: { $0.key == "blood_pressure" }) else { return fields }
+        return fields.flatMap { draft -> [FieldDraft] in
+            guard draft.key == "blood_pressure" else { return [draft] }
+            guard let (systolic, diastolic) = ClinicalFieldLabels.splitBloodPressure(draft.value) else { return [draft] }
+            let raw = draft.rawText ?? draft.originalValue
+            return [FieldDraft(key: "systolic", value: systolic, unit: draft.unit, confidence: draft.confidence, rawText: raw, source: draft.source, sourceLineIndex: draft.sourceLineIndex),
+                    FieldDraft(key: "diastolic", value: diastolic, unit: draft.unit, confidence: draft.confidence, rawText: raw, source: draft.source, sourceLineIndex: draft.sourceLineIndex)]
+        }
+    }
 
     /// 文档类型键派生的共享键值（D 级默认，Picker 可改）：就诊/住院 `kind`、诊断 `diagnosis_type`、病理文档 `report_type`。
     static func derivedValue(for key: String, documentTypeKey: String) -> String? {
@@ -291,10 +345,11 @@ public enum CardTemplateMatcher {
 
     // MARK: - 单模板匹配
 
-    private static func matchOne(_ template: CardTemplate, fields: [FieldDraft], pageIndex: Int,
+    private static func matchOne(_ template: CardTemplate, fields incoming: [FieldDraft], pageIndex: Int,
                                  documentTypeKey: String?) -> MatchedCard? {
         let rules = CompletenessEvaluator.rules(for: template.kind)
         guard !rules.isEmpty, !template.mapping.isEmpty else { return nil }
+        let fields = expandedFields(for: template, fields: incoming)
         let ruleKeys = Set(rules.map(\.key))
         let requiredRules = rules.filter(\.isRequired)
 
@@ -488,13 +543,9 @@ public enum CardTemplateMatcher {
 
     /// 文档类型判定 → 就诊类型（v26 §C.1）：住院病案/出院小结 → inpatient；日间手术 → daySurgery；急诊病历 → emergency；
     /// 诊断证明/门诊病历及其余 → outpatient（住院族经 hospitalization 卡建就诊，就诊卡本身不在住院族文档上产出）。
+    /// v27：单一事实源 = `DocumentTypeKey.encounterKindHint`（主卡草稿 `ParentCardDraftRules` 同源）；无提示 → outpatient。
     static func encounterKind(for documentTypeKey: String) -> String {
-        switch documentTypeKey {
-        case "inpatient_record", "discharge_summary": return EncounterKind.inpatient.rawValue
-        case "day_surgery_record": return EncounterKind.daySurgery.rawValue
-        case "emergency_record": return EncounterKind.emergency.rawValue
-        default: return EncounterKind.outpatient.rawValue
-        }
+        (DocumentTypeKey(rawValue: documentTypeKey)?.encounterKindHint ?? .outpatient).rawValue
     }
 }
 
@@ -512,12 +563,16 @@ public struct HospitalSample: Sendable, Equatable {
     public var codeConceptId: String?
     /// v26（§C.5）：报告**打印**的 ↑↓/H/L 原文（A 级来源事实）——App 不计算、不解释、不据此提示（BR-004/012）。
     public var abnormalFlag: String?
+    /// v27（子项目 J）：体检一般检查投影点回指体检枢纽（`metric_sample.health_exam_id`）；检验行为 nil。
+    /// 意图内为 `HealthExam.id`（= 回执 row_id）；store `ensureHealthExam` 命中同文档既有体检时以其 id 覆盖。
+    public var healthExamId: UUID?
     public init(metricKey: String, rawLabel: String, value: Double, unit: String, measuredAt: Date,
                 refLow: Double? = nil, refHigh: Double? = nil, refSourceLabel: String? = nil,
-                codeConceptId: String? = nil, abnormalFlag: String? = nil) {
+                codeConceptId: String? = nil, abnormalFlag: String? = nil, healthExamId: UUID? = nil) {
         self.metricKey = metricKey; self.rawLabel = rawLabel; self.value = value; self.unit = unit
         self.measuredAt = measuredAt; self.refLow = refLow; self.refHigh = refHigh
         self.refSourceLabel = refSourceLabel; self.codeConceptId = codeConceptId; self.abnormalFlag = abnormalFlag
+        self.healthExamId = healthExamId
     }
 
     /// 文档页回链（`metric_sample.source_ref`）：`doc:<uuid>#p<index>`

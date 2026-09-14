@@ -62,7 +62,18 @@ public enum DocumentTypeClassifierFallback {
         .init(key: "pathology_report", keywords: [
             "病理", "镜下所见", "鏡下所見", "肉眼所见", "肉眼所見", "免疫组化", "免疫組化", "活检", "活檢", "Pathology", "Biopsy", "Microscopic",
         ]),
-        .init(key: "checkup_report", keywords: ["体检报告", "體檢報告", "健康体检", "健康體檢", "体检", "體檢", "Health Checkup", "Physical Examination Report"]),
+        .init(key: "checkup_report", keywords: ["体检报告", "體檢報告", "健康体检", "健康體檢", "体检", "體檢", "总检", "總檢", "健康指导", "健康指導",
+                                                "Health Checkup", "Physical Examination Report"]),
+        // v27（子项目 J / 原 D3 §C.8–§C.9）：手术记录与门诊治疗文书证据词——只用文书专有词（手术记录 / 术者 / 输液单…），
+        // 出院小结内的手术段按命中行数输给出院族，不夺主类。
+        .init(key: "surgery_record", keywords: [
+            "手术记录", "手術記錄", "手术名称", "手術名稱", "术者", "術者", "主刀", "术中所见", "術中所見", "手术经过", "手術經過",
+            "Operative Report", "Operation Record", "Surgery Record",
+        ]),
+        .init(key: "treatment_record", keywords: [
+            "输液记录", "輸液記錄", "输液单", "輸液單", "输液药物", "輸液藥物", "注射单", "注射單", "注射记录", "注射記錄",
+            "治疗记录", "治療記錄", "理疗记录", "理療記錄", "换药记录", "換藥記錄", "Infusion Record", "Treatment Record", "Injection Record",
+        ]),
     ]
 
     /// 分类：每类按命中行数计分（一行多词只计一次），主类=最高分；
@@ -298,12 +309,25 @@ public extension DocumentTypeClassifierFallback {
                 let printed = suffix.trimmingCharacters(in: .whitespaces)
                 if !printed.isEmpty {
                     for (key, prefixes) in ClinicalFieldLabels.prefixAliases where prefixes.contains(where: text.hasPrefix) {
+                        // v27 体检一般检查「数值 单位」拆值/单位槽位（同 lab_item 纪律；拆不开整段原文保留，不换算——BR-006/007）
+                        if ClinicalFieldLabels.generalExamKeys.contains(key), let split = ClinicalFieldLabels.splitNumberUnit(printed),
+                           !fields.contains(where: { $0.key == key }) {
+                            fields.append(FieldDraft(key: key, value: split.value, unit: split.unit, confidence: min(0.6, measuredConfidence),
+                                                     rawText: line, source: .heuristic, sourceLineIndex: index))
+                            continue
+                        }
                         append(key, OCRGrounding.normalized(printed, key: key))
                     }
                     // 诊断标签行 → 诊断行（diagnosis_item）+ 标签自带的类型（主/次/入院/出院…）；病理诊断留在 impression，不自动成行（§C.4）。
                     if let diagnosis = ClinicalFieldLabels.diagnosisLabel(prefixOf: text), diagnosis.type != "pathology" {
                         append("diagnosis_item", printed)
                         if let type = diagnosis.type { append("diagnosis_type", type) }
+                    }
+                    // v27 结论标签行（检验结论 / 检查结论 / 异常发现 / 复查建议 / 就医建议）→ 结论行 + 标签自带类型；
+                    // 总检结论 / 健康建议归首页叙事键（overall_conclusion / health_guidance），不重复成行。
+                    if let conclusion = ClinicalFieldLabels.conclusionLabel(prefixOf: text) {
+                        append("conclusion_item", printed)
+                        append("conclusion_type", conclusion.type)
                     }
                 }
             }
@@ -327,6 +351,10 @@ public extension DocumentTypeClassifierFallback {
                 append("item_type", OCRGrounding.normalized("收据", key: "item_type"))
             }
             if fields.contains(where: { $0.key == "amount" }) {
+                fields.removeAll { $0.key == "lab_item" || $0.key == "reference_range" }
+            }
+            // v27：显式标注为体检一般检查（身高 / 体重 / 血压 / 脉搏 / 腰围…）的行不是检验项目——防同一体重既成 lab.体重 又成 weight 双投影。
+            if fields.contains(where: { ClinicalFieldLabels.generalExamKeys.contains($0.key) }) {
                 fields.removeAll { $0.key == "lab_item" || $0.key == "reference_range" }
             }
             if fields.isEmpty {

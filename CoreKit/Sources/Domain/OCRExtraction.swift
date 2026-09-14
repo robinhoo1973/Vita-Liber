@@ -40,12 +40,21 @@ public enum OCRGrounding {
         // v26 检验表头 + 定性行（§C.5）；collect_time/report_time 为 collected_at/reported_at 的理解层别名
         "specimen_type", "specimen_no", "lab_name", "test_class", "collected_at", "collect_time", "received_at", "report_time",
         "send_doctor", "test_doctor", "abnormal_flag", "reference_text", "method",
+        // v27 体检首页（子项目 J §E.1）：一般检查为打印原文（blood_pressure「128/82」由匹配器拆 systolic/diastolic）
+        "org_name", "exam_no", "package_name", "exam_date", "total_doctor",
+        "height", "weight", "bmi", "blood_pressure", "systolic", "diastolic", "pulse", "waist", "vision_left", "vision_right",
+        "overall_conclusion", "health_guidance",
+        // v27 结论行：severity 为打印原文，不编码（BR-004/012）
+        "conclusion_item", "conclusion_type", "severity",
+        // v27 手术记录（§C.8）：编码 / 级别 / 植入物 / 出血量等只存打印文本
+        "surgery_at", "ended_at", "surgery_name", "surgery_code", "surgery_level", "surgeon", "assistants", "anesthesiologist", "anesthesia_method",
+        "preop_diagnosis", "postop_diagnosis", "procedure_course", "intraop_findings", "implants", "specimen", "blood_loss", "transfusion", "drainage",
+        "postop_orders", "complications",
+        // v27 治疗记录（§C.9）：drugs_text 原文不拆行
+        "treatment_type", "treated_at", "executor", "content", "drugs_text", "session", "adverse_reaction", "result",
     ]
-    public static let documentTypes: Set<String> = [
-        "prescription", "lab_report", "outpatient_record", "diagnosis_certificate", "vaccine_record", "invoice", "medication_label",
-        // v26（§C.10 分类学中 D2 卡类所需的键；D3-2 定稿全部 25 类）
-        "inpatient_record", "discharge_summary", "day_surgery_record", "emergency_record", "exam_report", "pathology_report", "checkup_report",
-    ]
+    /// 文档类型稳定键 = `DocumentTypeKey` 全部 27 case（v27 定稿；单一事实源在枚举）。
+    public static let documentTypes: Set<String> = Set(DocumentTypeKey.allCases.map(\.rawValue))
     /// 叙事键：只接受整行或「已知标签：值」剥离，模型不得摘要/截断/改写（BR-002/003）。
     private static let narrativeKeys: Set<String> = [
         "diagnosis", "chief_complaint", "treatment", "advice_text", "summary",
@@ -54,6 +63,9 @@ public enum OCRGrounding {
         // v26 住院/检查叙事列（§C.2/§C.4）：原文保存，App 不摘要不改写；带药只存原文（BR-006）
         "admit_diagnosis", "discharge_diagnosis", "admit_condition", "treatment_course", "discharge_condition", "discharge_orders", "take_home_drugs",
         "findings", "impression", "exam_part", "exam_method",
+        // v27 体检 / 结论 / 手术 / 治疗叙事（子项目 J）：结论与药物原文整段，不摘要（BR-003/006）
+        "overall_conclusion", "health_guidance", "conclusion_item", "content",
+        "procedure_course", "intraop_findings", "postop_orders", "complications", "drugs_text", "adverse_reaction",
     ]
     private static let numericKeys: Set<String> = [
         "amount", "dose_number", "quantity", "days", "reimbursed_amount", "out_of_pocket",
@@ -120,6 +132,10 @@ public enum OCRGrounding {
         // 未命中原样透传，由 invalidFields 交用户复核（Picker 可改）。
         if key == "report_type", let type = ClinicalFieldLabels.reportType(forValue: value) { return type }
         if key == "diagnosis_type", let type = ClinicalFieldLabels.diagnosisType(forLabel: value) { return type }
+        // v27：结论类型 / 治疗类型 → canonical raw（clinical_conclusion.conclusion_type / treatment_record.treatment_type CHECK）。
+        // `severity` 刻意不在此归一——打印原文入库（BR-004/012）。
+        if key == "conclusion_type", let type = ClinicalFieldLabels.conclusionType(forLabel: value) { return type }
+        if key == "treatment_type", let type = ClinicalFieldLabels.treatmentType(forValue: value) { return type }
         return value
     }
 

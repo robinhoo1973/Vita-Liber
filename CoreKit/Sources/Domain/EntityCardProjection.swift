@@ -120,6 +120,9 @@ public enum EntityCardProjection {
         "hospitalization": ["admit_at", "discharge_at", "summary_date"],
         "diagnosis": ["diagnosed_at"],
         "exam_report": ["exam_at", "reported_at"],
+        // v27（子项目 J）：体检报告日期 / 手术结束时间——出现即须可解析
+        "health_exam": ["report_date"],
+        "surgery": ["ended_at"],
     ]
     /// `hospitalization` 卡派生就诊类型的许可集（§C.2：kind ∈ inpatient/daySurgery）。
     static let hospitalizationKinds: Set<String> = [EncounterKind.inpatient.rawValue, EncounterKind.daySurgery.rawValue]
@@ -298,6 +301,17 @@ public enum EntityCardProjection {
             for face in [shared, values] {
                 if let type = face["diagnosis_type"], !Diagnosis.diagnosisTypes.contains(type) { invalid.insert("diagnosis_type") }
             }
+        }
+        // v27（子项目 J）：结论类型 / 治疗类型 CHECK 枚举；治疗 content | drugs_text 二择一（形态同 exam_report impression ?? findings）。
+        // severity 为打印原文，不校验不归一（BR-004/012）。
+        if card.kind == "clinical_conclusion" {
+            for face in [shared, values] {
+                if let type = face["conclusion_type"], !ClinicalConclusion.conclusionTypes.contains(type) { invalid.insert("conclusion_type") }
+            }
+        }
+        if card.kind == "treatment_record" {
+            if let type = shared["treatment_type"], !TreatmentRecord.treatmentTypes.contains(type) { invalid.insert("treatment_type") }
+            if shared["content"] == nil, shared["drugs_text"] == nil { invalid.insert("content") }
         }
         if card.kind == "metric_sample",
            let low = values["ref_low"].flatMap(Double.init), let high = values["ref_high"].flatMap(Double.init), low > high {
