@@ -257,7 +257,14 @@ public enum CardExtractionFactory: EngineFactory {
     public typealias Capability = CardExtractionRegistry
     public static var onDeviceOnly: Bool { true }
     public static func make(_ context: EngineContext) -> CardExtractionRegistry {
-        CardExtractionRegistry(engines: [RuleExtractionEngine()])
+        var engines: [any CardExtractionEngine] = []
+        #if canImport(FoundationModels)
+        if #available(iOS 26, macOS 26, *) {
+            engines.append(FoundationModelsExtractionEngine())
+        }
+        #endif
+        engines.append(RuleExtractionEngine())
+        return CardExtractionRegistry(engines: engines)
     }
 }
 
