@@ -287,10 +287,11 @@ final class M15AcceptanceTests: XCTestCase {
     /// 数据保留 + 外键清单含 plan_id → medication_plan（§11 清偿项）
     func test_v13_doseLog_重建补FK() async throws {
         let queue = try DatabaseQueue(configuration: GRDBStore.configuration())
-        // 合成 v12 老库必须覆盖 pending 链（v13→v16）会触碰的全部表：
+        // 合成 v12 老库必须覆盖 pending 链（v13→latest）会触碰的全部表：
         // v13 代码迁移重建 dose_log、v14 需 metric_sample 增列、v15 代码迁移
         // 重算逻辑 id、v16 需 medication_plan（dose_plan_units 归一）与
-        // alert_event（索引创建）——任一缺表即整链失败。
+        // alert_event（索引创建）、v25/v26 增列（下方注释）、v27 对 appointment/reminder
+        // 增列——任一缺表即整链失败（ALTER 在缺表上抛 no such table）。
         // 此行带 user_action='taken' 以在 v15 后存活（数据保留断言的前提）；
         // plan_id 指向不存在的计划——验证孤儿行在 FK-off 重建中不被丢弃
         // （CI 34020363188 实证：旧事务内重建会即时触发 FK 违规）。
@@ -363,6 +364,21 @@ final class M15AcceptanceTests: XCTestCase {
                   encounter_id TEXT REFERENCES encounter(id), document_file_id TEXT REFERENCES document_file(id),
                   item_type TEXT NOT NULL, amount REAL, currency TEXT DEFAULT 'CNY', date REAL, merchant TEXT,
                   summary TEXT, confirmed INTEGER NOT NULL DEFAULT 0, created_at REAL NOT NULL, updated_at REAL NOT NULL);
+                -- v27 card-hierarchy 对 appointment/reminder 增列（encounter_id/purpose、source_table/source_id）——两表 v12 期
+                -- 形态 = 基线去掉 v27 增列（appointment 的 source/items_to_bring/notes 已由 v8 补齐；reminder v1 起未变）。
+                -- v27 另触碰的 lab_report/exam_report 由链上 v26 自建、metric_sample/document_file/ocr_card_commit 已在（J1 落地时补齐）。
+                CREATE TABLE appointment (
+                  id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+                  hospital TEXT, department TEXT, doctor TEXT,
+                  starts_at REAL NOT NULL, address TEXT, booking_no TEXT,
+                  status TEXT NOT NULL DEFAULT 'scheduled', cancel_reason TEXT, rescheduled_from TEXT,
+                  source TEXT, items_to_bring TEXT, notes TEXT,
+                  created_at REAL NOT NULL, updated_at REAL NOT NULL);
+                CREATE TABLE reminder (
+                  id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+                  kind TEXT NOT NULL, title TEXT NOT NULL, at_date REAL NOT NULL, repeats TEXT,
+                  status TEXT NOT NULL DEFAULT 'active', source TEXT NOT NULL DEFAULT 'manual', channel_pref TEXT,
+                  created_at REAL NOT NULL, updated_at REAL NOT NULL);
                 INSERT INTO medication_dose_log (id, plan_id, scheduled_for, delivery_state,
                                                 user_action, delivered_at, acted_at)
                   VALUES ('legacy-dose-1', 'orphan-plan', 1, 'delivered', 'taken', 1, 1);

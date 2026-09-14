@@ -774,4 +774,187 @@ struct SchemaV26GoldenTests {
         }
     }
 }
+
+// binds: SU-M0-GOLDEN — 子项目 J · J1：v26→v27 `card-hierarchy` 老库逐步升级金样
+// （discussions/2026-09-14-card-hierarchy-round1 §E.1/§E.7 V1/V2；recognition-remediation-design §0.4；并入原 D3 §C.8–C.10）。
+// GRDB 平台边界：仅 iOS/macOS 执行；Linux 侧由 .github/workflows/test-schema-integrity.py 以 sqlite3 复核同一 v27 SQL 步。
+// 夹具 schema_v26_baseline.sql = 改基线**之前**从 HEAD b856208 冻结的 SchemaV2.ddl 全文。
+// v27 为表重建步（ocr_card_commit 第三次重建扩 card_kind/entity_table 枚举）：runner default 路径按步级声明走
+// applyTransactional（DDL/搬运 + PRAGMA foreign_key_check(ocr_card_commit) + 版本推进同一事务）；无代码回填。
+@Suite("SU-M0-GOLDEN · v26→v27 老库逐步升级 = 全新库基线 / 视图 / 结论三择一 CHECK")
+struct SchemaV27GoldenTests {
+    static let fixture = Bundle.module.bundlePath + "/Fixtures/schema_v26_baseline.sql"
+    static let tables = ["health_exam", "clinical_conclusion", "surgery", "treatment_record", "lab_report", "exam_report",
+                         "metric_sample", "appointment", "reminder", "ocr_card_commit", "document_file"]
+
+    struct Legacy {
+        let queue: DatabaseQueue
+        let patient: UUID
+        let document: UUID
+    }
+
+    /// v26 老库：冻结基线 + `PRAGMA user_version = 26` + 一位成员 / 一份文档 / 第 0 页 / 一条 v26 形态回执（entity_table 已存在）。
+    static func legacyDatabase() throws -> Legacy {
+        let queue = try DatabaseQueue(configuration: GRDBStore.configuration())
+        let patient = UUID(), document = UUID()
+        let ddl = String(decoding: try Data(contentsOf: URL(fileURLWithPath: Self.fixture)), as: UTF8.self)
+        try queue.write { db in
+            try db.execute(sql: ddl)
+            try db.execute(sql: "PRAGMA user_version = 26")
+            try db.execute(sql: "INSERT INTO patient_profile (id, display_name, relation, created_at, updated_at) VALUES (?, 'A', 'self', 0, 0)",
+                           arguments: [patient.uuidString])
+            try db.execute(sql: """
+                INSERT INTO document_file (id, patient_id, doc_type, sha256, mime_type, origin, created_at, updated_at)
+                VALUES (?, ?, '处方单', 'h', 'image/png', 'import', 0, 0)
+                """, arguments: [document.uuidString, patient.uuidString])
+            try db.execute(sql: "INSERT INTO document_page (id, document_file_id, page_index, created_at) VALUES (?, ?, 0, 0)",
+                           arguments: [UUID().uuidString, document.uuidString])
+            // v26 形态回执（entity_table = card_kind）——第三次重建搬运必须无损
+            try db.execute(sql: """
+                INSERT INTO prescription (id, patient_id, document_file_id, source, prescribed_at, confirmed, created_at, updated_at)
+                VALUES ('rx', ?, ?, 'ocr', 1, 1, 0, 0)
+                """, arguments: [patient.uuidString, document.uuidString])
+            try db.execute(sql: """
+                INSERT INTO ocr_card_commit (card_id, row_id, patient_id, document_file_id, page_index, card_kind, entity_table, entity_id, created_at)
+                VALUES ('c', 'r', ?, ?, 0, 'prescription', 'prescription', 'rx', 5)
+                """, arguments: [patient.uuidString, document.uuidString])
+            // 既有 v26 检验表头：新列 report_source/health_exam_id 升级后为 NULL（v27 前未标注，不回填）
+            try db.execute(sql: """
+                INSERT INTO lab_report (id, patient_id, document_file_id, hospital, report_no, collected_at, reported_at, source, confirmed, created_at, updated_at)
+                VALUES ('lr0', ?, ?, '仁济医院', 'L-1', 100, 200, 'ocr', 1, 0, 0)
+                """, arguments: [patient.uuidString, document.uuidString])
+        }
+        return Legacy(queue: queue, patient: patient, document: document)
+    }
+
+    @Test func 逐表列集一致且回执搬运无损() throws {
+        let legacy = try Self.legacyDatabase()
+        _ = try GRDBStore(writer: legacy.queue)          // 老库 v26 → v27（applyTransactional）
+        let fresh = try GRDBStore.inMemory()             // 全新库直达基线
+        for table in Self.tables {
+            let upgraded = try legacy.queue.read { try SchemaV25GoldenTests.columns($0, table) }
+            let baseline = try fresh.writer.read { try SchemaV25GoldenTests.columns($0, table) }
+            #expect(upgraded == baseline, "\(table) 列集：老库逐步升级 ≠ 全新库基线")
+        }
+        try legacy.queue.read { db in
+            #expect(try Int.fetchOne(db, sql: "PRAGMA user_version") == SchemaMigrations.latestVersion)
+            #expect(SchemaMigrations.latestVersion >= 27, "v27 card-hierarchy 步必须已登记")
+            #expect(try Int.fetchOne(db, sql: "PRAGMA foreign_keys") == 1, "迁移后外键必须复位开启")
+            #expect(try Row.fetchAll(db, sql: "PRAGMA foreign_key_check(ocr_card_commit)").isEmpty)
+            #expect(try Row.fetchOne(db, sql: "SELECT * FROM ocr_card_commit WHERE card_id = 'c'")?["entity_table"] as String? == "prescription",
+                    "回执搬运无损（entity_table 原值，不再等于 card_kind 推断）")
+            #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM ocr_card_commit") == 1, "重建不得丢行")
+            #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'ocr_card_commit_v26'") == 0, "旧表已 DROP")
+            #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM sqlite_master WHERE type = 'view' AND name = 'v_clinical_report'") == 1)
+            let idx = try Row.fetchAll(db, sql: "PRAGMA index_info(idx_document_patient_type)").map { $0["name"] as String }
+            #expect(idx == ["patient_id", "doc_type_key", "created_at"], "D3-1：文档类型索引改稳定键")
+            let header = try #require(try Row.fetchOne(db, sql: "SELECT report_source, health_exam_id FROM lab_report WHERE id = 'lr0'"))
+            #expect(header["report_source"] as String? == nil && header["health_exam_id"] as String? == nil, "既有表头新列 NULL，不回填")
+            // 视图对既有表头：report_source 缺失且无体检外键 → NULL（读侧按 encounter 推断呈现，不回写）
+            let projected = try #require(try Row.fetchOne(db, sql: "SELECT * FROM v_clinical_report WHERE report_id = 'lr0'"))
+            #expect(projected["report_type"] as String == "lab" && projected["report_source"] as String? == nil
+                    && projected["report_date"] as Double? == 100 && projected["report_no"] as String? == "L-1")
+            // 视图定义与全新库同文（去空白）：老库与全新库读模型不得漂移
+            let viewSQL = try String.fetchOne(db, sql: "SELECT sql FROM sqlite_master WHERE type = 'view' AND name = 'v_clinical_report'")
+            let freshViewSQL = try fresh.writer.read { try String.fetchOne($0, sql: "SELECT sql FROM sqlite_master WHERE type = 'view' AND name = 'v_clinical_report'") }
+            #expect(viewSQL?.filter { !$0.isWhitespace } == freshViewSQL?.filter { !$0.isWhitespace }, "v_clinical_report 老库与全新库视图定义漂移")
+        }
+        _ = try GRDBStore(writer: legacy.queue)          // 二次装配幂等：版本已最新，零语句
+        #expect(try legacy.queue.read { try Int.fetchOne($0, sql: "PRAGMA user_version") } == SchemaMigrations.latestVersion)
+    }
+
+    @Test func 结论三外键恰一非空与新枚举生效() throws {
+        let fresh = try GRDBStore.inMemory()
+        try fresh.writer.write { db in
+            try db.execute(sql: "INSERT INTO patient_profile (id, display_name, relation, created_at, updated_at) VALUES ('p', 'A', 'self', 0, 0)")
+            try db.execute(sql: "INSERT INTO encounter (id, patient_id, date, kind, created_at, updated_at) VALUES ('e', 'p', 0, 'outpatient', 0, 0)")
+            try db.execute(sql: """
+                INSERT INTO health_exam (id, patient_id, org_name, exam_no, exam_date, weight_text, source, confirmed, created_at, updated_at)
+                VALUES ('h', 'p', '体检中心', 'TJ001', 1, '65.5', 'ocr', 1, 0, 0)
+                """)
+            try db.execute(sql: """
+                INSERT INTO clinical_conclusion (id, patient_id, health_exam_id, conclusion_type, content, severity_text, ordinal, created_at)
+                VALUES ('c1', 'p', 'h', 'health_exam_summary', '血脂偏高', '关注', 0, 0)
+                """)
+            #expect(throws: DatabaseError.self, "两外键同时非空必须被 CHECK 拒绝") {
+                try db.execute(sql: "INSERT INTO clinical_conclusion (id, patient_id, health_exam_id, lab_report_id, conclusion_type, content, ordinal, created_at) VALUES ('c2', 'p', 'h', 'h', 'lab', 'x', 0, 0)")
+            }
+            #expect(throws: DatabaseError.self, "全空必须被 CHECK 拒绝") {
+                try db.execute(sql: "INSERT INTO clinical_conclusion (id, patient_id, conclusion_type, content, ordinal, created_at) VALUES ('c3', 'p', 'lab', 'x', 0, 0)")
+            }
+            #expect(throws: DatabaseError.self, "severity 之外的编码列不存在；conclusion_type 枚举外值被拒") {
+                try db.execute(sql: "INSERT INTO clinical_conclusion (id, patient_id, health_exam_id, conclusion_type, content, ordinal, created_at) VALUES ('c4', 'p', 'h', 'critical', 'x', 0, 0)")
+            }
+            // 成员隔离：四张新表 patient_id 悬空被拒
+            let ghosts = [
+                "INSERT INTO health_exam (id, patient_id, source, created_at, updated_at) VALUES ('h9', 'ghost', 'ocr', 0, 0)",
+                "INSERT INTO clinical_conclusion (id, patient_id, health_exam_id, conclusion_type, content, created_at) VALUES ('c9', 'ghost', 'h', 'lab', 'x', 0)",
+                "INSERT INTO surgery (id, patient_id, surgery_name, source, created_at, updated_at) VALUES ('s9', 'ghost', 'X', 'ocr', 0, 0)",
+                "INSERT INTO treatment_record (id, patient_id, treatment_type, source, created_at, updated_at) VALUES ('t9', 'ghost', 'infusion', 'ocr', 0, 0)",
+            ]
+            for sql in ghosts {
+                #expect(throws: DatabaseError.self, "\(sql)") { try db.execute(sql: sql) }
+            }
+            // report_source / appointment.purpose / treatment_type CHECK 枚举；悬空 encounter_id / health_exam_id 被拒
+            #expect(throws: DatabaseError.self) {
+                try db.execute(sql: "INSERT INTO lab_report (id, patient_id, report_source, source, created_at, updated_at) VALUES ('lr8', 'p', 'bogus', 'ocr', 0, 0)")
+            }
+            #expect(throws: DatabaseError.self) {
+                try db.execute(sql: "INSERT INTO exam_report (id, patient_id, report_type, health_exam_id, source, created_at, updated_at) VALUES ('x8', 'p', 'ct', 'missing', 'ocr', 0, 0)")
+            }
+            #expect(throws: DatabaseError.self) {
+                try db.execute(sql: "INSERT INTO appointment (id, patient_id, starts_at, purpose, created_at, updated_at) VALUES ('a8', 'p', 0, 'bogus', 0, 0)")
+            }
+            #expect(throws: DatabaseError.self) {
+                try db.execute(sql: "INSERT INTO appointment (id, patient_id, starts_at, encounter_id, created_at, updated_at) VALUES ('a9', 'p', 0, 'missing', 0, 0)")
+            }
+            #expect(throws: DatabaseError.self) {
+                try db.execute(sql: "INSERT INTO treatment_record (id, patient_id, treatment_type, source, created_at, updated_at) VALUES ('t8', 'p', 'bogus', 'ocr', 0, 0)")
+            }
+            // 合法写入：报告来源 + 体检外键、预约挂就诊、提醒多态来源（无 FK）、手术/治疗、回执新枚举
+            try db.execute(sql: "INSERT INTO lab_report (id, patient_id, health_exam_id, hospital, collected_at, source, confirmed, created_at, updated_at) VALUES ('lr1', 'p', 'h', '体检中心', 1, 'ocr', 1, 0, 0)")
+            try db.execute(sql: "INSERT INTO exam_report (id, patient_id, encounter_id, report_type, report_source, hospital, exam_at, source, confirmed, created_at, updated_at) VALUES ('x1', 'p', 'e', 'ct', 'outpatient', '市一院', 3, 'ocr', 1, 0, 0)")
+            try db.execute(sql: "INSERT INTO metric_sample (id, patient_id, metric_key, value, unit, origin, self_measured, measured_at, created_at, health_exam_id) VALUES ('m1', 'p', 'weight', 65.5, 'kg', 'hospital', 0, 1, 0, 'h')")
+            try db.execute(sql: "INSERT INTO appointment (id, patient_id, starts_at, encounter_id, purpose, created_at, updated_at) VALUES ('a1', 'p', 9, 'e', 'followUp', 0, 0)")
+            try db.execute(sql: "INSERT INTO reminder (id, patient_id, kind, title, at_date, source_table, source_id, created_at, updated_at) VALUES ('rm1', 'p', 'followUp', '复诊', 9, 'encounter', 'e', 0, 0)")
+            try db.execute(sql: "INSERT INTO surgery (id, patient_id, encounter_id, surgery_at, surgery_name, surgery_level_text, source, confirmed, created_at, updated_at) VALUES ('s1', 'p', 'e', 4, '腹腔镜胆囊切除术', '三级', 'ocr', 1, 0, 0)")
+            try db.execute(sql: "INSERT INTO treatment_record (id, patient_id, encounter_id, treatment_type, treated_at, drugs_text, source, confirmed, created_at, updated_at) VALUES ('t1', 'p', 'e', 'infusion', 5, '0.9% 氯化钠 250ml', 'ocr', 1, 0, 0)")
+            try db.execute(sql: "INSERT INTO document_file (id, patient_id, doc_type, sha256, mime_type, origin, created_at, updated_at) VALUES ('d', 'p', '体检报告', 'h', 'image/png', 'import', 0, 0)")
+            try db.execute(sql: "INSERT INTO document_page (id, document_file_id, page_index, created_at) VALUES ('pg', 'd', 0, 0)")
+            for (kind, entity) in [("health_exam", "h"), ("clinical_conclusion", "c1"), ("surgery", "s1"), ("treatment_record", "t1")] {
+                try db.execute(sql: "INSERT INTO ocr_card_commit (card_id, row_id, patient_id, document_file_id, page_index, card_kind, entity_table, entity_id, created_at) VALUES (?, 'r0', 'p', 'd', 0, ?, ?, ?, 0)",
+                               arguments: ["c-\(kind)", kind, kind, entity])
+            }
+            #expect(throws: DatabaseError.self, "回执 card_kind 枚举外值被拒") {
+                try db.execute(sql: "INSERT INTO ocr_card_commit (card_id, row_id, patient_id, document_file_id, page_index, card_kind, entity_table, entity_id, created_at) VALUES ('c9', 'r0', 'p', 'd', 0, 'bogus', 'health_exam', 'h', 0)")
+            }
+            #expect(try Row.fetchAll(db, sql: "PRAGMA foreign_key_check").isEmpty)
+            // 视图 UNION 三源：体检行 report_source/health_exam_id = 自身；体检子检验推断 'health_exam' 且不回写；检查行带 encounter
+            let row = try #require(try Row.fetchOne(db, sql: "SELECT * FROM v_clinical_report WHERE report_id = 'h'"))
+            #expect(row["report_type"] as String == "health_exam" && row["report_source"] as String == "health_exam" && row["health_exam_id"] as String == "h")
+            #expect(row["org_name"] as String? == "体检中心" && row["report_no"] as String? == "TJ001" && row["report_date"] as Double? == 1)
+            let lab = try #require(try Row.fetchOne(db, sql: "SELECT * FROM v_clinical_report WHERE report_id = 'lr1'"))
+            #expect(lab["report_type"] as String == "lab" && lab["report_source"] as String? == "health_exam" && lab["health_exam_id"] as String? == "h")
+            #expect(try String.fetchOne(db, sql: "SELECT report_source FROM lab_report WHERE id = 'lr1'") == nil, "视图推断不回写物理列")
+            let exam = try #require(try Row.fetchOne(db, sql: "SELECT * FROM v_clinical_report WHERE report_id = 'x1'"))
+            #expect(exam["report_type"] as String == "exam" && exam["report_source"] as String? == "outpatient" && exam["encounter_id"] as String? == "e")
+            #expect(try String.fetchAll(db, sql: "SELECT report_id FROM v_clinical_report ORDER BY report_type, report_id") == ["x1", "h", "lr1"])
+            // 红线（BR-004/012）：结论只存打印文本 severity_text，无 critical/triage/severity_level 编码列；体检一般检查为 *_text 原文（BR-006）
+            let conclusionColumns = try Row.fetchAll(db, sql: "PRAGMA table_info(clinical_conclusion)").map { ($0["name"] as String, $0["type"] as String) }
+            #expect(conclusionColumns.contains { $0.0 == "severity_text" && $0.1 == "TEXT" })
+            for table in ["health_exam", "clinical_conclusion", "surgery", "treatment_record"] {
+                let names = try String.fetchAll(db, sql: "SELECT name FROM pragma_table_info(?)", arguments: [table])
+                #expect(!names.contains { $0.contains("critical") || $0.contains("triage") || $0 == "severity_level" || $0 == "severity" || $0 == "report_status" }, "\(table): \(names)")
+            }
+            let examTypes = Dictionary(uniqueKeysWithValues: try Row.fetchAll(db, sql: "PRAGMA table_info(health_exam)").map { ($0["name"] as String, $0["type"] as String) })
+            for column in ["height_text", "weight_text", "bmi_text", "systolic_text", "diastolic_text", "pulse_text", "waist_text", "vision_left_text", "vision_right_text"] {
+                #expect(examTypes[column] == "TEXT", column)
+            }
+            // reminder.source_* 多态引用无 FK（白名单由 store 校验）；treatment_record 不 FK prescription_line/medication（drugs_text 原文不拆行）
+            #expect(Set(try Row.fetchAll(db, sql: "PRAGMA foreign_key_list(reminder)").map { $0["table"] as String }) == ["patient_profile"])
+            #expect(Set(try Row.fetchAll(db, sql: "PRAGMA foreign_key_list(treatment_record)").map { $0["table"] as String })
+                    == ["patient_profile", "encounter", "document_file", "allergy_event"])
+        }
+    }
+}
 #endif

@@ -32,7 +32,7 @@ public enum SchemaMigrations {
         /// 具体版本号）。默认 false（走语句级幂等路径）。
         public let transactional: Bool
         /// transactional 步提交前必须通过 `PRAGMA foreign_key_check` 的表
-        /// （nil = 不校验）。使用者：v23 与 v25（ocr_card_commit 重建后校验
+        /// （nil = 不校验）。使用者：v23 / v25 / v27（ocr_card_commit 三次重建后校验
         /// 搬运无损）；校验失败抛 `OCRCardStore.StoreError.corruptReceipt`。
         public let fkCheckTable: String?
         public init(version: Int, name: String, sql: String, transactional: Bool = false, fkCheckTable: String? = nil) {
@@ -645,6 +645,130 @@ public enum SchemaMigrations {
                  SELECT 1 FROM ocr_card_commit c JOIN lab_report l ON l.source_card_id = c.card_id
                  WHERE c.entity_id = metric_sample.id AND c.entity_table = 'metric_sample' AND c.patient_id = metric_sample.patient_id);
              """),
+        // v27：card-hierarchy（discussions/2026-09-14-card-hierarchy-round1 §E / recognition-remediation-design §0.4；并入原 D3 §C.8–C.10）——
+        // 体检枢纽 health_exam、统一结论 clinical_conclusion、手术/治疗记录、报告来源与体检外键、预约/提醒挂接列、
+        // 文档类型索引改稳定键、统一报告头视图；ocr_card_commit 第三次重建扩 card_kind/entity_table 枚举
+        //（v25 形态 RENAME→CREATE→INSERT SELECT→DROP→索引，transactional + fkCheckTable，runner 按步级声明走 applyTransactional；
+        // v25 注释曾预期 v26/v27 不再重建——§0.4 改判新增两卡类致此次重建，历史步注释按纪律不改）。
+        // 幂等：IF NOT EXISTS / addColumnParts 守卫 / DROP INDEX IF EXISTS；无回填（doc_type_key 由 App 层首启任务反查三语标签，J4；
+        // report_source/health_exam_id 旧行 NULL = v27 前未标注，读侧经视图 COALESCE 推断呈现、不回写）。
+        // 语句顺序即依赖顺序：health_exam 先建（三处 health_exam_id 外键指向它）→ 增列 → 视图（其 SELECT 列已齐）→ 回执重建。
+        // 视图正文与 SchemaV2.ddl 同文（金样比对 sqlite_master 去空白相等），正文内无分号、无 -- 注释。
+        Step(version: 27, name: "card-hierarchy",
+             sql: """
+             CREATE TABLE IF NOT EXISTS health_exam (
+               id TEXT PRIMARY KEY,
+               patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+               document_file_id TEXT REFERENCES document_file(id),
+               org_name TEXT, exam_no TEXT, package_name TEXT,
+               exam_date REAL, total_doctor TEXT, report_date REAL,
+               height_text TEXT, weight_text TEXT, bmi_text TEXT,
+               systolic_text TEXT, diastolic_text TEXT, pulse_text TEXT, waist_text TEXT,
+               vision_left_text TEXT, vision_right_text TEXT,
+               overall_conclusion TEXT, health_guidance TEXT,
+               source TEXT NOT NULL CHECK(source IN ('ocr','manual')),
+               confirmed INTEGER NOT NULL DEFAULT 0,
+               created_at REAL NOT NULL, updated_at REAL NOT NULL);
+             CREATE INDEX IF NOT EXISTS idx_health_exam_patient_time ON health_exam(patient_id, exam_date DESC);
+             ALTER TABLE lab_report ADD COLUMN report_source TEXT CHECK(report_source IN ('outpatient','emergency','inpatient','health_exam') OR report_source IS NULL);
+             ALTER TABLE lab_report ADD COLUMN health_exam_id TEXT REFERENCES health_exam(id);
+             ALTER TABLE exam_report ADD COLUMN report_source TEXT CHECK(report_source IN ('outpatient','emergency','inpatient','health_exam') OR report_source IS NULL);
+             ALTER TABLE exam_report ADD COLUMN health_exam_id TEXT REFERENCES health_exam(id);
+             ALTER TABLE metric_sample ADD COLUMN health_exam_id TEXT REFERENCES health_exam(id);
+             CREATE TABLE IF NOT EXISTS clinical_conclusion (
+               id TEXT PRIMARY KEY,
+               patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+               lab_report_id TEXT REFERENCES lab_report(id),
+               exam_report_id TEXT REFERENCES exam_report(id),
+               health_exam_id TEXT REFERENCES health_exam(id),
+               conclusion_type TEXT NOT NULL
+                 CHECK(conclusion_type IN ('lab','exam','health_exam_summary','abnormal_finding','health_advice','recheck_advice','visit_advice')),
+               content TEXT NOT NULL,
+               severity_text TEXT,
+               ordinal INTEGER NOT NULL DEFAULT 0,
+               source_page INTEGER, source_row_id TEXT,
+               created_at REAL NOT NULL,
+               CHECK((lab_report_id IS NOT NULL) + (exam_report_id IS NOT NULL) + (health_exam_id IS NOT NULL) = 1));
+             CREATE INDEX IF NOT EXISTS idx_clinical_conclusion_health_exam ON clinical_conclusion(health_exam_id, ordinal);
+             CREATE INDEX IF NOT EXISTS idx_clinical_conclusion_lab ON clinical_conclusion(lab_report_id, ordinal);
+             CREATE INDEX IF NOT EXISTS idx_clinical_conclusion_exam ON clinical_conclusion(exam_report_id, ordinal);
+             CREATE TABLE IF NOT EXISTS surgery (
+               id TEXT PRIMARY KEY,
+               patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+               encounter_id TEXT REFERENCES encounter(id),
+               document_file_id TEXT REFERENCES document_file(id),
+               hospital TEXT, department TEXT,
+               surgery_at REAL, ended_at REAL,
+               surgery_name TEXT NOT NULL, surgery_code_text TEXT, surgery_level_text TEXT,
+               surgeon TEXT, assistants TEXT, anesthesiologist TEXT, anesthesia_method TEXT,
+               preop_diagnosis_text TEXT, postop_diagnosis_text TEXT,
+               procedure_course TEXT, intraop_findings TEXT,
+               implants_text TEXT, specimen_text TEXT, blood_loss_text TEXT, transfusion_text TEXT, drainage_text TEXT,
+               postop_orders TEXT, complications_text TEXT,
+               source TEXT NOT NULL CHECK(source IN ('ocr','manual')),
+               confirmed INTEGER NOT NULL DEFAULT 0,
+               created_at REAL NOT NULL, updated_at REAL NOT NULL);
+             CREATE INDEX IF NOT EXISTS idx_surgery_patient_time ON surgery(patient_id, surgery_at DESC);
+             CREATE TABLE IF NOT EXISTS treatment_record (
+               id TEXT PRIMARY KEY,
+               patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+               encounter_id TEXT REFERENCES encounter(id),
+               document_file_id TEXT REFERENCES document_file(id),
+               treatment_type TEXT NOT NULL CHECK(treatment_type IN ('infusion','injection','physiotherapy','dressing','other')),
+               treated_at REAL, hospital TEXT, department TEXT, doctor TEXT, executor TEXT,
+               diagnosis_text TEXT, content TEXT,
+               drugs_text TEXT,
+               session_text TEXT,
+               adverse_reaction_text TEXT,
+               allergy_event_id TEXT REFERENCES allergy_event(id),
+               result_text TEXT, note TEXT,
+               source TEXT NOT NULL CHECK(source IN ('ocr','manual')),
+               confirmed INTEGER NOT NULL DEFAULT 0,
+               created_at REAL NOT NULL, updated_at REAL NOT NULL);
+             CREATE INDEX IF NOT EXISTS idx_treatment_patient_time ON treatment_record(patient_id, treated_at DESC);
+             ALTER TABLE appointment ADD COLUMN encounter_id TEXT REFERENCES encounter(id);
+             ALTER TABLE appointment ADD COLUMN purpose TEXT CHECK(purpose IN ('visit','followUp','exam','healthExam') OR purpose IS NULL);
+             ALTER TABLE reminder ADD COLUMN source_table TEXT;
+             ALTER TABLE reminder ADD COLUMN source_id TEXT;
+             DROP INDEX IF EXISTS idx_document_patient_type;
+             CREATE INDEX IF NOT EXISTS idx_document_patient_type ON document_file(patient_id, doc_type_key, created_at DESC);
+             CREATE VIEW IF NOT EXISTS v_clinical_report AS
+             SELECT id AS report_id, patient_id, 'lab' AS report_type,
+                    COALESCE(report_source, CASE WHEN health_exam_id IS NOT NULL THEN 'health_exam' END) AS report_source,
+                    COALESCE(collected_at, reported_at) AS report_date, hospital AS org_name, report_no,
+                    encounter_id, health_exam_id, document_file_id, confirmed
+             FROM lab_report
+             UNION ALL
+             SELECT id, patient_id, 'exam',
+                    COALESCE(report_source, CASE WHEN health_exam_id IS NOT NULL THEN 'health_exam' END),
+                    COALESCE(exam_at, reported_at), hospital, report_no,
+                    encounter_id, health_exam_id, document_file_id, confirmed
+             FROM exam_report
+             UNION ALL
+             SELECT id, patient_id, 'health_exam', 'health_exam',
+                    COALESCE(exam_date, report_date), org_name, exam_no,
+                    NULL, id, document_file_id, confirmed
+             FROM health_exam;
+             ALTER TABLE ocr_card_commit RENAME TO ocr_card_commit_v26;
+             CREATE TABLE ocr_card_commit (
+               card_id TEXT NOT NULL, row_id TEXT NOT NULL,
+               patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+               document_file_id TEXT NOT NULL REFERENCES document_file(id),
+               page_index INTEGER NOT NULL CHECK(page_index >= 0),
+               card_kind TEXT NOT NULL CHECK(card_kind IN ('metric_sample','encounter','prescription','claim_item','medication','immunization','hospitalization','diagnosis','exam_report','surgery','treatment_record','health_exam','clinical_conclusion')),
+               entity_table TEXT NOT NULL CHECK(entity_table IN ('metric_sample','encounter','prescription','claim_item','medication','immunization','hospitalization','diagnosis','exam_report','surgery','treatment_record','prescription_line','claim_line','lab_report','lab_result','health_exam','clinical_conclusion')),
+               entity_id TEXT NOT NULL, encounter_id TEXT REFERENCES encounter(id),
+               created_at REAL NOT NULL,
+               PRIMARY KEY(card_id, row_id),
+               FOREIGN KEY(document_file_id, page_index) REFERENCES document_page(document_file_id, page_index));
+             INSERT INTO ocr_card_commit (card_id, row_id, patient_id, document_file_id, page_index, card_kind, entity_table, entity_id, encounter_id, created_at)
+               SELECT card_id, row_id, patient_id, document_file_id, page_index, card_kind, entity_table, entity_id, encounter_id, created_at FROM ocr_card_commit_v26;
+             DROP TABLE ocr_card_commit_v26;
+             CREATE INDEX idx_ocr_card_commit_source ON ocr_card_commit(document_file_id, page_index, card_kind);
+             CREATE INDEX idx_ocr_card_commit_entity ON ocr_card_commit(card_kind, entity_id, patient_id);
+             CREATE INDEX idx_ocr_card_commit_encounter ON ocr_card_commit(encounter_id, patient_id);
+             CREATE INDEX idx_ocr_card_commit_entity_table ON ocr_card_commit(entity_table, entity_id, patient_id);
+             """, transactional: true, fkCheckTable: "ocr_card_commit"),
     ]
 
     /// 全新库建库后应落到的版本号

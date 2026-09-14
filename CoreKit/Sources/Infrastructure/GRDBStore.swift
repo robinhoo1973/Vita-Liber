@@ -89,6 +89,8 @@ public struct GRDBStore {
     ///   lab_report 表头 SQL 回填 `INSERT … WHERE NOT EXISTS` / `UPDATE … WHERE … IS NULL`）：
     ///   无表重建、无代码回填，走下方 default 路径（executeIdempotent → user_version 推进），
     ///   runner 不认识版本号；崩溃重放由语句级幂等保证。
+    /// - v27 card-hierarchy 为表重建步（ocr_card_commit 第三次重建扩枚举）：步级声明 transactional +
+    ///   fkCheckTable，走下方 default 路径的 applyTransactional 分支，无代码回填（doc_type_key 由 App 层首启任务反查）。
     /// - 纯 SQL 步沿用 addColumnParts 幂等守卫（executeIdempotent，两条路径共用）。
     /// - user_version 只随成功步骤推进；崩溃重放从最近成功版本续跑。
     private func migrateIncremental(writer: any DatabaseWriter) throws {
