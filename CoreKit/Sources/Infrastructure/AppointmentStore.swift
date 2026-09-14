@@ -6,8 +6,9 @@ import Protocols
 
 /// F10 预约数据仓（actor）：创建/改期/取消 + 分级提醒（FR10.3）+ 状态机（FR10.7）
 public actor AppointmentStore {
-    /// 审查修复新增：目标不存在时抛错（§7 不得静默 return）
-    public enum StoreError: Error, Equatable { case notFound, invalidState }
+    /// 审查修复新增：目标不存在时抛错（§7 不得静默 return）。
+    /// v27：`invalidEncounter` = 挂接目标就诊不存在 / 已软删 / 属于其他成员（BR-001，不区分三者、不泄露存在性）。
+    public enum StoreError: Error, Equatable { case notFound, invalidState, invalidEncounter }
 
     private let writer: any DatabaseWriter
     private let scheduler: any ReminderScheduling
@@ -19,24 +20,32 @@ public actor AppointmentStore {
 
     /// 创建预约 + 反算四级触发点预排（§5.4 V3.31；已过期层级不补发）。
     /// 返回预约 id（调用方据此排复诊提醒）。
+    /// v27（FR10.7 / round1 §E.1）：`encounterId` = 产生本预约的就诊（复诊预约挂就诊主卡；须同成员、未软删，否则 `invalidEncounter`），
+    /// `purpose` = 预约目的（CHECK 枚举 canonical raw）。两参数缺省 nil，既有调用零改动。
     @discardableResult
     public func create(id: UUID = UUID(), patientId: UUID, hospital: String,
                        department: String, startsAt: Date,
                        doctor: String? = nil, address: String? = nil,
                        itemsToBring: String? = nil, notes: String? = nil,
+                       encounterId: UUID? = nil, purpose: AppointmentPurpose? = nil,
                        tiers: [AppointmentTier] = AppointmentTier.defaults,
                        now: Date = Date()) async throws -> UUID {
         try await writer.write { db in
+            if let encounterId {
+                try Self.assertEncounter(encounterId, belongsTo: patientId, db: db)
+            }
             try db.execute(
                 sql: """
                 INSERT INTO appointment (id, patient_id, hospital, department, doctor, address,
-                                         items_to_bring, notes, starts_at, status, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', ?, ?)
+                                         items_to_bring, notes, starts_at, status, created_at, updated_at,
+                                         encounter_id, purpose)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', ?, ?, ?, ?)
                 """,
                 arguments: [id.uuidString, patientId.uuidString, hospital, department,
                             doctor, address, itemsToBring, notes,
                             startsAt.timeIntervalSince1970,
-                            now.timeIntervalSince1970, now.timeIntervalSince1970])
+                            now.timeIntervalSince1970, now.timeIntervalSince1970,
+                            encounterId?.uuidString, purpose?.rawValue])
         }
         for (tier, fire) in AppointmentRules.tierFireDates(startsAt: startsAt, tiers: tiers, now: now) {
             try await scheduler.schedule(dose: "apt-\(id.uuidString)-\(tier.label)", at: fire,
@@ -154,14 +163,21 @@ public actor AppointmentStore {
             try db.execute(
                 sql: "UPDATE appointment SET status = 'completed', updated_at = ? WHERE id = ?",
                 arguments: [now.timeIntervalSince1970, id.uuidString])
-            // 懒建就诊（F4）：以预约信息落 encounter 行，kind=复诊
+            // 懒建就诊（F4）：以预约信息落 encounter 行，kind=复诊。
+            // v27（FR10.7「已完成 → 补录就诊」）：医院/科室/医生随预约带入，并把新就诊回写 appointment.encounter_id
+            //（预约与其补录的就诊互达；purpose 缺省 'visit'），时间轴主卡即可把这次预约收为子卡。
+            let encounterId = UUID()
             try db.execute(
                 sql: """
-                INSERT INTO encounter (id, patient_id, date, kind, created_at, updated_at)
-                VALUES (?, ?, ?, '复诊', ?, ?)
+                INSERT INTO encounter (id, patient_id, date, kind, hospital, department, doctor, created_at, updated_at)
+                VALUES (?, ?, ?, '复诊', ?, ?, ?, ?, ?)
                 """,
-                arguments: [UUID().uuidString, apt["patient_id"] as String,
-                            apt["starts_at"] as Double, now.timeIntervalSince1970, now.timeIntervalSince1970])
+                arguments: [encounterId.uuidString, apt["patient_id"] as String,
+                            apt["starts_at"] as Double, apt["hospital"] as String?, apt["department"] as String?, apt["doctor"] as String?,
+                            now.timeIntervalSince1970, now.timeIntervalSince1970])
+            try db.execute(
+                sql: "UPDATE appointment SET encounter_id = ?, purpose = COALESCE(purpose, 'visit') WHERE id = ?",
+                arguments: [encounterId.uuidString, id.uuidString])
         }
         // 审查修复：写成功后才取消提醒（先取消后校验的旧序见 reschedule 注释）
         try await cancelReminders(id: id)
@@ -191,14 +207,7 @@ public actor AppointmentStore {
                 WHERE patient_id = ? AND status = 'scheduled' AND starts_at >= ?
                 ORDER BY starts_at
                 """, arguments: [patientId.uuidString, now.timeIntervalSince1970])
-            .map { row in
-                AppointmentRow(
-                    id: UUID(uuidString: row["id"] as String) ?? UUID(),
-                    hospital: (row["hospital"] as String?) ?? "",
-                    department: (row["department"] as String?) ?? "",
-                    startsAt: Date(timeIntervalSince1970: row["starts_at"] as Double),
-                    status: row["status"] as String)
-            }
+            .map(Self.appointmentRow)
         }
     }
 
@@ -210,15 +219,77 @@ public actor AppointmentStore {
                 WHERE patient_id = ?
                 ORDER BY starts_at DESC LIMIT ?
                 """, arguments: [patientId.uuidString, limit])
-            .map { row in
-                AppointmentRow(
-                    id: UUID(uuidString: row["id"] as String) ?? UUID(),
-                    hospital: (row["hospital"] as String?) ?? "",
-                    department: (row["department"] as String?) ?? "",
-                    startsAt: Date(timeIntervalSince1970: row["starts_at"] as Double),
-                    status: row["status"] as String)
-            }
+            .map(Self.appointmentRow)
         }
+    }
+
+    // MARK: - v27 预约 ↔ 就诊挂接（FR10.7 / round1 §E.1）
+
+    /// 显式挂接：把预约挂到产生它的就诊（用户在就诊页 / 预约详情显式选择；不自动猜）。
+    /// 就诊须同成员、未软删（否则 `invalidEncounter`）；`purpose` 非 nil 时覆盖，nil 时保留既有值、缺省 'visit'；
+    /// 预约不存在 / 不属于该成员 → 零行更新 → `notFound`（§7 不得静默 return）。
+    public func link(appointmentId: UUID, encounterId: UUID, purpose: AppointmentPurpose? = nil,
+                     patientId: UUID, now: Date = Date()) async throws {
+        try await writer.write { db in
+            try Self.assertEncounter(encounterId, belongsTo: patientId, db: db)
+            try db.execute(sql: """
+                UPDATE appointment SET encounter_id = ?, purpose = COALESCE(?, purpose, 'visit'), updated_at = ?
+                WHERE id = ? AND patient_id = ?
+                """, arguments: [encounterId.uuidString, purpose?.rawValue, now.timeIntervalSince1970,
+                                 appointmentId.uuidString, patientId.uuidString])
+            guard db.changesCount == 1 else { throw StoreError.notFound }
+            let meta = String(decoding: try JSONEncoder().encode(["relationship": "encounter", "linked": "true"]), as: UTF8.self)
+            try AuditLogWriter.insert(action: "update", entityType: "appointment", entityId: appointmentId.uuidString,
+                                      actorLocal: "owner", meta: meta, db: db)
+        }
+    }
+
+    /// 解除挂接（预约保留，只清 encounter_id）；零行 → `notFound`。
+    public func unlink(appointmentId: UUID, patientId: UUID, now: Date = Date()) async throws {
+        try await writer.write { db in
+            try db.execute(sql: "UPDATE appointment SET encounter_id = NULL, updated_at = ? WHERE id = ? AND patient_id = ?",
+                           arguments: [now.timeIntervalSince1970, appointmentId.uuidString, patientId.uuidString])
+            guard db.changesCount == 1 else { throw StoreError.notFound }
+            try AuditLogWriter.insert(action: "update", entityType: "appointment", entityId: appointmentId.uuidString,
+                                      actorLocal: "owner", meta: #"{"relationship":"encounter","linked":"false"}"#, db: db)
+        }
+    }
+
+    /// 可挂接候选（供就诊页「挂接既有预约」Picker）：同成员、尚未挂接、就诊日 ±3 天内；就诊有医院时还须医院同名。
+    /// 只是候选清单，挂接必须经用户显式 `link`（不自动生效，FR4.2 同纪律）。
+    public func candidates(forEncounter encounterId: UUID, patientId: UUID, dayWindow: Int = 3) async throws -> [AppointmentRow] {
+        try await writer.read { db in
+            guard let encounter = try Row.fetchOne(db, sql: "SELECT date, hospital FROM encounter WHERE id = ? AND patient_id = ? AND deleted_at IS NULL",
+                                                   arguments: [encounterId.uuidString, patientId.uuidString]) else { throw StoreError.invalidEncounter }
+            let date: Double = encounter["date"]
+            let hospital = (encounter["hospital"] as String?)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let window = Double(max(dayWindow, 0)) * 86_400
+            return try Row.fetchAll(db, sql: """
+                SELECT * FROM appointment
+                WHERE patient_id = ? AND encounter_id IS NULL AND starts_at BETWEEN ? AND ?
+                  AND (? IS NULL OR TRIM(hospital) = ?)
+                ORDER BY ABS(starts_at - ?), starts_at
+                """, arguments: [patientId.uuidString, date - window, date + window,
+                                 hospital?.isEmpty == false ? hospital : nil, hospital, date])
+            .map(Self.appointmentRow)
+        }
+    }
+
+    /// 就诊存在、同成员、未软删——否则 `invalidEncounter`（不区分不存在与他人的，不泄露存在性）。
+    private static func assertEncounter(_ encounterId: UUID, belongsTo patientId: UUID, db: Database) throws {
+        guard try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM encounter WHERE id = ? AND patient_id = ? AND deleted_at IS NULL",
+                               arguments: [encounterId.uuidString, patientId.uuidString]) == 1 else { throw StoreError.invalidEncounter }
+    }
+
+    private static func appointmentRow(_ row: Row) -> AppointmentRow {
+        AppointmentRow(
+            id: UUID(uuidString: row["id"] as String) ?? UUID(),
+            hospital: (row["hospital"] as String?) ?? "",
+            department: (row["department"] as String?) ?? "",
+            startsAt: Date(timeIntervalSince1970: row["starts_at"] as Double),
+            status: row["status"] as String,
+            encounterId: (row["encounter_id"] as String?).flatMap(UUID.init(uuidString:)),
+            purpose: row["purpose"] as String?)
     }
 }
 
@@ -228,9 +299,14 @@ public struct AppointmentRow: Sendable, Equatable, Identifiable {
     public var department: String
     public var startsAt: Date
     public var status: String
-    public init(id: UUID, hospital: String, department: String, startsAt: Date, status: String) {
+    /// v27：所挂就诊与预约目的（CHECK 枚举 raw；旧行 nil）。
+    public var encounterId: UUID?
+    public var purpose: String?
+    public init(id: UUID, hospital: String, department: String, startsAt: Date, status: String,
+                encounterId: UUID? = nil, purpose: String? = nil) {
         self.id = id; self.hospital = hospital; self.department = department
         self.startsAt = startsAt; self.status = status
+        self.encounterId = encounterId; self.purpose = purpose
     }
 }
 #endif

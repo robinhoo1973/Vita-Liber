@@ -116,12 +116,16 @@ public actor EncounterStore {
             case medication, metricSample, immunization, encounter
             /// v26（§C.2–§C.5）：住院期 / 诊断 / 检查报告 / 检验报告（表头聚合读面，`cardKind = "lab_report"` 为详情卡类）。
             case hospitalization, diagnosis, examReport, labReport
+            /// v27（子项目 J）：手术 / 治疗记录（medicalCard 详情卡类）；复诊预约 / 随访提醒（App 路由 appointmentDetail / reminderToday，
+            /// `cardKind` 仍返回 rawValue，不进 medicalCard）；结论行不挂就诊（父为体检 / 报告），不在此列。
+            case surgery, treatmentRecord, appointment, reminder
             public var cardKind: String {
                 switch self {
                 case .claim: return "claim_item"
                 case .metricSample: return "metric_sample"
                 case .examReport: return "exam_report"
                 case .labReport: return "lab_report"
+                case .treatmentRecord: return "treatment_record"
                 default: return rawValue
                 }
             }
@@ -214,6 +218,30 @@ public actor EncounterStore {
                                   WHERE r.lab_report_id = l.id AND r.patient_id = l.patient_id AND c.encounter_id = ?))
                 ORDER BY COALESCE(l.collected_at, l.reported_at) DESC LIMIT ?
                 """, arguments: [patientId.uuidString, encounterId.uuidString, encounterId.uuidString, encounterId.uuidString, limit]),
+            // v27（子项目 J · round1 §D）四源只**追加**：手术 / 治疗（事实表 encounter_id，confirmed = 1）；复诊预约（appointment.encounter_id，
+            // document_file_id 恒 NULL、无 confirmed 列）；随访提醒（source_table = encounter 直挂 ∪ 经本就诊的预约到达，仅 active）。
+            .init(kind: .surgery, sql: """
+                SELECT id, surgery_at AS date, surgery_name AS summary, document_file_id
+                FROM surgery WHERE patient_id = ? AND encounter_id = ? AND confirmed = 1
+                ORDER BY surgery_at DESC LIMIT ?
+                """, arguments: [patientId.uuidString, encounterId.uuidString, limit]),
+            .init(kind: .treatmentRecord, sql: """
+                SELECT id, treated_at AS date, COALESCE(content, drugs_text, treatment_type) AS summary, document_file_id
+                FROM treatment_record WHERE patient_id = ? AND encounter_id = ? AND confirmed = 1
+                ORDER BY treated_at DESC LIMIT ?
+                """, arguments: [patientId.uuidString, encounterId.uuidString, limit]),
+            .init(kind: .appointment, sql: """
+                SELECT id, starts_at AS date, COALESCE(hospital, '') || ' · ' || COALESCE(department, '') AS summary, NULL AS document_file_id
+                FROM appointment WHERE patient_id = ? AND encounter_id = ?
+                ORDER BY starts_at DESC LIMIT ?
+                """, arguments: [patientId.uuidString, encounterId.uuidString, limit]),
+            .init(kind: .reminder, sql: """
+                SELECT id, at_date AS date, title AS summary, NULL AS document_file_id
+                FROM reminder WHERE patient_id = ? AND status = 'active'
+                  AND ((source_table = 'encounter' AND source_id = ?)
+                       OR (source_table = 'appointment' AND source_id IN (SELECT id FROM appointment WHERE encounter_id = ? AND patient_id = ?)))
+                ORDER BY at_date DESC LIMIT ?
+                """, arguments: [patientId.uuidString, encounterId.uuidString, encounterId.uuidString, patientId.uuidString, limit]),
         ]
         // (kind, dateColumn, summaryColumn, 附加过滤片段)：确认/软删/排除
         // 条件按 kind 挂接，与修复①/②注释口径一致。

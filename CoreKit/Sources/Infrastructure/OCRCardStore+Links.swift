@@ -28,6 +28,13 @@ extension OCRCardStore {
         public var examReport: ExamReport? = nil
         /// v26（§C.5）：检验报告 = 表头 + 数值行 + 定性行（kind = lab_report；kind = metric_sample 且行回指表头时亦附带）。
         public var labReport: LabReportDetail? = nil
+        /// v27（子项目 J）：体检表头（kind = health_exam；完整读面见 `HealthExamStore.detail`）。
+        public var healthExam: HealthExam? = nil
+        /// v27：同父结论清单（kind = clinical_conclusion；含本实体，按 ordinal；`severityText` 原文只呈现）。
+        public var clinicalConclusions: [ClinicalConclusion] = []
+        /// v27（原 D3 §C.8 / §C.9）：手术记录 / 治疗记录（kind = surgery / treatment_record）。
+        public var surgery: Surgery? = nil
+        public var treatmentRecord: TreatmentRecord? = nil
     }
 
     /// 检验报告读面（§C.5）：数值行来自 `metric_sample`（趋势点，按落库序）、定性行来自 `lab_result`（按 ordinal）；
@@ -61,14 +68,24 @@ extension OCRCardStore {
                                          // v26：模板键 → `*_text` 列（§C.2 / §C.3 / §C.5）
                                          "admit_route": "admit_route_text", "payment_type": "payment_type_text", "discharge_way": "discharge_way_text",
                                          "admit_diagnosis": "admit_diagnosis_text", "discharge_diagnosis": "discharge_diagnosis_text",
-                                         "take_home_drugs": "take_home_drugs_text", "code_system": "code_system_text", "test_class": "test_class_text"]
+                                         "take_home_drugs": "take_home_drugs_text", "code_system": "code_system_text", "test_class": "test_class_text",
+                                         // v27：体检一般检查 / 结论严重度 / 手术 / 治疗的 `*_text` 原文列（模板键去后缀）
+                                         "height": "height_text", "weight": "weight_text", "bmi": "bmi_text", "systolic": "systolic_text",
+                                         "diastolic": "diastolic_text", "pulse": "pulse_text", "waist": "waist_text",
+                                         "vision_left": "vision_left_text", "vision_right": "vision_right_text", "severity": "severity_text",
+                                         "surgery_code": "surgery_code_text", "surgery_level": "surgery_level_text",
+                                         "preop_diagnosis": "preop_diagnosis_text", "postop_diagnosis": "postop_diagnosis_text",
+                                         "implants": "implants_text", "specimen": "specimen_text", "blood_loss": "blood_loss_text",
+                                         "transfusion": "transfusion_text", "drainage": "drainage_text", "complications": "complications_text",
+                                         "session": "session_text", "adverse_reaction": "adverse_reaction_text", "result": "result_text"]
         if kind == "metric_sample" { renamed["hospital"] = "ref_source_label" }
         // 日期 / REAL / INTEGER 列另按类型追加（见 detail）；非列键剔除。
         let excluded: Set<String> = ["prescribed_at", "date", "measured_at", "administered_at", "kind",
                                      "illness_summary", "amount", "dose_number", "total_amount",
                                      "reimbursed_amount", "out_of_pocket", "personal_account_amount", "value", "ref_low", "ref_high", "metric_key",
                                      "admit_at", "discharge_at", "summary_date", "inpatient_times", "actual_days", "total_cost",
-                                     "diagnosed_at", "exam_at", "reported_at", "collected_at", "received_at"]
+                                     "diagnosed_at", "exam_at", "reported_at", "collected_at", "received_at",
+                                     "exam_date", "report_date", "surgery_at", "ended_at", "treated_at"]
         var keys = entry.sharedRequired.union(CardKindRegistry.optionalCatalog(kind: kind, present: [], rowLevel: false))
         if lineTable(for: kind) == nil { keys.formUnion(entry.rowAllowed) }
         return keys.subtracting(excluded).sorted().map { ($0, renamed[$0] ?? $0) }
@@ -93,7 +110,8 @@ extension OCRCardStore {
         let table = factTable(for: kind)
         guard let fact = try Row.fetchOne(db, sql: "SELECT * FROM \(table) WHERE id = ? AND patient_id = ?",
                                          arguments: [entityId.uuidString, patientId.uuidString]) else { throw StoreError.invalidCard }
-        if ["prescription", "claim_item", "immunization", "hospitalization", "diagnosis", "exam_report", "lab_report"].contains(kind),
+        if ["prescription", "claim_item", "immunization", "hospitalization", "diagnosis", "exam_report", "lab_report",
+            "health_exam", "surgery", "treatment_record"].contains(kind),
            (fact["confirmed"] as Int?) != 1 { throw StoreError.invalidCard }
         if kind == "encounter", (fact["deleted_at"] as Double?) != nil { throw StoreError.invalidCard }
         let cardKind = receiptCardKind(forDetailKind: kind)
@@ -112,7 +130,7 @@ extension OCRCardStore {
             if let id = (receipt["encounter_id"] as String?).flatMap(UUID.init(uuidString:)) { encounters.insert(id) }
         }
         if kind == "encounter" { encounters.insert(entityId) }
-        if ["prescription", "claim_item", "immunization", "hospitalization", "diagnosis", "exam_report", "lab_report"].contains(kind),
+        if ["prescription", "claim_item", "immunization", "hospitalization", "diagnosis", "exam_report", "lab_report", "surgery", "treatment_record"].contains(kind),
            let id = (fact["encounter_id"] as String?).flatMap(UUID.init(uuidString:)) { encounters.insert(id) }
         var fields: [FieldDraft] = []
         func append(_ key: String, _ value: String?) {
@@ -145,6 +163,13 @@ extension OCRCardStore {
             for key in ["exam_at", "reported_at"] { append(key, dateString(fact[key] as Double?)) }
         case "lab_report":
             for key in ["collected_at", "received_at", "reported_at"] { append(key, dateString(fact[key] as Double?)) }
+        // v27：体检 / 手术 / 治疗的日期列（yyyy-MM-dd）
+        case "health_exam":
+            for key in ["exam_date", "report_date"] { append(key, dateString(fact[key] as Double?)) }
+        case "surgery":
+            for key in ["surgery_at", "ended_at"] { append(key, dateString(fact[key] as Double?)) }
+        case "treatment_record":
+            append("treated_at", dateString(fact["treated_at"] as Double?))
         default: break
         }
         var lines: [PrescriptionLine] = []
@@ -160,8 +185,10 @@ extension OCRCardStore {
             try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM encounter WHERE id = ? AND patient_id = ? AND deleted_at IS NULL", arguments: [id.uuidString, patientId.uuidString]) == 1
         }.sorted { $0.uuidString < $1.uuidString }
         // 住院期随就诊而生（UNIQUE(encounter_id)），归属不可单独改挂——其余卡类在无待办回执时可改挂。
+        // v27：体检是枢纽自身、结论行的父由 CHECK 恰一固定——两者亦不可改挂就诊。
         var result = CardDetail(kind: kind, entityId: entityId, patientId: patientId, fields: fields, sources: sources,
-                                encounterIDs: active, relationshipEditable: !["encounter", "hospitalization"].contains(kind) && pending == 0, lines: lines)
+                                encounterIDs: active,
+                                relationshipEditable: !Self.relationshipLockedKinds.contains(kind) && pending == 0, lines: lines)
         switch kind {
         case "hospitalization":
             result.hospitalization = try hospitalization(from: fact)
@@ -185,10 +212,30 @@ extension OCRCardStore {
             if let report: String = fact["lab_report_id"] {
                 result.labReport = try labReportDetail(reportId: report, patientId: patientId.uuidString, db: db)
             }
+        case "health_exam":
+            result.healthExam = try healthExam(from: fact)
+        case "clinical_conclusion":
+            // 同父结论清单（父 = 恰一非空外键；成员隔离带 patient_id）。
+            let own = try clinicalConclusion(from: fact)
+            let parents: [(String, UUID?)] = [("health_exam_id", own.healthExamId), ("lab_report_id", own.labReportId), ("exam_report_id", own.examReportId)]
+            if let parent = parents.first(where: { $0.1 != nil }), let parentId = parent.1 {
+                result.clinicalConclusions = try Row.fetchAll(db, sql: """
+                    SELECT * FROM clinical_conclusion WHERE \(parent.0) = ? AND patient_id = ? ORDER BY ordinal, created_at
+                    """, arguments: [parentId.uuidString, patientId.uuidString]).map(clinicalConclusion(from:))
+            } else {
+                result.clinicalConclusions = [own]
+            }
+        case "surgery":
+            result.surgery = try surgery(from: fact)
+        case "treatment_record":
+            result.treatmentRecord = try treatmentRecord(from: fact)
         default: break
         }
         return result
     }
+
+    /// 归属不可单独改挂的卡类：就诊（枢纽自身）/ 住院期（随就诊而生）/ 体检（枢纽自身）/ 结论行（父由 CHECK 恰一固定）。
+    static let relationshipLockedKinds: Set<String> = ["encounter", "hospitalization", "health_exam", "clinical_conclusion"]
 
     /// 检验报告聚合读面：表头 + 数值行（metric_sample，按落库序）+ 定性行（lab_result，按 ordinal）；成员隔离逐表带 patient_id。
     static func labReportDetail(reportId: String, patientId: String, db: Database) throws -> LabReportDetail? {
@@ -269,8 +316,11 @@ extension OCRCardStore {
                   UNION SELECT encounter_id AS id FROM diagnosis WHERE document_file_id = ? AND patient_id = ? AND confirmed = 1
                   UNION SELECT encounter_id AS id FROM exam_report WHERE document_file_id = ? AND patient_id = ? AND confirmed = 1
                   UNION SELECT encounter_id AS id FROM lab_report WHERE document_file_id = ? AND patient_id = ? AND confirmed = 1
+                  UNION SELECT encounter_id AS id FROM surgery WHERE document_file_id = ? AND patient_id = ? AND confirmed = 1
+                  UNION SELECT encounter_id AS id FROM treatment_record WHERE document_file_id = ? AND patient_id = ? AND confirmed = 1
                 ) r ON r.id = e.id WHERE e.patient_id = ? AND e.deleted_at IS NULL ORDER BY e.date DESC
                 """, arguments: [documentId.uuidString, patientId.uuidString, documentId.uuidString, patientId.uuidString,
+                    documentId.uuidString, patientId.uuidString, documentId.uuidString, patientId.uuidString,
                     documentId.uuidString, patientId.uuidString, documentId.uuidString, patientId.uuidString,
                     documentId.uuidString, patientId.uuidString, documentId.uuidString, patientId.uuidString,
                     documentId.uuidString, patientId.uuidString, documentId.uuidString, patientId.uuidString, patientId.uuidString])
@@ -282,11 +332,12 @@ extension OCRCardStore {
     /// 两条 UPDATE 合计零行 → `invalidAssociation`（无回执又无 encounter_id 列的实体没有可改的关系，不伪装成功、不写审计）。
     /// v26：diagnosis / exam_report / lab_report（表头 + 其全部行回执）同样可改挂；hospitalization 随就诊而生（UNIQUE(encounter_id)），
     /// 不可单独改挂——一律 `invalidCard`。
+    /// v27：surgery / treatment_record 同样可改挂；health_exam（枢纽自身）/ clinical_conclusion（父由 CHECK 固定）一律 `invalidCard`。
     public func associate(kind: String, entityId: UUID, patientId: UUID, encounterId: UUID?) async throws {
-        guard Self.detailKinds.contains(kind), !["encounter", "hospitalization"].contains(kind) else { throw StoreError.invalidCard }
+        guard Self.detailKinds.contains(kind), !Self.relationshipLockedKinds.contains(kind) else { throw StoreError.invalidCard }
         let table = Self.factTable(for: kind)
         let cardKind = Self.receiptCardKind(forDetailKind: kind)
-        let confirmedKinds: Set<String> = ["prescription", "claim_item", "immunization", "diagnosis", "exam_report", "lab_report"]
+        let confirmedKinds: Set<String> = ["prescription", "claim_item", "immunization", "diagnosis", "exam_report", "lab_report", "surgery", "treatment_record"]
         try await writer.write { db in
             guard let row = try Row.fetchOne(db, sql: "SELECT * FROM \(table) WHERE id = ? AND patient_id = ?",
                                             arguments: [entityId.uuidString, patientId.uuidString]) else { throw StoreError.invalidCard }

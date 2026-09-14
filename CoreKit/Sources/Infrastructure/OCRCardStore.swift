@@ -8,8 +8,9 @@ public actor OCRCardStore {
     /// 可确认落库的卡类 = `CardKindRegistry` 全部条目（v26 起含 hospitalization / diagnosis / exam_report；单一事实源，
     /// 新增卡类只需登记注册表 + `save` 分支）。`appointment` 等仅有模板、无注册条目的卡类不在此列。
     public static let supportedKinds: Set<String> = Set(CardKindRegistry.entries.map(\.kind))
-    /// 单行卡类（rowKey nil 模板）：一张卡恰一行，共享面即实体（encounter / hospitalization / exam_report）。
-    static let singleRowKinds: Set<String> = ["encounter", "hospitalization", "exam_report"]
+    /// 单行卡类（rowKey nil 模板）：一张卡恰一行，共享面即实体（encounter / hospitalization / exam_report；
+    /// v27 + health_exam / surgery / treatment_record）。结论卡（clinical_conclusion）为 rows-only 多行卡。
+    static let singleRowKinds: Set<String> = ["encounter", "hospitalization", "exam_report", "health_exam", "surgery", "treatment_record"]
     static let auditEngine = "ocr-card-v22"
     let writer: any DatabaseWriter
 
@@ -242,6 +243,11 @@ public actor OCRCardStore {
                 }
                 let supplied = Set(card.rows.map(\.id))
                 snapshot.rows = audits.filter { !supplied.contains($0.rowId) }.map { MatchedCardRow(id: $0.rowId, fields: $0.fields) } + card.rows
+                // v27 §0.4：已提交回执才是归属事实——UI 仍持主卡草稿重放时，若回执已一致指向某就诊，归一为 .existing（不再建第二张主卡）。
+                if case .newHub = snapshot.encounterAssociation {
+                    let linked = Set(receipts.compactMap { $0["encounter_id"] as String? })
+                    if linked.count == 1, let id = linked.first.flatMap(UUID.init(uuidString:)) { snapshot.encounterAssociation = .existing(id) }
+                }
             }
             if let pending, pending.status == "resolved" {
                 guard let previous, previous.shared == snapshot.shared,
@@ -280,7 +286,33 @@ public actor OCRCardStore {
             /// 行 → 回执 entity_table（缺省 = 表头表；处方/费用行回执指行表）。
             var tables: [UUID: String] = [:]
             var associatedEncounter = accepted.isEmpty ? nil : try Self.validateAssociation(snapshot, patientId: patientId, db: db)
+            /// v27：体检枢纽（显式 `.existingHub(.healthExam, id)` 或下方草稿新建）——检验/检查表头写 `health_exam_id + report_source`，结论行以之为父。
+            var associatedHealthExam: UUID? = accepted.isEmpty ? nil : try Self.validateHealthExamAssociation(snapshot, patientId: patientId, db: db)
             let calendar = Calendar(identifier: .gregorian)
+            // v27 §0.4 改判：无可挂接主卡 → 草稿在**同一事务**先落主卡，再写子卡与回执；任一失败整体回滚。
+            // BR-003：草稿字段须全部已确认且日期可解析（Domain `ParentCardDraftRules.*Draft` 裁定，否则 invalidCard、零写入）；
+            // 证据字段（机构 / 医生 / 日期）被编辑后未重派生 → invalidAssociation（与 .suggested 同纪律）。
+            // 主卡本身不另立回执：卡类注册表约束回执 entity_table ∈ 该卡类事实表；主卡的来源留痕 = 子卡回执 encounter_id / 子卡 FK + audit_event。
+            if case .newHub(let draft) = snapshot.encounterAssociation, !accepted.isEmpty {
+                guard draft.evidence == EncounterResolver.evidenceKey(for: snapshot) else { throw StoreError.invalidAssociation }
+                let provenance = String(decoding: try JSONEncoder().encode(["source": "parentDraft", "cardKind": card.kind, "cardId": card.id.uuidString]), as: UTF8.self)
+                switch draft.hub {
+                case .encounter:
+                    guard let encounter = ParentCardDraftRules.encounterDraft(from: draft, patientId: patientId, calendar: calendar) else { throw StoreError.invalidCard }
+                    try Self.insertEncounter(encounter, patientId: patientId, db: db, now: now)
+                    try AuditLogWriter.insert(action: "create", entityType: "encounter", entityId: encounter.id.uuidString, actorLocal: "owner", meta: provenance, db: db)
+                    associatedEncounter = encounter.id
+                    snapshot.encounterAssociation = .existing(encounter.id)             // pending 快照归一化：重放不再建卡
+                case .healthExam:
+                    guard let exam = ParentCardDraftRules.healthExamDraft(from: draft, patientId: patientId, calendar: calendar) else { throw StoreError.invalidCard }
+                    let id = try Self.ensureHealthExam(exam, documentId: documentId, db: db, now: now)   // 幂等键 (patient_id, document_file_id)：同文档一份体检
+                    try AuditLogWriter.insert(action: "create", entityType: "health_exam", entityId: id.uuidString, actorLocal: "owner", meta: provenance, db: db)
+                    associatedHealthExam = id
+                    snapshot.encounterAssociation = .existingHub(.healthExam, id)
+                case .hospitalization:
+                    throw StoreError.invalidCard   // 住院期由住院卡自身建就诊（saveHospitalization），不经草稿
+                }
+            }
             switch card.kind {
             case "metric_sample":
                 if !accepted.isEmpty {
@@ -298,8 +330,11 @@ public actor OCRCardStore {
                             throw StoreError.committedDataChanged
                         }
                     }
+                    // v27：挂体检枢纽的检验表头写 health_exam_id + report_source = 'health_exam'（融合方案 §三-3）；数值行同样回指体检。
                     let reportId = try Self.ensureLabReport(lab.header, card: card, patientId: patientId, documentId: documentId,
-                                                            encounterId: associatedEncounter, db: db, now: now)
+                                                            encounterId: associatedEncounter, db: db, now: now,
+                                                            healthExamId: associatedHealthExam,
+                                                            reportSource: associatedHealthExam != nil ? ReportSource.healthExam.rawValue : nil)
                     let samplesByRow = Dictionary(uniqueKeysWithValues: zip(lab.rowIds, lab.samples))
                     let qualitativeByRow = Dictionary(uniqueKeysWithValues: lab.qualitative.map { ($0.rowId, $0.result) })
                     for row in accepted {
@@ -308,7 +343,8 @@ public actor OCRCardStore {
                             let codingSystem = row.fields.first { $0.key == "raw_label" }?.codeApproval?.resolution.codingSystem
                             try TrendQueryStore.insertHospitalSample(sample, id: entity, patientId: patientId,
                                 sourceRef: HospitalSample.sourceRef(documentId: documentId, pageIndex: card.pageIndex), db: db, now: now,
-                                approvedCodingSystem: codingSystem, labReportId: reportId.uuidString)
+                                approvedCodingSystem: codingSystem, labReportId: reportId.uuidString,
+                                healthExamId: associatedHealthExam?.uuidString)
                             entities[row.id] = entity
                         } else if var result = qualitativeByRow[row.id] {
                             result.patientId = patientId; result.labReportId = reportId; result.createdAt = now
@@ -346,16 +382,8 @@ public actor OCRCardStore {
                         guard db.changesCount == 1 else { throw StoreError.invalidAssociation }
                         entities[row.id] = existing
                     } else {
-                        try db.execute(sql: """
-                        INSERT INTO encounter (id, patient_id, date, kind, hospital, department, doctor,
-                          chief_complaint, diagnosis_text, advice_text, created_at, updated_at,
-                          present_illness, visit_summary, past_history, physical_exam, allergy_history)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, arguments: [encounter.id.uuidString, patientId.uuidString, encounter.date.timeIntervalSince1970,
-                            encounter.kind, encounter.hospital, encounter.department, encounter.doctor, encounter.chiefComplaint,
-                            encounter.diagnosisText, encounter.adviceText, now.timeIntervalSince1970, now.timeIntervalSince1970,
-                            encounter.presentIllness, encounter.visitSummary, encounter.pastHistory,
-                            encounter.physicalExam, encounter.allergyHistory])
+                        // v27：与 §0.4 主卡草稿共用同列同序的 INSERT（OCRCardStore+HealthExam.insertEncounter）。
+                        try Self.insertEncounter(encounter, patientId: patientId, db: db, now: now)
                         entities[row.id] = encounter.id
                         associatedEncounter = encounter.id
                     }
@@ -539,8 +567,74 @@ public actor OCRCardStore {
                     var report = intent.report
                     report.patientId = patientId; report.encounterId = associatedEncounter; report.documentFileId = documentId
                     report.confirmed = true; report.createdAt = now; report.updatedAt = now
+                    // v27：体检文档上的检查报告挂体检枢纽（health_exam_id + report_source = 'health_exam'）。
+                    report.healthExamId = associatedHealthExam
+                    report.reportSource = associatedHealthExam != nil ? ReportSource.healthExam.rawValue : nil
                     try Self.insertExamReport(report, db: db)
                     entities[row.id] = report.id
+                }
+            case "health_exam":
+                if let row = accepted.first {
+                    // v27（§E.1 / round1 V10）：体检首页卡 = 第三枢纽表头（幂等键 = 同文档）+ 一般检查投影：只有 Domain 白名单
+                    // 裁定为「严格 Double + 单位 + MetricType 有键」的项才进 metric_sample（weight / bloodPressureSys / bloodPressureDia / heartRate），
+                    // 身高 / BMI / 腰围 / 视力不投影；原文列全部随表头保留（BR-006/007）。投影点无回执（注册表第二事实表 = 投影目标）。
+                    guard let intent = EntityCardProjection.healthExamIntent(from: projectionCard, calendar: calendar) else { throw StoreError.invalidCard }
+                    var exam = intent.exam
+                    exam.patientId = patientId; exam.documentFileId = documentId
+                    exam.confirmed = true; exam.createdAt = now; exam.updatedAt = now
+                    let id = try Self.ensureHealthExam(exam, documentId: documentId, db: db, now: now)
+                    for sample in intent.generalSamples {
+                        try TrendQueryStore.insertHospitalSample(sample, id: UUID(), patientId: patientId,
+                            sourceRef: HospitalSample.sourceRef(documentId: documentId, pageIndex: card.pageIndex), db: db, now: now,
+                            healthExamId: id.uuidString)
+                    }
+                    entities[row.id] = id
+                    associatedHealthExam = id
+                }
+            case "clinical_conclusion":
+                if !accepted.isEmpty {
+                    // v27（融合方案 §六-6.3）：结论逐行一实体（id = 回执 row_id），三外键恰一非空——父 = 体检枢纽（显式 / 草稿），
+                    // 无体检枢纽时取同文档唯一的检验表头 / 检查报告；severity_text 原文（BR-004/012）。
+                    guard let intents = EntityCardProjection.clinicalConclusionIntents(from: projectionCard, calendar: calendar),
+                          intents.map(\.rowId) == accepted.map(\.id) else { throw StoreError.invalidCard }
+                    if !committed.isEmpty {
+                        var committedCard = snapshot
+                        committedCard.rows = snapshot.rows.filter { committed.contains($0.id.uuidString) }
+                        guard let prior = EntityCardProjection.clinicalConclusionIntents(from: committedCard, calendar: calendar),
+                              try Self.conclusionsMatch(prior, patientId: patientId.uuidString, db: db) else { throw StoreError.committedDataChanged }
+                    }
+                    let parent = try Self.conclusionParent(healthExamId: associatedHealthExam, patientId: patientId, documentId: documentId, db: db)
+                    for (row, intent) in zip(accepted, intents) {
+                        var conclusion = intent.conclusion
+                        conclusion.patientId = patientId; conclusion.createdAt = now
+                        conclusion.healthExamId = parent.table == "health_exam" ? parent.id : nil
+                        conclusion.labReportId = parent.table == "lab_report" ? parent.id : nil
+                        conclusion.examReportId = parent.table == "exam_report" ? parent.id : nil
+                        conclusion.ordinal = try Self.freeOrdinal(table: "clinical_conclusion", parentColumn: parent.column, header: parent.id.uuidString,
+                                                                  preferred: snapshot.rows.firstIndex { $0.id == row.id }, db: db)
+                        try Self.insertClinicalConclusion(conclusion, db: db)
+                        entities[row.id] = conclusion.id
+                    }
+                }
+            case "surgery":
+                if let row = accepted.first {
+                    // v27（原 D3 §C.8）：单行卡 → 一条 surgery；encounter_id 只取显式归属 / 主卡草稿；编码 / 级别 / 植入物原文。
+                    guard let intent = EntityCardProjection.surgeryIntent(from: projectionCard, calendar: calendar) else { throw StoreError.invalidCard }
+                    var surgery = intent.surgery
+                    surgery.patientId = patientId; surgery.encounterId = associatedEncounter; surgery.documentFileId = documentId
+                    surgery.confirmed = true; surgery.createdAt = now; surgery.updatedAt = now
+                    try Self.insertSurgery(surgery, db: db)
+                    entities[row.id] = surgery.id
+                }
+            case "treatment_record":
+                if let row = accepted.first {
+                    // v27（原 D3 §C.9）：单行卡 → 一条 treatment_record；drugs_text 原文不拆行、不写 prescription_line / medication。
+                    guard let intent = EntityCardProjection.treatmentRecordIntent(from: projectionCard, calendar: calendar) else { throw StoreError.invalidCard }
+                    var record = intent.record
+                    record.patientId = patientId; record.encounterId = associatedEncounter; record.documentFileId = documentId
+                    record.confirmed = true; record.createdAt = now; record.updatedAt = now
+                    try Self.insertTreatmentRecord(record, db: db)
+                    entities[row.id] = record.id
                 }
             default: throw StoreError.invalidCard
             }
@@ -583,11 +677,27 @@ public actor OCRCardStore {
         }
     }
 
+    /// 就诊归属：`.existing` / `.suggested`（证据未过期）/ `.existingHub(.encounter|.hospitalization)` → 同成员、未软删的就诊 id；
+    /// `.newHub` → nil（草稿在 save 的事务块内落主卡）；`.existingHub(.healthExam)` → nil（体检枢纽另由 `validateHealthExamAssociation` 校验）。
     private static func validateAssociation(_ card: MatchedCard, patientId: UUID, db: Database) throws -> UUID? {
-        if case .suggested(_, let evidence) = card.encounterAssociation,
-           evidence != EncounterResolver.evidenceKey(for: card) { throw StoreError.invalidAssociation }
+        switch card.encounterAssociation {
+        case .suggested(_, let evidence) where evidence != EncounterResolver.evidenceKey(for: card):
+            throw StoreError.invalidAssociation
+        case .newHub, .existingHub(.healthExam, _):
+            return nil
+        default:
+            break
+        }
         guard let id = card.encounterAssociation.encounterID else { return nil }
         guard try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM encounter WHERE id = ? AND patient_id = ? AND deleted_at IS NULL",
+                               arguments: [id.uuidString, patientId.uuidString]) == 1 else { throw StoreError.invalidAssociation }
+        return id
+    }
+
+    /// v27 体检枢纽归属：`.existingHub(.healthExam, id)` 须为同成员、已确认的体检表头，否则 `invalidAssociation`；其余形态 nil。
+    private static func validateHealthExamAssociation(_ card: MatchedCard, patientId: UUID, db: Database) throws -> UUID? {
+        guard case .existingHub(.healthExam, let id) = card.encounterAssociation else { return nil }
+        guard try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM health_exam WHERE id = ? AND patient_id = ? AND confirmed = 1",
                                arguments: [id.uuidString, patientId.uuidString]) == 1 else { throw StoreError.invalidAssociation }
         return id
     }
@@ -632,13 +742,26 @@ public actor OCRCardStore {
         guard incoming.id == previous.id, incoming.kind == previous.kind, incoming.pageIndex == previous.pageIndex,
               Set(incoming.rows.map(\.id)).count == incoming.rows.count else { throw StoreError.pendingIdentityMismatch }
         guard committed.isEmpty || previous.shared == incoming.shared else { throw StoreError.committedDataChanged }
-        guard committed.isEmpty || previous.encounterAssociation == incoming.encounterAssociation else { throw StoreError.committedDataChanged }
+        // v27 §0.4：主卡草稿落库后 pending 快照已归一为 .existing / .existingHub；UI 仍持同证据的 .newHub 重放视为同一归属
+        //（沿用快照里的真实主卡 id，不再建卡、不报 committedDataChanged）。
+        let replaysNormalizedDraft: Bool = {
+            guard !committed.isEmpty, case .newHub(let draft) = incoming.encounterAssociation,
+                  draft.evidence == EncounterResolver.evidenceKey(for: incoming) else { return false }
+            switch previous.encounterAssociation {
+            case .existing, .existingHub: return true
+            default: return false
+            }
+        }()
+        guard committed.isEmpty || replaysNormalizedDraft || previous.encounterAssociation == incoming.encounterAssociation else {
+            throw StoreError.committedDataChanged
+        }
         for row in incoming.rows where committed.contains(row.id.uuidString) {
             guard previous.rows.first(where: { $0.id == row.id })?.fields == row.fields else { throw StoreError.committedDataChanged }
         }
         let rows = Dictionary(uniqueKeysWithValues: incoming.rows.map { ($0.id, $0) })
         let oldIds = Set(previous.rows.map(\.id))
         var result = incoming
+        if replaysNormalizedDraft { result.encounterAssociation = previous.encounterAssociation }
         result.rows = previous.rows.map { old in committed.contains(old.id.uuidString) ? old : (rows[old.id] ?? old) }
             + incoming.rows.filter { !oldIds.contains($0.id) }
         return result
@@ -704,8 +827,19 @@ public actor OCRCardStore {
                     guard try String.fetchOne(db, sql: "SELECT document_file_id FROM lab_report WHERE id = ? AND patient_id = ?",
                                               arguments: [report, patient]) == document else { throw StoreError.corruptReceipt }
                 }
-            } else if ["prescription", "claim_item", "diagnosis", "exam_report", "lab_report"].contains(table) {
+            } else if ["prescription", "claim_item", "diagnosis", "exam_report", "lab_report", "surgery", "treatment_record"].contains(table) {
                 guard (fact["document_file_id"] as String?) == document, (fact["confirmed"] as Int) == 1 else { throw StoreError.corruptReceipt }
+            } else if table == "health_exam" {
+                // v27：体检表头幂等键 = 同文档（首页卡与结论页草稿会合到同一行）：来源文档一致、已确认。
+                guard (fact["document_file_id"] as String?) == document, (fact["confirmed"] as Int) == 1 else { throw StoreError.corruptReceipt }
+            } else if table == "clinical_conclusion" {
+                // v27：结论行无 confirmed 列（写入即用户确认）；恰一父且父同成员（CHECK 兜底之外的成员隔离复核）。
+                let parents: [(String, String?)] = [("health_exam", fact["health_exam_id"]), ("lab_report", fact["lab_report_id"]), ("exam_report", fact["exam_report_id"])]
+                let present = parents.filter { $0.1 != nil }
+                guard present.count == 1, let parent = present.first, let parentId = parent.1,
+                      try String.fetchOne(db, sql: "SELECT patient_id FROM \(parent.0) WHERE id = ?", arguments: [parentId]) == patient else {
+                    throw StoreError.corruptReceipt
+                }
             } else if table == "hospitalization" {
                 // 多份原件（入院记录 / 出院小结）补空同一住院期：document_file_id 保留首份，故只校验确认态与就诊同成员。
                 guard (fact["confirmed"] as Int) == 1,

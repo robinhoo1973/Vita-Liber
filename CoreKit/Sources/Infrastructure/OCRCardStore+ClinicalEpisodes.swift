@@ -89,8 +89,16 @@ extension OCRCardStore {
 
     /// 同卡表头幂等建/补：`source_card_id = card.id`（UNIQUE）；新表头 id = card.id（与 v26 SQL 回填 `id = card_id` 同一确定性规则）。
     /// 既有表头只补空（多批提交同一卡：先数值行、后定性行共用一条）；跨成员表头 → `invalidCard`。
+    /// v27（子项目 J）：`healthExamId` / `reportSource` 写 `health_exam_id` / `report_source`（体检枢纽回指 + 报告来源；
+    /// 既有表头同样只补空——v27 前的表头 NULL 不回填）。体检枢纽须同成员，否则 `invalidCard`。
     static func ensureLabReport(_ header: EntityCardProjection.LabReportIntent, card: MatchedCard, patientId: UUID, documentId: UUID,
-                                encounterId: UUID?, db: Database, now: Date) throws -> UUID {
+                                encounterId: UUID?, db: Database, now: Date,
+                                healthExamId: UUID? = nil, reportSource: String? = nil) throws -> UUID {
+        if let healthExamId {
+            guard try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM health_exam WHERE id = ? AND patient_id = ?",
+                                   arguments: [healthExamId.uuidString, patientId.uuidString]) == 1 else { throw StoreError.invalidCard }
+        }
+        if let reportSource { guard ReportSource(rawValue: reportSource) != nil else { throw StoreError.invalidCard } }
         let facts: [DatabaseValueConvertible?] = [
             normalized(header.hospital), normalized(header.department), normalized(header.labName), normalized(header.reportNo),
             normalized(header.specimenType), normalized(header.specimenNo), normalized(header.testClassText), normalized(header.clinicalDiagnosis),
@@ -107,21 +115,25 @@ extension OCRCardStore {
                   test_class_text = COALESCE(NULLIF(test_class_text, ''), ?), clinical_diagnosis = COALESCE(NULLIF(clinical_diagnosis, ''), ?),
                   collected_at = COALESCE(collected_at, ?), received_at = COALESCE(received_at, ?), reported_at = COALESCE(reported_at, ?),
                   send_doctor = COALESCE(NULLIF(send_doctor, ''), ?), test_doctor = COALESCE(NULLIF(test_doctor, ''), ?), review_doctor = COALESCE(NULLIF(review_doctor, ''), ?),
-                  encounter_id = COALESCE(encounter_id, ?), confirmed = 1, updated_at = ?
+                  encounter_id = COALESCE(encounter_id, ?), health_exam_id = COALESCE(health_exam_id, ?), report_source = COALESCE(report_source, ?),
+                  confirmed = 1, updated_at = ?
                 WHERE id = ? AND patient_id = ?
-                """, arguments: StatementArguments(facts + [encounterId?.uuidString, now.timeIntervalSince1970, id.uuidString, patientId.uuidString]))
+                """, arguments: StatementArguments(facts + [encounterId?.uuidString, healthExamId?.uuidString, reportSource,
+                                                           now.timeIntervalSince1970, id.uuidString, patientId.uuidString]))
             guard db.changesCount == 1 else { throw StoreError.invalidCard }
             return id
         }
         let id = card.id
         guard try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM lab_report WHERE id = ?", arguments: [id.uuidString]) == 0 else { throw StoreError.corruptReceipt }
         let head: [DatabaseValueConvertible?] = [id.uuidString, patientId.uuidString, encounterId?.uuidString, documentId.uuidString]
-        let tail: [DatabaseValueConvertible?] = [card.id.uuidString, now.timeIntervalSince1970, now.timeIntervalSince1970]
+        let tail: [DatabaseValueConvertible?] = [card.id.uuidString, now.timeIntervalSince1970, now.timeIntervalSince1970,
+                                                 reportSource, healthExamId?.uuidString]
         try db.execute(sql: """
             INSERT INTO lab_report (id, patient_id, encounter_id, document_file_id, hospital, department, lab_name, report_no,
               specimen_type, specimen_no, test_class_text, clinical_diagnosis, collected_at, received_at, reported_at,
-              send_doctor, test_doctor, review_doctor, source_card_id, source, confirmed, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ocr', 1, ?, ?)
+              send_doctor, test_doctor, review_doctor, source_card_id, source, confirmed, created_at, updated_at,
+              report_source, health_exam_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ocr', 1, ?, ?, ?, ?)
             """, arguments: StatementArguments(head + facts + tail))
         return id
     }
@@ -153,17 +165,25 @@ extension OCRCardStore {
                              d.confirmed ? 1 : 0, d.createdAt.timeIntervalSince1970, d.updatedAt.timeIntervalSince1970])
     }
 
+    /// v27：`report_source` / `health_exam_id` 随实体写入（体检枢纽须同成员；`reportSource` 须为 CHECK 枚举）。
     static func insertExamReport(_ r: ExamReport, db: Database) throws {
         guard r.patientId != FactPlaceholder.unassignedId else { throw StoreError.invalidCard }
+        if let source = r.reportSource { guard ReportSource(rawValue: source) != nil else { throw StoreError.invalidCard } }
+        if let exam = r.healthExamId {
+            guard try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM health_exam WHERE id = ? AND patient_id = ?",
+                                   arguments: [exam.uuidString, r.patientId.uuidString]) == 1 else { throw StoreError.invalidCard }
+        }
         try db.execute(sql: """
             INSERT INTO exam_report (id, patient_id, encounter_id, document_file_id, report_type, hospital, department, report_no, exam_part, exam_method,
-              exam_at, reported_at, findings, impression, apply_doctor, report_doctor, review_doctor, source, confirmed, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              exam_at, reported_at, findings, impression, apply_doctor, report_doctor, review_doctor, source, confirmed, created_at, updated_at,
+              report_source, health_exam_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, arguments: [r.id.uuidString, r.patientId.uuidString, r.encounterId?.uuidString, r.documentFileId?.uuidString, r.reportType,
                              normalized(r.hospital), normalized(r.department), normalized(r.reportNo), normalized(r.examPart), normalized(r.examMethod),
                              r.examAt?.timeIntervalSince1970, r.reportedAt?.timeIntervalSince1970, normalized(r.findings), normalized(r.impression),
                              normalized(r.applyDoctor), normalized(r.reportDoctor), normalized(r.reviewDoctor), r.source.rawValue,
-                             r.confirmed ? 1 : 0, r.createdAt.timeIntervalSince1970, r.updatedAt.timeIntervalSince1970])
+                             r.confirmed ? 1 : 0, r.createdAt.timeIntervalSince1970, r.updatedAt.timeIntervalSince1970,
+                             r.reportSource, r.healthExamId?.uuidString])
     }
 
     // MARK: - 行解码（读面共用：detail / EncounterStore / 再确认比对）
@@ -210,7 +230,9 @@ extension OCRCardStore {
             findings: row["findings"], impression: row["impression"],
             applyDoctor: row["apply_doctor"], reportDoctor: row["report_doctor"], reviewDoctor: row["review_doctor"],
             source: source, confirmed: (row["confirmed"] as Int) == 1,
-            createdAt: Date(timeIntervalSince1970: row["created_at"]), updatedAt: Date(timeIntervalSince1970: row["updated_at"]))
+            createdAt: Date(timeIntervalSince1970: row["created_at"]), updatedAt: Date(timeIntervalSince1970: row["updated_at"]),
+            reportSource: row.hasColumn("report_source") ? row["report_source"] : nil,
+            healthExamId: row.hasColumn("health_exam_id") ? (row["health_exam_id"] as String?).flatMap(UUID.init(uuidString:)) : nil)
     }
 
     static func labReport(from row: Row) throws -> LabReport {
@@ -227,7 +249,9 @@ extension OCRCardStore {
             sendDoctor: row["send_doctor"], testDoctor: row["test_doctor"], reviewDoctor: row["review_doctor"],
             sourceCardId: (row["source_card_id"] as String?).flatMap(UUID.init(uuidString:)),
             source: source, confirmed: (row["confirmed"] as Int) == 1,
-            createdAt: Date(timeIntervalSince1970: row["created_at"]), updatedAt: Date(timeIntervalSince1970: row["updated_at"]))
+            createdAt: Date(timeIntervalSince1970: row["created_at"]), updatedAt: Date(timeIntervalSince1970: row["updated_at"]),
+            reportSource: row.hasColumn("report_source") ? row["report_source"] : nil,
+            healthExamId: row.hasColumn("health_exam_id") ? (row["health_exam_id"] as String?).flatMap(UUID.init(uuidString:)) : nil)
     }
 
     static func labResult(from row: Row) throws -> LabResult {
