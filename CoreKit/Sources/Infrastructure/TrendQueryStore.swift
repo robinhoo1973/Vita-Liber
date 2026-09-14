@@ -163,9 +163,12 @@ public actor TrendQueryStore {
         }
     }
 
+    /// v26（子项目 D §C.5）：`labReportId` 回指检验表头（同卡数值行共用一条 `lab_report`；旧路径 nil）；
+    /// `abnormal_flag` = 报告**打印**的 ↑↓/H/L 原文（A 级来源事实）——原样落库，App 不计算、不解释、不据此提示（BR-004/012）。
     static func insertHospitalSample(_ sample: HospitalSample, id: UUID, patientId: UUID,
                                      sourceRef: String, db: Database, now: Date,
-                                     approvedCodingSystem: CodingSystem? = nil) throws {
+                                     approvedCodingSystem: CodingSystem? = nil,
+                                     labReportId: String? = nil) throws {
         try validateHospitalSample(sample)
         if let concept = sample.codeConceptId {
             guard let row = try Row.fetchOne(db, sql: "SELECT canonical_code, coding_system, kind FROM code_concept WHERE id = ?", arguments: [concept]),
@@ -176,15 +179,21 @@ public actor TrendQueryStore {
         } else if sample.metricKey.hasPrefix("code.") {
             throw HealthImportStore.ImportError.invalidValue
         }
+        if let labReportId {
+            // 成员隔离：表头必须存在且与样本同成员（跨成员表头 → 整事务回滚）。
+            guard try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM lab_report WHERE id = ? AND patient_id = ?",
+                                   arguments: [labReportId, patientId.uuidString]) == 1 else { throw OCRCardStore.StoreError.invalidCard }
+        }
         try db.execute(sql: """
             INSERT INTO metric_sample
               (id, patient_id, metric_key, value, unit, origin, self_measured, excluded,
-               source_ref, ref_low, ref_high, ref_source_label, raw_label, code_concept_id, measured_at, created_at)
-            VALUES (?, ?, ?, ?, ?, 'hospital', 0, 0, ?, ?, ?, ?, ?, ?, ?, ?)
+               source_ref, ref_low, ref_high, ref_source_label, raw_label, code_concept_id, measured_at, created_at,
+               lab_report_id, abnormal_flag)
+            VALUES (?, ?, ?, ?, ?, 'hospital', 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, arguments: [id.uuidString, patientId.uuidString, sample.metricKey, sample.value,
                               sample.unit, sourceRef, sample.refLow, sample.refHigh, sample.refSourceLabel,
                               sample.rawLabel, sample.codeConceptId, sample.measuredAt.timeIntervalSince1970,
-                              now.timeIntervalSince1970])
+                              now.timeIntervalSince1970, labReportId, OCRCardStore.normalized(sample.abnormalFlag)])
     }
 
     static func validateHospitalSample(_ sample: HospitalSample) throws {

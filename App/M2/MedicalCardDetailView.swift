@@ -50,6 +50,25 @@ struct MedicalCardDetailView: View {
                             }
                         }
                     }
+                    // v26（§C.2–§C.5）：叙事列原文分段（住院期 / 检查所见与意见）、同卡诊断清单、检验报告数值 + 定性行。
+                    // 一律报告原文呈现——不摘要、不着色、不解释异常标记（BR-004/012）。
+                    ForEach(narrativeSections(from: detail), id: \.key) { block in
+                        Section(DocumentsState.fieldLabel(forKey: block.key)) {
+                            Text(block.value).font(.callout).textSelection(.enabled)
+                                .accessibilityIdentifier("SP-08.\(kind).narrative.\(block.key)")
+                        }
+                    }
+                    if !detail.diagnoses.isEmpty {
+                        Section(L10n.encounterSectionDiagnoses) {
+                            ForEach(Array(detail.diagnoses.enumerated()), id: \.element.id) { index, diagnosis in
+                                DiagnosisRow(diagnosis: diagnosis, index: index)
+                                    .accessibilityIdentifier("SP-08.diagnosis.row.\(index)")
+                            }
+                        }
+                    }
+                    if let lab = detail.labReport {
+                        LabReportSections(lab: lab, highlighted: kind == "metric_sample" ? entityId : nil)
+                    }
                     Section(L10n.ocrAssociatedEncounter) {
                         if detail.encounterIDs.isEmpty { Text(L10n.ocrUnlinked).foregroundStyle(.secondary) }
                         ForEach(detail.encounterIDs, id: \.self) { id in
@@ -133,12 +152,182 @@ struct MedicalCardDetailView: View {
         }
     }
 
+    /// v26 叙事列（原文整段分段呈现，不进头部 LabeledContent）：住院期 §C.2 七段 / 检查报告 §C.4 两段。
+    private static let narrativeKeys: [String: [String]] = [
+        "hospitalization": ["admit_diagnosis", "discharge_diagnosis", "admit_condition", "treatment_course",
+                            "discharge_condition", "discharge_orders", "take_home_drugs"],
+        "exam_report": ["findings", "impression"],
+    ]
+
     private func headerFields(from detail: OCRCardStore.CardDetail) -> [FieldDraft] {
         if kind == "prescription" {
             // 处方卡只将医院、医生等元信息放在头部，药品明细（prescription_line）与医嘱原文各有专门 Section
             return detail.fields.filter { $0.key != "advice_text" }
         }
+        if let narrative = Self.narrativeKeys[kind] {
+            return detail.fields.filter { !narrative.contains($0.key) }
+        }
+        if kind == "diagnosis" {
+            // 诊断卡：清单分段承载逐条诊断（名称/类型/编码），头部只留日期等共享面
+            return detail.fields.filter { !["name", "code_text", "code_system", "diagnosis_type", "note"].contains($0.key) }
+        }
         return detail.fields
+    }
+
+    /// 非空叙事列（键序 = 文书阅读序），值为已确认原文。
+    private func narrativeSections(from detail: OCRCardStore.CardDetail) -> [(key: String, value: String)] {
+        guard let keys = Self.narrativeKeys[kind] else { return [] }
+        return keys.compactMap { key -> (key: String, value: String)? in
+            guard let value = detail.fields.first(where: { $0.key == key })?.value.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !value.isEmpty else { return nil }
+            return (key: key, value: value)
+        }
+    }
+}
+
+/// 诊断行（§C.3）：名称原文 + 类型（canonical raw 经展示层映射）+ 打印编码；不猜码、不接码表。
+private struct DiagnosisRow: View {
+    let diagnosis: Diagnosis
+    let index: Int
+
+    var body: some View {
+        WithPerceptionTracking {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Text(diagnosis.name).font(.body.bold())
+                    Spacer()
+                    Text(DocumentsState.fieldValueDisplay(forKey: "diagnosis_type", value: diagnosis.diagnosisType))
+                        .font(.caption)
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(Capsule().fill(Color("brand-primary", bundle: .main).opacity(0.12)))
+                        .foregroundStyle(Color("brand-primary", bundle: .main))
+                }
+                let meta = DiagnosisRow.meta(diagnosis)
+                if !meta.isEmpty {
+                    Text(meta).font(.caption).foregroundStyle(.secondary)
+                }
+                if let note = diagnosis.note, !note.isEmpty {
+                    Text(note).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .padding(.vertical, 2)
+        }
+    }
+
+    /// 编码原文（体系 + 码）与诊断日期，空项省略。
+    static func meta(_ diagnosis: Diagnosis) -> String {
+        var parts: [String] = []
+        if let code = diagnosis.codeText, !code.isEmpty {
+            parts.append([diagnosis.codeSystemText, code].compactMap { $0 }.joined(separator: " "))
+        }
+        if let date = diagnosis.diagnosedAt {
+            parts.append(date.formatted(date: .abbreviated, time: .omitted))
+        }
+        return parts.joined(separator: " · ")
+    }
+}
+
+/// 检验报告分段（§C.5）：数值项目（metric_sample）+ 定性项目（lab_result）。结果 / 参考范围 / 打印标记一律原文，
+/// 不着色、不换算、不解释（BR-004/012）；`highlighted` = 从单个趋势点进入时标出该行。
+private struct LabReportSections: View {
+    let lab: OCRCardStore.LabReportDetail
+    let highlighted: UUID?
+
+    var body: some View {
+        WithPerceptionTracking {
+            Section(L10n.labReportSamplesSection) {
+                if lab.samples.isEmpty && lab.results.isEmpty {
+                    Text(L10n.labReportNoRows).font(.caption).foregroundStyle(.secondary)
+                }
+                ForEach(Array(lab.samples.enumerated()), id: \.element.id) { index, sample in
+                    LabSampleRowView(sample: sample, highlighted: sample.id == highlighted)
+                        .accessibilityIdentifier("SP-08.labReport.sample.\(index)")
+                }
+            }
+            if !lab.results.isEmpty {
+                Section(L10n.labReportResultsSection) {
+                    ForEach(Array(lab.results.enumerated()), id: \.element.id) { index, result in
+                        LabResultRowView(result: result)
+                            .accessibilityIdentifier("SP-08.labReport.result.\(index)")
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct LabSampleRowView: View {
+    let sample: OCRCardStore.LabSampleRow
+    let highlighted: Bool
+
+    var body: some View {
+        WithPerceptionTracking {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(sample.rawLabel).font(highlighted ? .body.bold() : .body)
+                    Spacer()
+                    Text(LabSampleRowView.valueText(sample)).font(.body)
+                }
+                let meta = LabSampleRowView.meta(sample)
+                if !meta.isEmpty {
+                    Text(meta).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .padding(.vertical, 2)
+        }
+    }
+
+    /// 数值 + 单位（原文单位，不换算）；打印标记原样附在数值之后（不着色、不解释）。
+    static func valueText(_ sample: OCRCardStore.LabSampleRow) -> String {
+        var text = sample.value.formatted() + " " + sample.unit
+        if let flag = sample.abnormalFlag, !flag.isEmpty { text += " " + flag }
+        return text
+    }
+
+    /// 报告自带参考范围（A 级，原样）。
+    static func meta(_ sample: OCRCardStore.LabSampleRow) -> String {
+        guard sample.refLow != nil || sample.refHigh != nil else { return "" }
+        let low = sample.refLow.map { $0.formatted() } ?? ""
+        let high = sample.refHigh.map { $0.formatted() } ?? ""
+        return DocumentsState.fieldLabel(forKey: "reference_range") + ": " + low + " - " + high
+    }
+}
+
+private struct LabResultRowView: View {
+    let result: LabResult
+
+    var body: some View {
+        WithPerceptionTracking {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(result.itemName).font(.body)
+                    Spacer()
+                    Text(LabResultRowView.valueText(result)).font(.body)
+                }
+                let meta = LabResultRowView.meta(result)
+                if !meta.isEmpty {
+                    Text(meta).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .padding(.vertical, 2)
+        }
+    }
+
+    /// 定性结果原文 + 单位 + 打印标记（原样拼接，零解释）。
+    static func valueText(_ result: LabResult) -> String {
+        [result.resultText, result.unit, result.abnormalFlag].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " ")
+    }
+
+    /// 参考范围原文 / 方法（打印文本）。
+    static func meta(_ result: LabResult) -> String {
+        var parts: [String] = []
+        if let reference = result.referenceText, !reference.isEmpty {
+            parts.append(DocumentsState.fieldLabel(forKey: "reference_text") + ": " + reference)
+        }
+        if let method = result.method, !method.isEmpty {
+            parts.append(DocumentsState.fieldLabel(forKey: "method") + ": " + method)
+        }
+        return parts.joined(separator: " · ")
     }
 }
 

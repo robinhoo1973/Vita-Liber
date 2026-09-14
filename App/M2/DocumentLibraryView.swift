@@ -813,6 +813,11 @@ final class DocumentsState {
             return value == "CNY" ? L10n.currencyCNY : value
         case "prescription_type":
             return L10n.prescriptionTypeName(value)
+        // v26（§C.3 / §C.4）：诊断类型 / 检查报告类型 canonical raw → 展示名（未登记原样透传）
+        case "diagnosis_type":
+            return L10n.diagnosisTypeName(value)
+        case "report_type":
+            return L10n.examReportTypeName(value)
         default:
             return value
         }
@@ -830,6 +835,10 @@ final class DocumentsState {
         case "prescription_type":
             return ["general", "emergency", "pediatric", "narcotic", "psychotropic", "tcm", "other"]
                 .filter { EntityCardProjection.prescriptionTypes.contains($0) }
+        // v26：诊断类型 / 检查报告类型（Domain CHECK 同拼写目录，Picker 绑 canonical raw）；
+        // `kind` 目录随 EncounterKind.allCases 自动含 daySurgery（住院卡以外的 kind 由 invalidFields 裁定）。
+        case "diagnosis_type": return Diagnosis.diagnosisTypes
+        case "report_type": return ExamReport.reportTypes
         default: return nil
         }
     }

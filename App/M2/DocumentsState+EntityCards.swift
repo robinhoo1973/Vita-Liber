@@ -34,12 +34,25 @@ extension DocumentsState {
         DocumentTypeClassifierFallback.pageFields(lines: lines, understood: understood, confidence: confidence)
     }
 
+    /// 就诊卡的文档类型证据（v26）：用户手选 / 页判定的稳定键落在就诊卡许可集内（门诊病历 / 诊断证明 / 急诊病历）时原样
+    /// 传给匹配器——`kind` 由该键派生（emergency_record → emergency，不再一律硬编码门诊）；住院族文档键
+    ///（住院病案 / 出院小结 / 日间手术）上不产出就诊卡（就诊由 hospitalization 卡建，kind = inpatient / daySurgery）；
+    /// 无稳定键时退回页内文本证据 → 门诊（既有行为）。
+    static func encounterEvidence(typeKey: String?, fields: [FieldDraft]) -> String? {
+        if let typeKey {
+            if CardKindRegistry.entry(for: "encounter")?.requiresDocumentType?.contains(typeKey) == true { return typeKey }
+            if CardKindRegistry.entry(for: "hospitalization")?.requiresDocumentType?.contains(typeKey) == true { return nil }
+        }
+        return DocumentTypeClassifierFallback.hasVisitEvidence(in: fields) ? "outpatient_record" : nil
+    }
+
     static func matchPages(_ pages: [PageAnalysis], manualTypeKey: String?) -> [MatchedCard] {
         pages.flatMap { page -> [MatchedCard] in
             guard page.status == "ok" else { return [] }
             let fields = page.fields.filter { $0.grade != .rejected && !$0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-            let visitEvidence = manualTypeKey == "outpatient_record" || manualTypeKey == "diagnosis_certificate"
-                || DocumentTypeClassifierFallback.hasVisitEvidence(in: fields)
+            // 用户手选类型优先于页判定：三新卡（住院 / 诊断 / 检查）与就诊 kind、diagnosis_type、report_type 的派生默认均由此键驱动。
+            let typeKey = manualTypeKey ?? page.documentTypeKey
+            let visitEvidence = encounterEvidence(typeKey: typeKey, fields: fields)
             return CardTemplateMatcher.ocrTemplates.filter { OCRCardStore.supportedKinds.contains($0.kind) }.flatMap { template in
                 var input = fields
                 if template.kind == "prescription", !input.contains(where: { $0.key == "prescribed_at" }) {
@@ -48,7 +61,7 @@ extension DocumentsState {
                         input.append(date)
                     }
                 }
-                let evidence = template.kind == "encounter" ? (visitEvidence ? "outpatient_record" : nil) : page.documentTypeKey
+                let evidence = template.kind == "encounter" ? visitEvidence : typeKey
                 var matches = CardTemplateMatcher.match(fields: input, pageIndex: page.index,
                                                        documentTypeKey: evidence, templates: [template])
                 // Derived fields must not upgrade a low-confidence OCR page.

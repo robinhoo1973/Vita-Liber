@@ -44,6 +44,17 @@ public actor ExportService {
         /// 行随表头裁决（keep 跳过 / adopt 整组换 / coexist 随表头换 id）。旧包缺键 → nil（绝不从 advice_text 猜回行）。
         public var prescriptionLines: [PrescriptionLineExport]?
         public var claimLines: [ClaimLineExport]?
+        /// v26（子项目 D §C.2–§C.5，D2-3）五表全列随包（元素类型 = Domain DDL 镜像值类型，字段与列同名 camelCase）。
+        /// 全部 Optional：旧包缺键 → nil（零恢复，不猜）；envelope 版本仍为 2（只增可选键，不破坏 v2 读侧）。
+        /// 恢复拓扑序（§C.12）：encounters → hospitalizations → labReports → metrics(lab_report_id) → labResults → … →
+        /// examReports → ocrCardCommits → … → healthProblems → diagnoses(health_problem_id)。
+        /// 裁决：lab_report / diagnosis / exam_report 为独立冲突表（keep/adopt/coexist）；hospitalization 随其就诊、
+        /// lab_result 随其表头裁决（v25「行随表头」同纪律）。
+        public var hospitalizations: [Hospitalization]?
+        public var diagnoses: [Diagnosis]?
+        public var examReports: [ExamReport]?
+        public var labReports: [LabReport]?
+        public var labResults: [LabResult]?
         public var plans: [PlanExport]
         public var appointments: [AppointmentExport]
         public var observations: [ObservationExport]
@@ -65,6 +76,8 @@ public actor ExportService {
             + (alertEvents?.count ?? 0) + immunizations.count + voiceNotes.count + healthProblems.count
             + (ocrPrescriptions?.count ?? 0)
             + (ocrMedications?.count ?? 0) + (claims?.count ?? 0)
+            + (hospitalizations?.count ?? 0) + (diagnoses?.count ?? 0) + (examReports?.count ?? 0)
+            + (labReports?.count ?? 0) + (labResults?.count ?? 0)
         }
 
         /// document_file 直列导出（第四轮全仓审查修复：FR13.2 备份/恢复
@@ -371,6 +384,9 @@ public actor ExportService {
             public var aggregationKind: String?
             public var windowEnd: Date?
             public var createdAt: Date?
+            /// v26（§C.5）：回指检验表头 / 报告打印的异常标记原文（不解释）；旧包缺键 → nil。
+            public var labReportId: UUID? = nil
+            public var abnormalFlag: String? = nil
         }
         public struct AlertEventExport: Sendable, Codable, Equatable {
             public var id: UUID
@@ -458,6 +474,11 @@ public actor ExportService {
             self.documents = nil
             self.prescriptionLines = nil
             self.claimLines = nil
+            self.hospitalizations = nil
+            self.diagnoses = nil
+            self.examReports = nil
+            self.labReports = nil
+            self.labResults = nil
             self.plans = plans
             self.appointments = appointments
             self.observations = []
@@ -664,7 +685,9 @@ public actor ExportService {
                     sourceIdentifier: row["source_identifier"] as String?,
                     aggregationKind: row["aggregation_kind"] as String?,
                     windowEnd: (row["window_end"] as Double?).map(Date.init(timeIntervalSince1970:)),
-                    createdAt: Date(timeIntervalSince1970: row["created_at"] as Double))
+                    createdAt: Date(timeIntervalSince1970: row["created_at"] as Double),
+                    labReportId: (row["lab_report_id"] as String?).flatMap(UUID.init(uuidString:)),
+                    abnormalFlag: row["abnormal_flag"] as String?)
             }
             let alertEvents = try Row.fetchAll(db, sql: "SELECT * FROM alert_event ORDER BY created_at, id").map { row in
                 Envelope.AlertEventExport(
@@ -808,6 +831,17 @@ public actor ExportService {
                         rescheduledFromId: (row["rescheduled_from_id"] as String?).flatMap(UUID.init(uuidString:)),
                         createdAt: Date(timeIntervalSince1970: row["created_at"]), updatedAt: Date(timeIntervalSince1970: row["updated_at"]))
                 }
+            // v26（D2-3）五表全列导出（Domain 镜像值类型；confirmed 原样携带，恢复绝不升级 D→C）。
+            envelope.hospitalizations = try Self.decodeRows(try Row.fetchAll(db, sql: "SELECT * FROM hospitalization ORDER BY created_at, id"),
+                                                            OCRCardStore.hospitalization(from:))
+            envelope.diagnoses = try Self.decodeRows(try Row.fetchAll(db, sql: "SELECT * FROM diagnosis ORDER BY created_at, ordinal, id"),
+                                                     OCRCardStore.diagnosis(from:))
+            envelope.examReports = try Self.decodeRows(try Row.fetchAll(db, sql: "SELECT * FROM exam_report ORDER BY created_at, id"),
+                                                       OCRCardStore.examReport(from:))
+            envelope.labReports = try Self.decodeRows(try Row.fetchAll(db, sql: "SELECT * FROM lab_report ORDER BY created_at, id"),
+                                                      OCRCardStore.labReport(from:))
+            envelope.labResults = try Self.decodeRows(try Row.fetchAll(db, sql: "SELECT * FROM lab_result ORDER BY lab_report_id, ordinal"),
+                                                      OCRCardStore.labResult(from:))
             envelope.sensitiveDocIds = Set(sensitiveIds)
             envelope.observations = observations
             envelope.allergies = allergies
@@ -958,8 +992,28 @@ public actor ExportService {
             try add("health_problem", ids: envelope.healthProblems.map { $0.id.uuidString },
                     backupTitle: { problemTitle[$0] },
                     existingTitle: { existingTitle("health_problem", $0, "name") })
+            // v26（D2-3）独立冲突表：检验表头 / 诊断 / 检查报告（住院期随就诊、定性行随表头，不单列）
+            let labTitle = Dictionary(uniqueKeysWithValues: (envelope.labReports ?? []).map { ($0.id.uuidString, $0.labName ?? $0.hospital) })
+                .compactMapValues { $0 }
+            let diagnosisTitle = Dictionary(uniqueKeysWithValues: (envelope.diagnoses ?? []).map { ($0.id.uuidString, $0.name) })
+            let examTitle = Dictionary(uniqueKeysWithValues: (envelope.examReports ?? []).map { ($0.id.uuidString, $0.examPart ?? $0.reportType) })
+            try add("lab_report", ids: (envelope.labReports ?? []).map { $0.id.uuidString },
+                    backupTitle: { labTitle[$0] },
+                    existingTitle: { existingTitle("lab_report", $0, "lab_name") })
+            try add("diagnosis", ids: (envelope.diagnoses ?? []).map { $0.id.uuidString },
+                    backupTitle: { diagnosisTitle[$0] },
+                    existingTitle: { existingTitle("diagnosis", $0, "name") })
+            try add("exam_report", ids: (envelope.examReports ?? []).map { $0.id.uuidString },
+                    backupTitle: { examTitle[$0] },
+                    existingTitle: { existingTitle("exam_report", $0, "report_type") })
             return items
         }
+    }
+
+    /// 行 → Domain 镜像值类型；解码失败（非 UUID 主键 / 非法枚举）按备份损坏拒收，不静默丢行。
+    private static func decodeRows<T>(_ rows: [Row], _ decode: (Row) throws -> T) throws -> [T] {
+        do { return try rows.map(decode) }
+        catch { throw ExportError.invalidOCRBackup }
     }
 
     /// 导入（往返一致性的一票否决半场）：把 envelope 写回当前库。
@@ -1016,6 +1070,10 @@ public actor ExportService {
                 ("immunization", envelope.immunizations.map { $0.id.uuidString }),
                 ("voice_note", envelope.voiceNotes.map { $0.id.uuidString }),
                 ("health_problem", envelope.healthProblems.map { $0.id.uuidString }),
+                // v26（D2-3）：检验表头 / 诊断 / 检查报告独立裁决；住院期随就诊、定性行随表头（不入冲突表）
+                ("lab_report", (envelope.labReports ?? []).map { $0.id.uuidString }),
+                ("diagnosis", (envelope.diagnoses ?? []).map { $0.id.uuidString }),
+                ("exam_report", (envelope.examReports ?? []).map { $0.id.uuidString }),
             ]
             var conflictSets: [String: Set<String>] = [:]
             for (table, ids) in conflictPairs {
@@ -1076,20 +1134,32 @@ public actor ExportService {
             let prescriptionLineRows = envelope.prescriptionLines ?? [], claimLineRows = envelope.claimLines ?? []
             for line in prescriptionLineRows where idMap[line.prescriptionId] != nil { idMap[line.id] = UUID() }
             for line in claimLineRows where idMap[line.claimItemId] != nil { idMap[line.id] = UUID() }
+            // v26：住院期随其就诊并存换 id；定性行随其检验表头并存换 id（UNIQUE(encounter_id) / UNIQUE(lab_report_id, ordinal) 不撞车）。
+            let hospitalizationRows = envelope.hospitalizations ?? [], labResultRows = envelope.labResults ?? []
+            let labReportRows = envelope.labReports ?? []
+            for h in hospitalizationRows where idMap[h.encounterId] != nil { idMap[h.id] = UUID() }
+            for r in labResultRows where idMap[r.labReportId] != nil { idMap[r.id] = UUID() }
             let prescriptionLineById = Dictionary(uniqueKeysWithValues: prescriptionLineRows.map { ($0.id, $0) })
             let claimLineById = Dictionary(uniqueKeysWithValues: claimLineRows.map { ($0.id, $0) })
-            /// 回执所指表头：表头回执 = entity_id；行回执经 envelope 行数组回到表头（validateOCRBackup 已保证行存在）。
-            func receiptHeader(_ audit: OCRCardStore.AuditRecord) -> UUID {
+            let hospitalizationById = Dictionary(uniqueKeysWithValues: hospitalizationRows.map { ($0.id, $0) })
+            let labResultById = Dictionary(uniqueKeysWithValues: labResultRows.map { ($0.id, $0) })
+            /// 回执的裁决归属 (冲突表, 表头 id)：表头回执 = (card_kind, entity_id)；行回执经 envelope 行数组回到表头
+            ///（validateOCRBackup 已保证行存在）；住院期回执归其就诊、定性行回执归其检验表头。
+            func receiptGovernor(_ audit: OCRCardStore.AuditRecord) -> (table: String, header: UUID) {
                 switch audit.entityTable ?? audit.cardKind {
-                case "prescription_line": return prescriptionLineById[audit.entityId]?.prescriptionId ?? audit.entityId
-                case "claim_line": return claimLineById[audit.entityId]?.claimItemId ?? audit.entityId
-                default: return audit.entityId
+                case "prescription_line": return ("prescription", prescriptionLineById[audit.entityId]?.prescriptionId ?? audit.entityId)
+                case "claim_line": return ("claim_item", claimLineById[audit.entityId]?.claimItemId ?? audit.entityId)
+                case "hospitalization": return ("encounter", hospitalizationById[audit.entityId]?.encounterId ?? audit.entityId)
+                case "lab_result": return ("lab_report", labResultById[audit.entityId]?.labReportId ?? audit.entityId)
+                case "lab_report": return ("lab_report", audit.entityId)
+                default: return (audit.cardKind, audit.entityId)
                 }
             }
+            func receiptHeader(_ audit: OCRCardStore.AuditRecord) -> UUID { receiptGovernor(audit).header }
             /// 回执随表头裁决：表头 keep → 该表头的全部回执（表头回执 + 行回执）一律不落。
             func receiptKept(_ audit: OCRCardStore.AuditRecord) -> Bool {
-                let header = receiptHeader(audit)
-                return conflictSets[audit.cardKind, default: []].contains(header.uuidString) && resolution(header) == .keep
+                let governor = receiptGovernor(audit)
+                return conflictSets[governor.table, default: []].contains(governor.header.uuidString) && resolution(governor.header) == .keep
             }
             /// v1 包（旧导出）缺 v25 列：adopt 只覆盖其原有列，不把本机既有新列刷成 NULL；v2 包按备份全列采纳。
             let legacyEnvelope = envelope.schemaVersion < Envelope.currentSchemaVersion
@@ -1215,6 +1285,10 @@ public actor ExportService {
             // Pending-only cards are absent from the receipt array but still need a new identity on coexist.
             for document in envelope.documents ?? [] where idMap[document.id] != nil || document.patientId.flatMap({ idMap[$0] }) != nil {
                 for id in try Self.reviewCardIDs(document.metaJson) where cardMap[id] == nil { cardMap[id] = UUID() }
+            }
+            // v26：并存的检验表头 = 一张新卡（source_card_id UNIQUE 不撞车；其行回执随同一 cardMap 换卡 id）。
+            for report in labReportRows where idMap[report.id] != nil {
+                if let card = report.sourceCardId, cardMap[card] == nil { cardMap[card] = UUID() }
             }
             var docEncounterLinks: [String: UUID?] = [:]
             for d in envelope.documents ?? [] {
@@ -1453,40 +1527,142 @@ public actor ExportService {
                 try db.execute(sql: "UPDATE document_file SET encounter_id = ? WHERE id = ?",
                                arguments: [encId?.uuidString, docId])
             }
+            // v26（§C.12 第 2 位）住院期：随就诊裁决——就诊 keep → 跳过；否则按 UNIQUE(encounter_id) 落到该就诊的唯一住院期
+            //（本机已有同就诊住院期 → 采纳备份列、保留本机 id 并把备份 id 重映射到它，回执随之指向存活行；同 id 已有 → 覆盖；
+            //   否则 INSERT，coexist 的新 id 已随就诊重写）。
+            for h in hospitalizationRows {
+                if encConflicts.contains(h.encounterId.uuidString), resolution(h.encounterId) == .keep { continue }
+                let targetEncounter = (remap(h.encounterId) ?? h.encounterId).uuidString
+                var target = (remap(h.id) ?? h.id).uuidString
+                let facts = OCRCardStore.hospitalizationFacts(h)
+                let stamps: [DatabaseValueConvertible?] = [h.source.rawValue, h.confirmed ? 1 : 0,
+                                                          h.createdAt.timeIntervalSince1970, h.updatedAt.timeIntervalSince1970]
+                let localUnderEncounter = try String.fetchOne(db, sql: "SELECT id FROM hospitalization WHERE encounter_id = ?", arguments: [targetEncounter])
+                if let local = localUnderEncounter, local != target {
+                    if let localId = UUID(uuidString: local) { idMap[h.id] = localId }
+                    target = local
+                }
+                let sameIdCount = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM hospitalization WHERE id = ?", arguments: [target]) ?? 0
+                let exists = localUnderEncounter != nil || sameIdCount > 0
+                let head: [DatabaseValueConvertible?] = [patientID(h.patientId), targetEncounter, remap(h.documentFileId)?.uuidString]
+                if exists {
+                    try db.execute(sql: """
+                        UPDATE hospitalization SET patient_id = ?, encounter_id = ?, document_file_id = ?,
+                          hospital = ?, medical_record_no = ?, inpatient_times = ?, admit_at = ?, discharge_at = ?, actual_days = ?,
+                          admit_dept = ?, discharge_dept = ?, ward = ?, bed_no = ?, admit_route_text = ?, payment_type_text = ?, discharge_way_text = ?,
+                          attending_physician = ?, admit_diagnosis_text = ?, discharge_diagnosis_text = ?, admit_condition = ?, treatment_course = ?,
+                          discharge_condition = ?, discharge_orders = ?, take_home_drugs_text = ?, total_cost = ?, summary_doctor = ?, summary_date = ?,
+                          source = ?, confirmed = ?, created_at = ?, updated_at = ?
+                        WHERE id = ?
+                        """, arguments: StatementArguments(head + facts + stamps + [target]))
+                } else {
+                    try db.execute(sql: """
+                        INSERT INTO hospitalization (id, patient_id, encounter_id, document_file_id,
+                          hospital, medical_record_no, inpatient_times, admit_at, discharge_at, actual_days, admit_dept, discharge_dept, ward, bed_no,
+                          admit_route_text, payment_type_text, discharge_way_text, attending_physician, admit_diagnosis_text, discharge_diagnosis_text,
+                          admit_condition, treatment_course, discharge_condition, discharge_orders, take_home_drugs_text, total_cost, summary_doctor, summary_date,
+                          source, confirmed, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, arguments: StatementArguments([target] + head + facts + stamps))
+                }
+            }
+            // v26（§C.12 第 7 位）检验表头：独立裁决（keep 跳过 / adopt 全列覆盖 / coexist 新 id + 新卡 id），先于 metric_sample.lab_report_id 落库。
+            let labReportConflicts = conflictSets["lab_report"] ?? []
+            for r in labReportRows {
+                let target = remap(r.id) ?? r.id
+                let sourceCard = r.sourceCardId.map { (cardMap[$0] ?? $0).uuidString }
+                let facts: [DatabaseValueConvertible?] = [
+                    patientID(r.patientId), remap(r.encounterId)?.uuidString, remap(r.documentFileId)?.uuidString,
+                    r.hospital, r.department, r.labName, r.reportNo, r.specimenType, r.specimenNo, r.testClassText, r.clinicalDiagnosis,
+                    r.collectedAt?.timeIntervalSince1970, r.receivedAt?.timeIntervalSince1970, r.reportedAt?.timeIntervalSince1970,
+                    r.sendDoctor, r.testDoctor, r.reviewDoctor, sourceCard, r.source.rawValue, r.confirmed ? 1 : 0,
+                    r.createdAt.timeIntervalSince1970, r.updatedAt.timeIntervalSince1970,
+                ]
+                if try adoptOrSkip(labReportConflicts, r.id, adopt: {
+                    try db.execute(sql: """
+                        UPDATE lab_report SET patient_id = ?, encounter_id = ?, document_file_id = ?,
+                          hospital = ?, department = ?, lab_name = ?, report_no = ?, specimen_type = ?, specimen_no = ?, test_class_text = ?, clinical_diagnosis = ?,
+                          collected_at = ?, received_at = ?, reported_at = ?, send_doctor = ?, test_doctor = ?, review_doctor = ?,
+                          source_card_id = ?, source = ?, confirmed = ?, created_at = ?, updated_at = ?
+                        WHERE id = ?
+                        """, arguments: StatementArguments(facts + [r.id.uuidString]))
+                }) { continue }
+                try db.execute(sql: """
+                    INSERT INTO lab_report (id, patient_id, encounter_id, document_file_id, hospital, department, lab_name, report_no,
+                      specimen_type, specimen_no, test_class_text, clinical_diagnosis, collected_at, received_at, reported_at,
+                      send_doctor, test_doctor, review_doctor, source_card_id, source, confirmed, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, arguments: StatementArguments([target.uuidString] + facts))
+            }
             for m in envelope.metrics {
                 let restoredSourceRef = try sourceReference(m.sourceRef)
                 let selfMeasured = (m.selfMeasured ?? (m.origin != "hospital")) ? 1 : 0
                 let createdAt = (m.createdAt ?? m.measuredAt).timeIntervalSince1970
+                // v26 两列：v1 包 adopt 不触碰本机既有 lab_report_id/abnormal_flag；v2 包按备份全列采纳。
+                let labColumns = legacyEnvelope ? "" : ", lab_report_id = ?, abnormal_flag = ?"
+                let labArguments: [DatabaseValueConvertible?] = legacyEnvelope ? [] : [remap(m.labReportId)?.uuidString, m.abnormalFlag]
                 if try adoptOrSkip(metricConflicts, m.id, adopt: {
+                    let base: [DatabaseValueConvertible?] = [patientID(m.patientId), m.key, m.value, m.secondaryValue,
+                                         m.unit, m.origin, selfMeasured, m.excluded ? 1 : 0, restoredSourceRef,
+                                         m.refLow, m.refHigh, m.refSourceLabel, m.rawLabel, m.codeConceptId,
+                                         m.valueMin, m.valueMax, m.sampleCount, m.sourceName, m.sourceVersion,
+                                         m.sourceProduct, m.sourceIdentifier, m.aggregationKind,
+                                         m.windowEnd?.timeIntervalSince1970, m.measuredAt.timeIntervalSince1970, createdAt]
                     try db.execute(sql: """
                         UPDATE metric_sample SET patient_id = ?, metric_key = ?, value = ?, secondary_value = ?,
                           unit = ?, origin = ?, self_measured = ?, excluded = ?, source_ref = ?,
                           ref_low = ?, ref_high = ?, ref_source_label = ?, raw_label = ?, code_concept_id = ?,
                           value_min = ?, value_max = ?, sample_count = ?, source_name = ?, source_version = ?,
                           source_product = ?, source_identifier = ?, aggregation_kind = ?, window_end = ?,
-                          measured_at = ?, created_at = ?
+                          measured_at = ?, created_at = ?\(labColumns)
                         WHERE id = ?
-                        """, arguments: [patientID(m.patientId), m.key, m.value, m.secondaryValue,
-                                         m.unit, m.origin, selfMeasured, m.excluded ? 1 : 0, restoredSourceRef,
-                                         m.refLow, m.refHigh, m.refSourceLabel, m.rawLabel, m.codeConceptId,
-                                         m.valueMin, m.valueMax, m.sampleCount, m.sourceName, m.sourceVersion,
-                                         m.sourceProduct, m.sourceIdentifier, m.aggregationKind,
-                                         m.windowEnd?.timeIntervalSince1970, m.measuredAt.timeIntervalSince1970,
-                                         createdAt, m.id.uuidString])
+                        """, arguments: StatementArguments(base + labArguments + [m.id.uuidString]))
                 }) { continue }
                 try db.execute(sql: """
                     INSERT INTO metric_sample
                       (id, patient_id, metric_key, value, secondary_value, unit, origin, self_measured,
                        excluded, source_ref, ref_low, ref_high, ref_source_label, raw_label, code_concept_id,
                        value_min, value_max, sample_count, source_name, source_version, source_product,
-                       source_identifier, aggregation_kind, window_end, measured_at, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       source_identifier, aggregation_kind, window_end, measured_at, created_at, lab_report_id, abnormal_flag)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, arguments: [(remap(m.id) ?? m.id).uuidString, patientID(m.patientId), m.key, m.value,
                                      m.secondaryValue, m.unit, m.origin, selfMeasured, m.excluded ? 1 : 0,
                                      restoredSourceRef, m.refLow, m.refHigh, m.refSourceLabel, m.rawLabel, m.codeConceptId,
                                      m.valueMin, m.valueMax, m.sampleCount, m.sourceName, m.sourceVersion,
                                      m.sourceProduct, m.sourceIdentifier, m.aggregationKind,
-                                     m.windowEnd?.timeIntervalSince1970, m.measuredAt.timeIntervalSince1970, createdAt])
+                                     m.windowEnd?.timeIntervalSince1970, m.measuredAt.timeIntervalSince1970, createdAt,
+                                     remap(m.labReportId)?.uuidString, m.abnormalFlag])
+            }
+            // v26（§C.12 第 9 位）定性行随表头裁决（keep 跳过 / adopt 整组换、本机回执指向的行保留 / 新增·coexist 直接 INSERT）。
+            let labResultUpsert = """
+                ON CONFLICT(id) DO UPDATE SET patient_id=excluded.patient_id, lab_report_id=excluded.lab_report_id, ordinal=excluded.ordinal,
+                  item_name=excluded.item_name, item_code_text=excluded.item_code_text, result_text=excluded.result_text, comparator=excluded.comparator,
+                  unit=excluded.unit, reference_text=excluded.reference_text, abnormal_flag=excluded.abnormal_flag, method=excluded.method,
+                  code_concept_id=excluded.code_concept_id, source_page=excluded.source_page, source_row_id=excluded.source_row_id, created_at=excluded.created_at
+                """
+            for (headerId, rows) in Dictionary(grouping: labResultRows, by: \.labReportId) {
+                let conflicting = labReportConflicts.contains(headerId.uuidString)
+                if conflicting, resolution(headerId) == .keep { continue }
+                let adopting = conflicting && resolution(headerId) == .adopt
+                let header = (remap(headerId) ?? headerId).uuidString
+                if adopting { try parkExistingLines(table: "lab_result", parentColumn: "lab_report_id", header: header) }
+                for row in rows.sorted(by: { $0.ordinal < $1.ordinal }) {
+                    let identity: [DatabaseValueConvertible?] = [(remap(row.id) ?? row.id).uuidString, patientID(row.patientId), header, row.ordinal, row.itemName]
+                    let facts: [DatabaseValueConvertible?] = [row.itemCodeText, row.resultText, row.comparator, row.unit, row.referenceText,
+                                                             row.abnormalFlag, row.method, row.codeConceptId]
+                    let provenance: [DatabaseValueConvertible?] = [row.sourcePage, row.sourceRowId?.uuidString, row.createdAt.timeIntervalSince1970]
+                    try db.execute(sql: """
+                        INSERT INTO lab_result (id, patient_id, lab_report_id, ordinal, item_name, item_code_text, result_text, comparator, unit,
+                          reference_text, abnormal_flag, method, code_concept_id, source_page, source_row_id, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        \(adopting ? labResultUpsert : "")
+                        """, arguments: StatementArguments(identity + facts + provenance))
+                }
+                if adopting {
+                    try settleParkedLines(table: "lab_result", parentColumn: "lab_report_id", header: header, retainedBy: [
+                        "SELECT entity_id FROM ocr_card_commit WHERE entity_table = 'lab_result'",
+                    ])
+                }
             }
             for details in envelope.ocrEncounterDetails ?? [] {
                 if encConflicts.contains(details.id.uuidString), resolution(details.id) == .keep { continue }
@@ -1701,6 +1877,31 @@ public actor ExportService {
                     ])
                 }
             }
+            // v26（§C.12 第 10 位）检查报告：独立裁决（keep / adopt 全列 / coexist 新 id）；就诊与文档已先落库。
+            let examConflicts = conflictSets["exam_report"] ?? []
+            for r in envelope.examReports ?? [] {
+                let facts: [DatabaseValueConvertible?] = [
+                    patientID(r.patientId), remap(r.encounterId)?.uuidString, remap(r.documentFileId)?.uuidString, r.reportType,
+                    r.hospital, r.department, r.reportNo, r.examPart, r.examMethod,
+                    r.examAt?.timeIntervalSince1970, r.reportedAt?.timeIntervalSince1970, r.findings, r.impression,
+                    r.applyDoctor, r.reportDoctor, r.reviewDoctor, r.source.rawValue, r.confirmed ? 1 : 0,
+                    r.createdAt.timeIntervalSince1970, r.updatedAt.timeIntervalSince1970,
+                ]
+                if try adoptOrSkip(examConflicts, r.id, adopt: {
+                    try db.execute(sql: """
+                        UPDATE exam_report SET patient_id = ?, encounter_id = ?, document_file_id = ?, report_type = ?,
+                          hospital = ?, department = ?, report_no = ?, exam_part = ?, exam_method = ?, exam_at = ?, reported_at = ?,
+                          findings = ?, impression = ?, apply_doctor = ?, report_doctor = ?, review_doctor = ?,
+                          source = ?, confirmed = ?, created_at = ?, updated_at = ?
+                        WHERE id = ?
+                        """, arguments: StatementArguments(facts + [r.id.uuidString]))
+                }) { continue }
+                try db.execute(sql: """
+                    INSERT INTO exam_report (id, patient_id, encounter_id, document_file_id, report_type, hospital, department, report_no, exam_part, exam_method,
+                      exam_at, reported_at, findings, impression, apply_doctor, report_doctor, review_doctor, source, confirmed, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, arguments: StatementArguments([(remap(r.id) ?? r.id).uuidString] + facts))
+            }
             // 回执末位落库（§C.12）：entity_table 沿 JSON 值（旧包缺省 = cardKind，insertReceipt 同口径），
             // entity_id 经同一 idMap 重写——表头回执指表头、行回执指行（行 id 已随表头 coexist 一并重写）。
             let auditMap = Dictionary(uniqueKeysWithValues: existingAudits.map { ("\($0.cardId.uuidString)/\($0.rowId.uuidString)", $0) })
@@ -1717,9 +1918,9 @@ public actor ExportService {
                     immutable.encounterId = audit.encounterId
                     guard immutable == audit else { throw ExportError.invalidOCRBackup }
                     if existing.encounterId != audit.encounterId {
-                        let header = receiptHeader(original)
-                        guard conflictSets[original.cardKind, default: []].contains(header.uuidString),
-                              resolution(header) == .adopt else { throw ExportError.invalidOCRBackup }
+                        let governor = receiptGovernor(original)
+                        guard conflictSets[governor.table, default: []].contains(governor.header.uuidString),
+                              resolution(governor.header) == .adopt else { throw ExportError.invalidOCRBackup }
                         try db.execute(sql: "UPDATE ocr_card_commit SET encounter_id = ? WHERE card_id = ? AND row_id = ? AND patient_id = ?",
                             arguments: [audit.encounterId?.uuidString, audit.cardId.uuidString, audit.rowId.uuidString, audit.patientId.uuidString])
                     }
@@ -1840,6 +2041,28 @@ public actor ExportService {
                                       h.kind, h.archived ? 1 : 0,
                                       h.createdAt.timeIntervalSince1970, h.createdAt.timeIntervalSince1970])
             }
+            // v26（§C.12 第 11 位）诊断：置于 health_problem 之后（health_problem_id 外键）；独立裁决；回执已落，末位校验兜底。
+            let diagnosisConflicts = conflictSets["diagnosis"] ?? []
+            for d in envelope.diagnoses ?? [] {
+                let facts: [DatabaseValueConvertible?] = [
+                    patientID(d.patientId), remap(d.encounterId)?.uuidString, d.ordinal, d.diagnosisType, d.name, d.codeText, d.codeSystemText,
+                    d.diagnosedAt?.timeIntervalSince1970, remap(d.healthProblemId)?.uuidString, d.note, d.sourcePage, d.sourceRowId?.uuidString,
+                    remap(d.documentFileId)?.uuidString, d.confirmed ? 1 : 0, d.createdAt.timeIntervalSince1970, d.updatedAt.timeIntervalSince1970,
+                ]
+                if try adoptOrSkip(diagnosisConflicts, d.id, adopt: {
+                    try db.execute(sql: """
+                        UPDATE diagnosis SET patient_id = ?, encounter_id = ?, ordinal = ?, diagnosis_type = ?, name = ?, code_text = ?, code_system_text = ?,
+                          diagnosed_at = ?, health_problem_id = ?, note = ?, source_page = ?, source_row_id = ?, document_file_id = ?,
+                          confirmed = ?, created_at = ?, updated_at = ?
+                        WHERE id = ?
+                        """, arguments: StatementArguments(facts + [d.id.uuidString]))
+                }) { continue }
+                try db.execute(sql: """
+                    INSERT INTO diagnosis (id, patient_id, encounter_id, ordinal, diagnosis_type, name, code_text, code_system_text, diagnosed_at,
+                      health_problem_id, note, source_page, source_row_id, document_file_id, confirmed, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, arguments: StatementArguments([(remap(d.id) ?? d.id).uuidString] + facts))
+            }
             try Self.validateOCRGraph(db)
         }
     }
@@ -1958,11 +2181,65 @@ public actor ExportService {
                   line.unitPrice?.isFinite != false, line.amount?.isFinite != false, line.feeAt?.timeIntervalSince1970.isFinite != false,
                   line.createdAt.timeIntervalSince1970.isFinite else { throw ExportError.invalidOCRBackup }
         }
+        // v26（§C.2–§C.5）五表：主键唯一；父键（就诊 / 文档 / 表头 / 健康问题）须在包内且同成员；枚举走 DDL CHECK 同集合；
+        // 数值有限；lab_result UNIQUE(lab_report_id, ordinal) 在包内即成立；metric_sample.labReportId 回指同成员表头。
+        let hospitalizations = envelope.hospitalizations ?? [], diagnoses = envelope.diagnoses ?? [], examReports = envelope.examReports ?? []
+        let labReports = envelope.labReports ?? [], labResults = envelope.labResults ?? []
+        guard Set(hospitalizations.map(\.id)).count == hospitalizations.count, Set(diagnoses.map(\.id)).count == diagnoses.count,
+              Set(examReports.map(\.id)).count == examReports.count, Set(labReports.map(\.id)).count == labReports.count,
+              Set(labResults.map(\.id)).count == labResults.count,
+              Set(hospitalizations.map(\.encounterId)).count == hospitalizations.count,
+              Set(labReports.compactMap(\.sourceCardId)).count == labReports.compactMap(\.sourceCardId).count else { throw ExportError.invalidOCRBackup }
+        let hospitalizationMap = Dictionary(uniqueKeysWithValues: hospitalizations.map { ($0.id, $0) })
+        let diagnosisMap = Dictionary(uniqueKeysWithValues: diagnoses.map { ($0.id, $0) })
+        let examMap = Dictionary(uniqueKeysWithValues: examReports.map { ($0.id, $0) })
+        let labReportMap = Dictionary(uniqueKeysWithValues: labReports.map { ($0.id, $0) })
+        let labResultMap = Dictionary(uniqueKeysWithValues: labResults.map { ($0.id, $0) })
+        let problemMap = Dictionary(envelope.healthProblems.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        func finite(_ value: Double?) -> Bool { value?.isFinite != false }
+        func finite(_ date: Date?) -> Bool { date?.timeIntervalSince1970.isFinite != false }
+        for h in hospitalizations {
+            guard encounters[h.encounterId]?.patientId == h.patientId,
+                  h.documentFileId == nil || docs[h.documentFileId!]?.patientId == h.patientId,
+                  finite(h.admitAt), finite(h.dischargeAt), finite(h.summaryDate), finite(h.totalCost),
+                  h.createdAt.timeIntervalSince1970.isFinite, h.updatedAt.timeIntervalSince1970.isFinite else { throw ExportError.invalidOCRBackup }
+        }
+        for d in diagnoses {
+            guard Diagnosis.diagnosisTypes.contains(d.diagnosisType), !d.name.isEmpty,
+                  d.encounterId == nil || encounters[d.encounterId!]?.patientId == d.patientId,
+                  d.documentFileId == nil || docs[d.documentFileId!]?.patientId == d.patientId,
+                  d.healthProblemId == nil || problemMap[d.healthProblemId!]?.patientId == d.patientId,
+                  finite(d.diagnosedAt), (d.sourcePage ?? 0) >= 0,
+                  d.createdAt.timeIntervalSince1970.isFinite, d.updatedAt.timeIntervalSince1970.isFinite else { throw ExportError.invalidOCRBackup }
+        }
+        for r in examReports {
+            guard ExamReport.reportTypes.contains(r.reportType),
+                  r.encounterId == nil || encounters[r.encounterId!]?.patientId == r.patientId,
+                  r.documentFileId == nil || docs[r.documentFileId!]?.patientId == r.patientId,
+                  finite(r.examAt), finite(r.reportedAt),
+                  r.createdAt.timeIntervalSince1970.isFinite, r.updatedAt.timeIntervalSince1970.isFinite else { throw ExportError.invalidOCRBackup }
+        }
+        for r in labReports {
+            guard r.encounterId == nil || encounters[r.encounterId!]?.patientId == r.patientId,
+                  r.documentFileId == nil || docs[r.documentFileId!]?.patientId == r.patientId,
+                  finite(r.collectedAt), finite(r.receivedAt), finite(r.reportedAt),
+                  r.createdAt.timeIntervalSince1970.isFinite, r.updatedAt.timeIntervalSince1970.isFinite else { throw ExportError.invalidOCRBackup }
+        }
+        var labOrdinals = Set<String>()
+        for row in labResults {
+            guard let header = labReportMap[row.labReportId], header.patientId == row.patientId, !row.itemName.isEmpty, !row.resultText.isEmpty,
+                  labOrdinals.insert("\(row.labReportId.uuidString)/\(row.ordinal)").inserted, (row.sourcePage ?? 0) >= 0,
+                  row.createdAt.timeIntervalSince1970.isFinite else { throw ExportError.invalidOCRBackup }
+        }
+        for metric in envelope.metrics where metric.labReportId != nil {
+            guard labReportMap[metric.labReportId!]?.patientId == metric.patientId else { throw ExportError.invalidOCRBackup }
+        }
         /// 回执所指表头：表头回执 = entity_id；行回执经包内行数组回到表头（行缺失 → nil → 拒收）。
         func headerEntity(of audit: OCRCardStore.AuditRecord) -> UUID? {
             switch audit.entityTable ?? audit.cardKind {
             case "prescription_line": return rxLineMap[audit.entityId]?.prescriptionId
             case "claim_line": return claimLineMap[audit.entityId]?.claimItemId
+            case "lab_result": return labResultMap[audit.entityId]?.labReportId
             default: return audit.entityId
             }
         }
@@ -1992,9 +2269,29 @@ public actor ExportService {
             switch table {
             case "metric_sample":
                 guard let sample = metrics[audit.entityId], sample.patientId == audit.patientId,
-                      sample.origin == "hospital", sample.sourceRef == HospitalSample.sourceRef(documentId: audit.documentId, pageIndex: audit.pageIndex) else {
+                      sample.origin == "hospital", sample.sourceRef == HospitalSample.sourceRef(documentId: audit.documentId, pageIndex: audit.pageIndex),
+                      // v26：回指的表头须同成员、同来源文档（validateReceipt 同口径）
+                      sample.labReportId == nil || labReportMap[sample.labReportId!]?.documentFileId == audit.documentId else {
                     throw ExportError.invalidOCRBackup
                 }
+            case "lab_result":
+                // 定性行随其表头：表头 = 本卡的 lab_report（source_card_id = card_id）、同成员、同来源文档、已确认
+                guard let row = labResultMap[audit.entityId], row.patientId == audit.patientId,
+                      let report = labReportMap[row.labReportId], report.patientId == audit.patientId, report.confirmed,
+                      report.documentFileId == audit.documentId, report.sourceCardId == audit.cardId else { throw ExportError.invalidOCRBackup }
+            case "lab_report":
+                guard let report = labReportMap[audit.entityId], report.patientId == audit.patientId, report.confirmed,
+                      report.documentFileId == audit.documentId else { throw ExportError.invalidOCRBackup }
+            case "hospitalization":
+                // 住院期可由多份原件补空（document_file_id 保留首份）：只校验同成员、已确认、其就诊在包内且同成员
+                guard let h = hospitalizationMap[audit.entityId], h.patientId == audit.patientId, h.confirmed, h.source == .ocr,
+                      encounters[h.encounterId]?.patientId == audit.patientId else { throw ExportError.invalidOCRBackup }
+            case "diagnosis":
+                guard let d = diagnosisMap[audit.entityId], d.patientId == audit.patientId, d.confirmed,
+                      d.documentFileId == audit.documentId else { throw ExportError.invalidOCRBackup }
+            case "exam_report":
+                guard let r = examMap[audit.entityId], r.patientId == audit.patientId, r.confirmed, r.source == .ocr,
+                      r.documentFileId == audit.documentId else { throw ExportError.invalidOCRBackup }
             case "encounter":
                 guard encounters[audit.entityId]?.patientId == audit.patientId, detailIds.contains(audit.entityId) else { throw ExportError.invalidOCRBackup }
             case "prescription", "prescription_line":
@@ -2101,6 +2398,17 @@ public actor ExportService {
               OR EXISTS(SELECT 1 FROM prescription_line l JOIN medication m ON m.id = l.medication_id WHERE l.patient_id != m.patient_id)
               OR EXISTS(SELECT 1 FROM stock_lot s JOIN prescription_line l ON l.id = s.prescription_line_id WHERE s.patient_id != l.patient_id)
               OR EXISTS(SELECT 1 FROM claim_line l JOIN claim_item c ON c.id = l.claim_item_id WHERE l.patient_id != c.patient_id)
+              OR EXISTS(SELECT 1 FROM hospitalization h JOIN encounter e ON e.id = h.encounter_id WHERE h.patient_id != e.patient_id)
+              OR EXISTS(SELECT 1 FROM hospitalization h JOIN document_file d ON d.id = h.document_file_id WHERE h.patient_id != d.patient_id)
+              OR EXISTS(SELECT 1 FROM diagnosis x JOIN encounter e ON e.id = x.encounter_id WHERE x.patient_id != e.patient_id)
+              OR EXISTS(SELECT 1 FROM diagnosis x JOIN document_file d ON d.id = x.document_file_id WHERE x.patient_id != d.patient_id)
+              OR EXISTS(SELECT 1 FROM diagnosis x JOIN health_problem p ON p.id = x.health_problem_id WHERE x.patient_id != p.patient_id)
+              OR EXISTS(SELECT 1 FROM exam_report x JOIN encounter e ON e.id = x.encounter_id WHERE x.patient_id != e.patient_id)
+              OR EXISTS(SELECT 1 FROM exam_report x JOIN document_file d ON d.id = x.document_file_id WHERE x.patient_id != d.patient_id)
+              OR EXISTS(SELECT 1 FROM lab_report x JOIN encounter e ON e.id = x.encounter_id WHERE x.patient_id != e.patient_id)
+              OR EXISTS(SELECT 1 FROM lab_report x JOIN document_file d ON d.id = x.document_file_id WHERE x.patient_id != d.patient_id)
+              OR EXISTS(SELECT 1 FROM metric_sample m JOIN lab_report l ON l.id = m.lab_report_id WHERE m.patient_id != l.patient_id)
+              OR EXISTS(SELECT 1 FROM lab_result r JOIN lab_report l ON l.id = r.lab_report_id WHERE r.patient_id != l.patient_id)
               OR EXISTS(SELECT card_id FROM ocr_card_commit GROUP BY card_id
                 HAVING COUNT(DISTINCT patient_id) != 1 OR COUNT(DISTINCT document_file_id) != 1
                   OR COUNT(DISTINCT page_index) != 1 OR COUNT(DISTINCT card_kind) != 1)

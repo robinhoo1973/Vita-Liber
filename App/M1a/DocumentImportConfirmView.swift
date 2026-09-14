@@ -355,7 +355,11 @@ private struct ImportReviewSessionView: View {
             CandidateField(key: $0.key, displayLabel: DocumentsState.fieldLabel(forKey: $0.key),
                 rawText: $0.rawText ?? $0.originalValue, confidence: $0.confidence, value: $0.value, grade: .userConfirmed)
         }
-        let name = HealthProblemDerivation.candidateName(fields: fields, docTypeLabel: draft.docType)
+        // v26（§C.3）：诊断行原文优先——已确认的 diagnosis_item 逐行即候选（不截 40 字、不改写；FR11.4 D 级建议，
+        // 用户点「创建」才落 health_problem）；无诊断行时沿旧派生（诊断字段 / 文档类型 + 日期）。
+        let diagnosisRow = fields.first { $0.key == "diagnosis_item" && !$0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let name = diagnosisRow?.value.trimmingCharacters(in: .whitespacesAndNewlines)
+            ?? HealthProblemDerivation.candidateName(fields: fields, docTypeLabel: draft.docType)
         session.isSaving = true
         Task {
             let saved = await docs.createHealthProblem(patientId: draft.patientId, name: name)

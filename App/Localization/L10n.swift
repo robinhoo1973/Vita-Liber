@@ -1738,7 +1738,29 @@ enum L10n {
         "field.past_history", "field.physical_exam", "field.allergy_history", "field.fee_amount",
         "field.personal_account_amount", "field.invoice_no", "field.insurance_type",
         "field.item_name", "field.item_amount", "field.item_quantity", "field.item_spec",
-        "field.fee_category", "field.executing_dept", "field.self_pay_ratio", "field.fee_at"
+        "field.fee_category", "field.executing_dept", "field.self_pay_ratio", "field.fee_at",
+        // 子项目 D · D2-3（v26 clinical-episodes）：日间手术 / 三新卡类 + 检验报告详情卡类 / SP-08 四分段 / 检验报告读面
+        "encounter.kind.daySurgery",
+        "entityCard.kind.hospitalization", "entityCard.kind.diagnosis", "entityCard.kind.exam_report", "entityCard.kind.lab_report",
+        "encounter.section.hospitalization", "encounter.section.diagnoses", "encounter.section.examReports", "encounter.section.labReports",
+        "labReport.samplesSection", "labReport.resultsSection", "labReport.noRows", "hospitalization.episode",
+        // 动态键 examReportTypeName(_:)：report_type CHECK 枚举九值
+        "exam.type.ct", "exam.type.mri", "exam.type.xray", "exam.type.ultrasound", "exam.type.ecg",
+        "exam.type.endoscopy", "exam.type.pathology", "exam.type.nuclear", "exam.type.other",
+        // 动态键 diagnosisTypeName(_:)：diagnosis_type CHECK 枚举九值
+        "diagnosis.type.primary", "diagnosis.type.secondary", "diagnosis.type.admission", "diagnosis.type.discharge",
+        "diagnosis.type.preop", "diagnosis.type.postop", "diagnosis.type.pathology", "diagnosis.type.certificate", "diagnosis.type.unspecified",
+        // 动态键 templateFieldLabel(_:)：§C.2 住院期 / §C.3 诊断 / §C.4 检查 / §C.5 检验表头与行
+        "field.admit_at", "field.discharge_at", "field.medical_record_no", "field.inpatient_times", "field.actual_days",
+        "field.admit_dept", "field.discharge_dept", "field.ward", "field.bed_no", "field.admit_route", "field.payment_type",
+        "field.discharge_way", "field.attending_physician", "field.admit_diagnosis", "field.discharge_diagnosis",
+        "field.admit_condition", "field.treatment_course", "field.discharge_condition", "field.discharge_orders",
+        "field.take_home_drugs", "field.total_cost", "field.summary_doctor", "field.summary_date",
+        "field.name", "field.code_text", "field.code_system", "field.diagnosis_type", "field.diagnosed_at",
+        "field.report_type", "field.report_no", "field.exam_part", "field.exam_method", "field.exam_at", "field.reported_at",
+        "field.findings", "field.impression", "field.apply_doctor", "field.report_doctor", "field.review_doctor",
+        "field.lab_name", "field.specimen_type", "field.specimen_no", "field.test_class", "field.collected_at", "field.received_at",
+        "field.send_doctor", "field.test_doctor", "field.reference_text", "field.abnormal_flag", "field.method"
     ]
 
     // MARK: - FR14.8 Tab badge
@@ -2449,6 +2471,29 @@ enum L10n {
     static var entityCardAddField: String { t("entityCard.addField") }
     static var entityCardPickValue: String { t("entityCard.pickValue") }
     static var encounterNarrative: String { t("encounter.narrative") }
+
+    // MARK: - 子项目 D · D2-3（v26）：住院 / 诊断 / 检查 / 检验报告读面（SP-08 四分段 + 卡详情）
+    /// `diagnosis_type` canonical raw → 展示名（Domain `Diagnosis.diagnosisTypes` 同拼写；未登记回落原值）
+    static func diagnosisTypeName(_ raw: String) -> String {
+        let key = "diagnosis.type.\(raw)"
+        let value = t(key)
+        return value == key ? raw : value
+    }
+    /// `report_type` canonical raw → 展示名（Domain `ExamReport.reportTypes` 同拼写；未登记回落原值）
+    static func examReportTypeName(_ raw: String) -> String {
+        let key = "exam.type.\(raw)"
+        let value = t(key)
+        return value == key ? raw : value
+    }
+    static var encounterSectionHospitalization: String { t("encounter.section.hospitalization") }
+    static var encounterSectionDiagnoses: String { t("encounter.section.diagnoses") }
+    static var encounterSectionExamReports: String { t("encounter.section.examReports") }
+    static var encounterSectionLabReports: String { t("encounter.section.labReports") }
+    /// 检验报告详情：数值项目 / 定性项目分段；标记与结果一律报告原文（BR-004/012 不着色不解释）
+    static var labReportSamplesSection: String { t("labReport.samplesSection") }
+    static var labReportResultsSection: String { t("labReport.resultsSection") }
+    static var labReportNoRows: String { t("labReport.noRows") }
+    static var hospitalizationEpisode: String { t("hospitalization.episode") }
     static var docTypeRecord: String { t("doc.type.record") }
     static var docManualCreateTitle: String { t("doc.manual.createTitle") }
     static var docManualTitle: String { t("doc.manual.title") }

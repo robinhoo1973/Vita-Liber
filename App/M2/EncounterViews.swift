@@ -288,6 +288,22 @@ struct EncounterDetailView: View {
                     }
                 }
 
+                // v26（§C.2–§C.5 / SP-08）：住院期 / 诊断 / 检查报告 / 检验报告四分段——事实表 encounter_id 只读投影
+                //（写入侧 = 住院卡建就诊 / 确认卡显式归属），点击进同一已确认卡详情；原文摘要，不推导不解释。
+                ForEach(Self.episodeSections, id: \.kind) { section in
+                    let cards = linkedCards.filter { $0.kind == section.kind }
+                    if !cards.isEmpty {
+                        Section(section.title) {
+                            ForEach(cards, id: \.identity) { card in
+                                NavigationLink(value: AppRoute.medicalCard(kind: card.kind.cardKind, id: card.id, patientId: encounter.patientId)) {
+                                    linkedCardRow(card)
+                                }
+                            }
+                        }
+                        .accessibilityIdentifier("SP-08.encounter.section.\(section.kind.rawValue)")
+                    }
+                }
+
                 // FR6.9 期二：卡片互联读面——本就诊关联的处方/收费卡片（写入侧 =
                 // OCR 确认卡 EncounterAssociation 显式归属；此处只呈现与跳转，不新增关联语义）
                 Section(L10n.encounterLinkedCards) {
@@ -295,19 +311,19 @@ struct EncounterDetailView: View {
                         Text(L10n.docImportFailed).foregroundStyle(.orange)
                         Button(L10n.retry) { Task { await refresh() } }
                     }
-                    if !linkedCards.isEmpty {
+                    if !generalLinkedCards.isEmpty {
                         Picker(L10n.encounterLinkedCards, selection: $cardKind) {
                             Text(L10n.filterAll).tag(Optional<String>.none)
-                            ForEach(Array(Set(linkedCards.map { $0.kind.cardKind })).sorted(), id: \.self) { kind in
+                            ForEach(Array(Set(generalLinkedCards.map { $0.kind.cardKind })).sorted(), id: \.self) { kind in
                                 Text(L10n.entityCardKindName(kind)).tag(Optional(kind))
                             }
                         }
                     }
-                    if linkedCards.isEmpty {
+                    if generalLinkedCards.isEmpty {
                         Text(L10n.encounterLinkedCardsEmpty)
                             .font(.caption).foregroundStyle(.secondary)
                     } else {
-                        ForEach(linkedCards.filter { cardKind == nil || $0.kind.cardKind == cardKind }, id: \.identity) { card in
+                        ForEach(generalLinkedCards.filter { cardKind == nil || $0.kind.cardKind == cardKind }, id: \.identity) { card in
                             NavigationLink(value: AppRoute.medicalCard(kind: card.kind.cardKind, id: card.id, patientId: encounter.patientId)) {
                                 linkedCardRow(card)
                             }
@@ -356,10 +372,35 @@ struct EncounterDetailView: View {
         }
     }
 
+    /// v26 四分段（kind → 标题）；其余卡类仍走「关联卡片」通用分段。
+    private static let episodeSections: [(kind: EncounterStore.LinkedCardRow.Kind, title: String)] = [
+        (.hospitalization, L10n.encounterSectionHospitalization), (.diagnosis, L10n.encounterSectionDiagnoses),
+        (.examReport, L10n.encounterSectionExamReports), (.labReport, L10n.encounterSectionLabReports),
+    ]
+    private static let episodeKinds: Set<EncounterStore.LinkedCardRow.Kind> = [.hospitalization, .diagnosis, .examReport, .labReport]
+
+    private var generalLinkedCards: [EncounterStore.LinkedCardRow] {
+        linkedCards.filter { !Self.episodeKinds.contains($0.kind) }
+    }
+
+    private static func icon(for kind: EncounterStore.LinkedCardRow.Kind) -> String {
+        switch kind {
+        case .prescription: return "pills"
+        case .claim: return "creditcard"
+        case .hospitalization: return "bed.double"
+        case .diagnosis: return "stethoscope"
+        case .examReport: return "waveform.path.ecg"
+        case .labReport, .metricSample: return "testtube.2"
+        case .immunization: return "syringe"
+        case .medication: return "pills.circle"
+        case .encounter: return "doc.text"
+        }
+    }
+
     @ViewBuilder
     private func linkedCardRow(_ card: EncounterStore.LinkedCardRow) -> some View {
         HStack(spacing: 10) {
-            Image(systemName: card.kind == .prescription ? "pills" : "creditcard")
+            Image(systemName: Self.icon(for: card.kind))
                 .foregroundStyle(Color("brand-primary", bundle: .main))
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {

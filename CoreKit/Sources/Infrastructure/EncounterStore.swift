@@ -114,8 +114,16 @@ public actor EncounterStore {
             case prescription
             case claim
             case medication, metricSample, immunization, encounter
+            /// v26（§C.2–§C.5）：住院期 / 诊断 / 检查报告 / 检验报告（表头聚合读面，`cardKind = "lab_report"` 为详情卡类）。
+            case hospitalization, diagnosis, examReport, labReport
             public var cardKind: String {
-                switch self { case .claim: return "claim_item"; case .metricSample: return "metric_sample"; default: return rawValue }
+                switch self {
+                case .claim: return "claim_item"
+                case .metricSample: return "metric_sample"
+                case .examReport: return "exam_report"
+                case .labReport: return "lab_report"
+                default: return rawValue
+                }
             }
         }
         public let id: UUID
@@ -178,12 +186,41 @@ public actor EncounterStore {
                 FROM claim_item WHERE patient_id = ? AND encounter_id = ? AND confirmed = 1
                 ORDER BY date DESC LIMIT ?
                 """, arguments: [patientId.uuidString, encounterId.uuidString, limit]),
+            // v26（§C.2–§C.5）四源：事实表 encounter_id 直接引用（写入侧 = OCRCardStore 显式归属 / 住院卡建就诊），
+            // 只读、confirmed = 1、日期缺失按最早排序；住院期随就诊 1:0..1，摘要取医院名。
+            .init(kind: .hospitalization, sql: """
+                SELECT id, COALESCE(admit_at, discharge_at) AS date, COALESCE(hospital, admit_dept) AS summary, document_file_id
+                FROM hospitalization WHERE patient_id = ? AND encounter_id = ? AND confirmed = 1
+                ORDER BY admit_at DESC LIMIT ?
+                """, arguments: [patientId.uuidString, encounterId.uuidString, limit]),
+            .init(kind: .diagnosis, sql: """
+                SELECT id, diagnosed_at AS date, name AS summary, document_file_id
+                FROM diagnosis WHERE patient_id = ? AND encounter_id = ? AND confirmed = 1
+                ORDER BY ordinal, created_at LIMIT ?
+                """, arguments: [patientId.uuidString, encounterId.uuidString, limit]),
+            .init(kind: .examReport, sql: """
+                SELECT id, COALESCE(exam_at, reported_at) AS date, COALESCE(exam_part, impression, findings) AS summary, document_file_id
+                FROM exam_report WHERE patient_id = ? AND encounter_id = ? AND confirmed = 1
+                ORDER BY COALESCE(exam_at, reported_at) DESC LIMIT ?
+                """, arguments: [patientId.uuidString, encounterId.uuidString, limit]),
+            // 检验报告：表头 encounter_id 或其任一行回执的关系投影（v26 回填的表头无 encounter_id，旧关系只在回执上）。
+            .init(kind: .labReport, sql: """
+                SELECT l.id, COALESCE(l.collected_at, l.reported_at) AS date, COALESCE(l.lab_name, l.hospital, l.report_no) AS summary, l.document_file_id
+                FROM lab_report l WHERE l.patient_id = ? AND l.confirmed = 1
+                  AND (l.encounter_id = ?
+                       OR EXISTS (SELECT 1 FROM metric_sample m JOIN ocr_card_commit c ON c.entity_id = m.id AND c.entity_table = 'metric_sample' AND c.patient_id = m.patient_id
+                                  WHERE m.lab_report_id = l.id AND m.patient_id = l.patient_id AND c.encounter_id = ?)
+                       OR EXISTS (SELECT 1 FROM lab_result r JOIN ocr_card_commit c ON c.entity_id = r.id AND c.entity_table = 'lab_result' AND c.patient_id = r.patient_id
+                                  WHERE r.lab_report_id = l.id AND r.patient_id = l.patient_id AND c.encounter_id = ?))
+                ORDER BY COALESCE(l.collected_at, l.reported_at) DESC LIMIT ?
+                """, arguments: [patientId.uuidString, encounterId.uuidString, encounterId.uuidString, encounterId.uuidString, limit]),
         ]
         // (kind, dateColumn, summaryColumn, 附加过滤片段)：确认/软删/排除
         // 条件按 kind 挂接，与修复①/②注释口径一致。
+        // v26：回指检验表头的数值行经 .labReport 源以报告呈现（不逐行重复），无表头的历史行仍逐行列出。
         let projections: [(LinkedCardRow.Kind, String, String, String)] = [
             (.medication, "created_at", "generic_name", ""),
-            (.metricSample, "measured_at", "raw_label", "AND f.excluded = 0"),
+            (.metricSample, "measured_at", "raw_label", "AND f.excluded = 0 AND f.lab_report_id IS NULL"),
             (.immunization, "administered_at", "vaccine_name", "AND f.confirmed = 1"),
             (.encounter, "date", "hospital", "AND f.deleted_at IS NULL"),
         ]

@@ -74,6 +74,27 @@ final class DocumentsFieldDisplayTests: XCTestCase {
         XCTAssertEqual(display("currency", "USD"), "USD")
     }
 
+    // MARK: v26 diagnosis_type / report_type → CHECK 枚举展示名（Domain 目录同拼写；未知值透传）
+
+    func testDiagnosisTypeMapsEveryCanonicalValueAndPassesUnknownThrough() {
+        for raw in Diagnosis.diagnosisTypes {
+            let shown = display("diagnosis_type", raw)
+            XCTAssertEqual(shown, L10n.diagnosisTypeName(raw))
+            XCTAssertNotEqual(shown, raw, "diagnosis.type.\(raw) must be localized")
+        }
+        XCTAssertEqual(display("diagnosis_type", "主要诊断"), "主要诊断")
+        XCTAssertEqual(DocumentsState.enumOptions(forKey: "diagnosis_type"), Diagnosis.diagnosisTypes)
+    }
+
+    func testReportTypeMapsEveryCanonicalValueAndPassesUnknownThrough() {
+        for raw in ExamReport.reportTypes {
+            XCTAssertEqual(display("report_type", raw), L10n.examReportTypeName(raw))
+        }
+        XCTAssertEqual(display("report_type", "彩超"), "彩超")
+        XCTAssertEqual(DocumentsState.enumOptions(forKey: "report_type"), ExamReport.reportTypes)
+        XCTAssertTrue(DocumentsState.enumOptions(forKey: "kind")?.contains(EncounterKind.daySurgery.rawValue) == true)
+    }
+
     // MARK: 其余键与自由文本
 
     func testOtherKeysPassThroughUntouched() {

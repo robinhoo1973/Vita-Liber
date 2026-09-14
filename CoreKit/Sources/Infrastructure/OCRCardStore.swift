@@ -5,7 +5,11 @@ import Domain
 
 /// FR6.9 / BR-001 / BR-003: the only atomic OCR card confirmation boundary.
 public actor OCRCardStore {
-    public static let supportedKinds: Set<String> = ["metric_sample", "encounter", "prescription", "claim_item", "medication", "immunization"]
+    /// 可确认落库的卡类 = `CardKindRegistry` 全部条目（v26 起含 hospitalization / diagnosis / exam_report；单一事实源，
+    /// 新增卡类只需登记注册表 + `save` 分支）。`appointment` 等仅有模板、无注册条目的卡类不在此列。
+    public static let supportedKinds: Set<String> = Set(CardKindRegistry.entries.map(\.kind))
+    /// 单行卡类（rowKey nil 模板）：一张卡恰一行，共享面即实体（encounter / hospitalization / exam_report）。
+    static let singleRowKinds: Set<String> = ["encounter", "hospitalization", "exam_report"]
     static let auditEngine = "ocr-card-v22"
     let writer: any DatabaseWriter
 
@@ -19,9 +23,11 @@ public actor OCRCardStore {
         CardKindRegistry.entry(for: kind)?.headerTable ?? kind
     }
 
-    /// 行表（处方行 / 费用行）；无行实体的卡类为 nil。
+    /// 行表（处方行 / 费用行）= 注册表中登记了父键（`lineParents`）的非表头实体表；无行实体的卡类为 nil。
+    /// v26 注册表把 `lab_report/lab_result`（检验分流目标）与 `encounter`（住院卡的就诊副产物）也列为实体表——
+    /// 它们不是「N 行回到同一表头」的行表：检验卡每行各指一实体、住院卡回执只指 hospitalization，故在此剔除。
     static func lineTable(for kind: String) -> String? {
-        CardKindRegistry.entry(for: kind)?.entityTables.dropFirst().first
+        CardKindRegistry.entry(for: kind)?.entityTables.dropFirst().first { lineParents[$0] != nil }
     }
 
     /// 行表 → 父表 / 父键（DDL 事实，Infrastructure 持有；键与值均为静态字面量，可安全拼入 SQL）。
@@ -44,6 +50,12 @@ public actor OCRCardStore {
         if let line = lineTable(for: kind), let parent = lineParents[line] {
             sql += " OR (entity_table = ? AND entity_id IN (SELECT id FROM \(line) WHERE \(parent.column) = ? AND patient_id = ?))"
             arguments += [line, headerId, patientId]
+        }
+        if kind == "lab_report" {
+            // v26（§C.5）检验表头详情：回执指其数值行（metric_sample）与定性行（lab_result），表头本身无回执。
+            sql += " OR (entity_table = 'metric_sample' AND entity_id IN (SELECT id FROM metric_sample WHERE lab_report_id = ? AND patient_id = ?))"
+            sql += " OR (entity_table = 'lab_result' AND entity_id IN (SELECT id FROM lab_result WHERE lab_report_id = ? AND patient_id = ?))"
+            arguments += [headerId, patientId, headerId, patientId]
         }
         return ReceiptScope(sql: "(\(sql))", arguments: arguments)
     }
@@ -154,13 +166,13 @@ public actor OCRCardStore {
 
     /// 表头的来源页：表头回执 ∪ 其行回执（处方/费用的来源页经行回执到达）。
     public func sourceRefs(entityId: UUID, patientId: UUID, cardKind: String) async throws -> [String] {
-        guard Self.supportedKinds.contains(cardKind) else { throw StoreError.invalidCard }
+        guard Self.detailKinds.contains(cardKind) else { throw StoreError.invalidCard }
         return try await writer.read { db in
             let scope = Self.receiptScope(kind: cardKind, headerId: entityId.uuidString, patientId: patientId.uuidString)
             let rows = try Row.fetchAll(db, sql: """
                 SELECT * FROM ocr_card_commit WHERE patient_id = ? AND card_kind = ? AND \(scope.sql)
                 ORDER BY document_file_id, page_index, row_id
-                """, arguments: Self.receiptArguments([patientId.uuidString, cardKind], scope))
+                """, arguments: Self.receiptArguments([patientId.uuidString, Self.receiptCardKind(forDetailKind: cardKind)], scope))
             var seen = Set<String>()
             return try rows.compactMap { row in
                 try Self.validateReceipt(row, db: db)
@@ -176,7 +188,7 @@ public actor OCRCardStore {
         try await writer.write { db in
             guard Self.supportedKinds.contains(card.kind), !card.rows.isEmpty,
                   Set(card.rows.map(\.id)).count == card.rows.count,
-                  card.kind != "encounter" || card.rows.count == 1 else { throw StoreError.invalidCard }
+                  !Self.singleRowKinds.contains(card.kind) || card.rows.count == 1 else { throw StoreError.invalidCard }
             try DocumentStore.validateSource(db, patientId: patientId, documentId: documentId, pageIndex: card.pageIndex)
             let now = Date()
             let matches = try Row.fetchAll(db, sql: """
@@ -271,15 +283,44 @@ public actor OCRCardStore {
             let calendar = Calendar(identifier: .gregorian)
             switch card.kind {
             case "metric_sample":
-                let projection = EntityCardProjection.hospitalSamples(from: projectionCard, calendar: Calendar(identifier: .gregorian))
-                guard projection.samples.count == accepted.count else { throw StoreError.invalidCard }
-                for (row, sample) in zip(accepted, projection.samples) {
-                    let entity = UUID()
-                    let codingSystem = row.fields.first { $0.key == "raw_label" }?.codeApproval?.resolution.codingSystem
-                    try TrendQueryStore.insertHospitalSample(sample, id: entity, patientId: patientId,
-                        sourceRef: HospitalSample.sourceRef(documentId: documentId, pageIndex: card.pageIndex), db: db, now: now,
-                        approvedCodingSystem: codingSystem)
-                    entities[row.id] = entity
+                if !accepted.isEmpty {
+                    // v26（§C.5）检验分流：数值行（严格 Double + 单位）→ metric_sample（趋势点），定性/比较符行原文 → lab_result，
+                    // 两者共用同卡的 lab_report 表头（source_card_id = card.id 幂等）；回执 entity_table 按行分流。不双写、不丢行。
+                    let lab = EntityCardProjection.labProjection(from: projectionCard, calendar: calendar)
+                    guard lab.remainingRows.isEmpty, lab.samples.count + lab.qualitative.count == accepted.count,
+                          lab.rowIds.count == lab.samples.count else { throw StoreError.invalidCard }
+                    if !committed.isEmpty {
+                        // 已提交行（数值 / 定性）的事实列必须仍与回执一致（v25 处方行同纪律；BR-003 不在篡改事实上续写）。
+                        var committedCard = snapshot
+                        committedCard.rows = snapshot.rows.filter { committed.contains($0.id.uuidString) }
+                        guard try Self.labRowsMatch(EntityCardProjection.labProjection(from: committedCard, calendar: calendar),
+                                                    receipts: receipts, patientId: patientId.uuidString, db: db) else {
+                            throw StoreError.committedDataChanged
+                        }
+                    }
+                    let reportId = try Self.ensureLabReport(lab.header, card: card, patientId: patientId, documentId: documentId,
+                                                            encounterId: associatedEncounter, db: db, now: now)
+                    let samplesByRow = Dictionary(uniqueKeysWithValues: zip(lab.rowIds, lab.samples))
+                    let qualitativeByRow = Dictionary(uniqueKeysWithValues: lab.qualitative.map { ($0.rowId, $0.result) })
+                    for row in accepted {
+                        if let sample = samplesByRow[row.id] {
+                            let entity = UUID()
+                            let codingSystem = row.fields.first { $0.key == "raw_label" }?.codeApproval?.resolution.codingSystem
+                            try TrendQueryStore.insertHospitalSample(sample, id: entity, patientId: patientId,
+                                sourceRef: HospitalSample.sourceRef(documentId: documentId, pageIndex: card.pageIndex), db: db, now: now,
+                                approvedCodingSystem: codingSystem, labReportId: reportId.uuidString)
+                            entities[row.id] = entity
+                        } else if var result = qualitativeByRow[row.id] {
+                            result.patientId = patientId; result.labReportId = reportId; result.createdAt = now
+                            result.ordinal = try Self.freeOrdinal(table: "lab_result", parentColumn: "lab_report_id", header: reportId.uuidString,
+                                                                  preferred: snapshot.rows.firstIndex { $0.id == row.id }, db: db)
+                            try Self.insertLabResult(result, db: db)
+                            entities[row.id] = result.id
+                            tables[row.id] = "lab_result"
+                        } else {
+                            throw StoreError.invalidCard
+                        }
+                    }
                 }
             case "encounter":
                 if let row = accepted.first {
@@ -455,6 +496,52 @@ public actor OCRCardStore {
                             values["provider"], values["lot_number"], associatedEncounter?.uuidString, now.timeIntervalSince1970, now.timeIntervalSince1970])
                     entities[row.id] = entity
                 }
+            case "hospitalization":
+                if let row = accepted.first {
+                    // v26（§C.2）住院卡 = 就诊 + 住院期同一事务：显式归属既有就诊则只补空（UNIQUE(encounter_id) 一次住院一行、
+                    // 绝不重复）；无归属信号不猜——按文档键派生的 kind（inpatient / daySurgery）新建就诊。
+                    guard let intent = EntityCardProjection.hospitalizationIntent(from: projectionCard, calendar: calendar) else { throw StoreError.invalidCard }
+                    let outcome = try Self.saveHospitalization(intent, patientId: patientId, documentId: documentId,
+                                                               associatedEncounter: associatedEncounter, db: db, now: now)
+                    entities[row.id] = outcome.entity
+                    associatedEncounter = outcome.encounter
+                }
+            case "diagnosis":
+                if !accepted.isEmpty {
+                    // v26（§C.3）诊断逐行一实体（id = 回执 row_id，确定性）；encounter_id 只取显式归属；日期缺省可继承显式归属就诊的日期
+                    //（用户选择的就诊不是猜测）；health_problem_id 永为 NULL（用户「采用为健康问题」后才回填，FR11.4）。
+                    guard let intents = EntityCardProjection.diagnosisIntents(from: projectionCard, calendar: calendar),
+                          intents.map(\.rowId) == accepted.map(\.id) else { throw StoreError.invalidCard }
+                    if !committed.isEmpty {
+                        var committedCard = snapshot
+                        committedCard.rows = snapshot.rows.filter { committed.contains($0.id.uuidString) }
+                        guard let prior = EntityCardProjection.diagnosisIntents(from: committedCard, calendar: calendar),
+                              try Self.diagnosesMatch(prior, patientId: patientId.uuidString, db: db) else { throw StoreError.committedDataChanged }
+                    }
+                    let inheritedDate = try associatedEncounter.flatMap { encounter in
+                        try Double.fetchOne(db, sql: "SELECT date FROM encounter WHERE id = ? AND patient_id = ?",
+                                            arguments: [encounter.uuidString, patientId.uuidString])
+                    }.map(Date.init(timeIntervalSince1970:))
+                    for (row, intent) in zip(accepted, intents) {
+                        var diagnosis = intent.diagnosis
+                        diagnosis.patientId = patientId; diagnosis.encounterId = associatedEncounter; diagnosis.documentFileId = documentId
+                        diagnosis.ordinal = snapshot.rows.firstIndex { $0.id == row.id } ?? diagnosis.ordinal
+                        if diagnosis.diagnosedAt == nil { diagnosis.diagnosedAt = inheritedDate }
+                        diagnosis.confirmed = true; diagnosis.createdAt = now; diagnosis.updatedAt = now
+                        try Self.insertDiagnosis(diagnosis, db: db)
+                        entities[row.id] = diagnosis.id
+                    }
+                }
+            case "exam_report":
+                if let row = accepted.first {
+                    // v26（§C.4）单行卡 → 一条 exam_report；findings/impression 原文，无 critical_value_flag（BR-004/012）。
+                    guard let intent = EntityCardProjection.examReportIntent(from: projectionCard, calendar: calendar) else { throw StoreError.invalidCard }
+                    var report = intent.report
+                    report.patientId = patientId; report.encounterId = associatedEncounter; report.documentFileId = documentId
+                    report.confirmed = true; report.createdAt = now; report.updatedAt = now
+                    try Self.insertExamReport(report, db: db)
+                    entities[row.id] = report.id
+                }
             default: throw StoreError.invalidCard
             }
             let headerTable = Self.factTable(for: card.kind)
@@ -598,14 +685,33 @@ public actor OCRCardStore {
                 """, arguments: [entity, patient]),
                   (line["header_document"] as String?) == document, (line["header_confirmed"] as Int) == 1 else { throw StoreError.corruptReceipt }
             if line.hasColumn("confirmed"), (line["confirmed"] as Int) != 1 { throw StoreError.corruptReceipt }
+        } else if table == "lab_result" {
+            // v26（§C.5）定性行经表头校验：同成员表头存在、来源文档一致、已确认（表头即本卡的 lab_report）。
+            guard let line = try Row.fetchOne(db, sql: """
+                SELECT h.document_file_id AS header_document, h.confirmed AS header_confirmed, r.id
+                FROM lab_result r JOIN lab_report h ON h.id = r.lab_report_id AND h.patient_id = r.patient_id
+                WHERE r.id = ? AND r.patient_id = ?
+                """, arguments: [entity, patient]),
+                  (line["header_document"] as String?) == document, (line["header_confirmed"] as Int) == 1 else { throw StoreError.corruptReceipt }
         } else {
             guard let fact = try Row.fetchOne(db, sql: "SELECT * FROM \(table) WHERE id = ? AND patient_id = ?", arguments: [entity, patient]) else {
                 throw StoreError.corruptReceipt
             }
             if table == "metric_sample" {
                 guard (fact["source_ref"] as String?) == "doc:\(document)#p\(page)", (fact["origin"] as String) == "hospital" else { throw StoreError.corruptReceipt }
-            } else if table == "prescription" || table == "claim_item" {
+                // v26：回指的检验表头必须同成员、同来源文档（回填与新写入同口径）。
+                if let report: String = fact["lab_report_id"] {
+                    guard try String.fetchOne(db, sql: "SELECT document_file_id FROM lab_report WHERE id = ? AND patient_id = ?",
+                                              arguments: [report, patient]) == document else { throw StoreError.corruptReceipt }
+                }
+            } else if ["prescription", "claim_item", "diagnosis", "exam_report", "lab_report"].contains(table) {
                 guard (fact["document_file_id"] as String?) == document, (fact["confirmed"] as Int) == 1 else { throw StoreError.corruptReceipt }
+            } else if table == "hospitalization" {
+                // 多份原件（入院记录 / 出院小结）补空同一住院期：document_file_id 保留首份，故只校验确认态与就诊同成员。
+                guard (fact["confirmed"] as Int) == 1,
+                      try String.fetchOne(db, sql: "SELECT patient_id FROM encounter WHERE id = ?", arguments: [fact["encounter_id"] as String]) == patient else {
+                    throw StoreError.corruptReceipt
+                }
             }
             if table == "immunization", (fact["confirmed"] as Int) != 1 { throw StoreError.corruptReceipt }
         }
