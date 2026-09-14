@@ -33,11 +33,15 @@ public struct OCRPipeline: Sendable {
         /// FR6.6：识别引擎失败标记——「引擎崩溃」与「页面无文字」必须可区分，
         /// 失败必须走可见错误反馈，绝不静默按「无文字」入库。
         public var failed: Bool
+        /// FR5.5 版面（子项目 E1）：透传识别层 `Recognition.layout`（块 bbox / 表格 / 段落）；
+        /// 引擎不给版面或失败 → nil，消费方以 `PageLayout.linesOnly(lines)` 退化。
+        public var layout: PageLayout?
         public init(lines: [String], hasText: Bool, qualityTags: [String] = [],
-                    failed: Bool = false, confidence: Double = 0) {
+                    failed: Bool = false, confidence: Double = 0, layout: PageLayout? = nil) {
             self.lines = lines; self.hasText = hasText
             self.qualityTags = qualityTags; self.failed = failed
             self.confidence = confidence.isFinite ? min(1, max(0, confidence)) : 0
+            self.layout = layout
         }
     }
 
@@ -55,7 +59,8 @@ public struct OCRPipeline: Sendable {
         do {
             let recognition = try await recognizer.recognize(imageData)
             return Result(lines: recognition.lines, hasText: !recognition.lines.isEmpty,
-                          qualityTags: tags, confidence: recognition.confidence)
+                          qualityTags: tags, confidence: recognition.confidence,
+                          layout: recognition.layout)
         } catch {
             return Result(lines: [], hasText: false, qualityTags: tags, failed: true)
         }

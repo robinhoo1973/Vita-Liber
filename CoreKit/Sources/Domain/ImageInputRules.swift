@@ -8,12 +8,15 @@ import Foundation
 public enum ImageInputRules {
 
     public struct Recognition: Sendable, Equatable {
-        /// 识别出的文本行（按序）
+        /// 识别出的文本行（按序）——兼容出口，所有旧消费点继续只读 `lines`。
         public var lines: [String]
         /// 识别置信度（Vision 引擎输出，0..1）
         public var confidence: Double
-        public init(lines: [String], confidence: Double) {
-            self.lines = lines; self.confidence = confidence
+        /// FR5.5 版面（子项目 E1）：块 bbox / 表格 / 段落；`blocks[i].lineIndex == i` 对应 `lines[i]`。
+        /// 桩与旧引擎不给版面 → nil；消费方以 `PageLayout.linesOnly(lines)` 退化。
+        public var layout: PageLayout?
+        public init(lines: [String], confidence: Double, layout: PageLayout? = nil) {
+            self.lines = lines; self.confidence = confidence; self.layout = layout
         }
         public var text: String { lines.joined(separator: "\n") }
         public var isEmpty: Bool { text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
