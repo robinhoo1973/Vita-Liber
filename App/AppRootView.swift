@@ -21,6 +21,10 @@ struct AppRootView: View {
     /// F16 信源库幂等种子（由 VitaLiberApp 注入 container.guidelines.seedBundled ——
     /// AppContainer 不进环境，闭包传递保持装配根单一）
     let seedBundled: () async throws -> Void
+    /// v27 `doc_type_key` 首启回填（子项目 J · 原 D3-2；VitaLiberApp 注入
+    /// `DocumentTypeKeyBackfill.runIfNeeded(store:)`）——独立启动链：不抛出、自带完成标记，
+    /// 种子链失败不得让回填跳过本次启动（否则种子持续失败 = 回填永不发生）。
+    let backfillDocumentTypeKeys: () async -> Void
 
     /// 退后台锁屏状态（FR1.4）：scenePhase 切 background 置位，回前台由门禁遮罩接管。
     /// 评审修正：锁定优先级在向导分支**之前**——门禁一旦建立，向导期间退后台同样锁屏。
@@ -112,6 +116,9 @@ struct AppRootView: View {
                 async let seed: Void = seedBundledOrLog()
                 // 敏感媒体孤儿对账（评审修正）：崩溃/失败写入的残留照片启动时清除
                 async let reconcile: Void = observationState.reconcileAssets()
+                // v27 doc_type_key 首启回填（FR5.5 子项目 J）：幂等（完成标记 + IS NULL 谓词）、
+                // 不抛出，任一行失败不置标记、下次启动重试；全新安装零行即完成。
+                async let backfill: Void = backfillDocumentTypeKeys()
                 // 四层补偿第 1 层（§5.4 V3.29）：前台启动时对账。
                 // FR20.2 授权时序：通知权限严禁启动即索权——请求时机移到
                 // 「完成第一个提醒计划创建后」（价值先行）。
@@ -119,9 +126,9 @@ struct AppRootView: View {
                     async let refresh: Void = reminderStore.refreshTriggered(patientId: appState.currentPatientId)
                     // FR13.10 定期备份提醒（默认 30 天；只引导，不自动建包）
                     async let backup: Void = reminderStore.scheduleBackupReminderIfNeeded(lastBackupAt: appState.lastBackupAt)
-                    _ = await (seed, reconcile, refresh, backup)
+                    _ = await (seed, reconcile, backfill, refresh, backup)
                 } else {
-                    _ = await (seed, reconcile)
+                    _ = await (seed, reconcile, backfill)
                 }
             }
             // FR14.5 语言切换的非视图副作用：已排程通知的标题/正文在排程时固化，

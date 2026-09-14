@@ -13,6 +13,13 @@ public actor DocumentStore {
 
     public enum StoreError: Error, Sendable {
         case invalidMember, invalidSource, invalidPage, unreviewedField, reviewConflict
+        /// v27：`doc_type_key` 非 `DocumentTypeKey` 27 键之一（列无 DDL CHECK，仓层是唯一校验点）。
+        case invalidDocTypeKey
+    }
+
+    /// v27 稳定键校验：nil = 不写该列（旧调用形态 / 首启回填补齐）；非 nil 必须是 `DocumentTypeKey.rawValue`。
+    private static func validateDocTypeKey(_ key: String?) throws {
+        if let key, DocumentTypeKey(rawValue: key) == nil { throw StoreError.invalidDocTypeKey }
     }
 
     static func validateSource(_ db: Database, patientId: UUID, documentId: UUID, pageIndex: Int,
@@ -49,6 +56,9 @@ public actor DocumentStore {
         /// 投影元数据（标题/确认计数/修订历史/原件路径等 JSON 侧载，V3.41）。
         public var metaJSON: String?
         public var createdAt: Date
+        /// v27（FR5.5 / 子项目 J）：文档类型稳定键 `DocumentTypeKey.rawValue`（`document_file.doc_type_key`）；
+        /// 旧行在首启回填（`DocumentTypeKeyBackfill`）补齐前为 nil，`docType` 标签列仍是过渡显示列。
+        public var docTypeKey: String?
         /// BR-003 D 级判定（第四轮全仓审查修复：`grade == "D"` 裸字符串曾
         /// 散落 4 个视图文件 8 处内联——视图层不得承载业务判定，收敛为
         /// 行投影谓词，徽章语义唯一出处是 Domain 来源徽章纪律）。
@@ -56,11 +66,12 @@ public actor DocumentStore {
         public init(id: UUID, patientId: UUID, encounterId: UUID?, docType: String,
                     sha256: String?, mimeType: String?, origin: String, status: String,
                     isSensitive: Bool, title: String?, grade: String = "C",
-                    metaJSON: String? = nil, createdAt: Date) {
+                    metaJSON: String? = nil, createdAt: Date, docTypeKey: String? = nil) {
             self.id = id; self.patientId = patientId; self.encounterId = encounterId
             self.docType = docType; self.sha256 = sha256; self.mimeType = mimeType
             self.origin = origin; self.status = status; self.isSensitive = isSensitive
             self.title = title; self.grade = grade; self.metaJSON = metaJSON; self.createdAt = createdAt
+            self.docTypeKey = docTypeKey
         }
     }
 
@@ -169,6 +180,8 @@ public actor DocumentStore {
     /// 入库（BR-002：INSERT 新行；meta_json 承载投影元数据）。
     /// ocrText 写入 FTS 检索列（触发器自动索引）；grade = 来源徽章（BR-003：
     /// 机器识别未确认传 'D'，手工/已确认传 'C'）。
+    /// v27：`docTypeKey` = `DocumentTypeKey.rawValue` 同行落 `doc_type_key`（未知键拒绝、零写入）；
+    /// nil = 旧调用形态，该列留 NULL 由首启回填补齐。
     @discardableResult
     public func save(patientId: UUID, docType: String, sha256: String?,
                      mimeType: String?, origin: String, isSensitive: Bool,
@@ -176,8 +189,9 @@ public actor DocumentStore {
                       ocrText: String? = nil, grade: String = "C",
                       pages: [Page] = [],
                       cards: [MatchedCard] = [], reviewedFields: [Int: [CandidateField]] = [:],
-                      now: Date = Date()) async throws -> UUID {
+                      now: Date = Date(), docTypeKey: String? = nil) async throws -> UUID {
         let id = UUID()
+        try Self.validateDocTypeKey(docTypeKey)
         try await writer.write { db in
             guard try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM patient_profile WHERE id = ? AND deleted_at IS NULL",
                                    arguments: [patientId.uuidString]) == 1 else { throw StoreError.invalidMember }
@@ -188,13 +202,13 @@ public actor DocumentStore {
             try db.execute(sql: """
                 INSERT INTO document_file
                   (id, patient_id, doc_type, sha256, mime_type, origin, status,
-                   is_sensitive, meta_json, title, ocr_text, grade, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?)
+                   is_sensitive, meta_json, title, ocr_text, grade, created_at, updated_at, doc_type_key)
+                VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?)
                 """, arguments: [id.uuidString, patientId.uuidString, docType, sha256,
                                  mimeType, origin, isSensitive ? 1 : 0,
                                  metaJSON, title, ocrText, grade,
                                  now.timeIntervalSince1970,
-                                 now.timeIntervalSince1970])
+                                 now.timeIntervalSince1970, docTypeKey])
             // 页文本同事务落库（FR6.1 页语义）：单图 = 第 0 页；PDF 每页一行
             for page in pages {
                 try db.execute(sql: """
@@ -220,10 +234,49 @@ public actor DocumentStore {
         }
     }
 
+    /// v27 首启回填读面（`DocumentTypeKeyBackfill`）：`doc_type_key IS NULL` 的文档 → (id, 成员, 标签)。
+    /// `patientId` nil = 全成员（首启一次性回填跨成员；BR-001 隔离由写面 `setDocTypeKey` 的成员校验守住）；
+    /// 归档行同样列入（稳定键是分类事实、与状态无关）；已删除成员的文档不列（写面必拒，列出只会让回填永不完成）。
+    /// 按 created_at, id 稳定排序 + limit 分批：调用方写完一批后再取即得剩余行（谓词自然收缩）。
+    public func documentsMissingTypeKey(patientId: UUID?, limit: Int) async throws -> [(id: UUID, patientId: UUID, docType: String)] {
+        guard limit > 0 else { return [] }
+        let memberClause = patientId == nil ? "" : "AND d.patient_id = ?"
+        let args: [DatabaseValueConvertible] = (patientId.map { [$0.uuidString as DatabaseValueConvertible] } ?? []) + [limit]
+        return try await writer.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT d.id, d.patient_id, d.doc_type FROM document_file d
+                JOIN patient_profile m ON m.id = d.patient_id AND m.deleted_at IS NULL
+                WHERE d.doc_type_key IS NULL \(memberClause)
+                ORDER BY d.created_at, d.id LIMIT ?
+                """, arguments: StatementArguments(args)).compactMap { row -> (id: UUID, patientId: UUID, docType: String)? in
+                guard let id = UUID(uuidString: row["id"] as String),
+                      let patient = UUID(uuidString: row["patient_id"] as String) else { return nil }
+                return (id: id, patientId: patient, docType: row["doc_type"] as String)
+            }
+        }
+    }
+
+    /// v27 稳定键写面：成员校验的单行 UPDATE（`doc_type` 标签列不动——标签↔键的对应由 App 层反查裁决）。
+    /// 未知键 → `invalidDocTypeKey`（零写入）；文档不存在 / 非该成员 / 成员已删除 → `invalidSource`（BR-001）。
+    public func setDocTypeKey(_ key: String, documentId: UUID, patientId: UUID, now: Date = Date()) async throws {
+        try Self.validateDocTypeKey(key)
+        try await writer.write { db in
+            try db.execute(sql: """
+                UPDATE document_file SET doc_type_key = ?, updated_at = ?
+                WHERE id = ? AND patient_id = ?
+                  AND EXISTS (SELECT 1 FROM patient_profile m WHERE m.id = document_file.patient_id AND m.deleted_at IS NULL)
+                """, arguments: [key, now.timeIntervalSince1970, documentId.uuidString, patientId.uuidString])
+            guard db.changesCount == 1 else { throw StoreError.invalidSource }
+        }
+    }
+
     /// Review edits update projections, never source media or pages already cited by committed facts.
+    /// v27：`docTypeKey` 非 nil 时随 `doc_type` 标签同事务改写 `doc_type_key`（标签与键不漂移）；nil = 保持原键。
     public func updateReview(id: UUID, patientId: UUID, docType: String, isSensitive: Bool,
                              metaJSON: String?, ocrText: String?, grade: String, pages: [Page],
-                             cards: [MatchedCard] = [], reviewedFields: [Int: [CandidateField]] = [:]) async throws {
+                             cards: [MatchedCard] = [], reviewedFields: [Int: [CandidateField]] = [:],
+                             docTypeKey: String? = nil) async throws {
+        try Self.validateDocTypeKey(docTypeKey)
         try await writer.write { db in
             guard !docType.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                   ["C", "D"].contains(grade), Set(pages.map(\.index)).count == pages.count,
@@ -273,11 +326,13 @@ public actor DocumentStore {
                 }
             }
             let storedMeta = metadata.isEmpty ? nil : String(decoding: try JSONSerialization.data(withJSONObject: metadata), as: UTF8.self)
+            // v27：键列只在调用方给出时改写（COALESCE 让 nil 保持原键，旧调用形态零影响）
             try db.execute(sql: """
-                UPDATE document_file SET doc_type = ?, is_sensitive = ?, meta_json = ?, ocr_text = ?, grade = ?, updated_at = ?
+                UPDATE document_file SET doc_type = ?, is_sensitive = ?, meta_json = ?, ocr_text = ?, grade = ?, updated_at = ?,
+                    doc_type_key = COALESCE(?, doc_type_key)
                 WHERE id = ? AND patient_id = ?
                 """, arguments: [docType, isSensitive ? 1 : 0, storedMeta, ocrText, grade,
-                                 Date().timeIntervalSince1970, id.uuidString, patientId.uuidString])
+                                 Date().timeIntervalSince1970, docTypeKey, id.uuidString, patientId.uuidString])
             if previousPages != orderedPages {
                 if receiptCount == 0 {
                     // Existing page identities survive; omitted/changed historical pages are not silently erased.
@@ -405,7 +460,8 @@ public actor DocumentStore {
             title: row["title"] as String?,
             grade: (row["grade"] as String?) ?? "C",
             metaJSON: row["meta_json"] as String?,
-            createdAt: Date(timeIntervalSince1970: row["created_at"] as Double))
+            createdAt: Date(timeIntervalSince1970: row["created_at"] as Double),
+            docTypeKey: row["doc_type_key"] as String?)
     }
 }
 #endif

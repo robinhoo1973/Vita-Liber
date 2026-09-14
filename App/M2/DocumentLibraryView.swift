@@ -629,18 +629,21 @@ final class DocumentsState {
                             grade: .userConfirmed, codeResolution: field.codeResolution, revisionHistory: field.revisionHistory)
                     })
                 })
+                // v27：稳定键随标签同事务落 doc_type_key（新行不进首启回填清单；复核改类型时键随标签走，不漂移）
+                let persistedKey = Self.persistedDocTypeKey(label: draft.docType, classifierKey: draft.documentTypeKey).rawValue
                 let documentID: UUID
                 if let existing = draft.existingDocumentId {
                     try await store.updateReview(id: existing, patientId: draft.patientId, docType: draft.docType,
                         isSensitive: draft.isSensitive, metaJSON: json, ocrText: text.isEmpty ? nil : text,
-                        grade: draft.allReviewed ? "C" : "D", pages: pages, cards: review.all, reviewedFields: reviewedFields)
+                        grade: draft.allReviewed ? "C" : "D", pages: pages, cards: review.all, reviewedFields: reviewedFields,
+                        docTypeKey: persistedKey)
                     documentID = existing
                 } else {
                     documentID = try await store.save(patientId: draft.patientId, docType: draft.docType,
                         sha256: draft.sha256, mimeType: draft.mimeType, origin: draft.origin,
                         isSensitive: draft.isSensitive, metaJSON: json, title: draft.title,
                         ocrText: text.isEmpty ? nil : text, grade: draft.allReviewed ? "C" : "D", pages: pages,
-                        cards: review.all, reviewedFields: reviewedFields)
+                        cards: review.all, reviewedFields: reviewedFields, docTypeKey: persistedKey)
                 }
                 session.source = ImportSource(documentId: documentID, patientId: draft.patientId, pages: draft.pages)
             }
@@ -761,8 +764,10 @@ final class DocumentsState {
     func createManual(patientId: UUID, title: String, docType: String, note: String) async {
         do {
             let json = String(decoding: try JSONEncoder().encode(["note": note]), as: UTF8.self)
+            // v27：手工建档 Picker 选的是 27 键标签 → 反查稳定键同行落库（无页判定；未命中 custom）
             _ = try await store.save(patientId: patientId, docType: docType, sha256: nil, mimeType: nil,
-                                    origin: "manual", isSensitive: false, metaJSON: json, title: title)
+                                    origin: "manual", isSensitive: false, metaJSON: json, title: title,
+                                    docTypeKey: Self.persistedDocTypeKey(label: docType, classifierKey: nil).rawValue)
             await load(patientId: patientId)
             dataChange?.documentSaved()
         } catch { lastImportError = L10n.docImportFailed }
@@ -781,6 +786,15 @@ final class DocumentsState {
     /// 解析与（语言, 标签）缓存在 L10n 单出口（列表行 / 卡投影每帧反查，旧标签的三语扫描不重复付费）。
     nonisolated static func docTypeKey(forLabel label: String) -> String? {
         L10n.docTypeKey(forLabel: label)
+    }
+
+    /// v27 落库稳定键（`document_file.doc_type_key`，J4 follow-up）：已确认标签反查（当前语言 27 键 → 旧 15 标签键 /
+    /// 曾用键三语）→ 页判定稳定键（理解层 `suggestedTarget`）→ `custom`（不猜）。标签优先：确认页展示并经
+    /// `docTypeResolved` 闸门要求用户确认的是标签，页判定只是其来源之一（QuickCapture 提示标签与页判定不一致时以标签为准）。
+    nonisolated static func persistedDocTypeKey(label: String, classifierKey: String?) -> DocumentTypeKey {
+        if let raw = docTypeKey(forLabel: label), let key = DocumentTypeKey(rawValue: raw) { return key }
+        if let raw = classifierKey, let key = DocumentTypeKey(rawValue: raw) { return key }
+        return DocumentTypeKeyBackfill.resolve(label: label)
     }
 
     /// 导入确认页 / 手工建档 Picker 的类型目录（稳定键，标签经 `docTypeLabel(forStableKey:)`）：

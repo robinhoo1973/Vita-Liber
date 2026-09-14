@@ -250,6 +250,10 @@ struct VitaLiberApp: App {
             // F25 码表种子装载（V3.72）：装配层唯一调用点——幂等（app_settings
             // 记 bundle_version），失败记日志不阻断启动（码表缺 = 未解析态，FR25.1）
             try await container.codeIndex.loadBundledSeedsIfNeeded()
+        }, backfillDocumentTypeKeys: {
+            // v27 doc_type_key 首启回填（子项目 J · 原 D3-2）：装配层唯一调用点——
+            // 旧行标签三语反查稳定键、未命中 custom；幂等、失败下次启动重试
+            await DocumentTypeKeyBackfill.runIfNeeded(store: container.documents)
         })
             .environment(appState)
             .environment(reminderStore)

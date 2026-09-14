@@ -197,4 +197,113 @@ final class M2Round2RegressionTests: XCTestCase {
         XCTAssertFalse(L10n.payProMonthlyPrice.isEmpty)
         XCTAssertFalse(L10n.payAddonPrice.isEmpty)
     }
+
+    // MARK: - v27 doc_type_key 读写出口（子项目 J 接线：DocumentTypeKeyBackfill 的真实仓契约）
+
+    /// 两成员 + 文档仓夹具（`doc_type_key` 用例共用）。
+    private func documentFixture() async throws -> (GRDBStore, DocumentStore, UUID, UUID) {
+        let store = try GRDBStore.inMemory()
+        let (a, b) = (UUID(), UUID())
+        try await store.writer.write { db in
+            for (id, name) in [(a, "甲"), (b, "乙")] {
+                try db.execute(sql: """
+                    INSERT INTO patient_profile (id, display_name, relation, created_at, updated_at)
+                    VALUES (?, ?, '本人', 0, 0)
+                    """, arguments: [id.uuidString, name])
+            }
+        }
+        return (store, DocumentStore(writer: store.writer), a, b)
+    }
+
+    /// 入库携带稳定键即落 `doc_type_key` 并随行投影回读；未传键（旧调用形态）= NULL 且进回填清单
+    ///（nil = 全成员 / 按成员过滤 / limit 生效）。
+    func test_入库写稳定键_缺键行进回填清单() async throws {
+        let (_, docs, a, b) = try await documentFixture()
+        let keyed = try await docs.save(patientId: a, docType: "处方单", sha256: "k1", mimeType: "image/jpeg",
+                                        origin: "import", isSensitive: false, metaJSON: nil, title: nil,
+                                        docTypeKey: DocumentTypeKey.prescription.rawValue)
+        let legacyA = try await docs.save(patientId: a, docType: "处方单", sha256: "k2", mimeType: "image/jpeg",
+                                          origin: "import", isSensitive: false, metaJSON: nil, title: nil)
+        let legacyB = try await docs.save(patientId: b, docType: "检验报告", sha256: "k3", mimeType: "image/jpeg",
+                                          origin: "import", isSensitive: false, metaJSON: nil, title: nil)
+        let keyedRow = try await docs.fetch(id: keyed)
+        XCTAssertEqual(keyedRow?.docTypeKey, "prescription")
+        let legacyRow = try await docs.fetch(id: legacyA)
+        XCTAssertNil(legacyRow?.docTypeKey, "旧调用形态不传键 = NULL（由首启回填补齐）")
+        let listed = try await docs.list(patientId: a)
+        XCTAssertEqual(listed.first { $0.id == keyed }?.docTypeKey, "prescription", "列表投影同样携带稳定键")
+
+        let all = try await docs.documentsMissingTypeKey(patientId: nil, limit: 10)
+        XCTAssertEqual(Set(all.map { $0.id }), [legacyA, legacyB], "nil = 全成员；带键行不进清单")
+        XCTAssertEqual(all.first { $0.id == legacyB }?.docType, "检验报告")
+        XCTAssertEqual(all.first { $0.id == legacyB }?.patientId, b)
+        let onlyB = try await docs.documentsMissingTypeKey(patientId: b, limit: 10)
+        XCTAssertEqual(onlyB.map { $0.id }, [legacyB], "按成员过滤")
+        let capped = try await docs.documentsMissingTypeKey(patientId: nil, limit: 1)
+        XCTAssertEqual(capped.count, 1, "limit 生效")
+
+        // 未知键在入库处即拒绝（doc_type_key 无 DDL CHECK，仓层是唯一校验点）——零写入
+        do {
+            _ = try await docs.save(patientId: a, docType: "处方单", sha256: "k4", mimeType: "image/jpeg",
+                                    origin: "import", isSensitive: false, metaJSON: nil, title: nil,
+                                    docTypeKey: "not_a_key")
+            XCTFail("未知稳定键必须拒绝")
+        } catch DocumentStore.StoreError.invalidDocTypeKey {}
+        let afterReject = try await docs.list(patientId: a)
+        XCTAssertEqual(afterReject.count, 2, "被拒绝的入库不得留下行")
+    }
+
+    /// `setDocTypeKey`：未知键拒绝、他人成员拒绝（BR-001，零写入）；本人成功后该行离开回填清单。
+    func test_setDocTypeKey_成员隔离_未知键拒绝_成功后离开清单() async throws {
+        let (store, docs, a, b) = try await documentFixture()
+        let doc = try await docs.save(patientId: a, docType: "处方单", sha256: "s1", mimeType: "image/jpeg",
+                                      origin: "import", isSensitive: false, metaJSON: nil, title: nil)
+        do {
+            try await docs.setDocTypeKey("not_a_key", documentId: doc, patientId: a)
+            XCTFail("未知稳定键必须拒绝")
+        } catch DocumentStore.StoreError.invalidDocTypeKey {}
+        do {
+            try await docs.setDocTypeKey(DocumentTypeKey.prescription.rawValue, documentId: doc, patientId: b)
+            XCTFail("他人成员不得改写本人文档（BR-001）")
+        } catch DocumentStore.StoreError.invalidSource {}
+        do {
+            try await docs.setDocTypeKey(DocumentTypeKey.prescription.rawValue, documentId: UUID(), patientId: a)
+            XCTFail("不存在的文档必须报 invalidSource")
+        } catch DocumentStore.StoreError.invalidSource {}
+        var row = try await docs.fetch(id: doc)
+        XCTAssertNil(row?.docTypeKey, "被拒绝的写入零落库")
+
+        try await docs.setDocTypeKey(DocumentTypeKey.prescription.rawValue, documentId: doc, patientId: a)
+        row = try await docs.fetch(id: doc)
+        XCTAssertEqual(row?.docTypeKey, "prescription")
+        let pending = try await docs.documentsMissingTypeKey(patientId: nil, limit: 10)
+        XCTAssertTrue(pending.isEmpty, "已回填行不再进清单（幂等谓词 doc_type_key IS NULL）")
+        let updatedAt = try await store.writer.read { db in
+            try Double.fetchOne(db, sql: "SELECT updated_at FROM document_file WHERE id = ?", arguments: [doc.uuidString])
+        }
+        XCTAssertGreaterThan(updatedAt ?? 0, 0, "键写入同步刷新 updated_at")
+    }
+
+    /// 复核改类型：传键即同步 `doc_type_key`（标签与键不漂移）；不传键（旧调用形态）保持原键。
+    func test_复核改类型同步稳定键_未传键保持原键() async throws {
+        let (_, docs, a, _) = try await documentFixture()
+        let doc = try await docs.save(patientId: a, docType: "处方单", sha256: "r1", mimeType: "image/jpeg",
+                                      origin: "import", isSensitive: false, metaJSON: nil, title: nil,
+                                      docTypeKey: DocumentTypeKey.prescription.rawValue)
+        try await docs.updateReview(id: doc, patientId: a, docType: "检查报告", isSensitive: false, metaJSON: nil,
+                                    ocrText: nil, grade: "C", pages: [], docTypeKey: DocumentTypeKey.examReport.rawValue)
+        var row = try await docs.fetch(id: doc)
+        XCTAssertEqual(row?.docType, "检查报告")
+        XCTAssertEqual(row?.docTypeKey, "exam_report")
+        try await docs.updateReview(id: doc, patientId: a, docType: "检查报告", isSensitive: true, metaJSON: nil,
+                                    ocrText: nil, grade: "C", pages: [])
+        row = try await docs.fetch(id: doc)
+        XCTAssertEqual(row?.docTypeKey, "exam_report", "未传键不动原键")
+        XCTAssertEqual(row?.isSensitive, true)
+        do {
+            try await docs.updateReview(id: doc, patientId: a, docType: "检查报告", isSensitive: false, metaJSON: nil,
+                                        ocrText: nil, grade: "C", pages: [], docTypeKey: "not_a_key")
+            XCTFail("未知稳定键必须拒绝")
+        } catch DocumentStore.StoreError.invalidDocTypeKey {}
+    }
 }
