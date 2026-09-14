@@ -40,9 +40,10 @@ public actor NLTextUnderstanding: TextUnderstanding {
     }
 
     /// OCR 侧（§6.1）：文档类型判定（D 级草稿）+ 启发式语义字段。
-    /// 字段目录随判定类型收敛（处方由 PrescriptionFieldMapper 承担、
-    /// 检验/病历由 DocumentTypeClassifierFallback.guessFields、
-    /// 其余由调用方通用 line_N 兜底）——本层只产理解结果，不产 UI。
+    /// 字段目录随判定类型收敛：处方由 spec 驱动的 T3 规则轨 `RuleExtractor` 产出共享字段与逐药行
+    ///（子项目 E3——此前处方分支返回 0 字段而 `PrescriptionFieldMapper.draftFields` 无调用方，
+    /// 无 Foundation Models 的设备处方页恒为空，round2 O-N2）；检验/病历由
+    /// DocumentTypeClassifierFallback.guessFields；其余由调用方通用 line_N 兜底——本层只产理解结果，不产 UI。
     private func classifyOCR(_ input: TextUnderstandingInput) -> UnderstandingResult {
         let lines = input.lines ?? input.text.components(separatedBy: .newlines)
         let classification = DocumentTypeClassifierFallback.classify(lines: lines)
@@ -55,7 +56,30 @@ public actor NLTextUnderstanding: TextUnderstanding {
         }
         var fields: [FieldDraft] = []
         var claimed = Set<Int>()
-        if target != "prescription" {
+        if target == "prescription", let spec = ExtractionSpecRegistry.spec(for: "prescription") {
+            // E5 接线 CardExtractionRegistry 前的兼容路径：规则轨 + grounding（第二道防线）→ 旧 FieldDraft 形状。
+            var card = ExtractedCard(kind: spec.kind, pageIndex: 0, shared: [:], rows: [],
+                                     provenance: .init(track: .rules, specVersion: spec.version, modelId: nil, durationMs: 0),
+                                     diagnostics: .init(track: .rules))
+            for region in PageLayout.linesOnly(lines).extractionRegions(pageIndex: 0) {
+                let r = RuleExtractor.extract(region: region, spec: spec, lines: lines)
+                card.shared.merge(r.shared) { a, _ in a }
+                card.rows += r.rows
+            }
+            let grounded = ExtractionGrounding.validate(card, spec: spec, lines: lines).card
+            // 旧模板 mapping 的理解层键：department → dept（CardTemplateMatcher 处方模板别名）。
+            func legacyKey(_ key: String) -> String { key == "department" ? "dept" : key }
+            for (key, value) in grounded.shared {
+                fields.append(FieldDraftAdapter.draft(key: legacyKey(key), value, lines: lines, pageConfidence: 0.6, track: .rules))
+                claimed.insert(value.anchor.lineIndex)
+            }
+            for row in grounded.rows {
+                for (key, value) in row {
+                    fields.append(FieldDraftAdapter.draft(key: key, value, lines: lines, pageConfidence: 0.6, track: .rules))
+                    claimed.insert(value.anchor.lineIndex)
+                }
+            }
+        } else {
             // 检验/病历等非处方类型：逐行启发式语义字段；未命中行由调用方
             // 以通用 line_N 兜底（claimed 随结果返回，调用方不再重跑抽取）。
             // 启发式未命中的行再走词表直配（裸科室行「消化内科」——

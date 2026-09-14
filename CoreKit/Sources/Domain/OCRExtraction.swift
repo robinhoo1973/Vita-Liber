@@ -91,14 +91,13 @@ public enum OCRGrounding {
             guard allowedKeys.contains(item.key), lines.indices.contains(item.lineIndex) else { return nil }
             let line = lines[item.lineIndex].trimmingCharacters(in: .whitespacesAndNewlines)
             let value = item.value.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !value.isEmpty, value.utf8.count <= 2048, let range = line.range(of: value) else { return nil }
+            guard !value.isEmpty, value.utf8.count <= 2048, line.range(of: value) != nil else { return nil }
             if narrativeKeys.contains(item.key), value != line, value != labeledValue(line, extraLabels: extraLabels) { return nil }
             if numericKeys.contains(item.key) || value.first?.isNumber == true || value.last?.isNumber == true {
-                let boundaries = CharacterSet(charactersIn: "0123456789.,+-−<>≤≥")
-                if (numericKeys.contains(item.key) || value.first?.isNumber == true), range.lowerBound > line.startIndex,
-                   line[line.index(before: range.lowerBound)].unicodeScalars.contains(where: boundaries.contains) { return nil }
-                if (numericKeys.contains(item.key) || value.last?.isNumber == true), range.upperBound < line.endIndex,
-                   line[range.upperBound].unicodeScalars.contains(where: boundaries.contains) { return nil }
+                // 数值边界：值须在行内**某一处**以独立数字出现（E3 修正：合体行「0.3g×20 … 3天」中 `3` 首次命中落在
+                // 0.3 内会被误拒——逐个出现位置检查，任一处边界合法即通过；仍拒绝只嵌在其他数字里的碎片）。
+                guard Self.hasBoundedNumericOccurrence(of: value, in: line, strictLeading: numericKeys.contains(item.key) || value.first?.isNumber == true,
+                                                       strictTrailing: numericKeys.contains(item.key) || value.last?.isNumber == true) else { return nil }
             }
             if ["drug_name", "generic_name"].contains(item.key),
                negationGuards.contains(where: { line.localizedCaseInsensitiveContains($0) }) { return nil }
@@ -117,6 +116,22 @@ public enum OCRGrounding {
             return FieldDraft(key: item.key, value: normalized(value, key: item.key), unit: unit?.isEmpty == true ? nil : unit,
                 confidence: 0.6, rawText: line, source: .foundationModels, sourceLineIndex: item.lineIndex)
         }
+    }
+
+    /// 值在行内的全部出现位置中，是否至少有一处两侧不紧邻数字/小数点/比较符（独立数字 token）。
+    static func hasBoundedNumericOccurrence(of value: String, in line: String, strictLeading: Bool, strictTrailing: Bool) -> Bool {
+        let boundaries = CharacterSet(charactersIn: "0123456789.,+-−<>≤≥")
+        var search = line.startIndex
+        while search < line.endIndex, let range = line.range(of: value, range: search..<line.endIndex) {
+            var ok = true
+            if strictLeading, range.lowerBound > line.startIndex,
+               line[line.index(before: range.lowerBound)].unicodeScalars.contains(where: boundaries.contains) { ok = false }
+            if ok, strictTrailing, range.upperBound < line.endIndex,
+               line[range.upperBound].unicodeScalars.contains(where: boundaries.contains) { ok = false }
+            if ok { return true }
+            search = line.index(after: range.lowerBound)
+        }
+        return false
     }
 
     public static func normalized(_ value: String, key: String) -> String {

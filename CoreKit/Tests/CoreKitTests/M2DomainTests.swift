@@ -594,10 +594,7 @@ struct Round4DomainTests {
         #expect(hospital == "XX醫院", "zh-Hant 标签按身份匹配——原简体字面量匹配恒 NULL")
         #expect(doctor == "王醫師")
         #expect(advice.contains("醫院"))
-        // 繁体原文关键词启发式（guessLabel 经 draftFields 间接验证）
-        let drafts = PrescriptionFieldMapper.draftFields(from: ["XX醫院", "每 日三次"], labels: labels)
-        #expect(drafts[0].displayLabel == labels.hospital, "繁体「醫院」行不得落「其他」")
-        #expect(drafts[1].displayLabel == labels.frequency)
+        // 行级猜标签启发式（draftFields/guessLabel）已随子项目 E3 退役——处方逐行字段见 RuleExtractorTests。
     }
 }
 

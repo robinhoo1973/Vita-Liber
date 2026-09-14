@@ -100,17 +100,12 @@ public enum PrescriptionConfirmation {
 /// schema 迁移，本次不擅自新增）——`buildAdviceText` 把全部已确认字段折叠进
 /// 一段带标签的文本，写入 `advice_text`，确保用户确认过的内容不会因为「暂无
 /// 列可落」而被静默丢弃。
+/// 子项目 E3（2026-09-14）：`draftFields`/`guessLabel` 行级猜标签启发式退役——处方逐行字段由 spec 驱动的
+/// `RuleExtractor`（T3 规则轨）产出，其医院/医生/频次/剂量启发式已进 `ExtractionSpec` 别名与 `RuleExtractor.Patterns`。
 public enum PrescriptionFieldMapper {
     /// FR5.1 三处方相关文案（首页快速拍摄/资料库标签）之一即视为处方文档类型。
     public static func isPrescriptionDocType(_ docType: String, prescriptionLabel: String) -> Bool {
         docType == prescriptionLabel
-    }
-
-    public static func draftFields(from lines: [String], labels: Labels) -> [CandidateField] {
-        lines.enumerated().map { idx, line in
-            CandidateField(key: "rx_line_\(idx)", displayLabel: guessLabel(line, isFirst: idx == 0, labels: labels),
-                           rawText: line, confidence: 0.55)
-        }
     }
 
     /// 用户确认后的字段 → 落库用的 hospital/doctor/adviceText 三元组。
@@ -142,23 +137,6 @@ public enum PrescriptionFieldMapper {
             self.hospital = hospital; self.doctor = doctor; self.frequency = frequency
             self.dosage = dosage; self.drugName = drugName; self.other = other
         }
-    }
-
-    private static func guessLabel(_ line: String, isFirst: Bool, labels: Labels) -> String {
-        // 关键词启发式只决定「展示标签」（BR-003 不预设事实）。医院/医生关键词
-        // 须覆盖繁简两种字形（zh-Hant 处方原文为「醫院/醫師/醫生」）——
-        // 第四轮全仓审查修复：原仅简体字面量，繁体 OCR 原文的医院/医生行
-        // 全部落「其他」标签。
-        if line.contains("医院") || line.contains("醫院") { return labels.hospital }
-        if line.contains("医生") || line.contains("醫生") || line.contains("医师") || line.contains("醫師") { return labels.doctor }
-        if line.contains("每") && (line.contains("日") || line.contains("天")) && line.contains("次") { return labels.frequency }
-        // 审查修复（BR-003 确认链）：首行是药名行（含「片」字样的药名如
-        // 阿司匹林肠溶片）此前先命中剂量分支——药名行被标为「剂量」，
-        // drugName 标签永远缺席，关键药名确认环节被跳过
-        if isFirst { return labels.drugName }
-        if line.contains("片") || line.contains("粒") || line.contains("毫升") || line.contains("mg")
-            || line.contains("ml") || line.contains("mL") { return labels.dosage }
-        return labels.other
     }
 }
 

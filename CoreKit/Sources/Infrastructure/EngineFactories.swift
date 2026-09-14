@@ -249,6 +249,18 @@ public enum TextUnderstandingFactory: EngineFactory {
     }
 }
 
+// MARK: - 按卡抽取注册表工厂（经 EAL 接入，子项目 E3；E4 在链首插 T1、子项目 F 插 T2）
+
+/// 三轨同一端口的逐区域失败切换注册表（design §5.1）。期一成员 = [规则轨]；
+/// T1 Foundation Models（E4）/ T2 本机 LLM（F）只增成员、调用方零改。onDeviceOnly：三轨皆零网络。
+public enum CardExtractionFactory: EngineFactory {
+    public typealias Capability = CardExtractionRegistry
+    public static var onDeviceOnly: Bool { true }
+    public static func make(_ context: EngineContext) -> CardExtractionRegistry {
+        CardExtractionRegistry(engines: [RuleExtractionEngine()])
+    }
+}
+
 // MARK: - 组合根：默认引擎注册
 
 extension EngineRegistry {
@@ -273,5 +285,6 @@ extension EngineRegistry {
         install(SensitiveMediaProtectionFactory.self)
         install(TextUnderstandingFactory.self)
         install(TextRefinerFactory.self)
+        install(CardExtractionFactory.self)
     }
 }
