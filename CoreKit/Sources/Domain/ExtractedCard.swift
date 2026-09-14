@@ -59,15 +59,22 @@ public struct ExtractionDiagnostics: Codable, Sendable, Equatable {
     }
 }
 
+/// 标题来源（E5）：`.detected` = 引擎自动生成，`.userEdited` = 用户在确认页手动修改。
+public enum TitleSource: String, Codable, Sendable { case detected, userEdited }
+
 /// 一页一卡类的抽取产物：共享字段 + 多行 + 续表提示（上一页共享字段，E3 `ContinuationRules` 填充）。
 public struct ExtractedCard: Codable, Sendable, Equatable {
     public let kind: String, pageIndex: Int
     public var shared: [String: GroundedValue], rows: [[String: GroundedValue]], continuationHint: [String: GroundedValue]
     public var provenance: ExtractionProvenance, diagnostics: ExtractionDiagnostics
+    /// E5：文档标题来源（`DocumentNaming.suggestTitle` 产出 → `.detected`；用户编辑后 → `.userEdited`）。
+    public var titleSource: TitleSource?
     public init(kind: String, pageIndex: Int, shared: [String: GroundedValue], rows: [[String: GroundedValue]],
-                continuationHint: [String: GroundedValue] = [:], provenance: ExtractionProvenance, diagnostics: ExtractionDiagnostics) {
+                continuationHint: [String: GroundedValue] = [:], provenance: ExtractionProvenance, diagnostics: ExtractionDiagnostics,
+                titleSource: TitleSource? = nil) {
         self.kind = kind; self.pageIndex = pageIndex; self.shared = shared; self.rows = rows
         self.continuationHint = continuationHint; self.provenance = provenance; self.diagnostics = diagnostics
+        self.titleSource = titleSource
     }
 }
 
