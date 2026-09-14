@@ -18,10 +18,14 @@ final class DocumentsState {
     private(set) var activeImport: ImportSession?
     private(set) var queuedImports: [QueuedImport] = []
     var pendingReviews: [String: PendingReview] = [:]
+    /// 子项目 D · D4-2「资料建议」：卡确认保存成功后采集的 D 级建议批（非空即弹表单；`presenterKey` 决定由哪个宿主呈现）。
+    /// 只经 `offerProfileSuggestions` / `acceptProfileSuggestion` / `dismissProfileSuggestions` / `clearProfileSuggestions` 变更。
+    var profileSuggestionBatch: ProfileSuggestionBatch?
 
     private let store: DocumentStore
     let pendingCardStore: PendingCardStore?
     let cardStore: OCRCardStore?
+    let suggestionStore: ProfileSuggestionStore?
     let scheduler: (any ReminderScheduling)?
     let dataChange: AppDataChangeCenter?
     private let pipeline: OCRPipeline
@@ -102,6 +106,17 @@ final class DocumentsState {
         let patientId: UUID
         let isSensitive: Bool
         let input: Input
+    }
+
+    /// 一张已确认卡产出的「资料建议」批（BR-003：D 级、逐项显式接受才落库；本结构不持久化）。
+    struct ProfileSuggestionBatch: Identifiable, Equatable {
+        let id = UUID()
+        /// 呈现宿主键：`session-<导入会话 id>` / `pending-<待办卡 id>`——只由产出它的宿主呈现，避免双宿主同时弹表单。
+        let presenterKey: String
+        let cardId: UUID
+        let patientId: UUID
+        let documentId: UUID
+        var suggestions: [ProfileSuggestion]
     }
 
     struct PendingDocument: Identifiable, Sendable {
@@ -198,7 +213,8 @@ final class DocumentsState {
          problemStore: HealthProblemStore? = nil,
          dataChange: AppDataChangeCenter? = nil,
          pendingCards: PendingCardStore? = nil,
-         scheduler: (any ReminderScheduling)? = nil, cardStore: OCRCardStore? = nil) {
+         scheduler: (any ReminderScheduling)? = nil, cardStore: OCRCardStore? = nil,
+         suggestionStore: ProfileSuggestionStore? = nil) {
         self.store = store; self.pipeline = pipeline
         self.decoder = decoder ?? EngineRegistry.shared.resolve(ImageDecodingFactory.self)
         self.ocrAuthorized = ocrAuthorized
@@ -208,6 +224,7 @@ final class DocumentsState {
         self.codeIndex = codeIndex; self.problemStore = problemStore
         self.dataChange = dataChange; self.pendingCardStore = pendingCards
         self.scheduler = scheduler; self.cardStore = cardStore
+        self.suggestionStore = suggestionStore
     }
 
     @discardableResult

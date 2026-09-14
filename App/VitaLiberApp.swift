@@ -170,7 +170,9 @@ struct VitaLiberApp: App {
             // 避免未来「走注入仓持久化」的路径误以为已接线而静默不落库
             // （FR6.9 页级实体卡落库现走 OCRCardStore 原始 SQL 路径）
             scheduler: container.reminderScheduler,
-            cardStore: OCRCardStore(writer: container.store.writer)))
+            cardStore: OCRCardStore(writer: container.store.writer),
+            // 子项目 D · D4-2：卡确认后「资料建议」采集/接受流（只读回执 → 逐项显式接受写资料 + 审计）
+            suggestionStore: ProfileSuggestionStore(writer: container.store.writer)))
         _aiHistoryState = State(initialValue: AIHistoryState(store: container.aiHistory, audit: container.audit))
         _exportWizardState = State(initialValue: ExportWizardState(service: container.pdfExport))
         _f16DeviceState = State(initialValue: F16DeviceState(

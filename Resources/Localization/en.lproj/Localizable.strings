@@ -1919,3 +1919,21 @@
 "field.reference_text" = "Reference range (as printed)";
 "field.abnormal_flag" = "Printed flag";
 "field.method" = "Method";
+
+/* Sub-project D · D4-2 profile suggestions sheet (SP-12.suggestion.* · §0.3 req 1 / BR-003) */
+"profileSuggestion.title" = "Profile suggestions";
+"profileSuggestion.hint" = "These items were recognized from the document and are unverified; each is written to the profile only after you confirm it.";
+"profileSuggestion.accept" = "Accept";
+"profileSuggestion.skip" = "Skip";
+"profileSuggestion.skipAll" = "Skip all";
+"profileSuggestion.done" = "Done";
+"profileSuggestion.applied" = "Saved";
+"profileSuggestion.existing" = "Already recorded";
+"profileSuggestion.skipped" = "Skipped";
+"profileSuggestion.failed" = "Could not save. Try again.";
+"profileSuggestion.severityUnset" = "Not set";
+"profileSuggestion.sourceFmt" = "Source: page %d";
+"profileSuggestion.kind.bloodType" = "Blood type";
+"profileSuggestion.kind.chronicCondition" = "Condition / diagnosis";
+"profileSuggestion.kind.allergy" = "Allergy history";
+"profileSuggestion.kind.pastHistory" = "Past history";

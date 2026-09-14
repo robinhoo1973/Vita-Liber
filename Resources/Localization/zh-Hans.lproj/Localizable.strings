@@ -1919,3 +1919,21 @@
 "field.reference_text" = "参考范围原文";
 "field.abnormal_flag" = "报告标记";
 "field.method" = "检验方法";
+
+/* 子项目 D · D4-2「资料建议」表单（SP-12.suggestion.* · §0.3 需求 1 / BR-003） */
+"profileSuggestion.title" = "资料建议";
+"profileSuggestion.hint" = "以下内容来自识别结果，尚未核实；仅在您确认后写入资料。";
+"profileSuggestion.accept" = "接受";
+"profileSuggestion.skip" = "忽略";
+"profileSuggestion.skipAll" = "全部跳过";
+"profileSuggestion.done" = "完成";
+"profileSuggestion.applied" = "已写入";
+"profileSuggestion.existing" = "已有记录";
+"profileSuggestion.skipped" = "已忽略";
+"profileSuggestion.failed" = "写入失败，请重试";
+"profileSuggestion.severityUnset" = "未选";
+"profileSuggestion.sourceFmt" = "来源：第 %d 页";
+"profileSuggestion.kind.bloodType" = "血型";
+"profileSuggestion.kind.chronicCondition" = "慢性病 / 诊断";
+"profileSuggestion.kind.allergy" = "过敏史";
+"profileSuggestion.kind.pastHistory" = "既往史";

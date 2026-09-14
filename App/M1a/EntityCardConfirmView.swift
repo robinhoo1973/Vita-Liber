@@ -51,8 +51,16 @@ struct EntityCardConfirmView: View {
         if case .resume(let review) = mode { return review.notificationError ?? review.errorMessage }
         return nil
     }
+    /// 子项目 D · D4-2：续办模式的「资料建议」宿主键（队列模式由 ImportReviewSessionView 宿主呈现）。
+    private var resumePresenterKey: String? {
+        if case .resume(let review) = mode { return DocumentsState.suggestionPresenterKey(pending: review.pending) }
+        return nil
+    }
+    private var suggestionsPending: Bool {
+        resumePresenterKey != nil && docs.profileSuggestionBatch?.presenterKey == resumePresenterKey
+    }
     private var completionKey: String {
-        if case .resume(let review) = mode { return "\(review.completed)-\(saving)-\(resumeError != nil)" }
+        if case .resume(let review) = mode { return "\(review.completed)-\(saving)-\(resumeError != nil)-\(partialCount != nil)-\(suggestionsPending)" }
         return "queue"
     }
 
@@ -174,8 +182,10 @@ struct EntityCardConfirmView: View {
                    })) {
                 Button(L10n.onboard_gotIt, role: .cancel) {}
             } message: { Text(resumeError ?? L10n.ocrReviewPartialSaved(partialCount ?? 0)) }
+            // 「资料建议」表单（续办模式宿主；alert 可见时暂不弹）。整卡处理完毕才采集，故与「已保存 N 条」不并发。
+            .profileSuggestionHost(presenterKey: resumePresenterKey ?? "", enabled: resumePresenterKey != nil && resumeError == nil && partialCount == nil)
             .task(id: completionKey) {
-                if case .resume(let review) = mode, review.completed, !saving, resumeError == nil { dismiss() }
+                if case .resume(let review) = mode, review.completed, !saving, resumeError == nil, !suggestionsPending { dismiss() }
             }
         }
     }

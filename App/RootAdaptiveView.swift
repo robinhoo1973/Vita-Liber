@@ -295,7 +295,8 @@ private struct PreviewRoot: View {
                     dataChange: dataChange,
                     pendingCards: container.pendingCards,
                     scheduler: container.reminderScheduler,
-                    cardStore: OCRCardStore(writer: container.store.writer)))
+                    cardStore: OCRCardStore(writer: container.store.writer),
+                    suggestionStore: ProfileSuggestionStore(writer: container.store.writer)))
                 .environment(AIHistoryState(store: container.aiHistory, audit: container.audit))
                 .environment(ExportWizardState(service: container.pdfExport))
                 // 健康导入二轮（V3.98）：F16DeviceState 只依赖同步协调器 + 数据变更信号，

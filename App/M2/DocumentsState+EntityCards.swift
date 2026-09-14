@@ -160,6 +160,11 @@ extension DocumentsState {
             else { dequeueEntityCard(card) }
             do { try await notifyAfterSave(result) }
             catch { session.notificationError = L10n.ocrReviewNotificationFailed }
+            // 资料建议只在整卡处理完毕后采集一次（部分保存先走「已保存 N 条」提示；collect 读全部回执，无回执即无表单）。
+            if result.resolved {
+                await offerProfileSuggestions(cardId: card.id, patientId: source.patientId, documentId: source.documentId,
+                                              presenterKey: Self.suggestionPresenterKey(session: session))
+            }
             return result
         } catch {
             session.errorMessage = L10n.entityCardSaveFailed
@@ -304,6 +309,10 @@ extension DocumentsState {
             if result.writtenCount > 0, confirmed.kind == "metric_sample" { dataChange?.metricsChanged() }
             do { try await notifyAfterSave(result) }
             catch { review.notificationError = L10n.ocrReviewNotificationFailed }
+            if result.resolved {
+                await offerProfileSuggestions(cardId: confirmed.id, patientId: pending.patientId, documentId: documentID,
+                                              presenterKey: Self.suggestionPresenterKey(pending: pending))
+            }
             return result
         } catch {
             review.errorMessage = L10n.entityCardSaveFailed; setImportError(review.errorMessage)
@@ -370,5 +379,47 @@ extension DocumentsState {
             try await scheduler.removeDelivered(["pending-\(pending.id)"])
             return true
         } catch { setImportError(L10n.entityCardSaveFailed); return false }
+    }
+
+    // MARK: - 子项目 D · D4-2「资料建议」（§0.3 需求 1 / BR-003）
+
+    static func suggestionPresenterKey(session: ImportSession) -> String { "session-\(session.id.uuidString)" }
+    static func suggestionPresenterKey(pending: PendingCard) -> String { "pending-\(pending.id)" }
+
+    /// 卡确认保存成功后采集建议（只读已确认回执）；失败或为空即无表单——**绝不阻塞确认**、不报错打断保存流。
+    /// 同一宿主已有未处理批时不覆盖（下一张卡的建议随其自身确认再采集；忽略/接受经持久登记不丢）。
+    func offerProfileSuggestions(cardId: UUID, patientId: UUID, documentId: UUID, presenterKey: String) async {
+        guard let suggestionStore, profileSuggestionBatch == nil else { return }
+        do {
+            let suggestions = try await suggestionStore.collect(cardId: cardId, patientId: patientId)
+            guard !suggestions.isEmpty else { return }
+            profileSuggestionBatch = ProfileSuggestionBatch(presenterKey: presenterKey, cardId: cardId, patientId: patientId,
+                                                            documentId: documentId, suggestions: suggestions)
+        } catch {
+            // 建议是附加价值：采集失败静默为「无建议」，事实已按卡确认落库，不回滚、不提示（不中断保存流）。
+        }
+    }
+
+    /// 逐项接受（D → C 只经此显式动作）。写入后发出资料变更信号（健康问题 / 过敏 / 成员资料页重载）。
+    func acceptProfileSuggestion(_ suggestion: ProfileSuggestion, severity: String? = nil) async -> ProfileSuggestionStore.AcceptOutcome? {
+        guard let suggestionStore, let batch = profileSuggestionBatch else { return nil }
+        do {
+            let outcome = try await suggestionStore.accept(suggestion, patientId: batch.patientId, allergySeverity: severity)
+            if outcome == .written { dataChange?.documentSaved() }
+            return outcome
+        } catch { return nil }
+    }
+
+    /// 忽略（持久登记，不再复现）；失败返回 false 由表单保留该行。
+    func dismissProfileSuggestions(_ suggestions: [ProfileSuggestion]) async -> Bool {
+        guard let suggestionStore, let batch = profileSuggestionBatch, !suggestions.isEmpty else { return false }
+        do { try await suggestionStore.dismiss(suggestions, patientId: batch.patientId); return true }
+        catch { return false }
+    }
+
+    /// 表单关闭：清空当前批（只清本宿主的）。
+    func clearProfileSuggestions(presenterKey: String) {
+        guard profileSuggestionBatch?.presenterKey == presenterKey else { return }
+        profileSuggestionBatch = nil
     }
 }

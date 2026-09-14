@@ -1760,7 +1760,12 @@ enum L10n {
         "field.report_type", "field.report_no", "field.exam_part", "field.exam_method", "field.exam_at", "field.reported_at",
         "field.findings", "field.impression", "field.apply_doctor", "field.report_doctor", "field.review_doctor",
         "field.lab_name", "field.specimen_type", "field.specimen_no", "field.test_class", "field.collected_at", "field.received_at",
-        "field.send_doctor", "field.test_doctor", "field.reference_text", "field.abnormal_flag", "field.method"
+        "field.send_doctor", "field.test_doctor", "field.reference_text", "field.abnormal_flag", "field.method",
+        // 子项目 D · D4-2「资料建议」表单（SP-12.suggestion.*）；动态键 profileSuggestionKindName(_:)：Kind 四值
+        "profileSuggestion.title", "profileSuggestion.hint", "profileSuggestion.accept", "profileSuggestion.skip",
+        "profileSuggestion.skipAll", "profileSuggestion.done", "profileSuggestion.applied", "profileSuggestion.existing",
+        "profileSuggestion.skipped", "profileSuggestion.failed", "profileSuggestion.severityUnset", "profileSuggestion.sourceFmt",
+        "profileSuggestion.kind.bloodType", "profileSuggestion.kind.chronicCondition", "profileSuggestion.kind.allergy", "profileSuggestion.kind.pastHistory"
     ]
 
     // MARK: - FR14.8 Tab badge
@@ -2494,6 +2499,27 @@ enum L10n {
     static var labReportResultsSection: String { t("labReport.resultsSection") }
     static var labReportNoRows: String { t("labReport.noRows") }
     static var hospitalizationEpisode: String { t("hospitalization.episode") }
+
+    // MARK: - 子项目 D · D4-2「资料建议」表单（SP-12.suggestion.* · §0.3 需求 1 / BR-003）
+    static var profileSuggestionTitle: String { t("profileSuggestion.title") }
+    /// 「以下内容来自识别结果，尚未核实；仅在您确认后写入资料」
+    static var profileSuggestionHint: String { t("profileSuggestion.hint") }
+    static var profileSuggestionAccept: String { t("profileSuggestion.accept") }
+    static var profileSuggestionSkip: String { t("profileSuggestion.skip") }
+    static var profileSuggestionSkipAll: String { t("profileSuggestion.skipAll") }
+    static var profileSuggestionDone: String { t("profileSuggestion.done") }
+    static var profileSuggestionApplied: String { t("profileSuggestion.applied") }
+    static var profileSuggestionExisting: String { t("profileSuggestion.existing") }
+    static var profileSuggestionSkipped: String { t("profileSuggestion.skipped") }
+    static var profileSuggestionFailed: String { t("profileSuggestion.failed") }
+    static var profileSuggestionSeverityUnset: String { t("profileSuggestion.severityUnset") }
+    static func profileSuggestionSource(_ page: Int) -> String { String(format: t("profileSuggestion.sourceFmt"), page) }
+    /// `ProfileSuggestion.Kind.rawValue` → 类别标签（Domain 同拼写；未登记回落原值）
+    static func profileSuggestionKindName(_ raw: String) -> String {
+        let key = "profileSuggestion.kind.\(raw)"
+        let value = t(key)
+        return value == key ? raw : value
+    }
     static var docTypeRecord: String { t("doc.type.record") }
     static var docManualCreateTitle: String { t("doc.manual.createTitle") }
     static var docManualTitle: String { t("doc.manual.title") }

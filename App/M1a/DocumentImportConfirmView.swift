@@ -278,8 +278,12 @@ private struct ImportReviewSessionView: View {
     @State private var offerHealthProblem = false
 
     private var alertVisible: Bool { session.errorMessage != nil || session.notificationError != nil || offerHealthProblem }
+    /// 子项目 D · D4-2：本会话产出的「资料建议」批未处理完前不收尾（表单由本视图宿主呈现）。
+    private var suggestionsPending: Bool {
+        docs.profileSuggestionBatch?.presenterKey == DocumentsState.suggestionPresenterKey(session: session)
+    }
     private var completionKey: String {
-        "\(String(describing: session.outcome))-\(session.isSaving)-\(session.isBulkDeferring)-\(alertVisible)"
+        "\(String(describing: session.outcome))-\(session.isSaving)-\(session.isBulkDeferring)-\(alertVisible)-\(suggestionsPending)"
     }
 
     var body: some View {
@@ -320,6 +324,8 @@ private struct ImportReviewSessionView: View {
                 }
             }
             .interactiveDismissDisabled()
+            // 「资料建议」表单（SP-12.suggestion.*）：alert 可见时暂不弹，alert 关闭后再弹；批清空后本视图才收尾。
+            .profileSuggestionHost(presenterKey: DocumentsState.suggestionPresenterKey(session: session), enabled: !alertVisible)
             .alert(session.notificationError != nil ? L10n.helpPermNotification
                    : offerHealthProblem ? L10n.healthProblemOfferTitle : L10n.docConfirmSaveFailedTitle,
                    isPresented: Binding(get: { alertVisible }, set: { showing in
@@ -338,7 +344,7 @@ private struct ImportReviewSessionView: View {
                 }
             }
             .task(id: completionKey) {
-                guard session.outcome != nil, !session.isSaving, !session.isBulkDeferring, !alertVisible else { return }
+                guard session.outcome != nil, !session.isSaving, !session.isBulkDeferring, !alertVisible, !suggestionsPending else { return }
                 if session.outcome == .saved, !session.healthProblemOfferHandled,
                    let draft = session.draft, draft.allReviewed,
                    docs.isClinicalDocType(key: draft.documentTypeKey, label: draft.docType) {
