@@ -1,20 +1,23 @@
-import XCTest
+import Testing
 @testable import Domain
 
-final class InformationCardTests: XCTestCase {
+@Suite("InformationCard 信封协议")
+struct InformationCardTests {
 
-    func testPatientRecordConformsToInformationCard() {
+    @Test("PatientRecord 满足 InformationCard 契约")
+    func patientRecordConforms() {
         var record = PatientRecord()
         record.name = "张三"
-        XCTAssertEqual(PatientRecord.cardType, "patient")
-        XCTAssertEqual(PatientRecord.schemaVersion, 1)
-        XCTAssertFalse(record.cardId.isEmpty)
+        #expect(PatientRecord.cardType == "patient")
+        #expect(PatientRecord.schemaVersion == 1)
+        #expect(!record.cardId.isEmpty)
     }
 
-    func testClinicalReportConformsToInformationCard() {
+    @Test("ClinicalReport 满足 InformationCard 契约")
+    func clinicalReportConforms() {
         var report = ClinicalReport()
         report.patientName = "李四"
-        XCTAssertEqual(ClinicalReport.cardType, "clinical_report")
-        XCTAssertFalse(report.cardId.isEmpty)
+        #expect(ClinicalReport.cardType == "clinical_report")
+        #expect(!report.cardId.isEmpty)
     }
 }

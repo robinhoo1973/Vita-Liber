@@ -16,12 +16,3 @@ public protocol TextUnderstanding: Sendable {
 extension TextUnderstanding {
     public func isAvailable(for input: TextUnderstandingInput) async -> Bool { true }
 }
-
-/// 契约桩（非 Apple 平台与测试装配）：零产出——Linux 门禁/单测
-/// 不依赖系统自然语言框架；Apple 平台经工厂装配真实兜底轨。
-public actor StubTextUnderstanding: TextUnderstanding {
-    public init() {}
-    public func understand(_ input: TextUnderstandingInput) async -> UnderstandingResult {
-        UnderstandingResult(suggestedTarget: nil, targetConfidence: 0, fields: [], engineUnavailable: true)
-    }
-}
