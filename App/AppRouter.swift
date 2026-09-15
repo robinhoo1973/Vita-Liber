@@ -257,7 +257,9 @@ final class AppRouter {
     // MARK: - §5.48 跨启动恢复
 
     private enum Key: String, CaseIterable {
-        case home, records, reminders, ai, me, selectedModule
+        // health：F16 Apple 健康 Tab（healthPath/persist(.health)/pathTable 已消费——
+        // 分支漏登记致 macOS 编译失败，v27 健康首页工作遗留，结构轮补全）
+        case home, records, reminders, health, ai, me, selectedModule
         var storageKey: String { "router.path.\(rawValue)" }
     }
 

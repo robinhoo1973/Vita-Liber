@@ -26,10 +26,13 @@ final class TimelineViewState {
     private var loadingPatientId: UUID?
     static let pageSize = 30
 
-    init(store: TimelineQueryStore, problemStore: HealthProblemStore, expansion: TimelineExpansionStore = TimelineExpansionStore()) {
+    /// expansion 默认 nil：默认实参在调用方隔离域求值（State(initialValue:) 的
+    /// autoclosure 非隔离），MainActor 初始化器不能作默认实参（Swift 6 严格并发，
+    /// macOS CI 实证）——移入 init 体（本类型 @MainActor）构造。
+    init(store: TimelineQueryStore, problemStore: HealthProblemStore, expansion: TimelineExpansionStore? = nil) {
         self.store = store
         self.problemStore = problemStore
-        self.expansion = expansion
+        self.expansion = expansion ?? TimelineExpansionStore()
     }
 
     func load(patientId: UUID) async {
