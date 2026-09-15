@@ -8,7 +8,11 @@ public enum OCRRecognizerFactory: EngineFactory {
     public typealias Capability = any ImageTextRecognizing
     public static var onDeviceOnly: Bool { true }
     public static func make(_ context: EngineContext) -> any ImageTextRecognizing {
+        #if os(iOS) || os(macOS)
         VisionImageRecognizer()
+        #else
+        fatalError("OCR 识别引擎仅在 Apple 平台装配（Linux 包测试不消费本工厂）")
+        #endif
     }
 }
 
@@ -18,6 +22,7 @@ public enum SpeechSynthesisFactory: EngineFactory {
     public typealias Capability = any SpeechSynthesizing
     public static var onDeviceOnly: Bool { true }
     public static func make(_ context: EngineContext) -> any SpeechSynthesizing {
+        #if os(iOS) || os(macOS)
         // ADR-023（V3.102 审查修正）：TTS 采用 AVSpeechAdapter——Supertonic-3
         // 经核实的 31 语种不含中文，无法承担 FR17.16 普通话回退链与 FR17.13
         // 中文回读；系统语音零资产、离线、含 zh-Hans/zh-Hant/en（ADR-025）。
@@ -29,14 +34,19 @@ public enum SpeechSynthesisFactory: EngineFactory {
         // 构造，无法注入实例，故走冻结键只读消费；缺键/非法值回落 .normal，
         // 与 AppSettingKey.speechRate.defaultValue 同源（SpeechRateTier）。
         AVSpeechAdapter(rateProvider: { Self.currentSpeechRate() })
+        #else
+        fatalError("TTS 引擎仅在 Apple 平台装配（Linux 包测试不消费本工厂）")
+        #endif
     }
 
     /// FR14.7 只读消费：读取冻结键并按 SpeechRateTier（Domain 单一事实源）
     /// 映射 utteranceRate——不得在此内联数值。
+    #if os(iOS) || os(macOS)
     private static func currentSpeechRate() -> Float? {
         let raw = UserDefaults.standard.string(forKey: AppSettingKey.speechRate.rawValue)
         return (raw.flatMap(SpeechRateTier.init(rawValue:)) ?? .normal).utteranceRate
     }
+    #endif
 }
 
 // MARK: - 语音输入引擎工厂（经 EAL 接入）
@@ -50,6 +60,10 @@ public enum SpeechSynthesisFactory: EngineFactory {
 /// - `classic`：强制基线轨。
 /// 组装期**不**触发语言资源下载（离线优先红线）——资源安装只经「识别引擎实验室」显式触发；
 /// 资产未安装的 locale 在平台轨内整会话回落基线轨（FR17.17 资产供应契约）。
+#if os(iOS) || os(macOS)
+/// Linux 侧整枚举不可编译（成员引用 ASRModelAssets/SpeechAnalyzerSupport/
+/// SFSpeechTranscriber/SherpaOnnxTranscriber 等 Apple 专用类型）——包测试
+/// 经 SwitchableTranscriptionEngine 的桩 builder 兜底。
 public enum TranscriptionEngineBuilder {
     /// FR17.15/FR17.17 审计修正（2026-09-11 round3）：**auto 解析必须过资产闸门**。
     /// 目录的 `automaticChoice` 只做语言匹配（Domain 零框架，不能读 Bundle），会把中文
@@ -178,6 +192,7 @@ public enum TranscriptionEngineBuilder {
         return await SpeechAnalyzerSupport.supportedLocales(of: flavor)
     }
 }
+#endif
 
 public enum TranscriptionEngineFactory: EngineFactory {
     public typealias Capability = any TranscriptionEngine
@@ -205,7 +220,11 @@ public enum ImagePreprocessingFactory: EngineFactory {
     public typealias Capability = any ImagePreprocessing
     public static var onDeviceOnly: Bool { true }
     public static func make(_ context: EngineContext) -> any ImagePreprocessing {
+        #if os(iOS) || os(macOS)
         VisionImagePreprocessor()
+        #else
+        StubImagePreprocessor()
+        #endif
     }
 }
 
@@ -215,7 +234,11 @@ public enum ImageDecodingFactory: EngineFactory {
     public typealias Capability = any ImageDecoding
     public static var onDeviceOnly: Bool { true }
     public static func make(_ context: EngineContext) -> any ImageDecoding {
+        #if os(iOS) || os(macOS)
         PDFKitDecoder()
+        #else
+        StubPDFDecoder()
+        #endif
     }
 }
 
@@ -225,7 +248,11 @@ public enum ImageCompressingFactory: EngineFactory {
     public typealias Capability = any ImageCompressing
     public static var onDeviceOnly: Bool { true }
     public static func make(_ context: EngineContext) -> any ImageCompressing {
+        #if os(iOS) || os(macOS)
         CoreImageCompressor()
+        #else
+        StubImageCompressor()
+        #endif
     }
 }
 
@@ -235,7 +262,11 @@ public enum SensitiveMediaProtectionFactory: EngineFactory {
     public typealias Capability = any SensitiveMediaProtection
     public static var onDeviceOnly: Bool { true }
     public static func make(_ context: EngineContext) -> any SensitiveMediaProtection {
+        #if os(iOS) || os(macOS)
         CoreImageCompressor()
+        #else
+        fatalError("敏感媒体保护仅在 Apple 平台装配（Linux 包测试不消费本工厂）")
+        #endif
     }
 }
 

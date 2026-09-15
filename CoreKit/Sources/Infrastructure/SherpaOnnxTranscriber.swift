@@ -6,6 +6,7 @@ import UIKit
 #endif
 
 /// ADR-023：随包开源权重的生产端口。初始化不加载模型，能力查询不启动麦克风。
+#if os(iOS) || os(macOS)
 public final class SherpaOnnxTranscriber: TranscriptionCaptureReporting, @unchecked Sendable {
     private let choice: VoiceEngineChoice
     private let assets: ASRModelAssets
@@ -120,3 +121,4 @@ public final class SherpaOnnxTranscriber: TranscriptionCaptureReporting, @unchec
         #endif
     }
 }
+#endif

@@ -15,7 +15,14 @@ actor SwitchableTranscriptionEngine: TranscriptionCaptureReporting {
     private var cachedAssetIdentity: String?
 
     init(choiceProvider: @escaping @Sendable () -> VoiceEngineChoice,
-         builder: @escaping @Sendable (VoiceEngineChoice) -> any TranscriptionEngine = { TranscriptionEngineBuilder.make(choice: $0) }) {
+         builder: @escaping @Sendable (VoiceEngineChoice) -> any TranscriptionEngine = { choice in
+        #if os(iOS) || os(macOS)
+        TranscriptionEngineBuilder.make(choice: choice)
+        #else
+        StubTranscriptionEngine(capability: .longForm(locales: []), scripted: [])
+        // Linux 包测试：不装配真实语音引擎
+        #endif
+    }) {
         self.choiceProvider = choiceProvider
         self.builder = builder
     }
@@ -28,7 +35,13 @@ actor SwitchableTranscriptionEngine: TranscriptionCaptureReporting {
 
     func currentCapability() async -> TranscriptionCapability {
         let choice = choiceProvider()
-        if choice == .auto { return await TranscriptionEngineBuilder.automaticCapability() }
+        if choice == .auto {
+            #if os(iOS) || os(macOS)
+            return await TranscriptionEngineBuilder.automaticCapability()
+            #else
+            return .longForm(locales: [])   // Linux 包测试：无引擎资产
+            #endif
+        }
         return await delegate(for: choice).currentCapability()
     }
 
@@ -50,7 +63,11 @@ actor SwitchableTranscriptionEngine: TranscriptionCaptureReporting {
         let selected = choiceProvider()
         // 审计修正（round3）：auto 解析改用 builder 的**过闸**版本（缺件随包模型回落
         // 平台轨/基线轨），绝不把缺件引擎交给会话（否则每次必抛 engineUnavailable）。
+        #if os(iOS) || os(macOS)
         let choice = selected == .auto ? TranscriptionEngineBuilder.automaticChoice(locale: request.localeIdentifier) : selected
+        #else
+        let choice = selected   // Linux 包测试：无 auto 档资产解析
+        #endif
         let engine = delegate(for: choice)
         let previous = captureOwner.flatMap { serving[$0].map { ($0, captureOwner) } }
         serving[id] = engine
@@ -104,8 +121,16 @@ actor SwitchableTranscriptionEngine: TranscriptionCaptureReporting {
 
     func localeAssetStatus(_ localeIdentifier: String) async -> VoiceLocaleAssetStatus {
         let choice = choiceProvider()
-        return await delegate(for: choice == .auto ? TranscriptionEngineBuilder.automaticChoice(locale: localeIdentifier) : choice)
-            .localeAssetStatus(localeIdentifier)
+        #if os(iOS) || os(macOS)
+        #if os(iOS) || os(macOS)
+        let resolved = choice == .auto ? TranscriptionEngineBuilder.automaticChoice(locale: localeIdentifier) : choice
+        #else
+        let resolved = choice   // Linux 包测试：无 auto 档资产解析
+        #endif
+        #else
+        let resolved = choice   // Linux 包测试：无 auto 档资产解析
+        #endif
+        return await delegate(for: resolved).localeAssetStatus(localeIdentifier)
     }
 
     func prepareLocale(_ localeIdentifier: String) async -> Bool {
@@ -115,7 +140,11 @@ actor SwitchableTranscriptionEngine: TranscriptionCaptureReporting {
         // 用未门控目录：zh 恒解析 .qwen3、requiresLocaleAssets==false 恒
         // return false，实验室在「auto + 平台轨回落」场景显示可下载按钮
         // 却必然安装失败——owner round10 实测）。
+        #if os(iOS) || os(macOS)
         let resolved = choice == .auto ? TranscriptionEngineBuilder.automaticChoice(locale: localeIdentifier) : choice
+        #else
+        let resolved = choice   // Linux 包测试：无 auto 档资产解析
+        #endif
         // round2 A-N2：随包模型的 prepareLocale = 预热（把模型提前装入推理池，不联网、不采音），
         // 否则语音界面出现时的 warmUp 对 sherpa 轨恒为空操作，按压首句仍在模型加载期丢失。
         guard resolved.requiresLocaleAssets || resolved.isBundledModel else { return false }
@@ -123,7 +152,11 @@ actor SwitchableTranscriptionEngine: TranscriptionCaptureReporting {
     }
 
     private func delegate(for choice: VoiceEngineChoice) -> any TranscriptionEngine {
+        #if os(iOS) || os(macOS)
         let identity = choice.isBundledModel ? ASRModelAssets.resolve(for: choice).identity : nil
+        #else
+        let identity: String? = nil   // Linux 无随包模型资产
+        #endif
         if let cached, cached.0 == choice, cachedAssetIdentity == identity { return cached.1 }
         cached = nil
         let engine = builder(choice)
