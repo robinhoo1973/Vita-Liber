@@ -35,46 +35,39 @@ jobs:
           echo "仓库: $REPO"
           echo ""
 
-          # ── 收集现存 workflow 名称 ──
-          EXISTING_WFS=$(gh api "repos/$REPO/actions/workflows" \
-            --jq '.workflows[].name' 2>/dev/null || true)
-
-          if [ -z "$EXISTING_WFS" ]; then
+          # ── 收集现存 workflow 注册表（id/name/path 三列） ──
+          # 审查修正（2026-09-15）：按 workflow 文件路径/ID 清理，而不是只按 run.name。
+          # reusable workflow（如 release-asr-models.yml）被 TestFlight 调用时，run.name
+          # 容易与展示名/调用关系漂移；path 才是 CI 执行记录的稳定登记键。
+          WORKFLOWS_FILE=$(mktemp) || { echo "错误: mktemp 失败"; exit 1; }
+          if ! gh api "repos/$REPO/actions/workflows" \
+            --jq '.workflows[] | [.id, .name, .path] | @tsv' > "$WORKFLOWS_FILE" 2>/dev/null; then
             echo "警告: 获取 workflow 列表失败——本轮跳过清理（防误删全库）"
+            rm -f "$WORKFLOWS_FILE"
+            exit 0
+          fi
+          if [ ! -s "$WORKFLOWS_FILE" ]; then
+            echo "警告: workflow 注册表为空——本轮跳过清理（防误删全库）"
+            rm -f "$WORKFLOWS_FILE"
             exit 0
           fi
           echo "现存 workflow:"
-          echo "$EXISTING_WFS" | sed 's/^/  - /'
+          awk -F '\t' '{ printf "  - %s (%s) #%s\n", $2, $3, $1 }' "$WORKFLOWS_FILE"
           echo ""
 
-          # ── 拉取已完成的 run（按 createdAt 倒序） ──
-          ALL_RUNS_FILE=$(mktemp) || { echo "错误: mktemp 失败"; exit 1; }
-          if gh run list \
-            --repo "$REPO" \
-            --status completed \
-            --limit 500 \
-            --json databaseId,name,conclusion,createdAt \
-            > "$ALL_RUNS_FILE.raw" 2>/dev/null; then
-            jq -s 'flatten | sort_by(.createdAt) | reverse' \
-              "$ALL_RUNS_FILE.raw" > "$ALL_RUNS_FILE"
-          else
-            echo "警告: gh run list 失败——本轮跳过清理"
-            rm -f "$ALL_RUNS_FILE" "$ALL_RUNS_FILE.raw"
-            exit 0
-          fi
-          rm -f "$ALL_RUNS_FILE.raw"
+          # 明确登记必须受清理策略覆盖的发布链 workflow；缺失时给 warning，
+          # 防“包构建流没有登记在 CI 执行记录清理面”。
+          REQUIRED_PATHS=".github/workflows/build-testflight.yml .github/workflows/release-asr-models.yml .github/workflows/asc-build-status.yml .github/workflows/cleanup-runs.yml"
+          for required in $REQUIRED_PATHS; do
+            if ! awk -F '\t' -v p="$required" '$3 == p { found=1 } END { exit found ? 0 : 1 }' "$WORKFLOWS_FILE"; then
+              echo "::warning::workflow 未登记或已禁用: $required"
+            fi
+          done
 
-          RUN_COUNT=$(jq 'length' "$ALL_RUNS_FILE" 2>/dev/null || echo 0)
-          echo "已拉取 $RUN_COUNT 条已完成 run"
-          if [ "$RUN_COUNT" -eq 0 ]; then
-            echo "无 run 可清理"
-            rm -f "$ALL_RUNS_FILE"
-            exit 0
-          fi
-          echo ""
-
-          # ── 单次遍历，逐条判断 ──
-          FOUND_FIRST_SUCCESS=$(mktemp) || { echo "错误: mktemp 失败"; exit 1; }
+          # ── 按 workflow 逐个拉全量 completed runs ──
+          # 原实现只用 `gh run list --limit 500` 拉全仓最近 500 条：仓库活跃时，
+          # 某个 workflow 的旧成功记录可能根本不在样本里，导致“非最近一次成功”不会被删。
+          # 现在按 workflow id 分页拉取，保证每个现存 workflow 独立执行“仅保留最近一次成功”。
           COUNTS_FILE=$(mktemp) || { echo "错误: mktemp 失败"; exit 1; }
           echo "0 0" > "$COUNTS_FILE"
 
@@ -88,58 +81,92 @@ jobs:
             return 1
           }
 
-          MY_NAME="Cleanup Workflow Runs"
-          while IFS=$'\t' read -r WF_NAME CONCLUSION RUN_ID CREATED_AT; do
+          keep_or_delete_run() {
+            local wf_key="$1" wf_name="$2" conclusion="$3" run_id="$4" created_at="$5" first_success_file="$6"
             read DELETED KEPT < "$COUNTS_FILE"
 
             # 规则0：cleanup 自身 → 全部删除
-            if [ "$WF_NAME" = "$MY_NAME" ]; then
-              delete_run "$RUN_ID" "cleanup 自身" && DELETED=$((DELETED + 1))
+            if [ "$wf_key" = ".github/workflows/cleanup-runs.yml" ] || [ "$wf_name" = "Cleanup Workflow Runs" ]; then
+              delete_run "$run_id" "cleanup 自身" && DELETED=$((DELETED + 1))
               echo "$DELETED $KEPT" > "$COUNTS_FILE"
-              continue
+              return
             fi
 
-            # 规则1：workflow 不存在 → 直接删除
-            if ! echo "$EXISTING_WFS" | grep -qxF "$WF_NAME"; then
-              delete_run "$RUN_ID" "$WF_NAME - workflow 已删除" && DELETED=$((DELETED + 1))
-              echo "$DELETED $KEPT" > "$COUNTS_FILE"
-              continue
-            fi
-
-            # 规则2：未成功 → 保留 7 天宽限期后删除
+            # 规则1：未成功 → 保留 7 天宽限期后删除
             # （审计 2026-09-10 决定：失败记录当日即删 = 间歇性失败无证据
             # 可查、发布流水线无审计轨迹；近 7 天失败保留供诊断。
             # 2026-09-12 恢复：3ae011c「简化失败路径」误删宽限期——审计
             # 决定是产品行为，不是可丢弃的复杂度；日期解析失败保守保留）
-            if [ "$CONCLUSION" != "success" ]; then
+            if [ "$conclusion" != "success" ]; then
               CUTOFF=$(date -u -d '7 days ago' +%s)
-              CREATED_EPOCH=$(date -u -d "$CREATED_AT" +%s 2>/dev/null || echo 0)
+              CREATED_EPOCH=$(date -u -d "$created_at" +%s 2>/dev/null || echo 0)
               if [ "$CREATED_EPOCH" -le 0 ] || [ "$CREATED_EPOCH" -gt "$CUTOFF" ]; then
-                echo "  保留: #$RUN_ID ($WF_NAME - 未成功但 ≤7 天，留诊断审计)"
+                echo "  保留: #$run_id ($wf_name - 未成功但 ≤7 天，留诊断审计)"
                 KEPT=$((KEPT + 1))
               else
-                delete_run "$RUN_ID" "$WF_NAME - 未成功且超过 7 天" && DELETED=$((DELETED + 1))
+                delete_run "$run_id" "$wf_name - 未成功且超过 7 天" && DELETED=$((DELETED + 1))
               fi
               echo "$DELETED $KEPT" > "$COUNTS_FILE"
-              continue
+              return
             fi
 
-            # 规则3：成功但不是首次成功 → 删除
-            if grep -qxF "$WF_NAME" "$FOUND_FIRST_SUCCESS"; then
-              delete_run "$RUN_ID" "$WF_NAME - 非首次成功" && DELETED=$((DELETED + 1))
+            # 规则2：成功但不是最近一次成功 → 删除
+            if grep -qxF "$wf_key" "$first_success_file"; then
+              delete_run "$run_id" "$wf_name - 非最近一次成功" && DELETED=$((DELETED + 1))
               echo "$DELETED $KEPT" > "$COUNTS_FILE"
-              continue
+              return
             fi
 
-            # 规则4：首次成功 → 保留，记录
-            echo "$WF_NAME" >> "$FOUND_FIRST_SUCCESS"
-            echo "  保留: #$RUN_ID ($WF_NAME - 首次成功)"
+            # 规则3：最近一次成功 → 保留，记录
+            echo "$wf_key" >> "$first_success_file"
+            echo "  保留: #$run_id ($wf_name - 最近一次成功)"
             KEPT=$((KEPT + 1))
             echo "$DELETED $KEPT" > "$COUNTS_FILE"
-          done < <(jq -r '.[] | "\(.name)\t\(.conclusion)\t\(.databaseId)\t\(.createdAt)"' "$ALL_RUNS_FILE")
+          }
+
+          while IFS=$'\t' read -r WF_ID WF_NAME WF_PATH; do
+            echo "--- 清理 workflow: $WF_NAME ($WF_PATH) #$WF_ID ---"
+            RUNS_FILE=$(mktemp) || { echo "错误: mktemp 失败"; exit 1; }
+            FIRST_SUCCESS_FILE=$(mktemp) || { echo "错误: mktemp 失败"; exit 1; }
+            if gh api --paginate "repos/$REPO/actions/workflows/$WF_ID/runs?status=completed&per_page=100" \
+              --jq '.workflow_runs[] | [.id, .name, .conclusion, .created_at] | @tsv' \
+              > "$RUNS_FILE" 2>/dev/null; then
+              if [ ! -s "$RUNS_FILE" ]; then
+                echo "  无 completed run"
+              else
+                sort -t $'\t' -k4,4r "$RUNS_FILE" | while IFS=$'\t' read -r RUN_ID RUN_NAME CONCLUSION CREATED_AT; do
+                  keep_or_delete_run "$WF_PATH" "$WF_NAME" "$CONCLUSION" "$RUN_ID" "$CREATED_AT" "$FIRST_SUCCESS_FILE"
+                done
+              fi
+            else
+              echo "::warning::拉取 workflow runs 失败: $WF_NAME ($WF_PATH)"
+            fi
+            rm -f "$RUNS_FILE" "$FIRST_SUCCESS_FILE"
+          done < "$WORKFLOWS_FILE"
+
+          # ── 已删除 workflow 历史兜底 ──
+          # API 的 workflow 注册表只覆盖现存 workflow；已删除 workflow 的 run 仍会出现在
+          # actions/runs 全局列表中。这里分组按 path/name 直接删除，避免历史垃圾长期保留。
+          echo "--- 清理已删除 workflow 历史记录（全局兜底） ---"
+          DELETED_RUNS_FILE=$(mktemp) || { echo "错误: mktemp 失败"; exit 1; }
+          if gh api --paginate "repos/$REPO/actions/runs?status=completed&per_page=100" \
+            --jq '.workflow_runs[] | [.id, .name, .path, .conclusion, .created_at] | @tsv' \
+            > "$DELETED_RUNS_FILE" 2>/dev/null; then
+            while IFS=$'\t' read -r RUN_ID RUN_NAME RUN_PATH CONCLUSION CREATED_AT; do
+              [ -n "$RUN_PATH" ] || continue
+              if awk -F '\t' -v p="$RUN_PATH" '$3 == p { found=1 } END { exit found ? 0 : 1 }' "$WORKFLOWS_FILE"; then
+                continue
+              fi
+              read DELETED KEPT < "$COUNTS_FILE"
+              delete_run "$RUN_ID" "$RUN_NAME - workflow 已删除 ($RUN_PATH)" && DELETED=$((DELETED + 1))
+              echo "$DELETED $KEPT" > "$COUNTS_FILE"
+            done < "$DELETED_RUNS_FILE"
+          else
+            echo "::warning::拉取全局 run 列表失败——跳过已删除 workflow 兜底清理"
+          fi
 
           read TOTAL_DELETED TOTAL_KEPT < "$COUNTS_FILE"
-          rm -f "$ALL_RUNS_FILE" "$FOUND_FIRST_SUCCESS" "$COUNTS_FILE"
+          rm -f "$WORKFLOWS_FILE" "$DELETED_RUNS_FILE" "$COUNTS_FILE"
 
           echo ""
           echo "=== 清理完成 ==="
