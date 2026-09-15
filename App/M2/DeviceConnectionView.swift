@@ -9,8 +9,8 @@ final class F16DeviceState {
     enum Phase: Equatable { case idle, syncing, done(count: Int), degraded(String) }
     private(set) var phase: Phase = .idle
     private(set) var connected = false
-    private(set) var report: HealthKitSyncService.SyncReport?
-    private(set) var dashboard: HealthImportStore.Dashboard?
+    private(set) var report: SyncReport?
+    private(set) var dashboard: HealthImportDashboard?
     private(set) var available = false
     /// round2 H-N3：缺本人档案是独立可观察事实（Apple 健康只能导入到本人名下，BR-001），
     /// 不是「同步失败」——旧实现把 missingOwner 与真实读库失败同路降级，用户看到的是错误提示
@@ -136,7 +136,7 @@ final class F16DeviceState {
     }
 
     func updateAutomation() async { await syncService.startBackgroundObservation() }
-    func importedRows(kind: HealthDataKind, before: HealthImportStore.ImportedRow?) async throws -> [HealthImportStore.ImportedRow] {
+    func importedRows(kind: HealthDataKind, before: HealthImportRow?) async throws -> [HealthImportRow] {
         try await syncService.importedRows(kind: kind, before: before)
     }
 }
@@ -331,7 +331,7 @@ struct HealthImportedDataView: View {
     @Environment(AppSettingsStore.self) private var settings
     @Environment(F16DeviceState.self) private var state
     @Environment(AppDataChangeCenter.self) private var dataChange
-    @State private var rows: [HealthImportStore.ImportedRow] = []
+    @State private var rows: [HealthImportRow] = []
     @State private var loading = false
     @State private var hasMore = true
     @State private var failed = false

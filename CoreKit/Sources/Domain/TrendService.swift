@@ -99,8 +99,8 @@ public struct ReferenceBand: Sendable, Equatable, Identifiable {
     }
 }
 
-public struct ReferenceRange: Sendable, Equatable {
-    public enum Grade: String, Sendable, Equatable { case A, B }   // A=报告自带 > B=信源库
+public struct ReferenceRange: Sendable, Equatable, Codable {
+    public enum Grade: String, Sendable, Equatable, Codable { case A, B }   // A=报告自带 > B=信源库
     public var lower: Double
     public var upper: Double
     public var grade: Grade

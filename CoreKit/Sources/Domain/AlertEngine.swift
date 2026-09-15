@@ -261,6 +261,15 @@ public enum WordingBlacklist {
 public enum AlertRuleEngine {
     public static let consecutiveThreshold = 3
 
+    /// 判定键归一化（单一事实源）：读数行 metricKey → 信源库种子键。
+    /// 静息心率行键 `restingHeartRate` 与 AHA 种子键 `heart_rate` 不同——
+    /// 归一后才查得到阈值（此前映射在 Infrastructure 的 GuidelineStore 内联，
+    /// 一处静默漏警即因此漂移——结构轮收敛回 Domain）。读数行保持独立键，
+    /// 不并入心率趋势序列。
+    public static func guidelineKey(for metricKey: String) -> String {
+        metricKey == "restingHeartRate" ? "heart_rate" : metricKey
+    }
+
     /// 单位同义标签归一（第七轮修复）：同一物理单位在信源库与录入路径的
     /// 标签不同（心率 bpm vs 次/分）——守卫判定前归一，非换算。
     /// 未识别标签原样返回（宁可少警的守卫语义不变）。

@@ -10,31 +10,6 @@ import HealthKit
 
 /// One coordinator for foreground, manual and background import. Actor reentrancy is explicitly coalesced.
 public actor HealthKitSyncService {
-    public struct SyncReport: Sendable, Equatable, Codable {
-        public var elevated: Int = 0 // Scheduled, not delivered.
-        public var noRangeCount: Int = 0
-        public var persistedRows: Int = 0 // Includes updates and removals.
-        public var preservedRows: Int = 0 // Unowned recovered facts left unchanged.
-        public var deferredWindows: Int = 0 // Incomplete visibility; pending work is retained.
-        /// Added + deleted references HealthKit reported this round. Zero with no failures means
-        /// "nothing readable changed" — not "denied" and not "no history" (read authorization is opaque).
-        public var receivedChanges: Int = 0
-        public var rejectedSamples: Int = 0
-        public var failedTypes: [HealthDataKind] = []
-        public var hasMore = false
-        public var notificationFailures = 0
-        public var lastSyncAt: Date
-        public var bindingId: UUID? = nil
-        public var patientId: UUID? = nil
-        // round2 H-N1/H-N2 进度字段——全部 Optional：`hk_import_status.report_json` 旧 JSON 无键必须可解码
-        // （合成 Decodable 对非 Optional 缺键即抛）。
-        /// H-N2：本轮 <3 样本未成行的小时桶数（统计事实，非阈值判定）
-        public var sparseWindows: Int? = nil
-        /// H-N1：本轮后仍待物化的窗口数（排空进度）
-        public var remainingWindows: Int? = nil
-        /// H-N1：本轮推进的道；nil = 无在途工作
-        public var backfillLane: HealthFetchLane? = nil
-    }
 
     private let provider: any HealthReadingProvider
     private let imports: HealthImportStore
@@ -64,8 +39,8 @@ public actor HealthKitSyncService {
     }
 
     public func connection() async throws -> HealthImportStore.Binding? { try await imports.connection() }
-    public func dashboard() async throws -> HealthImportStore.Dashboard { try await imports.dashboard() }
-    public func importedRows(kind: HealthDataKind, before: HealthImportStore.ImportedRow? = nil) async throws -> [HealthImportStore.ImportedRow] {
+    public func dashboard() async throws -> HealthImportDashboard { try await imports.dashboard() }
+    public func importedRows(kind: HealthDataKind, before: HealthImportRow? = nil) async throws -> [HealthImportRow] {
         try await imports.importedRows(kind: kind, before: before)
     }
     public func isAvailable() async -> Bool { await provider.isAvailable() }

@@ -83,11 +83,10 @@ public actor GuidelineStore {
         guard !GuidelineSource.thresholdsAwaitMedicalReview else { return 0 }
         var entries: [String: GuidelineEntry] = [:]
         for key in Set(readings.map(\.metricKey)) {
-            // 审查修复：静息心率行 metricKey 为 restingHeartRate，与 AHA
-            // 种子键 heart_rate 不匹配——entry 恒 nil、severity 恒 nil、
-            // L1+ 静息心率预警轨永远静默。判定键归一化到种子键（读数行
-            // 保持独立键，不并入心率趋势序列）。
-            entries[key] = try entry(for: key == "restingHeartRate" ? "heart_rate" : key, db: db)
+            // 判定键归一化单一事实源 = AlertRuleEngine.guidelineKey（Domain）；
+            // 静息心率行键 restingHeartRate → AHA 种子键 heart_rate。此前内联
+            // 映射在 Infrastructure，静默漏警即由此漂移（结构轮 2026-09-15）。
+            entries[key] = try entry(for: AlertRuleEngine.guidelineKey(for: key), db: db)
         }
         let graded = readings.map {
             AlertRuleEngine.GradedReading(reading: $0, severity: AlertRuleEngine.severity(for: $0, guideline: entries[$0.metricKey]))
