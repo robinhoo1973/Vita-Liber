@@ -5,11 +5,11 @@
 "nav.home" = "Home";
 "nav.records" = "Records";
 "nav.reminders" = "Reminders";
-"nav.health" = "Health";
+"nav.health" = "Health Data";
 "nav.me" = "Me";
 "trend.title" = "Trends";
 "trend.range.unavailable" = "No reference range (report-provided ranges only at this stage)";
-"trend.excluded.toggle" = "Excluded points";
+"trend.excluded.toggle" = "Show excluded points";
 "trend.excluded.header" = "Excluded points (original values kept, restorable)";
 "trend.openSource" = "Open source report";
 "trend.point.exclude" = "Exclude this point";
@@ -830,7 +830,6 @@
 "timeline.emptyHint" = "Try switching member, date range or event-type filters. Records, encounters and medications appear here over time";
 "timeline.filter.all" = "All";
 "timeline.kind.document" = "Document";
-"timeline.grade.confirmed" = "Confirmed";
 "timeline.kind.encounter" = "Encounters";
 "timeline.kind.medication" = "Medications";
 "timeline.kind.observation" = "Observations";

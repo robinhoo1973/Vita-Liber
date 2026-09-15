@@ -34,9 +34,12 @@ struct HealthTabView: View {
                 }
             }
             .navigationTitle(L10n.navHealth)
+            // 2026-09-15 审查修复（效率）：设置装载与 metricsVersion 无关——原与指标
+            // 版本共用同一 task，设备每次落库都白跑一轮 app_settings 全表读（磁盘往返
+            // + 字典重建）。独立 task，页面出现时跑一次即可。
+            .task { await settings.load() }
             // 与 SP-29 同款：同步落库后随指标版本刷新仪表盘与三态，不等用户重进页面
             .task(id: dataChange.metricsVersion) {
-                await settings.load()
                 _ = await deviceState.currentAuthorization()
             }
         }
@@ -54,6 +57,24 @@ struct HealthTabView: View {
 
     @ViewBuilder
     private var dataSection: some View {
+        // 加载态（CLAUDE.md：每屏四态齐备）——2026-09-15 审查修复（业主实测同族）：
+        // `F16DeviceState.available` 初值 false 表示「**未探测**」而非「不支持」，
+        // HealthImportPageState 无加载态，直接落 .unavailable 会在 HealthKit 可用的
+        // iPhone 上先渲染「此设备不提供 Apple 健康数据，无法连接。」（假事实），
+        // 探测（.task 内 currentAuthorization）回填后才翻到真实分支。
+        if !deviceState.availabilityProbed {
+            Section {
+                ProgressView()
+                    .frame(maxWidth: .infinity)
+                    .accessibilityIdentifier("SP-29.health.home.loading")
+            }
+        } else {
+            pageBody
+        }
+    }
+
+    @ViewBuilder
+    private var pageBody: some View {
         switch pageState {
         case .disabled:
             Section {
@@ -102,31 +123,41 @@ struct HealthTabView: View {
         Section {
             if pageState == .connectedEmpty {
                 Text(L10n.healthImportedEmpty).foregroundStyle(.secondary)
-                    .accessibilityIdentifier("SP-29.health.importedEmpty")
+                    // 2026-09-15 审查修复：本页是 SP-29 的**同级**宿主（Tab 根），
+                    // 标识与 SP-29 展示区同名会让 XCUITest 命中两个元素（掩蔽族同族），
+                    // 按本页 .home 前缀族归位。
+                    .accessibilityIdentifier("SP-29.health.home.importedEmpty")
             }
             if let dashboard = deviceState.dashboard {
-                ForEach(dashboard.types) { type in
-                    // ForEach 行闭包逃逸：行内同步读感知对象属性，须自行包裹（子项目 I）
-                    WithPerceptionTracking {
-                        NavigationLink {
-                            // 身份由 dashboard.patientId（= 本人绑定）父级下传——绝不回落当前成员（BR-001）
-                            HealthImportedDataView(kind: type.kind, patientId: dashboard.patientId)
-                        } label: {
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack {
-                                    Text(L10n.metricName(type.kind.primaryMetric))
-                                    Spacer()
-                                    Text(L10n.healthImportedPointCount(type.rowCount))
-                                        .foregroundStyle(.secondary)
+                // 2026-09-15 审查修复（业主实测同族）：空态下不得再列六行「0 个数据点」——
+                // `dashboard()` 对每个 HealthDataKind **无条件**产出行，计数 0 的行既与
+                // 上方「尚无已导入的数据」自相矛盾，也是六条点进去只有空列表的死入口。
+                if pageState == .visible {
+                    ForEach(dashboard.types.filter { $0.rowCount > 0 }) { type in
+                        // ForEach 行闭包逃逸：行内同步读感知对象属性，须自行包裹（子项目 I）
+                        WithPerceptionTracking {
+                            // 类型安全路由（§5.45）：身份由 dashboard.patientId（= 本人绑定）
+                            // 经载荷下传——绝不回落当前成员（BR-001）；本页不再以闭包目的地
+                            // 直连视图（那会让本页不在 healthPath 内，页内 value 推入与
+                            // path 绑定栈不一致：点行无反应/目的地插到当前页下方）。
+                            NavigationLink(value: AppRoute.healthImportedData(kind: type.kind,
+                                                                              patientId: dashboard.patientId)) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack {
+                                        Text(L10n.metricName(type.kind.primaryMetric))
+                                        Spacer()
+                                        Text(L10n.healthImportedPointCount(type.rowCount))
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    if let latest = type.latestAt {
+                                        Text(latest.formatted(date: .abbreviated, time: .shortened))
+                                            .font(.caption).foregroundStyle(.secondary)
+                                    }
                                 }
-                                if let latest = type.latestAt {
-                                    Text(latest.formatted(date: .abbreviated, time: .shortened))
-                                        .font(.caption).foregroundStyle(.secondary)
-                                }
+                                .frame(minHeight: 44)
                             }
-                            .frame(minHeight: 44)
+                            .accessibilityIdentifier("SP-29.health.home.data.\(type.kind.rawValue)")
                         }
-                        .accessibilityIdentifier("SP-29.health.home.data.\(type.kind.rawValue)")
                     }
                 }
                 NavigationLink(value: AppRoute.deviceConnection) {
@@ -135,7 +166,17 @@ struct HealthTabView: View {
                 }
                 .accessibilityIdentifier("SP-29.health.home.manage")
             }
-        } header: { Text(L10n.healthImportedData) } footer: { Text(L10n.healthImportedDataHint) }
+        } header: { Text(L10n.healthImportedData) } footer: {
+            VStack(alignment: .leading, spacing: 4) {
+                // 2026-09-15 审查修复（BR-001 / ui-ux §5.48 V3.64）：本页数据永远是**机主
+                // 本人**的设备导入，与当前浏览成员无关——SP-29 连接区同款归属文案。
+                // 缺此行时，切到家人再进本页会把本人读数误读成家人的（本页现已升为
+                // Apple 健康数据的首要展示面，比两跳之外的 SP-29 更容易被这样读到）。
+                Text(L10n.healthImportSubject(deviceState.dashboard?.ownerName ?? L10n.commonMember))
+                    .accessibilityIdentifier("SP-29.health.home.importSubject")
+                Text(L10n.healthImportedDataHint)
+            }
+        }
     }
 
     // MARK: - 检索与总览入口

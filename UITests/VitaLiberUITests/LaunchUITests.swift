@@ -18,8 +18,10 @@ final class LaunchUITests: XCTestCase {
         // 五个 Tab 的本地化标题（zh-Hans 默认环境；L10n.nav*——
         // CI 34021989599 实证：文案随 L10n 重写更新，测试期望必须同步当前译文）。
         // 2026-09-15 实测修复：第四 Tab 落点是 Apple 健康数据页（HealthTabView），
-        // `nav.health` 旧值「AI 助手」是 H 子项目重命名遗留，已改「健康」。
-        let titles = ["首页", "健康档案", "提醒", "健康", "我的"]
+        // `nav.health` 旧值「AI 助手」是 H 子项目重命名遗留。
+        // 2026-09-15 审查修复（业主第 1 项）：两字「健康」与既有四字「健康档案」
+        // 并列易混且未点明 Apple 健康数据面，按业主口径改四字「健康数据」。
+        let titles = ["首页", "健康档案", "提醒", "健康数据", "我的"]
         for title in titles {
             XCTAssertTrue(tabBar.buttons[title].exists, "缺失 Tab \(title)")
         }

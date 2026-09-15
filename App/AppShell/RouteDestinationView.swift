@@ -133,6 +133,11 @@ struct RouteDestinationView: View {
                 AlertEvidenceRouteView(patientId: patient, eventId: event)
             case .deviceConnection:
                 DeviceConnectionView()
+            case .healthImportedData(let kind, let patientId):
+                // SP-29 子页（FR7.9/FR16.1）：身份由路由载荷携带（= 本人绑定，BR-001），
+                // 不再经闭包目的地推入——该页因此可被通知深链/跨启动路径恢复寻址，
+                // 且其页内 value 推入（.trendChart）与 path 绑定栈保持一致。
+                HealthImportedDataView(kind: kind, patientId: patientId)
 
             // ---- F17 语音挂载（SP-55 目标落点；FR17.13 模板确认在视图内） ----
             case .voiceGuideProfile:

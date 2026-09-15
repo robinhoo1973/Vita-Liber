@@ -5,11 +5,11 @@
 "nav.home" = "首頁";
 "nav.records" = "健康檔案";
 "nav.reminders" = "提醒";
-"nav.health" = "健康";
+"nav.health" = "健康資料";
 "nav.me" = "我的";
 "trend.title" = "指標趨勢";
 "trend.range.unavailable" = "暫無參考範圍（本階段僅顯示報告自帶範圍）";
-"trend.excluded.toggle" = "已排除點";
+"trend.excluded.toggle" = "顯示已排除點";
 "trend.excluded.header" = "已排除的點（原值保留，可恢復）";
 "trend.openSource" = "回原報告";
 "trend.point.exclude" = "排除該資料點";
@@ -830,7 +830,6 @@
 "timeline.emptyHint" = "切換成員、時間範圍或事件類型篩選後再看；檔案、就診與用藥記錄會隨時間出現在這裡";
 "timeline.filter.all" = "全部";
 "timeline.kind.document" = "資料";
-"timeline.grade.confirmed" = "已確認";
 "timeline.kind.encounter" = "就診";
 "timeline.kind.medication" = "用藥";
 "timeline.kind.observation" = "觀察";

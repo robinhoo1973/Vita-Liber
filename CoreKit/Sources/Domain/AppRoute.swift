@@ -83,6 +83,14 @@ public enum AppRoute: Hashable, Sendable, Codable {
 
     // ---- F16 设备预警 ----
     case deviceConnection                // SP-29
+    /// SP-29 子页「某类已导入数据」（FR7.9/FR16.1）。2026-09-15 审查修复：该页此前
+    /// 只经**闭包目的地** NavigationLink 推入，不在 `healthPath` 内——而本 Tab 的
+    /// NavigationStack 是 `path:` 绑定的（RootAdaptiveView §5.45），页内再以
+    /// value 形式推 `.trendChart` 时可见栈与该 path 描述不一致：点行无反应、目的地
+    /// 被插到当前页**下方**（切回才显形）。与同批 `.deviceConnection` 的两处改
+    /// 类型安全路由同一条纪律（§5.45 注册表必须覆盖全部 SP——含子页）。
+    /// 载荷用 Domain `HealthDataKind`（String rawValue、Codable），类型安全可深链。
+    case healthImportedData(kind: HealthDataKind, patientId: UUID)
     case alertHistory                    // SP-30
     case alertEvidence(patientId: UUID, eventId: UUID, severity: AlertSeverity)
     case guidelineSourceDetail(UUID)     // 信源原文
@@ -139,7 +147,8 @@ public enum MainModuleID: String, Sendable, Hashable, Codable {
              .appointmentForm, .visitPrepPackage,
              .sentStatusHub, .questionList:
             return .reminders
-        case .globalSearch, .assistantChat, .assistantHistory, .voiceSession:
+        case .globalSearch, .assistantChat, .assistantHistory, .voiceSession,
+             .healthImportedData:
             return .health
         case .settingsRoot, .preferences, .notificationCenter, .auditLog,
              .privacyAuthorization, .themeSettings, .languageSettings,

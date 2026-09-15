@@ -5,11 +5,11 @@
 "nav.home" = "首页";
 "nav.records" = "健康档案";
 "nav.reminders" = "提醒";
-"nav.health" = "健康";
+"nav.health" = "健康数据";
 "nav.me" = "我的";
 "trend.title" = "指标趋势";
 "trend.range.unavailable" = "暂无参考范围（本阶段仅显示报告自带范围）";
-"trend.excluded.toggle" = "已排除点";
+"trend.excluded.toggle" = "显示已排除点";
 "trend.excluded.header" = "已排除的点（原值保留，可恢复）";
 "trend.openSource" = "回原报告";
 "trend.point.exclude" = "排除该数据点";
@@ -830,7 +830,6 @@
 "timeline.emptyHint" = "切换成员、时间范围或事件类型筛选后再看；档案、就诊与用药记录会随时间出现在这里";
 "timeline.filter.all" = "全部";
 "timeline.kind.document" = "资料";
-"timeline.grade.confirmed" = "已确认";
 "timeline.kind.encounter" = "就诊";
 "timeline.kind.medication" = "用药";
 "timeline.kind.observation" = "观察";

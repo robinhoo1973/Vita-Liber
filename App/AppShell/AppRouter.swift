@@ -327,7 +327,11 @@ final class AppRouter {
             defaults.removeObject(forKey: key.storageKey)
             return []
         }
-        return routes
+        // 2026-09-15 审查修复：`.assistantChat` 已退役（落点即健康 Tab 根，navigate 只弹栈
+        // 不入栈）——旧版本持久化下来的路径里若仍残留本路由，恢复后 RouteDestinationView
+        // 会再推一层 HealthTabView（子项目 H 明令禁止的套娃：双层 List、双层 `.task`、
+        // 返回观感失效）。恢复时剔除该条目，其下方上下文照常保留。
+        return routes.filter { $0 != .assistantChat }
     }
 }
 

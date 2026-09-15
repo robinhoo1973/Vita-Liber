@@ -122,6 +122,24 @@ struct TrendChartRouteView: View {
             && expected.metric.rawValue == metricKey && expected.origin == origin
     }
 
+    /// 当前序列实际出现的来源（仅身份一致时参与判定：加载中/旧身份的槽位不算）
+    private var shownOrigins: Set<MetricOrigin> {
+        guard identityMatches, let series = state.detailSeries else { return [] }
+        return Set(series.points.map(\.origin))
+    }
+
+    /// 来源过滤是否提供（2026-09-15 实测修复，业主第 4 项：由 Apple 健康数据触发的
+    /// 指标趋势页不应有来源选择）。判定分两支，缺一不可：
+    /// - **已应用过滤**（origin != nil）：必须保留控件——否则选错来源后页面空而无法改回；
+    /// - **未过滤**：只有数据确实跨来源才提供（设备-only 指标给「医院报告/自测」选项
+    ///   只会得到空图，控件在单一来源下没有可筛信息，只剩误导）。
+    /// 判定读的是**已加载序列**的来源集：设备-only 指标从 Apple 健康数据进入本页
+    /// （origin 缺省 nil）时集合仅含 .device → 不渲染来源选择。
+    private var showsOriginFilter: Bool {
+        guard origin == nil else { return true }
+        return shownOrigins.count > 1
+    }
+
     var body: some View {
         WithPerceptionTracking {
             Group {
@@ -175,18 +193,21 @@ struct TrendChartRouteView: View {
                     }
                     .pickerStyle(.segmented)
                     .accessibilityIdentifier("SP-13.trend.window")
-                    Picker(L10n.trendFilterOrigin, selection: $origin) {
-                        Text(L10n.trendOriginAll).tag(MetricOrigin?.none)
-                        Text(L10n.trendOriginHospital).tag(MetricOrigin?.some(.hospital))
-                        Text(L10n.trendSelfMeasured).tag(MetricOrigin?.some(.manual))
-                        // BR-001：设备来源只可能归属本人绑定——非本人成员不提供设备过滤项
-                        // （查询层对非本人显式设备过滤抛 deviceRequiresSelfBinding，此处不给入口）
-                        if app.owner?.selfPatientId == patientId {
-                            Text(L10n.trendOriginDevice).tag(MetricOrigin?.some(.device))
+                    // 来源过滤按 showsOriginFilter 条件渲染（单一来源不出现选择控件）
+                    if showsOriginFilter {
+                        Picker(L10n.trendFilterOrigin, selection: $origin) {
+                            Text(L10n.trendOriginAll).tag(MetricOrigin?.none)
+                            Text(L10n.trendOriginHospital).tag(MetricOrigin?.some(.hospital))
+                            Text(L10n.trendSelfMeasured).tag(MetricOrigin?.some(.manual))
+                            // BR-001：设备来源只可能归属本人绑定——非本人成员不提供设备过滤项
+                            // （查询层对非本人显式设备过滤抛 deviceRequiresSelfBinding，此处不给入口）
+                            if app.owner?.selfPatientId == patientId {
+                                Text(L10n.trendOriginDevice).tag(MetricOrigin?.some(.device))
+                            }
                         }
+                        .pickerStyle(.menu)
+                        .accessibilityIdentifier("SP-13.trend.originFilter")
                     }
-                    .pickerStyle(.menu)
-                    .accessibilityIdentifier("SP-13.trend.originFilter")
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)

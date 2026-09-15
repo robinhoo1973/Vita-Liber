@@ -1634,7 +1634,6 @@ enum L10n {
         "startup.degradedBodyFmt",
         "startup.degradedTitle",
         "tab.reminders.badge",
-        "timeline.grade.confirmed",
         "timeline.kind.document",
         "timeline.quickEntry",
         "voice.confirm.fillHint",
@@ -2166,7 +2165,8 @@ enum L10n {
     static var timelineEmptyHint: String { t("timeline.emptyHint") }
     static var timelineFilterAll: String { t("timeline.filter.all") }
     static func timelineKindName(_ kind: TimelineEntryKind) -> String { t("timeline.kind.\(kind.rawValue)") }
-    static var timelineGradeConfirmed: String { t("timeline.grade.confirmed") }
+    // 2026-09-15 审查修复：timelineGradeConfirmed 随 GradeBadge 无障碍改写退役
+    // （A/B/C 朗读自身字母+短文案后无读者）——键与三语 .strings 同批删除。
     static var timelineProblemsFilter: String { t("timeline.problemsFilter") }
     static var problemTitle: String { t("problem.title") }
     static var problemEmpty: String { t("problem.empty") }

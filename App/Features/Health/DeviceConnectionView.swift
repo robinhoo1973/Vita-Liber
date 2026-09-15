@@ -12,6 +12,11 @@ final class F16DeviceState {
     private(set) var report: SyncReport?
     private(set) var dashboard: HealthImportDashboard?
     private(set) var available = false
+    /// 2026-09-15 审查修复：设备能力**是否已探测**（`available == false` 有两种含义：
+    /// 不支持 / 还没问过）。`HealthImportPageState` 没有加载态，消费方把未探测当
+    /// `.unavailable` 就会在 HealthKit 可用的机器上先断言「此设备不提供 Apple 健康数据」
+    /// ——健康 Tab 首页是 Tab 根，问题最显眼。消费方据此渲染加载态而非事实文案。
+    private(set) var availabilityProbed = false
     /// round2 H-N3：缺本人档案是独立可观察事实（Apple 健康只能导入到本人名下，BR-001），
     /// 不是「同步失败」——旧实现把 missingOwner 与真实读库失败同路降级，用户看到的是错误提示
     /// 而非「先建本人档案」的引导。
@@ -41,6 +46,7 @@ final class F16DeviceState {
 
     func requestAuthorization(authEnabled: Bool) async -> Bool {
         guard authEnabled else { return false }
+        availabilityProbed = true
         do {
             _ = try await syncService.connect()
             connected = true
@@ -79,6 +85,7 @@ final class F16DeviceState {
 
     func currentAuthorization() async -> Bool {
         available = await syncService.isAvailable()
+        availabilityProbed = true
         await refreshDashboard()
         if !isSyncing, let latest = dashboard?.lastReport {
             report = latest; phase = .done(count: latest.persistedRows)
@@ -269,11 +276,8 @@ struct DeviceConnectionView: View {
                         ForEach(dashboard.types) { type in
                             // ForEach 行闭包逃逸：行内同步读感知对象属性，须自行包裹（子项目 I）
                             WithPerceptionTracking {
-                                NavigationLink {
-                                    // 趋势链接可用性由详情页按当前状态实时判定（2026-09-15 修复：
-                                    // 不再由父级传快照）——此处只下传身份（BR-001）
-                                    HealthImportedDataView(kind: type.kind, patientId: dashboard.patientId)
-                                } label: {
+                                NavigationLink(value: AppRoute.healthImportedData(kind: type.kind,
+                                                                                  patientId: dashboard.patientId)) {
                                     VStack(alignment: .leading, spacing: 4) {
                                         HStack {
                                             Text(L10n.metricName(type.kind.primaryMetric))
@@ -362,8 +366,16 @@ struct HealthImportedDataView: View {
     /// 2026-09-15 审查修复：趋势链接可用性（有数据 ∧ 身份已知）改为**实时判定**——
     /// 旧实现是 push 时的快照（父级算一次传进来），后台同步落库后卡片仍停在停用态，
     /// 与同页 `gateOpen` 的实时判定口径不一致（页内两条链路口径打架）。
+    ///
+    /// 2026-09-15 二轮审查修复（业主第 2/3 项「有进入标识但点不动」）：判定必须加上
+    /// **本页已加载到行**这一项。`pageState` 的 importedRows 来自 `F16DeviceState.dashboard`
+    /// 的快照，而本页的行集是独立读取的——仪表盘滞后（同步刚落地、dashboard 尚未重读）时
+    /// `state != .visible` 而列表已有行，卡片即停在停用态：箭头在、点了没反应（同一列表里
+    /// 下方的行链接却是活的，页内两条链路口径再次打架）。行集非空即代表可观数据存在，
+    /// 趋势页对空数据另有三态空态，故放宽即可。
     private var trendAllowed: Bool {
-        HealthImportVisibility.allowsTrendLink(state.pageState(enabled: healthEnabled), patientId: patientId)
+        !rows.isEmpty
+            || HealthImportVisibility.allowsTrendLink(state.pageState(enabled: healthEnabled), patientId: patientId)
     }
 
     /// 设备统计行（FR7.9：界面明确「单条读数/小时平均值/每日累计/睡眠时段内时长」+ 来源 +
@@ -423,8 +435,13 @@ struct HealthImportedDataView: View {
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(MetricType(rawValue: row.metricKey).map { L10n.metricName($0) } ?? L10n.healthImportedData)
                                         // 医学数值走唯一格式化出口（审查修复：原 Double.formatted()
-                                        // 与趋势页 MedicalNumberFormat 两套数字规则，同一读数两处显示不同）
-                                        Text(MedicalNumberFormat.quantity(row.value) + " " + row.unit).font(.headline)
+                                        // 与趋势页 MedicalNumberFormat 两套数字规则，同一读数两处显示不同）。
+                                        // 2026-09-15 二轮审查修复：形态必须取**趋势页读数**同款
+                                        // `oneDecimal`（%.1f）——`quantity` 是库存件数出口（%g，最多 6 位
+                                        // 有效数字），心率小时均值 72.4568 在这页显示「72.4568」、在 SP-13
+                                        // 显示「72.5」，同一条 metric_sample 仍是两说（首轮改错了兄弟口径）。
+                                        // 统计行内的极值仍用 quantity——与 SP-13 `statisticsLine` 逐字同款。
+                                        Text(MedicalNumberFormat.oneDecimal(row.value) + " " + row.unit).font(.headline)
                                         Text(row.measuredAt.formatted(date: .abbreviated, time: .shortened)).font(.caption)
                                         // FR7.9：本行是单条读数还是统计窗口（小时均值/日累计/睡眠时长），
                                         // 窗口结束时间与极值/样本数——与 SP-13 趋势行同口径（statisticsLine）
