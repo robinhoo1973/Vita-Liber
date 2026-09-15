@@ -36,10 +36,9 @@ let package = Package(
         // required using two different revision-based requirements）。
         // 防漂移由 Package.resolved 的 branch 状态钉版承担
         // （{revision + branch: "master"} 对），而非根包声明。
-        // swift-llama：子项目 F T2 本机 LLM 抽取轨（GBNF 文法 + Qwen2.5-0.5B GGUF）。
-        // 预编译静态库（iOS/macOS），actor-based async/await，跟踪上游 llama.cpp。
-        // 调用方通过 `#if canImport(Llama)` 守卫——Linux CI 无此框架时整段编译为不可用分支。
-        .package(url: "https://github.com/DePasqualeOrg/swift-llama", from: "0.1.0"),
+        // swift-llama: REMOVED — repo deleted from GitHub (DePasqualeOrg/swift-llama).
+        // All usage is #if canImport(Llama) guarded; removing the dependency means
+        // the T2 local-LLM track compiles as unavailable (graceful degradation).
     ],
     targets: [
         .target(name: "Domain"),
@@ -64,9 +63,8 @@ let package = Package(
                          condition: .when(platforms: [.iOS, .macOS])),
                 .product(name: "sherpa-onnx", package: "sherpa-onnx",
                          condition: .when(platforms: [.iOS, .macOS])),
-                // Llama：T2 本机 LLM 轨（F），仅 iOS/macOS；Linux CI 无此框架。
-                .product(name: "Llama", package: "swift-llama",
-                         condition: .when(platforms: [.iOS, .macOS]))
+                // Llama: REMOVED with swift-llama dependency (repo deleted).
+                // #if canImport(Llama) blocks compile as unavailable.
             ],
             // Supertonic不支持中文，当前中文TTS仍使用已接线的系统实现。
             exclude: ["SherpaOnnxSpeechSynthesizer.swift"]),

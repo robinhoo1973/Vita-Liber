@@ -33,6 +33,7 @@ public enum ScheduleStatus: String, Codable, Sendable {
 
 public struct MedicationPlanDrug: Codable, Sendable, Identifiable {
     public var planDrugId: String = UUID().uuidString
+    public var id: String { planDrugId }
     public var guideId: String
     public var timePointLabel: String?
     public var takeTime: String

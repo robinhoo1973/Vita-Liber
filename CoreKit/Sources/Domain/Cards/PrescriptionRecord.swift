@@ -25,6 +25,7 @@ public struct PrescriptionRecord: InformationCard {
 
 public struct PrescriptionItem: Codable, Sendable, Identifiable {
     public var itemId: String = UUID().uuidString
+    public var id: String { itemId }
     public var drugName: String
     public var dosage: String?
     public var unit: String?

@@ -16,6 +16,6 @@ public struct AnyCard: Codable, Sendable {
     }
 
     public var cardId: String? {
-        (try? JSONSerialization.jsonObject(with: payload) as? [String: Any])?["cardId"] as? String
+        (try? JSONSerialization.jsonObject(with: payload) as? [String: Any])?["cardId"] as? String  // try?-ok: best-effort JSON field extraction, nil on any error
     }
 }

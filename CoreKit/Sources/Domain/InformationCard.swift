@@ -15,6 +15,7 @@ public protocol InformationCard: Codable, Sendable, Identifiable {
 
 public extension InformationCard {
     static var schemaVersion: Int { 1 }
+    var id: String { cardId }
 }
 
 extension JSONEncoder {

@@ -1,4 +1,5 @@
 import Foundation
+import Domain
 
 public protocol PatientRepositoryProtocol: Sendable {
     func save(_ card: PatientRecord) async throws
@@ -19,7 +20,7 @@ public protocol ClinicalReportRepositoryProtocol: Sendable {
     func save(_ card: ClinicalReport) async throws
     func fetch(id: String) async throws -> ClinicalReport?
     func fetchAll(patientId: String?) async throws -> [ClinicalReport]
-    func fetchItems(reportId: String) async throws -> [ReportItem]
+    func fetchItems(reportId: String) async throws -> [ClinicalReportItem]
     func delete(id: String) async throws
 }
 

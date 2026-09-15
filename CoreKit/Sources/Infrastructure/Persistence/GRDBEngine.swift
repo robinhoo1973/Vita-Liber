@@ -1,5 +1,7 @@
 import Foundation
 import GRDB
+import Domain
+import Protocols
 
 public final class GRDBEngine: DatabaseProtocol, @unchecked Sendable {
 

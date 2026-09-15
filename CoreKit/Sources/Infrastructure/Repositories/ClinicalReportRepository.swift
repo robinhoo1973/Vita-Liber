@@ -1,4 +1,6 @@
 import Foundation
+import Domain
+import Protocols
 
 public final class ClinicalReportRepository: ClinicalReportRepositoryProtocol {
 
@@ -36,10 +38,10 @@ public final class ClinicalReportRepository: ClinicalReportRepositoryProtocol {
         return rows.map(mapReportRow)
     }
 
-    public func fetchItems(reportId: String) async throws -> [ReportItem] {
+    public func fetchItems(reportId: String) async throws -> [ClinicalReportItem] {
         let rows = try db.query("SELECT * FROM t_clinical_report_item WHERE report_id = ? ORDER BY item_seq;", params: [.text(reportId)])
         return rows.map { r in
-            ReportItem(
+            ClinicalReportItem(
                 itemId: r["item_id"]?.string ?? UUID().uuidString,
                 category: r["item_category"]?.string,
                 type: r["item_type"]?.string,
@@ -132,10 +134,10 @@ public final class ClinicalReportRepository: ClinicalReportRepositoryProtocol {
         }
     }
 
-    private func fetchConclusions(reportId: String) throws -> [ReportConclusion] {
+    private func fetchConclusions(reportId: String) throws -> [ClinicalReportConclusion] {
         let rows = try db.query("SELECT * FROM t_clinical_report_conclusion WHERE report_id = ? ORDER BY seq_no;", params: [.text(reportId)])
         return rows.map { r in
-            ReportConclusion(type: r["conclusion_type"]?.string ?? "", content: r["conclusion_content"]?.string ?? "", severity: r["severity_level"]?.string)
+            ClinicalReportConclusion(type: r["conclusion_type"]?.string ?? "", content: r["conclusion_content"]?.string ?? "", severity: r["severity_level"]?.string)
         }
     }
 
@@ -143,8 +145,8 @@ public final class ClinicalReportRepository: ClinicalReportRepositoryProtocol {
         var card = ClinicalReport()
         card.cardId            = row["report_id"]?.string ?? UUID().uuidString
         card.reportNo          = row["report_no"]?.string
-        card.reportSource      = ReportSource(rawValue: row["report_source"]?.string ?? "1") ?? .outpatient
-        card.reportType        = ReportType(rawValue: row["report_type"]?.string ?? "1") ?? .lab
+        card.reportSource      = ClinicalReportSource(rawValue: row["report_source"]?.string ?? "1") ?? .outpatient
+        card.reportType        = ClinicalReportType(rawValue: row["report_type"]?.string ?? "1") ?? .lab
         card.orgName           = row["org_name"]?.string
         card.patientId         = row["patient_id"]?.string
         card.patientName       = row["patient_name"]?.string

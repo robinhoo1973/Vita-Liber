@@ -44,7 +44,7 @@ public final class CardService: CardServiceProtocol {
         let result = await engine.understand(context)
         var persisted: [AnyCard] = []
         for field in result.fields {
-            if let card = try? fieldToCard(field) {
+            if let card = try? fieldToCard(field) {  // try?-ok: best-effort field→card conversion, skip unrecognized fields
                 try await persist(card)
                 persisted.append(card)
             }

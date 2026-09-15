@@ -1,4 +1,6 @@
 import Foundation
+import Domain
+import Protocols
 
 public final class EncounterRepository: EncounterRepositoryProtocol {
 

@@ -13,8 +13,8 @@ public struct ClinicalReport: InformationCard {
     public var updatedAt: Date = Date()
 
     public var reportNo: String?
-    public var reportSource: ReportSource = .outpatient
-    public var reportType: ReportType = .lab
+    public var reportSource: ClinicalReportSource = .outpatient
+    public var reportType: ClinicalReportType = .lab
     public var orgCode: String?
     public var orgName: String?
     public var patientName: String?
@@ -34,27 +34,28 @@ public struct ClinicalReport: InformationCard {
     public var reportFilePath: String?
     public var remark: String?
 
-    public var items: [ReportItem] = []
-    public var conclusions: [ReportConclusion] = []
+    public var items: [ClinicalReportItem] = []
+    public var conclusions: [ClinicalReportConclusion] = []
 
     public init() {}
 }
 
-public enum ReportSource: String, Codable, Sendable {
+public enum ClinicalReportSource: String, Codable, Sendable {
     case outpatient = "1"
     case inpatient  = "2"
     case healthExam = "3"
 }
 
-public enum ReportType: String, Codable, Sendable {
+public enum ClinicalReportType: String, Codable, Sendable {
     case lab        = "1"
     case exam       = "2"
     case pathology  = "3"
     case healthExam = "4"
 }
 
-public struct ReportItem: Codable, Sendable, Identifiable {
+public struct ClinicalReportItem: Codable, Sendable, Identifiable {
     public var itemId: String = UUID().uuidString
+    public var id: String { itemId }
     public var category: String?
     public var type: String?
     public var code: String?
@@ -77,8 +78,9 @@ public struct ReportItem: Codable, Sendable, Identifiable {
     }
 }
 
-public struct ReportConclusion: Codable, Sendable, Identifiable {
+public struct ClinicalReportConclusion: Codable, Sendable, Identifiable {
     public var conclusionId: String = UUID().uuidString
+    public var id: String { conclusionId }
     public var type: String
     public var content: String
     public var severity: String?

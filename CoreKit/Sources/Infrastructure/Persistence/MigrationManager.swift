@@ -1,4 +1,6 @@
 import Foundation
+import Domain
+import Protocols
 
 public protocol Migration: Sendable {
     var version: Int { get }

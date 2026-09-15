@@ -1,4 +1,6 @@
 import Foundation
+import Domain
+import Protocols
 
 public final class RetryingDatabase: DatabaseProtocol, @unchecked Sendable {
     private let inner: any DatabaseProtocol

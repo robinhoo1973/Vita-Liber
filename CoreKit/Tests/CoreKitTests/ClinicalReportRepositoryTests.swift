@@ -67,7 +67,7 @@ final class ClinicalReportRepositoryTests: XCTestCase {
         card.patientName = "张三"
         card.orgName = "某医院"
         card.items = [
-            ReportItem(name: "白细胞计数", value: "6.5", unit: "10^9/L", referenceRange: "4.0-10.0")
+            ClinicalReportItem(name: "白细胞计数", value: "6.5", unit: "10^9/L", referenceRange: "4.0-10.0")
         ]
 
         try await repo.save(card)

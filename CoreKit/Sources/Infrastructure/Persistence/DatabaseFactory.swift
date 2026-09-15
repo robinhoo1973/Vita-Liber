@@ -1,4 +1,5 @@
 import Foundation
+import Protocols
 
 public enum DatabaseFactory {
     public static func makeFile(path: String) throws -> any DatabaseProtocol {
