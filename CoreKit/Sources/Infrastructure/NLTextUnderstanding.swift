@@ -17,7 +17,20 @@ import Protocols
 /// 期二备轨（Core ML 量化编码器）与期三主轨（Foundation Models）在
 /// 同端口替换本类，上层零感知。
 public actor NLTextUnderstanding: TextUnderstanding {
-    public init() {}
+    private let orchestrator: ExtractionOrchestrator
+
+    public init() {
+        // 三轨注册表经 EAL 装配（组合根 registerDefaultEngines 先行）；未装配
+        // （单测/预览桩环境）回落规则轨恒可用——绝不 fatalError（resolve 契约），
+        // 也不各自维护第二套抽取循环（结构轮：NL 只做卡片 → 旧 FieldDraft 形状转换）。
+        let registry: CardExtractionRegistry
+        if EngineRegistry.shared.isRegistered(CardExtractionFactory.self) {
+            registry = EngineRegistry.shared.resolve(CardExtractionFactory.self)
+        } else {
+            registry = CardExtractionRegistry(engines: [RuleExtractionEngine()])
+        }
+        self.orchestrator = ExtractionOrchestrator(registry: registry)
+    }
 
     /// 科室词表（coreml §4.2「机构/科室词表」组件——静态内置零资产；
     /// 词表词按最长优先匹配，行尾命中或 CJK 分词 token 命中即产出 dept）
@@ -57,26 +70,27 @@ public actor NLTextUnderstanding: TextUnderstanding {
         var fields: [FieldDraft] = []
         var claimed = Set<Int>()
         if target == "prescription", let spec = ExtractionSpecRegistry.spec(for: "prescription") {
-            // E5 接线 CardExtractionRegistry 前的兼容路径：规则轨 + grounding（第二道防线）→ 旧 FieldDraft 形状。
-            var card = ExtractedCard(kind: spec.kind, pageIndex: 0, shared: [:], rows: [],
-                                     provenance: .init(track: .rules, specVersion: spec.version, modelId: nil, durationMs: 0),
-                                     diagnostics: .init(track: .rules))
-            for region in PageLayout.linesOnly(lines).extractionRegions(pageIndex: 0) {
-                let r = RuleExtractor.extract(region: region, spec: spec, lines: lines)
-                card.shared.merge(r.shared) { a, _ in a }
-                card.rows += r.rows
-            }
-            let grounded = ExtractionGrounding.validate(card, spec: spec, lines: lines).card
+            // E5 接线（2026-09-15 结构轮）：抽取统一走 ExtractionOrchestrator 三轨注册表
+            // （grounding / 逐区域失败切换内建），NL 只做 ExtractedCard → 旧 FieldDraft
+            // 形状转换。授权门：本层为兜底轨理解层，恒不触发生成轨（T1/T2 由 App
+            // 导入流程显式授权后经同一编排器调用）。
+            let cards = await orchestrator.analyze(lines: lines,
+                                                   documentTypeKey: target,
+                                                   pageConfidence: classification.confidence,
+                                                   allowsGenerativeProcessing: false)
+            let grounded = cards.first { $0.kind == spec.kind }
             // 旧模板 mapping 的理解层键：department → dept（CardTemplateMatcher 处方模板别名）。
             func legacyKey(_ key: String) -> String { key == "department" ? "dept" : key }
-            for (key, value) in grounded.shared {
-                fields.append(FieldDraftAdapter.draft(key: legacyKey(key), value, lines: lines, pageConfidence: 0.6, track: .rules))
-                claimed.insert(value.anchor.lineIndex)
-            }
-            for row in grounded.rows {
-                for (key, value) in row {
-                    fields.append(FieldDraftAdapter.draft(key: key, value, lines: lines, pageConfidence: 0.6, track: .rules))
+            if let grounded {
+                for (key, value) in grounded.shared {
+                    fields.append(FieldDraftAdapter.draft(key: legacyKey(key), value, lines: lines, pageConfidence: 0.6, track: .rules))
                     claimed.insert(value.anchor.lineIndex)
+                }
+                for row in grounded.rows {
+                    for (key, value) in row {
+                        fields.append(FieldDraftAdapter.draft(key: key, value, lines: lines, pageConfidence: 0.6, track: .rules))
+                        claimed.insert(value.anchor.lineIndex)
+                    }
                 }
             }
         } else {
