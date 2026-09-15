@@ -41,8 +41,8 @@ struct ExtractionEvaluationTests {
             URL(fileURLWithPath: "Tests/VitaLiberTests/Fixtures/extraction/\(name).json"),
         ]
         for url in candidates where FileManager.default.fileExists(atPath: url.path) {
-            guard let data = try? Data(contentsOf: url) else { continue }
-            return try? JSONDecoder().decode(GoldenCard.self, from: data)
+            guard let data = try? Data(contentsOf: url) else { continue }  // try?-ok: 测试金样加载，失败跳过
+            return try? JSONDecoder().decode(GoldenCard.self, from: data)  // try?-ok: 测试金样解码，失败返回 nil
         }
         return nil
     }
