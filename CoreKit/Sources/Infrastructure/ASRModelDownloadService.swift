@@ -49,7 +49,11 @@ public actor ASRModelDownloadService {
     private let trust = ModelCatalogTrustStore.shared
     private let fileManager = FileManager.default
     /// 分段数：4 路在移动网/CDN 场景通常接近带宽上限，且不至于触发服务端限流。
-    private let segmentCount = 4
+    /// 分段数（并行度）：6——2026-09-15 实测复核（业主报告下载慢）：CDN
+    /// （release-assets.githubusercontent.com，白名单已放行）支持 `Accept-Ranges: bytes`，
+    /// 分段并行链路本身正常；瓶颈在单连接链路速率（本机实测单流 ~0.17 MB/s），
+    /// 提高并发连接数聚合带宽是标准手段（大文件场景 4 → 6，仍低于连接池上限）。
+    private let segmentCount = 6
     /// 安装互斥（actor 级）：actor 串行化不覆盖 await 间隙，跨实例的并发
     /// install 会在 moveItem/active.json 上竞态（静默降级）——入口同步检入检出的
     /// 守卫才是真互斥。UI 一律经 `shared` 单例（安全审查 2026-09-12：此前每视图
@@ -60,6 +64,10 @@ public actor ASRModelDownloadService {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpShouldSetCookies = false
         configuration.urlCredentialStorage = nil
+        // 连接池上限（成熟下载器通行做法）：默认 6 会与分段数打平——6 段并行 + 索引/HEAD
+        // 请求同刻争用会排队；抬到 8 留出余量。不设超时天花板（大包在慢链路需数小时，
+        // timeoutIntervalForResource 默认 7 天不干预）。
+        configuration.httpMaximumConnectionsPerHost = 8
         self.session = session ?? URLSession(configuration: configuration)
     }
 
