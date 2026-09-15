@@ -46,7 +46,7 @@ public actor NLTextUnderstanding: TextUnderstanding {
     public func understand(_ input: TextUnderstandingInput) async -> UnderstandingResult {
         switch input.source {
         case .ocr:
-            return classifyOCR(input)
+            return await classifyOCR(input)
         case .voice:
             return classifyVoice(input)
         }
@@ -57,7 +57,7 @@ public actor NLTextUnderstanding: TextUnderstanding {
     ///（子项目 E3——此前处方分支返回 0 字段而 `PrescriptionFieldMapper.draftFields` 无调用方，
     /// 无 Foundation Models 的设备处方页恒为空，round2 O-N2）；检验/病历由
     /// DocumentTypeClassifierFallback.guessFields；其余由调用方通用 line_N 兜底——本层只产理解结果，不产 UI。
-    private func classifyOCR(_ input: TextUnderstandingInput) -> UnderstandingResult {
+    private func classifyOCR(_ input: TextUnderstandingInput) async -> UnderstandingResult {
         let lines = input.lines ?? input.text.components(separatedBy: .newlines)
         let classification = DocumentTypeClassifierFallback.classify(lines: lines)
         guard let target = classification.target else {

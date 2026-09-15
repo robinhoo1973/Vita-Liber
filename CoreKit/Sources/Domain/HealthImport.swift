@@ -184,5 +184,25 @@ public struct HealthWindowSnapshot: Sendable {
         public var remainingWindows: Int? = nil
         /// H-N1：本轮推进的道；nil = 无在途工作
         public var backfillLane: HealthFetchLane? = nil
+
+        /// 跨模块构造出口（结构轮 2026-09-15 修复）：合成 memberwise init 为 internal，
+        /// 迁入 Domain 后 Infrastructure 调用方不可见——显式 public init 兜底。
+        public init(lastSyncAt: Date,
+                    elevated: Int = 0, noRangeCount: Int = 0, persistedRows: Int = 0,
+                    preservedRows: Int = 0, deferredWindows: Int = 0, receivedChanges: Int = 0,
+                    rejectedSamples: Int = 0, failedTypes: [HealthDataKind] = [],
+                    hasMore: Bool = false, notificationFailures: Int = 0,
+                    bindingId: UUID? = nil, patientId: UUID? = nil,
+                    sparseWindows: Int? = nil, remainingWindows: Int? = nil,
+                    backfillLane: HealthFetchLane? = nil) {
+            self.elevated = elevated; self.noRangeCount = noRangeCount
+            self.persistedRows = persistedRows; self.preservedRows = preservedRows
+            self.deferredWindows = deferredWindows; self.receivedChanges = receivedChanges
+            self.rejectedSamples = rejectedSamples; self.failedTypes = failedTypes
+            self.hasMore = hasMore; self.notificationFailures = notificationFailures
+            self.lastSyncAt = lastSyncAt; self.bindingId = bindingId; self.patientId = patientId
+            self.sparseWindows = sparseWindows; self.remainingWindows = remainingWindows
+            self.backfillLane = backfillLane
+        }
     }
 
