@@ -69,15 +69,22 @@ jobs:
           # 某个 workflow 的旧成功记录可能根本不在样本里，导致“非最近一次成功”不会被删。
           # 现在按 workflow id 分页拉取，保证每个现存 workflow 独立执行“仅保留最近一次成功”。
           COUNTS_FILE=$(mktemp) || { echo "错误: mktemp 失败"; exit 1; }
+          DELETE_FAILURES_FILE=$(mktemp) || { echo "错误: mktemp 失败"; exit 1; }
           echo "0 0" > "$COUNTS_FILE"
 
           delete_run() {
-            local id="$1" reason="$2"
-            if gh run delete "$id" --repo "$REPO" 2>/dev/null; then
+            local id="$1" reason="$2" err rc
+            # 直接调用 REST API DELETE /actions/runs/{id}：
+            # 1) 不依赖 `gh run delete` 的交互确认行为，非 TTY 下行为确定；
+            # 2) 错误信息完整回显并落盘，不再被 2>/dev/null 吞掉根因。
+            err=$(gh api --method DELETE "repos/$REPO/actions/runs/$id" 2>&1)
+            rc=$?
+            if [ "$rc" -eq 0 ]; then
               echo "  删除: #$id ($reason)"
               return 0
             fi
-            echo "  跳过: #$id ($reason — 删除失败)"
+            echo "  删除失败: #$id ($reason) — $(echo "$err" | tr '\n' ' ' | head -c 300)"
+            echo "#$id	$reason	$err" >> "$DELETE_FAILURES_FILE"
             return 1
           }
 
@@ -120,6 +127,7 @@ jobs:
               else
                 SORTED_RUNS_FILE=$(mktemp) || { echo "错误: mktemp 失败"; exit 1; }
                 sort -t $'\t' -k4,4r "$RUNS_FILE" > "$SORTED_RUNS_FILE"
+                echo "  completed run 总数: $(wc -l < "$SORTED_RUNS_FILE")"
                 while IFS=$'\t' read -r RUN_ID RUN_NAME CONCLUSION CREATED_AT; do
                   keep_or_delete_run "$WF_PATH" "$WF_NAME" "$CONCLUSION" "$RUN_ID" "$CREATED_AT" "$FIRST_SUCCESS_FILE"
                 done < "$SORTED_RUNS_FILE"
@@ -153,9 +161,18 @@ jobs:
           fi
 
           read TOTAL_DELETED TOTAL_KEPT < "$COUNTS_FILE"
-          rm -f "$WORKFLOWS_FILE" "$DELETED_RUNS_FILE" "$COUNTS_FILE"
 
           echo ""
           echo "=== 清理完成 ==="
           echo "总计删除: $TOTAL_DELETED 条"
           echo "总计保留: $TOTAL_KEPT 条"
+          if [ -s "$DELETE_FAILURES_FILE" ]; then
+            TOTAL_FAILURES=$(wc -l < "$DELETE_FAILURES_FILE")
+            echo "删除失败: $TOTAL_FAILURES 条（明细如下）"
+            echo "::error::存在删除失败的 workflow run：$TOTAL_FAILURES 条，见日志明细"
+            cat "$DELETE_FAILURES_FILE"
+          else
+            echo "删除失败: 0 条（全部删除请求成功）"
+          fi
+
+          rm -f "$WORKFLOWS_FILE" "$DELETED_RUNS_FILE" "$COUNTS_FILE" "$DELETE_FAILURES_FILE"
