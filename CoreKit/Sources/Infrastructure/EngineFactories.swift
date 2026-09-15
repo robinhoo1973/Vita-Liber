@@ -263,6 +263,9 @@ public enum CardExtractionFactory: EngineFactory {
             engines.append(FoundationModelsExtractionEngine())
         }
         #endif
+        #if canImport(Llama)
+        engines.append(LlamaCppExtractionEngine())
+        #endif
         engines.append(RuleExtractionEngine())
         return CardExtractionRegistry(engines: engines)
     }
