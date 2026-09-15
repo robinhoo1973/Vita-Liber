@@ -1,8 +1,11 @@
 # ============================================================================
 # Workflow 执行记录清理
 #
-# 定时清理：每个 workflow 只保留最近一次成功的执行记录；错误/取消/跳过
-# 等非成功 completed run 与非最近一次成功 run 全部删除。
+# 定时清理（业主 2026-09-15 两规则）：
+# 规则A：cleanup-runs.yml 自身的所有执行记录——无论成功还是失败——全部删除；
+#        正在运行的本轮 run 无法自删（API 禁删进行中的 run），由下一轮清扫。
+# 规则B：其他 workflow 只保留最近一次成功；任何非 success 结论
+#        （failure/cancelled/skipped/timed_out）与非最近一次成功全部删除。
 # 包括已删除的 workflow 的历史记录也会被清理。
 # 调度：中国时间每天凌晨 0:00（UTC 16:00）
 # ============================================================================
@@ -92,9 +95,17 @@ jobs:
             local wf_key="$1" wf_name="$2" conclusion="$3" run_id="$4" created_at="$5" first_success_file="$6"
             read DELETED KEPT < "$COUNTS_FILE"
 
-            # 规则1：未成功 → 直接删除
-            # 业主 2026-09-15 明确要求：删除 workflow 的错误记录与非最后一次
-            # 成功执行记录；失败证据不在 Actions run 历史里长期保留。
+            # 规则0：cleanup-runs.yml 自身 → 无论成败全部删除（业主 2026-09-15 要求一）。
+            # 正在运行的本轮 run 状态为 in_progress、不在 completed 列表内，由下一轮清扫。
+            if [ "$wf_key" = ".github/workflows/cleanup-runs.yml" ]; then
+              delete_run "$run_id" "$wf_name - cleanup 自身（全删）" && DELETED=$((DELETED + 1))
+              echo "$DELETED $KEPT" > "$COUNTS_FILE"
+              return
+            fi
+
+            # 规则1：任何非 success 结论 → 直接删除
+            # 业主 2026-09-15 要求二：非成功一律删除，包括 cancelled/failure/
+            # skipped/timed_out；失败证据不在 Actions run 历史里长期保留。
             if [ "$conclusion" != "success" ]; then
               delete_run "$run_id" "$wf_name - 非成功 ($conclusion)" && DELETED=$((DELETED + 1))
               echo "$DELETED $KEPT" > "$COUNTS_FILE"
