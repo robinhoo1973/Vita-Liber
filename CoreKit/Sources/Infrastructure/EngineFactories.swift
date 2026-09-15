@@ -11,7 +11,8 @@ public enum OCRRecognizerFactory: EngineFactory {
         #if os(iOS) || os(macOS)
         VisionImageRecognizer()
         #else
-        fatalError("OCR 识别引擎仅在 Apple 平台装配（Linux 包测试不消费本工厂）")
+        // Linux 包测试：契约桩（EAL 注册表验收经 registerDefaultEngines 全量装配）
+        StubImageTextRecognizer(scripted: .init(lines: [], confidence: 0))
         #endif
     }
 }
@@ -35,7 +36,7 @@ public enum SpeechSynthesisFactory: EngineFactory {
         // 与 AppSettingKey.speechRate.defaultValue 同源（SpeechRateTier）。
         AVSpeechAdapter(rateProvider: { Self.currentSpeechRate() })
         #else
-        fatalError("TTS 引擎仅在 Apple 平台装配（Linux 包测试不消费本工厂）")
+        RecordingSpeechSynthesizer()   // Linux 包测试：记录桩（协议替身）
         #endif
     }
 
@@ -265,7 +266,7 @@ public enum SensitiveMediaProtectionFactory: EngineFactory {
         #if os(iOS) || os(macOS)
         CoreImageCompressor()
         #else
-        fatalError("敏感媒体保护仅在 Apple 平台装配（Linux 包测试不消费本工厂）")
+        StubImageCompressor()   // Linux 包测试：双协议桩（压缩/脱敏同源占位）
         #endif
     }
 }

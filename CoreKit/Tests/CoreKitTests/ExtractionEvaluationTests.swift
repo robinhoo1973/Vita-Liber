@@ -35,8 +35,10 @@ struct ExtractionEvaluationTests {
     // MARK: - 金样加载
 
     private func loadGolden(_ name: String) -> GoldenCard? {
-        // 非 SPM 直编译路径（run-domain-tests.sh）：从 repo 根目录查找 Fixtures
+        // 两种执行宿主：swift test（cwd = 包根 CoreKit/，macOS CI 与本机同此路径）
+        // 与 run-domain-tests.sh（cwd = repo 根）。
         let candidates = [
+            URL(fileURLWithPath: "Tests/CoreKitTests/Fixtures/extraction/\(name).json"),
             URL(fileURLWithPath: "CoreKit/Tests/CoreKitTests/Fixtures/extraction/\(name).json"),
             URL(fileURLWithPath: "Tests/VitaLiberTests/Fixtures/extraction/\(name).json"),
         ]

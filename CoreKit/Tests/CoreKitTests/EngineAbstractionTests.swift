@@ -35,9 +35,13 @@ struct EngineAbstractionTests {
         let ocr = OCRRecognizerFactory.make(.current)
         let tts = SpeechSynthesisFactory.make(.current)
         let tx = TranscriptionEngineFactory.make(.current)
+        // Linux 侧工厂按设计分派契约桩（EAL 注册表验收经 registerDefaultEngines
+        // 全量装配）——「非桩」断言仅在 Apple 平台成立。
+        #if os(iOS) || os(macOS)
         #expect(!(ocr is StubImageTextRecognizer))
         #expect(!(tts is RecordingSpeechSynthesizer))
         #expect(!(tx is StubTranscriptionEngine))
+        #endif
     }
 
     // TC-MT-ENGINEBUS-03：离线守卫一票否决
@@ -155,10 +159,14 @@ struct EngineAbstractionTests {
         let resolvedCompress: any ImageCompressing = r.resolve(ImageCompressingFactory.self)
         let resolvedSensitive: any SensitiveMediaProtection = r.resolve(SensitiveMediaProtectionFactory.self)
 
+        // Linux 侧工厂按设计分派契约桩（M-PREPROC 兜底注释：保证 Linux 构建/测试可跑）——
+        // 「非桩」断言仅在 Apple 平台成立。
+        #if os(iOS) || os(macOS)
         #expect(!(resolvedPreproc is StubImagePreprocessor))
         #expect(!(resolvedDecode is StubPDFDecoder))
         #expect(!(resolvedCompress is StubImageCompressor))
         #expect(!(resolvedSensitive is StubImageCompressor))
+        #endif
     }
 
     @Test("registerDefaultEngines 注册全部 9 个工厂且幂等零构造")

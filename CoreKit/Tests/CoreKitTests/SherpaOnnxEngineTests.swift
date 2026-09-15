@@ -1,3 +1,6 @@
+#if os(iOS) || os(macOS)
+// Apple 平台守卫镜像被测类型（SherpaOnnxTranscriber 结构轮起 Apple 门控）——
+// Linux 包测试宿主无 SherpaOnnxC 资产，本套件不参与 Linux 编译。
 import Foundation
 import Testing
 @testable import Domain
@@ -124,3 +127,4 @@ struct SherpaOnnxEngineTests {
         #expect(locales.contains("en-US"))
     }
 }
+#endif
