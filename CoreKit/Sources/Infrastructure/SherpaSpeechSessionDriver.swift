@@ -23,15 +23,13 @@ final class SherpaSpeechSessionDriver: SpeechSessionDriver, @unchecked Sendable 
     private var failure: TranscriptionError?
     /// 解码语言提示（`decoderLanguage(for:mode:)`），prepareRuntime 于推理队列写入、schedule 于同队列读取。
     private var language = ""
-    private var audio: AVAudioEngine?
     private var converter: AVAudioConverter?
     private var targetFormat: AVAudioFormat?
-    private var observers: [NSObjectProtocol] = []
-    private var tapInstalled = false
     private var job: Job?
-    #if os(iOS)
-    private var priorSession: AudioSessionCapture.State?
-    #endif
+    /// 采集单点（结构轮 2026-09-15，A4-F3）：与本轨此前实现逐字重复的
+    /// 快照/引擎/tap/观察者/拷贝统一到 AudioCaptureController——统一时并入了
+    /// SFSpeech 轨已有而本轨缺的保护（激活失败即还原、format 非法先还原会话）。
+    private let capture = AudioCaptureController()
 
     /// 能力诚实：报告模型实际服务的语言，而非请求语言——
     /// 方言请求由普通话基线模型服务时（如 nan-TW → zh），结果 locale
@@ -197,53 +195,22 @@ final class SherpaSpeechSessionDriver: SpeechSessionDriver, @unchecked Sendable 
 
     func startCapture(onAudio: @escaping @Sendable (SpeechAudioChunk<CapturedSpeechAudio>) -> Void,
                       onFailure: @escaping @Sendable () -> Void, isStopped: @escaping @Sendable () -> Bool) throws {
-        guard !isStopped() else { throw CancellationError() }
-        #if os(iOS)
-        priorSession = AudioSessionCapture.remember()
-        try AudioSessionCapture.activateRecordSession()
-        #endif
-        let engine = AVAudioEngine()
-        audio = engine
-        let format = engine.inputNode.outputFormat(forBus: 0)
-        guard format.sampleRate > 0, format.channelCount > 0,
-              let target = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false),
-              let converter = AVAudioConverter(from: format, to: target) else { throw TranscriptionError.engineUnavailable }
-        targetFormat = target; self.converter = converter
-        engine.inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
-            guard !isStopped(), buffer.frameLength > 0 else { return }
-            let source = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: buffer.audioBufferList))
-            let bytes = source.reduce(0) { $0 + Int($1.mDataByteSize) }
-            guard bytes <= SpeechSessionLimits().maximumBufferedBytes,
-                  let copy = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: buffer.frameLength) else { onFailure(); return }
-            copy.frameLength = buffer.frameLength
-            let destination = UnsafeMutableAudioBufferListPointer(copy.mutableAudioBufferList)
-            for index in source.indices {
-                guard destination.indices.contains(index), source[index].mDataByteSize == destination[index].mDataByteSize,
-                      let from = source[index].mData, let to = destination[index].mData else { onFailure(); return }
-                memcpy(to, from, Int(source[index].mDataByteSize))
+        // 16 kHz 单声道转换器（本轨特有）：经 onFormat 在控制器建立引擎、format
+        // 校验通过后构造——与既有实现同一引擎的 format（语义等价）；层级不支持
+        // 即抛，控制器负责还原会话并清理。
+        try capture.start(configuration: .standard, onFormat: { [self] format in
+            guard let target = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false),
+                  let converter = AVAudioConverter(from: format, to: target) else {
+                throw TranscriptionError.engineUnavailable
             }
-            onAudio(.init(buffer: .init(pcm: copy), duration: Double(copy.frameLength) / copy.format.sampleRate, byteCount: bytes))
-        }
-        tapInstalled = true
-        observers.append(NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange,
-            object: engine, queue: nil) { _ in onFailure() })
-        #if os(iOS)
-        observers.append(NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification,
-            object: nil, queue: nil) { _ in onFailure() })
-        #endif
-        guard !isStopped() else { throw CancellationError() }
-        engine.prepare(); try engine.start()
-        if isStopped() { throw CancellationError() }
+            targetFormat = target; self.converter = converter
+        }, onBuffer: { copy, bytes in
+            onAudio(.init(buffer: .init(pcm: copy),
+                          duration: Double(copy.frameLength) / copy.format.sampleRate, byteCount: bytes))
+        }, onFailure: onFailure, isStopped: isStopped)
     }
 
-    func stopCapture() {
-        observers.forEach { NotificationCenter.default.removeObserver($0) }; observers = []
-        if let audio { audio.stop(); if tapInstalled { audio.inputNode.removeTap(onBus: 0) } }
-        audio = nil; tapInstalled = false
-        #if os(iOS)
-        if let priorSession { AudioSessionCapture.restore(priorSession); self.priorSession = nil }
-        #endif
-    }
+    func stopCapture() { capture.stop() }
 
     private final class RuntimePool: @unchecked Sendable {
         var owner: UUID?

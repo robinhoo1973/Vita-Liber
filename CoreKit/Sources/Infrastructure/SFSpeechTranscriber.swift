@@ -634,16 +634,10 @@ private final class NativeSpeechSessionDriver: SpeechSessionDriver, @unchecked S
     /// 被探测吃掉（round10 实测「说短句几乎识别不到」的延迟根因之一）。
     private let capability: TranscriptionCapability
     private var recognizer: SFSpeechRecognizer?
-    private var audio: AVAudioEngine?
-    private var tapInstalled = false
-    /// 采集前的会话状态快照：非 nil 即「类别已改、拆除时必还原」——
-    /// 判定挂快照而非「激活成功」（setActive 抛错时类别已改也必须还原）。
-    /// iOS-only：AVAudioSession 在 macOS 不可用（CI 34018308312 同族），
-    /// macOS 测试宿主走无会话路径（AVAudioEngine 直连，无路由概念）。
-    #if os(iOS)
-    private var sessionState: AudioSessionCapture.State?
-    #endif
-    private var observers: [NSObjectProtocol] = []
+    /// 采集单点（结构轮 2026-09-15，A4-F3）：会话快照/引擎/tap/观察者/拷贝
+    /// 全在 AudioCaptureController——此前与 sherpa 轨逐字重复两份（"主轨已修、
+    /// 降级轨漏修"的成因）。
+    private let capture = AudioCaptureController()
     private var requests: [UUID: SFSpeechAudioBufferRecognitionRequest] = [:]
     private var tasks: [UUID: SFSpeechRecognitionTask] = [:]
     private var ended: Set<UUID> = []
@@ -722,82 +716,14 @@ private final class NativeSpeechSessionDriver: SpeechSessionDriver, @unchecked S
     func startCapture(onAudio: @escaping @Sendable (SpeechAudioChunk<NativeSpeechAudio>) -> Void,
                       onFailure: @escaping @Sendable () -> Void,
                       isStopped: @escaping @Sendable () -> Bool) throws {
-        guard !isStopped() else { throw CancellationError() }
-        #if os(iOS)
-        // 采集激活单一出口 + 先记状态后激活：setActive 失败时类别已被修改，
-        // 快照在场即保证拆除路径必还原（共享会话不再有停留在 .record 的窗口）
-        let prior = AudioSessionCapture.remember()
-        do { try AudioSessionCapture.activateRecordSession() }
-        catch {
-            AudioSessionCapture.restore(prior)
-            throw error
-        }
-        sessionState = prior
-        #endif
-        let engine = AVAudioEngine()
-        audio = engine
-        let input = engine.inputNode
-        let format = input.outputFormat(forBus: 0)
-        guard format.sampleRate > 0, format.channelCount > 0 else {
-            throw TranscriptionError.engineUnavailable
-        }
-        guard !isStopped() else { throw CancellationError() }
-        input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
-            guard buffer.frameLength > 0 else { return }
-            let source = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: buffer.audioBufferList))
-            let byteCount = source.reduce(0) { $0 + Int($1.mDataByteSize) }
-            guard byteCount <= SpeechSessionLimits().maximumBufferedBytes,
-                  let copy = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: buffer.frameLength) else {
-                onFailure()
-                return
-            }
-            copy.frameLength = buffer.frameLength
-            let destination = UnsafeMutableAudioBufferListPointer(copy.mutableAudioBufferList)
-            var bytes = 0
-            for index in source.indices {
-                guard destination.indices.contains(index),
-                      source[index].mDataByteSize == destination[index].mDataByteSize,
-                      let from = source[index].mData, let to = destination[index].mData else { onFailure(); return }
-                let count = Int(source[index].mDataByteSize)
-                memcpy(to, from, count)
-                bytes += count
-            }
+        try capture.start(configuration: .standard, onBuffer: { copy, bytes in
             onAudio(SpeechAudioChunk(buffer: NativeSpeechAudio(buffer: copy),
-                                    duration: Double(copy.frameLength) / copy.format.sampleRate, byteCount: bytes))
-        }
-        tapInstalled = true
-        observers.append(NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange,
-                                                                 object: engine, queue: nil) { _ in onFailure() })
-        #if os(iOS)
-        observers.append(NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification,
-                                                                 object: nil, queue: nil) { _ in onFailure() })
-        #endif
-        guard !isStopped() else { throw CancellationError() }
-        engine.prepare()
-        try engine.start()
-        if isStopped() { throw CancellationError() }
+                                     duration: Double(copy.frameLength) / copy.format.sampleRate,
+                                     byteCount: bytes))
+        }, onFailure: onFailure, isStopped: isStopped)
     }
 
-    func stopCapture() {
-        observers.forEach { NotificationCenter.default.removeObserver($0) }
-        observers.removeAll()
-        if let audio {
-            audio.stop()
-            if tapInstalled { audio.inputNode.removeTap(onBus: 0) }
-        }
-        tapInstalled = false
-        audio = nil
-        #if os(iOS)
-        if let prior = sessionState {
-            // 采集拆除单一出口（对称还原采集前状态）：只停用不还原类别会让
-            // 共享会话停留在 .record——其后的 FR17.13 回读 / FR17.11 提问朗读 /
-            // FR19.3 播报全部路由到听筒（Sherpa 主轨同款缺陷的降级轨复现，
-            // 主轨已修、降级轨漏修）。快照还原，不再硬编码 .playback。
-            AudioSessionCapture.restore(prior)
-            sessionState = nil
-        }
-        #endif
-    }
+    func stopCapture() { capture.stop() }
 
     func append(_ audio: NativeSpeechAudio, to id: UUID) {
         guard !ended.contains(id) else { return }
