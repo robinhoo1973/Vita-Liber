@@ -22,7 +22,9 @@ public actor ProfileSuggestionStore {
     static let stateKind = "profile_suggestion"
     /// 建议来源实体表白名单——表名只从此集合进入 SQL。
     static let sourceTables: Set<String> = ["encounter", "hospitalization", "diagnosis", "lab_result"]
-    static let severities: Set<String> = ["mild", "moderate", "severe"]
+    /// 规范严重度 = SevereReactionRules.canonicalSeverities（Domain 单一事实源，
+    /// 与 DDL CHECK 同源——此前此处为第三份拷贝，结构轮 2026-09-15 收敛为别名）。
+    static let severities: Set<String> = SevereReactionRules.canonicalSeverities
 
     private let writer: any DatabaseWriter
 

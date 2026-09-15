@@ -309,24 +309,22 @@ final class AppState {
     /// FR17.11/BR-001：语言无关的访谈完成步骤按成员持久化。
     /// 旧 voiceInterviewSteps 无成员身份，保留原键但不猜测归属、不计入完成。
     private var voiceInterviewStepsByPatient: [String: [String]]
-    private static let voiceInterviewKeys: Set<String> = ["allergy", "pastHistory", "currentMeds", "emergencyContact"]
+    /// 访谈步骤键单一事实源 = MemberProfileCompleteness.voiceInterviewKeys（Domain，
+    /// 结构轮 2026-09-15：进度计算与键表一同迁入 Domain 纯函数）。
+    private static let voiceInterviewKeys: Set<String> = MemberProfileCompleteness.voiceInterviewKeys
 
     var voiceInterviewCompleted: Set<String> {
         Set(voiceInterviewStepsByPatient[currentPatientId.uuidString] ?? [])
             .intersection(Self.voiceInterviewKeys)
     }
 
-    /// 档案完善进度（首页进度卡 · mock 对齐项）：血型/证件/医保/生日 4 个直接字段
-    /// + 语音访谈四段（过敏/既往史/当前用药/紧急联系人）。
-    /// 展示性计算（非 BR 业务规则），随档案更新实时反映。
-    /// nil 表示当前档案尚未加载/已不存在，首页不生成虚假的 0/8 提示或占位。
+    /// 档案完善进度（首页进度卡 · mock 对齐项）：字段集合与计数语义为 Domain
+    /// 规则（MemberProfileCompleteness.progress）；nil = 档案未加载/已不存在，
+    /// 首页不生成虚假的 0/8 提示或占位。
     var profileCompletion: (done: Int, total: Int)? {
-        let total = 8
-        guard let p = members.first(where: { $0.id == currentPatientId && $0.deletedAt == nil }) else { return nil }
-        let done = [p.bloodType, p.idNo, p.insuranceNo, p.birthDate].filter {
-            !($0?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
-        }.count
-        return (done + voiceInterviewCompleted.count, total)
+        MemberProfileCompleteness.progress(
+            profile: members.first(where: { $0.id == currentPatientId && $0.deletedAt == nil }),
+            interviewCompleted: voiceInterviewCompleted)
     }
 
     /// 只在档案写入成功后记录，使用该次写入的成员身份而非 await 后的当前成员。

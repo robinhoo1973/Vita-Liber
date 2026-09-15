@@ -5,6 +5,10 @@ import Foundation
 /// 保存后立即展示急救引导卡（就近就医/拨打 120，BR-012）。
 /// 不做任何诊断表述、不阻塞保存——App 只如实记录用户自述事实。
 public enum SevereReactionRules {
+    /// 规范严重度集合（与 SchemaV2 DDL CHECK 词汇同源，单一事实源）。
+    /// 仓储校验侧（ProfileSuggestionStore.severities）以别名消费，不得私设
+    /// 第二份集合——新增档位时只改此处 + DDL CHECK（结构轮 2026-09-15）。
+    public static let canonicalSeverities: Set<String> = ["mild", "moderate", "severe"]
     /// 第八轮全仓审查修复（关键词单一事实源）：严重反应词表与 F12 紧急
     /// 词表（EmergencyKeywordRules，BR-012 单一事实源）此前各自维护一份
     /// 重叠漂移集——新增关键词只进一份，另一路径静默漏触发。改为
