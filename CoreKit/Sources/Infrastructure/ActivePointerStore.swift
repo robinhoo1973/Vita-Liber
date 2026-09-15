@@ -67,7 +67,7 @@ enum ActivePointerStore {
     private static func computeActivePointer(for choice: VoiceEngineChoice) -> ASRModelDownloadService.ActivePointer? {
         let root = applicationSupportRoot().appendingPathComponent(choice.rawValue, isDirectory: true)
         guard let data = try? Data(contentsOf: root.appendingPathComponent("active.json")),   // try?-ok: 指针缺失=未下载（布尔判定，非错误吞没）
-              let pointer = try? JSONDecoder().decode(ActivePointer.self, from: data) else { return nil }   // try?-ok: 同上
+              let pointer = try? JSONDecoder().decode(ASRModelDownloadService.ActivePointer.self, from: data) else { return nil }   // try?-ok: 同上
         guard let hash = pointer.packageSHA256, ModelResourcePolicy.isSHA256(hash),
               !ModelCatalogTrustStore.shared.isRevoked(hash),
               pointer.choice == choice.rawValue, ModelResourcePolicy.isSlug(pointer.version),
