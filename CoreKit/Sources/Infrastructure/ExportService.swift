@@ -300,6 +300,10 @@ public actor ExportService {
             /// v27（FR10.7）：所挂就诊（恢复时经就诊 remap、就诊落库后回填）与预约目的（CHECK 枚举 raw）；旧包缺键 → nil。
             public var encounterId: UUID? = nil
             public var purpose: String? = nil
+            /// FR13.5 往返保真（2026-09-15 修复）：创建/更新时间随包。此前缺失，恢复端以 startsAt 冒充——
+            /// 预约声称「创建于就诊时刻」（常为未来）的静默数据损失；旧包缺键 → nil，恢复端回落 startsAt（兼容不变）。
+            public var createdAt: Date? = nil
+            public var updatedAt: Date? = nil
         }
         /// v27（FR8.10 / FR10.2）：通用提醒全列随包；`sourceTable/sourceId` 多态来源（白名单 encounter / appointment / health_exam），
         /// 恢复按 `sourceTable` 分表 remap，目标缺失置 NULL（不猜来源）。
@@ -641,7 +645,9 @@ public actor ExportService {
                     startsAt: Date(timeIntervalSince1970: row["starts_at"] as Double),
                     status: row["status"] as String,
                     encounterId: (row["encounter_id"] as String?).flatMap(UUID.init(uuidString:)),
-                    purpose: row["purpose"] as String?)
+                    purpose: row["purpose"] as String?,
+                    createdAt: Date(timeIntervalSince1970: row["created_at"]),
+                    updatedAt: Date(timeIntervalSince1970: row["updated_at"]))
             }
             let observations = try Row.fetchAll(db, sql: "SELECT * FROM observation").map { row in
                 Envelope.ObservationExport(
@@ -1509,8 +1515,11 @@ public actor ExportService {
             for a in envelope.appointments {
                 let targetAppointment = (remap(a.id) ?? a.id).uuidString
                 if try adoptOrSkip(aptConflicts, a.id, adopt: {
-                    let purposeColumn = legacyEnvelope ? "" : ", purpose = ?"
-                    let purposeArguments: [DatabaseValueConvertible?] = legacyEnvelope ? [] : [a.purpose]
+                    // FR13.5 保真（2026-09-15 修复）：adopt = 备份版本胜出（ADR-019）——时间戳同随；
+                    // 旧包（字段 nil）保持现值不触碰。
+                    let purposeColumn = legacyEnvelope ? "" : ", purpose = ?, created_at = ?, updated_at = ?"
+                    let purposeArguments: [DatabaseValueConvertible?] = legacyEnvelope ? []
+                        : [a.purpose, (a.createdAt ?? a.startsAt).timeIntervalSince1970, (a.updatedAt ?? a.startsAt).timeIntervalSince1970]
                     let base: [DatabaseValueConvertible?] = [(remap(a.patientId) ?? a.patientId)?.uuidString ?? "", a.hospital,
                                                              a.department, a.startsAt.timeIntervalSince1970, a.status]
                     try db.execute(sql: """
@@ -1524,7 +1533,8 @@ public actor ExportService {
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, arguments: [targetAppointment, patientID(a.patientId), a.hospital, a.department,
                                      a.startsAt.timeIntervalSince1970, a.status,
-                                     a.startsAt.timeIntervalSince1970, a.startsAt.timeIntervalSince1970, a.purpose])
+                                     (a.createdAt ?? a.startsAt).timeIntervalSince1970,
+                                     (a.updatedAt ?? a.startsAt).timeIntervalSince1970, a.purpose])
                 if a.encounterId != nil { appointmentEncounterLinks.append((targetAppointment, remap(a.encounterId))) }
             }
             for o in envelope.observations {
@@ -2684,8 +2694,10 @@ public actor ExportService {
         if replacing {
             let oldPages = try ocrPages(targetId, db: db)
             let old = try Row.fetchOne(db, sql: "SELECT patient_id, sha256, ocr_text FROM document_file WHERE id = ?", arguments: [targetId.uuidString])
+            // 派生列 ocr_text（refreshDocumentProjection 重建的 FTS 投影）不入源变更判定——回执同刻写入
+            // 使 ORDER BY page_index, created_at 的 tie 顺序不定，文本序漂移会把「同一备份重导入」误判为
+            // 源变更（invalidOCRBackup，~50% flaky，2026-09-15 实证）；页 + sha256 已守住本守卫的旨意。
             let sourceChanged = oldPages != incoming || (old?["sha256"] as String?) != document.sha256
-                || (old?["ocr_text"] as String?) != document.ocrText
             let retained = try MemberDeletionService.hasRetainedOCRLinks(documentId: targetId, db: db)
                 || (Int.fetchOne(db, sql: "SELECT COUNT(*) FROM ocr_result WHERE document_file_id = ?", arguments: [targetId.uuidString]) ?? 0) > 0
             if sourceChanged && retained { throw ExportError.invalidOCRBackup }
