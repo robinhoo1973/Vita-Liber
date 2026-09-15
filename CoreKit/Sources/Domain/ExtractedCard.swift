@@ -104,6 +104,28 @@ public struct ExtractionRegion: Codable, Sendable, Equatable {
     }
 }
 
+// MARK: - 抽取请求与原始结果（结构轮 2026-09-15：自 Protocols 迁入——抽取模型值对象单一归属 Domain）
+
+/// 一页一次抽取请求：版面区域 + 候选 spec；`pageBudget` = 单页生成轨总预算（design §5.6，nil = 不限），
+/// 耗尽后剩余区域只走规则轨；`allowsGenerativeProcessing == false` 时 T1/T2 一律不调用（授权门，design §5.2）。
+public struct ExtractionRequest: Sendable {
+    public var pageIndex: Int, lines: [String], regions: [ExtractionRegion], specs: [ExtractionSpec]
+    public var allowsGenerativeProcessing: Bool, pageConfidence: Double, pageBudget: Duration?
+    public init(pageIndex: Int, lines: [String], regions: [ExtractionRegion], specs: [ExtractionSpec],
+                allowsGenerativeProcessing: Bool, pageConfidence: Double, pageBudget: Duration? = nil) {
+        self.pageIndex = pageIndex; self.lines = lines; self.regions = regions; self.specs = specs
+        self.allowsGenerativeProcessing = allowsGenerativeProcessing; self.pageConfidence = pageConfidence; self.pageBudget = pageBudget
+    }
+}
+
+/// 单区域原始结果（未 grounding）。
+public struct RegionExtraction: Sendable, Equatable {
+    public var shared: [String: GroundedValue], rows: [[String: GroundedValue]]
+    public init(shared: [String: GroundedValue], rows: [[String: GroundedValue]]) { self.shared = shared; self.rows = rows }
+    public var isEmpty: Bool { shared.isEmpty && rows.allSatisfy(\.isEmpty) }
+    public var valueCount: Int { shared.count + rows.reduce(0) { $0 + $1.count } }
+}
+
 extension PageLayout {
     /// 表格 → `.table`（行 = `TableRow`，格按 columnIndex 排序）；表外块几何聚行：首个多列行前 → `.header`；
     /// 连续 ≥2 列行段 → 合成 `.table`；其余 → `.paragraph`。按首行号排序。

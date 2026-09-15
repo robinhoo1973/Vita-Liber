@@ -2,10 +2,11 @@ import Foundation
 import Testing
 @testable import Domain
 @testable import Protocols
+@testable import Infrastructure
 
 /// 子项目 E2（2026-09-14 实施计划 Task E2 / design §5.3）：`CardExtractionRegistry` 逐区域失败切换——超时 / 引擎错误 /
 /// grounding 产出率低（同轨缩范围重试一次 → 下一轨）/ 不可用 / 未授权 / 页预算，两轨结果按 (row, key) 并集，诊断诚实标注产出轨。
-/// 仅 `@testable import Domain` + `Protocols`，本机 `refactor/scripts/run-domain-tests.sh` 直跑。
+/// 本机 `refactor/scripts/run-domain-tests.sh` 直跑（脚本以 Linux 安全文件子集编译 mini-Infrastructure 模块）。
 @Suite("SU-CE4 · 逐区域失败切换")
 struct CardExtractionRegistryTests {
     /// 线程安全计数器（引擎被调用次数 / 收到的 spec）。
