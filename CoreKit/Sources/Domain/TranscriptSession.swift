@@ -28,9 +28,9 @@ public struct TranscriptSessionAccumulator: Sendable, Equatable {
 
     /// 已提交段 + 当前部分（段间以空格连接：中英混说与句读由用户/润色层处理，不擅自加标点）
     public var displayText: String {
-        (committed + [partial.trimmingCharacters(in: .whitespacesAndNewlines)])
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
+        TranscriptJoiner.join(
+            (committed + [partial.trimmingCharacters(in: .whitespacesAndNewlines)])
+                .filter { !$0.isEmpty })
     }
 
     /// 松手收尾：未提交的部分结果作为最后一段提交；幂等

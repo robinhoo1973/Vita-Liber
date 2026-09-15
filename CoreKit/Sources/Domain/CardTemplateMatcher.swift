@@ -82,55 +82,17 @@ public struct MatchedCard: Codable, Sendable, Equatable, Identifiable {
     public var allFields: [FieldDraft] { shared + rows.flatMap(\.fields) }
 
     /// Row identity survives editing; a label/unit edit invalidates the whole coding suggestion.
+    /// 规则主体在 `CardConfirmationRules.revise`（Domain 单一事实源，结构轮 2026-09-15）——
+    /// 本方法为值模型上的薄转发，调用点零改。
     public mutating func reviseField(at index: Int, rowId: UUID? = nil, to value: String) {
-        guard let rowId else {
-            guard shared.indices.contains(index) else { return }
-            if case .suggested = encounterAssociation { encounterAssociation = .unselected }
-            // v27：主卡草稿的证据字段（机构 / 医生 / 日期）被编辑即失效——回未选择，由关联区按新证据重派生（与 .suggested 同纪律）。
-            if case .newHub = encounterAssociation, EncounterResolver.evidenceKeys.contains(shared[index].key),
-               shared[index].value != value { encounterAssociation = .unselected }
-            shared[index].revise(to: value)
-            return
-        }
-        guard let r = rows.firstIndex(where: { $0.id == rowId }), rows[r].fields.indices.contains(index),
-              rows[r].fields[index].value != value else { return }
-        let key = rows[r].fields[index].key
-        rows[r].fields[index].revise(to: value)
-        if kind == "metric_sample", key == "raw_label" || key == "unit" {
-            if let label = rows[r].fields.firstIndex(where: { $0.key == "raw_label" }) {
-                rows[r].fields[label].clearCodeResolution()
-                let name = rows[r].fields[label].value.trimmingCharacters(in: .whitespacesAndNewlines)
-                for k in rows[r].fields.indices where rows[r].fields[k].key == "metric_key" {
-                    rows[r].fields[k].value = name.isEmpty ? "" : "lab.\(name)"
-                }
-            }
-        }
+        CardConfirmationRules.revise(&self, at: index, rowId: rowId, to: value)
     }
 
     /// FR6.9 V3.66（业主裁决「一键确认本卡」）：保存前把本卡全部「非拒绝、有值、
     /// 非低置信」字段升级为已确认——用户以**卡级显式确认动作**（[确认保存]）完成
-    /// D→C，不再逐字段点击；低置信字段（`ConfidenceTier.low`）仍须逐项复核
-    /// （FR17.4 强制复核不降级），空字段保持缺失（走补填/待办），拒绝字段保持拒绝。
-    /// 纯值变换，零 IO——写入纪律（BR-003/行级跳过）不变，仅确认粒度从字段升为卡。
+    /// D→C。规则主体在 `CardConfirmationRules.confirmingAllFields`（单一事实源）。
     public func confirmingAllFields() -> MatchedCard {
-        func confirmed(_ fields: [FieldDraft]) -> [FieldDraft] {
-            fields.map { field in
-                guard field.grade != .rejected,
-                      !field.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                      ConfidenceTier.tier(field.confidence) != .low else { return field }
-                var copy = field
-                _ = copy.confirm()
-                return copy
-            }
-        }
-        var result = self
-        result.shared = confirmed(shared)
-        result.rows = rows.map { row in
-            var updated = row
-            updated.fields = confirmed(row.fields)
-            return updated
-        }
-        return result
+        CardConfirmationRules.confirmingAllFields(self)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -543,15 +505,10 @@ public enum CardTemplateMatcher {
         }
     }
 
-    /// 「3.5-9.5」「3.5～9.5」「3.5 ~ 9.5」→ (低, 高)；解析失败 nil（不猜范围）
+    /// 「3.5-9.5」「3.5～9.5」→ (低, 高)——实现主体在 `ExtractionPatterns.referenceBounds`
+    /// （结构轮 2026-09-15 迁出：该数值文法是多轨共享语法资产）；本方法为兼容转发。
     static func referenceBounds(_ text: String) -> (String, String)? {
-        let number = #"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"#
-        guard let regex = try? NSRegularExpression(pattern: "^\\s*(\(number))\\s*[-–~～]\\s*(\(number))\\s*$"), // try?-ok: static numeric grammar
-              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
-              let lowRange = Range(match.range(at: 1), in: text), let highRange = Range(match.range(at: 2), in: text) else { return nil }
-        let low = String(text[lowRange]), high = String(text[highRange])
-        guard let l = Double(low), let h = Double(high), l.isFinite, h.isFinite, l <= h else { return nil }
-        return (low, high)
+        ExtractionPatterns.referenceBounds(text).map { ($0.low, $0.high) }
     }
 
     /// 文档类型判定 → 就诊类型（v26 §C.1）：住院病案/出院小结 → inpatient；日间手术 → daySurgery；急诊病历 → emergency；

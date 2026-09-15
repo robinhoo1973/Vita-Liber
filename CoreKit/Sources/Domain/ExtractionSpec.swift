@@ -111,8 +111,9 @@ public enum ExtractionSpecRegistry {
     static let hospitalAliases = ["医院", "醫院", "医疗机构", "醫療機構", "Hospital"]
     static let deptAliases = ["科室", "科别", "科別", "Department", "Dept"]
     static let doctorAliases = ["医生", "醫生", "医师", "醫師", "Doctor", "Physician"]
-    static let deptWords = ["内科", "外科", "儿科", "妇产科", "眼科", "耳鼻喉科", "口腔科", "皮肤科", "骨科", "神经内科", "消化内科", "呼吸内科",
-                            "心内科", "内分泌科", "肾内科", "肿瘤科", "感染科", "急诊科", "全科", "中医科", "康复科", "体检中心"]
+    /// 词表单点 = ExtractionPatterns.deptWords（结构轮 2026-09-15：此前此处 22 条与
+    /// 理解轨 36 条漂移——裸科室行在规则轨/理解轨命中面不同；并集收敛后两轨一致）。
+    static let deptWords = ExtractionPatterns.deptWords
     static let hospitalFallback: RuleFallback = .lineContaining(["医院", "醫院"])
     static let deptFallback: RuleFallback = .lineEndingWithAny(deptWords)
     static let negativeGuards = OCRGrounding.negationGuards

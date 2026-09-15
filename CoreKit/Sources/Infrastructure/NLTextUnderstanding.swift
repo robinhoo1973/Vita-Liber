@@ -34,14 +34,8 @@ public actor NLTextUnderstanding: TextUnderstanding {
 
     /// 科室词表（coreml §4.2「机构/科室词表」组件——静态内置零资产；
     /// 词表词按最长优先匹配，行尾命中或 CJK 分词 token 命中即产出 dept）
-    private static let deptWords: Set<String> = [
-        "内科", "外科", "儿科", "妇产科", "产科", "眼科", "耳鼻喉科", "口腔科",
-        "皮肤科", "骨科", "泌尿外科", "神经内科", "消化内科", "呼吸内科",
-        "心血管内科", "心内科", "内分泌科", "血液科", "肿瘤科", "感染科",
-        "肾内科", "风湿免疫科", "老年科", "全科", "康复医学科", "康复科",
-        "中医科", "针灸科", "急诊科", "重症医学科", "麻醉科", "放射科",
-        "影像科", "超声科", "检验科", "病理科", "体检中心", "保健科",
-    ]
+    /// 词表单点 = ExtractionPatterns.deptWords（结构轮 2026-09-15：并集收敛，两轨一致）。
+    private static let deptWords: Set<String> = ExtractionPatterns.deptWordSet
 
     public func understand(_ input: TextUnderstandingInput) async -> UnderstandingResult {
         switch input.source {
@@ -139,7 +133,7 @@ public actor NLTextUnderstanding: TextUnderstanding {
     private static func deptDraft(forLine line: String) -> FieldDraft? {
         let text = line.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, text.count <= 20 else { return nil }
-        for word in deptWords.sorted(by: { $0.count > $1.count }) {
+        for word in ExtractionPatterns.deptWordsByLength {
             if text == word || text.hasSuffix(word) {
                 return deptDraft(value: word, rawText: line)
             }

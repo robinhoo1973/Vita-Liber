@@ -566,7 +566,7 @@ private final class ContinuousRecognition<Driver: SpeechSessionDriver>: @uncheck
             let confidence = completion == .final && !confidences.isEmpty
                 ? confidences.reduce(0, +) / Double(confidences.count) : 0
             continuation?.resume(returning: TranscriptionResult(
-                text: segments.joined(separator: " "), confidence: confidence,
+                text: TranscriptJoiner.join(segments), confidence: confidence,
                 resolvedLocale: driver.resolvedLocale, segmented: segments.count > 1,
                 segments: segments, completion: completion))
         }

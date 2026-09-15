@@ -88,36 +88,6 @@ struct PressToTalkMicButton: View {
     }
 }
 
-/// Recognition timers and touch termination share one identity, so release cannot also toggle a Button.
-struct DictationPressState {
-    enum EndAction: Equatable { case none, toggle, stop }
-    private(set) var id: UUID?
-    private var holding = false
-
-    init() {}
-
-    mutating func begin() -> UUID {
-        if let id { return id }
-        let id = UUID()
-        self.id = id
-        return id
-    }
-
-    mutating func recognize(_ id: UUID) -> Bool {
-        guard self.id == id, !holding else { return false }
-        holding = true
-        return true
-    }
-
-    mutating func end(cancelled: Bool) -> EndAction {
-        guard id != nil else { return .none }
-        let action: EndAction = holding ? .stop : (cancelled ? .none : .toggle)
-        id = nil
-        holding = false
-        return action
-    }
-}
-
 /// One touch-lifetime gesture serves both microphone views; accessibility invokes explicit model actions.
 @MainActor
 struct DictationInteraction: ViewModifier {

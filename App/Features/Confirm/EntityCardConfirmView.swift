@@ -56,21 +56,11 @@ struct EntityCardConfirmView: View {
         return true
     }
 
-    /// 卡级确认延伸到主卡草稿：保存动作同时把草稿内「非拒绝、有值、非低置信」字段升 C（FR6.9 一键确认同纪律），
-    /// 低置信字段仍须逐项确认（FR17.4）。纯值变换；store 侧再按 BR-003 校验一次。
+    /// 卡级确认延伸到主卡草稿——规则主体在 `CardConfirmationRules.confirmingDraft`
+    /// （Domain 单一事实源，结构轮 2026-09-15：BR-003 D→C 谓词此前在模型两处 + 本视图
+    /// 一处各写一份，视图不再持有业务规则）。store 侧再按 BR-003 校验一次。
     static func confirmingDraftFields(_ card: MatchedCard) -> MatchedCard {
-        guard case .newHub(var draft) = card.encounterAssociation else { return card }
-        // 用户「拒绝」的草稿字段 = 不把该值带进主卡（草稿只携带用户认可的原文）；拒绝日期字段后草稿区重新要求补填。
-        draft.fields.removeAll { $0.grade == .rejected }
-        for index in draft.fields.indices {
-            let field = draft.fields[index]
-            guard field.grade != .rejected, !field.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                  ConfidenceTier.tier(field.confidence) != .low else { continue }
-            _ = draft.fields[index].confirm()
-        }
-        var result = card
-        result.encounterAssociation = .newHub(draft)
-        return result
+        CardConfirmationRules.confirmingDraft(card)
     }
     /// 文档稳定键：队列模式随导入会话（commitDraft 写入）；续办模式的待办卡不携带 → nil（主卡草稿 kind 缺省门诊）。
     private var sessionDocumentTypeKey: String? {

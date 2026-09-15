@@ -68,7 +68,9 @@ struct TranscriptSessionTests {
         acc.commit("我今天头疼")                 // 静音端点 isFinal
         #expect(acc.partial.isEmpty)
         acc.updatePartial("吃了")
-        #expect(acc.displayText == "我今天头疼 吃了", "停顿后的话接在已提交段之后，不覆盖")
+        // 结构轮 2026-09-15：拼接单点 = TranscriptJoiner（CJK 直接相接，与平台轨一致；
+        // 此前本轨中文间插空格而平台轨不插——同一句话两轨显示不同）。
+        #expect(acc.displayText == "我今天头疼吃了", "停顿后的话接在已提交段之后，不覆盖")
         #expect(acc.finish() == ["我今天头疼", "吃了"])
     }
 
@@ -121,5 +123,24 @@ struct TranscriptSessionTests {
         #expect(base.contains(where: { $0 == "mmol/L" }))
         let mono = MixedSpeechVocabulary.terms(primaryLocale: "zh-Hans-CN", otherLocales: [], recentDrugNames: [])
         #expect(mono.count < base.count, "未选英语时不注入英文混说词（仍含单位）")
+    }
+}
+
+/// 转写拼接单点（结构轮 2026-09-15）：CJK 直接相接；拉丁之间补空格；空段忽略。
+@Suite("SU-M15-VOICE · 转写拼接单点（TranscriptJoiner）")
+struct TranscriptJoinerTests {
+    @Test func CJK直接相接() {
+        #expect(TranscriptJoiner.join(["我今天头疼", "吃了"]) == "我今天头疼吃了")
+    }
+    @Test func 拉丁之间补空格() {
+        #expect(TranscriptJoiner.join(["hello", "world"]) == "hello world")
+    }
+    @Test func 中英相邻不补空格() {
+        #expect(TranscriptJoiner.join(["血压", "120"] ) == "血压120")
+        #expect(TranscriptJoiner.join(["120", "bpm"]) == "120 bpm")
+    }
+    @Test func 空段忽略() {
+        #expect(TranscriptJoiner.join(["", "血压", ""]) == "血压")
+        #expect(TranscriptJoiner.join([]) == "")
     }
 }

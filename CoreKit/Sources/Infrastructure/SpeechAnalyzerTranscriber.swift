@@ -560,21 +560,12 @@ final class AnalyzerSession: @unchecked Sendable {
         onPartial?(display)
     }
 
-    /// 文本拼接：CJK 直接相接；拉丁字符短语之间补空格（英文短语边界可读性）。
+    /// 文本拼接（结构轮 2026-09-15）：单点 = `TranscriptJoiner.join`——与基线轨同源，
+    /// 同一句话不再因引擎轨不同而显示不同（CJK 直接相接，拉丁之间补空格）。
     var displayText: String {
         lock.lock()
         defer { lock.unlock() }
-        var output = ""
-        for piece in pieces {
-            if let last = output.last, let first = piece.text.first,
-               last.isLetter || last.isNumber, first.isLetter || first.isNumber {
-                let lastIsCJK = last.unicodeScalars.contains { (0x4E00...0x9FFF).contains($0.value) }
-                let firstIsCJK = first.unicodeScalars.contains { (0x4E00...0x9FFF).contains($0.value) }
-                if !lastIsCJK && !firstIsCJK { output.append(" ") }
-            }
-            output.append(piece.text)
-        }
-        return output
+        return TranscriptJoiner.join(pieces.map(\.text))
     }
 
     var captureFailure: Error? {
