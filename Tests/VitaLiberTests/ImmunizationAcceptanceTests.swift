@@ -9,7 +9,7 @@ import Protocols
 // binds: SU-M2-CARE — FR4.5/FR4.6 疫苗记录落库（来源/确认状态 + 剂次序号）
 /// 疫苗记录仓储半场：C/D 级确认语义、剂次序号只作如实提示（FR4.6 边界）。
 @MainActor
-final class M2ImmunizationAcceptanceTests: XCTestCase {
+final class ImmunizationAcceptanceTests: XCTestCase {
 
     private func makeStore() async throws -> (GRDBStore, ImmunizationStore, UUID) {
         let store = try GRDBStore.inMemory()

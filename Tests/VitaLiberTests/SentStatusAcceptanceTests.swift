@@ -8,7 +8,7 @@ import Protocols
 
 // binds: SU-M2-CARE — FR24.2 发送状态落库（只记状态不存原文 + 迁移白名单）
 @MainActor
-final class M2SentStatusAcceptanceTests: XCTestCase {
+final class SentStatusAcceptanceTests: XCTestCase {
 
     private func makeStore() async throws -> (GRDBStore, MessageDeliveryStore, UUID) {
         let store = try GRDBStore.inMemory()

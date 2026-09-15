@@ -4,7 +4,7 @@ import Foundation
 @testable import Protocols
 
 // binds: SU-M15-TREND — TC-M15 F7 退出准则（三医院同图 / 空心实心 / 软删恢复 / 换算）
-/// dev-pm §3.3 F7 验收的 Domain 半场。落库半场在 iOS 的 M15AcceptanceTests。
+/// dev-pm §3.3 F7 验收的 Domain 半场。落库半场在 iOS 的 TrendAcceptanceTests。
 @Suite("SU-M15-TREND · F7 双来源趋势与多参考带（FR7.2 一票否决）")
 struct SUM15TrendTests {
 

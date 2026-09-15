@@ -101,7 +101,7 @@ final class TrendQueryIdentityTests: XCTestCase {
         XCTAssertEqual(all.points.map(\.value), [80, 85])
     }
 
-    /// 兼容包装 `series(for:metric:range:)` = 全来源查询，身份同样回传（M15AcceptanceTests 等调用方不改）。
+    /// 兼容包装 `series(for:metric:range:)` = 全来源查询，身份同样回传（TrendAcceptanceTests 等调用方不改）。
     func test_legacySignatureForwardsAsAllOriginsWithIdentity() async throws {
         let seed = try await makeSeed()
         try await insertDeviceHeartRate(seed, patient: seed.owner, value: 80, at: 1_700_006_400)

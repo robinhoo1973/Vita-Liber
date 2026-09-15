@@ -9,10 +9,10 @@ import Protocols
 /// TC-M1b 双轨扣减矩阵与预约闭环（test-plan §4.3）——GRDB 落库级断言
 @MainActor
 // binds: SU-M1b-STOCK / SU-M1b-APPT — TC-M1b-06/07
-final class M1bAcceptanceTests: XCTestCase {
+final class StockAppointmentAcceptanceTests: XCTestCase {
 
     /// 时区固定 Asia/Shanghai 的日历——三处用例各自手写同一构造（含一处
-    /// 闭包 IIFE），下沉为单一出口（与 M2StockAcceptanceTests 的 cal 同型）
+    /// 闭包 IIFE），下沉为单一出口（与 StockAcceptanceTests 的 cal 同型）
     private var shanghaiCalendar: Calendar {
         var c = Calendar(identifier: .gregorian)
         c.timeZone = TimeZone(identifier: "Asia/Shanghai")!

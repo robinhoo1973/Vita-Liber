@@ -6,12 +6,12 @@ import Infrastructure
 import Protocols
 
 /// v27 子项目 J · round1 §E.7 V4/V5：主卡分页 + 子卡批取（`TimelineQueryStore.hubPage`）。
-/// 旧平铺查询 `entries(for:)` 的平铺语义由 `M1cAcceptanceTests` 守住（分支集合不改），本套件只以一条断言复核其不受影响。
+/// 旧平铺查询 `entries(for:)` 的平铺语义由 `TimelineSearchAcceptanceTests` 守住（分支集合不改），本套件只以一条断言复核其不受影响。
 /// CI-only（GRDB / XCTest）。
 @MainActor
 // binds: SU-M1c-REGRESSION（FR11.1 / FR11.2 / BR-001 / BR-003）
 final class TimelineHubQueryTests: XCTestCase {
-    /// 与 M1cAcceptanceTests.makeStore 同构：只建成员，不建文档（文档叶子会改变计数）。
+    /// 与 TimelineSearchAcceptanceTests.makeStore 同构：只建成员，不建文档（文档叶子会改变计数）。
     private func makeStore() async throws -> (GRDBStore, UUID) {
         let store = try GRDBStore.inMemory(), patient = UUID()
         try await store.writer.write { db in

@@ -8,7 +8,7 @@ import Perception
 
 /// M1a 纵向切片的应用状态仓（@Observable，注入进环境）。
 /// 评审修正批（架构 A1-A3 / Swift S1-S2 / PM）：
-/// - 持久化面向 M1aPersisting 协议，生产实现 = GRDBM1aPersistor（§4.3 对应表），
+/// - 持久化面向 PatientPersisting 协议，生产实现 = GRDBPatientPersistor（§4.3 对应表），
 ///   UserDefaults 仅承载 UI 瞬态与偏好——「窄实现」窄化能力，不换存储介质；
 /// - 门禁（V3.22）= 系统设备所有者认证（FR1.1）：GateUnlocking 协议注入，
 ///   生产实现 LocalAuthGateUnlocker（Infrastructure），无应用内 PIN 与节流阶梯；
@@ -41,7 +41,7 @@ final class AppState {
     // L1 首启三卡确认（ConsentRecord 语义，FR20.5）
     private(set) var consentRecords: [ConsentRecord] = []
 
-    private let persistor: any M1aPersisting
+    private let persistor: any PatientPersisting
     /// FR3.4/FR3.5 成员删除与重新归属（影响清单 + 单事务；可选注入，测试可空）
     private let memberDeletion: MemberDeletionService?
     private let defaults: UserDefaults
@@ -57,7 +57,7 @@ final class AppState {
     /// FR17.9/FR17.18 端侧润色端口（V3.61，第 9 工厂；iOS 26 门控，不可用即替身）
     let textRefiner: any TextRefining
 
-    init(persistor: any M1aPersisting,
+    init(persistor: any PatientPersisting,
          speech: (any SpeechSynthesizing)? = nil,
          imageRecognizer: (any ImageTextRecognizing)? = nil,
          transcription: (any TranscriptionEngine)? = nil,

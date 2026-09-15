@@ -3,13 +3,13 @@ import XCTest
 /// TC-M1a-01 端到端切片故事（test-plan-spec §4.2，随 function-spec V3.39 简化向导对齐）：
 /// 三卡 → 建成员「本人」→ 添加家人步（可跳过）→ 向导完成 → 首页空态引导卡呈现。
 /// V3.39：向导不再包含 mock 相机样张/OCR 字段确认/时间轴步骤——BR-003 确认闸门与
-/// 字段级确认/修订语义由 M1aAcceptanceTests 在单元层覆盖（直测 DocumentsState.commitDraft
+/// 字段级确认/修订语义由 SecurityGateAcceptanceTests 在单元层覆盖（直测 DocumentsState.commitDraft
 /// / DocumentStore.confirmText 活管线 + Domain 层 OcrConfirmationTests）；
 /// 生产资料采集走 SP-11 快速拍摄/SP-10 资料库管线（XCUITest 无法驱动相机/相册picker，归 L2）。
 /// 门禁旁路 -uitest-gate-bypass：本会话视为已认证，避免完成后锁屏遮罩顶掉断言。
 /// waitForExistence 显式等待，禁止 sleep（test-plan §4.2 明令）。
 // binds: SU-M1a-E2E / SU-M1a-SEC — TC-M1a-01/02
-final class M1aE2ETests: XCTestCase {
+final class CaptureFlowE2ETests: XCTestCase {
 
     private func launchFresh() -> XCUIApplication {
         let app = XCUIApplication()

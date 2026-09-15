@@ -8,7 +8,7 @@ import Protocols
 
 // binds: SU-M2-CARE — FR13.7 报销票据落库（纯事实汇总，不做报销建议）
 @MainActor
-final class M2ClaimAcceptanceTests: XCTestCase {
+final class ClaimAcceptanceTests: XCTestCase {
 
     private func makeStore() async throws -> (GRDBStore, ClaimStore, UUID) {
         let store = try GRDBStore.inMemory()

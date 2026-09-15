@@ -7,12 +7,13 @@ import Domain
 final class SmokeTests: XCTestCase {
     func test_SU_M0_SMOKE_MainModule五枚举完整() { XCTAssertEqual(MainModule.allCases.count, 5) }
 
-    /// 评审 S2-1 修正：模块键必须与 ui-ux §9 规范一致（home/records/reminders/ai/me），
-    /// 且每个模块都有系统字形与本地化标题——枚举不再兼职中文 UI 串。
+    /// 评审 S2-1 修正：模块键必须与 ui-ux §9 规范一致，且每个模块都有系统字形与
+    /// 本地化标题——枚举不再兼职中文 UI 串。
+    /// v27（子项目 J）：第五 Tab 由 ai 改为 health（健康首页落地，MainModuleID 同改）。
     /// 评审补充（V3.35）：字形为 SF Symbols 名称，运行时校验可解析——拼写/改名错误
     /// 编译期不拦截，`Image(systemName:)` 静默返回空图；本断言把「空 Tab 图标」拦在 L1。
     func test_MainModule_键与规范一致() {
-        XCTAssertEqual(MainModule.allCases.map(\.rawValue), ["home", "records", "reminders", "ai", "me"])
+        XCTAssertEqual(MainModule.allCases.map(\.rawValue), ["home", "records", "reminders", "health", "me"])
         for m in MainModule.allCases {
             XCTAssertFalse(m.title.isEmpty, "\(m.rawValue) 缺本地化标题（L10n 单出口）")
             XCTAssertNotNil(UIImage(systemName: m.systemGlyph),

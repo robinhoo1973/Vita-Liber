@@ -198,7 +198,7 @@ final class HomeProfileProgressTests: XCTestCase {
 }
 
 /// 持久化端口替身：仅隔离 DB/Apple SDK，计数与观察均执行生产 AppState。
-private actor HomeProfilePersistor: M1aPersisting {
+private actor HomeProfilePersistor: PatientPersisting {
     private var profiles: [PatientProfile]
     private var owner: LocalOwner?
     private var consents: [ConsentRecord] = []

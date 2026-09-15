@@ -10,7 +10,7 @@ import Protocols
 /// F16 落库半场：信源库种子/检索、预警事件只存事实、历史查询。
 /// Domain 半场（四级定级/连续三次/五段卡/负清单）在 CoreKitTests。
 @MainActor
-final class M2F16AcceptanceTests: XCTestCase {
+final class HealthAlertAcceptanceTests: XCTestCase {
 
     private func makeStore() async throws -> (GRDBStore, GuidelineStore, UUID) {
         let store = try GRDBStore.inMemory()

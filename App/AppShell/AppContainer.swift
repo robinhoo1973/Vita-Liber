@@ -8,7 +8,7 @@ import Perception
 
 /// tech-spec §3 组装根：唯一共享 DatabasePool(WAL) + StoresBundle。
 /// 评审修正（架构 A2）：M1a 起组装根被真实消费——VitaLiberApp 在此装配
-/// 生产依赖（GRDB 库 + M1aPersisting + 审计写入口），AppState 只面向协议。
+/// 生产依赖（GRDB 库 + PatientPersisting + 审计写入口），AppState 只面向协议。
 struct AppContainer {
     private static let logger = Logger(subsystem: "com.vitaliber", category: "container")
     /// 生产库打开失败的降级标记（非 nil = 只读安全模式，App 层据此显示
@@ -17,7 +17,7 @@ struct AppContainer {
     let degradedReason: String?
     let store: GRDBStore
     let audit: AuditLogWriter
-    let persistor: GRDBM1aPersistor
+    let persistor: GRDBPatientPersistor
     let meds: MedicationStore
     let apts: AppointmentStore
     let reconciler: ReminderReconciler
@@ -191,7 +191,7 @@ struct AppContainer {
         return AppContainer(degradedReason: degradedReason,
                             store: store,
                             audit: auditWriter,
-                            persistor: GRDBM1aPersistor(store: store),
+                            persistor: GRDBPatientPersistor(store: store),
                             meds: meds,
                             apts: apts,
                             reconciler: reconciler,

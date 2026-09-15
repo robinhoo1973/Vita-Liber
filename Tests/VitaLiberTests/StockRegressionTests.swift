@@ -10,7 +10,7 @@ import Protocols
 // D5 物化幂等/时区重锚、FR5.8 归档收藏组合态、商业化定价锚点。
 /// 评审修正第二轮修复的回归防护（GRDB 落库半场；Domain 半场在 CoreKitTests）。
 @MainActor
-final class M2Round2RegressionTests: XCTestCase {
+final class StockRegressionTests: XCTestCase {
 
     private func makeStore() async throws -> (GRDBStore, MedicationStore, UUID, UUID) {
         let store = try GRDBStore.inMemory()

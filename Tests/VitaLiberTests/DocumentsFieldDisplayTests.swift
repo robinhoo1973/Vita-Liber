@@ -36,11 +36,16 @@ final class DocumentsFieldDisplayTests: XCTestCase {
         XCTAssertEqual(display("document_type", "diagnosis_certificate"), L10n.docTypeLabelDiagnosisProof)
         XCTAssertEqual(display("document_type", "vaccine_record"), L10n.docTypeLabelVaccineRecord)
         XCTAssertEqual(display("doc_type", "invoice"), L10n.claim_type_invoice)
-        XCTAssertEqual(display("doc_type", "medication_label"), L10n.entityCardKindName("medication"))
+        // v27：文档稳定键统一经 docTypeName 27 键单出口（此前期望卡类名 —— 键→标签
+        // 单一事实源迁移后过时；medication_label 的展示 = docType.medication_label）。
+        XCTAssertEqual(display("doc_type", "medication_label"), L10n.docTypeName("medication_label"))
     }
 
     func testDocTypeUnknownValuePassesThrough() {
-        XCTAssertEqual(display("doc_type", "checkup_report"), "checkup_report")
+        // v27 起 checkup_report 已登记 27 键映射（体检报告），不再是「未知值」——
+        // 冒烟改用真未知键验证透传，并补 checkup_report 的映射断言。
+        XCTAssertEqual(display("doc_type", "checkup_report"), L10n.docTypeName("checkup_report"))
+        XCTAssertEqual(display("doc_type", "totally_unknown_doc_type"), "totally_unknown_doc_type")
     }
 
     // MARK: item_type → claim type labels

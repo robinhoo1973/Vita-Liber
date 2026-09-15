@@ -9,14 +9,14 @@ import UIKit
 
 /// TC-M1a-03/05 的 App 层半场（test-plan §4.2）：
 /// 生物识别门禁（FR1.1 V3.22）、L1 三卡 ConsentRecord 落库、BR-003。
-/// 评审修正：经 GRDBM1aPersistor 走真实 §4.3 表——「本人关联 patient_profile」
+/// 评审修正：经 GRDBPatientPersistor 走真实 §4.3 表——「本人关联 patient_profile」
 /// 从 ID 断言升级为落库断言，闭合假绿。
 /// V3.39 对齐：BR-003 闸门用例从旧 AppState 引擎（captureSample/commitToTimeline，
 /// 已随向导简化删除）迁移到活管线 DocumentsState.commitDraft / DocumentStore——
 /// 红线验收覆盖生产路径而非死代码。
 @MainActor
 // binds: SU-M1a-SEC / SU-M1a-BIO / SU-M1a-GOLDEN — TC-M1a-03/04/05（BR-003 一票否决）
-final class M1aAcceptanceTests: XCTestCase {
+final class SecurityGateAcceptanceTests: XCTestCase {
 
     /// 第八轮全仓审查修复（临时目录残留清理）：makeDocs 此前把 BR-002
     /// 不可变原件直接写进系统共享临时目录（originals/<patientId>/），
@@ -33,7 +33,7 @@ final class M1aAcceptanceTests: XCTestCase {
     }
 
     private func freshDefaults() -> UserDefaults {
-        let suite = "M1aAcceptanceTests-\(UUID().uuidString)"
+        let suite = "SecurityGateAcceptanceTests-\(UUID().uuidString)"
         let d = UserDefaults(suiteName: suite)!
         d.removePersistentDomain(forName: suite)
         return d

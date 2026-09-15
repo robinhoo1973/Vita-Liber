@@ -415,7 +415,7 @@ public actor DocumentStore {
     }
 
     /// FR6.1 OCR 结果留痕：每已确认字段一行（原文块+置信度+引擎版本，可追溯可重放）。
-    /// V3.39 起为唯一写入口——旧 AppState 引擎（经 M1aPersisting）已随向导简化删除，
+    /// V3.39 起为唯一写入口——旧 AppState 引擎（经 PatientPersisting）已随向导简化删除，
     /// 活管线 DocumentsState.commitDraft 在确认入库后调用。
     /// 第四轮全仓审查修复（FR6.4）：修订历史随留痕行持久化——用户改值后
     /// 「旧值 → 新值 · 修改人 · 时间」入 raw_blocks 尾部，修订链路可追溯

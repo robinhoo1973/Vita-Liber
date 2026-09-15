@@ -13,7 +13,7 @@ final class MemberAcceptanceTests: XCTestCase {
     /// saveOwner（本人）→ saveMember（家人）→ members() 两张档案并存且字段往返
     func test_成员落库与往返() async throws {
         let store = try GRDBStore.inMemory()
-        let persistor = GRDBM1aPersistor(store: store)
+        let persistor = GRDBPatientPersistor(store: store)
 
         let now = Date().timeIntervalSince1970
         let owner = LocalOwner(displayName: "本人", createdAt: now)
@@ -35,7 +35,7 @@ final class MemberAcceptanceTests: XCTestCase {
     /// 成员配额：Domain 判定与落库计数一致（4 人内不弹、第 5 人弹）
     func test_配额边界与落库一致() async throws {
         let store = try GRDBStore.inMemory()
-        let persistor = GRDBM1aPersistor(store: store)
+        let persistor = GRDBPatientPersistor(store: store)
         let now = Date().timeIntervalSince1970
         let owner = LocalOwner(displayName: "本人", createdAt: now)
         try await persistor.saveOwner(owner, profile: PatientProfile(

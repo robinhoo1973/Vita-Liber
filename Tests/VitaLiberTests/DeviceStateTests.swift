@@ -11,7 +11,7 @@ import Protocols
 /// 绑定 / 已导入行）映射为 `HealthImportPageState` 三态——缺本人档案是独立状态而非「同步失败」，
 /// 开关关闭优先于一切；`run()` 抛 `disabled` 时状态对象呈现「已关闭」而非通用失败。
 @MainActor
-final class F16DeviceStateTests: XCTestCase {
+final class DeviceStateTests: XCTestCase {
     private func makeState(seedOwner: Bool) async throws -> (GRDBStore, HealthImportStore, F16DeviceState) {
         let db = try GRDBStore.inMemory()
         if seedOwner {

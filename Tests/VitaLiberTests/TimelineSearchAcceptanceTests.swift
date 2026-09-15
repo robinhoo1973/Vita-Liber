@@ -9,7 +9,7 @@ import Protocols
 /// TC-M1c 时间轴投影与全文搜索（test-plan §4.4）——GRDB 落库级断言
 @MainActor
 // binds: SU-M1c-REGRESSION / SU-M1c-EXPORT / SU-M1c-SEC — TC-M1c-01/04
-final class M1cAcceptanceTests: XCTestCase {
+final class TimelineSearchAcceptanceTests: XCTestCase {
 
     private func makeStore() async throws -> GRDBStore {
         let store = try GRDBStore.inMemory()
@@ -59,7 +59,7 @@ final class M1cAcceptanceTests: XCTestCase {
         let exportA = ExportService(writer: storeA.writer)
         // 种子走生产路径：saveOwner 建立 owner↔本人档案关联（envelope.selfProfile
         // 的 JOIN 前提——无 local_owner 行则档案不进包）
-        let persistorA = GRDBM1aPersistor(store: storeA)
+        let persistorA = GRDBPatientPersistor(store: storeA)
         var owner = LocalOwner(displayName: "测试患者", createdAt: 0)
         let profile = PatientProfile(displayName: "测试患者", relation: "本人")
         owner.selfPatientId = profile.id

@@ -11,7 +11,7 @@ import Protocols
 /// V3.39 起不再承载时间轴投影与 OCR 留痕（loadTimeline/saveTimeline/saveOCRResult
 /// 已删除）——文档事实源统一为 DocumentStore（document_file 直读，
 /// FR6.1 留痕走 DocumentStore.saveOCRResult）。
-public actor GRDBM1aPersistor: M1aPersisting {
+public actor GRDBPatientPersistor: PatientPersisting {
     private let store: GRDBStore
 
     public init(store: GRDBStore) { self.store = store }

@@ -13,7 +13,7 @@ import Protocols
 /// **生产链**：排程物化 → 零用户动作 → `materializeMissed` 补账 → 安全线按计划
 /// 推进、确认线不动 → 续药档位随安全线触达 → 月报纯事实。
 @MainActor
-final class M2StockAcceptanceTests: XCTestCase {
+final class StockAcceptanceTests: XCTestCase {
 
     private func makeStore() async throws -> (GRDBStore, MedicationStore, UUID, UUID) {
         let store = try GRDBStore.inMemory()

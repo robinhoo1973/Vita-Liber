@@ -169,8 +169,14 @@ final class OcrCardQueueAcceptanceTests: XCTestCase {
         XCTAssertTrue(saved)
         let card = try XCTUnwrap(f.docs.currentEntityCard)
         let result = await f.docs.confirmEntityCard(card, confirmed: reviewed(card))
-        XCTAssertEqual(result?.writtenCount, 2)
+        // v26 §C.5（function-spec V3.80 FR6.9）：行最小集 = raw_label + value，unit 可选；
+        //「红细胞 4.5」仍成行，按分流落 lab_result（定性原文，不进趋势）。
+        XCTAssertEqual(result?.writtenCount, 3)
         let documentID = try XCTUnwrap(f.docs.entityQueueDocumentId)
+        let qualitative = try await f.database.writer.read { try Row.fetchAll($0, sql: "SELECT * FROM lab_result") }
+        XCTAssertEqual(qualitative.count, 1)
+        XCTAssertEqual(qualitative.first?["item_name"] as String?, "红细胞")
+        XCTAssertEqual(qualitative.first?["result_text"] as String?, "4.5")
         let rows = try await f.database.writer.read { try Row.fetchAll($0, sql: "SELECT * FROM metric_sample ORDER BY raw_label") }
         XCTAssertEqual(rows.count, 2)
         for row in rows {
@@ -410,7 +416,13 @@ final class OcrCardQueueAcceptanceTests: XCTestCase {
         let saved = await f.docs.commitDraft(draft)
         XCTAssertTrue(saved)
         let initial = try XCTUnwrap(f.docs.currentEntityCard)
-        let result = await f.docs.confirmEntityCard(initial, confirmed: reviewed(initial))
+        // v26 §C.5：「红细胞 4.5」（raw_label + value，无 unit）不再是残行——单位缺失走
+        // lab_result 定性分流。残行改以「结果未确认」（D 级，BR-003 未确认不得落库）表达：
+        // 第三行 value 保持未确认（reenable 回 D 级）。
+        var confirmed = reviewed(initial)
+        let valueIndex = try XCTUnwrap(confirmed.rows[2].fields.firstIndex { $0.key == "value" })
+        confirmed.rows[2].fields[valueIndex].reenable()
+        let result = await f.docs.confirmEntityCard(initial, confirmed: confirmed)
         XCTAssertEqual(result?.writtenCount, 2)
         XCTAssertEqual(result?.resolved, false)
         var residual = try XCTUnwrap(f.docs.currentEntityCard)

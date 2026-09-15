@@ -12,9 +12,9 @@ import Protocols
 ///
 /// 为什么必须在 iOS 目标：GRDB 只在 iOS/macOS 链接（ERR#8），CoreKit 的 SPM 测试
 /// 目标跑在 Linux 容器里，那里 TrendQueryStore / BackupService 被平台守卫整体
-/// 编译排除，断言无处落脚。Domain 半场见 CoreKitTests/M15AcceptanceTests.swift。
+/// 编译排除，断言无处落脚。Domain 半场见 CoreKitTests/TrendAcceptanceTests.swift。
 @MainActor
-final class M15AcceptanceTests: XCTestCase {
+final class TrendAcceptanceTests: XCTestCase {
 
     private func makeStore() async throws -> (GRDBStore, UUID) {
         let store = try GRDBStore.inMemory()
@@ -438,7 +438,8 @@ final class M15AcceptanceTests: XCTestCase {
                   metric_key TEXT NOT NULL, value REAL NOT NULL, secondary_value REAL,
                   unit TEXT NOT NULL, origin TEXT NOT NULL, self_measured INTEGER NOT NULL,
                   excluded INTEGER NOT NULL DEFAULT 0, source_ref TEXT,
-                  measured_at REAL NOT NULL, created_at REAL NOT NULL);
+                  measured_at REAL NOT NULL, created_at REAL NOT NULL,
+                  ref_low REAL, ref_high REAL, ref_source_label TEXT);   -- v2 增列，v26 检验表头回填读取
                 CREATE TABLE alert_event (
                   id TEXT PRIMARY KEY, patient_id TEXT NOT NULL, rule_id TEXT NOT NULL,
                   severity TEXT NOT NULL, evidence_json TEXT NOT NULL,
@@ -451,6 +452,64 @@ final class M15AcceptanceTests: XCTestCase {
                   id TEXT PRIMARY KEY, reminder_id TEXT, dose_log_id TEXT,
                   scheduled_at REAL NOT NULL, delivered_at REAL,
                   channel TEXT NOT NULL, level TEXT, outcome TEXT, created_at REAL NOT NULL);
+                  delivered_state TEXT NOT NULL, created_at REAL NOT NULL);
+                -- v25 recognition-fact-lines 对 encounter/prescription/stock_lot/claim_item/document_file
+                -- 增列、v25 回填读 ocr_result、v26 对 metric_sample 增列——合成老库须含这些表的
+                -- v12 期形态（列集取自 Fixtures/schema_v24_baseline.sql 去掉后续增列），否则
+                -- ADD COLUMN 在缺表上抛 no such table，整链失败（D1-1/D2-1 落地时补齐）。
+                CREATE TABLE document_file (
+                  id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+                  doc_type TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', sha256 TEXT NOT NULL,
+                  mime_type TEXT NOT NULL, is_sensitive INTEGER NOT NULL DEFAULT 0,
+                  encounter_id TEXT, origin TEXT NOT NULL, meta_json TEXT, title TEXT, ocr_text TEXT,
+                  notes TEXT, grade TEXT NOT NULL DEFAULT 'C', created_at REAL NOT NULL, updated_at REAL NOT NULL);
+                CREATE TABLE encounter (
+                  id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+                  date REAL NOT NULL, kind TEXT NOT NULL, hospital TEXT, department TEXT, doctor TEXT,
+                  chief_complaint TEXT, diagnosis_text TEXT, advice_text TEXT, follow_up_requirement TEXT,
+                  fee_amount REAL, rescheduled_from_id TEXT REFERENCES encounter(id),
+                  deleted_at REAL, created_at REAL NOT NULL, updated_at REAL NOT NULL);
+                CREATE TABLE ocr_result (
+                  id TEXT PRIMARY KEY, document_file_id TEXT NOT NULL REFERENCES document_file(id),
+                  page_index INTEGER NOT NULL DEFAULT 0, raw_blocks TEXT NOT NULL,
+                  engine_version TEXT NOT NULL, created_at REAL NOT NULL);
+                CREATE TABLE prescription (
+                  id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+                  encounter_id TEXT REFERENCES encounter(id), document_file_id TEXT REFERENCES document_file(id),
+                  source TEXT NOT NULL, hospital TEXT, doctor TEXT, prescribed_at REAL, advice_text TEXT,
+                  confirmed INTEGER NOT NULL DEFAULT 0, created_at REAL NOT NULL, updated_at REAL NOT NULL);
+                CREATE TABLE medication (
+                  id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+                  generic_name TEXT NOT NULL, brand_name TEXT, spec TEXT, unit_kind TEXT NOT NULL,
+                  created_at REAL NOT NULL, updated_at REAL NOT NULL);
+                CREATE TABLE stock_lot (
+                  id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+                  medication_id TEXT NOT NULL REFERENCES medication(id),
+                  prescription_id TEXT REFERENCES prescription(id),
+                  total_units REAL NOT NULL, unit_kind TEXT NOT NULL,
+                  remaining_plan_units REAL NOT NULL, remaining_confirmed_units REAL NOT NULL,
+                  opened_at REAL, expire_at REAL, storage_note TEXT, storage_photo_id TEXT, box_photo_id TEXT,
+                  status TEXT NOT NULL, last_reconciled_at REAL NOT NULL);
+                CREATE TABLE claim_item (
+                  id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+                  encounter_id TEXT REFERENCES encounter(id), document_file_id TEXT REFERENCES document_file(id),
+                  item_type TEXT NOT NULL, amount REAL, currency TEXT DEFAULT 'CNY', date REAL, merchant TEXT,
+                  summary TEXT, confirmed INTEGER NOT NULL DEFAULT 0, created_at REAL NOT NULL, updated_at REAL NOT NULL);
+                -- v27 card-hierarchy 对 appointment/reminder 增列（encounter_id/purpose、source_table/source_id）——两表 v12 期
+                -- 形态 = 基线去掉 v27 增列（appointment 的 source/items_to_bring/notes 已由 v8 补齐；reminder v1 起未变）。
+                -- v27 另触碰的 lab_report/exam_report 由链上 v26 自建、metric_sample/document_file/ocr_card_commit 已在（J1 落地时补齐）。
+                CREATE TABLE appointment (
+                  id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+                  hospital TEXT, department TEXT, doctor TEXT,
+                  starts_at REAL NOT NULL, address TEXT, booking_no TEXT,
+                  status TEXT NOT NULL DEFAULT 'scheduled', cancel_reason TEXT, rescheduled_from TEXT,
+                  source TEXT, items_to_bring TEXT, notes TEXT,
+                  created_at REAL NOT NULL, updated_at REAL NOT NULL);
+                CREATE TABLE reminder (
+                  id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+                  kind TEXT NOT NULL, title TEXT NOT NULL, at_date REAL NOT NULL, repeats TEXT,
+                  status TEXT NOT NULL DEFAULT 'active', source TEXT NOT NULL DEFAULT 'manual', channel_pref TEXT,
+                  created_at REAL NOT NULL, updated_at REAL NOT NULL);
                 INSERT INTO medication_plan (id, patient_id, status, schedule_json, start_date, created_at, updated_at)
                   VALUES (?, 'p-1', 'active', ?, ?, ?, ?);
                 """, arguments: [planId.uuidString, scheduleJSON, now, now, now])

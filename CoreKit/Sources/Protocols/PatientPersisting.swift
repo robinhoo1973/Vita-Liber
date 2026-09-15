@@ -3,8 +3,8 @@ import Domain
 
 /// M1a 持久化端口（评审修正：AppState 不得直连 UserDefaults——
 /// 「窄实现」允许窄化能力，不允许换掉已定的存储介质 §4.3 GRDB）。
-/// 生产实现 GRDBM1aPersistor（Infrastructure），测试/Preview 可用内存实现。
-public protocol M1aPersisting: Sendable {
+/// 生产实现 GRDBPatientPersistor（Infrastructure），测试/Preview 可用内存实现。
+public protocol PatientPersisting: Sendable {
     func loadOwner() async throws -> LocalOwner?
     func saveOwner(_ owner: LocalOwner, profile: PatientProfile) async throws
     /// F3 成员管理（FR3.7 添加家人）：saveOwner 的同族成员写入/读取。
