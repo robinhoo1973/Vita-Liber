@@ -188,14 +188,19 @@ private struct ProfileSuggestionHost: ViewModifier {
 
     func body(content: Content) -> some View {
         WithPerceptionTracking {
-            content.sheet(item: Binding(
-                get: {
-                    guard enabled, let batch = docs.profileSuggestionBatch, batch.presenterKey == presenterKey else { return nil }
-                    return batch
-                },
-                set: { batch, _ in   // 新 SDK Binding.set 携带 (Value, Transaction)——第二参忽略
-                    if batch == nil { docs.clearProfileSuggestions(presenterKey: presenterKey) }
-                })) { batch in
+            // 新 SDK Binding.set 携带 (Value?, Transaction) 双参；显式泛型标注消除
+            // sheet(item:) 的 Item 推断歧义（无标注时两个 set 重载并存，CI 实证
+            // 「generic parameter 'Item' could not be inferred」）。
+            content.sheet(
+                item: Binding<ProfileSuggestionBatch?>(
+                    get: {
+                        guard enabled, let batch = docs.profileSuggestionBatch, batch.presenterKey == presenterKey else { return nil }
+                        return batch
+                    },
+                    set: { batch, _ in
+                        if batch == nil { docs.clearProfileSuggestions(presenterKey: presenterKey) }
+                    })
+            ) { batch in
                 ProfileSuggestionSheet(batch: batch)
             }
         }
