@@ -77,7 +77,8 @@ struct TimelineHierarchyRulesTests {
         #expect(RecordChildKind.treatmentRecord.cardKind == "treatment_record" && RecordChildKind.claim.cardKind == "claim_item" && RecordChildKind.labReport.cardKind == "lab_report")
         #expect(RecordChildKind.appointment.cardKind == nil && RecordChildKind.reminder.cardKind == nil && RecordChildKind.document.cardKind == nil)
         #expect(RecordHub.healthExam.rawValue == "health_exam" && RecordHub.allCases.count == 3)
-        #expect(TimelineEntryKind.allCases.count == 22, "十类既有 + 十二类子卡/主卡（J3 SQL kind 字面量与 J4 L10n 键随 rawValue）")
+        #expect(TimelineEntryKind.allCases.count == 23, "十类既有 + 十二类子卡/主卡 + 设备自动汇入 healthData（J3 SQL kind 字面量与 J4 L10n 键随 rawValue）")
+        #expect(TimelineEntryKind(rawValue: "healthData") != nil, "设备来源行与手输自测分列（FR7.9/FR16.1）")
         for raw in ["hospitalization", "healthExam", "diagnosis", "prescription", "labReport", "examReport", "claim", "surgery", "treatmentRecord", "appointment", "reminder", "clinicalConclusion"] {
             #expect(TimelineEntryKind(rawValue: raw) != nil, "\(raw)")
         }

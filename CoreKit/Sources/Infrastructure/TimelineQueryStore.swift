@@ -63,11 +63,13 @@ public actor TimelineQueryStore {
                       AND (occurred_at < ? OR (occurred_at = ? AND id < ?))
                     """)
             }
-            if kinds.contains(.selfMeasured) || kinds.contains(.lab) {
+            if kinds.contains(.selfMeasured) || kinds.contains(.lab) || kinds.contains(.healthData) {
                 branch(sql: """
                     SELECT id AS id, measured_at AS d, metric_key AS title,
                            CAST(value AS TEXT) || ' ' || unit AS summary, 'C' AS grade,
-                           CASE WHEN origin = 'hospital' THEN 'lab' ELSE 'selfMeasured' END AS kind,
+                           CASE WHEN origin = 'hospital' THEN 'lab'
+                                WHEN origin = 'device' THEN 'healthData'
+                                ELSE 'selfMeasured' END AS kind,
                            metric_key AS metric_key
                     FROM metric_sample
                     WHERE patient_id = ? AND excluded = 0
@@ -86,7 +88,7 @@ public actor TimelineQueryStore {
                 branch(sql: """
                     SELECT id AS id, administered_at AS d, vaccine_name AS title, NULL AS summary, 'C' AS grade, 'vaccination' AS kind, NULL AS metric_key
                     FROM immunization
-                    WHERE patient_id = ?
+                    WHERE patient_id = ? AND confirmed = 1
                       AND (administered_at < ? OR (administered_at = ? AND id < ?))
                     """)
             }
@@ -258,7 +260,14 @@ public actor TimelineQueryStore {
         Leaf(kind: .observation, from: "observation", id: "id", d: "occurred_at", title: "kind", summary: "description",
              grade: "'C'", metric: "NULL", patient: "patient_id", extra: "1 = 1"),
         Leaf(kind: .selfMeasured, from: "metric_sample", id: "id", d: "measured_at", title: "metric_key", summary: "CAST(value AS TEXT) || ' ' || unit",
-             grade: "'C'", metric: "metric_key", patient: "patient_id", extra: "excluded = 0 AND origin <> 'hospital'"),
+             grade: "'C'", metric: "metric_key", patient: "patient_id", extra: "excluded = 0 AND origin = 'manual'"),
+        // 设备自动汇入（Apple 健康，FR7.9/FR16.1）：与手输自测**分列**——此前共用
+        // `.selfMeasured`（`origin <> 'hospital'`），导入数据在健康档案里被标成「自测」
+        // （业主第 7 项实测），且与手动读数同路送进指标行「观察详情」错路。设备读数不是
+        // 用户确认事实（FR7.9「设备自动来源不冒充医院原文、用户已确认或 OCR 的 D 级草稿」），
+        // 故 grade 留空——由条目类型名「健康数据」承担来源说明。成员隔离仍由 patient_id 过滤。
+        Leaf(kind: .healthData, from: "metric_sample", id: "id", d: "measured_at", title: "metric_key", summary: "CAST(value AS TEXT) || ' ' || unit",
+             grade: "NULL", metric: "metric_key", patient: "patient_id", extra: "excluded = 0 AND origin = 'device'"),
         // 医院检验点：无表头、无体检、且无回执归属者才是叶子（有表头者经 labReport 子卡呈现，有回执归属者经子卡源到达）
         Leaf(kind: .lab, from: "metric_sample f", id: "f.id", d: "f.measured_at", title: "f.metric_key", summary: "CAST(f.value AS TEXT) || ' ' || f.unit",
              grade: "'C'", metric: "f.metric_key", patient: "f.patient_id",
@@ -266,8 +275,10 @@ public actor TimelineQueryStore {
         // occurred_at / administered_at 为可空列：COALESCE 到 created_at，NULL 不进 Double 解码（entries 分支沿用原列，不改）
         Leaf(kind: .allergy, from: "allergy_event", id: "id", d: "COALESCE(occurred_at, created_at)", title: "substance", summary: "severity",
              grade: "'C'", metric: "NULL", patient: "patient_id", extra: "1 = 1"),
+        // confirmed = 1（BR-003 / ui-ux §5.31）：未确认的 OCR 疫苗行不得以硬编码 'C' 徽章
+        // 进入健康档案（其余叶子与子卡源同口径）；未确认行只在待确认队列呈现。
         Leaf(kind: .vaccination, from: "immunization", id: "id", d: "COALESCE(administered_at, created_at)", title: "vaccine_name", summary: "NULL",
-             grade: "'C'", metric: "NULL", patient: "patient_id", extra: "encounter_id IS NULL"),
+             grade: "'C'", metric: "NULL", patient: "patient_id", extra: "encounter_id IS NULL AND confirmed = 1"),
         Leaf(kind: .voiceNote, from: "voice_note", id: "id", d: "occurred_at", title: "''", summary: "body",
              grade: "'C'", metric: "NULL", patient: "patient_id", extra: "in_timeline = 1"),
         Leaf(kind: .healthProblem, from: "health_problem", id: "id", d: "created_at", title: "name", summary: "NULL",

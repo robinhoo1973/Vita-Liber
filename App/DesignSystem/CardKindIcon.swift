@@ -50,6 +50,9 @@ enum CardKindIcon {
         case .reminder: return Spec(symbol: "bell", glyph: VLIcon.bell, tint: warning)
         case .observation: return Spec(symbol: "eye", glyph: VLIcon.observeFrame, tint: warning)
         case .selfMeasured: return Spec(symbol: "waveform.path.ecg", glyph: VLIcon.pulse, tint: brand)
+        // Apple 健康导入（FR7.9/FR16.1）：符号同健康 Tab（heart.text.clipboard）——
+        // 与手输自测（波形）一眼可分，色仍按卡类不按严重度（BR-004）。
+        case .healthData: return Spec(symbol: "heart.text.clipboard", glyph: VLIcon.pulse, tint: brand)
         case .allergy: return Spec(symbol: "allergens", glyph: VLIcon.allergy, tint: danger)
         case .voiceNote: return Spec(symbol: "mic", glyph: VLIcon.mic, tint: secondary)
         case .healthProblem: return Spec(symbol: "cross.case", glyph: VLIcon.timeline, tint: brand)

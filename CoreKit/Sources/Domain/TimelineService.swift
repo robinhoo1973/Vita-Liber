@@ -4,6 +4,11 @@ import Foundation
 /// Domain 持有投影语义（合并/排序/过滤/游标），Infrastructure 提供 GRDB 联合查询。
 public enum TimelineEntryKind: String, Sendable, Equatable, Codable, CaseIterable {
     case encounter, medication, observation, lab, selfMeasured, vaccination, allergy, voiceNote, healthProblem
+    /// 设备自动汇入的读数（FR7.9 / FR16.1：`metric_sample.origin = 'device'`，即 Apple 健康导入）。
+    /// 2026-09-15 实测修复：此前设备行与手输自测共用 `.selfMeasured`，Apple 健康导入的数据
+    /// 在时间轴/健康档案里被标成「自测」——FR7.9 明令「设备自动来源不冒充医院原文、用户已确认
+    /// 或 OCR 的 D 级草稿」，两者必须分列。
+    case healthData
     /// 资料文档（F5）——唯一携带真实来源徽章的投影分支（grade D = 机器识别未确认）
     case document
     /// v27（子项目 J · round1 §D 主从关系表）：主卡（住院期 / 体检）与子卡类型。rawValue = J3 `hubs(for:)` SQL 的

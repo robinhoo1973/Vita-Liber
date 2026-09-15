@@ -158,6 +158,10 @@ struct TrendChartRouteView: View {
                             .accessibilityIdentifier("SP-13.trend.connectHealth")
                         }
                     }
+                    // 容器标识必须配 children: .contain——否则 SwiftUI 把容器标识压到
+                    // 每个子元素上，子按钮的 SP-13.trend.connectHealth 在 XCUITest 里
+                    // 查不到（CI 34021989599 同族）。L0 掩蔽门禁看不到跨文件容器类型。
+                    .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("SP-13.trend.detail.empty")
                 }
             }

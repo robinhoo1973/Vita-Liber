@@ -19,16 +19,12 @@ enum L10n {
     static var navReminders: String { t("nav.reminders") }
     static var navHealth: String { t("nav.health") }
     static var navMe: String { t("nav.me") }
-    // MARK: - 健康 Tab（H 重构）
+    // MARK: - 健康 Tab（H 重构；2026-09-15 实测修复批：占位页三个快捷卡与假搜索框退役，
+    // 随之删除只服务它们的键：quickActions / trends / reminders / searchRecords /
+    // searchPlaceholder / summaryTitle——保留的三键仍被健康 Tab 数据面消费）
     static var healthSearchPrompt: String { t("health.searchPrompt") }
-    static var healthSearchPlaceholder: String { t("health.searchPlaceholder") }
-    static var healthSummaryTitle: String { t("health.summaryTitle") }
     static var healthConnectDevice: String { t("health.connectDevice") }
     static var healthConnectButton: String { t("health.connectButton") }
-    static var healthQuickActions: String { t("health.quickActions") }
-    static var healthTrends: String { t("health.trends") }
-    static var healthReminders: String { t("health.reminders") }
-    static var healthSearchRecords: String { t("health.searchRecords") }
 
     // MARK: - F7 趋势（SP-13 / FR7.2）
     static var trendTitle: String { t("trend.title") }
@@ -854,13 +850,7 @@ enum L10n {
     "ai.quickNext",
     "health.connectButton",
     "health.connectDevice",
-    "health.quickActions",
-    "health.reminders",
-    "health.searchPlaceholder",
     "health.searchPrompt",
-    "health.searchRecords",
-    "health.summaryTitle",
-    "health.trends",
     // V3.49：动态键（voiceIntentName(_:) 拼装）——十意图目录标签，静态扫描不可见
     "voiceIntent.recordMetric",
     "voiceIntent.recordObservation",
@@ -1431,7 +1421,7 @@ enum L10n {
         "encounter.form.advice", "encounter.form.followUp", "encounter.form.fee",
         "timeline.title", "timeline.emptyHint", "timeline.filter.all",
         "timeline.kind.encounter", "timeline.kind.medication", "timeline.kind.observation",
-        "timeline.kind.lab", "timeline.kind.selfMeasured", "timeline.kind.vaccination",
+        "timeline.kind.lab", "timeline.kind.selfMeasured", "timeline.kind.healthData", "timeline.kind.vaccination",
         "timeline.kind.allergy", "timeline.kind.voiceNote", "timeline.kind.healthProblem",
         "timeline.problemsFilter",
         "problem.title", "problem.empty", "problem.emptyHint", "problem.createTitle",

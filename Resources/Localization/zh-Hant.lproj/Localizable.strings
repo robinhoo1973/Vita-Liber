@@ -5,7 +5,7 @@
 "nav.home" = "首頁";
 "nav.records" = "健康檔案";
 "nav.reminders" = "提醒";
-"nav.health" = "AI 助手";
+"nav.health" = "健康";
 "nav.me" = "我的";
 "trend.title" = "指標趨勢";
 "trend.range.unavailable" = "暫無參考範圍（本階段僅顯示報告自帶範圍）";
@@ -624,7 +624,7 @@
 "home.guide1" = "建立成員檔案";
 "home.guide2" = "拍攝第一份資料";
 "home.guide3" = "設定第一個提醒";
-"home.guide4" = "了解 AI 助手";
+"home.guide4" = "查看健康資料";
 "home.memberSwitch" = "切換成員";
 "home.notifDenied" = "通知權限已關閉，用藥與預約提醒可能無法送達";
 "home.notifOpen" = "去開啟";
@@ -836,6 +836,7 @@
 "timeline.kind.observation" = "觀察";
 "timeline.kind.lab" = "檢驗";
 "timeline.kind.selfMeasured" = "自測";
+"timeline.kind.healthData" = "健康資料";
 "timeline.kind.vaccination" = "疫苗";
 "timeline.kind.allergy" = "過敏";
 "timeline.kind.voiceNote" = "速記";
@@ -2084,12 +2085,6 @@
 "field.result" = "治療結果";
 
 "health.searchPrompt" = "搜尋健康記錄";
-"health.searchPlaceholder" = "輸入關鍵詞搜尋...";
-"health.summaryTitle" = "健康概覽";
 "health.connectDevice" = "連線裝置以查看健康資料";
 "health.connectButton" = "連線裝置";
-"health.quickActions" = "快捷操作";
-"health.trends" = "趨勢";
-"health.reminders" = "提醒";
-"health.searchRecords" = "查記錄";
 

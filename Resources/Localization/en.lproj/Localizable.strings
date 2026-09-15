@@ -5,7 +5,7 @@
 "nav.home" = "Home";
 "nav.records" = "Records";
 "nav.reminders" = "Reminders";
-"nav.health" = "Assistant";
+"nav.health" = "Health";
 "nav.me" = "Me";
 "trend.title" = "Trends";
 "trend.range.unavailable" = "No reference range (report-provided ranges only at this stage)";
@@ -624,7 +624,7 @@
 "home.guide1" = "Create a member profile";
 "home.guide2" = "Capture your first record";
 "home.guide3" = "Set your first reminder";
-"home.guide4" = "Meet the AI assistant";
+"home.guide4" = "View health data";
 "home.memberSwitch" = "Switch Member";
 "home.notifDenied" = "Notifications are off — medication and appointment reminders may not reach you";
 "home.notifOpen" = "Enable";
@@ -836,6 +836,7 @@
 "timeline.kind.observation" = "Observations";
 "timeline.kind.lab" = "Labs";
 "timeline.kind.selfMeasured" = "Self-measured";
+"timeline.kind.healthData" = "Health data";
 "timeline.kind.vaccination" = "Vaccines";
 "timeline.kind.allergy" = "Allergies";
 "timeline.kind.voiceNote" = "Voice notes";
@@ -2084,12 +2085,6 @@
 "field.result" = "Treatment result";
 
 "health.searchPrompt" = "Search health records";
-"health.searchPlaceholder" = "Enter keywords...";
-"health.summaryTitle" = "Health Summary";
 "health.connectDevice" = "Connect a device to view health data";
 "health.connectButton" = "Connect Device";
-"health.quickActions" = "Quick Actions";
-"health.trends" = "Trends";
-"health.reminders" = "Reminders";
-"health.searchRecords" = "Records";
 

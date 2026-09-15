@@ -1,110 +1,159 @@
 import SwiftUI
 import Domain
+import Infrastructure
 import Perception
 
-/// H（2026-09-14）：健康 Tab——替代原 AI Tab，聚焦 HealthKit 数据摘要、趋势概览、搜索入口。
-/// FR3.1 Tab 重构：sparkles → heart.text.clipboard；offline-first，零 OpenAI 依赖。
+/// SP-29 健康 Tab 根（2026-09-15 业主实测修复批）：本页 = **Apple 健康数据展示面**。
+///
+/// 原实现是「健康概览占位 + 三个快捷卡 + 假搜索框」：趋势卡 action 是空闭包（点了没反应，
+/// 业主第 4 项）、查记录/提醒只切到同名 Tab（与 Tab 栏重复，第 2/5 项）、搜索框与
+/// `.searchable` 绑定同一个无人读取的 `@State`（死控件，同 HelpViews 已清除的死搜索条族），
+/// 而真实数据面（六类已导入数据 + 详情页）早已存在于 `DeviceConnectionView`，只是藏在
+/// 「我的 → 健康设备与数据」两跳之外（第 8 项：本页应当是 Apple 健康数据页）。
+///
+/// 本页直接承载数据面，三条纪律不变：
+/// - **可见性判定走 Domain 纯函数** `HealthImportVisibility`（与 `DeviceConnectionView`
+///   同一事实源；rule 4「业务判定不进视图」）——开关关闭即整体不可见，不残留占位与假 CTA；
+/// - **单一内容视图**（ADR-021）：类型行复用 `HealthImportedDataView`，不新造第二份导入
+///   数据渲染；授权/同步/报告等**写面**仍在 `DeviceConnectionView`（SP-29 唯一宿主），
+///   本页只给入口；
+/// - **token-only**：不再出现 `.blue/.orange/.green/.red` 硬编码色（改用语义令牌），
+///   触点 ≥44pt，四态（空/加载/错误）由 Domain 状态机与各 Section 分支穷尽承载。
 struct HealthTabView: View {
-    @Environment(AppState.self) private var app
-    @Environment(AppRouter.self) private var router
-    @State private var searchText = ""
+    @Environment(F16DeviceState.self) private var deviceState
+    @Environment(AppSettingsStore.self) private var settings
+    @Environment(AppDataChangeCenter.self) private var dataChange
 
     var body: some View {
         WithPerceptionTracking {
-            ScrollView {
-                LazyVStack(spacing: 16) {
-                    // 搜索栏
-                    searchBar
-                    // HealthKit 数据卡片
-                    healthSummarySection
-                    // 快捷操作
-                    quickActionsSection
+            List {
+                dataSection
+                entrySection
+                if GuidelineSource.thresholdsAwaitMedicalReview {
+                    Section { Text(L10n.healthMedicalReviewPending).font(.caption) }
                 }
-                .padding(16)
             }
             .navigationTitle(L10n.navHealth)
-            .searchable(text: $searchText, prompt: Text(L10n.healthSearchPrompt))
-        }
-    }
-
-    // MARK: - 搜索栏
-
-    private var searchBar: some View {
-        HStack {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-            TextField(L10n.healthSearchPlaceholder, text: $searchText)
-                .textFieldStyle(.plain)
-        }
-        .padding(12)
-        .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-    }
-
-    // MARK: - HealthKit 摘要
-
-    private var healthSummarySection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(L10n.healthSummaryTitle)
-                .font(.headline)
-            // TODO: 接入 HealthKit 数据卡片（HealthSummaryView 或 DeviceConnectionView 摘要）
-            // 当前占位：提示连接设备
-            VStack(spacing: 8) {
-                Image(systemName: "heart.text.clipboard")
-                    .font(.largeTitle)
-                    .foregroundStyle(.red.opacity(0.6))
-                Text(L10n.healthConnectDevice)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                Button {
-                    router.navigate(to: .deviceConnection)
-                } label: {
-                    Text(L10n.healthConnectButton)
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(20)
-            .background(.ultraThinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-        }
-    }
-
-    // MARK: - 快捷操作
-
-    private var quickActionsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(L10n.healthQuickActions)
-                .font(.headline)
-            HStack(spacing: 12) {
-                quickActionCard(icon: "waveform.path.ecg", title: L10n.healthTrends, color: .blue) {
-                    // TODO: 跳转趋势图表
-                }
-                quickActionCard(icon: "bell.badge", title: L10n.healthReminders, color: .orange) {
-                    router.select(.reminders)   // 模块落地 = Tab 切换（MainModuleID），非 AppRoute 深链
-                }
-                quickActionCard(icon: "doc.text.magnifyingglass", title: L10n.healthSearchRecords, color: .green) {
-                    router.select(.records)
-                }
+            // 与 SP-29 同款：同步落库后随指标版本刷新仪表盘与三态，不等用户重进页面
+            .task(id: dataChange.metricsVersion) {
+                await settings.load()
+                _ = await deviceState.currentAuthorization()
             }
         }
     }
 
-    private func quickActionCard(icon: String, title: String, color: Color, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            VStack(spacing: 8) {
-                Image(systemName: icon)
-                    .font(.title2)
-                    .foregroundStyle(color)
-                Text(title)
-                    .font(.caption)
-                    .foregroundStyle(.primary)
+    // MARK: - 已导入的 Apple 健康数据
+
+    /// 页面可见性六态（Domain 纯函数；与 SP-29 同一判定，本页不自行推导状态）
+    private var pageState: HealthImportPageState { deviceState.pageState(enabled: healthEnabled) }
+
+    /// 开关值经 SettingsRules 解析（缺省 = 键默认值；非法存值按关闭处理，不臆断为开启）
+    private var healthEnabled: Bool {
+        SettingsRules.resolved(settings.values[.authHealthRead], key: .authHealthRead) == "true"
+    }
+
+    @ViewBuilder
+    private var dataSection: some View {
+        switch pageState {
+        case .disabled:
+            Section {
+                Label(L10n.f16AuthDisabled, systemImage: "heart.slash")
+                    .accessibilityIdentifier("SP-29.health.disabled")
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 16)
-            .background(.ultraThinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
+        case .unavailable:
+            // iPad/模拟器等不提供 HealthKit：如实说明，不给永久禁用的请求按钮
+            Section {
+                Label(L10n.healthUnavailable, systemImage: "iphone.slash")
+                    .accessibilityIdentifier("SP-29.health.unavailable.home")
+            }
+        case .ownerMissing:
+            // Apple 健康只能导入到本人名下（BR-001）：引导建档，不是同步失败
+            Section {
+                Label(L10n.healthOwnerMissing, systemImage: "person.crop.circle.badge.exclamationmark")
+                    .accessibilityIdentifier("SP-29.health.ownerMissing.home")
+            }
+        case .notConnected:
+            Section {
+                VLUnavailableView {
+                    Label(L10n.healthConnectDevice, systemImage: "heart.text.clipboard")
+                } description: {
+                    Text(L10n.f16AuthHint)
+                } actions: {
+                    // SP-29 是授权与同步的唯一宿主（ADR-021）：站内 push 到同一内容视图，
+                    // 不切 Tab、不复制第二份授权 UI
+                    NavigationLink(value: AppRoute.deviceConnection) {
+                        Text(L10n.healthConnectButton)
+                            .frame(minHeight: 44)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("SP-29.health.connect")
+                }
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("SP-29.health.notConnected")
+            }
+        case .connectedEmpty, .visible:
+            importedSection
+        }
+    }
+
+    /// 六类已导入数据（Domain 仪表盘投影）：行 = 类型名 + 数据点数 + 最近时间；
+    /// 点开进详情页（复选全部记录 → 趋势图）。空态用独立文案（非同步报告语句）。
+    private var importedSection: some View {
+        Section {
+            if pageState == .connectedEmpty {
+                Text(L10n.healthImportedEmpty).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("SP-29.health.importedEmpty")
+            }
+            if let dashboard = deviceState.dashboard {
+                ForEach(dashboard.types) { type in
+                    // ForEach 行闭包逃逸：行内同步读感知对象属性，须自行包裹（子项目 I）
+                    WithPerceptionTracking {
+                        NavigationLink {
+                            // 身份由 dashboard.patientId（= 本人绑定）父级下传——绝不回落当前成员（BR-001）
+                            HealthImportedDataView(kind: type.kind, patientId: dashboard.patientId)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Text(L10n.metricName(type.kind.primaryMetric))
+                                    Spacer()
+                                    Text(L10n.healthImportedPointCount(type.rowCount))
+                                        .foregroundStyle(.secondary)
+                                }
+                                if let latest = type.latestAt {
+                                    Text(latest.formatted(date: .abbreviated, time: .shortened))
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                            .frame(minHeight: 44)
+                        }
+                        .accessibilityIdentifier("SP-29.health.home.data.\(type.kind.rawValue)")
+                    }
+                }
+                NavigationLink(value: AppRoute.deviceConnection) {
+                    Label(L10n.f16Title, systemImage: "arrow.triangle.2.circlepath")
+                        .frame(minHeight: 44)
+                }
+                .accessibilityIdentifier("SP-29.health.home.manage")
+            }
+        } header: { Text(L10n.healthImportedData) } footer: { Text(L10n.healthImportedDataHint) }
+    }
+
+    // MARK: - 检索与总览入口
+
+    /// 真实落点（AppRoute 注册表）：搜索 = SP-20 全库搜索（本 Tab 自有路由，站内 push，
+    /// 不切 Tab）；趋势 = SP-13 指标总览。两处都取代了原「查记录/趋势」死卡与假搜索框。
+    private var entrySection: some View {
+        Section {
+            NavigationLink(value: AppRoute.globalSearch) {
+                Label(L10n.healthSearchPrompt, systemImage: "magnifyingglass")
+                    .frame(minHeight: 44)
+            }
+            .accessibilityIdentifier("SP-29.health.home.search")
+            NavigationLink(value: AppRoute.metricOverview) {
+                Label(L10n.metricOverviewTitle, systemImage: "waveform.path.ecg")
+                    .frame(minHeight: 44)
+            }
+            .accessibilityIdentifier("SP-29.health.home.trends")
         }
     }
 }

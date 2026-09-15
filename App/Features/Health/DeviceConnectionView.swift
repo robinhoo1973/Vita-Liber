@@ -110,6 +110,16 @@ final class F16DeviceState {
             dataChange.alertsChanged()
             phase = .degraded(L10n.f16AuthDisabled)
             await refreshDashboard()
+        } catch is CancellationError {
+            // 2026-09-15 审查修复：取消不是同步失败。撤销许可/关闭开关（permissionRevoked）
+            // 与外壳卸载都会取消在途同步，`performSyncAll` 里 `Task.checkCancellation()` 抛出的
+            // CancellationError 此前落进通用 catch，把「已关闭」覆盖成「同步失败」（橙色告警）。
+            // 撤销态由 permissionRevoked 先写入，这里不覆盖；也不调 refreshDashboard——
+            // 撤销不删绑定行，dashboard() 会把 connected 读回 true。
+            // 已提交的类型仍要发变更信号（与通用分支同口径）。
+            dataChange.metricsChanged()
+            dataChange.alertsChanged()
+            if phase == .syncing { phase = .idle }
         } catch {
             // Earlier types may have committed before cancellation or a later fatal error.
             dataChange.metricsChanged()
@@ -195,7 +205,9 @@ struct DeviceConnectionView: View {
                             Text(L10n.f16SyncedRows(count)).accessibilityIdentifier("SP-29.health.syncDone")
                         }
                     case .degraded(let message):
-                        Label(message, systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
+                        // token-only（审查修复）：语义令牌替代硬编码 .orange
+                        Label(message, systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(Color("semantic-warning", bundle: .main))
                     }
                     if let report = deviceState.report {
                         Text(L10n.f16SyncedRows(report.persistedRows))
@@ -207,7 +219,7 @@ struct DeviceConnectionView: View {
                         }
                         if !report.failedTypes.isEmpty {
                             Label(L10n.healthImportPartial(report.failedTypes.count), systemImage: "exclamationmark.triangle")
-                                .foregroundStyle(.orange)
+                                .foregroundStyle(Color("semantic-warning", bundle: .main))
                         }
                         if report.hasMore { Text(L10n.healthImportMore).font(.caption) }
                         // H-N1：排空进度——当前道（近一年 / 更早历史）与剩余统计窗口数（纯进度事实）
@@ -258,9 +270,9 @@ struct DeviceConnectionView: View {
                             // ForEach 行闭包逃逸：行内同步读感知对象属性，须自行包裹（子项目 I）
                             WithPerceptionTracking {
                                 NavigationLink {
-                                    HealthImportedDataView(
-                                        kind: type.kind, patientId: dashboard.patientId,
-                                        trendAllowed: HealthImportVisibility.allowsTrendLink(pageState, patientId: dashboard.patientId))
+                                    // 趋势链接可用性由详情页按当前状态实时判定（2026-09-15 修复：
+                                    // 不再由父级传快照）——此处只下传身份（BR-001）
+                                    HealthImportedDataView(kind: type.kind, patientId: dashboard.patientId)
                                 } label: {
                                     VStack(alignment: .leading, spacing: 4) {
                                         HStack {
@@ -283,8 +295,10 @@ struct DeviceConnectionView: View {
                     Section { Text(L10n.healthMedicalReviewPending).font(.caption) }
                 }
                 Section {
-                    NavigationLink(L10n.metricOverviewTitle) { MetricOverviewView() }
-                    NavigationLink(L10n.alert_historyEntry) { AlertHistoryView() }
+                    // §5.45 注册表纪律（审查修复）：两处原以闭包目的地直连视图，绕开
+                    // AppRoute 注册表——通知深链/跨启动路径恢复无法寻址同一 SP。改类型安全路由。
+                    NavigationLink(value: AppRoute.metricOverview) { Text(L10n.metricOverviewTitle) }
+                    NavigationLink(value: AppRoute.alertHistory) { Text(L10n.alert_historyEntry) }
                 }
             }
             .navigationTitle(L10n.healthImportSettingsTitle)
@@ -308,7 +322,11 @@ struct DeviceConnectionView: View {
             Task {
                 await settings.set(value ? "true" : "false", for: key)
                 await deviceState.updateAutomation()
-                await deviceState.refreshDashboard()
+                // 效率修复（2026-09-15）：仪表盘六查询只在**可见性输入**变化时重算——
+                // `HealthImportVisibility.state` 只吃读取许可（authHealthRead），
+                // 「自动导入」开关不影响判定，此前每翻一次都白跑一轮 6 类 COUNT/MAX
+                // 加绑定/档案读取；后台观察注册（updateAutomation）与开关确实相关，保留。
+                if key == .authHealthRead { await deviceState.refreshDashboard() }
             }
         })
     }
@@ -326,8 +344,6 @@ struct HealthImportedDataView: View {
     /// `rows.first?.patientId ?? app.currentPatientId` 在空列表时回落当前成员，
     /// 趋势深链可能挂到非本人名下（BR-001）。
     let patientId: UUID
-    /// 趋势链接可用性（有数据 ∧ 身份已知；父级按 HealthImportVisibility.allowsTrendLink 判定）
-    let trendAllowed: Bool
     @Environment(AppSettingsStore.self) private var settings
     @Environment(F16DeviceState.self) private var state
     @Environment(AppDataChangeCenter.self) private var dataChange
@@ -343,6 +359,27 @@ struct HealthImportedDataView: View {
     }
     /// H1：与宿主同一判定——开关关闭或断连后（含已打开页/直达路由）呈现「已关闭」态，不残留数据
     private var gateOpen: Bool { HealthImportVisibility.showsImportedData(state.pageState(enabled: healthEnabled)) }
+    /// 2026-09-15 审查修复：趋势链接可用性（有数据 ∧ 身份已知）改为**实时判定**——
+    /// 旧实现是 push 时的快照（父级算一次传进来），后台同步落库后卡片仍停在停用态，
+    /// 与同页 `gateOpen` 的实时判定口径不一致（页内两条链路口径打架）。
+    private var trendAllowed: Bool {
+        HealthImportVisibility.allowsTrendLink(state.pageState(enabled: healthEnabled), patientId: patientId)
+    }
+
+    /// 设备统计行（FR7.9：界面明确「单条读数/小时平均值/每日累计/睡眠时段内时长」+ 来源 +
+    /// 极值/样本数）。与 SP-13 趋势行 `statisticsLine` 同款构成——同一数据两页不得两说
+    /// （`.sample` 不重复标注，它就是默认语义）。
+    private func statisticsLine(_ row: HealthImportRow) -> String? {
+        var parts: [String] = []
+        if let aggregation = row.aggregation, aggregation != .sample {
+            parts.append(L10n.healthAggregation(aggregation))
+        }
+        if let low = row.valueMin, let high = row.valueMax, let count = row.sampleCount {
+            parts.append(L10n.healthWindowStatistics(MedicalNumberFormat.quantity(low),
+                                                     MedicalNumberFormat.quantity(high), count))
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
 
     var body: some View {
         WithPerceptionTracking {
@@ -385,15 +422,29 @@ struct HealthImportedDataView: View {
                                 NavigationLink(value: AppRoute.trendChart(patientId: patientId, metric: row.metricKey)) {
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(MetricType(rawValue: row.metricKey).map { L10n.metricName($0) } ?? L10n.healthImportedData)
-                                        Text(row.value.formatted() + " " + row.unit).font(.headline)
+                                        // 医学数值走唯一格式化出口（审查修复：原 Double.formatted()
+                                        // 与趋势页 MedicalNumberFormat 两套数字规则，同一读数两处显示不同）
+                                        Text(MedicalNumberFormat.quantity(row.value) + " " + row.unit).font(.headline)
                                         Text(row.measuredAt.formatted(date: .abbreviated, time: .shortened)).font(.caption)
+                                        // FR7.9：本行是单条读数还是统计窗口（小时均值/日累计/睡眠时长），
+                                        // 窗口结束时间与极值/样本数——与 SP-13 趋势行同口径（statisticsLine）
+                                        if let end = row.windowEnd, row.aggregation != .sample {
+                                            Text(L10n.healthWindowEnd(end.formatted(date: .abbreviated, time: .shortened)))
+                                                .font(.caption2).foregroundStyle(.secondary)
+                                        }
+                                        if let statistics = statisticsLine(row) {
+                                            Text(statistics).font(.caption2).foregroundStyle(.secondary)
+                                        }
                                         Text(row.sourceName ?? L10n.healthAppleSource).font(.caption).foregroundStyle(.secondary)
                                     }.padding(.vertical, 4)
                                 }
                             }
                             if loading { ProgressView() }
                             else if hasMore { Button(failed ? L10n.retry : L10n.healthLoadMore) { Task { await load() } } }
-                            if failed { Text(L10n.f16SyncFailed).foregroundStyle(.orange) }
+                            if failed {
+                                Text(L10n.f16SyncFailed)
+                                    .foregroundStyle(Color("semantic-warning", bundle: .main))
+                            }
                         }
                     }
                 }
@@ -407,10 +458,18 @@ struct HealthImportedDataView: View {
     private func reload() async {
         generation &+= 1
         rows = []; hasMore = true; failed = false
+        // 代次作废 = 在途加载不再是 loading 的归属者（它的 defer 因代次不符不会复位），
+        // 必须在这里复位，否则新一圈 load() 被重入守卫挡下、loading 永远为真 → 列表卡在
+        // ProgressView（审查自省：守卫与代次复位必须成对）
+        loading = false
         await load()
     }
 
     private func load() async {
+        // 2026-09-15 审查修复：并发重入守卫——两次同代次调用会在同一个 `rows.last` 游标上
+        // 取回同一页并各追加一次，`ForEach(rows)` 出现重复 id（行点击错乱）。
+        // `TimelineViewState.loadMore` 同款 `!isLoadingMore` 守卫。
+        guard !loading else { return }
         let current = generation
         loading = true
         defer { if generation == current { loading = false } }

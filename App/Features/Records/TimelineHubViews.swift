@@ -140,7 +140,7 @@ struct TimelineChildRowView: View {
             return entry.title.isEmpty ? L10n.timelineKindName(.document) : entry.title
         case .prescription, .diagnosis, .labReport, .examReport, .claim, .surgery, .appointment, .reminder,
              .hospitalization, .vaccination, .encounter, .healthExam, .medication, .observation, .lab, .selfMeasured,
-             .allergy, .voiceNote, .healthProblem:
+             .healthData, .allergy, .voiceNote, .healthProblem:
             return entry.title.isEmpty ? L10n.timelineKindName(entry.kind) : entry.title
         }
     }
@@ -154,8 +154,8 @@ struct TimelineChildRowView: View {
         case .document:
             return L10n.docTypeName(raw)
         case .treatmentRecord, .claim, .diagnosis, .labReport, .examReport, .surgery, .appointment, .reminder, .hospitalization,
-             .vaccination, .clinicalConclusion, .encounter, .healthExam, .medication, .observation, .lab, .selfMeasured, .allergy,
-             .voiceNote, .healthProblem:
+             .vaccination, .clinicalConclusion, .encounter, .healthExam, .medication, .observation, .lab, .selfMeasured,
+             .allergy, .voiceNote, .healthProblem, .healthData:
             return raw
         }
     }
@@ -177,7 +177,12 @@ struct TimelineChildRowView: View {
                             .background(Capsule().fill(Color("bg-grouped", bundle: .main)))
                             .foregroundStyle(.secondary)
                         Text(title).font(.subheadline).lineLimit(1)
-                        if let grade = entry.grade, entry.kind == .document {
+                        // 来源徽章（2026-09-15 实测修复）：改按**徽章值**放行而非按卡类——
+                        // 原 `entry.kind == .document` 让同一份数据在资料库（只显示 D）、
+                        // 健康档案子卡（只显示原件类）、明细页（恒显示 C）三处三种口径。
+                        // 与叶子行同规则：只保留需要提醒的差异态（D/E 未确认、A/B 医院原文
+                        // 与信源库）；C = 默认事实态，不出徽章。
+                        if let grade = entry.grade, grade != "C" {
                             GradeBadge(grade: grade)
                         }
                     }

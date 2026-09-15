@@ -181,18 +181,16 @@ final class AppRouter {
                 self.persist(path: .reminders, \.remindersPath)
                 return
             }
-            // 第七轮修复（.assistantChat 套娃防护）：AI Tab 根（ModuleRoot(.ai)）
-            // 即 AssistantView。第十一轮审查修正：不再无条件清空 AI 栈（抹除返回
-            // 上下文），改为**弹栈到已存在的聊天页**——栈中已有 .assistantChat
-            // 时移除其及上方全部条目（防叠出第二个聊天页），其下方上下文
-            // 保留；空栈时仅切 Tab 不入栈（根即聊天页）；栈中无聊天页时
-            // 维持栈不动（保留历史/搜索上下文）。
+            // 2026-09-15 实测修复（业主第 1/8 项）：AI 助手页面已按子项目 H 退役，
+            // `.assistantChat` 的落点就是健康 Tab 根视图（`HealthTabView`）本身。
+            // 与 `.reminderToday` 同款：**弹栈到根**后不再入栈——旧实现只在栈中
+            // 已有 .assistantChat 时才动作，其余情况裸 `return`（保留旧的历史/搜索
+            // 上下文）：用户从首页「了解 AI 助手」进来时，要么落在别人的栈顶页面
+            // （搜索/语音会话），要么把健康根视图再叠一层（RouteDestinationView 头注
+            // 所禁的套娃）。
             if route == .assistantChat {
-                guard !self.healthPath.isEmpty else { return }
-                if let idx = self.healthPath.firstIndex(of: .assistantChat) {
-                    self.healthPath.removeSubrange(idx...)
-                    self.persist(path: .health, \.healthPath)
-                }
+                self.healthPath = []
+                self.persist(path: .health, \.healthPath)
                 return
             }
             // 第七轮修复：同路由连点去重——同一通知双点（启动窗口入队两次）

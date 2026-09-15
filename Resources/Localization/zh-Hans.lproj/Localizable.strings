@@ -5,7 +5,7 @@
 "nav.home" = "首页";
 "nav.records" = "健康档案";
 "nav.reminders" = "提醒";
-"nav.health" = "AI 助手";
+"nav.health" = "健康";
 "nav.me" = "我的";
 "trend.title" = "指标趋势";
 "trend.range.unavailable" = "暂无参考范围（本阶段仅显示报告自带范围）";
@@ -624,7 +624,7 @@
 "home.guide1" = "建立成员档案";
 "home.guide2" = "拍摄第一份资料";
 "home.guide3" = "设置第一个提醒";
-"home.guide4" = "了解 AI 助手";
+"home.guide4" = "查看健康数据";
 "home.memberSwitch" = "切换成员";
 "home.notifDenied" = "通知权限已关闭，用药与预约提醒可能无法送达";
 "home.notifOpen" = "去开启";
@@ -836,6 +836,7 @@
 "timeline.kind.observation" = "观察";
 "timeline.kind.lab" = "检验";
 "timeline.kind.selfMeasured" = "自测";
+"timeline.kind.healthData" = "健康数据";
 "timeline.kind.vaccination" = "疫苗";
 "timeline.kind.allergy" = "过敏";
 "timeline.kind.voiceNote" = "速记";
@@ -2084,12 +2085,6 @@
 "field.result" = "治疗结果";
 
 "health.searchPrompt" = "搜索健康记录";
-"health.searchPlaceholder" = "输入关键词搜索...";
-"health.summaryTitle" = "健康概览";
 "health.connectDevice" = "连接设备以查看健康数据";
 "health.connectButton" = "连接设备";
-"health.quickActions" = "快捷操作";
-"health.trends" = "趋势";
-"health.reminders" = "提醒";
-"health.searchRecords" = "查记录";
 

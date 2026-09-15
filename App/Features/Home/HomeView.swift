@@ -57,9 +57,12 @@ struct HomeView: View {
     @AppStorage("actionFeedWindow") private var windowRaw = "7,14"
     /// FR2.1④ 类别图标过滤（纯 View 参数，V3.87 契约：不调用写接口）。
     @State private var filterKind: AggregationKind?
-    /// 「了解 AI」引导任务完成态（第四轮全仓审查修复：原为会话级 @State——
-    /// 重启即复现；改持久化，与其余三项「数据驱动完成」同为准持久事实源）
-    @AppStorage("homeGuide4Visited") private var aiGuideVisited = false
+    /// 第四条引导（查看健康数据）完成态（第四轮全仓审查修复：原为会话级 @State——
+    /// 重启即复现；改持久化，与其余三项「数据驱动完成」同为准持久事实源）。
+    /// 2026-09-15 实测修复：卡片落点随 AI 助手退役改为健康 Tab 根（`.assistantChat`
+    /// 路由现解析到健康 Tab 根），文案同步为「查看健康数据」；存储键保持不变
+    /// （改名会重置老用户的引导完成态）。
+    @AppStorage("homeGuide4Visited") private var healthGuideVisited = false
     /// 快速拍摄以 sheet 呈现（TestFlight 实测修复：navigate 会改导航上下文）。
     /// FR5.1/FR5.5 V3.61：📷 单击直接拍摄，不前置选类型——识别后由理解层判定
     @State private var showQuickCapture = false
@@ -646,8 +649,8 @@ struct HomeView: View {
             GuideTaskCard(icon: "bell.badge.fill", title: L10n.homeGuide3, done: !reminderStore.todaySlots.isEmpty) {
                 router.navigate(to: .medicationPlanForm(nil))
             }
-            GuideTaskCard(icon: "sparkles", title: L10n.homeGuide4, done: aiGuideVisited) {
-                aiGuideVisited = true
+            GuideTaskCard(icon: "heart.text.clipboard", title: L10n.homeGuide4, done: healthGuideVisited) {
+                healthGuideVisited = true
                 router.navigate(to: .assistantChat)
             }
         }

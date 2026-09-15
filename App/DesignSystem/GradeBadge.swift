@@ -59,6 +59,17 @@ struct GradeBadge: View {
                                   style: StrokeStyle(lineWidth: 1, dash: [3]))
             }
         }
-        .accessibilityLabel(isUnconfirmed ? L10n.docGradeUnconfirmed : L10n.timelineGradeConfirmed)
+        .accessibilityLabel(accessibilityText)
+    }
+
+    /// 朗读文本（2026-09-15 实测修复）：原实现把 A/B/C 一律朗读为「已确认」——
+    /// A 级医院原文、B 级信源库都不是用户确认来的，被读成「已确认」是来源语义
+    /// 反演（BR-003 同族）。只有 C 才是用户确认态；A/B 朗读自身字母+短文案，
+    /// D/E/未知仍朗读「未确认」。
+    private var accessibilityText: String {
+        switch grade {
+        case "A", "B", "C": return "\(grade) \(shortText)"
+        default: return L10n.docGradeUnconfirmed
+        }
     }
 }

@@ -46,13 +46,20 @@ extension HealthImportStore {
             }
             arguments.append(min(200, max(1, limit)))
             return try Row.fetchAll(db, sql: """
-                SELECT id, metric_key, value, unit, measured_at, source_name FROM metric_sample
+                SELECT id, metric_key, value, unit, measured_at, source_name,
+                       aggregation_kind, window_end, value_min, value_max, sample_count
+                FROM metric_sample
                 WHERE patient_id = ? AND origin = 'device' AND source_ref LIKE ? AND excluded = 0 \(cursor)
                 ORDER BY measured_at DESC, id DESC LIMIT ?
                 """, arguments: StatementArguments(arguments)).compactMap { row -> HealthImportRow? in
                 guard let id = UUID(uuidString: row["id"] as String) else { return nil }
+                // FR7.9 统计事实随行投影（2026-09-15 实测修复）：设备行须能自述是单条读数、
+                // 小时均值、日累计还是睡眠时段时长，并带窗口结束时间、极值与有效样本数。
                 return .init(id: id, patientId: owner, metricKey: row["metric_key"], value: row["value"], unit: row["unit"] ?? "",
-                             measuredAt: Date(timeIntervalSince1970: row["measured_at"]), sourceName: row["source_name"])
+                             measuredAt: Date(timeIntervalSince1970: row["measured_at"]), sourceName: row["source_name"],
+                             aggregation: (row["aggregation_kind"] as String?).flatMap(MetricAggregation.init(rawValue:)),
+                             windowEnd: (row["window_end"] as Double?).map(Date.init(timeIntervalSince1970:)),
+                             valueMin: row["value_min"], valueMax: row["value_max"], sampleCount: row["sample_count"])
             }
         }
     }

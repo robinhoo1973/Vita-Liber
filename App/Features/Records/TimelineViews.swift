@@ -5,12 +5,10 @@ import Perception
 
 // MARK: - F11 健康时间轴（SP-19 · FR11.1-11.4）
 
-/// 时间轴状态仓：主卡/子卡分页查询（v27 `hubPage`）+ 旧平铺投影（供空态/复用）+ 筛选 + 展开记忆 + 健康问题（BR-001 成员隔离）
+/// 时间轴状态仓：主卡/子卡分页查询（v27 `hubPage`）+ 筛选 + 展开记忆 + 健康问题（BR-001 成员隔离）
 @MainActor
 @Perceptible
 final class TimelineViewState {
-    /// 旧平铺投影（`entries(for:)` 语义不变；主卡列表不再消费它，保留供搜索/健康问题页复用）。
-    private(set) var entries: [TimelineEntry] = []
     /// v27（子项目 J · round1 §E.3）：主卡 + 无枢纽叶子的游标分页累积（`hubPage` 逐页追加、按 id 去重）。
     private(set) var hubs: [TimelineHubEntry] = []
     private(set) var nextCursor: TimelineCursor?
@@ -24,6 +22,11 @@ final class TimelineViewState {
     private let store: TimelineQueryStore
     private let problemStore: HealthProblemStore
     private var loadingPatientId: UUID?
+    /// BR-001 消费侧守卫（2026-09-15 实测修复）：已渲染列表的成员身份。此前只在成功
+    /// 路径写列表，失败/取消时**上一个成员**的 hubs/entries 继续渲染，而表头与行内导航
+    /// 已按新成员解析（跨成员显示 + 跨成员打开）。与 `RecordsHubStore.loadedPatientId`
+    /// 同款守卫。
+    private var loadedPatientId: UUID?
     static let pageSize = 30
 
     /// expansion 默认 nil：默认实参在调用方隔离域求值（State(initialValue:) 的
@@ -36,22 +39,37 @@ final class TimelineViewState {
     }
 
     func load(patientId: UUID) async {
+        // BR-001 成员隔离（2026-09-15 实测修复）：**换成员立即清屏**——失败或取消时
+        // 旧成员的条目不得在新成员身份下继续渲染（表头/成员切换器已是新成员，行内导航
+        // 携带的 `entry.memberId` 却是旧成员 = 跨成员打开）。同一成员的重载（筛选变更 /
+        // 保存后刷新 / 归档）不清屏，失败仍保留旧列表（原 doctrine 只对同成员成立）。
+        if loadedPatientId != patientId {
+            loadedPatientId = patientId
+            hubs = []
+            problems = []
+            nextCursor = nil
+            loadMoreFailed = false
+            transientExpansion = [:]
+        }
         loadingPatientId = patientId
         do {
+            // 2026-09-15 审查修复（效率/简化）：删去并行的平铺投影查询 `entries(for:limit:100)`——
+            // 视图只渲染 `visibleHubs`，该投影自空态判据改为只看 visible 后已无任何读者
+            // （旧注释称「保留供搜索/健康问题页复用」，实际搜索走 FTS、问题页走 problems），
+            // 却让本页每次加载（首屏/切筛选/切成员/保存文档）都多跑一条九分支 UNION ALL。
             async let hubPage = store.hubPage(patientId: patientId, filter: filter, limit: Self.pageSize)
-            async let page = store.entries(for: patientId, filter: filter, limit: 100)
             async let probs = problemStore.list(patientId: patientId)
-            let (h, p, pr) = try await (hubPage, page, probs)
+            let (h, pr) = try await (hubPage, probs)
             guard loadingPatientId == patientId else { return }
             hubs = h.entries
             nextCursor = h.nextCursor
             loadMoreFailed = false
             transientExpansion = [:]
-            entries = p.entries
             problems = pr
         } catch {
-            // 审查修复：读取失败保留旧列表（EncountersState/DocumentsState
-            // 同款 doctrine）——原置空把存在记录渲染成「暂无记录」假空态。
+            // 同一成员：读取失败保留旧列表（EncountersState/DocumentsState 同款
+            // doctrine）——置空会把存在记录渲染成「暂无记录」假空态。换成员时上面
+            // 已清屏，此处不得把旧成员列表放回。
         }
     }
 
@@ -151,7 +169,13 @@ struct TimelineFullView: View {
         WithPerceptionTracking {
             let visible = state.visibleHubs
             Group {
-                if visible.isEmpty && state.entries.isEmpty {
+                // 2026-09-15 实测修复：空态只看**本列表真正渲染的投影**（visible = 主卡 +
+                // 无枢纽叶子）。原判据 `&& state.entries.isEmpty` 与平铺投影相与，而两者
+                // 口径不同（平铺按 .lab/.selfMeasured/.healthData 任一命中即取指标行且不带
+                // origin 谓词，主卡叶子按各自 origin 谓词）——「只有自测/导入指标、无就诊无
+                // 体检」的用户筛「检验」时 visible 为空而 entries 非空，判据为假，页面只渲染
+                // 快捷入口区、连「暂无记录」引导都没有。
+                if visible.isEmpty {
                     VLUnavailableView(L10n.timelineEmptyTitle, systemImage: "calendar",
                                            description: Text(L10n.timelineEmptyHint))
                         .accessibilityIdentifier("SP-19.timeline.empty")
@@ -241,6 +265,13 @@ struct TimelineFullView: View {
             // FR17.18 保存后跨页刷新（V3.49）：文档确认保存（含健康问题懒创建）
             // 后按类型化版本计数重载——时间轴/健康问题条目即时反映新文档/新问题
             .onChangeCompat(of: dataChange.documentsVersion) { _, _ in
+                Task { await state.load(patientId: app.currentPatientId) }
+            }
+            // 2026-09-15 审查修复（业主第 3/7 项同族）：设备读数经 Apple 健康导入后**也**
+            // 投影进本页（`.healthData` 叶子）——此前本页只观察 documentsVersion，同步落库后
+            // 仍显示导入前的列表（用户看到的正是「导入的记录不见了」），须切成员/切 Tab 才刷新。
+            // 其余设备数据面（SP-29 展示区/详情页、指标总览、SP-13）均已各自观察该信号。
+            .onChangeCompat(of: dataChange.metricsVersion) { _, _ in
                 Task { await state.load(patientId: app.currentPatientId) }
             }
         }
@@ -333,7 +364,18 @@ struct TimelineFullView: View {
         case .appointment: router.navigate(to: .appointmentDetail(entry.refID))
         case .reminder: router.navigate(to: .reminderToday)
         case .medication: router.navigate(to: .medicationPlan(entry.refID))
-        case .observation, .selfMeasured: router.navigate(to: .observationDetail(entry.refID))
+        case .observation: router.navigate(to: .observationDetail(entry.refID))
+        // 2026-09-15 实测修复（业主第 3 项「Apple 健康导入的记录无法打开查看」）：
+        // 指标行（手输自测 / Apple 健康导入）的 refID 是 `metric_sample.id`，不是
+        // `observation.id`——原实现与 .observation 同路 → `ObservationStore.fetch`
+        // 恒查无 → 每条导入记录点开都是「这条观察记录加载失败」。与 .lab 同口径：
+        // 按 entry.metricKey 进该指标的已有趋势图（点 = 一次读数，归属由 memberId 下传）。
+        case .selfMeasured, .healthData:
+            if let m = entry.metricKey {
+                router.navigate(to: .trendChart(patientId: entry.memberId, metric: m))
+            } else {
+                router.navigate(to: .metricQuickEntry)
+            }
         // 审查修复：用条目携带的真实指标键跳转——原硬编码 "glucose"，
         // 血压/心率化验点开的是血糖趋势图（张冠李戴）；无键时降级快速录入
         case .lab:
@@ -368,7 +410,7 @@ private struct TimelineRowView: View {
             return L10n.timelineKindName(.voiceNote)
         case .document:
             return entry.title.isEmpty ? L10n.timelineKindName(.document) : entry.title
-        case .lab, .selfMeasured:
+        case .lab, .selfMeasured, .healthData:
             let name = entry.metricKey.flatMap { MetricType(grammarKey: $0) }
                 .map { L10n.metricName($0) } ?? entry.title
             return "\(L10n.timelineKindName(entry.kind)) · \(name)"
@@ -392,8 +434,12 @@ private struct TimelineRowView: View {
                                              ? Color("semantic-danger", bundle: .main)
                                              : .primary)
                         // 来源徽章（设计系统：每个结构化数据有来源徽章）；
-                        // D = 机器识别未确认（不进入检索/AI 事实链，BR-003）
-                        if let grade = entry.grade {
+                        // D = 机器识别未确认（不进入检索/AI 事实链，BR-003）。
+                        // 2026-09-15 实测修复（业主第 6 项）：C 级（用户确认）此前逐行常驻
+                        // 「C 我已确认」——健康档案里 100% 的行都有、零信息量，只剩噪声。
+                        // 徽章只保留需要提醒的差异态：D/E（未确认）与 A/B（医院原文/信源库）；
+                        // C = 默认事实态，不再出徽章。
+                        if let grade = entry.grade, grade != "C" {
                             GradeBadge(grade: grade)
                         }
                     }
