@@ -193,7 +193,7 @@ private struct ProfileSuggestionHost: ViewModifier {
                     guard enabled, let batch = docs.profileSuggestionBatch, batch.presenterKey == presenterKey else { return nil }
                     return batch
                 },
-                set: { batch in
+                set: { batch, _ in   // 新 SDK Binding.set 携带 (Value, Transaction)——第二参忽略
                     if batch == nil { docs.clearProfileSuggestions(presenterKey: presenterKey) }
                 })) { batch in
                 ProfileSuggestionSheet(batch: batch)

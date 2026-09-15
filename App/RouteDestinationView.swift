@@ -291,7 +291,7 @@ extension MainModule {
         case .home: self = .home
         case .records: self = .records
         case .reminders: self = .reminders
-        case .ai: self = .ai
+        case .health: self = .health   // v27：AI 助手并入 me/健康 Tab，.ai 分支移除
         case .me: self = .me
         }
     }
