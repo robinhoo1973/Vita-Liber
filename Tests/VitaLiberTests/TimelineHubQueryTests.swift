@@ -51,9 +51,11 @@ final class TimelineHubQueryTests: XCTestCase {
         XCTAssertEqual(page.entries[1].entry.kind, .observation)
         XCTAssertTrue(page.entries[1].children.isEmpty)
         XCTAssertNil(page.nextCursor)
-        XCTAssertTrue(try await timeline.hubPage(patientId: UUID()).entries.isEmpty, "BR-001：跨成员查询必须为空")
+        let _hoisted54 = try await timeline.hubPage(patientId: UUID()).entries.isEmpty
+        XCTAssertTrue(_hoisted54, "BR-001：跨成员查询必须为空")
         // 旧平铺查询不受影响：就诊 + 观察 = 2（处方 / 检验 / 预约无平铺分支）
-        XCTAssertEqual(try await timeline.entries(for: patient).entries.count, 2)
+        let _hoisted56 = try await timeline.entries(for: patient).entries.count
+        XCTAssertEqual(_hoisted56, 2)
         // 筛选只裁叶子：观察筛选下主卡仍在（可见性由 Domain visible 收窄）
         let filtered = try await timeline.hubPage(patientId: patient, filter: .kinds([.observation]))
         XCTAssertEqual(filtered.entries.map(\.hub), [.encounter, nil])
