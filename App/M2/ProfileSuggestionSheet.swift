@@ -192,7 +192,7 @@ private struct ProfileSuggestionHost: ViewModifier {
             // sheet(item:) 的 Item 推断歧义（无标注时两个 set 重载并存，CI 实证
             // 「generic parameter 'Item' could not be inferred」）。
             content.sheet(
-                item: Binding<ProfileSuggestionBatch?>(
+                item: Binding<DocumentsState.ProfileSuggestionBatch?>(
                     get: {
                         guard enabled, let batch = docs.profileSuggestionBatch, batch.presenterKey == presenterKey else { return nil }
                         return batch
