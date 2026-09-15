@@ -501,27 +501,27 @@ struct SchemaV25GoldenTests {
             #expect(upgraded == baseline, "\(table) 列集：老库逐步升级 ≠ 全新库基线")
         }
         try legacy.queue.read { db in
-            #expect(try Int.fetchOne(db, sql: "PRAGMA user_version") == SchemaMigrations.latestVersion)
-            #expect(try Int.fetchOne(db, sql: "PRAGMA foreign_keys") == 1, "迁移后外键必须复位开启")
-            #expect(try Row.fetchAll(db, sql: "PRAGMA foreign_key_check(ocr_card_commit)").isEmpty)
-            #expect(try String.fetchAll(db, sql: "SELECT DISTINCT entity_table FROM ocr_card_commit") == ["prescription"],
+            #expect((try? Int.fetchOne(db, sql: "PRAGMA user_version")) == SchemaMigrations.latestVersion)
+            #expect((try? Int.fetchOne(db, sql: "PRAGMA foreign_keys")) == 1, "迁移后外键必须复位开启")
+            #expect((try? Row.fetchAll(db, sql: "PRAGMA foreign_key_check(ocr_card_commit)").isEmpty) == true)
+            #expect((try? String.fetchAll(db, sql: "SELECT DISTINCT entity_table FROM ocr_card_commit")) == ["prescription"],
                     "历史回执搬运 entity_table = card_kind")
-            #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM ocr_card_commit") == 2, "重建不得丢行")
-            #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM prescription_line WHERE prescription_id = ? AND patient_id = ? AND confirmed = 1",
-                                     arguments: [header.uuidString, legacy.patient.uuidString]) == 2)
-            #expect(try String.fetchAll(db, sql: "SELECT printed_name FROM prescription_line ORDER BY ordinal") == ["Drug A", "Drug B"],
+            #expect((try? Int.fetchOne(db, sql: "SELECT COUNT(*) FROM ocr_card_commit")) == 2, "重建不得丢行")
+            #expect((try? Int.fetchOne(db, sql: "SELECT COUNT(*) FROM prescription_line WHERE prescription_id = ? AND patient_id = ? AND confirmed = 1",
+                                     arguments: [header.uuidString, legacy.patient.uuidString])) == 2)
+            #expect((try? String.fetchAll(db, sql: "SELECT printed_name FROM prescription_line ORDER BY ordinal")) == ["Drug A", "Drug B"],
                     "ordinal 按回执 created_at 次序")
-            #expect(try String.fetchOne(db, sql: "SELECT dose_text || '/' || dose_unit FROM prescription_line WHERE ordinal = 0") == "0.5/g",
+            #expect((try? String.fetchOne(db, sql: "SELECT dose_text || '/' || dose_unit FROM prescription_line WHERE ordinal = 0")) == "0.5/g",
                     "剂量只存原文 + 单位，不解析（BR-006/007）")
-            #expect(try String.fetchOne(db, sql: "SELECT raw_text FROM prescription_line WHERE ordinal = 0") == "Drug A 0.5g")
-            #expect(try String.fetchOne(db, sql: "SELECT id FROM prescription_line WHERE ordinal = 0")
-                    == (try String.fetchOne(db, sql: "SELECT source_row_id FROM prescription_line WHERE ordinal = 0")),
+            #expect((try? String.fetchOne(db, sql: "SELECT raw_text FROM prescription_line WHERE ordinal = 0")) == "Drug A 0.5g")
+            #expect((try? String.fetchOne(db, sql: "SELECT id FROM prescription_line WHERE ordinal = 0"))
+                    == (try? String.fetchOne(db, sql: "SELECT source_row_id FROM prescription_line WHERE ordinal = 0")),
                     "行 id = 回执 row_id（确定性，两台设备回填同 id）")
-            #expect(try String.fetchOne(db, sql: "SELECT advice_text FROM prescription WHERE id = ?", arguments: [header.uuidString])
+            #expect((try? String.fetchOne(db, sql: "SELECT advice_text FROM prescription WHERE id = ?", arguments: [header.uuidString]))
                     == "Drug A 0.5g\nDrug B", "advice_text 原样保留，绝不从自由文本猜回")
         }
         try legacy.queue.write { try GRDBStore.backfillRecognitionFactLines($0) }   // 重跑
-        #expect(try legacy.queue.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM prescription_line") } == 2, "回填重跑不重复")
+        #expect((try? legacy.queue.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM prescription_line") }) == 2, "回填重跑不重复")
     }
 
     @Test func 就诊叙事与报销列只补空且重跑不覆盖() throws {
@@ -550,13 +550,13 @@ struct SchemaV25GoldenTests {
         }
         _ = try GRDBStore(writer: legacy.queue)
         try legacy.queue.read { db in
-            #expect(try String.fetchOne(db, sql: "SELECT present_illness FROM encounter WHERE id = ?", arguments: [encounter.uuidString]) == "回执现病史")
-            #expect(try String.fetchOne(db, sql: "SELECT visit_summary FROM encounter WHERE id = ?", arguments: [encounter.uuidString]) == "回执小结")
-            #expect(try Double.fetchOne(db, sql: "SELECT reimbursed_amount FROM claim_item WHERE id = ?", arguments: [claim.uuidString]) == 100)
-            #expect(try Double.fetchOne(db, sql: "SELECT out_of_pocket FROM claim_item WHERE id = ?", arguments: [claim.uuidString]) == nil,
+            #expect((try? String.fetchOne(db, sql: "SELECT present_illness FROM encounter WHERE id = ?", arguments: [encounter.uuidString])) == "回执现病史")
+            #expect((try? String.fetchOne(db, sql: "SELECT visit_summary FROM encounter WHERE id = ?", arguments: [encounter.uuidString])) == "回执小结")
+            #expect((try? Double.fetchOne(db, sql: "SELECT reimbursed_amount FROM claim_item WHERE id = ?", arguments: [claim.uuidString])) == 100)
+            #expect((try? Double.fetchOne(db, sql: "SELECT out_of_pocket FROM claim_item WHERE id = ?", arguments: [claim.uuidString])) == nil,
                     "不可解析的金额保持 NULL，不猜")
-            #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM prescription_line") == 0)
-            #expect(try Set(String.fetchAll(db, sql: "SELECT DISTINCT entity_table FROM ocr_card_commit")) == ["encounter", "claim_item"])
+            #expect((try? Int.fetchOne(db, sql: "SELECT COUNT(*) FROM prescription_line")) == 0)
+            #expect((try? Set(String.fetchAll(db, sql: "SELECT DISTINCT entity_table FROM ocr_card_commit"))) == ["encounter", "claim_item"])
         }
         // 用户事后改写叙事 → 回填重跑（COALESCE 只补空）不得覆盖
         try legacy.queue.write { db in
@@ -587,9 +587,9 @@ struct SchemaV25GoldenTests {
         }
         _ = try GRDBStore(writer: legacy.queue)          // 不抛：坏回执跳过、版本仍推进
         try legacy.queue.read { db in
-            #expect(try Int.fetchOne(db, sql: "PRAGMA user_version") == SchemaMigrations.latestVersion)
-            #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM prescription_line") == 0, "无可解回执 → 不生成行")
-            #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM ocr_card_commit WHERE entity_table = 'prescription'") == 1)
+            #expect((try? Int.fetchOne(db, sql: "PRAGMA user_version")) == SchemaMigrations.latestVersion)
+            #expect((try? Int.fetchOne(db, sql: "SELECT COUNT(*) FROM prescription_line")) == 0, "无可解回执 → 不生成行")
+            #expect((try? Int.fetchOne(db, sql: "SELECT COUNT(*) FROM ocr_card_commit WHERE entity_table = 'prescription'")) == 1)
         }
     }
 }
@@ -687,8 +687,8 @@ struct SchemaV26GoldenTests {
             #expect(upgraded == baseline, "\(table) 列集：老库逐步升级 ≠ 全新库基线")
         }
         try legacy.queue.read { db in
-            #expect(try Int.fetchOne(db, sql: "PRAGMA user_version") == SchemaMigrations.latestVersion)
-            #expect(try Int.fetchOne(db, sql: "PRAGMA foreign_keys") == 1, "迁移后外键必须复位开启")
+            #expect((try? Int.fetchOne(db, sql: "PRAGMA user_version")) == SchemaMigrations.latestVersion)
+            #expect((try? Int.fetchOne(db, sql: "PRAGMA foreign_keys")) == 1, "迁移后外键必须复位开启")
             #expect(try Row.fetchAll(db, sql: "PRAGMA foreign_key_check").isEmpty, "回填后 lab_report_id 不得悬空")
             #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM lab_report") == 2, "每张历史检验卡一条表头（card_id 同页同卡类唯一）")
             let header = try #require(try Row.fetchOne(db, sql: "SELECT * FROM lab_report WHERE source_card_id = ?", arguments: [card.uuidString]))
@@ -717,9 +717,9 @@ struct SchemaV26GoldenTests {
             try Self.replayV26(db)
         }
         try legacy.queue.read { db in
-            #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM lab_report") == 2, "回填重跑不重复")
-            #expect(try String.fetchOne(db, sql: "SELECT hospital FROM lab_report WHERE id = ?", arguments: [card.uuidString]) == "用户改写")
-            #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM metric_sample WHERE lab_report_id IS NOT NULL") == 3)
+            #expect((try? Int.fetchOne(db, sql: "SELECT COUNT(*) FROM lab_report")) == 2, "回填重跑不重复")
+            #expect((try? String.fetchOne(db, sql: "SELECT hospital FROM lab_report WHERE id = ?", arguments: [card.uuidString])) == "用户改写")
+            #expect((try? Int.fetchOne(db, sql: "SELECT COUNT(*) FROM metric_sample WHERE lab_report_id IS NOT NULL")) == 3)
         }
     }
 
@@ -837,10 +837,10 @@ struct SchemaV27GoldenTests {
             #expect(upgraded == baseline, "\(table) 列集：老库逐步升级 ≠ 全新库基线")
         }
         try legacy.queue.read { db in
-            #expect(try Int.fetchOne(db, sql: "PRAGMA user_version") == SchemaMigrations.latestVersion)
+            #expect((try? Int.fetchOne(db, sql: "PRAGMA user_version")) == SchemaMigrations.latestVersion)
             #expect(SchemaMigrations.latestVersion >= 27, "v27 card-hierarchy 步必须已登记")
-            #expect(try Int.fetchOne(db, sql: "PRAGMA foreign_keys") == 1, "迁移后外键必须复位开启")
-            #expect(try Row.fetchAll(db, sql: "PRAGMA foreign_key_check(ocr_card_commit)").isEmpty)
+            #expect((try? Int.fetchOne(db, sql: "PRAGMA foreign_keys")) == 1, "迁移后外键必须复位开启")
+            #expect((try? Row.fetchAll(db, sql: "PRAGMA foreign_key_check(ocr_card_commit)").isEmpty) == true)
             #expect(try Row.fetchOne(db, sql: "SELECT * FROM ocr_card_commit WHERE card_id = 'c'")?["entity_table"] as String? == "prescription",
                     "回执搬运无损（entity_table 原值，不再等于 card_kind 推断）")
             #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM ocr_card_commit") == 1, "重建不得丢行")
@@ -948,7 +948,7 @@ struct SchemaV27GoldenTests {
             }
             let examTypes = Dictionary(uniqueKeysWithValues: try Row.fetchAll(db, sql: "PRAGMA table_info(health_exam)").map { ($0["name"] as String, $0["type"] as String) })
             for column in ["height_text", "weight_text", "bmi_text", "systolic_text", "diastolic_text", "pulse_text", "waist_text", "vision_left_text", "vision_right_text"] {
-                #expect(examTypes[column] == "TEXT", column)
+                #expect(examTypes[column] == "TEXT", Comment(rawValue: column))
             }
             // reminder.source_* 多态引用无 FK（白名单由 store 校验）；treatment_record 不 FK prescription_line/medication（drugs_text 原文不拆行）
             #expect(Set(try Row.fetchAll(db, sql: "PRAGMA foreign_key_list(reminder)").map { $0["table"] as String }) == ["patient_profile"])
