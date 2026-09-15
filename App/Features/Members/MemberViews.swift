@@ -304,10 +304,8 @@ struct MemberConfirmBar: View {
 struct MemberCreateSheet: View {
     let onCreate: (String, String, String?) -> Void
     @State private var name = ""
-    @State private var relation = "子女"
+    @State private var relation: MemberRelation = .child
     @State private var birthDate = ""
-
-    private let relations = ["配偶", "子女", "父母", "祖父母", "其他"]
 
     /// 关系显示名本地化映射（存储值仍为中文原始值，仅显示时本地化；
     /// 单一出口 = L10n.memberRelationDisplayName）
@@ -322,8 +320,9 @@ struct MemberCreateSheet: View {
                     TextField(L10n.member_namePlaceholder, text: $name)
                         .accessibilityIdentifier("FR3.7.create.name")
                     Picker(L10n.member_relation, selection: $relation) {
-                        ForEach(relations, id: \.self) { rel in
-                            Text(localizedRelation(rel)).tag(rel)
+                        // 可选集单点 = Domain MemberRelation.creatable（结构轮 2026-09-15）。
+                        ForEach(MemberRelation.creatable, id: \.self) { rel in
+                            Text(localizedRelation(rel.rawValue)).tag(rel)
                         }
                     }
                     TextField(L10n.member_birthDatePlaceholder, text: $birthDate)
@@ -333,7 +332,7 @@ struct MemberCreateSheet: View {
                 .toolbar {
                     ToolbarItem(placement: .confirmationAction) {
                         Button(L10n.member_save) {
-                            onCreate(name, relation, birthDate.isEmpty ? nil : birthDate)
+                            onCreate(name, relation.rawValue, birthDate.isEmpty ? nil : birthDate)
                         }
                         .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
                         .accessibilityIdentifier("FR3.7.create.save")
@@ -351,18 +350,19 @@ extension MemberManagementView {
     /// 只覆盖细粒度（父亲/母亲/儿子/女儿）——粗粒度全部回落通用家庭图标。
     /// 无专属资产的关系用 SF Symbols 兜底 + 无障碍标签，不留空、不误导。
     private func memberIcon(_ relation: String) -> Image {
-        switch relation {
-        case "配偶": return VLIcon.memberPartner
-        case "父亲": return VLIcon.memberFather
-        case "母亲": return VLIcon.memberMother
-        case "儿子": return VLIcon.memberSon
-        case "女儿": return VLIcon.memberDaughter
-        case "本人": return VLIcon.memberSelf
-        case "子女": return Image(systemName: "figure.child")
-        case "父母": return Image(systemName: "figure.2.arms.open")
-        case "祖父母": return Image(systemName: "figure.2")
-        case "其他": return Image(systemName: "person.crop.circle")
-        default: return VLIcon.memberFamily
+        // 结构轮 2026-09-15：词表单点 = Domain `MemberRelation`（此前中文串 switch
+        // 硬编码在视图，与 sheet 词表/删除闸门显示串比较同源——漂移即静默错图标/失效闸门）。
+        switch MemberRelation(tolerant: relation) {
+        case .partner: return VLIcon.memberPartner
+        case .father: return VLIcon.memberFather
+        case .mother: return VLIcon.memberMother
+        case .son: return VLIcon.memberSon
+        case .daughter: return VLIcon.memberDaughter
+        case .selfMember: return VLIcon.memberSelf
+        case .child: return Image(systemName: "figure.child")
+        case .parent: return Image(systemName: "figure.2.arms.open")
+        case .grandparent: return Image(systemName: "figure.2")
+        case .other: return Image(systemName: "person.crop.circle")
         }
     }
 
