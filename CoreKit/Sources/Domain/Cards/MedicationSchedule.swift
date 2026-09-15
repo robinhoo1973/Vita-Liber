@@ -1,6 +1,6 @@
 import Foundation
 
-public struct MedicationSchedule: InformationCard {
+public struct MedicationScheduleCard: InformationCard {
     public static let cardType = "medication_schedule"
 
     public var cardId: String = UUID().uuidString

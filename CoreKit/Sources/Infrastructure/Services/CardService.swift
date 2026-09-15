@@ -7,7 +7,7 @@ public protocol CardServiceProtocol: Sendable {
     func savePatient(_ card: PatientRecord) async throws
     func saveEncounter(_ card: EncounterRecord) async throws
     func saveReport(_ card: ClinicalReport) async throws
-    func saveMedicationSchedule(_ card: MedicationSchedule) async throws
+    func saveMedicationSchedule(_ card: MedicationScheduleCard) async throws
     func saveAppointment(_ card: AppointmentRecord) async throws
     func fetchPatient(id: String) async throws -> PatientRecord?
     func fetchReports(patientId: String) async throws -> [ClinicalReport]
@@ -67,7 +67,7 @@ public final class CardService: CardServiceProtocol {
             card.rawText = field.rawText
             return try AnyCard(card)
         case "drug_name", "dosage":
-            var card = MedicationSchedule()
+            var card = MedicationScheduleCard()
             card.rawText = field.rawText
             return try AnyCard(card)
         case "appointment_date", "appointment_time":
@@ -89,8 +89,8 @@ public final class CardService: CardServiceProtocol {
             try await encounterRepo.save(try anyCard.decode(as: EncounterRecord.self))
         case ClinicalReport.cardType:
             try await reportRepo.save(try anyCard.decode(as: ClinicalReport.self))
-        case MedicationSchedule.cardType:
-            try await medScheduleRepo.save(try anyCard.decode(as: MedicationSchedule.self))
+        case MedicationScheduleCard.cardType:
+            try await medScheduleRepo.save(try anyCard.decode(as: MedicationScheduleCard.self))
         case AppointmentRecord.cardType:
             try await appointmentRepo.save(try anyCard.decode(as: AppointmentRecord.self))
         default:
@@ -101,7 +101,7 @@ public final class CardService: CardServiceProtocol {
     public func savePatient(_ card: PatientRecord) async throws { try await patientRepo.save(card) }
     public func saveEncounter(_ card: EncounterRecord) async throws { try await encounterRepo.save(card) }
     public func saveReport(_ card: ClinicalReport) async throws { try await reportRepo.save(card) }
-    public func saveMedicationSchedule(_ card: MedicationSchedule) async throws { try await medScheduleRepo.save(card) }
+    public func saveMedicationSchedule(_ card: MedicationScheduleCard) async throws { try await medScheduleRepo.save(card) }
     public func saveAppointment(_ card: AppointmentRecord) async throws { try await appointmentRepo.save(card) }
 
     public func fetchPatient(id: String) async throws -> PatientRecord? { try await patientRepo.fetch(id: id) }
@@ -118,7 +118,7 @@ public final class MedicationScheduleRepository: MedicationScheduleRepositoryPro
         self.db = db
     }
 
-    public func save(_ card: MedicationSchedule) async throws {
+    public func save(_ card: MedicationScheduleCard) async throws {
         guard !card.cardId.isEmpty else { throw RepositoryError.invalidId }
         try db.transaction {
             try db.execute("""
@@ -144,12 +144,12 @@ public final class MedicationScheduleRepository: MedicationScheduleRepositoryPro
         }
     }
 
-    public func fetch(id: String) async throws -> MedicationSchedule? {
+    public func fetch(id: String) async throws -> MedicationScheduleCard? {
         let rows = try db.query("SELECT * FROM t_medication_schedule WHERE schedule_id = ? LIMIT 1;", params: [.text(id)])
         return rows.first.map(mapRow)
     }
 
-    public func fetchActive(patientId: String) async throws -> [MedicationSchedule] {
+    public func fetchActive(patientId: String) async throws -> [MedicationScheduleCard] {
         let rows = try db.query("SELECT * FROM t_medication_schedule WHERE patient_id = ? AND status = '0' ORDER BY plan_start_date DESC;", params: [.text(patientId)])
         return rows.map(mapRow)
     }
@@ -158,8 +158,8 @@ public final class MedicationScheduleRepository: MedicationScheduleRepositoryPro
         try db.execute("DELETE FROM t_medication_schedule WHERE schedule_id = ?;", params: [.text(id)])
     }
 
-    private func mapRow(_ row: [String: SQLiteValue]) -> MedicationSchedule {
-        var card = MedicationSchedule()
+    private func mapRow(_ row: [String: SQLiteValue]) -> MedicationScheduleCard {
+        var card = MedicationScheduleCard()
         card.cardId        = row["schedule_id"]?.string ?? UUID().uuidString
         card.patientId     = row["patient_id"]?.string
         card.prescriptionId = row["prescription_id"]?.string

@@ -24,9 +24,9 @@ public protocol ClinicalReportRepositoryProtocol: Sendable {
 }
 
 public protocol MedicationScheduleRepositoryProtocol: Sendable {
-    func save(_ card: MedicationSchedule) async throws
-    func fetch(id: String) async throws -> MedicationSchedule?
-    func fetchActive(patientId: String) async throws -> [MedicationSchedule]
+    func save(_ card: MedicationScheduleCard) async throws
+    func fetch(id: String) async throws -> MedicationScheduleCard?
+    func fetchActive(patientId: String) async throws -> [MedicationScheduleCard]
     func delete(id: String) async throws
 }
 
