@@ -55,11 +55,21 @@ extension HealthImportStore {
                 guard let id = UUID(uuidString: row["id"] as String) else { return nil }
                 // FR7.9 统计事实随行投影（2026-09-15 实测修复）：设备行须能自述是单条读数、
                 // 小时均值、日累计还是睡眠时段时长，并带窗口结束时间、极值与有效样本数。
-                return .init(id: id, patientId: owner, metricKey: row["metric_key"], value: row["value"], unit: row["unit"] ?? "",
-                             measuredAt: Date(timeIntervalSince1970: row["measured_at"]), sourceName: row["source_name"],
-                             aggregation: (row["aggregation_kind"] as String?).flatMap(MetricAggregation.init(rawValue:)),
-                             windowEnd: (row["window_end"] as Double?).map(Date.init(timeIntervalSince1970:)),
-                             valueMin: row["value_min"], valueMax: row["value_max"], sampleCount: row["sample_count"])
+                // 显式类型标注 + 分步构造（CI 实证：12 参初始化器内联 flatMap/map 触发
+                // 「unable to type-check in reasonable time」——L0 家族 G 同族）。
+                let value: Double = row["value"]
+                let unit: String = row["unit"] ?? ""
+                let measuredAt = Date(timeIntervalSince1970: row["measured_at"] as Double)
+                let sourceName: String? = row["source_name"]
+                let aggregation: MetricAggregation? = (row["aggregation_kind"] as String?).flatMap(MetricAggregation.init(rawValue:))
+                let windowEnd: Date? = (row["window_end"] as Double?).map { Date(timeIntervalSince1970: $0) }
+                let valueMin: Double? = row["value_min"]
+                let valueMax: Double? = row["value_max"]
+                let sampleCount: Int? = row["sample_count"]
+                return .init(id: id, patientId: owner, metricKey: row["metric_key"] as String, value: value, unit: unit,
+                             measuredAt: measuredAt, sourceName: sourceName,
+                             aggregation: aggregation, windowEnd: windowEnd,
+                             valueMin: valueMin, valueMax: valueMax, sampleCount: sampleCount)
             }
         }
     }
