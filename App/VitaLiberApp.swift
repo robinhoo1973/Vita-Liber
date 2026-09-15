@@ -16,7 +16,6 @@ struct VitaLiberApp: App {
     private let notificationDelegate: AppNotificationDelegate
     @State private var appState: AppState
     @State private var reminderStore: ReminderStore
-    @State private var assistantStore: AssistantStore
     @State private var settingsStore: AppSettingsStore
     @State private var observationState: ObservationStoreState
     @State private var entitlementStore: AppEntitlementStore
@@ -92,32 +91,6 @@ struct VitaLiberApp: App {
             // 仅横幅」真实生效（有应用内横幅承接）；预约/随访/临期/备份等
             // 无承接族照常系统投递（§5.58 降级链，W4 逐类别收紧）。
             scheduler: container.reminderScheduler, composer: container.composer))
-        _assistantStore = State(initialValue: AssistantStore(
-            provider: container.aiProvider,
-            history: container.aiHistory,
-            feedback: { kind in
-                // FR12.8 反馈四键：本地留存（audit feedback 行动），P1 上报
-                Task {
-                    do {
-                        try await container.audit.record(action: "feedback", entityType: "ai_answer",
-                                                         entityId: kind, actorLocal: "owner", meta: nil)
-                    } catch {
-                        // 审计失败不阻断反馈交互，但必须上报（§7 不静默吞）
-                        logger.error("AI 反馈审计失败: \(error)")
-                    }
-                }
-            },
-            quotaUseHook: { [store = container.entitlements] in
-                // comercial §2.3：每次成功回答计一次额度（免费档 20 次/月）
-                // 直连 EntitlementStore actor（AppEntitlementStore 展示侧 load 时同步）
-                Task {
-                    do { try await store.recordAIUse() }
-                    catch {
-                        // 额度计数失败不阻断回答，但必须上报（§7 不静默吞）
-                        logger.error("AI 额度计数失败: \(error)")
-                    }
-                }
-            }))
         // 单一实例：环境注入与 DocumentsState 授权闭包共用（AppRootView 启动即 load）
         let appSettings = AppSettingsStore(store: container.settings)
         _settingsStore = State(initialValue: appSettings)
@@ -257,7 +230,6 @@ struct VitaLiberApp: App {
         })
             .environment(appState)
             .environment(reminderStore)
-            .environment(assistantStore)
             .environment(settingsStore)
             .environment(observationState)
             .environment(dataChangeCenter)

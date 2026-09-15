@@ -5,7 +5,7 @@
 "nav.home" = "Home";
 "nav.records" = "Records";
 "nav.reminders" = "Reminders";
-"nav.ai" = "Assistant";
+"nav.health" = "Assistant";
 "nav.me" = "Me";
 "trend.title" = "Trends";
 "trend.range.unavailable" = "No reference range (report-provided ranges only at this stage)";
@@ -2082,3 +2082,14 @@
 "field.session" = "Sessions";
 "field.adverse_reaction" = "Adverse reaction";
 "field.result" = "Treatment result";
+
+"health.searchPrompt" = "Search health records";
+"health.searchPlaceholder" = "Enter keywords...";
+"health.summaryTitle" = "Health Summary";
+"health.connectDevice" = "Connect a device to view health data";
+"health.connectButton" = "Connect Device";
+"health.quickActions" = "Quick Actions";
+"health.trends" = "Trends";
+"health.reminders" = "Reminders";
+"health.searchRecords" = "Records";
+

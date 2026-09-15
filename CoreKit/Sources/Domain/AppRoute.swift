@@ -122,7 +122,7 @@ public enum AppRoute: Hashable, Sendable, Codable {
 
 /// 路由所属 Tab（§5.45：通知点击按 route 所属 Tab 切换 selection 并 append 到对应 path）
 public enum MainModuleID: String, Sendable, Hashable, Codable {
-    case home, records, reminders, ai, me
+    case home, records, reminders, health, me
 
     public static func tab(of route: AppRoute) -> MainModuleID {
         switch route {
@@ -140,7 +140,7 @@ public enum MainModuleID: String, Sendable, Hashable, Codable {
              .sentStatusHub, .questionList:
             return .reminders
         case .globalSearch, .assistantChat, .assistantHistory, .voiceSession:
-            return .ai
+            return .health
         case .settingsRoot, .preferences, .notificationCenter, .auditLog,
              .privacyAuthorization, .themeSettings, .languageSettings,
              .voiceLanguageSettings, .voiceEngineLab, .emergencyCardConfig, .deviceConnection,

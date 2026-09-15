@@ -17,8 +17,18 @@ enum L10n {
     static var navHome: String { t("nav.home") }
     static var navRecords: String { t("nav.records") }
     static var navReminders: String { t("nav.reminders") }
-    static var navAI: String { t("nav.ai") }
+    static var navHealth: String { t("nav.health") }
     static var navMe: String { t("nav.me") }
+    // MARK: - 健康 Tab（H 重构）
+    static var healthSearchPrompt: String { t("health.searchPrompt") }
+    static var healthSearchPlaceholder: String { t("health.searchPlaceholder") }
+    static var healthSummaryTitle: String { t("health.summaryTitle") }
+    static var healthConnectDevice: String { t("health.connectDevice") }
+    static var healthConnectButton: String { t("health.connectButton") }
+    static var healthQuickActions: String { t("health.quickActions") }
+    static var healthTrends: String { t("health.trends") }
+    static var healthReminders: String { t("health.reminders") }
+    static var healthSearchRecords: String { t("health.searchRecords") }
 
     // MARK: - F7 趋势（SP-13 / FR7.2）
     static var trendTitle: String { t("trend.title") }
@@ -842,6 +852,15 @@ enum L10n {
     "ai.quickGlucose",
     "ai.quickMeds",
     "ai.quickNext",
+    "health.connectButton",
+    "health.connectDevice",
+    "health.quickActions",
+    "health.reminders",
+    "health.searchPlaceholder",
+    "health.searchPrompt",
+    "health.searchRecords",
+    "health.summaryTitle",
+    "health.trends",
     // V3.49：动态键（voiceIntentName(_:) 拼装）——十意图目录标签，静态扫描不可见
     "voiceIntent.recordMetric",
     "voiceIntent.recordObservation",
@@ -1190,7 +1209,7 @@ enum L10n {
         "inventory.tier3", "inventory.tier7", "inventory.title", "member.add",
         "member.addedHint", "member.birthDatePlaceholder", "member.current", "member.namePlaceholder",
         "member.quotaHint", "member.relation", "member.save", "member.switch",
-        "member.title", "nav.ai", "nav.home", "nav.me",
+        "member.title", "nav.health", "nav.home", "nav.me",
         "nav.records", "nav.reminders", "observation.allergySection",
         "observation.createTitle", "observation.description", "observation.groupSummary", "observation.kind.custom",
         "observation.kind.eye", "observation.kind.generic", "observation.kind.secretion", "observation.kind.skin",
@@ -3171,7 +3190,7 @@ enum L10n {
     static var encounterLinkedCardsEmpty: String { t("encounter.linkedCards.empty") }
 
     enum TargetTag: String, CaseIterable {
-        case metric, observation, question, ai, reminder, profile, anyText
+        case metric, observation, question, health, reminder, profile, anyText
     }
 
     /// 支持的本地化（三文件纪律）

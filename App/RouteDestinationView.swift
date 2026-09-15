@@ -94,7 +94,7 @@ struct RouteDestinationView: View {
 
             // ---- F12 ----
             case .assistantChat:
-                AssistantView()
+                HealthTabView()
             case .globalSearch:
                 GlobalSearchView()
             case .assistantHistory:

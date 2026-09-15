@@ -5,7 +5,7 @@
 "nav.home" = "首頁";
 "nav.records" = "健康檔案";
 "nav.reminders" = "提醒";
-"nav.ai" = "AI 助手";
+"nav.health" = "AI 助手";
 "nav.me" = "我的";
 "trend.title" = "指標趨勢";
 "trend.range.unavailable" = "暫無參考範圍（本階段僅顯示報告自帶範圍）";
@@ -2082,3 +2082,14 @@
 "field.session" = "療程/次數";
 "field.adverse_reaction" = "不良反應";
 "field.result" = "治療結果";
+
+"health.searchPrompt" = "搜尋健康記錄";
+"health.searchPlaceholder" = "輸入關鍵詞搜尋...";
+"health.summaryTitle" = "健康概覽";
+"health.connectDevice" = "連線裝置以查看健康資料";
+"health.connectButton" = "連線裝置";
+"health.quickActions" = "快捷操作";
+"health.trends" = "趨勢";
+"health.reminders" = "提醒";
+"health.searchRecords" = "查記錄";
+

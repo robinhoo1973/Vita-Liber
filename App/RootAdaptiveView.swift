@@ -18,34 +18,25 @@ import Perception
 ///   按 horizontalSizeClass 分容器是 §5.26 L4 明示的容器驱动重排原语，
 ///   不是被禁止的 idiom 分支换页（L0 [2/7] 只查 userInterfaceIdiom == .pad）。
 enum MainModule: String, CaseIterable, Identifiable, Hashable {
-    case home, records, reminders, ai, me
+    case home, records, reminders, health, me
     var id: String { rawValue }
 
-    /// 展示文案走 L10n 单出口（评审 S2-1：枚举不兼职 UI 串）。
-    /// 返回已解析的本地化串（L10n.navHome 等）——Label 直接消费，
-    /// 避免原始 key 字面量散落枚举、绕开 Localization/L10n.swift 纪律。
     var title: String {
         switch self {
         case .home: return L10n.navHome
         case .records: return L10n.navRecords
         case .reminders: return L10n.navReminders
-        case .ai: return L10n.navAI
+        case .health: return L10n.navHealth
         case .me: return L10n.navMe
         }
     }
 
-    /// Tab/侧边栏字形（V3.35，TestFlight 实测）：设计库 ic-tab-* 瓷砖为带背景 pad 的
-    /// app-icon 式图形（@1x 48pt，@2x 母版 96px），放进 tab 栏会与文字标签互相挤压
-    /// 致其截断——改回系统 SF Symbols 线条字形，随选中态自动着色。注意：这只修复
-    /// 默认字号下的图标挤压；辅助功能超大字号（AX）下 Tab 标签仍可能被系统截断，
-    /// 属系统 Tab 栏行为，非本字形回归。瓷砖图形保留于设计资源库（design/icons，
-    /// ui-ux-spec V3.35「保留不删」）供未来模块内大尺寸场景复用，当前无代码消费。
     var systemGlyph: String {
         switch self {
         case .home: return "house"
         case .records: return "folder"
         case .reminders: return "bell"
-        case .ai: return "sparkles"
+        case .health: return "heart.text.clipboard"
         case .me: return "person"
         }
     }
@@ -177,7 +168,7 @@ extension MainModuleID {
         case .home: self = .home
         case .records: self = .records
         case .reminders: self = .reminders
-        case .ai: self = .ai
+        case .health: self = .health
         case .me: self = .me
         }
     }
@@ -202,8 +193,8 @@ struct ModuleRoot: View {
                 TimelineFullView()
             case .reminders:
                 RemindersView()
-            case .ai:
-                AssistantView()
+            case .health:
+                HealthTabView()
             case .me:
                 SettingsView()
             case .home:
@@ -253,8 +244,7 @@ private struct PreviewRoot: View {
                                            // assemble 注入的实例 A，本 store 经实例 B，
                                            // 对账/取消互不可见，预览无法充当接线回归探针）
                                            scheduler: container.reminderScheduler,
-                                           composer: container.composer))
-                .environment(AssistantStore(provider: container.aiProvider))
+                                            composer: container.composer))
                 .environment(AppSettingsStore(store: container.settings))
                 .environment(ObservationStoreState(store: container.observations,
                                                    allergyStore: container.allergies,

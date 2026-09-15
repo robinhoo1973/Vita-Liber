@@ -41,7 +41,7 @@ final class AppRouter {
     var homePath: [AppRoute] = []
     var recordsPath: [AppRoute] = []
     var remindersPath: [AppRoute] = []
-    var aiPath: [AppRoute] = []
+    var healthPath: [AppRoute] = []
     var mePath: [AppRoute] = []
 
     /// 当前选中模块——导航单一状态源（评审修正，TestFlight 实测：navigate 只 append
@@ -188,10 +188,10 @@ final class AppRouter {
             // 保留；空栈时仅切 Tab 不入栈（根即聊天页）；栈中无聊天页时
             // 维持栈不动（保留历史/搜索上下文）。
             if route == .assistantChat {
-                guard !self.aiPath.isEmpty else { return }
-                if let idx = self.aiPath.firstIndex(of: .assistantChat) {
-                    self.aiPath.removeSubrange(idx...)
-                    self.persist(path: .ai, \.aiPath)
+                guard !self.healthPath.isEmpty else { return }
+                if let idx = self.healthPath.firstIndex(of: .assistantChat) {
+                    self.healthPath.removeSubrange(idx...)
+                    self.persist(path: .health, \.healthPath)
                 }
                 return
             }
@@ -211,7 +211,7 @@ final class AppRouter {
     /// 同时清除持久化键：冷启动时序下 persist 在 didRestore 前是 no-op，
     /// 必须直接删键，否则稍后的 restore() 仍会把旧路径加载回来。
     func degradeToHome() {
-        homePath = []; recordsPath = []; remindersPath = []; aiPath = []; mePath = []
+        homePath = []; recordsPath = []; remindersPath = []; healthPath = []; mePath = []
         selection = .home
         // 第六轮全仓审查修复：启动窗口内已暂存的通知路由同样作废——
         // 「无路由 → 显式回首页」契约（§5.45）要求清空队列，否则早先
@@ -268,7 +268,7 @@ final class AppRouter {
         (.home, .home, \.homePath),
         (.records, .records, \.recordsPath),
         (.reminders, .reminders, \.remindersPath),
-        (.ai, .ai, \.aiPath),
+        (.health, .health, \.healthPath),
         (.me, .me, \.mePath),
     ]
 
