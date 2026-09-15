@@ -82,10 +82,10 @@ struct HealthTabView: View {
                     // TODO: 跳转趋势图表
                 }
                 quickActionCard(icon: "bell.badge", title: L10n.healthReminders, color: .orange) {
-                    router.navigate(to: .reminders)
+                    router.select(.reminders)   // 模块落地 = Tab 切换（MainModuleID），非 AppRoute 深链
                 }
                 quickActionCard(icon: "doc.text.magnifyingglass", title: L10n.healthSearchRecords, color: .green) {
-                    router.navigate(to: .records)
+                    router.select(.records)
                 }
             }
         }
