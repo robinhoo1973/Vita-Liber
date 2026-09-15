@@ -452,7 +452,6 @@ final class TrendAcceptanceTests: XCTestCase {
                   id TEXT PRIMARY KEY, reminder_id TEXT, dose_log_id TEXT,
                   scheduled_at REAL NOT NULL, delivered_at REAL,
                   channel TEXT NOT NULL, level TEXT, outcome TEXT, created_at REAL NOT NULL);
-                  delivered_state TEXT NOT NULL, created_at REAL NOT NULL);
                 -- v25 recognition-fact-lines 对 encounter/prescription/stock_lot/claim_item/document_file
                 -- 增列、v25 回填读 ocr_result、v26 对 metric_sample 增列——合成老库须含这些表的
                 -- v12 期形态（列集取自 Fixtures/schema_v24_baseline.sql 去掉后续增列），否则

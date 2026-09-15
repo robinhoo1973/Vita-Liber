@@ -1,8 +1,8 @@
 # ============================================================================
 # Workflow 执行记录清理
 #
-# 定时清理：每个 workflow 保留最近一次成功的执行记录 + 近 7 天内失败的
-# 记录（失败证据是诊断/审计材料，发布流水线尤其需要），其余删除。
+# 定时清理：每个 workflow 只保留最近一次成功的执行记录；错误/取消/跳过
+# 等非成功 completed run 与非最近一次成功 run 全部删除。
 # 包括已删除的 workflow 的历史记录也会被清理。
 # 调度：中国时间每天凌晨 0:00（UTC 16:00）
 # ============================================================================
@@ -85,27 +85,11 @@ jobs:
             local wf_key="$1" wf_name="$2" conclusion="$3" run_id="$4" created_at="$5" first_success_file="$6"
             read DELETED KEPT < "$COUNTS_FILE"
 
-            # 规则0：cleanup 自身 → 全部删除
-            if [ "$wf_key" = ".github/workflows/cleanup-runs.yml" ] || [ "$wf_name" = "Cleanup Workflow Runs" ]; then
-              delete_run "$run_id" "cleanup 自身" && DELETED=$((DELETED + 1))
-              echo "$DELETED $KEPT" > "$COUNTS_FILE"
-              return
-            fi
-
-            # 规则1：未成功 → 保留 7 天宽限期后删除
-            # （审计 2026-09-10 决定：失败记录当日即删 = 间歇性失败无证据
-            # 可查、发布流水线无审计轨迹；近 7 天失败保留供诊断。
-            # 2026-09-12 恢复：3ae011c「简化失败路径」误删宽限期——审计
-            # 决定是产品行为，不是可丢弃的复杂度；日期解析失败保守保留）
+            # 规则1：未成功 → 直接删除
+            # 业主 2026-09-15 明确要求：删除 workflow 的错误记录与非最后一次
+            # 成功执行记录；失败证据不在 Actions run 历史里长期保留。
             if [ "$conclusion" != "success" ]; then
-              CUTOFF=$(date -u -d '7 days ago' +%s)
-              CREATED_EPOCH=$(date -u -d "$created_at" +%s 2>/dev/null || echo 0)
-              if [ "$CREATED_EPOCH" -le 0 ] || [ "$CREATED_EPOCH" -gt "$CUTOFF" ]; then
-                echo "  保留: #$run_id ($wf_name - 未成功但 ≤7 天，留诊断审计)"
-                KEPT=$((KEPT + 1))
-              else
-                delete_run "$run_id" "$wf_name - 未成功且超过 7 天" && DELETED=$((DELETED + 1))
-              fi
+              delete_run "$run_id" "$wf_name - 非成功 ($conclusion)" && DELETED=$((DELETED + 1))
               echo "$DELETED $KEPT" > "$COUNTS_FILE"
               return
             fi
@@ -134,9 +118,12 @@ jobs:
               if [ ! -s "$RUNS_FILE" ]; then
                 echo "  无 completed run"
               else
-                sort -t $'\t' -k4,4r "$RUNS_FILE" | while IFS=$'\t' read -r RUN_ID RUN_NAME CONCLUSION CREATED_AT; do
+                SORTED_RUNS_FILE=$(mktemp) || { echo "错误: mktemp 失败"; exit 1; }
+                sort -t $'\t' -k4,4r "$RUNS_FILE" > "$SORTED_RUNS_FILE"
+                while IFS=$'\t' read -r RUN_ID RUN_NAME CONCLUSION CREATED_AT; do
                   keep_or_delete_run "$WF_PATH" "$WF_NAME" "$CONCLUSION" "$RUN_ID" "$CREATED_AT" "$FIRST_SUCCESS_FILE"
-                done
+                done < "$SORTED_RUNS_FILE"
+                rm -f "$SORTED_RUNS_FILE"
               fi
             else
               echo "::warning::拉取 workflow runs 失败: $WF_NAME ($WF_PATH)"
