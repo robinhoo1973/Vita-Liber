@@ -1,6 +1,7 @@
 #if os(iOS) || os(macOS)
 import Foundation
 import AVFoundation
+import Domain
 
 /// 三轨共用的音频采集控制器（结构轮 2026-09-15，A4-F3）：
 /// 此前基线轨（`NativeSpeechSessionDriver`）与 sherpa 轨（`SherpaSpeechSessionDriver`）
