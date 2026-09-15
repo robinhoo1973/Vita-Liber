@@ -162,25 +162,6 @@ public enum SleepMerge {
         return out
     }
 
-    /// 区间减法：interval − others → 余段（不产生负区间）
-    static func subtract(_ start: Date, _ end: Date,
-                         _ others: [(Date, Date)]) -> [(Date, Date)] {
-        var fragments: [(Date, Date)] = [(start, end)]
-        for other in others {
-            var next: [(Date, Date)] = []
-            for (s, e) in fragments {
-                if other.1 <= s || other.0 >= e {
-                    next.append((s, e))
-                    continue
-                }
-                if other.0 > s { next.append((s, other.0)) }
-                if other.1 < e { next.append((other.1, e)) }
-            }
-            fragments = next
-        }
-        return fragments
-    }
-
     /// 来源优先：product（watch>phone>other）→ version（高者优先）
     static func sourceRank(_ sample: SleepSample) -> (Int, Int) {
         let productRank: Int

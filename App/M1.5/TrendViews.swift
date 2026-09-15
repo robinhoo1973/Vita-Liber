@@ -166,7 +166,11 @@ struct TrendChartView: View {
         // → ≤ 482 点（240 桶 × min/max + 首尾），列表仍全量。
         let range = series.identity?.range ?? DateInterval(start: xDomainStart, end: xDomainEnd)
         let visible = TrendDownsampler.thin(sortedPoints, in: range, maxBuckets: 240)
-        let windowStart = range.end.addingTimeInterval(-TimeInterval(window.rawValue) * 86400)
+        // 结构轮修复：窗口起止与可见域同源一份日历区间（TrendTimeWindow.interval，
+        // DayArithmetic 出口）——此前两处各写 rawValue × 86400，DST 日与查询
+        // 范围差 ±1h（裸 86400 违反全仓 DST 纪律）。
+        let visibleInterval = window.interval(endingAt: range.end)
+        let windowStart = visibleInterval.start
         let shown = ChartsCompat.supportsScrollableAxes ? visible : visible.filter { $0.measuredAt >= windowStart }   // iOS 16 只画窗口内点
         let family = TrendMarkFamily.family(for: series.metricType)
         let tint = Color("brand-primary", bundle: .main)
@@ -204,7 +208,7 @@ struct TrendChartView: View {
                 }
             }
             // H4：横向可滚动 + 可见域 = 所选时间窗（iOS 17 原生；iOS 16 由 App/Compat 垫片钉窗口 + 拖动选点）
-            .chartWindowCompat(visibleLength: TimeInterval(window.rawValue) * 86400, domainEnd: range.end, selection: $selectedDate)
+            .chartWindowCompat(visibleLength: visibleInterval.duration, domainEnd: range.end, selection: $selectedDate)
             .frame(height: 200)
             .accessibilityIdentifier("SP-13.trend.chart")
             .accessibilityLabel(L10n.trendChartAccessibility(L10n.metricName(series.metricType), series.points.count, series.referenceBands.count))

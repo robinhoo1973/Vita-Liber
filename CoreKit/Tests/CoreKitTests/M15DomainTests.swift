@@ -20,11 +20,20 @@ struct TrendServiceTests {
     }
 
     @Test func 参考范围A级优先于B级() {
-        let report = ReferenceRange(lower: 60, upper: 90, grade: .A)
-        let library = ReferenceRange(lower: 65, upper: 85, grade: .B)
-        #expect(TrendRules.resolveRange(reportRange: report, libraryRange: library) == report)
-        #expect(TrendRules.resolveRange(reportRange: nil, libraryRange: library) == library)
-        #expect(TrendRules.resolveRange(reportRange: nil, libraryRange: nil) == nil, "无来源=范围不可用（独立状态）")
+        // FR16.4 铁律经 resolveBands 表达（resolveRange 死代码已随结构轮删除）：
+        // 有 A 级带不混入 B 级；无 A 级带才回落 B 级；两者皆无 = 范围不可用（空数组）。
+        let aPoint = TrendPoint(id: UUID(), measuredAt: Date(), value: 80, origin: .hospital,
+                                refLow: 60, refHigh: 90, refSourceLabel: "甲医院")
+        let library = ReferenceBand(sourceLabel: "信源库", lower: 65, upper: 85, grade: .B)
+        let bands = TrendRules.resolveBands(points: [aPoint], libraryFallback: library)
+        #expect(bands.count == 1)
+        #expect(bands[0].grade == .A, "A 级存在时不得回落 B 级")
+
+        let bOnly = TrendRules.resolveBands(points: [], libraryFallback: library)
+        #expect(bOnly.count == 1 && bOnly[0].grade == .B)
+
+        let none = TrendRules.resolveBands(points: [])
+        #expect(none.isEmpty, "无来源=范围不可用（独立状态）")
     }
 
     @Test func 换算留痕不覆盖原值() {

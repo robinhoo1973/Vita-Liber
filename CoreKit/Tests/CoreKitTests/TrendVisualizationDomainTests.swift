@@ -14,6 +14,17 @@ struct TrendVisualizationDomainTests {
         return cal
     }
 
+    @Test("时间窗为日历日区间：DST 切换日时长 ≠ rawValue×86400（可见域与查询范围同源）")
+    func 时间窗DST() {
+        var ny = Calendar(identifier: .gregorian)
+        ny.timeZone = TimeZone(identifier: "America/New_York")!
+        // 2026-03-08 美东进入夏令时：窗口 03-05→03-12 跨春令时切换，时长 = 7×86400 − 3600
+        let end = ny.date(from: DateComponents(year: 2026, month: 3, day: 12, hour: 12))!
+        let interval = TrendTimeWindow.week.interval(endingAt: end, calendar: ny)
+        #expect(interval.duration == TimeInterval(7) * 86400 - 3600)
+        #expect(interval.end == end)
+    }
+
     @Test("H4 降采样保极值：每桶保留 min/max，点数 ≤ 2×buckets+2，极值不丢，输出按时间有序")
     func 降采样() {
         let start = Date(timeIntervalSince1970: 0)
