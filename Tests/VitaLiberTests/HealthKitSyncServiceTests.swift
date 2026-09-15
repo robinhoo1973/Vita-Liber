@@ -318,14 +318,14 @@ final class HealthKitSyncServiceTests: XCTestCase {
     /// `report_json` 旧 JSON 无新键必须可解码——新字段全部 Optional（合成 Decodable 对非 Optional 缺键即抛）。
     func test_syncReportDecodesLegacyJSONWithoutNewKeys() throws {
         let legacy = #"{"elevated":0,"noRangeCount":0,"persistedRows":3,"preservedRows":0,"deferredWindows":0,"receivedChanges":3,"rejectedSamples":0,"failedTypes":[],"hasMore":false,"notificationFailures":0,"lastSyncAt":0}"#
-        let report = try JSONDecoder().decode(HealthKitSyncService.SyncReport.self, from: Data(legacy.utf8))
+        let report = try JSONDecoder().decode(SyncReport.self, from: Data(legacy.utf8))
         XCTAssertNil(report.sparseWindows)
         XCTAssertNil(report.remainingWindows)
         XCTAssertNil(report.backfillLane)
         XCTAssertEqual(report.persistedRows, 3)
         var full = report
         full.sparseWindows = 2; full.remainingWindows = 5; full.backfillLane = .history
-        let roundTrip = try JSONDecoder().decode(HealthKitSyncService.SyncReport.self, from: JSONEncoder().encode(full))
+        let roundTrip = try JSONDecoder().decode(SyncReport.self, from: JSONEncoder().encode(full))
         XCTAssertEqual(roundTrip, full)
     }
 }
