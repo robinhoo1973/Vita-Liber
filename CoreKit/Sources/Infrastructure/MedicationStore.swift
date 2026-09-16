@@ -99,7 +99,7 @@ public actor MedicationStore: DoseSource {
                 SET user_action = 'taken', acted_at = ?
                 WHERE id = ?
                 """, arguments: [Date().timeIntervalSince1970, notifyId])
-            try applyResolutionOnLots(patientId: patientId, medicationId: effectiveMedicationId,
+            try applyResolutionOnLots(patientId: patientId, medicationId: medicationId,
                                 notifyId: notifyId, units: units, action: .taken, db: db)
         }
     }
@@ -128,7 +128,7 @@ public actor MedicationStore: DoseSource {
                 SET user_action = ?, acted_at = ?, note = ?
                 WHERE id = ?
                 """, arguments: [action.rawValue, Date().timeIntervalSince1970, reason, notifyId])
-            try applyResolutionOnLots(patientId: patientId, medicationId: effectiveMedicationId,
+            try applyResolutionOnLots(patientId: patientId, medicationId: medicationId,
                                 notifyId: notifyId, units: units, action: action, db: db)
         }
     }
@@ -181,7 +181,7 @@ public actor MedicationStore: DoseSource {
                     WHERE id = ? AND user_action IS NULL
                     """, arguments: [now.timeIntervalSince1970, notifyId])
                 guard db.changesCount > 0 else { continue }   // 并发下已被决议，跳过
-                try applyResolutionOnLots(patientId: patientId, medicationId: effectiveMedicationId,
+                try applyResolutionOnLots(patientId: patientId, medicationId: medicationId,
                                           notifyId: notifyId, units: units,
                                           action: .missed, db: db)
                 processed += 1
