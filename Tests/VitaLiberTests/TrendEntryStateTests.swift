@@ -102,11 +102,18 @@ final class TrendEntryStateTests: XCTestCase {
                                        unit: "mmol/L", measuredAt: stale)
         let state = TrendEntryState(store: trends)
 
+        // 断言「窗口覆盖了**发起请求的那一刻**」——这才是业主第 1 项的语义。
+        // 必须在 `await` **之前**取时刻：`period(endingAt:)` 的 `end` 与传入锚点逐位
+        // 相等（Domain 该函数注释明示），而 `loadDetail` 内部的锚点晚于此处；若在
+        // `await` 之后再取 `Date()`，它必然晚于 `end`，而 `DateInterval.contains`
+        // 是双端闭区间 → 判否（CI 35085355700 实证：本行曾写成 `contains(Date())`，
+        // 差的是微秒，报 XCTAssertTrue failed）。
+        let requestedAt = Date()
         await state.loadDetail(patientId: owner, metricKey: "glucose", window: .week)
         let identity = try XCTUnwrap(state.detailIdentity)
         // 窗末 = 今天（允许跨用例的秒级误差），而不是最新读数所在日
         XCTAssertEqual(identity.range.end.timeIntervalSinceNow, 0, accuracy: 5)
-        XCTAssertTrue(identity.range.contains(Date()))
+        XCTAssertTrue(identity.range.contains(requestedAt))
         XCTAssertFalse(identity.range.contains(stale), "90 天前的读数不应落在 7 天窗内")
         // 最新读数仍如实告知（空态出口的数据源）
         XCTAssertEqual(try XCTUnwrap(state.latestAnyDate).timeIntervalSince(stale), 0, accuracy: 0.001)
