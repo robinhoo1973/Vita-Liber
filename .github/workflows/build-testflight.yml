@@ -477,14 +477,29 @@ jobs:
         run: |
           set -o pipefail
           echo "destination: ${DEST}"
+          # 失败重试（2026-09-16，CI 35061342620 实证）：
+          # `Failed to launch ... via Xcode: Timed out while launching application`
+          # 是 XCUITest 在 CI 上的**已知环境抖动**（冷模拟器 / runner 资源竞争），
+          # 不是产品缺陷——同一份 App 代码在 35058385040 通过、在 35061342620 因启动
+          # 超时失败，两次唯一的差别是 runner 状态。Apple 为此提供
+          # `-retry-tests-on-failure`，UI 测试失败重试是业界标准做法。
+          #
+          # **重试不得静默**（本仓 ERR#27「缺证据被当成有证据」纪律）：下方在最终
+          # 通过时反查日志里的失败计数，若曾出现失败即打印告警——重试掩盖真实缺陷
+          # 是本仓明令禁止的，必须让人看见并判断「是不是抖动」。
           xcodebuild test-without-building \
             -skipMacroValidation \
             -project "$XCODEPROJ" -scheme "$SCHEME" \
             -destination "${DEST}" \
             -derivedDataPath Build/DerivedData \
             -only-testing:VitaLiberUITests \
+            -retry-tests-on-failure -test-iterations 2 \
             CODE_SIGNING_ALLOWED=NO \
             2>&1 | tee Build/xcodebuild-uitest.log
+          if grep -qE "with [1-9][0-9]* failure" Build/xcodebuild-uitest.log; then
+            echo "::warning::UI 测试曾失败并被重试后通过——请核对 Build/xcodebuild-uitest.log 是启动抖动还是真实缺陷。重试只容忍环境抖动，不容忍产品缺陷。"
+            grep -nE "Timed out while launching|with [1-9][0-9]* failure" Build/xcodebuild-uitest.log | head -10
+          fi
           echo "L1 UI 测试通过 ✓"
 
       # ── 签名归档 + 导出 IPA ──────────────────────────
