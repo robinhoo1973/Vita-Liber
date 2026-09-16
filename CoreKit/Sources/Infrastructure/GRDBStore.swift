@@ -205,12 +205,10 @@ public struct GRDBStore {
         // **升级在 v13 即断裂**，按 tech-spec 落只读降级模式（绝不 reseed）。
         // 就地幂等补列：DEFAULT 1 与下方新表定义、v29 的回填同值，读取侧
         // MedicationStore `(row["dose_units"] as Double?) ?? 1` 同口径。
-        let oldHasDoseUnits = try Int.fetchOne(db, sql: """
-            SELECT COUNT(*) FROM pragma_table_info('medication_dose_log_old') WHERE name = 'dose_units'
-            """) ?? 0
-        if oldHasDoseUnits == 0 {
-            try db.execute(sql: "ALTER TABLE medication_dose_log_old ADD COLUMN dose_units REAL NOT NULL DEFAULT 1")
-        }
+        // 复用 `executeIdempotent` 的列存在守卫（本文件 `:148-151` 立的纪律：
+        // 「守卫语义只能靠单一实现保证」）。此前此处手写过一份等价 pragma 查询——
+        // 同一会话里刚落下的单一真源纪律，转身又造了第二实现（评审指出）。
+        try Self.executeIdempotent(db, "ALTER TABLE medication_dose_log_old ADD COLUMN dose_units REAL NOT NULL DEFAULT 1")
         try db.execute(sql: """
             CREATE TABLE IF NOT EXISTS medication_dose_log (
               id TEXT PRIMARY KEY, plan_id TEXT NOT NULL REFERENCES medication_plan(id),
