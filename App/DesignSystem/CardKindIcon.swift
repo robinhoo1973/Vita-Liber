@@ -28,6 +28,28 @@ enum CardKindIcon {
     private static var danger: Color { Color("semantic-danger", bundle: .main) }
     private static var secondary: Color { Color("text-secondary", bundle: .main) }
 
+    // MARK: - 首页聚合行类别（AggregationKind）
+
+    /// `AggregationKind` 全 9 case 穷尽（2026-09-16 委员会评审收敛）：首页聚合行
+    /// 此前在 HomeView 内联 icon/tint 两张 switch，且 tint 直接写
+    /// `.blue/.teal/.indigo/.yellow/.red/.orange/.green/.gray` 八个硬编码色——
+    /// 违反 token-only 纪律，并与本出口构成第二套类别色映射（同类别两页两色）。
+    /// 语义映射：提醒/预约/文档/系统 → brand；OCR 待确认 → warning；
+    /// 预警/SOS → danger；家庭 → success。（图标字形沿用原内联值，视觉零变化。）
+    static func spec(aggregation: AggregationKind) -> Spec {
+        switch aggregation {
+        case .medication: return Spec(symbol: "pills.fill", glyph: VLIcon.pill, tint: brand)
+        case .appointment: return Spec(symbol: "stethoscope", glyph: VLIcon.appointment, tint: brand)
+        case .document: return Spec(symbol: "doc.text.fill", glyph: VLIcon.tag, tint: brand)
+        case .ocr: return Spec(symbol: "exclamationmark.triangle.fill", glyph: VLIcon.tag, tint: warning)
+        case .alert: return Spec(symbol: "waveform.path.ecg", glyph: VLIcon.vitalsChart, tint: danger)
+        case .pendingCard: return Spec(symbol: "clock.badge.checkmark", glyph: VLIcon.doctor, tint: warning)
+        case .family: return Spec(symbol: "person.2.fill", glyph: VLIcon.memberFamily, tint: success)
+        case .sos: return Spec(symbol: "sos", glyph: VLIcon.memberSelf, tint: danger)
+        case .system: return Spec(symbol: "gearshape.fill", glyph: VLIcon.settings, tint: secondary)
+        }
+    }
+
     // MARK: - 时间轴条目类型（主表；其余重载全部归并到此）
 
     /// `TimelineEntryKind` 全 22 case 穷尽（既有九类 + document + v27 十二类）。

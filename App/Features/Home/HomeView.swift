@@ -388,7 +388,7 @@ struct HomeView: View {
                 HStack(spacing: 8) {
                     filterChip(nil, L10n.homeFilterAll, icon: "square.grid.2x2")
                     ForEach(AggregationKind.allCases, id: \.self) { kind in
-                        filterChip(kind, kindLabel(kind), icon: kindIcon(kind))
+                        filterChip(kind, kindLabel(kind), icon: CardKindIcon.spec(aggregation: kind).symbol)
                     }
                 }
             }
@@ -646,12 +646,12 @@ struct HomeView: View {
             open(item)
         } label: {
             HStack(spacing: 10) {
-                Image(systemName: kindIcon(item.aggregationKind))
+                Image(systemName: CardKindIcon.spec(aggregation: item.aggregationKind).symbol)
                     .font(.title3)
-                    .foregroundStyle(kindTint(item.aggregationKind))
+                    .foregroundStyle(CardKindIcon.spec(aggregation: item.aggregationKind).tint)
                     .frame(width: 36, height: 36)
                     .background(RoundedRectangle(cornerRadius: 10)
-                        .fill(kindTint(item.aggregationKind).opacity(0.12)))
+                        .fill(CardKindIcon.spec(aggregation: item.aggregationKind).tint.opacity(0.12)))
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
                         Text(L10n.pendingCardAggregationTitle(item.title))
@@ -809,34 +809,11 @@ struct HomeView: View {
 
     // MARK: - 类别视觉映射（纯呈现）
 
-    private func kindIcon(_ kind: AggregationKind) -> String {
-        switch kind {
-        case .medication: return "pills.fill"
-        case .appointment: return "stethoscope"
-        case .document: return "doc.text.fill"
-        case .ocr: return "exclamationmark.triangle.fill"
-        case .alert: return "waveform.path.ecg"
-        case .pendingCard: return "clock.badge.checkmark"
-        case .family: return "person.2.fill"
-        case .sos: return "sos"
-        case .system: return "gearshape.fill"
-        }
-    }
 
-    private func kindTint(_ kind: AggregationKind) -> Color {
-        switch kind {
-        case .medication: return .blue
-        case .appointment: return .teal
-        case .document: return .indigo
-        case .ocr: return .yellow
-        case .alert: return .red
-        case .pendingCard: return .orange
-        case .family: return .green
-        case .sos: return .red
-        case .system: return .gray
-        }
-    }
 
+
+    /// 筛选 chips 文案（聚合类别 → 既有 L10n 键；图标/色已收敛至
+    /// `CardKindIcon.spec(aggregation:)` 单一出口，2026-09-16 委员会评审）。
     private func kindLabel(_ kind: AggregationKind) -> String {
         switch kind {
         case .medication: return L10n.homeFilterMedication
