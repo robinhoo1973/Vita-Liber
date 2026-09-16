@@ -377,6 +377,21 @@ jobs:
             plutil -extract Name raw - 2>/dev/null && echo "profile 名称 ✓" || echo "profile 导入完成"
           ls -la "$HOME/Library/MobileDevice/Provisioning Profiles/"
 
+          # 能力核对（2026-09-16 主动排查，不等它变成末端阻塞）：
+          # App 声明了 com.apple.developer.healthkit（VitaLiber.entitlements 与
+          # project.yml entitlements.properties 双声明，F16 只读接入所需）。若本
+          # profile 未授予该能力，流水线会在**末端**的 exportArchive 处以模糊的
+          # entitlement 报错失败——那一步之后才是 TestFlight 上传，定位成本最高，
+          # 且失败信息不会指出「是 profile 缺能力」。此处前移到导入步骤并点名原因。
+          PP="$HOME/Library/MobileDevice/Provisioning Profiles/dev.mobileprovision"
+          security cms -D -i "$PP" > /tmp/pp.plist 2>/dev/null || true
+          if plutil -p /tmp/pp.plist 2>/dev/null | grep -q 'com.apple.developer.healthkit'; then
+            echo "profile 含 HealthKit capability ✓"
+          else
+            echo "::error::导入的 Provisioning Profile 未授予 com.apple.developer.healthkit。App 声明了该 entitlement，归档/导出必失败。请在 Apple Developer 后台为该 App ID 启用 HealthKit 并重新生成 profile，再更新 APPLE_DIS_PROVISION_PROFILE 机密。"
+            exit 1
+          fi
+
       # ── CoreKit 包测试（swift test）：域层真实执行 ──────
       # 包测试目标不能进 app scheme（XcodeGen 拒绝包测试引用，run 34017824105
       # 实证）——Domain/双轨库存/调度引擎 264 测试在此以 SPM 原生方式执行；
