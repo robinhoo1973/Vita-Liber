@@ -19,7 +19,7 @@ import GRDB
 /// 而非真实 v2 库；真实 v2 库含全部 33 表）。
 @Suite("SU-M0-GOLDEN · v2→最新全链升级 = 全新库基线")
 struct SchemaChainGoldenTests {
-    static let fixture = Bundle.module.bundlePath + "/Fixtures/schema_v2_baseline.sql"
+    static let fixture = Bundle.module.bundlePath + "/Fixtures/schema_v1_baseline.sql"
 
     /// 各版本步的代表物（v3..v28 覆盖抽样：新增表 / 增列 / 索引 / FTS 重建）。
     static let tables = [

@@ -377,13 +377,15 @@ struct FtsSensitiveMigrationTests {
         // 生产路径经 GRDBStore 幂等包装（列存在即跳过），本测试以 raw db.execute
         // 直连重放时 v8 会在「baseline 已含 hospital 等列」的全量库上撞
         // duplicate column（CI 34018919463 实证）——步骤 7–15 与本测试前提无关。
+        // 2026-09-16（CI 35051860601）：v6 自身也新增了三条 document_file 增列
+        // （title/ocr_text/notes），同样的碰撞在 v6 内部复现——原来「只跑 v6」的
+        // 规避手段随之失效。故改为复用产线守卫 `GRDBStore.executeIdempotent`
+        // （单一真源），而非在测试里复制一份判存在逻辑。
         let v6 = SchemaMigrations.pending(from: 5).first { $0.version == 6 }
         #expect(v6 != nil, "v6 步骤必须存在于迁移序列")
         try dbQueue.write { db in
             if let v6 {
-                for statement in SchemaMigrations.statements(v6.sql) {
-                    try db.execute(sql: statement)
-                }
+                try GRDBStore.executeIdempotent(db, v6.sql)
             }
         }
 

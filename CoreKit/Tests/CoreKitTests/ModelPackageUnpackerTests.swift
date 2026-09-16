@@ -58,7 +58,13 @@ struct ModelPackageUnpackerTests {
             ("manifest.json", Data("{}".utf8)),
         ])
         let target = root.appendingPathComponent("out", isDirectory: true)
-        try ModelPackageUnpacker.unzip(zip, to: target, maximumBytes: 1_000_000)
+        // `maximumBytes` 的契约是**展开总量必须与之恰好相等**（= 清单声明的 expandedBytes，
+        // 见 ASRModelDownloadService.swift:260 唯一的产线调用点）：ModelPackageUnpacker
+        // 末尾以 `total == maximumBytes` 作完整性判定——若只是上限，该判定会被前面的
+        // 上限预检（`entry.uncompressedSize <= maximumBytes - total`）完全覆盖而成死代码。
+        // 故正向对照必须传精确展开量：128 + 9 + 2 = 139（原传 1_000_000 是把它当上限，错）。
+        let exactExpanded = 128 + 9 + 2
+        try ModelPackageUnpacker.unzip(zip, to: target, maximumBytes: Int64(exactExpanded))
         #expect(FileManager.default.fileExists(atPath: target.appendingPathComponent("model.onnx").path))
     }
 
