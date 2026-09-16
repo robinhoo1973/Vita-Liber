@@ -258,7 +258,7 @@ struct GlobalSearchView: View {
                 } label: {
                     SearchResultRow(title: L10n.metricName(hit.metric),
                                     snippet: L10n.searchHealthDataHint,
-                                    badge: L10n.gradeD, date: nil)
+                                    badge: L10n.gradeBadgeD, date: nil)
                 }
             }
         }
