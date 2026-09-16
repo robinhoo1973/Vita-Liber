@@ -38,9 +38,13 @@ enum CardKindIcon {
     /// 预警/SOS → danger；家庭 → success。（图标字形沿用原内联值，视觉零变化。）
     static func spec(aggregation: AggregationKind) -> Spec {
         switch aggregation {
-        case .medication: return Spec(symbol: "pills.fill", glyph: VLIcon.pill, tint: brand)
-        case .appointment: return Spec(symbol: "stethoscope", glyph: VLIcon.appointment, tint: brand)
-        case .document: return Spec(symbol: "doc.text.fill", glyph: VLIcon.tag, tint: brand)
+        // 符号按 §3.4 表统一（2026-09-16 评审）：同一业务概念跨聚合轴/时间轴必须同符号，
+        // 否则同一符号在两个面上指代两个类别——`stethoscope` 曾在首页=预约、时间轴=就诊，
+        // `pills.fill` 曾是**处方**符号却被聚合的「用药」类别占用。tint 保留表面语义
+        // 差异（提醒行=brand）是允许的：符号是类别身份，tint 才是表面强调。
+        case .medication: return Spec(symbol: "pills.circle", glyph: VLIcon.pill, tint: brand)
+        case .appointment: return Spec(symbol: "calendar.badge.clock", glyph: VLIcon.appointment, tint: brand)
+        case .document: return Spec(symbol: "doc.text", glyph: VLIcon.tag, tint: brand)
         case .ocr: return Spec(symbol: "exclamationmark.triangle.fill", glyph: VLIcon.tag, tint: warning)
         case .alert: return Spec(symbol: "waveform.path.ecg", glyph: VLIcon.vitalsChart, tint: danger)
         case .pendingCard: return Spec(symbol: "clock.badge.checkmark", glyph: VLIcon.doctor, tint: warning)
