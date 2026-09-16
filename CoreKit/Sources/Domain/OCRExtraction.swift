@@ -185,6 +185,13 @@ public enum OCRGrounding {
         ]
         // v26 住院/检查/检验叙事标签（简/繁/英）与本地集合同为「已知标签」——单一事实源 ClinicalFieldLabels。
         guard labels.contains(label) || ClinicalFieldLabels.narrativeLabels.contains(label) || extraLabels.contains(label) else { return line }
-        return String(line[line.index(after: separator)...]).trimmingCharacters(in: .whitespaces)
+        let raw = String(line[line.index(after: separator)...]).trimmingCharacters(in: .whitespaces)
+        // 值域界定（2026-09-16 同族修复）：叙事标签行同样可能一行多标签——
+        // `诊断：支气管炎 处理：抗感染` 的「诊断」值曾把「处理：抗感染」整段吞下，
+        // 且因该串**确实是原文子串**而通过 grounding（缺陷是值域界定，不是 grounding）。
+        // 截到**下一个处于标签位**的标签之前：`现病史：患者既往诊断高血压` 的「诊断」
+        // 前一字是正文、非标签位，故不截——这是叙事值不被误伤的关键。
+        // 返回 "" = 标签在位但无值（与「字段不存在」是两种状态，CHIP2022 ePaper 同款区分）。
+        return ExtractionPatterns.truncatingAtLabelBoundary(raw) ?? ""
     }
 }

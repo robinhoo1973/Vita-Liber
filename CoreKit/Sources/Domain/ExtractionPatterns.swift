@@ -45,14 +45,42 @@ public enum ExtractionPatterns {
         "姓名", "性别", "性別", "年龄", "年齡", "病历号", "病歷號", "门诊号", "門診號",
     ]
 
-    /// 把一个已捕获的值截断到**下一个标签**之前。用于修 `fieldPatterns` 里 `(.+)` 的贪婪捕获
-    /// （`科室[:：]?\s*(.+)` 会把「呼吸内科 医生：张三」整段收下）。
-    /// 不含任何标签 → 原样返回；截断后为空 → 返回 nil（宁缺勿污染）。
-    public static func truncatingAtLabelBoundary(_ value: String) -> String? {
-        var cut = value.endIndex
+    /// 标签是否**处于标签位**——其前一字符是行首、空白或分隔标点。
+    ///
+    /// **为什么必须有这条判据**：朴素的「值里出现标签词就截断」会误伤叙事值——
+    /// `现病史：患者既往诊断高血压` 里的「诊断」是正文词（前一字符是「往」），
+    /// 而 `诊断：支气管炎 处理：抗感染` 里的「处理」（前一字符是空白）才是真标签。
+    /// 外部对照：logfmt 的「只有**下一个已确认的键**才结束当前值」；
+    /// FUNSD 修订版论文指出空间配对不可靠正是因缺少显式分隔——本仓有显式 `：`，
+    /// 故无需几何，用「标签位」即可判定。
+    static func isLabelPosition(_ text: String, at index: String.Index) -> Bool {
+        guard index > text.startIndex else { return true }          // 行首
+        let prev = text[text.index(before: index)]
+        if prev.isWhitespace || prev == ":" || prev == "：" { return true }
+        return "，,；;、（）()【】[]".contains(prev)
+    }
+
+    /// 值里**下一个处于标签位**的标签起点；无则 nil。
+    static func nextLabelBoundary(in value: String) -> String.Index? {
+        var cut: String.Index?
         for label in labelBoundaries {
-            if let r = value.range(of: label), r.lowerBound < cut { cut = r.lowerBound }
+            var search = value.startIndex
+            while let r = value.range(of: label, range: search..<value.endIndex) {
+                if isLabelPosition(value, at: r.lowerBound) {
+                    if cut == nil || r.lowerBound < cut! { cut = r.lowerBound }
+                    break
+                }
+                search = value.index(after: r.lowerBound)
+            }
         }
+        return cut
+    }
+
+    /// 把一个已捕获的值截断到**下一个处于标签位的标签**之前。用于修 `fieldPatterns` 里
+    /// `(.+)` 的贪婪捕获（`科室[:：]?\s*(.+)` 会把「呼吸内科 医生：张三」整段收下）。
+    /// 无标签位标签 → 原样返回；截断后为空 → 返回 nil（宁缺勿污染）。
+    public static func truncatingAtLabelBoundary(_ value: String) -> String? {
+        let cut = nextLabelBoundary(in: value) ?? value.endIndex
         let span = value[value.startIndex..<cut].trimmingCharacters(in: .whitespacesAndNewlines)
         return span.isEmpty ? nil : span
     }

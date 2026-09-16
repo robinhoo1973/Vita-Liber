@@ -130,4 +130,55 @@ struct LabeledValueExtractionTests {
         #expect(ExtractionPatterns.dateToken(in: "报告日期：2026/9/12") == "2026/9/12")
         #expect(ExtractionPatterns.dateToken(in: "无日期") == nil)
     }
+
+    // MARK: - 规格轨同族修复（OCRExtraction / RuleExtractor）
+
+    @Test("规格轨：叙事标签行一行多标签时，值不吞掉后面的标签")
+    func 规格轨值域界定() {
+        let line = "诊断：支气管炎 处理：抗感染治疗"
+        let value = OCRGrounding.labeledValue(line)
+        #expect(value == "支气管炎", "曾把「处理：抗感染治疗」整段吞下，实得 \(value)")
+    }
+
+    @Test("关键安全属性：正文里出现标签词**不得**被截断（叙事值不被误伤）")
+    func 叙事值不被误伤() {
+        // 「诊断」在这里是正文词（前一字符是「往」，非标签位）——截断就会吃掉半句话
+        let line = "现病史：患者既往诊断高血压 10 年，规律服药"
+        let value = OCRGrounding.labeledValue(line)
+        #expect(value == "患者既往诊断高血压 10 年，规律服药",
+                "正文中的标签词不得触发截断，实得 \(value)")
+
+        // 「处理」同样是正文词（前一字符是「续」，非标签位）
+        let line2 = "现病史：门诊持续处理中"
+        #expect(OCRGrounding.labeledValue(line2) == "门诊持续处理中")
+    }
+
+    @Test("标签位判据：行首/空白/分隔标点之后才算标签")
+    func 标签位判据() {
+        #expect(ExtractionPatterns.truncatingAtLabelBoundary("支气管炎 处理：抗感染") == "支气管炎")
+        #expect(ExtractionPatterns.truncatingAtLabelBoundary("患者既往诊断高血压") == "患者既往诊断高血压")
+        #expect(ExtractionPatterns.truncatingAtLabelBoundary("支气管炎，处理：抗感染") == "支气管炎，")
+        #expect(ExtractionPatterns.truncatingAtLabelBoundary("诊断：支气管炎") == nil,
+                "值以标签开头且处于标签位 → 截断为空 → 丢弃（宁缺勿污染）")
+    }
+
+    @Test("规格轨：cell 内一行多标签同样被界定；标签独占 cell 仍返回空串")
+    func 规格轨cell界定() {
+        let aliases = ["诊断", "主诉"]
+        #expect(RuleExtractor.split(label: "诊断：支气管炎 主诉：咳嗽3天", aliases: aliases) == "支气管炎")
+        #expect(RuleExtractor.split(label: "诊断", aliases: aliases) == "",
+                "标签独占 cell → 空串（值在下一 cell），此语义不变")
+        #expect(RuleExtractor.split(label: "诊断", aliases: ["现病史"]) == nil,
+                "标签不匹配 → nil（此语义不变）")
+    }
+
+    @Test("规格轨：非已知标签行原样返回（不误删任意冒号内容）")
+    func 未知标签原样返回() {
+        // `温馨提示` 含子串「提示」（`提示` 确是 `impression` 的别名之一，见 ClinicalFieldLabels:44），
+        // 但标签判定是**整段精确匹配**，故 `温馨提示：…` 不是字段行 → 原样返回。
+        let line = "温馨提示：请于三日后复查"
+        #expect(OCRGrounding.labeledValue(line) == line, "未知标签不得被当成字段标签删掉")
+        // 反面：`提示` 单独出现时**是**已知标签 → 取值（防止把「精确匹配」写成「不匹配任何标签」）
+        #expect(OCRGrounding.labeledValue("提示：请于三日后复查") == "请于三日后复查")
+    }
 }

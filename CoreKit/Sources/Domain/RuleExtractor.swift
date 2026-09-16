@@ -30,7 +30,11 @@ public enum RuleExtractor {
             var rest = Substring(text).dropFirst(alias.count).drop(while: \.isWhitespace)
             guard rest.isEmpty || rest.first == ":" || rest.first == "：" else { continue }
             if !rest.isEmpty { rest = rest.dropFirst() }
-            return rest.trimmingCharacters(in: .whitespaces)
+            let trimmed = rest.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { return "" }      // 标签独占 cell：值在下一 cell
+            // 值域界定（2026-09-16 同族修复）：同 cell 内一行多标签时，截到下一个
+            // **处于标签位**的标签之前（`诊断：支气管炎 处理：抗感染`）。
+            return ExtractionPatterns.truncatingAtLabelBoundary(trimmed) ?? ""
         }
         return nil
     }
