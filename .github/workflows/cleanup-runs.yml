@@ -103,9 +103,26 @@ jobs:
               return
             fi
 
+            # 规则1a（2026-09-16 委员会评审·证据留存例外）：build-testflight.yml 的
+            # **failure 保留最近 K 次**——性能回归定位（「为什么从 25 分钟变 43 分钟」）
+            # 与偶发失败（日界/并发/设备差异）复盘都需要跨时间的失败对照集，
+            # 而清理策略此前把它们全部销毁（委员会两角色独立命中）。其余非成功
+            # （cancelled/timed_out/skipped）仍按规则 1 删除（多为并发取消噪音）。
+            if [ "$wf_key" = ".github/workflows/build-testflight.yml" ] && [ "$conclusion" = "failure" ]; then
+              read FAIL_KEPT < "$FAILURES_FILE"
+              if [ "$FAIL_KEPT" -lt "${FAILURE_KEEP:-5}" ]; then
+                echo "  保留: #$run_id (build-testflight 失败证据 $((FAIL_KEPT + 1))/${FAILURE_KEEP:-5})"
+                echo $((FAIL_KEPT + 1)) > "$FAILURES_FILE"
+                KEPT=$((KEPT + 1))
+                echo "$DELETED $KEPT" > "$COUNTS_FILE"
+                return
+              fi
+            fi
+
             # 规则1：任何非 success 结论 → 直接删除
             # 业主 2026-09-15 要求二：非成功一律删除，包括 cancelled/failure/
             # skipped/timed_out；失败证据不在 Actions run 历史里长期保留。
+            # （build-testflight 的 failure 已由规则 1a 例外保留。）
             if [ "$conclusion" != "success" ]; then
               delete_run "$run_id" "$wf_name - 非成功 ($conclusion)" && DELETED=$((DELETED + 1))
               echo "$DELETED $KEPT" > "$COUNTS_FILE"
@@ -130,6 +147,9 @@ jobs:
             echo "--- 清理 workflow: $WF_NAME ($WF_PATH) #$WF_ID ---"
             RUNS_FILE=$(mktemp) || { echo "错误: mktemp 失败"; exit 1; }
             FIRST_SUCCESS_FILE=$(mktemp) || { echo "错误: mktemp 失败"; exit 1; }
+            # 失败证据计数（规则 1a，2026-09-16 委员会评审）
+            FAILURES_FILE=$(mktemp) || { echo "错误: mktemp 失败"; exit 1; }
+            echo 0 > "$FAILURES_FILE"
             if gh api --paginate "repos/$REPO/actions/workflows/$WF_ID/runs?status=completed&per_page=100" \
               --jq '.workflow_runs[] | [.id, .name, .conclusion, .created_at] | @tsv' \
               > "$RUNS_FILE" 2>/dev/null; then
@@ -147,7 +167,7 @@ jobs:
             else
               echo "::warning::拉取 workflow runs 失败: $WF_NAME ($WF_PATH)"
             fi
-            rm -f "$RUNS_FILE" "$FIRST_SUCCESS_FILE"
+            rm -f "$RUNS_FILE" "$FAILURES_FILE" "$FIRST_SUCCESS_FILE"
           done < "$WORKFLOWS_FILE"
 
           # ── 已删除 workflow 历史兜底 ──

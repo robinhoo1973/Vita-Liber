@@ -143,6 +143,20 @@ jobs:
         with:
           python-version: '3.13.5'
 
+      # 构建缓存（2026-09-16 委员会评审·性能）：CI 43 分钟里 SPM 依赖图被
+      # `swift test` 与 Xcode 构建**冷编译两次**（此前全 workflow 零 cache）。
+      # 键含 Package.resolved/Package.swift/project.yml 哈希——依赖或工程定义变化
+      # 即自动失效，不引入陈旧构建（缓存只存依赖与编译中间物，不存产物）。
+      - name: 缓存 SPM 依赖与编译产物
+        uses: actions/cache@8b402f58fbc84540c8b491a91e594a4576fec3d7   # v5.0.2（node24 运行时；固定完整 SHA）
+        with:
+          path: |
+            CoreKit/.build
+            Build/DerivedData/SourcePackages
+          key: spm-${{ runner.os }}-${{ hashFiles('CoreKit/Package.resolved', 'CoreKit/Package.swift', 'project.yml') }}
+          restore-keys: |
+            spm-${{ runner.os }}-
+
       - name: 准备构建期模型信任校验
         run: |
           # 哈希钉版（安全复审 S-M6）：版本钉不能阻止同版本号的替换发布物。

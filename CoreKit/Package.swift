@@ -57,7 +57,13 @@ let package = Package(
             exclude: ["SherpaOnnxSpeechSynthesizer.swift"]),
         .testTarget(
             name: "CoreKitTests",
-            dependencies: ["Domain", "Protocols", "Infrastructure"],
+            dependencies: [
+                "Domain", "Protocols", "Infrastructure",
+                // 攻击夹具用成熟库造 ZIP（2026-09-16 委员会评审：解压防御零覆盖）——
+                // 与生产解压同源（ZIPFoundation），避免手写 zip 字节造成的假夹具。
+                .product(name: "ZIPFoundation", package: "ZIPFoundation",
+                         condition: .when(platforms: [.iOS, .macOS])),
+            ],
             resources: [.copy("Fixtures")])
     ],
     cxxLanguageStandard: .cxx17
