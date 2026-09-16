@@ -260,7 +260,11 @@ public actor ASRModelDownloadService {
         try await downloader.download(url: url, expectedBytes: release.bytes ?? 0, to: zipURL, progress: progress)
 
         onPhase?(.verifying)
-        let digest = try StreamingFileHasher.sha256(of: zipURL)
+        // 校验/解压复用 `progress` 出口（不新增通道）：阶段本身已说明字节的含义，
+        // UI 据此二选文案（下载 = 「已下载 X/Y」，校验解压 = 只出条不出数字）。
+        let digest = try StreamingFileHasher.sha256(of: zipURL) { processed, total in
+            progress?(.init(receivedBytes: processed, totalBytes: total))
+        }
         // release 的整份描述已匹配受信任授权。
         guard digest.caseInsensitiveCompare(release.sha256) == .orderedSame else {
             throw Failure.checksumMismatch
@@ -268,7 +272,9 @@ public actor ASRModelDownloadService {
 
         let unpacked = staging.appendingPathComponent("unpacked", isDirectory: true)
         onPhase?(.unpacking)
-        try ModelPackageUnpacker.unzip(zipURL, to: unpacked, maximumBytes: expanded)
+        try ModelPackageUnpacker.unzip(zipURL, to: unpacked, maximumBytes: expanded) { processed, total in
+            progress?(.init(receivedBytes: processed, totalBytes: total))
+        }
         do {
             _ = try ASRModelAssets(root: unpacked).validate(choice)
         } catch {

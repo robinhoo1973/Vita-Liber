@@ -569,8 +569,12 @@ struct HomeView: View {
     /// macOS L1 暴露。
     @ViewBuilder
     private func downloadCardContent(_ install: ASRInstallCenter.Install) -> some View {
-        let downloading = install.phase == nil || install.phase == .downloading
-        let fraction = downloading ? (install.progress?.fraction ?? 0) : 0
+        // 校验/解压自 2026-09-16 起也报进度（见 ASRModelDownloadService.install）——
+        // 这两段在 GB 级包上要数十秒，此前只能转不确定 spinner，读起来就是
+        // 「进度条无反应、然后突然完成」。激活/清理两段仍无粒度，保持不确定态。
+        let brief = install.phase
+        let showFraction = brief == nil || brief == .downloading || brief == .verifying || brief == .unpacking
+        let fraction = showFraction ? (install.progress?.fraction ?? 0) : 0
         HStack(spacing: 10) {
             Button {
                 // 2026-09-16 委员会评审：此前落 `.voiceEngineLab`（SP-62 引擎实验室）
@@ -588,7 +592,7 @@ struct HomeView: View {
                             Text(L10n.homeModelDownloadTitle)
                                 .font(.subheadline.bold()).foregroundStyle(.primary)
                             Spacer(minLength: 8)
-                            if downloading {
+                            if showFraction {
                                 Text("\(Int(fraction * 100))%")
                                     .font(.caption).monospacedDigit()
                                     .foregroundStyle(Color("brand-primary", bundle: .main))
@@ -596,7 +600,7 @@ struct HomeView: View {
                         }
                         Text(L10n.voiceEngineName(install.choice))
                             .font(.caption).foregroundStyle(.secondary)
-                        if downloading {
+                        if showFraction {
                             ProgressView(value: fraction)
                                 .tint(Color("brand-primary", bundle: .main))
                         } else {
