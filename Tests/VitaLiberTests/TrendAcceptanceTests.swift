@@ -379,6 +379,19 @@ final class TrendAcceptanceTests: XCTestCase {
                   kind TEXT NOT NULL, title TEXT NOT NULL, at_date REAL NOT NULL, repeats TEXT,
                   status TEXT NOT NULL DEFAULT 'active', source TEXT NOT NULL DEFAULT 'manual', channel_pref TEXT,
                   created_at REAL NOT NULL, updated_at REAL NOT NULL);
+                -- v29（链末「基线对齐」步）会 ALTER audit_event 补
+                -- actor_local/at/entity_id_hash——合成老库必须含该表，否则整链在
+                -- 末尾步抛 `no such table: audit_event`（CI 35056733935）。
+                -- 形态取 v1 基线（actor_member_id/entity_id/occurred_at 旧命名，
+                -- 尚无 v29 三列）：老库保留历史列、只单向包含新基线，是本仓既定语义。
+                CREATE TABLE audit_event (
+                  id TEXT PRIMARY KEY,
+                  actor_member_id TEXT REFERENCES patient_profile(id),
+                  action TEXT NOT NULL,
+                  entity_type TEXT NOT NULL,
+                  entity_id TEXT,
+                  occurred_at REAL NOT NULL,
+                  meta_json TEXT);
                 INSERT INTO medication_dose_log (id, plan_id, scheduled_for, delivery_state,
                                                 user_action, delivered_at, acted_at)
                   VALUES ('legacy-dose-1', 'orphan-plan', 1, 'delivered', 'taken', 1, 1);
@@ -540,6 +553,18 @@ final class TrendAcceptanceTests: XCTestCase {
                 INSERT INTO notification_delivery (id, dose_log_id, scheduled_at, channel, created_at)
                   VALUES ('nd-2', '\(legacyDupId)', ?, 'local', ?);
                 """, arguments: [today0800.timeIntervalSince1970, now])
+            try db.execute(sql: """
+                -- 同 test_v13：v29 会 ALTER audit_event，合成老库必须含该表
+                -- （CI 35056733935；形态取 v1 基线旧命名）。
+                CREATE TABLE audit_event (
+                  id TEXT PRIMARY KEY,
+                  actor_member_id TEXT REFERENCES patient_profile(id),
+                  action TEXT NOT NULL,
+                  entity_type TEXT NOT NULL,
+                  entity_id TEXT,
+                  occurred_at REAL NOT NULL,
+                  meta_json TEXT);
+                """)
             try db.execute(sql: "PRAGMA user_version = 12;")
         }
         _ = try GRDBStore(writer: queue)   // 触发 v13→v16 全链
