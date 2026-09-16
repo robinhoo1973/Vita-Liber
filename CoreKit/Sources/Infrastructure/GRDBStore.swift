@@ -145,7 +145,11 @@ public struct GRDBStore {
     /// SQLite 无 ADD COLUMN IF NOT EXISTS，故查 pragma_table_info。此前 transactional
     /// 分支直接 `db.execute` 每条语句、**没有**守卫（v23 无增列所以未暴露）；
     /// v25 起表重建步同时含增列，两条路径必须同纪律。
-    private static func executeIdempotent(_ db: Database, _ sql: String) throws {
+    /// internal（非 private）供测试复用同一守卫：`@testable import Infrastructure` 的
+    /// 金样以 raw `db.execute` 重放单步 SQL 时，若自行复制守卫逻辑，两条真源会漂移
+    /// （SQL 无 ADD COLUMN IF NOT EXISTS，守卫语义只能靠单一实现保证）——见
+    /// `FtsSensitiveMigrationTests.老库敏感笔记迁移后不再可检索` 的调用点。
+    static func executeIdempotent(_ db: Database, _ sql: String) throws {
         for statement in SchemaMigrations.statements(sql) {
             if let parts = SchemaMigrations.addColumnParts(statement) {
                 let exists = try Int.fetchOne(db, sql: """

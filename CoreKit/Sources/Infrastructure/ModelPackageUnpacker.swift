@@ -32,6 +32,7 @@ enum ModelPackageUnpacker {
                   paths.insert(target.path.precomposedStringWithCanonicalMapping.lowercased()).inserted else { throw ASRModelDownloadService.Failure.unzipFailed }
             try fileManager.createDirectory(at: target.deletingLastPathComponent(),
                                             withIntermediateDirectories: true)
+            var wroteFile = false
             do {
                 if entry.type == .directory {
                     try fileManager.createDirectory(at: target, withIntermediateDirectories: true)
@@ -41,6 +42,7 @@ enum ModelPackageUnpacker {
                 guard ["onnx", "json", "txt", "md", "vocab"].contains(ext)
                         || ["LICENSE", "README", "NOTICE"].contains(target.lastPathComponent) else { throw ASRModelDownloadService.Failure.unzipFailed }
                 guard fileManager.createFile(atPath: target.path, contents: nil) else { throw ASRModelDownloadService.Failure.unzipFailed }
+                wroteFile = true
                 let handle = try FileHandle(forWritingTo: target)
                 defer { try? handle.close() } // try?-ok: 解压临时文件句柄关闭
                 var received: UInt64 = 0
@@ -52,6 +54,12 @@ enum ModelPackageUnpacker {
                 }
                 guard received == UInt64(entry.uncompressedSize), crc == entry.checksum else { throw ASRModelDownloadService.Failure.unzipFailed }
             } catch {
+                // 拒绝包不留残件（攻击矩阵 TC）：CRC / 展开量不符只能在**写盘后**才判定得出，
+                // 故失败路径必须自清已写入的半成品——否则残留文件留在目标目录（CI 35051860601
+                // 实证：篡改包被拒后 `model.onnx` 仍在）。句柄关闭由上方 defer 承担，且 defer 在
+                // 作用域因 throw 退出时先于本 catch 执行，此处删除是安全的。只删 `wroteFile`
+                // 标记过的路径——目录条目与被白名单挡下的条目从未创建文件，不得误删。
+                if wroteFile { try? fileManager.removeItem(at: target) } // try?-ok: 失败路径清理，无用户可见后果
                 if error is CancellationError { throw error }
                 throw ASRModelDownloadService.Failure.unzipFailed
             }
