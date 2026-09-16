@@ -107,6 +107,28 @@ public enum SchemaMigrations {
              -- ② 老库敏感行的已索引值是「旧触发器形态」（ocr NULL、notes 原文），
              --    逐行 delete 无从对齐，故用 delete-all 整表清空 + 脱敏重灌，
              --    天然幂等（重跑=再清再灌）。
+             -- 基线演进漏补（同族修复）：v1 基线的 document_file 无 FTS 被索引列——
+             -- 二者由基线 DDL 直改引入而无迁移步，本步的重建/重灌 SELECT 会撞
+             -- "no such column: title"（升级路径断裂）。executeIdempotent 幂等。
+             ALTER TABLE document_file ADD COLUMN title TEXT;
+             ALTER TABLE document_file ADD COLUMN ocr_text TEXT;
+             ALTER TABLE document_file ADD COLUMN notes TEXT;
+             -- 形态对齐（2026-09-16 全链金样修复，业主裁定「补全 v1→v27」）：
+             -- v1 基线的两张 FTS 表是**普通**（content-full）形态，而 delete-all
+             -- 特殊命令只对 external-content / contentless 合法（本机 sqlite 3.46 实测
+             -- "'delete-all' may only be used with a contentless or external content
+             -- fts5 table"）→ 老库升到本步即崩、升级路径断裂。重建为与当前基线
+             -- 同形（document_fts external-content / 2gram contentless）后再清空重灌，
+             -- 语义与「整表清空 + 重灌」的既有意图一致（DROP+CREATE 对已新形态库
+             -- 同样安全：等价于清空，随后由本步重灌）。已升级库不重跑本步，零影响。
+             DROP TABLE IF EXISTS document_fts;
+             CREATE VIRTUAL TABLE document_fts USING fts5(
+               title, ocr_text, notes, tokenize='trigram case_sensitive 0',
+               content='document_file', content_rowid='rowid');
+             DROP TABLE IF EXISTS document_fts_2gram;
+             CREATE VIRTUAL TABLE document_fts_2gram USING fts5(
+               title_2gram, ocr_2gram, note_2gram, tokenize='unicode61',
+               content='');
              DROP TRIGGER IF EXISTS document_file_fts_ai;
              DROP TRIGGER IF EXISTS document_file_fts_au;
              DROP TRIGGER IF EXISTS document_file_fts_ad;
@@ -354,6 +376,14 @@ public enum SchemaMigrations {
              """),
         Step(version: 20, name: "health-import-checkpoints",
              sql: """
+             -- 基线演进漏补的老库列（2026-09-16 全链金样修复）：v1 基线的
+             -- metric_sample 无 source_ref / excluded，二者由基线 DDL 直改引入而
+             -- 无迁移步——本步的 `idx_metric_device_identity … ON metric_sample(source_ref)`
+             -- 在 v1 老库上撞 "no such column: source_ref"（升级路径断裂；v28 的
+             -- idx_metric_latest 引用 excluded 同族，修本步即一并解决）。
+             -- executeIdempotent 对 ADD COLUMN 判存在即跳过——新库/已升级库零影响。
+             ALTER TABLE metric_sample ADD COLUMN source_ref TEXT;
+             ALTER TABLE metric_sample ADD COLUMN excluded INTEGER NOT NULL DEFAULT 0;
              ALTER TABLE metric_sample ADD COLUMN source_identifier TEXT;
              ALTER TABLE metric_sample ADD COLUMN aggregation_kind TEXT;
              ALTER TABLE metric_sample ADD COLUMN window_end REAL;
@@ -781,6 +811,23 @@ public enum SchemaMigrations {
              -- rowid DESC）：按患者+未排除+指标键提供分区内排序。
              CREATE INDEX IF NOT EXISTS idx_metric_latest
                ON metric_sample(patient_id, excluded, metric_key, measured_at DESC);
+             """),
+        Step(version: 29, name: "baseline-alignment-backfill",
+             sql: """
+             -- 基线对齐（2026-09-16 全链金样修复，业主裁定「补全 v1→v27 全链」）：
+             -- 下列表/列由基线 DDL 直改引入而**无对应迁移步**——v1 老库升到最新后
+             -- 缺它们（运行时 Store/SQL 引用即崩）。均零链内引用，故放末尾步：
+             -- 升级总是跑到 latest，末尾追加不违反「只许在末尾追加」纪律且终态
+             -- = 全新基线（与 SchemaChainGoldenTests 的列集比对合同一致）。
+             -- 幂等：CREATE TABLE IF NOT EXISTS / executeIdempotent 判 ADD COLUMN。
+             CREATE TABLE IF NOT EXISTS app_settings (
+               key TEXT PRIMARY KEY,
+               value TEXT NOT NULL);
+             ALTER TABLE audit_event ADD COLUMN actor_local TEXT NOT NULL DEFAULT 'owner';
+             ALTER TABLE audit_event ADD COLUMN at REAL NOT NULL DEFAULT 0;
+             ALTER TABLE audit_event ADD COLUMN entity_id_hash TEXT;
+             ALTER TABLE document_file ADD COLUMN meta_json TEXT;
+             ALTER TABLE medication_dose_log ADD COLUMN dose_units REAL NOT NULL DEFAULT 1;
              """),
     ]
 
