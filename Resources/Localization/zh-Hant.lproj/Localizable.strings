@@ -8,6 +8,8 @@
 "nav.health" = "健康資料";
 "nav.me" = "我的";
 "trend.title" = "指標趨勢";
+"trend.emptyOutOfWindowFmt" = "該時間窗內無可讀資料 · 最近讀數：%@";
+"trend.emptySwitchToYear" = "檢視最近一年";
 "trend.range.unavailable" = "暫無參考範圍（本階段僅顯示報告自帶範圍）";
 "trend.excluded.toggle" = "顯示已排除點";
 "trend.excluded.header" = "已排除的點（原值保留，可恢復）";

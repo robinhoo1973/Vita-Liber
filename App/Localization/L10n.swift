@@ -613,6 +613,9 @@ enum L10n {
         case .year: return t("trend.window.year")
         }
     }
+    /// 诊断性空态（2026-09-16 业主实测）：窗口无数据时告知最近读数位置，可一键切一年窗。
+    static func trendEmptyOutOfWindow(_ latest: String) -> String { String(format: t("trend.emptyOutOfWindowFmt"), latest) }
+    static var trendEmptySwitchToYear: String { t("trend.emptySwitchToYear") }
     static var trendOriginAll: String { t("trend.origin.all") }
     static var trendFilterOrigin: String { t("trend.filter.origin") }
     static func trendRefRange(_ lo: String, _ hi: String) -> String {
@@ -1303,6 +1306,7 @@ enum L10n {
         "trend.notConnected.hint", "trend.goConnect",
         "trend.point.exclude", "trend.point.restore", "trend.range.unavailable", "trend.refRange",
         "trend.row.accessibility", "trend.row.excludedSuffix", "trend.showExcluded.accessibility", "trend.title",
+        "trend.emptyOutOfWindowFmt", "trend.emptySwitchToYear",
         "voice.ask.screen", "voice.ask.speak", "voice.confirm.cancel", "voice.confirm.lowConfidence",
         "voice.confirm.pending", "voice.confirm.retry", "voice.confirm.save", "voice.confirm.title",
         "voice.privacy.accept", "voice.privacy.p1", "voice.privacy.p2", "voice.privacy.p3",

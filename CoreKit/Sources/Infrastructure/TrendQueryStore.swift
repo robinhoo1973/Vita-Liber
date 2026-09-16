@@ -322,6 +322,46 @@ extension TrendQueryStore {
     /// 存在任何 origin='device' 读数。无设备读数 = 从未连接/未同步过
     /// Apple 健康——趋势详情空态分流为「未连接」+ 去连接深链，而非通用
     /// 无数据（有设备数据但该指标空 → 仍走通用空态）。
+    /// 该指标在**任意时间窗**的最近一条读数时间（诊断性空态，2026-09-16 业主实测）：
+    /// 7/30/90 天窗口可能为空（数据在更早），此前空态只给一句同步报告文案，
+    /// 用户无从判断「是真的没有还是窗口没覆盖」——本查询给出「最近读数在哪」，
+    /// 空态据此提示并可一键切到一年窗。
+    /// 口径与 `series` 对齐：metric_key 匹配（血压舒张读收缩行 secondary_value 或
+    /// 独立行）、excluded = 0；BR-001：设备来源仅本人可见（非本人按设备行不可见处理；
+    /// 显式设备过滤而非本人 → 拒绝，与 series 同款）。
+    public func latestMeasuredAt(patientId: UUID, metric: MetricType,
+                                 origin: MetricOrigin?) async throws -> Date? {
+        try await writer.read { db in
+            let isSelf = try HealthImportStore.ownerPatient(db) == patientId
+            if origin == .device, !isSelf { throw QueryError.deviceRequiresSelfBinding }
+            // 键/值子句为白名单枚举字面量拼接（非用户输入，无注入面——与 series 同款）。
+            let keyClause: String
+            let valueClause: String
+            if metric == .bloodPressureDia {
+                keyClause = "(metric_key = 'bloodPressureDia' OR (metric_key = 'bloodPressureSys' AND secondary_value IS NOT NULL))"
+                valueClause = "(value IS NOT NULL OR secondary_value IS NOT NULL)"
+            } else {
+                keyClause = "metric_key = '\(metric.rawValue)'"
+                valueClause = "value IS NOT NULL"
+            }
+            let originClause: String
+            var arguments: [DatabaseValueConvertible] = [patientId.uuidString]
+            switch origin {
+            case .some(let value):
+                originClause = " AND origin = ?"
+                arguments.append(value.rawValue)
+            case nil:
+                // 非本人成员的默认视图不含设备行（旧备份/重映射残留不得跨成员呈现）。
+                originClause = isSelf ? "" : " AND origin != 'device'"
+            }
+            let value: Double? = try Double.fetchOne(db, sql: """
+                SELECT MAX(measured_at) FROM metric_sample
+                WHERE patient_id = ? AND \(keyClause) AND \(valueClause) AND excluded = 0\(originClause)
+                """, arguments: StatementArguments(arguments))
+            return value.map { Date(timeIntervalSince1970: $0) }
+        }
+    }
+
     public func hasDeviceSamples(patientId: UUID) async throws -> Bool {
         try await writer.read { db in
             let exists = try Int.fetchOne(db, sql: """

@@ -8,6 +8,8 @@
 "nav.health" = "Health Data";
 "nav.me" = "Me";
 "trend.title" = "Trends";
+"trend.emptyOutOfWindowFmt" = "No readings in this window · Latest: %@";
+"trend.emptySwitchToYear" = "View the past year";
 "trend.range.unavailable" = "No reference range (report-provided ranges only at this stage)";
 "trend.excluded.toggle" = "Show excluded points";
 "trend.excluded.header" = "Excluded points (original values kept, restorable)";

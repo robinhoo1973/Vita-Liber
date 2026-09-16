@@ -8,6 +8,8 @@
 "nav.health" = "健康数据";
 "nav.me" = "我的";
 "trend.title" = "指标趋势";
+"trend.emptyOutOfWindowFmt" = "该时间窗内无可读数据 · 最近读数：%@";
+"trend.emptySwitchToYear" = "查看最近一年";
 "trend.range.unavailable" = "暂无参考范围（本阶段仅显示报告自带范围）";
 "trend.excluded.toggle" = "显示已排除点";
 "trend.excluded.header" = "已排除的点（原值保留，可恢复）";

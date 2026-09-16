@@ -45,6 +45,9 @@ final class TrendEntryState {
     /// SP-13 未连接空态判定（ui-ux §5.45 V3.53）：成员名下是否存在任何
     /// origin='device' 读数——空态分流「未连接 Apple 健康」vs 通用无数据
     private(set) var hasDeviceSamples = false
+    /// 任意窗口最近读数（诊断性空态，2026-09-16 业主实测）：空窗时告知「数据在更早」，
+    /// 可一键切一年窗——此前空态只有一句同步报告文案，用户无从判断是真空还是窗口未覆盖。
+    private(set) var latestAnyDate: Date?
 
     /// - Parameters:
     ///   - window: 时间窗（日历日，DayArithmetic 出口——切换日不漂移）
@@ -76,7 +79,11 @@ final class TrendEntryState {
             // 往返，探测只门控空态按钮却挡在曲线渲染之前）
             async let seriesTask = store.series(query)
             async let probeTask = store.hasDeviceSamples(patientId: patientId)
+            async let latestTask = store.latestMeasuredAt(patientId: patientId, metric: metric, origin: origin)
             let loaded = try await seriesTask
+            // 诊断数据（任意窗口最近读数）失败不阻断曲线：按 nil 渲染（空态少一行提示）。
+            let latest: Date?
+            do { latest = try await latestTask } catch { latest = nil }
             // 审查修复：hasDeviceSamples 从未被写入（声明即弃用）——空态分流
             // 恒走「未连接 Apple 健康」+ [去连接] 引导，有设备数据但该指标
             // 无读数的用户被假引导（V3.53 契约空态分流失效）。探测失败不
@@ -88,6 +95,7 @@ final class TrendEntryState {
             guard detailRequest == request, !Task.isCancelled, loaded.identity == query else { return }
             detailSeries = loaded
             hasDeviceSamples = hasDevice
+            latestAnyDate = latest
         } catch {
             // 过期请求（已切成员/切指标）的失败不触碰当前数据；当前请求
             // 失败才清槽（空态渲染，不残留旧曲线）。含 QueryError.deviceRequiresSelfBinding
@@ -163,7 +171,16 @@ struct TrendChartRouteView: View {
                     VLUnavailableView {
                         Label(L10n.trendTitle, systemImage: "chart.xyaxis.line")
                     } description: {
-                        Text(state.detailFailed ? L10n.f16SyncFailed : L10n.healthNoReadableData)
+                        VStack(spacing: 6) {
+                            Text(state.detailFailed ? L10n.f16SyncFailed : L10n.healthNoReadableData)
+                            // 诊断行（2026-09-16）：窗口空但数据在更早——如实告知位置。
+                            if let latest = state.latestAnyDate,
+                               let range = state.detailIdentity?.range, latest < range.start {
+                                Text(L10n.trendEmptyOutOfWindow(latest.formatted(date: .abbreviated, time: .omitted)))
+                                    .font(.caption)
+                                    .accessibilityIdentifier("SP-13.trend.latestOutOfWindow")
+                            }
+                        }
                     } actions: {
                         // 审查修复（V3.53 空态分流）：仅在成员名下无任何设备读数时
                         // 给 [去连接] 引导；已有设备数据但该指标空 = 通用无数据，
@@ -174,6 +191,13 @@ struct TrendChartRouteView: View {
                             }
                             .buttonStyle(.borderedProminent)
                             .accessibilityIdentifier("SP-13.trend.connectHealth")
+                        }
+                        // 一键切一年窗（数据在更早时的主要出口；已在年窗则不重复给）。
+                        if window != .year, let latest = state.latestAnyDate,
+                           let range = state.detailIdentity?.range, latest < range.start {
+                            Button(L10n.trendEmptySwitchToYear) { window = .year }
+                                .buttonStyle(.bordered)
+                                .accessibilityIdentifier("SP-13.trend.switchToYear")
                         }
                     }
                     // 容器标识必须配 children: .contain——否则 SwiftUI 把容器标识压到
