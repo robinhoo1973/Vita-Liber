@@ -59,6 +59,15 @@ struct RootAdaptiveView: View {
             set: { router.select(MainModuleID(rawValue: $0.rawValue) ?? .home) })
     }
 
+    /// 侧栏单选绑定（iPad regular）：`List(selection:)` 要求 `Optional<SelectionValue>`，
+    /// 而模块选中态是单一状态源（`selection` ← router）。此处只做 Optional 适配——
+    /// 取消选择（点侧栏空白）**不回写**，保持当前模块，避免详情列被清空成占位。
+    private var sidebarSelection: Binding<MainModule?> {
+        Binding(
+            get: { selection.wrappedValue },
+            set: { if let new = $0 { selection.wrappedValue = new } })
+    }
+
     var body: some View {
         WithPerceptionTracking {
             // 容器驱动重排（ADR-021）：compact=TabView、regular=侧边栏。
@@ -91,16 +100,22 @@ struct RootAdaptiveView: View {
                 }
             } else {
                 NavigationSplitView {
-                    List {
+                    // 侧栏用 `List(selection:)` 驱动，**不是** `NavigationLink(value:)`——
+                    // 业主 2026-09-16 iPad 实测「无法切换到其他页面」的根因：
+                    // 侧栏**没有自己的 NavigationStack**（下面的栈属于 detail 列），
+                    // `NavigationLink` 无处可推，点击静默无效；原先补偿性的
+                    // `.navigationDestination(for: MainModule.self)` 挂在 detail 列的栈上，
+                    // 同样接不到侧栏的行选择。选中态改由 `selection` 单源驱动，
+                    // detail 列随 `selection` 换根——与 compact 分支的 TabView 同源同语义。
+                    List(selection: sidebarSelection) {
                         ForEach(MainModule.allCases) { m in
                             // ForEach 行闭包逃逸：行内同步读感知对象属性，须自行包裹（子项目 I）
                             WithPerceptionTracking {
-                                NavigationLink(value: m) {
-                                    Label(m.title, systemImage: m.systemGlyph)
-                                }
-                                // §11-14：iPad 侧边栏补未读角标（compact 已有）
-                                .badge(m == .reminders && reminderStore.pendingCount > 0
-                                       ? reminderStore.pendingCount : 0)
+                                Label(m.title, systemImage: m.systemGlyph)
+                                    // §11-14：iPad 侧边栏补未读角标（compact 已有）
+                                    .badge(m == .reminders && reminderStore.pendingCount > 0
+                                           ? reminderStore.pendingCount : 0)
+                                    .tag(m)
                             }
                         }
                     }
@@ -111,14 +126,6 @@ struct RootAdaptiveView: View {
                             .navigationDestination(for: AppRoute.self) { route in
                                 RouteDestinationView(route: route)
                             }
-                    }
-                    .navigationDestination(for: MainModule.self) { m in
-                        // 评审修正：侧边栏推入后回写 selection——
-                        // ① 旋转至 compact 时 TabView 落在用户最后所在的模块，不再丢上下文回首页；
-                        // ② 详情列弹出后回到根时，根视图 = 最后所选模块而非恒 .home。
-                        // 异步延后一拍写：onAppear 期间直接写导航驱动状态属再入（重复 push 风险）。
-                        ModuleRoot(module: m)
-                            .onAppear { DispatchQueue.main.async { router.select(MainModuleID(m)) } }
                     }
                 }
             }
