@@ -35,10 +35,57 @@ struct ASREngineSettingsSection: View {
     @State private var index: ASRModelReleaseIndex?
     @State private var checkState: IndexCheckState = .idle
 
+    /// 每档位的派生结论（已装版本 / 最新发布 / 可更新目标）。
+    ///
+    /// **不在 `body` 里算**——业主 2026-09-16 实测「进入本页、或模型已下载时，
+    /// 闪退或死机」。机制：这些判定都要取 `ModelCatalogTrustStore.shared`，而它是
+    /// **锁保护的非 actor 类**（`NSLock` + 缓存），且「检查更新」经 `fetchIndex` 在
+    /// actor 上**持同一把锁做信任根/目录的签名验签**。渲染路径每帧从这把锁取值，
+    /// 验签期间主线程就在锁上排队 → 界面冻结 → 看门狗强杀（表现为闪退）。
+    /// 模型已下载时渲染路径更多一轮 `isRevoked`/`installedVersion`，锁竞争更重，
+    /// 这正是「已下载才发作」的来源。每次重绘还会重复整套判定。
+    ///
+    /// 改为 `.task` 一次算好存 `@State`，body 只读结果：渲染路径不再触碰那把锁。
+    /// （更彻底的做法是把信任库改为 actor / 拆出只读快照，已登记为后续项——
+    /// 那会改动 CoreKit 的公开面，不宜与本次修复混批。）
+    private struct ChoiceAvailability {
+        var installed: String?
+        var latest: ASRModelRelease?
+        var update: ASRModelRelease?
+    }
+    @State private var availability: [String: ChoiceAvailability] = [:]
+    /// 派生结论的重算触发：索引拉取成功 + 安装态变化（开始/结束）时自增。
+    @State private var derivationEpoch = 0
+
     private let service = ASRModelDownloadService.shared
 
     private var appVersion: String {
         (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.0.0"
+    }
+
+    /// 派生结论的重算键：索引代次 + 进行中安装的档位集合（开始/结束都要重算按钮形态）。
+    private var derivationKey: String {
+        let active = installCenter.active.map(\.choice.rawValue).sorted().joined(separator: ",")
+        return "\(derivationEpoch)|\(active)"
+    }
+
+    /// 一次算好全部 bundled 档位的派生结论（主 actor；见 `availability` 的说明）。
+    private func rebuildAvailability() {
+        let availableIndex = index
+            ?? ModelCatalogTrustStore.shared.currentIndex
+            ?? ModelCatalogTrustStore.shared.baselineIndex
+        var next: [String: ChoiceAvailability] = [:]
+        for choice in VoiceEngineChoice.allCases where choice.isBundledModel {
+            next[choice.rawValue] = ChoiceAvailability(
+                installed: ASRModelDownloadService.installedVersion(for: choice),
+                latest: availableIndex.flatMap {
+                    ASRModelDownloadService.latest(for: choice, in: $0, appVersion: appVersion)
+                },
+                update: availableIndex.flatMap {
+                    ASRModelDownloadService.updateAvailable(for: choice, index: $0, appVersion: appVersion)
+                })
+        }
+        availability = next
     }
 
     var body: some View {
@@ -118,6 +165,11 @@ struct ASREngineSettingsSection: View {
                 }
             } header: { Text(L10n.voiceLabEngineSection) }
               footer: { Text(L10n.asrSelectionHint) }
+              // 派生结论在渲染路径之外算（见 `availability` 的说明）。
+              // **必须挂在追踪闭包内**：`derivationKey` 读 `installCenter.active`，
+              // 挂到闭包外则读值不被追踪，安装开始/结束时 id 不变、任务不重跑，
+              // 按钮形态会停在旧态。
+              .task(id: derivationKey) { rebuildAvailability() }
         }
     }
 
@@ -125,14 +177,12 @@ struct ASREngineSettingsSection: View {
 
     @ViewBuilder
     private func downloadControls(_ choice: VoiceEngineChoice) -> some View {
-        let installed = ASRModelDownloadService.installedVersion(for: choice)
-        let availableIndex = index ?? ModelCatalogTrustStore.shared.currentIndex ?? ModelCatalogTrustStore.shared.baselineIndex
-        let latest = availableIndex.flatMap {
-            ASRModelDownloadService.latest(for: choice, in: $0, appVersion: appVersion)
-        }
-        let update = availableIndex.flatMap {
-            ASRModelDownloadService.updateAvailable(for: choice, index: $0, appVersion: appVersion)
-        }
+        // 只读 `.task` 预算好的派生结论——渲染路径不再触碰 `ModelCatalogTrustStore`
+        // 的那把锁（见 `availability` 的说明）。
+        let row = availability[choice.rawValue] ?? ChoiceAvailability()
+        let installed = row.installed
+        let latest = row.latest
+        let update = row.update
         VStack(alignment: .leading, spacing: 4) {
             if let installed {
                 Text(L10n.asrModelInstalled(installed))
@@ -173,6 +223,14 @@ struct ASREngineSettingsSection: View {
                 ByteCountFormatter.string(fromByteCount: progress.totalBytes, countStyle: .file)))
                 .font(.caption2).foregroundStyle(.secondary)
                 .accessibilityIdentifier("\(accessibilityPrefix).model.progress.\(choice.rawValue)")
+        } else if let progress = active.progress, active.phase == .verifying || active.phase == .unpacking {
+            // 校验/解压自 2026-09-16 起也报进度（此前只能转不确定 spinner，GB 级包
+            // 数十秒无反应 → 业主判定「卡死/进度条没反应」）。**只出条、不出字节数字**：
+            // 此处的字节是「已处理量」而非「已下载量」，复用「已下载 X/Y」文案会误导。
+            ProgressView(value: progress.fraction).frame(maxWidth: 260)
+            Text(phaseText(active.phase))
+                .font(.caption2).foregroundStyle(.secondary)
+                .accessibilityIdentifier("\(accessibilityPrefix).model.phase.\(choice.rawValue)")
         } else {
             ProgressView().frame(maxWidth: 260)
             Text(phaseText(active.phase))
@@ -203,6 +261,7 @@ struct ASREngineSettingsSection: View {
         do {
             let fetched = try await service.fetchIndex(from: ASRModelDownloadService.indexURL)
             index = fetched
+            derivationEpoch += 1   // 新索引 → 重算派生结论（`.task(id:)` 据此重跑）
             // 该索引下、与本 App 版本兼容且已授权的新装/更新条目数。
             let count = VoiceEngineChoice.allCases.reduce(into: 0) { total, choice in
                 let latest = ASRModelDownloadService.latest(for: choice, in: fetched, appVersion: appVersion)
