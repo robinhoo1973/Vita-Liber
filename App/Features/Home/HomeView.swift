@@ -561,6 +561,13 @@ struct HomeView: View {
     /// 下载卡片主体。对 `install.progress`/`phase` 的读取**只准**在此求值，且只准由
     /// 上面的 `WithPerceptionTracking` 调用——否则读取会落回外层跟踪域，高频进度重新
     /// 牵连首页全量聚合。
+    ///
+    /// `@ViewBuilder` **不可省**：本函数在视图表达式前有 `let` 语句，没有它则
+    /// `some View` 推不出底层类型（CI 35068918836：`function declares an opaque
+    /// return type, but has no return statements`）。拆分时从原 `modelDownloadCard`
+    /// 掉了这个标注——App/ 在 Linux 零类型检查、symcheck 也只看标识符，故只能由
+    /// macOS L1 暴露。
+    @ViewBuilder
     private func downloadCardContent(_ install: ASRInstallCenter.Install) -> some View {
         let downloading = install.phase == nil || install.phase == .downloading
         let fraction = downloading ? (install.progress?.fraction ?? 0) : 0
