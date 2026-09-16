@@ -156,8 +156,11 @@ final class AppRouter {
         // 与记录 Tab 的深链共用同一 SP。由当前 Tab 推入时**就地推入**，
         // 不把用户撕回「记录」Tab（此前从健康页点开总览即被切走，且
         // `.metricOverview` 遗留在 healthPath 上悬浮）。
-        let inPlacePages: Set<AppRoute> = [.metricOverview, .trendChart, .metricQuickEntry]
-        let tab = (inPlacePages.contains(route) && selection != registeredTab) ? selection : registeredTab
+        // `.trendChart` 带关联值（patientId/metric），不能作为裸 case 进 `Set<AppRoute>`
+        // ——那会被解析成「函数值」而非 `AppRoute`（App/ 在 Linux 无编译通道，此错仅
+        // macOS L1 可见：`member 'trendChart(patientId:metric:)' is a function that
+        // produces expected type 'AppRoute'`，CI 35053141098）。故按 case 匹配。
+        let tab = (Self.isInPlacePage(route) && selection != registeredTab) ? selection : registeredTab
         selection = tab
         // selection 本拍同步落盘（persist(path:) 不再捎带——同 Tab push/pop
         // 手势不应重复写未变化的 selection 键）
@@ -290,8 +293,20 @@ final class AppRouter {
         return (row.key, row.keyPath)
     }
 
-    private static let encoder = JSONEncoder()   // 静态复用：persist 在每次导航热路径执行，逐次新建 encoder 是纯浪费
+    /// 跨 Tab 复用页判定（指标族：总览/趋势/快速录入）：由当前 Tab 推入时就地推入，
+    /// 不把用户撕回「记录」Tab。
+    /// 用 case 匹配而**不是** `Set<AppRoute>`——`.trendChart` 带关联值
+    /// （`patientId`/`metric`），裸 case 在集合字面量里会被当作函数值，编译报
+    /// `member 'trendChart(patientId:metric:)' is a function that produces expected
+    /// type 'AppRoute'`。该错仅 macOS L1 可见（App/ 在 Linux 无类型检查通道）。
+    private static func isInPlacePage(_ route: AppRoute) -> Bool {
+        switch route {
+        case .metricOverview, .trendChart, .metricQuickEntry: return true
+        default: return false
+        }
+    }
 
+    private static let encoder = JSONEncoder()   // 静态复用：persist 在每次导航热路径执行，逐次新建 encoder 是纯浪费
     /// 导航热路径增量落盘：只编码发生变化的 path（keyPath 由调用侧自带，
     /// 不再回查映射表）。此前每次 push/pop/切 Tab 都全量重编码五条路径并写
     /// 六键（cfprefsd 提交流量 × 每次手势，四条未变路径是纯冗余 MainActor
