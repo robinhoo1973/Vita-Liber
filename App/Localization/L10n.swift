@@ -1723,6 +1723,8 @@ enum L10n {
         "asr.model.checking", "asr.model.checkUpToDate", "asr.model.checkUpdatesFmt",
         "asr.model.progressFmt", "asr.model.phaseVerifying", "asr.model.phaseUnpacking",
         "asr.model.phaseActivating", "asr.model.phasePruning", "asr.model.backgroundHint",
+        // 2026-09-16 传输形态（诊断「下载慢」）：分段 N 路 / 单流退化。
+        "asr.model.modeSegmentedFmt", "asr.model.modeSingle",
         "asr.qwen3", "asr.qwen3.hint",
         "asr.preparing",
         "ocr.cards.overview", "ocr.cards.none", "ocr.cards.hint", "ocr.cards.begin", "ocr.fieldActions",
@@ -3163,6 +3165,13 @@ enum L10n {
     static func asrModelProgress(_ received: String, _ total: String) -> String {
         String(format: t("asr.model.progressFmt"), received, total)
     }
+    /// 传输形态（2026-09-16 业主实测「ASR 下载速度很慢」）：`supportsRanges` 为假、
+    /// 或 HEAD 最终响应不带 `Accept-Ranges: bytes` 时下载会**静默退化**为单流——
+    /// 1 条连接 vs 分段 N 路并发。此前无任何出口可判定，只能猜；呈现出来即可当场分辨。
+    static func asrModelModeSegmented(_ segments: Int) -> String {
+        String(format: t("asr.model.modeSegmentedFmt"), segments)
+    }
+    static var asrModelModeSingle: String { t("asr.model.modeSingle") }
     /// 安装阶段文案（下载后的校验/解压/安装/清理此前完全无反馈）。
     static var asrModelPhaseVerifying: String { t("asr.model.phaseVerifying") }
     static var asrModelPhaseUnpacking: String { t("asr.model.phaseUnpacking") }

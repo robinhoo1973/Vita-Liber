@@ -1728,6 +1728,8 @@
 "asr.model.checkUpToDate" = "已是最新";
 "asr.model.checkUpdatesFmt" = "發現 %d 個可更新";
 "asr.model.progressFmt" = "已下載 %@ / %@";
+"asr.model.modeSegmentedFmt" = "%d 路並行";
+"asr.model.modeSingle" = "單流";
 "asr.model.phaseVerifying" = "校驗完整性…";
 "asr.model.phaseUnpacking" = "解壓中…";
 "asr.model.phaseActivating" = "安裝中…";

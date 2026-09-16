@@ -1728,6 +1728,8 @@
 "asr.model.checkUpToDate" = "Up to date";
 "asr.model.checkUpdatesFmt" = "%d updates available";
 "asr.model.progressFmt" = "Downloaded %@ of %@";
+"asr.model.modeSegmentedFmt" = "%d concurrent";
+"asr.model.modeSingle" = "single stream";
 "asr.model.phaseVerifying" = "Verifying integrity…";
 "asr.model.phaseUnpacking" = "Unpacking…";
 "asr.model.phaseActivating" = "Installing…";

@@ -595,7 +595,13 @@ struct HomeView: View {
                         } else {
                             ProgressView()
                         }
-                        Text(detailText(install))
+                        // 传输形态（2026-09-16 诊断「下载慢」）：分段 N 路 / 单流退化。
+                        // 单流意味着服务端没给 `Accept-Ranges` 或吞了 Range——那是
+                        // 「慢」的首要嫌疑，此前完全不可见。
+                        let modeLabel = downloadModeText(install.progress?.mode)
+                        Text(modeLabel.isEmpty
+                             ? detailText(install)
+                             : "\(detailText(install)) · \(modeLabel)")
                             .font(.caption2).foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -644,6 +650,15 @@ struct HomeView: View {
     }
 
     /// 阶段/进度文案（复用 SP-25 阶段键；下载显示字节数——慢链路下条位移缓慢，数字给确定反馈）。
+    /// 传输形态文案（2026-09-16）。空串 = 尚未确定（HEAD 探测完成前）。
+    private func downloadModeText(_ mode: ASRModelDownloadService.DownloadMode?) -> String {
+        switch mode {
+        case .segmented(let segments): return L10n.asrModelModeSegmented(segments)
+        case .singleStream: return L10n.asrModelModeSingle
+        case nil: return ""
+        }
+    }
+
     private func detailText(_ install: ASRInstallCenter.Install) -> String {
         switch install.phase {
         case .verifying: return L10n.asrModelPhaseVerifying

@@ -16,9 +16,20 @@ import Domain
 // CryptoKit/ZIPFoundation 随职责迁出（StreamingFileHasher / ModelPackageUnpacker）。
 
 public actor ASRModelDownloadService {
+    /// 传输形态（2026-09-16 业主实测「ASR 下载速度很慢」）：`ModelPackageDownloader`
+    /// 在 `supportsRanges` 为假、或 HEAD 最终响应不带 `Accept-Ranges: bytes` 时
+    /// **静默退化**为单流——1 条连接 vs 分段 N 路并发，这是「慢」的首要嫌疑，
+    /// 但此前没有任何出口可判定，只能靠猜。暴露到进度回调即可当场分辨。
+    public enum DownloadMode: Sendable, Equatable {
+        case segmented(segments: Int)
+        case singleStream
+    }
+
     public struct DownloadProgress: Sendable, Equatable {
         public var receivedBytes: Int64
         public var totalBytes: Int64
+        /// 传输形态；`nil` = 尚未确定。
+        public var mode: DownloadMode? = nil
         public var fraction: Double { totalBytes > 0 ? Double(receivedBytes) / Double(totalBytes) : 0 }
     }
 
