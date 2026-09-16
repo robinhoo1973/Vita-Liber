@@ -406,6 +406,7 @@ struct HomeView: View {
                 Text(label).font(.caption)
             }
             .padding(.horizontal, 10).padding(.vertical, 6)
+            .frame(minHeight: 44)   // ui-ux §5.2 触点 ≥44pt（原 ≈27pt）；与 TimelineViews FilterChip 同口径
             .background(Capsule().fill(selected
                                        ? Color("brand-primary", bundle: .main)
                                        : Color(.systemGray6)))
@@ -427,6 +428,7 @@ struct HomeView: View {
                 Text(windowLabel).font(.caption)
             }
             .padding(.horizontal, 10).padding(.vertical, 6)
+            .frame(minHeight: 44)   // ui-ux §5.2 触点 ≥44pt（原 ≈27pt）；同族缺陷（筛选 chips 同修）
             .background(Capsule().fill(Color(.systemGray6)))
             .foregroundStyle(Color.primary)
         }

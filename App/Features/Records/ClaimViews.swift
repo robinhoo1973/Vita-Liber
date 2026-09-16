@@ -1,4 +1,5 @@
 import SwiftUI
+import Domain       // TimelineEntryKind（CardKindIcon 单一出口的 kind 入参）
 import Infrastructure
 
 /// FR13.7 报销票据（SP 系列，ui-ux §5.41 引用）：录入 + 汇总。
@@ -30,7 +31,11 @@ struct ClaimListView: View {
             } else {
                 ForEach(rows) { row in
                     HStack {
-                        VLIcon.labClipboard.resizable().frame(width: 24, height: 24)
+                        // §3.4 单一出口：报销 = `creditcard`（原 `VLIcon.labClipboard` 是**检验**
+                        // 大字形——行内小尺寸应用 SF Symbols，类别符号也错）。
+                        Image(systemName: CardKindIcon.spec(timelineKind: .claim).symbol)
+                            .foregroundStyle(CardKindIcon.spec(timelineKind: .claim).tint)
+                            .frame(width: 24, height: 24)
                         VStack(alignment: .leading) {
                             Text(typeLabel(row.itemType) + (row.merchant.isEmpty ? "" : " · \(row.merchant)"))
                                 .font(.subheadline)

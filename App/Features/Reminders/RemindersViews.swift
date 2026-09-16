@@ -75,7 +75,12 @@ struct RemindersView: View {
                     ForEach(reminders.upcomingAppointments, id: \.id) { apt in
                         VStack(alignment: .leading, spacing: 8) {
                             HStack(spacing: 12) {
-                                Image(systemName: "stethoscope").font(.title3)   // §11-13 设计系统规则：行内小尺寸用 SF Symbols，瓷砖仅供大尺寸场景
+                                // §11-13 设计系统规则：行内小尺寸用 SF Symbols，瓷砖仅供大尺寸场景。
+                                // §3.4 单一出口：预约 = `calendar.badge.clock`（原硬编码 `stethoscope`
+                                // 是**就诊**符号——预约行显示就诊符号，类别不可辨）。
+                                Image(systemName: CardKindIcon.spec(timelineKind: .appointment).symbol)
+                                    .font(.title3)
+                                    .foregroundStyle(CardKindIcon.spec(timelineKind: .appointment).tint)
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(apt.hospital).font(.headline)
                                     Text("\(apt.department) · \(apt.startsAt.formatted(date: .abbreviated, time: .shortened))")

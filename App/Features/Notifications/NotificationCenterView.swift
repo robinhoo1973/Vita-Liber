@@ -51,7 +51,10 @@ struct NotificationCenterView: View {
                                 router.navigate(to: .appointmentDetail(apt.id))
                             } label: {
                                 HStack {
-                                    Image(systemName: "stethoscope").foregroundStyle(Color("brand-primary", bundle: .main))
+                                    // §3.4 单一出口：预约 = `calendar.badge.clock`（原硬编码 `stethoscope`
+                                    // 是**就诊**符号，且绕过类别图标出口；色令牌不变 = brand）。
+                                    Image(systemName: CardKindIcon.spec(timelineKind: .appointment).symbol)
+                                        .foregroundStyle(CardKindIcon.spec(timelineKind: .appointment).tint)
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text("\(apt.hospital)·\(apt.department)").font(.subheadline)
                                         Text(apt.startsAt.formatted(date: .abbreviated, time: .shortened))
