@@ -52,13 +52,30 @@ final class ASRInstallCenter {
         nonisolated func submit(progress: ASRModelDownloadService.DownloadProgress) {
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                if let current = self.progress, current.receivedBytes >= progress.receivedBytes { return }
+                // 单调守卫**限同阶段**（分母相同才比大小）：下载阶段 totalBytes 恒定，
+                // 乱序到达的旧值照旧丢弃；跨阶段（下载 100% → 校验 0%）分母不同，
+                // 必须放行——否则新阶段从 0 起算的每一次回调都被判成「不增」
+                // （2026-09-16 审查修复：本批把校验/解压接进同一进度出口后才成立）。
+                if let current = self.progress,
+                   current.totalBytes == progress.totalBytes,
+                   current.receivedBytes >= progress.receivedBytes { return }
                 self.progress = progress
             }
         }
 
         nonisolated func submit(phase: ASRModelDownloadService.InstallPhase) {
-            Task { @MainActor [weak self] in self?.phase = phase }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                // 阶段切换即重置进度基线（2026-09-16 审查修复）：校验/解压自本批起
+                // 复用同一 progress 出口，而它们的「已处理字节」从 0 起算，下载阶段
+                // 收尾停在 totalBytes——`submit(progress:)` 的单调守卫会把新阶段的
+                // 每一次回调都判成「不增」而丢弃，进度条钉在 100% 不动（现象与
+                // 「校验无反馈」同，只是从「转圈」变成「满格不动」）。清空后新阶段
+                // 的第一个回调即可入账；跨阶段仍不会回跳（新阶段从 0 单调上升）。
+                // 激活/清理两阶段无粒度：清空后界面回落不确定进度（spinner）。
+                if self.phase != phase { self.progress = nil }
+                self.phase = phase
+            }
         }
     }
 

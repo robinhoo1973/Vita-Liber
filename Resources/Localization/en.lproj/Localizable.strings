@@ -418,6 +418,16 @@
 "trend.period.jumpToLatest" = "Jump to the period of the latest reading";
 "trend.period.locating" = "Locating period";
 "trend.period.accessibility" = "Period: %@";
+"trend.sleep.title" = "Sleep";
+"trend.sleep.legend" = "Sleep stages";
+"trend.sleep.chart.accessibility" = "Sleep stage trend · %1$d nights · %2$d stage segments";
+"sleep.stage.deep" = "Deep";
+"sleep.stage.core" = "Core";
+"sleep.stage.rem" = "REM";
+"sleep.stage.awake" = "Awake";
+"sleep.stage.unspecified" = "Unspecified";
+"sleep.stage.valueFmt" = "%1$@ %2$@";
+"sleep.stage.inBed" = "In bed";
 "trend.origin.hospital" = "Hospital report";
 "trend.refRange" = "Reference range %1$@–%2$@";
 "trend.row.accessibility" = "%1$@ %2$@ · %3$@ · %4$@";
@@ -1664,7 +1674,9 @@
 "voiceIntent.createQuestion" = "Doctor Question";
 "voiceIntent.unknown" = "Free Text";
 "voicePanel.autoHint" = "Say what you want to record — the destination will be decided automatically.";
-"voicePanel.editHint" = "Transcript appears here — tap to edit directly; keep holding the mic to append more recordings";
+"voicePanel.editHint" = "Transcript appears here — tap to edit directly; tap the mic to append more recordings";
+"voicenote.tapHint" = "Tap to start recording, tap again to stop; or press and hold";
+"voicenote.dictationDenied" = "Speech input permission not granted. Enable it in Settings.";
 "voicePanel.confirm" = "Confirm";
 "voicePanel.clearTitle" = "Clear Recording";
 "voicePanel.clear" = "Clear";

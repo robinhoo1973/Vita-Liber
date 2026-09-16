@@ -441,7 +441,7 @@ public actor HealthImportStore {
         case .bloodOxygen: allowed = ["bloodOxygen"]
         case .respiratoryRate: allowed = ["respiratory_rate"]
         case .steps: allowed = ["steps"]
-        case .sleep: allowed = ["sleep_total", "sleep_deep", "sleep_rem", "sleep_awake", "sleep_core", "sleep_unspecified"]
+        case .sleep: allowed = Set(MetricType.sleepGroupKeys.map(\.rawValue))   // 六键单一事实源（Domain），新增阶段只改一处
         }
         guard allowed.contains(key) else { throw ImportError.invalidValue }
         if !window.kind.isAggregated {

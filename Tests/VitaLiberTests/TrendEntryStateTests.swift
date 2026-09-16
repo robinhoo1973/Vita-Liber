@@ -81,6 +81,62 @@ final class TrendEntryStateTests: XCTestCase {
         XCTAssertNil(state.detailSeries)
     }
 
+    /// 业主 2026-09-16 第 1 项：「指标趋势页数据显示的起点应该是当前日期，而不是最近
+    /// 的那条记录」。本用例是**锚点策略**的回归位——此前 App 层没有任何测试能区分
+    /// 「锚今天」与「锚最新读数」（种子数据都在一小时前，两种策略结果相同）：
+    /// 新版把种子的最新读数放到 90 天前，窗末仍必须是今天。
+    func test_windowIsAnchoredToTodayNotTheNewestReading() async throws {
+        let db = try GRDBStore.inMemory()
+        let owner = UUID()
+        try await db.writer.write { db in
+            try db.execute(sql: """
+                INSERT INTO patient_profile (id, display_name, relation, created_at, updated_at)
+                VALUES (?, 'Owner', 'self', 0, 0)
+                """, arguments: [owner.uuidString])
+            try db.execute(sql: "INSERT INTO local_owner (id, display_name, self_patient_id, created_at) VALUES (?, 'Owner', ?, 0)",
+                           arguments: [UUID().uuidString, owner.uuidString])
+        }
+        let trends = TrendQueryStore(writer: db.writer)
+        let stale = Date().addingTimeInterval(-90 * 86400)
+        _ = try await trends.addSample(patientId: owner, metric: .glucose, value: 5.6, secondaryValue: nil,
+                                       unit: "mmol/L", measuredAt: stale)
+        let state = TrendEntryState(store: trends)
+
+        await state.loadDetail(patientId: owner, metricKey: "glucose", window: .week)
+        let identity = try XCTUnwrap(state.detailIdentity)
+        // 窗末 = 今天（允许跨用例的秒级误差），而不是最新读数所在日
+        XCTAssertEqual(identity.range.end.timeIntervalSinceNow, 0, accuracy: 5)
+        XCTAssertTrue(identity.range.contains(Date()))
+        XCTAssertFalse(identity.range.contains(stale), "90 天前的读数不应落在 7 天窗内")
+        // 最新读数仍如实告知（空态出口的数据源）
+        XCTAssertEqual(try XCTUnwrap(state.latestAnyDate).timeIntervalSince(stale), 0, accuracy: 0.001)
+        XCTAssertNil(state.detailSeries?.points.first, "窗内无读数 → 空态（图表不画）")
+    }
+
+    func test_sleepMetricLoadsIntegratedSeriesFromAllStageKeys() async throws {
+        let seed = try await makeSeed()
+        let state = TrendEntryState(store: seed.trends)
+        let night = Date().addingTimeInterval(-12 * 3600)
+        _ = try await seed.trends.addDeviceSamples(patientId: seed.owner, rows: [
+            DeviceMetricRow(metricKey: "sleep_total", value: 7.5, unit: "h", measuredAt: night),
+            DeviceMetricRow(metricKey: "sleep_deep", value: 1.2, unit: "h", measuredAt: night),
+            DeviceMetricRow(metricKey: "sleep_core", value: 4.0, unit: "h", measuredAt: night),
+            DeviceMetricRow(metricKey: "sleep_awake", value: 0.5, unit: "h", measuredAt: night),
+        ])
+        await state.loadDetail(patientId: seed.owner, metricKey: "sleep_deep", window: .week)
+        let sleep = try XCTUnwrap(state.sleepSeries, "睡眠族载入整合槽（不是单键点族槽）")
+        XCTAssertEqual(state.detailSeries, nil, "两槽互斥")
+        XCTAssertEqual(sleep.nights.count, 1)
+        XCTAssertEqual(sleep.nights[0].asleepHours, 7.5)
+        XCTAssertEqual(sleep.nights[0].slices.map(\.stage), [.deep, .core, .awake])
+        XCTAssertEqual(sleep.identity, state.detailIdentity)
+        // 宫格折叠：睡眠六键只出一块瓦片（sleep_total 恒胜）
+        await state.loadLatest(patientId: seed.owner)
+        let sleepTiles = state.latestMetrics.filter { MetricType(rawValue: $0.metricKey)?.isSleep == true }
+        XCTAssertEqual(sleepTiles.count, 1)
+        XCTAssertEqual(sleepTiles.first?.metricKey, "sleep_total")
+    }
+
     func test_refreshDetailIfCurrentKeepsIdentityAndIgnoresOtherMetric() async throws {
         let seed = try await makeSeed()
         let state = TrendEntryState(store: seed.trends)

@@ -41,11 +41,15 @@ struct MetricOverviewView: View {
                                                 taskId: "\(app.currentPatientId.uuidString)-\(item.metricKey)-\(dataChange.metricsVersion)",
                                                sparkLoader: { key in
                                         guard let m = MetricType(rawValue: key) else { return nil }
-                                        let end = Date()
-                                        let start = DayArithmetic.offset(days: -30, from: end)
+                                        // 30 天窗经 Domain 单一出口（`TrendTimeWindow.month`）：
+                                        // 此前视图内联 `DayArithmetic.offset(days: -30)` 是第二份
+                                        // 窗长字面量，改档位天数即与详情页漂移；锚点同详情页
+                                        // = 今天（第 1 项「起点是当前日期」），宫格与详情页
+                                        // 对同一成员说同一段窗口。
+                                        let range = TrendTimeWindow.month.period(endingAt: Date())
                                         return try? await state.store.series(for: app.currentPatientId,   // try?-ok: tile 迷你趋势读取失败只不画线，不阻断宫格
                                                                              metric: m,
-                                                                             range: DateInterval(start: start, end: end))
+                                                                             range: range)
                                     })
                                         .onTapGesture {
                                             router.navigate(to: .trendChart(patientId: app.currentPatientId,

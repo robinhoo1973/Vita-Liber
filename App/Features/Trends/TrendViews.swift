@@ -174,7 +174,6 @@ struct TrendChartView: View {
         let range = series.identity?.range ?? DateInterval(start: xDomainStart, end: xDomainEnd)
         let visible = TrendDownsampler.thin(sortedPoints, in: range, maxBuckets: TrendDownsampler.maxBuckets)
         // 折线断段阈值与桶宽同源（见 TrendDownsampler.gapThreshold 的说明）
-        let maxGap = TrendDownsampler.gapThreshold(range: range, maxBuckets: TrendDownsampler.maxBuckets)
         // 结构轮修复：窗口起止与可见域同源一份日历区间（TrendTimeWindow.interval，
         // DayArithmetic 出口）——此前两处各写 rawValue × 86400，DST 日与查询
         // 范围差 ±1h（裸 86400 违反全仓 DST 纪律）。
@@ -183,6 +182,10 @@ struct TrendChartView: View {
         let shown = ChartsCompat.supportsScrollableAxes ? visible : visible.filter { $0.measuredAt >= windowStart }   // iOS 16 只画窗口内点
         let family = TrendMarkFamily.family(for: series.metricType)
         let tint = Color("brand-primary", bundle: .main)
+        // 断段阈值：**未降采样时不得用桶宽**（桶宽是「若抽稀会用的粒度」，
+        // 与数据实际间距无关——90 天窗内 200 条小时读数会被 13.5 h 阈值
+        // 跨 12 h 缺测连成一条插值线，违反「缺测不插值」）
+        let maxGap = TrendDownsampler.gapThreshold(range: range, pointCount: sortedPoints.count)
         VStack(alignment: .leading, spacing: 12) {
             // 可见读数全部被排除时的事实句：否则图表区空白且无任何解释
             // （原实现靠工具栏开关的 onAppear 副作用兜底，切窗后不再触发）
@@ -436,6 +439,254 @@ private struct TrendPointRow: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel(L10n.trendRowAccessibility(MedicalNumberFormat.oneDecimal(point.value), point.unit ?? "", point.origin == .device ? L10n.trendOriginDevice : (point.isHollow ? L10n.trendOriginSelfShort : (point.refSourceLabel ?? L10n.trendOriginHospitalShort)), point.measuredAt.formatted(date: .abbreviated, time: .shortened)) + (isExcluded ? L10n.trendRowExcludedSuffix : ""))
         .accessibilityIdentifier(isExcluded ? "SP-13.trend.point.excluded" : "SP-13.trend.point")
+    }
+}
+
+/// SP-13 睡眠整合页（FR7.11，业主 2026-09-16 第 3 项）：一晚一根**堆叠柱**
+/// ——段色 = 阶段，柱高 = 各段时长之和——配一张文字可读的阶段图例，
+/// 其下是逐夜列表（每晚一行：总时长 + 分段明细）与已排除夜分段（FR7.4 可恢复）。
+///
+/// 业界同款：Apple Health「睡眠」以堆叠柱区分 Awake/REM/Core/Deep（柱高 = 当夜
+/// 各段之和），浅色/深色 + 文字图例双通道（色觉障碍不依赖颜色单通道）。
+/// BR-006：段色是**分类编码**（阶段身份），不表达「睡得好/不好」的任何判断；
+/// 阶段时间轴（真实发生顺序的 hypnogram）仍不绘制——存储只有每窗时长，
+/// 不得从总量反造顺序（trend-visualization-module-spec §6.3 V1.5 边界）。
+struct SleepTrendDetailView: View {
+    let series: SleepTrendSeries
+    /// round2 H4：所选时间窗（路由页分段控件下传，图表可见域随之）
+    var window: TrendTimeWindow = .year
+    var onToggleExcluded: ((SleepTrendNight, Bool) -> Void)?
+
+    var body: some View {
+        ScrollView {
+            SleepTrendChartView(series: series, window: window, onToggleExcluded: onToggleExcluded)
+        }
+        .navigationTitle(L10n.trendSleepTitle)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// 睡眠堆叠柱 + 阶段图例 + 逐夜列表。
+struct SleepTrendChartView: View {
+    let series: SleepTrendSeries
+    var window: TrendTimeWindow = .year
+    /// (夜, 是否排除)：可见段传 true（排除该夜），已排除段传 false（恢复）
+    var onToggleExcluded: ((SleepTrendNight, Bool) -> Void)?
+
+    @State private var selectedDate: Date?
+
+    /// 查询范围（身份回传；无身份时用夜集跨度兜底——不崩、不画错轴）
+    private var range: DateInterval {
+        if let identity = series.identity { return identity.range }
+        let days = series.nights.map(\.day)
+        guard let first = days.first, let last = days.last else { return DateInterval(start: Date(), duration: 0) }
+        return DateInterval(start: first, end: DayArithmetic.offset(days: 1, from: last))
+    }
+
+    /// 本窗口出现过的阶段（图例只列存在的阶段，与来源图例同纪律）
+    private var presentStages: [SleepStage] {
+        let stages = Set(series.nights.flatMap { $0.slices.map(\.stage) })
+        return stages.sorted { $0.trendStackOrder < $1.trendStackOrder }
+    }
+
+    /// 选中的夜（选点气泡锚点；按日最近命中）
+    private var selectedNight: SleepTrendNight? {
+        guard let selectedDate else { return nil }
+        return series.nights.min {
+            abs($0.day.timeIntervalSince(selectedDate)) < abs($1.day.timeIntervalSince(selectedDate))
+        }
+    }
+
+    var body: some View {
+        let range = self.range
+        let stages = presentStages
+        VStack(alignment: .leading, spacing: 12) {
+            Chart {
+                ForEach(series.nights) { night in
+                    ForEach(night.slices) { slice in
+                        // BarMark 按样式维度分组即堆叠：x 同为「日」，各段自下而上
+                        // 依次叠放（trendStack 顺序 = 图例顺序）
+                        BarMark(x: .value(L10n.trendAxisTime, night.day, unit: .day),
+                                y: .value(L10n.trendAxisValue, slice.hours))
+                            .foregroundStyle(by: .value(L10n.trendSleepLegend, L10n.sleepStage(slice.stage)))
+                    }
+                }
+                if let selectedNight {
+                    RuleMark(x: .value(L10n.trendAxisSelected, selectedNight.day))
+                        .foregroundStyle(Color("text-tertiary", bundle: .main).opacity(0.6))
+                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                }
+            }
+            .chartForegroundStyleScale(domain: stages.map(L10n.sleepStage),
+                                       range: stages.map(SleepStagePalette.color))
+            // 图例自绘（不消失的内置图例）：标识可测、文字随应用语言、阶段名可读
+            .chartLegend(.hidden)
+            .chartWindowCompat(visibleLength: window.interval(endingAt: range.end).duration,
+                               domainEnd: range.end, selection: $selectedDate)
+            .frame(height: 200)
+            .accessibilityIdentifier("SP-13.trend.sleep.chart")
+            .accessibilityLabel(L10n.trendSleepChartAccessibility(series.nights.count,
+                                                                 series.nights.reduce(0) { $0 + $1.slices.count }))
+            .accessibilityElement(children: .contain)
+
+            // 阶段图例：色块 + 阶段名 + 本窗口该阶段合计（可核对的量化出口）
+            VStack(alignment: .leading, spacing: 4) {
+                Text(L10n.trendSleepLegend).font(.caption2).foregroundStyle(.secondary)
+                ForEach(stages, id: \.self) { stage in
+                    HStack(spacing: 6) {
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(SleepStagePalette.color(stage))
+                            .frame(width: 18, height: 12)
+                        Text(L10n.sleepStageValue(stage, durationText(stageTotal(stage))))
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("SP-13.trend.sleep.legend")
+                }
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("SP-13.trend.sleep.legends")
+
+            // 选夜气泡：该夜的阶段明细（值/单位/来源口径同列表行）
+            if let selectedNight {
+                SleepNightBubble(night: selectedNight, unit: unit)
+            }
+
+            // 逐夜列表（VoiceOver 主通道）：全量、惰性
+            LazyVStack(alignment: .leading, spacing: 8) {
+                ForEach(series.nights) { night in
+                    SleepNightRow(night: night, unit: unit, isExcluded: false) {
+                        onToggleExcluded?(night, true)
+                    }
+                }
+            }
+
+            // 已排除夜分段：**恒渲染**（FR7.4「原记录可见可恢复」由构造保证——
+            // 排除最后一夜后恢复入口不可能消失）
+            if !series.excludedNights.isEmpty {
+                Divider()
+                Text(L10n.trendExcludedHeader(series.excludedNights.count))
+                    .font(.caption).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("SP-13.trend.sleep.excluded.header")
+                LazyVStack(alignment: .leading, spacing: 8) {
+                    ForEach(series.excludedNights) { night in
+                        SleepNightRow(night: night, unit: unit, isExcluded: true) {
+                            onToggleExcluded?(night, false)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(16)
+    }
+
+    private var unit: String {
+        series.nights.compactMap(\.unit).first ?? series.excludedNights.compactMap(\.unit).first ?? ""
+    }
+
+    private func stageTotal(_ stage: SleepStage) -> Double {
+        series.nights.reduce(0) { total, night in
+            total + (night.slices.first { $0.stage == stage }?.hours ?? 0)
+        }
+    }
+
+    private func durationText(_ hours: Double) -> String {
+        let text = MedicalNumberFormat.oneDecimal(hours)
+        return unit.isEmpty ? text : "\(text) \(unit)"
+    }
+}
+
+/// 睡眠阶段配色（分类编码，FR7.11 图例的色通道；BR-006：不表达优劣）。
+/// 令牌在 Assets（sleep-***），浅色/深色各一档——不写死色值（设计系统纪律）。
+enum SleepStagePalette {
+    static func color(_ stage: SleepStage) -> Color {
+        switch stage {
+        case .deep: return Color("sleep-deep", bundle: .main)
+        case .core: return Color("sleep-core", bundle: .main)
+        case .rem: return Color("sleep-rem", bundle: .main)
+        case .awake: return Color("sleep-awake", bundle: .main)
+        case .unspecified: return Color("sleep-unspecified", bundle: .main)
+        case .inBed: return Color("sleep-unspecified", bundle: .main)
+        }
+    }
+}
+
+/// 选夜气泡：日期 + 总时长 + 逐段时长（与列表行同一数字出口）
+private struct SleepNightBubble: View {
+    let night: SleepTrendNight
+    let unit: String
+
+    private var total: Double { night.asleepHours ?? night.stackedHours }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(unit.isEmpty ? MedicalNumberFormat.oneDecimal(total)
+                              : "\(MedicalNumberFormat.oneDecimal(total)) \(unit)")
+                .font(.title3).monospacedDigit()
+            Text(L10n.trendDate(night.day))
+                .font(.caption2).foregroundStyle(.secondary)
+            ForEach(night.slices) { slice in
+                HStack(spacing: 6) {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(SleepStagePalette.color(slice.stage))
+                        .frame(width: 10, height: 10)
+                    Text(L10n.sleepStageValue(slice.stage, MedicalNumberFormat.oneDecimal(slice.hours)))
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color("bg-grouped", bundle: .main)))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("SP-13.trend.sleep.bubble")
+    }
+}
+
+/// 逐夜行：日期 + 总时长 + 分段明细 + 排除/恢复动作
+private struct SleepNightRow: View {
+    let night: SleepTrendNight
+    let unit: String
+    let isExcluded: Bool
+    var onToggle: (() -> Void)?
+
+    private var total: Double { night.asleepHours ?? night.stackedHours }
+
+    private var breakdown: String {
+        night.slices
+            .map { L10n.sleepStageValue($0.stage, MedicalNumberFormat.oneDecimal($0.hours)) }
+            .joined(separator: " · ")
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(L10n.trendDate(night.day)).font(.footnote)
+                if !breakdown.isEmpty {
+                    Text(breakdown)
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("SP-13.trend.sleep.breakdown")
+                }
+            }
+            Spacer()
+            Text(unit.isEmpty ? MedicalNumberFormat.oneDecimal(total)
+                              : "\(MedicalNumberFormat.oneDecimal(total)) \(unit)")
+                .font(.footnote).monospacedDigit()
+                .strikethrough(isExcluded)
+            if let onToggle {
+                Button(action: onToggle) {
+                    (isExcluded ? VLIcon.undo : VLIcon.ban)
+                        .resizable().frame(width: 20, height: 20)
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(.plain)
+                .contentShape(Rectangle())
+                .accessibilityLabel(isExcluded ? L10n.trendRestorePoint : L10n.trendExcludePoint)
+                .accessibilityIdentifier(isExcluded ? "SP-13.trend.sleep.restore" : "SP-13.trend.sleep.exclude")
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(isExcluded ? "SP-13.trend.sleep.night.excluded" : "SP-13.trend.sleep.night")
     }
 }
 

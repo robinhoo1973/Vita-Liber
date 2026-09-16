@@ -117,20 +117,28 @@ struct TrendVisualizationDomainTests {
         }
     }
 
-    @Test("折线断段阈值 ≥ 桶宽：降采样后不得把每个保留点判成缺测")
+    @Test("折线断段阈值：降采样后才随桶宽放大，未降采样恒按采样步长（缺测不插值）")
     func 断段阈值() {
         let start = Date(timeIntervalSince1970: 0)
-        // 短窗：7 天 240 桶 → 桶宽 2520s < 小时步长 → 阈值保持 5400s（既有行为不变）
-        let week = DateInterval(start: start, duration: 7 * 86400)
-        #expect(TrendDownsampler.gapThreshold(range: week) == 5400)
-        // 长窗：365 天 240 桶 → 桶宽 ≈ 1.52 天 → 阈值必须随桶宽放大，否则
-        // 每个保留点都被判成新段（1 年心率的折线与 min/max 带整条消失）
-        let year = DateInterval(start: start, duration: 365 * 86400)
-        let yearGap = TrendDownsampler.gapThreshold(range: year)
+        let week = TrendTimeWindow.week.interval(endingAt: start.addingTimeInterval(7 * 86400), calendar: utc)
+        let year = TrendTimeWindow.year.interval(endingAt: start.addingTimeInterval(365 * 86400), calendar: utc)
+        // 未降采样（点数 ≤ 2×桶数）：无论窗口多长都按采样步长判缺测——
+        // 90 天窗内只有 200 条小时读数时，桶宽（13.5h）与数据实际间距无关，
+        // 用它当阈值会把相隔 12h 的两次读数插值连起来（缺测不插值一票否决）
+        #expect(TrendDownsampler.gapThreshold(range: week, pointCount: 100) == 5400)
+        #expect(TrendDownsampler.gapThreshold(range: year, pointCount: 200) == 5400)
+        #expect(TrendDownsampler.gapThreshold(range: year, pointCount: TrendDownsampler.maxBuckets * 2) == 5400)
+        // 降采样发生：阈值 ≥ 桶宽（相邻保留点跨度天然 ≈ 桶宽，仍按小时判缺测会让
+        // 每个保留点都成新段，1 年心率的折线与 min/max 带整条消失）
+        let dense = TrendDownsampler.maxBuckets * 2 + 1
+        let yearGap = TrendDownsampler.gapThreshold(range: year, pointCount: dense)
+        let bucketWidth = year.duration / Double(TrendDownsampler.maxBuckets)
         #expect(yearGap > 3600)
-        #expect(yearGap >= year.duration / Double(TrendDownsampler.maxBuckets))
+        // 相邻桶的保留点最大可相距 ≈ 2×桶宽（桶内留的是极值两点，落在桶内任意时刻），
+        // 故阈值须 ≥ 2×桶宽才真正保证「抽稀不会制造断段」
+        #expect(yearGap >= bucketWidth * 2)
         // 退化区间（零长）不产生 0 阈值（否则任何两点都断段）
-        #expect(TrendDownsampler.gapThreshold(range: DateInterval(start: start, duration: 0)) == 5400)
+        #expect(TrendDownsampler.gapThreshold(range: DateInterval(start: start, duration: 0), pointCount: dense) == 5400)
     }
 
     @Test("身份四元任一不同即不等；TrendSeries 携身份默认 nil")

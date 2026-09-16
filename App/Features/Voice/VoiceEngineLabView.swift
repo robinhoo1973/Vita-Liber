@@ -37,6 +37,18 @@ struct VoiceEngineLabView: View {
     /// 换挡前的在途 refresh/install 结果不得覆盖新档的资源状态。
     @State private var hasSelected = false
     @State private var generation = 0
+    /// 每档位可用性（`TranscriptionEngineBuilder.availability`：内部取
+    /// `ModelCatalogTrustStore` 的锁 + 读资产目录 + 解析 manifest）。
+    /// **不在 `body` 里算**（2026-09-16 审查修复，与 `ASREngineSettingsSection` 同款）：
+    /// 本页是 SP-25 的普通入口（非调试页）且**在此页发起模型安装**，而渲染路径
+    /// 每帧取的那把锁被安装/校验/拉取索引的验签与落盘整段持有——主线程排队冻结、
+    /// 跨看门狗即强杀（业主第 4 项「检查更新出现闪退或死机」的同一机制，
+    /// 修 `ASREngineSettingsSection` 时漏了本页）。此处一次算好存 `@State`，
+    /// `body` 只读结果。
+    @State private var availabilityNotes: [String: String] = [:]
+    /// 同一次计算里的原始可用性（`testFallbackNote` 读它——两条渲染分支共用
+    /// 一次取锁，不再各算一遍）
+    @State private var availabilityValues: [String: VoiceEngineAvailability] = [:]
 
     private var testLocale: String {
         SettingsRules.voiceLocales(settings.values[.voiceInputLanguages]).first
@@ -53,7 +65,7 @@ struct VoiceEngineLabView: View {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(label(for: option))
                                     Text(hint(for: option)).font(.caption).foregroundStyle(.secondary)
-                                    if let note = availabilityNote(for: option) {
+                                    if let note = availabilityNotes[option.rawValue] {
                                         Text(note).font(.caption2)
                                             .foregroundStyle(Color("semantic-warning", bundle: .main))
                                     }
@@ -145,6 +157,7 @@ struct VoiceEngineLabView: View {
             .navigationTitle(L10n.voiceLabTitle)
             .navigationBarTitleDisplayMode(.inline)
             .task {
+                rebuildAvailability()
                 await settings.load()
                 // 审查修复：仅当用户尚未手动选档时才用持久化值初始化——旧实现
                 // 无条件覆盖，装载在途期间的点击被静默丢弃且 rebuild 重建测试模型。
@@ -212,16 +225,17 @@ struct VoiceEngineLabView: View {
             // 缺件明示文案如实告知「对照测试无法运行」，绝不声称结果来自回落引擎。
             // round2 A-N6：可用性拆出「可下载」态——模型尚未下载时同样无法在所选引擎上
             // 运行对照测试，与「缺件」一并提示；仅「可用」不提示。
-            switch TranscriptionEngineBuilder.availability(of: choice) {
+            // 读 `.task` 预算好的结果（渲染路径不取信任库锁，见 `availabilityNotes`）
+            switch availabilityValues[choice.rawValue] {
             case .missingModelAssets, .downloadable: return L10n.voiceLabFallbackMissing
-            case .available, .requiresNewerOS, .unsupportedDevice: return nil
+            case .available, .requiresNewerOS, .unsupportedDevice, nil: return nil
             }
         case .auto:
-            return TranscriptionEngineBuilder.availability(of: choice) != .available
+            return availabilityValues[choice.rawValue] != .available
                 ? nil
                 : (assetStatus == .installed ? nil : L10n.voiceLabFallbackAsset)
         case .advanced, .dictation:
-            if TranscriptionEngineBuilder.availability(of: choice) != .available {
+            if availabilityValues[choice.rawValue] != .available {
                 return L10n.voiceLabFallbackUnavailable
             }
             return assetStatus == .installed ? nil : L10n.voiceLabFallbackAsset
@@ -251,8 +265,19 @@ struct VoiceEngineLabView: View {
         L10n.voiceEngineHint(option)
     }
 
-    private func availabilityNote(for option: VoiceEngineChoice) -> String? {
-        L10n.asrAvailability(TranscriptionEngineBuilder.availability(of: option))
+    /// 一次算好全部档位的可用性（原始值 + 提示文案）——渲染路径之外的计算，
+    /// 见 `availabilityNotes` 的说明。未算好时按「可用」渲染（不显示提示，
+    /// 与「算完发现可用」同态）。
+    private func rebuildAvailability() {
+        var notes: [String: String] = [:]
+        var values: [String: VoiceEngineAvailability] = [:]
+        for option in VoiceEngineChoice.allCases {
+            let availability = TranscriptionEngineBuilder.availability(of: option)
+            values[option.rawValue] = availability
+            if let note = L10n.asrAvailability(availability) { notes[option.rawValue] = note }
+        }
+        availabilityNotes = notes
+        availabilityValues = values
     }
 
     private var assetLabel: String {

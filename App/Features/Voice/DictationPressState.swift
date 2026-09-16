@@ -6,6 +6,22 @@ import Foundation
 /// Recognition timers and touch termination share one identity, so release cannot also toggle a Button.
 struct DictationPressState {
     enum EndAction: Equatable { case none, toggle, stop }
+
+    /// 识别（长按）阈值：**点击开关**与**按住说话**的分界，单位秒。
+    ///
+    /// 为什么是 0.6s（业主 2026-09-16 第 5 项「点击录音图形按钮开始」的实际症状）：
+    /// 阈值此前硬编码 0.2s，而一次正常点击轻易超过它（老人/关怀模式更慢）——
+    /// 于是「点击」被判成「按住」：识别在阈值处启动、抬手即停，得到一段几十毫秒的
+    /// 空录音并以「未识别到语音」收场，用户看到的是「点了开始，自己就停了」。
+    /// 0.6s 与全仓长按口径一致（SOS/危险动作确认 = `CareModeMetrics.holdConfirmSeconds`），
+    /// 且落在「故意按住说话」的自然时长内：短按 = 开关（tap-to-toggle，
+    /// ui-ux §3 原则 4「避免长按依赖」），长按 ≥0.6s = 按住说话（松手结束）。
+    /// 阈值是交互契约，放状态机而非视图——`DictationPressStateTests` 覆盖。
+    static let holdThreshold: TimeInterval = 0.6
+
+    /// 阈值对应的纳秒数（`Task.sleep` 出口，避免视图里再写一遍字面量）
+    static var holdThresholdNanoseconds: UInt64 { UInt64(holdThreshold * 1_000_000_000) }
+
     private(set) var id: UUID?
     private var holding = false
 

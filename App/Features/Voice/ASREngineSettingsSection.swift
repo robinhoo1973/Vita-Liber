@@ -52,6 +52,12 @@ struct ASREngineSettingsSection: View {
         var installed: String?
         var latest: ASRModelRelease?
         var update: ASRModelRelease?
+        /// 引擎可用性判定（`TranscriptionEngineBuilder.availability`）——同样要读
+        /// 信任库/资产目录，故一并移出渲染路径
+        var availability: VoiceEngineAvailability = .available
+        /// 该档位的资产字节数（`ASRModelAssets.byteCount`：读 manifest + 逐文件 stat
+        /// + `isRevoked` 取锁），渲染路径只读结果
+        var bytes: Int64?
     }
     @State private var availability: [String: ChoiceAvailability] = [:]
     /// 派生结论的重算触发：索引拉取成功 + 安装态变化（开始/结束）时自增。
@@ -75,15 +81,20 @@ struct ASREngineSettingsSection: View {
             ?? ModelCatalogTrustStore.shared.currentIndex
             ?? ModelCatalogTrustStore.shared.baselineIndex
         var next: [String: ChoiceAvailability] = [:]
-        for choice in VoiceEngineChoice.allCases where choice.isBundledModel {
+        for choice in VoiceEngineChoice.allCases {
             next[choice.rawValue] = ChoiceAvailability(
-                installed: ASRModelDownloadService.installedVersion(for: choice),
-                latest: availableIndex.flatMap {
+                installed: choice.isBundledModel ? ASRModelDownloadService.installedVersion(for: choice) : nil,
+                latest: choice.isBundledModel ? availableIndex.flatMap {
                     ASRModelDownloadService.latest(for: choice, in: $0, appVersion: appVersion)
-                },
-                update: availableIndex.flatMap {
+                } : nil,
+                update: choice.isBundledModel ? availableIndex.flatMap {
                     ASRModelDownloadService.updateAvailable(for: choice, index: $0, appVersion: appVersion)
-                })
+                } : nil,
+                availability: TranscriptionEngineBuilder.availability(of: choice),
+                // 资产字节数只对随包档位展示（`ASRModelCatalog.model(for:)` 同款条件）
+                bytes: ASRModelCatalog.model(for: choice) == nil
+                    ? nil
+                    : ASRModelAssets.resolve(for: choice).byteCount(choice))
         }
         availability = next
     }
@@ -105,7 +116,11 @@ struct ASREngineSettingsSection: View {
                     .frame(maxWidth: .infinity, minHeight: 44)
                 }
                 .buttonStyle(.bordered)
-                .disabled(checkState == .checking)
+                // 下载中禁用（tech-spec §5.29「区块顶部 [检查更新] 按钮（…≥44pt、下载中禁用）」）：
+                // 服务层 `fetchIndex` 在 `installing` 非空时抛 `installInProgress`，
+                // 而 UI 把该错误一律渲染为「检查更新失败，请重试」——用户会把
+                // 「正在下载」误读成「功能坏了」（2026-09-16 评审）。
+                .disabled(checkState == .checking || !installCenter.active.isEmpty)
                 .accessibilityIdentifier("\(accessibilityPrefix).model.checkUpdate")
 
                 // 检查结果三元反馈（进行中由按钮内 spinner 承担）
@@ -129,7 +144,11 @@ struct ASREngineSettingsSection: View {
                 ForEach(VoiceEngineChoice.allCases, id: \.self) { choice in
                     // ForEach 行闭包逃逸：行内同步读感知对象属性，须自行包裹（子项目 I）
                     WithPerceptionTracking {
-                        let availability = TranscriptionEngineBuilder.availability(of: choice)
+                        // 可用性与字节数只读 `.task` 预算好的结果——它们是本页最重的
+                        // 两次取锁/读盘（`TranscriptionEngineBuilder.availability` 读信任库、
+                        // `ASRModelAssets.byteCount` 读 manifest + 逐文件 stat），
+                        // 此前每帧、每档位各来一次（见 `availability` 的说明）
+                        let row = availability[choice.rawValue] ?? ChoiceAvailability()
                         Button {
                             Task { await settings.set(choice.rawValue, for: .voiceEngine) }
                         } label: {
@@ -140,12 +159,12 @@ struct ASREngineSettingsSection: View {
                                     if let model = ASRModelCatalog.model(for: choice) {
                                         Text(model.license + " · " + L10n.asrBundledOffline)
                                             .font(.caption2).foregroundStyle(.secondary)
-                                        if let bytes = ASRModelAssets.resolve(for: choice).byteCount(choice) {
+                                        if let bytes = row.bytes {
                                             Text(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))
                                                 .font(.caption2).foregroundStyle(.secondary)
                                         }
                                     }
-                                    if let note = L10n.asrAvailability(availability) {
+                                    if let note = L10n.asrAvailability(row.availability) {
                                         Text(note).font(.caption).foregroundStyle(.orange)
                                     }
                                 }
@@ -254,12 +273,28 @@ struct ASREngineSettingsSection: View {
         }
     }
 
+    /// 检查更新的总时限：索引是几 KB 的 JSON，30s 无果即判失败。
+    /// 为什么必须有时限（业主 2026-09-16 第 4 项「点击检查更新出现闪退或者死机」）：
+    /// 索引请求与 GB 级下载**共用同一个会话**，而该会话刻意不设资源超时
+    /// （`timeoutIntervalForResource` 默认 7 天，下载不能有天花板）——链路中途
+    /// 停住时按钮会一直转圈且被 `.disabled` 锁死（唯一的请求级 30s 空档计时
+    /// 只要来一个字节就被重置），用户读到的就是「死机」，且页内没有任何出路。
+    private static let indexCheckTimeout: Duration = .seconds(30)
+
     /// 「检查更新」按钮显式触发（安全审查 2026-09-12）：每次点击都真实重拉；
     /// 结果三元反馈（2026-09-16）：已是最新 / 发现 N 个可更新 / 失败可重试。
     private func refreshIndex() async {
         checkState = .checking
+        let fetch = Task { try await service.fetchIndex(from: ASRModelDownloadService.indexURL) }
+        // 看门狗：超时即取消请求（`metadata` 逐字节遍历里有 `Task.checkCancellation()`，
+        // 取消能真正中断），按钮回到「失败可重试」而不是永久转圈
+        let watchdog = Task {
+            do { try await Task.sleep(for: Self.indexCheckTimeout) } catch { return }   // 正常路径下被取消
+            fetch.cancel()
+        }
+        defer { watchdog.cancel() }
         do {
-            let fetched = try await service.fetchIndex(from: ASRModelDownloadService.indexURL)
+            let fetched = try await fetch.value
             index = fetched
             derivationEpoch += 1   // 新索引 → 重算派生结论（`.task(id:)` 据此重跑）
             // 该索引下、与本 App 版本兼容且已授权的新装/更新条目数。

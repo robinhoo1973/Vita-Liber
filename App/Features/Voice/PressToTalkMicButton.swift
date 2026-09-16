@@ -44,6 +44,10 @@ struct PressToTalkMicButton: View {
                 .frame(minWidth: 128, minHeight: 128)   // 触控目标 ≥64pt（关怀模式纪律）
                 .accessibilityIdentifier("SP-55.panel.pressToTalk")
                 .accessibilityLabel(model.phase == .recording ? L10n.voicenoteStop : L10n.voicenoteDictation)
+                // 交互契约（业主 2026-09-16 第 5 项）：轻点开始/再点结束，也可按住说话。
+                // 此前标签只说「语音速记」，用户（含 VoiceOver）无从得知规则——文案本身
+                // 还在教「按住」（voicePanel.editHint 旧值）。
+                .accessibilityHint(L10n.voicenoteTapHint)
                 .modifier(DictationInteraction(model: model))
 
                 // 聆听状态 / 部分文本 / 失败兜底 / 待机提示（§4.23 声波与聆听状态）
@@ -62,7 +66,7 @@ struct PressToTalkMicButton: View {
                             .accessibilityIdentifier("SP-55.panel.partial")
                     }
                 case .failed:
-                    Text(L10n.voicenoteDictationFailed)
+                    Text(model.failureMessage)
                         .font(.caption)
                         .foregroundStyle(Color("semantic-warning", bundle: .main))
                 case .idle:
@@ -117,7 +121,11 @@ struct DictationInteraction: ViewModifier {
                         guard press.id == nil else { return }
                         let id = press.begin()
                         holdTask = Task { @MainActor in
-                            do { try await Task.sleep(nanoseconds: 200_000_000) }
+                            // 阈值 = 「点击开关」与「按住说话」的分界（DictationPressState.holdThreshold）。
+                            // 抬手发生在阈值之前 → `.toggle`（本次点击即开关，业主第 5 项）；
+                            // 到达阈值 → 按住说话（松手结束）。0.2s 的旧值把普通点击误判成按住，
+                            // 一段几十毫秒的空录音后自报「未识别到语音」。
+                            do { try await Task.sleep(nanoseconds: DictationPressState.holdThresholdNanoseconds) }
                             catch { return }
                             guard !Task.isCancelled, isEnabled, scenePhase == .active, press.recognize(id) else { return }
                             prepareAuthorization()
@@ -154,7 +162,19 @@ struct DictationInteraction: ViewModifier {
                     prepareAuthorization()
                 }
                 .onChangeCompat(of: scenePhase) { _, phase in
-                    if phase != .active {
+                    switch phase {
+                    case .active:
+                        break
+                    case .inactive:
+                        // 短暂失活（控制中心/来电横幅/系统弹窗）**不得**丢弃在录内容：
+                        // 结束本次采集但保留交付（stop 走正常收尾），用户拉下控制中心
+                        // 再收起时，已经说出的转写仍会落进草稿。原实现一律
+                        // stopForDisappear()：作废会话、清空 partial、丢弃最终结果
+                        // ——屏幕上的转写凭空消失（2026-09-16 评审，与「点击结束或暂停」
+                        // 的预期相反）。
+                        endPress(cancelled: true)
+                        model.stop()
+                    default:
                         endPress(cancelled: true)
                         model.stopForDisappear()
                     }

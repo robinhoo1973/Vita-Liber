@@ -8,7 +8,16 @@ import Perception
 @Perceptible
 final class VoiceDictationModel {
     enum Phase: Equatable { case idle, recording, failed }
+    /// 失败原因（FR17.1 / ui-ux §5.54「麦克风拒绝→手输兜底提示」）：
+    /// 此前一切失败都渲染「未识别到语音，可继续手动输入」——权限被拒时用户
+    /// 反复对着麦克风说话，永远得不到「去系统设置开启」的提示（2026-09-16 评审）。
+    enum FailureReason: Equatable { case noSpeech, unauthorized }
     private(set) var phase: Phase = .idle
+    private(set) var failureReason: FailureReason?
+    /// 失败态文案（两个挂载点共用一处映射，避免各自三元判断漂移）
+    var failureMessage: String {
+        failureReason == .unauthorized ? L10n.voicenoteDictationDenied : L10n.voicenoteDictationFailed
+    }
     /// 连续会话显示文本 = 已提交段 + 当前部分（引擎 onPartial 已合并，V3.61）
     private(set) var partial = ""
     /// 最近一次实际识别 locale（FR17.15 能力诚实：方言回落主语言时面板回显）
@@ -86,6 +95,10 @@ final class VoiceDictationModel {
 
     func start() {
         guard authorized, phase != .recording else { return }
+        // 触觉反馈（业主 2026-09-16 第 5 项）：起止在模型层收口，四个入口
+        // （按住说话 / 无障碍动作 / 语音面板 / 引导表单）一次接通
+        Haptics.impact(.medium)
+        failureReason = nil
         let request = TranscriptionRequest(localeIdentifier: preferredLocale ?? TranscriptionSegmentation.fallbackLocale,
                                            contextualStrings: contextualStrings,
                                            languageMode: languageMode)
@@ -114,6 +127,8 @@ final class VoiceDictationModel {
     /// Release stops the identified capture; its final result remains deliverable.
     func stop() {
         guard let id = recordingID else { return }
+        // 停止触觉（比启动轻一档：起/止可经手感区分）
+        Haptics.impact(.light)
         recordingID = nil
         phase = .idle
         let precedingControl = controlTask
@@ -136,6 +151,9 @@ final class VoiceDictationModel {
         currentID = nil
         recordingID = nil
         phase = .idle
+        failureReason = nil
+        isPreparing = false            // 残留会让下次会话回显上一轮的「准备中」引擎名
+        resolvedEngineID = nil
         partial = ""
         resolvedLocale = nil
         hasIncompleteTranscript = false
@@ -212,10 +230,21 @@ final class VoiceDictationModel {
                 resolvedLocale = result.resolvedLocale.isEmpty ? nil : result.resolvedLocale
                 resolvedEngineID = result.engineID
                 hasIncompleteTranscript = result.completion != .final
-                phase = result.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .failed : .idle
+                let empty = result.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                phase = empty ? .failed : .idle
+                failureReason = empty ? .noSpeech : nil
+                if empty { Haptics.notice(.warning) }
             case .failure(let error):
                 resolvedLocale = nil
-                phase = error is CancellationError ? .idle : .failed
+                if error is CancellationError {
+                    phase = .idle
+                    failureReason = nil
+                } else {
+                    phase = .failed
+                    // 权限拒绝与「没听到声音」是两回事（此前一律说成后者）
+                    failureReason = (error as? TranscriptionError) == .unauthorized ? .unauthorized : .noSpeech
+                    Haptics.notice(.warning)
+                }
             }
         }
         while let next = deliveryOrder.first, let result = completed.removeValue(forKey: next) {
@@ -223,6 +252,9 @@ final class VoiceDictationModel {
             guard let original = contexts.removeValue(forKey: next) else { continue }
             if case .success(let transcript) = result,
                !transcript.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                // 交付成功触觉（§5.15「完成时触觉冲击」）：文字上屏与手感同时到达，
+                // 不必盯着屏幕确认「说完了没有」
+                Haptics.notice(.success)
                 if EmergencyKeywordRules.match(transcript.text) {
                     original.onEmergency?(transcript.text)
                 } else {
@@ -314,7 +346,7 @@ struct VoiceDictationButton: View {
                                 .accessibilityIdentifier("voice.dictation.partial")
                         }
                         if model.phase == .failed {
-                            Text(L10n.voicenoteDictationFailed)
+                            Text(model.failureMessage)
                                 .font(.caption)
                                 .foregroundStyle(Color("semantic-warning", bundle: .main))
                         }

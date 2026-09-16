@@ -573,7 +573,10 @@ struct HomeView: View {
         // 这两段在 GB 级包上要数十秒，此前只能转不确定 spinner，读起来就是
         // 「进度条无反应、然后突然完成」。激活/清理两段仍无粒度，保持不确定态。
         let brief = install.phase
-        let showFraction = brief == nil || brief == .downloading || brief == .verifying || brief == .unpacking
+        // 进度值缺省时回落不确定态（阶段切换会重置进度基线，见 ASRInstallCenter.Install.submit）：
+        // 没拿到分数却画一条 0% 的确定进度条，读起来是「卡在 0%」
+        let showFraction = install.progress != nil
+            && (brief == nil || brief == .downloading || brief == .verifying || brief == .unpacking)
         let fraction = showFraction ? (install.progress?.fraction ?? 0) : 0
         HStack(spacing: 10) {
             Button {

@@ -418,6 +418,16 @@
 "trend.period.jumpToLatest" = "跳到最近读数所在周期";
 "trend.period.locating" = "正在定位周期";
 "trend.period.accessibility" = "当前周期：%@";
+"trend.sleep.title" = "睡眠";
+"trend.sleep.legend" = "睡眠阶段";
+"trend.sleep.chart.accessibility" = "睡眠阶段趋势图 · %1$d 个夜晚 · %2$d 段";
+"sleep.stage.deep" = "深睡";
+"sleep.stage.core" = "核心睡眠";
+"sleep.stage.rem" = "快速眼动";
+"sleep.stage.awake" = "清醒";
+"sleep.stage.unspecified" = "未分期";
+"sleep.stage.valueFmt" = "%1$@ %2$@";
+"sleep.stage.inBed" = "卧床";
 "trend.origin.hospital" = "医院报告";
 "trend.refRange" = "参考范围 %1$@–%2$@";
 "trend.row.accessibility" = "%1$@ %2$@ · %3$@ · %4$@";
@@ -1664,7 +1674,9 @@
 "voiceIntent.createQuestion" = "问诊问题";
 "voiceIntent.unknown" = "任意文本";
 "voicePanel.autoHint" = "说出要记录的内容，将自动判断去向并生成草稿";
-"voicePanel.editHint" = "转写文本显示于此，可直接点击编辑；再次按住麦克风可续录追加";
+"voicePanel.editHint" = "转写文本显示于此，可直接点击编辑；轻点麦克风可续录追加";
+"voicenote.tapHint" = "轻点开始录音，再点结束；也可按住说话";
+"voicenote.dictationDenied" = "未获得语音输入权限，可在系统设置中开启";
 "voicePanel.confirm" = "确认";
 "voicePanel.clearTitle" = "清除录音";
 "voicePanel.clear" = "清除";

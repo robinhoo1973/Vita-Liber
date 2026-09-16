@@ -34,11 +34,13 @@ public enum TrendTimeWindow: Int, CaseIterable, Sendable, Identifiable {
     /// 周期（翻页单位，业主 2026-09-16 第 4 项）：长度恒为 rawValue 日历日，
     /// `endingAt` = 周期末（锚点），`offset` = **向更早**平移的周期数（0 = 锚点所在周期）。
     ///
-    /// 为什么锚点可参数化（而不是恒为「现在」）：指标读数天然稀疏——最近 7/30/90 天
-    /// 常常一条读数都没有，而半年前有（设备投影按窗口由旧到新物化，近期窗口最后到达）。
-    /// 窗口钉死在「现在」时短窗只能渲染空态，1 年窗却能渲染（业主 2026-09-16 实测：
-    /// 「点击 7 天/30 天/90 天与 1 年显示大不相同，明显是数据没有渲染」）。把周期末
-    /// 提为状态，既让首屏锚定到「有数据的周期」，也让 ‹ › 在同一长度下前后翻阅。
+    /// 为什么锚点可参数化（而不是恒为「现在」）：趋势页进页锚定**今天**
+    /// （业主 2026-09-16 第 1 项：「数据显示的起点应该是当前日期，而不是最近的那条记录」），
+    /// ‹ › 则在同一长度下把锚点整体前移/后移——「上一个周期比这个周期怎么样」
+    /// 必须能问，不能只有最初那一屏。
+    /// 读数天然稀疏（设备投影按窗口由旧到新物化，近期窗口最后到达）时空周期是
+    /// 合法状态：页面给事实（「最近读数：X」）与出口（跳到该读数所在周期），
+    /// 但不把锚点搬走——锚点搬走后「7 天」显示的不是最近 7 天，页面失去「今天」这个参照点。
     public func period(endingAt anchor: Date, offset: Int = 0, calendar: Calendar = .current) -> DateInterval {
         // offset ≤ 0 直接取锚点本身（不绕 Calendar 加法）：`end` 与传入锚点逐位相等，
         // 渲染层的「周期是否就是本页请求的那一段」判定才可用于相等比较。
@@ -48,9 +50,24 @@ public enum TrendTimeWindow: Int, CaseIterable, Sendable, Identifiable {
 
     /// 翻页步进（ui-ux §4.17 PagingStepper 语义）：整体平移一个周期，长度不变——
     /// steps > 0 = 更早，steps < 0 = 更近。日历日一律经 DayArithmetic（DST 不漂移）。
-    /// 锚点取「最新读数所在日」（无读数回落今天），故 offset ≥ 0 构造出的周期恒不含未来。
+    /// 锚点取「今天」（业主 2026-09-16 第 1 项），故 offset ≥ 0 构造出的周期恒不含未来。
     public func paged(by steps: Int, from anchor: Date, calendar: Calendar = .current) -> Date {
         DayArithmetic.offset(days: -steps * rawValue, from: anchor, calendar: calendar)
+    }
+
+    /// 翻页落点（FR7.11；2026-09-16 第 1 项批）：**边界判定属业务规则，落在 Domain**
+    /// ——返回 nil = 落点已达/越过 `limit`（今天），即「已在当前周期」，
+    /// 视图据此回落自动锚定（periodEnd = nil）并置灰更近方向。
+    ///
+    /// 为什么边界要有正反两处都调用的同一函数：视图此前把同一条边界写成两处
+    /// 不同严格度的比较（`periodEnd < newestEnd` 判可用、`next >= newestEnd` 判落点），
+    /// 两处任一处改动就会让「按钮可点但点了没反应」或「有更近周期却点不动」。
+    /// 更近方向的界是**今天**（而不是最新读数所在日）：读数之间的空周期是
+    /// 合法可翻阅的区间，最新读数所在日不再是页面的锚点。
+    public func paged(by steps: Int, from anchor: Date, cappedAt limit: Date,
+                      calendar: Calendar = .current) -> Date? {
+        let next = paged(by: steps, from: anchor, calendar: calendar)
+        return next >= limit ? nil : next
     }
 }
 
@@ -112,14 +129,24 @@ public enum TrendDownsampler {
     }
 
     /// 折线断段阈值（数据诚实 gap 断线，FR7.11③）：`contiguousSegments` 用它判断
-    /// 「相邻点之间算缺测还是算连续」。阈值必须**不小于桶宽**——降采样后相邻保留点的
-    /// 时间跨度天然 ≈ 桶宽，仍按采样步长（小时）判缺测会把每个保留点都判成新段：
-    /// 1 年心率（8760 点 → 240 桶 → 桶宽 ≈ 1.5 天）的均值折线与 min/max 区间带
-    /// 随之整条消失，只剩孤立点（业主实测「短窗与 1 年显示大不相同」的同族）。
-    /// 短窗（桶宽 ≤ 采样步长）结果不变：7 天窗 → max(5400s, 3780s) = 5400s。
-    public static func gapThreshold(range: DateInterval, samplingInterval: TimeInterval = 3600,
+    /// 「相邻点之间算缺测还是算连续」。**阈值与「本序列是否真的被降采样过」同源**：
+    ///
+    /// - 降采样发生（`pointCount > maxBuckets × 2`，与 `thin` 同一判据）时，相邻保留点的
+    ///   时间跨度天然 ≈ 桶宽，阈值必须不小于**两倍**桶宽——桶内保留的是极值两点，
+    ///   它们落在桶内的任意时刻，故相邻桶的保留点最大可相距 ≈ 2×桶宽；只取 1×（或
+    ///   1.5×）时，抽稀本身仍会制造断段，1 年心率（8760 点 → 240 桶 ≈ 1.5 天/桶）的
+    ///   均值折线与 min/max 区间带仍会零散断开（业主实测「短窗与 1 年显示大不相同」的同族）。
+    ///   → max(采样步长×1.5, 桶宽×2)
+    /// - 未降采样时**不得**用桶宽：桶宽只是「如果抽稀会用的粒度」，与数据实际间距无关。
+    ///   90 天窗里只有 200 条小时读数（200 ≤ 480，`thin` 原样返回）时，桶宽（13.5 h）
+    ///   与实况无关，于是相隔 12 h 的两条读数被判成连续，被 `.monotone` 折线**插值连起来**
+    ///   ——这是「缺测不插值」一票否决的反面（阈值只有下界就会桥接真实缺测）。
+    ///   → 采样步长×1.5 = 5400s（7 天窗历史行为不变）
+    public static func gapThreshold(range: DateInterval, pointCount: Int,
+                                    samplingInterval: TimeInterval = 3600,
                                     maxBuckets: Int = TrendDownsampler.maxBuckets) -> TimeInterval {
+        guard pointCount > maxBuckets * 2 else { return samplingInterval * 1.5 }
         let bucketWidth = range.duration / Double(Swift.max(1, maxBuckets))
-        return Swift.max(samplingInterval * 1.5, bucketWidth * 1.5)
+        return Swift.max(samplingInterval * 1.5, bucketWidth * 2)
     }
 }

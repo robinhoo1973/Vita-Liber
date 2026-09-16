@@ -641,6 +641,40 @@ enum L10n {
         formatter.locale = Locale(identifier: bundleLanguage)
         return formatter.string(from: from, to: to)
     }
+    // MARK: - 睡眠整合呈现（FR7.11，业主 2026-09-16 第 3 项）
+    /// 睡眠整合页标题（六个时长键共乘一页，柱为**一晚**而不是一段）
+    static var trendSleepTitle: String { t("trend.sleep.title") }
+    /// 阶段图例标题
+    static var trendSleepLegend: String { t("trend.sleep.legend") }
+    static func trendSleepChartAccessibility(_ nights: Int, _ stages: Int) -> String {
+        String(format: t("trend.sleep.chart.accessibility"), nights, stages)   // %1$d %2$d
+    }
+    /// 阶段名（图例 / 列表 / VoiceOver 共用；switch 静态映射——动态键不在
+    /// L0 §13 静态判定覆盖内）
+    static func sleepStage(_ stage: SleepStage) -> String {
+        switch stage {
+        case .deep: return t("sleep.stage.deep")
+        case .core: return t("sleep.stage.core")
+        case .rem: return t("sleep.stage.rem")
+        case .awake: return t("sleep.stage.awake")
+        case .unspecified: return t("sleep.stage.unspecified")
+        case .inBed: return t("sleep.stage.inBed")
+        }
+    }
+    /// 阶段 + 时长（列表行「深睡 1.2 h」；时长数值经 MedicalNumberFormat 出口）
+    static func sleepStageValue(_ stage: SleepStage, _ value: String) -> String {
+        String(format: t("sleep.stage.valueFmt"), sleepStage(stage), value)   // %1$@ %2$@
+    }
+    /// 空态诊断日期（应用内语言，FR14.5）：与周期标签同一语言出口——
+    /// `Date.formatted` 跟随**系统**语言，应用内切换语言后同一屏会出现两种语言。
+    /// 逐次构造 formatter（与 trendPeriodRange 同款，不引入跨线程共享的可变 formatter）
+    static func trendDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        formatter.locale = Locale(identifier: bundleLanguage)
+        return formatter.string(from: date)
+    }
     static func trendRefRange(_ lo: String, _ hi: String) -> String {
         String(format: t("trend.refRange"), lo, hi)   // %1$@ %2$@
     }
@@ -725,6 +759,10 @@ enum L10n {
     static var voicenoteDictating: String { t("voicenote.dictating") }
     static var voicenoteStop: String { t("voicenote.stop") }
     static var voicenoteDictationFailed: String { t("voicenote.dictationFailed") }
+    /// 录音按钮的 VoiceOver 提示（业主 2026-09-16 第 5 项：轻点开始/再点结束，也可按住说话）
+    static var voicenoteTapHint: String { t("voicenote.tapHint") }
+    /// 未获语音输入权限（与「未识别到语音」区分：原文案把权限拒绝说成没听到声音）
+    static var voicenoteDictationDenied: String { t("voicenote.dictationDenied") }
     // MARK: - 评审批 · 文档详情与导出（SP-10 / 5.6）
     static var docDetailTitle: String { t("doc.detailTitle") }
     static var docFieldsSection: String { t("doc.fieldsSection") }
@@ -1371,6 +1409,10 @@ enum L10n {
         "home.swipe.archive", "home.swipe.archived", "home.swipe.undo",
         "home.swipe.openCabinet", "home.swipe.snoozeTomorrow", "home.swipe.snoozedTomorrow", "home.swipe.viewEvidence", "home.swipe.view", "home.swipe.failed",
         "voicenote.dictation", "voicenote.dictating", "voicenote.dictationFailed", "voicenote.stop",
+    "voicenote.tapHint", "voicenote.dictationDenied",
+    "sleep.stage.deep", "sleep.stage.core", "sleep.stage.rem", "sleep.stage.awake",
+    "sleep.stage.unspecified", "sleep.stage.inBed", "sleep.stage.valueFmt",
+    "trend.sleep.title", "trend.sleep.legend", "trend.sleep.chart.accessibility",
         "doc.date", "doc.detailTitle", "doc.export", "doc.fieldsSection", "doc.historySection", "doc.titleSection",
         "help.status.checking", "help.status.authorized", "help.status.denied", "help.status.notRequested",
         "help.status.unknown", "help.status.provisional", "help.center.title", "help.diag.permission",

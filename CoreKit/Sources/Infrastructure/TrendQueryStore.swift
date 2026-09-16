@@ -71,26 +71,7 @@ public actor TrendQueryStore {
                 rows.append(contentsOf: direct)
                 rows.sort { ($0["measured_at"] as Double) < ($1["measured_at"] as Double) }
             }
-            let mapped = rows.map { row in
-                TrendPoint(
-                    id: UUID(uuidString: row["id"] as String) ?? UUID(),
-                    measuredAt: Date(timeIntervalSince1970: row["measured_at"] as Double),
-                    value: row["value"] as Double,
-                    unit: row["unit"] as String?,
-                    origin: MetricOrigin(rawValue: row["origin"] as String) ?? .manual,
-                    excluded: (row["excluded"] as Int?) == 1,
-                    sourceRef: row["source_ref"] as String?,
-                    refLow: row["ref_low"] as Double?,
-                    refHigh: row["ref_high"] as Double?,
-                    refSourceLabel: row["ref_source_label"] as String?,
-                    rawLabel: row["raw_label"] as String?,
-                    codeConceptId: row["code_concept_id"] as String?,
-                    sourceName: row["source_name"] as String?, sourceIdentifier: row["source_identifier"] as String?,
-                    aggregation: (row["aggregation_kind"] as String?).flatMap(MetricAggregation.init(rawValue:)),
-                    windowEnd: (row["window_end"] as Double?).map(Date.init(timeIntervalSince1970:)),
-                    valueMin: row["value_min"] as Double?, valueMax: row["value_max"] as Double?,
-                    sampleCount: row["sample_count"] as Int?)
-            }
+            let mapped = rows.map(Self.trendPoint)
             // BR-001：非本人成员名下的 device 行（可见与排除点集皆然）不得呈现
             let all = mapped.filter { $0.origin != .device || isSelf }
             let visible = TrendRules.visible(all)
@@ -106,6 +87,30 @@ public actor TrendQueryStore {
         }
     }
 
+    /// 行 → 趋势点（唯一映射出口）：`series` 与 `sleepSeries` 共用——
+    /// 睡眠整合查询若另写一份映射，两条读路径的字段口径立刻分叉
+    /// （本仓「同一事实两处实现」的既有教训：血压舒张压系列曾经如此）。
+    static func trendPoint(_ row: Row) -> TrendPoint {
+        TrendPoint(
+            id: UUID(uuidString: row["id"] as String) ?? UUID(),
+            measuredAt: Date(timeIntervalSince1970: row["measured_at"] as Double),
+            value: row["value"] as Double,
+            unit: row["unit"] as String?,
+            origin: MetricOrigin(rawValue: row["origin"] as String) ?? .manual,
+            excluded: (row["excluded"] as Int?) == 1,
+            sourceRef: row["source_ref"] as String?,
+            refLow: row["ref_low"] as Double?,
+            refHigh: row["ref_high"] as Double?,
+            refSourceLabel: row["ref_source_label"] as String?,
+            rawLabel: row["raw_label"] as String?,
+            codeConceptId: row["code_concept_id"] as String?,
+            sourceName: row["source_name"] as String?, sourceIdentifier: row["source_identifier"] as String?,
+            aggregation: (row["aggregation_kind"] as String?).flatMap(MetricAggregation.init(rawValue:)),
+            windowEnd: (row["window_end"] as Double?).map(Date.init(timeIntervalSince1970:)),
+            valueMin: row["value_min"] as Double?, valueMax: row["value_max"] as Double?,
+            sampleCount: row["sample_count"] as Int?)
+    }
+
     /// 兼容包装（全来源）：既有调用方（宫格迷你图 / 趋势入口）不改；身份同样回传。
     public func series(for member: UUID, metric: MetricType,
                        range: DateInterval,
@@ -114,8 +119,65 @@ public actor TrendQueryStore {
                          libraryFallback: libraryFallback)
     }
 
+    /// F7 睡眠整合查询（FR7.11，业主 2026-09-16 第 3 项）：一晚的六个时长投影键
+    /// **一趟取回**（`metric_key IN (...)`，2 条语句：`ownerPatient` + 一次扫描）。
+    ///
+    /// 为什么不是六次 `series`：六个键同属一晚，六次往返 = 6×（ownerPatient + 全字段
+    /// 映射 + 排序），页面/周期每次变化都付一遍；且六份结果的身份校验、排除集合并、
+    /// 空态判据都要各自再拼一次（漂移源）。
+    /// 口径与 `series` 完全一致：`excluded` 一并取回在内存分流（两次查询会在并发写入下
+    /// 取到不一致快照）、BR-001 非本人名下的 device 行不计入。
+    public func sleepSeries(_ query: TrendQueryIdentity) async throws -> SleepTrendSeries {
+        try await writer.read { db in
+            let isSelf = try HealthImportStore.ownerPatient(db) == query.patientId
+            if query.origin == .device, !isSelf { throw QueryError.deviceRequiresSelfBinding }
+            let keys = MetricType.sleepGroupKeys.map(\.rawValue)
+            let placeholders = Array(repeating: "?", count: keys.count).joined(separator: ", ")
+            // 参数顺序与 SQL 占位顺序逐位对应：patient → IN 键集 → 窗起 → 窗止 → [来源]
+            var keyArguments: [DatabaseValueConvertible] = [query.patientId.uuidString]
+            keyArguments.append(contentsOf: keys)
+            keyArguments.append(query.range.start.timeIntervalSince1970)
+            keyArguments.append(query.range.end.timeIntervalSince1970)
+            let originClause = query.origin == nil ? "" : " AND origin = ?"
+            if let origin = query.origin { keyArguments.append(origin.rawValue) }
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT id, metric_key, value, secondary_value, unit, origin, self_measured,
+                       measured_at, excluded, source_ref, ref_low, ref_high, ref_source_label,
+                       raw_label, code_concept_id, source_name, source_identifier,
+                       aggregation_kind, window_end, value_min, value_max, sample_count
+                FROM metric_sample
+                WHERE patient_id = ? AND metric_key IN (\(placeholders)) AND value IS NOT NULL
+                  AND measured_at >= ? AND measured_at <= ?\(originClause)
+                ORDER BY measured_at ASC
+                """, arguments: StatementArguments(keyArguments))
+            let all = rows.compactMap { row -> SleepTrendRow? in
+                guard let metric = MetricType(rawValue: row["metric_key"] as String) else { return nil }
+                let point = Self.trendPoint(row)
+                // BR-001：非本人成员名下的 device 行不得呈现（与 series 同款）
+                guard point.origin != .device || isSelf else { return nil }
+                return SleepTrendRow(metric: metric, point: point)
+            }
+            return SleepTrendRules.series(all, identity: query)
+        }
+    }
+
     /// 排除/恢复（软删语义：保留原值，动作记审计由调用方写 audit_event）
     /// 评审修正：带 patient_id 成员隔离（BR-001）
+    /// 成组排除/恢复（FR7.11 睡眠整合：动作粒度 = **一夜**，一页多行）：
+    /// **单事务**（UnitOfWork 语义，与 `addDeviceSamples` 同纪律）——逐行各写一次时
+    /// 中途失败会留下「半排除」的夜：图上仍是部分柱、已排除分段里也有它，
+    /// 两个列表给出互相矛盾的读数，且调用方无从知道哪几行落了库。
+    /// 带 patient_id 成员隔离（BR-001，与单行版同款）。
+    public func setExcluded(_ ids: [UUID], patientId: UUID, excluded: Bool) async throws {
+        guard !ids.isEmpty else { return }
+        try await writer.write { db in
+            for id in ids {
+                try db.execute(sql: "UPDATE metric_sample SET excluded = ? WHERE id = ? AND patient_id = ?",
+                               arguments: [excluded ? 1 : 0, id.uuidString, patientId.uuidString])
+            }
+        }
+    }
+
     public func setExcluded(_ id: UUID, patientId: UUID, excluded: Bool) async throws {
         try await writer.write { db in
             try db.execute(sql: "UPDATE metric_sample SET excluded = ? WHERE id = ? AND patient_id = ?",
@@ -362,6 +424,59 @@ extension TrendQueryStore {
         }
     }
 
+    /// F19 事实播报专用读取（FR17.1「最近血糖」）：只取最近 N 条**可见**读数。
+    ///
+    /// 为什么不是「定一个窗口再取尾 N 条」（旧实现）：那要先把窗口内全部行取回并
+    /// 映射（1 年小时窗 ≈ 8760 行），再丢掉 99.9%——语音回读延迟压在用户等待上，
+    /// 且「最近」被窗口绑死：读数早于窗口时播报「暂无记录」，窗口内的旧读数
+    /// 又会被当作「最近」播报。本查询 `ORDER BY measured_at DESC LIMIT ?`
+    /// 走 `idx_metric_patient_time`，一条语句、N 行，语义 = 该指标最近 N 条。
+    /// 口径与 `series` 一致：excluded = 0、BR-001 非本人不计 device 行、
+    /// 舒张压读收缩行 secondary_value 或独立行。
+    public func latestPoints(patientId: UUID, metric: MetricType, limit: Int) async throws -> [TrendPoint] {
+        guard limit > 0 else { return [] }
+        return try await writer.read { db in
+            let isSelf = try HealthImportStore.ownerPatient(db) == patientId
+            let deviceClause = isSelf ? "" : " AND origin != 'device'"
+            let (keyToQuery, valueColumn) = metric == .bloodPressureDia
+                ? (MetricType.bloodPressureSys.rawValue, "secondary_value")
+                : (metric.rawValue, "value")
+            // 舒张压分支的参考范围必须**投影为 NULL**（与 series 的舒张压分支同款）：
+            // 它读的是收缩压行的 secondary_value，行上的 ref_* 是**收缩压**的参考范围，
+            // 跟着走会把收缩压区间挂到舒张压读数上（医学数值错标，BR-003 同族）。
+            let refProjection = metric == .bloodPressureDia
+                ? "NULL AS ref_low, NULL AS ref_high, NULL AS ref_source_label"
+                : "ref_low, ref_high, ref_source_label"
+            var points = try Row.fetchAll(db, sql: """
+                SELECT id, metric_key, \(valueColumn) AS value, secondary_value, unit, origin, self_measured,
+                       measured_at, excluded, source_ref, \(refProjection),
+                       raw_label, code_concept_id, source_name, source_identifier,
+                       aggregation_kind, window_end, value_min, value_max, sample_count
+                FROM metric_sample
+                WHERE patient_id = ? AND metric_key = ? AND \(valueColumn) IS NOT NULL
+                  AND excluded = 0\(deviceClause)
+                ORDER BY measured_at DESC LIMIT ?
+                """, arguments: [patientId.uuidString, keyToQuery, limit]).map(Self.trendPoint)
+            if metric == .bloodPressureDia {
+                // 单值舒张压独立行（语音「低压 90」/自测单值）——与 series 同款并查，
+                // 否则这类读数在播报路径上永远缺席
+                points += try Row.fetchAll(db, sql: """
+                    SELECT id, metric_key, value, secondary_value, unit, origin, self_measured,
+                           measured_at, excluded, source_ref,
+                           NULL AS ref_low, NULL AS ref_high, NULL AS ref_source_label,
+                           raw_label, code_concept_id, source_name, source_identifier,
+                           aggregation_kind, window_end, value_min, value_max, sample_count
+                    FROM metric_sample
+                    WHERE patient_id = ? AND metric_key = 'bloodPressureDia' AND value IS NOT NULL
+                      AND excluded = 0\(deviceClause)
+                    ORDER BY measured_at DESC LIMIT ?
+                    """, arguments: [patientId.uuidString, limit]).map(Self.trendPoint)
+            }
+            // 并查后按时间倒序取前 N（两组各自最多 N 条，合并后再截断）
+            return Array(points.sorted { $0.measuredAt > $1.measuredAt }.prefix(limit))
+        }
+    }
+
     public func hasDeviceSamples(patientId: UUID) async throws -> Bool {
         try await writer.read { db in
             let exists = try Int.fetchOne(db, sql: """
@@ -381,6 +496,13 @@ extension TrendQueryStore {
             // rowid DESC) = 1` 与原「每键取 (measured_at DESC, rowid DESC) 首行」
             // **逐字等价**（同排序键、同 tie-break），且 `idx_metric_latest`
             // 直接提供分区内排序。
+            // BR-001（2026-09-16 第 1 项批修复）：非本人成员名下的 device 行不得呈现——
+            // 宫格瓦片按 `origin == "device"` 打「设备」标（MetricTile），此前本查询
+            // 没有 series/latestPoints 那条 origin 过滤，旧备份/重映射残留的 device 行
+            // 会成为家属成员宫格上的「最新读数」。过滤放在窗口函数内：每键取到的是
+            // **可见**行里最新的那条，与 series 的分流口径一致。
+            let isSelf = try HealthImportStore.ownerPatient(db) == patientId
+            let deviceClause = isSelf ? "" : " AND origin != 'device'"
             let rows = try Row.fetchAll(db, sql: """
                 SELECT metric_key, value, secondary_value, unit, origin, measured_at,
                        source_name, aggregation_kind, window_end
@@ -390,7 +512,7 @@ extension TrendQueryStore {
                            ROW_NUMBER() OVER (PARTITION BY metric_key
                                               ORDER BY measured_at DESC, rowid DESC) AS rn
                     FROM metric_sample
-                    WHERE patient_id = ? AND excluded = 0
+                    WHERE patient_id = ? AND excluded = 0\(deviceClause)
                 )
                 WHERE rn = 1
                 ORDER BY measured_at DESC
