@@ -36,15 +36,25 @@ public struct ASRModelRelease: Codable, Sendable, Equatable, Identifiable {
     public var runtime: String?
     public var packaging: String?
     public var artifactRevision: Int?
+    /// 变体档位（业主 2026-09-16 定案）：同一家族（`id`）可提供多档，**可同时下载共存**，
+    /// 但**同一时刻只有一档生效**（引擎只加载一份权重），且可按档删除以释放空间。
+    /// 见 `ASRInstallLayout` 的三条正交语义。
+    ///
+    /// 缺省 nil = 单档家族。历史条目一律无此键、解码得 nil；`id` 仍是家族身份
+    /// （不新增 `VoiceEngineChoice` case），故 **无需 schema 版本变更**、
+    /// `ASRModelReleaseIndex.supportedSchemaVersion` 保持 1、旧客户端忽略该键照常工作。
+    public var variant: String?
 
     public init(id: String, version: String, bytes: Int64? = nil, sha256: String, url: String,
                 minAppVersion: String? = nil, license: String? = nil,
-                expandedBytes: Int64? = nil, runtime: String? = nil, packaging: String? = nil, artifactRevision: Int? = nil) {
+                expandedBytes: Int64? = nil, runtime: String? = nil, packaging: String? = nil,
+                artifactRevision: Int? = nil, variant: String? = nil) {
         self.id = id; self.version = version
         self.bytes = bytes; self.sha256 = sha256
         self.url = url; self.minAppVersion = minAppVersion; self.license = license
         self.expandedBytes = expandedBytes; self.runtime = runtime
         self.packaging = packaging; self.artifactRevision = artifactRevision
+        self.variant = variant
     }
 
     /// 已发布（可下载）：必须有非空 sha256 与正字节数——空 sha 条目只表示「占位」。
