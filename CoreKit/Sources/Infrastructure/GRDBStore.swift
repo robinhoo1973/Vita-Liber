@@ -197,6 +197,20 @@ public struct GRDBStore {
             // 两表皆无：基线库不重放本步（全新库直达 latestVersion）——防御性放行
             return
         }
+        // 修复（CI 35052476633，全链金样 SchemaChainGoldenTests 暴露）：
+        // `dose_units` 是「基线直改引入、无迁移步」的列（同族：v6 document_file 的
+        // title/ocr_text/notes、v20 的 source_ref/excluded），v29 才在链末回填——但本步
+        // （v13）下方的 INSERT … SELECT 已经引用它。老库的 `_old`（= v13 之前的
+        // medication_dose_log 形态）没有该列 → `no such column: dose_units`，
+        // **升级在 v13 即断裂**，按 tech-spec 落只读降级模式（绝不 reseed）。
+        // 就地幂等补列：DEFAULT 1 与下方新表定义、v29 的回填同值，读取侧
+        // MedicationStore `(row["dose_units"] as Double?) ?? 1` 同口径。
+        let oldHasDoseUnits = try Int.fetchOne(db, sql: """
+            SELECT COUNT(*) FROM pragma_table_info('medication_dose_log_old') WHERE name = 'dose_units'
+            """) ?? 0
+        if oldHasDoseUnits == 0 {
+            try db.execute(sql: "ALTER TABLE medication_dose_log_old ADD COLUMN dose_units REAL NOT NULL DEFAULT 1")
+        }
         try db.execute(sql: """
             CREATE TABLE IF NOT EXISTS medication_dose_log (
               id TEXT PRIMARY KEY, plan_id TEXT NOT NULL REFERENCES medication_plan(id),
