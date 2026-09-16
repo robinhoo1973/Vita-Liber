@@ -487,13 +487,18 @@ jobs:
           # **重试不得静默**（本仓 ERR#27「缺证据被当成有证据」纪律）：下方在最终
           # 通过时反查日志里的失败计数，若曾出现失败即打印告警——重试掩盖真实缺陷
           # 是本仓明令禁止的，必须让人看见并判断「是不是抖动」。
+          #
+          # 不加 `-test-iterations 2`（评审指出）：它会让**全部** UI 测试基线时长翻倍，
+          # 且每次迭代都重启一次 App——恰好**增加**了本项要防御的启动超时抖动的暴露
+          # 次数（每次启动是独立抖动机会），与防御目标相抵。`-retry-tests-on-failure`
+          # 单独即达成「容忍单次抖动」，且只在真的失败时才多跑一次。
           xcodebuild test-without-building \
             -skipMacroValidation \
             -project "$XCODEPROJ" -scheme "$SCHEME" \
             -destination "${DEST}" \
             -derivedDataPath Build/DerivedData \
             -only-testing:VitaLiberUITests \
-            -retry-tests-on-failure -test-iterations 2 \
+            -retry-tests-on-failure \
             CODE_SIGNING_ALLOWED=NO \
             2>&1 | tee Build/xcodebuild-uitest.log
           if grep -qE "with [1-9][0-9]* failure" Build/xcodebuild-uitest.log; then
