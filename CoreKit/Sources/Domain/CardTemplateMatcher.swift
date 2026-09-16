@@ -88,9 +88,10 @@ public struct MatchedCard: Codable, Sendable, Equatable, Identifiable {
         CardConfirmationRules.revise(&self, at: index, rowId: rowId, to: value)
     }
 
-    /// FR6.9 V3.66（业主裁决「一键确认本卡」）：保存前把本卡全部「非拒绝、有值、
-    /// 非低置信」字段升级为已确认——用户以**卡级显式确认动作**（[确认保存]）完成
-    /// D→C。规则主体在 `CardConfirmationRules.confirmingAllFields`（单一事实源）。
+    /// FR6.9 卡级确认（V3.66 立，**2026-09-17 判据改判**）：保存前把本卡**符合资格谓词**
+    /// 的字段升级为已确认——非拒绝 ∧ 有值 ∧ 置信 ≥0.6 ∧ 无待定歧义 ∧ **非必填**；
+    /// 必填（含行级身份键）一律逐一确认，用户以**卡级显式确认动作**（[确认保存]）完成
+    /// 其余合格字段的 D→C。规则主体在 `CardConfirmationRules.confirmingAllFields`（单一事实源）。
     public func confirmingAllFields() -> MatchedCard {
         CardConfirmationRules.confirmingAllFields(self)
     }

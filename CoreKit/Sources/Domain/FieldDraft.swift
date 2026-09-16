@@ -1,7 +1,8 @@
 import Foundation
 
 /// 跨切面的识别字段草稿模型（OCR 确认卡 / 语音结构化 / 理解层通用，131+ 使用点）。
-/// 全部草稿待确认态（BR-003）；D→C 只经显式确认（`confirm`）。
+/// 全部草稿待确认态（BR-003）；D→C 只经显式确认（`confirm`）——**或**用户手填
+/// （`fillByUser`，业主 2026-09-17 裁定：原值为空的字段没有机器值可核对）。
 /// 结构轮（2026-09-15）：自 VoiceGrammar.swift 迁出——本类型与语音文法无关，
 /// 单独成文件（P2）。
 public struct FieldDraft: Codable, Sendable, Equatable, Identifiable {
@@ -131,6 +132,26 @@ public struct FieldDraft: Codable, Sendable, Equatable, Identifiable {
         value = newValue
     }
 
+    /// 用户手填（业主 2026-09-17 裁定）：**仅当该字段从无机器识别值**（`originalValue` 为空）
+    /// 时，写入即记 `.userConfirmed`。
+    ///
+    /// 理由：BR-003 要防的是「未确认的**机器**值进事实链」；原值为空的字段不存在机器值，
+    /// 现值只可能由用户提供，让用户为自己刚输入的内容再点一次 [确认] 是纯摩擦。
+    /// **机器已有值仍走**「改动即失效、需重新确认」（`revise` 的既有语义）——
+    /// 「改了两字符」不等于「整个字段核对过」，两条不对称是有意的。
+    ///
+    /// 调用面刻意收窄：只有**卡确认面**（`CardConfirmationRules.revise` / 主卡草稿）走本方法，
+    /// 机器路径（`reconcileCards` 重解析回填等）继续用 `revise`，不得经此升 C。
+    @discardableResult
+    public mutating func fillByUser(_ newValue: String, by actor: String = "owner", at date: Date = Date()) -> Bool {
+        // `revise` 经 `invalidateReview` 顺带复位 rejected（既有语义）；手填确认**不**继承这一点——
+        // 拒绝是用户的显式否定，升 C 必须另经 `reenable` + `confirm`（UI 上拒绝字段本就只读，
+        // 本守卫是纵深防御）。
+        let wasRejected = grade == .rejected
+        revise(to: newValue, by: actor, at: date)
+        guard !wasRejected, originalValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        return confirm()
+    }
     private mutating func invalidateReview() {
         grade = .ocrUnconfirmed; reviewedValue = nil; reviewedUnit = nil
         codeResolution = nil; codeApproval = nil

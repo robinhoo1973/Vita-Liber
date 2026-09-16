@@ -39,6 +39,14 @@ struct EntityCardConfirmView: View {
     private var rowKeys: Set<String> {
         CardTemplateMatcher.ocrTemplates.first { $0.kind == card.kind }?.rowLevelKeys ?? []
     }
+    /// 必填集自 `CardKindRegistry` 单一事实源（与 `CardConfirmationRules.confirmingAllFields` 同源）——
+    /// 视图不复制数字/键表。
+    private var sharedRequired: Set<String> { Set(CardKindRegistry.entry(for: card.kind)?.sharedRequired ?? []) }
+    private func rowRequired(_ row: MatchedCardRow) -> Set<String> {
+        let entry = CardKindRegistry.entry(for: card.kind)
+        // 空行 = 「表头即实体」（票据页无明细行）：不受行级必填约束（与 `invalidFields` 同口径）
+        return (entry?.allowsEmptyRows == true && row.fields.isEmpty) ? [] : Set(entry?.rowRequired ?? [])
+    }
     private func missingShared(reviewed: MatchedCard) -> [String] {
         Set(card.rows.flatMap { invalid($0, reviewed: reviewed) }).filter { key in
             !rowKeys.contains(key) && key != "card_kind" && !card.shared.contains { $0.key == key }
@@ -48,7 +56,7 @@ struct EntityCardConfirmView: View {
         guard !saving, card.rows.contains(where: { invalid($0, reviewed: reviewed).isEmpty || EntityCardProjection.isDiscarded($0, in: card) }) else {
             return false
         }
-        // v27 §0.4：主卡草稿随卡同事务落库——草稿须字段全部已确认（卡级确认后仍缺的 = 低置信未逐项确认）且日期可解析，
+        // v27 §0.4：主卡草稿随卡同事务落库——草稿须字段全部已确认（卡级确认后仍缺的 = 必填/低置信未逐项确认）且日期可解析，
         // 与 store `HubDraft.isComplete` 同口径；否则保存按钮禁用（草稿区显示补填/未确认提示，用户不致只见灰按钮）。
         if case .newHub(let draft) = reviewed.encounterAssociation {
             return draft.isComplete(calendar: Calendar(identifier: .gregorian))
@@ -91,6 +99,9 @@ struct EntityCardConfirmView: View {
             // 三处合计 ~3N 次全卡拷贝（每次击键触发），N 行卡明显可感知。
             let reviewed = Self.confirmingDraftFields(card.confirmingAllFields())
             let validation = Dictionary(uniqueKeysWithValues: card.rows.map { ($0.id, invalid($0, reviewed: reviewed)) })
+            // 必填逐项确认（FR6.9 2026-09-17 裁定）：必填不参与批量 → 保存闸门要求逐项；
+            // 这里如实报出还差哪些（同一判据的 Domain 单一事实源），避免用户只见灰按钮。
+            let pendingRequired = CardConfirmationRules.requiredFieldsAwaitingConfirmation(card)
             List {
                 Section {
                     OCRReviewOwnerRow(patientId: patientId)
@@ -119,6 +130,7 @@ struct EntityCardConfirmView: View {
                                 label: DocumentsState.fieldLabel(forKey: card.shared[index].key),
                                  showUnit: false, readOnly: sharedCommitted,
                                  cardLevelConfirmation: true,
+                                 isRequired: sharedRequired.contains(card.shared[index].key),
                                 onRevise: { revise(index: index, rowID: nil, value: $0) })
                             if card.shared[index].isConfirmed, validation.values.contains(where: { $0.contains(card.shared[index].key) }) {
                                 Text(L10n.ocrReviewInvalidField).font(.caption).foregroundStyle(.red)
@@ -136,6 +148,7 @@ struct EntityCardConfirmView: View {
                                 FieldConfirmRow(field: fieldBinding(index: index, rowID: row.id),
                                      label: DocumentsState.fieldLabel(forKey: row.fields[index].key), showUnit: false,
                                      cardLevelConfirmation: true,
+                                     isRequired: rowRequired(row).contains(row.fields[index].key),
                                     onRevise: { revise(index: index, rowID: row.id, value: $0) })
                                 if row.fields[index].isConfirmed && validation[row.id]?.contains(row.fields[index].key) == true {
                                     Text(L10n.ocrReviewInvalidField).font(.caption).foregroundStyle(.red)
@@ -150,6 +163,16 @@ struct EntityCardConfirmView: View {
                 }
                 if !missingShared(reviewed: reviewed).isEmpty || validation.values.contains(where: { !$0.isEmpty }) {
                     Section { Text(L10n.docConfirmHint).font(.caption).foregroundStyle(.secondary) }
+                }
+                if !pendingRequired.isEmpty {
+                    Section {
+                        Text(L10n.entityCardPendingRequired(
+                            count: pendingRequired.count,
+                            labels: ListFormatter.localizedString(byJoining: pendingRequired.map { DocumentsState.fieldLabel(forKey: $0) })))
+                            .font(.caption)
+                            .foregroundStyle(Color("semantic-warning", bundle: .main))
+                            .accessibilityIdentifier("SP-12.entity.pendingRequired")
+                    }
                 }
                 Section {
                     Button { showLater = true } label: {
@@ -284,8 +307,9 @@ struct EntityCardConfirmView: View {
 
     private func save(reviewed: MatchedCard) {
         guard canSave(reviewed: reviewed) else { return }
-        // FR6.9 V3.66 一键确认本卡：保存即确认卡内其余非低置信字段（用户卡级显式动作），
-        // 低置信字段仍须逐项确认（FR17.4），缺必填行原样进待办/剩余卡。
+        // FR6.9 卡级确认：保存即批量确认合格字段（非拒绝 ∧ 有值 ∧ ≥0.6 ∧ 无歧义 ∧ 非必填，
+        // 单一事实源 `CardConfirmationRules`）；**必填与低置信均须逐项确认**（2026-09-17 业主裁定），
+        // 缺必填行原样进待办/剩余卡。
         // v27：主卡草稿字段同一动作升 C（store 同事务先建主卡再写子卡；任一失败整体回滚，BR-003）。
         let snapshot = Self.confirmingDraftFields(card.confirmingAllFields())
         Task {

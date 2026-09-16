@@ -84,9 +84,9 @@ public enum CardConfirmationRules {
         return result
     }
 
-    /// 卡级确认**之前**，本卡还有哪些必填字段待用户逐一确认（UI 计数用）。
+    /// 卡级确认**之前**，指定面（共享；或给定行）还有哪些必填字段待用户逐一确认。
     /// 与 `confirmable` 同一判据：必填 **且** 尚未确认的字段键。
-    public static func requiredFieldsAwaitingConfirmation(_ card: MatchedCard, row: MatchedCardRow? = nil) -> [String] {
+    public static func requiredFieldsAwaitingConfirmation(_ card: MatchedCard, row: MatchedCardRow?) -> [String] {
         let entry = CardKindRegistry.entry(for: card.kind)
         var out: [String] = []
         for field in card.shared where (entry?.sharedRequired ?? []).contains(field.key) && !field.isConfirmed {
@@ -101,6 +101,18 @@ public enum CardConfirmationRules {
         return out
     }
 
+    /// 全卡（共享 + 全部行）仍未确认的必填键，去重保序——保存闸门的「还有 N 项必填待确认」
+    /// 与注意力路由用（单面查询走上面的 `row:` 重载）。
+    public static func requiredFieldsAwaitingConfirmation(_ card: MatchedCard) -> [String] {
+        var out = requiredFieldsAwaitingConfirmation(card, row: nil)
+        for row in card.rows {
+            for key in requiredFieldsAwaitingConfirmation(card, row: row) where !out.contains(key) {
+                out.append(key)
+            }
+        }
+        return out
+    }
+
     // MARK: - 字段编辑策略（自 MatchedCard.reviseField 迁入）
 
     /// 编辑一个字段（共享或行级）后的关联/编码失效纪律：
@@ -110,19 +122,23 @@ public enum CardConfirmationRules {
     /// - 行级 `metric_sample` 的 `raw_label`/`unit` 被改：整行编码建议失效
     ///   （`clearCodeResolution`）并按新名重算 `metric_key` 草稿。
     /// Row identity survives editing（行 id 不变，修订可回溯）。
+    ///
+    /// 写值走 `FieldDraft.fillByUser`（业主 2026-09-17 裁定）：**原值为空的字段**（无机器值可核对，
+    /// 用户清空重填或补填缺失必填）写入即记 C；机器已有值仍"改动即失效、需重新确认"。
+    /// 本方法是卡确认面唯一的用户编辑入口（实体卡 + 主卡草稿同经此路）。
     public static func revise(_ card: inout MatchedCard, at index: Int, rowId: UUID? = nil, to value: String) {
         guard let rowId else {
             guard card.shared.indices.contains(index) else { return }
             if case .suggested = card.encounterAssociation { card.encounterAssociation = .unselected }
             if case .newHub = card.encounterAssociation, EncounterResolver.evidenceKeys.contains(card.shared[index].key),
                card.shared[index].value != value { card.encounterAssociation = .unselected }
-            card.shared[index].revise(to: value)
+            card.shared[index].fillByUser(value)
             return
         }
         guard let r = card.rows.firstIndex(where: { $0.id == rowId }), card.rows[r].fields.indices.contains(index),
               card.rows[r].fields[index].value != value else { return }
         let key = card.rows[r].fields[index].key
-        card.rows[r].fields[index].revise(to: value)
+        card.rows[r].fields[index].fillByUser(value)
         if card.kind == "metric_sample", key == "raw_label" || key == "unit" {
             if let label = card.rows[r].fields.firstIndex(where: { $0.key == "raw_label" }) {
                 card.rows[r].fields[label].clearCodeResolution()

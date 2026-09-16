@@ -2,8 +2,9 @@ import Foundation
 import Testing
 @testable import Domain
 
-/// BR-003 卡级确认与编辑策略（结构轮 2026-09-15）：FR6.9 V3.66 D→C 谓词的单一事实源——
+/// BR-003 卡级确认与编辑策略（结构轮 2026-09-15）：FR6.9 D→C 谓词的单一事实源——
 /// 此前模型两处 + 视图一处各写一份，本套件钉住谓词边界与编辑失效纪律。
+/// 2026-09-17 判据改判：四条件（非拒绝/有值/≥0.6/无歧义/非必填）+ 用户手填即确认。
 @Suite("SU-FR6.9 · 卡级确认规则与编辑策略")
 struct CardConfirmationRulesTests {
 
@@ -62,6 +63,69 @@ struct CardConfirmationRulesTests {
         var done = card
         for index in done.shared.indices where done.shared[index].key == "date" { _ = done.shared[index].confirm() }
         #expect(CardConfirmationRules.requiredFieldsAwaitingConfirmation(done) == ["kind"], "已确认的必填出列")
+    }
+
+    @Test("requiredFieldsAwaitingConfirmation（全卡）：共享 + 各行必填，跨行去重保序")
+    func 全卡必填待确认计数() {
+        let rows = [MatchedCardRow(fields: [field("raw_label", "血红蛋白"), field("value", "150")]),
+                    MatchedCardRow(fields: [field("raw_label", "白细胞")])]
+        let lab = MatchedCard(kind: "metric_sample", pageIndex: 0,
+                              shared: [field("measured_at", "2026-09-16")], rows: rows,
+                              allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete,
+                              encounterAssociation: .unselected)
+        #expect(CardConfirmationRules.requiredFieldsAwaitingConfirmation(lab) == ["measured_at", "raw_label", "value"],
+                "共享在前、行内按序、跨行同键只报一次")
+    }
+
+    // MARK: - 用户手填即确认（业主 2026-09-17 裁定：仅限**原值为空**的字段）
+
+    /// 缺失必填「点此填写」追加的就是这个形态（`EntityCardConfirmView.appendField`）。
+    private func emptyField(_ key: String) -> FieldDraft { FieldDraft(key: key, value: "", confidence: 1) }
+
+    @Test("fillByUser：原值为空的字段，用户填入即确认（不必再点一次）")
+    func 手填即确认() {
+        var draft = emptyField("date")
+        _ = draft.fillByUser("2026-09-16")
+        #expect(draft.isConfirmed, "无机器值可核对 → 用户填入即 C")
+        #expect(draft.grade == .userConfirmed)
+        #expect(draft.revisionHistory.count == 1, "修订留痕照记（可回溯）")
+    }
+
+    @Test("fillByUser：机器已有值的字段，改动仍「改动即失效、需重新确认」")
+    func 改机器值不升C() {
+        var draft = field("date", "2026-09-16")
+        _ = draft.confirm()
+        _ = draft.fillByUser("2026-09-17")
+        #expect(!draft.isConfirmed, "改了两字符 ≠ 整个字段核对过（不对称是有意的）")
+        #expect(draft.grade == .ocrUnconfirmed)
+    }
+
+    @Test("fillByUser：清空不升 C；拒绝字段不因手填升 C")
+    func 手填守卫() {
+        var draft = emptyField("date")
+        _ = draft.fillByUser("2026-09-16")
+        _ = draft.fillByUser("")
+        #expect(!draft.isConfirmed, "空值没有可确认的内容（confirm 的守卫在）")
+
+        var rejected = emptyField("date")
+        rejected.reject()
+        _ = rejected.fillByUser("2026-09-16")
+        #expect(!rejected.isConfirmed, "手填不绕过拒绝守卫——升 C 必须另经 reenable + confirm（UI 上拒绝字段只读）")
+    }
+
+    @Test("卡确认面写值走 fillByUser：缺失必填补填后即有效（闸门不再说它无效）")
+    func 卡确认面手填即确认() {
+        // encounter 卡：kind 已确认、date 缺失（「缺少 日期，点此填写」），用户补填
+        var kind = field("kind", "outpatient")
+        _ = kind.confirm()
+        var base = self.card([kind])
+        base.shared.append(emptyField("date"))
+        var target = base
+        CardConfirmationRules.revise(&target, at: target.shared.count - 1, to: "2026-09-16")
+        #expect(target.shared.last?.isConfirmed == true, "用户手填的必填不再卡在未确认")
+        let invalid = EntityCardProjection.invalidFields(in: target, row: target.rows[0],
+                                                         calendar: Calendar(identifier: .gregorian))
+        #expect(invalid.isEmpty, "补填后该行有效——这正是新规则下保存闸门放行的机制；实得 \(invalid)")
     }
 
     // MARK: - 多候选：待定歧义必须显式选择（2026-09-17 业主裁定「挡」）

@@ -5,7 +5,7 @@ import Perception
 
 /// SP-12 主卡草稿区（子项目 J · recognition-remediation-design §0.4 改判 / BR-003）：
 /// 关联区裁决为 `.newHub(draft)` 时置于确认页**最前**——识别出的子卡永远有父，无可挂接主卡即随本卡新建一条 D 级主卡草稿，
-/// 与子卡同流确认、同事务落库（`OCRCardStore.save`）。草稿字段逐条 `FieldConfirmRow`（卡级确认；低置信仍须逐项）；
+/// 与子卡同流确认、同事务落库（`OCRCardStore.save`）。草稿字段逐条 `FieldConfirmRow`（卡级确认；必填与低置信逐项）；
 /// 日期缺失/不可解析 → 内联 DatePicker 补填（写 yyyy-MM-dd，用户显式选择 = 已确认）；可切回「选择已有主卡」。
 /// 只搬子卡共享字段原文，不推断（Domain `ParentCardDraftRules`）。
 struct ParentDraftSection: View {
@@ -35,6 +35,7 @@ struct ParentDraftSection: View {
                                 FieldConfirmRow(field: fieldBinding(index: index),
                                                 label: DocumentsState.fieldLabel(forKey: draft.fields[index].key),
                                                 showUnit: false, readOnly: readOnly, cardLevelConfirmation: true,
+                                                isRequired: draftRequired.contains(draft.fields[index].key),
                                                 onRevise: { revise(index: index, value: $0) })
                                     .accessibilityIdentifier("SP-12.parentDraft.field.\(draft.fields[index].key)")
                             }
@@ -46,6 +47,17 @@ struct ParentDraftSection: View {
                             .accessibilityIdentifier("SP-12.parentDraft.dateRequired")
                         DatePicker(DocumentsState.fieldLabel(forKey: draft.dateKey), selection: dateBinding(draft), displayedComponents: .date)
                             .accessibilityIdentifier("SP-12.parentDraft.datePicker")
+                    }
+                    let pendingRequired = draftRequired.subtracting(Set(draft.fields.filter(\.isConfirmed).map(\.key)))
+                    if !pendingRequired.isEmpty {
+                        // 必填逐项确认（FR6.9 2026-09-17 裁定）：`isComplete` 要求草稿字段全部已确认，
+                        // 而必填不参与卡级批量——如实报出还差哪几项，别让用户只见灰按钮。
+                        Text(L10n.entityCardPendingRequired(
+                            count: pendingRequired.count,
+                            labels: ListFormatter.localizedString(byJoining: pendingRequired.sorted().map { DocumentsState.fieldLabel(forKey: $0) })))
+                            .font(.caption)
+                            .foregroundStyle(Color("semantic-warning", bundle: .main))
+                            .accessibilityIdentifier("SP-12.parentDraft.pendingRequired")
                     }
                     if hasUnconfirmedLowConfidence(draft) {
                         Text(L10n.parentDraftUnconfirmed).font(.caption).foregroundStyle(.secondary)
@@ -88,8 +100,16 @@ struct ParentDraftSection: View {
         })
     }
 
+    /// 主卡草稿的必填集按**其枢纽**取（`RecordHub` 的 raw 值即 `CardKindRegistry` 的 kind）——
+    /// 与 `CardConfirmationRules.confirmingDraft` 同源，视图不复制键表。
+    private var draftRequired: Set<String> {
+        guard case .newHub(let draft) = card.encounterAssociation else { return [] }
+        return Set(CardKindRegistry.entry(for: draft.hub.rawValue)?.sharedRequired ?? [])
+    }
+
     private func revise(index: Int, value: String) {
-        update { d in if d.fields.indices.contains(index) { d.fields[index].revise(to: value) } }
+        // 用户手填走 `fillByUser`（FR6.9 2026-09-17）：原值为空的草稿字段填入即确认。
+        update { d in if d.fields.indices.contains(index) { d.fields[index].fillByUser(value) } }
     }
 
     /// 日期字段存在且可解析（yyyy-MM-dd / yyyy/M/d / yyyy年M月d日）。
@@ -98,7 +118,7 @@ struct ParentDraftSection: View {
         return EntityCardProjection.parseDate(field.value, calendar: calendar) != nil
     }
 
-    /// 低置信且未确认的草稿字段（卡级确认不覆盖低置信，FR17.4）。
+    /// 低置信且未确认的草稿字段（卡级批量确认不覆盖低置信，FR6.9 资格谓词）。
     private func hasUnconfirmedLowConfidence(_ draft: HubDraft) -> Bool {
         draft.fields.contains { $0.grade != .rejected && !$0.isConfirmed && ConfidenceTier.tier($0.confidence) == .low }
     }

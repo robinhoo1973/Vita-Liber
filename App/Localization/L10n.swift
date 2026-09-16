@@ -970,6 +970,7 @@ enum L10n {
     "entityCard.discard",
     "entityCard.deferRemaining",
     "entityCard.missingRequiredFmt",
+    "entityCard.pendingRequiredFmt",
     "entityCard.rowSkipped",
     "entityCard.sharedSection",
     "entityCard.rowsSection",
@@ -2438,6 +2439,10 @@ enum L10n {
     static var entityCardDiscard: String { t("entityCard.discard") }
     static var entityCardDeferRemaining: String { t("entityCard.deferRemaining") }
     static func entityCardMissingRequired(_ label: String) -> String { String(format: t("entityCard.missingRequiredFmt"), label) }
+    /// 保存闸门的「还有 N 项必填待确认：日期、类型」——必填逐项确认为 2026-09-17 裁定（FR6.9）。
+    static func entityCardPendingRequired(count: Int, labels: String) -> String {
+        String(format: t("entityCard.pendingRequiredFmt"), count, labels)
+    }
     static var entityCardRowSkipped: String { t("entityCard.rowSkipped") }
     static var entityCardSharedSection: String { t("entityCard.sharedSection") }
     static var entityCardRowsSection: String { t("entityCard.rowsSection") }

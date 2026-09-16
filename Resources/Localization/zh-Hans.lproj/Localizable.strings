@@ -1079,6 +1079,7 @@
 "entityCard.discard" = "放弃本卡";
 "entityCard.deferRemaining" = "剩余全部稍后处理";
 "entityCard.missingRequiredFmt" = "缺少「%@」，点此填写";
+"entityCard.pendingRequiredFmt" = "还有 %d 项必填待确认：%@";
 "entityCard.rowSkipped" = "本行缺必填，保存时跳过";
 "entityCard.sharedSection" = "共同信息";
 "entityCard.rowsSection" = "逐项内容";

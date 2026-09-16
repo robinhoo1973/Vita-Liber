@@ -1079,6 +1079,7 @@
 "entityCard.discard" = "Discard this card";
 "entityCard.deferRemaining" = "Defer all remaining";
 "entityCard.missingRequiredFmt" = "Missing “%@” — tap to fill in";
+"entityCard.pendingRequiredFmt" = "%d required field(s) still need confirming: %@";
 "entityCard.rowSkipped" = "Row is missing a required field and will be skipped";
 "entityCard.sharedSection" = "Shared details";
 "entityCard.rowsSection" = "Items";

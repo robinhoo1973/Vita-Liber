@@ -150,6 +150,9 @@ struct FieldConfirmRow: View {
     var showUnit = true
     var readOnly = false
     var cardLevelConfirmation = false
+    /// 必填字段（建卡最小集，`CardKindRegistry`）：卡级模式下**也必须**有逐项 [确认] 入口。
+    /// 必填不参与卡级批量（2026-09-17 业主裁定），没有入口就等于「卡片永远无法保存」。
+    var isRequired = false
     var onRevise: ((String) -> Void)?
     @FocusState private var focused: Bool
 
@@ -217,7 +220,7 @@ struct FieldConfirmRow: View {
                         if field.grade == .rejected {
                             Button(L10n.docConfirmReenable) { field.reenable() }
                         } else {
-                            if !cardLevelConfirmation || tier == .low {
+                            if !cardLevelConfirmation || tier == .low || isRequired {
                                 Button(L10n.commonConfirm) { _ = field.confirm(); focused = false }
                                     .disabled(field.isConfirmed || field.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                                     .accessibilityIdentifier("OCR.field.confirm.\(field.key)")
