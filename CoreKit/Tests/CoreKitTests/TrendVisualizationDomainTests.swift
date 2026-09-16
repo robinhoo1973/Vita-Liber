@@ -91,6 +91,48 @@ struct TrendVisualizationDomainTests {
         }
     }
 
+    @Test("周期翻页：长度不变、相邻不重叠、锚点日可回溯（业主第 4 项）")
+    func 周期翻页() {
+        let anchor = Date(timeIntervalSince1970: 1_800_000_000)
+        for window in TrendTimeWindow.allCases {
+            // offset 0 = 锚点所在周期（不含未来）：0 档与历史 interval 逐字同构
+            let current = window.period(endingAt: anchor, calendar: utc)
+            #expect(current == window.interval(endingAt: anchor, calendar: utc))
+            #expect(current.end == anchor)
+            #expect(current.start <= anchor && anchor <= current.end)     // 锚点读数落在 0 档周期内
+            // 显式步进（paged）：一档 = rawValue 个日历日
+            let stepBack = window.paged(by: 1, from: anchor, calendar: utc)
+            #expect(utc.dateComponents([.day], from: stepBack, to: anchor).day == window.rawValue)
+            // 相邻周期：上一周期的末 = 本周期的始（不重叠、不留缝），长度不变
+            let oneBack = window.period(endingAt: anchor, offset: 1, calendar: utc)
+            #expect(oneBack.end == stepBack)
+            #expect(oneBack.end == current.start)
+            #expect(oneBack.duration == current.duration)
+            // 单调向更早
+            let twoBack = window.period(endingAt: anchor, offset: 2, calendar: utc)
+            #expect(twoBack.end == oneBack.start)
+            #expect(twoBack.end < oneBack.end && oneBack.end < current.end)
+            // 负偏移按 0 档处理（不构造未来周期）
+            #expect(window.period(endingAt: anchor, offset: -3, calendar: utc) == current)
+        }
+    }
+
+    @Test("折线断段阈值 ≥ 桶宽：降采样后不得把每个保留点判成缺测")
+    func 断段阈值() {
+        let start = Date(timeIntervalSince1970: 0)
+        // 短窗：7 天 240 桶 → 桶宽 2520s < 小时步长 → 阈值保持 5400s（既有行为不变）
+        let week = DateInterval(start: start, duration: 7 * 86400)
+        #expect(TrendDownsampler.gapThreshold(range: week) == 5400)
+        // 长窗：365 天 240 桶 → 桶宽 ≈ 1.52 天 → 阈值必须随桶宽放大，否则
+        // 每个保留点都被判成新段（1 年心率的折线与 min/max 带整条消失）
+        let year = DateInterval(start: start, duration: 365 * 86400)
+        let yearGap = TrendDownsampler.gapThreshold(range: year)
+        #expect(yearGap > 3600)
+        #expect(yearGap >= year.duration / Double(TrendDownsampler.maxBuckets))
+        // 退化区间（零长）不产生 0 阈值（否则任何两点都断段）
+        #expect(TrendDownsampler.gapThreshold(range: DateInterval(start: start, duration: 0)) == 5400)
+    }
+
     @Test("身份四元任一不同即不等；TrendSeries 携身份默认 nil")
     func 查询身份() {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
