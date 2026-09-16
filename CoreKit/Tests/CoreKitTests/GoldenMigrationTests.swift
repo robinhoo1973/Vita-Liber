@@ -402,12 +402,13 @@ struct FtsSensitiveMigrationTests {
         #expect(noteHitsAfter == 0, "BR-007/008：敏感笔记词条必须被重洗清除")
         #expect(titleHitsAfter > 0, "敏感文档仍按元数据（标题）可检索")
 
-        // 幂等重放：v6 再跑一遍不炸、结果不变
+        // 幂等重放：v6 再跑一遍不炸、结果不变。
+        // 断言的是**产线迁移路径**幂等（v6 已含三处 ADD COLUMN，原始 SQL 文本本身
+        // 不可能幂等——SQLite 无 ADD COLUMN IF NOT EXISTS，幂等性由守卫承担），
+        // 故同样走 `executeIdempotent`；以 raw 重放反而是「期望它炸」的错误前提。
         try dbQueue.write { db in
             if let v6 {
-                for statement in SchemaMigrations.statements(v6.sql) {
-                    try db.execute(sql: statement)
-                }
+                try GRDBStore.executeIdempotent(db, v6.sql)
             }
         }
         try dbQueue.read { db in
