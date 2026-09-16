@@ -172,7 +172,14 @@ struct GlobalSearchView: View {
                         }
                     }
                     .accessibilityIdentifier("SP-20.search.failed")
-                } else if state.docHits.isEmpty && obsHits.isEmpty && medHits.isEmpty {
+                // 空态判据必须含 `healthDataHits`（评审 2026-09-16 发现）：此前漏了它，
+                // 而健康分组只渲染在 else 分支内——**仅命中健康数据时**（搜「血糖」，
+                // 文档/观察/用药皆空）页面渲染「未找到」且健康命中分组永不出现，
+                // 使 FR16.l 健康数据搜索在其唯一价值场景（FTS 无 metric_sample 路由、
+                // 只能靠本地化名匹配）静默失效。缺陷由 ce4d6d7 引入，e27f5e4 结构搬运时
+                // 原样携带。
+                } else if state.docHits.isEmpty && obsHits.isEmpty && medHits.isEmpty
+                            && healthDataHits.isEmpty {
                     VLUnavailableView {
                         Label(L10n.searchNoResult(query), systemImage: "magnifyingglass")
                     } description: {
