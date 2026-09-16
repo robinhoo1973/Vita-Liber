@@ -166,6 +166,10 @@ struct MetricTile: View {
             .padding(12)
             .background(RoundedRectangle(cornerRadius: 14).fill(Color("bg-grouped", bundle: .main)))
             .task(id: taskId) {
+                // 换成员/换指标即清空上一次的迷你线：taskId 变化后新查询完成前，
+                // 旧成员的 30 天线不得挂在新成员的数字下（BR-001 同族——瓦片按
+                // metricKey 作 id，成员切换时瓦片实例不变，@State spark 会被沿用）
+                spark = nil
                 let loaded = await sparkLoader(item.metricKey)
                 guard !Task.isCancelled else { return }
                 spark = loaded

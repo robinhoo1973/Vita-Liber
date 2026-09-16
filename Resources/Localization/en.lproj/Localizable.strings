@@ -9,10 +9,8 @@
 "nav.me" = "Me";
 "trend.title" = "Trends";
 "trend.emptyOutOfWindowFmt" = "No readings in this window · Latest: %@";
-"trend.emptySwitchToYear" = "View the past year";
 "trend.range.unavailable" = "No reference range (report-provided ranges only at this stage)";
-"trend.excluded.toggle" = "Show excluded points";
-"trend.excluded.header" = "Excluded points (original values kept, restorable)";
+"trend.excluded.headerFmt" = "%d excluded · not counted (values kept, restorable)";
 "trend.openSource" = "Open source report";
 "trend.point.exclude" = "Exclude this point";
 "trend.point.restore" = "Restore this point";
@@ -412,8 +410,14 @@
 "trend.window.quarter" = "90 days";
 "trend.window.year" = "1 year";
 "trend.window.label" = "Time range";
-"trend.origin.all" = "All sources";
-"trend.filter.origin" = "Source";
+"trend.excluded.allExcluded" = "All readings in this period are excluded · not counted";
+"trend.excluded.showOnChart" = "Show on chart";
+"trend.excluded.hideFromChart" = "Hide from chart";
+"trend.period.prev" = "Previous period";
+"trend.period.next" = "Next period";
+"trend.period.jumpToLatest" = "Jump to the period of the latest reading";
+"trend.period.locating" = "Locating period";
+"trend.period.accessibility" = "Period: %@";
 "trend.origin.hospital" = "Hospital report";
 "trend.refRange" = "Reference range %1$@–%2$@";
 "trend.row.accessibility" = "%1$@ %2$@ · %3$@ · %4$@";
@@ -421,7 +425,6 @@
 "trend.origin.selfShort" = "Self-measured";
 "trend.origin.hospitalShort" = "Hospital";
 "trend.convertedFrom" = "Converted from %@";
-"trend.showExcluded.accessibility" = "Show excluded data points";
 "voicenote.empty.title" = "No voice notes yet";
 "voicenote.empty.hint" = "Your first note appears here (kept off the timeline by default)";
 "voicenote.inTimeline" = "On timeline";

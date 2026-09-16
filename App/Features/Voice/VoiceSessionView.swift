@@ -425,18 +425,21 @@ struct VoiceSessionView: View {
         case .recentGlucose:
             // 审查修复：trendState.detailSeries 只在趋势页被访问过时才加载——
             // 直接进语音会话会误报「暂无血糖记录」（F19 事实播报）。
-            // 先按需加载再播报（loadDetail 校验 metricKey 为注册表成员）。
+            // 2026-09-16 审查修复（共用槽位串号）：原实现调用 loadDetail 复用趋势页
+            // 的状态槽——语音一问把正在看的趋势页清成空态，且回读 detailSeries 时
+            // 只判 `?.` 不校身份：连问两次或同时有另一成员/另一指标在途时，
+            // 会把上一请求甚至别人序列的数值当作「最近血糖」播出来（BR-001 同族）。
+            // 走 recentValues：直接查库、不写任何共享槽位。
             let patientId = app.currentPatientId
+            let limit = 3
             Task {
-                await trendState.loadDetail(patientId: patientId, metricKey: MetricType.glucose.rawValue)
+                let points = await trendState.recentValues(patientId: patientId, metric: .glucose, limit: limit)
                 // 审查修复：裸插值绕过医学数值单一出口（62.0 → "62.0" 与
                 // 趋势页 oneDecimal 口径漂移）——统一走 MedicalNumberFormat
-                let points = trendState.detailSeries?.points.suffix(3)
-                    .map { MedicalNumberFormat.oneDecimal($0.value) }.joined(separator: "、")
-                // 审查修复：序列存在但空点时 joined 为 ""（非 nil）——Optional.map
-                // 落入非 nil 分支，播报「最近血糖：」空模板而非「暂无血糖记录」
-                let summary = points.flatMap { $0.isEmpty ? nil : $0 }
-                session.systemFeedback(summary.map { L10n.f19RecentGlucose($0) } ?? L10n.f19NoGlucose,
+                let text = points.map { MedicalNumberFormat.oneDecimal($0.value) }.joined(separator: "、")
+                // 审查修复：序列存在但空点时 joined 为 ""（非 nil）——空串必须
+                // 落到「暂无血糖记录」分支，不得播报空模板
+                session.systemFeedback(text.isEmpty ? L10n.f19NoGlucose : L10n.f19RecentGlucose(text),
                                       speak: { app.speak($0) })
             }
         case .stockRemaining:

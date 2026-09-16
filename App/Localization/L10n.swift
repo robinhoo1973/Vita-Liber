@@ -29,8 +29,14 @@ enum L10n {
     // MARK: - F7 趋势（SP-13 / FR7.2）
     static var trendTitle: String { t("trend.title") }
     static var trendRangeUnavailable: String { t("trend.range.unavailable") }
-    static var trendShowExcluded: String { t("trend.excluded.toggle") }
-    static var trendExcludedHeader: String { t("trend.excluded.header") }
+    /// 已排除点分段标题（带条数：数字是事实，用户据此判断影响范围）
+    static func trendExcludedHeader(_ count: Int) -> String { String(format: t("trend.excluded.headerFmt"), count) }
+    /// 已排除点分段内「在图中显示 / 从图中隐藏」动作（对照视图的显式开关；
+    /// 原来挂在工具栏的模式按钮语义不清且位置远离它影响的数据）
+    static var trendExcludedShowOnChart: String { t("trend.excluded.showOnChart") }
+    static var trendExcludedHideFromChart: String { t("trend.excluded.hideFromChart") }
+    /// 本周期可见读数全部被排除时的事实句（否则图表区空白且无解释）
+    static var trendExcludedAllExcluded: String { t("trend.excluded.allExcluded") }
     static var trendOpenSource: String { t("trend.openSource") }
     static var trendExcludePoint: String { t("trend.point.exclude") }
     static var trendRestorePoint: String { t("trend.point.restore") }
@@ -615,11 +621,26 @@ enum L10n {
         case .year: return t("trend.window.year")
         }
     }
-    /// 诊断性空态（2026-09-16 业主实测）：窗口无数据时告知最近读数位置，可一键切一年窗。
+    /// 诊断性空态（2026-09-16 业主实测）：周期无数据时告知最近读数位置。
     static func trendEmptyOutOfWindow(_ latest: String) -> String { String(format: t("trend.emptyOutOfWindowFmt"), latest) }
-    static var trendEmptySwitchToYear: String { t("trend.emptySwitchToYear") }
-    static var trendOriginAll: String { t("trend.origin.all") }
-    static var trendFilterOrigin: String { t("trend.filter.origin") }
+    // MARK: - 周期翻页（业主 2026-09-16 第 4 项）
+    static var trendPeriodPrevious: String { t("trend.period.prev") }
+    static var trendPeriodNext: String { t("trend.period.next") }
+    /// 空周期出口：跳到「最新读数所在周期」（自动锚定周期恒含最近读数）
+    static var trendPeriodJumpToLatest: String { t("trend.period.jumpToLatest") }
+    /// 首次加载尚未写入身份时的占位标签
+    static var trendPeriodLocating: String { t("trend.period.locating") }
+    /// 周期标签的 VoiceOver 读法（「当前周期：2026年8月17日 – 8月23日」）
+    static func trendPeriodAccessibility(_ range: String) -> String { String(format: t("trend.period.accessibility"), range) }
+    /// 周期标签本体：日期区间交给平台 `DateIntervalFormatter`（成熟实现优先／
+    /// 各语言日期格式与跨年处理不手拼），语言跟随应用内语言（FR14.5 即时切换）。
+    static func trendPeriodRange(_ from: Date, _ to: Date) -> String {
+        let formatter = DateIntervalFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        formatter.locale = Locale(identifier: bundleLanguage)
+        return formatter.string(from: from, to: to)
+    }
     static func trendRefRange(_ lo: String, _ hi: String) -> String {
         String(format: t("trend.refRange"), lo, hi)   // %1$@ %2$@
     }
@@ -632,7 +653,6 @@ enum L10n {
     static func trendConvertedFrom(_ note: String) -> String {
         t("trend.convertedFrom").replacingOccurrences(of: "%@", with: note)
     }
-    static var trendShowExcludedAccessibility: String { t("trend.showExcluded.accessibility") }
 
     // MARK: - L10n 清偿批五 · 语音速记（SP-59 / FR17.14）
     static var voicenoteEmptyTitle: String { t("voicenote.empty.title") }
@@ -964,8 +984,6 @@ enum L10n {
     "trend.window.quarter",
     "trend.window.year",
     "trend.window.label",
-    "trend.origin.all",
-    "trend.filter.origin",
     "field.measured_at",
     "field.raw_label",
     "field.value",
@@ -1302,13 +1320,16 @@ enum L10n {
         "trend.axis.selected", "trend.axis.start", "trend.axis.time", "trend.axis.upper",
         "trend.axis.value", "trend.band.accessibility", "trend.band.legend", "trend.band.unlabeled", "trend.chart.accessibility",
         "trend.convertedFrom", "trend.empty.hint", "trend.empty.title", "trend.loadFailed", "trend.excluded.accessibility",
-        "trend.excluded.header", "trend.excluded.toggle", "trend.openSource", "trend.origin.hospital",
+        "trend.excluded.headerFmt", "trend.excluded.allExcluded", "trend.excluded.showOnChart", "trend.excluded.hideFromChart",
+        "trend.openSource", "trend.origin.hospital",
         "trend.origin.hospitalShort", "trend.origin.self", "trend.origin.selfDevice", "trend.origin.selfShort",
         "trend.origin.device", "trend.origin.legend", "trend.notConnected.health",
         "trend.notConnected.hint", "trend.goConnect",
         "trend.point.exclude", "trend.point.restore", "trend.range.unavailable", "trend.refRange",
-        "trend.row.accessibility", "trend.row.excludedSuffix", "trend.showExcluded.accessibility", "trend.title",
-        "trend.emptyOutOfWindowFmt", "trend.emptySwitchToYear",
+        "trend.row.accessibility", "trend.row.excludedSuffix", "trend.title",
+        "trend.period.prev", "trend.period.next", "trend.period.jumpToLatest", "trend.period.locating",
+        "trend.period.accessibility",
+        "trend.emptyOutOfWindowFmt",
         "voice.ask.screen", "voice.ask.speak", "voice.confirm.cancel", "voice.confirm.lowConfidence",
         "voice.confirm.pending", "voice.confirm.retry", "voice.confirm.save", "voice.confirm.title",
         "voice.privacy.accept", "voice.privacy.p1", "voice.privacy.p2", "voice.privacy.p3",

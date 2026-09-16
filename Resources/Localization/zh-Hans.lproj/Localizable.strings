@@ -9,10 +9,8 @@
 "nav.me" = "我的";
 "trend.title" = "指标趋势";
 "trend.emptyOutOfWindowFmt" = "该时间窗内无可读数据 · 最近读数：%@";
-"trend.emptySwitchToYear" = "查看最近一年";
 "trend.range.unavailable" = "暂无参考范围（本阶段仅显示报告自带范围）";
-"trend.excluded.toggle" = "显示已排除点";
-"trend.excluded.header" = "已排除的点（原值保留，可恢复）";
+"trend.excluded.headerFmt" = "已排除 %d 条 · 不参与统计（原值保留，可恢复）";
 "trend.openSource" = "回原报告";
 "trend.point.exclude" = "排除该数据点";
 "trend.point.restore" = "恢复该数据点";
@@ -412,8 +410,14 @@
 "trend.window.quarter" = "90 天";
 "trend.window.year" = "1 年";
 "trend.window.label" = "时间范围";
-"trend.origin.all" = "全部来源";
-"trend.filter.origin" = "来源";
+"trend.excluded.allExcluded" = "本周期读数已全部排除 · 未参与统计";
+"trend.excluded.showOnChart" = "在图中显示";
+"trend.excluded.hideFromChart" = "从图中隐藏";
+"trend.period.prev" = "上一周期";
+"trend.period.next" = "下一周期";
+"trend.period.jumpToLatest" = "跳到最近读数所在周期";
+"trend.period.locating" = "正在定位周期";
+"trend.period.accessibility" = "当前周期：%@";
 "trend.origin.hospital" = "医院报告";
 "trend.refRange" = "参考范围 %1$@–%2$@";
 "trend.row.accessibility" = "%1$@ %2$@ · %3$@ · %4$@";
@@ -421,7 +425,6 @@
 "trend.origin.selfShort" = "自测";
 "trend.origin.hospitalShort" = "医院";
 "trend.convertedFrom" = "换算自 %@";
-"trend.showExcluded.accessibility" = "显示已排除的数据点";
 "voicenote.empty.title" = "还没有语音速记";
 "voicenote.empty.hint" = "记录的第一条速记会出现在这里（默认不进时间轴）";
 "voicenote.inTimeline" = "已入轴";

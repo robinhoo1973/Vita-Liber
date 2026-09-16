@@ -9,10 +9,8 @@
 "nav.me" = "我的";
 "trend.title" = "指標趨勢";
 "trend.emptyOutOfWindowFmt" = "該時間窗內無可讀資料 · 最近讀數：%@";
-"trend.emptySwitchToYear" = "檢視最近一年";
 "trend.range.unavailable" = "暫無參考範圍（本階段僅顯示報告自帶範圍）";
-"trend.excluded.toggle" = "顯示已排除點";
-"trend.excluded.header" = "已排除的點（原值保留，可恢復）";
+"trend.excluded.headerFmt" = "已排除 %d 條 · 不參與統計（原值保留，可恢復）";
 "trend.openSource" = "回原報告";
 "trend.point.exclude" = "排除該資料點";
 "trend.point.restore" = "恢復該資料點";
@@ -412,8 +410,14 @@
 "trend.window.quarter" = "90 天";
 "trend.window.year" = "1 年";
 "trend.window.label" = "時間範圍";
-"trend.origin.all" = "全部來源";
-"trend.filter.origin" = "來源";
+"trend.excluded.allExcluded" = "本週期讀數已全部排除 · 未參與統計";
+"trend.excluded.showOnChart" = "在圖中顯示";
+"trend.excluded.hideFromChart" = "從圖中隱藏";
+"trend.period.prev" = "上一週期";
+"trend.period.next" = "下一週期";
+"trend.period.jumpToLatest" = "跳到最近讀數所在週期";
+"trend.period.locating" = "正在定位週期";
+"trend.period.accessibility" = "目前週期：%@";
 "trend.origin.hospital" = "醫院報告";
 "trend.refRange" = "參考範圍 %1$@–%2$@";
 "trend.row.accessibility" = "%1$@ %2$@ · %3$@ · %4$@";
@@ -421,7 +425,6 @@
 "trend.origin.selfShort" = "自測";
 "trend.origin.hospitalShort" = "醫院";
 "trend.convertedFrom" = "換算自 %@";
-"trend.showExcluded.accessibility" = "顯示已排除的資料點";
 "voicenote.empty.title" = "還沒有語音速記";
 "voicenote.empty.hint" = "記錄的第一條速記會出現在這裡（預設不進時間軸）";
 "voicenote.inTimeline" = "已入軸";

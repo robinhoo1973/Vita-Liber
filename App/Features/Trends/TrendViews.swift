@@ -17,14 +17,17 @@ struct TrendChartView: View {
     let series: TrendSeries
     /// 可见时间窗（chartXVisibleDomain 长度；数据范围优先取 series.identity.range）
     var window: TrendTimeWindow = .year
-    /// 显示已排除点对照视图（FR7.4 软删可恢复）
-    var showExcluded: Bool = false
     /// 选点回原报告（sourceRef → 深链）；nil 时点不可跳转
     var onOpenSource: ((TrendPoint) -> Void)?
     /// 排除 / 恢复
     var onToggleExcluded: ((TrendPoint) -> Void)?
 
     @State private var selectedDate: Date?
+    /// 已排除点是否叠加到图上（对照视图；默认不叠加——被排除点通常是 OCR 错值，
+    /// 画回图上会拉爆 Y 轴并让错值重新以图形事实出现）。开关放在「已排除」分段
+    /// 内部（贴着它作用的数据），不在工具栏——原工具栏模式按钮「语义不明、
+    /// 不知道用意」（业主 2026-09-16 第 2 项）。
+    @State private var showsExcludedOnChart = false
 
     /// 参考带用同一中性色的不同不透明度区分来源——避免语义色（BR-006），
     /// 同时保证色觉障碍下仍可经图例文字辨识（无障碍不依赖颜色单通道）。
@@ -80,7 +83,8 @@ struct TrendChartView: View {
     /// （本仓 CI 已有「unable to type-check in reasonable time」实证族），抽出隔离。
     @ChartContentBuilder
     private func dataMarks(_ family: TrendMarkFamily, points: [TrendPoint],
-                           axisTime: String, axisValue: String, tint: Color) -> some ChartContent {
+                           axisTime: String, axisValue: String, tint: Color,
+                           maxGap: TimeInterval) -> some ChartContent {
         switch family {
         case .dailyBars, .durationBars:
             // 步数日总量 / 睡眠时长：按日柱；设备/自测行沿用「空心」语义以降低不透明度区分
@@ -92,8 +96,10 @@ struct TrendChartView: View {
         case .hourlyRange:
             // 心率小时窗：均值折线 + min/max 区间带（区间只呈现窗口内统计范围，非参考范围）。
             // 数据诚实四铁律（gap 断线不插值）：小时窗天然稀疏（本批 sparseWindows 即首类公民），
-            // 缺测小时之间必须断线——按相邻点时间差 > 1.5h 切段，逐段绘制；段内才允许插值。
-            ForEach(Array(contiguousSegments(points).enumerated()), id: \.offset) { _, segment in
+            // 缺测小时之间必须断线——按相邻点时间差 > maxGap 切段；maxGap 由窗口与桶宽决定
+            // （TrendDownsampler.gapThreshold）：写成常量 1.5h 时，降采样后的 1 年心率
+            // （桶宽 ≈ 1.5 天）每个保留点都会被判成新段，折线与区间带整条消失。
+            ForEach(Array(contiguousSegments(points, maxGap: maxGap).enumerated()), id: \.offset) { _, segment in
                 ForEach(segment) { point in
                     if let low = point.valueMin, let high = point.valueMax {
                         // Swift Charts 无 RangeMark（CI 34748416488 实证编译错误族）：
@@ -118,8 +124,9 @@ struct TrendChartView: View {
     }
 
     /// 连续段切分（数据诚实 gap 断线）：相邻点时间差 > maxGap 即断段。
-    /// 小时窗正常步长 3600s；容差 5400s 覆盖 DST 边界（春令跳小时本身无数据，断线正确）。
-    private func contiguousSegments(_ points: [TrendPoint], maxGap: TimeInterval = 5400) -> [[TrendPoint]] {
+    /// maxGap 由调用侧按窗口与桶宽给出（`TrendDownsampler.gapThreshold`）：
+    /// 短窗回落小时步长 ×1.5 = 5400s（覆盖 DST 边界；春令跳小时本身无数据，断线正确）。
+    private func contiguousSegments(_ points: [TrendPoint], maxGap: TimeInterval) -> [[TrendPoint]] {
         var segments: [[TrendPoint]] = []
         var current: [TrendPoint] = []
         for point in points {
@@ -165,7 +172,9 @@ struct TrendChartView: View {
         // 无身份的旧路径回落首末点。保极值降采样只作用于图形——心率一年小时窗 8760 点
         // → ≤ 482 点（240 桶 × min/max + 首尾），列表仍全量。
         let range = series.identity?.range ?? DateInterval(start: xDomainStart, end: xDomainEnd)
-        let visible = TrendDownsampler.thin(sortedPoints, in: range, maxBuckets: 240)
+        let visible = TrendDownsampler.thin(sortedPoints, in: range, maxBuckets: TrendDownsampler.maxBuckets)
+        // 折线断段阈值与桶宽同源（见 TrendDownsampler.gapThreshold 的说明）
+        let maxGap = TrendDownsampler.gapThreshold(range: range, maxBuckets: TrendDownsampler.maxBuckets)
         // 结构轮修复：窗口起止与可见域同源一份日历区间（TrendTimeWindow.interval，
         // DayArithmetic 出口）——此前两处各写 rawValue × 86400，DST 日与查询
         // 范围差 ±1h（裸 86400 违反全仓 DST 纪律）。
@@ -175,6 +184,13 @@ struct TrendChartView: View {
         let family = TrendMarkFamily.family(for: series.metricType)
         let tint = Color("brand-primary", bundle: .main)
         VStack(alignment: .leading, spacing: 12) {
+            // 可见读数全部被排除时的事实句：否则图表区空白且无任何解释
+            // （原实现靠工具栏开关的 onAppear 副作用兜底，切窗后不再触发）
+            if sortedPoints.isEmpty, !series.excludedPoints.isEmpty {
+                Text(L10n.trendExcludedAllExcluded)
+                    .font(.footnote).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("SP-13.trend.excluded.allExcluded")
+            }
             Chart {
                 // ① 多来源参考带：逐条独立绘制（FR7.2）
                 ForEach(Array(series.referenceBands.enumerated()), id: \.element.id) { index, band in
@@ -188,8 +204,10 @@ struct TrendChartView: View {
                         .opacity(bandOpacity(index)))
                     .accessibilityLabel(L10n.trendBandAccessibility(bandLabel(band.sourceLabel), MedicalNumberFormat.oneDecimal(band.lower), MedicalNumberFormat.oneDecimal(band.upper)))
                 }
-                // ② 已排除点对照（虚线空心，视觉上明确「不参与」）
-                if showExcluded {
+                // ② 已排除点对照（叉号，视觉上明确「不参与」）：默认不叠加到图上，
+                // 由「已排除」分段内的显式开关开启（被排除点通常是 OCR 错值——
+                // 画回图上会拉爆 Y 轴，也让已知错值重新以图形事实出现）
+                if showsExcludedOnChart {
                     ForEach(series.excludedPoints) { point in
                         PointMark(x: .value(axisTime, point.measuredAt), y: .value(axisValue, point.value))
                             .symbolSize(90)
@@ -199,7 +217,8 @@ struct TrendChartView: View {
                     }
                 }
                 // ③ 数据标记：按指标图型族（H4）——分支抽出为独立 @ChartContentBuilder 函数
-                dataMarks(family, points: shown, axisTime: axisTime, axisValue: axisValue, tint: tint)
+                dataMarks(family, points: shown, axisTime: axisTime, axisValue: axisValue,
+                          tint: tint, maxGap: maxGap)
                 // ④ 选中点竖线（chartXSelection 气泡锚点）
                 if let selectedPoint {
                     RuleMark(x: .value(L10n.trendAxisSelected, selectedPoint.measuredAt))
@@ -267,11 +286,25 @@ struct TrendChartView: View {
                                   onOpenSource: onOpenSource, onToggleExcluded: onToggleExcluded)
                 }
             }
-            if showExcluded && !series.excludedPoints.isEmpty {
+            // 已排除点分段：**恒渲染**（不再由工具栏模式开关门控）。
+            // FR7.4「原记录可见可恢复」由构造保证——排除最后一个可见读数后，
+            // 恢复入口不可能消失（原实现靠 onAppear 副作用打开对照视图，
+            // 本页原地刷新时不再触发，用户会看到空白图表且找不到恢复入口）。
+            if !series.excludedPoints.isEmpty {
                 Divider()
-                Text(L10n.trendExcludedHeader)
-                    .font(.caption).foregroundStyle(.secondary)
-                    .accessibilityIdentifier("SP-13.trend.excluded.header")
+                HStack(spacing: 8) {
+                    Text(L10n.trendExcludedHeader(series.excludedPoints.count))
+                        .font(.caption).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("SP-13.trend.excluded.header")
+                    Spacer()
+                    Button(showsExcludedOnChart ? L10n.trendExcludedHideFromChart
+                                                : L10n.trendExcludedShowOnChart) {
+                        showsExcludedOnChart.toggle()
+                    }
+                    .font(.caption)
+                    .frame(minHeight: 44)
+                    .accessibilityIdentifier("SP-13.trend.excluded.chartToggle")
+                }
                 LazyVStack(alignment: .leading, spacing: 8) {
                     ForEach(TrendRules.sorted(series.excludedPoints)) { point in
                         TrendPointRow(point: point, isExcluded: true,
@@ -417,32 +450,14 @@ struct TrendDetailView: View {
     var onOpenSource: ((TrendPoint) -> Void)?
     var onToggleExcluded: ((TrendPoint) -> Void)?
 
-    @State private var showExcluded = false
-
     var body: some View {
         ScrollView {
             TrendChartView(series: series,
                            window: window,
-                           showExcluded: showExcluded,
                            onOpenSource: onOpenSource,
                            onToggleExcluded: onToggleExcluded)
         }
         .navigationTitle(L10n.trendTitle)
-        .onAppear { if series.points.isEmpty { showExcluded = true } }
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Toggle(isOn: $showExcluded) {
-                    HStack(spacing: 4) {
-                        VLIcon.filter.resizable().frame(width: 18, height: 18)
-                        Text(L10n.trendShowExcluded)
-                    }
-                    .frame(minWidth: 44, minHeight: 44)
-                }
-                .toggleStyle(.button)
-                .accessibilityLabel(L10n.trendShowExcludedAccessibility)
-                .accessibilityIdentifier("SP-13.trend.excluded.toggle")
-            }
-        }
     }
 }
