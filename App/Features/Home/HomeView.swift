@@ -456,6 +456,13 @@ struct HomeView: View {
                 .listRowBackground(Color(.secondarySystemGroupedBackground))
                 .listRowInsets(cardRowInsets)
         }
+        // 失败终态（2026-09-16 评审）：下载失败在首页可见（此前失败只在设置页
+        // 三跳外、首页卡片静默消失）——含 [重试] 与关闭。
+        if let failedChoice = installCenter.lastFailure, installCenter.active.isEmpty {
+            modelDownloadFailedCard(failedChoice)
+                .listRowBackground(Color(.secondarySystemGroupedBackground))
+                .listRowInsets(cardRowInsets)
+        }
         ForEach(items) { item in
             if item.id.kind == ReminderHubLoader.profileProgressKind, let progress = profileCompletion {
                 profileProgressCard(progress)     // 保持 Button + SP-04.home.profileProgress；动作表为空 → 无滑动
@@ -540,7 +547,10 @@ struct HomeView: View {
         let fraction = downloading ? (install.progress?.fraction ?? 0) : 0
         HStack(spacing: 10) {
             Button {
-                router.navigate(to: .voiceEngineLab)
+                // 2026-09-16 委员会评审：此前落 `.voiceEngineLab`（SP-62 引擎实验室）
+                // ——该页不承载模型下载面（`ASREngineSettingsSection` 唯一挂在
+                // SP-25 语音语言页），「查看下载」点过去看不到进度条与取消。
+                router.navigate(to: .voiceLanguageSettings)
             } label: {
                 HStack(spacing: 10) {
                     Image(systemName: "arrow.down.circle")
@@ -587,6 +597,31 @@ struct HomeView: View {
                 .frame(minHeight: 44)
                 .accessibilityIdentifier("SP-04.home.modelDownload.cancel.\(install.choice.rawValue)")
         }
+    }
+
+    /// 后台任务失败卡（2026-09-16 评审）：与进度卡同形，红字提示 + [重试] + 关闭。
+    @ViewBuilder
+    private func modelDownloadFailedCard(_ choice: VoiceEngineChoice) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.title3)
+                .foregroundStyle(Color("semantic-warning", bundle: .main))
+                .frame(width: 36)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(L10n.asrModelDownloadFailed)
+                    .font(.subheadline.bold()).foregroundStyle(.primary)
+                Text(L10n.voiceEngineName(choice))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Button(L10n.commonCancel) { installCenter.dismissFailure() }
+                .font(.caption)
+                .frame(minHeight: 44)
+                .accessibilityIdentifier("SP-04.home.modelDownload.failure.dismiss")
+        }
+        .frame(minHeight: 44)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("SP-04.home.modelDownload.failure.\(choice.rawValue)")
     }
 
     /// 阶段/进度文案（复用 SP-25 阶段键；下载显示字节数——慢链路下条位移缓慢，数字给确定反馈）。

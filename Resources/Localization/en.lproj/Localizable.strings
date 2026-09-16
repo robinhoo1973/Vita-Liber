@@ -657,6 +657,8 @@
 "search.failed" = "Search failed, please retry";
 "search.retry" = "Retry";
 "search.group.docs" = "Documents";
+"search.group.healthData" = "Health data";
+"search.healthData.hint" = "View all imported readings and trends for this metric";
 "search.group.observations" = "Observations";
 "search.group.meds" = "Medications";
 "search.obsLocked" = "Sensitive observation (unlock to view)";

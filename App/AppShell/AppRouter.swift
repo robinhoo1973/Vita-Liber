@@ -150,7 +150,14 @@ final class AppRouter {
     /// （TestFlight 实测——首页快速拍摄/语音速记面板选择栏目均因此无反应）。
     /// SOS 免门禁（FR1.8），其余路由在门禁通过后可见。
     func navigate(to route: AppRoute) {
-        let tab = MainModuleID.tab(of: route)
+        let registeredTab = MainModuleID.tab(of: route)
+        // 2026-09-16 委员会评审（业主裁定「留在当前 Tab」）：指标族页
+        // （总览/趋势/快速录入）是**跨 Tab 复用页**——健康数据 Tab 的入口
+        // 与记录 Tab 的深链共用同一 SP。由当前 Tab 推入时**就地推入**，
+        // 不把用户撕回「记录」Tab（此前从健康页点开总览即被切走，且
+        // `.metricOverview` 遗留在 healthPath 上悬浮）。
+        let inPlacePages: Set<AppRoute> = [.metricOverview, .trendChart, .metricQuickEntry]
+        let tab = (inPlacePages.contains(route) && selection != registeredTab) ? selection : registeredTab
         selection = tab
         // selection 本拍同步落盘（persist(path:) 不再捎带——同 Tab push/pop
         // 手势不应重复写未变化的 selection 键）

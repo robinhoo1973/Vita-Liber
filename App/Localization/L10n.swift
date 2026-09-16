@@ -1378,7 +1378,7 @@ enum L10n {
         "nc.section.alert", "nc.section.ocr", "nc.nextAction.dose", "nc.confirmDose",
         "nc.expireDateFmt", "nc.ocrCountFmt", "nc.empty", "nc.emptyHint",
         "search.title", "search.placeholder", "search.placeholderHint", "search.noResultFmt",
-        "search.loosenHint", "search.clear", "search.failed", "search.retry", "search.group.docs", "search.group.observations",
+        "search.loosenHint", "search.clear", "search.failed", "search.retry", "search.group.docs", "search.group.healthData", "search.healthData.hint", "search.group.observations",
         "search.group.meds", "search.obsLocked",
         "language.title", "language.footer", "voiceLang.title", "voiceLang.inputSection",
         "voiceLang.inputHint", "voiceLang.outputSection", "voiceLang.outputHint",
@@ -2001,6 +2001,9 @@ enum L10n {
     static var searchLoadFailed: String { t("search.failed") }
     static var searchRetry: String { t("search.retry") }
     static var searchGroupDocs: String { t("search.group.docs") }
+    /// 健康数据搜索组（2026-09-16 委员会评审②）：Apple 健康导入读数可按指标名搜到。
+    static var searchGroupHealthData: String { t("search.group.healthData") }
+    static var searchHealthDataHint: String { t("search.healthData.hint") }
     static var searchGroupObservations: String { t("search.group.observations") }
     static var searchGroupMeds: String { t("search.group.meds") }
     static var searchObsLocked: String { t("search.obsLocked") }

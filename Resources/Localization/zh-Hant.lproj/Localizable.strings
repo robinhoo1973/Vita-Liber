@@ -657,6 +657,8 @@
 "search.failed" = "檢索失敗，請重試";
 "search.retry" = "重試";
 "search.group.docs" = "資料";
+"search.group.healthData" = "健康資料";
+"search.healthData.hint" = "檢視該指標的全部匯入資料與趨勢";
 "search.group.observations" = "觀察";
 "search.group.meds" = "用藥";
 "search.obsLocked" = "敏感觀察（解鎖後可見內容）";

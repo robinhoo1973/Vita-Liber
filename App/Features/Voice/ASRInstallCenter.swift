@@ -30,6 +30,10 @@ final class ASRInstallCenter {
 
     private(set) var active: [Install] = []
     private(set) var failed: Set<VoiceEngineChoice> = []
+    /// 最近一次失败（2026-09-16 委员会评审）：此前失败只在设置页三跳外可见、
+    /// 首页卡片静默消失——用户从首页发起下载后失败无任何反馈。留到用户
+    /// 显式处置（重试/关闭）或再次发起。
+    private(set) var lastFailure: VoiceEngineChoice?
 
     private let service = ASRModelDownloadService.shared
     private let dataChange: AppDataChangeCenter
@@ -53,10 +57,14 @@ final class ASRInstallCenter {
         let id = UUID()
         active.append(Install(id: id, choice: choice))
         failed.remove(choice)
+        lastFailure = nil
         tasks[choice] = Task { [weak self] in
             await self?.run(release, choice: choice, id: id, baseURL: baseURL)
         }
     }
+
+    /// 首页失败卡关闭（用户已看到并处置）。
+    func dismissFailure() { lastFailure = nil }
 
     func cancel(_ choice: VoiceEngineChoice) {
         tasks[choice]?.cancel()
@@ -95,6 +103,7 @@ final class ASRInstallCenter {
             // 用户取消：不记失败（可再发起）。
         } catch {
             failed.insert(choice)
+            lastFailure = choice
         }
     }
 }

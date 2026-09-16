@@ -104,6 +104,21 @@ struct GlobalSearchView: View {
         state.docHits.filter { $0.kind == "voice_note" }
     }
 
+    /// 健康数据命中（2026-09-16 委员会评审②）：Apple 健康导入读数此前**搜不到**
+    /// （FTS 无 metric_sample 路由）。口径：指标**本地化名**（L10n.metricName，
+    /// 单出口在 App 层——Domain 不持文案）前缀/包含匹配 query → 命中该指标的
+    /// 六类数据之一，点击落该类型数据列表页（SP-29 详情，页内可进趋势）。
+    private var healthDataHits: [(kind: HealthDataKind, metric: MetricType)] {
+        guard query.count >= 1 else { return [] }
+        var seen = Set<HealthDataKind>()
+        return MetricType.allCases.compactMap { metric in
+            guard L10n.metricName(metric).contains(query) else { return nil }
+            guard let kind = HealthDataKind.allCases.first(where: { $0.primaryMetric == metric }),
+                  seen.insert(kind).inserted else { return nil }
+            return (kind, metric)
+        }
+    }
+
     private var observationHits: [ObservationEvent] {
         guard !query.isEmpty else { return [] }
         return observationState.groups
@@ -167,6 +182,19 @@ struct GlobalSearchView: View {
                     }
                     .accessibilityIdentifier("SP-20.search.empty")
                 } else {
+                    if !healthDataHits.isEmpty {
+                        Section(L10n.searchGroupHealthData) {
+                            ForEach(healthDataHits, id: \.kind) { hit in
+                                Button {
+                                    router.navigate(to: .healthImportedData(kind: hit.kind, patientId: app.currentPatientId))
+                                } label: {
+                                    SearchResultRow(title: L10n.metricName(hit.metric),
+                                                    snippet: L10n.searchHealthDataHint,
+                                                    badge: L10n.gradeD, date: nil)
+                                }
+                            }
+                        }
+                    }
                     if !documentHits.isEmpty {
                         Section(L10n.searchGroupDocs) {
                             ForEach(documentHits, id: \.refID) { hit in
