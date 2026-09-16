@@ -182,88 +182,12 @@ struct GlobalSearchView: View {
                     }
                     .accessibilityIdentifier("SP-20.search.empty")
                 } else {
-                    if !healthDataHits.isEmpty {
-                        Section(L10n.searchGroupHealthData) {
-                            ForEach(healthDataHits, id: \.kind) { hit in
-                                Button {
-                                    router.navigate(to: .healthImportedData(kind: hit.kind, patientId: app.currentPatientId))
-                                } label: {
-                                    SearchResultRow(title: L10n.metricName(hit.metric),
-                                                    snippet: L10n.searchHealthDataHint,
-                                                    badge: L10n.gradeD, date: nil)
-                                }
-                            }
-                        }
-                    }
-                    if !documentHits.isEmpty {
-                        Section(L10n.searchGroupDocs) {
-                            ForEach(documentHits, id: \.refID) { hit in
-                                Button {
-                                    router.navigate(to: .documentDetail(hit.refID))
-                                } label: {
-                                    SearchResultRow(title: hit.title,
-                                                    snippet: hit.isSensitive ? L10n.searchObsLocked : hit.snippet,
-                                                    badge: hit.isSensitive ? L10n.searchSensitive : nil,
-                                                    date: nil)
-                                }
-                                .accessibilityIdentifier("SP-20.search.doc.\(hit.refID.uuidString)")
-                            }
-                        }
-                    }
+                    if !healthDataHits.isEmpty { healthDataSection }
+                    if !documentHits.isEmpty { documentSection }
                     // FR17.14：语音速记正文命中（跳 SP-59 面板；列表内可选中所属条目）
-                    if !voiceNoteHits.isEmpty {
-                        Section(L10n.voicenoteTitle) {
-                            ForEach(voiceNoteHits, id: \.refID) { hit in
-                                Button {
-                                    router.navigate(to: .voiceNotePanel)
-                                } label: {
-                                    SearchResultRow(title: hit.title, snippet: hit.snippet,
-                                                    badge: nil, date: nil)
-                                }
-                                .accessibilityIdentifier("SP-20.search.note.\(hit.refID.uuidString)")
-                            }
-                        }
-                    }
-                    if !obsHits.isEmpty {
-                        Section(L10n.searchGroupObservations) {
-                            ForEach(obsHits) { obs in
-                                Button {
-                                    router.navigate(to: .observationDetail(obs.id))
-                                } label: {
-                                    // BR-007/008：敏感观察命中仍以锁定媒体态呈现；
-                                    // 无媒体附件的普通观察不加敏感徽章、显示描述片段
-                                    // （此前无条件标敏感——GradeBadge 纪律要求徽章
-                                    // 如实反映属性，普通「头痛」条目被系统性误标）
-                                    if obs.mediaAssetIds.isEmpty {
-                                        SearchResultRow(title: obs.description ?? L10n.observationKindName(obs.kind),
-                                                        snippet: "", badge: nil,
-                                                        date: obs.occurredAt)
-                                    } else {
-                                        SearchResultRow(title: obs.description ?? L10n.observationKindName(obs.kind),
-                                                        snippet: L10n.searchObsLocked,
-                                                        badge: L10n.searchSensitive,
-                                                        date: obs.occurredAt)
-                                    }
-                                }
-                                .accessibilityIdentifier("SP-20.search.obs.\(obs.id.uuidString)")
-                            }
-                        }
-                    }
-                    if !medHits.isEmpty {
-                        Section(L10n.searchGroupMeds) {
-                            ForEach(medHits) { item in
-                                Button {
-                                    router.navigate(to: .medicationCabinet)
-                                } label: {
-                                    SearchResultRow(title: item.medicationName,
-                                                    snippet: item.spec ?? "",
-                                                    badge: "C",
-                                                    date: item.expireAt)
-                                }
-                                .accessibilityIdentifier("SP-20.search.med.\(item.lotId.uuidString)")
-                            }
-                        }
-                    }
+                    if !voiceNoteHits.isEmpty { voiceNoteSection }
+                    if !obsHits.isEmpty { observationSection(obsHits) }
+                    if !medHits.isEmpty { medicationSection(medHits) }
                 }
             }
             .navigationTitle(L10n.searchTitle)
@@ -308,6 +232,107 @@ struct GlobalSearchView: View {
                 }
             }
             .onDisappear { debounceTask?.cancel() }
+        }
+    }
+
+    // MARK: - 命中分区（类型检查超时修复，CI 35053753500）
+
+    /// 2026-09-16：五个分区原先全部内联在 `body` 的 `else` 分支里，整个 `List` 是
+    /// **一个**巨型 ViewBuilder 表达式，Swift 类型检查器解不出来
+    /// （`GlobalSearchView.swift:191: the compiler is unable to type-check this
+    /// expression in reasonable time`）→ 编译门禁红、归档与上传全断。
+    /// L0「长链高阶」启发式只覆盖链式调用（`.map/.filter/…` ≥6 段），不覆盖
+    /// **嵌套深度**，故门禁不报——这是 Linux 预推通道的已知盲区（App/ 零类型检查）。
+    /// 按分区拆成独立子视图：类型检查按属性分治，各自小到可解。
+    /// 同族先例：`92a1301`（HealthImportRow 投影表达式拆分）。
+    ///
+    /// `obsHits`/`medHits` 以**参数**传入而非重算——`body` 里把它们绑成局部常量
+    /// 是为避免每帧重复 flatMap + 本地化过滤 + 排序（见 body 顶部注释），
+    /// 抽成属性后直接读计算属性会把那次优化抹掉。
+
+    @ViewBuilder private var healthDataSection: some View {
+        Section(L10n.searchGroupHealthData) {
+            ForEach(healthDataHits, id: \.kind) { hit in
+                Button {
+                    router.navigate(to: .healthImportedData(kind: hit.kind, patientId: app.currentPatientId))
+                } label: {
+                    SearchResultRow(title: L10n.metricName(hit.metric),
+                                    snippet: L10n.searchHealthDataHint,
+                                    badge: L10n.gradeD, date: nil)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var documentSection: some View {
+        Section(L10n.searchGroupDocs) {
+            ForEach(documentHits, id: \.refID) { hit in
+                Button {
+                    router.navigate(to: .documentDetail(hit.refID))
+                } label: {
+                    SearchResultRow(title: hit.title,
+                                    snippet: hit.isSensitive ? L10n.searchObsLocked : hit.snippet,
+                                    badge: hit.isSensitive ? L10n.searchSensitive : nil,
+                                    date: nil)
+                }
+                .accessibilityIdentifier("SP-20.search.doc.\(hit.refID.uuidString)")
+            }
+        }
+    }
+
+    @ViewBuilder private var voiceNoteSection: some View {
+        Section(L10n.voicenoteTitle) {
+            ForEach(voiceNoteHits, id: \.refID) { hit in
+                Button {
+                    router.navigate(to: .voiceNotePanel)
+                } label: {
+                    SearchResultRow(title: hit.title, snippet: hit.snippet,
+                                    badge: nil, date: nil)
+                }
+                .accessibilityIdentifier("SP-20.search.note.\(hit.refID.uuidString)")
+            }
+        }
+    }
+
+    @ViewBuilder private func observationSection(_ obsHits: [ObservationEvent]) -> some View {
+        Section(L10n.searchGroupObservations) {
+            ForEach(obsHits) { obs in
+                Button {
+                    router.navigate(to: .observationDetail(obs.id))
+                } label: {
+                    // BR-007/008：敏感观察命中仍以锁定媒体态呈现；
+                    // 无媒体附件的普通观察不加敏感徽章、显示描述片段
+                    // （此前无条件标敏感——GradeBadge 纪律要求徽章
+                    // 如实反映属性，普通「头痛」条目被系统性误标）
+                    if obs.mediaAssetIds.isEmpty {
+                        SearchResultRow(title: obs.description ?? L10n.observationKindName(obs.kind),
+                                        snippet: "", badge: nil,
+                                        date: obs.occurredAt)
+                    } else {
+                        SearchResultRow(title: obs.description ?? L10n.observationKindName(obs.kind),
+                                        snippet: L10n.searchObsLocked,
+                                        badge: L10n.searchSensitive,
+                                        date: obs.occurredAt)
+                    }
+                }
+                .accessibilityIdentifier("SP-20.search.obs.\(obs.id.uuidString)")
+            }
+        }
+    }
+
+    @ViewBuilder private func medicationSection(_ medHits: [MedicationStore.InventorySummaryItem]) -> some View {
+        Section(L10n.searchGroupMeds) {
+            ForEach(medHits) { item in
+                Button {
+                    router.navigate(to: .medicationCabinet)
+                } label: {
+                    SearchResultRow(title: item.medicationName,
+                                    snippet: item.spec ?? "",
+                                    badge: "C",
+                                    date: item.expireAt)
+                }
+                .accessibilityIdentifier("SP-20.search.med.\(item.lotId.uuidString)")
+            }
         }
     }
 
