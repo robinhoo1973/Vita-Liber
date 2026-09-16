@@ -1596,6 +1596,7 @@ enum L10n {
         "home.disclaimer",
         "home.profileContinue",
         "home.profileProgress",
+        "home.model.downloadTitle", "home.model.downloadView",
         "home.profileProgressFmt",
         "inventory.tier0",
         "member.relation.child",
@@ -1713,6 +1714,9 @@ enum L10n {
         "asr.model.download", "asr.model.update", "asr.model.installed",
         "asr.model.downloading", "asr.model.downloadFailed",
         "asr.model.checkUpdate", "asr.index.fetchFailed",
+        "asr.model.checking", "asr.model.checkUpToDate", "asr.model.checkUpdatesFmt",
+        "asr.model.progressFmt", "asr.model.phaseVerifying", "asr.model.phaseUnpacking",
+        "asr.model.phaseActivating", "asr.model.phasePruning", "asr.model.backgroundHint",
         "asr.qwen3", "asr.qwen3.hint",
         "asr.preparing",
         "ocr.cards.overview", "ocr.cards.none", "ocr.cards.hint", "ocr.cards.begin", "ocr.fieldActions",
@@ -1922,6 +1926,9 @@ enum L10n {
     static var homeCaptureSaved: String { t("home.capture.saved") }
     static var docTypePrescription: String { t("doc.type.prescription") }
     static var homeProfileProgressTitle: String { t("home.profileProgress") }
+    /// 后台任务（模型下载）首页条目（2026-09-16 业主）：进行中显示，形如档案完善进度卡。
+    static var homeModelDownloadTitle: String { t("home.model.downloadTitle") }
+    static var homeModelDownloadView: String { t("home.model.downloadView") }
     static func homeProfileProgressFmt(_ done: Int, _ total: Int) -> String {
         String(format: t("home.profileProgressFmt"), done, total)   // 位置参数 %1$d / %2$d
     }
@@ -3136,6 +3143,20 @@ enum L10n {
     static var asrModelDownloading: String { t("asr.model.downloading") }
     static var asrModelDownloadFailed: String { t("asr.model.downloadFailed") }
     static var asrModelCheckUpdate: String { t("asr.model.checkUpdate") }
+    /// 检查更新三元反馈（2026-09-16 业主实测：此前点击后无任何可见结果）。
+    static var asrModelChecking: String { t("asr.model.checking") }
+    static var asrModelCheckUpToDate: String { t("asr.model.checkUpToDate") }
+    static func asrModelCheckUpdates(_ count: Int) -> String { String(format: t("asr.model.checkUpdatesFmt"), count) }
+    /// 下载进度（字节数双参——慢链路下进度条位移缓慢，数字给确定反馈）。
+    static func asrModelProgress(_ received: String, _ total: String) -> String {
+        String(format: t("asr.model.progressFmt"), received, total)
+    }
+    /// 安装阶段文案（下载后的校验/解压/安装/清理此前完全无反馈）。
+    static var asrModelPhaseVerifying: String { t("asr.model.phaseVerifying") }
+    static var asrModelPhaseUnpacking: String { t("asr.model.phaseUnpacking") }
+    static var asrModelPhaseActivating: String { t("asr.model.phaseActivating") }
+    static var asrModelPhasePruning: String { t("asr.model.phasePruning") }
+    static var asrModelBackgroundHint: String { t("asr.model.backgroundHint") }
     static var asrIndexFetchFailed: String { t("asr.index.fetchFailed") }
     static var asrPreparing: String { t("asr.preparing") }
     static var asrSelectionHint: String { t("asr.selectionHint") }

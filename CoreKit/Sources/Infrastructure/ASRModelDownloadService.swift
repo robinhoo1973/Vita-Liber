@@ -48,7 +48,6 @@ public actor ASRModelDownloadService {
     private let session: URLSession
     private let trust = ModelCatalogTrustStore.shared
     private let fileManager = FileManager.default
-    /// 分段数：4 路在移动网/CDN 场景通常接近带宽上限，且不至于触发服务端限流。
     /// 分段数（并行度）：6——2026-09-15 实测复核（业主报告下载慢）：CDN
     /// （release-assets.githubusercontent.com，白名单已放行）支持 `Accept-Ranges: bytes`，
     /// 分段并行链路本身正常；瓶颈在单连接链路速率（本机实测单流 ~0.17 MB/s），
@@ -58,7 +57,10 @@ public actor ASRModelDownloadService {
     /// install 会在 moveItem/active.json 上竞态（静默降级）——入口同步检入检出的
     /// 守卫才是真互斥。UI 一律经 `shared` 单例（安全审查 2026-09-12：此前每视图
     /// 自建实例，守卫互不看见，互斥形同虚设）。
-    private var installing = false
+    /// 在装模型集合（release.id）：per-model 互斥（各模型独立目录/指针/暂存），
+    /// 并发上限 2——同链路分段已 6 路，多模型再叠加会互相抢带宽。
+    private var installing: Set<String> = []
+    private static let maximumConcurrentInstalls = 2
 
     public init(session: URLSession? = nil) {
         let configuration = URLSessionConfiguration.ephemeral
@@ -85,9 +87,6 @@ public actor ASRModelDownloadService {
             ?? URL(fileURLWithPath: "/dev/null")
     }
 
-    // MARK: - 路径
-
-    /// 运行时资产根：`Application Support/ASRModels/`（与随包 `Bundle/ASRModels` 平行的第二条供应路径）。
     // MARK: - 协作类（结构轮 2026-09-15 拆分：下载/解压/哈希/指针各一职责类）
     // 以下 static 转发保留原公共面（App 与 CoreKit 内消费点零改）。
 
@@ -116,11 +115,9 @@ public actor ASRModelDownloadService {
 
     // MARK: - 索引
 
-    // MARK: - 索引
-
     /// 拉取并校验索引（结构版本不支持即拒绝；不做任何缓存写入——索引很小）。
     public func fetchIndex(from url: URL) async throws -> ASRModelReleaseIndex {
-        guard !installing else { throw Failure.installInProgress }
+        guard installing.isEmpty else { throw Failure.installInProgress }
         for _ in 0..<32 {
             guard let next = trust.nextRootURL else { throw Failure.badIndex }
             do {
@@ -193,14 +190,31 @@ public actor ASRModelDownloadService {
 
     // MARK: - 安装
 
+    /// 安装阶段（业主 2026-09-16 实测：此前只有下载阶段有进度，校验/解压/激活
+    /// 长时间无反馈——慢链路下用户判定「卡死」）。UI 按阶段展示确定进度（下载）
+    /// 或不确定进度 + 阶段文案。
+    public enum InstallPhase: String, Sendable, Equatable {
+        case downloading
+        case verifying
+        case unpacking
+        case activating
+        case pruning
+    }
+
     /// 下载 → 校验 → 解压 → 包内校验 → 原子切换。返回安装后的版本目录。
+    /// `onPhase` 逐阶段回调（主线程无保证，调用方自行 hop）。
     @discardableResult
     public func install(_ release: ASRModelRelease,
                         baseURL: URL?,
-                        progress: (@Sendable (DownloadProgress) -> Void)? = nil) async throws -> URL {
-        guard !installing else { throw Failure.installInProgress }
-        installing = true
-        defer { installing = false }
+                        progress: (@Sendable (DownloadProgress) -> Void)? = nil,
+                        onPhase: (@Sendable (InstallPhase) -> Void)? = nil) async throws -> URL {
+        // per-model 互斥（2026-09-16）：各模型有独立 modelRoot / active.json / staging，
+        // 无共享可变状态——此前全局 Bool 把「并行下载不同模型」一并禁掉且拒绝路径
+        // 静默（业主实测「不能多个同时下载」）。并发上限防链路争用（同链路分段已 6 路）。
+        guard !installing.contains(release.id) else { throw Failure.installInProgress }
+        guard installing.count < Self.maximumConcurrentInstalls else { throw Failure.installInProgress }
+        installing.insert(release.id)
+        defer { installing.remove(release.id) }
         guard release.isPublished else { throw Failure.notPublished }
         // 公钥签名目录或 App 内嵌基线授权完整描述；网络自报 SHA 无法自行授权。
         let appVersion = (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "0.0.1"
@@ -231,8 +245,10 @@ public actor ASRModelDownloadService {
         if let free, free < 2 * (release.bytes ?? 0) + expanded + 268_435_456 { throw Failure.installFailed }
 
         let zipURL = staging.appendingPathComponent("package.zip")
+        onPhase?(.downloading)
         try await downloader.download(url: url, expectedBytes: release.bytes ?? 0, to: zipURL, progress: progress)
 
+        onPhase?(.verifying)
         let digest = try StreamingFileHasher.sha256(of: zipURL)
         // release 的整份描述已匹配受信任授权。
         guard digest.caseInsensitiveCompare(release.sha256) == .orderedSame else {
@@ -240,6 +256,7 @@ public actor ASRModelDownloadService {
         }
 
         let unpacked = staging.appendingPathComponent("unpacked", isDirectory: true)
+        onPhase?(.unpacking)
         try ModelPackageUnpacker.unzip(zipURL, to: unpacked, maximumBytes: expanded)
         do {
             _ = try ASRModelAssets(root: unpacked).validate(choice)
@@ -250,6 +267,7 @@ public actor ASRModelDownloadService {
         try Task.checkCancellation()
         guard trust.isAuthorized(release) else { throw Failure.untrustedPackage }
         // 唯一安装目录：同版本修复也不会先删除当前激活目录。
+        onPhase?(.activating)
         let directoryName = String(release.version.prefix(60)) + "-" + String(release.sha256.prefix(12)) + "-" + UUID().uuidString
         let versionDir = modelRoot.appendingPathComponent(directoryName, isDirectory: true)
         do {
@@ -272,6 +290,7 @@ public actor ASRModelDownloadService {
         ActivePointerStore.invalidatePointerCache()
         ASRModelAssets.invalidateCaches()
 
+        onPhase?(.pruning)
         pruneOldVersions(modelRoot: modelRoot, keeping: [versionDir, previousRoot].compactMap { $0 })
         return versionDir
     }

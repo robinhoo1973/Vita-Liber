@@ -29,6 +29,8 @@ struct HomeView: View {
     @Environment(DocumentsState.self) private var docs
     @Environment(AppDataChangeCenter.self) private var dataChange
     @Environment(NotificationCenterState.self) private var notificationState
+    /// 后台任务（模型下载）中心（2026-09-16 业主）：进行中即在首页显示进度条目。
+    @Environment(ASRInstallCenter.self) private var installCenter
     @State private var showMemberPicker = false
     @State private var showSOS = false
     @State private var showVoicePanel = false
@@ -447,6 +449,13 @@ struct HomeView: View {
     @ViewBuilder
     private func aggregationRows(_ items: [AggregatedReminderItem],
                                  profileCompletion: (done: Int, total: Int)?) -> some View {
+        // 后台任务进度（2026-09-16 业主）：模型下载进行中时显示——形如档案完善进度卡
+        // （图标 + 标题 + 进度条 + 取消），数据源 = App 层安装中心（离开设置页/切后台仍可见）。
+        ForEach(installCenter.active) { install in
+            modelDownloadCard(install)
+                .listRowBackground(Color(.secondarySystemGroupedBackground))
+                .listRowInsets(cardRowInsets)
+        }
         ForEach(items) { item in
             if item.id.kind == ReminderHubLoader.profileProgressKind, let progress = profileCompletion {
                 profileProgressCard(progress)     // 保持 Button + SP-04.home.profileProgress；动作表为空 → 无滑动
@@ -520,6 +529,81 @@ struct HomeView: View {
         .accessibilityValue(L10n.homeProfileProgressFmt(progress.done, progress.total))
         .accessibilityHint(L10n.homeProfileContinue)
         .accessibilityIdentifier("SP-04.home.profileProgress")
+    }
+
+    /// 后台任务（模型下载）卡片（2026-09-16 业主）：形态对齐档案完善进度卡——
+    /// 下载显示分数进度（条 + 百分比 + 字节数字），校验/解压/安装/清理显示不确定进度 + 阶段文案；
+    /// 主体点击进设置下载面（SP-25/SP-62），trailing [取消] 直达安装中心。
+    @ViewBuilder
+    private func modelDownloadCard(_ install: ASRInstallCenter.Install) -> some View {
+        let downloading = install.phase == nil || install.phase == .downloading
+        let fraction = downloading ? (install.progress?.fraction ?? 0) : 0
+        HStack(spacing: 10) {
+            Button {
+                router.navigate(to: .voiceEngineLab)
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "arrow.down.circle")
+                        .font(.title3)
+                        .foregroundStyle(Color("brand-primary", bundle: .main))
+                        .frame(width: 36)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text(L10n.homeModelDownloadTitle)
+                                .font(.subheadline.bold()).foregroundStyle(.primary)
+                            Spacer(minLength: 8)
+                            if downloading {
+                                Text("\(Int(fraction * 100))%")
+                                    .font(.caption).monospacedDigit()
+                                    .foregroundStyle(Color("brand-primary", bundle: .main))
+                            }
+                        }
+                        Text(L10n.voiceEngineName(install.choice))
+                            .font(.caption).foregroundStyle(.secondary)
+                        if downloading {
+                            ProgressView(value: fraction)
+                                .tint(Color("brand-primary", bundle: .main))
+                        } else {
+                            ProgressView()
+                        }
+                        Text(detailText(install))
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+                }
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(L10n.homeModelDownloadTitle)
+            .accessibilityValue("\(L10n.voiceEngineName(install.choice)) \(detailText(install))")
+            .accessibilityHint(L10n.homeModelDownloadView)
+            .accessibilityIdentifier("SP-04.home.modelDownload.\(install.choice.rawValue)")
+
+            Button(L10n.commonCancel) { installCenter.cancel(install.choice) }
+                .font(.caption)
+                .frame(minHeight: 44)
+                .accessibilityIdentifier("SP-04.home.modelDownload.cancel.\(install.choice.rawValue)")
+        }
+    }
+
+    /// 阶段/进度文案（复用 SP-25 阶段键；下载显示字节数——慢链路下条位移缓慢，数字给确定反馈）。
+    private func detailText(_ install: ASRInstallCenter.Install) -> String {
+        switch install.phase {
+        case .verifying: return L10n.asrModelPhaseVerifying
+        case .unpacking: return L10n.asrModelPhaseUnpacking
+        case .activating: return L10n.asrModelPhaseActivating
+        case .pruning: return L10n.asrModelPhasePruning
+        case .downloading, nil:
+            if let progress = install.progress {
+                return L10n.asrModelProgress(
+                    ByteCountFormatter.string(fromByteCount: progress.receivedBytes, countStyle: .file),
+                    ByteCountFormatter.string(fromByteCount: progress.totalBytes, countStyle: .file))
+            }
+            return L10n.asrModelDownloading
+        }
     }
 
     private func aggregationRow(_ item: AggregatedReminderItem) -> some View {

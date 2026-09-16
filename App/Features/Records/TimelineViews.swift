@@ -370,7 +370,18 @@ struct TimelineFullView: View {
         // `observation.id`——原实现与 .observation 同路 → `ObservationStore.fetch`
         // 恒查无 → 每条导入记录点开都是「这条观察记录加载失败」。与 .lab 同口径：
         // 按 entry.metricKey 进该指标的已有趋势图（点 = 一次读数，归属由 memberId 下传）。
-        case .selfMeasured, .healthData:
+        // 2026-09-16 业主实测（第 5 项）：设备行**不再直跳趋势图**（「感觉突兀」）——
+        // 落该类型的数据列表页（= 详细数据：逐条读数 + 统计事实），页内已有趋势入口按钮。
+        // 手输自测保持原口径（点 = 一次手输读数，趋势图承载即可）。
+        case .healthData:
+            if let m = entry.metricKey, let kind = HealthDataKind.forMetricKey(m) {
+                router.navigate(to: .healthImportedData(kind: kind, patientId: entry.memberId))
+            } else if let m = entry.metricKey {
+                router.navigate(to: .trendChart(patientId: entry.memberId, metric: m))   // 非六类设备键（防御）
+            } else {
+                router.navigate(to: .metricQuickEntry)
+            }
+        case .selfMeasured:
             if let m = entry.metricKey {
                 router.navigate(to: .trendChart(patientId: entry.memberId, metric: m))
             } else {

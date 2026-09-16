@@ -1515,6 +1515,8 @@
 "voiceguide.note.meds" = "目前用藥";
 "voiceguide.note.contact" = "緊急聯絡人";
 "home.profileProgress" = "檔案完善進度";
+"home.model.downloadTitle" = "正在下載語音模型";
+"home.model.downloadView" = "檢視下載";
 "home.profileProgressFmt" = "已完善 %1$d/%2$d 項";
 "home.profileContinue" = "繼續完善";
 "home.disclaimer" = "本機醫療檔案 · 不聯網 · 不診斷";
@@ -1715,6 +1717,15 @@
 "asr.model.downloading" = "下載中…（保持應用於前景）";
 "asr.model.downloadFailed" = "下載失敗，請檢查網路後重試";
 "asr.model.checkUpdate" = "檢查更新";
+"asr.model.checking" = "檢查中…";
+"asr.model.checkUpToDate" = "已是最新";
+"asr.model.checkUpdatesFmt" = "發現 %d 個可更新";
+"asr.model.progressFmt" = "已下載 %@ / %@";
+"asr.model.phaseVerifying" = "校驗完整性…";
+"asr.model.phaseUnpacking" = "解壓中…";
+"asr.model.phaseActivating" = "安裝中…";
+"asr.model.phasePruning" = "清理舊版本…";
+"asr.model.backgroundHint" = "可切到背景繼續下載";
 "asr.index.fetchFailed" = "檢查更新失敗，請重試";
 "home.swipe.archive" = "封存";
 "home.swipe.archived" = "已封存「%@」";

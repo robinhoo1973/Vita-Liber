@@ -48,6 +48,13 @@ public extension HealthDataKind {
     }
     /// Aggregate kinds project one row per window (hour / day / night); discrete kinds keep one row per reading.
     var isAggregated: Bool { [.heartRate, .steps, .sleep].contains(self) }
+
+    /// 反查（2026-09-16 业主实测）：`metric_sample.metric_key`（设备行 = `primaryMetric.rawValue`）
+    /// → 数据类别。健康档案的设备行据此路由到**该类型的数据列表页**（详细数据 + 趋势入口），
+    /// 而不是直跳趋势图（业主第 5 项：「直接进入趋势图感觉突兀」）。非设备类别键 → nil。
+    public static func forMetricKey(_ key: String) -> HealthDataKind? {
+        allCases.first { $0.primaryMetric.rawValue == key }
+    }
 }
 
 public struct HealthImportWindow: Sendable, Hashable, Codable {

@@ -57,6 +57,7 @@ struct LanguageSettingsView: View {
 struct VoiceLanguageSettingsView: View {
     @Environment(AppSettingsStore.self) private var settings
     @Environment(AppState.self) private var app
+    @Environment(AppDataChangeCenter.self) private var dataChange
     @Environment(\.scenePhase) private var scenePhase
     /// FR17.15 V3.61：**有序**列表——首位 = 主语言（识别 locale）；此前 Set + sorted()
     /// 字母序写回，多选 {普通话, 英语} 实际主语言变成 en-US
@@ -209,6 +210,13 @@ struct VoiceLanguageSettingsView: View {
             .navigationTitle(L10n.voiceLangTitle)
             .task { await load() }
             .task(id: settings.values[.voiceEngine]) {
+                inputCapability = await app.transcriptionEngine.currentCapability()
+            }
+            // 模型资产安装完成即重算（2026-09-16 业主实测修复）：可选性判定此前只随
+            // 进页/切档位/场景恢复重算——同页内下载完成不触发任何一条，语言项
+            // 「下载完了还是不能选」。与 metricsVersion 同款失效通道。
+            .task(id: dataChange.assetsVersion) {
+                guard loaded else { return }   // 首次由 load() 承担，避免双算
                 inputCapability = await app.transcriptionEngine.currentCapability()
             }
             .onChangeCompat(of: scenePhase) { _, phase in

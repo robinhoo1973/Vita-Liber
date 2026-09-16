@@ -32,6 +32,8 @@ struct VitaLiberApp: App {
     @State private var f16DeviceState: F16DeviceState
     /// 类型化数据变更信号（V3.49：文档保存/设备读数落库 → 版本计数 → 跨页刷新）
     @State private var dataChangeCenter: AppDataChangeCenter
+    /// 模型安装中心（2026-09-16）：下载进行态 App 级可观察（首页条目 + 设置页同源）。
+    @State private var asrInstallCenter: ASRInstallCenter
     @State private var backupState: BackupState
 
     init() {
@@ -117,6 +119,7 @@ struct VitaLiberApp: App {
         // 后续 State 的 initialValue 一律引用本局部常量，闭包惰性捕获不受限。
         let dataChange = AppDataChangeCenter()
         _dataChangeCenter = State(initialValue: dataChange)
+        _asrInstallCenter = State(initialValue: ASRInstallCenter(dataChange: dataChange))
         _documentsState = State(initialValue: DocumentsState(
             store: container.documents,
             pipeline: OCRPipeline(
@@ -233,6 +236,7 @@ struct VitaLiberApp: App {
             .environment(settingsStore)
             .environment(observationState)
             .environment(dataChangeCenter)
+            .environment(asrInstallCenter)
             .environment(container.notificationCenterState)
             .environment(PendingCardCenterState(store: container.pendingCards))
             .environment(entitlementStore)

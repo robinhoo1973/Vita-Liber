@@ -220,9 +220,12 @@ private struct PreviewRoot: View {
     /// 与 VitaLiberApp 同构：单实例数据变更信号——首页/趋势/通知中心/证据页
     /// 均按 `@Environment(AppDataChangeCenter.self)` 读取，缺注入即断言崩溃。
     private let dataChange = AppDataChangeCenter()
+    /// 预览同构：安装中心与生产同源（页面 .environment(ASRInstallCenter.self) 依赖）。
+    private let asrInstallCenter: ASRInstallCenter
 
     init() {
         // 与 VitaLiberApp 同构装配：内存库 + 内存调度器，仅 live 路径换成 preview。
+        asrInstallCenter = ASRInstallCenter(dataChange: dataChange)
         let assembled: AppContainer
         do {
             assembled = try AppContainer.preview()
@@ -273,6 +276,7 @@ private struct PreviewRoot: View {
                 // 且 Preview 无法充当该崩溃族的回归探针）。预览禁触生产目录：
                 // originalsDir 用临时目录，调度器用内存桩。
                 .environment(dataChange)
+                .environment(asrInstallCenter)
                 .environment(container.notificationCenterState)
                 .environment(PendingCardCenterState(store: container.pendingCards))
                 .environment(DocumentsState(
