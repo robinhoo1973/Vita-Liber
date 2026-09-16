@@ -333,7 +333,7 @@ final class StockRegressionTests: XCTestCase {
             try await meds.recordTakenAt(planId: planId, patientId: UUID(), medicationId: med,
                                          actualTime: due.addingTimeInterval(5 * 60), doseUnits: 1)
             XCTFail("错传成员的补录必须被拒（doseNotFound）——此前会静默扣减他人批次")
-        } catch StoreError.doseNotFound {
+        } catch MedicationStore.StoreError.doseNotFound(_) {
             // 预期路径
         } catch {
             XCTFail("预期 doseNotFound，实际：\(error)")
