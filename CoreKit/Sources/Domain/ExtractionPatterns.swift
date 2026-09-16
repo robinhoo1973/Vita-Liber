@@ -25,6 +25,80 @@ public enum ExtractionPatterns {
     /// 预排序常量——此前调用点每行 `deptWords.sorted(by:)` 现算一次（30 行报告即 30 次排序）。
     public static let deptWordsByLength: [String] = deptWords.sorted { $0.count > $1.count }
 
+    // MARK: - 标签值域（2026-09-16 实测污染修复）
+
+    /// 标签词表（**值域右界**单一出口）。一行多标签时，某标签的值到「下一个标签」为止。
+    ///
+    /// 修复的实测缺陷：原实现把「首个冒号之后的**全部**文本」当值——
+    /// 对 `日期：2026-09-12 科室：呼吸内科 医生：张三` 得到
+    /// `doctor = "2026-09-12 科室：呼吸内科 医生：张三"`、
+    /// `department = "呼吸内科 医生：张三"`、`date = 整行`。三者都不是任何标签的值，
+    /// 且**原样进确认页**（启发式轨不经 `ExtractionGrounding`）。
+    /// 医疗记录里错的字段值比空值更危险，故此类值必须被截断或丢弃。
+    public static let labelBoundaries: [String] = [
+        "科室", "科別", "科别",
+        "医院", "醫院", "卫生院", "衛生院", "诊所", "診所",
+        "医生", "醫生", "医师", "醫師",
+        "日期", "检查时间", "檢查時間", "就诊时间", "就診時間", "报告日期", "報告日期",
+        "参考范围", "參考範圍", "参考值", "参考区间", "參考區間", "正常范围", "正常範圍",
+        "主诉", "主訴", "诊断", "診斷", "处理", "處理", "医嘱", "醫囑",
+        "姓名", "性别", "性別", "年龄", "年齡", "病历号", "病歷號", "门诊号", "門診號",
+    ]
+
+    /// 把一个已捕获的值截断到**下一个标签**之前。用于修 `fieldPatterns` 里 `(.+)` 的贪婪捕获
+    /// （`科室[:：]?\s*(.+)` 会把「呼吸内科 医生：张三」整段收下）。
+    /// 不含任何标签 → 原样返回；截断后为空 → 返回 nil（宁缺勿污染）。
+    public static func truncatingAtLabelBoundary(_ value: String) -> String? {
+        var cut = value.endIndex
+        for label in labelBoundaries {
+            if let r = value.range(of: label), r.lowerBound < cut { cut = r.lowerBound }
+        }
+        let span = value[value.startIndex..<cut].trimmingCharacters(in: .whitespacesAndNewlines)
+        return span.isEmpty ? nil : span
+    }
+
+    /// 取「标签：值」中**该标签自己**的值段：起点 = 标签之后跳过分隔符与空白；
+    /// 右界 = 行内**其它**标签的起点（或行尾）。结果恒为 `text` 的精确子串。
+    public static func valueSpan(afterLabel label: String, in text: String) -> String? {
+        guard let labelRange = text.range(of: label) else { return nil }
+        var cursor = labelRange.upperBound
+        while cursor < text.endIndex {
+            let ch = text[cursor]
+            guard ch == ":" || ch == "：" || ch.isWhitespace else { break }
+            cursor = text.index(after: cursor)
+        }
+        guard cursor < text.endIndex else { return nil }
+        var boundary = text.endIndex
+        let tail = text[cursor...]
+        for other in labelBoundaries where other != label {
+            if let r = tail.range(of: other), r.lowerBound < boundary { boundary = r.lowerBound }
+        }
+        guard cursor < boundary else { return nil }
+        let span = text[cursor..<boundary].trimmingCharacters(in: .whitespacesAndNewlines)
+        return span.isEmpty ? nil : span
+    }
+
+    /// 机构名（`<名称>医院` 后缀文法）：截到后缀为止，丢掉其后的文档类型词等尾随文本。
+    /// 实测缺陷：`北京协和医院 处方笺` 整行当医院名。文法不命中返回 nil（调用方回落原行为）。
+    public static func institutionName(in text: String) -> String? {
+        let pattern = #"([一-龥A-Za-z0-9（）()·]{2,20}(?:医院|醫院|卫生院|衛生院|诊所|診所))"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),   // try?-ok: 静态字面量
+              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              let range = Range(match.range(at: 1), in: text) else { return nil }
+        return String(text[range])
+    }
+
+    /// 日期记号（有界，恒为原文精确子串）：`2026-09-12` / `2026年9月12日` / `2026/9/12`。
+    /// 实测缺陷：`append("report_date", text)` 在 `parseDate` 于行内**任意位置**找到日期时
+    /// （它是 `firstMatch` 搜索），把**整行**当日期值。
+    public static func dateToken(in text: String) -> String? {
+        let pattern = #"\d{4}\s*[-/年.]\s*\d{1,2}\s*[-/月.]\s*\d{1,2}\s*日?"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),   // try?-ok: 静态字面量
+              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              let range = Range(match.range, in: text) else { return nil }
+        return String(text[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// 参考范围边界解析：「3.5-9.5」「3.5～9.5」「3.5 ~ 9.5」→ (低, 高)；
     /// 解析失败 nil（不猜范围）。数值文法含正负号/小数/科学计数。
     /// （结构轮：自 `CardTemplateMatcher.referenceBounds` 迁入——该文法是检验行/表头/

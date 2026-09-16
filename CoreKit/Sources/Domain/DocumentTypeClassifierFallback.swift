@@ -154,6 +154,12 @@ public enum DocumentTypeClassifierFallback {
         }
     }()
 
+    /// `(.+)` 贪婪捕获的自由文本角色——其值必须按标签边界截断，
+    /// 否则一行多标签时每个字段都吞掉后面的标签与值（2026-09-16 实测污染）。
+    private static let freeTextRoles: Set<String> = [
+        "dept", "reference_range", "chief_complaint", "diagnosis", "treatment",
+    ]
+
     /// 按判定类型收敛的启发式语义字段（期一；处方路径由既有
     /// PrescriptionFieldMapper 承担，本函数只覆盖检验/病历/通用）。
     /// 每行产出至多一个角色草稿（key=角色、value=抽取载荷、rawText=原文、
@@ -171,6 +177,14 @@ public enum DocumentTypeClassifierFallback {
                   let vRange = Range(match.range(at: 1), in: text) else { continue }
             var payload = String(text[vRange]).trimmingCharacters(in: .whitespaces)
             guard !payload.isEmpty else { continue }
+            // 自由文本角色（`(.+)` 贪婪捕获）：截到**下一个标签**之前。
+            // 2026-09-16 实测污染修复——`科室[:：]?\s*(.+)` 曾把
+            // 「呼吸内科 医生：张三」整段收作科室值、`医生` 亦然。
+            // 结构化角色（report_date/lab_item）的捕获组本身有界，不动。
+            if Self.freeTextRoles.contains(key) {
+                guard let truncated = ExtractionPatterns.truncatingAtLabelBoundary(payload) else { continue }
+                payload = truncated
+            }
             var unit: String?
             var referenceRange: String?
             if key == "lab_item" {
@@ -256,11 +270,34 @@ public extension DocumentTypeClassifierFallback {
                 guard !fields.contains(where: { $0.key == key }) else { return }
                 fields.append(FieldDraft(key: key, value: value, confidence: min(0.6, measuredConfidence), rawText: line, source: .heuristic, sourceLineIndex: index))
             }
+            // 标签直配块（v26/v27）沿用「首个冒号之后」取值：该路径**只在行首命中标签时**进入，
+            // 单标签行（`入院日期：2026-09-12`）取值正确。**同族已知问题**（2026-09-16 登记）：
+            // 多标签同行仍会吞值——`出院诊断：支气管炎 出院医嘱：继续服药` 的
+            // diagnosis_item 会得到整段。修它需区分**叙事键**（治疗经过合法含「诊断」二字，
+            // 不得截断）与**标识键**（应截断），是一次策略决策而非机械替换，故不在本批擅动。
             let suffix = text.split(maxSplits: 1, whereSeparator: { $0 == ":" || $0 == "：" }).last.map(String.init) ?? text
-            if text.contains("医院") || text.contains("醫院") { append("hospital", suffix) }
-            if ["医生", "醫生", "医师", "醫師"].contains(where: text.contains) { append("doctor", suffix) }
-            if EntityCardProjection.parseDate(text, calendar: Calendar(identifier: .gregorian)) != nil {
-                append("report_date", text)
+            // 值域锚定（2026-09-16 实测污染修复）：取**该标签自己**的值段，右界为下一个标签。
+            // 原实现取「首个冒号之后的全部文本」当值——对
+            // `日期：2026-09-12 科室：呼吸内科 医生：张三` 得到 doctor = 整段（含日期与科室）、
+            // department =「呼吸内科 医生：张三」、date = 整行。三者都不是任何标签的值，
+            // 且本轨产物**不经 `ExtractionGrounding`**（grounding 只保护 NL 规格轨），
+            // 污染值原样进确认页——医疗记录里错值比空值更危险。
+            // 机构名用后缀文法：`北京协和医院 处方笺` 的尾随「处方笺」不是标签，截标签法无效；
+            // 文法不命中则回落原行为（宁保守勿误截）。
+            if text.contains("医院") || text.contains("醫院") {
+                append("hospital", ExtractionPatterns.institutionName(in: text) ?? text)
+            }
+            if ["医生", "醫生", "医师", "醫師"].contains(where: text.contains) {
+                if let span = ["医生", "醫生", "医师", "醫師"]
+                    .compactMap({ ExtractionPatterns.valueSpan(afterLabel: $0, in: text) }).first {
+                    append("doctor", span)
+                }
+            }
+            // 日期：判定沿用 `parseDate`（它校验月/日域），**值改为有界日期记号**——
+            // `parseDate` 内部是 `firstMatch`（行内任意位置命中即真），原实现据此把**整行**当值。
+            if EntityCardProjection.parseDate(text, calendar: Calendar(identifier: .gregorian)) != nil,
+               let dateSpan = ExtractionPatterns.dateToken(in: text) {
+                append("report_date", dateSpan)
             }
             let explicitDrug = ["药品名称", "藥品名稱", "药名", "藥名", "药品：", "藥品："].contains(where: text.hasPrefix)
             let directions = ["用法", "用量", "每次", "每日", "口服", "外用"].contains(where: text.hasPrefix)
