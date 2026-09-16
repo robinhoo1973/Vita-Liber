@@ -835,6 +835,52 @@ final class DocumentsState {
     /// 必须经此函数。编辑态 TextField 仍显示并回写 canonical raw（编辑框即数据
     /// 真值、展示文案永不写回数据）——把展示文案映射进编辑框会让半程编辑
     /// 把本地化片段写进 raw 槽位（round10 max 审查结论，保持原设计）。
+    /// 时间轴行**标题**的展示出口（2026-09-17 业主实测复发：就诊类型显示 `outpatient`）。
+    ///
+    /// **根因**：`TimelineQueryStore` 的就诊/住院行是 `SELECT … e.kind AS title`——`title`
+    /// **就是** `kind` canonical raw。V3.71 那次修复只把**主卡行**接到了 `fieldValueDisplay`，
+    /// 子卡行与平铺叶子行仍直出 `entry.title` → 英文 raw 上屏。
+    ///
+    /// 本函数收口三处渲染面（主卡行继续保持原调用，子卡行与叶子行改经此处），
+    /// 使「同一 kind raw 在任何时间轴行上都按当前语言呈现」只有一处实现。
+    nonisolated static func timelineEntryTitle(_ entry: TimelineEntry) -> String {
+        switch entry.kind {
+        // ── title 是 **canonical raw** 的行类：必须映射，否则英文 raw 上屏 ──
+        // 依据：`TimelineQueryStore` 的 SQL 别名（逐条可查）——
+        //   :44  `kind AS title`（就诊平铺）  :214 `e.kind AS title`（就诊主卡）
+        //   :326 住院 `hospitalization` 行的 title 是文本（医院名）→ 不在本组
+        //   :60  `kind AS title`（观察）
+        //   :334 `f.metric_key AS title`（医院检验点）
+        //   :335 `report_type AS title`（检查报告）
+        case .encounter, .hospitalization:
+            return fieldValueDisplay(forKey: "kind", value: entry.title)
+        case .observation:
+            // title = `ObservationKind` raw（stool/urine/skin/eye/…）；全仓其余渲染面
+            // 均经 `L10n.observationKindName`，唯时间轴行此前直出。
+            return ObservationKind(rawValue: entry.title).map(L10n.observationKindName) ?? entry.title
+        case .examReport:
+            // title = `report_type` canonical raw（pathology/imaging/…）
+            return fieldValueDisplay(forKey: "report_type", value: entry.title)
+        case .lab, .selfMeasured, .healthData:
+            // title = `metric_key`（`lab.*` canonical）→ 本地化指标名
+            if let metric = entry.metricKey.flatMap({ MetricType(grammarKey: $0) }) ?? MetricType(grammarKey: entry.title) {
+                return L10n.metricName(metric)
+            }
+            return entry.title
+        // ── title 是「已被上层处理过或本就是文本」的行类 ──
+        // 说明：住院行（:326）title = 医院名；处方行（:328）title = 首行药名或其他文本；
+        // 检验表头行（:330）title = 检验类别/实验室/医院文本——三者均为原文，不映射。
+        case .clinicalConclusion:
+            return L10n.timelineHubConclusions(Int(entry.title) ?? 0)
+        case .treatmentRecord:
+            return L10n.treatmentTypeName(entry.title)
+        case .document:
+            return entry.title.isEmpty ? L10n.timelineKindName(.document) : entry.title
+        default:
+            return entry.title.isEmpty ? L10n.timelineKindName(entry.kind) : entry.title
+        }
+    }
+
     nonisolated static func fieldValueDisplay(forKey key: String, value: String) -> String {
         switch key {
         case "kind":
