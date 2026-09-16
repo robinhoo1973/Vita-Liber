@@ -29,14 +29,14 @@ final class ProfileSuggestionStoreTests: XCTestCase {
         if let past { shared.append(.init(key: "past_history", value: past)) }
         if let allergy { shared.append(.init(key: "allergy_history", value: allergy)) }
         return MatchedCard(kind: "encounter", pageIndex: page, shared: shared, rows: [MatchedCardRow(fields: [])],
-                           allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).confirmingAllFields()
+                           allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).fullyConfirmed()
     }
 
     private func labCard(_ rows: [(String, String)], page: Int = 1) -> MatchedCard {
         MatchedCard(kind: "metric_sample", pageIndex: page,
                     shared: [.init(key: "measured_at", value: "2026-03-01"), .init(key: "hospital", value: "医院")],
                     rows: rows.map { MatchedCardRow(fields: [.init(key: "raw_label", value: $0.0), .init(key: "value", value: $0.1)]) },
-                    allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).confirmingAllFields()
+                    allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).fullyConfirmed()
     }
 
     private func diagnosisCard(_ rows: [(String, String?)], page: Int = 0) -> MatchedCard {
@@ -46,7 +46,7 @@ final class ProfileSuggestionStoreTests: XCTestCase {
                         if let code = row.1 { fields.append(.init(key: "code_text", value: code)) }
                         return MatchedCardRow(fields: fields)
                     },
-                    allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).confirmingAllFields()
+                    allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).fullyConfirmed()
     }
 
     private func count(_ db: GRDBStore, _ sql: String, _ arguments: StatementArguments = []) async throws -> Int {

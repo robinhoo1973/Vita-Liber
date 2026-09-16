@@ -31,6 +31,51 @@ public struct FieldDraft: Codable, Sendable, Equatable, Identifiable {
     private var reviewedUnit: String?
     public private(set) var codeApproval: CodeApproval?
 
+    /// 同键**多候选**（2026-09-17 业主定案「多个语义正确的识别结果交用户选」）。
+    /// 每项均已 grounding（逐字锚定原文）；`confidence` 保持原值，**不因并置而提高**
+    /// （并置不是证据）。空 = 单候选（胜出值即 `value`）——既有调用点零改。
+    ///
+    /// 此前同键第二个值在 `CardTemplateMatcher` 被**静默丢弃**（「同键首个非空值胜出」，
+    /// 叙事键除外）；本字段即那条丢掉的候选集的落地。
+    public var candidates: [Candidate] = []
+
+    /// 用户已在该字段的多候选里做过显式选择（下拉里点过）。
+    ///
+    /// **与 `isConfirmed` 正交**：选另一候选会写 `value` → 经 `didSet` 触发
+    /// `invalidateReview()` → 字段退回未确认（BR-003：换了值必须重新确认）。
+    /// 所以「已消歧」不能用 `isConfirmed` 表达——先消歧，**再**确认，是两步。
+    public private(set) var candidateChosen: Bool = false
+
+    /// 待定歧义：有多个候选而用户尚未选择。此类字段**不参与卡级批量确认**
+    /// （业主 2026-09-17 同批裁定「挡」——有歧义就必须做选择）。
+    public var hasUnresolvedCandidates: Bool { candidates.count >= 2 && !candidateChosen }
+
+    public struct Candidate: Codable, Sendable, Equatable, Identifiable {
+        public var value: String
+        public var unit: String?
+        public var confidence: Double
+        /// 该候选锚定的**原文行**——用户据此判断语义（不是看模型意见）。
+        public var rawText: String?
+        public var sourceLineIndex: Int?
+        public var source: UnderstandingSource?
+        public var id: String { "\(sourceLineIndex ?? -1)|\(value)|\(unit ?? "")" }
+
+        public init(value: String, unit: String? = nil, confidence: Double,
+                    rawText: String? = nil, sourceLineIndex: Int? = nil,
+                    source: UnderstandingSource? = nil) {
+            self.value = value; self.unit = unit; self.confidence = confidence
+            self.rawText = rawText; self.sourceLineIndex = sourceLineIndex; self.source = source
+        }
+    }
+
+    /// 用户从下拉里选定一个候选：写值 + 单位 + 标记已消歧。
+    /// 写值经 `value.didSet` 使字段退回未确认——这是**正确**行为（BR-003）。
+    public mutating func chooseCandidate(_ candidate: Candidate) {
+        revise(to: candidate.value)
+        unit = candidate.unit
+        candidateChosen = true
+    }
+
     public struct CodeApproval: Codable, Sendable, Equatable {
         public let resolution: CodeResolution
         public let label: String
@@ -95,6 +140,7 @@ public struct FieldDraft: Codable, Sendable, Equatable, Identifiable {
         case key, originalValue, originalUnit, value, unit, confidence, rawText, suggestedLabel, source
         case codeResolution, grade, revisionHistory, reviewedValue, reviewedUnit, codeApproval
         case sourceLineIndex
+        case candidates, candidateChosen
     }
 
     public init(from decoder: Decoder) throws {
@@ -117,6 +163,9 @@ public struct FieldDraft: Codable, Sendable, Equatable, Identifiable {
         reviewedValue = try c.decodeIfPresent(String.self, forKey: .reviewedValue)
         reviewedUnit = try c.decodeIfPresent(String.self, forKey: .reviewedUnit)
         codeApproval = try c.decodeIfPresent(CodeApproval.self, forKey: .codeApproval)
+        // 可选默认，向后兼容：旧草稿无此两键 → 空候选集 / 未消歧（既有行为不变）。
+        candidates = try c.decodeIfPresent([Candidate].self, forKey: .candidates) ?? []
+        candidateChosen = try c.decodeIfPresent(Bool.self, forKey: .candidateChosen) ?? false
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -131,5 +180,9 @@ public struct FieldDraft: Codable, Sendable, Equatable, Identifiable {
         try c.encodeIfPresent(reviewedValue, forKey: .reviewedValue); try c.encodeIfPresent(reviewedUnit, forKey: .reviewedUnit)
         try c.encodeIfPresent(codeApproval, forKey: .codeApproval)
         try c.encodeIfPresent(sourceLineIndex, forKey: .sourceLineIndex)
+        // 仅在非空/已消歧时写出——单候选字段（绝大多数）的编码形态**逐字不变**，
+        // 既有导出信封与金样不受影响。
+        if !candidates.isEmpty { try c.encode(candidates, forKey: .candidates) }
+        if candidateChosen { try c.encode(candidateChosen, forKey: .candidateChosen) }
     }
 }

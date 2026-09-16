@@ -58,7 +58,7 @@ struct CardKindRegistryTests {
         var card = MatchedCard(kind: "prescription", pageIndex: 0, shared: [.init(key: "prescribed_at", value: "2020-01-02"), .init(key: "advice_text", value: "饭后服")],
             rows: [MatchedCardRow(fields: [.init(key: "drug_name", value: "阿莫西林"), .init(key: "dosage", value: "0.5", unit: "g"), .init(key: "days", value: "7")])],
             allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete)
-        card = card.confirmingAllFields()
+        card = card.fullyConfirmed()
         let intent = try #require(EntityCardProjection.prescriptionIntent(from: card))
         #expect(intent.adviceText == "饭后服")                                   // 不再折叠药品行
         #expect(intent.lines.count == 1 && intent.lines[0].line.printedName == "阿莫西林" && intent.lines[0].line.doseText == "0.5" && intent.lines[0].line.doseUnit == "g" && intent.lines[0].line.durationText == "7")
@@ -71,7 +71,7 @@ struct CardKindRegistryTests {
     @Test func 处方无共享医嘱时adviceText为空串() throws {
         let card = MatchedCard(kind: "prescription", pageIndex: 0, shared: [.init(key: "prescribed_at", value: "2020-01-02")],
             rows: [MatchedCardRow(fields: [.init(key: "drug_name", value: "A")]), MatchedCardRow(fields: [.init(key: "drug_name", value: "B")])],
-            allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).confirmingAllFields()
+            allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).fullyConfirmed()
         let intent = try #require(EntityCardProjection.prescriptionIntent(from: card))
         #expect(intent.adviceText == "")
         #expect(intent.lines.map(\.line.printedName) == ["A", "B"])
@@ -90,7 +90,7 @@ struct CardKindRegistryTests {
                                            .init(key: "route", value: "口服", rawText: "用法：每日三次 口服"),
                                            .init(key: "drug_form", value: "胶囊"), .init(key: "medication_notes", value: "贮藏：避光"),
                                            .init(key: "start_date", value: "2020-01-02"), .init(key: "unit_price", value: "12.5"), .init(key: "line_amount", value: "25")])],
-            allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).confirmingAllFields()
+            allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).fullyConfirmed()
         let intent = try #require(EntityCardProjection.prescriptionIntent(from: card))
         #expect(intent.department == "内科" && intent.prescriptionNo == "RX-001" && intent.prescriptionType == "tcm" && intent.feeTypeText == "医保")
         #expect(intent.clinicalDiagnosis == "上呼吸道感染" && intent.pharmacistNames == "李药师/王药师" && intent.totalAmount == 128.5)
@@ -109,7 +109,7 @@ struct CardKindRegistryTests {
         func card(shared: [FieldDraft], row: [FieldDraft]) -> MatchedCard {
             MatchedCard(kind: "prescription", pageIndex: 0, shared: [FieldDraft(key: "prescribed_at", value: "2020-01-02")] + shared,
                         rows: [MatchedCardRow(fields: [FieldDraft(key: "drug_name", value: "A")] + row)],
-                        allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).confirmingAllFields()
+                        allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).fullyConfirmed()
         }
         let badType = card(shared: [.init(key: "prescription_type", value: "中药")], row: [])
         #expect(EntityCardProjection.invalidFields(in: badType, row: badType.rows[0], calendar: utc) == ["prescription_type"])
@@ -137,7 +137,7 @@ struct CardKindRegistryTests {
             shared: [.init(key: "amount", value: "128.5"), .init(key: "currency", value: "CNY"), .init(key: "date", value: "2020-01-02"), .init(key: "item_type", value: "invoice"),
                      .init(key: "merchant", value: "市一医院"), .init(key: "invoice_no", value: "No.0001"), .init(key: "insurance_type", value: "城镇职工"),
                      .init(key: "reimbursed_amount", value: "100"), .init(key: "out_of_pocket", value: "20.5"), .init(key: "personal_account_amount", value: "8")],
-            rows: [MatchedCardRow(fields: [])], allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).confirmingAllFields()
+            rows: [MatchedCardRow(fields: [])], allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).fullyConfirmed()
         #expect(EntityCardProjection.invalidFields(in: invoice, row: invoice.rows[0], calendar: utc).isEmpty, "票据页空行仍有效（表头即实体）")
         let header = try #require(EntityCardProjection.claimIntent(from: invoice, calendar: utc))
         #expect(header.lines.isEmpty && header.amount == 128.5 && header.currency == "CNY" && header.itemType == "invoice" && header.merchant == "市一医院")
@@ -151,7 +151,7 @@ struct CardKindRegistryTests {
                                            .init(key: "item_quantity", value: "1", unit: "次", rawText: "血常规 25.00 1 次 25.00"), .init(key: "item_amount", value: "25", rawText: "血常规 25.00 1 次 25.00"),
                                            .init(key: "fee_category", value: "检验费"), .init(key: "executing_dept", value: "检验科"), .init(key: "self_pay_ratio", value: "10%"), .init(key: "fee_at", value: "2020-01-02")]),
                    MatchedCardRow(fields: [.init(key: "item_name", value: "退费"), .init(key: "item_amount", value: "-5")])],
-            allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).confirmingAllFields()
+            allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).fullyConfirmed()
         let intent = try #require(EntityCardProjection.claimIntent(from: list, calendar: utc))
         #expect(intent.lines.count == 2 && intent.lines[0].rowId == list.rows[0].id)
         let line = intent.lines[0]
@@ -166,7 +166,7 @@ struct CardKindRegistryTests {
         func card(_ row: [FieldDraft]) -> MatchedCard {
             MatchedCard(kind: "claim_item", pageIndex: 0,
                 shared: [.init(key: "amount", value: "30"), .init(key: "currency", value: "CNY"), .init(key: "date", value: "2020-01-02"), .init(key: "item_type", value: "fee")],
-                rows: [MatchedCardRow(fields: row)], allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).confirmingAllFields()
+                rows: [MatchedCardRow(fields: row)], allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).fullyConfirmed()
         }
         let noName = card([.init(key: "item_amount", value: "25")])
         #expect(EntityCardProjection.invalidFields(in: noName, row: noName.rows[0], calendar: utc) == ["item_name"])
@@ -175,7 +175,7 @@ struct CardKindRegistryTests {
         let badShared = MatchedCard(kind: "claim_item", pageIndex: 0,
             shared: [.init(key: "amount", value: "30"), .init(key: "currency", value: "CNY"), .init(key: "date", value: "2020-01-02"), .init(key: "item_type", value: "fee"),
                      .init(key: "personal_account_amount", value: "八元")],
-            rows: [MatchedCardRow(fields: [])], allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).confirmingAllFields()
+            rows: [MatchedCardRow(fields: [])], allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).fullyConfirmed()
         #expect(EntityCardProjection.invalidFields(in: badShared, row: badShared.rows[0], calendar: utc) == ["personal_account_amount"])
         #expect(EntityCardProjection.claimIntent(from: badShared, calendar: utc) == nil)
     }
@@ -183,13 +183,13 @@ struct CardKindRegistryTests {
     // MARK: - 就诊叙事
 
     @Test func 就诊草稿携带五叙事列且允许allergy_history() {
-        let card = MatchedCard(kind: "encounter", pageIndex: 0, shared: [.init(key: "date", value: "2020-01-02"), .init(key: "kind", value: "outpatient"), .init(key: "past_history", value: "高血压 10 年"), .init(key: "allergy_history", value: "青霉素")], rows: [MatchedCardRow(fields: [])], allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).confirmingAllFields()
+        let card = MatchedCard(kind: "encounter", pageIndex: 0, shared: [.init(key: "date", value: "2020-01-02"), .init(key: "kind", value: "outpatient"), .init(key: "past_history", value: "高血压 10 年"), .init(key: "allergy_history", value: "青霉素")], rows: [MatchedCardRow(fields: [])], allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).fullyConfirmed()
         #expect(EntityCardProjection.invalidFields(in: card, row: card.rows[0], calendar: .init(identifier: .gregorian)).isEmpty)
         #expect(EntityCardProjection.encounterDraft(from: card, patientId: UUID(), calendar: .init(identifier: .gregorian))?.allergyHistory == "青霉素")
         let full = MatchedCard(kind: "encounter", pageIndex: 0,
             shared: [.init(key: "date", value: "2020-01-02"), .init(key: "kind", value: "outpatient"), .init(key: "present_illness", value: "咳嗽 3 天"),
                      .init(key: "visit_summary", value: "对症处理"), .init(key: "past_history", value: "高血压"), .init(key: "physical_exam", value: "T 36.8℃"), .init(key: "allergy_history", value: "无")],
-            rows: [MatchedCardRow(fields: [])], allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).confirmingAllFields()
+            rows: [MatchedCardRow(fields: [])], allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).fullyConfirmed()
         let draft = EntityCardProjection.encounterDraft(from: full, patientId: UUID(), calendar: utc)
         #expect(draft?.presentIllness == "咳嗽 3 天" && draft?.visitSummary == "对症处理" && draft?.pastHistory == "高血压")
         #expect(draft?.physicalExam == "T 36.8℃" && draft?.allergyHistory == "无")

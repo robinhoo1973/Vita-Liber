@@ -27,7 +27,7 @@ final class OcrCardStoreTests: XCTestCase {
                      .init(key: "date", value: "2026-09-11"), .init(key: "item_type", value: "invoice"),
                      .init(key: "merchant", value: "医院")], rows: [.init(fields: [])],
             allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete,
-            encounterAssociation: encounter.map(EncounterAssociation.existing) ?? .none).confirmingAllFields()
+            encounterAssociation: encounter.map(EncounterAssociation.existing) ?? .none).fullyConfirmed()
     }
 
     func test_receiptAssociationSurvivesBackupAndAdoptRestoresChangedRelation() async throws {
@@ -509,7 +509,7 @@ final class OcrCardStoreTests: XCTestCase {
 
     private func prescriptionCard(pageIndex: Int = 0, shared: [FieldDraft], rows: [[FieldDraft]]) -> MatchedCard {
         MatchedCard(kind: "prescription", pageIndex: pageIndex, shared: shared, rows: rows.map { MatchedCardRow(fields: $0) },
-                    allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).confirmingAllFields()
+                    allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).fullyConfirmed()
     }
 
     private func tableCounts(_ db: GRDBStore, _ tables: [String]) async throws -> [Int] {
@@ -708,7 +708,7 @@ final class OcrCardStoreTests: XCTestCase {
                      .init(key: "item_type", value: "fee"), .init(key: "invoice_no", value: "No.001"), .init(key: "reimbursed_amount", value: "20")],
             rows: [MatchedCardRow(fields: [.init(key: "item_name", value: "血常规"), .init(key: "item_amount", value: "20.5"), .init(key: "item_quantity", value: "1", unit: "次")]),
                    MatchedCardRow(fields: [.init(key: "item_name", value: "挂号费"), .init(key: "item_amount", value: "10")])],
-            allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).confirmingAllFields()
+            allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).fullyConfirmed()
         let store = OCRCardStore(writer: db.writer)
         let result = try await store.save(card: card, patientId: patient, documentId: document)
         XCTAssertEqual(result.writtenCount, 2)
@@ -752,7 +752,7 @@ final class OcrCardStoreTests: XCTestCase {
         let first = MatchedCard(kind: "encounter", pageIndex: 0,
             shared: [.init(key: "date", value: "2020-01-02"), .init(key: "kind", value: "outpatient"),
                      .init(key: "past_history", value: "高血压 10 年"), .init(key: "allergy_history", value: "青霉素")],
-            rows: [MatchedCardRow(fields: [])], allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).confirmingAllFields()
+            rows: [MatchedCardRow(fields: [])], allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).fullyConfirmed()
         _ = try await store.save(card: first, patientId: patient, documentId: document)
         let encounterRow = try await db.writer.read { try Row.fetchOne($0, sql: "SELECT id, past_history, allergy_history, physical_exam FROM encounter") }
         let encounter = try XCTUnwrap(encounterRow)
@@ -764,7 +764,7 @@ final class OcrCardStoreTests: XCTestCase {
             shared: [.init(key: "date", value: "2020-01-02"), .init(key: "kind", value: "outpatient"),
                      .init(key: "past_history", value: "冲突值"), .init(key: "physical_exam", value: "BP 120/80")],
             rows: [MatchedCardRow(fields: [])], allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete,
-            encounterAssociation: .existing(encounterId)).confirmingAllFields()
+            encounterAssociation: .existing(encounterId)).fullyConfirmed()
         _ = try await store.save(card: second, patientId: patient, documentId: document)
         let mergedRow = try await db.writer.read { try Row.fetchOne($0, sql: "SELECT past_history, physical_exam FROM encounter WHERE id = ?", arguments: [encounterId.uuidString]) }
         let merged = try XCTUnwrap(mergedRow)
@@ -920,7 +920,7 @@ final class OcrCardStoreTests: XCTestCase {
                      .init(key: "item_type", value: "fee"), .init(key: "invoice_no", value: "No.001"), .init(key: "reimbursed_amount", value: "20")],
             rows: [MatchedCardRow(fields: [.init(key: "item_name", value: "血常规"), .init(key: "item_amount", value: "20.5"), .init(key: "item_quantity", value: "1", unit: "次")]),
                    MatchedCardRow(fields: [.init(key: "item_name", value: "挂号费"), .init(key: "item_amount", value: "10")])],
-            allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).confirmingAllFields()
+            allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).fullyConfirmed()
         _ = try await OCRCardStore(writer: db.writer).save(card: card, patientId: patient, documentId: document)
         let envelope = try await ExportService(writer: db.writer).exportJSON()
         XCTAssertEqual(envelope.claimLines?.map(\.itemName), ["血常规", "挂号费"])
@@ -1033,7 +1033,7 @@ final class OcrCardStoreTests: XCTestCase {
     private func singleRowCard(kind: String, pageIndex: Int = 0, shared: [FieldDraft], encounter: UUID? = nil) -> MatchedCard {
         MatchedCard(kind: kind, pageIndex: pageIndex, shared: shared, rows: [MatchedCardRow(fields: [])],
                     allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete,
-                    encounterAssociation: encounter.map(EncounterAssociation.existing) ?? .unselected).confirmingAllFields()
+                    encounterAssociation: encounter.map(EncounterAssociation.existing) ?? .unselected).fullyConfirmed()
     }
 
     private func hospitalizationCard(pageIndex: Int = 0, kind: String = "inpatient", encounter: UUID? = nil, extra: [FieldDraft] = []) -> MatchedCard {
@@ -1053,7 +1053,7 @@ final class OcrCardStoreTests: XCTestCase {
                    MatchedCardRow(fields: [.init(key: "raw_label", value: "CRP"), .init(key: "value", value: "<0.5"), .init(key: "unit", value: "mg/L"),
                                            .init(key: "reference_text", value: "0-5")])],
             allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete,
-            encounterAssociation: encounter.map(EncounterAssociation.existing) ?? .unselected).confirmingAllFields()
+            encounterAssociation: encounter.map(EncounterAssociation.existing) ?? .unselected).fullyConfirmed()
     }
 
     func test_hospitalizationCardCreatesInpatientEncounterAndRowInOneTransaction() async throws {
@@ -1159,7 +1159,7 @@ final class OcrCardStoreTests: XCTestCase {
             rows: [MatchedCardRow(fields: [.init(key: "name", value: "急性支气管炎"), .init(key: "code_text", value: "J20.9"), .init(key: "code_system", value: "ICD-10")]),
                    MatchedCardRow(fields: [.init(key: "name", value: "高血压"), .init(key: "diagnosis_type", value: "secondary")])],
             allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete,
-            encounterAssociation: .existing(encounterId)).confirmingAllFields()
+            encounterAssociation: .existing(encounterId)).fullyConfirmed()
         let store = OCRCardStore(writer: db.writer)
         let result = try await store.save(card: card, patientId: patient, documentId: document)
         XCTAssertEqual(result.writtenCount, 2)
@@ -1366,7 +1366,7 @@ final class OcrCardStoreTests: XCTestCase {
         let encounterId = try XCTUnwrap(UUID(uuidString: try XCTUnwrap(encounterRow)))
         let diagnosis = MatchedCard(kind: "diagnosis", pageIndex: 1, shared: [.init(key: "diagnosis_type", value: "discharge")],
             rows: [MatchedCardRow(fields: [.init(key: "name", value: "社区获得性肺炎"), .init(key: "code_text", value: "J18.9")])],
-            allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete, encounterAssociation: .existing(encounterId)).confirmingAllFields()
+            allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete, encounterAssociation: .existing(encounterId)).fullyConfirmed()
         _ = try await store.save(card: diagnosis, patientId: patient, documentId: document)
         _ = try await store.save(card: singleRowCard(kind: "exam_report", pageIndex: 1, shared: [
             .init(key: "report_type", value: "xray"), .init(key: "reported_at", value: "2024-03-03"), .init(key: "impression", value: "未见异常")],
@@ -1501,7 +1501,7 @@ final class OcrCardStoreTests: XCTestCase {
             .init(key: "height", value: "170", unit: "cm"), .init(key: "weight", value: "65.5", unit: "kg"),
             .init(key: "systolic", value: "128", unit: "mmHg"), .init(key: "vision_left", value: "1.0"),
             .init(key: "overall_conclusion", value: "总检：血脂偏高，建议复查")],
-            rows: [MatchedCardRow(fields: [])], allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).confirmingAllFields()
+            rows: [MatchedCardRow(fields: [])], allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).fullyConfirmed()
     }
 
     private func conclusionCard(pageIndex: Int = 1, association: EncounterAssociation = .unselected) -> MatchedCard {
@@ -1509,7 +1509,7 @@ final class OcrCardStoreTests: XCTestCase {
             shared: [.init(key: "org_name", value: "美年体检"), .init(key: "exam_date", value: "2024-05-06")],
             rows: [MatchedCardRow(fields: [.init(key: "content", value: "血脂偏高"), .init(key: "severity", value: "关注")]),
                    MatchedCardRow(fields: [.init(key: "content", value: "三个月后复查血脂"), .init(key: "conclusion_type", value: "recheck_advice")])],
-            allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete, encounterAssociation: association).confirmingAllFields()
+            allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete, encounterAssociation: association).fullyConfirmed()
     }
 
     /// §0.4 改判 / round1 V7：无 ±3 日同医院就诊 → 主卡草稿与处方同事务落库并关联；重放不重复建卡。

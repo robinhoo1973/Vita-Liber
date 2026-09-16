@@ -114,7 +114,7 @@ struct ClinicalEpisodeProjectionTests {
 
     private func labCard(shared: [FieldDraft] = [FieldDraft(key: "measured_at", value: "2026-09-01")], rows: [[FieldDraft]]) -> MatchedCard {
         MatchedCard(kind: "metric_sample", pageIndex: 2, shared: shared, rows: rows.map { MatchedCardRow(fields: $0) },
-                    allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).confirmingAllFields()
+                    allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).fullyConfirmed()
     }
 
     @Test func 阴性行进qualitative不进samples() throws {
@@ -211,7 +211,7 @@ struct ClinicalEpisodeProjectionTests {
 
     private func card(_ kind: String, pageIndex: Int = 0, shared: [FieldDraft], rows: [[FieldDraft]] = [[]]) -> MatchedCard {
         MatchedCard(kind: kind, pageIndex: pageIndex, shared: shared, rows: rows.map { MatchedCardRow(fields: $0) },
-                    allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).confirmingAllFields()
+                    allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).fullyConfirmed()
     }
 
     @Test func 住院意图_就诊类型按派生kind_日期二择一_叙事与带药原文() throws {
@@ -376,7 +376,7 @@ struct ClinicalEpisodeProjectionTests {
         #expect(CardTemplateMatcher.match(fields: fields, pageIndex: 0, documentTypeKey: "diagnosis_certificate").first { $0.kind == "diagnosis" }?
             .shared.contains { $0.key == "diagnosis_type" && $0.value == "certificate" } == true)
         #expect(!CardTemplateMatcher.match(fields: fields, pageIndex: 0, documentTypeKey: "lab_report").contains { $0.kind == "diagnosis" }, "仅病历类文档出诊断卡")
-        let intents = try #require(EntityCardProjection.diagnosisIntents(from: card.confirmingAllFields(), calendar: utc))
+        let intents = try #require(EntityCardProjection.diagnosisIntents(from: card.fullyConfirmed(), calendar: utc))
         #expect(intents.map(\.diagnosis.diagnosisType) == ["primary", "discharge"] && intents[0].diagnosis.codeText == "I10.x02")
     }
 
@@ -387,7 +387,7 @@ struct ClinicalEpisodeProjectionTests {
         #expect(ct.shared.contains { $0.key == "report_type" && $0.value == "ct" } && ct.shared.contains { $0.key == "exam_at" && $0.value == "2026-01-03" })
         #expect(ct.shared.contains { $0.key == "reported_at" && $0.value == "2026-01-04" } && ct.shared.contains { $0.key == "impression" })
         #expect(ct.rows.count == 1 && ct.requiredCoverage == 1)
-        #expect(EntityCardProjection.examReportIntent(from: ct.confirmingAllFields(), calendar: utc)?.report.reportType == "ct")
+        #expect(EntityCardProjection.examReportIntent(from: ct.fullyConfirmed(), calendar: utc)?.report.reportType == "ct")
         let pathologyFields = [f("report_date", "2026-01-03"), f("findings", "镜下见…"), f("impression", "（胃窦）慢性浅表性胃炎")]
         let pathology = CardTemplateMatcher.match(fields: pathologyFields, pageIndex: 0, documentTypeKey: "pathology_report").first { $0.kind == "exam_report" }
         #expect(pathology?.shared.contains { $0.key == "report_type" && $0.value == "pathology" } == true, "病理文档键派生 report_type")
@@ -410,7 +410,7 @@ struct ClinicalEpisodeProjectionTests {
         #expect(!card.shared.contains { $0.key == "abnormal_flag" }, "行级键不上浮为共享（孤儿标记丢弃，不误归他行）")
         let row = try #require(card.rows.first)
         #expect(row.fields.contains { $0.key == "abnormal_flag" && $0.value == "↑" } && row.fields.contains { $0.key == "ref_low" && $0.value == "115" })
-        let projection = EntityCardProjection.labProjection(from: card.confirmingAllFields(), calendar: utc)
+        let projection = EntityCardProjection.labProjection(from: card.fullyConfirmed(), calendar: utc)
         #expect(projection.samples.first?.abnormalFlag == "↑" && projection.samples.first?.measuredAt == day(2026, 9, 2))
         #expect(projection.header.specimenType == "静脉血" && projection.header.reportedAt == day(2026, 9, 3))
     }
@@ -432,7 +432,7 @@ struct ClinicalEpisodeProjectionTests {
         #expect(row("ANA")["value"] == "≥1:160")
         #expect(card.rows.contains { $0.fields.contains { $0.key == "raw_label" && $0.value == "HBsAg" } && $0.fields.contains { $0.key == "value" && $0.value == "阴性(-)" } })
         #expect(row("血小板")["value"] == nil, "单词条无结果：不猜")
-        let projection = EntityCardProjection.labProjection(from: card.confirmingAllFields(), calendar: utc)
+        let projection = EntityCardProjection.labProjection(from: card.fullyConfirmed(), calendar: utc)
         #expect(projection.samples.count == 1 && projection.qualitative.count == 5 && projection.remainingRows.count == 1)
         #expect(projection.qualitative.map(\.result.resultText) == ["阴性", "<0.5", "+", "阴性(-)", "≥1:160"])
     }

@@ -71,16 +71,25 @@ struct OCRGroundingTests {
         #expect(fields.first { $0.key == "prescription_type" }?.value == "tcm", "打印类型标签归一为 canonical raw（同 item_type/unit_kind）")
     }
 
-    @Test func 完整卡一次显式确认而原卡不提前升C() {
+    @Test func 完整卡：批量确认不覆盖必填，逐项确认必填后方可保存() {
         let card = MatchedCard(kind: "prescription", pageIndex: 0,
-            shared: [.init(key: "prescribed_at", value: "2026-09-11", confidence: 0.6)],
-            rows: [.init(fields: [.init(key: "drug_name", value: "阿莫西林", confidence: 0.6)])],
-            allFieldCoverage: 0.6, requiredCoverage: 1, missingRequired: [], level: .basicallyComplete)
-        let reviewed = card.confirmingAllFields()
-        #expect(EntityCardProjection.invalidFields(in: reviewed, row: reviewed.rows[0], calendar: .current).isEmpty)
-        #expect(card.allFields.allSatisfy { !$0.isConfirmed })
-        var low = card; low.rows[0].fields[0].confidence = 0.1
-        let blocked = low.confirmingAllFields()
-        #expect(EntityCardProjection.invalidFields(in: blocked, row: blocked.rows[0], calendar: .current).contains("drug_name"))
+            shared: [.init(key: "prescribed_at", value: "2026-09-11", confidence: 0.9)],
+            rows: [.init(fields: [.init(key: "drug_name", value: "阿莫西林", confidence: 0.9)])],
+            allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete)
+        #expect(card.allFields.allSatisfy { !$0.isConfirmed }, "原卡不提前升 C")
+
+        // 2026-09-17 业主定「信息卡中的必要字段必须逐一确认」：
+        // prescription 的 sharedRequired = {prescribed_at}、rowRequired = {drug_name}，
+        // 二者均**不参与**卡级批量确认 → 批量后仍不可保存——`invalidFields` 挡住保存，
+        // 这正是「强制逐一确认」的执行机制（旧版此处靠低置信挡，现改为按必填挡）。
+        let bulkOnly = card.confirmingAllFields()
+        let blocked = EntityCardProjection.invalidFields(in: bulkOnly, row: bulkOnly.rows[0], calendar: .current)
+        #expect(Set(blocked) == ["drug_name", "prescribed_at"],
+                "必填未被批量覆盖 → 保存被挡（强制逐项确认）；实得 \(blocked)")
+
+        // 逐项确认必填（新流程第二步）→ 可保存
+        let done = card.fullyConfirmed()
+        #expect(EntityCardProjection.invalidFields(in: done, row: done.rows[0], calendar: .current).isEmpty,
+                "必填逐一确认后可保存")
     }
 }

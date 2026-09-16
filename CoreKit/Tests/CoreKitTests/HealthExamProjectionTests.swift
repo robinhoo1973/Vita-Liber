@@ -14,7 +14,7 @@ struct HealthExamProjectionTests {
     private func day(_ y: Int, _ m: Int, _ d: Int) -> Date { utc.date(from: DateComponents(year: y, month: m, day: d))! }
     private func card(_ kind: String, pageIndex: Int = 0, shared: [FieldDraft], rows: [[FieldDraft]] = [[]]) -> MatchedCard {
         MatchedCard(kind: kind, pageIndex: pageIndex, shared: shared, rows: rows.map { MatchedCardRow(fields: $0) },
-                    allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).confirmingAllFields()
+                    allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).fullyConfirmed()
     }
     private func f(_ key: String, _ value: String, unit: String? = nil, raw: String? = nil, line: Int? = nil) -> FieldDraft {
         FieldDraft(key: key, value: value, unit: unit, confidence: 0.9, rawText: raw, source: .heuristic, sourceLineIndex: line)
@@ -249,7 +249,7 @@ struct HealthExamProjectionTests {
         #expect(!CardTemplateMatcher.match(fields: fields, pageIndex: 0, documentTypeKey: "lab_report").contains { $0.kind == "health_exam" }, "仅体检报告文档出体检卡")
         #expect(!CardTemplateMatcher.match(fields: fields, pageIndex: 0, documentTypeKey: nil).contains { $0.kind == "health_exam" })
         #expect(!cards.contains { $0.kind == "encounter" || $0.kind == "hospitalization" }, "体检文档不出就诊/住院卡")
-        let intent = try #require(EntityCardProjection.healthExamIntent(from: exam.confirmingAllFields(), calendar: utc))
+        let intent = try #require(EntityCardProjection.healthExamIntent(from: exam.fullyConfirmed(), calendar: utc))
         #expect(intent.generalSamples.map(\.metricKey).sorted() == ["bloodPressureDia", "bloodPressureSys", "heartRate", "weight"])
         let plain = ClinicalFieldLabels.splitBloodPressure("128/82"), wide = ClinicalFieldLabels.splitBloodPressure("128／82 mmHg")
         #expect(plain?.0 == "128" && plain?.1 == "82" && wide?.0 == "128" && wide?.1 == "82")
@@ -268,7 +268,7 @@ struct HealthExamProjectionTests {
         #expect(card.rows[2].fields.contains { $0.key == "conclusion_type" && $0.value == "abnormal_finding" })
         #expect(card.shared.contains { $0.key == "org_name" && $0.value == "美年体检" } && card.shared.contains { $0.key == "exam_date" && $0.value == "2024-05-06" }, "主卡草稿派生所需共享字段随卡携带")
         #expect(card.requiredCoverage == 1)
-        let intents = try #require(EntityCardProjection.clinicalConclusionIntents(from: card.confirmingAllFields(), calendar: utc))
+        let intents = try #require(EntityCardProjection.clinicalConclusionIntents(from: card.fullyConfirmed(), calendar: utc))
         #expect(intents.map(\.conclusion.conclusionType) == ["abnormal_finding", "recheck_advice", "abnormal_finding"] && intents[0].conclusion.severityText == "关注")
         #expect(!CardTemplateMatcher.match(fields: fields, pageIndex: 1, documentTypeKey: "exam_report").contains { $0.kind == "clinical_conclusion" }, "本轮结论卡只从体检文档产出")
     }
@@ -281,11 +281,11 @@ struct HealthExamProjectionTests {
         #expect(!surgery.shared.contains { $0.key == "surgery_at" && $0.value == "2024-03-05" }, "泛日期不冒充手术日期")
         #expect(CardTemplateMatcher.match(fields: surgeryFields, pageIndex: 0, documentTypeKey: "discharge_summary").contains { $0.kind == "surgery" }, "出院小结手术段")
         #expect(!CardTemplateMatcher.match(fields: surgeryFields, pageIndex: 0, documentTypeKey: "outpatient_record").contains { $0.kind == "surgery" })
-        #expect(EntityCardProjection.surgeryIntent(from: surgery.confirmingAllFields(), calendar: utc)?.surgery.anesthesiaMethod == "全麻")
+        #expect(EntityCardProjection.surgeryIntent(from: surgery.fullyConfirmed(), calendar: utc)?.surgery.anesthesiaMethod == "全麻")
         let treatmentFields = [f("treatment_type", "infusion"), f("report_date", "2024-03-02"), f("hospital", "社区医院"), f("drugs_text", "0.9% NS 250ml + 头孢呋辛 1.5g")]
         let treatment = try #require(CardTemplateMatcher.match(fields: treatmentFields, pageIndex: 0, documentTypeKey: "treatment_record").first { $0.kind == "treatment_record" })
         #expect(treatment.shared.contains { $0.key == "treated_at" && $0.value == "2024-03-02" }, "单日期文书：泛日期即治疗日期（同处方/票据纪律）")
-        #expect(EntityCardProjection.treatmentRecordIntent(from: treatment.confirmingAllFields(), calendar: utc)?.record.drugsText == "0.9% NS 250ml + 头孢呋辛 1.5g")
+        #expect(EntityCardProjection.treatmentRecordIntent(from: treatment.fullyConfirmed(), calendar: utc)?.record.drugsText == "0.9% NS 250ml + 头孢呋辛 1.5g")
         #expect(!CardTemplateMatcher.match(fields: treatmentFields, pageIndex: 0, documentTypeKey: "prescription").contains { $0.kind == "treatment_record" })
         #expect(!CardTemplateMatcher.match(fields: treatmentFields, pageIndex: 0, documentTypeKey: "treatment_record").contains { $0.kind == "prescription" }, "输液药物不成处方卡")
     }
