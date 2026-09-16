@@ -769,10 +769,28 @@ public enum SchemaMigrations {
              CREATE INDEX idx_ocr_card_commit_encounter ON ocr_card_commit(encounter_id, patient_id);
              CREATE INDEX idx_ocr_card_commit_entity_table ON ocr_card_commit(entity_table, entity_id, patient_id);
              """, transactional: true, fkCheckTable: "ocr_card_commit"),
+        Step(version: 28, name: "timeline-metric-indexes",
+             sql: """
+             -- 时间轴主卡查询（20 分支 UNION ALL 外层 ORDER BY d DESC, id DESC）：
+             -- 缺 (origin 等值 + measured_at/id 双列序) 索引时各分支走
+             -- USE TEMP B-TREE FOR ORDER BY，成本 O(成员全部病史)（12.7 万行实测
+             -- 每页 490 ms）。2026-09-16 委员会评审实测该索引后 6 页 2955 ms → 30 ms。
+             CREATE INDEX IF NOT EXISTS idx_metric_timeline
+               ON metric_sample(patient_id, origin, measured_at DESC, id DESC);
+             -- 指标宫格最新行（PARTITION BY metric_key ORDER BY measured_at DESC,
+             -- rowid DESC）：按患者+未排除+指标键提供分区内排序。
+             CREATE INDEX IF NOT EXISTS idx_metric_latest
+               ON metric_sample(patient_id, excluded, metric_key, measured_at DESC);
+             """),
     ]
 
     /// 全新库建库后应落到的版本号
-    public static var latestVersion: Int { steps.last?.version ?? baselineVersion }
+    /// 账本当前目标版本。取 **max 而非 last**（2026-09-16 委员会评审）：
+    /// 文件自身规定「只许在末尾追加」，但 v17 是预留空号——将来「把 v17 填上」
+    /// 按直觉会追加到列表尾，此时 `last` 会**回退**到 17，让所有 v27 库命中
+    /// `schemaTooNew`（发布级故障）。`max` 让「末尾追加 v17」与「按序插入 v17」
+    /// 同结果；`pending(from:)` 本就会排序，runner 不受影响。
+    public static var latestVersion: Int { steps.map(\.version).max() ?? baselineVersion }
 
     /// 从 `current` 升到最新所需的步骤（升序）。current ≥ latest 时为空。
     public static func pending(from current: Int) -> [Step] {

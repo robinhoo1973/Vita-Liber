@@ -307,6 +307,12 @@ struct StandardizationTests {
         // v18 health-device-source-and-anchor；v17 保持预约
         #expect(Array(SchemaMigrations.pending(from: 22).prefix(2).map(\.version)) == [23, 24])
         #expect(SchemaMigrations.pending(from: SchemaMigrations.latestVersion).isEmpty)
+        // 2026-09-16 委员会评审：账本版本严格单调递增且唯一（v17 为预留空号——
+        // 将来填号若追加到列表尾，`latestVersion` 曾取 `last` 会把目标版本**回退**
+        // 到 17、让 v27 设备全体 schemaTooNew）。本断言与该语义独立，属专门守卫。
+        let versions = SchemaMigrations.steps.map(\.version)
+        #expect(zip(versions, versions.dropFirst()).allSatisfy { $0 < $1 }, "steps 必须严格升序")
+        #expect(Set(versions).count == versions.count, "steps 版本号不得重复")
         let v22 = SchemaMigrations.steps.first { $0.version == 22 }
         #expect(v22?.name == "review-integrity-checkpoints")
         for table in ["hk_pending_batch", "hk_projection_state", "ocr_card_commit"] {

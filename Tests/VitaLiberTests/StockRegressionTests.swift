@@ -306,4 +306,47 @@ final class StockRegressionTests: XCTestCase {
             XCTFail("未知稳定键必须拒绝")
         } catch DocumentStore.StoreError.invalidDocTypeKey {}
     }
+
+    /// BR-001 归属校验（2026-09-16 委员会评审修复）：`recordTakenAt` 此前三个标识
+    /// 全部来自调用方参数、计划查询只看 `plan_id + status`——错传成员会**静默扣减
+    /// 他人批次**并把分配行记到错成员名下（跨成员医疗数据污染）。修复后：错传即
+    /// `doseNotFound`，且**两线余量与分配行分毫不动**。
+    func test_错传成员补录被拒且不触碰存量() async throws {
+        let (store, meds, patient, med) = try await makeStore()
+        let lot = DualTrackInventory(lotId: UUID(), totalUnits: 10, unitKind: "tablet")
+        try await meds.createLot(lot: lot, patientId: patient, medicationId: med)
+        let planId = UUID()
+        try await meds.createPlan(planId: planId, patientId: patient, medicationId: med,
+                                  schedule: .fixed(times: ["08:00"]), status: .active,
+                                  startDate: cal.date(byAdding: .day, value: -2, to: Date())!,
+                                  endDate: nil)
+        let (due, _) = try await seedMissedDose(store: store, meds: meds, planId: planId,
+                                                patient: patient, med: med, lot: lot)
+        // 错传前存量快照（seedMissedDose 已按 missed 扣减计划轨）
+        let before = try await store.writer.read { db in
+            try Row.fetchOne(db, sql: """
+                SELECT remaining_plan_units, remaining_confirmed_units FROM stock_lot WHERE id = ?
+                """, arguments: [lot.lotId.uuidString])
+        }
+        // 以**他人**成员身份补录同一计划
+        do {
+            try await meds.recordTakenAt(planId: planId, patientId: UUID(), medicationId: med,
+                                         actualTime: due.addingTimeInterval(5 * 60), doseUnits: 1)
+            XCTFail("错传成员的补录必须被拒（doseNotFound）——此前会静默扣减他人批次")
+        } catch StoreError.doseNotFound {
+            // 预期路径
+        } catch {
+            XCTFail("预期 doseNotFound，实际：\(error)")
+        }
+        // 两线余量分毫不动（错传不留任何痕迹）
+        let after = try await store.writer.read { db in
+            try Row.fetchOne(db, sql: """
+                SELECT remaining_plan_units, remaining_confirmed_units FROM stock_lot WHERE id = ?
+                """, arguments: [lot.lotId.uuidString])
+        }
+        XCTAssertEqual(after?["remaining_plan_units"] as Double?,
+                       before?["remaining_plan_units"] as Double?, "计划轨余量不得因错传变动")
+        XCTAssertEqual(after?["remaining_confirmed_units"] as Double?,
+                       before?["remaining_confirmed_units"] as Double?, "确认轨余量不得因错传变动")
+    }
 }

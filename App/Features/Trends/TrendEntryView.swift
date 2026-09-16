@@ -48,6 +48,10 @@ final class TrendEntryState {
     /// 任意窗口最近读数（诊断性空态，2026-09-16 业主实测）：空窗时告知「数据在更早」，
     /// 可一键切一年窗——此前空态只有一句同步报告文案，用户无从判断是真空还是窗口未覆盖。
     private(set) var latestAnyDate: Date?
+    /// 诊断查询失败标记（2026-09-16 委员会评审）：该查询失败被吞为 nil，调用方无从
+    /// 区分「真无数据」与「读失败」；此标记让空态的**逃生出口**（[查看最近一年]）
+    /// 在失败时仍保留——否则恰在用户最需要出口时它静默消失。
+    private(set) var latestDiagnosticFailed = false
 
     /// - Parameters:
     ///   - window: 时间窗（日历日，DayArithmetic 出口——切换日不漂移）
@@ -83,7 +87,9 @@ final class TrendEntryState {
             let loaded = try await seriesTask
             // 诊断数据（任意窗口最近读数）失败不阻断曲线：按 nil 渲染（空态少一行提示）。
             let latest: Date?
-            do { latest = try await latestTask } catch { latest = nil }
+            var diagnosticFailed = false
+            do { latest = try await latestTask }
+            catch { latest = nil; diagnosticFailed = true }
             // 审查修复：hasDeviceSamples 从未被写入（声明即弃用）——空态分流
             // 恒走「未连接 Apple 健康」+ [去连接] 引导，有设备数据但该指标
             // 无读数的用户被假引导（V3.53 契约空态分流失效）。探测失败不
@@ -96,6 +102,7 @@ final class TrendEntryState {
             detailSeries = loaded
             hasDeviceSamples = hasDevice
             latestAnyDate = latest
+            latestDiagnosticFailed = diagnosticFailed
         } catch {
             // 过期请求（已切成员/切指标）的失败不触碰当前数据；当前请求
             // 失败才清槽（空态渲染，不残留旧曲线）。含 QueryError.deviceRequiresSelfBinding
@@ -168,11 +175,16 @@ struct TrendChartRouteView: View {
                     // 过 Apple 健康（无任何 origin='device' 读数）——分流为
                     // 「未连接」+ [去连接] 深链（SP-29），不渲染设备来源占位；
                     // 有设备数据但该指标空 → 下方通用空态
+                    // 文案分态（2026-09-16 委员会评审）：此前一律用页面名 + SP-29
+                    // 同步场景句（「本次同步未读取到…」在趋势页上下文不成立）；专写的
+                    // trendEmptyTitle/Hint 与 trendNotConnectedHealth/Hint 此前零调用。
                     VLUnavailableView {
-                        Label(L10n.trendTitle, systemImage: "chart.xyaxis.line")
+                        Label(state.hasDeviceSamples ? L10n.trendEmptyTitle : L10n.trendNotConnectedHealth,
+                              systemImage: "chart.xyaxis.line")
                     } description: {
                         VStack(spacing: 6) {
-                            Text(state.detailFailed ? L10n.f16SyncFailed : L10n.healthNoReadableData)
+                            Text(state.detailFailed ? L10n.trendLoadFailed
+                                 : (state.hasDeviceSamples ? L10n.trendEmptyHint : L10n.trendNotConnectedHint))
                             // 诊断行（2026-09-16）：窗口空但数据在更早——如实告知位置。
                             if let latest = state.latestAnyDate,
                                let range = state.detailIdentity?.range, latest < range.start {
@@ -192,9 +204,14 @@ struct TrendChartRouteView: View {
                             .buttonStyle(.borderedProminent)
                             .accessibilityIdentifier("SP-13.trend.connectHealth")
                         }
-                        // 一键切一年窗（数据在更早时的主要出口；已在年窗则不重复给）。
-                        if window != .year, let latest = state.latestAnyDate,
-                           let range = state.detailIdentity?.range, latest < range.start {
+                        // 一键切一年窗：数据在更早时的主要出口；已在年窗不重复给。
+                        // 诊断失败时同样给出（委员会评审：失败被吞成 nil 时出口不得
+                        // 静默消失——用户最需要它的时刻恰是「可能没覆盖且某处读失败」）。
+                        if window != .year,
+                           state.latestDiagnosticFailed
+                           || (state.latestAnyDate.map { latest in
+                               state.detailIdentity.map { latest < $0.range.start } ?? false
+                           } ?? false) {
                             Button(L10n.trendEmptySwitchToYear) { window = .year }
                                 .buttonStyle(.bordered)
                                 .accessibilityIdentifier("SP-13.trend.switchToYear")

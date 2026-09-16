@@ -387,6 +387,7 @@
 "backup.checksum" = "校验码 %@…";
 "backup.restored" = "已从备份恢复";
 "trend.empty.title" = "暂无指标数据";
+"trend.loadFailed" = "数据加载失败，请稍后重试。";
 "trend.empty.hint" = "录入自测指标或导入报告后，趋势图会显示在这里";
 "trend.axis.start" = "起";
 "trend.axis.end" = "止";
@@ -1553,6 +1554,8 @@
 "route.entityGoneHint" = "目标记录已被删除或已切换成员，即将返回";
 "f16.authDenied" = "本应用无法判断 Apple 健康的读取授权状态；可在健康 App 中查看或调整权限。";
 "startup.degradedTitle" = "数据打开异常";
+"startup.databaseMissing" = "本地数据库文件缺失，但检测到已有资料原件。为避免覆盖，已停止加载：请从备份恢复，或联系支持。";
+"startup.loadFailed" = "本地数据库加载失败。";
 "startup.degradedBodyFmt" = "本地数据暂无法打开（%@）。您的资料未被修改；请重启应用重试，如持续出现请联系支持。";
 "claim.amount" = "金额";
 "claim.date" = "日期";

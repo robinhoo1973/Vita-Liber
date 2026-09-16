@@ -383,6 +383,9 @@ public enum SchemaV2 {
     CREATE INDEX idx_metric_patient_time ON metric_sample(patient_id, metric_key, measured_at);
     CREATE INDEX idx_metric_source ON metric_sample(patient_id, metric_key, measured_at, source_name);
     CREATE INDEX idx_metric_device_identity ON metric_sample(patient_id, source_ref) WHERE origin = 'device';
+    -- v28（2026-09-16 委员会评审）：时间轴/宫格查询索引（迁移同名 IF NOT EXISTS）。
+    CREATE INDEX idx_metric_timeline ON metric_sample(patient_id, origin, measured_at DESC, id DESC);
+    CREATE INDEX idx_metric_latest ON metric_sample(patient_id, excluded, metric_key, measured_at DESC);
 
     -- v26（子项目 D §C.5）：非数值/半定量检验项目（阴性 / 阳性(+) / <0.5 / 未检出）——原文保存、不猜数值、
     -- 不进趋势（分流规则：value 严格可解析且有单位 → metric_sample，否则 → 本表，不双写）。

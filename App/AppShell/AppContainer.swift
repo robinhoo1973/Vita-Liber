@@ -90,8 +90,25 @@ struct AppContainer {
     /// @MainActor：mediaSession（MediaUnlockSession）为 UI 会话令牌，装配根即主线程。
     /// 第七轮修复：UNReminderScheduler 外包 FR9.18 通道投递门（ChannelGated
     /// Scheduler）——「静音仅横幅」偏好真实生效（不再锁屏响铃的假宣告）
+    /// 库文件缺失判定（2026-09-16 委员会评审）：数据目录**曾存在**（原件非空）
+    /// 而库文件不在——库被外部删除/清理/损坏后被移走。此时 GRDB 会以
+    /// `SQLITE_OPEN_CREATE` 静默建空库、读 `user_version = 0` 跑基线，全程不抛；
+    /// 引导完成态又在 UserDefaults（不随库消失重置），用户将落到**外观完全正常的
+    /// 空应用并继续写入**，BR-002 原件成为无引用孤儿——恰违反本容器自陈的
+    /// 「绝不静默空库继续写入」。判定信号用**文件系统事实**（原件目录），
+    /// 不用 UserDefaults（`hk_sync_anchor` 先例：UserDefaults 不入备份语义）。
+    static func databaseWasLost(databasePath: String, originalsDir: URL,
+                                fileManager: FileManager = .default) -> Bool {
+        guard !fileManager.fileExists(atPath: databasePath) else { return false }
+        let contents = (try? fileManager.contentsOfDirectory(atPath: originalsDir.path)) ?? []   // try?-ok: 目录不可读=无原件证据，按「未丢失」处理，绝不阻断正常启动
+        return !contents.filter { !$0.hasPrefix(".") }.isEmpty
+    }
+
     @MainActor
     static func live(databasePath: String) throws -> AppContainer {
+        if databaseWasLost(databasePath: databasePath, originalsDir: defaultOriginalsDir()) {
+            throw ContainerError.databaseMissing
+        }
         let store = try GRDBStore.pool(at: databasePath)
         return assemble(store: store, scheduler: productionScheduler())
     }
@@ -127,9 +144,17 @@ struct AppContainer {
         } catch {
             do {
                 let store = try GRDBStore.inMemory()
+                // 稳定文案（2026-09-16 评审）：此前直插 `"\(error)"`——英文 SQLite
+                // 诊断出现在用户可见的降级页。
+                let reason: String
+                if case ContainerError.databaseMissing = error {
+                    reason = L10n.startupDatabaseMissing
+                } else {
+                    reason = L10n.startupLoadFailed
+                }
                 return assemble(store: store,
                                 scheduler: productionScheduler(),
-                                degradedReason: "\(error)")
+                                degradedReason: reason)
             } catch {
                 fatalError("Data layer init failed (live and in-memory degraded both unavailable): \(error)")
             }
@@ -246,6 +271,11 @@ struct AppContainer {
                             pdfExport: pdfExport,
                             healthReader: healthReader,
                             healthSync: healthSync)
+    }
+
+    enum ContainerError: Error {
+        /// 库文件缺失但原件目录非空（见 `databaseWasLost`）。
+        case databaseMissing
     }
 
     /// Application Support 下的数据库路径（生产库位置）

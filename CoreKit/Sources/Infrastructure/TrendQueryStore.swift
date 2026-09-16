@@ -374,22 +374,27 @@ extension TrendQueryStore {
 
     public func latestPerMetric(patientId: UUID) async throws -> [LatestMetric] {
         try await writer.read { db in
-            // 第六轮全仓审查修复：MAX(measured_at) 等值 JOIN 在同一时刻存在
-            // 多条样本时返回重复行（每分钟粒度录入器可达成）——同 key 重复
-            // id 让指标宫格 ForEach 崩溃/重砖。改「每个 key 单行 id 子查询」，
-            // 同刻并列取 rowid 最新的一条。
+            // 第六轮修复保留：同刻并列取 rowid 最新，且每键**恰好一行**。
+            // 2026-09-16 委员会评审改写：原「每行一次相关子查询」实测量级为
+            // O(全部行×子查询)（12.7 万行实测 345 ms）；改窗口函数一次扫描——
+            // `ROW_NUMBER() OVER (PARTITION BY metric_key ORDER BY measured_at DESC,
+            // rowid DESC) = 1` 与原「每键取 (measured_at DESC, rowid DESC) 首行」
+            // **逐字等价**（同排序键、同 tie-break），且 `idx_metric_latest`
+            // 直接提供分区内排序。
             let rows = try Row.fetchAll(db, sql: """
-                SELECT m.metric_key, m.value, m.secondary_value, m.unit, m.origin, m.measured_at,
-                       m.source_name, m.aggregation_kind, m.window_end
-                FROM metric_sample m
-                WHERE m.patient_id = ? AND m.excluded = 0
-                  AND m.id = (SELECT m2.id FROM metric_sample m2
-                              WHERE m2.patient_id = ? AND m2.excluded = 0
-                                AND m2.metric_key = m.metric_key
-                              ORDER BY m2.measured_at DESC, m2.rowid DESC
-                              LIMIT 1)
-                ORDER BY m.measured_at DESC
-                """, arguments: [patientId.uuidString, patientId.uuidString])
+                SELECT metric_key, value, secondary_value, unit, origin, measured_at,
+                       source_name, aggregation_kind, window_end
+                FROM (
+                    SELECT metric_key, value, secondary_value, unit, origin, measured_at,
+                           source_name, aggregation_kind, window_end,
+                           ROW_NUMBER() OVER (PARTITION BY metric_key
+                                              ORDER BY measured_at DESC, rowid DESC) AS rn
+                    FROM metric_sample
+                    WHERE patient_id = ? AND excluded = 0
+                )
+                WHERE rn = 1
+                ORDER BY measured_at DESC
+                """, arguments: [patientId.uuidString])
             return rows.map { row in
                 LatestMetric(metricKey: row["metric_key"] as String,
                              value: row["value"] as Double,

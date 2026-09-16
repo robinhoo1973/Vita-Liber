@@ -570,6 +570,8 @@ enum L10n {
 
     // MARK: - L10n 清偿批五 · F7 趋势图轴与图例（SP-13 / FR7.2）
     static var trendEmptyTitle: String { t("trend.empty.title") }
+    /// SP-13 专用读失败文案（2026-09-16 评审：此前借用 SP-29 同步场景键）。
+    static var trendLoadFailed: String { t("trend.loadFailed") }
     static var trendEmptyHint: String { t("trend.empty.hint") }
     static var trendAxisStart: String { t("trend.axis.start") }
     static var trendAxisEnd: String { t("trend.axis.end") }
@@ -1299,7 +1301,7 @@ enum L10n {
         "settings.highContrast", "settings.highContrastFooter", "trend.axis.end", "trend.axis.lower",
         "trend.axis.selected", "trend.axis.start", "trend.axis.time", "trend.axis.upper",
         "trend.axis.value", "trend.band.accessibility", "trend.band.legend", "trend.band.unlabeled", "trend.chart.accessibility",
-        "trend.convertedFrom", "trend.empty.hint", "trend.empty.title", "trend.excluded.accessibility",
+        "trend.convertedFrom", "trend.empty.hint", "trend.empty.title", "trend.loadFailed", "trend.excluded.accessibility",
         "trend.excluded.header", "trend.excluded.toggle", "trend.openSource", "trend.origin.hospital",
         "trend.origin.hospitalShort", "trend.origin.self", "trend.origin.selfDevice", "trend.origin.selfShort",
         "trend.origin.device", "trend.origin.legend", "trend.notConnected.health",
@@ -1636,7 +1638,7 @@ enum L10n {
         "sensitiveMedia.loadFailed",
         "settings.highContrastForced",
         "settings.offlineNote",
-        "startup.degradedBodyFmt",
+        "startup.degradedBodyFmt", "startup.databaseMissing", "startup.loadFailed",
         "startup.degradedTitle",
         "tab.reminders.badge",
         "timeline.kind.document",
@@ -3081,6 +3083,9 @@ enum L10n {
     static var routeEntityGone: String { t("route.entityGone") }
     static var routeEntityGoneHint: String { t("route.entityGoneHint") }
     static var startupDegradedTitle: String { t("startup.degradedTitle") }
+    /// 启动降级分型（2026-09-16 评审）：稳定文案替代直插英文诊断。
+    static var startupDatabaseMissing: String { t("startup.databaseMissing") }
+    static var startupLoadFailed: String { t("startup.loadFailed") }
     static func startupDegradedBody(_ reason: String) -> String {
         String(format: t("startup.degradedBodyFmt"), reason)
     }

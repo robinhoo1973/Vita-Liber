@@ -387,6 +387,7 @@
 "backup.checksum" = "Checksum %@…";
 "backup.restored" = "Restored from backup";
 "trend.empty.title" = "No trend data yet";
+"trend.loadFailed" = "Failed to load data. Please try again.";
 "trend.empty.hint" = "Trend charts appear here after you record self-measurements or import reports";
 "trend.axis.start" = "Start";
 "trend.axis.end" = "End";
@@ -1553,6 +1554,8 @@
 "route.entityGoneHint" = "The record was deleted or the member was switched; returning now";
 "f16.authDenied" = "This app cannot determine Apple Health read authorization status. View or change permissions in the Health app.";
 "startup.degradedTitle" = "Data Open Error";
+"startup.databaseMissing" = "The local database file is missing while existing attachments were found. Loading has stopped to avoid overwriting — restore from a backup or contact support.";
+"startup.loadFailed" = "The local database failed to load.";
 "startup.degradedBodyFmt" = "Your local data could not be opened (%@). Nothing has been modified; please restart the app, or contact support if this persists.";
 "claim.amount" = "Amount";
 "claim.date" = "Date";

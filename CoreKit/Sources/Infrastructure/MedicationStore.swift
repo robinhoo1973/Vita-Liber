@@ -99,7 +99,7 @@ public actor MedicationStore: DoseSource {
                 SET user_action = 'taken', acted_at = ?
                 WHERE id = ?
                 """, arguments: [Date().timeIntervalSince1970, notifyId])
-            try applyResolutionOnLots(patientId: patientId, medicationId: medicationId,
+            try applyResolutionOnLots(patientId: patientId, medicationId: effectiveMedicationId,
                                 notifyId: notifyId, units: units, action: .taken, db: db)
         }
     }
@@ -128,7 +128,7 @@ public actor MedicationStore: DoseSource {
                 SET user_action = ?, acted_at = ?, note = ?
                 WHERE id = ?
                 """, arguments: [action.rawValue, Date().timeIntervalSince1970, reason, notifyId])
-            try applyResolutionOnLots(patientId: patientId, medicationId: medicationId,
+            try applyResolutionOnLots(patientId: patientId, medicationId: effectiveMedicationId,
                                 notifyId: notifyId, units: units, action: action, db: db)
         }
     }
@@ -181,7 +181,7 @@ public actor MedicationStore: DoseSource {
                     WHERE id = ? AND user_action IS NULL
                     """, arguments: [now.timeIntervalSince1970, notifyId])
                 guard db.changesCount > 0 else { continue }   // 并发下已被决议，跳过
-                try applyResolutionOnLots(patientId: patientId, medicationId: medicationId,
+                try applyResolutionOnLots(patientId: patientId, medicationId: effectiveMedicationId,
                                           notifyId: notifyId, units: units,
                                           action: .missed, db: db)
                 processed += 1
@@ -639,12 +639,19 @@ public actor MedicationStore: DoseSource {
                               actualTime: Date, doseUnits: Double,
                               notifyId: String = UUID().uuidString) async throws {
         try await writer.write { db in
+            // BR-001 归属校验（2026-09-16 委员会评审：本函数此前只看 plan_id + status，
+            // 三个标识全部来自调用方参数——错传成员会静默扣减**他人**批次并把
+            // dose_lot_allocation 记到错成员名下（跨成员医疗数据污染）；同文件
+            // confirmTaken 早有正确防线，此处补齐）。
             guard let plan = try Row.fetchOne(db, sql: """
-                SELECT id, schedule_json, start_date, dose_plan_units
-                FROM medication_plan WHERE id = ? AND status = 'active'
-                """, arguments: [planId.uuidString]) else {
+                SELECT id, schedule_json, start_date, dose_plan_units, medication_id
+                FROM medication_plan WHERE id = ? AND status = 'active' AND patient_id = ?
+                """, arguments: [planId.uuidString, patientId.uuidString]) else {
                 throw StoreError.doseNotFound(planId.uuidString)
             }
+            // 药品归属以**计划行为准**（评审：参数 medicationId 仅作冗余提示——
+            // 批次扣减必须按计划真实挂接的药品过滤，防「A 药计划扣 B 药批」）。
+            let effectiveMedicationId = (plan["medication_id"] as String?).flatMap(UUID.init(uuidString:)) ?? medicationId
             // 时段解析：同一计划、±30min 容差内的既有物化行（DoseSlotGrouping.tolerance 单一事实源）
             let tolerance = DoseSlotGrouping.tolerance
             let existing = try Row.fetchOne(db, sql: """
@@ -673,7 +680,7 @@ public actor MedicationStore: DoseSource {
                     SET user_action = 'taken', acted_at = ?, note = 'backfill', dose_units = ?
                     WHERE id = ?
                     """, arguments: [actualTime.timeIntervalSince1970, existingUnits, existingId])
-                try applyResolutionOnLots(patientId: patientId, medicationId: medicationId,
+                try applyResolutionOnLots(patientId: patientId, medicationId: effectiveMedicationId,
                                           notifyId: existingId, units: existingUnits,
                                           action: .taken, transitionMatrix: matrix, db: db)
                 return
@@ -717,7 +724,7 @@ public actor MedicationStore: DoseSource {
                     SET user_action = 'taken', acted_at = ?, note = 'backfill', dose_units = ?
                     WHERE id = ?
                     """, arguments: [actualTime.timeIntervalSince1970, wideUnits, wideId])
-                try applyResolutionOnLots(patientId: patientId, medicationId: medicationId,
+                try applyResolutionOnLots(patientId: patientId, medicationId: effectiveMedicationId,
                                           notifyId: wideId, units: wideUnits,
                                           action: .taken, transitionMatrix: matrix, db: db)
                 return
@@ -746,7 +753,7 @@ public actor MedicationStore: DoseSource {
                 ON CONFLICT(id) DO UPDATE SET user_action = 'taken', acted_at = excluded.acted_at
                 """, arguments: [backfillId, planId.uuidString, actualTime.timeIntervalSince1970,
                                  doseUnits, actualTime.timeIntervalSince1970])
-            try applyResolutionOnLots(patientId: patientId, medicationId: medicationId,
+            try applyResolutionOnLots(patientId: patientId, medicationId: effectiveMedicationId,
                                       notifyId: backfillId, units: doseUnits, action: .taken, db: db)
         }
     }
