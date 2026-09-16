@@ -545,6 +545,23 @@ struct HomeView: View {
     /// 主体点击进设置下载面（SP-25/SP-62），trailing [取消] 直达安装中心。
     @ViewBuilder
     private func modelDownloadCard(_ install: ASRInstallCenter.Install) -> some View {
+        // **独立观察域**（2026-09-16 业主实测「下载没有实时进度」的根因修复之二）：
+        // 卡片读 `install.progress`/`phase`——下载中每 200ms 一次（ProgressCounter 节流
+        // 上限 5 Hz）。这些读取若落在外层跟踪域内，每次进度写入都会让**整个首页 body**
+        // 重新求值，其中含 `aggregatedItems` 全量聚合（5 遍扫描 + 逐项日历运算），
+        // 主 actor 饱和后进度条自身的渲染反而被挤掉——现象就是「卡住不动」。
+        // 故**全部**读取下沉到内层 `WithPerceptionTracking`：进度只让本卡片重渲染。
+        // 配套：`ASRInstallCenter.Install` 已改为独立可观察对象（进度不再经
+        // `active[index]` 变址写入，`active` 只在安装开始/结束时变化）。
+        WithPerceptionTracking {
+            downloadCardContent(install)
+        }
+    }
+
+    /// 下载卡片主体。对 `install.progress`/`phase` 的读取**只准**在此求值，且只准由
+    /// 上面的 `WithPerceptionTracking` 调用——否则读取会落回外层跟踪域，高频进度重新
+    /// 牵连首页全量聚合。
+    private func downloadCardContent(_ install: ASRInstallCenter.Install) -> some View {
         let downloading = install.phase == nil || install.phase == .downloading
         let fraction = downloading ? (install.progress?.fraction ?? 0) : 0
         HStack(spacing: 10) {

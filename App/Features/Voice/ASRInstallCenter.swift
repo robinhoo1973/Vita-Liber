@@ -20,12 +20,46 @@ import UIKit   // beginBackgroundTask（切后台继续下载窗口）
 @Perceptible
 final class ASRInstallCenter {
 
-    /// 单个进行中的安装（有序数组供首页稳定呈现；进度/阶段随回调更新）。
-    struct Install: Identifiable, Equatable {
+    /// 单个进行中的安装（有序数组供首页稳定呈现）。
+    ///
+    /// **进度/阶段是独立可观察对象，不是数组元素里的值**——2026-09-16 业主实测
+    /// 「下载没有实时进度展示」的根因：原先写作 `active[index].progress = x`，
+    /// 经数组 `_modify` 变址写入会让**所有**观察 `active` 的视图失效。首页 body
+    /// 恰是一个 `WithPerceptionTracking` 包住全量提醒聚合（`HomeView:228` +
+    /// `aggregatedItems`：5 遍扫描 + 逐项日历运算），于是**每 200ms 一次的进度写入
+    /// 都重跑一遍全量聚合**（`ProgressCounter` 节流上限 = 5 Hz），主 actor 饱和后
+    /// 进度条自身的渲染反而被挤掉——现象就是「卡住不动」。
+    ///
+    /// 拆开后观察域分离：`active` 只在安装开始/结束时变化（低频），进度只让持有它
+    /// 的那张卡片重渲染（高频）。
+    @MainActor
+    @Perceptible
+    final class Install: Identifiable {
         let id: UUID
         let choice: VoiceEngineChoice
         var progress: ASRModelDownloadService.DownloadProgress?
         var phase: ASRModelDownloadService.InstallPhase?
+
+        init(id: UUID, choice: VoiceEngineChoice) {
+            self.id = id
+            self.choice = choice
+        }
+
+        /// 进度写入（下载线程可调，内部 hop 主 actor）。
+        /// **单调守卫**：原实现每次回调新建一个无序 `Task{}` 跳主线程，乱序到达会让
+        /// 进度条**往回跳**；此处丢弃 `receivedBytes` 不增的旧值。
+        /// 保留单次 hop（5 Hz 量级，成本可忽略）——病根是观察域而非 hop 频率。
+        nonisolated func submit(progress: ASRModelDownloadService.DownloadProgress) {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if let current = self.progress, current.receivedBytes >= progress.receivedBytes { return }
+                self.progress = progress
+            }
+        }
+
+        nonisolated func submit(phase: ASRModelDownloadService.InstallPhase) {
+            Task { @MainActor [weak self] in self?.phase = phase }
+        }
     }
 
     private(set) var active: [Install] = []
@@ -54,12 +88,12 @@ final class ASRInstallCenter {
     /// 启动安装（per-choice 幂等：同一模型在装时忽略重复请求）。
     func start(_ release: ASRModelRelease, baseURL: URL?) {
         guard let choice = VoiceEngineChoice(rawValue: release.id), !isInstalling(choice) else { return }
-        let id = UUID()
-        active.append(Install(id: id, choice: choice))
+        let install = Install(id: UUID(), choice: choice)
+        active.append(install)
         failed.remove(choice)
         lastFailure = nil
         tasks[choice] = Task { [weak self] in
-            await self?.run(release, choice: choice, id: id, baseURL: baseURL)
+            await self?.run(release, choice: choice, install: install, baseURL: baseURL)
         }
     }
 
@@ -70,9 +104,9 @@ final class ASRInstallCenter {
         tasks[choice]?.cancel()
     }
 
-    private func run(_ release: ASRModelRelease, choice: VoiceEngineChoice, id: UUID, baseURL: URL?) async {
+    private func run(_ release: ASRModelRelease, choice: VoiceEngineChoice, install: Install, baseURL: URL?) async {
         defer {
-            active.removeAll { $0.id == id }
+            active.removeAll { $0.id == install.id }
             tasks[choice] = nil
         }
         // 切后台继续下载窗口：beginBackgroundTask 给系统级 ~30min 宽限；
@@ -86,16 +120,12 @@ final class ASRInstallCenter {
         defer { if assertion != .invalid { UIApplication.shared.endBackgroundTask(assertion) } }
         #endif
         do {
+            // 直接投递到该安装自身的可观察对象（见 `Install` 说明）——不再经
+            // `active[index]` 变址写入，首页全量聚合因此不再被高频进度牵连。
             _ = try await service.install(release, baseURL: baseURL) { progress in
-                Task { @MainActor [weak self] in
-                    guard let index = self?.active.firstIndex(where: { $0.id == id }) else { return }
-                    self?.active[index].progress = progress
-                }
+                install.submit(progress: progress)
             } onPhase: { phase in
-                Task { @MainActor [weak self] in
-                    guard let index = self?.active.firstIndex(where: { $0.id == id }) else { return }
-                    self?.active[index].phase = phase
-                }
+                install.submit(phase: phase)
             }
             // 资产失效广播：语言列表/档位可用性据此重算（下载完了才能选）。
             dataChange.assetsChanged()
