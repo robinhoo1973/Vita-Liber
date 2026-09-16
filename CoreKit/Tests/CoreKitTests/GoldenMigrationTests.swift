@@ -175,7 +175,12 @@ struct MigrationStatementsTests {
         #expect(step6 != nil, "v6 步骤必须存在")
         guard let step6 else { return }
         let stmts = SchemaMigrations.statements(step6.sql)
-        #expect(stmts.count == 10, "3 DROP TRIGGER + 4 索引重洗 + 3 CREATE TRIGGER，实得 \(stmts.count)")
+        // 17 = 3 ALTER TABLE（document_file 补 title/ocr_text/notes——基线直改漏迁移步，
+        // eee0fb0 同族修复）+ 2 DROP TABLE + 2 CREATE VIRTUAL TABLE（两张 FTS 表重建为与
+        // 当前基线同形：v1 基线是 content-full，而 'delete-all' 只对 external-content /
+        // contentless 合法）+ 3 DROP TRIGGER + 4 INSERT（两表各 delete-all + 重灌）
+        // + 3 CREATE TRIGGER。
+        #expect(stmts.count == 17, "3 ALTER + 2 DROP TABLE + 2 CREATE VIRTUAL TABLE + 3 DROP TRIGGER + 4 INSERT + 3 CREATE TRIGGER，实得 \(stmts.count)")
         let triggers = stmts.filter { $0.hasPrefix("CREATE TRIGGER") }
         #expect(triggers.count == 3, "三个触发器整块保留")
         for t in triggers {
