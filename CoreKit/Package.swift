@@ -39,13 +39,6 @@ let package = Package(
         // 16.0–16.3 设备优雅降级 T3（功能缺失到兜底边界为止）。
         // 校验和 = 发布资产 sha256（SPM binaryTarget 强制）。
     ],
-    binaryTargets: [
-        .binaryTarget(
-            name: "LlamaFramework",
-            url: "https://github.com/ggml-org/llama.cpp/releases/download/b11012/llama-b11012-xcframework.zip",
-            checksum: "bf53d48315d208479271c5834dade26da80d28704848012ef167dabcafe45e24"
-        )
-    ],
     targets: [
         .target(name: "Domain"),
         .target(name: "Protocols", dependencies: ["Domain"]),
@@ -81,7 +74,15 @@ let package = Package(
                 .product(name: "ZIPFoundation", package: "ZIPFoundation",
                          condition: .when(platforms: [.iOS, .macOS])),
             ],
-            resources: [.copy("Fixtures")])
+            resources: [.copy("Fixtures")]),
+        // T2 本机 LLM（业主 2026-09-17 定：llama 模型随包内置）——
+        // binaryTarget 声明于 targets 数组（PackageDescription API：无独立 binaryTargets 参数，
+        // CI 35201088924 实证）；模块名 = llama（framework module map）。
+        .binaryTarget(
+            name: "LlamaFramework",
+            url: "https://github.com/ggml-org/llama.cpp/releases/download/b11012/llama-b11012-xcframework.zip",
+            checksum: "bf53d48315d208479271c5834dade26da80d28704848012ef167dabcafe45e24"
+        ),
     ],
     cxxLanguageStandard: .cxx17
 )
