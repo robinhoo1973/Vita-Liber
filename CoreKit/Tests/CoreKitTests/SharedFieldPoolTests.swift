@@ -56,6 +56,16 @@ struct SharedFieldPoolTests {
         #expect(SharedFieldPool.rows(cards: [single]).isEmpty, "单卡不因缺失必填而多开一页")
     }
 
+    @Test("单卡必填但值为空 → 也不入池（「单卡的卡内操作」；低置信才入）")
+    func 单卡空值不入池() {
+        let emptied = card("encounter", shared: [field("kind", "", confidence: 1),
+                                                 field("date", "2026-09-16", confidence: 1)])
+        #expect(SharedFieldPool.rows(cards: [emptied]).isEmpty, "空值（非低置信）留卡内；实得 \(SharedFieldPool.rows(cards: [emptied]).map(\.key))")
+        let lowConfidence = card("encounter", shared: [field("kind", "", confidence: 0.3),
+                                                       field("date", "2026-09-16", confidence: 1)])
+        #expect(SharedFieldPool.rows(cards: [lowConfidence]).map(\.key) == ["kind"], "低置信的必填（哪怕空值）入池")
+    }
+
     @Test("B 只被一张卡携带：高置信可选不入池；必填低置信入池（critical）")
     func 单卡入池规则() {
         // doctor 可选高置信（0.9）→ 不入池；date 必填低置信（0.4）→ 入池

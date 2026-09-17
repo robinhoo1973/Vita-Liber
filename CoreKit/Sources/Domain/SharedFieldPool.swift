@@ -118,6 +118,7 @@ public enum SharedFieldPool {
         }
 
         var out: [Row] = []
+        let multiCard = cards.count >= 2
         for key in order {
             guard let groups = byKey[key] else { continue }
             let cardCount = Set(slots.filter { $0.key == key }.map(\.carrier.cardId)).count
@@ -127,7 +128,9 @@ public enum SharedFieldPool {
                 let required = group.contains(where: \.required)
                 let lowConfidence = group.contains { $0.field.confidence < floor }
                 let missing = head.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                let critical = required && (lowConfidence || missing)
+                // 三条析取（规格 2026-09-17 定稿）：① 跨卡重复 ② 必填 ∧ 低置信（单卡也入）
+                // ③ 必填 ∧ 缺失 ∧ **多卡**——单卡的缺失/空值留在卡内（业主：「单卡的卡内操作」）
+                let critical = required && (lowConfidence || (missing && multiCard))
                 guard repeated || critical else { continue }
                 out.append(Row(key: key, value: head.value, unit: head.unit, field: head.field,
                                carriers: group.map(\.carrier).sorted { "\($0.face)" < "\($1.face)" },
