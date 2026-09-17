@@ -1,0 +1,60 @@
+name: Build Llama XCFramework
+
+# T2 本机 LLM 轨（业主 2026-09-17 定：llama 模型随包内置）——
+# 上游 ggml-org/llama.cpp 官方发布物**不含 ios-simulator 切片**（发布流水线
+# 只出 ios-device + macos，CI 35203708914 实证 L1 模拟器测试无法链接），
+# 且上游无根 Package.swift 可源码依赖。故本流水线从**钉版 b11012 源码**
+# 构建三切片（ios-sim / ios-device / macos），发布到本仓 release 稳定 URL，
+# 供 CoreKit/Package.swift 的 binaryTarget 钉版（URL + sha256 同改）。
+# 触发：手动（改版/重建）或本文件变更；产物 = release tag `llama-xcframework`
+# 资产 `llama-b11012-xcframework.zip`（--clobber 覆盖同名资产，URL 稳定）。
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/build-llama-xcframework.yml'
+
+jobs:
+  build:
+    runs-on: macos-26
+    permissions:
+      contents: write
+    steps:
+      - name: 环境断言
+        run: |
+          xcodebuild -version
+          cmake --version
+          sysctl -n hw.logicalcpu
+
+      - name: 检出 llama.cpp（钉版 b11012）
+        run: git clone --depth 1 --branch b11012 https://github.com/ggml-org/llama.cpp.git llama-src
+
+      - name: 构建三切片 xcframework 并打包
+        working-directory: llama-src
+        run: |
+          # 官方脚本：参数 = 构建集合；顺序产出 build-apple/llama.xcframework
+          ./build-xcframework.sh ios-sim ios-device macos
+          test -d build-apple/llama.xcframework || { echo "::error::xcframework 未产出"; exit 1; }
+          cd build-apple
+          zip -r -y llama-b11012-xcframework.zip llama.xcframework
+          shasum -a 256 llama-b11012-xcframework.zip | tee checksum.txt
+          ls -la llama-b11012-xcframework.zip
+
+      - name: 发布到 release 稳定 URL
+        run: |
+          CHECKSUM="$(cut -d' ' -f1 llama-src/build-apple/checksum.txt)"
+          echo "checksum=${CHECKSUM}" >> "$GITHUB_OUTPUT"
+          # 首次创建 tag；已存在则覆盖同名资产（URL 不变，Package.swift 钉 checksum 同改）
+          if gh release view llama-xcframework >/dev/null 2>&1; then
+            gh release upload llama-xcframework \
+              llama-src/build-apple/llama-b11012-xcframework.zip --clobber
+          else
+            gh release create llama-xcframework \
+              llama-src/build-apple/llama-b11012-xcframework.zip \
+              --title "llama-b11012-xcframework（三切片：ios-sim/ios-device/macos）" \
+              --notes "自建：ggml-org/llama.cpp b11012 源码经官方 build-xcframework.sh 构建；含上游发布物缺失的模拟器切片。"
+          fi
+          echo "checksum=${CHECKSUM}"
+        env:
+          GH_TOKEN: ${{ github.token }}
