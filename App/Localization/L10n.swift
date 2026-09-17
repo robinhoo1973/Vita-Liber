@@ -1856,6 +1856,8 @@ enum L10n {
         "encounter.linkedCards", "encounter.linkedCards.empty",
         // 子项目 D · D1-5（v25）：处方行详情 / 就诊叙事分段 / 确认卡「添加字段」/ 处方类型枚举
         "prescriptionLine.title", "prescriptionLine.section", "prescriptionLine.none",
+        // 业主 2026-09-17 定：折叠标签计数（多项目处方单 / 检验数值定性分段 / 体检检测检查项）
+        "prescription.lineCountFmt", "labReport.samplesCountFmt", "labReport.resultsCountFmt",
         "prescriptionLine.unavailable", "prescriptionLine.header", "prescriptionLine.noSource",
         "entityCard.addField", "entityCard.pickValue", "encounter.narrative",
         // 动态键 prescriptionTypeName(_:)：prescription_type CHECK 枚举七值
@@ -1920,6 +1922,7 @@ enum L10n {
         "parentDraft.dateRequired", "parentDraft.unconfirmed",
         // 体检详情（healthExamDetail 路由）
         "healthExam.title", "healthExam.header", "healthExam.general", "healthExam.reports", "healthExam.conclusions", "healthExam.guidance",
+        "healthExam.reportsCountFmt",
         "healthExam.overall", "healthExam.notFound", "healthExam.noReports", "healthExam.noConclusions", "healthExam.source", "healthExam.samples",
         "healthExam.disclaimer",
         // SP-08 四新分段 + 「关联预约」显式挂接
@@ -2688,6 +2691,8 @@ enum L10n {
     // MARK: - 子项目 D · D1-5（v25）：处方行详情 / 就诊叙事分段 / 确认卡「添加字段」/ 处方类型枚举
     static var prescriptionLineTitle: String { t("prescriptionLine.title") }
     static var prescriptionLineSection: String { t("prescriptionLine.section") }
+    /// 多项目处方单折叠标签（业主 2026-09-17 定）
+    static func prescriptionLineCount(_ count: Int) -> String { String(format: t("prescription.lineCountFmt"), count) }
     static var prescriptionLineNone: String { t("prescriptionLine.none") }
     static var prescriptionLineUnavailable: String { t("prescriptionLine.unavailable") }
     static var prescriptionLineHeader: String { t("prescriptionLine.header") }
@@ -2721,6 +2726,9 @@ enum L10n {
     static var encounterSectionLabReports: String { t("encounter.section.labReports") }
     /// 检验报告详情：数值项目 / 定性项目分段；标记与结果一律报告原文（BR-004/012 不着色不解释）
     static var labReportSamplesSection: String { t("labReport.samplesSection") }
+    /// 数值/定性分段折叠标签（业主 2026-09-17 定）
+    static func labReportSamplesCount(_ count: Int) -> String { String(format: t("labReport.samplesCountFmt"), count) }
+    static func labReportResultsCount(_ count: Int) -> String { String(format: t("labReport.resultsCountFmt"), count) }
     static var labReportResultsSection: String { t("labReport.resultsSection") }
     static var labReportNoRows: String { t("labReport.noRows") }
     static var hospitalizationEpisode: String { t("hospitalization.episode") }
@@ -3571,6 +3579,8 @@ enum L10n {
     static var healthExamHeader: String { t("healthExam.header") }
     static var healthExamGeneral: String { t("healthExam.general") }
     static var healthExamReports: String { t("healthExam.reports") }
+    /// 检测检查项折叠标签（业主 2026-09-17 定）
+    static func healthExamReportsCount(_ count: Int) -> String { String(format: t("healthExam.reportsCountFmt"), count) }
     static var healthExamConclusions: String { t("healthExam.conclusions") }
     static var healthExamGuidance: String { t("healthExam.guidance") }
     static var healthExamOverall: String { t("healthExam.overall") }

@@ -16,6 +16,8 @@ struct MedicalCardDetailView: View {
     @State private var failed = false
     @State private var associationFailed = false
     @State private var saving = false
+    /// 多项目处方单默认折叠（业主 2026-09-17 定，同时间轴主卡口径）
+    @State private var linesExpanded = false
 
     var body: some View {
         WithPerceptionTracking {
@@ -35,12 +37,18 @@ struct MedicalCardDetailView: View {
                         Section(L10n.prescriptionLineSection) {
                             if detail.lines.isEmpty {
                                 Text(L10n.prescriptionLineNone).font(.caption).foregroundStyle(.secondary)
-                            }
-                            ForEach(Array(detail.lines.enumerated()), id: \.element.id) { index, line in
-                                NavigationLink(value: AppRoute.prescriptionLine(patientId: patientId, lineId: line.id)) {
-                                    PrescriptionLineRow(line: line, index: index)
+                            } else if detail.lines.count == 1, let line = detail.lines.first {
+                                prescriptionLineLink(line, index: 0)
+                            } else {
+                                // 业主 2026-09-17 定：多项目处方单默认折叠（同时间轴主卡口径）；
+                                // 单行处方保持平铺（无折叠价值）。
+                                DisclosureGroup(isExpanded: $linesExpanded) {
+                                    ForEach(Array(detail.lines.enumerated()), id: \.element.id) { index, line in
+                                        prescriptionLineLink(line, index: index)
+                                    }
+                                } label: {
+                                    Label(L10n.prescriptionLineCount(detail.lines.count), systemImage: "pills")
                                 }
-                                .accessibilityIdentifier("SP-08.prescription.line.\(index)")
                             }
                         }
                         if let advice = detail.fields.first(where: { $0.key == "advice_text" })?.value {
@@ -136,6 +144,14 @@ struct MedicalCardDetailView: View {
     private func encounterTitle(_ id: UUID) -> String {
         guard let candidate = candidates.first(where: { $0.id == id }) else { return L10n.encounterDetailTitle }
         return (candidate.hospital ?? L10n.encounterUntitled) + " · " + candidate.date.formatted(date: .abbreviated, time: .omitted)
+    }
+
+    /// 处方行链接（多项目折叠的单行出口；单行处方平铺时同用）。
+    private func prescriptionLineLink(_ line: PrescriptionLine, index: Int) -> some View {
+        NavigationLink(value: AppRoute.prescriptionLine(patientId: patientId, lineId: line.id)) {
+            PrescriptionLineRow(line: line, index: index)
+        }
+        .accessibilityIdentifier("SP-08.prescription.line.\(index)")
     }
 
     private func load() async {
@@ -288,26 +304,43 @@ struct ClinicalConclusionRow: View {
 
 /// 检验报告分段（§C.5）：数值项目（metric_sample）+ 定性项目（lab_result）。结果 / 参考范围 / 打印标记一律原文，
 /// 不着色、不换算、不解释（BR-004/012）；`highlighted` = 从单个趋势点进入时标出该行。
+/// 业主 2026-09-17 定：数值/定性分段**默认折叠**（同时间轴主卡口径），计数入标签；
+/// 逐项符号经 `CardKindIcon.symbol(labItem:)`（酶类 = molecule、检查项 = 影像符号、常规 = 试管）。
 private struct LabReportSections: View {
     let lab: OCRCardStore.LabReportDetail
     let highlighted: UUID?
+    @State private var samplesExpanded = false
+    @State private var resultsExpanded = false
 
     var body: some View {
         WithPerceptionTracking {
-            Section(L10n.labReportSamplesSection) {
-                if lab.samples.isEmpty && lab.results.isEmpty {
+            if lab.samples.isEmpty && lab.results.isEmpty {
+                Section(L10n.labReportSamplesSection) {
                     Text(L10n.labReportNoRows).font(.caption).foregroundStyle(.secondary)
                 }
-                ForEach(Array(lab.samples.enumerated()), id: \.element.id) { index, sample in
-                    LabSampleRowView(sample: sample, highlighted: sample.id == highlighted)
-                        .accessibilityIdentifier("SP-08.labReport.sample.\(index)")
+            } else {
+                if !lab.samples.isEmpty {
+                    Section {
+                        DisclosureGroup(isExpanded: $samplesExpanded) {
+                            ForEach(Array(lab.samples.enumerated()), id: \.element.id) { index, sample in
+                                LabSampleRowView(sample: sample, highlighted: sample.id == highlighted)
+                                    .accessibilityIdentifier("SP-08.labReport.sample.\(index)")
+                            }
+                        } label: {
+                            Label(L10n.labReportSamplesCount(lab.samples.count), systemImage: "testtube.2")
+                        }
+                    }
                 }
-            }
-            if !lab.results.isEmpty {
-                Section(L10n.labReportResultsSection) {
-                    ForEach(Array(lab.results.enumerated()), id: \.element.id) { index, result in
-                        LabResultRowView(result: result)
-                            .accessibilityIdentifier("SP-08.labReport.result.\(index)")
+                if !lab.results.isEmpty {
+                    Section {
+                        DisclosureGroup(isExpanded: $resultsExpanded) {
+                            ForEach(Array(lab.results.enumerated()), id: \.element.id) { index, result in
+                                LabResultRowView(result: result)
+                                    .accessibilityIdentifier("SP-08.labReport.result.\(index)")
+                            }
+                        } label: {
+                            Label(L10n.labReportResultsCount(lab.results.count), systemImage: "list.bullet.clipboard")
+                        }
                     }
                 }
             }
@@ -323,6 +356,12 @@ private struct LabSampleRowView: View {
         WithPerceptionTracking {
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
+                    // 逐项符号（业主 2026-09-17 定）：酶类/检查项/常规检验经图标单一出口
+                    Image(systemName: CardKindIcon.symbol(labItem: LabItemRules.classify(label: sample.rawLabel)))
+                        .font(.subheadline)
+                        .foregroundStyle(Color("text-secondary", bundle: .main))
+                        .frame(width: 18)
+                        .accessibilityHidden(true)
                     Text(sample.rawLabel).font(highlighted ? .body.bold() : .body)
                     Spacer()
                     Text(LabSampleRowView.valueText(sample)).font(.body)
@@ -359,6 +398,12 @@ private struct LabResultRowView: View {
         WithPerceptionTracking {
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
+                    // 逐项符号（业主 2026-09-17 定）：酶类/检查项/常规检验经图标单一出口
+                    Image(systemName: CardKindIcon.symbol(labItem: LabItemRules.classify(label: result.itemName)))
+                        .font(.subheadline)
+                        .foregroundStyle(Color("text-secondary", bundle: .main))
+                        .frame(width: 18)
+                        .accessibilityHidden(true)
                     Text(result.itemName).font(.body)
                     Spacer()
                     Text(LabResultRowView.valueText(result)).font(.body)

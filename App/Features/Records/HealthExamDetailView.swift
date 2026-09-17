@@ -30,6 +30,8 @@ struct HealthExamDetailView: View {
     @State private var failed = false
     @State private var notFound = false
     @State private var showSource = false
+    /// 检测检查项默认折叠（业主 2026-09-17 定，同时间轴主卡口径）
+    @State private var reportsExpanded = false
 
     var body: some View {
         WithPerceptionTracking {
@@ -120,15 +122,22 @@ struct HealthExamDetailView: View {
             .accessibilityIdentifier("SP-19.healthExam.conclusions")
 
             // 子报告（v_clinical_report：检验表头 / 检查报告）→ 同一已确认卡详情
-            Section(L10n.healthExamReports) {
+            // 业主 2026-09-17 定：检测检查项默认折叠（同时间轴主卡口径），计数入标签；
+            // 逐项符号已在 reportRow（CardKindIcon 按 reportType：检验 = 试管 / 检查 = 影像）
+            Section {
                 if detail.reports.isEmpty {
                     Text(L10n.healthExamNoReports).font(.caption).foregroundStyle(.secondary)
-                }
-                ForEach(Array(detail.reports.enumerated()), id: \.element.id) { index, report in
-                    NavigationLink(value: AppRoute.medicalCard(kind: Self.cardKind(for: report.reportType), id: report.reportId, patientId: patientId)) {
-                        reportRow(report)
+                } else {
+                    DisclosureGroup(isExpanded: $reportsExpanded) {
+                        ForEach(Array(detail.reports.enumerated()), id: \.element.id) { index, report in
+                            NavigationLink(value: AppRoute.medicalCard(kind: Self.cardKind(for: report.reportType), id: report.reportId, patientId: patientId)) {
+                                reportRow(report)
+                            }
+                            .accessibilityIdentifier("SP-19.healthExam.report.\(index)")
+                        }
+                    } label: {
+                        Label(L10n.healthExamReportsCount(detail.reports.count), systemImage: "stethoscope")
                     }
-                    .accessibilityIdentifier("SP-19.healthExam.report.\(index)")
                 }
             }
             .accessibilityElement(children: .contain)

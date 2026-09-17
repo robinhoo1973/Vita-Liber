@@ -1876,6 +1876,7 @@
 // Subproject D · D1-5 (v25): prescription line detail / encounter narrative sections / confirm-card "Add field" / prescription type enum
 "prescriptionLine.title" = "Prescription line";
 "prescriptionLine.section" = "Medications";
+"prescription.lineCountFmt" = "Medications · %d items";
 "prescriptionLine.none" = "No medication lines yet";
 "prescriptionLine.unavailable" = "This prescription line is unavailable";
 "prescriptionLine.header" = "Prescription";
@@ -1930,6 +1931,8 @@
 "encounter.section.examReports" = "Exam reports";
 "encounter.section.labReports" = "Lab reports";
 "labReport.samplesSection" = "Numeric items";
+"labReport.samplesCountFmt" = "Numeric results · %d items";
+"labReport.resultsCountFmt" = "Qualitative results · %d items";
 "labReport.resultsSection" = "Qualitative items";
 "labReport.noRows" = "No lab items yet";
 "hospitalization.episode" = "Stay details";
@@ -2073,6 +2076,7 @@
 "healthExam.header" = "Checkup";
 "healthExam.general" = "General examination";
 "healthExam.reports" = "Reports";
+"healthExam.reportsCountFmt" = "Tests & exams · %d items";
 "healthExam.conclusions" = "Conclusions";
 "healthExam.guidance" = "Health guidance";
 "healthExam.overall" = "Overall conclusion";

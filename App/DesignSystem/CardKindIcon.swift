@@ -129,6 +129,18 @@ enum CardKindIcon {
 
     static func spec(cardKind: String) -> Spec { spec(timelineKind: timelineKind(cardKind: cardKind)) }
 
+    // MARK: - 检测/检查项（LabItemRules 分类 → 符号；业主 2026-09-17 定）
+
+    /// 检验报告数值/定性行的逐项符号：酶类 = 分子结构（SF Symbols 4，iOS 16 ✓）；
+    /// 检查项 = 与 `examReport` 同符号（跨面同符号纪律）；常规检验 = 试管。
+    static func symbol(labItem kind: LabItemKind) -> String {
+        switch kind {
+        case .enzyme: return "molecule"
+        case .exam: return "waveform.path.ecg.rectangle"
+        case .routine: return "testtube.2"
+        }
+    }
+
     // MARK: - 就诊关联卡（EncounterStore.LinkedCardRow.Kind，穷尽）
 
     static func timelineKind(linkedKind kind: EncounterStore.LinkedCardRow.Kind) -> TimelineEntryKind {

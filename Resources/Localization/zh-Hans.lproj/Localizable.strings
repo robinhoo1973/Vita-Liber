@@ -1876,6 +1876,7 @@
 // 子项目 D · D1-5（v25）：处方行详情 / 就诊叙事分段 / 确认卡「添加字段」/ 处方类型枚举
 "prescriptionLine.title" = "处方行";
 "prescriptionLine.section" = "药品明细";
+"prescription.lineCountFmt" = "药品明细 · %d 项";
 "prescriptionLine.none" = "暂无药品明细行";
 "prescriptionLine.unavailable" = "该处方行不可用";
 "prescriptionLine.header" = "所属处方";
@@ -1930,6 +1931,8 @@
 "encounter.section.examReports" = "检查报告";
 "encounter.section.labReports" = "检验报告";
 "labReport.samplesSection" = "数值项目";
+"labReport.samplesCountFmt" = "数值结果 · %d 项";
+"labReport.resultsCountFmt" = "定性结果 · %d 项";
 "labReport.resultsSection" = "定性项目";
 "labReport.noRows" = "暂无检验项目";
 "hospitalization.episode" = "住院信息";
@@ -2073,6 +2076,7 @@
 "healthExam.header" = "体检信息";
 "healthExam.general" = "一般检查";
 "healthExam.reports" = "子报告";
+"healthExam.reportsCountFmt" = "检测检查 · %d 项";
 "healthExam.conclusions" = "结论";
 "healthExam.guidance" = "健康指导";
 "healthExam.overall" = "总检结论";

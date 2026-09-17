@@ -1876,6 +1876,7 @@
 // 子項目 D · D1-5（v25）：處方行詳情 / 就診敘事分段 / 確認卡「新增欄位」/ 處方類型枚舉
 "prescriptionLine.title" = "處方行";
 "prescriptionLine.section" = "藥品明細";
+"prescription.lineCountFmt" = "藥品明細 · %d 項";
 "prescriptionLine.none" = "尚無藥品明細行";
 "prescriptionLine.unavailable" = "該處方行無法使用";
 "prescriptionLine.header" = "所屬處方";
@@ -1930,6 +1931,8 @@
 "encounter.section.examReports" = "檢查報告";
 "encounter.section.labReports" = "檢驗報告";
 "labReport.samplesSection" = "數值項目";
+"labReport.samplesCountFmt" = "數值結果 · %d 項";
+"labReport.resultsCountFmt" = "定性結果 · %d 項";
 "labReport.resultsSection" = "定性項目";
 "labReport.noRows" = "尚無檢驗項目";
 "hospitalization.episode" = "住院資訊";
@@ -2073,6 +2076,7 @@
 "healthExam.header" = "體檢資訊";
 "healthExam.general" = "一般檢查";
 "healthExam.reports" = "子報告";
+"healthExam.reportsCountFmt" = "檢測檢查 · %d 項";
 "healthExam.conclusions" = "結論";
 "healthExam.guidance" = "健康指導";
 "healthExam.overall" = "總檢結論";
