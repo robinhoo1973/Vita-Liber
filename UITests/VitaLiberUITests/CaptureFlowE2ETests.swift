@@ -28,11 +28,36 @@ final class CaptureFlowE2ETests: XCTestCase {
             confirm.tap()
         }
 
-        // 建成员「本人」
+        // 建成员「本人」（业主 2026-09-17 定：注册必填 = 特征性数据 + 紧急联系人；
+        // 菜单 Picker 点击同时收起键盘——数字键盘族经工具栏「确认」收起）
         let nameField = app.textFields["SP-06.owner.name"]
         XCTAssertTrue(nameField.waitForExistence(timeout: 5))
         nameField.tap()
         nameField.typeText("王女士")
+
+        app.buttons["SP-06.owner.gender"].tap()
+        let femaleOption = app.buttons["女"]
+        XCTAssertTrue(femaleOption.waitForExistence(timeout: 3), "性别菜单必须呈现")
+        femaleOption.tap()
+
+        let yearField = app.textFields["SP-06.owner.birthYear"]
+        yearField.tap()
+        yearField.typeText("1975")
+        app.buttons["SP-06.owner.dismissKeyboard"].tap()
+
+        app.buttons["SP-06.owner.bloodType"].tap()
+        let oPositive = app.buttons["O+"]
+        XCTAssertTrue(oPositive.waitForExistence(timeout: 3), "血型菜单必须呈现")
+        oPositive.tap()
+
+        let contactName = app.textFields["SP-06.owner.contact.name"]
+        contactName.tap()
+        contactName.typeText("李四")
+        let contactPhone = app.textFields["SP-06.owner.contact.phone"]
+        contactPhone.tap()
+        contactPhone.typeText("13800138000")
+        app.buttons["SP-06.owner.dismissKeyboard"].tap()
+
         app.buttons["SP-06.owner.create"].tap()
         XCTAssertTrue(app.buttons["FR21.9.step4.skip"].waitForExistence(timeout: 5))
         return app

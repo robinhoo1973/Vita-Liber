@@ -157,6 +157,9 @@ struct OwnerSetupView: View {
     /// 预填是否已应用（提示行只在有实际默认值时出现）
     @State private var prefilled = false
     @State private var prefillAttempted = false
+    /// 键盘焦点（numberPad/phonePad 无回车键——键盘工具栏「确认」是唯一收起通道）
+    @FocusState private var focusedField: Field?
+    private enum Field { case name, birthYear, birthMonth, birthDay, bloodNote, contactName, contactPhone }
 
     var body: some View {
         WithPerceptionTracking {
@@ -173,6 +176,14 @@ struct OwnerSetupView: View {
                     actionsSection
                 }
                 .frame(maxWidth: 560)
+                // 键盘工具栏：数字键盘族无 return——「确认」收起键盘（触达与录入框一致）
+                .toolbar {
+                    ToolbarItemGroup(placement: .keyboard) {
+                        Spacer()
+                        Button(L10n.commonConfirm) { focusedField = nil }
+                            .accessibilityIdentifier("SP-06.owner.dismissKeyboard")
+                    }
+                }
             }
             .navigationTitle(L10n.onboard_buildProfile)
             .task {
@@ -188,7 +199,8 @@ struct OwnerSetupView: View {
     private var profileSection: some View {
         Section {
             TextField(L10n.onboard_yourName, text: $name)
-                .accessibilityIdentifier("SP-06.owner.name")
+                    .focused($focusedField, equals: .name)
+                    .accessibilityIdentifier("SP-06.owner.name")
             Picker(L10n.onboardGender, selection: $gender) {
                 Text(L10n.onboardNotSelected).tag("")
                 Text(L10n.onboardGenderMale).tag("male")
@@ -199,13 +211,16 @@ struct OwnerSetupView: View {
             // FR3.1 精度纪律：年份必填、月日可空；月日只接受成对填写（不虚构不补齐）
             HStack {
                 TextField(L10n.onboardBirthYear, text: $birthYear)
+                    .focused($focusedField, equals: .birthYear)
                     .keyboardType(.numberPad)
                     .accessibilityIdentifier("SP-06.owner.birthYear")
                 TextField(L10n.onboardBirthMonth, text: $birthMonth)
+                    .focused($focusedField, equals: .birthMonth)
                     .keyboardType(.numberPad)
                     .frame(maxWidth: 64)
                     .accessibilityIdentifier("SP-06.owner.birthMonth")
                 TextField(L10n.onboardBirthDay, text: $birthDay)
+                    .focused($focusedField, equals: .birthDay)
                     .keyboardType(.numberPad)
                     .frame(maxWidth: 64)
                     .accessibilityIdentifier("SP-06.owner.birthDay")
@@ -220,6 +235,7 @@ struct OwnerSetupView: View {
             .accessibilityIdentifier("SP-06.owner.bloodType")
             if bloodChoice == "special" {
                 TextField(L10n.onboardBloodNotePlaceholder, text: $specialBloodNote)
+                    .focused($focusedField, equals: .bloodNote)
                     .accessibilityIdentifier("SP-06.owner.bloodNote")
             }
         } header: { Text(L10n.onboardProfileHeader) } footer: { Text(L10n.onboardProfileFooter) }
@@ -230,7 +246,8 @@ struct OwnerSetupView: View {
     private var contactSection: some View {
         Section {
             TextField(L10n.onboardContactName, text: $contactName)
-                .accessibilityIdentifier("SP-06.owner.contact.name")
+                    .focused($focusedField, equals: .contactName)
+                    .accessibilityIdentifier("SP-06.owner.contact.name")
             Picker(L10n.onboardContactRelation, selection: $contactRelation) {
                 // 关系展示走 memberRelationDisplayName 单一映射出口（FR6.9 展示层纪律）
                 ForEach(["partner", "child", "parent", "grandparent", "other"], id: \.self) { raw in
@@ -239,7 +256,8 @@ struct OwnerSetupView: View {
             }
             .accessibilityIdentifier("SP-06.owner.contact.relation")
             TextField(L10n.onboardContactPhone, text: $contactPhone)
-                .keyboardType(.phonePad)
+                    .focused($focusedField, equals: .contactPhone)
+                    .keyboardType(.phonePad)
                 .accessibilityIdentifier("SP-06.owner.contact.phone")
         } header: { Text(L10n.onboardContactHeader) } footer: { Text(L10n.onboardContactFooter) }
     }
