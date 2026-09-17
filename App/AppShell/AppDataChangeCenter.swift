@@ -40,4 +40,15 @@ final class AppDataChangeCenter {
 
     /// ASR 模型安装成功后 +1（语言列表/档位可用性失效标记）。
     func assetsChanged() { assetsVersion &+= 1 }
+
+    /// 清空全部后全量失效（审查修复）：数据生命周期「清空全部」此前只删
+    /// DB 与 AppState 镜像——各页（首页/提醒/观察/文档…）的内存投影仍
+    /// 渲染刚被清掉的数据，直到某个无关刷新恰好发生。四槽齐拍让所有
+    /// 观察方重载（数据库即事件总线的既有原则，不新增总线）。
+    func dataWiped() {
+        documentsVersion &+= 1
+        metricsVersion &+= 1
+        alertsVersion &+= 1
+        assetsVersion &+= 1
+    }
 }

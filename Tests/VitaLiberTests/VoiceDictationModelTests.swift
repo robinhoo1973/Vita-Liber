@@ -65,7 +65,10 @@ final class VoiceDictationModelTests: XCTestCase {
     private func eventually(_ condition: @MainActor () -> Bool,
                             file: StaticString = #filePath, line: UInt = #line) async {
         let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(2))
+        // 审查修复：轮询窗口由 2s 提到 10s——引擎回调需经 actor → MainActor
+        // 跳转投递，并发 shard 争抢下墙钟 2s 可能不足（sleep-then-assert
+        // 模式的时间敏感假失败；10s 远大于任何调度抖动，仍为有界等待）。
+        let deadline = clock.now.advanced(by: .seconds(10))
         while !condition(), clock.now < deadline { await Task.yield() }
         XCTAssertTrue(condition(), file: file, line: line)
     }

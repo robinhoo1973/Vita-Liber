@@ -127,6 +127,8 @@ struct PreferencesView: View {
 /// 每级明示活动数据、缓存、备份、日志的处理状态；执行前展示影响清单。
 struct DataLifecycleView: View {
     @Environment(AppState.self) private var app
+    @Environment(ObservationStoreState.self) private var observationState
+    @Environment(AppDataChangeCenter.self) private var dataChange
     @State private var showClearConfirm = false
     @State private var clearing = false
 
@@ -165,7 +167,16 @@ struct DataLifecycleView: View {
                     Task {
                         clearing = true
                         do {
+                            // 审查修复（隐私红线：删除即真删）：媒体文件（原图 +
+                            // blur）先直清——资产行随清空事务删除后孤儿对账无行
+                            // 可据，此前敏感原图与模糊副本永久滞留沙盒
+                            //（function-spec §6 删除矩阵：清空全部 → 本地文件 删）。
+                            await observationState.wipeMediaFiles()
                             try await app.persistorReset()
+                            // 审查修复（内存投影失效）：全量失效让各页（首页/
+                            // 提醒/观察/文档…）重载——此前各仓内存投影仍渲染
+                            // 刚被清掉的数据，用户以为清空失败或数据幸存
+                            dataChange.dataWiped()
                             clearing = false
                         } catch {
                             clearing = false

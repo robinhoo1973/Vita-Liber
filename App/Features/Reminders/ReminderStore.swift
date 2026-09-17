@@ -143,6 +143,8 @@ final class ReminderStore {
             // FR9.8.3 分级续药通知（≤3 天 / 当日置顶）——审查修复：此前
             // 只有首页卡片，通知级触达全仓无调度点
             await scheduleRefillReminders(patientId: patientId, pending: pending, delivered: delivered)
+            // FR17.10 重复语音提醒滚动续期（occ 逐次针窗口随每次 refresh 前移）
+            await rearmVoiceReminders()
         } catch {
             logger.error("提醒视图加载失败: \(error)")
         }
@@ -166,12 +168,16 @@ final class ReminderStore {
             // outcome=NULL 簿记行（对账不消费 voice-rem，无副作用），
             // 「保存失败」名副其实、通知从未武装。
             try await meds.recordDelivery(notifyId: notifyId, doseLogId: nil,
-                                          channel: .local, outcome: nil, at: Date())
+                                          channel: .local, outcome: nil, at: fireAt)
             // 审查修复：route 此前硬编码 .questionList——点按送达的语音提醒
             // 会跳转无关的问诊问题列表页；语音提醒无自然目的地，
             // §5.45 契约应为无路由 → 降级回首页。
             try await scheduler.scheduleRepeating(dose: notifyId, at: fireAt,
                                                   route: nil, repeatRule: repeatRule)
+            // 重复提醒登记（滚动续期窗口数据源；一次性不登记——无续期需求）
+            if let repeatRule, !repeatRule.isEmpty {
+                persistVoiceReminder(notifyId: notifyId, fireAt: fireAt, repeatRule: repeatRule)
+            }
             return true
         } catch {
             logger.error("语音提醒调度失败: \(error)")
@@ -215,9 +221,11 @@ final class ReminderStore {
             // 评审修正：与续药/到期提醒同纪律——送达后不再 pending，同 id 重排
             // = 每次启动 +1 小时无限重发；必须同时查已送达清单
             let delivered = try await scheduler.delivered()
-            guard delivered.contains("backup-reminder") == false else { return }
+            guard delivered.contains("backup-reminder") == false,
+                  armedNotificationIds().contains("backup-reminder") == false else { return }
             let fireAt = now.addingTimeInterval(3600)
             try await scheduler.schedule(dose: "backup-reminder", at: fireAt, route: .backupRestore)
+            markArmed("backup-reminder")
         } catch {
             logger.error("备份提醒调度失败: \(error)")
         }
@@ -231,9 +239,12 @@ final class ReminderStore {
         // 审查修复：备份完成只清「已送达」记录——启动时已武装的 1 小时后
         // pending 提醒仍会照常触发（用户刚备份完又被提示备份，FR13.10
         // 误触达）。pending 一并取消，清理失败只记日志（下一周期幂等重排）。
+        // 同步清武装持久集——否则下一周期 needsReminder 放行后仍被
+        // armed 守卫挡住，周期提醒第 60/90 天静默消失。
         do {
             try await scheduler.cancel(["backup-reminder"])
             try await scheduler.removeDelivered(["backup-reminder"])
+            unmarkArmed(["backup-reminder"])
         } catch {
             logger.error("备份提醒清理失败: \(error)")
         }
@@ -254,16 +265,24 @@ final class ReminderStore {
             let items = try await meds.inventorySummary(patientId: patientId, now: Date())
             var pending = pending
             let now = Date()
+            let armed = armedNotificationIds()
             for item in items {
                 guard let tier = item.refillTier, let daysLeft = item.approxDaysLeft,
                       tier == .t3 || tier == .t0 else { continue }
                 let thresholdDays = Int(tier.daysLeftThreshold)
                 let computed = DayArithmetic.offset(days: max(0, daysLeft - thresholdDays), from: now)
-                let fire = max(computed, now.addingTimeInterval(300))   // max(0,…) 已保证 computed ≥ now，直接取上界
+                // 审查修复（ADR-009 偏早）：触发日已过必须即时补发——「过期捷径」
+                // 进入 t0 的批次 daysLeft 仍按供应速率推算（> 阈值），computed
+                // 落在未来，原 max() 取 computed 使「当日置顶」通知晚发
+                // daysLeft 天（最紧急档反而最晚触达，ADR-009 反方向）。
+                let triggerPassed = tier == .t0 && (item.expireAt.map { $0 < now } ?? false)
+                let fire = (computed <= now || triggerPassed) ? now.addingTimeInterval(300) : computed
                 let notifyId = "refill-\(item.lotId.uuidString)-\(tier.rawValue)"
-                guard pending[notifyId] == nil, !delivered.contains(notifyId) else { continue }
+                guard pending[notifyId] == nil, !delivered.contains(notifyId),
+                      !armed.contains(notifyId) else { continue }
                 try await scheduler.schedule(dose: notifyId, at: fire, route: .medicationCabinet)
                 pending[notifyId] = fire
+                markArmed(notifyId)
             }
         } catch {
             logger.error("续药提醒调度失败: \(error)")
@@ -283,13 +302,16 @@ final class ReminderStore {
         do {
             let lots = try await meds.expiringLots(patientId: patientId, within: 30)
             var pending = pending
+            let armed = armedNotificationIds()
             for lot in lots {
                 guard let expireAt = lot.expireAt else { continue }
                 for (tier, fire) in BatchExpiryRules.fireDates(expireAt: expireAt, now: Date()) {
                     let notifyId = "exp-\(lot.lotId.uuidString)-\(tier.rawValue)"
-                    guard pending[notifyId] == nil, !delivered.contains(notifyId) else { continue }
+                    guard pending[notifyId] == nil, !delivered.contains(notifyId),
+                          !armed.contains(notifyId) else { continue }
                     try await scheduler.schedule(dose: notifyId, at: fire, route: .medicationCabinet)
                     pending[notifyId] = fire
+                    markArmed(notifyId)
                     // FR9.18 送达记录：channel=local（通知权限由系统决定是否实际送达）；
                     // 审查修复：调度时刻不伪造 delivered（BR-004 事实链只记 scheduled）
                     try await meds.recordDelivery(notifyId: notifyId, doseLogId: nil,
@@ -585,10 +607,15 @@ final class ReminderStore {
                                                     plan: plan, initialLot: initialLot)
     }
 
+    /// 返回是否创建成功——审查修复（响亮失败纪律）：此前 catch 只记日志、
+    /// 返回 Void，两个表单调用方无条件关闭 sheet：创建失败（DB 写失败或
+    /// 复诊提醒排程失败）呈现为成功，预约与分级提醒实际不存在
+    /// （medication-plan 路径已有 planSaveFailed 告警，本路径漏修）。
+    @discardableResult
     func createAppointment(patientId: UUID, hospital: String, department: String,
                            startsAt: Date, doctor: String? = nil, address: String? = nil,
                            itemsToBring: String? = nil, notes: String? = nil,
-                           followUpRule: Int? = nil, followUpDays: Int? = nil) async {
+                           followUpRule: Int? = nil, followUpDays: Int? = nil) async -> Bool {
         do {
             let aptId = try await apts.create(patientId: patientId, hospital: hospital,
                                               department: department, startsAt: startsAt,
@@ -606,8 +633,10 @@ final class ReminderStore {
             }
             await requestNotificationAuthorization()   // FR20.2 价值先行（首个提醒创建后）
             await refresh(patientId: patientId)
+            return true
         } catch {
             logger.error("预约创建失败: \(error)")
+            return false
         }
     }
 
@@ -650,9 +679,16 @@ final class ReminderStore {
         }
     }
 
-    /// SP-18 状态机历史（四态分段列表）
-    func appointmentHistory(patientId: UUID) async -> [AppointmentRow] {
-        (try? await apts.history(patientId: patientId)) ?? []   // try?-ok: 读取失败=空列表降级
+    /// SP-18 状态机历史（四态分段列表）。读取失败返回 nil（调用侧保留旧
+    /// 列表）——审查修复：原 `(try? …) ?? []` 把瞬态读失败渲染成「暂无
+    /// 预约」假空态（把存在的预约显示为不存在），与 MedicationPlanListView
+    /// 「读取失败保留旧列表」的既有 doctrine 矛盾。
+    func appointmentHistory(patientId: UUID) async -> [AppointmentRow]? {
+        do { return try await apts.history(patientId: patientId) }
+        catch {
+            logger.error("预约历史读取失败: \(error)")
+            return nil
+        }
     }
 
     /// v27 FR10.7（子项目 J）：就诊页「关联预约」候选——同成员、±3 天、同医院、尚未挂接。
@@ -689,6 +725,66 @@ final class ReminderStore {
         get async {
             let settings = await UNUserNotificationCenter.current().notificationSettings()
             return settings.authorizationStatus == .denied
+        }
+    }
+
+    // MARK: - 通知武装持久集（FR9.8.3 / FR9.11 同 id 幂等的划掉防御）
+
+    /// 已武装通知 id 持久集（UserDefaults）。delivered 集是系统通知中心
+    /// 状态——用户划掉通知后该 id 即从 delivered 消失，「已送达即跳过」
+    /// 守卫失效，每次回前台都以同 id 重武装 +5 分钟（FR9.8.3 无限重发）。
+    /// 持久集保证同 id 在本机只武装一次；档位升级 = 新 id（refill-{lot}-
+    /// {tier} / exp-{lot}-{tier}），新档自然放行。
+    private static let armedIdsKey = "vl.reminders.armedIds"
+    private func armedNotificationIds() -> Set<String> {
+        Set(UserDefaults.standard.stringArray(forKey: Self.armedIdsKey) ?? [])
+    }
+    private func markArmed(_ notifyId: String) {
+        var set = armedNotificationIds()
+        set.insert(notifyId)
+        UserDefaults.standard.set(Array(set), forKey: Self.armedIdsKey)
+    }
+    private func unmarkArmed(_ notifyIds: [String]) {
+        var set = armedNotificationIds()
+        set.subtract(notifyIds)
+        UserDefaults.standard.set(Array(set), forKey: Self.armedIdsKey)
+    }
+
+    // MARK: - 重复语音提醒登记（FR17.10 滚动续期）
+
+    /// 重复语音提醒持久登记：notifyId → (fireAt, repeatRule)。
+    /// UNReminderScheduler 的重复提醒是**逐次一次性触发窗**（首针精确
+    /// fireAt + 每日 14 针 / 每周 12 针）——不登记则「每天」提醒在
+    /// 窗口耗尽后停摆；refresh 时按登记滚动续期（occ id 由触发时刻
+    /// 派生，同 id 即替换，窗随每次启动/回前台前移）。
+    private static let voiceReminderKey = "vl.voiceReminders"
+    private func persistedVoiceReminders() -> [(notifyId: String, fireAt: Date, repeatRule: String)] {
+        guard let raw = UserDefaults.standard.dictionary(forKey: Self.voiceReminderKey) else { return [] }
+        var out: [(String, Date, String)] = []
+        for (notifyId, value) in raw {
+            guard let entry = value as? [String: Any],
+                  let at = entry["at"] as? TimeInterval,
+                  let rule = entry["repeat"] as? String, !rule.isEmpty else { continue }
+            out.append((notifyId, Date(timeIntervalSince1970: at), rule))
+        }
+        return out
+    }
+    private func persistVoiceReminder(notifyId: String, fireAt: Date, repeatRule: String) {
+        var dict = (UserDefaults.standard.dictionary(forKey: Self.voiceReminderKey)
+                    as? [String: [String: Any]]) ?? [:]
+        dict[notifyId] = ["at": fireAt.timeIntervalSince1970, "repeat": repeatRule]
+        UserDefaults.standard.set(dict, forKey: Self.voiceReminderKey)
+    }
+    /// 滚动续期：每个登记的重复语音提醒重武装一次（幂等；scheduleRepeating
+    /// 内部先清旧版 -wd 触发器、再排 occ 针）。
+    private func rearmVoiceReminders() async {
+        for entry in persistedVoiceReminders() {
+            do {
+                try await scheduler.scheduleRepeating(dose: entry.notifyId, at: entry.fireAt,
+                                                      route: nil, repeatRule: entry.repeatRule)
+            } catch {
+                logger.error("语音提醒续期失败: \(error)")
+            }
         }
     }
 }

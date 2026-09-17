@@ -22,4 +22,8 @@ public protocol SensitiveAssetStoring: Sendable {
     /// 启动对账：清除未被任何观察引用的孤儿照片（文件 + 资产行）——
     /// 崩溃/断电窗口或历史失败写入的残留，防止敏感文件永久滞留。
     func reconcileUnreferenced(validAssetIds: Set<String>) async
+    /// 清空全部（FR14.3）：删除媒体目录下**全部**文件——资产行随清空事务
+    /// 一并删除后，以行为据的孤儿对账对已清空库不再生效（无行可据），
+    /// 原图/模糊副本必须由本出口直接清（隐私红线：删除即真删）。
+    func wipeAllFiles() async
 }

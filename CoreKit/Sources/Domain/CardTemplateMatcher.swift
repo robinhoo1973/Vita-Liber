@@ -306,19 +306,6 @@ public enum CardTemplateMatcher {
         }
     }
 
-    /// E5：文档级便捷方法——对全部 spec 做匹配 + 为每个 MatchedCard 填充建议标题。
-    /// 多页文档每页独立调用；调用方按 pageIndex 分组后合并展示。
-    public static func matchDocument(fields: [FieldDraft], pageIndex: Int, documentTypeKey: String?,
-                                     templates: [CardTemplate] = ocrTemplates) -> [MatchedCard] {
-        match(fields: fields, pageIndex: pageIndex, documentTypeKey: documentTypeKey, templates: templates).map { card in
-            var card = card
-            if let title = DocumentNaming.suggestTitle(fields: card.shared, documentType: card.kind) {
-                _ = title  // title available for App layer; titleSource set by caller after user edit
-            }
-            return card
-        }
-    }
-
     // MARK: - 单模板匹配
 
     private static func matchOne(_ template: CardTemplate, fields incoming: [FieldDraft], pageIndex: Int,

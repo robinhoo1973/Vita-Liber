@@ -7,8 +7,7 @@ import Protocols
 /// 真实 Linux 环境如需真实缩略图，可接入 ImageMagick/vips 或纯 Swift 实现。
 /// 仅作 Linux 构建/测试兜底，不进生产。
 /// 注意：此类不满足严格 Sendable（测试占位），生产请使用 CoreImageCompressor。
-public final class StubImageCompressor: ImageCompressing, SensitiveMediaProtection, @unchecked Sendable {
-    private var protectedMedia: Set<String> = []
+public final class StubImageCompressor: ImageCompressing, @unchecked Sendable {
 
     public init() {}
 
@@ -25,16 +24,6 @@ public final class StubImageCompressor: ImageCompressing, SensitiveMediaProtecti
             throw CompressError.authRequiredForOriginal
         }
         return data
-    }
-
-    public func isProtected(_ mediaID: String) -> Bool {
-        protectedMedia.contains(mediaID)
-    }
-
-    public func requestAccess(_ mediaID: String, reason: String) async throws -> Bool {
-        // Linux 无生物识别，占位总是成功并记录
-        protectedMedia.insert(mediaID)
-        return true
     }
 
     private static func transparentPNG() -> Data {

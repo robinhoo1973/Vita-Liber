@@ -52,10 +52,8 @@ public protocol ImageCompressing: Sendable {
                                  reason: String) async throws -> Data
 }
 
-/// 敏感媒体保护链（BR-007/008 独立抽象，供上层调用）。
-public protocol SensitiveMediaProtection: Sendable {
-    /// 判断媒体是否受保护。
-    func isProtected(_ mediaID: String) -> Bool
-    /// 请求访问敏感原图（需生物识别/密码）。
-    func requestAccess(_ mediaID: String, reason: String) async throws -> Bool
-}
+// 审查修复（死抽象清除，第八轮同纪律）：SensitiveMediaProtection 协议
+// 全仓零消费——BR-007/008 的锁定默认/解锁读原图由 SensitiveAssetStore 承担
+// （模糊副本恒存、原图仅在显式解锁后经 authorizeOriginalAccess 读取）；
+// 本协议实现语义还与名称相反（解锁成功才标记"受保护"），误导未来接线。
+// 已删除协议与两侧实现；BR-007/008 无行为变化（本来无消费方）。

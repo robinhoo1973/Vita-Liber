@@ -209,6 +209,18 @@ struct MetricQuickEntryView: View {
             }
             secondary = v
         }
+        // 合理性界限（MetricEntryRules 单一出口，审查修复）：界外值拒绝
+        // 落库——「血压 800」此前直接以 C 级样本持久化并污染趋势与
+        // 告警证据链；手滑/口误必须有可见反馈，绝不静默落库。
+        guard MetricEntryRules.isPlausible(value, for: metric) else {
+            entryError = L10n.metricOutOfRange
+            return
+        }
+        if let secondary, metric == .bloodPressureSys,
+           !MetricEntryRules.isPlausible(secondary, for: .bloodPressureDia) {
+            entryError = L10n.metricOutOfRange
+            return
+        }
         // 无单位留空即可——此前 "1" 被存进库并在宫格大数字旁显示为单位「1」，
         // 且经单位记忆把「1」预填进下次录入
         let unit = unitText.trimmingCharacters(in: .whitespaces)

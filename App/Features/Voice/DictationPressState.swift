@@ -1,4 +1,5 @@
 import Foundation
+import Domain
 
 /// 触摸按压状态机（结构轮 2026-09-15 自 PressToTalkMicButton.swift 移出）：
 /// 纯值状态机、可单测（DictationPressStateTests）——识别计时器与触摸终止共享同一身份，
@@ -17,7 +18,10 @@ struct DictationPressState {
     /// 且落在「故意按住说话」的自然时长内：短按 = 开关（tap-to-toggle，
     /// ui-ux §3 原则 4「避免长按依赖」），长按 ≥0.6s = 按住说话（松手结束）。
     /// 阈值是交互契约，放状态机而非视图——`DictationPressStateTests` 覆盖。
-    static let holdThreshold: TimeInterval = 0.6
+    /// 审查修复：直接引用 Domain 单一事实源（此前注释声称与
+    /// CareModeMetrics.holdConfirmSeconds 同口径却硬编码第二份 0.6——
+    /// 全仓长按口径重调时两处漂移）。
+    static let holdThreshold: TimeInterval = CareModeMetrics.standard.holdConfirmSeconds
 
     /// 阈值对应的纳秒数（`Task.sleep` 出口，避免视图里再写一遍字面量）
     static var holdThresholdNanoseconds: UInt64 { UInt64(holdThreshold * 1_000_000_000) }

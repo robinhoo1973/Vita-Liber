@@ -295,7 +295,6 @@
 "reminder.a11ySnoozed" = "%@，稍後提醒";
 "reminder.a11ySkipped" = "%@，跳過";
 "ai.confirmImageText" = "確認圖片辨識內容";
-"ai.emergencyAction" = "請立即撥打 120 或前往最近的醫院急診。";
 "ai.aiBadge" = "AI 解釋（基於你的資料）";
 "ai.citations" = "相關原文：";
 "ai.conclusion" = "找到 %d 條與你的問題相關的資料。";
@@ -527,9 +526,8 @@
 "ai.refusedHighRisk" = "調整或停用藥物必須由醫生決定；請帶著處方諮詢醫生或藥師。";
 "ai.failedRetry" = "回答失敗，請稍後重試。";
 "ai.history.loadFailed" = "歷史記錄載入失敗";
+"ai.history.deleteFailed" = "刪除失敗，請重試";
 "ai.history.loadFailedHint" = "請稍後重試";
-"ai.emergencyCardText" = "疑似緊急情況：請立即撥打 120 或前往最近的醫院急診。";
-"ai.emergencyTitle" = "疑似緊急情況";
 "ai.emergencyCall" = "撥打 119";
 "timeline.empty.title" = "還沒有資料";
 "paywall.previewTitle" = "Pro 權益 · 預覽";
@@ -636,7 +634,7 @@
 "backup.restoreConfirm.body" = "還原會用備份覆蓋本機現有資料，還原前將完成格式與完整性校驗。請確認這是你本人操作。";
 "backup.restoredCountFmt" = "還原完成 · 共 %d 筆記錄 · 校驗通過";
 "sos.help.title" = "緊急求助";
-"sos.call120" = "撥打 120";
+"sos.call120" = "撥打 119";
 "sos.noContacts" = "尚未配置緊急聯絡人。可先在急救卡中補錄（設定 → 緊急資訊卡）。";
 "sos.viewCard" = "查看急救卡";
 "sos.sendLocationP1" = "傳送位置（即將推出）";
@@ -1058,7 +1056,6 @@
 "settings.grace15" = "15 秒";
 "settings.grace60" = "60 秒";
 "ai.quickGlucose" = "最近血糖";
-"ai.quickMeds" = "目前用藥";
 "ai.quickNext" = "下次覆診";
 "voicenote.detailBody" = "正文";
 "voicenote.detailTags" = "標籤";
@@ -1354,7 +1351,7 @@
 "pref.unitSystem" = "單位制";
 "pref.unit.metric" = "公制";
 "pref.unit.imperial" = "英制";
-"pref.reduceMotion" = "减弱動效";
+"pref.reduceMotion" = "減弱動效";
 "pref.homeSort" = "首頁排序";
 "pref.homeSort.time" = "按時間";
 "pref.homeSort.type" = "按類型";
@@ -1438,6 +1435,7 @@
 "metric.saved" = "已儲存";
 "metric.entryError.title" = "未能儲存指標";
 "metric.entryError.invalid" = "請輸入有效數值（如 5.6）";
+"metric.entryError.range" = "數值超出合理範圍，請核對後重試";
 "metric.entryError.saveFailed" = "儲存失敗，請重試；原輸入已保留。";
 "metric.viewTrend" = "查看趨勢";
 "voicePanel.title" = "語音速記";
@@ -1467,6 +1465,7 @@
 "observation.detail.deleteTitle" = "刪除這條觀察記錄？";
 "observation.detail.deleteBody" = "原圖將從本機刪除；備份中已儲存的處理版本不受影響；已生成的醫生摘要保留其內容。";
 "observation.detail.deleteDone" = "觀察記錄已刪除";
+"observation.detail.deleteFailed" = "刪除失敗，請重試";
 "observation.detail.followUpTitle" = "設定隨訪提醒";
 "observation.detail.followUpDays" = "%d 天後提醒對比/複查";
 "observation.detail.followUpDone" = "隨訪提醒已設定";
@@ -1510,6 +1509,8 @@
 "alert.showL0" = "顯示 L0";
 "alert.historyEntry" = "預警歷史";
 "f19.noTodayMeds" = "今天沒有需要服用的藥物";
+"f19.nextPage" = "下一頁";
+"f19.medListMore" = "……還有 %d 條，說「下一頁」繼續";
 "f19.goTimeline" = "已開啟時間軸";
 "f19.goHome" = "已回到首頁";
 "f19.nextAppointmentFmt" = "下次預約：%@，%@";
@@ -1549,6 +1550,7 @@
 "settings.themeHint" = "切換即時生效，無需重新啟動";
 "reminder.notification.title" = "您有一條健康提醒";
 "reminder.planSaveFailed" = "計劃儲存失敗，請重試";
+"reminder.apptSaveFailed" = "預約儲存失敗，請重試";
 "reminder.notification.body" = "點擊查看詳情";
 "home.capture.hint" = "對準文件拍攝，系統將自動辨識文字並存入檔案";
 "home.capture.shoot" = "開始拍攝";

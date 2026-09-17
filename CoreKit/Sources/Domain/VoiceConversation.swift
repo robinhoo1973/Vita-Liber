@@ -254,7 +254,32 @@ public enum VoiceConversationEngine {
 
         switch s.phase {
         case .listening, .selecting:
-            let intent = VoiceCommandGrammar.parse(text, emergencyNumber: emergencyNumber)
+            let parsed = VoiceCommandGrammar.parse(text, emergencyNumber: emergencyNumber)
+            // 审查修复（FR19.4 选项名应答）：选项名是运行时数据，文法表
+            // （patterns）无法枚举——列选相位下无文法命中时按当前选项名
+            // 二次匹配，命中即走 .selectName 分支（与分支内判据同源）。
+            // 此前说选项名一律落入 unrecognized：静默计数累加、两轮后
+            // 会话被礼貌退出，FR19.4「第 N 个 / 选项名 / 是·否」三选一
+            // 契约对选项名不可达。
+            // 歧义纪律（同药多时段选项含同一药名）：名称命中多条时不得
+            // 首条代答——静默确认用户未指认的剂量 = BR-004 事实链污染；
+            // 提示按编号应答（是有效应答，不计静默轮）。
+            let intent: VoiceIntent
+            if case .unrecognized = parsed, s.phase == .selecting {
+                let nameMatches = s.options.filter { text.contains($0) || $0.contains(text) }
+                if nameMatches.count == 1 {
+                    intent = .command(.selectName)
+                } else if nameMatches.count > 1 {
+                    s.lastPrompt = .pickOption
+                    events.append(.speak(.pickOption))
+                    events.append(.askOptions(s.options))
+                    return (s, events)
+                } else {
+                    intent = parsed
+                }
+            } else {
+                intent = parsed
+            }
             switch intent {
             case .unrecognized:
                 s.silentRounds += 1
@@ -278,9 +303,12 @@ public enum VoiceConversationEngine {
                     events.append(.execute(s.pendingCommand ?? .todayMeds, payload: chosen))
                     s.phase = .listening; s.options = []; s.silentRounds = 0
                 case .selectName where s.phase == .selecting:
-                    let matched = s.options.first { text.contains($0) || $0.contains(text) }
-                    guard let chosen = matched else {
-                        events.append(.speak(.optionNotFound))
+                    // 审查修复（唯一命中才执行）：同名多选项（同药多时段）
+                    // 时不得首条代答——静默确认未指认的剂量违反 BR-004；
+                    // 命中多条提示编号应答，零命中 optionNotFound
+                    let matches = s.options.filter { text.contains($0) || $0.contains(text) }
+                    guard matches.count == 1, let chosen = matches.first else {
+                        events.append(.speak(matches.isEmpty ? .optionNotFound : .pickOption))
                         return (s, events)
                     }
                     events.append(.execute(s.pendingCommand ?? .todayMeds, payload: chosen))
@@ -294,6 +322,7 @@ public enum VoiceConversationEngine {
                     // FR19.5：必须复述对象再确认
                     let object = extractObject(text, after: "打")
                     s.phase = .repeatingObject
+                    s.silentRounds = 0   // 审查修复：有效应答清零静默计数（FR19.6 连续两轮口径）
                     s.pendingCommand = .callContact
                     s.pendingObject = object
                     let target = object.isEmpty ? "" : object
@@ -318,6 +347,9 @@ public enum VoiceConversationEngine {
                     // FR19.5：标记服药 = 写操作，单次口头确认（BR-004 同语义）
                     let object = extractMarkTakenObject(text)
                     s.phase = .confirming
+                    s.silentRounds = 0   // 审查修复：进入确认相位即有效应答——此前不清零，
+                                         // 一次无效确认应答即触发 FR19.6 两轮退出（提前一轮），
+                                         // 待确认的 BR-004 服药事实被静默取消
                     s.pendingCommand = .markTaken
                     s.pendingObject = object
                     s.lastPrompt = .markTakenConfirm(object: object)
@@ -338,6 +370,7 @@ public enum VoiceConversationEngine {
             case .record(let metricText):
                 // 写操作（记录类）：单次口头确认（BR-004 同语义）
                 s.phase = .confirming
+                s.silentRounds = 0   // 审查修复：与 markTaken 同口径（FR19.6 连续两轮）
                 s.pendingCommand = .recordMetric
                 s.pendingObject = metricText
                 s.lastPrompt = .recordConfirm(metricText: metricText)
@@ -346,6 +379,7 @@ public enum VoiceConversationEngine {
                 // FR10.5 问诊速记：单次口头确认后落问诊列表（独立指令，
                 // 不与 recordMetric 混流）
                 s.phase = .confirming
+                s.silentRounds = 0   // 审查修复：与 markTaken 同口径（FR19.6 连续两轮）
                 s.pendingCommand = .recordQuestion
                 s.pendingObject = questionText
                 s.lastPrompt = .recordConfirm(metricText: questionText)
@@ -401,6 +435,11 @@ public enum VoiceConversationEngine {
         case .ended:
             break
         }
+        // 审查修复（列选状态不变量）：离开 .selecting 相位即清空选项集——
+        // 标记服药进入 .confirming、是/否确认回 .listening 等分支此前保留
+        // 旧选项：视图镜像据此滞留幽灵芯片（再点零动作），且「再说一遍」
+        // 会在非列选相位重播陈旧的 askOptions。
+        if s.phase != .selecting { s.options = [] }
         return (s, events)
     }
 

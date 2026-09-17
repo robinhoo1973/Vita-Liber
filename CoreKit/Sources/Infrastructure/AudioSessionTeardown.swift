@@ -20,18 +20,11 @@ import AVFoundation
 ///
 /// 失败不阻断主流程（try?-ok 白名单口径：降级语义——采集已结束，还原失败
 /// 只影响其后播报路由与外部 App 恢复，不得掩盖转写/取消主结果）。
-public enum AudioSessionTeardown {
-    /// 采集后还原：`.playback` + 停用。调用方先自行停引擎/摘 tap，再调本出口。
-    /// 审查修复（对称契约）：本方法硬编码假定采集前是 .playback/.default——
-    /// 采集前状态未知时使用 `AudioSessionCapture.remember/restore` 快照对；
-    /// 本方法仅保留给确实以 .playback 为已知前态的调用点。
-    public static func restorePlaybackAfterCapture() {
-        do { try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.duckOthers]) }
-        catch { /* 类别还原失败不阻断主流程 */ }
-        do { try AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation]) }
-        catch { /* 还原失败不阻断主流程 */ }
-    }
-}
+// 审查修复（死代码清除）：restorePlaybackAfterCapture 全仓零调用——
+// 硬编码 .playback 前态的第二套拆除契约与快照对（AudioSessionCapture.
+// remember/restore）并存，未来调用方选错即还原错误类别。实际采集点
+// 全部走快照对，硬编码形态已无合法调用方，删除。
+public enum AudioSessionTeardown {}
 
 /// 采集会话激活的**单一出口**（与 AudioSessionTeardown 对称）：
 /// 三个采集点（Sherpa 主轨 / SFSpeech 降级轨 / 音量自检）曾各自内联

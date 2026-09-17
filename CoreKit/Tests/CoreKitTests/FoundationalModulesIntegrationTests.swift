@@ -25,16 +25,13 @@ struct FoundationalModulesIntegrationTests {
         r.register(ImagePreprocessingFactory.make(ctx), for: ImagePreprocessingFactory.self)
         r.register(ImageDecodingFactory.make(ctx), for: ImageDecodingFactory.self)
         r.register(ImageCompressingFactory.make(ctx), for: ImageCompressingFactory.self)
-        r.register(SensitiveMediaProtectionFactory.make(ctx), for: SensitiveMediaProtectionFactory.self)
-
-        // 解析 7 个协议
+        // 解析 6 个协议
         let ocr: any ImageTextRecognizing = r.resolve(OCRRecognizerFactory.self)
         _ = r.resolve(SpeechSynthesisFactory.self)   // 保留解析调用（注册表契约），绑定无断言需求
         let tx: any TranscriptionEngine = r.resolve(TranscriptionEngineFactory.self)
         let preproc: any ImagePreprocessing = r.resolve(ImagePreprocessingFactory.self)
         let decode: any ImageDecoding = r.resolve(ImageDecodingFactory.self)
         let compress: any ImageCompressing = r.resolve(ImageCompressingFactory.self)
-        let sensitive: any SensitiveMediaProtection = r.resolve(SensitiveMediaProtectionFactory.self)
 
         // 各协议可调用（不崩即通过）——仅 Linux 占位路径：Apple 平台工厂返回
         // 真实引擎（Vision OCR/真实解码器/SensitiveAssetStore 等），对空 Data()
@@ -50,7 +47,7 @@ struct FoundationalModulesIntegrationTests {
         // 断空文本是「注册数据与断言矛盾」的存量缺陷（与工厂空桩路径混淆）
         #expect(transcript.text == "测试转写")
 
-        // 四新模块调用
+        // 三新模块调用
         let params = PreprocessParams()
         let preprocessed = try await preproc.preprocess(Data(), params: params, baseVersion: 0)
         #expect(preprocessed.version == 1)
@@ -62,7 +59,6 @@ struct FoundationalModulesIntegrationTests {
         let thumb = try await compress.generateThumbnail(Data(), spec: spec)
         #expect(thumb.count > 0)
 
-        #expect(!sensitive.isProtected("test-media-id"))
         #endif
     }
 
@@ -171,8 +167,6 @@ struct FoundationalModulesIntegrationTests {
         r.register(ImagePreprocessingFactory.make(ctx), for: ImagePreprocessingFactory.self)
         r.register(ImageDecodingFactory.make(ctx), for: ImageDecodingFactory.self)
         r.register(ImageCompressingFactory.make(ctx), for: ImageCompressingFactory.self)
-        r.register(SensitiveMediaProtectionFactory.make(ctx), for: SensitiveMediaProtectionFactory.self)
-
         guard case .success = r.assertOfflineOnly() else {
             Issue.record("全部端侧引擎应通过离线守卫"); return
         }

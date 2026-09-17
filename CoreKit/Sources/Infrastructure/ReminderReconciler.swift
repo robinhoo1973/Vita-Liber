@@ -127,8 +127,10 @@ public actor ReminderReconciler {
             }
 
             for slot in slots {
-                // 时段内仍有未送达且未决的剂量 → 时段级通知（未排才排）
-                guard slot.records.contains(where: { _ in true }) else { continue }
+                // 时段内仍有未送达且未决的剂量 → 时段级通知（未排才排）。
+                // （审查修复：删去空洞守卫 `contains(where: { _ in true })`——
+                // slots 已经 107-109 行过滤为含未决记录且由 DoseSlotGrouping
+                // 构造、records 恒非空，谓词恒真，纯误导。）
                 let slotNotifyId = "slot-\(slot.id)"
                 if pending[slotNotifyId] == nil {
                     try await scheduler.schedule(dose: slotNotifyId, at: slot.anchorTime, route: .reminderToday)

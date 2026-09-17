@@ -22,6 +22,11 @@ final class TimelineViewState {
     private let store: TimelineQueryStore
     private let problemStore: HealthProblemStore
     private var loadingPatientId: UUID?
+    /// 在途请求的筛选身份（审查修复，与 loadingPatientId 同款守卫）：快速连点
+    /// 筛选 chip 会并发跑两个 load——旧查询先发的可能后到，最后落库者覆盖
+    /// `hubs`，使列表显示旧筛选的行集而 chip 已是新筛选（无守卫则永久错配，
+    /// 直到再次点 chip 或数据变更）。
+    private var loadingFilter: TimelineFilter?
     /// BR-001 消费侧守卫（2026-09-15 实测修复）：已渲染列表的成员身份。此前只在成功
     /// 路径写列表，失败/取消时**上一个成员**的 hubs/entries 继续渲染，而表头与行内导航
     /// 已按新成员解析（跨成员显示 + 跨成员打开）。与 `RecordsHubStore.loadedPatientId`
@@ -52,6 +57,7 @@ final class TimelineViewState {
             transientExpansion = [:]
         }
         loadingPatientId = patientId
+        loadingFilter = filter
         do {
             // 2026-09-15 审查修复（效率/简化）：删去并行的平铺投影查询 `entries(for:limit:100)`——
             // 视图只渲染 `visibleHubs`，该投影自空态判据改为只看 visible 后已无任何读者
@@ -60,7 +66,7 @@ final class TimelineViewState {
             async let hubPage = store.hubPage(patientId: patientId, filter: filter, limit: Self.pageSize)
             async let probs = problemStore.list(patientId: patientId)
             let (h, pr) = try await (hubPage, probs)
-            guard loadingPatientId == patientId else { return }
+            guard loadingPatientId == patientId, loadingFilter == filter else { return }
             hubs = h.entries
             nextCursor = h.nextCursor
             loadMoreFailed = false
@@ -663,13 +669,16 @@ struct VisitPrepView: View {
                     if let relation = profile?.relation {
                         Text(relation).font(.caption).foregroundStyle(.secondary)
                     }
-                    if let bloodType = hub.bloodType {
+                    if let bloodType = hub.loadedPatientId == app.currentPatientId ? hub.bloodType : nil {
                         LabeledContent(L10n.prepBloodType, value: bloodType)
                     }
                 }
-                // 当前用药（过敏高亮）
+                // 当前用药（过敏高亮）——BR-001 门控（第九轮审查 M1c 同族修复，
+                // 与下方观察分区同一判据）：hub 是成员级缓存、分节异步提交，
+                // 成员切换后 loadedPatientId 未变期间渲染的是**上一成员**的
+                // 血型/用药/过敏，与表头新成员姓名错配（跨成员医疗信息泄露）。
                 Section(L10n.prepMeds) {
-                    let meds = hub.inventoryItems
+                    let meds = hub.loadedPatientId == app.currentPatientId ? hub.inventoryItems : []
                     if meds.isEmpty {
                         Text(L10n.prepNoData).font(.caption).foregroundStyle(.secondary)
                     } else {
@@ -683,8 +692,10 @@ struct VisitPrepView: View {
                             }
                         }
                     }
-                    // 过敏高亮
-                    let allergies = hub.emergencySelected.allergies
+                    // 过敏高亮（BR-001 门控：同上方判据——成员切换期间不得
+                    // 在新成员姓名下渲染上一成员的过敏高亮）
+                    let allergies = hub.loadedPatientId == app.currentPatientId
+                        ? hub.emergencySelected.allergies : []
                     if !allergies.isEmpty {
                         ForEach(allergies) { a in
                             HStack {

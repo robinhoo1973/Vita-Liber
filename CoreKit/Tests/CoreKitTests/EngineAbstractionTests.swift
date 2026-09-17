@@ -128,23 +128,21 @@ struct EngineAbstractionTests {
 
     // MARK: - 四新引擎工厂验收（M-PREPROC / M-DECODE / M-COMPRESS）
 
-    @Test("四新工厂 onDeviceOnly 均为 true")
-    func 四新工厂离线守卫() {
+    @Test("三新工厂 onDeviceOnly 均为 true")
+    func 三新工厂离线守卫() {
         #expect(ImagePreprocessingFactory.onDeviceOnly)
         #expect(ImageDecodingFactory.onDeviceOnly)
         #expect(ImageCompressingFactory.onDeviceOnly)
-        #expect(SensitiveMediaProtectionFactory.onDeviceOnly)
     }
 
-    @Test("四新工厂按平台分派并可解析")
-    func 四新工厂按平台分派() {
+    @Test("三新工厂按平台分派并可解析")
+    func 三新工厂按平台分派() {
         let r = EngineRegistry()
         let ctx = EngineContext.current
 
         let preproc = ImagePreprocessingFactory.make(ctx)
         let decode = ImageDecodingFactory.make(ctx)
         let compress = ImageCompressingFactory.make(ctx)
-        let sensitive = SensitiveMediaProtectionFactory.make(ctx)
 
         // 类型合规由工厂返回签名编译期保证（`is any X` 恒真断言，清理于
         // 警告族清扫批）；下方 register 调用的参数类型检查即为运行时前的防线。
@@ -152,12 +150,10 @@ struct EngineAbstractionTests {
         r.register(preproc, for: ImagePreprocessingFactory.self)
         r.register(decode, for: ImageDecodingFactory.self)
         r.register(compress, for: ImageCompressingFactory.self)
-        r.register(sensitive, for: SensitiveMediaProtectionFactory.self)
 
         let resolvedPreproc: any ImagePreprocessing = r.resolve(ImagePreprocessingFactory.self)
         let resolvedDecode: any ImageDecoding = r.resolve(ImageDecodingFactory.self)
         let resolvedCompress: any ImageCompressing = r.resolve(ImageCompressingFactory.self)
-        let resolvedSensitive: any SensitiveMediaProtection = r.resolve(SensitiveMediaProtectionFactory.self)
 
         // Linux 侧工厂按设计分派契约桩（M-PREPROC 兜底注释：保证 Linux 构建/测试可跑）——
         // 「非桩」断言仅在 Apple 平台成立。
@@ -165,14 +161,13 @@ struct EngineAbstractionTests {
         #expect(!(resolvedPreproc is StubImagePreprocessor))
         #expect(!(resolvedDecode is StubPDFDecoder))
         #expect(!(resolvedCompress is StubImageCompressor))
-        #expect(!(resolvedSensitive is StubImageCompressor))
         #endif
     }
 
-    @Test("registerDefaultEngines 注册全部 9 个工厂且幂等零构造")
-    func 全部九工厂注册() {
+    @Test("registerDefaultEngines 注册全部 8 个工厂且幂等零构造")
+    func 全部八工厂注册() {
         let r = EngineRegistry()
-        // 审查修正：直接调用被验函数（此前手抄 9 行 register 只验证测试自身的清单，
+        // 审查修正：直接调用被验函数（此前手抄 8 行 register 只验证测试自身的清单，
         // 生产函数漏注册/改序也恒绿）；二次调用验证「先查后造」零构造语义
         r.registerDefaultEngines()
         r.registerDefaultEngines()
@@ -183,7 +178,6 @@ struct EngineAbstractionTests {
         #expect(r.isRegistered(ImagePreprocessingFactory.self))
         #expect(r.isRegistered(ImageDecodingFactory.self))
         #expect(r.isRegistered(ImageCompressingFactory.self))
-        #expect(r.isRegistered(SensitiveMediaProtectionFactory.self))
         #expect(r.isRegistered(TextUnderstandingFactory.self))
         #expect(r.isRegistered(TextRefinerFactory.self))
 

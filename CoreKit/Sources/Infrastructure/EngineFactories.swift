@@ -257,19 +257,8 @@ public enum ImageCompressingFactory: EngineFactory {
     }
 }
 
-// MARK: - 敏感媒体保护工厂（经 EAL 接入）
-
-public enum SensitiveMediaProtectionFactory: EngineFactory {
-    public typealias Capability = any SensitiveMediaProtection
-    public static var onDeviceOnly: Bool { true }
-    public static func make(_ context: EngineContext) -> any SensitiveMediaProtection {
-        #if os(iOS) || os(macOS)
-        CoreImageCompressor()
-        #else
-        StubImageCompressor()   // Linux 包测试：双协议桩（压缩/脱敏同源占位）
-        #endif
-    }
-}
+// 审查修复（死抽象清除）：SensitiveMediaProtectionFactory 随协议一并删除
+// ——注册后零解析零消费，BR-007/008 实际执行在 SensitiveAssetStore。
 
 // MARK: - 共享文本理解工厂（经 EAL 接入）
 
@@ -327,7 +316,6 @@ extension EngineRegistry {
         install(ImagePreprocessingFactory.self)
         install(ImageDecodingFactory.self)
         install(ImageCompressingFactory.self)
-        install(SensitiveMediaProtectionFactory.self)
         install(TextUnderstandingFactory.self)
         install(TextRefinerFactory.self)
         install(CardExtractionFactory.self)

@@ -30,18 +30,12 @@ final class StockRegressionTests: XCTestCase {
         return (store, meds, patient, med)
     }
 
-    private var cal: Calendar {
-        var c = Calendar(identifier: .gregorian)
-        c.timeZone = TimeZone(identifier: "Asia/Shanghai")!
-        return c
-    }
-
     /// 种子一条「昨日 08:00」未决议行并补账为 missed（安全线已按计划扣减）。
     private func seedMissedDose(store: GRDBStore, meds: MedicationStore,
                                 planId: UUID, patient: UUID, med: UUID,
                                 lot: DualTrackInventory) async throws -> (due: Date, units: Double) {
         let units = 1.0
-        let due = cal.date(byAdding: .day, value: -1, to: Date())!
+        let due = shanghaiCalendar.date(byAdding: .day, value: -1, to: Date())!
         try await store.writer.write { db in
             try db.execute(sql: """
                 INSERT INTO medication_dose_log (id, plan_id, scheduled_for, dose_units, delivery_state, user_action)
@@ -62,7 +56,7 @@ final class StockRegressionTests: XCTestCase {
         let planId = UUID()
         try await meds.createPlan(planId: planId, patientId: patient, medicationId: med,
                                   schedule: .fixed(times: ["08:00"]), status: .active,
-                                  startDate: cal.date(byAdding: .day, value: -2, to: Date())!,
+                                  startDate: shanghaiCalendar.date(byAdding: .day, value: -2, to: Date())!,
                                   endDate: nil)
         let (due, _) = try await seedMissedDose(store: store, meds: meds, planId: planId,
                                                 patient: patient, med: med, lot: lot)
@@ -99,7 +93,7 @@ final class StockRegressionTests: XCTestCase {
         let planId = UUID()
         try await meds.createPlan(planId: planId, patientId: patient, medicationId: med,
                                   schedule: .fixed(times: ["08:00"]), status: .active,
-                                  startDate: cal.date(byAdding: .day, value: -2, to: Date())!,
+                                  startDate: shanghaiCalendar.date(byAdding: .day, value: -2, to: Date())!,
                                   endDate: nil)
         let (due, _) = try await seedMissedDose(store: store, meds: meds, planId: planId,
                                                 patient: patient, med: med, lot: lot)
@@ -131,8 +125,8 @@ final class StockRegressionTests: XCTestCase {
         try await meds.createPlan(planId: planId, patientId: patient, medicationId: med,
                                   schedule: .fixed(times: ["08:00"]), status: .active,
                                   startDate: anchor, endDate: nil)
-        let first = try await meds.materializeWindow(now: anchor, calendar: cal)
-        let again = try await meds.materializeWindow(now: anchor, calendar: cal)
+        let first = try await meds.materializeWindow(now: anchor, calendar: shanghaiCalendar)
+        let again = try await meds.materializeWindow(now: anchor, calendar: shanghaiCalendar)
         XCTAssertEqual(again, 0, "同窗口重复物化必须零新增（幂等）")
         XCTAssertGreaterThan(first, 0)
 
@@ -318,7 +312,7 @@ final class StockRegressionTests: XCTestCase {
         let planId = UUID()
         try await meds.createPlan(planId: planId, patientId: patient, medicationId: med,
                                   schedule: .fixed(times: ["08:00"]), status: .active,
-                                  startDate: cal.date(byAdding: .day, value: -2, to: Date())!,
+                                  startDate: shanghaiCalendar.date(byAdding: .day, value: -2, to: Date())!,
                                   endDate: nil)
         let (due, _) = try await seedMissedDose(store: store, meds: meds, planId: planId,
                                                 patient: patient, med: med, lot: lot)

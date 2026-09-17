@@ -109,17 +109,23 @@ final class SecurityGateAcceptanceTests: XCTestCase {
     }
 
     /// 建所有者并等 patient_profile 落库（document_file 外键依赖）
+    /// 审查修复（无断言轮询）：此前 poll 预算耗尽后直接返回 currentPatientId——
+    /// 并发 shard 下持久化超窗时，下游 document 写入以 SQLITE_CONSTRAINT
+    /// （外键悬空）失败，测试报错位置与实际根因背离（睡后即测模式）。最终
+    /// 断言把「落库未完成」暴露为轮询本身失败。
     private func ensureOwner(app: AppState, container: AppContainer) async throws -> UUID {
         app.createOwner(name: "王女士", gender: "female", birthDate: "1975",
                            bloodType: "O+", contact: EmergencyContactDraft(
                                name: "李四", relation: "partner", phone: "13800138000"))
+        var persisted = false
         for _ in 0..<20 {
             let count = try await container.store.writer.read {
                 try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM patient_profile") ?? 0
             }
-            if count == 1 { break }
+            if count == 1 { persisted = true; break }
             try await Task.sleep(nanoseconds: 50_000_000)
         }
+        XCTAssertTrue(persisted, "createOwner 的异步持久化未在轮询窗口内落库（patient_profile 行缺失）")
         return app.currentPatientId
     }
 

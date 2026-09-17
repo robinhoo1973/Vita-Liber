@@ -22,6 +22,8 @@ struct ObservationDetailView: View {
     @State private var draftFrequency = ""
     /// §5.7.1 [查看同组]（V3.72 修正）：此前误跳资料库——改为同组条目列表
     @State private var showGroupSheet = false
+    /// 删除失败告警（响亮失败纪律）
+    @State private var deleteFailed = false
     @State private var draftIsFirst: Bool?
     @State private var draftTrigger = ""
     @State private var draftAccompanying = ""
@@ -78,12 +80,19 @@ struct ObservationDetailView: View {
                     Task {
                         if await state.deleteObservation(id: observationId) {
                             deletedToast = true
+                        } else {
+                            // 审查修复（响亮失败纪律）：删除失败此前静默——
+                            // 确认框关闭、无任何反馈，用户不知道删除是否生效
+                            deleteFailed = true
                         }
                     }
                 }
                 Button(L10n.commonCancel, role: .cancel) { }
             } message: {
                 Text(L10n.obsDetailDeleteBody)
+            }
+            .alert(L10n.obsDetailDeleteFailed, isPresented: $deleteFailed) {
+                Button(L10n.onboard_gotIt, role: .cancel) { }
             }
             .alert(L10n.obsDetailEditSaved, isPresented: $editSavedToast) {
                 Button(L10n.onboard_gotIt, role: .cancel) { }

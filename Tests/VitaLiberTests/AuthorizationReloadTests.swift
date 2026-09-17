@@ -47,13 +47,20 @@ final class AuthorizationReloadTests: XCTestCase {
                 _ = release.wait(timeout: .now() + 5)
             }
         }
+        // 审查修复（时间敏感 → 调度敏感）：入池等待由 2s 提到 10s——并发
+        // shard 争抢下 detached 写入任务的调度延迟可能超 2s，测试在「写入
+        // 尚未入池」的假象上失败（墙钟竞速而非确定性）；10s 远超任何调度
+        // 抖动，仍远小于 5s 持锁预算，不改变被测语义。
         let didEnter = await withCheckedContinuation { continuation in
-            DispatchQueue.global().async { continuation.resume(returning: entered.wait(timeout: .now() + 2) == .success) }
+            DispatchQueue.global().async { continuation.resume(returning: entered.wait(timeout: .now() + 10) == .success) }
         }
         XCTAssertTrue(didEnter)
         let revoking = Task { await settings.set("false", for: .authAI) }
         let deadline = ContinuousClock.now.advanced(by: .seconds(2))
         while settings.values[.authAI] != "false", ContinuousClock.now < deadline { await Task.yield() }
+        // 审查修复（轮询终检）：轮询超窗后继续断言会把失败归因到后续
+        // load() 断言上——终检把「在途拒绝未生效」暴露为本步失败
+        XCTAssertEqual(settings.values[.authAI], "false", "在途拒绝未在窗口内生效（内存写入应同步完成）")
         let revision = settings.authAIRevision
         await settings.load()
         XCTAssertEqual(settings.values[.authAI], "false")

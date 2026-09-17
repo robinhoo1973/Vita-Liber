@@ -225,6 +225,12 @@ final class ObservationStoreState {
         }
     }
 
+    /// 清空全部（FR14.3）：媒体目录全清（原图 + blur）——资产行随清空事务
+    /// 删除后孤儿对账无行可据，文件必须直清（隐私红线：删除即真删）。
+    func wipeMediaFiles() async {
+        await mediaAssets.wipeAllFiles()
+    }
+
     /// 保存观察：照片先落敏感资产仓（原图 + blur），再把资产 id 随观察行入库。
     /// 任一环节失败即回滚已保存资产（补偿路径）——绝不产生「无图观察」或孤儿敏感文件。
     /// 返回是否保存成功——调用侧据此决定 dismiss 或保留表单告警（与
@@ -534,6 +540,7 @@ struct LockedMediaStrip: View {
 
 struct ObservationCreateSheet: View {
     @Environment(AppState.self) private var app
+    @Environment(AppRouter.self) private var router
     @Environment(\.dismiss) private var dismiss
     /// 返回是否保存成功——false 时保留表单并告警，绝不静默呈现为「已保存」
     let onCreate: (String, String, String?, [Data]) async -> Bool
@@ -747,12 +754,18 @@ struct ObservationCreateSheet: View {
                 .lineLimit(2...5)
             // FR8.9 观察语音速记（纯转写层）：端上听写 → FR17.13 统一模板确认 →
             // 确认后才落描述字段（评审修正：确认前不预填，取消/重试不留未确认文本）
-            VoiceDictationButton { text, confidence in
+            VoiceDictationButton(onTranscript: { text, confidence in
                 // FR17.13-entry: 观察速记 —— 走统一模板，不自建确认逻辑
                 confirmSet = VoiceInputTemplate.confirmationSet(drafts: [
                     FieldDraft(key: "description", value: text, confidence: confidence)
                 ])
-            }
+            }, onEmergencyAction: { _ in
+                // BR-012：组件契约——承载于 sheet 的调用方必须注入「先收起
+                // 再跳转」，否则急救卡被未关闭的面板盖住、用户看不到任何
+                // 变化（VoiceDictationModel 注释明令；此前本入口漏注入）。
+                dismiss()
+                router.navigate(to: .emergencyCardConfig)
+            })
             .accessibilityIdentifier("SP-14.observation.dictation")
             Picker(L10n.observationSelfMark, selection: $selfMark) {
                 Text(L10n.observationTrendImproved).tag("improved")

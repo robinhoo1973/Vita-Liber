@@ -353,7 +353,11 @@ final class AppRouter {
         // 不入栈）——旧版本持久化下来的路径里若仍残留本路由，恢复后 RouteDestinationView
         // 会再推一层 HealthTabView（子项目 H 明令禁止的套娃：双层 List、双层 `.task`、
         // 返回观感失效）。恢复时剔除该条目，其下方上下文照常保留。
-        return routes.filter { $0 != .assistantChat }
+        // 审查修复（同族补漏）：`.reminderToday` 与 `.assistantChat` 同款「退役 append
+        // 语义」（navigate 现清栈回 Tab 根、不入栈）——旧版本路径里残留的
+        // `.reminderToday` 恢复后会再推一层 RemindersView 叠在 Tab 根之上，
+        // 同一套娃形态。一并剔除。
+        return routes.filter { $0 != .assistantChat && $0 != .reminderToday }
     }
 }
 

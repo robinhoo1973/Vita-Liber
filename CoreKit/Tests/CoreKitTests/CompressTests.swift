@@ -39,15 +39,9 @@ struct CompressTests {
         }
     }
 
-    @Test("SensitiveMediaProtection：isProtected / requestAccess 记录集合")
-    func sensitiveMediaProtection() async throws {
-        let protector = StubImageCompressor()
-
-        #expect(protector.isProtected("media-1") == false)
-        let granted = try await protector.requestAccess("media-1", reason: "测试")
-        #expect(granted == true)
-        #expect(protector.isProtected("media-1") == true)
-    }
+    // 审查修复（2026-09-18 死抽象清除）：SensitiveMediaProtection 协议及两侧
+    // 实现已删除（零消费方；BR-007/008 实际执行在 SensitiveAssetStore），
+    // 本测试随协议一并移除。
 
     @Test("ThumbnailSpec / SensitiveMediaPolicy Codable 往返")
     func codableRoundtrip() throws {

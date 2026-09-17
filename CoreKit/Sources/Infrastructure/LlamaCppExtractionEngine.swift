@@ -1,4 +1,5 @@
 import Foundation
+import Dispatch
 import Domain
 import Protocols
 #if canImport(llama)
@@ -10,8 +11,9 @@ import llama
 /// 配合 `GBNFGrammarGenerator` 生成的文法约束输出格式。
 /// 业主 2026-09-17 定：模型**随包内置**（`Resources/LLMModels/`），零网络零下载；
 /// swift-llama 上游已删 → 本实现直连官方 C API（`import llama`）。
-/// 平台下限 iOS 16.4/macOS 13.3（xcframework 切片下限）——注册处 `#available` 守卫，
-/// 16.0–16.3 设备优雅降级 T3（功能缺失到兜底边界为止）。
+/// 平台下限 = 应用基线 iOS 16.0（自建切片下限；上游默认 16.4 已改——llama.cpp
+/// 无 16.4 专属 API），注册处 `#if canImport(llama)` 无 #available 守卫，
+/// 运行时按 LlamaModelManager.isModelReady() 降级 T3（功能缺失到兜底边界为止）。
 /// 全部产物恒 D 级（BR-003）；grounding 由注册表统一执行（第二道防线）。
 /// 失败降级：T2 unavailable → T3（注册表逐区域切换，零崩溃）。
 /// prompt / span→区域装配走 ModelPromptBuilder / ModelSpanAssembler 单点，
@@ -88,11 +90,30 @@ private struct ModelSpanResult: Codable {
     var rows: [[ModelSpan]]?
 }
 
-/// 单实例推理运行时（actor）：模型 + 上下文**惰性加载一次、跨调用复用**——
+/// 单实例推理运行时：模型 + 上下文**惰性加载一次、跨调用复用**——
 /// 旧 swift-llama 实现每次 extract 重新 loadModel（491MB 冷载数秒），
 /// 复用在 0.5B 模型上是秒级 → 毫秒级的差别。HeavyModelLease 保证互斥。
-actor LlamaRuntime {
+///
+/// 审查修复（阻塞取消/线程池，2026-09-18）：llama_decode 秒级同步 C 推理此前
+/// 跑在 actor 协作执行器上——解码循环零挂起点，用户取消与注册表 15s 超时
+/// 都无法中断在途解码（注册表 timeout 竞速胜出后 cancelAll 只能等解码跑完），
+/// 且长期占用 Swift 并发线程池。改为：状态串行化由**专用串行 DispatchQueue**
+/// 承担（GCD 线程非协作池——不饿并发运行时；互斥已有 HeavyModelLease，队列
+/// 串行为纵深防御），阻塞段经 continuation 桥接回 async；取消经 withTaskCancellationHandler
+/// 置位标志、解码循环逐 token 检查提前退出（单 token decode 毫秒级，粒度足够）。
+final class LlamaRuntime: @unchecked Sendable {
     static let shared = LlamaRuntime()
+
+    /// 推理专用串行队列：所有模型状态只在队列线程上读写。
+    private static let inferenceQueue = DispatchQueue(label: "vl.llama.inference", qos: .userInitiated)
+
+    /// 取消标志盒：withTaskCancellationHandler 置位、队列循环轮询。
+    private final class CancelFlag: @unchecked Sendable {
+        private let lock = NSLock()
+        private var cancelled = false
+        var isCancelled: Bool { lock.withLock { cancelled } }
+        func cancel() { lock.withLock { cancelled = true } }
+    }
 
     private var model: OpaquePointer?
     private var context: OpaquePointer?
@@ -101,8 +122,29 @@ actor LlamaRuntime {
     private var backendInitialized = false
 
     /// 文法约束 + 贪心采样的完整推理：返回原始输出文本（JSON 解码在引擎层）。
-    func complete(prompt: String, grammar: String, modelURL: URL?, maxTokens: Int32) throws -> String {
-        try loadIfNeeded(url: modelURL)
+    func complete(prompt: String, grammar: String, modelURL: URL?, maxTokens: Int32) async throws -> String {
+        let flag = CancelFlag()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
+                Self.inferenceQueue.async {
+                    do {
+                        continuation.resume(returning: try self.decode(
+                            prompt: prompt, grammar: grammar, modelURL: modelURL,
+                            maxTokens: maxTokens, cancelFlag: flag))
+                    } catch {
+                        continuation.resume(throwing: error)
+                    }
+                }
+            }
+        } onCancel: {
+            flag.cancel()
+        }
+    }
+
+    /// 阻塞解码段（只在 inferenceQueue 线程上执行；逐 token 轮询取消标志）。
+    private func decode(prompt: String, grammar: String, modelURL: URL?,
+                        maxTokens: Int32, cancelFlag: CancelFlag) throws -> String {
+        try loadIfNeeded(url: modelURL, cancelFlag: cancelFlag)
         guard let model, let context, let vocab else { throw ExtractionEngineError.unavailable }
 
         // —— 文法采样链：GBNF 字符串直出（b11012 起 grammar 走 sampler API）——
@@ -134,6 +176,7 @@ actor LlamaRuntime {
         var batchToken = llama_token()
         let batch = llama_batch_get_one(&batchToken, 1)
         for index in 0..<promptLength {
+            if cancelFlag.isCancelled { throw CancellationError() }
             batchToken = promptTokens[Int(index)]
             let code = llama_decode(context, batch)
             guard code == 0 else { throw ExtractionEngineError.unavailable }
@@ -143,6 +186,7 @@ actor LlamaRuntime {
         let eos = llama_vocab_eos(vocab)
         var pieces: [String] = []
         for _ in 0..<maxTokens {
+            if cancelFlag.isCancelled { throw CancellationError() }
             let newToken = llama_sampler_sample(chain, context, -1)
             if newToken == eos || llama_vocab_is_eog(vocab, newToken) { break }
             var pieceBuffer = [CChar](repeating: 0, count: 256)
@@ -157,9 +201,11 @@ actor LlamaRuntime {
     }
 
     /// 惰性加载：URL 未变则复用已载模型；首载初始化 backend。
-    private func loadIfNeeded(url: URL?) throws {
+    /// 冷载（491MB）不可中断，加载完成后检查取消并抛出（不继续推理）。
+    private func loadIfNeeded(url: URL?, cancelFlag: CancelFlag) throws {
         guard let url else { throw ExtractionEngineError.unavailable }
         if loadedURL == url, model != nil, context != nil, vocab != nil { return }
+        if cancelFlag.isCancelled { throw CancellationError() }
         if !backendInitialized {
             llama_backend_init()
             backendInitialized = true

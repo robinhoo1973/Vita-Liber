@@ -87,8 +87,21 @@ public enum ExtractionPatterns {
 
     /// 取「标签：值」中**该标签自己**的值段：起点 = 标签之后跳过分隔符与空白；
     /// 右界 = 行内**其它**标签的起点（或行尾）。结果恒为 `text` 的精确子串。
+    /// 审查修复：标签只接受**处于标签位**的首次出现——此前取全行首次出现，
+    /// 叙事词内部的同字（「主治医生嘱…医生：张三」里的「主治医生」）会把
+    /// 整条尾巴当值原样进确认页（本文件头部自述「错的字段值比空值更危险」）。
+    /// 判据与 nextLabelBoundary 共用 isLabelPosition（标签位语义单一出口）。
     public static func valueSpan(afterLabel label: String, in text: String) -> String? {
-        guard let labelRange = text.range(of: label) else { return nil }
+        var search = text.startIndex
+        var labelRange: Range<String.Index>?
+        while let r = text.range(of: label, range: search..<text.endIndex) {
+            if isLabelPosition(text, at: r.lowerBound) {
+                labelRange = r
+                break
+            }
+            search = text.index(after: r.lowerBound)
+        }
+        guard let labelRange else { return nil }
         var cursor = labelRange.upperBound
         while cursor < text.endIndex {
             let ch = text[cursor]

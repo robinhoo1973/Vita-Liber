@@ -120,6 +120,16 @@ struct QuickCaptureView: View {
                     showCamera = false
                 }
             }
+            // 审查修复（离屏丢转场）：fullScreenCover 关闭时若 scenePhase != .active
+            // （Home 键/锁屏抢先），onDismiss 的 guard 直接丢弃区域编辑器转场——
+            // session 停在 captureStep .region 且满分辨率图常驻内存，此前无任何
+            // 路径重武装（captureStep 未变化、onChange 不触发）。回前台补发转场。
+            .onChangeCompat(of: scenePhase) { _, phase in
+                guard phase == .active, regionAfterCamera else { return }
+                regionAfterCamera = false
+                captureSheetTransition = true
+                showRegionEditor = true
+            }
             .photosPicker(isPresented: $showPhotos, selection: $pickedItem, matching: .images)
             .onChangeCompat(of: pickedItem) { _, item in
                 guard let item, let session = selection else { return }

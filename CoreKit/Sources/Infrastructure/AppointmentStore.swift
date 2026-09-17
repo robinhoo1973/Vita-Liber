@@ -110,6 +110,9 @@ public actor AppointmentStore {
             try db.execute(
                 sql: "UPDATE appointment SET status = 'cancelled', cancel_reason = ?, updated_at = ? WHERE id = ?",
                 arguments: [reason, now.timeIntervalSince1970, id.uuidString])
+            // 审查修复（响亮拒绝纪律）：目标不存在时 0 行 UPDATE 静默成功，
+            // 界面当作取消成功、预约仍在列表——与 DocumentStore 守卫同口径。
+            guard db.changesCount == 1 else { throw StoreError.notFound }
         }
         // 写成功后才取消提醒（同 reschedule/complete 的次序纪律）
         try await cancelReminders(id: id)
@@ -159,6 +162,15 @@ public actor AppointmentStore {
             // 「已完成」覆盖「已错过」抹掉历史状态。仅 scheduled 可完成。
             guard (apt["status"] as String?) == "scheduled" else {
                 throw StoreError.invalidState
+            }
+            // 审查修复（与 markMissed 同口径纵深防御）：时间门槛在视图层之外
+            // 再查一次——任何新入口绕过视图即可一触完成未来预约（分级提醒
+            // 全取消 + 未来日期复诊就诊落库，BR-004 历史造假）。复用 notFound
+            // 语义拒绝，不泄露状态。
+            guard AppointmentRules.canMarkCompleted(
+                startsAt: Date(timeIntervalSince1970: apt["starts_at"] as Double),
+                now: now) else {
+                throw StoreError.notFound
             }
             try db.execute(
                 sql: "UPDATE appointment SET status = 'completed', updated_at = ? WHERE id = ?",

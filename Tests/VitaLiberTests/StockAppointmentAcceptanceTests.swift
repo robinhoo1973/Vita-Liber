@@ -11,14 +11,9 @@ import Protocols
 // binds: SU-M1b-STOCK / SU-M1b-APPT — TC-M1b-06/07
 final class StockAppointmentAcceptanceTests: XCTestCase {
 
-    /// 时区固定 Asia/Shanghai 的日历——三处用例各自手写同一构造（含一处
-    /// 闭包 IIFE），下沉为单一出口（与 StockAcceptanceTests 的 cal 同型）
-    private var shanghaiCalendar: Calendar {
-        var c = Calendar(identifier: .gregorian)
-        c.timeZone = TimeZone(identifier: "Asia/Shanghai")!
-        return c
-    }
-
+    // 时区固定 Asia/Shanghai 的日历经 HealthImportTestSupport 的 XCTestCase
+    // 扩展单一出口（shanghaiCalendar）——此前三处各写同构副本，注释自称
+    // 「下沉为单一出口」而代码未落地（审查修复 2026-09-18 已收敛）。
     private func makeStore() async throws -> (store: GRDBStore, meds: MedicationStore, scheduler: InMemoryReminderScheduler, apts: AppointmentStore, patient: UUID, med: UUID) {
         let store = try GRDBStore.inMemory()
         let scheduler = InMemoryReminderScheduler()

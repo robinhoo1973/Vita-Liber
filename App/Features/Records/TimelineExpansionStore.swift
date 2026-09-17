@@ -2,7 +2,8 @@ import Foundation
 import Perception
 
 /// SP-19 主卡展开记忆（子项目 J · round1 §E.3 / §C1）：按 `TimelineHubEntry.id` 记 UserDefaults，
-/// `nil` = 无记忆（交给 Domain `TimelineHierarchyRules.expanded` 默认：最新一张主卡展开、其余折叠）。
+/// `nil` = 无记忆（交给 Domain `TimelineHierarchyRules.expanded` 默认：**全部折叠**——
+/// 业主 2026-09-17 定，ui-ux V3.94 §5.35，原「最新一张主卡展开」口径已废止）。
 ///
 /// - 键：`timeline.hub.expanded.<id>`（Bool）；另维护 LRU 顺序表 `timeline.hub.expanded.order`，超过 `capacity` 淘汰最久未触碰的键
 ///   （成员多年记录的主卡数无上界，UserDefaults 不能无限增长）。

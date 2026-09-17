@@ -43,6 +43,34 @@ public enum BloodPressureEntryRules {
     public static let minPlausibleSys: Double = 60
 }
 
+/// 手录/语音录入指标的合理性界限（审查修复 2026-09-18）：界外值拒绝落库——
+/// 手滑/口误的「血压 800」此前以 C 级样本持久化并污染趋势与告警证据链
+/// （仅 >0 与 NaN/inf 守卫）。界限取宽松生理边界：宁可拒绝极罕见的极端
+/// 真值（可走趋势页备注通道），也不放过明显误录；缺失键回落放行（不臆造边界）。
+public enum MetricEntryRules {
+    /// 指标 → 宽松合理性范围（数值超出即拒绝）。
+    public static func plausibleBounds(for metric: MetricType) -> ClosedRange<Double>? {
+        switch metric {
+        case .bloodPressureSys: return 60...280        // mmHg
+        case .bloodPressureDia: return 30...180        // mmHg
+        case .glucose: return 1...60                   // mmol/L
+        case .heartRate, .restingHeartRate: return 20...250
+        case .bloodOxygen: return 40...100             // %
+        case .temperature: return 30...45              // ℃
+        case .weight: return 2...500                   // kg
+        case .respiratoryRate, .steps,
+             .sleepTotal, .sleepDeep, .sleepREM, .sleepAwake, .sleepCore, .sleepUnspecified:
+            return nil                                 // 设备源/聚合指标不设手录边界
+        }
+    }
+
+    /// 界内放行；无边界键放行（不臆造）；界外拒绝。
+    public static func isPlausible(_ value: Double, for metric: MetricType) -> Bool {
+        guard let range = plausibleBounds(for: metric) else { return true }
+        return range.contains(value)
+    }
+}
+
 public struct TrendPoint: Sendable, Equatable, Identifiable {
     public var id: UUID
     public var measuredAt: Date

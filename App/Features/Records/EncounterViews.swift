@@ -24,7 +24,15 @@ final class EncountersState {
     init(store: EncounterStore) { self.store = store }
 
     func load(patientId: UUID) async {
-        loadingPatientId = patientId
+        // BR-001 成员隔离（2026-09-15 同族实测修复，与 TimelineViewState 同款）：
+        // **换成员立即清屏**——失败或取消时旧成员的列表不得在新成员筛选
+        // 身份下继续渲染（列表头/筛选器已是新成员，行数据却是旧成员 = 跨
+        // 成员显示 + 跨成员打开详情）。同一成员重载失败仍保留旧列表
+        // （假空态 doctrine 只对同成员成立）。
+        if loadingPatientId != patientId {
+            loadingPatientId = patientId
+            encounters = []
+        }
         do {
             let rows = try await store.list(patientId: patientId)
             guard loadingPatientId == patientId else { return }

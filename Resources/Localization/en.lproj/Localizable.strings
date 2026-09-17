@@ -295,7 +295,6 @@
 "reminder.a11ySnoozed" = "%@ — remind later";
 "reminder.a11ySkipped" = "%@ — skipped";
 "ai.confirmImageText" = "Confirm image text";
-"ai.emergencyAction" = "Call 120 immediately or go to the nearest emergency room.";
 "ai.aiBadge" = "AI explanation (from your records)";
 "ai.citations" = "Source excerpts: ";
 "ai.conclusion" = "Found %d record(s) related to your question.";
@@ -527,9 +526,8 @@
 "ai.refusedHighRisk" = "Changing or stopping a medication must be decided by a doctor. Please consult a doctor or pharmacist with your prescription.";
 "ai.failedRetry" = "Failed to answer, please try again later.";
 "ai.history.loadFailed" = "Failed to load history";
+"ai.history.deleteFailed" = "Failed to delete. Please try again.";
 "ai.history.loadFailedHint" = "Please try again later";
-"ai.emergencyCardText" = "Possible emergency: call your local emergency number immediately or go to the nearest hospital emergency room.";
-"ai.emergencyTitle" = "Possible emergency";
 "ai.emergencyCall" = "Call emergency services";
 "timeline.empty.title" = "No records yet";
 "paywall.previewTitle" = "Pro benefits · Preview";
@@ -636,7 +634,7 @@
 "backup.restoreConfirm.body" = "Restoring will overwrite current local data after format and integrity checks. Confirm this is you.";
 "backup.restoredCountFmt" = "Restored · %d records · integrity verified";
 "sos.help.title" = "Emergency Help";
-"sos.call120" = "Call 120";
+"sos.call120" = "Call 911";
 "sos.noContacts" = "No emergency contacts configured. Add them in the Emergency Card (Settings → Emergency Card).";
 "sos.viewCard" = "View Emergency Card";
 "sos.sendLocationP1" = "Send Location (coming soon)";
@@ -1058,7 +1056,6 @@
 "settings.grace15" = "15 seconds";
 "settings.grace60" = "60 seconds";
 "ai.quickGlucose" = "Recent glucose";
-"ai.quickMeds" = "Current meds";
 "ai.quickNext" = "Next visit";
 "voicenote.detailBody" = "Content";
 "voicenote.detailTags" = "Tags";
@@ -1379,7 +1376,7 @@
 "lifecycle.clearButton" = "Erase All Data";
 "lifecycle.clearImpact" = "This cannot be undone: all records, attachments, plans and reminders will be deleted. Backup files remain in system files and are not auto-deleted.";
 "lifecycle.logout" = "Sign out (P1 account)";
-"lifecycle.logoutHint" = "Cloud account sign-out requires the D1 server decision; local mode has no account to sign out from.";
+"lifecycle.logoutHint" = "Cloud account sign-out will be available when cloud services are ready; local mode has no account to sign out from.";
 "onboard.addFamily.title" = "Add Family Member";
 "onboard.addFamily.hint" = "Manage records for your family (optional — add anytime from Settings)";
 "onboard.addFamily.manual" = "Create member manually";
@@ -1438,6 +1435,7 @@
 "metric.saved" = "Saved";
 "metric.entryError.title" = "Could not save the measurement";
 "metric.entryError.invalid" = "Please enter a valid number (e.g. 5.6).";
+"metric.entryError.range" = "The value is outside the plausible range. Please check it.";
 "metric.entryError.saveFailed" = "Saving failed, please retry. Your input was kept.";
 "metric.viewTrend" = "View trend";
 "voicePanel.title" = "Voice Notes";
@@ -1467,6 +1465,7 @@
 "observation.detail.deleteTitle" = "Delete this observation?";
 "observation.detail.deleteBody" = "The original photos will be deleted from this device. Processed copies in backups are not affected unless you delete them there. Doctor summaries already generated keep their contents.";
 "observation.detail.deleteDone" = "Observation deleted";
+"observation.detail.deleteFailed" = "Failed to delete. Please try again.";
 "observation.detail.followUpTitle" = "Set follow-up reminder";
 "observation.detail.followUpDays" = "Remind me in %d days";
 "observation.detail.followUpDone" = "Follow-up reminder set";
@@ -1510,6 +1509,8 @@
 "alert.showL0" = "Show L0";
 "alert.historyEntry" = "Alert History";
 "f19.noTodayMeds" = "No medications to take today";
+"f19.nextPage" = "Next page";
+"f19.medListMore" = "… and %d more. Say \"next page\" to continue.";
 "f19.goTimeline" = "Timeline opened";
 "f19.goHome" = "Back to home";
 "f19.nextAppointmentFmt" = "Next appointment: %@, %@";
@@ -1549,6 +1550,7 @@
 "settings.themeHint" = "Changes take effect immediately, no restart needed";
 "reminder.notification.title" = "You have a health reminder";
 "reminder.planSaveFailed" = "Failed to save the plan. Please try again.";
+"reminder.apptSaveFailed" = "Failed to save the appointment. Please try again.";
 "reminder.notification.body" = "Tap for details";
 "home.capture.hint" = "Aim at the document; text is recognized automatically and saved to your library";
 "home.capture.shoot" = "Start Capture";

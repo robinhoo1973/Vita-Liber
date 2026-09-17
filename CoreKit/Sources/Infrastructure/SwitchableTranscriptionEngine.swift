@@ -121,12 +121,10 @@ actor SwitchableTranscriptionEngine: TranscriptionCaptureReporting {
 
     func localeAssetStatus(_ localeIdentifier: String) async -> VoiceLocaleAssetStatus {
         let choice = choiceProvider()
-        #if os(iOS) || os(macOS)
+        // 审查修复：删除重复嵌套 #if（内层 #else 全平台不可达的死分支——
+        // 与 prepareLocale 同构的单层门控才是意图形态）
         #if os(iOS) || os(macOS)
         let resolved = choice == .auto ? TranscriptionEngineBuilder.automaticChoice(locale: localeIdentifier) : choice
-        #else
-        let resolved = choice   // Linux 包测试：无 auto 档资产解析
-        #endif
         #else
         let resolved = choice   // Linux 包测试：无 auto 档资产解析
         #endif

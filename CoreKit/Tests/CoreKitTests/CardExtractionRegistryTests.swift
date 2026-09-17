@@ -48,7 +48,7 @@ struct CardExtractionRegistryTests {
             return RegionExtraction(shared: ["prescribed_at": GroundedValue(value: "2026-09-01", anchor: Self.anchor(0), confidence: 0.6)], rows: [])
         }
         let started = ContinuousClock.now
-        let cards = await CardExtractionRegistry(engines: [t1, Self.rulesEngine()]).extract(Self.request([spec]))
+        let cards = try await CardExtractionRegistry(engines: [t1, Self.rulesEngine()]).extract(Self.request([spec]))
         let card = try #require(cards.first)
         #expect(ContinuousClock.now - started < .seconds(3), "超时后协作取消，不等 5 秒")
         #expect(card.shared["prescribed_at"]?.value == "2026-09-01")
@@ -67,7 +67,7 @@ struct CardExtractionRegistryTests {
             await calls.record(spec, region)
             throw ExtractionEngineError.schemaMismatch
         }
-        let card = try #require(await CardExtractionRegistry(engines: [t1, Self.rulesEngine()]).extract(Self.request([spec])).first)
+        let card = try #require(try await CardExtractionRegistry(engines: [t1, Self.rulesEngine()]).extract(Self.request([spec])).first)
         #expect(await calls.count == 1, "首区域抛错后该轨被禁用，第二区域不再调用")
         #expect(card.diagnostics.degradedReason == .engineError && !card.diagnostics.mixedTracks)
         #expect(card.provenance.track == .rules && card.rows.count == 2 && card.shared.isEmpty)
@@ -87,7 +87,7 @@ struct CardExtractionRegistryTests {
             return RegionExtraction(shared: [:], rows: [["drug_name": GroundedValue(value: "头孢克肟", anchor: Self.anchor(1), confidence: 0.6)],
                                                        ["drug_name": GroundedValue(value: "奥美拉唑", anchor: Self.anchor(3), confidence: 0.6)]])
         }
-        let card = try #require(await CardExtractionRegistry(engines: [t1, Self.rulesEngine()]).extract(Self.request([spec])).first)
+        let card = try #require(try await CardExtractionRegistry(engines: [t1, Self.rulesEngine()]).extract(Self.request([spec])).first)
         let specs = await calls.specs
         let kinds = await calls.regionKinds
         #expect(await calls.count == 3)
@@ -123,7 +123,7 @@ struct CardExtractionRegistryTests {
                                     ["raw_label": GroundedValue(value: "血红蛋白", anchor: Self.anchor(2), confidence: 0.6),
                                      "value": GroundedValue(value: "150", anchor: Self.anchor(2), confidence: 0.6)]])
         }
-        let card = try #require(await CardExtractionRegistry(engines: [t1, t3]).extract(request).first)
+        let card = try #require(try await CardExtractionRegistry(engines: [t1, t3]).extract(request).first)
         #expect(card.rows.count == 2, "同行锚「白细胞」两轨并为一行")
         #expect(card.rows[0]["raw_label"]?.value == "白细胞" && card.rows[0]["value"]?.value == "6.5" && card.rows[0]["unit"]?.value == "10^9/L")
         #expect(card.rows[1]["raw_label"]?.value == "血红蛋白" && card.rows[1]["value"]?.value == "150")
@@ -142,12 +142,12 @@ struct CardExtractionRegistryTests {
                 Issue.record("不可用引擎不得被调用"); throw ExtractionEngineError.unavailable
             }
         }
-        let card = try #require(await CardExtractionRegistry(engines: [Unavailable(), Self.rulesEngine()]).extract(Self.request([spec])).first)
+        let card = try #require(try await CardExtractionRegistry(engines: [Unavailable(), Self.rulesEngine()]).extract(Self.request([spec])).first)
         #expect(card.diagnostics.degradedReason == .notInstalled && !card.diagnostics.mixedTracks && card.provenance.track == .rules)
         #expect(card.rows.count == 2 && card.diagnostics.regionTracks["g1"] == [.rules])
-        let none = try #require(await CardExtractionRegistry(engines: []).extract(Self.request([spec])).first)
+        let none = try #require(try await CardExtractionRegistry(engines: []).extract(Self.request([spec])).first)
         #expect(none.shared.isEmpty && none.rows.isEmpty && none.provenance.track == .rules && none.diagnostics.degradedReason == .none)
-        #expect(await CardExtractionRegistry(engines: [Self.rulesEngine()]).extract(Self.request([])).isEmpty, "无 spec 无卡")
+        #expect(try await CardExtractionRegistry(engines: [Self.rulesEngine()]).extract(Self.request([])).isEmpty, "无 spec 无卡")
     }
 
     @Test func 关闭生成式处理时生成轨一律不调用() async throws {
@@ -157,7 +157,7 @@ struct CardExtractionRegistryTests {
             await calls.record(spec, region)
             return RegionExtraction(shared: ["prescribed_at": GroundedValue(value: "2026-09-01", anchor: Self.anchor(0), confidence: 0.6)], rows: [])
         }
-        let card = try #require(await CardExtractionRegistry(engines: [t1, Self.rulesEngine()]).extract(Self.request([spec], allowsGenerative: false)).first)
+        let card = try #require(try await CardExtractionRegistry(engines: [t1, Self.rulesEngine()]).extract(Self.request([spec], allowsGenerative: false)).first)
         #expect(await calls.count == 0)
         #expect(card.diagnostics.degradedReason == .notAuthorized && card.provenance.track == .rules && card.rows.count == 2)
     }
@@ -170,7 +170,7 @@ struct CardExtractionRegistryTests {
             try await Task.sleep(for: .milliseconds(150))
             return RegionExtraction(shared: ["prescribed_at": GroundedValue(value: "2026-09-01", anchor: Self.anchor(0), confidence: 0.6)], rows: [])
         }
-        let card = try #require(await CardExtractionRegistry(engines: [t1, Self.rulesEngine()])
+        let card = try #require(try await CardExtractionRegistry(engines: [t1, Self.rulesEngine()])
             .extract(Self.request([spec], pageBudget: .milliseconds(100))).first)
         #expect(await calls.count == 1, "首区域耗尽页预算，第二区域不再调用生成轨")
         #expect(card.shared["prescribed_at"]?.value == "2026-09-01" && card.rows.count == 2)
@@ -185,7 +185,7 @@ struct CardExtractionRegistryTests {
             let key = spec.kind == "prescription" ? "prescribed_at" : "date"
             return RegionExtraction(shared: [key: GroundedValue(value: "2026-09-01", anchor: Self.anchor(0), confidence: 0.6)], rows: [])
         }
-        let cards = await CardExtractionRegistry(engines: [t3]).extract(Self.request([prescription, encounter]))
+        let cards = try await CardExtractionRegistry(engines: [t3]).extract(Self.request([prescription, encounter]))
         #expect(cards.map(\.kind) == ["prescription", "encounter"])
         #expect(cards[0].shared["prescribed_at"]?.value == "2026-09-01" && cards[1].shared["date"]?.value == "2026-09-01")
         #expect(cards.allSatisfy { $0.diagnostics.degradedReason == .none && !$0.diagnostics.mixedTracks && $0.provenance.track == .rules })

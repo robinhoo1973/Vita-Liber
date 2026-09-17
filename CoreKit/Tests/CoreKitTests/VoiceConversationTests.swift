@@ -260,6 +260,62 @@ struct VoiceConversationTests {
         #expect(s2.phase == .listening)
     }
 
+    /// 审查修复锚点（2026-09-18）：有效命令进入确认相位必须清零静默计数——
+    /// 此前 markTaken/record/recordQuestion 进 .confirming 不清零，一次无效
+    /// 确认应答即触发两轮退出（FR19.6 提前一轮），待确认的 BR-004 服药
+    /// 事实被静默取消。
+    @Test func 有效命令进入确认相位清零静默计数() {
+        var state = ConversationState()
+        _ = VoiceConversationEngine.step(state: state, transcript: "今天天气不错", emergencyNumber: "120")   // 1 轮无效
+        state.silentRounds = 1
+        let (s1, _) = VoiceConversationEngine.step(state: state, transcript: "我吃过阿司匹林了", emergencyNumber: "120")
+        #expect(s1.phase == .confirming)
+        #expect(s1.silentRounds == 0, "有效命令进入确认相位必须清零静默计数（FR19.6 连续两轮口径）")
+        let (s2, e2) = VoiceConversationEngine.step(state: s1, transcript: "不知道", emergencyNumber: "120")
+        #expect(!e2.contains(.exitGracefully), "单次无效确认应答不得触发两轮退出（此前提前一轮退出并静默取消待确认动作）")
+        #expect(s2.phase == .confirming)
+    }
+
+    /// 审查修复锚点（2026-09-18）：FR19.4「第 N 个 / 选项名 / 是·否」三选一——
+    /// 选项名应答此前无文法命中（patterns 表无法枚举运行时选项名），落入
+    /// unrecognized 计数并两轮后礼貌退出；列选相位按当前选项名二次匹配后
+    /// 走 .selectName 分支。
+    @Test func 列选按选项名应答() {
+        let (state, _) = VoiceConversationEngine.optionsPrompt(["阿司匹林", "布洛芬"], pendingCommand: .markTaken)
+        let (s2, e2) = VoiceConversationEngine.step(state: state, transcript: "布洛芬", emergencyNumber: "120")
+        #expect(e2.contains(where: { if case .execute(let cmd, let payload) = $0 { return cmd == .markTaken && payload == "布洛芬" }
+                              return false }),
+                "选项名应答必须选中对应选项并执行（FR19.4 三选一契约）")
+        #expect(s2.phase == .listening)
+        #expect(s2.silentRounds == 0, "选项名是有效应答，不得计入静默轮数")
+    }
+
+    /// 审查修复锚点（2026-09-18）：名称命中多条（同药多时段，选项含同一
+    /// 药名）不得首条代答——静默确认用户未指认的剂量 = BR-004 事实链污染；
+    /// 应提示按编号应答（有效应答，不计静默轮）。
+    @Test func 选项名多命中不得首条代答() {
+        let (state, _) = VoiceConversationEngine.optionsPrompt(
+            ["阿莫西林 · 08:00", "阿莫西林 · 20:00"], pendingCommand: .markTaken)
+        let (s2, e2) = VoiceConversationEngine.step(state: state, transcript: "阿莫西林", emergencyNumber: "120")
+        #expect(!e2.contains(where: { if case .execute = $0 { return true }; return false }),
+                "名称多命中不得执行任何确认（BR-004：用户未指认具体剂量）")
+        #expect(e2.contains(where: { if case .speak(.pickOption) = $0 { return true }; return false }),
+                "必须提示按编号应答")
+        #expect(s2.phase == .selecting, "歧义应答停留在列选相位等待编号")
+        #expect(s2.silentRounds == 0, "名称应答是有效应答，不得计入静默轮数")
+    }
+
+    /// 审查修复锚点（2026-09-18）：离开列选相位即清空选项集（状态不变量
+    /// phase != .selecting ⇒ options 为空）——确认相位保留旧选项会让视图
+    /// 镜像滞留幽灵芯片。
+    @Test func 离开列选相位清空选项集() {
+        let (state, _) = VoiceConversationEngine.optionsPrompt(["甲", "乙"], pendingCommand: .markTaken)
+        #expect(!state.options.isEmpty)
+        let (s2, _) = VoiceConversationEngine.step(state: state, transcript: "我吃过阿司匹林了", emergencyNumber: "120")
+        #expect(s2.phase == .confirming)
+        #expect(s2.options.isEmpty, "进入确认相位必须清空列选选项（幽灵芯片不变量）")
+    }
+
     // MARK: M3 一票否决：免触三连任务成功率 ≥85%
 
     /// 免触三连：查今日用药 → 标记已服用 → 查询余量。

@@ -26,6 +26,9 @@ struct SensitiveMediaContainer<Content: View, Placeholder: View>: View {
     @State private var unlocked = false
     /// 空闲重锁任务（活跃信号重置窗口）
     @State private var relockTask: Task<Void, Never>?
+    /// 在途解锁任务句柄——重锁/离屏必须取消，否则认证结果在重锁后复活
+    /// unlocked=true（与 SensitiveMediaOriginalView 同族修复）
+    @State private var unlockTask: Task<Void, Never>?
     /// 解锁在途守卫：同步置位——连点两次只触发一次系统认证（unlocked 只在
     /// await 完成后翻转，双 Task 并发 requestUnlock 会产生两个并发
     /// LAContext 求值：第二个必败且可能双弹认证层）
@@ -48,8 +51,14 @@ struct SensitiveMediaContainer<Content: View, Placeholder: View>: View {
                 // BR-007/BR-009（V3.22 修订）：无应用 PIN 后按 FR1.9 直接用系统设备所有者
                 // 认证（Face ID/Touch ID + 设备密码兜底）。每次都是新弹系统浮层的独立认证。
                 unlocking = true   // 同步置位（防连点双认证，见属性注）
-                Task {
-                    if await app.requestUnlock(reason: L10n.sensitive_unlockReason) {
+                unlockTask = Task {
+                    let ok = await app.requestUnlock(reason: L10n.sensitive_unlockReason)
+                    // 重锁/离屏已取消本任务：认证结果不得复活解锁态
+                    guard !Task.isCancelled else {
+                        unlocking = false
+                        return
+                    }
+                    if ok {
                         unlocked = true
                         scheduleRelock()
                     }
@@ -82,6 +91,12 @@ struct SensitiveMediaContainer<Content: View, Placeholder: View>: View {
     private func relock() {
         relockTask?.cancel()
         relockTask = nil
+        // 审查修复：重锁必须取消在途解锁任务——onDisappear/退后台的重锁
+        // 拦不住无句柄的在途认证：认证完成后 unlocked=true 死而复生
+        // （BR-007「重锁 = 回到认证前内存态」违反；SensitiveMediaOriginalView
+        // 已修同族缺陷，本容器漏修）。
+        unlockTask?.cancel()
+        unlockTask = nil
         unlocked = false
     }
 }

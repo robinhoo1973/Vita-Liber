@@ -25,7 +25,7 @@ public actor ExtractionOrchestrator {
                         documentTypeKey: String,
                         pageConfidence: Double,
                         allowsGenerativeProcessing: Bool,
-                        pageBudget: Duration? = nil) async -> [ExtractedCard] {
+                        pageBudget: Duration? = nil) async throws -> [ExtractedCard] {
         let specs = ExtractionSpecRegistry.candidates(documentTypeKeys: [documentTypeKey])
         guard !specs.isEmpty else { return [] }
         let layout = PageLayout.linesOnly(lines)
@@ -38,7 +38,7 @@ public actor ExtractionOrchestrator {
             pageConfidence: pageConfidence,
             pageBudget: pageBudget
         )
-        let cards = await registry.extract(request)
+        let cards = try await registry.extract(request)
         return ContinuationRules.apply(cards, specs: ExtractionSpecRegistry.spec(for:))
     }
 }

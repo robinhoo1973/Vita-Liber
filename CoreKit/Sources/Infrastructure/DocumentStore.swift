@@ -132,10 +132,15 @@ public actor DocumentStore {
     /// 目标值：archived_favorite 组合态可产生、可逆。
     public func setArchived(id: UUID, archived: Bool, now: Date = Date()) async throws {
         try await writer.write { db in
-            let current = try String.fetchOne(db, sql: "SELECT status FROM document_file WHERE id = ?",
-                                               arguments: [id.uuidString])
+            // 审查修复（响亮拒绝纪律）：目标不存在（陈旧 id/竞态）时此前把 nil
+            // 当 "active" 静默放行——0 行 UPDATE 成功返回，界面当作归档成功、
+            // 文档仍在活跃列表。与 setDocTypeKey 的 changesCount 守卫同口径。
+            guard let current = try String.fetchOne(db, sql: "SELECT status FROM document_file WHERE id = ?",
+                                                    arguments: [id.uuidString]) else {
+                throw StoreError.invalidSource
+            }
             let target: String
-            switch (current ?? "active", archived) {
+            switch (current, archived) {
             case (_, true) where current == "favorite" || current == "archived_favorite": target = "archived_favorite"
             case (_, true): target = "archived"
             case ("archived_favorite", false): target = "favorite"
@@ -145,16 +150,21 @@ public actor DocumentStore {
             try db.execute(sql: """
                 UPDATE document_file SET status = ?, updated_at = ? WHERE id = ?
                 """, arguments: [target, now.timeIntervalSince1970, id.uuidString])
+            guard db.changesCount == 1 else { throw StoreError.invalidSource }
         }
     }
 
     /// FR5.8 收藏（对已归档文档收藏 → archived_favorite，绝不解除归档）
     public func setFavorite(id: UUID, favorite: Bool, now: Date = Date()) async throws {
         try await writer.write { db in
-            let current = try String.fetchOne(db, sql: "SELECT status FROM document_file WHERE id = ?",
-                                               arguments: [id.uuidString])
+            // 审查修复（响亮拒绝纪律）：与 setArchived 同口径——目标不存在即抛错，
+            // 绝不 0 行 UPDATE 静默成功。
+            guard let current = try String.fetchOne(db, sql: "SELECT status FROM document_file WHERE id = ?",
+                                                    arguments: [id.uuidString]) else {
+                throw StoreError.invalidSource
+            }
             let target: String
-            switch (current ?? "active", favorite) {
+            switch (current, favorite) {
             case ("archived", true), ("archived_favorite", true): target = "archived_favorite"
             case (_, true): target = "favorite"
             case ("archived_favorite", false): target = "archived"
@@ -164,6 +174,7 @@ public actor DocumentStore {
             try db.execute(sql: """
                 UPDATE document_file SET status = ?, updated_at = ? WHERE id = ?
                 """, arguments: [target, now.timeIntervalSince1970, id.uuidString])
+            guard db.changesCount == 1 else { throw StoreError.invalidSource }
         }
     }
 

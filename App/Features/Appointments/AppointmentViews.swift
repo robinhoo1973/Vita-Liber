@@ -222,7 +222,11 @@ struct AppointmentListView: View {
     }
 
     private func load() async {
-        rows = await reminders.appointmentHistory(patientId: app.currentPatientId)
+        // 审查修复（读取失败保留旧列表）：nil = 读取失败——把已有预约
+        // 渲染成「暂无预约」假空态与 MedicationPlanListView doctrine 矛盾
+        if let rows = await reminders.appointmentHistory(patientId: app.currentPatientId) {
+            self.rows = rows
+        }
     }
 
     private func statusColor(_ s: String) -> Color {
@@ -255,6 +259,9 @@ struct AppointmentFormView: View {
     @State private var followUpRule = 0
     @State private var followUpDays = 90
     @State private var followUpDate = DayArithmetic.offset(days: 90)
+    /// 审查修复（响亮失败纪律）：保存失败保留表单 + 可见告警——
+    /// 此前 createAppointment 吞错、表单无条件 dismiss（失败呈现为成功）
+    @State private var saveFailed = false
 
     private let rules = [0, 1, 2, 3, 4]
 
@@ -350,6 +357,9 @@ struct AppointmentFormView: View {
                             .accessibilityIdentifier("SP-18.appointment.form.save")
                     }
                 }
+                .alert(L10n.reminder_apptSaveFailed, isPresented: $saveFailed) {
+                    Button(L10n.commonConfirm, role: .cancel) { }
+                }
             }
         }
     }
@@ -359,17 +369,21 @@ struct AppointmentFormView: View {
         // 保存预约本身（预约提醒照常）；复诊日期留待用户稍后确认（FR10.2）。
         // 审查修复：医生/地址/物品/备注与复诊配置此前被静默丢弃——全部随单保存
         Task {
-            await reminders.createAppointment(patientId: app.currentPatientId,
-                                              hospital: hospital,
-                                              department: department,
-                                              startsAt: startsAt,
-                                              doctor: doctor.isEmpty ? nil : doctor,
-                                              address: address.isEmpty ? nil : address,
-                                              itemsToBring: itemsToBring.isEmpty ? nil : itemsToBring,
-                                              notes: notes.isEmpty ? nil : notes,
-                                              followUpRule: followUpRule,
-                                              followUpDays: followUpRule == 1 || followUpRule == 4 ? followUpDays : nil)
-            dismiss()
+            let ok = await reminders.createAppointment(patientId: app.currentPatientId,
+                                                       hospital: hospital,
+                                                       department: department,
+                                                       startsAt: startsAt,
+                                                       doctor: doctor.isEmpty ? nil : doctor,
+                                                       address: address.isEmpty ? nil : address,
+                                                       itemsToBring: itemsToBring.isEmpty ? nil : itemsToBring,
+                                                       notes: notes.isEmpty ? nil : notes,
+                                                       followUpRule: followUpRule,
+                                                       followUpDays: followUpRule == 1 || followUpRule == 4 ? followUpDays : nil)
+            if ok {
+                dismiss()
+            } else {
+                saveFailed = true
+            }
         }
     }
 }
@@ -449,8 +463,11 @@ struct AppointmentDetailRouteView: View {
     }
 
     private func load() async {
-        let history = await reminders.appointmentHistory(patientId: app.currentPatientId)
-        apt = history.first { $0.id == appointmentId }
+        // 读取失败（nil）保留旧值——详情页不得因瞬态读失败把存在的预约
+        // 渲染成「不存在」降级态
+        if let history = await reminders.appointmentHistory(patientId: app.currentPatientId) {
+            apt = history.first { $0.id == appointmentId }
+        }
     }
 }
 

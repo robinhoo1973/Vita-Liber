@@ -7,7 +7,10 @@ public enum AppSettingKey: String, Sendable, CaseIterable, Codable {
     case careModeEnable            // 关怀模式
     case remindChannel             // 提醒通道偏好（FR9.18）
     case readBackOptIn             // 无耳机回读偏好：never/ask/alwaysInCareMode
-    case gateGraceMinutes          // 门禁宽限（分钟）
+    // 审查修复（幻影键清除）：gateGraceMinutes 全仓零读者零写者——门禁宽限
+    // 实际键是 gateGraceSeconds（0/15/60 三档，FR1.4）。allCases 迭代
+    // （SettingsStore.allValues/restoreDefaults）会把幻影键物化进设置字典
+    // 与种子/恢复路径：同一概念两个键（分/秒）且死键永远漂移。已删除。
     case voiceEntryVisible         // 语音入口可见性
     case dataRetentionDays         // 数据保留天数
     case privacyShowGuide          // 隐私引导已读
@@ -60,7 +63,6 @@ public enum AppSettingKey: String, Sendable, CaseIterable, Codable {
         case .careModeEnable: return "false"
         case .remindChannel: return "local"
         case .readBackOptIn: return "ask"
-        case .gateGraceMinutes: return "1"
         case .voiceEntryVisible: return "true"
         case .dataRetentionDays: return "0"          // 0=永久
         case .privacyShowGuide: return "false"
@@ -209,7 +211,12 @@ public enum SettingsRules {
         }
     }
 
-    /// 追溯语义（FR14.7）：默认类设置只影响新建项——修改默认值不回溯既有数据
+    /// 追溯语义（FR14.7）：默认类设置只影响新建项——修改默认值不回溯既有数据。
+    /// 审查注记（2026-09-18，技术债登记）：本规则目前**未被任何生产路径消费**
+    /// ——若干相关键（remindAdvanceMinutes/snoozeMinutes/missGraceMinutes）本身
+    /// 亦无读者。FR14.7 的完整落点 = 创建时按当时默认值快照进各实体
+    /// （reminder/appointment/medication_plan），本函数届时作为「改默认是否
+    /// 回扫既有项」的判定接入重扫路径；在那之前不得当作已生效。
     public static func appliesToExisting(_ key: AppSettingKey) -> Bool {
         switch key {
         case .defaultMemberId, .defaultDocKind, .observationDefaultKind, .remindAdvanceMinutes,

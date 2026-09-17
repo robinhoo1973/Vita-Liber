@@ -350,7 +350,6 @@ enum L10n {
     static func reminder_a11ySnoozed(name: String) -> String { String(format: t("reminder.a11ySnoozed"), name) }
     static func reminder_a11ySkipped(name: String) -> String { String(format: t("reminder.a11ySkipped"), name) }
     static var ai_confirmImageText: String { t("ai.confirmImageText") }
-    static var ai_emergencyAction: String { t("ai.emergencyAction") }
     static var ai_aiBadge: String { t("ai.aiBadge") }
     static var ai_citations: String { t("ai.citations") }
     // FR12.5 七段模板句（V3.68：Domain 只出数据，模板本层渲染）
@@ -530,6 +529,8 @@ enum L10n {
     static var reminderNotificationTitle: String { t("reminder.notification.title") }
     /// 计划保存失败告警（响亮失败：创建失败保留表单，不静默关 sheet）
     static var reminder_planSaveFailed: String { t("reminder.planSaveFailed") }
+    /// 预约保存失败告警（响亮失败：创建失败保留表单，不静默关 sheet）
+    static var reminder_apptSaveFailed: String { t("reminder.apptSaveFailed") }
     static var reminderNotificationBody: String { t("reminder.notification.body") }
     static var emergency_manageCard: String { t("emergency.manageCard") }
     static var emergencyNumber: String { t("emergency.number") }
@@ -913,9 +914,9 @@ enum L10n {
     static var ai_refusedHighRisk: String { t("ai.refusedHighRisk") }
     static var ai_failedRetry: String { t("ai.failedRetry") }
     static var aiHistoryLoadFailed: String { t("ai.history.loadFailed") }
+    /// 删除/清空会话失败告警（响亮失败纪律）
+    static var aiHistoryDeleteFailed: String { t("ai.history.deleteFailed") }
     static var aiHistoryLoadFailedHint: String { t("ai.history.loadFailedHint") }
-    static var ai_emergencyCardText: String { t("ai.emergencyCardText") }
-    static var ai_emergencyTitle: String { t("ai.emergencyTitle") }
     static var ai_emergencyCall: String { t("ai.emergencyCall") }
     static var timelineEmptyTitle: String { t("timeline.empty.title") }
     static var paywallPreviewTitle: String { t("paywall.previewTitle") }
@@ -930,7 +931,6 @@ enum L10n {
     "pref.speechRate.fast",
     "pref.speechRate.hint",
     "ai.quickGlucose",
-    "ai.quickMeds",
     "ai.quickNext",
     "health.connectButton",
     "health.connectDevice",
@@ -1197,8 +1197,8 @@ enum L10n {
         "ai.questionsFixed",
         "ai.scopeNote",
         "ai.disclaimerFixed", "ai.confirmImageText",
-        "ai.emergencyAction", "ai.emergencyCall", "ai.emergencyTitle", "paywall.previewTitle", "timeline.empty.title",
-        "ai.emergencyCardText", "ai.failedRetry", "ai.history.loadFailed", "ai.history.loadFailedHint", "ai.refusedHighRisk",
+        "ai.emergencyCall", "paywall.previewTitle", "timeline.empty.title",
+        "ai.failedRetry", "ai.history.loadFailed", "ai.history.deleteFailed", "ai.history.loadFailedHint", "ai.refusedHighRisk",
         "ai.refusedNoEvidence",
         "ai.source", "ai.uncertain", "alert.empty.hint", "alert.empty.title",
         "alert.linkChecked", "alert.openOriginal",
@@ -1331,6 +1331,7 @@ enum L10n {
         "observation.detail.deleteTitle",
         "observation.detail.deleteBody",
         "observation.detail.deleteDone",
+        "observation.detail.deleteFailed",
         "observation.detail.followUpTitle",
         "observation.detail.followUpDays",
         "observation.detail.followUpDone",
@@ -1656,7 +1657,7 @@ enum L10n {
         "medicalID.step2Hint", "medicalID.step3", "medicalID.step3Hint",
         "medicalID.openHealth", "medicalID.note", "settings.themeHint",
         "reminder.notification.title", "reminder.notification.body",
-        "reminder.planSaveFailed",
+        "reminder.planSaveFailed", "reminder.apptSaveFailed",
         // 审查补充登记（2026-09-05）：此前仅入三语文件未入登记表的键
         "assistant.addRecords",
         "assistant.consultDoctor",
@@ -1690,7 +1691,7 @@ enum L10n {
         "f16.authDenied",
         "f16.noRangeFmt",
         "f19.markTakenMultipleFmt",
-        "f19.metricInvalidValue",
+        "f19.metricInvalidValue", "f19.medListMore", "f19.nextPage",
         "f19.metricNotSupportedFmt",
         "f19.sendA11y",
         "help.data.corrupt",
@@ -1716,7 +1717,7 @@ enum L10n {
         "member.relation.other",
         "member.relation.parent",
         "member.relation.partner",
-        "metric.entryError.invalid",
+        "metric.entryError.invalid", "metric.entryError.range",
         "metric.entryError.saveFailed",
         "metric.entryError.title",
         "ocr.field.line",
@@ -2818,7 +2819,6 @@ enum L10n {
     static var settings_grace15: String { t("settings.grace15") }
     static var settings_grace60: String { t("settings.grace60") }
     static var aiQuickGlucose: String { t("ai.quickGlucose") }
-    static var aiQuickMeds: String { t("ai.quickMeds") }
     static var aiQuickNext: String { t("ai.quickNext") }
     static var voicenoteDetailBody: String { t("voicenote.detailBody") }
     static var voicenoteDetailTags: String { t("voicenote.detailTags") }
@@ -3100,6 +3100,8 @@ enum L10n {
     // FR7.5 录入失败可见反馈（解析失败/写失败——绝不静默丢弃读数）
     static var metricEntryErrorTitle: String { t("metric.entryError.title") }
     static var metricInvalidValue: String { t("metric.entryError.invalid") }
+    /// 手录指标超出合理性界限（MetricEntryRules 拒绝落库时的可见反馈）
+    static var metricOutOfRange: String { t("metric.entryError.range") }
     static var metricSaveFailed: String { t("metric.entryError.saveFailed") }
     static var metricViewTrend: String { t("metric.viewTrend") }
 
@@ -3134,6 +3136,8 @@ enum L10n {
     static var obsDetailDeleteTitle: String { t("observation.detail.deleteTitle") }
     static var obsDetailDeleteBody: String { t("observation.detail.deleteBody") }
     static var obsDetailDeleteDone: String { t("observation.detail.deleteDone") }
+    /// 删除失败告警（响亮失败：deleteObservation 返回 false 必须有可见错误面）
+    static var obsDetailDeleteFailed: String { t("observation.detail.deleteFailed") }
     static var obsDetailFollowUpTitle: String { t("observation.detail.followUpTitle") }
     static var obsDetailFollowUpDays: String { t("observation.detail.followUpDays") }
     static var obsDetailFollowUpDone: String { t("observation.detail.followUpDone") }
@@ -3260,6 +3264,11 @@ enum L10n {
     static var f19RecordFailed: String { t("f19.recordFailed") }
     /// 第八轮修复：文法命中数值但 ≤0（如「血糖零」）——响亮拒绝，绝不静默丢弃
     static var f19MetricInvalidValue: String { t("f19.metricInvalidValue") }
+    /// F19 附表①清单分页：列选项（「下一页」）+ 剩余条数播报
+    static var f19NextPage: String { t("f19.nextPage") }
+    static func f19MedListMore(_ remaining: Int) -> String {
+        t("f19.medListMore").replacingOccurrences(of: "%d", with: String(remaining))
+    }
 
     // MARK: - FR15.2 系统医疗急救卡引导
     static var medicalIDTitle: String { t("medicalID.title") }

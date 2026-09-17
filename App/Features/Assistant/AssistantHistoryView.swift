@@ -54,25 +54,37 @@ final class AIHistoryState {
         (try? await store.messages(conversationId: conversationId)) ?? []   // try?-ok: 读取失败=空历史降级
     }
 
-    func delete(conversationId: UUID) async {
+    /// 删除/清空失败标记（审查修复：原空 catch 静默吞错——删除失败无任何
+    /// 反馈、行残留，用户不知道操作是否生效；响亮失败纪律与 MemberViews
+    /// saveFailed / HomeView actionToast 同款）
+    private(set) var deleteFailed = false
+    func clearDeleteFailed() { deleteFailed = false }
+
+    @discardableResult
+    func delete(conversationId: UUID) async -> Bool {
         do {
             try await store.deleteConversation(id: conversationId)
             try? await audit?.record(action: "delete", entityType: "ai_conversation",   // try?-ok: 审计失败不阻断删除本身（与既有审计纪律一致）
                                      entityId: conversationId.uuidString, actorLocal: "owner", meta: nil)
             if let patientId = loadingPatientId { await load(patientId: patientId) }
+            return true
         } catch {
-            // 同上
+            deleteFailed = true
+            return false
         }
     }
 
-    func clearAll(patientId: UUID) async {
+    @discardableResult
+    func clearAll(patientId: UUID) async -> Bool {
         do {
             try await store.clearAll(patientId: patientId)
             try? await audit?.record(action: "delete", entityType: "ai_conversation",   // try?-ok: 同上
                                      entityId: "all", actorLocal: "owner", meta: nil)
             conversations = []
+            return true
         } catch {
-            // 同上
+            deleteFailed = true
+            return false
         }
     }
 }
@@ -84,6 +96,8 @@ struct AssistantHistoryView: View {
     @Environment(AIHistoryState.self) private var state
     @State private var selected: AIHistoryStore.Conversation?
     @State private var showClearConfirm = false
+    /// 删除失败告警（响亮失败纪律：state.deleteFailed 观察驱动）
+    @State private var showDeleteFailed = false
 
     var body: some View {
         WithPerceptionTracking {
@@ -150,6 +164,14 @@ struct AssistantHistoryView: View {
                 Button(L10n.commonCancel, role: .cancel) { }
             } message: {
                 Text(L10n.aiHistoryClearNote)
+            }
+            // 删除/清空失败可见告警（state.deleteFailed → false 复位，
+            // 保证同文案连续失败也能再次触发 onChange）
+            .onChangeCompat(of: state.deleteFailed) { _, failed in
+                if failed { showDeleteFailed = true }
+            }
+            .alert(L10n.aiHistoryDeleteFailed, isPresented: $showDeleteFailed) {
+                Button(L10n.commonConfirm, role: .cancel) { state.clearDeleteFailed() }
             }
             .sheet(item: $selected) { conv in
                 ConversationDetailView(conversation: conv)

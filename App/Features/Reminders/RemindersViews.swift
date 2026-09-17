@@ -9,6 +9,9 @@ struct RemindersView: View {
     @Environment(ReminderStore.self) private var reminders
     @State private var showNewAppointment = false
     @State private var showNewPlan = false
+    /// 审查修复（响亮失败纪律）：预约创建失败可见告警——此前 createAppointment
+    /// 吞错、sheet 无条件关闭，创建失败呈现为成功（预约与分级提醒实际不存在）
+    @State private var appointmentSaveFailed = false
     /// 审查修复（计划创建静默吞错）：创建失败保留 sheet 并弹可见告警——
     /// 原实现空 catch 后无条件关闭 sheet：用户以为计划已建，实际零落库。
     @State private var planSaveFailed = false
@@ -92,14 +95,22 @@ struct RemindersView: View {
                                     .padding(.horizontal, 8).padding(.vertical, 4)
                                     .background(Capsule().fill(statusColor(apt.status).opacity(0.15)))
                                     .foregroundStyle(statusColor(apt.status))
-                                Button {
-                                    Task { await reminders.completeAppointment(patientId: currentPatientId, id: apt.id) }
-                                } label: {
-                                    Image(systemName: "checkmark.circle")
-                                        .frame(width: 44, height: 44)
+                                // 审查修复（FR10.7 时间门槛）：未到开始时间的
+                                // 预约不呈现完成按钮——此前一触即完成（分级
+                                // 提醒全取消 + 未来日期「复诊」就诊落库，
+                                // BR-004 历史造假），AppointmentListView 已修、
+                                // 本 Tab 入口漏修（AppointmentStore.complete
+                                // 另加纵深防御）。
+                                if AppointmentRules.canMarkCompleted(startsAt: apt.startsAt) {
+                                    Button {
+                                        Task { await reminders.completeAppointment(patientId: currentPatientId, id: apt.id) }
+                                    } label: {
+                                        Image(systemName: "checkmark.circle")
+                                            .frame(width: 44, height: 44)
+                                    }
+                                    .accessibilityLabel(L10n.reminder_completeAppt)
+                                    .accessibilityIdentifier("SP-18.appointment.complete")
                                 }
-                                .accessibilityLabel(L10n.reminder_completeAppt)
-                                .accessibilityIdentifier("SP-18.appointment.complete")
                             }
                             // FR10.6 去挂号深链卡：本地映射表匹配，无网可用
                             AppointmentDeepLinkCard(hospital: apt.hospital)
@@ -131,10 +142,12 @@ struct RemindersView: View {
             }
             .sheet(isPresented: $showNewAppointment) {
                 NewAppointmentSheet { hospital, department, date in
-                    Task { await reminders.createAppointment(patientId: currentPatientId,
-                                                             hospital: hospital, department: department,
-                                                             startsAt: date) }
-                    showNewAppointment = false
+                    Task {
+                        let ok = await reminders.createAppointment(patientId: currentPatientId,
+                                                                   hospital: hospital, department: department,
+                                                                   startsAt: date)
+                        if ok { showNewAppointment = false } else { appointmentSaveFailed = true }
+                    }
                 }
             }
             .sheet(isPresented: $showNewPlan) {
@@ -186,6 +199,9 @@ struct RemindersView: View {
                 }
             }
             .alert(L10n.reminder_planSaveFailed, isPresented: $planSaveFailed) {
+                Button(L10n.commonConfirm, role: .cancel) { }
+            }
+            .alert(L10n.reminder_apptSaveFailed, isPresented: $appointmentSaveFailed) {
                 Button(L10n.commonConfirm, role: .cancel) { }
             }
         }

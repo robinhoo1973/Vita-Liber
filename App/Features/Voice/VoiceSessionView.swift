@@ -36,7 +36,9 @@ final class VoiceSessionState {
     private let logger = Logger(subsystem: "com.vitaliber", category: "voicesession")
 
     func clearPendingObject() { pendingObject = nil }
-    func clearOptions() { options = [] }
+    // 审查修复：clearOptions 已删除——镜像清空收敛进 submit() 的相位
+    // 不变量（phase != .selecting ⇒ options = []），散点调用反而会抹掉
+    // handleExecution 刚挂出的新列选（翻页/多命中）
     func clearRejection() { rejected = false }
     func end() { ended = true; isListening = false }
     func start() { isListening = true }
@@ -92,6 +94,12 @@ final class VoiceSessionState {
         engineState = newState
         // 引擎相位是唯一事实源：离开复述相位即清除本地镜像
         if newState.phase != .repeatingObject { pendingObject = nil }
+        // 视图侧 options 镜像与引擎状态同构（审查修复）：镜像只在
+        // .askOptions 事件与 presentOptions 时赋值——列选命中/相位离开后
+        // 引擎清空自身 options，镜像必须同步清空，否则幽灵芯片滞留、
+        // 再点零动作（此前靠调用方散点 clearOptions，漏一处即滞留）。
+        // 以相位为准（引擎不变量：phase != .selecting ⇒ options 为空）。
+        if newState.phase != .selecting { options = [] }
         var executed: VoiceCommand?
         for event in events {
             switch event {
@@ -177,6 +185,12 @@ struct VoiceSessionView: View {
 
     @State private var session = VoiceSessionState()
     @State private var typed = ""
+    /// 附表①清单分页游标（「下一页」选项应答前进；新查询归零）
+    @State private var todayMedsPage = 0
+    /// 标记服药列选候选直连表（审查修复）：displayLabel 相同的多时段剂量
+    /// 经标签再过滤永远回到「多命中 → 再列选」死循环——presentOptions 时
+    /// 登记候选行，执行时按选项标签反查下标直连剂量行。
+    @State private var markTakenOptions: [(label: String, record: DoseRecord)] = []
 
     var body: some View {
         WithPerceptionTracking {
@@ -379,13 +393,19 @@ struct VoiceSessionView: View {
         let text = VoiceCommandGrammar.ordinalWord(number) ?? "\(number)"
         let executed = session.submit(text, speak: { app.speak($0) })
         handleExecution(executed, object: session.pendingObject)
-        session.clearOptions()
+        // 审查修复：视图侧 options 镜像的清空收敛进 submit()（镜像与引擎
+        // 状态同构）——此处若无条件 clearOptions 会把 handleExecution 重新
+        // 挂出的列选（翻页/多命中）抹掉；若不清空则芯片滞留、再点零动作。
     }
 
     /// F19 附表能力矩阵执行：查询类播报真实数据（纯事实句式），操作类
     /// 执行真实写路径（BR-004：确认即如实记录），危险类已在状态机层完成分级确认。
     private func handleExecution(_ command: VoiceCommand?, object: String?) {
         guard let command else { return }
+        // 审查修复：非标记服药命令执行即清列选候选表——用户搁置列选改说
+        // 其它命令后，残留候选不得劫持下一次按药名的新确认（静默确认
+        // 旧候选之一 = 多命中纪律失效）
+        if command != .markTaken { markTakenOptions = [] }
         // 第七轮修复：载荷一次性消费——非拨号命令消费后即清镜像，防
         // 异步落库路径（recordMetric 的 Task 未完成前）出现与拨号无关的
         // 复述确认卡；拨号类（callContact/callEmergency120）由 FR19.5
@@ -400,7 +420,7 @@ struct VoiceSessionView: View {
             // FR19.5：复述对象 + 确认之后才真正拨号
             if let object { performCall(object) }
             session.clearPendingObject()
-        case .openTimeline, .goHome, .exitSession:
+        case .openTimeline, .goHome:
             // F19 附表「打开页面」= 执行导航并播报落点——同文件
             // .startCamera/.openSearch 已证明 dismiss+router 可行，此前只
             // dismiss 并让用户自己去点（导航类指令未实装）。时间轴 = records
@@ -410,13 +430,25 @@ struct VoiceSessionView: View {
                                    speak: { app.speak($0) })
             dismiss()
             router.select(targetTab)
+        case .exitSession:
+            // 审查修复（FR19.6 保持界面停留位置）：退出是会话级命令，只收起
+            // 会话、绝不切 Tab——此前并入导航类把用户从任意 Tab 拽回首页。
+            // 状态机对 .exitSession 恒走 exitGracefully（不产 execute 事件），
+            // 本分支为纵深防御；语义与 exitGracefully 一致：仅退出。
+            dismiss()
         case .todayMeds:
-            // 附表①查询今日用药：时段清单播报（>3 条自动分页）
+            // 附表①查询今日用药：清单播报，>3 条自动分页——每页 3 条，
+            // 剩余 >0 时经 FR19.4 列选「下一页」继续（编号/选项名应答均可），
+            // 末页播报结束（审查修复：此前 prefix(3)+「……」截断后第 4 条起
+            // 永久无法听到，与附表「自动分页」契约不符）。
             let names = reminderStore.todaySlots
                 .flatMap { $0.records.map(\.displayLabel) }
-            let text = names.isEmpty ? L10n.f19NoTodayMeds
-                : names.prefix(3).joined(separator: "、") + (names.count > 3 ? "……" : "")
-            session.systemFeedback(text, speak: { app.speak($0) })
+            if let object, object == L10n.f19NextPage {
+                speakTodayMedsPage(names, page: todayMedsPage + 1)
+                return
+            }
+            todayMedsPage = 0
+            speakTodayMedsPage(names, page: 0)
         case .nextAppointment:
             let apt = reminderStore.upcomingAppointments.first
             let text = apt.map { L10n.f19NextAppointment("\($0.hospital)·\($0.department)", $0.startsAt.formatted(date: .abbreviated, time: .shortened)) }
@@ -512,6 +544,22 @@ struct VoiceSessionView: View {
             // 审查修复（BR-004）：多条命中时不再静默确认第一条——回读清单
             // 让用户点名确认，只确认用户显式指定的那一条。
             if let object {
+                // 列选应答：按选项标签反查候选直连表，直连剂量行确认——
+                // 同 displayLabel 的多时段剂量此前按标签再过滤永远命中 2 条、
+                // 再列选再命中（死循环，BR-004 确认路径不可达）
+                if let idx = markTakenOptions.firstIndex(where: { $0.label == object }) {
+                    let record = markTakenOptions[idx].record
+                    markTakenOptions = []
+                    session.systemFeedback(
+                        success: L10n.f19MarkTakenDone(object),
+                        failure: L10n.f19MarkTakenFailed(object),
+                        speak: { app.speak($0) },
+                        perform: {
+                            await reminderStore.confirmTaken(patientId: app.currentPatientId,
+                                                             dose: record.dose)
+                        })
+                    return
+                }
                 let matched = reminderStore.todaySlots
                     .flatMap { $0.records }
                     .filter { $0.displayLabel.contains(object) && $0.action == nil }
@@ -532,8 +580,14 @@ struct VoiceSessionView: View {
                     // 第七轮修复：多命中进入 FR19.4 列选（编号选择）——
                     // 原实现播报清单后是死胡同：用户复述药名的自由输入被
                     // 状态机解析为未识别（silentRounds 累积直至会话被关），
-                    // 确认永远无法完成；列选选定后引擎以 .markTaken 执行
-                    let labels = matched.map { $0.displayLabel }
+                    // 确认永远无法完成；列选选定后引擎以 .markTaken 执行。
+                    // 审查修复（BR-004 唯一标签）：同药多时段的 displayLabel
+                    // 逐字相同（不含时段），按纯标签反查恒解析到第 0 行 =
+                    // 「第2个」被静默确认为第 1 条（错剂量确认，比死循环更糟）。
+                    // 选项标签加时段后缀保证唯一，引擎载荷（= 所选标签）可
+                    // 精确反查候选行。
+                    markTakenOptions = matched.map { (label: Self.markTakenOptionLabel($0), record: $0) }
+                    let labels = markTakenOptions.map(\.label)
                     session.presentOptions(labels, for: .markTaken, speak: { app.speak($0) })
                 }
             }
@@ -549,6 +603,14 @@ struct VoiceSessionView: View {
                     .compactMapValues { $0.first }
                 if let sysDraft = byKey["blood_pressure_sys"], let sysV = Double(sysDraft.value), sysV > 0 {
                     let diaV = byKey["blood_pressure_dia"].flatMap { Double($0.value) }
+                    // 合理性界限（MetricEntryRules 单一出口，与手录同纪律）：
+                    // 「血压 800」此前以 C 级样本持久化并污染趋势/告警证据链
+                    guard MetricEntryRules.isPlausible(sysV, for: .bloodPressureSys),
+                          diaV.map({ MetricEntryRules.isPlausible($0, for: .bloodPressureDia) }) ?? true else {
+                        session.systemFeedback(L10n.f19MetricInvalidValue,
+                                               speak: { app.speak($0) })
+                        return
+                    }
                     // 写库结果决定反馈（BR-004 真实性；systemFeedback 单一出口）
                     session.systemFeedback(
                         success: L10n.f19MetricRecorded(sysV),
@@ -568,6 +630,12 @@ struct VoiceSessionView: View {
                     guard let metric else {
                         // 文法命中了 MetricType 未覆盖的指标（如体温）——不臆造落库
                         session.systemFeedback(L10n.f19MetricNotSupported(draft.key),
+                                               speak: { app.speak($0) })
+                        return
+                    }
+                    // 合理性界限（与血压分支同纪律）：界外值响亮拒绝
+                    guard MetricEntryRules.isPlausible(v, for: metric) else {
+                        session.systemFeedback(L10n.f19MetricInvalidValue,
                                                speak: { app.speak($0) })
                         return
                     }
@@ -633,6 +701,36 @@ struct VoiceSessionView: View {
     /// 温度等 MetricType 未覆盖的指标返回 nil——不臆造落库）
     private static func metricType(for grammarKey: String) -> MetricType? {
         MetricType(grammarKey: grammarKey)   // Domain 单一映射（VoiceGrammarDefaults 同源键）
+    }
+
+    /// 标记服药列选选项的唯一标签：displayLabel + 时段时刻——同药多时段的
+    /// displayLabel 逐字相同（不含时段），纯标签反查会静默错确认第 0 行
+    /// （BR-004）。时段后缀保证选项唯一、编号/选项名应答都可精确反查。
+    private static func markTakenOptionLabel(_ record: DoseRecord) -> String {
+        "\(record.displayLabel) · \(record.dose.dueAt.formatted(date: .omitted, time: .shortened))"
+    }
+
+    /// F19 附表①清单分页播报：每页 3 条；剩余 >0 时列选「下一页」继续
+    /// （FR19.4 编号/选项名应答均可——「下一页」即选项名，A2 修复后
+    /// 口语应答也成立）。todayMedsPage 由调用方维护。
+    private func speakTodayMedsPage(_ names: [String], page: Int) {
+        let pageSize = 3
+        let start = page * pageSize
+        let slice = Array(names.dropFirst(start).prefix(pageSize))
+        if slice.isEmpty {
+            session.systemFeedback(L10n.f19NoTodayMeds, speak: { app.speak($0) })
+            return
+        }
+        var text = slice.joined(separator: "、")
+        let remaining = names.count - start - slice.count
+        if remaining > 0 {
+            // %d = 剩余条数（三语同语义：审查修复——此前传总数，en 按
+            // "more"（剩余）语义渲染而 zh 按「共 N 条」（总数）渲染，
+            // en 播报虚增剩余量）
+            text += L10n.f19MedListMore(remaining)
+            session.presentOptions([L10n.f19NextPage], for: .todayMeds, speak: { app.speak($0) })
+        }
+        session.systemFeedback(text, speak: { app.speak($0) })
     }
 
     /// BR-012 紧急关键词前置（V3.40 语音指令入口，复用 F12 词表单一事实源）：

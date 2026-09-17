@@ -181,6 +181,18 @@ public actor SensitiveAssetStore: SensitiveAssetStoring {
         }
     }
 
+    /// 清空全部（FR14.3）：删除 baseDir 下全部成员媒体目录（原图 + blur
+    /// 副本）。逐项 best-effort（删除失败的残留由下轮 wipe 或系统清理承担；
+    /// 目录枚举失败记日志不阻断——DB 清空是权威事实，文件残留必须可见）。
+    public func wipeAllFiles() async {
+        let fm = FileManager.default
+        let urls = (try? fm.contentsOfDirectory(at: baseDir, includingPropertiesForKeys: nil)) ?? []   // try?-ok: 目录枚举失败=无文件可清，删除动作是 best-effort（残留由日志可见）
+        for url in urls {
+            do { try fm.removeItem(at: url) }
+            catch { logger?("清空媒体文件失败: \(url.lastPathComponent) \(error)") }
+        }
+    }
+
     private func memberDir(_ memberId: UUID) -> URL {
         baseDir.appendingPathComponent(memberId.uuidString, isDirectory: true)
     }

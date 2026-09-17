@@ -18,7 +18,6 @@ import Perception
 final class SearchViewState {
     private(set) var query = ""
     private(set) var docHits: [EntityReference] = []
-    private(set) var loading = false
     /// 检索失败可见标记（四态纪律：失败 ≠ 无结果——此前 catch 清空 docHits
     /// 渲染「未找到」，DB/FTS 故障被谎报成空档案）
     private(set) var loadFailed = false
@@ -35,6 +34,11 @@ final class SearchViewState {
         query = q
         searchGeneration += 1
     }
+
+    /// 成员切换代际推进（审查修复）：代际此前只随查询文本变化推进——
+    /// 成员 A 的在途检索晚于成员 B 的检索返回时（同代际 N）覆盖 B 的
+    /// docHits，A 的文档标题/OCR 片段在 B 身份下渲染（BR-001 越权显示）。
+    func bumpGeneration() { searchGeneration += 1 }
 
     /// 第七轮全仓审查修复：语音「搜索 X」注入为**一次性投递**——
     /// 原实现把注入词写进持久 query，搜索页每次新开会复活上一次的注入词
@@ -59,8 +63,6 @@ final class SearchViewState {
     func search(patientId: UUID) async {
         let generation = searchGeneration
         let trimmed = query.trimmingCharacters(in: .whitespaces)
-        loading = true
-        defer { loading = false }
         guard !trimmed.isEmpty else {
             docHits = []
             loadFailed = false
@@ -215,9 +217,14 @@ struct GlobalSearchView: View {
                 // 滞留共享状态，直到下次新开搜索页才被 onAppear 消费（陈旧词
                 // 劫持一次无关搜索）。注入词变化即就地消费：更新输入框并触发
                 // 既有防抖检索，任何路径都即时生效。
-                guard let injected, injected != filterText else { return }
-                filterText = injected
+                // 审查修复（相等值滞留）：注入词与当前输入相等时也必须先取走
+                // ——此前 guard 在 consume 之前对相等值早退，一次性投递词滞留
+                // 共享状态，下次新开搜索页被 onAppear 消费成用户没要求的检索
+                // （陈旧词劫持意图）。
+                guard let injected else { return }
                 _ = state.consumeInjectedQuery()
+                guard injected != filterText else { return }
+                filterText = injected
             }
             .task(id: app.currentPatientId) {
                 await hub.load(patientId: app.currentPatientId)
@@ -225,6 +232,9 @@ struct GlobalSearchView: View {
                 // 审查修复（BR-001 切换窗口）：docHits 是上次检索结果，成员切换
                 // 不触发防抖 onChange——旧成员的文档命中（标题/OCR 片段）在 B
                 // 身份下继续渲染。切成员即按当前词以新成员重查（空词同样清空）。
+                // 代际推进：成员 A 的在途检索必须作废（否则晚到的 A 结果覆盖
+                // B 的命中，跨成员显示）。
+                state.bumpGeneration()
                 await state.search(patientId: app.currentPatientId)
             }
             .onChangeCompat(of: filterText) { _, newValue in

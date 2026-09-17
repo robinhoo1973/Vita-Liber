@@ -54,7 +54,13 @@ public enum SearchRules {
         }
     }
 
-    /// 2-gram 切分（bigram 影子表写入侧同构）：连续 CJK 2 字序列空格分隔
+    /// 2-gram 切分（bigram 影子表写入侧同构）：连续 CJK 2 字序列空格分隔。
+    /// 审查修复：只产出「两字符均为字母/数字」的 gram——此前把分隔符/标点
+    /// 相邻对也产 gram（"高 "、" 血"、"a-"），unicode61 tokenizer 剥掉分隔符
+    /// 后退化为单字符 token：含空格的 2 字查询在 2-gram 索引恒查不到
+    /// （纯文本文档的 CJK 对不含该 token），"a-" 类查询退化为裸 "a" 全表
+    /// 过匹配。写入侧与查询侧共用本函数（SQL bigrams() 注册 + MATCH 构造），
+    /// 一次修正两侧同源一致。
     public static func bigrams(_ text: String) -> [String] {
         let chars = Array(text)
         guard chars.count >= 2 else { return [] }
@@ -65,8 +71,9 @@ public enum SearchRules {
         var result: [String] = []
         result.reserveCapacity(chars.count - 1)
         for index in 0..<(chars.count - 1) {
-            let pair = String(chars[index]) + String(chars[index + 1])
-            result.append(pair)
+            let a = chars[index], b = chars[index + 1]
+            guard (a.isLetter || a.isNumber), (b.isLetter || b.isNumber) else { continue }
+            result.append(String(a) + String(b))
         }
         return result
     }

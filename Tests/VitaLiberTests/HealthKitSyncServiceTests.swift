@@ -330,19 +330,8 @@ final class HealthKitSyncServiceTests: XCTestCase {
     }
 }
 
-/// 测试便捷（round2 H-N1）：本文件既有用例以 2023 年样本验证检查点语义，全部落 history 道；
-/// 生产 API 保持 lane 显式，不提供默认道。
-private extension HealthImportStore {
-    func anchor(binding: Binding, kind: HealthDataKind) async throws -> Data? {
-        try await anchor(binding: binding, kind: kind, lane: .history)
-    }
-
-    func stage(binding: Binding, kind: HealthDataKind, previousAnchor: Data?, page: HealthChangeBatch) async throws -> PendingBatch {
-        let history = HealthFetchScope(lane: .history,
-                                       cutoff: HealthFetchScope.cutoff(connectedAt: binding.connectedAt, calendar: binding.calendar))
-        return try await stage(binding: binding, kind: kind, scope: history, previousAnchor: previousAnchor, page: page)
-    }
-}
+// 审查修复（2026-09-18）：history 道默认便捷已收敛至
+// HealthImportTestSupport.swift 单一出口（本文件原为两份逐字重复之一）
 
 private actor HealthSyncTestGate {
     private var opened = false

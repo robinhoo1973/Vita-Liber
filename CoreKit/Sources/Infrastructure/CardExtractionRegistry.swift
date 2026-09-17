@@ -24,10 +24,14 @@ public actor CardExtractionRegistry {
     /// design §5.3：必填倾向字段锚定率门槛。
     static let groundingThreshold = 0.5
 
-    public func extract(_ request: ExtractionRequest) async -> [ExtractedCard] {
+    public func extract(_ request: ExtractionRequest) async throws -> [ExtractedCard] {
         var cards: [ExtractedCard] = []
         let pageStarted = ContinuousClock.now   // 页预算按整页计（多 spec 共用），durationMs 按卡计
         for spec in request.specs {
+            // 审查修复（取消传播）：循环每轮检查取消——此前引擎的 CancellationError
+            // 被折叠成 .timeout/.failure 后继续跑剩余区域，用户撤销的导入仍产出
+            // 降级卡。取消必须中止整页抽取。
+            try Task.checkCancellation()
             let started = ContinuousClock.now
             var card = ExtractedCard(kind: spec.kind, pageIndex: request.pageIndex, shared: [:], rows: [],
                                      provenance: ExtractionProvenance(track: .rules, specVersion: spec.version, modelId: nil, durationMs: 0),
@@ -37,6 +41,7 @@ public actor CardExtractionRegistry {
             func degrade(_ reason: DegradedReason) { if card.diagnostics.degradedReason == .none { card.diagnostics.degradedReason = reason } }
 
             for region in request.regions {
+                try Task.checkCancellation()
                 var merged = RegionExtraction(shared: [:], rows: [])
                 var contributors: [ExtractionTrack] = []
                 var regionDone = false
@@ -52,7 +57,7 @@ public actor CardExtractionRegistry {
                     var attempt = spec
                     var retried = false
                     while true {
-                        switch await run(engine, region: region, spec: attempt, request: request) {
+                        switch try await run(engine, region: region, spec: attempt, request: request) {
                         case .timeout:
                             card.diagnostics.timedOutRegions += 1
                             card.diagnostics.degradedReason = .timeout
@@ -98,22 +103,32 @@ public actor CardExtractionRegistry {
     }
 
     /// 单区域单轨一次调用：无超时直跑；有超时则与睡眠竞速，先到者胜，随后协作取消另一方（T1 的 `respond` 退出后才释放租约——E4，O-N5）。
-    private func run(_ engine: any CardExtractionEngine, region: ExtractionRegion, spec: ExtractionSpec, request: ExtractionRequest) async -> Outcome {
+    /// 审查修复（取消传播）：引擎子任务的 CancellationError 此前折叠成 .timeout
+    /// ——超时竞速的 cancelAll() 会取消引擎子任务，但那是「超时已胜出、结果
+    /// 已被采用」的场景（错误无人观察）；真正需要传播的是**调用方取消**——
+    /// 此时引擎子任务先完成并抛 CancellationError，必须沿链抛出中止抽取，
+    /// 不得当作区域降级继续跑。
+    private func run(_ engine: any CardExtractionEngine, region: ExtractionRegion, spec: ExtractionSpec, request: ExtractionRequest) async throws -> Outcome {
         guard let timeout = engine.regionTimeout else {
-            do { return .success(try await engine.extract(region: region, spec: spec, request: request)) } catch { return .failure }
+            do { return .success(try await engine.extract(region: region, spec: spec, request: request)) }
+            catch is CancellationError { throw CancellationError() }
+            catch { return .failure }
         }
-        return await withTaskGroup(of: Outcome.self) { group in
+        return try await withThrowingTaskGroup(of: Outcome.self) { group in
             group.addTask {
                 do { return .success(try await engine.extract(region: region, spec: spec, request: request)) }
-                catch is CancellationError { return .timeout }
+                catch is CancellationError { throw CancellationError() }
                 catch { return .failure }
             }
             group.addTask {
                 try? await Task.sleep(for: timeout)   // try?-ok: 睡眠被取消即另一任务已完成，结果不被采用
                 return .timeout
             }
-            let first = await group.next() ?? .timeout
+            let first = try await group.next() ?? .timeout
             group.cancelAll()
+            // 调用方取消：即便引擎子任务的 CancellationError 未被 next() 观察
+            // （超时子任务先胜出的竞速路径），此处也强制中止而非继续下区域。
+            try Task.checkCancellation()
             return first
         }
     }

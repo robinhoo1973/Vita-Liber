@@ -37,10 +37,10 @@ public actor NLTextUnderstanding: TextUnderstanding {
     /// 词表单点 = ExtractionPatterns.deptWords（结构轮 2026-09-15：并集收敛，两轨一致）。
     private static let deptWords: Set<String> = ExtractionPatterns.deptWordSet
 
-    public func understand(_ input: TextUnderstandingInput) async -> UnderstandingResult {
+    public func understand(_ input: TextUnderstandingInput) async throws -> UnderstandingResult {
         switch input.source {
         case .ocr:
-            return await classifyOCR(input)
+            return try await classifyOCR(input)
         case .voice:
             return classifyVoice(input)
         }
@@ -51,7 +51,7 @@ public actor NLTextUnderstanding: TextUnderstanding {
     ///（子项目 E3——此前处方分支返回 0 字段而 `PrescriptionFieldMapper.draftFields` 无调用方，
     /// 无 Foundation Models 的设备处方页恒为空，round2 O-N2）；检验/病历由
     /// DocumentTypeClassifierFallback.guessFields；其余由调用方通用 line_N 兜底——本层只产理解结果，不产 UI。
-    private func classifyOCR(_ input: TextUnderstandingInput) async -> UnderstandingResult {
+    private func classifyOCR(_ input: TextUnderstandingInput) async throws -> UnderstandingResult {
         let lines = input.lines ?? input.text.components(separatedBy: .newlines)
         let classification = DocumentTypeClassifierFallback.classify(lines: lines)
         guard let target = classification.target else {
@@ -68,10 +68,10 @@ public actor NLTextUnderstanding: TextUnderstanding {
             // （grounding / 逐区域失败切换内建），NL 只做 ExtractedCard → 旧 FieldDraft
             // 形状转换。授权门：本层为兜底轨理解层，恒不触发生成轨（T1/T2 由 App
             // 导入流程显式授权后经同一编排器调用）。
-            let cards = await orchestrator.analyze(lines: lines,
-                                                   documentTypeKey: target,
-                                                   pageConfidence: classification.confidence,
-                                                   allowsGenerativeProcessing: false)
+            let cards = try await orchestrator.analyze(lines: lines,
+                                                       documentTypeKey: target,
+                                                       pageConfidence: classification.confidence,
+                                                       allowsGenerativeProcessing: false)
             let grounded = cards.first { $0.kind == spec.kind }
             // 旧模板 mapping 的理解层键：department → dept（CardTemplateMatcher 处方模板别名）。
             func legacyKey(_ key: String) -> String { key == "department" ? "dept" : key }
@@ -176,10 +176,10 @@ public actor FallbackTextUnderstanding: TextUnderstanding {
         self.tracks = tracks
     }
 
-    public func understand(_ input: TextUnderstandingInput) async -> UnderstandingResult {
+    public func understand(_ input: TextUnderstandingInput) async throws -> UnderstandingResult {
         for track in tracks {
             guard !Task.isCancelled, await track.isAvailable(for: input) else { continue }
-            let result = await track.understand(input)
+            let result = try await track.understand(input)
             if !result.engineUnavailable {
                 return result
             }

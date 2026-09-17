@@ -383,11 +383,19 @@ final class DocumentsState {
     }
 
     func load(patientId: UUID, includeArchived: Bool = false) async {
-        loadingPatientId = patientId; lastIncludeArchived = includeArchived
+        // BR-001 成员隔离（同族修复，TimelineViewState 同款）：**换成员立即
+        // 清屏**——失败或取消时旧成员的文档列表（含敏感文档标题）不得在
+        // 新成员名下渲染。同一成员重载失败保留旧列表（假空态 doctrine）。
+        if loadingPatientId != patientId {
+            loadingPatientId = patientId
+            documents = []
+        }
+        lastIncludeArchived = includeArchived
         do {
             let rows = try await store.list(patientId: patientId, includeArchived: includeArchived)
             guard loadingPatientId == patientId else { return }
             documents = rows
+            lastImportError = nil
         } catch {
             guard loadingPatientId == patientId else { return }
             lastImportError = L10n.docImportFailed
@@ -552,7 +560,7 @@ final class DocumentsState {
             let authorization = aiAuthorization()
             let input = TextUnderstandingInput(text: result.lines.joined(separator: "\n"), lines: result.lines,
                 source: .ocr(documentTypeHint: hint), allowsGenerativeProcessing: authorization.allowed)
-            var understanding = await understandingEngine.understand(input)
+            var understanding = try await understandingEngine.understand(input)
             let confidence = result.confidence.isFinite ? min(1, max(0, result.confidence)) : 0
             var fields = Self.extractPageFields(lines: result.lines, understood: understanding.fields,
                                                 confidence: confidence)
@@ -565,7 +573,7 @@ final class DocumentsState {
             if authorizationChanged, fields.contains(where: { $0.source == .foundationModels }) {
                 var gated = input
                 gated.allowsGenerativeProcessing = false
-                understanding = await understandingEngine.understand(gated)
+                understanding = try await understandingEngine.understand(gated)
                 fields = Self.extractPageFields(lines: result.lines, understood: understanding.fields, confidence: confidence)
             }
             if let codeIndex {
@@ -1047,6 +1055,13 @@ struct DocumentLibraryView: View {
                 state.enqueuePhotos(items, patientId: patient)
             }
             .ocrImportReviewHost(enabled: !fileImporterActive && !photosImporterActive)
+            // 审查修复（读取失败可见化）：lastImportError 此前只在状态仓内部
+            // 写入、零读者——load/fetch/setArchived 失败静默，列表残留旧数据
+            // 或假空态。此处观察并弹出可见告警（四态纪律：读取失败必须有
+            // 错误面，不得装作「暂无资料」）。
+            .onChangeCompat(of: state.lastImportError) { _, newValue in
+                if newValue != nil { showImportError = true }
+            }
             .alert(L10n.docImportFailedTitle, isPresented: $showImportError) {
                 Button(L10n.onboard_gotIt, role: .cancel) {}
             } message: { Text(L10n.docImportFailed) }

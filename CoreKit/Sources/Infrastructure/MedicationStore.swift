@@ -94,13 +94,14 @@ public actor MedicationStore: DoseSource {
             }
             let units = (row["dose_units"] as Double?) ?? 1
             let medicationId = UUID(uuidString: row["medication_id"] as String) ?? UUID()
+            let actedAt = Date()
             try db.execute(sql: """
                 UPDATE medication_dose_log
                 SET user_action = 'taken', acted_at = ?
                 WHERE id = ?
-                """, arguments: [Date().timeIntervalSince1970, notifyId])
+                """, arguments: [actedAt.timeIntervalSince1970, notifyId])
             try applyResolutionOnLots(patientId: patientId, medicationId: medicationId,
-                                notifyId: notifyId, units: units, action: .taken, db: db)
+                                notifyId: notifyId, units: units, at: actedAt, action: .taken, db: db)
         }
     }
 
@@ -123,13 +124,14 @@ public actor MedicationStore: DoseSource {
             let units = (row["dose_units"] as Double?) ?? 1
             let patientId = UUID(uuidString: row["patient_id"] as String) ?? UUID()
             let medicationId = UUID(uuidString: row["medication_id"] as String) ?? UUID()
+            let actedAt = Date()
             try db.execute(sql: """
                 UPDATE medication_dose_log
                 SET user_action = ?, acted_at = ?, note = ?
                 WHERE id = ?
-                """, arguments: [action.rawValue, Date().timeIntervalSince1970, reason, notifyId])
+                """, arguments: [action.rawValue, actedAt.timeIntervalSince1970, reason, notifyId])
             try applyResolutionOnLots(patientId: patientId, medicationId: medicationId,
-                                notifyId: notifyId, units: units, action: action, db: db)
+                                notifyId: notifyId, units: units, at: actedAt, action: action, db: db)
         }
     }
 
@@ -162,7 +164,7 @@ public actor MedicationStore: DoseSource {
         return try await writer.write { db -> Int in
             // 目标行：计划 active、已过宽限、无用户动作
             let rows = try Row.fetchAll(db, sql: """
-                SELECT d.id, d.dose_units, p.patient_id, p.medication_id
+                SELECT d.id, d.dose_units, d.scheduled_for, p.patient_id, p.medication_id
                 FROM medication_dose_log d
                 JOIN medication_plan p ON p.id = d.plan_id
                 WHERE p.status = 'active'
@@ -175,6 +177,10 @@ public actor MedicationStore: DoseSource {
                 let units = (row["dose_units"] as Double?) ?? 1
                 let patientId = UUID(uuidString: row["patient_id"] as String) ?? UUID()
                 let medicationId = UUID(uuidString: row["medication_id"] as String) ?? UUID()
+                // 批次过期判定以剂量排程时刻为准（与 recordTakenAt 同口径）——
+                // 决议发生在排程之后时，排程时仍有效的批次必须参与扣减，
+                // 否则安全线漏扣、续药告警偏晚（ADR-009 反方向）
+                let doseTime = Date(timeIntervalSince1970: row["scheduled_for"] as Double)
                 try db.execute(sql: """
                     UPDATE medication_dose_log
                     SET user_action = 'missed', acted_at = ?
@@ -182,7 +188,7 @@ public actor MedicationStore: DoseSource {
                     """, arguments: [now.timeIntervalSince1970, notifyId])
                 guard db.changesCount > 0 else { continue }   // 并发下已被决议，跳过
                 try applyResolutionOnLots(patientId: patientId, medicationId: medicationId,
-                                          notifyId: notifyId, units: units,
+                                          notifyId: notifyId, units: units, at: doseTime,
                                           action: .missed, db: db)
                 processed += 1
             }
@@ -489,10 +495,15 @@ public actor MedicationStore: DoseSource {
         // 「mutation of captured var in concurrently-executing code」是 6 模式下的错误）
         return try await writer.write { db -> Int in
             var inserted = 0
-            // 本批已物化/重锚的剂量 id 集（闭包局部量——重锚不得吞并**本批**
+            // 本批已物化/重锚的剂量 id 集（临时表——重锚不得吞并**本批**
             // 刚插入的行：30 分钟间隔排程下相邻剂次窗口重叠，无此守卫剂量
-            // N 的行会被 N+1 重锚劫持、整窗坍缩为一行）
-            var insertedThisRun: Set<String> = []
+            // N 的行会被 N+1 重锚劫持、整窗坍缩为一行）。
+            // 审查修复（O(n²) 写放大）：此前用逐剂增长的 JSON 数组 + 每剂一次
+            // json_each 解析排除本批集——30 分钟间隔排程 37 天窗 ≈1776 剂，
+            // 累计 ~74MB 字符串churn + ~1.5M 次 json_each 行扫描，每次对账
+            // 全量重放。临时表按 id 主键排除：O(1) 插入 + 索引查找。
+            try db.execute(sql: "CREATE TEMP TABLE IF NOT EXISTS med_dose_run_inserted (id TEXT PRIMARY KEY)")
+            try db.execute(sql: "DELETE FROM med_dose_run_inserted")
             let plans = try Row.fetchAll(db, sql: """
                 SELECT id, patient_id, schedule_json, start_date, end_date, dose_plan_units, created_at
                 FROM medication_plan WHERE status = 'active'
@@ -545,18 +556,18 @@ public actor MedicationStore: DoseSource {
                     // （user_action IS NULL 限定——已决议行由 D5 守卫挡住；
                     // id NOT IN 本批集——30 分钟间隔排程相邻窗口重叠，不得
                     // 吞并本批刚插入的行）。
-                    let runJson = "[" + insertedThisRun.map { "\"\($0)\"" }.joined(separator: ",") + "]"
                     try db.execute(sql: """
                         UPDATE medication_dose_log
                         SET id = ?, scheduled_for = ?, dose_units = ?
                         WHERE plan_id = ? AND user_action IS NULL
                           AND scheduled_for BETWEEN ? AND ?
                           AND id != ?
-                          AND id NOT IN (SELECT value FROM json_each(?))
+                          AND id NOT IN (SELECT id FROM med_dose_run_inserted)
                           AND NOT EXISTS (SELECT 1 FROM medication_dose_log x WHERE x.id = ?)
                         """, arguments: [d.notifyId, d.dueAt.timeIntervalSince1970, d.doseUnits,
-                                         planId.uuidString, guardFrom, guardTo, d.notifyId, runJson, d.notifyId])
-                    insertedThisRun.insert(d.notifyId)
+                                         planId.uuidString, guardFrom, guardTo, d.notifyId, d.notifyId])
+                    try db.execute(sql: "INSERT OR IGNORE INTO med_dose_run_inserted (id) VALUES (?)",
+                                   arguments: [d.notifyId])
                     try db.execute(
                         sql: """
                         INSERT INTO medication_dose_log (id, plan_id, scheduled_for, dose_units, delivery_state, user_action)
@@ -681,7 +692,7 @@ public actor MedicationStore: DoseSource {
                     WHERE id = ?
                     """, arguments: [actualTime.timeIntervalSince1970, existingUnits, existingId])
                 try applyResolutionOnLots(patientId: patientId, medicationId: effectiveMedicationId,
-                                          notifyId: existingId, units: existingUnits,
+                                          notifyId: existingId, units: existingUnits, at: actualTime,
                                           action: .taken, transitionMatrix: matrix, db: db)
                 return
             }
@@ -725,7 +736,7 @@ public actor MedicationStore: DoseSource {
                     WHERE id = ?
                     """, arguments: [actualTime.timeIntervalSince1970, wideUnits, wideId])
                 try applyResolutionOnLots(patientId: patientId, medicationId: effectiveMedicationId,
-                                          notifyId: wideId, units: wideUnits,
+                                          notifyId: wideId, units: wideUnits, at: actualTime,
                                           action: .taken, transitionMatrix: matrix, db: db)
                 return
             }
@@ -747,14 +758,42 @@ public actor MedicationStore: DoseSource {
                     }
                 }
             }
+            // 审查修复（时区切换双扣纵深防御）：大时区切换后已决议 missed 的旧行
+            // 仍持旧 scheduled_for，±30min/±12h 两窗均找不到，但逻辑 id（D5
+            // day+ordinal）不变——此前 ON CONFLICT 直接把 missed 行翻成 taken
+            // 再按全额 taken 扣减：计划轨已被 materializeMissed 扣过一次，二次
+            // 全额 = 双轨双扣（月报双计）。先读冲突行决议态：taken/discomfort
+            // → 幂等拒绝；missed/snoozed/skipped → 转场补扣（计划轨已扣）；
+            // 未决议 → 全额 taken（补录本身即证据）。
+            let conflict = try Row.fetchOne(db, sql: """
+                SELECT user_action, dose_units FROM medication_dose_log WHERE id = ?
+                """, arguments: [backfillId])
+            var effectiveUnits = doseUnits
+            var matrix: (plan: Double, confirmed: Double)? = nil
+            if let conflict {
+                let action = (conflict["user_action"] as String?)
+                    .flatMap(DoseUserAction.init(rawValue:))
+                switch action {
+                case .taken, .discomfort:
+                    throw StoreError.alreadyResolved(backfillId)
+                case .missed, .snoozed, .skipped:
+                    effectiveUnits = (conflict["dose_units"] as Double?) ?? doseUnits
+                    matrix = InventoryRules.transitionDeduction(
+                        from: action, to: .taken, units: effectiveUnits)
+                case nil:
+                    break   // 未决议行：全额 taken（与窄/宽路径同语义）
+                }
+            }
             try db.execute(sql: """
                 INSERT INTO medication_dose_log (id, plan_id, scheduled_for, dose_units, delivery_state, user_action, acted_at, note)
                 VALUES (?, ?, ?, ?, 'delivered', 'taken', ?, 'backfill')
-                ON CONFLICT(id) DO UPDATE SET user_action = 'taken', acted_at = excluded.acted_at
+                ON CONFLICT(id) DO UPDATE SET user_action = 'taken', acted_at = excluded.acted_at,
+                  dose_units = excluded.dose_units
                 """, arguments: [backfillId, planId.uuidString, actualTime.timeIntervalSince1970,
-                                 doseUnits, actualTime.timeIntervalSince1970])
+                                 effectiveUnits, actualTime.timeIntervalSince1970])
             try applyResolutionOnLots(patientId: patientId, medicationId: effectiveMedicationId,
-                                      notifyId: backfillId, units: doseUnits, action: .taken, db: db)
+                                      notifyId: backfillId, units: effectiveUnits, at: actualTime,
+                                      action: .taken, transitionMatrix: matrix, db: db)
         }
     }
 
@@ -1032,8 +1071,11 @@ public struct FamilyPendingDose: Sendable, Equatable, Identifiable {
 /// FR9.8.2 扣减矩阵落库（同事务）：按 FEFO 在**本药品**活跃且未过期批次上分配
 /// （评审 S1-1：不按 medication 过滤会把 A 药确认扣到 B 药批；过期批不得作来源）。
 /// 自由函数：在 writer.write 的同步闭包内调用，无 actor 隔离问题（Swift 6 显式 self 纪律）。
+/// - Parameter at: 剂量事实时刻——批次过期判定以**剂量时刻**为准（补录昨日的
+///   剂量时，昨夜 24 点过期的批次仍是当日合法来源）；此前写死 Date()（账务
+///   时刻），补录确认被静默跳过扣减、双轨账本失实（BR-004 事实链断裂）。
 func applyResolutionOnLots(patientId: UUID, medicationId: UUID, notifyId: String, units: Double,
-                                   action: DoseUserAction,
+                                   at time: Date, action: DoseUserAction,
                                    transitionMatrix: (plan: Double, confirmed: Double)? = nil,
                                    db: Database) throws {
         var inventories: [DualTrackInventory] = []
@@ -1042,7 +1084,7 @@ func applyResolutionOnLots(patientId: UUID, medicationId: UUID, notifyId: String
             WHERE patient_id = ? AND medication_id = ? AND status = 'active'
               AND (expire_at IS NULL OR expire_at > ?)
             """, arguments: [patientId.uuidString, medicationId.uuidString,
-                             Date().timeIntervalSince1970]) {
+                             time.timeIntervalSince1970]) {
             var inv = DualTrackInventory(lotId: UUID(uuidString: row["id"] as String) ?? UUID(),
                                          totalUnits: row["total_units"] as Double,
                                          unitKind: row["unit_kind"] as String,

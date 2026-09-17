@@ -295,7 +295,6 @@
 "reminder.a11ySnoozed" = "%@，稍后提醒";
 "reminder.a11ySkipped" = "%@，跳过";
 "ai.confirmImageText" = "确认图片识别内容";
-"ai.emergencyAction" = "请立即拨打 120 或前往最近的医院急诊。";
 "ai.aiBadge" = "AI 解释（基于你的资料）";
 "ai.citations" = "相关原文：";
 "ai.conclusion" = "找到 %d 条与你的问题相关的资料。";
@@ -527,9 +526,8 @@
 "ai.refusedHighRisk" = "调整或停用药物必须由医生决定；请带着处方咨询医生或药师。";
 "ai.failedRetry" = "回答失败，请稍后重试。";
 "ai.history.loadFailed" = "历史记录加载失败";
+"ai.history.deleteFailed" = "删除失败，请重试";
 "ai.history.loadFailedHint" = "请稍后重试";
-"ai.emergencyCardText" = "疑似紧急情况：请立即拨打 120 或前往最近的医院急诊。";
-"ai.emergencyTitle" = "疑似紧急情况";
 "ai.emergencyCall" = "拨打 120";
 "timeline.empty.title" = "还没有资料";
 "paywall.previewTitle" = "Pro 权益 · 预览";
@@ -1058,7 +1056,6 @@
 "settings.grace15" = "15 秒";
 "settings.grace60" = "60 秒";
 "ai.quickGlucose" = "最近血糖";
-"ai.quickMeds" = "当前用药";
 "ai.quickNext" = "下次复诊";
 "voicenote.detailBody" = "正文";
 "voicenote.detailTags" = "标签";
@@ -1194,7 +1191,7 @@
 "pref.speechRate.slow" = "慢";
 "pref.speechRate.normal" = "正常";
 "pref.speechRate.fast" = "快";
-"pref.speechRate.hint" = "朗读与语音播报（FR19.3）的默认语速，设置后立即生效";
+"pref.speechRate.hint" = "朗读与语音播报的默认语速，设置后立即生效";
 "pref.dateFormat" = "日期格式";
 "pref.dateFormatPending" = "该格式将在后续版本接入时间轴与搜索结果后生效";
 "pref.dateFormatYMD" = "2026年9月5日";
@@ -1379,7 +1376,7 @@
 "lifecycle.clearButton" = "清空全部数据";
 "lifecycle.clearImpact" = "此操作不可恢复：将删除全部资料、附件、计划与提醒。备份文件保留在系统文件中，不会自动删除。";
 "lifecycle.logout" = "注销（P1 账户化）";
-"lifecycle.logoutHint" = "云端账户注销需 D1 服务端就绪后提供；本地模式无账户可注销。";
+"lifecycle.logoutHint" = "云端账户注销需云端服务就绪后提供；本地模式无账户可注销。";
 "onboard.addFamily.title" = "添加家人";
 "onboard.addFamily.hint" = "帮家人管理档案（可选，稍后可在设置中随时添加）";
 "onboard.addFamily.manual" = "手工新建成员";
@@ -1438,6 +1435,7 @@
 "metric.saved" = "已保存";
 "metric.entryError.title" = "未能保存指标";
 "metric.entryError.invalid" = "请输入有效数值（如 5.6）";
+"metric.entryError.range" = "数值超出合理范围，请核对后重试";
 "metric.entryError.saveFailed" = "保存失败，请重试；原输入已保留。";
 "metric.viewTrend" = "查看趋势";
 "voicePanel.title" = "语音速记";
@@ -1467,6 +1465,7 @@
 "observation.detail.deleteTitle" = "删除这条观察记录？";
 "observation.detail.deleteBody" = "原图将从本机删除；备份中已保存的处理版本不受影响；已生成的医生摘要保留其内容。";
 "observation.detail.deleteDone" = "观察记录已删除";
+"observation.detail.deleteFailed" = "删除失败，请重试";
 "observation.detail.followUpTitle" = "设置随访提醒";
 "observation.detail.followUpDays" = "%d 天后提醒对比/复查";
 "observation.detail.followUpDone" = "随访提醒已设置";
@@ -1510,6 +1509,8 @@
 "alert.showL0" = "显示 L0";
 "alert.historyEntry" = "预警历史";
 "f19.noTodayMeds" = "今天没有需要服用的药物";
+"f19.nextPage" = "下一页";
+"f19.medListMore" = "……还有 %d 条，说「下一页」继续";
 "f19.goTimeline" = "已打开时间轴";
 "f19.goHome" = "已回到首页";
 "f19.nextAppointmentFmt" = "下次预约：%@，%@";
@@ -1549,6 +1550,7 @@
 "settings.themeHint" = "切换即时生效，无需重启";
 "reminder.notification.title" = "您有一条健康提醒";
 "reminder.planSaveFailed" = "计划保存失败，请重试";
+"reminder.apptSaveFailed" = "预约保存失败，请重试";
 "reminder.notification.body" = "点击查看详情";
 "home.capture.hint" = "对准文档拍摄，系统将自动识别文字并存入档案";
 "home.capture.shoot" = "开始拍摄";

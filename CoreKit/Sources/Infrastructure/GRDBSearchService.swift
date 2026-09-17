@@ -26,6 +26,11 @@ public actor GRDBSearchService: FullTextSearch {
         guard route != .invalid, !scope.patientIds.isEmpty else { return [] }
         let query = text.trimmingCharacters(in: .whitespaces)
         let patientIds = scope.patientIds.map(\.uuidString)
+        // 审查修复（分隔符/标点查询回落）：2 字查询的 gram 预计算——gram 为空
+        // （"高 血"/"a-" 类）时 2-gram 索引无对应 token，MATCH 空串即语法错误，
+        // 回落 LIKE 字面量档（与 1 字档同纪律：转义 + 90 天窗口）。
+        let bigramGrams = route == .bigram ? SearchRules.bigrams(query) : []
+        let fallbackToLike = route == .bigram && bigramGrams.isEmpty
         return try await writer.read { db in
             let docRefs: [EntityReference]
             switch route {
@@ -46,10 +51,14 @@ public actor GRDBSearchService: FullTextSearch {
                     """, arguments: StatementArguments([match] + patientIds + [limit]))
                 docRefs = rows.compactMap { Self.hit($0) }
             case .bigram:
+                if bigramGrams.isEmpty {
+                    docRefs = try Self.likeDocHits(db, query: query, patientIds: patientIds, limit: limit)
+                    break
+                }
                 // 每个 2-gram 必须**加引号转义**后再拼 OR：裸拼会把用户输入当 FTS5 语法。
                 // 2 字查询「OR」/「\"a」/「-(」会抛 fts5 syntax error（一路冒到 AI 助手显示
                 // 「回答失败」），「x*」会被当前缀通配符而返回过量结果。与 trigram 分支同一纪律。
-                let grams = SearchRules.bigrams(query)
+                let grams = bigramGrams
                     .map { "\"\($0.replacingOccurrences(of: "\"", with: "\"\""))\"" }
                     .joined(separator: " OR ")
                 let rows = try Row.fetchAll(db, sql: """
@@ -73,31 +82,7 @@ public actor GRDBSearchService: FullTextSearch {
                                            snippet: SearchRules.highlight(source, query: query))
                 }
             case .like:
-                // 1 字兜底：低频高噪音，限定最近 90 天窗口 + 成员过滤缩小扫描集；
-                // Only reviewed content is searchable; recovery metadata may contain rejected drafts.
-                let since = DayArithmetic.since(days: 90)
-                // 审查修复：用户输入含 LIKE 通配符（%/_）时原样拼入模式——
-                // 单字符查询「%」命中全库文档、全量列表当作命中返回
-                // （BR-001 范围内一次性倾泻）。通配符必须按字面量转义，
-                // SQLite LIKE 以 ESCAPE '\' 声明转义符。
-                let escaped = query
-                    .replacingOccurrences(of: "\\", with: "\\\\")
-                    .replacingOccurrences(of: "%", with: "\\%")
-                    .replacingOccurrences(of: "_", with: "\\_")
-                let pattern = "%\(escaped)%"
-                let rows = try Row.fetchAll(db, sql: """
-                    SELECT d.id, d.patient_id, d.doc_type, d.created_at, d.is_sensitive, d.title,
-                           CASE WHEN d.is_sensitive = 1 THEN d.title
-                                 ELSE COALESCE(d.title, d.ocr_text, d.notes, '') END AS snip
-                    FROM document_file d
-                    WHERE \(Self.searchableDocPredicate) AND d.created_at >= ?
-                      AND d.patient_id IN (\(patientIds.map { _ in "?" }.joined(separator: ",")))
-                      AND (d.title LIKE ? ESCAPE '\\'
-                           OR (d.is_sensitive = 0
-                                AND (d.ocr_text LIKE ? ESCAPE '\\' OR d.notes LIKE ? ESCAPE '\\')))
-                    ORDER BY d.created_at DESC LIMIT ?
-                    """, arguments: StatementArguments([since] + patientIds + [pattern, pattern, pattern, limit]))
-                docRefs = rows.compactMap { Self.hit($0) }
+                docRefs = try Self.likeDocHits(db, query: query, patientIds: patientIds, limit: limit)
             case .invalid:
                 docRefs = []
             }
@@ -107,9 +92,39 @@ public actor GRDBSearchService: FullTextSearch {
             // 单字查询沿用 90 天窗口约束扫描集（与文档档行为一致）；纯文本 C 级内容、
             // 无敏感媒体语义，故无 BR-007/008 正文遮蔽分支。
             let notes = try Self.voiceNoteHits(db, query: query, patientIds: patientIds,
-                                               limit: limit, windowed: route == .like)
+                                               limit: limit, windowed: route == .like || fallbackToLike)
             return Array((docRefs + notes).prefix(limit))
         }
+    }
+
+    /// 1 字 LIKE 兜底与 bigram 空 gram 回落的共用档：低频高噪音，限定最近 90 天
+    /// 窗口 + 成员过滤缩小扫描集；Only reviewed content is searchable; recovery
+    /// metadata may contain rejected drafts.
+    private static func likeDocHits(_ db: Database, query: String, patientIds: [String],
+                                    limit: Int) throws -> [EntityReference] {
+        let since = DayArithmetic.since(days: 90)
+        // 审查修复：用户输入含 LIKE 通配符（%/_）时原样拼入模式——
+        // 单字符查询「%」命中全库文档、全量列表当作命中返回
+        // （BR-001 范围内一次性倾泻）。通配符必须按字面量转义，
+        // SQLite LIKE 以 ESCAPE '\' 声明转义符。
+        let escaped = query
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "%", with: "\\%")
+            .replacingOccurrences(of: "_", with: "\\_")
+        let pattern = "%\(escaped)%"
+        let rows = try Row.fetchAll(db, sql: """
+            SELECT d.id, d.patient_id, d.doc_type, d.created_at, d.is_sensitive, d.title,
+                   CASE WHEN d.is_sensitive = 1 THEN d.title
+                         ELSE COALESCE(d.title, d.ocr_text, d.notes, '') END AS snip
+            FROM document_file d
+            WHERE \(Self.searchableDocPredicate) AND d.created_at >= ?
+              AND d.patient_id IN (\(patientIds.map { _ in "?" }.joined(separator: ",")))
+              AND (d.title LIKE ? ESCAPE '\\'
+                   OR (d.is_sensitive = 0
+                        AND (d.ocr_text LIKE ? ESCAPE '\\' OR d.notes LIKE ? ESCAPE '\\')))
+            ORDER BY d.created_at DESC LIMIT ?
+            """, arguments: StatementArguments([since] + patientIds + [pattern, pattern, pattern, limit]))
+        return rows.compactMap { Self.hit($0) }
     }
 
     /// FR17.14：语音速记命中（kind = "voice_note"）——标题取正文首行（截断 60 字），

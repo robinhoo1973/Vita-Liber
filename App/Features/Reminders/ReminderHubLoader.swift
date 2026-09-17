@@ -55,11 +55,15 @@ enum ReminderHubLoader {
                                memberId: UUID) -> [AggregatedReminderItem] {
         items.compactMap { item in
             if item.refillTier != nil {
+                // 审查修复（标题答非所问）：续药行此前用到期文案 homeExpiryMed
+                // （「%@ 即将到期」）——余量 ≤7 天但效期半年后的批次被首页
+                // 每日宣称为「即将到期」，续药事实（约剩 N 天）反而无处呈现。
+                // 续药/到期是两条独立通道（FR9.8.3/FR9.11），标题各用各的。
                 return AggregatedReminderItem(
                     id: .init(kind: "refill", sourceId: item.lotId.uuidString),
                     aggregationKind: .medication,
                     occurredAt: Date(),
-                    title: L10n.homeExpiryMed(item.medicationName),
+                    title: L10n.inventoryApproxDays(max(0, item.approxDaysLeft ?? 0)),
                     patientID: memberId,
                     routeKey: "medicationCabinet",
                     planID: nil)

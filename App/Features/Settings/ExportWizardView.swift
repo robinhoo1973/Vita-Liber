@@ -164,7 +164,11 @@ struct ExportWizardView: View {
                                             guard await app.requestUnlock(reason: L10n.exportUnlockReason) else { return }
                                             let request = PDFExportService.ExportRequest(
                                                 patientId: app.currentPatientId,
-                                                title: L10n.exportTitle(app.currentPatientId.uuidString.prefix(8).description),
+                                                // 审查修复（FR13.1 当事人）：封面标题此前用
+                                                // currentPatientId 的 UUID 前 8 位（「健康档案
+                                                // 导出 · 3F2A1B4C」）——收件人无从辨认是谁的
+                                                // 档案；当事人应为成员显示名（缺失回落应用名）
+                                                title: L10n.exportTitle(app.members.first(where: { $0.id == app.currentPatientId && $0.deletedAt == nil })?.displayName ?? app.owner?.displayName ?? L10n.help_appName),
                                                 // 日期边界归一化到整天：DatePicker 保留
                                                 // 时分，服务按原始时间戳比较——此前
                                                 // 「9/1–9/7」实际导出 9/1 14:30–9/7 14:30，

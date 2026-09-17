@@ -474,9 +474,16 @@ struct VoiceQuickLaunchView: View {
               transcript.matches(source, authorized: refinerEnabled,
                                  authorizationGeneration: settings.authAIRevision) else { return }
         let understanding = EngineRegistry.shared.resolve(TextUnderstandingFactory.self)
-        let result = await understanding.understand(
-            TextUnderstandingInput(text: source.selectedText,
-                                   source: .voice(intentHint: nil, confidence: confidence)))
+        let result: UnderstandingResult
+        do {
+            result = try await understanding.understand(
+                TextUnderstandingInput(text: source.selectedText,
+                                       source: .voice(intentHint: nil, confidence: confidence)))
+        } catch {
+            // 审查修复（取消传播）：取消/引擎失败即中止本路径——此前 CancellationError
+            // 被折叠成降级结果继续覆盖 judgedIntent，用户撤销的语音判定仍落 UI
+            return
+        }
         guard !Task.isCancelled, patientID == app.currentPatientId, confirmationSource == source,
               transcript.matches(source, authorized: refinerEnabled,
                                  authorizationGeneration: settings.authAIRevision) else { return }

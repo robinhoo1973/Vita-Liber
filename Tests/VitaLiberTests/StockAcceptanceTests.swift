@@ -46,13 +46,6 @@ final class StockAcceptanceTests: XCTestCase {
         XCTAssertEqual(MedicationStore.estimatedDailyUnits(fixed2, unitsPerDose: 999), 200)
     }
 
-    /// 时区固定 Asia/Shanghai 的日历（对账/物化的时区语义依赖）
-    private var cal: Calendar {
-        var c = Calendar(identifier: .gregorian)
-        c.timeZone = TimeZone(identifier: "Asia/Shanghai")!
-        return c
-    }
-
     /// **M2 一票否决（FR9.8.8）**：建计划 → 物化窗口 → 零确认零动作 →
     /// 补账把过期剂量物化为 missed，安全线按计划推进、确认线分毫不动，
     /// 续药档位照常按安全线触达。
@@ -63,12 +56,12 @@ final class StockAcceptanceTests: XCTestCase {
 
         // 计划自 4 天前起；过去的 4 剂直接落 dose_log（materializeWindow
         // 只物化「今天起」的未来窗口，零确认场景的过期剂量必须在建行层面存在）
-        let planStart = cal.date(byAdding: .day, value: -4, to: Date())!
+        let planStart = shanghaiCalendar.date(byAdding: .day, value: -4, to: Date())!
         let planId = UUID()
         try await meds.createPlan(planId: planId, patientId: patient, medicationId: med,
                                   schedule: .fixed(times: ["08:00"]), status: .active,
                                   startDate: planStart, endDate: nil)
-        let seededCal = cal   // 本地值捕获：Calendar 是 Sendable 值类型，
+        let seededCal = shanghaiCalendar   // 本地值捕获：Calendar 是 Sendable 值类型，
                               // 写闭包不可引用 MainActor 隔离属性（Swift 6）
         try await store.writer.write { db in
             for dayOffset in 1...4 {
@@ -121,9 +114,9 @@ final class StockAcceptanceTests: XCTestCase {
         let planId = UUID()
         try await meds.createPlan(planId: planId, patientId: patient, medicationId: med,
                                   schedule: .fixed(times: ["08:00"]), status: .active,
-                                  startDate: cal.date(byAdding: .day, value: -2, to: Date())!,
+                                  startDate: shanghaiCalendar.date(byAdding: .day, value: -2, to: Date())!,
                                   endDate: nil)
-        let seededCal = cal
+        let seededCal = shanghaiCalendar
         try await store.writer.write { db in
             for dayOffset in 1...2 {
                 let due = seededCal.date(byAdding: .day, value: -dayOffset, to: Date())!
@@ -158,9 +151,9 @@ final class StockAcceptanceTests: XCTestCase {
         let planId = UUID()
         try await meds.createPlan(planId: planId, patientId: patient, medicationId: med,
                                   schedule: .fixed(times: ["08:00"]), status: .active,
-                                  startDate: cal.date(byAdding: .day, value: -4, to: Date())!,
+                                  startDate: shanghaiCalendar.date(byAdding: .day, value: -4, to: Date())!,
                                   endDate: nil)
-        let seededCal = cal
+        let seededCal = shanghaiCalendar
         try await store.writer.write { db in
             // 3 条过去的未决议剂量 + 1 条 taken 事实
             for dayOffset in 1...3 {
@@ -184,7 +177,7 @@ final class StockAcceptanceTests: XCTestCase {
         }
         // 过去的未决议行先补账（taken 行不受影响）
         _ = try await meds.materializeMissed(now: Date())
-        let monthStart = cal.date(byAdding: .day, value: -30, to: Date())!
+        let monthStart = shanghaiCalendar.date(byAdding: .day, value: -30, to: Date())!
         let report = try await meds.monthlyReport(patientId: patient,
                                                   from: monthStart, to: Date())
         // V3.68：句式已移出 Domain——数值字段断言 + L10n 模板组装后过负清单

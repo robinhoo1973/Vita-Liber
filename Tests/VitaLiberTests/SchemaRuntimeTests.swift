@@ -83,20 +83,34 @@ final class SchemaRuntimeTests: XCTestCase {
             try String.fetchAll(db, sql: "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
         }
         // §4.3 全量表清单（与 MigrationEngine/SchemaV2 DDL 的 CREATE TABLE 集一致）
+        // 审查修复（全量清单补全）：此前漏 20 张——v25/v26 行表（prescription_line/
+        // claim_line）、v26 临床枢纽（diagnosis/exam_report/lab_report/lab_result）、
+        // v27 体检枢纽（health_exam/clinical_conclusion/hospitalization/surgery/
+        // treatment_record）、导入管线（document_page/pending_card/ocr_card_commit）
+        // 与 HealthKit 五表（hk_import_binding/hk_import_status/hk_pending_batch/
+        // hk_projection_state/hk_sample_index/hk_sync_anchor）——这些表被迁移
+        // 删掉或改名时「全量」门禁依然全绿（本测试自述的部分清单假绿同族）。
         let required: [String] = [
-            "prescription", "medication", "medication_plan",
+            "prescription", "prescription_line", "claim_item", "claim_line",
+            "medication", "medication_plan",
             "medication_dose_log", "stock_lot", "dose_lot_allocation",
             "local_owner", "device_identity", "patient_profile", "document_file",
+            "document_page", "pending_card", "ocr_card_commit",
             "asset", "app_settings", "audit_event", "appointment", "immunization",
-            "claim_item", "sent_message", "consent_record",
+            "sent_message", "consent_record",
             "emergency_card_selection", "guideline_source", "allergy_event",
             "ocr_result", "encounter", "encounter_question", "health_problem",
+            "diagnosis", "exam_report", "lab_report", "lab_result",
+            "health_exam", "clinical_conclusion", "hospitalization", "surgery",
+            "treatment_record",
             "observation", "metric_sample", "alert_event",
             "notification_delivery", "notification_state", "voice_note",
             "onboarding_progress", "plan_lifecycle_event", "reminder",
             "ai_conversation", "ai_message", "contact",
             "code_alias", "code_concept", "code_map", "resolver_override",
             "ucum_molar_bridge", "ucum_unit",
+            "hk_import_binding", "hk_import_status", "hk_pending_batch",
+            "hk_projection_state", "hk_sample_index", "hk_sync_anchor",
         ]
         for table in required {
             XCTAssertTrue(tables.contains(table), "M0 建库必须包含 \(table)（tech-spec §4.3 全量清单）")
