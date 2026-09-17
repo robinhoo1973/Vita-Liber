@@ -50,9 +50,12 @@ final class CaptureFlowE2ETests: XCTestCase {
         XCTAssertTrue(oPositive.waitForExistence(timeout: 3), "血型菜单必须呈现")
         oPositive.tap()
 
+        // 键盘避让：每输完一个文本字段先收起键盘再点下一个
+        //（键盘弹起时 phone 字段在键盘下方，tap 会打到键盘 → 无焦点 → typeText 失败）
         let contactName = app.textFields["SP-06.owner.contact.name"]
         contactName.tap()
         contactName.typeText("李四")
+        app.buttons["SP-06.owner.dismissKeyboard"].tap()
         let contactPhone = app.textFields["SP-06.owner.contact.phone"]
         contactPhone.tap()
         contactPhone.typeText("13800138000")
