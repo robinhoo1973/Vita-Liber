@@ -31,7 +31,8 @@ final class DeviceStateTests: XCTestCase {
         let service = HealthKitSyncService(provider: F16StubProvider(), imports: imports,
                                            guidelines: GuidelineStore(writer: db.writer),
                                            scheduler: InMemoryReminderScheduler())
-        return (db, imports, F16DeviceState(syncService: service, dataChange: AppDataChangeCenter()))
+        return (db, imports, F16DeviceState(syncService: service, dataChange: AppDataChangeCenter(),
+                                            settings: AppSettingsStore(store: SettingsStore(writer: db.writer))))
     }
 
     func test_missingOwnerMapsToOwnerMissingStateNotSyncFailed() async throws {
