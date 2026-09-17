@@ -463,8 +463,9 @@ jobs:
         run: |
           LOG=Build/xcodebuild-build.log
           if [ ! -f "$LOG" ]; then echo "无构建日志，跳过"; exit 0; fi
-          grep -oE '(expression|function body)[^)]*took [0-9]+ms to (type-check|compile)[^)]*\(limit: [0-9]+ms\)' "$LOG" \
-            | sort -u > /tmp/long-typecheck.txt || true
+          # 带出「文件:行号」，直接可点；同时打日志与 step summary——本仓的检索习惯是读日志，
+          # 只写 summary 等于只有点开 UI 才看得见（首轮实测如此）。
+          grep -E 'took [0-9]+ms to (type-check|compile)' "$LOG" | sort -u > /tmp/long-typecheck.txt || true
           {
             echo "## 类型检查预算（表达式 >500ms / 函数体 >1000ms）"
             echo ""
@@ -477,7 +478,7 @@ jobs:
             else
               echo "无超预算表达式 ✓"
             fi
-          } >> "$GITHUB_STEP_SUMMARY"
+          } | tee /tmp/long-typecheck-summary.md >> "$GITHUB_STEP_SUMMARY"
 
       # ── L1 测试（评审修正 C4 + 业主决定第 7 项）────────────
       # 此前全流水线仅 build-for-testing（编译），gate-suites.tsv 里 26 个
