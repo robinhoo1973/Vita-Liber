@@ -77,6 +77,47 @@ struct CardConfirmationRulesTests {
                 "共享在前、行内按序、跨行同键只报一次")
     }
 
+    // MARK: - 复核队列（2026-09-17 借鉴批：按风险排序，不按文档顺序）
+
+    @Test("reviewQueue：缺(0) → 必填未确认(1) → 低置信未确认(3)；可选达标与已确认不入列")
+    func 复核队列排序() {
+        let base = card([field("kind", "outpatient"),
+                         field("doctor", "张三", confidence: 0.4),
+                         field("department", "呼吸内科")])
+        let queue = CardConfirmationRules.reviewQueue(base)
+        #expect(queue.map { "\($0.severity):\($0.key)" } == ["0:date", "1:kind", "3:doctor"],
+                "缺 → 必填未确认 → 低置信（department 可选达标、不入列）；实得 \(queue.map { "\($0.severity):\($0.key)" })")
+    }
+
+    @Test("reviewQueue：行级字段与行内缺键同样入列；歧义(2) 排在低置信(3) 之前")
+    func 复核队列行级与歧义() {
+        var ambiguous = field("hospital", "市一院")
+        ambiguous.candidates = [FieldDraft.Candidate(value: "市一院", confidence: 0.9),
+                                FieldDraft.Candidate(value: "市二院", confidence: 0.8)]
+        let rows = [MatchedCardRow(fields: [field("raw_label", "血红蛋白"), field("value", "", confidence: 1)])]
+        let lab = MatchedCard(kind: "metric_sample", pageIndex: 0,
+                              shared: [field("measured_at", "2026-09-16"), ambiguous], rows: rows,
+                              allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete,
+                              encounterAssociation: .unselected)
+        let queue = CardConfirmationRules.reviewQueue(lab)
+        #expect(queue.map(\.severity) == [0, 1, 1, 2], "行内空必填(0) 最前、必填未确认(1)×2、歧义(2)；实得 \(queue.map { "\($0.severity):\($0.key)" })")
+        #expect(queue.first?.key == "value" && queue.first?.rowId != nil, "缺的那项定位到具体行（UI 据此跳转）")
+        #expect(queue.first?.isMissing == true, "I 类 = 需补填（与低置信分属两条路）")
+    }
+
+    @Test("reviewQueue：已确认/已拒绝的字段不出列（拒绝不是待复核，是已裁决）")
+    func 复核队列排除已裁决() {
+        var rejected = field("doctor", "张三")
+        rejected.reject()
+        var done = field("kind", "outpatient")
+        _ = done.confirm()
+        var date = field("date", "2026-09-16")
+        _ = date.confirm()
+        let base = card([date, done, rejected, field("department", "呼吸内科", confidence: 0.3)])
+        let queue = CardConfirmationRules.reviewQueue(base)
+        #expect(queue.map(\.key) == ["department"], "只剩低置信未确认——已确认与已拒绝都不在复核清单；实得 \(queue.map(\.key))")
+    }
+
     // MARK: - 用户手填即确认（业主 2026-09-17 裁定：仅限**原值为空**的字段）
 
     /// 缺失必填「点此填写」追加的就是这个形态（`EntityCardConfirmView.appendField`）。

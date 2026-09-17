@@ -1079,8 +1079,12 @@
 "entityCard.discard" = "放弃本卡";
 "entityCard.deferRemaining" = "剩余全部稍后处理";
 "entityCard.missingRequiredFmt" = "缺少「%@」，点此填写";
-"entityCard.pendingRequiredFmt" = "还有 %d 项必填待确认：%@";
-"entityCard.rowSkipped" = "本行缺必填，保存时跳过";
+"entityCard.reviewQueueFmt" = "还有 %d 项待复核：%@";
+"entityCard.reviewSource" = "原文";
+"entityCard.reviewChoose" = "去选择";
+"entityCard.sourceLineTitle" = "原文行";
+"entityCard.sourceLineHint" = "此字段识别自下面高亮的那一行";
+"entityCard.rowSkipped" = "本行缺必填，稍后可在待办补充";
 "entityCard.sharedSection" = "共同信息";
 "entityCard.rowsSection" = "逐项内容";
 "entityCard.laterHint" = "将保存为待办卡，1 小时后提醒一次；可在首页待办中继续确认。";
@@ -1640,12 +1644,12 @@
 "home.voice" = "语音录入";
 "notification.center" = "通知中心";
 "image_input.noText" = "未识别到文字。你可以直接输入报告内容，或换一张更清晰的照片。";
-"docConfirm.confidenceHigh" = "高置信度";
-"docConfirm.confidenceMid" = "中置信度";
-"docConfirm.confidenceLow" = "低置信度";
+"docConfirm.confidenceHigh" = "识别清晰";
+"docConfirm.confidenceMid" = "识别一般，建议核对";
+"docConfirm.confidenceLow" = "识别不确定，请核对";
 "docConfirm.reject" = "放弃";
 "docConfirm.reenable" = "恢复";
-"docConfirm.allConfirmBlocked" = "存在低置信度字段，请逐条核对后再保存。";
+"docConfirm.allConfirmBlocked" = "有字段需要逐项核对，处理后即可保存。";
 "docConfirm.saveFailedTitle" = "保存失败";
 
 // V3.49 信息卡分组（4.28）/ FR11.4 懒创建 / FR17.19 意图目录 / 语音面板去 chips

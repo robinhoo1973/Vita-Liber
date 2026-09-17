@@ -153,6 +153,11 @@ struct FieldConfirmRow: View {
     /// 必填字段（建卡最小集，`CardKindRegistry`）：卡级模式下**也必须**有逐项 [确认] 入口。
     /// 必填不参与卡级批量（2026-09-17 业主裁定），没有入口就等于「卡片永远无法保存」。
     var isRequired = false
+    /// 该字段的原文行锚点（`FieldDraft.sourceLineIndex` 且**在页行范围内**才传）。
+    /// 传 nil = 没有锚定 → 不渲染 [原文] 入口：拿整页原文冒充"这就是它的出处"
+    /// 属于「缺证据被当成有证据」（BR-003 同族）。
+    var sourceLine: Int?
+    var onViewSource: ((Int) -> Void)?
     var onRevise: ((String) -> Void)?
     @FocusState private var focused: Bool
 
@@ -224,6 +229,15 @@ struct FieldConfirmRow: View {
                                 Button(L10n.commonConfirm) { _ = field.confirm(); focused = false }
                                     .disabled(field.isConfirmed || field.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                                     .accessibilityIdentifier("OCR.field.confirm.\(field.key)")
+                            }
+                            // 字段 → 原文行锚定：只对确有锚定的字段出入口（2026-09-17 借鉴批）
+                            if let sourceLine, let onViewSource {
+                                Button { onViewSource(sourceLine) } label: {
+                                    Label(L10n.entityCardReviewSource, systemImage: "text.magnifyingglass")
+                                        .labelStyle(.iconOnly)
+                                }
+                                .accessibilityLabel(L10n.entityCardReviewSource)
+                                .accessibilityIdentifier("OCR.field.source.\(field.key)")
                             }
                             // 审查修复：单条目 Menu 只徒增一次点按——卡级模式下
                             // 「拒绝」以纯按钮直出（行为与页面级完全一致）。

@@ -970,7 +970,11 @@ enum L10n {
     "entityCard.discard",
     "entityCard.deferRemaining",
     "entityCard.missingRequiredFmt",
-    "entityCard.pendingRequiredFmt",
+    "entityCard.reviewQueueFmt",
+    "entityCard.reviewSource",
+    "entityCard.reviewChoose",
+    "entityCard.sourceLineTitle",
+    "entityCard.sourceLineHint",
     "entityCard.rowSkipped",
     "entityCard.sharedSection",
     "entityCard.rowsSection",
@@ -2439,10 +2443,17 @@ enum L10n {
     static var entityCardDiscard: String { t("entityCard.discard") }
     static var entityCardDeferRemaining: String { t("entityCard.deferRemaining") }
     static func entityCardMissingRequired(_ label: String) -> String { String(format: t("entityCard.missingRequiredFmt"), label) }
-    /// 保存闸门的「还有 N 项必填待确认：日期、类型」——必填逐项确认为 2026-09-17 裁定（FR6.9）。
-    static func entityCardPendingRequired(count: Int, labels: String) -> String {
-        String(format: t("entityCard.pendingRequiredFmt"), count, labels)
+    /// 复核清单表头「还有 N 项待复核：日期、类型」（2026-09-17 借鉴批：按风险排序的复核清单，
+    /// 取代原先只报必填的计数行）。两处共用：实体卡复核清单、主卡草稿待确认行。
+    static func entityCardReviewQueue(count: Int, labels: String) -> String {
+        String(format: t("entityCard.reviewQueueFmt"), count, labels)
     }
+    /// 字段 → 原文行锚定（仅在该字段确有 `sourceLineIndex` 时渲染，绝不用整页原文冒充锚定）。
+    static var entityCardReviewSource: String { t("entityCard.reviewSource") }
+    /// 歧义项的清单动作：只跳转、不代确认——有候选就必须先做选择（2026-09-17 业主裁定）。
+    static var entityCardReviewChoose: String { t("entityCard.reviewChoose") }
+    static var entityCardSourceLineTitle: String { t("entityCard.sourceLineTitle") }
+    static var entityCardSourceLineHint: String { t("entityCard.sourceLineHint") }
     static var entityCardRowSkipped: String { t("entityCard.rowSkipped") }
     static var entityCardSharedSection: String { t("entityCard.sharedSection") }
     static var entityCardRowsSection: String { t("entityCard.rowsSection") }

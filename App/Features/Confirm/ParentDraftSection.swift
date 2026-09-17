@@ -12,6 +12,8 @@ struct ParentDraftSection: View {
     @Binding var card: MatchedCard
     let patientId: UUID
     var readOnly = false
+    /// 字段 → 原文行锚定：sheet 由父视图（确认页）持有，草稿区只转发（`FieldConfirmRow.sourceLine`）。
+    var onViewSource: ((Int) -> Void)?
     private let calendar = Calendar(identifier: .gregorian)
 
     var body: some View {
@@ -36,6 +38,8 @@ struct ParentDraftSection: View {
                                                 label: DocumentsState.fieldLabel(forKey: draft.fields[index].key),
                                                 showUnit: false, readOnly: readOnly, cardLevelConfirmation: true,
                                                 isRequired: draftRequired.contains(draft.fields[index].key),
+                                                sourceLine: draft.fields[index].sourceLineIndex,
+                                                onViewSource: onViewSource,
                                                 onRevise: { revise(index: index, value: $0) })
                                     .accessibilityIdentifier("SP-12.parentDraft.field.\(draft.fields[index].key)")
                             }
@@ -52,7 +56,8 @@ struct ParentDraftSection: View {
                     if !pendingRequired.isEmpty {
                         // 必填逐项确认（FR6.9 2026-09-17 裁定）：`isComplete` 要求草稿字段全部已确认，
                         // 而必填不参与卡级批量——如实报出还差哪几项，别让用户只见灰按钮。
-                        Text(L10n.entityCardPendingRequired(
+                        // 此处只报**必填**（草稿的非必填合格字段由卡级动作批量升 C；低置信另有下面一行提示）。
+                        Text(L10n.entityCardReviewQueue(
                             count: pendingRequired.count,
                             labels: ListFormatter.localizedString(byJoining: pendingRequired.sorted().map { DocumentsState.fieldLabel(forKey: $0) })))
                             .font(.caption)

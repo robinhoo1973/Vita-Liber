@@ -1079,8 +1079,12 @@
 "entityCard.discard" = "Discard this card";
 "entityCard.deferRemaining" = "Defer all remaining";
 "entityCard.missingRequiredFmt" = "Missing “%@” — tap to fill in";
-"entityCard.pendingRequiredFmt" = "%d required field(s) still need confirming: %@";
-"entityCard.rowSkipped" = "Row is missing a required field and will be skipped";
+"entityCard.reviewQueueFmt" = "%d item(s) awaiting your review: %@";
+"entityCard.reviewSource" = "Source";
+"entityCard.reviewChoose" = "Choose";
+"entityCard.sourceLineTitle" = "Source line";
+"entityCard.sourceLineHint" = "This field was read from the highlighted line below";
+"entityCard.rowSkipped" = "Row is missing a required field — finish it later from To-do";
 "entityCard.sharedSection" = "Shared details";
 "entityCard.rowsSection" = "Items";
 "entityCard.laterHint" = "Saved as a pending card with one reminder in an hour; continue from Home.";
@@ -1640,12 +1644,12 @@
 "home.voice" = "Voice input";
 "notification.center" = "Notification Center";
 "image_input.noText" = "No text recognized. You can enter the report content manually or try a clearer photo.";
-"docConfirm.confidenceHigh" = "High confidence";
-"docConfirm.confidenceMid" = "Mid confidence";
-"docConfirm.confidenceLow" = "Low confidence";
+"docConfirm.confidenceHigh" = "Read clearly";
+"docConfirm.confidenceMid" = "Fairly clear — worth a look";
+"docConfirm.confidenceLow" = "Uncertain read — please check";
 "docConfirm.reject" = "Discard";
 "docConfirm.reenable" = "Restore";
-"docConfirm.allConfirmBlocked" = "Some fields have low confidence — review each one before saving.";
+"docConfirm.allConfirmBlocked" = "Some fields need individual review — handle them and you can save.";
 "docConfirm.saveFailedTitle" = "Save Failed";
 
 // V3.49 Info-card grouping (4.28) / FR11.4 lazy creation / FR17.19 intent catalog / voice panel chips removal

@@ -113,6 +113,83 @@ public enum CardConfirmationRules {
         return out
     }
 
+    // MARK: - 复核队列（2026-09-17 借鉴批：按风险排序，取代文档顺序）
+
+    /// 复核队列中的一项——`rowId == nil` 表示共享面字段。
+    public struct ReviewItem: Equatable, Sendable, Identifiable {
+        /// 0 缺（必须补填） · 1 必填未确认 · 2 歧义未选 · 3 低置信未确认
+        /// ——数字即风险序，`reviewQueue` 按此升序输出。
+        public let severity: Int
+        public let key: String
+        public let rowId: UUID?
+        public var id: String { CardConfirmationRules.anchorId(key: key, rowId: rowId) }
+
+        /// 缺（无值，须补填）——`confirmable` 无法覆盖此态，故独立成列。
+        public var isMissing: Bool { severity == 0 }
+    }
+
+    /// 字段锚点 id：视图的 `.id()` 与复核清单的跳转目标**共用同一构造**——
+    /// 两处各写一份格式，跳转就会静默失效（视图那边改了格式，清单还在按旧格式找）。
+    public static func anchorId(key: String, rowId: UUID?) -> String {
+        "\(rowId?.uuidString ?? "shared"):\(key)"
+    }
+
+    /// 卡内**尚待复核**的字段，按风险排序（缺 → 必填未确认 → 歧义未选 → 低置信未确认）。
+    ///
+    /// 覆盖的是「不符合批量资格 **且** 尚未确认」的字段——即卡级 [确认保存] 覆盖不到、
+    /// 必须由用户逐项处置的那些（`confirmable` 的补集 ∩ 未确认），加上**缺**的必填键
+    /// （无值，不在 `confirmable` 的论域内，但正是最挡保存的一类）。
+    /// 已确认、已拒绝、可选且置信达标者不入列。
+    ///
+    /// **顺序即产品语义**（业界复核台的通行做法：按不确定度/风险排，不按文档顺序）：
+    /// 用户从最挡路的一项开始处理，处理完一项清单即短一项——这就是「确认并下一个」的机制，
+    /// 不需要焦点态。渲染顺序（文档顺序）不受影响，本函数只决定**复核清单**的次序。
+    public static func reviewQueue(_ card: MatchedCard) -> [ReviewItem] {
+        let entry = CardKindRegistry.entry(for: card.kind)
+        let sharedRequired = Set(entry?.sharedRequired ?? [])
+        var items: [ReviewItem] = []
+
+        func append(_ field: FieldDraft, rowId: UUID?, required: Set<String>) {
+            guard field.key != "card_kind", field.grade != .rejected else { return }
+            let hasValue = !field.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            if required.contains(field.key), !hasValue {
+                items.append(ReviewItem(severity: 0, key: field.key, rowId: rowId))   // 缺：挡住保存
+                return
+            }
+            guard hasValue, !field.isConfirmed else { return }
+            if required.contains(field.key) {
+                items.append(ReviewItem(severity: 1, key: field.key, rowId: rowId))   // 必填：逐一确认
+            } else if field.hasUnresolvedCandidates {
+                items.append(ReviewItem(severity: 2, key: field.key, rowId: rowId))   // 歧义：先选
+            } else if field.confidence < confirmAllConfidenceFloor {
+                items.append(ReviewItem(severity: 3, key: field.key, rowId: rowId))   // 低置信：逐项
+            }
+        }
+
+        for field in card.shared { append(field, rowId: nil, required: sharedRequired) }
+        // 缺的**必填键**（键不在卡里——「缺少 X，点此填写」那条路）
+        if let entry {
+            for key in entry.sharedRequired where !card.shared.contains(where: { $0.key == key }) {
+                items.append(ReviewItem(severity: 0, key: key, rowId: nil))
+            }
+        }
+        for row in card.rows {
+            let rowRequired = Set((entry?.allowsEmptyRows == true && row.fields.isEmpty) ? [] : (entry?.rowRequired ?? []))
+            for field in row.fields { append(field, rowId: row.id, required: rowRequired) }
+            if let entry, !(entry.allowsEmptyRows && row.fields.isEmpty) {
+                let present = Set(row.fields.map(\.key))
+                for key in entry.rowRequired where !present.contains(key) {
+                    items.append(ReviewItem(severity: 0, key: key, rowId: row.id))
+                }
+            }
+        }
+
+        // 同级内保持文档顺序（append 已保证），跨级按 severity 升序——稳定排序
+        return items.enumerated().sorted { lhs, rhs in
+            lhs.element.severity == rhs.element.severity ? lhs.offset < rhs.offset : lhs.element.severity < rhs.element.severity
+        }.map(\.element)
+    }
+
     // MARK: - 字段编辑策略（自 MatchedCard.reviseField 迁入）
 
     /// 编辑一个字段（共享或行级）后的关联/编码失效纪律：

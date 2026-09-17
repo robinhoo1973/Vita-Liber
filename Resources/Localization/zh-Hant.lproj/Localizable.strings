@@ -1079,8 +1079,12 @@
 "entityCard.discard" = "放棄本卡";
 "entityCard.deferRemaining" = "其餘全部稍後處理";
 "entityCard.missingRequiredFmt" = "缺少「%@」，點此填寫";
-"entityCard.pendingRequiredFmt" = "還有 %d 項必填待確認：%@";
-"entityCard.rowSkipped" = "本行缺必填，儲存時略過";
+"entityCard.reviewQueueFmt" = "還有 %d 項待複核：%@";
+"entityCard.reviewSource" = "原文";
+"entityCard.reviewChoose" = "去選擇";
+"entityCard.sourceLineTitle" = "原文行";
+"entityCard.sourceLineHint" = "此欄位識別自下面高亮的那一行";
+"entityCard.rowSkipped" = "本行缺必填，稍後可在待辦補充";
 "entityCard.sharedSection" = "共同資訊";
 "entityCard.rowsSection" = "逐項內容";
 "entityCard.laterHint" = "將儲存為待辦卡，1 小時後提醒一次；可在首頁待辦中繼續確認。";
@@ -1640,12 +1644,12 @@
 "home.voice" = "語音輸入";
 "notification.center" = "通知中心";
 "image_input.noText" = "未識別到文字。你可以直接輸入報告內容，或換一張更清晰的照片。";
-"docConfirm.confidenceHigh" = "高置信度";
-"docConfirm.confidenceMid" = "中置信度";
-"docConfirm.confidenceLow" = "低置信度";
+"docConfirm.confidenceHigh" = "識別清晰";
+"docConfirm.confidenceMid" = "識別一般，建議核對";
+"docConfirm.confidenceLow" = "識別不確定，請核對";
 "docConfirm.reject" = "放棄";
 "docConfirm.reenable" = "恢復";
-"docConfirm.allConfirmBlocked" = "存在低置信度欄位，請逐項核對後再儲存。";
+"docConfirm.allConfirmBlocked" = "有欄位需要逐項核對，處理後即可儲存。";
 "docConfirm.saveFailedTitle" = "儲存失敗";
 
 // V3.49 資訊卡分組（4.28）/ FR11.4 懶建立 / FR17.19 意圖目錄 / 語音面板去 chips
