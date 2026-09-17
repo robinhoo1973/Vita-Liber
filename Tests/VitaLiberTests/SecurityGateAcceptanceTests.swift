@@ -110,7 +110,9 @@ final class SecurityGateAcceptanceTests: XCTestCase {
 
     /// 建所有者并等 patient_profile 落库（document_file 外键依赖）
     private func ensureOwner(app: AppState, container: AppContainer) async throws -> UUID {
-        app.createOwner(name: "王女士")
+        app.createOwner(name: "王女士", gender: "female", birthDate: "1975",
+                           bloodType: "O+", contact: EmergencyContactDraft(
+                               name: "李四", relation: "partner", phone: "13800138000"))
         for _ in 0..<20 {
             let count = try await container.store.writer.read {
                 try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM patient_profile") ?? 0
@@ -214,7 +216,9 @@ final class SecurityGateAcceptanceTests: XCTestCase {
         let app = AppState(persistor: container.persistor,
                            defaults: defaults, launchArgs: [])
         await app.bootstrap()
-        app.createOwner(name: "王女士")
+        app.createOwner(name: "王女士", gender: "female", birthDate: "1975",
+                           bloodType: "O+", contact: EmergencyContactDraft(
+                               name: "李四", relation: "partner", phone: "13800138000"))
         // 等待异步持久化落库
         for _ in 0..<20 {
             let count = try await container.store.writer.read {
