@@ -29,12 +29,14 @@ let package = Package(
         // 防漂移由 Package.resolved 的 branch 状态钉版承担
         // （{revision + branch: "master"} 对），而非根包声明。
         // T2 本机 LLM 轨恢复（业主 2026-09-17 定：llama 模型**随包内置**）——
-        // swift-llama 上游已删（DePasqualeOrg/swift-llama），改用 ggml-org 官方
-        // 预编译 XCFramework（docs/xcframework.md 官方 SPM 接入路线）。
-        // 准入（tech §2.2）：MIT 许可（llama.cpp 官方发布物）；官方构建脚本
-        // 产物（ios-sim/ios-device/macos 三切片，Metal 加速、无 OpenMP/OpenSSL）；
-        // 静态库无 dylib 内嵌（ITMS-90208 族风险不适用）；零网络零遥测；
-        // 体积 57.8MB（框架二进制）；退出成本低（引擎单文件 + 本声明两处）。
+        // swift-llama 上游已删（DePasqualeOrg/swift-llama），改用 ggml-org/llama.cpp
+        // **自建三切片 XCFramework**：上游 b11012 源码经官方 build-xcframework.sh
+        // 构建（上游发布物缺 ios-simulator 切片、L1 模拟器无法链接，CI 35203708914
+        // 实证；上游无根 Package.swift 可源码依赖），发布本仓 release
+        // `llama-xcframework` 稳定 URL；重建 = .github/workflows/build-llama-xcframework.yml。
+        // 准入（tech §2.2）：MIT 许可；官方构建脚本产物（Metal/Accelerate、
+        // 无 OpenMP/OpenSSL）；静态库无 dylib 内嵌（ITMS-90208 族风险不适用）；
+        // 零网络零遥测；退出成本低（引擎单文件 + 本声明两处）。
         // 平台下限 iOS 16.4/macOS 13.3——引擎侧 #available 守卫，
         // 16.0–16.3 设备优雅降级 T3（功能缺失到兜底边界为止）。
         // 校验和 = 发布资产 sha256（SPM binaryTarget 强制）。
