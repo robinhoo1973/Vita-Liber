@@ -45,6 +45,11 @@ public actor HealthKitSyncService {
     /// 特征型（血型/出生日期/生理性别）只读读取（业主 2026-09-17 定：导入走档案候选）。
     public func characteristics() async throws -> HealthCharacteristics { try await provider.characteristics() }
 
+    /// 仅特征型的授权请求（首启注册预填的最小请求；授权单只出现健康档案资料）。
+    public func requestCharacteristicAuthorization() async throws {
+        try await provider.requestCharacteristicAuthorization()
+    }
+
     /// 写回授权（分享权限可观察——与读取侧不同，见 HealthWritingProvider 注记）。
     public func requestWriteAuthorization() async throws {
         guard let writer else { throw HealthWriteError.unavailable }

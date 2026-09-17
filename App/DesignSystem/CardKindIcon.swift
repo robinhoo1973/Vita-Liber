@@ -107,6 +107,9 @@ enum CardKindIcon {
         case "encounter": return .encounter
         case "hospitalization": return .hospitalization
         case "health_exam": return .healthExam
+        // Apple 健康信息卡（HealthMetricCard，cardType "health_metric"，业主 2026-09-17 定）：
+        // 与时间轴 .healthData 同符号（§3.4：同一业务概念跨面必须同符号）
+        case "health_metric": return .healthData
         case "diagnosis": return .diagnosis
         case "prescription": return .prescription
         case "medication": return .medication

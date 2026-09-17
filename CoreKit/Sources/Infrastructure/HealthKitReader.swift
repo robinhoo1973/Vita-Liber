@@ -166,6 +166,14 @@ public actor HealthKitReader: HealthReadingProvider, HealthWritingProvider {
         guard status == .unnecessary else { throw ReaderError.requestIncomplete }
     }
 
+    /// 仅特征型的授权请求（首启注册预填的最小请求——系统授权单只出现健康档案资料）。
+    public func requestCharacteristicAuthorization() async throws {
+        guard isAvailable() else { throw ReaderError.unavailable }
+        try await store.requestAuthorization(toShare: [], read: Self.characteristicTypes)
+        let status = try await store.statusForAuthorizationRequest(toShare: [], read: Self.characteristicTypes)
+        guard status == .unnecessary else { throw ReaderError.requestIncomplete }
+    }
+
     /// 特征型读取（业主 2026-09-17 定：导入走档案候选）。
     ///
     /// **用户没填 ≠ 失败**：Health 里未设置时 `bloodType()` 等会抛错——那是「没有这份数据」，

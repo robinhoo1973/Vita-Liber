@@ -95,7 +95,8 @@ final class TimelineViewState {
         TimelineHierarchyRules.visible(hubs, filter: filter)
     }
 
-    /// 展开集：Domain 默认（无筛选 = 记忆 ?? 最新一张展开；筛选 = 命中主卡全展开）+ 筛选态的瞬态覆盖。
+    /// 展开集：Domain 默认（业主 2026-09-17 定：无筛选 = 记忆 ?? **全部折叠**——主卡默认收起、
+    /// 不显示关联子卡；筛选 = 命中主卡全展开）+ 筛选态的瞬态覆盖。
     /// 读 `expansion.version` 参与感知：写记忆后本集合重算。
     var expandedIds: Set<String> {
         _ = expansion.version

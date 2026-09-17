@@ -121,8 +121,9 @@ public enum TimelineHierarchyRules {
     }
 
     /// 展开集：筛选态 = 有命中子卡（或主卡类型自身命中）的主卡全部展开（瞬态，不写记忆）——入参可为 `visible` 收窄前后任一形态；
-    /// 无筛选 = 记忆值 ?? （序列中第一张主卡 true、其余 false）。
-    /// `remembered(id)`：nil = 无记忆（交给默认），true/false = 用户上次的展开状态（J4 `TimelineExpansionStore`）。
+    /// 无筛选 = 记忆值 ?? 全部折叠（业主 2026-09-17 定：主卡默认折叠、不显示关联子卡；
+    /// 原「第一张主卡默认展开」口径废止——用户显式展开才写记忆）。
+    /// `remembered(id)`：nil = 无记忆（交给默认折叠），true/false = 用户上次的展开状态（J4 `TimelineExpansionStore`）。
     public static func expanded(_ entries: [TimelineHubEntry], filter: TimelineFilter, remembered: (String) -> Bool?) -> Set<String> {
         if case .kinds(let kinds) = filter {
             return Set(entries.filter { item in
@@ -130,11 +131,9 @@ public enum TimelineHierarchyRules {
             }.map(\.id))
         }
         var result = Set<String>()
-        var newestSeen = false
         for item in entries where item.isHub {
-            let open = remembered(item.id) ?? !newestSeen
-            newestSeen = true
-            if open { result.insert(item.id) }
+            // 默认折叠：只有用户此前显式展开过（记忆 true）才展开
+            if remembered(item.id) ?? false { result.insert(item.id) }
         }
         return result
     }

@@ -165,6 +165,13 @@ final class F16DeviceState {
 
     private(set) var characteristicCandidates: [HealthCharacteristicImport.Candidate] = []
 
+    /// 首启注册预填通道（业主 2026-09-17 定）：最小授权请求 + 特征型读取；
+    /// 无授权/不可用/流程未完成即抛错——调用方静默回落手动填写，绝不阻断注册。
+    func requestRegistrationPrefill() async throws -> HealthCharacteristics {
+        try await syncService.requestCharacteristicAuthorization()
+        return try await syncService.characteristics()
+    }
+
     /// 以**本人档案**（非当前浏览成员）与健康特征型对比生成候选；
     /// 无本人档案/读取失败即清空（不残留过期候选）。
     func refreshCharacteristicCandidates(profile: PatientProfile?) async {

@@ -386,6 +386,25 @@ enum L10n {
     }
 
     static var onboard_yourName: String { t("onboard.yourName") }
+    // 业主 2026-09-17 定：注册必要字段 = 特征性数据 + 紧急联系人；健康预填默认值
+    static var onboardNotSelected: String { t("onboard.notSelected") }
+    static var onboardGender: String { t("onboard.gender") }
+    static var onboardGenderMale: String { t("onboard.gender.male") }
+    static var onboardGenderFemale: String { t("onboard.gender.female") }
+    static var onboardGenderOther: String { t("onboard.gender.other") }
+    static var onboardBirthYear: String { t("onboard.birthYear") }
+    static var onboardBirthMonth: String { t("onboard.birthMonth") }
+    static var onboardBirthDay: String { t("onboard.birthDay") }
+    static var onboardBloodSpecial: String { t("onboard.blood.special") }
+    static var onboardBloodNotePlaceholder: String { t("onboard.blood.notePlaceholder") }
+    static var onboardProfileHeader: String { t("onboard.profile.header") }
+    static var onboardProfileFooter: String { t("onboard.profile.footer") }
+    static var onboardContactHeader: String { t("onboard.contact.header") }
+    static var onboardContactFooter: String { t("onboard.contact.footer") }
+    static var onboardContactName: String { t("onboard.contact.name") }
+    static var onboardContactRelation: String { t("onboard.contact.relation") }
+    static var onboardContactPhone: String { t("onboard.contact.phone") }
+    static var onboardPrefillHint: String { t("onboard.prefillHint") }
     static var onboard_saveEdit: String { t("onboard.saveEdit") }
     static var onboard_createContinue: String { t("onboard.createContinue") }
     static var onboard_cancel: String { t("onboard.cancel") }
@@ -1274,6 +1293,13 @@ enum L10n {
         "inventory.tier3", "inventory.tier7", "inventory.title", "member.add",
         "member.addedHint", "member.birthDatePlaceholder", "member.current", "member.namePlaceholder",
         "member.quotaHint", "member.relation", "member.save", "member.switch",
+        // 业主 2026-09-17 定：注册必要字段（特征性数据 + 紧急联系人）+ 健康预填
+        "onboard.notSelected", "onboard.gender", "onboard.gender.male", "onboard.gender.female",
+        "onboard.gender.other", "onboard.birthYear", "onboard.birthMonth", "onboard.birthDay",
+        "onboard.blood.special", "onboard.blood.notePlaceholder", "onboard.profile.header",
+        "onboard.profile.footer", "onboard.contact.header", "onboard.contact.footer",
+        "onboard.contact.name", "onboard.contact.relation", "onboard.contact.phone",
+        "onboard.prefillHint",
         "member.title", "nav.health", "nav.home", "nav.me",
         "nav.records", "nav.reminders", "observation.allergySection",
         "observation.createTitle", "observation.description", "observation.groupSummary", "observation.kind.custom",
@@ -1880,6 +1906,8 @@ enum L10n {
         "timeline.hub.noChildren", "timeline.hub.itemsFmt", "timeline.hub.conclusionsFmt", "timeline.loadingMore", "timeline.loadMoreFailed",
         // 四新卡类名（动态键 entityCardKindName(_:)）
         "entityCard.kind.health_exam", "entityCard.kind.clinical_conclusion", "entityCard.kind.surgery", "entityCard.kind.treatment_record",
+        // Apple 健康信息卡（业主 2026-09-17 定：图标经 CardKindIcon health_metric → healthData）
+        "entityCard.kind.health_metric",
         // 动态键 conclusionTypeName(_:)：conclusion_type CHECK 枚举七值（只是类型名，severity_text 原文不映射不着色）
         "conclusion.type.lab", "conclusion.type.exam", "conclusion.type.health_exam_summary", "conclusion.type.abnormal_finding",
         "conclusion.type.health_advice", "conclusion.type.recheck_advice", "conclusion.type.visit_advice",

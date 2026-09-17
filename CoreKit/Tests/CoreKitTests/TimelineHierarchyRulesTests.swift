@@ -59,14 +59,15 @@ struct TimelineHierarchyRulesTests {
         #expect(TimelineHierarchyRules.visible(grouped, filter: .all).count == 2)
     }
 
-    @Test func 展开集_默认最新一条_记忆优先_筛选时命中主卡全展开() {
+    @Test func 展开集_默认全折叠_记忆优先_筛选时命中主卡全展开() {
         let a = TimelineHubEntry(hub: .encounter, entry: entry(.encounter, enc, day: 10), children: [entry(.prescription, rx, day: 10)], counts: [.prescription: 1])
         let b = TimelineHubEntry(hub: .healthExam, entry: entry(.healthExam, exam, day: 8), children: [entry(.labReport, lab, day: 8)], counts: [.labReport: 1])
         let leaf = TimelineHubEntry(hub: nil, entry: entry(.observation, obs, day: 9), children: [], counts: [:])
-        #expect(TimelineHierarchyRules.expanded([a, b], filter: .all, remembered: { _ in nil }) == [a.id], "无记忆：仅最新主卡展开")
-        #expect(TimelineHierarchyRules.expanded([leaf, a, b], filter: .all, remembered: { _ in nil }) == [a.id], "叶子不参与「最新主卡」判定")
-        #expect(TimelineHierarchyRules.expanded([a, b], filter: .all, remembered: { $0 == a.id ? false : nil }) == [], "记忆折叠优先于默认展开")
-        #expect(TimelineHierarchyRules.expanded([a, b], filter: .all, remembered: { $0 == b.id ? true : nil }) == [a.id, b.id], "记忆展开叠加默认展开")
+        // 业主 2026-09-17 定：主卡默认折叠、不显示关联子卡——原「最新主卡默认展开」口径废止
+        #expect(TimelineHierarchyRules.expanded([a, b], filter: .all, remembered: { _ in nil }) == [], "无记忆：全部折叠")
+        #expect(TimelineHierarchyRules.expanded([leaf, a, b], filter: .all, remembered: { _ in nil }) == [], "叶子不参与展开集")
+        #expect(TimelineHierarchyRules.expanded([a, b], filter: .all, remembered: { $0 == a.id ? false : nil }) == [], "记忆折叠与默认折叠一致")
+        #expect(TimelineHierarchyRules.expanded([a, b], filter: .all, remembered: { $0 == b.id ? true : nil }) == [b.id], "记忆展开即展开（默认折叠）")
         #expect(TimelineHierarchyRules.expanded([a, b], filter: .kinds([.labReport]), remembered: { _ in false }) == [b.id], "筛选：命中子卡的主卡瞬态展开、不写记忆")
         let narrowed = TimelineHierarchyRules.visible([a, b], filter: .kinds([.labReport]))
         #expect(TimelineHierarchyRules.expanded(narrowed, filter: .kinds([.labReport]), remembered: { _ in false }) == [b.id])

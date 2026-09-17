@@ -29,7 +29,11 @@ public actor GRDBPatientPersistor: PatientPersisting {
         }
     }
 
-    public func saveOwner(_ owner: LocalOwner, profile: PatientProfile) async throws {
+    /// 本机注册原子流（data-flow V2.1）：local_owner + 本人 patient_profile + 首位紧急
+    /// 联系人（可选）同一事务落库；任一步失败整体回滚、不创建半身份。
+    /// 业主 2026-09-17 定：注册必要字段 = 特征性数据（血型/出生日期/性别）+ 紧急联系人。
+    public func saveOwner(_ owner: LocalOwner, profile: PatientProfile,
+                          contact: EmergencyContactDraft? = nil) async throws {
         try await writer.write { db in
             // §4.2 明示纪律：FK 插入顺序不可调换。local_owner.self_patient_id 与
             // patient_profile.owner_local_id 互为环——同事务三段式破环：
@@ -38,11 +42,13 @@ public actor GRDBPatientPersistor: PatientPersisting {
             try db.execute(
                 sql: """
                 INSERT INTO patient_profile
-                  (id, owner_local_id, display_name, relation, gender, birth_date, note, created_at, updated_at)
-                VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?)
+                  (id, owner_local_id, display_name, relation, gender, birth_date,
+                   blood_type, note, created_at, updated_at)
+                VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 arguments: [profile.id.uuidString, profile.displayName,
-                            profile.relation, profile.gender, profile.birthDate, profile.note,
+                            profile.relation, profile.gender, profile.birthDate,
+                            profile.bloodType, profile.note,
                             profile.createdAt, profile.updatedAt])
             try db.execute(
                 sql: "INSERT INTO local_owner (id, display_name, self_patient_id, created_at) VALUES (?, ?, ?, ?)",
@@ -51,6 +57,16 @@ public actor GRDBPatientPersistor: PatientPersisting {
             try db.execute(
                 sql: "UPDATE patient_profile SET owner_local_id = ? WHERE id = ?",
                 arguments: [owner.id.uuidString, profile.id.uuidString])
+            if let contact {
+                try db.execute(
+                    sql: """
+                    INSERT INTO contact (id, patient_id, name, relation, phone, is_emergency, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+                    """,
+                    arguments: [UUID().uuidString, profile.id.uuidString, contact.name,
+                                contact.relation, contact.phone,
+                                profile.createdAt, profile.updatedAt])
+            }
         }
     }
 

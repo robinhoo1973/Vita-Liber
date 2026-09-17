@@ -239,16 +239,23 @@ final class AppState {
 
     // MARK: - 所有者
 
-    func createOwner(name: String) {
+    /// 业主 2026-09-17 定：注册必要字段 = 特征性数据（性别/出生日期/血型）+ 紧急联系人——
+    /// 与本人档案、首位联系人同事务原子落库（data-flow V2.1 本机注册原子流）。
+    /// 健康预填由表单层负责（默认值，可编辑）。
+    func createOwner(name: String, gender: String?, birthDate: String?, bloodType: String?,
+                     contact: EmergencyContactDraft?) {
         var o = LocalOwner(displayName: name, createdAt: Date().timeIntervalSince1970)
-        let profile = PatientProfile(displayName: name, relation: "本人",
+        let profile = PatientProfile(displayName: name, relation: "本人", gender: gender,
+                                     birthDate: birthDate, bloodType: bloodType,
                                      createdAt: o.createdAt, updatedAt: o.createdAt)
         o.selfPatientId = profile.id
         owner = o
         defaults.set(profile.id.uuidString, forKey: "selfPatientId")
         // Swift 6 收敛：持久化闭包并发执行——捕获不可变快照而非 var
         let ownerSnapshot = o
-        persist { [persistor] in try await persistor.saveOwner(ownerSnapshot, profile: profile) }
+        persist { [persistor] in
+            try await persistor.saveOwner(ownerSnapshot, profile: profile, contact: contact)
+        }
         stage = .addFamily      // FR21.9：建档后进 ④ 添加家人（可跳过）
     }
 
