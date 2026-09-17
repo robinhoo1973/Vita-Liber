@@ -437,6 +437,13 @@ jobs:
           # Xcode 15+ 对第三方宏做指纹信任校验，无人值守构建报「Macro … must be enabled before it
           # can be used」。-skipMacroValidation 等价 IDESkipMacroFingerprintValidation；供应链约束由
           # project.yml exactVersion + Package.resolved 钉版承担，不在此处放松。四处 xcodebuild 同旗标。
+          # 类型检查预算诊断（业主 2026-09-17 定：仅告警，不阻断）。
+          # CI 35166937683 实证：`List → ForEach → WithPerceptionTracking` 里 13 实参 + 链式
+          # 修饰符的 View 表达式会让编译器 abort（unable to type-check in reasonable time），
+          # 而这族在本机无型检通道时**永远看不见**——本轮为此烧了 3 轮 CI（≈57 分钟）。
+          # 业界口径：用编译器自带的开关，而非自研启发式；且**不得**配 warnings-as-errors——
+          # 该告警非确定（同一表达式在慢机器上更容易越线），做硬门禁会随机红。
+          # 详见 discussions/2026-09-17-confirm-review-benchmark-round1.md §8.1。
           xcodebuild build-for-testing \
             -skipMacroValidation \
             -project "$XCODEPROJ" -scheme "$SCHEME" \
@@ -446,8 +453,31 @@ jobs:
             CURRENT_PROJECT_VERSION="${{ needs.version.outputs.build }}" \
             VITA_LIBER_CODE_HASH="${{ needs.version.outputs.hash }}" \
             COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO \
+            OTHER_SWIFT_FLAGS='-Xfrontend -warn-long-expression-type-checking=500 -Xfrontend -warn-long-function-bodies=1000' \
             2>&1 | tee Build/xcodebuild-build.log
           echo "编译门禁通过 ✓"
+
+      # 型检预算报告（仅告警）：即使编译失败也出报告——失败时最需要它。
+      - name: 类型检查预算报告（超预算表达式 / 函数体）
+        if: always()
+        run: |
+          LOG=Build/xcodebuild-build.log
+          if [ ! -f "$LOG" ]; then echo "无构建日志，跳过"; exit 0; fi
+          grep -oE '(expression|function body)[^)]*took [0-9]+ms to (type-check|compile)[^)]*\(limit: [0-9]+ms\)' "$LOG" \
+            | sort -u > /tmp/long-typecheck.txt || true
+          {
+            echo "## 类型检查预算（表达式 >500ms / 函数体 >1000ms）"
+            echo ""
+            echo "告警不代表失败（该告警非确定，故不阻断）——但反复出现的表达式应当拆解。"
+            echo ""
+            if [ -s /tmp/long-typecheck.txt ]; then
+              echo '```'
+              head -40 /tmp/long-typecheck.txt
+              echo '```'
+            else
+              echo "无超预算表达式 ✓"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
       # ── L1 测试（评审修正 C4 + 业主决定第 7 项）────────────
       # 此前全流水线仅 build-for-testing（编译），gate-suites.tsv 里 26 个
