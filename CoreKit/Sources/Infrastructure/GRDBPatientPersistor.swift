@@ -29,11 +29,16 @@ public actor GRDBPatientPersistor: PatientPersisting {
         }
     }
 
-    /// 本机注册原子流（data-flow V2.1）：local_owner + 本人 patient_profile + 首位紧急
+    /// 两参形态（协议既有要求）：无联系人——`skipOwner` 占位路径沿用。
+    public func saveOwner(_ owner: LocalOwner, profile: PatientProfile) async throws {
+        try await saveOwner(owner, profile: profile, contact: nil)
+    }
+
+    /// 本机注册原子流（data-flow V2.1/V2.31）：local_owner + 本人 patient_profile + 首位紧急
     /// 联系人（可选）同一事务落库；任一步失败整体回滚、不创建半身份。
     /// 业主 2026-09-17 定：注册必要字段 = 特征性数据（血型/出生日期/性别）+ 紧急联系人。
     public func saveOwner(_ owner: LocalOwner, profile: PatientProfile,
-                          contact: EmergencyContactDraft? = nil) async throws {
+                          contact: EmergencyContactDraft?) async throws {
         try await writer.write { db in
             // §4.2 明示纪律：FK 插入顺序不可调换。local_owner.self_patient_id 与
             // patient_profile.owner_local_id 互为环——同事务三段式破环：

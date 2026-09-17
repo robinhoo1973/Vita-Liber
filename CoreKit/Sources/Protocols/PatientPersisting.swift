@@ -7,6 +7,9 @@ import Domain
 public protocol PatientPersisting: Sendable {
     func loadOwner() async throws -> LocalOwner?
     func saveOwner(_ owner: LocalOwner, profile: PatientProfile) async throws
+    /// 本机注册原子流（data-flow V2.31，业主 2026-09-17 定）：local_owner + 本人
+    /// patient_profile + 首位紧急联系人同一事务落库；contact nil = 只建身份不建联系人。
+    func saveOwner(_ owner: LocalOwner, profile: PatientProfile, contact: EmergencyContactDraft?) async throws
     /// F3 成员管理（FR3.7 添加家人）：saveOwner 的同族成员写入/读取。
     func saveMember(_ profile: PatientProfile) async throws
     func members() async throws -> [PatientProfile]
@@ -34,5 +37,15 @@ public actor StubImageTextRecognizer: ImageTextRecognizing {
     public init(scripted: ImageInputRules.Recognition) { self.scripted = scripted }
     public func recognize(_ imageData: Data) async throws -> ImageInputRules.Recognition {
         scripted
+    }
+}
+
+// MARK: - saveOwner(contact:) 默认实现（既有实现/测试替身免改）
+
+public extension PatientPersisting {
+    /// 默认 = 两参形态：既有实现/测试替身只建身份不建联系人；
+    /// 生产 `GRDBPatientPersistor` 以三参事务覆盖。
+    func saveOwner(_ owner: LocalOwner, profile: PatientProfile, contact: EmergencyContactDraft?) async throws {
+        try await saveOwner(owner, profile: profile)
     }
 }

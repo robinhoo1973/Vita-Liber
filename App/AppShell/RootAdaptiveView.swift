@@ -229,6 +229,9 @@ private struct PreviewRoot: View {
     private let dataChange = AppDataChangeCenter()
     /// 预览同构：安装中心与生产同源（页面 .environment(ASRInstallCenter.self) 依赖）。
     private let asrInstallCenter: ASRInstallCenter
+    /// 设置仓（业主 2026-09-17：F16DeviceState 构造与环境注入共用同一实例——
+    /// 此前 body 内联新建 AppSettingsStore，F16DeviceState 拿不到同一仓）。
+    private let settingsStore: AppSettingsStore
 
     init() {
         // 与 VitaLiberApp 同构装配：内存库 + 内存调度器，仅 live 路径换成 preview。
@@ -241,6 +244,7 @@ private struct PreviewRoot: View {
         }
         container = assembled
         appState = AppState(persistor: assembled.persistor)
+        settingsStore = AppSettingsStore(store: assembled.settings)
     }
 
     var body: some View {
@@ -255,7 +259,7 @@ private struct PreviewRoot: View {
                                            // 对账/取消互不可见，预览无法充当接线回归探针）
                                            scheduler: container.reminderScheduler,
                                             composer: container.composer))
-                .environment(AppSettingsStore(store: container.settings))
+                .environment(settingsStore)
                 .environment(ObservationStoreState(store: container.observations,
                                                    allergyStore: container.allergies,
                                                    mediaAssets: container.mediaAssets))
@@ -301,10 +305,11 @@ private struct PreviewRoot: View {
                     suggestionStore: ProfileSuggestionStore(writer: container.store.writer)))
                 .environment(AIHistoryState(store: container.aiHistory, audit: container.audit))
                 .environment(ExportWizardState(service: container.pdfExport))
-                // 健康导入二轮（V3.98）：F16DeviceState 只依赖同步协调器 + 数据变更信号，
-                // 不再直接持有 reader/guidelines/scheduler。
+                // 健康导入二轮（V3.98）：F16DeviceState 只依赖同步协调器 + 数据变更信号；
+                // 业主 2026-09-17：增 settings（写回开关裁决）——与下方环境注入同实例
                 .environment(F16DeviceState(syncService: container.healthSync,
-                                            dataChange: dataChange))
+                                            dataChange: dataChange,
+                                            settings: settingsStore))
                 .environment(BackupState(service: container.backup))
         }
     }
