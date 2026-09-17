@@ -29,6 +29,12 @@ targets:
       - path: Resources/ASRModels
         type: folder
         buildPhase: resources
+      # T2 本机 LLM（业主 2026-09-17 定：llama 模型随包内置）——GGUF 文件夹引用入 bundle；
+      # 模型文件不入库（.gitignore /Resources/LLMModels/*.gguf），由 materialize 脚本按
+      # catalog.json sha256 校验取模（CI 与本地同源）。
+      - path: Resources/LLMModels
+        type: folder
+        buildPhase: resources
     preBuildScripts:
       # 每次编译从受审查提交中的已签名目录生成基线，生成物最后在 App 签名前嵌入。
       # 签名私钥仅在发布者本地，CI/编译只验证公开 Root 与 catalog。

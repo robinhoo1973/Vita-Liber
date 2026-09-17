@@ -48,3 +48,6 @@ __pycache__/
 /Resources/ASRModels/silero/
 /Resources/ASRModels/qwen3/
 /Resources/ASRModels/resolved-manifest.json
+# T2 本机 LLM（业主 2026-09-17 定：随包内置）——GGUF 大文件不入库，
+# 由 materialize-llama-model.py 按 catalog.json sha256 校验取模
+/Resources/LLMModels/*.gguf

@@ -28,9 +28,23 @@ let package = Package(
         // required using two different revision-based requirements）。
         // 防漂移由 Package.resolved 的 branch 状态钉版承担
         // （{revision + branch: "master"} 对），而非根包声明。
-        // swift-llama: REMOVED — repo deleted from GitHub (DePasqualeOrg/swift-llama).
-        // All usage is #if canImport(Llama) guarded; removing the dependency means
-        // the T2 local-LLM track compiles as unavailable (graceful degradation).
+        // T2 本机 LLM 轨恢复（业主 2026-09-17 定：llama 模型**随包内置**）——
+        // swift-llama 上游已删（DePasqualeOrg/swift-llama），改用 ggml-org 官方
+        // 预编译 XCFramework（docs/xcframework.md 官方 SPM 接入路线）。
+        // 准入（tech §2.2）：MIT 许可（llama.cpp 官方发布物）；官方构建脚本
+        // 产物（ios-sim/ios-device/macos 三切片，Metal 加速、无 OpenMP/OpenSSL）；
+        // 静态库无 dylib 内嵌（ITMS-90208 族风险不适用）；零网络零遥测；
+        // 体积 57.8MB（框架二进制）；退出成本低（引擎单文件 + 本声明两处）。
+        // 平台下限 iOS 16.4/macOS 13.3——引擎侧 #available 守卫，
+        // 16.0–16.3 设备优雅降级 T3（功能缺失到兜底边界为止）。
+        // 校验和 = 发布资产 sha256（SPM binaryTarget 强制）。
+    ],
+    binaryTargets: [
+        .binaryTarget(
+            name: "LlamaFramework",
+            url: "https://github.com/ggml-org/llama.cpp/releases/download/b11012/llama-b11012-xcframework.zip",
+            checksum: "bf53d48315d208479271c5834dade26da80d28704848012ef167dabcafe45e24"
+        )
     ],
     targets: [
         .target(name: "Domain"),
@@ -50,8 +64,11 @@ let package = Package(
                          condition: .when(platforms: [.iOS, .macOS])),
                 .product(name: "sherpa-onnx", package: "sherpa-onnx",
                          condition: .when(platforms: [.iOS, .macOS])),
-                // Llama: REMOVED with swift-llama dependency (repo deleted).
-                // #if canImport(Llama) blocks compile as unavailable.
+                // T2 本机 LLM（业主 2026-09-17 定：llama 模型随包内置）。
+                // 模块名 = llama（binaryTarget 的 module map）；引擎代码
+                // #if canImport(llama) 守卫——Linux/无框架平台编译为不可用。
+                .target(name: "LlamaFramework",
+                        condition: .when(platforms: [.iOS, .macOS])),
             ],
             // Supertonic不支持中文，当前中文TTS仍使用已接线的系统实现。
             exclude: ["SherpaOnnxSpeechSynthesizer.swift"]),

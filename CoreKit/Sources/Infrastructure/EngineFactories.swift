@@ -295,8 +295,12 @@ public enum CardExtractionFactory: EngineFactory {
             engines.append(FoundationModelsExtractionEngine())
         }
         #endif
-        #if canImport(Llama)
-        engines.append(LlamaCppExtractionEngine())
+        #if canImport(llama)
+        // 业主 2026-09-17 恢复 T2（llama 模型随包内置）：xcframework 切片下限
+        // iOS 16.4/macOS 13.3——低版本设备不注册本引擎，优雅降级 T3（零崩溃）
+        if #available(iOS 16.4, macOS 13.3, *) {
+            engines.append(LlamaCppExtractionEngine())
+        }
         #endif
         engines.append(RuleExtractionEngine())
         return CardExtractionRegistry(engines: engines)

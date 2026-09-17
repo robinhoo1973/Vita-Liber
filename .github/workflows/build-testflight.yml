@@ -171,6 +171,17 @@ jobs:
           name: ${{ needs.asr-models.outputs.bundle_artifact }}
           path: Resources
 
+      - name: 缓存 T2 llama 模型（随包内置）
+        id: llama-cache
+        uses: actions/cache@8b402f58fbc84540c8b491a91e594a5756fec3d7   # v5.0.2
+        with:
+          path: Resources/LLMModels
+          # 键 = catalog.json 内容哈希——模型换版即失效重取（同 ASR 哈希先行纪律）
+          key: llama-model-${{ hashFiles('Resources/LLMModels/catalog.json') }}
+
+      - name: 取模 T2 llama 模型（sha256 校验，随包内置）
+        run: python3 .github/workflows/materialize-llama-model.py
+
       - name: 环境与工具链
         run: |
           xcodebuild -version
