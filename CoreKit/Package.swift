@@ -82,8 +82,8 @@ let package = Package(
         // CI 35201088924 实证）；模块名 = llama（framework module map）。
         .binaryTarget(
             name: "LlamaFramework",
-            url: "https://github.com/ggml-org/llama.cpp/releases/download/b11012/llama-b11012-xcframework.zip",
-            checksum: "bf53d48315d208479271c5834dade26da80d28704848012ef167dabcafe45e24"
+            url: "https://github.com/robinhoo1973/Vita-Liber/releases/download/llama-xcframework/llama-b11012-xcframework.zip",
+            checksum: "c52602cb22cabe6814d57a164a7e72ffc013c24e172201d16c7cacac4965fe15"
         ),
     ],
     cxxLanguageStandard: .cxx17

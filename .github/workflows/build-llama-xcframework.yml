@@ -15,6 +15,14 @@ on:
     paths:
       - '.github/workflows/build-llama-xcframework.yml'
 
+# 双触发（push + dispatch）会并发双跑、--clobber 互覆资产——串行化只留一次构建。
+# 注意：zip 含时间戳不可复现，任何重建都必须以发布资产 digest
+# （gh api repos/{owner}/{repo}/releases/tags/llama-xcframework --jq '.assets[].digest'）
+# 为权威值同步更新 CoreKit/Package.swift 的 checksum，不得采信运行日志。
+concurrency:
+  group: llama-xcframework
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: macos-26
