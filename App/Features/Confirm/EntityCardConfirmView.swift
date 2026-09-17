@@ -74,7 +74,8 @@ struct EntityCardConfirmView: View {
             Section {
                 ForEach(items) { item in reviewQueueRow(item, proxy: proxy) }
             } header: {
-                Text(L10n.entityCardReviewQueue(count: items.count, labels: uniqueLabels(items)))
+                Text(L10n.entityCardReviewQueue(count: items.count,
+                                                labels: ListFormatter.localizedString(byJoining: uniqueLabels(items))))
                     .foregroundStyle(Color("semantic-warning", bundle: .main))
                     .accessibilityIdentifier("SP-12.entity.reviewQueue")
             }
