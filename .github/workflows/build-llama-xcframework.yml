@@ -41,20 +41,29 @@ jobs:
           shasum -a 256 llama-b11012-xcframework.zip | tee checksum.txt
           ls -la llama-b11012-xcframework.zip
 
+      - name: 打包产物兜底上传（发布失败不丢构建）
+        uses: actions/upload-artifact@c24449f33cd45d4826c6702db7e5a7c8f1478f61   # v4（固定完整 SHA）
+        with:
+          name: llama-xcframework
+          path: llama-src/build-apple/llama-b11012-xcframework.zip
+          retention-days: 14
+
       - name: 发布到 release 稳定 URL
         run: |
+          REPO="${{ github.repository }}"
           CHECKSUM="$(cut -d' ' -f1 llama-src/build-apple/checksum.txt)"
-          echo "checksum=${CHECKSUM}" >> "$GITHUB_OUTPUT"
-          # 首次创建 tag；已存在则覆盖同名资产（URL 不变，Package.swift 钉 checksum 同改）
-          if gh release view llama-xcframework >/dev/null 2>&1; then
+          # 未 checkout 本仓：gh 命令必须显式 -R 指明仓库（否则 git 报 not a git repository）
+          if gh release view llama-xcframework -R "$REPO" >/dev/null 2>&1; then
             gh release upload llama-xcframework \
-              llama-src/build-apple/llama-b11012-xcframework.zip --clobber
+              llama-src/build-apple/llama-b11012-xcframework.zip --clobber -R "$REPO"
           else
             gh release create llama-xcframework \
               llama-src/build-apple/llama-b11012-xcframework.zip \
               --title "llama-b11012-xcframework（三切片：ios-sim/ios-device/macos）" \
-              --notes "自建：ggml-org/llama.cpp b11012 源码经官方 build-xcframework.sh 构建；含上游发布物缺失的模拟器切片。"
+              --notes "自建：ggml-org/llama.cpp b11012 源码经官方 build-xcframework.sh 构建；含上游发布物缺失的模拟器切片。" \
+              -R "$REPO"
           fi
           echo "checksum=${CHECKSUM}"
+          echo "::notice::llama xcframework checksum=${CHECKSUM}"
         env:
           GH_TOKEN: ${{ github.token }}
