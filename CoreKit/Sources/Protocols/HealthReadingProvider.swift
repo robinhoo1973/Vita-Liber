@@ -22,4 +22,10 @@ public extension HealthReadingProvider {
     func requestCharacteristicAuthorization() async throws {
         try await requestAuthorization()
     }
+
+    /// 默认实现 = 无特征数据（既有测试替身免改——注册预填/候选读取在此形态下
+    /// 如实无候选；生产 `HealthKitReader` 覆写为真实读取）。
+    func characteristics() async throws -> HealthCharacteristics {
+        HealthCharacteristics()
+    }
 }
