@@ -153,6 +153,9 @@ struct FieldConfirmRow: View {
     /// 必填字段（建卡最小集，`CardKindRegistry`）：卡级模式下**也必须**有逐项 [确认] 入口。
     /// 必填不参与卡级批量（2026-09-17 业主裁定），没有入口就等于「卡片永远无法保存」。
     var isRequired = false
+    /// 是否提供 [放弃]。公用信息页传 false：一个值被多张卡共用时「拒绝」归属不明
+    /// （同一日期对处方对、对检验错），本页只做确认/修正（业主 2026-09-17 口径）。
+    var allowsReject = true
     /// 该字段的原文行锚点（`FieldDraft.sourceLineIndex` 且**在页行范围内**才传）。
     /// 传 nil = 没有锚定 → 不渲染 [原文] 入口：拿整页原文冒充"这就是它的出处"
     /// 属于「缺证据被当成有证据」（BR-003 同族）。
@@ -224,6 +227,11 @@ struct FieldConfirmRow: View {
                     HStack(spacing: 12) {
                         if field.grade == .rejected {
                             Button(L10n.docConfirmReenable) { field.reenable() }
+                        } else if !allowsReject {
+                            // 公用信息页：只留 [确认]（见 allowsReject 注释）
+                            Button(L10n.commonConfirm) { _ = field.confirm(); focused = false }
+                                .disabled(field.isConfirmed || field.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                                .accessibilityIdentifier("OCR.field.confirm.\(field.key)")
                         } else {
                             if !cardLevelConfirmation || tier == .low || isRequired {
                                 Button(L10n.commonConfirm) { _ = field.confirm(); focused = false }
@@ -319,6 +327,10 @@ private struct ImportReviewSessionView: View {
                         }
                     } else if !session.documentReviewFinished, let draft = session.draft {
                         DocumentImportConfirmView(draft: Binding(get: { session.draft ?? draft }, set: { session.draft = $0 }), session: session)
+                    } else if !session.sharedFieldsSettled, !docs.sharedFieldRows(for: session).isEmpty {
+                        // 共用信息步（SP-63）：被多卡共用 / 必填低置信 / 缺失的关键字段在这里一次处理，
+                        // 处理完（或稍后处理）才进卡级——业主 2026-09-17：不能进入卡级处理。
+                        SharedFieldsReviewView(session: session, patientId: session.patientId)
                     } else if let card = docs.currentEntityCard, let source = session.source {
                         VStack(spacing: 0) {
                             OCRCardBrowserNavigation(session: session)

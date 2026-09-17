@@ -1082,6 +1082,13 @@
 "entityCard.reviewQueueFmt" = "還有 %d 項待複核：%@";
 "entityCard.reviewSource" = "原文";
 "entityCard.reviewChoose" = "去選擇";
+"sharedFields.title" = "共用資訊確認";
+"sharedFields.hint" = "以下內容被多張資訊卡共用，或屬重要欄位需要核對：在這裡處理一次，各張卡同時生效。";
+"sharedFields.continue" = "繼續確認卡片內容";
+"sharedFields.pendingFmt" = "還有 %d 項未處理";
+"sharedFields.reason.repeated" = "多卡共用";
+"sharedFields.reason.critical" = "重要欄位";
+"sharedFields.carriersFmt" = "適用：%@";
 "entityCard.sourceLineTitle" = "原文行";
 "entityCard.sourceLineHint" = "此欄位識別自下面高亮的那一行";
 "entityCard.rowSkipped" = "本行缺必填，稍後可在待辦補充";

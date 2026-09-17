@@ -973,6 +973,13 @@ enum L10n {
     "entityCard.reviewQueueFmt",
     "entityCard.reviewSource",
     "entityCard.reviewChoose",
+    "sharedFields.title",
+    "sharedFields.hint",
+    "sharedFields.continue",
+    "sharedFields.pendingFmt",
+    "sharedFields.reason.repeated",
+    "sharedFields.reason.critical",
+    "sharedFields.carriersFmt",
     "entityCard.sourceLineTitle",
     "entityCard.sourceLineHint",
     "entityCard.rowSkipped",
@@ -2452,6 +2459,16 @@ enum L10n {
     static var entityCardReviewSource: String { t("entityCard.reviewSource") }
     /// 歧义项的清单动作：只跳转、不代确认——有候选就必须先做选择（2026-09-17 业主裁定）。
     static var entityCardReviewChoose: String { t("entityCard.reviewChoose") }
+
+    // MARK: - 共用信息确认步（跨卡字段，业主 2026-09-17 定：确认流程改两步）
+
+    static var sharedFieldsTitle: String { t("sharedFields.title") }
+    static var sharedFieldsHint: String { t("sharedFields.hint") }
+    static var sharedFieldsContinue: String { t("sharedFields.continue") }
+    static func sharedFieldsPending(_ count: Int) -> String { String(format: t("sharedFields.pendingFmt"), count) }
+    static var sharedFieldsReasonRepeated: String { t("sharedFields.reason.repeated") }
+    static var sharedFieldsReasonCritical: String { t("sharedFields.reason.critical") }
+    static func sharedFieldsCarriers(_ list: String) -> String { String(format: t("sharedFields.carriersFmt"), list) }
     static var entityCardSourceLineTitle: String { t("entityCard.sourceLineTitle") }
     static var entityCardSourceLineHint: String { t("entityCard.sourceLineHint") }
     static var entityCardRowSkipped: String { t("entityCard.rowSkipped") }

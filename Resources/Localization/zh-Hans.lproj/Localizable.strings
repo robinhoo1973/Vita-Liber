@@ -1082,6 +1082,13 @@
 "entityCard.reviewQueueFmt" = "还有 %d 项待复核：%@";
 "entityCard.reviewSource" = "原文";
 "entityCard.reviewChoose" = "去选择";
+"sharedFields.title" = "共用信息确认";
+"sharedFields.hint" = "以下内容被多张信息卡共用，或属重要字段需要核对：在这里处理一次，各张卡同时生效。";
+"sharedFields.continue" = "继续确认卡片内容";
+"sharedFields.pendingFmt" = "还有 %d 项未处理";
+"sharedFields.reason.repeated" = "多卡共用";
+"sharedFields.reason.critical" = "重要字段";
+"sharedFields.carriersFmt" = "适用：%@";
 "entityCard.sourceLineTitle" = "原文行";
 "entityCard.sourceLineHint" = "此字段识别自下面高亮的那一行";
 "entityCard.rowSkipped" = "本行缺必填，稍后可在待办补充";

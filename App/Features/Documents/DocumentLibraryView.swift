@@ -63,6 +63,8 @@ final class DocumentsState {
         var preparedCards: [MatchedCard]?
         var committedCards: Set<UUID> = []
         var documentReviewFinished = false
+        /// 共用信息步（业主 2026-09-17 定）是否已处理完；未处理完不得进入卡级（只能稍后处理）。
+        var sharedFieldsSettled = false
         var isPreparing = false
         var isSaving = false
         var isBulkDeferring = false
@@ -277,6 +279,40 @@ final class DocumentsState {
     }
 
     @discardableResult
+    // MARK: - 共用信息步（跨卡字段，业主 2026-09-17 定：确认流程改两步）
+
+    /// 本会话需要在本步处理的共用字段（Domain 单一事实源 `SharedFieldPool.rows`）。
+    /// 由「被 ≥2 张卡携带」∨「必填且低置信/缺失（多卡时）」决定；为空则本步不出现。
+    func sharedFieldRows(for session: ImportSession) -> [SharedFieldPool.Row] {
+        SharedFieldPool.rows(cards: session.cards)
+    }
+
+    /// 本步离场（继续）：把确认后的值回填给每个承载方，并标记完成——
+    /// 卡级步骤因此不再复核这些字段（业主：不能进入卡级处理）。
+    @discardableResult
+    func settleSharedFields(_ rows: [SharedFieldPool.Row], sessionID: UUID) -> Bool {
+        guard let session = activeImport, session.id == sessionID, !session.isSaving,
+              SharedFieldPool.isSettled(rows) else { return false }
+        session.cards = SharedFieldPool.project(rows, into: session.cards)
+        session.sharedFieldsSettled = true
+        return true
+    }
+
+    /// 本步的「稍后处理」：先回填（用户的修正是成果，不能丢）再整批落待办——
+    /// 复用既有延后路径，不新增持久化语义。
+    func deferFromSharedFields(_ rows: [SharedFieldPool.Row], sessionID: UUID) async -> Bool {
+        guard applySharedFieldsWithoutGate(rows, sessionID: sessionID) else { return false }
+        return await deferRemainingEntityCards()
+    }
+
+    /// 未处理完也照常回填（延后场景）：闸门只挡「进入卡级」，不挡「落待办」。
+    @discardableResult
+    private func applySharedFieldsWithoutGate(_ rows: [SharedFieldPool.Row], sessionID: UUID) -> Bool {
+        guard let session = activeImport, session.id == sessionID, !session.isSaving else { return false }
+        session.cards = SharedFieldPool.project(rows, into: session.cards)
+        return true
+    }
+
     func updateEntityCard(_ card: MatchedCard) -> Bool {
         guard let session = activeImport, !session.isSaving, !session.isBulkDeferring,
               let index = session.cards.firstIndex(where: { $0.id == card.id }),

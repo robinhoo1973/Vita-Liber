@@ -1082,6 +1082,13 @@
 "entityCard.reviewQueueFmt" = "%d item(s) awaiting your review: %@";
 "entityCard.reviewSource" = "Source";
 "entityCard.reviewChoose" = "Choose";
+"sharedFields.title" = "Shared details";
+"sharedFields.hint" = "These are shared by more than one card, or matter enough to check. Handle them once here and every card gets them.";
+"sharedFields.continue" = "Continue to cards";
+"sharedFields.pendingFmt" = "%d item(s) still open";
+"sharedFields.reason.repeated" = "Shared by several cards";
+"sharedFields.reason.critical" = "Important field";
+"sharedFields.carriersFmt" = "Applies to: %@";
 "entityCard.sourceLineTitle" = "Source line";
 "entityCard.sourceLineHint" = "This field was read from the highlighted line below";
 "entityCard.rowSkipped" = "Row is missing a required field — finish it later from To-do";
