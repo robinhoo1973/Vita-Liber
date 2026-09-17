@@ -205,7 +205,7 @@ struct AppContainer {
         let entitlements = EntitlementStore(writer: store.writer,
                                             storefront: EntitlementStore.InMemoryStorefront())
         let trends = TrendQueryStore(writer: store.writer)
-        let healthSync = HealthKitSyncService(provider: healthReader,
+        let healthSync = HealthKitSyncService(provider: healthReader, writer: healthReader,
                                               imports: HealthImportStore(writer: store.writer),
                                               guidelines: guidelines, scheduler: scheduler)
         let codeIndex = GRDBCodeIndex(writer: store.writer)

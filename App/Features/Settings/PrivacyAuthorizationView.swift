@@ -10,10 +10,11 @@ struct PrivacyAuthorizationView: View {
     @Environment(AppSettingsStore.self) private var settings
     @Environment(AppRouter.self) private var router
 
-    /// 七项可执行开关（顺序即面板顺序）
+    /// 八项可执行开关（顺序即面板顺序；healthWriteBack 随 2026-09-17 写回落地入列）
     private let authKeys: [AppSettingKey] = [
         .authOcr, .authAI, .authFamilyAccess, .authSharing,
-        .authCloudBackup, .authHealthRead, .authVoiceDictation
+        .authCloudBackup, .authHealthRead, .authVoiceDictation,
+        .healthWriteBack
     ]
 
     var body: some View {
@@ -76,6 +77,7 @@ struct PrivacyAuthorizationView: View {
         case .authCloudBackup: return L10n.privacyAuthBackupTitle
         case .authHealthRead: return L10n.privacyAuthHealthTitle
         case .authVoiceDictation: return L10n.privacyAuthVoiceTitle
+        case .healthWriteBack: return L10n.privacyAuthWriteBackTitle
         default: return key.rawValue
         }
     }
@@ -89,6 +91,7 @@ struct PrivacyAuthorizationView: View {
         case .authCloudBackup: return L10n.privacyAuthBackupSub
         case .authHealthRead: return L10n.privacyAuthHealthSub
         case .authVoiceDictation: return L10n.privacyAuthVoiceSub
+        case .healthWriteBack: return L10n.privacyAuthWriteBackSub
         default: return ""
         }
     }

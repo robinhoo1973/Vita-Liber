@@ -38,6 +38,7 @@ public enum AppSettingKey: String, Sendable, CaseIterable, Codable {
     case authAnonymizedImprovement // 匿名化改进
     case authHealthRead           // 读取 Apple 健康（F16）
     case healthAutoImport         // 前台/后台自动增量导入；关闭后仍可手动导入
+    case healthWriteBack          // 将本机确认的手输读数写回 Apple 健康（默认关）
     case authVoiceDictation       // 语音速记识别
     // FR9.18 分通道偏好（§5.58，V3.72）：每类提醒三选一（local 仅通知/
     // persistentRing 通知+响铃直到确认/inApp 静音仅横幅）；remindChannel 为全局缺省
@@ -94,6 +95,7 @@ public enum AppSettingKey: String, Sendable, CaseIterable, Codable {
         case .gateGraceSeconds: return "0"
         case .speechRate: return "normal"
         case .healthAutoImport: return "true"
+        case .healthWriteBack: return "false"
         }
     }
 }

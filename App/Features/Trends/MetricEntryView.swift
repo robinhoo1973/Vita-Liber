@@ -250,6 +250,11 @@ extension TrendEntryState {
                                           secondaryValue: secondaryValue, unit: unit,
                                           measuredAt: measuredAt)
             rememberUnit(unit, for: metric)
+            // 写回 Apple 健康（业主 2026-09-17 定）：best-effort——开关/本人/
+            // 单位资格全部在 F16DeviceState 内裁决，失败不溯及本库保存结果
+            if let writeBack {
+                await writeBack(patientId, metric, value, secondaryValue, unit, measuredAt)
+            }
             // 审查修复：此前 reload 走 load()（90 天血糖默认序列）——刚保存的
             // 血压根本不在该序列里，白查一整趟；改刷新指标总览最新点（宫格
             // 消费方），趋势详情页经自己的 .task(id:) 在进入时重载。

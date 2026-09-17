@@ -153,7 +153,8 @@ struct VitaLiberApp: App {
         _exportWizardState = State(initialValue: ExportWizardState(service: container.pdfExport))
         _f16DeviceState = State(initialValue: F16DeviceState(
             syncService: container.healthSync,
-            dataChange: dataChange))
+            dataChange: dataChange,
+            settings: appSettings))
         // 审查修复：BackupState 此前从未装配——SP-24 打开即
         // "No Observable object of type BackupState found" 崩溃。
         // 且必须在此处先行赋值：下方 backgroundSyncHandler 的捕获列表
@@ -166,6 +167,13 @@ struct VitaLiberApp: App {
         // 未初始化」编译错（L1 34288551094）
         backupState.onRestored = { [appState, reminderStore] in
             await reminderStore.refreshTriggered(patientId: appState.currentPatientId, force: true)
+        }
+        // 业主 2026-09-17 定：健康写回接线（appState 捕获求值触发 self——
+        // 同上纪律，最后一个存储属性初始化之后装配；预览路径无此接线即不写回）
+        f16DeviceState.ownerPatientID = { appState.owner?.selfPatientId }
+        trendState.writeBack = { [f16 = f16DeviceState] patientId, metric, value, secondaryValue, unit, measuredAt in
+            await f16.writeBackSample(patientId: patientId, metric: metric, value: value,
+                                      secondaryValue: secondaryValue, unit: unit, measuredAt: measuredAt)
         }
         // FR16.1 V3.86 后台自动化同步：BGTask 注册（App init 唯一注册点，
         // 标识符已登记 Info.plist BGTaskSchedulerPermittedIdentifiers）+

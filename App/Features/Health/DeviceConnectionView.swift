@@ -1,5 +1,6 @@
 import SwiftUI
 import Domain
+import Protocols
 import Infrastructure
 import Perception
 
@@ -23,12 +24,20 @@ final class F16DeviceState {
     private(set) var ownerMissing = false
     private let syncService: HealthKitSyncService
     private let dataChange: AppDataChangeCenter
+    /// 特征型候选与写回的裁决输入（业主 2026-09-17 定）：
+    /// settings = healthWriteBack 开关；ownerPatientID = 本机本人档案 id（BR-001 守卫）。
+    private let settings: AppSettingsStore
+    /// 本人档案 id 提供方。init 之后装配——appState 捕获求值触发 self，
+    /// 须在 VitaLiberApp 最后一个存储属性初始化之后（同 BackupState.onRestored 纪律）。
+    var ownerPatientID: (@MainActor () -> UUID?)?
     /// 同步谓词由 phase 派生（单一事实源）——旧实现维护并行 syncRunning 布尔，
     /// 两条状态线与 phase 脱钩时会显示「同步中却可再次发起」或反之。
     var isSyncing: Bool { phase == .syncing }
 
-    init(syncService: HealthKitSyncService, dataChange: AppDataChangeCenter) {
+    init(syncService: HealthKitSyncService, dataChange: AppDataChangeCenter,
+         settings: AppSettingsStore) {
         self.syncService = syncService; self.dataChange = dataChange
+        self.settings = settings
     }
 
     /// FR16.1 可见性三态（round2 H1/H3）：开关 > 设备能力 > 本人档案 > 绑定 > 已导入行。
@@ -152,6 +161,82 @@ final class F16DeviceState {
         }
     }
 
+    // MARK: - 特征型档案候选（业主 2026-09-17 定：D 级候选 → 用户显式确认才写入）
+
+    private(set) var characteristicCandidates: [HealthCharacteristicImport.Candidate] = []
+
+    /// 以**本人档案**（非当前浏览成员）与健康特征型对比生成候选；
+    /// 无本人档案/读取失败即清空（不残留过期候选）。
+    func refreshCharacteristicCandidates(profile: PatientProfile?) async {
+        guard let profile else { characteristicCandidates = []; return }
+        do {
+            let characteristics = try await syncService.characteristics()
+            guard !Task.isCancelled else { return }
+            characteristicCandidates = HealthCharacteristicImport.candidates(characteristics: characteristics,
+                                                                             profile: profile)
+        } catch { characteristicCandidates = [] }
+    }
+
+    // MARK: - 写回 Apple 健康（业主 2026-09-17 定：本机确认的手输指标 → HealthKit）
+
+    /// 写回摘要（SP-29 写回区唯一状态出口——写回失败绝不溯及本库保存结果）。
+    struct WriteSummary: Equatable {
+        var written = 0
+        var skipped = 0
+        var failed = false
+    }
+    private(set) var writeAuthState: HealthWriteAuthStatus = .notDetermined
+    private(set) var writeSummary: WriteSummary?
+
+    /// 探测写回分享授权（可观察事实——与读取权限的不可观察相反）。
+    func probeWriteAuthorization() async {
+        availabilityProbed = true
+        available = await syncService.isAvailable()
+        guard available else { writeAuthState = .notDetermined; return }
+        writeAuthState = await syncService.writeAuthorizationStatus()
+    }
+
+    /// 请求写回授权并如实回传获准状态（拒绝/未完成分别呈现，不臆断）。
+    func requestWriteBack() async -> Bool {
+        availabilityProbed = true
+        do {
+            try await syncService.requestWriteAuthorization()
+        } catch HealthWriteError.unavailable {
+            writeAuthState = .notDetermined; return false
+        } catch HealthWriteError.requestIncomplete {
+            writeAuthState = .notDetermined; return false
+        } catch {
+            writeAuthState = .denied; return false
+        }
+        writeAuthState = await syncService.writeAuthorizationStatus()
+        return writeAuthState == .granted
+    }
+
+    /// 指标写回（TrendEntryState 落库成功后经装配点注入回调触发）：
+    /// 开关开启 ∧ 本机本人 ∧ 单位一致，全部满足才写；失败只记摘要、不影响本库记录。
+    func writeBackSample(patientId: UUID, metric: MetricType, value: Double,
+                         secondaryValue: Double?, unit: String, measuredAt: Date) async {
+        guard SettingsRules.resolved(settings.values[.healthWriteBack], key: .healthWriteBack) == "true" else { return }
+        // 健康数据只属本机本人（BR-001）：家人名下的读数绝不写入本机 Health 库
+        guard let ownerID = ownerPatientID?(), patientId == ownerID else { return }
+        var summary = writeSummary ?? WriteSummary()
+        let draft = HealthSampleDraft(metric: metric.rawValue, value: value,
+                                      secondaryValue: secondaryValue, unit: unit, measuredAt: measuredAt)
+        // 单位不符即跳过（不换算不猜单位——血糖 mmol/L 等刻意拒绝），跳过计数如实呈现
+        guard HealthWriteBack.isWritable(metric: draft.metric, unit: draft.unit, value: draft.value) else {
+            summary.skipped += 1; writeSummary = summary; return
+        }
+        do {
+            let written = try await syncService.writeBack([draft])
+            summary.written += written
+            if written == 0 { summary.skipped += 1 }
+            summary.failed = false
+        } catch {
+            summary.failed = true
+        }
+        writeSummary = summary
+    }
+
     func updateAutomation() async { await syncService.startBackgroundObservation() }
     func importedRows(kind: HealthDataKind, before: HealthImportRow?) async throws -> [HealthImportRow] {
         try await syncService.importedRows(kind: kind, before: before)
@@ -165,6 +250,8 @@ struct DeviceConnectionView: View {
     @Environment(AppSettingsStore.self) private var settings
     @Environment(F16DeviceState.self) private var deviceState
     @Environment(AppDataChangeCenter.self) private var dataChange
+    /// 采用中的候选字段（防重入：写库期间该行按钮禁用）
+    @State private var adoptingField: HealthCharacteristicImport.Field?
 
     var body: some View {
         WithPerceptionTracking {
@@ -191,7 +278,10 @@ struct DeviceConnectionView: View {
                         if pageState != .notConnected { Label(L10n.f16AuthGranted, systemImage: "link") }
                         Button(L10n.f16RequestAuth) {
                             Task {
-                                if await deviceState.requestAuthorization(authEnabled: healthEnabled) { await sync() }
+                                if await deviceState.requestAuthorization(authEnabled: healthEnabled) {
+                                    await refreshCandidates()
+                                    await sync()
+                                }
                             }
                         }
                         .disabled(deviceState.isSyncing)
@@ -200,6 +290,36 @@ struct DeviceConnectionView: View {
                     Text(L10n.healthImportSubject(deviceState.dashboard?.ownerName ?? app.owner?.displayName ?? L10n.commonMember))
                         .font(.caption).foregroundStyle(.secondary)
                 } header: { Text(L10n.f16AuthSection) } footer: { Text(L10n.f16AuthHint) }
+
+                // 业主 2026-09-17 定：Apple 健康特征型 → 档案候选（D 级候选、
+                // 用户显式确认才写入；已有值只呈现对照不覆盖——Domain 规则单一事实源）
+                if !deviceState.characteristicCandidates.isEmpty {
+                    Section {
+                        ForEach(deviceState.characteristicCandidates) { candidate in
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(fieldLabel(candidate.field))
+                                    if let existing = candidate.existing {
+                                        Text(L10n.healthCandidateExisting(existing))
+                                            .font(.caption).foregroundStyle(.secondary)
+                                    }
+                                }
+                                Spacer()
+                                if candidate.isAdoptable {
+                                    Button(L10n.healthCandidateAdopt) { adopt(candidate) }
+                                        .buttonStyle(.bordered)
+                                        .disabled(adoptingField == candidate.field)
+                                        .accessibilityIdentifier("SP-29.health.candidate.adopt.\(candidate.field.rawValue)")
+                                } else {
+                                    Text(candidate.proposed).foregroundStyle(.secondary)
+                                }
+                            }
+                            .frame(minHeight: 44)
+                            .accessibilityElement(children: .contain)
+                            .accessibilityIdentifier("SP-29.health.candidate.\(candidate.field.rawValue)")
+                        }
+                    } header: { Text(L10n.healthCandidateSection) } footer: { Text(L10n.healthCandidateHint) }
+                }
 
                 Section {
                     switch deviceState.phase {
@@ -263,6 +383,42 @@ struct DeviceConnectionView: View {
                     }
                 } header: { Text(L10n.f16SyncSection) } footer: { Text(L10n.f16SyncHint) }
 
+                // 业主 2026-09-17 定：写回区（独立于读取开关——分享授权是独立系统授权单）
+                if deviceState.availabilityProbed && deviceState.available {
+                    Section {
+                        Toggle(L10n.healthWriteBackLabel, isOn: writeBackPreference)
+                            .accessibilityIdentifier("SP-29.health.writeBack.toggle")
+                        switch deviceState.writeAuthState {
+                        case .granted:
+                            Label(L10n.healthWriteBackGranted, systemImage: "checkmark.shield")
+                                .accessibilityIdentifier("SP-29.health.writeBack.granted")
+                        case .denied:
+                            Label(L10n.healthWriteBackDenied, systemImage: "exclamationmark.triangle")
+                                .foregroundStyle(Color("semantic-warning", bundle: .main))
+                                .accessibilityIdentifier("SP-29.health.writeBack.denied")
+                        case .notDetermined:
+                            if writeBackOn {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Label(L10n.healthWriteBackNeedAuth, systemImage: "exclamationmark.triangle")
+                                        .foregroundStyle(Color("semantic-warning", bundle: .main))
+                                    Button(L10n.healthWriteBackRetryAuth) {
+                                        Task { _ = await deviceState.requestWriteBack() }
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .accessibilityIdentifier("SP-29.health.writeBack.retryAuth")
+                                }
+                            }
+                        }
+                        if let summary = deviceState.writeSummary {
+                            Text(summary.failed
+                                 ? L10n.healthWriteBackFailed
+                                 : L10n.healthWriteBackLast(summary.written, summary.skipped))
+                                .font(.caption).foregroundStyle(.secondary)
+                                .accessibilityIdentifier("SP-29.health.writeBack.summary")
+                        }
+                    } header: { Text(L10n.healthWriteBackSection) } footer: { Text(L10n.healthWriteBackHint) }
+                }
+
                 // round2 H1/H2：展示区只在「开关开启 ∧ 已连接」时存在（关闭即整体不可见）；
                 // 详情页身份由 dashboard.patientId（= local_owner.self_patient_id）父级下传，
                 // 趋势链接需「有数据 ∧ 身份已知」——绝不回落 currentPatientId（BR-001）
@@ -310,6 +466,8 @@ struct DeviceConnectionView: View {
             .task(id: dataChange.metricsVersion) {
                 await settings.load()
                 _ = await deviceState.currentAuthorization()
+                await deviceState.probeWriteAuthorization()
+                await refreshCandidates()
             }
         }
     }
@@ -338,6 +496,69 @@ struct DeviceConnectionView: View {
         await deviceState.sync(authEnabled: healthEnabled,
             quietStart: SettingsRules.resolved(settings.values[.quietHoursStart], key: .quietHoursStart),
             quietEnd: SettingsRules.resolved(settings.values[.quietHoursEnd], key: .quietHoursEnd))
+    }
+
+    // MARK: - 特征型候选（业主 2026-09-17 定）
+
+    /// 以本人档案（导入绑定同源，BR-001：不回落当前浏览成员）刷新候选。
+    private func refreshCandidates() async {
+        guard deviceState.connected else { return }
+        await deviceState.refreshCharacteristicCandidates(
+            profile: app.members.first(where: { $0.id == deviceState.dashboard?.patientId }))
+    }
+
+    private func fieldLabel(_ field: HealthCharacteristicImport.Field) -> String {
+        switch field {
+        case .bloodType: return L10n.memberBloodType
+        case .birthDate: return L10n.healthCandidateBirthDate
+        case .gender: return L10n.healthCandidateGender
+        }
+    }
+
+    /// 采用候选 = 经 AppState.updateMember 单一写门写入本人档案；
+    /// 采用后重取候选（该行转「现有值对照」态，其余候选继续可采）。
+    private func adopt(_ candidate: HealthCharacteristicImport.Candidate) {
+        let ownerId = deviceState.dashboard?.patientId
+        guard let ownerId, let profile = app.members.first(where: { $0.id == ownerId }) else { return }
+        var updated = profile
+        switch candidate.field {
+        case .bloodType: updated.bloodType = candidate.proposed
+        case .birthDate: updated.birthDate = candidate.proposed
+        case .gender: updated.gender = candidate.proposed
+        }
+        adoptingField = candidate.field
+        Task {
+            let ok = await app.updateMember(updated)
+            adoptingField = nil
+            if ok {
+                await deviceState.refreshCharacteristicCandidates(
+                    profile: app.members.first(where: { $0.id == ownerId }))
+            }
+        }
+    }
+
+    // MARK: - 写回开关（业主 2026-09-17 定）
+
+    private var writeBackOn: Bool {
+        SettingsRules.resolved(settings.values[.healthWriteBack], key: .healthWriteBack) == "true"
+    }
+
+    /// 开启 = 先拿分享授权再落开关（授权未获准时如实回退关闭，不虚设无效开关）；
+    /// 关闭只停止后续写入——已写入的样本属于健康 App 用户数据，不代删。
+    private var writeBackPreference: Binding<Bool> {
+        Binding(get: { writeBackOn }, set: { value in
+            Task {
+                if value {
+                    if await deviceState.requestWriteBack() {
+                        await settings.set("true", for: .healthWriteBack)
+                    } else {
+                        await settings.set("false", for: .healthWriteBack)
+                    }
+                } else {
+                    await settings.set("false", for: .healthWriteBack)
+                }
+            }
+        })
     }
 }
 

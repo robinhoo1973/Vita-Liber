@@ -5,7 +5,8 @@ import Domain
 import Protocols
 
 /// Read-only HealthKit adapter. Read authorization is deliberately not observable by apps.
-public actor HealthKitReader: HealthReadingProvider {
+/// 写回（HealthWritingProvider）与读取同体但契约分离——同一 HKHealthStore 实例双协议注入。
+public actor HealthKitReader: HealthReadingProvider, HealthWritingProvider {
     private let store: HKHealthStore
     private var observers: [HKObserverQuery] = []
     public init(store: HKHealthStore = HKHealthStore()) { self.store = store }
@@ -14,8 +15,30 @@ public actor HealthKitReader: HealthReadingProvider {
     /// `requestIncomplete` 只表达「系统授权流程尚未完成」这一可观察事实。
     public enum ReaderError: Error { case unavailable, requestIncomplete, invalidAnchor, incompleteSnapshot }
 
+    /// 本应用自己的 bundle 标识（写回防回声：自己写入 HealthKit 的样本不得再导回——
+    /// 否则写回样本经增量同步回灌 metric_sample 形成重复行、再写回形成环路）。
+    private static let ownBundleID: String? = Bundle.main.bundleIdentifier
+
+    /// 样本是否为本应用写入（防回声过滤；写回关闭时本谓词恒假、零开销）。
+    private static func isOwnSample(_ sample: HKSample) -> Bool {
+        guard let ownBundleID else { return false }
+        return sample.sourceRevision.source.bundleIdentifier == ownBundleID
+    }
+
     public static var readTypes: Set<HKObjectType> {
-        Set(HealthDataKind.allCases.map { sampleType($0) as HKObjectType })
+        var types = Set(HealthDataKind.allCases.map { sampleType($0) as HKObjectType })
+        // 特征型（血型/出生日期/生理性别）：**读**集合里声明即可（写集合里放特征型不会出现在授权单上）；
+        // 用户未填不报错，读取时抛错由 characteristics() 如实转成 nil。
+        types.formUnion(Self.characteristicTypes)
+        return types
+    }
+
+    private static var characteristicTypes: Set<HKObjectType> {
+        var types = Set<HKObjectType>()
+        for identifier: HKCharacteristicTypeIdentifier in [.bloodType, .dateOfBirth, .biologicalSex] {
+            if let type = HKObjectType.characteristicType(forIdentifier: identifier) { types.insert(type) }
+        }
+        return types
     }
 
     private static func sampleType(_ kind: HealthDataKind) -> HKSampleType {
@@ -26,6 +49,107 @@ public actor HealthKitReader: HealthReadingProvider {
         case .respiratoryRate: return HKQuantityType(.respiratoryRate)
         case .steps: return HKQuantityType(.stepCount)
         case .sleep: return HKCategoryType(.sleepAnalysis)
+        }
+    }
+
+    // MARK: - 写回（业主 2026-09-17 定：本机确认的手输指标 → HealthKit）
+
+    /// 可写类型 = Domain `HealthWriteBack.canonicalUnit` 的指标集（单位匹配的唯一对照）。
+    public static var writeTypes: Set<HKSampleType> {
+        Set([MetricType.bloodPressureSys, .bloodPressureDia, .glucose, .weight,
+             .temperature, .heartRate, .bloodOxygen].compactMap { hkQuantityType($0) as HKSampleType? })
+    }
+
+    private static func hkQuantityType(_ metric: MetricType) -> HKQuantityType? {
+        switch metric {
+        case .bloodPressureSys: return HKQuantityType(.bloodPressureSystolic)
+        case .bloodPressureDia: return HKQuantityType(.bloodPressureDiastolic)
+        case .glucose: return HKQuantityType(.bloodGlucose)
+        case .weight: return HKQuantityType(.bodyMass)
+        case .temperature: return HKQuantityType(.bodyTemperature)
+        case .heartRate: return HKQuantityType(.heartRate)
+        case .bloodOxygen: return HKQuantityType(.oxygenSaturation)
+        default: return nil
+        }
+    }
+
+    private static func hkUnit(_ metric: MetricType) -> HKUnit? {
+        switch metric {
+        case .bloodPressureSys, .bloodPressureDia: return .millimeterOfMercury()
+        case .glucose: return .gramUnit(with: .milli).unitDivided(by: .literUnit(with: .deci))
+        case .weight: return .gramUnit(with: .kilo)
+        case .temperature: return .degreeCelsius()
+        case .heartRate: return .count().unitDivided(by: .minute())
+        case .bloodOxygen: return .percent()
+        default: return nil
+        }
+    }
+
+    public func requestWriteAuthorization() async throws {
+        guard isAvailable() else { throw HealthWriteError.unavailable }
+        try await store.requestAuthorization(toShare: Self.writeTypes, read: [])
+        // 同读取侧纪律：只回答「流程是否已完成」；是否获准由 writeAuthorizationStatus() 观察。
+        let status = try await store.statusForAuthorizationRequest(toShare: Self.writeTypes, read: [])
+        guard status == .unnecessary else { throw HealthWriteError.requestIncomplete }
+    }
+
+    public func writeAuthorizationStatus() async -> HealthWriteAuthStatus {
+        guard isAvailable() else { return .notDetermined }
+        var anyDenied = false
+        var allGranted = true
+        for type in Self.writeTypes {
+            switch store.authorizationStatus(for: type) {
+            case .sharingAuthorized: break
+            case .sharingDenied: anyDenied = true; allGranted = false
+            default: allGranted = false
+            }
+        }
+        if allGranted { return .granted }
+        return anyDenied ? .denied : .notDetermined
+    }
+
+    /// 写回样本。单位不符/类型不可写的条目**跳过**（Domain `HealthWriteBack.isWritable`
+    /// 单一事实源）；收缩压携第二值时合并为血压相关性对象（Health 里的规范呈现形态），
+    /// 其余写入单值样本。只返回实际写入条数。
+    public func writeBack(_ samples: [HealthSampleDraft]) async throws -> Int {
+        guard isAvailable() else { throw HealthWriteError.unavailable }
+        var objects: [HKObject] = []
+        var written = 0
+        for draft in samples {
+            guard draft.measuredAt.timeIntervalSince1970.isFinite,
+                  HealthWriteBack.isWritable(metric: draft.metric, unit: draft.unit, value: draft.value),
+                  let metric = MetricType(rawValue: draft.metric) else { continue }
+            let date = draft.measuredAt
+            if metric == .bloodPressureSys, let dia = draft.secondaryValue, dia.isFinite {
+                guard let sysType = Self.hkQuantityType(.bloodPressureSys),
+                      let diaType = Self.hkQuantityType(.bloodPressureDia) else { continue }
+                let sys = HKQuantitySample(type: sysType,
+                    quantity: HKQuantity(unit: .millimeterOfMercury(), doubleValue: draft.value),
+                    start: date, end: date)
+                let diaSample = HKQuantitySample(type: diaType,
+                    quantity: HKQuantity(unit: .millimeterOfMercury(), doubleValue: dia),
+                    start: date, end: date)
+                objects.append(HKCorrelation(type: HKCorrelationType(.bloodPressure),
+                                             start: date, end: date,
+                                             objects: Set<HKSample>(arrayLiteral: sys, diaSample)))
+                written += 1
+            } else {
+                guard let type = Self.hkQuantityType(metric), let unit = Self.hkUnit(metric) else { continue }
+                objects.append(HKQuantitySample(type: type,
+                    quantity: HKQuantity(unit: unit, doubleValue: draft.value),
+                    start: date, end: date))
+                written += 1
+            }
+        }
+        guard !objects.isEmpty else { return 0 }
+        do {
+            try await store.save(objects)
+            return written
+        } catch let error as HKError {
+            throw error.code == .errorAuthorizationNotDetermined ? HealthWriteError.requestIncomplete
+                                                                  : HealthWriteError.failed
+        } catch {
+            throw HealthWriteError.failed
         }
     }
 
@@ -40,6 +164,51 @@ public actor HealthKitReader: HealthReadingProvider {
         // 映射成 authorizationDenied，两者皆为臆断。这里只如实上报「流程未完成」。
         let status = try await store.statusForAuthorizationRequest(toShare: [], read: Self.readTypes)
         guard status == .unnecessary else { throw ReaderError.requestIncomplete }
+    }
+
+    /// 特征型读取（业主 2026-09-17 定：导入走档案候选）。
+    ///
+    /// **用户没填 ≠ 失败**：Health 里未设置时 `bloodType()` 等会抛错——那是「没有这份数据」，
+    /// 如实按 nil 呈现，绝不编造、绝不猜（来源与精度都随 Health 的填法）。
+    public func characteristics() async throws -> HealthCharacteristics {
+        guard isAvailable() else { throw ReaderError.unavailable }
+        var result = HealthCharacteristics()
+        do { result.bloodType = Self.format(try store.bloodType().bloodType) } catch { result.bloodType = nil }
+        do { result.gender = Self.format(try store.biologicalSex().biologicalSex) } catch { result.gender = nil }
+        do { result.birthDate = Self.format(try store.dateOfBirthComponents()) } catch { result.birthDate = nil }
+        return result
+    }
+
+    /// 血型：国际简写（`A+` / `AB−`…）。Health 的 `.notSet` 归 nil。
+    private static func format(_ blood: HKBloodType) -> String? {
+        switch blood {
+        case .aPositive: return "A+"
+        case .aNegative: return "A−"
+        case .bPositive: return "B+"
+        case .bNegative: return "B−"
+        case .abPositive: return "AB+"
+        case .abNegative: return "AB−"
+        case .oPositive: return "O+"
+        case .oNegative: return "O−"
+        default: return nil
+        }
+    }
+
+    /// 生理性别：Health 三档原样透传（`male` / `female` / `other`），到档案前由用户确认。
+    private static func format(_ sex: HKBiologicalSex) -> String? {
+        switch sex {
+        case .male: return "male"
+        case .female: return "female"
+        case .other: return "other"
+        default: return nil
+        }
+    }
+
+    /// 出生日期：`yyyy-MM-dd`；Health 里只填了年份时给 `yyyy`（精度随来源，不擅自细化）。
+    private static func format(_ components: DateComponents) -> String? {
+        guard let year = components.year else { return nil }
+        guard let month = components.month, let day = components.day else { return String(format: "%04d", year) }
+        return String(format: "%04d-%02d-%02d", year, month, day)
     }
 
     public func observeChanges(handler: @escaping @Sendable () async -> Bool,
@@ -97,8 +266,12 @@ public actor HealthKitReader: HealthReadingProvider {
         // 该类型从此永久卡死（无恢复路径）。分页只看 added，deleted 不
         // 参与限流判定。
         guard result.addedSamples.count <= limit else { throw ReaderError.incompleteSnapshot }
-        return HealthChangeBatch(added: try result.addedSamples.map { try Self.reference($0, kind: kind) },
-            deleted: result.deletedObjects.map(\.uuid),
+        // 防回声：自己写回 HealthKit 的样本不进增量通道；其墓碑一并过滤——
+        // 写回样本从未入库，对应的删除证明无窗口可重算、纯属浪费。
+        let ownSampleIDs = Set(result.addedSamples.filter(Self.isOwnSample).map(\.uuid))
+        return HealthChangeBatch(added: try result.addedSamples
+            .filter { !Self.isOwnSample($0) }.map { try Self.reference($0, kind: kind) },
+            deleted: result.deletedObjects.filter { !ownSampleIDs.contains($0.uuid) }.map(\.uuid),
             anchor: try NSKeyedArchiver.archivedData(withRootObject: result.newAnchor, requiringSecureCoding: true),
             // One additional empty query establishes exhaustion even when a page is mostly deletions.
             hasMore: !result.addedSamples.isEmpty || !result.deletedObjects.isEmpty)
@@ -109,7 +282,9 @@ public actor HealthKitReader: HealthReadingProvider {
         guard isAvailable() else { throw ReaderError.unavailable }
         guard window.isValid else { throw ReaderError.incompleteSnapshot }
         let predicate = HKQuery.predicateForSamples(withStart: window.start, end: window.end, options: [])
+        // 防回声：窗口聚合同样排除自己写回的样本（否则小时均值/步数合计被自己的写回抬高）。
         let samples = try await querySamples(for: window.kind, predicate: predicate)
+            .filter { !Self.isOwnSample($0) }
         let references = try samples.map { try Self.reference($0, kind: window.kind) }
         var rows: [DeviceMetricRow] = []
         var readings: [MetricReading] = []
@@ -157,7 +332,10 @@ public actor HealthKitReader: HealthReadingProvider {
                 guard let value = statistics?.sumQuantity()?.doubleValue(for: .count()), value.isFinite else {
                     throw ReaderError.incompleteSnapshot
                 }
+                // 验证集与索引快照同口径过滤自己的写回样本——谓词只按时间窗匹配，
+                // 不过滤时验证集多出的自有样本会让集合比对误判 incompleteSnapshot。
                 let verified = try await querySamples(for: .steps, predicate: statisticsPredicate)
+                    .filter { !Self.isOwnSample($0) }
                 guard Set(verified.map(\.uuid)) == ids else { throw ReaderError.incompleteSnapshot }
                 rows.append(DeviceMetricRow(metricKey: "steps", value: value, unit: "count",
                     measuredAt: window.start, sourceRef: window.prefix + "sum",

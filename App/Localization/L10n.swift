@@ -309,6 +309,8 @@ enum L10n {
     static var privacyAuthHealthSub: String { t("privacyAuth.health.sub") }
     static var privacyAuthVoiceTitle: String { t("privacyAuth.voice.title") }
     static var privacyAuthVoiceSub: String { t("privacyAuth.voice.sub") }
+    static var privacyAuthWriteBackTitle: String { t("privacyAuth.writeBack.title") }
+    static var privacyAuthWriteBackSub: String { t("privacyAuth.writeBack.sub") }
     static var privacyAuthAIDisabledTitle: String { t("privacyAuth.ai.disabledTitle") }
     static var privacyAuthAIDisabledBody: String { t("privacyAuth.ai.disabledBody") }
     static var privacyAuthOpen: String { t("privacyAuth.open") }
@@ -1355,6 +1357,8 @@ enum L10n {
         "privacyAuth.health.sub",
         "privacyAuth.voice.title",
         "privacyAuth.voice.sub",
+        "privacyAuth.writeBack.title",
+        "privacyAuth.writeBack.sub",
         "privacyAuth.ai.disabledTitle",
         "privacyAuth.ai.disabledBody",
         "privacyAuth.open",
@@ -1815,6 +1819,12 @@ enum L10n {
         "health.settingsTitle", "health.autoImport", "health.readPermissionHint", "health.importedData",
         "health.importedPointCount", "health.importedDataHint", "health.appleSource",
         "health.viewTrendChart", "health.viewTrendChartHint", "health.importedRecordsSection",
+        // 业主 2026-09-17 定：特征型档案候选 + 写回 Apple 健康
+        "health.candidate.section", "health.candidate.hint", "health.candidate.adopt",
+        "health.candidate.existingFmt", "health.candidate.birthDate", "health.candidate.gender",
+        "health.writeBack.label", "health.writeBack.section", "health.writeBack.hint",
+        "health.writeBack.granted", "health.writeBack.denied", "health.writeBack.needAuth",
+        "health.writeBack.retryAuth", "health.writeBack.failed", "health.writeBack.lastFmt",
         // FR6.9 V3.66 一键确认与卡片互联
         "entityCard.confirmAllHint",
         "encounter.linkedCards", "encounter.linkedCards.empty",
@@ -2536,6 +2546,25 @@ enum L10n {
     static var healthViewTrendChart: String { t("health.viewTrendChart") }
     static var healthViewTrendChartHint: String { t("health.viewTrendChartHint") }
     static var healthImportedRecordsSection: String { t("health.importedRecordsSection") }
+    // 业主 2026-09-17 定：特征型档案候选（D 级候选 → 用户显式确认才写入；不覆盖已有值）
+    static var healthCandidateSection: String { t("health.candidate.section") }
+    static var healthCandidateHint: String { t("health.candidate.hint") }
+    static var healthCandidateAdopt: String { t("health.candidate.adopt") }
+    static func healthCandidateExisting(_ value: String) -> String { String(format: t("health.candidate.existingFmt"), value) }
+    static var healthCandidateBirthDate: String { t("health.candidate.birthDate") }
+    static var healthCandidateGender: String { t("health.candidate.gender") }
+    // 业主 2026-09-17 定：写回 Apple 健康（独立于读取开关的分享授权；关闭只停后续写入）
+    static var healthWriteBackLabel: String { t("health.writeBack.label") }
+    static var healthWriteBackSection: String { t("health.writeBack.section") }
+    static var healthWriteBackHint: String { t("health.writeBack.hint") }
+    static var healthWriteBackGranted: String { t("health.writeBack.granted") }
+    static var healthWriteBackDenied: String { t("health.writeBack.denied") }
+    static var healthWriteBackNeedAuth: String { t("health.writeBack.needAuth") }
+    static var healthWriteBackRetryAuth: String { t("health.writeBack.retryAuth") }
+    static var healthWriteBackFailed: String { t("health.writeBack.failed") }
+    static func healthWriteBackLast(_ written: Int, _ skipped: Int) -> String {
+        String(format: t("health.writeBack.lastFmt"), written, skipped)
+    }
     // round2 H1/H3/H-N1–N5（子项目 C6）：SP-29 三态文案 / 空态 / 稀疏窗计数 / 回填进度——
     // 全部为统计事实或状态说明，不含任何诊断或阈值判定（BR-003/004）
     /// H-N4：设备不提供 HealthKit（iPad/模拟器）

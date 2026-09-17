@@ -12,6 +12,9 @@ import HealthKit
 public actor HealthKitSyncService {
 
     private let provider: any HealthReadingProvider
+    /// 写回通道（业主 2026-09-17 定）。可选：既有测试替身只实现读契约，
+    /// 生产装配以同一 HealthKitReader 实例双协议注入。nil = 不可写（预览/测试）。
+    private let writer: (any HealthWritingProvider)?
     private let imports: HealthImportStore
     private let guidelines: GuidelineStore
     private let scheduler: any ReminderScheduling
@@ -20,9 +23,10 @@ public actor HealthKitSyncService {
     private var inFlightID: UUID?
     public private(set) var latestReport: SyncReport?
 
-    public init(provider: any HealthReadingProvider, imports: HealthImportStore,
-                guidelines: GuidelineStore, scheduler: any ReminderScheduling) {
-        self.provider = provider; self.imports = imports
+    public init(provider: any HealthReadingProvider, writer: (any HealthWritingProvider)? = nil,
+                imports: HealthImportStore, guidelines: GuidelineStore,
+                scheduler: any ReminderScheduling) {
+        self.provider = provider; self.writer = writer; self.imports = imports
         self.guidelines = guidelines; self.scheduler = scheduler
     }
 
@@ -36,6 +40,26 @@ public actor HealthKitSyncService {
         _ = scheduleBackgroundRefresh()
         #endif
         return binding
+    }
+
+    /// 特征型（血型/出生日期/生理性别）只读读取（业主 2026-09-17 定：导入走档案候选）。
+    public func characteristics() async throws -> HealthCharacteristics { try await provider.characteristics() }
+
+    /// 写回授权（分享权限可观察——与读取侧不同，见 HealthWritingProvider 注记）。
+    public func requestWriteAuthorization() async throws {
+        guard let writer else { throw HealthWriteError.unavailable }
+        try await writer.requestWriteAuthorization()
+    }
+
+    public func writeAuthorizationStatus() async -> HealthWriteAuthStatus {
+        await writer?.writeAuthorizationStatus() ?? .notDetermined
+    }
+
+    /// 写回样本（best-effort 单向通道）：调用方已在本库落库成功，此通道失败不溯及已保存记录。
+    @discardableResult
+    public func writeBack(_ samples: [HealthSampleDraft]) async throws -> Int {
+        guard let writer else { return 0 }
+        return try await writer.writeBack(samples)
     }
 
     public func connection() async throws -> HealthImportStore.Binding? { try await imports.connection() }

@@ -24,6 +24,10 @@ final class TrendEntryState {
     /// private 时跨文件 extension 不可见，裸名解析到 Darwin audit(2) 系统
     /// 调用函数指针（L1 34292282776 实证，Linux parse 无法暴露）
     let audit: (any AuditLogging)?
+    /// 写回 Apple 健康（业主 2026-09-17 定）：本库落库成功后 best-effort 写回。
+    /// 装配点事后注入（VitaLiberApp——F16DeviceState 在 trendState 之后创建，
+    /// 同 `BackupState.onRestored` 的 init 顺序纪律）；nil = 不写回（预览/测试）。
+    var writeBack: (@MainActor (UUID, MetricType, Double, Double?, String, Date) async -> Void)?
     /// 最近一次**宫格**请求的成员（BR-001 成员隔离：只允许最新请求写回状态）。
     /// 详情轨不写本字段：两条轨共用一个成员标记时，趋势详情页为成员甲挂起会把
     /// 宫格为成员乙的在途加载判为过期而静默丢弃（宫格停在上一成员或空态，无错误
