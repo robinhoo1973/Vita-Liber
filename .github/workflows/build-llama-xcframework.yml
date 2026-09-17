@@ -42,7 +42,7 @@ jobs:
           ls -la llama-b11012-xcframework.zip
 
       - name: 打包产物兜底上传（发布失败不丢构建）
-        uses: actions/upload-artifact@c24449f33cd45d4826c6702db7e5a7c8f1478f61   # v4（固定完整 SHA）
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a   # 与 release-asr-models.yml 同款 pin
         with:
           name: llama-xcframework
           path: llama-src/build-apple/llama-b11012-xcframework.zip
