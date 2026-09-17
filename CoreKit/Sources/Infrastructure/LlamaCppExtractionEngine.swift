@@ -107,8 +107,7 @@ actor LlamaRuntime {
 
         // —— 文法采样链：GBNF 字符串直出（b11012 起 grammar 走 sampler API）——
         let samplerParams = llama_sampler_chain_params(no_perf: false)
-        let chain = llama_sampler_chain_init(samplerParams)
-        guard chain != nil else { throw ExtractionEngineError.unavailable }
+        guard let chain = llama_sampler_chain_init(samplerParams) else { throw ExtractionEngineError.unavailable }
         defer { llama_sampler_free(chain) }
         let grammarSampler = grammar.withCString { grammarCString in
             "root".withCString { rootCString in
@@ -117,14 +116,15 @@ actor LlamaRuntime {
         }
         guard let grammarSampler else { throw ExtractionEngineError.unavailable }   // 文法解析失败 = 引擎失败，降级 T3
         llama_sampler_chain_add(chain, grammarSampler)
-        llama_sampler_chain_add(chain, llama_sampler_init_greedy())
+        guard let greedy = llama_sampler_init_greedy() else { throw ExtractionEngineError.unavailable }
+        llama_sampler_chain_add(chain, greedy)
 
-        // —— 分词 ——
+        // —— 分词（b11012 首参 = vocab；返回值 = 实际 token 数）——
         let maxPromptTokens = 4096
         var promptTokens = [llama_token](repeating: 0, count: maxPromptTokens)
         let promptLength = prompt.withCString { textPointer in
             promptTokens.withUnsafeMutableBufferPointer { buffer in
-                llama_tokenize(model, textPointer, Int32(prompt.utf8.count), buffer.baseAddress,
+                llama_tokenize(vocab, textPointer, Int32(prompt.utf8.count), buffer.baseAddress,
                                Int32(maxPromptTokens), true, false)
             }
         }

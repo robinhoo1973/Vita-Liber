@@ -168,9 +168,11 @@ struct VitaLiberApp: App {
         backupState.onRestored = { [appState, reminderStore] in
             await reminderStore.refreshTriggered(patientId: appState.currentPatientId, force: true)
         }
-        // 业主 2026-09-17 定：健康写回接线（appState 捕获求值触发 self——
-        // 同上纪律，最后一个存储属性初始化之后装配；预览路径无此接线即不写回）
-        f16DeviceState.ownerPatientID = { appState.owner?.selfPatientId }
+        // 业主 2026-09-17 定：健康写回接线（最后一个存储属性初始化之后装配；
+        // 结构体 init 内逃逸闭包**必须用捕获列表**取属性值——闭包体直写
+        // `appState` 触发「escaping closure captures mutating 'self' parameter」
+        // （CI 35180851132 实证；`[appState, reminderStore]` 是既有通行形态）。
+        f16DeviceState.ownerPatientID = { [appState] in appState.owner?.selfPatientId }
         trendState.writeBack = { [f16 = f16DeviceState] patientId, metric, value, secondaryValue, unit, measuredAt in
             await f16.writeBackSample(patientId: patientId, metric: metric, value: value,
                                       secondaryValue: secondaryValue, unit: unit, measuredAt: measuredAt)
