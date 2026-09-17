@@ -50,6 +50,37 @@ struct EntityCardConfirmView: View {
 
     // MARK: - 复核清单（2026-09-17 借鉴批）
 
+    /// 一行字段（共享或行内）——把 13 个实参 + `.id` 锚点链收敛到一个函数里：
+    /// 内联时它处在 List→ForEach→WithPerceptionTracking 三层嵌套中，类型检查器会放弃
+    /// （CI 35166937683：unable to type-check this expression in reasonable time）。
+    @ViewBuilder
+    private func fieldRow(_ field: FieldDraft, index: Int, rowId: UUID?, required: Bool) -> some View {
+        FieldConfirmRow(field: fieldBinding(index: index, rowID: rowId),
+                        label: DocumentsState.fieldLabel(forKey: field.key),
+                        showUnit: false,
+                        readOnly: rowId == nil ? sharedCommitted : false,
+                        cardLevelConfirmation: true,
+                        isRequired: required,
+                        sourceLine: sourceLine(forKey: field.key, rowId: rowId),
+                        onViewSource: { sourcePresentation = .line($0) },
+                        onRevise: { revise(index: index, rowID: rowId, value: $0) })
+            .id(CardConfirmationRules.anchorId(key: field.key, rowId: rowId))
+    }
+
+    /// 复核清单段——同样从 List 体里拆出来（同一族类型检查压力）。
+    @ViewBuilder
+    private func reviewSection(_ items: [CardConfirmationRules.ReviewItem], proxy: ScrollViewProxy) -> some View {
+        if !items.isEmpty {
+            Section {
+                ForEach(items) { item in reviewQueueRow(item, proxy: proxy) }
+            } header: {
+                Text(L10n.entityCardReviewQueue(count: items.count, labels: uniqueLabels(items)))
+                    .foregroundStyle(Color("semantic-warning", bundle: .main))
+                    .accessibilityIdentifier("SP-12.entity.reviewQueue")
+            }
+        }
+    }
+
     /// 本卡所在页的原文行（与 `FieldDraft.sourceLineIndex` **同一坐标系**）。
     /// 队列模式取自导入草稿的页；续办模式取自待办载荷的页文本——两处都按 `\n` 还原为行。
     private var pageLines: [String] {
@@ -229,15 +260,11 @@ struct EntityCardConfirmView: View {
                         ForEach(card.shared.indices, id: \.self) { index in
                             // ForEach 行闭包逃逸：行内同步读感知对象属性，须自行包裹（子项目 I）
                             WithPerceptionTracking {
-                                FieldConfirmRow(field: fieldBinding(index: index, rowID: nil),
-                                    label: DocumentsState.fieldLabel(forKey: card.shared[index].key),
-                                     showUnit: false, readOnly: sharedCommitted,
-                                     cardLevelConfirmation: true,
-                                     isRequired: sharedRequired.contains(card.shared[index].key),
-                                     sourceLine: sourceLine(forKey: card.shared[index].key, rowId: nil),
-                                     onViewSource: { sourcePresentation = .line($0) },
-                                    onRevise: { revise(index: index, rowID: nil, value: $0) })
-                                    .id(CardConfirmationRules.anchorId(key: card.shared[index].key, rowId: nil))
+                                // 字段行经 `fieldRow` 出列：内联版本（13 个实参 + `.id` 链）在
+                                // List→ForEach→WithPerceptionTracking 三层嵌套里把类型检查器压垮
+                                // （CI 35166937683 实证：unable to type-check in reasonable time）。
+                                fieldRow(card.shared[index], index: index, rowId: nil,
+                                         required: sharedRequired.contains(card.shared[index].key))
                                 if card.shared[index].isConfirmed, validation.values.contains(where: { $0.contains(card.shared[index].key) }) {
                                     Text(L10n.ocrReviewInvalidField).font(.caption).foregroundStyle(.red)
                                 }
@@ -251,14 +278,8 @@ struct EntityCardConfirmView: View {
                         if !row.fields.isEmpty || !rowKeys.isEmpty {
                             Section {
                                 ForEach(row.fields.indices.filter { row.fields[$0].key != "metric_key" }, id: \.self) { index in
-                                    FieldConfirmRow(field: fieldBinding(index: index, rowID: row.id),
-                                         label: DocumentsState.fieldLabel(forKey: row.fields[index].key), showUnit: false,
-                                         cardLevelConfirmation: true,
-                                         isRequired: rowRequired(row).contains(row.fields[index].key),
-                                         sourceLine: sourceLine(forKey: row.fields[index].key, rowId: row.id),
-                                         onViewSource: { sourcePresentation = .line($0) },
-                                        onRevise: { revise(index: index, rowID: row.id, value: $0) })
-                                        .id(CardConfirmationRules.anchorId(key: row.fields[index].key, rowId: row.id))
+                                    fieldRow(row.fields[index], index: index, rowId: row.id,
+                                             required: rowRequired(row).contains(row.fields[index].key))
                                     if row.fields[index].isConfirmed && validation[row.id]?.contains(row.fields[index].key) == true {
                                         Text(L10n.ocrReviewInvalidField).font(.caption).foregroundStyle(.red)
                                     }
@@ -273,15 +294,7 @@ struct EntityCardConfirmView: View {
                     if !missingShared(reviewed: reviewed).isEmpty || validation.values.contains(where: { !$0.isEmpty }) {
                         Section { Text(L10n.docConfirmHint).font(.caption).foregroundStyle(.secondary) }
                     }
-                    if !reviewItems.isEmpty {
-                        Section {
-                            ForEach(reviewItems) { item in reviewQueueRow(item, proxy: proxy) }
-                        } header: {
-                            Text(L10n.entityCardReviewQueue(count: reviewItems.count, labels: uniqueLabels(reviewItems)))
-                                .foregroundStyle(Color("semantic-warning", bundle: .main))
-                                .accessibilityIdentifier("SP-12.entity.reviewQueue")
-                        }
-                    }
+                    reviewSection(reviewItems, proxy: proxy)
                     Section {
                         Button { showLater = true } label: {
                             Label(L10n.entityCardLater, systemImage: "clock.badge.checkmark").frame(minHeight: 44)
