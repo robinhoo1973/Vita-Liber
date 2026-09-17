@@ -296,11 +296,10 @@ public enum CardExtractionFactory: EngineFactory {
         }
         #endif
         #if canImport(llama)
-        // 业主 2026-09-17 恢复 T2（llama 模型随包内置）：xcframework 切片下限
-        // iOS 16.4/macOS 13.3——低版本设备不注册本引擎，优雅降级 T3（零崩溃）
-        if #available(iOS 16.4, macOS 13.3, *) {
-            engines.append(LlamaCppExtractionEngine())
-        }
+        // 业主 2026-09-17 恢复 T2（llama 模型随包内置）：自建切片下限 = 应用基线
+        // iOS 16.0（上游默认 16.4 已改——llama.cpp 无 16.4 专属 API，见
+        // build-llama-xcframework.yml）；macOS 13.3 切片由 CoreKit .macOS(.v14) 兜住。
+        engines.append(LlamaCppExtractionEngine())
         #endif
         engines.append(RuleExtractionEngine())
         return CardExtractionRegistry(engines: engines)

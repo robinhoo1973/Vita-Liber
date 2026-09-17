@@ -42,6 +42,10 @@ jobs:
         working-directory: llama-src
         run: |
           # 官方脚本：参数 = 构建集合；顺序产出 build-apple/llama.xcframework
+          # 平台下限改 16.0（上游默认 16.4 是随意值——llama.cpp 无 16.4 专属 API；
+          # 应用基线 V3.79 = iOS 16.0，reconcile-frameworks.py 门禁拒绝 16.4 切片，
+          # CI 实证：llama.framework requires 16.4, newer than the app deployment target）
+          sed -i.bak 's/IOS_MIN_OS_VERSION=16.4/IOS_MIN_OS_VERSION=16.0/' build-xcframework.sh
           ./build-xcframework.sh ios-sim ios-device macos
           test -d build-apple/llama.xcframework || { echo "::error::xcframework 未产出"; exit 1; }
           cd build-apple
