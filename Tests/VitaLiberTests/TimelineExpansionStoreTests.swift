@@ -69,7 +69,7 @@ final class TimelineExpansionStoreTests: XCTestCase {
                           expansion: TimelineExpansionStore(defaults: defaults))
     }
 
-    func test_视图模型_默认最新主卡展开_记忆优先_筛选瞬态不写记忆() async throws {
+    func test_视图模型_默认全折叠_记忆优先_筛选瞬态不写记忆() async throws {
         let (db, patient) = try await makeStore()
         let newest = try await seedEncounter(db, patient: patient, at: 1_700_100_000, withPrescription: true)
         let older = try await seedEncounter(db, patient: patient, at: 1_700_000_000, withPrescription: true)
@@ -84,13 +84,14 @@ final class TimelineExpansionStoreTests: XCTestCase {
         XCTAssertEqual(state.hubs.map(\.hub), [.encounter, .encounter, nil], "两张就诊主卡（新→旧）+ 观察叶子")
         XCTAssertEqual(state.visibleHubs.count, 3)
         let newestId = "encounter-encounter-\(newest.uuidString)", olderId = "encounter-encounter-\(older.uuidString)"
-        XCTAssertEqual(state.expandedIds, [newestId], "无记忆：仅最新主卡展开")
+        // 业主 2026-09-17 定：主卡默认全折叠、不显示关联子卡（原「最新一张展开」口径废止）
+        XCTAssertEqual(state.expandedIds, [], "无记忆：全部折叠")
 
-        state.setExpanded(newestId, false)
-        XCTAssertEqual(state.expandedIds, [], "记忆折叠优先于默认展开")
-        XCTAssertEqual(state.expansion.remembered(newestId), false, "无筛选态写入 UserDefaults 记忆")
+        state.setExpanded(newestId, true)
+        XCTAssertEqual(state.expandedIds, [newestId], "显式展开生效")
+        XCTAssertEqual(state.expansion.remembered(newestId), true, "无筛选态写入 UserDefaults 记忆")
         state.setExpanded(olderId, true)
-        XCTAssertEqual(state.expandedIds, [olderId])
+        XCTAssertEqual(state.expandedIds, [newestId, olderId])
 
         // 筛选命中子卡：命中主卡全部瞬态展开；用户在筛选态收起只落瞬态，不写记忆
         state.setFilter([.prescription])
@@ -99,13 +100,13 @@ final class TimelineExpansionStoreTests: XCTestCase {
         XCTAssertEqual(state.expandedIds, [newestId, olderId])
         state.setExpanded(newestId, false)
         XCTAssertEqual(state.expandedIds, [olderId], "筛选态收起生效（瞬态）")
-        XCTAssertEqual(state.expansion.remembered(newestId), false, "筛选态不改写记忆（仍是此前无筛选时写入的值）")
+        XCTAssertEqual(state.expansion.remembered(newestId), true, "筛选态收起只落瞬态，不改写记忆（保持此前显式展开写入的 true）")
         XCTAssertEqual(state.expansion.rememberedCount, 2)
 
-        // 回到无筛选：记忆值生效，瞬态清空
+        // 回到无筛选：记忆值生效（两卡此前都显式展开），瞬态清空
         state.setFilter(nil)
         await state.load(patientId: patient)
-        XCTAssertEqual(state.expandedIds, [olderId])
+        XCTAssertEqual(state.expandedIds, [newestId, olderId])
     }
 
     func test_视图模型_游标翻页追加去重_跨成员为空() async throws {
