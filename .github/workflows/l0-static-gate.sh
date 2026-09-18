@@ -648,9 +648,13 @@ if files:
 # 第三轮全仓审查修复（V3.39 连带）：registeredKeys 登记表 ⊆ .strings——
 # M15 缺译测试遍历 registeredKeys，键被删出 .strings 而登记表未同步时 L1 必红；
 # 此前 L0 三文件互查覆盖不到（46d46fa 漏删登记表 = 该缺陷的实证）。
-l10n_swift = root / "App/Localization/L10n.swift"
-if l10n_swift.exists():
-    src = l10n_swift.read_text(encoding="utf-8")
+l10n_files = sorted((root / "App/Localization").glob("L10n*.swift"))
+src = "\n".join(p.read_text(encoding="utf-8") for p in l10n_files)
+# 覆盖**整个文案出口**而不是单文件：L10n 按域拆成 L10n+Keys-*.swift 后，静态 t() 清单
+# 必须跟着覆盖新文件，否则反向检查（静态 t() ⊆ registeredKeys）会漏检已迁出的访问器而
+# 仍报绿——__DONE__ 标记拦不住这一类「跑完了但覆盖变窄」（2026-09-18 补强）。
+# 声明数 ≠1（0 或重复）时同样不可判定，直接判红。
+if l10n_files and src.count("static let registeredKeys") == 1:
     i = src.index("registeredKeys")
     j = src.index("[", src.index("=", i))
     depth = 0
@@ -684,6 +688,20 @@ if l10n_swift.exists():
     unregistered = sorted(static_t_keys - registered)
     if unregistered:
         bad.append(f"L10n.swift: {len(unregistered)} 个静态 t() 键未登记 registeredKeys: {unregistered[:8]}")
+elif not l10n_files:
+    # 「扫到 0 个对象」也是 ERR#27 的形态之一：入口不存在时静默跳过 = 没有门禁。
+    bad.append("App/Localization 下找不到任何 L10n*.swift —— 文案出口缺失或路径漂移，"
+               "登记表⊆.strings 与静态 t() 反查均未执行，不得判 PASS（ERR#27）")
+elif l10n_files:
+    bad.append(
+        f"App/Localization 下 `static let registeredKeys` 声明 {src.count('static let registeredKeys')} 处（应为 1）"
+        "—— 登记表缺失或被移出/重复，登记表⊆.strings 与静态 t() 反查均无法判定，不得判 PASS（ERR#27）")
+# 分析完成标记（2026-09-18 实证补强）：判定器**跑到结尾**才打印。任何中途异常都会让它缺席，
+# 父 shell 据此判红。此前无此标记 → registeredKeys 被移出 L10n.swift 时 src.index 抛
+# ValueError，traceback 走 stderr（命令替换只收 stdout），stdout 只剩 __SCANNED__ 行，
+# 决策块落 else 判 PASS：三项 L10n 检查（登记表⊆.strings / 重复键 / 静态 t()⊆登记表）
+# 集体失效而门禁全绿。属 ERR#27 同族——判据是「扫到 0」还是「没跑完」，同一条纪律。
+print("__DONE__")
 if bad:
     for msg in bad[:20]:
         print("FAIL:", msg)
@@ -695,8 +713,14 @@ PYEOF
               # 父 shell 只见「判定器失效」伪红，真实 FAIL 行（如未登记静态键）
               # 被掩盖（2026-09-09 SP-13 批实证）
   scanned="$(printf '%s\n' "$STRINGS_SCAN" | grep '^__SCANNED__' || true)"
+  reached_end="$(printf '%s\n' "$STRINGS_SCAN" | grep '^__DONE__' || true)"
   if [ -z "$scanned" ]; then
     fail ".strings 扫描无 __SCANNED__ 计数 —— 判定器失效，不得判 PASS（ERR#27）"
+  elif [ -z "$reached_end" ]; then
+    # 判定器中途死亡（典型：L10n.swift 被改名/拆文件后 src.index(\"registeredKeys\") 抛
+    # ValueError）。此时 stdout 无 FAIL: 也无 PASS:，若不拦就会落 else 判 PASS——
+    # 门禁转绿而三项 L10n 检查已是死代码。判据同 ERR#27：没跑完 ≠ 通过。
+    fail ".strings 判定器未跑完（无 __DONE__ 标记）—— 三项 L10n 检查（登记表⊆.strings / 重复键 / 静态 t()⊆登记表）已失效，不得判 PASS（ERR#27 同族）"
   elif printf '%s\n' "$STRINGS_SCAN" | grep -q '^FAIL:'; then
     # 评审修正第二轮：while 管道会让 fail() 落在子 shell、FAILURES 增量丢失——
     # 改进程替换（循环在父 shell 执行），门禁真正能红

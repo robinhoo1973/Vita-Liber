@@ -56,9 +56,17 @@ scanned = 0
 for dirpath, dirnames, filenames in os.walk(scan_root):
     dirnames.sort()
     for name in sorted(filenames):
-        if not name.endswith(".swift") or name == "L10n.swift":
+        if not name.endswith(".swift"):
             continue
         path = os.path.join(dirpath, name)
+        # 豁免面 = 「文案唯一出口」这一**职责**，而不是某一个文件名。原判据 `name == "L10n.swift"`
+        # 在 L10n 按域拆分后立刻失效：实测把文件复制成 L10n+Probe.swift 即报 6 处中文键名违规
+        # （键值对里的中文键、supportedDisplayLanguages 的「简体中文」等）。改为
+        # 「App/Localization/ 下的 L10n 前缀文件」——覆盖拆分后命名，又不整目录放行
+        # （目录内将来若有非 L10n 文件仍受检）。当前仓库仅有 L10n.swift，故此改在本日
+        # 行为等价，仅在拆分后生效。
+        if name.startswith("L10n") and os.path.basename(dirpath) == "Localization":
+            continue
         rel = os.path.relpath(path)
         if not rel.startswith("."):
             rel = "./" + rel
