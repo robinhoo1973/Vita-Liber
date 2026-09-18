@@ -285,12 +285,25 @@ public actor HealthKitReader: HealthReadingProvider, HealthWritingProvider {
         // 防回声：自己写回 HealthKit 的样本不进增量通道；其墓碑一并过滤——
         // 写回样本从未入库，对应的删除证明无窗口可重算、纯属浪费。
         let ownSampleIDs = Set(result.addedSamples.filter(Self.isOwnSample).map(\.uuid))
-        return HealthChangeBatch(added: try result.addedSamples
-            .filter { !Self.isOwnSample($0) }.map { try Self.reference($0, kind: kind) },
-            deleted: result.deletedObjects.filter { !ownSampleIDs.contains($0.uuid) }.map(\.uuid),
+        let added = try result.addedSamples
+            .filter { !Self.isOwnSample($0) }.map { try Self.reference($0, kind: kind) }
+        let deleted = result.deletedObjects.filter { !ownSampleIDs.contains($0.uuid) }.map(\.uuid)
+        // hasMore 必须由**过滤后的批次**导出，不能由原始查询结果导出。
+        // 反例（本修复的由来）：整页样本都是本应用自己写回的 → 过滤后 added/deleted 皆空，
+        // 而原始结果非空 ⇒ hasMore=true。此时 `HealthImportStore.stage` 的
+        // 「hasMore 却无内容可入」守卫会抛 invalidValue，而锚点只在 commit 时前进，
+        // 于是**该类型的导入永久卡死**：此后所有真样本（如新手表测量）都排在
+        // 这个消费不掉的页后面，同步永远报「部分类型导入失败」，用户只能在健康 App
+        // 里删掉自己的样本才可能恢复。heartRate/bloodOxygen 同时在写回与读取两端，
+        // 开启写回后手存一次血氧即可构造。
+        // 安全性：锚点取 result.newAnchor（覆盖整页原始结果），故 hasMore=false 只是
+        // 本轮不再续拉，下一轮同步从新锚点继续，**不会漏样本**。
+        // 全页删除时 deleted 非空 ⇒ hasMore 仍为 true，原「mostly deletions」语义保留。
+        return HealthChangeBatch(
+            added: added,
+            deleted: deleted,
             anchor: try NSKeyedArchiver.archivedData(withRootObject: result.newAnchor, requiringSecureCoding: true),
-            // One additional empty query establishes exhaustion even when a page is mostly deletions.
-            hasMore: !result.addedSamples.isEmpty || !result.deletedObjects.isEmpty)
+            hasMore: !added.isEmpty || !deleted.isEmpty)
     }
 
     public func snapshot(for window: HealthImportWindow, calendar: Calendar) async throws -> HealthWindowSnapshot {
