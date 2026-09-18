@@ -733,14 +733,31 @@ public actor MedicationStore: DoseSource {
             // discomfort 优先」，仅当窗口内全部行均已决为 taken/discomfort 时
             // 才命中该行并抛 alreadyResolved（与窄路径同款响亮拒绝）。
             let wideWindow: TimeInterval = 12 * 3600
+            // 审查修复（BR-004，P0）：排序键次序错误。原为
+            //   ORDER BY CASE WHEN user_action IN ('taken','discomfort') THEN 1 ELSE 0 END,
+            //            ABS(scheduled_for - ?)
+            // ——「未决议优先」是**主键**、距离只是并列时的次序键。于是 ±12h 内只要存在
+            // 任一未决议行，它就会压过距离更近的已决议行。BID 计划（12:00/18:00）下：
+            // 用户 12:05 确认了 12:00 剂量，14:30 补录实际服药时刻——窄窗 [14:00,15:00]
+            // 空 → 宽窗把**未来的 18:00 行**（NULL，键 0）排在更近的 12:00 已服行（键 1）
+            // 之前 → 命中 18:00 → 不是 taken/discomfort，不触发 alreadyResolved →
+            // 直接把**尚未到点的未来剂量**改成 taken 并按 taken **全额扣减双轨**。
+            // 后果：18:00 到点不再提醒（对账只排未决议行）、materializeMissed 跳过、
+            // 用户也无法再确认（alreadyResolved）——一次从未发生的服药被记为事实。
+            // 修法：把「不许命中未来行」提到最前（补录的语义是**已发生**的服药），
+            // 再保留「未决议优先」（第八轮幂等修复的意图不变），最后才比距离。
+            // 于是上面那个场景命中更近的 12:00 已服行 → 按窄路径同款响亮拒绝（alreadyResolved），
+            // 幂等语义反而更完整。
             if let wide = try Row.fetchOne(db, sql: """
                 SELECT id, user_action, dose_units FROM medication_dose_log
                 WHERE plan_id = ? AND scheduled_for BETWEEN ? AND ?
-                ORDER BY CASE WHEN user_action IN ('taken','discomfort') THEN 1 ELSE 0 END,
+                ORDER BY CASE WHEN scheduled_for > ? THEN 1 ELSE 0 END,
+                         CASE WHEN user_action IN ('taken','discomfort') THEN 1 ELSE 0 END,
                          ABS(scheduled_for - ?) LIMIT 1
                 """, arguments: [planId.uuidString,
                                  actualTime.timeIntervalSince1970 - wideWindow,
                                  actualTime.timeIntervalSince1970 + wideWindow,
+                                 actualTime.timeIntervalSince1970,
                                  actualTime.timeIntervalSince1970]) {
                 let wideAction = (wide["user_action"] as String?).flatMap(DoseUserAction.init(rawValue:))
                 // 第八轮全仓审查修复（宽窗口幂等）：窄窗口（±30min）对 taken/

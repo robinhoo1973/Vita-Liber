@@ -187,12 +187,14 @@ struct ObservationDetailView: View {
                 row(L10n.obsDetailBodyPart, event.bodyPart)
                 if let d = event.durationMin { row(L10n.obsDetailDuration, String(format: L10n.obsDetailDurationFmt, d)) }
                 row(L10n.obsDetailFrequency, event.frequency)
-                if let first = event.isFirst { row(L10n.obsDetailIsFirst, first ? L10n.onboard_confirm : L10n.commonCancel) }
+                // 审查修复：真假词此前借用「确认/取消」，读起来成了与存储事实相反的
+                // 陈述句（isFirst=false 显示「是否首现：取消」）。改用是/否词表。
+                if let first = event.isFirst { row(L10n.obsDetailIsFirst, first ? L10n.commonYes : L10n.commonNo) }
                 row(L10n.obsDetailTrigger, event.trigger)
                 row(L10n.obsDetailAccompanying, event.accompanying)
                 if let pain = event.painScore { row(L10n.obsDetailPainScore, "\(pain)/10") }
                 row(L10n.obsDetailMedsDiet, event.medsDiet)
-                if event.consultedDoctor { row(L10n.obsDetailConsulted, L10n.onboard_confirm) }
+                if event.consultedDoctor { row(L10n.obsDetailConsulted, L10n.commonYes) }
             }
             .font(.footnote)
         } else if event.description == nil || event.description?.isEmpty == true {
@@ -330,13 +332,11 @@ struct ObservationDetailView: View {
         .padding(20)
     }
 
-    /// 自述标记三值 → 展示名（BR-006：只译值本身，不附加判断）
+    /// 自述标记三值 → 展示名（BR-006：只译值本身，不附加判断）。
+    /// 审查修复（复用）：实现上提至 `L10n.observationMarkName`（文案出口单一事实源），
+    /// 此处保留转发以免改动展示页调用点；SP-14 列表页同源复用。
     static func markName(_ mark: String) -> String {
-        switch mark {
-        case "improved": return L10n.observationTrendImproved
-        case "worsened": return L10n.observationTrendWorsened
-        default: return L10n.observationTrendUnchanged
-        }
+        L10n.observationMarkName(mark)
     }
 }
 

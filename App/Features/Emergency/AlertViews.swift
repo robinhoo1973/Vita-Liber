@@ -11,6 +11,28 @@ import Perception
 ///    文案不得上屏——拦截显示优于展示错误；
 /// 3. 信源链接 `citationUrl` 必须可点开原文（F16 验收），L1+ 卡片即引用它。
 
+// MARK: - BR-006 旧行文案否决（本文件铁律 2 的落地点）
+
+/// 旧行（`legacyFacts` / `legacyPath`）来自 V3.68 之前的历史组装路径，**未经现行审校**，
+/// 可能含疾病名推断/因果/处置句式。铁律 2 声明「命中的文案不得上屏——拦截显示优于
+/// 展示错误」，但此前实现里本文件无一处调用 `WordingBlacklist.violation`，旧行走的是
+/// 注释里标注的「直出历史文案」分支，负清单一票否决被绕过。
+/// 本类型把该判定收敛成一处：视图只问「这串能不能上屏」，命中即降级
+/// （facts 不渲染该行 / path 回落到经审校的静态 L10n 文案）。
+private enum LegacyWordingVeto {
+    /// 命中措辞负清单（BR-006 一票否决）
+    static func isBanned(_ text: String?) -> Bool {
+        guard let text, !text.isEmpty else { return false }
+        return WordingBlacklist.violation(in: text) != nil
+    }
+
+    /// 可上屏的串；命中即返回 nil，调用侧降级
+    static func sanitized(_ text: String?) -> String? {
+        guard let text, !isBanned(text) else { return nil }
+        return text
+    }
+}
+
 // MARK: - 预警历史
 
 struct AlertHistoryView: View {
@@ -56,10 +78,20 @@ struct AlertHistoryView: View {
                         ForEach(filtered, id: \.id) { event in
                             if event.severity == .L0 {
                                 VStack(alignment: .leading, spacing: 4) {
+                                    // 审查修复（ADR-010）：L0 行此前只有「数值 + 单位」，
+                                    // 同一单位的不同指标完全无法区分（3.5 mmol/L 是血糖还是
+                                    // 肌酐？），也没有来源/时间——弱化呈现不等于丢失指标身份。
+                                    // 指标名经 L10n.healthMetricName 取，与 L1+ 结构化分支同源。
+                                    if let metricKey = event.card.metricKey {
+                                        Text(L10n.healthMetricName(metricKey))
+                                            .font(.caption).foregroundStyle(.secondary)
+                                    }
                                     Text(L10n.healthHistoricalEvaluation).font(.caption).foregroundStyle(.secondary)
                                     if let value = event.card.value {
                                         Text("\(MedicalNumberFormat.quantity(value)) \(event.card.unit ?? "")")
-                                    } else if let facts = event.card.legacyFacts { Text(facts) }
+                                    } else if let facts = LegacyWordingVeto.sanitized(event.card.legacyFacts) {
+                                        Text(facts)
+                                    }
                                 }
                             } else {
                                 EvidenceCardRow(event: event, sourceEntry: sourceEntry(for: event))
@@ -139,8 +171,9 @@ private struct EvidenceCardRow: View {
                     Text(event.createdAt.formatted(date: .abbreviated, time: .shortened))
                         .font(.caption2).foregroundStyle(.secondary)
                 }
-                // V3.68：结构化卡经 L10n 渲染；旧行（legacy*）直出历史文案
-                if let legacy = event.card.legacyFacts {
+                // V3.68：结构化卡经 L10n 渲染；旧行（legacy*）过措辞负清单后渲染
+                // （审查修复：此前直出，BR-006 一票否决被绕过）
+                if let legacy = LegacyWordingVeto.sanitized(event.card.legacyFacts) {
                     Text(legacy)
                         .font(.subheadline)
                         .accessibilityIdentifier("F16.evidence.facts")
@@ -186,7 +219,9 @@ private struct EvidenceCardRow: View {
     }
 
     static func pathText(_ card: AlertEvidenceCard) -> String {
-        if let legacy = card.legacyPath { return legacy }
+        // 审查修复（BR-006）：旧 path 文案可能是模型生成的处置句式
+        // （「建议停用…」）——命中负清单即丢弃，回落到经审校的静态 L10n 文案。
+        if let legacy = LegacyWordingVeto.sanitized(card.legacyPath) { return legacy }
         switch card.path {
         case .retestNow: return L10n.alertEvidencePathRetest
         case .scheduleVisit: return L10n.alertEvidencePathVisit

@@ -313,7 +313,23 @@ public enum AlertRuleEngine {
         // mg/dL↔mmol/L 摩尔桥接仍属 F25 接线批次，登记不在此实现）。
         let ruNorm = Self.unitAlias(ru)
         let guNorm = Self.unitAlias(gu)
-        if !ru.isEmpty, !gu.isEmpty, gu != "1", ruNorm != guNorm { return nil }
+        // 审查修复（医疗数字单一事实源，P0）：`gu != "1"` 是一条**不成文豁免**——
+        // 它让「信源单位缺失」的行对**任意单位**的读数放行。而信源的 NULL unit 恰好
+        // 会被 GuidelineStore.decode 伪造为该哨兵（`row["unit"] as String? ?? "1"`，
+        // 该列由迁移 v3 `ALTER TABLE guideline_source ADD COLUMN unit TEXT` 加入、
+        // **未回填**），两处叠加即等于关掉跨单位拒判：实测（编译真实 Domain 源执行）
+        // 血糖 110 mg/dL（≈6.1 mmol/L，正常）在 2020 CDS 阈值下被判 **L3**，
+        // 产出五段证据卡并给出 .retestNow「立即复测」，而同一读数在 unit="mmol/L"
+        // 下正确返回 nil。既有的跨单位回归用例（AlertEmergencyDomainTests
+        // crossUnitReadingRefusesGrading，信源单位 mmol/L）因此照常通过，洞不可见。
+        // 现按本函数自述的红线方向（无法证同 → 宁可少警）收紧：信源单位缺失时，
+        // 只要读数带单位就拒绝定级；两侧都无单位则照旧（无从比较，与既有一致）。
+        // 注：随包种子信源均带真实单位，故本收紧不影响现有数据。
+        let guidelineUnitMissing = guNorm.isEmpty || gu == "1"
+        if !ru.isEmpty {
+            if guidelineUnitMissing { return nil }
+            if ruNorm != guNorm { return nil }
+        }
         if let high = g.l3High, reading.value >= high { return .L3 }
         if let low = g.l3Low, reading.value <= low { return .L3 }
         if let high = g.l2High, reading.value >= high { return .L2 }

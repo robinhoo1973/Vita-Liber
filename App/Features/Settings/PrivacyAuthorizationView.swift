@@ -60,7 +60,16 @@ struct PrivacyAuthorizationView: View {
 
     private func binding(for key: AppSettingKey) -> Binding<Bool> {
         Binding(
-            get: { settings.values[key] != "false" },   // 未设置 = 允许（默认真源在 defaultValue）
+            // 审查修复（口径统一，FR14.1 同意面）：此前是 `values[key] != "false"`——
+            // 在 values 未装载（nil，`.task { await settings.load() }` 尚未返回）时
+            // **恒为 true** 显示为开，而客户端真实判定走 SettingsRules.resolved/
+            // defaultValue。本页 key 含默认值 "false" 的 healthWriteBack（写回
+            // Apple 健康，默认关）：冷启动进入本页的那一帧，「写回 Apple 健康」被
+            // 显示为**开**（副标题却写「默认关」），用户据此以为读数已在写回；
+            // 若在该窗口点开关试图「打开」，界面已显示为开 → 实际写入 "false"
+            // （无变化）→ 开关回落成关，用户看到「开了又自己关了」。
+            // 与 SettingsViews.swift:216 同款口径：按键默认值解析，装载前后一致。
+            get: { SettingsRules.resolved(settings.values[key], key: key) == "true" },
             set: { newValue in
                 Task { await settings.set(newValue ? "true" : "false", for: key) }
             })

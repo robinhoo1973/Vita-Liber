@@ -347,14 +347,23 @@ public actor EncounterStore {
     /// 解码恒失败被 continue 跳过，红点清单对全部新文档恒空、BR-003 提示
     /// 静默失效。现按文档级 D 级语义直查：grade='D' 即「整体未确认」，
     /// fieldCount=1（资料级未确认单位——字段级队列语义随 SP-53 决策项另行裁定）。
-    public func unconfirmedFields(patientId: UUID) async throws -> [(documentId: UUID, fieldCount: Int)] {
+    /// BR-003：未确认（D 级）资料清单，供就诊总结页提示「以下信息尚未经你确认」。
+    ///
+    /// 审查修复（F-A4-04）：返回值此前是 `(documentId, fieldCount)`，而 fieldCount
+    /// **恒为硬编码 1**（`map { ($0, 1) }`）——任何 D 级资料都宣称「1 个字段待确认」，
+    /// 一张 12 个未确认字段的化验单与一张 1 个字段的资料在总结页上完全同形。
+    /// 同时视图只能拿 documentId 顶替资料名（渲染成「资料 3f2a1b9c」）。
+    /// 改为返回资料标题（空标题由 App 层经 L10n.docTitle 回落「未命名资料」），
+    /// 不再输出无法证实的计数——给医生看的总结页不得出现假计数与内部 UUID。
+    public func unconfirmedFields(patientId: UUID) async throws -> [(documentId: UUID, title: String)] {
         try await writer.read { db in
             let rows = try Row.fetchAll(db, sql: """
-                SELECT id FROM document_file
+                SELECT id, title FROM document_file
                 WHERE patient_id = ? AND status IN ('active','favorite') AND grade = 'D'
                 """, arguments: [patientId.uuidString])
             return rows.compactMap { row in
-                UUID(uuidString: row["id"] as String).map { ($0, 1) }
+                UUID(uuidString: row["id"] as String)
+                    .map { ($0, (row["title"] as String?) ?? "") }
             }
         }
     }

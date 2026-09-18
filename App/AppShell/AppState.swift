@@ -388,10 +388,22 @@ final class AppState {
         guard let memberDeletion else { return false }
         do {
             try await memberDeletion.deleteMember(patientId: patientId, choice: choice)
+            // 审查修复（错误顺序，P1）：审计此前与删除同处一个 do——审计是**另一个**
+            // writer.write 事务，在磁盘满（SQLITE_FULL）或忙等待超时（SQLITE_BUSY）时
+            // 会抛错，throw 直接跳到 catch：删除**已经提交**（软删档案、计划/预约已处置），
+            // 但 BR-001 重锚（下方 currentPatientId 回落）与 loadMembers() 全部跳过，
+            // 且调用方收到 false 而弹出「删除失败」。结果=成员已消失，锚点却指向这个
+            // 已删成员（所有 BR-001 投影为空、选择器无选中）——正是 51ca7cc 修掉的
+            // 幽灵锚点缺陷，只是从另一条路径可达。审计是**旁路证据**，不得决定
+            // 主操作成败：失败只记日志，不改变返回值，也不阻断重锚。
             if let audit {
-                try await audit.record(action: "delete", entityType: "patient_profile",
-                                       entityId: patientId.uuidString, actorLocal: "owner",
-                                       meta: "choice=\(choice.rawValue)")
+                do {
+                    try await audit.record(action: "delete", entityType: "patient_profile",
+                                           entityId: patientId.uuidString, actorLocal: "owner",
+                                           meta: "choice=\(choice.rawValue)")
+                } catch {
+                    logger.error("删除审计写入失败（不影响删除结果）: \(error)")
+                }
             }
             if currentPatientId == patientId {
                 // 审查修正（BR-001）：owner 缺失时此前回落 `patientId` = 刚软删的
@@ -512,13 +524,36 @@ final class AppState {
     }
 
     /// FR14.3 清空全部（影响清单先行由 UI 承担；审计记录保留——匿名化语义）
+    ///
+    /// 审查修复（F-A1-01 后半，P0）：此前只清了内存投影与语音步骤，**未清身份**——
+    /// DB 侧 `local_owner` / `patient_profile` / `consent_record` 已被
+    /// `GRDBPatientPersistor.reset()` 删除（:164-217），而 `owner` 非 nil 永久保留、
+    /// `onboardingFinished` 仍为 true、UserDefaults 的 `currentPatientId` /
+    /// `selfPatientId` / `disclosureProgress` 原样留存。后果是应用被永久锚定在
+    /// 一个**已删除的身份**上：`!onboardingFinished` 分支（AppRootView:56）不再进入
+    /// 向导——而向导是 `createOwner` 的唯一调用方，于是「本人」档案与紧急卡永远
+    /// 无法重建；所有按 BR-001 过滤的页面恒空；任何以 currentPatientId 落库的写入
+    /// 违反 `REFERENCES patient_profile(id)`；FR20.5 知情同意行已删却不再补问。
+    /// 清空全部 = 回到可用的全新安装态：身份内存 + 身份锚点 + 向导断点一并复位，
+    /// 由向导重新建档并重新收集三卡同意（consent_record 已空）。
+    /// 偏好（主题/语言/关怀模式/备份时刻）按 FR14.3 影响清单口径**不**重置。
     func persistorReset() async throws {
         try await persistor.reset()
+        // 内存身份与同意投影
+        owner = nil
         consentRecords = []
         members = []
         voiceInterviewStepsByPatient = [:]
+        // 身份锚点（BR-001）：不清则 currentPatientId 仍返回已删除成员的 UUID
         defaults.removeObject(forKey: "voiceInterviewStepsByPatient")
         defaults.removeObject(forKey: "voiceInterviewSteps")
+        defaults.removeObject(forKey: "currentPatientId")
+        defaults.removeObject(forKey: "selfPatientId")
+        defaults.removeObject(forKey: "disclosureProgress")
+        // 回到首启向导：onboardingFinished=false 是唯一的「重建档案」入口
+        onboardingFinished = false
+        defaults.set(false, forKey: "onboardingFinished")
+        stage = .disclosure(index: 0)
     }
 
     /// FR22.4/FR13.10 上次备份时间（F22.4 备份健康展示；随备份完成写入）。

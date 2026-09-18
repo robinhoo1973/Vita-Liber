@@ -34,9 +34,25 @@ public struct DoseRecord: Sendable, Equatable, Identifiable {
     public var displayLabel: String {
         var parts = [medicationName, spec].compactMap { $0 }.filter { !$0.isEmpty }
         if parts.isEmpty { parts = ["未命名药品"] }
-        let doseText = dose.doseUnits == dose.doseUnits.rounded()
-            ? "\(Int(dose.doseUnits)) \(unitKind ?? "单位")"
-            : "\(dose.doseUnits) \(unitKind ?? "单位")"
+        // 审查修复（硬崩，P0）：原实现 `dose.doseUnits == dose.doseUnits.rounded()
+        // ? "\(Int(dose.doseUnits)) …"`。当 doseUnits 为 **inf** 时 `inf == inf.rounded()`
+        // 为真，于是走 Int 分支——而 `Int(_:)` 对 inf/NaN/超范围值**直接 trap**
+        //（"Double value cannot be converted to Int because it is either infinite or NaN"）。
+        // inf 是可从正常 UI 抵达的：`DoseScheduleEngine.DoseInputParser.parse` 是计划表单
+        // 单次剂量字段的**唯一**入口，而表单唯一的合法性判据是 `parse(trimmed) == nil`
+        //（MedicationPlanViews.swift:527）——输入「1e400」无单位后缀可剥、无「/」，
+        // NumberNormalizer 放行 ASCII，Double("1e400") = +inf ⇒ 非 nil ⇒ 被接受并落库到
+        // dose_plan_units，随后物化进每个 ScheduledDose。本属性在提醒/首页/应用内横幅/
+        // 通知中心逐行渲染（RemindersViews:374、InAppBanner:34、NotificationCenterView:271），
+        // 一处非法输入即让 P0 用药提醒面硬崩。
+        // 改用 Int(exactly:)：非有限或超出 Int 表示范围一律回落小数分支，只做展示，不再 trap。
+        let rounded = dose.doseUnits.rounded()
+        let doseText: String
+        if dose.doseUnits.isFinite, rounded == dose.doseUnits, let whole = Int(exactly: rounded) {
+            doseText = "\(whole) \(unitKind ?? "单位")"
+        } else {
+            doseText = "\(dose.doseUnits) \(unitKind ?? "单位")"
+        }
         return parts.joined(separator: " ") + " · " + doseText
     }
 }

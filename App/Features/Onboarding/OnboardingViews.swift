@@ -77,6 +77,8 @@ struct AddFamilyStepView: View {
     @Environment(AppState.self) private var app
     @State private var showCreate = false
     @State private var addedHint = false
+    /// 审查修复：落库失败必须可见（此前无条件弹「已添加」成功文案）
+    @State private var addFailed = false
     @State private var addedCount = 0
 
     var body: some View {
@@ -121,16 +123,25 @@ struct AddFamilyStepView: View {
             .sheet(isPresented: $showCreate) {
                 MemberCreateSheet { name, relation, birthDate in
                     Task { @MainActor in
+                        // 审查修复（四态纪律）：addedHint 此前写在成功分支之外**无条件**执行，
+                        // 落库失败（DB 错/磁盘满/迁移降级只读）也弹「成员已添加」——
+                        // 用户相信家人档案已建立，实际演练结束时该成员缺席（ADR-015 少一个 PatientProfile）。
+                        // 对照同族已修点 MemberViews.swift:93 addFailed 警报。
                         if await app.addMember(name: name, relation: relation, birthDate: birthDate) {
                             addedCount += 1
+                            addedHint = true
+                        } else {
+                            addFailed = true
                         }
                         showCreate = false
-                        addedHint = true
                     }
                 }
             }
             // FR3.7 新建后「完善档案」引导（过敏/既往史/紧急联系人）
             .alert(L10n.onboardAddFamilyCompleteHint, isPresented: $addedHint) {
+                Button(L10n.onboard_gotIt, role: .cancel) { }
+            }
+            .alert(L10n.member_addFailed, isPresented: $addFailed) {
                 Button(L10n.onboard_gotIt, role: .cancel) { }
             }
         }

@@ -40,9 +40,15 @@ struct EmergencyCardView: View {
                     section(L10n.emergency_health, items: card.healthProblems, empty: L10n.emergency_notSet)
                     section(L10n.emergency_contacts, items: card.contacts, empty: L10n.emergency_notSet)
 
+                    // 审查修复（FR15.1 死锁）：引导卡与 [管理] 曾用 else-if 互斥，
+                    // 而 medicalIDGuideNeeded == 四节全空 == 全新安装的唯一状态。
+                    // 于是新用户只看到「写入系统医疗急救卡」引导卡，永远拿不到
+                    // 唯一的选择入口（F15.card.manage），四节永远填不上——鸡生蛋死锁，
+                    // 急救卡（BR-012 唯一免门禁路径）恒为空。§5.16 要求两者并存。
                     if EmergencyCardService.medicalIDGuideNeeded(card: card) {
                         GuideCard(onGuide: onGuideMedicalID)
-                    } else if let onOpenSelector {
+                    }
+                    if let onOpenSelector {
                         Button {
                             onOpenSelector()
                         } label: {
@@ -399,6 +405,8 @@ struct SOSHelpView: View {
     @Environment(AppState.self) private var app
     @Environment(M2HubStore.self) private var hub
     @State private var showEmergencyCard = false
+    /// BR-012：拨号失败必须可见（不得静默死控件）
+    @State private var dialFailed = false
 
     private var contacts: [EmergencyCardItem] {
         hub.emergencySelected.contacts.filter(\.confirmed)
@@ -473,14 +481,22 @@ struct SOSHelpView: View {
                     NavigationStack { EmergencyCardHubView(readOnly: true) }
                 }
                 .task(id: app.currentPatientId) { await hub.load(patientId: app.currentPatientId) }
+                .alert(L10n.sosDialFailed, isPresented: $dialFailed) {
+                    Button(L10n.onboard_gotIt, role: .cancel) { }
+                }
             }
         }
     }
 
     /// 系统拨号：经 SystemLinks 单一出口（号码归一，全仓审查 2026-09-18 F-A2-05）；
-    /// 拨号动作本身由系统确认，App 不拦截不记录内容
+    /// 拨号动作本身由系统确认，App 不拦截不记录内容。
+    /// 审查修复（BR-012）：返回值此前被丢弃——iPad（无电话 App，canOpenURL 恒假）
+    /// 或号码含分隔符表外字符（PhoneNumberRules.dialable 归一失败）时，
+    /// [拨打 120] 与联系人按钮变成静默死控件：不拨号、不报错、不提示，
+    /// 用户在急救场景下以为已拨出。SOS 是唯一免门禁路径，其失败必须响亮可见。
+    /// 对照正确写法：VoiceSessionView.swift:780 `if !SystemLinks.dial(phone) { 提示 }`。
     private func dial(_ number: String) {
-        SystemLinks.dial(number)
+        if !SystemLinks.dial(number) { dialFailed = true }
     }
 }
 

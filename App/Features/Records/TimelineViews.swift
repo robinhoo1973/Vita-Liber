@@ -687,7 +687,11 @@ struct VisitPrepView: View {
                     Text(profile?.displayName ?? app.owner?.displayName ?? L10n.help_appName)
                         .font(.headline)
                     if let relation = profile?.relation {
-                        Text(relation).font(.caption).foregroundStyle(.secondary)
+                        // 审查修复（L10n 单出口）：relation 存储值是 MemberRelation 的中文
+                        // rawValue（配偶/子女/…），此前直出——该页是给医生看的打印页，
+                        // en/zh-Hant 用户会看到简体中文关系词。全仓其余 4 处均已映射。
+                        Text(L10n.memberRelationDisplayName(relation))
+                            .font(.caption).foregroundStyle(.secondary)
                     }
                     if let bloodType = hub.loadedPatientId == app.currentPatientId ? hub.bloodType : nil {
                         LabeledContent(L10n.prepBloodType, value: bloodType)

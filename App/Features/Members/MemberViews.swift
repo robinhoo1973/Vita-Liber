@@ -128,6 +128,8 @@ struct MemberDetailView: View {
     /// 保存失败可见性（审查修复：updateMember 返回 false 被丢弃——写库
     /// 失败只留日志，用户以为已保存、重启后字段静默回退）
     @State private var saveFailed = false
+    /// 审查修复：删除失败此前静默（见 deleteFlow 回调）
+    @State private var deleteFailed = false
 
     init(member: PatientProfile) {
         self.member = member
@@ -210,9 +212,17 @@ struct MemberDetailView: View {
                         if ok {
                             showDeleteFlow = false
                             dismiss()
+                        } else {
+                            // 审查修复：删除失败此前静默——sheet 原地保留、无任何反馈，
+                            // 按钮点了像没点（用户会重复点击或误以为已删除）。不可逆动作
+                            // 的失败必须可见。
+                            deleteFailed = true
                         }
                     }
                 }
+            }
+            .alert(L10n.memberDeleteFailed, isPresented: $deleteFailed) {
+                Button(L10n.onboard_gotIt, role: .cancel) { }
             }
             .alert(L10n.memberUpdateFailed, isPresented: $saveFailed) {
                 Button(L10n.onboard_gotIt, role: .cancel) { }

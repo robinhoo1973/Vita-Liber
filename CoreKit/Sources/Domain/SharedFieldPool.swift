@@ -123,7 +123,18 @@ public enum SharedFieldPool {
             guard let groups = byKey[key] else { continue }
             let cardCount = Set(slots.filter { $0.key == key }.map(\.carrier.cardId)).count
             let repeated = cardCount >= 2
-            for (_, group) in groups.sorted(by: { $0.value.first?.value ?? "" < $1.value.first?.value ?? "" }) {
+            // 审查修复（非确定性输出）：原比较器只比 `value`，而 groups 的键是
+            // 「value\u{1}unit」——两条 value 文本相同但单位不同的组（如同一分析物
+            // 在一页化验单上分别以 mmol/L 与 mg/dL 打印）在两个方向上都判定为 false，
+            // 即**非全序**；Swift 的 sorted 不保证稳定，于是这两行的相对次序退化为
+            // Dictionary 每进程随机的遍历序 → 同一输入在每次启动下产出不同的
+            // 共用信息确认页行序（快照/金样测试随之闪断）。
+            // 补上唯一的键作为最终次序键，构成全序。
+            for (_, group) in groups.sorted(by: {
+                let av = $0.value.first?.value ?? ""
+                let bv = $1.value.first?.value ?? ""
+                return av == bv ? $0.key < $1.key : av < bv
+            }) {
                 guard let head = group.first else { continue }
                 let required = group.contains(where: \.required)
                 let lowConfidence = group.contains { $0.field.confidence < floor }

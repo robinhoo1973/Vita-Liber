@@ -362,6 +362,7 @@
 "member.switch" = "切换";
 "member.namePlaceholder" = "姓名";
 "member.updateFailed" = "成员信息保存失败，请重试";
+"member.deleteFailed" = "删除成员失败，请重试";
 "member.updateFailedHint" = "刚才的修改未生效。";
 "member.relation" = "关系";
 "member.birthDatePlaceholder" = "生日（如 1962-03）";
@@ -507,6 +508,8 @@
 "immunization.createTitle" = "新增疫苗记录";
 "immunization.lot" = " · 批号 %@";
 "common.save" = "保存";
+"common.yes" = "是";
+"common.no" = "否";
 "common.cancel" = "取消";
 "common.member" = "成员";
 "inventory.dualLine" = "安全线 %1$@ %2$@ · 确认 %3$@ %2$@";
@@ -638,6 +641,7 @@
 "sos.noContacts" = "尚未配置紧急联系人。可先在急救卡中补录（设置 → 紧急信息卡）。";
 "sos.viewCard" = "查看急救卡";
 "sos.sendLocationP1" = "发送位置（即将推出）";
+"sos.dialFailed" = "此设备无法拨号，请手动拨打该号码";
 "home.greeting" = "你好，%@";
 "home.todayTodos" = "今日待办";
 "home.pendingCards" = "待补充";
@@ -845,7 +849,7 @@
 "encounter.summary.header" = "就诊信息";
 "encounter.summary.unconfirmed" = "以下信息尚未经你确认";
 "encounter.summary.allConfirmed" = "全部识别字段已确认";
-"encounter.summary.docFieldsFmt" = "资料 %@ · %d 个字段待确认";
+"encounter.summary.docFieldsFmt" = "资料 %@（有未确认字段）";
 "encounter.summary.note" = "说明";
 "encounter.summary.noteText" = "未确认的识别字段不会进入正式档案与提醒。";
 "encounter.form.title" = "新建就诊";
@@ -1293,6 +1297,7 @@
 "export.dateFrom" = "开始日期";
 "export.dateTo" = "结束日期";
 "export.content" = "导出内容";
+"export.tocTitle" = "目录";
 "export.includeNotes" = "包含备注";
 "export.watermark" = "添加水印";
 "export.privacyHint" = "导出内容包含你的健康资料。含敏感媒体的导出需逐项确认（本版本敏感媒体仅导出元数据与已确认文本）。";

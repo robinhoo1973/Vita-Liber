@@ -17,7 +17,7 @@ public enum SevereReactionRules {
     public static let severeKeywords: [String] = [
         "过敏性休克", "anaphylaxis", "anaphylactic",
         "breathing difficulty", "throat swelling",
-    ] + EmergencyKeywordRules.keywords
+    ] + EmergencyKeywordRules.keywords + EmergencyKeywordRules.englishKeywords
 
     /// 是否触发急救引导（重度 或 关键词命中）
     public static func triggersEmergencyCard(severity: String,

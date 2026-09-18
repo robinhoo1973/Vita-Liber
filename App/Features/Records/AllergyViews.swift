@@ -37,7 +37,10 @@ struct AllergyListView: View {
                                     GradeBadge(grade: "C")
                                 }
                                 // v30（F-A4-01）：过敏原类型随行呈现；历史行 nil 不占位
-                                Text([allergy.allergenKind,
+                                // 审查修复（L10n 单出口）：allergenKind 存储值是中文原文
+                                // （药品/食物/其他），此前直出——en/zh-Hant 界面中英混排。
+                                // 创建表单早已走 L10n.allergyKindName，此处补齐。
+                                Text([allergy.allergenKind.map(L10n.allergyKindName),
                                       L10n.allergySeverity(allergy.severity),
                                       allergy.occurredAt.formatted(date: .abbreviated, time: .omitted)]
                                         .compactMap { $0 }.joined(separator: " · "))

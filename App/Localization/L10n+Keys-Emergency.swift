@@ -61,4 +61,8 @@ extension L10n {
     static var sosViewCard: String { t("sos.viewCard") }
 
     static var sosSendLocationP1: String { t("sos.sendLocationP1") }
+
+    /// FR18.6 / BR-012：SOS 拨号失败（设备不可拨号或号码归一失败）。
+    /// 免门禁路径的失败必须**响亮可见**——静默死控件会让用户以为已拨出。
+    static var sosDialFailed: String { t("sos.dialFailed") }
 }

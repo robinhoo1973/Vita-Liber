@@ -53,11 +53,30 @@ public enum ExtractionPatterns {
     /// 外部对照：logfmt 的「只有**下一个已确认的键**才结束当前值」；
     /// FUNSD 修订版论文指出空间配对不可靠正是因缺少显式分隔——本仓有显式 `：`，
     /// 故无需几何，用「标签位」即可判定。
-    static func isLabelPosition(_ text: String, at index: String.Index) -> Bool {
+    /// - Parameter labelEnd: 该标签词的结束位置。给出时，**逗号族分隔符**之后的候选
+    ///   还需其后紧跟「：」才算真标签位（见下）。
+    static func isLabelPosition(_ text: String, at index: String.Index,
+                                labelEnd: String.Index? = nil) -> Bool {
         guard index > text.startIndex else { return true }          // 行首
         let prev = text[text.index(before: index)]
         if prev.isWhitespace || prev == ":" || prev == "：" { return true }
-        return "，,；;、（）()【】[]".contains(prev)
+        guard "，,；;、（）()【】[]".contains(prev) else { return false }
+        // 审查修复（叙事被逗号截断，BR-002/003）：此前的分隔符集含中文逗号——而
+        // 「，」正是中文临床叙述的**常规分句符**，于是候选一律被判为标签位，值被
+        // 在句中腰斩：实测 `truncatingAtLabelBoundary("患者3天前出现咳嗽、咳痰，诊断
+        // 不明确，为进一步诊治来我院")` = "患者3天前出现咳嗽、咳痰，"（其后全部丢失）；
+        // 更糟的是 T1/T2 轨：`OCRGrounding.fields` 会拿模型给出的**正确全文**与这个
+        // 截断值比较，不相等即判定「无据」整条丢弃（droppedUngrounded++）——正确
+        // 结果被扔掉、错误结果被留下，与本文件头部「错的字段值比空值更危险」相悖。
+        // 判据补强（与本函数自述的「本仓有显式 `：`」一致）：逗号族之后的候选，
+        // 只有**其后紧跟冒号**才是真标签。于是
+        //   `既往史：高血压，诊断：糖尿病` → 「诊断」后是「：」→ 仍是标签位 ✓
+        //   `…咳嗽、咳痰，诊断不明确…`     → 「诊断」后是「不」→ 不再是标签位 ✓
+        // 行首/空白/方括号之后的候选维持原判（`科室 医生：张三` 等不受影响）。
+        guard let end = labelEnd else { return true }
+        var i = end
+        while i < text.endIndex, text[i].isWhitespace { i = text.index(after: i) }
+        return i < text.endIndex && (text[i] == "：" || text[i] == ":")
     }
 
     /// 值里**下一个处于标签位**的标签起点；无则 nil。
@@ -66,7 +85,7 @@ public enum ExtractionPatterns {
         for label in labelBoundaries {
             var search = value.startIndex
             while let r = value.range(of: label, range: search..<value.endIndex) {
-                if isLabelPosition(value, at: r.lowerBound) {
+                if isLabelPosition(value, at: r.lowerBound, labelEnd: r.upperBound) {
                     if cut == nil || r.lowerBound < cut! { cut = r.lowerBound }
                     break
                 }
@@ -95,7 +114,7 @@ public enum ExtractionPatterns {
         var search = text.startIndex
         var labelRange: Range<String.Index>?
         while let r = text.range(of: label, range: search..<text.endIndex) {
-            if isLabelPosition(text, at: r.lowerBound) {
+            if isLabelPosition(text, at: r.lowerBound, labelEnd: r.upperBound) {
                 labelRange = r
                 break
             }

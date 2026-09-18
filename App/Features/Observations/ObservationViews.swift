@@ -400,7 +400,11 @@ struct ObservationListView: View {
                                 .accessibilityIdentifier("SP-14.observation.mediaBadge")
                             }
                         }
-                        Text(L10n.observationGroupSummary(group.occurrences.count, group.selfMark ?? "-"))
+                        // 审查修复（L10n 单出口）：selfMark 是库里的英文原文
+                        // （improved/unchanged/worsened），此前 `group.selfMark ?? "-"`
+                        // 直出上屏——中文界面会出现「3 次记录 · 最近 improved」。
+                        Text(L10n.observationGroupSummary(group.occurrences.count,
+                                                          group.selfMark.map(L10n.observationMarkName) ?? "-"))
                             .font(.caption2).foregroundStyle(.secondary)
                         if let ids = group.latest?.mediaAssetIds, !ids.isEmpty,
                            let memberId = group.latest?.memberId {
@@ -436,7 +440,10 @@ struct ObservationListView: View {
                     HStack {
                         Text(a.substance).font(.body)
                         Spacer()
-                        Text(a.severity).font(.caption)
+                        // 审查修复（L10n 单出口）：severity 是库里的规范值
+                        // （mild/moderate/severe），此前直出上屏——中文界面显示「mild」。
+                        // 展示出口 L10n.allergySeverity 已存在且被 AllergyViews 使用。
+                        Text(L10n.allergySeverity(a.severity)).font(.caption)
                             .padding(.horizontal, 8).padding(.vertical, 2)
                             .background(Capsule().fill(Color("semantic-warning", bundle: .main).opacity(0.15)))
                     }

@@ -253,8 +253,12 @@ extension L10n {
         String(format: t("encounter.docTitleFmt"), String(s))
     }
 
-    static func encounterSummaryDocFields(_ id: String, _ n: Int) -> String {
-        String(format: t("encounter.summary.docFieldsFmt"), id, n)
+    /// 就诊总结页「尚未经你确认」行：只出资料标题。
+    /// 审查修复（F-A4-04）：此前第二个参数是**恒为 1** 的假字段数（Infrastructure
+    /// 侧 `map { ($0, 1) }`），模板会把它直接上屏成「1 个字段待确认」——
+    /// 给医生看的页面不得出现无法证实的计数。
+    static func encounterSummaryDocFields(_ title: String) -> String {
+        String(format: t("encounter.summary.docFieldsFmt"), title)
     }
 
     static func problemMergeInto(_ name: String) -> String { String(format: t("problem.mergeIntoFmt"), name) }
@@ -265,6 +269,19 @@ extension L10n {
 
     static func memberDeleteConfirmPlaceholder(_ name: String) -> String {
         String(format: t("member.delete.confirmPlaceholderFmt"), name)
+    }
+
+    /// FR8.5 自述标记三值（improved/unchanged/worsened）→ 展示名。
+    /// 审查修复（复用）：该映射原为 `ObservationDetailView.markName` 私有静态，
+    /// SP-14 列表（ObservationViews）因此拿不到、把库里的英文原文直出上屏
+    /// （「3 次记录 · 最近 improved」）。上提到文案出口作为单一事实源，
+    /// 详情页/展示页/列表页共用。BR-006：只译值本身，不附加判断。
+    static func observationMarkName(_ mark: String) -> String {
+        switch mark {
+        case "improved": return observationTrendImproved
+        case "worsened": return observationTrendWorsened
+        default: return observationTrendUnchanged
+        }
     }
 
     static func memberRelationDisplayName(_ raw: String) -> String {
@@ -371,6 +388,11 @@ extension L10n {
     static func exportTitle(_ s: String) -> String { String(format: t("export.titleFmt"), s) }
 
     static func exportRecordCount(_ count: Int) -> String { String(format: t("export.recordCount"), count) }
+
+    /// 审查修复（tech §3）：导出 PDF 目录页标题此前硬编码简体「目录」于
+    /// Infrastructure（L10n 门禁只扫 App 视图层，扫不到 CoreKit）。
+    /// 现与封面/免责/类型名同口径由 App 层注入。
+    static var exportTocTitle: String { t("export.tocTitle") }
 
     static func exportDisclaimer(_ emergency: String) -> String { String(format: t("export.disclaimer"), emergency) }
 

@@ -362,6 +362,7 @@
 "member.switch" = "切換";
 "member.namePlaceholder" = "姓名";
 "member.updateFailed" = "成員資訊儲存失敗，請重試";
+"member.deleteFailed" = "刪除成員失敗，請重試";
 "member.updateFailedHint" = "剛才的修改未生效。";
 "member.relation" = "關係";
 "member.birthDatePlaceholder" = "生日（如 1962-03）";
@@ -507,6 +508,8 @@
 "immunization.createTitle" = "新增疫苗記錄";
 "immunization.lot" = " · 批號 %@";
 "common.save" = "儲存";
+"common.yes" = "是";
+"common.no" = "否";
 "common.cancel" = "取消";
 "common.member" = "成員";
 "inventory.dualLine" = "安全線 %1$@ %2$@ · 確認 %3$@ %2$@";
@@ -638,6 +641,7 @@
 "sos.noContacts" = "尚未配置緊急聯絡人。可先在急救卡中補錄（設定 → 緊急資訊卡）。";
 "sos.viewCard" = "查看急救卡";
 "sos.sendLocationP1" = "傳送位置（即將推出）";
+"sos.dialFailed" = "此裝置無法撥號，請手動撥打該號碼";
 "home.greeting" = "你好，%@";
 "home.todayTodos" = "今日待辦";
 "home.pendingCards" = "待補充";
@@ -845,7 +849,7 @@
 "encounter.summary.header" = "就診資訊";
 "encounter.summary.unconfirmed" = "以下資訊尚未經你確認";
 "encounter.summary.allConfirmed" = "全部識別欄位已確認";
-"encounter.summary.docFieldsFmt" = "資料 %@ · %d 個欄位待確認";
+"encounter.summary.docFieldsFmt" = "資料 %@（有未確認欄位）";
 "encounter.summary.note" = "說明";
 "encounter.summary.noteText" = "未確認的識別欄位不會進入正式檔案與提醒。";
 "encounter.form.title" = "新增就診";
@@ -1293,6 +1297,7 @@
 "export.dateFrom" = "開始日期";
 "export.dateTo" = "結束日期";
 "export.content" = "匯出內容";
+"export.tocTitle" = "目錄";
 "export.includeNotes" = "包含備註";
 "export.watermark" = "添加浮水印";
 "export.privacyHint" = "匯出內容包含你的健康資料。含敏感媒體的匯出需逐項確認（本版本敏感媒體僅匯出中繼資料與已確認文字）。";

@@ -132,6 +132,12 @@ extension L10n {
 
     static var commonSave: String { t("common.save") }
 
+    /// 布尔字段的展示词（审查修复：观察详情「是否首现 / 是否已咨询医生」
+    /// 此前借用 onboard.confirm「确认」/ common.cancel「取消」当真假词，
+    /// 读起来成了「是否首现：取消」这种与存储事实相反的陈述句）。
+    static var commonYes: String { t("common.yes") }
+    static var commonNo: String { t("common.no") }
+
     static var commonCancel: String { t("common.cancel") }
 
     static var commonConfirm: String { t("common.confirm") }

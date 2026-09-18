@@ -184,6 +184,9 @@ struct ExportWizardView: View {
                                                 disclaimer: L10n.exportDisclaimer(L10n.emergencyNumber),
                                                 kindLabel: { L10n.exportKindName($0) },
                                                 titleLabel: { L10n.docTitle($0) },
+                                                // 审查修复（tech §3）：目录页标题此前硬编码
+                                                // 简体于 PDFExportService——与封面同口径注入
+                                                tocLabel: L10n.exportTocTitle,
                                                 scopeKind: scopeKind)
                                             state.run(request)
                                             step = 3

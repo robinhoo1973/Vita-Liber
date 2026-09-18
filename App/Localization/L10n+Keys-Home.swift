@@ -98,6 +98,9 @@ extension L10n {
 
     static var memberUpdateFailedHint: String { t("member.updateFailedHint") }
 
+    /// FR3.4 删除成员失败（不可逆动作的失败必须可见）
+    static var memberDeleteFailed: String { t("member.deleteFailed") }
+
     static var member_relation: String { t("member.relation") }
 
     static var member_birthDatePlaceholder: String { t("member.birthDatePlaceholder") }

@@ -92,7 +92,7 @@ final class EncountersState {
         (try? await store.recommendDocuments(encounter: encounter)) ?? []   // try?-ok: 推荐失败=空推荐区，不阻断详情
     }
 
-    func unconfirmedFields(patientId: UUID) async -> [(documentId: UUID, fieldCount: Int)] {
+    func unconfirmedFields(patientId: UUID) async -> [(documentId: UUID, title: String)] {
         (try? await store.unconfirmedFields(patientId: patientId)) ?? []   // try?-ok: 统计失败=空清单
     }
 
@@ -244,6 +244,11 @@ struct EncounterDetailView: View {
                         }
                     }
                 }
+                // 审查修复（L0 §17 家族，判定器盲区）：容器标识不配 .contain 会把标识
+                // 下放覆盖子元素自身的标识（XCUITest 按子标识查询失败）。本处上一行是 `}`，
+                // 判定器的修饰链回溯只看「以 . 开头的连续行」，且子树内的带标识控件
+                // （hospital/kind/dept…）都在本 VStack 内——同文件另外两处同型。
+                .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("SP-08.encounter.detail.header")
 
                 // 诊断与医嘱（原文引用块，左侧竖线+浅底）
@@ -314,6 +319,12 @@ struct EncounterDetailView: View {
                                 episodeRow(card)
                             }
                         }
+                        // 审查修复（L0 §17 家族，判定器盲区）：本 Section 的子元素由
+                        // `episodeRow(_:)`（同文件 @ViewBuilder 方法）产出，其行标识
+                        // SP-08.encounter.appointment/reminder.<uuid> 在另一函数的行上——
+                        // 判定器只扫容器**花括号内**的带标识控件，看不到跨函数的子标识，
+                        // 故此处长期判绿而掩蔽真实存在。
+                        .accessibilityElement(children: .contain)
                         .accessibilityIdentifier("SP-08.encounter.section.\(section.kind.rawValue)")
                     }
                 }
@@ -362,6 +373,7 @@ struct EncounterDetailView: View {
                         }
                     }
                 }
+                .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("SP-08.encounter.linkedCards")
 
                 // FR4.2 智能推荐（同医院±7 天；推荐必须标「待确认」，不得自动生效）
@@ -542,7 +554,7 @@ struct EncounterSummaryView: View {
     let encounter: EncounterStore.EncounterRow
     @Environment(EncountersState.self) private var state
     @Environment(\.dismiss) private var dismiss
-    @State private var unconfirmed: [(documentId: UUID, fieldCount: Int)] = []
+    @State private var unconfirmed: [(documentId: UUID, title: String)] = []
 
     var body: some View {
         WithPerceptionTracking {
@@ -568,8 +580,10 @@ struct EncounterSummaryView: View {
                                 HStack {
                                     Image(systemName: "circle.fill").font(.caption2)
                                         .foregroundStyle(Color("semantic-danger", bundle: .main))
-                                    Text(L10n.encounterSummaryDocFields(
-                                        String(item.documentId.uuidString.prefix(8)), item.fieldCount))
+                                    // 审查修复（F-A4-04）：此前渲染 `documentId.uuidString
+                                    // .prefix(8)`（内部 UUID 片段当资料名）与一个恒为 1 的
+                                    // 假字段数。改为资料标题（空标题回落「未命名资料」）。
+                                    Text(L10n.encounterSummaryDocFields(L10n.docTitle(item.title)))
                                         .font(.subheadline)
                                 }
                             }

@@ -36,6 +36,11 @@ public actor PDFExportService {
         /// 标题显示回落（App 层经 L10n.docTitle 注入——TimelineProjection 对
         /// 无题资料输出 ""（数据保真），Infrastructure 不持有「未命名资料」文案）
         public var titleLabel: @Sendable (String) -> String
+        /// 目录页标题（App 层经 L10n 注入——Infrastructure 不拼中文）。
+        /// 审查修复：封面/免责/类型名均已注入，唯独目录页标题硬编码简体「目录」，
+        /// 而 L10n 门禁只扫 App/ 视图层，扫不到 CoreKit——en/zh-Hant 用户导出的
+        /// 病历 PDF 第 2 页恒为简体「目录」。空串则不绘制标题。
+        public var tocLabel: String
         public enum ScopeKind: String, Sendable {
             case all, member, dateRange, docType, doctorSummary   // 健康问题/就诊维度随挂接数据
         }
@@ -46,6 +51,7 @@ public actor PDFExportService {
                     disclaimer: String = "",
                     kindLabel: @escaping @Sendable (String) -> String = { $0 },
                     titleLabel: @escaping @Sendable (String) -> String = { $0 },
+                    tocLabel: String = "",
                     scopeKind: ScopeKind = .all) {
             self.patientId = patientId; self.title = title
             self.dateFrom = dateFrom; self.dateTo = dateTo
@@ -54,6 +60,7 @@ public actor PDFExportService {
             self.countLabel = countLabel; self.disclaimer = disclaimer
             self.kindLabel = kindLabel
             self.titleLabel = titleLabel
+            self.tocLabel = tocLabel
             self.scopeKind = scopeKind
         }
     }
@@ -70,10 +77,26 @@ public actor PDFExportService {
     /// 收集导出数据（按维度过滤；敏感媒体只出元数据与 C 级确认文本——BR-007/008）
     private func collect(_ request: ExportRequest) async throws -> (documents: [(title: String?, at: Date)], records: [(kind: String, title: String, at: Date, detail: String)]) {
         try await writer.read { db in
-            var dateClause = ""
-            var args: [DatabaseValueConvertible] = [request.patientId.uuidString]
-            if let from = request.dateFrom { dateClause += " AND created_at >= ?"; args.append(from.timeIntervalSince1970) }
-            if let to = request.dateTo { dateClause += " AND created_at <= ?"; args.append(to.timeIntervalSince1970) }
+            // 审查修复（FR13.2 越界披露，P0）：日期范围此前只下推到 document_file
+            // 一条查询，而观察/用药计划/就诊三条查询只按 patient_id 过滤——封面却
+            // 照常打印用户选定的区间（含「记录数」计数）。于是选「按日期范围
+            // 2026-06-20 ~ 2026-09-18」导出并分享给诊所时，正文里带出的是**全部历史**的
+            // 就诊诊断原文、用药计划与观察描述，收件人拿到了用户以为已经排除的病史。
+            // 现按各表自身的时间列统一施加区间（列名不同，故按表取列）。
+            func dateFragment(_ column: String) -> (clause: String, args: [DatabaseValueConvertible]) {
+                var clause = ""
+                var out: [DatabaseValueConvertible] = []
+                if let from = request.dateFrom {
+                    clause += " AND \(column) >= ?"; out.append(from.timeIntervalSince1970)
+                }
+                if let to = request.dateTo {
+                    clause += " AND \(column) <= ?"; out.append(to.timeIntervalSince1970)
+                }
+                return (clause, out)
+            }
+            let docDate = dateFragment("created_at")
+            var dateClause = docDate.clause
+            var args: [DatabaseValueConvertible] = [request.patientId.uuidString] + docDate.args
             // 第四轮全仓审查修复（5WHY）：此前按 TimelineDocumentEntry 解码
             // meta_json——V3.39 拆镜像后该投影无写入方，解码恒失败被静默
             // continue，活管线入库文档从 PDF 导出中全部消失（FR13.2 数据丢失）。
@@ -103,31 +126,34 @@ public actor PDFExportService {
                 records.append((request.kindLabel("record"), request.titleLabel(title ?? ""), at, detail))
             }
             // 观察记录（描述为 C 级自述文本；敏感媒体不出正文）
+            let obsDate = dateFragment("occurred_at")
             let obsRows = try Row.fetchAll(db, sql: """
                 SELECT kind, occurred_at, description FROM observation
-                WHERE patient_id = ? ORDER BY occurred_at ASC
-                """, arguments: [request.patientId.uuidString])
+                WHERE patient_id = ?\(obsDate.clause) ORDER BY occurred_at ASC
+                """, arguments: StatementArguments([request.patientId.uuidString] + obsDate.args))
             for row in obsRows {
                 records.append((request.kindLabel("observation"), request.kindLabel(row["kind"] as String),
                                 Date(timeIntervalSince1970: (row["occurred_at"] as Double?) ?? 0),
                                 request.includeNotes ? ((row["description"] as String?) ?? "") : ""))
             }
             // 用药计划
+            let planDate = dateFragment("p.start_date")
             let planRows = try Row.fetchAll(db, sql: """
                 SELECT p.start_date, m.generic_name, m.spec, p.status FROM medication_plan p
                 JOIN medication m ON m.id = p.medication_id
-                WHERE p.patient_id = ? ORDER BY p.start_date ASC
-                """, arguments: [request.patientId.uuidString])
+                WHERE p.patient_id = ?\(planDate.clause) ORDER BY p.start_date ASC
+                """, arguments: StatementArguments([request.patientId.uuidString] + planDate.args))
             for row in planRows {
                 records.append((request.kindLabel("plan"), row["generic_name"] as String,
                                 Date(timeIntervalSince1970: row["start_date"] as Double),
                                 "\(row["spec"] as String? ?? "") · \(row["status"] as String)"))
             }
             // 就诊
+            let encDate = dateFragment("date")
             let encRows = try Row.fetchAll(db, sql: """
                 SELECT date, kind, hospital, diagnosis_text FROM encounter
-                WHERE patient_id = ? ORDER BY date ASC
-                """, arguments: [request.patientId.uuidString])
+                WHERE patient_id = ?\(encDate.clause) ORDER BY date ASC
+                """, arguments: StatementArguments([request.patientId.uuidString] + encDate.args))
             for row in encRows {
                 records.append((request.kindLabel("encounter"), "\(row["hospital"] as String? ?? "") · \(row["kind"] as String)",
                                 Date(timeIntervalSince1970: row["date"] as Double),
@@ -190,7 +216,12 @@ public actor PDFExportService {
 
     private func drawTOC(_ ctx: UIGraphicsPDFRendererContext, records: [(kind: String, title: String, at: Date, detail: String)]) {
         var y: CGFloat = 100
-        ("目录" as NSString).draw(at: CGPoint(x: 60, y: y), withAttributes: [.font: UIFont.boldSystemFont(ofSize: 18)])
+        // 审查修复（tech §3 L10n 纪律）：标题此前硬编码简体「目录」。
+        // 文案由 App 层注入（空则不绘制标题，与 disclaimer 同款口径）。
+        if !request.tocLabel.isEmpty {
+            (request.tocLabel as NSString).draw(at: CGPoint(x: 60, y: y),
+                                                withAttributes: [.font: UIFont.boldSystemFont(ofSize: 18)])
+        }
         y += 40
         for (index, record) in records.enumerated() {
             let line = "\(record.kind) · \(record.title) · \(record.at.formatted(date: .abbreviated, time: .omitted))"

@@ -362,6 +362,7 @@
 "member.switch" = "Switch";
 "member.namePlaceholder" = "Name";
 "member.updateFailed" = "Failed to save member info. Please try again.";
+"member.deleteFailed" = "Could not delete the member — please try again.";
 "member.updateFailedHint" = "Your changes were not saved.";
 "member.relation" = "Relationship";
 "member.birthDatePlaceholder" = "Birth date (e.g. 1962-03)";
@@ -507,6 +508,8 @@
 "immunization.createTitle" = "New vaccine record";
 "immunization.lot" = " · Lot %@";
 "common.save" = "Save";
+"common.yes" = "Yes";
+"common.no" = "No";
 "common.cancel" = "Cancel";
 "common.member" = "Member";
 "inventory.dualLine" = "Safety line %1$@ %2$@ · confirmed %3$@ %2$@";
@@ -638,6 +641,7 @@
 "sos.noContacts" = "No emergency contacts configured. Add them in the Emergency Card (Settings → Emergency Card).";
 "sos.viewCard" = "View Emergency Card";
 "sos.sendLocationP1" = "Send Location (coming soon)";
+"sos.dialFailed" = "This device cannot place calls — please dial the number manually.";
 "home.greeting" = "Hi, %@";
 "home.todayTodos" = "Today";
 "home.pendingCards" = "To Complete";
@@ -845,7 +849,7 @@
 "encounter.summary.header" = "Encounter Info";
 "encounter.summary.unconfirmed" = "Not yet confirmed by you";
 "encounter.summary.allConfirmed" = "All recognized fields confirmed";
-"encounter.summary.docFieldsFmt" = "Document %@ · %d fields pending";
+"encounter.summary.docFieldsFmt" = "Document %@ — has unconfirmed fields";
 "encounter.summary.note" = "Note";
 "encounter.summary.noteText" = "Unconfirmed recognized fields never enter the formal archive or reminders.";
 "encounter.form.title" = "New Encounter";
@@ -1293,6 +1297,7 @@
 "export.dateFrom" = "From";
 "export.dateTo" = "To";
 "export.content" = "Contents";
+"export.tocTitle" = "Contents";
 "export.includeNotes" = "Include notes";
 "export.watermark" = "Add watermark";
 "export.privacyHint" = "The export contains your health records. Exports with sensitive media require per-item confirmation (this version exports metadata and confirmed text only).";
