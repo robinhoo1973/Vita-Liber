@@ -246,7 +246,7 @@ enum L10n {
     /// 信息卡类别标签（Domain FieldGroupRules 类别键 → L10n 单一映射）
     /// 理解层语义字段标签（DocumentTypeClassifierFallback 角色键 → L10n）
     // MARK: - FR11.4 健康问题懒创建（V3.49）
-    // MARK: - FR17.19 意图目录确认标签（V3.49 · 十意图动态键，App 映射）
+    // MARK: - FR17.19 意图目录确认标签（V3.49 · 九意图动态键，App 映射；D2 退役 F12 后由十减一）
     /// 语音速记面板去 chips 后的提示语（判定由本地理解层自动完成）
     // V3.49 确认卡判定结果行（4.27 可选元素）
     /// 无文字降级提示（Domain ImageInputRules.noTextKey 的 App 层渲染——

@@ -125,10 +125,16 @@ struct M2UnderstandingTests {
         #expect(!metric.isEmpty)
     }
 
-    @Test("目录单一事实源：十意图全覆盖、未知居末")
+    @Test("目录单一事实源：九意图全覆盖、未知居末（F12 退役后）")
     /// 原名：目录完整
     func catalogComplete() {
-        #expect(VoiceIntentCatalog.entries.count == 10)
+        // 业主裁决 D2（2026-09-18）：F12 AI 助手永久退役，`.askAssistant` 已从
+        // `VoiceIntentKey` 与目录一并删除，故为**九**意图而非十——本行原先写死 10，
+        // 退役后即成为唯一让 CI 变红的陈旧断言（本地 swift test 复现：
+        // `(VoiceIntentCatalog.entries.count → 9) == 10`）。
+        // 目录与 allCases 的**全覆盖**由下一行的逐项等值断言保证；本行字面量只用于
+        // 让每次增删意图都必须显式改这里（而非被等值断言静默吸收）。
+        #expect(VoiceIntentCatalog.entries.count == 9)
         #expect(VoiceIntentCatalog.entries.map(\.key) == VoiceIntentKey.allCases)
         #expect(VoiceIntentCatalog.entries.last?.key == .unknown)
     }
