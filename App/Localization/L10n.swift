@@ -14,2513 +14,209 @@ import Domain   // ObservationKind 等枚举名映射（Domain 类型不上 UI�
 enum L10n {
 
     // MARK: - 导航（ui-ux §9）
-    static var navHome: String { t("nav.home") }
-    static var navRecords: String { t("nav.records") }
-    static var navReminders: String { t("nav.reminders") }
-    static var navHealth: String { t("nav.health") }
-    static var navMe: String { t("nav.me") }
     // MARK: - 健康 Tab（H 重构；2026-09-15 实测修复批：占位页三个快捷卡与假搜索框退役，
     // 随之删除只服务它们的键：quickActions / trends / reminders / searchRecords /
     // searchPlaceholder / summaryTitle——保留的三键仍被健康 Tab 数据面消费）
-    static var healthSearchPrompt: String { t("health.searchPrompt") }
-    static var healthConnectDevice: String { t("health.connectDevice") }
-    static var healthConnectButton: String { t("health.connectButton") }
 
     // MARK: - F7 趋势（SP-13 / FR7.2）
-    static var trendTitle: String { t("trend.title") }
-    static var trendRangeUnavailable: String { t("trend.range.unavailable") }
     /// 已排除点分段标题（带条数：数字是事实，用户据此判断影响范围）
-    static func trendExcludedHeader(_ count: Int) -> String { String(format: t("trend.excluded.headerFmt"), count) }
     /// 已排除点分段内「在图中显示 / 从图中隐藏」动作（对照视图的显式开关；
     /// 原来挂在工具栏的模式按钮语义不清且位置远离它影响的数据）
-    static var trendExcludedShowOnChart: String { t("trend.excluded.showOnChart") }
-    static var trendExcludedHideFromChart: String { t("trend.excluded.hideFromChart") }
     /// 本周期可见读数全部被排除时的事实句（否则图表区空白且无解释）
-    static var trendExcludedAllExcluded: String { t("trend.excluded.allExcluded") }
-    static var trendOpenSource: String { t("trend.openSource") }
-    static var trendExcludePoint: String { t("trend.point.exclude") }
-    static var trendRestorePoint: String { t("trend.point.restore") }
-    static var trendSelfMeasured: String { t("trend.origin.self") }
 
     // MARK: - FR17.13 标准语音输入模板
-    static var voiceConfirmTitle: String { t("voice.confirm.title") }
-    static var voiceConfirmPending: String { t("voice.confirm.pending") }
-    static var voiceConfirmLowConfidence: String { t("voice.confirm.lowConfidence") }
-    static var voiceConfirmSave: String { t("voice.confirm.save") }
-    static var voiceConfirmRetry: String { t("voice.confirm.retry") }
-    static var voiceConfirmCancel: String { t("voice.confirm.cancel") }
-    static var voiceSpeakAloud: String { t("voice.speak.button") }
-    static var voiceFallbackNotice: String { t("voice.fallbackNotice") }
-    static var voiceScreenCheckHint: String { t("voice.speak.screenHint") }
     // FR17.13 受限修改拒绝卡（V3.68：Domain 只出 category，文案本层组装）
-    static func voiceRejectWhat(_ category: String) -> String {
-        switch category {
-        case "frequency": return t("voice.rejectWhat.frequency")
-        case "discontinue": return t("voice.rejectWhat.discontinue")
-        default: return t("voice.rejectWhat.dosage")
-        }
-    }
-    static func voiceRejectTitle(_ what: String) -> String { String(format: t("voice.rejectTitle"), what) }
-    static func voiceRejectBody(_ what: String) -> String { String(format: t("voice.rejectBody"), what) }
-    static var voiceRejectAction: String { t("voice.rejectAction") }
     // FR13.8 配药清单 CSV 表头（V3.68：Domain 参数化，本层提供本地化表头）
-    static var dispenseHeaders: [String] {
-        [t("dispense.header.name"), t("dispense.header.spec"), t("dispense.header.unit"),
-         t("dispense.header.plan"), t("dispense.header.confirmed"), t("dispense.header.expire")]
-    }
     // FR5.5 文档类型标签（V3.68：从 Infrastructure 上移本层 L10n 化）
-    static var docTypeLabels: [String] {
-        [t("docTypeLabel.outpatient"), t("docTypeLabel.inpatient"), t("docTypeLabel.labReport"),
-         t("docTypeLabel.imageReport"), t("docTypeLabel.prescription"), t("docTypeLabel.payment"),
-         t("docTypeLabel.dischargeSummary"), t("docTypeLabel.diagnosisProof"),
-         t("docTypeLabel.vaccineRecord"), t("docTypeLabel.checkupReport"),
-         t("docTypeLabel.pathologyReport"), t("docTypeLabel.surgeryRecord"),
-         t("docTypeLabel.allergyRecord"), t("docTypeLabel.other"), t("docTypeLabel.custom")]
-    }
-    static var voiceBystanderWarning: String { t("voice.speak.bystander") }
-    static var voiceAskSpeak: String { t("voice.ask.speak") }
-    static var voiceAskScreen: String { t("voice.ask.screen") }
-    static var voiceRouteHeadphonesOn: String { t("voice.route.headphonesOn") }
-    static var voiceRouteHeadphonesOff: String { t("voice.route.headphonesOff") }
     // FR17.10/FR10.2 语音提醒澄清提示（两处调用共用，禁止各写一份字面量）
-    static var voiceReminderTimeUnclear: String { t("voice.reminder.timeUnclear") }
-    static var voiceReminderTimeUnheard: String { t("voice.reminder.timeUnheard") }
-    static var voiceReminderSaveFailed: String { t("voice.reminder.saveFailed") }
 
     // FR1.1 · V3.22 生物识别门禁（SP-01 锁屏遮罩）
-    static var security_unlockTitle: String { t("security.unlockTitle") }
-    static var security_unlockSubtitle: String { t("security.unlockSubtitle") }
-    static var security_unlockButton: String { t("security.unlockButton") }
-    static var security_unlockReason: String { t("security.unlockReason") }
-    static var security_unlockFailed: String { t("security.unlockFailed") }
     // BR-007/FR1.9 敏感媒体解锁理由（LocalAuthentication localizedReason）
-    static var sensitive_unlockReason: String { t("sensitive.unlockReason") }
 
     // MARK: - FR17.12 隐私与耳机须知
-    static var voicePrivacyTitle: String { t("voice.privacy.title") }
-    static var voicePrivacyPoint1: String { t("voice.privacy.p1") }
-    static var voicePrivacyPoint2: String { t("voice.privacy.p2") }
-    static var voicePrivacyPoint3: String { t("voice.privacy.p3") }
-    static var voicePrivacyPoint4: String { t("voice.privacy.p4") }
-    static var voicePrivacyAccept: String { t("voice.privacy.accept") }
-    static var voicePrivacyUseTouch: String { t("voice.privacy.useTouch") }
 
     // MARK: - FR13.11 iCloud 备份
-    static var backupTitle: String { t("backup.title") }
-    static var backupCreate: String { t("backup.create") }
-    static var backupRestore: String { t("backup.restore") }
-    static var backupNotSignedIn: String { t("backup.degrade.notSignedIn") }
-    static var backupNoSpace: String { t("backup.degrade.noSpace") }
-    static var backupCreateFailed: String { t("backup.degrade.createFailed") }
-    static var backupChecksumFailed: String { t("backup.degrade.checksum") }
     /// 第八轮修复：非校验类恢复失败（读文件/磁盘/约束/新版本 schema）——不归罪文件损坏
-    static var backupRestoreFailed: String { t("backup.degrade.restoreFailed") }
     // ADR-019：目标设备已有数据——恢复被整体拒绝（不静默覆盖/丢弃）
-    static var backupConflictDetected: String { t("backup.degrade.conflict") }
     // ADR-019 冲突预览：逐项裁决（保留本机/采用备份/并存）
-    static var backupConflictTitle: String { t("backup.conflict.title") }
-    static var backupConflictChoice: String { t("backup.conflict.choice") }
-    static var backupConflictKeep: String { t("backup.conflict.keep") }
-    static var backupConflictAdopt: String { t("backup.conflict.adopt") }
-    static var backupConflictCoexist: String { t("backup.conflict.coexist") }
-    static var backupConflictApply: String { t("backup.conflict.apply") }
-    static var backupConflictHint: String { t("backup.conflict.hint") }
-    static var backupConflictKindProfile: String { t("backup.conflict.kind.profile") }
-    static var backupConflictKindConsent: String { t("backup.conflict.kind.consent") }
-    static var backupConflictKindDocument: String { t("backup.conflict.kind.document") }
-    static var backupConflictKindRecord: String { t("backup.conflict.kind.record") }
     // FR13.4 导出前身份验证 + 隐私提醒 / FR13.5 恢复前确认 + 恢复后校验报告
-    static var backupUnlockReason: String { t("backup.unlockReason") }
-    static var backupExportConfirmTitle: String { t("backup.exportConfirm.title") }
-    static var backupExportConfirmBody: String { t("backup.exportConfirm.body") }
-    static var backupRestoreConfirmTitle: String { t("backup.restoreConfirm.title") }
-    static var backupRestoreConfirmBody: String { t("backup.restoreConfirm.body") }
-    static func backupRestoredCount(_ n: Int) -> String { String(format: t("backup.restoredCountFmt"), n) }
 
-    static var inventory_title: String { t("inventory.title") }
-    static var inventory_empty: String { t("inventory.empty") }
-    static var inventory_emptyHint: String { t("inventory.emptyHint") }
-    static var inventory_approxDays: String { t("inventory.approxDays") }
-    static var inventory_noPlanHint: String { t("inventory.noPlanHint") }
-    static var inventory_fixCount: String { t("inventory.fixCount") }
     // SP-17 批次详情/编辑（ui-ux §5.22.1）
-    static var lotDetailLoadFailed: String { t("lot.detail.loadFailed") }
-    static var lotDiscardTitle: String { t("lot.discard.title") }
-    static var lotDiscard: String { t("lot.discard") }
-    static var lotDiscardDone: String { t("lot.discard.done") }
-    static var lotArchiveTitle: String { t("lot.archive.title") }
-    static var lotTotalUnits: String { t("lot.totalUnits") }
-    static var lotOpenedAt: String { t("lot.openedAt") }
-    static var lotExpireAt: String { t("lot.expireAt") }
-    static var lotExpireUnknown: String { t("lot.expireUnknown") }
-    static var lotStorage: String { t("lot.storage") }
-    static var lotLastReconciled: String { t("lot.lastReconciled") }
-    static var lotExpiredBadge: String { t("lot.expiredBadge") }
-    static var lotEdit: String { t("lot.edit") }
-    static var lotEditTitle: String { t("lot.edit.title") }
-    static var lotEditFailed: String { t("lot.edit.failed") }
-    static var lotUnitKind: String { t("lot.unitKind") }
-    static var lotStatusActive: String { t("lot.status.active") }
-    static var lotStatusDepleted: String { t("lot.status.depleted") }
-    static var lotStatusExpired: String { t("lot.status.expired") }
-    static var lotStatusDiscarded: String { t("lot.status.discarded") }
-    static var lotStorageFridge: String { t("lot.storage.fridge") }
-    static var lotStorageNightstand: String { t("lot.storage.nightstand") }
-    static var lotStorageCabinet: String { t("lot.storage.cabinet") }
-    static var lotStorageOther: String { t("lot.storage.other") }
-    static func lotUnitName(_ kind: String) -> String { t("lot.unit.\(kind)") }
-    static var inventory_reconcileTitle: String { t("inventory.reconcileTitle") }
-    static var inventory_reportTitle: String { t("inventory.reportTitle") }
     // FR9.8.3 差异月报句式（V3.68：Domain 只出数值，本层渲染）
-    static func inventoryMonthlyReportFmt(_ planned: Int, _ confirmed: Int, _ skipped: Int, _ missed: Int) -> String {
-        String(format: t("inventory.monthlyReportFmt"), planned, confirmed, skipped, missed)
-    }
-    static var inventory_reportBlocked: String { t("inventory.reportBlocked") }
-    static var inventory_reportFact: String { t("inventory.reportFact") }
-    static var emergency_title: String { t("emergency.title") }
-    static func emergencyReaction(_ tags: String) -> String { String(format: t("emergency.reactionFmt"), tags) }
-    static func emergencySeverity(_ s: String) -> String { String(format: t("emergency.severityFmt"), s) }
-    static var emergency_bloodType: String { t("emergency.bloodType") }
-    static var emergency_allergy: String { t("emergency.allergy") }
-    static var emergency_meds: String { t("emergency.meds") }
-    static var emergency_health: String { t("emergency.health") }
-    static var emergency_contacts: String { t("emergency.contacts") }
-    static var emergency_notSet: String { t("emergency.notSet") }
-    static var emergency_sos_hold: String { t("emergency.sos.hold") }
-    static var emergency_sos_confirmPrompt: String { t("emergency.sos.confirmPrompt") }
-    static var emergency_sos_confirm: String { t("emergency.sos.confirm") }
-    static var emergency_sos_cancel: String { t("emergency.sos.cancel") }
-    static var care_title: String { t("care.title") }
-    static var care_footer: String { t("care.footer") }
     // 关怀模式「生效参数」摘要区（M2 设置页；评审补——此前为视图内联中文字面量，
     // L0 [10/10] L10n 门禁真违规；迁入三文件后 zh-Hant/en 平价交付）
-    static var care_parameters_section: String { t("care.parameters.section") }
-    static var care_parameters_touchTarget: String { t("care.parameters.touchTarget") }
-    static var care_parameters_speechRate: String { t("care.parameters.speechRate") }
-    static var care_parameters_readback: String { t("care.parameters.readback") }
-    static var care_parameters_voiceInput: String { t("care.parameters.voiceInput") }
-    static var care_parameters_sos: String { t("care.parameters.sos") }
-    static var care_parameters_valueSlow: String { t("care.parameters.valueSlow") }
-    static var care_parameters_valueAskEachTime: String { t("care.parameters.valueAskEachTime") }
-    static var care_parameters_valueDefaultOn: String { t("care.parameters.valueDefaultOn") }
     /// 插值串（String(format:) 取 %ld；zh-Hans/Hant 的「长按 N 秒」骨架一致）
-    static func care_parameters_sosValue(seconds: Int) -> String {
-        String(format: t("care.parameters.sosValue"), seconds)
-    }
-    static var claim_title: String { t("claim.title") }
-    static var claim_empty: String { t("claim.empty") }
-    static var claim_emptyHint: String { t("claim.emptyHint") }
-    static func claimTotals(_ count: Int, _ amount: String) -> String {
-        String(format: t("claim.totalsFmt"), count, amount)
-    }
-    static var claim_add: String { t("claim.add") }
-    static var claim_type_invoice: String { t("claim.type.invoice") }
-    static var claim_type_fee: String { t("claim.type.fee") }
-    static var claim_type_receipt: String { t("claim.type.receipt") }
-    static var currencyCNY: String { t("currency.CNY") }
-    static var immunization_title: String { t("immunization.title") }
-    static var immunization_empty: String { t("immunization.empty") }
-    static var immunization_emptyHint: String { t("immunization.emptyHint") }
-    static var immunization_confirmed: String { t("immunization.confirmed") }
-    static var immunization_pending: String { t("immunization.pending") }
-    static var immunization_note: String { t("immunization.note") }
-    static var deeplink_title: String { t("deeplink.title") }
-    static var deeplink_jump: String { t("deeplink.jump") }
-    static var deeplink_open: String { t("deeplink.open") }
-    static var deeplink_notFound: String { t("deeplink.notFound") }
-    static var deeplink_bookingNo: String { t("deeplink.bookingNo") }
-    static var deeplink_saveNo: String { t("deeplink.saveNo") }
-    static var helpcard_title: String { t("helpcard.title") }
-    static var helpcard_selectHint: String { t("helpcard.selectHint") }
-    static var helpcard_photoOptIn: String { t("helpcard.photoOptIn") }
-    static var helpcard_contentNote: String { t("helpcard.contentNote") }
-    static var helpcard_generate: String { t("helpcard.generate") }
 
-    static var f19_sessionTitle: String { t("f19.sessionTitle") }
-    static var f19_launch: String { t("f19.launch") }
-    static var f19_listeningHint: String { t("f19.listeningHint") }
-    static var f19_typeHint: String { t("f19.typeHint") }
-    static var f19_end: String { t("f19.end") }
-    static var f19_sayAgainHint: String { t("f19.sayAgainHint") }
     // F19 会话提示语（V3.68：SpeechPrompt → 本层渲染）
-    static func voicePromptText(_ p: SpeechPrompt) -> String {
-        switch p {
-        case .repeatHint: return t("voice.prompt.repeatHint")
-        case .pickOption: return t("voice.prompt.pickOption")
-        case .optionNotFound: return t("voice.prompt.optionNotFound")
-        case .callConfirm(let target): return String(format: t("voice.prompt.callConfirm"), target.isEmpty ? t("voice.prompt.contactFallback") : target)
-        case .markTakenConfirm(let object): return String(format: t("voice.prompt.markTakenConfirm"), object.isEmpty ? t("voice.prompt.thisMedFallback") : object)
-        case .forbiddenHint: return t("voice.prompt.forbiddenHint")
-        case .recordConfirm(let metric): return String(format: t("voice.prompt.recordConfirm"), metric)
-        case .sayCallTargetAgain: return t("voice.prompt.sayCallTargetAgain")
-        case .cancelled: return t("voice.prompt.cancelled")
-        case .confirmToCall: return t("voice.prompt.confirmToCall")
-        case .confirmToSave: return t("voice.prompt.confirmToSave")
-        case .multipleMatches(let options):
-            let numbered = options.enumerated().map { "\($0.offset + 1) \($0.element)" }.joined(separator: t("voice.prompt.listSeparator"))
-            return String(format: t("voice.prompt.multipleMatches"), numbered)
-        }
-    }
-    static var f19_confirm: String { t("f19.confirm") }
-    static var f19_cancel: String { t("f19.cancel") }
-    static var f19_rejectedTitle: String { t("f19.rejectedTitle") }
-    static var f19_goTouch: String { t("f19.goTouch") }
-    static var f19_stopped: String { t("f19.stopped") }
-    static var f19_paused: String { t("f19.paused") }
-    static func f19_contactNotFound(_ object: String) -> String { String(format: t("f19.contactNotFound"), object) }
-    static func f19_contactAmbiguous(_ object: String, _ resolved: String) -> String { String(format: t("f19.contactAmbiguous"), object, resolved) }
 
-        static var fr24_title: String { t("fr24.title") }
-    static var fr24_empty: String { t("fr24.empty") }
-    static var fr24_emptyHint: String { t("fr24.emptyHint") }
-    static var fr24_recipient: String { t("fr24.recipient") }
-    static var fr24_kindHelpCard: String { t("fr24.kindHelpCard") }
-    static var fr24_kindSos: String { t("fr24.kindSos") }
-    static var fr24_statusSent: String { t("fr24.statusSent") }
-    static var fr24_statusAckPending: String { t("fr24.statusAckPending") }
-    static var fr24_statusAcked: String { t("fr24.statusAcked") }
-    static var fr24_statusTimeout: String { t("fr24.statusTimeout") }
-    static var hub_healthRecords: String { t("hub.healthRecords") }
-    static var hub_guidelines: String { t("hub.guidelines") }
-    static var hub_helpCardOpen: String { t("hub.helpCardOpen") }
 
-        static var settings_authTitle: String { t("settings.authTitle") }
-    static var settings_habits: String { t("settings.habits") }
-    static var settings_pro: String { t("settings.pro") }
-    static var settings_privacy: String { t("settings.privacy") }
     // FR14.1 分目的授权面板（ui-ux §5.22.2）
-    static var privacyAuthTitle: String { t("privacyAuth.title") }
-    static var privacyAuthFooter: String { t("privacyAuth.footer") }
-    static var privacyAuthExplainers: String { t("privacyAuth.explainers") }
-    static var privacyAuthStorageNote: String { t("privacyAuth.storageNote") }
-    static var privacyAuthAnonymizedNote: String { t("privacyAuth.anonymizedNote") }
-    static var privacyAuthLocationNote: String { t("privacyAuth.locationNote") }
-    static var privacyAuthOcrTitle: String { t("privacyAuth.ocr.title") }
-    static var privacyAuthOcrSub: String { t("privacyAuth.ocr.sub") }
-    static var privacyAuthAITitle: String { t("privacyAuth.ai.title") }
-    static var privacyAuthAISub: String { t("privacyAuth.ai.sub") }
-    static var privacyAuthFamilyTitle: String { t("privacyAuth.family.title") }
-    static var privacyAuthFamilySub: String { t("privacyAuth.family.sub") }
-    static var privacyAuthSharingTitle: String { t("privacyAuth.sharing.title") }
-    static var privacyAuthSharingSub: String { t("privacyAuth.sharing.sub") }
-    static var privacyAuthBackupTitle: String { t("privacyAuth.backup.title") }
-    static var privacyAuthBackupSub: String { t("privacyAuth.backup.sub") }
-    static var privacyAuthHealthTitle: String { t("privacyAuth.health.title") }
-    static var privacyAuthHealthSub: String { t("privacyAuth.health.sub") }
-    static var privacyAuthVoiceTitle: String { t("privacyAuth.voice.title") }
-    static var privacyAuthVoiceSub: String { t("privacyAuth.voice.sub") }
-    static var privacyAuthWriteBackTitle: String { t("privacyAuth.writeBack.title") }
-    static var privacyAuthWriteBackSub: String { t("privacyAuth.writeBack.sub") }
-    static var privacyAuthAIDisabledTitle: String { t("privacyAuth.ai.disabledTitle") }
-    static var privacyAuthAIDisabledBody: String { t("privacyAuth.ai.disabledBody") }
-    static var privacyAuthOpen: String { t("privacyAuth.open") }
-    static var privacyAuthSharingDisabled: String { t("privacyAuth.sharing.disabled") }
-    static var privacyAuthFamilyDisabled: String { t("privacyAuth.family.disabled") }
-    static var privacyAuthFamilyDisabledBody: String { t("privacyAuth.family.disabledBody") }
-    static var privacyAuthVoiceDisabled: String { t("privacyAuth.voice.disabled") }
-    static var privacyAuthBackupDisabled: String { t("privacyAuth.backup.disabled") }
-    static var settings_about: String { t("settings.about") }
-    static var settings_remindAdvance: String { t("settings.remindAdvance") }
-    static var settings_snooze: String { t("settings.snooze") }
-    static var settings_quietHours: String { t("settings.quietHours") }
-    static var settings_disclaimer: String { t("settings.disclaimer") }
-    static var settings_proUpgrade: String { t("settings.proUpgrade") }
-    static var settings_audit: String { t("settings.audit") }
-    static var settings_restoreDefaults: String { t("settings.restoreDefaults") }
-    static var settings_help: String { t("settings.help") }
-    static var settings_careMode: String { t("settings.careMode") }
-    static var settings_voiceEntry: String { t("settings.voiceEntry") }
     // FR14.4 外观与主题（§5.12.1 / tech-spec §5.28.1）
-    static var settings_appearance: String { t("settings.appearance") }
-    static var settings_themeLight: String { t("settings.themeLight") }
-    static var settings_themeDark: String { t("settings.themeDark") }
-    static var settings_themeSystem: String { t("settings.themeSystem") }
-    static var settings_highContrast: String { t("settings.highContrast") }
-    static var settings_highContrastFooter: String { t("settings.highContrastFooter") }
-    static var settings_highContrastForced: String { t("settings.highContrastForced") }
-    static var reminder_emptyAppt: String { t("reminder.emptyAppt") }
-    static var reminder_takenCount: String { t("reminder.takenCount") }
-    static var reminder_taken: String { t("reminder.taken") }
-    static var reminder_later: String { t("reminder.later") }
-    static var reminder_skip: String { t("reminder.skip") }
     // 药名缺省词与动态 accessibilityLabel（评审补——此前为行内插值 + 中文字面量，
     // L0 [10/10] 门禁新判定器命中；模板用 %@，药名由调用方保证不含未转义 %）
-    static var reminder_medicationFallback: String { t("reminder.medicationFallback") }
-    static func reminder_a11yTaken(name: String) -> String { String(format: t("reminder.a11yTaken"), name) }
-    static func reminder_a11ySnoozed(name: String) -> String { String(format: t("reminder.a11ySnoozed"), name) }
-    static func reminder_a11ySkipped(name: String) -> String { String(format: t("reminder.a11ySkipped"), name) }
-    static var ai_confirmImageText: String { t("ai.confirmImageText") }
-    static var ai_aiBadge: String { t("ai.aiBadge") }
-    static var ai_citations: String { t("ai.citations") }
     // FR12.5 七段模板句（V3.68：Domain 只出数据，模板本层渲染）
-    static func aiConclusion(_ count: Int) -> String { String(format: t("ai.conclusion"), count) }
-    static func aiTerm(_ term: String, _ explanation: String) -> String { String(format: t("ai.term"), term, explanation) }
     // V3.70：来源行结构化对（Domain 不再拼中文全角括号——en/zh-Hant 各自句式）
-    static func aiSourceLine(_ kind: String, _ title: String) -> String { String(format: t("ai.sourceLine"), kind, title) }
-    static var aiUncertaintiesFixed: String { t("ai.uncertaintiesFixed") }
-    static var aiQuestionsFixed: String { t("ai.questionsFixed") }
-    static func aiScopeNote(_ count: Int) -> String { String(format: t("ai.scopeNote"), count) }
-    static var aiDisclaimerFixed: String { t("ai.disclaimerFixed") }
-    static var ai_source: String { t("ai.source") }
-    static var ai_uncertain: String { t("ai.uncertain") }
-    static var ai_askDoctor: String { t("ai.askDoctor") }
 
-    static func settingsRemindAdvance(_ v: String) -> String {
-        t("settings.remindAdvance").replacingOccurrences(of: "%@", with: v)
-    }
-    static func settingsSnooze(_ v: String) -> String {
-        t("settings.snooze").replacingOccurrences(of: "%@", with: v)
-    }
-    static func settingsQuietHours(_ a: String, _ b: String) -> String {
-        String(format: t("settings.quietHours"), a, b)   // 位置参数 %1$@ / %2$@
-    }
-    static func reminderTakenCount(_ a: Int, _ b: Int) -> String {
-        String(format: t("reminder.takenCount"), a, b)   // 位置参数 %1$d / %2$d
-    }
-    static func aiUncertain(_ v: String) -> String {
-        t("ai.uncertain").replacingOccurrences(of: "%@", with: v)
-    }
-    static func aiAskDoctor(_ v: String) -> String {
-        t("ai.askDoctor").replacingOccurrences(of: "%@", with: v)
-    }
 
-    static var onboard_yourName: String { t("onboard.yourName") }
     // 业主 2026-09-17 定：注册必要字段 = 特征性数据 + 紧急联系人；健康预填默认值
-    static var onboardNotSelected: String { t("onboard.notSelected") }
-    static var onboardGender: String { t("onboard.gender") }
-    static var onboardGenderMale: String { t("onboard.gender.male") }
-    static var onboardGenderFemale: String { t("onboard.gender.female") }
-    static var onboardGenderOther: String { t("onboard.gender.other") }
-    static var onboardBirthYear: String { t("onboard.birthYear") }
-    static var onboardBirthMonth: String { t("onboard.birthMonth") }
-    static var onboardBirthDay: String { t("onboard.birthDay") }
-    static var onboardBloodSpecial: String { t("onboard.blood.special") }
-    static var onboardBloodNotePlaceholder: String { t("onboard.blood.notePlaceholder") }
-    static var onboardProfileHeader: String { t("onboard.profile.header") }
-    static var onboardProfileFooter: String { t("onboard.profile.footer") }
-    static var onboardContactHeader: String { t("onboard.contact.header") }
-    static var onboardContactFooter: String { t("onboard.contact.footer") }
-    static var onboardContactName: String { t("onboard.contact.name") }
-    static var onboardContactRelation: String { t("onboard.contact.relation") }
-    static var onboardContactPhone: String { t("onboard.contact.phone") }
-    static var onboardPrefillHint: String { t("onboard.prefillHint") }
-    static var onboard_saveEdit: String { t("onboard.saveEdit") }
-    static var onboard_createContinue: String { t("onboard.createContinue") }
     /// 全仓审查 2026-09-18（F-A1-01）：建档落库失败警报（统一 saveFailedAlert 出口）
-    static var onboardSaveFailed: String { t("onboard.saveFailed") }
-    static var onboardSaveFailedHint: String { t("onboard.saveFailedHint") }
-    static var onboard_cancel: String { t("onboard.cancel") }
-    static var onboard_finishEnterApp: String { t("onboard.finishEnterApp") }
-    static var onboard_confirmed: String { t("onboard.confirmed") }
-    static var onboard_buildProfile: String { t("onboard.buildProfile") }
-    static var onboard_gotIt: String { t("onboard.gotIt") }
-    static var onboard_confirm: String { t("onboard.confirm") }
-    static var onboard_later: String { t("onboard.later") }
-    static var onboard_ownerNote: String { t("onboard.ownerNote") }
-    static var onboard_unconfirmedBadge: String { t("onboard.unconfirmedBadge") }
-    static var onboardBoundaryTitle: String { t("onboard.boundaryTitle") }
-    static var onboardStorageTitle: String { t("onboard.storageTitle") }
-    static var onboardSkipInfoTitle: String { t("onboard.skipInfoTitle") }
-    static var help_appName: String { t("help.appName") }
-    static var help_tagline: String { t("help.tagline") }
-    static var help_title: String { t("help.title") }
-    static var help_faqPlaceholder: String { t("help.faqPlaceholder") }
-    static var help_disclaimer: String { t("help.disclaimer") }
-    static var help_version: String { t("help.version") }
     /// 三部件版本：Version <Release> Build <CI序号> Code Hash <提交哈希>（FR22.8 / dev-pm §9.3）
-    static func helpVersion(_ version: String, _ build: String, _ hash: String) -> String {
-        String(format: t("help.versionFormat"), version, build, hash)   // %1$@ %2$@ %3$@
-    }
-    static var help_privacyPlaceholder: String { t("help.privacyPlaceholder") }
-    static var pay_busy: String { t("pay.busy") }
-    static var pay_restore: String { t("pay.restore") }
-    static var paywallPurchaseFailed: String { t("paywall.purchaseFailed") }
-    static var paywallRestoreNothing: String { t("paywall.restoreNothing") }
-    static var paywallRestoreFailed: String { t("paywall.restoreFailed") }
-    static var pay_valueProp: String { t("pay.valueProp") }
-    static var payTrustCopy: String { t("pay.trustCopy") }
-    static var pay_buy: String { t("pay.buy") }
-    static var payProYearly: String { t("pay.proYearly") }
-    static var payProYearlyPrice: String { t("pay.proYearlyPrice") }
-    static var payProYearlyDetail: String { t("pay.proYearlyDetail") }
-    static var payProMonthly: String { t("pay.proMonthly") }
-    static var payProMonthlyPrice: String { t("pay.proMonthlyPrice") }
-    static var payProMonthlyDetail: String { t("pay.proMonthlyDetail") }
-    static var payAddonPack: String { t("pay.addonPack") }
-    static var payAddonPrice: String { t("pay.addonPrice") }
-    static var payAddonDetail: String { t("pay.addonDetail") }
 
     // MARK: - Pro 产出包
-    static var proOutputTitle: String { t("pro.outputTitle") }
-    static var proOutputPreview: String { t("pro.outputPreview") }
-    static var proFeatureDoctorSummary: String { t("pro.featureDoctorSummary") }
-    static var proFeatureDoctorSummaryDesc: String { t("pro.featureDoctorSummaryDesc") }
-    static var proFeatureClaimExport: String { t("pro.featureClaimExport") }
-    static var proFeatureClaimExportDesc: String { t("pro.featureClaimExportDesc") }
-    static var proFeatureFamilyCabinet: String { t("pro.featureFamilyCabinet") }
-    static var proFeatureFamilyCabinetDesc: String { t("pro.featureFamilyCabinetDesc") }
-    static var proFeatureInsurancePack: String { t("pro.featureInsurancePack") }
-    static var proFeatureInsurancePackDesc: String { t("pro.featureInsurancePackDesc") }
-    static var proFeatureCustomThreshold: String { t("pro.featureCustomThreshold") }
-    static var proFeatureCustomThresholdDesc: String { t("pro.featureCustomThresholdDesc") }
-    static var proFeatureDispenseTemplate: String { t("pro.featureDispenseTemplate") }
-    static var proFeatureDispenseTemplateDesc: String { t("pro.featureDispenseTemplateDesc") }
 
-        static var member_title: String { t("member.title") }
-    static var member_add: String { t("member.add") }
-    static var member_current: String { t("member.current") }
-    static var member_switch: String { t("member.switch") }
-    static var member_namePlaceholder: String { t("member.namePlaceholder") }
-    static var memberUpdateFailed: String { t("member.updateFailed") }
-    static var memberUpdateFailedHint: String { t("member.updateFailedHint") }
-    static var member_relation: String { t("member.relation") }
-    static var member_birthDatePlaceholder: String { t("member.birthDatePlaceholder") }
-    static var member_save: String { t("member.save") }
-    static var member_quotaHint: String { t("member.quotaHint") }
-    static var member_addedHint: String { t("member.addedHint") }
     /// 审查修正（F-A1）：成员写库失败警报（此前静默关单，见 MemberViews）
-    static var member_addFailed: String { t("member.addFailed") }
 
-        static func doseNumber(_ n: Int) -> String { String(format: t("dose.number"), n) }
-    static var onboard_sourceConfirmed: String { t("onboard.sourceConfirmed") }
-    static var onboard_unconfirmed2: String { t("onboard.unconfirmed2") }
 
-        static var reminder_today: String { t("reminder.today") }
-    static var reminder_loading: String { t("reminder.loading") }
-    static var reminder_todayEmpty: String { t("reminder.todayEmpty") }
-    static var reminder_addPlan: String { t("reminder.addPlan") }
-    static var reminder_appointments: String { t("reminder.appointments") }
-    static var reminder_addAppt: String { t("reminder.addAppt") }
-    static var reminder_completeAppt: String { t("reminder.completeAppt") }
-    static var reminder_statusScheduled: String { t("reminder.statusScheduled") }
-    static var reminder_statusCompleted: String { t("reminder.statusCompleted") }
-    static var reminder_statusCancelled: String { t("reminder.statusCancelled") }
-    static var reminder_statusMissed: String { t("reminder.statusMissed") }
-    static var reminder_planName: String { t("reminder.planName") }
-    static var reminder_planSpec: String { t("reminder.planSpec") }
-    static var reminder_planTime: String { t("reminder.planTime") }
-    static var reminder_save: String { t("reminder.save") }
-    static var voiceguide_reminderTitle: String { t("voiceguide.reminderTitle") }
-    static var voiceguide_reminderExample: String { t("voiceguide.reminderExample") }
-    static var voiceguide_transcript: String { t("voiceguide.transcript") }
-    static var voiceguide_buildDraft: String { t("voiceguide.buildDraft") }
-    static var voiceguide_stepOf: String { t("voiceguide.stepOf") }
-    static var voiceguide_skip: String { t("voiceguide.skip") }
-    static var voiceguide_next: String { t("voiceguide.next") }
-    static var voiceguide_answerHint: String { t("voiceguide.answerHint") }
-    static var voiceguide_profileTitle: String { t("voiceguide.profileTitle") }
-    static var voiceguide_micTitle: String { t("voiceguide.micTitle") }
-    static var voiceguide_micPrompt: String { t("voiceguide.micPrompt") }
-    static var voiceguide_micPhrase: String { t("voiceguide.micPhrase") }
-    static var voiceguide_micTooLow: String { t("voiceguide.micTooLow") }
-    static var voiceguide_micSkip: String { t("voiceguide.micSkip") }
-    static var voiceguide_micPass: String { t("voiceguide.micPass") }
-    static var voiceguide_noteAllergy: String { t("voiceguide.note.allergy") }
-    static var voiceguide_noteHistory: String { t("voiceguide.note.history") }
-    static var voiceguide_noteMeds: String { t("voiceguide.note.meds") }
-    static var voiceguide_noteContact: String { t("voiceguide.note.contact") }
-    static var voiceFieldDate: String { t("voice.field.date") }
-    static var voiceFieldHour: String { t("voice.field.hour") }
-    static var voiceFieldRepeat: String { t("voice.field.repeat") }
-    static var voiceFieldContent: String { t("voice.field.content") }
-    static var voiceConfirmFillHint: String { t("voice.confirm.fillHint") }
     /// 回读句式（FR17.13）：%@ = 已确认字段列表（App 层经字段标签映射组装，
     /// Domain 不再拼接句式——V3.68 §11 清偿残根修复）
-    static var voiceReadbackFmt: String { t("voice.readbackFmt") }
-    static var voiceguide_saved: String { t("voiceguide.saved") }
-    static var voiceguide_profileDoneHint: String { t("voiceguide.profileDoneHint") }
-    static var voiceguide_profileDoneTitle: String { t("voiceguide.profileDoneTitle") }
-    static func voiceguide_profileDonePartial(_ written: Int, _ skipped: Int) -> String { String(format: t("voiceguide.profileDonePartial"), written, skipped) }
-    static var reminderNotificationTitle: String { t("reminder.notification.title") }
     /// 计划保存失败告警（响亮失败：创建失败保留表单，不静默关 sheet）
-    static var reminder_planSaveFailed: String { t("reminder.planSaveFailed") }
     /// 预约保存失败告警（响亮失败：创建失败保留表单，不静默关 sheet）
-    static var reminder_apptSaveFailed: String { t("reminder.apptSaveFailed") }
-    static var reminderNotificationBody: String { t("reminder.notification.body") }
-    static var emergency_manageCard: String { t("emergency.manageCard") }
-    static var emergencyNumber: String { t("emergency.number") }
-    static var searchSensitive: String { t("search.sensitiveBadge") }
-    static var docDetailNotFound: String { t("doc.detailNotFound") }
     // 业主裁决 D2（2026-09-18）：F12 AI 助手永久退役——assistant.* 键已随
     // AssistantHistoryView/AssistantChatView 删除（保留 ai.* 模板键：AILocal 七段式在用）
-    static var claim_type: String { t("claim.type") }
-    static var claim_amount: String { t("claim.amount") }
-    static var claim_date: String { t("claim.date") }
-    static var claim_merchant: String { t("claim.merchant") }
-    static var claim_summary: String { t("claim.summary") }
-    static var claim_createTitle: String { t("claim.createTitle") }
-    static var claim_save: String { t("claim.save") }
-    static var helpcard_defaultFilename: String { t("helpcard.defaultFilename") }
-    static var f19_sendA11y: String { t("f19.sendA11y") }
-    static var planUnreadable: String { t("plan.unreadable") }
-    static var voiceguide_promptAllergy: String { t("voiceguide.promptAllergy") }
-    static var voiceguide_promptHistory: String { t("voiceguide.promptHistory") }
-    static var voiceguide_promptMeds: String { t("voiceguide.promptMeds") }
-    static var voiceguide_promptContact: String { t("voiceguide.promptContact") }
-    static func voiceguideStep(_ a: Int, _ b: Int) -> String {
-        String(format: t("voiceguide.stepOf"), a, b)
-    }
 
         /// 全部已键化的 key（SU-M15-L10N 遍历断言的输入）。
     /// 新增 key 必须同步登记到这里——否则门禁扫不到，又回到「缺证据当有证据」。
     /// 参数化文案（避免把格式串散落视图）
-    static func inventoryApproxDays(_ days: Int) -> String {
-        t("inventory.approxDays").replacingOccurrences(of: "%d", with: String(days))
-    }
-    static func inventoryReconcileTitle(_ name: String) -> String {
-        t("inventory.reconcileTitle").replacingOccurrences(of: "%@", with: name)
-    }
-    static func deeplinkJump(_ hospital: String) -> String {
-        t("deeplink.jump").replacingOccurrences(of: "%@", with: hospital)
-    }
-    static func f19RepeatObject(_ obj: String) -> String {
-        t("f19.repeatObject").replacingOccurrences(of: "%@", with: obj)
-    }
-    static func f19Executed(_ command: String) -> String {
-        t("f19.executed").replacingOccurrences(of: "%@", with: command)
-    }
-    static func deeplinkOpen(_ hospital: String) -> String {
-        t("deeplink.open").replacingOccurrences(of: "%@", with: hospital)
-    }
 
     // MARK: - L10n 清偿批五 · SP-24 备份（FR13.2）
-    static var backupScopeNote: String { t("backup.scopeNote") }
-    static func backupExportedName(_ name: String) -> String {
-        t("backup.exportedName").replacingOccurrences(of: "%@", with: name)
-    }
-    static func backupChecksum(_ digest: String) -> String {
-        t("backup.checksum").replacingOccurrences(of: "%@", with: digest)
-    }
-    static var backupRestored: String { t("backup.restored") }
 
     // MARK: - L10n 清偿批五 · F7 趋势图轴与图例（SP-13 / FR7.2）
-    static var trendEmptyTitle: String { t("trend.empty.title") }
     /// SP-13 专用读失败文案（2026-09-16 评审：此前借用 SP-29 同步场景键）。
-    static var trendLoadFailed: String { t("trend.loadFailed") }
-    static var trendEmptyHint: String { t("trend.empty.hint") }
-    static var trendAxisStart: String { t("trend.axis.start") }
-    static var trendAxisEnd: String { t("trend.axis.end") }
-    static var trendAxisLower: String { t("trend.axis.lower") }
-    static var trendAxisUpper: String { t("trend.axis.upper") }
-    static var trendAxisTime: String { t("trend.axis.time") }
-    static var trendAxisValue: String { t("trend.axis.value") }
-    static var trendAxisSelected: String { t("trend.axis.selected") }
-    static func trendBandAccessibility(_ source: String, _ lo: String, _ hi: String) -> String {
-        String(format: t("trend.band.accessibility"), source, lo, hi)   // %1$@ %2$@ %3$@
-    }
-    static func trendExcludedAccessibility(_ v: String) -> String {
-        t("trend.excluded.accessibility").replacingOccurrences(of: "%@", with: v)
-    }
-    static func trendChartAccessibility(_ metric: String, _ points: Int, _ bands: Int) -> String {
-        String(format: t("trend.chart.accessibility"), metric, points, bands)
-    }
-    static func trendBandLegend(_ source: String, _ lo: String, _ hi: String) -> String {
-        String(format: t("trend.band.legend"), source, lo, hi)   // %1$@ %2$@ %3$@
-    }
-    static var trendBandUnlabeled: String { t("trend.band.unlabeled") }
     /// 拍摄质量标签（Domain QualityTag 键 → 本地化文案；未知键原样回落）
-    static func qualityTag(_ raw: String) -> String { t(raw) }
-    static var trendOriginSelfDevice: String { t("trend.origin.selfDevice") }
     /// FR7.9 设备自动汇入来源标注（V3.53 §5.45 设备来源行；与自测区分）
-    static var trendOriginDevice: String { t("trend.origin.device") }
-    static var trendOriginLegend: String { t("trend.origin.legend") }
     /// SP-13 未连接 Apple 健康空态（§5.45：不渲染设备占位 + 去连接深链）
-    static var trendNotConnectedHealth: String { t("trend.notConnected.health") }
-    static var trendNotConnectedHint: String { t("trend.notConnected.hint") }
-    static var trendGoConnect: String { t("trend.goConnect") }
-    static var trendOriginHospital: String { t("trend.origin.hospital") }
     // round2 H4（子项目 C7）：SP-13 时间窗分段控件 + 来源过滤（设备项仅本人可见，BR-001）
-    static var trendWindowLabel: String { t("trend.window.label") }
     /// 四档时间窗标签——switch 静态映射（不拼动态键，静态 t() 键可被 L0 §13 登记判定覆盖）
-    static func trendWindow(_ window: TrendTimeWindow) -> String {
-        switch window {
-        case .week: return t("trend.window.week")
-        case .month: return t("trend.window.month")
-        case .quarter: return t("trend.window.quarter")
-        case .year: return t("trend.window.year")
-        }
-    }
     /// 诊断性空态（2026-09-16 业主实测）：周期无数据时告知最近读数位置。
-    static func trendEmptyOutOfWindow(_ latest: String) -> String { String(format: t("trend.emptyOutOfWindowFmt"), latest) }
     // MARK: - 周期翻页（业主 2026-09-16 第 4 项）
-    static var trendPeriodPrevious: String { t("trend.period.prev") }
-    static var trendPeriodNext: String { t("trend.period.next") }
     /// 空周期出口：跳到「最新读数所在周期」（自动锚定周期恒含最近读数）
-    static var trendPeriodJumpToLatest: String { t("trend.period.jumpToLatest") }
     /// 首次加载尚未写入身份时的占位标签
-    static var trendPeriodLocating: String { t("trend.period.locating") }
     /// 周期标签的 VoiceOver 读法（「当前周期：2026年8月17日 – 8月23日」）
-    static func trendPeriodAccessibility(_ range: String) -> String { String(format: t("trend.period.accessibility"), range) }
     /// 周期标签本体：日期区间交给平台 `DateIntervalFormatter`（成熟实现优先／
     /// 各语言日期格式与跨年处理不手拼），语言跟随应用内语言（FR14.5 即时切换）。
-    static func trendPeriodRange(_ from: Date, _ to: Date) -> String {
-        let formatter = DateIntervalFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .none
-        formatter.locale = Locale(identifier: bundleLanguage)
-        return formatter.string(from: from, to: to)
-    }
     // MARK: - 睡眠整合呈现（FR7.11，业主 2026-09-16 第 3 项）
     /// 睡眠整合页标题（六个时长键共乘一页，柱为**一晚**而不是一段）
-    static var trendSleepTitle: String { t("trend.sleep.title") }
     /// 阶段图例标题
-    static var trendSleepLegend: String { t("trend.sleep.legend") }
-    static func trendSleepChartAccessibility(_ nights: Int, _ stages: Int) -> String {
-        String(format: t("trend.sleep.chart.accessibility"), nights, stages)   // %1$d %2$d
-    }
     /// 阶段名（图例 / 列表 / VoiceOver 共用；switch 静态映射——动态键不在
     /// L0 §13 静态判定覆盖内）
-    static func sleepStage(_ stage: SleepStage) -> String {
-        switch stage {
-        case .deep: return t("sleep.stage.deep")
-        case .core: return t("sleep.stage.core")
-        case .rem: return t("sleep.stage.rem")
-        case .awake: return t("sleep.stage.awake")
-        case .unspecified: return t("sleep.stage.unspecified")
-        case .inBed: return t("sleep.stage.inBed")
-        }
-    }
     /// 阶段 + 时长（列表行「深睡 1.2 h」；时长数值经 MedicalNumberFormat 出口）
-    static func sleepStageValue(_ stage: SleepStage, _ value: String) -> String {
-        String(format: t("sleep.stage.valueFmt"), sleepStage(stage), value)   // %1$@ %2$@
-    }
     /// 空态诊断日期（应用内语言，FR14.5）：与周期标签同一语言出口——
     /// `Date.formatted` 跟随**系统**语言，应用内切换语言后同一屏会出现两种语言。
     /// 逐次构造 formatter（与 trendPeriodRange 同款，不引入跨线程共享的可变 formatter）
-    static func trendDate(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .none
-        formatter.locale = Locale(identifier: bundleLanguage)
-        return formatter.string(from: date)
-    }
-    static func trendRefRange(_ lo: String, _ hi: String) -> String {
-        String(format: t("trend.refRange"), lo, hi)   // %1$@ %2$@
-    }
-    static func trendRowAccessibility(_ v: String, _ unit: String, _ source: String, _ time: String) -> String {
-        String(format: t("trend.row.accessibility"), v, unit, source, time)
-    }
-    static var trendRowExcludedSuffix: String { t("trend.row.excludedSuffix") }
-    static var trendOriginSelfShort: String { t("trend.origin.selfShort") }
-    static var trendOriginHospitalShort: String { t("trend.origin.hospitalShort") }
-    static func trendConvertedFrom(_ note: String) -> String {
-        t("trend.convertedFrom").replacingOccurrences(of: "%@", with: note)
-    }
 
     // MARK: - L10n 清偿批五 · 语音速记（SP-59 / FR17.14）
-    static var voicenoteEmptyTitle: String { t("voicenote.empty.title") }
-    static var voicenoteEmptyHint: String { t("voicenote.empty.hint") }
-    static var voicenoteInTimeline: String { t("voicenote.inTimeline") }
-    static var voicenoteDraftPlaceholder: String { t("voicenote.draft.placeholder") }
-    static var voicenoteDraftAccessibility: String { t("voicenote.draft.accessibility") }
-    static var voicenoteSaveAccessibility: String { t("voicenote.save.accessibility") }
-    static var voicenoteTitle: String { t("voicenote.title") }
     /// FR2.1 首页扫动处置（业主第10轮 §7）。
-    static var homeSwipeArchive: String { t("home.swipe.archive") }
-    static func homeSwipeArchived(_ title: String) -> String { String(format: t("home.swipe.archived"), title) }
-    static var homeSwipeUndo: String { t("home.swipe.undo") }
     /// FR2.1⑦ 首页按源滑动处置（round2 U-N1/N2/N3）：去药箱 / 稍后（次日重现）/ 查看证据 / 查看 / 操作失败。
-    static var homeSwipeOpenCabinet: String { t("home.swipe.openCabinet") }
-    static var homeSwipeSnoozeTomorrow: String { t("home.swipe.snoozeTomorrow") }
-    static func homeSwipeSnoozedTomorrow(_ title: String) -> String { String(format: t("home.swipe.snoozedTomorrow"), title) }
-    static var homeSwipeViewEvidence: String { t("home.swipe.viewEvidence") }
-    static var homeSwipeView: String { t("home.swipe.view") }
-    static var homeSwipeFailed: String { t("home.swipe.failed") }
-    static var voicenoteSaveFailed: String { t("voicenote.saveFailed") }
 
     // MARK: - L10n 清偿批五 · 观察（SP-14 / F8）
-    static func observationGroupSummary(_ count: Int, _ mark: String) -> String {
-        String(format: t("observation.groupSummary"), count, mark)   // %1$d %2$@
-    }
-    static var observationTrendImproved: String { t("observation.trend.improved") }
-    static var observationTrendUnchanged: String { t("observation.trend.unchanged") }
-    static var observationTrendWorsened: String { t("observation.trend.worsened") }
     // MARK: - 评审批 · F8 观察页与创建页（SP-14 硬编码中文字面量清偿）
-    static var observationTitle: String { t("observation.title") }
-    static var observationSectionTitle: String { t("observation.listSection") }
-    static var observationAllergySection: String { t("observation.allergySection") }
-    static var observationCreateTitle: String { t("observation.createTitle") }
-    static var observationKindSection: String { t("observation.kindSection") }
-    static var observationDescription: String { t("observation.description") }
-    static var observationSelfMark: String { t("observation.selfMark") }
-    static func observationMediaBadge(_ n: Int) -> String {
-        String(format: t("observation.mediaBadge"), n)   // %1$d
-    }
-    static var observationSaveFailed: String { t("observation.saveFailed") }
-    static var observationSaveFailedHint: String { t("observation.saveFailedHint") }
     // MARK: - 评审批 · F8 八类观察类型（FR8.1：Domain ObservationKind 枚举 → 名称映射；
     // 未知 key 兜底「其他」本地化串，rawValue 一律不上屏）
-    static func observationKindName(_ kind: ObservationKind) -> String {
-        switch kind {
-        case .stool: return t("observation.kind.stool")
-        case .urine: return t("observation.kind.urine")
-        case .skin: return t("observation.kind.skin")
-        case .eye: return t("observation.kind.eye")
-        case .secretion: return t("observation.kind.secretion")
-        case .swelling: return t("observation.kind.swelling")
-        case .generic: return t("observation.kind.generic")
-        case .custom: return t("observation.kind.custom")
-        }
-    }
-    static func observationKindName(forKey key: String) -> String {
-        ObservationKind(rawValue: key).map(observationKindName) ?? t("observation.kind.unknown")
-    }
     // MARK: - 评审批 · F8.4 敏感媒体（SP-14 步骤2）
-    static var observationMediaSection: String { t("observation.media.section") }
-    static var observationMediaAddAlbum: String { t("observation.media.addAlbum") }
-    static var observationMediaAddCamera: String { t("observation.media.addCamera") }
-    static func observationMediaCount(_ n: Int) -> String {
-        String(format: t("observation.media.count"), n)   // %1$d
-    }
-    static var observationMediaUnlockHint: String { t("observation.media.unlockHint") }
     // MARK: - 评审批 · FR8.9/FR17.14 语音速记纯转写入口（共用听写按钮）
-    static var voicenoteDictation: String { t("voicenote.dictation") }
-    static var voicenoteDictating: String { t("voicenote.dictating") }
-    static var voicenoteStop: String { t("voicenote.stop") }
-    static var voicenoteDictationFailed: String { t("voicenote.dictationFailed") }
     /// 录音按钮的 VoiceOver 提示（业主 2026-09-16 第 5 项：轻点开始/再点结束，也可按住说话）
-    static var voicenoteTapHint: String { t("voicenote.tapHint") }
     /// 未获语音输入权限（与「未识别到语音」区分：原文案把权限拒绝说成没听到声音）
-    static var voicenoteDictationDenied: String { t("voicenote.dictationDenied") }
     // MARK: - 评审批 · 文档详情与导出（SP-10 / 5.6）
-    static var docDetailTitle: String { t("doc.detailTitle") }
-    static var docFieldsSection: String { t("doc.fieldsSection") }
-    static var docExport: String { t("doc.export") }
-    static var docTitleSection: String { t("doc.titleSection") }
-    static var docDate: String { t("doc.date") }
-    static var docHistorySection: String { t("doc.historySection") }
 
     // MARK: - L10n 清偿批五 · Pro 产出预览（F23）
-    static func proPreviewNote(_ product: String) -> String {
-        t("pro.previewNote").replacingOccurrences(of: "%@", with: product)
-    }
 
     // MARK: - L10n 清偿批五 · 预警与信源（F16）
-    static var alertEmptyTitle: String { t("alert.empty.title") }
-    static var alertEmptyHint: String { t("alert.empty.hint") }
-    static func alertOpenSource(_ ref: String) -> String {
-        t("alert.openSource").replacingOccurrences(of: "%@", with: ref)
-    }
-    static func alertSeverity(_ level: String) -> String {
-        t("alert.severity").replacingOccurrences(of: "%@", with: level)
-    }
-    static var alertOpenOriginal: String { t("alert.openOriginal") }
     // FR16.3 证据卡（V3.68 结构化：Domain 输出类型化数据，本层 L10n 渲染）
-    static func alertEvidenceFacts(_ metric: String, _ value: String, _ unit: String,
-                                   _ origin: String, _ time: String) -> String {
-        String(format: t("alert.evidenceFacts"), metric, value, unit, origin, time)
-    }
-    static func alertEvidenceSource(_ title: String, _ org: String, _ year: Int, _ clause: String) -> String {
-        String(format: t("alert.evidenceSource"), title, org, year, clause)
-    }
-    static var alertEvidencePathRetest: String { t("alert.evidencePath.retest") }
-    static var alertEvidencePathVisit: String { t("alert.evidencePath.visit") }
-    static var alertEvidencePathObserve: String { t("alert.evidencePath.observe") }
-    static var alertEvidenceDisclaimer: String { t("alert.evidenceDisclaimer") }
     /// 证据卡来源名（复用趋势来源三键，不新增词表）
-    static func alertOriginName(_ origin: String) -> String {
-        switch origin {
-        case "hospital": return trendOriginHospital
-        case "device": return trendOriginDevice
-        default: return trendSelfMeasured
-        }
-    }
-    static func alertLinkChecked(_ date: String) -> String {
-        t("alert.linkChecked").replacingOccurrences(of: "%@", with: date)
-    }
-    static var alertSourceTitle: String { t("alert.sourceTitle") }
     // FR16.3/16.4 信源原文详情页
-    static var gsDetailNotFound: String { t("gsDetail.notFound") }
-    static func gsDetailMetric(_ key: String) -> String { String(format: t("gsDetail.metric"), healthMetricName(key)) }
-    static var gsDetailThresholds: String { t("gsDetail.thresholds") }
-    static var gsDetailNote: String { t("gsDetail.note") }
 
     // MARK: - L10n 清偿批五 · 急救卡（F15）
-    static var emergencyWriteTitle: String { t("emergency.write.title") }
-    static var emergencyWriteSubtitle: String { t("emergency.write.subtitle") }
-    static var emergencyViewGuide: String { t("emergency.viewGuide") }
-    static var emergencySectionAllergy: String { t("emergency.section.allergy") }
-    static var emergencySectionMeds: String { t("emergency.section.meds") }
-    static var emergencySectionHealth: String { t("emergency.section.health") }
-    static var emergencySectionContacts: String { t("emergency.section.contacts") }
-    static var emergencySelectTitle: String { t("emergency.select.title") }
-    static var emergencyNoCandidates: String { t("emergency.noCandidates") }
-    static var emergencySelected: String { t("emergency.selected") }
-    static var emergencyUnselected: String { t("emergency.unselected") }
 
     // MARK: - L10n 清偿批五 · 疫苗接种（FR4.5 / SP-54）
-    static var immunizationVaccineName: String { t("immunization.vaccineName") }
-    static var immunizationDate: String { t("immunization.date") }
-    static var immunizationProvider: String { t("immunization.provider") }
-    static var immunizationLotField: String { t("immunization.lotField") }
-    static var immunizationCreateTitle: String { t("immunization.createTitle") }
-    static func immunizationLot(_ lot: String) -> String {
-        t("immunization.lot").replacingOccurrences(of: "%@", with: lot)
-    }
 
     // MARK: - L10n 清偿批五 · 通用动作
-    static var commonSave: String { t("common.save") }
-    static var commonCancel: String { t("common.cancel") }
-    static var commonConfirm: String { t("common.confirm") }
-    static var commonMember: String { t("common.member") }
 
     // MARK: - L10n 清偿批五 · 双轨库存（FR9.8）
-    static var inventoryDualLineTitle: String { t("inventory.dualLineTitle") }
-    static func inventoryDualLine(_ plan: String, _ unit: String, _ confirmed: String) -> String {
-        String(format: t("inventory.dualLine"), plan, unit, confirmed)   // %1$@ %2$@ · %3$@ %2$@
-    }
-    static func inventoryExpiry(_ date: String) -> String {
-        t("inventory.expiry").replacingOccurrences(of: "%@", with: date)
-    }
-    static var inventoryTier0: String { t("inventory.tier0") }
-    static var inventoryTier7: String { t("inventory.tier7") }
-    static var inventoryTier3: String { t("inventory.tier3") }
-    static func inventoryBookValue(_ v: String, _ unit: String) -> String {
-        String(format: t("inventory.bookValue"), v, unit)   // %1$@ %2$@
-    }
-    static func inventoryPhysical(_ v: String, _ unit: String) -> String {
-        String(format: t("inventory.physical"), v, unit)   // %1$@ %2$@
-    }
-    static var inventoryReconcileEqual: String { t("inventory.reconcileEqual") }
-    static func inventoryReconcileMore(_ d: String) -> String {
-        t("inventory.reconcileMore").replacingOccurrences(of: "%@", with: d)
-    }
-    static func inventoryReconcileLess(_ d: String) -> String {
-        t("inventory.reconcileLess").replacingOccurrences(of: "%@", with: d)
-    }
-    static func inventoryReconcileConfirm(_ v: String, _ unit: String) -> String {
-        String(format: t("inventory.reconcileConfirm"), v, unit)   // %1$@ %2$@
-    }
-    static var inventoryConfirmWrite: String { t("inventory.confirmWrite") }
-    static func inventoryMonthlySuffix(_ period: String) -> String {
-        t("inventory.monthlySuffix").replacingOccurrences(of: "%@", with: period)
-    }
 
     // MARK: - L10n 清偿批五 · 用药求助卡（FR24.5）
-    static func helpcardRemaining(_ v: String, _ unit: String) -> String {
-        String(format: t("helpcard.remaining"), v, unit)   // %1$@ %2$@
-    }
     /// 第七轮修复：求助卡文本组装标签（Domain 注入，生产走三语词表）
-    static var helpcardCardRemainingPrefix: String { t("helpcard.cardRemainingPrefix") }
-    static var helpcardCardStoragePrefix: String { t("helpcard.cardStoragePrefix") }
-    static var helpcardCardExpiryPrefix: String { t("helpcard.cardExpiryPrefix") }
-    static var helpcardPhotoSection: String { t("helpcard.photoSection") }
 
     // MARK: - L10n 清偿批五 · AI 助手（F12）
-    static var ai_refusedNoEvidence: String { t("ai.refusedNoEvidence") }
-    static var ai_refusedHighRisk: String { t("ai.refusedHighRisk") }
-    static var ai_failedRetry: String { t("ai.failedRetry") }
     // ai.history.* / aiHistory.* 键已随 F12 退役删除（会话历史功能下线）
-    static var ai_emergencyCall: String { t("ai.emergencyCall") }
-    static var timelineEmptyTitle: String { t("timeline.empty.title") }
-    static var paywallPreviewTitle: String { t("paywall.previewTitle") }
 
-    static let registeredKeys: [String] = [
-    // 第四轮全仓审查修复（L0 登记表双向判定）：以下键此前未登记——
-    // registeredKeys 单向 ⊆ .strings 检查覆盖不到，键被删出 .strings 时
-    // L0/L1 全绿、运行时裸 key 上屏
-    "pref.speechRate",
-    "pref.speechRate.slow",
-    "pref.speechRate.normal",
-    "pref.speechRate.fast",
-    "pref.speechRate.hint",
-    "ai.quickGlucose",
-    "ai.quickNext",
-    "health.connectButton",
-    "health.connectDevice",
-    "health.searchPrompt",
-    // V3.49：动态键（voiceIntentName(_:) 拼装）——十意图目录标签，静态扫描不可见
-    "voiceIntent.recordMetric",
-    "voiceIntent.recordObservation",
-    "voiceIntent.createReminder",
-    "voiceIntent.createAppointment",
-    "voiceIntent.appendProfile",
-    "voiceIntent.appendMedDraft",
-    "voiceIntent.appendNote",
-    "voiceIntent.createQuestion",
-    "voiceIntent.unknown",
-    // V3.49：4.28 信息卡分组 / FR11.4 懒创建 / 语音面板去 chips
-    "oc.group.rx",
-    "oc.group.lab",
-    "oc.group.visit",
-    "oc.group.generic",
-    "oc.confirm.cardAll",
-    "oc.field.dept",
-    "oc.field.reportDate",
-    "oc.field.labItem",
-    "oc.field.referenceRange",
-    "oc.field.chiefComplaint",
-    "oc.field.diagnosis",
-    "oc.field.treatment",
-    "healthProblem.offer.title",
-    "healthProblem.offer.body",
-    "healthProblem.create",
-    "voicePanel.autoHint", "voicePanel.editHint", "voicePanel.confirm", "voicePanel.clearTitle", "voicePanel.clear", "voicePanel.clearLast", "voicePanel.clearAll",
-    "voiceConfirm.judgedTarget",
-    "voiceConfirm.candidates",
-    // V3.86 FR7.9 设备读数入库呈现 / FR16.1 同步时间沟通契约
-    "f16.syncedRowsFmt",
-    "f16.lastSyncFmt",
-    "doc.duplicateExisting",
-    "doc.duplicateKeep",
-    "doc.duplicateNeverAutoDelete",
-    "doc.duplicateNewFile",
-    "doc.duplicateReplace",
-    "doc.untitled",
-    "doc.viewOriginal",
-    "docConfirm.allConfirmBlocked",
-    "docConfirm.confidenceHigh",
-    "docConfirm.confidenceLow",
-    "docConfirm.confidenceMid",
-    "docConfirm.docType",
-    "docConfirm.docTypeHint",
-    "docConfirm.docTypeUnresolved",
-    "docConfirm.docTypeLowConfidence",
-    "entityCard.rowIndexFmt",
-    "entityCard.header.pageFmt",
-    "entityCard.header.indexFmt",
-    "entityCard.confirmSave",
-    "entityCard.later",
-    "entityCard.discard",
-    "entityCard.deferRemaining",
-    "entityCard.missingRequiredFmt",
-    "entityCard.reviewQueueFmt",
-    "entityCard.reviewSource",
-    "entityCard.reviewChoose",
-    "sharedFields.title",
-    "sharedFields.hint",
-    "sharedFields.continue",
-    "sharedFields.pendingFmt",
-    "sharedFields.reason.repeated",
-    "sharedFields.reason.critical",
-    "sharedFields.carriersFmt",
-    "entityCard.sourceLineTitle",
-    "entityCard.sourceLineHint",
-    "entityCard.rowSkipped",
-    "entityCard.sharedSection",
-    "entityCard.rowsSection",
-    "entityCard.laterHint",
-    "entityCard.kind.metric_sample",
-    "entityCard.kind.encounter",
-    "entityCard.kind.prescription",
-    "entityCard.kind.medication",
-    "entityCard.kind.immunization",
-    "entityCard.kind.appointment",
-    "entityCard.kind.claim_item",
-    "entityCard.saveFailed",
-    "pendingCard.resume",
-    "pendingCard.viewSource",
-    "pendingCard.discard",
-    "pendingCard.notFound",
-    "voice.primaryLanguage",
-    "voice.primaryLanguageHint",
-    "voice.recognizedAsFmt",
-    "voice.bestEffortActive",
-    "voice.version.native",
-    "voice.version.refined",
-    "voice.version.refinedHint",
-    "voice.version.unavailable",
-    "voice.version.rejected",
-    "voice.version.previewOnly",
-    "voice.inputUnavailable",
-    "voice.dictationIncomplete",
-    "ocr.review.documentHint",
-    "ocr.review.pageSkipped",
-    "ocr.review.invalidField",
-    "ocr.review.notificationFailed",
-    "ocr.review.legacySourceMissing",
-    "ocr.review.finishCurrent",
-    "ocr.review.partialSavedFmt",
-    "pending.cardTitleFmt",
-    "health.preservedAggregatesFmt",
-    "health.deferredWindowsFmt",
-    // round2 子项目 C6/C7：SP-29 三态/空态/稀疏/回填进度；SP-13 时间窗/来源过滤
-    "health.unavailable",
-    "health.ownerMissing",
-    "health.requestIncomplete",
-    "health.importedEmpty",
-    "health.sparseWindowsFmt",
-    "health.backfillProgressFmt",
-    "health.backfillLane.recent",
-    "health.backfillLane.history",
-    "trend.window.week",
-    "trend.window.month",
-    "trend.window.quarter",
-    "trend.window.year",
-    "trend.window.label",
-    "field.measured_at",
-    "field.raw_label",
-    "field.value",
-    "field.unit",
-    "field.ref_low",
-    "field.ref_high",
-    "field.metric_key",
-    "field.date",
-    "field.kind",
-    "field.department",
-    "field.hospital",
-    "field.doctor",
-    "field.diagnosis_text",
-    "field.advice_text",
-    "field.drug_name",
-    "field.prescribed_at",
-    "docConfirm.hint",
-    "docConfirm.reenable",
-    "docConfirm.reject",
-    "docConfirm.saveAll",
-    "docConfirm.saveFailedTitle",
-    "docConfirm.title",
-    "docConfirm.skipLater",
-    "docConfirm.skipTitle",
-    "docConfirm.skipConfirm",
-    "docConfirm.skipCancel",
-    "docConfirm.skipSaved",
-    "home.pendingCards",
-    "home.pendingCardResume",
-    "home.aggregationTitle",
-    "home.filter.all", "home.filter.medication", "home.filter.appointment",
-    "home.filter.document", "home.filter.ocr", "home.filter.alert",
-    "home.filter.family", "home.filter.sos", "home.filter.system",
-    "home.filter.pending",
-    "home.window.default", "home.window.short", "home.window.long",
-    "home.emptyFilter", "home.emptyReset",
-    "home.l0Note", "home.remainingFmt",
-    "pendingCard.reasonOcrMissing",
-    "pendingCard.rawText",
-    "docConfirm.unconfirmedCountFmt",
-    "docConfirm.viewRegion",
-    "gradebadge.a",
-    "gradebadge.b",
-    "gradebadge.c",
-    "gradebadge.d",
-    "gradebadge.e",
-    "gradebadge.pending",
-    "help.backup1",
-    "help.backup2",
-    "help.care1",
-    "help.care2",
-    "help.gettingStarted1",
-    "help.gettingStarted2",
-    "help.importOcr1",
-    "help.importOcr2",
-    "help.privacy1",
-    "help.privacy2",
-    "help.reminders1",
-    "help.reminders2",
-    "help.topicBackup",
-    "help.topicCare",
-    "help.topicGettingStarted",
-    "help.topicImportOcr",
-    "help.topicPrivacy",
-    "help.topicReminders",
-    "help.topicVoice",
-    "help.tutorialTitle",
-    "help.voice1",
-    "help.voice2",
-    "help.voiceSpeak",
-    "helpcard.previewContinue",
-    "helpcard.previewHint",
-    "helpcard.previewTitle",
-    "image_input.noText",
-    "immunization.childPlanComing",
-    "immunization.doseCount",
-    "inventory.barAccessibility",
-    "pref.dateFormatISO",
-    "pref.dateFormatMD",
-    "pref.dateFormatYMD",
-    "prep.export",
-    "prep.trendSnapshot",
-    "prescription.field.doctor",
-    "prescription.field.dosage",
-    "prescription.field.drugName",
-    "prescription.field.frequency",
-    "prescription.field.hospital",
-    "prescription.field.other",
-    "reminder.planKindAsNeeded",
-    "reminder.planKindAsNeededHint",
-    "reminder.planKindFixed",
-    "reminder.planKindInterval",
-    "reminder.planKindIntervalHint",
-    "reminder.planKindMeal",
-    "reminder.planKindMealHint",
-    "reminder.planNew",
-    "reminder.planScheduleKind",
-    "report.issueEngine",
-    "report.issueField",
-    "report.issueFieldAll",
-    "report.issueFieldWrong",
-    "report.issueKind",
-    "report.issueLayout",
-    "report.issueMinimal",
-    "report.issueMissing",
-    "report.issueNote",
-    "report.issueNoteHint",
-    "report.issueSubmit",
-    "report.issueSubmitted",
-    "scanRegion.autoDetectFailed",
-    "scanRegion.confirm",
-    "scanRegion.correctionFailed",
-    "scanRegion.hint",
-    "scanRegion.reset",
-    "scanRegion.title",
-    "settings.autoLock",
-    "settings.gateGrace",
-    "settings.grace0",
-    "settings.grace15",
-    "settings.grace60",
-    "voicelang.mixedHint",
-    "voicelang.mixedToggle",
-    "voicelang.t2Point1",
-    "voicelang.t2Point2",
-    "voicelang.t2Point3",
-    "voicelang.t2Title",
-    "voicenote.detailBody",
-    "voicenote.detailDelete",
-    "voicenote.detailDeleteConfirm",
-    "voicenote.detailTags",
-    "voicenote.detailTagsHint",
-    "voicenote.detailTimeline",
-    "voicenote.detailTimelineHint",
-        "help.versionFormat",
-        "ai.aiBadge", "ai.askDoctor", "ai.citations",
-        "ai.conclusion",
-        "ai.term",
-        "ai.sourceLine",
-        "ai.uncertaintiesFixed",
-        "ai.questionsFixed",
-        "ai.scopeNote",
-        "ai.disclaimerFixed", "ai.confirmImageText",
-        "ai.emergencyCall", "paywall.previewTitle", "timeline.empty.title",
-        "ai.failedRetry", "ai.refusedHighRisk",
-        "ai.refusedNoEvidence",
-        "ai.source", "ai.uncertain", "alert.empty.hint", "alert.empty.title",
-        "alert.linkChecked", "alert.openOriginal",
-        "alert.evidenceFacts",
-        "alert.evidenceSource",
-        "alert.evidencePath.retest",
-        "alert.evidencePath.visit",
-        "alert.evidencePath.observe",
-        "alert.evidenceDisclaimer", "alert.openSource", "alert.severity",
-        "alert.sourceTitle",
-        "gsDetail.notFound",
-        "gsDetail.metric",
-        "gsDetail.thresholds",
-        "gsDetail.note", "backup.checksum", "backup.create", "backup.degrade.checksum", "backup.degrade.createFailed", "backup.degrade.restoreFailed",
-        "backup.degrade.noSpace", "backup.degrade.notSignedIn", "backup.exportedName", "backup.restore",
-        "backup.restored", "backup.scopeNote", "backup.title", "care.footer",
-        "care.parameters.readback", "care.parameters.section", "care.parameters.sos",
-        "care.parameters.sosValue", "care.parameters.speechRate", "care.parameters.touchTarget",
-        "care.parameters.valueAskEachTime", "care.parameters.valueDefaultOn", "care.parameters.valueSlow",
-        "care.parameters.voiceInput",
-        "care.title", "claim.add", "claim.empty", "claim.emptyHint",
-        "claim.title", "claim.type.fee", "claim.type.invoice", "claim.type.receipt", "currency.CNY",
-        "common.cancel", "common.save", "deeplink.bookingNo", "deeplink.jump",
-        "deeplink.notFound", "deeplink.open", "deeplink.saveNo", "deeplink.title",
-        "dose.number", "emergency.allergy", "emergency.bloodType", "emergency.contacts",
-        "emergency.health", "emergency.meds", "emergency.noCandidates", "emergency.notSet",
-        "emergency.section.allergy", "emergency.section.contacts", "emergency.section.health", "emergency.section.meds",
-        "emergency.select.title", "emergency.selected", "emergency.sos.cancel", "emergency.sos.confirm",
-        "emergency.sos.confirmPrompt", "emergency.sos.hold", "emergency.title", "emergency.unselected",
-        "emergency.reactionFmt", "emergency.severityFmt",
-        "emergency.viewGuide", "emergency.write.subtitle", "emergency.write.title", "f19.cancel",
-        "f19.confirm", "f19.end", "f19.executed", "f19.goTouch",
-        "f19.launch", "f19.listeningHint", "f19.paused", "f19.contactNotFound", "f19.contactAmbiguous", "f19.rejectedTitle",
-        "f19.repeatObject", "f19.sayAgainHint",
-        "voice.prompt.repeatHint",
-        "voice.prompt.pickOption",
-        "voice.prompt.optionNotFound",
-        "voice.prompt.callConfirm",
-        "voice.prompt.contactFallback",
-        "voice.prompt.markTakenConfirm",
-        "voice.prompt.thisMedFallback",
-        "voice.prompt.forbiddenHint",
-        "voice.prompt.recordConfirm",
-        "voice.prompt.sayCallTargetAgain",
-        "voice.prompt.cancelled",
-        "voice.prompt.confirmToCall",
-        "voice.prompt.confirmToSave",
-        "voice.prompt.multipleMatches",
-        "voice.prompt.listSeparator", "f19.sessionTitle", "f19.stopped",
-        "f19.typeHint", "fr24.empty", "fr24.emptyHint", "fr24.kindHelpCard",
-        "fr24.kindSos", "fr24.recipient", "fr24.statusAckPending", "fr24.statusAcked",
-        "fr24.statusSent", "fr24.statusTimeout", "fr24.title", "help.appName",
-        "help.disclaimer", "help.faqPlaceholder", "help.privacyPlaceholder", "help.tagline",
-        "help.title", "help.version", "helpcard.contentNote", "helpcard.generate",
-        "helpcard.photoOptIn", "helpcard.photoSection", "helpcard.remaining", "helpcard.selectHint",
-        "helpcard.title", "helpcard.cardRemainingPrefix", "helpcard.cardStoragePrefix", "helpcard.cardExpiryPrefix",
-        "hub.guidelines", "hub.healthRecords", "hub.helpCardOpen",
-        "immunization.confirmed", "immunization.createTitle", "immunization.date", "immunization.empty",
-        "immunization.emptyHint", "immunization.lot", "immunization.lotField", "immunization.note",
-        "immunization.pending", "immunization.provider", "immunization.title", "immunization.vaccineName",
-        "inventory.approxDays", "inventory.bookValue", "inventory.confirmWrite", "inventory.dualLine",
-        "inventory.dualLineTitle",
-        "inventory.empty", "inventory.emptyHint", "inventory.expiry", "inventory.fixCount",
-        "lot.detail.loadFailed",
-        "lot.discard.title",
-        "lot.discard",
-        "lot.discard.done",
-        "lot.archive.title",
-        "lot.totalUnits",
-        "lot.openedAt",
-        "lot.expireAt",
-        "lot.expireUnknown",
-        "lot.storage",
-        "lot.lastReconciled",
-        "lot.expiredBadge",
-        "lot.edit",
-        "lot.edit.title",
-        "lot.edit.failed",
-        "lot.unitKind",
-        "lot.status.active",
-        "lot.status.depleted",
-        "lot.status.expired",
-        "lot.status.discarded",
-        "lot.storage.fridge",
-        "lot.storage.nightstand",
-        "lot.storage.cabinet",
-        "lot.storage.other",
-        "inventory.monthlySuffix", "inventory.noPlanHint", "inventory.physical", "inventory.reconcileConfirm",
-        "inventory.reconcileEqual", "inventory.reconcileLess", "inventory.reconcileMore", "inventory.reconcileTitle",
-        "inventory.reportBlocked", "inventory.reportFact", "inventory.reportTitle",
-        "inventory.monthlyReportFmt",
-        "inventory.tier3", "inventory.tier7", "inventory.title", "member.add",
-        "member.addedHint", "member.addFailed", "member.birthDatePlaceholder", "member.current", "member.namePlaceholder",
-        "member.quotaHint", "member.relation", "member.save", "member.switch",
-        // 业主 2026-09-17 定：注册必要字段（特征性数据 + 紧急联系人）+ 健康预填
-        "onboard.notSelected", "onboard.gender", "onboard.gender.male", "onboard.gender.female",
-        "onboard.gender.other", "onboard.birthYear", "onboard.birthMonth", "onboard.birthDay",
-        "onboard.blood.special", "onboard.blood.notePlaceholder", "onboard.profile.header",
-        "onboard.profile.footer", "onboard.contact.header", "onboard.contact.footer",
-        "onboard.contact.name", "onboard.contact.relation", "onboard.contact.phone",
-        "onboard.prefillHint",
-        "member.title", "nav.health", "nav.home", "nav.me",
-        "nav.records", "nav.reminders", "observation.allergySection",
-        "observation.createTitle", "observation.description", "observation.groupSummary", "observation.kind.custom",
-        "observation.kind.eye", "observation.kind.generic", "observation.kind.secretion", "observation.kind.skin",
-        "observation.kind.stool", "observation.kind.swelling", "observation.kind.unknown", "observation.kind.urine", "observation.kindSection",
-        "observation.listSection",
-        "observation.media.addAlbum", "observation.media.addCamera", "observation.media.count", "observation.media.section",
-        "observation.mediaBadge", "observation.selfMark",
-        "observation.detail.capturedAt",
-        "observation.detail.member",
-        "observation.detail.bodyPart",
-        "observation.detail.duration",
-        "observation.detail.durationFmt",
-        "observation.detail.frequency",
-        "observation.detail.isFirst",
-        "observation.detail.trigger",
-        "observation.detail.accompanying",
-        "observation.detail.painScore",
-        "observation.detail.painUnset",
-        "observation.detail.medsDiet",
-        "observation.detail.consulted",
-        "observation.detail.encounter",
-        "observation.detail.healthProblem",
-        "observation.detail.group",
-        "observation.detail.edit",
-        "observation.detail.editSave",
-        "observation.detail.editSaved",
-        "observation.detail.delete",
-        "observation.detail.deleteTitle",
-        "observation.detail.deleteBody",
-        "observation.detail.deleteDone",
-        "observation.detail.deleteFailed",
-        "observation.detail.followUpTitle",
-        "observation.detail.followUpDays",
-        "observation.detail.followUpDone",
-        "observation.detail.loadFailed",
-        "observation.detail.retry",
-        "observation.detail.empty",
-        "observation.detail.viewGroup",
-        "observation.title",
-        "observation.trend.improved", "observation.trend.unchanged", "observation.trend.worsened",
-        "onboard.buildProfile", "onboard.cancel",
-        "onboard.confirm",
-        "onboard.confirmed", "onboard.createContinue",
-        "onboard.finishEnterApp", "onboard.gotIt", "onboard.later",
-        "onboard.ownerNote",
-        "onboard.saveEdit",
-        "onboard.sourceConfirmed",
-        "onboard.unconfirmed2", "onboard.unconfirmedBadge",
-        "onboard.yourName", "pay.busy", "pay.buy", "pay.restore",
-        "pay.valueProp",
-        "pay.trustCopy", "pro.previewNote",
-        "reminder.a11ySkipped", "reminder.a11ySnoozed", "reminder.a11yTaken", "reminder.medicationFallback",
-        "reminder.addAppt",
-        "reminder.addPlan", "reminder.appointments", "reminder.completeAppt", "reminder.emptyAppt",
-        "reminder.later", "reminder.loading", "reminder.planName", "reminder.planSpec",
-        "reminder.planTime", "reminder.save", "reminder.skip", "reminder.statusCancelled",
-        "reminder.statusCompleted", "reminder.statusMissed", "reminder.statusScheduled", "reminder.taken",
-        "reminder.takenCount", "reminder.today", "reminder.todayEmpty",
-        "security.unlockTitle", "security.unlockSubtitle", "security.unlockButton",
-        "security.unlockReason", "security.unlockFailed", "sensitive.unlockReason",
-        "settings.about",
-        "settings.audit", "settings.authTitle", "settings.careMode", "settings.disclaimer",
-        "settings.habits", "settings.help", "settings.privacy",
-        "privacyAuth.title",
-        "privacyAuth.footer",
-        "privacyAuth.explainers",
-        "privacyAuth.storageNote",
-        "privacyAuth.anonymizedNote",
-        "privacyAuth.locationNote",
-        "privacyAuth.ocr.title",
-        "privacyAuth.ocr.sub",
-        "privacyAuth.ai.title",
-        "privacyAuth.ai.sub",
-        "privacyAuth.family.title",
-        "privacyAuth.family.sub",
-        "privacyAuth.sharing.title",
-        "privacyAuth.sharing.sub",
-        "privacyAuth.backup.title",
-        "privacyAuth.backup.sub",
-        "privacyAuth.health.title",
-        "privacyAuth.health.sub",
-        "privacyAuth.voice.title",
-        "privacyAuth.voice.sub",
-        "privacyAuth.writeBack.title",
-        "privacyAuth.writeBack.sub",
-        "privacyAuth.ai.disabledTitle",
-        "privacyAuth.ai.disabledBody",
-        "privacyAuth.open",
-        "privacyAuth.sharing.disabled",
-        "privacyAuth.family.disabled",
-        "privacyAuth.family.disabledBody",
-        "privacyAuth.voice.disabled",
-        "privacyAuth.backup.disabled", "settings.pro",
-        "settings.proUpgrade", "settings.quietHours", "settings.remindAdvance", "settings.restoreDefaults",
-        "settings.snooze", "settings.voiceEntry",
-        "settings.appearance", "settings.themeLight", "settings.themeDark", "settings.themeSystem",
-        "settings.highContrast", "settings.highContrastFooter", "trend.axis.end", "trend.axis.lower",
-        "trend.axis.selected", "trend.axis.start", "trend.axis.time", "trend.axis.upper",
-        "trend.axis.value", "trend.band.accessibility", "trend.band.legend", "trend.band.unlabeled", "trend.chart.accessibility",
-        "trend.convertedFrom", "trend.empty.hint", "trend.empty.title", "trend.loadFailed", "trend.excluded.accessibility",
-        "trend.excluded.headerFmt", "trend.excluded.allExcluded", "trend.excluded.showOnChart", "trend.excluded.hideFromChart",
-        "trend.openSource", "trend.origin.hospital",
-        "trend.origin.hospitalShort", "trend.origin.self", "trend.origin.selfDevice", "trend.origin.selfShort",
-        "trend.origin.device", "trend.origin.legend", "trend.notConnected.health",
-        "trend.notConnected.hint", "trend.goConnect",
-        "trend.point.exclude", "trend.point.restore", "trend.range.unavailable", "trend.refRange",
-        "trend.row.accessibility", "trend.row.excludedSuffix", "trend.title",
-        "trend.period.prev", "trend.period.next", "trend.period.jumpToLatest", "trend.period.locating",
-        "trend.period.accessibility",
-        "trend.emptyOutOfWindowFmt",
-        "voice.ask.screen", "voice.ask.speak", "voice.confirm.cancel", "voice.confirm.lowConfidence",
-        "voice.confirm.pending", "voice.confirm.retry", "voice.confirm.save", "voice.confirm.title",
-        "voice.privacy.accept", "voice.privacy.p1", "voice.privacy.p2", "voice.privacy.p3",
-        "voice.privacy.p4", "voice.privacy.title", "voice.privacy.useTouch", "voice.reminder.saveFailed", "voice.reminder.timeUnclear", "voice.reminder.timeUnheard",
-        "voice.route.headphonesOff",
-        "voice.route.headphonesOn", "voice.speak.button", "voice.speak.bystander", "voice.speak.screenHint",
-        "voice.rejectWhat.dosage",
-        "voice.rejectWhat.frequency",
-        "voice.rejectWhat.discontinue",
-        "voice.rejectTitle",
-        "voice.rejectBody",
-        "voice.rejectAction",
-        "dispense.header.name",
-        "dispense.header.spec",
-        "dispense.header.unit",
-        "dispense.header.plan",
-        "dispense.header.confirmed",
-        "dispense.header.expire",
-        "docTypeLabel.outpatient",
-        "docTypeLabel.inpatient",
-        "docTypeLabel.labReport",
-        "docTypeLabel.imageReport",
-        "docTypeLabel.prescription",
-        "docTypeLabel.payment",
-        "docTypeLabel.dischargeSummary",
-        "docTypeLabel.diagnosisProof",
-        "docTypeLabel.vaccineRecord",
-        "docTypeLabel.checkupReport",
-        "docTypeLabel.pathologyReport",
-        "docTypeLabel.surgeryRecord",
-        "docTypeLabel.allergyRecord",
-        "docTypeLabel.other",
-        "docTypeLabel.custom", 
-        "voiceguide.answerHint", "voiceguide.buildDraft", "voiceguide.next", "voiceguide.profileTitle",
-        "voiceguide.promptAllergy", "voiceguide.promptContact", "voiceguide.promptHistory", "voiceguide.promptMeds",
-        "voiceguide.reminderExample", "voiceguide.reminderTitle", "voiceguide.skip", "voiceguide.stepOf",
-        "voiceguide.transcript", "voicenote.draft.accessibility", "voicenote.draft.placeholder", "voicenote.empty.hint",
-        "voicenote.empty.title", "voicenote.inTimeline", "voicenote.save.accessibility", "voicenote.saveFailed", "voicenote.title",
-        "home.swipe.archive", "home.swipe.archived", "home.swipe.undo",
-        "home.swipe.openCabinet", "home.swipe.snoozeTomorrow", "home.swipe.snoozedTomorrow", "home.swipe.viewEvidence", "home.swipe.view", "home.swipe.failed",
-        "voicenote.dictation", "voicenote.dictating", "voicenote.dictationFailed", "voicenote.stop",
-    "voicenote.tapHint", "voicenote.dictationDenied",
-    "sleep.stage.deep", "sleep.stage.core", "sleep.stage.rem", "sleep.stage.awake",
-    "sleep.stage.unspecified", "sleep.stage.inBed", "sleep.stage.valueFmt",
-    "trend.sleep.title", "trend.sleep.legend", "trend.sleep.chart.accessibility",
-        "doc.date", "doc.detailTitle", "doc.export", "doc.fieldsSection", "doc.historySection", "doc.titleSection",
-        "help.status.checking", "help.status.authorized", "help.status.denied", "help.status.notRequested",
-        "help.status.unknown", "help.status.provisional", "help.center.title", "help.diag.permission",
-        "help.diag.reminder", "help.diag.dataHealth", "help.diag.system", "help.diag.systemHint",
-        "help.about.legal", "help.perm.section", "help.perm.camera", "help.perm.mic", "help.perm.notification",
-        "help.perm.openSettings", "help.perm.deniedHint", "help.faceID.requiresDevice", "help.reminder.section",
-        "help.reminder.permission", "help.reminder.todaySection", "help.reminder.pendingDoses",
-        "help.reminder.todaySlots", "help.reminder.deniedHint", "help.data.dbSection", "help.data.integrity",
-        "help.data.normal", "help.data.storageSection", "help.data.dbSize", "help.data.calculating",
-        "help.data.storageSizeFmt",
-        "help.data.backupSection", "help.data.lastBackup", "help.data.noBackup", "help.data.title",
-        "help.about.licenses", "help.about.section", "help.legal.section", "help.terms.title", "help.section",
-        "caregiver.title", "caregiver.empty", "caregiver.emptyHint", "caregiver.pendingFmt",
-        "caregiver.alertTitle", "caregiver.alertConfirm", "caregiver.alertBodyFmt",
-        "disclosure.title", "disclosure.acknowledge",
-        "backup.unlockReason", "backup.exportConfirm.title", "backup.exportConfirm.body",
-        "backup.restoreConfirm.title", "backup.restoreConfirm.body", "backup.restoredCountFmt",
-        "sos.help.title", "sos.call120", "sos.noContacts", "sos.viewCard", "sos.sendLocationP1",
-        "home.greeting", "home.todayTodos", "home.pendingOcrCountFmt", "home.expiringSoon",
-        "home.refill", "home.alertSummary", "home.recentObs", "home.quickCapture",
-        "home.capture.record", "home.capture.report", "home.capture.prescription", "home.capture.symptom",
-        "home.guide1", "home.guide2", "home.guide3", "home.guide4", "home.memberSwitch",
-        "home.notifDenied", "home.notifOpen", "home.care.meds", "home.care.refill",
-        "home.care.capture", "home.care.sos", "home.doseSlot", "home.stockBacklogFmt",
-        "nc.title", "nc.section.pending", "nc.section.appointment", "nc.section.expiry",
-        "nc.section.alert", "nc.section.ocr", "nc.nextAction.dose", "nc.confirmDose",
-        "nc.expireDateFmt", "nc.ocrCountFmt", "nc.empty", "nc.emptyHint",
-        "search.title", "search.placeholder", "search.placeholderHint", "search.noResultFmt",
-        "search.loosenHint", "search.clear", "search.failed", "search.retry", "search.group.docs", "search.group.healthData", "search.healthData.hint", "search.group.observations",
-        "search.group.meds", "search.obsLocked",
-        "language.title", "language.footer", "voiceLang.title", "voiceLang.inputSection",
-        "voiceLang.inputHint", "voiceLang.outputSection", "voiceLang.outputHint",
-        "voiceLang.bestEffort", "voiceLang.fallback", "voiceLang.mix", "voiceLang.mixHint",
-        "reminder.allTaken", "reminder.allTakenConfirm", "reminder.allTakenYes",
-        "reminder.snooze15", "reminder.snooze30", "reminder.snooze60",
-        "reminder.forgot", "reminder.discomfort", "reminder.discomfortPlaceholder",
-        "reminder.skipReason.none", "reminder.skipReason.forgot", "reminder.skipReason.doctor",
-        "reminder.skipReason.other", "reminder.moreActions",
-        "plan.listTitle", "plan.detailTitle", "plan.notFound", "plan.weekStrip",
-        "plan.todayDoses", "plan.noTodayDose", "plan.adviceText", "plan.adviceSource",
-        "plan.pause", "plan.resume", "plan.end", "plan.endedNote", "plan.history",
-        "plan.endConfirm.title", "plan.endConfirm.body",
-        "plan.endReason.doctor", "plan.endReason.course", "plan.endReason.adverse",
-        "plan.endReason.noLonger", "plan.endReason.other",
-        "plan.event.started", "plan.event.edited", "plan.event.paused", "plan.event.resumed",
-        "plan.event.ended", "plan.event.endedReasonFmt",
-        "plan.action.taken", "plan.action.skipped", "plan.action.missed",
-        "plan.action.discomfort", "plan.action.snoozed", "plan.action.pending",
-        "plan.status.active", "plan.status.paused", "plan.status.ended",
-        "plan.backfill.title", "plan.backfill.actualTime",
-        "plan.form.title", "plan.form.medication", "plan.form.genericName", "plan.form.brandName",
-        "plan.form.spec", "plan.form.dosePerTake", "plan.form.doseParseError", "plan.form.timesPerDay", "plan.form.route",
-        "plan.form.meal", "plan.form.schedule", "plan.form.fixedTimes", "plan.form.asNeeded",
-        "plan.form.startDate", "plan.form.hasEndDate", "plan.form.endDate", "plan.form.longTerm",
-        "plan.form.source", "plan.form.hospital", "plan.form.doctor", "plan.form.advice",
-        "plan.form.lot.section", "plan.form.lot.unitsFmt", "plan.form.lot.unit",
-        "plan.form.lot.expireUnknown", "plan.form.lot.expireDate", "plan.form.lot.storageNote",
-        "plan.form.lot.hint",
-        "lot.unit.tablet", "lot.unit.capsule", "lot.unit.patch", "lot.unit.vial",
-        "knowledge.title", "knowledge.advice", "knowledge.adviceBadge", "knowledge.noAdvice",
-        "knowledge.storage", "knowledge.storageHint", "knowledge.caution", "knowledge.cautionText",
-        "encounter.kind.outpatient", "encounter.kind.emergency", "encounter.kind.inpatient",
-        "encounter.kind.checkup", "encounter.kind.telemedicine", "encounter.kind.followup",
-        "encounter.listTitle", "encounter.empty", "encounter.emptyHint", "encounter.untitled",
-        "encounter.docCountFmt", "encounter.detailTitle", "encounter.diagnosisAdvice",
-        "encounter.diagnosisBadge", "encounter.adviceBadge", "encounter.followUp",
-        "encounter.linkedDocs", "encounter.noDocs", "encounter.docTitleFmt",
-        "encounter.recommend.section", "encounter.recommend.pending", "encounter.link",
-        "encounter.generateSummary", "encounter.summary.title", "encounter.summary.header",
-        "encounter.summary.unconfirmed", "encounter.summary.allConfirmed",
-        "encounter.summary.docFieldsFmt", "encounter.summary.note", "encounter.summary.noteText",
-        "encounter.form.title", "encounter.form.basic", "encounter.form.kind", "encounter.form.date",
-        "encounter.form.hospital", "encounter.form.department", "encounter.form.doctor",
-        "encounter.form.clinical", "encounter.form.complaint", "encounter.form.diagnosis",
-        "encounter.form.advice", "encounter.form.followUp", "encounter.form.fee",
-        "timeline.title", "timeline.emptyHint", "timeline.filter.all",
-        "timeline.kind.encounter", "timeline.kind.medication", "timeline.kind.observation",
-        "timeline.kind.lab", "timeline.kind.selfMeasured", "timeline.kind.healthData", "timeline.kind.vaccination",
-        "timeline.kind.allergy", "timeline.kind.voiceNote", "timeline.kind.healthProblem",
-        "timeline.problemsFilter",
-        "problem.title", "problem.empty", "problem.emptyHint", "problem.createTitle",
-        "problem.namePlaceholder", "problem.merge", "problem.mergeTitle", "problem.mergeIntoFmt",
-        "problem.mergeHint", "problem.archive", "problem.unarchive",
-        "prep.title", "prep.patient", "prep.bloodType", "prep.meds", "prep.observations",
-        "prep.questions", "prep.noData", "prep.noQuestions", "prep.daysLeftFmt", "prep.disclaimer",
-        "question.title", "question.placeholder", "question.markAsked",
-        "appt.listTitle", "appt.empty", "appt.emptyHint",
-        "appt.status.scheduled", "appt.status.completed", "appt.status.cancelled", "appt.status.missed",
-        "appt.reschedule", "appt.cancel", "appt.complete", "appt.followUpHint", "appt.markMissed", "appt.newDate",
-        "appt.cancelReason.none", "appt.cancelReason.doctor", "appt.cancelReason.self",
-        "appt.cancelReason.other",
-        "appt.form.title", "appt.form.basic", "appt.form.address", "appt.form.date",
-        "appt.form.prep", "appt.form.items", "appt.form.notes", "appt.form.followUpRule",
-        "appt.followUpRule.0", "appt.followUpRule.1", "appt.followUpRule.2",
-        "appt.followUpRule.3", "appt.followUpRule.4", "appt.followUpDaysFmt",
-        "appt.followUpConcreteDate", "appt.followUpDraftOnly",
-        "member.detail.basic", "member.detail.more", "member.bloodType", "member.idNo",
-        "member.insuranceNo", "member.note", "member.delete", "member.selfNoDelete",
-        "member.delete.impact", "member.delete.impactDocs", "member.delete.impactObs",
-        "member.delete.impactPlans", "member.delete.impactAppts", "member.delete.keepDocs",
-        "member.delete.planChoice", "member.delete.plans", "member.archivePlans",
-        "member.delete.confirm", "member.delete.confirmPlaceholderFmt", "member.delete.confirmButton",
-        "member.confirm.belongsTo", "member.confirm.switch", "member.relation.self",
-        "docLibrary.title", "docLibrary.empty", "docLibrary.emptyHint", "docLibrary.untitled",
-        "doc.archive", "doc.unarchive", "doc.favorite", "doc.unfavorite",
-        "doc.importSource.title", "doc.importSource.camera", "doc.importSource.file",
-        "doc.importSource.photos", "doc.importSource.manual",
-        "doc.duplicate.title", "doc.duplicate.keepBoth", "doc.duplicate.discard",
-        "doc.duplicate.hintFmt", "doc.importFailed.title", "doc.importFailed",
-        "doc.pdfImportFailed", "doc.prescriptionSyncFailed", "doc.pdfPartialFailed", "doc.type.report", "doc.type.record",
-        "doc.manual.createTitle", "doc.manual.title", "doc.manual.type", "doc.manual.note",
-        "onboard.revise",
-        "ocrQueue.title", "ocrQueue.empty", "ocrQueue.emptyHint", "ocrQueue.countFmt",
-        "ocrQueue.hint", "ocrQueue.72h",
-        "ocrQueue.jumpSource", "doc.reportIssue",
-        "allergy.title", "allergy.empty", "allergy.emptyHint", "allergy.selfReportBadge",
-        "allergy.severity.轻", "allergy.severity.中", "allergy.severity.重",
-        "allergy.kind.药品", "allergy.kind.食物", "allergy.kind.其他",
-        "allergy.tag.皮疹", "allergy.tag.荨麻疹", "allergy.tag.恶心呕吐", "allergy.tag.腹泻",
-        "allergy.tag.呼吸困难", "allergy.tag.喉头水肿", "allergy.tag.过敏性休克", "allergy.tag.其他",
-        "allergy.severity.severe", "allergy.severity.moderate", "allergy.delete",
-        "allergy.createTitle", "allergy.step1", "allergy.step2", "allergy.step3",
-        "allergy.kind", "allergy.substancePlaceholder", "allergy.customTag",
-        "allergy.severityLabel", "allergy.occurredAt", "allergy.note", "allergy.next",
-        "allergy.emergency.title", "allergy.emergency.body", "allergy.emergency.goHospital",
-        // aiHistory.* 键已随 F12 退役删除
-        "aiFeedback.useful", "aiFeedback.useless", "aiFeedback.citationError",
-        "aiFeedback.danger", "aiFeedback.more",
-        "export.wizard.title", "export.scope", "export.scope.all", "export.scope.dateRange",
-        "export.scope.doctorSummary", "export.dateFrom", "export.dateTo", "export.content",
-        "export.includeNotes", "export.watermark", "export.privacyHint", "export.start",
-        "export.unlockReason", "export.progressFmt", "export.cancel", "export.cancelled",
-        "export.failed", "export.retry", "export.finishedFmt", "export.share", "export.titleFmt",
-        "export.recordCount",
-        "export.disclaimer",
-        "export.kind.record",
-        "export.kind.observation",
-        "export.kind.plan",
-        "export.kind.encounter", "backup.reminder.title", "backup.reminder.body",
-        "auth.ocr", "auth.ai", "auth.family", "auth.sharing", "auth.cloudBackup",
-        "auth.anonymized", "auth.health", "auth.voiceDictation", "settings.dataLifecycle",
-        "pref.group.reminders", "pref.group.display", "pref.group.voice",
-        "pref.tag.global", "pref.tag.newOnly", "pref.remindAdvance", "pref.snooze",
-        "pref.quietStart", "pref.quietEnd", "pref.to", "pref.channel",
-        "pref.channel.notifyOnly", "pref.channel.ringUntilConfirm", "pref.channel.silentBanner",
-        "pref.notifPreviewMed", "pref.remindScopeNote", "pref.dateFormat", "pref.dateFormatPending", "pref.weekStart",
-        "pref.unitSystem", "pref.unit.metric", "pref.unit.imperial", "pref.reduceMotion",
-        "pref.homeSort", "pref.homeSort.time", "pref.homeSort.type",
-        "pref.readback", "pref.readback.never", "pref.readback.ask", "pref.readback.always",
-        "pref.readbackHint", "pref.restoreAll",
-        "quality.blurry", "quality.good", "quality.occlusion", "quality.tooBright",
-        "quality.tooDark", "quality.unassessable",
-        "lifecycle.single", "lifecycle.singleHint", "lifecycle.member", "lifecycle.memberHint",
-        "lifecycle.clearAll", "lifecycle.clearHint", "lifecycle.clearButton",
-        "lifecycle.clearImpact", "lifecycle.resetSettings", "lifecycle.resetSettingsHint",
-        "lifecycle.resetSettingsImpact", "lifecycle.logout", "lifecycle.logoutHint",
-        "onboard.addFamily.title", "onboard.addFamily.hint", "onboard.addFamily.manual",
-        "onboard.addFamily.voiceP1", "onboard.addFamily.contactsP1", "onboard.addFamily.skip",
-        "onboard.addFamily.finish", "onboard.addFamily.completeHint",
-        "feedback.title", "feedback.category",
-        "feedback.category.0", "feedback.category.1", "feedback.category.2",
-        "feedback.category.3", "feedback.category.4", "feedback.category.5",
-        "feedback.detail", "feedback.detailPlaceholder", "feedback.attachments",
-        "feedback.attachScreenshot", "feedback.attachOriginal", "feedback.attachMedia",
-        "feedback.attachmentHint", "feedback.submit", "feedback.submitted",
-        "fr24.markDelivered", "fr24.offlineNote",
-        "helpcard.recipient", "helpcard.recipientOther", "helpcard.recipientPlaceholder",
-        "metric.entry.title", "metric.step1", "metric.step2",
-        "metric.name.bloodPressureSys", "metric.name.bloodPressureDia", "metric.name.glucose",
-        "metric.name.weight", "metric.name.temperature", "metric.name.heartRate",
-        "metric.name.bloodOxygen",
-        "metric.name.restingHeartRate", "metric.name.respiratory_rate", "metric.name.steps",
-        "metric.name.sleep_total", "metric.name.sleep_deep", "metric.name.sleep_rem",
-        "metric.name.sleep_awake", "metric.name.sleep_core", "metric.name.sleep_unspecified",
-        "metric.selfMeasureNote", "metric.sys", "metric.dia", "metric.value",
-        "metric.unit", "metric.measuredAt", "metric.saved", "metric.viewTrend",
-        "voicePanel.title", "voicePanel.hint", "voicePanel.start",
-        "voicenote.saved", "voicenote.view",
-        "observation.followUp.set",
-        "f16.title", "f16.authSection", "f16.authHint", "f16.requestAuth", "f16.authGranted",
-        "f16.authDisabled", "f16.authFailed", "f16.syncSection", "f16.syncHint",
-        "f16.syncNow", "f16.syncing", "f16.syncDoneFmt", "f16.syncFailed",
-        "health.importSubject", "health.noReadableData", "health.importPartial", "health.importMore",
-        "health.notificationRetry", "health.medicalReviewPending",
-        "health.aggregation.sample", "health.aggregation.hourlyAverage",
-        "health.aggregation.dailySum", "health.aggregation.sleepDuration",
-        "health.windowEnd", "health.windowStatistics", "health.showLegacy",
-        "health.historicalEvaluation", "health.loadMore", "health.metric.unknown", "health.openHelp",
-        "alert.filter.all", "alert.showL0", "alert.historyEntry",
-        "f19.noTodayMeds", "f19.nextAppointmentFmt", "f19.noAppointment", "f19.recentGlucoseFmt",
-        "f19.goTimeline", "f19.goHome",
-        "f19.noGlucose", "f19.stockRemainingFmt", "f19.stockNoPlanFmt", "f19.noStock",
-        "f19.stockLocationFmt", "f19.locationUnknown", "f19.noExpiring", "f19.expiringFmt",
-        "f19.expiredFmt", "f19.expiryUnknownFmt", "f19.stockNoMatchFmt",
-        "f19.taken", "f19.notTaken", "f19.slotMedStateFmt", "f19.markTakenNoMatchFmt",
-        "f19.markTakenDoneFmt", "f19.markTakenFailedFmt", "f19.metricRecordedFmt", "f19.questionRecordedFmt",
-        "f19.recordFailed",
-        "medicalID.title", "medicalID.step1", "medicalID.step1Hint", "medicalID.step2",
-        "medicalID.step2Hint", "medicalID.step3", "medicalID.step3Hint",
-        "medicalID.openHealth", "medicalID.note", "settings.themeHint",
-        "reminder.notification.title", "reminder.notification.body",
-        "reminder.planSaveFailed", "reminder.apptSaveFailed",
-        // 审查补充登记（2026-09-05）：此前仅入三语文件未入登记表的键
-        // assistant.* 键已随 F12 退役删除
-        "backup.conflict.adopt",
-        "backup.conflict.apply",
-        "backup.conflict.choice",
-        "backup.conflict.coexist",
-        "backup.conflict.hint",
-        "backup.conflict.keep",
-        "backup.conflict.kind.consent",
-        "backup.conflict.kind.document",
-        "backup.conflict.kind.profile",
-        "backup.conflict.kind.record",
-        "backup.conflict.title",
-        "backup.degrade.conflict",
-        "claim.amount",
-        "claim.createTitle",
-        "claim.date",
-        "claim.merchant",
-        "claim.save",
-        "claim.summary",
-        "claim.totalsFmt",
-        "claim.type",
-        "doc.confirmText",
-        "doc.detailNotFound",
-        "doc.grade.unconfirmed",
-        "doc.type.prescription",
-        "emergency.manageCard",
-        "emergency.number",
-        "emergency.sosHoldA11yFmt",
-        "f16.authDenied",
-        "f16.noRangeFmt",
-        "f19.markTakenMultipleFmt",
-        "f19.metricInvalidValue", "f19.medListMore", "f19.nextPage",
-        "f19.metricNotSupportedFmt",
-        "f19.sendA11y",
-        "help.data.corrupt",
-        "helpcard.defaultFilename",
-        "helpcard.photoPending",
-        "home.capture.file",
-        "home.capture.hint",
-        "home.captureAny",
-        "home.capture.library",
-        "home.capture.noCamera",
-        "home.capture.saved",
-        "home.capture.sensitive",
-        "home.capture.shoot",
-        "home.disclaimer",
-        "home.profileContinue",
-        "home.profileProgress",
-        "home.model.downloadTitle", "home.model.downloadView",
-        "home.profileProgressFmt",
-        "inventory.tier0",
-        "member.relation.child",
-        "member.relation.family",
-        "member.relation.grandparent",
-        "member.relation.other",
-        "member.relation.parent",
-        "member.relation.partner",
-        "metric.entryError.invalid", "metric.entryError.range",
-        "metric.entryError.saveFailed",
-        "metric.entryError.title",
-        "ocr.field.line",
-        "timezone.changed.title", "timezone.changed.body",
-        "observation.colorDisclaimer",
-        "nc.archive",
-        "metric.overview.title", "metric.overview.empty", "metric.overview.emptyHint",
-        "showcase.title", "showcase.exit", "showcase.empty", "showcase.unlockReason",
-        "remch.title", "remch.sectionHint", "remch.sectionFooter", "remch.meds", "remch.apts", "remch.exam", "remch.expiry", "remch.alert", "remch.backup", "remch.local", "remch.ring", "remch.inApp", "remch.bannerToggle", "remch.bannerFooter",
-        "banner.doseDue", "banner.confirm", "banner.later",
-        "occlusion.title", "occlusion.skip", "occlusion.done",
-        "home.ocrOverdue", "home.expiryMed",
-        "filter.all", "filter.3d", "filter.72h",
-        "paywall.purchaseFailed",
-        "paywall.restoreFailed",
-        "paywall.restoreNothing",
-        "plan.unreadable",
-        "route.comingSoon",
-        "route.entityGone", "route.entityGoneHint",
-        "route.comingSoonHint",
-        "search.sensitiveBadge",
-        "sensitiveMedia.original.title",
-        "sensitiveMedia.unlockToView",
-        "sensitiveMedia.loadFailed",
-        "settings.highContrastForced",
-        "settings.offlineNote",
-        "startup.degradedBodyFmt", "startup.databaseMissing", "startup.loadFailed",
-        "startup.degradedTitle",
-        "tab.reminders.badge",
-        "timeline.kind.document",
-        "timeline.quickEntry",
-        "voice.confirm.fillHint",
-        "voice.fallbackNotice",
-        "voice.field.content",
-        "voice.field.date",
-        "voice.field.hour",
-        "voice.field.repeat",
-        "voice.readbackFmt",
-        "voiceguide.micPass",
-        "voiceguide.micPhrase",
-        "voiceguide.micPrompt",
-        "voiceguide.micSkip",
-        "voiceguide.micTitle",
-        "voiceguide.micTooLow",
-        "voiceguide.note.allergy",
-        "voiceguide.note.contact",
-        "voiceguide.note.history",
-        "voiceguide.note.meds",
-        "voiceguide.saved",
-        "voiceguide.profileDoneHint",
-        "voiceguide.profileDoneTitle",
-        "voiceguide.profileDonePartial",
-        // 本地化清偿批（2026-09-06）：硬编码字符串替换
-        "common.confirm", "common.member",
-        "pay.proYearly", "pay.proYearlyPrice", "pay.proYearlyDetail",
-        "pay.proMonthly", "pay.proMonthlyPrice", "pay.proMonthlyDetail",
-        "pay.addonPack", "pay.addonPrice", "pay.addonDetail",
-        "pro.outputTitle", "pro.outputPreview",
-        "pro.featureDoctorSummary", "pro.featureDoctorSummaryDesc",
-        "pro.featureClaimExport", "pro.featureClaimExportDesc",
-        "pro.featureFamilyCabinet", "pro.featureFamilyCabinetDesc",
-        "pro.featureInsurancePack", "pro.featureInsurancePackDesc",
-        "pro.featureCustomThreshold", "pro.featureCustomThresholdDesc",
-        "pro.featureDispenseTemplate", "pro.featureDispenseTemplateDesc",
-        "reminder.apptAdd", "reminder.apptHospital", "reminder.apptDepartment", "reminder.apptTime",
-        // assistant.* 键已随 F12 退役删除
-        "onboard.boundaryTitle", "onboard.storageTitle", "onboard.skipInfoTitle",
-        "member.relation.father", "member.relation.mother",
-        "member.relation.son", "member.relation.daughter",
-        "voice.readAloudA11y",
-        "observation.listEmpty", "observation.listEmptyHint",
-        "observation.listError", "observation.listRetry",
-        "doc.add", "plan.add", "encounter.add", "appointment.add", "allergy.add",
-        "problem.add", "question.add", "home.voice", "notification.center",
-        "observation.media.unlockHint",
-        "encounter.saveFailed", "encounter.saveFailedHint",
-        "allergy.saveFailed", "allergy.saveFailedHint",
-        "observation.saveFailed", "observation.saveFailedHint",
-        "onboard.saveFailed", "onboard.saveFailedHint",
-        "allergy.deleteConfirmTitle", "allergy.deleteConfirmHint",
-        "plan.backfill.noBaseline", "plan.form.saveFailed", "plan.form.saveFailedHint",
-        "plan.loadFailed", "appt.markMissedHint", "appt.completeHint",
-        "member.updateFailed", "member.updateFailedHint",
-        "problem.saveFailedHint",
-        "common.retry",
-        // FR17.15 V3.66 识别引擎实验室（SP-62）
-        "voiceLab.title", "voiceLab.engine.section", "voiceLab.engine.footer",
-        "voiceLab.engine.auto", "voiceLab.engine.auto.hint",
-        "voiceLab.engine.advanced", "voiceLab.engine.advanced.hint",
-        "voiceLab.engine.dictation", "voiceLab.engine.dictation.hint",
-        "voiceLab.engine.classic", "voiceLab.engine.classic.hint",
-        "voiceLab.requiresNewerOS", "voiceLab.unsupported",
-        "voiceLab.asset.section", "voiceLab.asset.locale", "voiceLab.asset.label",
-        "voiceLab.asset.installed", "voiceLab.asset.downloadable", "voiceLab.asset.unavailable",
-        "voiceLab.asset.install", "voiceLab.asset.installing",
-        "voiceLab.asset.installDone", "voiceLab.asset.installFailed", "voiceLab.asset.footer",
-        "voiceLab.test.section", "voiceLab.test.footer",
-        "voiceLab.fallback.asset", "voiceLab.fallback.unavailable", "voiceLab.fallback.missing",
-        "voiceLab.result.section", "voiceLab.result.empty", "voiceLab.result.meta",
-        "voiceLab.result.footer", "voiceLab.entry.hint",
-        "asr.zipformer", "asr.zipformer.hint", "asr.dolphin", "asr.dolphin.hint",
-        "asr.whisper", "asr.whisper.hint", "asr.bundledOffline", "asr.selectionHint", "asr.missingAssets",
-        "asr.downloadable",
-        "asr.model.download", "asr.model.update", "asr.model.installed",
-        "asr.model.variantTitle", "asr.model.variantSmall", "asr.model.variantMedium", "asr.model.variantLarge",
-        "asr.model.variantHint",
-        "asr.model.downloading", "asr.model.downloadFailed",
-        "asr.model.checkUpdate", "asr.index.fetchFailed",
-        "asr.model.checking", "asr.model.checkUpToDate", "asr.model.checkUpdatesFmt",
-        "asr.model.progressFmt", "asr.model.phaseVerifying", "asr.model.phaseUnpacking",
-        "asr.model.phaseActivating", "asr.model.phasePruning", "asr.model.backgroundHint",
-        // 2026-09-16 传输形态（诊断「下载慢」）：分段 N 路 / 单流退化。
-        "asr.model.modeSegmentedFmt", "asr.model.modeSingle",
-        "asr.qwen3", "asr.qwen3.hint",
-        "asr.preparing",
-        "ocr.cards.overview", "ocr.cards.none", "ocr.cards.hint", "ocr.cards.begin", "ocr.fieldActions",
-        "ocr.cards.previous", "ocr.cards.next", "ocr.cards.remaining", "ocr.cards.fieldCount",
-        "ocr.extraction.model", "ocr.extraction.rules", "ocr.association.title", "ocr.association.none",
-        "ocr.association.unavailable", "ocr.association.suggestion", "ocr.association.hint",
-        "field.amount", "field.currency", "field.item_type", "field.merchant", "field.summary",
-        "field.generic_name", "field.unit_kind", "field.brand_name", "field.spec",
-        "field.dosage", "field.quantity", "field.frequency", "field.route", "field.days", "field.note",
-        "field.present_illness", "field.illness_summary", "field.chief_complaint", "field.treatment",
-        "field.visit_summary", "field.reimbursed_amount", "field.out_of_pocket", "field.reference_range",
-        "field.vaccine_name", "field.dose_number", "field.administered_at", "field.provider", "field.lot_number",
-        "health.settingsTitle", "health.autoImport", "health.readPermissionHint", "health.importedData",
-        "health.importedPointCount", "health.importedDayCount", "health.importedDataHint", "health.appleSource",
-        "health.viewTrendChart", "health.viewTrendChartHint", "health.importedRecordsSection",
-        // 业主 2026-09-17 定：特征型档案候选 + 写回 Apple 健康
-        "health.candidate.section", "health.candidate.hint", "health.candidate.adopt",
-        "health.candidate.existingFmt", "health.candidate.birthDate", "health.candidate.gender",
-        "health.writeBack.label", "health.writeBack.section", "health.writeBack.hint",
-        "health.writeBack.granted", "health.writeBack.denied", "health.writeBack.needAuth",
-        "health.writeBack.retryAuth", "health.writeBack.failed", "health.writeBack.lastFmt",
-        // FR6.9 V3.66 一键确认与卡片互联
-        "entityCard.confirmAllHint",
-        "encounter.linkedCards", "encounter.linkedCards.empty",
-        // 子项目 D · D1-5（v25）：处方行详情 / 就诊叙事分段 / 确认卡「添加字段」/ 处方类型枚举
-        "prescriptionLine.title", "prescriptionLine.section", "prescriptionLine.none",
-        // 业主 2026-09-17 定：折叠标签计数（多项目处方单 / 检验数值定性分段 / 体检检测检查项）
-        "prescription.lineCountFmt", "labReport.samplesCountFmt", "labReport.resultsCountFmt",
-        "prescriptionLine.unavailable", "prescriptionLine.header", "prescriptionLine.noSource",
-        "entityCard.addField", "entityCard.pickValue", "encounter.narrative",
-        // 动态键 prescriptionTypeName(_:)：prescription_type CHECK 枚举七值
-        "prescription.type.general", "prescription.type.emergency", "prescription.type.pediatric",
-        "prescription.type.narcotic", "prescription.type.psychotropic", "prescription.type.tcm", "prescription.type.other",
-        // 动态键 templateFieldLabel(_:)：CardKindRegistry 可选目录 / prescription_line 列 / 叙事列 / 费用行
-        "field.prescription_no", "field.prescription_type", "field.fee_type", "field.clinical_diagnosis",
-        "field.pharmacist_names", "field.total_amount",
-        "field.drug_form", "field.start_date", "field.end_date", "field.as_needed", "field.medication_notes",
-        "field.insurance_code", "field.item_code", "field.unit_price", "field.line_amount",
-        "field.past_history", "field.physical_exam", "field.allergy_history", "field.fee_amount",
-        "field.personal_account_amount", "field.invoice_no", "field.insurance_type",
-        "field.item_name", "field.item_amount", "field.item_quantity", "field.item_spec",
-        "field.fee_category", "field.executing_dept", "field.self_pay_ratio", "field.fee_at",
-        // 子项目 D · D2-3（v26 clinical-episodes）：日间手术 / 三新卡类 + 检验报告详情卡类 / SP-08 四分段 / 检验报告读面
-        "encounter.kind.daySurgery",
-        "entityCard.kind.hospitalization", "entityCard.kind.diagnosis", "entityCard.kind.exam_report", "entityCard.kind.lab_report",
-        "encounter.section.hospitalization", "encounter.section.diagnoses", "encounter.section.examReports", "encounter.section.labReports",
-        "labReport.samplesSection", "labReport.resultsSection", "labReport.noRows", "hospitalization.episode",
-        // 动态键 examReportTypeName(_:)：report_type CHECK 枚举九值
-        "exam.type.ct", "exam.type.mri", "exam.type.xray", "exam.type.ultrasound", "exam.type.ecg",
-        "exam.type.endoscopy", "exam.type.pathology", "exam.type.nuclear", "exam.type.other",
-        // 动态键 diagnosisTypeName(_:)：diagnosis_type CHECK 枚举九值
-        "diagnosis.type.primary", "diagnosis.type.secondary", "diagnosis.type.admission", "diagnosis.type.discharge",
-        "diagnosis.type.preop", "diagnosis.type.postop", "diagnosis.type.pathology", "diagnosis.type.certificate", "diagnosis.type.unspecified",
-        // 动态键 templateFieldLabel(_:)：§C.2 住院期 / §C.3 诊断 / §C.4 检查 / §C.5 检验表头与行
-        "field.admit_at", "field.discharge_at", "field.medical_record_no", "field.inpatient_times", "field.actual_days",
-        "field.admit_dept", "field.discharge_dept", "field.ward", "field.bed_no", "field.admit_route", "field.payment_type",
-        "field.discharge_way", "field.attending_physician", "field.admit_diagnosis", "field.discharge_diagnosis",
-        "field.admit_condition", "field.treatment_course", "field.discharge_condition", "field.discharge_orders",
-        "field.take_home_drugs", "field.total_cost", "field.summary_doctor", "field.summary_date",
-        "field.name", "field.code_text", "field.code_system", "field.diagnosis_type", "field.diagnosed_at",
-        "field.report_type", "field.report_no", "field.exam_part", "field.exam_method", "field.exam_at", "field.reported_at",
-        "field.findings", "field.impression", "field.apply_doctor", "field.report_doctor", "field.review_doctor",
-        "field.lab_name", "field.specimen_type", "field.specimen_no", "field.test_class", "field.collected_at", "field.received_at",
-        "field.send_doctor", "field.test_doctor", "field.reference_text", "field.abnormal_flag", "field.method",
-        // 子项目 D · D4-2「资料建议」表单（SP-12.suggestion.*）；动态键 profileSuggestionKindName(_:)：Kind 四值
-        "profileSuggestion.title", "profileSuggestion.hint", "profileSuggestion.accept", "profileSuggestion.skip",
-        "profileSuggestion.skipAll", "profileSuggestion.done", "profileSuggestion.applied", "profileSuggestion.existing",
-        "profileSuggestion.skipped", "profileSuggestion.failed", "profileSuggestion.severityUnset", "profileSuggestion.sourceFmt",
-        "profileSuggestion.kind.bloodType", "profileSuggestion.kind.chronicCondition", "profileSuggestion.kind.allergy", "profileSuggestion.kind.pastHistory",
-        // 子项目 J · J4（v27 card-hierarchy）：时间轴主卡/子卡十二类（动态键 timelineKindName(_:) 展开）
-        "timeline.kind.hospitalization", "timeline.kind.healthExam", "timeline.kind.diagnosis", "timeline.kind.prescription",
-        "timeline.kind.labReport", "timeline.kind.examReport", "timeline.kind.claim", "timeline.kind.surgery",
-        "timeline.kind.treatmentRecord", "timeline.kind.appointment", "timeline.kind.reminder", "timeline.kind.clinicalConclusion",
-        // SP-19 主卡折叠行：详情 / 展开 / 收起 / 计数徽章 / 子记录数 / 分页
-        "timeline.hub.open", "timeline.hub.expand", "timeline.hub.collapse", "timeline.hub.countFmt", "timeline.hub.childrenFmt",
-        "timeline.hub.noChildren", "timeline.hub.itemsFmt", "timeline.hub.conclusionsFmt", "timeline.loadingMore", "timeline.loadMoreFailed",
-        // 四新卡类名（动态键 entityCardKindName(_:)）
-        "entityCard.kind.health_exam", "entityCard.kind.clinical_conclusion", "entityCard.kind.surgery", "entityCard.kind.treatment_record",
-        // Apple 健康信息卡（业主 2026-09-17 定：图标经 CardKindIcon health_metric → healthData）
-        "entityCard.kind.health_metric",
-        // 动态键 conclusionTypeName(_:)：conclusion_type CHECK 枚举七值（只是类型名，severity_text 原文不映射不着色）
-        "conclusion.type.lab", "conclusion.type.exam", "conclusion.type.health_exam_summary", "conclusion.type.abnormal_finding",
-        "conclusion.type.health_advice", "conclusion.type.recheck_advice", "conclusion.type.visit_advice",
-        // 动态键 treatmentTypeName(_:)：treatment_type CHECK 枚举五值
-        "treatment.type.infusion", "treatment.type.injection", "treatment.type.physiotherapy", "treatment.type.dressing", "treatment.type.other",
-        // 动态键 appointmentPurposeName(_:)：appointment.purpose CHECK 枚举四值
-        "appointment.purpose.visit", "appointment.purpose.followUp", "appointment.purpose.exam", "appointment.purpose.healthExam",
-        // SP-12 主卡草稿区（§0.4 改判 / BR-003）
-        "parentDraft.title", "parentDraft.hint", "parentDraft.newEncounter", "parentDraft.newHealthExam", "parentDraft.useExisting",
-        "parentDraft.dateRequired", "parentDraft.unconfirmed",
-        // 体检详情（healthExamDetail 路由）
-        "healthExam.title", "healthExam.header", "healthExam.general", "healthExam.reports", "healthExam.conclusions", "healthExam.guidance",
-        "healthExam.reportsCountFmt",
-        "healthExam.overall", "healthExam.notFound", "healthExam.noReports", "healthExam.noConclusions", "healthExam.source", "healthExam.samples",
-        "healthExam.disclaimer",
-        // SP-08 四新分段 + 「关联预约」显式挂接
-        "encounter.section.surgeries", "encounter.section.treatments", "encounter.section.followUpAppointments", "encounter.section.followUpReminders",
-        "encounter.linkAppointment", "encounter.linkAppointment.hint", "encounter.linkAppointment.none", "encounter.linkAppointment.confirm",
-        "encounter.linkAppointment.failed", "encounter.linkAppointment.confirmFmt",
-        // FR5.5 文档类型稳定键 27 标签（动态键 docTypeName(_:)；旧 docTypeLabel.* 保留供回填反查）
-        "docType.outpatient_record", "docType.emergency_record", "docType.diagnosis_certificate", "docType.admission_certificate",
-        "docType.lab_report", "docType.exam_report", "docType.pathology_report", "docType.checkup_report",
-        "docType.prescription", "docType.medication_guide", "docType.medication_label", "docType.invoice", "docType.fee_detail",
-        "docType.inpatient_record", "docType.discharge_summary", "docType.surgery_record", "docType.day_surgery_record", "docType.treatment_record",
-        "docType.vaccine_record", "docType.allergy_record",
-        "docType.medical_order", "docType.nursing_record", "docType.anesthesia_record", "docType.surgery_checklist", "docType.consent_form",
-        "docType.other", "docType.custom",
-        // 动态键 templateFieldLabel(_:)：体检 / 结论 / 手术 / 治疗模板键
-        "field.exam_date", "field.org_name", "field.exam_no", "field.package_name", "field.total_doctor",
-        "field.height", "field.weight", "field.bmi", "field.systolic", "field.diastolic", "field.pulse", "field.waist",
-        "field.vision_left", "field.vision_right", "field.overall_conclusion", "field.health_guidance",
-        "field.content", "field.conclusion_type", "field.severity",
-        "field.surgery_at", "field.surgery_name", "field.surgery_code", "field.surgery_level", "field.surgeon", "field.assistants",
-        "field.anesthesiologist", "field.anesthesia_method", "field.preop_diagnosis", "field.postop_diagnosis", "field.procedure_course",
-        "field.intraop_findings", "field.implants", "field.specimen", "field.blood_loss", "field.transfusion", "field.drainage",
-        "field.postop_orders", "field.complications", "field.ended_at",
-        "field.treated_at", "field.treatment_type", "field.executor", "field.drugs_text", "field.session", "field.adverse_reaction", "field.result"
-    ]
 
     // MARK: - FR14.8 Tab badge
-    static var tabRemindersBadge: String { t("tab.reminders.badge") }
 
     // MARK: - §5.10 敏感媒体原始视图
-    static var sensitiveMedia_originalTitle: String { t("sensitiveMedia.original.title") }
-    static var sensitiveMedia_unlockToView: String { t("sensitiveMedia.unlockToView") }
-    static var sensitiveMedia_loadFailed: String { t("sensitiveMedia.loadFailed") }
 
     // MARK: - F22 帮助与诊断（FR22.1-22.4 · SP-42/43/44/45/48）
-    static var helpStatusChecking: String { t("help.status.checking") }
-    static var helpStatusAuthorized: String { t("help.status.authorized") }
-    static var helpStatusDenied: String { t("help.status.denied") }
-    static var helpStatusNotRequested: String { t("help.status.notRequested") }
-    static var helpStatusUnknown: String { t("help.status.unknown") }
-    static var helpStatusProvisional: String { t("help.status.provisional") }
-    static var helpCenterTitle: String { t("help.center.title") }
-    static var helpDiagPermission: String { t("help.diag.permission") }
-    static var helpDiagReminder: String { t("help.diag.reminder") }
-    static var helpDiagDataHealth: String { t("help.diag.dataHealth") }
-    static var helpDiagSystem: String { t("help.diag.system") }
-    static var helpDiagSystemHint: String { t("help.diag.systemHint") }
-    static var helpAboutLegal: String { t("help.about.legal") }
-    static var helpPermSection: String { t("help.perm.section") }
-    static var helpPermCamera: String { t("help.perm.camera") }
-    static var helpPermMic: String { t("help.perm.mic") }
-    static var helpPermNotification: String { t("help.perm.notification") }
-    static var helpPermOpenSettings: String { t("help.perm.openSettings") }
-    static var helpPermDeniedHint: String { t("help.perm.deniedHint") }
-    static var helpFaceIDRequiresDevice: String { t("help.faceID.requiresDevice") }
-    static var helpReminderSection: String { t("help.reminder.section") }
-    static var helpReminderPermission: String { t("help.reminder.permission") }
-    static var helpReminderTodaySection: String { t("help.reminder.todaySection") }
-    static var helpReminderPendingDoses: String { t("help.reminder.pendingDoses") }
-    static var helpReminderTodaySlots: String { t("help.reminder.todaySlots") }
-    static var helpReminderDeniedHint: String { t("help.reminder.deniedHint") }
-    static var helpDataDbSection: String { t("help.data.dbSection") }
-    static var helpDataIntegrity: String { t("help.data.integrity") }
-    static var helpDataNormal: String { t("help.data.normal") }
-    static var helpDataCorrupt: String { t("help.data.corrupt") }
-    static var helpDataStorageSection: String { t("help.data.storageSection") }
-    static var helpDataDbSize: String { t("help.data.dbSize") }
-    static var helpDataCalculating: String { t("help.data.calculating") }
     /// 第七轮修复：诊断存储大小格式化——「%.1f MB」硬编码单位绕过单出口
-    static func helpDataStorageSize(_ mb: String) -> String {
-        String(format: t("help.data.storageSizeFmt"), mb)   // %@
-    }
-    static var helpDataBackupSection: String { t("help.data.backupSection") }
-    static var helpDataLastBackup: String { t("help.data.lastBackup") }
-    static var helpDataNoBackup: String { t("help.data.noBackup") }
-    static var helpDataTitle: String { t("help.data.title") }
-    static var helpAboutLicenses: String { t("help.about.licenses") }
-    static var helpAboutSection: String { t("help.about.section") }
-    static var helpLegalSection: String { t("help.legal.section") }
-    static var helpTermsTitle: String { t("help.terms.title") }
-    static var helpSection: String { t("help.section") }
 
     // MARK: - F24 同机照护者视图（FR24.5 · SP-57）
-    static var caregiverTitle: String { t("caregiver.title") }
-    static var caregiverEmpty: String { t("caregiver.empty") }
-    static var caregiverEmptyHint: String { t("caregiver.emptyHint") }
-    static func caregiverPending(_ time: String) -> String { String(format: t("caregiver.pendingFmt"), time) }
-    static var caregiverAlertTitle: String { t("caregiver.alertTitle") }
-    static var caregiverAlertConfirm: String { t("caregiver.alertConfirm") }
-    static func caregiverAlertBody(patient: String, medication: String) -> String {
-        String(format: t("caregiver.alertBodyFmt"), patient, medication)
-    }
 
     // MARK: - F20 L2-L4 场景须知（SP-37）
-    static var disclosureTitle: String { t("disclosure.title") }
-    static var disclosureAcknowledge: String { t("disclosure.acknowledge") }
 
     // MARK: - FR18.6 SOS 全屏求助页（SP-33，唯一免门禁路径）
-    static var sosHelpTitle: String { t("sos.help.title") }
-    static var sosCall120: String { t("sos.call120") }
-    static var sosNoContacts: String { t("sos.noContacts") }
-    static var sosViewCard: String { t("sos.viewCard") }
-    static var sosSendLocationP1: String { t("sos.sendLocationP1") }
 
     // MARK: - F2 首页（SP-04 · FR2.1 八卡）
-    static func homeGreeting(_ name: String) -> String { String(format: t("home.greeting"), name) }
-    static var homeTodayTodos: String { t("home.todayTodos") }
-    static func homePendingOcrCount(_ n: Int) -> String { String(format: t("home.pendingOcrCountFmt"), n) }
-    static var homeExpiringSoon: String { t("home.expiringSoon") }
-    static var homeRefill: String { t("home.refill") }
-    static var homeAlertSummary: String { t("home.alertSummary") }
-    static var homeRecentObs: String { t("home.recentObs") }
-    static var homeQuickCapture: String { t("home.quickCapture") }
-    static var homeCaptureRecord: String { t("home.capture.record") }
-    static var homeCaptureReport: String { t("home.capture.report") }
-    static var homeCapturePrescription: String { t("home.capture.prescription") }
-    static var homeCaptureSymptom: String { t("home.capture.symptom") }
-    static var homeCaptureHint: String { t("home.capture.hint") }
     /// 📷 单入口标题（FR5.1 V3.61：不前置选类型）
-    static var homeCaptureAny: String { t("home.captureAny") }
-    static var homeCaptureShoot: String { t("home.capture.shoot") }
-    static var homeCaptureLibrary: String { t("home.capture.library") }
-    static var homeCaptureFile: String { t("home.capture.file") }
-    static var homeCaptureNoCamera: String { t("home.capture.noCamera") }
-    static var homeCaptureSaved: String { t("home.capture.saved") }
-    static var docTypePrescription: String { t("doc.type.prescription") }
-    static var homeProfileProgressTitle: String { t("home.profileProgress") }
     /// 后台任务（模型下载）首页条目（2026-09-16 业主）：进行中显示，形如档案完善进度卡。
-    static var homeModelDownloadTitle: String { t("home.model.downloadTitle") }
-    static var homeModelDownloadView: String { t("home.model.downloadView") }
-    static func homeProfileProgressFmt(_ done: Int, _ total: Int) -> String {
-        String(format: t("home.profileProgressFmt"), done, total)   // 位置参数 %1$d / %2$d
-    }
-    static var homeProfileContinue: String { t("home.profileContinue") }
-    static var homeDisclaimer: String { t("home.disclaimer") }
-    static var timelineQuickEntry: String { t("timeline.quickEntry") }
-    static var settings_offlineNote: String { t("settings.offlineNote") }
-    static var homeGuide1: String { t("home.guide1") }
-    static var homeGuide2: String { t("home.guide2") }
-    static var homeGuide3: String { t("home.guide3") }
     /// V3.39：原首日引导「了解 AI」行动卡的替代落点（SP-04 空态引导第四任务）
-    static var homeGuide4: String { t("home.guide4") }
-    static var homeMemberSwitch: String { t("home.memberSwitch") }
-    static var homeNotifDenied: String { t("home.notifDenied") }
-    static var homeNotifOpen: String { t("home.notifOpen") }
-    static var homeCareMeds: String { t("home.care.meds") }
-    static var homeCareRefill: String { t("home.care.refill") }
-    static var homeCareCapture: String { t("home.care.capture") }
-    static var homeCareSOS: String { t("home.care.sos") }
-    static var homeDoseSlot: String { t("home.doseSlot") }
-    static func homeStockBacklog(_ name: String) -> String { String(format: t("home.stockBacklogFmt"), name) }
 
     // MARK: - FR2.1 统一提醒聚合中心（SP-04 · V3.96/V3.97）
-    static var homeAggregationTitle: String { t("home.aggregationTitle") }
-    static var homeFilterAll: String { t("home.filter.all") }
-    static var homeFilterMedication: String { t("home.filter.medication") }
-    static var homeFilterAppointment: String { t("home.filter.appointment") }
-    static var homeFilterDocument: String { t("home.filter.document") }
-    static var homeFilterOcr: String { t("home.filter.ocr") }
-    static var homeFilterAlert: String { t("home.filter.alert") }
-    static var homeFilterFamily: String { t("home.filter.family") }
-    static var homeFilterSOS: String { t("home.filter.sos") }
-    static var homeFilterSystem: String { t("home.filter.system") }
-    static var homeFilterPending: String { t("home.filter.pending") }
-    static var homeWindowDefault: String { t("home.window.default") }
-    static var homeWindowShort: String { t("home.window.short") }
-    static var homeWindowLong: String { t("home.window.long") }
-    static var homeEmptyFilter: String { t("home.emptyFilter") }
-    static var homeEmptyReset: String { t("home.emptyReset") }
-    static var homeL0Note: String { t("home.l0Note") }
-    static func homeRemainingFmt(_ n: Int) -> String { String(format: t("home.remainingFmt"), n) }
 
     // MARK: - FR14.8 通知中心（SP-27）
-    static var ncTitle: String { t("nc.title") }
-    static var ncSectionPending: String { t("nc.section.pending") }
-    static var ncSectionAppointment: String { t("nc.section.appointment") }
-    static var ncSectionExpiry: String { t("nc.section.expiry") }
-    static var ncSectionAlert: String { t("nc.section.alert") }
-    static var ncSectionOcr: String { t("nc.section.ocr") }
-    static var ncNextActionDose: String { t("nc.nextAction.dose") }
-    static var ncConfirmDose: String { t("nc.confirmDose") }
-    static func ncExpireDate(_ d: String) -> String { String(format: t("nc.expireDateFmt"), d) }
-    static func ncOcrCount(_ n: Int) -> String { String(format: t("nc.ocrCountFmt"), n) }
-    static var ncEmpty: String { t("nc.empty") }
-    static var ncEmptyHint: String { t("nc.emptyHint") }
 
     // MARK: - F12 全局搜索（SP-20）
-    static var searchTitle: String { t("search.title") }
-    static var searchPlaceholder: String { t("search.placeholder") }
-    static var searchPlaceholderHint: String { t("search.placeholderHint") }
-    static func searchNoResult(_ q: String) -> String { String(format: t("search.noResultFmt"), q) }
-    static var searchLoosenHint: String { t("search.loosenHint") }
-    static var searchClear: String { t("search.clear") }
-    static var searchLoadFailed: String { t("search.failed") }
-    static var searchRetry: String { t("search.retry") }
-    static var searchGroupDocs: String { t("search.group.docs") }
     /// 健康数据搜索组（2026-09-16 委员会评审②）：Apple 健康导入读数可按指标名搜到。
-    static var searchGroupHealthData: String { t("search.group.healthData") }
-    static var searchHealthDataHint: String { t("search.healthData.hint") }
-    static var searchGroupObservations: String { t("search.group.observations") }
-    static var searchGroupMeds: String { t("search.group.meds") }
-    static var searchObsLocked: String { t("search.obsLocked") }
 
     // MARK: - FR14.5/FR17.15/FR17.16 语言选择器
-    static var languageTitle: String { t("language.title") }
-    static var languageFooter: String { t("language.footer") }
     /// FR14.5 可显示语言（以该语言原文显示）；en 为 P2 评估项不列
     static var supportedDisplayLanguages: [(code: String, nativeName: String)] {
         [("zh-Hans", "简体中文"), ("zh-Hant", "繁體中文")]
     }
-    static var voiceLangTitle: String { t("voiceLang.title") }
-    static var voiceLangInputSection: String { t("voiceLang.inputSection") }
-    static var voiceLangInputHint: String { t("voiceLang.inputHint") }
-    static var voiceLangOutputSection: String { t("voiceLang.outputSection") }
-    static var voiceLangOutputHint: String { t("voiceLang.outputHint") }
-    static var voiceLangBestEffort: String { t("voiceLang.bestEffort") }
-    static var voiceLangFallback: String { t("voiceLang.fallback") }
-    static var voiceLangMix: String { t("voiceLang.mix") }
-    static var voiceLangMixHint: String { t("voiceLang.mixHint") }
 
     // MARK: - FR9.5/FR9.17 动作集与时段确认
-    static var reminder_allTaken: String { t("reminder.allTaken") }
-    static var reminder_allTakenConfirm: String { t("reminder.allTakenConfirm") }
-    static var reminder_allTakenYes: String { t("reminder.allTakenYes") }
-    static var reminder_snooze15: String { t("reminder.snooze15") }
-    static var reminder_snooze30: String { t("reminder.snooze30") }
-    static var reminder_snooze60: String { t("reminder.snooze60") }
-    static var reminder_forgot: String { t("reminder.forgot") }
-    static var reminder_discomfort: String { t("reminder.discomfort") }
-    static var reminder_discomfortPlaceholder: String { t("reminder.discomfortPlaceholder") }
-    static var reminder_skipReasonNone: String { t("reminder.skipReason.none") }
-    static var reminder_skipReasonForgot: String { t("reminder.skipReason.forgot") }
-    static var reminder_skipReasonDoctor: String { t("reminder.skipReason.doctor") }
-    static var reminder_skipReasonOther: String { t("reminder.skipReason.other") }
-    static var reminder_moreActions: String { t("reminder.moreActions") }
 
     // MARK: - FR9.15/FR9.16 计划生命周期与补录（SP-15）
-    static var planListTitle: String { t("plan.listTitle") }
-    static var planDetailTitle: String { t("plan.detailTitle") }
-    static var planNotFound: String { t("plan.notFound") }
-    static var planLoadFailed: String { t("plan.loadFailed") }
-    static var retry: String { t("common.retry") }
-    static var planWeekStrip: String { t("plan.weekStrip") }
-    static var planTodayDoses: String { t("plan.todayDoses") }
-    static var planNoTodayDose: String { t("plan.noTodayDose") }
-    static var planAdviceText: String { t("plan.adviceText") }
-    static var planAdviceSource: String { t("plan.adviceSource") }
-    static var planPause: String { t("plan.pause") }
-    static var planResume: String { t("plan.resume") }
-    static var planEnd: String { t("plan.end") }
-    static var planEndedNote: String { t("plan.endedNote") }
-    static var planHistory: String { t("plan.history") }
-    static var planEndConfirmTitle: String { t("plan.endConfirm.title") }
-    static var planEndConfirmBody: String { t("plan.endConfirm.body") }
-    static var planEndDoctor: String { t("plan.endReason.doctor") }
-    static var planEndCourse: String { t("plan.endReason.course") }
-    static var planEndAdverse: String { t("plan.endReason.adverse") }
-    static var planEndNoLonger: String { t("plan.endReason.noLonger") }
-    static var planEndOther: String { t("plan.endReason.other") }
-    static var planEventStarted: String { t("plan.event.started") }
-    static var planEventEdited: String { t("plan.event.edited") }
-    static var planEventPaused: String { t("plan.event.paused") }
-    static var planEventResumed: String { t("plan.event.resumed") }
-    static func planEventEnded(_ reason: String) -> String {
-        reason.isEmpty ? t("plan.event.ended") : String(format: t("plan.event.endedReasonFmt"), reason)
-    }
-    static var planActionTaken: String { t("plan.action.taken") }
-    static var planActionSkipped: String { t("plan.action.skipped") }
-    static var planActionMissed: String { t("plan.action.missed") }
-    static var planActionDiscomfort: String { t("plan.action.discomfort") }
-    static var planActionSnoozed: String { t("plan.action.snoozed") }
-    static var planActionPending: String { t("plan.action.pending") }
-    static var planStatusActive: String { t("plan.status.active") }
-    static var planStatusPaused: String { t("plan.status.paused") }
-    static var planStatusEnded: String { t("plan.status.ended") }
-    static var planBackfillTitle: String { t("plan.backfill.title") }
-    static var planBackfillActualTime: String { t("plan.backfill.actualTime") }
-    static var planBackfillNoBaseline: String { t("plan.backfill.noBaseline") }
-    static var planFormSaveFailed: String { t("plan.form.saveFailed") }
-    static var planFormSaveFailedHint: String { t("plan.form.saveFailedHint") }
     // FR9.1-9.3 计划创建表单
-    static var planFormTitle: String { t("plan.form.title") }
-    static var planFormMedication: String { t("plan.form.medication") }
-    static var planFormGenericName: String { t("plan.form.genericName") }
-    static var planFormBrandName: String { t("plan.form.brandName") }
-    static var planFormSpec: String { t("plan.form.spec") }
-    static var planFormDosePerTake: String { t("plan.form.dosePerTake") }
     /// 第八轮修复：非空但不可解析的剂量文本就地报错（响亮拒绝）
-    static var planFormDoseParseError: String { t("plan.form.doseParseError") }
-    static var planFormTimesPerDay: String { t("plan.form.timesPerDay") }
-    static var planFormRoute: String { t("plan.form.route") }
-    static var planFormMeal: String { t("plan.form.meal") }
-    static var planFormSchedule: String { t("plan.form.schedule") }
-    static var planFormFixedTimes: String { t("plan.form.fixedTimes") }
-    static var planFormAsNeeded: String { t("plan.form.asNeeded") }
-    static var planFormStartDate: String { t("plan.form.startDate") }
-    static var planFormHasEndDate: String { t("plan.form.hasEndDate") }
-    static var planFormEndDate: String { t("plan.form.endDate") }
-    static var planFormLongTerm: String { t("plan.form.longTerm") }
-    static var planFormSource: String { t("plan.form.source") }
-    static var planFormHospital: String { t("plan.form.hospital") }
-    static var planFormDoctor: String { t("plan.form.doctor") }
-    static var planFormAdvice: String { t("plan.form.advice") }
-    static var planFormLotSection: String { t("plan.form.lot.section") }
-    static func planFormLotUnits(_ n: Double) -> String { String(format: t("plan.form.lot.unitsFmt"), Int(n)) }
-    static var planFormLotUnit: String { t("plan.form.lot.unit") }
-    static var planFormExpireUnknown: String { t("plan.form.lot.expireUnknown") }
-    static var planFormExpireDate: String { t("plan.form.lot.expireDate") }
-    static var planFormStorageNote: String { t("plan.form.lot.storageNote") }
-    static var planFormLotHint: String { t("plan.form.lot.hint") }
-    static var lotUnitTablet: String { t("lot.unit.tablet") }
-    static var lotUnitCapsule: String { t("lot.unit.capsule") }
-    static var lotUnitPatch: String { t("lot.unit.patch") }
-    static var lotUnitVial: String { t("lot.unit.vial") }
 
     // MARK: - FR9.9 药品知识卡（§5.40）
-    static var knowledgeTitle: String { t("knowledge.title") }
-    static var knowledgeAdvice: String { t("knowledge.advice") }
-    static var knowledgeAdviceBadge: String { t("knowledge.adviceBadge") }
-    static var knowledgeNoAdvice: String { t("knowledge.noAdvice") }
-    static var knowledgeStorage: String { t("knowledge.storage") }
-    static var knowledgeStorageHint: String { t("knowledge.storageHint") }
-    static var knowledgeCaution: String { t("knowledge.caution") }
-    static var knowledgeCautionText: String { t("knowledge.cautionText") }
 
     // MARK: - F4 就诊事件（SP-08 · FR4.1-4.4）
-    static func encounterKindName(_ kind: EncounterKind) -> String { t("encounter.kind.\(kind.rawValue)") }
-    static var encounterListTitle: String { t("encounter.listTitle") }
-    static var encounterEmpty: String { t("encounter.empty") }
-    static var encounterEmptyHint: String { t("encounter.emptyHint") }
-    static var encounterUntitled: String { t("encounter.untitled") }
-    static func encounterDocCount(_ n: Int) -> String { String(format: t("encounter.docCountFmt"), n) }
-    static var encounterSaveFailed: String { t("encounter.saveFailed") }
-    static var encounterSaveFailedHint: String { t("encounter.saveFailedHint") }
-    static var encounterDetailTitle: String { t("encounter.detailTitle") }
-    static var encounterDiagnosisAdvice: String { t("encounter.diagnosisAdvice") }
-    static var encounterDiagnosisBadge: String { t("encounter.diagnosisBadge") }
-    static var encounterAdviceBadge: String { t("encounter.adviceBadge") }
-    static var encounterFollowUp: String { t("encounter.followUp") }
-    static var encounterLinkedDocs: String { t("encounter.linkedDocs") }
-    static var encounterNoDocs: String { t("encounter.noDocs") }
-    static func encounterDocTitle(_ s: String.SubSequence) -> String {
-        String(format: t("encounter.docTitleFmt"), String(s))
-    }
-    static var encounterRecommendSection: String { t("encounter.recommend.section") }
-    static var encounterRecommendPending: String { t("encounter.recommend.pending") }
-    static var encounterLink: String { t("encounter.link") }
-    static var encounterGenerateSummary: String { t("encounter.generateSummary") }
-    static var encounterSummaryTitle: String { t("encounter.summary.title") }
-    static var encounterSummaryHeader: String { t("encounter.summary.header") }
-    static var encounterSummaryUnconfirmed: String { t("encounter.summary.unconfirmed") }
-    static var encounterSummaryAllConfirmed: String { t("encounter.summary.allConfirmed") }
-    static func encounterSummaryDocFields(_ id: String, _ n: Int) -> String {
-        String(format: t("encounter.summary.docFieldsFmt"), id, n)
-    }
-    static var encounterSummaryNote: String { t("encounter.summary.note") }
-    static var encounterSummaryNoteText: String { t("encounter.summary.noteText") }
-    static var encounterFormTitle: String { t("encounter.form.title") }
-    static var encounterFormBasic: String { t("encounter.form.basic") }
-    static var encounterFormKind: String { t("encounter.form.kind") }
-    static var encounterFormDate: String { t("encounter.form.date") }
-    static var encounterFormHospital: String { t("encounter.form.hospital") }
-    static var encounterFormDepartment: String { t("encounter.form.department") }
-    static var encounterFormDoctor: String { t("encounter.form.doctor") }
-    static var encounterFormClinical: String { t("encounter.form.clinical") }
-    static var encounterFormComplaint: String { t("encounter.form.complaint") }
-    static var encounterFormDiagnosis: String { t("encounter.form.diagnosis") }
-    static var encounterFormAdvice: String { t("encounter.form.advice") }
-    static var encounterFormFollowUp: String { t("encounter.form.followUp") }
-    static var encounterFormFee: String { t("encounter.form.fee") }
 
     // MARK: - F11 时间轴 + FR11.4 健康问题（SP-19/SP-49）
-    static var timelineTitle: String { t("timeline.title") }
-    static var timelineEmptyHint: String { t("timeline.emptyHint") }
-    static var timelineFilterAll: String { t("timeline.filter.all") }
-    static func timelineKindName(_ kind: TimelineEntryKind) -> String { t("timeline.kind.\(kind.rawValue)") }
     // 2026-09-15 审查修复：timelineGradeConfirmed 随 GradeBadge 无障碍改写退役
     // （A/B/C 朗读自身字母+短文案后无读者）——键与三语 .strings 同批删除。
-    static var timelineProblemsFilter: String { t("timeline.problemsFilter") }
-    static var problemTitle: String { t("problem.title") }
-    static var problemEmpty: String { t("problem.empty") }
-    static var problemEmptyHint: String { t("problem.emptyHint") }
-    static var problemCreateTitle: String { t("problem.createTitle") }
-    static var problemSaveFailedHint: String { t("problem.saveFailedHint") }
-    static var problemNamePlaceholder: String { t("problem.namePlaceholder") }
-    static var problemMerge: String { t("problem.merge") }
-    static var problemMergeTitle: String { t("problem.mergeTitle") }
-    static func problemMergeInto(_ name: String) -> String { String(format: t("problem.mergeIntoFmt"), name) }
-    static var problemMergeHint: String { t("problem.mergeHint") }
-    static var problemArchive: String { t("problem.archive") }
-    static var problemUnarchive: String { t("problem.unarchive") }
 
     // MARK: - FR10.4 就诊准备包 / FR10.5 问诊问题
-    static var prepTitle: String { t("prep.title") }
-    static var prepPatient: String { t("prep.patient") }
-    static var prepBloodType: String { t("prep.bloodType") }
-    static var prepMeds: String { t("prep.meds") }
-    static var prepObservations: String { t("prep.observations") }
-    static var prepQuestions: String { t("prep.questions") }
-    static var prepNoData: String { t("prep.noData") }
-    static var prepNoQuestions: String { t("prep.noQuestions") }
-    static func prepDaysLeft(_ n: Int) -> String { String(format: t("prep.daysLeftFmt"), n) }
-    static var prepDisclaimer: String { t("prep.disclaimer") }
-    static var questionTitle: String { t("question.title") }
-    static var questionPlaceholder: String { t("question.placeholder") }
-    static var questionMarkAsked: String { t("question.markAsked") }
 
     // MARK: - F10 预约（SP-18 · FR10.1-10.7）
-    static var apptListTitle: String { t("appt.listTitle") }
-    static var apptEmpty: String { t("appt.empty") }
-    static var apptEmptyHint: String { t("appt.emptyHint") }
-    static func apptStatusName(_ s: String) -> String { t("appt.status.\(s)") }
-    static var apptReschedule: String { t("appt.reschedule") }
-    static var apptCancel: String { t("appt.cancel") }
-    static var apptComplete: String { t("appt.complete") }
-    static var apptFollowUpHint: String { t("appt.followUpHint") }
     /// 第七轮修复：FR10.7 错过状态此前无入口（scheduled 行只有改期/取消/完成，
     /// 「错过」过滤段与错过跟进提醒永远空转）
-    static var apptMarkMissed: String { t("appt.markMissed") }
-    static var apptMarkMissedHint: String { t("appt.markMissedHint") }
-    static var apptCompleteHint: String { t("appt.completeHint") }
-    static var apptNewDate: String { t("appt.newDate") }
-    static var apptCancelReasonNone: String { t("appt.cancelReason.none") }
-    static var apptCancelReasonDoctor: String { t("appt.cancelReason.doctor") }
-    static var apptCancelReasonSelf: String { t("appt.cancelReason.self") }
-    static var apptCancelReasonOther: String { t("appt.cancelReason.other") }
-    static var apptFormTitle: String { t("appt.form.title") }
-    static var apptFormBasic: String { t("appt.form.basic") }
-    static var apptFormAddress: String { t("appt.form.address") }
-    static var apptFormDate: String { t("appt.form.date") }
-    static var apptFormPrep: String { t("appt.form.prep") }
-    static var apptFormItems: String { t("appt.form.items") }
-    static var apptFormNotes: String { t("appt.form.notes") }
-    static var apptFormFollowUpRule: String { t("appt.form.followUpRule") }
-    static func apptFollowUpRuleName(_ r: Int) -> String { t("appt.followUpRule.\(r)") }
-    static func apptFollowUpDays(_ n: Int) -> String { String(format: t("appt.followUpDaysFmt"), n) }
-    static var apptFollowUpConcreteDate: String { t("appt.followUpConcreteDate") }
-    static var apptFollowUpDraftOnly: String { t("appt.followUpDraftOnly") }
 
     // MARK: - F3 成员详情/删除/归属确认（FR3.1/3.3/3.4）
-    static var memberDetailBasic: String { t("member.detail.basic") }
-    static var memberDetailMore: String { t("member.detail.more") }
-    static var memberBloodType: String { t("member.bloodType") }
-    static var memberIdNo: String { t("member.idNo") }
-    static var memberInsuranceNo: String { t("member.insuranceNo") }
-    static var memberNote: String { t("member.note") }
-    static var memberDelete: String { t("member.delete") }
-    static var memberSelfNoDelete: String { t("member.selfNoDelete") }
-    static var memberDeleteImpact: String { t("member.delete.impact") }
-    static var memberDeleteImpactDocs: String { t("member.delete.impactDocs") }
-    static var memberDeleteImpactObs: String { t("member.delete.impactObs") }
-    static var memberDeleteImpactPlans: String { t("member.delete.impactPlans") }
-    static var memberDeleteImpactAppts: String { t("member.delete.impactAppts") }
-    static var memberDeleteKeepDocs: String { t("member.delete.keepDocs") }
-    static var memberDeletePlanChoice: String { t("member.delete.planChoice") }
-    static var memberDeletePlans: String { t("member.delete.plans") }
-    static var memberArchivePlans: String { t("member.archivePlans") }
-    static var memberDeleteConfirm: String { t("member.delete.confirm") }
-    static func memberDeleteConfirmPlaceholder(_ name: String) -> String {
-        String(format: t("member.delete.confirmPlaceholderFmt"), name)
-    }
-    static var memberDeleteConfirmButton: String { t("member.delete.confirmButton") }
-    static var memberConfirmBelongsTo: String { t("member.confirm.belongsTo") }
-    static var memberConfirmSwitch: String { t("member.confirm.switch") }
-    static var member_relationSelf: String { t("member.relation.self") }
-    static var member_relationPartner: String { t("member.relation.partner") }
-    static var member_relationChild: String { t("member.relation.child") }
-    static var member_relationParent: String { t("member.relation.parent") }
-    static var member_relationGrandparent: String { t("member.relation.grandparent") }
-    static var member_relationOther: String { t("member.relation.other") }
-    static var member_relationFamily: String { t("member.relation.family") }
-    static var member_relationFather: String { t("member.relation.father") }
-    static var member_relationMother: String { t("member.relation.mother") }
-    static var member_relationSon: String { t("member.relation.son") }
-    static var member_relationDaughter: String { t("member.relation.daughter") }
 
     /// 关系显示名单一出口（评审修正）：存储值为中文原始字面量（历史设计），
     /// 显示/无障碍标签必须统一经本映射本地化——此前 Picker、列表行、详情、
     /// 确认条、图标标签各写各的映射，en 界面混排中文。粗细粒度全覆盖。
-    static func memberRelationDisplayName(_ raw: String) -> String {
-        switch raw {
-        case "本人": return member_relationSelf
-        case "配偶", "partner", "spouse": return member_relationPartner
-        case "子女", "child": return member_relationChild
-        case "父母", "parent": return member_relationParent
-        case "祖父母", "grandparent": return member_relationGrandparent
-        case "父亲", "father": return member_relationFather
-        case "母亲", "mother": return member_relationMother
-        case "儿子", "son": return member_relationSon
-        case "女儿", "daughter": return member_relationDaughter
-        case "其他", "other": return member_relationOther
-        // 审查修复（遗留英文词表容错）：引导流程曾以英文 rawValue 落库
-        // （partner/child/...）——上述同义映射保证旧行显示仍本地化（en
-        // 首字母大写），不再原样吐回小写英文。
-        default: return raw.isEmpty ? member_relationFamily : raw
-        }
-    }
 
     // MARK: - F5 资料库（SP-09/SP-10 · FR5.1-5.8 + FR6.6）
-    static var docLibraryTitle: String { t("docLibrary.title") }
-    static var docLibraryEmpty: String { t("docLibrary.empty") }
-    static var docLibraryEmptyHint: String { t("docLibrary.emptyHint") }
-    static var docLibraryUntitled: String { t("docLibrary.untitled") }
     /// 标题显示回落（V3.70 审查）：TimelineProjection 对无题资料输出 ""（数据保真），
     /// 列表/详情/导出/审计/冲突预览等一切显示出口统一经此回落——nil 与空串同义，
     /// 不再让每个消费方各自记住 isEmpty 检查（此前已漏 5 处显示空行）。
-    static func docTitle(_ title: String?) -> String {
-        guard let title, !title.isEmpty else { return t("docLibrary.untitled") }
-        return title
-    }
-    static var docArchive: String { t("doc.archive") }
-    static var docUnarchive: String { t("doc.unarchive") }
-    static var docFavorite: String { t("doc.favorite") }
-    static var docUnfavorite: String { t("doc.unfavorite") }
-    static var docImportSourceTitle: String { t("doc.importSource.title") }
-    static var docImportCamera: String { t("doc.importSource.camera") }
-    static var docImportFile: String { t("doc.importSource.file") }
-    static var docImportPhotos: String { t("doc.importSource.photos") }
-    static var docImportManual: String { t("doc.importSource.manual") }
-    static var docDuplicateTitle: String { t("doc.duplicate.title") }
-    static var docDuplicateKeepBoth: String { t("doc.duplicate.keepBoth") }
-    static var docDuplicateDiscard: String { t("doc.duplicate.discard") }
-    static func docDuplicateHint(_ n: Int) -> String { String(format: t("doc.duplicate.hintFmt"), n) }
-    static var docImportFailedTitle: String { t("doc.importFailed.title") }
-    static var docImportFailed: String { t("doc.importFailed") }
-    static var docPDFImportFailed: String { t("doc.pdfImportFailed") }
     /// 处方副表同步失败的非阻断告警（主文档已保存不回滚，但必须可见）
-    static var docPrescriptionSyncFailed: String { t("doc.prescriptionSyncFailed") }
-    static func docPDFPartialFailed(_ n: Int) -> String { String(format: t("doc.pdfPartialFailed"), n) }
-    static var docTypeReport: String { t("doc.type.report") }
 
     // MARK: - 扫描选区 + 文档确认卡（图片入库四角矫正/字段确认）
-    static var scanRegionTitle: String { t("scanRegion.title") }
-    static var scanRegionHint: String { t("scanRegion.hint") }
-    static var scanRegionReset: String { t("scanRegion.reset") }
-    static var scanRegionConfirm: String { t("scanRegion.confirm") }
-    static var scanRegionAutoDetectFailed: String { t("scanRegion.autoDetectFailed") }
-    static var scanRegionCorrectionFailed: String { t("scanRegion.correctionFailed") }
-    static var docConfirmTitle: String { t("docConfirm.title") }
-    static var docConfirmViewRegion: String { t("docConfirm.viewRegion") }
-    static var docConfirmSaveAll: String { t("docConfirm.saveAll") }
-    static var docConfirmHint: String { t("docConfirm.hint") }
     // FR6.9 跳过稍后（部分完整卡片 → pending_card 待办，D 级草稿不进事实链）
-    static var docConfirmSkipLater: String { t("docConfirm.skipLater") }
-    static var docConfirmSkipTitle: String { t("docConfirm.skipTitle") }
-    static var docConfirmSkipConfirm: String { t("docConfirm.skipConfirm") }
-    static var docConfirmSkipCancel: String { t("docConfirm.skipCancel") }
-    static var docConfirmSkipSaved: String { t("docConfirm.skipSaved") }
     // FR6.9 首页聚合中心待办卡
-    static var homePendingCards: String { t("home.pendingCards") }
-    static var homePendingCardResume: String { t("home.pendingCardResume") }
-    static var pendingCardReasonOcrMissing: String { t("pendingCard.reasonOcrMissing") }
-    static var pendingCardRawText: String { t("pendingCard.rawText") }
     /// V3.41 文档类型后置判定：确认卡 D 级类型草稿行（可一键改）
-    static var docConfirmDocType: String { t("docConfirm.docType") }
-    static var docConfirmDocTypeHint: String { t("docConfirm.docTypeHint") }
     /// FR5.5/FR6.2 类型后置：零命中 → 引导选择；低置信 → 提示核对
-    static var docConfirmDocTypeUnresolved: String { t("docConfirm.docTypeUnresolved") }
-    static var docConfirmDocTypeLowConfidence: String { t("docConfirm.docTypeLowConfidence") }
-    static var docTypeLabelVaccineRecord: String { t("docTypeLabel.vaccineRecord") }
-    static var docTypeLabelDiagnosisProof: String { t("docTypeLabel.diagnosisProof") }
-    static var docTypeLabelOther: String { t("docTypeLabel.other") }
     // FR6.9 V3.61 页级实体卡（EntityCardConfirmView / 待办详情多行快照）
-    static func entityCardRowIndex(_ n: Int) -> String { String(format: t("entityCard.rowIndexFmt"), n) }
-    static func entityCardHeaderPage(_ page: Int, _ total: Int) -> String { String(format: t("entityCard.header.pageFmt"), page, total) }
-    static func entityCardHeaderIndex(_ index: Int, _ total: Int) -> String { String(format: t("entityCard.header.indexFmt"), index, total) }
-    static var entityCardConfirmSave: String { t("entityCard.confirmSave") }
-    static var entityCardLater: String { t("entityCard.later") }
-    static var entityCardDiscard: String { t("entityCard.discard") }
-    static var entityCardDeferRemaining: String { t("entityCard.deferRemaining") }
-    static func entityCardMissingRequired(_ label: String) -> String { String(format: t("entityCard.missingRequiredFmt"), label) }
     /// 复核清单表头「还有 N 项待复核：日期、类型」（2026-09-17 借鉴批：按风险排序的复核清单，
     /// 取代原先只报必填的计数行）。两处共用：实体卡复核清单、主卡草稿待确认行。
-    static func entityCardReviewQueue(count: Int, labels: String) -> String {
-        String(format: t("entityCard.reviewQueueFmt"), count, labels)
-    }
     /// 字段 → 原文行锚定（仅在该字段确有 `sourceLineIndex` 时渲染，绝不用整页原文冒充锚定）。
-    static var entityCardReviewSource: String { t("entityCard.reviewSource") }
     /// 歧义项的清单动作：只跳转、不代确认——有候选就必须先做选择（2026-09-17 业主裁定）。
-    static var entityCardReviewChoose: String { t("entityCard.reviewChoose") }
 
     // MARK: - 共用信息确认步（跨卡字段，业主 2026-09-17 定：确认流程改两步）
 
-    static var sharedFieldsTitle: String { t("sharedFields.title") }
-    static var sharedFieldsHint: String { t("sharedFields.hint") }
-    static var sharedFieldsContinue: String { t("sharedFields.continue") }
-    static func sharedFieldsPending(_ count: Int) -> String { String(format: t("sharedFields.pendingFmt"), count) }
-    static var sharedFieldsReasonRepeated: String { t("sharedFields.reason.repeated") }
-    static var sharedFieldsReasonCritical: String { t("sharedFields.reason.critical") }
-    static func sharedFieldsCarriers(_ list: String) -> String { String(format: t("sharedFields.carriersFmt"), list) }
-    static var entityCardSourceLineTitle: String { t("entityCard.sourceLineTitle") }
-    static var entityCardSourceLineHint: String { t("entityCard.sourceLineHint") }
-    static var entityCardRowSkipped: String { t("entityCard.rowSkipped") }
-    static var entityCardSharedSection: String { t("entityCard.sharedSection") }
-    static var entityCardRowsSection: String { t("entityCard.rowsSection") }
-    static var entityCardLaterHint: String { t("entityCard.laterHint") }
-    static var entityCardSaveFailed: String { t("entityCard.saveFailed") }
     /// 卡类名（data-flow §17.2 card_kind → 展示名；未登记回落原键）
-    static func entityCardKindName(_ kind: String) -> String {
-        let key = "entityCard.kind.\(kind)"
-        let value = t(key)
-        return value == key ? kind : value
-    }
-    static var pendingCardResume: String { t("pendingCard.resume") }
-    static var pendingCardViewSource: String { t("pendingCard.viewSource") }
     /// 首页聚合待办卡标题的展示层映射：Domain 投影契约（data-flow §20.1）
     /// 固定为「待补充：{card_kind}」（Domain 零框架无法本地化），此处把
     /// card_kind 映射为本地化卡类名并按当前语言重组前缀；无法解析时原样透传。
@@ -2530,879 +226,116 @@ enum L10n {
         let kind = String(title.dropFirst(prefix.count))
         return String(format: t("pending.cardTitleFmt"), entityCardKindName(kind))
     }
-    static var pendingCardDiscard: String { t("pendingCard.discard") }
-    static var pendingCardNotFound: String { t("pendingCard.notFound") }
     // FR17.15 V3.61 主语言（有序多选首位）与尽力识别回显
-    static var voicePrimaryLanguage: String { t("voice.primaryLanguage") }
-    static var voicePrimaryLanguageHint: String { t("voice.primaryLanguageHint") }
-    static func voiceRecognizedAs(_ locale: String) -> String { String(format: t("voice.recognizedAsFmt"), locale) }
-    static var voiceBestEffortActive: String { t("voice.bestEffortActive") }
     // FR17.9 V3.61 双版本（原生转译版 / LLM 修正版，D 级仅作文字清理）
-    static var voiceVersionNative: String { t("voice.version.native") }
-    static var voiceVersionRefined: String { t("voice.version.refined") }
-    static var voiceVersionRefinedHint: String { t("voice.version.refinedHint") }
-    static var voiceVersionUnavailable: String { t("voice.version.unavailable") }
-    static var voiceVersionRejected: String { t("voice.version.rejected") }
-    static var voiceVersionPreviewOnly: String { t("voice.version.previewOnly") }
-    static var voiceInputUnavailable: String { t("voice.inputUnavailable") }
-    static var voiceDictationIncomplete: String { t("voice.dictationIncomplete") }
-    static var ocrReviewDocumentHint: String { t("ocr.review.documentHint") }
-    static var ocrCardsOverview: String { t("ocr.cards.overview") }
-    static var ocrNoMatchedCards: String { t("ocr.cards.none") }
-    static var ocrCardReviewHint: String { t("ocr.cards.hint") }
-    static var ocrBeginCardReview: String { t("ocr.cards.begin") }
-    static var ocrFieldActions: String { t("ocr.fieldActions") }
-    static var ocrPreviousCard: String { t("ocr.cards.previous") }
-    static var ocrNextCard: String { t("ocr.cards.next") }
-    static func ocrCardsRemaining(_ n: Int) -> String { String(format: t("ocr.cards.remaining"), n) }
-    static func ocrCardFieldCount(_ n: Int) -> String { String(format: t("ocr.cards.fieldCount"), n) }
-    static var ocrExtractionModel: String { t("ocr.extraction.model") }
-    static var ocrExtractionRules: String { t("ocr.extraction.rules") }
-    static var ocrAssociatedEncounter: String { t("ocr.association.title") }
-    static var ocrUnlinked: String { t("ocr.association.none") }
-    static var ocrAssociationUnavailable: String { t("ocr.association.unavailable") }
-    static var ocrAssociationSuggestion: String { t("ocr.association.suggestion") }
-    static var ocrAssociationHint: String { t("ocr.association.hint") }
-    static var healthImportSettingsTitle: String { t("health.settingsTitle") }
-    static var healthAutoImport: String { t("health.autoImport") }
-    static var healthReadPermissionHint: String { t("health.readPermissionHint") }
-    static var healthImportedData: String { t("health.importedData") }
-    static func healthImportedPointCount(_ n: Int) -> String { String(format: t("health.importedPointCount"), n) }
     /// 同日折叠日卡的条数标注（SP-29，业主 2026-09-18 定）
-    static func healthImportedDayCount(_ n: Int) -> String { String(format: t("health.importedDayCount"), n) }
-    static var healthImportedDataHint: String { t("health.importedDataHint") }
-    static var healthAppleSource: String { t("health.appleSource") }
-    static var healthViewTrendChart: String { t("health.viewTrendChart") }
-    static var healthViewTrendChartHint: String { t("health.viewTrendChartHint") }
-    static var healthImportedRecordsSection: String { t("health.importedRecordsSection") }
     // 业主 2026-09-17 定：特征型档案候选（D 级候选 → 用户显式确认才写入；不覆盖已有值）
-    static var healthCandidateSection: String { t("health.candidate.section") }
-    static var healthCandidateHint: String { t("health.candidate.hint") }
-    static var healthCandidateAdopt: String { t("health.candidate.adopt") }
-    static func healthCandidateExisting(_ value: String) -> String { String(format: t("health.candidate.existingFmt"), value) }
-    static var healthCandidateBirthDate: String { t("health.candidate.birthDate") }
-    static var healthCandidateGender: String { t("health.candidate.gender") }
     // 业主 2026-09-17 定：写回 Apple 健康（独立于读取开关的分享授权；关闭只停后续写入）
-    static var healthWriteBackLabel: String { t("health.writeBack.label") }
-    static var healthWriteBackSection: String { t("health.writeBack.section") }
-    static var healthWriteBackHint: String { t("health.writeBack.hint") }
-    static var healthWriteBackGranted: String { t("health.writeBack.granted") }
-    static var healthWriteBackDenied: String { t("health.writeBack.denied") }
-    static var healthWriteBackNeedAuth: String { t("health.writeBack.needAuth") }
-    static var healthWriteBackRetryAuth: String { t("health.writeBack.retryAuth") }
-    static var healthWriteBackFailed: String { t("health.writeBack.failed") }
-    static func healthWriteBackLast(_ written: Int, _ skipped: Int) -> String {
-        String(format: t("health.writeBack.lastFmt"), written, skipped)
-    }
     // round2 H1/H3/H-N1–N5（子项目 C6）：SP-29 三态文案 / 空态 / 稀疏窗计数 / 回填进度——
     // 全部为统计事实或状态说明，不含任何诊断或阈值判定（BR-003/004）
     /// H-N4：设备不提供 HealthKit（iPad/模拟器）
-    static var healthUnavailable: String { t("health.unavailable") }
     /// H-N3：缺本人档案（Apple 健康只能导入到本人名下，BR-001）
-    static var healthOwnerMissing: String { t("health.ownerMissing") }
     /// H3：系统授权流程未完成（完成≠获准，未完成≠拒绝——读取权限对 App 不可观察）
-    static var healthRequestIncomplete: String { t("health.requestIncomplete") }
     /// H-N5：已连接但尚无已导入行的独立空态（不是同步报告语句）
-    static var healthImportedEmpty: String { t("health.importedEmpty") }
     /// H-N2：<3 样本未形成小时统计的小时桶数
-    static func healthSparseWindows(_ count: Int) -> String { String(format: t("health.sparseWindowsFmt"), count) }
     /// H-N1：回填进度「正在导入 <道>，剩余 N 个统计窗口」（%1 道名 %2 剩余数）
-    static func healthBackfillProgress(_ lane: String, _ remaining: Int) -> String {
-        String(format: t("health.backfillProgressFmt"), lane, remaining)
-    }
     /// H-N1：回填道名——switch 静态映射（静态 t() 键可被 L0 §13 登记判定覆盖）
-    static func healthBackfillLane(_ lane: HealthFetchLane) -> String {
-        switch lane {
-        case .recent: return t("health.backfillLane.recent")
-        case .history: return t("health.backfillLane.history")
-        }
-    }
-    static var ocrReviewPageSkipped: String { t("ocr.review.pageSkipped") }
-    static var ocrReviewInvalidField: String { t("ocr.review.invalidField") }
-    static var ocrReviewNotificationFailed: String { t("ocr.review.notificationFailed") }
-    static var ocrReviewLegacySourceMissing: String { t("ocr.review.legacySourceMissing") }
-    static var ocrReviewFinishCurrent: String { t("ocr.review.finishCurrent") }
-    static func ocrReviewPartialSaved(_ count: Int) -> String { String(format: t("ocr.review.partialSavedFmt"), count) }
-    static func healthPreservedAggregates(_ count: Int) -> String { String(format: t("health.preservedAggregatesFmt"), count) }
-    static func healthDeferredWindows(_ count: Int) -> String { String(format: t("health.deferredWindowsFmt"), count) }
     /// 模板字段键 → 展示标签（data-flow §17.2 稳定键；未登记回落原键）
-    static func templateFieldLabel(_ key: String) -> String {
-        let l10nKey = "field.\(key)"
-        let value = t(l10nKey)
-        return value == l10nKey ? key : value
-    }
     // 第四轮全仓审查修复：FR6.3 三级置信度/FR6.4 放弃/全部确认闸门/保存失败可见
-    static var docConfirmConfidenceHigh: String { t("docConfirm.confidenceHigh") }
-    static var docConfirmConfidenceMid: String { t("docConfirm.confidenceMid") }
-    static var docConfirmConfidenceLow: String { t("docConfirm.confidenceLow") }
-    static var docConfirmReject: String { t("docConfirm.reject") }
-    static var docConfirmReenable: String { t("docConfirm.reenable") }
-    static var docConfirmAllConfirmBlocked: String { t("docConfirm.allConfirmBlocked") }
-    static var docConfirmSaveFailedTitle: String { t("docConfirm.saveFailedTitle") }
     // MARK: - 4.28 OCR 信息卡分组（V3.49 · FR17.18 期一）
     /// 信息卡类别标签（Domain FieldGroupRules 类别键 → L10n 单一映射）
-    static func ocGroupName(_ category: String) -> String {
-        switch category {
-        case "rx": return t("oc.group.rx")
-        case "lab": return t("oc.group.lab")
-        case "visit": return t("oc.group.visit")
-        default: return t("oc.group.generic")
-        }
-    }
-    static var ocConfirmCardAll: String { t("oc.confirm.cardAll") }
     /// 理解层语义字段标签（DocumentTypeClassifierFallback 角色键 → L10n）
-    static var ocFieldDept: String { t("oc.field.dept") }
-    static var ocFieldReportDate: String { t("oc.field.reportDate") }
-    static var ocFieldLabItem: String { t("oc.field.labItem") }
-    static var ocFieldReferenceRange: String { t("oc.field.referenceRange") }
-    static var ocFieldChiefComplaint: String { t("oc.field.chiefComplaint") }
-    static var ocFieldDiagnosis: String { t("oc.field.diagnosis") }
-    static var ocFieldTreatment: String { t("oc.field.treatment") }
     // MARK: - FR11.4 健康问题懒创建（V3.49）
-    static var healthProblemOfferTitle: String { t("healthProblem.offer.title") }
-    static var healthProblemOfferBody: String { t("healthProblem.offer.body") }
-    static var healthProblemCreate: String { t("healthProblem.create") }
     // MARK: - FR17.19 意图目录确认标签（V3.49 · 十意图动态键，App 映射）
-    static func voiceIntentName(_ key: String) -> String { t("voiceIntent.\(key)") }
     /// 语音速记面板去 chips 后的提示语（判定由本地理解层自动完成）
-    static var voicePanelAutoHint: String { t("voicePanel.autoHint") }
-    static var voicePanelEditHint: String { t("voicePanel.editHint") }
-    static var voicePanelConfirm: String { t("voicePanel.confirm") }
-    static var voicePanelClearTitle: String { t("voicePanel.clearTitle") }
-    static var voicePanelClear: String { t("voicePanel.clear") }
-    static var voicePanelClearLast: String { t("voicePanel.clearLast") }
-    static var voicePanelClearAll: String { t("voicePanel.clearAll") }
     // V3.49 确认卡判定结果行（4.27 可选元素）
-    static var voiceConfirmJudgedTarget: String { t("voiceConfirm.judgedTarget") }
-    static var voiceConfirmCandidates: String { t("voiceConfirm.candidates") }
     /// 无文字降级提示（Domain ImageInputRules.noTextKey 的 App 层渲染——
     /// Domain 只出类型化键，零硬编码文案）
-    static var imageInputNoText: String { t("image_input.noText") }
-    static func docConfirmUnconfirmedCount(_ n: Int) -> String { String(format: t("docConfirm.unconfirmedCountFmt"), n) }
-    static var prescriptionFieldHospital: String { t("prescription.field.hospital") }
-    static var prescriptionFieldDoctor: String { t("prescription.field.doctor") }
-    static var prescriptionFieldFrequency: String { t("prescription.field.frequency") }
-    static var prescriptionFieldDosage: String { t("prescription.field.dosage") }
-    static var prescriptionFieldDrugName: String { t("prescription.field.drugName") }
-    static var prescriptionFieldOther: String { t("prescription.field.other") }
 
     // MARK: - 子项目 D · D1-5（v25）：处方行详情 / 就诊叙事分段 / 确认卡「添加字段」/ 处方类型枚举
-    static var prescriptionLineTitle: String { t("prescriptionLine.title") }
-    static var prescriptionLineSection: String { t("prescriptionLine.section") }
     /// 多项目处方单折叠标签（业主 2026-09-17 定）
-    static func prescriptionLineCount(_ count: Int) -> String { String(format: t("prescription.lineCountFmt"), count) }
-    static var prescriptionLineNone: String { t("prescriptionLine.none") }
-    static var prescriptionLineUnavailable: String { t("prescriptionLine.unavailable") }
-    static var prescriptionLineHeader: String { t("prescriptionLine.header") }
-    static var prescriptionLineNoSource: String { t("prescriptionLine.noSource") }
     /// `prescription_type` canonical raw → 展示名（Domain `EntityCardProjection.prescriptionTypes` 同拼写；未登记回落原值）
-    static func prescriptionTypeName(_ raw: String) -> String {
-        let key = "prescription.type.\(raw)"
-        let value = t(key)
-        return value == key ? raw : value
-    }
-    static var entityCardAddField: String { t("entityCard.addField") }
-    static var entityCardPickValue: String { t("entityCard.pickValue") }
-    static var encounterNarrative: String { t("encounter.narrative") }
 
     // MARK: - 子项目 D · D2-3（v26）：住院 / 诊断 / 检查 / 检验报告读面（SP-08 四分段 + 卡详情）
     /// `diagnosis_type` canonical raw → 展示名（Domain `Diagnosis.diagnosisTypes` 同拼写；未登记回落原值）
-    static func diagnosisTypeName(_ raw: String) -> String {
-        let key = "diagnosis.type.\(raw)"
-        let value = t(key)
-        return value == key ? raw : value
-    }
     /// `report_type` canonical raw → 展示名（Domain `ExamReport.reportTypes` 同拼写；未登记回落原值）
-    static func examReportTypeName(_ raw: String) -> String {
-        let key = "exam.type.\(raw)"
-        let value = t(key)
-        return value == key ? raw : value
-    }
-    static var encounterSectionHospitalization: String { t("encounter.section.hospitalization") }
-    static var encounterSectionDiagnoses: String { t("encounter.section.diagnoses") }
-    static var encounterSectionExamReports: String { t("encounter.section.examReports") }
-    static var encounterSectionLabReports: String { t("encounter.section.labReports") }
     /// 检验报告详情：数值项目 / 定性项目分段；标记与结果一律报告原文（BR-004/012 不着色不解释）
-    static var labReportSamplesSection: String { t("labReport.samplesSection") }
     /// 数值/定性分段折叠标签（业主 2026-09-17 定）
-    static func labReportSamplesCount(_ count: Int) -> String { String(format: t("labReport.samplesCountFmt"), count) }
-    static func labReportResultsCount(_ count: Int) -> String { String(format: t("labReport.resultsCountFmt"), count) }
-    static var labReportResultsSection: String { t("labReport.resultsSection") }
-    static var labReportNoRows: String { t("labReport.noRows") }
-    static var hospitalizationEpisode: String { t("hospitalization.episode") }
 
     // MARK: - 子项目 D · D4-2「资料建议」表单（SP-12.suggestion.* · §0.3 需求 1 / BR-003）
-    static var profileSuggestionTitle: String { t("profileSuggestion.title") }
     /// 「以下内容来自识别结果，尚未核实；仅在您确认后写入资料」
-    static var profileSuggestionHint: String { t("profileSuggestion.hint") }
-    static var profileSuggestionAccept: String { t("profileSuggestion.accept") }
-    static var profileSuggestionSkip: String { t("profileSuggestion.skip") }
-    static var profileSuggestionSkipAll: String { t("profileSuggestion.skipAll") }
-    static var profileSuggestionDone: String { t("profileSuggestion.done") }
-    static var profileSuggestionApplied: String { t("profileSuggestion.applied") }
-    static var profileSuggestionExisting: String { t("profileSuggestion.existing") }
-    static var profileSuggestionSkipped: String { t("profileSuggestion.skipped") }
-    static var profileSuggestionFailed: String { t("profileSuggestion.failed") }
-    static var profileSuggestionSeverityUnset: String { t("profileSuggestion.severityUnset") }
-    static func profileSuggestionSource(_ page: Int) -> String { String(format: t("profileSuggestion.sourceFmt"), page) }
     /// `ProfileSuggestion.Kind.rawValue` → 类别标签（Domain 同拼写；未登记回落原值）
-    static func profileSuggestionKindName(_ raw: String) -> String {
-        let key = "profileSuggestion.kind.\(raw)"
-        let value = t(key)
-        return value == key ? raw : value
-    }
-    static var docTypeRecord: String { t("doc.type.record") }
-    static var docManualCreateTitle: String { t("doc.manual.createTitle") }
-    static var docManualTitle: String { t("doc.manual.title") }
-    static var docManualType: String { t("doc.manual.type") }
-    static var docManualNote: String { t("doc.manual.note") }
     // BR-003 来源徽章：机器识别未确认（D 级）与显式确认升 C 的入口
-    static var docGradeUnconfirmed: String { t("doc.grade.unconfirmed") }
-    static var docConfirmText: String { t("doc.confirmText") }
 
     // MARK: - F6 OCR 确认（FR6.3/6.4/6.8 · SP-53）
-    static var ocrFieldLine: String { t("ocr.field.line") }
-    static var timezoneChangedTitle: String { t("timezone.changed.title") }
-    static var timezoneChangedBody: String { t("timezone.changed.body") }
-    static var observationColorDisclaimer: String { t("observation.colorDisclaimer") }
-    static var ncArchive: String { t("nc.archive") }
-    static var metricOverviewTitle: String { t("metric.overview.title") }
-    static var metricOverviewEmpty: String { t("metric.overview.empty") }
-    static var metricOverviewEmptyHint: String { t("metric.overview.emptyHint") }
-    static var showcaseTitle: String { t("showcase.title") }
-    static var showcaseExit: String { t("showcase.exit") }
-    static var showcaseEmpty: String { t("showcase.empty") }
-    static var showcaseUnlockReason: String { t("showcase.unlockReason") }
-    static var remchTitle: String { t("remch.title") }
-    static var remchSectionHint: String { t("remch.sectionHint") }
-    static var remchSectionFooter: String { t("remch.sectionFooter") }
-    static var remchMeds: String { t("remch.meds") }
-    static var remchApts: String { t("remch.apts") }
-    static var remchExam: String { t("remch.exam") }
-    static var remchExpiry: String { t("remch.expiry") }
-    static var remchAlert: String { t("remch.alert") }
-    static var remchBackup: String { t("remch.backup") }
-    static var remchLocal: String { t("remch.local") }
-    static var remchRing: String { t("remch.ring") }
-    static var remchInApp: String { t("remch.inApp") }
-    static var remchBannerToggle: String { t("remch.bannerToggle") }
-    static var remchBannerFooter: String { t("remch.bannerFooter") }
-    static var bannerDoseDue: String { t("banner.doseDue") }
-    static var bannerConfirm: String { t("banner.confirm") }
-    static var bannerLater: String { t("banner.later") }
-    static var occlusionTitle: String { t("occlusion.title") }
-    static var occlusionSkip: String { t("occlusion.skip") }
-    static var occlusionDone: String { t("occlusion.done") }
-    static var homeOcrOverdue: String { t("home.ocrOverdue") }
-    static func homeExpiryMed(_ name: String) -> String { t("home.expiryMed").replacingOccurrences(of: "%@", with: name) }
-    static var filterAll: String { t("filter.all") }
-    static var filter3d: String { t("filter.3d") }
-    static var filter72h: String { t("filter.72h") }
-    static var voiceLangMixedToggle: String { t("voicelang.mixedToggle") }
-    static var voiceLangMixedHint: String { t("voicelang.mixedHint") }
-    static func voiceLangT2Title(_ name: String) -> String { t("voicelang.t2Title").replacingOccurrences(of: "%@", with: name) }
-    static var voiceLangT2Point1: String { t("voicelang.t2Point1") }
-    static var voiceLangT2Point2: String { t("voicelang.t2Point2") }
-    static var voiceLangT2Point3: String { t("voicelang.t2Point3") }
-    static var gradeBadgeA: String { t("gradebadge.a") }
-    static var gradeBadgeB: String { t("gradebadge.b") }
-    static var gradeBadgeC: String { t("gradebadge.c") }
-    static var gradeBadgeD: String { t("gradebadge.d") }
-    static var gradeBadgeE: String { t("gradebadge.e") }
-    static var gradeBadgePending: String { t("gradebadge.pending") }
-    static var settings_gateGrace: String { t("settings.gateGrace") }
-    static var settings_autoLock: String { t("settings.autoLock") }
-    static var settings_grace0: String { t("settings.grace0") }
-    static var settings_grace15: String { t("settings.grace15") }
-    static var settings_grace60: String { t("settings.grace60") }
-    static var aiQuickGlucose: String { t("ai.quickGlucose") }
-    static var aiQuickNext: String { t("ai.quickNext") }
-    static var voicenoteDetailBody: String { t("voicenote.detailBody") }
-    static var voicenoteDetailTags: String { t("voicenote.detailTags") }
-    static var voicenoteDetailTagsHint: String { t("voicenote.detailTagsHint") }
-    static var voicenoteDetailTimeline: String { t("voicenote.detailTimeline") }
-    static var voicenoteDetailTimelineHint: String { t("voicenote.detailTimelineHint") }
-    static var voicenoteDetailDelete: String { t("voicenote.detailDelete") }
-    static var voicenoteDetailDeleteConfirm: String { t("voicenote.detailDeleteConfirm") }
-    static var docViewOriginal: String { t("doc.viewOriginal") }
-    static var reportIssueKind: String { t("report.issueKind") }
-    static var reportIssueField: String { t("report.issueField") }
-    static var reportIssueFieldAll: String { t("report.issueFieldAll") }
-    static var reportIssueNote: String { t("report.issueNote") }
-    static var reportIssueNoteHint: String { t("report.issueNoteHint") }
-    static var reportIssueMinimal: String { t("report.issueMinimal") }
-    static var reportIssueSubmit: String { t("report.issueSubmit") }
-    static var reportIssueSubmitted: String { t("report.issueSubmitted") }
-    static var reportIssueFieldWrong: String { t("report.issueFieldWrong") }
-    static var reportIssueMissing: String { t("report.issueMissing") }
-    static var reportIssueLayout: String { t("report.issueLayout") }
-    static var reportIssueEngine: String { t("report.issueEngine") }
-    static var docDuplicateExisting: String { t("doc.duplicateExisting") }
-    static var docDuplicateNewFile: String { t("doc.duplicateNewFile") }
-    static var docDuplicateKeep: String { t("doc.duplicateKeep") }
-    static var docDuplicateReplace: String { t("doc.duplicateReplace") }
-    static var docDuplicateNeverAutoDelete: String { t("doc.duplicateNeverAutoDelete") }
-    static var docUntitled: String { t("doc.untitled") }
-    static var helpcardPreviewTitle: String { t("helpcard.previewTitle") }
-    static var helpcardPreviewContinue: String { t("helpcard.previewContinue") }
-    static var helpcardPreviewHint: String { t("helpcard.previewHint") }
-    static var prefDateFormat: String { t("pref.dateFormat") }
     /// 第八轮修复：读取点随 W4 批接线前的诚实预告
-    static var prefDateFormatPending: String { t("pref.dateFormatPending") }
-    static var prefDateFormatYMD: String { t("pref.dateFormatYMD") }
-    static var prefDateFormatMD: String { t("pref.dateFormatMD") }
-    static var prefDateFormatISO: String { t("pref.dateFormatISO") }
     /// FR14.7 默认语速（2026-09-11 接线：AVSpeechAdapter rateProvider 消费）
-    static var prefSpeechRate: String { t("pref.speechRate") }
-    static var prefSpeechRateSlow: String { t("pref.speechRate.slow") }
-    static var prefSpeechRateNormal: String { t("pref.speechRate.normal") }
-    static var prefSpeechRateFast: String { t("pref.speechRate.fast") }
-    static var prefSpeechRateHint: String { t("pref.speechRate.hint") }
-    static func immunizationDoseCount(_ n: Int) -> String { t("immunization.doseCount").replacingOccurrences(of: "%d", with: String(n)) }
-    static var immunization_childPlanComing: String { t("immunization.childPlanComing") }
-    static var helpTutorialTitle: String { t("help.tutorialTitle") }
-    static var helpTopicGettingStarted: String { t("help.topicGettingStarted") }
-    static var helpTopicImportOcr: String { t("help.topicImportOcr") }
-    static var helpTopicReminders: String { t("help.topicReminders") }
-    static var helpTopicPrivacy: String { t("help.topicPrivacy") }
-    static var helpTopicCare: String { t("help.topicCare") }
-    static var helpTopicBackup: String { t("help.topicBackup") }
-    static var helpTopicVoice: String { t("help.topicVoice") }
-    static var helpGettingStarted1: String { t("help.gettingStarted1") }
-    static var helpGettingStarted2: String { t("help.gettingStarted2") }
-    static var helpImportOcr1: String { t("help.importOcr1") }
-    static var helpImportOcr2: String { t("help.importOcr2") }
-    static var helpReminders1: String { t("help.reminders1") }
-    static var helpReminders2: String { t("help.reminders2") }
-    static var helpPrivacy1: String { t("help.privacy1") }
-    static var helpPrivacy2: String { t("help.privacy2") }
-    static var helpCare1: String { t("help.care1") }
-    static var helpCare2: String { t("help.care2") }
-    static var helpBackup1: String { t("help.backup1") }
-    static var helpBackup2: String { t("help.backup2") }
-    static var helpVoice1: String { t("help.voice1") }
-    static var helpVoice2: String { t("help.voice2") }
-    static var helpVoiceSpeak: String { t("help.voiceSpeak") }
     /// 审查修复：模板为 "余量约 %d%%"——replacingOccurrences 填充后
     /// "%%" 转义永不解除，VoiceOver 念出「余量约 60%%」（双百分号，
     /// 三语同病）。改 String(format:) 由格式器消化 %d 与 %%。
-    static func inventoryBarAccessibility(_ pct: Int) -> String { String(format: t("inventory.barAccessibility"), pct) }
-    static var prepExport: String { t("prep.export") }
-    static var prepTrendSnapshot: String { t("prep.trendSnapshot") }
-    static var reminder_planScheduleKind: String { t("reminder.planScheduleKind") }
-    static var reminder_planKindFixed: String { t("reminder.planKindFixed") }
-    static var reminder_planKindInterval: String { t("reminder.planKindInterval") }
-    static var reminder_planKindMeal: String { t("reminder.planKindMeal") }
-    static var reminder_planKindAsNeeded: String { t("reminder.planKindAsNeeded") }
-    static var reminder_planKindIntervalHint: String { t("reminder.planKindIntervalHint") }
-    static var reminder_planKindMealHint: String { t("reminder.planKindMealHint") }
-    static var reminder_planKindAsNeededHint: String { t("reminder.planKindAsNeededHint") }
-    static var reminder_planNew: String { t("reminder.planNew") }
-    static var reminderApptAdd: String { t("reminder.apptAdd") }
-    static var reminderApptHospital: String { t("reminder.apptHospital") }
-    static var reminderApptDepartment: String { t("reminder.apptDepartment") }
-    static var reminderApptTime: String { t("reminder.apptTime") }
-    static var ocrQueueTitle: String { t("ocrQueue.title") }
-    static var ocrQueueEmpty: String { t("ocrQueue.empty") }
-    static var ocrQueueEmptyHint: String { t("ocrQueue.emptyHint") }
-    static func ocrQueueCount(_ n: Int) -> String { String(format: t("ocrQueue.countFmt"), n) }
     /// V3.39：队列改为 D 级文档聚合后新增的诚实性说明（BR-003 事实链闸门）
-    static var ocrQueueHint: String { t("ocrQueue.hint") }
-    static var ocrQueue72h: String { t("ocrQueue.72h") }
-    static var ocrQueueJumpSource: String { t("ocrQueue.jumpSource") }
-    static var onboard_revise: String { t("onboard.revise") }
-    static var docReportIssue: String { t("doc.reportIssue") }
 
     // MARK: - F23 过敏与不良反应（SP-50 · FR23.1-23.6）
-    static var allergyTitle: String { t("allergy.title") }
-    static var allergyEmpty: String { t("allergy.empty") }
-    static var allergyEmptyHint: String { t("allergy.emptyHint") }
-    static var allergySelfReportBadge: String { t("allergy.selfReportBadge") }
     /// 严重度展示：落库规范值（mild/moderate/severe）先映射回展示词再取文案
-    static func allergySeverity(_ s: String) -> String {
-        t("allergy.severity.\(SevereReactionRules.displaySeverity(s))")
-    }
 
     /// 第七轮修复：过敏类型/反应标签词表本地化——表单此前直接渲染 Domain
     /// 中文词表（药品/食物/其他 · 皮疹/荨麻疹/…），en/zh-Hant 用户看到简体；
     /// 与 allergySeverity 同一「词表键」模式
-    static func allergyKindName(_ v: String) -> String { t("allergy.kind.\(v)") }
-    static func allergyTagName(_ v: String) -> String { t("allergy.tag.\(v)") }
-    static var allergyDelete: String { t("allergy.delete") }
-    static var allergySaveFailed: String { t("allergy.saveFailed") }
-    static var allergySaveFailedHint: String { t("allergy.saveFailedHint") }
-    static var allergyDeleteConfirmTitle: String { t("allergy.deleteConfirmTitle") }
-    static var allergyDeleteConfirmHint: String { t("allergy.deleteConfirmHint") }
-    static var allergyCreateTitle: String { t("allergy.createTitle") }
-    static var allergyStep1: String { t("allergy.step1") }
-    static var allergyStep2: String { t("allergy.step2") }
-    static var allergyStep3: String { t("allergy.step3") }
-    static var allergyKind: String { t("allergy.kind") }
-    static var allergySubstancePlaceholder: String { t("allergy.substancePlaceholder") }
-    static var allergyCustomTag: String { t("allergy.customTag") }
-    static var allergySeverityLabel: String { t("allergy.severityLabel") }
-    static var allergyOccurredAt: String { t("allergy.occurredAt") }
-    static var allergyNote: String { t("allergy.note") }
-    static var allergyNext: String { t("allergy.next") }
-    static var allergyEmergencyTitle: String { t("allergy.emergency.title") }
-    static var allergyEmergencyBody: String { t("allergy.emergency.body") }
-    static var allergyEmergencyGoHospital: String { t("allergy.emergency.goHospital") }
 
     // MARK: - FR12.10 AI 会话历史 / FR12.8 反馈四键
     // aiHistory.* 键已随 F12 退役删除（会话历史功能下线）
-    static var aiFeedbackUseful: String { t("aiFeedback.useful") }
-    static var aiFeedbackUseless: String { t("aiFeedback.useless") }
-    static var aiFeedbackCitationError: String { t("aiFeedback.citationError") }
-    static var aiFeedbackDanger: String { t("aiFeedback.danger") }
-    static var aiFeedbackMore: String { t("aiFeedback.more") }
 
     // MARK: - FR13.1/13.2 PDF 导出向导（SP-22）+ FR13.10 定期备份提醒
-    static var exportWizardTitle: String { t("export.wizard.title") }
-    static var exportScope: String { t("export.scope") }
-    static var exportScopeAll: String { t("export.scope.all") }
-    static var exportScopeDateRange: String { t("export.scope.dateRange") }
-    static var exportScopeDoctorSummary: String { t("export.scope.doctorSummary") }
-    static var exportDateFrom: String { t("export.dateFrom") }
-    static var exportDateTo: String { t("export.dateTo") }
-    static var exportContent: String { t("export.content") }
-    static var exportIncludeNotes: String { t("export.includeNotes") }
-    static var exportWatermark: String { t("export.watermark") }
-    static var exportPrivacyHint: String { t("export.privacyHint") }
-    static var exportStart: String { t("export.start") }
-    static var exportUnlockReason: String { t("export.unlockReason") }
-    static func exportProgress(_ n: Int, _ total: Int) -> String { String(format: t("export.progressFmt"), n, total) }
-    static var exportCancel: String { t("export.cancel") }
-    static var exportCancelled: String { t("export.cancelled") }
-    static var exportFailed: String { t("export.failed") }
-    static var exportRetry: String { t("export.retry") }
-    static func exportFinished(_ n: Int, _ pages: Int) -> String { String(format: t("export.finishedFmt"), n, pages) }
-    static var exportShare: String { t("export.share") }
-    static func exportTitle(_ s: String) -> String { String(format: t("export.titleFmt"), s) }
     // FR13.2 PDF 封面文案（V3.68：Infrastructure 不拼中文，本层注入）
-    static func exportRecordCount(_ count: Int) -> String { String(format: t("export.recordCount"), count) }
-    static func exportDisclaimer(_ emergency: String) -> String { String(format: t("export.disclaimer"), emergency) }
-    static func exportKindName(_ kind: String) -> String {
-        switch kind {
-        case "record": return t("export.kind.record")
-        case "observation": return t("export.kind.observation")
-        case "plan": return t("export.kind.plan")
-        case "encounter": return t("export.kind.encounter")
-        // F8 观察类型名复用既有映射（审查修复：PDF 此前直出英文 raw key
-        // ——export.kind.* 与 observation.kind.* 两套映射合流，防漂移）
-        default: return ObservationKind(rawValue: kind).map(observationKindName) ?? kind
-        }
-    }
-    static var backupReminderTitle: String { t("backup.reminder.title") }
-    static var backupReminderBody: String { t("backup.reminder.body") }
 
     // MARK: - FR14.1 九开关 / FR14.7 偏好中心 / FR14.3 数据生命周期
-    static var authOcrLabel: String { t("auth.ocr") }
-    static var authAILabel: String { t("auth.ai") }
-    static var authFamilyLabel: String { t("auth.family") }
-    static var authSharingLabel: String { t("auth.sharing") }
-    static var authCloudBackupLabel: String { t("auth.cloudBackup") }
-    static var authAnonymizedLabel: String { t("auth.anonymized") }
-    static var authHealthLabel: String { t("auth.health") }
-    static var authVoiceDictationLabel: String { t("auth.voiceDictation") }
-    static var settings_dataLifecycle: String { t("settings.dataLifecycle") }
-    static var settings_themeHint: String { t("settings.themeHint") }
-    static var prefGroupReminders: String { t("pref.group.reminders") }
-    static var prefGroupDisplay: String { t("pref.group.display") }
-    static var prefGroupVoice: String { t("pref.group.voice") }
-    static var prefTagGlobal: String { t("pref.tag.global") }
-    static var prefTagNewOnly: String { t("pref.tag.newOnly") }
-    static var prefRemindAdvance: String { t("pref.remindAdvance") }
-    static var prefSnooze: String { t("pref.snooze") }
-    static var prefQuietStart: String { t("pref.quietStart") }
-    static var prefQuietEnd: String { t("pref.quietEnd") }
-    static var prefTo: String { t("pref.to") }
-    static var prefChannel: String { t("pref.channel") }
-    static var prefChannelNotifyOnly: String { t("pref.channel.notifyOnly") }
-    static var prefChannelRingUntilConfirm: String { t("pref.channel.ringUntilConfirm") }
-    static var prefChannelSilentBanner: String { t("pref.channel.silentBanner") }
-    static var prefNotifPreviewMed: String { t("pref.notifPreviewMed") }
-    static var prefRemindScopeNote: String { t("pref.remindScopeNote") }
-    static var prefWeekStart: String { t("pref.weekStart") }
-    static var prefUnitSystem: String { t("pref.unitSystem") }
-    static var prefUnitMetric: String { t("pref.unit.metric") }
-    static var prefUnitImperial: String { t("pref.unit.imperial") }
-    static var prefReduceMotion: String { t("pref.reduceMotion") }
-    static var prefHomeSort: String { t("pref.homeSort") }
-    static var prefHomeSortTime: String { t("pref.homeSort.time") }
-    static var prefHomeSortType: String { t("pref.homeSort.type") }
-    static var prefReadback: String { t("pref.readback") }
-    static var prefReadbackNever: String { t("pref.readback.never") }
-    static var prefReadbackAsk: String { t("pref.readback.ask") }
-    static var prefReadbackAlways: String { t("pref.readback.always") }
-    static var prefReadbackHint: String { t("pref.readbackHint") }
-    static var prefRestoreAll: String { t("pref.restoreAll") }
-    static var lifecycleSingle: String { t("lifecycle.single") }
-    static var lifecycleSingleHint: String { t("lifecycle.singleHint") }
-    static var lifecycleMember: String { t("lifecycle.member") }
-    static var lifecycleMemberHint: String { t("lifecycle.memberHint") }
-    static var lifecycleClearAll: String { t("lifecycle.clearAll") }
-    static var lifecycleClearHint: String { t("lifecycle.clearHint") }
-    static var lifecycleClearButton: String { t("lifecycle.clearButton") }
-    static var lifecycleClearImpact: String { t("lifecycle.clearImpact") }
-    static var lifecycleResetSettings: String { t("lifecycle.resetSettings") }
-    static var lifecycleResetSettingsHint: String { t("lifecycle.resetSettingsHint") }
-    static var lifecycleResetSettingsImpact: String { t("lifecycle.resetSettingsImpact") }
-    static var lifecycleLogout: String { t("lifecycle.logout") }
-    static var lifecycleLogoutHint: String { t("lifecycle.logoutHint") }
 
     // MARK: - FR21.9 向导 ④ 添加家人（⑥ 首日引导 V3.39 起由首页空态引导卡承载，不再占用向导步骤）
-    static var onboardAddFamilyTitle: String { t("onboard.addFamily.title") }
-    static var onboardAddFamilyHint: String { t("onboard.addFamily.hint") }
-    static var onboardAddFamilyManual: String { t("onboard.addFamily.manual") }
-    static var onboardAddFamilyVoiceP1: String { t("onboard.addFamily.voiceP1") }
-    static var onboardAddFamilyContactsP1: String { t("onboard.addFamily.contactsP1") }
-    static var onboardAddFamilySkip: String { t("onboard.addFamily.skip") }
     /// V3.39：新增成员后向导最后一步的主按钮文案（跳过与完成语义分离）
-    static var onboardAddFamilyFinish: String { t("onboard.addFamily.finish") }
-    static var onboardAddFamilyCompleteHint: String { t("onboard.addFamily.completeHint") }
 
     // MARK: - FR22.5 反馈 / FR24.2 发送状态 / FR9.13a 收件人
-    static var feedbackTitle: String { t("feedback.title") }
-    static var feedbackCategory: String { t("feedback.category") }
-    static func feedbackCategoryName(_ i: Int) -> String { t("feedback.category.\(i)") }
-    static var feedbackDetail: String { t("feedback.detail") }
-    static var feedbackDetailPlaceholder: String { t("feedback.detailPlaceholder") }
-    static var feedbackAttachments: String { t("feedback.attachments") }
-    static var feedbackAttachScreenshot: String { t("feedback.attachScreenshot") }
-    static var feedbackAttachOriginal: String { t("feedback.attachOriginal") }
-    static var feedbackAttachMedia: String { t("feedback.attachMedia") }
-    static var feedbackAttachmentHint: String { t("feedback.attachmentHint") }
-    static var feedbackSubmit: String { t("feedback.submit") }
-    static var feedbackSubmitted: String { t("feedback.submitted") }
-    static var fr24_markDelivered: String { t("fr24.markDelivered") }
-    static var fr24_offlineNote: String { t("fr24.offlineNote") }
-    static var helpcardRecipient: String { t("helpcard.recipient") }
-    static var helpcardRecipientOther: String { t("helpcard.recipientOther") }
-    static var helpcardRecipientPlaceholder: String { t("helpcard.recipientPlaceholder") }
 
     // MARK: - FR7.5 自测两步录入（SP-13 快速录入）
-    static var metricEntryTitle: String { t("metric.entry.title") }
-    static var metricStep1: String { t("metric.step1") }
-    static var metricStep2: String { t("metric.step2") }
-    static func metricName(_ m: MetricType) -> String { t("metric.name.\(m.rawValue)") }
-    static var metricSelfMeasureNote: String { t("metric.selfMeasureNote") }
-    static var metricSys: String { t("metric.sys") }
-    static var metricDia: String { t("metric.dia") }
-    static var metricValue: String { t("metric.value") }
-    static var metricUnit: String { t("metric.unit") }
-    static var metricMeasuredAt: String { t("metric.measuredAt") }
-    static var metricSaved: String { t("metric.saved") }
     // FR7.5 录入失败可见反馈（解析失败/写失败——绝不静默丢弃读数）
-    static var metricEntryErrorTitle: String { t("metric.entryError.title") }
-    static var metricInvalidValue: String { t("metric.entryError.invalid") }
     /// 手录指标超出合理性界限（MetricEntryRules 拒绝落库时的可见反馈）
-    static var metricOutOfRange: String { t("metric.entryError.range") }
-    static var metricSaveFailed: String { t("metric.entryError.saveFailed") }
-    static var metricViewTrend: String { t("metric.viewTrend") }
 
     // MARK: - FR17.9 语音速记面板（SP-55）+ FR8.10 观察随访
-    static var voicePanelTitle: String { t("voicePanel.title") }
-    static var voicePanelHint: String { t("voicePanel.hint") }
-    static var voicePanelStart: String { t("voicePanel.start") }
-    static var voicePanelSaved: String { t("voicenote.saved") }
-    static var voicenoteView: String { t("voicenote.view") }
-    static var observationFollowUpSet: String { t("observation.followUp.set") }
     // FR8.11 观察详情页（SP-14 §5.7.1）
-    static var obsDetailCapturedAt: String { t("observation.detail.capturedAt") }
-    static var obsDetailMember: String { t("observation.detail.member") }
-    static var obsDetailBodyPart: String { t("observation.detail.bodyPart") }
-    static var obsDetailDuration: String { t("observation.detail.duration") }
-    static var obsDetailDurationFmt: String { t("observation.detail.durationFmt") }
-    static var obsDetailFrequency: String { t("observation.detail.frequency") }
-    static var obsDetailIsFirst: String { t("observation.detail.isFirst") }
-    static var obsDetailTrigger: String { t("observation.detail.trigger") }
-    static var obsDetailAccompanying: String { t("observation.detail.accompanying") }
-    static var obsDetailPainScore: String { t("observation.detail.painScore") }
-    static var obsDetailPainUnset: String { t("observation.detail.painUnset") }
-    static var obsDetailMedsDiet: String { t("observation.detail.medsDiet") }
-    static var obsDetailConsulted: String { t("observation.detail.consulted") }
-    static var obsDetailEncounter: String { t("observation.detail.encounter") }
-    static var obsDetailHealthProblem: String { t("observation.detail.healthProblem") }
-    static var obsDetailGroup: String { t("observation.detail.group") }
-    static var obsDetailEdit: String { t("observation.detail.edit") }
-    static var obsDetailEditSave: String { t("observation.detail.editSave") }
-    static var obsDetailEditSaved: String { t("observation.detail.editSaved") }
-    static var obsDetailDelete: String { t("observation.detail.delete") }
-    static var obsDetailDeleteTitle: String { t("observation.detail.deleteTitle") }
-    static var obsDetailDeleteBody: String { t("observation.detail.deleteBody") }
-    static var obsDetailDeleteDone: String { t("observation.detail.deleteDone") }
     /// 删除失败告警（响亮失败：deleteObservation 返回 false 必须有可见错误面）
-    static var obsDetailDeleteFailed: String { t("observation.detail.deleteFailed") }
-    static var obsDetailFollowUpTitle: String { t("observation.detail.followUpTitle") }
-    static var obsDetailFollowUpDays: String { t("observation.detail.followUpDays") }
-    static var obsDetailFollowUpDone: String { t("observation.detail.followUpDone") }
-    static var obsDetailLoadFailed: String { t("observation.detail.loadFailed") }
-    static var obsDetailRetry: String { t("observation.detail.retry") }
-    static var obsDetailEmpty: String { t("observation.detail.empty") }
-    static var obsDetailViewGroup: String { t("observation.detail.viewGroup") }
 
     // MARK: - F16 设备接入（SP-29/SP-30）
-    static var f16Title: String { t("f16.title") }
-    static var f16AuthSection: String { t("f16.authSection") }
-    static var f16AuthHint: String { t("f16.authHint") }
-    static var f16RequestAuth: String { t("f16.requestAuth") }
     // 既有 API 名保留；连接完成与读取授权不可等同，HealthKit 不透露读取权限。
-    static var f16AuthGranted: String { t("f16.authGranted") }
-    static var f16AuthDisabled: String { t("f16.authDisabled") }
-    static var f16AuthFailed: String { t("f16.authFailed") }
-    static var f16AuthDenied: String { t("f16.authDenied") }
-    static var f16SyncSection: String { t("f16.syncSection") }
-    static var f16SyncHint: String { t("f16.syncHint") }
-    static var f16SyncNow: String { t("f16.syncNow") }
-    static var f16Syncing: String { t("f16.syncing") }
     /// 本次成功安排的通知数，不是已送达数或预警事件数。
-    static func f16SyncDone(_ n: Int) -> String { String(format: t("f16.syncDoneFmt"), n) }
     /// FR7.9 指标投影变更数，包含新增、更新与移除。
-    static func f16SyncedRows(_ n: Int) -> String { String(format: t("f16.syncedRowsFmt"), n) }
     /// V3.86 FR16.1 V3.49 同步时间沟通契约
-    static func f16LastSync(_ time: String) -> String { String(format: t("f16.lastSyncFmt"), time) }
     // FR16.4「范围不可用」独立呈现态（无信源阈值的读数计数）
-    static func f16NoRange(_ n: Int) -> String { String(format: t("f16.noRangeFmt"), n) }
-    static var f16SyncFailed: String { t("f16.syncFailed") }
-    static func healthImportSubject(_ name: String) -> String { String(format: t("health.importSubject"), name) }
-    static var healthNoReadableData: String { t("health.noReadableData") }
-    static func healthImportPartial(_ count: Int) -> String { String(format: t("health.importPartial"), count) }
-    static var healthImportMore: String { t("health.importMore") }
-    static var healthNotificationRetry: String { t("health.notificationRetry") }
-    static var healthMedicalReviewPending: String { t("health.medicalReviewPending") }
-    static func healthAggregation(_ aggregation: MetricAggregation) -> String {
-        t("health.aggregation.\(aggregation.rawValue)")
-    }
-    static func healthWindowEnd(_ time: String) -> String { String(format: t("health.windowEnd"), time) }
-    static func healthWindowStatistics(_ low: String, _ high: String, _ count: Int) -> String {
-        String(format: t("health.windowStatistics"), low, high, count)
-    }
-    static var healthShowLegacy: String { t("health.showLegacy") }
-    static var healthHistoricalEvaluation: String { t("health.historicalEvaluation") }
-    static var healthLoadMore: String { t("health.loadMore") }
     /// 设备与信源沿用既有指标键映射；未知 raw key 不上屏。
-    static func healthMetricName(_ key: String) -> String {
-        guard let metric = MetricType(grammarKey: key) else { return t("health.metric.unknown") }
-        return metricName(metric)
-    }
-    static var healthOpenHelp: String { t("health.openHelp") }
-    static var alertFilterAll: String { t("alert.filter.all") }
-    static var alertShowL0: String { t("alert.showL0") }
-    static var alert_historyEntry: String { t("alert.historyEntry") }
 
     // MARK: - F19 附表执行矩阵播报（纯事实句式）
-    static var f19NoTodayMeds: String { t("f19.noTodayMeds") }
     /// 第七轮修复：会话内导航指令回落提示（原「打开时间轴/回到首页」硬编码中文字面量）
-    static var f19GoTimeline: String { t("f19.goTimeline") }
-    static var f19GoHome: String { t("f19.goHome") }
-    static func f19NextAppointment(_ a: String, _ d: String) -> String {
-        String(format: t("f19.nextAppointmentFmt"), a, d)
-    }
-    static var f19NoAppointment: String { t("f19.noAppointment") }
-    static func f19RecentGlucose(_ v: String) -> String { String(format: t("f19.recentGlucoseFmt"), v) }
-    static var f19NoGlucose: String { t("f19.noGlucose") }
-    static func f19MetricNotSupported(_ key: String) -> String {
-        String(format: t("f19.metricNotSupportedFmt"), key)
-    }
-    static func f19StockRemaining(_ name: String, _ days: Int) -> String {
-        String(format: t("f19.stockRemainingFmt"), name, days)
-    }
-    static func f19StockNoPlan(_ name: String) -> String { String(format: t("f19.stockNoPlanFmt"), name) }
-    static var f19NoStock: String { t("f19.noStock") }
-    static func f19StockLocation(_ name: String, _ loc: String) -> String {
-        String(format: t("f19.stockLocationFmt"), name, loc)
-    }
-    static var f19LocationUnknown: String { t("f19.locationUnknown") }
-    static var f19NoExpiring: String { t("f19.noExpiring") }
-    static func f19Expiring(_ name: String, _ d: String) -> String {
-        String(format: t("f19.expiringFmt"), name, d)
-    }
-    static func f19Expired(_ name: String, _ d: String) -> String {
-        String(format: t("f19.expiredFmt"), name, d)
-    }
-    static func f19ExpiryUnknown(_ name: String) -> String {
-        String(format: t("f19.expiryUnknownFmt"), name)
-    }
-    static func f19StockNoMatch(_ name: String) -> String {
-        String(format: t("f19.stockNoMatchFmt"), name)
-    }
-    static var f19Taken: String { t("f19.taken") }
-    static var f19NotTaken: String { t("f19.notTaken") }
-    static func f19SlotMedState(_ med: String, _ state: String) -> String {
-        String(format: t("f19.slotMedStateFmt"), med, state)
-    }
-    static func f19MarkTakenNoMatch(_ name: String) -> String { String(format: t("f19.markTakenNoMatchFmt"), name) }
-    static func f19MarkTakenDone(_ name: String) -> String { String(format: t("f19.markTakenDoneFmt"), name) }
-    static func f19MarkTakenFailed(_ name: String) -> String { String(format: t("f19.markTakenFailedFmt"), name) }
-    static func f19MarkTakenMultiple(_ names: String) -> String { String(format: t("f19.markTakenMultipleFmt"), names) }
-    static func emergency_sos_holdA11y(_ seconds: Double) -> String {
-        // 必须 Double + %1$.1f：Int 截断把 0.6 秒显示成「长按 0 秒激活」
-        // （CI 34021989599 层级 dump 实证）——SOS 防误触语义在提示层失真
-        String(format: t("emergency.sosHoldA11yFmt"), seconds)
-    }
-    static var helpcard_photoPending: String { t("helpcard.photoPending") }
-    static var captureSensitiveToggle: String { t("home.capture.sensitive") }
-    static var routeComingSoon: String { t("route.comingSoon") }
-    static var routeComingSoonHint: String { t("route.comingSoonHint") }
     /// §5.48 已删除实体降级（第七轮修复）：目标实体已删除/跨成员 → 提示并自弹回根
-    static var routeEntityGone: String { t("route.entityGone") }
-    static var routeEntityGoneHint: String { t("route.entityGoneHint") }
-    static var startupDegradedTitle: String { t("startup.degradedTitle") }
     /// 启动降级分型（2026-09-16 评审）：稳定文案替代直插英文诊断。
-    static var startupDatabaseMissing: String { t("startup.databaseMissing") }
-    static var startupLoadFailed: String { t("startup.loadFailed") }
-    static func startupDegradedBody(_ reason: String) -> String {
-        String(format: t("startup.degradedBodyFmt"), reason)
-    }
-    static func f19MetricRecorded(_ v: Double) -> String { String(format: t("f19.metricRecordedFmt"), v) }
-    static func f19QuestionRecorded(_ q: String) -> String { String(format: t("f19.questionRecordedFmt"), q) }
-    static var f19RecordFailed: String { t("f19.recordFailed") }
     /// 第八轮修复：文法命中数值但 ≤0（如「血糖零」）——响亮拒绝，绝不静默丢弃
-    static var f19MetricInvalidValue: String { t("f19.metricInvalidValue") }
     /// F19 附表①清单分页：列选项（「下一页」）+ 剩余条数播报
-    static var f19NextPage: String { t("f19.nextPage") }
-    static func f19MedListMore(_ remaining: Int) -> String {
-        t("f19.medListMore").replacingOccurrences(of: "%d", with: String(remaining))
-    }
 
     // MARK: - FR15.2 系统医疗急救卡引导
-    static var medicalIDTitle: String { t("medicalID.title") }
-    static var medicalIDStep1: String { t("medicalID.step1") }
-    static var medicalIDStep1Hint: String { t("medicalID.step1Hint") }
-    static var medicalIDStep2: String { t("medicalID.step2") }
-    static var medicalIDStep2Hint: String { t("medicalID.step2Hint") }
-    static var medicalIDStep3: String { t("medicalID.step3") }
-    static var medicalIDStep3Hint: String { t("medicalID.step3Hint") }
-    static var medicalIDOpenHealth: String { t("medicalID.openHealth") }
-    static var medicalIDNote: String { t("medicalID.note") }
 
     // MARK: - FR17.15 V3.66 识别引擎实验室（SP-62）
-    static var voiceLabTitle: String { t("voiceLab.title") }
-    static var voiceLabEngineSection: String { t("voiceLab.engine.section") }
-    static var voiceLabEngineFooter: String { t("voiceLab.engine.footer") }
-    static var voiceEngineAuto: String { t("voiceLab.engine.auto") }
-    static var voiceEngineAutoHint: String { t("voiceLab.engine.auto.hint") }
-    static var voiceEngineAdvanced: String { t("voiceLab.engine.advanced") }
-    static var voiceEngineAdvancedHint: String { t("voiceLab.engine.advanced.hint") }
-    static var voiceEngineDictation: String { t("voiceLab.engine.dictation") }
-    static var voiceEngineDictationHint: String { t("voiceLab.engine.dictation.hint") }
-    static var voiceEngineClassic: String { t("voiceLab.engine.classic") }
-    static var voiceEngineClassicHint: String { t("voiceLab.engine.classic.hint") }
-    static var voiceLabRequiresNewerOS: String { t("voiceLab.requiresNewerOS") }
-    static var voiceLabUnsupported: String { t("voiceLab.unsupported") }
-    static var voiceLabAssetSection: String { t("voiceLab.asset.section") }
-    static var voiceLabLocaleLabel: String { t("voiceLab.asset.locale") }
-    static var voiceLabAssetLabel: String { t("voiceLab.asset.label") }
-    static var voiceLabAssetInstalled: String { t("voiceLab.asset.installed") }
-    static var voiceLabAssetDownloadable: String { t("voiceLab.asset.downloadable") }
-    static var voiceLabAssetUnavailable: String { t("voiceLab.asset.unavailable") }
-    static var voiceLabInstall: String { t("voiceLab.asset.install") }
-    static var voiceLabInstalling: String { t("voiceLab.asset.installing") }
-    static var voiceLabInstallDone: String { t("voiceLab.asset.installDone") }
-    static var voiceLabInstallFailed: String { t("voiceLab.asset.installFailed") }
-    static var voiceLabAssetFooter: String { t("voiceLab.asset.footer") }
-    static var voiceLabTestSection: String { t("voiceLab.test.section") }
-    static var voiceLabTestFooter: String { t("voiceLab.test.footer") }
     /// 复审修正 FIX-B：对照测试的回落诚实标注（资源未装 / 系统不支持）。
-    static var voiceLabFallbackAsset: String { t("voiceLab.fallback.asset") }
-    static var voiceLabFallbackUnavailable: String { t("voiceLab.fallback.unavailable") }
     /// 审计修正（round3）：缺件随包模型的回落标注。
-    static var voiceLabFallbackMissing: String { t("voiceLab.fallback.missing") }
-    static var voiceLabResultSection: String { t("voiceLab.result.section") }
-    static var voiceLabNoResult: String { t("voiceLab.result.empty") }
-    static var voiceLabResultMeta: String { t("voiceLab.result.meta") }
-    static var voiceLabResultFooter: String { t("voiceLab.result.footer") }
-    static var voiceLabEntryHint: String { t("voiceLab.entry.hint") }
     /// 旧键保留：运行时下载模型与随包基线共用「安装后离线」文案。
-    static var asrBundledOffline: String { t("asr.bundledOffline") }
     /// FR17.15（业主 2026-09-12）：运行时模型下载 UI。
-    static var asrModelDownload: String { t("asr.model.download") }
     /// 模型尺寸选择（业主 2026-09-18 定：目录含同 id 多档时出现）
-    static var asrModelVariantTitle: String { t("asr.model.variantTitle") }
     /// 变体档位名：登记 small/medium/large 三档本地化，未登记键回落原文
-    static func asrModelVariantName(_ raw: String) -> String {
-        switch raw {
-        case "small": return asrModelVariantSmall
-        case "medium": return asrModelVariantMedium
-        case "large": return asrModelVariantLarge
-        default: return raw
-        }
-    }
-    static var asrModelVariantSmall: String { t("asr.model.variantSmall") }
-    static var asrModelVariantMedium: String { t("asr.model.variantMedium") }
-    static var asrModelVariantLarge: String { t("asr.model.variantLarge") }
     /// 业主裁决 D6：设备 RAM 建议提示（参数1=建议档位名，参数2=设备 RAM GB）
-    static func asrModelVariantHint(_ variant: String, _ ramGB: String) -> String {
-        String(format: t("asr.model.variantHint"), asrModelVariantName(variant), ramGB)
-    }
-    static func asrModelUpdate(_ version: String) -> String { String(format: t("asr.model.update"), version) }
-    static func asrModelInstalled(_ version: String) -> String { String(format: t("asr.model.installed"), version) }
-    static var asrModelDownloading: String { t("asr.model.downloading") }
-    static var asrModelDownloadFailed: String { t("asr.model.downloadFailed") }
-    static var asrModelCheckUpdate: String { t("asr.model.checkUpdate") }
     /// 检查更新三元反馈（2026-09-16 业主实测：此前点击后无任何可见结果）。
-    static var asrModelChecking: String { t("asr.model.checking") }
-    static var asrModelCheckUpToDate: String { t("asr.model.checkUpToDate") }
-    static func asrModelCheckUpdates(_ count: Int) -> String { String(format: t("asr.model.checkUpdatesFmt"), count) }
     /// 下载进度（字节数双参——慢链路下进度条位移缓慢，数字给确定反馈）。
-    static func asrModelProgress(_ received: String, _ total: String) -> String {
-        String(format: t("asr.model.progressFmt"), received, total)
-    }
     /// 传输形态（2026-09-16 业主实测「ASR 下载速度很慢」）：`supportsRanges` 为假、
     /// 或 HEAD 最终响应不带 `Accept-Ranges: bytes` 时下载会**静默退化**为单流——
     /// 1 条连接 vs 分段 N 路并发。此前无任何出口可判定，只能猜；呈现出来即可当场分辨。
-    static func asrModelModeSegmented(_ segments: Int) -> String {
-        String(format: t("asr.model.modeSegmentedFmt"), segments)
-    }
-    static var asrModelModeSingle: String { t("asr.model.modeSingle") }
     /// 安装阶段文案（下载后的校验/解压/安装/清理此前完全无反馈）。
-    static var asrModelPhaseVerifying: String { t("asr.model.phaseVerifying") }
-    static var asrModelPhaseUnpacking: String { t("asr.model.phaseUnpacking") }
-    static var asrModelPhaseActivating: String { t("asr.model.phaseActivating") }
-    static var asrModelPhasePruning: String { t("asr.model.phasePruning") }
-    static var asrModelBackgroundHint: String { t("asr.model.backgroundHint") }
-    static var asrIndexFetchFailed: String { t("asr.index.fetchFailed") }
-    static var asrPreparing: String { t("asr.preparing") }
-    static var asrSelectionHint: String { t("asr.selectionHint") }
-    static func voiceEngineName(_ choice: VoiceEngineChoice) -> String {
-        switch choice {
-        case .auto: return voiceEngineAuto
-        case .classic: return voiceEngineClassic
-        case .advanced: return voiceEngineAdvanced
-        case .dictation: return voiceEngineDictation
-        case .zipformer: return t("asr.zipformer")
-        case .qwen3: return t("asr.qwen3")
-        case .dolphin: return t("asr.dolphin")
-        case .whisper: return t("asr.whisper")
-        }
-    }
-    static func voiceEngineHint(_ choice: VoiceEngineChoice) -> String {
-        switch choice {
-        case .auto: return voiceEngineAutoHint
-        case .classic: return voiceEngineClassicHint
-        case .advanced: return voiceEngineAdvancedHint
-        case .dictation: return voiceEngineDictationHint
-        case .zipformer: return t("asr.zipformer.hint")
-        case .qwen3: return t("asr.qwen3.hint")
-        case .dolphin: return t("asr.dolphin.hint")
-        case .whisper: return t("asr.whisper.hint")
-        }
-    }
-    static func asrAvailability(_ availability: VoiceEngineAvailability) -> String? {
-        switch availability {
-        case .available: return nil
-        case .requiresNewerOS: return voiceLabRequiresNewerOS
-        case .unsupportedDevice: return voiceLabUnsupported
-        case .missingModelAssets: return t("asr.missingAssets")
-        // round2 A-N6：「可下载」与「缺件」文案分离，不再共用「缺失或不完整」。
-        case .downloadable: return t("asr.downloadable")
-        }
-    }
 
     // MARK: - FR6.9 V3.66 一键确认与卡片互联
-    static var entityCardConfirmAllHint: String { t("entityCard.confirmAllHint") }
-    static var encounterLinkedCards: String { t("encounter.linkedCards") }
-    static var encounterLinkedCardsEmpty: String { t("encounter.linkedCards.empty") }
 
     enum TargetTag: String, CaseIterable {
         case metric, observation, question, reminder, profile, anyText
@@ -3435,20 +368,6 @@ enum L10n {
 
     // MARK: - 评审批新增键（2026-09-06 全仓审查）
     // assistantSendLabel 已随 F12 退役删除（assistant.* 键清零）
-    static var voiceReadAloudA11y: String { t("voice.readAloudA11y") }
-    static var observationListEmpty: String { t("observation.listEmpty") }
-    static var observationListEmptyHint: String { t("observation.listEmptyHint") }
-    static var observationListError: String { t("observation.listError") }
-    static var observationListRetry: String { t("observation.listRetry") }
-    static var docAdd: String { t("doc.add") }
-    static var planAdd: String { t("plan.add") }
-    static var encounterAdd: String { t("encounter.add") }
-    static var appointmentAdd: String { t("appointment.add") }
-    static var allergyAdd: String { t("allergy.add") }
-    static var problemAdd: String { t("problem.add") }
-    static var questionAdd: String { t("question.add") }
-    static var homeVoice: String { t("home.voice") }
-    static var notificationCenterTitle: String { t("notification.center") }
 
     /// 语言切换通知：setLanguage 仅在语言真正变化时发送。
     /// 视图重渲染由 AppSettingsStore.values[.language] 的 @Observable 读值驱动
@@ -3490,48 +409,15 @@ enum L10n {
     // MARK: - 子项目 J · J4（v27 card-hierarchy）：时间轴主卡折叠 / 主卡草稿 / 体检详情 / 四卡类 / 文档稳定键
 
     /// SP-19 主卡行「详情」按钮（DisclosureGroup 标签区内的独立触点，≥44pt）。
-    static var timelineHubOpen: String { t("timeline.hub.open") }
-    static var timelineHubExpand: String { t("timeline.hub.expand") }
-    static var timelineHubCollapse: String { t("timeline.hub.collapse") }
     /// 计数徽章 VoiceOver 文案：「处方 1」（%1 类型名 %2 数量）。
-    static func timelineHubCount(_ kind: TimelineEntryKind, _ count: Int) -> String {
-        String(format: t("timeline.hub.countFmt"), timelineKindName(kind), count)
-    }
-    static func timelineHubChildren(_ count: Int) -> String { String(format: t("timeline.hub.childrenFmt"), count) }
-    static var timelineHubNoChildren: String { t("timeline.hub.noChildren") }
     /// 处方子卡摘要（store 以行数文本承载 summary，App 侧格式化「N 项」）。
-    static func timelineHubItems(_ count: Int) -> String { String(format: t("timeline.hub.itemsFmt"), count) }
     /// 结论聚合子卡标题（store 以条数文本承载 title）。
-    static func timelineHubConclusions(_ count: Int) -> String { String(format: t("timeline.hub.conclusionsFmt"), count) }
-    static var timelineLoadingMore: String { t("timeline.loadingMore") }
-    static var timelineLoadMoreFailed: String { t("timeline.loadMoreFailed") }
 
     /// `conclusion_type` canonical raw → 类型名（Domain `ClinicalConclusion.conclusionTypes` 同拼写；未登记回落原值）。
     /// 只映射类型名；`severity_text` 是打印原文，永不经此映射、不着色（BR-004/012）。
-    static func conclusionTypeName(_ raw: String) -> String {
-        let key = "conclusion.type.\(raw)"
-        let value = t(key)
-        return value == key ? raw : value
-    }
     /// `treatment_type` canonical raw → 展示名（Domain `TreatmentRecord.treatmentTypes` 同拼写；未登记回落原值）。
-    static func treatmentTypeName(_ raw: String) -> String {
-        let key = "treatment.type.\(raw)"
-        let value = t(key)
-        return value == key ? raw : value
-    }
     /// `appointment.purpose` canonical raw → 展示名（Domain `AppointmentPurpose` 同拼写；未登记回落原值）。
-    static func appointmentPurposeName(_ raw: String) -> String {
-        let key = "appointment.purpose.\(raw)"
-        let value = t(key)
-        return value == key ? raw : value
-    }
     /// FR5.5 文档类型稳定键 → 三语标签（`DocumentTypeKey.rawValue` 同拼写；未登记回落原键）。
-    static func docTypeName(_ key: String) -> String {
-        let l10nKey = "docType.\(key)"
-        let value = t(l10nKey)
-        return value == l10nKey ? key : value
-    }
-    static func docTypeName(_ key: DocumentTypeKey) -> String { docTypeName(key.rawValue) }
 
     /// 标签 → 稳定键 rawValue：当前语言 27 键精确 → 旧标签键三语反查 → `DocumentTypeKey(legacyLabelKey:)`；未命中 nil。
     /// 结果按（语言, 标签）缓存（锁保护；语言切换后键前缀不同、自然失效）。
@@ -3558,75 +444,16 @@ enum L10n {
     /// 旧 `document_file.doc_type` 标签（任一支持语言的历史文案）→ 旧标签键（`docTypeLabel.*` 15 键 / `doc.type.*` /
     /// `claim.type.invoice` 等曾作为文档类型标签写库的键）。首启回填经 `DocumentTypeKey(legacyLabelKey:)` 落稳定键；未命中 nil。
     /// 跨三语反查：老库可能是在另一语言下写入的标签。
-    static func legacyDocTypeLabelKey(forLabel label: String) -> String? {
-        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        // (L10n 键, 旧标签键)——标签键 = DocumentTypeKey.legacyLabelKeys 的键，或直接是稳定键 rawValue
-        let sources: [(String, String)] = [
-            ("docTypeLabel.outpatient", "outpatient"), ("docTypeLabel.inpatient", "inpatient"), ("docTypeLabel.labReport", "labReport"),
-            ("docTypeLabel.imageReport", "imageReport"), ("docTypeLabel.prescription", "prescription"), ("docTypeLabel.payment", "payment"),
-            ("docTypeLabel.dischargeSummary", "dischargeSummary"), ("docTypeLabel.diagnosisProof", "diagnosisProof"),
-            ("docTypeLabel.vaccineRecord", "vaccineRecord"), ("docTypeLabel.checkupReport", "checkupReport"),
-            ("docTypeLabel.pathologyReport", "pathologyReport"), ("docTypeLabel.surgeryRecord", "surgeryRecord"),
-            ("docTypeLabel.allergyRecord", "allergyRecord"), ("docTypeLabel.other", "other"), ("docTypeLabel.custom", "custom"),
-            // DocumentsState.docTypeLabel(forStableKey:) 曾用的七个非 docTypeLabel.* 键
-            ("doc.type.prescription", "prescription"), ("doc.type.report", "lab_report"), ("doc.type.record", "outpatient_record"),
-            ("claim.type.invoice", "invoice"), ("entityCard.kind.medication", "medication_label"),
-        ]
-        for lang in supportedLocalizations {
-            guard let bundle = bundle(forLanguage: lang) else { continue }
-            for (l10nKey, labelKey) in sources where bundle.localizedString(forKey: l10nKey, value: l10nKey, table: nil) == trimmed {
-                return labelKey
-            }
-            for key in DocumentTypeKey.allCases {
-                let l10nKey = "docType.\(key.rawValue)"
-                let value = bundle.localizedString(forKey: l10nKey, value: l10nKey, table: nil)
-                if value != l10nKey, value == trimmed { return key.rawValue }
-            }
-        }
-        return nil
-    }
 
     /// SP-12 主卡草稿区（§0.4 改判：识别出的子卡永远有父；草稿 D 级、逐字段确认，BR-003）。
-    static var parentDraftTitle: String { t("parentDraft.title") }
-    static var parentDraftHint: String { t("parentDraft.hint") }
-    static var parentDraftNewEncounter: String { t("parentDraft.newEncounter") }
-    static var parentDraftNewHealthExam: String { t("parentDraft.newHealthExam") }
-    static var parentDraftUseExisting: String { t("parentDraft.useExisting") }
-    static var parentDraftDateRequired: String { t("parentDraft.dateRequired") }
-    static var parentDraftUnconfirmed: String { t("parentDraft.unconfirmed") }
 
     /// 体检详情（`AppRoute.healthExamDetail`）：表头 → 一般检查原文 → 子报告 → 结论（原文，不着色）→ 原件。
-    static var healthExamTitle: String { t("healthExam.title") }
-    static var healthExamHeader: String { t("healthExam.header") }
-    static var healthExamGeneral: String { t("healthExam.general") }
-    static var healthExamReports: String { t("healthExam.reports") }
     /// 检测检查项折叠标签（业主 2026-09-17 定）
-    static func healthExamReportsCount(_ count: Int) -> String { String(format: t("healthExam.reportsCountFmt"), count) }
-    static var healthExamConclusions: String { t("healthExam.conclusions") }
-    static var healthExamGuidance: String { t("healthExam.guidance") }
-    static var healthExamOverall: String { t("healthExam.overall") }
-    static var healthExamNotFound: String { t("healthExam.notFound") }
-    static var healthExamNoReports: String { t("healthExam.noReports") }
-    static var healthExamNoConclusions: String { t("healthExam.noConclusions") }
-    static var healthExamSource: String { t("healthExam.source") }
-    static var healthExamSamples: String { t("healthExam.samples") }
-    static var healthExamDisclaimer: String { t("healthExam.disclaimer") }
 
     /// SP-08 四新分段 + 「关联预约」（FR10.7：候选只是清单，挂接须用户显式确认，不自动生效）。
-    static var encounterSectionSurgeries: String { t("encounter.section.surgeries") }
-    static var encounterSectionTreatments: String { t("encounter.section.treatments") }
-    static var encounterSectionFollowUpAppointments: String { t("encounter.section.followUpAppointments") }
-    static var encounterSectionFollowUpReminders: String { t("encounter.section.followUpReminders") }
-    static var encounterLinkAppointment: String { t("encounter.linkAppointment") }
-    static var encounterLinkAppointmentHint: String { t("encounter.linkAppointment.hint") }
-    static var encounterLinkAppointmentNone: String { t("encounter.linkAppointment.none") }
-    static var encounterLinkAppointmentConfirm: String { t("encounter.linkAppointment.confirm") }
-    static var encounterLinkAppointmentFailed: String { t("encounter.linkAppointment.failed") }
-    static func encounterLinkAppointmentConfirmTitle(_ name: String) -> String { String(format: t("encounter.linkAppointment.confirmFmt"), name) }
 
     /// 指定语言的资源包（不写缓存；供跨语言反查）。查找链与 `currentBundle` 同构。
-    private static func bundle(forLanguage lang: String) -> Bundle? {
+    static func bundle(forLanguage lang: String) -> Bundle? {
         if let path = Bundle.main.path(forResource: lang, ofType: "lproj"), let bundle = Bundle(path: path) { return bundle }
         if let url = Bundle.main.url(forResource: lang, withExtension: "lproj", subdirectory: "Resources/Localization"),
            let bundle = Bundle(url: url) { return bundle }
@@ -3639,7 +466,7 @@ enum L10n {
         return nil
     }
 
-    private static func t(_ key: String) -> String {
+    static func t(_ key: String) -> String {
         if let bundle = currentBundle {
             let value = bundle.localizedString(forKey: key, value: key, table: nil)
             if value != key { return value }   // 缺译回落系统默认（三文件纪律由 SU-M15-L10N 兜底）
@@ -3647,7 +474,7 @@ enum L10n {
         return NSLocalizedString(key, comment: "")
     }
 
-    private static var currentBundle: Bundle? {
+    static var currentBundle: Bundle? {
         cacheLock.lock(); defer { cacheLock.unlock() }
         if let cached = bundleCache { return cached }
         let lang = languageCache
