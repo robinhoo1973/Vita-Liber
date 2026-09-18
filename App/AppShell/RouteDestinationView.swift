@@ -1,4 +1,5 @@
 import SwiftUI
+import os
 import Domain
 import Infrastructure
 import Perception
@@ -356,7 +357,12 @@ struct DocumentDetailRouteView: View {
             let row = try await documentsState.documentStore.fetch(id: documentId)
             guard !Task.isCancelled else { return }
             storeRow = row
-        } catch { lookupFailed = true }
+        } catch {
+            // §7 不静默吞：失败虽可见（失败态视图），仍须上报日志供诊断
+            // 日志非用户面文案，不键化（L10n 门禁只覆盖用户可见中文字面量）
+            Logger(subsystem: "com.vitaliber", category: "route").error("Document detail load failed: \(error)")
+            lookupFailed = true
+        }
         lookupDone = true
     }
 }

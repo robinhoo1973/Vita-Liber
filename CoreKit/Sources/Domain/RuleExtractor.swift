@@ -151,8 +151,12 @@ public enum RuleExtractor {
                     continue
                 }
                 // ② 行级「标签：值」：药品标签页 通用名称/规格；「用法：每次1片 每日1次」剥标签后再分类。
-                if let field = spec.row.first(where: { split(label: cell.text, aliases: $0.labelAliases).map { !$0.isEmpty } ?? false }),
-                   let rest = split(label: cell.text, aliases: field.labelAliases) {
+                // lazy 单次求值：此前对每个候选字段调一次 split、命中后再对命中字段重调（同 cell 反复前缀比对）。
+                if let match = spec.row.lazy.compactMap({ field -> (FieldSpec, String)? in
+                    guard let rest = split(label: cell.text, aliases: field.labelAliases), !rest.isEmpty else { return nil }
+                    return (field, rest)
+                }).first {
+                    let (field, rest) = match
                     let sub = classify(rest, kind: spec.kind)
                     if sub.isEmpty { put(field.key, rest, cell, confidence: 0.9) }
                     else { for (key, value) in sub { put(key, value, cell, confidence: 0.7) } }
@@ -268,7 +272,7 @@ public enum RuleExtractor {
                     let unit = String(t[u]).trimmingCharacters(in: .whitespaces)
                     if !unit.isEmpty { out.append(("unit", unit)) }
                 }
-                if let flag = trailingFlag(t) { out.append(("abnormal_flag", flag)) }
+                if let flag { out.append(("abnormal_flag", flag)) }
             } else if cap("value", Patterns.labValue) || cap("reference_range", Patterns.referenceRange)
                         || cap("unit", Patterns.unit) || cap("abnormal_flag", Patterns.flag) {
                 // 真列表格的单元格：单值直接落键。

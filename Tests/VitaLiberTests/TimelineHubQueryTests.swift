@@ -13,12 +13,7 @@ import Protocols
 final class TimelineHubQueryTests: XCTestCase {
     /// 与 TimelineSearchAcceptanceTests.makeStore 同构：只建成员，不建文档（文档叶子会改变计数）。
     private func makeStore() async throws -> (GRDBStore, UUID) {
-        let store = try GRDBStore.inMemory(), patient = UUID()
-        try await store.writer.write { db in
-            try db.execute(sql: "INSERT INTO patient_profile (id, display_name, relation, created_at, updated_at) VALUES (?, 'A', 'self', 0, 0)",
-                           arguments: [patient.uuidString])
-        }
-        return (store, patient)
+        try await GRDBStore.inMemoryWithPatient("A", relation: "self")
     }
 
     private func encounter(_ db: GRDBStore, patient: UUID, at seconds: Double, kind: String = "outpatient", hospital: String? = nil) async throws -> UUID {
@@ -51,11 +46,11 @@ final class TimelineHubQueryTests: XCTestCase {
         XCTAssertEqual(page.entries[1].entry.kind, .observation)
         XCTAssertTrue(page.entries[1].children.isEmpty)
         XCTAssertNil(page.nextCursor)
-        let _hoisted54 = try await timeline.hubPage(patientId: UUID()).entries.isEmpty
-        XCTAssertTrue(_hoisted54, "BR-001：跨成员查询必须为空")
+        let crossMemberEmpty = try await timeline.hubPage(patientId: UUID()).entries.isEmpty
+        XCTAssertTrue(crossMemberEmpty, "BR-001：跨成员查询必须为空")
         // 旧平铺查询不受影响：就诊 + 观察 = 2（处方 / 检验 / 预约无平铺分支）
-        let _hoisted56 = try await timeline.entries(for: patient).entries.count
-        XCTAssertEqual(_hoisted56, 2)
+        let flatEntryCount = try await timeline.entries(for: patient).entries.count
+        XCTAssertEqual(flatEntryCount, 2)
         // 筛选只裁叶子：观察筛选下主卡仍在（可见性由 Domain visible 收窄）
         let filtered = try await timeline.hubPage(patientId: patient, filter: .kinds([.observation]))
         XCTAssertEqual(filtered.entries.map(\.hub), [.encounter, nil])

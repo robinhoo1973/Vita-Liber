@@ -641,53 +641,25 @@ final class DocumentsState {
         defer { session.isSaving = false }
         do {
             if session.source == nil {
-                var meta = draft.retainedMeta
-                if meta["original_path"] == nil {
-                    let ext = draft.mimeType == "application/pdf" ? "pdf"
-                        : ["doc", "docx"].contains(draft.mimeType) ? draft.mimeType : ImageInputRules.fileExtension(for: draft.mimeType)
-                    meta["original_path"] = try persistOriginal(patientId: draft.patientId, data: draft.originalData, ext: ext)
-                    session.draft?.retainedMeta = meta
-                }
-                if meta["processed_path"] == nil {
-                    meta["processed_path"] = draft.originalData == draft.processedData ? meta["original_path"]
-                        : try persistOriginal(patientId: draft.patientId, data: draft.processedData, ext: "jpg")
-                }
-                // Retain successful media writes across retries, including a later DB failure.
-                session.draft?.retainedMeta = meta
+                let meta = try persistMediaPaths(draft, session: session)
                 let review = try await cardsForCommit(draft)
                 session.preparedCards = review.queue
-                let snapshot = ReviewSnapshot(pages: draft.pages, docType: draft.docType,
-                    docTypeResolved: draft.docTypeResolved, docTypeManuallyChosen: draft.docTypeManuallyChosen,
-                    documentTypeKey: draft.documentTypeKey, cards: review.all)
-                meta["ocr_review"] = String(decoding: try JSONEncoder().encode(snapshot), as: UTF8.self)
-                let json = String(decoding: try JSONSerialization.data(withJSONObject: meta), as: UTF8.self)
-                let text = draft.allFields.filter(\.isConfirmed).map { field in
-                    [field.value, field.unit].compactMap { $0 }.joined(separator: " ")
-                }.joined(separator: "\n")
-                let pages = draft.pages.map { DocumentStore.Page(index: $0.index,
-                    text: $0.status == "ok" ? $0.text : nil, status: $0.status) }
-                let reviewedFields = Dictionary(uniqueKeysWithValues: draft.pages.filter { $0.status == "ok" }.map { page in
-                    (page.index, page.fields.filter(\.isConfirmed).map { field in
-                        CandidateField(key: field.key, displayLabel: Self.fieldLabel(forKey: field.key),
-                            rawText: field.rawText ?? field.originalValue, confidence: field.confidence, value: field.value,
-                            grade: .userConfirmed, codeResolution: field.codeResolution, revisionHistory: field.revisionHistory)
-                    })
-                })
+                let payload = try encodeCommitPayload(draft, meta: meta, cards: review.all)
                 // v27：稳定键随标签同事务落 doc_type_key（新行不进首启回填清单；复核改类型时键随标签走，不漂移）
                 let persistedKey = Self.persistedDocTypeKey(label: draft.docType, classifierKey: draft.documentTypeKey).rawValue
                 let documentID: UUID
                 if let existing = draft.existingDocumentId {
                     try await store.updateReview(id: existing, patientId: draft.patientId, docType: draft.docType,
-                        isSensitive: draft.isSensitive, metaJSON: json, ocrText: text.isEmpty ? nil : text,
-                        grade: draft.allReviewed ? "C" : "D", pages: pages, cards: review.all, reviewedFields: reviewedFields,
+                        isSensitive: draft.isSensitive, metaJSON: payload.metaJSON, ocrText: payload.ocrText,
+                        grade: draft.allReviewed ? "C" : "D", pages: payload.pages, cards: review.all, reviewedFields: payload.reviewedFields,
                         docTypeKey: persistedKey)
                     documentID = existing
                 } else {
                     documentID = try await store.save(patientId: draft.patientId, docType: draft.docType,
                         sha256: draft.sha256, mimeType: draft.mimeType, origin: draft.origin,
-                        isSensitive: draft.isSensitive, metaJSON: json, title: draft.title,
-                        ocrText: text.isEmpty ? nil : text, grade: draft.allReviewed ? "C" : "D", pages: pages,
-                        cards: review.all, reviewedFields: reviewedFields, docTypeKey: persistedKey)
+                        isSensitive: draft.isSensitive, metaJSON: payload.metaJSON, title: draft.title,
+                        ocrText: payload.ocrText, grade: draft.allReviewed ? "C" : "D", pages: payload.pages,
+                        cards: review.all, reviewedFields: payload.reviewedFields, docTypeKey: persistedKey)
                 }
                 session.source = ImportSource(documentId: documentID, patientId: draft.patientId, pages: draft.pages)
             }
@@ -710,6 +682,58 @@ final class DocumentsState {
             session.errorMessage = L10n.docImportFailed; lastImportError = session.errorMessage
             return false
         }
+    }
+
+    /// 落库载荷（commitDraft 编码步骤的产物：复核快照 + OCR 全文 + 页状态 + 已确认字段投影）。
+    private struct CommitPayload {
+        var metaJSON: String
+        var ocrText: String?
+        var pages: [DocumentStore.Page]
+        var reviewedFields: [Int: [CandidateField]]
+    }
+
+    /// 原件/加工件路径持久化（跨重试保留成功写入的媒体路径——落库失败不丢文件）；
+    /// 元数据随写入同步回写 session.draft.retainedMeta（commitDraft 的内联段搬移，语义不变）。
+    private func persistMediaPaths(_ draft: ImportDraft, session: ImportSession) throws -> [String: Any] {
+        var meta = draft.retainedMeta
+        if meta["original_path"] == nil {
+            let ext = draft.mimeType == "application/pdf" ? "pdf"
+                : ["doc", "docx"].contains(draft.mimeType) ? draft.mimeType : ImageInputRules.fileExtension(for: draft.mimeType)
+            meta["original_path"] = try persistOriginal(patientId: draft.patientId, data: draft.originalData, ext: ext)
+            session.draft?.retainedMeta = meta
+        }
+        if meta["processed_path"] == nil {
+            meta["processed_path"] = draft.originalData == draft.processedData ? meta["original_path"]
+                : try persistOriginal(patientId: draft.patientId, data: draft.processedData, ext: "jpg")
+        }
+        // Retain successful media writes across retries, including a later DB failure.
+        session.draft?.retainedMeta = meta
+        return meta
+    }
+
+    /// 落库载荷编码：复核快照 / OCR 全文 / 页状态 / 已确认字段投影（BR-003：只收已确认字段）。
+    /// 纯变换、零状态副作用——commitDraft 的持久化调用与编码步骤解耦。
+    private func encodeCommitPayload(_ draft: ImportDraft, meta: [String: Any], cards: [MatchedCard]) throws -> CommitPayload {
+        var meta = meta
+        let snapshot = ReviewSnapshot(pages: draft.pages, docType: draft.docType,
+            docTypeResolved: draft.docTypeResolved, docTypeManuallyChosen: draft.docTypeManuallyChosen,
+            documentTypeKey: draft.documentTypeKey, cards: cards)
+        meta["ocr_review"] = String(decoding: try JSONEncoder().encode(snapshot), as: UTF8.self)
+        let json = String(decoding: try JSONSerialization.data(withJSONObject: meta), as: UTF8.self)
+        let text = draft.allFields.filter(\.isConfirmed).map { field in
+            [field.value, field.unit].compactMap { $0 }.joined(separator: " ")
+        }.joined(separator: "\n")
+        let pages = draft.pages.map { DocumentStore.Page(index: $0.index,
+            text: $0.status == "ok" ? $0.text : nil, status: $0.status) }
+        let reviewedFields = Dictionary(uniqueKeysWithValues: draft.pages.filter { $0.status == "ok" }.map { page in
+            (page.index, page.fields.filter(\.isConfirmed).map { field in
+                CandidateField(key: field.key, displayLabel: Self.fieldLabel(forKey: field.key),
+                    rawText: field.rawText ?? field.originalValue, confidence: field.confidence, value: field.value,
+                    grade: .userConfirmed, codeResolution: field.codeResolution, revisionHistory: field.revisionHistory)
+            })
+        })
+        return CommitPayload(metaJSON: json, ocrText: text.isEmpty ? nil : text,
+                             pages: pages, reviewedFields: reviewedFields)
     }
 
     private func cardsForCommit(_ draft: ImportDraft) async throws -> (all: [MatchedCard], queue: [MatchedCard]) {
@@ -863,140 +887,6 @@ final class DocumentsState {
     /// 同上目录的当前语言标签（Picker 选项以标签呈现、选中即经 `docTypeKey(forLabel:)` 回稳定键）。
     nonisolated static var docTypeLabelOptions: [String] {
         docTypeKeyOptions.compactMap(docTypeLabel(forStableKey:))
-    }
-
-    nonisolated static func fieldLabel(forKey key: String) -> String {
-        switch key {
-        case "dept": return L10n.ocFieldDept
-        case "report_date", "prescribed_at": return L10n.ocFieldReportDate
-        case "reference_range": return L10n.ocFieldReferenceRange
-        case "lab_item": return L10n.ocFieldLabItem
-        case "chief_complaint": return L10n.ocFieldChiefComplaint
-        case "diagnosis": return L10n.ocFieldDiagnosis
-        case "treatment": return L10n.ocFieldTreatment
-        case "drug_name": return L10n.prescriptionFieldDrugName
-        case "hospital": return L10n.prescriptionFieldHospital
-        case "doctor": return L10n.prescriptionFieldDoctor
-        default:
-            if key.hasPrefix("line_"), let index = Int(key.dropFirst(5)) { return L10n.entityCardRowIndex(index + 1) }
-            if key.hasPrefix("rx_line_"), let index = Int(key.dropFirst(8)) { return L10n.entityCardRowIndex(index + 1) }
-            return L10n.templateFieldLabel(key)
-        }
-    }
-
-    /// FR6.9 字段值**展示层映射**（discussions/2026-09-12-owner-round10-issues.md §3a）：
-    /// 数据层保持 canonical raw（如 `EncounterKind.outpatient`、`unit_kind=tablet`），
-    /// 展示层按当前语言呈现；用户实测「信息卡出现 outpatient」的根因就是 raw 值直出。
-    /// 所有字段值渲染面（确认卡/待办续确认/已确认卡详情/首页待办卡/库存/图片确认卡）
-    /// 必须经此函数。编辑态 TextField 仍显示并回写 canonical raw（编辑框即数据
-    /// 真值、展示文案永不写回数据）——把展示文案映射进编辑框会让半程编辑
-    /// 把本地化片段写进 raw 槽位（round10 max 审查结论，保持原设计）。
-    /// 时间轴行**标题**的展示出口（2026-09-17 业主实测复发：就诊类型显示 `outpatient`）。
-    ///
-    /// **根因**：`TimelineQueryStore` 的就诊/住院行是 `SELECT … e.kind AS title`——`title`
-    /// **就是** `kind` canonical raw。V3.71 那次修复只把**主卡行**接到了 `fieldValueDisplay`，
-    /// 子卡行与平铺叶子行仍直出 `entry.title` → 英文 raw 上屏。
-    ///
-    /// 本函数收口三处渲染面（主卡行继续保持原调用，子卡行与叶子行改经此处），
-    /// 使「同一 kind raw 在任何时间轴行上都按当前语言呈现」只有一处实现。
-    nonisolated static func timelineEntryTitle(_ entry: TimelineEntry) -> String {
-        switch entry.kind {
-        // ── title 是 **canonical raw** 的行类：必须映射，否则英文 raw 上屏 ──
-        // 依据：`TimelineQueryStore` 的 SQL 别名（逐条可查）——
-        //   :44  `kind AS title`（就诊平铺）  :214 `e.kind AS title`（就诊主卡）
-        //   :326 住院 `hospitalization` 行的 title 是文本（医院名）→ 不在本组
-        //   :60  `kind AS title`（观察）
-        //   :334 `f.metric_key AS title`（医院检验点）
-        //   :335 `report_type AS title`（检查报告）
-        case .encounter, .hospitalization:
-            return fieldValueDisplay(forKey: "kind", value: entry.title)
-        case .observation:
-            // title = `ObservationKind` raw（stool/urine/skin/eye/…）；全仓其余渲染面
-            // 均经 `L10n.observationKindName`，唯时间轴行此前直出。
-            return ObservationKind(rawValue: entry.title).map(L10n.observationKindName) ?? entry.title
-        case .examReport:
-            // title = `report_type` canonical raw（pathology/imaging/…）
-            return fieldValueDisplay(forKey: "report_type", value: entry.title)
-        case .lab, .selfMeasured, .healthData:
-            // title = `metric_key`（`lab.*` canonical）→ 本地化指标名
-            if let metric = entry.metricKey.flatMap({ MetricType(grammarKey: $0) }) ?? MetricType(grammarKey: entry.title) {
-                return L10n.metricName(metric)
-            }
-            return entry.title
-        // ── title 是「已被上层处理过或本就是文本」的行类 ──
-        // 说明：住院行（:326）title = 医院名；处方行（:328）title = 首行药名或其他文本；
-        // 检验表头行（:330）title = 检验类别/实验室/医院文本——三者均为原文，不映射。
-        case .clinicalConclusion:
-            return L10n.timelineHubConclusions(Int(entry.title) ?? 0)
-        case .treatmentRecord:
-            return L10n.treatmentTypeName(entry.title)
-        case .document:
-            return entry.title.isEmpty ? L10n.timelineKindName(.document) : entry.title
-        default:
-            return entry.title.isEmpty ? L10n.timelineKindName(entry.kind) : entry.title
-        }
-    }
-
-    nonisolated static func fieldValueDisplay(forKey key: String, value: String) -> String {
-        switch key {
-        case "kind":
-            return EncounterKind(rawValue: value).map(L10n.encounterKindName) ?? value
-        case "doc_type", "document_type":
-            return docTypeLabel(forStableKey: value) ?? value
-        case "item_type":
-            switch value {
-            case "invoice": return L10n.claim_type_invoice
-            case "fee": return L10n.claim_type_fee
-            case "receipt": return L10n.claim_type_receipt
-            default: return value
-            }
-        case "unit_kind":
-            return ["tablet", "capsule", "patch", "vial"].contains(value) ? L10n.lotUnitName(value) : value
-        case "currency":
-            return value == "CNY" ? L10n.currencyCNY : value
-        case "prescription_type":
-            return L10n.prescriptionTypeName(value)
-        // v26（§C.3 / §C.4）：诊断类型 / 检查报告类型 canonical raw → 展示名（未登记原样透传）
-        case "diagnosis_type":
-            return L10n.diagnosisTypeName(value)
-        case "report_type":
-            return L10n.examReportTypeName(value)
-        // v27（子项目 J）：治疗类型 / 结论类型 / 预约目的 / 文档稳定键 canonical raw → 展示名（未登记原样透传）。
-        // `severity`（结论程度）**不在此列**：打印原文直出，不映射不着色（BR-004/012）。
-        case "treatment_type":
-            return L10n.treatmentTypeName(value)
-        case "conclusion_type":
-            return L10n.conclusionTypeName(value)
-        case "purpose":
-            return L10n.appointmentPurposeName(value)
-        case "doc_type_key":
-            return docTypeLabel(forStableKey: value) ?? value
-        default:
-            return value
-        }
-    }
-
-    /// 枚举槽位的 canonical 值目录（SP-12 确认卡 Picker 选项；标签经 `fieldValueDisplay`）。
-    /// 与 `EntityCardProjection.invalidFields` 的枚举校验同拼写；nil = 自由文本字段（走 TextField）。
-    /// 处方类型按 Domain `prescriptionTypes` 过滤保序（Domain 增删枚举不会让 Picker 出现非法项）。
-    nonisolated static func enumOptions(forKey key: String) -> [String]? {
-        switch key {
-        case "kind": return EncounterKind.allCases.map(\.rawValue)
-        case "item_type": return ["invoice", "fee", "receipt"]
-        case "unit_kind": return ["tablet", "capsule", "patch", "vial"]
-        case "currency": return ["CNY", "HKD", "MOP", "TWD", "USD", "EUR", "JPY", "GBP"]
-        case "prescription_type":
-            return ["general", "emergency", "pediatric", "narcotic", "psychotropic", "tcm", "other"]
-                .filter { EntityCardProjection.prescriptionTypes.contains($0) }
-        // v26：诊断类型 / 检查报告类型（Domain CHECK 同拼写目录，Picker 绑 canonical raw）；
-        // `kind` 目录随 EncounterKind.allCases 自动含 daySurgery（住院卡以外的 kind 由 invalidFields 裁定）。
-        case "diagnosis_type": return Diagnosis.diagnosisTypes
-        case "report_type": return ExamReport.reportTypes
-        // v27：治疗类型 / 结论类型（Domain CHECK 同拼写目录；Picker 绑 canonical raw）
-        case "treatment_type": return TreatmentRecord.treatmentTypes
-        case "conclusion_type": return ClinicalConclusion.conclusionTypes
-        default: return nil
-        }
     }
 
     static func hash(_ data: Data) -> String { CryptoKitContentHasher().sha256Hex(data) }

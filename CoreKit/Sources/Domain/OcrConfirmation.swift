@@ -38,6 +38,10 @@ public struct CandidateField: Sendable, Equatable, Codable, Identifiable {
         self.codeResolution = codeResolution
     }
 
+    /// 修订历史时间戳格式（静态缓存——逐次修订构造 ISO8601DateFormatter 不必要；
+    /// 与 HealthProblemDerivation.dayFormatter 同纪律）。
+    private static let historyStampFormatter = ISO8601DateFormatter()
+
     public var isConfirmed: Bool { grade == .userConfirmed }
 
     /// 确认：从 D 升格 C。已拒绝的字段不得直接确认（先重新启用语义留给完整状态机）。
@@ -53,7 +57,7 @@ public struct CandidateField: Sendable, Equatable, Codable, Identifiable {
                                 at date: Date = Date()) -> Bool {
         guard newValue != value else { return false }
         if isConfirmed {
-            let stamp = ISO8601DateFormatter().string(from: date)
+            let stamp = Self.historyStampFormatter.string(from: date)
             revisionHistory.insert("\(value) → \(newValue) · \(actor) · \(stamp)", at: 0)
         }
         value = newValue

@@ -73,26 +73,34 @@ public enum VoiceIntentCatalog {
                 || fields.contains { ["hour", "date", "repeat"].contains($0.key) })
         }
         if let best = scored.max(by: { $0.1.count < $1.1.count }) {
-            let fields = best.1.map { draft -> FieldDraft in
-                var d = draft
-                if d.source == nil { d.source = .regex }
-                return d
-            }
             // 文法命中置信度与转写置信度联乘——不再设 ≥0.7 保底：实测转写
             // 置信度接入后低置信必须可落在 <0.5 档触发确认卡复核闸
             // （此前恒 0.9 输入 + 0.7 保底 = <0.5 低置信警示永远不可达，
             // BR-003 复核纪律被架空）
             return UnderstandingResult(suggestedTarget: best.0.rawValue,
                                        targetConfidence: 0.85 * max(confidence, 0.3),
-                                       fields: fields)
+                                       fields: regexMarked(best.1))
         }
         // unknown：整句原文进速记草稿（调用方经 FR17.13 确认卡可编辑补全）
-        let draft = VoiceInputTemplate.fallbackDraft(value: text, confidence: confidence)
-        var marked = draft
-        marked.source = .unknown
         return UnderstandingResult(suggestedTarget: VoiceIntentKey.unknown.rawValue,
                                    targetConfidence: 0.6,
-                                   fields: [marked])
+                                   fields: [unknownFallback(text, confidence: confidence)])
+    }
+
+    /// 文法产出槽位统一标 source=.regex（classify / extract 两处入口共用）。
+    private static func regexMarked(_ drafts: [FieldDraft]) -> [FieldDraft] {
+        drafts.map { draft -> FieldDraft in
+            var d = draft
+            if d.source == nil { d.source = .regex }
+            return d
+        }
+    }
+
+    /// unknown 兜底草稿（整句原文进速记、source=.unknown）——两处入口共用。
+    private static func unknownFallback(_ text: String, confidence: Double) -> FieldDraft {
+        var marked = VoiceInputTemplate.fallbackDraft(value: text, confidence: confidence)
+        marked.source = .unknown
+        return marked
     }
 
     /// 显式改类后的槽位抽取（确认卡 Menu 覆盖；FR17.19 消歧兜底语义）。
@@ -110,16 +118,7 @@ public enum VoiceIntentCatalog {
              .appendNote, .createQuestion, .unknown:
             extracted = []
         }
-        guard !extracted.isEmpty else {
-            let draft = VoiceInputTemplate.fallbackDraft(value: text, confidence: confidence)
-            var marked = draft
-            marked.source = .unknown
-            return [marked]
-        }
-        return extracted.map { draft -> FieldDraft in
-            var d = draft
-            if d.source == nil { d.source = .regex }
-            return d
-        }
+        guard !extracted.isEmpty else { return [unknownFallback(text, confidence: confidence)] }
+        return regexMarked(extracted)
     }
 }

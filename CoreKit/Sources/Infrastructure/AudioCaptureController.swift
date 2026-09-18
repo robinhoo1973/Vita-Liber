@@ -85,7 +85,10 @@ final class AudioCaptureController: @unchecked Sendable {
         #endif
         guard !isStopped() else { stop(); throw CancellationError() }
         engine.prepare()
-        try engine.start()
+        // start() 抛错时 tap/观察者/会话激活均已安装——必须经 stop() 单出口
+        // 还原（共享会话不得停留在 .record），与本文件「失败即还原」契约一致。
+        do { try engine.start() }
+        catch { stop(); throw error }
         if isStopped() { stop(); throw CancellationError() }
     }
 

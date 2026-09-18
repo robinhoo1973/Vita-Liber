@@ -247,11 +247,16 @@ public enum WordingBlacklist {
         ("确诊", "诊断表述"),
         ("治疗(.+?)即可", "治疗建议"),
     ]
+    /// 模式一次性编译复用（措辞判定是问答/预警热路径；`patterns` 保持字符串形态
+    /// 供登记与违规诊断显示）。
+    private static let compiledPatterns: [(pattern: String, label: String, regex: NSRegularExpression)] =
+        patterns.compactMap { pair in
+            (try? NSRegularExpression(pattern: pair.0)).map { (pair.0, pair.1, $0) }   // try?-ok: 静态字面量，构造不会失败
+        }
     public static func violation(in text: String) -> String? {
-        for (pattern, label) in patterns {
-            if text.range(of: pattern, options: .regularExpression) != nil {
-                return "\(label)：\(pattern)"
-            }
+        let range = NSRange(text.startIndex..., in: text)
+        for entry in compiledPatterns where entry.regex.firstMatch(in: text, range: range) != nil {
+            return "\(entry.label)：\(entry.pattern)"
         }
         return nil
     }
@@ -268,6 +273,12 @@ public enum AlertRuleEngine {
     /// 不并入心率趋势序列。
     public static func guidelineKey(for metricKey: String) -> String {
         metricKey == "restingHeartRate" ? "heart_rate" : metricKey
+    }
+
+    /// 定级序（L0<L1<L2<L3，CaseIterable 声明序）——证据卡锚定与连续越限
+    /// 升级取「最严重」的单一比较口径（此前两处各自内联 firstIndex，一处含强制解包）。
+    private static func rank(_ severity: AlertSeverity) -> Int {
+        AlertSeverity.allCases.firstIndex(of: severity) ?? 0
     }
 
     /// 单位同义标签归一（第七轮修复）：同一物理单位在信源库与录入路径的
@@ -393,8 +404,8 @@ public enum AlertRuleEngine {
         let duration = last.reading.measuredAt.timeIntervalSince(first.reading.measuredAt)
         guard run.count >= consecutiveThreshold || duration >= sustainedWindow else { return [] }
         guard var anchor = run.max(by: { lhs, rhs in
-            let li = AlertSeverity.allCases.firstIndex(of: lhs.severity ?? .L0) ?? 0
-            let ri = AlertSeverity.allCases.firstIndex(of: rhs.severity ?? .L0) ?? 0
+            let li = rank(lhs.severity ?? .L0)
+            let ri = rank(rhs.severity ?? .L0)
             if li != ri { return li < ri }
             return lhs.reading.measuredAt < rhs.reading.measuredAt
         }) else { return [] }
@@ -413,9 +424,7 @@ public enum AlertRuleEngine {
         let lastLevels = last.compactMap { severity(for: $0, guideline: guideline) }
         guard lastLevels.count == consecutiveThreshold,
               lastLevels.allSatisfy({ $0 != .L0 }) else { return nil }
-        return lastLevels.max { a, b in
-            AlertSeverity.allCases.firstIndex(of: a)! < AlertSeverity.allCases.firstIndex(of: b)!
-        }
+        return lastLevels.max { rank($0) < rank($1) }
     }
 
     /// 五段证据卡组装（引用式提示，禁止生成式解读——ADR-010）

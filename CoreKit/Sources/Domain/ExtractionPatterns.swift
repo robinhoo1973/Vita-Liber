@@ -141,8 +141,7 @@ public enum ExtractionPatterns {
     /// 机构名（`<名称>医院` 后缀文法）：截到后缀为止，丢掉其后的文档类型词等尾随文本。
     /// 实测缺陷：`北京协和医院 处方笺` 整行当医院名。文法不命中返回 nil（调用方回落原行为）。
     public static func institutionName(in text: String) -> String? {
-        let pattern = #"([一-龥A-Za-z0-9（）()·]{2,20}(?:医院|醫院|卫生院|衛生院|诊所|診所))"#
-        guard let regex = try? NSRegularExpression(pattern: pattern),   // try?-ok: 静态字面量
+        guard let regex = institutionNamePattern,
               let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
               let range = Range(match.range(at: 1), in: text) else { return nil }
         return String(text[range])
@@ -152,8 +151,7 @@ public enum ExtractionPatterns {
     /// 实测缺陷：`append("report_date", text)` 在 `parseDate` 于行内**任意位置**找到日期时
     /// （它是 `firstMatch` 搜索），把**整行**当日期值。
     public static func dateToken(in text: String) -> String? {
-        let pattern = #"\d{4}\s*[-/年.]\s*\d{1,2}\s*[-/月.]\s*\d{1,2}\s*日?"#
-        guard let regex = try? NSRegularExpression(pattern: pattern),   // try?-ok: 静态字面量
+        guard let regex = dateTokenPattern,
               let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
               let range = Range(match.range, in: text) else { return nil }
         return String(text[range]).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -164,12 +162,22 @@ public enum ExtractionPatterns {
     /// （结构轮：自 `CardTemplateMatcher.referenceBounds` 迁入——该文法是检验行/表头/
     /// 分类器多轨共用的语法资产，不再挂在模板匹配器名下。）
     public static func referenceBounds(_ text: String) -> (low: String, high: String)? {
-        let number = #"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"#
-        guard let regex = try? NSRegularExpression(pattern: "^\\s*(\(number))\\s*[-–~～]\\s*(\(number))\\s*$"), // try?-ok: 静态数值文法字面量，构造不会失败
+        guard let regex = referenceBoundsPattern,
               let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
               let lowRange = Range(match.range(at: 1), in: text), let highRange = Range(match.range(at: 2), in: text) else { return nil }
         let low = String(text[lowRange]), high = String(text[highRange])
         guard let l = Double(low), let h = Double(high), l.isFinite, h.isFinite, l <= h else { return nil }
         return (low, high)
     }
+
+    // MARK: - 静态文法编译（一次性编译复用；同 `labelBoundaries` 预计算纪律）
+
+    private static let institutionNamePattern: NSRegularExpression? = try? NSRegularExpression(   // try?-ok: 静态字面量
+        pattern: #"([一-龥A-Za-z0-9（）()·]{2,20}(?:医院|醫院|卫生院|衛生院|诊所|診所))"#)
+    private static let dateTokenPattern: NSRegularExpression? = try? NSRegularExpression(   // try?-ok: 静态字面量
+        pattern: #"\d{4}\s*[-/年.]\s*\d{1,2}\s*[-/月.]\s*\d{1,2}\s*日?"#)
+    private static let referenceBoundsPattern: NSRegularExpression? = {
+        let number = #"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"#
+        return try? NSRegularExpression(pattern: "^\\s*(\(number))\\s*[-–~～]\\s*(\(number))\\s*$")   // try?-ok: 静态数值文法字面量，构造不会失败
+    }()
 }

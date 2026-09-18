@@ -28,11 +28,11 @@ public struct UnitOfWork: Sendable {
 /// 任一步抛错 → 全部回滚 + 审计不落半条（R0-4 纪律）。
 public actor MedicationPlanComposer {
     private let writer: any DatabaseWriter
-    private let audit: AuditLogWriter
 
-    public init(writer: any DatabaseWriter, audit: AuditLogWriter) {
+    /// 2026-09-18 清理轮：`audit` 依赖自建类以来零使用（计划生命周期无审计落库路径）——
+    /// 死参数移除；若后续 FR9.15 要求计划事件审计，须经 AuditLogWriter 白名单 action 接入。
+    public init(writer: any DatabaseWriter) {
         self.writer = writer
-        self.audit = audit
     }
 
     public enum ComposerError: Error, LocalizedError, Equatable {

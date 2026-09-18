@@ -14,6 +14,19 @@ public actor TrendQueryStore {
     /// round2 H2 / BR-001：显式设备过滤而成员非本人绑定 → 拒绝（不静默空态，视图据此不提供设备筛选项）
     public enum QueryError: Error { case deviceRequiresSelfBinding }
 
+    /// 趋势点统一 SELECT 列清单（series / sleepSeries / latestPoints 共用同一投影——
+    /// 单一出口防字段口径分叉，与本仓「同一事实两处实现」的既有教训同纪律）。
+    private static func sampleColumns(valueColumn: String, refProjection: String) -> String {
+        "id, metric_key, \(valueColumn) AS value, secondary_value, unit, origin, self_measured, "
+            + "measured_at, excluded, source_ref, \(refProjection), raw_label, code_concept_id, "
+            + "source_name, source_identifier, aggregation_kind, window_end, value_min, value_max, sample_count"
+    }
+    /// 舒张压分支的参考范围必须**投影为 NULL**：它读的是收缩压行的 secondary_value，
+    /// 行上的 ref_* 是**收缩压**的参考范围，跟着走会把收缩压区间挂到舒张压读数上
+    /// （医学数值错标，BR-003 同族）——series / latestPoints 舒张压分支同款。
+    private static let noReferenceColumns = "NULL AS ref_low, NULL AS ref_high, NULL AS ref_source_label"
+    private static let referenceColumns = "ref_low, ref_high, ref_source_label"
+
     /// F7 趋势查询（round2 H2：携查询身份）。返回可见点 + **各自独立**的 A 级参考带（FR7.2）
     /// + 排除点对照集；`result.identity == query` 供渲染层丢弃过期/错位结果。
     /// - Parameter libraryFallback: 无任何 A 级带时的 B 级信源库缺省带（P1 上线前传 nil；
@@ -32,18 +45,14 @@ public actor TrendQueryStore {
             // 双序列——此前舒张压系列恒空、双线缺失）。列标识为白名单字面量
             // 插值（非用户输入，无注入面）；来源过滤子句为常量字面量，值经参数绑定。
             let (keyToQuery, valueColumn, refProjection) = metric == .bloodPressureDia
-                ? (MetricType.bloodPressureSys.rawValue, "secondary_value",
-                   "NULL AS ref_low, NULL AS ref_high, NULL AS ref_source_label")
-                : (metric.rawValue, "value", "ref_low, ref_high, ref_source_label")
+                ? (MetricType.bloodPressureSys.rawValue, "secondary_value", Self.noReferenceColumns)
+                : (metric.rawValue, "value", Self.referenceColumns)
             let originClause = query.origin == nil ? "" : " AND origin = ?"
             var arguments: [DatabaseValueConvertible] = [query.patientId.uuidString, keyToQuery,
                                                          range.start.timeIntervalSince1970, range.end.timeIntervalSince1970]
             if let origin = query.origin { arguments.append(origin.rawValue) }
             var rows = try Row.fetchAll(db, sql: """
-                SELECT id, metric_key, \(valueColumn) AS value, secondary_value, unit, origin, self_measured,
-                       measured_at, excluded, source_ref, \(refProjection),
-                       raw_label, code_concept_id, source_name, source_identifier,
-                       aggregation_kind, window_end, value_min, value_max, sample_count
+                SELECT \(Self.sampleColumns(valueColumn: valueColumn, refProjection: refProjection))
                 FROM metric_sample
                 WHERE patient_id = ? AND metric_key = ? AND \(valueColumn) IS NOT NULL
                   AND measured_at >= ? AND measured_at <= ?\(originClause)
@@ -58,11 +67,7 @@ public actor TrendQueryStore {
                                                                    range.start.timeIntervalSince1970, range.end.timeIntervalSince1970]
                 if let origin = query.origin { directArguments.append(origin.rawValue) }
                 let direct = try Row.fetchAll(db, sql: """
-                    SELECT id, metric_key, value AS value, secondary_value, unit, origin, self_measured,
-                           measured_at, excluded, source_ref,
-                           NULL AS ref_low, NULL AS ref_high, NULL AS ref_source_label,
-                           raw_label, code_concept_id, source_name, source_identifier,
-                           aggregation_kind, window_end, value_min, value_max, sample_count
+                    SELECT \(Self.sampleColumns(valueColumn: "value", refProjection: Self.noReferenceColumns))
                     FROM metric_sample
                     WHERE patient_id = ? AND metric_key = 'bloodPressureDia' AND value IS NOT NULL
                       AND measured_at >= ? AND measured_at <= ?\(originClause)
@@ -141,10 +146,7 @@ public actor TrendQueryStore {
             let originClause = query.origin == nil ? "" : " AND origin = ?"
             if let origin = query.origin { keyArguments.append(origin.rawValue) }
             let rows = try Row.fetchAll(db, sql: """
-                SELECT id, metric_key, value, secondary_value, unit, origin, self_measured,
-                       measured_at, excluded, source_ref, ref_low, ref_high, ref_source_label,
-                       raw_label, code_concept_id, source_name, source_identifier,
-                       aggregation_kind, window_end, value_min, value_max, sample_count
+                SELECT \(Self.sampleColumns(valueColumn: "value", refProjection: Self.referenceColumns))
                 FROM metric_sample
                 WHERE patient_id = ? AND metric_key IN (\(placeholders)) AND value IS NOT NULL
                   AND measured_at >= ? AND measured_at <= ?\(originClause)
@@ -438,20 +440,11 @@ extension TrendQueryStore {
         return try await writer.read { db in
             let isSelf = try HealthImportStore.ownerPatient(db) == patientId
             let deviceClause = isSelf ? "" : " AND origin != 'device'"
-            let (keyToQuery, valueColumn) = metric == .bloodPressureDia
-                ? (MetricType.bloodPressureSys.rawValue, "secondary_value")
-                : (metric.rawValue, "value")
-            // 舒张压分支的参考范围必须**投影为 NULL**（与 series 的舒张压分支同款）：
-            // 它读的是收缩压行的 secondary_value，行上的 ref_* 是**收缩压**的参考范围，
-            // 跟着走会把收缩压区间挂到舒张压读数上（医学数值错标，BR-003 同族）。
-            let refProjection = metric == .bloodPressureDia
-                ? "NULL AS ref_low, NULL AS ref_high, NULL AS ref_source_label"
-                : "ref_low, ref_high, ref_source_label"
+            let (keyToQuery, valueColumn, refProjection) = metric == .bloodPressureDia
+                ? (MetricType.bloodPressureSys.rawValue, "secondary_value", Self.noReferenceColumns)
+                : (metric.rawValue, "value", Self.referenceColumns)
             var points = try Row.fetchAll(db, sql: """
-                SELECT id, metric_key, \(valueColumn) AS value, secondary_value, unit, origin, self_measured,
-                       measured_at, excluded, source_ref, \(refProjection),
-                       raw_label, code_concept_id, source_name, source_identifier,
-                       aggregation_kind, window_end, value_min, value_max, sample_count
+                SELECT \(Self.sampleColumns(valueColumn: valueColumn, refProjection: refProjection))
                 FROM metric_sample
                 WHERE patient_id = ? AND metric_key = ? AND \(valueColumn) IS NOT NULL
                   AND excluded = 0\(deviceClause)
@@ -461,11 +454,7 @@ extension TrendQueryStore {
                 // 单值舒张压独立行（语音「低压 90」/自测单值）——与 series 同款并查，
                 // 否则这类读数在播报路径上永远缺席
                 points += try Row.fetchAll(db, sql: """
-                    SELECT id, metric_key, value, secondary_value, unit, origin, self_measured,
-                           measured_at, excluded, source_ref,
-                           NULL AS ref_low, NULL AS ref_high, NULL AS ref_source_label,
-                           raw_label, code_concept_id, source_name, source_identifier,
-                           aggregation_kind, window_end, value_min, value_max, sample_count
+                    SELECT \(Self.sampleColumns(valueColumn: "value", refProjection: Self.noReferenceColumns))
                     FROM metric_sample
                     WHERE patient_id = ? AND metric_key = 'bloodPressureDia' AND value IS NOT NULL
                       AND excluded = 0\(deviceClause)

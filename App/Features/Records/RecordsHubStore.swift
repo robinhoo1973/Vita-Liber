@@ -186,10 +186,10 @@ final class M2HubStore {
     func reconcileLot(item: MedicationStore.InventorySummaryItem, physicalCount: Double) async {
         do {
             // FR9.8.5/FR14.2：归真写入必须留审计——reconcileLot 的审计行由
-            // Store 在事务内直落（auditSink 非 nil 即启用，与业务同事务，
-            // 「审计不落半条」）；此前未传 sink，库存归真从审计记录页消失
+            // Store 在事务内直落（audit=true 即启用，与业务同事务，
+            // 「审计不落半条」）；此前未开启 audit，库存归真从审计记录页消失
             try await meds.reconcileLot(lotId: item.lotId, physicalCount: physicalCount,
-                                        at: Date(), auditSink: { _, _ in })
+                                        at: Date(), audit: true)
             // 审查修复：盘点归真后重载缓存——原实现只写库，药箱继续显示
             // 盘点前的旧余量/旧续药档位，直到下次全量 load
             await refreshInventory()
@@ -240,54 +240,59 @@ final class M2HubStore {
 
     // MARK: - 疫苗 / 报销
 
+    /// 写后刷新单一出口（疫苗/报销/发送状态/送达状态四段共用）：写失败与刷新
+    /// 失败分别记账——刷新失败绝不把「已写入」回传成失败（BR-004 真实性）；
+    /// BR-001 成员隔离经 loadSection（fetch → 代际守卫 → 提交，杜绝成员切换竞态窗口）。
+    /// 写失败日志经调用侧 logger 闭包注入（L10n 单出口纪律：中文文案只出现在 logger 调用位）。
+    private func writeThenRefresh<T>(patientId: UUID, logWriteFailure: (Error) -> Void, refreshLabel: String,
+                                     write: () async throws -> Void,
+                                     fetch: @escaping () async throws -> T,
+                                     commit: @MainActor (T) -> Void) async {
+        do {
+            try await write()
+        } catch {
+            logWriteFailure(error)
+            return
+        }
+        await loadSection(patientId: patientId, label: refreshLabel, fetch: fetch, commit: commit)
+    }
+
     func createImmunization(patientId: UUID, name: String, dose: Int,
                             date: Date?, provider: String, lot: String) async {
-        do {
-            try await immunizations.create(patientId: patientId, vaccineName: name,
-                                           doseNumber: dose, administeredAt: date,
-                                           provider: provider, lotNumber: lot)
-            // BR-001 成员隔离：写后回读经 loadSection 单一出口
-            // （fetch → 代际守卫 → 提交，杜绝成员切换竞态窗口）
-            await loadSection(patientId: patientId, label: "疫苗写后刷新失败",
-                fetch: { try await immunizations.list(patientId: patientId) },
-                commit: { immunizationRecords = $0 })
-        } catch {
-            logger.error("疫苗记录失败: \(error)")
-        }
+        await writeThenRefresh(patientId: patientId, logWriteFailure: { logger.error("疫苗记录失败: \($0)") }, refreshLabel: "疫苗写后刷新失败",
+            write: {
+                try await immunizations.create(patientId: patientId, vaccineName: name,
+                                               doseNumber: dose, administeredAt: date,
+                                               provider: provider, lotNumber: lot)
+            },
+            fetch: { try await immunizations.list(patientId: patientId) },
+            commit: { immunizationRecords = $0 })
     }
 
     func createClaim(patientId: UUID, type: String, amount: Double,
                      date: Date, merchant: String, summary: String) async {
-        do {
-            try await claims.create(patientId: patientId, itemType: type, amount: amount,
-                                    date: date, merchant: merchant, summary: summary)
-            // BR-001 成员隔离：写后回读经 loadSection 单一出口
-            // （fetch → 代际守卫 → 提交，杜绝成员切换竞态窗口）
-            await loadSection(patientId: patientId, label: "报销写后刷新失败",
-                fetch: {
-                    async let r = claims.list(patientId: patientId)
-                    async let t = claims.totals(patientId: patientId)
-                    return try await (r, t)
-                },
-                commit: { claimRows = $0.0; claimTotals = $0.1 })
-        } catch {
-            logger.error("报销票据失败: \(error)")
-        }
+        await writeThenRefresh(patientId: patientId, logWriteFailure: { logger.error("报销票据失败: \($0)") }, refreshLabel: "报销写后刷新失败",
+            write: {
+                try await claims.create(patientId: patientId, itemType: type, amount: amount,
+                                        date: date, merchant: merchant, summary: summary)
+            },
+            fetch: {
+                async let r = claims.list(patientId: patientId)
+                async let t = claims.totals(patientId: patientId)
+                return try await (r, t)
+            },
+            commit: { claimRows = $0.0; claimTotals = $0.1 })
     }
 
     // MARK: - 发送状态（FR24.2）
 
     func recordSent(patientId: UUID, kind: String, recipient: String) async {
-        do {
-            _ = try await messages.recordSent(patientId: patientId, kind: kind, recipient: recipient)
-            // BR-001 成员隔离：写后回读经 loadSection 单一出口
-            // （fetch → 代际守卫 → 提交，杜绝成员切换竞态窗口）
-            await loadSection(patientId: patientId, label: "发送状态写后刷新失败",
-                fetch: { try await messages.list(patientId: patientId) },
-                commit: { sentMessages = $0 })
-        } catch {
-            logger.error("发送状态记录失败: \(error)")
-        }
+        await writeThenRefresh(patientId: patientId, logWriteFailure: { logger.error("发送状态记录失败: \($0)") }, refreshLabel: "发送状态写后刷新失败",
+            write: {
+                _ = try await messages.recordSent(patientId: patientId, kind: kind, recipient: recipient)
+            },
+            fetch: { try await messages.list(patientId: patientId) },
+            commit: { sentMessages = $0 })
     }
 
     /// FR9.13a/FR24.2 每次分享写审计（药品信息外发——FR14.2 审计清单之一）
@@ -306,15 +311,11 @@ final class M2HubStore {
     /// FR24.2 P0 手动「标记已送达」占位（无服务端时不伪造回执——
     /// 用户确认对方收到后手动推进 sent → ackPending，等待回执）
     func markDelivered(messageId: UUID, patientId: UUID) async {
-        do {
-            try await messages.updateStatus(id: messageId, to: .ackPending)
-            // BR-001 成员隔离：写后回读经 loadSection 单一出口
-            // （fetch → 代际守卫 → 提交，杜绝成员切换竞态窗口）
-            await loadSection(patientId: patientId, label: "送达状态写后刷新失败",
-                fetch: { try await messages.list(patientId: patientId) },
-                commit: { sentMessages = $0 })
-        } catch {
-            logger.error("标记已送达失败: \(error)")
-        }
+        await writeThenRefresh(patientId: patientId, logWriteFailure: { logger.error("标记已送达失败: \($0)") }, refreshLabel: "送达状态写后刷新失败",
+            write: {
+                try await messages.updateStatus(id: messageId, to: .ackPending)
+            },
+            fetch: { try await messages.list(patientId: patientId) },
+            commit: { sentMessages = $0 })
     }
 }

@@ -48,19 +48,10 @@ struct StockLotDetailView: View {
             }
             .sheet(isPresented: $showReconcile) {
                 if let lot {
-                    InventoryReconcileSheet(item: MedicationStore.InventorySummaryItem(
-                        lotId: lot.lotId, medicationName: lot.medicationName, spec: lot.spec,
-                        unitKind: lot.unitKind, remainingPlanUnits: lot.remainingPlanUnits,
-                        remainingConfirmedUnits: lot.remainingConfirmedUnits,
-                        expireAt: lot.expireAt, storageNote: lot.storageNote,
-                        approxDaysLeft: nil, refillTier: nil)) { count in
+                    let item = summaryItem(lot)
+                    InventoryReconcileSheet(item: item) { count in
                         Task {
-                            await hub.reconcileLot(item: MedicationStore.InventorySummaryItem(
-                                lotId: lot.lotId, medicationName: lot.medicationName, spec: lot.spec,
-                                unitKind: lot.unitKind, remainingPlanUnits: lot.remainingPlanUnits,
-                                remainingConfirmedUnits: lot.remainingConfirmedUnits,
-                                expireAt: lot.expireAt, storageNote: lot.storageNote,
-                                approxDaysLeft: nil, refillTier: nil), physicalCount: count)
+                            await hub.reconcileLot(item: item, physicalCount: count)
                             showReconcile = false
                             await load()
                         }
@@ -98,6 +89,21 @@ struct StockLotDetailView: View {
         } catch {
             phase = .failed
         }
+    }
+
+    /// 批次行 → 盘点/对账用的摘要投影（展示页与写路径共用同一投影，两处复制收敛）
+    private func summaryItem(_ lot: MedicationStore.LotRow) -> MedicationStore.InventorySummaryItem {
+        MedicationStore.InventorySummaryItem(
+            lotId: lot.lotId, medicationName: lot.medicationName, spec: lot.spec,
+            unitKind: lot.unitKind, remainingPlanUnits: lot.remainingPlanUnits,
+            remainingConfirmedUnits: lot.remainingConfirmedUnits,
+            expireAt: lot.expireAt, storageNote: lot.storageNote,
+            approxDaysLeft: nil, refillTier: nil)
+    }
+
+    /// 单位种类展示名（双轨卡与档案卡同口径；经 DocumentsState 字段展示出口）
+    private func unitKindDisplay(_ lot: MedicationStore.LotRow) -> String {
+        DocumentsState.fieldValueDisplay(forKey: "unit_kind", value: lot.unitKind)
     }
 
     private func save(_ draft: LotEditDraft) async -> Bool {
@@ -162,7 +168,7 @@ struct StockLotDetailView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(L10n.inventoryDualLineTitle).font(.headline)
             Text(L10n.inventoryDualLine(MedicalNumberFormat.quantity(lot.remainingPlanUnits),
-                DocumentsState.fieldValueDisplay(forKey: "unit_kind", value: lot.unitKind),
+                unitKindDisplay(lot),
                 MedicalNumberFormat.quantity(lot.remainingConfirmedUnits)))
                 .font(.subheadline)
         }
@@ -175,7 +181,7 @@ struct StockLotDetailView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(L10n.lotArchiveTitle).font(.headline)
             archiveRow(L10n.lotTotalUnits, MedicalNumberFormat.quantity(lot.totalUnits) + " "
-                + DocumentsState.fieldValueDisplay(forKey: "unit_kind", value: lot.unitKind))
+                + unitKindDisplay(lot))
             archiveRow(L10n.lotOpenedAt, lot.openedAt?.formatted(date: .abbreviated, time: .omitted))
             // FR9.10：效期缺失 = 待补填（进批次补录待办）
             if let expireAt = lot.expireAt {
@@ -304,16 +310,16 @@ struct StockLotEditView: View {
                             // 归一为当日 23:59:59——当日全天可用，次日过期。
                             DatePicker(L10n.lotExpireAt, selection: Binding(
                                 get: { expireAt ?? Date() },
-                                set: { expireAt = Calendar.current.date(bySettingHour: 23, minute: 59, second: 59, of: $0) }),
+                                set: { expireAt = Self.normalizedEndOfDay($0) }),
                                        displayedComponents: .date)
                                 .onAppear {
                                     if expireAt == nil {
-                                        expireAt = Calendar.current.date(bySettingHour: 23, minute: 59, second: 59, of: Date())
+                                        expireAt = Self.normalizedEndOfDay(Date())
                                     }
                                 }
                                 .onChangeCompat(of: hasExpireDate) { _, on in
                                     if on && expireAt == nil {
-                                        expireAt = Calendar.current.date(bySettingHour: 23, minute: 59, second: 59, of: Date())
+                                        expireAt = Self.normalizedEndOfDay(Date())
                                     }
                                 }
                         }
@@ -382,5 +388,11 @@ struct StockLotEditView: View {
             let ok = await onSave(draft)
             if !ok { saveFailed = true }
         }
+    }
+
+    /// 效期日期归一（日期粒度契约：选中日期一律归当日 23:59:59——当日全天可用，
+    /// 次日过期；绑定 set/onAppear/onChange 三处同款归一收敛此处）
+    private static func normalizedEndOfDay(_ date: Date) -> Date? {
+        Calendar.current.date(bySettingHour: 23, minute: 59, second: 59, of: date)
     }
 }

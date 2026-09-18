@@ -28,7 +28,7 @@ extension L10n {
 
     static func emergencySeverity(_ s: String) -> String { String(format: t("emergency.severityFmt"), s) }
 
-    static func care_parameters_sosValue(seconds: Int) -> String {
+    static func careParametersSOSValue(seconds: Int) -> String {
         String(format: t("care.parameters.sosValue"), seconds)
     }
 

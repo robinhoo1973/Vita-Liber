@@ -15,21 +15,22 @@ public actor VoiceNoteStore {
                        tags: [String]? = nil, encounterId: UUID? = nil,
                        inTimeline: Bool = false, now: Date = Date()) async throws {   // FR17.14：默认不入轴
         try await writer.write { db in
-            let tagsJSON: String
-            if let tags {
-                do { tagsJSON = String(data: try JSONEncoder().encode(tags), encoding: .utf8) ?? "[]" }
-                catch { tagsJSON = "[]" }
-            } else {
-                tagsJSON = "[]"
-            }
             try db.execute(sql: """
                 INSERT INTO voice_note (id, patient_id, body, occurred_at, tags, encounter_id, in_timeline, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, arguments: [id.uuidString, patientId.uuidString, body,
-                                 now.timeIntervalSince1970, tagsJSON,
+                                 now.timeIntervalSince1970, Self.encodeTags(tags),
                                  encounterId?.uuidString, inTimeline ? 1 : 0,
                                  now.timeIntervalSince1970, now.timeIntervalSince1970])
         }
+    }
+
+    /// tags → JSON 数组列文本（读写契约单一出口：create/update 与 list 的
+    /// JSONDecoder 读取器同形态——第六轮审查修复后不许再出现第二种落库形态）。
+    private static func encodeTags(_ tags: [String]?) -> String {
+        guard let tags else { return "[]" }
+        do { return String(data: try JSONEncoder().encode(tags), encoding: .utf8) ?? "[]" }
+        catch { return "[]" }   // [String] 编码实际不可失败；防御口径与 create 旧实现一致
     }
 
     public struct VoiceNoteRow: Sendable, Equatable, Identifiable {
@@ -71,13 +72,12 @@ public actor VoiceNoteStore {
         // 第六轮全仓审查修复：tags 落库形态必须与 list 的读取器一致
         // （JSON 数组）——原实现写逗号拼接串，list 的 JSONDecoder 解码
         // 失败静默回空：每次编辑速记正文都清空标签列表（读写契约断裂）。
-        let tagsJSON = String(data: try JSONEncoder().encode(tags ?? []), encoding: .utf8) ?? "[]"
         try await writer.write { db in
             try db.execute(sql: """
                 UPDATE voice_note
                 SET body = ?, tags = ?, in_timeline = ?, updated_at = ?
                 WHERE id = ? AND patient_id = ?
-                """, arguments: [body, tagsJSON,
+                """, arguments: [body, Self.encodeTags(tags),
                                  inTimeline ? 1 : 0, Date().timeIntervalSince1970,
                                  id.uuidString, patientId.uuidString])
         }

@@ -47,12 +47,7 @@ final class TimelineExpansionStoreTests: XCTestCase {
     // MARK: - 视图模型：主卡分组 / 展开集 / 筛选 / 翻页
 
     private func makeStore() async throws -> (GRDBStore, UUID) {
-        let store = try GRDBStore.inMemory(), patient = UUID()
-        try await store.writer.write { db in
-            try db.execute(sql: "INSERT INTO patient_profile (id, display_name, relation, created_at, updated_at) VALUES (?, 'A', 'self', 0, 0)",
-                           arguments: [patient.uuidString])
-        }
-        return (store, patient)
+        try await GRDBStore.inMemoryWithPatient("A", relation: "self")
     }
 
     private func seedEncounter(_ db: GRDBStore, patient: UUID, at seconds: Double, withPrescription: Bool) async throws -> UUID {

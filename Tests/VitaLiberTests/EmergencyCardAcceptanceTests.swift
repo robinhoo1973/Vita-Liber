@@ -14,17 +14,8 @@ import Protocols
 final class M2EmergCardAcceptanceTests: XCTestCase {
 
     private func makeStore() async throws -> (GRDBStore, EmergencyCardStore, UUID) {
-        let store = try GRDBStore.inMemory()
-        let cards = EmergencyCardStore(writer: store.writer)
-        let patient = UUID()
-        try await store.writer.write { db in
-            try db.execute(sql: """
-                INSERT INTO patient_profile
-                  (id, display_name, relation, blood_type, created_at, updated_at)
-                VALUES (?, '急救卡测试', '本人', 'A+', 0, 0)
-                """, arguments: [patient.uuidString])
-        }
-        return (store, cards, patient)
+        let (store, patient) = try await GRDBStore.inMemoryWithPatient("急救卡测试", relation: "本人", bloodType: "A+")
+        return (store, EmergencyCardStore(writer: store.writer), patient)
     }
 
     /// FR15.1 核心语义：**数据存在 ≠ 入卡**。只有用户逐项选择的条目才入卡。

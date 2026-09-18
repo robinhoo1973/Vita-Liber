@@ -9,17 +9,11 @@ import Protocols
 @MainActor
 final class HomeDoseDispositionTests: XCTestCase {
     private func makeStore() async throws -> (ReminderStore, MedicationStore, UUID, UUID) {
-        let db = try GRDBStore.inMemory()
-        let patient = UUID(), med = UUID()
-        try await db.writer.write { db in
-            try db.execute(sql: "INSERT INTO patient_profile (id, display_name, relation, created_at, updated_at) VALUES (?, '测试', '本人', 0, 0)", arguments: [patient.uuidString])
-            try db.execute(sql: "INSERT INTO medication (id, patient_id, generic_name, spec, unit_kind, created_at, updated_at) VALUES (?, ?, '阿莫西林', '0.25g', 'tablet', 0, 0)", arguments: [med.uuidString, patient.uuidString])
-        }
+        let (db, meds, patient, med) = try await GRDBStore.inMemoryWithMedication(patientName: "测试", medName: "阿莫西林", spec: "0.25g")
         let scheduler = InMemoryReminderScheduler()
-        let meds = MedicationStore(writer: db.writer)
         let store = ReminderStore(meds: meds, apts: AppointmentStore(writer: db.writer, scheduler: scheduler),
                                   reconciler: ReminderReconciler(scheduler: scheduler, source: meds), scheduler: scheduler,
-                                  composer: MedicationPlanComposer(writer: db.writer, audit: AuditLogWriter(writer: db.writer)))
+                                  composer: MedicationPlanComposer(writer: db.writer))
         return (store, meds, patient, med)
     }
 

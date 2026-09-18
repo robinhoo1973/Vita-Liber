@@ -732,50 +732,37 @@ final class ReminderStore {
 
     // MARK: - 通知武装持久集（FR9.8.3 / FR9.11 同 id 幂等的划掉防御）
 
-    /// 已武装通知 id 持久集（UserDefaults）。delivered 集是系统通知中心
-    /// 状态——用户划掉通知后该 id 即从 delivered 消失，「已送达即跳过」
-    /// 守卫失效，每次回前台都以同 id 重武装 +5 分钟（FR9.8.3 无限重发）。
-    /// 持久集保证同 id 在本机只武装一次；档位升级 = 新 id（refill-{lot}-
-    /// {tier} / exp-{lot}-{tier}），新档自然放行。
-    private static let armedIdsKey = "vl.reminders.armedIds"
+    /// 已武装通知 id 持久集——存储/读写在 ArmedNotificationIds（同文件小类型）。
+    /// delivered 集是系统通知中心状态——用户划掉通知后该 id 即从 delivered
+    /// 消失，「已送达即跳过」守卫失效，每次回前台都以同 id 重武装 +5 分钟
+    /// （FR9.8.3 无限重发）。持久集保证同 id 在本机只武装一次；档位升级 =
+    /// 新 id（refill-{lot}-{tier} / exp-{lot}-{tier}），新档自然放行。
     private func armedNotificationIds() -> Set<String> {
-        Set(UserDefaults.standard.stringArray(forKey: Self.armedIdsKey) ?? [])
+        ArmedNotificationIds().ids
     }
     private func markArmed(_ notifyId: String) {
-        var set = armedNotificationIds()
-        set.insert(notifyId)
-        UserDefaults.standard.set(Array(set), forKey: Self.armedIdsKey)
+        var armed = ArmedNotificationIds()
+        armed.mark(notifyId)
     }
     private func unmarkArmed(_ notifyIds: [String]) {
-        var set = armedNotificationIds()
-        set.subtract(notifyIds)
-        UserDefaults.standard.set(Array(set), forKey: Self.armedIdsKey)
+        var armed = ArmedNotificationIds()
+        armed.unmark(notifyIds)
     }
 
     // MARK: - 重复语音提醒登记（FR17.10 滚动续期）
 
-    /// 重复语音提醒持久登记：notifyId → (fireAt, repeatRule)。
+    /// 重复语音提醒持久登记：notifyId → (fireAt, repeatRule)——
+    /// 存储/读写在 VoiceReminderRegistry（同文件小类型）。
     /// UNReminderScheduler 的重复提醒是**逐次一次性触发窗**（首针精确
     /// fireAt + 每日 14 针 / 每周 12 针）——不登记则「每天」提醒在
     /// 窗口耗尽后停摆；refresh 时按登记滚动续期（occ id 由触发时刻
     /// 派生，同 id 即替换，窗随每次启动/回前台前移）。
-    private static let voiceReminderKey = "vl.voiceReminders"
     private func persistedVoiceReminders() -> [(notifyId: String, fireAt: Date, repeatRule: String)] {
-        guard let raw = UserDefaults.standard.dictionary(forKey: Self.voiceReminderKey) else { return [] }
-        var out: [(String, Date, String)] = []
-        for (notifyId, value) in raw {
-            guard let entry = value as? [String: Any],
-                  let at = entry["at"] as? TimeInterval,
-                  let rule = entry["repeat"] as? String, !rule.isEmpty else { continue }
-            out.append((notifyId, Date(timeIntervalSince1970: at), rule))
-        }
-        return out
+        VoiceReminderRegistry().entries()
     }
     private func persistVoiceReminder(notifyId: String, fireAt: Date, repeatRule: String) {
-        var dict = (UserDefaults.standard.dictionary(forKey: Self.voiceReminderKey)
-                    as? [String: [String: Any]]) ?? [:]
-        dict[notifyId] = ["at": fireAt.timeIntervalSince1970, "repeat": repeatRule]
-        UserDefaults.standard.set(dict, forKey: Self.voiceReminderKey)
+        var registry = VoiceReminderRegistry()
+        registry.register(notifyId: notifyId, fireAt: fireAt, repeatRule: repeatRule)
     }
     /// 滚动续期：每个登记的重复语音提醒重武装一次（幂等；scheduleRepeating
     /// 内部先清旧版 -wd 触发器、再排 occ 针）。
@@ -788,5 +775,61 @@ final class ReminderStore {
                 logger.error("语音提醒续期失败: \(error)")
             }
         }
+    }
+}
+
+/// 通知武装持久集（UserDefaults，FR9.8.3/FR9.11 同 id 幂等的划掉防御）。
+/// delivered 集是系统通知中心状态——用户划掉通知后该 id 即从 delivered 消失，
+/// 「已送达即跳过」守卫失效，每次回前台都以同 id 重武装 +5 分钟（无限重发）。
+/// 持久集保证同 id 在本机只武装一次；档位升级 = 新 id（refill-{lot}-{tier} /
+/// exp-{lot}-{tier}），新档自然放行。从 ReminderStore 抽出：存储与读改写
+/// 收敛一处，store 只持有门卫语义的薄委托。
+private struct ArmedNotificationIds {
+    private static let storageKey = "vl.reminders.armedIds"
+    private(set) var ids: Set<String>
+
+    init() {
+        ids = Set(UserDefaults.standard.stringArray(forKey: Self.storageKey) ?? [])
+    }
+
+    mutating func mark(_ notifyId: String) {
+        ids.insert(notifyId)
+        save()
+    }
+
+    mutating func unmark(_ notifyIds: [String]) {
+        ids.subtract(notifyIds)
+        save()
+    }
+
+    private func save() {
+        UserDefaults.standard.set(Array(ids), forKey: Self.storageKey)
+    }
+}
+
+/// 重复语音提醒持久登记（UserDefaults，FR17.10 滚动续期）：notifyId →
+/// (fireAt, repeatRule)。scheduleRepeating 是**逐次一次性触发窗**——不登记则
+/// 「每天」提醒在窗口耗尽后停摆；refresh 时按登记滚动续期。从 ReminderStore
+/// 抽出（与 ArmedNotificationIds 同族小类型，UserDefaults 存取收敛一处）。
+private struct VoiceReminderRegistry {
+    private static let storageKey = "vl.voiceReminders"
+
+    func entries() -> [(notifyId: String, fireAt: Date, repeatRule: String)] {
+        guard let raw = UserDefaults.standard.dictionary(forKey: Self.storageKey) else { return [] }
+        var out: [(String, Date, String)] = []
+        for (notifyId, value) in raw {
+            guard let entry = value as? [String: Any],
+                  let at = entry["at"] as? TimeInterval,
+                  let rule = entry["repeat"] as? String, !rule.isEmpty else { continue }
+            out.append((notifyId, Date(timeIntervalSince1970: at), rule))
+        }
+        return out
+    }
+
+    mutating func register(notifyId: String, fireAt: Date, repeatRule: String) {
+        var dict = (UserDefaults.standard.dictionary(forKey: Self.storageKey)
+                    as? [String: [String: Any]]) ?? [:]
+        dict[notifyId] = ["at": fireAt.timeIntervalSince1970, "repeat": repeatRule]
+        UserDefaults.standard.set(dict, forKey: Self.storageKey)
     }
 }

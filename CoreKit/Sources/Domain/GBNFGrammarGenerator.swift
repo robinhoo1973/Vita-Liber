@@ -17,10 +17,11 @@ public enum GBNFGrammarGenerator {
         let sharedKeys = spec.shared.map(\.key)
         let rowKeys = spec.row.map(\.key)
 
-        // shared 字段作为顶层键
+        // shared 字段作为顶层键（sharedKeys 与 spec.shared 同序——zip 直取，
+        // 免 field(for:) 逐键线性查找与强制解包）
         var rootElements: [String] = []
-        for key in sharedKeys {
-            rootElements.append(" \"\(key)\" : " + valueRule(for: spec.field(for: key)!))
+        for (key, field) in zip(sharedKeys, spec.shared) {
+            rootElements.append(" \"\(key)\" : " + valueRuleName(for: field))
         }
         // rows 可选数组
         if !rowKeys.isEmpty {
@@ -77,10 +78,6 @@ public enum GBNFGrammarGenerator {
             "\"\(field.key)\" : " + valueRuleName(for: field)
         }
         return "\"{\" \(elements.joined(separator: ", ")) \"}\""
-    }
-
-    private static func valueRule(for field: FieldSpec) -> String {
-        valueRuleName(for: field)
     }
 
     // MARK: - 快捷方法

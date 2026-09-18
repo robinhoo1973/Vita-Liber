@@ -7,32 +7,53 @@ import SwiftUI
 struct GradeBadge: View {
     let grade: String
 
+    /// 一次解析（原 fill/shortText/isUnconfirmed/accessibilityText 四次各自
+    /// switch 原始字符串，isUnconfirmed 还每帧分配数组字面量——收敛为单次
+    /// 解析，行为零变化）。
+    private enum Parsed {
+        case a, b, c, d, e, unknown
+        init(_ raw: String) {
+            switch raw {
+            case "A": self = .a
+            case "B": self = .b
+            case "C": self = .c
+            case "D": self = .d
+            case "E": self = .e
+            default: self = .unknown
+            }
+        }
+    }
+
+    private var parsed: Parsed { Parsed(grade) }
+
     private var fill: Color {
-        switch grade {
-        case "A": return Color("grade-a", bundle: .main)
-        case "B": return Color("brand-primary", bundle: .main)
-        case "C": return Color("grade-c", bundle: .main)
-        case "D": return Color("grade-d", bundle: .main)
-        case "E": return Color("grade-e", bundle: .main)
+        switch parsed {
+        case .a: return Color("grade-a", bundle: .main)
+        case .b: return Color("brand-primary", bundle: .main)
+        case .c: return Color("grade-c", bundle: .main)
+        case .d, .e: return Color("grade-d", bundle: .main)
         // 审查修复（BR-003 来源语义）：未知/空来源此前按 C（用户确认）着色——
         // 无来源数据被冒充为用户确认事实。未知一律按「未确认」视觉呈现。
-        default: return Color("grade-d", bundle: .main)
+        case .unknown: return Color("grade-d", bundle: .main)
         }
     }
 
     private var shortText: String {
-        switch grade {
-        case "A": return L10n.gradeBadgeA
-        case "B": return L10n.gradeBadgeB
-        case "C": return L10n.gradeBadgeC
-        case "D": return L10n.gradeBadgeD
-        case "E": return L10n.gradeBadgeE
-        default: return grade
+        switch parsed {
+        case .a: return L10n.gradeBadgeA
+        case .b: return L10n.gradeBadgeB
+        case .c: return L10n.gradeBadgeC
+        case .d: return L10n.gradeBadgeD
+        case .e: return L10n.gradeBadgeE
+        case .unknown: return grade
         }
     }
 
     private var isUnconfirmed: Bool {
-        grade == "D" || grade == "E" || !["A", "B", "C", "D", "E"].contains(grade)
+        switch parsed {
+        case .d, .e, .unknown: return true
+        case .a, .b, .c: return false
+        }
     }
 
     var body: some View {
@@ -67,9 +88,9 @@ struct GradeBadge: View {
     /// 反演（BR-003 同族）。只有 C 才是用户确认态；A/B 朗读自身字母+短文案，
     /// D/E/未知仍朗读「未确认」。
     private var accessibilityText: String {
-        switch grade {
-        case "A", "B", "C": return "\(grade) \(shortText)"
-        default: return L10n.docGradeUnconfirmed
+        switch parsed {
+        case .a, .b, .c: return "\(grade) \(shortText)"
+        case .d, .e, .unknown: return L10n.docGradeUnconfirmed
         }
     }
 }

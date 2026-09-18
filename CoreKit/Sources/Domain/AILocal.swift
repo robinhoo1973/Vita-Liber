@@ -235,15 +235,20 @@ public enum HighRiskTopicRules {
         "quit taking", "skip my dose", "skip the dose", "switch medication",
         "switch my medication", "double dose", "extra dose",
     ]
+    /// 剂量更改句式正则（一次性编译复用——问答/语音指令热路径；
+    /// `doseChangePatterns` 保持字符串形态供登记与金样对照）。
+    private static let doseChangeRegexes: [NSRegularExpression] =
+        doseChangePatterns.compactMap { pattern in
+            try? NSRegularExpression(pattern: pattern)   // try?-ok: 静态字面量，构造不会失败
+        }
     public static func match(_ text: String) -> Bool {
         // 全仓审查 2026-09-18（F-D2-01）：匹配前简繁/大小写折叠——「幫我停藥」
         // 「調整劑量」此前绕过 BR-006 一票否决
         let folded = ScriptFolding.fold(text)
         if keywords.contains(where: { folded.contains($0) }) { return true }
         if englishKeywords.contains(where: { folded.contains($0) }) { return true }
-        return doseChangePatterns.contains { pattern in
-            folded.range(of: pattern, options: .regularExpression) != nil
-        }
+        let range = NSRange(folded.startIndex..., in: folded)
+        return doseChangeRegexes.contains { $0.firstMatch(in: folded, range: range) != nil }
     }
 }
 

@@ -11,16 +11,8 @@ import Protocols
 final class SentStatusAcceptanceTests: XCTestCase {
 
     private func makeStore() async throws -> (GRDBStore, MessageDeliveryStore, UUID) {
-        let store = try GRDBStore.inMemory()
-        let messages = MessageDeliveryStore(writer: store.writer)
-        let patient = UUID()
-        try await store.writer.write { db in
-            try db.execute(sql: """
-                INSERT INTO patient_profile (id, display_name, relation, created_at, updated_at)
-                VALUES (?, '发送状态测试', '本人', 0, 0)
-                """, arguments: [patient.uuidString])
-        }
-        return (store, messages, patient)
+        let (store, patient) = try await GRDBStore.inMemoryWithPatient("发送状态测试", relation: "本人")
+        return (store, MessageDeliveryStore(writer: store.writer), patient)
     }
 
     /// 记录发送 → 列表可查；**原文零落库**（表结构上就没有原文列）

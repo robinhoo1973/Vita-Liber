@@ -9,11 +9,7 @@ import Protocols
 @MainActor
 final class OcrCardStoreTests: XCTestCase {
     private func fixture() async throws -> (GRDBStore, UUID, UUID) {
-        let store = try GRDBStore.inMemory()
-        let patient = UUID()
-        try await store.writer.write { db in
-            try db.execute(sql: "INSERT INTO patient_profile (id, display_name, relation, created_at, updated_at) VALUES (?, 'A', 'other', 0, 0)", arguments: [patient.uuidString])
-        }
+        let (store, patient) = try await GRDBStore.inMemoryWithPatient()
         let document = try await DocumentStore(writer: store.writer).save(
             patientId: patient, docType: "lab_report", sha256: "ocr-test", mimeType: "image/png",
             origin: "import", isSensitive: false, metaJSON: nil, title: "Report", grade: "C",
@@ -258,11 +254,7 @@ final class OcrCardStoreTests: XCTestCase {
             _ = try await OCRCardStore(writer: db.writer).save(card: card(), patientId: patient, documentId: document)
             XCTFail("Expected injected resolution failure")
         } catch { XCTAssertTrue(String(describing: error).contains("injected")) }
-        let counts = try await db.writer.read { db in
-            try ["metric_sample", "ocr_card_commit", "ocr_result", "pending_card"].map {
-                try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM \($0)") ?? -1
-            }
-        }
+        let counts = try await tableCounts(db, ["metric_sample", "ocr_card_commit", "ocr_result", "pending_card"])
         XCTAssertEqual(counts, [0, 0, 0, 0])
     }
 
@@ -510,12 +502,6 @@ final class OcrCardStoreTests: XCTestCase {
     private func prescriptionCard(pageIndex: Int = 0, shared: [FieldDraft], rows: [[FieldDraft]]) -> MatchedCard {
         MatchedCard(kind: "prescription", pageIndex: pageIndex, shared: shared, rows: rows.map { MatchedCardRow(fields: $0) },
                     allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).fullyConfirmed()
-    }
-
-    private func tableCounts(_ db: GRDBStore, _ tables: [String]) async throws -> [Int] {
-        try await db.writer.read { db in
-            try tables.map { try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM \($0)") ?? -1 }
-        }
     }
 
     func test_prescriptionCardWritesHeaderAndLinesWithLineReceipts() async throws {
@@ -798,7 +784,7 @@ final class OcrCardStoreTests: XCTestCase {
         let line = try XCTUnwrap(lineRow)
         let lineId = try XCTUnwrap(UUID(uuidString: line["id"] as String))
         let headerId = try XCTUnwrap(UUID(uuidString: line["prescription_id"] as String))
-        let composer = MedicationPlanComposer(writer: db.writer, audit: AuditLogWriter(writer: db.writer))
+        let composer = MedicationPlanComposer(writer: db.writer)
         let prescription = Prescription(id: headerId, patientId: patient, documentFileId: document, source: .ocr, genericName: "阿莫西林", spec: "0.25g",
                                         confirmedFields: PrescriptionConfirmation.criticalFieldKeys)
         let plan = MedicationPlanDraft(schedule: .fixed(times: ["08:00"]), startDate: Date())
@@ -1524,8 +1510,8 @@ final class OcrCardStoreTests: XCTestCase {
         let result = try await store.save(card: card, patientId: patient, documentId: document)
         XCTAssertEqual(result.writtenCount, 1)
         XCTAssertTrue(result.resolved)
-        let _hoisted1527 = try await tableCounts(db, ["encounter", "prescription", "prescription_line", "ocr_card_commit"])
-        XCTAssertEqual(_hoisted1527, [1, 1, 1, 1])
+        let encounterCounts = try await tableCounts(db, ["encounter", "prescription", "prescription_line", "ocr_card_commit"])
+        XCTAssertEqual(encounterCounts, [1, 1, 1, 1])
         let row = try await db.writer.read { db in
             try Row.fetchOne(db, sql: """
                 SELECT e.id AS eid, e.hospital, e.kind, e.date, e.patient_id, p.encounter_id, c.encounter_id AS receipt, c.entity_table
@@ -1549,8 +1535,8 @@ final class OcrCardStoreTests: XCTestCase {
         // 用 UI 仍持有的 .newHub 重放 → 零写入、不再建就诊、不报 committedDataChanged
         let replay = try await store.save(card: card, patientId: patient, documentId: document, pendingCardId: result.pendingCardId)
         XCTAssertEqual(replay.writtenCount, 0)
-        let _hoisted1551 = try await tableCounts(db, ["encounter", "prescription_line"])
-        XCTAssertEqual(_hoisted1551, [1, 1])
+        let replayCounts = try await tableCounts(db, ["encounter", "prescription_line"])
+        XCTAssertEqual(replayCounts, [1, 1])
         // 时间轴：主卡 + 处方子卡（原件经回执关系亦收为子卡，不再是叶子）
         let page = try await TimelineQueryStore(writer: db.writer).hubPage(patientId: patient)
         XCTAssertEqual(page.entries.map(\.hub), [.encounter])
@@ -1568,15 +1554,15 @@ final class OcrCardStoreTests: XCTestCase {
         card.encounterAssociation = .newHub(try XCTUnwrap(ParentCardDraftRules.deriveHub(from: card, documentTypeKey: nil)))   // 草稿字段未确认（D 级）
         do { _ = try await store.save(card: card, patientId: patient, documentId: document); XCTFail("草稿未确认必须拒绝") }
         catch OCRCardStore.StoreError.invalidCard {}
-        let _hoisted1569 = try await tableCounts(db, ["encounter", "prescription", "ocr_card_commit"])
-        XCTAssertEqual(_hoisted1569, [0, 0, 0], "BR-003：零写入")
+        let unconfirmedCounts = try await tableCounts(db, ["encounter", "prescription", "ocr_card_commit"])
+        XCTAssertEqual(unconfirmedCounts, [0, 0, 0], "BR-003：零写入")
         var stale = confirmedDraft(try XCTUnwrap(ParentCardDraftRules.deriveHub(from: card, documentTypeKey: nil)))
         stale.evidence = "hospital=别的医院"                                                        // 证据过期（用户改了子卡医院字段后未重派生）
         card.encounterAssociation = .newHub(stale)
         do { _ = try await store.save(card: card, patientId: patient, documentId: document); XCTFail("证据过期必须拒绝") }
         catch OCRCardStore.StoreError.invalidAssociation {}
-        let _hoisted1575 = try await tableCounts(db, ["encounter", "prescription"])
-        XCTAssertEqual(_hoisted1575, [0, 0])
+        let staleEvidenceCounts = try await tableCounts(db, ["encounter", "prescription"])
+        XCTAssertEqual(staleEvidenceCounts, [0, 0])
         // 住院期不经草稿：草稿枢纽 hospitalization → invalidCard
         var stay = confirmedDraft(try XCTUnwrap(ParentCardDraftRules.deriveHub(from: card, documentTypeKey: nil)))
         stay.hub = .hospitalization
@@ -1592,10 +1578,10 @@ final class OcrCardStoreTests: XCTestCase {
         let card = healthExamCard()
         let result = try await store.save(card: card, patientId: patient, documentId: document)
         XCTAssertEqual(result.writtenCount, 1)
-        let _hoisted1591 = try await tableCounts(db, ["health_exam", "metric_sample", "ocr_card_commit"])
-        XCTAssertEqual(_hoisted1591, [1, 2, 1])
-        let _hoisted1597_10 = try await db.writer.read { try Row.fetchOne($0, sql: "SELECT * FROM health_exam") }
-        let exam = try XCTUnwrap(_hoisted1597_10)
+        let projectedCounts = try await tableCounts(db, ["health_exam", "metric_sample", "ocr_card_commit"])
+        XCTAssertEqual(projectedCounts, [1, 2, 1])
+        let examRow = try await db.writer.read { try Row.fetchOne($0, sql: "SELECT * FROM health_exam") }
+        let exam = try XCTUnwrap(examRow)
         XCTAssertEqual(exam["height_text"] as String?, "170")                                      // 原文保留，不投影
         XCTAssertEqual(exam["weight_text"] as String?, "65.5")
         XCTAssertEqual(exam["vision_left_text"] as String?, "1.0")
@@ -1614,8 +1600,8 @@ final class OcrCardStoreTests: XCTestCase {
         XCTAssertEqual(Set(samples.map { $0["origin"] as String }), ["hospital"])
         XCTAssertEqual(Set(samples.map { $0["ref_source_label"] as String? }), ["美年体检"])
         XCTAssertTrue(samples.allSatisfy { ($0["lab_report_id"] as String?) == nil })
-        let _hoisted1616_9 = try await db.writer.read { try Row.fetchOne($0, sql: "SELECT entity_table, entity_id FROM ocr_card_commit") }
-        let receipt = try XCTUnwrap(_hoisted1616_9)
+        let receiptRow = try await db.writer.read { try Row.fetchOne($0, sql: "SELECT entity_table, entity_id FROM ocr_card_commit") }
+        let receipt = try XCTUnwrap(receiptRow)
         XCTAssertEqual(receipt["entity_table"] as String?, "health_exam")                          // 投影点无回执
         XCTAssertEqual(receipt["entity_id"] as String?, examId.uuidString)
         let detail = try await HealthExamStore(writer: db.writer).detail(id: examId, patientId: patient)
@@ -1633,8 +1619,8 @@ final class OcrCardStoreTests: XCTestCase {
         // 幂等：同卡再确认零写入、不重复投影
         let replay = try await store.save(card: card, patientId: patient, documentId: document, pendingCardId: result.pendingCardId)
         XCTAssertEqual(replay.writtenCount, 0)
-        let _hoisted1629 = try await tableCounts(db, ["health_exam", "metric_sample"])
-        XCTAssertEqual(_hoisted1629, [1, 2])
+        let examCounts = try await tableCounts(db, ["health_exam", "metric_sample"])
+        XCTAssertEqual(examCounts, [1, 2])
         // 时间轴：体检主卡 + 原件子卡
         let page = try await TimelineQueryStore(writer: db.writer).hubPage(patientId: patient)
         XCTAssertEqual(page.entries.map(\.hub), [.healthExam])
@@ -1651,8 +1637,8 @@ final class OcrCardStoreTests: XCTestCase {
         card.encounterAssociation = .newHub(draft)
         let result = try await store.save(card: card, patientId: patient, documentId: document)
         XCTAssertEqual(result.writtenCount, 2)
-        let _hoisted1646 = try await tableCounts(db, ["health_exam", "clinical_conclusion", "ocr_card_commit"])
-        XCTAssertEqual(_hoisted1646, [1, 2, 2])
+        let hubCounts = try await tableCounts(db, ["health_exam", "clinical_conclusion", "ocr_card_commit"])
+        XCTAssertEqual(hubCounts, [1, 2, 2])
         let rows = try await db.writer.read { try Row.fetchAll($0, sql: "SELECT * FROM clinical_conclusion ORDER BY ordinal") }
         XCTAssertEqual(rows.map { $0["content"] as String }, ["血脂偏高", "三个月后复查血脂"])
         XCTAssertEqual(rows.map { $0["severity_text"] as String? }, ["关注", nil])                 // 打印原文，不编码（BR-004/012）
@@ -1660,29 +1646,29 @@ final class OcrCardStoreTests: XCTestCase {
         XCTAssertEqual(rows.map { $0["ordinal"] as Int }, [0, 1])
         XCTAssertTrue(rows.allSatisfy { ($0["health_exam_id"] as String?) != nil && ($0["lab_report_id"] as String?) == nil && ($0["exam_report_id"] as String?) == nil })
         XCTAssertEqual(rows.map { $0["id"] as String }, card.rows.map(\.id.uuidString))            // id = 回执 row_id
-        let _hoisted1661_8 = try await db.writer.read { try Row.fetchOne($0, sql: "SELECT * FROM health_exam") }
-        let exam = try XCTUnwrap(_hoisted1661_8)
+        let examRow = try await db.writer.read { try Row.fetchOne($0, sql: "SELECT * FROM health_exam") }
+        let exam = try XCTUnwrap(examRow)
         XCTAssertEqual(exam["org_name"] as String?, "美年体检"); XCTAssertEqual(exam["confirmed"] as Int?, 1)
         XCTAssertNil(exam["weight_text"] as String?)
         let examId = try XCTUnwrap(UUID(uuidString: exam["id"] as String))
-        let _hoisted1658 = try await store.reviewState(card: card, patientId: patient, documentId: document).card.encounterAssociation
-        XCTAssertEqual(_hoisted1658, .existingHub(.healthExam, examId))
-        let _hoisted1659 = Set(try await db.writer.read { try String.fetchAll($0, sql: "SELECT entity_table FROM ocr_card_commit") })
-        XCTAssertEqual(_hoisted1659, ["clinical_conclusion"])
+        let reviewedAssociation = try await store.reviewState(card: card, patientId: patient, documentId: document).card.encounterAssociation
+        XCTAssertEqual(reviewedAssociation, .existingHub(.healthExam, examId))
+        let receiptTables = Set(try await db.writer.read { try String.fetchAll($0, sql: "SELECT entity_table FROM ocr_card_commit") })
+        XCTAssertEqual(receiptTables, ["clinical_conclusion"])
         // 同文档首页卡随后确认：会合到同一体检行（幂等键 = 同文档），只补空、投影一般检查
         _ = try await store.save(card: healthExamCard(pageIndex: 0), patientId: patient, documentId: document)
-        let _hoisted1662 = try await tableCounts(db, ["health_exam", "metric_sample", "clinical_conclusion", "ocr_card_commit"])
-        XCTAssertEqual(_hoisted1662, [1, 2, 2, 3])
-        let _hoisted1673_7 = try await db.writer.read { try Row.fetchOne($0, sql: "SELECT id, weight_text, overall_conclusion FROM health_exam") }
-        let merged = try XCTUnwrap(_hoisted1673_7)
+        let mergedCounts = try await tableCounts(db, ["health_exam", "metric_sample", "clinical_conclusion", "ocr_card_commit"])
+        XCTAssertEqual(mergedCounts, [1, 2, 2, 3])
+        let mergedExam = try await db.writer.read { try Row.fetchOne($0, sql: "SELECT id, weight_text, overall_conclusion FROM health_exam") }
+        let merged = try XCTUnwrap(mergedExam)
         XCTAssertEqual(merged["id"] as String?, examId.uuidString)
         XCTAssertEqual(merged["weight_text"] as String?, "65.5")
         XCTAssertEqual(merged["overall_conclusion"] as String?, "总检：血脂偏高，建议复查")
         let detail = try await HealthExamStore(writer: db.writer).detail(id: examId, patientId: patient)
         XCTAssertEqual(detail.conclusions.map(\.content), ["血脂偏高", "三个月后复查血脂"])
         XCTAssertEqual(detail.generalSamples.count, 2)
-        let _hoisted1670 = try await HealthExamStore(writer: db.writer).children(ofHealthExam: examId, patientId: patient).conclusions.count
-        XCTAssertEqual(_hoisted1670, 2)
+        let conclusionCount = try await HealthExamStore(writer: db.writer).children(ofHealthExam: examId, patientId: patient).conclusions.count
+        XCTAssertEqual(conclusionCount, 2)
         let conclusionDetail = try await store.detail(kind: "clinical_conclusion", entityId: card.rows[0].id, patientId: patient)
         XCTAssertEqual(conclusionDetail.clinicalConclusions.count, 2)
         XCTAssertEqual(conclusionDetail.fields.first { $0.key == "severity" }?.value, "关注")
@@ -1690,8 +1676,8 @@ final class OcrCardStoreTests: XCTestCase {
         // 用 UI 仍持有的 .newHub 重放 → 零写入、不再建体检
         let replay = try await store.save(card: card, patientId: patient, documentId: document, pendingCardId: result.pendingCardId)
         XCTAssertEqual(replay.writtenCount, 0)
-        let _hoisted1678 = try await tableCounts(db, ["health_exam"])
-        XCTAssertEqual(_hoisted1678, [1])
+        let healthExamCounts = try await tableCounts(db, ["health_exam"])
+        XCTAssertEqual(healthExamCounts, [1])
         // 跨成员体检枢纽 → invalidAssociation 零写入；无枢纽且同文档无唯一报告 → invalidCard
         let other = UUID(), foreignExam = UUID()
         try await db.writer.write { d in
@@ -1704,8 +1690,8 @@ final class OcrCardStoreTests: XCTestCase {
         catch OCRCardStore.StoreError.invalidAssociation {}
         do { _ = try await store.save(card: conclusionCard(pageIndex: 0, association: .none), patientId: patient, documentId: secondDocument); XCTFail("无父必须拒绝") }
         catch OCRCardStore.StoreError.invalidCard {}
-        let _hoisted1691 = try await tableCounts(db, ["clinical_conclusion"])
-        XCTAssertEqual(_hoisted1691, [2])
+        let conclusionCounts = try await tableCounts(db, ["clinical_conclusion"])
+        XCTAssertEqual(conclusionCounts, [2])
     }
 
     private func fixtureDocument(_ db: GRDBStore, patient: UUID) async throws -> UUID {
@@ -1725,8 +1711,8 @@ final class OcrCardStoreTests: XCTestCase {
             .init(key: "surgery_level", value: "三级"), .init(key: "implants", value: "钛夹 3 枚"), .init(key: "blood_loss", value: "约 20ml")], encounter: enc)
         let saved = try await store.save(card: surgery, patientId: patient, documentId: document)
         XCTAssertEqual(saved.writtenCount, 1)
-        let _hoisted1724_6 = try await db.writer.read { try Row.fetchOne($0, sql: "SELECT s.*, c.entity_table FROM surgery s JOIN ocr_card_commit c ON c.entity_id = s.id") }
-        let s = try XCTUnwrap(_hoisted1724_6)
+        let surgeryRow = try await db.writer.read { try Row.fetchOne($0, sql: "SELECT s.*, c.entity_table FROM surgery s JOIN ocr_card_commit c ON c.entity_id = s.id") }
+        let s = try XCTUnwrap(surgeryRow)
         XCTAssertEqual(s["encounter_id"] as String?, enc.uuidString)
         XCTAssertEqual(s["surgery_level_text"] as String?, "三级")                                 // 只存打印文本
         XCTAssertEqual(s["implants_text"] as String?, "钛夹 3 枚")
@@ -1736,10 +1722,10 @@ final class OcrCardStoreTests: XCTestCase {
             .init(key: "treated_at", value: "2024-03-03"), .init(key: "treatment_type", value: "infusion"),
             .init(key: "drugs_text", value: "头孢曲松 2g ivgtt qd"), .init(key: "adverse_reaction", value: "无")], encounter: enc)
         _ = try await store.save(card: treatment, patientId: patient, documentId: document)
-        let _hoisted1721 = try await tableCounts(db, ["surgery", "treatment_record", "prescription_line", "medication", "ocr_card_commit"])
-        XCTAssertEqual(_hoisted1721, [1, 1, 0, 0, 2])
-        let _hoisted1736_5 = try await db.writer.read { try Row.fetchOne($0, sql: "SELECT * FROM treatment_record") }
-        let t = try XCTUnwrap(_hoisted1736_5)
+        let treatmentCounts = try await tableCounts(db, ["surgery", "treatment_record", "prescription_line", "medication", "ocr_card_commit"])
+        XCTAssertEqual(treatmentCounts, [1, 1, 0, 0, 2])
+        let treatmentRow = try await db.writer.read { try Row.fetchOne($0, sql: "SELECT * FROM treatment_record") }
+        let t = try XCTUnwrap(treatmentRow)
         XCTAssertEqual(t["drugs_text"] as String?, "头孢曲松 2g ivgtt qd")                          // 原文不拆行（BR-006/007）
         XCTAssertEqual(t["adverse_reaction_text"] as String?, "无")
         let linked = try await EncounterStore(writer: db.writer).linkedCards(encounterId: enc, patientId: patient)
@@ -1752,8 +1738,8 @@ final class OcrCardStoreTests: XCTestCase {
         XCTAssertEqual(detail.surgery?.surgeryName, "腹腔镜胆囊切除术")
         XCTAssertEqual(detail.encounterIDs, [enc]); XCTAssertTrue(detail.relationshipEditable)
         try await store.associate(kind: "surgery", entityId: surgeryId, patientId: patient, encounterId: nil)
-        let _hoisted1735 = try await EncounterStore(writer: db.writer).linkedCards(encounterId: enc, patientId: patient).map(\.kind)
-        XCTAssertEqual(_hoisted1735, [.treatmentRecord])
+        let linkedKinds = try await EncounterStore(writer: db.writer).linkedCards(encounterId: enc, patientId: patient).map(\.kind)
+        XCTAssertEqual(linkedKinds, [.treatmentRecord])
         // 解除归属后的手术在时间轴成为无父叶子（2024-03-02，晚于就诊日）；治疗仍在就诊主卡下；原件经治疗回执收为子卡
         let page = try await TimelineQueryStore(writer: db.writer).hubPage(patientId: patient)
         XCTAssertEqual(page.entries.map(\.hub), [nil, .encounter])
@@ -1767,8 +1753,8 @@ final class OcrCardStoreTests: XCTestCase {
         do { _ = try await store.save(card: singleRowCard(kind: "surgery", pageIndex: 0, shared: [.init(key: "surgery_at", value: "2024-03-02"), .init(key: "surgery_name", value: "X")], encounter: foreign),
                                       patientId: patient, documentId: secondDocument); XCTFail("跨成员就诊必须拒绝") }
         catch OCRCardStore.StoreError.invalidAssociation {}
-        let _hoisted1749 = try await tableCounts(db, ["surgery"])
-        XCTAssertEqual(_hoisted1749, [1])
+        let surgeryCounts = try await tableCounts(db, ["surgery"])
+        XCTAssertEqual(surgeryCounts, [1])
     }
 
     /// FR10.7 / FR8.10：复诊预约与随访提醒挂就诊；显式 link / candidates；白名单外来源与零行更新必须抛错。
@@ -1785,17 +1771,17 @@ final class OcrCardStoreTests: XCTestCase {
         let linked = try await EncounterStore(writer: db.writer).linkedCards(encounterId: enc, patientId: patient)
         XCTAssertEqual(Set(linked.map(\.kind)), [.appointment, .reminder])
         XCTAssertEqual(linked.first { $0.kind == .appointment }?.summary, "市一院 · 呼吸内科")
-        let _hoisted1766 = try await reminders.linked(source: .init(table: "appointment", id: apt), patientId: patient).map(\.id)
-        XCTAssertEqual(_hoisted1766, [rem])
-        let _hoisted1767 = try await reminders.linked(source: .init(table: "appointment", id: apt), patientId: UUID()).isEmpty
-        XCTAssertTrue(_hoisted1767, "BR-001")
+        let linkedReminderIds = try await reminders.linked(source: .init(table: "appointment", id: apt), patientId: patient).map(\.id)
+        XCTAssertEqual(linkedReminderIds, [rem])
+        let crossMemberLinkedEmpty = try await reminders.linked(source: .init(table: "appointment", id: apt), patientId: UUID()).isEmpty
+        XCTAssertTrue(crossMemberLinkedEmpty, "BR-001")
         // 白名单外来源 / 他人的来源 → invalidSource 零写入
         do { _ = try await reminders.create(patientId: patient, kind: "followUp", title: "x", at: Date(), source: .init(table: "medication_plan", id: rem)); XCTFail("白名单外来源必须拒绝") }
         catch ReminderLinkStore.Error.invalidSource {}
         do { _ = try await reminders.create(patientId: UUID(), kind: "followUp", title: "x", at: Date(), source: .init(table: "encounter", id: enc)); XCTFail("他人的来源必须拒绝") }
         catch ReminderLinkStore.Error.invalidSource {}
-        let _hoisted1773 = try await tableCounts(db, ["reminder"])
-        XCTAssertEqual(_hoisted1773, [1])
+        let reminderCounts = try await tableCounts(db, ["reminder"])
+        XCTAssertEqual(reminderCounts, [1])
         // 时间轴：预约 / 提醒为就诊子卡（提醒经预约到达）；无回执的原件仍是叶子（创建于今日，排在 2023 年的就诊之前）
         let page = try await TimelineQueryStore(writer: db.writer).hubPage(patientId: patient)
         XCTAssertEqual(page.entries.map(\.hub), [nil, .encounter])
@@ -1805,26 +1791,26 @@ final class OcrCardStoreTests: XCTestCase {
         let loose = try await apts.create(patientId: patient, hospital: "市一院", department: "呼吸内科", startsAt: visit.addingTimeInterval(86_400))
         _ = try await apts.create(patientId: patient, hospital: "别院", department: "内科", startsAt: visit.addingTimeInterval(86_400))
         _ = try await apts.create(patientId: patient, hospital: "市一院", department: "内科", startsAt: visit.addingTimeInterval(86_400 * 10))
-        let _hoisted1783 = try await apts.candidates(forEncounter: enc, patientId: patient).map(\.id)
-        XCTAssertEqual(_hoisted1783, [loose])
+        let candidateIds = try await apts.candidates(forEncounter: enc, patientId: patient).map(\.id)
+        XCTAssertEqual(candidateIds, [loose])
         do { try await apts.link(appointmentId: UUID(), encounterId: enc, patientId: patient); XCTFail("零行更新必须抛错") }
         catch AppointmentStore.StoreError.notFound {}
         do { try await apts.link(appointmentId: loose, encounterId: UUID(), patientId: patient); XCTFail("就诊不存在必须抛错") }
         catch AppointmentStore.StoreError.invalidEncounter {}
         try await apts.link(appointmentId: loose, encounterId: enc, patientId: patient)
-        let _hoisted1789 = try await apts.candidates(forEncounter: enc, patientId: patient).isEmpty
-        XCTAssertTrue(_hoisted1789)
+        let candidatesEmpty = try await apts.candidates(forEncounter: enc, patientId: patient).isEmpty
+        XCTAssertTrue(candidatesEmpty)
         let rows = try await apts.history(patientId: patient)
         XCTAssertEqual(rows.first { $0.id == loose }?.encounterId, enc)
         XCTAssertEqual(rows.first { $0.id == loose }?.purpose, "visit")                            // 缺省 visit
         XCTAssertEqual(rows.first { $0.id == apt }?.purpose, "followUp")
         try await apts.unlink(appointmentId: loose, patientId: patient)
-        let _hoisted1795 = try await apts.history(patientId: patient).first { $0.id == loose }?.encounterId
-        XCTAssertNil(_hoisted1795)
+        let unlinkedEncounterId = try await apts.history(patientId: patient).first { $0.id == loose }?.encounterId
+        XCTAssertNil(unlinkedEncounterId)
         // 「已完成 → 补录就诊」回写 encounter_id
         try await apts.complete(id: loose)
-        let _hoisted1820_4 = try await db.writer.read { try Row.fetchOne($0, sql: "SELECT a.encounter_id, e.hospital FROM appointment a JOIN encounter e ON e.id = a.encounter_id WHERE a.id = ?", arguments: [loose.uuidString]) }
-        let completed = try XCTUnwrap(_hoisted1820_4)
+        let completedRow = try await db.writer.read { try Row.fetchOne($0, sql: "SELECT a.encounter_id, e.hospital FROM appointment a JOIN encounter e ON e.id = a.encounter_id WHERE a.id = ?", arguments: [loose.uuidString]) }
+        let completed = try XCTUnwrap(completedRow)
         XCTAssertEqual(completed["hospital"] as String?, "市一院")
     }
 
@@ -1833,8 +1819,8 @@ final class OcrCardStoreTests: XCTestCase {
         let (db, patient, document) = try await fixture()
         let store = OCRCardStore(writer: db.writer)
         _ = try await store.save(card: healthExamCard(pageIndex: 0), patientId: patient, documentId: document)
-        let _hoisted1829_3 = try await db.writer.read { try String.fetchOne($0, sql: "SELECT id FROM health_exam") }
-        let examId = try XCTUnwrap(UUID(uuidString: try XCTUnwrap(_hoisted1829_3)))
+        let examIdText = try await db.writer.read { try String.fetchOne($0, sql: "SELECT id FROM health_exam") }
+        let examId = try XCTUnwrap(UUID(uuidString: try XCTUnwrap(examIdText)))
         _ = try await store.save(card: conclusionCard(pageIndex: 1, association: .existingHub(.healthExam, examId)), patientId: patient, documentId: document)
         // 体检文档上的检验卡挂体检枢纽：表头 report_source = health_exam、health_exam_id；数值行回指体检
         _ = try await store.save(card: {
@@ -1843,8 +1829,8 @@ final class OcrCardStoreTests: XCTestCase {
         var surgery = singleRowCard(kind: "surgery", pageIndex: 0, shared: [.init(key: "surgery_at", value: "2024-03-02"), .init(key: "surgery_name", value: "阑尾切除术"), .init(key: "hospital", value: "市一院")])
         surgery.encounterAssociation = .newHub(confirmedDraft(try XCTUnwrap(ParentCardDraftRules.deriveHub(from: surgery, documentTypeKey: "surgery_record"))))
         _ = try await store.save(card: surgery, patientId: patient, documentId: document)
-        let _hoisted1838_2 = try await db.writer.read { try String.fetchOne($0, sql: "SELECT id FROM encounter") }
-        let enc = try XCTUnwrap(UUID(uuidString: try XCTUnwrap(_hoisted1838_2)))
+        let encounterIdText = try await db.writer.read { try String.fetchOne($0, sql: "SELECT id FROM encounter") }
+        let enc = try XCTUnwrap(UUID(uuidString: try XCTUnwrap(encounterIdText)))
         _ = try await store.save(card: singleRowCard(kind: "treatment_record", pageIndex: 1, shared: [
             .init(key: "treated_at", value: "2024-03-03"), .init(key: "treatment_type", value: "dressing"), .init(key: "content", value: "换药一次")], encounter: enc),
             patientId: patient, documentId: document)
@@ -1900,15 +1886,15 @@ final class OcrCardStoreTests: XCTestCase {
         }
         XCTAssertFalse(conflicts.contains { $0.table == "clinical_conclusion" })
         try await reimporter.importJSON(decoded, resolutions: Dictionary(conflicts.map { ($0.id, ExportService.ConflictResolution.adopt) }, uniquingKeysWith: { a, _ in a }))
-        let _hoisted1872 = try await tableCounts(target, tables)
-        XCTAssertEqual(_hoisted1872, before)
+        let adoptCounts = try await tableCounts(target, tables)
+        XCTAssertEqual(adoptCounts, before)
         // 并存：体检 / 就诊 / 预约换 id → 结论 / 表头 / 提醒来源 / 回执随之换 id，FK 完整
         let coexist = try await reimporter.conflictReport(decoded)
         try await reimporter.importJSON(decoded, resolutions: Dictionary(coexist.map { ($0.id, ExportService.ConflictResolution.coexist) }, uniquingKeysWith: { a, _ in a }))
-        let _hoisted1876 = try await tableCounts(target, tables)
-        XCTAssertEqual(_hoisted1876, before.map { $0 * 2 })
-        let _hoisted1877 = try await target.writer.read { try Row.fetchAll($0, sql: "PRAGMA foreign_key_check") }.isEmpty
-        XCTAssertTrue(_hoisted1877)
+        let coexistCounts = try await tableCounts(target, tables)
+        XCTAssertEqual(coexistCounts, before.map { $0 * 2 })
+        let foreignKeysClean = try await target.writer.read { try Row.fetchAll($0, sql: "PRAGMA foreign_key_check") }.isEmpty
+        XCTAssertTrue(foreignKeysClean)
         let orphanConclusions = try await target.writer.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM clinical_conclusion c WHERE NOT EXISTS (SELECT 1 FROM health_exam h WHERE h.id = c.health_exam_id AND h.patient_id = c.patient_id)") }
         XCTAssertEqual(orphanConclusions, 0)
         let danglingReminders = try await target.writer.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM reminder r WHERE r.source_table = 'encounter' AND NOT EXISTS (SELECT 1 FROM encounter e WHERE e.id = r.source_id)") }
@@ -1951,15 +1937,15 @@ final class OcrCardStoreTests: XCTestCase {
         XCTAssertNil(legacy.appointments.first?.encounterId)
         let legacyTarget = try GRDBStore.inMemory()
         try await ExportService(writer: legacyTarget.writer).importJSON(legacy)
-        let _hoisted1920 = try await tableCounts(legacyTarget, ["encounter", "appointment", "lab_report", "metric_sample", "health_exam", "clinical_conclusion", "surgery", "treatment_record", "reminder"])
-        XCTAssertEqual(_hoisted1920,
+        let legacyCounts = try await tableCounts(legacyTarget, ["encounter", "appointment", "lab_report", "metric_sample", "health_exam", "clinical_conclusion", "surgery", "treatment_record", "reminder"])
+        XCTAssertEqual(legacyCounts,
                        [1, 1, 1, 1, 0, 0, 0, 0, 0])
-        let _hoisted1948_1 = try await legacyTarget.writer.read { try Row.fetchOne($0, sql: "SELECT encounter_id, purpose FROM appointment") }
-        let legacyAppointment = try XCTUnwrap(_hoisted1948_1)
+        let legacyApptRow = try await legacyTarget.writer.read { try Row.fetchOne($0, sql: "SELECT encounter_id, purpose FROM appointment") }
+        let legacyAppointment = try XCTUnwrap(legacyApptRow)
         XCTAssertNil(legacyAppointment["encounter_id"] as String?)
         XCTAssertNil(legacyAppointment["purpose"] as String?)
-        let _hoisted1951_0 = try await legacyTarget.writer.read { try Row.fetchOne($0, sql: "SELECT report_source, health_exam_id FROM lab_report") }
-        let legacyReport = try XCTUnwrap(_hoisted1951_0)
+        let legacyReportRow = try await legacyTarget.writer.read { try Row.fetchOne($0, sql: "SELECT report_source, health_exam_id FROM lab_report") }
+        let legacyReport = try XCTUnwrap(legacyReportRow)
         XCTAssertNil(legacyReport["report_source"] as String?)
         XCTAssertNil(legacyReport["health_exam_id"] as String?)
     }

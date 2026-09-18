@@ -12,16 +12,8 @@ import Protocols
 final class ImmunizationAcceptanceTests: XCTestCase {
 
     private func makeStore() async throws -> (GRDBStore, ImmunizationStore, UUID) {
-        let store = try GRDBStore.inMemory()
-        let immunizations = ImmunizationStore(writer: store.writer)
-        let patient = UUID()
-        try await store.writer.write { db in
-            try db.execute(sql: """
-                INSERT INTO patient_profile (id, display_name, relation, created_at, updated_at)
-                VALUES (?, '疫苗测试', '本人', 0, 0)
-                """, arguments: [patient.uuidString])
-        }
-        return (store, immunizations, patient)
+        let (store, patient) = try await GRDBStore.inMemoryWithPatient("疫苗测试", relation: "本人")
+        return (store, ImmunizationStore(writer: store.writer), patient)
     }
 
     /// FR4.5：手动录入 = C 级已确认；OCR 派生 = D 级待确认（BR-003）

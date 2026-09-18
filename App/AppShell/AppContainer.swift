@@ -172,7 +172,7 @@ struct AppContainer {
         let apts = AppointmentStore(writer: store.writer, scheduler: scheduler)
         let reconciler = ReminderReconciler(scheduler: scheduler, source: meds)
         let auditWriter = AuditLogWriter(writer: store.writer)
-        let composer = MedicationPlanComposer(writer: store.writer, audit: auditWriter)
+        let composer = MedicationPlanComposer(writer: store.writer)
         let search = GRDBSearchService(writer: store.writer)
         let settings = SettingsStore(writer: store.writer)
         let observations = ObservationStore(writer: store.writer)

@@ -5,6 +5,43 @@ import Perception
 
 // MARK: - FR7.5 自测指标两步录入（SP-13 快速录入 · ui-ux §5.13）
 
+/// FR7.5 录入校验（纯函数）：解析与合理性界限全在 Domain
+/// （NumberNormalizer / MetricEntryRules）——返回可落库的值对或失败原因
+/// （响亮拒绝纪律：绝不静默丢弃读数；失败文案由调用侧呈现）。
+private enum MetricEntryValidation {
+    enum Failure { case invalidValue, outOfRange }
+
+    static func validate(primaryText: String, secondaryText: String,
+                         metric: MetricType) -> Result<(value: Double, secondary: Double?), Failure> {
+        // 审查修复：逗号小数点（部分区域 decimalPad 产出）归一后解析
+        guard let value = NumberNormalizer.parseDecimal(primaryText) else {
+            return .failure(.invalidValue)
+        }
+        // 舒张压非空但不可解析 → 响亮拒绝（FR7.5 绝不静默丢弃读数——
+        // 此前解析失败退化为 nil，血压在用户不知情下只落收缩压）
+        let secondary: Double?
+        if secondaryText.isEmpty {
+            secondary = nil
+        } else {
+            guard let v = NumberNormalizer.parseDecimal(secondaryText) else {
+                return .failure(.invalidValue)
+            }
+            secondary = v
+        }
+        // 合理性界限（MetricEntryRules 单一出口，审查修复）：界外值拒绝
+        // 落库——「血压 800」此前直接以 C 级样本持久化并污染趋势与
+        // 告警证据链；手滑/口误必须有可见反馈，绝不静默落库。
+        guard MetricEntryRules.isPlausible(value, for: metric) else {
+            return .failure(.outOfRange)
+        }
+        if let secondary, metric == .bloodPressureSys,
+           !MetricEntryRules.isPlausible(secondary, for: .bloodPressureDia) {
+            return .failure(.outOfRange)
+        }
+        return .success((value, secondary))
+    }
+}
+
 /// 两步：类型宫格（血压/血糖/体重/体温/心率/血氧 + 记忆上次高亮）
 /// → 数字面板（单位记忆、测量时间默认现在）→ 保存即入趋势。
 /// 血压双值联排键位：收缩压输完自动跳格舒张压。
@@ -190,43 +227,20 @@ struct MetricQuickEntryView: View {
     }
 
     private func save() {
-        // 审查修复：逗号小数点（部分区域 decimalPad 产出）归一后解析；
-        // 解析失败必须可见反馈，绝不静默丢弃读数。
-        // 第八轮修复：解析经 Domain 单一出口 NumberNormalizer.parseDecimal
-        guard let value = NumberNormalizer.parseDecimal(primaryText) else {
-            entryError = L10n.metricInvalidValue
-            return
-        }
-        // 舒张压非空但不可解析 → 响亮拒绝（FR7.5 绝不静默丢弃读数——
-        // 此前解析失败退化为 nil，血压在用户不知情下只落收缩压）
-        let secondary: Double?
-        if secondaryText.isEmpty {
-            secondary = nil
-        } else {
-            guard let v = NumberNormalizer.parseDecimal(secondaryText) else {
-                entryError = L10n.metricInvalidValue
-                return
-            }
-            secondary = v
-        }
-        // 合理性界限（MetricEntryRules 单一出口，审查修复）：界外值拒绝
-        // 落库——「血压 800」此前直接以 C 级样本持久化并污染趋势与
-        // 告警证据链；手滑/口误必须有可见反馈，绝不静默落库。
-        guard MetricEntryRules.isPlausible(value, for: metric) else {
-            entryError = L10n.metricOutOfRange
-            return
-        }
-        if let secondary, metric == .bloodPressureSys,
-           !MetricEntryRules.isPlausible(secondary, for: .bloodPressureDia) {
-            entryError = L10n.metricOutOfRange
-            return
+        // 校验收敛 MetricEntryValidation（纯函数；解析/合理性界限全在 Domain）
+        let validated: (value: Double, secondary: Double?)
+        switch MetricEntryValidation.validate(primaryText: primaryText,
+                                              secondaryText: secondaryText, metric: metric) {
+        case .success(let pair): validated = pair
+        case .failure(.invalidValue): entryError = L10n.metricInvalidValue; return
+        case .failure(.outOfRange): entryError = L10n.metricOutOfRange; return
         }
         // 无单位留空即可——此前 "1" 被存进库并在宫格大数字旁显示为单位「1」，
         // 且经单位记忆把「1」预填进下次录入
         let unit = unitText.trimmingCharacters(in: .whitespaces)
         Task {
             let ok = await state.addSample(patientId: app.currentPatientId, metric: metric,
-                                           value: value, secondaryValue: secondary, unit: unit,
+                                           value: validated.value, secondaryValue: validated.secondary, unit: unit,
                                            measuredAt: measuredAt)
             if ok {
                 saved = true
@@ -301,6 +315,3 @@ extension TrendEntryState {
         }
     }
 }
-
-// MARK: - §5.45 指标总览宫格数据（V3.72）
-

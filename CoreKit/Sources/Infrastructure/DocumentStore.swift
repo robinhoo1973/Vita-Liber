@@ -22,6 +22,14 @@ public actor DocumentStore {
         if let key, DocumentTypeKey(rawValue: key) == nil { throw StoreError.invalidDocTypeKey }
     }
 
+    /// 页清单形态校验（save/updateReview 共用）：页号唯一、非负、状态合法。
+    private static func validatePages(_ pages: [Page]) throws {
+        guard Set(pages.map(\.index)).count == pages.count,
+              pages.allSatisfy({ $0.index >= 0 && ["ok", "failed", "skipped"].contains($0.status) }) else {
+            throw StoreError.invalidPage
+        }
+    }
+
     static func validateSource(_ db: Database, patientId: UUID, documentId: UUID, pageIndex: Int,
                                requireRecognizedPage: Bool = true) throws {
         guard pageIndex >= 0 else { throw StoreError.invalidPage }
@@ -206,10 +214,7 @@ public actor DocumentStore {
         try await writer.write { db in
             guard try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM patient_profile WHERE id = ? AND deleted_at IS NULL",
                                    arguments: [patientId.uuidString]) == 1 else { throw StoreError.invalidMember }
-            guard Set(pages.map(\.index)).count == pages.count,
-                  pages.allSatisfy({ $0.index >= 0 && ["ok", "failed", "skipped"].contains($0.status) }) else {
-                throw StoreError.invalidPage
-            }
+            try Self.validatePages(pages)
             try db.execute(sql: """
                 INSERT INTO document_file
                   (id, patient_id, doc_type, sha256, mime_type, origin, status,

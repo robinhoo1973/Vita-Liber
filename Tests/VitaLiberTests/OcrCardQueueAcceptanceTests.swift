@@ -61,21 +61,16 @@ final class OcrCardQueueAcceptanceTests: XCTestCase {
 
     private let lab = ["检验报告", "日期：2026-09-01", "血红蛋白 150 g/L 130-175", "白细胞 6.5 10^9/L", "红细胞 4.5"]
 
-    private var image: Data {
+    private lazy var image: Data = {
         UIGraphicsImageRenderer(size: CGSize(width: 64, height: 64)).pngData { context in
             UIColor.white.setFill()
             context.fill(CGRect(x: 0, y: 0, width: 64, height: 64))
         }
-    }
+    }()
 
     private func fixture(pages: [[String]?], confidence: Double = 0.9,
                          scheduler: any ReminderScheduling = InMemoryReminderScheduler()) async throws -> Fixture {
-        let database = try GRDBStore.inMemory()
-        let patient = UUID()
-        try await database.writer.write { db in
-            try db.execute(sql: "INSERT INTO patient_profile (id, display_name, relation, created_at, updated_at) VALUES (?, 'Owner', 'self', 0, 0)", arguments: [patient.uuidString])
-            try db.execute(sql: "INSERT INTO local_owner (id, display_name, self_patient_id, created_at) VALUES (?, 'Owner', ?, 0)", arguments: [UUID().uuidString, patient.uuidString])
-        }
+        let (database, patient) = try await GRDBStore.inMemoryWithOwner()
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ocr-journey-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         directories.append(directory)

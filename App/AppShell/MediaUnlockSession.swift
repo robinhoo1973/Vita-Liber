@@ -15,8 +15,8 @@ final class MediaUnlockSession {
     private(set) var isUnlocked = false
     /// 最后一次交互时刻（用于 idle TTL 计算）
     private var lastInteraction: Date?
-    /// 当前活跃的解锁任务（idle 超时取消用）
-    private var idleTask: Task<Void, Never>?
+    /// 空闲重锁计时器（计时句柄共享 MediaRelockTimer 机制；本会话无在途解锁句柄）
+    private var idleTimer = MediaRelockTimer()
 
     /// 解锁：写入令牌 + 启动 idle 计时 + 记录交互。
     /// TTL 取 showcaseTTL（评审修正 H3）：spec V3.71/V3.72 将本会话预留给
@@ -31,8 +31,7 @@ final class MediaUnlockSession {
     func relock() {
         isUnlocked = false
         lastInteraction = nil
-        idleTask?.cancel()
-        idleTask = nil
+        idleTimer.cancelAll()
     }
 
     /// 触摸/拖动/缩放等活跃信号：刷新 idle 时钟（合并窗口由调用方控制）
@@ -52,13 +51,8 @@ final class MediaUnlockSession {
     }
 
     private func startIdleTimer() {
-        idleTask?.cancel()
-        idleTask = Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await Task.sleep(nanoseconds: UInt64(MediaUnlockPolicy.showcaseTTL * 1_000_000_000))
-            } catch { return }
-            await MainActor.run { self.relock() }
+        idleTimer.schedule(ttl: MediaUnlockPolicy.showcaseTTL) { [weak self] in
+            self?.relock()
         }
     }
 }

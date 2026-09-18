@@ -12,11 +12,7 @@ import Protocols
 @MainActor
 final class ProfileSuggestionStoreTests: XCTestCase {
     private func fixture() async throws -> (GRDBStore, UUID, UUID) {
-        let store = try GRDBStore.inMemory()
-        let patient = UUID()
-        try await store.writer.write { db in
-            try db.execute(sql: "INSERT INTO patient_profile (id, display_name, relation, created_at, updated_at) VALUES (?, 'A', 'other', 0, 0)", arguments: [patient.uuidString])
-        }
+        let (store, patient) = try await GRDBStore.inMemoryWithPatient()
         let document = try await DocumentStore(writer: store.writer).save(
             patientId: patient, docType: "outpatient_record", sha256: "suggestion-test", mimeType: "image/png",
             origin: "import", isSensitive: false, metaJSON: nil, title: "病历", grade: "C",

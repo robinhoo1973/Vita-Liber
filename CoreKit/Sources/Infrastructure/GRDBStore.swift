@@ -445,6 +445,25 @@ public struct GRDBStore {
         }
     }
 
+    /// patient_profile 行 → PatientProfile 的**唯一**映射（全仓共享：成员列表 / 备份导出
+    /// 同用此映射——第六轮全仓审查修复「血型/证件号/医保号未映射→备份恢复静默清零」
+    /// 曾只修了 ExportService 一份，members() 若另行维护会再次分叉）。
+    /// 未 SELECT 的列（如软删成员投影不含 deleted_at）下标读取为 nil，映射仍安全。
+    static func profileRow(_ row: Row) -> PatientProfile {
+        PatientProfile(id: UUID(uuidString: row["id"] as String) ?? UUID(),
+                       displayName: row["display_name"] as String,
+                       relation: row["relation"] as String,
+                       gender: row["gender"] as String?,
+                       birthDate: row["birth_date"] as String?,
+                       bloodType: row["blood_type"] as String?,
+                       idNo: row["id_no"] as String?,
+                       insuranceNo: row["insurance_no"] as String?,
+                       note: row["note"] as String?,
+                       createdAt: row["created_at"] as Double,
+                       updatedAt: row["updated_at"] as Double,
+                       deletedAt: row["deleted_at"] as Double?)
+    }
+
     /// TC-M0-06 运行时断言用：`PRAGMA foreign_keys` 是否为 1。
     /// 读失败保守返回 false（不用 `try?`——tech-spec §7 红线）。
     /// 用 `Int.fetchOne` 而非 `(row[0] as Int)`：GRDB Row 下标返回 DatabaseValue，

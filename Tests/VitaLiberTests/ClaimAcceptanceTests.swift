@@ -11,16 +11,8 @@ import Protocols
 final class ClaimAcceptanceTests: XCTestCase {
 
     private func makeStore() async throws -> (GRDBStore, ClaimStore, UUID) {
-        let store = try GRDBStore.inMemory()
-        let claims = ClaimStore(writer: store.writer)
-        let patient = UUID()
-        try await store.writer.write { db in
-            try db.execute(sql: """
-                INSERT INTO patient_profile (id, display_name, relation, created_at, updated_at)
-                VALUES (?, '报销测试', '本人', 0, 0)
-                """, arguments: [patient.uuidString])
-        }
-        return (store, claims, patient)
+        let (store, patient) = try await GRDBStore.inMemoryWithPatient("报销测试", relation: "本人")
+        return (store, ClaimStore(writer: store.writer), patient)
     }
 
     /// 原名：test_录入与汇总纯事实

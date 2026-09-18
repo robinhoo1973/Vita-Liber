@@ -127,9 +127,14 @@ public enum EntityCardProjection {
     /// `hospitalization` 卡派生就诊类型的许可集（§C.2：kind ∈ inpatient/daySurgery）。
     static let hospitalizationKinds: Set<String> = [EncounterKind.inpatient.rawValue, EncounterKind.daySurgery.rawValue]
 
+    /// 日期文法（静态字面量一次性编译复用——此前每调用现编译一次；
+    /// 与本模块 `ClinicalFieldLabels` 静态正则同纪律）。
+    private static let datePattern: NSRegularExpression? = try? NSRegularExpression(   // try?-ok: 静态字面量，构造不会失败
+        pattern: #"(?<!\d)(\d{4})\s*[-/年.]\s*(\d{1,2})\s*[-/月.]\s*(\d{1,2})(?!\d)"#)
+
     /// OCR 日期：yyyy-MM-dd / yyyy/M/d / yyyy年M月d日（含「日期：」前缀）→ 当日零点；解析失败 nil。
     public static func parseDate(_ text: String, calendar: Calendar) -> Date? {
-        guard let regex = try? NSRegularExpression(pattern: #"(?<!\d)(\d{4})\s*[-/年.]\s*(\d{1,2})\s*[-/月.]\s*(\d{1,2})(?!\d)"#),   // try?-ok: 静态字面量，构造不会失败
+        guard let regex = datePattern,
               let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
               match.numberOfRanges == 4,
               let y = Range(match.range(at: 1), in: text), let m = Range(match.range(at: 2), in: text),
@@ -144,6 +149,12 @@ public enum EntityCardProjection {
               gregorian.component(.year, from: date) == year,
               gregorian.component(.month, from: date) == month, gregorian.component(.day, from: date) == day else { return nil }
         return date
+    }
+
+    /// 共享面日期键取值（「键存在且可解析才取」的单一出口）——五处意图构造
+    /// （检验表头/住院/检查/体检/手术）此前各自内联同构闭包。
+    static func sharedDate(_ key: String, in shared: [String: String], calendar: Calendar) -> Date? {
+        shared[key].flatMap { parseDate($0, calendar: calendar) }
     }
 
     /// 检验卡 → 医院来源样本（趋势点读面）。v26 起为 `labProjection(from:calendar:).samples` 的薄封装：
@@ -260,7 +271,7 @@ public enum EntityCardProjection {
     public static func invalidFields(in card: MatchedCard, row: MatchedCardRow, calendar: Calendar) -> [String] {
         guard let entry = CardKindRegistry.entry(for: card.kind) else { return ["card_kind"] }
         // 空行 = 「表头即实体」（票据页无明细行）：不受行级必填约束；有字段的行才须齐最小集。
-        let rowRequired = entry.allowsEmptyRows && row.fields.isEmpty ? [] : entry.rowRequired
+        let rowRequired = entry.effectiveRowRequired(forEmptyRow: row.fields.isEmpty)
         var invalid = Set<String>()
         for (fields, required, allowed) in [(card.shared, entry.sharedRequired, entry.sharedAllowed), (row.fields, rowRequired, entry.rowAllowed)] {
             let values = dictionary(fields)
@@ -273,6 +284,15 @@ public enum EntityCardProjection {
         }
         let shared = dictionary(card.shared), values = dictionary(row.fields)
         if let dateKey = entry.dateKey, shared[dateKey].flatMap({ parseDate($0, calendar: calendar) }) == nil { invalid.insert(dateKey) }
+        applyTypedKeyChecks(card: card, shared: shared, values: values, calendar: calendar, into: &invalid)
+        applyCardKindChecks(card: card, shared: shared, values: values, calendar: calendar, into: &invalid)
+        return invalid.sorted()
+    }
+
+    /// 值级键型校验（日期可解析 / REAL 列可解析 / INTEGER 列可解析）——
+    /// `optionalDateKeys` / `numericKeys` / `integerKeys` 三表的单一出口。
+    private static func applyTypedKeyChecks(card: MatchedCard, shared: [String: String], values: [String: String],
+                                            calendar: Calendar, into invalid: inout Set<String>) {
         for key in optionalDateKeys[card.kind] ?? [] {
             for face in [shared, values] where face[key] != nil && face[key].flatMap({ parseDate($0, calendar: calendar) }) == nil { invalid.insert(key) }
         }
@@ -284,6 +304,12 @@ public enum EntityCardProjection {
         for key in integerKeys[card.kind] ?? [] {
             for face in [shared, values] where face[key] != nil && face[key].flatMap(Int.init) == nil { invalid.insert(key) }
         }
+    }
+
+    /// 卡类专属规则（CHECK 枚举 / 二择一最小集 / 参考范围有序）——每支只读不写，
+    /// 统一汇入 invalid（Set 无序，最后 sorted 出口，分支拆分不改变结果）。
+    private static func applyCardKindChecks(card: MatchedCard, shared: [String: String], values: [String: String],
+                                            calendar: Calendar, into invalid: inout Set<String>) {
         if card.kind == "encounter", shared["kind"].flatMap(EncounterKind.init(rawValue:)) == nil { invalid.insert("kind") }
         // v26（§C.2–C.4）二择一最小集与 CHECK 枚举：缺席留待办、不猜日期/类型。
         if card.kind == "hospitalization" {
@@ -325,7 +351,6 @@ public enum EntityCardProjection {
         }
         if card.kind == "medication", !["tablet", "capsule", "patch", "vial"].contains(values["unit_kind"] ?? "") { invalid.insert("unit_kind") }
         if card.kind == "immunization", (shared["dose_number"].flatMap(Int.init) ?? 0) <= 0 { invalid.insert("dose_number") }
-        return invalid.sorted()
     }
 
     public static func isDiscarded(_ row: MatchedCardRow, in card: MatchedCard) -> Bool {

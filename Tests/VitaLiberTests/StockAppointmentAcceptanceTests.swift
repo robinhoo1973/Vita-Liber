@@ -15,23 +15,10 @@ final class StockAppointmentAcceptanceTests: XCTestCase {
     // 扩展单一出口（shanghaiCalendar）——此前三处各写同构副本，注释自称
     // 「下沉为单一出口」而代码未落地（审查修复 2026-09-18 已收敛）。
     private func makeStore() async throws -> (store: GRDBStore, meds: MedicationStore, scheduler: InMemoryReminderScheduler, apts: AppointmentStore, patient: UUID, med: UUID) {
-        let store = try GRDBStore.inMemory()
-        let scheduler = InMemoryReminderScheduler()
-        let meds = MedicationStore(writer: store.writer)
-        let apts = AppointmentStore(writer: store.writer, scheduler: scheduler)
         // 种子数据：patient_profile + medication（stock_lot 的外键目标，ERR#35 教训前置）
-        let patient = UUID()
-        let med = UUID()
-        try await store.writer.write { db in
-            try db.execute(sql: """
-                INSERT INTO patient_profile (id, display_name, relation, created_at, updated_at)
-                VALUES (?, '测试患者', '本人', 0, 0)
-                """, arguments: [patient.uuidString])
-            try db.execute(sql: """
-                INSERT INTO medication (id, patient_id, generic_name, spec, unit_kind, created_at, updated_at)
-                VALUES (?, ?, '阿莫西林', '0.25g', 'tablet', 0, 0)
-                """, arguments: [med.uuidString, patient.uuidString])
-        }
+        let (store, meds, patient, med) = try await GRDBStore.inMemoryWithMedication(patientName: "测试患者", medName: "阿莫西林", spec: "0.25g")
+        let scheduler = InMemoryReminderScheduler()
+        let apts = AppointmentStore(writer: store.writer, scheduler: scheduler)
         return (store, meds, scheduler, apts, patient, med)
     }
 

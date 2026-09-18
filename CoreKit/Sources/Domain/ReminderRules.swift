@@ -125,6 +125,13 @@ public enum VoiceReminderRules {
             guard let candidate, candidate > now else { return nil }
             return candidate
         }
+        /// hour 字段三态（两条日期路径共用）：缺省 → 日期已具体，按当天设提醒不猜时刻；
+        /// 存在但非法（如「25」）→ nil 交 UI 澄清——绝不猜 00:00（FR10.2 绝不猜时间）。
+        func withHour(_ day: Date) -> Date? {
+            guard let hourText = drafts.first(where: { $0.key == "hour" })?.value else { return futureOnly(day) }
+            guard let hour = Int(hourText), (0...23).contains(hour) else { return nil }
+            return futureOnly(calendar.date(bySettingHour: hour, minute: 0, second: 0, of: day))
+        }
         // 具体日期（"9 10" = 9月10日）优先——年份取当前（已过则顺延一年）
         if let dateValue = drafts.first(where: { $0.key == "date" })?.value {
             let parts = dateValue.split(separator: " ").compactMap { Int($0) }
@@ -144,20 +151,16 @@ public enum VoiceReminderRules {
             if calendar.startOfDay(for: day) < calendar.startOfDay(for: now) {
                 day = calendar.date(byAdding: .year, value: 1, to: day) ?? day
             }
-            guard let hourText = drafts.first(where: { $0.key == "hour" })?.value else { return futureOnly(day) }
-            guard let hour = Int(hourText), (0...23).contains(hour) else { return nil }
-            return futureOnly(calendar.date(bySettingHour: hour, minute: 0, second: 0, of: day))
+            return withHour(day)
         }
         // 相对日期短语（明天/后天/今天）
         guard let phrase = drafts.first(where: { $0.key == "time" })?.value,
               let day = resolveDate(phrase: phrase, now: now, calendar: calendar)
         else { return nil }
         // hour 字段缺失：日期已具体（如「明天」），允许按当天设提醒，不猜时刻
-        guard let hourText = drafts.first(where: { $0.key == "hour" })?.value else { return futureOnly(day) }
         // hour 字段存在但无法解析为合法时刻（如「25」）→ 返回 nil（绝不猜 00:00，
         // 由 UI 要求澄清）；猜错的提醒比没有提醒更糟（FR10.2）
-        guard let hour = Int(hourText), (0...23).contains(hour) else { return nil }
-        return futureOnly(calendar.date(bySettingHour: hour, minute: 0, second: 0, of: day))
+        return withHour(day)
     }
 }
 

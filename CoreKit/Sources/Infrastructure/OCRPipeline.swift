@@ -6,15 +6,8 @@ import Protocols
 /// ADR-026 编排层类型（V3.50 承诺、此前缺失）：OCR 管线统一编排点——
 /// 解码（灰度）→ 质量评估（FR5.3 模糊/反光提示，不阻止保存）→ 识别 →
 /// 归一化文本。上层（App 状态仓）只依赖本类型与能力协议，不直接持有
-/// 具体引擎（EAL 纪律）。
-///
-/// OCR 管线统一编排点——
-/// 解码（灰度）→ 质量评估（FR5.3 模糊/反光提示，不阻止保存）→ 识别 →
-/// 归一化文本。上层（App 状态仓）只依赖本类型与能力协议，不直接持有
-/// 具体引擎（EAL 纪律）。
-///
-/// 产出统一为 `lines+confidence` 归一化结果；确认流与
-/// BR-003 D→C 分级不感知具体引擎实现。
+/// 具体引擎（EAL 纪律）。产出统一为 `lines+confidence` 归一化结果；
+/// 确认流与 BR-003 D→C 分级不感知具体引擎实现。
 public struct OCRPipeline: Sendable {
     private let recognizer: any ImageTextRecognizing
     private let grayscaleDecoder: any GrayscaleDecoding

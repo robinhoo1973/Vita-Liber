@@ -13,16 +13,8 @@ import Protocols
 final class HealthAlertAcceptanceTests: XCTestCase {
 
     private func makeStore() async throws -> (GRDBStore, GuidelineStore, UUID) {
-        let store = try GRDBStore.inMemory()
-        let guidelines = GuidelineStore(writer: store.writer)
-        let patient = UUID()
-        try await store.writer.write { db in
-            try db.execute(sql: """
-                INSERT INTO patient_profile (id, display_name, relation, created_at, updated_at)
-                VALUES (?, 'F16 测试患者', '本人', 0, 0)
-                """, arguments: [patient.uuidString])
-        }
-        return (store, guidelines, patient)
+        let (store, patient) = try await GRDBStore.inMemoryWithPatient("F16 测试患者", relation: "本人")
+        return (store, GuidelineStore(writer: store.writer), patient)
     }
 
     /// 信源库：种子入库幂等、按指标检索命中、零网络即可用

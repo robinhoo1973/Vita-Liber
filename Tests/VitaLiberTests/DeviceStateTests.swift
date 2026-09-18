@@ -13,19 +13,11 @@ import Protocols
 @MainActor
 final class DeviceStateTests: XCTestCase {
     private func makeState(seedOwner: Bool) async throws -> (GRDBStore, HealthImportStore, F16DeviceState) {
-        let db = try GRDBStore.inMemory()
+        let db: GRDBStore
         if seedOwner {
-            let patient = UUID()
-            try await db.writer.write { db in
-                try db.execute(sql: """
-                    INSERT INTO patient_profile (id, display_name, relation, created_at, updated_at)
-                    VALUES (?, 'Owner', 'self', 0, 0)
-                    """, arguments: [patient.uuidString])
-                try db.execute(sql: """
-                    INSERT INTO local_owner (id, display_name, self_patient_id, created_at)
-                    VALUES (?, 'Owner', ?, 0)
-                    """, arguments: [UUID().uuidString, patient.uuidString])
-            }
+            (db, _) = try await GRDBStore.inMemoryWithOwner()
+        } else {
+            db = try GRDBStore.inMemory()
         }
         let imports = HealthImportStore(writer: db.writer)
         let service = HealthKitSyncService(provider: F16StubProvider(), imports: imports,

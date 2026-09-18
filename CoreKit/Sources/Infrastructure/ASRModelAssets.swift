@@ -83,11 +83,16 @@ public struct ASRModelAssets: Sendable {
     /// 调用都读+解码 manifest（含 sourceDigest 校验）并逐文件 stat——
     /// capability 计算属性在每次按压/实验室刷新被多次读取（auto 档还
     /// 逐模型遍历），同一磁盘结论重复计算数十次。缓存按 root+choice 键控。
-    private static let presenceCache = PresenceCache()
-    private final class PresenceCache: @unchecked Sendable {
+    private static let presenceCache = LockedCache<Bool>()
+    /// 清单解码缓存（与 isPresent 的存在性缓存同法；清单为随包不可变内容）。
+    private static let manifestCache = LockedCache<Manifest?>()
+
+    /// 锁保护的进程级键值缓存（presence/manifest 共用同一形态——两个近复制
+    /// 类收敛为一个泛型；Value = Manifest? 时下标层级与旧实现逐位同语义）。
+    private final class LockedCache<Value>: @unchecked Sendable {
         private let lock = NSLock()
-        private var values: [String: Bool] = [:]
-        func value(key: String, compute: () -> Bool) -> Bool {
+        private var values: [String: Value] = [:]
+        func value(key: String, compute: () -> Value) -> Value {
             lock.lock(); defer { lock.unlock() }
             if let cached = values[key] { return cached }
             let computed = compute()
@@ -105,23 +110,6 @@ public struct ASRModelAssets: Sendable {
         return Self.presenceCache.value(key: "\(root?.path ?? "nil")|\(choice.rawValue)") {
             do { _ = try files(choice, hash: false); return true }
             catch { return false }
-        }
-    }
-
-    /// 清单解码缓存（与 isPresent 的存在性缓存同法；清单为随包不可变内容）。
-    private static let manifestCache = ManifestCache()
-    private final class ManifestCache: @unchecked Sendable {
-        private let lock = NSLock()
-        private var values: [String: Manifest?] = [:]
-        func value(key: String, compute: () -> Manifest?) -> Manifest? {
-            lock.lock(); defer { lock.unlock() }
-            if let cached = values[key] { return cached }
-            let computed = compute()
-            values[key] = computed
-            return computed
-        }
-        func removeAll() {
-            lock.lock(); values.removeAll(); lock.unlock()
         }
     }
 

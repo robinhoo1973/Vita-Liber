@@ -5,28 +5,30 @@
 #if os(iOS)
 import AVFoundation
 
-/// 采集会话拆除的**单一出口**（FR17.13 回读路由 / FR19.3 播报路由的正确性依赖此纪律）。
-///
-/// 5WHY 根因（2026-09-10 审查轮）：ASR/TTS 三个采集点（Sherpa 主轨 / SFSpeech 降级轨 /
-/// 音量自检）各自维护 AVAudioSession 的开启与拆除——只有 Sherpa 一侧在审查修复中
-/// 补了「还原 .playback 类别」。会话类别是共享单例状态：停留在 `.record` 会让其后的
-/// FR17.13 回读、FR17.11 提问朗读、FR19.3 播报全部路由到听筒（音量低到不可用），
-/// 且该缺陷只随「降级轨被使用」才暴露——sherpa 主轨临时退出构建后成为生产主路径。
-///
-/// 拆除契约（业界最佳实践：采集方负责还原共享会话状态，teardown 必须对称于 setup）：
-/// 1. 先还原类别到采集前的状态（快照还原——不得硬编码假定采集前是 .playback）；
-/// 2. 再 `setActive(false, .notifyOthersOnDeactivation)`（先类别后停用，顺序与 Sherpa
-///    原实现一致——类别改变在激活态下即时生效，停用把音频让回其他 App）。
-///
-/// 失败不阻断主流程（try?-ok 白名单口径：降级语义——采集已结束，还原失败
-/// 只影响其后播报路由与外部 App 恢复，不得掩盖转写/取消主结果）。
+// 拆除契约说明（2026-09-18 清理轮：原 `public enum AudioSessionTeardown {}` 空壳命名空间
+// 全仓零引用已删；契约本身保留，作为下方 AudioSessionCapture.remember/restore 快照对的文档）：
+//
+// 采集会话拆除的**单一出口**（FR17.13 回读路由 / FR19.3 播报路由的正确性依赖此纪律）。
+//
+// 5WHY 根因（2026-09-10 审查轮）：ASR/TTS 三个采集点（Sherpa 主轨 / SFSpeech 降级轨 /
+// 音量自检）各自维护 AVAudioSession 的开启与拆除——只有 Sherpa 一侧在审查修复中
+// 补了「还原 .playback 类别」。会话类别是共享单例状态：停留在 `.record` 会让其后的
+// FR17.13 回读、FR17.11 提问朗读、FR19.3 播报全部路由到听筒（音量低到不可用），
+// 且该缺陷只随「降级轨被使用」才暴露——sherpa 主轨临时退出构建后成为生产主路径。
+//
+// 拆除契约（业界最佳实践：采集方负责还原共享会话状态，teardown 必须对称于 setup）：
+// 1. 先还原类别到采集前的状态（快照还原——不得硬编码假定采集前是 .playback）；
+// 2. 再 `setActive(false, .notifyOthersOnDeactivation)`（先类别后停用，顺序与 Sherpa
+//    原实现一致——类别改变在激活态下即时生效，停用把音频让回其他 App）。
+//
+// 失败不阻断主流程（try?-ok 白名单口径：降级语义——采集已结束，还原失败
+// 只影响其后播报路由与外部 App 恢复，不得掩盖转写/取消主结果）。
 // 审查修复（死代码清除）：restorePlaybackAfterCapture 全仓零调用——
 // 硬编码 .playback 前态的第二套拆除契约与快照对（AudioSessionCapture.
 // remember/restore）并存，未来调用方选错即还原错误类别。实际采集点
 // 全部走快照对，硬编码形态已无合法调用方，删除。
-public enum AudioSessionTeardown {}
 
-/// 采集会话激活的**单一出口**（与 AudioSessionTeardown 对称）：
+/// 采集会话激活的**单一出口**（与上文的拆除契约对称）：
 /// 三个采集点（Sherpa 主轨 / SFSpeech 降级轨 / 音量自检）曾各自内联
 /// `setCategory(.record, mode: .measurement, options: [.duckOthers]) + setActive(true)`——
 /// 拆除侧已收敛单一出口而激活侧没有，会话选项变更须三处同步、漏一处即
@@ -61,7 +63,7 @@ public enum AudioSessionCapture {
     }
 
     /// 还原到采集前状态：先类别后停用（类别改变在激活态下即时生效）。
-    /// 失败不阻断主流程（同 AudioSessionTeardown 降级口径）。
+    /// 失败不阻断主流程（同拆除契约降级口径）。
     public static func restore(_ prior: State) {
         do { try AVAudioSession.sharedInstance().setCategory(prior.category, mode: prior.mode, options: prior.options) }
         catch { /* 还原失败不阻断主流程 */ }

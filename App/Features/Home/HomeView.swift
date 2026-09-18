@@ -691,16 +691,18 @@ struct HomeView: View {
     }
 
     private func aggregationRow(_ item: AggregatedReminderItem) -> some View {
-        Button {
+        // 类别视觉映射每行只求值一次（原同表达式三次查表）
+        let icon = CardKindIcon.spec(aggregation: item.aggregationKind)
+        return Button {
             open(item)
         } label: {
             HStack(spacing: 10) {
-                Image(systemName: CardKindIcon.spec(aggregation: item.aggregationKind).symbol)
+                Image(systemName: icon.symbol)
                     .font(.title3)
-                    .foregroundStyle(CardKindIcon.spec(aggregation: item.aggregationKind).tint)
+                    .foregroundStyle(icon.tint)
                     .frame(width: 36, height: 36)
                     .background(RoundedRectangle(cornerRadius: 10)
-                        .fill(CardKindIcon.spec(aggregation: item.aggregationKind).tint.opacity(0.12)))
+                        .fill(icon.tint.opacity(0.12)))
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
                         Text(L10n.pendingCardAggregationTitle(item.title))

@@ -560,7 +560,7 @@ public actor ExportService {
                 JOIN local_owner o ON o.self_patient_id = p.id
                 LIMIT 1
                 """).map { row in
-                Self.profileRow(row)
+                GRDBStore.profileRow(row)
             }
             // 审查修复（BR-001/FR13.5）：全部成员档案随包往返——
             // 恢复时各成员数据各归其位，绝不再静默改挂本人名下。
@@ -572,7 +572,7 @@ public actor ExportService {
                 SELECT * FROM patient_profile
                 WHERE id != COALESCE((SELECT self_patient_id FROM local_owner LIMIT 1), '')
                 ORDER BY created_at
-                """).map(Self.profileRow)
+                """).map(GRDBStore.profileRow)
             let consents = try Row.fetchAll(db, sql: "SELECT * FROM consent_record ORDER BY accepted_at").map { row in
                 ConsentRecord(id: UUID(uuidString: row["id"] as String) ?? UUID(),
                               key: row["key"] as String,
@@ -2458,11 +2458,12 @@ public actor ExportService {
         // 数值有限；lab_result UNIQUE(lab_report_id, ordinal) 在包内即成立；metric_sample.labReportId 回指同成员表头。
         let hospitalizations = envelope.hospitalizations ?? [], diagnoses = envelope.diagnoses ?? [], examReports = envelope.examReports ?? []
         let labReports = envelope.labReports ?? [], labResults = envelope.labResults ?? []
+        let labSourceCards = labReports.compactMap(\.sourceCardId)   // 同值 compactMap 只算一次（原实现重复计算两次）
         guard Set(hospitalizations.map(\.id)).count == hospitalizations.count, Set(diagnoses.map(\.id)).count == diagnoses.count,
               Set(examReports.map(\.id)).count == examReports.count, Set(labReports.map(\.id)).count == labReports.count,
               Set(labResults.map(\.id)).count == labResults.count,
               Set(hospitalizations.map(\.encounterId)).count == hospitalizations.count,
-              Set(labReports.compactMap(\.sourceCardId)).count == labReports.compactMap(\.sourceCardId).count else { throw ExportError.invalidOCRBackup }
+              Set(labSourceCards).count == labSourceCards.count else { throw ExportError.invalidOCRBackup }
         let hospitalizationMap = Dictionary(uniqueKeysWithValues: hospitalizations.map { ($0.id, $0) })
         let diagnosisMap = Dictionary(uniqueKeysWithValues: diagnoses.map { ($0.id, $0) })
         let examMap = Dictionary(uniqueKeysWithValues: examReports.map { ($0.id, $0) })
@@ -2519,6 +2520,7 @@ public actor ExportService {
         let surgeryMap = Dictionary(uniqueKeysWithValues: surgeries.map { ($0.id, $0) })
         let treatmentMap = Dictionary(uniqueKeysWithValues: treatments.map { ($0.id, $0) })
         let allergyMap = Dictionary(envelope.allergies.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let immunizationMap = Dictionary(uniqueKeysWithValues: envelope.immunizations.map { ($0.id, $0) })
         for x in healthExams {
             guard x.documentFileId == nil || docs[x.documentFileId!]?.patientId == x.patientId,
                   finite(x.examDate), finite(x.reportDate),
@@ -2642,7 +2644,8 @@ public actor ExportService {
                       table == "claim_item" || claimLineMap[audit.entityId]?.patientId == audit.patientId,
                       claim.documentId == audit.documentId else { throw ExportError.invalidOCRBackup }
             case "immunization":
-                guard envelope.immunizations.contains(where: { $0.id == audit.entityId && $0.patientId == audit.patientId && $0.confirmed == true }) else { throw ExportError.invalidOCRBackup }
+                // 字典直查替代逐回执线性扫全数组（O(n²) → O(1)）
+                guard let imm = immunizationMap[audit.entityId], imm.patientId == audit.patientId, imm.confirmed == true else { throw ExportError.invalidOCRBackup }
             // v27：体检表头（同文档幂等键：来源文档一致、已确认、OCR 来源）；结论行（同成员、父在包内——上方已校验恰一父）；手术 / 治疗（同文档、已确认）
             case "health_exam":
                 guard let x = healthExamMap[audit.entityId], x.patientId == audit.patientId, x.confirmed, x.source == .ocr,
@@ -2792,23 +2795,6 @@ public actor ExportService {
         } catch {
             return nil
         }
-    }
-
-    private static func profileRow(_ row: Row) -> PatientProfile {
-        // 第六轮全仓审查修复：血型/证件号/医保号（FR3.1 P0 字段）此前
-        // 未映射——备份→恢复静默清零，急救卡血型消失（FR13.5 一票否决项）
-        PatientProfile(id: UUID(uuidString: row["id"] as String) ?? UUID(),
-                       displayName: row["display_name"] as String,
-                       relation: row["relation"] as String,
-                       gender: row["gender"] as String?,
-                       birthDate: row["birth_date"] as String?,
-                       bloodType: row["blood_type"] as String?,
-                       idNo: row["id_no"] as String?,
-                       insuranceNo: row["insurance_no"] as String?,
-                       note: row["note"] as String?,
-                       createdAt: row["created_at"] as Double,
-                       updatedAt: row["updated_at"] as Double,
-                       deletedAt: row["deleted_at"] as Double?)
     }
 
     /// 编码 envelope 为 JSON Data（含 UTF-8）

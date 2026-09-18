@@ -13,21 +13,7 @@ import Protocols
 final class StockRegressionTests: XCTestCase {
 
     private func makeStore() async throws -> (GRDBStore, MedicationStore, UUID, UUID) {
-        let store = try GRDBStore.inMemory()
-        let meds = MedicationStore(writer: store.writer)
-        let patient = UUID()
-        let med = UUID()
-        try await store.writer.write { db in
-            try db.execute(sql: """
-                INSERT INTO patient_profile (id, display_name, relation, created_at, updated_at)
-                VALUES (?, '转场测试患者', '本人', 0, 0)
-                """, arguments: [patient.uuidString])
-            try db.execute(sql: """
-                INSERT INTO medication (id, patient_id, generic_name, spec, unit_kind, created_at, updated_at)
-                VALUES (?, ?, '阿司匹林', '0.1g', 'tablet', 0, 0)
-                """, arguments: [med.uuidString, patient.uuidString])
-        }
-        return (store, meds, patient, med)
+        try await GRDBStore.inMemoryWithMedication(patientName: "转场测试患者", medName: "阿司匹林", spec: "0.1g")
     }
 
     /// 种子一条「昨日 08:00」未决议行并补账为 missed（安全线已按计划扣减）。

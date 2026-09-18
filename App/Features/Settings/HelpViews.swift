@@ -7,6 +7,30 @@ import Perception
 
 // MARK: - FR22.1 帮助中心根视图
 
+/// 系统权限状态 → 状态文案（权限诊断与提醒诊断共用口径，两处六分支复制收敛）。
+private enum AuthorizationStatusLabel {
+    /// UNAuthorizationStatus → 文案
+    static func notification(_ status: UNAuthorizationStatus) -> String {
+        switch status {
+        case .authorized: return L10n.helpStatusAuthorized
+        case .denied: return L10n.helpStatusDenied
+        case .provisional, .ephemeral: return L10n.helpStatusProvisional
+        case .notDetermined: return L10n.helpStatusNotRequested
+        @unknown default: return L10n.helpStatusUnknown
+        }
+    }
+
+    /// AVAuthorizationStatus（相机/麦克风同口径）→ 文案
+    static func capture(_ status: AVAuthorizationStatus) -> String {
+        switch status {
+        case .authorized: return L10n.helpStatusAuthorized
+        case .denied, .restricted: return L10n.helpStatusDenied
+        case .notDetermined: return L10n.helpStatusNotRequested
+        @unknown default: return L10n.helpStatusUnknown
+        }
+    }
+}
+
 /// F22 帮助中心入口：按功能提供诊断工具、教程、FAQ 和关于页。
 struct HelpRootView: View {
     @Environment(AppState.self) private var app
@@ -142,30 +166,12 @@ struct HelpPermissionDiagnostics: View {
     }
 
     private func checkPermissions() async {
-        // Camera
-        switch AVCaptureDevice.authorizationStatus(for: .video) {
-        case .authorized: cameraStatus = L10n.helpStatusAuthorized
-        case .denied, .restricted: cameraStatus = L10n.helpStatusDenied
-        case .notDetermined: cameraStatus = L10n.helpStatusNotRequested
-        @unknown default: cameraStatus = L10n.helpStatusUnknown
-        }
-        // Microphone
-        switch AVCaptureDevice.authorizationStatus(for: .audio) {
-        case .authorized: micStatus = L10n.helpStatusAuthorized
-        case .denied, .restricted: micStatus = L10n.helpStatusDenied
-        case .notDetermined: micStatus = L10n.helpStatusNotRequested
-        @unknown default: micStatus = L10n.helpStatusUnknown
-        }
+        // Camera / Microphone（同口径映射，收敛 AuthorizationStatusLabel）
+        cameraStatus = AuthorizationStatusLabel.capture(AVCaptureDevice.authorizationStatus(for: .video))
+        micStatus = AuthorizationStatusLabel.capture(AVCaptureDevice.authorizationStatus(for: .audio))
         // Notifications
         let settings = await UNUserNotificationCenter.current().notificationSettings()
-        switch settings.authorizationStatus {
-        case .authorized: notificationStatus = L10n.helpStatusAuthorized
-        case .denied: notificationStatus = L10n.helpStatusDenied
-        case .provisional: notificationStatus = L10n.helpStatusProvisional
-        case .ephemeral: notificationStatus = L10n.helpStatusProvisional
-        case .notDetermined: notificationStatus = L10n.helpStatusNotRequested
-        @unknown default: notificationStatus = L10n.helpStatusUnknown
-        }
+        notificationStatus = AuthorizationStatusLabel.notification(settings.authorizationStatus)
         // Face ID 可用性（LAContext 可判 canEvaluatePolicy，无授权弹窗）
         var error: NSError?
         let biometry = LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: &error)
@@ -242,14 +248,7 @@ struct HelpReminderDiagnostics: View {
 
     private func checkNotificationStatus() async {
         let settings = await UNUserNotificationCenter.current().notificationSettings()
-        switch settings.authorizationStatus {
-        case .authorized: notificationStatus = L10n.helpStatusAuthorized
-        case .denied: notificationStatus = L10n.helpStatusDenied
-        case .provisional: notificationStatus = L10n.helpStatusProvisional
-        case .ephemeral: notificationStatus = L10n.helpStatusProvisional
-        case .notDetermined: notificationStatus = L10n.helpStatusNotRequested
-        @unknown default: notificationStatus = L10n.helpStatusUnknown
-        }
+        notificationStatus = AuthorizationStatusLabel.notification(settings.authorizationStatus)
     }
 }
 

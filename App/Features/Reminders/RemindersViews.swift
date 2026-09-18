@@ -76,14 +76,15 @@ struct RemindersView: View {
                             .accessibilityIdentifier("SP-18.appointment.empty")
                     }
                     ForEach(reminders.upcomingAppointments, id: \.id) { apt in
+                        // §3.4 单一出口：预约 = `calendar.badge.clock`（原硬编码 `stethoscope`
+                        // 是**就诊**符号——预约行显示就诊符号，类别不可辨）。
+                        let appointmentIcon = CardKindIcon.spec(timelineKind: .appointment)
                         VStack(alignment: .leading, spacing: 8) {
                             HStack(spacing: 12) {
                                 // §11-13 设计系统规则：行内小尺寸用 SF Symbols，瓷砖仅供大尺寸场景。
-                                // §3.4 单一出口：预约 = `calendar.badge.clock`（原硬编码 `stethoscope`
-                                // 是**就诊**符号——预约行显示就诊符号，类别不可辨）。
-                                Image(systemName: CardKindIcon.spec(timelineKind: .appointment).symbol)
+                                Image(systemName: appointmentIcon.symbol)
                                     .font(.title3)
-                                    .foregroundStyle(CardKindIcon.spec(timelineKind: .appointment).tint)
+                                    .foregroundStyle(appointmentIcon.tint)
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(apt.hospital).font(.headline)
                                     Text("\(apt.department) · \(apt.startsAt.formatted(date: .abbreviated, time: .shortened))")
@@ -159,30 +160,9 @@ struct RemindersView: View {
                             // 第六轮全仓审查修复：调度类型此前只换提示文案、实际
                             // 恒建 fixed——选「间隔」输入 480 会把 "480" 当 HH:mm
                             // 时刻解析失败（计划零剂量），选「餐锚/按需」同样静默
-                            // 丢弃。现按 kind 映射真实调度。
-                            // 第七轮修复：餐锚经 MealAnchorRules 中文词表解析（原样
-                            // 传中文 token 全部落到 mealDefaultTime 的 default 08:00）；
-                            // 间隔设下限 60 分钟（<60 分钟的 8 天预排窗口物化过万
-                            // dose_log 行，且远超 iOS 64 pending 上限——更细频次应
-                            // 走固定时刻）
-                            let schedule: MedicationSchedule
-                            switch kind {
-                            case "interval":
-                                guard let minutes = Int(timeText), minutes >= 60 else { return }
-                                schedule = .interval(everyMinutes: minutes, start: "00:00")
-                            case "meal":
-                                let relations = DoseScheduleEngine.MealAnchorRules.parse(timeText)
-                                guard !relations.isEmpty else { return }
-                                schedule = .meal(relations: relations)
-                            case "asNeeded":
-                                schedule = .asNeeded
-                            default:
-                                // 审查修复（fixed 零剂量纵深防御）：canSave 已拦非法时刻，
-                                // 此处再以 Domain 同一规则兜底（表单状态与提交之间的
-                                // 任何路径都不得把不可解析时刻写库）。
-                                guard DoseScheduleEngine.isValidTime(timeText) else { return }
-                                schedule = .fixed(times: [timeText])
-                            }
+                            // 丢弃。kind → 真实调度映射收敛 NewPlanScheduleMapper
+                            // （与 NewPlanSheet.canSave 同一闸门，规则一处维护）。
+                            guard let schedule = NewPlanScheduleMapper.schedule(kind: kind, timeText: timeText) else { return }
                             try await reminders.createPlan(
                                 patientId: currentPatientId, medicationId: medId, name: name, spec: spec,
                                 schedule: schedule,
@@ -224,6 +204,35 @@ struct RemindersView: View {
         case "completed": return Color("semantic-success", bundle: .main)
         case "cancelled", "missed": return Color("text-secondary", bundle: .main)
         default: return .secondary
+        }
+    }
+}
+
+/// FR9.4 表单 → MedicationSchedule 映射（纯函数）：fixed/interval/meal/asNeeded。
+/// 可保存判定（canSave）与提交映射（RemindersView 创建闭包）共用同一闸门——
+/// 两处同款校验此前各写一份，interval 下限/餐锚解析/fixed 时刻任一规则漏改即漂移。
+/// 返回 nil = 非法输入（调用方保留表单；表单侧另以同名判定禁用保存按钮）。
+enum NewPlanScheduleMapper {
+    static func schedule(kind: String, timeText: String) -> MedicationSchedule? {
+        switch kind {
+        case "interval":
+            // 第七轮修复：间隔设下限 60 分钟（<60 分钟的 8 天预排窗口物化过万
+            // dose_log 行，且远超 iOS 64 pending 上限——更细频次应走固定时刻）
+            guard let minutes = Int(timeText), minutes >= 60 else { return nil }
+            return .interval(everyMinutes: minutes, start: "00:00")
+        case "meal":
+            // 第七轮修复：餐锚经 MealAnchorRules 中文词表解析（原样传中文 token
+            // 全部落到 mealDefaultTime 的 default 08:00）；全未知 token 拒绝保存
+            let relations = DoseScheduleEngine.MealAnchorRules.parse(timeText)
+            guard !relations.isEmpty else { return nil }
+            return .meal(relations: relations)
+        case "asNeeded":
+            return .asNeeded
+        default:
+            // 审查修复（fixed 零剂量纵深防御）：闸门与引擎共用 Domain
+            // isValidTime 单一事实源，不可解析时刻绝不落库
+            guard DoseScheduleEngine.isValidTime(timeText) else { return nil }
+            return .fixed(times: [timeText])
         }
     }
 }
@@ -283,24 +292,15 @@ struct NewPlanSheet: View {
         }
     }
 
-    /// 可保存判定：名字非空；间隔类必须为 ≥60 的整数分钟（第七轮修复：
-    /// 无下限时 1 分钟间隔会在 8 天预排窗口物化 ~1.1 万 dose_log 行）；
-    /// 餐锚必须至少解析出一个引擎关系词（全未知 token 拒绝保存并提示）
+    /// 可保存判定：名字非空；排程参数经 NewPlanScheduleMapper 同一闸门
+    /// （与提交路径规则同源——表单禁用态与提交拒绝永不分叉）。
+    /// 间隔类 ≥60 整数分钟（第七轮修复：无下限时 1 分钟间隔会在 8 天
+    /// 预排窗口物化 ~1.1 万 dose_log 行）；餐锚须至少解析出一个引擎关系词；
+    /// fixed 时刻走 Domain isValidTime（审查修复：任意字符串可保存 →
+    /// 计划以零剂量静默建成）。
     private var canSave: Bool {
         guard !name.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
-        if scheduleKind == "interval" {
-            guard let minutesValue = Int(timeText), minutesValue >= 60 else { return false }
-        }
-        if scheduleKind == "meal" {
-            guard !DoseScheduleEngine.MealAnchorRules.parse(timeText).isEmpty else { return false }
-        }
-        // 审查修复（fixed 零剂量）：fixed 时刻此前无校验——任意字符串（"8点"）
-        // 可保存，引擎解析失败只计 skip → 计划以零剂量静默建成（与 interval
-        // 同类 bug 的漏网通道）。闸门与引擎共用 Domain isValidTime 单一事实源。
-        if scheduleKind == "fixed" {
-            guard DoseScheduleEngine.isValidTime(timeText) else { return false }
-        }
-        return true
+        return NewPlanScheduleMapper.schedule(kind: scheduleKind, timeText: timeText) != nil
     }
 }
 

@@ -17,21 +17,9 @@ import Protocols
 final class TrendAcceptanceTests: XCTestCase {
 
     private func makeStore() async throws -> (GRDBStore, UUID) {
-        let store = try GRDBStore.inMemory()
-        let member = UUID()
-        try await store.writer.write { db in
-            try db.execute(sql: """
-                INSERT INTO patient_profile (id, display_name, relation, created_at, updated_at)
-                VALUES (?, '趋势测试患者', '本人', 0, 0)
-                """, arguments: [member.uuidString])
-            // 导出 envelope 的 selfProfile 经 local_owner.self_patient_id JOIN——
-            // 无 owner 行的 profile 不进包（M1c 往返测试同款纪律，ERR#35 前置）
-            try db.execute(sql: """
-                INSERT INTO local_owner (id, display_name, self_patient_id, created_at)
-                VALUES (?, '趋势测试患者', ?, 0)
-                """, arguments: [UUID().uuidString, member.uuidString])
-        }
-        return (store, member)
+        // 导出 envelope 的 selfProfile 经 local_owner.self_patient_id JOIN——
+        // 无 owner 行的 profile 不进包（M1c 往返测试同款纪律，ERR#35 前置）
+        return try await GRDBStore.inMemoryWithOwner("趋势测试患者", relation: "本人")
     }
 
     private func insertMetric(_ store: GRDBStore, member: UUID,

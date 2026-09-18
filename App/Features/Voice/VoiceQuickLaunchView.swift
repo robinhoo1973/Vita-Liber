@@ -330,9 +330,7 @@ struct VoiceQuickLaunchView: View {
             self.router.navigate(to: .emergencyCardConfig)
         }
         // FR17.15 V3.61：主语言 = 保序首位；混说开关真消费（词表注入 contextualStrings）
-        m.applyLanguageSettings(storedLocales: settings.values[.voiceInputLanguages],
-                                mixedInput: settings.values[.voiceMixedInput] != "false",
-                                recentDrugNames: hub.inventoryItems.map(\.medicationName))
+        m.applyLanguageSettings(settings: settings, recentDrugNames: hub.inventoryItems.map(\.medicationName))
         if model == nil { model = m }
     }
 

@@ -81,7 +81,23 @@ public enum SleepMerge {
         let windowEnd = calendar.date(bySettingHour: 12, minute: 0, second: 0, of: anchorDate) ?? anchorDate
         let windowStart = calendar.date(byAdding: .day, value: -1, to: windowEnd) ?? anchorDate
 
-        // ① 窗口裁剪（跨午夜样本按交集裁剪；跨窗样本只计窗内部分）
+        let clipped = clip(samples, to: windowStart, end: windowEnd)
+        let (perStage, asleepIntervals) = stageTotals(clipped)
+        let inBedUnion = union(clipped.filter { $0.stage == .inBed }.map { ($0.start, $0.end) })
+        let asleepSpans = union(asleepIntervals)
+        return SleepNightSummary(
+            totalAsleep: asleepSpans.reduce(0) { $0 + $1.1.timeIntervalSince($1.0) },
+            perStage: perStage,
+            inBedTotal: inBedUnion.reduce(0) { $0 + $1.1.timeIntervalSince($1.0) },
+            sleepStart: asleepSpans.map(\.0).min(),
+            sleepEnd: asleepSpans.map(\.1).max(),
+            segmentCount: segmentCount(of: asleepSpans),
+            prioritySource: prioritySourceName(clipped),
+            windowStart: windowStart)
+    }
+
+    /// ① 窗口裁剪（跨午夜样本按交集裁剪；跨窗样本只计窗内部分）。
+    private static func clip(_ samples: [SleepSample], to windowStart: Date, end windowEnd: Date) -> [SleepSample] {
         var clipped: [SleepSample] = []
         for sample in samples {
             let start = max(sample.start, windowStart)
@@ -92,11 +108,21 @@ public enum SleepMerge {
             s.end = end
             clipped.append(s)
         }
-        // Each interval is assigned once; episode grouping must never fill unobserved time.
-        let priorityName = clipped.max { lhs, rhs in
-            if sourceRank(lhs) != sourceRank(rhs) { return sourceRank(lhs) < sourceRank(rhs) }
-            return (lhs.sourceName ?? "") > (rhs.sourceName ?? "")
-        }?.sourceName
+        return clipped
+    }
+
+    /// 命中的最高优先来源名（诊断呈现；无来源信息为 nil）——优先链先一次求值，比较器不再重复计算。
+    private static func prioritySourceName(_ clipped: [SleepSample]) -> String? {
+        let ranked = clipped.map { (sample: $0, rank: sourceRank($0), name: $0.sourceName ?? "") }
+        return ranked.max { lhs, rhs in
+            if lhs.rank != rhs.rank { return lhs.rank < rhs.rank }
+            return lhs.name > rhs.name
+        }?.sample.sourceName
+    }
+
+    /// ④⑤ 边界分段：每段按阶段优先级归一个阶段；入睡段（非 awake）入 `asleepIntervals` 供并集。
+    /// Each interval is assigned once; episode grouping must never fill unobserved time.
+    private static func stageTotals(_ clipped: [SleepSample]) -> (perStage: [SleepStage: TimeInterval], asleepIntervals: [(Date, Date)]) {
         var perStage: [SleepStage: TimeInterval] = [:]
         var asleepIntervals: [(Date, Date)] = []
         let boundaries = Set(clipped.flatMap { [$0.start, $0.end] }).sorted()
@@ -120,16 +146,17 @@ public enum SleepMerge {
             perStage[stage, default: 0] += end.timeIntervalSince(start)
             if stage != .awake { asleepIntervals.append((start, end)) }
         }
-        let inBedUnion = union(clipped.filter { $0.stage == .inBed }.map { ($0.start, $0.end) })
-        let asleepSpans = union(asleepIntervals)
-        let totalAsleep = asleepSpans.reduce(0) { $0 + $1.1.timeIntervalSince($1.0) }
-        // ⑥ 分段计数：相邻入睡段 gap>30min 各成段——gap 按「前段结束→后段
-        //    开始」计（此前 lastEnd 记录的是前段**起点**，段长 >30min 时
-        //    下一段恒被判为新段：23:00-03:00 + 03:10-07:00 的 10min 醒来
-        //    被误计为 2 段）
+        return (perStage, asleepIntervals)
+    }
+
+    /// ⑥ 分段计数：相邻入睡段 gap>30min 各成段——gap 按「前段结束→后段
+    ///    开始」计（此前 lastEnd 记录的是前段**起点**，段长 >30min 时
+    ///    下一段恒被判为新段：23:00-03:00 + 03:10-07:00 的 10min 醒来
+    ///    被误计为 2 段）
+    private static func segmentCount(of spans: [(Date, Date)]) -> Int {
         var segmentCount = 0
         var lastEnd: Date?
-        for (s, e) in asleepSpans.sorted(by: { $0.0 < $1.0 }) {
+        for (s, e) in spans.sorted(by: { $0.0 < $1.0 }) {
             if let lastEnd, s.timeIntervalSince(lastEnd) > segmentGap {
                 segmentCount += 1
             } else if lastEnd == nil {
@@ -137,15 +164,7 @@ public enum SleepMerge {
             }
             lastEnd = e
         }
-        return SleepNightSummary(
-            totalAsleep: totalAsleep,
-            perStage: perStage,
-            inBedTotal: inBedUnion.reduce(0) { $0 + $1.1.timeIntervalSince($1.0) },
-            sleepStart: asleepSpans.map(\.0).min(),
-            sleepEnd: asleepSpans.map(\.1).max(),
-            segmentCount: segmentCount,
-            prioritySource: priorityName,
-            windowStart: windowStart)
+        return segmentCount
     }
 
     /// Actual coverage union: gaps never contribute measured duration.

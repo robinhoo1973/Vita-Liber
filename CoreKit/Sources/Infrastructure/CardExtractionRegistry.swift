@@ -38,88 +38,17 @@ public actor CardExtractionRegistry {
                                      diagnostics: ExtractionDiagnostics(track: .rules))
             var disabled = Set<ExtractionTrack>()
             var used: [ExtractionTrack] = []
-            func degrade(_ reason: DegradedReason) { if card.diagnostics.degradedReason == .none { card.diagnostics.degradedReason = reason } }
 
             for region in request.regions {
                 try Task.checkCancellation()
-                var merged = RegionExtraction(shared: [:], rows: [])
-                var contributors: [ExtractionTrack] = []
-                var regionDone = false
-                for engine in engines where !disabled.contains(engine.track) && !regionDone {
-                    let generative = engine.track != .rules
-                    if generative, !request.allowsGenerativeProcessing { degrade(.notAuthorized); continue }
-                    if generative, let budget = request.pageBudget, ContinuousClock.now - pageStarted > budget { degrade(.timeout); continue }
-                    let availability = await engine.availability(for: request)
-                    guard case .available = availability else {
-                        if case .unavailable(let reason) = availability { degrade(reason) }
-                        continue
-                    }
-                    var attempt = spec
-                    var retried = false
-                    while true {
-                        switch try await run(engine, region: region, spec: attempt, request: request) {
-                        case .timeout:
-                            card.diagnostics.timedOutRegions += 1
-                            card.diagnostics.degradedReason = .timeout
-                        case .failure:
-                            disabled.insert(engine.track)
-                            card.diagnostics.degradedReason = .engineError
-                        case .success(let raw):
-                            let probe = ExtractedCard(kind: spec.kind, pageIndex: request.pageIndex, shared: raw.shared, rows: raw.rows,
-                                                      provenance: card.provenance, diagnostics: card.diagnostics)
-                            let (grounded, dropped) = ExtractionGrounding.validate(probe, spec: attempt, lines: request.lines)
-                            card.diagnostics.droppedUngrounded += dropped
-                            let result = RegionExtraction(shared: grounded.shared, rows: grounded.rows)
-                            let ratio = raw.valueCount == 0 ? 0 : Double(result.valueCount) / Double(raw.valueCount)
-                            if ratio < Self.groundingThreshold, raw.valueCount > 0, generative, !retried {
-                                attempt = spec.narrowed(); retried = true; card.diagnostics.retries += 1
-                                continue   // 同轨缩范围重试一次（design §5.3）
-                            }
-                            merged = union(merged, result, anchor: spec.rowAnchor)
-                            if !result.isEmpty {
-                                if !used.contains(engine.track) { used.append(engine.track) }
-                                contributors.append(engine.track)
-                            }
-                            if ratio >= Self.groundingThreshold || !generative {
-                                regionDone = true
-                            } else if raw.valueCount > 0 {
-                                card.diagnostics.degradedReason = .lowGrounding
-                            }
-                        }
-                        break
-                    }
-                }
+                let (merged, contributors) = try await extractRegion(region, spec: spec, request: request,
+                                                                     card: &card, disabled: &disabled, used: &used,
+                                                                     pageStarted: pageStarted)
                 card.shared.merge(merged.shared) { first, _ in first }   // 共享同键：先到先得（表头字段重复印刷）
                 card.rows += merged.rows                                  // 行级：全部保留（O-N3 不再丢第二值）
                 if !contributors.isEmpty { card.diagnostics.regionTracks[region.id] = contributors }
             }
-            // 处方合体行后拆分（审查修复 2026-09-18 业主实测）：生成轨可能把
-            // 「阿莫西林胶囊 0.5g×24粒 口服 一次2粒 一日三次」整行当 drug_name
-            // 产出（逐字子串，grounding 合法）——行内药名/规格/途径/单次量/
-            // 频次全被埋没。规则轨文法对同文本可拆全键，故对处方卡逐行后
-            // 拆分：仅当 drug_name 混排用法短语时拆；union 语义（已有键不
-            // 覆盖——生成轨逐字值优先，新键补缺；全部产物仍 D 级待确认，
-            // BR-003 不变）。
-            if spec.kind == "prescription" {
-                for rowIndex in card.rows.indices {
-                    guard let nameGV = card.rows[rowIndex]["drug_name"],
-                          RuleExtractor.prescriptionNameNeedsSplit(nameGV.value) else { continue }
-                    let split = RuleExtractor.splitPrescriptionLine(nameGV.value)
-                    guard split.count > 1 else { continue }
-                    var updated = card.rows[rowIndex]
-                    for (key, value) in split {
-                        if key == "drug_name" {
-                            // 拆出的药名比整行短：以拆出值为准（锚点/置信沿用原值）
-                            updated["drug_name"] = GroundedValue(value: value, anchor: nameGV.anchor,
-                                                                 confidence: nameGV.confidence)
-                        } else if updated[key] == nil {
-                            updated[key] = GroundedValue(value: value, anchor: nameGV.anchor,
-                                                         confidence: nameGV.confidence)
-                        }
-                    }
-                    card.rows[rowIndex] = updated
-                }
-            }
+            applyPrescriptionRowSplit(to: &card)
             card.provenance.track = used.first ?? .rules
             card.diagnostics.track = card.provenance.track
             card.diagnostics.mixedTracks = used.count > 1
@@ -127,6 +56,97 @@ public actor CardExtractionRegistry {
             cards.append(card)
         }
         return cards
+    }
+
+    /// 单区域跨轨抽取：按注册顺序逐轨尝试，含缩范围重试与降级登记。
+    /// 返回该区域并集结果与贡献轨列表；`card`/`disabled`/`used` 沿链累计。
+    private func extractRegion(_ region: ExtractionRegion, spec: ExtractionSpec,
+                               request: ExtractionRequest, card: inout ExtractedCard,
+                               disabled: inout Set<ExtractionTrack>, used: inout [ExtractionTrack],
+                               pageStarted: ContinuousClock.Instant) async throws
+        -> (merged: RegionExtraction, contributors: [ExtractionTrack]) {
+        var merged = RegionExtraction(shared: [:], rows: [])
+        var contributors: [ExtractionTrack] = []
+        var regionDone = false
+        for engine in engines where !disabled.contains(engine.track) && !regionDone {
+            let generative = engine.track != .rules
+            if generative, !request.allowsGenerativeProcessing { degrade(.notAuthorized, in: &card); continue }
+            if generative, let budget = request.pageBudget, ContinuousClock.now - pageStarted > budget { degrade(.timeout, in: &card); continue }
+            let availability = await engine.availability(for: request)
+            guard case .available = availability else {
+                if case .unavailable(let reason) = availability { degrade(reason, in: &card) }
+                continue
+            }
+            var attempt = spec
+            var retried = false
+            while true {
+                switch try await run(engine, region: region, spec: attempt, request: request) {
+                case .timeout:
+                    card.diagnostics.timedOutRegions += 1
+                    card.diagnostics.degradedReason = .timeout
+                case .failure:
+                    disabled.insert(engine.track)
+                    card.diagnostics.degradedReason = .engineError
+                case .success(let raw):
+                    let probe = ExtractedCard(kind: spec.kind, pageIndex: request.pageIndex, shared: raw.shared, rows: raw.rows,
+                                              provenance: card.provenance, diagnostics: card.diagnostics)
+                    let (grounded, dropped) = ExtractionGrounding.validate(probe, spec: attempt, lines: request.lines)
+                    card.diagnostics.droppedUngrounded += dropped
+                    let result = RegionExtraction(shared: grounded.shared, rows: grounded.rows)
+                    let ratio = raw.valueCount == 0 ? 0 : Double(result.valueCount) / Double(raw.valueCount)
+                    if ratio < Self.groundingThreshold, raw.valueCount > 0, generative, !retried {
+                        attempt = spec.narrowed(); retried = true; card.diagnostics.retries += 1
+                        continue   // 同轨缩范围重试一次（design §5.3）
+                    }
+                    merged = union(merged, result, anchor: spec.rowAnchor)
+                    if !result.isEmpty {
+                        if !used.contains(engine.track) { used.append(engine.track) }
+                        contributors.append(engine.track)
+                    }
+                    if ratio >= Self.groundingThreshold || !generative {
+                        regionDone = true
+                    } else if raw.valueCount > 0 {
+                        card.diagnostics.degradedReason = .lowGrounding
+                    }
+                }
+                break
+            }
+        }
+        return (merged, contributors)
+    }
+
+    /// 首个降级原因登记（design §5.3：已定原因不被后续覆盖）。
+    private func degrade(_ reason: DegradedReason, in card: inout ExtractedCard) {
+        if card.diagnostics.degradedReason == .none { card.diagnostics.degradedReason = reason }
+    }
+
+    /// 处方合体行后拆分（审查修复 2026-09-18 业主实测）：生成轨可能把
+    /// 「阿莫西林胶囊 0.5g×24粒 口服 一次2粒 一日三次」整行当 drug_name
+    /// 产出（逐字子串，grounding 合法）——行内药名/规格/途径/单次量/
+    /// 频次全被埋没。规则轨文法对同文本可拆全键，故对处方卡逐行后
+    /// 拆分：仅当 drug_name 混排用法短语时拆；union 语义（已有键不
+    /// 覆盖——生成轨逐字值优先，新键补缺；全部产物仍 D 级待确认，
+    /// BR-003 不变）。
+    private func applyPrescriptionRowSplit(to card: inout ExtractedCard) {
+        guard card.kind == "prescription" else { return }
+        for rowIndex in card.rows.indices {
+            guard let nameGV = card.rows[rowIndex]["drug_name"],
+                  RuleExtractor.prescriptionNameNeedsSplit(nameGV.value) else { continue }
+            let split = RuleExtractor.splitPrescriptionLine(nameGV.value)
+            guard split.count > 1 else { continue }
+            var updated = card.rows[rowIndex]
+            for (key, value) in split {
+                if key == "drug_name" {
+                    // 拆出的药名比整行短：以拆出值为准（锚点/置信沿用原值）
+                    updated["drug_name"] = GroundedValue(value: value, anchor: nameGV.anchor,
+                                                         confidence: nameGV.confidence)
+                } else if updated[key] == nil {
+                    updated[key] = GroundedValue(value: value, anchor: nameGV.anchor,
+                                                 confidence: nameGV.confidence)
+                }
+            }
+            card.rows[rowIndex] = updated
+        }
     }
 
     /// 单区域单轨一次调用：无超时直跑；有超时则与睡眠竞速，先到者胜，随后协作取消另一方（T1 的 `respond` 退出后才释放租约——E4，O-N5）。

@@ -271,12 +271,49 @@ public enum DocumentTypeClassifierFallback {
 }
 
 public extension DocumentTypeClassifierFallback {
+    // MARK: - 行内直配静态资产（一次性构造，同 `fieldPatterns` 预编译纪律）
+
+    /// 药品/用法直配词表与医生标签（每行现算 → 常量复用）。
+    private static let drugLabelPrefixes = ["药品名称", "藥品名稱", "药名", "藥名", "药品：", "藥品："]
+    private static let directionsPrefixes = ["用法", "用量", "每次", "每日", "口服", "外用"]
+    private static let namedFormTokens = ["胶囊", "膠囊", "颗粒", "顆粒", "注射液", "缓释片", "緩釋片"]
+    private static let doctorTokens = ["医生", "醫生", "医师", "醫師"]
+
+    /// 标签直配扩展：只取印刷值，不推导剂量、币种或下一针时间。
+    private static let directLabelAliases: [(String, [String])] = [
+        ("generic_name", ["通用名称", "通用名稱", "通用名"]),
+        ("brand_name", ["商品名称", "商品名稱"]),
+        ("spec", ["药品规格", "藥品規格", "规格", "規格"]),
+        ("unit_kind", ["计量单位", "計量單位", "制剂单位", "製劑單位"]),
+        ("currency", ["币种", "幣種", "Currency"]),
+        ("merchant", ["收费单位", "收費單位", "收款单位", "收款單位"]),
+        ("summary", ["费用摘要", "費用摘要", "摘要"]),
+        ("vaccine_name", ["疫苗名称", "疫苗名稱"]),
+        ("dose_number", ["接种剂次", "接種劑次", "剂次", "劑次"]),
+        ("administered_at", ["接种日期", "接種日期"]),
+        ("provider", ["接种单位", "接種單位"]),
+        ("lot_number", ["批号", "批號"]),
+    ]
+
+    /// 药品行强度文法（药品名 + 数值 + 单位，处方页专判）。
+    private static let drugStrengthPattern: NSRegularExpression? = try? NSRegularExpression(   // try?-ok: 静态字面量，构造不会失败
+        pattern: #"^[一-龥A-Za-z][一-龥A-Za-z0-9（）() -]*?\s+[0-9]+(?:\.[0-9]+)?\s*(?:mg|g|mcg|μg|mL|ml|片|粒|支|袋)(?:\s.*)?$"#)
+    /// 合计金额文法（全匹配 = 标签 + 数字载荷；再取数字段）。
+    private static let amountPattern: NSRegularExpression? = try? NSRegularExpression(   // try?-ok: 静态字面量，构造不会失败
+        pattern: #"(?:合计|合計|总额|總額|金额|金額|(?i:total|amount))\s*[:：]?\s*([0-9]+(?:\.[0-9]{1,2})?)(?![0-9.])"#)
+    private static let amountNumberPattern: NSRegularExpression? = try? NSRegularExpression(   // try?-ok: 静态字面量，构造不会失败
+        pattern: #"[0-9]+(?:\.[0-9]{1,2})?"#)
+    /// 叙事并入的边界行记号（日期开头 / 编号列表）。
+    private static let narrativeBoundaryPattern: NSRegularExpression? = try? NSRegularExpression(   // try?-ok: 静态字面量，构造不会失败
+        pattern: #"^\d{4}\s*[-/年.]|^\d+[.、)]"#)
+
     /// Page-local extraction does not discard another card kind because the primary label differs.
     static func pageFields(lines: [String], understood: [FieldDraft], confidence: Double) -> [FieldDraft] {
         let measuredConfidence = confidence.isFinite ? min(1, max(0, confidence)) : 0
         let prescriptionPage = lines.contains { line in
             ["处方", "處方", "用法", "用量", "药品名称", "藥品名稱"].contains(where: line.contains)
         }
+        let heuristicConfidence = min(0.6, measuredConfidence)
         var output: [FieldDraft] = []
         var index = 0
         while index < lines.count {
@@ -288,29 +325,7 @@ public extension DocumentTypeClassifierFallback {
                     && ($0.rawText?.trimmingCharacters(in: .whitespacesAndNewlines) == text
                     || ($0.rawText == nil && $0.value.trimmingCharacters(in: .whitespacesAndNewlines) == text))
             }
-            for field in guessFields(line: line) {
-                let sameLineAndKey = { (existing: FieldDraft) in
-                    existing.key == field.key
-                        && (existing.sourceLineIndex == index
-                            || existing.rawText?.trimmingCharacters(in: .whitespacesAndNewlines) == text)
-                }
-                let hasNumber = { (draft: FieldDraft) in
-                    draft.value.range(of: #"[0-9]"#, options: .regularExpression) != nil
-                }
-                if let existingIndex = fields.firstIndex(where: sameLineAndKey) {
-                    // 同一原文行的同名草稿（模型轨与启发式轨双产出）：启发式
-                    // 载荷含数值（"血红蛋白 150"）优于仅名称的模型载荷
-                    // （"血红蛋白"）——后者缺 value 必填键，落库时整行被判
-                    // 无效且同一分析物出现两行（round10 审查 O8）。
-                    if hasNumber(field), !hasNumber(fields[existingIndex]) { fields[existingIndex] = field }
-                } else if !fields.contains(where: { $0.key == field.key && $0.value == field.value }) {
-                    fields.append(field)
-                }
-            }
-            func append(_ key: String, _ value: String) {
-                guard !fields.contains(where: { $0.key == key }) else { return }
-                fields.append(FieldDraft(key: key, value: value, confidence: min(0.6, measuredConfidence), rawText: line, source: .heuristic, sourceLineIndex: index))
-            }
+            mergeGuessedFields(line: text, index: index, into: &fields)
             // 标签直配块（v26/v27）沿用「首个冒号之后」取值：该路径**只在行首命中标签时**进入，
             // 单标签行（`入院日期：2026-09-12`）取值正确。**同族已知问题**（2026-09-16 登记）：
             // 多标签同行仍会吞值——`出院诊断：支气管炎 出院医嘱：继续服药` 的
@@ -326,92 +341,24 @@ public extension DocumentTypeClassifierFallback {
             // 机构名用后缀文法：`北京协和医院 处方笺` 的尾随「处方笺」不是标签，截标签法无效；
             // 文法不命中则回落原行为（宁保守勿误截）。
             if text.contains("医院") || text.contains("醫院") {
-                append("hospital", ExtractionPatterns.institutionName(in: text) ?? text)
+                appendIfAbsent("hospital", ExtractionPatterns.institutionName(in: text) ?? text,
+                               rawLine: line, index: index, confidence: heuristicConfidence, to: &fields)
             }
-            if ["医生", "醫生", "医师", "醫師"].contains(where: text.contains) {
-                if let span = ["医生", "醫生", "医师", "醫師"]
+            if doctorTokens.contains(where: text.contains) {
+                if let span = doctorTokens
                     .compactMap({ ExtractionPatterns.valueSpan(afterLabel: $0, in: text) }).first {
-                    append("doctor", span)
+                    appendIfAbsent("doctor", span, rawLine: line, index: index, confidence: heuristicConfidence, to: &fields)
                 }
             }
             // 日期：判定沿用 `parseDate`（它校验月/日域），**值改为有界日期记号**——
             // `parseDate` 内部是 `firstMatch`（行内任意位置命中即真），原实现据此把**整行**当值。
             if EntityCardProjection.parseDate(text, calendar: Calendar(identifier: .gregorian)) != nil,
                let dateSpan = ExtractionPatterns.dateToken(in: text) {
-                append("report_date", dateSpan)
+                appendIfAbsent("report_date", dateSpan, rawLine: line, index: index, confidence: heuristicConfidence, to: &fields)
             }
-            let explicitDrug = ["药品名称", "藥品名稱", "药名", "藥名", "药品：", "藥品："].contains(where: text.hasPrefix)
-            let directions = ["用法", "用量", "每次", "每日", "口服", "外用"].contains(where: text.hasPrefix)
-            let namedForm = ["胶囊", "膠囊", "颗粒", "顆粒", "注射液", "缓释片", "緩釋片"].contains(where: text.contains)
-            let strengthLine = prescriptionPage && text.range(
-                of: #"^[一-龥A-Za-z][一-龥A-Za-z0-9（）() -]*?\s+[0-9]+(?:\.[0-9]+)?\s*(?:mg|g|mcg|μg|mL|ml|片|粒|支|袋)(?:\s.*)?$"#,
-                options: .regularExpression) != nil
-            if explicitDrug || ((namedForm || strengthLine) && !directions) { append("drug_name", explicitDrug ? suffix : text) }
-            if directions { append("advice_text", suffix) }
-            // 标签直配扩展：只取印刷值，不推导剂量、币种或下一针时间。
-            let labels: [(String, [String])] = [
-                ("generic_name", ["通用名称", "通用名稱", "通用名"]),
-                ("brand_name", ["商品名称", "商品名稱"]),
-                ("spec", ["药品规格", "藥品規格", "规格", "規格"]),
-                ("unit_kind", ["计量单位", "計量單位", "制剂单位", "製劑單位"]),
-                ("currency", ["币种", "幣種", "Currency"]),
-                ("merchant", ["收费单位", "收費單位", "收款单位", "收款單位"]),
-                ("summary", ["费用摘要", "費用摘要", "摘要"]),
-                ("vaccine_name", ["疫苗名称", "疫苗名稱"]),
-                ("dose_number", ["接种剂次", "接種劑次", "剂次", "劑次"]),
-                ("administered_at", ["接种日期", "接種日期"]),
-                ("provider", ["接种单位", "接種單位"]),
-                ("lot_number", ["批号", "批號"]),
-            ]
-            if text.contains(":") || text.contains("：") {
-                for (key, prefixes) in labels where prefixes.contains(where: text.hasPrefix) {
-                    append(key, OCRGrounding.normalized(suffix.trimmingCharacters(in: .whitespaces), key: key))
-                }
-                // v26 住院/检查/检验标签直配（简/繁/英，单一事实源 ClinicalFieldLabels）：只取印刷值，不推导日期/类型。
-                let printed = suffix.trimmingCharacters(in: .whitespaces)
-                if !printed.isEmpty {
-                    for (key, prefixes) in ClinicalFieldLabels.prefixAliases where prefixes.contains(where: text.hasPrefix) {
-                        // v27 体检一般检查「数值 单位」拆值/单位槽位（同 lab_item 纪律；拆不开整段原文保留，不换算——BR-006/007）
-                        if ClinicalFieldLabels.generalExamKeys.contains(key), let split = ClinicalFieldLabels.splitNumberUnit(printed),
-                           !fields.contains(where: { $0.key == key }) {
-                            fields.append(FieldDraft(key: key, value: split.value, unit: split.unit, confidence: min(0.6, measuredConfidence),
-                                                     rawText: line, source: .heuristic, sourceLineIndex: index))
-                            continue
-                        }
-                        append(key, OCRGrounding.normalized(printed, key: key))
-                    }
-                    // 诊断标签行 → 诊断行（diagnosis_item）+ 标签自带的类型（主/次/入院/出院…）；病理诊断留在 impression，不自动成行（§C.4）。
-                    if let diagnosis = ClinicalFieldLabels.diagnosisLabel(prefixOf: text), diagnosis.type != "pathology" {
-                        append("diagnosis_item", printed)
-                        if let type = diagnosis.type { append("diagnosis_type", type) }
-                    }
-                    // v27 结论标签行（检验结论 / 检查结论 / 异常发现 / 复查建议 / 就医建议）→ 结论行 + 标签自带类型；
-                    // 总检结论 / 健康建议归首页叙事键（overall_conclusion / health_guidance），不重复成行。
-                    if let conclusion = ClinicalFieldLabels.conclusionLabel(prefixOf: text) {
-                        append("conclusion_item", printed)
-                        append("conclusion_type", conclusion.type)
-                    }
-                }
-            }
-            // 报告标题词表（「CT检查报告单」「超声检查报告」）→ report_type canonical raw（D 级建议，Picker 可改）。
-            if let reportType = ClinicalFieldLabels.reportType(inTitle: text) { append("report_type", reportType) }
-            if let range = text.range(of: #"(?:合计|合計|总额|總額|金额|金額|(?i:total|amount))\s*[:：]?\s*([0-9]+(?:\.[0-9]{1,2})?)(?![0-9.])"#, options: .regularExpression) {
-                let portion = String(text[range])
-                if let number = portion.range(of: #"[0-9]+(?:\.[0-9]{1,2})?"#, options: .regularExpression) { append("amount", String(portion[number])) }
-            }
-            // 审查修复：币种/票据类型归一化经 OCRGrounding.normalized 单出口——
-            // 旧实现内联映射漏掉 费用/費用→fee，规则轨与模型轨对同一票据
-            // 文本归一化出不同 item_type（双事实源漂移）。
-            if ["人民币", "人民幣", "CNY", "RMB"].contains(where: text.contains) {
-                append("currency", OCRGrounding.normalized("人民币", key: "currency"))
-            }
-            if text.contains("发票") || text.contains("發票") {
-                append("item_type", OCRGrounding.normalized("发票", key: "item_type"))
-            } else if ["收费单", "收費單", "费用", "費用"].contains(where: text.contains) {
-                append("item_type", OCRGrounding.normalized("收费单", key: "item_type"))
-            } else if text.contains("收据") || text.contains("收據") {
-                append("item_type", OCRGrounding.normalized("收据", key: "item_type"))
-            }
+            appendDrugAndLabelFields(text: text, suffix: suffix, line: line, index: index,
+                                     confidence: heuristicConfidence, prescriptionPage: prescriptionPage, to: &fields)
+            appendInvoiceFields(text: text, line: line, index: index, confidence: heuristicConfidence, to: &fields)
             if fields.contains(where: { $0.key == "amount" }) {
                 fields.removeAll { $0.key == "lab_item" || $0.key == "reference_range" }
             }
@@ -422,27 +369,8 @@ public extension DocumentTypeClassifierFallback {
             if fields.isEmpty {
                 fields = [FieldDraft(key: "line_\(index)", value: line, confidence: measuredConfidence, rawText: line)]
             }
-            // 叙事多行并入（审查修复 2026-09-18 业主实测）：主诉/现病史/既往史
-            // 等多行段落此前只取标签所在行，后续行落 line_N 孤行或误猜成别的
-            // 角色。标签行后的无标签行逐字换行并入（BR-002 不丢内容），直到
-            // 边界行（任何 guessFields 命中行 / 日期开头 / 编号列表 / 已有
-            // 模型轨字段的行）。吸收行跳过独立处理（不产 line_N）。
-            if let narrativeIndex = fields.firstIndex(where: { Self.narrativeFieldKeys.contains($0.key) }) {
-                var cursor = index + 1
-                var absorbed: [String] = []
-                while cursor < lines.count {
-                    let candidate = lines[cursor].trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !candidate.isEmpty else { cursor += 1; continue }
-                    if !guessFields(line: lines[cursor]).isEmpty { break }
-                    if candidate.range(of: #"^\d{4}\s*[-/年.]|^\d+[.、)]"#, options: .regularExpression) != nil { break }
-                    if understood.contains(where: { ($0.sourceLineIndex ?? -1) == cursor }) { break }
-                    absorbed.append(lines[cursor])
-                    cursor += 1
-                }
-                if !absorbed.isEmpty {
-                    fields[narrativeIndex].value += "\n" + absorbed.joined(separator: "\n")
-                    index = cursor - 1
-                }
+            if let next = absorbNarrativeLines(lines: lines, understood: understood, fields: &fields, from: index) {
+                index = next
             }
             for var field in fields {
                 field.sourceLineIndex = index
@@ -452,6 +380,143 @@ public extension DocumentTypeClassifierFallback {
             index += 1
         }
         return output
+    }
+
+    /// 同一行把启发式轨产出并入已有字段（模型轨与启发式轨双产出）：同名同行的草稿以含数值者
+    /// 胜出；全新「键+值」对才追加（重复候选不并列）。
+    private static func mergeGuessedFields(line text: String, index: Int, into fields: inout [FieldDraft]) {
+        for field in guessFields(line: text) {
+            let sameLineAndKey = { (existing: FieldDraft) in
+                existing.key == field.key
+                    && (existing.sourceLineIndex == index
+                        || existing.rawText?.trimmingCharacters(in: .whitespacesAndNewlines) == text)
+            }
+            let hasNumber = { (draft: FieldDraft) in
+                draft.value.range(of: #"[0-9]"#, options: .regularExpression) != nil
+            }
+            if let existingIndex = fields.firstIndex(where: sameLineAndKey) {
+                // 同一原文行的同名草稿（模型轨与启发式轨双产出）：启发式
+                // 载荷含数值（"血红蛋白 150"）优于仅名称的模型载荷
+                // （"血红蛋白"）——后者缺 value 必填键，落库时整行被判
+                // 无效且同一分析物出现两行（round10 审查 O8）。
+                if hasNumber(field), !hasNumber(fields[existingIndex]) { fields[existingIndex] = field }
+            } else if !fields.contains(where: { $0.key == field.key && $0.value == field.value }) {
+                fields.append(field)
+            }
+        }
+    }
+
+    /// 「标签：值」直配的落槽（同键已存在则跳过——原局部 append 语义的单一出口）。
+    private static func appendIfAbsent(_ key: String, _ value: String, rawLine: String, index: Int,
+                                       confidence: Double, to fields: inout [FieldDraft]) {
+        guard !fields.contains(where: { $0.key == key }) else { return }
+        fields.append(FieldDraft(key: key, value: value, confidence: confidence, rawText: rawLine,
+                                 source: .heuristic, sourceLineIndex: index))
+    }
+
+    /// 药品/医嘱直配 + 印刷标签直配（v26/v27 住院/检查/检验/疫苗/诊断/结论）+
+    /// 报告标题词表 → report_type canonical raw（D 级建议，Picker 可改）。
+    private static func appendDrugAndLabelFields(text: String, suffix: String, line: String, index: Int,
+                                                 confidence: Double, prescriptionPage: Bool,
+                                                 to fields: inout [FieldDraft]) {
+        let explicitDrug = drugLabelPrefixes.contains(where: text.hasPrefix)
+        let directions = directionsPrefixes.contains(where: text.hasPrefix)
+        let namedForm = namedFormTokens.contains(where: text.contains)
+        let strengthLine = prescriptionPage && drugStrengthPattern?.firstMatch(
+            in: text, range: NSRange(text.startIndex..., in: text)) != nil
+        if explicitDrug || ((namedForm || strengthLine) && !directions) {
+            appendIfAbsent("drug_name", explicitDrug ? suffix : text, rawLine: line, index: index, confidence: confidence, to: &fields)
+        }
+        if directions {
+            appendIfAbsent("advice_text", suffix, rawLine: line, index: index, confidence: confidence, to: &fields)
+        }
+        if text.contains(":") || text.contains("：") {
+            for (key, prefixes) in directLabelAliases where prefixes.contains(where: text.hasPrefix) {
+                appendIfAbsent(key, OCRGrounding.normalized(suffix.trimmingCharacters(in: .whitespaces), key: key),
+                               rawLine: line, index: index, confidence: confidence, to: &fields)
+            }
+            // v26 住院/检查/检验标签直配（简/繁/英，单一事实源 ClinicalFieldLabels）：只取印刷值，不推导日期/类型。
+            let printed = suffix.trimmingCharacters(in: .whitespaces)
+            if !printed.isEmpty {
+                for (key, prefixes) in ClinicalFieldLabels.prefixAliases where prefixes.contains(where: text.hasPrefix) {
+                    // v27 体检一般检查「数值 单位」拆值/单位槽位（同 lab_item 纪律；拆不开整段原文保留，不换算——BR-006/007）
+                    if ClinicalFieldLabels.generalExamKeys.contains(key), let split = ClinicalFieldLabels.splitNumberUnit(printed),
+                       !fields.contains(where: { $0.key == key }) {
+                        fields.append(FieldDraft(key: key, value: split.value, unit: split.unit, confidence: confidence,
+                                                 rawText: line, source: .heuristic, sourceLineIndex: index))
+                        continue
+                    }
+                    appendIfAbsent(key, OCRGrounding.normalized(printed, key: key), rawLine: line, index: index, confidence: confidence, to: &fields)
+                }
+                // 诊断标签行 → 诊断行（diagnosis_item）+ 标签自带的类型（主/次/入院/出院…）；病理诊断留在 impression，不自动成行（§C.4）。
+                if let diagnosis = ClinicalFieldLabels.diagnosisLabel(prefixOf: text), diagnosis.type != "pathology" {
+                    appendIfAbsent("diagnosis_item", printed, rawLine: line, index: index, confidence: confidence, to: &fields)
+                    if let type = diagnosis.type {
+                        appendIfAbsent("diagnosis_type", type, rawLine: line, index: index, confidence: confidence, to: &fields)
+                    }
+                }
+                // v27 结论标签行（检验结论 / 检查结论 / 异常发现 / 复查建议 / 就医建议）→ 结论行 + 标签自带类型；
+                // 总检结论 / 健康建议归首页叙事键（overall_conclusion / health_guidance），不重复成行。
+                if let conclusion = ClinicalFieldLabels.conclusionLabel(prefixOf: text) {
+                    appendIfAbsent("conclusion_item", printed, rawLine: line, index: index, confidence: confidence, to: &fields)
+                    appendIfAbsent("conclusion_type", conclusion.type, rawLine: line, index: index, confidence: confidence, to: &fields)
+                }
+            }
+        }
+        // 报告标题词表（「CT检查报告单」「超声检查报告」）→ report_type canonical raw（D 级建议，Picker 可改）。
+        if let reportType = ClinicalFieldLabels.reportType(inTitle: text) {
+            appendIfAbsent("report_type", reportType, rawLine: line, index: index, confidence: confidence, to: &fields)
+        }
+    }
+
+    /// 票据信号（合计金额 / 币种 / 票据类型）——币种与类型归一化经 OCRGrounding.normalized 单出口
+    /// （审查修复：旧实现内联映射漏掉 费用/費用→fee，规则轨与模型轨对同一票据
+    /// 文本归一化出不同 item_type，双事实源漂移）。
+    private static func appendInvoiceFields(text: String, line: String, index: Int,
+                                            confidence: Double, to fields: inout [FieldDraft]) {
+        if let match = amountPattern?.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+           let range = Range(match.range, in: text) {
+            let portion = String(text[range])
+            if let numberMatch = amountNumberPattern?.firstMatch(in: portion, range: NSRange(portion.startIndex..., in: portion)),
+               let numberRange = Range(numberMatch.range, in: portion) {
+                appendIfAbsent("amount", String(portion[numberRange]), rawLine: line, index: index, confidence: confidence, to: &fields)
+            }
+        }
+        if ["人民币", "人民幣", "CNY", "RMB"].contains(where: text.contains) {
+            appendIfAbsent("currency", OCRGrounding.normalized("人民币", key: "currency"), rawLine: line, index: index, confidence: confidence, to: &fields)
+        }
+        if text.contains("发票") || text.contains("發票") {
+            appendIfAbsent("item_type", OCRGrounding.normalized("发票", key: "item_type"), rawLine: line, index: index, confidence: confidence, to: &fields)
+        } else if ["收费单", "收費單", "费用", "費用"].contains(where: text.contains) {
+            appendIfAbsent("item_type", OCRGrounding.normalized("收费单", key: "item_type"), rawLine: line, index: index, confidence: confidence, to: &fields)
+        } else if text.contains("收据") || text.contains("收據") {
+            appendIfAbsent("item_type", OCRGrounding.normalized("收据", key: "item_type"), rawLine: line, index: index, confidence: confidence, to: &fields)
+        }
+    }
+
+    /// 叙事多行并入（审查修复 2026-09-18 业主实测）：主诉/现病史/既往史
+    /// 等多行段落此前只取标签所在行，后续行落 line_N 孤行或误猜成别的
+    /// 角色。标签行后的无标签行逐字换行并入（BR-002 不丢内容），直到
+    /// 边界行（任何 guessFields 命中行 / 日期开头 / 编号列表 / 已有
+    /// 模型轨字段的行）。吸收行跳过独立处理（不产 line_N）。
+    /// 返回并入后主循环应继续处理的下一行下标；无吸收返回 nil。
+    private static func absorbNarrativeLines(lines: [String], understood: [FieldDraft],
+                                             fields: inout [FieldDraft], from index: Int) -> Int? {
+        guard let narrativeIndex = fields.firstIndex(where: { Self.narrativeFieldKeys.contains($0.key) }) else { return nil }
+        var cursor = index + 1
+        var absorbed: [String] = []
+        while cursor < lines.count {
+            let candidate = lines[cursor].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !candidate.isEmpty else { cursor += 1; continue }
+            if !guessFields(line: lines[cursor]).isEmpty { break }
+            if narrativeBoundaryPattern?.firstMatch(in: candidate, range: NSRange(candidate.startIndex..., in: candidate)) != nil { break }
+            if understood.contains(where: { ($0.sourceLineIndex ?? -1) == cursor }) { break }
+            absorbed.append(lines[cursor])
+            cursor += 1
+        }
+        guard !absorbed.isEmpty else { return nil }
+        fields[narrativeIndex].value += "\n" + absorbed.joined(separator: "\n")
+        return cursor - 1
     }
 
     static func hasVisitEvidence(in fields: [FieldDraft]) -> Bool {

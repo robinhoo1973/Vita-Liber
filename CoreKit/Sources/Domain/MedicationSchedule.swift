@@ -80,6 +80,11 @@ public enum DoseScheduleEngine {
                 skipped += 1
                 return
             }
+            append(due: due, units: units, day: day, meal: meal)
+        }
+
+        /// 已解析时刻直接落剂量（interval 通道按推进时刻构造；notifyId 逻辑身份构造只此一处）。
+        func append(due: Date, units: Double, day: Int, meal: String? = nil) {
             out.append(ScheduledDose(
                 dueAt: due,
                 doseUnits: units,
@@ -108,8 +113,7 @@ public enum DoseScheduleEngine {
                 // ≈ 1440 次/计划），日历组件运算比一次浮点加法贵一个数量级。
                 // 先转 TimeInterval 再乘，避免 everyMinutes 极大时 Int 乘法溢出陷阱。
                 while t < dayEnd {
-                    out.append(ScheduledDose(dueAt: t, doseUnits: unitsPerDose,
-                                             notifyId: "dose-\(planId.uuidString)-\(day)-\(nextOrdinal(day))"))
+                    append(due: t, units: unitsPerDose, day: day)
                     t = t.addingTimeInterval(TimeInterval(everyMinutes) * 60)
                 }
             case .meal(let relations):
@@ -120,9 +124,7 @@ public enum DoseScheduleEngine {
                 // 除零保护：everyDays<=0 直接跳过（不会让日程引擎崩溃）
                 guard everyDays > 0 else { continue }
                 let dayOfCycle = ((day - 1) % everyDays) + 1
-                if dayOfCycle <= daysOn {
-                    for t in ["08:00"] { append(day, t, unitsPerDose) }
-                }
+                if dayOfCycle <= daysOn { append(day, "08:00", unitsPerDose) }
             case .taper(let stages):
                 for s in stages where day >= s.fromDay && day <= s.toDay {
                     for t in s.times { append(day, t, s.doseUnits) }
@@ -221,15 +223,20 @@ public enum DoseScheduleEngine {
     /// 静默建成、sheet 关闭、用户无感知——与 interval/meal 已修的同类 bug
     /// 在 fixed 通道漏网。
     public static func isValidTime(_ time: String) -> Bool {
-        let parts = time.split(separator: ":").compactMap { Int($0) }
-        return parts.count == 2 && (0..<24).contains(parts[0]) && (0..<60).contains(parts[1])
+        hourMinute(time) != nil
     }
 
     static func date(day: Int, time: String, startDate: Date, calendar: Calendar) -> Date? {
-        guard isValidTime(time) else { return nil }
-        let parts = time.split(separator: ":").compactMap { Int($0) }
+        guard let (hour, minute) = hourMinute(time) else { return nil }
         let dayStart = calendar.startOfDay(for: startDate)
         guard let dayDate = calendar.date(byAdding: .day, value: day - 1, to: dayStart) else { return nil }
-        return calendar.date(bySettingHour: parts[0], minute: parts[1], second: 0, of: dayDate)
+        return calendar.date(bySettingHour: hour, minute: minute, second: 0, of: dayDate)
+    }
+
+    /// "HH:mm" 解析（isValidTime 与 date(day:time:) 共用——解析语义只有一处）。
+    private static func hourMinute(_ time: String) -> (hour: Int, minute: Int)? {
+        let parts = time.split(separator: ":").compactMap { Int($0) }
+        guard parts.count == 2, (0..<24).contains(parts[0]), (0..<60).contains(parts[1]) else { return nil }
+        return (parts[0], parts[1])
     }
 }

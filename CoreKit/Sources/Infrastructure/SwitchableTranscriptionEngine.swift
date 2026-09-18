@@ -60,14 +60,9 @@ actor SwitchableTranscriptionEngine: TranscriptionCaptureReporting {
             if intent == .cancel { throw CancellationError() }
             return .init(text: "", confidence: 0, resolvedLocale: request.localeIdentifier, segmented: false)
         }
-        let selected = choiceProvider()
         // 审计修正（round3）：auto 解析改用 builder 的**过闸**版本（缺件随包模型回落
         // 平台轨/基线轨），绝不把缺件引擎交给会话（否则每次必抛 engineUnavailable）。
-        #if os(iOS) || os(macOS)
-        let choice = selected == .auto ? TranscriptionEngineBuilder.automaticChoice(locale: request.localeIdentifier) : selected
-        #else
-        let choice = selected   // Linux 包测试：无 auto 档资产解析
-        #endif
+        let choice = resolvedChoice(for: request.localeIdentifier)
         let engine = delegate(for: choice)
         let previous = captureOwner.flatMap { serving[$0].map { ($0, captureOwner) } }
         serving[id] = engine
@@ -124,29 +119,16 @@ actor SwitchableTranscriptionEngine: TranscriptionCaptureReporting {
     }
 
     func localeAssetStatus(_ localeIdentifier: String) async -> VoiceLocaleAssetStatus {
-        let choice = choiceProvider()
-        // 审查修复：删除重复嵌套 #if（内层 #else 全平台不可达的死分支——
-        // 与 prepareLocale 同构的单层门控才是意图形态）
-        #if os(iOS) || os(macOS)
-        let resolved = choice == .auto ? TranscriptionEngineBuilder.automaticChoice(locale: localeIdentifier) : choice
-        #else
-        let resolved = choice   // Linux 包测试：无 auto 档资产解析
-        #endif
-        return await delegate(for: resolved).localeAssetStatus(localeIdentifier)
+        return await delegate(for: resolvedChoice(for: localeIdentifier)).localeAssetStatus(localeIdentifier)
     }
 
     func prepareLocale(_ localeIdentifier: String) async -> Bool {
-        let choice = choiceProvider()
         // 审查修复：auto 档必须先按 locale 解析实际服务档位再判可安装性——
         // 且必须与 localeAssetStatus 同用一个**门控**解析器（旧实现对 auto
         // 用未门控目录：zh 恒解析 .qwen3、requiresLocaleAssets==false 恒
         // return false，实验室在「auto + 平台轨回落」场景显示可下载按钮
         // 却必然安装失败——owner round10 实测）。
-        #if os(iOS) || os(macOS)
-        let resolved = choice == .auto ? TranscriptionEngineBuilder.automaticChoice(locale: localeIdentifier) : choice
-        #else
-        let resolved = choice   // Linux 包测试：无 auto 档资产解析
-        #endif
+        let resolved = resolvedChoice(for: localeIdentifier)
         // round2 A-N2：随包模型的 prepareLocale = 预热（把模型提前装入推理池，不联网、不采音），
         // 否则语音界面出现时的 warmUp 对 sherpa 轨恒为空操作，按压首句仍在模型加载期丢失。
         guard resolved.requiresLocaleAssets || resolved.isBundledModel else { return false }
@@ -155,14 +137,21 @@ actor SwitchableTranscriptionEngine: TranscriptionCaptureReporting {
 
     /// 端口 `warmUp`（F-A7-01）：同 prepareLocale 的门控解析，但只转发到各引擎的**零联网**预热。
     func warmUp(_ localeIdentifier: String) async -> Bool {
-        let choice = choiceProvider()
-        #if os(iOS) || os(macOS)
-        let resolved = choice == .auto ? TranscriptionEngineBuilder.automaticChoice(locale: localeIdentifier) : choice
-        #else
-        let resolved = choice
-        #endif
+        let resolved = resolvedChoice(for: localeIdentifier)
         guard resolved.requiresLocaleAssets || resolved.isBundledModel else { return false }
         return await delegate(for: resolved).warmUp(localeIdentifier)
+    }
+
+    /// auto 档按 locale 解析实际服务档位（单一门控解析器——transcribe /
+    /// localeAssetStatus / prepareLocale / warmUp 共用，防各入口解析口径分叉；
+    /// Linux 包测试无 auto 档资产解析，恒原值）。
+    private func resolvedChoice(for localeIdentifier: String) -> VoiceEngineChoice {
+        let selected = choiceProvider()
+        #if os(iOS) || os(macOS)
+        return selected == .auto ? TranscriptionEngineBuilder.automaticChoice(locale: localeIdentifier) : selected
+        #else
+        return selected   // Linux 包测试：无 auto 档资产解析
+        #endif
     }
 
     private func delegate(for choice: VoiceEngineChoice) -> any TranscriptionEngine {

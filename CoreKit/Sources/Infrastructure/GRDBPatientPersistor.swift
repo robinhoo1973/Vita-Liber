@@ -94,24 +94,11 @@ public actor GRDBPatientPersistor: PatientPersisting {
     public func members() async throws -> [PatientProfile] {
         try await store.writer.read { db in
             let rows = try Row.fetchAll(db, sql: """
-                SELECT id, display_name, relation, gender, birth_date, blood_type, id_no, insurance_no,
-                       note, created_at, updated_at
-                FROM patient_profile WHERE deleted_at IS NULL ORDER BY created_at ASC
+                SELECT * FROM patient_profile WHERE deleted_at IS NULL ORDER BY created_at ASC
                 """)
-            return rows.map { row in
-                PatientProfile(
-                    id: UUID(uuidString: row["id"] as String) ?? UUID(),
-                    displayName: row["display_name"] as String,
-                    relation: row["relation"] as String,
-                    gender: row["gender"] as String?,
-                    birthDate: row["birth_date"] as String?,
-                    bloodType: row["blood_type"] as String?,
-                    idNo: row["id_no"] as String?,
-                    insuranceNo: row["insurance_no"] as String?,
-                    note: row["note"] as String?,
-                    createdAt: row["created_at"] as Double,
-                    updatedAt: row["updated_at"] as Double)
-            }
+            // 行→PatientProfile 映射走 GRDBStore.profileRow 单实现（与备份导出同源，
+            // 不再各自维护一份字段映射——列增改漏一处即静默分叉）
+            return rows.map { GRDBStore.profileRow($0) }
         }
     }
 

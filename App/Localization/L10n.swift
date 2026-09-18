@@ -452,8 +452,20 @@ enum L10n {
 
     /// SP-08 四新分段 + 「关联预约」（FR10.7：候选只是清单，挂接须用户显式确认，不自动生效）。
 
-    /// 指定语言的资源包（不写缓存；供跨语言反查）。查找链与 `currentBundle` 同构。
+    /// 指定语言的资源包（不写缓存；供跨语言反查）。查找链与 `currentBundle` 同构
+    /// （共用同一 `resolveBundle(forLanguage:)` 实现——原两条同构链各自复制四步
+    /// 回落，增补一步回落必须改两处且极易漏一处）。
     static func bundle(forLanguage lang: String) -> Bundle? {
+        resolveBundle(forLanguage: lang)
+    }
+
+    /// 四步回落查找链：Bundle 根 .lproj（标准打包路径）→ Resources/Localization/
+    /// 子目录（XcodeGen 源码树保留路径）→ Localizable.strings 父目录 → 全量
+    /// .lproj 扫描。失败返回 nil（由调用侧决定缓存与否）。
+    /// 注：`paths(forResourcesOfType:inDirectory:)` 返回 [String]（非 Optional），
+    /// 空数组由 for 循环自然空转——if let 绑定非 Optional 是类型错误
+    /// （CI 34019956499 实证：此回落链此前从未通过真实编译）。
+    private static func resolveBundle(forLanguage lang: String) -> Bundle? {
         if let path = Bundle.main.path(forResource: lang, ofType: "lproj"), let bundle = Bundle(path: path) { return bundle }
         if let url = Bundle.main.url(forResource: lang, withExtension: "lproj", subdirectory: "Resources/Localization"),
            let bundle = Bundle(url: url) { return bundle }
@@ -477,43 +489,9 @@ enum L10n {
     static var currentBundle: Bundle? {
         cacheLock.lock(); defer { cacheLock.unlock() }
         if let cached = bundleCache { return cached }
-        let lang = languageCache
-        // 首选：Bundle 根目录下的 .lproj（标准 Xcode 打包路径）
-        if let path = Bundle.main.path(forResource: lang, ofType: "lproj"),
-           let bundle = Bundle(path: path) {
+        if let bundle = resolveBundle(forLanguage: languageCache) {
             bundleCache = bundle
-            return bundle
         }
-        // 回落 1：Resources/Localization/ 子目录（XcodeGen 源码树保留路径）
-        if let url = Bundle.main.url(forResource: lang,
-                                      withExtension: "lproj",
-                                      subdirectory: "Resources/Localization"),
-           let bundle = Bundle(url: url) {
-            bundleCache = bundle
-            return bundle
-        }
-        // 回落 2：直接查找 Localizable.strings 并取其父目录作为 bundle
-        if let stringsURL = Bundle.main.url(forResource: "Localizable",
-                                             withExtension: "strings",
-                                             subdirectory: "\(lang).lproj"),
-           let bundle = Bundle(url: stringsURL.deletingLastPathComponent()) {
-            bundleCache = bundle
-            return bundle
-        }
-        // 回落 3：在所有 .lproj 目录中搜索匹配的语言
-        // paths(forResourcesOfType:inDirectory:) 返回 [String]（非 Optional），
-        // 空数组由 for 循环自然空转——if let 绑定非 Optional 是类型错误
-        // （CI 34019956499 实证：此回落链此前从未通过真实编译）。
-        let allPaths = Bundle.main.paths(forResourcesOfType: "lproj", inDirectory: nil)
-        for p in allPaths {
-            let name = URL(fileURLWithPath: p).lastPathComponent
-            if name == "\(lang).lproj" || name == lang {
-                if let bundle = Bundle(path: p) {
-                    bundleCache = bundle
-                    return bundle
-                }
-            }
-        }
-        return nil
+        return bundleCache
     }
 }

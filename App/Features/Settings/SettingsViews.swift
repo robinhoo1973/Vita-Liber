@@ -211,9 +211,9 @@ struct SettingsView: View {
                 case .authHealthRead: return SettingsRules.resolved(settings.values[key], key: key) == "true"
                 // 审查修复（口径统一）：布尔读一律与键默认值比较——
                 // `!= "false"` 与 `== "true"` 在 values 未装载（nil）时对
-                // 同一键显示相反状态（本页开/外观页关）；统一
-                // `(values[key] ?? defaultValue) == "true"` 装载前后一致。
-                default: return toggles[key] ?? ((settings.values[key] ?? key.defaultValue) == "true")
+                // 同一键显示相反状态（本页开/外观页关）；统一口径收敛
+                // AppSettingsBindings.bool（装载前后一致，三处绑定同源）。
+                default: return toggles[key] ?? AppSettingsBindings.bool(settings, for: key)
                 }
             },
             set: { newValue in
@@ -225,14 +225,7 @@ struct SettingsView: View {
 
     /// FR14.4 主题绑定（tech-spec §5.28.1：值存 DB app_settings，@Observable 即时生效）
     private var themeBinding: Binding<AppTheme> {
-        Binding(
-            get: {
-                AppTheme(rawValue: settings.values[.appearance]
-                         ?? AppSettingKey.appearance.defaultValue) ?? .system
-            },
-            set: { theme in
-                Task { await settings.set(theme.rawValue, for: .appearance) }
-            })
+        AppSettingsBindings.theme(settings)
     }
 
     private var currentLanguageName: String {

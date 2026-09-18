@@ -58,15 +58,55 @@ public enum SharedFieldPool {
     /// 汇集本会话的共用信息行。`floor` 为确认门（默认 0.6，单一事实源在 `CardConfirmationRules`）。
     public static func rows(cards: [MatchedCard],
                             floor: Double = CardConfirmationRules.confirmAllConfidenceFloor) -> [Row] {
-        struct Slot {
-            let key: String
-            let value: String
-            let unit: String?
-            let field: FieldDraft
-            let carrier: Carrier
-            let required: Bool
+        let slots = collectSlots(cards: cards)
+        let multiCard = cards.count >= 2
+
+        // 归并：键 → 值+单位 → 承载方集合；同时累计每键的携带卡数
+        // （此前每键全量重扫 slots 求 cardCount，O(n·k)——归并一趟顺带累计）
+        var order: [String] = []
+        var byKey: [String: [String: [Slot]]] = [:]
+        var cardCounts: [String: Set<UUID>] = [:]
+        for slot in slots {
+            let valueKey = "\(slot.value)\u{1}\(slot.unit ?? "")"
+            if byKey[slot.key] == nil { byKey[slot.key] = [:]; order.append(slot.key) }
+            byKey[slot.key]?[valueKey, default: []].append(slot)
+            cardCounts[slot.key, default: []].insert(slot.carrier.cardId)
         }
 
+        var out: [Row] = []
+        for key in order {
+            guard let groups = byKey[key] else { continue }
+            let repeated = (cardCounts[key]?.count ?? 0) >= 2
+            // 审查修复（非确定性输出）：原比较器只比 `value`，而 groups 的键是
+            // 「value\u{1}unit」——两条 value 文本相同但单位不同的组（如同一分析物
+            // 在一页化验单上分别以 mmol/L 与 mg/dL 打印）在两个方向上都判定为 false，
+            // 即**非全序**；Swift 的 sorted 不保证稳定，于是这两行的相对次序退化为
+            // Dictionary 每进程随机的遍历序 → 同一输入在每次启动下产出不同的
+            // 共用信息确认页行序（快照/金样测试随之闪断）。
+            // 补上唯一的键作为最终次序键，构成全序。
+            for (_, group) in groups.sorted(by: {
+                let av = $0.value.first?.value ?? ""
+                let bv = $1.value.first?.value ?? ""
+                return av == bv ? $0.key < $1.key : av < bv
+            }) {
+                guard let head = group.first else { continue }
+                let required = group.contains(where: \.required)
+                let lowConfidence = group.contains { $0.field.confidence < floor }
+                let missing = head.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                // 三条析取（规格 2026-09-17 定稿）：① 跨卡重复 ② 必填 ∧ 低置信（单卡也入）
+                // ③ 必填 ∧ 缺失 ∧ **多卡**——单卡的缺失/空值留在卡内（业主：「单卡的卡内操作」）
+                let critical = required && (lowConfidence || (missing && multiCard))
+                guard repeated || critical else { continue }
+                out.append(Row(key: key, value: head.value, unit: head.unit, field: head.field,
+                               carriers: group.map(\.carrier).sorted { "\($0.face)" < "\($1.face)" },
+                               repeatedAcrossCards: repeated, criticalLowConfidence: critical, required: required))
+            }
+        }
+        return out
+    }
+
+    /// 汇集阶段：各卡共享面 / 行内 / 主卡草稿摊平成槽位（含共享面缺席的必填键空值补位）。
+    private static func collectSlots(cards: [MatchedCard]) -> [Slot] {
         var slots: [Slot] = []
         for card in cards {
             let entry = CardKindRegistry.entry(for: card.kind)
@@ -107,48 +147,17 @@ public enum SharedFieldPool {
                 }
             }
         }
+        return slots
+    }
 
-        // 归并：键 → 值+单位 → 承载方集合
-        var order: [String] = []
-        var byKey: [String: [String: [Slot]]] = [:]
-        for slot in slots {
-            let valueKey = "\(slot.value)\u{1}\(slot.unit ?? "")"
-            if byKey[slot.key] == nil { byKey[slot.key] = [:]; order.append(slot.key) }
-            byKey[slot.key]?[valueKey, default: []].append(slot)
-        }
-
-        var out: [Row] = []
-        let multiCard = cards.count >= 2
-        for key in order {
-            guard let groups = byKey[key] else { continue }
-            let cardCount = Set(slots.filter { $0.key == key }.map(\.carrier.cardId)).count
-            let repeated = cardCount >= 2
-            // 审查修复（非确定性输出）：原比较器只比 `value`，而 groups 的键是
-            // 「value\u{1}unit」——两条 value 文本相同但单位不同的组（如同一分析物
-            // 在一页化验单上分别以 mmol/L 与 mg/dL 打印）在两个方向上都判定为 false，
-            // 即**非全序**；Swift 的 sorted 不保证稳定，于是这两行的相对次序退化为
-            // Dictionary 每进程随机的遍历序 → 同一输入在每次启动下产出不同的
-            // 共用信息确认页行序（快照/金样测试随之闪断）。
-            // 补上唯一的键作为最终次序键，构成全序。
-            for (_, group) in groups.sorted(by: {
-                let av = $0.value.first?.value ?? ""
-                let bv = $1.value.first?.value ?? ""
-                return av == bv ? $0.key < $1.key : av < bv
-            }) {
-                guard let head = group.first else { continue }
-                let required = group.contains(where: \.required)
-                let lowConfidence = group.contains { $0.field.confidence < floor }
-                let missing = head.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                // 三条析取（规格 2026-09-17 定稿）：① 跨卡重复 ② 必填 ∧ 低置信（单卡也入）
-                // ③ 必填 ∧ 缺失 ∧ **多卡**——单卡的缺失/空值留在卡内（业主：「单卡的卡内操作」）
-                let critical = required && (lowConfidence || (missing && multiCard))
-                guard repeated || critical else { continue }
-                out.append(Row(key: key, value: head.value, unit: head.unit, field: head.field,
-                               carriers: group.map(\.carrier).sorted { "\($0.face)" < "\($1.face)" },
-                               repeatedAcrossCards: repeated, criticalLowConfidence: critical, required: required))
-            }
-        }
-        return out
+    /// 汇集槽位：哪个卡面携带了哪个键值（含必填标注）。
+    private struct Slot {
+        let key: String
+        let value: String
+        let unit: String?
+        let field: FieldDraft
+        let carrier: Carrier
+        let required: Bool
     }
 
     // MARK: - 闸门与回填

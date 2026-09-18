@@ -18,16 +18,7 @@ final class TrendEntryStateTests: XCTestCase {
     }
 
     private func makeSeed() async throws -> Seed {
-        let db = try GRDBStore.inMemory()
-        let owner = UUID()
-        try await db.writer.write { db in
-            try db.execute(sql: """
-                INSERT INTO patient_profile (id, display_name, relation, created_at, updated_at)
-                VALUES (?, 'Owner', 'self', 0, 0)
-                """, arguments: [owner.uuidString])
-            try db.execute(sql: "INSERT INTO local_owner (id, display_name, self_patient_id, created_at) VALUES (?, 'Owner', ?, 0)",
-                           arguments: [UUID().uuidString, owner.uuidString])
-        }
+        let (db, owner) = try await GRDBStore.inMemoryWithOwner()
         let trends = TrendQueryStore(writer: db.writer)
         // A 名下 heartRate 与 glucose 各一行（最近，落在任何时间窗内）
         let recent = Date().addingTimeInterval(-3600)
@@ -86,16 +77,7 @@ final class TrendEntryStateTests: XCTestCase {
     /// 「锚今天」与「锚最新读数」（种子数据都在一小时前，两种策略结果相同）：
     /// 新版把种子的最新读数放到 90 天前，窗末仍必须是今天。
     func test_windowIsAnchoredToTodayNotTheNewestReading() async throws {
-        let db = try GRDBStore.inMemory()
-        let owner = UUID()
-        try await db.writer.write { db in
-            try db.execute(sql: """
-                INSERT INTO patient_profile (id, display_name, relation, created_at, updated_at)
-                VALUES (?, 'Owner', 'self', 0, 0)
-                """, arguments: [owner.uuidString])
-            try db.execute(sql: "INSERT INTO local_owner (id, display_name, self_patient_id, created_at) VALUES (?, 'Owner', ?, 0)",
-                           arguments: [UUID().uuidString, owner.uuidString])
-        }
+        let (db, owner) = try await GRDBStore.inMemoryWithOwner()
         let trends = TrendQueryStore(writer: db.writer)
         let stale = Date().addingTimeInterval(-90 * 86400)
         _ = try await trends.addSample(patientId: owner, metric: .glucose, value: 5.6, secondaryValue: nil,

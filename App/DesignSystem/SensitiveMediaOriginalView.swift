@@ -32,16 +32,11 @@ struct SensitiveMediaOriginalView: View {
     /// 第七轮修复：加载失败态（loader 返回 nil/空 = 文件不可读/已清理）——
     /// 原实现 unlocked=true 但 image/displayData 均 nil，永远转圈无出口
     @State private var loadFailed = false
-    @State private var relockTask: Task<Void, Never>?
+    /// 空闲重锁计时器（计时/在途解锁双句柄，共享 MediaRelockTimer 机制）
+    @State private var relockTimer = MediaRelockTimer()
     /// 解锁在途守卫：同步置位——连点两次只触发一次系统认证（二次并发
     /// LAContext 求值必败且可能双弹认证层）
     @State private var unlocking = false
-    /// 解锁在途任务句柄（第十一轮审查）：onDisappear/relock 必须能取消在途
-    /// 解锁——认证已通过但 originalLoader 仍在读盘时用户关闭视图，任务恢复
-    /// 后会把原图字节重新解进内存、再武装 30s TTL 并写「已查看」审计，
-    /// 用户从未看到内容（BR-007「重锁 = 回到认证前内存态」对离开场景失效，
-    /// onDisappear 重锁拦不住无句柄的在途任务）
-    @State private var unlockTask: Task<Void, Never>?
 
     var body: some View {
         WithPerceptionTracking {
@@ -139,10 +134,11 @@ struct SensitiveMediaOriginalView: View {
             unlocking = true
             // 占位视图仅在 !unlocked 时渲染，故此处无需再查 unlocked——
             // authenticateAndUnlock 内部有取消检查，relock() 会取消本任务。
-            unlockTask = Task {
+            let task = Task {
                 _ = await authenticateAndUnlock()
                 unlocking = false
             }
+            relockTimer.trackUnlock(task)
         }
     }
 
@@ -183,20 +179,15 @@ struct SensitiveMediaOriginalView: View {
     }
 
     private func scheduleRelock() {
-        relockTask?.cancel()
-        let ttl = MediaUnlockPolicy.idleTTL
-        relockTask = Task {
-            try? await Task.sleep(nanoseconds: UInt64(ttl * 1_000_000_000))   // try?-ok: 空闲重锁计时被取消即停，sleep 失败无副作用
-            guard !Task.isCancelled else { return }
-            relock()
-        }
+        // 值捕获（View 结构体，与原先 Task 闭包同语义）：@State 写入经共享存储
+        // 落真实状态，捕获的视图副本过时不影响。
+        relockTimer.schedule(onExpiry: { relock() })
     }
 
     private func relock() {
-        relockTask?.cancel()
-        relockTask = nil
-        unlockTask?.cancel()   // 取消在途解锁（离开/重锁后认证结果不得复活解码与审计）
-        unlockTask = nil
+        // 取消在途解锁（离开/重锁后认证结果不得复活解码与审计）——句柄管理
+        // 共享 MediaRelockTimer（第十一轮审查语义不变）
+        relockTimer.cancelAll()
         unlocking = false      // 立即释放守卫：被取消任务的复位有调度延迟，置位可避免回场首击被吞
         unlocked = false
         // 第六轮全仓审查修复：重锁必须把已解码的降采样字节一并清出——

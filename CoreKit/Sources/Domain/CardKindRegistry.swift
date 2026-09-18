@@ -26,6 +26,15 @@ public struct CardKindEntry: Sendable, Equatable {
     /// 表头表（`OCRCardStore.factTable(for:)` 口径）。
     public var headerTable: String { entityTables.first ?? kind }
 
+    /// 行级必填集的口径（空行豁免的单一出处）：`allowsEmptyRows` 且该行无字段
+    /// （「表头即实体」的票据页）→ 空集；其余行照常。此前
+    /// `EntityCardProjection.invalidFields` 与 `CardConfirmationRules` 三处
+    /// 各写一份同构三元式。取名 `effectiveRowRequired` 以避开与同名存储属性
+    /// `rowRequired` 的基名遮蔽（SourceKit 报「cannot call non-function type」）。
+    func effectiveRowRequired(forEmptyRow isEmpty: Bool) -> Set<String> {
+        allowsEmptyRows && isEmpty ? [] : rowRequired
+    }
+
     public init(kind: String, entityTables: [String],
                 sharedRequired: Set<String>, sharedOptional: Set<String>,
                 rowRequired: Set<String>, rowOptional: Set<String>,

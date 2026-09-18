@@ -136,29 +136,39 @@ public enum SleepTrendRules {
         var excluded: [Date: [SleepStage: Accumulator]] = [:]
         var visibleTotals: [Date: (hours: Double, pointIds: [UUID])] = [:]
         var excludedTotals: [Date: (hours: Double, pointIds: [UUID])] = [:]
+        /// 阶段行并入（同阶段多行取最大值、保留全部行 id——SleepMerge 已做窗内并集，跨行求和即双计）。
+        func mergeStage(_ point: TrendPoint, day: Date, stage: SleepStage,
+                        into groups: inout [Date: [SleepStage: Accumulator]]) {
+            var stages = groups[day] ?? [:]
+            var slot = stages[stage] ?? Accumulator(hours: 0, pointIds: [], unit: nil)
+            slot.merge(point)
+            stages[stage] = slot
+            groups[day] = stages
+        }
+        /// 总量行并入（同晚取最大值；行 id 恒保留）。
+        func addTotal(_ point: TrendPoint, day: Date,
+                      into totals: inout [Date: (hours: Double, pointIds: [UUID])]) {
+            let current = totals[day]
+            totals[day] = (max(current?.hours ?? 0, point.value), (current?.pointIds ?? []) + [point.id])
+        }
         for row in rows {
             let day = calendar.startOfDay(for: row.point.measuredAt)
             guard let stage = row.metric.sleepStage else {
                 // 总量键（sleep_total）：只作整晚口径，不参与堆叠（否则与各段双计）；
                 // 行 id 一并保留——排除一整夜时它必须同被软删（否则宫格总时长瓦片
                 // 仍显示该夜，且它没有别的排除入口）
-                var totals = row.point.excluded ? excludedTotals : visibleTotals
-                let current = totals[day]
-                if (current?.hours ?? 0) < row.point.value {
-                    totals[day] = (row.point.value, (current?.pointIds ?? []) + [row.point.id])
+                if row.point.excluded {
+                    addTotal(row.point, day: day, into: &excludedTotals)
                 } else {
-                    totals[day] = (current?.hours ?? 0, (current?.pointIds ?? []) + [row.point.id])
+                    addTotal(row.point, day: day, into: &visibleTotals)
                 }
-                if row.point.excluded { excludedTotals = totals } else { visibleTotals = totals }
                 continue
             }
-            var groups = row.point.excluded ? excluded : visible
-            var stages = groups[day] ?? [:]
-            var slot = stages[stage] ?? Accumulator(hours: 0, pointIds: [], unit: nil)
-            slot.merge(row.point)
-            stages[stage] = slot
-            groups[day] = stages
-            if row.point.excluded { excluded = groups } else { visible = groups }
+            if row.point.excluded {
+                mergeStage(row.point, day: day, stage: stage, into: &excluded)
+            } else {
+                mergeStage(row.point, day: day, stage: stage, into: &visible)
+            }
         }
         func night(day: Date, stages: [SleepStage: Accumulator],
                    total: (hours: Double, pointIds: [UUID])?) -> SleepTrendNight {

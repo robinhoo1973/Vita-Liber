@@ -50,6 +50,28 @@ struct LanguageSettingsView: View {
 }
 
 
+/// FR17.15 输入语言点选规则（纯函数；视图零内联列表变换）：
+/// 点未选 = 追加末尾；点已选且非主语言 = 提升为主语言；点主语言 = 取消
+/// （至少保留一项——不足两项时返回 nil = 无变化，调用侧不写库）。
+/// 存储保序（首位即主语言，Domain SettingsRules.voiceLocales 同源解析）。
+enum VoiceInputLanguageRules {
+    static func toggled(_ langs: [String], selecting locale: String) -> [String]? {
+        guard let index = langs.firstIndex(where: {
+            TranscriptionLocale.normalizedIdentifier($0) == TranscriptionLocale.normalizedIdentifier(locale)
+        }) else {
+            return langs + [locale]
+        }
+        if index == 0 {
+            guard langs.count > 1 else { return nil }
+            return Array(langs.dropFirst())
+        }
+        var out = langs
+        out.remove(at: index)
+        out.insert(locale, at: 0)
+        return out
+    }
+}
+
 /// FR17.15/FR17.16 语音语言选择器（ui-ux §5.12.3）：
 /// A. 输入语言多选（六语种；T2 方言「尽力识别」徽标；混合输入开关）
 /// B. 输出语言单选（六选一；无方言发声时回退普通话并提示）
@@ -91,6 +113,12 @@ struct VoiceLanguageSettingsView: View {
                 ASREngineSettingsSection()
                 Section {
                     ForEach(inputLanguageOptions, id: \.locale) { lang in
+                        // 规范化比较只求值一次（每行原先三处重复 normalizedIdentifier 归一）
+                        let norm = TranscriptionLocale.normalizedIdentifier(lang.locale)
+                        let isPrimary = TranscriptionLocale.normalizedIdentifier(inputLangs.first ?? "") == norm
+                        let isSelected = inputLangs.contains {
+                            TranscriptionLocale.normalizedIdentifier($0) == norm
+                        }
                         let resolved = inputCapability.resolvedLocale(for: lang.locale)
                         HStack {
                             Button {
@@ -100,14 +128,12 @@ struct VoiceLanguageSettingsView: View {
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(lang.nativeName)
                                         if let resolved,
-                                           TranscriptionLocale.normalizedIdentifier(resolved)
-                                            != TranscriptionLocale.normalizedIdentifier(lang.locale) {
+                                           TranscriptionLocale.normalizedIdentifier(resolved) != norm {
                                             Text(L10n.voiceRecognizedAs(resolved))
                                                 .font(.caption2).foregroundStyle(.secondary)
                                         }
                                     }
-                                    if TranscriptionLocale.normalizedIdentifier(inputLangs.first ?? "")
-                                        == TranscriptionLocale.normalizedIdentifier(lang.locale) {
+                                    if isPrimary {
                                         Text(L10n.voicePrimaryLanguage)
                                             .font(.caption2)
                                             .padding(.horizontal, 6).padding(.vertical, 2)
@@ -122,9 +148,7 @@ struct VoiceLanguageSettingsView: View {
                                             .background(Capsule().fill(Color(.systemGray5)))
                                     }
                                     Spacer()
-                                    if inputLangs.contains(where: {
-                                        TranscriptionLocale.normalizedIdentifier($0) == TranscriptionLocale.normalizedIdentifier(lang.locale)
-                                    }) {
+                                    if isSelected {
                                         Image(systemName: "checkmark")
                                             .foregroundStyle(Color("brand-primary", bundle: .main))
                                     }
@@ -237,24 +261,12 @@ struct VoiceLanguageSettingsView: View {
         loaded = true
     }
 
-    /// 点未选 = 追加到末尾；点已选且非主语言 = 提升为主语言；点主语言 = 取消（至少保留一项）。
-    /// 存储保序（首位即主语言，Domain SettingsRules.voiceLocales 同源解析）。
+    /// 点选规则在 VoiceInputLanguageRules（纯函数；至少保留一项——FR17.15：
+    /// 全部关闭时入口置灰并引导恢复默认，不足两项的取消返回 nil 不写库）。
     private func toggleInput(_ locale: String) {
         guard inputCapability.resolvedLocale(for: locale) != nil else { return }
-        if let index = inputLangs.firstIndex(where: {
-            TranscriptionLocale.normalizedIdentifier($0) == TranscriptionLocale.normalizedIdentifier(locale)
-        }) {
-            if index == 0 {
-                // 至少启用一项（FR17.15：全部关闭时入口置灰并引导恢复默认）
-                guard inputLangs.count > 1 else { return }
-                inputLangs.removeFirst()
-            } else {
-                inputLangs.remove(at: index)
-                inputLangs.insert(locale, at: 0)
-            }
-        } else {
-            inputLangs.append(locale)
-        }
+        guard let next = VoiceInputLanguageRules.toggled(inputLangs, selecting: locale) else { return }
+        inputLangs = next
         let joined = inputLangs.joined(separator: ",")
         Task { await settings.set(joined, for: .voiceInputLanguages) }
     }

@@ -315,121 +315,169 @@ public actor HealthKitReader: HealthReadingProvider, HealthWritingProvider {
         let samples = try await querySamples(for: window.kind, predicate: predicate)
             .filter { !Self.isOwnSample($0) }
         let references = try samples.map { try Self.reference($0, kind: window.kind) }
-        var rows: [DeviceMetricRow] = []
-        var readings: [MetricReading] = []
-        var rejected = 0
-        var sparse = 0   // round2 H-N2：心率 <3 样本未成行的小时桶计数（按来源逐桶）
 
-        if window.kind == .sleep {
-            let sleep = samples.compactMap { sample -> SleepSample? in
-                guard let sample = sample as? HKCategorySample else { return nil }
-                let stage: SleepStage
-                switch sample.value {
-                case HKCategoryValueSleepAnalysis.asleepDeep.rawValue: stage = .deep
-                case HKCategoryValueSleepAnalysis.asleepREM.rawValue: stage = .rem
-                case HKCategoryValueSleepAnalysis.asleepCore.rawValue: stage = .core
-                case HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue: stage = .unspecified
-                case HKCategoryValueSleepAnalysis.awake.rawValue: stage = .awake
-                case HKCategoryValueSleepAnalysis.inBed.rawValue: stage = .inBed
-                default: return nil
-                }
-                return SleepSample(start: sample.startDate, end: sample.endDate, stage: stage,
-                    sourceName: sample.sourceRevision.source.name, sourceVersion: sample.sourceRevision.version,
-                    sourceProduct: sample.sourceRevision.productType)
-            }
-            let summary = SleepMerge.merge(sleep, anchorDate: window.end, calendar: calendar)
-            let values: [(String, Double)] = [
-                ("sleep_total", summary.totalAsleep), ("sleep_deep", summary.perStage[.deep] ?? 0),
-                ("sleep_rem", summary.perStage[.rem] ?? 0), ("sleep_awake", summary.perStage[.awake] ?? 0),
-                ("sleep_core", summary.perStage[.core] ?? 0), ("sleep_unspecified", summary.perStage[.unspecified] ?? 0)
-            ]
-            for (key, seconds) in values where seconds > 0 {
-                rows.append(DeviceMetricRow(metricKey: key, value: seconds / 3600, unit: "h",
-                    measuredAt: window.start, sourceRef: window.prefix + key,
-                    aggregation: .sleepDuration, windowEnd: window.end))
-            }
-        } else if window.kind == .steps {
-            if !samples.isEmpty {
-                let ids = Set(samples.map(\.uuid))
-                let statisticsPredicate = Self.stepStatisticsPredicate(for: window, sampleIDs: ids)
-                try Task.checkCancellation()
-                // Keep HealthKit's source arbitration, but never include a contributor absent from the index snapshot.
-                let statistics = try await HKStatisticsQueryDescriptor(
-                    predicate: .quantitySample(type: HKQuantityType(.stepCount), predicate: statisticsPredicate),
-                    options: .cumulativeSum).result(for: store)
-                try Task.checkCancellation()
-                guard let value = statistics?.sumQuantity()?.doubleValue(for: .count()), value.isFinite else {
-                    throw ReaderError.incompleteSnapshot
-                }
-                // 验证集与索引快照同口径过滤自己的写回样本——谓词只按时间窗匹配，
-                // 不过滤时验证集多出的自有样本会让集合比对误判 incompleteSnapshot。
-                let verified = try await querySamples(for: .steps, predicate: statisticsPredicate)
-                    .filter { !Self.isOwnSample($0) }
-                guard Set(verified.map(\.uuid)) == ids else { throw ReaderError.incompleteSnapshot }
-                rows.append(DeviceMetricRow(metricKey: "steps", value: value, unit: "count",
-                    measuredAt: window.start, sourceRef: window.prefix + "sum",
-                    aggregation: .dailySum, windowEnd: min(Date(), window.end)))
-            }
-        } else if window.kind == .heartRate {
-            let unit = HKUnit.count().unitDivided(by: .minute())
-            let quantities = samples.compactMap { $0 as? HKQuantitySample }
-            let bySource = Dictionary(grouping: quantities) { $0.sourceRevision.source.bundleIdentifier }
-            for sourceID in bySource.keys.sorted() {
-                guard let contributing = bySource[sourceID] else { continue }
-                var points: [HourWindowSample] = []
-                for sample in contributing {
-                    for point in try await quantityPoints(sample, unit: unit, useEndDate: false) {
-                        guard point.at >= window.start, point.at < window.end else { continue }
-                        points.append(HourWindowSample(value: point.value, at: point.at))
-                    }
-                }
-                let aggregate = HourWindowAggregator.aggregate(points, calendar: calendar)
-                rejected += aggregate.rejected
-                sparse += aggregate.sparseWindows
-                guard let summary = aggregate.windows.first else { continue }
-                let revision = contributing.max { $0.endDate < $1.endDate }?.sourceRevision
-                let products = Set(contributing.compactMap { $0.sourceRevision.productType })
-                rows.append(DeviceMetricRow(metricKey: "heart_rate", value: summary.avg, unit: "bpm",
-                    valueMin: summary.min, valueMax: summary.max, sampleCount: summary.sampleCount, sourceName: revision?.source.name,
-                    sourceVersion: revision?.version, sourceProduct: products.count == 1 ? products.first : nil,
-                    measuredAt: window.start, sourceRef: window.prefix + sourceID,
-                    sourceIdentifier: sourceID, aggregation: .hourlyAverage,
-                    windowEnd: min(Date(), window.end)))
-            }
-        } else {
-            let key: String
-            let unit: HKUnit
-            let label: String
-            let factor: Double
-            switch window.kind {
-            case .restingHeartRate: key = "restingHeartRate"; unit = .count().unitDivided(by: .minute()); label = "bpm"; factor = 1
-            case .bloodOxygen: key = "blood_oxygen"; unit = .percent(); label = "%"; factor = 100
-            default: key = "respiratory_rate"; unit = .count().unitDivided(by: .minute()); label = "br/min"; factor = 1
-            }
-            for case let sample as HKQuantitySample in samples {
-                let source = sample.sourceRevision
-                for point in try await quantityPoints(sample, unit: unit, useEndDate: true) {
-                    guard point.at >= window.start, point.at < window.end else { continue }
-                    let value = point.value * factor
-                    guard value.isFinite else { rejected += 1; continue }
-                    // Window-independent identity: a later time-zone/binding change replays onto the same row.
-                    let identity = HealthImportWindow.sampleIdentity(kind: window.kind, sampleID: sample.uuid,
-                                                                     ordinal: point.ordinal)
-                    rows.append(DeviceMetricRow(metricKey: key, value: value, unit: label,
-                        sampleCount: 1, sourceName: source.source.name, sourceVersion: source.version,
-                        sourceProduct: source.productType, measuredAt: point.at,
-                        sourceRef: identity, sourceIdentifier: source.source.bundleIdentifier,
-                        aggregation: .sample, windowEnd: point.at))
-                    readings.append(MetricReading(metricKey: key, value: value, unit: label, origin: .device,
-                        measuredAt: point.at, sourceName: source.source.name, sourceVersion: source.version,
-                        sourceProduct: source.productType, sourceIdentifier: source.source.bundleIdentifier,
-                        sampleID: identity))
-                }
-            }
+        // 各指标族的行物化逐类下放（结构轮纪律：snapshot 只做分派与收口，
+        // 不再 120 行四分支一方法——每族的拒绝/稀疏计数也随分支闭环）
+        let rows: [DeviceMetricRow]
+        let readings: [MetricReading]
+        let rejected: Int
+        let sparse: Int   // round2 H-N2：心率 <3 样本未成行的小时桶计数（按来源逐桶）
+        switch window.kind {
+        case .sleep:
+            rows = Self.sleepRows(samples: samples, window: window, calendar: calendar)
+            readings = []
+            rejected = 0
+            sparse = 0
+        case .steps:
+            rows = try await stepRows(samples: samples, window: window)
+            readings = []
+            rejected = 0
+            sparse = 0
+        case .heartRate:
+            let result = try await heartRateRows(samples: samples, window: window, calendar: calendar)
+            rows = result.rows
+            readings = []
+            rejected = result.rejected
+            sparse = result.sparse
+        default:
+            let result = try await quantityRows(samples: samples, window: window)
+            rows = result.rows
+            readings = result.readings
+            rejected = result.rejected
+            sparse = 0
         }
         try Task.checkCancellation()
         return HealthWindowSnapshot(window: window, samples: references, rows: rows, readings: readings,
                                     rejected: rejected, sparseWindows: sparse)
+    }
+
+    /// 睡眠时段桶：HKCategorySample → SleepSample → SleepMerge（Domain 合并单出口）→ 六键行。
+    private static func sleepRows(samples: [HKSample], window: HealthImportWindow,
+                                  calendar: Calendar) -> [DeviceMetricRow] {
+        let sleep = samples.compactMap { sample -> SleepSample? in
+            guard let sample = sample as? HKCategorySample else { return nil }
+            let stage: SleepStage
+            switch sample.value {
+            case HKCategoryValueSleepAnalysis.asleepDeep.rawValue: stage = .deep
+            case HKCategoryValueSleepAnalysis.asleepREM.rawValue: stage = .rem
+            case HKCategoryValueSleepAnalysis.asleepCore.rawValue: stage = .core
+            case HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue: stage = .unspecified
+            case HKCategoryValueSleepAnalysis.awake.rawValue: stage = .awake
+            case HKCategoryValueSleepAnalysis.inBed.rawValue: stage = .inBed
+            default: return nil
+            }
+            return SleepSample(start: sample.startDate, end: sample.endDate, stage: stage,
+                sourceName: sample.sourceRevision.source.name, sourceVersion: sample.sourceRevision.version,
+                sourceProduct: sample.sourceRevision.productType)
+        }
+        let summary = SleepMerge.merge(sleep, anchorDate: window.end, calendar: calendar)
+        let values: [(String, Double)] = [
+            ("sleep_total", summary.totalAsleep), ("sleep_deep", summary.perStage[.deep] ?? 0),
+            ("sleep_rem", summary.perStage[.rem] ?? 0), ("sleep_awake", summary.perStage[.awake] ?? 0),
+            ("sleep_core", summary.perStage[.core] ?? 0), ("sleep_unspecified", summary.perStage[.unspecified] ?? 0)
+        ]
+        return values.compactMap { key, seconds in
+            guard seconds > 0 else { return nil }
+            return DeviceMetricRow(metricKey: key, value: seconds / 3600, unit: "h",
+                measuredAt: window.start, sourceRef: window.prefix + key,
+                aggregation: .sleepDuration, windowEnd: window.end)
+        }
+    }
+
+    /// 步数日累计：HKStatistics 累积和 + 验证集与索引快照同口径比对（防回声）。
+    private func stepRows(samples: [HKSample], window: HealthImportWindow) async throws -> [DeviceMetricRow] {
+        guard !samples.isEmpty else { return [] }
+        let ids = Set(samples.map(\.uuid))
+        let statisticsPredicate = Self.stepStatisticsPredicate(for: window, sampleIDs: ids)
+        try Task.checkCancellation()
+        // Keep HealthKit's source arbitration, but never include a contributor absent from the index snapshot.
+        let statistics = try await HKStatisticsQueryDescriptor(
+            predicate: .quantitySample(type: HKQuantityType(.stepCount), predicate: statisticsPredicate),
+            options: .cumulativeSum).result(for: store)
+        try Task.checkCancellation()
+        guard let value = statistics?.sumQuantity()?.doubleValue(for: .count()), value.isFinite else {
+            throw ReaderError.incompleteSnapshot
+        }
+        // 验证集与索引快照同口径过滤自己的写回样本——谓词只按时间窗匹配，
+        // 不过滤时验证集多出的自有样本会让集合比对误判 incompleteSnapshot。
+        let verified = try await querySamples(for: .steps, predicate: statisticsPredicate)
+            .filter { !Self.isOwnSample($0) }
+        guard Set(verified.map(\.uuid)) == ids else { throw ReaderError.incompleteSnapshot }
+        return [DeviceMetricRow(metricKey: "steps", value: value, unit: "count",
+            measuredAt: window.start, sourceRef: window.prefix + "sum",
+            aggregation: .dailySum, windowEnd: min(Date(), window.end))]
+    }
+
+    /// 心率小时均值：按来源分桶 → HourWindowAggregator（Domain）→ 每小时一行。
+    private func heartRateRows(samples: [HKSample], window: HealthImportWindow,
+                               calendar: Calendar) async throws -> (rows: [DeviceMetricRow], rejected: Int, sparse: Int) {
+        let unit = HKUnit.count().unitDivided(by: .minute())
+        let quantities = samples.compactMap { $0 as? HKQuantitySample }
+        let bySource = Dictionary(grouping: quantities) { $0.sourceRevision.source.bundleIdentifier }
+        var rows: [DeviceMetricRow] = []
+        var rejected = 0
+        var sparse = 0
+        for sourceID in bySource.keys.sorted() {
+            guard let contributing = bySource[sourceID] else { continue }
+            var points: [HourWindowSample] = []
+            for sample in contributing {
+                for point in try await quantityPoints(sample, unit: unit, useEndDate: false) {
+                    guard point.at >= window.start, point.at < window.end else { continue }
+                    points.append(HourWindowSample(value: point.value, at: point.at))
+                }
+            }
+            let aggregate = HourWindowAggregator.aggregate(points, calendar: calendar)
+            rejected += aggregate.rejected
+            sparse += aggregate.sparseWindows
+            guard let summary = aggregate.windows.first else { continue }
+            let revision = contributing.max { $0.endDate < $1.endDate }?.sourceRevision
+            let products = Set(contributing.compactMap { $0.sourceRevision.productType })
+            rows.append(DeviceMetricRow(metricKey: "heart_rate", value: summary.avg, unit: "bpm",
+                valueMin: summary.min, valueMax: summary.max, sampleCount: summary.sampleCount, sourceName: revision?.source.name,
+                sourceVersion: revision?.version, sourceProduct: products.count == 1 ? products.first : nil,
+                measuredAt: window.start, sourceRef: window.prefix + sourceID,
+                sourceIdentifier: sourceID, aggregation: .hourlyAverage,
+                windowEnd: min(Date(), window.end)))
+        }
+        return (rows, rejected, sparse)
+    }
+
+    /// 单值族（静息心率/血氧/呼吸率）：逐样本逐点 → 行 + 读数（趋势/报警管道）。
+    private func quantityRows(samples: [HKSample], window: HealthImportWindow) async throws
+        -> (rows: [DeviceMetricRow], readings: [MetricReading], rejected: Int) {
+        let key: String
+        let unit: HKUnit
+        let label: String
+        let factor: Double
+        switch window.kind {
+        case .restingHeartRate: key = "restingHeartRate"; unit = .count().unitDivided(by: .minute()); label = "bpm"; factor = 1
+        case .bloodOxygen: key = "blood_oxygen"; unit = .percent(); label = "%"; factor = 100
+        default: key = "respiratory_rate"; unit = .count().unitDivided(by: .minute()); label = "br/min"; factor = 1
+        }
+        var rows: [DeviceMetricRow] = []
+        var readings: [MetricReading] = []
+        var rejected = 0
+        for case let sample as HKQuantitySample in samples {
+            let source = sample.sourceRevision
+            for point in try await quantityPoints(sample, unit: unit, useEndDate: true) {
+                guard point.at >= window.start, point.at < window.end else { continue }
+                let value = point.value * factor
+                guard value.isFinite else { rejected += 1; continue }
+                // Window-independent identity: a later time-zone/binding change replays onto the same row.
+                let identity = HealthImportWindow.sampleIdentity(kind: window.kind, sampleID: sample.uuid,
+                                                                 ordinal: point.ordinal)
+                rows.append(DeviceMetricRow(metricKey: key, value: value, unit: label,
+                    sampleCount: 1, sourceName: source.source.name, sourceVersion: source.version,
+                    sourceProduct: source.productType, measuredAt: point.at,
+                    sourceRef: identity, sourceIdentifier: source.source.bundleIdentifier,
+                    aggregation: .sample, windowEnd: point.at))
+                readings.append(MetricReading(metricKey: key, value: value, unit: label, origin: .device,
+                    measuredAt: point.at, sourceName: source.source.name, sourceVersion: source.version,
+                    sourceProduct: source.productType, sourceIdentifier: source.source.bundleIdentifier,
+                    sampleID: identity))
+            }
+        }
+        return (rows, readings, rejected)
     }
 
     /// A condensed quantity sample is a container, not one independent reading. `ordinal` is nil for a

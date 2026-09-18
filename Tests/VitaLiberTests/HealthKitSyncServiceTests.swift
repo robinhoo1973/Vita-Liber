@@ -9,18 +9,7 @@ import Protocols
 @MainActor
 final class HealthKitSyncServiceTests: XCTestCase {
     private func makeStore() async throws -> (GRDBStore, HealthImportStore, HealthImportStore.Binding) {
-        let db = try GRDBStore.inMemory()
-        let patient = UUID()
-        try await db.writer.write { db in
-            try db.execute(sql: """
-                INSERT INTO patient_profile (id, display_name, relation, created_at, updated_at)
-                VALUES (?, 'Owner', 'self', 0, 0)
-                """, arguments: [patient.uuidString])
-            try db.execute(sql: """
-                INSERT INTO local_owner (id, display_name, self_patient_id, created_at)
-                VALUES (?, 'Owner', ?, 0)
-                """, arguments: [UUID().uuidString, patient.uuidString])
-        }
+        let (db, _) = try await GRDBStore.inMemoryWithOwner()
         let imports = HealthImportStore(writer: db.writer)
         let binding = try await imports.connect(timeZoneID: "UTC")
         return (db, imports, binding)

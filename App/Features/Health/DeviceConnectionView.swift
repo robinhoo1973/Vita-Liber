@@ -387,11 +387,7 @@ struct DeviceConnectionView: View {
                     // 手动同步只在「开关开启 ∧ 已连接」（= 展示区存在）时提供
                     if HealthImportVisibility.showsImportedData(pageState) {
                         Button(L10n.f16SyncNow) {
-                            Task {
-                                await deviceState.sync(authEnabled: healthEnabled,
-                                    quietStart: SettingsRules.resolved(settings.values[.quietHoursStart], key: .quietHoursStart),
-                                    quietEnd: SettingsRules.resolved(settings.values[.quietHoursEnd], key: .quietHoursEnd))
-                            }
+                            Task { await sync() }
                         }
                         .disabled(deviceState.isSyncing)
                         .accessibilityIdentifier("SP-29.health.sync")

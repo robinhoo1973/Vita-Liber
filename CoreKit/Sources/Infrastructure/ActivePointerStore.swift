@@ -19,8 +19,7 @@ enum ActivePointerStore {
     /// 已激活（校验过）的下载版本目录；无有效指针则返回 nil（调用方回落随包/Bundle）。
     static func activeRoot(for choice: VoiceEngineChoice) -> URL? {
         guard let pointer = activePointer(for: choice) else { return nil }
-        return applicationSupportRoot().appendingPathComponent(choice.rawValue, isDirectory: true)
-            .appendingPathComponent(pointer.directory ?? pointer.version, isDirectory: true)
+        return versionRoot(for: choice, pointer: pointer)
     }
 
     static func installedVersion(for choice: VoiceEngineChoice) -> String? {
@@ -29,12 +28,16 @@ enum ActivePointerStore {
 
     static func activeAssets(for choice: VoiceEngineChoice) -> ASRModelAssets? {
         guard let pointer = activePointer(for: choice), let hash = pointer.packageSHA256 else { return nil }
-        let root = applicationSupportRoot().appendingPathComponent(choice.rawValue, isDirectory: true)
-            .appendingPathComponent(pointer.directory ?? pointer.version, isDirectory: true)
-        return ASRModelAssets(root: root, packageSHA256: hash)
+        return ASRModelAssets(root: versionRoot(for: choice, pointer: pointer), packageSHA256: hash)
     }
 
-    // MARK: - 指针缓存（进程级；install 完成时失效）
+    /// 已激活版本的安装目录：applicationSupportRoot/<choice>/<directory ?? version>
+    private static func versionRoot(for choice: VoiceEngineChoice,
+                                    pointer: ASRModelDownloadService.ActivePointer) -> URL {
+        applicationSupportRoot()
+            .appendingPathComponent(choice.rawValue, isDirectory: true)
+            .appendingPathComponent(pointer.directory ?? pointer.version, isDirectory: true)
+    }
 
     // MARK: - 指针缓存（进程级；install 完成时失效）
 

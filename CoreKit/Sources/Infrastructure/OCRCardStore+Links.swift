@@ -114,12 +114,7 @@ extension OCRCardStore {
             "health_exam", "surgery", "treatment_record"].contains(kind),
            (fact["confirmed"] as Int?) != 1 { throw StoreError.invalidCard }
         if kind == "encounter", (fact["deleted_at"] as Double?) != nil { throw StoreError.invalidCard }
-        let cardKind = receiptCardKind(forDetailKind: kind)
-        let scope = receiptScope(kind: kind, headerId: entityId.uuidString, patientId: patientId.uuidString)
-        let receipts = try Row.fetchAll(db, sql: """
-            SELECT * FROM ocr_card_commit WHERE patient_id = ? AND card_kind = ? AND \(scope.sql)
-            ORDER BY document_file_id, page_index, row_id
-            """, arguments: receiptArguments([patientId.uuidString, cardKind], scope))
+        let receipts = try receipts(kind: kind, headerId: entityId, patientId: patientId, db: db)
         var sources: [SourcePage] = [], encounters = Set<UUID>()
         for receipt in receipts {
             try validateReceipt(receipt, db: db)
@@ -177,10 +172,7 @@ extension OCRCardStore {
             lines = try Row.fetchAll(db, sql: "SELECT * FROM prescription_line WHERE prescription_id = ? AND patient_id = ? ORDER BY ordinal",
                                      arguments: [entityId.uuidString, patientId.uuidString]).map(prescriptionLine(from:))
         }
-        let pending = try Int.fetchOne(db, sql: """
-            SELECT COUNT(*) FROM pending_card p JOIN ocr_card_commit c ON c.card_id = p.id
-            WHERE c.patient_id = ? AND c.card_kind = ? AND \(scope.sql) AND p.status IN ('pending','in_progress')
-            """, arguments: receiptArguments([patientId.uuidString, cardKind], scope)) ?? 0
+        let pending = try Self.pendingCount(kind: kind, headerId: entityId, patientId: patientId, db: db)
         let active = try encounters.filter { id in
             try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM encounter WHERE id = ? AND patient_id = ? AND deleted_at IS NULL", arguments: [id.uuidString, patientId.uuidString]) == 1
         }.sorted { $0.uuidString < $1.uuidString }
@@ -236,6 +228,25 @@ extension OCRCardStore {
 
     /// 归属不可单独改挂的卡类：就诊（枢纽自身）/ 住院期（随就诊而生）/ 体检（枢纽自身）/ 结论行（父由 CHECK 恰一固定）。
     static let relationshipLockedKinds: Set<String> = ["encounter", "hospitalization", "health_exam", "clinical_conclusion"]
+
+    /// 表头 + 行回执统一取回（detail / sourceRefs 共用同一谓词与排序；
+    /// `lab_report` 详情聚合的是 metric_sample 卡的回执，经 receiptCardKind 折算）。
+    static func receipts(kind: String, headerId: UUID, patientId: UUID, db: Database) throws -> [Row] {
+        let scope = receiptScope(kind: kind, headerId: headerId.uuidString, patientId: patientId.uuidString)
+        return try Row.fetchAll(db, sql: """
+            SELECT * FROM ocr_card_commit WHERE patient_id = ? AND card_kind = ? AND \(scope.sql)
+            ORDER BY document_file_id, page_index, row_id
+            """, arguments: receiptArguments([patientId.uuidString, receiptCardKind(forDetailKind: kind)], scope))
+    }
+
+    /// 该表头回执范围内的活跃待办卡数（detail 的 relationshipEditable 与 associate 的守卫同口径）。
+    static func pendingCount(kind: String, headerId: UUID, patientId: UUID, db: Database) throws -> Int {
+        let scope = receiptScope(kind: kind, headerId: headerId.uuidString, patientId: patientId.uuidString)
+        return try Int.fetchOne(db, sql: """
+            SELECT COUNT(*) FROM pending_card p JOIN ocr_card_commit c ON c.card_id = p.id
+            WHERE c.patient_id = ? AND c.card_kind = ? AND \(scope.sql) AND p.status IN ('pending','in_progress')
+            """, arguments: receiptArguments([patientId.uuidString, receiptCardKind(forDetailKind: kind)], scope)) ?? 0
+    }
 
     /// 检验报告聚合读面：表头 + 数值行（metric_sample，按落库序）+ 定性行（lab_result，按 ordinal）；成员隔离逐表带 patient_id。
     static func labReportDetail(reportId: String, patientId: String, db: Database) throws -> LabReportDetail? {
@@ -346,12 +357,10 @@ extension OCRCardStore {
                 guard try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM encounter WHERE id = ? AND patient_id = ? AND deleted_at IS NULL",
                                        arguments: [encounterId.uuidString, patientId.uuidString]) == 1 else { throw StoreError.invalidAssociation }
             }
+            guard try Self.pendingCount(kind: kind, headerId: entityId, patientId: patientId, db: db) == 0 else {
+                throw StoreError.committedDataChanged
+            }
             let scope = Self.receiptScope(kind: kind, headerId: entityId.uuidString, patientId: patientId.uuidString)
-            let pending = try Int.fetchOne(db, sql: """
-                SELECT COUNT(*) FROM pending_card p JOIN ocr_card_commit c ON c.card_id = p.id
-                WHERE c.patient_id = ? AND c.card_kind = ? AND \(scope.sql) AND p.status IN ('pending','in_progress')
-                """, arguments: Self.receiptArguments([patientId.uuidString, cardKind], scope)) ?? 0
-            guard pending == 0 else { throw StoreError.committedDataChanged }
             var changed = 0
             if confirmedKinds.contains(kind) {
                 try db.execute(sql: "UPDATE \(table) SET encounter_id = ?, updated_at = ? WHERE id = ? AND patient_id = ?",

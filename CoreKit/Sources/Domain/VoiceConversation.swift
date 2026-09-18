@@ -254,145 +254,163 @@ public enum VoiceConversationEngine {
 
         switch s.phase {
         case .listening, .selecting:
-            let parsed = VoiceCommandGrammar.parse(text, emergencyNumber: emergencyNumber)
-            // 审查修复（FR19.4 选项名应答）：选项名是运行时数据，文法表
-            // （patterns）无法枚举——列选相位下无文法命中时按当前选项名
-            // 二次匹配，命中即走 .selectName 分支（与分支内判据同源）。
-            // 此前说选项名一律落入 unrecognized：静默计数累加、两轮后
-            // 会话被礼貌退出，FR19.4「第 N 个 / 选项名 / 是·否」三选一
-            // 契约对选项名不可达。
-            // 歧义纪律（同药多时段选项含同一药名）：名称命中多条时不得
-            // 首条代答——静默确认用户未指认的剂量 = BR-004 事实链污染；
-            // 提示按编号应答（是有效应答，不计静默轮）。
-            let intent: VoiceIntent
-            if case .unrecognized = parsed, s.phase == .selecting {
-                let nameMatches = s.options.filter { text.contains($0) || $0.contains(text) }
-                if nameMatches.count == 1 {
-                    intent = .command(.selectName)
-                } else if nameMatches.count > 1 {
-                    s.lastPrompt = .pickOption
-                    events.append(.speak(.pickOption))
-                    events.append(.askOptions(s.options))
-                    return (s, events)
-                } else {
-                    intent = parsed
-                }
+            handleListeningOrSelecting(&s, &events, text: text, emergencyNumber: emergencyNumber)
+        case .repeatingObject:
+            handleRepeatingObject(&s, &events, text: text, emergencyNumber: emergencyNumber)
+        case .confirming:
+            handleConfirming(&s, &events, text: text, emergencyNumber: emergencyNumber)
+        case .ended:
+            break
+        }
+        // 审查修复（列选状态不变量）：离开 .selecting 相位即清空选项集——
+        // 标记服药进入 .confirming、是/否确认回 .listening 等分支此前保留
+        // 旧选项：视图镜像据此滞留幽灵芯片（再点零动作），且「再说一遍」
+        // 会在非列选相位重播陈旧的 askOptions。
+        if s.phase != .selecting { s.options = [] }
+        return (s, events)
+    }
+
+    /// 监听/列选相位（FR19.4）：文法解析 → 选项名二次匹配 → 意图分派。
+    private static func handleListeningOrSelecting(_ s: inout ConversationState,
+                                                   _ events: inout [ConversationEvent],
+                                                   text: String, emergencyNumber: String) {
+        let parsed = VoiceCommandGrammar.parse(text, emergencyNumber: emergencyNumber)
+        // 审查修复（FR19.4 选项名应答）：选项名是运行时数据，文法表
+        // （patterns）无法枚举——列选相位下无文法命中时按当前选项名
+        // 二次匹配，命中即走 .selectName 分支（与分支内判据同源）。
+        // 此前说选项名一律落入 unrecognized：静默计数累加、两轮后
+        // 会话被礼貌退出，FR19.4「第 N 个 / 选项名 / 是·否」三选一
+        // 契约对选项名不可达。
+        // 歧义纪律（同药多时段选项含同一药名）：名称命中多条时不得
+        // 首条代答——静默确认用户未指认的剂量 = BR-004 事实链污染；
+        // 提示按编号应答（是有效应答，不计静默轮）。
+        let intent: VoiceIntent
+        if case .unrecognized = parsed, s.phase == .selecting {
+            let nameMatches = s.options.filter { text.contains($0) || $0.contains(text) }
+            if nameMatches.count == 1 {
+                intent = .command(.selectName)
+            } else if nameMatches.count > 1 {
+                s.lastPrompt = .pickOption
+                events.append(.speak(.pickOption))
+                events.append(.askOptions(s.options))
+                return
             } else {
                 intent = parsed
             }
-            switch intent {
-            case .unrecognized:
-                s.silentRounds += 1
-                if s.silentRounds >= maxSilentRounds {
-                    events.append(.exitGracefully)
-                    s.phase = .ended
-                } else {
-                    s.lastPrompt = .repeatHint
-                    events.append(.speak(.repeatHint))
+        } else {
+            intent = parsed
+        }
+        switch intent {
+        case .unrecognized:
+            countInvalidAnswer(&s, &events, hint: .repeatHint, remember: .repeatHint)
+        case .command(let c):
+            switch c {
+            case .selectNumber where s.phase == .selecting:
+                // 第 N 个 → 选项执行
+                let index = numberIndex(text) ?? 0
+                guard index >= 0 && index < s.options.count else {
+                    events.append(.speak(.pickOption))
+                    return
                 }
-            case .command(let c):
-                switch c {
-                case .selectNumber where s.phase == .selecting:
-                    // 第 N 个 → 选项执行
-                    let index = numberIndex(text) ?? 0
-                    guard index >= 0 && index < s.options.count else {
-                        events.append(.speak(.pickOption))
-                        return (s, events)
-                    }
-                    let chosen = s.options[index]
-                    events.append(.execute(s.pendingCommand ?? .todayMeds, payload: chosen))
-                    s.phase = .listening; s.options = []; s.silentRounds = 0
-                case .selectName where s.phase == .selecting:
-                    // 审查修复（唯一命中才执行）：同名多选项（同药多时段）
-                    // 时不得首条代答——静默确认未指认的剂量违反 BR-004；
-                    // 命中多条提示编号应答，零命中 optionNotFound
-                    let matches = s.options.filter { text.contains($0) || $0.contains(text) }
-                    guard matches.count == 1, let chosen = matches.first else {
-                        events.append(.speak(matches.isEmpty ? .optionNotFound : .pickOption))
-                        return (s, events)
-                    }
-                    events.append(.execute(s.pendingCommand ?? .todayMeds, payload: chosen))
-                    s.phase = .listening; s.options = []; s.silentRounds = 0
-                case .yes, .no:
-                    handleYesNo(&s, &events, yes: c == .yes)
-                case .exitSession, .cancel:
-                    events.append(.exitGracefully)
-                    s.phase = .ended
-                case .callContact:
-                    // FR19.5：必须复述对象再确认
-                    let object = extractObject(text, after: "打")
-                    s.phase = .repeatingObject
-                    s.silentRounds = 0   // 审查修复：有效应答清零静默计数（FR19.6 连续两轮口径）
-                    s.pendingCommand = .callContact
-                    s.pendingObject = object
-                    let target = object.isEmpty ? "" : object
-                    s.lastPrompt = .callConfirm(target: target)
-                    events.append(.requireRepeatObject(object))
-                    events.append(.speak(.callConfirm(target: target)))
-                case .callEmergency120:
-                    // FR19.5 附表契约（免复述 → 直接拨号）：急救号码按语言区域注入
-                    // （120/119/911），不复述对象——错误代价不对称下，SOS 路径的
-                    // 时效优先；误触安全网由系统拨号确认（5 秒响铃倒计时可取消）
-                    // 承担。复述确认相位（.repeatingObject）只服务于联系人类
-                    // （callContact，FR19.5「必须先复述对象再执行」）。
-                    // 2026-09-10 审查修正：原实现仍走 .repeatingObject 要求口头
-                    // 「确认」——与 FR19.5 附表「免复述」矛盾（评论自称免复述、
-                    // 状态机要求复述，两处漂移）。
-                    s.phase = .listening
-                    s.silentRounds = 0
-                    s.pendingCommand = nil
-                    s.pendingObject = nil
-                    events.append(.execute(.callEmergency120, payload: emergencyNumber))
-                case .markTaken:
-                    // FR19.5：标记服药 = 写操作，单次口头确认（BR-004 同语义）
-                    let object = extractMarkTakenObject(text)
-                    s.phase = .confirming
-                    s.silentRounds = 0   // 审查修复：进入确认相位即有效应答——此前不清零，
-                                         // 一次无效确认应答即触发 FR19.6 两轮退出（提前一轮），
-                                         // 待确认的 BR-004 服药事实被静默取消
-                    s.pendingCommand = .markTaken
-                    s.pendingObject = object
-                    s.lastPrompt = .markTakenConfirm(object: object)
-                    events.append(.speak(.markTakenConfirm(object: object)))
-                case .stockExpiry, .stockRemaining, .stockLocation:
-                    // 库存查询载荷 = 句首药品名（「阿司匹林还剩多少/什么时候过期/
-                    // 放在哪」）——此前 extractPayload 只剥「搜索/找」前缀，库存
-                    // 指令载荷恒 nil，视图回全局清单答非所问
-                    events.append(.execute(c, payload: extractStockObject(text)))
-                    s.phase = .listening
-                    s.silentRounds = 0
-                default:
-                    // 低风险查询/导航：直接执行
-                    events.append(.execute(c, payload: extractPayload(text)))
-                    s.phase = .listening
-                    s.silentRounds = 0
+                let chosen = s.options[index]
+                events.append(.execute(s.pendingCommand ?? .todayMeds, payload: chosen))
+                s.phase = .listening; s.options = []; s.silentRounds = 0
+            case .selectName where s.phase == .selecting:
+                // 审查修复（唯一命中才执行）：同名多选项（同药多时段）
+                // 时不得首条代答——静默确认未指认的剂量违反 BR-004；
+                // 命中多条提示编号应答，零命中 optionNotFound
+                let matches = s.options.filter { text.contains($0) || $0.contains(text) }
+                guard matches.count == 1, let chosen = matches.first else {
+                    events.append(.speak(matches.isEmpty ? .optionNotFound : .pickOption))
+                    return
                 }
-            case .record(let metricText):
-                // 写操作（记录类）：单次口头确认（BR-004 同语义）
+                events.append(.execute(s.pendingCommand ?? .todayMeds, payload: chosen))
+                s.phase = .listening; s.options = []; s.silentRounds = 0
+            case .yes, .no:
+                handleYesNo(&s, &events, yes: c == .yes)
+            case .exitSession, .cancel:
+                events.append(.exitGracefully)
+                s.phase = .ended
+            case .callContact:
+                // FR19.5：必须复述对象再确认
+                let object = extractObject(text, after: "打")
+                s.phase = .repeatingObject
+                s.silentRounds = 0   // 审查修复：有效应答清零静默计数（FR19.6 连续两轮口径）
+                s.pendingCommand = .callContact
+                s.pendingObject = object
+                let target = object.isEmpty ? "" : object
+                s.lastPrompt = .callConfirm(target: target)
+                events.append(.requireRepeatObject(object))
+                events.append(.speak(.callConfirm(target: target)))
+            case .callEmergency120:
+                // FR19.5 附表契约（免复述 → 直接拨号）：急救号码按语言区域注入
+                // （120/119/911），不复述对象——错误代价不对称下，SOS 路径的
+                // 时效优先；误触安全网由系统拨号确认（5 秒响铃倒计时可取消）
+                // 承担。复述确认相位（.repeatingObject）只服务于联系人类
+                // （callContact，FR19.5「必须先复述对象再执行」）。
+                // 2026-09-10 审查修正：原实现仍走 .repeatingObject 要求口头
+                // 「确认」——与 FR19.5 附表「免复述」矛盾（评论自称免复述、
+                // 状态机要求复述，两处漂移）。
+                s.phase = .listening
+                s.silentRounds = 0
+                s.pendingCommand = nil
+                s.pendingObject = nil
+                events.append(.execute(.callEmergency120, payload: emergencyNumber))
+            case .markTaken:
+                // FR19.5：标记服药 = 写操作，单次口头确认（BR-004 同语义）
+                let object = extractMarkTakenObject(text)
                 s.phase = .confirming
-                s.silentRounds = 0   // 审查修复：与 markTaken 同口径（FR19.6 连续两轮）
-                s.pendingCommand = .recordMetric
-                s.pendingObject = metricText
-                s.lastPrompt = .recordConfirm(metricText: metricText)
-                events.append(.speak(.recordConfirm(metricText: metricText)))
-            case .recordQuestion(let questionText):
-                // FR10.5 问诊速记：单次口头确认后落问诊列表（独立指令，
-                // 不与 recordMetric 混流）
-                s.phase = .confirming
-                s.silentRounds = 0   // 审查修复：与 markTaken 同口径（FR19.6 连续两轮）
-                s.pendingCommand = .recordQuestion
-                s.pendingObject = questionText
-                s.lastPrompt = .recordConfirm(metricText: questionText)
-                events.append(.speak(.recordConfirm(metricText: questionText)))
+                s.silentRounds = 0   // 审查修复：进入确认相位即有效应答——此前不清零，
+                                     // 一次无效确认应答即触发 FR19.6 两轮退出（提前一轮），
+                                     // 待确认的 BR-004 服药事实被静默取消
+                s.pendingCommand = .markTaken
+                s.pendingObject = object
+                s.lastPrompt = .markTakenConfirm(object: object)
+                events.append(.speak(.markTakenConfirm(object: object)))
+            case .stockExpiry, .stockRemaining, .stockLocation:
+                // 库存查询载荷 = 句首药品名（「阿司匹林还剩多少/什么时候过期/
+                // 放在哪」）——此前 extractPayload 只剥「搜索/找」前缀，库存
+                // 指令载荷恒 nil，视图回全局清单答非所问
+                events.append(.execute(c, payload: extractStockObject(text)))
+                s.phase = .listening
+                s.silentRounds = 0
+            default:
+                // 低风险查询/导航：直接执行
+                events.append(.execute(c, payload: extractPayload(text)))
+                s.phase = .listening
+                s.silentRounds = 0
             }
-        case .repeatingObject:
-            let intent = VoiceCommandGrammar.parse(text, emergencyNumber: emergencyNumber)
-            switch intent {
+        case .record(let metricText):
+            // 写操作（记录类）：单次口头确认（BR-004 同语义）
+            s.phase = .confirming
+            s.silentRounds = 0   // 审查修复：与 markTaken 同口径（FR19.6 连续两轮）
+            s.pendingCommand = .recordMetric
+            s.pendingObject = metricText
+            s.lastPrompt = .recordConfirm(metricText: metricText)
+            events.append(.speak(.recordConfirm(metricText: metricText)))
+        case .recordQuestion(let questionText):
+            // FR10.5 问诊速记：单次口头确认后落问诊列表（独立指令，
+            // 不与 recordMetric 混流）
+            s.phase = .confirming
+            s.silentRounds = 0   // 审查修复：与 markTaken 同口径（FR19.6 连续两轮）
+            s.pendingCommand = .recordQuestion
+            s.pendingObject = questionText
+            s.lastPrompt = .recordConfirm(metricText: questionText)
+            events.append(.speak(.recordConfirm(metricText: questionText)))
+        }
+    }
+
+    /// 复述对象相位（FR19.5）：只认 是/否/取消；其余按无效应答计数（FR19.6）。
+    private static func handleRepeatingObject(_ s: inout ConversationState,
+                                              _ events: inout [ConversationEvent],
+                                              text: String, emergencyNumber: String) {
+        let intent = VoiceCommandGrammar.parse(text, emergencyNumber: emergencyNumber)
+        switch intent {
             case .command(.yes):
                 guard let object = s.pendingObject else {
                     s.phase = .listening
                     events.append(.speak(.sayCallTargetAgain))
-                    return (s, events)
+                    return
                 }
                 events.append(.execute(s.pendingCommand ?? .callContact, payload: object))
                 s.phase = .listening; s.pendingObject = nil; s.silentRounds = 0
@@ -405,17 +423,15 @@ public enum VoiceConversationEngine {
                 // 累加永不退出：用户连续两轮说无关内容，会话永远重复
                 // 「请确认」，FR19.6「连续两轮无有效应答自动礼貌退出」在
                 // 确认相位形同虚设。
-                s.silentRounds += 1
-                if s.silentRounds >= maxSilentRounds {
-                    events.append(.exitGracefully)
-                    s.phase = .ended
-                } else {
-                    events.append(.speak(.confirmToCall))
-                }
-            }
-        case .confirming:
-            // 确认相位只认 是/否/取消；其余一律视为未听清（不计入危险误执行）
-            switch VoiceCommandGrammar.parse(text, emergencyNumber: emergencyNumber) {
+                countInvalidAnswer(&s, &events, hint: .confirmToCall)
+        }
+    }
+
+    /// 确认相位：只认 是/否/取消；其余一律视为未听清（不计入危险误执行）。
+    private static func handleConfirming(_ s: inout ConversationState,
+                                         _ events: inout [ConversationEvent],
+                                         text: String, emergencyNumber: String) {
+        switch VoiceCommandGrammar.parse(text, emergencyNumber: emergencyNumber) {
             case .command(.yes):
                 handleYesNo(&s, &events, yes: true)
             case .command(.no), .command(.cancel):
@@ -424,23 +440,8 @@ public enum VoiceConversationEngine {
                 // 审查修复（FR19.6 同上）：确认相位两轮无效应答同样礼貌退出——
                 // 永不退出会让无法说「是/否」的用户（口音识别失败）困死在
                 // 确认循环里；退出即取消待确认动作，绝不误执行。
-                s.silentRounds += 1
-                if s.silentRounds >= maxSilentRounds {
-                    events.append(.exitGracefully)
-                    s.phase = .ended
-                } else {
-                    events.append(.speak(.confirmToSave))
-                }
-            }
-        case .ended:
-            break
+                countInvalidAnswer(&s, &events, hint: .confirmToSave)
         }
-        // 审查修复（列选状态不变量）：离开 .selecting 相位即清空选项集——
-        // 标记服药进入 .confirming、是/否确认回 .listening 等分支此前保留
-        // 旧选项：视图镜像据此滞留幽灵芯片（再点零动作），且「再说一遍」
-        // 会在非列选相位重播陈旧的 askOptions。
-        if s.phase != .selecting { s.options = [] }
-        return (s, events)
     }
 
     private static func handleYesNo(_ s: inout ConversationState,
@@ -458,14 +459,24 @@ public enum VoiceConversationEngine {
             // selecting）无语义——原实现零事件静默吞掉，用户说「是」后听不到
             // 任何回应、会话死滞。按无效应答计数：满 2 轮礼貌退出，否则
             // 提示重说（与 unrecognized 分支同构）。
-            s.silentRounds += 1
-            if s.silentRounds >= maxSilentRounds {
-                events.append(.exitGracefully)
-                s.phase = .ended
-            } else {
-                s.lastPrompt = .repeatHint
-                events.append(.speak(.repeatHint))
-            }
+            countInvalidAnswer(&s, &events, hint: .repeatHint, remember: .repeatHint)
+        }
+    }
+
+    /// FR19.6 无效应答计数（四相位共用单一实现）：满 maxSilentRounds 轮礼貌退出
+    /// （退出即取消待确认动作，绝不误执行），否则按相位提示；
+    /// `remember` 非 nil 时仅在不退出支更新 lastPrompt（「再说一遍」重播源）。
+    private static func countInvalidAnswer(_ s: inout ConversationState,
+                                           _ events: inout [ConversationEvent],
+                                           hint: SpeechPrompt,
+                                           remember lastPrompt: SpeechPrompt? = nil) {
+        s.silentRounds += 1
+        if s.silentRounds >= maxSilentRounds {
+            events.append(.exitGracefully)
+            s.phase = .ended
+        } else {
+            if let lastPrompt { s.lastPrompt = lastPrompt }
+            events.append(.speak(hint))
         }
     }
 
@@ -499,9 +510,7 @@ public enum VoiceConversationEngine {
         var object = String(text[r.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
         // 剥掉连接词前缀（打给/拨打给/给）——「帮我打给女儿」的对象是「女儿」，
         // 不是「给女儿」（复述对象必须是人名本身）
-        for prefix in ["给"] where object.hasPrefix(prefix) {
-            object = String(object.dropFirst(prefix.count))
-        }
+        if object.hasPrefix("给") { object = String(object.dropFirst()) }
         return object
     }
 

@@ -60,12 +60,12 @@ final class SecurityGateAcceptanceTests: XCTestCase {
             understandingEngine: NLTextUnderstanding())
     }
 
-    private var tinyPNG: Data {
+    private lazy var tinyPNG: Data = {
         UIGraphicsImageRenderer(size: CGSize(width: 32, height: 32)).pngData { context in
             UIColor.white.setFill()
             context.fill(CGRect(x: 0, y: 0, width: 32, height: 32))
         }
-    }
+    }()
 
     /// FR5.5/FR6.2（V3.61 相机单入口）：无入口类型提示 + 零命中 → 类型未决，
     /// 确认卡必须引导选择、不得以占位值落库。

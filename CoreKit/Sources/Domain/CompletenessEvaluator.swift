@@ -322,6 +322,11 @@ public enum CompletenessEvaluator {
                                       requiredCoverage: coverage)
     }
 
+    /// 处方路径年份日期记号（宽松判定用；静态字面量一次性编译复用——
+    /// 此前每调用现编译一次）。
+    private static let prescriptionDatePattern: NSRegularExpression? = try? NSRegularExpression(   // try?-ok: 静态正则字面量，构造失败仅日期行归一降级，不阻断评估
+        pattern: #"\d{4}\s*[-/年.]\s*\d{1,2}"#)
+
     /// 处方 OCR 路径键归一：该路径字段是 rx_line_N + L10n 标签（非 §17.2
     /// 稳定键）——按标签身份归一到稳定键再评估：
     /// drugName → drug_name；hospital → hospital；doctor → doctor；
@@ -330,7 +335,6 @@ public enum CompletenessEvaluator {
     public static func prescriptionFieldDrafts(
         fields: [CandidateField], labels: PrescriptionFieldMapper.Labels
     ) -> [FieldDraft] {
-        let datePattern = try? NSRegularExpression(pattern: #"\d{4}\s*[-/年.]\s*\d{1,2}"#)   // try?-ok: 静态正则字面量，构造失败仅日期行归一降级，不阻断评估
         var out: [FieldDraft] = []
         for field in fields {
             let key: String
@@ -340,7 +344,7 @@ public enum CompletenessEvaluator {
                 key = "hospital"
             } else if field.displayLabel == labels.doctor {
                 key = "doctor"
-            } else if datePattern?.firstMatch(
+            } else if prescriptionDatePattern?.firstMatch(
                 in: field.value, range: NSRange(field.value.startIndex..., in: field.value)) != nil {
                 key = "prescribed_at"
             } else {

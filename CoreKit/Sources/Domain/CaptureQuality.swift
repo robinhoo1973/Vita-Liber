@@ -127,13 +127,14 @@ public enum CaptureQualityAssessor {
         let varLap = lapSqSum / Double(count) - meanLap * meanLap
         let sharpness = min(1.0, varLap / 5000.0) // 经验归一化
 
-        // 2) Brightness: 偏离 0.5 的程度
-        let mean = buf.map { Double($0) }.reduce(0, +) / Double(buf.count) / 255.0
+        // 2) Brightness: 偏离 0.5 的程度（整数累加后单次转浮点——与本文件
+        // perceptualHash 同风格，避免 map/filter 中间数组）
+        let mean = Double(buf.reduce(0) { $0 + Int($1) }) / Double(buf.count) / 255.0
         let brightnessDeviation = abs(mean - 0.5) * 2.0 // 0..1
         let brightness = 1.0 - brightnessDeviation
 
         // 3) Occlusion: 饱和像素比例（<10 或 >245 视为饱和）
-        let satCount = buf.filter { $0 < 10 || $0 > 245 }.count
+        let satCount = buf.reduce(0) { $0 + (($1 < 10 || $1 > 245) ? 1 : 0) }
         let occlusion = Double(satCount) / Double(buf.count)
         let occlusionScore = 1.0 - min(1.0, occlusion * 4.0) // 过曝/欠曝惩罚
 

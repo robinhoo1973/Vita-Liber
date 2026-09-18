@@ -396,15 +396,9 @@ final class AnalyzerSession: @unchecked Sendable {
     private var failure: Error?
     private var lastPublished = ""
     private var resultsTask: Task<Void, Never>?
-
-    // 采集侧状态只在转录 actor 上访问（stopCapture 幂等）。
-    private var engine: AVAudioEngine?
-    private var tapInstalled = false
-    private var configurationObserver: NSObjectProtocol?
-    private var interruptionObserver: NSObjectProtocol?
-    #if os(iOS)
-    private var sessionState: AudioSessionCapture.State?
-    #endif
+    /// 采集侧封装（引擎 / tap / 观察者 / 会话快照——结构轮提取）：
+    /// 采集状态只在转录 actor 上访问（stop 幂等）；失败经 noteFailure 回报会话。
+    private let capture: AnalyzerCapture
 
     init(id: UUID, locale: Locale, module: any SpeechModule,
          analyzerFormat: AVAudioFormat, onPartial: (@Sendable (String) -> Void)?) {
@@ -418,81 +412,18 @@ final class AnalyzerSession: @unchecked Sendable {
         let (stream, builder) = AsyncStream.makeStream(of: AnalyzerInput.self)
         self.stream = stream
         self.builder = builder
+        self.capture = AnalyzerCapture(analyzerFormat: analyzerFormat, builder: builder,
+                                       onFailure: { [weak self] in self?.noteFailure(TranscriptionError.engineUnavailable) })
     }
 
     // MARK: 音频采集
 
     func startCapture() throws {
-        #if os(iOS)
-        let prior = AudioSessionCapture.remember()
-        do { try AudioSessionCapture.activateRecordSession() }
-        catch {
-            AudioSessionCapture.restore(prior)
-            throw error
-        }
-        sessionState = prior
-        #endif
-        let engine = AVAudioEngine()
-        let input = engine.inputNode
-        let captureFormat = input.outputFormat(forBus: 0)
-        guard captureFormat.sampleRate > 0, captureFormat.channelCount > 0 else {
-            throw TranscriptionError.engineUnavailable
-        }
-        let feeder = AnalyzerFeeder(captureFormat: captureFormat, analyzerFormat: analyzerFormat,
-                                    builder: builder)
-        input.installTap(onBus: 0, bufferSize: 1024, format: captureFormat) { [weak self] buffer, _ in
-            guard buffer.frameLength > 0 else { return }
-            if !feeder.feed(buffer) { self?.noteFailure(TranscriptionError.engineUnavailable) }
-        }
-        tapInstalled = true
-        self.engine = engine
-        configurationObserver = NotificationCenter.default.addObserver(
-            forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil) { [weak self] _ in
-                self?.noteFailure(TranscriptionError.engineUnavailable)
-            }
-        // 审查修复：中断（来电等）必须快速失败——基线轨与 sherpa 轨均监听
-        // AVAudioSession.interruptionNotification，本轨缺失时来电期间采集停摆、
-        // 等待循环永无失败信号，UI 卡在「录音中」直到松手。
-        #if os(iOS)
-        interruptionObserver = NotificationCenter.default.addObserver(
-            forName: AVAudioSession.interruptionNotification, object: AVAudioSession.sharedInstance(), queue: nil) { [weak self] note in
-                guard let userInfo = note.userInfo,
-                      let rawType = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
-                      AVAudioSession.InterruptionType(rawValue: rawType) == .began else { return }
-                self?.noteFailure(TranscriptionError.engineUnavailable)
-            }
-        #endif
-        engine.prepare()
-        try engine.start()
+        try capture.start()
     }
 
     func stopCapture() {
-        #if os(iOS)
-        let hasSessionState = sessionState != nil
-        #else
-        let hasSessionState = false
-        #endif
-        guard engine != nil || tapInstalled || configurationObserver != nil || interruptionObserver != nil || hasSessionState else { return }
-        if let observer = configurationObserver {
-            NotificationCenter.default.removeObserver(observer)
-            configurationObserver = nil
-        }
-        if let observer = interruptionObserver {
-            NotificationCenter.default.removeObserver(observer)
-            interruptionObserver = nil
-        }
-        if let engine {
-            engine.stop()
-            if tapInstalled { engine.inputNode.removeTap(onBus: 0) }
-        }
-        engine = nil
-        tapInstalled = false
-        #if os(iOS)
-        if let prior = sessionState {
-            AudioSessionCapture.restore(prior)
-            sessionState = nil
-        }
-        #endif
+        capture.stop()
     }
 
     func finishInput() { builder.finish() }
@@ -608,6 +539,103 @@ final class AnalyzerSession: @unchecked Sendable {
                                    segmented: false,
                                    segments: displayText.isEmpty ? [] : [displayText],
                                    completion: hasVolatile ? .partial : .final)
+    }
+}
+
+/// 采集侧封装（结构轮自 AnalyzerSession 提取）：引擎 / tap / 配置与中断观察者 /
+/// 会话快照——单一职责「开麦 / 拆麦」，失败经 onFailure 回报会话。
+/// 采集状态只在转录 actor 上访问（stop 幂等）。
+@available(iOS 26.0, macOS 26.0, *)
+private final class AnalyzerCapture: @unchecked Sendable {
+    private let analyzerFormat: AVAudioFormat
+    private let builder: AsyncStream<AnalyzerInput>.Continuation
+    private let onFailure: () -> Void
+    private var engine: AVAudioEngine?
+    private var tapInstalled = false
+    private var configurationObserver: NSObjectProtocol?
+    private var interruptionObserver: NSObjectProtocol?
+    #if os(iOS)
+    private var sessionState: AudioSessionCapture.State?
+    #endif
+
+    init(analyzerFormat: AVAudioFormat, builder: AsyncStream<AnalyzerInput>.Continuation,
+         onFailure: @escaping () -> Void) {
+        self.analyzerFormat = analyzerFormat
+        self.builder = builder
+        self.onFailure = onFailure
+    }
+
+    func start() throws {
+        #if os(iOS)
+        let prior = AudioSessionCapture.remember()
+        do { try AudioSessionCapture.activateRecordSession() }
+        catch {
+            AudioSessionCapture.restore(prior)
+            throw error
+        }
+        sessionState = prior
+        #endif
+        let engine = AVAudioEngine()
+        let input = engine.inputNode
+        let captureFormat = input.outputFormat(forBus: 0)
+        guard captureFormat.sampleRate > 0, captureFormat.channelCount > 0 else {
+            throw TranscriptionError.engineUnavailable
+        }
+        let feeder = AnalyzerFeeder(captureFormat: captureFormat, analyzerFormat: analyzerFormat,
+                                    builder: builder)
+        input.installTap(onBus: 0, bufferSize: 1024, format: captureFormat) { [weak self] buffer, _ in
+            guard buffer.frameLength > 0 else { return }
+            if !feeder.feed(buffer) { self?.onFailure() }
+        }
+        tapInstalled = true
+        self.engine = engine
+        configurationObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil) { [weak self] _ in
+                self?.onFailure()
+            }
+        // 审查修复：中断（来电等）必须快速失败——基线轨与 sherpa 轨均监听
+        // AVAudioSession.interruptionNotification，本轨缺失时来电期间采集停摆、
+        // 等待循环永无失败信号，UI 卡在「录音中」直到松手。
+        #if os(iOS)
+        interruptionObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification, object: AVAudioSession.sharedInstance(), queue: nil) { [weak self] note in
+                guard let userInfo = note.userInfo,
+                      let rawType = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
+                      AVAudioSession.InterruptionType(rawValue: rawType) == .began else { return }
+                self?.onFailure()
+            }
+        #endif
+        engine.prepare()
+        try engine.start()
+    }
+
+    func stop() {
+        #if os(iOS)
+        let hasSessionState = sessionState != nil
+        #else
+        let hasSessionState = false
+        #endif
+        guard engine != nil || tapInstalled || configurationObserver != nil || interruptionObserver != nil || hasSessionState else { return }
+        if let observer = configurationObserver {
+            NotificationCenter.default.removeObserver(observer)
+            configurationObserver = nil
+        }
+        if let observer = interruptionObserver {
+            NotificationCenter.default.removeObserver(observer)
+            interruptionObserver = nil
+        }
+        if let engine {
+            engine.stop()
+            if tapInstalled { engine.inputNode.removeTap(onBus: 0) }
+        }
+        engine = nil
+        tapInstalled = false
+        #if os(iOS)
+        if let prior = sessionState {
+            AudioSessionCapture.restore(prior)
+            sessionState = nil
+        }
+        #endif
     }
 }
 

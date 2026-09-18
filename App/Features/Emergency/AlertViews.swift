@@ -274,12 +274,10 @@ struct GuidelineSourceListView: View {
                         HStack(spacing: 12) {
                             if GuidelineSource.thresholdsAwaitMedicalReview { Text(L10n.healthMedicalReviewPending).font(.caption) }
                             else {
-                                if let lo = entry.l1Low { thresholdText("L1 <= \(MedicalNumberFormat.quantity(lo))") }
-                                if let hi = entry.l1High { thresholdText("L1 >= \(MedicalNumberFormat.quantity(hi))") }
-                                if let lo = entry.l2Low { thresholdText("L2 <= \(MedicalNumberFormat.quantity(lo))") }
-                                if let hi = entry.l2High { thresholdText("L2 >= \(MedicalNumberFormat.quantity(hi))") }
-                                if let lo = entry.l3Low { thresholdText("L3 <= \(MedicalNumberFormat.quantity(lo))") }
-                                if let hi = entry.l3High { thresholdText("L3 >= \(MedicalNumberFormat.quantity(hi))") }
+                                ForEach(entry.thresholdTable, id: \.level) { t in
+                                    if let lo = t.lo { thresholdText("\(t.level) <= \(MedicalNumberFormat.quantity(lo))") }
+                                    if let hi = t.hi { thresholdText("\(t.level) >= \(MedicalNumberFormat.quantity(hi))") }
+                                }
                             }
                         }
                         if let url = URL(string: entry.citationUrl), !entry.citationUrl.isEmpty {
@@ -303,6 +301,14 @@ struct GuidelineSourceListView: View {
     private func thresholdText(_ s: String) -> some View {
         Text(s).font(.caption2).monospacedDigit()
             .foregroundStyle(.secondary)
+    }
+}
+
+/// L1–L3 阈值表（列表页/详情页同口径；GuidelineEntry 单一事实源，
+/// 两处六/三组同构复制收敛为一份投影）
+private extension GuidelineEntry {
+    var thresholdTable: [(level: String, lo: Double?, hi: Double?)] {
+        [("L1", l1Low, l1High), ("L2", l2Low, l2High), ("L3", l3Low, l3High)]
     }
 }
 
@@ -356,9 +362,9 @@ struct GuidelineSourceDetailView: View {
                     if GuidelineSource.thresholdsAwaitMedicalReview {
                         Text(L10n.healthMedicalReviewPending).font(.caption)
                     } else {
-                    thresholdRow("L1", entry.l1Low, entry.l1High, entry.unit)
-                    thresholdRow("L2", entry.l2Low, entry.l2High, entry.unit)
-                    thresholdRow("L3", entry.l3Low, entry.l3High, entry.unit)
+                        ForEach(entry.thresholdTable, id: \.level) { t in
+                            thresholdRow(t.level, t.lo, t.hi, entry.unit)
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

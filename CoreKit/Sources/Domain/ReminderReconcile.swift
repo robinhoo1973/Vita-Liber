@@ -64,7 +64,10 @@ public enum ReconcileEngine {
     /// 滚动预排窗口（iOS 64 pending 上限）：只预排未来 N 天；超限按优先级裁撤
     public static let preScheduleWindowDays = 7
 
-    /// 优先级（对账裁撤顺序：用药 > 预约复诊 > 观察随访/临期）
+    /// 优先级（对账裁撤顺序：用药 > 预约复诊 > 观察随访/临期）。
+    /// rawValue 升序即优先序——**须保留手工 `<`**：本工具链对带 raw type
+    /// 的枚举不合成 Comparable（“enum declares raw type 'Int', preventing
+    /// synthesized conformance”），删除即破坏 trim 的排序与全仓调用点。
     public enum Priority: Int, Sendable, Comparable {
         case medication = 0, appointment = 1, followUp = 2
         public static func < (a: Priority, b: Priority) -> Bool { a.rawValue < b.rawValue }

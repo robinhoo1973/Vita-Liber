@@ -16,21 +16,7 @@ import Protocols
 final class StockAcceptanceTests: XCTestCase {
 
     private func makeStore() async throws -> (GRDBStore, MedicationStore, UUID, UUID) {
-        let store = try GRDBStore.inMemory()
-        let meds = MedicationStore(writer: store.writer)
-        let patient = UUID()
-        let med = UUID()
-        try await store.writer.write { db in
-            try db.execute(sql: """
-                INSERT INTO patient_profile (id, display_name, relation, created_at, updated_at)
-                VALUES (?, '零确认测试患者', '本人', 0, 0)
-                """, arguments: [patient.uuidString])
-            try db.execute(sql: """
-                INSERT INTO medication (id, patient_id, generic_name, spec, unit_kind, created_at, updated_at)
-                VALUES (?, ?, '二甲双胍', '0.5g', 'tablet', 0, 0)
-                """, arguments: [med.uuidString, patient.uuidString])
-        }
-        return (store, meds, patient, med)
+        try await GRDBStore.inMemoryWithMedication(patientName: "零确认测试患者", medName: "二甲双胍", spec: "0.5g")
     }
 
 

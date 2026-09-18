@@ -167,49 +167,49 @@ public struct HealthWindowSnapshot: Sendable {
 /// F16 同步轮报告（结构轮 2026-09-15：自 Infrastructure/HealthKitSyncService.swift 迁入）——
 /// 纯 Codable 值对象，表现层读模型（HealthImportDashboard.lastReport）与持久化
 /// （hk_import_status.report_json）共用；此前 UI 依赖 Infrastructure 内部类型（P7）。
-    public struct SyncReport: Sendable, Equatable, Codable {
-        public var elevated: Int = 0 // Scheduled, not delivered.
-        public var noRangeCount: Int = 0
-        public var persistedRows: Int = 0 // Includes updates and removals.
-        public var preservedRows: Int = 0 // Unowned recovered facts left unchanged.
-        public var deferredWindows: Int = 0 // Incomplete visibility; pending work is retained.
-        /// Added + deleted references HealthKit reported this round. Zero with no failures means
-        /// "nothing readable changed" — not "denied" and not "no history" (read authorization is opaque).
-        public var receivedChanges: Int = 0
-        public var rejectedSamples: Int = 0
-        public var failedTypes: [HealthDataKind] = []
-        public var hasMore = false
-        public var notificationFailures = 0
-        public var lastSyncAt: Date
-        public var bindingId: UUID? = nil
-        public var patientId: UUID? = nil
-        // round2 H-N1/H-N2 进度字段——全部 Optional：`hk_import_status.report_json` 旧 JSON 无键必须可解码
-        // （合成 Decodable 对非 Optional 缺键即抛）。
-        /// H-N2：本轮 <3 样本未成行的小时桶数（统计事实，非阈值判定）
-        public var sparseWindows: Int? = nil
-        /// H-N1：本轮后仍待物化的窗口数（排空进度）
-        public var remainingWindows: Int? = nil
-        /// H-N1：本轮推进的道；nil = 无在途工作
-        public var backfillLane: HealthFetchLane? = nil
+public struct SyncReport: Sendable, Equatable, Codable {
+    public var elevated: Int = 0 // Scheduled, not delivered.
+    public var noRangeCount: Int = 0
+    public var persistedRows: Int = 0 // Includes updates and removals.
+    public var preservedRows: Int = 0 // Unowned recovered facts left unchanged.
+    public var deferredWindows: Int = 0 // Incomplete visibility; pending work is retained.
+    /// Added + deleted references HealthKit reported this round. Zero with no failures means
+    /// "nothing readable changed" — not "denied" and not "no history" (read authorization is opaque).
+    public var receivedChanges: Int = 0
+    public var rejectedSamples: Int = 0
+    public var failedTypes: [HealthDataKind] = []
+    public var hasMore = false
+    public var notificationFailures = 0
+    public var lastSyncAt: Date
+    public var bindingId: UUID? = nil
+    public var patientId: UUID? = nil
+    // round2 H-N1/H-N2 进度字段——全部 Optional：`hk_import_status.report_json` 旧 JSON 无键必须可解码
+    // （合成 Decodable 对非 Optional 缺键即抛）。
+    /// H-N2：本轮 <3 样本未成行的小时桶数（统计事实，非阈值判定）
+    public var sparseWindows: Int? = nil
+    /// H-N1：本轮后仍待物化的窗口数（排空进度）
+    public var remainingWindows: Int? = nil
+    /// H-N1：本轮推进的道；nil = 无在途工作
+    public var backfillLane: HealthFetchLane? = nil
 
-        /// 跨模块构造出口（结构轮 2026-09-15 修复）：合成 memberwise init 为 internal，
-        /// 迁入 Domain 后 Infrastructure 调用方不可见——显式 public init 兜底。
-        public init(lastSyncAt: Date,
-                    elevated: Int = 0, noRangeCount: Int = 0, persistedRows: Int = 0,
-                    preservedRows: Int = 0, deferredWindows: Int = 0, receivedChanges: Int = 0,
-                    rejectedSamples: Int = 0, failedTypes: [HealthDataKind] = [],
-                    hasMore: Bool = false, notificationFailures: Int = 0,
-                    bindingId: UUID? = nil, patientId: UUID? = nil,
-                    sparseWindows: Int? = nil, remainingWindows: Int? = nil,
-                    backfillLane: HealthFetchLane? = nil) {
-            self.elevated = elevated; self.noRangeCount = noRangeCount
-            self.persistedRows = persistedRows; self.preservedRows = preservedRows
-            self.deferredWindows = deferredWindows; self.receivedChanges = receivedChanges
-            self.rejectedSamples = rejectedSamples; self.failedTypes = failedTypes
-            self.hasMore = hasMore; self.notificationFailures = notificationFailures
-            self.lastSyncAt = lastSyncAt; self.bindingId = bindingId; self.patientId = patientId
-            self.sparseWindows = sparseWindows; self.remainingWindows = remainingWindows
-            self.backfillLane = backfillLane
-        }
+    /// 跨模块构造出口（结构轮 2026-09-15 修复）：合成 memberwise init 为 internal，
+    /// 迁入 Domain 后 Infrastructure 调用方不可见——显式 public init 兜底。
+    public init(lastSyncAt: Date,
+                elevated: Int = 0, noRangeCount: Int = 0, persistedRows: Int = 0,
+                preservedRows: Int = 0, deferredWindows: Int = 0, receivedChanges: Int = 0,
+                rejectedSamples: Int = 0, failedTypes: [HealthDataKind] = [],
+                hasMore: Bool = false, notificationFailures: Int = 0,
+                bindingId: UUID? = nil, patientId: UUID? = nil,
+                sparseWindows: Int? = nil, remainingWindows: Int? = nil,
+                backfillLane: HealthFetchLane? = nil) {
+        self.elevated = elevated; self.noRangeCount = noRangeCount
+        self.persistedRows = persistedRows; self.preservedRows = preservedRows
+        self.deferredWindows = deferredWindows; self.receivedChanges = receivedChanges
+        self.rejectedSamples = rejectedSamples; self.failedTypes = failedTypes
+        self.hasMore = hasMore; self.notificationFailures = notificationFailures
+        self.lastSyncAt = lastSyncAt; self.bindingId = bindingId; self.patientId = patientId
+        self.sparseWindows = sparseWindows; self.remainingWindows = remainingWindows
+        self.backfillLane = backfillLane
     }
+}
 

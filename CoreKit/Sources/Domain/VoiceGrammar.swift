@@ -117,30 +117,45 @@ public enum VoiceStructuringEngine {
         compiledCache[pattern] = regex
         return regex
     }
+    /// 按序取首个文法命中（编译失败 / 捕获组不足的 pattern 跳过，继续下一个）——
+    /// 指标 / 提醒时间 / 日期 / 重复 / 档案五处「逐 pattern 首命中」循环的单一实现。
+    /// Linux ICU：无捕获组时 range(at:) 直接 trap——numberOfRanges 校验在此集中。
+    static func firstCapture(in transcript: String, patterns: [String],
+                             groups: Int = 1) -> (full: Range<String.Index>, captures: [String])? {
+        let range = NSRange(transcript.startIndex..<transcript.endIndex, in: transcript)
+        for pattern in patterns {
+            guard let regex = compiled(pattern) else { continue }
+            guard let match = regex.firstMatch(in: transcript, range: range),
+                  match.numberOfRanges > groups,
+                  let full = Range(match.range(at: 0), in: transcript) else { continue }
+            var captures: [String] = []
+            captures.reserveCapacity(groups)
+            for g in 1...groups {
+                guard let r = Range(match.range(at: g), in: transcript) else { break }
+                captures.append(String(transcript[r]))
+            }
+            guard captures.count == groups else { continue }
+            return (full, captures)
+        }
+        return nil
+    }
+
     /// 指标抽取：转写文本 → 字段草稿（数值归一化；单位变体归一）
     public static func extractMetric(_ transcript: String,
                                      rules: [MetricGrammarRule]) -> [FieldDraft] {
         var drafts: [FieldDraft] = []
         for rule in rules {
-            for pattern in rule.patterns {
-                guard let regex = compiled(pattern) else { continue }
-                let range = NSRange(transcript.startIndex..<transcript.endIndex, in: transcript)
-                guard let match = regex.firstMatch(in: transcript, range: range),
-                      match.numberOfRanges > 1,    // Linux ICU：无捕获组时 range(at:) 直接 trap
-                      let valueRange = Range(match.range(at: 1), in: transcript) else { continue }
-                let raw = String(transcript[valueRange])
-                // 审查修复：单位一律取 rule.unitDefault——现有全部指标正则的第二捕获组
-                // 是数值而非单位（如「血压 148 92」的 92 是舒张压），原「第二组=单位」
-                // 分支把舒张压塞进收缩压草稿的 unit（FR7.10 验收句产垃圾单位）。
-                let unit = rule.unitDefault
-                let normalized = NumberNormalizer.normalize(raw)
-                let isMixed = raw.contains("点") || raw.contains(".")
-                drafts.append(FieldDraft(key: rule.metricKey,
-                                         value: normalized,
-                                         unit: unit,
-                                         confidence: isMixed ? 0.4 : 0.9))   // 混合形态强制复核
-                break   // 每个 metricKey 取首个命中
-            }
+            guard let hit = firstCapture(in: transcript, patterns: rule.patterns) else { continue }
+            let raw = hit.captures[0]
+            // 审查修复：单位一律取 rule.unitDefault——现有全部指标正则的第二捕获组
+            // 是数值而非单位（如「血压 148 92」的 92 是舒张压），原「第二组=单位」
+            // 分支把舒张压塞进收缩压草稿的 unit（FR7.10 验收句产垃圾单位）。
+            let normalized = NumberNormalizer.normalize(raw)
+            let isMixed = raw.contains("点") || raw.contains(".")
+            drafts.append(FieldDraft(key: rule.metricKey,
+                                     value: normalized,
+                                     unit: rule.unitDefault,
+                                     confidence: isMixed ? 0.4 : 0.9))   // 混合形态强制复核
         }
         return drafts
     }
@@ -156,37 +171,18 @@ public enum VoiceStructuringEngine {
         //    「8点」类表达必然解析失败——现分离为 "hour"/"date"/"time" 三键。
         var hasDate = false, hasHour = false, hasRepeat = false
         for rule in rules {
-            if !hasDate {
-                for pattern in rule.timePatterns {
-                    guard let regex = compiled(pattern) else { continue }
-                    let range = NSRange(transcript.startIndex..<transcript.endIndex, in: transcript)
-                    if let match = regex.firstMatch(in: transcript, range: range),
-                       match.numberOfRanges > 1,
-                       let vRange = Range(match.range(at: 1), in: transcript) {
-                        drafts.append(FieldDraft(key: "time",
-                                                 value: NumberNormalizer.normalize(String(transcript[vRange])),
-                                                 confidence: 0.9))
-                        hasDate = true
-                        break
-                    }
-                }
+            if !hasDate, let hit = firstCapture(in: transcript, patterns: rule.timePatterns) {
+                drafts.append(FieldDraft(key: "time",
+                                         value: NumberNormalizer.normalize(hit.captures[0]),
+                                         confidence: 0.9))
+                hasDate = true
             }
-            if !hasDate {
-                for pattern in rule.datePatterns {
-                    guard let regex = compiled(pattern) else { continue }
-                    let range = NSRange(transcript.startIndex..<transcript.endIndex, in: transcript)
-                    if let match = regex.firstMatch(in: transcript, range: range),
-                       match.numberOfRanges > 2,
-                       let mRange = Range(match.range(at: 1), in: transcript),
-                       let dRange = Range(match.range(at: 2), in: transcript) {
-                        // 具体日期 "date" 键：value 存 "月 日" 双段，resolveDate 解析
-                        drafts.append(FieldDraft(key: "date",
-                                                 value: "\(String(transcript[mRange])) \(String(transcript[dRange]))",
-                                                 confidence: 0.95))
-                        hasDate = true
-                        break
-                    }
-                }
+            if !hasDate, let hit = firstCapture(in: transcript, patterns: rule.datePatterns, groups: 2) {
+                // 具体日期 "date" 键：value 存 "月 日" 双段，resolveDate 解析
+                drafts.append(FieldDraft(key: "date",
+                                         value: "\(hit.captures[0]) \(hit.captures[1])",
+                                         confidence: 0.95))
+                hasDate = true
             }
             if !hasHour {
                 for pattern in rule.hourPatterns {
@@ -220,19 +216,10 @@ public enum VoiceStructuringEngine {
                     }
                 }
             }
-            if !hasRepeat {
-                for pattern in rule.repeatPatterns {
-                    guard let regex = compiled(pattern) else { continue }
-                    let range = NSRange(transcript.startIndex..<transcript.endIndex, in: transcript)
-                    if let match = regex.firstMatch(in: transcript, range: range),
-                       match.numberOfRanges > 1,
-                       let vRange = Range(match.range(at: 1), in: transcript) {
-                        drafts.append(FieldDraft(key: "repeat", value: String(transcript[vRange]),
-                                                 confidence: 0.85))
-                        hasRepeat = true
-                        break
-                    }
-                }
+            if !hasRepeat, let hit = firstCapture(in: transcript, patterns: rule.repeatPatterns) {
+                drafts.append(FieldDraft(key: "repeat", value: hit.captures[0],
+                                         confidence: 0.85))
+                hasRepeat = true
             }
         }
         return drafts
@@ -243,18 +230,10 @@ public enum VoiceStructuringEngine {
                                       rules: [ProfileGrammarRule]) -> [FieldDraft] {
         var drafts: [FieldDraft] = []
         for rule in rules {
-            for pattern in rule.patterns {
-                guard let regex = compiled(pattern) else { continue }
-                let range = NSRange(transcript.startIndex..<transcript.endIndex, in: transcript)
-                if let match = regex.firstMatch(in: transcript, range: range),
-                   match.numberOfRanges > 1,
-                   let vRange = Range(match.range(at: 1), in: transcript) {
-                    drafts.append(FieldDraft(key: rule.fieldKey,
-                                             value: String(transcript[vRange]),
-                                             confidence: 0.85))
-                    break
-                }
-            }
+            guard let hit = firstCapture(in: transcript, patterns: rule.patterns) else { continue }
+            drafts.append(FieldDraft(key: rule.fieldKey,
+                                     value: hit.captures[0],
+                                     confidence: 0.85))
         }
         return drafts
     }

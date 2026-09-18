@@ -39,15 +39,10 @@ public enum VoiceModificationGuard {
         guard isExistingPlanContext else { return nil }
         // 频次优先于剂量：「改成一天两次」同时含「改成」，按更具体的类别归因
         for category in [Category.discontinue, .frequency, .dosage] {
-            guard let list = phrases[category] else { continue }
-            for phrase in list where transcript.contains(phrase) {
-                return rejection(category: category, phrase: phrase)
+            if let phrase = phrases[category]?.first(where: { transcript.contains($0) }) {
+                return Rejection(category: category, matchedPhrase: phrase)
             }
         }
         return nil
-    }
-
-    static func rejection(category: Category, phrase: String) -> Rejection {
-        Rejection(category: category, matchedPhrase: phrase)
     }
 }

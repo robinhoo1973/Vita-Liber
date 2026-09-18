@@ -532,7 +532,7 @@ struct CareModeSettingsView: View {
                         LabeledContent(L10n.care_parameters_readback, value: L10n.care_parameters_valueAskEachTime)
                         LabeledContent(L10n.care_parameters_voiceInput, value: L10n.care_parameters_valueDefaultOn)
                         LabeledContent(L10n.care_parameters_sos,
-                                       value: L10n.care_parameters_sosValue(seconds: Int(HoldToConfirm.requiredSeconds(mode: CareModeMetrics.care))))
+                                       value: L10n.careParametersSOSValue(seconds: Int(HoldToConfirm.requiredSeconds(mode: CareModeMetrics.care))))
                     }
                     .accessibilityIdentifier("F18.care.parameters")
                 }

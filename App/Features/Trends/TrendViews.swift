@@ -99,7 +99,7 @@ struct TrendChartView: View {
             // 缺测小时之间必须断线——按相邻点时间差 > maxGap 切段；maxGap 由窗口与桶宽决定
             // （TrendDownsampler.gapThreshold）：写成常量 1.5h 时，降采样后的 1 年心率
             // （桶宽 ≈ 1.5 天）每个保留点都会被判成新段，折线与区间带整条消失。
-            ForEach(Array(contiguousSegments(points, maxGap: maxGap).enumerated()), id: \.offset) { _, segment in
+            ForEach(Array(Self.contiguousSegments(points, maxGap: maxGap).enumerated()), id: \.offset) { _, segment in
                 ForEach(segment) { point in
                     if let low = point.valueMin, let high = point.valueMax {
                         // Swift Charts 无 RangeMark（CI 34748416488 实证编译错误族）：
@@ -124,9 +124,10 @@ struct TrendChartView: View {
     }
 
     /// 连续段切分（数据诚实 gap 断线）：相邻点时间差 > maxGap 即断段。
-    /// maxGap 由调用侧按窗口与桶宽给出（`TrendDownsampler.gapThreshold`）：
-    /// 短窗回落小时步长 ×1.5 = 5400s（覆盖 DST 边界；春令跳小时本身无数据，断线正确）。
-    private func contiguousSegments(_ points: [TrendPoint], maxGap: TimeInterval) -> [[TrendPoint]] {
+    /// 纯函数（不读视图状态）——maxGap 由调用侧按窗口与桶宽给出
+    /// （`TrendDownsampler.gapThreshold`）：短窗回落小时步长 ×1.5 = 5400s
+    /// （覆盖 DST 边界；春令跳小时本身无数据，断线正确）。
+    private static func contiguousSegments(_ points: [TrendPoint], maxGap: TimeInterval) -> [[TrendPoint]] {
         var segments: [[TrendPoint]] = []
         var current: [TrendPoint] = []
         for point in points {

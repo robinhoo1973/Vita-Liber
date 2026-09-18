@@ -35,7 +35,7 @@ public actor ReminderReconciler {
         // 新通知（失败即原样返回），成功后再撤销旧通知；撤销失败只记日志
         // 不翻盘（新提醒已武装，用户不会静默丢失提醒）。
         do {
-            let snoozeId = "snooze-\(doseNotifyId)-\(Int(until.timeIntervalSince1970))"
+            let snoozeId = Self.snoozeIdentifier(doseNotifyId: doseNotifyId, until: until)
             try await scheduler.schedule(dose: snoozeId, at: until, route: .reminderToday)
             if let slotId = slotNotifyId {
                 do { try await scheduler.cancel([slotId]) }
@@ -64,6 +64,22 @@ public actor ReminderReconciler {
         }
         if notifyId.hasPrefix("apt-") { return 1 }
         return 2
+    }
+
+    /// snooze 通知 id 构造（snooze() 与 reconcile() 共用同一命名方案，
+    /// 与 `doseNotifyId(ofSnooze:)` 互为逆操作——构造/反解只此一对）。
+    static func snoozeIdentifier(doseNotifyId: String, until: Date) -> String {
+        "snooze-\(doseNotifyId)-\(Int(until.timeIntervalSince1970))"
+    }
+
+    /// 从 snooze id 反解剂量 id；非 snooze 形态 / 无 epoch 后缀 → nil
+    /// （stale 扫描只认本仓构造的合法 id，不误伤他仓命名空间）。
+    static func doseNotifyId(ofSnooze id: String) -> String? {
+        guard id.hasPrefix("snooze-") else { return nil }
+        let rest = String(id.dropFirst("snooze-".count))
+        let parts = rest.split(separator: "-")
+        guard let last = parts.last, Int(last) != nil else { return nil }
+        return parts.dropLast().joined(separator: "-")
     }
 
     /// 四层触发（启动/回前台/时区变更/BGTask）都调这里；任一层成功即满足正确性
@@ -118,7 +134,7 @@ public actor ReminderReconciler {
                     if let slotId = slotIdByDose[fact.dose.notifyId].map({ "slot-\($0)" }) {
                         try await scheduler.cancel([slotId])
                     }
-                    let snoozeId = "snooze-\(fact.dose.notifyId)-\(Int(until.timeIntervalSince1970))"
+                    let snoozeId = Self.snoozeIdentifier(doseNotifyId: fact.dose.notifyId, until: until)
                     try await scheduler.schedule(dose: snoozeId, at: until, route: .reminderToday)
                     pending[snoozeId] = until
                 case .none:
@@ -147,12 +163,8 @@ public actor ReminderReconciler {
                 .filter { $0.action != nil && $0.action != .snoozed }
                 .map { $0.dose.notifyId })
             let stale = pending.keys.filter { id in
-                if id.hasPrefix("snooze-") {
-                    let rest = String(id.dropFirst("snooze-".count))
-                    let parts = rest.split(separator: "-")
-                    guard let last = parts.last, Int(last) != nil else { return false }
-                    let doseNotifyId = parts.dropLast().joined(separator: "-")
-                    return resolvedNotifyIds.contains(doseNotifyId)
+                if let dose = Self.doseNotifyId(ofSnooze: id) {
+                    return resolvedNotifyIds.contains(dose)
                 }
                 return (id.hasPrefix("dose-") || id.hasPrefix("slot-")) && !activeSlotIds.contains(id)
             }

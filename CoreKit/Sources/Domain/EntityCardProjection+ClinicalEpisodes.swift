@@ -100,13 +100,14 @@ extension EntityCardProjection {
     /// 共享面 → 表头意图（字段缺席为 nil，不猜）。
     public static func labHeaderIntent(from card: MatchedCard, calendar: Calendar) -> LabReportIntent {
         let shared = dictionary(card.shared)
-        func date(_ key: String) -> Date? { shared[key].flatMap { parseDate($0, calendar: calendar) } }
         return LabReportIntent(hospital: shared["hospital"], department: shared["department"], labName: shared["lab_name"],
                                reportNo: shared["report_no"], specimenType: shared["specimen_type"], specimenNo: shared["specimen_no"],
                                testClassText: shared["test_class"], clinicalDiagnosis: shared["clinical_diagnosis"],
                                sendDoctor: shared["send_doctor"], testDoctor: shared["test_doctor"], reviewDoctor: shared["review_doctor"],
-                               collectedAt: date("collected_at"), receivedAt: date("received_at"),
-                               reportedAt: date("reported_at") ?? date("measured_at"))
+                               collectedAt: sharedDate("collected_at", in: shared, calendar: calendar),
+                               receivedAt: sharedDate("received_at", in: shared, calendar: calendar),
+                               reportedAt: sharedDate("reported_at", in: shared, calendar: calendar)
+                                   ?? sharedDate("measured_at", in: shared, calendar: calendar))
     }
 
     /// 分流规则（§C.5，不双写）：行 `value` 为严格十进制数且有 `unit` → `samples`（趋势点，`measuredAt = collectedAt ?? reportedAt`）；
@@ -169,11 +170,11 @@ extension EntityCardProjection {
     /// 住院卡 → 意图：须 `hospital`、派生 `kind ∈ inpatient|daySurgery`、`admit_at ?? discharge_at`；任一缺席/无效 → nil（留待办）。
     public static func hospitalizationIntent(from card: MatchedCard, calendar: Calendar) -> HospitalizationIntent? {
         let shared = dictionary(card.shared)
-        func date(_ key: String) -> Date? { shared[key].flatMap { parseDate($0, calendar: calendar) } }
         guard card.kind == "hospitalization", let row = card.rows.first,
               invalidFields(in: card, row: row, calendar: calendar).isEmpty,
               let hospital = shared["hospital"], let kind = shared["kind"], hospitalizationKinds.contains(kind) else { return nil }
-        let admitAt = date("admit_at"), dischargeAt = date("discharge_at")
+        let admitAt = sharedDate("admit_at", in: shared, calendar: calendar)
+        let dischargeAt = sharedDate("discharge_at", in: shared, calendar: calendar)
         guard let episodeDate = admitAt ?? dischargeAt else { return nil }
         let hospitalization = Hospitalization(
             id: row.id, patientId: FactPlaceholder.unassignedId, encounterId: FactPlaceholder.unassignedId,
@@ -185,7 +186,8 @@ extension EntityCardProjection {
             admitDiagnosisText: shared["admit_diagnosis"], dischargeDiagnosisText: shared["discharge_diagnosis"],
             admitCondition: shared["admit_condition"], treatmentCourse: shared["treatment_course"], dischargeCondition: shared["discharge_condition"],
             dischargeOrders: shared["discharge_orders"], takeHomeDrugsText: shared["take_home_drugs"],
-            totalCost: shared["total_cost"].flatMap(Double.init), summaryDoctor: shared["summary_doctor"], summaryDate: date("summary_date"),
+            totalCost: shared["total_cost"].flatMap(Double.init), summaryDoctor: shared["summary_doctor"],
+            summaryDate: sharedDate("summary_date", in: shared, calendar: calendar),
             source: .ocr, confirmed: false, createdAt: FactPlaceholder.unassignedDate, updatedAt: FactPlaceholder.unassignedDate)
         return HospitalizationIntent(rowId: row.id, hospitalization: hospitalization, episodeDate: episodeDate, encounterKind: kind)
     }
@@ -214,11 +216,11 @@ extension EntityCardProjection {
     /// 检查卡 → 意图：须 canonical `report_type`、`exam_at ?? reported_at`、`impression ?? findings`；任一缺席/无效 → nil。
     public static func examReportIntent(from card: MatchedCard, calendar: Calendar) -> ExamReportIntent? {
         let shared = dictionary(card.shared)
-        func date(_ key: String) -> Date? { shared[key].flatMap { parseDate($0, calendar: calendar) } }
         guard card.kind == "exam_report", let row = card.rows.first,
               invalidFields(in: card, row: row, calendar: calendar).isEmpty,
               let type = shared["report_type"], ExamReport.reportTypes.contains(type) else { return nil }
-        let examAt = date("exam_at"), reportedAt = date("reported_at")
+        let examAt = sharedDate("exam_at", in: shared, calendar: calendar)
+        let reportedAt = sharedDate("reported_at", in: shared, calendar: calendar)
         guard examAt ?? reportedAt != nil, shared["impression"] ?? shared["findings"] != nil else { return nil }
         return ExamReportIntent(rowId: row.id, report: ExamReport(
             id: row.id, patientId: FactPlaceholder.unassignedId, reportType: type,

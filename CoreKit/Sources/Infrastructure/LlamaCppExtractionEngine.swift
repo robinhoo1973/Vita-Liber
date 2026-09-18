@@ -51,29 +51,40 @@ public struct LlamaCppExtractionEngine: CardExtractionEngine {
         guard await HeavyModelLease.shared.tryAcquire() else {
             throw ExtractionEngineError.modelBusy
         }
-        defer { Task { await HeavyModelLease.shared.release() } }
-
+        // 出口处 await 同步释放（与 T1 同纪律：defer 内 fire-and-forget 释放没有
+        // happens-before——返回后注册表立即查下一区域 T1 的 isOccupied，可能仍为
+        // 真、把 T1 误判 modelBusy 跳过，低接地区域失去双轨并集补偿。release
+        // 幂等，多路径重复释放无副作用。）
         let lines = request.lines
         let prompt = Self.buildPrompt(lines: lines, spec: spec)
         // 文法按每次调用的 spec 现场生成（多卡类共享引擎实例，构造期不可绑定单一 spec 文法）
         let grammar = GBNFGrammarGenerator.generate(for: spec)
 
-        let output = try await LlamaRuntime.shared.complete(
-            prompt: prompt, grammar: grammar,
-            modelURL: modelURL ?? LlamaModelManager.modelURL(),
-            maxTokens: Int32(spec.outputTokenBudget))
-
-        guard let data = output.data(using: .utf8) else {
-            throw ExtractionEngineError.unavailable
-        }
-        let result: ModelSpanResult
         do {
-            result = try JSONDecoder().decode(ModelSpanResult.self, from: data)
+            let output = try await LlamaRuntime.shared.complete(
+                prompt: prompt, grammar: grammar,
+                modelURL: modelURL ?? LlamaModelManager.modelURL(),
+                maxTokens: Int32(spec.outputTokenBudget))
+
+            guard let data = output.data(using: .utf8) else {
+                await HeavyModelLease.shared.release()
+                throw ExtractionEngineError.unavailable
+            }
+            let result: ModelSpanResult
+            do {
+                result = try JSONDecoder().decode(ModelSpanResult.self, from: data)
+            } catch {
+                await HeavyModelLease.shared.release()
+                throw ExtractionEngineError.unavailable
+            }
+            let assembled = ModelSpanAssembler.region(shared: result.shared ?? [], rows: result.rows ?? [],
+                                                      spec: spec, lines: lines, pageIndex: region.pageIndex)
+            await HeavyModelLease.shared.release()
+            return assembled
         } catch {
-            throw ExtractionEngineError.unavailable
+            await HeavyModelLease.shared.release()
+            throw error
         }
-        return ModelSpanAssembler.region(shared: result.shared ?? [], rows: result.rows ?? [],
-                                         spec: spec, lines: lines, pageIndex: region.pageIndex)
     }
 
     // MARK: - Prompt 构建

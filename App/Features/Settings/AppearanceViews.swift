@@ -25,6 +25,28 @@ enum AppearanceRules {
     }
 }
 
+/// 设置绑定统一工厂（ThemeSettingsView / SettingsView 共用）：
+/// 三处同款「DB 值 → 绑定」复制收敛一处，避免布尔口径与主题回落逻辑漂移。
+enum AppSettingsBindings {
+    /// 布尔读口径统一（审查修复沉淀）：一律 `(values[key] ?? key.defaultValue) == "true"`
+    /// ——values 未装载（load 完成前）与装载后显示一致，不得用 `!= "false"`。
+    static func bool(_ settings: AppSettingsStore, for key: AppSettingKey) -> Bool {
+        (settings.values[key] ?? key.defaultValue) == "true"
+    }
+
+    /// FR14.4 主题绑定（tech-spec §5.28.1：值存 DB app_settings，@Observable 即时生效）
+    static func theme(_ settings: AppSettingsStore) -> Binding<AppTheme> {
+        Binding(
+            get: {
+                AppTheme(rawValue: settings.values[.appearance]
+                         ?? AppSettingKey.appearance.defaultValue) ?? .system
+            },
+            set: { theme in
+                Task { await settings.set(theme.rawValue, for: .appearance) }
+            })
+    }
+}
+
 /// ui-ux §5.12.1 外观与主题选择器：水平三段 + 迷你预览色块，即时生效、无确认弹窗。
 /// 预览语义（mock me.html `.theme-preview`）：浅=白底黑条 / 深=黑底白条 / 跟随=半白半黑。
 /// FR14.4 外观与主题设置页（SP-25 子页路由落点）：三段选择器 + 高对比度开关。
@@ -57,20 +79,13 @@ struct ThemeSettingsView: View {
     }
 
     private var themeBinding: Binding<AppTheme> {
-        Binding(
-            get: {
-                AppTheme(rawValue: settings.values[.appearance]
-                         ?? AppSettingKey.appearance.defaultValue) ?? .system
-            },
-            set: { theme in
-                Task { await settings.set(theme.rawValue, for: .appearance) }
-            })
+        AppSettingsBindings.theme(settings)
     }
 
     private var highContrastBinding: Binding<Bool> {
         Binding(
             // 与 SettingsViews 的布尔读口径统一（values 未装载时同样落默认值）
-            get: { (settings.values[.highContrastEnabled] ?? AppSettingKey.highContrastEnabled.defaultValue) == "true" },
+            get: { AppSettingsBindings.bool(settings, for: .highContrastEnabled) },
             set: { on in
                 Task { await settings.set(on ? "true" : "false", for: .highContrastEnabled) }
             })

@@ -418,7 +418,7 @@ public actor MedicationStore: DoseSource {
     /// 物理真值 + 记审计。归真必须显式调用且经确认（Domain 侧 `needsConfirmation`
     /// 已判差异非零），本方法不自行裁决差异——裁决发生在调用方确认之后。
     public func reconcileLot(lotId: UUID, physicalCount: Double, at: Date,
-                             note: String? = nil, auditSink: ((String, String) async throws -> Void)? = nil) async throws {
+                             note: String? = nil, audit: Bool = false) async throws {
         try await writer.write { db in
             try db.execute(sql: """
                 UPDATE stock_lot
@@ -439,7 +439,7 @@ public actor MedicationStore: DoseSource {
             // 全仓审查 2026-09-18（F-I1-02 同族）：改经 AuditLogWriter 同事务静态
             // 写入口——action 受白名单约束，哈希/列序与其它审计写入单一事实源；
             // 此前手写 INSERT 绕过白名单，`inventory.reconcile` 不在集合内却能落库。
-            if auditSink != nil {
+            if audit {
                 try AuditLogWriter.insert(action: AuditLogWriter.Action.inventoryReconcile,
                                           entityType: "stock_lot", entityId: lotId.uuidString,
                                           actorLocal: "local", meta: "count=\(physicalCount)", db: db)
@@ -947,30 +947,7 @@ public actor MedicationStore: DoseSource {
                 WHERE p.patient_id = ?
                 ORDER BY p.status = 'active' DESC, p.start_date DESC
                 """, arguments: [patientId.uuidString])
-            return rows.map { row in
-                let id = UUID(uuidString: row["id"] as String) ?? UUID()
-                let patientId = UUID(uuidString: row["patient_id"] as String) ?? UUID()
-                let medicationId = UUID(uuidString: row["medication_id"] as String) ?? UUID()
-                let medicationName = row["generic_name"] as String
-                let spec = row["spec"] as String?
-                let status = row["status"] as String
-                let startDate = Date(timeIntervalSince1970: row["start_date"] as Double)
-                let endDate = (row["end_date"] as Double?).map { Date(timeIntervalSince1970: $0) }
-                let schedule: MedicationSchedule
-                var unreadable = false
-                if let json = (row["schedule_json"] as String?)?.data(using: .utf8),
-                   let decoded = try? JSONDecoder().decode(MedicationSchedule.self, from: json) { // try?-ok: 解码失败走可见降级行（不静默消失）
-                    schedule = decoded
-                } else {
-                    schedule = .fixed(times: [])
-                    unreadable = true
-                }
-                return PlanRow(id: id, patientId: patientId, medicationId: medicationId,
-                               medicationName: medicationName, spec: spec, status: status,
-                               schedule: schedule, startDate: startDate, endDate: endDate,
-                               isUnreadable: unreadable,
-                               dosePlanUnits: row["dose_plan_units"] as Double?)
-            }
+            return rows.map { Self.planRow($0) }
         }
     }
 
@@ -983,28 +960,34 @@ public actor MedicationStore: DoseSource {
                 JOIN medication m ON m.id = p.medication_id
                 WHERE p.id = ?
                 """, arguments: [id.uuidString]) else { return nil }
-            let schedule: MedicationSchedule
-            var unreadable = false
-            if let json = (row["schedule_json"] as String?)?.data(using: .utf8),
-               let decoded = try? JSONDecoder().decode(MedicationSchedule.self, from: json) { // try?-ok: 解码失败走可见降级行（不静默消失）
-                schedule = decoded
-            } else {
-                schedule = .fixed(times: [])
-                unreadable = true
-            }
-            return PlanRow(
-                id: UUID(uuidString: row["id"] as String) ?? UUID(),
-                patientId: UUID(uuidString: row["patient_id"] as String) ?? UUID(),
-                medicationId: UUID(uuidString: row["medication_id"] as String) ?? UUID(),
-                medicationName: row["generic_name"] as String,
-                spec: row["spec"] as String?,
-                status: row["status"] as String,
-                schedule: schedule,
-                startDate: Date(timeIntervalSince1970: row["start_date"] as Double),
-                endDate: (row["end_date"] as Double?).map { Date(timeIntervalSince1970: $0) },
-                isUnreadable: unreadable,
-                dosePlanUnits: row["dose_plan_units"] as Double?)
+            return Self.planRow(row)
         }
+    }
+
+    /// 计划行 → PlanRow 的**唯一**映射（列表/详情共用；schedule_json 损坏走
+    /// 可见降级行——isUnreadable 标记，UI 据此渲染「计划数据损坏」而非静默消失）
+    private static func planRow(_ row: Row) -> PlanRow {
+        let schedule: MedicationSchedule
+        var unreadable = false
+        if let json = (row["schedule_json"] as String?)?.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode(MedicationSchedule.self, from: json) { // try?-ok: 解码失败走可见降级行（不静默消失）
+            schedule = decoded
+        } else {
+            schedule = .fixed(times: [])
+            unreadable = true
+        }
+        return PlanRow(
+            id: UUID(uuidString: row["id"] as String) ?? UUID(),
+            patientId: UUID(uuidString: row["patient_id"] as String) ?? UUID(),
+            medicationId: UUID(uuidString: row["medication_id"] as String) ?? UUID(),
+            medicationName: row["generic_name"] as String,
+            spec: row["spec"] as String?,
+            status: row["status"] as String,
+            schedule: schedule,
+            startDate: Date(timeIntervalSince1970: row["start_date"] as Double),
+            endDate: (row["end_date"] as Double?).map { Date(timeIntervalSince1970: $0) },
+            isUnreadable: unreadable,
+            dosePlanUnits: row["dose_plan_units"] as Double?)
     }
 
     /// 计划剂量日志（FR9.16 日程条：本周七日格，已服实心✓/漏服空心!/未来灰）
@@ -1117,70 +1100,70 @@ public struct FamilyPendingDose: Sendable, Equatable, Identifiable {
 ///   剂量时，昨夜 24 点过期的批次仍是当日合法来源）；此前写死 Date()（账务
 ///   时刻），补录确认被静默跳过扣减、双轨账本失实（BR-004 事实链断裂）。
 func applyResolutionOnLots(patientId: UUID, medicationId: UUID, notifyId: String, units: Double,
-                                   at time: Date, action: DoseUserAction,
-                                   transitionMatrix: (plan: Double, confirmed: Double)? = nil,
-                                   db: Database) throws {
-        var inventories: [DualTrackInventory] = []
-        for row in try Row.fetchAll(db, sql: """
-            SELECT * FROM stock_lot
-            WHERE patient_id = ? AND medication_id = ? AND status = 'active'
-              AND (expire_at IS NULL OR expire_at > ?)
-            """, arguments: [patientId.uuidString, medicationId.uuidString,
-                             time.timeIntervalSince1970]) {
-            var inv = DualTrackInventory(lotId: UUID(uuidString: row["id"] as String) ?? UUID(),
-                                         totalUnits: row["total_units"] as Double,
-                                         unitKind: row["unit_kind"] as String,
-                                         expireAt: (row["expire_at"] as Double?).map { Date(timeIntervalSince1970: $0) })
-            inv.remainingPlanUnits = row["remaining_plan_units"] as Double
-            inv.remainingConfirmedUnits = row["remaining_confirmed_units"] as Double
-            inventories.append(inv)
-        }
-        // FR9.8.2 扣减矩阵由 Domain 单一编码派生（InventoryRules.deduction），
-        // 不在此重新编码——矩阵是 BR 规则，只能有一处定义。
-        // transitionMatrix：补录转场修正（missed→taken 计划轨已扣）由 Domain 判定传入。
-        let matrix = transitionMatrix ?? InventoryRules.deduction(for: action, units: units)
-        var planRemaining = matrix.plan
-        var confirmedRemaining = matrix.confirmed
-        // 双轨账本：planned_units 记录计划线扣减，confirmed_units 记录确认线扣减，
-        // 二者独立——原实现把 confirmedTake 同时写入两列，导致计划线账本失真、
-        // 安全线（续药提醒）计算错误（FR9.8 双轨语义）。
-        var allocations: [(lotId: UUID, planUnits: Double, confirmedUnits: Double)] = []
-        for sortedLot in InventoryRules.fefoOrder(inventories) {
-            guard planRemaining > 0 || confirmedRemaining > 0 else { break }
-            guard sortedLot.status == "active",
-                  let i = inventories.firstIndex(where: { $0.lotId == sortedLot.lotId }) else { continue }
-            var lot = inventories[i]
-            let planTake = min(lot.remainingPlanUnits, planRemaining)
-            let confirmedTake = min(lot.remainingConfirmedUnits, confirmedRemaining)
-            if planTake > 0 { lot = InventoryRules.deductPlan(lot, units: planTake); planRemaining -= planTake }
-            if confirmedTake > 0 { lot = InventoryRules.deductConfirmed(lot, units: confirmedTake); confirmedRemaining -= confirmedTake }
-            if planTake > 0 || confirmedTake > 0 {
-                inventories[i] = lot
-                allocations.append((lot.lotId, planTake, confirmedTake))
-            }
-        }
-        // 只写参与分配（值已变化）的批次——此前遍历全部 active 批次行执行
-        // UPDATE（含零扣减批次同值重写），每次确认/漏服决议 WAL 写放大
-        let allocatedIds = Set(allocations.map(\.lotId))
-        for lot in inventories where allocatedIds.contains(lot.lotId) {
-            try db.execute(sql: """
-                UPDATE stock_lot SET remaining_plan_units = ?, remaining_confirmed_units = ?
-                WHERE id = ?
-                """, arguments: [lot.remainingPlanUnits, lot.remainingConfirmedUnits, lot.lotId.uuidString])
-        }
-        for a in allocations {   // 追加时已过滤零扣减行（planTake/confirmedTake 双零不入账）
-            // 评审修正第二轮（转场 PK 冲突）：materializeMissed 已为同一剂量行写入
-            // (planned=units, confirmed=0) 分配后，补录转场（missed→taken）再次以
-            // (0, units) 落账会撞 dose_lot_allocation 主键 (dose_log_id, stock_lot_id)
-            // → 整个事务回滚、补录失败。改为累加式 upsert：双轨账本语义 =
-            // 该剂量对该批次的累计计划/确认扣减，转场是追加而非覆盖。
-            try db.execute(sql: """
-                INSERT INTO dose_lot_allocation (dose_log_id, stock_lot_id, planned_units, confirmed_units)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(dose_log_id, stock_lot_id) DO UPDATE SET
-                  planned_units = planned_units + excluded.planned_units,
-                  confirmed_units = confirmed_units + excluded.confirmed_units
-                """, arguments: [notifyId, a.lotId.uuidString, a.planUnits, a.confirmedUnits])
+                           at time: Date, action: DoseUserAction,
+                           transitionMatrix: (plan: Double, confirmed: Double)? = nil,
+                           db: Database) throws {
+    var inventories: [DualTrackInventory] = []
+    for row in try Row.fetchAll(db, sql: """
+        SELECT * FROM stock_lot
+        WHERE patient_id = ? AND medication_id = ? AND status = 'active'
+          AND (expire_at IS NULL OR expire_at > ?)
+        """, arguments: [patientId.uuidString, medicationId.uuidString,
+                         time.timeIntervalSince1970]) {
+        var inv = DualTrackInventory(lotId: UUID(uuidString: row["id"] as String) ?? UUID(),
+                                     totalUnits: row["total_units"] as Double,
+                                     unitKind: row["unit_kind"] as String,
+                                     expireAt: (row["expire_at"] as Double?).map { Date(timeIntervalSince1970: $0) })
+        inv.remainingPlanUnits = row["remaining_plan_units"] as Double
+        inv.remainingConfirmedUnits = row["remaining_confirmed_units"] as Double
+        inventories.append(inv)
+    }
+    // FR9.8.2 扣减矩阵由 Domain 单一编码派生（InventoryRules.deduction），
+    // 不在此重新编码——矩阵是 BR 规则，只能有一处定义。
+    // transitionMatrix：补录转场修正（missed→taken 计划轨已扣）由 Domain 判定传入。
+    let matrix = transitionMatrix ?? InventoryRules.deduction(for: action, units: units)
+    var planRemaining = matrix.plan
+    var confirmedRemaining = matrix.confirmed
+    // 双轨账本：planned_units 记录计划线扣减，confirmed_units 记录确认线扣减，
+    // 二者独立——原实现把 confirmedTake 同时写入两列，导致计划线账本失真、
+    // 安全线（续药提醒）计算错误（FR9.8 双轨语义）。
+    var allocations: [(lotId: UUID, planUnits: Double, confirmedUnits: Double)] = []
+    for sortedLot in InventoryRules.fefoOrder(inventories) {
+        guard planRemaining > 0 || confirmedRemaining > 0 else { break }
+        guard sortedLot.status == "active",
+              let i = inventories.firstIndex(where: { $0.lotId == sortedLot.lotId }) else { continue }
+        var lot = inventories[i]
+        let planTake = min(lot.remainingPlanUnits, planRemaining)
+        let confirmedTake = min(lot.remainingConfirmedUnits, confirmedRemaining)
+        if planTake > 0 { lot = InventoryRules.deductPlan(lot, units: planTake); planRemaining -= planTake }
+        if confirmedTake > 0 { lot = InventoryRules.deductConfirmed(lot, units: confirmedTake); confirmedRemaining -= confirmedTake }
+        if planTake > 0 || confirmedTake > 0 {
+            inventories[i] = lot
+            allocations.append((lot.lotId, planTake, confirmedTake))
         }
     }
+    // 只写参与分配（值已变化）的批次——此前遍历全部 active 批次行执行
+    // UPDATE（含零扣减批次同值重写），每次确认/漏服决议 WAL 写放大
+    let allocatedIds = Set(allocations.map(\.lotId))
+    for lot in inventories where allocatedIds.contains(lot.lotId) {
+        try db.execute(sql: """
+            UPDATE stock_lot SET remaining_plan_units = ?, remaining_confirmed_units = ?
+            WHERE id = ?
+            """, arguments: [lot.remainingPlanUnits, lot.remainingConfirmedUnits, lot.lotId.uuidString])
+    }
+    for a in allocations {   // 追加时已过滤零扣减行（planTake/confirmedTake 双零不入账）
+        // 评审修正第二轮（转场 PK 冲突）：materializeMissed 已为同一剂量行写入
+        // (planned=units, confirmed=0) 分配后，补录转场（missed→taken）再次以
+        // (0, units) 落账会撞 dose_lot_allocation 主键 (dose_log_id, stock_lot_id)
+        // → 整个事务回滚、补录失败。改为累加式 upsert：双轨账本语义 =
+        // 该剂量对该批次的累计计划/确认扣减，转场是追加而非覆盖。
+        try db.execute(sql: """
+            INSERT INTO dose_lot_allocation (dose_log_id, stock_lot_id, planned_units, confirmed_units)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(dose_log_id, stock_lot_id) DO UPDATE SET
+              planned_units = planned_units + excluded.planned_units,
+              confirmed_units = confirmed_units + excluded.confirmed_units
+            """, arguments: [notifyId, a.lotId.uuidString, a.planUnits, a.confirmedUnits])
+    }
+}
 #endif

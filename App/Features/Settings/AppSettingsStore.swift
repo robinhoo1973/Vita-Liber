@@ -154,38 +154,39 @@ final class AppSettingsStore {
                 }
             }
             values[key] = value
-            // 审查修复（分裂脑）：readbackPreference 与 careMode 的运行时真源
-            // 在 UserDefaults（AppState 读），DB 写而镜像不写 = 设置无效；
-            // restoreDefaults 亦需同步清镜像（幂等双写）
-            // 第八轮修复（类型分裂脑）：careModeEnable 镜像此前写 String
-            // "true"/"false"，而全部读取方（AppState.careMode/careModeTruth）
-            // 用 bool(forKey:)——Apple 平台 NSString 恒读 false，开关显示开而
-            // 关怀版式实际关闭。镜像改写 Bool（与 CareModeSettingsView 的
-            // app.careMode 写入同型）。
-            if key == .readBackOptIn {
-                UserDefaults.standard.set(value, forKey: key.rawValue)
-            }
-            if key == .careModeEnable {
-                UserDefaults.standard.set(value == "true", forKey: key.rawValue)
-            }
-            // 第七轮全仓审查修复（FR9.18 通道偏好接线）：remindChannel* 与
-            // inAppBannerEnabled 镜像 UserDefaults——通知投递门（ChannelGated
-            // Scheduler）与 willPresent 在非主线程读该镜像（UserDefaults 线程
-            // 安全），无需 @MainActor 往返
-            if key.rawValue.hasPrefix("remindChannel") || key == .inAppBannerEnabled {
-                UserDefaults.standard.set(value, forKey: key.rawValue)
-            }
-            // 审查修复（冻结键镜像缺失）：TTS rateProvider 与识别引擎工厂
-            // （EngineFactories.choiceProvider）以 UserDefaults 冻结键为运行时真源，
-            // 而 set() 此前只镜像 readBackOptIn/careModeEnable/remindChannel*——
-            // voiceEngine/speechRate 只落 DB 与内存 values，镜像恒 nil，工厂
-            // 永远读到默认档/默认语速（用户选择从未生效，语音实验室 A/B 对照
-            // 失真）。此处补镜像写；restoreDefaults 经 mirroredKeys 幂等清镜像。
-            if key == .voiceEngine || key == .speechRate {
-                UserDefaults.standard.set(value, forKey: key.rawValue)
-            }
+            syncRuntimeMirror(value, for: key)
         } catch {
             logger.error("设置写入失败: \(error)")
+        }
+    }
+
+    /// 运行时镜像同步（set 落库后幂等双写）。分裂脑审查修复沉淀：
+    /// readbackPreference / careMode / 通知通道 / TTS 冻结键的运行时真源
+    /// 在 UserDefaults（AppState 与非主线程消费者读），DB 写而镜像不写
+    /// = 设置无效；restoreDefaults 经 mirroredKeys/removeObject 同步清。
+    /// 第八轮修复（类型分裂脑）：careModeEnable 镜像必须写 Bool——全部
+    /// 读取方（AppState.careMode/careModeTruth）用 bool(forKey:)，String
+    /// "true" 在 Apple 平台恒读 false，开关显示开而关怀版式实际关闭。
+    private func syncRuntimeMirror(_ value: String, for key: AppSettingKey) {
+        if key == .readBackOptIn {
+            UserDefaults.standard.set(value, forKey: key.rawValue)
+        }
+        if key == .careModeEnable {
+            UserDefaults.standard.set(value == "true", forKey: key.rawValue)
+        }
+        // 第七轮全仓审查修复（FR9.18 通道偏好接线）：remindChannel* 与
+        // inAppBannerEnabled 镜像——通知投递门（ChannelGatedScheduler）与
+        // willPresent 在非主线程读该镜像（UserDefaults 线程安全），无需
+        // @MainActor 往返
+        if key.rawValue.hasPrefix("remindChannel") || key == .inAppBannerEnabled {
+            UserDefaults.standard.set(value, forKey: key.rawValue)
+        }
+        // 审查修复（冻结键镜像缺失）：TTS rateProvider 与识别引擎工厂
+        // （EngineFactories.choiceProvider）以 UserDefaults 冻结键为运行时
+        // 真源，此前只镜像 readBackOptIn/careModeEnable/remindChannel*，
+        // 工厂永远读到默认档/默认语速（用户选择从未生效）。
+        if key == .voiceEngine || key == .speechRate {
+            UserDefaults.standard.set(value, forKey: key.rawValue)
         }
     }
 
@@ -213,14 +214,7 @@ final class AppSettingsStore {
             if authorizationRevision == authAIRevision {
                 deniedAIUntilGrant = false
             }
-            // 审查修复：运行时镜像同步重置——原只清 DB，careMode 仍为 true
-            // 而开关显示关闭（首页仍是关怀版式，设置页却关着）
-            UserDefaults.standard.removeObject(forKey: AppSettingKey.readBackOptIn.rawValue)
-            UserDefaults.standard.removeObject(forKey: AppSettingKey.careModeEnable.rawValue)
-            // 审查修正（sweep）：旧键 "careMode"（AppState.careMode 只读兼容回退）
-            // 必须一并移除——已装机用户仅凭旧键仍持关怀版式，恢复默认后开关显示
-            // 关闭而 64pt 触控/大字版式照旧（迁移键与回退键的分裂脑）。
-            UserDefaults.standard.removeObject(forKey: "careMode")
+            clearLegacyRuntimeMirrors()
             // 审查修正（FR14.2 证据链）：恢复默认 = 全设置键域的最大授权变更
             // （九开关全部回默认放行）——此前零审计行，撤销→恢复默认再放行的
             // 序列无迹可查。落一条 settings.reset 审计事实（审计失败不阻断恢复，
@@ -245,6 +239,17 @@ final class AppSettingsStore {
             authorizationWrites -= 1
             logger.error("恢复默认失败: \(error)")
         }
+    }
+
+    /// 恢复默认时的镜像同步重置（审查修复：运行时镜像同步重置——原只清 DB，
+    /// careMode 仍为 true 而开关显示关闭，首页仍是关怀版式、设置页却关着）。
+    /// 旧键 "careMode"（AppState.careMode 只读兼容回退）必须一并移除——
+    /// 已装机用户仅凭旧键仍持关怀版式，恢复默认后开关显示关闭而 64pt 触控/
+    /// 大字版式照旧（迁移键与回退键的分裂脑）。
+    private func clearLegacyRuntimeMirrors() {
+        UserDefaults.standard.removeObject(forKey: AppSettingKey.readBackOptIn.rawValue)
+        UserDefaults.standard.removeObject(forKey: AppSettingKey.careModeEnable.rawValue)
+        UserDefaults.standard.removeObject(forKey: "careMode")
     }
 
     /// 第七轮全仓审查修复：关怀模式运行时真源 = UserDefaults（与 AppState.careMode

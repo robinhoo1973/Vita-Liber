@@ -54,14 +54,14 @@ extension EntityCardProjection {
     /// 体检首页卡 → 意图：须 `org_name` 与可解析 `exam_date`（不猜日期）；任一字段无效 → nil（留待办）。
     public static func healthExamIntent(from card: MatchedCard, calendar: Calendar) -> HealthExamIntent? {
         let shared = dictionary(card.shared)
-        func date(_ key: String) -> Date? { shared[key].flatMap { parseDate($0, calendar: calendar) } }
         guard card.kind == "health_exam", let row = card.rows.first,
               invalidFields(in: card, row: row, calendar: calendar).isEmpty,
-              let org = shared["org_name"], let examDate = date("exam_date") else { return nil }
+              let org = shared["org_name"], let examDate = sharedDate("exam_date", in: shared, calendar: calendar) else { return nil }
         let exam = HealthExam(
             id: row.id, patientId: FactPlaceholder.unassignedId,
             orgName: org, examNo: shared["exam_no"], packageName: shared["package_name"],
-            examDate: examDate, totalDoctor: shared["total_doctor"], reportDate: date("report_date"),
+            examDate: examDate, totalDoctor: shared["total_doctor"],
+            reportDate: sharedDate("report_date", in: shared, calendar: calendar),
             heightText: shared["height"], weightText: shared["weight"], bmiText: shared["bmi"],
             systolicText: shared["systolic"], diastolicText: shared["diastolic"], pulseText: shared["pulse"], waistText: shared["waist"],
             visionLeftText: shared["vision_left"], visionRightText: shared["vision_right"],
@@ -102,13 +102,14 @@ extension EntityCardProjection {
     /// 手术卡 → 意图：须 `surgery_name` 与可解析 `surgery_at`；其余列原文；任一缺席/无效 → nil。
     public static func surgeryIntent(from card: MatchedCard, calendar: Calendar) -> SurgeryIntent? {
         let shared = dictionary(card.shared)
-        func date(_ key: String) -> Date? { shared[key].flatMap { parseDate($0, calendar: calendar) } }
         guard card.kind == "surgery", let row = card.rows.first,
               invalidFields(in: card, row: row, calendar: calendar).isEmpty,
-              let name = shared["surgery_name"], let surgeryAt = date("surgery_at") else { return nil }
+              let name = shared["surgery_name"],
+              let surgeryAt = sharedDate("surgery_at", in: shared, calendar: calendar) else { return nil }
         return SurgeryIntent(rowId: row.id, surgery: Surgery(
             id: row.id, patientId: FactPlaceholder.unassignedId,
-            hospital: shared["hospital"], department: shared["department"], surgeryAt: surgeryAt, endedAt: date("ended_at"),
+            hospital: shared["hospital"], department: shared["department"], surgeryAt: surgeryAt,
+            endedAt: sharedDate("ended_at", in: shared, calendar: calendar),
             surgeryName: name, surgeryCodeText: shared["surgery_code"], surgeryLevelText: shared["surgery_level"],
             surgeon: shared["surgeon"], assistants: shared["assistants"], anesthesiologist: shared["anesthesiologist"], anesthesiaMethod: shared["anesthesia_method"],
             preopDiagnosisText: shared["preop_diagnosis"], postopDiagnosisText: shared["postop_diagnosis"],

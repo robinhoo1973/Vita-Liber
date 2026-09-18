@@ -169,11 +169,7 @@ public actor OCRCardStore {
     public func sourceRefs(entityId: UUID, patientId: UUID, cardKind: String) async throws -> [String] {
         guard Self.detailKinds.contains(cardKind) else { throw StoreError.invalidCard }
         return try await writer.read { db in
-            let scope = Self.receiptScope(kind: cardKind, headerId: entityId.uuidString, patientId: patientId.uuidString)
-            let rows = try Row.fetchAll(db, sql: """
-                SELECT * FROM ocr_card_commit WHERE patient_id = ? AND card_kind = ? AND \(scope.sql)
-                ORDER BY document_file_id, page_index, row_id
-                """, arguments: Self.receiptArguments([patientId.uuidString, Self.receiptCardKind(forDetailKind: cardKind)], scope))
+            let rows = try Self.receipts(kind: cardKind, headerId: entityId, patientId: patientId, db: db)
             var seen = Set<String>()
             return try rows.compactMap { row in
                 try Self.validateReceipt(row, db: db)
@@ -184,6 +180,8 @@ public actor OCRCardStore {
         }
     }
 
+    /// FR6.9 / BR-001 / BR-003 原子确认边界：同事务四步（装载 → 分区/枢纽 → 逐卡事实 → 回执收尾），
+    /// 任一步失败整体回滚、零写入。四步各为独立助手（loadDraft / planWrites / writeFacts / finalizeSave）。
     public func save(card: MatchedCard, patientId: UUID, documentId: UUID,
                      pendingCardId: String? = nil) async throws -> SaveResult {
         try await writer.write { db in
@@ -192,479 +190,574 @@ public actor OCRCardStore {
                   !Self.singleRowKinds.contains(card.kind) || card.rows.count == 1 else { throw StoreError.invalidCard }
             try DocumentStore.validateSource(db, patientId: patientId, documentId: documentId, pageIndex: card.pageIndex)
             let now = Date()
-            let matches = try Row.fetchAll(db, sql: """
-                SELECT * FROM pending_card WHERE source_doc_id = ? AND source_page = ? AND card_kind = ?
-                """, arguments: [documentId.uuidString, card.pageIndex, card.kind])
-            guard matches.count <= 1 else { throw StoreError.pendingIdentityMismatch }
-            var pending = try matches.first.map(PendingCardStore.decode)
-            if let pendingCardId {
-                guard let found = try Row.fetchOne(db, sql: "SELECT * FROM pending_card WHERE id = ?", arguments: [pendingCardId]) else {
-                    throw StoreError.pendingNotFound
-                }
-                let requested = try PendingCardStore.decode(found)
-                guard pending?.id == requested.id else { throw StoreError.pendingIdentityMismatch }
-                pending = requested
-            }
-            if let pending {
-                guard pending.patientId == patientId, pending.sourceDocId == documentId,
-                      pending.sourcePage == card.pageIndex, pending.cardKind == card.kind, pending.sourceType == "ocr" else {
-                    throw StoreError.pendingIdentityMismatch
-                }
-                guard ["pending", "in_progress", "resolved"].contains(pending.status), pending.note != "discarded" else {
-                    throw StoreError.pendingNotActive
-                }
-            }
-            let previous = try pending?.matchedCard()
-            if let previous, previous.id != card.id { throw StoreError.pendingIdentityMismatch }
-            let sourceCards = try String.fetchAll(db, sql: "SELECT DISTINCT card_id FROM ocr_card_commit WHERE document_file_id = ? AND page_index = ? AND card_kind = ?",
-                                                  arguments: [documentId.uuidString, card.pageIndex, card.kind])
-            guard sourceCards.isEmpty || sourceCards.contains(card.id.uuidString) else { throw StoreError.pendingIdentityMismatch }
-            let receipts = try Row.fetchAll(db, sql: "SELECT * FROM ocr_card_commit WHERE card_id = ?", arguments: [card.id.uuidString])
-            for receipt in receipts {
-                guard (receipt["patient_id"] as String) == patientId.uuidString,
-                      (receipt["document_file_id"] as String) == documentId.uuidString,
-                      (receipt["page_index"] as Int) == card.pageIndex,
-                      (receipt["card_kind"] as String) == card.kind else { throw StoreError.pendingIdentityMismatch }
-                try Self.validateReceipt(receipt, db: db)
-            }
-            let committed = Set(receipts.map { $0["row_id"] as String })
-            var snapshot = card
-            if let previous, !committed.isEmpty {
-                snapshot = try Self.mergeDraft(card, previous: previous, committed: committed)
-            } else if previous == nil, !committed.isEmpty {
-                // Restored receipts have no D-grade pending snapshot. Replays must still agree with the committed audit.
-                let audits = try Self.exportCommits(db).filter { $0.cardId == card.id }
-                guard let first = audits.first, first.shared == card.shared.filter(\.isConfirmed) else { throw StoreError.committedDataChanged }
-                for row in card.rows where committed.contains(row.id.uuidString) {
-                    guard EntityCardProjection.invalidFields(in: card, row: row, calendar: Calendar(identifier: .gregorian)).isEmpty,
-                          audits.first(where: { $0.rowId == row.id })?.fields == row.fields.filter({ $0.isConfirmed && $0.key != "metric_key" }) else {
-                        throw StoreError.committedDataChanged
-                    }
-                }
-                let supplied = Set(card.rows.map(\.id))
-                snapshot.rows = audits.filter { !supplied.contains($0.rowId) }.map { MatchedCardRow(id: $0.rowId, fields: $0.fields) } + card.rows
-                // v27 §0.4：已提交回执才是归属事实——UI 仍持主卡草稿重放时，若回执已一致指向某就诊，归一为 .existing（不再建第二张主卡）。
-                if case .newHub = snapshot.encounterAssociation {
-                    let linked = Set(receipts.compactMap { $0["encounter_id"] as String? })
-                    if linked.count == 1, let id = linked.first.flatMap(UUID.init(uuidString:)) { snapshot.encounterAssociation = .existing(id) }
-                }
-            }
-            if let pending, pending.status == "resolved" {
-                guard let previous, previous.shared == snapshot.shared,
-                      previous.rows.map(\.id) == snapshot.rows.map(\.id),
-                      zip(previous.rows, snapshot.rows).allSatisfy({ pair in pair.0.fields == pair.1.fields }) else {
+            let loaded = try Self.loadDraft(card: card, patientId: patientId, documentId: documentId,
+                                            pendingCardId: pendingCardId, db: db)
+            if let pending = loaded.pending, pending.status == "resolved" {
+                guard let previous = loaded.previous, previous.shared == loaded.snapshot.shared,
+                      previous.rows.map(\.id) == loaded.snapshot.rows.map(\.id),
+                      zip(previous.rows, loaded.snapshot.rows).allSatisfy({ pair in pair.0.fields == pair.1.fields }) else {
                     throw StoreError.committedDataChanged
                 }
                 return SaveResult(remainingCard: nil, writtenCount: 0, resolved: true, pendingCardId: pending.id)
             }
 
             let id: String
-            if let pending { id = pending.id }
+            if let pending = loaded.pending { id = pending.id }
             else {
                 let raw = try String.fetchOne(db, sql: "SELECT ocr_text FROM document_page WHERE document_file_id = ? AND page_index = ?",
                                               arguments: [documentId.uuidString, card.pageIndex]) ?? ""
                 id = try PendingCardStore.upsert(PendingCardDraft(patientId: patientId, sourceType: "ocr", sourceDocId: documentId,
-                    sourcePage: card.pageIndex, cardKind: card.kind, incompleteFields: [], partialData: PendingCardPayload(card: snapshot), rawText: raw),
+                    sourcePage: card.pageIndex, cardKind: card.kind, incompleteFields: [], partialData: PendingCardPayload(card: loaded.snapshot), rawText: raw),
                     db: db, now: now)
             }
-            var residual: [MatchedCardRow] = []
-            var accepted: [MatchedCardRow] = []
-            var incomplete: [IncompleteField] = []
-            for row in snapshot.rows where !committed.contains(row.id.uuidString) {
-                if EntityCardProjection.isDiscarded(row, in: snapshot) { continue }
-                let invalid = EntityCardProjection.invalidFields(in: snapshot, row: row, calendar: Calendar(identifier: .gregorian))
-                if invalid.isEmpty { var valid = row; valid.missingRequired = []; accepted.append(valid) }
-                else {
-                    var remaining = row; remaining.missingRequired = invalid
-                    residual.append(remaining)
-                    incomplete += invalid.map { IncompleteField(key: $0, reason: "requires_review", rowId: row.id) }
-                }
-            }
-            var projectionCard = snapshot
-            projectionCard.rows = accepted
-            var entities: [UUID: UUID] = [:]
-            /// 行 → 回执 entity_table（缺省 = 表头表；处方/费用行回执指行表）。
-            var tables: [UUID: String] = [:]
-            var associatedEncounter = accepted.isEmpty ? nil : try Self.validateAssociation(snapshot, patientId: patientId, db: db)
-            /// v27：体检枢纽（显式 `.existingHub(.healthExam, id)` 或下方草稿新建）——检验/检查表头写 `health_exam_id + report_source`，结论行以之为父。
-            var associatedHealthExam: UUID? = accepted.isEmpty ? nil : try Self.validateHealthExamAssociation(snapshot, patientId: patientId, db: db)
-            let calendar = Calendar(identifier: .gregorian)
-            // v27 §0.4 改判：无可挂接主卡 → 草稿在**同一事务**先落主卡，再写子卡与回执；任一失败整体回滚。
-            // BR-003：草稿字段须全部已确认且日期可解析（Domain `ParentCardDraftRules.*Draft` 裁定，否则 invalidCard、零写入）；
-            // 证据字段（机构 / 医生 / 日期）被编辑后未重派生 → invalidAssociation（与 .suggested 同纪律）。
-            // 主卡本身不另立回执：卡类注册表约束回执 entity_table ∈ 该卡类事实表；主卡的来源留痕 = 子卡回执 encounter_id / 子卡 FK + audit_event。
-            if case .newHub(let draft) = snapshot.encounterAssociation, !accepted.isEmpty {
-                guard draft.evidence == EncounterResolver.evidenceKey(for: snapshot) else { throw StoreError.invalidAssociation }
-                let provenance = String(decoding: try JSONEncoder().encode(["source": "parentDraft", "cardKind": card.kind, "cardId": card.id.uuidString]), as: UTF8.self)
-                switch draft.hub {
-                case .encounter:
-                    guard let encounter = ParentCardDraftRules.encounterDraft(from: draft, patientId: patientId, calendar: calendar) else { throw StoreError.invalidCard }
-                    try Self.insertEncounter(encounter, patientId: patientId, db: db, now: now)
-                    try AuditLogWriter.insert(action: "create", entityType: "encounter", entityId: encounter.id.uuidString, actorLocal: "owner", meta: provenance, db: db)
-                    associatedEncounter = encounter.id
-                    snapshot.encounterAssociation = .existing(encounter.id)             // pending 快照归一化：重放不再建卡
-                case .healthExam:
-                    guard let exam = ParentCardDraftRules.healthExamDraft(from: draft, patientId: patientId, calendar: calendar) else { throw StoreError.invalidCard }
-                    let id = try Self.ensureHealthExam(exam, documentId: documentId, db: db, now: now)   // 幂等键 (patient_id, document_file_id)：同文档一份体检
-                    try AuditLogWriter.insert(action: "create", entityType: "health_exam", entityId: id.uuidString, actorLocal: "owner", meta: provenance, db: db)
-                    associatedHealthExam = id
-                    snapshot.encounterAssociation = .existingHub(.healthExam, id)
-                case .hospitalization:
-                    throw StoreError.invalidCard   // 住院期由住院卡自身建就诊（saveHospitalization），不经草稿
-                }
-            }
-            switch card.kind {
-            case "metric_sample":
-                if !accepted.isEmpty {
-                    // v26（§C.5）检验分流：数值行（严格 Double + 单位）→ metric_sample（趋势点），定性/比较符行原文 → lab_result，
-                    // 两者共用同卡的 lab_report 表头（source_card_id = card.id 幂等）；回执 entity_table 按行分流。不双写、不丢行。
-                    let lab = EntityCardProjection.labProjection(from: projectionCard, calendar: calendar)
-                    guard lab.remainingRows.isEmpty, lab.samples.count + lab.qualitative.count == accepted.count,
-                          lab.rowIds.count == lab.samples.count else { throw StoreError.invalidCard }
-                    if !committed.isEmpty {
-                        // 已提交行（数值 / 定性）的事实列必须仍与回执一致（v25 处方行同纪律；BR-003 不在篡改事实上续写）。
-                        var committedCard = snapshot
-                        committedCard.rows = snapshot.rows.filter { committed.contains($0.id.uuidString) }
-                        guard try Self.labRowsMatch(EntityCardProjection.labProjection(from: committedCard, calendar: calendar),
-                                                    receipts: receipts, patientId: patientId.uuidString, db: db) else {
-                            throw StoreError.committedDataChanged
-                        }
-                    }
-                    // v27：挂体检枢纽的检验表头写 health_exam_id + report_source = 'health_exam'（融合方案 §三-3）；数值行同样回指体检。
-                    let reportId = try Self.ensureLabReport(lab.header, card: card, patientId: patientId, documentId: documentId,
-                                                            encounterId: associatedEncounter, db: db, now: now,
-                                                            healthExamId: associatedHealthExam,
-                                                            reportSource: associatedHealthExam != nil ? ReportSource.healthExam.rawValue : nil)
-                    let samplesByRow = Dictionary(uniqueKeysWithValues: zip(lab.rowIds, lab.samples))
-                    let qualitativeByRow = Dictionary(uniqueKeysWithValues: lab.qualitative.map { ($0.rowId, $0.result) })
-                    for row in accepted {
-                        if let sample = samplesByRow[row.id] {
-                            let entity = UUID()
-                            let codingSystem = row.fields.first { $0.key == "raw_label" }?.codeApproval?.resolution.codingSystem
-                            try TrendQueryStore.insertHospitalSample(sample, id: entity, patientId: patientId,
-                                sourceRef: HospitalSample.sourceRef(documentId: documentId, pageIndex: card.pageIndex), db: db, now: now,
-                                approvedCodingSystem: codingSystem, labReportId: reportId.uuidString,
-                                healthExamId: associatedHealthExam?.uuidString)
-                            entities[row.id] = entity
-                        } else if var result = qualitativeByRow[row.id] {
-                            result.patientId = patientId; result.labReportId = reportId; result.createdAt = now
-                            result.ordinal = try Self.freeOrdinal(table: "lab_result", parentColumn: "lab_report_id", header: reportId.uuidString,
-                                                                  preferred: snapshot.rows.firstIndex { $0.id == row.id }, db: db)
-                            try Self.insertLabResult(result, db: db)
-                            entities[row.id] = result.id
-                            tables[row.id] = "lab_result"
-                        } else {
-                            throw StoreError.invalidCard
-                        }
-                    }
-                }
-            case "encounter":
-                if let row = accepted.first {
-                    guard let encounter = EntityCardProjection.encounterDraft(from: projectionCard, patientId: patientId,
-                                                                              calendar: Calendar(identifier: .gregorian)) else { throw StoreError.invalidCard }
-                    if let existing = associatedEncounter {
-                        // 多份原件为同一次就诊补空字段；冲突值保留在独立来源卡中，不覆盖已有诊断/叙事。
-                        // v25 五叙事列（§C.1）同一补空纪律：原文保存、不摘要不改写。
-                        try db.execute(sql: """
-                            UPDATE encounter SET hospital = COALESCE(NULLIF(hospital, ''), ?),
-                              department = COALESCE(NULLIF(department, ''), ?), doctor = COALESCE(NULLIF(doctor, ''), ?),
-                              chief_complaint = COALESCE(NULLIF(chief_complaint, ''), ?),
-                              diagnosis_text = COALESCE(NULLIF(diagnosis_text, ''), ?), advice_text = COALESCE(NULLIF(advice_text, ''), ?),
-                              present_illness = COALESCE(NULLIF(present_illness, ''), ?), visit_summary = COALESCE(NULLIF(visit_summary, ''), ?),
-                              past_history = COALESCE(NULLIF(past_history, ''), ?), physical_exam = COALESCE(NULLIF(physical_exam, ''), ?),
-                              allergy_history = COALESCE(NULLIF(allergy_history, ''), ?), updated_at = ?
-                            WHERE id = ? AND patient_id = ? AND deleted_at IS NULL
-                            """, arguments: [encounter.hospital, encounter.department, encounter.doctor,
-                                encounter.chiefComplaint, encounter.diagnosisText, encounter.adviceText,
-                                encounter.presentIllness, encounter.visitSummary, encounter.pastHistory,
-                                encounter.physicalExam, encounter.allergyHistory,
-                                now.timeIntervalSince1970, existing.uuidString, patientId.uuidString])
-                        guard db.changesCount == 1 else { throw StoreError.invalidAssociation }
-                        entities[row.id] = existing
-                    } else {
-                        // v27：与 §0.4 主卡草稿共用同列同序的 INSERT（OCRCardStore+HealthExam.insertEncounter）。
-                        try Self.insertEncounter(encounter, patientId: patientId, db: db, now: now)
-                        entities[row.id] = encounter.id
-                        associatedEncounter = encounter.id
-                    }
-                }
-            case "prescription":
-                if !accepted.isEmpty {
-                    // v25（§C.6）：表头 + 逐行 prescription_line；行意图与 accepted 行一一对应（rowId 同序）。
-                    guard let intent = EntityCardProjection.prescriptionIntent(from: projectionCard),
-                          intent.lines.map(\.rowId) == accepted.map(\.id) else { throw StoreError.invalidCard }
-                    // 卡片互联（FR6.9 期二）：处方归属就诊卡——按确认卡
-                    // EncounterAssociation 显式选择归属（证据化建议由
-                    // EncounterResolver 生成；无信号不猜、encounter_id 保持
-                    // NULL，绝不张冠李戴）
-                    let encounterId = associatedEncounter
-                    let entity: UUID
-                    if let existing = try Self.existingHeader(receipts: receipts, db: db) {
-                        guard let uuid = UUID(uuidString: existing) else { throw StoreError.corruptReceipt }
-                        entity = uuid
-                        // 已提交部分的表头列 + 行事实列必须仍与回执一致（不比 advice_text：v24 折叠串原样保留，
-                        // v25 回填行才是事实；BR-003 不从拼串猜回）。
-                        var committedCard = snapshot
-                        committedCard.rows = snapshot.rows.filter { committed.contains($0.id.uuidString) }
-                        guard let prior = EntityCardProjection.prescriptionIntent(from: committedCard),
-                              let stored = try Row.fetchOne(db, sql: "SELECT * FROM prescription WHERE id = ? AND patient_id = ?",
-                                                            arguments: [existing, patientId.uuidString]),
-                              Self.prescriptionHeaderMatches(stored, prior),
-                              try Self.prescriptionLinesMatch(prior, header: existing, patientId: patientId.uuidString, db: db) else {
-                            throw StoreError.committedDataChanged
-                        }
-                        // 表头只补空（多页/后补行不覆盖既有列；共享面在 mergeDraft 已保证不变）。
-                        try db.execute(sql: """
-                            UPDATE prescription SET advice_text = COALESCE(NULLIF(advice_text, ''), ?),
-                              department = COALESCE(NULLIF(department, ''), ?), prescription_no = COALESCE(NULLIF(prescription_no, ''), ?),
-                              prescription_type = COALESCE(NULLIF(prescription_type, ''), ?), fee_type_text = COALESCE(NULLIF(fee_type_text, ''), ?),
-                              clinical_diagnosis = COALESCE(NULLIF(clinical_diagnosis, ''), ?), pharmacist_names = COALESCE(NULLIF(pharmacist_names, ''), ?),
-                              total_amount = COALESCE(total_amount, ?), encounter_id = COALESCE(encounter_id, ?), updated_at = ?
-                            WHERE id = ? AND patient_id = ?
-                            """, arguments: [Self.normalized(intent.adviceText), intent.department, intent.prescriptionNo,
-                                             intent.prescriptionType, intent.feeTypeText, intent.clinicalDiagnosis, intent.pharmacistNames,
-                                             intent.totalAmount, encounterId?.uuidString,
-                                             now.timeIntervalSince1970, existing, patientId.uuidString])
-                        guard db.changesCount == 1 else { throw StoreError.committedDataChanged }
-                    } else {
-                        entity = UUID()
-                        try db.execute(sql: """
-                            INSERT INTO prescription (id, patient_id, encounter_id, document_file_id, source,
-                              hospital, doctor, prescribed_at, advice_text, confirmed, created_at, updated_at,
-                              department, prescription_no, prescription_type, fee_type_text, clinical_diagnosis, pharmacist_names, total_amount)
-                            VALUES (?, ?, ?, ?, 'ocr', ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            """, arguments: [entity.uuidString, patientId.uuidString, encounterId?.uuidString,
-                                documentId.uuidString, intent.hospital,
-                                intent.doctor, intent.prescribedAt.timeIntervalSince1970, Self.normalized(intent.adviceText),
-                                now.timeIntervalSince1970, now.timeIntervalSince1970,
-                                intent.department, intent.prescriptionNo, intent.prescriptionType, intent.feeTypeText,
-                                intent.clinicalDiagnosis, intent.pharmacistNames, intent.totalAmount])
-                    }
-                    for (row, item) in zip(accepted, intent.lines) {
-                        var line = item.line
-                        line.prescriptionId = entity; line.patientId = patientId
-                        line.confirmed = true; line.createdAt = now; line.updatedAt = now
-                        line.ordinal = try Self.freeOrdinal(table: "prescription_line", parentColumn: "prescription_id", header: entity.uuidString,
-                                                            preferred: snapshot.rows.firstIndex { $0.id == row.id }, db: db)
-                        try Self.insertPrescriptionLine(line, db: db)
-                        entities[row.id] = line.id
-                        tables[row.id] = "prescription_line"
-                    }
-                }
-            case "claim_item":
-                if !accepted.isEmpty {
-                    // v25（§C.7）：票据表头 + 费用明细行；无 item_name 的空行 = 表头即实体（票据页），沿表头回执路径。
-                    guard let intent = EntityCardProjection.claimIntent(from: projectionCard, calendar: calendar) else { throw StoreError.invalidCard }
-                    let entity: UUID
-                    if let existing = try Self.existingHeader(receipts: receipts, db: db) {
-                        guard let uuid = UUID(uuidString: existing) else { throw StoreError.corruptReceipt }
-                        entity = uuid
-                        var committedCard = snapshot
-                        committedCard.rows = snapshot.rows.filter { committed.contains($0.id.uuidString) }
-                        guard let prior = EntityCardProjection.claimIntent(from: committedCard, calendar: calendar),
-                              let stored = try Row.fetchOne(db, sql: "SELECT * FROM claim_item WHERE id = ? AND patient_id = ?",
-                                                            arguments: [existing, patientId.uuidString]),
-                              Self.claimHeaderMatches(stored, prior),
-                              try Self.claimLinesMatch(prior, header: existing, patientId: patientId.uuidString, db: db) else {
-                            throw StoreError.committedDataChanged
-                        }
-                        try db.execute(sql: """
-                            UPDATE claim_item SET merchant = COALESCE(NULLIF(merchant, ''), ?), summary = COALESCE(NULLIF(summary, ''), ?),
-                              invoice_no = COALESCE(NULLIF(invoice_no, ''), ?), insurance_type_text = COALESCE(NULLIF(insurance_type_text, ''), ?),
-                              reimbursed_amount = COALESCE(reimbursed_amount, ?), out_of_pocket = COALESCE(out_of_pocket, ?),
-                              personal_account_amount = COALESCE(personal_account_amount, ?),
-                              encounter_id = COALESCE(encounter_id, ?), updated_at = ?
-                            WHERE id = ? AND patient_id = ?
-                            """, arguments: [intent.merchant, intent.summary, intent.invoiceNo, intent.insuranceTypeText,
-                                             intent.reimbursedAmount, intent.outOfPocket, intent.personalAccountAmount,
-                                             associatedEncounter?.uuidString, now.timeIntervalSince1970, existing, patientId.uuidString])
-                        guard db.changesCount == 1 else { throw StoreError.committedDataChanged }
-                    } else {
-                        entity = UUID()
-                        try db.execute(sql: """
-                            INSERT INTO claim_item (id, patient_id, encounter_id, document_file_id, item_type, amount, currency, date, merchant, summary,
-                              confirmed, created_at, updated_at, reimbursed_amount, out_of_pocket, personal_account_amount, invoice_no, insurance_type_text)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)
-                            """, arguments: [entity.uuidString, patientId.uuidString, associatedEncounter?.uuidString, documentId.uuidString,
-                                intent.itemType, intent.amount, intent.currency, intent.date.timeIntervalSince1970, intent.merchant, intent.summary,
-                                now.timeIntervalSince1970, now.timeIntervalSince1970,
-                                intent.reimbursedAmount, intent.outOfPocket, intent.personalAccountAmount, intent.invoiceNo, intent.insuranceTypeText])
-                    }
-                    let linesByRow = Dictionary(uniqueKeysWithValues: intent.lines.map { ($0.rowId, $0) })
-                    for row in accepted {
-                        guard let item = linesByRow[row.id] else { entities[row.id] = entity; continue }
-                        let ordinal = try Self.freeOrdinal(table: "claim_line", parentColumn: "claim_item_id", header: entity.uuidString,
-                                                           preferred: snapshot.rows.firstIndex { $0.id == row.id }, db: db)
-                        try Self.insertClaimLine(item, header: entity, patientId: patientId, ordinal: ordinal, page: card.pageIndex, now: now, db: db)
-                        entities[row.id] = item.rowId
-                        tables[row.id] = "claim_line"
-                    }
-                }
-            case "medication":
-                for row in accepted {
-                    let values = EntityCardProjection.confirmedValues(row.fields)
-                    guard let name = values["generic_name"], let unit = values["unit_kind"] else { throw StoreError.invalidCard }
-                    let entity = UUID()
-                    try db.execute(sql: """
-                        INSERT INTO medication (id, patient_id, generic_name, brand_name, spec, unit_kind, created_at, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                        """, arguments: [entity.uuidString, patientId.uuidString, name, values["brand_name"], values["spec"], unit, now.timeIntervalSince1970, now.timeIntervalSince1970])
-                    entities[row.id] = entity
-                }
-            case "immunization":
-                if let row = accepted.first {
-                    let values = EntityCardProjection.confirmedValues(snapshot.shared)
-                    guard let name = values["vaccine_name"], let dose = values["dose_number"].flatMap(Int.init),
-                          let date = values["administered_at"].flatMap({ EntityCardProjection.parseDate($0, calendar: .current) }) else { throw StoreError.invalidCard }
-                    let entity = UUID()
-                    try db.execute(sql: """
-                        INSERT INTO immunization (id, patient_id, vaccine_name, dose_number, administered_at, provider, lot_number, encounter_id, source, confirmed, created_at, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ocr', 1, ?, ?)
-                        """, arguments: [entity.uuidString, patientId.uuidString, name, dose, date.timeIntervalSince1970,
-                            values["provider"], values["lot_number"], associatedEncounter?.uuidString, now.timeIntervalSince1970, now.timeIntervalSince1970])
-                    entities[row.id] = entity
-                }
-            case "hospitalization":
-                if let row = accepted.first {
-                    // v26（§C.2）住院卡 = 就诊 + 住院期同一事务：显式归属既有就诊则只补空（UNIQUE(encounter_id) 一次住院一行、
-                    // 绝不重复）；无归属信号不猜——按文档键派生的 kind（inpatient / daySurgery）新建就诊。
-                    guard let intent = EntityCardProjection.hospitalizationIntent(from: projectionCard, calendar: calendar) else { throw StoreError.invalidCard }
-                    let outcome = try Self.saveHospitalization(intent, patientId: patientId, documentId: documentId,
-                                                               associatedEncounter: associatedEncounter, db: db, now: now)
-                    entities[row.id] = outcome.entity
-                    associatedEncounter = outcome.encounter
-                }
-            case "diagnosis":
-                if !accepted.isEmpty {
-                    // v26（§C.3）诊断逐行一实体（id = 回执 row_id，确定性）；encounter_id 只取显式归属；日期缺省可继承显式归属就诊的日期
-                    //（用户选择的就诊不是猜测）；health_problem_id 永为 NULL（用户「采用为健康问题」后才回填，FR11.4）。
-                    guard let intents = EntityCardProjection.diagnosisIntents(from: projectionCard, calendar: calendar),
-                          intents.map(\.rowId) == accepted.map(\.id) else { throw StoreError.invalidCard }
-                    if !committed.isEmpty {
-                        var committedCard = snapshot
-                        committedCard.rows = snapshot.rows.filter { committed.contains($0.id.uuidString) }
-                        guard let prior = EntityCardProjection.diagnosisIntents(from: committedCard, calendar: calendar),
-                              try Self.diagnosesMatch(prior, patientId: patientId.uuidString, db: db) else { throw StoreError.committedDataChanged }
-                    }
-                    let inheritedDate = try associatedEncounter.flatMap { encounter in
-                        try Double.fetchOne(db, sql: "SELECT date FROM encounter WHERE id = ? AND patient_id = ?",
-                                            arguments: [encounter.uuidString, patientId.uuidString])
-                    }.map(Date.init(timeIntervalSince1970:))
-                    for (row, intent) in zip(accepted, intents) {
-                        var diagnosis = intent.diagnosis
-                        diagnosis.patientId = patientId; diagnosis.encounterId = associatedEncounter; diagnosis.documentFileId = documentId
-                        diagnosis.ordinal = snapshot.rows.firstIndex { $0.id == row.id } ?? diagnosis.ordinal
-                        if diagnosis.diagnosedAt == nil { diagnosis.diagnosedAt = inheritedDate }
-                        diagnosis.confirmed = true; diagnosis.createdAt = now; diagnosis.updatedAt = now
-                        try Self.insertDiagnosis(diagnosis, db: db)
-                        entities[row.id] = diagnosis.id
-                    }
-                }
-            case "exam_report":
-                if let row = accepted.first {
-                    // v26（§C.4）单行卡 → 一条 exam_report；findings/impression 原文，无 critical_value_flag（BR-004/012）。
-                    guard let intent = EntityCardProjection.examReportIntent(from: projectionCard, calendar: calendar) else { throw StoreError.invalidCard }
-                    var report = intent.report
-                    report.patientId = patientId; report.encounterId = associatedEncounter; report.documentFileId = documentId
-                    report.confirmed = true; report.createdAt = now; report.updatedAt = now
-                    // v27：体检文档上的检查报告挂体检枢纽（health_exam_id + report_source = 'health_exam'）。
-                    report.healthExamId = associatedHealthExam
-                    report.reportSource = associatedHealthExam != nil ? ReportSource.healthExam.rawValue : nil
-                    try Self.insertExamReport(report, db: db)
-                    entities[row.id] = report.id
-                }
-            case "health_exam":
-                if let row = accepted.first {
-                    // v27（§E.1 / round1 V10）：体检首页卡 = 第三枢纽表头（幂等键 = 同文档）+ 一般检查投影：只有 Domain 白名单
-                    // 裁定为「严格 Double + 单位 + MetricType 有键」的项才进 metric_sample（weight / bloodPressureSys / bloodPressureDia / heartRate），
-                    // 身高 / BMI / 腰围 / 视力不投影；原文列全部随表头保留（BR-006/007）。投影点无回执（注册表第二事实表 = 投影目标）。
-                    guard let intent = EntityCardProjection.healthExamIntent(from: projectionCard, calendar: calendar) else { throw StoreError.invalidCard }
-                    var exam = intent.exam
-                    exam.patientId = patientId; exam.documentFileId = documentId
-                    exam.confirmed = true; exam.createdAt = now; exam.updatedAt = now
-                    let id = try Self.ensureHealthExam(exam, documentId: documentId, db: db, now: now)
-                    for sample in intent.generalSamples {
-                        try TrendQueryStore.insertHospitalSample(sample, id: UUID(), patientId: patientId,
-                            sourceRef: HospitalSample.sourceRef(documentId: documentId, pageIndex: card.pageIndex), db: db, now: now,
-                            healthExamId: id.uuidString)
-                    }
-                    entities[row.id] = id
-                    associatedHealthExam = id
-                }
-            case "clinical_conclusion":
-                if !accepted.isEmpty {
-                    // v27（融合方案 §六-6.3）：结论逐行一实体（id = 回执 row_id），三外键恰一非空——父 = 体检枢纽（显式 / 草稿），
-                    // 无体检枢纽时取同文档唯一的检验表头 / 检查报告；severity_text 原文（BR-004/012）。
-                    guard let intents = EntityCardProjection.clinicalConclusionIntents(from: projectionCard, calendar: calendar),
-                          intents.map(\.rowId) == accepted.map(\.id) else { throw StoreError.invalidCard }
-                    if !committed.isEmpty {
-                        var committedCard = snapshot
-                        committedCard.rows = snapshot.rows.filter { committed.contains($0.id.uuidString) }
-                        guard let prior = EntityCardProjection.clinicalConclusionIntents(from: committedCard, calendar: calendar),
-                              try Self.conclusionsMatch(prior, patientId: patientId.uuidString, db: db) else { throw StoreError.committedDataChanged }
-                    }
-                    let parent = try Self.conclusionParent(healthExamId: associatedHealthExam, patientId: patientId, documentId: documentId, db: db)
-                    for (row, intent) in zip(accepted, intents) {
-                        var conclusion = intent.conclusion
-                        conclusion.patientId = patientId; conclusion.createdAt = now
-                        conclusion.healthExamId = parent.table == "health_exam" ? parent.id : nil
-                        conclusion.labReportId = parent.table == "lab_report" ? parent.id : nil
-                        conclusion.examReportId = parent.table == "exam_report" ? parent.id : nil
-                        conclusion.ordinal = try Self.freeOrdinal(table: "clinical_conclusion", parentColumn: parent.column, header: parent.id.uuidString,
-                                                                  preferred: snapshot.rows.firstIndex { $0.id == row.id }, db: db)
-                        try Self.insertClinicalConclusion(conclusion, db: db)
-                        entities[row.id] = conclusion.id
-                    }
-                }
-            case "surgery":
-                if let row = accepted.first {
-                    // v27（原 D3 §C.8）：单行卡 → 一条 surgery；encounter_id 只取显式归属 / 主卡草稿；编码 / 级别 / 植入物原文。
-                    guard let intent = EntityCardProjection.surgeryIntent(from: projectionCard, calendar: calendar) else { throw StoreError.invalidCard }
-                    var surgery = intent.surgery
-                    surgery.patientId = patientId; surgery.encounterId = associatedEncounter; surgery.documentFileId = documentId
-                    surgery.confirmed = true; surgery.createdAt = now; surgery.updatedAt = now
-                    try Self.insertSurgery(surgery, db: db)
-                    entities[row.id] = surgery.id
-                }
-            case "treatment_record":
-                if let row = accepted.first {
-                    // v27（原 D3 §C.9）：单行卡 → 一条 treatment_record；drugs_text 原文不拆行、不写 prescription_line / medication。
-                    guard let intent = EntityCardProjection.treatmentRecordIntent(from: projectionCard, calendar: calendar) else { throw StoreError.invalidCard }
-                    var record = intent.record
-                    record.patientId = patientId; record.encounterId = associatedEncounter; record.documentFileId = documentId
-                    record.confirmed = true; record.createdAt = now; record.updatedAt = now
-                    try Self.insertTreatmentRecord(record, db: db)
-                    entities[row.id] = record.id
-                }
-            default: throw StoreError.invalidCard
-            }
-            let headerTable = Self.factTable(for: card.kind)
-            for row in accepted {
-                guard let entity = entities[row.id] else { throw StoreError.invalidCard }
-                let audit = AuditRecord(cardId: card.id, rowId: row.id, patientId: patientId, documentId: documentId,
-                    pageIndex: card.pageIndex, cardKind: card.kind, entityId: entity,
-                    shared: snapshot.shared.filter(\.isConfirmed),
-                    fields: row.fields.filter { $0.isConfirmed && $0.key != "metric_key" }, recordedAt: now, encounterId: associatedEncounter,
-                    entityTable: tables[row.id] ?? headerTable)
-                try Self.insertReceipt(audit, db: db)
-            }
-            let residualById = Dictionary(uniqueKeysWithValues: residual.map { ($0.id, $0) })
-            let acceptedById = Dictionary(uniqueKeysWithValues: accepted.map { ($0.id, $0) })
-            snapshot.rows = snapshot.rows.map { residualById[$0.id] ?? acceptedById[$0.id] ?? $0 }
-            let resolved = residual.isEmpty
-            let json = try PendingCardPayload(card: snapshot).json
-            let incompleteJSON = String(decoding: try JSONEncoder().encode(incomplete), as: UTF8.self)
-            try db.execute(sql: """
-                UPDATE pending_card SET partial_data = ?, incomplete_fields = ?, status = ?, updated_at = ?,
-                  attempt_count = attempt_count + 1, resolved_at = ?, resolved_by = ?, note = NULL
-                WHERE id = ? AND status IN ('pending','in_progress')
-                """, arguments: [json, incompleteJSON, resolved ? "resolved" : "in_progress", now.timeIntervalSince1970,
-                    resolved ? now.timeIntervalSince1970 : nil, resolved ? "user" : nil, id])
-            guard db.changesCount == 1 else { throw StoreError.pendingNotActive }
-            try Self.refreshDocumentProjection(documentId: documentId, patientId: patientId, db: db, now: now)
-            var remaining = snapshot; remaining.rows = residual
-            return SaveResult(remainingCard: resolved ? nil : remaining, writtenCount: accepted.count, resolved: resolved, pendingCardId: id)
+            var plan = try Self.planWrites(snapshot: loaded.snapshot, committed: loaded.committed, card: card,
+                                           patientId: patientId, documentId: documentId, db: db, now: now)
+            try Self.writeFacts(kind: card.kind, card: card, receipts: loaded.receipts, committed: loaded.committed,
+                                plan: &plan, patientId: patientId, documentId: documentId, db: db, now: now)
+            return try Self.finalizeSave(card: card, accepted: plan.accepted, residual: plan.residual,
+                                         incomplete: plan.incomplete, snapshot: plan.snapshot, state: plan.state,
+                                         pendingId: id, patientId: patientId, documentId: documentId, db: db, now: now)
         }
+    }
+
+    // MARK: - save 四步助手（同一事务内按序调用；任一 throw 整体回滚）
+
+    /// 第一步「装载」：pending 同源校验 + 草稿合并（mergeDraft / 无草稿重放归一）。
+    /// `resolved` 重放一致性检查留在 save（需要 pending 与快照并置且带早退返回语义）。
+    private struct DraftLoad {
+        var pending: PendingCard?
+        var previous: MatchedCard?
+        var receipts: [Row]
+        var committed: Set<String>
+        var snapshot: MatchedCard
+    }
+
+    private static func loadDraft(card: MatchedCard, patientId: UUID, documentId: UUID,
+                                  pendingCardId: String?, db: Database) throws -> DraftLoad {
+        let matches = try Row.fetchAll(db, sql: """
+            SELECT * FROM pending_card WHERE source_doc_id = ? AND source_page = ? AND card_kind = ?
+            """, arguments: [documentId.uuidString, card.pageIndex, card.kind])
+        guard matches.count <= 1 else { throw StoreError.pendingIdentityMismatch }
+        var pending = try matches.first.map(PendingCardStore.decode)
+        if let pendingCardId {
+            guard let found = try Row.fetchOne(db, sql: "SELECT * FROM pending_card WHERE id = ?", arguments: [pendingCardId]) else {
+                throw StoreError.pendingNotFound
+            }
+            let requested = try PendingCardStore.decode(found)
+            guard pending?.id == requested.id else { throw StoreError.pendingIdentityMismatch }
+            pending = requested
+        }
+        if let pending {
+            guard pending.patientId == patientId, pending.sourceDocId == documentId,
+                  pending.sourcePage == card.pageIndex, pending.cardKind == card.kind, pending.sourceType == "ocr" else {
+                throw StoreError.pendingIdentityMismatch
+            }
+            guard ["pending", "in_progress", "resolved"].contains(pending.status), pending.note != "discarded" else {
+                throw StoreError.pendingNotActive
+            }
+        }
+        let previous = try pending?.matchedCard()
+        if let previous, previous.id != card.id { throw StoreError.pendingIdentityMismatch }
+        let sourceCards = try String.fetchAll(db, sql: "SELECT DISTINCT card_id FROM ocr_card_commit WHERE document_file_id = ? AND page_index = ? AND card_kind = ?",
+                                              arguments: [documentId.uuidString, card.pageIndex, card.kind])
+        guard sourceCards.isEmpty || sourceCards.contains(card.id.uuidString) else { throw StoreError.pendingIdentityMismatch }
+        let receipts = try Row.fetchAll(db, sql: "SELECT * FROM ocr_card_commit WHERE card_id = ?", arguments: [card.id.uuidString])
+        for receipt in receipts {
+            guard (receipt["patient_id"] as String) == patientId.uuidString,
+                  (receipt["document_file_id"] as String) == documentId.uuidString,
+                  (receipt["page_index"] as Int) == card.pageIndex,
+                  (receipt["card_kind"] as String) == card.kind else { throw StoreError.pendingIdentityMismatch }
+            try Self.validateReceipt(receipt, db: db)
+        }
+        let committed = Set(receipts.map { $0["row_id"] as String })
+        var snapshot = card
+        if let previous, !committed.isEmpty {
+            snapshot = try Self.mergeDraft(card, previous: previous, committed: committed)
+        } else if previous == nil, !committed.isEmpty {
+            // Restored receipts have no D-grade pending snapshot. Replays must still agree with the committed audit.
+            let audits = try Self.exportCommits(db).filter { $0.cardId == card.id }
+            guard let first = audits.first, first.shared == card.shared.filter(\.isConfirmed) else { throw StoreError.committedDataChanged }
+            for row in card.rows where committed.contains(row.id.uuidString) {
+                guard EntityCardProjection.invalidFields(in: card, row: row, calendar: Calendar(identifier: .gregorian)).isEmpty,
+                      audits.first(where: { $0.rowId == row.id })?.fields == row.fields.filter({ $0.isConfirmed && $0.key != "metric_key" }) else {
+                    throw StoreError.committedDataChanged
+                }
+            }
+            let supplied = Set(card.rows.map(\.id))
+            snapshot.rows = audits.filter { !supplied.contains($0.rowId) }.map { MatchedCardRow(id: $0.rowId, fields: $0.fields) } + card.rows
+            // v27 §0.4：已提交回执才是归属事实——UI 仍持主卡草稿重放时，若回执已一致指向某就诊，归一为 .existing（不再建第二张主卡）。
+            if case .newHub = snapshot.encounterAssociation {
+                let linked = Set(receipts.compactMap { $0["encounter_id"] as String? })
+                if linked.count == 1, let id = linked.first.flatMap(UUID.init(uuidString:)) { snapshot.encounterAssociation = .existing(id) }
+            }
+        }
+        return DraftLoad(pending: pending, previous: previous, receipts: receipts, committed: committed, snapshot: snapshot)
+    }
+
+    /// 第二步「分区」：接受 / 残行 / 缺项分区 + 枢纽裁定（主卡草稿 `.newHub` 在同一事务先落主卡）。
+    private struct WritePlan {
+        var accepted: [MatchedCardRow]
+        var residual: [MatchedCardRow]
+        var incomplete: [IncompleteField]
+        var projectionCard: MatchedCard
+        var snapshot: MatchedCard
+        var state = FactWriteState()
+    }
+
+    /// 行 → 回执 entity_table / 实体 id 的写入期状态（第三步与收尾共用）。
+    private struct FactWriteState {
+        var entities: [UUID: UUID] = [:]
+        /// 行 → 回执 entity_table（缺省 = 表头表；处方/费用行回执指行表）。
+        var tables: [UUID: String] = [:]
+        var associatedEncounter: UUID?
+        var associatedHealthExam: UUID?
+    }
+
+    private static func planWrites(snapshot: MatchedCard, committed: Set<String>, card: MatchedCard,
+                                   patientId: UUID, documentId: UUID, db: Database, now: Date) throws -> WritePlan {
+        var residual: [MatchedCardRow] = []
+        var accepted: [MatchedCardRow] = []
+        var incomplete: [IncompleteField] = []
+        for row in snapshot.rows where !committed.contains(row.id.uuidString) {
+            if EntityCardProjection.isDiscarded(row, in: snapshot) { continue }
+            let invalid = EntityCardProjection.invalidFields(in: snapshot, row: row, calendar: Calendar(identifier: .gregorian))
+            if invalid.isEmpty { var valid = row; valid.missingRequired = []; accepted.append(valid) }
+            else {
+                var remaining = row; remaining.missingRequired = invalid
+                residual.append(remaining)
+                incomplete += invalid.map { IncompleteField(key: $0, reason: "requires_review", rowId: row.id) }
+            }
+        }
+        var plan = WritePlan(accepted: accepted, residual: residual, incomplete: incomplete,
+                             projectionCard: snapshot, snapshot: snapshot)
+        plan.projectionCard.rows = accepted
+        // v27：体检枢纽（显式 `.existingHub(.healthExam, id)` 或下方草稿新建）——检验/检查表头写 `health_exam_id + report_source`，结论行以之为父。
+        plan.state.associatedEncounter = accepted.isEmpty ? nil : try Self.validateAssociation(snapshot, patientId: patientId, db: db)
+        plan.state.associatedHealthExam = accepted.isEmpty ? nil : try Self.validateHealthExamAssociation(snapshot, patientId: patientId, db: db)
+        let calendar = Calendar(identifier: .gregorian)
+        // v27 §0.4 改判：无可挂接主卡 → 草稿在**同一事务**先落主卡，再写子卡与回执；任一失败整体回滚。
+        // BR-003：草稿字段须全部已确认且日期可解析（Domain `ParentCardDraftRules.*Draft` 裁定，否则 invalidCard、零写入）；
+        // 证据字段（机构 / 医生 / 日期）被编辑后未重派生 → invalidAssociation（与 .suggested 同纪律）。
+        // 主卡本身不另立回执：卡类注册表约束回执 entity_table ∈ 该卡类事实表；主卡的来源留痕 = 子卡回执 encounter_id / 子卡 FK + audit_event。
+        if case .newHub(let draft) = plan.snapshot.encounterAssociation, !accepted.isEmpty {
+            guard draft.evidence == EncounterResolver.evidenceKey(for: plan.snapshot) else { throw StoreError.invalidAssociation }
+            let provenance = String(decoding: try JSONEncoder().encode(["source": "parentDraft", "cardKind": card.kind, "cardId": card.id.uuidString]), as: UTF8.self)
+            switch draft.hub {
+            case .encounter:
+                guard let encounter = ParentCardDraftRules.encounterDraft(from: draft, patientId: patientId, calendar: calendar) else { throw StoreError.invalidCard }
+                try Self.insertEncounter(encounter, patientId: patientId, db: db, now: now)
+                try AuditLogWriter.insert(action: "create", entityType: "encounter", entityId: encounter.id.uuidString, actorLocal: "owner", meta: provenance, db: db)
+                plan.state.associatedEncounter = encounter.id
+                plan.snapshot.encounterAssociation = .existing(encounter.id)             // pending 快照归一化：重放不再建卡
+            case .healthExam:
+                guard let exam = ParentCardDraftRules.healthExamDraft(from: draft, patientId: patientId, calendar: calendar) else { throw StoreError.invalidCard }
+                let id = try Self.ensureHealthExam(exam, documentId: documentId, db: db, now: now)   // 幂等键 (patient_id, document_file_id)：同文档一份体检
+                try AuditLogWriter.insert(action: "create", entityType: "health_exam", entityId: id.uuidString, actorLocal: "owner", meta: provenance, db: db)
+                plan.state.associatedHealthExam = id
+                plan.snapshot.encounterAssociation = .existingHub(.healthExam, id)
+            case .hospitalization:
+                throw StoreError.invalidCard   // 住院期由住院卡自身建就诊（saveHospitalization），不经草稿
+            }
+        }
+        return plan
+    }
+
+    /// 第三步「逐卡事实」：行卡（检验/处方/费用/诊断/结论）与单行卡
+    /// （就诊/药品/免疫/住院/检查/体检/手术/治疗）分两助手；跨成员一律回滚。
+    private static func writeFacts(kind: String, card: MatchedCard, receipts: [Row], committed: Set<String>,
+                                   plan: inout WritePlan, patientId: UUID, documentId: UUID,
+                                   db: Database, now: Date) throws {
+        switch kind {
+        case "metric_sample", "prescription", "claim_item", "diagnosis", "clinical_conclusion":
+            try Self.writeRowFacts(kind: kind, card: card, receipts: receipts, committed: committed,
+                                   plan: &plan, patientId: patientId, documentId: documentId, db: db, now: now)
+        case "encounter", "medication", "immunization", "hospitalization", "exam_report", "health_exam", "surgery", "treatment_record":
+            try Self.writeSingleRowFacts(kind: kind, card: card, plan: &plan, patientId: patientId,
+                                         documentId: documentId, db: db, now: now)
+        default:
+            throw StoreError.invalidCard
+        }
+    }
+
+    private static func writeRowFacts(kind: String, card: MatchedCard, receipts: [Row], committed: Set<String>,
+                                      plan: inout WritePlan, patientId: UUID, documentId: UUID,
+                                      db: Database, now: Date) throws {
+        let accepted = plan.accepted
+        let snapshot = plan.snapshot
+        let projectionCard = plan.projectionCard
+        let calendar = Calendar(identifier: .gregorian)
+        switch kind {
+        case "metric_sample":
+            if !accepted.isEmpty {
+                // v26（§C.5）检验分流：数值行（严格 Double + 单位）→ metric_sample（趋势点），定性/比较符行原文 → lab_result，
+                // 两者共用同卡的 lab_report 表头（source_card_id = card.id 幂等）；回执 entity_table 按行分流。不双写、不丢行。
+                let lab = EntityCardProjection.labProjection(from: projectionCard, calendar: calendar)
+                guard lab.remainingRows.isEmpty, lab.samples.count + lab.qualitative.count == accepted.count,
+                      lab.rowIds.count == lab.samples.count else { throw StoreError.invalidCard }
+                if !committed.isEmpty {
+                    // 已提交行（数值 / 定性）的事实列必须仍与回执一致（v25 处方行同纪律；BR-003 不在篡改事实上续写）。
+                    var committedCard = snapshot
+                    committedCard.rows = snapshot.rows.filter { committed.contains($0.id.uuidString) }
+                    guard try Self.labRowsMatch(EntityCardProjection.labProjection(from: committedCard, calendar: calendar),
+                                                receipts: receipts, patientId: patientId.uuidString, db: db) else {
+                        throw StoreError.committedDataChanged
+                    }
+                }
+                // v27：挂体检枢纽的检验表头写 health_exam_id + report_source = 'health_exam'（融合方案 §三-3）；数值行同样回指体检。
+                let reportId = try Self.ensureLabReport(lab.header, card: card, patientId: patientId, documentId: documentId,
+                                                        encounterId: plan.state.associatedEncounter, db: db, now: now,
+                                                        healthExamId: plan.state.associatedHealthExam,
+                                                        reportSource: plan.state.associatedHealthExam != nil ? ReportSource.healthExam.rawValue : nil)
+                let samplesByRow = Dictionary(uniqueKeysWithValues: zip(lab.rowIds, lab.samples))
+                let qualitativeByRow = Dictionary(uniqueKeysWithValues: lab.qualitative.map { ($0.rowId, $0.result) })
+                for row in accepted {
+                    if let sample = samplesByRow[row.id] {
+                        let entity = UUID()
+                        let codingSystem = row.fields.first { $0.key == "raw_label" }?.codeApproval?.resolution.codingSystem
+                        try TrendQueryStore.insertHospitalSample(sample, id: entity, patientId: patientId,
+                            sourceRef: HospitalSample.sourceRef(documentId: documentId, pageIndex: card.pageIndex), db: db, now: now,
+                            approvedCodingSystem: codingSystem, labReportId: reportId.uuidString,
+                            healthExamId: plan.state.associatedHealthExam?.uuidString)
+                        plan.state.entities[row.id] = entity
+                    } else if var result = qualitativeByRow[row.id] {
+                        result.patientId = patientId; result.labReportId = reportId; result.createdAt = now
+                        result.ordinal = try Self.freeOrdinal(table: "lab_result", parentColumn: "lab_report_id", header: reportId.uuidString,
+                                                              preferred: snapshot.rows.firstIndex { $0.id == row.id }, db: db)
+                        try Self.insertLabResult(result, db: db)
+                        plan.state.entities[row.id] = result.id
+                        plan.state.tables[row.id] = "lab_result"
+                    } else {
+                        throw StoreError.invalidCard
+                    }
+                }
+            }
+        case "prescription":
+            if !accepted.isEmpty {
+                // v25（§C.6）：表头 + 逐行 prescription_line；行意图与 accepted 行一一对应（rowId 同序）。
+                guard let intent = EntityCardProjection.prescriptionIntent(from: projectionCard),
+                      intent.lines.map(\.rowId) == accepted.map(\.id) else { throw StoreError.invalidCard }
+                // 卡片互联（FR6.9 期二）：处方归属就诊卡——按确认卡
+                // EncounterAssociation 显式选择归属（证据化建议由
+                // EncounterResolver 生成；无信号不猜、encounter_id 保持
+                // NULL，绝不张冠李戴）
+                let encounterId = plan.state.associatedEncounter
+                let entity: UUID
+                if let existing = try Self.existingHeader(receipts: receipts, db: db) {
+                    guard let uuid = UUID(uuidString: existing) else { throw StoreError.corruptReceipt }
+                    entity = uuid
+                    // 已提交部分的表头列 + 行事实列必须仍与回执一致（不比 advice_text：v24 折叠串原样保留，
+                    // v25 回填行才是事实；BR-003 不从拼串猜回）。
+                    var committedCard = snapshot
+                    committedCard.rows = snapshot.rows.filter { committed.contains($0.id.uuidString) }
+                    guard let prior = EntityCardProjection.prescriptionIntent(from: committedCard),
+                          let stored = try Row.fetchOne(db, sql: "SELECT * FROM prescription WHERE id = ? AND patient_id = ?",
+                                                        arguments: [existing, patientId.uuidString]),
+                          Self.prescriptionHeaderMatches(stored, prior),
+                          try Self.prescriptionLinesMatch(prior, header: existing, patientId: patientId.uuidString, db: db) else {
+                        throw StoreError.committedDataChanged
+                    }
+                    // 表头只补空（多页/后补行不覆盖既有列；共享面在 mergeDraft 已保证不变）。
+                    try db.execute(sql: """
+                        UPDATE prescription SET advice_text = COALESCE(NULLIF(advice_text, ''), ?),
+                          department = COALESCE(NULLIF(department, ''), ?), prescription_no = COALESCE(NULLIF(prescription_no, ''), ?),
+                          prescription_type = COALESCE(NULLIF(prescription_type, ''), ?), fee_type_text = COALESCE(NULLIF(fee_type_text, ''), ?),
+                          clinical_diagnosis = COALESCE(NULLIF(clinical_diagnosis, ''), ?), pharmacist_names = COALESCE(NULLIF(pharmacist_names, ''), ?),
+                          total_amount = COALESCE(total_amount, ?), encounter_id = COALESCE(encounter_id, ?), updated_at = ?
+                        WHERE id = ? AND patient_id = ?
+                        """, arguments: [Self.normalized(intent.adviceText), intent.department, intent.prescriptionNo,
+                                         intent.prescriptionType, intent.feeTypeText, intent.clinicalDiagnosis, intent.pharmacistNames,
+                                         intent.totalAmount, encounterId?.uuidString,
+                                         now.timeIntervalSince1970, existing, patientId.uuidString])
+                    guard db.changesCount == 1 else { throw StoreError.committedDataChanged }
+                } else {
+                    entity = UUID()
+                    try db.execute(sql: """
+                        INSERT INTO prescription (id, patient_id, encounter_id, document_file_id, source,
+                          hospital, doctor, prescribed_at, advice_text, confirmed, created_at, updated_at,
+                          department, prescription_no, prescription_type, fee_type_text, clinical_diagnosis, pharmacist_names, total_amount)
+                        VALUES (?, ?, ?, ?, 'ocr', ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, arguments: [entity.uuidString, patientId.uuidString, encounterId?.uuidString,
+                            documentId.uuidString, intent.hospital,
+                            intent.doctor, intent.prescribedAt.timeIntervalSince1970, Self.normalized(intent.adviceText),
+                            now.timeIntervalSince1970, now.timeIntervalSince1970,
+                            intent.department, intent.prescriptionNo, intent.prescriptionType, intent.feeTypeText,
+                            intent.clinicalDiagnosis, intent.pharmacistNames, intent.totalAmount])
+                }
+                for (row, item) in zip(accepted, intent.lines) {
+                    var line = item.line
+                    line.prescriptionId = entity; line.patientId = patientId
+                    line.confirmed = true; line.createdAt = now; line.updatedAt = now
+                    line.ordinal = try Self.freeOrdinal(table: "prescription_line", parentColumn: "prescription_id", header: entity.uuidString,
+                                                        preferred: snapshot.rows.firstIndex { $0.id == row.id }, db: db)
+                    try Self.insertPrescriptionLine(line, db: db)
+                    plan.state.entities[row.id] = line.id
+                    plan.state.tables[row.id] = "prescription_line"
+                }
+            }
+        case "claim_item":
+            if !accepted.isEmpty {
+                // v25（§C.7）：票据表头 + 费用明细行；无 item_name 的空行 = 表头即实体（票据页），沿表头回执路径。
+                guard let intent = EntityCardProjection.claimIntent(from: projectionCard, calendar: calendar) else { throw StoreError.invalidCard }
+                let entity: UUID
+                if let existing = try Self.existingHeader(receipts: receipts, db: db) {
+                    guard let uuid = UUID(uuidString: existing) else { throw StoreError.corruptReceipt }
+                    entity = uuid
+                    var committedCard = snapshot
+                    committedCard.rows = snapshot.rows.filter { committed.contains($0.id.uuidString) }
+                    guard let prior = EntityCardProjection.claimIntent(from: committedCard, calendar: calendar),
+                          let stored = try Row.fetchOne(db, sql: "SELECT * FROM claim_item WHERE id = ? AND patient_id = ?",
+                                                        arguments: [existing, patientId.uuidString]),
+                          Self.claimHeaderMatches(stored, prior),
+                          try Self.claimLinesMatch(prior, header: existing, patientId: patientId.uuidString, db: db) else {
+                        throw StoreError.committedDataChanged
+                    }
+                    try db.execute(sql: """
+                        UPDATE claim_item SET merchant = COALESCE(NULLIF(merchant, ''), ?), summary = COALESCE(NULLIF(summary, ''), ?),
+                          invoice_no = COALESCE(NULLIF(invoice_no, ''), ?), insurance_type_text = COALESCE(NULLIF(insurance_type_text, ''), ?),
+                          reimbursed_amount = COALESCE(reimbursed_amount, ?), out_of_pocket = COALESCE(out_of_pocket, ?),
+                          personal_account_amount = COALESCE(personal_account_amount, ?),
+                          encounter_id = COALESCE(encounter_id, ?), updated_at = ?
+                        WHERE id = ? AND patient_id = ?
+                        """, arguments: [intent.merchant, intent.summary, intent.invoiceNo, intent.insuranceTypeText,
+                                         intent.reimbursedAmount, intent.outOfPocket, intent.personalAccountAmount,
+                                         plan.state.associatedEncounter?.uuidString, now.timeIntervalSince1970, existing, patientId.uuidString])
+                    guard db.changesCount == 1 else { throw StoreError.committedDataChanged }
+                } else {
+                    entity = UUID()
+                    try db.execute(sql: """
+                        INSERT INTO claim_item (id, patient_id, encounter_id, document_file_id, item_type, amount, currency, date, merchant, summary,
+                          confirmed, created_at, updated_at, reimbursed_amount, out_of_pocket, personal_account_amount, invoice_no, insurance_type_text)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)
+                        """, arguments: [entity.uuidString, patientId.uuidString, plan.state.associatedEncounter?.uuidString, documentId.uuidString,
+                            intent.itemType, intent.amount, intent.currency, intent.date.timeIntervalSince1970, intent.merchant, intent.summary,
+                            now.timeIntervalSince1970, now.timeIntervalSince1970,
+                            intent.reimbursedAmount, intent.outOfPocket, intent.personalAccountAmount, intent.invoiceNo, intent.insuranceTypeText])
+                }
+                let linesByRow = Dictionary(uniqueKeysWithValues: intent.lines.map { ($0.rowId, $0) })
+                for row in accepted {
+                    guard let item = linesByRow[row.id] else { plan.state.entities[row.id] = entity; continue }
+                    let ordinal = try Self.freeOrdinal(table: "claim_line", parentColumn: "claim_item_id", header: entity.uuidString,
+                                                       preferred: snapshot.rows.firstIndex { $0.id == row.id }, db: db)
+                    try Self.insertClaimLine(item, header: entity, patientId: patientId, ordinal: ordinal, page: card.pageIndex, now: now, db: db)
+                    plan.state.entities[row.id] = item.rowId
+                    plan.state.tables[row.id] = "claim_line"
+                }
+            }
+        case "diagnosis":
+            if !accepted.isEmpty {
+                // v26（§C.3）诊断逐行一实体（id = 回执 row_id，确定性）；encounter_id 只取显式归属；日期缺省可继承显式归属就诊的日期
+                //（用户选择的就诊不是猜测）；health_problem_id 永为 NULL（用户「采用为健康问题」后才回填，FR11.4）。
+                guard let intents = EntityCardProjection.diagnosisIntents(from: projectionCard, calendar: calendar),
+                      intents.map(\.rowId) == accepted.map(\.id) else { throw StoreError.invalidCard }
+                if !committed.isEmpty {
+                    var committedCard = snapshot
+                    committedCard.rows = snapshot.rows.filter { committed.contains($0.id.uuidString) }
+                    guard let prior = EntityCardProjection.diagnosisIntents(from: committedCard, calendar: calendar),
+                          try Self.diagnosesMatch(prior, patientId: patientId.uuidString, db: db) else { throw StoreError.committedDataChanged }
+                }
+                let inheritedDate = try plan.state.associatedEncounter.flatMap { encounter in
+                    try Double.fetchOne(db, sql: "SELECT date FROM encounter WHERE id = ? AND patient_id = ?",
+                                        arguments: [encounter.uuidString, patientId.uuidString])
+                }.map(Date.init(timeIntervalSince1970:))
+                for (row, intent) in zip(accepted, intents) {
+                    var diagnosis = intent.diagnosis
+                    diagnosis.patientId = patientId; diagnosis.encounterId = plan.state.associatedEncounter; diagnosis.documentFileId = documentId
+                    diagnosis.ordinal = snapshot.rows.firstIndex { $0.id == row.id } ?? diagnosis.ordinal
+                    if diagnosis.diagnosedAt == nil { diagnosis.diagnosedAt = inheritedDate }
+                    diagnosis.confirmed = true; diagnosis.createdAt = now; diagnosis.updatedAt = now
+                    try Self.insertDiagnosis(diagnosis, db: db)
+                    plan.state.entities[row.id] = diagnosis.id
+                }
+            }
+        case "clinical_conclusion":
+            if !accepted.isEmpty {
+                // v27（融合方案 §六-6.3）：结论逐行一实体（id = 回执 row_id），三外键恰一非空——父 = 体检枢纽（显式 / 草稿），
+                // 无体检枢纽时取同文档唯一的检验表头 / 检查报告；severity_text 原文（BR-004/012）。
+                guard let intents = EntityCardProjection.clinicalConclusionIntents(from: projectionCard, calendar: calendar),
+                      intents.map(\.rowId) == accepted.map(\.id) else { throw StoreError.invalidCard }
+                if !committed.isEmpty {
+                    var committedCard = snapshot
+                    committedCard.rows = snapshot.rows.filter { committed.contains($0.id.uuidString) }
+                    guard let prior = EntityCardProjection.clinicalConclusionIntents(from: committedCard, calendar: calendar),
+                          try Self.conclusionsMatch(prior, patientId: patientId.uuidString, db: db) else { throw StoreError.committedDataChanged }
+                }
+                let parent = try Self.conclusionParent(healthExamId: plan.state.associatedHealthExam, patientId: patientId, documentId: documentId, db: db)
+                for (row, intent) in zip(accepted, intents) {
+                    var conclusion = intent.conclusion
+                    conclusion.patientId = patientId; conclusion.createdAt = now
+                    conclusion.healthExamId = parent.table == "health_exam" ? parent.id : nil
+                    conclusion.labReportId = parent.table == "lab_report" ? parent.id : nil
+                    conclusion.examReportId = parent.table == "exam_report" ? parent.id : nil
+                    conclusion.ordinal = try Self.freeOrdinal(table: "clinical_conclusion", parentColumn: parent.column, header: parent.id.uuidString,
+                                                              preferred: snapshot.rows.firstIndex { $0.id == row.id }, db: db)
+                    try Self.insertClinicalConclusion(conclusion, db: db)
+                    plan.state.entities[row.id] = conclusion.id
+                }
+            }
+        default:
+            throw StoreError.invalidCard
+        }
+    }
+
+    private static func writeSingleRowFacts(kind: String, card: MatchedCard, plan: inout WritePlan,
+                                            patientId: UUID, documentId: UUID, db: Database, now: Date) throws {
+        let accepted = plan.accepted
+        let snapshot = plan.snapshot
+        let projectionCard = plan.projectionCard
+        let calendar = Calendar(identifier: .gregorian)
+        switch kind {
+        case "encounter":
+            if let row = accepted.first {
+                guard let encounter = EntityCardProjection.encounterDraft(from: projectionCard, patientId: patientId,
+                                                                          calendar: Calendar(identifier: .gregorian)) else { throw StoreError.invalidCard }
+                if let existing = plan.state.associatedEncounter {
+                    // 多份原件为同一次就诊补空字段；冲突值保留在独立来源卡中，不覆盖已有诊断/叙事。
+                    // v25 五叙事列（§C.1）同一补空纪律：原文保存、不摘要不改写。
+                    try db.execute(sql: """
+                        UPDATE encounter SET hospital = COALESCE(NULLIF(hospital, ''), ?),
+                          department = COALESCE(NULLIF(department, ''), ?), doctor = COALESCE(NULLIF(doctor, ''), ?),
+                          chief_complaint = COALESCE(NULLIF(chief_complaint, ''), ?),
+                          diagnosis_text = COALESCE(NULLIF(diagnosis_text, ''), ?), advice_text = COALESCE(NULLIF(advice_text, ''), ?),
+                          present_illness = COALESCE(NULLIF(present_illness, ''), ?), visit_summary = COALESCE(NULLIF(visit_summary, ''), ?),
+                          past_history = COALESCE(NULLIF(past_history, ''), ?), physical_exam = COALESCE(NULLIF(physical_exam, ''), ?),
+                          allergy_history = COALESCE(NULLIF(allergy_history, ''), ?), updated_at = ?
+                        WHERE id = ? AND patient_id = ? AND deleted_at IS NULL
+                        """, arguments: [encounter.hospital, encounter.department, encounter.doctor,
+                            encounter.chiefComplaint, encounter.diagnosisText, encounter.adviceText,
+                            encounter.presentIllness, encounter.visitSummary, encounter.pastHistory,
+                            encounter.physicalExam, encounter.allergyHistory,
+                            now.timeIntervalSince1970, existing.uuidString, patientId.uuidString])
+                    guard db.changesCount == 1 else { throw StoreError.invalidAssociation }
+                    plan.state.entities[row.id] = existing
+                } else {
+                    // v27：与 §0.4 主卡草稿共用同列同序的 INSERT（OCRCardStore+HealthExam.insertEncounter）。
+                    try Self.insertEncounter(encounter, patientId: patientId, db: db, now: now)
+                    plan.state.entities[row.id] = encounter.id
+                    plan.state.associatedEncounter = encounter.id
+                }
+            }
+        case "medication":
+            for row in accepted {
+                let values = EntityCardProjection.confirmedValues(row.fields)
+                guard let name = values["generic_name"], let unit = values["unit_kind"] else { throw StoreError.invalidCard }
+                let entity = UUID()
+                try db.execute(sql: """
+                    INSERT INTO medication (id, patient_id, generic_name, brand_name, spec, unit_kind, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """, arguments: [entity.uuidString, patientId.uuidString, name, values["brand_name"], values["spec"], unit, now.timeIntervalSince1970, now.timeIntervalSince1970])
+                plan.state.entities[row.id] = entity
+            }
+        case "immunization":
+            if let row = accepted.first {
+                let values = EntityCardProjection.confirmedValues(snapshot.shared)
+                guard let name = values["vaccine_name"], let dose = values["dose_number"].flatMap(Int.init),
+                      let date = values["administered_at"].flatMap({ EntityCardProjection.parseDate($0, calendar: .current) }) else { throw StoreError.invalidCard }
+                let entity = UUID()
+                try db.execute(sql: """
+                    INSERT INTO immunization (id, patient_id, vaccine_name, dose_number, administered_at, provider, lot_number, encounter_id, source, confirmed, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ocr', 1, ?, ?)
+                    """, arguments: [entity.uuidString, patientId.uuidString, name, dose, date.timeIntervalSince1970,
+                        values["provider"], values["lot_number"], plan.state.associatedEncounter?.uuidString, now.timeIntervalSince1970, now.timeIntervalSince1970])
+                plan.state.entities[row.id] = entity
+            }
+        case "hospitalization":
+            if let row = accepted.first {
+                // v26（§C.2）住院卡 = 就诊 + 住院期同一事务：显式归属既有就诊则只补空（UNIQUE(encounter_id) 一次住院一行、
+                // 绝不重复）；无归属信号不猜——按文档键派生的 kind（inpatient / daySurgery）新建就诊。
+                guard let intent = EntityCardProjection.hospitalizationIntent(from: projectionCard, calendar: calendar) else { throw StoreError.invalidCard }
+                let outcome = try Self.saveHospitalization(intent, patientId: patientId, documentId: documentId,
+                                                           associatedEncounter: plan.state.associatedEncounter, db: db, now: now)
+                plan.state.entities[row.id] = outcome.entity
+                plan.state.associatedEncounter = outcome.encounter
+            }
+        case "exam_report":
+            if let row = accepted.first {
+                // v26（§C.4）单行卡 → 一条 exam_report；findings/impression 原文，无 critical_value_flag（BR-004/012）。
+                guard let intent = EntityCardProjection.examReportIntent(from: projectionCard, calendar: calendar) else { throw StoreError.invalidCard }
+                var report = intent.report
+                report.patientId = patientId; report.encounterId = plan.state.associatedEncounter; report.documentFileId = documentId
+                report.confirmed = true; report.createdAt = now; report.updatedAt = now
+                // v27：体检文档上的检查报告挂体检枢纽（health_exam_id + report_source = 'health_exam'）。
+                report.healthExamId = plan.state.associatedHealthExam
+                report.reportSource = plan.state.associatedHealthExam != nil ? ReportSource.healthExam.rawValue : nil
+                try Self.insertExamReport(report, db: db)
+                plan.state.entities[row.id] = report.id
+            }
+        case "health_exam":
+            if let row = accepted.first {
+                // v27（§E.1 / round1 V10）：体检首页卡 = 第三枢纽表头（幂等键 = 同文档）+ 一般检查投影：只有 Domain 白名单
+                // 裁定为「严格 Double + 单位 + MetricType 有键」的项才进 metric_sample（weight / bloodPressureSys / bloodPressureDia / heartRate），
+                // 身高 / BMI / 腰围 / 视力不投影；原文列全部随表头保留（BR-006/007）。投影点无回执（注册表第二事实表 = 投影目标）。
+                guard let intent = EntityCardProjection.healthExamIntent(from: projectionCard, calendar: calendar) else { throw StoreError.invalidCard }
+                var exam = intent.exam
+                exam.patientId = patientId; exam.documentFileId = documentId
+                exam.confirmed = true; exam.createdAt = now; exam.updatedAt = now
+                let id = try Self.ensureHealthExam(exam, documentId: documentId, db: db, now: now)
+                for sample in intent.generalSamples {
+                    try TrendQueryStore.insertHospitalSample(sample, id: UUID(), patientId: patientId,
+                        sourceRef: HospitalSample.sourceRef(documentId: documentId, pageIndex: card.pageIndex), db: db, now: now,
+                        healthExamId: id.uuidString)
+                }
+                plan.state.entities[row.id] = id
+                plan.state.associatedHealthExam = id
+            }
+        case "surgery":
+            if let row = accepted.first {
+                // v27（原 D3 §C.8）：单行卡 → 一条 surgery；encounter_id 只取显式归属 / 主卡草稿；编码 / 级别 / 植入物原文。
+                guard let intent = EntityCardProjection.surgeryIntent(from: projectionCard, calendar: calendar) else { throw StoreError.invalidCard }
+                var surgery = intent.surgery
+                surgery.patientId = patientId; surgery.encounterId = plan.state.associatedEncounter; surgery.documentFileId = documentId
+                surgery.confirmed = true; surgery.createdAt = now; surgery.updatedAt = now
+                try Self.insertSurgery(surgery, db: db)
+                plan.state.entities[row.id] = surgery.id
+            }
+        case "treatment_record":
+            if let row = accepted.first {
+                // v27（原 D3 §C.9）：单行卡 → 一条 treatment_record；drugs_text 原文不拆行、不写 prescription_line / medication。
+                guard let intent = EntityCardProjection.treatmentRecordIntent(from: projectionCard, calendar: calendar) else { throw StoreError.invalidCard }
+                var record = intent.record
+                record.patientId = patientId; record.encounterId = plan.state.associatedEncounter; record.documentFileId = documentId
+                record.confirmed = true; record.createdAt = now; record.updatedAt = now
+                try Self.insertTreatmentRecord(record, db: db)
+                plan.state.entities[row.id] = record.id
+            }
+        default:
+            throw StoreError.invalidCard
+        }
+    }
+
+    /// 第四步「收尾」：回执 + 审计 JSON → pending 快照更新（status/resolved_by）→ 文档投影刷新。
+    private static func finalizeSave(card: MatchedCard, accepted: [MatchedCardRow],
+                                     residual: [MatchedCardRow], incomplete: [IncompleteField],
+                                     snapshot: MatchedCard, state: FactWriteState, pendingId: String,
+                                     patientId: UUID, documentId: UUID, db: Database, now: Date) throws -> SaveResult {
+        let headerTable = Self.factTable(for: card.kind)
+        for row in accepted {
+            guard let entity = state.entities[row.id] else { throw StoreError.invalidCard }
+            let audit = AuditRecord(cardId: card.id, rowId: row.id, patientId: patientId, documentId: documentId,
+                pageIndex: card.pageIndex, cardKind: card.kind, entityId: entity,
+                shared: snapshot.shared.filter(\.isConfirmed),
+                fields: row.fields.filter { $0.isConfirmed && $0.key != "metric_key" }, recordedAt: now, encounterId: state.associatedEncounter,
+                entityTable: state.tables[row.id] ?? headerTable)
+            try Self.insertReceipt(audit, db: db)
+        }
+        let residualById = Dictionary(uniqueKeysWithValues: residual.map { ($0.id, $0) })
+        let acceptedById = Dictionary(uniqueKeysWithValues: accepted.map { ($0.id, $0) })
+        var remainingSnapshot = snapshot
+        remainingSnapshot.rows = snapshot.rows.map { residualById[$0.id] ?? acceptedById[$0.id] ?? $0 }
+        let resolved = residual.isEmpty
+        let json = try PendingCardPayload(card: remainingSnapshot).json
+        let incompleteJSON = String(decoding: try JSONEncoder().encode(incomplete), as: UTF8.self)
+        try db.execute(sql: """
+            UPDATE pending_card SET partial_data = ?, incomplete_fields = ?, status = ?, updated_at = ?,
+              attempt_count = attempt_count + 1, resolved_at = ?, resolved_by = ?, note = NULL
+            WHERE id = ? AND status IN ('pending','in_progress')
+            """, arguments: [json, incompleteJSON, resolved ? "resolved" : "in_progress", now.timeIntervalSince1970,
+                resolved ? now.timeIntervalSince1970 : nil, resolved ? "user" : nil, pendingId])
+        guard db.changesCount == 1 else { throw StoreError.pendingNotActive }
+        try Self.refreshDocumentProjection(documentId: documentId, patientId: patientId, db: db, now: now)
+        var remaining = remainingSnapshot; remaining.rows = residual
+        return SaveResult(remainingCard: resolved ? nil : remaining, writtenCount: accepted.count, resolved: resolved, pendingCardId: pendingId)
     }
 
     public func encounterCandidates(patientId: UUID) async throws -> [EncounterResolver.Candidate] {
@@ -997,8 +1090,10 @@ public actor OCRCardStore {
     static func exportCommits(_ db: Database) throws -> [AuditRecord] {
         let audits = try String.fetchAll(db, sql: "SELECT raw_blocks FROM ocr_result WHERE engine_version = ?", arguments: [auditEngine])
         var byKey: [String: AuditRecord] = [:]
+        // 单实例解码器复用（H4 审查同纪律：逐行新建会每行重建类型元数据）。
+        let decoder = JSONDecoder()
         for json in audits {
-            let audit = try JSONDecoder().decode(AuditRecord.self, from: Data(json.utf8))
+            let audit = try decoder.decode(AuditRecord.self, from: Data(json.utf8))
             let key = "\(audit.cardId.uuidString)/\(audit.rowId.uuidString)"
             guard byKey.updateValue(audit, forKey: key) == nil else { throw StoreError.corruptReceipt }
         }

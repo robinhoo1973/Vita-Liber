@@ -14,12 +14,8 @@ final class TimelineSearchAcceptanceTests: XCTestCase {
     private func makeStore() async throws -> GRDBStore {
         let store = try GRDBStore.inMemory()
         // 种子：成员 + 就诊 + 观察 + 指标
-        let member = UUID()
+        let member = try await store.insertPatient("测试患者", relation: "本人")
         try await store.writer.write { db in
-            try db.execute(sql: """
-                INSERT INTO patient_profile (id, display_name, relation, created_at, updated_at)
-                VALUES (?, '测试患者', '本人', 0, 0)
-                """, arguments: [member.uuidString])
             try db.execute(sql: """
                 INSERT INTO encounter (id, patient_id, date, kind, diagnosis_text, created_at, updated_at)
                 VALUES (?, ?, ?, '门诊', '上呼吸道感染', ?, ?)

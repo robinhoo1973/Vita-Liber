@@ -8,12 +8,7 @@ import Infrastructure
 @MainActor
 final class HealthImportAcceptanceTests: XCTestCase {
     private func makeStore() async throws -> (GRDBStore, HealthImportStore, UUID) {
-        let db = try GRDBStore.inMemory()
-        let patient = UUID()
-        try await db.writer.write { db in
-            try db.execute(sql: "INSERT INTO patient_profile (id, display_name, relation, created_at, updated_at) VALUES (?, 'Owner', 'self', 0, 0)", arguments: [patient.uuidString])
-            try db.execute(sql: "INSERT INTO local_owner (id, display_name, self_patient_id, created_at) VALUES (?, 'Owner', ?, 0)", arguments: [UUID().uuidString, patient.uuidString])
-        }
+        let (db, patient) = try await GRDBStore.inMemoryWithOwner()
         return (db, HealthImportStore(writer: db.writer), patient)
     }
 
@@ -281,11 +276,7 @@ final class HealthImportAcceptanceTests: XCTestCase {
                 snapshots: [HealthWindowSnapshot(window: window, samples: [sample], rows: [row])])
             XCTFail("The injected DB error must fail the transaction")
         } catch is DatabaseError { }
-        let counts = try await db.writer.read { db in
-            try ["metric_sample", "hk_sample_index", "hk_sync_anchor", "hk_projection_state"].map {
-                try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM \($0)") ?? -1
-            }
-        }
+        let counts = try await tableCounts(db, ["metric_sample", "hk_sample_index", "hk_sync_anchor", "hk_projection_state"])
         XCTAssertEqual(counts, [0, 0, 0, 0])
         let loaded = try await store.pendingBatch(binding: binding, kind: .bloodOxygen)
         let pending = try XCTUnwrap(loaded, "The durable page survives a failed materialization transaction")
@@ -340,11 +331,7 @@ final class HealthImportAcceptanceTests: XCTestCase {
             page: HealthChangeBatch(added: [], deleted: [samples[500].id], anchor: Data([4]), hasMore: false))
         let result = try await restarted.commit(binding: binding, kind: .bloodOxygen, pending: drained,
             snapshots: [HealthWindowSnapshot(window: window, samples: [], rows: [])])
-        let counts = try await db.writer.read { db in
-            try ["metric_sample", "hk_sample_index", "hk_pending_batch", "hk_projection_state"].map {
-                try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM \($0)") ?? -1
-            }
-        }
+        let counts = try await tableCounts(db, ["metric_sample", "hk_sample_index", "hk_pending_batch", "hk_projection_state"])
         let finalAnchor = try await restarted.anchor(binding: binding, kind: .bloodOxygen)
         XCTAssertEqual(counts, [0, 0, 0, 0])
         XCTAssertEqual(result.persistedRows, 501)

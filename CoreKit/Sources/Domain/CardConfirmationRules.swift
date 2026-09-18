@@ -61,9 +61,8 @@ public enum CardConfirmationRules {
         result.shared = confirmedFields(card.shared, requiredKeys: entry?.sharedRequired ?? [])
         result.rows = card.rows.map { row in
             var updated = row
-            // 空行 = 「表头即实体」：不受行级必填约束（与 `invalidFields` 同口径）
-            let required = (entry?.allowsEmptyRows == true && row.fields.isEmpty)
-                ? [] : (entry?.rowRequired ?? [])
+            // 空行 = 「表头即实体」：不受行级必填约束（与 `invalidFields` 同口径——单一出处 CardKindEntry）
+            let required = entry?.effectiveRowRequired(forEmptyRow: row.fields.isEmpty) ?? []
             updated.fields = confirmedFields(row.fields, requiredKeys: required)
             return updated
         }
@@ -93,7 +92,7 @@ public enum CardConfirmationRules {
             out.append(field.key)
         }
         if let row {
-            let required = (entry?.allowsEmptyRows == true && row.fields.isEmpty) ? [] : (entry?.rowRequired ?? [])
+            let required = entry?.effectiveRowRequired(forEmptyRow: row.fields.isEmpty) ?? []
             for field in row.fields where required.contains(field.key) && !field.isConfirmed {
                 out.append(field.key)
             }
@@ -174,7 +173,7 @@ public enum CardConfirmationRules {
             }
         }
         for row in card.rows {
-            let rowRequired = Set((entry?.allowsEmptyRows == true && row.fields.isEmpty) ? [] : (entry?.rowRequired ?? []))
+            let rowRequired = entry?.effectiveRowRequired(forEmptyRow: row.fields.isEmpty) ?? []
             for field in row.fields { append(field, rowId: row.id, required: rowRequired) }
             if let entry, !(entry.allowsEmptyRows && row.fields.isEmpty) {
                 let present = Set(row.fields.map(\.key))

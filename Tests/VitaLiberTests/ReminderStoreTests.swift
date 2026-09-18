@@ -20,11 +20,8 @@ final class ReminderStoreTests: XCTestCase {
     func test_dueReminderDeliveredNotRescheduled() async throws {
         let (store, scheduler, db, patient) = try await makeStore()
         let lotId = UUID()
+        _ = try await db.insertMedication(patient: patient, name: "测试药", spec: "0.5g")
         try await db.writer.write { db in
-            try db.execute(sql: """
-                INSERT INTO medication (id, patient_id, generic_name, spec, unit_kind, created_at, updated_at)
-                VALUES (?, ?, '测试药', '0.5g', 'tablet', 0, 0)
-                """, arguments: [UUID().uuidString, patient.uuidString])
             try db.execute(sql: """
                 INSERT INTO stock_lot (id, patient_id, medication_id, total_units, unit_kind,
                   remaining_plan_units, remaining_confirmed_units, expire_at, status, last_reconciled_at)
@@ -85,19 +82,12 @@ final class ReminderStoreTests: XCTestCase {
     // MARK: - 装配
 
     private func makeStore() async throws -> (ReminderStore, InMemoryReminderScheduler, GRDBStore, UUID) {
-        let db = try GRDBStore.inMemory()
-        let patient = UUID()
-        try await db.writer.write { db in
-            try db.execute(sql: """
-                INSERT INTO patient_profile (id, display_name, relation, created_at, updated_at)
-                VALUES (?, '测试', '本人', 0, 0)
-                """, arguments: [patient.uuidString])
-        }
+        let (db, patient) = try await GRDBStore.inMemoryWithPatient("测试", relation: "本人")
         let scheduler = InMemoryReminderScheduler()
         let meds = MedicationStore(writer: db.writer)
         let apts = AppointmentStore(writer: db.writer, scheduler: scheduler)
         let reconciler = ReminderReconciler(scheduler: scheduler, source: meds)
-        let composer = MedicationPlanComposer(writer: db.writer, audit: AuditLogWriter(writer: db.writer))
+        let composer = MedicationPlanComposer(writer: db.writer)
         let store = ReminderStore(meds: meds, apts: apts, reconciler: reconciler,
                                   scheduler: scheduler, composer: composer)
         return (store, scheduler, db, patient)

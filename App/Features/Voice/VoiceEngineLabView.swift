@@ -191,9 +191,7 @@ struct VoiceEngineLabView: View {
         let built = TranscriptionEngineBuilder.make(choice: choice)
         let created = VoiceDictationModel(engine: built, preferredLocale: testLocale)
         created.setAuthorization(settings.values[.authVoiceDictation] != "false")
-        created.applyLanguageSettings(storedLocales: settings.values[.voiceInputLanguages],
-                                      mixedInput: settings.values[.voiceMixedInput] != "false",
-                                      recentDrugNames: [])
+        created.applyLanguageSettings(settings: settings, recentDrugNames: [])
         created.onTranscript = { [weak created] text, _ in
             guard let created, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
             results.insert(LabResult(text: text,

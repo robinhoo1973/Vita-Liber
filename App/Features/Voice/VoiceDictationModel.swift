@@ -80,6 +80,14 @@ final class VoiceDictationModel {
         languageMode = mixedInput ? .mixed : .single
     }
 
+    /// 装配入口收敛（快速面板/速记按钮/引擎实验室三处同源）：设置键读取与
+    /// 「开关关 = 单语言」语义只维护一处，调用侧不再各写一份键名与布尔解析。
+    func applyLanguageSettings(settings: AppSettingsStore, recentDrugNames: [String]) {
+        applyLanguageSettings(storedLocales: settings.values[.voiceInputLanguages],
+                              mixedInput: settings.values[.voiceMixedInput] != "false",
+                              recentDrugNames: recentDrugNames)
+    }
+
     /// 语音界面出现即预热当前档位模型（不采音、不联网；round2 A-N2 首句丢失的直接对策）。
     /// 结果不影响 UI：预热失败时按压仍按原路径加载。
     /// 全仓审查 2026-09-18（F-A7-01，P0）：改走端口 `warmUp`——此前复用 `prepareLocale`，
@@ -219,13 +227,23 @@ final class VoiceDictationModel {
         guard lifetime == epoch, contexts[id] != nil else { return }
         tasks[id] = nil
         completed[id] = outcome
-        // 审查修复：迟到的完成回调只在「本会话未被废弃」时覆写 UI 状态——
-        // 废弃（stopForDisappear 切页/销毁）后的失败态不得覆盖到用户已
-        // 离开的界面；但**正常松手路径**（stop() 只是按次松手，其先行
-        // 置 recordingID = nil）必须保留 FR8.9 失败轻提示与 FR17.1 未完成
-        // 告警——旧守卫 `recordingID == id` 把正常松手路径一并排除，
-        // 松手后的识别失败/未完成永不提示（口述内容静默丢失无告警）。
-        if currentID == id, !abandoned.contains(id) {
+        applyOutcome(outcome, sessionID: id, lifetime: lifetime)
+        deliverCompleted(lifetime: lifetime)
+        if lifetime == epoch, contexts.isEmpty {
+            abandoned.removeAll()
+            onActivityChange?(false)
+        }
+    }
+
+    /// 完成回调 → UI 状态（审查修复：迟到的完成回调只在「本会话未被废弃」时覆写）——
+    /// 废弃（stopForDisappear 切页/销毁）后的失败态不得覆盖到用户已
+    /// 离开的界面；但**正常松手路径**（stop() 只是按次松手，其先行
+    /// 置 recordingID = nil）必须保留 FR8.9 失败轻提示与 FR17.1 未完成
+    /// 告警——旧守卫 `recordingID == id` 把正常松手路径一并排除，
+    /// 松手后的识别失败/未完成永不提示（口述内容静默丢失无告警）。
+    private func applyOutcome(_ outcome: Result<TranscriptionResult, Error>, sessionID: UUID, lifetime: UInt64) {
+        guard lifetime == epoch, contexts[sessionID] != nil else { return }
+        if currentID == sessionID, !abandoned.contains(sessionID) {
             isPreparing = false
             recordingID = nil
             switch outcome {
@@ -250,6 +268,10 @@ final class VoiceDictationModel {
                 }
             }
         }
+    }
+
+    /// 交付循环：按发起顺序投递已完成结果（应急拦截 / 草稿回调 / 状态机闭环）。
+    private func deliverCompleted(lifetime: UInt64) {
         while let next = deliveryOrder.first, let result = completed.removeValue(forKey: next) {
             deliveryOrder.removeFirst()
             guard let original = contexts.removeValue(forKey: next) else { continue }
@@ -266,10 +288,6 @@ final class VoiceDictationModel {
             }
             // A consumer may synchronously dismiss/revoke while processing a result.
             if lifetime != epoch { break }
-        }
-        if lifetime == epoch, contexts.isEmpty {
-            abandoned.removeAll()
-            onActivityChange?(false)
         }
     }
 
@@ -395,9 +413,7 @@ struct VoiceDictationButton: View {
         m.onActivityChange = { busyBinding?.wrappedValue = $0 }
         busyBinding?.wrappedValue = m.hasPendingTranscriptions
         // FR17.15 V3.61：主语言 = 保序首位；混说开关真消费（词表注入 contextualStrings）
-        m.applyLanguageSettings(storedLocales: settings.values[.voiceInputLanguages],
-                                mixedInput: settings.values[.voiceMixedInput] != "false",
-                                recentDrugNames: hub.inventoryItems.map(\.medicationName))
+        m.applyLanguageSettings(settings: settings, recentDrugNames: hub.inventoryItems.map(\.medicationName))
         if model == nil { model = m }
     }
 

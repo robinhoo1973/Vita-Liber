@@ -32,11 +32,14 @@ public actor ObservationStore {
 
     public func list(patientId: UUID, limit: Int = 100) async throws -> [ObservationEvent] {
         try await writer.read { db in
+            // 单实例解码器复用（与 OCRCardStore.refreshDocumentProjection 同纪律）：
+            // 逐行新建 JSONDecoder 会每行重建类型元数据，列表 ≤100 行时是纯浪费。
+            let decoder = JSONDecoder()
             return try Row.fetchAll(db, sql: """
                 SELECT * FROM observation
                 WHERE patient_id = ? ORDER BY occurred_at DESC LIMIT ?
                 """, arguments: [patientId.uuidString, limit]).map { row in
-                Self.rowToEvent(row, memberId: patientId)
+                Self.rowToEvent(row, memberId: patientId, decoder: decoder)
             }
         }
     }
@@ -48,7 +51,8 @@ public actor ObservationStore {
                              arguments: [id.uuidString])
         }
         guard let row else { return nil }
-        return Self.rowToEvent(row, memberId: (row["patient_id"] as String?).flatMap(UUID.init(uuidString:)) ?? UUID())
+        return Self.rowToEvent(row, memberId: (row["patient_id"] as String?).flatMap(UUID.init(uuidString:)) ?? UUID(),
+                               decoder: JSONDecoder())
     }
 
     /// FR8.8 删除观察记录：硬删行（明示三问后执行——原图经孤儿对账清除，
@@ -87,7 +91,7 @@ public actor ObservationStore {
 
     /// 行 → 事件（V3.65 全字段投影的唯一出口：list/fetch 共用，
     /// 新列上线只改这一处）。
-    private static func rowToEvent(_ row: Row, memberId: UUID) -> ObservationEvent {
+    private static func rowToEvent(_ row: Row, memberId: UUID, decoder: JSONDecoder) -> ObservationEvent {
         ObservationEvent(
             id: UUID(uuidString: row["id"] as String) ?? UUID(),
             groupId: (row["group_id"] as String?).flatMap(UUID.init(uuidString:)),
@@ -97,7 +101,7 @@ public actor ObservationStore {
             description: row["description"] as String?,
             selfMark: row["self_mark"] as String?,
             memberId: memberId,
-            mediaAssetIds: decodeMediaIds(row["media_asset_ids"] as String?, decoder: JSONDecoder()),
+            mediaAssetIds: decodeMediaIds(row["media_asset_ids"] as String?, decoder: decoder),
             bodyPart: row["body_part"] as String?,
             durationMin: row["duration_min"] as Int?,
             frequency: row["frequency"] as String?,

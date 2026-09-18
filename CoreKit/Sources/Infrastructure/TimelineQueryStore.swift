@@ -122,17 +122,7 @@ public actor TimelineQueryStore {
                 + "\n ORDER BY d DESC, id DESC LIMIT ?"
             args.append(fetchLimit)
             let rows = try Row.fetchAll(db, sql: sql, arguments: StatementArguments(args))
-            return rows.map { row in
-                TimelineEntry(
-                    kind: TimelineEntryKind(rawValue: row["kind"] as String) ?? .observation,
-                    date: Date(timeIntervalSince1970: row["d"] as Double),
-                    title: row["title"] as String,
-                    summary: row["summary"] as String?,
-                    refID: UUID(uuidString: row["id"] as String) ?? UUID(),
-                    memberId: member,
-                    grade: row["grade"] as String?,
-                    metricKey: row["metric_key"] as String?)
-            }
+            return rows.map { Self.entry($0, member: member) }
         }
         // 游标谓词已下推各分支，合并结果即页内序列——直接分页
         return TimelineProjectionRules.page(collected, limit: limit)
@@ -164,7 +154,7 @@ public actor TimelineQueryStore {
             for _ in branches { args.append(contentsOf: [member.uuidString, cursorDate, cursorDate, cursorId] as [DatabaseValueConvertible]) }
             args.append(max(limit, 0) + 1)
             return try Row.fetchAll(db, sql: sql, arguments: StatementArguments(args)).map { row in
-                TimelineHubRow(entry: Self.hubEntry(row, member: member), hub: (row["hub"] as String?).flatMap(RecordHub.init(rawValue:)))
+                TimelineHubRow(entry: Self.entry(row, member: member), hub: (row["hub"] as String?).flatMap(RecordHub.init(rawValue:)))
             }
         }
         let page = TimelineProjectionRules.page(rows.map(\.entry), limit: limit)
@@ -179,7 +169,7 @@ public actor TimelineQueryStore {
                 for source in sources {
                     for row in try Row.fetchAll(db, sql: source.sql, arguments: StatementArguments(source.args)) {
                         guard let hub = UUID(uuidString: row["hub_id"] as String) else { continue }
-                        out.append(TimelineChildRow(hubId: hub, entry: Self.hubEntry(row, member: member)))
+                        out.append(TimelineChildRow(hubId: hub, entry: Self.entry(row, member: member)))
                     }
                 }
                 return out
@@ -194,8 +184,10 @@ public actor TimelineQueryStore {
         try await hubPage(patientId: member, filter: filter, cursor: cursor, limit: limit)
     }
 
-    /// 统一列形态（id / d / title / summary / grade / kind / metric_key [/ hub / hub_id]）→ 条目；未知 kind 回落 observation（与 `entries` 同）。
-    private static func hubEntry(_ row: Row, member: UUID) -> TimelineEntry {
+    /// 统一列形态（id / d / title / summary / grade / kind / metric_key）→ 条目；
+    /// `entries` 平铺分支与 `hubPage` 主卡/子卡分支共用同一映射（唯一出口，防口径分叉）；
+    /// 未知 kind 回落 observation。
+    private static func entry(_ row: Row, member: UUID) -> TimelineEntry {
         TimelineEntry(
             kind: TimelineEntryKind(rawValue: row["kind"] as String) ?? .observation,
             date: Date(timeIntervalSince1970: row["d"] as Double),

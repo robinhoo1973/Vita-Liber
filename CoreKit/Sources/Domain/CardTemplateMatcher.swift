@@ -317,63 +317,99 @@ public enum CardTemplateMatcher {
         let requiredRules = rules.filter(\.isRequired)
 
         // 1. 行：每个 rowKey 实例一行；同 rawText 的伴随字段（参考范围）归入该行
-        var rows: [MatchedCardRow] = []
         var consumed = Set<Int>()   // 已归行的字段下标（不再进共享）
-        if let rowKey = template.rowKey {
-            for (index, draft) in fields.enumerated() where draft.key == rowKey {
-                consumed.insert(index)
-                var rowFields = rowFields(for: template, draft: draft)
-                if let raw = draft.rawText,
-                   fields.filter({ $0.key == rowKey && $0.rawText == raw }).count == 1 {
-                    for companionKey in labCompanionKeys {
-                        let companions = fields.enumerated().filter { $0.element.rawText == raw && $0.element.key == companionKey }
-                        if companions.count == 1, let companion = companions.first {
-                            let attached = companionFields(for: template, draft: companion.element)
-                            if !attached.isEmpty {
-                                consumed.insert(companion.offset)
-                                rowFields += attached
-                            }
+        guard let rows = buildRows(for: template, fields: fields,
+                                   requiredRules: requiredRules, consumed: &consumed) else { return nil }
+
+        // 2. 共享：其余已映射字段（同键取首个，保持原序）+ 文档判定派生的共享键。
+        let shared = buildShared(for: template, fields: fields, consumed: consumed,
+                                 documentTypeKey: documentTypeKey, ruleKeys: ruleKeys)
+
+        // 3. 覆盖率（去重键；派生键已作为字段写入共享/行，自然计入）
+        var covered = Set((shared + rows.flatMap(\.fields)).filter {
+            $0.grade != .rejected && !$0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }.map(\.key))
+        covered = covered.intersection(ruleKeys)
+        let allCoverage = Double(covered.count) / Double(rules.count)
+        let requiredCovered = requiredRules.filter { covered.contains($0.key) }.count
+        let requiredCoverage = requiredRules.isEmpty ? 1 : Double(requiredCovered) / Double(requiredRules.count)
+        guard allCoverage >= CardMatchThresholds.allFields,
+              requiredCoverage >= CardMatchThresholds.requiredFields else { return nil }
+
+        let missingRequired = requiredRules.filter { !covered.contains($0.key) }
+        // 徽章：用共享 + 首行字段评估（行级重复键只计一次，与 assess 的去重语义一致）
+        let badgeFields = shared + (rows.first?.fields ?? [])
+        let level = CompletenessEvaluator.assess(fields: badgeFields, cardKind: template.kind).level
+        return MatchedCard(kind: template.kind, pageIndex: pageIndex, shared: shared, rows: rows,
+                           allFieldCoverage: allCoverage, requiredCoverage: requiredCoverage,
+                           missingRequired: missingRequired, level: level)
+    }
+
+    /// 行装配：每个 rowKey 实例一行；检验伴随键（参考范围等）按同 rawText 归入该行、
+    /// 药品/费用/诊断行的行级伴随字段按同行/唯一证据归行。无行触发键（单行卡）→
+    /// 单一空行；行触发键无实例时 `allowsEmptyRows` 才产空行（票据页），否则 nil。
+    private static func buildRows(for template: CardTemplate, fields: [FieldDraft],
+                                  requiredRules: [CompletenessFieldRule],
+                                  consumed: inout Set<Int>) -> [MatchedCardRow]? {
+        guard let rowKey = template.rowKey else { return [MatchedCardRow(fields: [])] }
+        var rows: [MatchedCardRow] = []
+        for (index, draft) in fields.enumerated() where draft.key == rowKey {
+            consumed.insert(index)
+            var rowFields = rowFields(for: template, draft: draft)
+            if let raw = draft.rawText,
+               fields.filter({ $0.key == rowKey && $0.rawText == raw }).count == 1 {
+                for companionKey in labCompanionKeys {
+                    let companions = fields.enumerated().filter { $0.element.rawText == raw && $0.element.key == companionKey }
+                    if companions.count == 1, let companion = companions.first {
+                        let attached = companionFields(for: template, draft: companion.element)
+                        if !attached.isEmpty {
+                            consumed.insert(companion.offset)
+                            rowFields += attached
                         }
                     }
                 }
-                // 行级伴随字段归行（药品行/费用明细行/诊断行；检验行走 companionFields 的同 rawText 伴随路径）。
-                if rowCompanionKinds.contains(template.kind) {
-                    let triggers = fields.filter { $0.key == rowKey }
-                    let sameLineTriggers = triggers.filter { $0.sourceLineIndex == draft.sourceLineIndex }
-                    for (otherIndex, other) in fields.enumerated() where otherIndex != index {
-                        guard let key = template.mapping[other.key], template.rowLevelKeys.contains(key),
-                              key != rowKey, other.key != rowKey,
-                              !consumed.contains(otherIndex),
-                              !rowFields.contains(where: { $0.key == key }) else { continue }
-                        // 审查修复（误归防线）：单一触发行跨行吸收其余行级字段时，
-                        // 该字段键必须页内唯一——双标签页 OCR 漏检一个「通用名称」
-                        // 时，另一标签的规格/计量单位行不得并入已识别药品行
-                        // （误归他药规格会被「一键确认」升为 C 级事实，BR-003 事实
-                        // 纯度受损）。同行伴随（与触发行同 sourceLineIndex）证据
-                        // 强，无需唯一性约束——分组显式括号，防 comma-AND 吞并。
-                        let uniqueOnPage = fields.filter { template.mapping[$0.key] == key }.count == 1
-                        let sameLineEvidence = draft.sourceLineIndex != nil
-                            && sameLineTriggers.count == 1 && draft.sourceLineIndex == other.sourceLineIndex
-                        guard (uniqueOnPage && triggers.count == 1) || sameLineEvidence else { continue }
-                        var copy = other; copy.key = key
-                        rowFields.append(copy); consumed.insert(otherIndex)
-                    }
+            }
+            // 行级伴随字段归行（药品行/费用明细行/诊断行；检验行走 companionFields 的同 rawText 伴随路径）。
+            if rowCompanionKinds.contains(template.kind) {
+                let triggers = fields.filter { $0.key == rowKey }
+                let sameLineTriggers = triggers.filter { $0.sourceLineIndex == draft.sourceLineIndex }
+                for (otherIndex, other) in fields.enumerated() where otherIndex != index {
+                    guard let key = template.mapping[other.key], template.rowLevelKeys.contains(key),
+                          key != rowKey, other.key != rowKey,
+                          !consumed.contains(otherIndex),
+                          !rowFields.contains(where: { $0.key == key }) else { continue }
+                    // 审查修复（误归防线）：单一触发行跨行吸收其余行级字段时，
+                    // 该字段键必须页内唯一——双标签页 OCR 漏检一个「通用名称」
+                    // 时，另一标签的规格/计量单位行不得并入已识别药品行
+                    // （误归他药规格会被「一键确认」升为 C 级事实，BR-003 事实
+                    // 纯度受损）。同行伴随（与触发行同 sourceLineIndex）证据
+                    // 强，无需唯一性约束——分组显式括号，防 comma-AND 吞并。
+                    let uniqueOnPage = fields.filter { template.mapping[$0.key] == key }.count == 1
+                    let sameLineEvidence = draft.sourceLineIndex != nil
+                        && sameLineTriggers.count == 1 && draft.sourceLineIndex == other.sourceLineIndex
+                    guard (uniqueOnPage && triggers.count == 1) || sameLineEvidence else { continue }
+                    var copy = other; copy.key = key
+                    rowFields.append(copy); consumed.insert(otherIndex)
                 }
-                let present = Set(rowFields.filter { !$0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.map(\.key))
-                let missing = requiredRules.map(\.key).filter { template.rowLevelKeys.contains($0) && !present.contains($0) }
-                rows.append(MatchedCardRow(fields: rowFields, missingRequired: missing))
             }
-            if rows.isEmpty {
-                // 票据页无费用明细行：表头即实体，仍以一空行承载（v25 前 claim_item 单行卡语义不变）。
-                guard template.allowsEmptyRows else { return nil }
-                rows = [MatchedCardRow(fields: [])]
-            }
-        } else {
+            let present = Set(rowFields.filter { !$0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.map(\.key))
+            let missing = requiredRules.map(\.key).filter { template.rowLevelKeys.contains($0) && !present.contains($0) }
+            rows.append(MatchedCardRow(fields: rowFields, missingRequired: missing))
+        }
+        if rows.isEmpty {
+            // 票据页无费用明细行：表头即实体，仍以一空行承载（v25 前 claim_item 单行卡语义不变）。
+            guard template.allowsEmptyRows else { return nil }
             rows = [MatchedCardRow(fields: [])]
         }
+        return rows
+    }
 
-        // 2. 共享：其余已映射字段（同键取首个，保持原序）。规则表外的映射键
-        //（如 encounter.diagnosis_text/advice_text）随卡携带供持久化，但不计覆盖。
+    /// 共享面装配：未归行字段按映射键并入（同键取首个非空、叙事键换行并段；
+    /// 处方行级字段无法唯一归行时保留为共享，绝不静默丢数据）+ 文档判定派生的共享键。
+    private static func buildShared(for template: CardTemplate, fields: [FieldDraft],
+                                    consumed: Set<Int>, documentTypeKey: String?,
+                                    ruleKeys: Set<String>) -> [FieldDraft] {
+        // 规则表外的映射键（如 encounter.diagnosis_text/advice_text）随卡携带供持久化，但不计覆盖。
         // 审查修复：同键首个为空值的草稿会把后续非空草稿挡在去重之外——
         // 覆盖键永远缺席、覆盖率 <0.5、整卡被拒（数据明明在场）。同键保留
         // 首个非空值，后续非空值替换先前的空值。
@@ -419,25 +455,7 @@ public enum CardTemplateMatcher {
                 shared.append(FieldDraft(key: key, value: value, confidence: 0.9, source: .heuristic))
             }
         }
-
-        // 3. 覆盖率（去重键；派生键已作为字段写入共享/行，自然计入）
-        var covered = Set((shared + rows.flatMap(\.fields)).filter {
-            $0.grade != .rejected && !$0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }.map(\.key))
-        covered = covered.intersection(ruleKeys)
-        let allCoverage = Double(covered.count) / Double(rules.count)
-        let requiredCovered = requiredRules.filter { covered.contains($0.key) }.count
-        let requiredCoverage = requiredRules.isEmpty ? 1 : Double(requiredCovered) / Double(requiredRules.count)
-        guard allCoverage >= CardMatchThresholds.allFields,
-              requiredCoverage >= CardMatchThresholds.requiredFields else { return nil }
-
-        let missingRequired = requiredRules.filter { !covered.contains($0.key) }
-        // 徽章：用共享 + 首行字段评估（行级重复键只计一次，与 assess 的去重语义一致）
-        let badgeFields = shared + (rows.first?.fields ?? [])
-        let level = CompletenessEvaluator.assess(fields: badgeFields, cardKind: template.kind).level
-        return MatchedCard(kind: template.kind, pageIndex: pageIndex, shared: shared, rows: rows,
-                           allFieldCoverage: allCoverage, requiredCoverage: requiredCoverage,
-                           missingRequired: missingRequired, level: level)
+        return shared
     }
 
     /// 行触发字段 → 行级字段（检验项目「名称 数值」拆分 + 单位 + 派生 metric_key；药名恒等）。

@@ -85,52 +85,7 @@ struct AppRootView: View {
             // 压回大字号），关怀模式钉死 .accessibility1（不随用户设置），
             // Dynamic Type 全局承诺对两组用户都失效
             .dynamicTypeSize(effectiveDynamicTypeSize)
-            .task {
-                await settingsStore.load()   // 主题等设置先于首帧后的首次渲染就位
-                // 语言初始化已移至 VitaLiberApp.init（L10n.restoreLanguage 同步恢复，
-                // 首帧即正确语言，无闪烁）；但 restoreLanguage 只读 vl.language 镜像，
-                // 设置库（DB，随备份迁移）才是权威事实源——备份恢复到新设备时二者
-                // 可能分叉（L10n 渲染 zh-Hans、设置页却选中 zh-Hant）。加载完成后
-                // 以 DB 值对账一次（setLanguage 相等性守卫保证幂等、不误广播）。
-                if let dbLang = settingsStore.values[.language] {
-                    L10n.setLanguage(dbLang)
-                }
-                await appState.bootstrap()
-                appState.restoreBackupMark()   // 上次备份时刻镜像就位（FR13.10 观察联动）
-                // 第八轮全仓审查修复（启动串行链并行化）：信源播种（DB 写）、
-                // 敏感媒体孤儿对账（文件系统扫描）、提醒链（物化+对账+备份提醒）
-                // 三链互不依赖，此前严格串行 = 三者延迟之和拖慢提醒数据就位。
-                // 失败隔离纪律（修正第八轮 tuple 形态）：seed 是唯一会抛出的链，
-                // 其失败单独捕获——`try await (seed, reconcile, refresh, backup)`
-                // 会让第一个抛错者**隐式取消其余 async let 子任务**（structured
-                // concurrency 作用域退出语义），种子失败拖垮 P0 提醒物化链，
-                // 与「互不阻断」意图相反。四链先行全部启动（保持第八轮并行），
-                // seed 的 await 单独 try/catch——错误不传播出作用域即不触发
-                // 隐式取消；其余链均不抛错，无此问题。
-                // 注：多数链共享 DatabasePool 写事务/ReminderStore @MainActor，
-                // 并行收益主要来自系统 IPC 与文件扫描，语义以失败隔离为先。
-                // F16 信源库种子幂等入库（离线零网络可用）。错误消化在
-                // seedBundledOrLog 内完成（两分支共用同一错误路径，此前逐分支
-                // 复制同款 do/catch）——错误不传播出作用域即不触发 async let
-                // 兄弟任务的隐式取消。
-                async let seed: Void = seedBundledOrLog()
-                // 敏感媒体孤儿对账（评审修正）：崩溃/失败写入的残留照片启动时清除
-                async let reconcile: Void = observationState.reconcileAssets()
-                // v27 doc_type_key 首启回填（FR5.5 子项目 J）：幂等（完成标记 + IS NULL 谓词）、
-                // 不抛出，任一行失败不置标记、下次启动重试；全新安装零行即完成。
-                async let backfill: Void = backfillDocumentTypeKeys()
-                // 四层补偿第 1 层（§5.4 V3.29）：前台启动时对账。
-                // FR20.2 授权时序：通知权限严禁启动即索权——请求时机移到
-                // 「完成第一个提醒计划创建后」（价值先行）。
-                if appState.onboardingFinished {
-                    async let refresh: Void = reminderStore.refreshTriggered(patientId: appState.currentPatientId)
-                    // FR13.10 定期备份提醒（默认 30 天；只引导，不自动建包）
-                    async let backup: Void = reminderStore.scheduleBackupReminderIfNeeded(lastBackupAt: appState.lastBackupAt)
-                    _ = await (seed, reconcile, backfill, refresh, backup)
-                } else {
-                    _ = await (seed, reconcile, backfill)
-                }
-            }
+            .task { await startTasks() }
             // FR14.5 语言切换的非视图副作用：已排程通知的标题/正文在排程时固化，
             // 语言变化后须以新语言重写待投递请求（相同 identifier 的 add 即替换）。
             // 视图重渲染不依赖本通知（由 settingsStore.values[.language] 观察驱动）。
@@ -172,92 +127,147 @@ struct AppRootView: View {
                 Text(L10n.timezoneChangedBody)
             }
             .onChangeCompat(of: scenePhase) { _, phase in
-                let wasActive = previousPhase == .active
-                previousPhase = phase
-                switch phase {
-                case .inactive, .background:
-                    // FR1.4 + FR1.7：退后台即锁。用 .inactive 而非 .background——
-                    // 任务切换器快照在 inactive 时刻截取（遮罩必须此时已挂载），
-                    // 且 XCUITest 的 press(.home) 场景下 .background 送达不可靠。
-                    // 审查修复：应用自身的系统认证浮层（Face ID）同样令场景短暂
-                    // inactive——豁免在途认证，否则导出向导/备份等动作被锁屏覆盖
-                    // 层销毁状态并二次弹认证
-                    // 审查修复（回前台重锚）：返回路径同样经过 .inactive
-                    // （background→inactive→active）——此前该分支在返回路径重跑、
-                    // 以返回时刻重锚宽限（60 秒宽限永不过期）并覆盖旧计时任务。
-                    // 宽限只允许在「离开应用」的首个 inactive 锚定，返回路径跳过。
-                    guard wasActive else { break }
-                    if appState.onboardingFinished && !appState.authPromptInFlight {
-                        // 宽限值域钳制：合法域 0/15/60（SettingsRules.
-                        // gateGraceSecondsLegalValues 单一事实源，设置页 Picker 同域），
-                        // 但值经可编辑 JSON 备份往返，脏数据可注入任意字符串——
-                        // 超界天文值下 UInt64(grace × 1e9) 是运行时 trap（切
-                        // 任务器即崩）；超大但未越界的值（如 1e10 秒 ≈ 317 年）
-                        // 则永不锁定；范围判定（0...3600）会让 "300" 等非法档
-                        // 通过并制造规格外宽限窗（FR1.4 退后台即锁静默失效）——
-                        // 一律按合法集成员判定，非法值按 0 处理。
-                        let rawGrace = Double(Int(SettingsRules.resolved(settingsStore.values[.gateGraceSeconds],
-                                                                         key: .gateGraceSeconds)) ?? 0)
-                        let grace = SettingsRules.gateGraceSecondsLegalValues.contains(rawGrace) ? rawGrace : 0
-                        if grace > 0 {
-                            // 宽限窗口内回前台即取消（宽限只影响正式锁定时刻）
-                            // 第七轮全仓审查修复：回前台同样经过 .inactive（active→
-                            // inactive→background→inactive→active），本分支会再跑一次
-                            // 并**覆盖** graceLockTask——旧任务未取消，其宽限期满后
-                            // 在用户正使用中置 backgroundLocked，使用中突然被锁屏
-                            // （FR1.4 语义破坏）。覆盖前必须先取消旧任务。
-                            // 审查修复（回前台竞态）：仅靠「先 cancel 再让旧任务
-                            // 醒来」判定过期——后台挂起超时后返回，cancel 先于旧
-                            // 任务续体执行时 isCancelled 吞掉锁定（2 分钟后返回
-                            // 直接进入未锁病历，FR1.4 唯一防线失效）。锚定
-                            // graceDeadline 死线，回前台按墙钟判定，与任务竞态解耦。
-                            graceLockTask?.cancel()
-                            graceDeadline = Date().addingTimeInterval(grace)
-                            graceLockTask = Task {
-                                try? await Task.sleep(nanoseconds: UInt64(grace * 1_000_000_000))   // try?-ok: 宽限计时取消即停
-                                guard !Task.isCancelled else { return }
-                                backgroundLocked = true
-                                graceDeadline = nil
-                            }
-                        } else {
-                            graceLockTask?.cancel()
-                            graceLockTask = nil
-                            backgroundLocked = true
-                        }
+                handlePhaseChange(phase)
+            }
+        }
+    }
+
+    /// 启动任务链（body 提取：布局与启动编排分离）。顺序敏感：设置先于首帧
+    /// 就位 → 语言对账 → 档案引导 → 备份时刻镜像 → 三/五链并行。
+    private func startTasks() async {
+        await settingsStore.load()   // 主题等设置先于首帧后的首次渲染就位
+        // 语言初始化已移至 VitaLiberApp.init（L10n.restoreLanguage 同步恢复，
+        // 首帧即正确语言，无闪烁）；但 restoreLanguage 只读 vl.language 镜像，
+        // 设置库（DB，随备份迁移）才是权威事实源——备份恢复到新设备时二者
+        // 可能分叉（L10n 渲染 zh-Hans、设置页却选中 zh-Hant）。加载完成后
+        // 以 DB 值对账一次（setLanguage 相等性守卫保证幂等、不误广播）。
+        if let dbLang = settingsStore.values[.language] {
+            L10n.setLanguage(dbLang)
+        }
+        await appState.bootstrap()
+        appState.restoreBackupMark()   // 上次备份时刻镜像就位（FR13.10 观察联动）
+        // 第八轮全仓审查修复（启动串行链并行化）：信源播种（DB 写）、
+        // 敏感媒体孤儿对账（文件系统扫描）、提醒链（物化+对账+备份提醒）
+        // 三链互不依赖，此前严格串行 = 三者延迟之和拖慢提醒数据就位。
+        // 失败隔离纪律（修正第八轮 tuple 形态）：seed 是唯一会抛出的链，
+        // 其失败单独捕获——`try await (seed, reconcile, refresh, backup)`
+        // 会让第一个抛错者**隐式取消其余 async let 子任务**（structured
+        // concurrency 作用域退出语义），种子失败拖垮 P0 提醒物化链，
+        // 与「互不阻断」意图相反。四链先行全部启动（保持第八轮并行），
+        // seed 的 await 单独 try/catch——错误不传播出作用域即不触发
+        // 隐式取消；其余链均不抛错，无此问题。
+        // 注：多数链共享 DatabasePool 写事务/ReminderStore @MainActor，
+        // 并行收益主要来自系统 IPC 与文件扫描，语义以失败隔离为先。
+        // F16 信源库种子幂等入库（离线零网络可用）。错误消化在
+        // seedBundledOrLog 内完成（两分支共用同一错误路径，此前逐分支
+        // 复制同款 do/catch）——错误不传播出作用域即不触发 async let
+        // 兄弟任务的隐式取消。
+        async let seed: Void = seedBundledOrLog()
+        // 敏感媒体孤儿对账（评审修正）：崩溃/失败写入的残留照片启动时清除
+        async let reconcile: Void = observationState.reconcileAssets()
+        // v27 doc_type_key 首启回填（FR5.5 子项目 J）：幂等（完成标记 + IS NULL 谓词）、
+        // 不抛出，任一行失败不置标记、下次启动重试；全新安装零行即完成。
+        async let backfill: Void = backfillDocumentTypeKeys()
+        // 四层补偿第 1 层（§5.4 V3.29）：前台启动时对账。
+        // FR20.2 授权时序：通知权限严禁启动即索权——请求时机移到
+        // 「完成第一个提醒计划创建后」（价值先行）。
+        if appState.onboardingFinished {
+            async let refresh: Void = reminderStore.refreshTriggered(patientId: appState.currentPatientId)
+            // FR13.10 定期备份提醒（默认 30 天；只引导，不自动建包）
+            async let backup: Void = reminderStore.scheduleBackupReminderIfNeeded(lastBackupAt: appState.lastBackupAt)
+            _ = await (seed, reconcile, backfill, refresh, backup)
+        } else {
+            _ = await (seed, reconcile, backfill)
+        }
+    }
+
+    /// scenePhase 状态机（body 提取：FR1.4 退后台即锁 / FR1.7 宽限锁 /
+    /// FR9.6+FR16.1 回前台对账的编排与布局分离）。
+    private func handlePhaseChange(_ phase: ScenePhase) {
+        let wasActive = previousPhase == .active
+        previousPhase = phase
+        switch phase {
+        case .inactive, .background:
+            // FR1.4 + FR1.7：退后台即锁。用 .inactive 而非 .background——
+            // 任务切换器快照在 inactive 时刻截取（遮罩必须此时已挂载），
+            // 且 XCUITest 的 press(.home) 场景下 .background 送达不可靠。
+            // 审查修复：应用自身的系统认证浮层（Face ID）同样令场景短暂
+            // inactive——豁免在途认证，否则导出向导/备份等动作被锁屏覆盖
+            // 层销毁状态并二次弹认证
+            // 审查修复（回前台重锚）：返回路径同样经过 .inactive
+            // （background→inactive→active）——此前该分支在返回路径重跑、
+            // 以返回时刻重锚宽限（60 秒宽限永不过期）并覆盖旧计时任务。
+            // 宽限只允许在「离开应用」的首个 inactive 锚定，返回路径跳过。
+            guard wasActive else { break }
+            if appState.onboardingFinished && !appState.authPromptInFlight {
+                // 宽限值域钳制：合法域 0/15/60（SettingsRules.
+                // gateGraceSecondsLegalValues 单一事实源，设置页 Picker 同域），
+                // 但值经可编辑 JSON 备份往返，脏数据可注入任意字符串——
+                // 超界天文值下 UInt64(grace × 1e9) 是运行时 trap（切
+                // 任务器即崩）；超大但未越界的值（如 1e10 秒 ≈ 317 年）
+                // 则永不锁定；范围判定（0...3600）会让 "300" 等非法档
+                // 通过并制造规格外宽限窗（FR1.4 退后台即锁静默失效）——
+                // 一律按合法集成员判定，非法值按 0 处理。
+                let rawGrace = Double(Int(SettingsRules.resolved(settingsStore.values[.gateGraceSeconds],
+                                                                 key: .gateGraceSeconds)) ?? 0)
+                let grace = SettingsRules.gateGraceSecondsLegalValues.contains(rawGrace) ? rawGrace : 0
+                if grace > 0 {
+                    // 宽限窗口内回前台即取消（宽限只影响正式锁定时刻）
+                    // 第七轮全仓审查修复：回前台同样经过 .inactive（active→
+                    // inactive→background→inactive→active），本分支会再跑一次
+                    // 并**覆盖** graceLockTask——旧任务未取消，其宽限期满后
+                    // 在用户正使用中置 backgroundLocked，使用中突然被锁屏
+                    // （FR1.4 语义破坏）。覆盖前必须先取消旧任务。
+                    // 审查修复（回前台竞态）：仅靠「先 cancel 再让旧任务
+                    // 醒来」判定过期——后台挂起超时后返回，cancel 先于旧
+                    // 任务续体执行时 isCancelled 吞掉锁定（2 分钟后返回
+                    // 直接进入未锁病历，FR1.4 唯一防线失效）。锚定
+                    // graceDeadline 死线，回前台按墙钟判定，与任务竞态解耦。
+                    graceLockTask?.cancel()
+                    graceDeadline = Date().addingTimeInterval(grace)
+                    graceLockTask = Task {
+                        try? await Task.sleep(nanoseconds: UInt64(grace * 1_000_000_000))   // try?-ok: 宽限计时取消即停
+                        guard !Task.isCancelled else { return }
+                        backgroundLocked = true
+                        graceDeadline = nil
                     }
-                case .active:
+                } else {
                     graceLockTask?.cancel()
                     graceLockTask = nil
-                    // 审查修复（回前台竞态兜底）：后台挂起期间宽限已过且取消抢先
-                    // 吞掉任务续体时，按死线墙钟补锁——绝不把「任务竞态」当作
-                    // 「宽限放行」
-                    if let deadline = graceDeadline, deadline <= Date() {
-                        backgroundLocked = true
-                    }
-                    graceDeadline = nil
-                    // 四层补偿第 2 层：每次回前台轻量对账
-                    if appState.onboardingFinished {
-                        Task {
-                            await reminderStore.refreshTriggered(patientId: appState.currentPatientId)
-                            // FR16.1 V3.46 前台 HKAnchoredObjectQuery 增量兜底
-                            // （V3.86 接线）：授权 + FR14.1 开关双门控后轻量同步——
-                            // 杜绝仅靠手动点击；同步服务幂等（锚点/幂等键），
-                            // 无新数据时开销为单次锚点探测
-                            let healthAuthOn = settingsStore.values[.authHealthRead] != "false"
-                            if healthAuthOn, settingsStore.values[.healthAutoImport] != "false", await deviceState.currentAuthorization() {
-                                await deviceState.sync(
-                                    authEnabled: true,
-                                    quietStart: SettingsRules.resolved(
-                                        settingsStore.values[.quietHoursStart], key: .quietHoursStart),
-                                    quietEnd: SettingsRules.resolved(
-                                        settingsStore.values[.quietHoursEnd], key: .quietHoursEnd), maxRounds: 1)
-                            }
-                        }
-                    }
-                default:
-                    break
+                    backgroundLocked = true
                 }
             }
+        case .active:
+            graceLockTask?.cancel()
+            graceLockTask = nil
+            // 审查修复（回前台竞态兜底）：后台挂起期间宽限已过且取消抢先
+            // 吞掉任务续体时，按死线墙钟补锁——绝不把「任务竞态」当作
+            // 「宽限放行」
+            if let deadline = graceDeadline, deadline <= Date() {
+                backgroundLocked = true
+            }
+            graceDeadline = nil
+            // 四层补偿第 2 层：每次回前台轻量对账
+            if appState.onboardingFinished {
+                Task {
+                    await reminderStore.refreshTriggered(patientId: appState.currentPatientId)
+                    // FR16.1 V3.46 前台 HKAnchoredObjectQuery 增量兜底
+                    // （V3.86 接线）：授权 + FR14.1 开关双门控后轻量同步——
+                    // 杜绝仅靠手动点击；同步服务幂等（锚点/幂等键），
+                    // 无新数据时开销为单次锚点探测
+                    let healthAuthOn = settingsStore.values[.authHealthRead] != "false"
+                    if healthAuthOn, settingsStore.values[.healthAutoImport] != "false", await deviceState.currentAuthorization() {
+                        await deviceState.sync(
+                            authEnabled: true,
+                            quietStart: SettingsRules.resolved(
+                                settingsStore.values[.quietHoursStart], key: .quietHoursStart),
+                            quietEnd: SettingsRules.resolved(
+                                settingsStore.values[.quietHoursEnd], key: .quietHoursEnd), maxRounds: 1)
+                    }
+                }
+            }
+        default:
+            break
         }
     }
 

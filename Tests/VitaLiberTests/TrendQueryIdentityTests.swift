@@ -21,17 +21,8 @@ final class TrendQueryIdentityTests: XCTestCase {
                                      end: Date(timeIntervalSince1970: 1_900_000_000))
 
     private func makeSeed() async throws -> Seed {
-        let db = try GRDBStore.inMemory()
-        let owner = UUID()
-        let family = UUID()
-        try await db.writer.write { db in
-            try db.execute(sql: """
-                INSERT INTO patient_profile (id, display_name, relation, created_at, updated_at)
-                VALUES (?, 'Owner', 'self', 0, 0), (?, 'Family', 'other', 0, 0)
-                """, arguments: [owner.uuidString, family.uuidString])
-            try db.execute(sql: "INSERT INTO local_owner (id, display_name, self_patient_id, created_at) VALUES (?, 'Owner', ?, 0)",
-                           arguments: [UUID().uuidString, owner.uuidString])
-        }
+        let (db, owner) = try await GRDBStore.inMemoryWithOwner()
+        let family = try await db.insertPatient("Family", relation: "other")
         return Seed(db: db, trends: TrendQueryStore(writer: db.writer), owner: owner, family: family)
     }
 

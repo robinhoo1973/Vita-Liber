@@ -429,31 +429,39 @@ private struct WeekStrip: View {
         }
     }
 
-    /// 全部剂量已处理才显示 ✓——此前任一已服即 ✓，同日第二剂漏服被
+    /// 单日格三态（符号与颜色共用同一判定，此前两份同构条件各写一遍）
+    private enum DayCellState { case empty, done, pending }
+
+    /// 全部剂量已处理才 done（✓）——此前任一已服即 ✓，同日第二剂漏服被
     /// 掩藏（残留未确认剂量从日程条不可见）。「已处理」含 skipped（用户主动跳过
     /// 是终端态）；nil/snoozed/missed 为待处理 → 空心！
     /// 全仓审查 2026-09-18（F-A5-03）：snoozed 从「已处理」移出——「稍后」是挂起不是决议
     /// （Domain `DoseUserAction.isResolved` 单一口径）。
-    private func daySymbol(_ rows: [MedicationStore.DoseLogRow]) -> String {
-        if rows.isEmpty { return "minus" }
+    private func dayState(_ rows: [MedicationStore.DoseLogRow]) -> DayCellState {
+        if rows.isEmpty { return .empty }
         if rows.allSatisfy({ $0.action == .taken || $0.action == .discomfort || $0.action == .skipped }) {
-            return "checkmark.circle.fill"
+            return .done
         }
         if rows.contains(where: { $0.action == nil || $0.action == .snoozed || $0.action == .missed }) {
-            return "exclamationmark.circle"
+            return .pending
         }
-        return "minus"
+        return .empty
+    }
+
+    private func daySymbol(_ rows: [MedicationStore.DoseLogRow]) -> String {
+        switch dayState(rows) {
+        case .done: return "checkmark.circle.fill"
+        case .pending: return "exclamationmark.circle"
+        case .empty: return "minus"
+        }
     }
 
     private func daySymbolColor(_ rows: [MedicationStore.DoseLogRow]) -> Color {
-        if rows.isEmpty { return Color(.systemGray3) }
-        if rows.allSatisfy({ $0.action == .taken || $0.action == .discomfort || $0.action == .skipped }) {
-            return Color("semantic-success", bundle: .main)
+        switch dayState(rows) {
+        case .done: return Color("semantic-success", bundle: .main)
+        case .pending: return Color("semantic-warning", bundle: .main)
+        case .empty: return Color(.systemGray3)
         }
-        if rows.contains(where: { $0.action == nil || $0.action == .snoozed || $0.action == .missed }) {
-            return Color("semantic-warning", bundle: .main)
-        }
-        return .secondary
     }
 }
 
