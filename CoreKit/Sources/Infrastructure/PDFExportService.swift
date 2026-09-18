@@ -183,7 +183,7 @@ public actor PDFExportService {
             pageCount += 1
             // 目录（带页码——近似：每记录一页，页码 = 3 + index）
             ctx.beginPage()
-            drawTOC(ctx, records: records)
+            drawTOC(ctx, request: request, records: records)
             drawWatermark(ctx, request: request)
             pageCount += 1
             // 逐记录页
@@ -214,7 +214,7 @@ public actor PDFExportService {
         }
     }
 
-    private func drawTOC(_ ctx: UIGraphicsPDFRendererContext, records: [(kind: String, title: String, at: Date, detail: String)]) {
+    private func drawTOC(_ ctx: UIGraphicsPDFRendererContext, request: ExportRequest, records: [(kind: String, title: String, at: Date, detail: String)]) {
         var y: CGFloat = 100
         // 审查修复（tech §3 L10n 纪律）：标题此前硬编码简体「目录」。
         // 文案由 App 层注入（空则不绘制标题，与 disclaimer 同款口径）。
