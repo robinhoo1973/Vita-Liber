@@ -5,6 +5,8 @@
 !/README.md
 !/README.zh-CN.md
 !/README.zh-Hant.md
+# 调试索引：每个类/方法/函数的职责与实现位置映射（2026-09-18 全仓审查轮产物，重构后须同步锚点）
+!/code-function-mapping.md
 !/CoreKit/
 !/App/
 !/Resources/
