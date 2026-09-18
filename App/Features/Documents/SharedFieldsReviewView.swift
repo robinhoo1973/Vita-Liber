@@ -87,7 +87,7 @@ struct SharedFieldsReviewView: View {
     @ViewBuilder
     private func fieldRow(_ index: Int) -> some View {
         FieldConfirmRow(field: $rows[index].field,
-                        label: DocumentsState.fieldLabel(forKey: rows[index].key),
+                        label: DocumentsDisplay.fieldLabel(forKey: rows[index].key),
                         showUnit: false,
                         cardLevelConfirmation: false,
                         isRequired: rows[index].required,
@@ -99,7 +99,7 @@ struct SharedFieldsReviewView: View {
     @ViewBuilder
     private func rowHeader(_ index: Int) -> some View {
         HStack(spacing: 6) {
-            Text(DocumentsState.fieldLabel(forKey: rows[index].key))
+            Text(DocumentsDisplay.fieldLabel(forKey: rows[index].key))
             if rows[index].repeatedAcrossCards { reasonChip(L10n.sharedFieldsReasonRepeated) }
             if rows[index].criticalLowConfidence { reasonChip(L10n.sharedFieldsReasonCritical) }
         }

@@ -1106,7 +1106,7 @@ private struct PendingCardDetailSheet: View {
                         Section(L10n.docConfirmSkipTitle) {
                             ForEach(Array(detail.incompleteFields.enumerated()), id: \.offset) { _, field in
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(field.label ?? DocumentsState.fieldLabel(forKey: field.key))
+                                    Text(field.label ?? DocumentsDisplay.fieldLabel(forKey: field.key))
                                         .font(.subheadline)
                                     Text(L10n.docConfirmHint).font(.caption).foregroundStyle(.secondary)
                                 }
@@ -1129,15 +1129,15 @@ private struct PendingCardDetailSheet: View {
                                 }
                             } else {
                                 ForEach(detail.partialData.shared.filter { $0.key != "metric_key" }.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
-                                    LabeledContent(DocumentsState.fieldLabel(forKey: key),
-                                                   value: DocumentsState.fieldValueDisplay(forKey: key, value: value))
+                                    LabeledContent(DocumentsDisplay.fieldLabel(forKey: key),
+                                                   value: DocumentsDisplay.fieldValueDisplay(forKey: key, value: value))
                                 }
                                 ForEach(Array(detail.partialData.rows.enumerated()), id: \.offset) { index, row in
                                     VStack(alignment: .leading) {
                                         Text(L10n.entityCardRowIndex(index + 1)).font(.caption)
                                         ForEach(row.filter { $0.key != "metric_key" }.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
-                                            LabeledContent(DocumentsState.fieldLabel(forKey: key),
-                                                           value: DocumentsState.fieldValueDisplay(forKey: key, value: value))
+                                            LabeledContent(DocumentsDisplay.fieldLabel(forKey: key),
+                                                           value: DocumentsDisplay.fieldValueDisplay(forKey: key, value: value))
                                         }
                                     }
                                 }
@@ -1260,8 +1260,8 @@ private struct PendingCardDetailSheet: View {
 
     private func pendingField(_ field: FieldDraft) -> some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(DocumentsState.fieldLabel(forKey: field.key)).font(.caption).foregroundStyle(.secondary)
-            Text(DocumentsState.fieldValueDisplay(forKey: field.key, value: field.value))
+            Text(DocumentsDisplay.fieldLabel(forKey: field.key)).font(.caption).foregroundStyle(.secondary)
+            Text(DocumentsDisplay.fieldValueDisplay(forKey: field.key, value: field.value))
                 .strikethrough(field.grade == .rejected)
         }
     }

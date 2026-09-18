@@ -8,9 +8,9 @@ import Perception
 /// 第七轮修复：就诊类型显示名统一经 L10n 词表——表单以 rawValue
 /// （"outpatient"…）落库，列表行/详情胶囊此前渲染英文枚举值；
 /// 历史/未知值（如旧版中文默认）原样降级显示，不 crash。
-/// 与 DocumentsState.fieldValueDisplay（FR6.9 展示层映射）单一事实源收敛。
+/// 与 DocumentsDisplay.fieldValueDisplay（FR6.9 展示层映射）单一事实源收敛。
 private func encounterKindDisplayName(_ raw: String) -> String {
-    DocumentsState.fieldValueDisplay(forKey: "kind", value: raw)
+    DocumentsDisplay.fieldValueDisplay(forKey: "kind", value: raw)
 }
 
 /// 就诊模块状态仓：列表/详情/挂接/智能推荐（BR-001 成员隔离）
@@ -238,7 +238,7 @@ struct EncounterDetailView: View {
                             .font(.caption).foregroundStyle(.secondary)
                         // round2 §3.3：费用此前落库不展示——按票面金额呈现（表单以元录入，FR4.1）
                         if let fee = current?.feeAmount ?? encounter.feeAmount {
-                            LabeledContent(DocumentsState.fieldLabel(forKey: "fee_amount"),
+                            LabeledContent(DocumentsDisplay.fieldLabel(forKey: "fee_amount"),
                                            value: fee.formatted(.currency(code: "CNY").precision(.fractionLength(2))))
                                 .font(.caption)
                         }
@@ -282,7 +282,7 @@ struct EncounterDetailView: View {
                 // 逐字段独立分段、多行原文呈现（不摘要不改写；过敏史只是病历原文，
                 // 写入个人资料须经 D4 资料建议逐项确认——此处不推导、不联动）。
                 ForEach(narrativeFields(current ?? encounter), id: \.key) { field in
-                    Section(DocumentsState.fieldLabel(forKey: field.key)) {
+                    Section(DocumentsDisplay.fieldLabel(forKey: field.key)) {
                         Text(field.value)
                             .textSelection(.enabled)
                             .accessibilityIdentifier("SP-08.encounter.narrative.\(field.key)")
@@ -524,7 +524,7 @@ struct EncounterDetailView: View {
         .frame(minHeight: 44)
     }
 
-    /// 非空叙事列（模板键 → 原文），键序 = 病历阅读序；标签经 `DocumentsState.fieldLabel`（与确认卡同词表）。
+    /// 非空叙事列（模板键 → 原文），键序 = 病历阅读序；标签经 `DocumentsDisplay.fieldLabel`（与确认卡同词表）。
     private func narrativeFields(_ row: EncounterStore.EncounterRow) -> [(key: String, value: String)] {
         let pairs: [(String, String?)] = [
             ("chief_complaint", row.chiefComplaint), ("present_illness", row.presentIllness),
@@ -656,15 +656,15 @@ struct EncounterFormView: View {
                             .keyboardType(.decimalPad)
                     }
                     Section(L10n.encounterNarrative) {
-                        TextField(DocumentsState.fieldLabel(forKey: "present_illness"), text: $presentIllness, axis: .vertical)
+                        TextField(DocumentsDisplay.fieldLabel(forKey: "present_illness"), text: $presentIllness, axis: .vertical)
                             .accessibilityIdentifier("SP-08.encounter.form.present_illness")
-                        TextField(DocumentsState.fieldLabel(forKey: "past_history"), text: $pastHistory, axis: .vertical)
+                        TextField(DocumentsDisplay.fieldLabel(forKey: "past_history"), text: $pastHistory, axis: .vertical)
                             .accessibilityIdentifier("SP-08.encounter.form.past_history")
-                        TextField(DocumentsState.fieldLabel(forKey: "physical_exam"), text: $physicalExam, axis: .vertical)
+                        TextField(DocumentsDisplay.fieldLabel(forKey: "physical_exam"), text: $physicalExam, axis: .vertical)
                             .accessibilityIdentifier("SP-08.encounter.form.physical_exam")
-                        TextField(DocumentsState.fieldLabel(forKey: "allergy_history"), text: $allergyHistory, axis: .vertical)
+                        TextField(DocumentsDisplay.fieldLabel(forKey: "allergy_history"), text: $allergyHistory, axis: .vertical)
                             .accessibilityIdentifier("SP-08.encounter.form.allergy_history")
-                        TextField(DocumentsState.fieldLabel(forKey: "visit_summary"), text: $visitSummary, axis: .vertical)
+                        TextField(DocumentsDisplay.fieldLabel(forKey: "visit_summary"), text: $visitSummary, axis: .vertical)
                             .accessibilityIdentifier("SP-08.encounter.form.visit_summary")
                     }
                 }

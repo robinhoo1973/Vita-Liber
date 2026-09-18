@@ -159,211 +159,292 @@ public actor HealthImportStore {
         try Task.checkCancellation()
         return try await writer.write { db in
             try Task.checkCancellation()
-            try Self.requireEnabled(db)
-            try Self.requireBinding(binding, db: db)
-            // round2 H-N1：无道的批次不可提交（旧载荷已在 pending() 作废，此处只防御直接构造）
-            guard let lane = pending.lane else { throw ImportError.invalidValue }
-            let key = Self.anchorKey(binding, kind, lane)
-            guard try Self.anchor(db, key: key) == pending.previousAnchor,
-                  try Self.pending(binding: binding, kind: kind, db: db) == pending else { throw ImportError.staleAnchor }
-            let batch = pending.batch
-            // 分页与排空的共同不变量（CI 34658990146 + 34659948629 两个验收
-            // 测试钉死，互为镜像）：
-            // ① hasMore 批次允许物化「内容完整」的窗口——历史分页期间完整
-            //    窗口先于最终检查点物化，光标不推进（服务测试：
-            //    historyPagesPublishCompleteWindowsBeforeTheFinalCheckpoint）；
-            // ② 全空快照按完整窗口解释必须拒绝——501 条删除分两页到达时，
-            //    第一页空快照提交会把窗口误判完整、删除 500 行（存储测试：
-            //    staged501DeletionsDrainWithoutAdvancingCommittedAnchor，
-            //    抛 incompleteSnapshot，光标原地等待）。
-            // 内容性判别：任一快照携带实际内容即有证据的完整窗口；全空即
-            // 「缺证据被当成有证据」（ERR#27 纪律），拒绝。唯一豁免：纯删除页
-            // 且无任何窗口受影响（被删除样本从未导入，affectedWindows 为空）
-            // ——否则未导入样本的删除页会被误报 incompleteSnapshot，
-            // 整轮浪费且该类型落进失败名单（owner round10 实测假警报）。
-            let deletionsOnlyEmptyPage = batch.added.isEmpty && snapshots.isEmpty
-                && (attemptedWindows?.isEmpty ?? true)
-            if batch.hasMore, !deletionsOnlyEmptyPage,
-               !snapshots.contains(where: { !$0.samples.isEmpty || !$0.rows.isEmpty }) {
-                throw ImportError.incompleteSnapshot
-            }
-            _ = try Self.validatedReferences(batch.added, kind: kind, calendar: binding.calendar)
-            let tombstones = Set(batch.deleted)
-            let deleted = try Self.deletedReferences(batch.deleted, binding: binding, kind: kind, db: db)
-            let requiredWindows = Set((batch.added + deleted).flatMap { HealthImportWindow.covering($0, calendar: binding.calendar) })
-            let remaining = requiredWindows.subtracting(pending.completedWindows)
-            let supplied = Set(snapshots.map(\.window))
-            let attempted = attemptedWindows ?? snapshots.map(\.window)
-            let requested = Set(attempted)
-            guard pending.completedWindows.isSubset(of: requiredWindows), supplied.count == snapshots.count,
-                  requested.count == attempted.count, requested.isSubset(of: remaining), supplied.isSubset(of: requested),
-                  !attempted.isEmpty || remaining.isEmpty else {
-                throw ImportError.incompleteSnapshot
-            }
-
+            let context = try commitPreflight(binding: binding, kind: kind, pending: pending,
+                                              snapshots: snapshots, attemptedWindows: attemptedWindows, db: db)
             // Capture actual references before any window writes. One series can own several windows.
-            var knownByWindow: [HealthImportWindow: [HealthSampleReference]] = [:]
-            for snapshot in snapshots {
-                guard snapshot.window.kind == kind, snapshot.window.isValid else { throw ImportError.invalidValue }
-                knownByWindow[snapshot.window] = try Row.fetchAll(db, sql: """
-                    SELECT * FROM hk_sample_index WHERE patient_id = ? AND type_key = ?
-                      AND end_at >= ? AND start_at < ?
-                    """, arguments: [binding.patientId.uuidString, kind.rawValue,
-                                      snapshot.window.start.timeIntervalSince1970,
-                                      snapshot.window.end.timeIntervalSince1970])
-                    .map { try Self.decodeReference($0, kind: kind) }
-            }
+            let knownByWindow = try knownReferences(binding: binding, kind: kind, snapshots: snapshots, db: db)
 
             var report = CommitReport()
-            report.deferredWindows = requested.subtracting(supplied).count
+            report.deferredWindows = context.requested.subtracting(context.supplied).count
             var completed = pending.completedWindows
             var preserved = Set<String>()
             var readings: [MetricReading] = []
             for snapshot in snapshots {
-                let window = snapshot.window
-                let known = knownByWindow[window] ?? []
-                let visible = try Self.validatedReferences(snapshot.samples, kind: kind, calendar: binding.calendar)
-                guard snapshot.samples.allSatisfy({ window.overlaps($0) }), snapshot.rejected >= 0 else { throw ImportError.invalidValue }
-                let kept = Set(snapshot.rows.compactMap(\.sourceRef))
-                guard kept.count == snapshot.rows.count else { throw ImportError.invalidValue }
-                let rowsByIdentity = Dictionary(uniqueKeysWithValues: snapshot.rows.compactMap { row in
-                    row.sourceRef.map { ($0, row) }
-                })
-                for row in snapshot.rows {
-                    try Self.validateRow(row, window: window, visible: visible)
+                if try materializeSnapshot(snapshot, known: knownByWindow[snapshot.window] ?? [],
+                                           context: context, binding: binding, kind: kind,
+                                           report: &report, preserved: &preserved,
+                                           readings: &readings, db: db) {
+                    completed.insert(snapshot.window)
                 }
-                for reading in snapshot.readings {
-                    guard reading.origin == .device, let identity = reading.sampleID,
-                          let row = rowsByIdentity[identity], row.value == reading.value, row.unit == reading.unit,
-                          row.metricKey == reading.metricKey, row.measuredAt == reading.measuredAt,
-                          row.sourceIdentifier == reading.sourceIdentifier else { throw ImportError.invalidValue }
-                }
-
-                var arguments: [DatabaseValueConvertible] = [binding.id.uuidString, binding.patientId.uuidString,
-                                                            window.identityPrefix + "%"]
-                if !kind.isAggregated {
-                    arguments.append(window.start.timeIntervalSince1970)
-                    arguments.append(window.end.timeIntervalSince1970)
-                }
-                let prior = try Row.fetchAll(db, sql: """
-                    SELECT m.id, m.source_ref, EXISTS(
-                      SELECT 1 FROM hk_projection_state p WHERE p.binding_id = ? AND p.metric_id = m.id) AS owned
-                    FROM metric_sample m WHERE m.patient_id = ? AND m.origin = 'device' AND m.source_ref LIKE ?
-                    \(kind.isAggregated ? "" : "AND m.measured_at >= ? AND m.measured_at < ?")
-                    ORDER BY owned DESC, m.id
-                    """, arguments: StatementArguments(arguments))
-                let priorByIdentity = Dictionary(grouping: prior) { $0["source_ref"] as String }
-                var complete = Set(visible.keys).isDisjoint(with: tombstones)
-                for ref in known + batch.added.filter({ window.overlaps($0) }) where !tombstones.contains(ref.id) {
-                    if let seen = visible[ref.id] {
-                        // The index stores Unix-epoch Doubles; comparing reference-epoch Dates can add rounding noise.
-                        guard seen.sourceID == ref.sourceID,
-                              seen.start.timeIntervalSince1970 == ref.start.timeIntervalSince1970,
-                              seen.end.timeIntervalSince1970 == ref.end.timeIntervalSince1970 else { throw ImportError.invalidValue }
-                    } else { complete = false }
-                }
-                let deletedHere = known.filter {
-                    tombstones.contains($0.id) && HealthImportWindow.covering($0, calendar: binding.calendar).contains(window)
-                }
-                let deletedIDs = Set(deletedHere.map(\.id))
-                let deletedSources = Set(deletedHere.map(\.sourceID))
-                let removable = Set(prior.compactMap { row -> String? in
-                    let identity: String = row["source_ref"]
-                    guard (row["owned"] as Int) == 1, !kept.contains(identity) else { return nil }
-                    switch kind {
-                    case .heartRate:
-                        guard deletedSources.contains(String(identity.dropFirst(window.prefix.count))) else { return nil }
-                    case .steps, .sleep:
-                        guard !deletedIDs.isEmpty else { return nil }
-                    case .restingHeartRate, .bloodOxygen, .respiratoryRate:
-                        guard let id = HealthImportWindow.sampleID(fromIdentity: identity, kind: kind),
-                              deletedIDs.contains(id) else { return nil }
-                    }
-                    return row["id"] as String
-                })
-                // A missing row is not a deletion either, even if its parent UUID was visible.
-                for row in prior where (row["owned"] as Int) == 1 {
-                    if !kept.contains(row["source_ref"] as String), !removable.contains(row["id"] as String) { complete = false }
-                }
-                guard complete else { report.deferredWindows += 1; continue }
-
-                for row in prior {
-                    let id: String = row["id"]
-                    guard UUID(uuidString: id) != nil else { throw ImportError.invalidValue }
-                    if removable.contains(id) {
-                        try db.execute(sql: "DELETE FROM metric_sample WHERE id = ?", arguments: [id])
-                        report.persistedRows += db.changesCount
-                    } else if (row["owned"] as Int) == 0, kind.isAggregated || !kept.contains(row["source_ref"] as String) {
-                        preserved.insert(id)
-                    }
-                }
-                for row in snapshot.rows {
-                    guard let identity = row.sourceRef else { throw ImportError.invalidValue }
-                    let matches = priorByIdentity[identity] ?? []
-                    if kind.isAggregated {
-                        // Legacy NULL identities must not be adopted by a matching timestamp/name either.
-                        let legacy = try String.fetchAll(db, sql: """
-                            SELECT id FROM metric_sample WHERE patient_id = ? AND origin = 'device' AND source_ref IS NULL
-                              AND metric_key = ? AND measured_at = ? AND unit = ? AND source_name IS ?
-                            """, arguments: [binding.patientId.uuidString, MetricType(grammarKey: row.metricKey)?.rawValue ?? row.metricKey,
-                                             row.measuredAt.timeIntervalSince1970, row.unit, row.sourceName])
-                        let unowned = matches.filter { ($0["owned"] as Int) == 0 }.map { $0["id"] as String } + legacy
-                        if !unowned.isEmpty {
-                            preserved.formUnion(unowned)
-                            // 审查修复：同身份同时存在「备份恢复的非自有行」与
-                            // 「投影态自有行」时，旧实现 preserve 后 continue——
-                            // 自有行永不再刷新（窗口已判完成、锚点推进，后续
-                            // 轮次仍走同一跳过分支），恢复前的陈旧值永久留存。
-                            // 恢复行保留（防回退）的同时刷新自有行。
-                            guard matches.contains(where: { ($0["owned"] as Int) == 1 }) else { continue }
-                        }
-                    }
-                    let id = (matches.first { ($0["owned"] as Int) == 1 }.map { $0["id"] as String })
-                        ?? (matches.first.map { $0["id"] as String }) ?? UUID().uuidString
-                    guard UUID(uuidString: id) != nil else { throw ImportError.invalidValue }
-                    report.persistedRows += try Self.writeProjection(row, id: id, patientId: binding.patientId, db: db)
-                    try db.execute(sql: """
-                        INSERT INTO hk_projection_state (binding_id, metric_id) VALUES (?, ?)
-                        ON CONFLICT(binding_id, metric_id) DO NOTHING
-                        """, arguments: [binding.id.uuidString, id])
-                }
-                for ref in snapshot.samples {
-                    try db.execute(sql: """
-                        INSERT INTO hk_sample_index (sample_id, type_key, patient_id, source_id, start_at, end_at)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                        ON CONFLICT(sample_id, type_key, patient_id) DO UPDATE SET
-                          source_id = excluded.source_id, start_at = excluded.start_at, end_at = excluded.end_at
-                        """, arguments: [ref.id.uuidString, kind.rawValue, binding.patientId.uuidString,
-                                          ref.sourceID, ref.start.timeIntervalSince1970, ref.end.timeIntervalSince1970])
-                }
-                readings.append(contentsOf: snapshot.readings)
-                completed.insert(window)
             }
             _ = try GuidelineStore.recordQualifiedHealthReadings(readings, patientId: binding.patientId, db: db)
             report.preservedRows = preserved.count
             // hasMore 批次即使全部窗口物化完成也保持 hasMore=true——
             // 光标（hk_sync_anchor）只在批次最终页排空后推进；分页期间的
             // 完整窗口物化与光标推进解耦（CI 34659948629 服务测试钉死）。
-            report.hasMore = batch.hasMore || completed != requiredWindows
+            report.hasMore = context.batch.hasMore || completed != context.requiredWindows
             if report.hasMore {
-                try Self.savePending(PendingBatch(previousAnchor: pending.previousAnchor, batch: batch,
-                    completedWindows: completed, reconcileAfter: attempted.last?.start ?? pending.reconcileAfter,
-                    revision: UUID(), lane: lane), binding: binding, kind: kind, db: db)
+                try Self.savePending(PendingBatch(previousAnchor: pending.previousAnchor, batch: context.batch,
+                    completedWindows: completed, reconcileAfter: context.attempted.last?.start ?? pending.reconcileAfter,
+                    revision: UUID(), lane: context.lane), binding: binding, kind: kind, db: db)
                 return report
             }
             // Retire tombstoned references only when every dependent window has been reconciled.
-            for id in batch.deleted {
+            for id in context.batch.deleted {
                 try db.execute(sql: "DELETE FROM hk_sample_index WHERE sample_id = ? AND type_key = ? AND patient_id = ?",
                                arguments: [id.uuidString, kind.rawValue, binding.patientId.uuidString])
             }
             try db.execute(sql: """
                 INSERT INTO hk_sync_anchor (anchor_key, anchor_value, updated_at) VALUES (?, ?, ?)
                 ON CONFLICT(anchor_key) DO UPDATE SET anchor_value = excluded.anchor_value, updated_at = excluded.updated_at
-                """, arguments: [key, batch.anchor.base64EncodedString(), Date().timeIntervalSince1970])
+                """, arguments: [context.key, context.batch.anchor.base64EncodedString(), Date().timeIntervalSince1970])
             try db.execute(sql: "DELETE FROM hk_pending_batch WHERE binding_id = ? AND type_key = ?",
                            arguments: [binding.id.uuidString, kind.rawValue])
             return report
         }
+    }
+
+    /// 提交前置闸门：启用/绑定/道存在 + 锚点与载荷一致（staleAnchor）+ hasMore 内容性判别
+    /// （incompleteSnapshot）+ 窗口子集不变量——全部通过才返回提交上下文。
+    private func commitPreflight(binding: Binding, kind: HealthDataKind, pending: PendingBatch,
+                                 snapshots: [HealthWindowSnapshot],
+                                 attemptedWindows: [HealthImportWindow]?,
+                                 db: Database) throws -> CommitContext {
+        try Self.requireEnabled(db)
+        try Self.requireBinding(binding, db: db)
+        // round2 H-N1：无道的批次不可提交（旧载荷已在 pending() 作废，此处只防御直接构造）
+        guard let lane = pending.lane else { throw ImportError.invalidValue }
+        let key = Self.anchorKey(binding, kind, lane)
+        guard try Self.anchor(db, key: key) == pending.previousAnchor,
+              try Self.pending(binding: binding, kind: kind, db: db) == pending else { throw ImportError.staleAnchor }
+        let batch = pending.batch
+        // 分页与排空的共同不变量（CI 34658990146 + 34659948629 两个验收
+        // 测试钉死，互为镜像）：
+        // ① hasMore 批次允许物化「内容完整」的窗口——历史分页期间完整
+        //    窗口先于最终检查点物化，光标不推进（服务测试：
+        //    historyPagesPublishCompleteWindowsBeforeTheFinalCheckpoint）；
+        // ② 全空快照按完整窗口解释必须拒绝——501 条删除分两页到达时，
+        //    第一页空快照提交会把窗口误判完整、删除 500 行（存储测试：
+        //    staged501DeletionsDrainWithoutAdvancingCommittedAnchor，
+        //    抛 incompleteSnapshot，光标原地等待）。
+        // 内容性判别：任一快照携带实际内容即有证据的完整窗口；全空即
+        // 「缺证据被当成有证据」（ERR#27 纪律），拒绝。唯一豁免：纯删除页
+        // 且无任何窗口受影响（被删除样本从未导入，affectedWindows 为空）
+        // ——否则未导入样本的删除页会被误报 incompleteSnapshot，
+        // 整轮浪费且该类型落进失败名单（owner round10 实测假警报）。
+        let deletionsOnlyEmptyPage = batch.added.isEmpty && snapshots.isEmpty
+            && (attemptedWindows?.isEmpty ?? true)
+        if batch.hasMore, !deletionsOnlyEmptyPage,
+           !snapshots.contains(where: { !$0.samples.isEmpty || !$0.rows.isEmpty }) {
+            throw ImportError.incompleteSnapshot
+        }
+        _ = try Self.validatedReferences(batch.added, kind: kind, calendar: binding.calendar)
+        let tombstones = Set(batch.deleted)
+        let deleted = try Self.deletedReferences(batch.deleted, binding: binding, kind: kind, db: db)
+        let requiredWindows = Set((batch.added + deleted).flatMap { HealthImportWindow.covering($0, calendar: binding.calendar) })
+        let remaining = requiredWindows.subtracting(pending.completedWindows)
+        let supplied = Set(snapshots.map(\.window))
+        let attempted = attemptedWindows ?? snapshots.map(\.window)
+        let requested = Set(attempted)
+        guard pending.completedWindows.isSubset(of: requiredWindows), supplied.count == snapshots.count,
+              requested.count == attempted.count, requested.isSubset(of: remaining), supplied.isSubset(of: requested),
+              !attempted.isEmpty || remaining.isEmpty else {
+            throw ImportError.incompleteSnapshot
+        }
+        return CommitContext(lane: lane, key: key, batch: batch, tombstones: tombstones,
+                             requiredWindows: requiredWindows, supplied: supplied,
+                             requested: requested, attempted: attempted)
+    }
+
+    /// 写窗口前捕获各窗口既有样本引用（同一 series 可跨多窗口）。
+    private func knownReferences(binding: Binding, kind: HealthDataKind,
+                                 snapshots: [HealthWindowSnapshot],
+                                 db: Database) throws -> [HealthImportWindow: [HealthSampleReference]] {
+        var knownByWindow: [HealthImportWindow: [HealthSampleReference]] = [:]
+        for snapshot in snapshots {
+            guard snapshot.window.kind == kind, snapshot.window.isValid else { throw ImportError.invalidValue }
+            knownByWindow[snapshot.window] = try Row.fetchAll(db, sql: """
+                SELECT * FROM hk_sample_index WHERE patient_id = ? AND type_key = ?
+                  AND end_at >= ? AND start_at < ?
+                """, arguments: [binding.patientId.uuidString, kind.rawValue,
+                                  snapshot.window.start.timeIntervalSince1970,
+                                  snapshot.window.end.timeIntervalSince1970])
+                .map { try Self.decodeReference($0, kind: kind) }
+        }
+        return knownByWindow
+    }
+
+    /// 单窗口物化：校验 → 既有投影查询 → 完整性判定 → 删/保 → 行投影 → 索引回写。
+    /// 返回是否判为完整窗口（不完整仅计数 deferredWindows，不写库）。
+    private func materializeSnapshot(_ snapshot: HealthWindowSnapshot,
+                                     known: [HealthSampleReference],
+                                     context: CommitContext, binding: Binding, kind: HealthDataKind,
+                                     report: inout CommitReport, preserved: inout Set<String>,
+                                     readings: inout [MetricReading], db: Database) throws -> Bool {
+        let window = snapshot.window
+        let visible = try Self.validatedReferences(snapshot.samples, kind: kind, calendar: binding.calendar)
+        guard snapshot.samples.allSatisfy({ window.overlaps($0) }), snapshot.rejected >= 0 else { throw ImportError.invalidValue }
+        let kept = Set(snapshot.rows.compactMap(\.sourceRef))
+        guard kept.count == snapshot.rows.count else { throw ImportError.invalidValue }
+        let rowsByIdentity = Dictionary(uniqueKeysWithValues: snapshot.rows.compactMap { row in
+            row.sourceRef.map { ($0, row) }
+        })
+        for row in snapshot.rows {
+            try Self.validateRow(row, window: window, visible: visible)
+        }
+        for reading in snapshot.readings {
+            guard reading.origin == .device, let identity = reading.sampleID,
+                  let row = rowsByIdentity[identity], row.value == reading.value, row.unit == reading.unit,
+                  row.metricKey == reading.metricKey, row.measuredAt == reading.measuredAt,
+                  row.sourceIdentifier == reading.sourceIdentifier else { throw ImportError.invalidValue }
+        }
+
+        let prior = try priorProjectionRows(binding: binding, kind: kind, window: window, db: db)
+        let priorByIdentity = Dictionary(grouping: prior) { $0["source_ref"] as String }
+        var complete = Set(visible.keys).isDisjoint(with: context.tombstones)
+        for ref in known + context.batch.added.filter({ window.overlaps($0) }) where !context.tombstones.contains(ref.id) {
+            if let seen = visible[ref.id] {
+                // The index stores Unix-epoch Doubles; comparing reference-epoch Dates can add rounding noise.
+                guard seen.sourceID == ref.sourceID,
+                      seen.start.timeIntervalSince1970 == ref.start.timeIntervalSince1970,
+                      seen.end.timeIntervalSince1970 == ref.end.timeIntervalSince1970 else { throw ImportError.invalidValue }
+            } else { complete = false }
+        }
+        let deletedHere = known.filter {
+            context.tombstones.contains($0.id) && HealthImportWindow.covering($0, calendar: binding.calendar).contains(window)
+        }
+        let removable = Self.removableProjectionRows(prior: prior, kept: kept,
+                                                     deletedHere: deletedHere, window: window, kind: kind)
+        // A missing row is not a deletion either, even if its parent UUID was visible.
+        for row in prior where (row["owned"] as Int) == 1 {
+            if !kept.contains(row["source_ref"] as String), !removable.contains(row["id"] as String) { complete = false }
+        }
+        guard complete else { report.deferredWindows += 1; return false }
+
+        try applyRemovalsAndPreserves(prior: prior, removable: removable, kept: kept, kind: kind,
+                                      report: &report, preserved: &preserved, db: db)
+        try upsertSnapshotRows(snapshot.rows, priorByIdentity: priorByIdentity, kind: kind,
+                               binding: binding, report: &report, preserved: &preserved, db: db)
+        try upsertSampleIndex(snapshot.samples, kind: kind, binding: binding, db: db)
+        readings.append(contentsOf: snapshot.readings)
+        return true
+    }
+
+    /// 窗口内既有 device 来源投影行（owned = 有无投影态标记，排序保证 owned 行先于非自有行）。
+    private func priorProjectionRows(binding: Binding, kind: HealthDataKind,
+                                     window: HealthImportWindow, db: Database) throws -> [Row] {
+        var arguments: [DatabaseValueConvertible] = [binding.id.uuidString, binding.patientId.uuidString,
+                                                    window.identityPrefix + "%"]
+        if !kind.isAggregated {
+            arguments.append(window.start.timeIntervalSince1970)
+            arguments.append(window.end.timeIntervalSince1970)
+        }
+        return try Row.fetchAll(db, sql: """
+            SELECT m.id, m.source_ref, EXISTS(
+              SELECT 1 FROM hk_projection_state p WHERE p.binding_id = ? AND p.metric_id = m.id) AS owned
+            FROM metric_sample m WHERE m.patient_id = ? AND m.origin = 'device' AND m.source_ref LIKE ?
+            \(kind.isAggregated ? "" : "AND m.measured_at >= ? AND m.measured_at < ?")
+            ORDER BY owned DESC, m.id
+            """, arguments: StatementArguments(arguments))
+    }
+
+    /// 可删投影行判定：自有行 + 未被本页保留 + 按类型满足删除证据条件。
+    private static func removableProjectionRows(prior: [Row], kept: Set<String>, deletedHere: [HealthSampleReference],
+                                                window: HealthImportWindow, kind: HealthDataKind) -> Set<String> {
+        let deletedIDs = Set(deletedHere.map(\.id))
+        let deletedSources = Set(deletedHere.map(\.sourceID))
+        return Set(prior.compactMap { row -> String? in
+            let identity: String = row["source_ref"]
+            guard (row["owned"] as Int) == 1, !kept.contains(identity) else { return nil }
+            switch kind {
+            case .heartRate:
+                guard deletedSources.contains(String(identity.dropFirst(window.prefix.count))) else { return nil }
+            case .steps, .sleep:
+                guard !deletedIDs.isEmpty else { return nil }
+            case .restingHeartRate, .bloodOxygen, .respiratoryRate:
+                guard let id = HealthImportWindow.sampleID(fromIdentity: identity, kind: kind),
+                      deletedIDs.contains(id) else { return nil }
+            }
+            return row["id"] as String
+        })
+    }
+
+    /// 删可删行、登记保留行（非自有行或窗口仍存活的自有行）。
+    private func applyRemovalsAndPreserves(prior: [Row], removable: Set<String>, kept: Set<String>,
+                                           kind: HealthDataKind, report: inout CommitReport,
+                                           preserved: inout Set<String>, db: Database) throws {
+        for row in prior {
+            let id: String = row["id"]
+            guard UUID(uuidString: id) != nil else { throw ImportError.invalidValue }
+            if removable.contains(id) {
+                try db.execute(sql: "DELETE FROM metric_sample WHERE id = ?", arguments: [id])
+                report.persistedRows += db.changesCount
+            } else if (row["owned"] as Int) == 0, kind.isAggregated || !kept.contains(row["source_ref"] as String) {
+                preserved.insert(id)
+            }
+        }
+    }
+
+    /// 设备行投影写入（自有行复用/刷新；legacy NULL 身份不被同时间戳行收养；恢复行保留的同时刷新自有行）。
+    private func upsertSnapshotRows(_ rows: [DeviceMetricRow], priorByIdentity: [String: [Row]],
+                                    kind: HealthDataKind, binding: Binding, report: inout CommitReport,
+                                    preserved: inout Set<String>, db: Database) throws {
+        for row in rows {
+            guard let identity = row.sourceRef else { throw ImportError.invalidValue }
+            let matches = priorByIdentity[identity] ?? []
+            if kind.isAggregated {
+                // Legacy NULL identities must not be adopted by a matching timestamp/name either.
+                let legacy = try String.fetchAll(db, sql: """
+                    SELECT id FROM metric_sample WHERE patient_id = ? AND origin = 'device' AND source_ref IS NULL
+                      AND metric_key = ? AND measured_at = ? AND unit = ? AND source_name IS ?
+                    """, arguments: [binding.patientId.uuidString, MetricType(grammarKey: row.metricKey)?.rawValue ?? row.metricKey,
+                                     row.measuredAt.timeIntervalSince1970, row.unit, row.sourceName])
+                let unowned = matches.filter { ($0["owned"] as Int) == 0 }.map { $0["id"] as String } + legacy
+                if !unowned.isEmpty {
+                    preserved.formUnion(unowned)
+                    // 审查修复：同身份同时存在「备份恢复的非自有行」与
+                    // 「投影态自有行」时，旧实现 preserve 后 continue——
+                    // 自有行永不再刷新（窗口已判完成、锚点推进，后续
+                    // 轮次仍走同一跳过分支），恢复前的陈旧值永久留存。
+                    // 恢复行保留（防回退）的同时刷新自有行。
+                    guard matches.contains(where: { ($0["owned"] as Int) == 1 }) else { continue }
+                }
+            }
+            let id = (matches.first { ($0["owned"] as Int) == 1 }.map { $0["id"] as String })
+                ?? (matches.first.map { $0["id"] as String }) ?? UUID().uuidString
+            guard UUID(uuidString: id) != nil else { throw ImportError.invalidValue }
+            report.persistedRows += try Self.writeProjection(row, id: id, patientId: binding.patientId, db: db)
+            try db.execute(sql: """
+                INSERT INTO hk_projection_state (binding_id, metric_id) VALUES (?, ?)
+                ON CONFLICT(binding_id, metric_id) DO NOTHING
+                """, arguments: [binding.id.uuidString, id])
+        }
+    }
+
+    /// 样本索引回写（同样本同类型按最新来源/区间 upsert）。
+    private func upsertSampleIndex(_ samples: [HealthSampleReference], kind: HealthDataKind,
+                                   binding: Binding, db: Database) throws {
+        for ref in samples {
+            try db.execute(sql: """
+                INSERT INTO hk_sample_index (sample_id, type_key, patient_id, source_id, start_at, end_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(sample_id, type_key, patient_id) DO UPDATE SET
+                  source_id = excluded.source_id, start_at = excluded.start_at, end_at = excluded.end_at
+                """, arguments: [ref.id.uuidString, kind.rawValue, binding.patientId.uuidString,
+                                  ref.sourceID, ref.start.timeIntervalSince1970, ref.end.timeIntervalSince1970])
+        }
+    }
+
+    /// commit 前置闸门产物（门禁全过后提取的提交上下文，供物化循环与尾声共用）。
+    private struct CommitContext {
+        let lane: HealthFetchLane
+        let key: String
+        let batch: HealthChangeBatch
+        let tombstones: Set<UUID>
+        let requiredWindows: Set<HealthImportWindow>
+        let supplied: Set<HealthImportWindow>
+        let requested: Set<HealthImportWindow>
+        let attempted: [HealthImportWindow]
     }
 
     private static func deletedReferences(_ ids: [UUID], binding: Binding, kind: HealthDataKind,

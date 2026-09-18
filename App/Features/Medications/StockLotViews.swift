@@ -103,7 +103,7 @@ struct StockLotDetailView: View {
 
     /// 单位种类展示名（双轨卡与档案卡同口径；经 DocumentsState 字段展示出口）
     private func unitKindDisplay(_ lot: MedicationStore.LotRow) -> String {
-        DocumentsState.fieldValueDisplay(forKey: "unit_kind", value: lot.unitKind)
+        DocumentsDisplay.fieldValueDisplay(forKey: "unit_kind", value: lot.unitKind)
     }
 
     private func save(_ draft: LotEditDraft) async -> Bool {

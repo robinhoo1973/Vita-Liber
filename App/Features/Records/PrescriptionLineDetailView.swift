@@ -3,7 +3,7 @@ import Domain
 import Infrastructure
 import Perception
 
-/// 处方行 → 展示字段目录（SP-08 处方卡行摘要 / 行详情共用同一目录，标签经 `DocumentsState.fieldLabel` 走模板键，
+/// 处方行 → 展示字段目录（SP-08 处方卡行摘要 / 行详情共用同一目录，标签经 `DocumentsDisplay.fieldLabel` 走模板键，
 /// 与确认卡（SP-12）同一词表）。剂量/数量按「原文 + 单位」拼显示，疗程/频次/途径原文直出——
 /// 不解析数值、不换算、不推算给药方案（BR-006/007）；金额/单价为费用可格式化。
 enum PrescriptionLinePresentation {
@@ -100,7 +100,7 @@ struct PrescriptionLineDetailView: View {
                 // BR-003：事实表行只收用户确认（C）；未确认草稿不会到达此读面，徽章仍按行标志呈现
                 GradeBadge(grade: detail.line.confirmed ? "C" : "D")
                 ForEach(Array(PrescriptionLinePresentation.fields(detail.line).enumerated()), id: \.offset) { _, field in
-                    LabeledContent(DocumentsState.fieldLabel(forKey: field.key), value: field.value)
+                    LabeledContent(DocumentsDisplay.fieldLabel(forKey: field.key), value: field.value)
                         .accessibilityIdentifier("SP-08.prescriptionLine.field.\(field.key)")
                 }
             } header: {
@@ -148,7 +148,7 @@ struct PrescriptionLineDetailView: View {
         var parts: [String] = []
         for key in ["hospital", "doctor", "prescribed_at"] {
             if let field = header.fields.first(where: { $0.key == key }) {
-                parts.append(DocumentsState.fieldValueDisplay(forKey: key, value: field.value))
+                parts.append(DocumentsDisplay.fieldValueDisplay(forKey: key, value: field.value))
             }
         }
         return parts.joined(separator: " · ")

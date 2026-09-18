@@ -21,7 +21,7 @@ struct TimelineHubRowView: View {
         switch hub {
         case .encounter, .hospitalization:
             if let place = item.entry.summary, !place.isEmpty { return place }
-            return DocumentsState.fieldValueDisplay(forKey: "kind", value: item.entry.title)
+            return DocumentsDisplay.fieldValueDisplay(forKey: "kind", value: item.entry.title)
         case .healthExam:
             return item.entry.title.isEmpty ? L10n.timelineKindName(.healthExam) : item.entry.title
         }
@@ -32,7 +32,7 @@ struct TimelineHubRowView: View {
         switch hub {
         case .encounter, .hospitalization:
             guard let place = item.entry.summary, !place.isEmpty else { return nil }
-            return DocumentsState.fieldValueDisplay(forKey: "kind", value: item.entry.title)
+            return DocumentsDisplay.fieldValueDisplay(forKey: "kind", value: item.entry.title)
         case .healthExam:
             return item.entry.summary
         }
@@ -129,13 +129,13 @@ struct TimelineChildRowView: View {
 
     private var spec: CardKindIcon.Spec { CardKindIcon.spec(timelineKind: entry.kind) }
 
-    /// 行标题：经 `DocumentsState.timelineEntryTitle` 单一出口（结论=条数 / 治疗=类型展示名 /
+    /// 行标题：经 `DocumentsDisplay.timelineEntryTitle` 单一出口（结论=条数 / 治疗=类型展示名 /
     /// 就诊·住院=`kind` canonical raw → 展示名 / 其余原文、空则回落类型名）。
     ///
     /// 2026-09-17 业主实测复发「就诊类型显示 `outpatient`」：本行此前**直出** `entry.title`，
     /// 而就诊行的 title 是 `kind` raw（`TimelineQueryStore` 的 `e.kind AS title`）——
     /// 主卡行接了展示出口、子卡行漏了。现与主卡行同源。
-    private var title: String { DocumentsState.timelineEntryTitle(entry) }
+    private var title: String { DocumentsDisplay.timelineEntryTitle(entry) }
 
     private var summary: String? {
         guard let raw = entry.summary?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else { return nil }

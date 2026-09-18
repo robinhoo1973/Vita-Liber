@@ -56,7 +56,7 @@ struct EntityCardConfirmView: View {
     @ViewBuilder
     private func fieldRow(_ field: FieldDraft, index: Int, rowId: UUID?, required: Bool) -> some View {
         FieldConfirmRow(field: fieldBinding(index: index, rowID: rowId),
-                        label: DocumentsState.fieldLabel(forKey: field.key),
+                        label: DocumentsDisplay.fieldLabel(forKey: field.key),
                         showUnit: false,
                         readOnly: rowId == nil ? sharedCommitted : false,
                         cardLevelConfirmation: true,
@@ -104,14 +104,14 @@ struct EntityCardConfirmView: View {
     private func uniqueLabels(_ items: [CardConfirmationRules.ReviewItem]) -> [String] {
         var seen = Set<String>()
         return items.compactMap { item in
-            seen.insert(item.key).inserted ? DocumentsState.fieldLabel(forKey: item.key) : nil
+            seen.insert(item.key).inserted ? DocumentsDisplay.fieldLabel(forKey: item.key) : nil
         }
     }
 
     /// 清单一项：就地处置（确认 / 补填），不要求用户先找到它。
     @ViewBuilder
     private func reviewQueueRow(_ item: CardConfirmationRules.ReviewItem, proxy: ScrollViewProxy) -> some View {
-        let label = DocumentsState.fieldLabel(forKey: item.key)
+        let label = DocumentsDisplay.fieldLabel(forKey: item.key)
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(label)
@@ -370,7 +370,7 @@ struct EntityCardConfirmView: View {
     }
 
     private func missingButton(key: String, rowID: UUID?) -> some View {
-        Button(L10n.entityCardMissingRequired(DocumentsState.fieldLabel(forKey: key))) { appendField(key, rowID: rowID) }
+        Button(L10n.entityCardMissingRequired(DocumentsDisplay.fieldLabel(forKey: key))) { appendField(key, rowID: rowID) }
             .buttonStyle(.borderless)
             .frame(minHeight: 44)
             .disabled(rowID == nil && sharedCommitted)
@@ -388,7 +388,7 @@ struct EntityCardConfirmView: View {
         if !catalog.isEmpty {
             Menu {
                 ForEach(catalog, id: \.self) { key in
-                    Button(DocumentsState.fieldLabel(forKey: key)) { appendField(key, rowID: rowID) }
+                    Button(DocumentsDisplay.fieldLabel(forKey: key)) { appendField(key, rowID: rowID) }
                 }
             } label: {
                 Label(L10n.entityCardAddField, systemImage: "plus.circle").frame(minHeight: 44)
@@ -511,15 +511,15 @@ struct PendingCardResumeRouteView: View {
                         }
                         Section(L10n.entityCardSharedSection) {
                             ForEach(pending.partialData.shared.filter { $0.key != "metric_key" }.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
-                                LabeledContent(DocumentsState.fieldLabel(forKey: key),
-                                               value: DocumentsState.fieldValueDisplay(forKey: key, value: value))
+                                LabeledContent(DocumentsDisplay.fieldLabel(forKey: key),
+                                               value: DocumentsDisplay.fieldValueDisplay(forKey: key, value: value))
                             }
                             ForEach(Array(pending.partialData.rows.enumerated()), id: \.offset) { index, row in
                                 VStack(alignment: .leading) {
                                     Text(L10n.entityCardRowIndex(index + 1)).font(.caption)
                                     ForEach(row.filter { $0.key != "metric_key" }.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
-                                        LabeledContent(DocumentsState.fieldLabel(forKey: key),
-                                                       value: DocumentsState.fieldValueDisplay(forKey: key, value: value))
+                                        LabeledContent(DocumentsDisplay.fieldLabel(forKey: key),
+                                                       value: DocumentsDisplay.fieldValueDisplay(forKey: key, value: value))
                                     }
                                 }
                             }

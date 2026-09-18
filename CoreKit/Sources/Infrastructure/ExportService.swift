@@ -1121,1222 +1121,8 @@ public actor ExportService {
                            resolutions: [UUID: ConflictResolution] = [:]) async throws {
         try Self.validateOCRBackup(envelope)
         try await writer.write { db in
-            // 冲突检测（ADR-019）：不静默覆盖、不静默丢弃——存在即需裁决
-            func conflictingIds(table: String, ids: [String], column: String = "id") throws -> Set<String> {
-                guard !ids.isEmpty else { return [] }
-                let placeholders = ids.map { _ in "?" }.joined(separator: ",")
-                return Set(try String.fetchAll(db, sql: """
-                    SELECT \(column) FROM \(table) WHERE \(column) IN (\(placeholders))
-                    """, arguments: StatementArguments(ids)))
-            }
-            func resolution(_ id: UUID) -> ConflictResolution {
-                // 冲突 id 必带显式裁决：下方检测循环已对每个冲突 id 强制存在性
-                // （缺失即抛 .conflict），此处强制解包是类型级承诺——ADR-019
-                // 绝不静默默认，不再保留隐藏的 ?? .keep 兜底。
-                resolutions[id]!
-            }
-            let memberProfiles = envelope.members ?? []
-            let allProfileIds = ([envelope.selfProfile].compactMap { $0 }.map(\.id)
-                                 + memberProfiles.map(\.id)).map(\.uuidString)
-
-            // 文档维度 id 清单：新包 documents（直列）+ 旧包 timeline（meta 投影）
-            let documentIds = (envelope.documents ?? []).map { $0.id.uuidString }
-                + envelope.timeline.map { $0.id.uuidString }
-
-            // 冲突检测 + 未裁决拒绝（ADR-019）：14 张表同构——(表名, id 清单)
-            // 一行描述，单循环完成检测与裁决缺失检查（缺裁决抛 .conflict——
-            // UI 必须先呈现 preview，否则「未裁决即恢复」退化为静默丢弃）。
-            let conflictPairs: [(table: String, ids: [String])] = [
-                ("patient_profile", allProfileIds),
-                ("local_owner", [envelope.owner].compactMap { $0 }.map { $0.id.uuidString }),
-                ("consent_record", envelope.consentRecords.map { $0.id.uuidString }),
-                ("document_file", documentIds),
-                ("prescription", (envelope.ocrPrescriptions ?? []).map { $0.id.uuidString }),
-                ("medication", (envelope.ocrMedications ?? []).map { $0.id.uuidString }),
-                ("claim_item", (envelope.claims ?? []).map { $0.id.uuidString }),
-                ("medication_plan", envelope.plans.map { $0.id.uuidString }),
-                ("appointment", envelope.appointments.map { $0.id.uuidString }),
-                ("observation", envelope.observations.map { $0.id.uuidString }),
-                ("allergy_event", envelope.allergies.map { $0.id.uuidString }),
-                ("encounter", envelope.encounters.map { $0.id.uuidString }),
-                ("metric_sample", envelope.metrics.map { $0.id.uuidString }),
-                ("alert_event", (envelope.alertEvents ?? []).map { $0.id.uuidString }),
-                ("immunization", envelope.immunizations.map { $0.id.uuidString }),
-                ("voice_note", envelope.voiceNotes.map { $0.id.uuidString }),
-                ("health_problem", envelope.healthProblems.map { $0.id.uuidString }),
-                // v26（D2-3）：检验表头 / 诊断 / 检查报告独立裁决；住院期随就诊、定性行随表头（不入冲突表）
-                ("lab_report", (envelope.labReports ?? []).map { $0.id.uuidString }),
-                ("diagnosis", (envelope.diagnoses ?? []).map { $0.id.uuidString }),
-                ("exam_report", (envelope.examReports ?? []).map { $0.id.uuidString }),
-                // v27（子项目 J）：体检 / 手术 / 治疗 / 提醒独立裁决；结论行随其父（体检 / 检验表头 / 检查报告）裁决
-                ("health_exam", (envelope.healthExams ?? []).map { $0.id.uuidString }),
-                ("surgery", (envelope.surgeries ?? []).map { $0.id.uuidString }),
-                ("treatment_record", (envelope.treatmentRecords ?? []).map { $0.id.uuidString }),
-                ("reminder", (envelope.reminders ?? []).map { $0.id.uuidString }),
-            ]
-            var conflictSets: [String: Set<String>] = [:]
-            for (table, ids) in conflictPairs {
-                let hits = try conflictingIds(table: table, ids: ids)
-                for id in hits {
-                    guard let uid = UUID(uuidString: id), resolutions[uid] != nil else {
-                        throw ExportError.conflict(table: table, id: id)
-                    }
-                }
-                conflictSets[table] = hits
-            }
-            let profileConflicts = conflictSets["patient_profile"] ?? []
-            let ownerConflicts = conflictSets["local_owner"] ?? []
-            let consentConflicts = conflictSets["consent_record"] ?? []
-            let timelineConflicts = conflictSets["document_file"] ?? []
-            let planConflicts = conflictSets["medication_plan"] ?? []
-            let aptConflicts = conflictSets["appointment"] ?? []
-            let obsConflicts = conflictSets["observation"] ?? []
-            let allergyConflicts = conflictSets["allergy_event"] ?? []
-            let encConflicts = conflictSets["encounter"] ?? []
-            let metricConflicts = conflictSets["metric_sample"] ?? []
-            let alertConflicts = conflictSets["alert_event"] ?? []
-            let immConflicts = conflictSets["immunization"] ?? []
-            let noteConflicts = conflictSets["voice_note"] ?? []
-            let problemConflicts = conflictSets["health_problem"] ?? []
-
-            /// ADR-019 三路裁决的唯一形态：冲突表任一行的 keep→跳过 / adopt→执行
-            /// 覆盖并跳过 / coexist→落 INSERT（新 id 已由 idMap 重写）。
-            /// 全部 12 张实体表共用（错误曾以 3 种手写姿态出现，审计要读 4 个版本）。
-            func adoptOrSkip(_ conflicts: Set<String>, _ id: UUID,
-                             adopt: () throws -> Void) throws -> Bool {
-                guard conflicts.contains(id.uuidString) else { return false }
-                switch resolution(id) {
-                case .keep:
-                    return true
-                case .adopt:
-                    try adopt()
-                    return true
-                case .coexist:
-                    return false
-                }
-            }
-
-            // coexist 的 id 重写映射：备份行以新 id 落库，子行外键随映射重写
-            var idMap: [UUID: UUID] = [:]
-            func remap(_ id: UUID?) -> UUID? {
-                guard let id else { return nil }
-                return idMap[id] ?? id
-            }
-            for (_, hits) in conflictSets {
-                for id in hits {
-                    guard let uid = UUID(uuidString: id), resolution(uid) == .coexist else { continue }
-                    idMap[uid] = UUID()
-                }
-            }
-            // v25（§C.12）行随表头并存：表头换新 id 时其处方行 / 费用行一并换新 id——主键与 UNIQUE(表头, ordinal)
-            // 都不与本机既有行撞车；行回执 entity_id 经同一 idMap 重写（行不单独进冲突表：行无独立裁决）。
-            let prescriptionLineRows = envelope.prescriptionLines ?? [], claimLineRows = envelope.claimLines ?? []
-            for line in prescriptionLineRows where idMap[line.prescriptionId] != nil { idMap[line.id] = UUID() }
-            for line in claimLineRows where idMap[line.claimItemId] != nil { idMap[line.id] = UUID() }
-            // v26：住院期随其就诊并存换 id；定性行随其检验表头并存换 id（UNIQUE(encounter_id) / UNIQUE(lab_report_id, ordinal) 不撞车）。
-            let hospitalizationRows = envelope.hospitalizations ?? [], labResultRows = envelope.labResults ?? []
-            let labReportRows = envelope.labReports ?? []
-            for h in hospitalizationRows where idMap[h.encounterId] != nil { idMap[h.id] = UUID() }
-            for r in labResultRows where idMap[r.labReportId] != nil { idMap[r.id] = UUID() }
-            // v27：结论行随其父（体检 / 检验表头 / 检查报告）并存换 id（父换新 id 时子行不得与本机既有行撞主键）。
-            let conclusionRows = envelope.clinicalConclusions ?? []
-            /// 结论行的父 (冲突表, 父 id)：恰一非空外键（validateOCRBackup 已保证）。
-            func conclusionParent(_ c: ClinicalConclusion) -> (table: String, id: UUID)? {
-                if let id = c.healthExamId { return ("health_exam", id) }
-                if let id = c.labReportId { return ("lab_report", id) }
-                if let id = c.examReportId { return ("exam_report", id) }
-                return nil
-            }
-            for c in conclusionRows where conclusionParent(c).map({ idMap[$0.id] != nil }) == true { idMap[c.id] = UUID() }
-            let prescriptionLineById = Dictionary(uniqueKeysWithValues: prescriptionLineRows.map { ($0.id, $0) })
-            let claimLineById = Dictionary(uniqueKeysWithValues: claimLineRows.map { ($0.id, $0) })
-            let hospitalizationById = Dictionary(uniqueKeysWithValues: hospitalizationRows.map { ($0.id, $0) })
-            let labResultById = Dictionary(uniqueKeysWithValues: labResultRows.map { ($0.id, $0) })
-            let conclusionById = Dictionary(uniqueKeysWithValues: conclusionRows.map { ($0.id, $0) })
-            /// 回执的裁决归属 (冲突表, 表头 id)：表头回执 = (card_kind, entity_id)；行回执经 envelope 行数组回到表头
-            ///（validateOCRBackup 已保证行存在）；住院期回执归其就诊、定性行回执归其检验表头、结论行回执归其父。
-            func receiptGovernor(_ audit: OCRCardStore.AuditRecord) -> (table: String, header: UUID) {
-                switch audit.entityTable ?? audit.cardKind {
-                case "prescription_line": return ("prescription", prescriptionLineById[audit.entityId]?.prescriptionId ?? audit.entityId)
-                case "claim_line": return ("claim_item", claimLineById[audit.entityId]?.claimItemId ?? audit.entityId)
-                case "hospitalization": return ("encounter", hospitalizationById[audit.entityId]?.encounterId ?? audit.entityId)
-                case "lab_result": return ("lab_report", labResultById[audit.entityId]?.labReportId ?? audit.entityId)
-                case "lab_report": return ("lab_report", audit.entityId)
-                case "clinical_conclusion":
-                    if let parent = conclusionById[audit.entityId].flatMap(conclusionParent) { return (parent.table, parent.id) }
-                    return ("clinical_conclusion", audit.entityId)
-                default: return (audit.cardKind, audit.entityId)
-                }
-            }
-            func receiptHeader(_ audit: OCRCardStore.AuditRecord) -> UUID { receiptGovernor(audit).header }
-            /// 回执随表头裁决：表头 keep → 该表头的全部回执（表头回执 + 行回执）一律不落。
-            func receiptKept(_ audit: OCRCardStore.AuditRecord) -> Bool {
-                let governor = receiptGovernor(audit)
-                return conflictSets[governor.table, default: []].contains(governor.header.uuidString) && resolution(governor.header) == .keep
-            }
-            /// v1 包（旧导出）缺 v25 列：adopt 只覆盖其原有列，不把本机既有新列刷成 NULL；v2 包按备份全列采纳。
-            let legacyEnvelope = envelope.schemaVersion < Envelope.currentSchemaVersion
-            func sourceReference(_ reference: String?) throws -> String? {
-                guard let reference, reference.hasPrefix("doc:") else { return reference }
-                let (document, page) = try Self.documentReference(reference)
-                let target = remap(document) ?? document
-                return page.map { HospitalSample.sourceRef(documentId: target, pageIndex: $0) } ?? "doc:\(target.uuidString)"
-            }
-
-            // FK 拓扑序（ERR#35）：patient_profile 先落——本人档案必须随 envelope
-            // 往返（medication/plan/document 的 patient_id 外键目标）
-            var profileId = envelope.owner?.selfPatientId ?? envelope.selfProfile?.id
-            /// 备份行 patient_id 的最终落点：coexist 重映射 → 原 id → 本人档案。
-            /// 12 处 INSERT/UPDATE 共用同一回落链（此前每处手写三元链）。
-            func patientID(_ id: UUID?) -> String {
-                (remap(id) ?? id)?.uuidString ?? profileId?.uuidString ?? ""
-            }
-
-            func putProfile(_ profile: PatientProfile) throws {
-                let targetId = remap(profile.id) ?? profile.id
-                if profileConflicts.contains(profile.id.uuidString) {
-                    switch resolution(profile.id) {
-                    case .keep:
-                        return
-                    case .adopt:
-                        try db.execute(sql: """
-                            UPDATE patient_profile SET display_name = ?, relation = ?, gender = ?,
-                              birth_date = ?, blood_type = ?, id_no = ?, insurance_no = ?,
-                              note = ?, created_at = ?, updated_at = ?, deleted_at = ? WHERE id = ?
-                            """, arguments: [profile.displayName, profile.relation, profile.gender,
-                                             profile.birthDate, profile.bloodType, profile.idNo,
-                                             profile.insuranceNo, profile.note, profile.createdAt,
-                                             profile.updatedAt, profile.deletedAt,
-                                             profile.id.uuidString])
-                        return
-                    case .coexist:
-                        break   // 落到下方 INSERT（新 id）
-                    }
-                }
-                try db.execute(sql: """
-                    INSERT INTO patient_profile
-                      (id, owner_local_id, display_name, relation, gender, birth_date,
-                       blood_type, id_no, insurance_no, note, created_at, updated_at, deleted_at)
-                    VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, arguments: [targetId.uuidString, profile.displayName,
-                                       profile.relation, profile.gender, profile.birthDate,
-                                       profile.bloodType, profile.idNo, profile.insuranceNo,
-                                       profile.note, profile.createdAt, profile.updatedAt,
-                                       profile.deletedAt])
-            }
-            if let profile = envelope.selfProfile {
-                try putProfile(profile)
-            }
-            // 成员档案随包落库（BR-001：各成员数据各归其位）。
-            // 审查修复：members 含本人（旧包/旧导出）时跳过——本人档案已先落，
-            // 重复 INSERT 触发主键冲突导致整包恢复失败
-            for member in memberProfiles where member.id != envelope.selfProfile?.id {
-                try putProfile(member)
-            }
-            // 互环 FK 三段式破环（ERR#35 同款）：owner 落（回指 profile）→ 回填 owner_local_id
-            if let owner = envelope.owner {
-                let targetOwnerId = remap(owner.id) ?? owner.id
-                let selfPatientId = remap(owner.selfPatientId) ?? owner.selfPatientId
-                if ownerConflicts.contains(owner.id.uuidString) {
-                    switch resolution(owner.id) {
-                    case .keep:
-                        break
-                    case .adopt:
-                        try db.execute(sql: """
-                            UPDATE local_owner SET display_name = ?, self_patient_id = ?, created_at = ? WHERE id = ?
-                            """, arguments: [owner.displayName, selfPatientId?.uuidString,
-                                             owner.createdAt, owner.id.uuidString])
-                    case .coexist:
-                        try db.execute(sql: """
-                            INSERT INTO local_owner (id, display_name, self_patient_id, created_at)
-                            VALUES (?, ?, ?, ?)
-                            """, arguments: [targetOwnerId.uuidString, owner.displayName,
-                                             selfPatientId?.uuidString, owner.createdAt])
-                    }
-                } else {
-                    try db.execute(sql: """
-                        INSERT INTO local_owner (id, display_name, self_patient_id, created_at)
-                        VALUES (?, ?, ?, ?)
-                        """, arguments: [targetOwnerId.uuidString, owner.displayName,
-                                         selfPatientId?.uuidString, owner.createdAt])
-                }
-                // 本人 + 全部成员的 owner_local_id 回填（coexist 的新 id 同样回填）
-                for profile in memberProfiles + [envelope.selfProfile].compactMap({ $0 }) {
-                    try db.execute(sql: "UPDATE patient_profile SET owner_local_id = ? WHERE id = ?",
-                                   arguments: [targetOwnerId.uuidString,
-                                               (remap(profile.id) ?? profile.id).uuidString])
-                }
-            }
-            // 二轮复审 P2：无 owner 的旧包以 selfProfile 为本人回落——coexist 时本人档案
-            // 已按新 id 落库，回落链必须同样经 remap，否则 patient_id 为空的旧指标行
-            // 被挂到本机既有（另一个人的）档案上。
-            profileId = remap(envelope.owner?.selfPatientId ?? envelope.selfProfile?.id) ?? profileId
-            for c in envelope.consentRecords {
-                if try adoptOrSkip(consentConflicts, c.id, adopt: {
-                    try db.execute(sql: """
-                        UPDATE consent_record SET key = ?, level = ?, version = ?, accepted_at = ? WHERE id = ?
-                        """, arguments: [c.key, c.level, c.version, c.acceptedAt, c.id.uuidString])
-                }) { continue }
-                try db.execute(sql: """
-                    INSERT INTO consent_record (id, key, level, version, accepted_at)
-                    VALUES (?, ?, ?, ?, ?)
-                    """, arguments: [(remap(c.id) ?? c.id).uuidString, c.key, c.level, c.version, c.acceptedAt])
-            }
-            // V3.39+ 文档维度恢复：document_file 直列随包往返（第四轮全仓审查修复——
-            // 旧路径按 TimelineDocumentEntry 解码 meta_json 只能恢复历史投影行，
-            // 经活管线入库的文档（title/ocr_text/grade 直列）在恢复中全部丢失）。
-            // encounter_id 外键两段式：encounter 行恢复在文档之后（FK 拓扑序），
-            // 先行落 NULL、encounters 恢复完成后统一回填——直接携带 encounter_id
-            // 插入会触发 FOREIGN KEY constraint failed、整包恢复回滚（第四轮
-            // 全仓审查 Phase 3 补漏：旧 timeline 路径从不写该列，无此失败模式）。
-            var cardMap: [UUID: UUID] = [:]
-            for audit in envelope.ocrCardCommits ?? [] {
-                if idMap[audit.documentId] != nil || idMap[audit.patientId] != nil || idMap[audit.entityId] != nil {
-                    if cardMap[audit.cardId] == nil { cardMap[audit.cardId] = UUID() }
-                }
-            }
-            // Pending-only cards are absent from the receipt array but still need a new identity on coexist.
-            for document in envelope.documents ?? [] where idMap[document.id] != nil || document.patientId.flatMap({ idMap[$0] }) != nil {
-                for id in try Self.reviewCardIDs(document.metaJson) where cardMap[id] == nil { cardMap[id] = UUID() }
-            }
-            // v26：并存的检验表头 = 一张新卡（source_card_id UNIQUE 不撞车；其行回执随同一 cardMap 换卡 id）。
-            for report in labReportRows where idMap[report.id] != nil {
-                if let card = report.sourceCardId, cardMap[card] == nil { cardMap[card] = UUID() }
-            }
-            var docEncounterLinks: [String: UUID?] = [:]
-            for d in envelope.documents ?? [] {
-                let targetId = remap(d.id) ?? d.id
-                let targetPatientId = (remap(d.patientId) ?? d.patientId)?.uuidString
-                let targetEncounterId = (remap(d.encounterId) ?? d.encounterId)
-                let reviewMetadata = try Self.remapReviewMetadata(d.metaJson, cardMap: cardMap, entityMap: idMap)
-                // 第五轮全仓审查修复（5WHY）：keep 裁决的行必须原样保留、绝不
-                // 记入回填清单——此前回填循环对所有 envelope 行统一
-                // UPDATE encounter_id，keep 行（既有行被跳过、未被 INSERT/UPDATE）
-                // 的 encounter_id 被备份值（或 nil）覆写：本地已挂接的就诊关系
-                // 被静默改写或摘除，keep=「现有行不触碰」的 ADR-019 语义被破坏。
-                // adopt 行 UPDATE 不含 encounter_id 列，故回填仍须覆盖 adopt 行；
-                // 回填只应发生在插入/采纳的行上。
-                let keepExisting = timelineConflicts.contains(d.id.uuidString) && resolution(d.id) == .keep
-                if !keepExisting {
-                    docEncounterLinks[targetId.uuidString] = targetEncounterId
-                }
-                if try adoptOrSkip(timelineConflicts, d.id, adopt: {
-                    try Self.restoreOCRPages(d, targetId: targetId, replacing: true, db: db)
-                    // v25 两列（doc_type_key / title_source）只在 v2 包上采纳；v1 包不触碰本机既有键
-                    let v25Columns = legacyEnvelope ? "" : ", doc_type_key = ?, title_source = ?"
-                    let v25Arguments: [DatabaseValueConvertible?] = legacyEnvelope ? [] : [d.docTypeKey, d.titleSource]
-                    let baseArguments: [DatabaseValueConvertible?] = [targetPatientId,
-                                         d.docType, d.status, d.sha256, d.mimeType,
-                                          d.isSensitive ? 1 : 0, d.origin, reviewMetadata, d.title,
-                                         d.ocrText, d.notes, d.grade,
-                                         d.createdAt.timeIntervalSince1970,
-                                         d.updatedAt.timeIntervalSince1970]
-                    try db.execute(sql: """
-                        UPDATE document_file SET
-                            patient_id = ?, doc_type = ?, status = ?,
-                            sha256 = ?, mime_type = ?, is_sensitive = ?, origin = ?,
-                            meta_json = ?, title = ?, ocr_text = ?, notes = ?, grade = ?,
-                            created_at = ?, updated_at = ?\(v25Columns)
-                        WHERE id = ?
-                        """, arguments: StatementArguments(baseArguments + v25Arguments + [targetId.uuidString]))
-                }) { continue }
-                try db.execute(sql: """
-                    INSERT INTO document_file
-                      (id, patient_id, encounter_id, doc_type, status, sha256, mime_type,
-                       is_sensitive, origin, meta_json, title, ocr_text, notes, grade,
-                       created_at, updated_at, doc_type_key, title_source)
-                    VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, arguments: [targetId.uuidString, targetPatientId,
-                                     d.docType, d.status, d.sha256, d.mimeType,
-                                      d.isSensitive ? 1 : 0, d.origin, reviewMetadata, d.title,
-                                     d.ocrText, d.notes, d.grade,
-                                     d.createdAt.timeIntervalSince1970,
-                                     d.updatedAt.timeIntervalSince1970, d.docTypeKey, d.titleSource])
-                try Self.restoreOCRPages(d, targetId: targetId, replacing: false, db: db)
-            }
-            // 旧备份包（无 documents 维度）的投影行恢复——历史兼容路径
-            for e in envelope.timeline {
-                if try adoptOrSkip(timelineConflicts, e.id, adopt: {
-                    let meta = String(data: try JSONEncoder().encode(e), encoding: .utf8) ?? "{}"
-                    try db.execute(sql: """
-                        UPDATE document_file SET patient_id = ?, meta_json = ?, title = ?, created_at = ?, updated_at = ?
-                        WHERE id = ?
-                        """, arguments: [(remap(e.patientId) ?? e.patientId).uuidString, meta, e.title,
-                                         e.occurredAt, e.occurredAt, e.id.uuidString])
-                }) { continue }
-                let meta = String(data: try JSONEncoder().encode(e), encoding: .utf8) ?? "{}"
-                let targetId = remap(e.id) ?? e.id
-                try db.execute(sql: """
-                    INSERT INTO document_file
-                      (id, patient_id, doc_type, sha256, mime_type, origin, meta_json, created_at, updated_at)
-                    VALUES (?, ?, 'ocr_document', ?, 'application/json', 'scanner', ?, ?, ?)
-                    """, arguments: [targetId.uuidString, (remap(e.patientId) ?? e.patientId).uuidString,
-                                     "sha:" + targetId.uuidString,
-                                     meta, e.occurredAt, e.occurredAt])
-            }
-            for p in envelope.plans {
-                if try adoptOrSkip(planConflicts, p.id, adopt: {
-                    let scheduleJSON = String(data: try JSONEncoder().encode(p.schedule), encoding: .utf8) ?? "{}"
-                    // 审查修复（ADR-019 采纳语义）：采纳 = 以备份版本为准——
-                    // 旧 UPDATE 只改 4 列，备份的 dose_plan_units（安全线单剂
-                    // 基线）与 ended_reason/paused_at 被静默丢弃，恢复后库存
-                    // 扣减与暂停/结束语义跑在错误基线上（V3.94 往返契约）
-                    try db.execute(sql: """
-                        UPDATE medication_plan SET status = ?, schedule_json = ?, start_date = ?, end_date = ?,
-                          dose_plan_units = ?, ended_reason = ?, paused_at = ?
-                        WHERE id = ?
-                        """, arguments: [p.status.rawValue, scheduleJSON,
-                                         p.startDate.timeIntervalSince1970,
-                                         p.endDate?.timeIntervalSince1970,
-                                         p.dosePlanUnits, p.endedReason,
-                                         p.pausedAt?.timeIntervalSince1970, p.id.uuidString])
-                }) { continue }
-                // 药品行先落（medication_plan.medication_id 外键，ERR#35）
-                let planPatient = remap(p.patientId) ?? p.patientId ?? profileId
-                let medId = UUID()
-                try db.execute(sql: """
-                    INSERT INTO medication (id, patient_id, generic_name, spec, unit_kind, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """, arguments: [medId.uuidString, planPatient?.uuidString ?? "",
-                                       p.medicationName, p.spec, p.unitKind ?? "tablet",
-                                       p.startDate.timeIntervalSince1970, p.startDate.timeIntervalSince1970])
-                let scheduleJSON = String(data: try JSONEncoder().encode(p.schedule), encoding: .utf8) ?? "{}"
-                try db.execute(sql: """
-                    INSERT INTO medication_plan
-                      (id, patient_id, medication_id, status, schedule_json, start_date, end_date,
-                       dose_plan_units, ended_reason, paused_at, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, arguments: [(remap(p.id) ?? p.id).uuidString, planPatient?.uuidString ?? "", medId.uuidString, p.status.rawValue, scheduleJSON,
-                                     p.startDate.timeIntervalSince1970, p.endDate?.timeIntervalSince1970,
-                                     p.dosePlanUnits, p.endedReason, p.pausedAt?.timeIntervalSince1970,
-                                     p.startDate.timeIntervalSince1970, p.startDate.timeIntervalSince1970])
-            }
-            // v27：appointment.encounter_id 外键两段式（就诊行在预约之后恢复，直接携带会触发 FOREIGN KEY constraint failed）：
-            // 先落 NULL / 不触碰，encounters 落库后统一回填——只回填插入 / 采纳的行（keep 行原样保留，ADR-019）。
-            // purpose（v27 列）v1 包 adopt 不触碰本机现值；v2 包按备份采纳。
-            var appointmentEncounterLinks: [(appointmentId: String, encounterId: UUID?)] = []
-            for a in envelope.appointments {
-                let targetAppointment = (remap(a.id) ?? a.id).uuidString
-                if try adoptOrSkip(aptConflicts, a.id, adopt: {
-                    // FR13.5 保真（2026-09-15 修复）：adopt = 备份版本胜出（ADR-019）——时间戳同随；
-                    // 旧包（字段 nil）保持现值不触碰。
-                    let purposeColumn = legacyEnvelope ? "" : ", purpose = ?, created_at = ?, updated_at = ?"
-                    let purposeArguments: [DatabaseValueConvertible?] = legacyEnvelope ? []
-                        : [a.purpose, (a.createdAt ?? a.startsAt).timeIntervalSince1970, (a.updatedAt ?? a.startsAt).timeIntervalSince1970]
-                    let base: [DatabaseValueConvertible?] = [(remap(a.patientId) ?? a.patientId)?.uuidString ?? "", a.hospital,
-                                                             a.department, a.startsAt.timeIntervalSince1970, a.status]
-                    try db.execute(sql: """
-                        UPDATE appointment SET patient_id = ?, hospital = ?, department = ?, starts_at = ?, status = ?\(purposeColumn)
-                        WHERE id = ?
-                        """, arguments: StatementArguments(base + purposeArguments + [a.id.uuidString]))
-                    if !legacyEnvelope { appointmentEncounterLinks.append((a.id.uuidString, remap(a.encounterId))) }
-                }) { continue }
-                try db.execute(sql: """
-                    INSERT INTO appointment (id, patient_id, hospital, department, starts_at, status, created_at, updated_at, purpose)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, arguments: [targetAppointment, patientID(a.patientId), a.hospital, a.department,
-                                     a.startsAt.timeIntervalSince1970, a.status,
-                                     (a.createdAt ?? a.startsAt).timeIntervalSince1970,
-                                     (a.updatedAt ?? a.startsAt).timeIntervalSince1970, a.purpose])
-                if a.encounterId != nil { appointmentEncounterLinks.append((targetAppointment, remap(a.encounterId))) }
-            }
-            for o in envelope.observations {
-                // FR13.5 V3.28：扩展字段随包往返——adopt 全列覆盖、INSERT 全列写入
-                if try adoptOrSkip(obsConflicts, o.id, adopt: {
-                    try db.execute(sql: """
-                        UPDATE observation SET patient_id = ?, kind = ?, occurred_at = ?, captured_at = ?,
-                          description = ?, self_mark = ?, media_asset_ids = ?, body_part = ?,
-                          duration_min = ?, frequency = ?, is_first = ?, trigger = ?,
-                          accompanying = ?, pain_score = ?, meds_diet = ?, consulted_doctor = ?,
-                          encounter_id = ?, health_problem_id = ?, group_id = ?
-                        WHERE id = ?
-                        """, arguments: [(remap(o.patientId) ?? o.patientId)?.uuidString ?? "", o.kind,
-                                         o.occurredAt.timeIntervalSince1970, o.capturedAt?.timeIntervalSince1970,
-                                         o.description, o.selfMark, Self.encodeMediaIds(o.mediaAssetIds),
-                                         o.bodyPart, o.durationMin, o.frequency,
-                                         o.isFirst.map { $0 ? 1 : 0 }, o.trigger, o.accompanying,
-                                         o.painScore, o.medsDiet, o.consultedDoctor ? 1 : 0,
-                                         o.encounterId?.uuidString, o.healthProblemId?.uuidString,
-                                         o.groupId?.uuidString, o.id.uuidString])
-                }) { continue }
-                try db.execute(sql: """
-                    INSERT INTO observation (id, patient_id, kind, occurred_at, captured_at,
-                      description, self_mark, media_asset_ids, body_part, duration_min, frequency,
-                      is_first, trigger, accompanying, pain_score, meds_diet, consulted_doctor,
-                      encounter_id, health_problem_id, group_id, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, arguments: [(remap(o.id) ?? o.id).uuidString, patientID(o.patientId), o.kind,
-                                     o.occurredAt.timeIntervalSince1970, o.capturedAt?.timeIntervalSince1970,
-                                     o.description, o.selfMark, Self.encodeMediaIds(o.mediaAssetIds),
-                                     o.bodyPart, o.durationMin, o.frequency,
-                                     o.isFirst.map { $0 ? 1 : 0 }, o.trigger, o.accompanying,
-                                     o.painScore, o.medsDiet, o.consultedDoctor ? 1 : 0,
-                                     o.encounterId?.uuidString, o.healthProblemId?.uuidString,
-                                     o.groupId?.uuidString,
-                                     o.occurredAt.timeIntervalSince1970, o.occurredAt.timeIntervalSince1970])
-            }
-            for a in envelope.allergies {
-                if try adoptOrSkip(allergyConflicts, a.id, adopt: {
-                    try db.execute(sql: """
-                        UPDATE allergy_event SET patient_id = ?, substance = ?, reaction_tags = ?,
-                          severity = ?, occurred_at = ?, consulted_doctor = ?, duration_min = ?,
-                          treatment_note = ?, note = ?, encounter_id = ?, medication_id = ?
-                        WHERE id = ?
-                        """, arguments: [(remap(a.patientId) ?? a.patientId)?.uuidString ?? "", a.substance,
-                                         a.reactionTags ?? "[]", a.severity, a.occurredAt.timeIntervalSince1970,
-                                         (a.consultedDoctor ?? false) ? 1 : 0, a.durationMin, a.treatmentNote,
-                                         a.note, a.encounterId?.uuidString, a.medicationId?.uuidString,
-                                         a.id.uuidString])
-                }) { continue }
-                try db.execute(sql: """
-                    INSERT INTO allergy_event (id, patient_id, substance, reaction_tags, severity, occurred_at,
-                                              consulted_doctor, duration_min, treatment_note, note,
-                                              encounter_id, medication_id, allergen_kind, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, arguments: [(remap(a.id) ?? a.id).uuidString, patientID(a.patientId), a.substance,
-                                     a.reactionTags ?? "[]", a.severity, a.occurredAt.timeIntervalSince1970,
-                                     (a.consultedDoctor ?? false) ? 1 : 0, a.durationMin, a.treatmentNote,
-                                     a.note, a.encounterId?.uuidString, a.medicationId?.uuidString, a.allergenKind,
-                                     a.occurredAt.timeIntervalSince1970, a.occurredAt.timeIntervalSince1970])
-            }
-            // v25（D1-4）就诊全列恢复。rescheduled_from_id 自引用 FK：先落 NULL、全部就诊落库后统一回填
-            // （备份内改期链的前驱可能排在后面，直接携带会触发 FOREIGN KEY constraint failed 整包回滚）。
-            var rescheduleLinks: [(encounterId: String, from: String?)] = []
-            for e in envelope.encounters {
-                let targetId = (remap(e.id) ?? e.id).uuidString
-                let rescheduledFrom = remap(e.rescheduledFromId)?.uuidString
-                let narrative: [DatabaseValueConvertible?] = [e.hospital, e.department, e.doctor, e.chiefComplaint, e.diagnosisText,
-                                                             e.adviceText, e.followUpRequirement, e.feeAmount,
-                                                             e.presentIllness, e.visitSummary, e.pastHistory, e.physicalExam, e.allergyHistory]
-                if try adoptOrSkip(encConflicts, e.id, adopt: {
-                    if legacyEnvelope {
-                        // v1 包只有五列：其余列由 ocrEncounterDetails（仅 OCR 就诊）补，手工列保持本机现值
-                        try db.execute(sql: """
-                            UPDATE encounter SET patient_id = ?, date = ?, kind = ?, diagnosis_text = ?,
-                              deleted_at = ?
-                            WHERE id = ?
-                            """, arguments: [(remap(e.patientId) ?? e.patientId)?.uuidString ?? "", e.date.timeIntervalSince1970,
-                                             e.kind, e.diagnosisText, e.deletedAt, e.id.uuidString])
-                        return
-                    }
-                    let head: [DatabaseValueConvertible?] = [(remap(e.patientId) ?? e.patientId)?.uuidString ?? "", e.date.timeIntervalSince1970, e.kind]
-                    let tail: [DatabaseValueConvertible?] = [e.deletedAt, (e.createdAt ?? e.date).timeIntervalSince1970,
-                                                            (e.updatedAt ?? e.date).timeIntervalSince1970, e.id.uuidString]
-                    try db.execute(sql: """
-                        UPDATE encounter SET patient_id = ?, date = ?, kind = ?,
-                          hospital = ?, department = ?, doctor = ?, chief_complaint = ?, diagnosis_text = ?,
-                          advice_text = ?, follow_up_requirement = ?, fee_amount = ?,
-                          present_illness = ?, visit_summary = ?, past_history = ?, physical_exam = ?, allergy_history = ?,
-                          deleted_at = ?, created_at = ?, updated_at = ?
-                        WHERE id = ?
-                        """, arguments: StatementArguments(head + narrative + tail))
-                    rescheduleLinks.append((e.id.uuidString, rescheduledFrom))
-                }) { continue }
-                let head: [DatabaseValueConvertible?] = [targetId, patientID(e.patientId), e.date.timeIntervalSince1970, e.kind]
-                let tail: [DatabaseValueConvertible?] = [e.deletedAt, (e.createdAt ?? e.date).timeIntervalSince1970,
-                                                        (e.updatedAt ?? e.date).timeIntervalSince1970]
-                try db.execute(sql: """
-                    INSERT INTO encounter (id, patient_id, date, kind,
-                      hospital, department, doctor, chief_complaint, diagnosis_text,
-                      advice_text, follow_up_requirement, fee_amount,
-                      present_illness, visit_summary, past_history, physical_exam, allergy_history,
-                      deleted_at, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, arguments: StatementArguments(head + narrative + tail))
-                if rescheduledFrom != nil { rescheduleLinks.append((targetId, rescheduledFrom)) }
-            }
-            for link in rescheduleLinks {
-                try db.execute(sql: "UPDATE encounter SET rescheduled_from_id = ? WHERE id = ?", arguments: [link.from, link.encounterId])
-            }
-            // document_file.encounter_id 外键回填（第四轮全仓审查 Phase 3 补漏）：
-            // encounter 行已全部落库，此时统一挂接（含 nil → 清除 adopt 行残留）
-            for (docId, encId) in docEncounterLinks {
-                try db.execute(sql: "UPDATE document_file SET encounter_id = ? WHERE id = ?",
-                               arguments: [encId?.uuidString, docId])
-            }
-            // v27：appointment.encounter_id 回填（就诊已全部落库；目标就诊不在库 → 置 NULL，不猜）。
-            for link in appointmentEncounterLinks {
-                var target = link.encounterId?.uuidString
-                if let id = target, try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM encounter WHERE id = ?", arguments: [id]) != 1 { target = nil }
-                try db.execute(sql: "UPDATE appointment SET encounter_id = ? WHERE id = ?", arguments: [target, link.appointmentId])
-            }
-            // v27（§C.12 拓扑序 · 就诊之后、检验表头 / 检查报告 / 趋势点 / 结论之前）体检枢纽：独立裁决（keep / adopt 全列 / coexist 新 id）。
-            let healthExamConflicts = conflictSets["health_exam"] ?? []
-            for x in envelope.healthExams ?? [] {
-                let facts = OCRCardStore.healthExamFacts(x)
-                let head: [DatabaseValueConvertible?] = [patientID(x.patientId), remap(x.documentFileId)?.uuidString]
-                let stamps: [DatabaseValueConvertible?] = [x.source.rawValue, x.confirmed ? 1 : 0,
-                                                          x.createdAt.timeIntervalSince1970, x.updatedAt.timeIntervalSince1970]
-                if try adoptOrSkip(healthExamConflicts, x.id, adopt: {
-                    try db.execute(sql: """
-                        UPDATE health_exam SET patient_id = ?, document_file_id = ?,
-                          org_name = ?, exam_no = ?, package_name = ?, exam_date = ?, total_doctor = ?, report_date = ?,
-                          height_text = ?, weight_text = ?, bmi_text = ?, systolic_text = ?, diastolic_text = ?, pulse_text = ?, waist_text = ?,
-                          vision_left_text = ?, vision_right_text = ?, overall_conclusion = ?, health_guidance = ?,
-                          source = ?, confirmed = ?, created_at = ?, updated_at = ?
-                        WHERE id = ?
-                        """, arguments: StatementArguments(head + facts + stamps + [x.id.uuidString]))
-                }) { continue }
-                try db.execute(sql: """
-                    INSERT INTO health_exam (id, patient_id, document_file_id, org_name, exam_no, package_name, exam_date, total_doctor, report_date,
-                      height_text, weight_text, bmi_text, systolic_text, diastolic_text, pulse_text, waist_text, vision_left_text, vision_right_text,
-                      overall_conclusion, health_guidance, source, confirmed, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, arguments: StatementArguments([(remap(x.id) ?? x.id).uuidString] + head + facts + stamps))
-            }
-            // v26（§C.12 第 2 位）住院期：随就诊裁决——就诊 keep → 跳过；否则按 UNIQUE(encounter_id) 落到该就诊的唯一住院期
-            //（本机已有同就诊住院期 → 采纳备份列、保留本机 id 并把备份 id 重映射到它，回执随之指向存活行；同 id 已有 → 覆盖；
-            //   否则 INSERT，coexist 的新 id 已随就诊重写）。
-            for h in hospitalizationRows {
-                if encConflicts.contains(h.encounterId.uuidString), resolution(h.encounterId) == .keep { continue }
-                let targetEncounter = (remap(h.encounterId) ?? h.encounterId).uuidString
-                var target = (remap(h.id) ?? h.id).uuidString
-                let facts = OCRCardStore.hospitalizationFacts(h)
-                let stamps: [DatabaseValueConvertible?] = [h.source.rawValue, h.confirmed ? 1 : 0,
-                                                          h.createdAt.timeIntervalSince1970, h.updatedAt.timeIntervalSince1970]
-                let localUnderEncounter = try String.fetchOne(db, sql: "SELECT id FROM hospitalization WHERE encounter_id = ?", arguments: [targetEncounter])
-                if let local = localUnderEncounter, local != target {
-                    if let localId = UUID(uuidString: local) { idMap[h.id] = localId }
-                    target = local
-                }
-                let sameIdCount = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM hospitalization WHERE id = ?", arguments: [target]) ?? 0
-                let exists = localUnderEncounter != nil || sameIdCount > 0
-                let head: [DatabaseValueConvertible?] = [patientID(h.patientId), targetEncounter, remap(h.documentFileId)?.uuidString]
-                if exists {
-                    try db.execute(sql: """
-                        UPDATE hospitalization SET patient_id = ?, encounter_id = ?, document_file_id = ?,
-                          hospital = ?, medical_record_no = ?, inpatient_times = ?, admit_at = ?, discharge_at = ?, actual_days = ?,
-                          admit_dept = ?, discharge_dept = ?, ward = ?, bed_no = ?, admit_route_text = ?, payment_type_text = ?, discharge_way_text = ?,
-                          attending_physician = ?, admit_diagnosis_text = ?, discharge_diagnosis_text = ?, admit_condition = ?, treatment_course = ?,
-                          discharge_condition = ?, discharge_orders = ?, take_home_drugs_text = ?, total_cost = ?, summary_doctor = ?, summary_date = ?,
-                          source = ?, confirmed = ?, created_at = ?, updated_at = ?
-                        WHERE id = ?
-                        """, arguments: StatementArguments(head + facts + stamps + [target]))
-                } else {
-                    try db.execute(sql: """
-                        INSERT INTO hospitalization (id, patient_id, encounter_id, document_file_id,
-                          hospital, medical_record_no, inpatient_times, admit_at, discharge_at, actual_days, admit_dept, discharge_dept, ward, bed_no,
-                          admit_route_text, payment_type_text, discharge_way_text, attending_physician, admit_diagnosis_text, discharge_diagnosis_text,
-                          admit_condition, treatment_course, discharge_condition, discharge_orders, take_home_drugs_text, total_cost, summary_doctor, summary_date,
-                          source, confirmed, created_at, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, arguments: StatementArguments([target] + head + facts + stamps))
-                }
-            }
-            // v26（§C.12 第 7 位）检验表头：独立裁决（keep 跳过 / adopt 全列覆盖 / coexist 新 id + 新卡 id），先于 metric_sample.lab_report_id 落库。
-            let labReportConflicts = conflictSets["lab_report"] ?? []
-            for r in labReportRows {
-                let target = remap(r.id) ?? r.id
-                let sourceCard = r.sourceCardId.map { (cardMap[$0] ?? $0).uuidString }
-                let facts: [DatabaseValueConvertible?] = [
-                    patientID(r.patientId), remap(r.encounterId)?.uuidString, remap(r.documentFileId)?.uuidString,
-                    r.hospital, r.department, r.labName, r.reportNo, r.specimenType, r.specimenNo, r.testClassText, r.clinicalDiagnosis,
-                    r.collectedAt?.timeIntervalSince1970, r.receivedAt?.timeIntervalSince1970, r.reportedAt?.timeIntervalSince1970,
-                    r.sendDoctor, r.testDoctor, r.reviewDoctor, sourceCard, r.source.rawValue, r.confirmed ? 1 : 0,
-                    r.createdAt.timeIntervalSince1970, r.updatedAt.timeIntervalSince1970,
-                ]
-                // v27 两列：报告来源 + 体检枢纽回指（体检已先落库，经 remap）
-                let v27: [DatabaseValueConvertible?] = [r.reportSource, remap(r.healthExamId)?.uuidString]
-                if try adoptOrSkip(labReportConflicts, r.id, adopt: {
-                    try db.execute(sql: """
-                        UPDATE lab_report SET patient_id = ?, encounter_id = ?, document_file_id = ?,
-                          hospital = ?, department = ?, lab_name = ?, report_no = ?, specimen_type = ?, specimen_no = ?, test_class_text = ?, clinical_diagnosis = ?,
-                          collected_at = ?, received_at = ?, reported_at = ?, send_doctor = ?, test_doctor = ?, review_doctor = ?,
-                          source_card_id = ?, source = ?, confirmed = ?, created_at = ?, updated_at = ?, report_source = ?, health_exam_id = ?
-                        WHERE id = ?
-                        """, arguments: StatementArguments(facts + v27 + [r.id.uuidString]))
-                }) { continue }
-                try db.execute(sql: """
-                    INSERT INTO lab_report (id, patient_id, encounter_id, document_file_id, hospital, department, lab_name, report_no,
-                      specimen_type, specimen_no, test_class_text, clinical_diagnosis, collected_at, received_at, reported_at,
-                      send_doctor, test_doctor, review_doctor, source_card_id, source, confirmed, created_at, updated_at, report_source, health_exam_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, arguments: StatementArguments([target.uuidString] + facts + v27))
-            }
-            for m in envelope.metrics {
-                let restoredSourceRef = try sourceReference(m.sourceRef)
-                let selfMeasured = (m.selfMeasured ?? (m.origin != "hospital")) ? 1 : 0
-                let createdAt = (m.createdAt ?? m.measuredAt).timeIntervalSince1970
-                // v26 两列 + v27 体检回指：v1 包 adopt 不触碰本机既有 lab_report_id/abnormal_flag/health_exam_id；v2 包按备份全列采纳。
-                let labColumns = legacyEnvelope ? "" : ", lab_report_id = ?, abnormal_flag = ?, health_exam_id = ?"
-                let labArguments: [DatabaseValueConvertible?] = legacyEnvelope ? [] : [remap(m.labReportId)?.uuidString, m.abnormalFlag, remap(m.healthExamId)?.uuidString]
-                if try adoptOrSkip(metricConflicts, m.id, adopt: {
-                    let base: [DatabaseValueConvertible?] = [patientID(m.patientId), m.key, m.value, m.secondaryValue,
-                                         m.unit, m.origin, selfMeasured, m.excluded ? 1 : 0, restoredSourceRef,
-                                         m.refLow, m.refHigh, m.refSourceLabel, m.rawLabel, m.codeConceptId,
-                                         m.valueMin, m.valueMax, m.sampleCount, m.sourceName, m.sourceVersion,
-                                         m.sourceProduct, m.sourceIdentifier, m.aggregationKind,
-                                         m.windowEnd?.timeIntervalSince1970, m.measuredAt.timeIntervalSince1970, createdAt]
-                    try db.execute(sql: """
-                        UPDATE metric_sample SET patient_id = ?, metric_key = ?, value = ?, secondary_value = ?,
-                          unit = ?, origin = ?, self_measured = ?, excluded = ?, source_ref = ?,
-                          ref_low = ?, ref_high = ?, ref_source_label = ?, raw_label = ?, code_concept_id = ?,
-                          value_min = ?, value_max = ?, sample_count = ?, source_name = ?, source_version = ?,
-                          source_product = ?, source_identifier = ?, aggregation_kind = ?, window_end = ?,
-                          measured_at = ?, created_at = ?\(labColumns)
-                        WHERE id = ?
-                        """, arguments: StatementArguments(base + labArguments + [m.id.uuidString]))
-                }) { continue }
-                try db.execute(sql: """
-                    INSERT INTO metric_sample
-                      (id, patient_id, metric_key, value, secondary_value, unit, origin, self_measured,
-                       excluded, source_ref, ref_low, ref_high, ref_source_label, raw_label, code_concept_id,
-                       value_min, value_max, sample_count, source_name, source_version, source_product,
-                       source_identifier, aggregation_kind, window_end, measured_at, created_at, lab_report_id, abnormal_flag, health_exam_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, arguments: [(remap(m.id) ?? m.id).uuidString, patientID(m.patientId), m.key, m.value,
-                                     m.secondaryValue, m.unit, m.origin, selfMeasured, m.excluded ? 1 : 0,
-                                     restoredSourceRef, m.refLow, m.refHigh, m.refSourceLabel, m.rawLabel, m.codeConceptId,
-                                     m.valueMin, m.valueMax, m.sampleCount, m.sourceName, m.sourceVersion,
-                                     m.sourceProduct, m.sourceIdentifier, m.aggregationKind,
-                                     m.windowEnd?.timeIntervalSince1970, m.measuredAt.timeIntervalSince1970, createdAt,
-                                     remap(m.labReportId)?.uuidString, m.abnormalFlag, remap(m.healthExamId)?.uuidString])
-            }
-            // v26（§C.12 第 9 位）定性行随表头裁决（keep 跳过 / adopt 整组换、本机回执指向的行保留 / 新增·coexist 直接 INSERT）。
-            let labResultUpsert = """
-                ON CONFLICT(id) DO UPDATE SET patient_id=excluded.patient_id, lab_report_id=excluded.lab_report_id, ordinal=excluded.ordinal,
-                  item_name=excluded.item_name, item_code_text=excluded.item_code_text, result_text=excluded.result_text, comparator=excluded.comparator,
-                  unit=excluded.unit, reference_text=excluded.reference_text, abnormal_flag=excluded.abnormal_flag, method=excluded.method,
-                  code_concept_id=excluded.code_concept_id, source_page=excluded.source_page, source_row_id=excluded.source_row_id, created_at=excluded.created_at
-                """
-            for (headerId, rows) in Dictionary(grouping: labResultRows, by: \.labReportId) {
-                let conflicting = labReportConflicts.contains(headerId.uuidString)
-                if conflicting, resolution(headerId) == .keep { continue }
-                let adopting = conflicting && resolution(headerId) == .adopt
-                let header = (remap(headerId) ?? headerId).uuidString
-                if adopting { try parkExistingLines(table: "lab_result", parentColumn: "lab_report_id", header: header) }
-                for row in rows.sorted(by: { $0.ordinal < $1.ordinal }) {
-                    let identity: [DatabaseValueConvertible?] = [(remap(row.id) ?? row.id).uuidString, patientID(row.patientId), header, row.ordinal, row.itemName]
-                    let facts: [DatabaseValueConvertible?] = [row.itemCodeText, row.resultText, row.comparator, row.unit, row.referenceText,
-                                                             row.abnormalFlag, row.method, row.codeConceptId]
-                    let provenance: [DatabaseValueConvertible?] = [row.sourcePage, row.sourceRowId?.uuidString, row.createdAt.timeIntervalSince1970]
-                    try db.execute(sql: """
-                        INSERT INTO lab_result (id, patient_id, lab_report_id, ordinal, item_name, item_code_text, result_text, comparator, unit,
-                          reference_text, abnormal_flag, method, code_concept_id, source_page, source_row_id, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        \(adopting ? labResultUpsert : "")
-                        """, arguments: StatementArguments(identity + facts + provenance))
-                }
-                if adopting {
-                    try settleParkedLines(table: "lab_result", parentColumn: "lab_report_id", header: header, retainedBy: [
-                        "SELECT entity_id FROM ocr_card_commit WHERE entity_table = 'lab_result'",
-                    ])
-                }
-            }
-            for details in envelope.ocrEncounterDetails ?? [] {
-                if encConflicts.contains(details.id.uuidString), resolution(details.id) == .keep { continue }
-                try db.execute(sql: """
-                    UPDATE encounter SET hospital = ?, department = ?, doctor = ?, chief_complaint = ?, advice_text = ?,
-                      follow_up_requirement = ?, fee_amount = ?, rescheduled_from_id = ?, created_at = ?, updated_at = ? WHERE id = ?
-                    """, arguments: [details.hospital, details.department, details.doctor, details.chiefComplaint, details.adviceText,
-                        details.followUpRequirement, details.feeAmount, remap(details.rescheduledFromId)?.uuidString,
-                        details.createdAt.timeIntervalSince1970, details.updatedAt.timeIntervalSince1970,
-                        (remap(details.id) ?? details.id).uuidString])
-                guard db.changesCount == 1 else { throw ExportError.invalidOCRBackup }
-            }
-            let prescriptionConflicts = conflictSets["prescription"] ?? []
-            for prescription in envelope.ocrPrescriptions ?? [] {
-                let target = remap(prescription.id) ?? prescription.id
-                let owner = patientID(prescription.patientId)
-                let source = remap(prescription.documentId)?.uuidString
-                let head: [DatabaseValueConvertible?] = [owner, source, remap(prescription.encounterId)?.uuidString, prescription.source,
-                    prescription.hospital, prescription.doctor, prescription.prescribedAt?.timeIntervalSince1970, prescription.adviceText]
-                // v25（§C.6）表头七列
-                let header: [DatabaseValueConvertible?] = [prescription.department, prescription.prescriptionNo, prescription.prescriptionType,
-                    prescription.feeTypeText, prescription.clinicalDiagnosis, prescription.pharmacistNames, prescription.totalAmount]
-                let stamps: [DatabaseValueConvertible?] = [prescription.createdAt.timeIntervalSince1970, prescription.updatedAt.timeIntervalSince1970]
-                if try adoptOrSkip(prescriptionConflicts, prescription.id, adopt: {
-                    if legacyEnvelope {
-                        try db.execute(sql: """
-                            UPDATE prescription SET patient_id = ?, document_file_id = ?, encounter_id = ?, source = ?,
-                              hospital = ?, doctor = ?, prescribed_at = ?, advice_text = ?, confirmed = 1, created_at = ?, updated_at = ? WHERE id = ?
-                            """, arguments: StatementArguments(head + stamps + [target.uuidString]))
-                        return
-                    }
-                    try db.execute(sql: """
-                        UPDATE prescription SET patient_id = ?, document_file_id = ?, encounter_id = ?, source = ?,
-                          hospital = ?, doctor = ?, prescribed_at = ?, advice_text = ?,
-                          department = ?, prescription_no = ?, prescription_type = ?, fee_type_text = ?, clinical_diagnosis = ?,
-                          pharmacist_names = ?, total_amount = ?, confirmed = 1, created_at = ?, updated_at = ? WHERE id = ?
-                        """, arguments: StatementArguments(head + header + stamps + [target.uuidString]))
-                }) { continue }
-                try db.execute(sql: """
-                    INSERT INTO prescription (id, patient_id, document_file_id, encounter_id, source, hospital, doctor,
-                      prescribed_at, advice_text, department, prescription_no, prescription_type, fee_type_text, clinical_diagnosis,
-                      pharmacist_names, total_amount, confirmed, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
-                    """, arguments: StatementArguments([target.uuidString] + head + header + stamps))
-            }
-            // A kept source cannot silently supply another version's pages to newly restored facts.
-            for document in envelope.documents ?? [] where timelineConflicts.contains(document.id.uuidString) && resolution(document.id) == .keep {
-                let referenced = try envelope.metrics.contains { metric in
-                    guard !(metricConflicts.contains(metric.id.uuidString) && resolution(metric.id) == .keep),
-                          let ref = metric.sourceRef, ref.hasPrefix("doc:") else { return false }
-                    return try Self.documentReference(ref).0 == document.id
-                } || (envelope.ocrCardCommits ?? []).contains { audit in
-                    audit.documentId == document.id && !receiptKept(audit)   // 行回执随其表头裁决
-                }
-                if referenced {
-                    let localPages = try Self.ocrPages(document.id, db: db)
-                    let localHash = try String.fetchOne(db, sql: "SELECT sha256 FROM document_file WHERE id = ?", arguments: [document.id.uuidString])
-                    guard localHash == document.sha256,
-                          document.pages == nil || localPages == document.pages?.sorted(by: { $0.index < $1.index }) else {
-                        throw ExportError.invalidOCRBackup
-                    }
-                }
-            }
-            let existingAudits = try OCRCardStore.exportCommits(db)
-            for medication in envelope.ocrMedications ?? [] {
-                let target = remap(medication.id) ?? medication.id
-                if conflictSets["medication", default: []].contains(medication.id.uuidString), resolution(medication.id) == .keep { continue }
-                try db.execute(sql: """
-                    INSERT INTO medication (id, patient_id, generic_name, brand_name, spec, unit_kind, drug_key, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(id) DO UPDATE SET patient_id=excluded.patient_id, generic_name=excluded.generic_name,
-                      brand_name=excluded.brand_name, spec=excluded.spec, unit_kind=excluded.unit_kind, drug_key=excluded.drug_key,
-                      created_at=excluded.created_at, updated_at=excluded.updated_at
-                    """, arguments: [target.uuidString, patientID(medication.patientId), medication.genericName,
-                        medication.brandName, medication.spec, medication.unitKind, medication.drugKey,
-                        medication.createdAt.timeIntervalSince1970, medication.updatedAt.timeIntervalSince1970])
-            }
-            // v25（§C.12 第 4 位）处方行：表头与药品都已落库（prescription_line.medication_id → medication 外键），行随表头裁决：
-            //   keep → 整组跳过；adopt → 本机既有行先挪到负 ordinal 区，备份行按 id upsert（同 id 覆盖、异 id 新增），
-            //   再删多余本机行——但被 stock_lot 引用（FK，用户显式建立的药箱链接）或被本机回执指向（备份之后又确认的页；
-            //   ocr_result 只增不改，回执不得悬空）的行挪回尾部保留；新增 / coexist → 直接 INSERT（coexist 的行 id 已随表头
-            //   一并重写）。UNIQUE(prescription_id, ordinal) 全程不撞车。
-            /// 行的药品目录链接只在目标库存在**同成员**药品时写回（用药计划恢复新建药品行、id 不保留；不伪造外键目标、不跨成员）。
-            func restoredMedication(_ id: UUID?, patient: String) throws -> String? {
-                guard let id else { return nil }
-                let target = (remap(id) ?? id).uuidString
-                let present = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM medication WHERE id = ? AND patient_id = ?", arguments: [target, patient]) ?? 0
-                return present == 1 ? target : nil
-            }
-            /// 表头 adopt 时的行组替换前半场（挪走既有行）与后半场（清理 / 归位）。
-            func parkExistingLines(table: String, parentColumn: String, header: String) throws {
-                try db.execute(sql: "UPDATE \(table) SET ordinal = -(ordinal + 1) WHERE \(parentColumn) = ?", arguments: [header])
-            }
-            /// `retainedBy`：返回须保留的行 id 的子查询（静态 SQL 字面量），其余挪走的本机行删除。
-            func settleParkedLines(table: String, parentColumn: String, header: String, retainedBy: [String]) throws {
-                let retained = retainedBy.map { " AND id NOT IN (\($0))" }.joined()
-                try db.execute(sql: "DELETE FROM \(table) WHERE \(parentColumn) = ? AND ordinal < 0\(retained)", arguments: [header])
-                let parked = try String.fetchAll(db, sql: "SELECT id FROM \(table) WHERE \(parentColumn) = ? AND ordinal < 0 ORDER BY ordinal DESC", arguments: [header])
-                for id in parked {
-                    try db.execute(sql: """
-                        UPDATE \(table) SET ordinal = (SELECT COALESCE(MAX(ordinal), -1) + 1 FROM \(table) WHERE \(parentColumn) = ?) WHERE id = ?
-                        """, arguments: [header, id])
-                }
-            }
-            let prescriptionLineUpsert = """
-                ON CONFLICT(id) DO UPDATE SET prescription_id=excluded.prescription_id, patient_id=excluded.patient_id, ordinal=excluded.ordinal,
-                  printed_name=excluded.printed_name, generic_name=excluded.generic_name, brand_name=excluded.brand_name, drug_form=excluded.drug_form,
-                  spec=excluded.spec, dose_text=excluded.dose_text, dose_unit=excluded.dose_unit, quantity_text=excluded.quantity_text,
-                  quantity_unit=excluded.quantity_unit, frequency_text=excluded.frequency_text, route_text=excluded.route_text,
-                  duration_text=excluded.duration_text, start_date=excluded.start_date, end_date=excluded.end_date, as_needed_text=excluded.as_needed_text,
-                  medication_notes=excluded.medication_notes, note=excluded.note, raw_text=excluded.raw_text, insurance_code=excluded.insurance_code,
-                  item_code_text=excluded.item_code_text, unit_price=excluded.unit_price, amount=excluded.amount, medication_id=excluded.medication_id,
-                  source_page=excluded.source_page, source_row_id=excluded.source_row_id, confirmed=excluded.confirmed,
-                  created_at=excluded.created_at, updated_at=excluded.updated_at
-                """
-            for (headerId, lines) in Dictionary(grouping: prescriptionLineRows, by: \.prescriptionId) {
-                let conflicting = prescriptionConflicts.contains(headerId.uuidString)
-                if conflicting, resolution(headerId) == .keep { continue }
-                let adopting = conflicting && resolution(headerId) == .adopt
-                let header = (remap(headerId) ?? headerId).uuidString
-                if adopting { try parkExistingLines(table: "prescription_line", parentColumn: "prescription_id", header: header) }
-                for line in lines.sorted(by: { $0.ordinal < $1.ordinal }) {
-                    let patient = patientID(line.patientId)
-                    let medication = try restoredMedication(line.medicationId, patient: patient)
-                    let identity: [DatabaseValueConvertible?] = [(remap(line.id) ?? line.id).uuidString, header, patient, line.ordinal, line.printedName]
-                    let texts: [DatabaseValueConvertible?] = [line.genericName, line.brandName, line.drugForm, line.spec, line.doseText, line.doseUnit,
-                        line.quantityText, line.quantityUnit, line.frequencyText, line.routeText, line.durationText]
-                    let facts: [DatabaseValueConvertible?] = [line.startDate?.timeIntervalSince1970, line.endDate?.timeIntervalSince1970, line.asNeededText,
-                        line.medicationNotes, line.note, line.rawText, line.insuranceCode, line.itemCodeText, line.unitPrice, line.amount, medication]
-                    let provenance: [DatabaseValueConvertible?] = [line.sourcePage, line.sourceRowId?.uuidString, line.confirmed ? 1 : 0,
-                        line.createdAt.timeIntervalSince1970, line.updatedAt.timeIntervalSince1970]
-                    try db.execute(sql: """
-                        INSERT INTO prescription_line (id, prescription_id, patient_id, ordinal, printed_name, generic_name, brand_name, drug_form, spec,
-                          dose_text, dose_unit, quantity_text, quantity_unit, frequency_text, route_text, duration_text, start_date, end_date, as_needed_text,
-                          medication_notes, note, raw_text, insurance_code, item_code_text, unit_price, amount, medication_id, source_page, source_row_id,
-                          confirmed, created_at, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        \(adopting ? prescriptionLineUpsert : "")
-                        """, arguments: StatementArguments(identity + texts + facts + provenance))
-                }
-                if adopting {
-                    try settleParkedLines(table: "prescription_line", parentColumn: "prescription_id", header: header, retainedBy: [
-                        "SELECT prescription_line_id FROM stock_lot WHERE prescription_line_id IS NOT NULL",
-                        "SELECT entity_id FROM ocr_card_commit WHERE entity_table = 'prescription_line'",
-                    ])
-                }
-            }
-            let claimConflicts = conflictSets["claim_item"] ?? []
-            for claim in envelope.claims ?? [] {
-                let target = remap(claim.id) ?? claim.id
-                if claimConflicts.contains(claim.id.uuidString), resolution(claim.id) == .keep { continue }
-                let head: [DatabaseValueConvertible?] = [target.uuidString, patientID(claim.patientId), remap(claim.encounterId)?.uuidString,
-                    remap(claim.documentId)?.uuidString, claim.itemType, claim.amount, claim.currency, claim.date?.timeIntervalSince1970,
-                    claim.merchant, claim.summary, claim.createdAt.timeIntervalSince1970, claim.updatedAt.timeIntervalSince1970]
-                if legacyEnvelope {
-                    // v1 包：原十列 upsert，v25 五列保持本机现值（新增行为 NULL）
-                    try db.execute(sql: """
-                        INSERT INTO claim_item (id, patient_id, encounter_id, document_file_id, item_type, amount, currency, date, merchant, summary, confirmed, created_at, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
-                        ON CONFLICT(id) DO UPDATE SET patient_id=excluded.patient_id, encounter_id=excluded.encounter_id,
-                          document_file_id=excluded.document_file_id, item_type=excluded.item_type, amount=excluded.amount,
-                          currency=excluded.currency, date=excluded.date, merchant=excluded.merchant, summary=excluded.summary,
-                          confirmed=1, created_at=excluded.created_at, updated_at=excluded.updated_at
-                        """, arguments: StatementArguments(head))
-                    continue
-                }
-                // v25（§C.7）票面支付三分 / 票据号 / 医保类型
-                let v25: [DatabaseValueConvertible?] = [claim.reimbursedAmount, claim.outOfPocket, claim.personalAccountAmount, claim.invoiceNo, claim.insuranceTypeText]
-                try db.execute(sql: """
-                    INSERT INTO claim_item (id, patient_id, encounter_id, document_file_id, item_type, amount, currency, date, merchant, summary, confirmed, created_at, updated_at,
-                      reimbursed_amount, out_of_pocket, personal_account_amount, invoice_no, insurance_type_text)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(id) DO UPDATE SET patient_id=excluded.patient_id, encounter_id=excluded.encounter_id,
-                      document_file_id=excluded.document_file_id, item_type=excluded.item_type, amount=excluded.amount,
-                      currency=excluded.currency, date=excluded.date, merchant=excluded.merchant, summary=excluded.summary,
-                      confirmed=1, created_at=excluded.created_at, updated_at=excluded.updated_at,
-                      reimbursed_amount=excluded.reimbursed_amount, out_of_pocket=excluded.out_of_pocket,
-                      personal_account_amount=excluded.personal_account_amount, invoice_no=excluded.invoice_no, insurance_type_text=excluded.insurance_type_text
-                    """, arguments: StatementArguments(head + v25))
-            }
-            // v25（§C.12 第 6 位）费用明细行：与处方行同一「行随表头裁决」纪律（claim_line 无 FK 引用；adopt 多余行只保留被本机回执指向者）。
-            let claimLineUpsert = """
-                ON CONFLICT(id) DO UPDATE SET claim_item_id=excluded.claim_item_id, patient_id=excluded.patient_id, ordinal=excluded.ordinal,
-                  item_name=excluded.item_name, item_code_text=excluded.item_code_text, insurance_code=excluded.insurance_code, spec=excluded.spec,
-                  unit_price=excluded.unit_price, quantity_text=excluded.quantity_text, quantity_unit=excluded.quantity_unit, amount=excluded.amount,
-                  fee_category_text=excluded.fee_category_text, fee_at=excluded.fee_at, executing_dept=excluded.executing_dept,
-                  self_pay_ratio_text=excluded.self_pay_ratio_text, raw_text=excluded.raw_text, source_page=excluded.source_page,
-                  source_row_id=excluded.source_row_id, created_at=excluded.created_at
-                """
-            for (headerId, lines) in Dictionary(grouping: claimLineRows, by: \.claimItemId) {
-                let conflicting = claimConflicts.contains(headerId.uuidString)
-                if conflicting, resolution(headerId) == .keep { continue }
-                let adopting = conflicting && resolution(headerId) == .adopt
-                let header = (remap(headerId) ?? headerId).uuidString
-                if adopting { try parkExistingLines(table: "claim_line", parentColumn: "claim_item_id", header: header) }
-                for line in lines.sorted(by: { $0.ordinal < $1.ordinal }) {
-                    let identity: [DatabaseValueConvertible?] = [(remap(line.id) ?? line.id).uuidString, header, patientID(line.patientId), line.ordinal, line.itemName]
-                    let facts: [DatabaseValueConvertible?] = [line.itemCodeText, line.insuranceCode, line.spec, line.unitPrice, line.quantityText, line.quantityUnit,
-                        line.amount, line.feeCategoryText, line.feeAt?.timeIntervalSince1970, line.executingDept, line.selfPayRatioText, line.rawText]
-                    let provenance: [DatabaseValueConvertible?] = [line.sourcePage, line.sourceRowId?.uuidString, line.createdAt.timeIntervalSince1970]
-                    try db.execute(sql: """
-                        INSERT INTO claim_line (id, claim_item_id, patient_id, ordinal, item_name, item_code_text, insurance_code, spec, unit_price,
-                          quantity_text, quantity_unit, amount, fee_category_text, fee_at, executing_dept, self_pay_ratio_text, raw_text,
-                          source_page, source_row_id, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        \(adopting ? claimLineUpsert : "")
-                        """, arguments: StatementArguments(identity + facts + provenance))
-                }
-                if adopting {
-                    try settleParkedLines(table: "claim_line", parentColumn: "claim_item_id", header: header, retainedBy: [
-                        "SELECT entity_id FROM ocr_card_commit WHERE entity_table = 'claim_line'",
-                    ])
-                }
-            }
-            // v26（§C.12 第 10 位）检查报告：独立裁决（keep / adopt 全列 / coexist 新 id）；就诊与文档已先落库。
-            let examConflicts = conflictSets["exam_report"] ?? []
-            for r in envelope.examReports ?? [] {
-                let facts: [DatabaseValueConvertible?] = [
-                    patientID(r.patientId), remap(r.encounterId)?.uuidString, remap(r.documentFileId)?.uuidString, r.reportType,
-                    r.hospital, r.department, r.reportNo, r.examPart, r.examMethod,
-                    r.examAt?.timeIntervalSince1970, r.reportedAt?.timeIntervalSince1970, r.findings, r.impression,
-                    r.applyDoctor, r.reportDoctor, r.reviewDoctor, r.source.rawValue, r.confirmed ? 1 : 0,
-                    r.createdAt.timeIntervalSince1970, r.updatedAt.timeIntervalSince1970,
-                ]
-                let v27: [DatabaseValueConvertible?] = [r.reportSource, remap(r.healthExamId)?.uuidString]
-                if try adoptOrSkip(examConflicts, r.id, adopt: {
-                    try db.execute(sql: """
-                        UPDATE exam_report SET patient_id = ?, encounter_id = ?, document_file_id = ?, report_type = ?,
-                          hospital = ?, department = ?, report_no = ?, exam_part = ?, exam_method = ?, exam_at = ?, reported_at = ?,
-                          findings = ?, impression = ?, apply_doctor = ?, report_doctor = ?, review_doctor = ?,
-                          source = ?, confirmed = ?, created_at = ?, updated_at = ?, report_source = ?, health_exam_id = ?
-                        WHERE id = ?
-                        """, arguments: StatementArguments(facts + v27 + [r.id.uuidString]))
-                }) { continue }
-                try db.execute(sql: """
-                    INSERT INTO exam_report (id, patient_id, encounter_id, document_file_id, report_type, hospital, department, report_no, exam_part, exam_method,
-                      exam_at, reported_at, findings, impression, apply_doctor, report_doctor, review_doctor, source, confirmed, created_at, updated_at,
-                      report_source, health_exam_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, arguments: StatementArguments([(remap(r.id) ?? r.id).uuidString] + facts + v27))
-            }
-            // v27 结论行：随其父（体检 / 检验表头 / 检查报告——三者均已落库）裁决：父 keep → 跳过；父 adopt → 整组换（本机回执指向的行保留）；
-            // 新增 / coexist（id 已随父重写）直接 INSERT。父按 (表, id) 分组，ordinal 经 park/settle 不撞既有行。
-            let conclusionUpsert = """
-                ON CONFLICT(id) DO UPDATE SET patient_id=excluded.patient_id, lab_report_id=excluded.lab_report_id, exam_report_id=excluded.exam_report_id,
-                  health_exam_id=excluded.health_exam_id, conclusion_type=excluded.conclusion_type, content=excluded.content, severity_text=excluded.severity_text,
-                  ordinal=excluded.ordinal, source_page=excluded.source_page, source_row_id=excluded.source_row_id, created_at=excluded.created_at
-                """
-            let conclusionPairs = conclusionRows.compactMap { c -> (parent: (table: String, id: UUID), row: ClinicalConclusion)? in
-                guard let parent = conclusionParent(c) else { return nil }
-                return (parent: parent, row: c)
-            }
-            let conclusionGroups = Dictionary(grouping: conclusionPairs) { $0.parent.table + "/" + $0.parent.id.uuidString }
-            for (_, group) in conclusionGroups.sorted(by: { $0.key < $1.key }) {
-                guard let parent = group.first?.parent else { continue }
-                let conflicting = conflictSets[parent.table, default: []].contains(parent.id.uuidString)
-                if conflicting, resolution(parent.id) == .keep { continue }
-                let adopting = conflicting && resolution(parent.id) == .adopt
-                let column = parent.table + "_id"
-                let header = (remap(parent.id) ?? parent.id).uuidString
-                if adopting { try parkExistingLines(table: "clinical_conclusion", parentColumn: column, header: header) }
-                for row in group.map(\.row).sorted(by: { $0.ordinal < $1.ordinal }) {
-                    let parents: [DatabaseValueConvertible?] = [
-                        parent.table == "lab_report" ? header : nil, parent.table == "exam_report" ? header : nil, parent.table == "health_exam" ? header : nil,
-                    ]
-                    let identity: [DatabaseValueConvertible?] = [(remap(row.id) ?? row.id).uuidString, patientID(row.patientId)]
-                    let facts: [DatabaseValueConvertible?] = [row.conclusionType, row.content, row.severityText, row.ordinal,
-                                                             row.sourcePage, row.sourceRowId?.uuidString, row.createdAt.timeIntervalSince1970]
-                    try db.execute(sql: """
-                        INSERT INTO clinical_conclusion (id, patient_id, lab_report_id, exam_report_id, health_exam_id, conclusion_type, content, severity_text,
-                          ordinal, source_page, source_row_id, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        \(adopting ? conclusionUpsert : "")
-                        """, arguments: StatementArguments(identity + parents + facts))
-                }
-                if adopting {
-                    try settleParkedLines(table: "clinical_conclusion", parentColumn: column, header: header, retainedBy: [
-                        "SELECT entity_id FROM ocr_card_commit WHERE entity_table = 'clinical_conclusion'",
-                    ])
-                }
-            }
-            // 回执末位落库（§C.12）：entity_table 沿 JSON 值（旧包缺省 = cardKind，insertReceipt 同口径），
-            // entity_id 经同一 idMap 重写——表头回执指表头、行回执指行（行 id 已随表头 coexist 一并重写）。
-            let auditMap = Dictionary(uniqueKeysWithValues: existingAudits.map { ("\($0.cardId.uuidString)/\($0.rowId.uuidString)", $0) })
-            for original in envelope.ocrCardCommits ?? [] {
-                if receiptKept(original) { continue }
-                var audit = original
-                audit.cardId = cardMap[original.cardId] ?? original.cardId
-                audit.patientId = remap(original.patientId) ?? original.patientId
-                audit.documentId = remap(original.documentId) ?? original.documentId
-                audit.entityId = remap(original.entityId) ?? original.entityId
-                audit.encounterId = remap(original.encounterId)
-                if let existing = auditMap["\(audit.cardId.uuidString)/\(audit.rowId.uuidString)"] {
-                    var immutable = existing
-                    immutable.encounterId = audit.encounterId
-                    guard immutable == audit else { throw ExportError.invalidOCRBackup }
-                    if existing.encounterId != audit.encounterId {
-                        let governor = receiptGovernor(original)
-                        guard conflictSets[governor.table, default: []].contains(governor.header.uuidString),
-                              resolution(governor.header) == .adopt else { throw ExportError.invalidOCRBackup }
-                        try db.execute(sql: "UPDATE ocr_card_commit SET encounter_id = ? WHERE card_id = ? AND row_id = ? AND patient_id = ?",
-                            arguments: [audit.encounterId?.uuidString, audit.cardId.uuidString, audit.rowId.uuidString, audit.patientId.uuidString])
-                    }
-                    continue
-                }
-                try OCRCardStore.insertReceipt(audit, db: db)
-            }
-            func archiveRestoredAlert(_ id: UUID) throws {
-                try db.execute(sql: """
-                    INSERT INTO notification_state (item_key, kind, archived_at) VALUES (?, 'notification', ?)
-                    ON CONFLICT(item_key) DO UPDATE SET archived_at = excluded.archived_at
-                    """, arguments: ["alert-\(id.uuidString)", Date().timeIntervalSince1970])
-            }
-            for a in envelope.alertEvents ?? [] {
-                // History must not re-enter HealthKitSyncService's pending/deferred retry query.
-                // "restored" claims neither delivery nor a new scheduled_at timestamp.
-                let deliveredState = a.deliveredState == "pending" || a.deliveredState == "deferred"
-                    ? "restored" : a.deliveredState
-                if try adoptOrSkip(alertConflicts, a.id, adopt: {
-                    try db.execute(sql: """
-                        UPDATE alert_event SET patient_id = ?, rule_id = ?, severity = ?, evidence_json = ?,
-                          qualified = ?, scheduled_at = ?, delivered_state = ?, created_at = ?
-                        WHERE id = ?
-                        """, arguments: [patientID(a.patientId), a.ruleId, a.severity, a.evidenceJson,
-                                         (a.qualified ?? false) ? 1 : 0, a.scheduledAt?.timeIntervalSince1970,
-                                         deliveredState, a.createdAt.timeIntervalSince1970, a.id.uuidString])
-                    try archiveRestoredAlert(a.id)
-                }) { continue }
-                try db.execute(sql: """
-                    INSERT INTO alert_event
-                      (id, patient_id, rule_id, severity, evidence_json, qualified, scheduled_at, delivered_state, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, arguments: [(remap(a.id) ?? a.id).uuidString, patientID(a.patientId), a.ruleId,
-                                     a.severity, a.evidenceJson, (a.qualified ?? false) ? 1 : 0,
-                                     a.scheduledAt?.timeIntervalSince1970, deliveredState, a.createdAt.timeIntervalSince1970])
-                try archiveRestoredAlert(remap(a.id) ?? a.id)
-            }
-            if envelope.owner != nil || envelope.metrics.contains(where: { $0.origin == "device" }) {
-                // Restoring facts invalidates local checkpoints and in-flight binding tokens, not read permissions.
-                try db.execute(sql: "DELETE FROM hk_sample_index; DELETE FROM hk_sync_anchor; DELETE FROM hk_import_binding;")
-            }
-            for i in envelope.immunizations {
-                if try adoptOrSkip(immConflicts, i.id, adopt: {
-                    // 审查修复（ADR-019 采纳语义）：旧 UPDATE 只改 3 列，备份的
-                    // 批号/剂次（追溯核心）与提供者等被静默丢弃，恢复后记录是
-                    // 本地+备份的混合态——与其余各表全列采纳口径不一致
-                    // 审查修复（全列 UPDATE 的 NULL 与降级陷阱）：旧备份缺
-                    // source/confirmed 键时——source 直绑 NULL 违反 NOT NULL
-                    // 令整个恢复事务回滚；confirmed 落 0 把本地已确认记录
-                    // 静默降级。source 与 INSERT 同口径回落 'manual'；
-                    // confirmed 缺失时 COALESCE 保留本地现值（不降级）。
-                    try db.execute(sql: """
-                        UPDATE immunization SET patient_id = ?, vaccine_name = ?, dose_number = ?,
-                          administered_at = ?, provider = ?, lot_number = ?, encounter_id = ?,
-                          source = COALESCE(?, 'manual'), confirmed = COALESCE(?, confirmed),
-                          adverse_reaction_id = ?
-                        WHERE id = ?
-                        """, arguments: [patientID(i.patientId), i.vaccineName,
-                                         i.doseNumber, i.administeredAt.timeIntervalSince1970,
-                                          i.provider, i.lotNumber, remap(i.encounterId)?.uuidString,
-                                         i.source, (i.confirmed).map { $0 ? 1 : 0 },
-                                          remap(i.adverseReactionId)?.uuidString,
-                                         i.id.uuidString])
-                }) { continue }
-                try db.execute(sql: """
-                    INSERT INTO immunization (id, patient_id, vaccine_name, dose_number, administered_at,
-                                              provider, lot_number, encounter_id, source, confirmed,
-                                              adverse_reaction_id, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, arguments: [(remap(i.id) ?? i.id).uuidString, patientID(i.patientId), i.vaccineName,
-                                     i.doseNumber, i.administeredAt.timeIntervalSince1970,
-                                      i.provider, i.lotNumber, remap(i.encounterId)?.uuidString,
-                                     i.source ?? "manual", (i.confirmed ?? false) ? 1 : 0,
-                                      remap(i.adverseReactionId)?.uuidString,
-                                     i.administeredAt.timeIntervalSince1970, i.administeredAt.timeIntervalSince1970])
-            }
-            for v in envelope.voiceNotes {
-                if try adoptOrSkip(noteConflicts, v.id, adopt: {
-                    let tagsJSON = String(data: (try JSONEncoder().encode(v.tags)), encoding: .utf8) ?? "[]"
-                    try db.execute(sql: """
-                        UPDATE voice_note SET patient_id = ?, body = ?, occurred_at = ?, tags = ?, in_timeline = ?
-                        WHERE id = ?
-                        """, arguments: [(remap(v.patientId) ?? v.patientId)?.uuidString ?? "", v.body,
-                                         v.occurredAt.timeIntervalSince1970, tagsJSON, v.inTimeline ? 1 : 0, v.id.uuidString])
-                }) { continue }
-                let tagsJSON = String(data: (try JSONEncoder().encode(v.tags)), encoding: .utf8) ?? "[]"
-                try db.execute(sql: """
-                    INSERT INTO voice_note (id, patient_id, body, occurred_at, tags, in_timeline, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """, arguments: [(remap(v.id) ?? v.id).uuidString, patientID(v.patientId), v.body,
-                                     v.occurredAt.timeIntervalSince1970, tagsJSON, v.inTimeline ? 1 : 0,
-                                     v.occurredAt.timeIntervalSince1970, v.occurredAt.timeIntervalSince1970])
-            }
-            // 敏感标记回写（BR-007/008 链必须随往返保持）
-            // 第六轮全仓审查修复：keep 裁决的行绝不触碰（ADR-019）——原实现
-            // 无条件回写 is_sensitive=1，用户「保留本机」且本机已解除敏感
-            // 标记的行被备份值反改回敏感（与 docEncounterLinks 同族残根）
-            for docId in envelope.sensitiveDocIds {
-                if timelineConflicts.contains(docId.uuidString), resolution(docId) == .keep {
-                    continue
-                }
-                try db.execute(sql: "UPDATE document_file SET is_sensitive = 1 WHERE id = ?",
-                               arguments: [(remap(docId) ?? docId).uuidString])
-            }
-            for h in envelope.healthProblems {
-                if try adoptOrSkip(problemConflicts, h.id, adopt: {
-                    try db.execute(sql: """
-                        UPDATE health_problem SET patient_id = ?, name = ?, kind = ?, archived = ?, created_at = ?
-                        WHERE id = ?
-                        """, arguments: [(remap(h.patientId) ?? h.patientId)?.uuidString ?? "", h.name,
-                                         h.kind, h.archived ? 1 : 0,
-                                         h.createdAt.timeIntervalSince1970, h.id.uuidString])
-                }) { continue }
-                try db.execute(sql: """
-                    INSERT INTO health_problem (id, patient_id, name, kind, archived, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """, arguments: [(remap(h.id) ?? h.id).uuidString, patientID(h.patientId), h.name,
-                                      h.kind, h.archived ? 1 : 0,
-                                      h.createdAt.timeIntervalSince1970, h.createdAt.timeIntervalSince1970])
-            }
-            // v26（§C.12 第 11 位）诊断：置于 health_problem 之后（health_problem_id 外键）；独立裁决；回执已落，末位校验兜底。
-            let diagnosisConflicts = conflictSets["diagnosis"] ?? []
-            for d in envelope.diagnoses ?? [] {
-                let facts: [DatabaseValueConvertible?] = [
-                    patientID(d.patientId), remap(d.encounterId)?.uuidString, d.ordinal, d.diagnosisType, d.name, d.codeText, d.codeSystemText,
-                    d.diagnosedAt?.timeIntervalSince1970, remap(d.healthProblemId)?.uuidString, d.note, d.sourcePage, d.sourceRowId?.uuidString,
-                    remap(d.documentFileId)?.uuidString, d.confirmed ? 1 : 0, d.createdAt.timeIntervalSince1970, d.updatedAt.timeIntervalSince1970,
-                ]
-                if try adoptOrSkip(diagnosisConflicts, d.id, adopt: {
-                    try db.execute(sql: """
-                        UPDATE diagnosis SET patient_id = ?, encounter_id = ?, ordinal = ?, diagnosis_type = ?, name = ?, code_text = ?, code_system_text = ?,
-                          diagnosed_at = ?, health_problem_id = ?, note = ?, source_page = ?, source_row_id = ?, document_file_id = ?,
-                          confirmed = ?, created_at = ?, updated_at = ?
-                        WHERE id = ?
-                        """, arguments: StatementArguments(facts + [d.id.uuidString]))
-                }) { continue }
-                try db.execute(sql: """
-                    INSERT INTO diagnosis (id, patient_id, encounter_id, ordinal, diagnosis_type, name, code_text, code_system_text, diagnosed_at,
-                      health_problem_id, note, source_page, source_row_id, document_file_id, confirmed, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, arguments: StatementArguments([(remap(d.id) ?? d.id).uuidString] + facts))
-            }
-            // v27（原 D3 §C.8 / §C.9）手术 / 治疗记录：独立裁决（keep / adopt 全列 / coexist 新 id）；就诊与文档已先落库。
-            let surgeryConflicts = conflictSets["surgery"] ?? []
-            for s in envelope.surgeries ?? [] {
-                let head: [DatabaseValueConvertible?] = [patientID(s.patientId), remap(s.encounterId)?.uuidString, remap(s.documentFileId)?.uuidString]
-                let facts = OCRCardStore.surgeryFacts(s)
-                let stamps: [DatabaseValueConvertible?] = [s.source.rawValue, s.confirmed ? 1 : 0, s.createdAt.timeIntervalSince1970, s.updatedAt.timeIntervalSince1970]
-                if try adoptOrSkip(surgeryConflicts, s.id, adopt: {
-                    try db.execute(sql: """
-                        UPDATE surgery SET patient_id = ?, encounter_id = ?, document_file_id = ?, hospital = ?, department = ?, surgery_at = ?, ended_at = ?,
-                          surgery_name = ?, surgery_code_text = ?, surgery_level_text = ?, surgeon = ?, assistants = ?, anesthesiologist = ?, anesthesia_method = ?,
-                          preop_diagnosis_text = ?, postop_diagnosis_text = ?, procedure_course = ?, intraop_findings = ?,
-                          implants_text = ?, specimen_text = ?, blood_loss_text = ?, transfusion_text = ?, drainage_text = ?, postop_orders = ?, complications_text = ?,
-                          source = ?, confirmed = ?, created_at = ?, updated_at = ?
-                        WHERE id = ?
-                        """, arguments: StatementArguments(head + facts + stamps + [s.id.uuidString]))
-                }) { continue }
-                try db.execute(sql: """
-                    INSERT INTO surgery (id, patient_id, encounter_id, document_file_id, hospital, department, surgery_at, ended_at,
-                      surgery_name, surgery_code_text, surgery_level_text, surgeon, assistants, anesthesiologist, anesthesia_method,
-                      preop_diagnosis_text, postop_diagnosis_text, procedure_course, intraop_findings,
-                      implants_text, specimen_text, blood_loss_text, transfusion_text, drainage_text, postop_orders, complications_text,
-                      source, confirmed, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, arguments: StatementArguments([(remap(s.id) ?? s.id).uuidString] + head + facts + stamps))
-            }
-            let treatmentConflicts = conflictSets["treatment_record"] ?? []
-            for t in envelope.treatmentRecords ?? [] {
-                var record = t
-                record.allergyEventId = remap(t.allergyEventId)
-                let head: [DatabaseValueConvertible?] = [patientID(t.patientId), remap(t.encounterId)?.uuidString, remap(t.documentFileId)?.uuidString]
-                let facts = OCRCardStore.treatmentFacts(record)
-                let stamps: [DatabaseValueConvertible?] = [t.source.rawValue, t.confirmed ? 1 : 0, t.createdAt.timeIntervalSince1970, t.updatedAt.timeIntervalSince1970]
-                if try adoptOrSkip(treatmentConflicts, t.id, adopt: {
-                    try db.execute(sql: """
-                        UPDATE treatment_record SET patient_id = ?, encounter_id = ?, document_file_id = ?, treatment_type = ?, treated_at = ?,
-                          hospital = ?, department = ?, doctor = ?, executor = ?, diagnosis_text = ?, content = ?, drugs_text = ?, session_text = ?,
-                          adverse_reaction_text = ?, allergy_event_id = ?, result_text = ?, note = ?, source = ?, confirmed = ?, created_at = ?, updated_at = ?
-                        WHERE id = ?
-                        """, arguments: StatementArguments(head + facts + stamps + [t.id.uuidString]))
-                }) { continue }
-                try db.execute(sql: """
-                    INSERT INTO treatment_record (id, patient_id, encounter_id, document_file_id, treatment_type, treated_at, hospital, department, doctor, executor,
-                      diagnosis_text, content, drugs_text, session_text, adverse_reaction_text, allergy_event_id, result_text, note,
-                      source, confirmed, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, arguments: StatementArguments([(remap(t.id) ?? t.id).uuidString] + head + facts + stamps))
-            }
-            // v27（末位：就诊 / 预约 / 体检均已落库）通用提醒：独立裁决；来源按 source_table 分表 remap，目标不在库或表不在白名单 → 置 NULL（不猜来源）。
-            let reminderConflicts = conflictSets["reminder"] ?? []
-            for r in envelope.reminders ?? [] {
-                var sourceTable: String? = nil, sourceId: String? = nil
-                if let table = r.sourceTable, ReminderSource.allowedTables.contains(table), let id = r.sourceId {
-                    let target = (remap(id) ?? id).uuidString
-                    if try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM \(table) WHERE id = ?", arguments: [target]) == 1 {
-                        sourceTable = table; sourceId = target
-                    }
-                }
-                let facts: [DatabaseValueConvertible?] = [patientID(r.patientId), r.kind, r.title, r.atDate.timeIntervalSince1970, r.repeats, r.status,
-                                                         r.source, r.channelPref, sourceTable, sourceId,
-                                                         r.createdAt.timeIntervalSince1970, r.updatedAt.timeIntervalSince1970]
-                if try adoptOrSkip(reminderConflicts, r.id, adopt: {
-                    try db.execute(sql: """
-                        UPDATE reminder SET patient_id = ?, kind = ?, title = ?, at_date = ?, repeats = ?, status = ?, source = ?, channel_pref = ?,
-                          source_table = ?, source_id = ?, created_at = ?, updated_at = ?
-                        WHERE id = ?
-                        """, arguments: StatementArguments(facts + [r.id.uuidString]))
-                }) { continue }
-                try db.execute(sql: """
-                    INSERT INTO reminder (id, patient_id, kind, title, at_date, repeats, status, source, channel_pref, source_table, source_id, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, arguments: StatementArguments([(remap(r.id) ?? r.id).uuidString] + facts))
-            }
-            try Self.validateOCRGraph(db)
+            var session = ImportSession(db: db, envelope: envelope, resolutions: resolutions)
+            try session.run()
         }
     }
 
@@ -2810,5 +1596,1476 @@ public actor ExportService {
     public func csv(headers: [String], rows: [[String]]) -> Data {
         CSVWriter.encode(headers: headers, rows: rows)
     }
+}
+// MARK: - importJSON 恢复会话（2026-09-19 OOP 颗粒度拆解）
+
+/// importJSON 的拓扑恢复会话：把 ~1200 行恢复序列分解为按 FK 拓扑阶段聚焦的方法
+/// （冲突检测/裁决 → 身份 → 文档 → 计划 → 预约 → … → 回执 → 索引重建），
+/// 原先 15 个嵌套闭包共享的状态收敛为一个结构。阶段顺序即 ERR#35 FK 拓扑序，
+/// 调换顺序会触发 FOREIGN KEY constraint failed 整包回滚——各阶段注释注明其依赖。
+private struct ImportSession {
+    let db: Database
+    let envelope: Envelope
+    let resolutions: [UUID: ConflictResolution]
+    /// v1 包（旧导出）缺 v25 列：adopt 只覆盖其原有列，不把本机既有新列刷成 NULL；v2 包按备份全列采纳。
+    let legacyEnvelope: Bool
+    let memberProfiles: [PatientProfile]
+    let prescriptionLineRows: [Envelope.PrescriptionLineExport]
+    let claimLineRows: [Envelope.ClaimLineExport]
+    let hospitalizationRows: [Hospitalization]
+    let labResultRows: [LabResult]
+    let labReportRows: [LabReport]
+    let conclusionRows: [ClinicalConclusion]
+    let prescriptionLineById: [UUID: Envelope.PrescriptionLineExport]
+    let claimLineById: [UUID: Envelope.ClaimLineExport]
+    let hospitalizationById: [UUID: Hospitalization]
+    let labResultById: [UUID: LabResult]
+    let conclusionById: [UUID: ClinicalConclusion]
+
+    var conflictSets: [String: Set<String>] = [:]
+    /// coexist 的 id 重写映射：备份行以新 id 落库，子行外键随映射重写
+    var idMap: [UUID: UUID] = [:]
+    /// 备份行 patient_id 的最终落点：coexist 重映射 → 原 id → 本人档案。
+    var profileId: UUID?
+    var cardMap: [UUID: UUID] = [:]
+    var docEncounterLinks: [String: UUID?] = [:]
+    var appointmentEncounterLinks: [(appointmentId: String, encounterId: UUID?)] = []
+    var existingAudits: [OCRCardStore.AuditRecord] = []
+
+    init(db: Database, envelope: Envelope, resolutions: [UUID: ConflictResolution]) {
+        self.db = db
+        self.envelope = envelope
+        self.resolutions = resolutions
+        self.legacyEnvelope = envelope.schemaVersion < Envelope.currentSchemaVersion
+        self.memberProfiles = envelope.members ?? []
+        self.prescriptionLineRows = envelope.prescriptionLines ?? []
+        self.claimLineRows = envelope.claimLines ?? []
+        self.hospitalizationRows = envelope.hospitalizations ?? []
+        self.labResultRows = envelope.labResults ?? []
+        self.labReportRows = envelope.labReports ?? []
+        self.conclusionRows = envelope.clinicalConclusions ?? []
+        self.prescriptionLineById = Dictionary(uniqueKeysWithValues: (envelope.prescriptionLines ?? []).map { ($0.id, $0) })
+        self.claimLineById = Dictionary(uniqueKeysWithValues: (envelope.claimLines ?? []).map { ($0.id, $0) })
+        self.hospitalizationById = Dictionary(uniqueKeysWithValues: (envelope.hospitalizations ?? []).map { ($0.id, $0) })
+        self.labResultById = Dictionary(uniqueKeysWithValues: (envelope.labResults ?? []).map { ($0.id, $0) })
+        self.conclusionById = Dictionary(uniqueKeysWithValues: (envelope.clinicalConclusions ?? []).map { ($0.id, $0) })
+    }
+
+    mutating func run() throws {
+        conflictSets = try detectConflicts()
+        seedIdMap()
+        existingAudits = try OCRCardStore.exportCommits(db)
+        try restoreIdentity()
+        try restoreDocuments()
+        try restorePlans()
+        try restoreAppointments()
+        try restoreObservations()
+        try restoreAllergies()
+        try restoreEncounters()
+        try backfillEncounterLinks()
+        try restoreHealthExams()
+        try restoreHospitalizations()
+        try restoreLabReports()
+        try restoreMetrics()
+        try restoreLabResults()
+        try restoreOCREncounterDetails()
+        try restorePrescriptions()
+        try verifyKeptDocumentPages()
+        try restoreMedications()
+        try restorePrescriptionLines()
+        try restoreClaims()
+        try restoreClaimLines()
+        try restoreExamReports()
+        try restoreConclusions()
+        try restoreReceipts()
+        try restoreAlertEvents()
+        try invalidateHKCheckpoints()
+        try restoreImmunizations()
+        try restoreVoiceNotes()
+        try restoreSensitiveFlags()
+        try restoreHealthProblems()
+        try restoreDiagnoses()
+        try restoreSurgeries()
+        try restoreTreatments()
+        try restoreReminders()
+        try ExportService.validateOCRGraph(db)
+    }
+
+    // MARK: - 冲突检测与裁决（ADR-019）
+
+    /// 冲突检测（ADR-019）：不静默覆盖、不静默丢弃——存在即需裁决。
+    /// 14→23 张表同构——(表名, id 清单) 一行描述，单循环完成检测与裁决缺失检查
+    /// （缺裁决抛 .conflict——UI 必须先呈现 preview，否则「未裁决即恢复」退化为静默丢弃）。
+    func detectConflicts() throws -> [String: Set<String>] {
+        func conflictingIds(table: String, ids: [String], column: String = "id") throws -> Set<String> {
+            guard !ids.isEmpty else { return [] }
+            let placeholders = ids.map { _ in "?" }.joined(separator: ",")
+            return Set(try String.fetchAll(db, sql: """
+                SELECT \(column) FROM \(table) WHERE \(column) IN (\(placeholders))
+                """, arguments: StatementArguments(ids)))
+        }
+        let allProfileIds = ([envelope.selfProfile].compactMap { $0 }.map(\.id)
+                             + memberProfiles.map(\.id)).map(\.uuidString)
+        // 文档维度 id 清单：新包 documents（直列）+ 旧包 timeline（meta 投影）
+        let documentIds = (envelope.documents ?? []).map { $0.id.uuidString }
+            + envelope.timeline.map { $0.id.uuidString }
+        let conflictPairs: [(table: String, ids: [String])] = [
+            ("patient_profile", allProfileIds),
+            ("local_owner", [envelope.owner].compactMap { $0 }.map { $0.id.uuidString }),
+            ("consent_record", envelope.consentRecords.map { $0.id.uuidString }),
+            ("document_file", documentIds),
+            ("prescription", (envelope.ocrPrescriptions ?? []).map { $0.id.uuidString }),
+            ("medication", (envelope.ocrMedications ?? []).map { $0.id.uuidString }),
+            ("claim_item", (envelope.claims ?? []).map { $0.id.uuidString }),
+            ("medication_plan", envelope.plans.map { $0.id.uuidString }),
+            ("appointment", envelope.appointments.map { $0.id.uuidString }),
+            ("observation", envelope.observations.map { $0.id.uuidString }),
+            ("allergy_event", envelope.allergies.map { $0.id.uuidString }),
+            ("encounter", envelope.encounters.map { $0.id.uuidString }),
+            ("metric_sample", envelope.metrics.map { $0.id.uuidString }),
+            ("alert_event", (envelope.alertEvents ?? []).map { $0.id.uuidString }),
+            ("immunization", envelope.immunizations.map { $0.id.uuidString }),
+            ("voice_note", envelope.voiceNotes.map { $0.id.uuidString }),
+            ("health_problem", envelope.healthProblems.map { $0.id.uuidString }),
+            // v26（D2-3）：检验表头 / 诊断 / 检查报告独立裁决；住院期随就诊、定性行随表头（不入冲突表）
+            ("lab_report", (envelope.labReports ?? []).map { $0.id.uuidString }),
+            ("diagnosis", (envelope.diagnoses ?? []).map { $0.id.uuidString }),
+            ("exam_report", (envelope.examReports ?? []).map { $0.id.uuidString }),
+            // v27（子项目 J）：体检 / 手术 / 治疗 / 提醒独立裁决；结论行随其父（体检 / 检验表头 / 检查报告）裁决
+            ("health_exam", (envelope.healthExams ?? []).map { $0.id.uuidString }),
+            ("surgery", (envelope.surgeries ?? []).map { $0.id.uuidString }),
+            ("treatment_record", (envelope.treatmentRecords ?? []).map { $0.id.uuidString }),
+            ("reminder", (envelope.reminders ?? []).map { $0.id.uuidString }),
+        ]
+        var sets: [String: Set<String>] = [:]
+        for (table, ids) in conflictPairs {
+            let hits = try conflictingIds(table: table, ids: ids)
+            for id in hits {
+                guard let uid = UUID(uuidString: id), resolutions[uid] != nil else {
+                    throw ExportService.ExportError.conflict(table: table, id: id)
+                }
+            }
+            sets[table] = hits
+        }
+        return sets
+    }
+
+    /// 冲突 id 必带显式裁决：检测循环已对每个冲突 id 强制存在性
+    /// （缺失即抛 .conflict），此处强制解包是类型级承诺——ADR-019
+    /// 绝不静默默认，不再保留隐藏的 ?? .keep 兜底。
+    func resolution(_ id: UUID) -> ConflictResolution {
+        resolutions[id]!
+    }
+
+    /// ADR-019 三路裁决的唯一形态：冲突表任一行的 keep→跳过 / adopt→执行
+    /// 覆盖并跳过 / coexist→落 INSERT（新 id 已由 idMap 重写）。
+    /// 全部 12 张实体表共用（错误曾以 3 种手写姿态出现，审计要读 4 个版本）。
+    func adoptOrSkip(_ conflicts: Set<String>, _ id: UUID,
+                     adopt: () throws -> Void) throws -> Bool {
+        guard conflicts.contains(id.uuidString) else { return false }
+        switch resolution(id) {
+        case .keep:
+            return true
+        case .adopt:
+            try adopt()
+            return true
+        case .coexist:
+            return false
+        }
+    }
+
+    func remap(_ id: UUID?) -> UUID? {
+        guard let id else { return nil }
+        return idMap[id] ?? id
+    }
+
+    /// coexist 的 id 重写映射播种：备份行以新 id 落库，子行外键随映射重写。
+    mutating func seedIdMap() {
+        for (_, hits) in conflictSets {
+            for id in hits {
+                guard let uid = UUID(uuidString: id), resolution(uid) == .coexist else { continue }
+                idMap[uid] = UUID()
+            }
+        }
+        // v25（§C.12）行随表头并存：表头换新 id 时其处方行 / 费用行一并换新 id——主键与 UNIQUE(表头, ordinal)
+        // 都不与本机既有行撞车；行回执 entity_id 经同一 idMap 重写（行不单独进冲突表：行无独立裁决）。
+        for line in prescriptionLineRows where idMap[line.prescriptionId] != nil { idMap[line.id] = UUID() }
+        for line in claimLineRows where idMap[line.claimItemId] != nil { idMap[line.id] = UUID() }
+        // v26：住院期随其就诊并存换 id；定性行随其检验表头并存换 id（UNIQUE(encounter_id) / UNIQUE(lab_report_id, ordinal) 不撞车）。
+        for h in hospitalizationRows where idMap[h.encounterId] != nil { idMap[h.id] = UUID() }
+        for r in labResultRows where idMap[r.labReportId] != nil { idMap[r.id] = UUID() }
+        // v27：结论行随其父（体检 / 检验表头 / 检查报告）并存换 id（父换新 id 时子行不得与本机既有行撞主键）。
+        for c in conclusionRows where conclusionParent(c).map({ idMap[$0.id] != nil }) == true { idMap[c.id] = UUID() }
+    }
+
+    /// 结论行的父 (冲突表, 父 id)：恰一非空外键（validateOCRBackup 已保证）。
+    func conclusionParent(_ c: ClinicalConclusion) -> (table: String, id: UUID)? {
+        if let id = c.healthExamId { return ("health_exam", id) }
+        if let id = c.labReportId { return ("lab_report", id) }
+        if let id = c.examReportId { return ("exam_report", id) }
+        return nil
+    }
+
+    /// 回执的裁决归属 (冲突表, 表头 id)：表头回执 = (card_kind, entity_id)；行回执经 envelope 行数组回到表头
+    ///（validateOCRBackup 已保证行存在）；住院期回执归其就诊、定性行回执归其检验表头、结论行回执归其父。
+    func receiptGovernor(_ audit: OCRCardStore.AuditRecord) -> (table: String, header: UUID) {
+        switch audit.entityTable ?? audit.cardKind {
+        case "prescription_line": return ("prescription", prescriptionLineById[audit.entityId]?.prescriptionId ?? audit.entityId)
+        case "claim_line": return ("claim_item", claimLineById[audit.entityId]?.claimItemId ?? audit.entityId)
+        case "hospitalization": return ("encounter", hospitalizationById[audit.entityId]?.encounterId ?? audit.entityId)
+        case "lab_result": return ("lab_report", labResultById[audit.entityId]?.labReportId ?? audit.entityId)
+        case "lab_report": return ("lab_report", audit.entityId)
+        case "clinical_conclusion":
+            if let parent = conclusionById[audit.entityId].flatMap(conclusionParent) { return (parent.table, parent.id) }
+            return ("clinical_conclusion", audit.entityId)
+        default: return (audit.cardKind, audit.entityId)
+        }
+    }
+
+    /// 回执随表头裁决：表头 keep → 该表头的全部回执（表头回执 + 行回执）一律不落。
+    func receiptKept(_ audit: OCRCardStore.AuditRecord) -> Bool {
+        let governor = receiptGovernor(audit)
+        return conflictSets[governor.table, default: []].contains(governor.header.uuidString) && resolution(governor.header) == .keep
+    }
+
+    func sourceReference(_ reference: String?) throws -> String? {
+        guard let reference, reference.hasPrefix("doc:") else { return reference }
+        let (document, page) = try ExportService.documentReference(reference)
+        let target = remap(document) ?? document
+        return page.map { HospitalSample.sourceRef(documentId: target, pageIndex: $0) } ?? "doc:\(target.uuidString)"
+    }
+
+    /// 备份行 patient_id 的最终落点：coexist 重映射 → 原 id → 本人档案。
+    /// 12 处 INSERT/UPDATE 共用同一回落链（此前每处手写三元链）。
+    func patientID(_ id: UUID?) -> String {
+        (remap(id) ?? id)?.uuidString ?? profileId?.uuidString ?? ""
+    }
+
+    // MARK: - 阶段 1：身份（patient_profile / local_owner / consent_record）
+
+    /// FK 拓扑序（ERR#35）：patient_profile 先落——本人档案必须随 envelope
+    /// 往返（medication/plan/document 的 patient_id 外键目标）。
+    mutating func restoreIdentity() throws {
+        profileId = envelope.owner?.selfPatientId ?? envelope.selfProfile?.id
+        func putProfile(_ profile: PatientProfile) throws {
+            let targetId = remap(profile.id) ?? profile.id
+            if profileConflicts.contains(profile.id.uuidString) {
+                switch resolution(profile.id) {
+                case .keep:
+                    return
+                case .adopt:
+                    try db.execute(sql: """
+                        UPDATE patient_profile SET display_name = ?, relation = ?, gender = ?,
+                          birth_date = ?, blood_type = ?, id_no = ?, insurance_no = ?,
+                          note = ?, created_at = ?, updated_at = ?, deleted_at = ? WHERE id = ?
+                        """, arguments: [profile.displayName, profile.relation, profile.gender,
+                                         profile.birthDate, profile.bloodType, profile.idNo,
+                                         profile.insuranceNo, profile.note, profile.createdAt,
+                                         profile.updatedAt, profile.deletedAt,
+                                         profile.id.uuidString])
+                    return
+                case .coexist:
+                    break   // 落到下方 INSERT（新 id）
+                }
+            }
+            try db.execute(sql: """
+                INSERT INTO patient_profile
+                  (id, owner_local_id, display_name, relation, gender, birth_date,
+                   blood_type, id_no, insurance_no, note, created_at, updated_at, deleted_at)
+                VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [targetId.uuidString, profile.displayName,
+                                   profile.relation, profile.gender, profile.birthDate,
+                                   profile.bloodType, profile.idNo, profile.insuranceNo,
+                                   profile.note, profile.createdAt, profile.updatedAt,
+                                   profile.deletedAt])
+        }
+        if let profile = envelope.selfProfile {
+            try putProfile(profile)
+        }
+        // 成员档案随包落库（BR-001：各成员数据各归其位）。
+        // 审查修复：members 含本人（旧包/旧导出）时跳过——本人档案已先落，
+        // 重复 INSERT 触发主键冲突导致整包恢复失败
+        for member in memberProfiles where member.id != envelope.selfProfile?.id {
+            try putProfile(member)
+        }
+        // 互环 FK 三段式破环（ERR#35 同款）：owner 落（回指 profile）→ 回填 owner_local_id
+        if let owner = envelope.owner {
+            let targetOwnerId = remap(owner.id) ?? owner.id
+            let selfPatientId = remap(owner.selfPatientId) ?? owner.selfPatientId
+            if ownerConflicts.contains(owner.id.uuidString) {
+                switch resolution(owner.id) {
+                case .keep:
+                    break
+                case .adopt:
+                    try db.execute(sql: """
+                        UPDATE local_owner SET display_name = ?, self_patient_id = ?, created_at = ? WHERE id = ?
+                        """, arguments: [owner.displayName, selfPatientId?.uuidString,
+                                         owner.createdAt, owner.id.uuidString])
+                case .coexist:
+                    try db.execute(sql: """
+                        INSERT INTO local_owner (id, display_name, self_patient_id, created_at)
+                        VALUES (?, ?, ?, ?)
+                        """, arguments: [targetOwnerId.uuidString, owner.displayName,
+                                         selfPatientId?.uuidString, owner.createdAt])
+                }
+            } else {
+                try db.execute(sql: """
+                    INSERT INTO local_owner (id, display_name, self_patient_id, created_at)
+                    VALUES (?, ?, ?, ?)
+                    """, arguments: [targetOwnerId.uuidString, owner.displayName,
+                                     selfPatientId?.uuidString, owner.createdAt])
+            }
+            // 本人 + 全部成员的 owner_local_id 回填（coexist 的新 id 同样回填）
+            for profile in memberProfiles + [envelope.selfProfile].compactMap({ $0 }) {
+                try db.execute(sql: "UPDATE patient_profile SET owner_local_id = ? WHERE id = ?",
+                               arguments: [targetOwnerId.uuidString,
+                                           (remap(profile.id) ?? profile.id).uuidString])
+            }
+        }
+        // 二轮复审 P2：无 owner 的旧包以 selfProfile 为本人回落——coexist 时本人档案
+        // 已按新 id 落库，回落链必须同样经 remap，否则 patient_id 为空的旧指标行
+        // 被挂到本机既有（另一个人的）档案上。
+        profileId = remap(envelope.owner?.selfPatientId ?? envelope.selfProfile?.id) ?? profileId
+        for c in envelope.consentRecords {
+            if try adoptOrSkip(consentConflicts, c.id, adopt: {
+                try db.execute(sql: """
+                    UPDATE consent_record SET key = ?, level = ?, version = ?, accepted_at = ? WHERE id = ?
+                    """, arguments: [c.key, c.level, c.version, c.acceptedAt, c.id.uuidString])
+            }) { continue }
+            try db.execute(sql: """
+                INSERT INTO consent_record (id, key, level, version, accepted_at)
+                VALUES (?, ?, ?, ?, ?)
+                """, arguments: [(remap(c.id) ?? c.id).uuidString, c.key, c.level, c.version, c.acceptedAt])
+        }
+    }
+
+    // MARK: - 阶段 2：文档（document_file 直列 + 旧包 timeline 投影）
+
+    /// V3.39+ 文档维度恢复：document_file 直列随包往返（第四轮全仓审查修复——
+    /// 旧路径按 TimelineDocumentEntry 解码 meta_json 只能恢复历史投影行，
+    /// 经活管线入库的文档（title/ocr_text/grade 直列）在恢复中全部丢失）。
+    /// encounter_id 外键两段式：encounter 行恢复在文档之后（FK 拓扑序），
+    /// 先行落 NULL、encounters 恢复完成后统一回填。
+    mutating func restoreDocuments() throws {
+        for audit in envelope.ocrCardCommits ?? [] {
+            if idMap[audit.documentId] != nil || idMap[audit.patientId] != nil || idMap[audit.entityId] != nil {
+                if cardMap[audit.cardId] == nil { cardMap[audit.cardId] = UUID() }
+            }
+        }
+        // Pending-only cards are absent from the receipt array but still need a new identity on coexist.
+        for document in envelope.documents ?? [] where idMap[document.id] != nil || document.patientId.flatMap({ idMap[$0] }) != nil {
+            for id in try ExportService.reviewCardIDs(document.metaJson) where cardMap[id] == nil { cardMap[id] = UUID() }
+        }
+        // v26：并存的检验表头 = 一张新卡（source_card_id UNIQUE 不撞车；其行回执随同一 cardMap 换卡 id）。
+        for report in labReportRows where idMap[report.id] != nil {
+            if let card = report.sourceCardId, cardMap[card] == nil { cardMap[card] = UUID() }
+        }
+        for d in envelope.documents ?? [] {
+            let targetId = remap(d.id) ?? d.id
+            let targetPatientId = (remap(d.patientId) ?? d.patientId)?.uuidString
+            let targetEncounterId = (remap(d.encounterId) ?? d.encounterId)
+            let reviewMetadata = try ExportService.remapReviewMetadata(d.metaJson, cardMap: cardMap, entityMap: idMap)
+            // 第五轮全仓审查修复（5WHY）：keep 裁决的行必须原样保留、绝不
+            // 记入回填清单——此前回填循环对所有 envelope 行统一
+            // UPDATE encounter_id，keep 行（既有行被跳过、未被 INSERT/UPDATE）
+            // 的 encounter_id 被备份值（或 nil）覆写：本地已挂接的就诊关系
+            // 被静默改写或摘除，keep=「现有行不触碰」的 ADR-019 语义被破坏。
+            // adopt 行 UPDATE 不含 encounter_id 列，故回填仍须覆盖 adopt 行；
+            // 回填只应发生在插入/采纳的行上。
+            let keepExisting = timelineConflicts.contains(d.id.uuidString) && resolution(d.id) == .keep
+            if !keepExisting {
+                docEncounterLinks[targetId.uuidString] = targetEncounterId
+            }
+            if try adoptOrSkip(timelineConflicts, d.id, adopt: {
+                try ExportService.restoreOCRPages(d, targetId: targetId, replacing: true, db: db)
+                // v25 两列（doc_type_key / title_source）只在 v2 包上采纳；v1 包不触碰本机既有键
+                let v25Columns = legacyEnvelope ? "" : ", doc_type_key = ?, title_source = ?"
+                let v25Arguments: [DatabaseValueConvertible?] = legacyEnvelope ? [] : [d.docTypeKey, d.titleSource]
+                let baseArguments: [DatabaseValueConvertible?] = [targetPatientId,
+                                     d.docType, d.status, d.sha256, d.mimeType,
+                                      d.isSensitive ? 1 : 0, d.origin, reviewMetadata, d.title,
+                                     d.ocrText, d.notes, d.grade,
+                                     d.createdAt.timeIntervalSince1970,
+                                     d.updatedAt.timeIntervalSince1970]
+                try db.execute(sql: """
+                    UPDATE document_file SET
+                        patient_id = ?, doc_type = ?, status = ?,
+                        sha256 = ?, mime_type = ?, is_sensitive = ?, origin = ?,
+                        meta_json = ?, title = ?, ocr_text = ?, notes = ?, grade = ?,
+                        created_at = ?, updated_at = ?\(v25Columns)
+                    WHERE id = ?
+                    """, arguments: StatementArguments(baseArguments + v25Arguments + [targetId.uuidString]))
+            }) { continue }
+            try db.execute(sql: """
+                INSERT INTO document_file
+                  (id, patient_id, encounter_id, doc_type, status, sha256, mime_type,
+                   is_sensitive, origin, meta_json, title, ocr_text, notes, grade,
+                   created_at, updated_at, doc_type_key, title_source)
+                VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [targetId.uuidString, targetPatientId,
+                                 d.docType, d.status, d.sha256, d.mimeType,
+                                  d.isSensitive ? 1 : 0, d.origin, reviewMetadata, d.title,
+                                 d.ocrText, d.notes, d.grade,
+                                 d.createdAt.timeIntervalSince1970,
+                                 d.updatedAt.timeIntervalSince1970, d.docTypeKey, d.titleSource])
+            try ExportService.restoreOCRPages(d, targetId: targetId, replacing: false, db: db)
+        }
+        // 旧备份包（无 documents 维度）的投影行恢复——历史兼容路径
+        for e in envelope.timeline {
+            if try adoptOrSkip(timelineConflicts, e.id, adopt: {
+                let meta = String(data: try JSONEncoder().encode(e), encoding: .utf8) ?? "{}"
+                try db.execute(sql: """
+                    UPDATE document_file SET patient_id = ?, meta_json = ?, title = ?, created_at = ?, updated_at = ?
+                    WHERE id = ?
+                    """, arguments: [(remap(e.patientId) ?? e.patientId).uuidString, meta, e.title,
+                                     e.occurredAt, e.occurredAt, e.id.uuidString])
+            }) { continue }
+            let meta = String(data: try JSONEncoder().encode(e), encoding: .utf8) ?? "{}"
+            let targetId = remap(e.id) ?? e.id
+            try db.execute(sql: """
+                INSERT INTO document_file
+                  (id, patient_id, doc_type, sha256, mime_type, origin, meta_json, created_at, updated_at)
+                VALUES (?, ?, 'ocr_document', ?, 'application/json', 'scanner', ?, ?, ?)
+                """, arguments: [targetId.uuidString, (remap(e.patientId) ?? e.patientId).uuidString,
+                                 "sha:" + targetId.uuidString,
+                                 meta, e.occurredAt, e.occurredAt])
+        }
+    }
+
+    // MARK: - 阶段 3：用药计划（medication → medication_plan）
+
+    func restorePlans() throws {
+        for p in envelope.plans {
+            if try adoptOrSkip(planConflicts, p.id, adopt: {
+                let scheduleJSON = String(data: try JSONEncoder().encode(p.schedule), encoding: .utf8) ?? "{}"
+                // 审查修复（ADR-019 采纳语义）：采纳 = 以备份版本为准——
+                // 旧 UPDATE 只改 4 列，备份的 dose_plan_units（安全线单剂
+                // 基线）与 ended_reason/paused_at 被静默丢弃，恢复后库存
+                // 扣减与暂停/结束语义跑在错误基线上（V3.94 往返契约）
+                try db.execute(sql: """
+                    UPDATE medication_plan SET status = ?, schedule_json = ?, start_date = ?, end_date = ?,
+                      dose_plan_units = ?, ended_reason = ?, paused_at = ?
+                    WHERE id = ?
+                    """, arguments: [p.status.rawValue, scheduleJSON,
+                                     p.startDate.timeIntervalSince1970,
+                                     p.endDate?.timeIntervalSince1970,
+                                     p.dosePlanUnits, p.endedReason,
+                                     p.pausedAt?.timeIntervalSince1970, p.id.uuidString])
+            }) { continue }
+            // 药品行先落（medication_plan.medication_id 外键，ERR#35）
+            let planPatient = remap(p.patientId) ?? p.patientId ?? profileId
+            let medId = UUID()
+            try db.execute(sql: """
+                INSERT INTO medication (id, patient_id, generic_name, spec, unit_kind, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [medId.uuidString, planPatient?.uuidString ?? "",
+                                   p.medicationName, p.spec, p.unitKind ?? "tablet",
+                                   p.startDate.timeIntervalSince1970, p.startDate.timeIntervalSince1970])
+            let scheduleJSON = String(data: try JSONEncoder().encode(p.schedule), encoding: .utf8) ?? "{}"
+            try db.execute(sql: """
+                INSERT INTO medication_plan
+                  (id, patient_id, medication_id, status, schedule_json, start_date, end_date,
+                   dose_plan_units, ended_reason, paused_at, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [(remap(p.id) ?? p.id).uuidString, planPatient?.uuidString ?? "", medId.uuidString, p.status.rawValue, scheduleJSON,
+                                 p.startDate.timeIntervalSince1970, p.endDate?.timeIntervalSince1970,
+                                 p.dosePlanUnits, p.endedReason, p.pausedAt?.timeIntervalSince1970,
+                                 p.startDate.timeIntervalSince1970, p.startDate.timeIntervalSince1970])
+        }
+    }
+
+    // MARK: - 阶段 4：预约（appointment.encounter_id 两段式）
+
+    /// v27：appointment.encounter_id 外键两段式（就诊行在预约之后恢复，直接携带会触发 FOREIGN KEY constraint failed）：
+    /// 先落 NULL / 不触碰，encounters 落库后统一回填——只回填插入 / 采纳的行（keep 行原样保留，ADR-019）。
+    /// purpose（v27 列）v1 包 adopt 不触碰本机现值；v2 包按备份采纳。
+    mutating func restoreAppointments() throws {
+        for a in envelope.appointments {
+            let targetAppointment = (remap(a.id) ?? a.id).uuidString
+            if try adoptOrSkip(aptConflicts, a.id, adopt: {
+                // FR13.5 保真（2026-09-15 修复）：adopt = 备份版本胜出（ADR-019）——时间戳同随；
+                // 旧包（字段 nil）保持现值不触碰。
+                let purposeColumn = legacyEnvelope ? "" : ", purpose = ?, created_at = ?, updated_at = ?"
+                let purposeArguments: [DatabaseValueConvertible?] = legacyEnvelope ? []
+                    : [a.purpose, (a.createdAt ?? a.startsAt).timeIntervalSince1970, (a.updatedAt ?? a.startsAt).timeIntervalSince1970]
+                let base: [DatabaseValueConvertible?] = [(remap(a.patientId) ?? a.patientId)?.uuidString ?? "", a.hospital,
+                                                         a.department, a.startsAt.timeIntervalSince1970, a.status]
+                try db.execute(sql: """
+                    UPDATE appointment SET patient_id = ?, hospital = ?, department = ?, starts_at = ?, status = ?\(purposeColumn)
+                    WHERE id = ?
+                    """, arguments: StatementArguments(base + purposeArguments + [a.id.uuidString]))
+                if !legacyEnvelope { appointmentEncounterLinks.append((a.id.uuidString, remap(a.encounterId))) }
+            }) { continue }
+            try db.execute(sql: """
+                INSERT INTO appointment (id, patient_id, hospital, department, starts_at, status, created_at, updated_at, purpose)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [targetAppointment, patientID(a.patientId), a.hospital, a.department,
+                                 a.startsAt.timeIntervalSince1970, a.status,
+                                 (a.createdAt ?? a.startsAt).timeIntervalSince1970,
+                                 (a.updatedAt ?? a.startsAt).timeIntervalSince1970, a.purpose])
+            if a.encounterId != nil { appointmentEncounterLinks.append((targetAppointment, remap(a.encounterId))) }
+        }
+    }
+
+    // MARK: - 阶段 5：观察（observation 全列往返）
+
+    func restoreObservations() throws {
+        for o in envelope.observations {
+            // FR13.5 V3.28：扩展字段随包往返——adopt 全列覆盖、INSERT 全列写入
+            if try adoptOrSkip(obsConflicts, o.id, adopt: {
+                try db.execute(sql: """
+                    UPDATE observation SET patient_id = ?, kind = ?, occurred_at = ?, captured_at = ?,
+                      description = ?, self_mark = ?, media_asset_ids = ?, body_part = ?,
+                      duration_min = ?, frequency = ?, is_first = ?, trigger = ?,
+                      accompanying = ?, pain_score = ?, meds_diet = ?, consulted_doctor = ?,
+                      encounter_id = ?, health_problem_id = ?, group_id = ?
+                    WHERE id = ?
+                    """, arguments: [(remap(o.patientId) ?? o.patientId)?.uuidString ?? "", o.kind,
+                                     o.occurredAt.timeIntervalSince1970, o.capturedAt?.timeIntervalSince1970,
+                                     o.description, o.selfMark, ExportService.encodeMediaIds(o.mediaAssetIds),
+                                     o.bodyPart, o.durationMin, o.frequency,
+                                     o.isFirst.map { $0 ? 1 : 0 }, o.trigger, o.accompanying,
+                                     o.painScore, o.medsDiet, o.consultedDoctor ? 1 : 0,
+                                     o.encounterId?.uuidString, o.healthProblemId?.uuidString,
+                                     o.groupId?.uuidString, o.id.uuidString])
+            }) { continue }
+            try db.execute(sql: """
+                INSERT INTO observation (id, patient_id, kind, occurred_at, captured_at,
+                  description, self_mark, media_asset_ids, body_part, duration_min, frequency,
+                  is_first, trigger, accompanying, pain_score, meds_diet, consulted_doctor,
+                  encounter_id, health_problem_id, group_id, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [(remap(o.id) ?? o.id).uuidString, patientID(o.patientId), o.kind,
+                                 o.occurredAt.timeIntervalSince1970, o.capturedAt?.timeIntervalSince1970,
+                                 o.description, o.selfMark, ExportService.encodeMediaIds(o.mediaAssetIds),
+                                 o.bodyPart, o.durationMin, o.frequency,
+                                 o.isFirst.map { $0 ? 1 : 0 }, o.trigger, o.accompanying,
+                                 o.painScore, o.medsDiet, o.consultedDoctor ? 1 : 0,
+                                 o.encounterId?.uuidString, o.healthProblemId?.uuidString,
+                                 o.groupId?.uuidString,
+                                 o.occurredAt.timeIntervalSince1970, o.occurredAt.timeIntervalSince1970])
+        }
+    }
+
+    // MARK: - 阶段 6：过敏（allergy_event）
+
+    func restoreAllergies() throws {
+        for a in envelope.allergies {
+            if try adoptOrSkip(allergyConflicts, a.id, adopt: {
+                try db.execute(sql: """
+                    UPDATE allergy_event SET patient_id = ?, substance = ?, reaction_tags = ?,
+                      severity = ?, occurred_at = ?, consulted_doctor = ?, duration_min = ?,
+                      treatment_note = ?, note = ?, encounter_id = ?, medication_id = ?
+                    WHERE id = ?
+                    """, arguments: [(remap(a.patientId) ?? a.patientId)?.uuidString ?? "", a.substance,
+                                     a.reactionTags ?? "[]", a.severity, a.occurredAt.timeIntervalSince1970,
+                                     (a.consultedDoctor ?? false) ? 1 : 0, a.durationMin, a.treatmentNote,
+                                     a.note, a.encounterId?.uuidString, a.medicationId?.uuidString,
+                                     a.id.uuidString])
+            }) { continue }
+            try db.execute(sql: """
+                INSERT INTO allergy_event (id, patient_id, substance, reaction_tags, severity, occurred_at,
+                                          consulted_doctor, duration_min, treatment_note, note,
+                                          encounter_id, medication_id, allergen_kind, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [(remap(a.id) ?? a.id).uuidString, patientID(a.patientId), a.substance,
+                                 a.reactionTags ?? "[]", a.severity, a.occurredAt.timeIntervalSince1970,
+                                 (a.consultedDoctor ?? false) ? 1 : 0, a.durationMin, a.treatmentNote,
+                                 a.note, a.encounterId?.uuidString, a.medicationId?.uuidString, a.allergenKind,
+                                 a.occurredAt.timeIntervalSince1970, a.occurredAt.timeIntervalSince1970])
+        }
+    }
+
+    // MARK: - 阶段 7：就诊（encounter + rescheduled_from 两段式回填）
+
+    /// v25（D1-4）就诊全列恢复。rescheduled_from_id 自引用 FK：先落 NULL、全部就诊落库后统一回填
+    /// （备份内改期链的前驱可能排在后面，直接携带会触发 FOREIGN KEY constraint failed 整包回滚）。
+    mutating func restoreEncounters() throws {
+        var rescheduleLinks: [(encounterId: String, from: String?)] = []
+        for e in envelope.encounters {
+            let targetId = (remap(e.id) ?? e.id).uuidString
+            let rescheduledFrom = remap(e.rescheduledFromId)?.uuidString
+            let narrative: [DatabaseValueConvertible?] = [e.hospital, e.department, e.doctor, e.chiefComplaint, e.diagnosisText,
+                                                         e.adviceText, e.followUpRequirement, e.feeAmount,
+                                                         e.presentIllness, e.visitSummary, e.pastHistory, e.physicalExam, e.allergyHistory]
+            if try adoptOrSkip(encConflicts, e.id, adopt: {
+                if legacyEnvelope {
+                    // v1 包只有五列：其余列由 ocrEncounterDetails（仅 OCR 就诊）补，手工列保持本机现值
+                    try db.execute(sql: """
+                        UPDATE encounter SET patient_id = ?, date = ?, kind = ?, diagnosis_text = ?,
+                          deleted_at = ?
+                        WHERE id = ?
+                        """, arguments: [(remap(e.patientId) ?? e.patientId)?.uuidString ?? "", e.date.timeIntervalSince1970,
+                                         e.kind, e.diagnosisText, e.deletedAt, e.id.uuidString])
+                    return
+                }
+                let head: [DatabaseValueConvertible?] = [(remap(e.patientId) ?? e.patientId)?.uuidString ?? "", e.date.timeIntervalSince1970, e.kind]
+                let tail: [DatabaseValueConvertible?] = [e.deletedAt, (e.createdAt ?? e.date).timeIntervalSince1970,
+                                                        (e.updatedAt ?? e.date).timeIntervalSince1970, e.id.uuidString]
+                try db.execute(sql: """
+                    UPDATE encounter SET patient_id = ?, date = ?, kind = ?,
+                      hospital = ?, department = ?, doctor = ?, chief_complaint = ?, diagnosis_text = ?,
+                      advice_text = ?, follow_up_requirement = ?, fee_amount = ?,
+                      present_illness = ?, visit_summary = ?, past_history = ?, physical_exam = ?, allergy_history = ?,
+                      deleted_at = ?, created_at = ?, updated_at = ?
+                    WHERE id = ?
+                    """, arguments: StatementArguments(head + narrative + tail))
+                rescheduleLinks.append((e.id.uuidString, rescheduledFrom))
+            }) { continue }
+            let head: [DatabaseValueConvertible?] = [targetId, patientID(e.patientId), e.date.timeIntervalSince1970, e.kind]
+            let tail: [DatabaseValueConvertible?] = [e.deletedAt, (e.createdAt ?? e.date).timeIntervalSince1970,
+                                                    (e.updatedAt ?? e.date).timeIntervalSince1970]
+            try db.execute(sql: """
+                INSERT INTO encounter (id, patient_id, date, kind,
+                  hospital, department, doctor, chief_complaint, diagnosis_text,
+                  advice_text, follow_up_requirement, fee_amount,
+                  present_illness, visit_summary, past_history, physical_exam, allergy_history,
+                  deleted_at, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, arguments: StatementArguments(head + narrative + tail))
+            if rescheduledFrom != nil { rescheduleLinks.append((targetId, rescheduledFrom)) }
+        }
+        for link in rescheduleLinks {
+            try db.execute(sql: "UPDATE encounter SET rescheduled_from_id = ? WHERE id = ?", arguments: [link.from, link.encounterId])
+        }
+    }
+
+    // MARK: - 阶段 8：encounter_id 统一回填（document_file / appointment）
+
+    /// document_file.encounter_id 外键回填（第四轮全仓审查 Phase 3 补漏）：
+    /// encounter 行已全部落库，此时统一挂接（含 nil → 清除 adopt 行残留）。
+    /// v27：appointment.encounter_id 回填（就诊已全部落库；目标就诊不在库 → 置 NULL，不猜）。
+    func backfillEncounterLinks() throws {
+        for (docId, encId) in docEncounterLinks {
+            try db.execute(sql: "UPDATE document_file SET encounter_id = ? WHERE id = ?",
+                           arguments: [encId?.uuidString, docId])
+        }
+        for link in appointmentEncounterLinks {
+            var target = link.encounterId?.uuidString
+            if let id = target, try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM encounter WHERE id = ?", arguments: [id]) != 1 { target = nil }
+            try db.execute(sql: "UPDATE appointment SET encounter_id = ? WHERE id = ?", arguments: [target, link.appointmentId])
+        }
+    }
+
+    // MARK: - 阶段 9：体检枢纽（health_exam）
+
+    /// v27（§C.12 拓扑序 · 就诊之后、检验表头 / 检查报告 / 趋势点 / 结论之前）体检枢纽：独立裁决（keep / adopt 全列 / coexist 新 id）。
+    func restoreHealthExams() throws {
+        for x in envelope.healthExams ?? [] {
+            let facts = OCRCardStore.healthExamFacts(x)
+            let head: [DatabaseValueConvertible?] = [patientID(x.patientId), remap(x.documentFileId)?.uuidString]
+            let stamps: [DatabaseValueConvertible?] = [x.source.rawValue, x.confirmed ? 1 : 0,
+                                                      x.createdAt.timeIntervalSince1970, x.updatedAt.timeIntervalSince1970]
+            if try adoptOrSkip(healthExamConflicts, x.id, adopt: {
+                try db.execute(sql: """
+                    UPDATE health_exam SET patient_id = ?, document_file_id = ?,
+                      org_name = ?, exam_no = ?, package_name = ?, exam_date = ?, total_doctor = ?, report_date = ?,
+                      height_text = ?, weight_text = ?, bmi_text = ?, systolic_text = ?, diastolic_text = ?, pulse_text = ?, waist_text = ?,
+                      vision_left_text = ?, vision_right_text = ?, overall_conclusion = ?, health_guidance = ?,
+                      source = ?, confirmed = ?, created_at = ?, updated_at = ?
+                    WHERE id = ?
+                    """, arguments: StatementArguments(head + facts + stamps + [x.id.uuidString]))
+            }) { continue }
+            try db.execute(sql: """
+                INSERT INTO health_exam (id, patient_id, document_file_id, org_name, exam_no, package_name, exam_date, total_doctor, report_date,
+                  height_text, weight_text, bmi_text, systolic_text, diastolic_text, pulse_text, waist_text, vision_left_text, vision_right_text,
+                  overall_conclusion, health_guidance, source, confirmed, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, arguments: StatementArguments([(remap(x.id) ?? x.id).uuidString] + head + facts + stamps))
+        }
+    }
+
+    // MARK: - 阶段 10：住院期（随就诊裁决）
+
+    /// v26（§C.12 第 2 位）住院期：随就诊裁决——就诊 keep → 跳过；否则按 UNIQUE(encounter_id) 落到该就诊的唯一住院期
+    ///（本机已有同就诊住院期 → 采纳备份列、保留本机 id 并把备份 id 重映射到它，回执随之指向存活行；同 id 已有 → 覆盖；
+    ///   否则 INSERT，coexist 的新 id 已随就诊重写）。
+    mutating func restoreHospitalizations() throws {
+        for h in hospitalizationRows {
+            if encConflicts.contains(h.encounterId.uuidString), resolution(h.encounterId) == .keep { continue }
+            let targetEncounter = (remap(h.encounterId) ?? h.encounterId).uuidString
+            var target = (remap(h.id) ?? h.id).uuidString
+            let facts = OCRCardStore.hospitalizationFacts(h)
+            let stamps: [DatabaseValueConvertible?] = [h.source.rawValue, h.confirmed ? 1 : 0,
+                                                      h.createdAt.timeIntervalSince1970, h.updatedAt.timeIntervalSince1970]
+            let localUnderEncounter = try String.fetchOne(db, sql: "SELECT id FROM hospitalization WHERE encounter_id = ?", arguments: [targetEncounter])
+            if let local = localUnderEncounter, local != target {
+                if let localId = UUID(uuidString: local) { idMap[h.id] = localId }
+                target = local
+            }
+            let sameIdCount = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM hospitalization WHERE id = ?", arguments: [target]) ?? 0
+            let exists = localUnderEncounter != nil || sameIdCount > 0
+            let head: [DatabaseValueConvertible?] = [patientID(h.patientId), targetEncounter, remap(h.documentFileId)?.uuidString]
+            if exists {
+                try db.execute(sql: """
+                    UPDATE hospitalization SET patient_id = ?, encounter_id = ?, document_file_id = ?,
+                      hospital = ?, medical_record_no = ?, inpatient_times = ?, admit_at = ?, discharge_at = ?, actual_days = ?,
+                      admit_dept = ?, discharge_dept = ?, ward = ?, bed_no = ?, admit_route_text = ?, payment_type_text = ?, discharge_way_text = ?,
+                      attending_physician = ?, admit_diagnosis_text = ?, discharge_diagnosis_text = ?, admit_condition = ?, treatment_course = ?,
+                      discharge_condition = ?, discharge_orders = ?, take_home_drugs_text = ?, total_cost = ?, summary_doctor = ?, summary_date = ?,
+                      source = ?, confirmed = ?, created_at = ?, updated_at = ?
+                    WHERE id = ?
+                    """, arguments: StatementArguments(head + facts + stamps + [target]))
+            } else {
+                try db.execute(sql: """
+                    INSERT INTO hospitalization (id, patient_id, encounter_id, document_file_id,
+                      hospital, medical_record_no, inpatient_times, admit_at, discharge_at, actual_days, admit_dept, discharge_dept, ward, bed_no,
+                      admit_route_text, payment_type_text, discharge_way_text, attending_physician, admit_diagnosis_text, discharge_diagnosis_text,
+                      admit_condition, treatment_course, discharge_condition, discharge_orders, take_home_drugs_text, total_cost, summary_doctor, summary_date,
+                      source, confirmed, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, arguments: StatementArguments([target] + head + facts + stamps))
+            }
+        }
+    }
+
+    // MARK: - 阶段 11：检验表头（lab_report）
+
+    /// v26（§C.12 第 7 位）检验表头：独立裁决（keep 跳过 / adopt 全列覆盖 / coexist 新 id + 新卡 id），先于 metric_sample.lab_report_id 落库。
+    func restoreLabReports() throws {
+        for r in labReportRows {
+            let target = remap(r.id) ?? r.id
+            let sourceCard = r.sourceCardId.map { (cardMap[$0] ?? $0).uuidString }
+            let facts: [DatabaseValueConvertible?] = [
+                patientID(r.patientId), remap(r.encounterId)?.uuidString, remap(r.documentFileId)?.uuidString,
+                r.hospital, r.department, r.labName, r.reportNo, r.specimenType, r.specimenNo, r.testClassText, r.clinicalDiagnosis,
+                r.collectedAt?.timeIntervalSince1970, r.receivedAt?.timeIntervalSince1970, r.reportedAt?.timeIntervalSince1970,
+                r.sendDoctor, r.testDoctor, r.reviewDoctor, sourceCard, r.source.rawValue, r.confirmed ? 1 : 0,
+                r.createdAt.timeIntervalSince1970, r.updatedAt.timeIntervalSince1970,
+            ]
+            // v27 两列：报告来源 + 体检枢纽回指（体检已先落库，经 remap）
+            let v27: [DatabaseValueConvertible?] = [r.reportSource, remap(r.healthExamId)?.uuidString]
+            if try adoptOrSkip(labReportConflicts, r.id, adopt: {
+                try db.execute(sql: """
+                    UPDATE lab_report SET patient_id = ?, encounter_id = ?, document_file_id = ?,
+                      hospital = ?, department = ?, lab_name = ?, report_no = ?, specimen_type = ?, specimen_no = ?, test_class_text = ?, clinical_diagnosis = ?,
+                      collected_at = ?, received_at = ?, reported_at = ?, send_doctor = ?, test_doctor = ?, review_doctor = ?,
+                      source_card_id = ?, source = ?, confirmed = ?, created_at = ?, updated_at = ?, report_source = ?, health_exam_id = ?
+                    WHERE id = ?
+                    """, arguments: StatementArguments(facts + v27 + [r.id.uuidString]))
+            }) { continue }
+            try db.execute(sql: """
+                INSERT INTO lab_report (id, patient_id, encounter_id, document_file_id, hospital, department, lab_name, report_no,
+                  specimen_type, specimen_no, test_class_text, clinical_diagnosis, collected_at, received_at, reported_at,
+                  send_doctor, test_doctor, review_doctor, source_card_id, source, confirmed, created_at, updated_at, report_source, health_exam_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, arguments: StatementArguments([target.uuidString] + facts + v27))
+        }
+    }
+
+    // MARK: - 阶段 12：趋势点（metric_sample）
+
+    func restoreMetrics() throws {
+        for m in envelope.metrics {
+            let restoredSourceRef = try sourceReference(m.sourceRef)
+            let selfMeasured = (m.selfMeasured ?? (m.origin != "hospital")) ? 1 : 0
+            let createdAt = (m.createdAt ?? m.measuredAt).timeIntervalSince1970
+            // v26 两列 + v27 体检回指：v1 包 adopt 不触碰本机既有 lab_report_id/abnormal_flag/health_exam_id；v2 包按备份全列采纳。
+            let labColumns = legacyEnvelope ? "" : ", lab_report_id = ?, abnormal_flag = ?, health_exam_id = ?"
+            let labArguments: [DatabaseValueConvertible?] = legacyEnvelope ? [] : [remap(m.labReportId)?.uuidString, m.abnormalFlag, remap(m.healthExamId)?.uuidString]
+            if try adoptOrSkip(metricConflicts, m.id, adopt: {
+                let base: [DatabaseValueConvertible?] = [patientID(m.patientId), m.key, m.value, m.secondaryValue,
+                                     m.unit, m.origin, selfMeasured, m.excluded ? 1 : 0, restoredSourceRef,
+                                     m.refLow, m.refHigh, m.refSourceLabel, m.rawLabel, m.codeConceptId,
+                                     m.valueMin, m.valueMax, m.sampleCount, m.sourceName, m.sourceVersion,
+                                     m.sourceProduct, m.sourceIdentifier, m.aggregationKind,
+                                     m.windowEnd?.timeIntervalSince1970, m.measuredAt.timeIntervalSince1970, createdAt]
+                try db.execute(sql: """
+                    UPDATE metric_sample SET patient_id = ?, metric_key = ?, value = ?, secondary_value = ?,
+                      unit = ?, origin = ?, self_measured = ?, excluded = ?, source_ref = ?,
+                      ref_low = ?, ref_high = ?, ref_source_label = ?, raw_label = ?, code_concept_id = ?,
+                      value_min = ?, value_max = ?, sample_count = ?, source_name = ?, source_version = ?,
+                      source_product = ?, source_identifier = ?, aggregation_kind = ?, window_end = ?,
+                      measured_at = ?, created_at = ?\(labColumns)
+                    WHERE id = ?
+                    """, arguments: StatementArguments(base + labArguments + [m.id.uuidString]))
+            }) { continue }
+            try db.execute(sql: """
+                INSERT INTO metric_sample
+                  (id, patient_id, metric_key, value, secondary_value, unit, origin, self_measured,
+                   excluded, source_ref, ref_low, ref_high, ref_source_label, raw_label, code_concept_id,
+                   value_min, value_max, sample_count, source_name, source_version, source_product,
+                   source_identifier, aggregation_kind, window_end, measured_at, created_at, lab_report_id, abnormal_flag, health_exam_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [(remap(m.id) ?? m.id).uuidString, patientID(m.patientId), m.key, m.value,
+                                 m.secondaryValue, m.unit, m.origin, selfMeasured, m.excluded ? 1 : 0,
+                                 restoredSourceRef, m.refLow, m.refHigh, m.refSourceLabel, m.rawLabel, m.codeConceptId,
+                                 m.valueMin, m.valueMax, m.sampleCount, m.sourceName, m.sourceVersion,
+                                 m.sourceProduct, m.sourceIdentifier, m.aggregationKind,
+                                 m.windowEnd?.timeIntervalSince1970, m.measuredAt.timeIntervalSince1970, createdAt,
+                                 remap(m.labReportId)?.uuidString, m.abnormalFlag, remap(m.healthExamId)?.uuidString])
+        }
+    }
+
+    // MARK: - 阶段 13：定性行（lab_result，随表头裁决 + park/settle）
+
+    /// v26（§C.12 第 9 位）定性行随表头裁决（keep 跳过 / adopt 整组换、本机回执指向的行保留 / 新增·coexist 直接 INSERT）。
+    func restoreLabResults() throws {
+        let labResultUpsert = """
+            ON CONFLICT(id) DO UPDATE SET patient_id=excluded.patient_id, lab_report_id=excluded.lab_report_id, ordinal=excluded.ordinal,
+              item_name=excluded.item_name, item_code_text=excluded.item_code_text, result_text=excluded.result_text, comparator=excluded.comparator,
+              unit=excluded.unit, reference_text=excluded.reference_text, abnormal_flag=excluded.abnormal_flag, method=excluded.method,
+              code_concept_id=excluded.code_concept_id, source_page=excluded.source_page, source_row_id=excluded.source_row_id, created_at=excluded.created_at
+            """
+        for (headerId, rows) in Dictionary(grouping: labResultRows, by: \.labReportId) {
+            let conflicting = labReportConflicts.contains(headerId.uuidString)
+            if conflicting, resolution(headerId) == .keep { continue }
+            let adopting = conflicting && resolution(headerId) == .adopt
+            let header = (remap(headerId) ?? headerId).uuidString
+            if adopting { try parkExistingLines(table: "lab_result", parentColumn: "lab_report_id", header: header) }
+            for row in rows.sorted(by: { $0.ordinal < $1.ordinal }) {
+                let identity: [DatabaseValueConvertible?] = [(remap(row.id) ?? row.id).uuidString, patientID(row.patientId), header, row.ordinal, row.itemName]
+                let facts: [DatabaseValueConvertible?] = [row.itemCodeText, row.resultText, row.comparator, row.unit, row.referenceText,
+                                                         row.abnormalFlag, row.method, row.codeConceptId]
+                let provenance: [DatabaseValueConvertible?] = [row.sourcePage, row.sourceRowId?.uuidString, row.createdAt.timeIntervalSince1970]
+                try db.execute(sql: """
+                    INSERT INTO lab_result (id, patient_id, lab_report_id, ordinal, item_name, item_code_text, result_text, comparator, unit,
+                      reference_text, abnormal_flag, method, code_concept_id, source_page, source_row_id, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    \(adopting ? labResultUpsert : "")
+                    """, arguments: StatementArguments(identity + facts + provenance))
+            }
+            if adopting {
+                try settleParkedLines(table: "lab_result", parentColumn: "lab_report_id", header: header, retainedBy: [
+                    "SELECT entity_id FROM ocr_card_commit WHERE entity_table = 'lab_result'",
+                ])
+            }
+        }
+    }
+
+    // MARK: - 阶段 14：OCR 就诊明细（encounter 列补全）
+
+    func restoreOCREncounterDetails() throws {
+        for details in envelope.ocrEncounterDetails ?? [] {
+            if encConflicts.contains(details.id.uuidString), resolution(details.id) == .keep { continue }
+            try db.execute(sql: """
+                UPDATE encounter SET hospital = ?, department = ?, doctor = ?, chief_complaint = ?, advice_text = ?,
+                  follow_up_requirement = ?, fee_amount = ?, rescheduled_from_id = ?, created_at = ?, updated_at = ? WHERE id = ?
+                """, arguments: [details.hospital, details.department, details.doctor, details.chiefComplaint, details.adviceText,
+                    details.followUpRequirement, details.feeAmount, remap(details.rescheduledFromId)?.uuidString,
+                    details.createdAt.timeIntervalSince1970, details.updatedAt.timeIntervalSince1970,
+                    (remap(details.id) ?? details.id).uuidString])
+            guard db.changesCount == 1 else { throw ExportService.ExportError.invalidOCRBackup }
+        }
+    }
+
+    // MARK: - 阶段 15：处方表头（prescription）
+
+    func restorePrescriptions() throws {
+        for prescription in envelope.ocrPrescriptions ?? [] {
+            let target = remap(prescription.id) ?? prescription.id
+            let owner = patientID(prescription.patientId)
+            let source = remap(prescription.documentId)?.uuidString
+            let head: [DatabaseValueConvertible?] = [owner, source, remap(prescription.encounterId)?.uuidString, prescription.source,
+                prescription.hospital, prescription.doctor, prescription.prescribedAt?.timeIntervalSince1970, prescription.adviceText]
+            // v25（§C.6）表头七列
+            let header: [DatabaseValueConvertible?] = [prescription.department, prescription.prescriptionNo, prescription.prescriptionType,
+                prescription.feeTypeText, prescription.clinicalDiagnosis, prescription.pharmacistNames, prescription.totalAmount]
+            let stamps: [DatabaseValueConvertible?] = [prescription.createdAt.timeIntervalSince1970, prescription.updatedAt.timeIntervalSince1970]
+            if try adoptOrSkip(prescriptionConflicts, prescription.id, adopt: {
+                if legacyEnvelope {
+                    try db.execute(sql: """
+                        UPDATE prescription SET patient_id = ?, document_file_id = ?, encounter_id = ?, source = ?,
+                          hospital = ?, doctor = ?, prescribed_at = ?, advice_text = ?, confirmed = 1, created_at = ?, updated_at = ? WHERE id = ?
+                        """, arguments: StatementArguments(head + stamps + [target.uuidString]))
+                    return
+                }
+                try db.execute(sql: """
+                    UPDATE prescription SET patient_id = ?, document_file_id = ?, encounter_id = ?, source = ?,
+                      hospital = ?, doctor = ?, prescribed_at = ?, advice_text = ?,
+                      department = ?, prescription_no = ?, prescription_type = ?, fee_type_text = ?, clinical_diagnosis = ?,
+                      pharmacist_names = ?, total_amount = ?, confirmed = 1, created_at = ?, updated_at = ? WHERE id = ?
+                    """, arguments: StatementArguments(head + header + stamps + [target.uuidString]))
+            }) { continue }
+            try db.execute(sql: """
+                INSERT INTO prescription (id, patient_id, document_file_id, encounter_id, source, hospital, doctor,
+                  prescribed_at, advice_text, department, prescription_no, prescription_type, fee_type_text, clinical_diagnosis,
+                  pharmacist_names, total_amount, confirmed, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+                """, arguments: StatementArguments([target.uuidString] + head + header + stamps))
+        }
+    }
+
+    // MARK: - 阶段 16：keep 文档页完整性（来源页不得静默换版本）
+
+    /// A kept source cannot silently supply another version's pages to newly restored facts.
+    func verifyKeptDocumentPages() throws {
+        for document in envelope.documents ?? [] where timelineConflicts.contains(document.id.uuidString) && resolution(document.id) == .keep {
+            let referenced = try envelope.metrics.contains { metric in
+                guard !(metricConflicts.contains(metric.id.uuidString) && resolution(metric.id) == .keep),
+                      let ref = metric.sourceRef, ref.hasPrefix("doc:") else { return false }
+                return try ExportService.documentReference(ref).0 == document.id
+            } || (envelope.ocrCardCommits ?? []).contains { audit in
+                audit.documentId == document.id && !receiptKept(audit)   // 行回执随其表头裁决
+            }
+            if referenced {
+                let localPages = try ExportService.ocrPages(document.id, db: db)
+                let localHash = try String.fetchOne(db, sql: "SELECT sha256 FROM document_file WHERE id = ?", arguments: [document.id.uuidString])
+                guard localHash == document.sha256,
+                      document.pages == nil || localPages == document.pages?.sorted(by: { $0.index < $1.index }) else {
+                    throw ExportService.ExportError.invalidOCRBackup
+                }
+            }
+        }
+    }
+
+    // MARK: - 阶段 17：药品目录（medication upsert）
+
+    func restoreMedications() throws {
+        for medication in envelope.ocrMedications ?? [] {
+            let target = remap(medication.id) ?? medication.id
+            if conflictSets["medication", default: []].contains(medication.id.uuidString), resolution(medication.id) == .keep { continue }
+            try db.execute(sql: """
+                INSERT INTO medication (id, patient_id, generic_name, brand_name, spec, unit_kind, drug_key, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET patient_id=excluded.patient_id, generic_name=excluded.generic_name,
+                  brand_name=excluded.brand_name, spec=excluded.spec, unit_kind=excluded.unit_kind, drug_key=excluded.drug_key,
+                  created_at=excluded.created_at, updated_at=excluded.updated_at
+                """, arguments: [target.uuidString, patientID(medication.patientId), medication.genericName,
+                    medication.brandName, medication.spec, medication.unitKind, medication.drugKey,
+                    medication.createdAt.timeIntervalSince1970, medication.updatedAt.timeIntervalSince1970])
+        }
+    }
+
+    // MARK: - 阶段 18：处方行（随表头裁决 + park/settle）
+
+    /// v25（§C.12 第 4 位）处方行：表头与药品都已落库（prescription_line.medication_id → medication 外键），行随表头裁决：
+    ///   keep → 整组跳过；adopt → 本机既有行先挪到负 ordinal 区，备份行按 id upsert（同 id 覆盖、异 id 新增），
+    ///   再删多余本机行——但被 stock_lot 引用（FK，用户显式建立的药箱链接）或被本机回执指向（备份之后又确认的页；
+    ///   ocr_result 只增不改，回执不得悬空）的行挪回尾部保留；新增 / coexist → 直接 INSERT（coexist 的行 id 已随表头
+    ///   一并重写）。UNIQUE(prescription_id, ordinal) 全程不撞车。
+    func restorePrescriptionLines() throws {
+        /// 行的药品目录链接只在目标库存在**同成员**药品时写回（用药计划恢复新建药品行、id 不保留；不伪造外键目标、不跨成员）。
+        func restoredMedication(_ id: UUID?, patient: String) throws -> String? {
+            guard let id else { return nil }
+            let target = (remap(id) ?? id).uuidString
+            let present = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM medication WHERE id = ? AND patient_id = ?", arguments: [target, patient]) ?? 0
+            return present == 1 ? target : nil
+        }
+        let prescriptionLineUpsert = """
+            ON CONFLICT(id) DO UPDATE SET prescription_id=excluded.prescription_id, patient_id=excluded.patient_id, ordinal=excluded.ordinal,
+              printed_name=excluded.printed_name, generic_name=excluded.generic_name, brand_name=excluded.brand_name, drug_form=excluded.drug_form,
+              spec=excluded.spec, dose_text=excluded.dose_text, dose_unit=excluded.dose_unit, quantity_text=excluded.quantity_text,
+              quantity_unit=excluded.quantity_unit, frequency_text=excluded.frequency_text, route_text=excluded.route_text,
+              duration_text=excluded.duration_text, start_date=excluded.start_date, end_date=excluded.end_date, as_needed_text=excluded.as_needed_text,
+              medication_notes=excluded.medication_notes, note=excluded.note, raw_text=excluded.raw_text, insurance_code=excluded.insurance_code,
+              item_code_text=excluded.item_code_text, unit_price=excluded.unit_price, amount=excluded.amount, medication_id=excluded.medication_id,
+              source_page=excluded.source_page, source_row_id=excluded.source_row_id, confirmed=excluded.confirmed,
+              created_at=excluded.created_at, updated_at=excluded.updated_at
+            """
+        for (headerId, lines) in Dictionary(grouping: prescriptionLineRows, by: \.prescriptionId) {
+            let conflicting = prescriptionConflicts.contains(headerId.uuidString)
+            if conflicting, resolution(headerId) == .keep { continue }
+            let adopting = conflicting && resolution(headerId) == .adopt
+            let header = (remap(headerId) ?? headerId).uuidString
+            if adopting { try parkExistingLines(table: "prescription_line", parentColumn: "prescription_id", header: header) }
+            for line in lines.sorted(by: { $0.ordinal < $1.ordinal }) {
+                let patient = patientID(line.patientId)
+                let medication = try restoredMedication(line.medicationId, patient: patient)
+                let identity: [DatabaseValueConvertible?] = [(remap(line.id) ?? line.id).uuidString, header, patient, line.ordinal, line.printedName]
+                let texts: [DatabaseValueConvertible?] = [line.genericName, line.brandName, line.drugForm, line.spec, line.doseText, line.doseUnit,
+                    line.quantityText, line.quantityUnit, line.frequencyText, line.routeText, line.durationText]
+                let facts: [DatabaseValueConvertible?] = [line.startDate?.timeIntervalSince1970, line.endDate?.timeIntervalSince1970, line.asNeededText,
+                    line.medicationNotes, line.note, line.rawText, line.insuranceCode, line.itemCodeText, line.unitPrice, line.amount, medication]
+                let provenance: [DatabaseValueConvertible?] = [line.sourcePage, line.sourceRowId?.uuidString, line.confirmed ? 1 : 0,
+                    line.createdAt.timeIntervalSince1970, line.updatedAt.timeIntervalSince1970]
+                try db.execute(sql: """
+                    INSERT INTO prescription_line (id, prescription_id, patient_id, ordinal, printed_name, generic_name, brand_name, drug_form, spec,
+                      dose_text, dose_unit, quantity_text, quantity_unit, frequency_text, route_text, duration_text, start_date, end_date, as_needed_text,
+                      medication_notes, note, raw_text, insurance_code, item_code_text, unit_price, amount, medication_id, source_page, source_row_id,
+                      confirmed, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    \(adopting ? prescriptionLineUpsert : "")
+                    """, arguments: StatementArguments(identity + texts + facts + provenance))
+            }
+            if adopting {
+                try settleParkedLines(table: "prescription_line", parentColumn: "prescription_id", header: header, retainedBy: [
+                    "SELECT prescription_line_id FROM stock_lot WHERE prescription_line_id IS NOT NULL",
+                    "SELECT entity_id FROM ocr_card_commit WHERE entity_table = 'prescription_line'",
+                ])
+            }
+        }
+    }
+
+    // MARK: - 阶段 19：票据表头（claim_item）
+
+    func restoreClaims() throws {
+        for claim in envelope.claims ?? [] {
+            let target = remap(claim.id) ?? claim.id
+            if claimConflicts.contains(claim.id.uuidString), resolution(claim.id) == .keep { continue }
+            let head: [DatabaseValueConvertible?] = [target.uuidString, patientID(claim.patientId), remap(claim.encounterId)?.uuidString,
+                remap(claim.documentId)?.uuidString, claim.itemType, claim.amount, claim.currency, claim.date?.timeIntervalSince1970,
+                claim.merchant, claim.summary, claim.createdAt.timeIntervalSince1970, claim.updatedAt.timeIntervalSince1970]
+            if legacyEnvelope {
+                // v1 包：原十列 upsert，v25 五列保持本机现值（新增行为 NULL）
+                try db.execute(sql: """
+                    INSERT INTO claim_item (id, patient_id, encounter_id, document_file_id, item_type, amount, currency, date, merchant, summary, confirmed, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET patient_id=excluded.patient_id, encounter_id=excluded.encounter_id,
+                      document_file_id=excluded.document_file_id, item_type=excluded.item_type, amount=excluded.amount,
+                      currency=excluded.currency, date=excluded.date, merchant=excluded.merchant, summary=excluded.summary,
+                      confirmed=1, created_at=excluded.created_at, updated_at=excluded.updated_at
+                    """, arguments: StatementArguments(head))
+                continue
+            }
+            // v25（§C.7）票面支付三分 / 票据号 / 医保类型
+            let v25: [DatabaseValueConvertible?] = [claim.reimbursedAmount, claim.outOfPocket, claim.personalAccountAmount, claim.invoiceNo, claim.insuranceTypeText]
+            try db.execute(sql: """
+                INSERT INTO claim_item (id, patient_id, encounter_id, document_file_id, item_type, amount, currency, date, merchant, summary, confirmed, created_at, updated_at,
+                  reimbursed_amount, out_of_pocket, personal_account_amount, invoice_no, insurance_type_text)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET patient_id=excluded.patient_id, encounter_id=excluded.encounter_id,
+                  document_file_id=excluded.document_file_id, item_type=excluded.item_type, amount=excluded.amount,
+                  currency=excluded.currency, date=excluded.date, merchant=excluded.merchant, summary=excluded.summary,
+                  confirmed=1, created_at=excluded.created_at, updated_at=excluded.updated_at,
+                  reimbursed_amount=excluded.reimbursed_amount, out_of_pocket=excluded.out_of_pocket,
+                  personal_account_amount=excluded.personal_account_amount, invoice_no=excluded.invoice_no, insurance_type_text=excluded.insurance_type_text
+                """, arguments: StatementArguments(head + v25))
+        }
+    }
+
+    // MARK: - 阶段 20：费用明细行（随表头裁决 + park/settle）
+
+    /// v25（§C.12 第 6 位）费用明细行：与处方行同一「行随表头裁决」纪律（claim_line 无 FK 引用；adopt 多余行只保留被本机回执指向者）。
+    func restoreClaimLines() throws {
+        let claimLineUpsert = """
+            ON CONFLICT(id) DO UPDATE SET claim_item_id=excluded.claim_item_id, patient_id=excluded.patient_id, ordinal=excluded.ordinal,
+              item_name=excluded.item_name, item_code_text=excluded.item_code_text, insurance_code=excluded.insurance_code, spec=excluded.spec,
+              unit_price=excluded.unit_price, quantity_text=excluded.quantity_text, quantity_unit=excluded.quantity_unit, amount=excluded.amount,
+              fee_category_text=excluded.fee_category_text, fee_at=excluded.fee_at, executing_dept=excluded.executing_dept,
+              self_pay_ratio_text=excluded.self_pay_ratio_text, raw_text=excluded.raw_text, source_page=excluded.source_page,
+              source_row_id=excluded.source_row_id, created_at=excluded.created_at
+            """
+        for (headerId, lines) in Dictionary(grouping: claimLineRows, by: \.claimItemId) {
+            let conflicting = claimConflicts.contains(headerId.uuidString)
+            if conflicting, resolution(headerId) == .keep { continue }
+            let adopting = conflicting && resolution(headerId) == .adopt
+            let header = (remap(headerId) ?? headerId).uuidString
+            if adopting { try parkExistingLines(table: "claim_line", parentColumn: "claim_item_id", header: header) }
+            for line in lines.sorted(by: { $0.ordinal < $1.ordinal }) {
+                let identity: [DatabaseValueConvertible?] = [(remap(line.id) ?? line.id).uuidString, header, patientID(line.patientId), line.ordinal, line.itemName]
+                let facts: [DatabaseValueConvertible?] = [line.itemCodeText, line.insuranceCode, line.spec, line.unitPrice, line.quantityText, line.quantityUnit,
+                    line.amount, line.feeCategoryText, line.feeAt?.timeIntervalSince1970, line.executingDept, line.selfPayRatioText, line.rawText]
+                let provenance: [DatabaseValueConvertible?] = [line.sourcePage, line.sourceRowId?.uuidString, line.createdAt.timeIntervalSince1970]
+                try db.execute(sql: """
+                    INSERT INTO claim_line (id, claim_item_id, patient_id, ordinal, item_name, item_code_text, insurance_code, spec, unit_price,
+                      quantity_text, quantity_unit, amount, fee_category_text, fee_at, executing_dept, self_pay_ratio_text, raw_text,
+                      source_page, source_row_id, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    \(adopting ? claimLineUpsert : "")
+                    """, arguments: StatementArguments(identity + facts + provenance))
+            }
+            if adopting {
+                try settleParkedLines(table: "claim_line", parentColumn: "claim_item_id", header: header, retainedBy: [
+                    "SELECT entity_id FROM ocr_card_commit WHERE entity_table = 'claim_line'",
+                ])
+            }
+        }
+    }
+
+    // MARK: - 阶段 21：检查报告（exam_report）
+
+    /// v26（§C.12 第 10 位）检查报告：独立裁决（keep / adopt 全列 / coexist 新 id）；就诊与文档已先落库。
+    func restoreExamReports() throws {
+        for r in envelope.examReports ?? [] {
+            let facts: [DatabaseValueConvertible?] = [
+                patientID(r.patientId), remap(r.encounterId)?.uuidString, remap(r.documentFileId)?.uuidString, r.reportType,
+                r.hospital, r.department, r.reportNo, r.examPart, r.examMethod,
+                r.examAt?.timeIntervalSince1970, r.reportedAt?.timeIntervalSince1970, r.findings, r.impression,
+                r.applyDoctor, r.reportDoctor, r.reviewDoctor, r.source.rawValue, r.confirmed ? 1 : 0,
+                r.createdAt.timeIntervalSince1970, r.updatedAt.timeIntervalSince1970,
+            ]
+            let v27: [DatabaseValueConvertible?] = [r.reportSource, remap(r.healthExamId)?.uuidString]
+            if try adoptOrSkip(examConflicts, r.id, adopt: {
+                try db.execute(sql: """
+                    UPDATE exam_report SET patient_id = ?, encounter_id = ?, document_file_id = ?, report_type = ?,
+                      hospital = ?, department = ?, report_no = ?, exam_part = ?, exam_method = ?, exam_at = ?, reported_at = ?,
+                      findings = ?, impression = ?, apply_doctor = ?, report_doctor = ?, review_doctor = ?,
+                      source = ?, confirmed = ?, created_at = ?, updated_at = ?, report_source = ?, health_exam_id = ?
+                    WHERE id = ?
+                    """, arguments: StatementArguments(facts + v27 + [r.id.uuidString]))
+            }) { continue }
+            try db.execute(sql: """
+                INSERT INTO exam_report (id, patient_id, encounter_id, document_file_id, report_type, hospital, department, report_no, exam_part, exam_method,
+                  exam_at, reported_at, findings, impression, apply_doctor, report_doctor, review_doctor, source, confirmed, created_at, updated_at,
+                  report_source, health_exam_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, arguments: StatementArguments([(remap(r.id) ?? r.id).uuidString] + facts + v27))
+        }
+    }
+
+    // MARK: - 阶段 22：结论行（随父裁决 + park/settle）
+
+    /// v27 结论行：随其父（体检 / 检验表头 / 检查报告——三者均已落库）裁决：父 keep → 跳过；父 adopt → 整组换（本机回执指向的行保留）；
+    /// 新增 / coexist（id 已随父重写）直接 INSERT。父按 (表, id) 分组，ordinal 经 park/settle 不撞既有行。
+    func restoreConclusions() throws {
+        let conclusionUpsert = """
+            ON CONFLICT(id) DO UPDATE SET patient_id=excluded.patient_id, lab_report_id=excluded.lab_report_id, exam_report_id=excluded.exam_report_id,
+              health_exam_id=excluded.health_exam_id, conclusion_type=excluded.conclusion_type, content=excluded.content, severity_text=excluded.severity_text,
+              ordinal=excluded.ordinal, source_page=excluded.source_page, source_row_id=excluded.source_row_id, created_at=excluded.created_at
+            """
+        let conclusionPairs = conclusionRows.compactMap { c -> (parent: (table: String, id: UUID), row: ClinicalConclusion)? in
+            guard let parent = conclusionParent(c) else { return nil }
+            return (parent: parent, row: c)
+        }
+        let conclusionGroups = Dictionary(grouping: conclusionPairs) { $0.parent.table + "/" + $0.parent.id.uuidString }
+        for (_, group) in conclusionGroups.sorted(by: { $0.key < $1.key }) {
+            guard let parent = group.first?.parent else { continue }
+            let conflicting = conflictSets[parent.table, default: []].contains(parent.id.uuidString)
+            if conflicting, resolution(parent.id) == .keep { continue }
+            let adopting = conflicting && resolution(parent.id) == .adopt
+            let column = parent.table + "_id"
+            let header = (remap(parent.id) ?? parent.id).uuidString
+            if adopting { try parkExistingLines(table: "clinical_conclusion", parentColumn: column, header: header) }
+            for row in group.map(\.row).sorted(by: { $0.ordinal < $1.ordinal }) {
+                let parents: [DatabaseValueConvertible?] = [
+                    parent.table == "lab_report" ? header : nil, parent.table == "exam_report" ? header : nil, parent.table == "health_exam" ? header : nil,
+                ]
+                let identity: [DatabaseValueConvertible?] = [(remap(row.id) ?? row.id).uuidString, patientID(row.patientId)]
+                let facts: [DatabaseValueConvertible?] = [row.conclusionType, row.content, row.severityText, row.ordinal,
+                                                         row.sourcePage, row.sourceRowId?.uuidString, row.createdAt.timeIntervalSince1970]
+                try db.execute(sql: """
+                    INSERT INTO clinical_conclusion (id, patient_id, lab_report_id, exam_report_id, health_exam_id, conclusion_type, content, severity_text,
+                      ordinal, source_page, source_row_id, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    \(adopting ? conclusionUpsert : "")
+                    """, arguments: StatementArguments(identity + parents + facts))
+            }
+            if adopting {
+                try settleParkedLines(table: "clinical_conclusion", parentColumn: column, header: header, retainedBy: [
+                    "SELECT entity_id FROM ocr_card_commit WHERE entity_table = 'clinical_conclusion'",
+                ])
+            }
+        }
+    }
+
+    // MARK: - 阶段 23：回执（ocr_card_commit 末位落库）
+
+    /// 回执末位落库（§C.12）：entity_table 沿 JSON 值（旧包缺省 = cardKind，insertReceipt 同口径），
+    /// entity_id 经同一 idMap 重写——表头回执指表头、行回执指行（行 id 已随表头 coexist 一并重写）。
+    func restoreReceipts() throws {
+        let auditMap = Dictionary(uniqueKeysWithValues: existingAudits.map { ("\($0.cardId.uuidString)/\($0.rowId.uuidString)", $0) })
+        for original in envelope.ocrCardCommits ?? [] {
+            if receiptKept(original) { continue }
+            var audit = original
+            audit.cardId = cardMap[original.cardId] ?? original.cardId
+            audit.patientId = remap(original.patientId) ?? original.patientId
+            audit.documentId = remap(original.documentId) ?? original.documentId
+            audit.entityId = remap(original.entityId) ?? original.entityId
+            audit.encounterId = remap(original.encounterId)
+            if let existing = auditMap["\(audit.cardId.uuidString)/\(audit.rowId.uuidString)"] {
+                var immutable = existing
+                immutable.encounterId = audit.encounterId
+                guard immutable == audit else { throw ExportService.ExportError.invalidOCRBackup }
+                if existing.encounterId != audit.encounterId {
+                    let governor = receiptGovernor(original)
+                    guard conflictSets[governor.table, default: []].contains(governor.header.uuidString),
+                          resolution(governor.header) == .adopt else { throw ExportService.ExportError.invalidOCRBackup }
+                    try db.execute(sql: "UPDATE ocr_card_commit SET encounter_id = ? WHERE card_id = ? AND row_id = ? AND patient_id = ?",
+                        arguments: [audit.encounterId?.uuidString, audit.cardId.uuidString, audit.rowId.uuidString, audit.patientId.uuidString])
+                }
+                continue
+            }
+            try OCRCardStore.insertReceipt(audit, db: db)
+        }
+    }
+
+    // MARK: - 阶段 24：告警事件（alert_event + 通知归档）
+
+    func restoreAlertEvents() throws {
+        func archiveRestoredAlert(_ id: UUID) throws {
+            try db.execute(sql: """
+                INSERT INTO notification_state (item_key, kind, archived_at) VALUES (?, 'notification', ?)
+                ON CONFLICT(item_key) DO UPDATE SET archived_at = excluded.archived_at
+                """, arguments: ["alert-\(id.uuidString)", Date().timeIntervalSince1970])
+        }
+        for a in envelope.alertEvents ?? [] {
+            // History must not re-enter HealthKitSyncService's pending/deferred retry query.
+            // "restored" claims neither delivery nor a new scheduled_at timestamp.
+            let deliveredState = a.deliveredState == "pending" || a.deliveredState == "deferred"
+                ? "restored" : a.deliveredState
+            if try adoptOrSkip(alertConflicts, a.id, adopt: {
+                try db.execute(sql: """
+                    UPDATE alert_event SET patient_id = ?, rule_id = ?, severity = ?, evidence_json = ?,
+                      qualified = ?, scheduled_at = ?, delivered_state = ?, created_at = ?
+                    WHERE id = ?
+                    """, arguments: [patientID(a.patientId), a.ruleId, a.severity, a.evidenceJson,
+                                     (a.qualified ?? false) ? 1 : 0, a.scheduledAt?.timeIntervalSince1970,
+                                     deliveredState, a.createdAt.timeIntervalSince1970, a.id.uuidString])
+                try archiveRestoredAlert(a.id)
+            }) { continue }
+            try db.execute(sql: """
+                INSERT INTO alert_event
+                  (id, patient_id, rule_id, severity, evidence_json, qualified, scheduled_at, delivered_state, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [(remap(a.id) ?? a.id).uuidString, patientID(a.patientId), a.ruleId,
+                                 a.severity, a.evidenceJson, (a.qualified ?? false) ? 1 : 0,
+                                 a.scheduledAt?.timeIntervalSince1970, deliveredState, a.createdAt.timeIntervalSince1970])
+            try archiveRestoredAlert(remap(a.id) ?? a.id)
+        }
+    }
+
+    // MARK: - 阶段 25：健康同步检查点失效（恢复事实后本地游标不再可信）
+
+    func invalidateHKCheckpoints() throws {
+        if envelope.owner != nil || envelope.metrics.contains(where: { $0.origin == "device" }) {
+            // Restoring facts invalidates local checkpoints and in-flight binding tokens, not read permissions.
+            try db.execute(sql: "DELETE FROM hk_sample_index; DELETE FROM hk_sync_anchor; DELETE FROM hk_import_binding;")
+        }
+    }
+
+    // MARK: - 阶段 26：免疫接种（immunization）
+
+    func restoreImmunizations() throws {
+        for i in envelope.immunizations {
+            if try adoptOrSkip(immConflicts, i.id, adopt: {
+                // 审查修复（ADR-019 采纳语义）：旧 UPDATE 只改 3 列，备份的
+                // 批号/剂次（追溯核心）与提供者等被静默丢弃，恢复后记录是
+                // 本地+备份的混合态——与其余各表全列采纳口径不一致
+                // 审查修复（全列 UPDATE 的 NULL 与降级陷阱）：旧备份缺
+                // source/confirmed 键时——source 直绑 NULL 违反 NOT NULL
+                // 令整个恢复事务回滚；confirmed 落 0 把本地已确认记录
+                // 静默降级。source 与 INSERT 同口径回落 'manual'；
+                // confirmed 缺失时 COALESCE 保留本地现值（不降级）。
+                try db.execute(sql: """
+                    UPDATE immunization SET patient_id = ?, vaccine_name = ?, dose_number = ?,
+                      administered_at = ?, provider = ?, lot_number = ?, encounter_id = ?,
+                      source = COALESCE(?, 'manual'), confirmed = COALESCE(?, confirmed),
+                      adverse_reaction_id = ?
+                    WHERE id = ?
+                    """, arguments: [patientID(i.patientId), i.vaccineName,
+                                     i.doseNumber, i.administeredAt.timeIntervalSince1970,
+                                      i.provider, i.lotNumber, remap(i.encounterId)?.uuidString,
+                                     i.source, (i.confirmed).map { $0 ? 1 : 0 },
+                                      remap(i.adverseReactionId)?.uuidString,
+                                     i.id.uuidString])
+            }) { continue }
+            try db.execute(sql: """
+                INSERT INTO immunization (id, patient_id, vaccine_name, dose_number, administered_at,
+                                          provider, lot_number, encounter_id, source, confirmed,
+                                          adverse_reaction_id, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [(remap(i.id) ?? i.id).uuidString, patientID(i.patientId), i.vaccineName,
+                                 i.doseNumber, i.administeredAt.timeIntervalSince1970,
+                                  i.provider, i.lotNumber, remap(i.encounterId)?.uuidString,
+                                 i.source ?? "manual", (i.confirmed ?? false) ? 1 : 0,
+                                  remap(i.adverseReactionId)?.uuidString,
+                                 i.administeredAt.timeIntervalSince1970, i.administeredAt.timeIntervalSince1970])
+        }
+    }
+
+    // MARK: - 阶段 27：语音备忘（voice_note）
+
+    func restoreVoiceNotes() throws {
+        for v in envelope.voiceNotes {
+            if try adoptOrSkip(noteConflicts, v.id, adopt: {
+                let tagsJSON = String(data: (try JSONEncoder().encode(v.tags)), encoding: .utf8) ?? "[]"
+                try db.execute(sql: """
+                    UPDATE voice_note SET patient_id = ?, body = ?, occurred_at = ?, tags = ?, in_timeline = ?
+                    WHERE id = ?
+                    """, arguments: [(remap(v.patientId) ?? v.patientId)?.uuidString ?? "", v.body,
+                                     v.occurredAt.timeIntervalSince1970, tagsJSON, v.inTimeline ? 1 : 0, v.id.uuidString])
+            }) { continue }
+            let tagsJSON = String(data: (try JSONEncoder().encode(v.tags)), encoding: .utf8) ?? "[]"
+            try db.execute(sql: """
+                INSERT INTO voice_note (id, patient_id, body, occurred_at, tags, in_timeline, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [(remap(v.id) ?? v.id).uuidString, patientID(v.patientId), v.body,
+                                 v.occurredAt.timeIntervalSince1970, tagsJSON, v.inTimeline ? 1 : 0,
+                                 v.occurredAt.timeIntervalSince1970, v.occurredAt.timeIntervalSince1970])
+        }
+    }
+
+    // MARK: - 阶段 28：敏感标记回写（BR-007/008 链必须随往返保持）
+
+    /// 第六轮全仓审查修复：keep 裁决的行绝不触碰（ADR-019）——原实现
+    /// 无条件回写 is_sensitive=1，用户「保留本机」且本机已解除敏感
+    /// 标记的行被备份值反改回敏感（与 docEncounterLinks 同族残根）
+    func restoreSensitiveFlags() throws {
+        for docId in envelope.sensitiveDocIds {
+            if timelineConflicts.contains(docId.uuidString), resolution(docId) == .keep {
+                continue
+            }
+            try db.execute(sql: "UPDATE document_file SET is_sensitive = 1 WHERE id = ?",
+                           arguments: [(remap(docId) ?? docId).uuidString])
+        }
+    }
+
+    // MARK: - 阶段 29：健康问题（health_problem）
+
+    func restoreHealthProblems() throws {
+        for h in envelope.healthProblems {
+            if try adoptOrSkip(problemConflicts, h.id, adopt: {
+                try db.execute(sql: """
+                    UPDATE health_problem SET patient_id = ?, name = ?, kind = ?, archived = ?, created_at = ?
+                    WHERE id = ?
+                    """, arguments: [(remap(h.patientId) ?? h.patientId)?.uuidString ?? "", h.name,
+                                     h.kind, h.archived ? 1 : 0,
+                                     h.createdAt.timeIntervalSince1970, h.id.uuidString])
+            }) { continue }
+            try db.execute(sql: """
+                INSERT INTO health_problem (id, patient_id, name, kind, archived, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [(remap(h.id) ?? h.id).uuidString, patientID(h.patientId), h.name,
+                                  h.kind, h.archived ? 1 : 0,
+                                  h.createdAt.timeIntervalSince1970, h.createdAt.timeIntervalSince1970])
+        }
+    }
+
+    // MARK: - 阶段 30：诊断（diagnosis）
+
+    /// v26（§C.12 第 11 位）诊断：置于 health_problem 之后（health_problem_id 外键）；独立裁决；回执已落，末位校验兜底。
+    func restoreDiagnoses() throws {
+        for d in envelope.diagnoses ?? [] {
+            let facts: [DatabaseValueConvertible?] = [
+                patientID(d.patientId), remap(d.encounterId)?.uuidString, d.ordinal, d.diagnosisType, d.name, d.codeText, d.codeSystemText,
+                d.diagnosedAt?.timeIntervalSince1970, remap(d.healthProblemId)?.uuidString, d.note, d.sourcePage, d.sourceRowId?.uuidString,
+                remap(d.documentFileId)?.uuidString, d.confirmed ? 1 : 0, d.createdAt.timeIntervalSince1970, d.updatedAt.timeIntervalSince1970,
+            ]
+            if try adoptOrSkip(diagnosisConflicts, d.id, adopt: {
+                try db.execute(sql: """
+                    UPDATE diagnosis SET patient_id = ?, encounter_id = ?, ordinal = ?, diagnosis_type = ?, name = ?, code_text = ?, code_system_text = ?,
+                      diagnosed_at = ?, health_problem_id = ?, note = ?, source_page = ?, source_row_id = ?, document_file_id = ?,
+                      confirmed = ?, created_at = ?, updated_at = ?
+                    WHERE id = ?
+                    """, arguments: StatementArguments(facts + [d.id.uuidString]))
+            }) { continue }
+            try db.execute(sql: """
+                INSERT INTO diagnosis (id, patient_id, encounter_id, ordinal, diagnosis_type, name, code_text, code_system_text, diagnosed_at,
+                  health_problem_id, note, source_page, source_row_id, document_file_id, confirmed, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, arguments: StatementArguments([(remap(d.id) ?? d.id).uuidString] + facts))
+        }
+    }
+
+    // MARK: - 阶段 31：手术（surgery）
+
+    /// v27（原 D3 §C.8 / §C.9）手术 / 治疗记录：独立裁决（keep / adopt 全列 / coexist 新 id）；就诊与文档已先落库。
+    func restoreSurgeries() throws {
+        for s in envelope.surgeries ?? [] {
+            let head: [DatabaseValueConvertible?] = [patientID(s.patientId), remap(s.encounterId)?.uuidString, remap(s.documentFileId)?.uuidString]
+            let facts = OCRCardStore.surgeryFacts(s)
+            let stamps: [DatabaseValueConvertible?] = [s.source.rawValue, s.confirmed ? 1 : 0, s.createdAt.timeIntervalSince1970, s.updatedAt.timeIntervalSince1970]
+            if try adoptOrSkip(surgeryConflicts, s.id, adopt: {
+                try db.execute(sql: """
+                    UPDATE surgery SET patient_id = ?, encounter_id = ?, document_file_id = ?, hospital = ?, department = ?, surgery_at = ?, ended_at = ?,
+                      surgery_name = ?, surgery_code_text = ?, surgery_level_text = ?, surgeon = ?, assistants = ?, anesthesiologist = ?, anesthesia_method = ?,
+                      preop_diagnosis_text = ?, postop_diagnosis_text = ?, procedure_course = ?, intraop_findings = ?,
+                      implants_text = ?, specimen_text = ?, blood_loss_text = ?, transfusion_text = ?, drainage_text = ?, postop_orders = ?, complications_text = ?,
+                      source = ?, confirmed = ?, created_at = ?, updated_at = ?
+                    WHERE id = ?
+                    """, arguments: StatementArguments(head + facts + stamps + [s.id.uuidString]))
+            }) { continue }
+            try db.execute(sql: """
+                INSERT INTO surgery (id, patient_id, encounter_id, document_file_id, hospital, department, surgery_at, ended_at,
+                  surgery_name, surgery_code_text, surgery_level_text, surgeon, assistants, anesthesiologist, anesthesia_method,
+                  preop_diagnosis_text, postop_diagnosis_text, procedure_course, intraop_findings,
+                  implants_text, specimen_text, blood_loss_text, transfusion_text, drainage_text, postop_orders, complications_text,
+                  source, confirmed, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, arguments: StatementArguments([(remap(s.id) ?? s.id).uuidString] + head + facts + stamps))
+        }
+    }
+
+    // MARK: - 阶段 32：治疗记录（treatment_record）
+
+    func restoreTreatments() throws {
+        for t in envelope.treatmentRecords ?? [] {
+            var record = t
+            record.allergyEventId = remap(t.allergyEventId)
+            let head: [DatabaseValueConvertible?] = [patientID(t.patientId), remap(t.encounterId)?.uuidString, remap(t.documentFileId)?.uuidString]
+            let facts = OCRCardStore.treatmentFacts(record)
+            let stamps: [DatabaseValueConvertible?] = [t.source.rawValue, t.confirmed ? 1 : 0, t.createdAt.timeIntervalSince1970, t.updatedAt.timeIntervalSince1970]
+            if try adoptOrSkip(treatmentConflicts, t.id, adopt: {
+                try db.execute(sql: """
+                    UPDATE treatment_record SET patient_id = ?, encounter_id = ?, document_file_id = ?, treatment_type = ?, treated_at = ?,
+                      hospital = ?, department = ?, doctor = ?, executor = ?, diagnosis_text = ?, content = ?, drugs_text = ?, session_text = ?,
+                      adverse_reaction_text = ?, allergy_event_id = ?, result_text = ?, note = ?, source = ?, confirmed = ?, created_at = ?, updated_at = ?
+                    WHERE id = ?
+                    """, arguments: StatementArguments(head + facts + stamps + [t.id.uuidString]))
+            }) { continue }
+            try db.execute(sql: """
+                INSERT INTO treatment_record (id, patient_id, encounter_id, document_file_id, treatment_type, treated_at, hospital, department, doctor, executor,
+                  diagnosis_text, content, drugs_text, session_text, adverse_reaction_text, allergy_event_id, result_text, note,
+                  source, confirmed, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, arguments: StatementArguments([(remap(t.id) ?? t.id).uuidString] + head + facts + stamps))
+        }
+    }
+
+    // MARK: - 阶段 33：通用提醒（reminder）
+
+    /// v27（末位：就诊 / 预约 / 体检均已落库）通用提醒：独立裁决；来源按 source_table 分表 remap，目标不在库或表不在白名单 → 置 NULL（不猜来源）。
+    func restoreReminders() throws {
+        for r in envelope.reminders ?? [] {
+            var sourceTable: String? = nil, sourceId: String? = nil
+            if let table = r.sourceTable, ReminderSource.allowedTables.contains(table), let id = r.sourceId {
+                let target = (remap(id) ?? id).uuidString
+                if try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM \(table) WHERE id = ?", arguments: [target]) == 1 {
+                    sourceTable = table; sourceId = target
+                }
+            }
+            let facts: [DatabaseValueConvertible?] = [patientID(r.patientId), r.kind, r.title, r.atDate.timeIntervalSince1970, r.repeats, r.status,
+                                                     r.source, r.channelPref, sourceTable, sourceId,
+                                                     r.createdAt.timeIntervalSince1970, r.updatedAt.timeIntervalSince1970]
+            if try adoptOrSkip(reminderConflicts, r.id, adopt: {
+                try db.execute(sql: """
+                    UPDATE reminder SET patient_id = ?, kind = ?, title = ?, at_date = ?, repeats = ?, status = ?, source = ?, channel_pref = ?,
+                      source_table = ?, source_id = ?, created_at = ?, updated_at = ?
+                    WHERE id = ?
+                    """, arguments: StatementArguments(facts + [r.id.uuidString]))
+            }) { continue }
+            try db.execute(sql: """
+                INSERT INTO reminder (id, patient_id, kind, title, at_date, repeats, status, source, channel_pref, source_table, source_id, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, arguments: StatementArguments([(remap(r.id) ?? r.id).uuidString] + facts))
+        }
+    }
+
+    // MARK: - park/settle：表头 adopt 时的行组替换（挪走既有行 → 清理/归位）
+
+    /// 表头 adopt 时的行组替换前半场（挪走既有行）。
+    func parkExistingLines(table: String, parentColumn: String, header: String) throws {
+        try db.execute(sql: "UPDATE \(table) SET ordinal = -(ordinal + 1) WHERE \(parentColumn) = ?", arguments: [header])
+    }
+
+    /// 行组替换后半场（清理 / 归位）：`retainedBy` 返回须保留的行 id 的子查询（静态 SQL 字面量），
+    /// 其余挪走的本机行删除。
+    func settleParkedLines(table: String, parentColumn: String, header: String, retainedBy: [String]) throws {
+        let retained = retainedBy.map { " AND id NOT IN (\($0))" }.joined()
+        try db.execute(sql: "DELETE FROM \(table) WHERE \(parentColumn) = ? AND ordinal < 0\(retained)", arguments: [header])
+        let parked = try String.fetchAll(db, sql: "SELECT id FROM \(table) WHERE \(parentColumn) = ? AND ordinal < 0 ORDER BY ordinal DESC", arguments: [header])
+        for id in parked {
+            try db.execute(sql: """
+                UPDATE \(table) SET ordinal = (SELECT COALESCE(MAX(ordinal), -1) + 1 FROM \(table) WHERE \(parentColumn) = ?) WHERE id = ?
+                """, arguments: [header, id])
+        }
+    }
+
+    // MARK: - 冲突集只读出口
+
+    var profileConflicts: Set<String> { conflictSets["patient_profile"] ?? [] }
+    var ownerConflicts: Set<String> { conflictSets["local_owner"] ?? [] }
+    var consentConflicts: Set<String> { conflictSets["consent_record"] ?? [] }
+    var timelineConflicts: Set<String> { conflictSets["document_file"] ?? [] }
+    var planConflicts: Set<String> { conflictSets["medication_plan"] ?? [] }
+    var aptConflicts: Set<String> { conflictSets["appointment"] ?? [] }
+    var obsConflicts: Set<String> { conflictSets["observation"] ?? [] }
+    var allergyConflicts: Set<String> { conflictSets["allergy_event"] ?? [] }
+    var encConflicts: Set<String> { conflictSets["encounter"] ?? [] }
+    var metricConflicts: Set<String> { conflictSets["metric_sample"] ?? [] }
+    var alertConflicts: Set<String> { conflictSets["alert_event"] ?? [] }
+    var immConflicts: Set<String> { conflictSets["immunization"] ?? [] }
+    var noteConflicts: Set<String> { conflictSets["voice_note"] ?? [] }
+    var problemConflicts: Set<String> { conflictSets["health_problem"] ?? [] }
+    var healthExamConflicts: Set<String> { conflictSets["health_exam"] ?? [] }
+    var labReportConflicts: Set<String> { conflictSets["lab_report"] ?? [] }
+    var prescriptionConflicts: Set<String> { conflictSets["prescription"] ?? [] }
+    var claimConflicts: Set<String> { conflictSets["claim_item"] ?? [] }
+    var examConflicts: Set<String> { conflictSets["exam_report"] ?? [] }
+    var diagnosisConflicts: Set<String> { conflictSets["diagnosis"] ?? [] }
+    var surgeryConflicts: Set<String> { conflictSets["surgery"] ?? [] }
+    var treatmentConflicts: Set<String> { conflictSets["treatment_record"] ?? [] }
+    var reminderConflicts: Set<String> { conflictSets["reminder"] ?? [] }
 }
 #endif

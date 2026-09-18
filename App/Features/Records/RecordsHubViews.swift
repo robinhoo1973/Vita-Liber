@@ -187,7 +187,10 @@ struct SentStatusHubView: View {
 
     var body: some View {
         WithPerceptionTracking {
-            SentStatusListView(messages: hub.sentMessages)
+            SentStatusListView(messages: hub.sentMessages,
+                               onMarkDelivered: { messageId, patientId in
+                                   await hub.markDelivered(messageId: messageId, patientId: patientId)
+                               })
                 .task(id: currentPatientId) { await hub.load(patientId: currentPatientId) }
         }
     }
@@ -196,10 +199,12 @@ struct SentStatusHubView: View {
 }
 
 /// FR24.2 发送状态页：只展示类型/收件人/状态/时间，**不存不显原文**（最小必要）。
+/// 纯渲染视图：写入动作经 `onMarkDelivered` 回调由挂载壳（SentStatusHubView）
+/// 转发到 Store——与文件头部「挂载壳 vs 纯渲染视图」拆分纪律一致。
 struct SentStatusListView: View {
     let messages: [SentMessage]
+    let onMarkDelivered: (UUID, UUID) async -> Void
     @Environment(AppState.self) private var app
-    @Environment(M2HubStore.self) private var hub
 
     var body: some View {
         WithPerceptionTracking {
@@ -224,8 +229,7 @@ struct SentStatusListView: View {
                             if message.status == .sent {
                                 Button(L10n.fr24_markDelivered) {
                                     Task {
-                                        await hub.markDelivered(messageId: message.id,
-                                                               patientId: app.currentPatientId)
+                                        await onMarkDelivered(message.id, app.currentPatientId)
                                     }
                                 }
                                 .buttonStyle(.bordered)

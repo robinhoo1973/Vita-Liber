@@ -77,7 +77,7 @@ struct HealthExamDetailView: View {
                     GradeBadge(grade: "C")
                 }
                 ForEach(headerRows(exam), id: \.key) { row in
-                    LabeledContent(DocumentsState.fieldLabel(forKey: row.key), value: row.value)
+                    LabeledContent(DocumentsDisplay.fieldLabel(forKey: row.key), value: row.value)
                 }
             } header: { Text(L10n.healthExamHeader) }
             .accessibilityElement(children: .contain)
@@ -88,7 +88,7 @@ struct HealthExamDetailView: View {
                 // 一般检查：打印原文逐项（身高 / 体重 / BMI / 血压 / 脉搏 / 腰围 / 视力）——不换算、不判定
                 Section(L10n.healthExamGeneral) {
                     ForEach(general, id: \.key) { row in
-                        LabeledContent(DocumentsState.fieldLabel(forKey: row.key), value: row.value)
+                        LabeledContent(DocumentsDisplay.fieldLabel(forKey: row.key), value: row.value)
                     }
                 }
                 .accessibilityElement(children: .contain)
@@ -230,7 +230,7 @@ struct HealthExamDetailView: View {
 
     /// 投影点标签：rawLabel 为模板键（weight / systolic …）时经字段词表，否则原文。
     private func sampleLabel(_ sample: OCRCardStore.LabSampleRow) -> String {
-        DocumentsState.fieldLabel(forKey: sample.rawLabel)
+        DocumentsDisplay.fieldLabel(forKey: sample.rawLabel)
     }
 
     private func load() async {

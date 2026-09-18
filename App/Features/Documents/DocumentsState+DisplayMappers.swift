@@ -1,12 +1,14 @@
 import Foundation
 import Domain
 
-/// `DocumentsState` 展示层映射扩展（2026-09-18 OOP 颗粒度轮：从
-/// DocumentLibraryView.swift 拆出）——canonical raw → 当前语言展示名的
-/// 四个单一出口（fieldLabel / timelineEntryTitle / fieldValueDisplay /
-/// enumOptions）。所有字段值渲染面必须经此扩展，禁止 raw 直出。
-extension DocumentsState {
-    nonisolated static func fieldLabel(forKey key: String) -> String {
+/// 文档字段展示映射命名空间（2026-09-18 OOP 颗粒度轮：从
+/// DocumentLibraryView.swift 拆出；2026-09-19 二次拆分：从 DocumentsState
+/// 静态成员改为独立类型——展示映射与状态仓解耦，调用方
+/// `DocumentsDisplay.fieldLabel` 等自明归属）。canonical raw → 当前语言
+/// 展示名的四个单一出口（fieldLabel / timelineEntryTitle / fieldValueDisplay /
+/// enumOptions）。所有字段值渲染面必须经此命名空间，禁止 raw 直出。
+enum DocumentsDisplay {
+    static func fieldLabel(forKey key: String) -> String {
         switch key {
         case "dept": return L10n.ocFieldDept
         case "report_date", "prescribed_at": return L10n.ocFieldReportDate
@@ -40,7 +42,7 @@ extension DocumentsState {
     ///
     /// 本函数收口三处渲染面（主卡行继续保持原调用，子卡行与叶子行改经此处），
     /// 使「同一 kind raw 在任何时间轴行上都按当前语言呈现」只有一处实现。
-    nonisolated static func timelineEntryTitle(_ entry: TimelineEntry) -> String {
+    static func timelineEntryTitle(_ entry: TimelineEntry) -> String {
         switch entry.kind {
         // ── title 是 **canonical raw** 的行类：必须映射，否则英文 raw 上屏 ──
         // 依据：`TimelineQueryStore` 的 SQL 别名（逐条可查）——
@@ -78,12 +80,12 @@ extension DocumentsState {
         }
     }
 
-    nonisolated static func fieldValueDisplay(forKey key: String, value: String) -> String {
+    static func fieldValueDisplay(forKey key: String, value: String) -> String {
         switch key {
         case "kind":
             return EncounterKind(rawValue: value).map(L10n.encounterKindName) ?? value
         case "doc_type", "document_type":
-            return docTypeLabel(forStableKey: value) ?? value
+            return DocumentsState.docTypeLabel(forStableKey: value) ?? value
         case "item_type":
             switch value {
             case "invoice": return L10n.claim_type_invoice
@@ -111,7 +113,7 @@ extension DocumentsState {
         case "purpose":
             return L10n.appointmentPurposeName(value)
         case "doc_type_key":
-            return docTypeLabel(forStableKey: value) ?? value
+            return DocumentsState.docTypeLabel(forStableKey: value) ?? value
         default:
             return value
         }
@@ -120,7 +122,7 @@ extension DocumentsState {
     /// 枚举槽位的 canonical 值目录（SP-12 确认卡 Picker 选项；标签经 `fieldValueDisplay`）。
     /// 与 `EntityCardProjection.invalidFields` 的枚举校验同拼写；nil = 自由文本字段（走 TextField）。
     /// 处方类型按 Domain `prescriptionTypes` 过滤保序（Domain 增删枚举不会让 Picker 出现非法项）。
-    nonisolated static func enumOptions(forKey key: String) -> [String]? {
+    static func enumOptions(forKey key: String) -> [String]? {
         switch key {
         case "kind": return EncounterKind.allCases.map(\.rawValue)
         case "item_type": return ["invoice", "fee", "receipt"]

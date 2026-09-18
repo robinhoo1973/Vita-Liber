@@ -435,8 +435,8 @@ private struct TimelineRowView: View {
         default:
             // 2026-09-17：`entry.title` 对就诊/住院行是 `kind` canonical raw
             // （`TimelineQueryStore` 的 `e.kind AS title`）——此前本行直出英文 raw。
-            // 与主卡行/子卡行同经 `DocumentsState.timelineEntryTitle` 单一出口。
-            return "\(L10n.timelineKindName(entry.kind)) · \(DocumentsState.timelineEntryTitle(entry))"
+            // 与主卡行/子卡行同经 `DocumentsDisplay.timelineEntryTitle` 单一出口。
+            return "\(L10n.timelineKindName(entry.kind)) · \(DocumentsDisplay.timelineEntryTitle(entry))"
         }
     }
 

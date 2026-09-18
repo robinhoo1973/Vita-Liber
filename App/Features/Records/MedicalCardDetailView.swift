@@ -27,8 +27,8 @@ struct MedicalCardDetailView: View {
                         OCRReviewOwnerRow(patientId: patientId)
                         GradeBadge(grade: "C")
                         ForEach(Array(headerFields(from: detail).enumerated()), id: \.offset) { _, field in
-                            LabeledContent(DocumentsState.fieldLabel(forKey: field.key),
-                                           value: DocumentsState.fieldValueDisplay(forKey: field.key, value: field.value))
+                            LabeledContent(DocumentsDisplay.fieldLabel(forKey: field.key),
+                                           value: DocumentsDisplay.fieldValueDisplay(forKey: field.key, value: field.value))
                         }
                     }
                     if kind == "prescription" {
@@ -53,7 +53,7 @@ struct MedicalCardDetailView: View {
                         }
                         if let advice = detail.fields.first(where: { $0.key == "advice_text" })?.value {
                             // 共享医嘱原文整段呈现（原文保真），不得冒充药品行。
-                            Section(DocumentsState.fieldLabel(forKey: "advice_text")) {
+                            Section(DocumentsDisplay.fieldLabel(forKey: "advice_text")) {
                                 Text(advice).font(.callout).textSelection(.enabled)
                             }
                         }
@@ -61,7 +61,7 @@ struct MedicalCardDetailView: View {
                     // v26（§C.2–§C.5）：叙事列原文分段（住院期 / 检查所见与意见）、同卡诊断清单、检验报告数值 + 定性行。
                     // 一律报告原文呈现——不摘要、不着色、不解释异常标记（BR-004/012）。
                     ForEach(narrativeSections(from: detail), id: \.key) { block in
-                        Section(DocumentsState.fieldLabel(forKey: block.key)) {
+                        Section(DocumentsDisplay.fieldLabel(forKey: block.key)) {
                             Text(block.value).font(.callout).textSelection(.enabled)
                                 .accessibilityIdentifier("SP-08.\(kind).narrative.\(block.key)")
                         }
@@ -241,7 +241,7 @@ private struct DiagnosisRow: View {
                 HStack(spacing: 8) {
                     Text(diagnosis.name).font(.body.bold())
                     Spacer()
-                    Text(DocumentsState.fieldValueDisplay(forKey: "diagnosis_type", value: diagnosis.diagnosisType))
+                    Text(DocumentsDisplay.fieldValueDisplay(forKey: "diagnosis_type", value: diagnosis.diagnosisType))
                         .font(.caption)
                         .padding(.horizontal, 8).padding(.vertical, 4)
                         .background(Capsule().fill(Color("brand-primary", bundle: .main).opacity(0.12)))
@@ -289,7 +289,7 @@ struct ClinicalConclusionRow: View {
                         .foregroundStyle(Color("brand-primary", bundle: .main))
                     Spacer()
                     if let severity = conclusion.severityText?.trimmingCharacters(in: .whitespacesAndNewlines), !severity.isEmpty {
-                        Text(DocumentsState.fieldLabel(forKey: "severity") + ": " + severity)
+                        Text(DocumentsDisplay.fieldLabel(forKey: "severity") + ": " + severity)
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
@@ -389,7 +389,7 @@ private struct LabSampleRowView: View {
         guard sample.refLow != nil || sample.refHigh != nil else { return "" }
         let low = sample.refLow.map { MedicalNumberFormat.oneDecimal($0) } ?? ""
         let high = sample.refHigh.map { MedicalNumberFormat.oneDecimal($0) } ?? ""
-        return DocumentsState.fieldLabel(forKey: "reference_range") + ": " + low + " - " + high
+        return DocumentsDisplay.fieldLabel(forKey: "reference_range") + ": " + low + " - " + high
     }
 }
 
@@ -428,10 +428,10 @@ private struct LabResultRowView: View {
     static func meta(_ result: LabResult) -> String {
         var parts: [String] = []
         if let reference = result.referenceText, !reference.isEmpty {
-            parts.append(DocumentsState.fieldLabel(forKey: "reference_text") + ": " + reference)
+            parts.append(DocumentsDisplay.fieldLabel(forKey: "reference_text") + ": " + reference)
         }
         if let method = result.method, !method.isEmpty {
-            parts.append(DocumentsState.fieldLabel(forKey: "method") + ": " + method)
+            parts.append(DocumentsDisplay.fieldLabel(forKey: "method") + ": " + method)
         }
         return parts.joined(separator: " · ")
     }

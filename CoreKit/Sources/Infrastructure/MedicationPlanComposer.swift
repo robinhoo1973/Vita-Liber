@@ -29,8 +29,11 @@ public struct UnitOfWork: Sendable {
 public actor MedicationPlanComposer {
     private let writer: any DatabaseWriter
 
-    /// 2026-09-18 清理轮：`audit` 依赖自建类以来零使用（计划生命周期无审计落库路径）——
-    /// 死参数移除；若后续 FR9.15 要求计划事件审计，须经 AuditLogWriter 白名单 action 接入。
+    /// 2026-09-18 清理轮：`audit` 依赖自建类以来零使用——死参数移除。
+    /// 2026-09-19 规格裁定：计划生命周期不落 audit_event 是正确的——tech-spec §4.3
+    /// 审计表七类埋点（敏感原图/改确认字段/删除/导出/AI scope/授权变更）不含计划
+    /// 生命周期；FR9.15 的历史机制是 plan_lifecycle_event 表（started/edited/
+    /// paused/resumed/ended 时间轴），本类各方法均已落该表，无需再接入审计。
     public init(writer: any DatabaseWriter) {
         self.writer = writer
     }

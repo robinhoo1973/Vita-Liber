@@ -35,7 +35,7 @@ struct ParentDraftSection: View {
                         WithPerceptionTracking {
                             if index < draft.fields.count {
                                 FieldConfirmRow(field: fieldBinding(index: index),
-                                                label: DocumentsState.fieldLabel(forKey: draft.fields[index].key),
+                                                label: DocumentsDisplay.fieldLabel(forKey: draft.fields[index].key),
                                                 showUnit: false, readOnly: readOnly, cardLevelConfirmation: true,
                                                 isRequired: draftRequired.contains(draft.fields[index].key),
                                                 sourceLine: draft.fields[index].sourceLineIndex,
@@ -49,7 +49,7 @@ struct ParentDraftSection: View {
                         // 日期缺失或不可解析：内联日期选择（保存前必须补齐；与 store `isComplete` 同口径）
                         Text(L10n.parentDraftDateRequired).font(.caption).foregroundStyle(.orange)
                             .accessibilityIdentifier("SP-12.parentDraft.dateRequired")
-                        DatePicker(DocumentsState.fieldLabel(forKey: draft.dateKey), selection: dateBinding(draft), displayedComponents: .date)
+                        DatePicker(DocumentsDisplay.fieldLabel(forKey: draft.dateKey), selection: dateBinding(draft), displayedComponents: .date)
                             .accessibilityIdentifier("SP-12.parentDraft.datePicker")
                     }
                     let pendingRequired = draftRequired.subtracting(Set(draft.fields.filter(\.isConfirmed).map(\.key)))
@@ -59,7 +59,7 @@ struct ParentDraftSection: View {
                         // 此处只报**必填**（草稿的非必填合格字段由卡级动作批量升 C；低置信另有下面一行提示）。
                         Text(L10n.entityCardReviewQueue(
                             count: pendingRequired.count,
-                            labels: ListFormatter.localizedString(byJoining: pendingRequired.sorted().map { DocumentsState.fieldLabel(forKey: $0) })))
+                            labels: ListFormatter.localizedString(byJoining: pendingRequired.sorted().map { DocumentsDisplay.fieldLabel(forKey: $0) })))
                             .font(.caption)
                             .foregroundStyle(Color("semantic-warning", bundle: .main))
                             .accessibilityIdentifier("SP-12.parentDraft.pendingRequired")

@@ -679,164 +679,204 @@ public actor MedicationStore: DoseSource {
             // 三个标识全部来自调用方参数——错传成员会静默扣减**他人**批次并把
             // dose_lot_allocation 记到错成员名下（跨成员医疗数据污染）；同文件
             // confirmTaken 早有正确防线，此处补齐）。
-            guard let plan = try Row.fetchOne(db, sql: """
-                SELECT id, schedule_json, start_date, dose_plan_units, medication_id
-                FROM medication_plan WHERE id = ? AND status = 'active' AND patient_id = ?
-                """, arguments: [planId.uuidString, patientId.uuidString]) else {
-                throw StoreError.doseNotFound(planId.uuidString)
-            }
+            let plan = try activePlanRow(planId: planId, patientId: patientId, db: db)
             // 药品归属以**计划行为准**（评审：参数 medicationId 仅作冗余提示——
             // 批次扣减必须按计划真实挂接的药品过滤，防「A 药计划扣 B 药批」）。
             let effectiveMedicationId = (plan["medication_id"] as String?).flatMap(UUID.init(uuidString:)) ?? medicationId
             // 时段解析：同一计划、±30min 容差内的既有物化行（DoseSlotGrouping.tolerance 单一事实源）
             let tolerance = DoseSlotGrouping.tolerance
-            let existing = try Row.fetchOne(db, sql: """
-                SELECT id, user_action, dose_units FROM medication_dose_log
-                WHERE plan_id = ? AND scheduled_for BETWEEN ? AND ?
-                ORDER BY ABS(scheduled_for - ?) LIMIT 1
-                """, arguments: [planId.uuidString,
-                                 actualTime.timeIntervalSince1970 - tolerance,
-                                 actualTime.timeIntervalSince1970 + tolerance,
-                                 actualTime.timeIntervalSince1970])
-            if let existing {
-                let existingAction = (existing["user_action"] as String?).flatMap(DoseUserAction.init(rawValue:))
-                let existingUnits = (existing["dose_units"] as Double?) ?? doseUnits
-                switch existingAction {
-                case .taken, .discomfort:
-                    throw StoreError.alreadyResolved(existing["id"] as String)
-                default:
-                    break
-                }
-                let existingId = existing["id"] as String
+            if let target = try backfillTransition(planId: planId, actualTime: actualTime,
+                                                   doseUnits: doseUnits, tolerance: tolerance, db: db) {
                 // 转场扣减：missed → taken 仅确认轨补扣；未决议 → 全额 taken
-                let matrix = InventoryRules.transitionDeduction(
-                    from: existingAction, to: .taken, units: existingUnits)
                 try db.execute(sql: """
                     UPDATE medication_dose_log
                     SET user_action = 'taken', acted_at = ?, note = 'backfill', dose_units = ?
                     WHERE id = ?
-                    """, arguments: [actualTime.timeIntervalSince1970, existingUnits, existingId])
+                    """, arguments: [actualTime.timeIntervalSince1970, target.units, target.id])
                 try applyResolutionOnLots(patientId: patientId, medicationId: effectiveMedicationId,
-                                          notifyId: existingId, units: existingUnits, at: actualTime,
-                                          action: .taken, transitionMatrix: matrix, db: db)
-                return
-            }
-            // 评审修正第二轮（宽关联转场）：±30min 内无既有行时，补录实际时刻
-            // 常落在排程容差之外（如晚 2 小时补记）——若直接 INSERT 随机 id 新行，
-            // 已被 materializeMissed 决议 missed 的原行留在原地（计划轨已扣），
-            // 新行再按 taken 全额扣减 = 计划轨双扣（ADR-009 反方向）。
-            // 宽窗口（±12h）内优先找 missed/snoozed/skipped/未决议行 → 转场该行；
-            // 找不到才 INSERT 新行（补录本身即证据）。
-            // 第八轮全仓审查修复（宽窗口幂等）：原查询把 taken/discomfort 排除
-            // 在外——同一逻辑剂量二次补录（首次已决 taken）在宽窗口内找不到
-            // 任何行 → INSERT 重复行并再按 taken 全额扣减双轨。改为「非 taken/
-            // discomfort 优先」，仅当窗口内全部行均已决为 taken/discomfort 时
-            // 才命中该行并抛 alreadyResolved（与窄路径同款响亮拒绝）。
-            let wideWindow: TimeInterval = 12 * 3600
-            // 审查修复（BR-004，P0）：排序键次序错误。原为
-            //   ORDER BY CASE WHEN user_action IN ('taken','discomfort') THEN 1 ELSE 0 END,
-            //            ABS(scheduled_for - ?)
-            // ——「未决议优先」是**主键**、距离只是并列时的次序键。于是 ±12h 内只要存在
-            // 任一未决议行，它就会压过距离更近的已决议行。BID 计划（12:00/18:00）下：
-            // 用户 12:05 确认了 12:00 剂量，14:30 补录实际服药时刻——窄窗 [14:00,15:00]
-            // 空 → 宽窗把**未来的 18:00 行**（NULL，键 0）排在更近的 12:00 已服行（键 1）
-            // 之前 → 命中 18:00 → 不是 taken/discomfort，不触发 alreadyResolved →
-            // 直接把**尚未到点的未来剂量**改成 taken 并按 taken **全额扣减双轨**。
-            // 后果：18:00 到点不再提醒（对账只排未决议行）、materializeMissed 跳过、
-            // 用户也无法再确认（alreadyResolved）——一次从未发生的服药被记为事实。
-            // 修法：把「不许命中未来行」提到最前（补录的语义是**已发生**的服药），
-            // 再保留「未决议优先」（第八轮幂等修复的意图不变），最后才比距离。
-            // 于是上面那个场景命中更近的 12:00 已服行 → 按窄路径同款响亮拒绝（alreadyResolved），
-            // 幂等语义反而更完整。
-            if let wide = try Row.fetchOne(db, sql: """
-                SELECT id, user_action, dose_units FROM medication_dose_log
-                WHERE plan_id = ? AND scheduled_for BETWEEN ? AND ?
-                ORDER BY CASE WHEN scheduled_for > ? THEN 1 ELSE 0 END,
-                         CASE WHEN user_action IN ('taken','discomfort') THEN 1 ELSE 0 END,
-                         ABS(scheduled_for - ?) LIMIT 1
-                """, arguments: [planId.uuidString,
-                                 actualTime.timeIntervalSince1970 - wideWindow,
-                                 actualTime.timeIntervalSince1970 + wideWindow,
-                                 actualTime.timeIntervalSince1970,
-                                 actualTime.timeIntervalSince1970]) {
-                let wideAction = (wide["user_action"] as String?).flatMap(DoseUserAction.init(rawValue:))
-                // 第八轮全仓审查修复（宽窗口幂等）：窄窗口（±30min）对 taken/
-                // discomfort 抛 alreadyResolved（响亮拒绝），宽窗口（±12h）却
-                // 把这些决议态排除在查询外——同一逻辑剂量二次补录时 INSERT
-                // 重复行并再按 taken 全额扣减双轨（月报 confirmed 计二）。宽
-                // 窗口命中的 taken/discomfort 行按窄路径同款语义拒绝（幂等）。
-                if wideAction == .taken || wideAction == .discomfort {
-                    throw StoreError.alreadyResolved(wide["id"] as String)
-                }
-                let wideUnits = (wide["dose_units"] as Double?) ?? doseUnits
-                let wideId = wide["id"] as String
-                let matrix = InventoryRules.transitionDeduction(
-                    from: wideAction, to: .taken, units: wideUnits)
-                try db.execute(sql: """
-                    UPDATE medication_dose_log
-                    SET user_action = 'taken', acted_at = ?, note = 'backfill', dose_units = ?
-                    WHERE id = ?
-                    """, arguments: [actualTime.timeIntervalSince1970, wideUnits, wideId])
-                try applyResolutionOnLots(patientId: patientId, medicationId: effectiveMedicationId,
-                                          notifyId: wideId, units: wideUnits, at: actualTime,
-                                          action: .taken, transitionMatrix: matrix, db: db)
+                                          notifyId: target.id, units: target.units, at: actualTime,
+                                          action: .taken, transitionMatrix: target.matrix, db: db)
                 return
             }
             // 无既有行：补录落在可排程时段内时复用**逻辑剂量 id**（D5 同源）——
             // 后续物化窗口 ON CONFLICT 命中已决议行，绝不重复建行/双扣；
             // 排程外（asNeeded 等）回落调用方 id（补录本身即证据）。
-            var backfillId = notifyId
-            if let json = (plan["schedule_json"] as String?)?.data(using: .utf8) {
-                let decoded: MedicationSchedule?
-                do { decoded = try JSONDecoder().decode(MedicationSchedule.self, from: json) }
-                catch { decoded = nil }   // 损坏的 schedule_json：回落调用方 id（§7 禁 try?）
-                if let schedule = decoded {
-                    let startDate = Date(timeIntervalSince1970: plan["start_date"] as Double)
-                    let unitsPerDose = min((plan["dose_plan_units"] as Double?) ?? doseUnits, 100)
-                    if let logical = Self.logicalDose(
-                        forPlan: planId, schedule: schedule, startDate: startDate,
-                        at: actualTime, unitsPerDose: unitsPerDose, tolerance: tolerance) {
-                        backfillId = logical.notifyId
-                    }
-                }
-            }
-            // 审查修复（时区切换双扣纵深防御）：大时区切换后已决议 missed 的旧行
-            // 仍持旧 scheduled_for，±30min/±12h 两窗均找不到，但逻辑 id（D5
-            // day+ordinal）不变——此前 ON CONFLICT 直接把 missed 行翻成 taken
-            // 再按全额 taken 扣减：计划轨已被 materializeMissed 扣过一次，二次
-            // 全额 = 双轨双扣（月报双计）。先读冲突行决议态：taken/discomfort
-            // → 幂等拒绝；missed/snoozed/skipped → 转场补扣（计划轨已扣）；
-            // 未决议 → 全额 taken（补录本身即证据）。
-            let conflict = try Row.fetchOne(db, sql: """
-                SELECT user_action, dose_units FROM medication_dose_log WHERE id = ?
-                """, arguments: [backfillId])
-            var effectiveUnits = doseUnits
-            var matrix: (plan: Double, confirmed: Double)? = nil
-            if let conflict {
-                let action = (conflict["user_action"] as String?)
-                    .flatMap(DoseUserAction.init(rawValue:))
-                switch action {
-                case .taken, .discomfort:
-                    throw StoreError.alreadyResolved(backfillId)
-                case .missed, .snoozed, .skipped:
-                    effectiveUnits = (conflict["dose_units"] as Double?) ?? doseUnits
-                    matrix = InventoryRules.transitionDeduction(
-                        from: action, to: .taken, units: effectiveUnits)
-                case nil:
-                    break   // 未决议行：全额 taken（与窄/宽路径同语义）
-                }
-            }
-            try db.execute(sql: """
-                INSERT INTO medication_dose_log (id, plan_id, scheduled_for, dose_units, delivery_state, user_action, acted_at, note)
-                VALUES (?, ?, ?, ?, 'delivered', 'taken', ?, 'backfill')
-                ON CONFLICT(id) DO UPDATE SET user_action = 'taken', acted_at = excluded.acted_at,
-                  dose_units = excluded.dose_units
-                """, arguments: [backfillId, planId.uuidString, actualTime.timeIntervalSince1970,
-                                 effectiveUnits, actualTime.timeIntervalSince1970])
+            let backfillId = Self.logicalBackfillId(plan: plan, planId: planId, actualTime: actualTime,
+                                                    notifyId: notifyId, doseUnits: doseUnits,
+                                                    tolerance: tolerance)
+            let outcome = try insertBackfillRow(backfillId: backfillId, planId: planId,
+                                                actualTime: actualTime, doseUnits: doseUnits, db: db)
             try applyResolutionOnLots(patientId: patientId, medicationId: effectiveMedicationId,
-                                      notifyId: backfillId, units: effectiveUnits, at: actualTime,
-                                      action: .taken, transitionMatrix: matrix, db: db)
+                                      notifyId: backfillId, units: outcome.units, at: actualTime,
+                                      action: .taken, transitionMatrix: outcome.matrix, db: db)
         }
+    }
+
+    /// 补录前置：active 计划行 + BR-001 归属校验（计划必须属于该成员，防跨成员批次扣减）。
+    private func activePlanRow(planId: UUID, patientId: UUID, db: Database) throws -> Row {
+        guard let plan = try Row.fetchOne(db, sql: """
+            SELECT id, schedule_json, start_date, dose_plan_units, medication_id
+            FROM medication_plan WHERE id = ? AND status = 'active' AND patient_id = ?
+            """, arguments: [planId.uuidString, patientId.uuidString]) else {
+            throw StoreError.doseNotFound(planId.uuidString)
+        }
+        return plan
+    }
+
+    /// 补录目标行解析：窄窗（±30min 容差）→ 宽窗（±12h）两段。
+    /// 命中已决议行（taken/discomfort）→ 抛 alreadyResolved（响亮拒绝，两窗同款）；
+    /// 命中可转场行 → 返回 (id, units, matrix)；两窗皆空 → nil（走 INSERT 路径）。
+    /// 评审修正第二轮（宽关联转场）：±30min 内无既有行时，补录实际时刻
+    /// 常落在排程容差之外（如晚 2 小时补记）——若直接 INSERT 随机 id 新行，
+    /// 已被 materializeMissed 决议 missed 的原行留在原地（计划轨已扣），
+    /// 新行再按 taken 全额扣减 = 计划轨双扣（ADR-009 反方向）。
+    /// 宽窗口（±12h）内优先找 missed/snoozed/skipped/未决议行 → 转场该行；
+    /// 找不到才 INSERT 新行（补录本身即证据）。
+    /// 第八轮全仓审查修复（宽窗口幂等）：原查询把 taken/discomfort 排除
+    /// 在外——同一逻辑剂量二次补录（首次已决 taken）在宽窗口内找不到
+    /// 任何行 → INSERT 重复行并再按 taken 全额扣减双轨。改为「非 taken/
+    /// discomfort 优先」，仅当窗口内全部行均已决为 taken/discomfort 时
+    /// 才命中该行并抛 alreadyResolved（与窄路径同款响亮拒绝）。
+    private func backfillTransition(planId: UUID, actualTime: Date, doseUnits: Double,
+                                    tolerance: TimeInterval, db: Database) throws -> BackfillTransition? {
+        let existing = try Row.fetchOne(db, sql: """
+            SELECT id, user_action, dose_units FROM medication_dose_log
+            WHERE plan_id = ? AND scheduled_for BETWEEN ? AND ?
+            ORDER BY ABS(scheduled_for - ?) LIMIT 1
+            """, arguments: [planId.uuidString,
+                             actualTime.timeIntervalSince1970 - tolerance,
+                             actualTime.timeIntervalSince1970 + tolerance,
+                             actualTime.timeIntervalSince1970])
+        if let existing {
+            let action = (existing["user_action"] as String?).flatMap(DoseUserAction.init(rawValue:))
+            let units = (existing["dose_units"] as Double?) ?? doseUnits
+            switch action {
+            case .taken, .discomfort:
+                throw StoreError.alreadyResolved(existing["id"] as String)
+            default:
+                break
+            }
+            return BackfillTransition(
+                id: existing["id"] as String,
+                units: units,
+                matrix: InventoryRules.transitionDeduction(from: action, to: .taken, units: units))
+        }
+        let wideWindow: TimeInterval = 12 * 3600
+        // 审查修复（BR-004，P0）：排序键次序错误。原为
+        //   ORDER BY CASE WHEN user_action IN ('taken','discomfort') THEN 1 ELSE 0 END,
+        //            ABS(scheduled_for - ?)
+        // ——「未决议优先」是**主键**、距离只是并列时的次序键。于是 ±12h 内只要存在
+        // 任一未决议行，它就会压过距离更近的已决议行。BID 计划（12:00/18:00）下：
+        // 用户 12:05 确认了 12:00 剂量，14:30 补录实际服药时刻——窄窗 [14:00,15:00]
+        // 空 → 宽窗把**未来的 18:00 行**（NULL，键 0）排在更近的 12:00 已服行（键 1）
+        // 之前 → 命中 18:00 → 不是 taken/discomfort，不触发 alreadyResolved →
+        // 直接把**尚未到点的未来剂量**改成 taken 并按 taken **全额扣减双轨**。
+        // 后果：18:00 到点不再提醒（对账只排未决议行）、materializeMissed 跳过、
+        // 用户也无法再确认（alreadyResolved）——一次从未发生的服药被记为事实。
+        // 修法：把「不许命中未来行」提到最前（补录的语义是**已发生**的服药），
+        // 再保留「未决议优先」（第八轮幂等修复的意图不变），最后才比距离。
+        // 于是上面那个场景命中更近的 12:00 已服行 → 按窄路径同款响亮拒绝（alreadyResolved），
+        // 幂等语义反而更完整。
+        if let wide = try Row.fetchOne(db, sql: """
+            SELECT id, user_action, dose_units FROM medication_dose_log
+            WHERE plan_id = ? AND scheduled_for BETWEEN ? AND ?
+            ORDER BY CASE WHEN scheduled_for > ? THEN 1 ELSE 0 END,
+                     CASE WHEN user_action IN ('taken','discomfort') THEN 1 ELSE 0 END,
+                     ABS(scheduled_for - ?) LIMIT 1
+            """, arguments: [planId.uuidString,
+                             actualTime.timeIntervalSince1970 - wideWindow,
+                             actualTime.timeIntervalSince1970 + wideWindow,
+                             actualTime.timeIntervalSince1970,
+                             actualTime.timeIntervalSince1970]) {
+            let action = (wide["user_action"] as String?).flatMap(DoseUserAction.init(rawValue:))
+            // 第八轮全仓审查修复（宽窗口幂等）：窄窗口（±30min）对 taken/
+            // discomfort 抛 alreadyResolved（响亮拒绝），宽窗口（±12h）却
+            // 把这些决议态排除在查询外——同一逻辑剂量二次补录时 INSERT
+            // 重复行并再按 taken 全额扣减双轨（月报 confirmed 计二）。宽
+            // 窗口命中的 taken/discomfort 行按窄路径同款语义拒绝（幂等）。
+            if action == .taken || action == .discomfort {
+                throw StoreError.alreadyResolved(wide["id"] as String)
+            }
+            let units = (wide["dose_units"] as Double?) ?? doseUnits
+            return BackfillTransition(
+                id: wide["id"] as String,
+                units: units,
+                matrix: InventoryRules.transitionDeduction(from: action, to: .taken, units: units))
+        }
+        return nil
+    }
+
+    /// 无既有行可转场时：补录落在可排程时段内则复用**逻辑剂量 id**（D5 同源）——
+    /// 后续物化窗口 ON CONFLICT 命中已决议行，绝不重复建行/双扣；
+    /// 排程外（asNeeded 等）回落调用方 id（补录本身即证据）。
+    private static func logicalBackfillId(plan: Row, planId: UUID, actualTime: Date,
+                                          notifyId: String, doseUnits: Double,
+                                          tolerance: TimeInterval) -> String {
+        guard let json = (plan["schedule_json"] as String?)?.data(using: .utf8) else { return notifyId }
+        let decoded: MedicationSchedule?
+        do { decoded = try JSONDecoder().decode(MedicationSchedule.self, from: json) }
+        catch { decoded = nil }   // 损坏的 schedule_json：回落调用方 id（§7 禁 try?）
+        guard let schedule = decoded else { return notifyId }
+        let startDate = Date(timeIntervalSince1970: plan["start_date"] as Double)
+        let unitsPerDose = min((plan["dose_plan_units"] as Double?) ?? doseUnits, 100)
+        if let logical = Self.logicalDose(
+            forPlan: planId, schedule: schedule, startDate: startDate,
+            at: actualTime, unitsPerDose: unitsPerDose, tolerance: tolerance) {
+            return logical.notifyId
+        }
+        return notifyId
+    }
+
+    /// 补录 INSERT 路径（两窗皆空时）：逻辑 id 冲突行的决议态决定扣减矩阵。
+    /// 审查修复（时区切换双扣纵深防御）：大时区切换后已决议 missed 的旧行
+    /// 仍持旧 scheduled_for，±30min/±12h 两窗均找不到，但逻辑 id（D5
+    /// day+ordinal）不变——此前 ON CONFLICT 直接把 missed 行翻成 taken
+    /// 再按全额 taken 扣减：计划轨已被 materializeMissed 扣过一次，二次
+    /// 全额 = 双轨双扣（月报双计）。先读冲突行决议态：taken/discomfort
+    /// → 幂等拒绝；missed/snoozed/skipped → 转场补扣（计划轨已扣）；
+    /// 未决议 → 全额 taken（补录本身即证据）。
+    private func insertBackfillRow(backfillId: String, planId: UUID, actualTime: Date,
+                                   doseUnits: Double, db: Database) throws -> BackfillInsertOutcome {
+        let conflict = try Row.fetchOne(db, sql: """
+            SELECT user_action, dose_units FROM medication_dose_log WHERE id = ?
+            """, arguments: [backfillId])
+        var effectiveUnits = doseUnits
+        var matrix: (plan: Double, confirmed: Double)? = nil
+        if let conflict {
+            let action = (conflict["user_action"] as String?)
+                .flatMap(DoseUserAction.init(rawValue:))
+            switch action {
+            case .taken, .discomfort:
+                throw StoreError.alreadyResolved(backfillId)
+            case .missed, .snoozed, .skipped:
+                effectiveUnits = (conflict["dose_units"] as Double?) ?? doseUnits
+                matrix = InventoryRules.transitionDeduction(
+                    from: action, to: .taken, units: effectiveUnits)
+            case nil:
+                break   // 未决议行：全额 taken（与窄/宽路径同语义）
+            }
+        }
+        try db.execute(sql: """
+            INSERT INTO medication_dose_log (id, plan_id, scheduled_for, dose_units, delivery_state, user_action, acted_at, note)
+            VALUES (?, ?, ?, ?, 'delivered', 'taken', ?, 'backfill')
+            ON CONFLICT(id) DO UPDATE SET user_action = 'taken', acted_at = excluded.acted_at,
+              dose_units = excluded.dose_units
+            """, arguments: [backfillId, planId.uuidString, actualTime.timeIntervalSince1970,
+                             effectiveUnits, actualTime.timeIntervalSince1970])
+        return BackfillInsertOutcome(units: effectiveUnits, matrix: matrix)
+    }
+
+    /// 补录目标行（窄/宽窗口命中可转场行）。
+    private struct BackfillTransition {
+        let id: String
+        let units: Double
+        let matrix: (plan: Double, confirmed: Double)
+    }
+
+    /// 补录 INSERT 路径结局（冲突行决议态决定的扣减矩阵；nil = 全额 taken）。
+    private struct BackfillInsertOutcome {
+        let units: Double
+        let matrix: (plan: Double, confirmed: Double)?
     }
 
     /// 补录时段 → 逻辑剂量身份（D5）：在 actualTime 前后 1 个计划日窗口内

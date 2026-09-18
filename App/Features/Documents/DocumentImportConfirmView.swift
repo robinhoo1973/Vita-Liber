@@ -187,9 +187,9 @@ struct FieldConfirmRow: View {
                         .foregroundStyle(tier == .low ? Color("semantic-danger", bundle: .main) : Color.secondary)
                 }
                 if readOnly || field.grade == .rejected {
-                    Text(DocumentsState.fieldValueDisplay(forKey: field.key, value: field.value))
+                    Text(DocumentsDisplay.fieldValueDisplay(forKey: field.key, value: field.value))
                         .strikethrough(field.grade == .rejected)
-                } else if let options = DocumentsState.enumOptions(forKey: field.key) {
+                } else if let options = DocumentsDisplay.enumOptions(forKey: field.key) {
                     // 枚举槽位（kind/item_type/unit_kind/currency/prescription_type）：Picker 绑 canonical raw、
                     // 标签走展示层映射——编辑框直出 raw（实测「outpatient」上屏）在此收口；数据真值仍是 raw。
                     // 非 canonical 现值（OCR 原文/空值）保留为首项，用户改选即回写 canonical（再经校验升 C）。
@@ -200,7 +200,7 @@ struct FieldConfirmRow: View {
                             Text(field.value.isEmpty ? L10n.entityCardPickValue : field.value).tag(field.value)
                         }
                         ForEach(options, id: \.self) { option in
-                            Text(DocumentsState.fieldValueDisplay(forKey: field.key, value: option)).tag(option)
+                            Text(DocumentsDisplay.fieldValueDisplay(forKey: field.key, value: option)).tag(option)
                         }
                     }
                     .pickerStyle(.menu)
@@ -389,7 +389,7 @@ private struct ImportReviewSessionView: View {
     private func createHealthProblem() {
         guard let draft = session.draft else { return }
         let fields = draft.allFields.filter(\.isConfirmed).map {
-            CandidateField(key: $0.key, displayLabel: DocumentsState.fieldLabel(forKey: $0.key),
+            CandidateField(key: $0.key, displayLabel: DocumentsDisplay.fieldLabel(forKey: $0.key),
                 rawText: $0.rawText ?? $0.originalValue, confidence: $0.confidence, value: $0.value, grade: .userConfirmed)
         }
         // v26（§C.3）：诊断行原文优先——已确认的 diagnosis_item 逐行即候选（不截 40 字、不改写；FR11.4 D 级建议，
