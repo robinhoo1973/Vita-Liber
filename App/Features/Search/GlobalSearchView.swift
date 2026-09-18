@@ -275,7 +275,8 @@ struct GlobalSearchView: View {
                 } label: {
                     SearchResultRow(title: L10n.metricName(hit.metric),
                                     snippet: L10n.searchHealthDataHint,
-                                    badge: L10n.gradeBadgeD, date: nil)
+                                    badge: L10n.gradeBadgeD, date: nil,
+                                    icon: CardKindIcon.spec(metric: hit.metric).symbol)
                 }
             }
         }
@@ -364,11 +365,19 @@ private struct SearchResultRow: View {
     let snippet: String
     let badge: String?
     let date: Date?
+    /// 行首图标（审查修复：健康数据命中此前无图标——经 CardKindIcon
+    /// 单一出口传指标符号；其余分组不传保持原形态）
+    var icon: String? = nil
 
     var body: some View {
         WithPerceptionTracking {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
+                    if let icon {
+                        Image(systemName: icon)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
                     if let badge {
                         Text(badge)
                             .font(.caption2.bold())

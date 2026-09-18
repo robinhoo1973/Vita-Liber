@@ -196,6 +196,28 @@ public enum RuleExtractor {
     // MARK: 合体行分类
 
     /// cell → (键, 原文子串) 列表；按卡类选用规则族。全部值都是 `text` 的子串（grounding 友好）。
+    /// 处方合体行拆分（审查修复 2026-09-18，业主实测）：「阿莫西林胶囊
+    /// 0.5g×24粒 口服 一次2粒 一日三次」一行混排药名/规格/给药途径/单次量/
+    /// 频次——生成轨（T1/T2）可整行当 drug_name 产出并通过 grounding
+    /// （逐字子串合法），行内五键全部埋没。本出口按处方行文法（classify）
+    /// 对整行再拆分，产出全部逐字子串键值，供生成轨后处理与兜底共用
+    /// （全部 D 级待确认，BR-003）。
+    public static func splitPrescriptionLine(_ text: String) -> [(key: String, value: String)] {
+        classify(text, kind: "prescription")
+    }
+
+    /// 药名值是否仍混排用法/规格短语（拆分判据）：生成轨产出的 drug_name
+    /// 含「口服/一次/一日/×N」等短语时，行内其余键被埋没——须后拆分。
+    public static func prescriptionNameNeedsSplit(_ name: String) -> Bool {
+        let t = name.trimmingCharacters(in: .whitespaces)
+        guard let route = Patterns.route, let freq = Patterns.frequency,
+              let dose = Patterns.dosage else { return false }
+        let whole = NSRange(t.startIndex..., in: t)
+        return route.firstMatch(in: t, range: whole) != nil
+            || freq.firstMatch(in: t, range: whole) != nil
+            || dose.firstMatch(in: t, range: whole) != nil
+    }
+
     public static func classify(_ text: String, kind: String) -> [(key: String, value: String)] {
         let t = text.trimmingCharacters(in: .whitespaces)
         guard !t.isEmpty else { return [] }
@@ -284,11 +306,14 @@ public enum RuleExtractor {
         static let date = rx(#"(?<!\d)\d{4}\s*[-/年.]\s*\d{1,2}\s*[-/月.]\s*\d{1,2}(?:\s*日)?"#)
         static let spec = rx(#"\d+(?:\.\d+)?\s*(?:mg|g|ml|mL|μg|ug|IU|%)(?:\s*[/:*×xX]\s*\d+(?:\.\d+)?\s*(?:片|粒|支|袋|瓶|ml|mL|g|mg)?)*"#)
         static let dosage = rx(#"(?:每次|每晚|每早|晨起|一次)\s*(\d+(?:\.\d+)?\s*(?:mg|g|ml|mL|μg|ug|IU|片|粒|支|袋|滴|喷|噴|贴|貼|丸|包|单位|單位))"#)
-        static let frequency = rx(#"(?:每日|每天|一日|隔日|每周|每週|每\d+小时|每\d+小時)\s*[\d一二三四两兩]*\s*次|每晚|睡前|晨起|饭前|飯前|饭后|飯後|必要时|必要時|\b(?:qd|bid|tid|qid|qn|prn|q\d+h)\b"#)
+        static let frequency = rx(#"(?:每日|每天|一天|一日|隔日|每周|每週|每\d+小时|每\d+小時)\s*[\d一二三四两兩]*\s*次|每晚|睡前|晨起|饭前|飯前|饭后|飯後|必要时|必要時|\b(?:qd|bid|tid|qid|qn|prn|q\d+h)\b"#)
         static let route = rx(#"口服|外用|静脉滴注|靜脈滴注|静滴|靜滴|静脉注射|靜脈注射|肌肉注射|肌注|皮下注射|舌下含服|含服|吸入|滴眼|滴鼻|外涂|外塗|直肠给药|\b(?:po|iv|im|sc|ih)\b"#)
         static let days = rx(#"(\d+)\s*(?:天|日|d\b)"#)
         static let quantity = rx(#"(?<![\d.])(\d+\s*(?:盒|瓶|袋|包|板|管|条|條|支(?!装)))(?!\d)"#)   // 只认包装量词；片/粒属剂量
-        static let drugWithSpec = rx(#"^(?:\d+[.、]\s*)?([一-龥A-Za-z][一-龥A-Za-z0-9（）()·\-]{1,39})\s+\d+(?:\.\d+)?\s*(?:mg|g|ml|mL|μg|ug|IU|%)"#)
+        // 审查修复（无空格规格，2026-09-18 业主实测）：「阿莫西林胶囊0.5g×24粒」
+        // （药名与规格间无空格）此前失配 drugWithSpec（\s+ 要求空格），行锚丢失
+        // 后整行被并入上一药品行或丢弃。\s* 同收「有空格/无空格」两形态。
+        static let drugWithSpec = rx(#"^(?:\d+[.、]\s*)?([一-龥A-Za-z][一-龥A-Za-z0-9（）()·\-]{1,39})\s*\d+(?:\.\d+)?\s*(?:mg|g|ml|mL|μg|ug|IU|%)"#)
         static let drugName = rx(#"^(?!.*(?:用法|用量|规格|規格|数量|數量|名称|名稱|医院|醫院|医生|醫生|日期|诊断|診斷|处方|處方))(?:\d+[.、]\s*)?([一-龥A-Za-z][一-龥A-Za-z0-9（）()·\-]{1,39})$"#)
         static let labValue = rx(#"^[<>≤≥]?\s*\d+(?:\.\d+)?$|^(?:阴性|陰性|阳性|陽性|弱阳性|弱陽性|正常|未检出|未檢出|negative|positive|[+\-]{1,3})$"#)
         static let labQualitative = rx(#"^([一-龥A-Za-z][一-龥A-Za-z0-9\-/·()（）]{0,39})(?:[:：]\s*|\s+)([<>≤≥]\s*\d+(?:\.\d+)?|阴性|陰性|阳性|陽性|弱阳性|弱陽性|正常|未检出|未檢出|negative|positive|[+\-]{1,3})(?:\s+((?:10\^\d+/)?[a-zA-Zμµ%][a-zA-Zμµ/%·^0-9]*))?(?:\s+[↑↓HL])?$"#)

@@ -157,7 +157,7 @@ struct VoiceEngineLabView: View {
             .navigationTitle(L10n.voiceLabTitle)
             .navigationBarTitleDisplayMode(.inline)
             .task {
-                rebuildAvailability()
+                await rebuildAvailability()
                 await settings.load()
                 // 审查修复：仅当用户尚未手动选档时才用持久化值初始化——旧实现
                 // 无条件覆盖，装载在途期间的点击被静默丢弃且 rebuild 重建测试模型。
@@ -268,16 +268,24 @@ struct VoiceEngineLabView: View {
     /// 一次算好全部档位的可用性（原始值 + 提示文案）——渲染路径之外的计算，
     /// 见 `availabilityNotes` 的说明。未算好时按「可用」渲染（不显示提示，
     /// 与「算完发现可用」同态）。
-    private func rebuildAvailability() {
+    /// 审查修复（主线程阻塞加固 2026-09-18）：计算移出主 actor——每个档位的
+    /// 判定内部取信任库锁 + 读资产目录，即便上游已把验签/落盘移出锁
+    /// （acceptCatalog/acceptRoot 锁外验签落盘），本页仍无必要在主线程
+    /// 串行执行；detached 计算、结果一次 hop 回填。
+    private func rebuildAvailability() async {
+        let computed = await Task.detached(priority: .userInitiated) { () -> [String: VoiceEngineAvailability] in
+            var values: [String: VoiceEngineAvailability] = [:]
+            for option in VoiceEngineChoice.allCases {
+                values[option.rawValue] = TranscriptionEngineBuilder.availability(of: option)
+            }
+            return values
+        }.value
         var notes: [String: String] = [:]
-        var values: [String: VoiceEngineAvailability] = [:]
-        for option in VoiceEngineChoice.allCases {
-            let availability = TranscriptionEngineBuilder.availability(of: option)
-            values[option.rawValue] = availability
-            if let note = L10n.asrAvailability(availability) { notes[option.rawValue] = note }
+        availabilityValues = computed
+        for (raw, availability) in computed {
+            if let note = L10n.asrAvailability(availability) { notes[raw] = note }
         }
         availabilityNotes = notes
-        availabilityValues = values
     }
 
     private var assetLabel: String {

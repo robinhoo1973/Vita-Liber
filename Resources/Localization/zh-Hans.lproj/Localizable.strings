@@ -1768,6 +1768,10 @@
 "asr.missingAssets" = "此构建的模型资源缺失或不完整";
 "asr.downloadable" = "尚未下载：可在下方下载后离线使用";
 "asr.model.download" = "下载模型";
+"asr.model.variantTitle" = "模型大小";
+"asr.model.variantSmall" = "小";
+"asr.model.variantMedium" = "中";
+"asr.model.variantLarge" = "大";
 "asr.model.update" = "更新到 %@";
 "asr.model.installed" = "已安装 %@";
 "asr.model.downloading" = "下载中…";
@@ -1860,6 +1864,7 @@
 "health.readPermissionHint" = "数据固定导入本人档案。关闭自动导入后仍可手动导入；关闭读取许可会停止后续读取，保留已导入数据。读取授权由 Apple 健康管理，App 无法获知逐项授权状态；可在健康 App 的个人头像与数据访问中检查本应用。";
 "health.importedData" = "已导入的健康数据";
 "health.importedPointCount" = "%d 个数据点";
+"health.importedDayCount" = "%d 条记录";
 "health.importedDataHint" = "点开类型查看全部已导入记录，再进入趋势。这里统计可显示的数据点，不是原始样本数：心率按小时、步数按日、睡眠按夜汇总。历史数据分批导入，完整窗口会先显示。";
 "health.appleSource" = "来自 Apple 健康";
 "health.viewTrendChart" = "查看趋势图表";

@@ -544,7 +544,10 @@ private extension EmergencyCardItem {
             return parts.joined(separator: " · ")
         case "contact":
             if let relation, !relation.isEmpty, let phone, !phone.isEmpty {
-                return "\(relation) · \(phone)"
+                // 审查修复（关系本地化）：关系原样拼串——旧英文词表行与中文行
+                // 在急救卡上两种词汇并存。统一经 memberRelationDisplayName
+                // 单一出口（三语本地化 + en 首字母大写）
+                return "\(L10n.memberRelationDisplayName(relation)) · \(phone)"
             }
             return detail
         default:

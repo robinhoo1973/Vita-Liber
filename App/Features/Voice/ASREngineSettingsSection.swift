@@ -48,7 +48,7 @@ struct ASREngineSettingsSection: View {
     /// 改为 `.task` 一次算好存 `@State`，body 只读结果：渲染路径不再触碰那把锁。
     /// （更彻底的做法是把信任库改为 actor / 拆出只读快照，已登记为后续项——
     /// 那会改动 CoreKit 的公开面，不宜与本次修复混批。）
-    private struct ChoiceAvailability {
+    private struct ChoiceAvailability: Sendable {
         var installed: String?
         var latest: ASRModelRelease?
         var update: ASRModelRelease?
@@ -58,10 +58,16 @@ struct ASREngineSettingsSection: View {
         /// 该档位的资产字节数（`ASRModelAssets.byteCount`：读 manifest + 逐文件 stat
         /// + `isRevoked` 取锁），渲染路径只读结果
         var bytes: Int64?
+        /// 该档位在索引中的变体清单（小/中/大，业主 2026-09-18 定）：同 id 多条目
+        /// 且带 variant 键；单档/历史条目为空（UI 保持旧形态）。在重算预算内
+        /// 一并算出——渲染路径不得再取锁。
+        var variants: [ASRModelRelease] = []
     }
     @State private var availability: [String: ChoiceAvailability] = [:]
     /// 派生结论的重算触发：索引拉取成功 + 安装态变化（开始/结束）时自增。
     @State private var derivationEpoch = 0
+    /// 尺寸选择记忆（choice → variant 键；默认取清单首个=最小档）
+    @State private var selectedVariant: [String: String] = [:]
 
     private let service = ASRModelDownloadService.shared
 
@@ -75,28 +81,45 @@ struct ASREngineSettingsSection: View {
         return "\(derivationEpoch)|\(active)"
     }
 
-    /// 一次算好全部 bundled 档位的派生结论（主 actor；见 `availability` 的说明）。
-    private func rebuildAvailability() {
-        let availableIndex = index
-            ?? ModelCatalogTrustStore.shared.currentIndex
-            ?? ModelCatalogTrustStore.shared.baselineIndex
-        var next: [String: ChoiceAvailability] = [:]
-        for choice in VoiceEngineChoice.allCases {
-            next[choice.rawValue] = ChoiceAvailability(
-                installed: choice.isBundledModel ? ASRModelDownloadService.installedVersion(for: choice) : nil,
-                latest: choice.isBundledModel ? availableIndex.flatMap {
-                    ASRModelDownloadService.latest(for: choice, in: $0, appVersion: appVersion)
-                } : nil,
-                update: choice.isBundledModel ? availableIndex.flatMap {
-                    ASRModelDownloadService.updateAvailable(for: choice, index: $0, appVersion: appVersion)
-                } : nil,
-                availability: TranscriptionEngineBuilder.availability(of: choice),
-                // 资产字节数只对随包档位展示（`ASRModelCatalog.model(for:)` 同款条件）
-                bytes: ASRModelCatalog.model(for: choice) == nil
-                    ? nil
-                    : ASRModelAssets.resolve(for: choice).byteCount(choice))
-        }
-        availability = next
+    /// 一次算好全部 bundled 档位的派生结论。
+    /// 审查修复（主线程阻塞加固，2026-09-18）：派生结论此前直接在主 actor 上
+    /// 计算——每档位数次取 ModelCatalogTrustStore 的锁 + 读盘；「检查更新」
+    /// 的火忘任务（可能来自上一次页面访问）持锁验签/落盘期间主线程排队 →
+    /// 冻结 → 看门狗强杀（业主实测「下载失败后再次进入页面闪退/死机」）。
+    /// 锁持有时长已在上游修复（acceptCatalog/acceptRoot 锁外验签落盘）；
+    /// 本侧再把全部取锁/读盘计算移出主 actor（detached），结果一次 hop 回填。
+    private func rebuildAvailability() async {
+        let pageIndex = index
+        let version = appVersion
+        let computed = await Task.detached(priority: .userInitiated) { () -> [String: ChoiceAvailability] in
+            let availableIndex = pageIndex
+                ?? ModelCatalogTrustStore.shared.currentIndex
+                ?? ModelCatalogTrustStore.shared.baselineIndex
+            var next: [String: ChoiceAvailability] = [:]
+            for choice in VoiceEngineChoice.allCases {
+                next[choice.rawValue] = ChoiceAvailability(
+                    installed: choice.isBundledModel ? ASRModelDownloadService.installedVersion(for: choice) : nil,
+                    latest: choice.isBundledModel ? availableIndex.flatMap {
+                        ASRModelDownloadService.latest(for: choice, in: $0, appVersion: version)
+                    } : nil,
+                    update: choice.isBundledModel ? availableIndex.flatMap {
+                        ASRModelDownloadService.updateAvailable(for: choice, index: $0, appVersion: version)
+                    } : nil,
+                    availability: TranscriptionEngineBuilder.availability(of: choice),
+                    // 资产字节数只对随包档位展示（`ASRModelCatalog.model(for:)` 同款条件）
+                    bytes: ASRModelCatalog.model(for: choice) == nil
+                        ? nil
+                        : ASRModelAssets.resolve(for: choice).byteCount(choice),
+                    // 变体清单（尺寸选择数据源）：同 id 已发布、带 variant、本版本兼容
+                    variants: availableIndex.map { idx in
+                        idx.models
+                            .filter { $0.id == choice.rawValue && $0.isPublished && $0.variant != nil && $0.isCompatible(appVersion: version) }
+                            .sorted { ($0.variant ?? "") < ($1.variant ?? "") }
+                    } ?? [])
+            }
+            return next
+        }.value
+        availability = computed
     }
 
     var body: some View {
@@ -106,7 +129,9 @@ struct ASREngineSettingsSection: View {
                 // 此前区块出现即自动 GET（reloadIgnoringLocalCacheData）属契约外
                 // 隐式联网面（零隐式联网红线的唯一例外必须显式发起）。
                 Button {
-                    Task { await refreshIndex() }
+                    // 单飞守卫（审查修复）：连点/返回再点不再叠第二个拉取任务
+                    guard refreshTask == nil else { return }
+                    refreshTask = Task { await refreshIndex() }
                 } label: {
                     HStack {
                         Label(L10n.asrModelCheckUpdate, systemImage: "arrow.triangle.2.circlepath")
@@ -188,7 +213,8 @@ struct ASREngineSettingsSection: View {
               // **必须挂在追踪闭包内**：`derivationKey` 读 `installCenter.active`，
               // 挂到闭包外则读值不被追踪，安装开始/结束时 id 不变、任务不重跑，
               // 按钮形态会停在旧态。
-              .task(id: derivationKey) { rebuildAvailability() }
+              .task(id: derivationKey) { await rebuildAvailability() }
+              .onDisappear { refreshTask?.cancel() }
         }
     }
 
@@ -202,11 +228,26 @@ struct ASREngineSettingsSection: View {
         let installed = row.installed
         let latest = row.latest
         let update = row.update
+        let variants = row.variants
+        // 尺寸选择（业主 2026-09-18 定）：目录含同 id 多档（small/medium/large）
+        // 时出现分段选择器；单档/历史目录保持旧形态（无选择器）。
+        let chosenVariant: ASRModelRelease? = variants.count > 1
+            ? (variants.first { $0.variant == selectedVariant[choice.rawValue] } ?? variants.first)
+            : nil
         VStack(alignment: .leading, spacing: 4) {
             if let installed {
                 Text(L10n.asrModelInstalled(installed))
                     .font(.caption2).foregroundStyle(.secondary)
                     .accessibilityIdentifier("\(accessibilityPrefix).model.installed.\(choice.rawValue)")
+            }
+            if variants.count > 1 {
+                Picker(L10n.asrModelVariantTitle, selection: variantBinding(choice, variants)) {
+                    ForEach(variants) { v in
+                        Text(L10n.asrModelVariantName(v.variant ?? "")).tag(v.variant ?? "")
+                    }
+                }
+                .pickerStyle(.segmented)
+                .accessibilityIdentifier("\(accessibilityPrefix).model.variant.\(choice.rawValue)")
             }
             if let active = installCenter.install(choice) {
                 installProgress(choice, active)
@@ -218,7 +259,17 @@ struct ASREngineSettingsSection: View {
                         .font(.caption).foregroundStyle(.orange)
                         .accessibilityIdentifier("\(accessibilityPrefix).model.failed.\(choice.rawValue)")
                 }
-                if let update {
+                if let chosenVariant {
+                    // 多档家族：下载/更新以所选档为目标（各档可共存下载、同一时刻
+                    // 一档生效——ASRInstallLayout 语义；已装版本不提示重复下载）
+                    let needsInstall = installed == nil
+                        || (installed.map { chosenVariant.isNewer(than: $0) } ?? true)
+                    if needsInstall {
+                        Button(L10n.asrModelUpdate(chosenVariant.version)) { startInstall(chosenVariant) }
+                            .buttonStyle(.bordered).frame(minHeight: 44)
+                            .accessibilityIdentifier("\(accessibilityPrefix).model.variantInstall.\(choice.rawValue)")
+                    }
+                } else if let update {
                     Button(L10n.asrModelUpdate(update.version)) { startInstall(update) }
                         .buttonStyle(.bordered).frame(minHeight: 44)
                         .accessibilityIdentifier("\(accessibilityPrefix).model.update.\(choice.rawValue)")
@@ -229,6 +280,15 @@ struct ASREngineSettingsSection: View {
                 }
             }
         }
+    }
+
+    /// 尺寸选择绑定（默认取清单首个 = 最小档；选择记忆在页内）
+    private func variantBinding(_ choice: VoiceEngineChoice, _ variants: [ASRModelRelease]) -> Binding<String> {
+        Binding(get: {
+            selectedVariant[choice.rawValue] ?? variants.first?.variant ?? ""
+        }, set: { v in
+            selectedVariant[choice.rawValue] = v
+        })
     }
 
     /// 进行态视图：下载 = 分数进度 + 字节数字（慢链路下条位移缓慢，数字给确定反馈）；
@@ -281,6 +341,12 @@ struct ASREngineSettingsSection: View {
     /// 只要来一个字节就被重置），用户读到的就是「死机」，且页内没有任何出路。
     private static let indexCheckTimeout: Duration = .seconds(30)
 
+    /// 在途索引拉取任务（审查修复 2026-09-18：单飞 + 视图生命周期绑定）——
+    /// 原火忘任务离开页面仍在跑（可能持锁验签/落盘），返回页面时与
+    /// `.task` 的派生结论重算在主线程上互踩那把锁（冻结→看门狗强杀的
+    /// 成因之一）。单飞防连点双任务；onDisappear 取消。
+    @State private var refreshTask: Task<Void, Never>?
+
     /// 「检查更新」按钮显式触发（安全审查 2026-09-12）：每次点击都真实重拉；
     /// 结果三元反馈（2026-09-16）：已是最新 / 发现 N 个可更新 / 失败可重试。
     private func refreshIndex() async {
@@ -292,7 +358,7 @@ struct ASREngineSettingsSection: View {
             do { try await Task.sleep(for: Self.indexCheckTimeout) } catch { return }   // 正常路径下被取消
             fetch.cancel()
         }
-        defer { watchdog.cancel() }
+        defer { fetch.cancel(); watchdog.cancel(); refreshTask = nil }
         do {
             let fetched = try await fetch.value
             index = fetched

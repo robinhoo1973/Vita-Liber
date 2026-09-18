@@ -152,7 +152,7 @@ struct OwnerSetupView: View {
     @State private var bloodChoice = ""                  // 标准八档 / "special"；空 = 未选
     @State private var specialBloodNote = ""
     @State private var contactName = ""
-    @State private var contactRelation = "partner"
+    @State private var contactRelation = MemberRelation.partner.rawValue
     @State private var contactPhone = ""
     /// 预填是否已应用（提示行只在有实际默认值时出现）
     @State private var prefilled = false
@@ -249,9 +249,14 @@ struct OwnerSetupView: View {
                     .focused($focusedField, equals: .contactName)
                     .accessibilityIdentifier("SP-06.owner.contact.name")
             Picker(L10n.onboardContactRelation, selection: $contactRelation) {
-                // 关系展示走 memberRelationDisplayName 单一映射出口（FR6.9 展示层纪律）
-                ForEach(["partner", "child", "parent", "grandparent", "other"], id: \.self) { raw in
-                    Text(L10n.memberRelationDisplayName(raw)).tag(raw)
+                // 关系展示走 memberRelationDisplayName 单一映射出口（FR6.9 展示层纪律）。
+                // 审查修复（选项英文问题）：选项集此前硬编码英文 rawValue 数组——
+                // 存储词表与成员 sheet 的 Domain MemberRelation（中文 rawValue 单一
+                // 事实源）漂移，且展示层 default 分支原样吐回小写英文。改走
+                // MemberRelation.creatable（Domain 单一出口），三语经既有
+                // member.relation.* 键本地化（en 首字母大写）。
+                ForEach(MemberRelation.creatable, id: \.self) { rel in
+                    Text(L10n.memberRelationDisplayName(rel.rawValue)).tag(rel.rawValue)
                 }
             }
             .accessibilityIdentifier("SP-06.owner.contact.relation")

@@ -76,6 +76,46 @@ struct RuleExtractorTests {
         #expect(card.rows[0]["days"]?.value == "7")
     }
 
+    /// 审查修复锚点（2026-09-18 业主实测）：整行混排五要素（药名/规格/途径/
+    /// 单次量/频次/数量）必须全部拆出；「一天三次」频次写法必须命中。
+    @Test func 混排整行五要素全拆() {
+        let line = "阿莫西林胶囊 0.5g×24粒 口服 一次2粒 一日三次"
+        let split = RuleExtractor.splitPrescriptionLine(line)
+        let byKey = Dictionary(split, uniquingKeysWith: { a, _ in a })
+        #expect(byKey["drug_name"] == "阿莫西林胶囊")
+        // 规格文法含 ×N 包装量（0.5g×24粒 一体，与既有金样同口径）
+        #expect(byKey["spec"] != nil && byKey["spec"]!.contains("0.5g") && byKey["spec"]!.contains("24粒"))
+        #expect(byKey["route"] == "口服")
+        #expect(byKey["dosage"] == "2粒")
+        #expect(byKey["frequency"] != nil && byKey["frequency"]!.contains("三次"))
+        // 行级管线端到端：混排行成行且五键齐备
+        let card = run(rx, ["处方日期：2026-09-01", line])
+        #expect(card.rows.count == 1)
+        #expect(card.rows[0]["drug_name"]?.value == "阿莫西林胶囊")
+        #expect(card.rows[0]["spec"] != nil)
+        #expect(card.rows[0]["route"] != nil)
+        #expect(card.rows[0]["dosage"] != nil)
+        #expect(card.rows[0]["frequency"] != nil)
+    }
+
+    /// 审查修复锚点（2026-09-18）：药名与规格间无空格（「胶囊0.5g」）此前
+    /// 失配 drugWithSpec（\s+ 要求空格）、行锚丢失。\s* 同收两形态。
+    @Test func 无空格规格行锚不丢() {
+        let line = "阿莫西林胶囊0.5g×24粒 口服 一次2粒 一天三次"
+        let card = run(rx, ["处方日期：2026-09-01", line])
+        #expect(card.rows.count == 1, "无空格规格行必须成行（此前被并入上一行或丢弃）")
+        #expect(card.rows[0]["drug_name"]?.value == "阿莫西林胶囊")
+        #expect(card.rows[0]["frequency"] != nil, "「一天三次」频次写法必须命中")
+    }
+
+    /// 审查修复锚点（2026-09-18）：prescriptionNameNeedsSplit 判据——
+    /// 混排药名判真（须后拆分），纯药名判假。
+    @Test func 混排判据() {
+        #expect(RuleExtractor.prescriptionNameNeedsSplit("阿莫西林胶囊 0.5g×24粒 口服 一次2粒 一日三次"))
+        #expect(!RuleExtractor.prescriptionNameNeedsSplit("阿莫西林胶囊"))
+        #expect(!RuleExtractor.prescriptionNameNeedsSplit("阿莫西林胶囊 0.5g"))
+    }
+
     @Test func 检验合体行三元组与参考范围() {
         let lab = ExtractionSpecRegistry.spec(for: "metric_sample")!
         let card = run(lab, ["检验报告单", "报告日期：2026-09-01", "白细胞 6.5 10^9/L 3.5-9.5", "血红蛋白 150 g/L 115-150", "HbA1c: 5.6%"])

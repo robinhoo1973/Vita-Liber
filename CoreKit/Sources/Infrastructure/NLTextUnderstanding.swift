@@ -91,16 +91,42 @@ public actor NLTextUnderstanding: TextUnderstanding {
             // 检验/病历等非处方类型：逐行启发式语义字段；未命中行由调用方
             // 以通用 line_N 兜底（claimed 随结果返回，调用方不再重跑抽取）。
             // 启发式未命中的行再走词表直配（裸科室行「消化内科」——
-            // NLTokenizer CJK 分词，§4.2 词表组件）
-            for (idx, line) in lines.enumerated() {
-                let drafts = DocumentTypeClassifierFallback.guessFields(line: line)
+            // NLTokenizer CJK 分词，§4.2 词表组件）。
+            // 审查修复（叙事多行并入，2026-09-18 业主实测）：主诉/现病史/
+            // 既往史等标签行后的无标签行并入该叙事字段（逐字换行，BR-002
+            // 不丢内容），claimed 含吸收行（调用方不再补 line_N 兜底）；
+            // 边界 = 下一个标签行 / 日期开头 / 编号列表 / 科室直配行。
+            var idx = 0
+            while idx < lines.count {
+                let line = lines[idx]
+                var drafts = DocumentTypeClassifierFallback.guessFields(line: line)
                 if !drafts.isEmpty {
                     claimed.insert(idx)
+                    if let narrativeIndex = drafts.firstIndex(where: {
+                        DocumentTypeClassifierFallback.narrativeFieldKeys.contains($0.key)
+                    }) {
+                        let boundary: (String) -> Bool = { candidate in
+                            !DocumentTypeClassifierFallback.guessFields(line: candidate).isEmpty
+                                || Self.deptDraft(forLine: candidate) != nil
+                                || candidate.range(of: #"^\d{4}\s*[-/年.]|^\d+[.、)]"#,
+                                                   options: .regularExpression) != nil
+                        }
+                        let merged = DocumentTypeClassifierFallback.mergeNarrativeLines(
+                            lines: lines, from: idx + 1, isBoundary: boundary)
+                        if !merged.text.isEmpty {
+                            drafts[narrativeIndex].value += "\n" + merged.text
+                            for absorbed in (idx + 1)..<(idx + 1 + merged.absorbed) {
+                                claimed.insert(absorbed)
+                            }
+                            idx += merged.absorbed
+                        }
+                    }
                     fields.append(contentsOf: drafts)
                 } else if let dept = Self.deptDraft(forLine: line) {
                     claimed.insert(idx)
                     fields.append(dept)
                 }
+                idx += 1
             }
         }
         return UnderstandingResult(suggestedTarget: target,

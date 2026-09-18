@@ -56,7 +56,7 @@ struct ModelPackageDownloader {
         if supportsRanges, total >= Int64(segmentCount) {
             mode = .segmented(segments: segmentCount)
             let chunk = total / Int64(segmentCount)
-            let counter = ProgressCounter(total: total, mode: mode, callback: progress)
+            let counter = ProgressCounter(total: total, mode: mode, series: 0, callback: progress)
             do {
                 try await withThrowingTaskGroup(of: Void.self) { group in
                     for index in 0..<segmentCount {
@@ -75,14 +75,17 @@ struct ModelPackageDownloader {
                 // Range 被服务端忽略（对 bytes=start-end 返回 200 整包）：分段写坏了文件，
                 // 重建空文件后单流重下。进度计数器重建，避免分段字节虚增进度；
                 // 形态同步降级为单流（上层据此可见「本可分段却被服务端吞掉 Range」）。
+                // 系列换代（审查修复 2026-09-18）：单流重建计数器从 0 重计、
+                // totalBytes 与分段系列相同——系列 +1 让消费侧单调守卫跨系列
+                // 放行，否则进度条钉死在分段峰值（业主实测「无反应」）。
                 try writer.truncate(atOffset: 0)
                 mode = .singleStream
-                let fallbackCounter = ProgressCounter(total: total, mode: mode, callback: progress)
+                let fallbackCounter = ProgressCounter(total: total, mode: mode, series: 1, callback: progress)
                 try await Self.downloadSegment(session: session, url: url, start: 0, end: nil, total: total,
                                                destination: destination, counter: fallbackCounter)
             }
         } else {
-            let counter = ProgressCounter(total: total, mode: mode, callback: progress)
+            let counter = ProgressCounter(total: total, mode: mode, series: 0, callback: progress)
             try await Self.downloadSegment(session: session, url: url, start: 0, end: nil, total: total,
                                            destination: destination, counter: counter)
         }
@@ -147,12 +150,15 @@ private final class ProgressCounter: @unchecked Sendable {
     private var lastEmitTime: TimeInterval = 0
     private let total: Int64
     private let mode: ASRModelDownloadService.DownloadMode
+    /// 系列代次：同一 totalBytes 的重启系列（退单流）必须换代（见 DownloadProgress.series）
+    private let series: Int
     private let callback: (@Sendable (ASRModelDownloadService.DownloadProgress) -> Void)?
 
-    init(total: Int64, mode: ASRModelDownloadService.DownloadMode,
+    init(total: Int64, mode: ASRModelDownloadService.DownloadMode, series: Int,
          callback: (@Sendable (ASRModelDownloadService.DownloadProgress) -> Void)?) {
         self.total = total
         self.mode = mode
+        self.series = series
         self.callback = callback
     }
 
@@ -169,7 +175,7 @@ private final class ProgressCounter: @unchecked Sendable {
         let snapshot = received
         lock.unlock()
         if shouldEmit {
-            callback?(.init(receivedBytes: snapshot, totalBytes: total, mode: mode))
+            callback?(.init(receivedBytes: snapshot, totalBytes: total, mode: mode, series: series))
         }
     }
 }

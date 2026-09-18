@@ -143,7 +143,14 @@ struct HealthTabView: View {
                             NavigationLink(value: AppRoute.healthImportedData(kind: type.kind,
                                                                               patientId: dashboard.patientId)) {
                                 VStack(alignment: .leading, spacing: 4) {
-                                    HStack {
+                                    HStack(spacing: 10) {
+                                        // 审查修复（指标图标）：健康数据行此前纯文本、
+                                        // 指标间不可分辨——经 CardKindIcon.spec(metric:)
+                                        // 单一出口渲染指标符号（与时间轴/SP-29 同符号）
+                                        Image(systemName: CardKindIcon.spec(metric: type.kind.primaryMetric).symbol)
+                                            .font(.title3)
+                                            .foregroundStyle(CardKindIcon.tint(metric: type.kind.primaryMetric))
+                                            .frame(width: 26)
                                         Text(L10n.metricName(type.kind.primaryMetric))
                                         Spacer()
                                         Text(L10n.healthImportedPointCount(type.rowCount))

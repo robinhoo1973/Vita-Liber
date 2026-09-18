@@ -1824,6 +1824,7 @@ enum L10n {
         "asr.whisper", "asr.whisper.hint", "asr.bundledOffline", "asr.selectionHint", "asr.missingAssets",
         "asr.downloadable",
         "asr.model.download", "asr.model.update", "asr.model.installed",
+        "asr.model.variantTitle", "asr.model.variantSmall", "asr.model.variantMedium", "asr.model.variantLarge",
         "asr.model.downloading", "asr.model.downloadFailed",
         "asr.model.checkUpdate", "asr.index.fetchFailed",
         "asr.model.checking", "asr.model.checkUpToDate", "asr.model.checkUpdatesFmt",
@@ -1844,7 +1845,7 @@ enum L10n {
         "field.visit_summary", "field.reimbursed_amount", "field.out_of_pocket", "field.reference_range",
         "field.vaccine_name", "field.dose_number", "field.administered_at", "field.provider", "field.lot_number",
         "health.settingsTitle", "health.autoImport", "health.readPermissionHint", "health.importedData",
-        "health.importedPointCount", "health.importedDataHint", "health.appleSource",
+        "health.importedPointCount", "health.importedDayCount", "health.importedDataHint", "health.appleSource",
         "health.viewTrendChart", "health.viewTrendChartHint", "health.importedRecordsSection",
         // 业主 2026-09-17 定：特征型档案候选 + 写回 Apple 健康
         "health.candidate.section", "health.candidate.hint", "health.candidate.adopt",
@@ -2406,15 +2407,18 @@ enum L10n {
     static func memberRelationDisplayName(_ raw: String) -> String {
         switch raw {
         case "本人": return member_relationSelf
-        case "配偶": return member_relationPartner
-        case "子女": return member_relationChild
-        case "父母": return member_relationParent
-        case "祖父母": return member_relationGrandparent
-        case "父亲": return member_relationFather
-        case "母亲": return member_relationMother
-        case "儿子": return member_relationSon
-        case "女儿": return member_relationDaughter
-        case "其他": return member_relationOther
+        case "配偶", "partner", "spouse": return member_relationPartner
+        case "子女", "child": return member_relationChild
+        case "父母", "parent": return member_relationParent
+        case "祖父母", "grandparent": return member_relationGrandparent
+        case "父亲", "father": return member_relationFather
+        case "母亲", "mother": return member_relationMother
+        case "儿子", "son": return member_relationSon
+        case "女儿", "daughter": return member_relationDaughter
+        case "其他", "other": return member_relationOther
+        // 审查修复（遗留英文词表容错）：引导流程曾以英文 rawValue 落库
+        // （partner/child/...）——上述同义映射保证旧行显示仍本地化（en
+        // 首字母大写），不再原样吐回小写英文。
         default: return raw.isEmpty ? member_relationFamily : raw
         }
     }
@@ -2573,6 +2577,8 @@ enum L10n {
     static var healthReadPermissionHint: String { t("health.readPermissionHint") }
     static var healthImportedData: String { t("health.importedData") }
     static func healthImportedPointCount(_ n: Int) -> String { String(format: t("health.importedPointCount"), n) }
+    /// 同日折叠日卡的条数标注（SP-29，业主 2026-09-18 定）
+    static func healthImportedDayCount(_ n: Int) -> String { String(format: t("health.importedDayCount"), n) }
     static var healthImportedDataHint: String { t("health.importedDataHint") }
     static var healthAppleSource: String { t("health.appleSource") }
     static var healthViewTrendChart: String { t("health.viewTrendChart") }
@@ -3322,6 +3328,20 @@ enum L10n {
     static var asrBundledOffline: String { t("asr.bundledOffline") }
     /// FR17.15（业主 2026-09-12）：运行时模型下载 UI。
     static var asrModelDownload: String { t("asr.model.download") }
+    /// 模型尺寸选择（业主 2026-09-18 定：目录含同 id 多档时出现）
+    static var asrModelVariantTitle: String { t("asr.model.variantTitle") }
+    /// 变体档位名：登记 small/medium/large 三档本地化，未登记键回落原文
+    static func asrModelVariantName(_ raw: String) -> String {
+        switch raw {
+        case "small": return asrModelVariantSmall
+        case "medium": return asrModelVariantMedium
+        case "large": return asrModelVariantLarge
+        default: return raw
+        }
+    }
+    static var asrModelVariantSmall: String { t("asr.model.variantSmall") }
+    static var asrModelVariantMedium: String { t("asr.model.variantMedium") }
+    static var asrModelVariantLarge: String { t("asr.model.variantLarge") }
     static func asrModelUpdate(_ version: String) -> String { String(format: t("asr.model.update"), version) }
     static func asrModelInstalled(_ version: String) -> String { String(format: t("asr.model.installed"), version) }
     static var asrModelDownloading: String { t("asr.model.downloading") }

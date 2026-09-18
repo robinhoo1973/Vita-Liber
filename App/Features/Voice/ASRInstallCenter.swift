@@ -52,12 +52,13 @@ final class ASRInstallCenter {
         nonisolated func submit(progress: ASRModelDownloadService.DownloadProgress) {
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                // 单调守卫**限同阶段**（分母相同才比大小）：下载阶段 totalBytes 恒定，
-                // 乱序到达的旧值照旧丢弃；跨阶段（下载 100% → 校验 0%）分母不同，
-                // 必须放行——否则新阶段从 0 起算的每一次回调都被判成「不增」
-                // （2026-09-16 审查修复：本批把校验/解压接进同一进度出口后才成立）。
+                // 单调守卫**限同系列**（审查修复 2026-09-18）：同系列内乱序旧值
+                // 丢弃；跨系列（分段退单流/校验/解压——同一 totalBytes 从 0 重计）
+                // 一律放行——此前按 totalBytes 相同 + received 不增判定，单流重建
+                // 计数器的每次回调都被当作旧值丢弃，进度条钉死在分段峰值数分钟
+                // （业主实测「进度条无反应、百分比不变化」）。
                 if let current = self.progress,
-                   current.totalBytes == progress.totalBytes,
+                   current.series == progress.series,
                    current.receivedBytes >= progress.receivedBytes { return }
                 self.progress = progress
             }

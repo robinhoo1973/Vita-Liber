@@ -30,6 +30,13 @@ public actor ASRModelDownloadService {
         public var totalBytes: Int64
         /// 传输形态；`nil` = 尚未确定。
         public var mode: DownloadMode? = nil
+        /// 进度系列代次（审查修复 2026-09-18）：同一 totalBytes 的**重启系列**
+        /// （分段被服务端吞 Range 后单流从 0 重计 / 校验/解压阶段从 0 重计）
+        /// 必须换代——消费侧单调守卫按系列比较：跨系列一律放行，同系列内
+        /// 才判「不增丢弃」。此前无此字段，单流重建计数器的每一次回调
+        /// （received 从 0 爬起）都被判成「旧值」丢弃，进度条钉死在分段
+        /// 峰值数分钟——业主实测「进度条无反应、百分比不变化」。
+        public var series: Int = 0
         public var fraction: Double { totalBytes > 0 ? Double(receivedBytes) / Double(totalBytes) : 0 }
     }
 
@@ -54,6 +61,9 @@ public actor ASRModelDownloadService {
         var directory: String? = nil
         var artifactRevision: Int? = nil
         var packageSHA256: String? = nil
+        /// 变体档位（业主 2026-09-16 定案，2026-09-18 接线）：单档家族为 nil；
+        /// 解码对旧指针天然兼容（缺键 = nil）。
+        var variant: String? = nil
     }
 
     private let session: URLSession
@@ -262,8 +272,10 @@ public actor ASRModelDownloadService {
         onPhase?(.verifying)
         // 校验/解压复用 `progress` 出口（不新增通道）：阶段本身已说明字节的含义，
         // UI 据此二选文案（下载 = 「已下载 X/Y」，校验解压 = 只出条不出数字）。
+        // series 换代（审查修复）：校验从 0 重计且 totalBytes 与下载相同——
+        // 消费侧单调守卫须跨系列放行（series: 2 = 校验系列）。
         let digest = try StreamingFileHasher.sha256(of: zipURL) { processed, total in
-            progress?(.init(receivedBytes: processed, totalBytes: total))
+            progress?(.init(receivedBytes: processed, totalBytes: total, series: 2))
         }
         // release 的整份描述已匹配受信任授权。
         guard digest.caseInsensitiveCompare(release.sha256) == .orderedSame else {
@@ -273,7 +285,7 @@ public actor ASRModelDownloadService {
         let unpacked = staging.appendingPathComponent("unpacked", isDirectory: true)
         onPhase?(.unpacking)
         try ModelPackageUnpacker.unzip(zipURL, to: unpacked, maximumBytes: expanded) { processed, total in
-            progress?(.init(receivedBytes: processed, totalBytes: total))
+            progress?(.init(receivedBytes: processed, totalBytes: total, series: 3))
         }
         do {
             _ = try ASRModelAssets(root: unpacked).validate(choice)
@@ -285,7 +297,12 @@ public actor ASRModelDownloadService {
         guard trust.isAuthorized(release) else { throw Failure.untrustedPackage }
         // 唯一安装目录：同版本修复也不会先删除当前激活目录。
         onPhase?(.activating)
-        let directoryName = String(release.version.prefix(60)) + "-" + String(release.sha256.prefix(12)) + "-" + UUID().uuidString
+        // 变体接线（审查修复 2026-09-18）：目录名含变体段（ASRInstallLayout
+        // 单一出口；单档家族/历史条目 variant=nil 回落历史布局）
+        let directoryName = ASRInstallLayout.directoryName(variant: release.variant,
+                                                           version: release.version,
+                                                           sha256: release.sha256,
+                                                           uuid: UUID().uuidString)
         let versionDir = modelRoot.appendingPathComponent(directoryName, isDirectory: true)
         do {
             try fileManager.createDirectory(at: modelRoot, withIntermediateDirectories: true)
@@ -295,7 +312,8 @@ public actor ASRModelDownloadService {
         }
 
         let pointer = ActivePointer(choice: release.id, version: release.version, installedAt: Date(),
-                                    directory: directoryName, artifactRevision: release.artifactRevision, packageSHA256: release.sha256)
+                                    directory: directoryName, artifactRevision: release.artifactRevision, packageSHA256: release.sha256,
+                                    variant: release.variant)
         do {
             try Task.checkCancellation()
             let pointerData = try JSONEncoder().encode(pointer)
@@ -308,17 +326,28 @@ public actor ASRModelDownloadService {
         ASRModelAssets.invalidateCaches()
 
         onPhase?(.pruning)
-        pruneOldVersions(modelRoot: modelRoot, keeping: [versionDir, previousRoot].compactMap { $0 })
+        pruneOldVersions(modelRoot: modelRoot, newlyInstalled: directoryName, previousRoot: previousRoot)
         return versionDir
     }
     /// 版本目录按 `ASRVersion.isNewer` 语义排序（字典序会把 `v2026.03.4` 排在
     /// `v2026.03.25` 之后、把 `1.9` 排在 `1.10` 之后——回滚窗口会保留最旧版本）。
-    private func pruneOldVersions(modelRoot: URL, keeping roots: [URL]) {
+    /// 变体接线（审查修复 2026-09-18）：保留粒度按 (家族, 变体)——
+    /// ASRInstallLayout.keepingForPrune（Domain 单一出口）：每变体最新一个 +
+    /// 刚装成的 + 当前生效的；旧「保留新/旧两个」规则在多档下会删掉另一档
+    /// （业主定「可同时下载多档共存」）。
+    private func pruneOldVersions(modelRoot: URL, newlyInstalled: String, previousRoot: URL?) {
         guard let entries = try? fileManager.contentsOfDirectory(at: modelRoot,   // try?-ok: 目录不可读=无可清理版本，清理非关键路径
                                                                  includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
                                                                  options: [.skipsHiddenFiles]) else { return }
-        let kept = Set(roots.map { $0.standardizedFileURL.path })
-        for stale in entries where !kept.contains(stale.standardizedFileURL.path) {
+        var candidates: [(name: String, version: String, variant: String?)] = []
+        for entry in entries {
+            guard let parsed = ASRInstallLayout.parseDirectory(entry.lastPathComponent) else { continue }
+            candidates.append((entry.lastPathComponent, parsed.version, parsed.variant))
+        }
+        let kept = ASRInstallLayout.keepingForPrune(candidates: candidates,
+                                                    newlyInstalled: newlyInstalled,
+                                                    activeName: previousRoot?.lastPathComponent)
+        for stale in entries where !kept.contains(stale.lastPathComponent) {
             do {
                 let values = try stale.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
                 guard values.isDirectory == true, values.isSymbolicLink != true else { continue }

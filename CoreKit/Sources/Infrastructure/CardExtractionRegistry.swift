@@ -93,6 +93,33 @@ public actor CardExtractionRegistry {
                 card.rows += merged.rows                                  // 行级：全部保留（O-N3 不再丢第二值）
                 if !contributors.isEmpty { card.diagnostics.regionTracks[region.id] = contributors }
             }
+            // 处方合体行后拆分（审查修复 2026-09-18 业主实测）：生成轨可能把
+            // 「阿莫西林胶囊 0.5g×24粒 口服 一次2粒 一日三次」整行当 drug_name
+            // 产出（逐字子串，grounding 合法）——行内药名/规格/途径/单次量/
+            // 频次全被埋没。规则轨文法对同文本可拆全键，故对处方卡逐行后
+            // 拆分：仅当 drug_name 混排用法短语时拆；union 语义（已有键不
+            // 覆盖——生成轨逐字值优先，新键补缺；全部产物仍 D 级待确认，
+            // BR-003 不变）。
+            if spec.kind == "prescription" {
+                for rowIndex in card.rows.indices {
+                    guard let nameGV = card.rows[rowIndex]["drug_name"],
+                          RuleExtractor.prescriptionNameNeedsSplit(nameGV.value) else { continue }
+                    let split = RuleExtractor.splitPrescriptionLine(nameGV.value)
+                    guard split.count > 1 else { continue }
+                    var updated = card.rows[rowIndex]
+                    for (key, value) in split {
+                        if key == "drug_name" {
+                            // 拆出的药名比整行短：以拆出值为准（锚点/置信沿用原值）
+                            updated["drug_name"] = GroundedValue(value: value, anchor: nameGV.anchor,
+                                                                 confidence: nameGV.confidence)
+                        } else if updated[key] == nil {
+                            updated[key] = GroundedValue(value: value, anchor: nameGV.anchor,
+                                                         confidence: nameGV.confidence)
+                        }
+                    }
+                    card.rows[rowIndex] = updated
+                }
+            }
             card.provenance.track = used.first ?? .rules
             card.diagnostics.track = card.provenance.track
             card.diagnostics.mixedTracks = used.count > 1

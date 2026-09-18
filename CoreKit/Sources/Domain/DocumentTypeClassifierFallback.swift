@@ -138,6 +138,13 @@ public enum DocumentTypeClassifierFallback {
             ("chief_complaint", #"(?:主诉|主訴)[:：]?\s*(.+)"#),
             ("diagnosis", #"(?:诊断|診斷)[:：]?\s*(.+)"#),
             ("treatment", #"(?:处理|處理|医嘱|醫囑)[:：]?\s*(.+)"#),
+            // 叙事字段补全（审查修复 2026-09-18 业主实测）：此前病历只认
+            // 主诉/诊断/处理三标签，现病史/既往史/家族史/过敏史整段落
+            // line_N 孤行。键与 encounterSpec 叙事键同源对齐。
+            ("present_illness", #"(?:现病史|現病史|病情说明|病情說明)[:：]?\s*(.+)"#),
+            ("past_history", #"(?:既往史|既住史|过往病史|過往病史|过去史|過去史|既往病史|Past History|PMH)[:：]?\s*(.+)"#),
+            ("family_history", #"(?:家族史|Family History)[:：]?\s*(.+)"#),
+            ("allergy_history", #"(?:过敏史|過敏史|药物过敏史|藥物過敏史|Allergies)[:：]?\s*(.+)"#),
             // 检验项目行：「血红蛋白 150 g/L」「HbA1c: 5.6%」「白细胞 6.5 10^9/L 3.5-9.5」
             // （V3.61：可选尾随参考范围 → 伴随 reference_range 草稿，同 rawText 归入该检验行）
             // 审查修复：项目名类此前不含数字/连字符——HbA1c/CA125/T3/25-OH-D
@@ -158,7 +165,39 @@ public enum DocumentTypeClassifierFallback {
     /// 否则一行多标签时每个字段都吞掉后面的标签与值（2026-09-16 实测污染）。
     private static let freeTextRoles: Set<String> = [
         "dept", "reference_range", "chief_complaint", "diagnosis", "treatment",
+        "present_illness", "past_history", "family_history", "allergy_history",
     ]
+
+    /// 叙事字段键（多行并入判据，2026-09-18 业主实测）：这些角色的值
+    /// 天然多行（主诉/现病史/既往史段落），标签行后的无标签行并入而非
+    /// 落 line_N。单一事实源：本表与 fieldPatterns 叙事键逐条对齐。
+    /// 刻意**不含** diagnosis/treatment：诊断/医嘱是结构化短字段，其后
+    /// 常跟报告标题/医生/检验行——吸收会吞掉后续结构化行（标签直配
+    /// 三语测试实测回归）。
+    public static let narrativeFieldKeys: Set<String> = [
+        "chief_complaint", "present_illness", "past_history",
+        "family_history", "allergy_history",
+    ]
+
+    /// 叙事续行并入（纯函数，可单测）：lines[startIndex..<n] 逐行并入，
+    /// 直到调用方判定为边界的行。返回并入文本（换行拼接）与吸收行数
+    /// （边界行不计入）。逐字拼接、不重写不翻译（BR-002 不丢内容 /
+    /// BR-006 不生成结论）。
+    public static func mergeNarrativeLines(lines: [String], from startIndex: Int,
+                                           isBoundary: (String) -> Bool) -> (text: String, absorbed: Int) {
+        var parts: [String] = []
+        var absorbed = 0
+        var cursor = startIndex
+        while cursor < lines.count {
+            let candidate = lines[cursor].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !candidate.isEmpty else { cursor += 1; absorbed += 1; continue }
+            if isBoundary(candidate) { break }
+            parts.append(lines[cursor])
+            absorbed += 1
+            cursor += 1
+        }
+        return (parts.joined(separator: "\n"), absorbed)
+    }
 
     /// 按判定类型收敛的启发式语义字段（期一；处方路径由既有
     /// PrescriptionFieldMapper 承担，本函数只覆盖检验/病历/通用）。
@@ -239,9 +278,11 @@ public extension DocumentTypeClassifierFallback {
             ["处方", "處方", "用法", "用量", "药品名称", "藥品名稱"].contains(where: line.contains)
         }
         var output: [FieldDraft] = []
-        for (index, line) in lines.enumerated() {
+        var index = 0
+        while index < lines.count {
+            let line = lines[index]
             let text = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty else { continue }
+            guard !text.isEmpty else { index += 1; continue }
             var fields = understood.filter {
                 !$0.key.hasPrefix("line_") && ($0.sourceLineIndex == nil || $0.sourceLineIndex == index)
                     && ($0.rawText?.trimmingCharacters(in: .whitespacesAndNewlines) == text
@@ -381,11 +422,34 @@ public extension DocumentTypeClassifierFallback {
             if fields.isEmpty {
                 fields = [FieldDraft(key: "line_\(index)", value: line, confidence: measuredConfidence, rawText: line)]
             }
+            // 叙事多行并入（审查修复 2026-09-18 业主实测）：主诉/现病史/既往史
+            // 等多行段落此前只取标签所在行，后续行落 line_N 孤行或误猜成别的
+            // 角色。标签行后的无标签行逐字换行并入（BR-002 不丢内容），直到
+            // 边界行（任何 guessFields 命中行 / 日期开头 / 编号列表 / 已有
+            // 模型轨字段的行）。吸收行跳过独立处理（不产 line_N）。
+            if let narrativeIndex = fields.firstIndex(where: { Self.narrativeFieldKeys.contains($0.key) }) {
+                var cursor = index + 1
+                var absorbed: [String] = []
+                while cursor < lines.count {
+                    let candidate = lines[cursor].trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !candidate.isEmpty else { cursor += 1; continue }
+                    if !guessFields(line: lines[cursor]).isEmpty { break }
+                    if candidate.range(of: #"^\d{4}\s*[-/年.]|^\d+[.、)]"#, options: .regularExpression) != nil { break }
+                    if understood.contains(where: { ($0.sourceLineIndex ?? -1) == cursor }) { break }
+                    absorbed.append(lines[cursor])
+                    cursor += 1
+                }
+                if !absorbed.isEmpty {
+                    fields[narrativeIndex].value += "\n" + absorbed.joined(separator: "\n")
+                    index = cursor - 1
+                }
+            }
             for var field in fields {
                 field.sourceLineIndex = index
                 field.confidence = min(measuredConfidence, field.confidence.isFinite ? max(0, field.confidence) : 0)
                 output.append(field)
             }
+            index += 1
         }
         return output
     }

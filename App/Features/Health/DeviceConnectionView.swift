@@ -442,7 +442,12 @@ struct DeviceConnectionView: View {
                                 NavigationLink(value: AppRoute.healthImportedData(kind: type.kind,
                                                                                   patientId: dashboard.patientId)) {
                                     VStack(alignment: .leading, spacing: 4) {
-                                        HStack {
+                                        HStack(spacing: 10) {
+                                            // 审查修复（指标图标）：与健康 Tab/SP-29 同出口同符号
+                                            Image(systemName: CardKindIcon.spec(metric: type.kind.primaryMetric).symbol)
+                                                .font(.title3)
+                                                .foregroundStyle(CardKindIcon.tint(metric: type.kind.primaryMetric))
+                                                .frame(width: 26)
                                             Text(L10n.metricName(type.kind.primaryMetric))
                                             Spacer()
                                             Text(L10n.healthImportedPointCount(type.rowCount)).foregroundStyle(.secondary)
@@ -621,6 +626,65 @@ struct HealthImportedDataView: View {
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
+    /// 同日折叠分组（审查修复，业主 2026-09-18）：同一日期的读数并为一卡。
+    /// 分组在已加载行之上计算——翻页追加后自动重排；键 = Calendar.startOfDay
+    /// （日历日，DST 安全）。列表按时间倒序加载，分组序即日期倒序。
+    private var dayGroups: [(day: Date, rows: [HealthImportRow])] {
+        let cal = Calendar.current
+        var out: [(Date, [HealthImportRow])] = []
+        for row in rows {
+            let day = cal.startOfDay(for: row.measuredAt)
+            if let i = out.firstIndex(where: { $0.0 == day }) { out[i].1.append(row) }
+            else { out.append((day, [row])) }
+        }
+        return out
+    }
+
+    /// 展开集（nil = 未交互前的默认态：最近一天展开、更早日折叠）。
+    @State private var expandedDays: Set<Date>?
+    private func dayBinding(_ day: Date) -> Binding<Bool> {
+        Binding(get: {
+            guard let set = expandedDays else { return day == dayGroups.first?.day }
+            return set.contains(day)
+        }, set: { on in
+            // 首次交互时以当前默认态为基线（最近一天展开），随后记录用户取舍
+            var set = expandedDays ?? Set(dayGroups.filter { $0.day == dayGroups.first?.day }.map(\.day))
+            if on { set.insert(day) } else { set.remove(day) }
+            expandedDays = set
+        })
+    }
+
+    /// 单条读数行（日卡内）：数值/单位/时刻/统计/来源——原平铺行内容整体
+    /// 迁入（审查修复：同日折叠后单行形态不变，仅承载容器从 List 行改为
+    /// 日卡子行）。
+    @ViewBuilder
+    private func healthReadingRow(_ row: HealthImportRow) -> some View {
+        NavigationLink(value: AppRoute.trendChart(patientId: patientId, metric: row.metricKey)) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(MetricType(rawValue: row.metricKey).map { L10n.metricName($0) } ?? L10n.healthImportedData)
+                // 医学数值走唯一格式化出口（审查修复：原 Double.formatted()
+                // 与趋势页 MedicalNumberFormat 两套数字规则，同一读数两处显示不同）。
+                // 2026-09-15 二轮审查修复：形态必须取**趋势页读数**同款
+                // `oneDecimal`（%.1f）——`quantity` 是库存件数出口（%g，最多 6 位
+                // 有效数字），心率小时均值 72.4568 在这页显示「72.4568」、在 SP-13
+                // 显示「72.5」，同一条 metric_sample 仍是两说（首轮改错了兄弟口径）。
+                // 统计行内的极值仍用 quantity——与 SP-13 `statisticsLine` 逐字同款。
+                Text(MedicalNumberFormat.oneDecimal(row.value) + " " + row.unit).font(.headline)
+                Text(row.measuredAt.formatted(date: .abbreviated, time: .shortened)).font(.caption)
+                // FR7.9：本行是单条读数还是统计窗口（小时均值/日累计/睡眠时长），
+                // 窗口结束时间与极值/样本数——与 SP-13 趋势行同口径（statisticsLine）
+                if let end = row.windowEnd, row.aggregation != .sample {
+                    Text(L10n.healthWindowEnd(end.formatted(date: .abbreviated, time: .shortened)))
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+                if let statistics = statisticsLine(row) {
+                    Text(statistics).font(.caption2).foregroundStyle(.secondary)
+                }
+                Text(row.sourceName ?? L10n.healthAppleSource).font(.caption).foregroundStyle(.secondary)
+            }.padding(.vertical, 4)
+        }
+    }
+
     var body: some View {
         WithPerceptionTracking {
             Group {
@@ -658,31 +722,31 @@ struct HealthImportedDataView: View {
                                         .accessibilityIdentifier("SP-29.health.sparse")
                                 }
                             }
-                            ForEach(rows) { row in
-                                NavigationLink(value: AppRoute.trendChart(patientId: patientId, metric: row.metricKey)) {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(MetricType(rawValue: row.metricKey).map { L10n.metricName($0) } ?? L10n.healthImportedData)
-                                        // 医学数值走唯一格式化出口（审查修复：原 Double.formatted()
-                                        // 与趋势页 MedicalNumberFormat 两套数字规则，同一读数两处显示不同）。
-                                        // 2026-09-15 二轮审查修复：形态必须取**趋势页读数**同款
-                                        // `oneDecimal`（%.1f）——`quantity` 是库存件数出口（%g，最多 6 位
-                                        // 有效数字），心率小时均值 72.4568 在这页显示「72.4568」、在 SP-13
-                                        // 显示「72.5」，同一条 metric_sample 仍是两说（首轮改错了兄弟口径）。
-                                        // 统计行内的极值仍用 quantity——与 SP-13 `statisticsLine` 逐字同款。
-                                        Text(MedicalNumberFormat.oneDecimal(row.value) + " " + row.unit).font(.headline)
-                                        Text(row.measuredAt.formatted(date: .abbreviated, time: .shortened)).font(.caption)
-                                        // FR7.9：本行是单条读数还是统计窗口（小时均值/日累计/睡眠时长），
-                                        // 窗口结束时间与极值/样本数——与 SP-13 趋势行同口径（statisticsLine）
-                                        if let end = row.windowEnd, row.aggregation != .sample {
-                                            Text(L10n.healthWindowEnd(end.formatted(date: .abbreviated, time: .shortened)))
-                                                .font(.caption2).foregroundStyle(.secondary)
+                            // 审查修复（同日折叠 + 指标图标，业主 2026-09-18）：
+                            // 同一日期的读数折叠进一张日期信息卡（DisclosureGroup）——
+                            // 此前平铺逐行一卡，同日数十条读数铺满整页。最近一天
+                            // 默认展开、更早日默认折叠（点标题行展开/收起）。
+                            ForEach(dayGroups, id: \.day) { group in
+                                DisclosureGroup(isExpanded: dayBinding(group.day)) {
+                                    ForEach(group.rows) { row in
+                                        healthReadingRow(row)
+                                    }
+                                } label: {
+                                    HStack(spacing: 10) {
+                                        Image(systemName: CardKindIcon.spec(metric: kind.primaryMetric).symbol)
+                                            .font(.title3)
+                                            .foregroundStyle(CardKindIcon.tint(metric: kind.primaryMetric))
+                                            .frame(width: 26)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(group.day.formatted(date: .abbreviated, time: .omitted))
+                                                .font(.subheadline)
+                                            Text(L10n.healthImportedDayCount(group.rows.count))
+                                                .font(.caption).foregroundStyle(.secondary)
                                         }
-                                        if let statistics = statisticsLine(row) {
-                                            Text(statistics).font(.caption2).foregroundStyle(.secondary)
-                                        }
-                                        Text(row.sourceName ?? L10n.healthAppleSource).font(.caption).foregroundStyle(.secondary)
-                                    }.padding(.vertical, 4)
+                                    }
+                                    .frame(minHeight: 44)
                                 }
+                                .accessibilityIdentifier("SP-29.health.dayCard")
                             }
                             if loading { ProgressView() }
                             else if hasMore { Button(failed ? L10n.retry : L10n.healthLoadMore) { Task { await load() } } }

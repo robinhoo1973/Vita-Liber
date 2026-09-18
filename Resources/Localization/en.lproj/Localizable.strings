@@ -1768,6 +1768,10 @@
 "asr.missingAssets" = "Model resources in this build are missing or incomplete";
 "asr.downloadable" = "Not downloaded yet — download below to use offline";
 "asr.model.download" = "Download model";
+"asr.model.variantTitle" = "Model size";
+"asr.model.variantSmall" = "Small";
+"asr.model.variantMedium" = "Medium";
+"asr.model.variantLarge" = "Large";
 "asr.model.update" = "Update to %@";
 "asr.model.installed" = "Installed %@";
 "asr.model.downloading" = "Downloading…";
@@ -1860,6 +1864,7 @@
 "health.readPermissionHint" = "Data is imported only into the owner's profile. Disabling automatic import keeps manual import available. Disabling read access stops future reads and retains imported data. Apple Health manages read permissions and does not reveal individual read grants to apps; review access from your profile in the Health app.";
 "health.importedData" = "Imported health data";
 "health.importedPointCount" = "%d data points";
+"health.importedDayCount" = "%d records";
 "health.importedDataHint" = "Open a type to browse all imported records, then view its trend. Counts represent visible data points, not raw samples: hourly heart rate, daily steps and nightly sleep summaries. History imports in batches; complete windows appear immediately.";
 "health.appleSource" = "From Apple Health";
 "health.viewTrendChart" = "View Trend Chart";

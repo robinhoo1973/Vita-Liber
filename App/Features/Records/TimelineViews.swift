@@ -443,10 +443,30 @@ private struct TimelineRowView: View {
     var body: some View {
         WithPerceptionTracking {
             HStack(alignment: .top, spacing: 10) {
-                Circle()
-                    .fill(color)
-                    .frame(width: 10, height: 10)
-                    .padding(.top, 5)
+                // 审查修复（健康数据指标图标）：Apple 导入健康数据行此前与
+                // 其它六类共用品牌色圆点，指标间不可分辨——按 MetricType
+                // 走 CardKindIcon.spec(metric:) 单一出口（与健康 Tab 同符号，
+                // 跨面同符号纪律）
+                if entry.kind == .healthData {
+                    let symbol = entry.metricKey
+                        .flatMap(MetricType.init(grammarKey:))
+                        .map { CardKindIcon.spec(metric: $0).symbol }
+                        ?? CardKindIcon.symbol(for: .healthData)
+                    let tint = entry.metricKey
+                        .flatMap(MetricType.init(grammarKey:))
+                        .map { CardKindIcon.tint(metric: $0) }
+                        ?? color
+                    Image(systemName: symbol)
+                        .font(.subheadline)
+                        .foregroundStyle(tint)
+                        .frame(width: 18)
+                        .padding(.top, 4)
+                } else {
+                    Circle()
+                        .fill(color)
+                        .frame(width: 10, height: 10)
+                        .padding(.top, 5)
+                }
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
                         Text(entryTitle)

@@ -129,6 +129,52 @@ enum CardKindIcon {
 
     static func spec(cardKind: String) -> Spec { spec(timelineKind: timelineKind(cardKind: cardKind)) }
 
+    // MARK: - 健康指标（MetricType 全 16 case 穷尽；业主 2026-09-18 定）
+
+    /// 指标 → 行内符号 + 大尺寸字形 + 语义色。审查修复（业主实测）：Apple
+    /// 导入健康数据在健康 Tab/仪表盘/SP-29 明细/搜索/时间轴全无指标图标——
+    /// 各面自绘文本行、时间轴共用品牌圆点，指标间不可分辨；本出口为指标
+    /// 图标单一事实源（新增 MetricType case 编译期即红）。
+    /// 符号 ≤ SF Symbols 4（iOS 16 部署目标）；色按指标语义（心率=红、
+    /// 血氧=警示、步数=成功、睡眠=次要，其余品牌色），与严重度无关。
+    static func spec(metric: MetricType) -> Spec {
+        switch metric {
+        case .bloodPressureSys, .bloodPressureDia:
+            return Spec(symbol: "gauge", glyph: VLIcon.vitalsChart, tint: brand)
+        case .glucose:
+            return Spec(symbol: "drop.circle", glyph: VLIcon.bloodDrop, tint: warning)
+        case .weight:
+            return Spec(symbol: "scalemass", glyph: VLIcon.medicineBox, tint: brand)
+        case .temperature:
+            return Spec(symbol: "thermometer.medium", glyph: VLIcon.thermometer, tint: brand)
+        case .heartRate:
+            return Spec(symbol: "heart.fill", glyph: VLIcon.pulse, tint: danger)
+        case .restingHeartRate:
+            return Spec(symbol: "heart.text.square", glyph: VLIcon.pulse, tint: danger)
+        case .bloodOxygen:
+            return Spec(symbol: "lungs.fill", glyph: VLIcon.pulseOximeter, tint: warning)
+        case .respiratoryRate:
+            return Spec(symbol: "wind", glyph: VLIcon.vitalsChart, tint: brand)
+        case .steps:
+            return Spec(symbol: "figure.walk", glyph: VLIcon.walker, tint: success)
+        case .sleepTotal:
+            return Spec(symbol: "moon.zzz.fill", glyph: VLIcon.moon, tint: secondary)
+        case .sleepDeep:
+            return Spec(symbol: "moon.stars.fill", glyph: VLIcon.moon, tint: secondary)
+        case .sleepREM:
+            return Spec(symbol: "moon.fill", glyph: VLIcon.moon, tint: secondary)
+        case .sleepAwake:
+            return Spec(symbol: "moon.circle", glyph: VLIcon.moon, tint: secondary)
+        case .sleepCore:
+            return Spec(symbol: "moon.zzz", glyph: VLIcon.moon, tint: secondary)
+        case .sleepUnspecified:
+            return Spec(symbol: "moon", glyph: VLIcon.moon, tint: secondary)
+        }
+    }
+
+    static func symbol(metric: MetricType) -> String { spec(metric: metric).symbol }
+    static func tint(metric: MetricType) -> Color { spec(metric: metric).tint }
+
     // MARK: - 检测/检查项（LabItemRules 分类 → 符号；业主 2026-09-17 定）
 
     /// 检验报告数值/定性行的逐项符号：酶类 = 分子结构（SF Symbols 4，iOS 16 ✓）；

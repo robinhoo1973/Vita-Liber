@@ -181,4 +181,51 @@ struct LabeledValueExtractionTests {
         // 反面：`提示` 单独出现时**是**已知标签 → 取值（防止把「精确匹配」写成「不匹配任何标签」）
         #expect(OCRGrounding.labeledValue("提示：请于三日后复查") == "请于三日后复查")
     }
+
+    // MARK: - 叙事多行并入（2026-09-18 业主实测：主诉/现病史/既往史段落此前只取标签行）
+
+    @Test("叙事多行并入：主诉吸收后续行，既往史独立成段")
+    func 叙事多行并入() {
+        let lines = [
+            "主诉：咳嗽3天",
+            "伴发热1天",
+            "既往史：高血压",
+            "规律服药",
+            "处理：继续服药",
+        ]
+        let fields = DocumentTypeClassifierFallback.pageFields(lines: lines, understood: [], confidence: 0.6)
+        let complaint = fields.first { $0.key == "chief_complaint" }
+        #expect(complaint != nil, "主诉必须成段")
+        #expect(complaint?.value == "咳嗽3天\n伴发热1天",
+                "主诉标签后的无标签行必须并入（此前落 line_N 孤行）")
+        let past = fields.first { $0.key == "past_history" }
+        #expect(past != nil, "既往史必须成段（此前无此标签模式，整段落孤行）")
+        #expect(past?.value == "高血压\n规律服药", "既往史吸收至下一个边界行")
+        #expect(!fields.contains { $0.key.hasPrefix("line_") && $0.value.contains("伴发热1天") },
+                "被吸收的行不得再落 line_N 孤行")
+    }
+
+    @Test("叙事并入边界：日期开头/编号列表/下一标签行截断吸收")
+    func 叙事并入边界() {
+        let lines = [
+            "现病史：发热两天",
+            "咳嗽",
+            "2026-09-12",
+            "体温 38.5",
+        ]
+        let fields = DocumentTypeClassifierFallback.pageFields(lines: lines, understood: [], confidence: 0.6)
+        let illness = fields.first { $0.key == "present_illness" }
+        #expect(illness?.value == "发热两天\n咳嗽", "日期开头行是边界，不得并入日期行")
+        #expect(fields.contains { $0.key == "report_date" } || fields.contains { $0.key.hasPrefix("line_") && $0.value.contains("2026") },
+                "边界行按自身语义独立处理")
+    }
+
+    @Test("mergeNarrativeLines 纯函数：空行跳过、边界截断、吸收计数正确")
+    func 纯函数叙事并入() {
+        let lines = ["主诉：咳嗽3天", "伴发热1天", "", "    ", "既往史：高血压"]
+        let boundary: (String) -> Bool = { $0.hasPrefix("既往史") }
+        let merged = DocumentTypeClassifierFallback.mergeNarrativeLines(lines: lines, from: 1, isBoundary: boundary)
+        #expect(merged.text == "伴发热1天")
+        #expect(merged.absorbed == 3, "吸收「伴发热1天」+ 两个空行；边界行不计入")
+    }
 }

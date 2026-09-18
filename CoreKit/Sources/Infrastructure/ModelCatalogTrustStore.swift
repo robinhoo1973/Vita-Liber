@@ -99,8 +99,16 @@ public final class ModelCatalogTrustStore: @unchecked Sendable {
     }
 
     public func acceptRoot(_ data: Data) throws {
-        lock.lock(); defer { lock.unlock() }
-        guard let current = root else { throw Failure.unavailable }
+        // 审查修复（主线程阻塞，业主实测「下载失败后再次进入闪退/死机」）：
+        // 验签（两次 Curve25519）+ 落盘此前在锁内——设置页渲染/重算路径
+        // （rebuildAvailability 每档位数次读锁）在此期间全部排队，主线程
+        // 被压过看门狗阈值 → 强杀。重结构：读快照 → 锁外验签/落盘 →
+        // 锁内换状态（唯一写者 = fetchIndex，actor 级串行，无并发写竞态）。
+        let snapshot: (root: ModelTrustRoot?, roots: [SignedModelEnvelope], revoked: Set<String>)
+        lock.lock()
+        snapshot = (root, roots, revokedHashes)
+        lock.unlock()
+        guard let current = snapshot.root else { throw Failure.unavailable }
         let envelope = try Self.envelope(data)
         let next = try JSONDecoder().decode(ModelTrustRoot.self, from: envelope.payload)
         try Self.validateRoot(next)
@@ -108,27 +116,35 @@ public final class ModelCatalogTrustStore: @unchecked Sendable {
         try Self.verify(envelope, root: current, role: "root")
         try Self.verify(envelope, root: next, role: "root")
         // 最终根有效期在 acceptCatalog 检查；允许经已过期中间根完成合法轮换。
-        let updated = roots + [envelope]
-        try persist(State(roots: updated, catalog: nil, revokedHashes: revokedHashes.sorted()))
+        let updated = snapshot.roots + [envelope]
+        try persist(State(roots: updated, catalog: nil, revokedHashes: snapshot.revoked.sorted()))
+        lock.lock()
         roots = updated; root = next; catalog = nil; catalogEnvelope = nil
+        lock.unlock()
     }
 
     @discardableResult public func acceptCatalog(_ data: Data) throws -> ASRModelReleaseIndex {
-        lock.lock(); defer { lock.unlock() }
-        guard let root else { throw Failure.unavailable }
+        // 审查修复（主线程阻塞，见 acceptRoot 注）：快照 → 锁外验签/落盘 → 锁内换状态。
+        let snapshot: (root: ModelTrustRoot?, catalog: SignedModelCatalog?, catalogEnvelope: SignedModelEnvelope?, revoked: Set<String>, roots: [SignedModelEnvelope])
+        lock.lock()
+        snapshot = (root, catalog, catalogEnvelope, revokedHashes, roots)
+        lock.unlock()
+        guard let current = snapshot.root else { throw Failure.unavailable }
         let envelope = try Self.envelope(data)
-        let next = try Self.catalog(envelope, root: root, checkTime: true)
+        let next = try Self.catalog(envelope, root: current, checkTime: true)
         try checkBaselineFloor(next, envelope: envelope)
-        if let catalog, catalog.rootVersion == next.rootVersion {
-            guard next.catalogVersion >= catalog.catalogVersion else { throw Failure.rollback }
-            if next.catalogVersion == catalog.catalogVersion, catalogEnvelope?.payload != envelope.payload {
+        if let existing = snapshot.catalog, existing.rootVersion == next.rootVersion {
+            guard next.catalogVersion >= existing.catalogVersion else { throw Failure.rollback }
+            if next.catalogVersion == existing.catalogVersion, snapshot.catalogEnvelope?.payload != envelope.payload {
                 throw Failure.rollback
             }
         }
-        let revoked = revokedHashes.union(Self.normalizedRevocations(next.revokedHashes))
-        try persist(State(roots: roots, catalog: envelope, revokedHashes: revoked.sorted()))
+        let revoked = snapshot.revoked.union(Self.normalizedRevocations(next.revokedHashes))
+        try persist(State(roots: snapshot.roots, catalog: envelope, revokedHashes: revoked.sorted()))
+        lock.lock()
         catalog = next; catalogEnvelope = envelope
         revokedHashes = revoked
+        lock.unlock()
         return next.index
     }
 
