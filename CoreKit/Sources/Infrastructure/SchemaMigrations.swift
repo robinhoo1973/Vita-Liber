@@ -829,6 +829,13 @@ public enum SchemaMigrations {
              ALTER TABLE document_file ADD COLUMN meta_json TEXT;
              ALTER TABLE medication_dose_log ADD COLUMN dose_units REAL NOT NULL DEFAULT 1;
              """),
+        Step(version: 30, name: "allergy-allergen-kind",
+             sql: """
+             -- 全仓审查 2026-09-18（F-A4-01，P0 静默丢数据）：FR23.1 过敏表单第一步采集
+             -- 「过敏原类型」（药品/食物/其他）却无列可落——用户输入被丢弃。可空列，
+             -- 历史行 NULL = 未登记（列表按原样呈现，不猜测）。executeIdempotent 判 ADD COLUMN。
+             ALTER TABLE allergy_event ADD COLUMN allergen_kind TEXT;
+             """),
     ]
 
     /// 全新库建库后应落到的版本号

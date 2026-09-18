@@ -383,6 +383,32 @@ struct AuditedAIProviderTests {
 
 /// BR-006 高风险句式（V3.94 修复锚点：换药/改剂自然句式此前漏判——
 /// 动词与单位间隔虚词时逐字紧邻正则全漏，BR-006 一票否决被绕过）
+/// 全仓审查 2026-09-18（F-A8-01/F-D1-02）：检索片段高亮标记不得字面渗出——
+/// UI 经 `highlightSegments` 拆段、AI 摘录经 `stripHighlight` 去标记
+@Suite("SU-M1c-Search · 片段高亮拆段")
+struct SnippetHighlightTests {
+    @Test func 拆段保序且命中段加粗() {
+        let snippet = "…空腹" + SearchRules.highlightOpen + "血糖" + SearchRules.highlightClose + " 6.1…"
+        let segments = SearchRules.highlightSegments(snippet)
+        #expect(segments.map(\.text) == ["…空腹", "血糖", " 6.1…"])
+        #expect(segments.map(\.highlighted) == [false, true, false])
+        #expect(SearchRules.stripHighlight(snippet) == "…空腹血糖 6.1…")
+    }
+
+    @Test func 未闭合标记按纯文本不吞字() {
+        let broken = "标题" + SearchRules.highlightOpen + "血糖"
+        #expect(SearchRules.stripHighlight(broken) == "标题血糖")
+        #expect(SearchRules.highlightSegments("无标记").map(\.text) == ["无标记"])
+        #expect(SearchRules.highlightSegments("").isEmpty)
+    }
+
+    @Test func 手动高亮与拆段往返一致() {
+        let marked = SearchRules.highlight("2026-09-01 空腹血糖 6.1 mmol/L 门诊", query: "血糖")
+        #expect(marked.contains(SearchRules.highlightOpen + "血糖" + SearchRules.highlightClose))
+        #expect(SearchRules.highlightSegments(marked).contains { $0.highlighted && $0.text == "血糖" })
+    }
+}
+
 @Suite("SU-M1c-AI · 高风险句式词表（BR-006）")
 struct HighRiskTopicRulesTests {
     @Test func 换药改剂句式必须拦截() {
@@ -390,6 +416,17 @@ struct HighRiskTopicRulesTests {
         #expect(HighRiskTopicRules.match("能不能换成布洛芬"))
         #expect(HighRiskTopicRules.match("一天两次可以吗"))
         #expect(HighRiskTopicRules.match("把阿莫西林改为晚上吃两粒"))
+    }
+
+    /// 全仓审查 2026-09-18（F-D2-01/F-A7-04）：繁体/英文验收句必须与简体同判
+    @Test func 繁体与英文同判() {
+        #expect(HighRiskTopicRules.match("幫我停藥"))
+        #expect(HighRiskTopicRules.match("可以調整劑量嗎"))
+        #expect(HighRiskTopicRules.match("把阿莫西林換成布洛芬"))
+        #expect(HighRiskTopicRules.match("Can I stop taking my medication?"))
+        #expect(HighRiskTopicRules.match("Should I double the dose tonight"))
+        #expect(HighRiskTopicRules.match("I took 4 tablets this morning"))
+        #expect(!HighRiskTopicRules.match("What does this lab term mean"))
     }
 
     @Test func 非剂量语境不误拦() {

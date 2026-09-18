@@ -406,6 +406,9 @@ enum L10n {
     static var onboardPrefillHint: String { t("onboard.prefillHint") }
     static var onboard_saveEdit: String { t("onboard.saveEdit") }
     static var onboard_createContinue: String { t("onboard.createContinue") }
+    /// 全仓审查 2026-09-18（F-A1-01）：建档落库失败警报（统一 saveFailedAlert 出口）
+    static var onboardSaveFailed: String { t("onboard.saveFailed") }
+    static var onboardSaveFailedHint: String { t("onboard.saveFailedHint") }
     static var onboard_cancel: String { t("onboard.cancel") }
     static var onboard_finishEnterApp: String { t("onboard.finishEnterApp") }
     static var onboard_confirmed: String { t("onboard.confirmed") }
@@ -1799,6 +1802,7 @@ enum L10n {
         "encounter.saveFailed", "encounter.saveFailedHint",
         "allergy.saveFailed", "allergy.saveFailedHint",
         "observation.saveFailed", "observation.saveFailedHint",
+        "onboard.saveFailed", "onboard.saveFailedHint",
         "allergy.deleteConfirmTitle", "allergy.deleteConfirmHint",
         "plan.backfill.noBaseline", "plan.form.saveFailed", "plan.form.saveFailedHint",
         "plan.loadFailed", "appt.markMissedHint", "appt.completeHint",

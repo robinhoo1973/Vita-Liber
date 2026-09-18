@@ -638,6 +638,22 @@ struct Round8DomainFixTests {
         }
         #expect(SevereReactionRules.severeKeywords.contains("过敏性休克"))
     }
+
+    /// 全仓审查 2026-09-18（F-D2-01/F-A7-04）：BR-012 前置必须对 zh-Hant/粤语转写/英文同判——
+    /// 此前词表仅简体，「我呼吸困難」「chest pain」全部绕过急救卡短路
+    @Test func 紧急词表繁体粤语英文同判() {
+        for sentence in ["我呼吸困難", "喘不過氣", "叫救護車", "幫我撥打120", "意識不清",
+                         "我心口痛", "唞唔到氣",
+                         "I have chest pain", "she can't breathe", "CALL 911 now", "need an ambulance"] {
+            #expect(EmergencyKeywordRules.match(sentence), "「\(sentence)」必须命中 BR-012 前置")
+        }
+        #expect(!EmergencyKeywordRules.match("今天血压正常"))
+        #expect(!EmergencyKeywordRules.match("what time is my appointment"))
+        // 折叠表覆盖：词表每个字的繁体形都能折回简体（新增词表用字须同步登记 hantToHans）
+        #expect(ScriptFolding.fold("藥劑調換減顆") == "药剂调换减颗")
+        // 过敏严重反应：繁体备注同样触发急救引导卡
+        #expect(SevereReactionRules.triggersEmergencyCard(severity: "轻", reactionTags: [], note: "喉頭水腫"))
+    }
 }
 
 

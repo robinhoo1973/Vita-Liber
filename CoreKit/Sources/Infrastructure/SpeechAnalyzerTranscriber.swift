@@ -201,6 +201,13 @@ public actor SpeechAnalyzerTranscriber: TranscriptionCaptureReporting {
         return await SpeechAnalyzerSupport.assetStatus(of: flavor, locale: localeIdentifier) == .installed
     }
 
+    /// 端口 `warmUp`（全仓审查 2026-09-18 · F-A7-01，P0）：平台轨语言资源由系统管理，
+    /// 预热 = 只读查询是否已安装，**绝不**触发 `downloadAndInstall`——生产语音面板出现
+    /// 路径零隐式联网（ADR-030）。未安装时返回 false，按压仍按原路径运行/降级。
+    public func warmUp(_ localeIdentifier: String) async -> Bool {
+        await SpeechAnalyzerSupport.assetStatus(of: flavor, locale: localeIdentifier) == .installed
+    }
+
     // MARK: - 会话执行
 
     private func mark(_ intent: AnalyzerStopIntent, for id: UUID) {

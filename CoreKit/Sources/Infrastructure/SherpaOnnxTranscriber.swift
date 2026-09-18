@@ -90,6 +90,11 @@ public final class SherpaOnnxTranscriber: TranscriptionCaptureReporting, @unchec
     /// 预热（round2 A-N2 首句丢失的直接对策）：把模型提前装入推理池，按压时直接进入采集。
     /// 不采音、不联网；资产缺件/撤销即视为不可预热（`isPresent` 已含撤销判定，池内再校验授权）。
     public func prepareLocale(_ localeIdentifier: String) async -> Bool {
+        await warmUp(localeIdentifier)
+    }
+
+    /// 端口 `warmUp`（F-A7-01）：随包/已下载模型的本机预加载，零联网——与 `prepareLocale` 同实现。
+    public func warmUp(_ localeIdentifier: String) async -> Bool {
         #if canImport(SherpaOnnxC)
         guard assets.isPresent(choice) else { return false }
         return await SherpaSpeechSessionDriver.preload(choice: choice,

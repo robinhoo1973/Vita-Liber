@@ -47,6 +47,10 @@ public enum ReconcileEngine {
             return .schedule
         case (true, nil) where f.isExpiredGrace:
             return .markAwaitingUser
+        // 全仓审查 2026-09-18（F-D1-01）：「稍后」不是决议——稍后通知过宽限期后
+        // 同样回到待用户处理，不再永久沉没
+        case (true, .snoozed) where f.isExpiredGrace:
+            return .markAwaitingUser
         default:
             return .none
         }

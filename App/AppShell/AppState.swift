@@ -20,7 +20,7 @@ import Perception
 final class AppState {
     /// FR21.9（V3.39 简化）：向导状态机仅保留与初始化用户信息直接相关的步骤。
     /// 无 done 态——完成与否由 onboardingFinished 单源判定（AppRootView 据此切主界面）。
-    enum OnboardingStage {
+    enum OnboardingStage: Equatable {
         case disclosure(index: Int)
         case ownerName
         case addFamily          // FR21.9 ④（可选，可跳过）
@@ -242,21 +242,36 @@ final class AppState {
     /// 业主 2026-09-17 定：注册必要字段 = 特征性数据（性别/出生日期/血型）+ 紧急联系人——
     /// 与本人档案、首位联系人同事务原子落库（data-flow V2.1 本机注册原子流）。
     /// 健康预填由表单层负责（默认值，可编辑）。
+    /// 全仓审查 2026-09-18（F-A1-01/F-A2-01，P0 半身份）：此前先推进 `owner`/`stage`、
+    /// 再 fire-and-forget 落库——`saveOwner` 失败时内存与 UserDefaults 已有身份、DB 无行，
+    /// 重启后 `loadOwner()` 为 nil、`currentPatientId` 退回会话随机 UUID，跳过建档期间
+    /// 录入的资料与锚点失联（BR-001）。改为**先落库、成功才推进**；失败返回 false
+    /// 由表单以 `saveFailedAlert` 响亮呈现（四态纪律），身份三处（DB/内存/defaults）
+    /// 要么全有、要么全无。
+    @discardableResult
     func createOwner(name: String, gender: String?, birthDate: String?, bloodType: String?,
-                     contact: EmergencyContactDraft?) {
+                     contact: EmergencyContactDraft?) async -> Bool {
         var o = LocalOwner(displayName: name, createdAt: Date().timeIntervalSince1970)
         let profile = PatientProfile(displayName: name, relation: "本人", gender: gender,
                                      birthDate: birthDate, bloodType: bloodType,
                                      createdAt: o.createdAt, updatedAt: o.createdAt)
         o.selfPatientId = profile.id
+        return await commitOwner(o, profile: profile, contact: contact)
+    }
+
+    /// 身份原子提交单出口（createOwner/skipOwner 共用）：DB 事务成功 → 内存 → defaults → stage。
+    private func commitOwner(_ o: LocalOwner, profile: PatientProfile,
+                             contact: EmergencyContactDraft?) async -> Bool {
+        do {
+            try await persistor.saveOwner(o, profile: profile, contact: contact)
+        } catch {
+            logger.error("建档落库失败，不推进向导: \(error)")
+            return false
+        }
         owner = o
         defaults.set(profile.id.uuidString, forKey: "selfPatientId")
-        // Swift 6 收敛：持久化闭包并发执行——捕获不可变快照而非 var
-        let ownerSnapshot = o
-        persist { [persistor] in
-            try await persistor.saveOwner(ownerSnapshot, profile: profile, contact: contact)
-        }
         stage = .addFamily      // FR21.9：建档后进 ④ 添加家人（可跳过）
+        return true
     }
 
     /// FR21.9 ④ 添加家人（可跳过）——向导最后一步，完成即结束首启流程
@@ -268,17 +283,14 @@ final class AppState {
     /// FR21.9：建档可跳过——以「本人」占位，稍后在设置中修改。
     /// 占位档案必须与 createOwner 一样落盘：只存内存的话，重启后 loadOwner() 返回 nil，
     /// currentPatientId 退回兜底值，跳过建档期间录入的资料就与锚点失联（BR-001）。
-    func skipOwner() {
+    /// 全仓审查 2026-09-18（F-A1-01）：与 createOwner 同走 `commitOwner` 原子提交。
+    @discardableResult
+    func skipOwner() async -> Bool {
         var o = LocalOwner(displayName: "本人", createdAt: Date().timeIntervalSince1970)
         let profile = PatientProfile(displayName: "本人", relation: "本人",
                                      createdAt: o.createdAt, updatedAt: o.createdAt)
         o.selfPatientId = profile.id
-        owner = o
-        defaults.set(profile.id.uuidString, forKey: "selfPatientId")
-        // Swift 6 收敛：持久化闭包并发执行——捕获不可变快照而非 var
-        let ownerSnapshot = o
-        persist { [persistor] in try await persistor.saveOwner(ownerSnapshot, profile: profile) }
-        stage = .addFamily      // FR21.9 ④（可跳过）
+        return await commitOwner(o, profile: profile, contact: nil)
     }
 
     func finishOnboarding() {
@@ -442,8 +454,13 @@ final class AppState {
 
     /// 无耳机回读偏好三态（FR14.7）。`总是` 仅关怀模式可设——
     /// 写入口经 `ReadbackPolicy.isSelectable` 二次校验，防备份恢复带回非法状态。
+    /// 全仓审查 2026-09-18（F-A1-07）：UserDefaults 背书的计算属性必须显式
+    /// `access/withMutation`（同 `currentPatientId` 口径）——Perception 不追踪
+    /// 无存储的 getter，此前 CareModeSettingsView 写 `app.careMode` 后首页/悬浮球/
+    /// 字号度量不重渲染（「分裂脑」）。四处同族一并补齐。
     var readbackPreference: ReadbackPreference {
         get {
+            access(keyPath: \.readbackPreference)
             let raw = defaults.string(forKey: AppSettingKey.readBackOptIn.rawValue) ?? ""
             return ReadbackPreference(rawValue: raw) ?? .never
         }
@@ -452,7 +469,9 @@ final class AppState {
                 logger.error("拒绝设置回读偏好 \(newValue.rawValue)：非关怀模式不可选")
                 return
             }
-            defaults.set(newValue.rawValue, forKey: AppSettingKey.readBackOptIn.rawValue)
+            withMutation(keyPath: \.readbackPreference) {
+                defaults.set(newValue.rawValue, forKey: AppSettingKey.readBackOptIn.rawValue)
+            }
         }
     }
 
@@ -461,14 +480,17 @@ final class AppState {
         // 审查修复：统一到 AppSettingKey.careModeEnable.rawValue（与设置仓
         // 双写镜像同键）；旧键 "careMode" 只读兼容（已装机用户平滑迁移）
         get {
+            access(keyPath: \.careMode)
             if defaults.object(forKey: AppSettingKey.careModeEnable.rawValue) != nil {
                 return defaults.bool(forKey: AppSettingKey.careModeEnable.rawValue)
             }
             return defaults.bool(forKey: "careMode")
         }
         set {
-            defaults.set(newValue, forKey: AppSettingKey.careModeEnable.rawValue)
-            defaults.removeObject(forKey: "careMode")   // 旧键一次性迁移后移除
+            withMutation(keyPath: \.careMode) {
+                defaults.set(newValue, forKey: AppSettingKey.careModeEnable.rawValue)
+                defaults.removeObject(forKey: "careMode")   // 旧键一次性迁移后移除
+            }
         }
     }
 
@@ -478,11 +500,16 @@ final class AppState {
     /// 读时校验合法 case（历史/外部写入的非法值回落默认，不污染宫格选中态与落库 kind）。
     var observationLastKind: String {
         get {
+            access(keyPath: \.observationLastKind)
             let stored = defaults.string(forKey: AppSettingKey.observationDefaultKind.rawValue) ?? ""
             return ObservationKind(rawValue: stored)?.rawValue
                 ?? AppSettingKey.observationDefaultKind.defaultValue
         }
-        set { defaults.set(newValue, forKey: AppSettingKey.observationDefaultKind.rawValue) }
+        set {
+            withMutation(keyPath: \.observationLastKind) {
+                defaults.set(newValue, forKey: AppSettingKey.observationDefaultKind.rawValue)
+            }
+        }
     }
 
     /// FR22.4 数据与存储健康（真实值，禁止硬编码「正常」充当诊断）
@@ -563,17 +590,22 @@ final class AppState {
     }
 
     /// 审计：文档导出（§7 七动作之一）。未注入审计（测试/预览）时静默跳过。
+    /// 全仓审查 2026-09-18（F-I1-03）：meta 不再携带资料标题——§5.6「只记事实与
+    /// 计数、不记医疗内容」，标题即 PHI；entity_id 哈希已足以关联。
     func auditExport(documentId: UUID, title: String) {
-        fireAudit(action: "export", entityType: "document",
-                  entityId: documentId.uuidString, meta: title,
+        fireAudit(action: AuditLogWriter.Action.export, entityType: "document",
+                  entityId: documentId.uuidString, meta: nil,
                   logLabel: "导出审计失败")
     }
 
     /// 审计：查看敏感原图（FR14.2「查看敏感原图」为审计记录页必列动作之一）。
     /// 未注入审计（测试/预览）时静默跳过。
+    /// 全仓审查 2026-09-18（F-I1-02）：此前 action 字面量 "viewSensitiveOriginal"
+    /// 不在 AuditLogWriter 白名单，每次都被拒、只在 Logger 留错——FR14.2 必列动作
+    /// 从未落库。改引白名单常量 `view_sensitive`；meta 去标题（同上 PHI 纪律）。
     func auditViewSensitiveOriginal(documentId: UUID, title: String) {
-        fireAudit(action: "viewSensitiveOriginal", entityType: "document",
-                  entityId: documentId.uuidString, meta: title,
+        fireAudit(action: AuditLogWriter.Action.viewSensitive, entityType: "document",
+                  entityId: documentId.uuidString, meta: nil,
                   logLabel: "查看敏感原图审计失败")
     }
 
@@ -602,12 +634,15 @@ final class AppState {
 
     /// FR17.16 语音输出语言（六选一）；无对应发声时由合成器回退普通话并轻提示。
     var voiceOutputLocale: String {
-        defaults.string(forKey: "voiceOutputLocale") ?? TranscriptionSegmentation.fallbackLocale
+        access(keyPath: \.voiceOutputLocale)
+        return defaults.string(forKey: "voiceOutputLocale") ?? TranscriptionSegmentation.fallbackLocale
     }
 
     /// FR17.16 输出语言写入口（语音语言选择器调用；全局实时生效，FR14.7 例外②类）
     func setVoiceOutputLocale(_ locale: String) {
-        defaults.set(locale, forKey: "voiceOutputLocale")
+        withMutation(keyPath: \.voiceOutputLocale) {
+            defaults.set(locale, forKey: "voiceOutputLocale")
+        }
     }
 
     /// 统一异步持久化出口（§7：错误必须经 Logger 上报，不静默吞掉）

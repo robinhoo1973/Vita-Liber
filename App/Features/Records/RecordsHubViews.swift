@@ -104,14 +104,19 @@ struct EmergencyCardHubView: View {
     @Environment(AppState.self) private var app
     @Environment(M2HubStore.self) private var hub
     @State private var showSelector = false
+    /// 全仓审查 2026-09-18（F-A2-02/F-A4-02，P0）：只读形态——锁屏 SOS「查看急救卡」
+    /// 路径复用本视图时不得暴露 [管理]（候选用药/过敏全量 PHI 可读可写、绕过门禁 FR18.17）。
+    /// 默认 false = 资料库入口（已过门禁）完整形态。
+    var readOnly = false
 
     var body: some View {
         WithPerceptionTracking {
             EmergencyCardView(
                 card: hub.emergencySelected,
                 bloodType: hub.bloodType,
-                onGuideMedicalID: { UIApplication.shared.open(URL(string: "x-apple-health://") ?? URL(string: "https://support.apple.com/medical-id")!) },
-                onOpenSelector: { showSelector = true },
+                // 系统健康 App 引导经 SystemLinks 单一出口（此前带 https 死回退，与零网络纪律相悖）
+                onGuideMedicalID: { SystemLinks.openHealthApp() },
+                onOpenSelector: readOnly ? nil : { showSelector = true },
                 careMode: app.careMode)
             .task(id: currentPatientId) { await hub.load(patientId: currentPatientId) }
             .sheet(isPresented: $showSelector) {

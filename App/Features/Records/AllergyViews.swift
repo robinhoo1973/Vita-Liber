@@ -36,7 +36,11 @@ struct AllergyListView: View {
                                     // 评审修正 U2：手写徽章变体 → GradeBadge 唯一出口
                                     GradeBadge(grade: "C")
                                 }
-                                Text("\(L10n.allergySeverity(allergy.severity)) · \(allergy.occurredAt.formatted(date: .abbreviated, time: .omitted))")
+                                // v30（F-A4-01）：过敏原类型随行呈现；历史行 nil 不占位
+                                Text([allergy.allergenKind,
+                                      L10n.allergySeverity(allergy.severity),
+                                      allergy.occurredAt.formatted(date: .abbreviated, time: .omitted)]
+                                        .compactMap { $0 }.joined(separator: " · "))
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                             .swipeActions {
@@ -200,7 +204,7 @@ struct AllergyCreateView: View {
                 .alert(L10n.allergyEmergencyTitle, isPresented: $showEmergencyCard) {
                     Button(L10n.ai_emergencyCall) {
                         // 审查修复：急救号码按语言区域（120/119/911），不硬编码 120
-                        if let url = URL(string: "tel://\(L10n.emergencyNumber)") { UIApplication.shared.open(url) }
+                        SystemLinks.dial(L10n.emergencyNumber)
                     }
                     Button(L10n.allergyEmergencyGoHospital, role: .cancel) {
                         dismiss()
@@ -225,7 +229,8 @@ struct AllergyCreateView: View {
             // 写库失败保留表单并提示——此前 createAllergy 吞错后无条件
             // dismiss，失败呈现为「已保存」而记录丢失
             let saved = await state.createAllergy(patientId: app.currentPatientId, substance: substance,
-                                                  severity: severity, tags: tags, note: note.isEmpty ? nil : note)
+                                                  severity: severity, tags: tags, note: note.isEmpty ? nil : note,
+                                                  allergenKind: allergenKind, occurredAt: occurredAt)
             guard saved else {
                 saveFailed = true
                 return

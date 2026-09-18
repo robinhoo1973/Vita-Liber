@@ -114,18 +114,16 @@ final class SecurityGateAcceptanceTests: XCTestCase {
     /// （外键悬空）失败，测试报错位置与实际根因背离（睡后即测模式）。最终
     /// 断言把「落库未完成」暴露为轮询本身失败。
     private func ensureOwner(app: AppState, container: AppContainer) async throws -> UUID {
-        app.createOwner(name: "王女士", gender: "female", birthDate: "1975",
-                           bloodType: "O+", contact: EmergencyContactDraft(
-                               name: "李四", relation: "partner", phone: "13800138000"))
-        var persisted = false
-        for _ in 0..<20 {
-            let count = try await container.store.writer.read {
-                try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM patient_profile") ?? 0
-            }
-            if count == 1 { persisted = true; break }
-            try await Task.sleep(nanoseconds: 50_000_000)
+        // 全仓审查 2026-09-18（F-A1-01）：createOwner 改为先落库再推进（async -> Bool），
+        // 轮询不再需要——返回 true 即 patient_profile/local_owner/contact 已同事务落库
+        let ok = await app.createOwner(name: "王女士", gender: "female", birthDate: "1975",
+                                       bloodType: "O+", contact: EmergencyContactDraft(
+                                           name: "李四", relation: "partner", phone: "13800138000"))
+        XCTAssertTrue(ok, "createOwner 落库失败（patient_profile 行缺失）")
+        let count = try await container.store.writer.read {
+            try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM patient_profile") ?? 0
         }
-        XCTAssertTrue(persisted, "createOwner 的异步持久化未在轮询窗口内落库（patient_profile 行缺失）")
+        XCTAssertEqual(count, 1, "建档后 patient_profile 必须恰有一行")
         return app.currentPatientId
     }
 
@@ -222,17 +220,12 @@ final class SecurityGateAcceptanceTests: XCTestCase {
         let app = AppState(persistor: container.persistor,
                            defaults: defaults, launchArgs: [])
         await app.bootstrap()
-        app.createOwner(name: "王女士", gender: "female", birthDate: "1975",
-                           bloodType: "O+", contact: EmergencyContactDraft(
-                               name: "李四", relation: "partner", phone: "13800138000"))
-        // 等待异步持久化落库
-        for _ in 0..<20 {
-            let count = try await container.store.writer.read {
-                try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM patient_profile") ?? 0
-            }
-            if count == 1 { break }
-            try await Task.sleep(nanoseconds: 50_000_000)
-        }
+        // 全仓审查 2026-09-18（F-A1-01）：先落库再推进——await 即落库完成，无需轮询
+        let created = await app.createOwner(name: "王女士", gender: "female", birthDate: "1975",
+                                            bloodType: "O+", contact: EmergencyContactDraft(
+                                                name: "李四", relation: "partner", phone: "13800138000"))
+        XCTAssertTrue(created, "建档必须先落库成功再推进 stage")
+        XCTAssertEqual(app.stage, .addFamily, "落库成功后才进入 ④ 添加家人")
         let profileCount = try await container.store.writer.read {
             try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM patient_profile") ?? 0
         }

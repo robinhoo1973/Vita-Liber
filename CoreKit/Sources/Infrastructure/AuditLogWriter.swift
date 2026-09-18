@@ -13,7 +13,29 @@ public struct AuditLogWriter: AuditLogging, Sendable {
         "ai_scope", "grant_change", "unlock", "create", "update",
         "feedback",        // FR6.7 识别问题报告 / FR12.8 AI 反馈（本地记录，P1 上报）
         "profile_suggestion_accepted",   // 子项目 D · D4-2：资料建议逐项接受（BR-003 D→C 显式确认；meta 只记留痕）
+        // 全仓审查 2026-09-18（F-I1-02/F-I4 线索）：库存归真此前在 MedicationStore
+        // 事务内绕过本白名单直写 audit_event——action 不在集合内即「类型约束」失守。
+        // 登记后 MedicationStore 改经 `insert(..., db:)` 同事务写入，白名单成唯一出口。
+        "inventory.reconcile",
     ]
+
+    /// 审计动作常量（App 层调用点此前以字面量拼写，"viewSensitiveOriginal" 从未命中
+    /// 白名单——FR14.2「查看敏感原图」审计从未落库、只在 Logger 留错）。
+    /// 调用方一律引用常量，拼写错误在编译期暴露。
+    public enum Action {
+        public static let viewSensitive = "view_sensitive"
+        public static let confirmField = "confirm_field"
+        public static let delete = "delete"
+        public static let export = "export"
+        public static let aiScope = "ai_scope"
+        public static let grantChange = "grant_change"
+        public static let unlock = "unlock"
+        public static let create = "create"
+        public static let update = "update"
+        public static let feedback = "feedback"
+        public static let profileSuggestionAccepted = "profile_suggestion_accepted"
+        public static let inventoryReconcile = "inventory.reconcile"
+    }
     public let writer: any DatabaseWriter
 
     public init(writer: any DatabaseWriter) { self.writer = writer }

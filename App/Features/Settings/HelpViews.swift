@@ -127,9 +127,7 @@ struct HelpPermissionDiagnostics: View {
                 }
                 Section {
                     Button(L10n.helpPermOpenSettings) {
-                        if let url = URL(string: UIApplication.openSettingsURLString) {
-                            UIApplication.shared.open(url)
-                        }
+                        SystemLinks.openSettings()
                     }
                     .frame(minHeight: 44)
                 } footer: {
@@ -227,9 +225,7 @@ struct HelpReminderDiagnostics: View {
                 }
                 Section {
                     Button(L10n.helpPermOpenSettings) {
-                        if let url = URL(string: UIApplication.openSettingsURLString) {
-                            UIApplication.shared.open(url)
-                        }
+                        SystemLinks.openSettings()
                     }
                     .frame(minHeight: 44)
                 } footer: {

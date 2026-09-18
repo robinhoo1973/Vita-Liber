@@ -157,6 +157,10 @@ struct OwnerSetupView: View {
     /// 预填是否已应用（提示行只在有实际默认值时出现）
     @State private var prefilled = false
     @State private var prefillAttempted = false
+    /// 全仓审查 2026-09-18（F-A1-01）：建档落库失败响亮呈现（四态纪律），不推进向导
+    @State private var saveFailed = false
+    /// 提交在途（防双击重复建档；落库成功后视图随 stage 卸载）
+    @State private var submitting = false
     /// 键盘焦点（numberPad/phonePad 无回车键——键盘工具栏「确认」是唯一收起通道）
     @FocusState private var focusedField: Field?
     private enum Field { case name, birthYear, birthMonth, birthDay, bloodNote, contactName, contactPhone }
@@ -186,6 +190,8 @@ struct OwnerSetupView: View {
                 }
             }
             .navigationTitle(L10n.onboard_buildProfile)
+            .saveFailedAlert(title: L10n.onboardSaveFailed, hint: L10n.onboardSaveFailedHint,
+                             isPresented: $saveFailed)
             .task {
                 guard !prefillAttempted else { return }
                 prefillAttempted = true
@@ -275,15 +281,23 @@ struct OwnerSetupView: View {
                 Text(L10n.onboard_createContinue).frame(maxWidth: .infinity, minHeight: 50)
             }
             .buttonStyle(.borderedProminent)
-            .disabled(!formValid)
+            .disabled(!formValid || submitting)
             .accessibilityIdentifier("SP-06.owner.create")
             // FR21.9：任意步可跳过（建档可稍后完成，由系统默认「本人」占位）
+            // 全仓审查 2026-09-18（F-A1-01）：占位建档同样先落库、失败不推进
             Button {
-                app.skipOwner()
+                guard !submitting else { return }
+                submitting = true
+                Task {
+                    let ok = await app.skipOwner()
+                    submitting = false
+                    if !ok { saveFailed = true }
+                }
             } label: {
                 Text(L10n.onboard_later).frame(maxWidth: .infinity, minHeight: 44)
             }
             .buttonStyle(.borderless)
+            .disabled(submitting)
             .accessibilityIdentifier("SP-06.owner.skip")
         }
     }
@@ -344,10 +358,17 @@ struct OwnerSetupView: View {
             && !gender.isEmpty && birthDate != nil && bloodValue != nil && contactDraft != nil
     }
 
+    /// 全仓审查 2026-09-18（F-A1-01）：await 落库结果——成功由 AppState 推进 stage
+    /// 卸载本视图；失败弹统一保存失败警报、表单保留用户输入可重试。
     private func create() {
-        guard formValid, let birthDate, let bloodValue, let contact = contactDraft else { return }
-        app.createOwner(name: name.trimmingCharacters(in: .whitespaces),
-                        gender: gender, birthDate: birthDate, bloodType: bloodValue,
-                        contact: contact)
+        guard formValid, !submitting, let birthDate, let bloodValue, let contact = contactDraft else { return }
+        submitting = true
+        let trimmedName = name.trimmingCharacters(in: .whitespaces)
+        Task {
+            let ok = await app.createOwner(name: trimmedName, gender: gender, birthDate: birthDate,
+                                           bloodType: bloodValue, contact: contact)
+            submitting = false
+            if !ok { saveFailed = true }
+        }
     }
 }

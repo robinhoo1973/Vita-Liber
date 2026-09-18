@@ -34,7 +34,14 @@ public protocol TranscriptionEngine: Sendable {
     func localeAssetStatus(_ localeIdentifier: String) async -> VoiceLocaleAssetStatus
     /// 触发该 locale 的资源下载与安装；返回安装后是否已可用。
     /// 默认实现 = false（零资产轨无需安装，保持既有引擎与契约桩零改动）。
+    /// **唯一可联网的引擎入口**（ADR-030 显式发起面：实验室/设置页按钮）——生产会话路径不得调用。
     func prepareLocale(_ localeIdentifier: String) async -> Bool
+    /// 预热（全仓审查 2026-09-18 · F-A7-01，P0 零隐式联网）：语音界面出现时把**已在本机**的
+    /// 模型/资源提前装入推理池——不采音、**绝不联网**。与 `prepareLocale`（显式安装）分离：
+    /// 此前生产 `VoiceDictationModel.warmUp` 复用 `prepareLocale`，平台轨（SpeechAnalyzer）
+    /// 在面板出现即触发 `AssetInventory.downloadAndInstall`。默认实现 = 不做事返回 false；
+    /// 随包模型轨以本机预加载覆盖，平台轨只在资源**已安装**时返回 true。
+    func warmUp(_ localeIdentifier: String) async -> Bool
 }
 
 /// 可报告真实硬件启动时点的引擎。UI在加载/授权期间提示准备中，而非宣称正在采集。
@@ -63,6 +70,7 @@ extension TranscriptionEngine {
         capability.locale(matching: localeIdentifier) == nil ? .unavailable : .installed
     }
     public func prepareLocale(_ localeIdentifier: String) async -> Bool { false }
+    public func warmUp(_ localeIdentifier: String) async -> Bool { false }
 }
 
 /// 测试与 Preview 用桩：两轨可用性各构造一份，验证「同一协议下行为一致」

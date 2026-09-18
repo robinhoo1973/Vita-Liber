@@ -329,6 +329,8 @@
 "onboard.prefillHint" = "已從 Apple 健康預填，請核對";
 "onboard.saveEdit" = "儲存修改";
 "onboard.createContinue" = "建立並繼續";
+"onboard.saveFailed" = "建檔未能儲存";
+"onboard.saveFailedHint" = "本人檔案未寫入本機資料庫，未建立任何身分。請重試；若反覆失敗，請檢查裝置儲存空間。";
 "onboard.cancel" = "取消";
 "onboard.finishEnterApp" = "完成設定，進入應用";
 "onboard.confirmed" = "已確認";

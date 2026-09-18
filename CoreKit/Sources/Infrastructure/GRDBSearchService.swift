@@ -42,7 +42,7 @@ public actor GRDBSearchService: FullTextSearch {
                 let rows = try Row.fetchAll(db, sql: """
                     SELECT d.id, d.patient_id, d.doc_type, d.created_at, d.is_sensitive, d.title,
                            CASE WHEN d.is_sensitive = 1 THEN NULL
-                                ELSE snippet(document_fts, 1, '<b>', '</b>', '…', 12) END AS snip
+                                ELSE snippet(document_fts, 1, '\(SearchRules.highlightOpen)', '\(SearchRules.highlightClose)', '…', 12) END AS snip
                     FROM document_fts f
                     JOIN document_file d ON d.rowid = f.rowid
                     WHERE document_fts MATCH ? AND \(Self.searchableDocPredicate)

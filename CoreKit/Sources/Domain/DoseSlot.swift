@@ -6,6 +6,12 @@ import Foundation
 /// 「跳过/忘记」只写动作，永不推断病因。
 public enum DoseUserAction: String, Sendable, Equatable, Codable {
     case taken, snoozed, skipped, missed, discomfort
+
+    /// 是否已决议（全仓审查 2026-09-18 · F-D1-01/F-A5-03/F-I4-01 单一事实源）：
+    /// `snoozed`「稍后」= 挂起待决议，**不是终态**——仍需用户「已服/跳过/忘记」；
+    /// 此前 Store 幂等守卫、对账决策与三处 UI 各自把它当终态，稍后即死路。
+    /// `missed` 是系统物化的决议（可经 FR9.16 补记转 taken），此处按已决议计。
+    public var isResolved: Bool { self != .snoozed }
 }
 
 /// 剂量记录 = 调度剂量 + 用户动作 + 药品定义投影（dose_log 行语义的查询投影）
@@ -17,6 +23,8 @@ public struct DoseRecord: Sendable, Equatable, Identifiable {
     public var medicationName: String?
     public var spec: String?
     public var unitKind: String?
+    /// 待用户处理（nil 或 snoozed）——首页/时段卡/通知中心/角标四处谓词的单一出口
+    public var isUnresolved: Bool { !(action?.isResolved ?? false) }
     public init(dose: ScheduledDose, action: DoseUserAction? = nil,
                 medicationName: String? = nil, spec: String? = nil, unitKind: String? = nil) {
         self.dose = dose; self.action = action

@@ -167,22 +167,38 @@ public actor GRDBPatientPersistor: PatientPersisting {
             // 审查修复：原序 medication_plan 在 medication_dose_log 之前且漏
             // plan_lifecycle_event——剂量日志存在时 DELETE medication_plan 外键
             // 违约、整事务回滚，UI 测试清态在脏数据上静默失效。
+            // 全仓审查 2026-09-18（F-I1-01）：v25–v27 子项目 D 十二张患者侧医疗事实表
+            // （处方行/费用行/诊断/住院/手术/治疗/检验报告与结果/检查报告/体检/临床结论/
+            // 码表覆盖）此前不在清单——任一表有行即 FK 违约、整事务回滚，FR14.3「清空全部」
+            // 与 `-uitest-reset` 在真实数据上静默失效。metric_sample 上移：v26/v27 起它回指
+            // lab_report/health_exam，必须先于二者删除。码表（code_*/ucum_*）为随包种子数据
+            // 不清；app_settings 由偏好层自管（清空全部不重置偏好，FR14.3 影响清单口径）。
             let ordered = [
-                "ocr_card_commit", "hk_pending_batch", "hk_projection_state",
+                "ocr_card_commit", "hk_pending_batch", "hk_projection_state", "hk_import_status",
                 // 最末级子表（不被他表引用，或被更末级引用）
                 "ai_message", "dose_lot_allocation", "notification_delivery",
                 "medication_dose_log", "plan_lifecycle_event", "stock_lot",
                 // v19/v21：待办卡与页文本引用 document_file，须先于其删除
                 "pending_card", "document_page",
-                "ocr_result", "claim_item", "prescription", "encounter_question", "voice_note",
+                // v26/v27 检验/检查/体检族：结论 → 结果/趋势点 → 报告 → 体检
+                "clinical_conclusion", "lab_result", "metric_sample",
+                "lab_report", "exam_report", "health_exam",
+                // v25/v26 就诊子事实：引用 encounter/document_file/health_problem/allergy_event
+                "diagnosis", "hospitalization", "surgery", "treatment_record",
+                // 费用行 → 票据；处方行（stock_lot 已删）→ 处方
+                "claim_line", "ocr_result", "claim_item", "prescription_line", "prescription",
+                "encounter_question", "voice_note",
                 "immunization", "allergy_event", "observation", "document_file", "medication_plan",
                 "sent_message", "emergency_card_selection", "contact",
-                "metric_sample", "alert_event", "guideline_source", "ai_conversation", "reminder",
-                "medication", "encounter", "health_problem", "appointment",
+                "alert_event", "guideline_source", "ai_conversation", "reminder",
+                // v27 起 appointment.encounter_id 回指 encounter：预约先于就诊删除
+                "appointment", "medication", "encounter", "health_problem",
                 // v18 新增：同步锚点与通知中心状态——此前不在清空清单，
                 // UI 测试继承旧锚点（HealthKit 增量从旧锚续跑）与上轮已读/
                 // 归档标记，清态断言在脏状态上失效（「等价首次安装」落空）
                 "hk_sample_index", "hk_import_binding", "hk_sync_anchor", "notification_state",
+                // F25 用户码表覆盖（引用 code_concept；码表本身保留）
+                "resolver_override",
                 // local_owner 子表
                 "consent_record", "device_identity", "onboarding_progress",
                 // 父表

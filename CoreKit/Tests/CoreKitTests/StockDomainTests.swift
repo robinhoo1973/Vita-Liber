@@ -264,6 +264,22 @@ struct ReconcileTests {
         #expect(ReconcileEngine.decide(fact(delivered: true, action: nil, dueSoon: false, grace: true), now: Date()) == .markAwaitingUser)
     }
 
+    /// 全仓审查 2026-09-18（F-D1-01/F-A5-03/F-I4-01）：「稍后」不是决议——过宽限期回到待处理；
+    /// 其余已决议动作对账不动
+    @Test func 稍后非终态_过宽限期回到待处理() {
+        #expect(ReconcileEngine.decide(fact(delivered: true, action: .snoozed, dueSoon: false, grace: true), now: Date()) == .markAwaitingUser)
+        #expect(ReconcileEngine.decide(fact(delivered: true, action: .snoozed, dueSoon: false, grace: false), now: Date()) == .none)
+        for action in [DoseUserAction.skipped, .missed, .discomfort] {
+            #expect(ReconcileEngine.decide(fact(delivered: true, action: action, dueSoon: false, grace: true), now: Date()) == .none)
+        }
+        #expect(!DoseUserAction.snoozed.isResolved)
+        for action in [DoseUserAction.taken, .skipped, .missed, .discomfort] {
+            #expect(action.isResolved, "\(action) 应为已决议")
+        }
+        let pending = DoseRecord(dose: ScheduledDose(dueAt: Date(), doseUnits: 1, notifyId: "d-2"), action: .snoozed)
+        #expect(pending.isUnresolved)
+    }
+
     @Test func 稍后提醒必须晚于现在() {
         let past = Date().addingTimeInterval(-60)
         #expect(ReconcileEngine.snooze(until: past, now: Date()) == .none)

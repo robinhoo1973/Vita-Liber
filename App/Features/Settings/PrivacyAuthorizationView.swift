@@ -45,9 +45,7 @@ struct PrivacyAuthorizationView: View {
                         .font(.footnote)
                     // 位置权限（SOS 发送位置）= 系统级权限 → 系统设置深链（FR20.2）
                     Button {
-                        if let url = URL(string: UIApplication.openSettingsURLString) {
-                            UIApplication.shared.open(url)
-                        }
+                        SystemLinks.openSettings()
                     } label: {
                         Label(L10n.privacyAuthLocationNote, systemImage: "location.slash")
                             .font(.footnote)

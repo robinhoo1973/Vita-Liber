@@ -831,9 +831,7 @@ struct HomeView: View {
                 .font(.footnote)
             Spacer()
             Button(L10n.homeNotifOpen) {
-                if let url = URL(string: UIApplication.openSettingsURLString) {
-                    UIApplication.shared.open(url)
-                }
+                SystemLinks.openSettings()
             }
             .font(.footnote)
             Button {

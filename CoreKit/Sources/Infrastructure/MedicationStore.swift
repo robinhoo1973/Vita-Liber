@@ -88,8 +88,12 @@ public actor MedicationStore: DoseSource {
                   rowPatient == patientId.uuidString else {
                 throw StoreError.doseNotFound(notifyId)
             }
-            // 幂等（评审 S0-2）：已决议的行不得重复扣减
-            if (row["user_action"] as String?) != nil {
+            // 幂等（评审 S0-2）：已决议的行不得重复扣减。
+            // 全仓审查 2026-09-18（F-I4-01/F-A5-03）：`snoozed` 不是决议（Domain
+            // `DoseUserAction.isResolved` 单一口径）——稍后之后「已服」必须可达，
+            // 且 snoozed 两线未扣，此处按首次决议正常扣减。
+            if let existing = row["user_action"] as String?,
+               DoseUserAction(rawValue: existing)?.isResolved ?? true {
                 throw StoreError.alreadyResolved(notifyId)
             }
             let units = (row["dose_units"] as Double?) ?? 1
@@ -114,12 +118,20 @@ public actor MedicationStore: DoseSource {
         }
         try await writer.write { db in
             guard let row = try Row.fetchOne(db, sql: """
-                SELECT d.id, d.dose_units, p.patient_id, p.medication_id
+                SELECT d.id, d.dose_units, d.user_action, p.patient_id, p.medication_id
                 FROM medication_dose_log d
                 JOIN medication_plan p ON p.id = d.plan_id
                 WHERE d.id = ?
                 """, arguments: [notifyId]) else {
                 throw StoreError.doseNotFound(notifyId)
+            }
+            // 全仓审查 2026-09-18（F-I4-05）：与 confirmTaken 同口径的幂等守卫——
+            // 已决议行（taken/skipped/missed/discomfort）不得再改动作重复扣减
+            // （taken→discomfort 曾两线各再扣一次，违 tech V3.42 幂等要求）；
+            // snoozed→任意动作、nil→任意动作放行。
+            if let existing = row["user_action"] as String?,
+               DoseUserAction(rawValue: existing)?.isResolved ?? true {
+                throw StoreError.alreadyResolved(notifyId)
             }
             let units = (row["dose_units"] as Double?) ?? 1
             let patientId = UUID(uuidString: row["patient_id"] as String) ?? UUID()
@@ -411,13 +423,13 @@ public actor MedicationStore: DoseSource {
             // AuditLogWriter 同表同列），entity_id_hash 脱敏与 writer 一致。
             // ADR-025：哈希走 CryptoKit；§5.6 日志最小化：meta 只记事实计数，
             // 不记用户自由文本备注（医疗内容不入审计表）
+            // 全仓审查 2026-09-18（F-I1-02 同族）：改经 AuditLogWriter 同事务静态
+            // 写入口——action 受白名单约束，哈希/列序与其它审计写入单一事实源；
+            // 此前手写 INSERT 绕过白名单，`inventory.reconcile` 不在集合内却能落库。
             if auditSink != nil {
-                let hex = CryptoKitContentHasher().sha256Hex(Data(lotId.uuidString.utf8))
-                try db.execute(sql: """
-                    INSERT INTO audit_event (id, actor_local, action, entity_type, entity_id_hash, at, meta_json)
-                    VALUES (?, 'local', 'inventory.reconcile', 'stock_lot', ?, ?, ?)
-                    """, arguments: [UUID().uuidString, hex, at.timeIntervalSince1970,
-                                     "count=\(physicalCount)"])
+                try AuditLogWriter.insert(action: AuditLogWriter.Action.inventoryReconcile,
+                                          entityType: "stock_lot", entityId: lotId.uuidString,
+                                          actorLocal: "local", meta: "count=\(physicalCount)", db: db)
             }
         }
     }

@@ -613,7 +613,10 @@ public enum SchemaV2 {
       occurred_at REAL, duration_min INTEGER, treatment_note TEXT,
       encounter_id TEXT REFERENCES encounter(id), medication_id TEXT REFERENCES medication(id),
       consulted_doctor INTEGER NOT NULL DEFAULT 0,
-      note TEXT, created_at REAL NOT NULL, updated_at REAL NOT NULL);
+      note TEXT, created_at REAL NOT NULL, updated_at REAL NOT NULL,
+      -- v30（全仓审查 2026-09-18 F-A4-01）：过敏原类型（药品/食物/其他，FR23.1 表单第一步）——
+      -- 此前表单采集后无落点、静默丢弃。表尾追加 = 迁移 ADD COLUMN 同序。
+      allergen_kind TEXT);
     CREATE INDEX idx_allergy_patient_time ON allergy_event(patient_id, occurred_at);
 
     -- 疫苗接种（FR4.5）

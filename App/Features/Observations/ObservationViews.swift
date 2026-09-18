@@ -69,10 +69,13 @@ final class ObservationStoreState {
     /// 绝不静默呈现为「已保存」）
     @discardableResult
     func createAllergy(patientId: UUID, substance: String, severity: String,
-                       tags: [String], note: String?) async -> Bool {
+                       tags: [String], note: String?,
+                       allergenKind: String? = nil, occurredAt: Date? = nil) async -> Bool {
         do {
+            // 全仓审查 2026-09-18（F-A4-01）：发生时间/过敏原类型随表单透传，不再被保存时刻覆盖
             try await allergyStore.create(patientId: patientId, substance: substance,
-                                          severity: severity, reactionTags: tags, note: note)
+                                          severity: severity, reactionTags: tags, note: note,
+                                          allergenKind: allergenKind, occurredAt: occurredAt)
         } catch {
             logger.error("过敏记录失败: \(error)")
             return false

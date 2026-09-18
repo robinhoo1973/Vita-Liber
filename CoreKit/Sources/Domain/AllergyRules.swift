@@ -24,8 +24,10 @@ public enum SevereReactionRules {
                                              reactionTags: [String],
                                              note: String? = nil) -> Bool {
         if severity == "重" || severity == "severe" { return true }
-        let corpus = (reactionTags + [note ?? ""]).joined(separator: " ")
-        return severeKeywords.contains { corpus.localizedCaseInsensitiveContains($0) }
+        // 全仓审查 2026-09-18（F-D2-01 同族）：语料经 ScriptFolding 简繁/小写折叠后匹配，
+        // zh-Hant 备注「呼吸困難」同样触发急救引导卡（BR-012）
+        let corpus = ScriptFolding.fold((reactionTags + [note ?? ""]).joined(separator: " "))
+        return severeKeywords.contains { corpus.contains(ScriptFolding.fold($0)) }
     }
 
     // FR23.1 选项常量（数据词汇，落库原值；视图禁止内联中文——单一来源在 Domain）

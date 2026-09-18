@@ -82,8 +82,11 @@ final class VoiceDictationModel {
 
     /// 语音界面出现即预热当前档位模型（不采音、不联网；round2 A-N2 首句丢失的直接对策）。
     /// 结果不影响 UI：预热失败时按压仍按原路径加载。
+    /// 全仓审查 2026-09-18（F-A7-01，P0）：改走端口 `warmUp`——此前复用 `prepareLocale`，
+    /// 平台轨在面板出现即 `AssetInventory.downloadAndInstall` 隐式联网，违反 ADR-030
+    /// 「生产零隐式联网、下载只由用户显式发起」。
     func warmUp() async {
-        _ = await engine.prepareLocale(preferredLocale ?? TranscriptionSegmentation.fallbackLocale)
+        _ = await engine.warmUp(preferredLocale ?? TranscriptionSegmentation.fallbackLocale)
     }
 
     /// FR17.15 能力诚实：实际识别 locale 与主语言不同 = 方言回落（尽力识别）

@@ -149,6 +149,18 @@ actor SwitchableTranscriptionEngine: TranscriptionCaptureReporting {
         return await delegate(for: resolved).prepareLocale(localeIdentifier)
     }
 
+    /// 端口 `warmUp`（F-A7-01）：同 prepareLocale 的门控解析，但只转发到各引擎的**零联网**预热。
+    func warmUp(_ localeIdentifier: String) async -> Bool {
+        let choice = choiceProvider()
+        #if os(iOS) || os(macOS)
+        let resolved = choice == .auto ? TranscriptionEngineBuilder.automaticChoice(locale: localeIdentifier) : choice
+        #else
+        let resolved = choice
+        #endif
+        guard resolved.requiresLocaleAssets || resolved.isBundledModel else { return false }
+        return await delegate(for: resolved).warmUp(localeIdentifier)
+    }
+
     private func delegate(for choice: VoiceEngineChoice) -> any TranscriptionEngine {
         #if os(iOS) || os(macOS)
         let identity = choice.isBundledModel ? ASRModelAssets.resolve(for: choice).identity : nil

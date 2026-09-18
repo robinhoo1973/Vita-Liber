@@ -152,20 +152,26 @@ public actor AllergyStore {
 
     public init(writer: any DatabaseWriter) { self.writer = writer }
 
+    /// 全仓审查 2026-09-18（F-A4-01，P0）：`occurredAt` 此前恒写保存时刻、表单「发生时间」
+    /// 与「过敏原类型」被静默丢弃。现两者独立入参：`occurredAt` 默认 = now（兼容既有调用），
+    /// `allergenKind` 可空（FR23.1 三档词汇 `SevereReactionRules.allergenKinds`，落库原值）。
     public func create(id: UUID = UUID(), patientId: UUID, substance: String,
                        severity: String, reactionTags: [String], note: String?,
+                       allergenKind: String? = nil, occurredAt: Date? = nil,
                        now: Date = Date()) async throws {
         // 审查修复：展示词（轻/中/重）→ 规范值（mild/moderate/severe）——
         // DDL CHECK 只接受英文枚举，原样 INSERT 违反约束、每次保存静默失败
         let canonical = SevereReactionRules.canonicalSeverity(severity)
+        let occurred = occurredAt ?? now
         try await writer.write { db in
             let tags = String(data: try JSONEncoder().encode(reactionTags), encoding: .utf8) ?? "[]"
             try db.execute(sql: """
                 INSERT INTO allergy_event
-                  (id, patient_id, substance, reaction_tags, severity, occurred_at, note, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  (id, patient_id, substance, reaction_tags, severity, occurred_at, note,
+                   allergen_kind, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, arguments: [id.uuidString, patientId.uuidString, substance, tags, canonical,
-                                 now.timeIntervalSince1970, note,
+                                 occurred.timeIntervalSince1970, note, allergenKind,
                                  now.timeIntervalSince1970, now.timeIntervalSince1970])
         }
     }
@@ -175,21 +181,26 @@ public actor AllergyStore {
         public var substance: String
         public var severity: String
         public var occurredAt: Date
-        public init(id: UUID, substance: String, severity: String, occurredAt: Date) {
+        /// v30：过敏原类型（药品/食物/其他）；历史行 nil = 未登记
+        public var allergenKind: String?
+        public init(id: UUID, substance: String, severity: String, occurredAt: Date,
+                    allergenKind: String? = nil) {
             self.id = id; self.substance = substance; self.severity = severity; self.occurredAt = occurredAt
+            self.allergenKind = allergenKind
         }
     }
 
     public func list(patientId: UUID) async throws -> [AllergyRow] {
         try await writer.read { db in
             try Row.fetchAll(db, sql: """
-                SELECT id, substance, severity, occurred_at FROM allergy_event
+                SELECT id, substance, severity, occurred_at, allergen_kind FROM allergy_event
                 WHERE patient_id = ? ORDER BY occurred_at DESC
                 """, arguments: [patientId.uuidString]).map { row in
                 AllergyRow(id: UUID(uuidString: row["id"] as String) ?? UUID(),
                            substance: row["substance"] as String,
                            severity: row["severity"] as String,
-                           occurredAt: Date(timeIntervalSince1970: (row["occurred_at"] as Double?) ?? 0))
+                           occurredAt: Date(timeIntervalSince1970: (row["occurred_at"] as Double?) ?? 0),
+                           allergenKind: row["allergen_kind"] as String?)
             }
         }
     }

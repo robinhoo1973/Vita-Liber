@@ -368,6 +368,8 @@ public actor ExportService {
             public var note: String?
             public var encounterId: UUID?
             public var medicationId: UUID?
+            /// v30（全仓审查 2026-09-18 F-A4-01）：过敏原类型随包往返；旧包缺键解为 nil
+            public var allergenKind: String? = nil
         }
         public struct EncounterExport: Sendable, Codable, Equatable {
             public var id: UUID
@@ -685,7 +687,8 @@ public actor ExportService {
                     treatmentNote: row["treatment_note"] as String?,
                     note: row["note"] as String?,
                     encounterId: (row["encounter_id"] as String?).flatMap(UUID.init(uuidString:)),
-                    medicationId: (row["medication_id"] as String?).flatMap(UUID.init(uuidString:)))
+                    medicationId: (row["medication_id"] as String?).flatMap(UUID.init(uuidString:)),
+                    allergenKind: row["allergen_kind"] as String?)
             }
             // v25（D1-4）：就诊全列导出（含五叙事列 + 时间戳）——手工就诊不再只剩 diagnosis_text。
             let encounters = try Row.fetchAll(db, sql: "SELECT * FROM encounter").map { row in
@@ -1588,12 +1591,12 @@ public actor ExportService {
                 try db.execute(sql: """
                     INSERT INTO allergy_event (id, patient_id, substance, reaction_tags, severity, occurred_at,
                                               consulted_doctor, duration_min, treatment_note, note,
-                                              encounter_id, medication_id, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                              encounter_id, medication_id, allergen_kind, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, arguments: [(remap(a.id) ?? a.id).uuidString, patientID(a.patientId), a.substance,
                                      a.reactionTags ?? "[]", a.severity, a.occurredAt.timeIntervalSince1970,
                                      (a.consultedDoctor ?? false) ? 1 : 0, a.durationMin, a.treatmentNote,
-                                     a.note, a.encounterId?.uuidString, a.medicationId?.uuidString,
+                                     a.note, a.encounterId?.uuidString, a.medicationId?.uuidString, a.allergenKind,
                                      a.occurredAt.timeIntervalSince1970, a.occurredAt.timeIntervalSince1970])
             }
             // v25（D1-4）就诊全列恢复。rescheduled_from_id 自引用 FK：先落 NULL、全部就诊落库后统一回填

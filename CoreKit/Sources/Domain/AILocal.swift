@@ -143,6 +143,31 @@ public struct TerminologyStore: Sendable {
     }
 }
 
+/// 安全词表匹配前的文本折叠（全仓审查 2026-09-18 · F-D2-01/F-A7-04，BR-006/BR-012）。
+/// 此前 `EmergencyKeywordRules`/`HighRiskTopicRules` 只收简体词：zh-Hant 界面、
+/// yue-Hant-HK/zh-Hant 语音转写（「我呼吸困難」「幫我停藥」）与英文输入
+/// （"chest pain"）全部绕过急救短路与高风险拒识。折叠 = 有界繁→简逐字表
+/// （只覆盖安全词表用字，不引入通用简繁转换依赖——Domain 零框架）+ 小写化。
+/// 新增词表用字若含繁体形，必须同步登记到 `hantToHans`（测试 `SafetyLexiconTests`
+/// 以繁体/英文验收句守卫）。
+public enum ScriptFolding {
+    /// 有界繁→简字表：安全词表（急救/高风险/过敏严重反应）用字的繁体形。
+    static let hantToHans: [Character: Character] = [
+        "悶": "闷", "難": "难", "氣": "气", "識": "识", "頭": "头", "腫": "肿",
+        "過": "过", "護": "护", "車": "车", "撥": "拨", "藥": "药", "別": "别",
+        "嗎": "吗", "減": "减", "換": "换", "調": "调", "劑": "剂", "顆": "颗",
+        "種": "种", "為": "为", "兩": "两", "覺": "觉", "醫": "医", "電": "电",
+        "話": "话", "體": "体", "驚": "惊", "暈": "晕", "嚴": "严", "緊": "紧",
+        "壓": "压", "臟": "脏", "臉": "脸", "腳": "脚", "發": "发", "燒": "烧",
+        "藍": "蓝", "顏": "颜", "應": "应", "當": "当", "實": "实", "際": "际",
+    ]
+
+    /// 折叠：逐字繁→简 + 小写（中文小写化为恒等）。
+    public static func fold(_ text: String) -> String {
+        String(text.map { hantToHans[$0] ?? $0 }).lowercased()
+    }
+}
+
 /// 紧急关键词规则（BR-012：疑似紧急 → 急救卡，绝不继续普通问答）
 public enum EmergencyKeywordRules {
     // 审查修复：补「胸闷」——常见急性心脏主诉（原词表只收「胸闷得厉害」，
@@ -153,11 +178,25 @@ public enum EmergencyKeywordRules {
     // 硬编码第二份词源，「我胸闷」经语音落速记而不触发急救卡。语义词并
     // 入本表（单一事实源）；F19 号码拨号文法保留（拨号确认语义），但词
     // 判定一律先经本表。
+    // 全仓审查 2026-09-18（F-D2-01）：词表按**折叠后形态**（简体）书写；粤语口语
+    // 补「心口痛/唞唔到气/透唔到气」（yue-Hant-HK 转写经 ScriptFolding 后形态）；
+    // 英文词表另列（小写），匹配前统一 `ScriptFolding.fold`。
     static let keywords = ["胸痛", "胸口疼", "胸闷", "呼吸困难", "喘不上气",
                        "意识不清", "大出血", "抽搐", "休克", "窒息", "喉头水肿", "喘不过气",
-                       "急救", "救命", "救护车", "叫120", "打120", "拨打120"]
+                       "急救", "救命", "救护车", "叫120", "打120", "拨打120",
+                       "心口痛", "唞唔到气", "透唔到气"]
+    /// 英文紧急词（小写）——转写引擎 en-US 轨 / 英文界面输入。
+    static let englishKeywords = [
+        "chest pain", "can't breathe", "cannot breathe", "can not breathe",
+        "trouble breathing", "difficulty breathing", "shortness of breath",
+        "unconscious", "passed out", "not responding", "seizure", "convulsion",
+        "heavy bleeding", "bleeding heavily", "choking", "anaphylaxis",
+        "ambulance", "call 911", "call 120", "call 999", "call 112", "medical emergency",
+    ]
     public static func match(_ text: String) -> Bool {
-        keywords.contains { text.contains($0) }
+        let folded = ScriptFolding.fold(text)
+        return keywords.contains { folded.contains($0) }
+            || englishKeywords.contains { folded.contains($0) }
     }
 }
 
@@ -185,11 +224,25 @@ public enum HighRiskTopicRules {
         // 绕过、返回普通回答）。上界 12 字防长句误伤（保守拦截方向安全）。
         #"(改|换)(成|为)[^，。；\n]{0,12}?(片|粒|颗|次|倍|mg)"#,
         #"一天\s*[一二两三四五六七八九十]+\s*(次|片|粒)"#,
+        // 英文剂量更改句式（小写匹配）："take 2 tablets"/"double the dose"/"half a pill"
+        #"\b(take|took|taking)\s+[0-9]+\s*(mg|tablets?|pills?|capsules?)\b"#,
+        #"\b(double|halve|half|increase|reduce|lower|raise|change|adjust)\s+(the\s+|my\s+)?dos(e|age)\b"#,
+        #"\bhalf\s+(a|the)\s+(tablet|pill|capsule)\b"#,
+    ]
+    /// 英文高风险词（小写）：停药/换药/跳药。
+    static let englishKeywords = [
+        "stop taking", "stop my medication", "stop the medication", "stop my meds",
+        "quit taking", "skip my dose", "skip the dose", "switch medication",
+        "switch my medication", "double dose", "extra dose",
     ]
     public static func match(_ text: String) -> Bool {
-        if keywords.contains(where: { text.contains($0) }) { return true }
+        // 全仓审查 2026-09-18（F-D2-01）：匹配前简繁/大小写折叠——「幫我停藥」
+        // 「調整劑量」此前绕过 BR-006 一票否决
+        let folded = ScriptFolding.fold(text)
+        if keywords.contains(where: { folded.contains($0) }) { return true }
+        if englishKeywords.contains(where: { folded.contains($0) }) { return true }
         return doseChangePatterns.contains { pattern in
-            text.range(of: pattern, options: .regularExpression) != nil
+            folded.range(of: pattern, options: .regularExpression) != nil
         }
     }
 }
@@ -240,7 +293,9 @@ public struct LocalRetrievalProvider: AIProvider {
     /// 持有真实资料的 P0 用户被误拒为「资料不足」（审查发现，5WHY：负清单
     /// 被误当「非模板字段全扫」）。
     func compose(_ hits: [EntityReference], question: String) -> AIAnswer.SevenPart? {
-        let excerpts = hits.prefix(3).map(\.snippet)
+        // 全仓审查 2026-09-18（F-D1-02）：摘录去检索高亮标记——`<b>` 是检索侧
+        // 呈现契约，不属于引用原文
+        let excerpts = hits.prefix(3).map { SearchRules.stripHighlight($0.snippet) }
         let terms = terminology.terms(in: question)
             .compactMap { term in terminology.explain(term).map { AIAnswer.SevenPart.TermExplanation(term: term, explanation: $0) } }
         let card = AIAnswer.SevenPart(

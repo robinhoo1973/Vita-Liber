@@ -232,7 +232,7 @@ struct QuickCaptureView: View {
             .alert(L10n.docImportFailedTitle, isPresented: $importFailed) {
                 if permissionDenied {
                     Button(L10n.homeNotifOpen) {
-                        if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                        SystemLinks.openSettings()
                     }
                 }
                 Button(L10n.commonCancel, role: .cancel) {}

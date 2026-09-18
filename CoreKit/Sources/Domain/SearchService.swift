@@ -84,6 +84,23 @@ public enum SearchRules {
         docKind == "sensitive_photo" || docKind == "sensitive_media"
     }
 
+    /// 片段高亮标记（单一事实源）：FTS `snippet()` 与手动高亮共用；UI 一律经
+    /// `highlightSegments` 拆段渲染，AI 摘录经 `stripHighlight` 去标记——
+    /// 全仓审查 2026-09-18（F-A8-01/F-D1-02）：此前 `<b>` 字面渗出到 `Text(snippet)`
+    /// 与 AI 七段卡摘录。
+    public static let highlightOpen = "<b>"
+    public static let highlightClose = "</b>"
+
+    /// 片段拆段结果：UI 按 `highlighted` 加粗，不再让标记字面渗出。
+    public struct SnippetSegment: Sendable, Equatable {
+        public let text: String
+        public let highlighted: Bool
+        public init(text: String, highlighted: Bool) {
+            self.text = text
+            self.highlighted = highlighted
+        }
+    }
+
     /// contentless FTS 表无 snippet 函数——检索侧取回源列后手动高亮（V3.44）
     public static func highlight(_ text: String?, query: String) -> String {
         guard let text, !text.isEmpty else { return "" }
@@ -96,6 +113,33 @@ public enum SearchRules {
         let upper = text.index(range.upperBound, offsetBy: trailCount)
         let lead = lower > text.startIndex ? "…" : ""
         let trail = upper < text.endIndex ? "…" : ""
-        return lead + text[lower..<range.lowerBound] + "<b>" + query + "</b>" + text[range.upperBound..<upper] + trail
+        return lead + text[lower..<range.lowerBound] + highlightOpen + query + highlightClose
+            + text[range.upperBound..<upper] + trail
+    }
+
+    /// 把带标记的片段拆成有序段：未闭合/嵌套异常的标记按纯文本处理，绝不吞字。
+    public static func highlightSegments(_ snippet: String) -> [SnippetSegment] {
+        var segments: [SnippetSegment] = []
+        var rest = Substring(snippet)
+        while let open = rest.range(of: highlightOpen) {
+            let before = rest[rest.startIndex..<open.lowerBound]
+            if !before.isEmpty { segments.append(SnippetSegment(text: String(before), highlighted: false)) }
+            let afterOpen = rest[open.upperBound...]
+            guard let close = afterOpen.range(of: highlightClose) else {
+                // 未闭合：余下全部按纯文本
+                if !afterOpen.isEmpty { segments.append(SnippetSegment(text: String(afterOpen), highlighted: false)) }
+                return segments
+            }
+            let hit = afterOpen[afterOpen.startIndex..<close.lowerBound]
+            if !hit.isEmpty { segments.append(SnippetSegment(text: String(hit), highlighted: true)) }
+            rest = afterOpen[close.upperBound...]
+        }
+        if !rest.isEmpty { segments.append(SnippetSegment(text: String(rest), highlighted: false)) }
+        return segments
+    }
+
+    /// 去标记纯文本（AI 摘录/无障碍朗读/导出用）。
+    public static func stripHighlight(_ snippet: String) -> String {
+        highlightSegments(snippet).map(\.text).joined()
     }
 }

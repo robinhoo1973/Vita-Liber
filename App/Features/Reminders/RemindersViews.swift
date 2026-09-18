@@ -380,8 +380,9 @@ struct DoseSlotCard: View {
                             Image(systemName: "checkmark.circle.fill")
                                 .foregroundStyle(Color("semantic-success", bundle: .main))
                                 .frame(width: 44, height: 44)
-                        } else if record.action != nil {
-                            Text(actionShortLabel(record.action))
+                        } else if let action = record.action, action.isResolved {
+                            // 全仓审查 2026-09-18（F-A5-03）：snoozed 非终态——按钮组保留可再决议
+                            Text(actionShortLabel(action))
                                 .font(.caption2).foregroundStyle(.secondary)
                                 .frame(minWidth: 44, minHeight: 44)
                         } else {

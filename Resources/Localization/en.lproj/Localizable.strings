@@ -329,6 +329,8 @@
 "onboard.prefillHint" = "Prefilled from Apple Health — please verify";
 "onboard.saveEdit" = "Save changes";
 "onboard.createContinue" = "Create and continue";
+"onboard.saveFailed" = "Profile could not be saved";
+"onboard.saveFailedHint" = "Your profile was not written to the on-device database and no identity was created. Please retry; if it keeps failing, check the device storage.";
 "onboard.cancel" = "Cancel";
 "onboard.finishEnterApp" = "Finish setup and open the app";
 "onboard.confirmed" = "Confirmed";

@@ -174,7 +174,6 @@ struct VoiceSessionView: View {
     @Environment(AppState.self) private var app
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.openURL) private var openURL
     // F19 附表执行矩阵的数据源（纯事实播报；写操作经既有 Store 路径）
     @Environment(ReminderStore.self) private var reminderStore
     @Environment(M2HubStore.self) private var hub
@@ -750,7 +749,7 @@ struct VoiceSessionView: View {
         // 审查修复：号码按语言区域取 L10n（120/119/911），不再硬编码大陆 120
         let emergency = L10n.emergencyNumber
         if object == emergency {
-            if let url = URL(string: "tel://\(emergency)") { openURL(url) }
+            SystemLinks.dial(emergency)
             return
         }
         // 审查修复（FR19.5 确认对象语义）：子串匹配按列表顺序取首个——
@@ -772,9 +771,10 @@ struct VoiceSessionView: View {
             return
         }
         // detail 为「关系 · 电话」复合展示串——拨号取纯号码（BR-012 语义）
-        let number = contact.contactPhone
-        guard let url = URL(string: "tel://\(number)") else { return }
-        openURL(url)
+        // 全仓审查 2026-09-18（F-A2-05）：号码经 SystemLinks 归一拨出；不可拨即播报未命中，不静默
+        if !SystemLinks.dial(contact.contactPhone) {
+            app.speak(L10n.f19_contactNotFound(object))
+        }
     }
 
     /// 指定药名的全部匹配批次（双轨库存/StockLot：同名药品可多批次）——

@@ -157,9 +157,7 @@ private struct MedicalIDGuideSheet: View {
                     }
                     Section {
                         Button(L10n.medicalIDOpenHealth) {
-                            if let url = URL(string: "x-apple-health://") {
-                                UIApplication.shared.open(url)
-                            }
+                            SystemLinks.openHealthApp()
                         }
                         .buttonStyle(.borderedProminent)
                         .frame(maxWidth: .infinity, minHeight: 50)
@@ -470,18 +468,19 @@ struct SOSHelpView: View {
                 .navigationTitle(L10n.sosHelpTitle)
                 .navigationBarTitleDisplayMode(.inline)
                 .sheet(isPresented: $showEmergencyCard) {
-                    NavigationStack { EmergencyCardHubView() }
+                    // 全仓审查 2026-09-18（F-A2-02，P0）：SOS 路径可在锁屏未认证时到达——
+                    // 急救卡只读呈现（旁人施救所需的血型/过敏/用药/联系人），[管理] 不出现
+                    NavigationStack { EmergencyCardHubView(readOnly: true) }
                 }
                 .task(id: app.currentPatientId) { await hub.load(patientId: app.currentPatientId) }
             }
         }
     }
 
-    /// 系统拨号（tel://）：拨号动作本身由系统确认，App 不拦截不记录内容
+    /// 系统拨号：经 SystemLinks 单一出口（号码归一，全仓审查 2026-09-18 F-A2-05）；
+    /// 拨号动作本身由系统确认，App 不拦截不记录内容
     private func dial(_ number: String) {
-        guard let url = URL(string: "tel://\(number)"),
-              UIApplication.shared.canOpenURL(url) else { return }
-        UIApplication.shared.open(url)
+        SystemLinks.dial(number)
     }
 }
 

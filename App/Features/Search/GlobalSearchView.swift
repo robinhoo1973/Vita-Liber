@@ -392,7 +392,9 @@ private struct SearchResultRow: View {
                     }
                 }
                 if !snippet.isEmpty {
-                    Text(snippet)
+                    // 全仓审查 2026-09-18（F-A8-01）：经 SnippetText 单一出口拆段加粗，
+                    // `<b>` 标记不再字面渲染
+                    SnippetText(snippet)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
