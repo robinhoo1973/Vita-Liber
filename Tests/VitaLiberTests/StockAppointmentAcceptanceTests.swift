@@ -161,12 +161,25 @@ final class StockAppointmentAcceptanceTests: XCTestCase {
         pending = try await scheduler.pending()
         XCTAssertEqual(pending.count, 4)
 
+        // 纵深防御（审查修复 2026-09-18，BR-004 时间门槛）：未到开始时间的
+        // 预约不可完成——未来预约一触即完成 = 分级提醒全取消 + 未来日期
+        // 「复诊」就诊落库（历史造假）。改期后的新行仍在未来，必须被拒。
+        do {
+            try await apts.complete(id: newAptId)
+            XCTFail("未来预约完成必须被拒（BR-004：未到开始时间不可标完成）")
+        } catch {
+            // 期望拒绝（notFound 语义，与 markMissed 纵深防御同款）
+        }
+
         // 标记完成 → completed + 补录就诊（评审修正 P0：闭环含 F4 encounter；
-        // 仅 scheduled 可完成——旧行已 cancelled，用新行 id）
-        try await apts.complete(id: newAptId)
+        // 仅 scheduled 可完成——用已开始的预约验证闭环）
+        let pastApt = UUID()
+        try await apts.create(id: pastApt, patientId: patient, hospital: "市一医院",
+                              department: "心内科", startsAt: Date().addingTimeInterval(-3600), now: Date())
+        try await apts.complete(id: pastApt)
         let status = try await store.writer.read { db in
             try String.fetchOne(db, sql: "SELECT status FROM appointment WHERE id = ?",
-                                arguments: [newAptId.uuidString])
+                                arguments: [pastApt.uuidString])
         }
         XCTAssertEqual(status, "completed")
         let encounterCount = try await store.writer.read { db in
