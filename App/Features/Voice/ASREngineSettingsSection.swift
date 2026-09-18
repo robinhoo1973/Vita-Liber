@@ -248,6 +248,11 @@ struct ASREngineSettingsSection: View {
                 }
                 .pickerStyle(.segmented)
                 .accessibilityIdentifier("\(accessibilityPrefix).model.variant.\(choice.rawValue)")
+                if let hint = variantHint(for: variants) {
+                    Text(hint)
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("\(accessibilityPrefix).model.variantHint.\(choice.rawValue)")
+                }
             }
             if let active = installCenter.install(choice) {
                 installProgress(choice, active)
@@ -289,6 +294,22 @@ struct ASREngineSettingsSection: View {
         }, set: { v in
             selectedVariant[choice.rawValue] = v
         })
+    }
+
+    /// 业主裁决 D6：按设备 RAM 给出建议（用户自行决定，不做硬限制）。
+    private func variantHint(for variants: [ASRModelRelease]) -> String? {
+        guard variants.count > 1 else { return nil }
+        let ramGB = ProcessInfo.processInfo.physicalMemory / 1024 / 1024 / 1024
+        let recommended: String
+        if ramGB >= 6 {
+            recommended = variants.last?.variant ?? variants.last?.variant  // largest
+        } else if ramGB >= 4 {
+            recommended = variants[variants.count / 2].variant ?? variants[1].variant  // mid
+        } else {
+            recommended = variants.first?.variant  // smallest
+        }
+        guard let rec = recommended else { return nil }
+        return L10n.asrModelVariantHint(rec, "\(ramGB)")
     }
 
     /// 进行态视图：下载 = 分数进度 + 字节数字（慢链路下条位移缓慢，数字给确定反馈）；

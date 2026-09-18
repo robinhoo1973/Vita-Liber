@@ -303,7 +303,6 @@ private struct PreviewRoot: View {
                     scheduler: container.reminderScheduler,
                     cardStore: OCRCardStore(writer: container.store.writer),
                     suggestionStore: ProfileSuggestionStore(writer: container.store.writer)))
-                .environment(AIHistoryState(store: container.aiHistory, audit: container.audit))
                 .environment(ExportWizardState(service: container.pdfExport))
                 // 健康导入二轮（V3.98）：F16DeviceState 只依赖同步协调器 + 数据变更信号；
                 // 业主 2026-09-17：增 settings（写回开关裁决）——与下方环境注入同实例

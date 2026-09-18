@@ -1377,6 +1377,9 @@
 "lifecycle.clearHint" = "Deletes all local medical data and attachments; the audit log is kept (anonymized); backup files are NOT auto-deleted.";
 "lifecycle.clearButton" = "Erase All Data";
 "lifecycle.clearImpact" = "This cannot be undone: all records, attachments, plans and reminders will be deleted. Backup files remain in system files and are not auto-deleted.";
+"lifecycle.resetSettings" = "Reset to Defaults";
+"lifecycle.resetSettingsHint" = "Reset notification preferences, display theme, TTL and other settings to factory defaults. Existing data and backups are not affected.";
+"lifecycle.resetSettingsImpact" = "After resetting, your notification preferences and display theme will be restored to defaults.";
 "lifecycle.logout" = "Sign out (P1 account)";
 "lifecycle.logoutHint" = "Cloud account sign-out will be available when cloud services are ready; local mode has no account to sign out from.";
 "onboard.addFamily.title" = "Add Family Member";
@@ -1774,6 +1777,7 @@
 "asr.model.variantSmall" = "Small";
 "asr.model.variantMedium" = "Medium";
 "asr.model.variantLarge" = "Large";
+"asr.model.variantHint" = "Based on your device (%2$@ GB RAM), \"%@\" is recommended.";
 "asr.model.update" = "Update to %@";
 "asr.model.installed" = "Installed %@";
 "asr.model.downloading" = "Downloading…";

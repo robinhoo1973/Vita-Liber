@@ -27,7 +27,6 @@ struct VitaLiberApp: App {
     @State private var timelineState: TimelineViewState
     @State private var questionsState: QuestionsState
     @State private var documentsState: DocumentsState
-    @State private var aiHistoryState: AIHistoryState
     @State private var exportWizardState: ExportWizardState
     @State private var f16DeviceState: F16DeviceState
     /// 类型化数据变更信号（V3.49：文档保存/设备读数落库 → 版本计数 → 跨页刷新）
@@ -149,7 +148,6 @@ struct VitaLiberApp: App {
             cardStore: OCRCardStore(writer: container.store.writer),
             // 子项目 D · D4-2：卡确认后「资料建议」采集/接受流（只读回执 → 逐项显式接受写资料 + 审计）
             suggestionStore: ProfileSuggestionStore(writer: container.store.writer)))
-        _aiHistoryState = State(initialValue: AIHistoryState(store: container.aiHistory, audit: container.audit))
         _exportWizardState = State(initialValue: ExportWizardState(service: container.pdfExport))
         _f16DeviceState = State(initialValue: F16DeviceState(
             syncService: container.healthSync,
@@ -261,7 +259,6 @@ struct VitaLiberApp: App {
             .environment(timelineState)
             .environment(questionsState)
             .environment(documentsState)
-            .environment(aiHistoryState)
             .environment(exportWizardState)
             .environment(f16DeviceState)
             .environment(backupState)

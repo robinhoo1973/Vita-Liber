@@ -92,8 +92,10 @@ public actor MedicationStore: DoseSource {
             // 全仓审查 2026-09-18（F-I4-01/F-A5-03）：`snoozed` 不是决议（Domain
             // `DoseUserAction.isResolved` 单一口径）——稍后之后「已服」必须可达，
             // 且 snoozed 两线未扣，此处按首次决议正常扣减。
+            // 业主裁决 D5：missed 也允许经普通「已服」转 taken（补记语义）——
+            // 只有已为 taken 时才阻断（真终态），missed/snoozed/nil 均可达。
             if let existing = row["user_action"] as String?,
-               DoseUserAction(rawValue: existing)?.isResolved ?? true {
+               existing == DoseUserAction.taken.rawValue {
                 throw StoreError.alreadyResolved(notifyId)
             }
             let units = (row["dose_units"] as Double?) ?? 1
@@ -129,6 +131,7 @@ public actor MedicationStore: DoseSource {
             // 已决议行（taken/skipped/missed/discomfort）不得再改动作重复扣减
             // （taken→discomfort 曾两线各再扣一次，违 tech V3.42 幂等要求）；
             // snoozed→任意动作、nil→任意动作放行。
+            // taken→missed 等跨动作转换涉及扣减矩阵（双重扣减风险），暂不通。
             if let existing = row["user_action"] as String?,
                DoseUserAction(rawValue: existing)?.isResolved ?? true {
                 throw StoreError.alreadyResolved(notifyId)

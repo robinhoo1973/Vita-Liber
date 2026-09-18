@@ -191,18 +191,6 @@ final class AppRouter {
                 self.persist(path: .reminders, \.remindersPath)
                 return
             }
-            // 2026-09-15 实测修复（业主第 1/8 项）：AI 助手页面已按子项目 H 退役，
-            // `.assistantChat` 的落点就是健康 Tab 根视图（`HealthTabView`）本身。
-            // 与 `.reminderToday` 同款：**弹栈到根**后不再入栈——旧实现只在栈中
-            // 已有 .assistantChat 时才动作，其余情况裸 `return`（保留旧的历史/搜索
-            // 上下文）：用户从首页「了解 AI 助手」进来时，要么落在别人的栈顶页面
-            // （搜索/语音会话），要么把健康根视图再叠一层（RouteDestinationView 头注
-            // 所禁的套娃）。
-            if route == .assistantChat {
-                self.healthPath = []
-                self.persist(path: .health, \.healthPath)
-                return
-            }
             // 第七轮修复：同路由连点去重——同一通知双点（启动窗口入队两次）
             // 或同一预约的 t0/t1 分级通知先后点击会把同一目的地叠两层；
             // 栈顶已是该路由时不再入栈（正常「返回再进同一页」不受影响，
@@ -349,15 +337,10 @@ final class AppRouter {
             defaults.removeObject(forKey: key.storageKey)
             return []
         }
-        // 2026-09-15 审查修复：`.assistantChat` 已退役（落点即健康 Tab 根，navigate 只弹栈
-        // 不入栈）——旧版本持久化下来的路径里若仍残留本路由，恢复后 RouteDestinationView
-        // 会再推一层 HealthTabView（子项目 H 明令禁止的套娃：双层 List、双层 `.task`、
-        // 返回观感失效）。恢复时剔除该条目，其下方上下文照常保留。
-        // 审查修复（同族补漏）：`.reminderToday` 与 `.assistantChat` 同款「退役 append
-        // 语义」（navigate 现清栈回 Tab 根、不入栈）——旧版本路径里残留的
-        // `.reminderToday` 恢复后会再推一层 RemindersView 叠在 Tab 根之上，
-        // 同一套娃形态。一并剔除。
-        return routes.filter { $0 != .assistantChat && $0 != .reminderToday }
+        // 2026-09-15 审查修复：`.reminderToday` 已退役（navigate 现清栈回 Tab 根、不入栈）
+        // ——旧版本持久化下来的路径里若仍残留本路由，恢复后 RouteDestinationView
+        // 会再推一层 RemindersView 叠在 Tab 根之上（套娃形态）。恢复时剔除。
+        return routes.filter { $0 != .reminderToday }
     }
 }
 

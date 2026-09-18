@@ -92,13 +92,8 @@ struct RouteDestinationView: View {
             case .questionList:
                 QuestionListView()
 
-            // ---- F12 ----
-            case .assistantChat:
-                HealthTabView()
             case .globalSearch:
                 GlobalSearchView()
-            case .assistantHistory:
-                AssistantHistoryView()
 
             // ---- F13 ----
             case .backupRestore:

@@ -499,7 +499,6 @@ struct VoiceQuickLaunchView: View {
         case VoiceIntentKey.recordObservation.rawValue: return .observation
         case VoiceIntentKey.createReminder.rawValue: return .reminder
         case VoiceIntentKey.appendProfile.rawValue: return .profile
-        case VoiceIntentKey.askAssistant.rawValue: return .health
         case VoiceIntentKey.createQuestion.rawValue: return .question
         default: return .anyText   // appendNote/unknown/无法判定 → 语音速记兜底
         }
@@ -538,7 +537,7 @@ struct VoiceQuickLaunchView: View {
         let fields = set.confirmedFields
         let target = target(for: intent)
         switch target {
-        case .anyText, .observation, .question, .health:
+        case .anyText, .observation, .question:
             guard let body = fields.first?.value, !body.isEmpty else {
                 failedDispatch = set
                 showSaveFailure = true
@@ -576,7 +575,6 @@ struct VoiceQuickLaunchView: View {
         case .metric: router.navigate(to: .metricQuickEntry)
         case .observation: router.navigate(to: .observationCreate)
         case .question: router.navigate(to: .questionList)
-        case .health: router.navigate(to: .assistantChat)
         case .reminder: router.navigate(to: .voiceReminderDraft)
         case .profile: router.navigate(to: .voiceGuideProfile)
         case .anyText: router.navigate(to: .voiceNotePanel)

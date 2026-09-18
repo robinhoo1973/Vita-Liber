@@ -283,22 +283,6 @@ struct OwnerSetupView: View {
             .buttonStyle(.borderedProminent)
             .disabled(!formValid || submitting)
             .accessibilityIdentifier("SP-06.owner.create")
-            // FR21.9：任意步可跳过（建档可稍后完成，由系统默认「本人」占位）
-            // 全仓审查 2026-09-18（F-A1-01）：占位建档同样先落库、失败不推进
-            Button {
-                guard !submitting else { return }
-                submitting = true
-                Task {
-                    let ok = await app.skipOwner()
-                    submitting = false
-                    if !ok { saveFailed = true }
-                }
-            } label: {
-                Text(L10n.onboard_later).frame(maxWidth: .infinity, minHeight: 44)
-            }
-            .buttonStyle(.borderless)
-            .disabled(submitting)
-            .accessibilityIdentifier("SP-06.owner.skip")
         }
     }
 

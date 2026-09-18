@@ -1614,7 +1614,8 @@ enum L10n {
         "quality.tooDark", "quality.unassessable",
         "lifecycle.single", "lifecycle.singleHint", "lifecycle.member", "lifecycle.memberHint",
         "lifecycle.clearAll", "lifecycle.clearHint", "lifecycle.clearButton",
-        "lifecycle.clearImpact", "lifecycle.logout", "lifecycle.logoutHint",
+        "lifecycle.clearImpact", "lifecycle.resetSettings", "lifecycle.resetSettingsHint",
+        "lifecycle.resetSettingsImpact", "lifecycle.logout", "lifecycle.logoutHint",
         "onboard.addFamily.title", "onboard.addFamily.hint", "onboard.addFamily.manual",
         "onboard.addFamily.voiceP1", "onboard.addFamily.contactsP1", "onboard.addFamily.skip",
         "onboard.addFamily.finish", "onboard.addFamily.completeHint",
@@ -1829,6 +1830,7 @@ enum L10n {
         "asr.downloadable",
         "asr.model.download", "asr.model.update", "asr.model.installed",
         "asr.model.variantTitle", "asr.model.variantSmall", "asr.model.variantMedium", "asr.model.variantLarge",
+        "asr.model.variantHint",
         "asr.model.downloading", "asr.model.downloadFailed",
         "asr.model.checkUpdate", "asr.index.fetchFailed",
         "asr.model.checking", "asr.model.checkUpToDate", "asr.model.checkUpdatesFmt",
@@ -3062,6 +3064,9 @@ enum L10n {
     static var lifecycleClearHint: String { t("lifecycle.clearHint") }
     static var lifecycleClearButton: String { t("lifecycle.clearButton") }
     static var lifecycleClearImpact: String { t("lifecycle.clearImpact") }
+    static var lifecycleResetSettings: String { t("lifecycle.resetSettings") }
+    static var lifecycleResetSettingsHint: String { t("lifecycle.resetSettingsHint") }
+    static var lifecycleResetSettingsImpact: String { t("lifecycle.resetSettingsImpact") }
     static var lifecycleLogout: String { t("lifecycle.logout") }
     static var lifecycleLogoutHint: String { t("lifecycle.logoutHint") }
 
@@ -3346,6 +3351,10 @@ enum L10n {
     static var asrModelVariantSmall: String { t("asr.model.variantSmall") }
     static var asrModelVariantMedium: String { t("asr.model.variantMedium") }
     static var asrModelVariantLarge: String { t("asr.model.variantLarge") }
+    /// 业主裁决 D6：设备 RAM 建议提示（参数1=建议档位名，参数2=设备 RAM GB）
+    static func asrModelVariantHint(_ variant: String, _ ramGB: String) -> String {
+        String(format: t("asr.model.variantHint"), asrModelVariantName(variant), ramGB)
+    }
     static func asrModelUpdate(_ version: String) -> String { String(format: t("asr.model.update"), version) }
     static func asrModelInstalled(_ version: String) -> String { String(format: t("asr.model.installed"), version) }
     static var asrModelDownloading: String { t("asr.model.downloading") }
@@ -3416,7 +3425,7 @@ enum L10n {
     static var encounterLinkedCardsEmpty: String { t("encounter.linkedCards.empty") }
 
     enum TargetTag: String, CaseIterable {
-        case metric, observation, question, health, reminder, profile, anyText
+        case metric, observation, question, reminder, profile, anyText
     }
 
     /// 支持的本地化（三文件纪律）

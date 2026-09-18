@@ -129,7 +129,9 @@ struct DataLifecycleView: View {
     @Environment(AppState.self) private var app
     @Environment(ObservationStoreState.self) private var observationState
     @Environment(AppDataChangeCenter.self) private var dataChange
+    @Environment(AppSettingsStore.self) private var settings
     @State private var showClearConfirm = false
+    @State private var showResetConfirm = false
     @State private var clearing = false
 
     var body: some View {
@@ -153,6 +155,14 @@ struct DataLifecycleView: View {
                         showClearConfirm = true
                     }
                     .accessibilityIdentifier("FR14.3.clearAll")
+                }
+                Section(L10n.lifecycleResetSettings) {
+                    Text(L10n.lifecycleResetSettingsHint)
+                        .font(.footnote).foregroundStyle(.secondary)
+                    Button(L10n.lifecycleResetSettings, role: .destructive) {
+                        showResetConfirm = true
+                    }
+                    .accessibilityIdentifier("FR14.3.resetSettings")
                 }
                 Section(L10n.lifecycleLogout) {
                     Text(L10n.lifecycleLogoutHint)
@@ -186,6 +196,17 @@ struct DataLifecycleView: View {
                 Button(L10n.commonCancel, role: .cancel) { }
             } message: {
                 Text(L10n.lifecycleClearImpact)
+            }
+            .confirmationDialog(L10n.lifecycleResetSettings, isPresented: $showResetConfirm,
+                                titleVisibility: .visible) {
+                Button(L10n.lifecycleResetSettings, role: .destructive) {
+                    Task {
+                        await settings.restoreDefaults()
+                    }
+                }
+                Button(L10n.commonCancel, role: .cancel) { }
+            } message: {
+                Text(L10n.lifecycleResetSettingsImpact)
             }
         }
     }

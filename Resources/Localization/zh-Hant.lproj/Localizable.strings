@@ -1377,6 +1377,9 @@
 "lifecycle.clearHint" = "刪除本機全部醫療資料與附件；稽核日誌保留（匿名化）；備份文件不自動刪除。";
 "lifecycle.clearButton" = "清空全部資料";
 "lifecycle.clearImpact" = "此操作不可恢復：將刪除全部資料、附件、計畫與提醒。備份文件保留在系統檔案中，不會自動刪除。";
+"lifecycle.resetSettings" = "恢復預設設定";
+"lifecycle.resetSettingsHint" = "重置通知偏好、顯示主題、TTL 等設定項為出廠預設值。已有的資料和備份不受影響。";
+"lifecycle.resetSettingsImpact" = "恢復預設設定後，您的通知偏好、顯示主題等將被重置。";
 "lifecycle.logout" = "註銷（P1 账户化）";
 "lifecycle.logoutHint" = "雲端帳戶註銷需雲端服務就緒後提供；本地模式無帳戶可註銷。";
 "onboard.addFamily.title" = "新增家人";
@@ -1774,6 +1777,7 @@
 "asr.model.variantSmall" = "小";
 "asr.model.variantMedium" = "中";
 "asr.model.variantLarge" = "大";
+"asr.model.variantHint" = "根據您的裝置（%2$@ GB 記憶體），建議選擇「%@」檔。";
 "asr.model.update" = "更新到 %@";
 "asr.model.installed" = "已安裝 %@";
 "asr.model.downloading" = "下載中…（保持應用於前景）";

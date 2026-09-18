@@ -259,7 +259,7 @@ final class AppState {
         return await commitOwner(o, profile: profile, contact: contact)
     }
 
-    /// 身份原子提交单出口（createOwner/skipOwner 共用）：DB 事务成功 → 内存 → defaults → stage。
+    /// 身份原子提交单出口：DB 事务成功 → 内存 → defaults → stage。
     private func commitOwner(_ o: LocalOwner, profile: PatientProfile,
                              contact: EmergencyContactDraft?) async -> Bool {
         do {
@@ -280,19 +280,7 @@ final class AppState {
         finishOnboarding()
     }
 
-    /// FR21.9：建档可跳过——以「本人」占位，稍后在设置中修改。
-    /// 占位档案必须与 createOwner 一样落盘：只存内存的话，重启后 loadOwner() 返回 nil，
-    /// currentPatientId 退回兜底值，跳过建档期间录入的资料就与锚点失联（BR-001）。
-    /// 全仓审查 2026-09-18（F-A1-01）：与 createOwner 同走 `commitOwner` 原子提交。
-    @discardableResult
-    func skipOwner() async -> Bool {
-        var o = LocalOwner(displayName: "本人", createdAt: Date().timeIntervalSince1970)
-        let profile = PatientProfile(displayName: "本人", relation: "本人",
-                                     createdAt: o.createdAt, updatedAt: o.createdAt)
-        o.selfPatientId = profile.id
-        return await commitOwner(o, profile: profile, contact: nil)
-    }
-
+    /// FR21.9（业主裁决 D1）：建档不可跳过，紧急状态需完整档案。
     func finishOnboarding() {
         onboardingFinished = true
         defaults.set(true, forKey: "onboardingFinished")

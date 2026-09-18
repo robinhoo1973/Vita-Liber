@@ -512,7 +512,6 @@ enum VoiceIntentDispatch {
         VoiceIntentKey.createReminder.rawValue,
         VoiceIntentKey.appendProfile.rawValue,
         VoiceIntentKey.appendNote.rawValue,
-        VoiceIntentKey.askAssistant.rawValue,
         VoiceIntentKey.createQuestion.rawValue,
         VoiceIntentKey.unknown.rawValue,
     ]

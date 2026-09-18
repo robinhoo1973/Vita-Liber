@@ -1377,6 +1377,9 @@
 "lifecycle.clearHint" = "删除本机全部医疗数据与附件；审计日志保留（匿名化）；备份文件不自动删除。";
 "lifecycle.clearButton" = "清空全部数据";
 "lifecycle.clearImpact" = "此操作不可恢复：将删除全部资料、附件、计划与提醒。备份文件保留在系统文件中，不会自动删除。";
+"lifecycle.resetSettings" = "恢复默认设置";
+"lifecycle.resetSettingsHint" = "重置通知偏好、显示主题、TTL 等设置项为出厂默认值。已有的资料和备份不受影响。";
+"lifecycle.resetSettingsImpact" = "恢复默认设置后，您的通知偏好、显示主题等将被重置。";
 "lifecycle.logout" = "注销（P1 账户化）";
 "lifecycle.logoutHint" = "云端账户注销需云端服务就绪后提供；本地模式无账户可注销。";
 "onboard.addFamily.title" = "添加家人";
@@ -1774,6 +1777,7 @@
 "asr.model.variantSmall" = "小";
 "asr.model.variantMedium" = "中";
 "asr.model.variantLarge" = "大";
+"asr.model.variantHint" = "根据您的设备（%2$@ GB 内存），建议选择「%@」档。";
 "asr.model.update" = "更新到 %@";
 "asr.model.installed" = "已安装 %@";
 "asr.model.downloading" = "下载中…";

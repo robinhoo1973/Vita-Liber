@@ -29,7 +29,7 @@ public actor GRDBPatientPersistor: PatientPersisting {
         }
     }
 
-    /// 两参形态（协议既有要求）：无联系人——`skipOwner` 占位路径沿用。
+    /// 两参形态（协议既有要求）：无联系人——测试/旧路径沿用。
     public func saveOwner(_ owner: LocalOwner, profile: PatientProfile) async throws {
         try await saveOwner(owner, profile: profile, contact: nil)
     }
