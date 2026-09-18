@@ -65,6 +65,21 @@ fail() { printf '  %sFAIL%s %s\n' "$C_R" "$C_0" "$1"; FAILURES=$((FAILURES + 1))
 warn() { printf '  %sWARN%s %s\n' "$C_Y" "$C_0" "$1"; }
 section() { printf '\n%s[%s]%s %s\n' "$C_B" "$1" "$C_0" "$2"; }
 
+# ERR#27 通用守卫（2026-09-18 批量补强）：凡「扫描结果决定判定」的环节，必须先证明
+# **确实扫到了对象**。[13] 的 __DONE__ 守的是一半——「判定器没跑完」；本函数守另一半——
+# 「跑完了但扫到 0 个」。二者同族：缺证据被当成有证据。
+# 此前 [1]/[7]/[15] 都只有「违规数 = 0 → PASS」这半边判据，扫描根一旦漂移就静默假绿
+# （[15] 已实测复现：以空目录为根仍打印 __SCANNED__ A=0 … J=0 并 exit 0）。
+# 用法：require_scanned <计数> <描述>；计数为 0 或非数字即判红并返回 1。
+require_scanned() {
+  case "${1:-}" in
+    ''|*[!0-9]*) fail "$2：扫描计数缺失或非数字（'${1:-}'）—— 判定器失效，不得判 PASS（ERR#27）"; return 1 ;;
+  esac
+  [ "$1" -gt 0 ] && return 0
+  fail "$2：扫描到 0 个对象 —— 扫描根漂移或判定器失效，该判据已失效，不得判 PASS（ERR#27）"
+  return 1
+}
+
 # ---------- 定位应用源码（找不到即环境错误，绝不静默通过）----------
 # 从脚本所在目录逐级向上探测仓库根（脚本位于 .github/workflows/ 下，深度可变）
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # 门禁清单等同目录资产的锚点（[8]）
@@ -121,10 +136,16 @@ while IFS= read -r line; do
   try_viol=$((try_viol + 1))
   [ "$try_viol" -le 15 ] && printf '    %s:%s\n' "$_f" "$_n"
 done < <(grep -rnE '(^|[^A-Za-z0-9_])try\?' --include='*.swift' --exclude-dir=.build --exclude-dir=.swiftpm --exclude-dir=DerivedData --exclude-dir=Build "$APP" 2>/dev/null || true)
-if [ "$try_viol" -gt 0 ]; then
+# 分母：本项与下方 as!/try! 的判据都是「违规 0 处」，而 0 违规**同时是空扫的产物**——
+# 必须另证「确实扫到了文件」。此前二者与 [7]/[15] 同族：缺证据被当成有证据（2026-09-18 批量补强）。
+swift_scanned=$(find "$APP" -name '*.swift' -not -path '*/.build/*' -not -path '*/.swiftpm/*' \
+  -not -path '*/DerivedData/*' -not -path '*/Build/*' 2>/dev/null | wc -l | tr -d ' ')
+if ! require_scanned "$swift_scanned" "try? 扫描（Swift 源文件）"; then
+  :
+elif [ "$try_viol" -gt 0 ]; then
   fail "try? 违规 ${try_viol} 处（豁免 ${try_exempt} 处）——删除或按 §7 补豁免理由"
 else
-  pass "违规 0 处（豁免 ${try_exempt} 处）"
+  pass "违规 0 处（豁免 ${try_exempt} 处，扫 ${swift_scanned} 个文件）"
 fi
 
 # --- as! / try! 强制转换/强制 try（审查问题 1 回归防护）同纪律，豁免注释沿用 try?-ok ---
@@ -138,10 +159,12 @@ for _pat in 'as! ' 'try! '; do
     case "$_nc" in *"$_pat"*) force_viol=$((force_viol + 1)); [ "$force_viol" -le 12 ] && printf '    %s\n' "$line" ;; esac
   done < <(grep -rn --include='*.swift' --exclude-dir=.build --exclude-dir=.swiftpm --exclude-dir=DerivedData --exclude-dir=Build -F "$_pat" "$APP" 2>/dev/null || true)
 done
-if [ "$force_viol" -gt 0 ]; then
+if ! require_scanned "$swift_scanned" "as!/try! 扫描（Swift 源文件）"; then
+  :
+elif [ "$force_viol" -gt 0 ]; then
   fail "强制类型转换/强制 try（as!/try!）${force_viol} 处 —— 改 as?/do-catch 或补 // try?-ok: 豁免"
 else
-  pass "as!/try! 违规 0 处"
+  pass "as!/try! 违规 0 处（扫 ${swift_scanned} 个文件）"
 fi
 
 # ---------- [2] ADR-021 无平行视图 ----------
@@ -343,7 +366,9 @@ else
   done < <(find "$APP" -name '*.swift' \
     -not -path '*/.build/*' -not -path '*/.swiftpm/*' \
     -not -path '*/DerivedData/*' -not -path '*/Build/*' 2>/dev/null)
-  if [ "$p_bad" -gt 0 ]; then
+  if ! require_scanned "$p_total" "Swift 源文件（swiftc -parse）"; then
+    :   # 0 个文件已判红——原先这里会打印「0 个 Swift 文件语法解析通过」并 PASS
+  elif [ "$p_bad" -gt 0 ]; then
     fail "语法解析失败 ${p_bad}/${p_total} 个文件"
   else
     pass "${p_total} 个 Swift 文件语法解析通过"
@@ -822,8 +847,25 @@ if ! command -v python3 >/dev/null 2>&1; then
 else
   THEUR="$(python3 "$SCRIPT_DIR/l0-typecheck-heuristics.py" "$APP" 2>&1 || true)"
   t_scanned="$(printf '%s\n' "$THEUR" | sed -n 's/^__SCANNED__ //p' | head -1)"
+  # 十族明细：求和 + 列出扫到 0 的族。此前只判「__SCANNED__ 行存在」，于是**空目录也过**
+  # ——实测 `python3 l0-typecheck-heuristics.py /tmp/emptydir` 打印 A=0 … J=0 且 exit 0，
+  # 十族错误判据全部失效而门禁全绿。任一族为 0 即视为该族判据失效（今天十族分别
+  # 92–480，取 0 为异常是安全的）。
+  t_total=0; t_zero=""
+  if [ -n "$t_scanned" ]; then
+    for _kv in $t_scanned; do
+      _v=${_kv#*=}
+      case "$_v" in ''|*[!0-9]*) continue ;; esac
+      t_total=$((t_total + _v))
+      [ "$_v" -eq 0 ] && t_zero="$t_zero ${_kv%%=*}"
+    done
+  fi
   if [ -z "$t_scanned" ]; then
     fail "类型层启发式无 __SCANNED__ 计数 —— 判定器失效，不得判 PASS（ERR#27）"
+  elif [ "$t_total" -eq 0 ]; then
+    fail "类型层启发式十族全部扫到 0 个文件 —— 扫描根 '$APP' 漂移，十族错误判据全部失效，不得判 PASS（ERR#27）"
+  elif [ -n "$t_zero" ]; then
+    fail "类型层启发式以下族扫到 0 个文件：$t_zero —— 该族判据已失效（路径漂移或判据过时），不得判 PASS（ERR#27）"
   elif printf '%s\n' "$THEUR" | grep -q '^FAIL:'; then
     while IFS= read -r ln; do fail "$ln"; done < <(printf '%s\n' "$THEUR" | grep '^FAIL:')
   else
