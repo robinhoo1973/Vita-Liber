@@ -361,6 +361,20 @@ final class TrendAcceptanceTests: XCTestCase {
                   id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patient_profile(id),
                   generic_name TEXT NOT NULL, brand_name TEXT, spec TEXT, unit_kind TEXT NOT NULL,
                   created_at REAL NOT NULL, updated_at REAL NOT NULL);
+                -- v30 起迁移链会对 allergy_event 增列（allergen_kind）——合成 v12 老库必须
+                -- 预先建表，否则 ALTER 在缺表上抛 no such table、整链失败（CI 35343200316
+                -- 实证）。列取 **v1 真实形态**（= 当前基线去掉 allergen_kind，
+                -- 见 Fixtures/schema_v1_baseline.sql）——多一列会让 v30 的 ADD COLUMN
+                -- 撞 duplicate column。
+                CREATE TABLE allergy_event (
+                  id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+                  substance TEXT NOT NULL,
+                  reaction_tags TEXT NOT NULL,
+                  severity TEXT NOT NULL CHECK(severity IN ('mild','moderate','severe')),
+                  occurred_at REAL, duration_min INTEGER, treatment_note TEXT,
+                  encounter_id TEXT REFERENCES encounter(id), medication_id TEXT REFERENCES medication(id),
+                  consulted_doctor INTEGER NOT NULL DEFAULT 0,
+                  note TEXT, created_at REAL NOT NULL, updated_at REAL NOT NULL);
                 CREATE TABLE stock_lot (
                   id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patient_profile(id),
                   medication_id TEXT NOT NULL REFERENCES medication(id),
@@ -505,6 +519,20 @@ final class TrendAcceptanceTests: XCTestCase {
                   id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patient_profile(id),
                   generic_name TEXT NOT NULL, brand_name TEXT, spec TEXT, unit_kind TEXT NOT NULL,
                   created_at REAL NOT NULL, updated_at REAL NOT NULL);
+                -- v30 起迁移链会对 allergy_event 增列（allergen_kind）——合成 v12 老库必须
+                -- 预先建表，否则 ALTER 在缺表上抛 no such table、整链失败（CI 35343200316
+                -- 实证）。列取 **v1 真实形态**（= 当前基线去掉 allergen_kind，
+                -- 见 Fixtures/schema_v1_baseline.sql）——多一列会让 v30 的 ADD COLUMN
+                -- 撞 duplicate column。
+                CREATE TABLE allergy_event (
+                  id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+                  substance TEXT NOT NULL,
+                  reaction_tags TEXT NOT NULL,
+                  severity TEXT NOT NULL CHECK(severity IN ('mild','moderate','severe')),
+                  occurred_at REAL, duration_min INTEGER, treatment_note TEXT,
+                  encounter_id TEXT REFERENCES encounter(id), medication_id TEXT REFERENCES medication(id),
+                  consulted_doctor INTEGER NOT NULL DEFAULT 0,
+                  note TEXT, created_at REAL NOT NULL, updated_at REAL NOT NULL);
                 CREATE TABLE stock_lot (
                   id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patient_profile(id),
                   medication_id TEXT NOT NULL REFERENCES medication(id),
