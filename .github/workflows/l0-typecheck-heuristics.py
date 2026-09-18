@@ -325,6 +325,28 @@ def main():
                     nonisolated_safe.add((name, nm.group(1)))
                 if depth <= 0 and j > i:
                     break
+    # 家族 H 补强（2026-09-18 清理轮）：nonisolated 成员也可能声明在**扩展文件**里
+    # （如 DocumentsState+DisplayMappers.swift 的展示映射四出口，从本体文件拆出后
+    # 跨文件调用点 EncounterViews 被误报）。扩展体内成员语义与本体一致：未标
+    # nonisolated 仍属 @MainActor 隔离、照常拦截——本遍只补豁免名单，不放宽判据。
+    EXT_RE = re.compile(r"^\s*(?:private\s+|fileprivate\s+)?extension\s+([A-Za-z_]\w*)")
+    for f in h_files:
+        try:
+            raw_lines = f.read_text(encoding="utf-8").splitlines()
+        except Exception:
+            continue
+        for i, line in enumerate(raw_lines):
+            m = EXT_RE.match(line)
+            if not m or m.group(1) not in mainactor_names:
+                continue
+            depth = 0
+            for j in range(i, len(raw_lines)):
+                depth += raw_lines[j].count("{") - raw_lines[j].count("}")
+                nm = NONISO_MEMBER_RE.search(raw_lines[j])
+                if nm:
+                    nonisolated_safe.add((m.group(1), nm.group(1)))
+                if depth <= 0 and j > i:
+                    break
     for f in a_files:
         try:
             raw_lines = f.read_text(encoding="utf-8").splitlines()

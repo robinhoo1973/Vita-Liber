@@ -80,6 +80,20 @@ require_scanned() {
   return 1
 }
 
+# ERR#34 同族（2026-09-18 全族修复）：`printf … | grep -q` 在 grep 提前命中退出时把仍在写的
+# 上游打死（SIGPIPE 141），pipefail 下整个条件被取反——既可能假红（[8] 套件清单「仅有注释
+# 未接线」），更可能假绿（[13]/[14]/[15] 的 FAIL elif 被跳过）。统一改走本助手：内容先落
+# 临时文件再 grep，与 [3] DDL 语料「一律落文件再 grep」同一纪律。
+_grep_q() { # _grep_q <ERE> <文本> —— 仅用于 if/elif 条件，等价 `grep -qE` 且无 SIGPIPE 竞态
+  local _gq_file _gq_rc
+  _gq_file=$(mktemp)
+  printf '%s\n' "${2-}" > "$_gq_file"
+  grep -qE "$1" "$_gq_file"
+  _gq_rc=$?
+  rm -f "$_gq_file"
+  return "$_gq_rc"
+}
+
 # ---------- 定位应用源码（找不到即环境错误，绝不静默通过）----------
 # 从脚本所在目录逐级向上探测仓库根（脚本位于 .github/workflows/ 下，深度可变）
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # 门禁清单等同目录资产的锚点（[8]）
@@ -216,6 +230,9 @@ created=$(tr -d '"' < "$_ddl_file" \
   | awk '{print $NF}' | sort -u || true)
 refs=$(grep -ohE 'REFERENCES "?[A-Za-z_]+' "$_ddl_file" \
   | awk '{gsub(/"/,""); print $NF}' | sort -u || true)
+# ERR#34：小变量管道同样落文件再 grep（与上文的 DDL 语料同一纪律）。
+_created_file=$(mktemp)
+printf '%s\n' "$created" > "$_created_file"
 # 语料完整性自证（ERR#27）：文件数为 0、或基线必有表读不到，说明这次扫的不是全量语料，
 # 此时任何「引用完整性」结论都不成立——必须报「扫描不完整」，不得报内容判定。
 _ddl_incomplete=0
@@ -223,18 +240,19 @@ if [ "$_ddl_files" -eq 0 ]; then
   _ddl_incomplete=1
 else
   for _sentinel in patient_profile document_file; do
-    printf '%s\n' "$created" | grep -qx "$_sentinel" || _ddl_incomplete=1
+    grep -qx "$_sentinel" "$_created_file" || _ddl_incomplete=1
   done
 fi
 ddl_missing=0
 while IFS= read -r t; do
   [ -n "$t" ] || continue
-  if ! printf '%s\n' "$created" | grep -qx "$t"; then
+  if ! grep -qx "$t" "$_created_file"; then
     ddl_missing=$((ddl_missing + 1)); printf '    引用了未定义表: %s\n' "$t"
   fi
 done <<EOF
 $refs
 EOF
+rm -f "$_created_file"
 fk_on=0
 # 外键开启断言（评审修正）：Configuration.foreignKeysEnabled 位于 GRDBStore.swift，
 # 该文件整体被 `#if os(iOS)||os(macOS)` 守卫，Linux 上扫描不到文本 → 旧检查假红。
@@ -413,9 +431,11 @@ else
         # 与 [9] 对确认入口的要求同一取向（标记存在还须真的调用模板）。
         s_hit=0
         if [ -n "$s_test_dirs" ]; then
+          # ERR#34：先完整捕获再文件 grep——原管道下游 grep -qE 早退会 SIGPIPE 假红，
+          # 曾造成 SU-M15-TREND/VOICE、SU-M2-PENDINGCARD「仅有注释未接线」假红。
           # shellcheck disable=SC2086
-          if grep -rhF -- "$m_token" $s_test_dirs 2>/dev/null \
-             | grep -qE '@Suite\(|final class|func test'; then
+          _s_token_hits=$(grep -rhF -- "$m_token" $s_test_dirs 2>/dev/null || true)
+          if _grep_q '@Suite\(|final class|func test' "$_s_token_hits"; then
             s_hit=1
           fi
         fi
@@ -762,11 +782,11 @@ PYEOF
     # ValueError）。此时 stdout 无 FAIL: 也无 PASS:，若不拦就会落 else 判 PASS——
     # 门禁转绿而三项 L10n 检查已是死代码。判据同 ERR#27：没跑完 ≠ 通过。
     fail ".strings 判定器未跑完（无 __DONE__ 标记）—— 三项 L10n 检查（登记表⊆.strings / 重复键 / 静态 t()⊆登记表）已失效，不得判 PASS（ERR#27 同族）"
-  elif printf '%s\n' "$STRINGS_SCAN" | grep -q '^FAIL:'; then
+  elif _grep_q '^FAIL:' "$STRINGS_SCAN"; then
     # 评审修正第二轮：while 管道会让 fail() 落在子 shell、FAILURES 增量丢失——
     # 改进程替换（循环在父 shell 执行），门禁真正能红
     while IFS= read -r ln; do fail "$ln"; done < <(printf '%s\n' "$STRINGS_SCAN" | grep '^FAIL:')
-    if printf '%s\n' "$scanned" | grep -q '__SCANNED__ 0'; then
+    if _grep_q '__SCANNED__ 0' "$scanned"; then
       fail ".strings 扫描 0 个文件 —— 资源目录缺失或路径漂移，不得空扫判 PASS（ERR#27）"
     fi
   else
@@ -836,7 +856,7 @@ PYEOF
   scanned="$(printf '%s\n' "$PYML_SCAN" | grep '^__SCANNED__' || true)"
   if [ -z "$scanned" ]; then
     fail "project.yml 扫描无 __SCANNED__ 计数 —— 判定器失效，不得判 PASS（ERR#27）"
-  elif printf '%s\n' "$PYML_SCAN" | grep -q '^FAIL:'; then
+  elif _grep_q '^FAIL:' "$PYML_SCAN"; then
     while IFS= read -r ln; do fail "$ln"; done < <(printf '%s\n' "$PYML_SCAN" | grep '^FAIL:')
   else
     pass "$(printf '%s\n' "$PYML_SCAN" | grep '^PASS:' | head -1)"
@@ -882,7 +902,7 @@ else
     fail "类型层启发式十族全部扫到 0 个文件 —— 扫描根 '$APP' 漂移，十族错误判据全部失效，不得判 PASS（ERR#27）"
   elif [ -n "$t_zero" ]; then
     fail "类型层启发式以下族扫到 0 个文件：$t_zero —— 该族判据已失效（路径漂移或判据过时），不得判 PASS（ERR#27）"
-  elif printf '%s\n' "$THEUR" | grep -q '^FAIL:'; then
+  elif _grep_q '^FAIL:' "$THEUR"; then
     while IFS= read -r ln; do fail "$ln"; done < <(printf '%s\n' "$THEUR" | grep '^FAIL:')
   else
     pass "$(printf '%s\n' "$THEUR" | sed -n 's/^__SCANNED__ //p') 个文件通过十族启发式"
