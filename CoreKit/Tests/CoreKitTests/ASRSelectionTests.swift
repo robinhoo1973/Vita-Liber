@@ -6,7 +6,8 @@ import Testing
 
 @Suite("FR17.15 随包模型选择与会话归属")
 struct ASRSelectionTests {
-    @Test func 方言不会被当作英语或普通话模型支持() {
+    /// 原名：方言不会被当作英语或普通话模型支持
+    @Test func dialectsNotOfferedAsEnglishOrMandarinSupport() {
         #expect(ASRModelCatalog.model(for: .dolphin)?.languageCode(for: "wuu-CN") == "zh")
         #expect(ASRModelCatalog.model(for: .dolphin)?.languageCode(for: "en-US") == nil)
         #expect(ASRModelCatalog.model(for: .zipformer)?.languageCode(for: "yue-Hant-HK") == nil)
@@ -14,7 +15,8 @@ struct ASRSelectionTests {
         #expect(ASRModelCatalog.model(for: .whisper)?.languageCode(for: "fr-FR") == "fr")
     }
 
-    @Test func 自动选择依据请求语言而不修改显式选择() {
+    /// 原名：自动选择依据请求语言而不修改显式选择
+    @Test func automaticChoiceFollowsRequestLocaleWithoutOverridingExplicitChoice() {
         #expect(ASRModelCatalog.automaticChoice(locale: "nan-TW") == .qwen3)
         #expect(ASRModelCatalog.automaticChoice(locale: "zh-Hans-CN") == .qwen3)
         // round2 A-N5：完整解码模型优先——英语/外语由 Qwen3 承担，缺件回落在 builder 门控。
@@ -25,7 +27,8 @@ struct ASRSelectionTests {
         #expect(VoiceEngineChoice.resolve("classic") == .classic)
     }
 
-    @Test func 首次建委托前松手不启动识别() async throws {
+    /// 原名：首次建委托前松手不启动识别
+    @Test func releaseBeforeDelegateSetupDoesNotStartRecognition() async throws {
         let counter = Starts()
         let engine = SwitchableTranscriptionEngine(choiceProvider: { .classic }, builder: { _ in
             ImmediateEngine(starts: counter)
@@ -37,7 +40,8 @@ struct ASRSelectionTests {
         #expect(await counter.value == 0)
     }
 
-    @Test func 首次建委托前取消仍然抛取消而不返回文字() async {
+    /// 原名：首次建委托前取消仍然抛取消而不返回文字
+    @Test func cancelBeforeDelegateSetupThrowsCancellationNotText() async {
         let counter = Starts()
         let engine = SwitchableTranscriptionEngine(choiceProvider: { .classic }, builder: { _ in
             ImmediateEngine(starts: counter)

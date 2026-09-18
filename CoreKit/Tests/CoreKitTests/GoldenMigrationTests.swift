@@ -9,19 +9,23 @@ import GRDB   // 平台边界（ERR#8）：GRDB 仅 iOS/macOS 链接，Linux 只
 // binds: SU-M0-GOLDEN — TC-M0-01~05
 @Suite("SU-M0-GOLDEN · M0 迁移金样（Sprint-1）")
 struct GoldenMigrationTests {
-    @Test func 空数组正常迁移零条() {
+    /// 原名：空数组正常迁移零条
+    @Test func emptyArrayMigratesZeroRecords() {
         #expect(MigrationEngine.migrate(recordsJSON: Data("[]".utf8)) == .migrated(count: 0))
     }
-    @Test func 损坏JSON只读降级不落种子() {
+    /// 原名：损坏JSON只读降级不落种子
+    @Test func corruptJSONDegradesReadOnlyWithoutSeeding() {
         #expect(MigrationEngine.migrate(recordsJSON: Data("{\"broken".utf8)) == .degraded)
     }
-    @Test func 未确认字段不得入时间轴_BR003() {
+    /// 原名：未确认字段不得入时间轴_BR003
+    @Test func unconfirmedFieldsNotUsableInTimelineBR003() {
         var f = FieldConfirmation.ocrUnconfirmed
         #expect(!f.isUsableInTimeline)
         f.confirm()
         #expect(f.isUsableInTimeline && f == .confirmed)
     }
-    @Test func DDL外键引用目标已定义() {
+    /// 原名：DDL外键引用目标已定义
+    @Test func ddlForeignKeyTargetsAreDefined() {
         #expect(MigrationEngine.schemaV1.contains("REFERENCES patient_profile(id)"))
     }
 }
@@ -33,16 +37,19 @@ struct GoldenClassifyTests {
     func load(_ name: String) throws -> [LegacyRecord] {
         try JSONDecoder().decode([LegacyRecord].self, from: Data(contentsOf: URL(fileURLWithPath: Self.fixtures + "/" + name)))
     }
-    @Test func 处方类识别与置信度分级() throws {
+    /// 原名：处方类识别与置信度分级
+    @Test func prescriptionClassificationAndConfidenceTier() throws {
         let r = try load("prescription_v1.json")[0]
         #expect(GoldenRules.classify(recordType: r.recordType, assets: r.assets) == .prescription)
         #expect(GoldenRules.confidenceTier(0.91) == "high" && GoldenRules.confidenceTier(0.62) == "mid")
     }
-    @Test func 化验类识别() throws {
+    /// 原名：化验类识别
+    @Test func labClassification() throws {
         let r = try load("lab_v1.json")[0]
         #expect(GoldenRules.classify(recordType: r.recordType, assets: r.assets) == .lab)
     }
-    @Test func OCR分隔块优先于类型判断() throws {
+    /// 原名：OCR分隔块优先于类型判断
+    @Test func ocrBlockOutranksRecordType() throws {
         let r = try load("ocr_blocks_v1.json")[0]
         #expect(GoldenRules.classify(recordType: r.recordType, assets: r.assets) == .ocrBlock)
         #expect(GoldenRules.confidenceTier(0.85) == "high")
@@ -51,7 +58,8 @@ struct GoldenClassifyTests {
 
 @Suite("Golden · M0 Sprint-4 LoadGate/审计")
 struct LoadGateAuditTests {
-    @Test func LoadGate并发仅加载一次() async {
+    /// 原名：LoadGate并发仅加载一次
+    @Test func loadGateLoadsOnceUnderConcurrency() async {
         let gate = LoadGate()
         actor Counter { var n = 0; func inc() { n += 1 }; var v: Int { n } }
         let c = Counter()
@@ -61,14 +69,16 @@ struct LoadGateAuditTests {
         #expect(await c.v == 1)                       // 幂等：20 并发只触发一次加载
         #expect(await gate.currentState == .ready)
     }
-    @Test func 审计表外键指向已定义表() {
+    /// 原名：审计表外键指向已定义表
+    @Test func auditTableForeignKeysPointToDefinedTables() {
         #expect(MigrationEngine.schemaV1.contains("audit_event"))
         #expect(MigrationEngine.schemaV1.contains("REFERENCES patient_profile(id)"))
     }
 
     /// 评审 S1-1 修正用例：load 抛错 → gate 回 .idle（可重试），等待者被唤醒，
     /// 错误只 rethrow 给发起方；重试成功后正常进 .ready。
-    @Test func LoadGate失败回idle且可重试() async throws {
+    /// 原名：LoadGate失败回idle且可重试
+    @Test func loadGateFailureReturnsToIdleAndRetries() async throws {
         struct Boom: Error {}
         let gate = LoadGate()
         // Swift 6 收敛：enter 闭包为 @Sendable，捕获 var 计数触发「变异捕获
@@ -97,7 +107,8 @@ struct LoadGateAuditTests {
     /// 失败后重试者）都收到错误，不得有任务误以为成功（第六轮「等待者
     /// rethrow」修复此前无并发用例守护；`failure = nil` 与
     /// `waiters.resume` 的次序契约由本用例钉住）
-    @Test func LoadGate失败并发等待者全收到错误() async {
+    /// 原名：LoadGate失败并发等待者全收到错误
+    @Test func loadGateFailureDeliversErrorToAllWaiters() async {
         struct Boom: Error {}
         let gate = LoadGate()
         actor Counter { var n = 0; func inc() { n += 1 }; var v: Int { n } }
@@ -126,7 +137,8 @@ struct LoadGateAuditTests {
     /// dev-pm §3.1：金样五类样本 + flutter 版真实备份样本一份。
     /// 混型样本覆盖 prescription/lab/medication/other/空资产五种形态——
     /// 断言「迁移条数等于输入条数」且「分类路由与实际类型一致」。
-    @Test func flutter真实备份样本无损迁移() throws {
+    /// 原名：flutter真实备份样本无损迁移
+    @Test func flutterRealBackupSampleMigratesLosslessly() throws {
         let fixture = Bundle.module.bundlePath + "/Fixtures/flutter_backup_v1.json"
         let data = try Data(contentsOf: URL(fileURLWithPath: fixture))
         #expect(MigrationEngine.migrate(recordsJSON: data) == .migrated(count: 6))
@@ -142,7 +154,8 @@ struct LoadGateAuditTests {
     /// §4.3 自洽性（静态半场的补强，Linux 即可执行）：全量 DDL 里每个 REFERENCES
     /// 目标表都必须有 CREATE TABLE——与 L0 [3/7] 同语义，但直接作用在规范 DDL 上，
     /// 防「表名拼写漂移」类缺陷在 iOS 建库时才爆炸。
-    @Test func 全量DDL引用目标自洽() {
+    /// 原名：全量DDL引用目标自洽
+    @Test func fullDDLReferenceTargetsAreSelfConsistent() {
         let ddl = MigrationEngine.schemaV1
         let created = Set(ddl
             .replacingOccurrences(of: "IF NOT EXISTS ", with: "")
@@ -170,7 +183,8 @@ struct LoadGateAuditTests {
 // 按 BEGIN/END 配对整块保留，否则 GRDB 执行到残句报 incomplete input，迁移半途而废）
 @Suite("M1b · v6 迁移语句切分（Linux 可执行）")
 struct MigrationStatementsTests {
-    @Test func v6步骤切出完整触发器块() {
+    /// 原名：v6步骤切出完整触发器块
+    @Test func v6StepSplitsWholeTriggerBlocks() {
         let step6 = SchemaMigrations.steps.first { $0.version == 6 }
         #expect(step6 != nil, "v6 步骤必须存在")
         guard let step6 else { return }
@@ -193,7 +207,8 @@ struct MigrationStatementsTests {
     /// v6 的语义次序：先删旧触发器 → 重洗索引 → 再挂新触发器。
     /// 这里断言的是**书写顺序被忠实保留**，而不是「切分器把触发器挪到末尾」——
     /// 后者是隐式副作用，曾让 v6 恰好正确、也让未来错序无人可察。
-    @Test func v6语义次序_删除先于重洗先于新建() {
+    /// 原名：v6语义次序_删除先于重洗先于新建
+    @Test func v6SemanticOrderDropBeforeRewashBeforeCreate() {
         guard let step6 = SchemaMigrations.steps.first(where: { $0.version == 6 }) else {
             Issue.record("v6 步骤必须存在"); return
         }
@@ -210,7 +225,8 @@ struct MigrationStatementsTests {
 
     /// 切分器必须按书写顺序输出——旧实现把所有 CREATE TRIGGER 收集后追加到末尾，
     /// 任何「先建触发器、再灌依赖它的数据」的步骤都会静默错序（SQLite 两种顺序都不报错）
-    @Test func 保持书写顺序_触发器不被挪到末尾() {
+    /// 原名：保持书写顺序_触发器不被挪到末尾
+    @Test func preservesWrittenOrderTriggersNotMovedToEnd() {
         let sql = """
         CREATE TRIGGER t1 AFTER INSERT ON a BEGIN
           INSERT INTO b(x) VALUES (new.x);
@@ -224,7 +240,8 @@ struct MigrationStatementsTests {
     }
 
     /// 旧实现要求 `END;` 独占一行，否则触发器块被吞掉后续语句
-    @Test func END与其他内容同行也能正确闭合() {
+    /// 原名：END与其他内容同行也能正确闭合
+    @Test func endOnSameLineStillClosesTriggerBody() {
         let sql = """
         CREATE TRIGGER t AFTER INSERT ON a BEGIN INSERT INTO b(x) VALUES (new.x); END;
         INSERT INTO c(y) VALUES (2);
@@ -236,7 +253,8 @@ struct MigrationStatementsTests {
     }
 
     /// 触发器体内的 CASE … END 不得被当成体结束标记（v6 的守卫正是 CASE 形态）
-    @Test func 触发器体内CASE_END不提前闭合() {
+    /// 原名：触发器体内CASE_END不提前闭合
+    @Test func caseEndInsideTriggerBodyDoesNotCloseEarly() {
         let sql = """
         CREATE TRIGGER t AFTER INSERT ON a BEGIN
           INSERT INTO b(x) VALUES (CASE WHEN new.s = 0 THEN new.x END);
@@ -251,7 +269,8 @@ struct MigrationStatementsTests {
     }
 
     /// 字符串字面量与注释里的分号不是语句边界
-    @Test func 字面量与注释中的分号不切分() {
+    /// 原名：字面量与注释中的分号不切分
+    @Test func semicolonsInLiteralsAndCommentsDoNotSplit() {
         let sql = """
         INSERT INTO a(x) VALUES ('semi; colon');
         -- 这行注释里有分号; 不得切
@@ -266,7 +285,8 @@ struct MigrationStatementsTests {
     }
 
     /// ADD COLUMN 幂等解析在带尾分号的语句上依然成立（切分器保留分号）
-    @Test func ADD_COLUMN解析兼容尾分号() {
+    /// 原名：ADD_COLUMN解析兼容尾分号
+    @Test func addColumnParsingToleratesTrailingSemicolon() {
         let stmts = SchemaMigrations.statements("ALTER TABLE metric_sample ADD COLUMN ref_low REAL;")
         #expect(stmts.count == 1)
         let parts = SchemaMigrations.addColumnParts(stmts[0])
@@ -284,7 +304,8 @@ struct MigrationStatementsTests {
     /// 代价是两份副本可能漂移，而漂移后果正是 BR-007/008 的失效形态：
     /// 全新安装不索引敏感正文、升级设备继续索引（或反之），搜索行为按安装历史而异。
     /// 因此用本断言替代抽取：只加固 baseline 而不追加迁移步骤，立刻转红。
-    @Test func baseline与v6装的FTS触发器一致() {
+    /// 原名：baseline与v6装的FTS触发器一致
+    @Test func baselineAndV6InstallIdenticalFTSTriggers() {
         func triggers(in sql: String) -> [String: String] {
             var out: [String: String] = [:]
             for stmt in SchemaMigrations.statements(sql) where stmt.hasPrefix("CREATE TRIGGER") {
@@ -315,7 +336,8 @@ struct MigrationStatementsTests {
 
 @Suite("M0 · MockFactory 三实体（Preview 出口准则）")
 struct MockFactoryTests {
-    @Test func 三类工厂产出合法关联实体() {
+    /// 原名：三类工厂产出合法关联实体
+    @Test func threeFactoriesProduceValidLinkedEntities() {
         let p = MockFactory.patient()
         let d = MockFactory.document(for: p)
         let m = MockFactory.plan(for: p)
@@ -332,7 +354,8 @@ struct MockFactoryTests {
 struct FtsSensitiveMigrationTests {
     /// 模拟 v1–v5 老库：baseline DDL 建库后把触发器替换回「无条件索引」旧形态，
     /// 插入敏感文档 → 迁移前敏感笔记可被搜中 → 应用 v6 → 笔记词条被清、标题词条保留。
-    @Test func 老库敏感笔记迁移后不再可检索() throws {
+    /// 原名：老库敏感笔记迁移后不再可检索
+    @Test func legacySensitiveNotesNotSearchableAfterMigration() throws {
         let dbQueue = try DatabaseQueue(configuration: GRDBStore.configuration())
         try dbQueue.write { db in
             try db.execute(sql: MigrationEngine.schemaV1)
@@ -482,7 +505,8 @@ struct SchemaV25GoldenTests {
         }.sorted()
     }
 
-    @Test func 逐表列集一致且回填幂等() throws {
+    /// 原名：逐表列集一致且回填幂等
+    @Test func perTableColumnsMatchAndBackfillIsIdempotent() throws {
         let legacy = try Self.legacyDatabase()
         let card = UUID(), header = UUID()
         try legacy.queue.write { db in
@@ -532,7 +556,8 @@ struct SchemaV25GoldenTests {
         #expect((try? legacy.queue.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM prescription_line") }) == 2, "回填重跑不重复")  // try?-ok: 闭包内断言宏新契约——非抛比较，SQL 错误时 nil != 期望同样红
     }
 
-    @Test func 就诊叙事与报销列只补空且重跑不覆盖() throws {
+    /// 原名：就诊叙事与报销列只补空且重跑不覆盖
+    @Test func encounterNarrativeAndClaimColumnsFillOnlyNullsAndRerunDoesNotOverwrite() throws {
         let legacy = try Self.legacyDatabase()
         let encounter = UUID(), claim = UUID()
         try legacy.queue.write { db in
@@ -575,7 +600,8 @@ struct SchemaV25GoldenTests {
                 == "用户改写", "回填只补空——既有叙事不被回执覆盖")
     }
 
-    @Test func 损坏回执跳过不中止迁移() throws {
+    /// 原名：损坏回执跳过不中止迁移
+    @Test func corruptReceiptSkippedWithoutAbortingMigration() throws {
         let legacy = try Self.legacyDatabase()
         let header = UUID()
         try legacy.queue.write { db in
@@ -670,7 +696,8 @@ struct SchemaV26GoldenTests {
         }
     }
 
-    @Test func 逐表列集一致且检验表头回填幂等() throws {
+    /// 原名：逐表列集一致且检验表头回填幂等
+    @Test func perTableColumnsMatchAndLabHeaderBackfillIsIdempotent() throws {
         let legacy = try Self.legacyDatabase()
         let card = UUID(), card2 = UUID()
         let glucose = UUID(), hemoglobin = UUID(), second = UUID(), manual = UUID()
@@ -731,7 +758,8 @@ struct SchemaV26GoldenTests {
         }
     }
 
-    @Test func 无历史检验卡零回填且新表约束生效() throws {
+    /// 原名：无历史检验卡零回填且新表约束生效
+    @Test func noLegacyLabCardNoBackfillAndNewTableConstraintsHold() throws {
         let legacy = try Self.legacyDatabase()
         _ = try GRDBStore(writer: legacy.queue)
         let encounter = UUID()
@@ -835,7 +863,8 @@ struct SchemaV27GoldenTests {
         return Legacy(queue: queue, patient: patient, document: document)
     }
 
-    @Test func 逐表列集一致且回执搬运无损() throws {
+    /// 原名：逐表列集一致且回执搬运无损
+    @Test func perTableColumnsMatchAndReceiptCarryOverIsLossless() throws {
         let legacy = try Self.legacyDatabase()
         _ = try GRDBStore(writer: legacy.queue)          // 老库 v26 → v27（applyTransactional）
         let fresh = try GRDBStore.inMemory()             // 全新库直达基线
@@ -871,7 +900,8 @@ struct SchemaV27GoldenTests {
         #expect(try legacy.queue.read { try Int.fetchOne($0, sql: "PRAGMA user_version") } == SchemaMigrations.latestVersion)
     }
 
-    @Test func 结论三外键恰一非空与新枚举生效() throws {
+    /// 原名：结论三外键恰一非空与新枚举生效
+    @Test func conclusionExactlyOneForeignKeyNonNullAndNewEnumsEnforced() throws {
         let fresh = try GRDBStore.inMemory()
         try fresh.writer.write { db in
             try db.execute(sql: "INSERT INTO patient_profile (id, display_name, relation, created_at, updated_at) VALUES ('p', 'A', 'self', 0, 0)")

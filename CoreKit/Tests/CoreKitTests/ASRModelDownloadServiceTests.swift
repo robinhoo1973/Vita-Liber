@@ -9,7 +9,8 @@ import Testing
 /// 守卫记录的地址失败要优先于 URLSession 的取消错误暴露给调用方。
 @Suite("ASR 下载服务安装边界")
 struct ASRModelDownloadServiceTests {
-    @Test func 安装入口回收无租约暂存目录并保留有租约与版本目录() throws {
+    /// 原名：安装入口回收无租约暂存目录并保留有租约与版本目录
+    @Test func installEntryReclaimsUnleasedStagingKeepsLeasedAndVersioned() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) } // try?-ok: 隔离测试目录清理
         let stale = root.appendingPathComponent(".staging-1.0.0-\(UUID().uuidString)", isDirectory: true)
@@ -27,13 +28,15 @@ struct ASRModelDownloadServiceTests {
         withExtendedLifetime(lease) {}
     }
 
-    @Test func 缺失模型根目录时回收静默无操作() {
+    /// 原名：缺失模型根目录时回收静默无操作
+    @Test func missingModelRootMakesReclaimSilentNoOp() {
         let missing = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         ASRModelDownloadService.removeStaleStaging(in: missing)
         #expect(!FileManager.default.fileExists(atPath: missing.path))
     }
 
-    @Test func 守卫记录的地址失败优先于取消错误() {
+    /// 原名：守卫记录的地址失败优先于取消错误
+    @Test func recordedAddressFailureTakesPrecedenceOverCancellation() {
         let transfer = ModelResourceTransfer()
         transfer.recordForTesting(.badAddress)
         let mapped = transfer.resolve(URLError(.cancelled))

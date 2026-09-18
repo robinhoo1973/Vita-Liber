@@ -36,7 +36,8 @@ struct ReminderReliabilityTests {
 
     /// 用例一：杀进程重启当日提醒照常——系统侧 pending 清空后，启动对账必须补排。
     /// FR9.17 通知半场：两剂相距 >30min → 两个时段 → 两条时段级通知（slot- 前缀）
-    @Test func 杀进程重启当日提醒照常() async throws {
+    /// 原名：杀进程重启当日提醒照常
+    @Test func sameDayRemindersSurviveProcessRestart() async throws {
         let scheduler = InMemoryReminderScheduler()
         let source = FakeDoseSource()
         let reconciler = ReminderReconciler(scheduler: scheduler, source: source, logger: PrintLogger())
@@ -61,7 +62,8 @@ struct ReminderReliabilityTests {
 
     /// 用例二：离线内核——调度/对账链路不依赖任何网络组件（协议图零网络类型），
     /// 用注入桩即可完整驱动，等价「飞行模式不影响」
-    @Test func 飞行模式不影响本地链路() async throws {
+    /// 原名：飞行模式不影响本地链路
+    @Test func airplaneModeDoesNotAffectLocalChain() async throws {
         let scheduler = InMemoryReminderScheduler()
         let source = FakeDoseSource()
         let reconciler = ReminderReconciler(scheduler: scheduler, source: source)
@@ -75,7 +77,8 @@ struct ReminderReliabilityTests {
 
     /// 用例三：跨时区时间语义正确——同一「08:00」在各自时区日历下
     /// 都落在本地墙钟 08:00（时区变更后对账以本地日历重锚）
-    @Test func 跨时区时间语义正确() {
+    /// 原名：跨时区时间语义正确
+    @Test func crossTimeZoneWallClockSemanticsCorrect() {
         var shanghai = Calendar(identifier: .gregorian)
         shanghai.timeZone = TimeZone(identifier: "Asia/Shanghai")!
         var utc = Calendar(identifier: .gregorian)
@@ -99,7 +102,8 @@ struct ReminderReliabilityTests {
 
     /// 用例四：处方到期次日不再提醒——计划 ended 后事实源不再返回剂量，
     /// 对账必须清除系统侧全部残留 pending（到期自动停）
-    @Test func 处方到期次日不再提醒() async throws {
+    /// 原名：处方到期次日不再提醒
+    @Test func expiredPlanStopsRemindingNextDay() async throws {
         let scheduler = InMemoryReminderScheduler()
         let source = FakeDoseSource()
         let reconciler = ReminderReconciler(scheduler: scheduler, source: source)
@@ -119,7 +123,8 @@ struct ReminderReliabilityTests {
 
     /// 64 pending 上限：超预算裁撤到 60；预约提醒（apt-）不参与对账裁撤
     /// （评审修正：对账只管理 dose-/slot- 命名空间）
-    @Test func 六十四上限裁撤与预约保护() async throws {
+    /// 原名：六十四上限裁撤与预约保护
+    @Test func sixtyFourCapTrimProtectsAppointmentReminders() async throws {
         let scheduler = InMemoryReminderScheduler()
         let source = FakeDoseSource()
         let reconciler = ReminderReconciler(scheduler: scheduler, source: source)
@@ -147,7 +152,8 @@ struct ReminderReliabilityTests {
     }
 
     /// 稍后提醒：取消原通知 + 新 trigger；「跳过/忘记」不产生任何调度动作
-    @Test func 稍后提醒与跳过语义() async throws {
+    /// 原名：稍后提醒与跳过语义
+    @Test func snoozeAndSkipSemantics() async throws {
         let scheduler = InMemoryReminderScheduler()
         let source = FakeDoseSource()
         let reconciler = ReminderReconciler(scheduler: scheduler, source: source)

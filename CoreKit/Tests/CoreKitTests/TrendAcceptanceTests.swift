@@ -17,7 +17,8 @@ struct SUM15TrendTests {
     }
 
     /// **一票否决**：三家医院血糖同图，参考范围各自成带、绝不合并（FR7.2）。
-    @Test func 三医院参考范围各自成带且不合并() {
+    /// 原名：三医院参考范围各自成带且不合并
+    @Test func threeHospitalReferenceBandsStaySeparateAndUnmerged() {
         let points = [
             hospitalPoint("市一医院", value: 6.1, lo: 3.9, hi: 6.1, dayOffset: 0),
             hospitalPoint("协和医院", value: 5.8, lo: 4.1, hi: 5.9, dayOffset: 1),
@@ -32,7 +33,8 @@ struct SUM15TrendTests {
     }
 
     /// 区间数值恰好相同的两家医院，仍按来源分开——来源是分组键，不是装饰
-    @Test func 同区间不同医院不得去重合并() {
+    /// 原名：同区间不同医院不得去重合并
+    @Test func sameRangeDifferentHospitalsNeverDeduplicated() {
         let points = [
             hospitalPoint("A 医院", value: 5.5, lo: 3.9, hi: 6.1, dayOffset: 0),
             hospitalPoint("B 医院", value: 5.6, lo: 3.9, hi: 6.1, dayOffset: 1),
@@ -42,13 +44,15 @@ struct SUM15TrendTests {
     }
 
     /// 同一医院多次报告、区间一致 → 只画一条（去重按「来源+区间」三元组）
-    @Test func 同医院同区间多次报告只成一带() {
+    /// 原名：同医院同区间多次报告只成一带
+    @Test func sameHospitalSameRangeMultipleReportsCollapseToOneBand() {
         let points = (0..<5).map { hospitalPoint("市一医院", value: 6.0, lo: 3.9, hi: 6.1, dayOffset: $0) }
         #expect(TrendRules.resolveBands(points: points).count == 1)
     }
 
     /// FR16.4 优先级铁律：存在 A 级带时不得混入 B 级信源库缺省带
-    @Test func A级存在时不混入B级() {
+    /// 原名：A级存在时不混入B级
+    @Test func gradeABandsSuppressGradeBLibraryFallback() {
         let fallback = ReferenceBand(sourceLabel: "信源库缺省", lower: 3.9, upper: 6.1, grade: .B)
         let withA = TrendRules.resolveBands(
             points: [hospitalPoint("市一医院", value: 6.0, lo: 3.9, hi: 6.1, dayOffset: 0)],
@@ -63,14 +67,16 @@ struct SUM15TrendTests {
     }
 
     /// 空心=自测/设备，实心=医院（ui-ux 4.7 一眼可辨）
-    @Test func 空心实心按来源区分() {
+    /// 原名：空心实心按来源区分
+    @Test func hollowFilledMarkersDistinguishByOrigin() {
         #expect(TrendPoint(id: UUID(), measuredAt: Date(), value: 1, origin: .hospital).isHollow == false)
         #expect(TrendPoint(id: UUID(), measuredAt: Date(), value: 1, origin: .manual).isHollow)
         #expect(TrendPoint(id: UUID(), measuredAt: Date(), value: 1, origin: .device).isHollow)
     }
 
     /// FR7.4 排除点软删：聚合默认剔除，原值保留可恢复
-    @Test func 排除点软删且原值保留() {
+    /// 原名：排除点软删且原值保留
+    @Test func excludedPointsSoftDeletedAndOriginalValueKept() {
         let kept = TrendPoint(id: UUID(), measuredAt: Date(), value: 6.0, origin: .manual)
         var dropped = TrendPoint(id: UUID(), measuredAt: Date(), value: 99.9, origin: .manual)
         dropped.excluded = true
@@ -80,7 +86,8 @@ struct SUM15TrendTests {
     }
 
     /// 排除点携带的参考范围不得继续参与成带（排除点通常是 OCR 错值）
-    @Test func 排除点的参考范围不入带() {
+    /// 原名：排除点的参考范围不入带
+    @Test func excludedPointReferenceRangesNeverFormBands() {
         var bad = hospitalPoint("误识别医院", value: 999, lo: 0, hi: 999, dayOffset: 0)
         bad.excluded = true
         let good = hospitalPoint("市一医院", value: 6.0, lo: 3.9, hi: 6.1, dayOffset: 1)
@@ -89,7 +96,8 @@ struct SUM15TrendTests {
     }
 
     /// FR7.8 换算留痕：**参考带必须随点同步换算**，否则量纲不一致会读出错误结论
-    @Test func 换算同时作用于点与参考带() {
+    /// 原名：换算同时作用于点与参考带
+    @Test func conversionAppliesToPointsAndReferenceBands() {
         let series = TrendSeries(
             metricType: .glucose,
             points: [hospitalPoint("市一医院", value: 6.0, lo: 3.9, hi: 6.1, dayOffset: 0)],
@@ -112,7 +120,8 @@ struct SUM15VoiceTests {
 
     /// 转写端口的入参与出参**不得出现任何文件/字节容器**——音频无处交出，
     /// 「零落盘」因此在编译期成立，而不只是运行期没触发写盘。
-    @Test func 转写协议不暴露任何文件或字节通道() {
+    /// 原名：转写协议不暴露任何文件或字节通道
+    @Test func transcriptionProtocolExposesNoFileOrByteChannel() {
         // 反射三个值对象的字段类型：出现 URL/Data 即视为可落盘通道
         let mirrors: [Mirror] = [
             Mirror(reflecting: TranscriptionRequest(localeIdentifier: "zh-Hans-CN")),
@@ -131,7 +140,8 @@ struct SUM15VoiceTests {
 
     // MARK: TC-M15-03 模板复用（Domain 半场；静态半场在 L0 [9/9]）
 
-    @Test func 语音草稿一律经统一模板且为待确认态() {
+    /// 原名：语音草稿一律经统一模板且为待确认态
+    @Test func voiceDraftsAlwaysGoThroughSharedTemplateUnconfirmed() {
         let set = VoiceInputTemplate.confirmationSet(drafts: [
             FieldDraft(key: "glucose", value: "6.2", unit: "mmol/L", confidence: 0.93),
             FieldDraft(key: "note", value: "餐后两小时", confidence: 0.81),
@@ -142,7 +152,8 @@ struct SUM15VoiceTests {
     }
 
     /// 回读脚本只含**已确认**字段——未确认内容不得被当作事实播报（BR-003）
-    @Test func 回读脚本只含已确认字段() {
+    /// 原名：回读脚本只含已确认字段
+    @Test func readbackScriptContainsConfirmedFieldsOnly() {
         var set = VoiceInputTemplate.confirmationSet(drafts: [
             FieldDraft(key: "name", value: "王女士", confidence: 0.95),
             FieldDraft(key: "birth", value: "1962年3月", confidence: 0.6),
@@ -160,7 +171,8 @@ struct SUM15VoiceTests {
 
     // MARK: FR17.13 回读三态 + 🔊 朗读出口
 
-    @Test func 有耳机一律回读() {
+    /// 原名：有耳机一律回读
+    @Test func headphonesAlwaysReadAloud() {
         for pref in ReadbackPreference.allCases {
             for care in [true, false] {
                 #expect(ReadbackPolicy.decide(route: .headphones, preference: pref, careMode: care)
@@ -169,7 +181,8 @@ struct SUM15VoiceTests {
         }
     }
 
-    @Test func 无耳机三态决策正确() {
+    /// 原名：无耳机三态决策正确
+    @Test func speakerRouteThreeWayDecisionIsCorrect() {
         #expect(ReadbackPolicy.decide(route: .speaker, preference: .never, careMode: false)
                 == .screenConfirm(offerSpeakButton: true))
         #expect(ReadbackPolicy.decide(route: .speaker, preference: .ask, careMode: false)
@@ -182,7 +195,8 @@ struct SUM15VoiceTests {
     }
 
     /// 🔊 朗读出口是无障碍出口——任何偏好下都不得被关闭（FR17.13 / F18）
-    @Test func 朗读出口不受偏好关闭() {
+    /// 原名：朗读出口不受偏好关闭
+    @Test func readAloudExitCannotBeClosedByPreference() {
         if case .screenConfirm(let offer) = ReadbackPolicy.decide(
             route: .speaker, preference: .never, careMode: false) {
             #expect(offer, "偏好为『从不』时仍须提供 [🔊 朗读] 手动出口")
@@ -191,7 +205,8 @@ struct SUM15VoiceTests {
         }
     }
 
-    @Test func 总是选项仅关怀模式可设() {
+    /// 原名：总是选项仅关怀模式可设
+    @Test func alwaysOptionSelectableOnlyInCareMode() {
         #expect(ReadbackPolicy.isSelectable(.alwaysInCareMode, careMode: true))
         #expect(!ReadbackPolicy.isSelectable(.alwaysInCareMode, careMode: false))
         #expect(ReadbackPolicy.isSelectable(.never, careMode: false))
@@ -199,7 +214,8 @@ struct SUM15VoiceTests {
     }
 
     /// 录入过程中拔/插耳机 → 即时重判；未变化则不打断
-    @Test func 耳机拔插即时切换策略() {
+    /// 原名：耳机拔插即时切换策略
+    @Test func routeChangeSwitchesPolicyImmediately() {
         #expect(ReadbackPolicy.rerouted(from: .speaker, to: .speaker,
                                         preference: .ask, careMode: false) == nil)
         #expect(ReadbackPolicy.rerouted(from: .speaker, to: .headphones,
@@ -225,7 +241,8 @@ struct SUM15VoiceTests {
     /// 拒绝卡为类型化数据（V3.68：文案移 App 层 L10n 模板渲染，
     /// BR-006 措辞负清单对模板句的执法随迁至 App 层模板测试）——
     /// Domain 侧断言：每个类别都有确定性拒绝卡，且保留命中短语留痕。
-    @Test func 拒绝卡类型化与留痕() {
+    /// 原名：拒绝卡类型化与留痕
+    @Test func rejectionCardIsTypedAndKeepsMatchedPhrase() {
         for category in VoiceModificationGuard.Category.allCases {
             let r = VoiceModificationGuard.rejection(category: category, phrase: "测试")
             #expect(r.category == category, "拒绝卡类别必须与触发类别一致")
@@ -234,20 +251,23 @@ struct SUM15VoiceTests {
     }
 
     /// 反向断言：非计划语境下不得误拦——否则用户连备忘都记不了
-    @Test func 非计划语境不误拦() {
+    /// 原名：非计划语境不误拦
+    @Test func nonPlanContextIsNotBlocked() {
         #expect(VoiceModificationGuard.evaluate("记一条：医生说以后不吃了",
                                                 isExistingPlanContext: false) == nil)
     }
 
     // MARK: TC-M15-04 双轨门控与分段策略（ADR-023 / §11 清偿项）
 
-    @Test func 升级轨长音频免分段() {
+    /// 原名：升级轨长音频免分段
+    @Test func upgradedTrackLongAudioSkipsSegmentation() {
         let plan = TranscriptionSegmentation.plan(durationSeconds: 300,
                                                   capability: .longForm())
         #expect(plan.count == 1 && plan[0].lengthSeconds == 300)
     }
 
-    @Test func 基线轨长音频按窗切分且留安全余量() {
+    /// 原名：基线轨长音频按窗切分且留安全余量
+    @Test func baselineTrackLongAudioSplitsByWindowWithSafetyMargin() {
         let cap = TranscriptionCapability.baseline()
         let plan = TranscriptionSegmentation.plan(durationSeconds: 300, capability: cap)
         #expect(plan.count > 1, "基线轨 300s 录音必须分段，否则被系统 60s 截断丢字")
@@ -261,14 +281,16 @@ struct SUM15VoiceTests {
         #expect(last.startSeconds + last.lengthSeconds >= 300)
     }
 
-    @Test func 短音频两轨均单窗() {
+    /// 原名：短音频两轨均单窗
+    @Test func shortAudioSingleWindowOnBothTracks() {
         #expect(TranscriptionSegmentation.plan(durationSeconds: 20, capability: .baseline()).count == 1)
         #expect(TranscriptionSegmentation.plan(durationSeconds: 20, capability: .longForm()).count == 1)
         #expect(TranscriptionSegmentation.plan(durationSeconds: 0, capability: .baseline()).isEmpty)
     }
 
     /// 两轨经同一协议后**行为一致**（同一语料同一产出），差异只在 segmented 标志
-    @Test func 双轨同协议行为一致() async throws {
+    /// 原名：双轨同协议行为一致
+    @Test func bothTracksBehaveIdenticallyBehindOneProtocol() async throws {
         let sample = "血糖六点二"
         let baseline = StubTranscriptionEngine(capability: .baseline(), scripted: [sample])
         let upgraded = StubTranscriptionEngine(capability: .longForm(), scripted: [sample])
@@ -280,7 +302,8 @@ struct SUM15VoiceTests {
     }
 
     /// 方言无引擎时回落普通话并如实回报（FR17.15「尽力识别」，零静默）
-    @Test func 方言不可用时回落普通话且留痕() async throws {
+    /// 原名：方言不可用时回落普通话且留痕
+    @Test func unavailableDialectFallsBackToMandarinWithTrace() async throws {
         let engine = StubTranscriptionEngine(
             capability: .baseline(locales: ["zh-Hans-CN"]), scripted: ["测试"])
         let result = try await engine.transcribe(
@@ -290,7 +313,8 @@ struct SUM15VoiceTests {
 
     // MARK: TC-M15-06 输出语言指定与发声回退
 
-    @Test func 发声回退链与轻提示标志() {
+    /// 原名：发声回退链与轻提示标志
+    @Test func speechFallbackChainSetsHintFlag() {
         let has = SpeechFallback.resolve(requested: "zh-Hans-CN",
                                          availableVoices: ["zh-Hans-CN", "en-US"])
         #expect(has.spokenLocale == "zh-Hans-CN" && !has.didFallback)
@@ -300,7 +324,8 @@ struct SUM15VoiceTests {
         #expect(missing.didFallback, "回退必须留痕，UI 据此显示当前发声语言轻提示")
     }
 
-    @Test func TTS替身记录播报内容与语言() {
+    /// 原名：TTS替身记录播报内容与语言
+    @Test func ttsStubRecordsSpokenTextAndLocale() {
         let tts = RecordingSpeechSynthesizer(availableVoices: ["zh-Hans-CN"])
         tts.speak("已录入：王女士。对吗？", localeIdentifier: "yue-Hans-CN")
         #expect(tts.spoken.count == 1)
@@ -312,7 +337,8 @@ struct SUM15VoiceTests {
 
     /// 生产文法必须来自 Domain 的 `VoiceGrammarDefaults`——规则表若只存在于测试里，
     /// 金样定标测的就是另一套语法，对生产无效。
-    @Test func 生产文法规则表非空且可用() {
+    /// 原名：生产文法规则表非空且可用
+    @Test func productionGrammarRulesNonEmptyAndUsable() {
         #expect(!VoiceGrammarDefaults.metricRules.isEmpty)
         #expect(!VoiceGrammarDefaults.reminderRules.isEmpty)
         #expect(!VoiceGrammarDefaults.profileRules.isEmpty)
@@ -322,7 +348,8 @@ struct SUM15VoiceTests {
     }
 
     /// FR10.2：模糊时间不落具体日期即不产出——绝不猜时间
-    @Test func 提醒时间不明确即不产出() {
+    /// 原名：提醒时间不明确即不产出
+    @Test func ambiguousReminderTimeProducesNothing() {
         let now = Date(timeIntervalSince1970: 1_700_000_000)
         #expect(VoiceReminderRules.resolveDate(
             from: [FieldDraft(key: "time", value: "周末")], now: now) == nil)
@@ -362,14 +389,16 @@ struct SUM15CalibrationTests {
     enum CalibrationFixtureError: Error { case missing }
 
     /// 语料库必须存在且可解析——**文件缺席不得被当成「无需定标」**（ERR#27）
-    @Test func 语料库存在且可解析() throws {
+    /// 原名：语料库存在且可解析
+    @Test func corpusExistsAndParses() throws {
         let corpus = try loadCorpus()
         #expect(!corpus.samples.isEmpty, "空集不得判过")
         #expect(corpus.samples.allSatisfy { !$0.expected.isEmpty }, "每条语料必须带期望抽取结果")
     }
 
     /// 放行线不变量：未达标 ⟹ 语音结构化开关必须关闭
-    @Test func 未达标则语音结构化必须关闭() throws {
+    /// 原名：未达标则语音结构化必须关闭
+    @Test func failedCalibrationForcesVoiceStructuringOff() throws {
         // 第七轮修复：applyCalibration 写进程级静态 voiceCalibrationPassed 且无
         // 公开复位入口——语料库增长到放行线（运营工件，预期会增长）后本测试
         // 会把全局静态翻绿，污染同进程其余套件（本套件不变量「强制
@@ -402,7 +431,8 @@ struct SUM15CalibrationTests {
     }
 
     /// 放行线常量必须与 FR17.4 一致——阈值被悄悄调低比不达标更危险
-    @Test func 放行线阈值锁定为FR17_4规定值() {
+    /// 原名：放行线阈值锁定为FR17_4规定值
+    @Test func releaseLineThresholdsLockedToFR17_4() {
         #expect(VoiceCalibration.requiredHumanSamples == 500)
         #expect(VoiceCalibration.requiredNumericAccuracy == 0.90)
         #expect(VoiceCalibration.requiredStructureRate == 0.85)
@@ -410,7 +440,8 @@ struct SUM15CalibrationTests {
 
     /// 反向自检：构造一份「满配且全对」的语料，放行线必须能真的转绿——
     /// 否则本门禁只会永远说不行，等同于坏掉的秤（ERR#32「检查存在但无效」同族）。
-    @Test func 满配全对时放行线可通过() {
+    /// 原名：满配全对时放行线可通过
+    @Test func fullCorrectCorpusPassesReleaseLine() {
         let samples = (0..<VoiceCalibration.requiredHumanSamples).map {
             VoiceCalibration.Sample(id: "h-\($0)", transcript: "血糖6.2", kind: "metric",
                                     locale: "zh-Hans-CN", isHumanRecorded: true,

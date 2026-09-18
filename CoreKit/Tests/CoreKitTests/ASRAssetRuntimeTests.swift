@@ -7,7 +7,8 @@ import Testing
 
 @Suite("ASR 完整资源运行时校验")
 struct ASRAssetRuntimeTests {
-    @Test func 在用模型租约阻止删除目录() throws {
+    /// 原名：在用模型租约阻止删除目录
+    @Test func activeModelLeasePreventsDirectoryRemoval() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let assets = ASRModelAssets(root: root)

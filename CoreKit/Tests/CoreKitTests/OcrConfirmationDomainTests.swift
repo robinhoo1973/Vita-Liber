@@ -9,7 +9,8 @@ import Testing
 /// 门禁行为断言迁至 App 层 XCTest（SU-M1a-BIO，注入 FakeGateUnlocker）。
 @Suite("M1a · BR-003 确认状态机与时间轴投影")
 struct OcrConfirmationTests {
-    @Test func 未确认字段不得入正式时间轴() {
+    /// 原名：未确认字段不得入正式时间轴
+    @Test func unconfirmedFieldsNeverEnterOfficialTimeline() {
         var set = OcrConfirmationSet(fields: [
             CandidateField(key: "drug_name", displayLabel: "药名", rawText: "阿莫西林", confidence: 0.93),
             CandidateField(key: "dosage", displayLabel: "剂量", rawText: "0.25g", confidence: 0.88),
@@ -26,7 +27,8 @@ struct OcrConfirmationTests {
         #expect(TimelineProjection.officialTimeline(from: entries2).count == 1)
     }
 
-    @Test func 确认后修订产生历史() {
+    /// 原名：确认后修订产生历史
+    @Test func revisionAfterConfirmationProducesHistory() {
         var f = CandidateField(key: "dosage", displayLabel: "剂量", rawText: "0.25g", confidence: 0.9)
         let confirmed = f.confirm()
         #expect(confirmed)
@@ -41,7 +43,8 @@ struct OcrConfirmationTests {
         #expect(!revisedAgain)                        // 同值不产生历史
     }
 
-    @Test func 已拒绝字段不得直接确认() {
+    /// 原名：已拒绝字段不得直接确认
+    @Test func rejectedFieldCannotBeConfirmedDirectly() {
         var f = CandidateField(key: "date", displayLabel: "日期", rawText: "2025-01-01", confidence: 0.4)
         f.reject()
         let confirmed = f.confirm()
@@ -51,7 +54,8 @@ struct OcrConfirmationTests {
 
 @Suite("M1a · 首启三卡与进度（FR21.9 切片）")
 struct OwnerFlowTests {
-    @Test func 三卡齐备且完成进度驱动() {
+    /// 原名：三卡齐备且完成进度驱动
+    @Test func threeCardsPresentAndCompletionDrivesProgress() {
         #expect(DisclosureRegistry.l1Cards.count == 3)
         #expect(Set(DisclosureRegistry.l1Cards.map(\.kind)).count == 3)  // 三卡三类不重复
         var p = OnboardingProgress()
@@ -62,7 +66,8 @@ struct OwnerFlowTests {
         #expect(p.finished)
     }
 
-    @Test func 本人档案随本机所有者关联() {
+    /// 原名：本人档案随本机所有者关联
+    @Test func selfProfileLinkedToLocalOwner() {
         let owner = LocalOwner(displayName: "王女士")
         let profile = PatientProfile(displayName: owner.displayName, relation: "本人")
         var owner2 = owner

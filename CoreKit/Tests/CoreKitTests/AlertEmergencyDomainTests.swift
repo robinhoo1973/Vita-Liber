@@ -12,7 +12,8 @@ struct AlertEngineTests {
         version: "2020", checkedAt: Date(), metricKey: "glucose", unit: "mmol/L",
         l1Low: 3.9, l1High: 7.0, l2High: 13.9, l3High: 16.7)
 
-    @Test func 四级定级() {
+    /// 原名：四级定级
+    @Test func severityGradesFourLevels() {
         let normal = MetricReading(metricKey: "glucose", value: 6.0, unit: "mmol/L",
                                    origin: .manual, measuredAt: Date())
         #expect(AlertRuleEngine.severity(for: normal, guideline: glucoseGuideline) == .L0)
@@ -27,7 +28,8 @@ struct AlertEngineTests {
         #expect(AlertRuleEngine.severity(for: l3, guideline: glucoseGuideline) == .L3)
     }
 
-    @Test func 报告自带A级范围优先于信源库() {
+    /// 原名：报告自带A级范围优先于信源库
+    @Test func reportOwnGradeARangeOutranksGuidelineLibrary() {
         let report = ReferenceRange(lower: 4.0, upper: 6.5, grade: .A)
         let reading = MetricReading(metricKey: "glucose", value: 6.8, unit: "mmol/L",
                                     origin: .hospital, measuredAt: Date(), reportRange: report)
@@ -38,7 +40,8 @@ struct AlertEngineTests {
         #expect(AlertRuleEngine.severity(for: inRange, guideline: glucoseGuideline) == .L0)
     }
 
-    @Test func 连续三次越限触发L1() {
+    /// 原名：连续三次越限触发L1
+    @Test func threeConsecutiveBreachesTriggerL1() {
         let readings = (0..<3).map { i in
             MetricReading(metricKey: "glucose", value: 7.8, unit: "mmol/L",
                           origin: .manual, measuredAt: Date(timeIntervalSince1970: TimeInterval(1000 + i * 60)))
@@ -51,7 +54,8 @@ struct AlertEngineTests {
     }
 
     // 第七轮全仓审查修复的回归锚点：跨单位拒绝/NaN 拒绝/单位同义标签
-    @Test func 跨单位读数拒绝定级() {
+    /// 原名：跨单位读数拒绝定级
+    @Test func crossUnitReadingRefusesGrading() {
         // mg/dL 读数对 mmol/L 信源：拒绝定级（宁可少警不可错警，F25 摩尔桥接未接线）
         let mgdl = MetricReading(metricKey: "glucose", value: 110.0, unit: "mg/dL",
                                  origin: .manual, measuredAt: Date())
@@ -59,7 +63,8 @@ struct AlertEngineTests {
                 "110 mg/dL（≈6.1 mmol/L 正常）不得被 13.9 阈值错定 L2")
     }
 
-    @Test func 非有限读数拒绝定级() {
+    /// 原名：非有限读数拒绝定级
+    @Test func nonFiniteReadingRefusesGrading() {
         let nan = MetricReading(metricKey: "glucose", value: .nan, unit: "mmol/L",
                                 origin: .manual, measuredAt: Date())
         #expect(AlertRuleEngine.severity(for: nan, guideline: glucoseGuideline) == nil)
@@ -68,7 +73,8 @@ struct AlertEngineTests {
         #expect(AlertRuleEngine.severity(for: inf, guideline: glucoseGuideline) == nil)
     }
 
-    @Test func 同义单位标签正常定级() {
+    /// 原名：同义单位标签正常定级
+    @Test func synonymousUnitLabelsGradeNormally() {
         // 心率信源 'bpm' vs 录入 '次/分'：同一物理单位，不得被守卫误杀（第七轮修复）
         let heartGuideline = GuidelineEntry(
             title: "AHA 心动过速标准", org: "AHA", year: 2020,
@@ -81,7 +87,8 @@ struct AlertEngineTests {
                 "112 次/分（=112 bpm）必须命中 AHA L1（>100）")
     }
 
-    @Test func 升级窗口含L0则拒绝升级() {
+    /// 原名：升级窗口含L0则拒绝升级
+    @Test func escalationWindowContainingL0RefusesEscalation() {
         // 第七轮修复锚点：窗口内恰 3 次全部越限才升级——混入 L0 不得升级
         let base = Date(timeIntervalSince1970: 2000)
         let readings = [
@@ -95,7 +102,8 @@ struct AlertEngineTests {
                 "窗口内存在 L0（正常值）不得升级——FR16.2「连续 3 次越限」口径")
     }
 
-    @Test func 五段证据卡结构化字段() {
+    /// 原名：五段证据卡结构化字段
+    @Test func fivePartEvidenceCardStructuredFields() {
         let reading = MetricReading(metricKey: "glucose", value: 17.0, unit: "mmol/L",
                                     origin: .manual, measuredAt: Date())
         let card = AlertRuleEngine.evidenceCard(for: reading, severity: .L3, guideline: glucoseGuideline)
@@ -108,7 +116,8 @@ struct AlertEngineTests {
         #expect(card.levelTag == "L3")
     }
 
-    @Test func 措辞负清单一票否决() {
+    /// 原名：措辞负清单一票否决
+    @Test func wordingBlacklistVetoes() {
         #expect(WordingBlacklist.violation(in: "血糖 17，可能是糖尿病") != nil)      // 疾病名推断
         #expect(WordingBlacklist.violation(in: "因为没吃药所以血糖高") != nil)       // 因果句
         #expect(WordingBlacklist.violation(in: "建议服用二甲双胍") != nil)           // 治疗建议
@@ -120,7 +129,8 @@ struct AlertEngineTests {
 // binds: SU-M2-STOCK — TC-M2-02（差异月报纯事实句式 + 盘点归真往返）
 @Suite("SU-M2-EMERG · 紧急信息卡与差异月报（§5.27/F9.8.3）")
 struct EmergencyCardTests {
-    @Test func 未确认项不入卡_BR003() {
+    /// 原名：未确认项不入卡_BR003
+    @Test func unconfirmedItemsNeverEnterCardBR003() {
         let confirmed = EmergencyCardItem(id: UUID(), kind: "allergy", title: "青霉素过敏",
                                           detail: "皮疹", confirmed: true)
         let unconfirmed = EmergencyCardItem(id: UUID(), kind: "allergy", title: "头孢过敏？",
@@ -132,7 +142,8 @@ struct EmergencyCardTests {
         #expect(card.allergies[0].title == "青霉素过敏")
     }
 
-    @Test func 差异月报纯事实句式() {
+    /// 原名：差异月报纯事实句式
+    @Test func varianceMonthlyReportPureFactWording() {
         let report = InventoryReportRules.report(periodStart: Date(), periodEnd: Date(),
                                                  planned: 30, confirmed: 21, skipped: 3, missed: 6)
         // V3.68：句式移出 Domain——数值字段断言；负清单对同形句式（App 层
@@ -146,7 +157,8 @@ struct EmergencyCardTests {
         #expect(InventoryReportRules.violation(in: "建议你按时吃药") != nil)
     }
 
-    @Test func 盘点归真需确认() {
+    /// 原名：盘点归真需确认
+    @Test func reconciliationDifferenceNeedsConfirmation() {
         let recon = InventoryReconciliation(lotId: UUID(), bookConfirmed: 10,
                                             physicalCount: 8, resolvedAt: Date(), note: nil)
         #expect(recon.difference == -2)
@@ -160,14 +172,16 @@ struct EmergencyCardTests {
 // binds: SU-M2-CARE — TC-M2-03（SOS 两步可达 + 震颤防抖 + 长按门槛）
 @Suite("SU-M2-CARE · 关怀模式与 SOS（§5.15/FR1.8）")
 struct CareModeTests {
-    @Test func 关怀参数覆盖() {
+    /// 原名：关怀参数覆盖
+    @Test func careModeMetricOverrides() {
         #expect(CareModeMetrics.care.touchTarget == 64)
         #expect(CareModeMetrics.care.tremorGuardSeconds == 0.3)
         #expect(CareModeMetrics.care.holdConfirmSeconds == 0.6)
         #expect(CareModeMetrics.standard.touchTarget == 44)
     }
 
-    @Test func 震颤防抖() {
+    /// 原名：震颤防抖
+    @Test func tremorGuardDebounce() {
         let now = Date(timeIntervalSince1970: 100)
         #expect(TremorGuard.shouldAccept(lastActionAt: nil, now: now, mode: .care))
         #expect(!TremorGuard.shouldAccept(lastActionAt: now.addingTimeInterval(-0.1),
@@ -179,7 +193,8 @@ struct CareModeTests {
                                          now: now, mode: .standard))
     }
 
-    @Test func 长按确认门槛() {
+    /// 原名：长按确认门槛
+    @Test func holdToConfirmThreshold() {
         #expect(HoldToConfirm.accepted(holdSeconds: 0.7, mode: .care))
         #expect(!HoldToConfirm.accepted(holdSeconds: 0.3, mode: .care))
         // 常规模式同样 0.6s（build 147 审查修复：0s 即触发 = 口袋误触即进紧急页）
@@ -187,14 +202,16 @@ struct CareModeTests {
         #expect(HoldToConfirm.accepted(holdSeconds: 0.7, mode: .standard))
     }
 
-    @Test func SOS两步可达且门禁豁免() {
+    /// 原名：SOS两步可达且门禁豁免
+    @Test func sosTwoStepReachableAndGateExempt() {
         #expect(SOSRules.isGateExempt("sos"))
         #expect(!SOSRules.isGateExempt("timeline"))
         #expect(SOSRules.requiresHoldConfirm("sos", mode: .standard))
         #expect(SOSRules.requiresHoldConfirm("sos", mode: .care))
     }
 
-    @Test func 挂号深链本地映射() {
+    /// 原名：挂号深链本地映射
+    @Test func appointmentDeepLinkLocalMapping() {
         let registry = [HospitalDeepLink(hospitalName: "市一医院", baseURL: "https://sy.example",
                                          template: "https://sy.example/appointment/{bookingNo}")]
         let link = HospitalDeepLinkRegistry.link(for: "市一医院", in: registry)
@@ -217,7 +234,8 @@ struct SUM2StockTests {
     private var gregorian: Calendar { Calendar(identifier: .gregorian) }
 
     /// 一票否决：零确认下三级续药提醒全部触达
-    @Test func 零确认存活_三级续药提醒全触达() {
+    /// 原名：零确认存活_三级续药提醒全触达
+    @Test func zeroConfirmationSurvivesAllThreeRefillTiersFire() {
         // 30 天量、每天 1 单位；建计划后一个动作都不做
         let fired = InventoryRules.refillTiersFired(
             initialUnits: 30, dailyPlanUnits: 1,
@@ -234,7 +252,8 @@ struct SUM2StockTests {
     /// 安全线由排程推进，与用户动作无关
     /// （规则①清死代码：原经零生产调用方的 advancePlanTrack 批量口径——已删；
     ///   同口径改经扣减矩阵 deductPlan，与 materializeMissed 生产路径一致）
-    @Test func 安全线按排程自行推进不依赖用户动作() {
+    /// 原名：安全线按排程自行推进不依赖用户动作
+    @Test func planTrackAdvancesOnScheduleWithoutUserAction() {
         var inv = DualTrackInventory(lotId: UUID(), totalUnits: 30, unitKind: "片")
         inv = InventoryRules.deductPlan(inv, units: 24)
         #expect(inv.remainingPlanUnits == 6, "安全线必须按应服剂次推进")
@@ -244,7 +263,8 @@ struct SUM2StockTests {
     }
 
     /// 误差方向铁律（ADR-009 不可协商）：告警必须偏**早**，即以安全线而非确认线定级
-    @Test func 告警偏早_以安全线定级() {
+    /// 原名：告警偏早_以安全线定级
+    @Test func alertBiasesEarlyGradedByPlanTrack() {
         var inv = DualTrackInventory(lotId: UUID(), totalUnits: 30, unitKind: "片")
         // 排程推进 25 次，但用户只确认了 5 次
         inv = InventoryRules.deductPlan(inv, units: 25)
@@ -263,7 +283,8 @@ struct SUM2StockTests {
     }
 
     /// 过期批次按最紧急档处理
-    @Test func 过期批次按最紧急档() {
+    /// 原名：过期批次按最紧急档
+    @Test func expiredLotTreatedAsMostUrgentTier() {
         var inv = DualTrackInventory(lotId: UUID(), totalUnits: 100, unitKind: "片",
                                      expireAt: epoch.addingTimeInterval(-day))
         inv.remainingPlanUnits = 100
@@ -272,7 +293,8 @@ struct SUM2StockTests {
     }
 
     /// 余量充足时不得告警（反向断言——防「永远告警」的坏秤，ERR#32 同族）
-    @Test func 余量充足不告警() {
+    /// 原名：余量充足不告警
+    @Test func sufficientRemainingUnitsNoAlert() {
         let inv = DualTrackInventory(lotId: UUID(), totalUnits: 90, unitKind: "片")
         #expect(InventoryRules.refillTier(inv, dailyPlanUnits: 1, at: epoch) == nil)
         #expect(InventoryRules.refillTiersFired(
@@ -281,7 +303,8 @@ struct SUM2StockTests {
     }
 
     /// dailyPlanUnits 为 0（计划暂停）不得除零、不得告警
-    @Test func 零日用量不告警且不崩() {
+    /// 原名：零日用量不告警且不崩
+    @Test func zeroDailyUnitsNoAlertNoCrash() {
         let inv = DualTrackInventory(lotId: UUID(), totalUnits: 30, unitKind: "片")
         #expect(InventoryRules.refillTier(inv, dailyPlanUnits: 0, at: epoch) == nil)
         #expect(InventoryRules.refillTiersFired(initialUnits: 30, dailyPlanUnits: 0,
@@ -291,7 +314,8 @@ struct SUM2StockTests {
 
     /// TC-M2-02 差异月报纯事实句式（负清单一票否决；V3.68 句式移出 Domain——
     /// 数值字段断言 + 与 App 层 L10n 模板同形的句子过负清单）
-    @Test func 差异月报纯事实且过负清单() {
+    /// 原名：差异月报纯事实且过负清单
+    @Test func varianceReportPureFactPassesBlacklist() {
         let report = InventoryReportRules.report(
             periodStart: epoch, periodEnd: epoch.addingTimeInterval(30 * day),
             planned: 30, confirmed: 21, skipped: 5, missed: 4)
@@ -305,7 +329,8 @@ struct SUM2StockTests {
     }
 
     /// 负清单本身必须真的能拦住（防坏秤）
-    @Test func 负清单可拦截评价句式() {
+    /// 原名：负清单可拦截评价句式
+    @Test func blacklistBlocksJudgmentalWording() {
         #expect(InventoryReportRules.violation(in: "你的依从性差，建议你按时服药") != nil)
         #expect(InventoryReportRules.violation(in: "计划 30 次 / 确认 21 次") == nil)
     }
@@ -317,7 +342,8 @@ struct SUM2StockTests {
 @Suite("SU-M2-CARE · F17 全量文法集覆盖（VoiceGrammarDefaults 单一事实源）")
 struct F17FullGrammarTests {
 
-    @Test func 指标文法覆盖六类与血压双值() {
+    /// 原名：指标文法覆盖六类与血压双值
+    @Test func metricGrammarCoversSixKindsAndBloodPressurePair() {
         let keys = Set(VoiceGrammarDefaults.metricRules.map(\.metricKey))
         for required in ["glucose", "blood_pressure_sys", "blood_pressure_dia",
                          "heart_rate", "weight", "blood_oxygen", "temperature"] {
@@ -325,7 +351,8 @@ struct F17FullGrammarTests {
         }
     }
 
-    @Test func 血压连读一条话出两个字段() {
+    /// 原名：血压连读一条话出两个字段
+    @Test func singleUtteranceYieldsBloodPressurePair() {
         let drafts = VoiceStructuringEngine.extractMetric(
             "血压 148 92 心率 76", rules: VoiceGrammarDefaults.metricRules)
         #expect(drafts.contains { $0.key == "blood_pressure_sys" && $0.value == "148" },
@@ -335,7 +362,8 @@ struct F17FullGrammarTests {
         #expect(drafts.contains { $0.key == "heart_rate" && $0.value == "76" })
     }
 
-    @Test func 档案访谈字段全覆盖() {
+    /// 原名：档案访谈字段全覆盖
+    @Test func profileInterviewFieldsFullyCovered() {
         let keys = Set(VoiceGrammarDefaults.profileRules.map(\.fieldKey))
         for required in ["allergy", "pastHistory", "currentMeds",
                          "emergencyContact", "surgery", "familyHistory"] {
@@ -343,7 +371,8 @@ struct F17FullGrammarTests {
         }
     }
 
-    @Test func 全量提醒文法覆盖重复规则() {
+    /// 原名：全量提醒文法覆盖重复规则
+    @Test func reminderGrammarCoversRepeatRule() {
         let drafts = VoiceStructuringEngine.extractReminder(
             "下周一早上八点提醒我复诊，每周", rules: VoiceGrammarDefaults.reminderRules)
         #expect(!drafts.isEmpty)
@@ -355,7 +384,8 @@ struct F17FullGrammarTests {
 @Suite("SU-M2-CARE · FR12.11 图片识别未确认判据（BR-003）")
 struct ImageInputRuleTests {
 
-    @Test func 识别文本恒为D级待确认() {
+    /// 原名：识别文本恒为D级待确认
+    @Test func recognizedTextAlwaysGradeDUnconfirmed() {
         let rec = ImageInputRules.Recognition(lines: ["总胆固醇 6.8 mmol/L"], confidence: 0.99)
         let fields = ImageInputRules.draftFields(from: rec)
         #expect(fields.count == 1)
@@ -364,7 +394,8 @@ struct ImageInputRuleTests {
         #expect(ImageInputRules.requiresConfirmation(rec))
     }
 
-    @Test func 纯影像无文字给手输替代() {
+    /// 原名：纯影像无文字给手输替代
+    @Test func textlessImageFallsBackToManualEntry() {
         let empty = ImageInputRules.Recognition(lines: ["  "], confidence: 0)
         #expect(empty.isEmpty)
         #expect(!ImageInputRules.requiresConfirmation(empty))
@@ -376,7 +407,8 @@ struct ImageInputRuleTests {
                 "无文字降级键必须稳定——App 层 L10n 契约")
     }
 
-    @Test func 识别结果经统一确认模板() {
+    /// 原名：识别结果经统一确认模板
+    @Test func recognitionGoesThroughUnifiedConfirmationTemplate() {
         let rec = ImageInputRules.Recognition(lines: ["血糖 6.2"], confidence: 0.95)
         let set = VoiceInputTemplate.confirmationSet(drafts: [
             FieldDraft(key: "image_text", value: rec.text, confidence: rec.confidence)
@@ -390,27 +422,31 @@ struct ImageInputRuleTests {
 @Suite("SU-M2-CARE · FR10.6 挂号深链本地映射表")
 struct DeepLinkTests {
 
-    @Test func 精确匹配命中() {
+    /// 原名：精确匹配命中
+    @Test func exactMatchHits() {
         let link = HospitalDeepLinkRegistry.link(for: "协和医院",
                                                  in: HospitalDeepLinkRegistry.defaults)
         #expect(link != nil)
         #expect(link?.baseURL.contains("guahao") == true)
     }
 
-    @Test func 模糊匹配降级且一字之差不丢入口() {
+    /// 原名：模糊匹配降级且一字之差不丢入口
+    @Test func fuzzyMatchKeepsEntryDespiteOneCharDifference() {
         let link = HospitalDeepLinkRegistry.fuzzyLink(for: "协和医院（东院）",
                                                       in: HospitalDeepLinkRegistry.defaults)
         #expect(link != nil, "医院全名与表内条目一字之差不得丢深链入口")
     }
 
-    @Test func 不在表内返回nil走手输补录() {
+    /// 原名：不在表内返回nil走手输补录
+    @Test func missingFromRegistryReturnsNilForManualEntry() {
         #expect(HospitalDeepLinkRegistry.link(for: "从未听说的医院",
                                               in: HospitalDeepLinkRegistry.defaults) == nil)
         #expect(HospitalDeepLinkRegistry.fuzzyLink(for: "从未听说的医院",
                                                   in: HospitalDeepLinkRegistry.defaults) == nil)
     }
 
-    @Test func 映射表默认档非空且离线可用() {
+    /// 原名：映射表默认档非空且离线可用
+    @Test func defaultRegistryNonEmptyAndOfflineUsable() {
         #expect(!HospitalDeepLinkRegistry.defaults.isEmpty,
                 "空映射表会让所有复诊提醒失去深链入口——空集不得判过")
         #expect(HospitalDeepLinkRegistry.defaults.allSatisfy { !$0.template.isEmpty })
@@ -421,7 +457,8 @@ struct DeepLinkTests {
 @Suite("SU-M2-CARE · FR13.8 配药清单导出")
 struct DispenseListTests {
 
-    @Test func CSV列结构与纯事实() {
+    /// 原名：CSV列结构与纯事实
+    @Test func csvColumnStructureIsPureFact() {
         let rows = [
             DispenseListRules.Row(name: "阿莫西林", spec: "0.25g", unitKind: "tablet",
                                   planUnits: 12, confirmedUnits: 9,
@@ -440,7 +477,8 @@ struct DispenseListTests {
         #expect(!csv.contains("遵医嘱"))
     }
 
-    @Test func 空清单不得产出空集假绿() {
+    /// 原名：空清单不得产出空集假绿
+    @Test func emptyListMustNotProduceVacuousPass() {
         let headers = ["药品名", "规格", "单位", "当前余量(安全线)", "当前余量(确认线)", "效期"]
         let empty = DispenseListRules.csv(rows: [], headers: headers)
         #expect(empty.contains("药品名"), "空清单也必须有表头——空集不得判过")
@@ -451,7 +489,8 @@ struct DispenseListTests {
 @Suite("SU-M2-CARE · FR9.13a 药品求助卡")
 struct MedicationHelpCardTests {
 
-    @Test func 卡片默认不含位置照片() {
+    /// 原名：卡片默认不含位置照片
+    @Test func cardOmitsStoragePhotoByDefault() {
         let item = MedicationHelpCardRules.Input(
             lotId: UUID(), medicationName: "阿司匹林", spec: "100mg",
             remainingUnits: 8, unitKind: "tablet",
@@ -464,7 +503,8 @@ struct MedicationHelpCardTests {
         #expect(MedicationHelpCardRules.shouldAttachPhoto(withPhoto))
     }
 
-    @Test func 卡片文本含必要字段且不含诊断() {
+    /// 原名：卡片文本含必要字段且不含诊断
+    @Test func cardTextHasRequiredFieldsAndNoDiagnosis() {
         let item = MedicationHelpCardRules.Input(
             lotId: UUID(), medicationName: "阿司匹林", spec: "100mg",
             remainingUnits: 8, unitKind: "tablet",
@@ -479,7 +519,8 @@ struct MedicationHelpCardTests {
         }
     }
 
-    @Test func 空选择不产出卡片() {
+    /// 原名：空选择不产出卡片
+    @Test func emptySelectionProducesNoCard() {
         // 第八轮修复：空选择返回 nil（FR9.13a 前提「选择一个或多个」）——
         // 原断言 cardText([]) 恒含标题、永不可败，锁定了与规格相反的行为
         #expect(MedicationHelpCardRules.cardText([]) == nil)
@@ -490,14 +531,16 @@ struct MedicationHelpCardTests {
 @Suite("SU-M2-CARE · FR24.2 发送状态迁移白名单")
 struct MessageStatusTests {
 
-    @Test func 合法迁移路径() {
+    /// 原名：合法迁移路径
+    @Test func legalTransitionPaths() {
         #expect(MessageStatusRules.canTransition(from: .sent, to: .ackPending))
         #expect(MessageStatusRules.canTransition(from: .sent, to: .timeout))
         #expect(MessageStatusRules.canTransition(from: .ackPending, to: .acked))
         #expect(MessageStatusRules.canTransition(from: .ackPending, to: .timeout))
     }
 
-    @Test func 回退与旁路跳变一律拒绝() {
+    /// 原名：回退与旁路跳变一律拒绝
+    @Test func rollbackAndBypassTransitionsAllRejected() {
         #expect(!MessageStatusRules.canTransition(from: .acked, to: .sent),
                 "已回执不得退回已发送——状态不可伪造")
         #expect(!MessageStatusRules.canTransition(from: .acked, to: .ackPending))
@@ -511,7 +554,8 @@ struct MessageStatusTests {
 @Suite("SU-M2-DOC · 第四轮全仓审查修复回归（PendingOcrRules/OcrConfirmationSet/ImageInputRules）")
 struct Round4DomainTests {
 
-    @Test func 超72h置顶判定走日历日单一出口() {
+    /// 原名：超72h置顶判定走日历日单一出口
+    @Test func overdue72HoursUsesCalendarDaySingleExit() {
         var cal = Calendar(identifier: .gregorian)
         cal.timeZone = TimeZone(identifier: "America/New_York")!
         let now = Date(timeIntervalSince1970: 1_800_000_000)
@@ -526,7 +570,8 @@ struct Round4DomainTests {
         #expect(!PendingOcrRules.isWithinLastDays(3, createdAt: older, now: now))
     }
 
-    @Test func 全部确认闸门只拦低置信度未确认字段() {
+    /// 原名：全部确认闸门只拦低置信度未确认字段
+    @Test func confirmAllGateBlocksOnlyLowConfidenceUnconfirmedFields() {
         var set = OcrConfirmationSet(fields: [
             CandidateField(key: "a", displayLabel: "A", rawText: "x", confidence: 0.9),
             CandidateField(key: "b", displayLabel: "B", rawText: "y", confidence: 0.3),
@@ -552,7 +597,8 @@ struct Round4DomainTests {
         #expect(set2.fields[1].grade == .ocrUnconfirmed)
     }
 
-    @Test func 已放弃的低置信字段不得卡死全部确认闸门() {
+    /// 原名：已放弃的低置信字段不得卡死全部确认闸门
+    @Test func rejectedLowConfidenceFieldDoesNotBlockConfirmAllGate() {
         var set = OcrConfirmationSet(fields: [
             CandidateField(key: "a", displayLabel: "A", rawText: "x", confidence: 0.9),
             CandidateField(key: "b", displayLabel: "B", rawText: "y", confidence: 0.2),
@@ -564,7 +610,8 @@ struct Round4DomainTests {
         #expect(set.confirmAllRemaining() == 1)
     }
 
-    @Test func MIME字节嗅探与扩展名映射() {
+    /// 原名：MIME字节嗅探与扩展名映射
+    @Test func mimeByteSniffingAndFileExtensionMapping() {
         let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
         #expect(ImageInputRules.sniffMimeType(of: png) == "image/png")
         #expect(ImageInputRules.fileExtension(for: "image/png") == "png")
@@ -581,7 +628,8 @@ struct Round4DomainTests {
         #expect(ImageInputRules.sniffMimeType(of: Data([0x01, 0x02]), fallback: "image/jpeg") == "image/jpeg")
     }
 
-    @Test func 处方标签按身份匹配不受本地化影响() {
+    /// 原名：处方标签按身份匹配不受本地化影响
+    @Test func prescriptionLabelsMatchByIdentityNotLocalization() {
         let labels = PrescriptionFieldMapper.Labels(
             hospital: "醫院", doctor: "醫師", frequency: "頻次",
             dosage: "劑量", drugName: "藥名", other: "其他")
@@ -604,7 +652,8 @@ struct Round4DomainTests {
 @Suite("SU-M2-R8 · 第八轮修复锚点（剂量解析/餐锚去重/紧急词表）")
 struct Round8DomainFixTests {
 
-    @Test func 剂量解析覆盖口语形态() {
+    /// 原名：剂量解析覆盖口语形态
+    @Test func doseParsingCoversColloquialForms() {
         #expect(DoseScheduleEngine.DoseInputParser.parse("1") == 1)
         #expect(DoseScheduleEngine.DoseInputParser.parse("0.5") == 0.5)
         #expect(DoseScheduleEngine.DoseInputParser.parse("0.5片") == 0.5)
@@ -619,14 +668,16 @@ struct Round8DomainFixTests {
         #expect(DoseScheduleEngine.DoseInputParser.parse("1/2/3") == nil)
     }
 
-    @Test func 餐锚同义词去重() {
+    /// 原名：餐锚同义词去重
+    @Test func mealAnchorSynonymsDeduplicated() {
         #expect(DoseScheduleEngine.MealAnchorRules.parse("早,早餐前") == ["beforeBreakfast"])
         #expect(DoseScheduleEngine.MealAnchorRules.parse("空腹,早") == ["beforeBreakfast"])
         #expect(DoseScheduleEngine.MealAnchorRules.parse("早,晚") == ["beforeBreakfast", "beforeDinner"])
         #expect(DoseScheduleEngine.MealAnchorRules.parse("未知词") == [])
     }
 
-    @Test func 紧急词表含语音语义词() {
+    /// 原名：紧急词表含语音语义词
+    @Test func emergencyKeywordListIncludesVoiceSemanticWords() {
         // V3.40 三轨定案：F19 语义词并入 F12 单一词表（语音入口紧急前置）
         for word in ["急救", "救命", "救护车", "叫120", "打120", "拨打120", "胸闷"] {
             #expect(EmergencyKeywordRules.match("我\(word)"), "「\(word)」必须命中 BR-012 前置")
@@ -641,7 +692,8 @@ struct Round8DomainFixTests {
 
     /// 全仓审查 2026-09-18（F-D2-01/F-A7-04）：BR-012 前置必须对 zh-Hant/粤语转写/英文同判——
     /// 此前词表仅简体，「我呼吸困難」「chest pain」全部绕过急救卡短路
-    @Test func 紧急词表繁体粤语英文同判() {
+    /// 原名：紧急词表繁体粤语英文同判
+    @Test func emergencyKeywordsMatchTraditionalCantoneseAndEnglish() {
         for sentence in ["我呼吸困難", "喘不過氣", "叫救護車", "幫我撥打120", "意識不清",
                          "我心口痛", "唞唔到氣",
                          "I have chest pain", "she can't breathe", "CALL 911 now", "need an ambulance"] {
@@ -660,19 +712,22 @@ struct Round8DomainFixTests {
 /// FR10.7 标记错过时间门槛（Domain 规则单一出口）——视图与商店共享，
 /// 未来预约不可误标错过（错标 = 分级提醒全取消 + 2h 跟进提前武装）。
 struct AppointmentRulesTests {
-    @Test func 未到开始时间不可标错过() {
+    /// 原名：未到开始时间不可标错过
+    @Test func cannotMarkMissedBeforeStartTime() {
         let future = Date().addingTimeInterval(3600)
         #expect(!AppointmentRules.canMarkMissed(startsAt: future),
                 "未来预约不得标记错过")
     }
 
-    @Test func 已过开始时间可标错过() {
+    /// 原名：已过开始时间可标错过
+    @Test func canMarkMissedAfterStartTime() {
         let past = Date().addingTimeInterval(-3600)
         #expect(AppointmentRules.canMarkMissed(startsAt: past),
                 "已开始/已过预约可标记错过")
     }
 
-    @Test func 边界恰为当前时刻可标错过() {
+    /// 原名：边界恰为当前时刻可标错过
+    @Test func canMarkMissedAtExactStartTime() {
         let now = Date()
         #expect(AppointmentRules.canMarkMissed(startsAt: now),
                 "startsAt == now 时（已开始）可标错过")
@@ -680,19 +735,22 @@ struct AppointmentRulesTests {
 
     // FR10.7 对称性（审查轮4 跟进项）：标记完成同款时间门槛——
     // 未来预约完成 = 提醒全取消 + 未来日期落「复诊」就诊行（历史造假）
-    @Test func 未到开始时间不可标完成() {
+    /// 原名：未到开始时间不可标完成
+    @Test func cannotMarkCompletedBeforeStartTime() {
         let future = Date().addingTimeInterval(3600)
         #expect(!AppointmentRules.canMarkCompleted(startsAt: future),
                 "未来预约不得标记完成")
     }
 
-    @Test func 已过开始时间可标完成() {
+    /// 原名：已过开始时间可标完成
+    @Test func canMarkCompletedAfterStartTime() {
         let past = Date().addingTimeInterval(-3600)
         #expect(AppointmentRules.canMarkCompleted(startsAt: past),
                 "已开始/已过预约可标记完成")
     }
 
-    @Test func 边界恰为当前时刻可标完成() {
+    /// 原名：边界恰为当前时刻可标完成
+    @Test func canMarkCompletedAtExactStartTime() {
         let now = Date()
         #expect(AppointmentRules.canMarkCompleted(startsAt: now),
                 "startsAt == now 时（已开始）可标完成")
@@ -702,20 +760,23 @@ struct AppointmentRulesTests {
 /// FR9.11 效期状态分类（BatchExpiryRules.status 单一出口）——视图三级
 /// 播报与临期提醒共用同一阈值，域外不得自建 7/30 边界。
 struct BatchExpiryStatusTests {
-    @Test func 已过期归类expired() {
+    /// 原名：已过期归类expired
+    @Test func expiredClassifiedAsExpired() {
         let now = Date()
         #expect(BatchExpiryRules.status(expireAt: now.addingTimeInterval(-1), now: now) == .expired,
                 "expireAt < now 必须归类 expired")
     }
 
-    @Test func 七天内归类within7() {
+    /// 原名：七天内归类within7
+    @Test func withinSevenDaysClassifiedWithin7() {
         let now = Date()
         let d6 = DayArithmetic.offset(days: 6, from: now)
         #expect(BatchExpiryRules.status(expireAt: d6, now: now) == .within7,
                 "6 天后到期必须归类 within7")
     }
 
-    @Test func 三十天内归类within30() {
+    /// 原名：三十天内归类within30
+    @Test func withinThirtyDaysClassifiedWithin30() {
         let now = Date()
         let d8 = DayArithmetic.offset(days: 8, from: now)
         let d30 = DayArithmetic.offset(days: 30, from: now)
@@ -725,7 +786,8 @@ struct BatchExpiryStatusTests {
                 "恰 30 天到期必须含边界（此前视图内 <= 与 > 边界不一致）")
     }
 
-    @Test func 三十天外归类later() {
+    /// 原名：三十天外归类later
+    @Test func beyondThirtyDaysClassifiedLater() {
         let now = Date()
         let d31 = DayArithmetic.offset(days: 31, from: now)
         #expect(BatchExpiryRules.status(expireAt: d31, now: now) == .later,

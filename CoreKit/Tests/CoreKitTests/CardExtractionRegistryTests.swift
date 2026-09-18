@@ -39,7 +39,8 @@ struct CardExtractionRegistryTests {
     }
     private static func prescriptionSpec() throws -> ExtractionSpec { try #require(ExtractionSpecRegistry.spec(for: "prescription")) }
 
-    @Test func 主轨超时或抛错只让该区域切下一轨且诊断诚实() async throws {
+    /// 原名：主轨超时或抛错只让该区域切下一轨且诊断诚实
+    @Test func primaryTrackTimeoutOrErrorFallsBackPerRegionWithHonestDiagnostics() async throws {
         let spec = try Self.prescriptionSpec()
         let regions = Self.layout().extractionRegions(pageIndex: 0)
         #expect(regions.map(\.kind) == [.header, .table] && regions[1].rows.count == 2)   // 表头单列行 → header；两列行段 → 合成 table
@@ -60,7 +61,8 @@ struct CardExtractionRegistryTests {
         #expect(card.shared["prescribed_at"]?.anchor.utf16Range == 5..<15, "grounding 回填锚点范围")
     }
 
-    @Test func 引擎抛错即本会话内该轨不可用_后续区域直接下一轨() async throws {
+    /// 原名：引擎抛错即本会话内该轨不可用_后续区域直接下一轨
+    @Test func engineErrorDisablesTrackForSessionLaterRegionsGoNextTrack() async throws {
         let spec = try Self.prescriptionSpec()
         let calls = Calls()
         let t1 = StubCardExtractionEngine(track: .foundationModels, regionTimeout: .seconds(2)) { region, spec in
@@ -74,7 +76,8 @@ struct CardExtractionRegistryTests {
         #expect(card.diagnostics.timedOutRegions == 0 && card.diagnostics.retries == 0)
     }
 
-    @Test func grounding产出率低先同轨缩范围重试一次再切下一轨并集() async throws {
+    /// 原名：grounding产出率低先同轨缩范围重试一次再切下一轨并集
+    @Test func lowGroundingRetriesSameTrackNarrowedOnceThenFallsBackAndUnions() async throws {
         let spec = try Self.prescriptionSpec()
         let calls = Calls()
         // T1：表头区域给凭空医院 + 真实日期（产出率 1/2 ≥ 0.5 → 通过）；表格区域给两个凭空药名（0/2 → 缩范围重试 → 仍 0 → 切规则轨）。
@@ -102,7 +105,8 @@ struct CardExtractionRegistryTests {
         #expect(card.diagnostics.regionTracks["g1"] == [.rules], "T1 在表格区域零锚定产出——不冒充该区域产出轨")
     }
 
-    @Test func 两轨同区域结果按行锚并集_同行补键不重复成行() async throws {
+    /// 原名：两轨同区域结果按行锚并集_同行补键不重复成行
+    @Test func twoTracksUnionByRowAnchorAndFillKeysWithoutDuplicatingRows() async throws {
         let spec = try #require(ExtractionSpecRegistry.spec(for: "metric_sample"))
         let lines = ["报告日期：2026-09-01", "白细胞 6.5 10^9/L", "血红蛋白 150 g/L"]
         let regions = PageLayout.linesOnly(lines).extractionRegions(pageIndex: 0)
@@ -132,7 +136,8 @@ struct CardExtractionRegistryTests {
         #expect(card.diagnostics.regionTracks["g0"] == [.foundationModels, .rules])
     }
 
-    @Test func 不可用轨被跳过并记录原因_全规则轨不算混轨() async throws {
+    /// 原名：不可用轨被跳过并记录原因_全规则轨不算混轨
+    @Test func unavailableTrackSkippedWithReasonRulesOnlyIsNotMixed() async throws {
         let spec = try Self.prescriptionSpec()
         struct Unavailable: CardExtractionEngine {
             let track: ExtractionTrack = .localLLM
@@ -150,7 +155,8 @@ struct CardExtractionRegistryTests {
         #expect(try await CardExtractionRegistry(engines: [Self.rulesEngine()]).extract(Self.request([])).isEmpty, "无 spec 无卡")
     }
 
-    @Test func 关闭生成式处理时生成轨一律不调用() async throws {
+    /// 原名：关闭生成式处理时生成轨一律不调用
+    @Test func generativeTracksNeverCalledWhenGenerativeDisabled() async throws {
         let spec = try Self.prescriptionSpec()
         let calls = Calls()
         let t1 = StubCardExtractionEngine(track: .foundationModels, regionTimeout: .seconds(2)) { region, spec in
@@ -162,7 +168,8 @@ struct CardExtractionRegistryTests {
         #expect(card.diagnostics.degradedReason == .notAuthorized && card.provenance.track == .rules && card.rows.count == 2)
     }
 
-    @Test func 页预算耗尽后剩余区域只走规则轨() async throws {
+    /// 原名：页预算耗尽后剩余区域只走规则轨
+    @Test func exhaustedPageBudgetSendsRemainingRegionsToRulesTrack() async throws {
         let spec = try Self.prescriptionSpec()
         let calls = Calls()
         let t1 = StubCardExtractionEngine(track: .foundationModels, regionTimeout: .seconds(2)) { region, spec in
@@ -177,7 +184,8 @@ struct CardExtractionRegistryTests {
         #expect(card.diagnostics.degradedReason == .timeout && card.diagnostics.mixedTracks && card.diagnostics.timedOutRegions == 0)
     }
 
-    @Test func 多spec各自成卡且共享同键先到先得() async throws {
+    /// 原名：多spec各自成卡且共享同键先到先得
+    @Test func multipleSpecsProduceSeparateCardsSharingSameKeyFirstWins() async throws {
         let prescription = try Self.prescriptionSpec()
         let encounter = try #require(ExtractionSpecRegistry.spec(for: "encounter"))
         let t3 = StubCardExtractionEngine(track: .rules, regionTimeout: nil) { region, spec in

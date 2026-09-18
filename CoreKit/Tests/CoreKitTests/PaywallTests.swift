@@ -6,7 +6,8 @@ import Testing
 // binds: SU-M1c-IAP — TC-M1c-07
 @Suite("SU-M1c-IAP · 付费墙五时机与红线（comercial §2/§3）")
 struct PaywallTests {
-    @Test func 五时机弹墙矩阵() {
+    /// 原名：五时机弹墙矩阵
+    @Test func fiveTriggerPaywallMatrix() {
         let now = Date()
         // 未解锁 → 弹
         #expect(PaywallRules.shouldShow(trigger: .proOutputFirstTap, entitlementUnlocked: false,
@@ -22,7 +23,8 @@ struct PaywallTests {
                                         lastShownAt: now.addingTimeInterval(-25 * 3600), now: now))
     }
 
-    @Test func 免费红线能力不可禁用() {
+    /// 原名：免费红线能力不可禁用
+    @Test func freeRedLineCapabilitiesNeverBlockable() {
         for cap in ["sensitiveProtection", "offline", "medicationReminder", "refillAlert",
                     "basicHealthAlert", "search", "careMode", "emergencyCard",
                     "helpDiagnostics", "voiceInput", "allergyRecord"] {
@@ -31,7 +33,8 @@ struct PaywallTests {
         #expect(PaywallRules.isBlockable("proOutput"))
     }
 
-    @Test func 额度判定() {
+    /// 原名：额度判定
+    @Test func quotaDecision() {
         let quota = FreeQuota()
         var state = EntitlementState(memberCount: 5)
         #expect(state.quotaExceeded(quota) == .memberQuotaReached)

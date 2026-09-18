@@ -20,32 +20,37 @@ struct ASRLanguageProtocolTests {
         #expect(qwen.decoderLanguage(for: locale, mode: .single) == expected)
     }
 
-    @Test func Qwen混说模式不强制语言以启用自带语种识别() throws {
+    /// 原名：Qwen混说模式不强制语言以启用自带语种识别
+    @Test func qwenMixedModeLeavesLanguageEmptyToEnableBuiltInDetection() throws {
         let qwen = try #require(ASRModelCatalog.model(for: .qwen3))
         #expect(qwen.decoderLanguage(for: "zh-Hans-CN", mode: .mixed) == "")
         #expect(qwen.decoderLanguage(for: "yue-Hant-HK", mode: .mixed) == "")
     }
 
-    @Test func 不支持的locale返回nil而不是猜测() throws {
+    /// 原名：不支持的locale返回nil而不是猜测
+    @Test func unsupportedLocaleReturnsNilInsteadOfGuessing() throws {
         let zipformer = try #require(ASRModelCatalog.model(for: .zipformer))
         #expect(zipformer.decoderLanguage(for: "yue-Hant-HK", mode: .single) == nil)
         let qwen = try #require(ASRModelCatalog.model(for: .qwen3))
         #expect(qwen.decoderLanguage(for: "xx-ZZ", mode: .single) == nil)
     }
 
-    @Test func whisper沿用ISO码且其余引擎为空() throws {
+    /// 原名：whisper沿用ISO码且其余引擎为空
+    @Test func whisperUsesISOCodeOthersEmpty() throws {
         #expect(try #require(ASRModelCatalog.model(for: .whisper)).decoderLanguage(for: "fr-FR", mode: .single) == "fr")
         #expect(try #require(ASRModelCatalog.model(for: .whisper)).decoderLanguage(for: "fr-FR", mode: .mixed) == "fr")
         #expect(try #require(ASRModelCatalog.model(for: .zipformer)).decoderLanguage(for: "en-US", mode: .single) == "")
         #expect(try #require(ASRModelCatalog.model(for: .dolphin)).decoderLanguage(for: "wuu-CN", mode: .single) == "")
     }
 
-    @Test func 请求默认单语模式且可显式指定混说() {
+    /// 原名：请求默认单语模式且可显式指定混说
+    @Test func requestDefaultsToSingleModeAndMixedCanBeExplicit() {
         #expect(TranscriptionRequest(localeIdentifier: "zh-Hans-CN").languageMode == .single)
         #expect(TranscriptionRequest(localeIdentifier: "zh-Hans-CN", languageMode: .mixed).languageMode == .mixed)
     }
 
-    @Test func 自动选择让Qwen优先承担英语与外语() {
+    /// 原名：自动选择让Qwen优先承担英语与外语
+    @Test func automaticChoicePrefersQwenForEnglishAndForeign() {
         #expect(ASRModelCatalog.automaticChoice(locale: "en-US") == .qwen3)
         #expect(ASRModelCatalog.automaticChoice(locale: "de-DE") == .qwen3)
         #expect(ASRModelCatalog.automaticChoice(locale: "ur-PK") == .dolphin)

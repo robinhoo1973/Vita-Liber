@@ -11,7 +11,8 @@ struct VoiceConversationTests {
 
     // MARK: FR19.2 文法白名单
 
-    @Test func 白名单指令解析() {
+    /// 原名：白名单指令解析
+    @Test func whitelistedCommandsParse() {
         #expect(VoiceCommandGrammar.parse("今天吃什么药", emergencyNumber: "120") == .command(.todayMeds))
         #expect(VoiceCommandGrammar.parse("下次预约", emergencyNumber: "120") == .command(.nextAppointment))
         #expect(VoiceCommandGrammar.parse("阿司匹林还剩多少", emergencyNumber: "120") == .command(.stockRemaining))
@@ -25,7 +26,8 @@ struct VoiceConversationTests {
     /// ② 句尾标点剥离（转写引擎常补「。/！？」，「拨打120。」不得失配）；
     /// ③ 急救语义词（急救/救命/叫救护车）经语音可达（BR-012 出口）；
     /// ④ 「记录119条」不误命中（句尾锚定 + 动词要求）。
-    @Test func 急救号码文法() {
+    /// 原名：急救号码文法
+    @Test func emergencyNumberGrammar() {
         #expect(VoiceCommandGrammar.parse("帮我打120", emergencyNumber: "120") == .command(.callEmergency120))
         #expect(VoiceCommandGrammar.parse("打120", emergencyNumber: "120") == .command(.callEmergency120))
         #expect(VoiceCommandGrammar.parse("拨打120。", emergencyNumber: "120") == .command(.callEmergency120))
@@ -40,7 +42,8 @@ struct VoiceConversationTests {
         #expect(VoiceCommandGrammar.parse("血压120", emergencyNumber: "120") != .command(.callEmergency120))
     }
 
-    @Test func 开放域不解析() {
+    /// 原名：开放域不解析
+    @Test func openDomainNotParsed() {
         // FR19.9：不做自由对话与医疗问答
         #expect(VoiceCommandGrammar.parse("我最近心情不好怎么办", emergencyNumber: "120") == .unrecognized)
         #expect(VoiceCommandGrammar.parse("帮我查一下医保政策", emergencyNumber: "120") == .unrecognized)
@@ -48,7 +51,8 @@ struct VoiceConversationTests {
 
     // MARK: FR19.5 危险分级确认
 
-    @Test func 拨号必须复述对象再确认() {
+    /// 原名：拨号必须复述对象再确认
+    @Test func dialingRequiresObjectRepeatBeforeConfirmation() {
         var state = ConversationState()
         let (s1, e1) = VoiceConversationEngine.step(state: state, transcript: "帮我打给女儿", emergencyNumber: "120")
         #expect(s1.phase == .repeatingObject, "拨号前必须进入复述对象相位")
@@ -62,7 +66,8 @@ struct VoiceConversationTests {
         #expect(s2.phase == .listening)
     }
 
-    @Test func 急救拨号免复述直接执行() {
+    /// 原名：急救拨号免复述直接执行
+    @Test func emergencyDialExecutesWithoutRepeat() {
         // FR19.5 附表：拨打 120（及 急救/救命/叫救护车 语义词）免复述——
         // 直接执行拨号，安全网 = 系统拨号确认（5 秒响铃倒计时可取消）。
         // 2026-09-10 审查修正锚点：原实现走 .repeatingObject 要求口头「确认」，
@@ -76,7 +81,8 @@ struct VoiceConversationTests {
                 "急救路径不得要求复述对象")
     }
 
-    @Test func 删除剂量变更一律拒绝() {
+    /// 原名：删除剂量变更一律拒绝
+    @Test func deletionAndDoseChangeAlwaysRejected() {
         let banned = ["删除阿司匹林的记录", "把剂量改成一天三次", "停用这个药", "删掉时间轴"]
         for phrase in banned {
             let (_, events) = VoiceConversationEngine.step(state: ConversationState(),
@@ -88,7 +94,8 @@ struct VoiceConversationTests {
         }
     }
 
-    @Test func 危险动作误执行为零() {
+    /// 原名：危险动作误执行为零
+    @Test func dangerousActionsNeverMisExecute() {
         // M3 一票否决：危险动作误执行次数 = 0。
         // 攻击式表述（确认词混入删除/剂量变更）也必须被拒
         let attacks = ["确认删除阿司匹林", "是的，把剂量改成一天三次", "对，停用"]
@@ -103,7 +110,8 @@ struct VoiceConversationTests {
 
     // MARK: FR19.4 选择循环 + 再说一遍
 
-    @Test func 列选不超过三项且按编号选择() {
+    /// 原名：列选不超过三项且按编号选择
+    @Test func optionsCapAtThreeAndSelectByOrdinal() {
         // 第七轮修复：必须传 pendingCommand 且断言执行命令——原测试漏传参数、
         // 断言只匹配 payload 不匹配命令，引擎 `pendingCommand ?? .todayMeds`
         // 的回落把「药还剩多少」错执行成「今天吃什么药」仍全绿（假宣告）
@@ -121,7 +129,8 @@ struct VoiceConversationTests {
 
     /// 第七轮修复锚点：搜索载荷剥离（第六轮修复）零测试——载荷丢失 = 搜索页空开。
     /// openSearch 为低风险查询类，直接执行（无确认轮）
-    @Test func 搜索指令载荷保留() {
+    /// 原名：搜索指令载荷保留
+    @Test func searchCommandKeepsPayload() {
         let (_, events) = VoiceConversationEngine.step(state: ConversationState(),
                                                        transcript: "搜索阿司匹林",
                                                        emergencyNumber: "120")
@@ -131,7 +140,8 @@ struct VoiceConversationTests {
     }
 
     /// 第七轮修复锚点：recordQuestion 载荷（记一个问题：…）零测试
-    @Test func 记录问题载荷抽取() {
+    /// 原名：记录问题载荷抽取
+    @Test func recordQuestionPayloadExtracted() {
         var state = ConversationState()
         let (s1, _) = VoiceConversationEngine.step(state: state, transcript: "记一个问题：头晕三天", emergencyNumber: "120")
         state = s1
@@ -142,7 +152,8 @@ struct VoiceConversationTests {
     }
 
     /// 库存指令载荷：句首药品名必须带出（此前载荷恒 nil，视图回全清单答非所问）
-    @Test func 库存指令载荷截取药品名() {
+    /// 原名：库存指令载荷截取药品名
+    @Test func stockCommandPayloadCarriesDrugName() {
         let cases: [(String, VoiceCommand, String)] = [
             ("阿司匹林还剩多少", .stockRemaining, "阿司匹林"),
             ("阿司匹林什么时候过期", .stockExpiry, "阿司匹林"),
@@ -164,7 +175,8 @@ struct VoiceConversationTests {
 
     /// 泛化药词（patterns 的 (?:药)? 前缀）：「药还剩多少」是库存查询的
     /// 全局问句——载荷不得是「药」（会误报未找到或命中首个含药字药品）
-    @Test func 泛化药词载荷为空() {
+    /// 原名：泛化药词载荷为空
+    @Test func genericDrugWordYieldsNilPayload() {
         for utterance in ["药还剩多少", "药放在哪", "我的药什么时候过期", "这个药还剩多少"] {
             let (_, events) = VoiceConversationEngine.step(state: ConversationState(),
                                                            transcript: utterance,
@@ -175,7 +187,8 @@ struct VoiceConversationTests {
         }
     }
 
-    @Test func 再说一遍重播当前问题与选项() {
+    /// 原名：再说一遍重播当前问题与选项
+    @Test func repeatLastReplaysQuestionAndOptions() {
         let (state, _) = VoiceConversationEngine.optionsPrompt(["甲", "乙"])
         let (_, events) = VoiceConversationEngine.step(state: state, transcript: "再说一遍", emergencyNumber: "120")
         // V3.68：提示语类型化（SpeechPrompt）——空提示在类型上不存在，断言播报事件存在即可
@@ -188,7 +201,8 @@ struct VoiceConversationTests {
     /// VoiceCommandGrammar.confirmWord/cancelWord/ordinalWord 是 App 触屏降级
     /// 输入的词汇源——必须与文法解析同义。此前常量与正则各自硬编码、无任何
     /// 测试绑定：文法一旦扩展别名（如「确定」），触屏确认按钮即静默失效。
-    @Test func 词汇表常量与文法一致() {
+    /// 原名：词汇表常量与文法一致
+    @Test func vocabularyConstantsMatchGrammar() {
         #expect(VoiceCommandGrammar.parse(VoiceCommandGrammar.confirmWord, emergencyNumber: "120") == .command(.yes))
         #expect(VoiceCommandGrammar.parse(VoiceCommandGrammar.cancelWord, emergencyNumber: "120") == .command(.no))
         for n in 1...3 {
@@ -203,7 +217,8 @@ struct VoiceConversationTests {
 
     // MARK: FR19.6 超时降级
 
-    @Test func 两轮无效应答礼貌退出() {
+    /// 原名：两轮无效应答礼貌退出
+    @Test func twoSilentRoundsExitGracefully() {
         var state = ConversationState()
         _ = VoiceConversationEngine.step(state: state, transcript: "今天天气不错", emergencyNumber: "120")     // 第 1 轮无效
         state.silentRounds = 1
@@ -214,7 +229,8 @@ struct VoiceConversationTests {
 
     /// 审查修复锚点（FR19.6 相位一致性）：确认相位/复述相位此前只累加
     /// silentRounds 永不退出——无法说「是/否」的用户被困死在确认循环。
-    @Test func 确认相位两轮无效应答同样退出() {
+    /// 原名：确认相位两轮无效应答同样退出
+    @Test func confirmingPhaseAlsoExitsAfterTwoSilentRounds() {
         var state = ConversationState()
         let (s1, _) = VoiceConversationEngine.step(state: state, transcript: "血压 148", emergencyNumber: "120")
         #expect(s1.phase == .confirming)
@@ -228,7 +244,8 @@ struct VoiceConversationTests {
 
     /// 审查修复锚点（复述相位 FR19.6）：拨号前复述对象相位同样遵守两轮退出——
     /// 退出即取消待确认拨号，绝不误执行。
-    @Test func 复述相位两轮无效应答退出且不拨号() {
+    /// 原名：复述相位两轮无效应答退出且不拨号
+    @Test func repeatingPhaseExitsAfterTwoSilentRoundsWithoutDialing() {
         var state = ConversationState()
         let (s1, _) = VoiceConversationEngine.step(state: state, transcript: "帮我打给女儿", emergencyNumber: "120")
         #expect(s1.phase == .repeatingObject)
@@ -244,7 +261,8 @@ struct VoiceConversationTests {
 
     /// 审查修复锚点（是/否在非确认相位）：listening 下说「是」原为零事件死滞——
     /// 现按无效应答计数并提示（与 unrecognized 分支同构）。
-    @Test func 非确认相位是否按无效应答处理() {
+    /// 原名：非确认相位是否按无效应答处理
+    @Test func yesNoOutsideConfirmingCountsAsSilentRound() {
         let (s, e) = VoiceConversationEngine.step(state: ConversationState(), transcript: "是", emergencyNumber: "120")
         #expect(s.silentRounds == 1, "listening 相位「是」必须计入静默轮数")
         #expect(e.contains(where: { if case .speak = $0 { return true }; return false }),
@@ -252,7 +270,8 @@ struct VoiceConversationTests {
         #expect(s.phase == .listening)
     }
 
-    @Test func 有效应答清零静默计数() {
+    /// 原名：有效应答清零静默计数
+    @Test func validAnswerClearsSilentRounds() {
         var state = ConversationState()
         state.silentRounds = 1
         let (s2, _) = VoiceConversationEngine.step(state: state, transcript: "今天吃什么药", emergencyNumber: "120")
@@ -264,7 +283,8 @@ struct VoiceConversationTests {
     /// 此前 markTaken/record/recordQuestion 进 .confirming 不清零，一次无效
     /// 确认应答即触发两轮退出（FR19.6 提前一轮），待确认的 BR-004 服药
     /// 事实被静默取消。
-    @Test func 有效命令进入确认相位清零静默计数() {
+    /// 原名：有效命令进入确认相位清零静默计数
+    @Test func validCommandEnteringConfirmingClearsSilentRounds() {
         var state = ConversationState()
         _ = VoiceConversationEngine.step(state: state, transcript: "今天天气不错", emergencyNumber: "120")   // 1 轮无效
         state.silentRounds = 1
@@ -280,7 +300,8 @@ struct VoiceConversationTests {
     /// 选项名应答此前无文法命中（patterns 表无法枚举运行时选项名），落入
     /// unrecognized 计数并两轮后礼貌退出；列选相位按当前选项名二次匹配后
     /// 走 .selectName 分支。
-    @Test func 列选按选项名应答() {
+    /// 原名：列选按选项名应答
+    @Test func optionNameAnswerSelectsOption() {
         let (state, _) = VoiceConversationEngine.optionsPrompt(["阿司匹林", "布洛芬"], pendingCommand: .markTaken)
         let (s2, e2) = VoiceConversationEngine.step(state: state, transcript: "布洛芬", emergencyNumber: "120")
         #expect(e2.contains(where: { if case .execute(let cmd, let payload) = $0 { return cmd == .markTaken && payload == "布洛芬" }
@@ -293,7 +314,8 @@ struct VoiceConversationTests {
     /// 审查修复锚点（2026-09-18）：名称命中多条（同药多时段，选项含同一
     /// 药名）不得首条代答——静默确认用户未指认的剂量 = BR-004 事实链污染；
     /// 应提示按编号应答（有效应答，不计静默轮）。
-    @Test func 选项名多命中不得首条代答() {
+    /// 原名：选项名多命中不得首条代答
+    @Test func ambiguousOptionNameNeverAutoPicksFirst() {
         let (state, _) = VoiceConversationEngine.optionsPrompt(
             ["阿莫西林 · 08:00", "阿莫西林 · 20:00"], pendingCommand: .markTaken)
         let (s2, e2) = VoiceConversationEngine.step(state: state, transcript: "阿莫西林", emergencyNumber: "120")
@@ -308,7 +330,8 @@ struct VoiceConversationTests {
     /// 审查修复锚点（2026-09-18）：离开列选相位即清空选项集（状态不变量
     /// phase != .selecting ⇒ options 为空）——确认相位保留旧选项会让视图
     /// 镜像滞留幽灵芯片。
-    @Test func 离开列选相位清空选项集() {
+    /// 原名：离开列选相位清空选项集
+    @Test func leavingSelectingPhaseClearsOptions() {
         let (state, _) = VoiceConversationEngine.optionsPrompt(["甲", "乙"], pendingCommand: .markTaken)
         #expect(!state.options.isEmpty)
         let (s2, _) = VoiceConversationEngine.step(state: state, transcript: "我吃过阿司匹林了", emergencyNumber: "120")
@@ -320,7 +343,8 @@ struct VoiceConversationTests {
 
     /// 免触三连：查今日用药 → 标记已服用 → 查询余量。
     /// 用 100 轮模拟会话（语料含正常/变体/歧义），成功率必须 ≥85%。
-    @Test func 免触三连成功率达标() {
+    /// 原名：免触三连成功率达标
+    @Test func handsFreeTripleMeetsSuccessRate() {
         var success = 0
         let rounds = 100
         for i in 0..<rounds {
@@ -346,7 +370,8 @@ struct VoiceConversationTests {
 
     // MARK: FR19.3 / BR-006 播报文案红线
 
-    @Test func 播报均为类型化提示语() {
+    /// 原名：播报均为类型化提示语
+    @Test func allSpeechUsesTypedPrompts() {
         // V3.68：播报提示语类型化（SpeechPrompt）——文案经 App 层 L10n 模板渲染，
         // BR-006 措辞负清单对模板句的执法随迁至 App 层模板测试（三语模板过负清单）；
         // Domain 侧保留结构性断言：每条播报都是合法提示语枚举，不存在自由文本分支。
@@ -367,13 +392,15 @@ struct VoiceConversationTests {
 @Suite("SU-M3-F19 · ADR-008 铝箔板盘点占位（BR-003 恒待确认）")
 struct BlisterScannerTests {
 
-    @Test func 扫描结果恒待确认() {
+    /// 原名：扫描结果恒待确认
+    @Test func blisterScanResultAlwaysUnconfirmed() {
         let result = BlisterScanResult(count: 7)
         #expect(result.count == 7)
         #expect(!result.autoConfirmed, "机器计数是候选不是事实——BR-003 恒待确认")
     }
 
-    @Test func 占位桩可注入且零网络() async throws {
+    /// 原名：占位桩可注入且零网络
+    @Test func stubScannerIsInjectableAndOffline() async throws {
         let scanner = StubInventoryScanner(count: 5)
         let result = try await scanner.scanBlisterCount(Data([0x00]))
         #expect(result.count == 5)

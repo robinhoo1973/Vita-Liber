@@ -14,7 +14,8 @@ struct LayoutRowBuilderTests {
 
     // MARK: 计划 Step 1 三用例
 
-    @Test func 同y带三块聚为一行按x排列并分三列() {
+    /// 原名：同y带三块聚为一行按x排列并分三列
+    @Test func threeBlocksInSameYBandFormOneRowSortedByXIntoThreeColumns() {
         let blocks = [block("阿莫西林胶囊", x: 0.05, y: 0.30, line: 2), block("0.25g×24", x: 0.45, y: 0.305, line: 4),
                       block("每次1粒 每日3次", x: 0.70, y: 0.31, line: 3),
                       block("布洛芬缓释胶囊", x: 0.05, y: 0.36, line: 5), block("0.3g×20", x: 0.45, y: 0.362, line: 6),
@@ -26,13 +27,15 @@ struct LayoutRowBuilderTests {
         #expect(rows[0].lineIndices == [2, 4, 3])
     }
 
-    @Test func 乱序输入结果相同且竖向不重叠的块不合并() {
+    /// 原名：乱序输入结果相同且竖向不重叠的块不合并
+    @Test func shuffledInputSameResultAndVerticallyDisjointBlocksNotMerged() {
         let a = [block("A", x: 0.1, y: 0.10, line: 0), block("B", x: 0.1, y: 0.20, line: 1)]
         #expect(LayoutRowBuilder.rows(from: a).count == 2)
         #expect(LayoutRowBuilder.rows(from: a.reversed()) == LayoutRowBuilder.rows(from: a))
     }
 
-    @Test func 仅行文本退化为每行一块一行() {
+    /// 原名：仅行文本退化为每行一块一行
+    @Test func linesOnlyLayoutDegradesToOneBlockPerRow() {
         let layout = PageLayout.linesOnly(["处方笺", "阿莫西林胶囊 0.25g"])
         #expect(layout.blocks.count == 2 && layout.blocks[1].lineIndex == 1 && layout.blocks[1].id == "b1")
         #expect(LayoutRowBuilder.rows(from: layout.blocks).count == 2)
@@ -41,7 +44,8 @@ struct LayoutRowBuilderTests {
 
     // MARK: 版面形态补充用例
 
-    @Test func 单列文本每块自成一行且全部归第0列() {
+    /// 原名：单列文本每块自成一行且全部归第0列
+    @Test func singleColumnEachBlockOwnRowAllInColumnZero() {
         let blocks = (0..<6).map { i in block("第\(i)行", x: 0.05, y: 0.10 + Double(i) * 0.05, w: 0.6, line: i) }
         let rows = LayoutRowBuilder.rows(from: blocks)
         #expect(rows.count == 6)
@@ -50,7 +54,8 @@ struct LayoutRowBuilderTests {
         #expect(rows.map { $0.lineIndices[0] } == [0, 1, 2, 3, 4, 5])
     }
 
-    @Test func 两列标签值成对同行且缺值行标签仍在第0列() {
+    /// 原名：两列标签值成对同行且缺值行标签仍在第0列
+    @Test func twoColumnLabelValuePairsShareRowAndLabelStaysInColumnZero() {
         let blocks = [block("姓名", x: 0.05, y: 0.10, line: 0), block("张三", x: 0.30, y: 0.102, line: 1),
                       block("科室", x: 0.05, y: 0.15, line: 2), block("内科", x: 0.30, y: 0.148, line: 3),
                       block("诊断", x: 0.05, y: 0.20, line: 4)]
@@ -62,7 +67,8 @@ struct LayoutRowBuilderTests {
         #expect(rows[0].text == "姓名 张三")
     }
 
-    @Test func 五列处方表按x对齐分列且缺格行保留真实列号() {
+    /// 原名：五列处方表按x对齐分列且缺格行保留真实列号
+    @Test func fiveColumnPrescriptionAlignsByXAndMissingCellKeepsRealColumnIndex() {
         let xs = [0.05, 0.30, 0.50, 0.65, 0.85]
         let header = ["药品名称", "规格", "数量", "用法", "用量"]
         let drugA = ["阿莫西林胶囊", "0.25g", "24", "口服", "每次1粒"]
@@ -83,7 +89,8 @@ struct LayoutRowBuilderTests {
         #expect(rows[1].lineIndices == [5, 6, 7, 8, 9])
     }
 
-    @Test func 轻微倾斜扫描行内y漂移与列x抖动仍聚同行同列() {
+    /// 原名：轻微倾斜扫描行内y漂移与列x抖动仍聚同行同列
+    @Test func slightSkewYDriftAndXJitterStillClusterToSameRowAndColumn() {
         // 每列 y 漂移 0.003（行高 0.03，跨五列共漂 0.012 ≈ 40% 行高）；同列 x 抖动 ±0.01。
         let row1X = [0.05, 0.30, 0.50, 0.65, 0.85], row2X = [0.06, 0.29, 0.51, 0.66, 0.84]
         var blocks: [TextBlock] = []
@@ -98,7 +105,8 @@ struct LayoutRowBuilderTests {
         #expect(abs(rows[0].bbox.x - 0.05) < 1e-9 && abs(rows[0].bbox.x + rows[0].bbox.width - 0.93) < 1e-9)
     }
 
-    @Test func 空输入返回空且矩形并集覆盖两者() {
+    /// 原名：空输入返回空且矩形并集覆盖两者
+    @Test func emptyInputReturnsEmptyAndRectUnionCoversBoth() {
         #expect(LayoutRowBuilder.rows(from: []).isEmpty)
         let u = LayoutRect(x: 0.1, y: 0.2, width: 0.2, height: 0.1).union(LayoutRect(x: 0.5, y: 0.1, width: 0.1, height: 0.3))
         #expect(abs(u.x - 0.1) < 1e-9 && abs(u.y - 0.1) < 1e-9)

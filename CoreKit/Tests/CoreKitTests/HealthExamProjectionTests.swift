@@ -22,7 +22,8 @@ struct HealthExamProjectionTests {
 
     // MARK: - 1. 体检首页意图（plan 逐字）
 
-    @Test func 一般检查只投影有键且可严格解析的项() throws {
+    /// 原名：一般检查只投影有键且可严格解析的项
+    @Test func generalExamProjectsOnlyKeyedStrictlyParsableItems() throws {
         let card = MatchedCard(kind: "health_exam", pageIndex: 0, shared: [
             .init(key: "org_name", value: "美年体检", grade: .userConfirmed), .init(key: "exam_date", value: "2024-05-06", grade: .userConfirmed),
             .init(key: "height", value: "170", unit: "cm", grade: .userConfirmed), .init(key: "weight", value: "65.5", unit: "kg", grade: .userConfirmed),
@@ -38,7 +39,8 @@ struct HealthExamProjectionTests {
         #expect(intent.exam.patientId == FactPlaceholder.unassignedId && intent.exam.weightText == "65.5" && intent.exam.systolicText == "128")
     }
 
-    @Test func 一般检查单位越出白名单或非严格十进制不投影_首页字段齐全() throws {
+    /// 原名：一般检查单位越出白名单或非严格十进制不投影_首页字段齐全
+    @Test func generalExamSkipsBadUnitOrNonStrictDecimalWhileHeaderFieldsComplete() throws {
         let full = card("health_exam", pageIndex: 2, shared: [
             f("org_name", "美年体检"), f("exam_no", "TJ001"), f("package_name", "尊享套餐"), f("exam_date", "2024-05-06"), f("total_doctor", "王总检"),
             f("report_date", "2024-05-10"), f("height", "170", unit: "cm"), f("weight", "65.5", unit: "斤"), f("bmi", "22.7"),
@@ -64,7 +66,8 @@ struct HealthExamProjectionTests {
 
     // MARK: - 2. 结论行意图（plan 逐字）
 
-    @Test func 结论行类型由关键词派生默认且可逐行覆盖() throws {
+    /// 原名：结论行类型由关键词派生默认且可逐行覆盖
+    @Test func conclusionTypeDefaultsFromKeywordsAndOverridablePerRow() throws {
         let card = MatchedCard(kind: "clinical_conclusion", pageIndex: 1, shared: [],
             rows: [MatchedCardRow(fields: [.init(key: "content", value: "建议 3 个月后复查血脂", grade: .userConfirmed)]),
                    MatchedCardRow(fields: [.init(key: "content", value: "肝囊肿", grade: .userConfirmed), .init(key: "conclusion_type", value: "abnormal_finding", grade: .userConfirmed), .init(key: "severity", value: "关注", grade: .userConfirmed)])],
@@ -77,7 +80,8 @@ struct HealthExamProjectionTests {
         #expect(intents[0].conclusion.content == "建议 3 个月后复查血脂" && intents[0].conclusion.patientId == FactPlaceholder.unassignedId)
     }
 
-    @Test func 结论类型关键词派生表_与枚举同拼写_严重度不编码() {
+    /// 原名：结论类型关键词派生表_与枚举同拼写_严重度不编码
+    @Test func conclusionTypeKeywordTableMatchesEnumSpellingSeverityNotEncoded() {
         for (content, type) in [("建议 3 个月后复查血脂", "recheck_advice"), ("建议心内科就诊", "visit_advice"), ("请至专科门诊随诊", "visit_advice"),
                                 ("建议低脂饮食", "health_advice"), ("健康指导：规律运动", "health_advice"), ("血脂偏高", "abnormal_finding"),
                                 ("HBsAg 阳性", "abnormal_finding"), ("血红蛋白偏低", "abnormal_finding"),
@@ -102,7 +106,8 @@ struct HealthExamProjectionTests {
 
     // MARK: - 3. 手术 / 治疗意图
 
-    @Test func 手术意图最小集与全列原文() throws {
+    /// 原名：手术意图最小集与全列原文
+    @Test func surgeryIntentMinimalSetAndAllColumnsVerbatim() throws {
         let full = card("surgery", pageIndex: 1, shared: [
             f("hospital", "市一医院"), f("department", "普外科"), f("surgery_at", "2024-03-01"), f("ended_at", "2024-03-01"),
             f("surgery_name", "腹腔镜胆囊切除术"), f("surgery_code", "51.2300"), f("surgery_level", "三级"),
@@ -130,7 +135,8 @@ struct HealthExamProjectionTests {
         #expect(EntityCardProjection.invalidFields(in: badEnd, row: badEnd.rows[0], calendar: utc) == ["ended_at"])
     }
 
-    @Test func 治疗记录意图_类型canonical_内容与药物二择一_药物原文不拆行() throws {
+    /// 原名：治疗记录意图_类型canonical_内容与药物二择一_药物原文不拆行
+    @Test func treatmentIntentCanonicalTypeContentOrDrugsExclusiveDrugsVerbatim() throws {
         let infusion = card("treatment_record", shared: [
             f("treatment_type", "infusion"), f("treated_at", "2024-03-02"), f("hospital", "社区医院"), f("department", "输液室"), f("doctor", "王"), f("executor", "李护士"),
             f("diagnosis_text", "急性支气管炎"), f("drugs_text", "0.9% 氯化钠 250ml + 头孢呋辛 1.5g ivgtt 40 滴/分"), f("session", "第 2 次/共 3 次"),
@@ -158,7 +164,8 @@ struct HealthExamProjectionTests {
 
     // MARK: - 4. DDL 镜像值类型 / 读模型 / 预约用途 / 提醒来源
 
-    @Test func 四值类型与读模型Codable往返_枚举与CHECK同拼写() throws {
+    /// 原名：四值类型与读模型Codable往返_枚举与CHECK同拼写
+    @Test func fourValueTypesAndReadModelsRoundTripEnumsMatchCheckSpelling() throws {
         let t0 = Date(timeIntervalSince1970: 1), t1 = Date(timeIntervalSince1970: 2)
         let exam = HealthExam(patientId: UUID(), documentFileId: UUID(), orgName: "美年体检", examNo: "TJ001", packageName: "套餐", examDate: day(2024, 5, 6),
                               totalDoctor: "王", reportDate: day(2024, 5, 10), heightText: "170", weightText: "65.5", bmiText: "22.7", systolicText: "128",
@@ -182,7 +189,8 @@ struct HealthExamProjectionTests {
         #expect(try JSONDecoder().decode(AppointmentPurpose.self, from: Data(#""followUp""#.utf8)) == .followUp)
     }
 
-    @Test func 提醒来源白名单三表() {
+    /// 原名：提醒来源白名单三表
+    @Test func reminderSourceWhitelistThreeTables() {
         #expect(ReminderSource.allowedTables == ["encounter", "appointment", "health_exam"])
         #expect(ReminderSource(table: "appointment", id: UUID()).isAllowed && ReminderSource(table: "health_exam", id: UUID()).isAllowed)
         #expect(!ReminderSource(table: "medication_plan", id: UUID()).isAllowed && !ReminderSource(table: "Appointment", id: UUID()).isAllowed, "白名单精确匹配，store 据此拒绝")
@@ -193,7 +201,8 @@ struct HealthExamProjectionTests {
 
     // MARK: - 5. 注册表 / 模板 / 最小集规则
 
-    @Test func 注册表四条目_模板四条_最小集规则() throws {
+    /// 原名：注册表四条目_模板四条_最小集规则
+    @Test func registryFourEntriesFourTemplatesMinimalSetRules() throws {
         let exam = try #require(CardKindRegistry.entry(for: "health_exam"))
         #expect(exam.entityTables.first == "health_exam" && exam.headerTable == "health_exam" && exam.sharedRequired == ["org_name", "exam_date"] && exam.dateKey == "exam_date")
         #expect(exam.sharedOptional.isSuperset(of: ["exam_no", "package_name", "total_doctor", "report_date", "height", "weight", "bmi", "systolic", "diastolic", "pulse", "waist",
@@ -233,7 +242,8 @@ struct HealthExamProjectionTests {
 
     // MARK: - 6. 模板匹配（体检首页 / 结论页 / 手术 / 治疗）
 
-    @Test func 体检首页出体检卡_血压拆收缩舒张_仅体检文档() throws {
+    /// 原名：体检首页出体检卡_血压拆收缩舒张_仅体检文档
+    @Test func healthExamHeaderYieldsCardBloodPressureSplitOnlyCheckupDocs() throws {
         let raw = "血压：128/82 mmHg"
         let fields = [f("org_name", "美年体检"), f("exam_no", "TJ001"), f("exam_date", "2024-05-06"), f("package_name", "尊享套餐"),
                       f("height", "170", unit: "cm"), f("weight", "65.5", unit: "kg"), f("blood_pressure", "128/82", unit: "mmHg", raw: raw),
@@ -256,7 +266,8 @@ struct HealthExamProjectionTests {
         #expect(ClinicalFieldLabels.splitBloodPressure("128") == nil && ClinicalFieldLabels.splitBloodPressure("正常") == nil)
     }
 
-    @Test func 结论页每条一行_同行严重度归行_共享机构日期随卡() throws {
+    /// 原名：结论页每条一行_同行严重度归行_共享机构日期随卡
+    @Test func conclusionPageOneRowPerLineRowSeverityStaysSharedOrgDateCarried() throws {
         let fields = [f("org_name", "美年体检"), f("exam_date", "2024-05-06"),
                       f("conclusion_item", "血脂偏高", raw: "1. 血脂偏高  关注", line: 3), f("severity", "关注", raw: "1. 血脂偏高  关注", line: 3),
                       f("conclusion_item", "建议 3 个月后复查血脂", raw: "2. 建议 3 个月后复查血脂", line: 4),
@@ -273,7 +284,8 @@ struct HealthExamProjectionTests {
         #expect(!CardTemplateMatcher.match(fields: fields, pageIndex: 1, documentTypeKey: "exam_report").contains { $0.kind == "clinical_conclusion" }, "本轮结论卡只从体检文档产出")
     }
 
-    @Test func 手术与治疗文书出卡_仅对应文档类型() throws {
+    /// 原名：手术与治疗文书出卡_仅对应文档类型
+    @Test func surgeryAndTreatmentDocsYieldCardsOnlyForTheirDocTypes() throws {
         let surgeryFields = [f("hospital", "市一医院"), f("surgery_at", "2024-03-01"), f("surgery_name", "腹腔镜胆囊切除术"), f("surgeon", "张"), f("anesthesia_method", "全麻"),
                              f("postop_diagnosis", "胆囊结石"), f("report_date", "2024-03-05")]
         let surgery = try #require(CardTemplateMatcher.match(fields: surgeryFields, pageIndex: 0, documentTypeKey: "surgery_record").first { $0.kind == "surgery" })
@@ -292,7 +304,8 @@ struct HealthExamProjectionTests {
 
     // MARK: - 7. 理解层：新键、叙事、枚举归一、标签直配、分类器证据
 
-    @Test func 理解层新键允许_叙事键不截断_枚举归一() {
+    /// 原名：理解层新键允许_叙事键不截断_枚举归一
+    @Test func understandingAllowsNewKeysKeepsNarrativeUncutNormalizesEnums() {
         let lines = ["总检结论：血脂偏高，肝囊肿。", "健康指导：低脂饮食，定期复查。", "手术经过：常规消毒铺巾", "输液药物：0.9% 氯化钠 250ml + 头孢呋辛 1.5g", "体重：65.5 kg", "并发症：无"]
         let fields = OCRGrounding.fields([
             .init(key: "overall_conclusion", value: "血脂偏高，肝囊肿。", lineIndex: 0),
@@ -324,7 +337,8 @@ struct HealthExamProjectionTests {
         #expect(OCRGrounding.normalized("雾化", key: "treatment_type") == "雾化", "未知原样透传（invalidFields 交用户复核）")
     }
 
-    @Test func 标签直配三语_体检结论手术治疗键_结论标签成行() {
+    /// 原名：标签直配三语_体检结论手术治疗键_结论标签成行
+    @Test func labelDirectMatchAcrossThreeLanguagesForExamConclusionSurgeryAndTreatment() {
         let lines = ["体检编号：TJ001", "體檢日期：2024-05-06", "总检医师：王", "身高：170 cm", "體重：65.5 kg", "血压：128/82 mmHg", "脉搏：72 次/分", "腰围：80 cm",
                      "总检结论：血脂偏高", "健康指导：低脂饮食", "检验结论：白细胞偏高", "复查建议：3 个月后复查血脂", "Surgeon: Dr. Zhang", "手术名称：腹腔镜胆囊切除术",
                      "麻醉方式：全麻", "植入物：钛夹 ×2", "治疗类型：输液", "執行者：李護士", "不良反应：无"]
@@ -348,7 +362,8 @@ struct HealthExamProjectionTests {
         #expect(ClinicalFieldLabels.narrativeLabels.isSuperset(of: ["总检结论", "健康指导", "手术经过", "术中所见", "输液药物", "不良反应", "檢驗結論"]), "叙事剥标签用的已知标签同源")
     }
 
-    @Test func 分类器证据词_手术与治疗文书_既有判定不漂移() {
+    /// 原名：分类器证据词_手术与治疗文书_既有判定不漂移
+    @Test func classifierEvidenceWordsForSurgeryAndTreatmentKeepExistingVerdictsStable() {
         #expect(DocumentTypeClassifierFallback.classify(lines: ["手术记录", "手术名称：腹腔镜胆囊切除术", "术者：张"]).target == "surgery_record")
         #expect(DocumentTypeClassifierFallback.classify(lines: ["门诊输液记录单", "输液药物：0.9% NS 250ml", "执行者：李"]).target == "treatment_record")
         #expect(DocumentTypeClassifierFallback.classify(lines: ["出院小结", "出院诊断：胆囊结石", "出院医嘱：低脂饮食", "手术名称：腹腔镜胆囊切除术"]).target == "discharge_summary", "出院小结内的手术段不夺主类")

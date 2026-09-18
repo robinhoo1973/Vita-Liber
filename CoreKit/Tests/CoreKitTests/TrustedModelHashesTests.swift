@@ -20,32 +20,39 @@ struct TrustedModelHashesTests {
         ])
     }
 
-    @Test func 命中锚且一致通过() {
+    /// 原名：命中锚且一致通过
+    @Test func trustedEntryHitAndConsistentPasses() {
         #expect(table.isTrusted(release()))
     }
 
-    @Test func 未登记版本拒绝() {
+    /// 原名：未登记版本拒绝
+    @Test func unregisteredVersionRejected() {
         #expect(!table.isTrusted(ASRModelRelease(id: "qwen3", version: "9.9", bytes: 1, sha256: shaA, url: "x.zip")))
         #expect(!table.isTrusted(ASRModelRelease(id: "whisper", version: "0.6b-int8-v2026.03.25", bytes: 1, sha256: shaA, url: "x.zip")))
     }
 
-    @Test func 哈希不一致拒绝() {
+    /// 原名：哈希不一致拒绝
+    @Test func hashMismatchRejected() {
         #expect(!table.isTrusted(release(sha: shaB)))
     }
 
-    @Test func 字节不一致拒绝() {
+    /// 原名：字节不一致拒绝
+    @Test func byteSizeMismatchRejected() {
         #expect(!table.isTrusted(release(bytes: 999)))
     }
 
-    @Test func 大小写不敏感哈希通过() {
+    /// 原名：大小写不敏感哈希通过
+    @Test func caseInsensitiveHashPasses() {
         #expect(table.isTrusted(release(sha: shaA.uppercased())))
     }
 
-    @Test func 空表拒绝一切() {
+    /// 原名：空表拒绝一切
+    @Test func emptyTableRejectsEverything() {
         #expect(!TrustedModelHashes.empty.isTrusted(release()))
     }
 
-    @Test func 未知结构版本视为空表() {
+    /// 原名：未知结构版本视为空表
+    @Test func unknownSchemaVersionTreatedAsEmptyTable() {
         #expect(!TrustedModelHashes(schemaVersion: 99, entries: table.entries).isTrusted(release()))
     }
 }

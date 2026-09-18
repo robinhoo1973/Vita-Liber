@@ -80,7 +80,8 @@ struct StandardizationTests {
 
     // MARK: - FR25.1 金样：四语言归一
 
-    @Test func 四语言别名解析至同一LOINC718_7() async throws {
+    /// 原名：四语言别名解析至同一LOINC718_7
+    @Test func fourLanguageAliasesResolveToSameLOINC718_7() async throws {
         let idx = makeIndex()
         for raw in ["血红蛋白", "血色素", "Hb", "ヘモグロビン"] {
             let r = try await CodeResolver.resolve(raw, locale: Locale(identifier: "zh-Hans"),
@@ -91,7 +92,8 @@ struct StandardizationTests {
         }
     }
 
-    @Test func 简繁折叠命中且置信度低于curated() async throws {
+    /// 原名：简繁折叠命中且置信度低于curated
+    @Test func scriptFoldHitsWithConfidenceBelowCurated() async throws {
         let idx = makeIndex()
         // 血紅蛋白 = zh-Hant 脚本折叠产物（route=.fold）
         let folded = try await CodeResolver.resolve("血紅蛋白", locale: Locale(identifier: "zh-Hant"),
@@ -106,7 +108,8 @@ struct StandardizationTests {
 
     // MARK: - FR25.1 链序与不猜码
 
-    @Test func 覆盖表优先于curated() async throws {
+    /// 原名：覆盖表优先于curated
+    @Test func overrideTableOutranksCurated() async throws {
         let idx = makeIndex()
         // 「血红蛋白浓度」无别名行，仅覆盖表命中——人写的行胜过表面匹配
         let r = try await CodeResolver.resolve("血红蛋白浓度", locale: Locale(identifier: "zh-Hans"),
@@ -116,7 +119,8 @@ struct StandardizationTests {
         #expect(r?.confidence == 1.0)
     }
 
-    @Test func 带修饰词查询不猜码() async throws {
+    /// 原名：带修饰词查询不猜码
+    @Test func qualifiedQueryDoesNotGuessCode() async throws {
         let idx = makeIndex()
         // 「血红蛋白（贫血待查）」无任何别名/覆盖行——绝不返回「最接近」匹配
         let r = try await CodeResolver.resolve("血红蛋白（贫血待查）",
@@ -124,7 +128,8 @@ struct StandardizationTests {
         #expect(r == nil)
     }
 
-    @Test func 空输入返回nil() async throws {
+    /// 原名：空输入返回nil
+    @Test func blankInputReturnsNil() async throws {
         let idx = makeIndex()
         let r = try await CodeResolver.resolve("   ", locale: Locale(identifier: "zh-Hans"),
                                                index: idx)
@@ -133,7 +138,8 @@ struct StandardizationTests {
 
     // MARK: - FR25.2 单位参与定码
 
-    @Test func 胆固醇单位参与定码() async throws {
+    /// 原名：胆固醇单位参与定码
+    @Test func cholesterolUnitParticipatesInCoding() async throws {
         let idx = makeIndex()
         let molar = try await CodeResolver.resolveReading(
             raw: "total cholesterol", value: "5.0", unit: "mmol/L",
@@ -146,7 +152,8 @@ struct StandardizationTests {
         #expect(mass.resolution?.canonicalCode == "2093-3")
     }
 
-    @Test func 血糖摩尔桥接换算与留痕() async throws {
+    /// 原名：血糖摩尔桥接换算与留痕
+    @Test func glucoseMolarBridgeConversionRecordsNote() async throws {
         let idx = makeIndex()
         // 200 mg/dL ≈ 11.10 mmol/L（180.156 g/mol）
         let reading = try await CodeResolver.resolveReading(
@@ -167,7 +174,8 @@ struct StandardizationTests {
 
     // MARK: - FR25.3 UCUM 族换算与非线性
 
-    @Test func 同量纲族内换算留痕() async throws {
+    /// 原名：同量纲族内换算留痕
+    @Test func sameDimensionFamilyConversionRecordsNote() async throws {
         let idx = makeIndex()
         // g/dL → g/L：factor 10
         let conv = try await UcumRules.convert(12.5, from: "g/dL", to: "g/L",
@@ -177,7 +185,8 @@ struct StandardizationTests {
         #expect(conv?.fromUnit == "g/dL" && conv?.toUnit == "g/L")
     }
 
-    @Test func 温度仿射换算() async throws {
+    /// 原名：温度仿射换算
+    @Test func temperatureAffineConversion() async throws {
         let idx = makeIndex()
         // 98.6°F → 37°C（factor+offset 族内换算）
         let conv = try await UcumRules.convert(98.6, from: "degF", to: "degC",
@@ -190,7 +199,8 @@ struct StandardizationTests {
         #expect(abs((zero?.convert(0) ?? 0) - 32.0) < 1e-9)
     }
 
-    @Test func 非线性单位返回nil保留原值() async throws {
+    /// 原名：非线性单位返回nil保留原值
+    @Test func nonlinearUnitReturnsNilKeepingOriginalValue() async throws {
         let idx = makeIndex()
         // pH 不入 ucum_unit 表（非线性函数，FR25.3 边界）
         let conv = try await UcumRules.convert(7.4, from: "pH", to: "mmol/L",
@@ -198,7 +208,8 @@ struct StandardizationTests {
         #expect(conv == nil)
     }
 
-    @Test func 同单位无换算动作() async throws {
+    /// 原名：同单位无换算动作
+    @Test func sameUnitHasNoConversion() async throws {
         let idx = makeIndex()
         let conv = try await UcumRules.convert(5, from: "mg/dL", to: "mg/dL",
                                                units: idx, conceptId: nil)
@@ -207,7 +218,8 @@ struct StandardizationTests {
 
     // MARK: - FR25.12⑦ 聚合键
 
-    @Test func 聚合键编码优先无编码回落() {
+    /// 原名：聚合键编码优先无编码回落
+    @Test func aggregationKeyPrefersCodeFallingBackToMetricKey() {
         #expect(TrendRules.aggregationKey(metricKey: "glucose", codeConceptId: "c-glu-mass") == "c-glu-mass")
         #expect(TrendRules.aggregationKey(metricKey: "glucose", codeConceptId: nil) == "glucose")
         #expect(TrendRules.aggregationKey(metricKey: "blood_pressure_sys", codeConceptId: "") == "blood_pressure_sys")
@@ -215,7 +227,8 @@ struct StandardizationTests {
 
     // MARK: - FR6 草稿槽位向后兼容
 
-    @Test func 草稿槽位默认空且旧JSON可解码() throws {
+    /// 原名：草稿槽位默认空且旧JSON可解码
+    @Test func draftSlotDefaultsNilAndLegacyJSONDecodes() throws {
         // 旧档案 JSON 无 codeResolution 键——decodeIfPresent 兜底不丢数据
         let legacy = """
         {"id":"\(UUID().uuidString)","key":"drug_name","displayLabel":"药名",
@@ -229,7 +242,8 @@ struct StandardizationTests {
 
     // MARK: - FR25.12 负清单
 
-    @Test func 负清单四处齐全() {
+    /// 原名：负清单四处齐全
+    @Test func noGoSceneHasAllFourCases() {
         #expect(StandardizationNoGoScene.allCases.count == 4)
         #expect(StandardizationNoGoScene.allCases.contains(.documentTag))
         #expect(StandardizationNoGoScene.allCases.contains(.observationKind))
@@ -241,7 +255,8 @@ struct StandardizationTests {
 
     /// 审查发现 1：链序比较器曾以 priority 先于 route——任何 priority>0 的
     /// fold 行都会越过 curated（FR25.1「curated 恒高于 fold」破坏）。
-    @Test func 链序路由权重先于优先级() async throws {
+    /// 原名：链序路由权重先于优先级
+    @Test func chainOrderRouteOutranksPriority() async throws {
         struct CraftedIndex: CodeIndex, UnitIndex {
             func overrideHit(_ raw: String) async throws -> AliasHit? { nil }
             func resolveAlias(_ raw: String, locale: Locale) async throws -> [AliasHit] {
@@ -264,7 +279,8 @@ struct StandardizationTests {
     }
 
     /// 审查发现 3：mmol/L 读数经单位特异重选落到摩尔概念后，回换算必须可达。
-    @Test func 摩尔概念读数回换算可达() async throws {
+    /// 原名：摩尔概念读数回换算可达
+    @Test func molarConceptReadingRoundTripConversionReachable() async throws {
         let idx = makeIndex()
         let reading = try await CodeResolver.resolveReading(
             raw: "血糖", value: "5.0", unit: "mmol/L",
@@ -281,7 +297,8 @@ struct StandardizationTests {
     // 上以 schema-as-code 纪律锁定契约——枚举词汇 ↔ DDL CHECK 单一事实源）
 
     /// 审查发现 2：枚举 rawValue 与 SQL CHECK 词汇曾分叉（snomedCT vs snomed_ct）。
-    @Test func 枚举词汇与DDL_CHECK一致() {
+    /// 原名：枚举词汇与DDL_CHECK一致
+    @Test func enumVocabularyMatchesDDLCheck() {
         #expect(CodingSystem.snomedCT.rawValue == "snomed_ct")
         #expect(CodingSystem.rxNorm.rawValue == "rxnorm")
         #expect(CodeKind.observationKind.rawValue == "observation_kind")
@@ -295,7 +312,8 @@ struct StandardizationTests {
     /// 以静态契约断言锁定结构存在性与版本序列（GRDB 往返金样随 L1 执行，
     /// test-plan TC-M15-08 已注记）。v15（剂量行逻辑 id，代码迁移）随评审修正
     /// D5 追加；v16（dose_plan_units 归一 + 热路径索引）随评审修正第二轮追加。
-    @Test func 码表六表DDL与迁移静态契约() {
+    /// 原名：码表六表DDL与迁移静态契约
+    @Test func codeTablesDDLAndMigrationStaticContract() {
         let ddl = SchemaV2.ddl
         for table in ["code_concept", "code_alias", "code_map",
                       "resolver_override", "ucum_unit", "ucum_molar_bridge"] {

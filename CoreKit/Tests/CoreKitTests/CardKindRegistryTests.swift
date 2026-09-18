@@ -14,7 +14,8 @@ struct CardKindRegistryTests {
 
     // MARK: - 注册表
 
-    @Test func 注册表覆盖六卡类且实体表首元素为表头() {
+    /// 原名：注册表覆盖六卡类且实体表首元素为表头
+    @Test func registryCoversSixCardKindsWithHeaderTableFirst() {
         for kind in ["metric_sample", "encounter", "prescription", "claim_item", "medication", "immunization"] {
             let e = CardKindRegistry.entry(for: kind)
             #expect(e?.entityTables.first == kind, "\(kind)")
@@ -26,7 +27,8 @@ struct CardKindRegistryTests {
         #expect(CardKindRegistry.entries.map(\.kind) == CardKindRegistry.entries.map(\.kind).uniqued(), "kind 唯一")
     }
 
-    @Test func 可选目录剔除已有键且不含必填() {
+    /// 原名：可选目录剔除已有键且不含必填
+    @Test func optionalCatalogExcludesPresentAndRequiredKeys() {
         let catalog = CardKindRegistry.optionalCatalog(kind: "prescription", present: ["drug_name", "spec"], rowLevel: true)
         #expect(catalog.contains("medication_notes") && catalog.contains("drug_form") && !catalog.contains("spec") && !catalog.contains("drug_name"))
         #expect(catalog == catalog.sorted(), "目录稳定有序")
@@ -38,7 +40,8 @@ struct CardKindRegistryTests {
         #expect(CardKindRegistry.optionalCatalog(kind: "unknown", present: [], rowLevel: false).isEmpty)
     }
 
-    @Test func 模板键集不越出注册表allowed集() throws {
+    /// 原名：模板键集不越出注册表allowed集
+    @Test func templateKeysStayWithinRegistryAllowedSets() throws {
         for template in CardTemplateMatcher.ocrTemplates {
             guard let entry = CardKindRegistry.entry(for: template.kind) else { continue }
             #expect(template.requiresDocumentType == entry.requiresDocumentType, "\(template.kind)")
@@ -54,7 +57,8 @@ struct CardKindRegistryTests {
 
     // MARK: - 处方：表头 + 行
 
-    @Test func 处方意图产出行而非拼接医嘱() throws {
+    /// 原名：处方意图产出行而非拼接医嘱
+    @Test func prescriptionIntentProducesLinesInsteadOfFoldedAdvice() throws {
         var card = MatchedCard(kind: "prescription", pageIndex: 0, shared: [.init(key: "prescribed_at", value: "2020-01-02"), .init(key: "advice_text", value: "饭后服")],
             rows: [MatchedCardRow(fields: [.init(key: "drug_name", value: "阿莫西林"), .init(key: "dosage", value: "0.5", unit: "g"), .init(key: "days", value: "7")])],
             allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete)
@@ -68,7 +72,8 @@ struct CardKindRegistryTests {
         #expect(intent.lines[0].line.prescriptionId == PrescriptionLine.unassignedId && intent.lines[0].line.patientId == PrescriptionLine.unassignedId)
     }
 
-    @Test func 处方无共享医嘱时adviceText为空串() throws {
+    /// 原名：处方无共享医嘱时adviceText为空串
+    @Test func prescriptionWithoutSharedAdviceHasEmptyAdviceText() throws {
         let card = MatchedCard(kind: "prescription", pageIndex: 0, shared: [.init(key: "prescribed_at", value: "2020-01-02")],
             rows: [MatchedCardRow(fields: [.init(key: "drug_name", value: "A")]), MatchedCardRow(fields: [.init(key: "drug_name", value: "B")])],
             allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).fullyConfirmed()
@@ -78,7 +83,8 @@ struct CardKindRegistryTests {
         #expect(intent.lines.map(\.line.ordinal) == [0, 1])
     }
 
-    @Test func 处方表头七列与行文本单位原样() throws {
+    /// 原名：处方表头七列与行文本单位原样
+    @Test func prescriptionHeaderAndLineTextKeptVerbatim() throws {
         let card = MatchedCard(kind: "prescription", pageIndex: 3,
             shared: [.init(key: "prescribed_at", value: "2020-01-02"), .init(key: "department", value: "内科"), .init(key: "prescription_no", value: "RX-001"),
                      .init(key: "prescription_type", value: "tcm"), .init(key: "fee_type", value: "医保"), .init(key: "clinical_diagnosis", value: "上呼吸道感染"),
@@ -105,7 +111,8 @@ struct CardKindRegistryTests {
         #expect(line.sourcePage == 3)
     }
 
-    @Test func 处方类型与金额日期键非法时判无效() {
+    /// 原名：处方类型与金额日期键非法时判无效
+    @Test func invalidPrescriptionTypeAmountAndDateKeysAreRejected() {
         func card(shared: [FieldDraft], row: [FieldDraft]) -> MatchedCard {
             MatchedCard(kind: "prescription", pageIndex: 0, shared: [FieldDraft(key: "prescribed_at", value: "2020-01-02")] + shared,
                         rows: [MatchedCardRow(fields: [FieldDraft(key: "drug_name", value: "A")] + row)],
@@ -121,7 +128,8 @@ struct CardKindRegistryTests {
         #expect(EntityCardProjection.invalidFields(in: ok, row: ok.rows[0], calendar: utc).isEmpty)
     }
 
-    @Test func 处方行值类型Codable往返() throws {
+    /// 原名：处方行值类型Codable往返
+    @Test func prescriptionLineValueTypeCodableRoundTrip() throws {
         let line = PrescriptionLine(id: UUID(), prescriptionId: UUID(), patientId: UUID(), ordinal: 2, printedName: "A",
                                     doseText: "0.5", doseUnit: "g", startDate: Date(timeIntervalSince1970: 86_400), unitPrice: 1.5,
                                     sourcePage: 1, sourceRowId: UUID(), confirmed: true,
@@ -132,7 +140,8 @@ struct CardKindRegistryTests {
 
     // MARK: - 费用：表头 + 行
 
-    @Test func 费用意图票据页空行沿旧路径且清单页产行() throws {
+    /// 原名：费用意图票据页空行沿旧路径且清单页产行
+    @Test func claimIntentKeepsEmptyInvoiceRowWhileItemizedPageYieldsLines() throws {
         let invoice = MatchedCard(kind: "claim_item", pageIndex: 0,
             shared: [.init(key: "amount", value: "128.5"), .init(key: "currency", value: "CNY"), .init(key: "date", value: "2020-01-02"), .init(key: "item_type", value: "invoice"),
                      .init(key: "merchant", value: "市一医院"), .init(key: "invoice_no", value: "No.0001"), .init(key: "insurance_type", value: "城镇职工"),
@@ -162,7 +171,8 @@ struct CardKindRegistryTests {
         #expect(intent.lines[1].amount == -5, "退费行按票面负数原样")
     }
 
-    @Test func 费用行有字段即须item_name且金额可解析() {
+    /// 原名：费用行有字段即须item_name且金额可解析
+    @Test func claimRowsWithFieldsRequireItemNameAndParsableAmount() {
         func card(_ row: [FieldDraft]) -> MatchedCard {
             MatchedCard(kind: "claim_item", pageIndex: 0,
                 shared: [.init(key: "amount", value: "30"), .init(key: "currency", value: "CNY"), .init(key: "date", value: "2020-01-02"), .init(key: "item_type", value: "fee")],
@@ -182,7 +192,8 @@ struct CardKindRegistryTests {
 
     // MARK: - 就诊叙事
 
-    @Test func 就诊草稿携带五叙事列且允许allergy_history() {
+    /// 原名：就诊草稿携带五叙事列且允许allergy_history
+    @Test func encounterDraftCarriesFiveNarrativeColumnsAndAllowsAllergyHistory() {
         let card = MatchedCard(kind: "encounter", pageIndex: 0, shared: [.init(key: "date", value: "2020-01-02"), .init(key: "kind", value: "outpatient"), .init(key: "past_history", value: "高血压 10 年"), .init(key: "allergy_history", value: "青霉素")], rows: [MatchedCardRow(fields: [])], allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).fullyConfirmed()
         #expect(EntityCardProjection.invalidFields(in: card, row: card.rows[0], calendar: .init(identifier: .gregorian)).isEmpty)
         #expect(EntityCardProjection.encounterDraft(from: card, patientId: UUID(), calendar: .init(identifier: .gregorian))?.allergyHistory == "青霉素")
@@ -199,7 +210,8 @@ struct CardKindRegistryTests {
 
     // MARK: - D1-5 处方行详情路由
 
-    @Test func 处方行详情路由可编解码且归档案Tab() throws {
+    /// 原名：处方行详情路由可编解码且归档案Tab
+    @Test func prescriptionLineRouteIsCodableAndBelongsToRecordsTab() throws {
         // §5.45 路由注册表：行详情深链（患者 + 行 id）Codable 往返（AppRouter 持久化 path / 通知 userInfo）；
         // 所属 Tab 与 .medicalCard 同为档案（records）。
         let route = AppRoute.prescriptionLine(patientId: UUID(), lineId: UUID())
@@ -211,7 +223,8 @@ struct CardKindRegistryTests {
 
     // MARK: - 目录与门槛分离
 
-    @Test func 可选目录不改变建卡门槛() {
+    /// 原名：可选目录不改变建卡门槛
+    @Test func optionalCatalogDoesNotChangeCardThresholds() {
         // FR6.9 双阈值不变：规则表（分母）不登记任何新可选键；可选键只活在注册表目录。
         for kind in ["prescription", "encounter", "claim_item"] {
             let ruleKeys = Set(CompletenessEvaluator.rules(for: kind).map(\.key))

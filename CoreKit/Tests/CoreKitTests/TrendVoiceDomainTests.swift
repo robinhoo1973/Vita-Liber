@@ -5,21 +5,24 @@ import Testing
 /// M1.5 P0.5 · Domain 层验收用例（dev-pm §3.3 退出准则的 U 半场）
 @Suite("M1.5 · 趋势语义（§5.29/F7）")
 struct TrendServiceTests {
-    @Test func 空心实心一眼可辨() {
+    /// 原名：空心实心一眼可辨
+    @Test func hollowAndFilledPointsDistinctAtAGlance() {
         let hospital = TrendPoint(id: UUID(), measuredAt: Date(), value: 132, origin: .hospital)
         let manual = TrendPoint(id: UUID(), measuredAt: Date(), value: 128, origin: .manual)
         #expect(!hospital.isHollow)     // 医院实心
         #expect(manual.isHollow)        // 自测空心
     }
 
-    @Test func 排除点软删与恢复语义() {
+    /// 原名：排除点软删与恢复语义
+    @Test func excludedPointSoftDeleteAndRestore() {
         var p = TrendPoint(id: UUID(), measuredAt: Date(), value: 200, origin: .manual, excluded: true)
         #expect(TrendRules.visible([p]).isEmpty, "排除点不得进聚合（保留原值可恢复）")
         p.excluded = false              // 恢复动作——原值保留
         #expect(TrendRules.visible([p]).count == 1)
     }
 
-    @Test func 参考范围A级优先于B级() {
+    /// 原名：参考范围A级优先于B级
+    @Test func gradeABandsTakePrecedenceOverGradeB() {
         // FR16.4 铁律经 resolveBands 表达（resolveRange 死代码已随结构轮删除）：
         // 有 A 级带不混入 B 级；无 A 级带才回落 B 级；两者皆无 = 范围不可用（空数组）。
         let aPoint = TrendPoint(id: UUID(), measuredAt: Date(), value: 80, origin: .hospital,
@@ -36,7 +39,8 @@ struct TrendServiceTests {
         #expect(none.isEmpty, "无来源=范围不可用（独立状态）")
     }
 
-    @Test func 换算留痕不覆盖原值() {
+    /// 原名：换算留痕不覆盖原值
+    @Test func unitConversionKeepsOriginalValue() {
         let conv = UnitConversion(fromUnit: "mmol/L", toUnit: "mg/dL", factor: 18.0,
                                   note: "换算自 mmol/L")
         let original = TrendPoint(id: UUID(), measuredAt: Date(), value: 6.0, origin: .manual)
@@ -70,13 +74,15 @@ struct VoiceGrammarTests {
         ProfileGrammarRule(fieldKey: "emergencyContact", patterns: [#"紧急联系人是(.+)"#]),
     ]
 
-    @Test func 指标抽取与中文数字归一() {
+    /// 原名：指标抽取与中文数字归一
+    @Test func metricExtractionNormalizesChineseNumerals() {
         let drafts = VoiceStructuringEngine.extractMetric("今天血糖十三", rules: metricRules)
         #expect(drafts.contains { $0.key == "glucose" && $0.value == "13" })
     }
 
     /// 评审 S1 修正：混合形态（含点/零/大写）→ 原值保留 + 置信降 0.4 强制复核
-    @Test func 混合形态原值保留且降置信() {
+    /// 原名：混合形态原值保留且降置信
+    @Test func mixedNumeralFormKeepsRawValueAndLowersConfidence() {
         let mixed = VoiceStructuringEngine.extractMetric("今天血糖十三点二", rules: metricRules)
         let draft = mixed.first { $0.key == "glucose" }
         #expect(draft != nil)
@@ -84,7 +90,8 @@ struct VoiceGrammarTests {
         #expect(draft!.confidence == 0.4, "归一失败必须降置信强制复核")
     }
 
-    @Test func 纯中文数字归一() {
+    /// 原名：纯中文数字归一
+    @Test func pureChineseNumeralNormalization() {
         #expect(NumberNormalizer.normalize("一百三十二") == "132")
         #expect(NumberNormalizer.normalize("两") == "2")
         #expect(NumberNormalizer.normalize("6.8") == "6.8")
@@ -92,7 +99,8 @@ struct VoiceGrammarTests {
 
     /// 第七轮修复锚点：零分支（zeroSeen/tail-weight）回归——此前
     /// 「一百零二」产出 120（零分支不可达），仅手工审查发现、无测试钉住
-    @Test func 中文数字零分支归一() {
+    /// 原名：中文数字零分支归一
+    @Test func chineseNumeralZeroBranchNormalization() {
         #expect(NumberNormalizer.normalize("一百零二") == "102")
         #expect(NumberNormalizer.normalize("一百零一") == "101")
         #expect(NumberNormalizer.normalize("一千零二") == "1002")
@@ -102,7 +110,8 @@ struct VoiceGrammarTests {
 
     /// 第七轮修复锚点：周短式映射全 7 天 + 每周天/周天（第六轮补 switch、
     /// 第七轮补文法）——语音重复短语映射错误会把服药提醒排到错误星期
-    @Test func 周短式映射全表() {
+    /// 原名：周短式映射全表
+    @Test func weekdayShortFormMappingFullTable() {
         #expect(VoiceRepeatRules.weekdays(for: "周一", fireWeekday: 4) == [2])
         #expect(VoiceRepeatRules.weekdays(for: "周二", fireWeekday: 4) == [3])
         #expect(VoiceRepeatRules.weekdays(for: "周三", fireWeekday: 4) == [4])
@@ -121,7 +130,8 @@ struct VoiceGrammarTests {
 
     /// 第七轮修复锚点：「每周天晚上八点提醒吃药」不得被「每周」前缀抢先命中
     /// （alternation 长短语在前），「周天…」不得丢失重复语义回落一次性
-    @Test func 周天短语提取优先级() {
+    /// 原名：周天短语提取优先级
+    @Test func weeklySundayPhraseExtractionPrecedence() {
         let rules = [
             ReminderGrammarRule(kind: "any",
                                 timePatterns: [#"(\d+)点"#],
@@ -135,24 +145,28 @@ struct VoiceGrammarTests {
                 "「周天」必须命中重复短语（不得丢弃为一次性）")
     }
 
-    @Test func 指标抽取阿拉伯数字() {
+    /// 原名：指标抽取阿拉伯数字
+    @Test func metricExtractionWithArabicDigits() {
         let drafts = VoiceStructuringEngine.extractMetric("高压132", rules: metricRules)
         #expect(drafts.contains { $0.key == "blood_pressure_sys" && $0.value == "132" })
     }
 
-    @Test func 提醒时间与重复抽取() {
+    /// 原名：提醒时间与重复抽取
+    @Test func reminderTimeAndRepeatExtraction() {
         let drafts = VoiceStructuringEngine.extractReminder("明天早上提醒我测血糖，每天", rules: reminderRules)
         #expect(drafts.contains { $0.key == "time" && $0.value == "明天" })
         #expect(drafts.contains { $0.key == "repeat" && $0.value == "每天" })
     }
 
-    @Test func 档案访谈抽取() {
+    /// 原名：档案访谈抽取
+    @Test func profileInterviewExtraction() {
         let drafts = VoiceStructuringEngine.extractProfile("我过敏药：青霉素，紧急联系人是王女士", rules: profileRules)
         #expect(drafts.contains { $0.key == "allergy" && $0.value.contains("青霉素") })
         #expect(drafts.contains { $0.key == "emergencyContact" && $0.value.contains("王女士") })
     }
 
-    @Test func 模板复用断言_语音草稿经统一确认集() {
+    /// 原名：模板复用断言_语音草稿经统一确认集
+    @Test func voiceDraftsGoThroughUnifiedConfirmationSet() {
         // FR17.13：四处确认必须走同一模板（VoiceInputTemplate.confirmationSet），
         // 产出全部待确认态（BR-003）——语音草稿绝不直接入正式数据
         let drafts = VoiceStructuringEngine.extractMetric("血糖6.2", rules: metricRules)
@@ -161,7 +175,8 @@ struct VoiceGrammarTests {
         #expect(set.fields.allSatisfy { $0.grade == .ocrUnconfirmed })
     }
 
-    @Test func 模糊时间必须落具体日期() {
+    /// 原名：模糊时间必须落具体日期
+    @Test func vagueTimeMustResolveToConcreteDate() {
         let now = Date()
         let cal = Calendar.current
         #expect(VoiceReminderRules.resolveDate(phrase: "明天", now: now, calendar: cal) != nil)
@@ -172,7 +187,8 @@ struct VoiceGrammarTests {
 
 @Suite("M1.5 · 提醒规则（FR9.11/FR8.10/FR13.10）")
 struct ReminderRulesTests {
-    @Test func 批次到期三级触发点() {
+    /// 原名：批次到期三级触发点
+    @Test func batchExpiryThreeTierFirePoints() {
         let now = Date(timeIntervalSince1970: 1_700_000_000)
         let expire = now.addingTimeInterval(20 * 86400)
         let fires = BatchExpiryRules.fireDates(expireAt: expire, now: now)
@@ -181,7 +197,8 @@ struct ReminderRulesTests {
         #expect(fires[1].tier == .t0)
     }
 
-    @Test func 过期批次不再提醒() {
+    /// 原名：过期批次不再提醒
+    @Test func expiredBatchNoLongerFires() {
         let now = Date()
         let expired = now.addingTimeInterval(-86400)
         #expect(BatchExpiryRules.fireDates(expireAt: expired, now: now).isEmpty)
@@ -190,7 +207,8 @@ struct ReminderRulesTests {
     /// BatchExpiryRules 的 DST 不变量（与 followUpDate 同纪律，评审修正）：
     /// 30 天档回推必须按日历日——固定 86400 秒的旧实现跨夏令时漂移 1 小时。
     /// 2026-03-06（EST）与 2026-04-05（EDT）之间恰好穿越 3/8 春季调时。
-    @Test func 批次到期跨夏令时保持墙钟时刻() {
+    /// 原名：批次到期跨夏令时保持墙钟时刻
+    @Test func batchExpiryKeepsWallClockAcrossDST() {
         var cal = Calendar(identifier: .gregorian)
         cal.timeZone = TimeZone(identifier: "America/New_York")!
         var c = DateComponents()
@@ -211,7 +229,8 @@ struct ReminderRulesTests {
                 "若与 −30×86400 秒相等，说明日历回推没有生效")
     }
 
-    @Test func 观察随访提醒节奏() {
+    /// 原名：观察随访提醒节奏
+    @Test func observationFollowUpCadence() {
         // UTC 无夏令时，日历日 == 86400 秒，可用秒数表达期望值；
         // 天数引用规则常量而非字面量 3/7——规则改了测试要跟着红，而不是继续绿着测旧公式
         var utc = Calendar(identifier: .gregorian)
@@ -227,7 +246,8 @@ struct ReminderRulesTests {
 
     /// FR8.10 的 DST 不变量：随访提醒必须落在**同一墙钟时刻**，而不是同一绝对秒数。
     /// 这条正是 followUpDate 改用日历推进的理由，注入日历后才可测。
-    @Test func 观察随访跨夏令时保持墙钟时刻() {
+    /// 原名：观察随访跨夏令时保持墙钟时刻
+    @Test func observationFollowUpKeepsWallClockAcrossDST() {
         var cal = Calendar(identifier: .gregorian)
         cal.timeZone = TimeZone(identifier: "America/New_York")!
         // 2026-03-05 09:00 EST，+3 天跨越 3/8 的春季调时
@@ -243,7 +263,8 @@ struct ReminderRulesTests {
                 "若与 +3×86400 秒相等，说明日历推进没有生效")
     }
 
-    @Test func 定期备份提醒() {
+    /// 原名：定期备份提醒
+    @Test func periodicBackupReminder() {
         let now = Date()
         #expect(BackupReminderRules.needsReminder(lastBackupAt: nil, now: now))   // 从未备份
         #expect(BackupReminderRules.needsReminder(lastBackupAt: now.addingTimeInterval(-31 * 86400), now: now))

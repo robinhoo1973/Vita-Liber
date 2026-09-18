@@ -8,7 +8,8 @@ import Testing
 /// 就诊类型派生提示；§5.45 路由 `healthExamDetail`。纯 Domain，Linux 可跑。
 @Suite("FR5.5 DocumentTypeKey 分类学 + 体检详情路由")
 struct DocumentTypeKeyTests {
-    @Test func 二十七键rawValue唯一且全snake_case() throws {
+    /// 原名：二十七键rawValue唯一且全snake_case
+    @Test func twentySevenKeysHaveUniqueSnakeCaseRawValues() throws {
         let raws = DocumentTypeKey.allCases.map(\.rawValue)
         #expect(raws.count == 27 && Set(raws).count == 27)
         for raw in raws {
@@ -18,7 +19,8 @@ struct DocumentTypeKeyTests {
         #expect(try JSONDecoder().decode(DocumentTypeKey.self, from: Data(#""day_surgery_record""#.utf8)) == .daySurgeryRecord)
     }
 
-    @Test func 五仅附件键targetCardKinds为空_其余结构化目标卡皆为注册卡类() {
+    /// 原名：五仅附件键targetCardKinds为空_其余结构化目标卡皆为注册卡类
+    @Test func fiveAttachmentOnlyKeysHaveEmptyTargetCardKindsRestAreRegistered() {
         let attachmentOnly = DocumentTypeKey.allCases.filter(\.attachmentOnly)
         #expect(Set(attachmentOnly) == [.medicalOrder, .nursingRecord, .anesthesiaRecord, .surgeryChecklist, .consentForm])
         #expect(attachmentOnly.allSatisfy { $0.targetCardKinds.isEmpty })
@@ -33,12 +35,14 @@ struct DocumentTypeKeyTests {
         #expect(DocumentTypeKey.admissionCertificate.targetCardKinds.isEmpty, "入院证不预建住院（§C.2）")
     }
 
-    @Test func 理解层documentTypes由枚举派生且包含既有七键() {
+    /// 原名：理解层documentTypes由枚举派生且包含既有七键
+    @Test func understandingDocumentTypesDerivedFromEnumIncludeSevenExistingKeys() {
         #expect(OCRGrounding.documentTypes.isSuperset(of: ["prescription", "lab_report", "outpatient_record", "diagnosis_certificate", "vaccine_record", "invoice", "medication_label"]))
         #expect(OCRGrounding.documentTypes == Set(DocumentTypeKey.allCases.map(\.rawValue)))
     }
 
-    @Test func 旧十五标签键映射稳定键_未知为nil() {
+    /// 原名：旧十五标签键映射稳定键_未知为nil
+    @Test func legacyFifteenLabelKeysMapToStableKeysUnknownIsNil() {
         let legacy = ["outpatient": "outpatient_record", "inpatient": "inpatient_record", "labReport": "lab_report", "imageReport": "exam_report",
                       "prescription": "prescription", "payment": "invoice", "dischargeSummary": "discharge_summary", "diagnosisProof": "diagnosis_certificate",
                       "vaccineRecord": "vaccine_record", "checkupReport": "checkup_report", "pathologyReport": "pathology_report", "surgeryRecord": "surgery_record",
@@ -51,7 +55,8 @@ struct DocumentTypeKeyTests {
         #expect(DocumentTypeKey(legacyLabelKey: "exam_report") == .examReport, "已是稳定键者原样接受（幂等回填）")
     }
 
-    @Test func 就诊类型派生提示_与模板派生同源() {
+    /// 原名：就诊类型派生提示_与模板派生同源
+    @Test func encounterKindHintSharesSourceWithTemplateDerivation() {
         #expect(DocumentTypeKey.emergencyRecord.encounterKindHint == .emergency)
         #expect(DocumentTypeKey.inpatientRecord.encounterKindHint == .inpatient && DocumentTypeKey.dischargeSummary.encounterKindHint == .inpatient)
         #expect(DocumentTypeKey.daySurgeryRecord.encounterKindHint == .daySurgery)
@@ -61,7 +66,8 @@ struct DocumentTypeKeyTests {
         #expect(CardTemplateMatcher.encounterKind(for: "emergency_record") == "emergency" && CardTemplateMatcher.encounterKind(for: "prescription") == "outpatient")
     }
 
-    @Test func 体检详情路由可编解码且归档案Tab() throws {
+    /// 原名：体检详情路由可编解码且归档案Tab
+    @Test func healthExamDetailRouteCodableAndTabbedUnderRecords() throws {
         let route = AppRoute.healthExamDetail(patientId: UUID(), id: UUID())
         let data = try JSONEncoder().encode(route)
         #expect(try JSONDecoder().decode(AppRoute.self, from: data) == route)

@@ -26,7 +26,8 @@ struct TranscriptRefinerTests {
         #expect(ProtectedTokenValidator.validate(original: pair.0, suggested: pair.1) == .rejected)
     }
 
-    @Test func 插入血压斜杠和内部分句不能视为安全格式调整() {
+    /// 原名：插入血压斜杠和内部分句不能视为安全格式调整
+    @Test func insertedSlashAndInnerSplitAreNotSafeFormatting() {
         let original = "今天头疼吃了两片布洛芬血压130 80"
         let suggested = "今天头疼，吃了两片布洛芬。血压 130/80。"
         #expect(ProtectedTokenValidator.validate(original: original, suggested: suggested, drugNames: ["布洛芬"]) == .rejected)
@@ -87,23 +88,27 @@ struct TranscriptRefinerTests {
             drugNames: ["阿莫西林", "布洛芬"]) == .rejected)
     }
 
-    @Test func 改数字拒绝() {
+    /// 原名：改数字拒绝
+    @Test func changedNumberRejected() {
         #expect(ProtectedTokenValidator.validate(original: "血压 120 80", suggested: "血压 130 80") == .rejected)
         #expect(ProtectedTokenValidator.validate(original: "吃了2片", suggested: "吃了 3 片") == .rejected)
     }
 
-    @Test func 改单位或日期拒绝() {
+    /// 原名：改单位或日期拒绝
+    @Test func changedUnitOrDateRejected() {
         #expect(ProtectedTokenValidator.validate(original: "血糖 5.6 mmol/L", suggested: "血糖 5.6 mg/dL") == .rejected)
         #expect(ProtectedTokenValidator.validate(original: "2026年9月1日复诊", suggested: "2026年9月2日复诊") == .rejected)
     }
 
-    @Test func 改否定词拒绝() {
+    /// 原名：改否定词拒绝
+    @Test func changedNegationRejected() {
         #expect(ProtectedTokenValidator.validate(original: "没有发烧", suggested: "有发烧") == .rejected)
         #expect(ProtectedTokenValidator.validate(original: "不头疼了", suggested: "头疼了") == .rejected)
         #expect(ProtectedTokenValidator.validate(original: "没有发烧", suggested: "没有发烧。") == .accepted)
     }
 
-    @Test func 药名人名缺失或改写拒绝() {
+    /// 原名：药名人名缺失或改写拒绝
+    @Test func missingOrRewrittenDrugAndPersonNamesRejected() {
         #expect(ProtectedTokenValidator.validate(original: "吃了布洛芬", suggested: "吃了止痛药", drugNames: ["布洛芬"]) == .rejected)
         #expect(ProtectedTokenValidator.validate(original: "张医生说没事", suggested: "医生说没事", personNames: ["张医生"]) == .rejected)
     }
@@ -121,7 +126,8 @@ struct TranscriptRefinerTests {
         #expect(revision.effective == "No cough")
     }
 
-    @Test func 修订值对象_拒绝与不可用均以原文生效() {
+    /// 原名：修订值对象_拒绝与不可用均以原文生效
+    @Test func revisionValueObjectRejectedAndUnavailableKeepOriginal() {
         let rejected = TranscriptRevision(original: "a 1", suggested: "a 2", safety: .rejected)
         #expect(rejected.effective == "a 1")
         let unavailable = TranscriptRevision.unavailable("原文")
@@ -130,7 +136,8 @@ struct TranscriptRefinerTests {
         #expect(accepted.effective == "a。")
     }
 
-    @Test func 不可用替身返回原文且不声称可用() async {
+    /// 原名：不可用替身返回原文且不声称可用
+    @Test func unavailableStubReturnsOriginalAndClaimsNoAvailability() async {
         let refiner = UnavailableTextRefiner()
         #expect(await refiner.isAvailable == false)
         let revision = await refiner.refine("血压 130", localeIdentifier: "zh-Hans-CN", drugNames: [])
@@ -138,7 +145,8 @@ struct TranscriptRefinerTests {
         #expect(revision.safety == .unavailable)
     }
 
-    @Test func 第九工厂注册于引擎注册表() {
+    /// 原名：第九工厂注册于引擎注册表
+    @Test func ninthFactoryRegisteredInEngineRegistry() {
         let registry = EngineRegistry()
         registry.registerDefaultEngines()
         #expect(registry.isRegistered(TextRefinerFactory.self))

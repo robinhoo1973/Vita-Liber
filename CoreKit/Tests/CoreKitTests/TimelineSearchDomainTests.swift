@@ -11,7 +11,8 @@ struct TimelineServiceTests {
                       memberId: UUID())
     }
 
-    @Test func 稳定排序与游标翻页() {
+    /// 原名：稳定排序与游标翻页
+    @Test func stableSortAndCursorPaging() {
         let m = UUID()
         var entries = (0..<25).map { i in
             TimelineEntry(kind: .observation, date: Date(timeIntervalSince1970: TimeInterval(1000 - i)),
@@ -36,7 +37,8 @@ struct TimelineServiceTests {
         entries.removeAll()
     }
 
-    @Test func 成员隔离() {
+    /// 原名：成员隔离
+    @Test func memberIsolation() {
         let a = UUID()
         let b = UUID()
         let entries = [
@@ -49,18 +51,21 @@ struct TimelineServiceTests {
 
 @Suite("M1c · 搜索路由（§4.3 V3.24/F12）")
 struct SearchRulesTests {
-    @Test func 查询长度路由() {
+    /// 原名：查询长度路由
+    @Test func queryLengthRouting() {
         #expect(SearchRules.route("血糖") == .bigram)          // 2 字
         #expect(SearchRules.route("空腹血糖") == .trigram)     // ≥3 字
         #expect(SearchRules.route("糖") == .like)              // 1 字
         #expect(SearchRules.route("  ") == .invalid)
     }
 
-    @Test func 二克切分() {
+    /// 原名：二克切分
+    @Test func bigramSplitting() {
         #expect(SearchRules.bigrams("空腹血糖") == ["空腹", "腹血", "血糖"])
     }
 
-    @Test func 敏感媒体只命中元数据() {
+    /// 原名：敏感媒体只命中元数据
+    @Test func sensitiveMediaMatchesMetadataOnly() {
         #expect(SearchRules.isSensitiveDoc("sensitive_photo"))
         #expect(!SearchRules.isSensitiveDoc("prescription"))
     }
@@ -68,7 +73,8 @@ struct SearchRulesTests {
 
 @Suite("M1c · 首页八卡聚合（§5.33/F2）")
 struct TodayStoreTests {
-    @Test func 成员隔离与待办合并排序() {
+    /// 原名：成员隔离与待办合并排序
+    @Test func memberIsolationAndTodoMergeOrdering() {
         let me = UUID()
         let other = UUID()
         let todos = [
@@ -82,7 +88,8 @@ struct TodayStoreTests {
         #expect(snap.pendingOCRCount == 2)
     }
 
-    @Test func 仅L1以上预警入首页() {
+    /// 原名：仅L1以上预警入首页
+    @Test func onlyL1AndAboveAlertsEnterHome() {
         let me = UUID()
         let alerts = [
             AlertRef(severity: "L0", title: "正常", memberId: me),
@@ -93,7 +100,8 @@ struct TodayStoreTests {
         #expect(snap.alertSummary.map(\.title) == ["血压偏高"])
     }
 
-    @Test func 近期观察取前三条() {
+    /// 原名：近期观察取前三条
+    @Test func recentObservationsTakeTopThree() {
         let me = UUID()
         let obs = (0..<5).map { i in
             ObsRef(id: UUID(), kind: "skin", occurredAt: Date(timeIntervalSince1970: TimeInterval(100 + i)), memberId: me)
@@ -107,14 +115,16 @@ struct TodayStoreTests {
 
 @Suite("M1c · CSV 导出（FR13.3 RFC4180）")
 struct CSVWriterTests {
-    @Test func 引号逗号换行转义() {
+    /// 原名：引号逗号换行转义
+    @Test func quoteCommaNewlineEscaping() {
         #expect(CSVWriter.escape("正常") == "正常")
         #expect(CSVWriter.escape("含,逗号") == "\"含,逗号\"")
         #expect(CSVWriter.escape("含\"引号") == "\"含\"\"引号\"")
         #expect(CSVWriter.escape("含\n换行") == "\"含\n换行\"")
     }
 
-    @Test func 文档与BOM() {
+    /// 原名：文档与BOM
+    @Test func documentAndBOM() {
         let doc = CSVWriter.document(headers: ["药名", "剂量"], rows: [["阿莫西林", "0.25g"]])
         #expect(doc.hasPrefix("药名,剂量\r\n"))
         #expect(doc.hasSuffix("\r\n"))
@@ -122,7 +132,8 @@ struct CSVWriterTests {
         #expect(data.prefix(3) == CSVWriter.bom)
     }
 
-    @Test func 分包() {
+    /// 原名：分包
+    @Test func fileSplitting() {
         let rows = (0..<25).map { ["r\($0)"] }
         let parts = CSVWriter.split(baseName: "export", headers: ["h"], rows: rows, maxRows: 10)
         #expect(parts.count == 3)
@@ -142,7 +153,8 @@ struct AILocalTests {
         }
     }
 
-    @Test func 紧急关键词返回急救卡() async throws {
+    /// 原名：紧急关键词返回急救卡
+    @Test func emergencyKeywordReturnsEmergencyCard() async throws {
         let search = FakeSearch()
         let provider = LocalRetrievalProvider(search: search)
         let answer = try await provider.answer(AIQuery(text: "我父亲胸痛得厉害"), scope: .init(patientIds: []))
@@ -165,7 +177,8 @@ struct AILocalTests {
         #expect(r.reason == .highRiskTopic)
     }
 
-    @Test func 调药停药高风险拒识() async throws {
+    /// 原名：调药停药高风险拒识
+    @Test func doseChangeAndStoppingIsRefused() async throws {
         let search = FakeSearch()
         await search.set([EntityReference(kind: "prescription", refID: UUID(), title: "处方", snippet: "阿莫西林 0.25g")])
         let provider = LocalRetrievalProvider(search: search)
@@ -177,7 +190,8 @@ struct AILocalTests {
         #expect(r.reason == .highRiskTopic)
     }
 
-    @Test func 无命中资料不足拒识() async throws {
+    /// 原名：无命中资料不足拒识
+    @Test func noHitsRefusedAsInsufficientData() async throws {
         let search = FakeSearch()
         let provider = LocalRetrievalProvider(search: search)
         let answer = try await provider.answer(AIQuery(text: "我的血压怎么样"), scope: .init(patientIds: []))
@@ -188,7 +202,8 @@ struct AILocalTests {
         #expect(r.reason == .insufficientData)
     }
 
-    @Test func 七段结构与引用完整性() async throws {
+    /// 原名：七段结构与引用完整性
+    @Test func sevenPartStructureAndCitationIntegrity() async throws {
         let search = FakeSearch()
         let ref = EntityReference(kind: "document_file", refID: UUID(), title: "血压记录", snippet: "收缩压 132 mmHg")
         await search.set([ref])
@@ -209,7 +224,8 @@ struct AILocalTests {
         #expect(p.sources[0].title == "血压记录")
     }
 
-    @Test func 术语词典独立于信源库() {
+    /// 原名：术语词典独立于信源库
+    @Test func terminologyStoreIndependentOfSourceLibrary() {
         #expect(TerminologyStore.shared.explain("收缩压") != nil)
         #expect(TerminologyStore.shared.explain("不存在的术语") == nil)
     }
@@ -234,7 +250,8 @@ struct Boom: Error {}
 struct SafeAIProviderTests {
 
     /// BR-012：内层把紧急提问当普通问答返回，装饰器必须改写为急救卡
-    @Test func 内层误分类紧急提问时强制急救卡() async throws {
+    /// 原名：内层误分类紧急提问时强制急救卡
+    @Test func innerMisclassificationOfEmergencyForcedToEmergencyCard() async throws {
         let inner = MisbehavingProvider(stub: AIAnswer(body: .composed(.init(
             citationCount: 1, terminologyPairs: [],
             citations: [EntityReference(kind: "x", refID: UUID(), title: "t", snippet: "s")],
@@ -245,14 +262,16 @@ struct SafeAIProviderTests {
     }
 
     /// BR-012 错误路径：provider 抛错也不得漏掉急救卡（降级/云端故障）
-    @Test func 内层抛错时紧急提问仍出急救卡() async throws {
+    /// 原名：内层抛错时紧急提问仍出急救卡
+    @Test func emergencyQuestionStillYieldsEmergencyCardWhenInnerThrows() async throws {
         let answer = try await SafeAIProvider(inner: MisbehavingProvider(error: Boom()))
             .answer(AIQuery(text: "胸痛"), scope: .init(patientIds: []))
         #expect(answer.body == .emergencyCard)
     }
 
     /// 非紧急提问的错误必须继续抛出——不能被静默吞成假答案
-    @Test func 非紧急提问的错误继续抛出() async {
+    /// 原名：非紧急提问的错误继续抛出
+    @Test func nonEmergencyErrorsStillPropagate() async {
         await #expect(throws: Boom.self) {
             _ = try await SafeAIProvider(inner: MisbehavingProvider(error: Boom()))
                 .answer(AIQuery(text: "我的血压怎么样"), scope: .init(patientIds: []))
@@ -261,7 +280,8 @@ struct SafeAIProviderTests {
 
     /// BR-006：零引用的确定性结论一律退回拒识（excerpts 非空也不例外——
     /// excerpts 是无溯源纯文本，citations 才是唯一类型化出处）
-    @Test func 零引用的组合答案退回拒识() async throws {
+    /// 原名：零引用的组合答案退回拒识
+    @Test func composedAnswerWithoutCitationsRefused() async throws {
         let inner = MisbehavingProvider(stub: AIAnswer(body: .composed(.init(
             citationCount: 0, terminologyPairs: [],
             citations: [],
@@ -276,7 +296,8 @@ struct SafeAIProviderTests {
     }
 
     /// 有引用的正常答案必须原样透传（装饰器不得改写合法结果）
-    @Test func 合法答案原样透传() async throws {
+    /// 原名：合法答案原样透传
+    @Test func legitimateAnswerPassesThroughUnchanged() async throws {
         let ref = EntityReference(kind: "document_file", refID: UUID(), title: "血压", snippet: "132")
         let stub = AIAnswer(body: .composed(.init(
             citationCount: 1, terminologyPairs: [],
@@ -307,7 +328,8 @@ struct SafeAIProviderTests {
     }
 
     /// 同一情形只有一种文案：Provider 与装饰器共用 .insufficientData 工厂
-    @Test func 资料不足文案单一出口() async throws {
+    /// 原名：资料不足文案单一出口
+    @Test func insufficientDataSingleCopyExit() async throws {
         let viaDecorator = try await SafeAIProvider(inner: MisbehavingProvider())
             .answer(AIQuery(text: "我的血压怎么样"), scope: .init(patientIds: []))
         #expect(viaDecorator == AIAnswer.insufficientData)
@@ -326,7 +348,8 @@ struct AuditedAIProviderTests {
         var calls: [String] { lock.lock(); defer { lock.unlock() }; return _calls }
     }
 
-    @Test func 审计收到排序成员ID且答案透传() async throws {
+    /// 原名：审计收到排序成员ID且答案透传
+    @Test func auditReceivesSortedMemberIDsAndAnswerPassesThrough() async throws {
         let sink = AuditSink()
         let decorated = AuditedAIProvider(
             inner: MisbehavingProviderStub(answer: .insufficientData)) { ids in
@@ -345,7 +368,8 @@ struct AuditedAIProviderTests {
     }
 
     /// FR12.9 审计事实准确：composed 回答必须携带实际读取的资料 ID 范围（refs）
-    @Test func 审计记录实际读取的资料ID范围() async throws {
+    /// 原名：审计记录实际读取的资料ID范围
+    @Test func auditRecordsActuallyReadDocumentIDs() async throws {
         let sink = AuditSink()
         let refA = UUID(), refB = UUID()
         let stub = AIAnswer(body: .composed(.init(
@@ -366,7 +390,8 @@ struct AuditedAIProviderTests {
     }
 
     /// 内层抛错时审计仍必须已落（审计先于应答执行——失败请求同样留痕）
-    @Test func 内层抛错审计仍执行() async {
+    /// 原名：内层抛错审计仍执行
+    @Test func auditStillRunsWhenInnerThrows() async {
         struct Boom: Error {}
         let sink = AuditSink()
         let decorated = AuditedAIProvider(
@@ -389,7 +414,8 @@ struct AuditedAIProviderTests {
 /// UI 经 `highlightSegments` 拆段、AI 摘录经 `stripHighlight` 去标记
 @Suite("SU-M1c-Search · 片段高亮拆段")
 struct SnippetHighlightTests {
-    @Test func 拆段保序且命中段加粗() {
+    /// 原名：拆段保序且命中段加粗
+    @Test func segmentsKeepOrderAndHighlightedOnesBold() {
         let snippet = "…空腹" + SearchRules.highlightOpen + "血糖" + SearchRules.highlightClose + " 6.1…"
         let segments = SearchRules.highlightSegments(snippet)
         #expect(segments.map(\.text) == ["…空腹", "血糖", " 6.1…"])
@@ -397,14 +423,16 @@ struct SnippetHighlightTests {
         #expect(SearchRules.stripHighlight(snippet) == "…空腹血糖 6.1…")
     }
 
-    @Test func 未闭合标记按纯文本不吞字() {
+    /// 原名：未闭合标记按纯文本不吞字
+    @Test func unclosedMarkerTreatedAsPlainTextWithoutSwallowing() {
         let broken = "标题" + SearchRules.highlightOpen + "血糖"
         #expect(SearchRules.stripHighlight(broken) == "标题血糖")
         #expect(SearchRules.highlightSegments("无标记").map(\.text) == ["无标记"])
         #expect(SearchRules.highlightSegments("").isEmpty)
     }
 
-    @Test func 手动高亮与拆段往返一致() {
+    /// 原名：手动高亮与拆段往返一致
+    @Test func manualHighlightRoundTripsWithSegments() {
         let marked = SearchRules.highlight("2026-09-01 空腹血糖 6.1 mmol/L 门诊", query: "血糖")
         #expect(marked.contains(SearchRules.highlightOpen + "血糖" + SearchRules.highlightClose))
         #expect(SearchRules.highlightSegments(marked).contains { $0.highlighted && $0.text == "血糖" })
@@ -413,7 +441,8 @@ struct SnippetHighlightTests {
 
 @Suite("SU-M1c-AI · 高风险句式词表（BR-006）")
 struct HighRiskTopicRulesTests {
-    @Test func 换药改剂句式必须拦截() {
+    /// 原名：换药改剂句式必须拦截
+    @Test func doseSwitchAndChangePhrasesMustBeBlocked() {
         #expect(HighRiskTopicRules.match("帮我改成每天3片"))
         #expect(HighRiskTopicRules.match("能不能换成布洛芬"))
         #expect(HighRiskTopicRules.match("一天两次可以吗"))
@@ -421,7 +450,8 @@ struct HighRiskTopicRulesTests {
     }
 
     /// 全仓审查 2026-09-18（F-D2-01/F-A7-04）：繁体/英文验收句必须与简体同判
-    @Test func 繁体与英文同判() {
+    /// 原名：繁体与英文同判
+    @Test func traditionalChineseAndEnglishJudgedAlike() {
         #expect(HighRiskTopicRules.match("幫我停藥"))
         #expect(HighRiskTopicRules.match("可以調整劑量嗎"))
         #expect(HighRiskTopicRules.match("把阿莫西林換成布洛芬"))
@@ -431,7 +461,8 @@ struct HighRiskTopicRulesTests {
         #expect(!HighRiskTopicRules.match("What does this lab term mean"))
     }
 
-    @Test func 非剂量语境不误拦() {
+    /// 原名：非剂量语境不误拦
+    @Test func nonDoseContextNotFalselyBlocked() {
         // 「一天两次」等频次短语本身即剂量语境，属应拦范围——真阴性只取
         // 与剂量无关的改期/查问句式
         #expect(!HighRiskTopicRules.match("改成明天再去医院"))
@@ -456,20 +487,23 @@ private struct MisbehavingProviderStub: AIProvider {
 
 @Suite("M1c · 偏好设置（§5.28/FR14.7）")
 struct AppSettingsTests {
-    @Test func 全键默认值齐备() {
+    /// 原名：全键默认值齐备
+    @Test func allKeysHaveDefaultValues() {
         for key in AppSettingKey.allCases {
             #expect(!key.defaultValue.isEmpty || key == .defaultMemberId || key == .dataRetentionDays,
                     "键 \(key.rawValue) 必须声明默认值（新增键禁止裸奔）")
         }
     }
 
-    @Test func 追溯语义仅影响新建() {
+    /// 原名：追溯语义仅影响新建
+    @Test func retroactiveSemanticsAffectNewEntriesOnly() {
         #expect(!SettingsRules.appliesToExisting(.defaultMemberId))
         #expect(!SettingsRules.appliesToExisting(.snoozeMinutes))
         #expect(SettingsRules.appliesToExisting(.careModeEnable))
     }
 
-    @Test func 主题键默认值_跟随系统且高对比关闭() {
+    /// 原名：主题键默认值_跟随系统且高对比关闭
+    @Test func themeKeysDefaultToSystemAndHighContrastOff() {
         // FR14.4（tech-spec §5.28.1）：appearance 默认 system（nil = 跟随系统）、
         // highContrastEnabled 默认 false。落在 App 层的 AppTheme/AppearanceRules
         // 映射与叠加规则由 App 层 XCTest（SU-M1c-FR14）覆盖。
@@ -480,7 +514,8 @@ struct AppSettingsTests {
     }
 
     // FR14.7 默认语速（2026-09-11 接线）：键默认值 + 三档映射单一事实源
-    @Test func 默认语速键与三档映射() {
+    /// 原名：默认语速键与三档映射
+    @Test func speechRateKeyDefaultAndThreeTierMapping() {
         #expect(AppSettingKey.speechRate.defaultValue == "normal")
         #expect(AppSettingKey.allCases.contains(.speechRate))
         // AVSpeechUtterance.rate 映射：正常 = 系统默认 0.5，慢/快单调包夹
@@ -501,7 +536,8 @@ struct AppSettingsTests {
 // binds: SU-M1c-SEC — TC-M1c-01（敏感越权=0 一票否决）
 @Suite("SU-M1c-SEC · 观察聚合与就诊展示（§5.36/F8）")
 struct ObservationServiceTests {
-    @Test func 同组聚合与成员隔离() {
+    /// 原名：同组聚合与成员隔离
+    @Test func groupAggregationAndMemberIsolation() {
         let me = UUID()
         let other = UUID()
         let g = UUID()
@@ -519,7 +555,8 @@ struct ObservationServiceTests {
         #expect(groups[0].selfMark == "improved")   // 最新自评
     }
 
-    @Test func 展示会话超时自动重锁与scope过滤() {
+    /// 原名：展示会话超时自动重锁与scope过滤
+    @Test func showcaseSessionTimeoutRelockAndScopeFiltering() {
         let me = UUID()
         let event = ObservationEvent(id: UUID(), kind: .skin, occurredAt: Date(),
                                      description: "红疹", selfMark: nil, memberId: me)
@@ -539,12 +576,14 @@ struct ObservationServiceTests {
 @Suite("SU-M1c-IAP · 成员配额判定（免费档 4 人边界）")
 struct MemberQuotaTests {
 
-    @Test func 第五个成员越限() {
+    /// 原名：第五个成员越限
+    @Test func fifthMemberExceedsQuota() {
         #expect(PaywallRules.addingMemberWouldExceed(currentCount: 4) == true,
                 "已有 4 人时加第 5 个成员越过免费配额")
     }
 
-    @Test func 四人以内不越限() {
+    /// 原名：四人以内不越限
+    @Test func upToFourMembersWithinQuota() {
         for count in 0...3 {
             #expect(PaywallRules.addingMemberWouldExceed(currentCount: count) == false,
                     "免费档 ≥4 人（FR3.7 边界），已有 \(count) 人时不弹墙")
@@ -555,12 +594,14 @@ struct MemberQuotaTests {
 // binds: SU-M1c-SENSITIVE — BR-007/008 重锁策略（FR8.4 / tech-spec §5.10）
 @Suite("SU-M1c-SENSITIVE · 敏感媒体重锁策略（BR-007/008）")
 struct MediaUnlockPolicyTests {
-    @Test func 阈值为规格规定的30秒() {
+    /// 原名：阈值为规格规定的30秒
+    @Test func thresholdIsThirtySecondsPerSpec() {
         #expect(MediaUnlockPolicy.idleTTL == 30)
     }
 
     /// 计时以「最后一次交互」为起点：正在读图的用户不得被打断
-    @Test func 按无操作计时而非解锁时刻() {
+    /// 原名：按无操作计时而非解锁时刻
+    @Test func idleTimedFromLastInteractionNotUnlock() {
         let unlocked = Date(timeIntervalSince1970: 1_000_000)
         let stillReading = unlocked.addingTimeInterval(100)   // 解锁 100s 后仍在交互
         #expect(!MediaUnlockPolicy.shouldRelock(lastInteraction: stillReading,
@@ -569,7 +610,8 @@ struct MediaUnlockPolicyTests {
                                                now: stillReading.addingTimeInterval(30)))
     }
 
-    @Test func 活跃信号按合并窗口去抖() {
+    /// 原名：活跃信号按合并窗口去抖
+    @Test func activitySignalsDebouncedByMergeWindow() {
         let t = Date(timeIntervalSince1970: 1_000_000)
         #expect(MediaUnlockPolicy.shouldRecordActivity(lastInteraction: nil, now: t))
         // 同一秒内的高频触摸事件不重复写状态
@@ -580,7 +622,8 @@ struct MediaUnlockPolicyTests {
     }
 
     /// 退后台立即重锁——敏感内容不得出现在任务切换器快照里（BR-007/008）
-    @Test func 退后台立即重锁() {
+    /// 原名：退后台立即重锁
+    @Test func relockImmediatelyOnBackground() {
         #expect(MediaUnlockPolicy.shouldRelockOnBackground())
     }
 }
@@ -592,14 +635,16 @@ struct MedicalNumberFormatTests {
     /// 与屏幕上的 1 位小数不一致——视障用户听到的医学数字必须与看到的相同。
     /// 用参考带下界的真实算式（mean − 1.96·sd）取值，而不是字面量：
     /// 字面量 3.7000000000000002 会被解析成最近的 Double（正好是 3.7），构不成反例。
-    @Test func 无障碍文本不得念出浮点尾数() {
+    /// 原名：无障碍文本不得念出浮点尾数
+    @Test func accessibilityTextMustNotSpeakFloatTail() {
         let mean = 4.9, sd = 0.612245
         let lower = mean - 1.96 * sd            // 实测 3.6999998000000005
         #expect("\(lower)".count > 5, "前提：插值确实暴露尾数（实得 \("\(lower)")）")
         #expect(MedicalNumberFormat.oneDecimal(lower) == "3.7")
     }
 
-    @Test func 一位小数口径稳定() {
+    /// 原名：一位小数口径稳定
+    @Test func oneDecimalFormattingStable() {
         #expect(MedicalNumberFormat.oneDecimal(120) == "120.0")
         #expect(MedicalNumberFormat.oneDecimal(120.44) == "120.4")
         #expect(MedicalNumberFormat.oneDecimal(120.45) == "120.5")
@@ -607,13 +652,15 @@ struct MedicalNumberFormatTests {
     }
 
     /// 件数口径：整数不带小数点（保持既有用户可见形态）
-    @Test func 件数口径保持既有形态() {
+    /// 原名：件数口径保持既有形态
+    @Test func quantityFormattingKeepsExistingForm() {
         #expect(MedicalNumberFormat.quantity(3) == "3")
         #expect(MedicalNumberFormat.quantity(4.5) == "4.5")
     }
 
     /// 两个口径都不受设备区域影响（String(format:) 默认 POSIX，非当前 locale）
-    @Test func 不随设备区域改变小数点() {
+    /// 原名：不随设备区域改变小数点
+    @Test func decimalPointIndependentOfDeviceLocale() {
         #expect(MedicalNumberFormat.oneDecimal(1.5).contains("."))
         #expect(!MedicalNumberFormat.oneDecimal(1.5).contains(","))
         #expect(!MedicalNumberFormat.quantity(1.5).contains(","))
@@ -624,7 +671,8 @@ struct MedicalNumberFormatTests {
 @Suite("SU-M1c-RULES · 盘点判等与药品名匹配下沉 Domain（FR9.8.5/语音库存查询）")
 struct InventoryViewRulesTests {
 
-    @Test func 盘点判等含半片容差边界() {
+    /// 原名：盘点判等含半片容差边界
+    @Test func inventoryEqualityIncludesHalfTabletTolerance() {
         // 账面 4.5、滑杆整数 5 → 差 0.5 必须判等（含边界；严格 < 会永远多一步确认）
         #expect(InventoryRules.isEqualToBook(physical: 5, confirmed: 4.5))
         #expect(InventoryRules.isEqualToBook(physical: 4, confirmed: 4.5))
@@ -633,7 +681,8 @@ struct InventoryViewRulesTests {
         #expect(InventoryRules.isEqualToBook(physical: 10, confirmed: 10))
     }
 
-    @Test func 药品名匹配精确名优先() {
+    /// 原名：药品名匹配精确名优先
+    @Test func drugNameMatchingPrefersExactMatch() {
         let lots = ["钙片", "葡萄糖酸钙", "阿莫西林"]
         // 精确命中「钙片」时不回落包含匹配
         #expect(InventoryRules.preferredExactMatches(lots, name: { $0 }, query: "钙片") == ["钙片"])
@@ -645,7 +694,8 @@ struct InventoryViewRulesTests {
         #expect(InventoryRules.preferredExactMatches(lots, name: { $0 }, query: "胰岛素").isEmpty)
     }
 
-    @Test func 时刻合法性单一事实源() {
+    /// 原名：时刻合法性单一事实源
+    @Test func timeValiditySingleSourceOfTruth() {
         // 审查修复锚点：fixed 时刻保存闸门与引擎解析共用 isValidTime
         #expect(DoseScheduleEngine.isValidTime("08:00"))
         #expect(DoseScheduleEngine.isValidTime("8:00"))

@@ -14,7 +14,8 @@ struct ScheduleEngineTests {
         cal.date(from: DateComponents(year: 2026, month: 8, day: 26))!
     }
 
-    @Test func 固定时间双剂() {
+    /// 原名：固定时间双剂
+    @Test func fixedTimesYieldTwoDoses() {
         let (doses, skipped) = DoseScheduleEngine.doses(
             schedule: .fixed(times: ["08:00", "20:00"]),
             planId: UUID(), startDate: start, fromDay: 1, toDay: 1, calendar: cal)
@@ -23,20 +24,23 @@ struct ScheduleEngineTests {
         #expect(doses.allSatisfy { $0.notifyId.hasPrefix("dose-") })
     }
 
-    @Test func 间隔每480分钟生成3剂() {
+    /// 原名：间隔每480分钟生成3剂
+    @Test func intervalEvery480MinutesYieldsThreeDoses() {
         let (doses, _) = DoseScheduleEngine.doses(
             schedule: .interval(everyMinutes: 480, start: "08:00"),
             planId: UUID(), startDate: start, fromDay: 1, toDay: 1, calendar: cal)
         #expect(doses.count == 3)   // 08:00 / 16:00 / 24:00 边界不含
     }
 
-    @Test func 按需不预排() {
+    /// 原名：按需不预排
+    @Test func asNeededSchedulesNoDoses() {
         let (doses, _) = DoseScheduleEngine.doses(
             schedule: .asNeeded, planId: UUID(), startDate: start, fromDay: 1, toDay: 7, calendar: cal)
         #expect(doses.isEmpty)
     }
 
-    @Test func 递增递减表阶段剂量() {
+    /// 原名：递增递减表阶段剂量
+    @Test func taperStagesApplyPerStageDoseUnits() {
         let stages = [
             MedicationSchedule.TaperStage(phase: 1, fromDay: 1, toDay: 7, doseUnits: 2.0, times: ["08:00"]),
             MedicationSchedule.TaperStage(phase: 2, fromDay: 8, toDay: 14, doseUnits: 1.0, times: ["08:00"]),
@@ -48,14 +52,16 @@ struct ScheduleEngineTests {
         #expect(doses[0].doseUnits == 2.0 && doses[7].doseUnits == 1.0)
     }
 
-    @Test func 非法时间字符串跳过并计数() {
+    /// 原名：非法时间字符串跳过并计数
+    @Test func invalidTimeStringsAreSkippedAndCounted() {
         let (doses, skipped) = DoseScheduleEngine.doses(
             schedule: .fixed(times: ["25:00", "08:00"]),
             planId: UUID(), startDate: start, fromDay: 1, toDay: 1, calendar: cal)
         #expect(doses.count == 1 && skipped == 1)   // 绝不静默错位
     }
 
-    @Test func 间隔参数非法不进入死循环() {
+    /// 原名：间隔参数非法不进入死循环
+    @Test func invalidIntervalDoesNotLoopForever() {
         // everyMinutes<=0 必须跳过该日而非无限循环（纯函数可终止性红线）
         let (doses, skipped) = DoseScheduleEngine.doses(
             schedule: .interval(everyMinutes: 0, start: "08:00"),
@@ -67,7 +73,8 @@ struct ScheduleEngineTests {
         #expect(doses2.isEmpty)
     }
 
-    @Test func 周期参数非法不崩溃() {
+    /// 原名：周期参数非法不崩溃
+    @Test func invalidCycleDoesNotCrash() {
         // everyDays<=0 不得触发除零崩溃，必须安全跳过
         let (doses, _) = DoseScheduleEngine.doses(
             schedule: .cycle(everyDays: 0, daysOn: 0),
@@ -75,7 +82,8 @@ struct ScheduleEngineTests {
         #expect(doses.isEmpty)
     }
 
-    @Test func 计划状态闸门() {
+    /// 原名：计划状态闸门
+    @Test func planStatusGate() {
         #expect(ScheduleGate.dosesAllowed(.active))
         #expect(!ScheduleGate.dosesAllowed(.paused))
         #expect(!ScheduleGate.dosesAllowed(.ended))
@@ -87,40 +95,46 @@ struct ScheduleEngineTests {
 struct DualTrackTests {
     /// 矩阵语义（function-spec FR9.8.2 权威文案）：taken/discomfort→两线各扣；
     /// skipped→两线均免扣（唯一已知未服情形）；missed→仅计划轨扣；snoozed→两线不动
-    @Test func 扣减矩阵_已服两线各扣() {
+    /// 原名：扣减矩阵_已服两线各扣
+    @Test func deductionMatrixTakenDeductsBothTracks() {
         let inv = DualTrackInventory(lotId: UUID(), totalUnits: 30, unitKind: "tablet")
         let out = InventoryRules.applyResolution(inv, units: 1, action: .taken)
         #expect(out.remainingPlanUnits == 29)
         #expect(out.remainingConfirmedUnits == 29)
     }
 
-    @Test func 扣减矩阵_记录不适两线各扣() {
+    /// 原名：扣减矩阵_记录不适两线各扣
+    @Test func deductionMatrixDiscomfortDeductsBothTracks() {
         let inv = DualTrackInventory(lotId: UUID(), totalUnits: 30, unitKind: "tablet")
         let out = InventoryRules.applyResolution(inv, units: 1, action: .discomfort)
         #expect(out.remainingPlanUnits == 29)
         #expect(out.remainingConfirmedUnits == 29)
     }
 
-    @Test func 扣减矩阵_跳过两线均免扣() {
+    /// 原名：扣减矩阵_跳过两线均免扣
+    @Test func deductionMatrixSkippedDeductsNeitherTrack() {
         let inv = DualTrackInventory(lotId: UUID(), totalUnits: 30, unitKind: "tablet")
         let out = InventoryRules.applyResolution(inv, units: 1, action: .skipped)
         #expect(out.remainingPlanUnits == 30, "显式跳过=唯一已知未服情形，计划轨免扣")
         #expect(out.remainingConfirmedUnits == 30, "BR-004：确认线只认「服了」")
     }
 
-    @Test func 扣减矩阵_忘记仅计划轨扣() {
+    /// 原名：扣减矩阵_忘记仅计划轨扣
+    @Test func deductionMatrixMissedDeductsPlanTrackOnly() {
         let inv = DualTrackInventory(lotId: UUID(), totalUnits: 30, unitKind: "tablet")
         let out = InventoryRules.applyResolution(inv, units: 1, action: .missed)
         #expect(out.remainingPlanUnits == 29 && out.remainingConfirmedUnits == 30)
     }
 
-    @Test func 扣减矩阵_稍后两线不动() {
+    /// 原名：扣减矩阵_稍后两线不动
+    @Test func deductionMatrixSnoozedLeavesBothTracksUntouched() {
         let inv = DualTrackInventory(lotId: UUID(), totalUnits: 30, unitKind: "tablet")
         let out = InventoryRules.applyResolution(inv, units: 1, action: .snoozed)
         #expect(out.remainingPlanUnits == 30 && out.remainingConfirmedUnits == 30)
     }
 
-    @Test func FEFO先到期先出() {
+    /// 原名：FEFO先到期先出
+    @Test func fefoConsumesEarliestExpiryFirst() {
         let early = DualTrackInventory(lotId: UUID(), totalUnits: 10, unitKind: "tablet",
                                        expireAt: Date(timeIntervalSince1970: 1000))
         let late = DualTrackInventory(lotId: UUID(), totalUnits: 10, unitKind: "tablet",
@@ -128,7 +142,8 @@ struct DualTrackTests {
         #expect(InventoryRules.fefoOrder([late, early])[0].lotId == early.lotId)
     }
 
-    @Test func 扣减矩阵跨批FEFO分配() {
+    /// 原名：扣减矩阵跨批FEFO分配
+    @Test func crossLotAllocationFollowsFEFO() {
         let early = DualTrackInventory(lotId: UUID(), totalUnits: 10, unitKind: "tablet",
                                        expireAt: Date(timeIntervalSince1970: 1000))
         let late = DualTrackInventory(lotId: UUID(), totalUnits: 10, unitKind: "tablet",
@@ -140,7 +155,8 @@ struct DualTrackTests {
         #expect(updated.first { $0.lotId == early.lotId }!.remainingConfirmedUnits == 0)
     }
 
-    @Test func 续药告警七天余量() {
+    /// 原名：续药告警七天余量
+    @Test func refillAlertFiresOnSevenDaySupply() {
         let inv = DualTrackInventory(lotId: UUID(), totalUnits: 21, unitKind: "tablet")
         let withPlan = InventoryRules.deductPlan(inv, units: 0)
         #expect(InventoryRules.refillAlertNeeded(withPlan, dailyPlanUnits: 3, at: Date()))
@@ -152,7 +168,8 @@ struct DualTrackTests {
     /// （ADR-009 偏早告警，用户未处理就持续提醒）；status 过滤是**调用方**职责
     /// （MedicationStore.refillSummary 的 WHERE status='active'）。把 status 判断塞进
     /// 规则会让「已耗尽未盘点」的批次静默退出告警，违反偏早红线。
-    @Test func 续药契约_耗尽批次持续触达且零日当量不触发() {
+    /// 原名：续药契约_耗尽批次持续触达且零日当量不触发
+    @Test func exhaustedLotKeepsAlertingWhileZeroDailyPlanDoesNot() {
         let inv = DualTrackInventory(lotId: UUID(), totalUnits: 30, unitKind: "tablet")
         let zero = InventoryRules.deductPlan(inv, units: 30)
         #expect(zero.remainingPlanUnits == 0)
@@ -181,7 +198,8 @@ struct DoseSlotTests {
                       mealRelation: meal, notifyId: "dose-\(offset)-\(meal ?? "f")")
     }
 
-    @Test func 餐时关系正负三十分钟归组() {
+    /// 原名：餐时关系正负三十分钟归组
+    @Test func mealRelationGroupsWithinPlusMinusThirtyMinutes() {
         let records = [
             DoseRecord(dose: dose(0, meal: "afterBreakfast")),
             DoseRecord(dose: dose(15 * 60, meal: "afterBreakfast")),
@@ -193,7 +211,8 @@ struct DoseSlotTests {
         #expect(slots[0].records.count == 3 && slots[1].records.count == 1)
     }
 
-    @Test func 不同餐时关系不混组() {
+    /// 原名：不同餐时关系不混组
+    @Test func differentMealRelationsStayInSeparateSlots() {
         let records = [
             DoseRecord(dose: dose(0, meal: "afterBreakfast")),
             DoseRecord(dose: dose(5 * 60, meal: "afterDinner")),
@@ -201,7 +220,8 @@ struct DoseSlotTests {
         #expect(DoseSlotGrouping.group(records, calendar: cal).count == 2)
     }
 
-    @Test func 全部已服判定() {
+    /// 原名：全部已服判定
+    @Test func allTakenSlotDetection() {
         let d1 = dose(0, meal: "afterBreakfast")
         let d2 = dose(10 * 60, meal: "afterBreakfast")
         let slot = DoseSlotGrouping.group([
@@ -216,7 +236,8 @@ struct DoseSlotTests {
         #expect(!partial.allTaken && partial.anyPending)
     }
 
-    @Test func 无餐时关系传递聚类() {
+    /// 原名：无餐时关系传递聚类
+    @Test func nilMealRelationTransitiveClustering() {
         let base = Date(timeIntervalSince1970: 1_700_000_000)
         func fixed(_ offset: TimeInterval) -> DoseRecord {
             DoseRecord(dose: ScheduledDose(dueAt: base.addingTimeInterval(offset), doseUnits: 1,
@@ -231,7 +252,8 @@ struct DoseSlotTests {
     /// 单一事实源不变量（评审修正）：聚合锚点必须恒等于调度引擎的餐时默认时刻。
     /// 两处曾各持一份硬编码分钟表且**回退值不同**（聚合 08:30 / 引擎 08:00）——
     /// 同一条餐时关系在「生成剂量」与「聚合锚点」两处取到不同时刻，±30min 窗口错位。
-    @Test func 锚点与调度引擎默认时刻一致() {
+    /// 原名：锚点与调度引擎默认时刻一致
+    @Test func mealAnchorMatchesScheduleEngineDefaultTimes() {
         let day = cal.date(from: DateComponents(year: 2026, month: 8, day: 26))!
         for relation in ["beforeBreakfast", "afterBreakfast", "beforeLunch",
                          "afterLunch", "beforeDinner", "afterDinner"] {
@@ -252,21 +274,25 @@ struct ReconcileTests {
                          delivered: delivered, action: action, isDueSoon: dueSoon, isExpiredGrace: grace)
     }
 
-    @Test func 已服不动() {
+    /// 原名：已服不动
+    @Test func takenLeavesReconcileDecisionUnchanged() {
         #expect(ReconcileEngine.decide(fact(delivered: true, action: .taken, dueSoon: false, grace: false), now: Date()) == .none)
     }
 
-    @Test func 未送达且临期补排() {
+    /// 原名：未送达且临期补排
+    @Test func undeliveredAndDueSoonReschedules() {
         #expect(ReconcileEngine.decide(fact(delivered: false, action: nil, dueSoon: true, grace: false), now: Date()) == .schedule)
     }
 
-    @Test func 已送达过宽限期标记待处理() {
+    /// 原名：已送达过宽限期标记待处理
+    @Test func deliveredPastGraceMarksAwaitingUser() {
         #expect(ReconcileEngine.decide(fact(delivered: true, action: nil, dueSoon: false, grace: true), now: Date()) == .markAwaitingUser)
     }
 
     /// 全仓审查 2026-09-18（F-D1-01/F-A5-03/F-I4-01）：「稍后」不是决议——过宽限期回到待处理；
     /// 其余已决议动作对账不动
-    @Test func 稍后非终态_过宽限期回到待处理() {
+    /// 原名：稍后非终态_过宽限期回到待处理
+    @Test func snoozedIsNotTerminalAndReturnsToAwaitingAfterGrace() {
         #expect(ReconcileEngine.decide(fact(delivered: true, action: .snoozed, dueSoon: false, grace: true), now: Date()) == .markAwaitingUser)
         #expect(ReconcileEngine.decide(fact(delivered: true, action: .snoozed, dueSoon: false, grace: false), now: Date()) == .none)
         for action in [DoseUserAction.skipped, .missed, .discomfort] {
@@ -280,14 +306,16 @@ struct ReconcileTests {
         #expect(pending.isUnresolved)
     }
 
-    @Test func 稍后提醒必须晚于现在() {
+    /// 原名：稍后提醒必须晚于现在
+    @Test func snoozeMustBeLaterThanNow() {
         let past = Date().addingTimeInterval(-60)
         #expect(ReconcileEngine.snooze(until: past, now: Date()) == .none)
         let future = Date().addingTimeInterval(600)
         #expect(ReconcileEngine.snooze(until: future, now: Date()) == .snooze(until: future))
     }
 
-    @Test func 超限裁撤按优先级() {
+    /// 原名：超限裁撤按优先级
+    @Test func overBudgetTrimDropsByPriority() {
         let pending = [
             (id: "med-1", priority: ReconcileEngine.Priority.medication, fireAt: Date()),
             (id: "follow-1", priority: ReconcileEngine.Priority.followUp, fireAt: Date()),
@@ -297,7 +325,8 @@ struct ReconcileTests {
         #expect(dropped == ["follow-1"])   // 裁撤顺序：观察随访优先让位
     }
 
-    @Test func 通道降级矩阵() {
+    /// 原名：通道降级矩阵
+    @Test func channelFallbackMatrix() {
         let chain = ChannelFallback.resolve(
             preferred: .local,
             availability: [.local: false, .inApp: true, .persistentRing: true])
@@ -312,7 +341,8 @@ struct ReconcileTests {
         #expect(none == nil)
     }
 
-    @Test func 预约四级触发点反算() {
+    /// 原名：预约四级触发点反算
+    @Test func appointmentFourTierFireDates() {
         // 时区确定性（CI 34019241962 实证）：本测试对时区敏感——day 层 dayHour=9
         // 相对预约时刻的先后取决于日历时区，UTC 跑机上 Calendar.current 与开发机
         // （+0800）不一致会翻转断言。规则接受 calendar 注入（生产用设备本地日历），
@@ -342,33 +372,38 @@ struct ReconcileTests {
 
 @Suite("FR9.16×FR9.8.8 补录转场扣减矩阵")
 struct TransitionDeductionTests {
-    @Test func missed转taken仅补扣确认轨() {
+    /// 原名：missed转taken仅补扣确认轨
+    @Test func missedToTakenDeductsConfirmedTrackOnly() {
         // materializeMissed 已扣计划轨 (units, 0)——补录转场不得重复扣计划轨
         let m = InventoryRules.transitionDeduction(from: .missed, to: .taken, units: 2)
         #expect(m.plan == 0)
         #expect(m.confirmed == 2)
     }
 
-    @Test func missed转discomfort仅补扣确认轨() {
+    /// 原名：missed转discomfort仅补扣确认轨
+    @Test func missedToDiscomfortDeductsConfirmedTrackOnly() {
         let m = InventoryRules.transitionDeduction(from: .missed, to: .discomfort, units: 2)
         #expect(m.plan == 0)
         #expect(m.confirmed == 2)
     }
 
-    @Test func skipped转taken全额扣减() {
+    /// 原名：skipped转taken全额扣减
+    @Test func skippedToTakenDeductsBothTracksFully() {
         // skipped 原矩阵 (0,0) 未扣任何轨——转场 taken 全额扣双轨
         let m = InventoryRules.transitionDeduction(from: .skipped, to: .taken, units: 2)
         #expect(m.plan == 2)
         #expect(m.confirmed == 2)
     }
 
-    @Test func 未决议转taken全额扣减() {
+    /// 原名：未决议转taken全额扣减
+    @Test func unresolvedToTakenDeductsBothTracksFully() {
         let m = InventoryRules.transitionDeduction(from: nil, to: .taken, units: 3)
         #expect(m.plan == 3)
         #expect(m.confirmed == 3)
     }
 
-    @Test func 与单轨矩阵互补不越界() {
+    /// 原名：与单轨矩阵互补不越界
+    @Test func singleTrackDeductionStaysNonNegative() {
         for action in [DoseUserAction.taken, .skipped, .missed, .discomfort, .snoozed] {
             let base = InventoryRules.deduction(for: action, units: 1)
             #expect(base.plan >= 0 && base.confirmed >= 0)
@@ -377,7 +412,8 @@ struct TransitionDeductionTests {
 
     /// 第十轮闭式推导锚点（第九轮 Angle E 缺口）：已服转场到 missed 必须零扣减——
     /// 原枚举表 default 落 full deduction(.missed) 会二次扣计划轨（双轨双扣）
-    @Test func 已服转场missed零扣减() {
+    /// 原名：已服转场missed零扣减
+    @Test func takenToMissedDeductsNothing() {
         for from in [DoseUserAction.taken, .discomfort] {
             let m = InventoryRules.transitionDeduction(from: from, to: .missed, units: 2)
             #expect(m.plan == 0, "\(from) → missed 计划轨不得二次扣减")
@@ -386,7 +422,8 @@ struct TransitionDeductionTests {
     }
 
     /// 第十轮闭式推导等价性：全部 5×5 转场 = max(0, deduction(to) − deduction(from))
-    @Test func 转场闭式与矩阵差一致() {
+    /// 原名：转场闭式与矩阵差一致
+    @Test func transitionEqualsClampedDeductionDelta() {
         let actions: [DoseUserAction] = [.taken, .skipped, .missed, .discomfort, .snoozed]
         for from in actions {
             for to in actions {
@@ -404,29 +441,34 @@ struct TransitionDeductionTests {
 /// foregroundDelivery 同口径）——「静音仅横幅 + 横幅总开关关闭」不得
 /// 落入零通道（§5.58 目标通道不可用自动降级，宁响铃不静默）。
 struct ChannelDeliveryRulesTests {
-    @Test func 静音仅横幅且横幅关闭仍系统投递() {
+    /// 原名：静音仅横幅且横幅关闭仍系统投递
+    @Test func bannerOnlyWithBannerOffStillDeliversSystemNotification() {
         #expect(!ReminderChannelRules.suppressSystemDelivery("dose-x", bannerEnabled: false, preference: "inApp"))
         #expect(ReminderChannelRules.foregroundDelivery(for: "dose-x", bannerEnabled: false, medsPreference: "inApp") == .bannerAndSound)
     }
 
-    @Test func 静音仅横幅且横幅开启才抑制() {
+    /// 原名：静音仅横幅且横幅开启才抑制
+    @Test func bannerOnlyWithBannerOnSuppressesSystemDelivery() {
         #expect(ReminderChannelRules.suppressSystemDelivery("dose-x", bannerEnabled: true, preference: "inApp"))
         #expect(ReminderChannelRules.foregroundDelivery(for: "dose-x", bannerEnabled: true, medsPreference: "inApp") == .silent)
     }
 
-    @Test func 响铃直到确认横幅开启仅声音() {
+    /// 原名：响铃直到确认横幅开启仅声音
+    @Test func ringUntilConfirmedWithBannerOnIsSoundOnly() {
         #expect(!ReminderChannelRules.suppressSystemDelivery("slot-x", bannerEnabled: true, preference: "persistentRing"))
         #expect(ReminderChannelRules.foregroundDelivery(for: "slot-x", bannerEnabled: true, medsPreference: "persistentRing") == .soundOnly)
     }
 
-    @Test func 无承接族永不抑制() {
+    /// 原名：无承接族永不抑制
+    @Test func familiesWithoutBannerSupportAreNeverSuppressed() {
         for id in ["snooze-1", "voice-rem-1", "refill-1", "apt-1", "alert-1"] {
             #expect(!ReminderChannelRules.suppressSystemDelivery(id, bannerEnabled: true, preference: "inApp"))
             #expect(ReminderChannelRules.foregroundDelivery(for: id, bannerEnabled: true, medsPreference: "inApp") == .bannerAndSound)
         }
     }
 
-    @Test func 宽限合法域单一事实源() {
+    /// 原名：宽限合法域单一事实源
+    @Test func graceSecondsLegalValuesSingleSource() {
         #expect(SettingsRules.gateGraceSecondsLegalValues == [0, 15, 60])
     }
 }
@@ -435,7 +477,8 @@ struct ChannelDeliveryRulesTests {
 
 @Suite("D5 逻辑剂量身份")
 struct LogicalDoseIdentityTests {
-    @Test func 同一逻辑剂量跨时区id稳定() {
+    /// 原名：同一逻辑剂量跨时区id稳定
+    @Test func logicalDoseIdStableAcrossTimeZones() {
         let planId = UUID()
         let startDate = Date(timeIntervalSince1970: 1_800_000_000)   // 任意锚点
         var cn = Calendar(identifier: .gregorian)
@@ -453,7 +496,8 @@ struct LogicalDoseIdentityTests {
         #expect(dosesCN[0].notifyId == dosesUTC[0].notifyId)
     }
 
-    @Test func 同一日多剂序号递增() {
+    /// 原名：同一日多剂序号递增
+    @Test func sameDayDoseOrdinalsIncrement() {
         let planId = UUID()
         let startDate = Date(timeIntervalSince1970: 1_800_000_000)
         let (doses, _) = DoseScheduleEngine.doses(
@@ -466,7 +510,8 @@ struct LogicalDoseIdentityTests {
         #expect(ordinals == [1, 2, 3])
     }
 
-    @Test func 每剂剂量随unitsPerDose物化() {
+    /// 原名：每剂剂量随unitsPerDose物化
+    @Test func doseUnitsMaterializeFromUnitsPerDose() {
         let planId = UUID()
         let startDate = Date(timeIntervalSince1970: 1_800_000_000)
         let (doses, _) = DoseScheduleEngine.doses(

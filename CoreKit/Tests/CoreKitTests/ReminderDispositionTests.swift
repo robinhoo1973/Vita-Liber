@@ -29,12 +29,14 @@ struct ReminderDispositionTests {
         #expect(ReminderAggregationCenter.dispositions(for: item(row.kind, priority: row.priority, status: row.status)) == row.expected)
     }
 
-    @Test func 任何源都不归档用药且医疗动作只有三项() {
+    /// 原名：任何源都不归档用药且医疗动作只有三项
+    @Test func noSourceArchivesMedicationAndMedicalActionsAreThree() {
         #expect(!ReminderAggregationCenter.dispositions(for: item("dose_slot", status: "pending")).contains(.archive))
         #expect(ReminderDisposition.allCases.filter(\.isMedicalAction) == [.markTaken, .snoozeDose, .skipDose])
     }
 
-    @Test func 全滑仅对纯信息行的稍后或归档开放() {
+    /// 原名：全滑仅对纯信息行的稍后或归档开放
+    @Test func fullSwipeOnlyForInfoRowsSnoozeOrArchive() {
         let dose = item("dose_slot", priority: 1, status: "pending")
         #expect(!ReminderAggregationCenter.allowsFullSwipe(for: dose, side: .trailing))
         #expect(!ReminderAggregationCenter.allowsFullSwipe(for: dose, side: .leading))
@@ -52,14 +54,16 @@ struct ReminderDispositionTests {
         #expect(NotificationItemKey.key(kind: kind, sourceId: "X") == expected)
     }
 
-    @Test func 次日键按自然日派生() {
+    /// 原名：次日键按自然日派生
+    @Test func tomorrowKeyDerivesFromCalendarDay() {
         var cal = Calendar(identifier: .gregorian); cal.timeZone = TimeZone(secondsFromGMT: 0)!
         let day = Date(timeIntervalSince1970: 1_800_000_000)   // 2027-01-15 08:00Z
         #expect(NotificationItemKey.snoozedUntilTomorrowKey("lot-L", now: day, calendar: cal) == "lot-L@2027-1-15")
         #expect(NotificationItemKey.snoozedUntilTomorrowKey("lot-L", now: day.addingTimeInterval(86_400), calendar: cal) == "lot-L@2027-1-16")
     }
 
-    @Test func 隐藏键集_用药与逾期OCR不可被任何键隐藏() {
+    /// 原名：隐藏键集_用药与逾期OCR不可被任何键隐藏
+    @Test func hideKeysMedicationAndOverdueOCRUnhidable() {
         let now = Date()
         #expect(NotificationItemKey.hideKeys(for: item("dose_slot", status: "pending"), now: now).isEmpty)
         #expect(NotificationItemKey.hideKeys(for: item("ocr", priority: 2), now: now).isEmpty)

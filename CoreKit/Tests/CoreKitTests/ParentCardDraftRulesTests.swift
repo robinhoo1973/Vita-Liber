@@ -17,7 +17,8 @@ struct ParentCardDraftRulesTests {
         var c = Calendar(identifier: .gregorian); c.timeZone = TimeZone(identifier: "UTC")!; return c
     }
 
-    @Test func 处方卡派生就诊草稿_字段原文_kind按文档键() throws {
+    /// 原名：处方卡派生就诊草稿_字段原文_kind按文档键
+    @Test func prescriptionCardDerivesEncounterDraftWithVerbatimFieldsAndKindFromDocumentKey() throws {
         let rx = card("prescription", shared: [("prescribed_at", "2024-03-01"), ("hospital", "市一院"), ("department", "呼吸内科"), ("doctor", "王医生"), ("clinical_diagnosis", "急性支气管炎")])
         let draft = try #require(ParentCardDraftRules.deriveHub(from: rx, documentTypeKey: "prescription"))
         #expect(draft.hub == .encounter)
@@ -30,7 +31,8 @@ struct ParentCardDraftRulesTests {
         #expect(draft.dateKey == "date" && draft.hasDate)
     }
 
-    @Test func 就诊类型只由文档键派生_出院小结手术为住院_日间手术为daySurgery_无键为门诊() throws {
+    /// 原名：就诊类型只由文档键派生_出院小结手术为住院_日间手术为daySurgery_无键为门诊
+    @Test func encounterKindDerivedOnlyFromDocumentKeyAcrossCases() throws {
         let surgery = card("surgery", shared: [("surgery_at", "2024-03-01"), ("hospital", "市一院"), ("department", "普外科"), ("surgeon", "张主刀")], rows: [[]])
         #expect(ParentCardDraftRules.deriveHub(from: surgery, documentTypeKey: "discharge_summary")?.fields.first { $0.key == "kind" }?.value == "inpatient")
         #expect(ParentCardDraftRules.deriveHub(from: surgery, documentTypeKey: "day_surgery_record")?.fields.first { $0.key == "kind" }?.value == "daySurgery")
@@ -47,7 +49,8 @@ struct ParentCardDraftRulesTests {
         #expect(ParentCardDraftRules.deriveHub(from: exam, documentTypeKey: "exam_report")?.fields.first { $0.key == "date" }?.value == "2024-01-03")
     }
 
-    @Test func 结论卡与体检页检验卡派生体检草稿() throws {
+    /// 原名：结论卡与体检页检验卡派生体检草稿
+    @Test func conclusionAndCheckupLabCardsDeriveHealthExamDraft() throws {
         let conclusion = card("clinical_conclusion", shared: [("org_name", "美年体检"), ("exam_date", "2024-05-06"), ("exam_no", "TJ001")], rows: [[("content", "血脂偏高")]])
         let draft = try #require(ParentCardDraftRules.deriveHub(from: conclusion, documentTypeKey: nil))
         #expect(draft.hub == .healthExam && draft.fields.map(\.key) == ["exam_date", "org_name", "exam_no"])
@@ -62,7 +65,8 @@ struct ParentCardDraftRulesTests {
         #expect(ParentCardDraftRules.hub(for: card("health_exam", shared: [("org_name", "A")]), documentTypeKey: "checkup_report") == nil, "体检主卡自身不派生")
     }
 
-    @Test func 无枢纽卡类不派生() {
+    /// 原名：无枢纽卡类不派生
+    @Test func cardsWithoutHubKindDeriveNothing() {
         #expect(ParentCardDraftRules.deriveHub(from: card("immunization", shared: [("provider", "社区医院")]), documentTypeKey: "vaccine_record") == nil, "FR4.6 预防保健档案")
         #expect(ParentCardDraftRules.deriveHub(from: card("medication", shared: []), documentTypeKey: "medication_label") == nil)
         #expect(ParentCardDraftRules.deriveHub(from: card("encounter", shared: [("date", "2024-01-01")]), documentTypeKey: nil) == nil, "主卡自身不派生")
@@ -70,7 +74,8 @@ struct ParentCardDraftRulesTests {
         #expect(ParentCardDraftRules.hub(for: card("appointment", shared: []), documentTypeKey: nil) == nil)
     }
 
-    @Test func 草稿转就诊须字段已确认且有日期() throws {
+    /// 原名：草稿转就诊须字段已确认且有日期
+    @Test func draftToEncounterRequiresConfirmedFieldsAndDate() throws {
         var draft = try #require(ParentCardDraftRules.deriveHub(from: card("prescription", shared: [("prescribed_at", "2024-03-01"), ("hospital", "市一院")]), documentTypeKey: nil))
         #expect(ParentCardDraftRules.encounterDraft(from: draft, patientId: UUID(), calendar: .init(identifier: .gregorian)) == nil, "未确认 → nil（BR-003）")
         #expect(!draft.isComplete(calendar: utc))
@@ -91,7 +96,8 @@ struct ParentCardDraftRulesTests {
         #expect(ParentCardDraftRules.healthExamDraft(from: draft, patientId: UUID(), calendar: utc) == nil, "枢纽不符")
     }
 
-    @Test func 草稿转体检须字段已确认且有日期_机构编号原文() throws {
+    /// 原名：草稿转体检须字段已确认且有日期_机构编号原文
+    @Test func draftToHealthExamRequiresConfirmedFieldsAndDateWithVerbatimOrgNo() throws {
         var draft = try #require(ParentCardDraftRules.deriveHub(from: card("clinical_conclusion", shared: [("org_name", "美年体检"), ("exam_date", "2024年5月6日"), ("exam_no", "TJ001")], rows: [[("content", "A")]]), documentTypeKey: nil))
         #expect(ParentCardDraftRules.healthExamDraft(from: draft, patientId: UUID(), calendar: utc) == nil, "未确认 → nil（BR-003）")
         for i in draft.fields.indices { _ = draft.fields[i].confirm() }
@@ -105,7 +111,8 @@ struct ParentCardDraftRulesTests {
         #expect(ParentCardDraftRules.healthExamDraft(from: undated, patientId: patient, calendar: utc) == nil)
     }
 
-    @Test func 关联裁决_解析器命中预选优先_否则草稿_无枢纽卡类为未选择() throws {
+    /// 原名：关联裁决_解析器命中预选优先_否则草稿_无枢纽卡类为未选择
+    @Test func associationResolverHitWinsElseDraftAndHublessIsUnselected() throws {
         let patient = UUID(), enc = UUID()
         let rx = card("prescription", shared: [("prescribed_at", "2024-03-01"), ("hospital", "市一院")])
         let sameHospital = EncounterResolver.Candidate(id: enc, patientId: patient, date: utc.date(from: DateComponents(year: 2024, month: 3, day: 2))!, hospital: "市一院", doctor: nil)
@@ -123,7 +130,8 @@ struct ParentCardDraftRulesTests {
                 "体检枢纽不走就诊解析器")
     }
 
-    @Test func 关联枚举新增两态可往返_就诊id与枢纽id语义() throws {
+    /// 原名：关联枚举新增两态可往返_就诊id与枢纽id语义
+    @Test func associationEnumTwoNewStatesRoundTripAndIDSemantics() throws {
         let hub = UUID(), draft = try #require(ParentCardDraftRules.deriveHub(from: card("prescription", shared: [("prescribed_at", "2024-03-01"), ("hospital", "市一院")]), documentTypeKey: nil))
         for association in [EncounterAssociation.newHub(draft), .existingHub(.healthExam, hub), .existingHub(.encounter, hub), .existing(hub), .suggested(hub, evidence: "x"), .none, .unselected] {
             let data = try JSONEncoder().encode(association)

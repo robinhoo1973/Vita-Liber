@@ -60,7 +60,8 @@ struct TranscriptSessionTests {
                                            recentDrugNames: ["drug"], limit: -1).isEmpty)
     }
 
-    @Test func 提交段与部分结果合并显示() {
+    /// 原名：提交段与部分结果合并显示
+    @Test func committedAndPartialSegmentsMergeInDisplay() {
         var acc = TranscriptSessionAccumulator()
         acc.updatePartial("我今天")
         acc.updatePartial("我今天头疼")
@@ -74,7 +75,8 @@ struct TranscriptSessionTests {
         #expect(acc.finish() == ["我今天头疼", "吃了"])
     }
 
-    @Test func 空白提交忽略且finish幂等() {
+    /// 原名：空白提交忽略且finish幂等
+    @Test func blankCommitIgnoredAndFinishIdempotent() {
         var acc = TranscriptSessionAccumulator()
         acc.commit("   ")
         acc.commit("")
@@ -85,7 +87,8 @@ struct TranscriptSessionTests {
         #expect(acc.finish() == ["血压 130"], "重复 finish 不重复提交")
     }
 
-    @Test func 分段换段判定按能力上限留安全余量() {
+    /// 原名：分段换段判定按能力上限留安全余量
+    @Test func segmentRotationKeepsSafetyMarginUnderCapabilityCap() {
         let baseline = TranscriptionCapability.baseline()
         #expect(TranscriptSessionAccumulator.shouldRotate(elapsedSeconds: 55, capability: baseline))
         #expect(!TranscriptSessionAccumulator.shouldRotate(elapsedSeconds: 54.9, capability: baseline))
@@ -93,7 +96,8 @@ struct TranscriptSessionTests {
                 "升级轨长音频免分段")
     }
 
-    @Test func 转写结果携带各段且向后兼容() {
+    /// 原名：转写结果携带各段且向后兼容
+    @Test func transcriptionResultCarriesSegmentsBackwardCompatible() {
         let legacy = TranscriptionResult(text: "a", confidence: 0.9, resolvedLocale: "zh-Hans-CN", segmented: false)
         #expect(legacy.segments.isEmpty)
         let multi = TranscriptionResult(text: "a b", confidence: 0.9, resolvedLocale: "zh-Hans-CN",
@@ -103,14 +107,16 @@ struct TranscriptSessionTests {
 
     // MARK: - FR17.15 主语言与混说
 
-    @Test func 语音语言保序去重且主语言为首位() {
+    /// 原名：语音语言保序去重且主语言为首位
+    @Test func voiceLocalesPreserveOrderDedupePrimaryFirst() {
         #expect(SettingsRules.voiceLocales("en-US,zh-Hans-CN,en-US") == ["en-US", "zh-Hans-CN"])
         #expect(SettingsRules.preferredVoiceLocale("yue-Hant-HK,zh-Hans-CN") == "yue-Hant-HK")
         #expect(SettingsRules.preferredVoiceLocale(nil) == "zh-Hans-CN", "默认主语言普通话")
         #expect(SettingsRules.voiceLocales(" ") == ["zh-Hans-CN"], "空存储回落默认")
     }
 
-    @Test func 混说词表有上限_药名优先_含英文医学词与单位() {
+    /// 原名：混说词表有上限_药名优先_含英文医学词与单位
+    @Test func mixedVocabularyCappedDrugNamesFirstIncludesEnglishTermsAndUnits() {
         let drugs = (0..<150).map { "药名\($0)" }
         let terms = MixedSpeechVocabulary.terms(primaryLocale: "zh-Hans-CN", otherLocales: ["en-US"],
                                                 recentDrugNames: drugs)
@@ -129,17 +135,21 @@ struct TranscriptSessionTests {
 /// 转写拼接单点（结构轮 2026-09-15）：CJK 直接相接；拉丁之间补空格；空段忽略。
 @Suite("SU-M15-VOICE · 转写拼接单点（TranscriptJoiner）")
 struct TranscriptJoinerTests {
-    @Test func CJK直接相接() {
+    /// 原名：CJK直接相接
+    @Test func cjkJoinsWithoutSpace() {
         #expect(TranscriptJoiner.join(["我今天头疼", "吃了"]) == "我今天头疼吃了")
     }
-    @Test func 拉丁之间补空格() {
+    /// 原名：拉丁之间补空格
+    @Test func latinWordsSeparatedBySpace() {
         #expect(TranscriptJoiner.join(["hello", "world"]) == "hello world")
     }
-    @Test func 中英相邻不补空格() {
+    /// 原名：中英相邻不补空格
+    @Test func cjkLatinBoundaryGetsNoSpace() {
         #expect(TranscriptJoiner.join(["血压", "120"] ) == "血压120")
         #expect(TranscriptJoiner.join(["120", "bpm"]) == "120 bpm")
     }
-    @Test func 空段忽略() {
+    /// 原名：空段忽略
+    @Test func emptySegmentsIgnored() {
         #expect(TranscriptJoiner.join(["", "血压", ""]) == "血压")
         #expect(TranscriptJoiner.join([]) == "")
     }

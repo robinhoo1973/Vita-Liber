@@ -7,13 +7,15 @@ import Testing
 /// 旧 JSON（纯字典）必须仍可读——视为全部共享字段。
 @Suite("SU-M2-PENDINGCARD · 待办卡多行载荷（partial_data 兼容）")
 struct PendingCardPayloadTests {
-    @Test func 旧字典JSON按实际卡类恢复行() throws {
+    /// 原名：旧字典JSON按实际卡类恢复行
+    @Test func legacyDictionaryJSONRestoresRowsByActualCardKind() throws {
         let payload = try PendingCardPayload.decode(#"{"drug_name":"阿莫西林","hospital":"市一医院"}"#, cardKind: "prescription")
         #expect(payload.shared == ["hospital": "市一医院"])
         #expect(payload.rows == [["drug_name": "阿莫西林"]])
     }
 
-    @Test func 新载荷往返相等() throws {
+    /// 原名：新载荷往返相等
+    @Test func newPayloadRoundTripsEqual() throws {
         let payload = PendingCardPayload(shared: ["measured_at": "2026-09-01"],
                                          rows: [["raw_label": "血红蛋白", "value": "150", "unit": "g/L"],
                                                 ["raw_label": "白细胞", "value": "6.5"]])
@@ -29,7 +31,8 @@ struct PendingCardPayloadTests {
         }
     }
 
-    @Test func 从匹配卡构造载荷保留行序() {
+    /// 原名：从匹配卡构造载荷保留行序
+    @Test func payloadBuiltFromMatchedCardPreservesRowOrder() {
         let card = MatchedCard(kind: "metric_sample", pageIndex: 3,
                                shared: [FieldDraft(key: "measured_at", value: "2026-09-01")],
                                rows: [MatchedCardRow(fields: [FieldDraft(key: "raw_label", value: "A"), FieldDraft(key: "value", value: "1")]),

@@ -12,7 +12,8 @@ struct TimelineHierarchyRulesTests {
         TimelineEntry(kind: kind, date: Date(timeIntervalSince1970: Double(day) * 86_400), title: kind.rawValue, summary: nil, refID: id, memberId: member)
     }
 
-    @Test func 子卡挂到主卡并计数_叶子独立_多重归属两处都出现() {
+    /// 原名：子卡挂到主卡并计数_叶子独立_多重归属两处都出现
+    @Test func childrenAttachToHubsWithCountsLeavesStandAloneAndMultiHubRowsAppearTwice() {
         let rows = [TimelineHubRow(entry: entry(.encounter, enc, day: 10), hub: .encounter),
                     TimelineHubRow(entry: entry(.observation, obs, day: 9), hub: nil),
                     TimelineHubRow(entry: entry(.healthExam, exam, day: 8), hub: .healthExam)]
@@ -31,7 +32,8 @@ struct TimelineHierarchyRulesTests {
                 "展开记忆键 = <hub|leaf>-<kind>-<refID>")
     }
 
-    @Test func 同主卡内重复子卡只出现一次_同刻同类按refID倒序_未登记类型排末() {
+    /// 原名：同主卡内重复子卡只出现一次_同刻同类按refID倒序_未登记类型排末
+    @Test func duplicateChildrenDedupeSameDayKindsSortByRefIDDescendingAndUnlistedKindsLast() {
         let a = UUID(uuidString: "AAAAAAAA-0000-0000-0000-000000000000")!, b = UUID(uuidString: "BBBBBBBB-0000-0000-0000-000000000000")!
         let rows = [TimelineHubRow(entry: entry(.encounter, enc, day: 10), hub: .encounter)]
         let children = [TimelineChildRow(hubId: enc, entry: entry(.diagnosis, a, day: 10)),
@@ -46,7 +48,8 @@ struct TimelineHierarchyRulesTests {
         #expect(Set(RecordChildKind.allCases.map(\.timelineKind)).isSubset(of: Set(TimelineHierarchyRules.childKindOrder)), "每个子卡类都有稳定序位")
     }
 
-    @Test func 筛选命中子卡保留其主卡并只留命中项_叶子按自身类型() {
+    /// 原名：筛选命中子卡保留其主卡并只留命中项_叶子按自身类型
+    @Test func filterKeepsParentHubOfMatchingChildAndLeavesMatchByOwnKind() {
         let grouped = TimelineHierarchyRules.group(
             rows: [TimelineHubRow(entry: entry(.encounter, enc, day: 10), hub: .encounter), TimelineHubRow(entry: entry(.observation, obs, day: 9), hub: nil)],
             children: [TimelineChildRow(hubId: enc, entry: entry(.prescription, rx, day: 10)), TimelineChildRow(hubId: enc, entry: entry(.labReport, lab, day: 10))])
@@ -59,7 +62,8 @@ struct TimelineHierarchyRulesTests {
         #expect(TimelineHierarchyRules.visible(grouped, filter: .all).count == 2)
     }
 
-    @Test func 展开集_默认全折叠_记忆优先_筛选时命中主卡全展开() {
+    /// 原名：展开集_默认全折叠_记忆优先_筛选时命中主卡全展开
+    @Test func expandedSetDefaultsCollapsedPrefersMemoryAndAutoExpandsOnFilterHit() {
         let a = TimelineHubEntry(hub: .encounter, entry: entry(.encounter, enc, day: 10), children: [entry(.prescription, rx, day: 10)], counts: [.prescription: 1])
         let b = TimelineHubEntry(hub: .healthExam, entry: entry(.healthExam, exam, day: 8), children: [entry(.labReport, lab, day: 8)], counts: [.labReport: 1])
         let leaf = TimelineHubEntry(hub: nil, entry: entry(.observation, obs, day: 9), children: [], counts: [:])
@@ -73,7 +77,8 @@ struct TimelineHierarchyRulesTests {
         #expect(TimelineHierarchyRules.expanded(narrowed, filter: .kinds([.labReport]), remembered: { _ in false }) == [b.id])
     }
 
-    @Test func 子卡类到时间轴类型与卡类字符串映射_预约提醒原件无卡类() {
+    /// 原名：子卡类到时间轴类型与卡类字符串映射_预约提醒原件无卡类
+    @Test func recordChildKindMapsToTimelineAndCardKindStringsWithAppointmentReminderDocumentUnmapped() {
         #expect(RecordChildKind.immunization.timelineKind == .vaccination && RecordChildKind.labReport.timelineKind == .labReport)
         #expect(RecordChildKind.treatmentRecord.cardKind == "treatment_record" && RecordChildKind.claim.cardKind == "claim_item" && RecordChildKind.labReport.cardKind == "lab_report")
         #expect(RecordChildKind.appointment.cardKind == nil && RecordChildKind.reminder.cardKind == nil && RecordChildKind.document.cardKind == nil)

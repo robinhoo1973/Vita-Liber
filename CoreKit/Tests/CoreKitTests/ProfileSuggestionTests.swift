@@ -44,7 +44,8 @@ struct ProfileSuggestionTests {
 
     // MARK: - 1. 血型
 
-    @Test func 血型行产bloodType建议且其余检验行不产() {
+    /// 原名：血型行产bloodType建议且其余检验行不产
+    @Test func bloodTypeRowYieldsSuggestionOthersDoNot() {
         let abo = UUID()
         let out = extract(labs: [lab("ABO血型", "A", id: abo), lab("血红蛋白", "阴性"), lab("Rh(D)血型", "阳性"),
                                  lab("血型", "A型 RH(D)阳性"), lab("血型抗体筛查", "阴性"), lab("尿蛋白", "±")])
@@ -54,7 +55,8 @@ struct ProfileSuggestionTests {
         #expect(out[0].provenance.cardKind == "metric_sample" && out[0].provenance.documentId == document && out[0].provenance.pageIndex == 2)
     }
 
-    @Test func 血型字形归一只做字符映射() {
+    /// 原名：血型字形归一只做字符映射
+    @Test func bloodTypeGlyphNormalizationIsCharacterMappingOnly() {
         #expect(ProfileSuggestionExtractor.bloodTypeValue(itemName: "ABO血型", resultText: "AB型") == "AB")
         #expect(ProfileSuggestionExtractor.bloodTypeValue(itemName: "abo 血型鉴定", resultText: " o ") == "O")
         #expect(ProfileSuggestionExtractor.bloodTypeValue(itemName: "血型", resultText: "0型") == "O", "OCR 常把 O 读作 0——O 型无「0」歧义")
@@ -68,7 +70,8 @@ struct ProfileSuggestionTests {
         #expect(ProfileSuggestionExtractor.bloodTypeValue(itemName: "血型", resultText: "  ") == nil, "空值零建议")
     }
 
-    @Test func 血型字形不可辨保留原文() {
+    /// 原名：血型字形不可辨保留原文
+    @Test func ambiguousBloodTypeGlyphKeepsOriginalText() {
         let out = extract(labs: [lab("血型", "详见备注"), lab("血型", "阳性")])
         #expect(out.map(\.value) == ["详见备注", "阳性"], "无 Rh 标签的孤立阳性 = 歧义，不猜 Rh；原文保留由用户裁定")
         #expect(out.allSatisfy { $0.kind == .bloodType })
@@ -76,7 +79,8 @@ struct ProfileSuggestionTests {
 
     // MARK: - 2. 既往史 / 过敏史（整段一条，不切词）
 
-    @Test func 既往史整段一条建议不切词() {
+    /// 原名：既往史整段一条建议不切词
+    @Test func pastHistoryWholeParagraphSingleSuggestionNoTokenizing() {
         let encounter = UUID()
         let out = extract(narratives: [narrative("past_history", " 高血压病史10年、糖尿病5年，规律服药。", id: encounter, at: day(2026, 3, 1))])
         #expect(out.count == 1)
@@ -86,14 +90,16 @@ struct ProfileSuggestionTests {
         #expect(out[0].provenance == provenance("encounter", encounter, "past_history"))
     }
 
-    @Test func 过敏史整段一条建议() {
+    /// 原名：过敏史整段一条建议
+    @Test func allergyHistoryWholeParagraphSingleSuggestion() {
         let out = extract(narratives: [narrative("allergy_history", "青霉素、头孢类过敏（皮疹）")])
         #expect(out.count == 1 && out[0].kind == .allergy)
         #expect(out[0].value == "青霉素、头孢类过敏（皮疹）")
         #expect(out[0].provenance.fieldKey == "allergy_history")
     }
 
-    @Test func 否认或无不产建议() {
+    /// 原名：否认或无不产建议
+    @Test func denialOrNoneYieldsNoSuggestion() {
         let negatives = ["无", "無", "无。", "否认药物过敏史", "否認食物過敏", "无特殊", "None", "N/A", "NKDA", "-", "不详", "无药物及食物过敏史", "Denies drug allergy"]
         for text in negatives {
             #expect(extract(narratives: [narrative("allergy_history", text)]).isEmpty, "「\(text)」")
@@ -106,13 +112,15 @@ struct ProfileSuggestionTests {
         #expect(extract(narratives: [narrative("allergy_history", "无花果过敏")]).count == 1)
     }
 
-    @Test func 未登记叙事键不产建议() {
+    /// 原名：未登记叙事键不产建议
+    @Test func unregisteredNarrativeKeyYieldsNoSuggestion() {
         #expect(extract(narratives: [narrative("chief_complaint", "咳嗽三天"), narrative("visit_summary", "复诊")]).isEmpty)
     }
 
     // MARK: - 3. 慢性病候选（诊断行逐条 / 住院诊断原文块整段）
 
-    @Test func 诊断行逐条chronicCondition() {
+    /// 原名：诊断行逐条chronicCondition
+    @Test func eachDiagnosisRowYieldsChronicCondition() {
         let a = UUID(), b = UUID()
         let out = extract(diagnoses: [diagnosis(" 高血压 ", code: "I10", at: day(2026, 1, 2), id: a), diagnosis("2型糖尿病", id: b),
                                       diagnosis("高血压", id: UUID()), diagnosis("   ")])
@@ -123,7 +131,8 @@ struct ProfileSuggestionTests {
         #expect(out[1].provenance.entityId == b && out[1].codeText == nil)
     }
 
-    @Test func 住院诊断原文块整段为chronicCondition() {
+    /// 原名：住院诊断原文块整段为chronicCondition
+    @Test func hospitalizationDiagnosisBlockYieldsChronicCondition() {
         let hosp = UUID()
         let out = extract(narratives: [narrative("discharge_diagnosis_text", "1.高血压 2.2型糖尿病", table: "hospitalization", id: hosp, at: day(2026, 2, 3)),
                                        narrative("admit_diagnosis_text", "无", table: "hospitalization", id: hosp)])
@@ -134,12 +143,14 @@ struct ProfileSuggestionTests {
 
     // MARK: - 4. 空 / 等级 / Codable
 
-    @Test func 空字段零建议() {
+    /// 原名：空字段零建议
+    @Test func emptyFieldsYieldNoSuggestion() {
         #expect(extract().isEmpty)
         #expect(extract(narratives: [narrative("past_history", "   \n")], labs: [lab("血型", "")]).isEmpty)
     }
 
-    @Test func 建议grade恒为ocrUnconfirmed且Codable往返() throws {
+    /// 原名：建议grade恒为ocrUnconfirmed且Codable往返
+    @Test func suggestionGradeAlwaysOcrUnconfirmedAndCodableRoundTrip() throws {
         let out = extract(narratives: [narrative("past_history", "哮喘病史")], diagnoses: [diagnosis("过敏性鼻炎", code: "J30")], labs: [lab("血型", "B")])
         #expect(out.count == 3)
         #expect(out.allSatisfy { $0.grade == .ocrUnconfirmed })
@@ -151,7 +162,8 @@ struct ProfileSuggestionTests {
 
     // MARK: - 5. 去重（已有资料 / 批内）
 
-    @Test func 已有资料不重复建议() {
+    /// 原名：已有资料不重复建议
+    @Test func existingProfileDataNeverReSuggested() {
         let existing = ProfileSuggestionExtractor.ProfileSnapshot(bloodType: " a型 ", problemNames: ["高血压", "哮喘病史"], allergySubstances: ["青霉素"])
         let out = extract(narratives: [narrative("past_history", "哮喘 病史"), narrative("allergy_history", "青霉素 ")],
                           diagnoses: [diagnosis("高血压 "), diagnosis("2型糖尿病")],
@@ -160,7 +172,8 @@ struct ProfileSuggestionTests {
         #expect(out.map(\.value) == ["2型糖尿病", "Rh+"], "大小写/空白/「型」不敏感；Rh 与已记录 ABO 不同值仍建议")
     }
 
-    @Test func 批内同值只保留首见() {
+    /// 原名：批内同值只保留首见
+    @Test func withinBatchDuplicateKeepsFirstSeenOnly() {
         let first = UUID()
         let out = extract(narratives: [narrative("past_history", "冠心病"), narrative("past_history", "冠心病", id: UUID())],
                           diagnoses: [diagnosis("冠心病")],
@@ -169,7 +182,8 @@ struct ProfileSuggestionTests {
         #expect(out[1].provenance.entityId == first)
     }
 
-    @Test func 去重键稳定且随值变化() {
+    /// 原名：去重键稳定且随值变化
+    @Test func dedupeKeyStableAndValueDependent() {
         let id = UUID()
         let a = extract(labs: [lab("ABO血型", "A", id: id)])[0]
         let b = extract(labs: [lab("ABO血型", "A", id: id)])[0]

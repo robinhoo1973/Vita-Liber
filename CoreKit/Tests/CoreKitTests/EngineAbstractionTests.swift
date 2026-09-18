@@ -9,7 +9,8 @@ import Testing
 struct EngineAbstractionTests {
 
     // TC-MT-ENGINEBUS-01：三能力经注册表解析，调用方只拿协议、零感知具体引擎
-    @Test func 注册三能力并解析为协议_调用方零感知具体引擎() {
+    /// 原名：注册三能力并解析为协议_调用方零感知具体引擎
+    @Test func registersThreeCapabilitiesAsProtocolsCallersSeeNoConcreteEngine() {
         let r = EngineRegistry()
         r.register(StubImageTextRecognizer(scripted: .init(lines: ["阿莫西林 0.25g"], confidence: 0.9)),
                    for: OCRRecognizerFactory.self)
@@ -27,7 +28,8 @@ struct EngineAbstractionTests {
     }
 
     // TC-MT-ENGINEBUS-02：工厂按平台分派；离线引擎且 onDeviceOnly
-    @Test func 工厂按平台分派_离线引擎且onDeviceOnly() {
+    /// 原名：工厂按平台分派_离线引擎且onDeviceOnly
+    @Test func factoriesDispatchByPlatformAndAreOfflineOnDeviceOnly() {
         #expect(OCRRecognizerFactory.onDeviceOnly)
         #expect(SpeechSynthesisFactory.onDeviceOnly)
         #expect(TranscriptionEngineFactory.onDeviceOnly)
@@ -45,7 +47,8 @@ struct EngineAbstractionTests {
     }
 
     // TC-MT-ENGINEBUS-03：离线守卫一票否决
-    @Test func 离线守卫_拒绝联网引擎() {
+    /// 原名：离线守卫_拒绝联网引擎
+    @Test func offlineGuardRejectsNetworkedEngine() {
         enum CloudOCRFactory: EngineFactory {
             typealias Capability = any ImageTextRecognizing
             static var onDeviceOnly: Bool { false }
@@ -71,7 +74,8 @@ struct EngineAbstractionTests {
     }
 
     // TC-MT-ENGINEBUS-04：方言矩阵泛化为 EngineCapabilityProfile（T1/T2）
-    @Test func 方言矩阵_泛化为能力画像() {
+    /// 原名：方言矩阵_泛化为能力画像
+    @Test func dialectMatrixGeneralizedToCapabilityProfile() {
         let matrix = EngineCapabilityProfile.dialectMatrix()
         #expect(matrix.count == 6)
         let t1 = matrix.filter { $0.tier == .complete }
@@ -87,7 +91,8 @@ struct EngineAbstractionTests {
     // TC-MT-ENGINEBUS-06（评审补）：capabilityID 是能力探测/注册的键，矩阵内必须唯一。
     // 四川话此前复用普通话的 voiceIn.zh-Hans-CN——按 ID 索引时两条画像互相覆盖，
     // 探测结果无法区分「普通话完整支持」与「四川话尽力识别」。
-    @Test func 方言矩阵capabilityID唯一() {
+    /// 原名：方言矩阵capabilityID唯一
+    @Test func dialectMatrixCapabilityIDsAreUnique() {
         let ids = EngineCapabilityProfile.dialectMatrix().map(\.capabilityID)
         #expect(Set(ids).count == ids.count, "capabilityID 重复：\(ids)")
         #expect(ids.filter { $0 == "voiceIn.zh-Hans-CN" }.count == 1,
@@ -96,7 +101,8 @@ struct EngineAbstractionTests {
 
     // TC-MT-ENGINEBUS-07（评审补）：shared 注册表是公开可变单例——并发 resolve
     // 不得数据竞争（NSLock 保护；组合根注册与任意 Task 解析可能并行）
-    @Test func 注册表并发解析安全() async {
+    /// 原名：注册表并发解析安全
+    @Test func registryResolveIsConcurrencySafe() async {
         let r = EngineRegistry()
         r.register(StubImageTextRecognizer(scripted: .init(lines: ["阿莫西林"], confidence: 0.9)),
                    for: OCRRecognizerFactory.self)
@@ -112,7 +118,8 @@ struct EngineAbstractionTests {
     }
 
     // TC-MT-ENGINEBUS-05：新增引擎，既有调用点零改动
-    @Test func 扩展新引擎_既有调用点零改动() {
+    /// 原名：扩展新引擎_既有调用点零改动
+    @Test func addingNewEngineLeavesExistingCallSitesUntouched() {
         protocol GreetingEngine: Sendable { func hello() -> String }
         struct StubGreeting: GreetingEngine { func hello() -> String { "hi" } }
         enum GreetingFactory: EngineFactory {

@@ -15,7 +15,8 @@ struct ClinicalEpisodeProjectionTests {
 
     // MARK: - 1. daySurgery
 
-    @Test func daySurgery可解码且文档键派生就诊类型() throws {
+    /// 原名：daySurgery可解码且文档键派生就诊类型
+    @Test func daySurgeryDecodesAndDocumentKeyDerivesEncounterKind() throws {
         #expect(EncounterKind(rawValue: "daySurgery") == .daySurgery)
         #expect(EncounterKind.allCases.contains(.daySurgery))
         #expect(try JSONDecoder().decode(EncounterKind.self, from: Data(#""daySurgery""#.utf8)) == .daySurgery)
@@ -31,7 +32,8 @@ struct ClinicalEpisodeProjectionTests {
 
     // MARK: - 2. 注册表
 
-    @Test func 注册表新增三卡并扩检验表头() throws {
+    /// 原名：注册表新增三卡并扩检验表头
+    @Test func registryAddsThreeCardsAndExtendsLabHeader() throws {
         let hosp = try #require(CardKindRegistry.entry(for: "hospitalization"))
         #expect(hosp.entityTables == ["hospitalization", "encounter"] && hosp.headerTable == "hospitalization")
         #expect(hosp.sharedRequired == ["hospital", "kind"])
@@ -64,7 +66,8 @@ struct ClinicalEpisodeProjectionTests {
         #expect(CardKindRegistry.entries.map(\.kind).count == Set(CardKindRegistry.entries.map(\.kind)).count, "kind 唯一")
     }
 
-    @Test func 新卡类有模板与建卡最小集规则() throws {
+    /// 原名：新卡类有模板与建卡最小集规则
+    @Test func newCardKindsHaveTemplatesAndRequiredRules() throws {
         for kind in ["hospitalization", "diagnosis", "exam_report"] {
             #expect(CardTemplateMatcher.ocrTemplates.contains { $0.kind == kind }, "\(kind)")
             let rules = CompletenessEvaluator.rules(for: kind)
@@ -85,7 +88,8 @@ struct ClinicalEpisodeProjectionTests {
 
     // MARK: - 3. DDL 镜像值类型
 
-    @Test func 五值类型Codable往返且占位符统一() throws {
+    /// 原名：五值类型Codable往返且占位符统一
+    @Test func fiveValueTypesRoundTripAndSharePlaceholder() throws {
         let t0 = Date(timeIntervalSince1970: 1), t1 = Date(timeIntervalSince1970: 2)
         let hosp = Hospitalization(id: UUID(), patientId: UUID(), encounterId: UUID(), hospital: "市一医院", admitAt: day(2026, 1, 2), dischargeAt: day(2026, 1, 9),
                                    actualDays: 7, dischargeOrders: "低盐饮食", takeHomeDrugsText: "阿司匹林 100mg qd", totalCost: 12345.6,
@@ -117,7 +121,8 @@ struct ClinicalEpisodeProjectionTests {
                     allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).fullyConfirmed()
     }
 
-    @Test func 阴性行进qualitative不进samples() throws {
+    /// 原名：阴性行进qualitative不进samples
+    @Test func qualitativeRowsGoToQualitativeNotSamples() throws {
         let card = labCard(rows: [[.init(key: "raw_label", value: "HBsAg"), .init(key: "value", value: "阴性")]])
         #expect(EntityCardProjection.invalidFields(in: card, row: card.rows[0], calendar: utc).isEmpty, "定性行无单位仍有效")
         let projection = EntityCardProjection.labProjection(from: card, calendar: utc)
@@ -130,7 +135,8 @@ struct ClinicalEpisodeProjectionTests {
         #expect(qualitative.result.codeConceptId == nil, "F25 编码只经用户批准")
     }
 
-    @Test func 比较符与半定量行保留原文不转数值() throws {
+    /// 原名：比较符与半定量行保留原文不转数值
+    @Test func comparatorAndSemiQuantitativeRowsKeepRawText() throws {
         let card = labCard(rows: [
             [.init(key: "raw_label", value: "AFP"), .init(key: "value", value: "<0.5"), .init(key: "unit", value: "ng/mL"), .init(key: "reference_text", value: "<7")],
             [.init(key: "raw_label", value: "ANA"), .init(key: "value", value: "≥1:160"), .init(key: "abnormal_flag", value: "阳性")],
@@ -148,7 +154,8 @@ struct ClinicalEpisodeProjectionTests {
         #expect(projection.qualitative.map(\.result.ordinal) == [0, 1, 2, 3])
     }
 
-    @Test func 数值行进samples携带打印abnormal_flag且无单位数值按原文进定性() throws {
+    /// 原名：数值行进samples携带打印abnormal_flag且无单位数值按原文进定性
+    @Test func numericRowsEnterSamplesWithPrintedAbnormalFlagAndUnitlessValuesStayQualitative() throws {
         let card = labCard(rows: [
             [.init(key: "raw_label", value: "血红蛋白"), .init(key: "value", value: "150"), .init(key: "unit", value: "g/L"), .init(key: "abnormal_flag", value: "↑"),
              .init(key: "ref_low", value: "115"), .init(key: "ref_high", value: "150")],
@@ -167,7 +174,8 @@ struct ClinicalEpisodeProjectionTests {
         #expect(legacy.samples == projection.samples && legacy.rowIds == projection.rowIds && legacy.skippedRows == 1)
     }
 
-    @Test func 参考范围非法行与无日期整卡留remaining() {
+    /// 原名：参考范围非法行与无日期整卡留remaining
+    @Test func invalidReferenceRangeRowsAndUndatedCardsStayRemaining() {
         let bad = labCard(rows: [
             [.init(key: "raw_label", value: "A"), .init(key: "value", value: "12"), .init(key: "unit", value: "g/L"), .init(key: "ref_low", value: "abc")],
             [.init(key: "raw_label", value: "B"), .init(key: "value", value: "阴性")],
@@ -182,7 +190,8 @@ struct ClinicalEpisodeProjectionTests {
         #expect(none.header.reportedAt == nil && none.header.collectedAt == nil)
     }
 
-    @Test func 表头意图取共享键_采集时间为趋势x轴_报告时间回落measured_at() throws {
+    /// 原名：表头意图取共享键_采集时间为趋势x轴_报告时间回落measured_at
+    @Test func labHeaderIntentUsesSharedKeysCollectedAtAsTrendAxisAndReportedAtFallback() throws {
         let card = labCard(shared: [.init(key: "measured_at", value: "2026-09-03"), .init(key: "collected_at", value: "2026-09-02"),
                                     .init(key: "hospital", value: "市一医院"), .init(key: "department", value: "检验科"), .init(key: "lab_name", value: "临检室"),
                                     .init(key: "report_no", value: "L001"), .init(key: "specimen_type", value: "静脉血"), .init(key: "specimen_no", value: "S9"),
@@ -214,7 +223,8 @@ struct ClinicalEpisodeProjectionTests {
                     allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete).fullyConfirmed()
     }
 
-    @Test func 住院意图_就诊类型按派生kind_日期二择一_叙事与带药原文() throws {
+    /// 原名：住院意图_就诊类型按派生kind_日期二择一_叙事与带药原文
+    @Test func hospitalizationIntentDerivesKindTakesEitherDateAndKeepsNarrativesVerbatim() throws {
         let full = card("hospitalization", pageIndex: 1, shared: [
             .init(key: "hospital", value: "市一医院"), .init(key: "kind", value: "inpatient"),
             .init(key: "admit_at", value: "2026-01-02"), .init(key: "discharge_at", value: "2026年1月9日"),
@@ -245,7 +255,8 @@ struct ClinicalEpisodeProjectionTests {
         #expect(d.episodeDate == day(2026, 3, 1) && d.encounterKind == "daySurgery" && d.hospitalization.admitAt == nil)
     }
 
-    @Test func 住院意图缺日期或医院或非住院kind返回nil() {
+    /// 原名：住院意图缺日期或医院或非住院kind返回nil
+    @Test func hospitalizationIntentReturnsNilWithoutDateHospitalOrInpatientKind() {
         let noDate = card("hospitalization", shared: [.init(key: "hospital", value: "A"), .init(key: "kind", value: "inpatient"), .init(key: "ward", value: "1")])
         #expect(EntityCardProjection.invalidFields(in: noDate, row: noDate.rows[0], calendar: utc) == ["admit_at"], "admit_at ?? discharge_at 二择一缺席 → 留待办，不猜日期")
         #expect(EntityCardProjection.hospitalizationIntent(from: noDate, calendar: utc) == nil)
@@ -260,7 +271,8 @@ struct ClinicalEpisodeProjectionTests {
         #expect(EntityCardProjection.hospitalizationIntent(from: card("encounter", shared: [.init(key: "date", value: "2026-01-02"), .init(key: "kind", value: "inpatient")]), calendar: utc) == nil, "卡类不符")
     }
 
-    @Test func 诊断类型按文档键派生默认unspecified() {
+    /// 原名：诊断类型按文档键派生默认unspecified
+    @Test func diagnosisTypeDerivedFromDocumentKeyDefaultsToUnspecified() {
         #expect(EntityCardProjection.diagnosisType(forDocumentType: "diagnosis_certificate") == "certificate")
         #expect(EntityCardProjection.diagnosisType(forDocumentType: "discharge_summary") == "discharge")
         #expect(EntityCardProjection.diagnosisType(forDocumentType: "pathology_report") == "pathology")
@@ -269,7 +281,8 @@ struct ClinicalEpisodeProjectionTests {
         #expect(EntityCardProjection.diagnosisType(forDocumentType: nil) == "unspecified")
     }
 
-    @Test func 诊断意图逐行_行级类型覆盖共享默认_编码只存打印文本() throws {
+    /// 原名：诊断意图逐行_行级类型覆盖共享默认_编码只存打印文本
+    @Test func diagnosisIntentsPerRowOverrideSharedTypeAndStorePrintedCodeOnly() throws {
         let dx = card("diagnosis", pageIndex: 3,
                       shared: [.init(key: "diagnosed_at", value: "2026-01-09"), .init(key: "hospital", value: "市一医院"), .init(key: "diagnosis_type", value: "discharge")],
                       rows: [[.init(key: "name", value: "高血压 2 级"), .init(key: "code_text", value: "I10.x02"), .init(key: "code_system", value: "ICD-10"), .init(key: "diagnosis_type", value: "primary")],
@@ -295,7 +308,8 @@ struct ClinicalEpisodeProjectionTests {
         #expect(EntityCardProjection.diagnosisIntents(from: undated, calendar: utc)?.first?.diagnosis.diagnosedAt == nil, "日期可继承同页就诊卡：无日期不阻断")
     }
 
-    @Test func 检查报告意图_类型canonical_日期与结论二择一() throws {
+    /// 原名：检查报告意图_类型canonical_日期与结论二择一
+    @Test func examReportIntentRequiresCanonicalTypeAndEitherDateOrImpression() throws {
         let exam = card("exam_report", shared: [
             .init(key: "report_type", value: "ct"), .init(key: "hospital", value: "市一医院"), .init(key: "department", value: "放射科"), .init(key: "report_no", value: "R001"),
             .init(key: "exam_part", value: "胸部"), .init(key: "exam_method", value: "平扫"), .init(key: "exam_at", value: "2026-01-03"), .init(key: "reported_at", value: "2026-01-04"),
@@ -328,7 +342,8 @@ struct ClinicalEpisodeProjectionTests {
         FieldDraft(key: key, value: value, unit: unit, confidence: 0.9, rawText: raw, source: .heuristic, sourceLineIndex: line)
     }
 
-    @Test func 住院文书页出住院卡_kind按文档键派生_叙事多段并入_不出就诊卡() throws {
+    /// 原名：住院文书页出住院卡_kind按文档键派生_叙事多段并入_不出就诊卡
+    @Test func inpatientDocumentYieldsHospitalizationCardNotEncounterCard() throws {
         let fields = [f("hospital", "市一医院"), f("admit_at", "2026-01-02"), f("discharge_at", "2026-01-09"), f("admit_dept", "心内科"),
                       f("attending_physician", "张主任"), f("discharge_orders", "1. 低盐饮食"), f("discharge_orders", "2. 两周后复诊"),
                       f("take_home_drugs", "阿司匹林 100mg qd"), f("report_date", "2026-01-09")]
@@ -352,13 +367,15 @@ struct ClinicalEpisodeProjectionTests {
         #expect(CardTemplateMatcher.match(fields: fields, pageIndex: 0, documentTypeKey: nil).isEmpty)
     }
 
-    @Test func 急诊病历出就诊卡且kind为emergency() {
+    /// 原名：急诊病历出就诊卡且kind为emergency
+    @Test func emergencyRecordYieldsEncounterCardWithEmergencyKind() {
         let fields = [f("report_date", "2026-09-01"), f("dept", "急诊科"), f("diagnosis", "急性胃肠炎")]
         let card = CardTemplateMatcher.match(fields: fields, pageIndex: 0, documentTypeKey: "emergency_record").first { $0.kind == "encounter" }
         #expect(card?.shared.contains { $0.key == "kind" && $0.value == EncounterKind.emergency.rawValue } == true)
     }
 
-    @Test func 诊断页每条一行_同行编码与类型归行_共享类型按文档键派生() throws {
+    /// 原名：诊断页每条一行_同行编码与类型归行_共享类型按文档键派生
+    @Test func diagnosisPageYieldsOneRowPerEntryWithRowLevelCodeAndType() throws {
         let fields = [f("hospital", "市一医院"), f("report_date", "2026-01-09"),
                       f("diagnosis_item", "高血压 2 级", raw: "1. 高血压 2 级 I10.x02 主要诊断", line: 3),
                       f("diagnosis_code", "I10.x02", raw: "1. 高血压 2 级 I10.x02 主要诊断", line: 3),
@@ -380,7 +397,8 @@ struct ClinicalEpisodeProjectionTests {
         #expect(intents.map(\.diagnosis.diagnosisType) == ["primary", "discharge"] && intents[0].diagnosis.codeText == "I10.x02")
     }
 
-    @Test func 检查报告页出检查卡_病理文档键派生类型_无类型不出卡() throws {
+    /// 原名：检查报告页出检查卡_病理文档键派生类型_无类型不出卡
+    @Test func examReportPageYieldsExamCardWithTypeFromDocumentKey() throws {
         let fields = [f("report_type", "ct"), f("report_date", "2026-01-03"), f("exam_part", "胸部"), f("hospital", "市一医院"),
                       f("findings", "双肺纹理清晰"), f("impression", "未见明显异常"), f("report_doctor", "李"), f("reported_at", "2026-01-04")]
         let ct = try #require(CardTemplateMatcher.match(fields: fields, pageIndex: 1, documentTypeKey: "exam_report").first { $0.kind == "exam_report" })
@@ -396,7 +414,8 @@ struct ClinicalEpisodeProjectionTests {
         #expect(!CardTemplateMatcher.match(fields: fields, pageIndex: 0, documentTypeKey: "outpatient_record").contains { $0.kind == "exam_report" })
     }
 
-    @Test func 检验表头共享键与同原文打印标记归行() throws {
+    /// 原名：检验表头共享键与同原文打印标记归行
+    @Test func labHeaderSharedKeysAndSameRawTextPrintedFlagStayInRow() throws {
         let raw = "血红蛋白 150 g/L ↑ 115-150"
         let fields = [f("report_date", "2026-09-03"), f("specimen_type", "静脉血"), f("collect_time", "2026-09-02"), f("review_doctor", "王"),
                       f("dept", "检验科"), f("report_no", "L001"), f("hospital", "市一医院"),
@@ -415,7 +434,8 @@ struct ClinicalEpisodeProjectionTests {
         #expect(projection.header.specimenType == "静脉血" && projection.header.reportedAt == day(2026, 9, 3))
     }
 
-    @Test func 定性检验行拆为项目与结果原文() throws {
+    /// 原名：定性检验行拆为项目与结果原文
+    @Test func qualitativeLabRowsSplitIntoItemAndRawResult() throws {
         let fields = [f("report_date", "2026-09-03"),
                       f("lab_item", "血红蛋白 150", unit: "g/L"), f("lab_item", "HBsAg 阴性"), f("lab_item", "AFP <0.5", unit: "ng/mL"),
                       f("lab_item", "尿蛋白 +"), f("lab_item", "HBsAg 阴性(-)"), f("lab_item", "ANA ≥1:160"), f("lab_item", "血小板")]
@@ -439,7 +459,8 @@ struct ClinicalEpisodeProjectionTests {
 
     // MARK: - 6. 理解层：新键、叙事标签、枚举归一、分类器证据词、标签直配
 
-    @Test func 理解层新键允许_叙事键剥已知标签_数值键子串防线() {
+    /// 原名：理解层新键允许_叙事键剥已知标签_数值键子串防线
+    @Test func understandingAllowsNewKeysStripsKnownLabelsAndGuardsNumericSubstrings() {
         let lines = ["入院日期：2026-01-02", "出院医嘱：低盐饮食", "检查所见：双肺纹理清晰", "Impression: No abnormality", "出院带药：阿司匹林 100mg",
                      "住院总费用：12345.60", "诊疗经过：入院后予抗血小板治疗", "標本類型：靜脈血", "病理诊断：（胃窦）慢性浅表性胃炎"]
         let fields = OCRGrounding.fields([
@@ -467,7 +488,8 @@ struct ClinicalEpisodeProjectionTests {
         #expect(OCRGrounding.documentTypes.isSuperset(of: ["inpatient_record", "discharge_summary", "day_surgery_record", "emergency_record", "exam_report", "pathology_report", "checkup_report"]))
     }
 
-    @Test func 报告类型与诊断类型词表归一为canonical_raw() {
+    /// 原名：报告类型与诊断类型词表归一为canonical_raw
+    @Test func reportAndDiagnosisTypeVocabulariesNormalizeToCanonicalRaw() {
         for (printed, raw) in [("CT", "ct"), ("胸部CT平扫", "ct"), ("MRI", "mri"), ("磁共振", "mri"), ("X线", "xray"), ("胸片", "xray"), ("彩超", "ultrasound"), ("超聲", "ultrasound"),
                                ("心电图", "ecg"), ("ECG", "ecg"), ("胃镜", "endoscopy"), ("內鏡", "endoscopy"), ("病理", "pathology"), ("PET/CT", "nuclear"), ("核医学", "nuclear"),
                                ("其他", "other"), ("ct", "ct")] {
@@ -482,7 +504,8 @@ struct ClinicalEpisodeProjectionTests {
         #expect(OCRGrounding.normalized("临床诊断", key: "diagnosis_type") == "临床诊断")
     }
 
-    @Test func 分类器证据词_住院族与检查族_既有检验判定不漂移() {
+    /// 原名：分类器证据词_住院族与检查族_既有检验判定不漂移
+    @Test func classifierEvidenceWordsForInpatientAndExamFamiliesKeepLabVerdictStable() {
         #expect(DocumentTypeClassifierFallback.classify(lines: ["出院小结", "出院诊断：不稳定型心绞痛", "出院医嘱：低盐饮食"]).target == "discharge_summary")
         #expect(DocumentTypeClassifierFallback.classify(lines: ["住院病案首页", "住院号：ZY0001", "入院日期：2026-01-02"]).target == "inpatient_record")
         #expect(DocumentTypeClassifierFallback.classify(lines: ["日间手术入出院记录", "手术日期：2026-03-01"]).target == "day_surgery_record",
@@ -498,7 +521,8 @@ struct ClinicalEpisodeProjectionTests {
         #expect(DocumentTypeClassifierFallback.classify(lines: ["阿莫西林胶囊 0.25g", "每日三次 每次两粒", "××市第一医院"]).target == "prescription")
     }
 
-    @Test func 标签直配三语_住院检查检验诊断键() {
+    /// 原名：标签直配三语_住院检查检验诊断键
+    @Test func labelDirectMatchAcrossThreeLanguagesForInpatientExamLabAndDiagnosis() {
         let lines = ["入院日期：2026-01-02", "Discharge Date: 2026-01-09", "主治醫師：張三", "檢查部位：胸部", "标本类型：静脉血", "Impression: No abnormality",
                      "出院医嘱：低盐饮食", "主要诊断：高血压 2 级", "CT检查报告单", "报告医师：李四", "采集时间：2026-09-02 08:00", "出院诊断：不稳定型心绞痛",
                      "Findings: Clear lungs", "病区：3 病区", "住院号：ZY0001", "出院带药：阿司匹林 100mg qd", "检验者：王五", "报告时间：2026-09-03"]
@@ -520,7 +544,8 @@ struct ClinicalEpisodeProjectionTests {
 
     // MARK: - 7. 诊断行 → 健康问题候选
 
-    @Test func 诊断行派生D级健康问题候选_每行一候选_同名去重_不自动写() {
+    /// 原名：诊断行派生D级健康问题候选_每行一候选_同名去重_不自动写
+    @Test func diagnosisRowsYieldGradeDHealthProblemCandidatesDedupedAndNeverAutoWritten() {
         let t0 = Date(timeIntervalSince1970: 0)
         let rows = [
             Diagnosis(id: UUID(), patientId: UUID(), ordinal: 0, diagnosisType: "primary", name: "高血压 2 级", codeText: "I10.x02", codeSystemText: "ICD-10",

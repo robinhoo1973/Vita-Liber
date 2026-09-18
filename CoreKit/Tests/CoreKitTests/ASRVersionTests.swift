@@ -6,7 +6,8 @@ import Testing
 /// 字典序会把 "6b" > "10"、"v9" > "v10"、"1.9" > "1.10" 排反（审查轮实证）。
 @Suite("FR17.15 ASRVersion 版本比较")
 struct ASRVersionTests {
-    @Test func 混合段按数值前缀比较() {
+    /// 原名：混合段按数值前缀比较
+    @Test func mixedSegmentComparesByNumericPrefix() {
         #expect(ASRVersion.isNewer("10", than: "6b"))
         #expect(!ASRVersion.isNewer("6b", than: "10"))
         #expect(ASRVersion.isNewer("v10", than: "v9"))
@@ -24,28 +25,33 @@ struct ASRVersionTests {
         #expect(!ASRVersion.isNewer(older, than: newer))
     }
 
-    @Test func 小数段不按字典序() {
+    /// 原名：小数段不按字典序
+    @Test func decimalSegmentNotComparedLexicographically() {
         #expect(ASRVersion.isNewer("1.10", than: "1.9"))
         #expect(!ASRVersion.isNewer("1.9", than: "1.10"))
     }
 
-    @Test func 纯数字段按整数比较且前导零等价() {
+    /// 原名：纯数字段按整数比较且前导零等价
+    @Test func pureNumericSegmentsCompareAsIntegersAndLeadingZerosEqual() {
         #expect(ASRVersion.isNewer("20260912", than: "20260325"))
         #expect(!ASRVersion.isNewer("03", than: "3"))
         #expect(!ASRVersion.isNewer("3", than: "03"))
     }
 
-    @Test func 未安装视为恒新() {
+    /// 原名：未安装视为恒新
+    @Test func notInstalledTreatedAsAlwaysNewer() {
         #expect(ASRVersion.isNewer("0.6b-int8-v2026.03.25", than: nil))
         #expect(!ASRVersion.isNewer("", than: nil))
     }
 
-    @Test func 前缀相同时段多者为新() {
+    /// 原名：前缀相同时段多者为新
+    @Test func moreSegmentsWinsWhenPrefixEqual() {
         #expect(ASRVersion.isNewer("1.0.1", than: "1.0"))
         #expect(!ASRVersion.isNewer("1.0", than: "1.0.1"))
     }
 
-    @Test func 相同版本不为新() {
+    /// 原名：相同版本不为新
+    @Test func identicalVersionIsNotNewer() {
         #expect(!ASRVersion.isNewer("0.6b-int8-v2026.03.25", than: "0.6b-int8-v2026.03.25"))
     }
 }

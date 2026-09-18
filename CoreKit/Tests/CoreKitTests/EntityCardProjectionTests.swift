@@ -79,7 +79,8 @@ struct EntityCardProjectionTests {
         #expect(EntityCardProjection.prescriptionIntent(from: reviewed(card)) == nil)
     }
 
-    @Test func OCR日期三种写法解析到当日零点() {
+    /// 原名：OCR日期三种写法解析到当日零点
+    @Test func ocrDateThreeFormsParseToMidnight() {
         let expected = utc.date(from: DateComponents(year: 2026, month: 9, day: 1))!
         for text in ["2026-09-01", "2026/9/1", "2026年9月1日", "日期：2026-09-01"] {
             #expect(EntityCardProjection.parseDate(text, calendar: utc) == expected, "\(text)")
@@ -88,7 +89,8 @@ struct EntityCardProjectionTests {
         #expect(EntityCardProjection.parseDate("2026-13-40", calendar: utc) == nil)
     }
 
-    @Test func 检验卡投影为医院样本_缺必填行跳过_参考范围随行() {
+    /// 原名：检验卡投影为医院样本_缺必填行跳过_参考范围随行
+    @Test func labCardProjectsToHospitalSamplesSkippingRowsMissingRequiredWithRefRange() {
         let card = MatchedCard(kind: "metric_sample", pageIndex: 1,
             shared: [FieldDraft(key: "measured_at", value: "2026-09-01"), FieldDraft(key: "hospital", value: "市一医院")],
             rows: [MatchedCardRow(fields: [FieldDraft(key: "raw_label", value: "血红蛋白"), FieldDraft(key: "metric_key", value: "lab.血红蛋白"),
@@ -112,7 +114,8 @@ struct EntityCardProjectionTests {
         #expect(sample.measuredAt == utc.date(from: DateComponents(year: 2026, month: 9, day: 1)))
     }
 
-    @Test func 检验卡无有效日期时全部跳过() {
+    /// 原名：检验卡无有效日期时全部跳过
+    @Test func labCardWithoutValidDateSkipsAllRows() {
         let card = MatchedCard(kind: "metric_sample", pageIndex: 0, shared: [],
             rows: [MatchedCardRow(fields: [FieldDraft(key: "raw_label", value: "血糖"), FieldDraft(key: "metric_key", value: "lab.血糖"),
                                            FieldDraft(key: "value", value: "5.6"), FieldDraft(key: "unit", value: "mmol/L")])],
@@ -121,7 +124,8 @@ struct EntityCardProjectionTests {
         #expect(projection.samples.isEmpty && projection.skippedRows == 1)
     }
 
-    @Test func 就诊卡投影为就诊草稿() {
+    /// 原名：就诊卡投影为就诊草稿
+    @Test func encounterCardProjectsToEncounterDraft() {
         let patient = UUID()
         let card = MatchedCard(kind: "encounter", pageIndex: 0,
             shared: [FieldDraft(key: "date", value: "2026年9月1日"), FieldDraft(key: "kind", value: "outpatient"),
@@ -140,7 +144,8 @@ struct EntityCardProjectionTests {
         #expect(EntityCardProjection.encounterDraft(from: noDate, patientId: patient, calendar: utc) == nil)
     }
 
-    @Test func 处方卡投影为表头与药品行() {
+    /// 原名：处方卡投影为表头与药品行
+    @Test func prescriptionCardProjectsToHeaderAndDrugLines() {
         let card = MatchedCard(kind: "prescription", pageIndex: 0,
             shared: [FieldDraft(key: "hospital", value: "市一医院"), FieldDraft(key: "doctor", value: "张医生"),
                      FieldDraft(key: "prescribed_at", value: "2026-09-01")],
@@ -155,7 +160,8 @@ struct EntityCardProjectionTests {
         #expect(intent?.lines.map(\.line.ordinal) == [0, 1])
     }
 
-    @Test func 卡转确认字段保留行序与页号无关() {
+    /// 原名：卡转确认字段保留行序与页号无关
+    @Test func cardToConfirmationFieldsPreservesRowOrderRegardlessOfPageIndex() {
         let card = MatchedCard(kind: "metric_sample", pageIndex: 2,
             shared: [FieldDraft(key: "measured_at", value: "2026-09-01", confidence: 0.6, rawText: "日期：2026-09-01")],
             rows: [MatchedCardRow(fields: [FieldDraft(key: "raw_label", value: "A", confidence: 0.6, rawText: "A 1 g/L")])],

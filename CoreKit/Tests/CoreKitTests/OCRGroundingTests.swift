@@ -4,7 +4,8 @@ import Testing
 
 @Suite("FR17.18 OCR 原文锚定与卡级确认")
 struct OCRGroundingTests {
-    @Test func 抽取字段必须存在于指定原文行() {
+    /// 原名：抽取字段必须存在于指定原文行
+    @Test func extractedFieldsMustExistOnTheCitedRawLine() {
         let lines = ["药品：阿莫西林", "金额：128.50元"]
         let candidates = [
             OCRExtractedSpan(key: "drug_name", value: "阿莫西林", lineIndex: 0),
@@ -19,7 +20,8 @@ struct OCRGroundingTests {
         #expect(fields.first?.rawText == lines[0])
     }
 
-    @Test func 否定符号和单位不能被模型删改() {
+    /// 原名：否定符号和单位不能被模型删改
+    @Test func negationMarkersAndUnitsMustNotBeAlteredByModel() {
         let lines = ["未诊断糖尿病", "血糖 <3.9 mmol/L"]
         let fields = OCRGrounding.fields([
             .init(key: "diagnosis", value: "糖尿病", lineIndex: 0),
@@ -28,7 +30,8 @@ struct OCRGroundingTests {
         #expect(fields.isEmpty)
     }
 
-    @Test func 不允许截断检验小数或移除英文停药指令() {
+    /// 原名：不允许截断检验小数或移除英文停药指令
+    @Test func labDecimalsMustNotBeTruncatedNorEnglishStopOrdersRemoved() {
         let fields = OCRGrounding.fields([
             .init(key: "lab_item", value: "血糖 5", unit: "mmol/L", lineIndex: 0),
             .init(key: "drug_name", value: "aspirin", lineIndex: 1),
@@ -37,7 +40,8 @@ struct OCRGroundingTests {
         #expect(fields.isEmpty)
     }
 
-    @Test func 叙事新键整行或剥已知标签后接受_简繁英() {
+    /// 原名：叙事新键整行或剥已知标签后接受_简繁英
+    @Test func narrativeNewKeysAcceptedAsWholeLineOrAfterLabelStripAcrossScripts() {
         let lines = ["既往史：高血压 10 年", "過敏史：青黴素", "Storage: Keep below 25°C", "注意事项：饭后服用", "现病史：咳嗽 3 天", "体格检查：T 36.8℃", "就诊总结：对症处理", "病情说明：好转", "临床诊断：上呼吸道感染"]
         let fields = OCRGrounding.fields([
             .init(key: "clinical_diagnosis", value: "上呼吸道感染", lineIndex: 8),
@@ -55,7 +59,8 @@ struct OCRGroundingTests {
         #expect(fields.allSatisfy { $0.grade == .ocrUnconfirmed })
     }
 
-    @Test func 新数值键子串防线与处方类型归一() {
+    /// 原名：新数值键子串防线与处方类型归一
+    @Test func newNumericKeysSubstringGuardAndPrescriptionTypeNormalization() {
         let fields = OCRGrounding.fields([
             .init(key: "total_amount", value: "28.5", lineIndex: 0),
             .init(key: "total_amount", value: "128.50", lineIndex: 0),
@@ -71,7 +76,8 @@ struct OCRGroundingTests {
         #expect(fields.first { $0.key == "prescription_type" }?.value == "tcm", "打印类型标签归一为 canonical raw（同 item_type/unit_kind）")
     }
 
-    @Test func 完整卡：批量确认不覆盖必填，逐项确认必填后方可保存() {
+    /// 原名：完整卡：批量确认不覆盖必填，逐项确认必填后方可保存
+    @Test func bulkConfirmationSkipsRequiredFieldsAndPerFieldConfirmationUnlocksSave() {
         let card = MatchedCard(kind: "prescription", pageIndex: 0,
             shared: [.init(key: "prescribed_at", value: "2026-09-11", confidence: 0.9)],
             rows: [.init(fields: [.init(key: "drug_name", value: "阿莫西林", confidence: 0.9)])],
