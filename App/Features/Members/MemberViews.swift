@@ -13,6 +13,9 @@ struct MemberManagementView: View {
     @Environment(AppEntitlementStore.self) private var entitlements
     @State private var showAdd = false
     @State private var quotaHint: String?
+    /// 审查修正（F-A1）：addMember 写库失败此前静默关单（quotaHint=nil → 无警报）——
+    /// 用户以为已添加而记录实际缺失（四态纪律：写失败必须可见）。
+    @State private var addFailed = false
 
     var body: some View {
         WithPerceptionTracking {
@@ -84,7 +87,11 @@ struct MemberManagementView: View {
                             return
                         }
                         let ok = await app.addMember(name: name, relation: relation, birthDate: birthDate)
-                        quotaHint = ok ? L10n.member_addedHint : nil
+                        if ok {
+                            quotaHint = L10n.member_addedHint
+                        } else {
+                            addFailed = true   // 写库失败：关单前弹失败警报，不得静默
+                        }
                         showAdd = false
                     }
                 }
@@ -92,6 +99,9 @@ struct MemberManagementView: View {
             .alert(quotaHint ?? L10n.member_addedHint, isPresented: Binding(
                 get: { quotaHint != nil },
                 set: { if !$0 { quotaHint = nil } })) {
+                Button(L10n.onboard_gotIt, role: .cancel) {}
+            }
+            .alert(L10n.member_addFailed, isPresented: $addFailed) {
                 Button(L10n.onboard_gotIt, role: .cancel) {}
             }
         }

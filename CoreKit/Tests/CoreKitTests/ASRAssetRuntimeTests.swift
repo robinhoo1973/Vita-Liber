@@ -21,7 +21,8 @@ struct ASRAssetRuntimeTests {
     }
 
     @Test(arguments: [VoiceEngineChoice.qwen3, .dolphin, .whisper])
-    func 模型与VAD的说明文件均验证而不冲突(_ choice: VoiceEngineChoice) throws {
+    /// 原名：模型与VAD的说明文件均验证而不冲突
+    func modelAndVADManifestsVerifyWithoutConflict(_ choice: VoiceEngineChoice) throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) } // try?-ok: 隔离校验夹具清理

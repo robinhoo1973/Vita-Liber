@@ -21,7 +21,8 @@ struct CardConfirmationRulesTests {
     }
 
     @Test("confirmable：非拒绝 + 有值 + 置信 ≥0.6 + 无歧义 + **非必填**（2026-09-17 四条件）")
-    func 确认谓词边界() {
+    /// 原名：确认谓词边界
+    func confirmationPredicateBoundaries() {
         #expect(CardConfirmationRules.confirmable(field("hospital", "市一院"), isRequired: false))
         #expect(!CardConfirmationRules.confirmable(field("hospital", "市一院", grade: .rejected), isRequired: false),
                 "拒绝字段不升 C")
@@ -39,7 +40,8 @@ struct CardConfirmationRulesTests {
     }
 
     @Test("confirmingAllFields：必填与低置信均不参与批量；拒绝/空原样")
-    func 卡级确认() {
+    /// 原名：卡级确认
+    func cardLevelConfirmation() {
         // encounter 的 sharedRequired = {date, kind}（CardKindRegistry 单一事实源）
         let card = card([field("hospital", "市一院"),
                          field("doctor", "张三", confidence: 0.4),
@@ -55,7 +57,8 @@ struct CardConfirmationRulesTests {
     }
 
     @Test("requiredFieldsAwaitingConfirmation：如实报出还有哪些必填待逐一确认（UI 计数用）")
-    func 必填待确认计数() {
+    /// 原名：必填待确认计数
+    func requiredPendingConfirmationCount() {
         let card = card([field("hospital", "市一院"), field("date", "2026-09-16"), field("kind", "outpatient")])
         let awaiting = CardConfirmationRules.requiredFieldsAwaitingConfirmation(card)
         #expect(Set(awaiting) == ["date", "kind"], "hospital 可选，不在列；实得 \(awaiting)")
@@ -66,7 +69,8 @@ struct CardConfirmationRulesTests {
     }
 
     @Test("requiredFieldsAwaitingConfirmation（全卡）：共享 + 各行必填，跨行去重保序")
-    func 全卡必填待确认计数() {
+    /// 原名：全卡必填待确认计数
+    func wholeCardRequiredPendingCount() {
         let rows = [MatchedCardRow(fields: [field("raw_label", "血红蛋白"), field("value", "150")]),
                     MatchedCardRow(fields: [field("raw_label", "白细胞")])]
         let lab = MatchedCard(kind: "metric_sample", pageIndex: 0,
@@ -80,7 +84,8 @@ struct CardConfirmationRulesTests {
     // MARK: - 复核队列（2026-09-17 借鉴批：按风险排序，不按文档顺序）
 
     @Test("reviewQueue：缺(0) → 必填未确认(1) → 低置信未确认(3)；可选达标与已确认不入列")
-    func 复核队列排序() {
+    /// 原名：复核队列排序
+    func reviewQueueSorting() {
         let base = card([field("kind", "outpatient"),
                          field("doctor", "张三", confidence: 0.4),
                          field("department", "呼吸内科")])
@@ -90,7 +95,8 @@ struct CardConfirmationRulesTests {
     }
 
     @Test("reviewQueue：行级字段与行内缺键同样入列；歧义(2) 排在低置信(3) 之前")
-    func 复核队列行级与歧义() {
+    /// 原名：复核队列行级与歧义
+    func reviewQueueRowLevelAndAmbiguity() {
         var ambiguous = field("hospital", "市一院")
         ambiguous.candidates = [FieldDraft.Candidate(value: "市一院", confidence: 0.9),
                                 FieldDraft.Candidate(value: "市二院", confidence: 0.8)]
@@ -106,7 +112,8 @@ struct CardConfirmationRulesTests {
     }
 
     @Test("reviewQueue：已确认/已拒绝的字段不出列（拒绝不是待复核，是已裁决）")
-    func 复核队列排除已裁决() {
+    /// 原名：复核队列排除已裁决
+    func reviewQueueExcludesResolved() {
         var rejected = field("doctor", "张三")
         rejected.reject()
         var done = field("kind", "outpatient")
@@ -124,7 +131,8 @@ struct CardConfirmationRulesTests {
     private func emptyField(_ key: String) -> FieldDraft { FieldDraft(key: key, value: "", confidence: 1) }
 
     @Test("fillByUser：原值为空的字段，用户填入即确认（不必再点一次）")
-    func 手填即确认() {
+    /// 原名：手填即确认
+    func manualFillMeansConfirmed() {
         var draft = emptyField("date")
         _ = draft.fillByUser("2026-09-16")
         #expect(draft.isConfirmed, "无机器值可核对 → 用户填入即 C")
@@ -133,7 +141,8 @@ struct CardConfirmationRulesTests {
     }
 
     @Test("fillByUser：机器已有值的字段，改动仍「改动即失效、需重新确认」")
-    func 改机器值不升C() {
+    /// 原名：改机器值不升C
+    func editingMachineValueDoesNotPromoteToC() {
         var draft = field("date", "2026-09-16")
         _ = draft.confirm()
         _ = draft.fillByUser("2026-09-17")
@@ -142,7 +151,8 @@ struct CardConfirmationRulesTests {
     }
 
     @Test("fillByUser：清空不升 C；拒绝字段不因手填升 C")
-    func 手填守卫() {
+    /// 原名：手填守卫
+    func manualFillGuard() {
         var draft = emptyField("date")
         _ = draft.fillByUser("2026-09-16")
         _ = draft.fillByUser("")
@@ -155,7 +165,8 @@ struct CardConfirmationRulesTests {
     }
 
     @Test("卡确认面写值走 fillByUser：缺失必填补填后即有效（闸门不再说它无效）")
-    func 卡确认面手填即确认() {
+    /// 原名：卡确认面手填即确认
+    func cardConfirmScreenManualFillMeansConfirmed() {
         // encounter 卡：kind 已确认、date 缺失（「缺少 日期，点此填写」），用户补填
         var kind = field("kind", "outpatient")
         _ = kind.confirm()
@@ -181,7 +192,8 @@ struct CardConfirmationRulesTests {
     }
 
     @Test("多候选未选择 → 不参与批量确认；选定任一候选 → 可确认")
-    func 待定歧义挡住批量确认() {
+    /// 原名：待定歧义挡住批量确认
+    func pendingAmbiguityBlocksBatchConfirmation() {
         var draft = multiCandidate("date")
         #expect(draft.hasUnresolvedCandidates, "两候选且未选择 = 待定歧义")
         #expect(!CardConfirmationRules.confirmable(draft, isRequired: false), "有歧义就必须做选择，不得让默认值溜过去")
@@ -193,7 +205,8 @@ struct CardConfirmationRulesTests {
     }
 
     @Test("选定候选写值 → 字段退回未确认（BR-003：换了值必须重新确认）")
-    func 选候选使字段退回未确认() {
+    /// 原名：选候选使字段退回未确认
+    func choosingCandidateReturnsFieldToUnconfirmed() {
         var draft = multiCandidate("date")
         _ = draft.confirm()
         #expect(draft.isConfirmed)
@@ -203,7 +216,8 @@ struct CardConfirmationRulesTests {
     }
 
     @Test("单候选字段零影响（绝大多数字段的既有行为不变）")
-    func 单候选零影响() {
+    /// 原名：单候选零影响
+    func singleCandidateZeroImpact() {
         var single = field("hospital", "市一院")
         #expect(!single.hasUnresolvedCandidates)
         #expect(CardConfirmationRules.confirmable(single, isRequired: false))
@@ -213,7 +227,8 @@ struct CardConfirmationRulesTests {
     }
 
     @Test("多候选编解码：往返保真；旧草稿无此键 → 空候选集（向后兼容）")
-    func 多候选编解码() throws {
+    /// 原名：多候选编解码
+    func multiCandidateCodable() throws {
         let encoder = JSONEncoder(); let decoder = JSONDecoder()
         let draft = multiCandidate("date")
         let restored = try decoder.decode(FieldDraft.self, from: try encoder.encode(draft))
@@ -234,7 +249,8 @@ struct CardConfirmationRulesTests {
     }
 
     @Test("confirmingDraft：拒绝字段移除、合格升 C；非 newHub 原样")
-    func 主卡草稿确认() {
+    /// 原名：主卡草稿确认
+    func primaryCardDraftConfirmation() {
         let draft = HubDraft(hub: .encounter,
                              fields: [field("hospital", "市一院"), field("doctor", "张三", grade: .rejected)],
                              evidence: "hospital")
@@ -250,7 +266,8 @@ struct CardConfirmationRulesTests {
     }
 
     @Test("编辑纪律：.suggested 被编辑即回未选择")
-    func 编辑使建议失效() {
+    /// 原名：编辑使建议失效
+    func editInvalidatesSuggestion() {
         var c = card([field("hospital", "市一院")], association: .suggested(UUID(), evidence: "hospital"))
         CardConfirmationRules.revise(&c, at: 0, to: "市二院")
         #expect(c.encounterAssociation == .unselected)
@@ -258,7 +275,8 @@ struct CardConfirmationRulesTests {
     }
 
     @Test("编辑纪律：metric_sample 行 raw_label 被改为整行编码失效 + metric_key 重算")
-    func 编辑使编码失效() {
+    /// 原名：编辑使编码失效
+    func editInvalidatesEncoding() {
         let row = MatchedCardRow(fields: [field("raw_label", "血红蛋白"), field("value", "150"),
                                           field("metric_key", "lab.旧名")])
         var c = MatchedCard(kind: "metric_sample", pageIndex: 0, shared: [], rows: [row],

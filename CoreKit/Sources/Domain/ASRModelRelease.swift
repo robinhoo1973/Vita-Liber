@@ -57,6 +57,20 @@ public struct ASRModelRelease: Codable, Sendable, Equatable, Identifiable {
         self.variant = variant
     }
 
+    /// 档位权重（业主裁决 D6 修复）：variant 档名 "small"/"medium"/"large" 的
+    /// 字典序恰好与大小序**相反**（"large" < "medium" < "small"）——清单排序、
+    /// 默认选择与 RAM 建议此前全部颠倒（3GB 设备被推荐大档、默认选中大档）。
+    /// 大小序单一事实源：small=0 < medium=1 < large=2；未知/缺失档按最大权重
+    /// 处理（排末尾，绝不误推荐给低 RAM 设备）。
+    public static func variantWeight(_ variant: String?) -> Int {
+        switch variant {
+        case "small": return 0
+        case "medium": return 1
+        case "large": return 2
+        default: return 3
+        }
+    }
+
     /// 已发布（可下载）：必须有非空 sha256 与正字节数——空 sha 条目只表示「占位」。
     public var isPublished: Bool {
         ModelResourcePolicy.isSHA256(sha256) && (bytes ?? 0) > 0
@@ -141,5 +155,19 @@ public enum ASRVersion {
 
     static func segments(_ value: String) -> [String] {
         value.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
+    }
+}
+
+/// 业主裁决 D6：设备 RAM 档位建议（纯函数，BR 规则在 Domain——视图只做格式化）。
+/// 建议语义：≥6GB 取最大档（清单须按 `ASRModelRelease.variantWeight` 升序）、
+/// ≥4GB 取中档、其余取最小档。清单 ≤1 档或全部无 variant 时返回 nil（不显示建议）。
+/// 用户自行决定（不硬限制），RAM 判断只做提示。
+public enum ASRVariantRecommendation {
+    public static func variantIndex(ramBytes: UInt64, variantCount: Int) -> Int? {
+        guard variantCount > 1 else { return nil }
+        let ramGB = ramBytes / 1024 / 1024 / 1024
+        if ramGB >= 6 { return variantCount - 1 }   // 最大档（升序清单末位）
+        if ramGB >= 4 { return variantCount / 2 }   // 中档
+        return 0                                    // 最小档
     }
 }

@@ -163,7 +163,7 @@ struct NotificationCenterView: View {
     private var pendingDoses: [DoseRecord] {
         reminderStore.todaySlots
             .flatMap(\.records)
-            .filter { $0.action == nil && $0.dose.dueAt <= Date().addingTimeInterval(DoseSlotGrouping.tolerance) }
+            .filter { $0.isUnresolved && $0.dose.dueAt <= Date().addingTimeInterval(DoseSlotGrouping.tolerance) }
     }
 
     private var appointments: [AppointmentRow] { reminderStore.upcomingAppointments }

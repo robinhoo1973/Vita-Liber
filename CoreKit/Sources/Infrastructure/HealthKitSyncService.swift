@@ -295,7 +295,14 @@ public actor HealthKitSyncService {
     nonisolated(unsafe) public static var backgroundCancelHandler: (@Sendable () async -> Void)?
 
     public func startBackgroundObservation() async {
-        guard let reader = provider as? HealthKitReader else { return }
+        // 审查修正：非 HealthKitReader 注入（测试替身/未来第二实现）此前静默
+        // return——backgroundRegistrationFailed 保持 false，canAutomaticallySync
+        // 仍报启用，仪表盘显示「自动后台同步开启」而观察者从未注册。能力缺失
+        // 必须响亮：置失败标志，让依赖此标志的界面如实呈现。
+        guard let reader = provider as? HealthKitReader else {
+            backgroundRegistrationFailed = true
+            return
+        }
         do {
             let enabled = try await canAutomaticallySync()
             backgroundRegistrationFailed = !(await reader.observeChanges(handler: {

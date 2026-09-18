@@ -23,7 +23,8 @@ final class ClaimAcceptanceTests: XCTestCase {
         return (store, claims, patient)
     }
 
-    func test_录入与汇总纯事实() async throws {
+    /// 原名：test_录入与汇总纯事实
+    func test_entryAndSummaryPureFacts() async throws {
         let (_, claims, patient) = try await makeStore()
         try await claims.create(patientId: patient, itemType: "invoice", amount: 128.5,
                                 date: Date(), merchant: "市一医院", summary: "门诊挂号费")
@@ -41,7 +42,8 @@ final class ClaimAcceptanceTests: XCTestCase {
     }
 
     /// FR13.7 边界：汇总只求和——不评判「哪些可报」、不生成报销建议
-    func test_汇总语句无报销建议词() async throws {
+    /// 原名：test_汇总语句无报销建议词
+    func test_summarySentencesAvoidReimbursementAdviceWords() async throws {
         let (_, claims, patient) = try await makeStore()
         try await claims.create(patientId: patient, itemType: "receipt", amount: 10,
                                 date: Date(), merchant: "药店", summary: "")
@@ -55,7 +57,8 @@ final class ClaimAcceptanceTests: XCTestCase {
         }
     }
 
-    func test_成员隔离() async throws {
+    /// 原名：test_成员隔离
+    func test_memberIsolation() async throws {
         let (_, claims, patient) = try await makeStore()
         try await claims.create(patientId: patient, itemType: "invoice", amount: 5,
                                 date: Date(), merchant: "x", summary: "")

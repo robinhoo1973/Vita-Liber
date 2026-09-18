@@ -25,7 +25,8 @@ final class ImmunizationAcceptanceTests: XCTestCase {
     }
 
     /// FR4.5：手动录入 = C 级已确认；OCR 派生 = D 级待确认（BR-003）
-    func test_来源与确认状态() async throws {
+    /// 原名：test_来源与确认状态
+    func test_provenanceAndConfirmationStatus() async throws {
         let (_, immunizations, patient) = try await makeStore()
         try await immunizations.create(patientId: patient, vaccineName: "流感疫苗",
                                        doseNumber: 1, administeredAt: Date(),
@@ -43,7 +44,8 @@ final class ImmunizationAcceptanceTests: XCTestCase {
     }
 
     /// FR4.6 边界：剂次序号是如实提示，不内置「该打什么」判定
-    func test_下一剂次序号只作如实提示() async throws {
+    /// 原名：test_下一剂次序号只作如实提示
+    func test_nextDoseSequenceNumberOnlyFactualHint() async throws {
         let (_, immunizations, patient) = try await makeStore()
         try await immunizations.create(patientId: patient, vaccineName: "乙肝疫苗",
                                        doseNumber: 1, administeredAt: Date())
@@ -56,7 +58,8 @@ final class ImmunizationAcceptanceTests: XCTestCase {
     }
 
     /// 成员隔离（BR-001）
-    func test_成员隔离() async throws {
+    /// 原名：test_成员隔离
+    func test_memberIsolation() async throws {
         let (_, immunizations, patient) = try await makeStore()
         try await immunizations.create(patientId: patient, vaccineName: "流感疫苗",
                                        doseNumber: 1, administeredAt: Date())

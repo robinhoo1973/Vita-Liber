@@ -16,7 +16,8 @@ final class ReminderStoreTests: XCTestCase {
     /// 送达后不再 pending，若无守卫每次 refresh 以同 id 重排 + 重插
     /// recordDelivery（notification_delivery 主键冲突中止循环，其余批次
     /// 静默失去提醒，且已送达提醒死而复生）。
-    func test_到期提醒已送达不再重排() async throws {
+    /// 原名：test_到期提醒已送达不再重排
+    func test_dueReminderDeliveredNotRescheduled() async throws {
         let (store, scheduler, db, patient) = try await makeStore()
         let lotId = UUID()
         try await db.writer.write { db in
@@ -58,7 +59,8 @@ final class ReminderStoreTests: XCTestCase {
     }
 
     /// FR8.10/FR9.8.3：续药/随访调度写入 route 深链（§5.45 缺路由降级不 crash）
-    func test_随访提醒携带观察详情深链() async throws {
+    /// 原名：test_随访提醒携带观察详情深链
+    func test_followUpReminderCarriesObservationDetailDeepLink() async throws {
         let (store, scheduler, _, patient) = try await makeStore()
         let obsId = UUID()
         await store.scheduleObservationFollowUp(observationId: obsId, observedAt: Date(),
@@ -71,7 +73,8 @@ final class ReminderStoreTests: XCTestCase {
 
     /// BR-012 SOS 误触契约：常规模式 0.6s 长按（误触率 <1% 验收），
     /// 关怀模式按住确认同样生效——视图执法不得出现 0s 立即触发。
-    func test_SOS长按契约_常规模式06秒() {
+    /// 原名：test_SOS长按契约_常规模式06秒
+    func test_SOS_longPressContract_regularMode06Seconds() {
         XCTAssertTrue(SOSRules.requiresHoldConfirm("sos", mode: .standard))
         XCTAssertGreaterThanOrEqual(CareModeMetrics.standard.holdConfirmSeconds, 0.6,
                                     "常规模式 SOS 必须 ≥0.6s 长按（build 147 回归防护）")

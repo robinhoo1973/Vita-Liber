@@ -114,7 +114,10 @@ struct ASREngineSettingsSection: View {
                     variants: availableIndex.map { idx in
                         idx.models
                             .filter { $0.id == choice.rawValue && $0.isPublished && $0.variant != nil && $0.isCompatible(appVersion: version) }
-                            .sorted { ($0.variant ?? "") < ($1.variant ?? "") }
+                            // 审查修正（D6 档序颠倒）：字典序 "large" < "medium" < "small"
+                            // 与大小序相反——此前清单首位是大档（默认选中大档、低 RAM
+                            // 设备被推荐大档）。统一按 Domain variantWeight 大小升序。
+                            .sorted { ASRModelRelease.variantWeight($0.variant) < ASRModelRelease.variantWeight($1.variant) }
                     } ?? [])
             }
             return next
@@ -297,19 +300,14 @@ struct ASREngineSettingsSection: View {
     }
 
     /// 业主裁决 D6：按设备 RAM 给出建议（用户自行决定，不做硬限制）。
+    /// 建议规则在 Domain `ASRVariantRecommendation.variantIndex`（BR 规则不进视图）；
+    /// 视图只取建议下标 + 格式化。清单已按 variantWeight 大小升序。
     private func variantHint(for variants: [ASRModelRelease]) -> String? {
-        guard variants.count > 1 else { return nil }
-        let ramGB = ProcessInfo.processInfo.physicalMemory / 1024 / 1024 / 1024
-        let recommended: String
-        if ramGB >= 6 {
-            recommended = variants.last?.variant ?? variants.last?.variant  // largest
-        } else if ramGB >= 4 {
-            recommended = variants[variants.count / 2].variant ?? variants[1].variant  // mid
-        } else {
-            recommended = variants.first?.variant  // smallest
-        }
-        guard let rec = recommended else { return nil }
-        return L10n.asrModelVariantHint(rec, "\(ramGB)")
+        let ramBytes = ProcessInfo.processInfo.physicalMemory
+        guard let index = ASRVariantRecommendation.variantIndex(ramBytes: ramBytes,
+                                                                variantCount: variants.count),
+              let rec = variants[index].variant else { return nil }
+        return L10n.asrModelVariantHint(rec, "\(ramBytes / 1024 / 1024 / 1024)")
     }
 
     /// 进行态视图：下载 = 分数进度 + 字节数字（慢链路下条位移缓慢，数字给确定反馈）；

@@ -156,6 +156,9 @@ struct GlobalSearchView: View {
             // 每帧求值一次的局部常量，两次消费同一结果。
             let obsHits = observationHits
             let medHits = medicationHits
+            // 审查修正（每帧重复计算，同第八轮修复同族）：healthDataHits 在
+            // allEmpty/空态判据/分区渲染三处各求值一次——提升为同款局部常量。
+            let healthHits = healthDataHits
             // WithPerceptionTracking 的 @ViewBuilder 闭包内不能显式 return（会关闭 result builder 变换）
             List {
                 if query.isEmpty {
@@ -181,7 +184,7 @@ struct GlobalSearchView: View {
                 // 只能靠本地化名匹配）静默失效。缺陷由 ce4d6d7 引入，e27f5e4 结构搬运时
                 // 原样携带。
                 } else if state.docHits.isEmpty && obsHits.isEmpty && medHits.isEmpty
-                            && healthDataHits.isEmpty {
+                            && healthHits.isEmpty {
                     VLUnavailableView {
                         Label(L10n.searchNoResult(query), systemImage: "magnifyingglass")
                     } description: {
@@ -191,7 +194,7 @@ struct GlobalSearchView: View {
                     }
                     .accessibilityIdentifier("SP-20.search.empty")
                 } else {
-                    if !healthDataHits.isEmpty { healthDataSection }
+                    if !healthHits.isEmpty { healthDataSection }
                     if !documentHits.isEmpty { documentSection }
                     // FR17.14：语音速记正文命中（跳 SP-59 面板；列表内可选中所属条目）
                     if !voiceNoteHits.isEmpty { voiceNoteSection }

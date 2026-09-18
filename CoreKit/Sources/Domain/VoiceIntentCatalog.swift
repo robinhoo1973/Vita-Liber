@@ -18,7 +18,8 @@ public enum VoiceIntentKey: String, Sendable, Equatable, CaseIterable, Codable {
     case appendProfile
     case appendMedDraft
     case appendNote
-    case askAssistant
+    // 业主裁决 D2（2026-09-18）：F12 AI 助手永久退役——.askAssistant 意图已从
+    // 目录删除；历史 rawValue 落入 unknown 兜底（速记），不再有「退役无响应」分支。
     case createQuestion
     case unknown
 }
@@ -48,7 +49,6 @@ public enum VoiceIntentCatalog {
         .init(key: .appendProfile, displayLabelKey: "voiceIntent.appendProfile", classifiableFallback: true),
         .init(key: .appendMedDraft, displayLabelKey: "voiceIntent.appendMedDraft", classifiableFallback: false),
         .init(key: .appendNote, displayLabelKey: "voiceIntent.appendNote", classifiableFallback: true),
-        .init(key: .askAssistant, displayLabelKey: "voiceIntent.askAssistant", classifiableFallback: false),
         .init(key: .createQuestion, displayLabelKey: "voiceIntent.createQuestion", classifiableFallback: false),
         .init(key: .unknown, displayLabelKey: "voiceIntent.unknown", classifiableFallback: true),
     ]
@@ -107,7 +107,7 @@ public enum VoiceIntentCatalog {
         case .appendProfile:
             extracted = VoiceStructuringEngine.extractProfile(text, rules: VoiceGrammarDefaults.profileRules)
         case .recordObservation, .createAppointment, .appendMedDraft,
-             .appendNote, .askAssistant, .createQuestion, .unknown:
+             .appendNote, .createQuestion, .unknown:
             extracted = []
         }
         guard !extracted.isEmpty else {

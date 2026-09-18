@@ -11,7 +11,8 @@ import Protocols
 final class MemberAcceptanceTests: XCTestCase {
 
     /// saveOwner（本人）→ saveMember（家人）→ members() 两张档案并存且字段往返
-    func test_成员落库与往返() async throws {
+    /// 原名：test_成员落库与往返
+    func test_memberPersistAndRoundTrip() async throws {
         let store = try GRDBStore.inMemory()
         let persistor = GRDBPatientPersistor(store: store)
 
@@ -33,7 +34,8 @@ final class MemberAcceptanceTests: XCTestCase {
     }
 
     /// 成员配额：Domain 判定与落库计数一致（4 人内不弹、第 5 人弹）
-    func test_配额边界与落库一致() async throws {
+    /// 原名：test_配额边界与落库一致
+    func test_quotaBoundaryMatchesPersistedState() async throws {
         let store = try GRDBStore.inMemory()
         let persistor = GRDBPatientPersistor(store: store)
         let now = Date().timeIntervalSince1970

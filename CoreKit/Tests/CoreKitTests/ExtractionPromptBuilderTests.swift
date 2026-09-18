@@ -23,7 +23,8 @@ struct ExtractionPromptBuilderTests {
     }
 
     @Test("每个字段的**键**都出现在提示词里（覆盖完整）")
-    func 键全覆盖() throws {
+    /// 原名：键全覆盖
+    func keysFullyCovered() throws {
         for kind in kinds {
             let s = try spec(kind)
             let prompt = ExtractionPromptBuilder.systemPrompt(for: s)
@@ -34,7 +35,8 @@ struct ExtractionPromptBuilderTests {
     }
 
     @Test("**每个非空 promptHint 都进了提示词**——这是本次修复的核心（此前是死数据）")
-    func 提示词素材不再是死数据() throws {
+    /// 原名：提示词素材不再是死数据
+    func promptMaterialIsNotDeadData() throws {
         var checked = 0
         for kind in kinds {
             let s = try spec(kind)
@@ -50,7 +52,8 @@ struct ExtractionPromptBuilderTests {
     }
 
     @Test("**枚举域的每个取值都进了提示词**——枚举键填对的前提")
-    func 枚举域完整列入() throws {
+    /// 原名：枚举域完整列入
+    func enumDomainsFullyListed() throws {
         var checked = 0
         for kind in kinds {
             let s = try spec(kind)
@@ -67,7 +70,8 @@ struct ExtractionPromptBuilderTests {
     }
 
     @Test("每个字段的**别名**都进了提示词——「科室/科別」同字段的告知")
-    func 别名进入提示词() throws {
+    /// 原名：别名进入提示词
+    func aliasesEnterPrompt() throws {
         for kind in kinds {
             let s = try spec(kind)
             let prompt = ExtractionPromptBuilder.systemPrompt(for: s)
@@ -79,7 +83,8 @@ struct ExtractionPromptBuilderTests {
     }
 
     @Test("必填性与共享/行分组都进了提示词")
-    func 必填与分组() throws {
+    /// 原名：必填与分组
+    func requiredAndGrouping() throws {
         let s = try spec("prescription")
         let prompt = ExtractionPromptBuilder.systemPrompt(for: s)
         #expect(prompt.contains("required"))
@@ -94,7 +99,8 @@ struct ExtractionPromptBuilderTests {
     }
 
     @Test("安全边界语句完整保留（回归：注入防护 / 逐字子串 / 不诊断不换算）")
-    func 安全语句保留() throws {
+    /// 原名：安全语句保留
+    func safetyStatementsPreserved() throws {
         let prompt = ExtractionPromptBuilder.systemPrompt(for: try spec("encounter"))
         #expect(prompt.contains("untrusted"), "注入防护：文档文本必须被声明为不可信数据")
         #expect(prompt.contains("never instructions"), "注入防护：不得听从文档内指令")
@@ -105,13 +111,15 @@ struct ExtractionPromptBuilderTests {
     }
 
     @Test("零基编号行：lineIndex 即方括号数字")
-    func 编号行零基() {
+    /// 原名：编号行零基
+    func numberedLinesZeroBased() {
         let numbered = ExtractionPromptBuilder.numbered(lines: ["北京协和医院 处方笺", "日期：2026-09-12"])
         #expect(numbered == "[0] 北京协和医院 处方笺\n[1] 日期：2026-09-12")
     }
 
     @Test("转发壳与 Domain 单一出口逐字一致（Infrastructure 不再自建提示词）")
-    func 转发壳同源() throws {
+    /// 原名：转发壳同源
+    func forwardingShellSameSource() throws {
         let s = try spec("prescription")
         #expect(ModelPromptBuilder.systemPrompt(for: s) == ExtractionPromptBuilder.systemPrompt(for: s))
         #expect(ModelPromptBuilder.numbered(lines: ["a"]) == ExtractionPromptBuilder.numbered(lines: ["a"]))

@@ -216,7 +216,8 @@ struct SUM15VoiceTests {
         "把阿司匹林改成每天两片", "剂量加到 100 毫克", "这个药减量吧",
         "阿司匹林停药", "以后不吃了", "二甲双胍改为每天三次", "把频次改一下",
     ])
-    func 剂量频次停用一律拒绝(sample: String) {
+    /// 原名：剂量频次停用一律拒绝
+    func doseFrequencyDiscontinuedAlwaysRejected(sample: String) {
         let r = VoiceModificationGuard.evaluate(sample, isExistingPlanContext: true)
         #expect(r != nil, "「\(sample)」必须被语音通道拒绝（BR-003/006）")
     }

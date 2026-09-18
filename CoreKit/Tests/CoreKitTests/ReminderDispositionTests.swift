@@ -24,7 +24,8 @@ struct ReminderDispositionTests {
     ]
 
     @Test(arguments: table)
-    func 按源动作表(_ row: (kind: String, priority: Int, status: String?, expected: [ReminderDisposition])) {
+    /// 原名：按源动作表
+    func dispositionBySourceActionTable(_ row: (kind: String, priority: Int, status: String?, expected: [ReminderDisposition])) {
         #expect(ReminderAggregationCenter.dispositions(for: item(row.kind, priority: row.priority, status: row.status)) == row.expected)
     }
 
@@ -46,7 +47,8 @@ struct ReminderDispositionTests {
 
     @Test(arguments: [("alert_event", "alert-X"), ("appointment", "apt-X"), ("refill", "lot-X"), ("dose_slot", "dose-X"),
                       ("ocr", "ocr-X"), ("stock_backlog", "stock_backlog-X"), ("pending_card", "pending_card-X")])
-    func 通知键与通知中心同命名空间(_ kind: String, _ expected: String) {
+    /// 原名：通知键与通知中心同命名空间
+    func notificationKeysShareCenterNamespace(_ kind: String, _ expected: String) {
         #expect(NotificationItemKey.key(kind: kind, sourceId: "X") == expected)
     }
 

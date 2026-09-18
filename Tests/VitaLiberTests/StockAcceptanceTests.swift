@@ -36,7 +36,8 @@ final class StockAcceptanceTests: XCTestCase {
 
     /// ADR-009 锚点（V3.94 修复）：日当量必须含单剂剂量——每次 2 片的计划
     /// 此前按 1 片/剂估算，daysLeft 虚高一倍、续药分级晚发（误差偏晚红线）
-    func test_日当量估算含单剂剂量() {
+    /// 原名：test_日当量估算含单剂剂量
+    func test_dailyEquivalentEstimateIncludesSingleDose() {
         let fixed2 = MedicationSchedule.fixed(times: ["08:00", "20:00"])
         let daily2 = MedicationStore.estimatedDailyUnits(fixed2, unitsPerDose: 2)
         XCTAssertEqual(daily2, 4, "2 次/日 × 2 片/次 = 4 片/日")
@@ -49,7 +50,8 @@ final class StockAcceptanceTests: XCTestCase {
     /// **M2 一票否决（FR9.8.8）**：建计划 → 物化窗口 → 零确认零动作 →
     /// 补账把过期剂量物化为 missed，安全线按计划推进、确认线分毫不动，
     /// 续药档位照常按安全线触达。
-    func test_零确认存活_补账驱动安全线推进且确认线不动() async throws {
+    /// 原名：test_零确认存活_补账驱动安全线推进且确认线不动
+    func test_zeroConfirmationSurvives_makeupAdvancesPlanTrackOnly() async throws {
         let (store, meds, patient, med) = try await makeStore()
         let lot = DualTrackInventory(lotId: UUID(), totalUnits: 10, unitKind: "tablet")
         try await meds.createLot(lot: lot, patientId: patient, medicationId: med)
@@ -107,7 +109,8 @@ final class StockAcceptanceTests: XCTestCase {
 
     /// 补账幂等并发安全：已决议行绝不重复扣（UPDATE ... WHERE user_action IS NULL
     /// + changesCount 判定）
-    func test_补账幂等且不重复扣减() async throws {
+    /// 原名：test_补账幂等且不重复扣减
+    func test_makeupIdempotentNoDoubleDeduction() async throws {
         let (store, meds, patient, med) = try await makeStore()
         let lot = DualTrackInventory(lotId: UUID(), totalUnits: 5, unitKind: "tablet")
         try await meds.createLot(lot: lot, patientId: patient, medicationId: med)
@@ -144,7 +147,8 @@ final class StockAcceptanceTests: XCTestCase {
 
     /// FR9.8.5 消耗差异月报：数据源 = 两线差值（dose_log 事实），逐日可溯、
     /// 纯事实句式过负清单
-    func test_差异月报纯事实且过负清单() async throws {
+    /// 原名：test_差异月报纯事实且过负清单
+    func test_differenceMonthlyReportPureFactsPassesNegativeList() async throws {
         let (store, meds, patient, med) = try await makeStore()
         let lot = DualTrackInventory(lotId: UUID(), totalUnits: 20, unitKind: "tablet")
         try await meds.createLot(lot: lot, patientId: patient, medicationId: med)
@@ -197,7 +201,8 @@ final class StockAcceptanceTests: XCTestCase {
 
     /// 盘点归真（FR9.8.5 往返）：账面 8 → 实物清点 3 → 两线同时重置为 3，
     /// 差异必须经 Domain 确认语义（needsConfirmation）
-    func test_盘点归真往返两线重置() async throws {
+    /// 原名：test_盘点归真往返两线重置
+    func test_stocktakeRoundTripResetsBothTracks() async throws {
         let (store, meds, patient, med) = try await makeStore()
         let lot = DualTrackInventory(lotId: UUID(), totalUnits: 10, unitKind: "tablet")
         try await meds.createLot(lot: lot, patientId: patient, medicationId: med)
@@ -218,7 +223,8 @@ final class StockAcceptanceTests: XCTestCase {
     }
 
     /// 「约剩 N 天·按计划估算」的诚实性：daily=1 时 N=剩余安全线，绝不超过
-    func test_诚实性天数估算() async throws {
+    /// 原名：test_诚实性天数估算
+    func test_honestyDaysEstimate() async throws {
         let (_, meds, patient, med) = try await makeStore()
         let lot = DualTrackInventory(lotId: UUID(), totalUnits: 7, unitKind: "tablet")
         try await meds.createLot(lot: lot, patientId: patient, medicationId: med)

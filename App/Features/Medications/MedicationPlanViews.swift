@@ -388,8 +388,10 @@ private struct WeekStrip: View {
         WithPerceptionTracking {
             let cal = Calendar.current
             let today = cal.startOfDay(for: Date())
+            // 日算术走 Domain DayArithmetic 单一出口（DST 漂移防护——Appointments/
+            // Trends 已统一经此出口，裸 calendar.date(byAdding:) 是漏网第三处）
             let days = (0..<7).map { offset in
-                cal.date(byAdding: .day, value: offset - 6, to: today) ?? today
+                DayArithmetic.offset(days: offset - 6, from: today, calendar: cal)
             }
             HStack(spacing: 6) {
                 ForEach(days, id: \.self) { day in
@@ -624,6 +626,13 @@ struct MedicationPlanFormView: View {
 
     private func save() {
         let times = fixedTimes.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        // 审查修正（fixed 零剂量通道）：自由文本时刻此前无校验——"8点" 等非法
+        // 时间可保存为 active 计划、引擎逐剂解析失败 → 零剂量物化、提醒永不到达。
+        // 与 NewPlanSheet 同用 Domain `DoseScheduleEngine.isValidTime` 单一闸门。
+        if !isAsNeeded, times.contains(where: { !DoseScheduleEngine.isValidTime($0) }) {
+            saveFailed = true
+            return
+        }
         let schedule: MedicationSchedule = isAsNeeded
             ? .asNeeded
             : .fixed(times: times.isEmpty ? ["08:00"] : times)

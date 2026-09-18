@@ -70,26 +70,36 @@ public struct FoundationModelsExtractionEngine: CardExtractionEngine {
             guard await HeavyModelLease.shared.tryAcquire() else {
                 throw ExtractionEngineError.modelBusy
             }
-            defer { Task { await HeavyModelLease.shared.release() } }
-
-            let lines = request.lines
-            let prompt = ModelPromptBuilder.numbered(lines: lines)
-            let deadline = UnderstandingDeadline()
-            let result = await deadline.run(timeout: regionTimeout ?? .seconds(8)) {
-                let session = LanguageModelSession(instructions: ModelPromptBuilder.systemPrompt(for: spec))
-                let response = try await session.respond(to: prompt,
-                    generating: ExtractionModelResult.self,
-                    options: GenerationOptions(maximumResponseTokens: spec.outputTokenBudget))
-                try Task.checkCancellation()
-                return response.content
+            // 审查修正（两轨互斥时序）：defer 内 fire-and-forget 释放没有 happens-before
+            // ——本引擎返回后注册表立即查 T2 availability，isOccupied 可能仍为真，
+            // T2 被判 modelBusy 跳过、低接地区域失去双轨并集补偿。改为出口处
+            // await 同步释放（release 幂等，重入无副作用）。
+            do {
+                let lines = request.lines
+                let prompt = ModelPromptBuilder.numbered(lines: lines)
+                let deadline = UnderstandingDeadline()
+                let result = await deadline.run(timeout: regionTimeout ?? .seconds(8)) {
+                    let session = LanguageModelSession(instructions: ModelPromptBuilder.systemPrompt(for: spec))
+                    let response = try await session.respond(to: prompt,
+                        generating: ExtractionModelResult.self,
+                        options: GenerationOptions(maximumResponseTokens: spec.outputTokenBudget))
+                    try Task.checkCancellation()
+                    return response.content
+                }
+                guard let result else {
+                    await HeavyModelLease.shared.release()
+                    throw ExtractionEngineError.unavailable
+                }
+                let regionResult = ModelSpanAssembler.region(
+                    shared: result.shared.map { ModelSpan(key: $0.key, value: $0.value, unit: $0.unit, lineIndex: $0.lineIndex) },
+                    rows: result.rows.map { $0.map { ModelSpan(key: $0.key, value: $0.value, unit: $0.unit, lineIndex: $0.lineIndex) } },
+                    spec: spec, lines: lines, pageIndex: region.pageIndex)
+                await HeavyModelLease.shared.release()
+                return regionResult
+            } catch {
+                await HeavyModelLease.shared.release()
+                throw error
             }
-            guard let result else {
-                throw ExtractionEngineError.unavailable
-            }
-            return ModelSpanAssembler.region(
-                shared: result.shared.map { ModelSpan(key: $0.key, value: $0.value, unit: $0.unit, lineIndex: $0.lineIndex) },
-                rows: result.rows.map { $0.map { ModelSpan(key: $0.key, value: $0.value, unit: $0.unit, lineIndex: $0.lineIndex) } },
-                spec: spec, lines: lines, pageIndex: region.pageIndex)
         }
         #endif
         throw ExtractionEngineError.unavailable

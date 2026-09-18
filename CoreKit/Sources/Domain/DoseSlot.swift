@@ -50,7 +50,9 @@ public struct DoseSlot: Sendable, Equatable, Identifiable {
         self.id = id; self.anchorTime = anchorTime; self.mealRelation = mealRelation; self.records = records
     }
     public var allTaken: Bool { !records.isEmpty && records.allSatisfy { $0.action == .taken } }
-    public var anyPending: Bool { records.contains { $0.action == nil } }
+    /// 与 `isUnresolved` 同口径（nil 或 snoozed 均待处理）——D5「snoozed 非终态」
+    /// 语义在时段级状态投影的落点；此前只认 nil，全稍后时段在中心/首页被标「已决议」。
+    public var anyPending: Bool { records.contains { $0.isUnresolved } }
 }
 
 public struct DoseSlotGrouping {

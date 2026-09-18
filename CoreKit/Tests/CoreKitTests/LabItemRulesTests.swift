@@ -7,14 +7,16 @@ import Testing
 struct LabItemRulesTests {
 
     @Test("酶类优先：以「酶」结尾的检验项目归 enzyme（含心肌酶谱等复合名）")
-    func 酶类() {
+    /// 原名：酶类
+    func enzymeFamily() {
         for label in ["谷丙转氨酶", "碱性磷酸酶", "肌酸激酶", "心肌酶谱", "淀粉酶"] {
             #expect(LabItemRules.classify(label: label) == .enzyme, "\(label) → enzyme")
         }
     }
 
     @Test("检查项：影像/功能检查关键词归 exam；其余检验项归 routine")
-    func 检查项与常规() {
+    /// 原名：检查项与常规
+    func examinationItemsAndRoutine() {
         for label in ["腹部超声", "彩超", "B超", "X光片", "CT平扫", "磁共振", "胃镜", "肠镜", "冠脉造影", "心电图", "肺功能"] {
             #expect(LabItemRules.classify(label: label) == .exam, "\(label) → exam")
         }

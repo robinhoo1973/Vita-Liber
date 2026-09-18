@@ -376,8 +376,10 @@ private struct LabSampleRowView: View {
     }
 
     /// 数值 + 单位（原文单位，不换算）；打印标记原样附在数值之后（不着色、不解释）。
+    /// 数值形态走 Domain `MedicalNumberFormat.oneDecimal` 单一出口（与趋势页同口径，
+    /// 可见文本与 VoiceOver 不得念出两种数）。
     static func valueText(_ sample: OCRCardStore.LabSampleRow) -> String {
-        var text = sample.value.formatted() + " " + sample.unit
+        var text = MedicalNumberFormat.oneDecimal(sample.value) + " " + sample.unit
         if let flag = sample.abnormalFlag, !flag.isEmpty { text += " " + flag }
         return text
     }
@@ -385,8 +387,8 @@ private struct LabSampleRowView: View {
     /// 报告自带参考范围（A 级，原样）。
     static func meta(_ sample: OCRCardStore.LabSampleRow) -> String {
         guard sample.refLow != nil || sample.refHigh != nil else { return "" }
-        let low = sample.refLow.map { $0.formatted() } ?? ""
-        let high = sample.refHigh.map { $0.formatted() } ?? ""
+        let low = sample.refLow.map { MedicalNumberFormat.oneDecimal($0) } ?? ""
+        let high = sample.refHigh.map { MedicalNumberFormat.oneDecimal($0) } ?? ""
         return DocumentsState.fieldLabel(forKey: "reference_range") + ": " + low + " - " + high
     }
 }

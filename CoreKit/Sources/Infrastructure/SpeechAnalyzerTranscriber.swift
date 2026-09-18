@@ -251,6 +251,15 @@ public actor SpeechAnalyzerTranscriber: TranscriptionCaptureReporting {
         case .delegate:
             // FR17.17：资源缺失 / locale 不支持 / 设备不可用 → 整会话回落基线轨。
             // 委托期间 stop 指令按 id 路由基线引擎；会话结束即解除（单次使用）。
+            // 审查修正：resolve() 的 await 窗口内到达的 finish/cancel 已写入 intents[id]，
+            // 此前 `intents[id] = nil` 直接清掉——release 落在委托窗内时基线轨仍跑
+            // 满全程并把释放后的语音交付给 UI。与 analyzer 路径同款：委托前重查。
+            if intents[id] == .cancel || Task.isCancelled { intents[id] = nil; throw CancellationError() }
+            if intents[id] == .finish {
+                intents[id] = nil
+                return TranscriptionResult(text: "", confidence: 0,
+                                           resolvedLocale: request.localeIdentifier, segmented: false)
+            }
             intents[id] = nil
             delegated.insert(id)
             defer { delegated.remove(id) }

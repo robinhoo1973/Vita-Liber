@@ -23,7 +23,7 @@ struct VLUnavailableView<LabelContent: View, DescriptionContent: View, ActionsCo
 private struct StackedUnavailableLabelStyle: LabelStyle {
     func makeBody(configuration: Configuration) -> some View {
         VStack(spacing: 8) {
-            configuration.icon.font(.system(size: 48)).foregroundStyle(.secondary)
+            configuration.icon.font(VLFont.disclosureIcon).foregroundStyle(.secondary)   // 字型 token 单出口（48pt）
             configuration.title.font(.title2.bold()).multilineTextAlignment(.center)
         }
     }

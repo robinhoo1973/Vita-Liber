@@ -13,7 +13,8 @@ struct ASRInstallLayoutTests {
     private let sha = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
     @Test("目录名：有变体带 ~ 段；无变体退回历史布局（既有安装零迁移）")
-    func 目录名两种形态() {
+    /// 原名：目录名两种形态
+    func directoryNameTwoForms() {
         let full = ASRInstallLayout.directoryName(variant: "full", version: "small-ctc-int8-2025-04-02",
                                                   sha256: sha, uuid: uuid)
         #expect(full.hasPrefix("full~"), "变体段必须在最前且用 ~ 分隔，实得 \(full)")
@@ -26,7 +27,8 @@ struct ASRInstallLayoutTests {
     }
 
     @Test("目录名可无歧义反解——版本号自身含 `-` 也不影响（这正是选 ~ 的原因）")
-    func 解析无歧义() throws {
+    /// 原名：解析无歧义
+    func parsingUnambiguous() throws {
         let version = "small-ctc-int8-2025-04-02"      // 版本里 4 个连字符
         for variant in [nil, "full", "medium"] as [String?] {
             let name = ASRInstallLayout.directoryName(variant: variant, version: version,
@@ -38,7 +40,8 @@ struct ASRInstallLayoutTests {
     }
 
     @Test("非本布局的目录名一律判否——调用方据此忽略，绝不误删")
-    func 解析拒绝非布局() {
+    /// 原名：解析拒绝非布局
+    func parsingRejectsNonLayout() {
         for name in ["", "Documents", "active.json", "2023-02-20", "2023-02-20-0123456789ab",
                      "v1-notauuid-000000000000", "2023-02-20-0123456789ab-not-a-uuid"] {
             #expect(ASRInstallLayout.parseDirectory(name) == nil, "不应解析 \(name)")
@@ -46,7 +49,8 @@ struct ASRInstallLayoutTests {
     }
 
     @Test("保留规则：每个变体各留最新一个——旧规则会删掉另一档")
-    func 保留按变体分组() {
+    /// 原名：保留按变体分组
+    func preservesVariantGrouping() {
         let candidates: [(name: String, version: String, variant: String?)] = [
             ("full~v2-a1b2c3d4e5f6-\(uuid)",   "v2", "full"),
             ("full~v1-ffeeddccbbaa-\(uuid)",   "v1", "full"),     // 同变体旧版 → 该删
@@ -67,7 +71,8 @@ struct ASRInstallLayoutTests {
     }
 
     @Test("保留规则在单档家族下与旧行为等价（回归保护）")
-    func 单档家族行为不变() {
+    /// 原名：单档家族行为不变
+    func singleVariantFamilyBehaviorUnchanged() {
         let candidates: [(name: String, version: String, variant: String?)] = [
             ("v3-aaaaaaaaaaaa-\(uuid)", "v3", nil),
             ("v2-bbbbbbbbbbbb-\(uuid)", "v2", nil),
@@ -78,7 +83,8 @@ struct ASRInstallLayoutTests {
     }
 
     @Test("生效档不可删（引擎正加载它），其余可删")
-    func 删除守卫() {
+    /// 原名：删除守卫
+    func deletionGuard() {
         #expect(!ASRInstallLayout.isDeletable(directoryName: "full~v2-aa-\(uuid)",
                                               activeName: "full~v2-aa-\(uuid)"))
         #expect(ASRInstallLayout.isDeletable(directoryName: "small~v1-bb-\(uuid)",
@@ -88,7 +94,8 @@ struct ASRInstallLayoutTests {
     }
 
     @Test("多档条目解码：无 variant 键的历史条目照常工作（向后兼容，无需 schema 变更）")
-    func 历史条目兼容() throws {
+    /// 原名：历史条目兼容
+    func legacyEntriesCompatible() throws {
         let legacy = #"{"id":"dolphin","version":"small-ctc-int8-2025-04-02","sha256":"\#(sha)","url":"x.zip","bytes":1}"#
         let decoded = try JSONDecoder().decode(ASRModelRelease.self, from: Data(legacy.utf8))
         #expect(decoded.variant == nil, "历史条目必须解码为 nil（单档）")
@@ -97,5 +104,29 @@ struct ASRInstallLayoutTests {
         let decodedFull = try JSONDecoder().decode(ASRModelRelease.self, from: Data(multi.utf8))
         #expect(decodedFull.variant == "full")
         #expect(decodedFull.id == "dolphin", "家族身份仍是 id，不新增枚举 case")
+    }
+
+    /// 业主裁决 D6 回归锚点（2026-09-18 修复）：variant 字典序与大小序相反
+    /// （"large" < "medium" < "small"）——此前按字典序排序导致清单首位是大档、
+    /// 默认选择与 RAM 建议全部颠倒（3GB 设备被推荐大档）。
+    @Test("档位权重：small < medium < large，未知/缺失按最大权重处理")
+    /// 原名：档位权重大小序单一事实源
+    func variantWeightOrdersSmallMediumLarge() {
+        #expect(ASRModelRelease.variantWeight("small") < ASRModelRelease.variantWeight("medium"))
+        #expect(ASRModelRelease.variantWeight("medium") < ASRModelRelease.variantWeight("large"))
+        #expect(ASRModelRelease.variantWeight(nil) > ASRModelRelease.variantWeight("large"),
+                "未知/缺失档排末尾，绝不误推荐给低 RAM 设备")
+        let sorted = ["large", "small", "medium", "x1"]
+            .sorted { ASRModelRelease.variantWeight($0) < ASRModelRelease.variantWeight($1) }
+        #expect(sorted == ["small", "medium", "large", "x1"], "清单必须按大小升序，首位 = 最小档")
+    }
+
+    @Test("RAM 建议：≥6GB 最大档 / ≥4GB 中档 / 其余最小档；≤1 档不显示建议")
+    /// 原名：RAM档位建议边界
+    func variantRecommendationByRAM() {
+        #expect(ASRVariantRecommendation.variantIndex(ramBytes: 8 * 1024 * 1024 * 1024, variantCount: 3) == 2)
+        #expect(ASRVariantRecommendation.variantIndex(ramBytes: 4 * 1024 * 1024 * 1024, variantCount: 3) == 1)
+        #expect(ASRVariantRecommendation.variantIndex(ramBytes: 3 * 1024 * 1024 * 1024, variantCount: 3) == 0)
+        #expect(ASRVariantRecommendation.variantIndex(ramBytes: 3 * 1024 * 1024 * 1024, variantCount: 1) == nil)
     }
 }

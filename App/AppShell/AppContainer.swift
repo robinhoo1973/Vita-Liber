@@ -77,8 +77,8 @@ struct AppContainer {
     let prescriptions: PrescriptionStore
     /// FR13.11 备份与恢复（SP-24）——BackupState 的服务端
     let backup: BackupService
-    /// FR12.10 AI 会话历史（SP-51）
-    let aiHistory: AIHistoryStore
+    // 业主裁决 D2（2026-09-18）：F12 AI 助手永久退役——AIHistoryStore /
+    // AIHistoryState / AssistantHistoryView 已删除，装配根不再持有会话历史仓。
     /// FR13.1/13.2 PDF 导出（SP-22）
     let pdfExport: PDFExportService
     /// F16 只读 Apple 健康接入（FR16.1）
@@ -196,7 +196,6 @@ struct AppContainer {
         let documents = DocumentStore(writer: store.writer)
         let prescriptions = PrescriptionStore(writer: store.writer)
         let backup = BackupService(writer: store.writer)
-        let aiHistory = AIHistoryStore(writer: store.writer)
         let pdfExport = PDFExportService(writer: store.writer)
         // FR16.1 V3.86：HKHealthStore 单实例共享（Apple 文档纪律：一进程一实例，
         // reader 与 sync service 同源注入）
@@ -267,7 +266,6 @@ struct AppContainer {
                             documents: documents,
                             prescriptions: prescriptions,
                             backup: backup,
-                            aiHistory: aiHistory,
                             pdfExport: pdfExport,
                             healthReader: healthReader,
                             healthSync: healthSync)

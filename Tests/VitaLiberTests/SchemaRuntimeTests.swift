@@ -14,13 +14,15 @@ import Infrastructure
 final class SchemaRuntimeTests: XCTestCase {
 
     /// L0 只能静态断言「DDL 文本里有 foreign_keys 字样」；此处断言连接**运行时真的开着**。
-    func test_外键运行时确为开启() throws {
+    /// 原名：test_外键运行时确为开启
+    func test_foreignKeysEnabledAtRuntime() throws {
         let store = try GRDBStore.inMemory()
         XCTAssertTrue(store.foreignKeysOn, "PRAGMA foreign_keys 必须返回 1（tech-spec §4.3）")
     }
 
     /// 悬空外键必须被拒——外键「开着」但不生效等于没开。
-    func test_悬空外键被拒绝() throws {
+    /// 原名：test_悬空外键被拒绝
+    func test_danglingForeignKeyRejected() throws {
         let store = try GRDBStore.inMemory()
         XCTAssertThrowsError(
             try store.writer.write { db in
@@ -36,7 +38,8 @@ final class SchemaRuntimeTests: XCTestCase {
     }
 
     /// 合法外键必须可写入——避免上一条用例被「什么都写不进去」这种假象满足。
-    func test_合法外键可写入() throws {
+    /// 原名：test_合法外键可写入
+    func test_validForeignKeyWritable() throws {
         let store = try GRDBStore.inMemory()
         let profile = PatientProfile(displayName: "本人")
         try store.insert(profile: profile)
@@ -56,7 +59,8 @@ final class SchemaRuntimeTests: XCTestCase {
     }
 
     /// §4.3 审计表与索引必须建库可执行（DDL 可执行性，不只是文本存在）。
-    func test_审计表与索引建库可执行() throws {
+    /// 原名：test_审计表与索引建库可执行
+    func test_auditTablesAndIndexesBuildable() throws {
         let store = try GRDBStore.inMemory()
         let tables = try store.writer.read { db in
             try String.fetchAll(db, sql: "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
@@ -77,7 +81,8 @@ final class SchemaRuntimeTests: XCTestCase {
     /// guideline_source/alert_event/ocr_result/notification_delivery/
     /// local_owner/F25 码表等）删掉或改名，全部金样/运行时测试依然全绿，
     /// 只在功能运行时炸。改为 tech-spec §4.3 全量清单逐一断言。
-    func test_M0全量建表含双轨库存五表() throws {
+    /// 原名：test_M0全量建表含双轨库存五表
+    func test_M0_fullSchemaIncludesFiveDualTrackStockTables() throws {
         let store = try GRDBStore.inMemory()
         let tables = try store.writer.read { db in
             try String.fetchAll(db, sql: "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")

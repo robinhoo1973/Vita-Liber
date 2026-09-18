@@ -27,7 +27,8 @@ struct SleepTrendDomainTests {
     }
 
     @Test("一晚六键聚合成一根堆叠柱：段按堆叠序、总量取 sleep_total、柱高 = 各段之和")
-    func 按夜聚合() {
+    /// 原名：按夜聚合
+    func aggregateByNight() {
         let night = day(2026, 9, 14)
         let identity = TrendQueryIdentity(patientId: UUID(), metric: .sleepTotal,
                                           range: DateInterval(start: day(2026, 9, 13), end: day(2026, 9, 15)))
@@ -55,7 +56,8 @@ struct SleepTrendDomainTests {
     }
 
     @Test("同一 (夜, 阶段) 多行取最大值且保留全部行 id：同夜多窗口物化不双计")
-    func 同日去重不双计() {
+    /// 原名：同日去重不双计
+    func sameDayDeduplicationNoDoubleCount() {
         let night = day(2026, 9, 14)
         let first = UUID()
         let second = UUID()
@@ -72,7 +74,8 @@ struct SleepTrendDomainTests {
     }
 
     @Test("排除行进 excludedNights（FR7.4 可恢复）：不混入可见夜，跨夜按日升序")
-    func 排除集与跨夜排序() {
+    /// 原名：排除集与跨夜排序
+    func exclusionSetAndCrossNightSorting() {
         let first = day(2026, 9, 13)
         let second = day(2026, 9, 14)
         let series = SleepTrendRules.series([
@@ -87,7 +90,8 @@ struct SleepTrendDomainTests {
     }
 
     @Test("宫格折叠：睡眠六键只出一块瓦片（sleep_total 恒胜），非睡眠行不动")
-    func 宫格折叠() {
+    /// 原名：宫格折叠
+    func gridCollapse() {
         // (key, value)：sleep_total 存在即代表该组
         let rows: [(String, Double)] = [
             ("glucose", 5.6), ("sleep_deep", 1.4), ("sleep_total", 7.5),
@@ -106,7 +110,8 @@ struct SleepTrendDomainTests {
     }
 
     @Test("睡眠族键集与阶段映射：单一事实源（含总量键无阶段）")
-    func 族与阶段映射() {
+    /// 原名：族与阶段映射
+    func familyAndStageMapping() {
         #expect(MetricType.sleepGroupKeys.count == 6)
         #expect(MetricType.sleepGroupKeys.filter { !$0.isSleep }.isEmpty)
         #expect(MetricType.sleepTotal.sleepStage == nil)

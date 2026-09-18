@@ -165,8 +165,8 @@ public enum DispenseListRules {
                 row.name,
                 row.spec ?? "",
                 row.unitKind,
-                String(format: "%g", row.planUnits),
-                String(format: "%g", row.confirmedUnits),
+                MedicalNumberFormat.quantity(row.planUnits),
+                MedicalNumberFormat.quantity(row.confirmedUnits),
                 row.expireAt.map { $0.formatted(date: .abbreviated, time: .omitted) } ?? "",
             ]
         }

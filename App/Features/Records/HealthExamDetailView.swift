@@ -147,7 +147,7 @@ struct HealthExamDetailView: View {
             if !detail.generalSamples.isEmpty {
                 Section(L10n.healthExamSamples) {
                     ForEach(detail.generalSamples) { sample in
-                        LabeledContent(sampleLabel(sample), value: sample.value.formatted() + " " + sample.unit)
+                        LabeledContent(sampleLabel(sample), value: MedicalNumberFormat.oneDecimal(sample.value) + " " + sample.unit)
                     }
                 }
                 .accessibilityElement(children: .contain)

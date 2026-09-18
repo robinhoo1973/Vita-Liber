@@ -34,7 +34,8 @@ struct LabeledValueExtractionTests {
     // MARK: - 组合表头行：每个字段只取自己的值
 
     @Test("组合表头行：科室不吞掉医生标签，医生不吞掉日期")
-    func 组合表头行各字段只取自己的值() throws {
+    /// 原名：组合表头行各字段只取自己的值
+    func combinedHeaderRowFieldsTakeOnlyOwnValues() throws {
         let line = "日期：2026-09-12 科室：呼吸内科 医生：张三"
 
         let dept = try #require(value("dept", in: line), "科室必须可抽")
@@ -47,7 +48,8 @@ struct LabeledValueExtractionTests {
     }
 
     @Test("日期值是有界日期记号，不是整行")
-    func 日期值为有界记号() throws {
+    /// 原名：日期值为有界记号
+    func dateValueIsBoundedToken() throws {
         let line = "日期：2026-09-12 科室：呼吸内科 医生：张三"
         let date = try #require(pageValue("report_date", lines: [line]), "日期必须可抽")
         #expect(date == "2026-09-12", "日期值曾为整行，实得 \(date)")
@@ -55,13 +57,15 @@ struct LabeledValueExtractionTests {
     }
 
     @Test("机构名丢掉尾随文档类型词（后缀文法，非标签截断）")
-    func 机构名去掉尾随文本() throws {
+    /// 原名：机构名去掉尾随文本
+    func institutionNameDropsTrailingText() throws {
         let hospital = try #require(pageValue("hospital", lines: ["北京协和医院 处方笺"]))
         #expect(hospital == "北京协和医院", "医院值曾为「北京协和医院 处方笺」，实得 \(hospital)")
     }
 
     @Test("分行排版与组合行得到完全相同的值")
-    func 分行与组合行一致() throws {
+    /// 原名：分行与组合行一致
+    func splitLinesConsistentWithCombinedRow() throws {
         let split = ["日期：2026-09-12", "科室：呼吸内科", "医生：张三"]
         #expect(pageValue("report_date", lines: split) == "2026-09-12")
         #expect(value("dept", in: split[1]) == "呼吸内科")
@@ -71,7 +75,8 @@ struct LabeledValueExtractionTests {
     // MARK: - 不变量
 
     @Test("不变量：每个产出值都是原文的精确子串（可定位、可显示原文）")
-    func 产出值恒为原文子串() {
+    /// 原名：产出值恒为原文子串
+    func producedValuesAreAlwaysOriginalSubstrings() {
         let lines = [
             "日期：2026-09-12 科室：呼吸内科 医生：张三",
             "北京协和医院 处方笺",
@@ -88,7 +93,8 @@ struct LabeledValueExtractionTests {
     }
 
     @Test("负例：原文没有该信息时不得凭空产出")
-    func 负例不凭空产出() {
+    /// 原名：负例不凭空产出
+    func negativeExamplesProduceNothing() {
         let noDate = "阿莫西林胶囊 0.25g×24 每次1粒"
         #expect(pageValue("report_date", lines: [noDate]) == nil, "无日期行不得产出日期")
         #expect(pageValue("doctor", lines: [noDate]) == nil, "无医生行不得产出医生")
@@ -96,7 +102,8 @@ struct LabeledValueExtractionTests {
     }
 
     @Test("负例：截断后为空则丢弃（宁缺勿污染）")
-    func 截断为空则丢弃() {
+    /// 原名：截断为空则丢弃
+    func emptyAfterTruncationDiscarded() {
         // 「科室：」后紧跟另一个标签 → 科室无值，不得把下一个标签当值
         let line = "科室：医生：张三"
         let dept = value("dept", in: line)
@@ -107,7 +114,8 @@ struct LabeledValueExtractionTests {
     // MARK: - 文法单测
 
     @Test("truncatingAtLabelBoundary：无标签时原样返回，截断为空返回 nil")
-    func 边界截断语义() {
+    /// 原名：边界截断语义
+    func boundaryTruncationSemantics() {
         #expect(ExtractionPatterns.truncatingAtLabelBoundary("呼吸内科") == "呼吸内科")
         #expect(ExtractionPatterns.truncatingAtLabelBoundary("呼吸内科 医生：张三") == "呼吸内科")
         #expect(ExtractionPatterns.truncatingAtLabelBoundary("医生：张三") == nil)
@@ -115,7 +123,8 @@ struct LabeledValueExtractionTests {
     }
 
     @Test("valueSpan：取标签自己的值段，右界为下一个标签")
-    func 值域提取语义() {
+    /// 原名：值域提取语义
+    func valueDomainExtractionSemantics() {
         let line = "日期：2026-09-12 科室：呼吸内科 医生：张三"
         #expect(ExtractionPatterns.valueSpan(afterLabel: "医生", in: line) == "张三")
         #expect(ExtractionPatterns.valueSpan(afterLabel: "科室", in: line) == "呼吸内科")
@@ -124,7 +133,8 @@ struct LabeledValueExtractionTests {
     }
 
     @Test("dateToken：三种写法都能取出有界记号")
-    func 日期记号三种写法() {
+    /// 原名：日期记号三种写法
+    func dateTokenThreeWritings() {
         #expect(ExtractionPatterns.dateToken(in: "就诊时间 2026-09-12 上午") == "2026-09-12")
         #expect(ExtractionPatterns.dateToken(in: "2026年9月12日 复查") == "2026年9月12日")
         #expect(ExtractionPatterns.dateToken(in: "报告日期：2026/9/12") == "2026/9/12")
@@ -134,14 +144,16 @@ struct LabeledValueExtractionTests {
     // MARK: - 规格轨同族修复（OCRExtraction / RuleExtractor）
 
     @Test("规格轨：叙事标签行一行多标签时，值不吞掉后面的标签")
-    func 规格轨值域界定() {
+    /// 原名：规格轨值域界定
+    func specRowValueDomainDelimited() {
         let line = "诊断：支气管炎 处理：抗感染治疗"
         let value = OCRGrounding.labeledValue(line)
         #expect(value == "支气管炎", "曾把「处理：抗感染治疗」整段吞下，实得 \(value)")
     }
 
     @Test("关键安全属性：正文里出现标签词**不得**被截断（叙事值不被误伤）")
-    func 叙事值不被误伤() {
+    /// 原名：叙事值不被误伤
+    func narrativeValuesNotMistakenlyHarmed() {
         // 「诊断」在这里是正文词（前一字符是「往」，非标签位）——截断就会吃掉半句话
         let line = "现病史：患者既往诊断高血压 10 年，规律服药"
         let value = OCRGrounding.labeledValue(line)
@@ -154,7 +166,8 @@ struct LabeledValueExtractionTests {
     }
 
     @Test("标签位判据：行首/空白/分隔标点之后才算标签")
-    func 标签位判据() {
+    /// 原名：标签位判据
+    func labelPositionCriterion() {
         #expect(ExtractionPatterns.truncatingAtLabelBoundary("支气管炎 处理：抗感染") == "支气管炎")
         #expect(ExtractionPatterns.truncatingAtLabelBoundary("患者既往诊断高血压") == "患者既往诊断高血压")
         #expect(ExtractionPatterns.truncatingAtLabelBoundary("支气管炎，处理：抗感染") == "支气管炎，")
@@ -163,7 +176,8 @@ struct LabeledValueExtractionTests {
     }
 
     @Test("规格轨：cell 内一行多标签同样被界定；标签独占 cell 仍返回空串")
-    func 规格轨cell界定() {
+    /// 原名：规格轨cell界定
+    func specRowCellDelimited() {
         let aliases = ["诊断", "主诉"]
         #expect(RuleExtractor.split(label: "诊断：支气管炎 主诉：咳嗽3天", aliases: aliases) == "支气管炎")
         #expect(RuleExtractor.split(label: "诊断", aliases: aliases) == "",
@@ -173,7 +187,8 @@ struct LabeledValueExtractionTests {
     }
 
     @Test("规格轨：非已知标签行原样返回（不误删任意冒号内容）")
-    func 未知标签原样返回() {
+    /// 原名：未知标签原样返回
+    func unknownLabelReturnedVerbatim() {
         // `温馨提示` 含子串「提示」（`提示` 确是 `impression` 的别名之一，见 ClinicalFieldLabels:44），
         // 但标签判定是**整段精确匹配**，故 `温馨提示：…` 不是字段行 → 原样返回。
         let line = "温馨提示：请于三日后复查"
@@ -185,7 +200,8 @@ struct LabeledValueExtractionTests {
     // MARK: - 叙事多行并入（2026-09-18 业主实测：主诉/现病史/既往史段落此前只取标签行）
 
     @Test("叙事多行并入：主诉吸收后续行，既往史独立成段")
-    func 叙事多行并入() {
+    /// 原名：叙事多行并入
+    func narrativeMultiLineMerge() {
         let lines = [
             "主诉：咳嗽3天",
             "伴发热1天",
@@ -206,7 +222,8 @@ struct LabeledValueExtractionTests {
     }
 
     @Test("叙事并入边界：日期开头/编号列表/下一标签行截断吸收")
-    func 叙事并入边界() {
+    /// 原名：叙事并入边界
+    func narrativeMergeBoundaries() {
         let lines = [
             "现病史：发热两天",
             "咳嗽",
@@ -221,7 +238,8 @@ struct LabeledValueExtractionTests {
     }
 
     @Test("mergeNarrativeLines 纯函数：空行跳过、边界截断、吸收计数正确")
-    func 纯函数叙事并入() {
+    /// 原名：纯函数叙事并入
+    func pureFunctionNarrativeMerge() {
         let lines = ["主诉：咳嗽3天", "伴发热1天", "", "    ", "既往史：高血压"]
         let boundary: (String) -> Bool = { $0.hasPrefix("既往史") }
         let merged = DocumentTypeClassifierFallback.mergeNarrativeLines(lines: lines, from: 1, isBoundary: boundary)

@@ -152,7 +152,8 @@ struct AILocalTests {
     /// 规格验收句参数化（评审修正：原词表不命中「帮我停掉阿司匹林」）
     @Test(arguments: ["我可以自行停药吗", "帮我停掉阿司匹林", "这个药我不想吃了",
                       "每天吃 2 片改成 3 片", "加到 10mg 可以吗", "血压好了是不是可以停用降压药"])
-    func 高风险话题变体拒识(_ phrase: String) async throws {
+    /// 原名：高风险话题变体拒识
+    func highRiskTopicVariantsRefused(_ phrase: String) async throws {
         let search = FakeSearch()
         await search.set([EntityReference(kind: "prescription", refID: UUID(), title: "处方", snippet: "阿莫西林 0.25g")])
         let provider = LocalRetrievalProvider(search: search)
@@ -289,7 +290,8 @@ struct SafeAIProviderTests {
     /// BR-006 一票否决：任何 Provider 返回的「带引用剂量结论」都必须被装饰器拦成拒识。
     /// 这是 P1 云端（D1/D3）接入后最危险的路径——引用非空会让 ③ 的兜底失效。
     @Test(arguments: ["把阿莫西林加到 500mg 每天", "我可以自行停药吗", "这个药我不想吃了"])
-    func 高风险话题即便带引用也拒识(_ phrase: String) async throws {
+    /// 原名：高风险话题即便带引用也拒识
+    func highRiskTopicRefusedEvenWithCitation(_ phrase: String) async throws {
         let ref = EntityReference(kind: "prescription", refID: UUID(), title: "处方", snippet: "阿莫西林 0.25g")
         let inner = MisbehavingProvider(stub: AIAnswer(body: .composed(.init(
             citationCount: 1, terminologyPairs: [],

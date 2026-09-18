@@ -14,7 +14,8 @@ struct ASRLanguageProtocolTests {
         ("yue-Hant-HK", "Cantonese"), ("yue-Hans-CN", "Cantonese"),
         ("en-US", "English"), ("ja-JP", "Japanese"), ("fil-PH", "Filipino")
     ])
-    func Qwen单语模式产出官方语言名称(_ locale: String, _ expected: String) throws {
+    /// 原名：Qwen单语模式产出官方语言名称
+    func qwenMonolingualModeProducesOfficialLanguageName(_ locale: String, _ expected: String) throws {
         let qwen = try #require(ASRModelCatalog.model(for: .qwen3))
         #expect(qwen.decoderLanguage(for: locale, mode: .single) == expected)
     }

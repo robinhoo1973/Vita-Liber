@@ -49,7 +49,7 @@ struct RemindersView: View {
                                     // FR9.17「全部已服用」= 逐药写 taken（底层仍按单药 dose_log）；
                                     // 防抖只判一次（批量动作单闸门——关怀模式循环逐条
                                     // confirmTaken 会被 0.3s 震颤窗拦下除第一条外的全部）
-                                    let pending = slot.records.filter { $0.action == nil }.map(\.dose)
+                                    let pending = slot.records.filter { $0.isUnresolved }.map(\.dose)
                                     Task { await reminders.confirmSlotAllTaken(patientId: currentPatientId, doses: pending, careMode: app.careMode) }
                                 },
                                 careMode: app.careMode)
@@ -380,11 +380,23 @@ struct DoseSlotCard: View {
                             Image(systemName: "checkmark.circle.fill")
                                 .foregroundStyle(Color("semantic-success", bundle: .main))
                                 .frame(width: 44, height: 44)
-                        } else if let action = record.action, action.isResolved {
-                            // 全仓审查 2026-09-18（F-A5-03）：snoozed 非终态——按钮组保留可再决议
+                        } else if let action = record.action, action == .skipped || action == .discomfort {
+                            // 跳过/不适 = 展示型决议（不动按钮）
                             Text(actionShortLabel(action))
                                 .font(.caption2).foregroundStyle(.secondary)
                                 .frame(minWidth: 44, minHeight: 44)
+                        } else if record.action == .missed {
+                            // 业主裁决 D5：missed 行只给「已服」确认（转场扣减只补确认轨）——
+                            // 稍后/跳过/忘记/不适仍是 Store 层已决议守卫的禁用转换，
+                            // 不得露按钮（否则静默 no-op + 稍后误武装提醒）。
+                            Button {
+                                onTaken(record.dose)
+                            } label: {
+                                Text(L10n.reminder_taken).frame(minWidth: 64, minHeight: 44)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .accessibilityLabel(L10n.reminder_a11yTaken(name: record.medicationName ?? L10n.reminder_medicationFallback))
+                            .accessibilityIdentifier("SP-09.dose.taken")
                         } else {
                             // ≥44pt 横排：已服用（主）+ 稍后 Menu + 更多动作 Menu（FR9.5 全动作集）
                             Button {

@@ -61,9 +61,10 @@ struct HomeView: View {
     @State private var filterKind: AggregationKind?
     /// 第四条引导（查看健康数据）完成态（第四轮全仓审查修复：原为会话级 @State——
     /// 重启即复现；改持久化，与其余三项「数据驱动完成」同为准持久事实源）。
-    /// 2026-09-15 实测修复：卡片落点随 AI 助手退役改为健康 Tab 根（`.assistantChat`
-    /// 路由现解析到健康 Tab 根），文案同步为「查看健康数据」；存储键保持不变
-    /// （改名会重置老用户的引导完成态）。
+    /// 2026-09-15 实测修复：卡片落点随 AI 助手退役改为健康 Tab 根，文案同步为
+    /// 「查看健康数据」；存储键保持不变（改名会重置老用户的引导完成态）。
+    /// 业主裁决 D2（2026-09-18）：`.assistantChat` 路由已随 F12 永久退役删除，
+    /// 落点改为 `router.select(.health)` 直切健康 Tab 根。
     @AppStorage("homeGuide4Visited") private var healthGuideVisited = false
     /// 快速拍摄以 sheet 呈现（TestFlight 实测修复：navigate 会改导航上下文）。
     /// FR5.1/FR5.5 V3.61：📷 单击直接拍摄，不前置选类型——识别后由理解层判定
@@ -147,7 +148,7 @@ struct HomeView: View {
             return true
         case .markTaken, .snoozeDose, .skipDose:
             guard let slot = reminderStore.todaySlots.first(where: { $0.id == item.id.sourceId }) else { return false }
-            let doses = slot.records.filter { $0.action == nil }.map(\.dose)
+            let doses = slot.records.filter { $0.isUnresolved }.map(\.dose)   // Domain 单一出口：nil 或 snoozed 均待处理
             guard !doses.isEmpty else { return false }
             let done: Int
             switch d {
@@ -818,7 +819,7 @@ struct HomeView: View {
             }
             GuideTaskCard(icon: "heart.text.clipboard", title: L10n.homeGuide4, done: healthGuideVisited) {
                 healthGuideVisited = true
-                router.navigate(to: .assistantChat)
+                router.select(.health)   // F12 退役：落点 = 健康 Tab 根（原 .assistantChat 弹栈语义已删除）
             }
         }
         .accessibilityIdentifier("SP-04.home.emptyGuide")

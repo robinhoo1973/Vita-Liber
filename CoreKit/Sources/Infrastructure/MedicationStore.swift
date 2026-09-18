@@ -94,11 +94,17 @@ public actor MedicationStore: DoseSource {
             // 且 snoozed 两线未扣，此处按首次决议正常扣减。
             // 业主裁决 D5：missed 也允许经普通「已服」转 taken（补记语义）——
             // 只有已为 taken 时才阻断（真终态），missed/snoozed/nil 均可达。
-            if let existing = row["user_action"] as String?,
-               existing == DoseUserAction.taken.rawValue {
-                throw StoreError.alreadyResolved(notifyId)
-            }
+            // 审查修正（D5 转场扣减）：missed 行计划轨已被 materializeMissed 扣过，
+            // discomfort 行两线均已扣过——转 taken 必须走 Domain
+            // `InventoryRules.transitionDeduction(from:to:)` 补差（missed→taken
+            // 仅补扣确认轨），否则安全线对同一剂量双扣（与 recordTakenAt 三路径同源）。
             let units = (row["dose_units"] as Double?) ?? 1
+            var transition: (plan: Double, confirmed: Double)? = nil
+            if let existing = row["user_action"] as String?,
+               let from = DoseUserAction(rawValue: existing) {
+                guard from != .taken else { throw StoreError.alreadyResolved(notifyId) }
+                transition = InventoryRules.transitionDeduction(from: from, to: .taken, units: units)
+            }
             let medicationId = UUID(uuidString: row["medication_id"] as String) ?? UUID()
             let actedAt = Date()
             try db.execute(sql: """
@@ -107,7 +113,8 @@ public actor MedicationStore: DoseSource {
                 WHERE id = ?
                 """, arguments: [actedAt.timeIntervalSince1970, notifyId])
             try applyResolutionOnLots(patientId: patientId, medicationId: medicationId,
-                                notifyId: notifyId, units: units, at: actedAt, action: .taken, db: db)
+                                notifyId: notifyId, units: units, at: actedAt, action: .taken,
+                                transitionMatrix: transition, db: db)
         }
     }
 
@@ -325,7 +332,10 @@ public actor MedicationStore: DoseSource {
                     remainingConfirmedUnits: confirmedUnits,
                     expireAt: (row["expire_at"] as Double?).map { Date(timeIntervalSince1970: $0) },
                     storageNote: row["storage_note"] as String?,
-                    approxDaysLeft: daily > 0 ? Int(ceil(planUnits / daily)) : nil,
+                    // 审查修正（ADR-009 偏早）：ceil 会把 3.0000000000000004 浮点噪声
+                    // 推成 4 天——续药通知按 `daysLeft - thresholdDays` 晚发一整天
+                    // （t0 档 0<余量≤1 天同样晚一天）；floor 保证通知偏早、显示不虚高。
+                    approxDaysLeft: daily > 0 ? Int(floor(planUnits / daily)) : nil,
                     refillTier: tier))
             }
             return items

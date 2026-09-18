@@ -65,7 +65,8 @@ final class TrendAcceptanceTests: XCTestCase {
     /// P0 回归锚点：手输指标经 addSample 落库往返——此前 INSERT 漏 created_at
     /// （NOT NULL 无 DEFAULT），每次保存必抛约束错误、用户恒见「保存失败」，
     /// 且既有测试全走直插 SQL 绕过该写门，错误只能上真机暴露
-    func test_手输指标addSample落库往返() async throws {
+    /// 原名：test_手输指标addSample落库往返
+    func test_manualMetricAddSampleRoundTrip() async throws {
         let (store, member) = try await makeStore()
         let trends = TrendQueryStore(writer: store.writer)
         let now = Date()
@@ -79,7 +80,8 @@ final class TrendAcceptanceTests: XCTestCase {
 
     /// FR7.9 设备入库键归一化：heart_rate → heartRate（与手输同键同系列）
     /// + 同窗重放幂等（UPDATE 不产重复行）
-    func test_设备入库键归一化与重放幂等() async throws {
+    /// 原名：test_设备入库键归一化与重放幂等
+    func test_deviceIngestKeyNormalizationAndReplayIdempotent() async throws {
         let (store, member) = try await makeStore()
         let trends = TrendQueryStore(writer: store.writer)
         let now = Date()
@@ -105,7 +107,8 @@ final class TrendAcceptanceTests: XCTestCase {
 
     /// FR7.11 血压双序列：舒张压无独立行、存于收缩压行 secondary_value——
     /// 此前舒张压系列恒空（双线缺失）。投影必须在 series 层成立
-    func test_舒张压系列从收缩压行投影() async throws {
+    /// 原名：test_舒张压系列从收缩压行投影
+    func test_diastolicSeriesProjectedFromSystolicRows() async throws {
         let (store, member) = try await makeStore()
         let trends = TrendQueryStore(writer: store.writer)
         let now = Date()
@@ -146,7 +149,8 @@ final class TrendAcceptanceTests: XCTestCase {
         XCTAssertEqual(series.points.first { $0.id == manual }?.value, 60)
     }
 
-    func test_三家医院血糖同图且参考范围各自成带() async throws {
+    /// 原名：test_三家医院血糖同图且参考范围各自成带
+    func test_threeHospitalGlucoseSameChartReferenceBandsPerSource() async throws {
         let (store, member) = try await makeStore()
         _ = try await insertMetric(store, member: member, value: 6.1, origin: "hospital",
                                    dayOffset: 0, refLow: 3.9, refHigh: 6.1,
@@ -177,7 +181,8 @@ final class TrendAcceptanceTests: XCTestCase {
     }
 
     /// FR7.4 排除点软删 → 对照集可见 → 恢复往返
-    func test_排除点软删与恢复往返() async throws {
+    /// 原名：test_排除点软删与恢复往返
+    func test_excludedPointSoftDeleteAndRestoreRoundTrip() async throws {
         let (store, member) = try await makeStore()
         let keep = try await insertMetric(store, member: member, value: 6.0,
                                           origin: "manual", dayOffset: 0)
@@ -199,7 +204,8 @@ final class TrendAcceptanceTests: XCTestCase {
     }
 
     /// BR-001 成员隔离：排除操作不得跨成员生效
-    func test_排除操作成员隔离() async throws {
+    /// 原名：test_排除操作成员隔离
+    func test_exclusionOperationMemberIsolation() async throws {
         let (store, member) = try await makeStore()
         let id = try await insertMetric(store, member: member, value: 6.0,
                                         origin: "manual", dayOffset: 0)
@@ -212,7 +218,8 @@ final class TrendAcceptanceTests: XCTestCase {
     // MARK: - 迁移版本序列（滞留 #7）
 
     /// 全新库直接落到最新版本，且参考范围三列可写
-    func test_全新库落最新版本且含参考范围列() async throws {
+    /// 原名：test_全新库落最新版本且含参考范围列
+    func test_freshDatabaseLatestVersionWithReferenceRangeColumn() async throws {
         let store = try GRDBStore.inMemory()
         let version = try await store.writer.read { db in
             try Int.fetchOne(db, sql: "PRAGMA user_version") ?? 0
@@ -228,7 +235,8 @@ final class TrendAcceptanceTests: XCTestCase {
 
     /// **旧库升级路径**：停留在 v1 且缺列的库，必须被迁移补齐——
     /// 旧实现 `version > 0` 是空分支，新列永远到不了已装机的库。
-    func test_旧版本库升级补齐新列() async throws {
+    /// 原名：test_旧版本库升级补齐新列
+    func test_oldVersionDatabaseUpgradeBackfillsNewColumns() async throws {
         let queue = try DatabaseQueue(configuration: GRDBStore.configuration())
         // 手工造一个「v1 但缺列」的库：建表后去掉三列的等价形态
         try await queue.write { db in
@@ -277,7 +285,8 @@ final class TrendAcceptanceTests: XCTestCase {
     }
 
     /// 幂等：同一 writer 二次装配不得因「表已存在 / 列重复」崩溃
-    func test_二次装配幂等() async throws {
+    /// 原名：test_二次装配幂等
+    func test_secondAssemblyIdempotent() async throws {
         let queue = try DatabaseQueue(configuration: GRDBStore.configuration())
         _ = try GRDBStore(writer: queue)
         XCTAssertNoThrow(try GRDBStore(writer: queue), "持久库二次启动必须不崩（滞留 #7）")
@@ -285,7 +294,8 @@ final class TrendAcceptanceTests: XCTestCase {
 
     /// v13：legacy 无 FK 的 medication_dose_log 表重建补 REFERENCES——
     /// 数据保留 + 外键清单含 plan_id → medication_plan（§11 清偿项）
-    func test_v13_doseLog_重建补FK() async throws {
+    /// 原名：test_v13_doseLog_重建补FK
+    func test_v13_doseLog_rebuildBackfillsFK() async throws {
         let queue = try DatabaseQueue(configuration: GRDBStore.configuration())
         // 合成 v12 老库必须覆盖 pending 链（v13→latest）会触碰的全部表：
         // v13 代码迁移重建 dose_log、v14 需 metric_sample 增列、v15 代码迁移
@@ -418,7 +428,8 @@ final class TrendAcceptanceTests: XCTestCase {
     /// 必须跟随父行改写（第六轮修复、第七轮重排顺序后的回归锚点）。
     /// 覆盖两条路径：① 目标未占用 → 引用行整体迁移；② 历史重复行（同一
     /// 逻辑身份已被占用）→ 未决议行连同证据清除、已决议行事实保留。
-    func test_v15_剂量ID补偿引用行跟随() async throws {
+    /// 原名：test_v15_剂量ID补偿引用行跟随
+    func test_v15_doseIDBackfillReferenceRowsFollow() async throws {
         let queue = try DatabaseQueue(configuration: GRDBStore.configuration())
         let planId = UUID()
         let schedule = MedicationSchedule.fixed(times: ["08:00"])
@@ -597,7 +608,8 @@ final class TrendAcceptanceTests: XCTestCase {
 
     // MARK: - FR13.11 备份往返与校验（一票否决：损坏包不得部分导入）
 
-    func test_备份往返一致() async throws {
+    /// 原名：test_备份往返一致
+    func test_backupRoundTripConsistent() async throws {
         let (store, _) = try await makeStore()
         let pkg = try await BackupService(writer: store.writer).createBackup()
         XCTAssertFalse(pkg.data.isEmpty)
@@ -612,7 +624,8 @@ final class TrendAcceptanceTests: XCTestCase {
     }
 
     /// 篡改一个字节 → 校验必须拒绝，且**不得发生任何部分导入**
-    func test_损坏备份被校验拒绝且零部分导入() async throws {
+    /// 原名：test_损坏备份被校验拒绝且零部分导入
+    func test_corruptBackupRejectedWithZeroPartialImport() async throws {
         let (store, _) = try await makeStore()
         let pkg = try await BackupService(writer: store.writer).createBackup()
 
@@ -651,7 +664,8 @@ final class TrendAcceptanceTests: XCTestCase {
 final class M15LocalizationTests: XCTestCase {
 
     /// 每个已登记 key 在三个本地化里都必须有真实译文（不等于 key 本身、非空）
-    func test_SU_M15_L10N_三文件键集一致且无缺译() throws {
+    /// 原名：test_SU_M15_L10N_三文件键集一致且无缺译
+    func test_SU_M15_L10N_threeFilesKeySetsMatchNoMissingTranslations() throws {
         var missing: [String] = []
         for localization in L10n.supportedLocalizations {
             guard let path = Bundle.main.path(forResource: localization, ofType: "lproj"),
@@ -670,7 +684,8 @@ final class M15LocalizationTests: XCTestCase {
     }
 
     /// 登记表不得为空——空集判过正是 ERR#27 的原始形态
-    func test_键登记表非空() {
+    /// 原名：test_键登记表非空
+    func test_keyRegistryNotEmpty() {
         XCTAssertFalse(L10n.registeredKeys.isEmpty, "空集不得判过（ERR#27）")
         XCTAssertEqual(Set(L10n.registeredKeys).count, L10n.registeredKeys.count,
                        "登记表存在重复 key")
@@ -678,7 +693,8 @@ final class M15LocalizationTests: XCTestCase {
     }
 
     /// 简繁必须真的不同——zh-Hant 直接复制 zh-Hans 是「假装支持繁体」
-    func test_简繁译文并非整体复制() throws {
+    /// 原名：test_简繁译文并非整体复制
+    func test_simplifiedTraditionalTranslationsNotWholeCopies() throws {
         guard let hansPath = Bundle.main.path(forResource: "zh-Hans", ofType: "lproj"),
               let hans = Bundle(path: hansPath),
               let hantPath = Bundle.main.path(forResource: "zh-Hant", ofType: "lproj"),
@@ -698,7 +714,8 @@ final class M15LocalizationTests: XCTestCase {
     /// BR-012/V3.25 急救号码按语言区域（120/119/911）——值必须真实，
     /// 且语音引擎注入的号码必须生效（审查修复：此前该契约零测试覆盖，
     /// 键缺失或调用方漏传 emergencyNumber 均不会变红）
-    func test_急救号码按语言区域() {
+    /// 原名：test_急救号码按语言区域
+    func test_emergencyNumbersByLanguageRegion() {
         L10n.setLanguage("zh-Hans")
         XCTAssertEqual(L10n.emergencyNumber, "120", "zh-Hans 急救号码")
         L10n.setLanguage("zh-Hant")
@@ -717,7 +734,8 @@ final class M15LocalizationTests: XCTestCase {
     /// AI 七段固定句/语音提示语/证据卡句式移出 Domain 后不再被运行时负清单
     /// 覆盖——此测试把「渲染后的 zh-Hans 模板句」全部过一遍负清单，
     /// 负清单词（确诊/建议服用/因为…所以/可能…病 等）进入任一模板即变红。
-    func test_模板句过BR006措辞负清单() {
+    /// 原名：test_模板句过BR006措辞负清单
+    func test_templateSentencesPassBR006WordingNegativeList() {
         L10n.setLanguage("zh-Hans")
         var violations: [String] = []
         func check(_ text: String, _ label: String) {

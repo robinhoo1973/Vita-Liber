@@ -157,8 +157,12 @@ public actor SensitiveAssetStore: SensitiveAssetStoring {
                     (row["id"] as String, row["relative_path"] as String)
                 }
             }
+            // 审查修正（效率）：孤儿逐条各开一个 writer.write 事务（WAL 提交
+            // 逐条落盘）；批量合并为单事务 IN 列表删除——孤儿多时启动对账从
+            // O(N) 事务降为 O(1)（UnitOfWork 同款纪律）。
+            let orphanIDs = orphans.filter { !validAssetIds.contains($0.id) }.flatMap { [$0.id, $0.id + ".blur"] }
             for orphan in orphans where !validAssetIds.contains(orphan.id) {
-                // 按 relative_path 删文件（原图 + 派生 blur），再删两行资产。
+                // 按 relative_path 删文件（原图 + 派生 blur）。
                 // 第四轮全仓审查修复（5WHY）：此前用 documentDirectory 硬拼路径，
                 // 绕过注入的 baseDir——预览/测试注入临时目录时删除动作落到生产
                 // 目录（temp 孤儿永不清理；真机同路径同名文件有误删风险）。
@@ -168,13 +172,16 @@ public actor SensitiveAssetStore: SensitiveAssetStoring {
                 do { try FileManager.default.removeItem(at: url) } catch { /* 不存在即无事 */ }
                 let blurURL = url.deletingPathExtension().appendingPathExtension("blur.jpg")
                 do { try FileManager.default.removeItem(at: blurURL) } catch { /* 同上 */ }
+                blurCache.cache.removeObject(forKey: orphan.id as NSString)
+            }
+            if !orphanIDs.isEmpty {
                 do {
                     try await writer.write { db in
-                        try db.execute(sql: "DELETE FROM asset WHERE id IN (?, ?)",
-                                       arguments: [orphan.id, orphan.id + ".blur"])
+                        let placeholders = Array(repeating: "?", count: orphanIDs.count).joined(separator: ",")
+                        try db.execute(sql: "DELETE FROM asset WHERE id IN (\(placeholders))",
+                                       arguments: StatementArguments(orphanIDs))
                     }
                 } catch { /* 对账路径：DB 清理失败不阻断启动 */ }
-                blurCache.cache.removeObject(forKey: orphan.id as NSString)
             }
         } catch {
             // 对账失败不阻断启动：本轮留残，下轮再扫（§7 显式降级）
@@ -191,6 +198,10 @@ public actor SensitiveAssetStore: SensitiveAssetStoring {
             do { try fm.removeItem(at: url) }
             catch { logger?("清空媒体文件失败: \(url.lastPathComponent) \(error)") }
         }
+        // 审查修正（BR-007）：文件清空必须同步清内存模糊缓存——removePhoto/
+        // reconcileUnreferenced 均按条清除，此前 wipeAllFiles 漏清，已删除的
+        // 敏感照片经 blurData 缓存路径仍可读（删除≠真删，红线违例）。
+        blurCache.cache.removeAllObjects()
     }
 
     private func memberDir(_ memberId: UUID) -> URL {

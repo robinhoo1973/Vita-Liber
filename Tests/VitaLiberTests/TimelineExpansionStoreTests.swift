@@ -17,7 +17,8 @@ final class TimelineExpansionStoreTests: XCTestCase {
         return d
     }
 
-    func test_记忆_默认nil_写后可读_forget回默认() {
+    /// 原名：test_记忆_默认nil_写后可读_forget回默认
+    func test_memory_defaultNil_writableThenReadable_forgetResets() {
         let store = TimelineExpansionStore(defaults: defaults())
         XCTAssertNil(store.remembered("encounter-a"), "从未记过 → nil（交给 Domain 默认）")
         store.set("encounter-a", expanded: false)
@@ -30,7 +31,8 @@ final class TimelineExpansionStoreTests: XCTestCase {
         XCTAssertEqual(store.rememberedCount, 0)
     }
 
-    func test_LRU容量_淘汰最久未触碰的键() {
+    /// 原名：test_LRU容量_淘汰最久未触碰的键
+    func test_LRU_capacity_evictsLeastRecentlyTouchedKey() {
         let store = TimelineExpansionStore(defaults: defaults(), capacity: 2)
         store.set("a", expanded: true)
         store.set("b", expanded: false)
@@ -69,7 +71,8 @@ final class TimelineExpansionStoreTests: XCTestCase {
                           expansion: TimelineExpansionStore(defaults: defaults))
     }
 
-    func test_视图模型_默认全折叠_记忆优先_筛选瞬态不写记忆() async throws {
+    /// 原名：test_视图模型_默认全折叠_记忆优先_筛选瞬态不写记忆
+    func test_viewModel_defaultAllCollapsed_memoryFirst_filterTransientNotMemorized() async throws {
         let (db, patient) = try await makeStore()
         let newest = try await seedEncounter(db, patient: patient, at: 1_700_100_000, withPrescription: true)
         let older = try await seedEncounter(db, patient: patient, at: 1_700_000_000, withPrescription: true)
@@ -109,7 +112,8 @@ final class TimelineExpansionStoreTests: XCTestCase {
         XCTAssertEqual(state.expandedIds, [newestId, olderId])
     }
 
-    func test_视图模型_游标翻页追加去重_跨成员为空() async throws {
+    /// 原名：test_视图模型_游标翻页追加去重_跨成员为空
+    func test_viewModel_cursorPagingAppendsDedupes_crossMemberEmpty() async throws {
         let (db, patient) = try await makeStore()
         for i in 0..<(TimelineViewState.pageSize + 5) {
             _ = try await seedEncounter(db, patient: patient, at: 1_600_000_000 + Double(i) * 86_400, withPrescription: false)

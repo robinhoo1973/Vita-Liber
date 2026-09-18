@@ -62,7 +62,7 @@ public enum MedicationHelpCardRules {
         lines.append("")
         for item in items {
             lines.append("· \(item.medicationName)\(item.spec.map { "（\($0)）" } ?? "")")
-            lines.append("  \(labels.remainingPrefix) \(String(format: "%g", item.remainingUnits)) \(item.unitKind)")
+            lines.append("  \(labels.remainingPrefix) \(MedicalNumberFormat.quantity(item.remainingUnits)) \(item.unitKind)")
             if let note = item.storageNote, !note.isEmpty {
                 lines.append("  \(labels.storagePrefix)\(note)")
             }

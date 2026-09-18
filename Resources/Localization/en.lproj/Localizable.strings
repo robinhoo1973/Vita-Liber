@@ -368,6 +368,7 @@
 "member.save" = "Save";
 "member.quotaHint" = "The free tier supports up to 4 members; Pro unlocks more.";
 "member.addedHint" = "Added — you can complete their health history later.";
+"member.addFailed" = "Member could not be added. Please try again.";
 "dose.number" = "Dose %1$d";
 "onboard.sourceConfirmed" = "Source confirmed";
 "onboard.unconfirmed2" = "Unconfirmed";
@@ -527,9 +528,6 @@
 "ai.refusedNoEvidence" = "No citable sources, so no definitive conclusion can be given. Add records or consult a doctor or pharmacist.";
 "ai.refusedHighRisk" = "Changing or stopping a medication must be decided by a doctor. Please consult a doctor or pharmacist with your prescription.";
 "ai.failedRetry" = "Failed to answer, please try again later.";
-"ai.history.loadFailed" = "Failed to load history";
-"ai.history.deleteFailed" = "Failed to delete. Please try again.";
-"ai.history.loadFailedHint" = "Please try again later";
 "ai.emergencyCall" = "Call emergency services";
 "timeline.empty.title" = "No records yet";
 "paywall.previewTitle" = "Pro benefits · Preview";
@@ -1282,12 +1280,6 @@
 "allergy.emergency.title" = "Severe Reaction Guidance";
 "allergy.emergency.body" = "You recorded a severe allergic reaction. If symptoms are still ongoing, call 120 immediately or go to the nearest emergency room.";
 "allergy.emergency.goHospital" = "Go to hospital";
-"aiHistory.title" = "AI Session History";
-"aiHistory.empty" = "No sessions yet";
-"aiHistory.countFmt" = "%d messages";
-"aiHistory.delete" = "Delete";
-"aiHistory.clearAll" = "Clear All";
-"aiHistory.clearNote" = "Deletes local session records only; original data is untouched";
 "aiFeedback.useful" = "Useful";
 "aiFeedback.useless" = "Not useful";
 "aiFeedback.citationError" = "Wrong citation";
@@ -1596,8 +1588,6 @@
 "emergency.number" = "911";
 "search.sensitiveBadge" = "Sensitive";
 "doc.detailNotFound" = "This document was deleted or is not on the timeline yet";
-"assistant.addRecords" = "Add Records";
-"assistant.consultDoctor" = "Consult a Doctor or Pharmacist";
 "f19.markTakenMultipleFmt" = "Multiple matches found: %@. Please say the exact name to mark";
 "emergency.sosHoldA11yFmt" = "Emergency SOS: press and hold for %1$.1f seconds";
 "helpcard.photoPending" = "Photo attachments coming soon";
@@ -1651,18 +1641,9 @@
 "reminder.apptHospital" = "Hospital";
 "reminder.apptDepartment" = "Department";
 "reminder.apptTime" = "Time";
-"assistant.searching" = "Searching your records…";
-"assistant.questionPlaceholder" = "Ask a question about your records";
-"assistant.imageReadError" = "Unable to read this image";
-"assistant.imageConfirmNotice" = "Image recognition results won't be submitted as fact until confirmed";
-"assistant.confirmFillIn" = "Confirm and fill in question";
-"assistant.cannotAnswer" = "Unable to answer this question";
-"assistant.insufficient" = "Insufficient records";
-"assistant.addImageLabel" = "Add image or report photo";
 "onboard.boundaryTitle" = "This is not a medical device";
 "onboard.storageTitle" = "Data stays on this device";
 "onboard.skipInfoTitle" = "These can be done later";
-"assistant.sendLabel" = "Send question";
 "voice.readAloudA11y" = "Read current draft aloud";
 "observation.listEmpty" = "No observations yet";
 "observation.listEmptyHint" = "Record self-measured readings like blood pressure and glucose to see long-term trends";
@@ -1709,7 +1690,6 @@
 "voiceIntent.appendProfile" = "Update Profile";
 "voiceIntent.appendMedDraft" = "Medication Draft";
 "voiceIntent.appendNote" = "Voice Note";
-"voiceIntent.askAssistant" = "Ask Assistant";
 "voiceIntent.createQuestion" = "Doctor Question";
 "voiceIntent.unknown" = "Free Text";
 "voicePanel.autoHint" = "Say what you want to record — the destination will be decided automatically.";

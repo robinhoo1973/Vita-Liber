@@ -12,7 +12,8 @@ final class NotificationCenterStateTests: XCTestCase {
         return (NotificationCenterState(store: NotificationStateStore(writer: db.writer)), db)
     }
 
-    func test_load只合并请求键_空键集不清空() async throws {
+    /// 原名：test_load只合并请求键_空键集不清空
+    func test_loadMergesOnlyRequestedKeys_emptyKeySetDoesNotClear() async throws {
         let (state, _) = try make()
         try await state.archive("apt-A")
         await state.load(keys: ["lot-L"])
@@ -22,7 +23,8 @@ final class NotificationCenterStateTests: XCTestCase {
         XCTAssertEqual(state.itemStates["apt-A"], .archived)
     }
 
-    func test_陈旧加载不覆盖更新的本地写() async throws {
+    /// 原名：test_陈旧加载不覆盖更新的本地写
+    func test_staleLoadDoesNotOverwriteNewerLocalWrites() async throws {
         let (state, _) = try make()
         let snapshot = state.beginLoad()                 // 加载开始（读到的是归档前的旧值）
         try await state.archive("apt-A")                 // 加载途中用户归档
@@ -31,14 +33,16 @@ final class NotificationCenterStateTests: XCTestCase {
         XCTAssertEqual(state.itemStates["lot-L"], .read)
     }
 
-    func test_归档落库失败不改可观察态() async throws {
+    /// 原名：test_归档落库失败不改可观察态
+    func test_archivePersistenceFailureKeepsObservableState() async throws {
         let (state, db) = try make()
         try db.writer.close()                            // GRDB：关闭后一切访问抛 SQLITE_MISUSE
         do { try await state.archive("apt-A"); XCTFail("关闭的库必须抛错") } catch {}
         XCTAssertNil(state.itemStates["apt-A"], "失败不得假归档（条目继续可见）")
     }
 
-    func test_撤销后为已读且持久层archived_at为空() async throws {
+    /// 原名：test_撤销后为已读且持久层archived_at为空
+    func test_undoMarksReadAndClearsArchivedAt() async throws {
         let (state, db) = try make()
         try await state.archive("apt-A"); try await state.unarchive("apt-A")
         XCTAssertEqual(state.itemStates["apt-A"], .read)

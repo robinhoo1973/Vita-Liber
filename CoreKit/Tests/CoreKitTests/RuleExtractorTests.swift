@@ -67,7 +67,8 @@ struct RuleExtractorTests {
         "阿莫西林胶囊 0.25g 一次1粒 bid 口服 7天",
         "阿莫西林胶囊 0.25g 每次1粒 每日两次 口服 7天"
     ])
-    func 合体行频次写法三变体均成行(_ line: String) {
+    /// 原名：合体行频次写法三变体均成行
+    func combinedLineFrequencyThreeVariantsAllExtract(_ line: String) {
         let card = run(rx, ["处方日期：2026-09-01", line])
         #expect(card.rows.count == 1)
         #expect(card.rows[0]["drug_name"]?.value == "阿莫西林胶囊")

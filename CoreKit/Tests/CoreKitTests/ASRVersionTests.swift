@@ -18,7 +18,8 @@ struct ASRVersionTests {
         ("0.6b-int8-v10.03.25", "0.6b-int8-v9.03.25"),
         ("v10.1", "v9.10")
     ])
-    func 字母后的数字比较适用于完整模型版本(_ newer: String, _ older: String) {
+    /// 原名：字母后的数字比较适用于完整模型版本
+    func numericSegmentAfterLettersComparesFullModelVersions(_ newer: String, _ older: String) {
         #expect(ASRVersion.isNewer(newer, than: older))
         #expect(!ASRVersion.isNewer(older, than: newer))
     }

@@ -15,7 +15,8 @@ struct TrendVisualizationDomainTests {
     }
 
     @Test("时间窗为日历日区间：DST 切换日时长 ≠ rawValue×86400（可见域与查询范围同源）")
-    func 时间窗DST() {
+    /// 原名：时间窗DST
+    func timeWindowDST() {
         var ny = Calendar(identifier: .gregorian)
         ny.timeZone = TimeZone(identifier: "America/New_York")!
         // 2026-03-08 美东进入夏令时：窗口 03-05→03-12 跨春令时切换，时长 = 7×86400 − 3600
@@ -26,7 +27,8 @@ struct TrendVisualizationDomainTests {
     }
 
     @Test("H4 降采样保极值：每桶保留 min/max，点数 ≤ 2×buckets+2，极值不丢，输出按时间有序")
-    func 降采样() {
+    /// 原名：降采样
+    func downsampling() {
         let start = Date(timeIntervalSince1970: 0)
         let range = DateInterval(start: start, duration: 3600 * 1000)
         func value(_ i: Int) -> Double {
@@ -50,7 +52,8 @@ struct TrendVisualizationDomainTests {
     }
 
     @Test("H4 降采样：点数不超上限原样返回；无效参数原样返回")
-    func 降采样不越界() {
+    /// 原名：降采样不越界
+    func downsamplingWithinBounds() {
         let start = Date(timeIntervalSince1970: 0)
         let range = DateInterval(start: start, duration: 3600 * 1000)
         let points = (0..<50).map { i in
@@ -66,7 +69,8 @@ struct TrendVisualizationDomainTests {
     }
 
     @Test("H4 图型族按指标：步数日柱 / 心率小时区间 / 睡眠时长柱 / 血压成对 / 其余点")
-    func 图型族() {
+    /// 原名：图型族
+    func chartKindFamilies() {
         #expect(TrendMarkFamily.family(for: .steps) == .dailyBars)
         #expect(TrendMarkFamily.family(for: .heartRate) == .hourlyRange)
         for sleep in [MetricType.sleepTotal, .sleepDeep, .sleepREM, .sleepAwake, .sleepCore, .sleepUnspecified] {
@@ -80,7 +84,8 @@ struct TrendVisualizationDomainTests {
     }
 
     @Test("时间窗为日历日窗；四档 rawValue 即天数")
-    func 时间窗() {
+    /// 原名：时间窗
+    func timeWindow() {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         #expect(TrendTimeWindow.allCases.map(\.rawValue) == [7, 30, 90, 365])
         for window in TrendTimeWindow.allCases {
@@ -92,7 +97,8 @@ struct TrendVisualizationDomainTests {
     }
 
     @Test("周期翻页：长度不变、相邻不重叠、锚点日可回溯（业主第 4 项）")
-    func 周期翻页() {
+    /// 原名：周期翻页
+    func periodPaging() {
         let anchor = Date(timeIntervalSince1970: 1_800_000_000)
         for window in TrendTimeWindow.allCases {
             // offset 0 = 锚点所在周期（不含未来）：0 档与历史 interval 逐字同构
@@ -118,7 +124,8 @@ struct TrendVisualizationDomainTests {
     }
 
     @Test("折线断段阈值：降采样后才随桶宽放大，未降采样恒按采样步长（缺测不插值）")
-    func 断段阈值() {
+    /// 原名：断段阈值
+    func segmentGapThreshold() {
         let start = Date(timeIntervalSince1970: 0)
         let week = TrendTimeWindow.week.interval(endingAt: start.addingTimeInterval(7 * 86400), calendar: utc)
         let year = TrendTimeWindow.year.interval(endingAt: start.addingTimeInterval(365 * 86400), calendar: utc)
@@ -142,7 +149,8 @@ struct TrendVisualizationDomainTests {
     }
 
     @Test("身份四元任一不同即不等；TrendSeries 携身份默认 nil")
-    func 查询身份() {
+    /// 原名：查询身份
+    func queryIdentity() {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let w = TrendTimeWindow.month.interval(endingAt: now, calendar: utc)
         let a = TrendQueryIdentity(patientId: UUID(), metric: .heartRate, origin: .device, range: w)

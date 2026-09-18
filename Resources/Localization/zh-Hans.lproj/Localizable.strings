@@ -368,6 +368,7 @@
 "member.save" = "保存";
 "member.quotaHint" = "免费档最多 4 位成员；超过后可随 Pro 解锁。";
 "member.addedHint" = "已添加，可在完善档案中补充健康史。";
+"member.addFailed" = "成员未能添加，请重试。";
 "dose.number" = "第 %1$d 剂";
 "onboard.sourceConfirmed" = "来源已确认";
 "onboard.unconfirmed2" = "识别未确认";
@@ -527,9 +528,6 @@
 "ai.refusedNoEvidence" = "缺少可引用的资料，无法给出确定性结论。请补充记录或咨询医生/药师。";
 "ai.refusedHighRisk" = "调整或停用药物必须由医生决定；请带着处方咨询医生或药师。";
 "ai.failedRetry" = "回答失败，请稍后重试。";
-"ai.history.loadFailed" = "历史记录加载失败";
-"ai.history.deleteFailed" = "删除失败，请重试";
-"ai.history.loadFailedHint" = "请稍后重试";
 "ai.emergencyCall" = "拨打 120";
 "timeline.empty.title" = "还没有资料";
 "paywall.previewTitle" = "Pro 权益 · 预览";
@@ -1282,12 +1280,6 @@
 "allergy.emergency.title" = "严重反应急救引导";
 "allergy.emergency.body" = "你记录了严重过敏反应。如现在症状仍在持续，请立即拨打 120 或前往最近的医院急诊。";
 "allergy.emergency.goHospital" = "就近就医";
-"aiHistory.title" = "AI 会话历史";
-"aiHistory.empty" = "还没有会话记录";
-"aiHistory.countFmt" = "%d 条消息";
-"aiHistory.delete" = "删除";
-"aiHistory.clearAll" = "清空全部";
-"aiHistory.clearNote" = "仅删除本机会话记录，不影响原始资料";
 "aiFeedback.useful" = "有用";
 "aiFeedback.useless" = "无用";
 "aiFeedback.citationError" = "引用错误";
@@ -1596,8 +1588,6 @@
 "emergency.number" = "120";
 "search.sensitiveBadge" = "敏感";
 "doc.detailNotFound" = "该文档已删除或尚未进入时间轴";
-"assistant.addRecords" = "去补充资料";
-"assistant.consultDoctor" = "咨询医生或药师";
 "f19.markTakenMultipleFmt" = "找到多条匹配：%@。请说出要标记的具体名称";
 "emergency.sosHoldA11yFmt" = "紧急求助：长按 %1$.1f 秒激活";
 "helpcard.photoPending" = "照片附件即将支持，敬请期待";
@@ -1651,18 +1641,9 @@
 "reminder.apptHospital" = "医院";
 "reminder.apptDepartment" = "科室";
 "reminder.apptTime" = "时间";
-"assistant.searching" = "正在检索你的资料…";
-"assistant.questionPlaceholder" = "问一个与你资料相关的问题";
-"assistant.imageReadError" = "无法读取这张图片";
-"assistant.imageConfirmNotice" = "图片识别结果未经你确认，不会作为事实提交";
-"assistant.confirmFillIn" = "确认并填入问题";
-"assistant.cannotAnswer" = "无法回答这个问题";
-"assistant.insufficient" = "资料不足";
-"assistant.addImageLabel" = "添加图片或报告照片";
 "onboard.boundaryTitle" = "这不是医疗设备";
 "onboard.storageTitle" = "数据只在本机";
 "onboard.skipInfoTitle" = "这些可以稍后再做";
-"assistant.sendLabel" = "发送问题";
 "voice.readAloudA11y" = "朗读当前草稿";
 "observation.listEmpty" = "还没有观察记录";
 "observation.listEmptyHint" = "记录血压、血糖等自测读数，长期趋势一目了然";
@@ -1709,7 +1690,6 @@
 "voiceIntent.appendProfile" = "档案完善";
 "voiceIntent.appendMedDraft" = "用药草稿";
 "voiceIntent.appendNote" = "语音速记";
-"voiceIntent.askAssistant" = "AI 提问";
 "voiceIntent.createQuestion" = "问诊问题";
 "voiceIntent.unknown" = "任意文本";
 "voicePanel.autoHint" = "说出要记录的内容，将自动判断去向并生成草稿";

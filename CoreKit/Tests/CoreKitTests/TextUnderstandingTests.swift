@@ -15,7 +15,8 @@ struct M2UnderstandingTests {
     // MARK: - 文档类型兜底分类（FR5.5/FR6.2 后置判定）
 
     @Test("处方单命中主类")
-    func 处方单分类() {
+    /// 原名：处方单分类
+    func prescriptionClassification() {
         let lines = ["阿莫西林胶囊 0.25g", "每日三次 每次两粒", "××市第一医院"]
         let (target, confidence, secondary) = DocumentTypeClassifierFallback.classify(lines: lines)
         #expect(target == "prescription")
@@ -24,7 +25,8 @@ struct M2UnderstandingTests {
     }
 
     @Test("检验单命中主类并产生次级候选")
-    func 检验单分类与次级候选() {
+    /// 原名：检验单分类与次级候选
+    func labReportClassificationAndSecondaryCandidates() {
         // 检验证据 3 行（主类）+ 病历证据 1 行（次级候选，不夺主类）
         let lines = ["血常规检验报告", "血红蛋白 150 g/L", "参考范围 130-175",
                      "标本：静脉血", "诊断：缺铁性贫血"]
@@ -35,20 +37,23 @@ struct M2UnderstandingTests {
     }
 
     @Test("零命中返回 nil 引导选择（§8.6 断言④低置信不落 doc_type）")
-    func 零命中引导选择() {
+    /// 原名：零命中引导选择
+    func zeroHitGuidesSelection() {
         let (target, confidence, _) = DocumentTypeClassifierFallback.classify(lines: ["您好", "谢谢"])
         #expect(target == nil)
         #expect(confidence == 0)
     }
 
     @Test("单行命中置信度 0.6 中档需复核")
-    func 单行命中低置信() {
+    /// 原名：单行命中低置信
+    func singleLineHitLowConfidence() {
         let (_, confidence, _) = DocumentTypeClassifierFallback.classify(lines: ["处方笺"])
         #expect(confidence == 0.6)
     }
 
     @Test("检验字段启发式：科室/日期/项目行")
-    func 检验字段启发式() {
+    /// 原名：检验字段启发式
+    func labFieldHeuristics() {
         let dept = DocumentTypeClassifierFallback.guessFields(line: "科室：消化内科")
         #expect(dept.first?.key == "dept")
         #expect(dept.first?.value == "消化内科")
@@ -66,13 +71,15 @@ struct M2UnderstandingTests {
     }
 
     @Test("无角色命中行返回空（调用方 line_N 兜底）")
-    func 无角色行() {
+    /// 原名：无角色行
+    func rolelessRows() {
         #expect(DocumentTypeClassifierFallback.guessFields(line: "备注：请于明日复诊前空腹").isEmpty)
         // 「备注」非角色词；但「复诊」不属任何 role——确认启发式不越权
     }
 
     @Test("病历类判定（FR11.4 懒创建触发）")
-    func 病历类判定() {
+    /// 原名：病历类判定
+    func medicalRecordKindDecision() {
         #expect(DocumentTypeClassifierFallback.isClinicalType("outpatient_record"))
         #expect(DocumentTypeClassifierFallback.isClinicalType("diagnosis_certificate"))
         #expect(!DocumentTypeClassifierFallback.isClinicalType("prescription"))
@@ -81,7 +88,8 @@ struct M2UnderstandingTests {
     // MARK: - 语音意图目录（FR17.19 兜底轨）
 
     @Test("指标意图自动分类（文法首命中）")
-    func 指标意图分类() {
+    /// 原名：指标意图分类
+    func metricIntentClassification() {
         let result = VoiceIntentCatalog.classify("血压 120 80", confidence: 0.92)
         #expect(result.suggestedTarget == VoiceIntentKey.recordMetric.rawValue)
         #expect(!result.fields.isEmpty)
@@ -89,14 +97,16 @@ struct M2UnderstandingTests {
     }
 
     @Test("提醒意图自动分类")
-    func 提醒意图分类() {
+    /// 原名：提醒意图分类
+    func reminderIntentClassification() {
         let result = VoiceIntentCatalog.classify("明天下午3点提醒我复查", confidence: 0.9)
         #expect(result.suggestedTarget == VoiceIntentKey.createReminder.rawValue)
         #expect(result.fields.contains { $0.key == "hour" })
     }
 
     @Test("unknown 兜底：整句原文进速记（FR17.19 绝不静默丢弃）")
-    func unknown兜底() {
+    /// 原名：unknown兜底
+    func unknownFallback() {
         let result = VoiceIntentCatalog.classify("今天天气不错", confidence: 0.95)
         #expect(result.suggestedTarget == VoiceIntentKey.unknown.rawValue)
         #expect(result.fields.first?.value == "今天天气不错")
@@ -104,7 +114,8 @@ struct M2UnderstandingTests {
     }
 
     @Test("显式改类抽取：期一无文法意图回落原文草稿")
-    func 显式改类抽取() {
+    /// 原名：显式改类抽取
+    func explicitReclassificationExtraction() {
         let drafts = VoiceIntentCatalog.extract(for: .recordObservation, text: "记录一下今天头疼",
                                                 confidence: 0.9)
         #expect(drafts.first?.key == "note")
@@ -115,7 +126,8 @@ struct M2UnderstandingTests {
     }
 
     @Test("目录单一事实源：十意图全覆盖、未知居末")
-    func 目录完整() {
+    /// 原名：目录完整
+    func catalogComplete() {
         #expect(VoiceIntentCatalog.entries.count == 10)
         #expect(VoiceIntentCatalog.entries.map(\.key) == VoiceIntentKey.allCases)
         #expect(VoiceIntentCatalog.entries.last?.key == .unknown)
@@ -124,7 +136,8 @@ struct M2UnderstandingTests {
     // MARK: - 映射保真（coreml §8.6.2 唯一映射点）
 
     @Test("确认集映射保真 rawText/suggestedLabel/codeResolution（断言②）")
-    func 确认集映射保真() {
+    /// 原名：确认集映射保真
+    func confirmationSetMappingFidelity() {
         var draft = FieldDraft(key: "lab_item", value: "血红蛋白 150", unit: "g/L",
                                confidence: 0.6, rawText: "血红蛋白 150 g/L",
                                suggestedLabel: "oc.confirm.label.labItem",
@@ -143,7 +156,8 @@ struct M2UnderstandingTests {
     }
 
     @Test("旧字段兼容：扩展字段默认 nil 不破坏既有调用")
-    func 旧字段兼容() {
+    /// 原名：旧字段兼容
+    func legacyFieldCompatibility() {
         let legacy = FieldDraft(key: "hour", value: "15", unit: nil, confidence: 0.8)
         #expect(legacy.rawText == nil)
         #expect(legacy.suggestedLabel == nil)
@@ -154,7 +168,8 @@ struct M2UnderstandingTests {
     // MARK: - F25 惰性接线（断言③：绝不猜码、无命中保留原值）
 
     @Test("F25 无命中保留原值不猜码")
-    func f25无命中保留原值() async {
+    /// 原名：f25无命中保留原值
+    func f25NoHitPreservesOriginalValue() async {
         let fields = [
             FieldDraft(key: "lab_item", value: "血红蛋白", unit: "g/L", confidence: 0.6),
             FieldDraft(key: "note", value: "普通文本", confidence: 0.9),   // 非医疗槽位不引码

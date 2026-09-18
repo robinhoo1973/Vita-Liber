@@ -8,7 +8,8 @@ final class PerformanceScreeningTests: XCTestCase {
     /// 基线口径（tech §8）：模拟器初筛无基线阈值（性能基线归 L2 真机复测），
     /// 本测试的通过条件 = 启动完成且进入前台（不挂不崩）——指标数据随
     /// xcodebuild 报告输出供 L2 建立基线。
-    func test_SU_M0_PERF_SU_M1c_PERF_冷启动基线初筛() throws {
+    /// 原名：test_SU_M0_PERF_SU_M1c_PERF_冷启动基线初筛
+    func test_SU_M0_PERF_SU_M1c_PERF_coldLaunchBaselineScreening() throws {
         if #available(iOS 16.0, *) {
             let app = XCUIApplication()
             measure(metrics: [XCTApplicationLaunchMetric()]) {

@@ -368,6 +368,7 @@
 "member.save" = "儲存";
 "member.quotaHint" = "免費檔最多 4 位成員；超過後可隨 Pro 解鎖。";
 "member.addedHint" = "已新增，可在完善檔案中補充健康史。";
+"member.addFailed" = "成員未能新增，請重試。";
 "dose.number" = "第 %1$d 劑";
 "onboard.sourceConfirmed" = "來源已確認";
 "onboard.unconfirmed2" = "辨識未確認";
@@ -527,9 +528,6 @@
 "ai.refusedNoEvidence" = "缺少可引用的資料，無法給出確定性結論。請補充記錄或諮詢醫生/藥師。";
 "ai.refusedHighRisk" = "調整或停用藥物必須由醫生決定；請帶著處方諮詢醫生或藥師。";
 "ai.failedRetry" = "回答失敗，請稍後重試。";
-"ai.history.loadFailed" = "歷史記錄載入失敗";
-"ai.history.deleteFailed" = "刪除失敗，請重試";
-"ai.history.loadFailedHint" = "請稍後重試";
 "ai.emergencyCall" = "撥打 119";
 "timeline.empty.title" = "還沒有資料";
 "paywall.previewTitle" = "Pro 權益 · 預覽";
@@ -1282,12 +1280,6 @@
 "allergy.emergency.title" = "嚴重反應急救引導";
 "allergy.emergency.body" = "你記錄了嚴重過敏反應。如現在症狀仍在持續，請立即撥打 120 或前往最近的醫院急診。";
 "allergy.emergency.goHospital" = "就近就醫";
-"aiHistory.title" = "AI 會話歷史";
-"aiHistory.empty" = "還沒有會話記錄";
-"aiHistory.countFmt" = "%d 條訊息";
-"aiHistory.delete" = "刪除";
-"aiHistory.clearAll" = "清空全部";
-"aiHistory.clearNote" = "僅刪除本機會話記錄，不影響原始資料";
 "aiFeedback.useful" = "有用";
 "aiFeedback.useless" = "無用";
 "aiFeedback.citationError" = "引用錯誤";
@@ -1596,8 +1588,6 @@
 "emergency.number" = "119";
 "search.sensitiveBadge" = "敏感";
 "doc.detailNotFound" = "該文件已刪除或尚未進入時間軸";
-"assistant.addRecords" = "去補充資料";
-"assistant.consultDoctor" = "諮詢醫生或藥師";
 "f19.markTakenMultipleFmt" = "找到多條符合：%@。請說出要標記的具體名稱";
 "emergency.sosHoldA11yFmt" = "緊急求助：長按 %1$.1f 秒啟動";
 "helpcard.photoPending" = "相片附件即將支援，敬請期待";
@@ -1651,18 +1641,9 @@
 "reminder.apptHospital" = "醫院";
 "reminder.apptDepartment" = "科別";
 "reminder.apptTime" = "時間";
-"assistant.searching" = "正在檢索你的資料…";
-"assistant.questionPlaceholder" = "問一個與你資料相關的問題";
-"assistant.imageReadError" = "無法讀取這張圖片";
-"assistant.imageConfirmNotice" = "圖片識別結果未經你確認，不會作為事實提交";
-"assistant.confirmFillIn" = "確認並填入問題";
-"assistant.cannotAnswer" = "無法回答這個問題";
-"assistant.insufficient" = "資料不足";
-"assistant.addImageLabel" = "新增圖片或報告照片";
 "onboard.boundaryTitle" = "這不是醫療設備";
 "onboard.storageTitle" = "資料只在本機";
 "onboard.skipInfoTitle" = "這些可以稍後再做";
-"assistant.sendLabel" = "傳送問題";
 "voice.readAloudA11y" = "朗讀目前草稿";
 "observation.listEmpty" = "還沒有觀察記錄";
 "observation.listEmptyHint" = "記錄血壓、血糖等自測讀數，長期趨勢一目了然";
@@ -1709,7 +1690,6 @@
 "voiceIntent.appendProfile" = "檔案完善";
 "voiceIntent.appendMedDraft" = "用藥草稿";
 "voiceIntent.appendNote" = "語音速記";
-"voiceIntent.askAssistant" = "AI 提問";
 "voiceIntent.createQuestion" = "問診問題";
 "voiceIntent.unknown" = "任意文字";
 "voicePanel.autoHint" = "說出要記錄的內容，將自動判斷去向並產生草稿";

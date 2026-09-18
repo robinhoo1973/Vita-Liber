@@ -129,14 +129,16 @@ struct EngineAbstractionTests {
     // MARK: - 四新引擎工厂验收（M-PREPROC / M-DECODE / M-COMPRESS）
 
     @Test("三新工厂 onDeviceOnly 均为 true")
-    func 三新工厂离线守卫() {
+    /// 原名：三新工厂离线守卫
+    func threeNewFactoriesOfflineGuard() {
         #expect(ImagePreprocessingFactory.onDeviceOnly)
         #expect(ImageDecodingFactory.onDeviceOnly)
         #expect(ImageCompressingFactory.onDeviceOnly)
     }
 
     @Test("三新工厂按平台分派并可解析")
-    func 三新工厂按平台分派() {
+    /// 原名：三新工厂按平台分派
+    func threeNewFactoriesPlatformDispatch() {
         let r = EngineRegistry()
         let ctx = EngineContext.current
 
@@ -165,7 +167,8 @@ struct EngineAbstractionTests {
     }
 
     @Test("registerDefaultEngines 注册全部 8 个工厂且幂等零构造")
-    func 全部八工厂注册() {
+    /// 原名：全部八工厂注册
+    func allEightFactoriesRegistered() {
         let r = EngineRegistry()
         // 审查修正：直接调用被验函数（此前手抄 8 行 register 只验证测试自身的清单，
         // 生产函数漏注册/改序也恒绿）；二次调用验证「先查后造」零构造语义

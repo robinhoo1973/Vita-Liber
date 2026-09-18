@@ -52,7 +52,8 @@ final class StockAppointmentAcceptanceTests: XCTestCase {
 
     /// FR9.8.2 双轨扣减矩阵落库（评审修正）：taken → 两线各扣 + allocation；
     /// 动作 UPDATE 物化行（非孤儿行）→ deliveryFacts 可见已服
-    func test_双轨扣减矩阵落库() async throws {
+    /// 原名：test_双轨扣减矩阵落库
+    func test_dualTrackDeductionMatrixPersists() async throws {
         let (store, meds, _, _, patient, med) = try await makeStore()
         let early = DualTrackInventory(lotId: UUID(), totalUnits: 10, unitKind: "tablet",
                                        expireAt: Date(timeIntervalSince1970: 9999999999))
@@ -106,7 +107,8 @@ final class StockAppointmentAcceptanceTests: XCTestCase {
     /// BR-004 送达≠已服：跳过不构成服用事实，确认线必然不动）
     /// 审查修复（命名对齐）：旧名「跳过仅计划轨扣」与修正矩阵 (0,0) 语义
     /// 相反——按名读码者会误判计划轨应扣减。
-    func test_跳过两线均免扣() async throws {
+    /// 原名：test_跳过两线均免扣
+    func test_skipExemptsBothTracks() async throws {
         let (store, meds, _, _, patient, med) = try await makeStore()
         let lot = DualTrackInventory(lotId: UUID(), totalUnits: 10, unitKind: "tablet",
                                      expireAt: Date(timeIntervalSince1970: 9999999999))
@@ -122,7 +124,8 @@ final class StockAppointmentAcceptanceTests: XCTestCase {
     }
 
     /// 计划→剂量物化→对账事实 数据链闭合 + 老计划窗口锚定（S0-3 修正）
-    func test_老计划窗口锚定今天() async throws {
+    /// 原名：test_老计划窗口锚定今天
+    func test_legacyPlanWindowAnchorsToToday() async throws {
         let (store, meds, _, _, patient, med) = try await makeStore()
         let cal = shanghaiCalendar
         let planId = UUID()
@@ -143,7 +146,8 @@ final class StockAppointmentAcceptanceTests: XCTestCase {
     }
 
     /// 预约闭环：创建→四级提醒预排→改期重排→完成（含补录就诊）→取消清 pending
-    func test_SU_M1b_APPT_预约创建分级提醒与改期() async throws {
+    /// 原名：test_SU_M1b_APPT_预约创建分级提醒与改期
+    func test_SU_M1b_APPT_appointmentCreationTieredRemindersAndReschedule() async throws {
         let (store, _, scheduler, apts, patient, _) = try await makeStore()
         let startsAt = Date().addingTimeInterval(10 * 86400)
         let aptId = UUID()
@@ -200,7 +204,8 @@ final class StockAppointmentAcceptanceTests: XCTestCase {
     /// 第八轮全仓审查修复锚点：标记错过必须取消已排分级提醒——原实现只改
     /// status 并排跟进提醒，后续档位（3d/1d/day）仍按时弹出并指向已错过的
     /// 预约（幽灵提醒 + 深链失效数据）。
-    func test_标记错过取消分级提醒仅留跟进() async throws {
+    /// 原名：test_标记错过取消分级提醒仅留跟进
+    func test_markMissedCancelsTieredRemindersKeepsFollowUp() async throws {
         let (_, _, scheduler, apts, patient, _) = try await makeStore()
         // 已开始的预约才可标错过（商店级纵深防御：未来预约标错过被拒——
         // 否则取消全部分级提醒并武装 2h 跟进，误标即提醒失声）
@@ -217,7 +222,8 @@ final class StockAppointmentAcceptanceTests: XCTestCase {
     }
 
     /// 纵深防御锚点：未来预约标错过必须被商店层拒绝（视图门之外的第二道）
-    func test_未来预约标错过被拒() async throws {
+    /// 原名：test_未来预约标错过被拒
+    func test_futureAppointmentMarkMissedRejected() async throws {
         let (_, _, _, apts, patient, _) = try await makeStore()
         let future = UUID()
         try await apts.create(id: future, patientId: patient, hospital: "市一医院",

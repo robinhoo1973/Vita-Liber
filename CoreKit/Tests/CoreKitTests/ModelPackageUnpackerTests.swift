@@ -49,7 +49,8 @@ struct ModelPackageUnpackerTests {
     }
 
     @Test("正向对照：合法包成功解压（证明夹具与判定有效——能绿也能红）")
-    func 合法包成功() throws {
+    /// 原名：合法包成功
+    func validPackageSucceeds() throws {
         let root = try tempDir()
         defer { try? FileManager.default.removeItem(at: root) }   // try?-ok: 测试临时目录清理，失败无用户可见后果
         let zip = try makeZip(at: root, entries: [
@@ -69,7 +70,8 @@ struct ModelPackageUnpackerTests {
     }
 
     @Test("路径穿越 `..` 被拒且零残留")
-    func 路径穿越被拒() throws {
+    /// 原名：路径穿越被拒
+    func pathTraversalRejected() throws {
         let root = try tempDir()
         defer { try? FileManager.default.removeItem(at: root) }   // try?-ok: 测试临时目录清理，失败无用户可见后果
         let zip = try makeZip(at: root, entries: [("../evil.onnx", Data(repeating: 1, count: 16))])
@@ -79,7 +81,8 @@ struct ModelPackageUnpackerTests {
     }
 
     @Test("绝对路径被拒")
-    func 绝对路径被拒() throws {
+    /// 原名：绝对路径被拒
+    func absolutePathRejected() throws {
         let root = try tempDir()
         defer { try? FileManager.default.removeItem(at: root) }   // try?-ok: 测试临时目录清理，失败无用户可见后果
         let zip = try makeZip(at: root, entries: [("/tmp/evil.onnx", Data(repeating: 1, count: 16))])
@@ -87,7 +90,8 @@ struct ModelPackageUnpackerTests {
     }
 
     @Test("扩展名白名单外被拒（.sh）")
-    func 白名单外被拒() throws {
+    /// 原名：白名单外被拒
+    func outsideAllowlistRejected() throws {
         let root = try tempDir()
         defer { try? FileManager.default.removeItem(at: root) }   // try?-ok: 测试临时目录清理，失败无用户可见后果
         let zip = try makeZip(at: root, entries: [("evil.sh", Data("rm -rf /".utf8))])
@@ -95,7 +99,8 @@ struct ModelPackageUnpackerTests {
     }
 
     @Test("展开量超限被拒（maximumBytes 收紧）")
-    func 展开量超限被拒() throws {
+    /// 原名：展开量超限被拒
+    func expansionOverLimitRejected() throws {
         let root = try tempDir()
         defer { try? FileManager.default.removeItem(at: root) }   // try?-ok: 测试临时目录清理，失败无用户可见后果
         let zip = try makeZip(at: root, entries: [("model.onnx", Data(repeating: 1, count: 4096))])
@@ -103,7 +108,8 @@ struct ModelPackageUnpackerTests {
     }
 
     @Test("CRC 不符被拒（篡改包字节）")
-    func crc不符被拒() throws {
+    /// 原名：crc不符被拒
+    func crcMismatchRejected() throws {
         let root = try tempDir()
         defer { try? FileManager.default.removeItem(at: root) }   // try?-ok: 测试临时目录清理，失败无用户可见后果
         let zip = try makeZip(at: root, entries: [("model.onnx", Data(repeating: 7, count: 256))])

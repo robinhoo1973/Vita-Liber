@@ -478,6 +478,8 @@ enum L10n {
     static var member_save: String { t("member.save") }
     static var member_quotaHint: String { t("member.quotaHint") }
     static var member_addedHint: String { t("member.addedHint") }
+    /// 审查修正（F-A1）：成员写库失败警报（此前静默关单，见 MemberViews）
+    static var member_addFailed: String { t("member.addFailed") }
 
         static func doseNumber(_ n: Int) -> String { String(format: t("dose.number"), n) }
     static var onboard_sourceConfirmed: String { t("onboard.sourceConfirmed") }
@@ -539,16 +541,8 @@ enum L10n {
     static var emergencyNumber: String { t("emergency.number") }
     static var searchSensitive: String { t("search.sensitiveBadge") }
     static var docDetailNotFound: String { t("doc.detailNotFound") }
-    static var assistant_addRecords: String { t("assistant.addRecords") }
-    static var assistant_consultDoctor: String { t("assistant.consultDoctor") }
-    static var assistantSearching: String { t("assistant.searching") }
-    static var assistantQuestionPlaceholder: String { t("assistant.questionPlaceholder") }
-    static var assistantImageReadError: String { t("assistant.imageReadError") }
-    static var assistantImageConfirmNotice: String { t("assistant.imageConfirmNotice") }
-    static var assistantConfirmFillIn: String { t("assistant.confirmFillIn") }
-    static var assistantCannotAnswer: String { t("assistant.cannotAnswer") }
-    static var assistantInsufficient: String { t("assistant.insufficient") }
-    static var assistantAddImageLabel: String { t("assistant.addImageLabel") }
+    // 业主裁决 D2（2026-09-18）：F12 AI 助手永久退役——assistant.* 键已随
+    // AssistantHistoryView/AssistantChatView 删除（保留 ai.* 模板键：AILocal 七段式在用）
     static var claim_type: String { t("claim.type") }
     static var claim_amount: String { t("claim.amount") }
     static var claim_date: String { t("claim.date") }
@@ -916,10 +910,7 @@ enum L10n {
     static var ai_refusedNoEvidence: String { t("ai.refusedNoEvidence") }
     static var ai_refusedHighRisk: String { t("ai.refusedHighRisk") }
     static var ai_failedRetry: String { t("ai.failedRetry") }
-    static var aiHistoryLoadFailed: String { t("ai.history.loadFailed") }
-    /// 删除/清空会话失败告警（响亮失败纪律）
-    static var aiHistoryDeleteFailed: String { t("ai.history.deleteFailed") }
-    static var aiHistoryLoadFailedHint: String { t("ai.history.loadFailedHint") }
+    // ai.history.* / aiHistory.* 键已随 F12 退役删除（会话历史功能下线）
     static var ai_emergencyCall: String { t("ai.emergencyCall") }
     static var timelineEmptyTitle: String { t("timeline.empty.title") }
     static var paywallPreviewTitle: String { t("paywall.previewTitle") }
@@ -946,7 +937,6 @@ enum L10n {
     "voiceIntent.appendProfile",
     "voiceIntent.appendMedDraft",
     "voiceIntent.appendNote",
-    "voiceIntent.askAssistant",
     "voiceIntent.createQuestion",
     "voiceIntent.unknown",
     // V3.49：4.28 信息卡分组 / FR11.4 懒创建 / 语音面板去 chips
@@ -1201,7 +1191,7 @@ enum L10n {
         "ai.scopeNote",
         "ai.disclaimerFixed", "ai.confirmImageText",
         "ai.emergencyCall", "paywall.previewTitle", "timeline.empty.title",
-        "ai.failedRetry", "ai.history.loadFailed", "ai.history.deleteFailed", "ai.history.loadFailedHint", "ai.refusedHighRisk",
+        "ai.failedRetry", "ai.refusedHighRisk",
         "ai.refusedNoEvidence",
         "ai.source", "ai.uncertain", "alert.empty.hint", "alert.empty.title",
         "alert.linkChecked", "alert.openOriginal",
@@ -1294,7 +1284,7 @@ enum L10n {
         "inventory.reportBlocked", "inventory.reportFact", "inventory.reportTitle",
         "inventory.monthlyReportFmt",
         "inventory.tier3", "inventory.tier7", "inventory.title", "member.add",
-        "member.addedHint", "member.birthDatePlaceholder", "member.current", "member.namePlaceholder",
+        "member.addedHint", "member.addFailed", "member.birthDatePlaceholder", "member.current", "member.namePlaceholder",
         "member.quotaHint", "member.relation", "member.save", "member.switch",
         // 业主 2026-09-17 定：注册必要字段（特征性数据 + 紧急联系人）+ 健康预填
         "onboard.notSelected", "onboard.gender", "onboard.gender.male", "onboard.gender.female",
@@ -1584,8 +1574,7 @@ enum L10n {
         "allergy.kind", "allergy.substancePlaceholder", "allergy.customTag",
         "allergy.severityLabel", "allergy.occurredAt", "allergy.note", "allergy.next",
         "allergy.emergency.title", "allergy.emergency.body", "allergy.emergency.goHospital",
-        "aiHistory.title", "aiHistory.empty", "aiHistory.countFmt", "aiHistory.delete",
-        "aiHistory.clearAll", "aiHistory.clearNote",
+        // aiHistory.* 键已随 F12 退役删除
         "aiFeedback.useful", "aiFeedback.useless", "aiFeedback.citationError",
         "aiFeedback.danger", "aiFeedback.more",
         "export.wizard.title", "export.scope", "export.scope.all", "export.scope.dateRange",
@@ -1663,8 +1652,7 @@ enum L10n {
         "reminder.notification.title", "reminder.notification.body",
         "reminder.planSaveFailed", "reminder.apptSaveFailed",
         // 审查补充登记（2026-09-05）：此前仅入三语文件未入登记表的键
-        "assistant.addRecords",
-        "assistant.consultDoctor",
+        // assistant.* 键已随 F12 退役删除
         "backup.conflict.adopt",
         "backup.conflict.apply",
         "backup.conflict.choice",
@@ -1787,14 +1775,11 @@ enum L10n {
         "pro.featureCustomThreshold", "pro.featureCustomThresholdDesc",
         "pro.featureDispenseTemplate", "pro.featureDispenseTemplateDesc",
         "reminder.apptAdd", "reminder.apptHospital", "reminder.apptDepartment", "reminder.apptTime",
-        "assistant.searching", "assistant.questionPlaceholder",
-        "assistant.imageReadError", "assistant.imageConfirmNotice",
-        "assistant.confirmFillIn", "assistant.cannotAnswer", "assistant.insufficient",
-        "assistant.addImageLabel",
+        // assistant.* 键已随 F12 退役删除
         "onboard.boundaryTitle", "onboard.storageTitle", "onboard.skipInfoTitle",
         "member.relation.father", "member.relation.mother",
         "member.relation.son", "member.relation.daughter",
-        "assistant.sendLabel", "voice.readAloudA11y",
+        "voice.readAloudA11y",
         "observation.listEmpty", "observation.listEmptyHint",
         "observation.listError", "observation.listRetry",
         "doc.add", "plan.add", "encounter.add", "appointment.add", "allergy.add",
@@ -2964,12 +2949,7 @@ enum L10n {
     static var allergyEmergencyGoHospital: String { t("allergy.emergency.goHospital") }
 
     // MARK: - FR12.10 AI 会话历史 / FR12.8 反馈四键
-    static var aiHistoryTitle: String { t("aiHistory.title") }
-    static var aiHistoryEmpty: String { t("aiHistory.empty") }
-    static func aiHistoryCount(_ n: Int) -> String { String(format: t("aiHistory.countFmt"), n) }
-    static var aiHistoryDelete: String { t("aiHistory.delete") }
-    static var aiHistoryClearAll: String { t("aiHistory.clearAll") }
-    static var aiHistoryClearNote: String { t("aiHistory.clearNote") }
+    // aiHistory.* 键已随 F12 退役删除（会话历史功能下线）
     static var aiFeedbackUseful: String { t("aiFeedback.useful") }
     static var aiFeedbackUseless: String { t("aiFeedback.useless") }
     static var aiFeedbackCitationError: String { t("aiFeedback.citationError") }
@@ -3454,7 +3434,7 @@ enum L10n {
     }
 
     // MARK: - 评审批新增键（2026-09-06 全仓审查）
-    static var assistantSendLabel: String { t("assistant.sendLabel") }
+    // assistantSendLabel 已随 F12 退役删除（assistant.* 键清零）
     static var voiceReadAloudA11y: String { t("voice.readAloudA11y") }
     static var observationListEmpty: String { t("observation.listEmpty") }
     static var observationListEmptyHint: String { t("observation.listEmptyHint") }

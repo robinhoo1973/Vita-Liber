@@ -197,7 +197,8 @@ private struct PermissionRow: View {
 struct HelpReminderDiagnostics: View {
     @Environment(ReminderStore.self) private var reminderStore
     @State private var notificationStatus: String = L10n.helpStatusChecking
-    @State private var hasSchedule: Bool = false
+    // 审查清理：hasSchedule 死状态（全仓仅此一处声明，零读写）——旧「计划状态」行
+    // 已被已排内容展示取代，删除以免误导后续编辑者重建重复摘要。
 
     var body: some View {
         WithPerceptionTracking {

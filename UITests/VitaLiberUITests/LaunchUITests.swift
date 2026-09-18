@@ -2,7 +2,8 @@ import XCTest
 
 // binds: SU-M0-SMOKE — 冷启五 Tab 可见
 final class LaunchUITests: XCTestCase {
-    func test_冷启五Tab可见() {
+    /// 原名：test_冷启五Tab可见
+    func test_coldLaunchFiveTabsVisible() {
         // 审查修复：原断言只有 waitForExistence——五 Tab 一个都不查，
         // 删掉全部 Tab 或门禁回归均照常绿灯（「断言不存在的断言」）。
         // 独立启动参数隔离此用例与其它用例的持久化状态。

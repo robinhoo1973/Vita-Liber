@@ -298,12 +298,26 @@ public actor PendingCardStore {
 
     /// 聚合中心待办投影（data-flow §20.1）：仅活跃态；非敏感摘要标题，
     /// dueDate = created_at + 24h。BR-003：raw_text/partial_data 不外泄。
+    /// 审查修正（效率+韧性）：此前复用 list() 全列 SELECT 并 JSON 解码每张卡的
+    /// partial_data/raw_text——聚合只需五列；且任一卡 partial_data 损坏会击穿
+    /// 整个 list() 使首页待办整体消失。轻查询只投影聚合所需列。
     public func aggregationItems(patientId: UUID) async throws -> [AggregatedReminderItem] {
-        let cards = try await list(patientId: patientId)
-        return cards.map {
-            ReminderAggregationCenter.pendingCardItem(
-                cardId: $0.id, cardKind: $0.cardKind, patientId: $0.patientId,
-                createdAt: $0.createdAt, status: $0.status)
+        try await writer.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT id, card_kind, patient_id, created_at, status FROM pending_card
+                WHERE patient_id = ? AND status IN ('pending', 'in_progress')
+                ORDER BY created_at DESC
+                """, arguments: [patientId.uuidString])
+            return rows.map { row in
+                let id = row["id"] as String
+                let kind = row["card_kind"] as String
+                let createdAt = Date(timeIntervalSince1970: row["created_at"] as Double)
+                let status = row["status"] as String
+                let pid = UUID(uuidString: row["patient_id"] as String) ?? patientId
+                return ReminderAggregationCenter.pendingCardItem(
+                    cardId: id, cardKind: kind, patientId: pid,
+                    createdAt: createdAt, status: status)
+            }
         }
     }
 

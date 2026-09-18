@@ -110,7 +110,10 @@ public enum AppointmentRules {
             if let hour = t.dayHour {
                 fire = calendar.date(bySettingHour: hour, minute: 0, second: 0, of: fire) ?? fire
             }
-            if fire > now { out[t] = fire }               // 已过期的层级不补发
+            // 审查修正：day 档按 09:00 固定时刻，早于 9 点开始的预约（常见上午门诊）
+            // 此前照排——用户已在就诊中才收到「当日提醒」。落在预约开始之后的层级
+            // 与「已过期的层级不补发」同语义：不排（前一日 1d 档已覆盖）。
+            if fire > now, fire <= startsAt { out[t] = fire }
         }
         return out
     }

@@ -79,7 +79,11 @@ actor SwitchableTranscriptionEngine: TranscriptionCaptureReporting {
         }
         // 停止旧硬件后再启动新会话；原生推理的迟到结果由委托按ID丢弃。
         if let (previousEngine, previousID) = previous, let previousID { await previousEngine.cancel(sessionID: previousID) }
-        guard captureOwner == id else { throw CancellationError() }
+        // 审查修正：await cancel 窗口内的 finish() 已把 captureOwner 清空——此前与
+        // 「新按压接管」混判为取消：快速再按+释放的会话被丢弃（无转写也无
+        // 「未检测到语音」提示）。区分两态：finish 已到 → 走下方空结果排水；
+        // 真正被新会话接管（captureOwner = 他者且无 finish）→ 取消。
+        if captureOwner != id, stops[id] != .finish { throw CancellationError() }
         if stops[id] == .cancel { throw CancellationError() }
         if stops[id] == .finish { await engine.finish(sessionID: id) }
         var result: TranscriptionResult

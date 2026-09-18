@@ -8,7 +8,8 @@ import Infrastructure
 /// 注册卡类不得回落文档图标；仅附件文档键回落文档图标；就诊关联卡 / 子卡类 / 卡类字符串三路归并到同一表。
 // binds: SU-M1c-REGRESSION（ui-ux §3.4 卡类图标表 / round1 §E.7 V11 / BR-004 色按类型不按严重度；TC 登记 J5）
 final class CardKindIconTests: XCTestCase {
-    func test_时间轴全类型均有符号_且v27十二类不回落文档图标() {
+    /// 原名：test_时间轴全类型均有符号_且v27十二类不回落文档图标
+    func test_timelineAllTypesHaveSymbols_v27TwelveKindsNoDocumentFallback() {
         for kind in TimelineEntryKind.allCases {
             XCTAssertFalse(CardKindIcon.spec(timelineKind: kind).symbol.isEmpty, kind.rawValue)
         }
@@ -26,7 +27,8 @@ final class CardKindIconTests: XCTestCase {
         XCTAssertEqual(CardKindIcon.symbol(for: TimelineEntryKind.clinicalConclusion), "text.quote")
     }
 
-    func test_注册卡类字符串不回落文档图标_未知键回落() {
+    /// 原名：test_注册卡类字符串不回落文档图标_未知键回落
+    func test_registeredCardKindsNoDocumentFallback_unknownKeyFallsBack() {
         for entry in CardKindRegistry.entries {
             XCTAssertNotEqual(CardKindIcon.spec(cardKind: entry.kind).symbol, "doc.text", entry.kind)
             XCTAssertNotEqual(CardKindIcon.timelineKind(cardKind: entry.kind), .document, entry.kind)
@@ -35,7 +37,8 @@ final class CardKindIconTests: XCTestCase {
         XCTAssertEqual(CardKindIcon.spec(cardKind: "nonexistent").symbol, "doc.text")
     }
 
-    func test_就诊关联卡类与子卡类归并到同一表() {
+    /// 原名：test_就诊关联卡类与子卡类归并到同一表
+    func test_encounterCardKindsAndSubKindsMergeIntoSameTable() {
         let linked: [(EncounterStore.LinkedCardRow.Kind, TimelineEntryKind)] = [
             (.prescription, .prescription), (.claim, .claim), (.medication, .medication), (.metricSample, .lab),
             (.immunization, .vaccination), (.encounter, .encounter), (.hospitalization, .hospitalization), (.diagnosis, .diagnosis),
@@ -53,7 +56,8 @@ final class CardKindIconTests: XCTestCase {
         XCTAssertEqual(CardKindIcon.spec(hub: .encounter, hospitalized: true).symbol, CardKindIcon.symbol(for: TimelineEntryKind.hospitalization))
     }
 
-    func test_文档稳定键_结构化目标首卡类图标_仅附件回落文档() {
+    /// 原名：test_文档稳定键_结构化目标首卡类图标_仅附件回落文档
+    func test_documentStableKey_structuredTargetPrimaryIcon_attachmentOnlyFallsBack() {
         XCTAssertEqual(CardKindIcon.spec(documentTypeKey: "medical_order").symbol, "doc.text")
         XCTAssertEqual(CardKindIcon.spec(documentTypeKey: "consent_form").symbol, "doc.text")
         XCTAssertEqual(CardKindIcon.spec(documentTypeKey: nil).symbol, "doc.text")

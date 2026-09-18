@@ -58,10 +58,11 @@ public enum AppRoute: Hashable, Sendable, Codable {
     case appointmentForm(UUID?)          // SP-18 新建/改期
     case visitPrepPackage                // FR10.4 就诊准备包
 
-    // ---- F12 搜索/AI ----
+    // ---- F12 搜索 ----
+    // 业主裁决 D2（2026-09-18）：F12 AI 助手永久退役——.assistantChat（SP-21）/
+    // .assistantHistory（SP-51）两路由已删除。旧版本持久化路径中含这两个 case
+    // 时解码整体失败 → load() 归零从根开始（§5.45 缺路由降级不 crash）。
     case globalSearch                    // SP-20
-    case assistantChat                   // SP-21
-    case assistantHistory                // FR12.10 / SP-51
 
     // ---- F13 导出 ----
     case exportWizard                    // SP-22
@@ -147,7 +148,7 @@ public enum MainModuleID: String, Sendable, Hashable, Codable {
              .appointmentForm, .visitPrepPackage,
              .sentStatusHub, .questionList:
             return .reminders
-        case .globalSearch, .assistantChat, .assistantHistory, .voiceSession,
+        case .globalSearch, .voiceSession,
              .healthImportedData:
             return .health
         case .settingsRoot, .preferences, .notificationCenter, .auditLog,

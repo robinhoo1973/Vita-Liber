@@ -37,7 +37,8 @@ final class TimelineSearchAcceptanceTests: XCTestCase {
     }
 
     /// F11 时间轴联合投影：就诊+观察同轴、时间倒序、成员隔离
-    func test_SU_M1c_REGRESSION_时间轴联合投影与隔离() async throws {
+    /// 原名：test_SU_M1c_REGRESSION_时间轴联合投影与隔离
+    func test_SU_M1c_REGRESSION_timelineUnionProjectionAndIsolation() async throws {
         let store = try await makeStore()
         let timeline = TimelineQueryStore(writer: store.writer)
         let member = try await store.writer.read { db in
@@ -54,7 +55,8 @@ final class TimelineSearchAcceptanceTests: XCTestCase {
     }
 
     /// F13 往返一致性（一票否决）：导出 → 全新库导入 → 再导出逐字段相等
-    func test_SU_M1c_EXPORT_导出导入往返一致性() async throws {
+    /// 原名：test_SU_M1c_EXPORT_导出导入往返一致性
+    func test_SU_M1c_EXPORT_exportImportRoundTripConsistency() async throws {
         let storeA = try await makeStore()
         let exportA = ExportService(writer: storeA.writer)
         // 种子走生产路径：saveOwner 建立 owner↔本人档案关联（envelope.selfProfile
@@ -136,7 +138,8 @@ final class TimelineSearchAcceptanceTests: XCTestCase {
     }
 
     /// F12 搜索：trigram 路由 + 2-gram 路由命中（FTS 双表索引同步）
-    func test_搜索双路由命中() async throws {
+    /// 原名：test_搜索双路由命中
+    func test_searchDualRouteHits() async throws {
         let store = try await makeStore()
         let search = GRDBSearchService(writer: store.writer)
         let docId = UUID()
@@ -171,7 +174,8 @@ final class TimelineSearchAcceptanceTests: XCTestCase {
 /// FR14.4 外观与主题（tech-spec §5.28.1）：AppTheme 映射 + FR18.16 叠加规则。
 /// AppTheme 的 ColorScheme 映射依赖 SwiftUI（App 层持有）；叠加规则纯函数化以便断言。
 final class AppearanceThemeTests: XCTestCase {
-    func test_SU_M1c_FR14_主题三态映射() {
+    /// 原名：test_SU_M1c_FR14_主题三态映射
+    func test_SU_M1c_FR14_themeThreeStateMapping() {
         XCTAssertEqual(AppTheme.light.colorScheme, .light)
         XCTAssertEqual(AppTheme.dark.colorScheme, .dark)
         XCTAssertNil(AppTheme.system.colorScheme, "system → nil = 跟随系统")
@@ -180,7 +184,8 @@ final class AppearanceThemeTests: XCTestCase {
         XCTAssertEqual(AppTheme(rawValue: AppTheme.dark.rawValue), .dark)
     }
 
-    func test_SU_M1c_FR14_高对比叠加规则与关怀回落() {
+    /// 原名：test_SU_M1c_FR14_高对比叠加规则与关怀回落
+    func test_SU_M1c_FR14_highContrastOverlayRulesAndCareModeFallback() {
         // 手动关 + 非关怀 → 关
         XCTAssertFalse(AppearanceRules.highContrastEffective(highContrastEnabled: false, careMode: false))
         // 手动开 → 开

@@ -15,7 +15,8 @@ struct HealthFetchScopeTests {
     }
 
     @Test("H-N1 两道以样本 end 在 cutoff 处互补分割；cutoff = connectedAt − 365 日历日")
-    func 分道互补() {
+    /// 原名：分道互补
+    func laneComplementarity() {
         let connected = Date(timeIntervalSince1970: 1_800_000_000)
         let scopes = HealthFetchScope.scopes(connectedAt: connected, calendar: utc)
         #expect(scopes.map(\.lane) == [.recent, .history])
@@ -36,7 +37,8 @@ struct HealthFetchScopeTests {
     }
 
     @Test("H-N1 分道可编解码（pending 载荷携 lane；旧载荷缺键由存储层作废）")
-    func 分道编解码() throws {
+    /// 原名：分道编解码
+    func laneCodable() throws {
         let scope = HealthFetchScope(lane: .history, cutoff: Date(timeIntervalSince1970: 1_700_000_000))
         let data = try JSONEncoder().encode(scope)
         #expect(try JSONDecoder().decode(HealthFetchScope.self, from: data) == scope)
@@ -44,7 +46,8 @@ struct HealthFetchScopeTests {
     }
 
     @Test("H1/H3 可见性三态优先级：关闭 > 不可用 > 缺本人 > 未连接 > 已连接")
-    func 可见性() {
+    /// 原名：可见性
+    func visibility() {
         typealias V = HealthImportVisibility
         #expect(V.state(enabled: false, available: true, ownerPresent: true, connected: true, importedRows: 9) == .disabled)
         #expect(V.state(enabled: false, available: false, ownerPresent: false, connected: false, importedRows: 0) == .disabled)
@@ -58,7 +61,8 @@ struct HealthFetchScopeTests {
     }
 
     @Test("H1/H2/H-N5 展示区只在开关开 ∧ 已连接时存在；趋势链接需有数据且身份已知")
-    func 展示区与趋势链接门控() {
+    /// 原名：展示区与趋势链接门控
+    func dashboardAndTrendLinkGating() {
         typealias V = HealthImportVisibility
         #expect(V.showsImportedData(.visible))
         #expect(V.showsImportedData(.connectedEmpty))

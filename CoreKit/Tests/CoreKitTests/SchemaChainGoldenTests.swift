@@ -56,7 +56,8 @@ struct SchemaChainGoldenTests {
     }
 
     @Test("v2 老库跑完整链：版本推进到最新 + 全部代表表存在")
-    func 全链升级到最新() throws {
+    /// 原名：全链升级到最新
+    func fullChainUpgradesToLatest() throws {
         let queue = try Self.legacyV2Database()
         _ = try GRDBStore(writer: queue)   // 跑 v2..v29
         let version = try queue.read { db in
@@ -73,7 +74,8 @@ struct SchemaChainGoldenTests {
     }
 
     @Test("升级终态 ⊇ 全新库基线列集（v2..v29 的增列/增表全部落地）")
-    func 列集覆盖基线() throws {
+    /// 原名：列集覆盖基线
+    func columnSetCoversBaseline() throws {
         let legacy = try Self.legacyV2Database()
         _ = try GRDBStore(writer: legacy)
         let fresh = try GRDBStore.inMemory()
@@ -90,7 +92,8 @@ struct SchemaChainGoldenTests {
     }
 
     @Test("v28 索引在升级库中同样建立（迁移与基线同形）")
-    func 新索引随链建立() throws {
+    /// 原名：新索引随链建立
+    func newIndexesCreatedAlongChain() throws {
         let queue = try Self.legacyV2Database()
         _ = try GRDBStore(writer: queue)
         let names = try queue.read { db in
@@ -101,7 +104,8 @@ struct SchemaChainGoldenTests {
     }
 
     @Test("全链后二次装配幂等（重复启动不崩）")
-    func 二次装配幂等() throws {
+    /// 原名：二次装配幂等
+    func secondAssemblyIdempotent() throws {
         let queue = try Self.legacyV2Database()
         _ = try GRDBStore(writer: queue)
         _ = try GRDBStore(writer: queue)   // 第二次装配不得抛错

@@ -59,6 +59,13 @@ public enum ImageInputRules {
         "png", "jpg", "jpeg", "heic", "heif", "gif", "webp",
     ]
 
+    /// 扩展名是否受支持（单一判据出口：两入口此前各自内联
+    /// `.supportedImageExtensions.contains(url.pathExtension.lowercased())`，
+    /// 大小写/去空格策略只改一处）。传入小写扩展名。
+    public static func supports(pathExtension: String) -> Bool {
+        supportedImageExtensions.contains(pathExtension.lowercased())
+    }
+
     /// 按文件字节头嗅探真实图片 MIME（扩展名不可信——相册 HEIC 曾被
     /// 硬编码为 image/jpeg，PNG 原件以 .jpg 落盘，扩展名与内容不符，
     /// BR-002 原图语义受损）。未知字节回落调用方提供的兜底值。

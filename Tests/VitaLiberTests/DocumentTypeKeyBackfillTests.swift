@@ -38,7 +38,8 @@ final class DocumentTypeKeyBackfillTests: XCTestCase {
                             origin: "import", isSensitive: false, metaJSON: nil, title: nil)
     }
 
-    func test_旧标签反查_三语_未命中custom_已是键者直通() {
+    /// 原名：test_旧标签反查_三语_未命中custom_已是键者直通
+    func test_legacyLabelLookup_threeLanguages_missBecomesCustom_existingKeyPassesThrough() {
         // 三语旧标签（docTypeLabel.* 15 键）→ DocumentTypeKey.legacyLabelKeys
         XCTAssertEqual(DocumentTypeKeyBackfill.resolve(label: "处方单"), .prescription)
         XCTAssertEqual(DocumentTypeKeyBackfill.resolve(label: "影像报告"), .examReport)
@@ -58,7 +59,8 @@ final class DocumentTypeKeyBackfillTests: XCTestCase {
         XCTAssertEqual(DocumentTypeKeyBackfill.resolve(label: "   "), .custom)
     }
 
-    func test_编排_幂等_成功置标记_失败不置标记且下次重试() async {
+    /// 原名：test_编排_幂等_成功置标记_失败不置标记且下次重试
+    func test_orchestration_idempotent_successSetsMarker_failureLeavesMarkerForRetry() async {
         let ud = defaults()
         let rows = [DocumentTypeKeyBackfill.Row(id: UUID(), patientId: UUID(), docType: "处方单"),
                     DocumentTypeKeyBackfill.Row(id: UUID(), patientId: UUID(), docType: "未知类型")]
@@ -91,7 +93,8 @@ final class DocumentTypeKeyBackfillTests: XCTestCase {
 
     /// 真实仓路径：跨成员旧行（键 NULL）按标签回填 / 未命中 custom；新入库已带键的行不进清单、不被改写；
     /// `batchLimit` 小于待回填行数时分批直至清单为空（不留尾巴）；完成置标记、再启动零访问。
-    func test_真实仓_旧行回填_带键新行不动_分批_幂等() async throws {
+    /// 原名：test_真实仓_旧行回填_带键新行不动_分批_幂等
+    func test_realStore_oldRowsBackfilled_keyedRowsUntouched_batched_idempotent() async throws {
         let ud = defaults()
         let (_, docs, a, b) = try await storeFixture()
         let rx = try await legacySave(docs, patient: a, label: "处方单", sha: "b1")
@@ -120,7 +123,8 @@ final class DocumentTypeKeyBackfillTests: XCTestCase {
     }
 
     /// 真实仓路径：某行写入失败（以触发器模拟）→ 未置标记、已写行保留；故障消除后再启动只补剩余行并完成。
-    func test_真实仓_写失败不置标记_修复后重试补齐() async throws {
+    /// 原名：test_真实仓_写失败不置标记_修复后重试补齐
+    func test_realStore_writeFailureLeavesMarker_retryAfterFixCompletes() async throws {
         let ud = defaults()
         let (store, docs, a, _) = try await storeFixture()
         let first = try await legacySave(docs, patient: a, label: "处方单", sha: "f1")

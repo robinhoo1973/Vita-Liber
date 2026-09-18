@@ -8,7 +8,8 @@ import Testing
 struct HealthWriteBackTests {
 
     @Test("可写表：六类手输指标各配规范单位；导入侧与编码键不可写")
-    func 可写表() {
+    /// 原名：可写表
+    func writableTables() {
         let table: [(MetricType, String)] = [
             (.bloodPressureSys, "mmHg"), (.bloodPressureDia, "mmHg"),
             (.glucose, "mg/dL"), (.weight, "kg"), (.temperature, "°C"),
@@ -25,7 +26,8 @@ struct HealthWriteBackTests {
     }
 
     @Test("单位逐字匹配：trim 与全角 ℃ 归一；mmol/L 刻意拒绝（不换算）")
-    func 单位匹配() {
+    /// 原名：单位匹配
+    func unitMatching() {
         #expect(HealthWriteBack.isWritable(metric: MetricType.temperature.rawValue, unit: " ℃ ", value: 37.2),
                 "全角 ℃ + 空格 → 归一后匹配")
         #expect(!HealthWriteBack.isWritable(metric: MetricType.glucose.rawValue, unit: "mmol/L", value: 5.6),
@@ -38,14 +40,16 @@ struct HealthWriteBackTests {
     }
 
     @Test("非法值不可写；未知指标不可写")
-    func 非法值() {
+    /// 原名：非法值
+    func illegalValues() {
         #expect(!HealthWriteBack.isWritable(metric: MetricType.heartRate.rawValue, unit: "bpm", value: .infinity))
         #expect(!HealthWriteBack.isWritable(metric: MetricType.heartRate.rawValue, unit: "bpm", value: .nan))
         #expect(!HealthWriteBack.isWritable(metric: "unknownMetric", unit: "bpm", value: 60))
     }
 
     @Test("草稿载荷：等值性与默认第二值")
-    func 草稿() {
+    /// 原名：草稿
+    func drafts() {
         let date = Date(timeIntervalSince1970: 1_700_000_000)
         let draft = HealthSampleDraft(metric: MetricType.bloodPressureSys.rawValue, value: 128,
                                       secondaryValue: 82, unit: "mmHg", measuredAt: date)

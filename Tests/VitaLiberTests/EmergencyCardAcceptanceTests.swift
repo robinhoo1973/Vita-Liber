@@ -28,7 +28,8 @@ final class M2EmergCardAcceptanceTests: XCTestCase {
     }
 
     /// FR15.1 核心语义：**数据存在 ≠ 入卡**。只有用户逐项选择的条目才入卡。
-    func test_未选择不入卡_选择后才入卡() async throws {
+    /// 原名：test_未选择不入卡_选择后才入卡
+    func test_unselectedExcluded_selectedIncluded() async throws {
         let (store, cards, patient) = try await makeStore()
         let allergyId = UUID()
         try await store.writer.write { db in
@@ -58,7 +59,8 @@ final class M2EmergCardAcceptanceTests: XCTestCase {
     }
 
     /// BR-003：聚合入口的 confirmed=false 项一律不入卡（Domain 判据半场）
-    func test_未确认项不入卡_Domain判据() {
+    /// 原名：test_未确认项不入卡_Domain判据
+    func test_unconfirmedItemsExcluded_domainCriterion() {
         let unconfirmed = EmergencyCardItem(id: UUID(), kind: "allergy",
                                             title: "可疑过敏", detail: "", confirmed: false)
         let confirmed = EmergencyCardItem(id: UUID(), kind: "allergy",
@@ -71,7 +73,8 @@ final class M2EmergCardAcceptanceTests: XCTestCase {
     }
 
     /// 急救卡空卡 → 系统医疗急救卡引导（只引导、不静默写入）
-    func test_空卡引导且不写入() async throws {
+    /// 原名：test_空卡引导且不写入
+    func test_emptyCardGuidesAndDoesNotWrite() async throws {
         let (_, cards, patient) = try await makeStore()
         let card = try await cards.selected(patientId: patient)
         XCTAssertTrue(EmergencyCardService.medicalIDGuideNeeded(card: card),
@@ -81,14 +84,16 @@ final class M2EmergCardAcceptanceTests: XCTestCase {
     }
 
     /// 血型字段随卡带出（F3 P1 字段）
-    func test_血型随卡带出() async throws {
+    /// 原名：test_血型随卡带出
+    func test_bloodTypeCarriedIntoCard() async throws {
         let (_, cards, patient) = try await makeStore()
         let blood = try await cards.bloodType(patientId: patient)
         XCTAssertEqual(blood, "A+")
     }
 
     /// 迁移 v4：emergency_card_selection 建表且可写
-    func test_迁移v4选择表可用() async throws {
+    /// 原名：test_迁移v4选择表可用
+    func test_migrationV4SelectionTableUsable() async throws {
         let queue = try DatabaseQueue(configuration: GRDBStore.configuration())
         _ = try GRDBStore(writer: queue)   // 全新库直接含 v4
         let patient = UUID()

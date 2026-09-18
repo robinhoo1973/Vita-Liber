@@ -217,6 +217,21 @@ final class AppSettingsStore {
             // 而开关显示关闭（首页仍是关怀版式，设置页却关着）
             UserDefaults.standard.removeObject(forKey: AppSettingKey.readBackOptIn.rawValue)
             UserDefaults.standard.removeObject(forKey: AppSettingKey.careModeEnable.rawValue)
+            // 审查修正（sweep）：旧键 "careMode"（AppState.careMode 只读兼容回退）
+            // 必须一并移除——已装机用户仅凭旧键仍持关怀版式，恢复默认后开关显示
+            // 关闭而 64pt 触控/大字版式照旧（迁移键与回退键的分裂脑）。
+            UserDefaults.standard.removeObject(forKey: "careMode")
+            // 审查修正（FR14.2 证据链）：恢复默认 = 全设置键域的最大授权变更
+            // （九开关全部回默认放行）——此前零审计行，撤销→恢复默认再放行的
+            // 序列无迹可查。落一条 settings.reset 审计事实（审计失败不阻断恢复，
+            // 也不得让外层 catch 把「已恢复成功」误报为失败）。
+            do {
+                try await audit?.record(action: "settings.reset", entityType: "setting",
+                                        entityId: "all", actorLocal: "owner",
+                                        meta: "restoreDefaults")
+            } catch {
+                logger.error("恢复默认审计落库失败: \(error)")
+            }
             // 第七轮修复（FR9.18 通道偏好）：通道镜像与横幅开关镜像一并重置
             for key in Self.mirroredKeys {
                 UserDefaults.standard.removeObject(forKey: key.rawValue)

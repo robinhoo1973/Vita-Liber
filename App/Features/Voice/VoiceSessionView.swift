@@ -772,7 +772,12 @@ struct VoiceSessionView: View {
         }
         // detail 为「关系 · 电话」复合展示串——拨号取纯号码（BR-012 语义）
         // 全仓审查 2026-09-18（F-A2-05）：号码经 SystemLinks 归一拨出；不可拨即播报未命中，不静默
-        if !SystemLinks.dial(contact.contactPhone) {
+        // 审查修正（L1 编译失败）：contactPhone 是可选字段，缺号码按「未命中」播报而非裸传 String?
+        guard let phone = contact.contactPhone else {
+            app.speak(L10n.f19_contactNotFound(object))
+            return
+        }
+        if !SystemLinks.dial(phone) {
             app.speak(L10n.f19_contactNotFound(object))
         }
     }

@@ -24,7 +24,8 @@ struct HealthSyncDomainTests {
     // MARK: - 睡眠合并（双来源同夜双计修复，health-import V1.3）
 
     @Test("双来源同夜不双计：staged 覆盖处忽略 unspecified（8h 而非 16h）")
-    func 双来源同夜不双计() {
+    /// 原名：双来源同夜不双计
+    func dualSourceSameNightNotDoubleCounted() {
         // 真实场景：iPhone 自动判定整夜 asleepUnspecified 23:00-07:00（8h）
         // + Apple Watch 分期 core 00:30-03:30（3h）+ deep 03:30-04:30（1h）
         // + rem 04:30-05:30（1h）——合计入睡时长应为 8h，不得双计为 13h
@@ -50,7 +51,8 @@ struct HealthSyncDomainTests {
     }
 
     @Test("双来源分期同夜按并集计（不按来源求和双计）")
-    func 分期并集去重() {
+    /// 原名：分期并集去重
+    func stagedUnionDeduplication() {
         // Watch + 第三方睡眠 App 同夜各写重叠 core/deep——并集 1h deep 而非 2h
         let samples = [
             SleepSample(start: date(8, 23), end: date(9, 4), stage: .deep,
@@ -64,7 +66,8 @@ struct HealthSyncDomainTests {
     }
 
     @Test("awake 独立入桶并从未分期余段扣除（sleep_awake 行不再死分支）")
-    func awake桶() {
+    /// 原名：awake桶
+    func awakeBucket() {
         let samples = [
             SleepSample(start: date(8, 23), end: date(9, 7), stage: .unspecified),
             SleepSample(start: date(9, 3), end: date(9, 3, 30), stage: .awake),
@@ -75,7 +78,8 @@ struct HealthSyncDomainTests {
     }
 
     @Test("分段 gap 按前段结束计（长段后短间隔不分段）")
-    func 段间距按段末() {
+    /// 原名：段间距按段末
+    func segmentGapMeasuredFromSegmentEnd() {
         let samples = [
             SleepSample(start: date(8, 23), end: date(9, 1), stage: .unspecified),
             SleepSample(start: date(9, 1, 40), end: date(9, 3), stage: .unspecified),
@@ -87,7 +91,8 @@ struct HealthSyncDomainTests {
     }
 
     @Test("deep 桶只计 deep（REM/Core 不再误计入 deep，V1.3 修正）")
-    func deep桶修正() {
+    /// 原名：deep桶修正
+    func deepBucketFix() {
         let samples = [
             SleepSample(start: date(8, 23), end: date(9, 2), stage: .core),
             SleepSample(start: date(9, 2), end: date(9, 5), stage: .deep),
@@ -100,7 +105,8 @@ struct HealthSyncDomainTests {
     }
 
     @Test("noon 锚归晚：跨午夜归入睡前日，跨界样本裁剪")
-    func noon锚归晚() {
+    /// 原名：noon锚归晚
+    func noonAnchorFallsToEvening() {
         // 睡眠 9/8 22:30 → 9/9 06:30；以 9/9 为锚日（窗口=9/8 12:00 → 9/9 12:00）
         let samples = [SleepSample(start: date(8, 22, 30), end: date(9, 6, 30), stage: .unspecified)]
         let summary = SleepMerge.merge(samples, anchorDate: date(9, 12), calendar: calendar)
@@ -113,7 +119,8 @@ struct HealthSyncDomainTests {
     }
 
     @Test("同日多段小睡：gap>30min 各成段")
-    func 多段小睡分段() {
+    /// 原名：多段小睡分段
+    func multiSegmentNapSplit() {
         // 锚日 9/9（窗口=9/8 12:00 → 9/9 12:00）：9/8 午睡 1h + 夜睡 8h
         let samples = [
             SleepSample(start: date(8, 13), end: date(8, 14), stage: .unspecified),   // 午睡 1h
@@ -125,7 +132,8 @@ struct HealthSyncDomainTests {
     }
 
     @Test("空样本返回零值摘要不崩溃")
-    func 空样本() {
+    /// 原名：空样本
+    func emptySamples() {
         let summary = SleepMerge.merge([], anchorDate: date(9, 12), calendar: calendar)
         #expect(summary.totalAsleep == 0)
         #expect(summary.segmentCount == 0)
@@ -134,7 +142,8 @@ struct HealthSyncDomainTests {
     // MARK: - 小时窗口聚合（FR16.1 min/max/avg）
 
     @Test("整点窗口聚合 min/max/avg 与左边界")
-    func 小时窗口聚合() {
+    /// 原名：小时窗口聚合
+    func hourWindowAggregation() {
         let samples = [
             HourWindowSample(value: 80, at: date(9, 8, 5)),
             HourWindowSample(value: 100, at: date(9, 8, 20)),
@@ -154,7 +163,8 @@ struct HealthSyncDomainTests {
     }
 
     @Test("最小样本数门槛：<3 不落行")
-    func 最小样本门槛() {
+    /// 原名：最小样本门槛
+    func minimumSampleThreshold() {
         let samples = [HourWindowSample(value: 80, at: date(9, 8, 5)),
                        HourWindowSample(value: 90, at: date(9, 8, 20))]
         let result = HourWindowAggregator.aggregate(samples, calendar: calendar)
@@ -162,7 +172,8 @@ struct HealthSyncDomainTests {
     }
 
     @Test("非有限值剔除计数（不静默；0/负值保留交评估）")
-    func 非有限剔除() {
+    /// 原名：非有限剔除
+    func nonFiniteExclusion() {
         let samples = [HourWindowSample(value: .infinity, at: date(9, 8, 5)),
                        HourWindowSample(value: .nan, at: date(9, 8, 10)),
                        HourWindowSample(value: 80, at: date(9, 8, 20)),
@@ -175,7 +186,8 @@ struct HealthSyncDomainTests {
     }
 
     @Test("H-N2 稀疏窗计数：<3 样本的小时桶计入 sparseWindows，不静默")
-    func 稀疏窗计数() {
+    /// 原名：稀疏窗计数
+    func sparseWindowCounting() {
         // round2 H-N2：无手表用户心率样本稀疏——每个小时桶 <3 样本时旧实现静默跳过，
         // 用户看到「已连接却无数据」却无解释；改为逐桶计数上送（仅统计事实，无阈值判定）
         let samples = [HourWindowSample(value: 80, at: date(9, 8, 5)),
@@ -188,7 +200,8 @@ struct HealthSyncDomainTests {
     }
 
     @Test("H-N2 稀疏窗与非有限剔除分列：剔除后仍 ≥3 的桶不计稀疏")
-    func 稀疏窗与剔除分列() {
+    /// 原名：稀疏窗与剔除分列
+    func sparseWindowAndExclusionSeparated() {
         let samples = [HourWindowSample(value: .nan, at: date(9, 8, 5)),
                        HourWindowSample(value: 80, at: date(9, 8, 10)),
                        HourWindowSample(value: 85, at: date(9, 8, 20)),
@@ -214,7 +227,8 @@ struct HealthSyncDomainTests {
     }
 
     @Test("连续 3 次越限 → 锚定末位读数（FR16.2 验收句）")
-    func 连续三次越限() {
+    /// 原名：连续三次越限
+    func threeConsecutiveExceedances() {
         let anchors = AlertRuleEngine.sustainedViolations(
             graded([0, 1, 2], [.L1, .L1, .L1]))
         #expect(anchors.count == 1)
@@ -222,13 +236,15 @@ struct HealthSyncDomainTests {
     }
 
     @Test("单次/两次越限不触发——瞬时尖峰不得提示")
-    func 瞬时尖峰不触发() {
+    /// 原名：瞬时尖峰不触发
+    func transientSpikeDoesNotTrigger() {
         #expect(AlertRuleEngine.sustainedViolations(graded([0], [.L1])).isEmpty)
         #expect(AlertRuleEngine.sustainedViolations(graded([0, 1], [.L1, .L1])).isEmpty)
     }
 
     @Test("持续 ≥10 分钟即触发（不足 3 次读数也成立）")
-    func 持续时间门槛() {
+    /// 原名：持续时间门槛
+    func durationThreshold() {
         let anchors = AlertRuleEngine.sustainedViolations(
             graded([0, 11], [.L1, .L1]))
         #expect(anchors.count == 1, "2 次越限但持续 11 分钟必须触发")
@@ -237,7 +253,8 @@ struct HealthSyncDomainTests {
     }
 
     @Test("L0 与范围不可用（nil）断开 run")
-    func 低值断开() {
+    /// 原名：低值断开
+    func lowValueDisconnect() {
         // L1 L1 L0 L1 L1 —— run 被 L0 断开，两段各 2 次均不触发
         #expect(AlertRuleEngine.sustainedViolations(
             graded([0, 1, 2, 3, 4], [.L1, .L1, .L0, .L1, .L1])).isEmpty)
@@ -252,7 +269,8 @@ struct HealthSyncDomainTests {
     }
 
     @Test("run 内混合级别 → 锚定最高级读数（证据卡呈现最差事实）")
-    func 锚定最高级() {
+    /// 原名：锚定最高级
+    func anchorsHighestLevel() {
         let anchors = AlertRuleEngine.sustainedViolations(
             graded([0, 1, 2], [.L2, .L1, .L1]))
         #expect(anchors.count == 1)
@@ -261,7 +279,8 @@ struct HealthSyncDomainTests {
     }
 
     @Test("空序列与乱序输入不崩溃")
-    func 空序列() {
+    /// 原名：空序列
+    func emptySequence() {
         #expect(AlertRuleEngine.sustainedViolations([]).isEmpty)
         // 乱序输入按时间排序后判定
         let anchors = AlertRuleEngine.sustainedViolations(
@@ -331,7 +350,8 @@ struct HealthSyncDomainTests {
     }
 
     @Test("DeviceMetricRow 幂等键含来源形态")
-    func deviceMetricRow形态() {
+    /// 原名：deviceMetricRow形态
+    func deviceMetricRowShape() {
         let row = DeviceMetricRow(metricKey: "heart_rate", value: 80, unit: "bpm",
                                   valueMin: 70, valueMax: 100, sampleCount: 60,
                                   sourceName: "Apple Watch", sourceVersion: "9.0",
@@ -342,7 +362,8 @@ struct HealthSyncDomainTests {
     }
 
     @Test("MetricReading 来源元数据向后兼容（扩展字段默认 nil）")
-    func metricReading向后兼容() {
+    /// 原名：metricReading向后兼容
+    func metricReadingBackwardCompatible() {
         let legacy = MetricReading(metricKey: "heart_rate", value: 80, unit: "bpm",
                                    origin: .device, measuredAt: date(9, 8))
         #expect(legacy.sourceName == nil)
@@ -352,7 +373,8 @@ struct HealthSyncDomainTests {
     // MARK: - 导入窗口与样本身份（二轮复审 P2：端点小时 / 时区无关身份）
 
     @Test("心率 series 恰在整点结束：覆盖窗口含端点小时（否则该小时聚合永不重算）")
-    func 心率端点小时进覆盖窗口() {
+    /// 原名：心率端点小时进覆盖窗口
+    func heartRateEndpointHourEntersCoverageWindow() {
         let series = HealthSampleReference(id: UUID(), kind: .heartRate, sourceID: "com.apple.health",
                                            start: date(9, 8, 55), end: date(9, 9))
         let windows = HealthImportWindow.covering(series, calendar: calendar)
@@ -360,7 +382,8 @@ struct HealthSyncDomainTests {
     }
 
     @Test("步数/睡眠区间恰在边界结束不进下一窗口（累计与夜窗口语义不变）")
-    func 区间样本边界不越窗() {
+    /// 原名：区间样本边界不越窗
+    func intervalSampleBoundaryDoesNotCrossWindow() {
         let steps = HealthSampleReference(id: UUID(), kind: .steps, sourceID: "s",
                                           start: date(9, 23), end: date(10, 0))
         #expect(HealthImportWindow.covering(steps, calendar: calendar).map(\.start) == [date(9, 0)])
@@ -370,7 +393,8 @@ struct HealthSyncDomainTests {
     }
 
     @Test("离散样本身份不含日历日：时区/绑定变化后同一 UUID 仍命中同一行")
-    func 离散样本身份时区无关() {
+    /// 原名：离散样本身份时区无关
+    func discreteSampleIdentityTimeZoneIndependent() {
         let id = UUID()
         let identity = HealthImportWindow.sampleIdentity(kind: .bloodOxygen, sampleID: id, ordinal: nil)
         #expect(identity == "hk:bloodOxygen:\(id.uuidString)")
@@ -383,7 +407,8 @@ struct HealthSyncDomainTests {
     }
 
     @Test("窗口归属：离散行按 measured_at 落窗，聚合行按窗口前缀落窗")
-    func 窗口归属判定() {
+    /// 原名：窗口归属判定
+    func windowAssignmentDecision() {
         let day = HealthImportWindow(kind: .bloodOxygen, start: date(9, 0), end: date(10, 0))
         let inside = HealthImportWindow.sampleIdentity(kind: .bloodOxygen, sampleID: UUID(), ordinal: nil)
         #expect(day.contains(sourceRef: inside, measuredAt: date(9, 13)))

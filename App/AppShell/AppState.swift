@@ -394,7 +394,13 @@ final class AppState {
                                        meta: "choice=\(choice.rawValue)")
             }
             if currentPatientId == patientId {
-                currentPatientId = owner?.selfPatientId ?? patientId
+                // 审查修正（BR-001）：owner 缺失时此前回落 `patientId` = 刚软删的
+                // 成员——锚点指向已删除行，后续全部 BR-001 投影对幽灵成员过滤、
+                // 成员选择器无选中。回落顺序：本人档案 → 任一在世成员 → 会话兜底
+                // 常量（绝不指向已删行）。
+                currentPatientId = owner?.selfPatientId
+                    ?? members.first(where: { $0.id != patientId && $0.deletedAt == nil })?.id
+                    ?? Self.sessionFallbackPatientId
             }
             await loadMembers()
             return true

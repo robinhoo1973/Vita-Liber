@@ -17,7 +17,8 @@ struct Fr69CompletenessTests {
     }
 
     @Test("处方 required+recommended 全识别高置信 → 完整（§17.1.2 公式）")
-    func 处方完整() {
+    /// 原名：处方完整
+    func prescriptionComplete() {
         let a = CompletenessEvaluator.assess(
             fields: [field("drug_name"), field("prescribed_at"),
                      field("hospital"), field("doctor"), field("advice_text")],
@@ -28,7 +29,8 @@ struct Fr69CompletenessTests {
     }
 
     @Test("required 全识别但推荐字段缺失 → 基本完整（公式：缺失项权重拉低 score）")
-    func 处方基本完整() {
+    /// 原名：处方基本完整
+    func prescriptionMostlyComplete() {
         let a = CompletenessEvaluator.assess(
             fields: [field("drug_name"), field("prescribed_at")], cardKind: "prescription")
         #expect(a.level == .basicallyComplete)
@@ -36,7 +38,8 @@ struct Fr69CompletenessTests {
     }
 
     @Test("required 全识别但存在低置信 → 基本完整")
-    func 处方基本完整低置信() {
+    /// 原名：处方基本完整低置信
+    func prescriptionMostlyCompleteLowConfidence() {
         let a = CompletenessEvaluator.assess(
             fields: [field("drug_name", 0.6), field("prescribed_at", 0.95),
                      field("hospital"), field("doctor"), field("advice_text")],
@@ -46,7 +49,8 @@ struct Fr69CompletenessTests {
     }
 
     @Test("≥50% required 识别且 score ≥ 0.4 → 部分完整（可跳过稍后）")
-    func 处方部分完整() {
+    /// 原名：处方部分完整
+    func prescriptionPartiallyComplete() {
         let a = CompletenessEvaluator.assess(
             fields: [field("drug_name"), field("hospital"), field("doctor")],
             cardKind: "prescription")
@@ -55,20 +59,23 @@ struct Fr69CompletenessTests {
     }
 
     @Test("<50% required 识别 → 严重缺失（不建卡）")
-    func 处方严重缺失() {
+    /// 原名：处方严重缺失
+    func prescriptionSeverelyIncomplete() {
         let a = CompletenessEvaluator.assess(
             fields: [field("hospital")], cardKind: "prescription")
         #expect(a.level == .severelyIncomplete)
     }
 
     @Test("未登记卡种（系统自动生成实体）→ 无规则恒完整")
-    func 未登记卡种() {
+    /// 原名：未登记卡种
+    func unregisteredCardKind() {
         let a = CompletenessEvaluator.assess(fields: [], cardKind: "alert_event")
         #expect(a.level == .complete)
     }
 
     @Test("metric_sample 语音路径：4 必填全识别、推荐缺失 → 基本完整（公式口径）")
-    func 指标完整() {
+    /// 原名：指标完整
+    func metricComplete() {
         let a = CompletenessEvaluator.assess(
             fields: [field("metric_key"), field("value"), field("unit"), field("measured_at")],
             cardKind: "metric_sample")
@@ -89,7 +96,8 @@ struct Fr69CompletenessTests {
     }
 
     @Test("处方 OCR 标签行归一：药品名+日期行 → 基本完整（推荐缺失按公式降级）")
-    func 处方键归一() {
+    /// 原名：处方键归一
+    func prescriptionKeyNormalized() {
         let fields = [
             CandidateField(key: "rx_line_0", displayLabel: "药品名",
                            rawText: "阿莫西林胶囊", confidence: 0.9),
@@ -105,7 +113,8 @@ struct Fr69CompletenessTests {
     }
 
     @Test("处方 OCR 仅药品名（无日期/医院/医生）→ 严重缺失（公式：score<0.4）")
-    func 处方键归一缺日期() {
+    /// 原名：处方键归一缺日期
+    func prescriptionKeyNormalizedMissingDate() {
         let fields = [
             CandidateField(key: "rx_line_0", displayLabel: "药品名",
                            rawText: "阿莫西林胶囊", confidence: 0.9),
@@ -116,7 +125,8 @@ struct Fr69CompletenessTests {
     }
 
     @Test("处方 OCR 药品名+医院+医生缺日期 → 部分完整（可跳过稍后）")
-    func 处方键归一可跳过() {
+    /// 原名：处方键归一可跳过
+    func prescriptionKeyNormalizationSkippable() {
         let fields = [
             CandidateField(key: "rx_line_0", displayLabel: "药品名",
                            rawText: "阿莫西林胶囊", confidence: 0.9),
@@ -142,7 +152,8 @@ struct Fr69CompletenessTests {
     }
 
     @Test("source_kind+source_id 去重：重复项只保留首个")
-    func 去重() {
+    /// 原名：去重
+    func deduplication() {
         let now = Date()
         let items = [
             item("reminder", "r1", kind: .medication, at: now),
@@ -154,7 +165,8 @@ struct Fr69CompletenessTests {
     }
 
     @Test("置顶项（priority≥2：SOS/L1+/高风险 OCR）绕过窗口与成员过滤")
-    func 置顶绕过() {
+    /// 原名：置顶绕过
+    func pinnedBypass() {
         let now = Date()
         let pinned = item("sos", "s1", kind: .sos,
                           at: now.addingTimeInterval(-20 * 86400), priority: 3, patient: UUID())
@@ -164,7 +176,8 @@ struct Fr69CompletenessTests {
     }
 
     @Test("时间窗过滤：窗外普通项剔除")
-    func 时间窗() {
+    /// 原名：时间窗
+    func timeWindow() {
         let now = Date()
         let stale = item("reminder", "r-old", kind: .medication,
                          at: now.addingTimeInterval(-30 * 86400))
@@ -175,7 +188,8 @@ struct Fr69CompletenessTests {
     }
 
     @Test("成员隔离（BR-001）：他成员普通项剔除、置顶保留")
-    func 成员隔离() {
+    /// 原名：成员隔离
+    func memberIsolation() {
         let now = Date()
         let other = item("reminder", "r-other", kind: .medication, at: now,
                          patient: UUID())
@@ -188,7 +202,8 @@ struct Fr69CompletenessTests {
     }
 
     @Test("首日引导优先级（I7）：仅资料完善 → 引导；任一真实提醒 → 聚合列表")
-    func 首日引导优先级() {
+    /// 原名：首日引导优先级
+    func firstDayGuidePriority() {
         let now = Date()
         let progress = item("profile_progress", "p1", kind: .system, at: now)
         // 只有资料完善任务：新用户 → 展示引导；老用户 → 不展示
@@ -202,7 +217,8 @@ struct Fr69CompletenessTests {
     }
 
     @Test("周期计划压缩：同 plan 保留最近逾期+下一未来项并附剩余数")
-    func 周期计划压缩() {
+    /// 原名：周期计划压缩
+    func periodicPlanCompression() {
         let now = Date()
         let plan = UUID().uuidString
         // 每个剂量实例是独立 sourceId（去重键 source_kind+source_id 不折叠实例），
@@ -222,7 +238,8 @@ struct Fr69CompletenessTests {
     }
 
     @Test("排序：priority desc 再按时间 desc")
-    func 排序() {
+    /// 原名：排序
+    func sorting() {
         let now = Date()
         let low = item("reminder", "r1", kind: .medication, at: now, priority: 0)
         let high = item("alert", "a1", kind: .alert, at: now.addingTimeInterval(-7200), priority: 2)
@@ -232,7 +249,8 @@ struct Fr69CompletenessTests {
     }
 
     @Test("待办卡投影：非敏感标题/24h 时效/状态透传（data-flow §20.1）")
-    func 待办卡投影() {
+    /// 原名：待办卡投影
+    func pendingCardProjection() {
         let now = Date()
         let projected = ReminderAggregationCenter.pendingCardItem(
             cardId: "c1", cardKind: "prescription", patientId: UUID(),
@@ -244,7 +262,8 @@ struct Fr69CompletenessTests {
     }
 
     @Test("类别筛选：置顶项恒保留、其余按类别（V3.87 纯 View 参数）")
-    func 类别筛选() {
+    /// 原名：类别筛选
+    func categoryFiltering() {
         let now = Date()
         let alert = item("alert", "a1", kind: .alert, at: now, priority: 2)
         let card = item("pending_card", "c1", kind: .pendingCard, at: now)
@@ -261,7 +280,8 @@ struct Fr69CompletenessTests {
 @Suite("SU-M2-PENDINGCARD-DB · FR6.9 §21.1 手工草稿同源去重")
 struct PendingCardDedupTests {
     @Test("无文档 ID 重复跳过复用同卡（同成员+卡种+原文）")
-    func 无文档ID重复跳过复用同卡() async throws {
+    /// 原名：无文档ID重复跳过复用同卡
+    func missingDocumentIDDuplicateSkippedReusesSameCard() async throws {
         let dbQueue = try DatabaseQueue(configuration: GRDBStore.configuration())
         // GRDB 重载纪律：async 测试函数内 write 解析到 async 重载须 await
         // （GoldenMigrationTests 同步函数用同步重载无此问题——L1 34299153156 族）

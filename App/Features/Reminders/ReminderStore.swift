@@ -18,8 +18,10 @@ final class ReminderStore {
 
     /// FR14.8/SP-27: Unread reminder count for tab badge.
     /// Counts doses with no user action across all today's slots.
+    /// Domain 单一出口：isUnresolved（nil 或 snoozed 均待用户处理）——
+    /// 此前只数 nil，稍后（snoozed）剂量在角标上永久沉没。
     var pendingCount: Int {
-        todaySlots.reduce(0) { $0 + $1.records.filter { $0.action == nil }.count }
+        todaySlots.reduce(0) { $0 + $1.records.filter { $0.isUnresolved }.count }
     }
 
     private let meds: MedicationStore

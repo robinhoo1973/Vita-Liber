@@ -27,8 +27,9 @@ enum PrescriptionLinePresentation {
             ("note", line.note),
             ("insurance_code", line.insuranceCode),
             ("item_code", line.itemCodeText),
-            ("unit_price", line.unitPrice.map { $0.formatted() }),
-            ("line_amount", line.amount.map { $0.formatted() }),
+            // 金额形态与就诊费用行同口径（CNY 两位小数）——同一处方金额不得两种显示
+            ("unit_price", line.unitPrice.map { $0.formatted(.currency(code: "CNY").precision(.fractionLength(2))) }),
+            ("line_amount", line.amount.map { $0.formatted(.currency(code: "CNY").precision(.fractionLength(2))) }),
         ]
         return pairs.compactMap { pair -> (key: String, value: String)? in
             guard let value = pair.1, !value.isEmpty else { return nil }

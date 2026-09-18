@@ -129,7 +129,8 @@ final class SecurityGateAcceptanceTests: XCTestCase {
 
     /// FR1.1 · V3.22：门禁 = 系统设备所有者认证。冷启动（本会话未认证）即锁；
     /// 认证成功（FakeGateUnlocker 注入成功）→ 放行。完成首启前不锁。
-    func test_SU_M1a_BIO_冷启动未认证即锁_认证成功放行() async throws {
+    /// 原名：test_SU_M1a_BIO_冷启动未认证即锁_认证成功放行
+    func test_SU_M1a_BIO_coldStartLockedUntilAuth_authUnlocks() async throws {
         let defaults = freshDefaults()
         let app = try makeApp(defaults: defaults)
         await app.bootstrap()
@@ -151,7 +152,8 @@ final class SecurityGateAcceptanceTests: XCTestCase {
     }
 
     /// 认证失败/取消不放行（FakeGateUnlocker(result: false)）
-    func test_SU_M1a_BIO_认证失败不放行() async throws {
+    /// 原名：test_SU_M1a_BIO_认证失败不放行
+    func test_SU_M1a_BIO_authFailureDoesNotUnlock() async throws {
         let defaults = freshDefaults()
         let app = try makeApp(defaults: defaults, gateResult: false)
         await app.bootstrap()
@@ -165,7 +167,8 @@ final class SecurityGateAcceptanceTests: XCTestCase {
     }
 
     /// V3.22：首启三卡后直达建档（无 PIN 步骤）
-    func test_SU_M1a_BIO_首启三卡后直达建档无PIN步骤() async throws {
+    /// 原名：test_SU_M1a_BIO_首启三卡后直达建档无PIN步骤
+    func test_SU_M1a_BIO_firstLaunchThreeCardsThenProfileNoPINStep() async throws {
         let defaults = freshDefaults()
         let app = try makeApp(defaults: defaults)
         await app.bootstrap()
@@ -182,7 +185,8 @@ final class SecurityGateAcceptanceTests: XCTestCase {
     }
 
     /// TC-M1a-05：L1 三卡逐卡确认 → 每条卡生成对应 ConsentRecord 并落 consent_record 表
-    func test_三卡确认写入ConsentRecord且落库() async throws {
+    /// 原名：test_三卡确认写入ConsentRecord且落库
+    func test_threeCardsConfirmationWritesConsentRecordAndPersists() async throws {
         let defaults = freshDefaults()
         let container = try AppContainer.preview()
         let app = AppState(persistor: container.persistor,
@@ -214,7 +218,8 @@ final class SecurityGateAcceptanceTests: XCTestCase {
     }
 
     /// LocalOwner 建立 → patient_profile 出现「本人」关联（评审修正：落库断言闭合假绿）
-    func test_建档后本人关联落库() async throws {
+    /// 原名：test_建档后本人关联落库
+    func test_profileCreationLinksLocalOwner() async throws {
         let defaults = freshDefaults()
         let container = try AppContainer.preview()
         let app = AppState(persistor: container.persistor,
@@ -239,7 +244,8 @@ final class SecurityGateAcceptanceTests: XCTestCase {
     /// BR-003 活管线：确认集未全部确认时，只有已确认字段进入正式区——
     /// commitDraft 的 ocrText/留痕仅含已确认字段（V3.39 后生产闸门 =
     /// DocumentsState.commitDraft，旧 AppState 引擎已删除，红线验收不得覆盖死代码）。
-    func test_BR003_活管线_未确认字段不入正式区且留痕仅已确认() async throws {
+    /// 原名：test_BR003_活管线_未确认字段不入正式区且留痕仅已确认
+    func test_BR003_livePipeline_unconfirmedFieldsExcludedOfficialZone_trailOnlyConfirmed() async throws {
         let defaults = freshDefaults()
         let container = try AppContainer.preview()
         let app = AppState(persistor: container.persistor, defaults: defaults, launchArgs: [])

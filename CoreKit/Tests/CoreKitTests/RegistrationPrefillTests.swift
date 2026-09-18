@@ -9,7 +9,8 @@ import Testing
 struct RegistrationPrefillTests {
 
     @Test("完整日期/仅年份/性别三档/标准血型 → 表单默认值")
-    func 预填映射() {
+    /// 原名：预填映射
+    func prefillMapping() {
         let full = RegistrationPrefill.defaults(from: HealthCharacteristics(
             bloodType: "O+", birthDate: "1990-05-03", gender: "female"))
         #expect(full.gender == "female")
@@ -26,7 +27,8 @@ struct RegistrationPrefillTests {
     }
 
     @Test("血型只在标准八档内预填；非标准值不进默认值（机器不代写用户措辞）")
-    func 血型八档() {
+    /// 原名：血型八档
+    func bloodTypeEightTiers() {
         for type in RegistrationPrefill.standardBloodTypes {
             #expect(RegistrationPrefill.defaults(from: HealthCharacteristics(bloodType: type)).bloodType == type)
         }
@@ -35,7 +37,8 @@ struct RegistrationPrefillTests {
     }
 
     @Test("联系人校验：三字段非空 ∧ 手机号 5–20 位数字（允许 + - 空格括号）")
-    func 联系人校验() {
+    /// 原名：联系人校验
+    func contactValidation() {
         #expect(EmergencyContactDraft(name: "张三", relation: "配偶", phone: "13800138000").isValid)
         #expect(EmergencyContactDraft(name: "张三", relation: "配偶", phone: "+86 138-0013-8000").isValid,
                 "国际区号与分隔符形态合法")

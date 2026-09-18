@@ -24,7 +24,8 @@ final class SentStatusAcceptanceTests: XCTestCase {
     }
 
     /// 记录发送 → 列表可查；**原文零落库**（表结构上就没有原文列）
-    func test_记录与列表() async throws {
+    /// 原名：test_记录与列表
+    func test_recordsAndList() async throws {
         let (_, messages, patient) = try await makeStore()
         let sent = try await messages.recordSent(patientId: patient, kind: "helpCard", recipient: "家人")
         XCTAssertEqual(sent.status, .sent)
@@ -38,7 +39,8 @@ final class SentStatusAcceptanceTests: XCTestCase {
     }
 
     /// 状态迁移白名单：合法迁移成功、回退/旁路被拒（Domain 规则 + 仓储强制）
-    func test_状态迁移白名单() async throws {
+    /// 原名：test_状态迁移白名单
+    func test_statusTransitionWhitelist() async throws {
         let (_, messages, patient) = try await makeStore()
         let sent = try await messages.recordSent(patientId: patient, kind: "sos", recipient: "女儿")
 
@@ -58,7 +60,8 @@ final class SentStatusAcceptanceTests: XCTestCase {
     }
 
     /// 成员隔离（BR-001）
-    func test_成员隔离() async throws {
+    /// 原名：test_成员隔离
+    func test_memberIsolation() async throws {
         let (_, messages, patient) = try await makeStore()
         _ = try await messages.recordSent(patientId: patient, kind: "helpCard", recipient: "家人")
         let others = try await messages.list(patientId: UUID())

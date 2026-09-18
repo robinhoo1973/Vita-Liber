@@ -456,7 +456,7 @@ final class DocumentsState {
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         do {
             let data = try Data(contentsOf: url)
-            if ImageInputRules.supportedImageExtensions.contains(url.pathExtension.lowercased()) {
+            if ImageInputRules.supports(pathExtension: url.pathExtension) {
                 return await prepareImageDraft(patientId: patientId, originalData: data, processedData: data,
                     mimeType: ImageInputRules.sniffMimeType(of: data), docType: docType,
                     title: url.lastPathComponent, isSensitive: isSensitive)
@@ -730,8 +730,20 @@ final class DocumentsState {
         }
         var canonical: [MatchedCard] = []
         var unfinished: [MatchedCard] = []
-        for card in cards {
-            let state = try await cardStore.reviewState(card: card, patientId: draft.patientId, documentId: documentID)
+        // 审查修正（效率）：N 张卡串行 await reviewState = N 次串行 actor 往返 +
+        // DB 读（30 项检验报告确认前数秒等待）；改为任务组并发读取（只读投影，
+        // 无共享可变状态），结果按原序折回——reviewConflict 判定顺序语义不变。
+        let states = try await withThrowingTaskGroup(of: (Int, OCRCardStore.ReviewState).self) { group in
+            for (index, card) in cards.enumerated() {
+                group.addTask { @Sendable in
+                    (index, try await cardStore.reviewState(card: card, patientId: draft.patientId, documentId: documentID))
+                }
+            }
+            var collected: [Int: OCRCardStore.ReviewState] = [:]
+            for try await (index, state) in group { collected[index] = state }
+            return (0..<cards.count).compactMap { collected[$0] }
+        }
+        for (card, state) in zip(cards, states) {
             if pagesEdited, state.card != card {
                 // Concurrent edits must be resolved in the existing card, never overwritten by old document text.
                 throw DocumentStore.StoreError.reviewConflict

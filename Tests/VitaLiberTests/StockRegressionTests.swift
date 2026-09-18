@@ -47,9 +47,50 @@ final class StockRegressionTests: XCTestCase {
         return (due, units)
     }
 
+    /// D5 回归锚点（业主裁决 2026-09-18）：missed 行经**普通「已服」确认**
+    /// （confirmTaken，非补录）转 taken——计划轨已被 materializeMissed 扣过，
+    /// 转场必须仅补扣确认轨（Domain transitionDeduction），安全线不得双扣。
+    /// 原名：test_D5_普通确认missed转taken_计划轨不双扣
+    func test_D5_normalConfirmMissedToTaken_planTrackNotDoubleDeducted() async throws {
+        let (store, meds, patient, med) = try await makeStore()
+        let lot = DualTrackInventory(lotId: UUID(), totalUnits: 10, unitKind: "tablet")
+        try await meds.createLot(lot: lot, patientId: patient, medicationId: med)
+        let planId = UUID()
+        try await meds.createPlan(planId: planId, patientId: patient, medicationId: med,
+                                  schedule: .fixed(times: ["08:00"]), status: .active,
+                                  startDate: shanghaiCalendar.date(byAdding: .day, value: -2, to: Date())!,
+                                  endDate: nil)
+        _ = try await seedMissedDose(store: store, meds: meds, planId: planId,
+                                     patient: patient, med: med, lot: lot)
+        let notifyId = try await store.writer.read { db in
+            try String.fetchOne(db, sql: "SELECT id FROM medication_dose_log WHERE plan_id = ?",
+                                arguments: [planId.uuidString]) ?? ""
+        }
+        try await meds.confirmTaken(notifyId: notifyId, patientId: patient)
+        let rows = try await store.writer.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT d.user_action, l.remaining_plan_units, l.remaining_confirmed_units,
+                       a.planned_units, a.confirmed_units
+                FROM medication_dose_log d
+                JOIN dose_lot_allocation a ON a.dose_log_id = d.id
+                JOIN stock_lot l ON l.id = a.stock_lot_id
+                WHERE d.plan_id = ?
+                """, arguments: [planId.uuidString])
+        }
+        XCTAssertEqual((rows.first?["user_action"] as String?) ?? "", "taken")
+        XCTAssertEqual((rows.first?["remaining_plan_units"] as Double?) ?? 0, 9,
+                       "计划轨只扣一次（missed 已扣，普通确认转场补扣必须为 0）")
+        XCTAssertEqual((rows.first?["remaining_confirmed_units"] as Double?) ?? 0, 9,
+                       "确认轨随普通确认补扣")
+        XCTAssertEqual((rows.first?["planned_units"] as Double?) ?? 0, 1)
+        XCTAssertEqual((rows.first?["confirmed_units"] as Double?) ?? 0, 1,
+                       "累加式 upsert：分配行双轨合计正确")
+    }
+
     /// D3 转场 PK 冲突修复：missed→taken 补录不得因 dose_lot_allocation 主键冲突
     /// 整事务回滚（此前任何持有库存的补录必然失败）；计划轨不重复扣减。
-    func test_补录missed转taken_不PK冲突且计划轨不双扣() async throws {
+    /// 原名：test_补录missed转taken_不PK冲突且计划轨不双扣
+    func test_makeupMissedToTaken_noPKConflictNoDoubleDeductionOnPlanTrack() async throws {
         let (store, meds, patient, med) = try await makeStore()
         let lot = DualTrackInventory(lotId: UUID(), totalUnits: 10, unitKind: "tablet")
         try await meds.createLot(lot: lot, patientId: patient, medicationId: med)
@@ -86,7 +127,8 @@ final class StockRegressionTests: XCTestCase {
 
     /// 宽关联转场：补录实际时刻晚排程 2.5 小时（±30min 容差之外）——
     /// 必须转场原 missed 行而非 INSERT 随机 id 新行（否则计划轨双扣）。
-    func test_晚两小时补录_宽关联转场不双行不双扣() async throws {
+    /// 原名：test_晚两小时补录_宽关联转场不双行不双扣
+    func test_twoHourLateMakeup_wideLinkTransitionNoDuplicateRowsNoDoubleDeduction() async throws {
         let (store, meds, patient, med) = try await makeStore()
         let lot = DualTrackInventory(lotId: UUID(), totalUnits: 10, unitKind: "tablet")
         try await meds.createLot(lot: lot, patientId: patient, medicationId: med)
@@ -114,7 +156,8 @@ final class StockRegressionTests: XCTestCase {
 
     /// D5 物化幂等 + 时区重锚：同窗口重复物化零新增；换时区后同一逻辑剂量
     /// 重锚墙钟而非重复建行。
-    func test_物化窗口幂等且时区重锚不重复建行() async throws {
+    /// 原名：test_物化窗口幂等且时区重锚不重复建行
+    func test_materializedWindowIdempotent_timezoneReanchorNoDuplicateRows() async throws {
         let (store, meds, patient, med) = try await makeStore()
         let planId = UUID()
         // 时钟确定性（CI 34045372069 实证）：逻辑剂量身份 = 本地日历日+序号——
@@ -143,7 +186,8 @@ final class StockRegressionTests: XCTestCase {
 
     /// FR5.8 归档/收藏正交组合态：收藏已归档文档不得解除归档；
     /// 取消归档保留收藏；组合态可逆。
-    func test_归档收藏组合态可逆() async throws {
+    /// 原名：test_归档收藏组合态可逆
+    func test_archiveFavoriteComboStateReversible() async throws {
         let store = try GRDBStore.inMemory()
         let docs = DocumentStore(writer: store.writer)
         let patient = UUID()
@@ -182,7 +226,8 @@ final class StockRegressionTests: XCTestCase {
     /// 商业化定价锚点（评审修正第二轮 ④）：默认语言（zh-Hans）下 Pro 年价
     /// 必须与 comercial-spec §4.3 的 ¥68/年 锚点一致——L10n 解析失败会裸显
     /// key（不含 ¥），断言可捕捉 bundle 断链与锚点漂移。
-    func test_定价锚点与spec一致() {
+    /// 原名：test_定价锚点与spec一致
+    func test_pricingAnchorMatchesSpec() {
         XCTAssertTrue(L10n.payProYearlyPrice.contains("¥68"),
                       "zh-Hans Pro 年价锚点必须为 ¥68/年（comercial-spec §4.3）")
         XCTAssertTrue(L10n.payProMonthlyPrice.contains("¥12"),
@@ -211,7 +256,8 @@ final class StockRegressionTests: XCTestCase {
 
     /// 入库携带稳定键即落 `doc_type_key` 并随行投影回读；未传键（旧调用形态）= NULL 且进回填清单
     ///（nil = 全成员 / 按成员过滤 / limit 生效）。
-    func test_入库写稳定键_缺键行进回填清单() async throws {
+    /// 原名：test_入库写稳定键_缺键行进回填清单
+    func test_ingestWritesStableKey_missingKeyRowsEnterBackfillList() async throws {
         let (_, docs, a, b) = try await documentFixture()
         let keyed = try await docs.save(patientId: a, docType: "处方单", sha256: "k1", mimeType: "image/jpeg",
                                         origin: "import", isSensitive: false, metaJSON: nil, title: nil,
@@ -248,7 +294,8 @@ final class StockRegressionTests: XCTestCase {
     }
 
     /// `setDocTypeKey`：未知键拒绝、他人成员拒绝（BR-001，零写入）；本人成功后该行离开回填清单。
-    func test_setDocTypeKey_成员隔离_未知键拒绝_成功后离开清单() async throws {
+    /// 原名：test_setDocTypeKey_成员隔离_未知键拒绝_成功后离开清单
+    func test_setDocTypeKey_memberIsolation_unknownKeyRejected_successLeavesList() async throws {
         let (store, docs, a, b) = try await documentFixture()
         let doc = try await docs.save(patientId: a, docType: "处方单", sha256: "s1", mimeType: "image/jpeg",
                                       origin: "import", isSensitive: false, metaJSON: nil, title: nil)
@@ -279,7 +326,8 @@ final class StockRegressionTests: XCTestCase {
     }
 
     /// 复核改类型：传键即同步 `doc_type_key`（标签与键不漂移）；不传键（旧调用形态）保持原键。
-    func test_复核改类型同步稳定键_未传键保持原键() async throws {
+    /// 原名：test_复核改类型同步稳定键_未传键保持原键
+    func test_confirmTypeChangeSyncsStableKey_absentKeyKeepsOriginal() async throws {
         let (_, docs, a, _) = try await documentFixture()
         let doc = try await docs.save(patientId: a, docType: "处方单", sha256: "r1", mimeType: "image/jpeg",
                                       origin: "import", isSensitive: false, metaJSON: nil, title: nil,
@@ -305,7 +353,8 @@ final class StockRegressionTests: XCTestCase {
     /// 全部来自调用方参数、计划查询只看 `plan_id + status`——错传成员会**静默扣减
     /// 他人批次**并把分配行记到错成员名下（跨成员医疗数据污染）。修复后：错传即
     /// `doseNotFound`，且**两线余量与分配行分毫不动**。
-    func test_错传成员补录被拒且不触碰存量() async throws {
+    /// 原名：test_错传成员补录被拒且不触碰存量
+    func test_wrongMemberMakeupRejectedAndStockUntouched() async throws {
         let (store, meds, patient, med) = try await makeStore()
         let lot = DualTrackInventory(lotId: UUID(), totalUnits: 10, unitKind: "tablet")
         try await meds.createLot(lot: lot, patientId: patient, medicationId: med)

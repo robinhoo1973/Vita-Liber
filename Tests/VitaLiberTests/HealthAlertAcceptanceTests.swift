@@ -26,7 +26,8 @@ final class HealthAlertAcceptanceTests: XCTestCase {
     }
 
     /// 信源库：种子入库幂等、按指标检索命中、零网络即可用
-    func test_信源库种子幂等且离线可检索() async throws {
+    /// 原名：test_信源库种子幂等且离线可检索
+    func test_sourceLibrarySeedIdempotentAndOfflineSearchable() async throws {
         let (_, guidelines, _) = try await makeStore()
 
         let first = try await guidelines.seedBundled()
@@ -50,7 +51,8 @@ final class HealthAlertAcceptanceTests: XCTestCase {
     }
 
     /// 无适用范围 → 拒绝定级而非臆造（范围不可用是独立状态，不显示通用范围）
-    func test_无信源无报告范围拒绝定级() async throws {
+    /// 原名：test_无信源无报告范围拒绝定级
+    func test_noSourceNoReportedRangeRefusesGrading() async throws {
         let (_, guidelines, patient) = try await makeStore()
         let reading = MetricReading(metricKey: "custom_metric", value: 3.0, unit: "x",
                                     origin: .manual, measuredAt: Date())
@@ -63,7 +65,8 @@ final class HealthAlertAcceptanceTests: XCTestCase {
     }
 
     /// 预警事件：只存事实（定级 + 证据卡 JSON），历史可查且措辞过负清单
-    func test_预警事件落库与历史查询() async throws {
+    /// 原名：test_预警事件落库与历史查询
+    func test_alertEventsPersistAndHistoryQuery() async throws {
         let (_, guidelines, patient) = try await makeStore()
         _ = try await guidelines.seedBundled()
 
@@ -89,7 +92,8 @@ final class HealthAlertAcceptanceTests: XCTestCase {
     }
 
     /// 连续 3 次越限触发 L1：序列走落库链（每读数一条事件），最后一条定级 L1
-    func test_连续三次越限落库链() async throws {
+    /// 原名：test_连续三次越限落库链
+    func test_threeConsecutiveExceedancesPersistChain() async throws {
         let (_, guidelines, patient) = try await makeStore()
         _ = try await guidelines.seedBundled()
         var readings: [MetricReading] = []
@@ -131,7 +135,8 @@ final class HealthAlertAcceptanceTests: XCTestCase {
     }
 
     /// 迁移 v3：v2 库升级后 guideline_source 具备阈值列
-    func test_迁移v3补齐信源阈值列() async throws {
+    /// 原名：test_迁移v3补齐信源阈值列
+    func test_migrationV3BackfillsSourceThresholdColumns() async throws {
         let queue = try DatabaseQueue(configuration: GRDBStore.configuration())
         try await queue.write { db in
             try db.execute(sql: """

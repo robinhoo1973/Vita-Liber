@@ -35,7 +35,8 @@ final class HomeDoseDispositionTests: XCTestCase {
         return store.todaySlots.flatMap(\.records).filter { $0.action == nil }.map(\.dose)
     }
 
-    func test_时段跳过逐剂写skipped并返回条数() async throws {
+    /// 原名：test_时段跳过逐剂写skipped并返回条数
+    func test_timeSlotSkipWritesSkippedPerDoseAndReturnsCount() async throws {
         let (store, meds, patient, med) = try await makeStore()
         let doses = try await pendingDoses(store, meds, patient, med)
         XCTAssertEqual(doses.count, 1)
@@ -45,7 +46,8 @@ final class HomeDoseDispositionTests: XCTestCase {
         XCTAssertEqual(store.pendingCount, 0)
     }
 
-    func test_时段稍后先调度后记snoozed() async throws {
+    /// 原名：test_时段稍后先调度后记snoozed
+    func test_timeSlotSnoozeSchedulesThenRecordsSnoozed() async throws {
         let (store, meds, patient, med) = try await makeStore()
         let doses = try await pendingDoses(store, meds, patient, med)
         let n = await store.snoozeSlotPending(patientId: patient, doses: doses, minutes: 15)
@@ -53,7 +55,8 @@ final class HomeDoseDispositionTests: XCTestCase {
         XCTAssertEqual(store.todaySlots.flatMap(\.records).first?.action, .snoozed)
     }
 
-    func test_空剂量集返回0() async throws {
+    /// 原名：test_空剂量集返回0
+    func test_emptyDoseSetReturnsZero() async throws {
         let (store, _, patient, _) = try await makeStore()
         let n = await store.skipSlotPending(patientId: patient, doses: [])
         XCTAssertEqual(n, 0)

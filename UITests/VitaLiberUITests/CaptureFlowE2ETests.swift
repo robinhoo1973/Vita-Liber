@@ -66,7 +66,8 @@ final class CaptureFlowE2ETests: XCTestCase {
         return app
     }
 
-    func test_SU_M1a_E2E_端到端切片故事_三卡建档家人完成进首页() throws {
+    /// 原名：test_SU_M1a_E2E_端到端切片故事_三卡建档家人完成进首页
+    func test_SU_M1a_E2E_endToEndSliceStory_threeCardsFamilyCompleteToHome() throws {
         let app = launchAtFamilyStep()
 
         // FR21.9 ④ 添加家人（可跳过）：V3.39 起为向导最后一步——跳过即完成向导
@@ -97,7 +98,8 @@ final class CaptureFlowE2ETests: XCTestCase {
     }
 
     // binds: SU-M1c-REGRESSION — TC-M1c-08 / SP-04
-    func test_无当前档案时不显示进度或保留顶部空块() throws {
+    /// 原名：test_无当前档案时不显示进度或保留顶部空块
+    func test_noCurrentProfileShowsNoProgressOrEmptyTopBlock() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-uitest-reset", "-uitest-seed-finished", "-uitest-gate-bypass"]
         app.launch()
@@ -112,7 +114,8 @@ final class CaptureFlowE2ETests: XCTestCase {
     }
 
     // binds: SU-M1c-REGRESSION — TC-M1c-08 / BR-001
-    func test_换成员后再次进入同一访谈路由会重置旧步骤() throws {
+    /// 原名：test_换成员后再次进入同一访谈路由会重置旧步骤
+    func test_switchMemberReenterSameInterviewRouteResetsOldStep() throws {
         let app = launchAtFamilyStep()
         app.buttons["FR21.9.step4.manual"].tap()
         let name = app.textFields["FR3.7.create.name"]
@@ -156,7 +159,8 @@ final class CaptureFlowE2ETests: XCTestCase {
     /// XCUITest 无法自动化 Face ID → -uitest-gate-stub-success 注入确定性成功；
     /// -uitest-gate-no-auto 关掉遮罩出现的自动认证（避免在断言前被桩自动放行）。
     /// 用 -uitest-seed-finished 确定性注入完成态（门禁生效），不依赖前序用例持久化。
-    func test_SU_M1a_SEC_退后台回前台必见锁屏() throws {
+    /// 原名：test_SU_M1a_SEC_退后台回前台必见锁屏
+    func test_SU_M1a_SEC_backgroundForegroundMustSeeLockScreen() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-uitest-seed-finished", "-uitest-gate-stub-success",
                                "-uitest-gate-no-auto"]

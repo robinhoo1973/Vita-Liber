@@ -11,7 +11,8 @@ struct HealthCharacteristicImportTests {
     }
 
     @Test("档案无值 → 可采纳；健康未填的字段不出现")
-    func 无值可采纳() {
+    /// 原名：无值可采纳
+    func noValueAdoptable() {
         let health = HealthCharacteristics(bloodType: "A+", birthDate: "1990-05-03", gender: "male")
         let candidates = HealthCharacteristicImport.candidates(characteristics: health, profile: profile())
         #expect(candidates.map(\.field) == [.bloodType, .birthDate, .gender])
@@ -26,7 +27,8 @@ struct HealthCharacteristicImportTests {
     }
 
     @Test("档案已有值 → 默认保留、不给「采用」（医院原文/用户手填优先级更高）")
-    func 已有值不覆盖() {
+    /// 原名：已有值不覆盖
+    func existingValueNotOverwritten() {
         let health = HealthCharacteristics(bloodType: "A+", birthDate: "1990-05-03")
         let candidates = HealthCharacteristicImport.candidates(
             characteristics: health, profile: profile(blood: "B型（Rh阳性）", birth: "1988-01-02"))
@@ -36,7 +38,8 @@ struct HealthCharacteristicImportTests {
     }
 
     @Test("出生日期精度：档案是「仅年份」→ 候选降到年份，不擅自细化")
-    func 精度不细化() {
+    /// 原名：精度不细化
+    func precisionNotRefined() {
         let health = HealthCharacteristics(birthDate: "1990-05-03")
         let yearOnly = HealthCharacteristicImport.candidates(characteristics: health, profile: profile(birth: "1990"))
         // 档案有值 → 该行本身不可采纳；此处验证的是**候选值**已被降到年份
@@ -47,7 +50,8 @@ struct HealthCharacteristicImportTests {
     }
 
     @Test("生理性别：Health 三档原样透传（male/female/other），不做本地化改写")
-    func 性别透传() {
+    /// 原名：性别透传
+    func sexPassedThrough() {
         for value in ["male", "female", "other"] {
             let candidates = HealthCharacteristicImport.candidates(
                 characteristics: HealthCharacteristics(gender: value), profile: profile())

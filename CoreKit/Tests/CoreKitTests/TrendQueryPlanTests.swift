@@ -44,7 +44,8 @@ struct TrendQueryPlanTests {
     }
 
     @Test("v28 两条索引已在基线 DDL 与迁移中定义（新装/升级同形）")
-    func 索引存在() throws {
+    /// 原名：索引存在
+    func indexExists() throws {
         let store = try seeded()
         let names = try store.writer.read { db in
             try String.fetchAll(db, sql: "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='metric_sample'")
@@ -54,7 +55,8 @@ struct TrendQueryPlanTests {
     }
 
     @Test("时间轴指标分支命中 idx_metric_timeline（不再临时排序）")
-    func 时间轴计划() throws {
+    /// 原名：时间轴计划
+    func timelinePlan() throws {
         let store = try seeded()
         let detail = try store.writer.read { db in
             try plan(db, """
@@ -67,7 +69,8 @@ struct TrendQueryPlanTests {
     }
 
     @Test("宫格最新行命中 idx_metric_latest（分区排序由索引提供）")
-    func 宫格计划() throws {
+    /// 原名：宫格计划
+    func gridPlan() throws {
         let store = try seeded()
         let detail = try store.writer.read { db in
             try plan(db, """

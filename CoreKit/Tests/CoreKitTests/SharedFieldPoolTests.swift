@@ -23,7 +23,8 @@ struct SharedFieldPoolTests {
     }
 
     @Test("A 跨卡重复同值 → 归并一行，承载方齐全（同一医院两卡只确认一次）")
-    func 跨卡同值归并() {
+    /// 原名：跨卡同值归并
+    func sameValueAcrossCardsMerged() {
         let prescription = card("prescription", shared: [field("hospital", "市一院")])
         let claim = card("claim_item", shared: [field("hospital", "市一院")])
         let rows = SharedFieldPool.rows(cards: [prescription, claim])
@@ -34,7 +35,8 @@ struct SharedFieldPoolTests {
     }
 
     @Test("同键不同值 → 各成一行，不强行合并（两卡的医院真不一样）")
-    func 同键不同值不合并() {
+    /// 原名：同键不同值不合并
+    func sameKeyDifferentValuesNotMerged() {
         let a = card("prescription", shared: [field("hospital", "市一院")])
         let b = card("claim_item", shared: [field("hospital", "市二院")])
         let rows = SharedFieldPool.rows(cards: [a, b])
@@ -44,20 +46,23 @@ struct SharedFieldPoolTests {
     }
 
     @Test("单卡且全高置信 → 不入池（共用页不出现）")
-    func 单卡零入池() {
+    /// 原名：单卡零入池
+    func singleCardNothingPools() {
         let single = card("encounter", shared: [field("date", "2026-09-16"), field("kind", "outpatient"),
                                                 field("hospital", "市一院")])
         #expect(SharedFieldPool.rows(cards: [single]).isEmpty, "无重复、无低置信必填 → 池为空")
     }
 
     @Test("单卡缺必填 → 不入池（保持卡内「缺少 X，点此填写」原路；多卡才上公用页）")
-    func 单卡缺失不入池() {
+    /// 原名：单卡缺失不入池
+    func singleCardMissingNotPooled() {
         let single = card("encounter", shared: [field("kind", "outpatient", confidence: 1)])
         #expect(SharedFieldPool.rows(cards: [single]).isEmpty, "单卡不因缺失必填而多开一页")
     }
 
     @Test("单卡必填但值为空 → 也不入池（「单卡的卡内操作」；低置信才入）")
-    func 单卡空值不入池() {
+    /// 原名：单卡空值不入池
+    func singleCardEmptyValueNotPooled() {
         let emptied = card("encounter", shared: [field("kind", "", confidence: 1),
                                                  field("date", "2026-09-16", confidence: 1)])
         #expect(SharedFieldPool.rows(cards: [emptied]).isEmpty, "空值（非低置信）留卡内；实得 \(SharedFieldPool.rows(cards: [emptied]).map(\.key))")
@@ -67,7 +72,8 @@ struct SharedFieldPoolTests {
     }
 
     @Test("B 只被一张卡携带：高置信可选不入池；必填低置信入池（critical）")
-    func 单卡入池规则() {
+    /// 原名：单卡入池规则
+    func singleCardPoolingRule() {
         // doctor 可选高置信（0.9）→ 不入池；date 必填低置信（0.4）→ 入池
         let single = card("encounter", shared: [field("doctor", "张三"), field("kind", "outpatient"),
                                                 field("date", "2026-09-16", confidence: 0.4)])
@@ -77,7 +83,8 @@ struct SharedFieldPoolTests {
     }
 
     @Test("B 共享面缺席的必填键 → 空值入池，且「未处理完」闸门如实拦住")
-    func 缺席必填入池() {
+    /// 原名：缺席必填入池
+    func absentRequiredEntersPool() {
         // 两张卡都缺 date（多卡才上公用页；单卡见「单卡缺失不入池」）
         let a = card("encounter", shared: [field("kind", "outpatient", confidence: 1)])
         let b = card("encounter", shared: [field("kind", "outpatient", confidence: 1)])
@@ -92,7 +99,8 @@ struct SharedFieldPoolTests {
     }
 
     @Test("多卡同缺同一关键字段 → 归并一行、多承载方；补填一次即同时补进每张卡")
-    func 多卡同缺归并() {
+    /// 原名：多卡同缺归并
+    func multiCardSameAbsenceMerged() {
         // 两张就诊卡都没识别出 date（缺失的必填键），一张有 kind 一张没有
         let a = card("encounter", shared: [field("kind", "outpatient", confidence: 1)])
         let b = card("encounter", shared: [field("doctor", "张三")])
@@ -112,7 +120,8 @@ struct SharedFieldPoolTests {
     }
 
     @Test("出池回填：确认后的值写回承载方，且不动承载方自己的来源（rawText/锚定）")
-    func 回填全承载方() {
+    /// 原名：回填全承载方
+    func backfillAllCarriers() {
         // A 有低置信的 kind（必填、带来源）；B 缺 kind（→ 空值入池）；两张卡都缺 date
         let a = card("encounter", shared: [field("kind", "outpatient", confidence: 0.4, rawText: "门诊 门诊病历")])
         let b = card("encounter", shared: [field("doctor", "李四")])
@@ -140,7 +149,8 @@ struct SharedFieldPoolTests {
     }
 
     @Test("票据卡：多个必填键缺失时一次补齐（金额/币种/类型都在公用页）")
-    func 票据卡多键补缺() {
+    /// 原名：票据卡多键补缺
+    func invoiceCardMultiKeyFill() {
         let claim = card("claim_item", shared: [field("date", "2026-09-16", confidence: 1)])
         let other = card("prescription", shared: [field("prescribed_at", "2026-09-16", confidence: 1)])
         var rows = SharedFieldPool.rows(cards: [claim, other])
@@ -153,7 +163,8 @@ struct SharedFieldPoolTests {
     }
 
     @Test("行级与主卡草稿同样是承载方（低置信的检验值 / 草稿日期）")
-    func 行级与草稿承载方() {
+    /// 原名：行级与草稿承载方
+    func rowLevelAndDraftCarriers() {
         let labRow = MatchedCardRow(fields: [field("raw_label", "血红蛋白"), field("value", "150", confidence: 0.3)])
         let lab = card("metric_sample", shared: [field("measured_at", "2026-09-16", confidence: 1)], rows: [labRow])
         let draft = card("prescription", shared: [field("prescribed_at", "2026-09-16", confidence: 1)],
@@ -174,7 +185,8 @@ struct SharedFieldPoolTests {
     }
 
     @Test("拒绝字段不入池（拒绝是已裁决，不是待办）")
-    func 拒绝不入池() {
+    /// 原名：拒绝不入池
+    func rejectedNotPooled() {
         var rejected = field("hospital", "市一院")
         rejected.reject()
         let a = card("prescription", shared: [rejected, field("prescribed_at", "2026-09-16", confidence: 1)])

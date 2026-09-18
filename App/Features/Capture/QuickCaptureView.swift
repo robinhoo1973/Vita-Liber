@@ -160,7 +160,7 @@ struct QuickCaptureView: View {
                 case .success(let urls):
                     guard let url = urls.first else { cancelSelection(); return }
                     let scoped = url.startAccessingSecurityScopedResource()
-                    if ImageInputRules.supportedImageExtensions.contains(url.pathExtension.lowercased()) {
+                    if ImageInputRules.supports(pathExtension: url.pathExtension) {
                         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
                         do {
                             let data = try Data(contentsOf: url)

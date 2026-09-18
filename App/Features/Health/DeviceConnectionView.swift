@@ -96,8 +96,16 @@ final class F16DeviceState {
         available = await syncService.isAvailable()
         availabilityProbed = true
         await refreshDashboard()
+        // 审查修正（F16）：健康 Tab 每次重入都会走本探测——此前无条件把 phase 覆盖
+        // 为 .done，手动同步失败的 .degraded 提示被静默清除、页面回显旧报告
+        // 「已同步 N 行」（把失败伪装成成功）。.degraded 必须保留到用户重新同步。
         if !isSyncing, let latest = dashboard?.lastReport {
-            report = latest; phase = .done(count: latest.persistedRows)
+            report = latest
+            if case .degraded = phase {
+                // 失败提示保留（报告数据仍刷新为最新事实）
+            } else {
+                phase = .done(count: latest.persistedRows)
+            }
         }
         return connected
     }

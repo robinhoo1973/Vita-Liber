@@ -23,7 +23,7 @@ struct PressToTalkMicButton: View {
                         .frame(width: 104, height: 104)
                     VStack(spacing: 5) {
                         Image(systemName: model.phase == .recording ? "waveform" : "mic.fill")
-                            .font(.system(size: 40))
+                            .font(VLFont.homeActionIcon)   // 字型 token 单出口（40pt）
                             .foregroundStyle(model.phase == .recording
                                              ? Color("semantic-danger", bundle: .main)
                                              : Color("brand-primary", bundle: .main))

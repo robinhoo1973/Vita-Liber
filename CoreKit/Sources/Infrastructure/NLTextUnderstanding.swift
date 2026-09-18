@@ -205,7 +205,16 @@ public actor FallbackTextUnderstanding: TextUnderstanding {
     public func understand(_ input: TextUnderstandingInput) async throws -> UnderstandingResult {
         for track in tracks {
             guard !Task.isCancelled, await track.isAvailable(for: input) else { continue }
-            let result = try await track.understand(input)
+            // 审查修正：单轨非取消类异常必须降级到下一轨，不得击穿整条链
+            // （「降级零崩溃」契约——ADR-029 三轨语义：一轨坏不殃及余轨）。
+            // CancellationError 按协议继续上抛。
+            let result: UnderstandingResult
+            do {
+                result = try await track.understand(input)
+            } catch {
+                if error is CancellationError { throw error }
+                continue
+            }
             if !result.engineUnavailable {
                 return result
             }
