@@ -47,6 +47,23 @@ struct HealthWriteBackTests {
         #expect(!HealthWriteBack.isWritable(metric: "unknownMetric", unit: "bpm", value: 60))
     }
 
+    @Test("写回尺度：血氧按分数制换算，其余 1:1")
+    /// 原名：写回尺度血氧分数制
+    func writeScaleIsFractionForBloodOxygenAndOneToOneOtherwise() {
+        // HealthKit 的 .percent() 是分数制：0.98 表示 98%。本应用 SpO2 约定是 0–100
+        // （读路径的镜像：factor = 100）。写回若不做这一步，98 会被存成 98.0 = 9800%。
+        #expect(HealthWriteBack.writeScale(for: MetricType.bloodOxygen.rawValue) == 0.01)
+        // 98% 写出去应该是 0.98，而不是 98
+        #expect(98 * HealthWriteBack.writeScale(for: MetricType.bloodOxygen.rawValue) == 0.98)
+        // 其余可写指标均为 1:1（mmHg / mg/dL / kg / °C / bpm 与目标单位同尺度）
+        for metric in [MetricType.bloodPressureSys, .bloodPressureDia, .glucose,
+                       .weight, .temperature, .heartRate] {
+            #expect(HealthWriteBack.writeScale(for: metric.rawValue) == 1)
+        }
+        // 未知指标不参与写回（isWritable 已拒），尺度仍返回恒等而非 0——0 会把值抹成 0
+        #expect(HealthWriteBack.writeScale(for: "unknownMetric") == 1)
+    }
+
     @Test("草稿载荷：等值性与默认第二值")
     /// 原名：草稿
     func drafts() {

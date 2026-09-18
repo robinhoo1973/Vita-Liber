@@ -85,6 +85,13 @@ public actor HealthKitReader: HealthReadingProvider, HealthWritingProvider {
         }
     }
 
+    /// 写回尺度：**应用内部值 → HealthKit 单位期望值**。规则本体在 Domain
+    /// `HealthWriteBack.writeScale`（与 `canonicalUnit`/`isWritable` 同一出口，且本机可测）；
+    /// 此处只做 `MetricType` → metric 字符串的转接。
+    private static func hkWriteScale(_ metric: MetricType) -> Double {
+        HealthWriteBack.writeScale(for: metric.rawValue)
+    }
+
     public func requestWriteAuthorization() async throws {
         guard isAvailable() else { throw HealthWriteError.unavailable }
         try await store.requestAuthorization(toShare: Self.writeTypes, read: [])
@@ -136,7 +143,8 @@ public actor HealthKitReader: HealthReadingProvider, HealthWritingProvider {
             } else {
                 guard let type = Self.hkQuantityType(metric), let unit = Self.hkUnit(metric) else { continue }
                 objects.append(HKQuantitySample(type: type,
-                    quantity: HKQuantity(unit: unit, doubleValue: draft.value),
+                    quantity: HKQuantity(unit: unit,
+                                         doubleValue: draft.value * Self.hkWriteScale(metric)),
                     start: date, end: date))
                 written += 1
             }

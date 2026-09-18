@@ -56,4 +56,23 @@ public enum HealthWriteBack {
         guard let canonical = canonicalUnit(for: metric), value.isFinite else { return false }
         return normalizedUnit(unit) == canonical
     }
+
+    /// 写回尺度：**应用内部数值约定 → 目标存储的数值约定**。默认 1:1。
+    ///
+    /// 只有 `.percent()` 类指标不 1:1：HealthKit 的血氧是**分数制**（0.98 表示 98%），
+    /// 而本应用的 SpO2 约定是 0–100（读路径同一事实的镜像：`factor = 100`，
+    /// `value = point.value * factor`）。写回若原样传 98，会被存成 98.0 = **9800%**——
+    /// 一个生理上不可能的值；又因防回声过滤把本应用写入的样本从增量与窗口两路都滤掉，
+    /// **本应用既看不见也修不回来**（只能由用户在健康 App 手工删除）。
+    ///
+    /// 放在 Domain 而非 Infrastructure：① 与 `canonicalUnit`/`isWritable` 同属「写回载荷
+    /// 规则」的单一出口；② Infrastructure 的 `HealthKitReader` 带 `#if os(iOS)` 守卫，
+    /// 在 Linux 上编译为空，规则留在那里**本机无法测试**（本次修复的唯一可验证路径）。
+    /// 换算是有定义的映射，不是「猜测」——诚实写回允许换算、不允许猜。
+    public static func writeScale(for metric: String) -> Double {
+        switch metric {
+        case MetricType.bloodOxygen.rawValue: return 0.01
+        default: return 1
+        }
+    }
 }
