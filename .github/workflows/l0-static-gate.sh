@@ -533,6 +533,22 @@ EOF
   else
     pass "视图层无未登记中文字面量（存量豁免清单 ${L10N_ALLOW}；扫描 $l10n_scanned 行）"
   fi
+
+  # 原始键逃生口（2026-09-18，由 L10n 拆分引入并在同轮补门禁）：拆分后 `t()` 的
+  # `private` 被摘掉（跨文件扩展必需），于是任意 App/CoreKit 文件都能写
+  # `L10n.t("raw.key")` **绕过**类型化访问器——即绕过「文案唯一出口」本身。
+  # 既有两道检查都不覆盖这个面：中文扫描查不到它（键可以完全不含中文），
+  # 静态 t() 反查只扫 App/Localization/。故单列一条。
+  # 先剥注释再判：源码里说明性地提到 L10n.t() 的文字不算违规（实测 AppRootView 有一处）。
+  raw_key_hits="$(grep -rn 'L10n\.t(' "$APP/App" "$APP/CoreKit/Sources" --include='*.swift' 2>/dev/null \
+    | grep -v '/App/Localization/' | sed 's,//.*,,' | grep -c 'L10n\.t(' || true)"
+  if [ "${raw_key_hits:-0}" -gt 0 ]; then
+    grep -rn 'L10n\.t(' "$APP/App" "$APP/CoreKit/Sources" --include='*.swift' 2>/dev/null \
+      | grep -v '/App/Localization/' | sed 's,//.*,,' | grep 'L10n\.t(' | head -8 | sed 's/^/    /'
+    fail "文案出口外出现原始键调用 L10n.t(...) ${raw_key_hits} 处 —— 改用类型化访问器，或在 App/Localization/ 内登记该键"
+  else
+    pass "文案出口外无原始键调用（L10n.t 仅允许出现在 App/Localization/）"
+  fi
 fi
 
 # ---------- [11] 资产目录完整性 ----------
