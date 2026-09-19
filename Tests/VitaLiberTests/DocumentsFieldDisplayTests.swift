@@ -11,7 +11,7 @@ import Domain
 final class DocumentsFieldDisplayTests: XCTestCase {
 
     private func display(_ key: String, _ value: String) -> String {
-        DocumentsState.fieldValueDisplay(forKey: key, value: value)
+        DocumentsDisplay.fieldValueDisplay(forKey: key, value: value)
     }
 
     // MARK: kind → EncounterKind
@@ -88,7 +88,7 @@ final class DocumentsFieldDisplayTests: XCTestCase {
             XCTAssertNotEqual(shown, raw, "diagnosis.type.\(raw) must be localized")
         }
         XCTAssertEqual(display("diagnosis_type", "主要诊断"), "主要诊断")
-        XCTAssertEqual(DocumentsState.enumOptions(forKey: "diagnosis_type"), Diagnosis.diagnosisTypes)
+        XCTAssertEqual(DocumentsDisplay.enumOptions(forKey: "diagnosis_type"), Diagnosis.diagnosisTypes)
     }
 
     func testReportTypeMapsEveryCanonicalValueAndPassesUnknownThrough() {
@@ -96,8 +96,8 @@ final class DocumentsFieldDisplayTests: XCTestCase {
             XCTAssertEqual(display("report_type", raw), L10n.examReportTypeName(raw))
         }
         XCTAssertEqual(display("report_type", "彩超"), "彩超")
-        XCTAssertEqual(DocumentsState.enumOptions(forKey: "report_type"), ExamReport.reportTypes)
-        XCTAssertTrue(DocumentsState.enumOptions(forKey: "kind")?.contains(EncounterKind.daySurgery.rawValue) == true)
+        XCTAssertEqual(DocumentsDisplay.enumOptions(forKey: "report_type"), ExamReport.reportTypes)
+        XCTAssertTrue(DocumentsDisplay.enumOptions(forKey: "kind")?.contains(EncounterKind.daySurgery.rawValue) == true)
     }
 
     // MARK: 其余键与自由文本

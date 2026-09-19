@@ -45,4 +45,12 @@ public enum VoiceModificationGuard {
         }
         return nil
     }
+
+    /// 拒绝卡构造单一出口（2026-09-19 恢复：测试契约
+    /// rejectionCardIsTypedAndKeepsMatchedPhrase 钉死——类别与命中短语必须随卡
+    /// 留痕，用户可见「改了什么」；2026-09-18 清理轮误删，CoreKitTests 不在
+    /// Linux 型检范围，CI 35411488605 实证）。
+    public static func rejection(category: Category, phrase: String) -> Rejection {
+        Rejection(category: category, matchedPhrase: phrase)
+    }
 }
