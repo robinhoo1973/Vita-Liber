@@ -1,3 +1,25 @@
+## 架构速览与审查视角（2026-09-19 增强：无记忆 agent 多角度入状态）
+
+**分层依赖**（tech-spec §1）：App（AppShell 组装根 + Features 19 域）→ 依赖 Domain +
+Protocols；Infrastructure 是全部系统服务实现（GRDB/Vision/UserNotifications/Keychain）；
+Domain 只 import Foundation。跨域流量只经 Domain 实体与仓储协议，Features 互不 import。
+
+**数据流主干**：扫描（Capture）→ Vision OCR（OCRCardStore/OCRPipeline）→ 抽取
+（Domain ExtractionSpec/ExtractionPatterns/OCRGrounding 三轨：T1 规则 / T2 llama /
+T3 启发式）→ 确认（Confirm：BR-003 未确认=D 级草稿）→ 落库（GRDB 单池 WAL，
+软删，UnitOfWork 跨聚合单事务）→ 呈现（时间轴 TimelineQueryStore / 双轨库存
+MedicationStore / 健康导入 HealthImportStore 分页物化 + 锚点推进）。
+
+**关键不变量**（审查必查）：双轨库存误差必须偏早（ADR-009）；来源徽章 A–E 决定
+事实资格；审计七类埋点白名单；`DayArithmetic` 是日历日唯一出口（禁固定 86400）；
+`ExtractionPatterns`/`OCRGrounding` 是抽取层词表文法单点；L10n 单一出口；每 SP 恰一
+内容视图。
+
+**已知质量热点**（详见 refactor/memory/ci-lessons.md 错误族目录）：平台守卫文件
+（`// linux-blind:` 注释）在本机型检中是空编译单元；App 目标零本地型检；@Sendable
+写闭包内禁调 actor 实例方法（用 nonisolated 助手或文件级自由函数）；测试引用的
+符号即契约不可单方删除；SQL 转录必做程序化比对。
+
 ## 使用方式
 1. 按现象归属模块定位文件小节（顺序：Domain → Protocols → Infrastructure → AppShell → DesignSystem → Localization → Compat → Features → Tests）。
 2. 在小节内 grep 符号名；`(file:line)` 即实现位置。
