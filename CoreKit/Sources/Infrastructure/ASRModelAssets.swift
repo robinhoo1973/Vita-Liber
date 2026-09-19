@@ -219,7 +219,7 @@ public struct ASRModelAssets: Sendable {
             if hash {
                 // 2026-09-19 审查修复：computeIfAbsent 单一形态（锁内计算）——
                 // 并发校验同一文件时旧 peek+set 双方都漏缓存、重复流式哈希。
-                let actual = Self.validatedCache.value(key: url.path) {
+                let actual = try Self.validatedCache.value(key: url.path) {
                     let handle = try FileHandle(forReadingFrom: url)
                     defer { do { try handle.close() } catch { /* 只读描述符关闭失败不覆盖hash结果 */ } }
                     var digest = CryptoKit.SHA256()

@@ -44,7 +44,7 @@ public struct LocalTranscriptRefiner: TextRefining {
         #if canImport(FoundationModels)
         if #available(iOS 26, macOS 26, *) {
             guard case .available = SystemLanguageModel.default.availability else { return .unavailable(original) }
-            return await Self.deadline.run(original: original, timeout: .nanoseconds(Int64(Self.timeoutNanos))) {
+            return await self.deadline.run(original: original, timeout: .nanoseconds(Int64(Self.timeoutNanos))) {
                 let session = LanguageModelSession(instructions: Self.instructions)
                 let response = try await session.respond(
                     to: prompt, options: GenerationOptions(maximumResponseTokens: 2_048))
