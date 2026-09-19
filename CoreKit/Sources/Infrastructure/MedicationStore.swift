@@ -679,13 +679,13 @@ public actor MedicationStore: DoseSource {
             // 三个标识全部来自调用方参数——错传成员会静默扣减**他人**批次并把
             // dose_lot_allocation 记到错成员名下（跨成员医疗数据污染）；同文件
             // confirmTaken 早有正确防线，此处补齐）。
-            let plan = try activePlanRow(planId: planId, patientId: patientId, db: db)
+            let plan = try self.activePlanRow(planId: planId, patientId: patientId, db: db)
             // 药品归属以**计划行为准**（评审：参数 medicationId 仅作冗余提示——
             // 批次扣减必须按计划真实挂接的药品过滤，防「A 药计划扣 B 药批」）。
             let effectiveMedicationId = (plan["medication_id"] as String?).flatMap(UUID.init(uuidString:)) ?? medicationId
             // 时段解析：同一计划、±30min 容差内的既有物化行（DoseSlotGrouping.tolerance 单一事实源）
             let tolerance = DoseSlotGrouping.tolerance
-            if let target = try backfillTransition(planId: planId, actualTime: actualTime,
+            if let target = try self.backfillTransition(planId: planId, actualTime: actualTime,
                                                    doseUnits: doseUnits, tolerance: tolerance, db: db) {
                 // 转场扣减：missed → taken 仅确认轨补扣；未决议 → 全额 taken
                 try db.execute(sql: """
@@ -704,7 +704,7 @@ public actor MedicationStore: DoseSource {
             let backfillId = Self.logicalBackfillId(plan: plan, planId: planId, actualTime: actualTime,
                                                     notifyId: notifyId, doseUnits: doseUnits,
                                                     tolerance: tolerance)
-            let outcome = try insertBackfillRow(backfillId: backfillId, planId: planId,
+            let outcome = try self.insertBackfillRow(backfillId: backfillId, planId: planId,
                                                 actualTime: actualTime, doseUnits: doseUnits, db: db)
             try applyResolutionOnLots(patientId: patientId, medicationId: effectiveMedicationId,
                                       notifyId: backfillId, units: outcome.units, at: actualTime,
@@ -713,7 +713,7 @@ public actor MedicationStore: DoseSource {
     }
 
     /// 补录前置：active 计划行 + BR-001 归属校验（计划必须属于该成员，防跨成员批次扣减）。
-    private func activePlanRow(planId: UUID, patientId: UUID, db: Database) throws -> Row {
+    nonisolated private func activePlanRow(planId: UUID, patientId: UUID, db: Database) throws -> Row {
         guard let plan = try Row.fetchOne(db, sql: """
             SELECT id, schedule_json, start_date, dose_plan_units, medication_id
             FROM medication_plan WHERE id = ? AND status = 'active' AND patient_id = ?
@@ -737,7 +737,7 @@ public actor MedicationStore: DoseSource {
     /// 任何行 → INSERT 重复行并再按 taken 全额扣减双轨。改为「非 taken/
     /// discomfort 优先」，仅当窗口内全部行均已决为 taken/discomfort 时
     /// 才命中该行并抛 alreadyResolved（与窄路径同款响亮拒绝）。
-    private func backfillTransition(planId: UUID, actualTime: Date, doseUnits: Double,
+    nonisolated private func backfillTransition(planId: UUID, actualTime: Date, doseUnits: Double,
                                     tolerance: TimeInterval, db: Database) throws -> BackfillTransition? {
         let existing = try Row.fetchOne(db, sql: """
             SELECT id, user_action, dose_units FROM medication_dose_log
@@ -835,7 +835,7 @@ public actor MedicationStore: DoseSource {
     /// 全额 = 双轨双扣（月报双计）。先读冲突行决议态：taken/discomfort
     /// → 幂等拒绝；missed/snoozed/skipped → 转场补扣（计划轨已扣）；
     /// 未决议 → 全额 taken（补录本身即证据）。
-    private func insertBackfillRow(backfillId: String, planId: UUID, actualTime: Date,
+    nonisolated private func insertBackfillRow(backfillId: String, planId: UUID, actualTime: Date,
                                    doseUnits: Double, db: Database) throws -> BackfillInsertOutcome {
         let conflict = try Row.fetchOne(db, sql: """
             SELECT user_action, dose_units FROM medication_dose_log WHERE id = ?

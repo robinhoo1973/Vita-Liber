@@ -1133,7 +1133,7 @@ public actor ExportService {
         case invalidOCRBackup
     }
 
-    private static func reviewCardIDs(_ metadata: String?) throws -> [UUID] {
+    static func reviewCardIDs(_ metadata: String?) throws -> [UUID] {
         guard let metadata else { return [] }
         guard let object = try JSONSerialization.jsonObject(with: Data(metadata.utf8)) as? [String: Any] else {
             throw ExportError.invalidOCRBackup
@@ -1150,7 +1150,7 @@ public actor ExportService {
         return ids
     }
 
-    private static func remapReviewMetadata(_ metadata: String?, cardMap: [UUID: UUID], entityMap: [UUID: UUID]) throws -> String? {
+    static func remapReviewMetadata(_ metadata: String?, cardMap: [UUID: UUID], entityMap: [UUID: UUID]) throws -> String? {
         guard let metadata, !cardMap.isEmpty || !entityMap.isEmpty else { return metadata }
         let ids = try reviewCardIDs(metadata)
         guard !ids.isEmpty else { return metadata }
@@ -1170,7 +1170,7 @@ public actor ExportService {
         return String(decoding: try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]), as: UTF8.self)
     }
 
-    private static func documentReference(_ ref: String) throws -> (UUID, Int?) {
+    static func documentReference(_ ref: String) throws -> (UUID, Int?) {
         let parts = String(ref.dropFirst(4)).components(separatedBy: "#p")
         guard parts.count == 1 || parts.count == 2, let document = UUID(uuidString: parts[0]) else { throw ExportError.invalidOCRBackup }
         if parts.count == 1 { return (document, nil) }
@@ -1475,12 +1475,12 @@ public actor ExportService {
         }
     }
 
-    private static func ocrPages(_ document: UUID, db: Database) throws -> [Envelope.PageExport] {
+    static func ocrPages(_ document: UUID, db: Database) throws -> [Envelope.PageExport] {
         try Row.fetchAll(db, sql: "SELECT page_index, ocr_text, status FROM document_page WHERE document_file_id = ? ORDER BY page_index",
                          arguments: [document.uuidString]).map { .init(index: $0["page_index"], text: $0["ocr_text"], status: $0["status"]) }
     }
 
-    private static func restoreOCRPages(_ document: Envelope.DocumentExport, targetId: UUID,
+    static func restoreOCRPages(_ document: Envelope.DocumentExport, targetId: UUID,
                                        replacing: Bool, db: Database) throws {
         let incoming = (document.pages ?? []).sorted { $0.index < $1.index }
         if replacing {
@@ -1503,7 +1503,7 @@ public actor ExportService {
         }
     }
 
-    private static func validateOCRGraph(_ db: Database) throws {
+    static func validateOCRGraph(_ db: Database) throws {
         for row in try Row.fetchAll(db, sql: "SELECT patient_id, source_ref, metric_key, code_concept_id FROM metric_sample WHERE source_ref LIKE 'doc:%'") {
             let (document, page) = try documentReference(row["source_ref"])
             guard try String.fetchOne(db, sql: "SELECT patient_id FROM document_file WHERE id = ?", arguments: [document.uuidString]) == (row["patient_id"] as String) else {
@@ -1573,7 +1573,7 @@ public actor ExportService {
         do { return try JSONDecoder().decode([String].self, from: data) }
         catch { return [] }
     }
-    private static func encodeMediaIds(_ ids: [String]) -> String? {
+    static func encodeMediaIds(_ ids: [String]) -> String? {
         guard !ids.isEmpty else { return nil }
         do {
             let data = try JSONEncoder().encode(ids)
@@ -1605,19 +1605,19 @@ public actor ExportService {
 /// 调换顺序会触发 FOREIGN KEY constraint failed 整包回滚——各阶段注释注明其依赖。
 private struct ImportSession {
     let db: Database
-    let envelope: Envelope
-    let resolutions: [UUID: ConflictResolution]
+    let envelope: ExportService.Envelope
+    let resolutions: [UUID: ExportService.ConflictResolution]
     /// v1 包（旧导出）缺 v25 列：adopt 只覆盖其原有列，不把本机既有新列刷成 NULL；v2 包按备份全列采纳。
     let legacyEnvelope: Bool
     let memberProfiles: [PatientProfile]
-    let prescriptionLineRows: [Envelope.PrescriptionLineExport]
-    let claimLineRows: [Envelope.ClaimLineExport]
+    let prescriptionLineRows: [ExportService.Envelope.PrescriptionLineExport]
+    let claimLineRows: [ExportService.Envelope.ClaimLineExport]
     let hospitalizationRows: [Hospitalization]
     let labResultRows: [LabResult]
     let labReportRows: [LabReport]
     let conclusionRows: [ClinicalConclusion]
-    let prescriptionLineById: [UUID: Envelope.PrescriptionLineExport]
-    let claimLineById: [UUID: Envelope.ClaimLineExport]
+    let prescriptionLineById: [UUID: ExportService.Envelope.PrescriptionLineExport]
+    let claimLineById: [UUID: ExportService.Envelope.ClaimLineExport]
     let hospitalizationById: [UUID: Hospitalization]
     let labResultById: [UUID: LabResult]
     let conclusionById: [UUID: ClinicalConclusion]
@@ -1632,7 +1632,7 @@ private struct ImportSession {
     var appointmentEncounterLinks: [(appointmentId: String, encounterId: UUID?)] = []
     var existingAudits: [OCRCardStore.AuditRecord] = []
 
-    init(db: Database, envelope: Envelope, resolutions: [UUID: ConflictResolution]) {
+    init(db: Database, envelope: ExportService.Envelope, resolutions: [UUID: ExportService.ConflictResolution]) {
         self.db = db
         self.envelope = envelope
         self.resolutions = resolutions

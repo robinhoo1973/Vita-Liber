@@ -398,7 +398,10 @@ final class AnalyzerSession: @unchecked Sendable {
     private var resultsTask: Task<Void, Never>?
     /// 采集侧封装（引擎 / tap / 观察者 / 会话快照——结构轮提取）：
     /// 采集状态只在转录 actor 上访问（stop 幂等）；失败经 noteFailure 回报会话。
-    private let capture: AnalyzerCapture
+    /// var：init 内不得在闭包中捕获 self（Swift 6 定值分析——CI 35407401414 实证
+    /// 「'self' captured by a closure before all members were initialized」），
+    /// 先以空回调构造、全部存储属性就位后再回接 noteFailure。
+    private var capture: AnalyzerCapture
 
     init(id: UUID, locale: Locale, module: any SpeechModule,
          analyzerFormat: AVAudioFormat, onPartial: (@Sendable (String) -> Void)?) {
@@ -412,8 +415,9 @@ final class AnalyzerSession: @unchecked Sendable {
         let (stream, builder) = AsyncStream.makeStream(of: AnalyzerInput.self)
         self.stream = stream
         self.builder = builder
-        self.capture = AnalyzerCapture(analyzerFormat: analyzerFormat, builder: builder,
-                                       onFailure: { [weak self] in self?.noteFailure(TranscriptionError.engineUnavailable) })
+        self.capture = AnalyzerCapture(analyzerFormat: analyzerFormat, builder: builder, onFailure: {})
+        // 回接失败回报：此刻全部存储属性已就位，闭包捕获 self 合法。
+        self.capture.onFailure = { [weak self] in self?.noteFailure(TranscriptionError.engineUnavailable) }
     }
 
     // MARK: 音频采集
@@ -549,7 +553,9 @@ final class AnalyzerSession: @unchecked Sendable {
 private final class AnalyzerCapture: @unchecked Sendable {
     private let analyzerFormat: AVAudioFormat
     private let builder: AsyncStream<AnalyzerInput>.Continuation
-    private let onFailure: () -> Void
+    /// fileprivate(set)：会话 init 两段式——构造时传空回调、全量初始化后回接
+    /// （Swift 6 禁止 init 内闭包捕获 self，CI 35407401414）。
+    fileprivate(set) var onFailure: () -> Void
     private var engine: AVAudioEngine?
     private var tapInstalled = false
     private var configurationObserver: NSObjectProtocol?

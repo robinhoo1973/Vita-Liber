@@ -159,10 +159,10 @@ public actor HealthImportStore {
         try Task.checkCancellation()
         return try await writer.write { db in
             try Task.checkCancellation()
-            let context = try commitPreflight(binding: binding, kind: kind, pending: pending,
+            let context = try self.commitPreflight(binding: binding, kind: kind, pending: pending,
                                               snapshots: snapshots, attemptedWindows: attemptedWindows, db: db)
             // Capture actual references before any window writes. One series can own several windows.
-            let knownByWindow = try knownReferences(binding: binding, kind: kind, snapshots: snapshots, db: db)
+            let knownByWindow = try self.knownReferences(binding: binding, kind: kind, snapshots: snapshots, db: db)
 
             var report = CommitReport()
             report.deferredWindows = context.requested.subtracting(context.supplied).count
@@ -170,7 +170,7 @@ public actor HealthImportStore {
             var preserved = Set<String>()
             var readings: [MetricReading] = []
             for snapshot in snapshots {
-                if try materializeSnapshot(snapshot, known: knownByWindow[snapshot.window] ?? [],
+                if try self.materializeSnapshot(snapshot, known: knownByWindow[snapshot.window] ?? [],
                                            context: context, binding: binding, kind: kind,
                                            report: &report, preserved: &preserved,
                                            readings: &readings, db: db) {
@@ -206,7 +206,7 @@ public actor HealthImportStore {
 
     /// 提交前置闸门：启用/绑定/道存在 + 锚点与载荷一致（staleAnchor）+ hasMore 内容性判别
     /// （incompleteSnapshot）+ 窗口子集不变量——全部通过才返回提交上下文。
-    private func commitPreflight(binding: Binding, kind: HealthDataKind, pending: PendingBatch,
+    nonisolated private func commitPreflight(binding: Binding, kind: HealthDataKind, pending: PendingBatch,
                                  snapshots: [HealthWindowSnapshot],
                                  attemptedWindows: [HealthImportWindow]?,
                                  db: Database) throws -> CommitContext {
@@ -257,7 +257,7 @@ public actor HealthImportStore {
     }
 
     /// 写窗口前捕获各窗口既有样本引用（同一 series 可跨多窗口）。
-    private func knownReferences(binding: Binding, kind: HealthDataKind,
+    nonisolated private func knownReferences(binding: Binding, kind: HealthDataKind,
                                  snapshots: [HealthWindowSnapshot],
                                  db: Database) throws -> [HealthImportWindow: [HealthSampleReference]] {
         var knownByWindow: [HealthImportWindow: [HealthSampleReference]] = [:]
@@ -276,7 +276,7 @@ public actor HealthImportStore {
 
     /// 单窗口物化：校验 → 既有投影查询 → 完整性判定 → 删/保 → 行投影 → 索引回写。
     /// 返回是否判为完整窗口（不完整仅计数 deferredWindows，不写库）。
-    private func materializeSnapshot(_ snapshot: HealthWindowSnapshot,
+    nonisolated private func materializeSnapshot(_ snapshot: HealthWindowSnapshot,
                                      known: [HealthSampleReference],
                                      context: CommitContext, binding: Binding, kind: HealthDataKind,
                                      report: inout CommitReport, preserved: inout Set<String>,
@@ -331,7 +331,7 @@ public actor HealthImportStore {
     }
 
     /// 窗口内既有 device 来源投影行（owned = 有无投影态标记，排序保证 owned 行先于非自有行）。
-    private func priorProjectionRows(binding: Binding, kind: HealthDataKind,
+    nonisolated private func priorProjectionRows(binding: Binding, kind: HealthDataKind,
                                      window: HealthImportWindow, db: Database) throws -> [Row] {
         var arguments: [DatabaseValueConvertible] = [binding.id.uuidString, binding.patientId.uuidString,
                                                     window.identityPrefix + "%"]
@@ -370,7 +370,7 @@ public actor HealthImportStore {
     }
 
     /// 删可删行、登记保留行（非自有行或窗口仍存活的自有行）。
-    private func applyRemovalsAndPreserves(prior: [Row], removable: Set<String>, kept: Set<String>,
+    nonisolated private func applyRemovalsAndPreserves(prior: [Row], removable: Set<String>, kept: Set<String>,
                                            kind: HealthDataKind, report: inout CommitReport,
                                            preserved: inout Set<String>, db: Database) throws {
         for row in prior {
@@ -386,7 +386,7 @@ public actor HealthImportStore {
     }
 
     /// 设备行投影写入（自有行复用/刷新；legacy NULL 身份不被同时间戳行收养；恢复行保留的同时刷新自有行）。
-    private func upsertSnapshotRows(_ rows: [DeviceMetricRow], priorByIdentity: [String: [Row]],
+    nonisolated private func upsertSnapshotRows(_ rows: [DeviceMetricRow], priorByIdentity: [String: [Row]],
                                     kind: HealthDataKind, binding: Binding, report: inout CommitReport,
                                     preserved: inout Set<String>, db: Database) throws {
         for row in rows {
@@ -422,7 +422,7 @@ public actor HealthImportStore {
     }
 
     /// 样本索引回写（同样本同类型按最新来源/区间 upsert）。
-    private func upsertSampleIndex(_ samples: [HealthSampleReference], kind: HealthDataKind,
+    nonisolated private func upsertSampleIndex(_ samples: [HealthSampleReference], kind: HealthDataKind,
                                    binding: Binding, db: Database) throws {
         for ref in samples {
             try db.execute(sql: """
