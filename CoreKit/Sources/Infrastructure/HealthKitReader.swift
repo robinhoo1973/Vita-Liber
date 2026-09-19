@@ -319,17 +319,13 @@ public actor HealthKitReader: HealthReadingProvider, HealthWritingProvider {
         // 安全性：锚点取 result.newAnchor（覆盖整页原始结果），故 hasMore=false 只是
         // 本轮不再续拉，下一轮同步从新锚点继续，**不会漏样本**。
         // 全页删除时 deleted 非空 ⇒ hasMore 仍为 true，原「mostly deletions」语义保留。
-        // 审查修复（2026-09-19 扫尾）：newAnchor 为 nil（转锚点查询零结果，HealthKit
-        // 文档行为）时 archivedData(withRootObject: nil) 抛异常——毒化整类导入且无
-        // 恢复路径。nil 锚点以 nil 返回，由调用侧决定保持原状态重试。
-        let archivedAnchor: Data?
-        if let newAnchor = result.newAnchor {
-            archivedAnchor = try NSKeyedArchiver.archivedData(withRootObject: newAnchor, requiringSecureCoding: true)
-        } else { archivedAnchor = nil }
+        // 2026-09-19 扫尾结论修正：`result.newAnchor` 为非可选 HKQueryAnchor
+        //（macOS 编译实证 CI 35438751674）——零结果也会返回有效锚点，
+        // 「nil 锚点毒化」路径不存在，恢复原始直归档形态。
         return HealthChangeBatch(
             added: added,
             deleted: deleted,
-            anchor: archivedAnchor,
+            anchor: try NSKeyedArchiver.archivedData(withRootObject: result.newAnchor, requiringSecureCoding: true),
             hasMore: !added.isEmpty || !deleted.isEmpty)
     }
 
@@ -392,14 +388,11 @@ public actor HealthKitReader: HealthReadingProvider, HealthWritingProvider {
             // （流末端位置），此后增量与转锚点同谓词、删除证明完整送达。
             let bootstrap = try await anchoredChanges(kind: kind, scope: scope, anchor: nil, limit: limit,
                                                       predicate: Self.changePredicate(for: scope))
+            // 2026-09-19 扫尾结论修正：bootstrap.anchor 非可选（见 anchoredChanges），
+            // 转锚点必然成功归档，恢复直进 anchored 模式。
             var done = cursor ?? RecentLaneCursor(mode: .fillComplete)
-            if let hkAnchor = bootstrap.anchor {
-                done.mode = .anchored
-                done.hkAnchor = hkAnchor
-            }
-            // 新锚点为 nil（转锚点查询零结果）：保持 fillComplete 不写游标——
-            // 下一轮重试转锚点（数据出现即自愈）；写空锚点游标会经损坏归档
-            // 让该类型永久 invalidAnchor（无恢复路径，扫尾发现 #1）。
+            done.mode = .anchored
+            done.hkAnchor = bootstrap.anchor
             return HealthChangeBatch(added: bootstrap.added, deleted: bootstrap.deleted,
                                      anchor: try Self.encodeCursor(done), hasMore: bootstrap.hasMore)
         case .descending:
