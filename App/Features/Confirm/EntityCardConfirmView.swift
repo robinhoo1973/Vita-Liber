@@ -441,17 +441,32 @@ struct EntityCardConfirmView: View {
                 Button(L10n.entityCardDiscard, role: .destructive) { discard() }
                 Button(L10n.commonCancel, role: .cancel) {}
             }
-            .alert(resumeError != nil ? L10n.docConfirmSaveFailedTitle : L10n.homeCaptureSaved,
-                   isPresented: Binding(get: { resumeError != nil || partialCount != nil },
-                                        set: { dismissPartialAlert($0) })) {
+            .alert(partialAlertTitle,
+                   isPresented: partialAlertBinding) {
                 Button(L10n.onboard_gotIt, role: .cancel) {}
-            } message: { Text(resumeError ?? L10n.ocrReviewPartialSaved(partialCount ?? 0)) }
+            } message: { Text(partialAlertMessage) }
             // 「资料建议」表单（续办模式宿主；alert 可见时暂不弹）。整卡处理完毕才采集，故与「已保存 N 条」不并发。
             .profileSuggestionHost(presenterKey: resumePresenterKey ?? "", enabled: suggestionsHostEnabled)
             .task(id: completionKey) {
                 if shouldDismissCompletedResume { dismiss() }
             }
         }
+    }
+
+    /// alert 标题（提取子表达式 + 显式类型——型检预算分解，CI 35439281475/35440032364）。
+    private var partialAlertTitle: String {
+        resumeError != nil ? L10n.docConfirmSaveFailedTitle : L10n.homeCaptureSaved
+    }
+
+    /// alert 消息（同上）。
+    private var partialAlertMessage: String {
+        resumeError ?? L10n.ocrReviewPartialSaved(partialCount ?? 0)
+    }
+
+    /// alert 可见性绑定（同上；显式类型压缩推断成本）。
+    private var partialAlertBinding: Binding<Bool> {
+        Binding(get: { resumeError != nil || partialCount != nil },
+                set: { dismissPartialAlert($0) })
     }
 
     /// alert 关闭回调（从 set 闭包提取——型检预算分解，CI 35439281475）。
