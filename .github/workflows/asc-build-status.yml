@@ -18,7 +18,9 @@ permissions:
 jobs:
   check:
     name: '查询 ASC builds 状态'
-    runs-on: ubuntu-latest
+    # 钉版 ubuntu-24.04（审计 2026-09-19）：GitHub 公告 ubuntu-latest 将于
+    # 2026-10-19 迁移到 Ubuntu 26——与 macos-26 钉版同一纪律，拒绝隐式工具链漂移。
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - name: 查询 App Store Connect 最近 builds
