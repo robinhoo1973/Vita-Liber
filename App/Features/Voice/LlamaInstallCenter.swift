@@ -95,8 +95,8 @@ final class LlamaInstallCenter {
             if !Task.isCancelled {
                 active = nil
                 state = .installed
-                // T2 可用性随模型就绪即时生效（引擎侧 isModelReady 判定）。
-                AppDataChangeCenter.shared.assetsChanged()
+                // T2 可用性由引擎侧按用即查 LlamaModelManager.isModelReady，
+                // 无需资产广播（AppDataChangeCenter 是 ASR 资产域且非单例）。
             }
         } catch is CancellationError {
             active = nil
