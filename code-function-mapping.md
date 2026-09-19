@@ -4511,20 +4511,20 @@
   - `case light / dark / system` (8)
 - `AppearanceRules` (22) — FR18.16 叠加规则纯函数：高对比度生效=手动开 OR 关怀模式
   - `static func highContrastEffective(highContrastEnabled:careMode:)` (23) — 叠加判定
-- `AppSettingsBindings` (30) — 设置绑定统一工厂（主题/布尔读口径三处复制收敛一处）
-  - `static func bool(_:for:)` (33) — 布尔读统一口径（values 未装载落键默认值）
-  - `static func theme(_:)` (38) — FR14.4 主题 Binding（DB 值→AppTheme，即时生效）
-- `ThemeSettingsView` (54) — 外观设置页：三段选择器+高对比度开关（关怀模式强制叠加明示）
-  - `var body` (58) — 渲染设置表单
-  - `var themeBinding` (81) — 主题绑定（工厂委托）
-  - `var highContrastBinding` (85) — 高对比度开关绑定
-- `ThemeSegmentedPicker` (95) — 水平三段主题选择器+迷你预览
-  - `var body` (98) — 渲染三段选择器
-  - `func segment(for:)` (111) — 单段按钮（选中态品牌描边+对勾语义）
-  - `func label(_:)` (138) — 主题→L10n 标签
-- `ThemePreviewSwatch` (148) — 迷你预览色块（浅/深/半白半黑）
-  - `var body` (151) — 渲染三态预览
-  - `func swatch(background:bar:)` (170) — 单色预览色块绘制
+- `AppSettingsBindings` (32) — 设置绑定统一工厂（主题/布尔读口径三处复制收敛一处）
+  - `static func bool(_:for:)` (35) — 布尔读统一口径（values 未装载落键默认值）
+  - `static func theme(_:)` (40) — FR14.4 主题 Binding（DB 值→AppTheme，即时生效）
+- `ThemeSettingsView` (56) — 外观设置页：三段选择器+高对比度开关（关怀模式强制叠加明示）
+  - `var body` (60) — 渲染设置表单
+  - `var themeBinding` (83) — 主题绑定（工厂委托）
+  - `var highContrastBinding` (87) — 高对比度开关绑定
+- `ThemeSegmentedPicker` (97) — 水平三段主题选择器+迷你预览
+  - `var body` (100) — 渲染三段选择器
+  - `func segment(for:)` (113) — 单段按钮（选中态品牌描边+对勾语义）
+  - `func label(_:)` (140) — 主题→L10n 标签
+- `ThemePreviewSwatch` (150) — 迷你预览色块（浅/深/半白半黑）
+  - `var body` (153) — 渲染三态预览
+  - `func swatch(background:bar:)` (172) — 单色预览色块绘制
 
 
 
