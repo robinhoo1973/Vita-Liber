@@ -137,7 +137,7 @@ extension DocumentsState {
     func pendingDraft(_ card: MatchedCard, source: ImportSource) -> PendingCardDraft {
         let incomplete = card.rows.flatMap { row in
             EntityCardProjection.invalidFields(in: card, row: row, calendar: Calendar(identifier: .gregorian)).map {
-                IncompleteField(key: $0, label: Self.fieldLabel(forKey: $0), reason: "requires_review", rowId: row.id)
+                IncompleteField(key: $0, label: DocumentsDisplay.fieldLabel(forKey: $0), reason: "requires_review", rowId: row.id)
             }
         }
         return PendingCardDraft(patientId: source.patientId, sourceType: "ocr", sourceDocId: source.documentId,

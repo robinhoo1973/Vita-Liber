@@ -727,7 +727,7 @@ final class DocumentsState {
             text: $0.status == "ok" ? $0.text : nil, status: $0.status) }
         let reviewedFields = Dictionary(uniqueKeysWithValues: draft.pages.filter { $0.status == "ok" }.map { page in
             (page.index, page.fields.filter(\.isConfirmed).map { field in
-                CandidateField(key: field.key, displayLabel: Self.fieldLabel(forKey: field.key),
+                CandidateField(key: field.key, displayLabel: DocumentsDisplay.fieldLabel(forKey: field.key),
                     rawText: field.rawText ?? field.originalValue, confidence: field.confidence, value: field.value,
                     grade: .userConfirmed, codeResolution: field.codeResolution, revisionHistory: field.revisionHistory)
             })
