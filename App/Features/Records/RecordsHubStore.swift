@@ -261,27 +261,27 @@ final class M2HubStore {
                             date: Date?, provider: String, lot: String) async {
         await writeThenRefresh(patientId: patientId, logWriteFailure: { logger.error("疫苗记录失败: \($0)") }, refreshLabel: "疫苗写后刷新失败",
             write: {
-                try await immunizations.create(patientId: patientId, vaccineName: name,
-                                               doseNumber: dose, administeredAt: date,
-                                               provider: provider, lotNumber: lot)
+                try await self.immunizations.create(patientId: patientId, vaccineName: name,
+                                                    doseNumber: dose, administeredAt: date,
+                                                    provider: provider, lotNumber: lot)
             },
-            fetch: { try await immunizations.list(patientId: patientId) },
-            commit: { immunizationRecords = $0 })
+            fetch: { try await self.immunizations.list(patientId: patientId) },
+            commit: { self.immunizationRecords = $0 })
     }
 
     func createClaim(patientId: UUID, type: String, amount: Double,
                      date: Date, merchant: String, summary: String) async {
         await writeThenRefresh(patientId: patientId, logWriteFailure: { logger.error("报销票据失败: \($0)") }, refreshLabel: "报销写后刷新失败",
             write: {
-                try await claims.create(patientId: patientId, itemType: type, amount: amount,
-                                        date: date, merchant: merchant, summary: summary)
+                try await self.claims.create(patientId: patientId, itemType: type, amount: amount,
+                                             date: date, merchant: merchant, summary: summary)
             },
             fetch: {
-                async let r = claims.list(patientId: patientId)
-                async let t = claims.totals(patientId: patientId)
+                async let r = self.claims.list(patientId: patientId)
+                async let t = self.claims.totals(patientId: patientId)
                 return try await (r, t)
             },
-            commit: { claimRows = $0.0; claimTotals = $0.1 })
+            commit: { self.claimRows = $0.0; self.claimTotals = $0.1 })
     }
 
     // MARK: - 发送状态（FR24.2）
@@ -289,10 +289,10 @@ final class M2HubStore {
     func recordSent(patientId: UUID, kind: String, recipient: String) async {
         await writeThenRefresh(patientId: patientId, logWriteFailure: { logger.error("发送状态记录失败: \($0)") }, refreshLabel: "发送状态写后刷新失败",
             write: {
-                _ = try await messages.recordSent(patientId: patientId, kind: kind, recipient: recipient)
+                _ = try await self.messages.recordSent(patientId: patientId, kind: kind, recipient: recipient)
             },
-            fetch: { try await messages.list(patientId: patientId) },
-            commit: { sentMessages = $0 })
+            fetch: { try await self.messages.list(patientId: patientId) },
+            commit: { self.sentMessages = $0 })
     }
 
     /// FR9.13a/FR24.2 每次分享写审计（药品信息外发——FR14.2 审计清单之一）
@@ -313,9 +313,9 @@ final class M2HubStore {
     func markDelivered(messageId: UUID, patientId: UUID) async {
         await writeThenRefresh(patientId: patientId, logWriteFailure: { logger.error("标记已送达失败: \($0)") }, refreshLabel: "送达状态写后刷新失败",
             write: {
-                try await messages.updateStatus(id: messageId, to: .ackPending)
+                try await self.messages.updateStatus(id: messageId, to: .ackPending)
             },
-            fetch: { try await messages.list(patientId: patientId) },
-            commit: { sentMessages = $0 })
+            fetch: { try await self.messages.list(patientId: patientId) },
+            commit: { self.sentMessages = $0 })
     }
 }
