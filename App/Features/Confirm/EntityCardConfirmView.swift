@@ -337,12 +337,12 @@ struct EntityCardConfirmView: View {
 
                     // v27 §0.4 改判：主卡草稿区**先于**关联区呈现（无可挂接主卡时随本卡新建；D 级、逐字段确认、同事务落库）
                     ParentDraftSection(card: $card, patientId: patientId, readOnly: saving || sharedCommitted,
-                                   lines: lines,
                                    onViewSource: { line in
                                        // 范围校验已在草稿区完成；此处只负责呈现
                                        scanHighlight = nil
                                        sourcePresentation = .line(line)
-                                   })
+                                   },
+                                   lines: lines)
                     EncounterAssociationSection(card: $card, patientId: patientId, readOnly: saving || sharedCommitted,
                                                 documentTypeKey: sessionDocumentTypeKey)
 
