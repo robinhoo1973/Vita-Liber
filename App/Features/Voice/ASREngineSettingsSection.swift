@@ -104,7 +104,9 @@ struct ASREngineSettingsSection: View {
                     latest: choice.isBundledModel ? availableIndex.flatMap {
                         ASRModelDownloadService.latest(for: choice, in: $0, appVersion: version)
                     } : nil,
-                    update: choice.isBundledModel ? ASRModelDownloadService.updateAvailable(for: choice, index: $0, appVersion: version) : nil,
+                    update: choice.isBundledModel ? availableIndex.flatMap {
+                        ASRModelDownloadService.updateAvailable(for: choice, index: $0, appVersion: version)
+                    } : nil,
                     installedVariant: choice.isBundledModel ? ASRModelDownloadService.installedVariant(for: choice) : nil,
                     availability: TranscriptionEngineBuilder.availability(of: choice),
                     // 资产字节数只对随包档位展示（`ASRModelCatalog.model(for:)` 同款条件）
