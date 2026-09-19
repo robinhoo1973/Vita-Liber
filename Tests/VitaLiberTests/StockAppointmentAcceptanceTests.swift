@@ -136,7 +136,12 @@ final class StockAppointmentAcceptanceTests: XCTestCase {
     /// 原名：test_SU_M1b_APPT_预约创建分级提醒与改期
     func test_SU_M1b_APPT_appointmentCreationTieredRemindersAndReschedule() async throws {
         let (store, _, scheduler, apts, patient, _) = try await makeStore()
-        let startsAt = Date().addingTimeInterval(10 * 86400)
+        // 固定到正午：day 档（09:00）必须早于预约开始——否则 CI 凌晨运行时段
+        // startsAt 落在 09:00 前，day 档被 tierFireDates 按「已过期层级不补发」
+        // 正确过滤只剩 3 档（时间依赖缺陷，CI 35416852942 实证；上次绿跑
+        // 恰在 12:40 UTC 避过）。
+        let startsAt = Calendar.current.date(bySettingHour: 12, minute: 0, second: 0,
+                                             of: Calendar.current.date(byAdding: .day, value: 10, to: Date()) ?? Date()) ?? Date()
         let aptId = UUID()
         try await apts.create(id: aptId, patientId: patient, hospital: "市一医院",
                               department: "心内科", startsAt: startsAt, now: Date())
