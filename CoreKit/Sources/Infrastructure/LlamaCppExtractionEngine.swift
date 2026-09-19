@@ -156,7 +156,7 @@ final class LlamaRuntime: @unchecked Sendable {
     private func decode(prompt: String, grammar: String, modelURL: URL?,
                         maxTokens: Int32, cancelFlag: CancelFlag) throws -> String {
         try loadIfNeeded(url: modelURL, cancelFlag: cancelFlag)
-        guard let model, let context, let vocab else { throw ExtractionEngineError.unavailable }
+        guard model != nil, let context, let vocab else { throw ExtractionEngineError.unavailable }
 
         // —— 文法采样链：GBNF 字符串直出（b11012 起 grammar 走 sampler API）——
         let samplerParams = llama_sampler_chain_params(no_perf: false)

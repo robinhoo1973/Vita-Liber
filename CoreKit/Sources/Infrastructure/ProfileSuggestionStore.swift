@@ -155,12 +155,16 @@ public actor ProfileSuggestionStore {
     /// 逐项接受。过敏须 `allergySeverity`（展示词 轻/中/重 或 mild/moderate/severe），缺失或非枚举 → `invalidCard`（不占位、不推断）。
     public func accept(_ suggestion: ProfileSuggestion, patientId: UUID, allergySeverity: String? = nil,
                        now: Date = Date()) async throws -> AcceptOutcome {
-        var severity: String?
+        // 单次定值后捕获进 @Sendable 写闭包——let 语义（Swift 6 模式
+        // SendableClosureCaptures 迁移隐患，CI 35411488605 告警）。
+        let severity: String?
         if suggestion.kind == .allergy {
             guard let given = allergySeverity.map(SevereReactionRules.canonicalSeverity), Self.severities.contains(given) else {
                 throw OCRCardStore.StoreError.invalidCard
             }
             severity = given
+        } else {
+            severity = nil
         }
         let key = Self.handledKey(suggestion, patientId: patientId)
         let meta = try Self.auditMeta(suggestion)
