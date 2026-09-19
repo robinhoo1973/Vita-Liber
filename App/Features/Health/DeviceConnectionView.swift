@@ -313,7 +313,7 @@ struct DeviceConnectionView: View {
                         ForEach(deviceState.characteristicCandidates) { candidate in
                             HStack {
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(DocumentsDisplay.fieldLabel(candidate.field))
+                                    Text(DocumentsDisplay.fieldLabel(forKey: candidate.field))
                                     if let existing = candidate.existing {
                                         Text(L10n.healthCandidateExisting(existing))
                                             .font(.caption).foregroundStyle(.secondary)
