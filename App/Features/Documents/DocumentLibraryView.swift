@@ -740,7 +740,11 @@ final class DocumentsState {
             [field.value, field.unit].compactMap { $0 }.joined(separator: " ")
         }.joined(separator: "\n")
         let pages = draft.pages.map { DocumentStore.Page(index: $0.index,
-            text: $0.status == "ok" ? $0.text : nil, status: $0.status) }
+            text: $0.status == "ok" ? $0.text : nil,
+            // no_text 是确认页内存态（FR6 边界「纯影像页提示」）；document_page.status
+            // CHECK 枚举未含 no_text（迁移 v31 待业主裁决：表重建 + ocr_card_commit
+            // 子表 FK 重建），落库暂映射回 ok（空文本页恢复前行为，§11 已登记）。
+            status: $0.status == "no_text" ? "ok" : $0.status) }
         let reviewedFields = Dictionary(uniqueKeysWithValues: draft.pages.filter { $0.status == "ok" }.map { page in
             (page.index, page.fields.filter(\.isConfirmed).map { field in
                 CandidateField(key: field.key, displayLabel: DocumentsDisplay.fieldLabel(forKey: field.key),

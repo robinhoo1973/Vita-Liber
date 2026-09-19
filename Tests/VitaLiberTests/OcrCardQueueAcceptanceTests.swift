@@ -214,7 +214,7 @@ final class OcrCardQueueAcceptanceTests: XCTestCase {
         let prepared = await f.docs.importDocument(patientId: f.patient, url: url, docType: nil)
         let draft = try XCTUnwrap(prepared)
         XCTAssertEqual(draft.pages.map(\.index), [0, 1, 2, 3])
-        XCTAssertEqual(draft.pages.map(\.status), ["ok", "failed", "ok", "ok"])
+        XCTAssertEqual(draft.pages.map(\.status), ["ok", "failed", "no_text", "ok"])
         XCTAssertTrue(draft.pages[2].text.isEmpty)
         XCTAssertEqual(draft.entityCards.map(\.pageIndex), [0, 3])
         XCTAssertTrue(draft.isSensitive)
