@@ -2389,6 +2389,15 @@ MedicationStore / 健康导入 HealthImportStore 分页物化 + 锚点推进）�
 
 
 
+## CoreKit/Sources/Infrastructure/LlamaModelDownloadService.swift
+- `LlamaModelDownloadService` (15) — 本机 AI 模型首启下载 actor（2026-09-20 业主裁决项 4；断点续传/双钉版校验/原子落位/失败清理）
+  - `Phase` (17) — downloading/verifying/activating
+  - `Progress` (20) — received/total 字节 + 阶段
+  - `Failure` (26) — catalogMissing/sizeMismatch/checksumMismatch/underlying
+  - `func install(progress:onPhase:)` (50) — 下载→校验→原子落位主流程（.part 续传）
+- `LlamaModelCatalog` (119) — 模型目录元数据（构建期信任锚：URL+sha256+字节随签名二进发布）
+  - `static func load()` (125) — 从 bundle LLMModels/catalog.json 解析
+
 ## CoreKit/Sources/Infrastructure/LlamaModelManager.swift
 - `LlamaModelManager` (9) — Qwen GGUF 模型路径查找/就绪判定/文件校验
   - `modelFileName / bundleSubdirectory / expectedModelBytes` (11/13/15) — 模型常量
@@ -4275,6 +4284,13 @@ MedicationStore / 健康导入 HealthImportStore 分页物化 + 锚点推进）�
   - `voiceProfileSectionTitle(_:)` (27) — 访谈键 → 段落节标题
 
 
+
+## App/Features/Voice/LlamaInstallCenter.swift
+- `LlamaInstallCenter` (13) — 本机 AI 模型首启下载中心（@MainActor @Perceptible；下载等待 UI 四态）
+  - `State` (15) — idle/installing/installed/failed
+  - `Active` (23) — 进度/阶段可观察载体（submit 回跳主 actor）
+  - `func start() / cancel() / refresh() / dismissFailure()` (53-77) — 生命周期
+  - `private func run(_:)` (82) — 后台任务窗口 + install 编排 + assetsChanged 广播
 
 ## App/Features/Voice/ASREngineSettingsSection.swift
 - `ASREngineSettingsSection` (23) — FR17.15 生产引擎设置区（档位选择 + 运行时下载）
