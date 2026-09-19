@@ -442,20 +442,35 @@ struct EntityCardConfirmView: View {
                 Button(L10n.commonCancel, role: .cancel) {}
             }
             .alert(resumeError != nil ? L10n.docConfirmSaveFailedTitle : L10n.homeCaptureSaved,
-                   isPresented: Binding(get: { resumeError != nil || partialCount != nil }, set: { showing in
-                       if !showing {
-                           partialCount = nil
-                           if case .resume(let review) = mode { review.errorMessage = nil; review.notificationError = nil }
-                       }
-                   })) {
+                   isPresented: Binding(get: { resumeError != nil || partialCount != nil },
+                                        set: { dismissPartialAlert($0) })) {
                 Button(L10n.onboard_gotIt, role: .cancel) {}
             } message: { Text(resumeError ?? L10n.ocrReviewPartialSaved(partialCount ?? 0)) }
             // 「资料建议」表单（续办模式宿主；alert 可见时暂不弹）。整卡处理完毕才采集，故与「已保存 N 条」不并发。
-            .profileSuggestionHost(presenterKey: resumePresenterKey ?? "", enabled: resumePresenterKey != nil && resumeError == nil && partialCount == nil)
+            .profileSuggestionHost(presenterKey: resumePresenterKey ?? "", enabled: suggestionsHostEnabled)
             .task(id: completionKey) {
-                if case .resume(let review) = mode, review.completed, !saving, resumeError == nil, !suggestionsPending { dismiss() }
+                if shouldDismissCompletedResume { dismiss() }
             }
         }
+    }
+
+    /// alert 关闭回调（从 set 闭包提取——型检预算分解，CI 35439281475）。
+    private func dismissPartialAlert(_ showing: Bool) {
+        if !showing {
+            partialCount = nil
+            if case .resume(let review) = mode { review.errorMessage = nil; review.notificationError = nil }
+        }
+    }
+
+    /// 「资料建议」宿主启用条件（提取子表达式，同型检预算分解）。
+    private var suggestionsHostEnabled: Bool {
+        resumePresenterKey != nil && resumeError == nil && partialCount == nil
+    }
+
+    /// 续办卡整卡处理完毕即退场（提取子表达式，同型检预算分解）。
+    private var shouldDismissCompletedResume: Bool {
+        if case .resume(let review) = mode { return review.completed && !saving && resumeError == nil && !suggestionsPending }
+        return false
     }
 
     private func invalid(_ row: MatchedCardRow, reviewed: MatchedCard) -> [String] {
