@@ -337,10 +337,6 @@ private actor HealthSyncTestGate {
         waiters.removeAll()
         for waiter in pending { waiter.resume() }
     }
-}
-
-
-
     /// 睡眠零归并行回归（2026-09-20 业主真机复测「最近数据仍缺失」）：watch 迟到
     /// 样本并入后 unspecified 段归零消失——窗口派生聚合行的重算即权威，旧键行
     /// 可删、窗口照常判完整、锚点推进（此前 complete=false 永久冻结 → 该类型
@@ -387,6 +383,7 @@ private actor HealthSyncTestGate {
         XCTAssertEqual(unspecified, 0, "归零键行必须删除——合并后的总量行才是该窗口真相")
     }
 
+}
 private actor HealthSyncFixtureProvider: HealthReadingProvider {
     struct Request: Sendable {
         let kind: HealthDataKind
