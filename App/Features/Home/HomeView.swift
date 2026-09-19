@@ -675,6 +675,8 @@ struct HomeView: View {
     }
 
     private func detailText(_ install: ASRInstallCenter.Install) -> String {
+        // 2026-09-19：并发槽满排队等待态——首页卡片同源如实呈现，不误报下载中/失败
+        if install.waiting { return L10n.asrModelQueued }
         switch install.phase {
         case .verifying: return L10n.asrModelPhaseVerifying
         case .unpacking: return L10n.asrModelPhaseUnpacking

@@ -112,8 +112,14 @@ public actor ASRModelDownloadService {
     // 以下 static 转发保留原公共面（App 与 CoreKit 内消费点零改）。
 
     /// 分段下载器（HEAD 探测 → 4 路并行 → 吞 Range 退单流）。
+    /// 2026-09-19 审查修复（业主实测「两个模型同时下特别慢」）：连接池 8 槽是
+    /// **全会话共享**的——双装各 6 段 = 12 路争 8 槽，段在池内排队且 60s 请求
+    /// 超时计时照跑（URLSession 对未建立的连接也计请求超时），双开互相拖慢、
+    /// 段超时失败。分段预算随在装数摊分：单装 6 段（带宽聚合），双装各 4 段
+    /// （8 槽恰好打满，无池内排队）。
     private var downloader: ModelPackageDownloader {
-        ModelPackageDownloader(session: session, segmentCount: segmentCount)
+        ModelPackageDownloader(session: session,
+                               segmentCount: max(1, min(segmentCount, 8 / max(1, installing.count))))
     }
 
     /// 运行时资产根：`Application Support/ASRModels/`（转发 ActivePointerStore）。
@@ -228,6 +234,12 @@ public actor ASRModelDownloadService {
 
     /// 下载 → 校验 → 解压 → 包内校验 → 原子切换。返回安装后的版本目录。
     /// `onPhase` 逐阶段回调（主线程无保证，调用方自行 hop）。
+    ///
+    /// 2026-09-19 审查修复（业主实测「点第三个模型报网络错误」）：并发槽满时旧实现
+    /// **即抛** installInProgress——UI 把一切失败渲染成「下载失败/检查网络」，
+    /// 用户误判网络坏了（实为本机并发上限 2）。改为**排队等待**：同模型互斥仍即抛
+    /// （per-model 幂等，调用方忽略即可），不同模型的第 3 个挂起等槽位，
+    /// 槽位释放按 FIFO 唤醒。排队期间无任何回调——消费侧以「等待态」呈现。
     @discardableResult
     public func install(_ release: ASRModelRelease,
                         baseURL: URL?,
@@ -237,9 +249,57 @@ public actor ASRModelDownloadService {
         // 无共享可变状态——此前全局 Bool 把「并行下载不同模型」一并禁掉且拒绝路径
         // 静默（业主实测「不能多个同时下载」）。并发上限防链路争用（同链路分段已 6 路）。
         guard !installing.contains(release.id) else { throw Failure.installInProgress }
-        guard installing.count < Self.maximumConcurrentInstalls else { throw Failure.installInProgress }
+        while installing.count >= Self.maximumConcurrentInstalls {
+            try Task.checkCancellation()
+            // 排队挂起。取消路径：onCancel 跳回 actor 把本等待者从队列移除并唤醒
+            // （否则取消的排队任务挂在队列里——槽位释放才醒，且占着 active 槽
+            // 挡住再次发起）。唤醒后循环顶部的 checkCancellation 抛出结束。
+            let waiterID = UUID()
+            try await withTaskCancellationHandler {
+                try await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                    slotWaiters.append((id: waiterID, continuation: continuation))
+                    // 追加后再查取消（2026-09-19 扫尾发现 #5）：onCancel 的
+                    // removeWaiter 经非结构化 Task 跳回 actor，可能先于追加执行
+                    // （未命中即空转）——取消悬在追加前的窗口会让等待者滞留到
+                    // 槽位释放、白白消耗一次唤醒名额。此处补偿：追加后仍取消
+                    // 则立即弹出自续，续体返回后循环顶 checkCancellation 抛出。
+                    if Task.isCancelled {
+                        if let idx = slotWaiters.firstIndex(where: { $0.id == waiterID }) {
+                            slotWaiters.remove(at: idx).continuation.resume()
+                        }
+                    }
+                }
+            } onCancel: {
+                Task { await self.removeWaiter(waiterID) }
+            }
+            try Task.checkCancellation()
+        }
         installing.insert(release.id)
-        defer { installing.remove(release.id) }
+        defer {
+            installing.remove(release.id)
+            // 槽位释放即唤醒最早排队的等待者（FIFO；actor 串行化，无并发修改）。
+            // 每个续体恰好 resume 一次：这里 pop 即拥有 resume 权；取消路径
+            // removeWaiter 找不到 id（已被本处唤醒）时不再 resume。
+            if !slotWaiters.isEmpty { slotWaiters.removeFirst().continuation.resume() }
+        }
+        return try await performInstall(release, baseURL: baseURL, progress: progress, onPhase: onPhase)
+    }
+
+    /// 排队等待槽位的续体（actor 串行化；UUID 键——取消唤醒按 id 定位）。
+    private var slotWaiters: [(id: UUID, continuation: CheckedContinuation<Void, Never>)] = []
+
+    /// 取消排队：从队列移除并唤醒（resume 恰好一次；已由槽位释放唤醒者不在队列，
+    /// 直接返回不 resume）。只在 actor 上执行（经 onCancel 的 Task hop）。
+    private func removeWaiter(_ id: UUID) {
+        guard let index = slotWaiters.firstIndex(where: { $0.id == id }) else { return }
+        slotWaiters.remove(at: index).continuation.resume()
+    }
+
+    /// 安装主流程（install 的槽位互斥之后的部分）。
+    private func performInstall(_ release: ASRModelRelease,
+                                baseURL: URL?,
+                                progress: (@Sendable (DownloadProgress) -> Void)? = nil,
+                                onPhase: (@Sendable (InstallPhase) -> Void)? = nil) async throws -> URL {
         guard release.isPublished else { throw Failure.notPublished }
         // 公钥签名目录或 App 内嵌基线授权完整描述；网络自报 SHA 无法自行授权。
         let appVersion = (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "0.0.1"

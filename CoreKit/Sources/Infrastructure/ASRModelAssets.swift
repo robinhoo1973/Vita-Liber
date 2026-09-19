@@ -74,12 +74,11 @@ public struct ASRModelAssets: Sendable {
             lock.lock(); defer { lock.unlock() }
             return counters[root, default: 0]
         }
-        /// 推进指定根；root 为 nil 时推进全部根（仅保留给全量失效的显式入口）。
-        func advance(for root: String? = nil) {
-            lock.lock()
-            if let root { counters[root, default: 0] &+= 1 }
-            else { for key in counters.keys { counters[key, default: 0] &+= 1 } }
-            lock.unlock()
+        /// 推进指定根（2026-09-19 审查修复：nil=推进全部的分支是全仓零调用的
+        /// 死代码，且语义残缺——只推进**已有条目**的根，无条目的根（代次隐含 0）
+        /// 根本不会被推——全量失效入口一旦被未来调用方使用即静默漏推。删除。）
+        func advance(for root: String) {
+            lock.lock(); counters[root, default: 0] &+= 1; lock.unlock()
         }
     }
 
@@ -105,31 +104,33 @@ public struct ASRModelAssets: Sendable {
 
     /// 锁保护的进程级键值缓存（presence/manifest 共用同一形态——两个近复制
     /// 类收敛为一个泛型；Value = Manifest? 时下标层级与旧实现逐位同语义）。
+    /// 2026-09-19 审查修复：value 改为 rethrows + **锁内计算**（computeIfAbsent
+    /// 单一形态）——旧 peek+set 是拆开的 check-then-act：并发校验同一文件时
+    /// 双方都漏缓存、GB 级文件重复流式哈希（备忘录要消除的正是这份重复工作）。
     private final class LockedCache<Value>: @unchecked Sendable {
         private let lock = NSLock()
         private var values: [String: Value] = [:]
-        func value(key: String, compute: () -> Value) -> Value {
+        func value(key: String, compute: () throws -> Value) rethrows -> Value {
             lock.lock(); defer { lock.unlock() }
             if let cached = values[key] { return cached }
-            let computed = compute()
+            let computed = try compute()
             values[key] = computed
             return computed
-        }
-        func peek(key: String) -> Value? {
-            lock.lock(); defer { lock.unlock() }
-            return values[key]
-        }
-        func set(key: String, value: Value) {
-            lock.lock(); values[key] = value; lock.unlock()
         }
         func removeAll() {
             lock.lock(); values.removeAll(); lock.unlock()
         }
+        /// 按路径前缀逐出（per-root 失效：只清该目录树下的键）。
+        func removeAll(wherePrefix prefix: String) {
+            lock.lock(); defer { lock.unlock() }
+            values = values.filter { $0.key != prefix && !$0.key.hasPrefix(prefix + "/") }
+        }
     }
     /// 2026-09-19 审查修复：逐文件 SHA-256 流式哈希的进程级备忘（键=文件路径）。
     /// 此前每次 warmUp/按压/池重载都全量重哈希（下载后按压冻结主因之二）——
-    /// 目录内容在代次内不可变（安装替换目录并推进分代 → 本缓存随 invalidateCaches 清空），
-    /// 哈希结论在代次内恒定，备忘不削弱防篡改链（文件变更必然伴随分代推进）。
+    /// 目录内容在代次内不可变（安装替换目录并推进分代 → 本缓存在 invalidateCaches
+    /// 按该根路径前缀逐出），哈希结论在代次内恒定，备忘不削弱防篡改链
+    /// （文件变更必然伴随分代推进与逐出）。
     private static let validatedCache = LockedCache<String>()
 
     public func isPresent(_ choice: VoiceEngineChoice) -> Bool {
@@ -143,22 +144,27 @@ public struct ASRModelAssets: Sendable {
 
     /// 安装/指针切换后失效进程级缓存（presence/manifest/validated）：同版本重装或指针切换后，
     /// 旧判定（如曾因缺件缓存 false）不得继续遮蔽新目录（安全审查 2026-09-12 发现）。
-    /// 2026-09-19 审查修复：新增 per-root 分代参数——安装只推进被安装目录的代次，
-    /// 其他档位的 identity 不变，其已加载引擎与哈希结果继续有效（不再全部重载）。
-    public static func invalidateCaches(forRoot root: URL? = nil) {
+    /// 2026-09-19 审查修复二：validatedCache 改为**按根路径前缀**逐出——旧实现
+    /// 全局 removeAll 把其他档位的哈希备忘一并抹掉（per-root 分代只保住了 identity，
+    /// 未变文件的哈希结果仍被清空，安装 A 后按压 B 又全量重哈希 GB 级文件——
+    /// 备忘要消除的冻结半复发）；presence/manifest 体量小、全局清无碍。
+    public static func invalidateCaches(forRoot root: URL) {
+        let path = root.standardizedFileURL.path
         presenceCache.removeAll()
         manifestCache.removeAll()
-        validatedCache.removeAll()
-        generation.advance(for: root?.standardizedFileURL.path)
+        validatedCache.removeAll(wherePrefix: path)
+        generation.advance(for: path)
     }
 
     /// 2026-09-19 审查修复：只清缓存、不推分代——目录索引刷新（检查更新）用。
     /// 索引变化不影响已装文件的身份（撤销走 trust 每调用检查），此前 fetchIndex
     /// 走全量 invalidateCaches 会把所有档位 identity 一起推进 → 未变文件全重载。
+    /// 2026-09-19 审查修复二：validatedCache 不再随索引刷新清空——索引刷新
+    /// 不可能改写已装文件（写入面只有 install 的 moveItem + 暂存目录），
+    /// 每次点「检查更新」后按压若全量重哈希，备忘录同样半失效。
     public static func clearCaches() {
         presenceCache.removeAll()
         manifestCache.removeAll()
-        validatedCache.removeAll()
     }
 
     public func byteCount(_ choice: VoiceEngineChoice) -> Int64? {
@@ -211,17 +217,14 @@ public struct ASRModelAssets: Sendable {
             guard attributes[.type] as? FileAttributeType == .typeRegular,
                   (attributes[.size] as? NSNumber)?.int64Value == file.bytes else { throw TranscriptionError.engineUnavailable }
             if hash {
-                let actual: String
-                if let cachedHash = Self.validatedCache.peek(key: url.path) {
-                    actual = cachedHash
-                } else {
+                // 2026-09-19 审查修复：computeIfAbsent 单一形态（锁内计算）——
+                // 并发校验同一文件时旧 peek+set 双方都漏缓存、重复流式哈希。
+                let actual = Self.validatedCache.value(key: url.path) {
                     let handle = try FileHandle(forReadingFrom: url)
                     defer { do { try handle.close() } catch { /* 只读描述符关闭失败不覆盖hash结果 */ } }
                     var digest = CryptoKit.SHA256()
                     while let chunk = try handle.read(upToCount: 1_048_576), !chunk.isEmpty { digest.update(data: chunk) }
-                    let computed = digest.finalize().map { String(format: "%02x", $0) }.joined()
-                    Self.validatedCache.set(key: url.path, value: computed)
-                    actual = computed
+                    return digest.finalize().map { String(format: "%02x", $0) }.joined()
                 }
                 guard actual == file.sha256 else { throw TranscriptionError.engineUnavailable }
             }

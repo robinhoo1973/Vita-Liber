@@ -109,6 +109,17 @@ public struct ASRModelRelease: Codable, Sendable, Equatable, Identifiable {
     public func isNewer(than installedVersion: String?) -> Bool {
         ASRVersion.isNewer(version, than: installedVersion)
     }
+
+    /// 是否需要安装/更新所选档位（BR 规则，2026-09-19 审查修复自视图上移——
+    /// CLAUDE.md 规则 4：业务判定不得留在 View 内）。三条析取：
+    /// ① 未装过（无已激活指针版本）；② 已装版本更旧；③ 同版本换档
+    /// （small→large 等——只比版本号的旧判定让尺寸选择形同虚设）。
+    public func needsInstall(installedVersion: String?, installedVariant: String?) -> Bool {
+        guard let installedVersion else { return true }
+        if isNewer(than: installedVersion) { return true }
+        if version == installedVersion, variant != nil, variant != installedVariant { return true }
+        return false
+    }
 }
 
 /// 版本比较（模型版本是「上游语义版本 + 日期」混合形态，如 `0.6b-int8-v2026.03.25`）。

@@ -692,7 +692,7 @@ final class HealthImportAcceptanceTests: XCTestCase {
             page: HealthChangeBatch(added: [], deleted: [], anchor: Data([2]), hasMore: false))
         _ = try await store.commit(binding: binding, kind: .heartRate, pending: history, snapshots: [])
         let keys = try await db.writer.read { try String.fetchAll($0, sql: "SELECT anchor_key FROM hk_sync_anchor ORDER BY anchor_key") }
-        XCTAssertEqual(keys, ["hk.v3.\(binding.id.uuidString).heartRate.history", "hk.v3.\(binding.id.uuidString).heartRate.recent"])
+        XCTAssertEqual(keys, ["hk.v3.\(binding.id.uuidString).heartRate.history", "hk.v4.\(binding.id.uuidString).heartRate.recent"])
         let historyAfter = try await store.anchor(binding: binding, kind: .heartRate, lane: .history)
         XCTAssertEqual(historyAfter, Data([2]))
     }

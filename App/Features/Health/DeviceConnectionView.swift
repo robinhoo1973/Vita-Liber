@@ -99,16 +99,25 @@ final class F16DeviceState {
         phase = .degraded(L10n.f16AuthDisabled)
     }
 
+    /// 本轮同步代次（2026-09-19 审查修复：轮询守卫——只有同代次的中间报告可以
+    /// 回填；终态回填后递增使轮询失效，杜绝旧轮询的迟到刻度覆盖终态报告）。
+    private var syncEpoch = 0
+
     /// 2026-09-19 审查修复：中间/终态报告统一入口——更新回显报告与按类型排空进度。
-    /// 基线 = 每类型第一次观察到的剩余窗口数；随后剩余单调收敛 → 进度 0…1。
-    /// 道切换（recent 排空 → 探 history）时剩余数跃过基线——基线重置为新道
-    /// 窗口数、进度从头计（不会出现 100% 塌回 0 的伪回落）。
-    private func applyLiveReport(_ live: SyncReport) {
+    /// 基线 = 每类型第一次观察到的剩余窗口数；**基线只升不降**——多页排空时每页
+    /// 新暂存样本会让剩余数跃过基线，旧实现把任何增长当「道切换」重置基线，
+    /// 类别卡每轮 100% 塌回 0 再爬升（伪回落）；只抬分母则进度单调不回退。
+    /// 守卫：epoch 过滤跨会话/迟到轮询，同值报告去重（2.5Hz 轮询的大头是
+    /// 内容不变的刻度——重复写 @Perceptible 状态令整卡树每 400ms 重渲染）。
+    private func applyLiveReport(_ live: SyncReport, epoch: Int, force: Bool = false) {
+        guard force || (epoch == syncEpoch && live != report) else { return }
         report = live
         guard let perKind = live.perKindRemaining else { return }
         for (kind, remaining) in perKind {
-            if let base = kindBaseline[kind], remaining <= base {
-                kindProgress[kind] = base == 0 ? 1 : min(1, max(0, 1 - Double(remaining) / Double(base)))
+            if let base = kindBaseline[kind] {
+                let ceiling = max(base, remaining)
+                kindBaseline[kind] = ceiling
+                kindProgress[kind] = ceiling == 0 ? 1 : min(1, max(0, 1 - Double(remaining) / Double(ceiling)))
             } else {
                 kindBaseline[kind] = remaining
                 kindProgress[kind] = remaining == 0 ? 1 : 0
@@ -139,6 +148,12 @@ final class F16DeviceState {
         guard authEnabled else { phase = .degraded(L10n.f16AuthDisabled); return }
         guard !isSyncing else { return }
         phase = .syncing
+        syncEpoch &+= 1
+        let epoch = syncEpoch
+        // 2026-09-19 审查修复：跨会话残留守卫——latestReport 是服务级属性，上一会话
+        // 的终态报告会在本会话首个轮询刻度到达，把旧剩余数灌进基线（进度条起步即
+        // 100% 的伪态）。以本会话起始时刻为界，早于它的报告一律丢弃。
+        let syncStart = Date()
         kindBaseline = [:]
         kindProgress = [:]
         // 2026-09-19 审查修复（业主诉求：类别卡导入进度条）：performSyncAll 单次终态等待
@@ -148,8 +163,8 @@ final class F16DeviceState {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(400))   // try?-ok: 取消由 sleep 抛出即结束轮询
                 guard let self else { return }
-                if let live = await self.syncService.latestReport {
-                    self.applyLiveReport(live)
+                if let live = await self.syncService.latestReport, live.lastSyncAt >= syncStart {
+                    self.applyLiveReport(live, epoch: epoch)
                 }
             }
         }
@@ -158,7 +173,8 @@ final class F16DeviceState {
             // I2 审查修复：轮询与聚合下沉 HealthKitSyncService.performSyncAll
             // （服务语义不进视图状态对象），本层只消费一次终态报告。
             let total = try await syncService.performSyncAll(quietStart: quietStart, quietEnd: quietEnd, maxRounds: maxRounds)
-            applyLiveReport(total)
+            applyLiveReport(total, epoch: epoch, force: true)
+            syncEpoch &+= 1   // 终态落定：旧轮询刻度（已在途读取者）失效，不得再覆盖终态
             if total.persistedRows > 0 { dataChange.metricsChanged() }
             dataChange.alertsChanged()
             // 审查修复（效率）：仪表盘六查询聚合只在轮次结束后算一次——
@@ -292,7 +308,14 @@ final class F16DeviceState {
         writeSummary = summary
     }
 
-    func updateAutomation() async { await syncService.startBackgroundObservation() }
+    /// 2026-09-19 审查修复：注册失败标志此前只在入口探测时回填——开关切换路径
+    /// 调用 startBackgroundObservation 后丢弃结果，运行时注册失败（如系统拒绝
+    /// enableBackgroundDelivery）不刷新本标志，警告条永不出现。每次自动化注册
+    /// 后如实同步标志（静默死亡警示的单一回填点补齐第二消费路径）。
+    func updateAutomation() async {
+        await syncService.startBackgroundObservation()
+        backgroundSyncBroken = await syncService.backgroundRegistrationFailed
+    }
     func importedRows(kind: HealthDataKind, before: HealthImportRow?) async throws -> [HealthImportRow] {
         try await syncService.importedRows(kind: kind, before: before)
     }

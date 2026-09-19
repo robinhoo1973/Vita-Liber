@@ -106,23 +106,21 @@ struct ModelPackageDownloader {
                                         destination: URL,
                                         counter: ProgressCounter) async throws {
         var request = URLRequest(url: url)
-        request.timeoutInterval = 60
+        // 2026-09-19 审查修复：请求级空闲超时 60s → 300s——URLSession 对**排队等连接**
+        // 的请求也计请求超时（排队期间不重置计时），GB 级分段在池内排队 >60s 即被
+        // -1001 掐断；300s 与「无资源超时天花板」的分段下载语义一致（头部探测仍 30s）。
+        request.timeoutInterval = 300
         request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
         if let end { request.setValue("bytes=\(start)-\(end)", forHTTPHeaderField: "Range") }
         let expected = end.map { $0 - start + 1 } ?? total
-        let delegate = ModelResourceTransfer(expectedBytes: expected, range: end.map { (start, $0, total) }, onBytes: { counter.add($0) })
-        let temporary: URL
-        let response: URLResponse
-        do {
-            (temporary, response) = try await session.download(for: request, delegate: delegate)
-        } catch {
-            try Task.checkCancellation()
-            throw delegate.resolve(error)
-        }
+        let (temporary, response) = try await downloadAttempt(session: session, request: request,
+                                                              expected: expected,
+                                                              range: end.map { (start, $0, total) },
+                                                              counter: counter)
         defer { try? FileManager.default.removeItem(at: temporary) } // try?-ok: URLSession 临时下载文件清理，不掩盖主错误
         try Task.checkCancellation()
-        if let failure = delegate.failure { throw failure }
-        try delegate.validate(response)
+        let validator = ModelResourceTransfer(expectedBytes: expected, range: end.map { (start, $0, total) })
+        try validator.validate(response)
         let size = try FileManager.default.attributesOfItem(atPath: temporary.path)[.size] as? NSNumber
         guard size?.int64Value == expected else { throw ASRModelDownloadService.Failure.sizeMismatch }
         let handle = try FileHandle(forWritingTo: destination)
@@ -139,6 +137,37 @@ struct ModelPackageDownloader {
         }
         guard written == expected else { throw ASRModelDownloadService.Failure.sizeMismatch }
     }
+}
+
+/// 单段下载 + 瞬态错误重试一次（2026-09-19 审查修复）：连接池争用/链路抖动下
+/// 段请求超时（-1001）或连接丢失（-1005）会掐断 GB 级分段——重试一次（固定 2s
+/// 退避，最简可解释形态）显著降低整装失败率。委托按尝试重建：字节计数不复用
+/// （失败尝试的已收字节不得重复累计进进度计数器）。
+private func downloadAttempt(session: URLSession, request: URLRequest,
+                             expected: Int64, range: (Int64, Int64, Int64)?,
+                             counter: ProgressCounter) async throws -> (URL, URLResponse) {
+    var lastError: Error = ASRModelDownloadService.Failure.sizeMismatch
+    for attempt in 0..<2 {
+        // 委托按尝试重建；失败尝试已计入共享计数器的字节在重试前回滚——
+        // 2026-09-19 扫尾发现 #4：重试双计会使 fraction > 1（进度条回绕/提前满格）。
+        var attemptBytes: Int64 = 0
+        let delegate = ModelResourceTransfer(expectedBytes: expected, range: range,
+                                             onBytes: { counter.add($0); attemptBytes += $0 })
+        do {
+            let (temporary, response) = try await session.download(for: request, delegate: delegate)
+            return (temporary, response)
+        } catch {
+            try Task.checkCancellation()
+            lastError = delegate.resolve(error)
+            guard attempt == 0, let urlError = error as? URLError,
+                  [.timedOut, .networkConnectionLost, .cannotConnectToHost].contains(urlError.code) else {
+                throw lastError
+            }
+            counter.remove(attemptBytes)
+            try await Task.sleep(nanoseconds: 2_000_000_000)
+        }
+    }
+    throw lastError
 }
 
 /// 多段并发进度聚合（回调可在任意线程调用；调用方自行切主线程）。
@@ -178,6 +207,14 @@ private final class ProgressCounter: @unchecked Sendable {
         if shouldEmit {
             callback?(.init(receivedBytes: snapshot, totalBytes: total, mode: mode, series: series))
         }
+    }
+
+    /// 失败尝试字节回滚（重试路径）：只扣计数，不发进度回调——真实进度只会前进，
+    /// 回滚后的下一 add 恢复节流发射（lastEmittedFraction 不回退，防瞬时抖动）。
+    func remove(_ bytes: Int64) {
+        lock.lock()
+        received = max(0, received - bytes)
+        lock.unlock()
     }
 }
 #endif

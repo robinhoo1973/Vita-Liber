@@ -80,6 +80,12 @@ struct LockOverlayView: View {
         WithPerceptionTracking {
             ZStack {
                 Color("bg-grouped", bundle: .main).ignoresSafeArea()
+                    // 2026-09-19 审查修复：门禁改为覆盖层后，遮罩盖在**仍挂载**的内容视图之上——
+                    // 纯 Color 不参与命中测试，点按会穿透到下方内容（锁定期间可操作病历）。
+                    // contentShape + 空手势让背景层吸收全部触控；VStack 内按钮在子层级
+                    // 优先命中，不受影响。
+                    .contentShape(Rectangle())
+                    .onTapGesture {}
                 VStack(spacing: 20) {
                     VLIcon.faceid
                         .resizable().frame(width: 56, height: 56)

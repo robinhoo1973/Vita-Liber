@@ -277,9 +277,9 @@ final class HealthKitSyncServiceTests: XCTestCase {
         let historyAnchor = try await imports.anchor(binding: binding, kind: .bloodOxygen, lane: .history)
         XCTAssertNotNil(recentAnchor, "空的 recent 道立即落检查点")
         XCTAssertNil(historyAnchor, "history 道排空前不推进游标")
-        // 两道游标键互不串扰（hk.v3.<binding>.<kind>.<lane>）
-        let keys = try await db.writer.read { try String.fetchAll($0, sql: "SELECT anchor_key FROM hk_sync_anchor WHERE anchor_key LIKE ? ORDER BY anchor_key", arguments: ["hk.v3.\(binding.id.uuidString).bloodOxygen.%"]) }
-        XCTAssertEqual(keys, ["hk.v3.\(binding.id.uuidString).bloodOxygen.recent"])
+        // 两道游标键互不串扰（recent 道 v4 降序首填空间 / history 道 hk.v3）
+        let keys = try await db.writer.read { try String.fetchAll($0, sql: "SELECT anchor_key FROM hk_sync_anchor WHERE anchor_key LIKE ? ORDER BY anchor_key", arguments: ["hk.v4.\(binding.id.uuidString).bloodOxygen.%"]) }
+        XCTAssertEqual(keys, ["hk.v4.\(binding.id.uuidString).bloodOxygen.recent"])
         // 排空后 history 道游标落地、进度归零
         var last = report
         for _ in 0..<8 where last.hasMore { last = try await sync.performSync(quietStart: "22:00", quietEnd: "07:00") }

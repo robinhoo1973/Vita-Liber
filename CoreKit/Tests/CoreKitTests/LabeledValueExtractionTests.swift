@@ -246,4 +246,64 @@ struct LabeledValueExtractionTests {
         #expect(merged.text == "伴发热1天")
         #expect(merged.absorbed == 3, "吸收「伴发热1天」+ 两个空行；边界行不计入")
     }
+
+    // MARK: - 2026-09-19 审查修复回归钉：诊断前缀族 / 编号药品行边界 / 直配标签边界 / 叙事续行
+
+    @Test("诊断前缀族：临床/西医/补充/修正/鉴别诊断均被捕获（行首锚不丢值）")
+    /// 2026-09-19 修复：行首锚首版前缀组漏掉最常见印刷形态，诊断值整体丢失
+    func diagnosisPrefixFamilyCaptured() {
+        for (line, expected) in [
+            ("临床诊断：上呼吸道感染", "上呼吸道感染"),
+            ("西医诊断：冠心病", "冠心病"),
+            ("补充诊断：高血压", "高血压"),
+            ("修正诊断：2型糖尿病", "2型糖尿病"),
+            ("鉴别诊断：急性支气管炎", "急性支气管炎"),
+            ("入院诊断：肺炎", "肺炎"),
+        ] {
+            let fields = DocumentTypeClassifierFallback.pageFields(lines: [line], understood: [], confidence: 0.6)
+            #expect(fields.first { $0.key == "diagnosis" }?.value == expected,
+                    "\(line) 的诊断值应为 \(expected)；实得 \(fields.map { "\($0.key)=\($0.value)" })")
+        }
+    }
+
+    @Test("编号药品行不并入诊断叙事（诊断值不被剂量/规格文字污染）")
+    /// 2026-09-19 修复：编号边界豁免过宽会把药品行吞进诊断值
+    func numberedDrugRowsStayOutOfDiagnosisNarrative() {
+        let lines = ["诊断：急性支气管炎", "1.阿莫西林胶囊 0.25g 每日三次", "2.氨溴索片 30mg"]
+        let fields = DocumentTypeClassifierFallback.pageFields(lines: lines, understood: [], confidence: 0.6)
+        let diagnosis = fields.first { $0.key == "diagnosis" }
+        #expect(diagnosis?.value == "急性支气管炎",
+                "诊断值不得含药品行；实得 \(diagnosis?.value ?? "nil")")
+        #expect(fields.contains { $0.key == "drug_name" } || fields.contains { $0.key.hasPrefix("line_") && $0.value.contains("阿莫西林") },
+                "药品行须独立产出（drug_name 或 line_N 孤行），不得消失")
+    }
+
+    @Test("编号诊断列表本体仍并入（豁免语义保留：2.高血压病 是列表项非结构行）")
+    func numberedDiagnosisListStillAbsorbed() {
+        let lines = ["诊断：支气管炎", "2.高血压病"]
+        let fields = DocumentTypeClassifierFallback.pageFields(lines: lines, understood: [], confidence: 0.6)
+        let diagnosis = fields.first { $0.key == "diagnosis" }
+        #expect(diagnosis?.value == "支气管炎\n2.高血压病", "实得 \(diagnosis?.value ?? "nil")")
+    }
+
+    @Test("直配标签行是吸收边界：批号/通用名称不被吞进诊断叙事")
+    /// 2026-09-19 修复：isDirectLabelLine 补齐 directLabelAliases 产出源
+    func directLabelLinesBoundNarrativeAbsorption() {
+        let lines = ["诊断：肺炎", "批号：B20260912", "通用名称：阿莫西林"]
+        let fields = DocumentTypeClassifierFallback.pageFields(lines: lines, understood: [], confidence: 0.6)
+        let diagnosis = fields.first { $0.key == "diagnosis" }
+        #expect(diagnosis?.value == "肺炎", "实得 \(diagnosis?.value ?? "nil")")
+        #expect(fields.contains { $0.key == "lot_number" }, "批号行须独立产出 lot_number")
+    }
+
+    @Test("叙事续行不因无冒号医嘱词截断：口服退热药后体温可降并入现病史")
+    /// 2026-09-19 修复：directions 前缀只在带冒号标签形态下作边界
+    func narrativeContinuationNotSplitByBareDirectionsWord() {
+        let lines = ["现病史：患者2天前起发热", "口服退热药后体温可降"]
+        let fields = DocumentTypeClassifierFallback.pageFields(lines: lines, understood: [], confidence: 0.6)
+        let illness = fields.first { $0.key == "present_illness" }
+        #expect(illness?.value == "患者2天前起发热\n口服退热药后体温可降",
+                "实得 \(illness?.value ?? "nil")")
+    }
 }
+

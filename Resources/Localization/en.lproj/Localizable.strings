@@ -1766,6 +1766,7 @@
 "asr.model.update" = "Update to %@";
 "asr.model.installed" = "Installed %@";
 "asr.model.downloading" = "Downloading…";
+"asr.model.queued" = "Queued for a download slot (max 2 simultaneous downloads)…";
 "asr.model.downloadFailed" = "Download failed. Check your network and retry.";
 "asr.model.checkUpdate" = "Check for Updates";
 "asr.model.checking" = "Checking…";

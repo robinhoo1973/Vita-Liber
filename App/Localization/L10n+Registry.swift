@@ -911,7 +911,7 @@ extension L10n {
         "asr.model.download", "asr.model.update", "asr.model.installed",
         "asr.model.variantTitle", "asr.model.variantSmall", "asr.model.variantMedium", "asr.model.variantLarge",
         "asr.model.variantHint",
-        "asr.model.downloading", "asr.model.downloadFailed",
+        "asr.model.downloading", "asr.model.queued", "asr.model.downloadFailed",
         "asr.model.checkUpdate", "asr.index.fetchFailed",
         "asr.model.checking", "asr.model.checkUpToDate", "asr.model.checkUpdatesFmt",
         "asr.model.progressFmt", "asr.model.phaseVerifying", "asr.model.phaseUnpacking",

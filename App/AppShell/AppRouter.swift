@@ -58,9 +58,11 @@ final class AppRouter {
     /// no-op，防止空 path 覆盖 UserDefaults 里的持久化路由。
     private var didRestore = false
     /// 导航外壳就绪标志（RootAdaptiveView.onAppear 置位）。注意不能用
-    /// AppRootView 首帧作就绪锚点：门禁冷启动时首帧是 LockOverlayView，
-    /// 外壳（含五个 NavigationStack）要等 Face ID 解锁后才挂载——外壳未
-    /// 挂载时 push 同样命中转场环境断言（crash 2 时序：启动后约 1.5s）。
+    /// AppRootView 首帧作就绪锚点：门禁冷启动时 LockOverlayView 覆盖在
+    /// 外壳之上（2026-09-19 起为覆盖层——外壳在遮罩下即已挂载，恢复/深链
+    /// 投递落在覆盖层之下），而 markNavigationReady 内部再延一拍（挂载帧
+    /// 提交后才 push）防的是 iOS 26 转场环境断言（crash 2 时序：启动后约
+    /// 1.5s）——挂载帧判定仍需外壳 onAppear，不得用 AppRootView 首帧。
     private var navigationReady = false
     /// 外壳就绪前暂存的通知路由队列（主线程访问，enqueue/markNavigationReady 消费；
     /// 队列而非单槽——启动窗口内连点两条通知时逐条投递，不丢后到/先到的路由）

@@ -275,12 +275,11 @@ struct ASREngineSettingsSection: View {
                     // 一档生效——ASRInstallLayout 语义；已装版本不提示重复下载）。
                     // 2026-09-19 审查修复：此前仅按版本判定——同版本换档（small→large）
                     // 恒无下载按钮（isNewer 只比版本号），尺寸选择形同虚设。
-                    let installedVariant = row.installedVariant
-                    let needsInstall = installed == nil
-                        || (installed.map { chosenVariant.isNewer(than: $0) } ?? true)
-                        || (chosenVariant.variant != nil
-                            && chosenVariant.version == installed
-                            && chosenVariant.variant != installedVariant)
+                    // 判定是 BR 业务规则——2026-09-19 上移 Domain（CLAUDE.md 规则 4：
+                    // 业务判定不得留在 View 内），视图只读结果。
+                    let needsInstall = chosenVariant.needsInstall(
+                        installedVersion: installed,
+                        installedVariant: row.installedVariant)
                     if needsInstall {
                         Button(L10n.asrModelUpdate(chosenVariant.version)) { startInstall(chosenVariant) }
                             .buttonStyle(.bordered).frame(minHeight: 44)
@@ -321,9 +320,16 @@ struct ASREngineSettingsSection: View {
 
     /// 进行态视图：下载 = 分数进度 + 字节数字（慢链路下条位移缓慢，数字给确定反馈）；
     /// 校验/解压/安装/清理 = 不确定进度 + 阶段文案（此前这些阶段完全无反馈）。
+    /// 2026-09-19 审查修复：新增**排队等待态**——并发槽满（最多 2 个同时下载）时
+    /// 后续点击不再报「下载失败/网络错误」，如实呈现「排队等待下载槽位」。
     @ViewBuilder
     private func installProgress(_ choice: VoiceEngineChoice, _ active: ASRInstallCenter.Install) -> some View {
-        if let progress = active.progress, active.phase == .downloading {
+        if active.waiting {
+            ProgressView().frame(maxWidth: 260)
+            Text(L10n.asrModelQueued)
+                .font(.caption2).foregroundStyle(.secondary)
+                .accessibilityIdentifier("\(accessibilityPrefix).model.queued.\(choice.rawValue)")
+        } else if let progress = active.progress, active.phase == .downloading {
             ProgressView(value: progress.fraction).frame(maxWidth: 260)
             Text(L10n.asrModelProgress(
                 ByteCountFormatter.string(fromByteCount: progress.receivedBytes, countStyle: .file),

@@ -85,7 +85,7 @@ final class HealthBackupAcceptanceTests: XCTestCase {
         try await source.writer.write { db in
             try db.execute(sql: """
                 INSERT INTO hk_sync_anchor (anchor_key, anchor_value, updated_at) VALUES (?, 'AQID', 50)
-                """, arguments: ["hk.v3.\(binding.id.uuidString).heartRate.recent"])   // round2 H-N1 分道游标键空间
+                """, arguments: ["hk.v4.\(binding.id.uuidString).heartRate.recent"])   // 2026-09-19：recent 道 v4 降序首填游标键空间
             try db.execute(sql: """
                 INSERT INTO hk_sample_index (sample_id, type_key, patient_id, source_id, start_at, end_at)
                 VALUES (?, 'heartRate', ?, 'com.example.fixture.watch', 1700006400, 1700006460)

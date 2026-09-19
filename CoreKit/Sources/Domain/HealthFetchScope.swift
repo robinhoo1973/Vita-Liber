@@ -3,7 +3,7 @@ import Foundation
 /// FR16.1 首次回填分道（round2 H-N1 / 决策 Q5）：HKAnchoredObjectQuery 按 HealthKit 行序最旧优先
 /// 且不可倒序，让「近一年先到」的唯一手段是把谓词限定在近一年；两道以样本 end 在 cutoff 处
 /// 互补分割——recent = end >= cutoff（HealthKit 默认样本谓词左闭），history = end < cutoff
-/// （`.strictEndDate` 右开）。两道各持独立游标（`hk_sync_anchor` 键 `hk.v3.<binding>.<kind>.<lane>`）。
+/// （`.strictEndDate` 右开）。两道各持独立游标（`hk_sync_anchor` 键 recent=`hk.v4`（降序首填游标）/history=`hk.v3`）。
 public enum HealthFetchLane: String, Sendable, Codable, CaseIterable {
     case recent, history
 }

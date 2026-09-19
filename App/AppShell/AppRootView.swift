@@ -51,13 +51,11 @@ struct AppRootView: View {
             // 解析——视图身份不变、零状态丢失（与 currentTheme 同一模式）。
             let _ = currentLanguage
             Group {
-                if backgroundLocked || appState.needsLockScreen {
-                    LockOverlayView { backgroundLocked = false }
-                } else if !appState.onboardingFinished {
+                if !appState.onboardingFinished {
                     OnboardingFlowView()
                 } else {
                     RootAdaptiveView()
-                        // 卸载钩子（门禁重锁/向导分支替换 RootAdaptiveView）：卸载期间
+                        // 卸载钩子（向导分支替换 RootAdaptiveView 时才触发）：卸载期间
                         // notification 深链必须退回 AppRouter.enqueue 暂存而非直写 path
                         // ——外壳未挂载时写 path 并持久化，解锁后 NavigationStack 以
                         // 非空 path 挂载 = 首帧 push 转场（crash 2 同族）。挂在本调用点
@@ -69,6 +67,21 @@ struct AppRootView: View {
                             router.markNavigationSuspended()
                         }
                 }
+            }
+            // 2026-09-19 审查修复（业主诉求「返回后页面跟离开时不一致、之前的工作不见了」）：
+            // 门禁此前是**分支替换**——锁定即把 RootAdaptiveView 从视图树整个摘除，
+            // 解锁重挂载后所有子树 @State（表单草稿/滚动位置/向导步骤/在途任务）
+            // 全部销毁，路由虽然复原但页面内容回到初始态。改为**根级 fullScreenCover**：
+            // 内容视图在锁定期间保持挂载（身份不变、@State/.task 存活），锁屏以
+            // 呈现层挂在窗口层之上——presentation 层高于视图 overlay，任何子视图
+            // 已呈现的 fullScreenCover（拍摄/语音会话/媒体浏览）都无法盖过锁屏
+            // （FR1.4 回前台必见锁屏；银行业锁定屏的通行做法，扫尾发现 #3）。
+            // 解锁后下层封面仍在原位——与「返回后页面一致」的诉求同向。
+            // 快照防泄露仍由外层 `.privacySensitive(scenePhase != .active)` 承担（BR-007）。
+            .fullScreenCover(isPresented: Binding(
+                get: { backgroundLocked || appState.needsLockScreen },
+                set: { if !$0 { backgroundLocked = false } })) {
+                LockOverlayView { backgroundLocked = false }
             }
             // 第七轮全仓审查修复（FR1.7/BR-007 任务切换器快照）：宽限 >0 时遮罩
             // 未在 .inactive 快照时刻挂载——切换器快照拍到解锁态的病历界面。

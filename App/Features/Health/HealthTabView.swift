@@ -121,7 +121,7 @@ struct HealthTabView: View {
     /// 点开进详情页（复选全部记录 → 趋势图）。空态用独立文案（非同步报告语句）。
     private var importedSection: some View {
         Section {
-            if pageState == .connectedEmpty {
+            if pageState == .connectedEmpty && !deviceState.isSyncing {
                 Text(L10n.healthImportedEmpty).foregroundStyle(.secondary)
                     // 2026-09-15 审查修复：本页是 SP-29 的**同级**宿主（Tab 根），
                     // 标识与 SP-29 展示区同名会让 XCUITest 命中两个元素（掩蔽族同族），
@@ -132,8 +132,12 @@ struct HealthTabView: View {
                 // 2026-09-15 审查修复（业主实测同族）：空态下不得再列六行「0 个数据点」——
                 // `dashboard()` 对每个 HealthDataKind **无条件**产出行，计数 0 的行既与
                 // 上方「尚无已导入的数据」自相矛盾，也是六条点进去只有空列表的死入口。
-                if pageState == .visible {
-                    ForEach(dashboard.types.filter { $0.rowCount > 0 }) { type in
+                // 2026-09-19 审查修复：同步进行中例外——首次同步正是 rowCount 全 0 的
+                // 时刻，若仍按「只列有数据的行」过滤，类别卡进度条（上一轮修复的
+                // 目标场景）在首次导入全程不可见；同步中列全六类（0 行也列，进度条
+                // 为其存在理由），结束后回落既有过滤。
+                if pageState == .visible || deviceState.isSyncing {
+                    ForEach(dashboard.types.filter { deviceState.isSyncing || $0.rowCount > 0 }) { type in
                         // ForEach 行闭包逃逸：行内同步读感知对象属性，须自行包裹（子项目 I）
                         WithPerceptionTracking {
                             // 类型安全路由（§5.45）：身份由 dashboard.patientId（= 本人绑定）

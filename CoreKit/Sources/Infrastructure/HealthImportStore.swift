@@ -87,7 +87,7 @@ public actor HealthImportStore {
         HealthFetchScope.scopes(connectedAt: binding.connectedAt, calendar: binding.calendar)
     }
 
-    /// 每道独立游标（`hk.v3.<binding>.<kind>.<lane>`）；v2 单道键弃用——谓词变了，旧锚点不跨谓词复用，
+    /// 每道独立游标（recent 道 `hk.v4` 降序首填游标 / history 道 `hk.v3`）；v2 单道键弃用——谓词变了，旧锚点不跨谓词复用，
     /// 首次升级触发一次性幂等重回填（commit 按身份 upsert，不产重复行）。
     public func anchor(binding: Binding, kind: HealthDataKind, lane: HealthFetchLane) async throws -> Data? {
         try await writer.read { db in try Self.anchor(db, key: Self.anchorKey(binding, kind, lane)) }
@@ -570,8 +570,40 @@ public actor HealthImportStore {
     }
 
     /// round2 H-N1：v3 键空间按道分列；v2 键弃用——谓词变了，旧锚点不跨谓词复用（零 DDL：同表新键）。
+    /// 2026-09-19：recent 道 v4——游标语义换成降序首填（JSON 游标），旧 v3 锚点
+    /// （HKQueryAnchor）不跨游标方案复用；history 道维持 v3。
     private static func anchorKey(_ binding: Binding, _ kind: HealthDataKind, _ lane: HealthFetchLane) -> String {
-        "hk.v3.\(binding.id.uuidString).\(kind.rawValue).\(lane.rawValue)"
+        let space = lane == .recent ? "hk.v4" : "hk.v3"
+        return "\(space).\(binding.id.uuidString).\(kind.rawValue).\(lane.rawValue)"
+    }
+
+    /// 旧方案的 recent 锚点键（一次性作废用，见 `prepareRecentLane`）。
+    private static func legacyRecentAnchorKey(_ binding: Binding, _ kind: HealthDataKind) -> String {
+        "hk.v3.\(binding.id.uuidString).\(kind.rawValue).recent"
+    }
+
+    /// 2026-09-19 审查修复（recent 道降序首填）：v4 游标不存在时一次性作废
+    /// 旧 v3 recent 锚点与旧在途 recent 批次——降序首填按样本 id 幂等重排，
+    /// HealthKit 是事实源（重排无数据丢失）。幂等：仅 v4 游标缺失时执行；
+    /// 升版首轮后 v4 存在，本方法零开销。必须在 pendingBatch 读取**之前**调用
+    /// （否则旧批次锚点与空 v4 游标互斥 → staleAnchor 永久卡死该类型）。
+    public func prepareRecentLane(binding: Binding, kind: HealthDataKind) async throws {
+        try await writer.write { db in
+            try Self.requireBinding(binding, db: db)
+            if try Self.anchor(db, key: Self.anchorKey(binding, kind, .recent)) != nil { return }
+            try db.execute(sql: "DELETE FROM hk_sync_anchor WHERE anchor_key = ?",
+                           arguments: [Self.legacyRecentAnchorKey(binding, kind)])
+            do {
+                if try Self.pending(binding: binding, kind: kind, db: db)?.lane == .recent {
+                    try db.execute(sql: "DELETE FROM hk_pending_batch WHERE binding_id = ? AND type_key = ?",
+                                   arguments: [binding.id.uuidString, kind.rawValue])
+                }
+            } catch ImportError.invalidValue {
+                // 旧方案损坏/缺 lane 载荷：一并作废（降序首填重新暂存）
+                try db.execute(sql: "DELETE FROM hk_pending_batch WHERE binding_id = ? AND type_key = ?",
+                               arguments: [binding.id.uuidString, kind.rawValue])
+            }
+        }
     }
 
     private static func anchor(_ db: Database, key: String) throws -> Data? {

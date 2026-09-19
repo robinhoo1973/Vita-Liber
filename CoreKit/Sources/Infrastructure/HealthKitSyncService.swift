@@ -121,6 +121,14 @@ public actor HealthKitSyncService {
                 }
                 aggregate.remainingWindows = result.remainingWindows
                 aggregate.backfillLane = result.backfillLane
+                // 2026-09-19 审查修复：perKindRemaining 随其余「末轮为准」字段一并合并——
+                // 漏合并时终态报告永远携带首轮的按类剩余数（多轮排空已收敛到 0 后
+                // 类别卡进度仍按首轮基数倒退，且入库 report_json 误导下一会话基线）。
+                if result.perKindRemaining != nil || aggregate.perKindRemaining != nil {
+                    var merged = aggregate.perKindRemaining ?? [:]
+                    for (key, remaining) in result.perKindRemaining ?? [:] { merged[key] = remaining }
+                    aggregate.perKindRemaining = merged
+                }
                 total = aggregate
             } else {
                 total = result
@@ -184,6 +192,10 @@ public actor HealthKitSyncService {
             do {
                 try Task.checkCancellation()
                 guard try await imports.isEnabled() else { throw HealthImportStore.ImportError.disabled }
+                // 2026-09-19 审查修复（recent 道降序首填）：v4 游标方案的一次性迁移——
+                // 必须在 pendingBatch 读取前执行（旧 v3 recent 批次锚点与新空游标
+                // 互斥会 staleAnchor 永久卡死）。v4 已存在时零开销。
+                try await imports.prepareRecentLane(binding: binding, kind: kind)
                 let existing = try await imports.pendingBatch(binding: binding, kind: kind)
                 hasPending = existing != nil
                 // round2 H-N1：在途批次只续其所在道；否则先探 recent（近一年最新优先），空页再探 history。

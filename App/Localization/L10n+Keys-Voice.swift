@@ -332,6 +332,10 @@ extension L10n {
 
     static var asrModelDownloading: String { t("asr.model.downloading") }
 
+    /// 2026-09-19 审查修复：并发槽满（最多 2 个同时下载）排队等待态文案——
+    /// 旧实现把槽满拒绝渲染成「下载失败/检查网络」，用户误判网络坏了。
+    static var asrModelQueued: String { t("asr.model.queued") }
+
     static var asrModelDownloadFailed: String { t("asr.model.downloadFailed") }
 
     static var asrModelCheckUpdate: String { t("asr.model.checkUpdate") }

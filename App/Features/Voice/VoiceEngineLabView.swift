@@ -37,6 +37,9 @@ struct VoiceEngineLabView: View {
     /// 换挡前的在途 refresh/install 结果不得覆盖新档的资源状态。
     @State private var hasSelected = false
     @State private var generation = 0
+    /// 在途重建任务（2026-09-19 审查修复）：可取消——旧实现火忘任务不存储，
+    /// 连点换档 N 次并发构造 N 个引擎、离页后仍在装配（孤儿引擎 + 租约滞留）。
+    @State private var rebuildTask: Task<Void, Never>?
     /// 每档位可用性（`TranscriptionEngineBuilder.availability`：内部取
     /// `ModelCatalogTrustStore` 的锁 + 读资产目录 + 解析 manifest）。
     /// **不在 `body` 里算**（2026-09-16 审查修复，与 `ASREngineSettingsSection` 同款）：
@@ -171,7 +174,12 @@ struct VoiceEngineLabView: View {
                 rebuild()
                 Task { await refreshAssetStatus() }
             }
-            .onDisappear { model?.stopForDisappear() }
+            // 2026-09-19 审查修复：构建中的重建任务同样取消——旧实现只停当前 model，
+            // 离页瞬间仍在构造的引擎完成后照常装配（孤儿引擎 + 资产租约滞留）。
+            .onDisappear {
+                rebuildTask?.cancel()
+                model?.stopForDisappear()
+            }
         }
     }
 
@@ -186,7 +194,14 @@ struct VoiceEngineLabView: View {
     }
 
     private func rebuild() {
+        // 2026-09-19 审查修复（业主实测「换引擎后按压跑的还是旧引擎」）：构建窗口内
+        // 旧引擎必须**立即停用**——此前 model 保留到新引擎装配完，期间按压启动的是
+        // 已 stopForDisappear 但仍可重启的旧引擎，对照测试静默跑错引擎。取消在途
+        // 构建 + 清空引用，按压区随 `if let model` 消失，诚实呈现「构建中」。
+        rebuildTask?.cancel()
         model?.stopForDisappear()
+        model = nil
+        engine = nil
         let selected = choice
         let gen = generation
         // 2026-09-19 审查修复：引擎构造（资产解析/租约获取/清单读盘）此前在主 actor
@@ -195,11 +210,12 @@ struct VoiceEngineLabView: View {
         // （本视图是 struct，不可 weak 捕获——detached 闭包只捕获 Sendable 的
         // `selected`，装配回到主 actor 上下文后按 live 状态守卫回填）。
         let authorized = settings.values[.authVoiceDictation] != "false"
-        Task {
+        let task = Task {
             let built = await Task.detached(priority: .userInitiated) {
                 TranscriptionEngineBuilder.make(choice: selected)
             }.value
-            guard choice == selected, generation == gen else { return }
+            // 守卫三重：取消（离页/再重建）＋档位快照＋代次——任一失配即弃件
+            guard !Task.isCancelled, choice == selected, generation == gen else { return }
             let created = VoiceDictationModel(engine: built, preferredLocale: testLocale)
             created.setAuthorization(authorized)
             created.applyLanguageSettings(settings: settings, recentDrugNames: [])
@@ -214,6 +230,7 @@ struct VoiceEngineLabView: View {
             model = created
             await refreshAssetStatus()
         }
+        rebuildTask = task
     }
 
     private func refreshAssetStatus() async {

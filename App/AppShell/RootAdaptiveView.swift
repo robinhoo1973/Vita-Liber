@@ -140,10 +140,12 @@ struct RootAdaptiveView: View {
                     mediaSession.onBackground()
                 }
             }
-            // 导航外壳挂载钩子：挂载后才允许恢复持久化 path / 投递暂存的通知路由
-            // （门禁冷启动时本视图在 Face ID 解锁后才挂载；markNavigationReady
-            // 幂等且内部再延一拍——挂载帧提交后才 push，避开 iOS 26 转场环境断言，
-            // TestFlight 2026-09-05 crash 2 根因修正）
+            // 导航外壳挂载钩子：挂载后才允许恢复持久化 path / 投递暂存的通知路由。
+            // 2026-09-19 修正：锁门禁已由分支替换改为根级 fullScreenCover 覆盖层，
+            // 本视图冷启动即挂载（锁屏之下），markNavigationReady 会在锁定期间
+            // 放行（幂等且内部再延一拍——挂载帧提交后才 push，避开 iOS 26 转场
+            // 环境断言，TestFlight 2026-09-05 crash 2 根因修正）。markNavigationSuspended
+            // 仅剩外壳卸载（onboarding 分支互换）路径生效。
             .onAppear {
                 Task { @MainActor in router.markNavigationReady() }
             }

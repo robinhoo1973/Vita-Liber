@@ -141,7 +141,12 @@ public enum DocumentTypeClassifierFallback {
             // diagnosis、现病史整行丢失；guessFields 首命中即定）。isLabelPosition
             // 纪律（ExtractionPatterns）同款；前缀组保住 入院诊断：/出院诊断：/
             // 初步诊断： 等印刷形态（裸 ^ 会把它们打进 line_N）。
-            ("diagnosis", #"^(?:入院|出院|门诊|門診|初步|中医|中醫|主要|次要|主|次)?\s*(?:诊断|診斷)[:：]?\s*(.+)"#),
+            // 2026-09-19 审查修复二：首版前缀组漏掉最常见印刷形态 临床诊断/西医诊断/
+            // 补充诊断/修正诊断/鉴别诊断——行首锚下整行失配（临床诊断走直配轨产
+            // clinical_diagnosis，而就诊卡模板不映射该键、buildShared 静默丢弃，
+            // 诊断值整体丢失；西医/补充/修正/鉴别 无任何词表承接直接落 line_N），
+            // 与前缀组其余条目同源补全（ClinicalFieldLabels 前缀别名同族）。
+            ("diagnosis", #"^(?:入院|出院|门诊|門診|初步|临床|臨床|西医|西醫|补充|補充|修正|鉴别|鑑別|确诊|確診|中医|中醫|主要|次要|主|次)?\s*(?:诊断|診斷)[:：]?\s*(.+)"#),
             ("treatment", #"(?:处理|處理|医嘱|醫囑)[:：]?\s*(.+)"#),
             // 叙事字段补全（审查修复 2026-09-18 业主实测）：此前病历只认
             // 主诉/诊断/处理三标签，现病史/既往史/家族史/过敏史整段落
@@ -281,12 +286,20 @@ public extension DocumentTypeClassifierFallback {
     // MARK: - 行内直配静态资产（一次性构造，同 `fieldPatterns` 预编译纪律）
 
     /// 药品/用法直配词表与医生标签（每行现算 → 常量复用）。
-    private static let drugLabelPrefixes = ["药品名称", "藥品名稱", "药名", "藥名", "药品：", "藥品："]
+    /// 2026-09-19 审查修复：补裸「药品 」（空格分隔、无冒号）形态——ExtractionSpec
+    /// 别名与 RuleExtractor 负向前瞻本提交已收裸 药品/藥品，本表若不同步则三轨对
+    /// 「药品 阿司匹林」判定分叉（规则轨视为标签行、兜底轨整行判成 drug_name）。
+    /// 次序即优先级：复合前缀在前（「药品名称」先于「药品 」），避免裸前缀截断复合标签。
+    private static let drugLabelPrefixes = ["药品名称", "藥品名稱", "药名", "藥名",
+                                            "药品：", "藥品：", "药品 ", "藥品 "]
     // 2026-09-19 审查修复：用药指导/服药说明类行加入医嘱前缀——此前
     // 「用药指导：本药为缓释片，不可掰开服用」因含剂型词被整行判成 drug_name。
     private static let directionsPrefixes = ["用法", "用量", "每次", "每日", "口服", "外用",
                                              "用药指导", "用藥指導", "服药说明", "服藥說明", "用药注意", "用藥注意"]
     private static let namedFormTokens = ["胶囊", "膠囊", "颗粒", "顆粒", "注射液", "缓释片", "緩釋片"]
+    /// 剂量记号（编号行药品判定的补充信号：单次/频次词，2026-09-19 审查修复）。
+    private static let dosageMarkers = ["每次", "每日", "每8小时", "每8小時", "每日三次", "每日两次", "每日兩次",
+                                        "口服", "外用", "睡前", "必要时", "必要時", "mg", "ml", "μg", "ug", "片", "粒", "袋"]
     private static let doctorTokens = ["医生", "醫生", "医师", "醫師"]
 
     /// 标签直配扩展：只取印刷值，不推导剂量、币种或下一针时间。
@@ -463,8 +476,12 @@ public extension DocumentTypeClassifierFallback {
                         : partial
                 }
                 let headerLike = ["规格", "規格", "数量", "數量", "用法", "用量", "剂量", "劑量", "单位", "單位",
-                                  "厂家", "廠家", "批号", "批號", "单价", "單價", "金额", "金額"].contains(where: stripped.contains)
-                if !stripped.isEmpty, !headerLike, stripped.count <= 40 {
+                                  "厂家", "廠家", "批号", "批號", "单价", "單價", "金额", "金額",
+                                  "说明书", "說明書"].contains(where: stripped.contains)
+                // 药名本体须以字母/汉字开头——「药品 0.25g×24」等剥标签后剩规格数字
+                // 的行不是药名（裸空格形态新增后此守卫成为必要）。
+                let nameLike = stripped.first?.isLetter == true
+                if !stripped.isEmpty, !headerLike, nameLike, stripped.count <= 40 {
                     appendIfAbsent("drug_name", stripped, rawLine: line, index: index, confidence: confidence, to: &fields)
                 }
             }
@@ -555,8 +572,19 @@ public extension DocumentTypeClassifierFallback {
             if !guessFields(line: lines[cursor]).isEmpty { break }
             if Self.isDirectLabelLine(candidate) { break }
             if dateBoundaryPattern?.firstMatch(in: candidate, range: NSRange(candidate.startIndex..., in: candidate)) != nil { break }
-            if numberedBoundaryPattern?.firstMatch(in: candidate, range: NSRange(candidate.startIndex..., in: candidate)) != nil,
-               !["diagnosis", "treatment"].contains(fields[narrativeIndex].key) { break }
+            // 编号行边界（诊断/医嘱吸收时豁免——「1.支气管炎 2.高血压」是诊断列表本体）。
+            // 2026-09-19 审查修复：豁免过宽会把编号**药品行**（「1.阿莫西林胶囊 0.25g 每日三次」）
+            // 吞进诊断值——剂量/规格文字污染诊断字段且不产任何 drug_name 草稿（吸收行跳过
+            // 独立处理）。豁免仅限「无药品文法」的诊断列表项：剥编号前缀后命中剂型词/
+            // 药品强度文法/剂量记号的行仍是边界。
+            if numberedBoundaryPattern?.firstMatch(in: candidate, range: NSRange(candidate.startIndex..., in: candidate)) != nil {
+                if !["diagnosis", "treatment"].contains(fields[narrativeIndex].key) { break }
+                let body = String(candidate.drop(while: { $0.isNumber || " .、)".contains($0) }))
+                let drugLike = namedFormTokens.contains(where: body.contains)
+                    || drugStrengthPattern?.firstMatch(in: body, range: NSRange(body.startIndex..., in: body)) != nil
+                    || dosageMarkers.contains(where: body.contains)
+                if drugLike { break }
+            }
             if understood.contains(where: { ($0.sourceLineIndex ?? -1) == cursor }) { break }
             absorbed.append(lines[cursor])
             cursor += 1
@@ -570,10 +598,19 @@ public extension DocumentTypeClassifierFallback {
     /// 纳入吸收后，「出院医嘱」行会吞并后续 报告标题/医生/检验 等**直配标签行**
     /// （这些行不产 guessFields 草稿，旧边界看不见它们）。直配来源与产出面一致：
     /// ClinicalFieldLabels 前缀别名 / 药品标签 / 医嘱前缀 / 金额信号 / 报告标题词表。
+    /// 2026-09-19 审查修复二（边界与产出面逐条对齐 + 医嘱前缀收窄）：
+    /// ① 补 directLabelAliases（通用名称/规格/批号/收费单位/剂次…）与
+    ///    诊断/结论标签——原实现漏掉这些产出源，「批号：X」等直配行会被吞进
+    ///    诊断叙事（BR-002 内容错位）；
+    /// ② 医嘱/用法前缀只在**带冒号的标签形态**下作边界——「口服退热药后体温可降」
+    ///    等叙事续行以「口服/每日」开头，无冒号形态不得截断叙事段落。
     private static func isDirectLabelLine(_ text: String) -> Bool {
         if ClinicalFieldLabels.prefixAliases.contains(where: { $0.1.contains(where: text.hasPrefix) }) { return true }
+        if directLabelAliases.contains(where: { $0.1.contains(where: text.hasPrefix) }) { return true }
         if drugLabelPrefixes.contains(where: text.hasPrefix) { return true }
-        if directionsPrefixes.contains(where: text.hasPrefix) { return true }
+        if directionsPrefixes.contains(where: { text.hasPrefix($0 + "：") || text.hasPrefix($0 + ":") }) { return true }
+        if ClinicalFieldLabels.diagnosisLabel(prefixOf: text) != nil { return true }
+        if ClinicalFieldLabels.conclusionLabel(prefixOf: text) != nil { return true }
         if amountPattern?.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil { return true }
         if ClinicalFieldLabels.reportType(inTitle: text) != nil { return true }
         return false

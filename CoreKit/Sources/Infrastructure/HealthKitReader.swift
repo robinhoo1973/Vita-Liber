@@ -259,12 +259,30 @@ public actor HealthKitReader: HealthReadingProvider, HealthWritingProvider {
         return success
     }
 
-    /// round2 H-N1：按分道谓词分页——HKAnchoredObjectQuery 行序最旧优先且不可倒序，
-    /// 近一年先到的唯一手段是把谓词限定在近一年；每道各持独立锚点（调用方按 lane 存取）。
+    /// round2 H-N1：按分道谓词分页——HKAnchoredObjectQuery 行序最旧优先且不可倒序。
+    /// **2026-09-19 审查修复（业主实测「最近数据导入不到」的根因）**：锚点式排空让
+    /// 最新样本永远排在最后一页——一年心率 ≈1000 页 × 每轮 1 页/类，最新数据需要
+    /// 数百次同步才到达，窗口重排（HealthKitSyncService）只能重排**已到达**的窗口。
+    /// recent 道改**降序首填**（HKSampleQuery 按 startDate 降序 + 日窗口分片，最新先到），
+    /// 排空后经一次转锚点查询切回锚点增量（删除证明自此完整送达）；history 道维持
+    /// 锚点式最旧优先（锚点推进语义不变）。游标各自编码进 hk_sync_anchor 的 Data 载荷：
+    /// recent = JSON（RecentLaneCursor，v4 键空间），history = NSKeyedArchiver(HKQueryAnchor)。
     public func changes(for kind: HealthDataKind, scope: HealthFetchScope, anchor: Data?, limit: Int) async throws -> HealthChangeBatch {
         try Task.checkCancellation()
         guard isAvailable() else { throw ReaderError.unavailable }
         guard limit > 0, limit <= 500 else { throw ReaderError.incompleteSnapshot }
+        if scope.lane == .recent {
+            return try await recentLaneChanges(kind: kind, scope: scope, anchor: anchor, limit: limit)
+        }
+        return try await anchoredChanges(kind: kind, scope: scope, anchor: anchor, limit: limit)
+    }
+
+    /// 锚点式分页（history 道与 recent 道增量期共用）。`predicate` 覆盖仅用于
+    /// recent 道转锚点与增量（窄谓词 = 道谓词 ∧ start ≥ newestStart − 7d——转锚点
+    /// 查询只命中首填期间新到样本，锚点定位在流末端，首填前数据不会重投；
+    /// 增量与转锚点**同谓词**，锚点始终在同一谓词家族内使用）。
+    private func anchoredChanges(kind: HealthDataKind, scope: HealthFetchScope, anchor: Data?, limit: Int,
+                                 predicate: NSPredicate? = nil) async throws -> HealthChangeBatch {
         let cursor: HKQueryAnchor?
         if let anchor {
             guard let decoded = try NSKeyedUnarchiver.unarchivedObject(ofClass: HKQueryAnchor.self, from: anchor) else {
@@ -273,7 +291,8 @@ public actor HealthKitReader: HealthReadingProvider, HealthWritingProvider {
             cursor = decoded
         } else { cursor = nil }
         let query = HKAnchoredObjectQueryDescriptor(
-            predicates: [HKSamplePredicate.sample(type: Self.sampleType(kind), predicate: Self.changePredicate(for: scope))],
+            predicates: [HKSamplePredicate.sample(type: Self.sampleType(kind),
+                                                  predicate: predicate ?? Self.changePredicate(for: scope))],
             anchor: cursor, limit: limit)
         let result = try await query.result(for: store)
         try Task.checkCancellation()
@@ -300,11 +319,189 @@ public actor HealthKitReader: HealthReadingProvider, HealthWritingProvider {
         // 安全性：锚点取 result.newAnchor（覆盖整页原始结果），故 hasMore=false 只是
         // 本轮不再续拉，下一轮同步从新锚点继续，**不会漏样本**。
         // 全页删除时 deleted 非空 ⇒ hasMore 仍为 true，原「mostly deletions」语义保留。
+        // 审查修复（2026-09-19 扫尾）：newAnchor 为 nil（转锚点查询零结果，HealthKit
+        // 文档行为）时 archivedData(withRootObject: nil) 抛异常——毒化整类导入且无
+        // 恢复路径。nil 锚点以 nil 返回，由调用侧决定保持原状态重试。
+        let archivedAnchor: Data?
+        if let newAnchor = result.newAnchor {
+            archivedAnchor = try NSKeyedArchiver.archivedData(withRootObject: newAnchor, requiringSecureCoding: true)
+        } else { archivedAnchor = nil }
         return HealthChangeBatch(
             added: added,
             deleted: deleted,
-            anchor: try NSKeyedArchiver.archivedData(withRootObject: result.newAnchor, requiringSecureCoding: true),
+            anchor: archivedAnchor,
             hasMore: !added.isEmpty || !deleted.isEmpty)
+    }
+
+    // MARK: - recent 道降序首填（2026-09-19 修复「最近数据导入不到」）
+
+    /// recent 道游标（JSON 编码，借锚点 Data 载荷持久化）。三态：
+    /// descending = 日窗口降序首填中；fillComplete = 首填完成、下一拍转锚点；
+    /// anchored = 增量期（hkAnchor = NSKeyedArchiver(HKQueryAnchor)）。
+    /// 解码失败（旧格式/损坏）按「重新首填」处理——降序首填按样本 id 幂等重排，自愈。
+    struct RecentLaneCursor: Codable {
+        enum Mode: String, Codable { case descending, fillComplete, anchored }
+        var mode: Mode
+        /// 当前（半开）取数窗口 [windowStart, windowEnd)（样本 startDate 域）
+        var windowStart: Date?
+        var windowEnd: Date?
+        /// 当前窗口的日界下沿（窗口内收缩分片后排空本日剩余用）
+        var dayStart: Date?
+        /// 首填首页钉下的全道最新样本起点（转锚点/增量的窄谓词下界；全道零样本
+        /// 时为 nil → 转锚点谓词以当前时刻为下界）。
+        var newestStart: Date?
+        /// anchored 期：归档的 HKQueryAnchor
+        var hkAnchor: Data?
+    }
+
+    /// 首填完成边界：窗口下沿越过 cutoff 再留 48h 余量（跨窗睡眠样本的 start 可早于
+    /// cutoff——道谓词 end >= cutoff 会滤掉无跨窗者，余量窗口恒返回空页/跨窗者）。
+    private static let fillStraddleMargin: TimeInterval = 172_800
+    /// 增量窄谓词的下界余量：newestStart − 7d——首填期间的迟达样本（Watch 晚同步/
+    /// 回填时间戳）在 7 天窗口内由转锚点查询兜住；更深回填登记为已知边界。
+    private static let incrementalOverlap: TimeInterval = 7 * 86_400
+
+    /// 增量谓词 = **完整道谓词**（2026-09-19 扫尾修正）：窄谓词（start ≥ newestStart−7d）
+    /// 会永久遮蔽首填区间内被用户在健康 App 删除的样本的墓碑——本地行永不删除、
+    /// 继续污染趋势与告警证据（BR-004 事实链）。全道谓词下删除证明完整送达；
+    /// 转锚点 nil 锚点查询会把首填数据重投一遍，但提交按身份幂等 upsert，不产重复行
+    /// （HealthImportStore.commit 契约），一次性成本换取删除保真。
+    /// 注：HealthKit 谓词按 **startDate** 过滤（predicateForSamples(withStart:)），
+    /// Domain 道契约为 end ≥ cutoff——跨 cutoff 的样本（start < cutoff ≤ end）归
+    /// history 道，recent 首填的 48h 余量窗口使边界样本双道幂等覆盖（已知边界）。
+    private static func incrementalPredicate(for scope: HealthFetchScope, newestStart: Date?) -> NSPredicate {
+        changePredicate(for: scope)
+    }
+
+    private func recentLaneChanges(kind: HealthDataKind, scope: HealthFetchScope, anchor: Data?, limit: Int) async throws -> HealthChangeBatch {
+        var cursor: RecentLaneCursor?
+        if let anchor {
+            cursor = try? JSONDecoder().decode(RecentLaneCursor.self, from: anchor)   // try?-ok: 解码失败回落首填（幂等自愈）
+        }
+        switch cursor?.mode ?? .descending {
+        case .anchored:
+            guard let hkAnchor = cursor?.hkAnchor else {
+                // 归档锚点缺失 = 游标损坏：重新首填（幂等）
+                return try await descendingPage(kind: kind, scope: scope, cursor: nil, limit: limit)
+            }
+            return try await anchoredChanges(kind: kind, scope: scope, anchor: hkAnchor, limit: limit,
+                                             predicate: Self.changePredicate(for: scope))
+        case .fillComplete:
+            // 转锚点：nil 锚点 + 窄谓词跑一次——只命中首填期间新到样本；样本**照常入批**
+            // （丢弃会丢数据：它们在锚点之前，后续增量不可见），锚点换成归档 newAnchor
+            // （流末端位置），此后增量与转锚点同谓词、删除证明完整送达。
+            let bootstrap = try await anchoredChanges(kind: kind, scope: scope, anchor: nil, limit: limit,
+                                                      predicate: Self.changePredicate(for: scope))
+            var done = cursor ?? RecentLaneCursor(mode: .fillComplete)
+            if let hkAnchor = bootstrap.anchor {
+                done.mode = .anchored
+                done.hkAnchor = hkAnchor
+            }
+            // 新锚点为 nil（转锚点查询零结果）：保持 fillComplete 不写游标——
+            // 下一轮重试转锚点（数据出现即自愈）；写空锚点游标会经损坏归档
+            // 让该类型永久 invalidAnchor（无恢复路径，扫尾发现 #1）。
+            return HealthChangeBatch(added: bootstrap.added, deleted: bootstrap.deleted,
+                                     anchor: try Self.encodeCursor(done), hasMore: bootstrap.hasMore)
+        case .descending:
+            return try await descendingPage(kind: kind, scope: scope, cursor: cursor, limit: limit)
+        }
+    }
+
+    /// 日窗口降序页：窗口 [windowStart, windowEnd) 内样本按 startDate 降序；窗口样本数
+    /// 超限时窗口自适应折半（有界推进——1 秒心率可上万样本）；空窗口**同调用内连续
+    /// 推进**（整年零样本不必 365 轮空转）；窗口排空后向旧推进一天。
+    private func descendingPage(kind: HealthDataKind, scope: HealthFetchScope, cursor: RecentLaneCursor?, limit: Int) async throws -> HealthChangeBatch {
+        var windowEnd = cursor?.windowEnd ?? Date().addingTimeInterval(86_400)
+        var windowStart = cursor?.windowStart ?? windowEnd.addingTimeInterval(-86_400)
+        var dayStart = cursor?.dayStart ?? windowStart
+        var newestStart = cursor?.newestStart
+        while true {
+            try Task.checkCancellation()
+            // 首填完成判定：窗口下沿越过 cutoff − 48h 余量（跨窗样本覆盖）
+            if windowEnd <= scope.cutoff.addingTimeInterval(-Self.fillStraddleMargin) {
+                var done = RecentLaneCursor(mode: .fillComplete)
+                done.windowStart = windowStart
+                done.windowEnd = windowEnd
+                done.dayStart = dayStart
+                done.newestStart = newestStart
+                return HealthChangeBatch(added: [], deleted: [],
+                                         anchor: try Self.encodeCursor(done), hasMore: false)
+            }
+            let samples = try await descendingSamples(kind: kind, scope: scope,
+                                                      start: windowStart, end: windowEnd,
+                                                      limit: limit + 1)
+            if samples.count > limit {
+                let span = windowEnd.timeIntervalSince(windowStart)
+                if span <= 1 {
+                    // 病理：同一 startDate 秒内超过一页（多源同刻）。取最新 limit 条、
+                    // 余者让位（有界推进优先；此类样本在增量期不再补）。
+                    let page = try Array(samples.prefix(limit)).map { try Self.reference($0, kind: kind) }
+                    var pageCursor = Self.advancedCursor(windowStart: windowStart, dayStart: dayStart)
+                    pageCursor.newestStart = newestStart ?? samples.first?.startDate
+                    return HealthChangeBatch(added: page, deleted: [],
+                                             anchor: try Self.encodeCursor(pageCursor),
+                                             hasMore: !page.isEmpty)
+                }
+                windowStart = windowEnd.addingTimeInterval(-span / 2)
+                continue
+            }
+            if newestStart == nil { newestStart = samples.first?.startDate }
+            // 防回声过滤（与锚点路径同纪律）；hasMore 由过滤后批次导出
+            let refs = try samples.filter { !Self.isOwnSample($0) }.map { try Self.reference($0, kind: kind) }
+            let next = Self.advancedCursor(windowStart: windowStart, dayStart: dayStart)
+            var nextCursor = next
+            nextCursor.newestStart = newestStart
+            if refs.isEmpty {
+                // 空窗口（无样本/全为自身回声）：同调用内推进，不落空页
+                windowEnd = next.windowEnd ?? windowEnd
+                windowStart = next.windowStart ?? windowStart
+                dayStart = next.dayStart ?? dayStart
+                continue
+            }
+            return HealthChangeBatch(added: refs, deleted: [],
+                                     anchor: try Self.encodeCursor(nextCursor), hasMore: true)
+        }
+    }
+
+    /// 窗口排空后的游标推进：收缩分片内 → 排空本日剩余；整窗完成 → 向旧推进一天。
+    private static func advancedCursor(windowStart: Date, dayStart: Date) -> RecentLaneCursor {
+        var next = RecentLaneCursor(mode: .descending)
+        if windowStart > dayStart {
+            next.windowEnd = windowStart
+            next.windowStart = dayStart
+            next.dayStart = dayStart
+        } else {
+            next.windowEnd = windowStart
+            next.dayStart = windowStart.addingTimeInterval(-86_400)
+            next.windowStart = next.dayStart
+        }
+        return next
+    }
+
+    private static func encodeCursor(_ cursor: RecentLaneCursor) throws -> Data {
+        try JSONEncoder().encode(cursor)
+    }
+
+    /// 窗口样本降序查询（HKSampleQuery 支持排序；锚点查询不可排序——正是首填改用本查询的原因）。
+    private func descendingSamples(kind: HealthDataKind, scope: HealthFetchScope,
+                                   start: Date, end: Date, limit: Int) async throws -> [HKSample] {
+        let type = Self.sampleType(kind)
+        let range = HKQuery.predicateForSamples(withStart: start, end: end, options: [.strictEndDate])
+        let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
+            range, Self.changePredicate(for: scope)
+        ])
+        let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
+        return try await withCheckedThrowingContinuation { continuation in
+            let query = HKSampleQuery(sampleType: type, predicate: predicate, limit: limit,
+                                      sortDescriptors: [sort]) { _, samples, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: samples ?? [])
+                }
+            }
+            store.execute(query)
+        }
     }
 
     public func snapshot(for window: HealthImportWindow, calendar: Calendar) async throws -> HealthWindowSnapshot {

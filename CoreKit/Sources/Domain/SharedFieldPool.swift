@@ -77,23 +77,22 @@ public enum SharedFieldPool {
         let slots = collectSlots(cards: cards)
         let multiCard = cards.count >= 2
 
-        // 归并：概念键 → 值+单位 → 承载方集合；同时累计每概念键的携带卡数
-        // （此前每键全量重扫 slots 求 cardCount，O(n·k)——归并一趟顺带累计；
-        // 2026-09-19 日期键经 conceptKey 归一，跨卡同名不同键的日期合并）。
+        // 归并：概念键 → 值+单位 → 承载方集合（2026-09-19 日期键经 conceptKey 归一，
+        // 跨卡同名不同键的日期合并）。同时按**原始键**累计携带卡数（规则①的
+        // 「同键 ≥2 卡」原文语义——SharedFieldPoolTests 钉死：同键不同值各成一行）。
         var order: [String] = []
         var byKey: [String: [String: [Slot]]] = [:]
-        var cardCounts: [String: Set<UUID>] = [:]
+        var cardCountsByRawKey: [String: Set<UUID>] = [:]
         for slot in slots {
             let valueKey = "\(slot.value)\u{1}\(slot.unit ?? "")"
             if byKey[slot.poolKey] == nil { byKey[slot.poolKey] = [:]; order.append(slot.poolKey) }
             byKey[slot.poolKey]?[valueKey, default: []].append(slot)
-            cardCounts[slot.poolKey, default: []].insert(slot.carrier.cardId)
+            cardCountsByRawKey[slot.key, default: []].insert(slot.carrier.cardId)
         }
 
         var out: [Row] = []
         for key in order {
             guard let groups = byKey[key] else { continue }
-            let repeated = (cardCounts[key]?.count ?? 0) >= 2
             // 审查修复（非确定性输出）：原比较器只比 `value`，而 groups 的键是
             // 「value\u{1}unit」——两条 value 文本相同但单位不同的组（如同一分析物
             // 在一页化验单上分别以 mmol/L 与 mg/dL 打印）在两个方向上都判定为 false，
@@ -110,6 +109,14 @@ public enum SharedFieldPool {
                 let required = group.contains(where: \.required)
                 let lowConfidence = group.contains { $0.field.confidence < floor }
                 let missing = head.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                // 规则①跨卡重复的两半（2026-09-19 审查修复）：
+                // ① 同**原始键** ≥2 卡——同键不同值各成一行（测试钉死）；
+                // ② 概念归并（日期键）同**值** ≥2 卡——跨键同值合并行须确认。
+                // 旧实现按**概念键**累计卡数：处方日期与收费日期**不同值**也互判
+                // 重复、补位空槽把「仅一张卡有日期」抬成重复（虚假标记 + 无谓确认闸）。
+                let sameRawKeyRepeated = group.contains { (cardCountsByRawKey[$0.key]?.count ?? 0) >= 2 }
+                let sameValueRepeated = Set(group.map(\.carrier.cardId)).count >= 2
+                let repeated = multiCard && (sameRawKeyRepeated || sameValueRepeated)
                 // 三条析取（规格 2026-09-17 定稿）：① 跨卡重复 ② 必填 ∧ 低置信（单卡也入）
                 // ③ 必填 ∧ 缺失 ∧ **多卡**——单卡的缺失/空值留在卡内（业主：「单卡的卡内操作」）
                 let critical = required && (lowConfidence || (missing && multiCard))

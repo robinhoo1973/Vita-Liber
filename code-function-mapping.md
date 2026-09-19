@@ -244,6 +244,7 @@ MedicationStore / 健康导入 HealthImportStore 分页物化 + 锚点推进）�
   - `var variant: String?` (46) — 变体档位（small/medium/large；nil = 单档家族）
   - `func variantWeight(_:)` (65) — 档位大小序权重（small=0…未知=3）
   - `var isPublished: Bool` (75) — 已发布判定（sha256 非空 + 字节数 + slug）
+  - `func needsInstall(installedVersion:installedVariant:)` (117) — 是否需装/换档（BR 规则：未装/更新/同版本换档；2026-09-19 自视图上移）
   - `func isCompatible(appVersion:)` (82) — minAppVersion 兼容判定
   - `func resolvedURL(baseURL:)` (93) — 下载地址解析（仅相对路径 + https 双保险）
   - `func isNewer(than:)` (109) — 版本比较
@@ -480,7 +481,7 @@ MedicationStore / 健康导入 HealthImportStore 分页物化 + 锚点推进）�
 
 ## CoreKit/Sources/Domain/DocumentTypeClassifierFallback.swift
 - `DocumentTypeEvidence` (12) — 类型证据（键 + 证据词表）
-- `DocumentTypeClassifierFallback` (279) — FR5.5/FR6.2 兜底轨分类器
+- `DocumentTypeClassifierFallback` (22) — FR5.5/FR6.2 兜底轨分类器
   - `static let evidenceTable` (24) — 16 类稳定类型键证据词表（机械表）
   - `func classify(lines:)` (82) — 按命中行数计分，主类 + 次候选 + 置信度
   - `static let specializations` (120) — 上位类型 → 亚型覆盖表
@@ -952,7 +953,7 @@ MedicationStore / 健康导入 HealthImportStore 分页物化 + 锚点推进）�
 
 
 ## CoreKit/Sources/Domain/HealthImport.swift
-- `HealthDataKind` (38) — HealthKit 数据类别枚举（6 类）
+- `HealthDataKind` (4) — HealthKit 数据类别枚举（6 类）
   - `var primaryMetric: MetricType` (39) — 类别 → 趋势指标键（extension）
   - `var isAggregated: Bool` (50) — 聚合类（心率/步数/睡眠）每窗一行；离散类每读数一行
   - `static func forMetricKey(_:)` (55) — metric_key 反查数据类别（设备行路由数据列表页）
@@ -1892,11 +1893,11 @@ MedicationStore / 健康导入 HealthImportStore 分页物化 + 锚点推进）�
   - `private static let manifestCache = LockedCache<Manifest?>()` (89) — 进程级清单解码缓存
   - `private final class LockedCache<Value>` (93) — 锁保护键值缓存泛型（两缓存共用形态）
   - `func isPresent(_:) -> Bool` (108) — 模型文件存在性（缓存 + 撤销检查）
-  - `static func invalidateCaches()` (119) — 安装/指针切换后失效 presence/manifest 缓存
-  - `func byteCount(_:) -> Int64?` (125) — 模型体积（files 求和，archive 形态回落 archive.bytes）
-  - `func validate(_:) throws -> Validated` (146) — 全量校验入口（流式哈希）
-  - `private func files(_:hash:) throws -> Validated` (148) — manifest/逐文件字节/SHA 校验核心
-  - `private func readManifest(_:) throws -> Manifest` (187) — 读 manifest（resolved 形态验 sourceDigest）
+  - `static func invalidateCaches()` (151) — 安装/指针切换后失效 presence/manifest 缓存
+  - `func byteCount(_:) -> Int64?` (170) — 模型体积（files 求和，archive 形态回落 archive.bytes）
+  - `func validate(_:) throws -> Validated` (191) — 全量校验入口（流式哈希）
+  - `private func files(_:hash:) throws -> Validated` (193) — manifest/逐文件字节/SHA 校验核心
+  - `private func readManifest(_:) throws -> Manifest` (236) — 读 manifest（resolved 形态验 sourceDigest）
 
 
 
@@ -1906,12 +1907,14 @@ MedicationStore / 健康导入 HealthImportStore 分页物化 + 锚点推进）�
   - `struct DownloadProgress` (28) — 进度（含 series 系列代次，fraction 计算）
   - `enum Failure` (43) — 下载安装失败域（11 case）
   - `struct ActivePointer` (57) — active.json 指针值对象（choice/version/directory/artifactRevision/packageSHA256/variant）
-  - `var downloader: ModelPackageDownloader` (115) — 协作类转发：分段下载器
+  - `var downloader: ModelPackageDownloader` (120) — 协作类转发：分段下载器
   - `static func fetchIndex(from:)` (140) — 拉取根 URL 链 + 目录索引并校验
   - `private func metadata(from:)` (156) — 受信任小体积元数据拉取（URL 白名单/字节上限/委托校验）
   - `enum InstallPhase` (217) — downloading/verifying/unpacking/activating/pruning 阶段
-  - `func install(_:baseURL:progress:onPhase:) -> URL` (228) — 下载→校验→解压→包内校验→原子切换主流程
-  - `private func pruneOldVersions(modelRoot:newlyInstalled:previousRoot:)` (338) — 按 (家族, 变体) 保留粒度清理旧版本
+  - `func install(_:baseURL:progress:onPhase:) -> URL` (244) — 下载→校验→解压→包内校验→原子切换主流程（槽满 FIFO 排队，不再即抛）
+  - `private var slotWaiters` (279) / `removeWaiter(_:)` (283) — 排队续体队列 + 取消安全唤醒
+  - `private func performInstall(...)` (289) — 安装主流程（install 槽位互斥之后的部分）
+  - `private func pruneOldVersions(modelRoot:newlyInstalled:previousRoot:)` (408) — 按 (家族, 变体) 保留粒度清理旧版本
   - static 转发（applicationSupportRoot/activeRoot/installedVersion/activeAssets/sha256/removeStaleStaging 120-135）→ ActivePointerStore/StreamingFileHasher；`latest/updateAvailable` 187/203 目录条目选择
 
 
@@ -2278,6 +2281,7 @@ MedicationStore / 健康导入 HealthImportStore 分页物化 + 锚点推进）�
   - `func upsertSampleIndex` (426) — 样本索引 upsert
   - `struct CommitContext` (440) — 闸门产物（lane/key/batch/tombstones/窗口集）
   - `static func deletedReferences / decodeReference / validatedReferences / pending / savePending / validateRow / writeProjection / requireBinding / anchorKey / anchor / requireEnabled` (451-614) — 引用解码与校验工具、载荷读写、绑定守卫
+  - `func prepareRecentLane(binding:kind:)` (590) — v4 降序首填游标方案一次性迁移（v4 缺失才作废旧 v3 recent 锚点/在途批次；2026-09-19）
 
 
 
@@ -2302,16 +2306,21 @@ MedicationStore / 健康导入 HealthImportStore 分页物化 + 锚点推进）�
   - `func characteristics()` (190) — 特征型读取（未填如实 nil）
   - `private static func format(blood/sex/components)` (199/214/224) — 特征格式化
   - `func observeChanges(handler:enableDelivery:)` (231) — 后台观察 + 投递开关
-  - `func changes(for:scope:anchor:limit:)` (264) — 分道分页增量（防回声 + hasMore 由过滤后批次导出）
-  - `func snapshot(for:calendar:)` (310) — 窗口快照（按族分派到四个物化助手）
-  - `private static func sleepRows(...)` (356) — 睡眠六键行
-  - `private func stepRows(...)` (389) — 步数日累计（验证集同口径比对）
-  - `private func heartRateRows(...)` (413) — 心率小时均值（按来源分桶）
-  - `private func quantityRows(...)` (447) — 单值族行+读数
-  - `private func quantityPoints(_:unit:useEndDate:)` (486) — 压缩序列展开（ordinal 身份）
-  - `private func querySamples(for:predicate:)` (513) — 有界分页拉全样本（去重字典）
-  - `static func changePredicate(for:)` (540) / `static func stepStatisticsPredicate(...)` (549) — 谓词构造
-  - `private static func reference(_:kind:)` (556) — 样本→引用
+  - `func changes(for:scope:anchor:limit:)` (270) — 分道分页增量（防回声 + hasMore 由过滤后批次导出）
+  - `private func anchoredChanges(...)` (282) — 锚点式分页（history 道与 recent 增量期共用）
+  - `struct RecentLaneCursor` (331) — recent 道降序首填游标（JSON 借锚点载荷持久化；descending/fillComplete/anchored 三态）
+  - `private func recentLaneChanges(...)` (347) — recent 道分派（降序首填/转锚点/锚点增量）
+  - `private func descendingPage(...)` (376) — 日窗口降序页（自适应折半，最新先到——2026-09-19 根因修复）
+  - `private func descendingSamples(...)` (436) — 窗口样本降序查询（HKSampleQuery 排序；锚点查询不可排序）
+  - `func snapshot(for:calendar:)` (457) — 窗口快照（按族分派到四个物化助手）
+  - `private static func sleepRows(...)` (503) — 睡眠六键行
+  - `private func stepRows(...)` (536) — 步数日累计（验证集同口径比对）
+  - `private func heartRateRows(...)` (560) — 心率小时均值（按来源分桶）
+  - `private func quantityRows(...)` (594) — 单值族行+读数
+  - `private func quantityPoints(_:unit:useEndDate:)` (633) — 压缩序列展开（ordinal 身份）
+  - `private func querySamples(for:predicate:)` (660) — 有界分页拉全样本（去重字典）
+  - `static func changePredicate(for:)` (687) / `static func stepStatisticsPredicate(...)` (696) — 谓词构造
+  - `private static func reference(_:kind:)` (703) — 样本→引用
 
 
 
@@ -2979,8 +2988,9 @@ MedicationStore / 健康导入 HealthImportStore 分页物化 + 锚点推进）�
 - `ModelPackageDownloader` (10) — ASR 模型包下载（HEAD 探测 → 分段并行 → Range 吞掉退单流 → 终态校验）
   - `session/segmentCount/fileManager` (11-13) — 会话/段数/文件管理
   - `download(url:expectedBytes:to:progress:)` (20) — 下载主流程（https 兜底、进度节流聚合）
-  - `downloadSegment(session:url:start:end:total:destination:counter:)` (101) — 单 Range 段下载（独立 FileHandle 顺序写）
-- `ProgressCounter` (147) — 多段并发进度聚合（≥0.5% 或 ≥200ms 节流；系列代次）
+  - `downloadSegment(session:url:start:end:total:destination:counter:)` (101) — 单 Range 段下载（独立 FileHandle 顺序写；请求超时 300s）
+- `downloadAttempt` (146) — 单段下载 + 瞬态错误重试一次（委托按尝试重建；2026-09-19）
+- `ProgressCounter` (172) — 多段并发进度聚合（≥0.5% 或 ≥200ms 节流；系列代次）
   - `add(_:)` (166) — 累加字节并节流发射
 
 
@@ -3399,13 +3409,13 @@ MedicationStore / 健康导入 HealthImportStore 分页物化 + 锚点推进）�
 - `AppRootView` (11) — 应用根视图：FR14.4 主题注入 + 门禁/向导/主页三路分支 + 全局生命周期补偿
   - `seedBundled / backfillDocumentTypeKeys` (23–27) — F16 信源库种子 / v27 doc_type_key 回填（VitaLiberApp 注入）
   - `body` (43) — 三分支（锁屏/向导/外壳）+ 主题/对比度/字号注入 + 生命周期修饰器
-  - `startTasks()` (137) — 启动任务链（body 提取）：设置加载→语言对账→bootstrap→四链并行（失败隔离纪律）
-  - `handlePhaseChange(_:)` (186) — scenePhase 状态机（body 提取）：FR1.4 退后台即锁 + 宽限锁 + 回前台对账
-  - `seedBundledOrLog()` (278) — 信源播种失败隔离单一落点（错误不外传、不触发 async let 兄弟隐式取消）
-  - `effectiveDynamicTypeSize` (292) — 关怀模式在系统字号基础上再放大一档
-  - `currentTheme` (301) — FR14.4 主题（AppTheme 枚举映射）
-  - `currentLanguage` (308) — 当前显示语言（body 顶层读值注册 @Observable 观察）
-  - `highContrastOn` (313) — FR18.16 高对比度（手动 OR 关怀模式，Domain AppearanceRules 判定）
+  - `startTasks()` (148) — 启动任务链（body 提取）：设置加载→语言对账→bootstrap→四链并行（失败隔离纪律）
+  - `handlePhaseChange(_:)` (197) — scenePhase 状态机（body 提取）：FR1.4 退后台即锁 + 宽限锁 + 回前台对账
+  - `seedBundledOrLog()` (289) — 信源播种失败隔离单一落点（错误不外传、不触发 async let 兄弟隐式取消）
+  - `effectiveDynamicTypeSize` (303) — 关怀模式在系统字号基础上再放大一档
+  - `currentTheme` (312) — FR14.4 主题（AppTheme 枚举映射）
+  - `currentLanguage` (319) — 当前显示语言（body 顶层读值注册 @Observable 观察）
+  - `highContrastOn` (324) — FR18.16 高对比度（手动 OR 关怀模式，Domain AppearanceRules 判定）
 
 
 
@@ -4046,7 +4056,7 @@ MedicationStore / 健康导入 HealthImportStore 分页物化 + 锚点推进）�
   - `stepIndex` (48) — 阶段 → 进度下标
 - `LockOverlayView` (64) — 门禁遮罩（回前台必见、自动认证、SOS 豁免）
   - `var body` (79) — 锁占位 + 解锁按钮 + 失败提示 + SOS
-  - `attempt()` (172) — 设备所有者认证
+  - `attempt()` (178) — 设备所有者认证
 
 
 
@@ -4261,7 +4271,7 @@ MedicationStore / 健康导入 HealthImportStore 分页物化 + 锚点推进）�
   - `IndexCheckState` (31) — 「检查更新」三元态
   - `ChoiceAvailability` (51) — 每档位派生结论（已装/最新/可更新/字节数/变体）
   - `appVersion` (74) / `derivationKey` (79) — 版本与重算键
-  - `rebuildAvailability()` (91) — 派生结论主 actor 外一次算好（渲染路径不取锁）
+  - `rebuildAvailability()` (93) — 派生结论主 actor 外一次算好（渲染路径不取锁）
   - `var body` (128) — 检查更新 + 档位行 + 下载控制
   - `downloadControls(_:)` (227) — 已装/变体选择/更新/下载按钮
   - `variantBinding(_:_:)` (294) — 尺寸选择绑定
@@ -4277,12 +4287,13 @@ MedicationStore / 健康导入 HealthImportStore 分页物化 + 锚点推进）�
 ## App/Features/Voice/ASRInstallCenter.swift
 - `ASRInstallCenter` (21) — ASR 模型安装中心（App 层全局进行态 + 后台窗口 + 广播）
   - `Install` (37) — 单安装可观察对象（观察域分离：进度高频/列表低频）
-    - `submit(progress:)` (52) — 进度写入（同系列单调守卫）
-    - `submit(phase:)` (67) — 阶段切换（重置进度基线）
-  - `isInstalling(_:)` (98) / `install(_:)` (102) — 进行态查询
-  - `start(_:baseURL:)` (107) — 启动安装（per-choice 幂等）
+    - `var waiting` (45) — 排队等待槽位态（2026-09-19：首个阶段回调翻转）
+    - `submit(progress:)` (56) — 进度写入（同系列单调守卫）
+    - `submit(phase:)` (71) — 阶段切换（重置进度基线）
+  - `isInstalling(_:)` (104) / `install(_:)` (102) — 进行态查询
+  - `start(_:baseURL:)` (113) — 启动安装（per-choice 幂等）
   - `dismissFailure()` (119) / `cancel(_:)` (121) — 失败处置/取消
-  - `run(_:choice:install:baseURL:)` (125) — 安装执行（后台任务 + 资产广播 + 失败登记）
+  - `run(_:choice:install:baseURL:)` (131) — 安装执行（后台任务 + 资产广播 + 失败登记）
 
 
 
@@ -4340,15 +4351,16 @@ MedicationStore / 健康导入 HealthImportStore 分页物化 + 锚点推进）�
   - `LabResult` (21) — 对照测试结果行
   - `testLocale` (53) — 测试语言解析
   - `var body` (58) — 档位选择/资源安装/对照测试/结果列表
-  - `select(_:)` (178) — 档位切换（写入设置 + 重建测试模型）
-  - `rebuild()` (188) — 重建测试模型
-  - `refreshAssetStatus()` (206) — 资产状态刷新（代际守卫）
-  - `testFallbackNote` (216) — 对照测试回落诚实标注
-  - `install()` (243) — 语言资源安装
-  - `label(for:)` (258) / `hint(for:)` (262) — 档位文案
-  - `rebuildAvailability()` (273) — 可用性一次算好（主 actor 外）
-  - `assetLabel` (289) — 资产状态文案
-  - `metaLine(_:)` (297) — 结果元信息行
+  - `select(_:)` (186) — 档位切换（写入设置 + 重建测试模型）
+  - `rebuildTask` (45) — 在途重建任务句柄（可取消；2026-09-19 修复火忘任务）
+  - `rebuild()` (196) — 重建测试模型
+  - `refreshAssetStatus()` (236) — 资产状态刷新（代际守卫）
+  - `testFallbackNote` (246) — 对照测试回落诚实标注
+  - `install()` (273) — 语言资源安装
+  - `label(for:)` (288) / `hint(for:)` (292) — 档位文案
+  - `rebuildAvailability()` (303) — 可用性一次算好（主 actor 外）
+  - `assetLabel` (319) — 资产状态文案
+  - `metaLine(_:)` (327) — 结果元信息行
 
 
 
@@ -5215,41 +5227,43 @@ MedicationStore / 健康导入 HealthImportStore 分页物化 + 锚点推进）�
   - `enum Phase` (10) — idle/syncing/done(count)/degraded
   - `var availabilityProbed` (20) — 能力是否已探测（未探测≠不支持）
   - `var isSyncing` (35) — 同步谓词由 phase 派生（单一事实源）
-  - `func pageState(enabled:)` (45) — FR16.1 可见性三态（Domain HealthImportVisibility）
+  - `func pageState(enabled:)` (52) — FR16.1 可见性三态（Domain HealthImportVisibility）
+  - `private var syncEpoch` (104) — 同步代次（轮询守卫：终态后旧刻度失效）
+  - `private func applyLiveReport(_:epoch:force:)` (112) — 中间/终态报告统一入口（单调基线不回退 + 同值去重）
   - `var importedRowCount` (51) — 仪表盘六类型行合计
-  - `func requestAuthorization(authEnabled:)` (56) — 请求授权（unavailable/未完成/缺本人/禁用分态）
-  - `func permissionRevoked()` (89) — 撤销即时生效（取消在途同步）
-  - `func currentAuthorization()` (95) — 探测可用性+回填报告（.degraded 保留到重新同步）
-  - `func sync(authEnabled:quietStart:quietEnd:maxRounds:)` (113) — 全量同步（轮询下沉服务层；取消非失败）
-  - `func refreshDashboard()` (156) — 仪表盘六查询（缺本人独立态）
+  - `func requestAuthorization(authEnabled:)` (63) — 请求授权（unavailable/未完成/缺本人/禁用分态）
+  - `func permissionRevoked()` (96) — 撤销即时生效（取消在途同步）
+  - `func currentAuthorization()` (128) — 探测可用性+回填报告（.degraded 保留到重新同步）
+  - `func sync(authEnabled:quietStart:quietEnd:maxRounds:)` (147) — 全量同步（轮询下沉服务层；取消非失败）
+  - `func refreshDashboard()` (212) — 仪表盘六查询（缺本人独立态）
   - `func requestRegistrationPrefill()` (178) — 首启注册预填（特征型读取；失败调用方静默回落）
   - `func refreshCharacteristicCandidates(profile:)` (185) — 本人档案对比生成候选
   - `struct WriteSummary` (198) — 写回摘要（written/skipped/failed）
   - `func probeWriteAuthorization()` (207) — 写回分享授权探测
   - `func requestWriteBack()` (215) — 请求写回授权并回传获准状态
   - `func writeBackSample(patientId:metric:value:secondaryValue:unit:measuredAt:)` (232) — 指标写回（开关∧本人∧单位一致才写）
-  - `func updateAutomation()` (255) / `func importedRows(kind:before:)` (256) — 后台观察注册/分页行
-- `DeviceConnectionView` (297) — SP-29 设置与展示唯一宿主（ADR-021；授权/同步/报告/候选/写回/展示区）
-  - `var body` (271)
-  - `var healthEnabled` (492) — 读取开关解析
-  - `var pageState` (496) — 页面三态（Domain 纯函数）
-  - `func preference(_:)` (497) — 开关绑定（关闭 authHealthRead 即撤销；写后按需刷新仪表盘）
-  - `func sync()` (511) — 手动同步统一入口（quietHours 解析一处）
-  - `func refreshCandidates()` (520) — 以本人档案（导入绑定同源）刷新候选
-  - `func fieldLabel(_:)` (526) — 特征字段→L10n
-  - `func adopt(_:)` (536) — 采用候选（AppState.updateMember 单一写门）
-  - `var writeBackOn` (558) — 写回开关解析
-  - `var writeBackPreference` (564) — 写回开关绑定（开启先拿授权，未获准回退关闭）
-- `HealthImportedDataView` (616) — SP-29 已导入数据详情：趋势入口+同日折叠日卡+翻页
-  - `var healthEnabled` (598) / `var gateOpen` (602) — 开关/门状态（与宿主同判定）
-  - `var trendAllowed` (613) — 趋势链接实时判定（行集非空即放宽）
-  - `func statisticsLine(_:)` (621) — 设备统计行（与 SP-13 同款构成）
-  - `var dayGroups` (636) — 同日折叠分组（日历日键）
-  - `func dayBinding(_:)` (649) — 日卡展开绑定（最近一天默认展开）
-  - `func healthReadingRow(_:)` (665) — 单条读数行（MedicalNumberFormat.oneDecimal 同趋势页口径）
-  - `var body` (692)
-  - `func reload()` (771) — 整页重载（代次推进+loading 复位成对）
-  - `func load()` (781) — 分页加载（重入守卫+代次校验+BR-001 身份过滤）
+  - `func updateAutomation()` (315) / `func importedRows(kind:before:)` (256) — 后台观察注册/分页行
+- `DeviceConnectionView` (326) — SP-29 设置与展示唯一宿主（ADR-021；授权/同步/报告/候选/写回/展示区）
+  - `var body` (334)
+  - `var healthEnabled` (561) — 读取开关解析
+  - `var pageState` (565) — 页面三态（Domain 纯函数）
+  - `func preference(_:)` (566) — 开关绑定（关闭 authHealthRead 即撤销；写后按需刷新仪表盘）
+  - `func sync()` (580) — 手动同步统一入口（quietHours 解析一处）
+  - `func refreshCandidates()` (589) — 以本人档案（导入绑定同源）刷新候选
+  - `func fieldLabel(_:)` (595) — 特征字段→L10n
+  - `func adopt(_:)` (605) — 采用候选（AppState.updateMember 单一写门）
+  - `var writeBackOn` (627) — 写回开关解析
+  - `var writeBackPreference` (633) — 写回开关绑定（开启先拿授权，未获准回退关闭）
+- `HealthImportedDataView` (651) — SP-29 已导入数据详情：趋势入口+同日折叠日卡+翻页
+  - `var healthEnabled` (667) / `var gateOpen` (671) — 开关/门状态（与宿主同判定）
+  - `var trendAllowed` (682) — 趋势链接实时判定（行集非空即放宽）
+  - `func statisticsLine(_:)` (690) — 设备统计行（与 SP-13 同款构成）
+  - `var dayGroups` (705) — 同日折叠分组（日历日键）
+  - `func dayBinding(_:)` (718) — 日卡展开绑定（最近一天默认展开）
+  - `func healthReadingRow(_:)` (734) — 单条读数行（MedicalNumberFormat.oneDecimal 同趋势页口径）
+  - `var body` (761)
+  - `func reload()` (840) — 整页重载（代次推进+loading 复位成对）
+  - `func load()` (850) — 分页加载（重入守卫+代次校验+BR-001 身份过滤）
 
 
 
@@ -5260,7 +5274,7 @@ MedicationStore / 健康导入 HealthImportStore 分页物化 + 锚点推进）�
   - `var dataSection` (59) — 探测前加载态/探测后页体
   - `var pageBody` (77) — 可见性六态分支
   - `var importedSection` (122) — 六类已导入数据行（归属文案 BR-001）
-  - `var entrySection` (193) — 搜索/指标总览入口
+  - `var entrySection` (204) — 搜索/指标总览入口
 
 
 

@@ -39,6 +39,10 @@ final class ASRInstallCenter {
         let choice: VoiceEngineChoice
         var progress: ASRModelDownloadService.DownloadProgress?
         var phase: ASRModelDownloadService.InstallPhase?
+        /// 2026-09-19 审查修复（并发槽满排队）：true = 在等下载槽位（服务端 FIFO 排队，
+        /// 尚无任何阶段/进度回调）；首个阶段回调到达即翻转。等待态如实呈现
+        /// 「排队中」，不再把本机并发上限误报成网络错误。
+        var waiting = true
 
         init(id: UUID, choice: VoiceEngineChoice) {
             self.id = id
@@ -67,6 +71,8 @@ final class ASRInstallCenter {
         nonisolated func submit(phase: ASRModelDownloadService.InstallPhase) {
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                // 2026-09-19：首个阶段回调 = 排队结束（槽位已获），等待态翻转。
+                self.waiting = false
                 // 阶段切换即重置进度基线（2026-09-16 审查修复）：校验/解压自本批起
                 // 复用同一 progress 出口，而它们的「已处理字节」从 0 起算，下载阶段
                 // 收尾停在 totalBytes——`submit(progress:)` 的单调守卫会把新阶段的

@@ -1766,6 +1766,7 @@
 "asr.model.update" = "更新到 %@";
 "asr.model.installed" = "已安裝 %@";
 "asr.model.downloading" = "下載中…（保持應用於前景）";
+"asr.model.queued" = "排隊等待下載槽位（同時間最多下載 2 個模型）…";
 "asr.model.downloadFailed" = "下載失敗，請檢查網路後重試";
 "asr.model.checkUpdate" = "檢查更新";
 "asr.model.checking" = "檢查中…";
