@@ -107,12 +107,12 @@ struct ASREngineSettingsSection: View {
                     update: choice.isBundledModel ? availableIndex.flatMap {
                         ASRModelDownloadService.updateAvailable(for: choice, index: $0, appVersion: version)
                     } : nil,
-                    installedVariant: choice.isBundledModel ? ASRModelDownloadService.installedVariant(for: choice) : nil,
                     availability: TranscriptionEngineBuilder.availability(of: choice),
                     // 资产字节数只对随包档位展示（`ASRModelCatalog.model(for:)` 同款条件）
                     bytes: ASRModelCatalog.model(for: choice) == nil
                         ? nil
                         : ASRModelAssets.resolve(for: choice).byteCount(choice),
+                    installedVariant: choice.isBundledModel ? ASRModelDownloadService.installedVariant(for: choice) : nil,
                     // 变体清单（尺寸选择数据源）：同 id 已发布、带 variant、本版本兼容
                     variants: availableIndex.map { idx in
                         idx.models
